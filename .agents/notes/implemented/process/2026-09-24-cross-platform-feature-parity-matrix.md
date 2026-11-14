@@ -4,11 +4,11 @@
 
 ## 先说结论
 
-macOS 与 Windows 的功能对齐状态由 `shared/platform-feature-matrix/features/<id>.json` 分文件维护，Markdown 表格只是生成结果，不再作为第二份事实源。每个功能都必须分别记录两端的实现状态和运行验证状态；代码入口存在但没有真实跨平台验证时，保留实现程度并将验证状态标为 `pending`。Viva 迁移期间，尚未核对的新客户端能力使用 `unassessed`，不把旧客户端状态当作新客户端的完成证据。
+各平台的功能对齐状态由 `shared/platform-feature-matrix/features/<id>.json` 分文件维护，Markdown 表格只是生成结果，不再作为第二份事实源。每个功能都必须分别记录各平台的实现状态和运行验证状态；代码入口存在但没有真实跨平台验证时，保留实现程度并将验证状态标为 `pending`。Viva 迁移期间，尚未核对的能力使用 `unassessed`，不把旧客户端状态当作新客户端的完成证据。
 
 ## 问题
 
-macOS 是当前参考产品，Windows 是独立实现。两端可以共享 Rust Core 和契约，但 UI、平台适配和功能接入的提交节奏不同。仅靠 README、发布说明或目录搜索，无法回答“这个功能在另一端是否完成”，也无法发现代码已经移动后文档仍然指向旧路径的情况。
+Viva 桌面端在 macOS、Windows 和 Linux 上共用同一套界面，但 Rust Core 的契约、平台适配和功能接入的提交节奏不同。仅靠 README、发布说明或目录搜索，无法回答“这个功能在某个平台是否完成”，也无法发现代码已经移动后文档仍然指向旧路径的情况。
 
 ## 决策
 
@@ -59,7 +59,7 @@ CSV 方便筛选，Excel 对非开发者更友好，但二进制 Excel 不利于
 
 ### 把所有差异都强行抽到 Rust Core
 
-这会把 UI 和原生平台行为错误地塞进共享层。矩阵只记录产品行为和验证边界，不改变 `Lithe-core-rust/rust/contracts/`、Rust Core、macOS adapter 或 Windows Tauri 的现有所有权。
+这会把 UI 和原生平台行为错误地塞进共享层。矩阵只记录产品行为和验证边界，不改变 `Lithe-core-rust/rust/contracts/`、Rust Core 或 Viva 桌面端（`desktop/`）的现有所有权。
 
 ## 收益和代价
 

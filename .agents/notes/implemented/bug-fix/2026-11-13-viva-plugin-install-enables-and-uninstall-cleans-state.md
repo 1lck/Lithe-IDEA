@@ -8,7 +8,7 @@ Viva 客户端从插件市场装好插件后，插件默认是禁用的，用户
 
 ## 问题
 
-旧 macOS 客户端早就规定“确认的首次安装会把插件记为启用，更新和重装不改已有选择”（见[Java 语言服务器是一个声明式插件](../architecture/2026-10-13-java-language-server-as-declarative-plugin.md)的“默认启用”和[Go 与 PHP 社区插件](../architecture/2026-10-20-go-php-community-plugins.md)）。Viva 重写插件管理时没有带上这条规则：`pluginstate` 规定“没有记录就是禁用”，确认安装后也不写记录。实测从 Lithe Store 安装 Java Navigation 后，打开 Java 文件状态栏一直是“LSP 未启动”，F12 没有反应。
+旧 macOS 客户端早就规定“确认的首次安装会把插件记为启用，更新和重装不改已有选择”（见[Go 与 PHP 社区插件](../architecture/2026-10-20-go-php-community-plugins.md)）。Viva 重写插件管理时没有带上这条规则：`pluginstate` 规定“没有记录就是禁用”，确认安装后也不写记录。实测从 Lithe Store 安装 Java Navigation 后，打开 Java 文件状态栏一直是“LSP 未启动”，F12 没有反应。
 
 卸载的问题有三层：
 

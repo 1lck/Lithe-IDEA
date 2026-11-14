@@ -2,21 +2,21 @@
 
 状态：提议中
 
-> Viva 迁移状态：下文的产品接入与持续集成描述属于旧客户端。当前 Viva 尚未接入完整远程工作区或远端服务发布路径；本地 Core 仓库锁定修订与旧版测试记录不能代替远端部署、跨平台连接和断线恢复验收。
+> Viva 迁移状态：下文的产品接入与持续集成规划基于旧客户端，不代表 Viva 已有对应实现。当前 Viva 尚未接入完整远程工作区或远端服务发布路径；Core 仓库的测试结果不能代替远端部署、跨平台连接和断线恢复验收。
 
 ## 先说结论
 
-Lithe 要支持“完整的远程开发”：项目放在 SSH 主机、Docker 容器（包括 Dev Container）或远程 Mac 上，本地只负责界面，文件读写、终端、构建、运行、调试、LSP、Git 和 Agent 都在远端执行。做法是把远端能力全部放进一个独立的远端服务 `lithe-remote-server`。SSH、`docker exec` 这些连接方式只叫传输链（transport chain，从本机到工作区所在位置的一串跳转），它们只负责“把服务启动起来、接通标准输入输出”，不实现任何功能。Linux 和 macOS 远端的差异放在服务内部的平台适配器里，并且以能力描述（capabilities，服务在握手时报告的主机事实）的形式告诉客户端。客户端只看能力，不写“如果远端是 Mac 就怎样”的分支。
+Lithe 要支持“完整的远程开发”：项目放在 SSH 主机、Docker 容器（包括 Dev Container）或远程 Mac 上，本地只负责界面，文件读写、终端、构建、运行、调试、LSP 和 Git 都在远端执行。做法是把远端能力全部放进一个独立的远端服务 `lithe-remote-server`。SSH、`docker exec` 这些连接方式只叫传输链（transport chain，从本机到工作区所在位置的一串跳转），它们只负责“把服务启动起来、接通标准输入输出”，不实现任何功能。Linux 和 macOS 远端的差异放在服务内部的平台适配器里，并且以能力描述（capabilities，服务在握手时报告的主机事实）的形式告诉客户端。客户端只看能力，不写“如果远端是 Mac 就怎样”的分支。
 
-这不是插件能完成的事情，它是宿主的核心能力。插件以后只需要声明“我的后端跑在本地界面侧，还是跑在远端工作区侧”。本文保留最初的分层与阶段提案，不作为当前完成度清单；已经接入的产品路径以[远程工作区按根目录路由](../../implemented/architecture/2026-10-24-remote-workspace-routing.md)和平台功能矩阵为准。2026-10-27 补充的“待评估能力候选”只记录可选方向，未批准、未排期，不要求全部纳入 #1515；Agent 执行位置与 Java/JDT 专属能力仍留到后续独立讨论，开头的完整远程愿景不代表已经选定 Agent 必须远端运行。
+这不是插件能完成的事情，它是宿主的核心能力。插件以后只需要声明“我的后端跑在本地界面侧，还是跑在远端工作区侧”。本文保留最初的分层与阶段提案，不作为当前完成度清单；已经接入的产品路径以[远程工作区按根目录路由](../../implemented/architecture/2026-10-24-remote-workspace-routing.md)和平台功能矩阵为准。2026-10-27 补充的“待评估能力候选”只记录可选方向，未批准、未排期，不要求全部纳入 #1515；Java/JDT 专属能力仍留到后续独立讨论。
 
 ## 问题
 
 现在所有能力都默认“项目就在本机”：
 
-- macOS 应用里有一百多处直接用 `FileManager.default`，Rust Core 里也有大量 `std::fs` 和 `Command::new`。它们读写的都是本机路径，没有一层能替换成“远端实现”的接口。
-- 唯一的远端能力是数据库的 SSH 隧道（`rust/lithe-db-sidecar` 里的 `open_ssh_tunnel`），它只服务数据库，不能复用来打开远程项目。
-- Windows 端的 WSL 工作区是另一套独立实现，没有和“远程”共用抽象。
+- 本地文件和进程操作直接调用系统接口（Core 中有大量 `std::fs` 和 `Command::new`）。它们读写的都是本机路径，没有一层能替换成“远端实现”的接口。
+- 唯一的远端能力是数据库的 SSH 隧道（Core 仓库的数据库 sidecar 中的 `open_ssh_tunnel`），它只服务数据库，不能复用来打开远程项目。
+- Windows 上的 WSL 路径处理是另一套独立实现，没有和“远程”共用抽象。
 
 如果不先定下边界，后面每个功能都会各自加一个“远程分支”：文件树用一种 SSH 命令，终端用另一种，构建再拼一条 `ssh host 'mvn …'`。这样做的结果是 Docker 和远程 Mac 都要各写一遍，路径和引号的处理散落在各处，连接断开、进程清理、凭据这些问题也没有一个统一的负责者。
 
@@ -39,9 +39,9 @@ Lithe 要支持“完整的远程开发”：项目放在 SSH 主机、Docker �
 
 | 模块 | 负责什么 | 不负责什么 |
 | --- | --- | --- |
-| `rust/crates/remote/src/protocol` | 帧格式、消息信封、方法名、参数类型、错误码 | 不做任何 I/O 决策 |
-| `rust/crates/remote/src/server` | 远端的全部能力和 Linux/macOS 适配器 | 不知道自己是被 SSH 还是 Docker 启动的 |
-| `rust/crates/remote/src/client` | 传输链拼命令、远端安装校验、会话收发 | 不实现文件或进程语义 |
+| Core 仓库的 `rust/crates/remote/src/protocol` | 帧格式、消息信封、方法名、参数类型、错误码 | 不做任何 I/O 决策 |
+| Core 仓库的 `rust/crates/remote/src/server` | 远端的全部能力和 Linux/macOS 适配器 | 不知道自己是被 SSH 还是 Docker 启动的 |
+| Core 仓库的 `rust/crates/remote/src/client` | 传输链拼命令、远端安装校验、会话收发 | 不实现文件或进程语义 |
 
 ### 传输链只做“执行一条命令”
 
@@ -88,7 +88,7 @@ Linux 静态版用 Rust 自带的 `rust-lld` 链接，在 macOS 和 Linux 上都
 
 开发者需要遵守的动作：
 
-- ~~`scripts/remote/verify-remote-workspace.sh --static`~~（脚本已随旧客户端移除） 会构建两个 Linux 静态版，超过 1.5 MiB 就失败。要提高上限，必须先在本 Note 里写明实测原因。
+- 两个 Linux 静态版的体积上限是 1.5 MiB，超过即视为失败。要提高上限，必须先在本 Note 里写明实测原因。
 - 给服务加依赖前先量体积。异步运行时（如 tokio）、HTTP 库、正则库这类大依赖，只有在实测证明标准库线程做不到时才考虑。
 - 功能留在客户端能做的，就不要放进服务，例如解析项目结构、计算 diff、渲染。服务只提供主机必须提供的能力：文件、进程、终端、监听、端口。
 - 不要在服务里内嵌语言服务器、JDK 这类大资源。它们按插件单独上传，按需安装。
@@ -116,7 +116,7 @@ Linux 静态版用 Rust 自带的 `rust-lld` 链接，在 macOS 和 Linux 上都
 
 ### 平台适配器（Linux / macOS）
 
-所有平台差异都放在 `rust/crates/remote/src/server/platform/` 里，并通过能力描述告诉客户端：
+所有平台差异都放在 Core 仓库的 `rust/crates/remote/src/server/platform/` 里，并通过能力描述告诉客户端：
 
 | 差异 | Linux | macOS | 客户端看到的能力 |
 | --- | --- | --- | --- |
@@ -181,7 +181,7 @@ inotify 的坑：目录是逐个注册的，新建目录要在收到创建事件
 3. **M2**：macOS 应用中的工作区后端接口，把现有的直接调用迁到本地实现，再接入“打开远程文件夹”。这一步的接口设计另写 Note。
 4. **M3**：Git（凭据请求回传到本地，复用现有的 askpass 入口）、运行和构建、端口自动转发（HTML 预览访问转发后的地址）。
 5. **M4**：插件声明运行位置和支持的平台，插件包在本地验签后上传，远端再校验哈希；LSP 和调试适配器在远端运行。
-6. **M5**：Dev Container。按 `devcontainer.json` 规范构建和启动容器时复用官方的 `@devcontainers/cli`，Lithe 只负责用容器跳转连进去。精简镜像里没有 `sh` 时，评估 `docker cp` 上传。Agent 执行位置另行讨论，不预设随 M5 一起实现。
+6. **M5**：Dev Container。按 `devcontainer.json` 规范构建和启动容器时复用官方的 `@devcontainers/cli`，Lithe 只负责用容器跳转连进去。精简镜像里没有 `sh` 时，评估 `docker cp` 上传。
 
 ### 待评估能力候选（2026-10-27，未决定、未排期）
 
@@ -261,7 +261,7 @@ inotify 的坑：目录是逐个注册的，新建目录要在收到创建事件
 
 建议先分别选择“基础双向传输”“超大文件与恢复”“并发与性能”“环境选择与刷新”“补充体验”五组，而不是一次批准全部。组内仍可逐项取舍；单文件并发、独立数据通道、双向同步、已有 shell 原地重载都可以不做，不应成为基础上传下载的前置条件。
 
-如果采纳，先比较成熟上游能力，再为选中项明确契约、预算、兼容性和验收方案；实现时才更新功能矩阵及对应资源清单。未采纳的新增能力不改变当前协议保证，不自动构成 #1515 的合并条件，也不触发自动开发、排期、Issue 创建或额外 push。已有功能的安全修复与既定验证 gate 不因候选待定而被豁免。Agent 及语言专属功能不从本候选计划自动扩展。
+如果采纳，先比较成熟上游能力，再为选中项明确契约、预算、兼容性和验收方案；实现时才更新功能矩阵及对应资源清单。未采纳的新增能力不改变当前协议保证，不自动构成 #1515 的合并条件，也不触发自动开发、排期、Issue 创建或额外 push。已有功能的安全修复与既定验证 gate 不因候选待定而被豁免。语言专属功能不从本候选计划自动扩展。
 
 ### SSH 连接配置界面（M2 参考）
 
@@ -294,7 +294,7 @@ M2 接入“打开远程文件夹”时，SSH 连接的配置界面参考用户�
 
 ### 远端跑整个 IDE，本地只显示画面（JetBrains Gateway 模式）
 
-最吸引人的地方是远端和本地行为天然一致。不采用的原因是：Lithe 的界面是原生 SwiftUI/AppKit，没法拆成远端渲染、本地显示；远端也不一定有图形环境。
+最吸引人的地方是远端和本地行为天然一致。不采用的原因是：Lithe 的界面运行在本地，没法拆成远端渲染、本地显示；远端也不一定有图形环境。
 
 ### 内置 SSH 库（如 russh），不依赖系统 ssh
 
@@ -336,7 +336,7 @@ M2 接入“打开远程文件夹”时，SSH 连接的配置界面参考用户�
   - 单元测试：覆盖受限文件时临时文件不放宽权限（`fs.rs`），多个 SSH 跳转嵌套时参数原样到达 sh、bash、zsh、csh、fish（`transport.rs`，本机装了的都会测）。
   - `tests/persistence.rs`：断线期间进程继续运行且输出被重放、断线后续传时每个事件恰好到达一次、重连后先订阅再续传能接上终端并收到断开期间的输出、旧常驻进程关闭期间重连会得到新会话、空会话不需要额外请求就会被清理、空闲会话超时结束、两个代理并发启动时只有一个常驻进程、已订阅的事件不会进入通用通道。
 - 服务能检查通过所有远端目标（Linux musl 两种架构、macOS 两种架构）；两个 Linux 静态 release 版用 `rust-lld` 构建成功，并且都不超过 1.5 MiB 的体积上限。
-- Linux CI lane（`.github/workflows/ci-remote.yml`）只在远程相关路径变化时运行，不占用 macOS 和 Windows runner。
+- 远端相关的 CI 任务（旧 `ci-remote.yml` 已随旧客户端移除）只在远程相关路径变化时运行，不占用 macOS 和 Windows runner；Viva 的对应流水线待建。
 - 后续阶段的验收标准在各自的 PR 和 Note 中补充，例如 M1 要在真实的 SSH 主机、Docker 容器和远程 Mac 上各验证一次完整流程。
 - “待评估能力候选”采纳后另定对应验收：超出 2 GiB/4 GiB 的流式传输与偏移、分片乱序/重复/缺失、源或目标中途改变、断线/重启、磁盘不足/限额/权限、取消清理、哈希一致性，以及大流量下终端和 LSP 的延迟与内存预算。这里只定义要验证的问题，不代表这些能力已有实现或测试结果。
 - 环境候选采纳后验证来源读取、差异、敏感变量保护、显式选择与取消、仅新进程生效、确认重启、忙碌终端保护、缓存失效和跨主机隔离；测试不得执行用户真实 profile 或写入用户 shell 历史。
@@ -359,8 +359,8 @@ M2 接入“打开远程文件夹”时，SSH 连接的配置界面参考用户�
 
 ## 适用范围
 
-- Lithe-core-rust 锁定修订：[rust/lithe-remote/src/protocol/](https://github.com/Lithe-IDEA/Lithe-core-rust/tree/0ffd327b4329261e393b08ed76fbd134b4dd17e9/rust/lithe-remote/src/protocol)
-- Lithe-core-rust 锁定修订：[rust/lithe-remote/src/server/](https://github.com/Lithe-IDEA/Lithe-core-rust/tree/0ffd327b4329261e393b08ed76fbd134b4dd17e9/rust/lithe-remote/src/server)
-- Lithe-core-rust 锁定修订：[rust/lithe-remote/src/client/](https://github.com/Lithe-IDEA/Lithe-core-rust/tree/0ffd327b4329261e393b08ed76fbd134b4dd17e9/rust/lithe-remote/src/client)
-- `https://github.com/Lithe-IDEA/Lithe-core-rust/blob/main/rust/contracts/remote-workspace-protocol-v1.md`
-- [旧版远程持续集成工作流](https://github.com/1lck/Lithe-IDEA/blob/5a54c41aa37a4e6e6b68918a4b05765b9dd07a36/.github/workflows/ci-remote.yml)；Viva 的对应远端构建与验收仍需重建。
+- Core 仓库的远端协议与服务：[rust/crates/remote/](https://github.com/Lithe-IDEA/Lithe-core-rust/tree/main/rust/crates/remote)
+- [远程工作区协议 v1](https://github.com/Lithe-IDEA/Lithe-core-rust/blob/main/rust/contracts/remote-workspace-protocol-v1.md)
+- `desktop/internal/core/plugin_session.go`
+- `desktop/internal/term/`
+- 远端持续集成：旧版工作流已随旧客户端删除，Viva 的对应远端构建与验收仍需重建。

@@ -4,429 +4,122 @@
 
 ## 先说结论
 
-编辑器只依赖统一的语言能力接口，不直接绑定某一种语言服务器。轻量能力可以不启动外部进程；需要 LSP 时，由 Rust Core 统一管理进程、协议和结果。以后新增语言服务，应接入这条公共路径，而不是在 Swift 和平台层各写一套生命周期。
+编辑器只依赖统一的语言能力接口，不直接绑定某一种语言服务器。LSP 子进程、协议状态机、文档版本、请求期限、诊断和优雅关闭统一由 Rust Core 持有；平台只负责可执行文件发现、UI 投影，以及由不透明操作 ID 标识的完成回调。以后新增语言服务，应接入这条公共路径，而不是在各个平台各写一套生命周期。
 
 ### 通用 Runtime 与 Java 领域适配的范围
 
-本笔记的通用 LSP 传输、会话、文档版本和取消边界仍然适用。下文记录的 Core `languages/jdt.rs` 与 Swift Java 专属语义只是当前实现位置；[#1495 的迁移提案](../../proposed/architecture/2026-10-26-maven-java-domain-plugin-migration.md) 将逐项替换并删除这些领域分支，不另建第二套通用 LSP Runtime，也不把当前目录位置视为长期归属要求。
+通用 LSP 传输、会话、文档版本和取消边界仍然适用。Java/JDT 的启动参数、项目导入与虚拟源码语义已经迁到 Java 插件后端（[lithe-plugin-java](https://github.com/Lithe-IDEA/lithe-plugin-java)，#1495），Core 不再为 Java 保留领域分支，也不另建第二套通用 LSP Runtime。
 
 ## 问题
 
-语言能力不应等同于"已经启动一个 LSP 进程"：轻量本地能力（关键字、当前
-文件符号）不需要外部进程，而真正的语言服务器能力必须以协商结果为准，
-不能按语言名称硬编码假设。这要求编辑器只依赖统一的 provider 接口，
-不直接依赖具体语言服务器。
+语言能力不等于"已经启动一个 LSP 进程"：轻量本地能力（关键字、当前文件符号）不需要外部进程，而真正的语言服务能力必须以服务器协商结果为准，不能按语言名称硬编码假设。
 
-`feat/LSP` 迁移之前，LSP 状态在 Swift 和 Rust 之间是重复且互相竞争的：
-
-| 关注点 | Swift 侧 | Rust 侧 |
-| --- | --- | --- |
-| 文档生命周期 | `openedDocumentURIs`、`pendingDocuments` | `open_documents` |
-| 初始化 | `isInitialized` 和进程回调 | `initialized` |
-| 请求生命周期 | `responseHandlers`、超时任务 | `pending_requests` |
-| 传输 | `readBuffer`、原始进程收发 | 无状态 frame/parser 函数 |
-| 诊断 | provider 投影加旧版 Java store | 按 URI 索引的诊断 |
-| 关闭 | 定时器与强制终止 | shutdown JSON-RPC reducer |
-
-旧的公开命令面也暴露了实现细节：`lsp.clientOpenDocument`、
-`lsp.clientChangeDocument`、`lsp.clientApplyServerMessage`、
-`lsp.sessionExecute`、`lsp.frameMessage`、`lsp.parseServerMessages`。
-这种分裂会导致 Swift 和 Rust 对同一个 LSP 会话的判断不一致，且任何
-新增语言服务器都要在两侧分别维护一份生命周期逻辑。
+如果 LSP 状态同时保存在平台和 Core 两侧，文档生命周期、初始化、请求、传输、诊断和关闭都会出现重复且互相竞争的真值，同一个会话在两侧的判断可能不一致。新增语言服务器时，又要在两侧分别维护一份生命周期逻辑。
 
 ## 决策
 
-### 状态栏只投影会话，日志面板不接管协议
+### 状态栏只投影会话，日志不接管协议
 
-macOS 的 LSP 入口始终保留，即使没有源文件、可选语言模块尚未激活或没有运行会话。
-列表只能来自平台插件管理器中已接受、已注册且当前启用的插件的语言服务器声明；
-内置但作为可管理插件注册的语言服务也必须通过同一个模块启用检查，不能默认列出。
-宿主内置语言目录、文件扩展名识别和工具候选不等于服务器注册，不能填充此列表。
-禁用、隔离、安全模式抑制、等待首次重启注册或卸载的插件不贡献行。
+LSP 入口始终保留，即使没有源文件或没有运行会话。服务器列表只能来自已接受、已注册且当前启用的插件所声明的语言服务器；宿主内置的语言目录、文件扩展名识别和工具候选不等于服务器注册，不能填充此列表。禁用、隔离或等待重启的插件不贡献行。
 
-名称复用现有服务器可执行名字段。插件直接声明 packaged/systemCommand 时取其
-`executableNames`；runtime 启动不能把 `java` 或 `node` 当服务器名，改读该插件
-languageID 对应描述元数据已有的 `languageServerLaunch.executableNames`（例如 jdtls）。
-元数据只补名称，不能绕过已启用插件注册来新增行。没有这个字段时直接显示插件 ID，
-不回退语言名、插件展示名或服务器自报名称；不新增清单字段、版本或工具名映射。
-状态与版本继续由现有会话投影，代码诊断不改变服务器状态，不按当前文档类型过滤。
-空列表仍提供日志和设置入口；批量操作只针对已有会话，不因打开菜单启动服务器。
-颜色使用现有主题的成功、强调、警告和错误色，与 LSP 设置页一致。
+名称复用插件声明的可执行名字段，没有该字段时直接显示插件 ID，不回退到语言名或服务器自报名称。状态与版本由现有会话投影；代码诊断不改变服务器状态。空列表仍提供日志和设置入口，批量操作只针对已有会话，不因打开菜单启动服务器。
 
-单个或全部服务器的停止与重启只影响当前会话，不改工作区启用偏好。停止同时
-使该提供方已排队的激活请求失效；下一次打开、切换或编辑匹配文档仍可按需启动。
-专属准备任务通过在依赖组装处登记的取消回调结束，通用状态菜单不按语言名称分支。
-重启先发起停止，等待旧进程的终止事件及异步资源释放，再重新同步匹配的打开文档；
-没有打开文档时也重启同一个预热提供方，不把“重启”静默变成“停止”。等待期间保留
-`.stopping` 状态和提供方的占位，文档激活不能另起替代进程。停止完成等待有本地期限；
-超时返回失败并保留占位，不冒险与旧 JDT 工作区目录锁重叠。等待期间的再次停止、
-工作区替换或停用会撤销重启意图，旧关闭完成不能复活服务器。异步/远程启动在取消后
-才返回时，同样先停止并销毁该迟到会话，再释放包快照。
+单个或全部服务器的停止与重启只影响当前会话，不改工作区启用偏好。停止使该提供方已排队的激活请求失效；下一次打开或编辑匹配文档仍可按需启动。重启先等待旧进程的终止事件和异步资源释放，再重新同步匹配的打开文档，不能把"重启"静默变成"停止"。停止等待有本地期限，超时返回失败并保留占位，不冒险与旧工作区目录锁重叠。
 
-重建 Java 索引只重置 Java 的应用状态，不调用工作区整体重置。其他语言服务的
-运行投影、日志选择及订阅必须保留；不能清空被 `removeDuplicates` 去重的共享投影后，
-指望日志或无变化的状态通知重新填回。
+日志视图打开或聚焦编辑区的"LSP 日志"标签页，每个工作区窗口只有一个，切换服务器仍在同一标签页完成。标签页读取已脱敏的磁盘日志和实时广播，由 Core 解析通道，宿主不用 provider ID 拼通道名。"清空视图"只隐藏所选服务器已显示的记录，不删除持久诊断日志。
 
-“查看日志”打开或聚焦编辑器区的“LSP 日志”标签页，不新增底部工具窗口，也不另开窗口。
-每个工作区窗口只有一个这样的标签页，切换服务器仍在同一标签页里完成；菜单底部的“查看日志”打开列表中的第一个服务器。
-标签页读取已脱敏的 v2 磁盘日志和实时广播，一次只显示一个服务器的通道，没有“全部语言服务器”选项；
-通道由 Core 解析，Swift 不用 providerID 拼通道名。“清空视图”只隐藏所选服务器已经显示的记录，
-每个服务器各有自己的清空点，不删除持久诊断日志，也不建立另一份日志存储。标签页与应用日志窗口的关系见
-[应用级日志窗口与诊断导出](../feature/2026-11-03-structured-logging-log-window.md)。
-
-正确做法是按当前会话事件显示真实内容。不要在 Swift 再实现 JSON-RPC（语言服务器
-使用的请求响应协议）抓包器，或把现有文本日志复制成 Server Trace、RPC Messages
-三个假通道。当前 Core 没有提供原始跟踪/消息采集，LSP 日志标签页的 ⓘ 说明明确写出不可用；
-将来确需采集时，应在 Core 既有协议所有者处设计显式启用、脱敏和预算，再扩展契约。
-本次没有新缓存目录、下载或安装资源写入，运行时只读发行基线不变。
-
-LSP 子进程、stdio、JSON-RPC 状态机、文档版本、请求 deadline、诊断和
-结果归一化统一收归 Rust Core（`rust/crates/lsp-transport/`、`rust/crates/lsp-client/`、`rust/crates/lsp-engine/`、`rust/crates/lsp-policy/`），
-平台 adapter 只负责可执行文件与运行环境发现。Swift 只保留 UI 投影和
-由不透明 operation ID 标识的应用层完成回调，不再持有 LSP 请求 ID、
-原始 JSON、framing 缓冲区、子进程句柄或文档 open 状态的真值。
+Core 当前没有原始协议跟踪（Server Trace、RPC Messages）采集；不要在平台再实现 JSON-RPC 抓包器，也不要把文本日志复制成假通道。将来确需采集时，应在 Core 协议所有者处设计显式启用、脱敏和预算，再扩展契约。
 
 ### 组件边界
 
 ```text
 Editor / feature model
-  -> LanguageToolingSessionManager（文档同步、provider 选择、结果降级/合并、诊断与会话归属）
+  -> LanguageToolingSessionManager（文档同步、provider 选择、结果降级与合并、诊断归属）
   -> LanguageFeatureProvider 路由
-       -> BuiltinLanguageFeatureProvider（当前文件符号、轻量 hover/导航、关键字）
-       -> LanguageServerFeatureProvider（把已协商的服务器能力适配到统一接口）
-            -> StdioLanguageServerSession（语义命令调用、typed event 投影、不透明 operation ID 交付）
-                 -> Rust LSP runtime（子进程 + stdio + 状态机 + framing + JSON-RPC + 文档/版本存储 + 请求 deadline + capability + 诊断 + 优雅关闭/崩溃处理/重启隔离）
+       -> BuiltinLanguageFeatureProvider（当前文件符号、轻量 hover 与导航、关键字）
+       -> LanguageServerFeatureProvider（把协商后的服务器能力适配到统一接口）
+            -> 语义命令调用、typed event 投影、不透明 operation ID 交付
+                 -> Rust LSP runtime（子进程 + stdio + 状态机 + framing + JSON-RPC + 文档版本 + 请求期限 + 诊断 + 关闭/崩溃处理）
                       -> gopls / jdtls / rust-analyzer / ...
 ```
 
-Rust Core 的 LSP 实现收在 `lsp/` 下三个子模块：`interface/`（通用 LSP
-engine、协议 reducer、transport 与稳定 DTO）、`lightweight/`（不启动
-语言服务器的编辑、snippet 和当前文件符号能力）、`languages/`
-（provider catalog 与语言/宿主模型 adapter）。共享的 LSP
-position/range 与协议 DTO 只能定义在 `interface/types.rs`；面向应用
-公开的 runtime command/event DTO 位于 `interface/engine.rs`；
-`lightweight` 可以依赖这些协议 DTO，但 `interface` 不依赖轻量实现；
-`languages/jdt.rs` 封装 JDTLS 启动参数、配置与虚拟源码语义，generic
-engine 不按 Java 硬编码 capability。
-
-Swift 侧只保留语义命令、事件轮询、模型转换和不透明 operation
-completion 投影：`LanguageServerSession.swift`、
-`LanguageProviderRuntime.swift`、`LanguageToolingSessionManager.swift`
-（UI 侧 provider 路由和只读投影）；LSP 不再构造 `RawProcessSession`
-（DAP 保留独立传输边界）；`RustCoreBridge.swift` 不再暴露 state-passing
-或 raw-message API。
+Core 的 LSP 实现位于 Core 仓库的 `rust/crates/lsp-transport/`、`rust/crates/lsp-client/`、`rust/crates/lsp-engine/` 与 `rust/crates/lsp-policy/`。平台 adapter 只负责可执行文件与运行环境发现。平台层不持有 LSP 请求 ID、原始 JSON、framing 缓冲区、子进程句柄或文档 open 状态的真值。
 
 ### Provider 路由
 
-当前优先级由高到低为 `languageServer (200)`、预留的
-`projectSymbols (100)`、`builtin (0)`。Completion 依次收集所有成功
-结果并按 `label` 去重；Hover/Definition/References/Implementation
-返回第一个非空结果，LSP 不可用时降级到本地 provider；
-Rename/Formatting/Code Action/Resolve/Execute Command 目前仍是
-LSP-only，未声明能力时返回明确的 capability 错误。Provider 抛错不会
-让路由提前结束，用于隔离第三方语言服务器故障。
+优先级由高到低为语言服务器（200）、预留的项目符号（100）、内置（0）。补全依次收集所有成功结果并按 `label` 去重；Hover、Definition、References、Implementation 返回第一个非空结果，LSP 不可用时降级到本地 provider。Rename、Formatting、Code Action、Resolve 与 Execute Command 目前仍是 LSP-only，未声明能力时返回明确的 capability 错误。单个 provider 抛错不会让路由提前结束。
 
-### 连续输入时刷新补全
+### 补全列表状态
 
-补全结果不仅包含候选项，还包含服务器的 `isIncomplete`（候选尚不完整）标记。
-Core 必须保留这个列表级标记，空列表也不能丢；平台合并本地候选时保留任一
-provider 的未完整状态。两端把它映射为 Monaco 的 `incomplete`，把 Monaco
-触发原因换算为 LSP 数值，再交给 Core 校验并生成请求 context。继续输入需要新候选时，由 Monaco
-重新请求，不在 Mac 和 Windows 各实现缓存刷新算法。旧的只读候选数组接口
-只供不消费列表状态的兼容调用，编辑器必须使用完整列表接口。
+补全结果的 `isIncomplete` 是列表级标记，Core 必须保留，空列表也不能丢；平台合并本地候选时保留任一 provider 的未完整状态，并映射到编辑器的增量刷新机制。继续输入需要新候选时由编辑器重新请求，不在各平台各实现一套缓存刷新算法。仅把 `isIncomplete` 固定为 true 会增加不必要的服务器请求，因此保留服务器的实际值。
 
-参考 OpenIDEA `fff2c711` 的 `convert.rs` 和 `completion.ts` 保留列表状态的
-处理方式；它使用 CodeMirror，我们复用现有 Monaco 0.55.1 的对应机制，不迁移
-其编辑器实现，也不增加语言语义引擎。仅把 `isIncomplete` 固定为 true 会增加
-不必要的服务器请求，因此保留上游实际值。验证包括共享 fixture、Swift 路由、
-Windows 适配器，以及真实 WebKit/Monaco 中从 `a` 继续输入 `b` 后出现第二次
-请求才返回的 `abacus` 候选；原有过期结果与资源清理边界继续适用。
+### 诊断与文档归属
 
-### Windows 语义颜色请求
+诊断按"已打开文档的 URI"归属，但服务器不一定用同一种写法回报路径。JDT 等服务器会以解析符号链接之后的位置发布诊断，例如宿主以 `/tmp/...` 打开的文件，诊断发到 `/private/tmp/...`。逐字比较 URI 会丢掉整条诊断。因此 Rust 引擎在把 `publishDiagnostics` 交给客户端状态机之前，先看发布的 URI 是否对应某个已打开文档；对不上时比较两边解析后的真实文件，命中就把诊断改写到该文档自己的 URI 上（`diagnostics_addressed_to_open_document`）。平台拿到的诊断 URI 因此始终是打开文档时使用的那个，不需要各自再做路径折叠。该规则对所有语言生效。
 
-Windows 的语义高亮复用 Core 已有 `semanticTokens` 操作与请求时捕获的图例，
-前端只将归一化结果映射成 Monaco 的固定图例，不再解码服务器原始相对坐标。
-仅移除客户端能力检查并不能修复 #675：适配器必须映射命令，服务器的
-`semanticTokensRefresh` 也必须触发 Monaco 重新请求。
+Viva 的文档同步入口在 `desktop/internal/workbench/pluginsync.go`：文档打开后由 `pluginlsp.Tracker.Open` 按 Core 解析出的 URI 打开，编辑产生的范围经 `Tracker.Change` 发送，保存和关闭分别调用 `Tracker.Save` 和 `Tracker.Close`。服务器晚于文档启动时，宿主在会话注册后补开该语言所有已打开文档。项目关闭、服务器停止或重启会让每个文档的 `documentSync.generation` 失效，旧的后台结果不能写回新会话。
 
-正确顺序是先冲刷编辑器待发送的文档变更，再请求颜色，最后检查模型版本、
-文件路径、文档打开状态与取消状态。否则请求可能基于服务器尚未更新的旧文本，
-即便 Monaco 版本号在请求期间没变，也会把旧位置应用到新文本。
-适配器还会核对文件 attachment（文档与语言服务器会话的归属对象），归属被替换
-后丢弃旧响应。取消与 deadline 继续走现有请求路径；设置开关和大文件降级仍由
-Monaco 选项控制，缺少协商能力时保留基础语法高亮。
+Viva 的语义入口在 `desktop/internal/workbench/pluginsemantics.go`：定义跳转、Hover 与显式补全都通过 `lsp.request` 提交，只消费 Core 规范化后的结果；接受补全时由 Core 计算最终文本，宿主不解析原始 LSP Location，也不自行排序或去重候选。请求只在文档同步完成且会话就绪后提交；光标、文档版本、标签页、服务器或项目变化会取消旧操作并丢弃迟到结果。
 
 ### 会话生命周期不变量
 
-诊断按“已打开文档的 URI”归属，但语言服务器不一定用同一种写法回报路径。
-JDT 用解析符号链接（symbolic link，指向另一个目录的快捷路径）之后的位置
-发布诊断：宿主以 `/tmp/...` 打开的文件，诊断发到 `/private/tmp/...`。逐字
-比较 URI 会把这类诊断整条丢弃，表现为工程能编译报错、编辑器和问题面板却
-没有任何 Java 错误。因此 Rust 引擎在把 `textDocument/publishDiagnostics`
-交给客户端状态机之前，先看发布的 URI 是否对应某个已打开文档；对不上时
-再比较两边解析后的真实文件，命中就把诊断改写到该文档自己的 URI 上
-（`diagnostics_addressed_to_open_document`）。平台代码收到的诊断 URI 因此
-始终是它打开文档时用的那个，不需要、也不要各自再做一遍路径折叠。
+会话生命周期必须是单一判别状态；capability 协商单独表示为 `unknown` 或 `known`，不能由 `ready`、`featuresKnown`、`supportsFeature` 等多个布尔字段组合推导。跨边界失败必须保留稳定的 `code`、`stage`、退出码和诊断详情，不能通过错误文本猜测超时；面向用户的提示文案由各端本地化资源统一生成。
 
-Viva 的文档同步入口在 `desktop/internal/workbench/pluginsync.go`：文档在编辑器
-打开后由 `pluginlsp.Tracker.Open` 按 Core 解析出的 URI 打开，编辑器每次替换通过
-`editorview.Config.OnEdit` 产生零基行和 UTF-16 列的范围，再由 `Tracker.Change`
-发送；保存和关闭分别调用 `Tracker.Save` 和 `Tracker.Close`。服务器晚于文档启动时，
-宿主在会话注册后补开该语言所有已打开文档。项目关闭、服务器停止或重启会让每个文档
-的 `documentSync.generation` 失效，旧的后台结果不能重新写回新会话；关闭文档还会
-撤下宿主为该文件保存的诊断，因为 Core 在 `didClose` 时已清除自己的副本。macOS
-的真实 clangd 进程端到端用例在
-`desktop/internal/workbench/pluginsync_e2e_test.go`，覆盖打开、增量编辑、诊断到达
-Problems 面板、保存、关闭和项目切换。
+会话由 Rust engine 持有长生命周期的 `sessionID -> RuntimeSession` 注册表。`syncDocument` 由 Rust 决定发送 `didOpen`（版本 1）还是 `didChange`（递增版本）；服务器声明增量同步且请求携带范围时发送增量变化，否则发送全文。`initializeTimeoutMilliseconds` 只约束标准握手；JDT 的 ServiceReady 等待独立计时，平台不得再添加自己的固定就绪期限，最终就绪只认服务器的 `language/status: ServiceReady`。
 
-Viva 的编辑器语义入口在 `desktop/internal/workbench/pluginsemantics.go`：定义跳转
-（F12、Command/Ctrl+点击、多目标列表）、Hover（F1 和 500 ms 指针停留）与显式补全
-（Control+Space，上下键选择，回车/Tab 接受）都通过 `lsp.request` 提交，只消费 Core
-规范化后的 `requestCompleted` 结果；接受补全时由 Core 的 `lsp.applyTextEdits` 与
-`lsp.plainSnippet` 计算最终文本，宿主不解析原始 LSP Location，也不自行排序或去重候选。
-请求只在文档同步完成且会话 ready 后提交；光标、文档版本、标签页、服务器或项目变化会
-取消旧操作并丢弃迟到结果。无头 Viva 窗口用真实 clangd 隔离插件覆盖这三条路径
-（`pluginsemantics_e2e_test.go`）；自动补全、`isIncomplete` 连续刷新、引用、语义标记、
-格式化与重命名仍未接入。
+启动顺序：平台提交 typed `startServer` → Rust 生成启动参数、engine 创建会话并发送 `initialize` → 保存 capability，发送 `initialized` → 服务器报告就绪后再发送项目配置 → manager 只在真实 `ready` 后发布 capability → Rust 以 LSP request ID 关联期限，用不透明 operation ID 投影终态结果。停止会话时先 `shutdown` 后 `exit`，服务器无响应则由超时路径强制停止，不直接用 `terminate()` 代替。
 
-会话生命周期必须是单一判别状态；capability 协商单独表示为 `unknown`
-或 `known`，不能由 `ready`、`featuresKnown`、`supportsFeature` 等多个
-布尔字段组合推导。跨边界失败必须保留稳定的 `code`、`stage`、退出码和
-诊断详情，不能通过错误文本猜测 timeout；面向用户的提示文案由各端 UI
-本地化资源统一生成，Core/service/adapter 只返回稳定原因。平台
-adapter 只能投影 Rust 发布的 lifecycle，不能再用多个布尔字段复制一套
-session 状态机。
+进程创建后启动失败时，进程必须在有界期限内确认退出才算清理完成，不能只发信号就丢弃会话。普通调用方拿不到会话 ID 时，Core 把未完成清理的会话记入内部待清理列表，下一次显式启动前最多重试一次有界释放，仍未完成就拒绝启动新进程，并保留原始启动错误。非 Windows 平台在期限内轮询根进程退出；Windows 等待整个进程树退出。
 
-生产路径由 Rust engine 持有长生命周期 `sessionID -> RuntimeSession`
-registry；`syncDocument` 由 Rust 决定发送 `didOpen`（version 1）还是
-`didChange`（递增版本），服务器声明 Incremental sync 且请求携带
-range 时发送增量变化，否则发送全文。`initializeTimeoutMilliseconds`
-只约束标准 LSP 握手；JDTLS 的 `ServiceReady` 等待独立计时（连续 45
-秒无 `$/progress` 变化只记录一次警告，10 分钟绝对上限才终止），平台
-adapter 不得再添加自己的固定 readiness deadline，最终 ready 只认
-`language/status: ServiceReady`。
+### 大型导入的等待策略
 
-启动顺序：平台提交 typed `startServer`（JDTLS 必须含
-`jdtlsLaunchResources`）→ Rust provider adapter 生成参数、engine 创建
-session 并发送 `initialize` → 保存 capability，发送 `initialized` →
-JDTLS 报告 `ServiceReady` 后按排序后的 Profiles 发送
-`java.project.updateSettings` → manager 只在真实 `ready` 后发布
-capability → Rust 以 LSP request ID 关联 deadline，用不透明 operation
-ID 投影 terminal result。停止 session 时先 `shutdown` 后 `exit`，服务器
-无响应则由超时路径强制停止，不直接用 `terminate()` 代替。
+Java 导入的 45 秒观察阈值只用于记录带最后进度的日志警告，不作为失败条件。JDT 的 `ProgressReporterManager` 只在任务回调时发送进度，没有定时心跳，m2e 批次导入也不能保证每个批次在 45 秒内上报变化，因此"没有新进度"不能证明进程卡死。只有固定的总期限（10 分钟）、服务器明确报错或进程退出才使导入失败。就绪仍只认 `ServiceReady`，不从日志中的项目数量或百分比推算。
 
-进程创建后启动失败（initialize 出错、索引被替换或取消）时，进程必须在有界期限内
-确认退出才算清理完成，不能只发信号就丢弃会话。普通 `lsp.startServer` 调用方拿不到
-会话 ID，因此 Core 把未完成清理的会话记在内部待清理列表，下一次显式启动前最多重试
-一次有界释放，仍未完成就拒绝再启动新进程，并保留原始启动错误。进程内原生调用方
-（`start_lsp_owned`）在注册回调里先拿到会话 ID，启动返回错误时仍持有该 ID，自行重试
-`lsp.destroyServer`。macOS 等非 Windows 平台的释放在期限内轮询根进程退出，因为发出
-SIGKILL 后子进程是异步回收的；Windows 等待整个进程树退出。回归见 `engine.rs` 中的
-`native_owner_keeps_failed_initialize_identity_until_verified_disposal`、
-`wire_owner_retries_failed_initialize_disposal_before_another_start` 和
-`wire_owner_cleans_at_most_one_failed_start_before_rejecting_a_backlog`。
+### 平台启动编排（Windows）
 
-### Java 导入安静期与 Windows 跳转缓存
+大型工作区的仓库扫描和语言服务导入会竞争磁盘与进程资源。Windows 的首次 Git 准备先发现工作区根目录中的所有仓库并等待各仓库状态查询；后台语言服务探测与编辑器恢复共用这次准备，启动解析必须在解析构建上下文之前等待它。准备任务按工作区实例和根目录集合复用，等待期间实例或根集合变化时丢弃旧结果；Git 失败保留日志并允许语言服务继续，沿用底层操作的有界超时。
 
-#1052 的两次导入在 Maven 23% 时因连续约 45 秒没有变化的进度通知而被
-Lithe 终止。仓库固定的 JDT LS 1.61.0（提交 `08eafe6`）中，
-[ProgressReporterManager](https://github.com/eclipse-jdtls/eclipse.jdt.ls/blob/08eafe6/org.eclipse.jdt.ls.core/src/org/eclipse/jdt/ls/core/internal/handlers/ProgressReporterManager.java)
-只在任务回调时发送进度，并过滤系统任务、节流通知；它没有定时心跳。
-[MavenProjectImporter](https://github.com/eclipse-jdtls/eclipse.jdt.ls/blob/08eafe6/org.eclipse.jdt.ls.core/src/org/eclipse/jdt/ls/core/internal/managers/MavenProjectImporter.java)
-把批次导入交给 m2e（Eclipse 的 Maven 项目引擎），不能保证每个批次在
-45 秒内上报变化。因此，“没有新进度”不足以证明进程卡死。
+### 目录与工具发现
 
-Core 保留 45 秒观察阈值及原有 JSON 字段名，但只发带最后进度的日志警告；
-变化的进度可重新触发下一次安静期警告。只有固定的 10 分钟总期限、服务器
-明确报错或进程退出才使导入失败。就绪仍只认 `ServiceReady`，不从日志中的
-项目数量或百分比推算。正确示例：导入 90 秒没有新进度后收到 `ServiceReady`，
-正常进入就绪；错误示例：把 45 秒无变化当作失败并杀死仍在导入的进程。
+内置 provider 目录随 Core 发布；项目可通过 `.lithe/lsp/language-providers.json` 按 `id` 覆盖字段、新增或用 `disabled: true` 禁用，格式以 Core 的契约为准。`executableNames` 按顺序尝试，`validationArguments` 会在候选进入会话前执行（例如排除缺组件的 rustup proxy），探测结果按路径和参数缓存 30 秒。
 
-#1051 对应的 Windows Ctrl+悬停和点击共用有界调度器。空结果可能来自
-暂时不可用或请求失败，不能缓存成“这个词永远没有定义”。成功结果仍可复用，
-但语言服务生命周期或文档归属变化会清空缓存、丢弃在途旧结果；监听器跟随
-编辑器销毁。每次手势的缓存键还包含当前导航上下文，返回结果时再次核对，避免
-能力独立变化或适配器快照先于/晚于 UI 通知更新时使用旧位置。模型内容变化仍
-使缓存失效，F12 的即时查询路径保持不变。
+发现只按固定顺序查找可执行文件（项目 `.lithe` 工具目录、`LITHE_<TOOL>_PATH`、`PATH`、常见系统目录、语言专属环境变量），不自动安装软件。项目级配置只能声明类型化字段（可执行名、参数），不能声明 shell、任意安装命令或关闭路径/URL 校验。发现不到工具时只提示用户安装，不做自动下载。
 
-这些更改修正的是 Lithe 的等待和缓存策略，不重建 Maven 项目模型，不升级
-上游工具，也不声称已复现报告者的私有项目。若总期限后仍失败，应继续采集
-JDT 自身错误日志，排查具体依赖或导入故障。
-
-### Windows 工作区打开时的 Git 优先级
-
-大型 Maven 工作区的仓库扫描和 Java 导入会竞争磁盘、进程资源。Windows 的
-首次 Git 准备（bootstrap）先通过已有 Rust Core 能力发现所有工作区根目录中的
-仓库，并等待各仓库 status 查询。后台 Java 探测与编辑器恢复共用这次准备；
-`resolveEditorLspLaunch` 必须在解析 Maven 上下文和 JDTLS 启动资源之前等待它。
-例如恢复上次打开的 `Main.java` 时，应先等 Git，再请求 Maven 上下文，不能只
-推迟后台预热而让编辑器的 `startForFile` 提前开始导入。
-
-这只是 Windows 产品启动编排，不改变 Rust 的 Git 发现规则、操作期限或
-JDTLS 的项目模型。准备任务按工作区运行实例和根目录集合复用，关闭后重开
-必须重新准备；等待期间实例或根集合变化，则丢弃旧结果并取消该次 Java 启动。
-Git 失败保留日志并允许语言服务继续，沿用底层操作的有界超时，不能永久阻塞
-编辑器。重新激活时可刷新过期 status，但并发调用必须加入已有任务。
-
-等待所有仓库不代表改变已有 UI 的路径契约。文件树与底栏继续接收主工作区
-根目录的原始 status；Git 面板才使用带仓库前缀的合并列表，否则
-`src/Main.java` 会变成无法与文件树匹配的 `repo/src/Main.java`。
-
-### Catalog 与工具发现边界
-
-内置 provider catalog 位于
-`rust/lithe-core/resources/lsp/language-providers.json`（已随 Core #23 移除），
-项目可通过 `.lithe/lsp/language-providers.json` 按 `id` 覆盖字段、
-新增 provider 或用 `disabled: true` 禁用；格式由
-[`docs/reference/language-providers.schema.json`](../../../../docs/reference/language-providers.schema.json)
-定义。`executableNames` 按顺序尝试，`validationArguments` 会在候选
-进入 session 前直接执行（例如排除缺组件的 rustup proxy），探测结果
-按路径和参数缓存 30 秒。macOS discovery 只按固定顺序查找可执行文件
-（项目 `.lithe` 工具目录、`LITHE_<TOOL>_PATH`、`PATH`、常见系统目录、
-语言专属环境变量），不自动安装软件；LSP 控制中心的可执行文件覆盖
-路径失效时回退到 catalog 自动探测。项目级配置只能声明 typed 字段
-（executable name、参数），不能声明 shell、任意安装命令或关闭
-路径/URL 校验；进程创建、超时、可执行文件验证、Homebrew 调用方式和
-HTTPS 限制仍属于平台安全边界。
-
-正式安装包内置 JDTLS 和只供语言服务使用的 Temurin JDK 21：发布构建
-按 `third_party/jdtls/manifest.json` 下载固定版本并校验 SHA-256，
-平台 adapter 从安装目录解析 launcher JAR、configuration 目录和
-`lombok.jar`，提交给 Rust Core 统一构造启动参数并直接启动包内
-`java`；正式包运行 JDTLS 不依赖 shell 或用户 `PATH`，资源缺失在进程
-启动前明确失败。下载只发生在构建阶段，应用运行时不联网安装
-JDTLS/Lombok/JDK；`bin/jdtls`、`jdtls.bat`、`jdtls.ps1` 只为外部/旧
-启动计划保留兼容回退，JDTLS runtime 始终只用内置 JDK 21，与项目
-Run/Debug 的 JDK 配置完全分离。`java.jdtWorkspaceFingerprint` 由 Rust
-Core 统一校验、排序、去重并生成结构指纹，平台不得拼接或解析该
-字符串；结构变化只会选择新 `-data` 目录，不影响当前会话。
+语言服务使用的运行时由插件声明或平台固定选择，不依赖用户 `PATH` 上碰巧存在的同名程序；项目目录中的同名工具永远不会被选中，因为服务器会在打开文件时自动启动，不能执行仓库自带的程序。
 
 ### 当前限制
 
-只支持 stdio transport；session 以 provider ID + 单个 workspace root
-为单位，无 multi-root session；`workspace/applyEdit` 只提供协议确认
-和 normalized edit 数据，实际应用仍须经过编辑器工作区安全校验；
-catalog 描述的是"可尝试启动的工具"，最终功能以运行时服务器
-capability 为准。
+只支持 stdio transport；会话以 provider ID 加单个工作区根为单位，没有多根会话；`workspace/applyEdit` 只提供协议确认和规范化的编辑数据，实际应用仍须经过编辑器的工作区安全校验；目录描述的是"可尝试启动的工具"，最终功能以运行时服务器的 capability 为准。
 
 ## 考虑过的备选方案
 
-- **只把 45 秒改成更大的空闲超时**：仍把可选进度当作心跳，不能消除误杀。
-- **把任意 JDT 日志都当作进展**：重复日志可能掩盖真正停滞；保留诊断信息，
-  就绪信号和总期限继续分别负责正确性与资源上限。
-
-- **仅延后 Windows 后台 Java 预热，或统一增加 Git 超时**：前者遗漏恢复文档的
-  启动入口，后者延长故障等待而没有减少启动竞争。因此在共同的 Java 启动解析
-  入口等待 Git 准备，继续使用已有查询期限。
-- **维持 Swift/Rust 两侧各自持有一份 LSP 生命周期状态**：改动成本
-  最低，两边可以独立推进。但基线审计证明文档生命周期、初始化、请求
-  生命周期、传输、诊断和关闭六个关注点已经在两侧重复且互相竞争，
-  新语言服务器接入要在两侧分别处理，因此收敛为 Rust 单一持有。
-- **会话/capability 状态用多个独立布尔字段表示（`ready` /
-  `featuresKnown` / `supportsFeature` 等）**：实现和调用点都更直接。
-  但布尔字段组合会产生无法枚举的中间态，跨边界排查失败原因困难，
-  因此改为单一判别状态加独立的 `unknown`/`known` capability 标记。
-- **把 catalog 的 `languageServer` 标记当作 feature 支持的证明**：
-  可以在还没启动服务器之前就在 UI 上直接启用能力，交互上更快。但
-  catalog 只是"可尝试启动的工具"清单，服务器实际是否支持某个功能
-  只能由 `initialize` 响应和动态注册结果决定，因此 UI 只启用已完整
-  投影且服务器实际声明的能力。
-- **discovery 找不到工具时自动下载/安装**：能减少用户手动安装的
-  摩擦。但项目配置属于受信任的可执行工具配置，一旦允许声明任意
-  安装命令或跳过路径/URL 校验，会把不安全的通用安装逻辑暴露给
-  项目文件；因此 discovery 只查找，需要安装时跳转到各项目的官方
-  HTTPS 页面或走平台层不经过 shell 的 `brew install`。
-- **JDTLS 依赖系统 `JAVA_HOME` 或用户可配置 JDK 路径**：可以复用
-  用户已有的 Java 环境，减少安装包体积。但语言服务用的 JDK 版本和
-  项目 Run/Debug 的 JDK 需求经常不一致，读取系统环境会引入不可控的
-  版本漂移，因此产品只接受随应用发布且校验为主版本 21 的 Temurin
-  JDK，与项目 JDK 配置完全分离。
+- **只把导入超时改成更大的空闲超时**：仍把可选进度当作心跳，不能消除误杀。
+- **把任意 JDT 日志都当作进展**：重复日志可能掩盖真正停滞；就绪信号和总期限分别负责正确性与资源上限。
+- **维持平台与 Core 两侧各自持有 LSP 生命周期状态**：改动成本最低，但文档生命周期、初始化、请求、传输、诊断和关闭六个关注点会重复且互相竞争，因此收敛为 Core 单一持有。
+- **会话和 capability 用多个独立布尔字段表示**：布尔组合会产生无法枚举的中间态，因此改为单一判别状态加独立的 `unknown`/`known` 标记。
+- **把 catalog 的 `languageServer` 标记当作功能支持的证明**：catalog 只是"可尝试启动的工具"清单，功能是否支持只能由 `initialize` 响应和动态注册结果决定。
+- **发现不到工具时自动下载或安装**：项目配置属于受信任的可执行工具配置，一旦允许任意安装命令或跳过路径/URL 校验，会把不安全的通用安装逻辑暴露给项目文件；因此发现只查找，安装需要用户自行完成。
+- **依赖系统 `JAVA_HOME` 运行 JDT**：语言服务的 JDK 版本与项目运行的 JDK 经常不一致，读取系统环境会引入不可控的版本漂移，因此语言服务使用随插件声明的固定 JDK。
 
 ## 后果
 
-- 无进度但仍在工作的导入可使用完整准备时间；真正停滞但未报错的导入也会等到
-  总期限，用户仍可关闭工作区或重启语言服务。不能用任意日志来不断延长总期限。
-- 不缓存空定义会增加重复悬停失败位置时的查询，但仍保留防抖、单请求并发和
-  点击优先级。成功结果的缓存继续减少正常使用时的请求。
-
-- Windows 首次打开 Java 文档需要等待 Git 首轮查询完成；大型仓库的语言服务
-  会相应晚启动，但减少了两者竞争导致 Git 超时的机会。Git 失败时只等待已有
-  操作期限，随后允许 Java 继续，并由 Git 界面的独立重试恢复仓库数据。
-- 新语言服务器接入只需要在 Rust Core 一侧实现生命周期，Swift/Windows
-  平台只做工具发现和 UI 投影，不再需要在两侧分别维护状态机。
-- 单个 provider 的失败、缺失或空结果不会阻断仍可工作的本地能力，
-  故障隔离在路由层完成。
-- 代价：Rust Core 承担了更大的状态面（session registry、每会话
-  的文档版本/deadline/诊断），跨语言服务器的行为差异必须进入
-  provider adapter 或 descriptor，不能在 UI 或 manager 里按语言分支，
-  这对新增语言服务器提出了更高的前期设计要求。
-- JDTLS 的确定性打包（固定 Temurin 21 + manifest 校验）换来了"正式
-  包不依赖用户环境"的稳定性，但也意味着升级 JDTLS 或 JDK 版本必须
-  走构建期的 manifest 更新流程，不能靠用户本地环境自愈。
-- 需要重新评估的触发条件：如果需要支持 socket/TCP transport 或
-  multi-root session，当前单 provider/单 workspace root 的假设需要
-  重新设计；性能数据证明有必要时，可以收紧 catalog 探测缓存或
-  provider 优先级，但收紧后仍须保证 `initialize` 响应始终是 capability
-  的唯一真值来源。
+- 无进度但仍在工作的导入可以使用完整的准备时间；真正停滞但未报错的导入会等到总期限，用户仍可关闭工作区或重启语言服务。不能用任意日志不断延长总期限。
+- 新语言服务器接入只需要在 Core 一侧实现生命周期，平台只做工具发现和 UI 投影，不需要在各端维护状态机。
+- 单个 provider 的失败、缺失或空结果不会阻断仍可工作的本地能力，故障隔离在路由层完成。
+- 代价：Core 承担了更大的状态面（会话注册表、每会话的文档版本、期限和诊断），跨语言服务器的行为差异必须进入 provider 适配器或描述符，不能在 UI 或 manager 里按语言分支，这对新增语言服务器提出了更高的前期设计要求。
+- 需要重新评估的触发条件：需要 socket/TCP transport 或多根会话时，当前单 provider、单根的假设需要重新设计。
 
 ## 验证
 
-macOS 状态栏投影、停止/重启的偏好边界、过期激活身份、按服务器过滤与清空由
-`macos/Tests/LitheTests/LanguageServerStatusTests.swift` 覆盖。使用
-`./.agents/skills/write-stable-tests/scripts/test-stability-macos.sh -- --filter LanguageServerStatusTests`
-记录逐项计时，并运行 `./scripts/desktop/verify/verify-runtime-bundle-immutability.sh`。
-这些组件回归不替代真实多语言服务、明暗主题及编辑器标签交互验收。
-
-本次等待策略由 `jdt_progress.rs` 的受控时钟测试和 `engine.rs` 的模拟服务测试
-覆盖：45 秒静默仍可就绪、警告去重、变化后再次警告、持续进展也不能越过总期限。
-共享示例位于 `shared/fixtures/lsp/jdt-readiness-v1.json`。Windows 的
-`definition-link.test.ts` 和 `definition-link-scheduler.test.ts` 验证失败恢复、
-成功缓存复用、重启/文档归属变化和迟到结果丢弃，进入 Windows CI 独立计时进程。
-Linux 的模拟验证不能代替 Windows WebView2 或报告者项目的实机验收。
-
-Windows 语义颜色使用 `lsp-core-adapter.test.ts` 和
-`semantic-token-provider.test.ts` 消费同一份
-`Lithe-core-rust/rust/fixtures/lsp/semantic-tokens-v1.json`，覆盖命令路由、图例转换、刷新通知、
-取消、归属替换、同步先后顺序及过期模型。Linux 可运行这些确定性前端测试；
-真实 JDTLS 与 WebView2 上色、大文件降级仍需 Windows 验收。
-
-Windows 启动回归由 `workspace-git-bootstrap.test.ts` 验证恢复 Java 文档与后台
-共用准备任务、子仓库未完成时不启动 Maven、失败后继续、关闭重开丢弃旧结果，
-以及文件树仍能匹配主仓库的修改标记。相关用例与扫描合并、Git 历史恢复用例
-一起进入 Windows CI 的 Git 隔离测试清单；使用
-`.agents/skills/write-stable-tests/scripts/run-bun-tests-with-timing.mjs` 输出单例计时。
-
-迁移完成的判定标准（均已通过测试验证）：未初始化的进程不能变为
-ready；initialize 出错不能变为 ready；两次 sync 分别产生 open
-version 1 和 change version 2；崩溃会以 `serverExited` 使所有 pending
-操作失败；请求 deadline 会移除 pending 请求；超时后的迟到响应被
-忽略；旧 session 的响应不能影响重启后的新 session；旧 session/旧
-文档版本的诊断被忽略；以解析后路径发布的诊断仍然送达通过符号链接
-打开的文档；关闭文档会清除 Rust 侧文档和诊断状态；
-shutdown 在收到响应后发送 exit，超时则强制终止；`Content-Length`
-畸形产生 transport failure；不完整的 stdout frame 会被保留并在 Rust
-侧补全；连续 frame 按顺序解析；动态 capability 注册/反注册会更新
-可用性；workspace 替换会停止旧 root 并清除其状态。架构搜索需确认
-生产 Swift 代码不再持有 LSP `Content-Length`、原始 JSON-RPC 请求 ID、
-frame 缓冲区、open-document 集合、pending LSP 请求或语言服务器子
-进程。
-
-真实 gopls 集成验证见
-`macos/Tests/LitheTests/RealGoplsIntegrationTests.swift`（已随 #1794 移除）
-头部注释里的运行方式和所需环境变量。接入新语言服务器的检查清单见
-`rust/lithe-core/src/lsp/languages/catalog.rs`（已随 Core #23 移除）
-头部注释。
-
-补全接受与当前编辑器增量模型保持一致：窗口只取不可变 rope 快照，后台调用 Core 应用语义编辑并使用既有 rope 差异接口计算变更范围，回到窗口后确认版本再应用该范围。不得把 Core 返回的整篇结果作为整篇编辑重新发送给 LSP。`TestSemanticReplacementKeepsUnchangedTextOutOfEditAndUndo` 覆盖局部通知及撤销/重做；Core 的现有 `lsp.applyTextEdits` 仍接收完整文本，后台跨边界开销尚未改为增量接口。
+- Core 侧：共享 fixture 覆盖 LSP 状态与协议（未初始化进程不能变为 ready；initialize 出错不能变为 ready；两次同步分别产生版本 1 的 open 与版本 2 的 change；请求期限会移除 pending 请求；超时后的迟到响应被忽略；关闭文档会清除诊断状态；畸形 `Content-Length` 产生 transport failure）。运行 `scripts/desktop/desktop-go.sh test ./internal/workbench/...` 与 `./internal/pluginlsp/...` 验证桌面侧适配。
+- 真实语言服务端到端：`desktop/internal/workbench/pluginsync_e2e_test.go` 与 `pluginsemantics_e2e_test.go` 使用真实语言服务器覆盖打开、增量编辑、诊断到达、保存、关闭和项目切换；这类用例依赖本机工具，不能替代 Windows 实机验收。
+- 路径归属：`scripts/desktop/verify/verify-runtime-bundle-immutability.sh` 确认语言服务器相关的运行时资源不写入发行目录。
+- `./scripts/agent-notes/verify-agent-notes.sh`
 
 ## 适用范围
 
-- Lithe-core-rust 锁定修订：[rust/lithe-core/src/lsp/](https://github.com/Lithe-IDEA/Lithe-core-rust/tree/0ffd327b4329261e393b08ed76fbd134b4dd17e9/rust/lithe-core/src/lsp)
-- Lithe-core-rust 锁定修订：[rust/lithe-core/resources/lsp/language-providers.json](https://github.com/Lithe-IDEA/Lithe-core-rust/blob/0ffd327b4329261e393b08ed76fbd134b4dd17e9/rust/lithe-core/resources/lsp/language-providers.json)
-- `docs/reference/language-providers.schema.json`
-- ~~`macos/Sources/LitheLanguageIntelligenceModule/`~~（已随 #1794 移除）
-- ~~`macos/Sources/Lithe/Core/Rust/RustCoreBridge.swift`~~（已随 #1794 移除）
-- ~~`macos/Sources/Lithe/Core/Ports/LanguageTooling.swift`~~（已随 #1794 移除）
-- ~~`macos/Tests/LitheTests/RealGoplsIntegrationTests.swift`~~（已随 #1794 移除）
-- ~~`windows/tauri/src/features/editor/lsp/`~~（已随 #1794 移除）
-- ~~`windows/tauri/src/features/workspace/services/workspace-git-bootstrap.ts`~~（已随 #1794 移除）
+- Core 仓库的 [`rust/crates/lsp-engine/`](https://github.com/Lithe-IDEA/Lithe-core-rust/tree/main/rust/crates/lsp-engine) 与 [`rust/crates/lsp-transport/`](https://github.com/Lithe-IDEA/Lithe-core-rust/tree/main/rust/crates/lsp-transport)
+- `desktop/internal/pluginlsp/`
+- `desktop/internal/workbench/pluginsync.go`
+- `desktop/internal/workbench/pluginsemantics.go`
+- `desktop/internal/editorview/`

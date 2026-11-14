@@ -30,14 +30,8 @@ Viva 迁移相对旧基线删除了大量客户端和内核源文件。此前门
 
 ## 验证
 
-- `./.agents/skills/write-stable-tests/scripts/verify-test-stability.sh --base origin/preview`
-  已通过；相对旧基线约 22 MiB 的相关差异仍在原有有界缓冲内。
-- 自检加入超过 64 MiB 的无关差异和 Rust 测试移动夹具，用真实 Git 仓库验证过滤。
-  该部分通过，但完整自检后续依赖迁移时已删除的 `.github/workflows/ci-windows.yml`，
-  因文件缺失未能在当前工作树全部完成。将迁移前工作流放入隔离的临时夹具后，
-  同一份工具自检通过；这仅验证工具，不能证明当前 CI 仍运行旧工作流。旧 Windows
-  JDT 测试覆盖未因此视为已迁移；需要单独
-  恢复对应产品能力和 CI 验收，而不是删除该断言掩盖缺口。
+- `./.agents/skills/write-stable-tests/scripts/verify-test-stability.sh --base origin/preview`：只读取 Rust、Swift 与 TypeScript 测试文件的差异；相对基线的相关差异仍在原有有界缓冲内。
+- 工具自检覆盖超过 64 MiB 的无关差异和 Rust 测试移动夹具，用真实 Git 仓库验证过滤。自检不依赖任何具体 CI 工作流文件。
 
 ## 适用范围
 

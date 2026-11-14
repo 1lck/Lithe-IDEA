@@ -16,46 +16,9 @@
 
 ## 问题
 
-### 体积：数据库在主包里占多少
+### 现状：逻辑重复，Windows 没有可用的数据库功能
 
-2026-10-24 在本机 Lithe 0.6.0（arm64）上测量：
-
-| 部分 | 大小 |
-| --- | --- |
-| 整个 `Lithe.app` | 557 MB |
-| `Contents/Resources/LanguageServers` | 397 MB |
-| `Contents/MacOS/Lithe`（主程序，含数据库界面代码） | 105 MB |
-| `Contents/Helpers/lithe-db-sidecar` + `lithe-db-mcp` | 约 9.4 MB |
-
-数据库的体积主要来自两个后端程序。不过，这次拆分的目的不只是体积：数据库还应该能单独安装、更新和卸载，并且两端共用一份实现。
-
-### 现状：逻辑分布在哪里
-
-| 层 | macOS | Windows | 是否共享 |
-| --- | --- | --- | --- |
-| 驱动与执行 | `rust/lithe-db-sidecar`，约 5400 行，支持 mysql、mariadb、postgresql、sqlite、sqlserver、mongodb、redis、nacos | `package-database-sidecars.ts` 要构建 `lithe-database` crate，仓库中没有这个 crate | 否 |
-| 协议 | Swift 结构体（`DatabaseSidecarService.swift`）与 Rust serde 各自定义 | `features/database/types/` 里另一套 TS 类型 | 否，没有共享契约和测试样例（fixtures） |
-| 领域规则 | `LitheDatabaseModule` 的 Models、Services，以及 `DatabaseFeatureModel` | TS store | 否 |
-| 界面 | `Views/Database/`，约 6700 行 SwiftUI | `features/database/`，约 9400 行 React | 各写一套 |
-
-### 已经出现的偏差
-
-1. **Windows 从来没有能用的数据库功能。**
-   - 前端调用 `connect_database`、`run_database_provider_command` 等 9 个 Tauri 命令，`windows/tauri/src-tauri/src/main.rs` 的命令注册表里一个都没有。
-   - 这批前端代码在 2026-08-14 “React Tauri 替换 Qt 前端”时一次导入。仓库任何分支的历史里都没有对应后端，Qt 时期也没有数据库功能。
-   - 用户能碰到这条坏路径：`file-utils.ts` 把 `.db`、`.sqlite`、`.duckdb` 文件交给数据库查看器，随后调用失败。
-   - 功能矩阵把 Windows 的四项数据库能力标为 `implemented`；README 把数据库工作台列为核心功能，没有注明只支持 macOS。
-2. **macOS 把领域规则写在了壳里。**
-   - SQL 分析、语句拆分和格式化（`DatabaseSQLSupport.swift`）；
-   - 结构对比、按方言生成 DDL（`DatabaseSchemaDiff.swift`）；
-   - DBX 导入解密（`DatabaseDBXImportService.swift`）；
-   - 字段遮罩、查询历史和定时备份。
-
-   这些都写在 Swift 里，`DatabaseFeatureModel.swift` 有 2700 多行。
-3. **同一条规则写了三份，并且已经不一致。**
-   - “SQL 是什么类型、是否危险”分别由 Swift 的 `DatabaseSQLAnalyzer`（先去注释再按词判断）、sidecar 的 `is_dangerous_sql`（字符串匹配）和 mcp 的 `classify_sql`（另一套前缀匹配）判断。
-   - 一个例子（由代码推导，未实机复现）：连接开启生产保护后，执行 `DELETE FROM users`，换行后再写 `WHERE id = 1`。Swift 判断不需要确认，sidecar 却因为找不到 `" WHERE "` 而拒绝执行。macOS 不处理它返回的 `confirmation_required`，用户只看到报错，没有确认入口。
-   - 反过来，开头带一行注释或使用 `WITH … DELETE` 的语句，能绕过 sidecar 的判断。
+数据库的驱动、协议、领域规则和界面在旧 macOS 客户端与旧 Windows 前端中各写一份，互不共享。主程序因此随包携带两个数据库后端程序（约 9 MB）以及数千行只属于数据库的界面代码。Windows 前端调用的数据库命令从来没有对应的后端，用户打开数据库文件时只会遇到失败。同一条规则也出现了不一致：例如 SQL 的危险判定在界面、sidecar 和 MCP 中各有一套，换行分隔的 `WHERE` 会让界面与后端给出不同结论，界面也不处理后端返回的确认请求。
 
 ### 现有插件契约为什么装不下
 
@@ -79,7 +42,6 @@
 | --- | --- |
 | 组织仓库 `Lithe-IDEA/lithe-plugin-database`（新建） | Rust 后端（从 `lithe-db-sidecar` 演进，吸收 `lithe-db-mcp` 的查询能力）、网页界面、`plugin.json`、数据库专属的测试样例和兼容性测试 |
 | 主仓库 | 只保留通用能力：契约、Rust Core 校验、两端宿主实现、Rust 后端 SDK 的契约测试 |
-| 主仓库最终删除 | `macos/Sources/LitheDatabaseModule/`、`macos/Sources/Lithe/Views/Database/`、`rust/lithe-db-sidecar/`、`rust/lithe-db-mcp/`、`windows/tauri/src/features/database/` 及打包脚本中的数据库部分 |
 
 插件仓库只依赖公开契约：Core 仓库 `shared/plugins/contract/v1/` 的契约加官方 SDK（同在 Core 仓库的 `shared/plugins/sdk/`），和 Cargo、SVN 插件的做法相同。主仓库不再按“数据库”写任何分支。
 
@@ -114,14 +76,6 @@
 
 ### 六、老用户迁移
 
-- **只迁给 Lithe Store 上的那份插件。** 社区包不带 Lithe 签名，插件 ID 谁都能用，所以垫片不认 ID，只认来源：安装记录必须是从 Lithe Store（`PluginMarketplaceSource.communityID`）安装的社区包，且索引条目的仓库地址正是 `https://github.com/Lithe-IDEA/lithe-plugin-database`（`DatabasePluginTransition.repository`）。从磁盘安装、来自其他市场来源或仓库地址不同的同 ID 包得不到任何旧数据和密码，也不写迁移标记，之后改从 Lithe Store 安装仍会迁移。安装后的文件每次加载都按内容摘要复核，安装后被改动的包不会加载。
-- 迁移由宿主的过渡垫片 `MacDatabasePluginMigration` 完成。它挂在插件后端的启动路径上（`MacPluginBackendSessions` 的 `prepareState`），在数据库插件后端第一次启动、读取状态之前运行，所以插件永远不会先看到空状态。
-- 迁移内容：偏好里的连接（`database.profiles.v1`）、文件夹（`database.connection-folders.v1`）和 SQL 历史（`database.sql-history.v1`）写进插件的 `${stateDir}`（`connections.json`、`sql-history.json`）；“永久”密码从旧 Keychain 服务移到插件凭据（key 为 `connection:<id>:password`）。旧的 `group` 字段变成顶层文件夹；历史只保留属于现存连接的最近 100 条，时间从 2001 年起算的秒换成 1970 年起算的毫秒。“直到重启”的密码本来就不落盘，不迁移。
-- 顺序有讲究：先迁密码，再写历史，最后写 `connections.json`，然后才写迁移标记。这样任何一步失败，下次启动都会重试；`connections.json` 的存在表示插件已有自己的状态，之后永远不会被覆盖。迁不动的密码只记日志（不含密码本身），对应连接改为重新询问。
-- 旧数据原样保留，旧版 Lithe 仍能读到。备份计划和恢复点没有迁移，因为旧模块里没有任何界面能列出或使用它们。
-- 升级后，保存过连接、又没装插件的用户会看到一次通知“数据库已改为插件……”，带“打开插件市场”按钮（`DatabasePluginTransition`、`AppModel+DatabasePlugin`）。不自动在后台下载。通知按钮是通用能力：带动作的工作台通知会一直保留到用户处理。
-- 垫片同时知道旧模块和插件的存储格式，这是有意为之的过渡代码；等所有受支持的 Lithe 版本都不再内置数据库模块后删除。
-
 ### 七、Windows
 
 - 功能矩阵中 Windows 的数据库能力为 `missing`；`.db`、`.sqlite`、`.duckdb` 文件按普通文件打开。
@@ -152,7 +106,6 @@
 
 ### 不要这样做
 
-- 在主仓库的 Swift 或 TS 中，为数据库再写判断逻辑或专属界面。
 - 为了让数据库插件通过校验，把它声明成构建系统，或者造一个空语言。
 - 让插件把密码写进自己的状态文件，或者写进插件安装目录。
 - Windows 宿主为数据库插件单独做一套桥接方法。
@@ -160,8 +113,6 @@
 ## 考虑过的备选方案
 
 ### 界面留在宿主，两端各画一套原生界面，驱动做成插件
-
-它最吸引人的地方是 macOS 保持 SwiftUI 原生体验，宿主侧改动小。不采用，因为主仓库仍要保留数据库专属界面，两端还是各写一套；“代码移出主仓库、双端一份”的目标达不到。
 
 ### 宿主提供通用的表格、SQL 编辑器组件，插件只提供数据
 
@@ -177,35 +128,27 @@
 
 ## 后果
 
-- `Lithe.app` 不再包含 `lithe-db-sidecar`、`lithe-db-mcp`、数据库图标和数据库界面代码；主仓库删除了 `LitheDatabaseModule`、`Views/Database/`、两个 Rust crate、Windows 的 `features/database/`、数据库 CI 工作流与分流、打包脚本中的数据库部分和对应测试。
 - **发布顺序是硬约束：** 主程序删除数据库后，老用户只能从插件找回功能。所以插件的第一个版本必须先在插件仓库发布，并在 Lithe Store 的 `lithe-plugin-index.json` 登记，之后才能发布不含数据库的 Lithe。
 - **信任边界：** 不带签名，信任来自 Lithe Store 的收录审查和索引固定的 SHA-256。如果用户移除了 Lithe Store 来源，或只从磁盘安装，旧连接和密码就不会迁入（旧数据仍保留）。Lithe Store 收录这个插件的更新时，维护者要像审查代码一样审查，因为它会拿到迁移过来的密码。
-- **网页界面体验：** macOS 上不再是原生 SwiftUI。插件使用宿主注入的主题变量和语言上下文贴近宿主风格；数据表格和 SQL 编辑器由插件自带，包体积和性能需要随版本实测。
 - **Windows 暂时没有数据库功能：** 第 6 期依赖 Windows 插件宿主和插件市场；在此之前 Windows 用户看不到数据库入口（以前的入口本来就不能用）。
 - Agent 用的数据库工具暂时没有。以后由插件以插件函数提供，登记进现有 `lithe` MCP，不再单独起 MCP 进程。
 
 ## 验证
 
-- ~~./scripts/macos/test/test-macos.sh --filter "MacDatabasePluginMigrationTests|MacPluginBackendSessionsTests|WorkbenchNotificationTests"~~（随旧客户端移除）：迁移的内容、格式、只执行一次、不覆盖插件自有状态、密码迁移失败的处理；磁盘安装、其他来源和其他仓库地址的同 ID 包得不到旧数据，之后从 Lithe Store 安装仍会迁移；迁移先于后端启动并拿到安装记录；带动作的通知和一次性安装提示。
-- ~~./scripts/architecture/verify-module-boundaries.sh~~（随旧客户端移除） 与 ~~./scripts/architecture/verify-shared-contracts.sh~~（随旧客户端移除）：内置模块列表和共享模块样例中不再有数据库模块。
-- `bash scripts/ci/common/test-classify-ci-changes.sh` 与 `node --test scripts/ci/common/ci-workflow-gates.test.mjs`：CI 分流不再有数据库通道。
+- 插件仓库的 `node scripts/e2e.mjs`：用 Core 启动打包好的插件后端，回答凭据请求，走完 SQLite 连接的全部页面函数，并确认安装包未被改写。
 - `./scripts/desktop/verify/verify-runtime-bundle-immutability.sh`：运行时不向发行目录写入。
-- 2026-10-24 手工验收（macOS 开发版身份 `app.lithe.desktop.dev`，与正式版偏好和 Keychain 隔离）：写入旧模块的连接、文件夹、历史和密码后启动，出现一次性通知，经“打开插件市场”从 Lithe Store 安装 Database 0.1.0，重启后打开工具窗口，连接全部可见；插件状态与凭据按“六、老用户迁移”的规则落地。验收数据随后全部清除。
-- 插件仓库的 `node scripts/e2e.mjs`：用 Lithe 的 Rust Core 启动打包好的插件后端，回答凭据请求，走完 SQLite 连接的全部页面函数，并确认安装包未被改写、状态目录只有 `connections.json` 和 `sql-history.json`。
+- `./scripts/agent-notes/verify-agent-notes.sh`。
 
 ## 已定决策
 
 2026-10-24 与用户确认：
 
-- 界面使用插件网页，不保留 SwiftUI 原生数据库界面；
 - 插件放在组织仓库，主仓库不保留数据库专属代码；
-- ~~使用带 Lithe 签名的官方身份~~（同日改为先作为社区插件发布，见下）；
 - 后端为长期运行的 Rust 插件后端；
 - macOS 先上线，Windows 等宿主和插件市场就绪后跟上；
 - 老用户提示一键安装，不自动下载；
 - 现有 Windows 数据库前端不迁移；
 - 暂不支持 DuckDB；
-- ~~签名在组织仓库 CI 中完成，私钥是插件仓库的受保护 secret~~（随社区插件决定取消）；
 - 远程开发第一版只在本机运行数据库后端，远端数据库通过 SSH 隧道访问；
 - Windows 这次不做插件侧适配，等 Windows 插件市场就绪后再小幅调整；
 - 第 1 到第 5 期在同一个 PR 中分步提交，不拆成多个小 PR；
@@ -223,15 +166,9 @@
 
 ## 适用范围
 
-- ~~`macos/Sources/Lithe/Platform/MacOS/Plugins/MacDatabasePluginMigration.swift`~~（已随 #1794 移除）
-- ~~`macos/Sources/Lithe/Platform/MacOS/Plugins/MacPluginBackendSessions.swift`~~（已随 #1794 移除）
-- ~~`macos/Sources/Lithe/Platform/MacOS/Plugins/MacPluginCredentialStore.swift`~~（已随 #1794 移除）
-- ~~`macos/Sources/Lithe/Application/Features/DatabasePluginTransition.swift`~~（已随 #1794 移除）
-- ~~`macos/Sources/Lithe/Application/Features/PluginHostServices.swift`~~（已随 #1794 移除）
-- ~~`macos/Sources/Lithe/Models/AppModel/AppModel+DatabasePlugin.swift`~~（已随 #1794 移除）
+- `desktop/internal/marketplace/`
+
 - `https://github.com/Lithe-IDEA/Lithe-core-rust/blob/main/shared/plugins/contract/v1/`
 - Lithe-core-rust 锁定修订：[rust/lithe-core/src/plugins/backend.rs](https://github.com/Lithe-IDEA/Lithe-core-rust/blob/0ffd327b4329261e393b08ed76fbd134b4dd17e9/rust/lithe-core/src/plugins/backend.rs)
 - Lithe-core-rust 锁定修订：[rust/lithe-core/src/lsp/interface/plugin_function.rs](https://github.com/Lithe-IDEA/Lithe-core-rust/blob/0ffd327b4329261e393b08ed76fbd134b4dd17e9/rust/lithe-core/src/lsp/interface/plugin_function.rs)
 - `shared/platform-feature-matrix/features/`
-
-相关 Note：[统一 VCS 模型与 Provider 接入](../../proposed/architecture/2026-10-22-unified-vcs-provider-model.md)（同类 provider 做法）、[旧模块运行时抽取路线](../../rejected/architecture/2026-09-13-module-runtime-extraction-roadmap.md)（当时将数据库列为适合插件化；Swift 抽取路线已被 Viva 迁移取代）、[插件自带网页界面](2026-10-18-plugin-web-content-in-host-windows.md)、[插件市场](../feature/2026-10-12-plugin-marketplace.md)。

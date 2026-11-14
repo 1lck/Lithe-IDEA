@@ -46,7 +46,7 @@ description: 在 Lithe 仓库进行实现、重构、缺陷修复、审查、调
 | 新增插件 API，或把内置工具迁移为插件 | `.agents/notes/implemented/architecture/2026-10-31-plugin-capability-and-domain-boundaries.md` |
 | 创建插件，或为已有插件新增提供者 | `.agents/skills/create-lithe-plugin/SKILL.md` |
 | 编写或审查涉及插件的测试、功能矩阵条目、界面文案或资源登记 | 本文件第三节“插件归属与宿主零依赖” |
-| macOS 界面、控件或视觉交互 | [macOS 共享控件规范](references/macos-ui.md)，以及其中与本次改动相关的 Note |
+| 界面、控件或视觉交互 | [原版视觉与交互基线](references/macos-ui.md)，以及其中与本次改动相关的 Note |
 | 滚动列表、树、表格、日志、长文本或分页列表 | [滚动内容与连续列表](references/scrolling-content.md) |
 | 编辑器模块（`desktop/internal/editor/**`、`desktop/internal/editorview/**`）或它的性能基线 | [编辑器性能基线](references/editor-performance.md) |
 | 升级 Viva、修复 Viva 缺陷，或改动使用 Viva 命令行工具的脚本 | `.agents/notes/implemented/process/2026-11-11-viva-fork-maintenance-and-commit-pin.md` |
@@ -261,7 +261,7 @@ rg -n -i 'io\.github\.lithe-idea\.|lithe-idea/lithe-plugin-|PLUGIN_(ARCHIVE|MANI
 
 ### 共享控件
 
-界面改动前必须读 [macOS 共享控件规范](references/macos-ui.md) 作为原版视觉和交互基线。Viva 业务视图只提供内容和动作，复用现有共享控件；Windows 也使用同一 Viva 界面，不再引用旧 Tauri 组件路径。
+界面改动前必须读 [原版视觉与交互基线](references/macos-ui.md)。Viva 业务视图只提供内容和动作，复用现有共享控件；Windows 也使用同一 Viva 界面，不再引用旧 Tauri 组件路径。
 
 ### UI 改动必须提供无头截图证据
 

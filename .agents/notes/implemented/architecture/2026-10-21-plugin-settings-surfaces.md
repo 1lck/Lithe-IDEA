@@ -4,7 +4,7 @@
 
 ## 先说结论
 
-macOS 设置窗口现在可以由插件“注册”页面：插件在 `plugin.json` 里声明设置项放在哪个语言页或构建系统页（`page`）、属于哪个分组（`section`）、能否按项目覆盖（`scope`）、改完何时生效（`effect`），以及页面上的按钮（`settingActions`）。宿主只提供通用的页面、分组、控件、项目/全局切换、状态卡片和按钮，**不写任何针对某个语言、构建工具或插件的设置页和按钮**。
+设置窗口现在可以由插件“注册”页面：插件在 `plugin.json` 里声明设置项放在哪个语言页或构建系统页（`page`）、属于哪个分组（`section`）、能否按项目覆盖（`scope`）、改完何时生效（`effect`），以及页面上的按钮（`settingActions`）。宿主只提供通用的页面、分组、控件、项目/全局切换、状态卡片和按钮，**不写任何针对某个语言、构建工具或插件的设置页和按钮**。
 
 “立即生效”的设置通过 LSP 的 `workspace/configuration` 推给正在运行的语言服务器，不需要重启。项目级的值写进项目里的 `.lithe/plugin-settings.json`，团队可以通过版本控制共享。
 
@@ -27,21 +27,19 @@ macOS 设置窗口现在可以由插件“注册”页面：插件在 `plugin.js
 
 ### 1. 宿主只认“注册点”，内容全部来自清单
 
-`PluginSettingsRegistry`（`macos/Sources/Lithe/Application/Features/PluginSettingsRegistry.swift`）从插件快照推导出侧栏页面：
+设置页由通用注册面生成：`desktop/internal/settingswindow` 负责页面、分组、控件、项目/全局切换和按钮；取值与存储由 `desktop/internal/pluginsettings` 和 Core 的 `plugins.declarative.*` 提供。
 
 - 已启用插件为某语言提供语言服务器，或把设置/按钮放到 `{"languageID": …}`，就出现“语言与框架 › <语言>”页。
 - 设置/按钮放到 `{"buildSystemID": …}`，或构建系统声明公共原生配置投影，就出现“构建、执行、部署 › <构建系统>”页。
 - 没有 `page` 的设置只留在插件详情的“设置”标签页。
 
-页面由 `ContributedSettingsPageView` 统一绘制：语言页先显示通用的语言服务状态卡（状态、按项目开关、重启），然后按插件列出它放到这一页的设置和按钮。控件由 `PluginSettingsSection` 根据设置类型选择，按 `section` 分组。原生配置由公共 `buildProviders: 7` 声明，使用同页的通用来源/草稿/保存控件，不进入插件偏好双层存储；来源、冲突保护和上游回读见 [真实配置编辑](2026-10-25-settings-native-configuration-editing.md)。
-
 正确做法：Elixir 插件想在 Elixir 页加“重建 PLT”按钮，就在清单里声明 `settingActions`，指向自己的插件函数。
 
-不要这样做：在 `SettingsView` 里加 `case .elixir`，或在宿主里判断 `pluginID == "…"` 来画按钮。
+不要这样做：在设置窗口里加 `case .elixir`，或在宿主里判断 `pluginID == "…"` 来画按钮。
 
 ### 2. 按钮 = 调用插件自己的函数
 
-`settingActions` 的每个按钮调用同一插件的[插件函数](2026-10-20-plugin-function-contract.md)，参数为空对象。宿主走和插件网页相同的路径：在当前项目里找到该插件的构建实例，经它自己的 Provider 进程调用（`AppModel.runPluginSettingAction`）。宿主不知道函数做什么；`confirm: true` 时先弹确认。
+`settingActions` 的每个按钮调用同一插件的[插件函数](2026-10-20-plugin-function-contract.md)，参数为空对象。宿主走和插件网页相同的路径：在当前项目里找到该插件的构建实例，经它自己的 Provider 进程调用。宿主不知道函数做什么；`confirm: true` 时先弹确认。
 
 没有打开项目、或项目里没有该插件的构建实例时，按钮给出“不可用”的提示，不会启动别的进程。按钮由用户在宿主绘制的界面上主动点击，所以不再像网页调用那样额外询问“是否启动 Provider”。
 
@@ -52,13 +50,13 @@ macOS 设置窗口现在可以由插件“注册”页面：插件在 `plugin.js
 - 全局值：应用偏好，`lithe.plugins.<id>.settings`。
 - 项目值：`<项目>/.lithe/plugin-settings.json`，按插件 ID 分组；文档为空时删除文件，`.lithe` 是指向项目外的符号链接时拒绝写入。
 
-宿主把两层原样交给 Core（`plugins.declarative.resolveSettings`、启动计划的 `projectSettings`），由 Core 合并。Swift 侧的 `PluginSettingState.resolve` 只用于界面即时显示，规则与 Core 一致；文本和路径的 `maxLength` 按 Unicode scalar 计数，避免组合字符在宿主接受后被 Core 回退默认值。
+宿主把两层原样交给 Core（`plugins.declarative.resolveSettings`、启动计划的 `projectSettings`），由 Core 合并。界面若需要本地即时计算，`PluginSettingState` 之类的显示辅助只用于即时显示，规则必须与 Core 一致；文本和路径的 `maxLength` 按 Unicode scalar 计数，避免组合字符在宿主接受后被 Core 回退默认值。
 
 这两个位置都不在 app bundle 内，不影响代码签名和 Sparkle 增量更新。
 
-### Windows 后台保存的事务边界
+### 后台保存的事务边界
 
-Windows 将设置文件操作移到后台线程后，必须对完整的读取、修改、发布或删除过程加互斥。当前使用进程级设置事务锁，连指向同一工作区的不同路径写法也不会绕开保护；写入使用独立临时文件，并在成功和失败时回收。正确做法是持锁后重新读取最新值、只修改目标设置，再发布；不能只锁最后一次 rename，否则两个窗口仍会互相覆盖字段。该锁只协调本次应用进程，不宣称解决外部编辑器同时改写文件的冲突。
+设置文件操作移到后台线程后，必须对完整的读取、修改、发布或删除过程加互斥。当前使用进程级设置事务锁，连指向同一工作区的不同路径写法也不会绕开保护；写入使用独立临时文件，并在成功和失败时回收。正确做法是持锁后重新读取最新值、只修改目标设置，再发布；不能只锁最后一次 rename，否则两个窗口仍会互相覆盖字段。该锁只协调本次应用进程，不宣称解决外部编辑器同时改写文件的冲突。
 
 锁住所有插件设置会让不同文件的写入也串行，但设置保存频率低且不再阻塞界面线程；相比按路径维护锁表，不需要长期保留路径身份或处理别名。位置仍是用户数据和工作区，临时文件跟随一次事务，不写入安装目录，不影响代码签名或 Sparkle delta。
 
@@ -85,7 +83,7 @@ Core 先校验完整候选集、排定顺序，再按平台过滤。数组从前
 id 建立相对顺序约束。插入约束优先，不能在同一候选混用 priority 或两个插入字段；
 重复 id、未知锚点、自环与循环都拒绝。契约正文定义完整的确定性算法，供后续使用方复用。
 
-macOS 的 `ExecutableCandidateResolver`（候选文件解析器）由宿主注入文件系统、
+宿主侧的候选解析器（候选文件解析器）由宿主注入文件系统、
 环境变量、Runtime 和工具发现服务，返回跳过、已解析或终止失败。设置值来自 Core
 检查后的同一操作快照；空值跳过，非空无效值直接拒绝，不能经过普通设置解析的
 “无效则回默认值”。普通设置的显示与配置容错不变。平台检查权限与版本，显式路径
@@ -103,43 +101,11 @@ Provider 继续接受宿主选中的工具，不重新实现一套覆盖路径�
 configuredExecutable。新插件必须用第五种候选和新能力；既有发行包不覆盖，迁移以新版本发布。
 
 路径偏好仍写既有用户存储，候选计划只在操作内存活，没有额外缓存或安装目录写入，
-不影响签名和 Sparkle delta。Core、Swift 与独立 Cargo CI 覆盖统一的选择和失败语义。
+不影响签名和 Sparkle delta。Core 与独立 Cargo CI 覆盖统一的选择和失败语义。
 
 ### 6. 宿主能力版本
 
-macOS 的 `hostCapabilities` 声明 `settings: [1, 2]`、`languageServers: [1, 2]` 和 `buildSystems: [1, 2]`。Windows 还没有这些界面和推送，所以仍只声明 1，需要 v2 的插件在 Windows 上会被市场隐藏，而不是装上后行为不完整。
-
-### 7. 路径选择按钮保留完整宽度
-
-插件详情页比完整设置窗口窄。路径输入框若固定占用 220 点，同时右侧作用域和
-生效标签保持完整，SwiftUI 会把“选择…”按钮压成没有文字的灰条。通用路径
-控件因此固定按钮的自然宽度，让输入框随剩余空间缩短；共享设置行的标题列
-以原来的 230 点为上限，窄面板时也允许缩短。宽面板仍保持原来的列宽。
-缩放只调整布局，不替换输入框实例，以免丢失尚未提交的路径。
-
-这与 IDEA Community 的文本框加浏览按钮采用相同的空间分配：检查的版本是
-`c7f91397daa3a961b4e78bc634fe467a0a7d9ade`，源码为
-`platform/platform-api/src/com/intellij/openapi/ui/TextFieldWithBrowseButton.java`
-及 `ComponentWithBrowseButton.java`。后者把文本框放在 `BorderLayout.CENTER`，
-把 `FixedSizeButton` 放在 `BorderLayout.EAST`，让输入部分承担宽度变化。
-macOS 保留既有原生控件和主题，只在通用 owner 中修复压缩规则，不为 Cargo
-增加专门的宽度或页面。
-
-### 8. 插件详情不能越过分隔线
-
-分隔容器分配了确定矩形，不代表子内容一定接受这个宽度。插件详情的表单
-有自己的最小宽度；窗口缩小后，原来的根容器会按更宽的内容居中，导致名称、
-页签和卡片跨进左侧列表，分隔线看起来穿过了详情。
-
-详情根视图必须接受分隔容器给出的宽度，并在自己的边界内绘制。设置页的
-原生表单在宽面板填满可用宽度；面板不足以容纳完整设置行时，使用同一个
-滚动容器横向查看，保留输入框、选择器和右侧状态标签。只裁剪超出的表单会
-让部分设置无法访问；提高整个设置窗口的最小宽度又会限制其他页面，因此
-不采用这两种单独修补方式。
-
-宽度只在详情正文的小容器里读取，用于分配可见区域。已构建的正文作为值
-传入，不在几何回调里重新加载插件、重建列表或保存宽度。拖动和持久化仍由
-既有 `LitheSplitPaneView` 负责，窄宽切换不替换表单实例。
+宿主在 `hostCapabilities` 中声明自己支持的能力版本。需要 v2 能力的插件在不支持的宿主上会被市场隐藏，而不是装上后行为不完整。
 
 ### 9. 插件包自带的设置文案翻译
 
@@ -175,11 +141,11 @@ macOS 保留既有原生控件和主题，只在通用 owner 中修复压缩规�
 
 ### 宿主自己合并取值
 
-Swift 和 Windows 各写一遍合并规则最直接，但两边一旦有细微差异，界面显示的值和实际启动使用的值就会不同。所以合并只在 Core 做，宿主只负责存储和显示。
+各平台各写一遍合并规则最直接，但两边一旦有细微差异，界面显示的值和实际启动使用的值就会不同。所以合并只在 Core 做，宿主只负责存储和显示。
 
 ### 宿主词条表翻译插件文字
 
-旧 macOS 客户端的做法是：官方插件的文字以英文原文为键，放进宿主的 `Localizable.strings`。这样第三方插件拿不到翻译，插件改一个字就失效，宿主还要跟着插件内容维护词条。所以不采用，改为插件包自带译文。
+旧客户端的做法是：官方插件的文字以英文原文为键，放进原生字符串表。这样第三方插件拿不到翻译，插件改一个字就失效，宿主还要跟着插件内容维护词条。所以不采用，改为插件包自带译文。
 
 ### 由 Store 索引提供翻译
 
@@ -187,7 +153,7 @@ Swift 和 Windows 各写一遍合并规则最直接，但两边一旦有细微�
 
 ### 宿主解析并合并语言文件
 
-Go 端直接读 JSON 再替换文字最省一次 Core 调用。但候选顺序、逐条回退和校验规则都要在 Windows 再写一遍，和“合并只在 Core 做”冲突。所以宿主只负责取字节，由 Core 决定用哪个文件、哪些条目。
+宿主直接读 JSON 再替换文字最省一次 Core 调用。但候选顺序、逐条回退和校验规则都要在宿主再写一遍，和“合并只在 Core 做”冲突。所以宿主只负责取字节，由 Core 决定用哪个文件、哪些条目。
 
 ## 后果
 
@@ -196,18 +162,11 @@ Go 端直接读 JSON 再替换文字最省一次 Core 调用。但候选顺序�
 - 代价：宿主无法为某个工具做专门的交互（例如自定义排版）；需要更复杂的界面时，只能扩展通用控件类型，而不是写专用页面。
 - 代价：项目设置文件会出现在用户仓库里，团队需要决定是否提交它。
 - 收益：任何插件都能自带设置文字的翻译，不需要宿主发版。代价：插件作者要自己维护每种语言的文件。语言文件目前只覆盖设置，其它插件文字以后按同一格式扩展。
-- 现有的 Java/Maven 项目设置页（`ProjectRuntimeSettingsView`、`LSPControlCenterView` 中的 Maven 重试）仍是宿主代码，属于历史遗留，后续应迁移到 Java 插件的声明里，不能作为新增特判的先例。
 
 ## 验证
 
-- Windows `plugin_host::settings::transaction_tests` 覆盖两个后台编辑保留各自字段、读取到前一次提交以及临时文件回收；既有 `settings_tests` 覆盖删除最后一个值、保留其他插件及损坏文件不被重置。
-
 - `cargo test -p lithe-core --lib settings_v2`：清单校验、分层合并与 `workspaceConfiguration` 展开。
 - `cargo test -p lithe-core --lib plugin_configuration`：会话按 section 应答、更新推送、宿主会话拒绝更新。
-- ~~./scripts/macos/test/test-macos.sh --filter PluginSettingsTests~~（随旧客户端移除）：项目层存储、作用域规则、页面注册、配置展开。
-- ~~./scripts/macos/test/test-macos.sh --filter SettingsSidebarLayoutTests~~（随旧客户端移除）：静态页面仍各归一个分组。
-- ~~./scripts/macos/test/test-macos.sh --filter PluginSettingsLayoutTests~~（随旧客户端移除）：480、640、900 点宽的深浅主题下，路径输入框和完整选择按钮都在容器内，按钮可调用选择器并写入所选路径。
-- ~~./scripts/macos/test/test-macos.sh --filter PluginDetailLayoutTests~~（随旧客户端移除）：实际 Java 插件表单在深浅主题中往返缩放，详情边界始终跟随分隔条，窄面板下右侧设置可经原生横向滚动到达。
 - 共享夹具：`Lithe-core-rust/shared/plugins/contract/v1/fixtures/settings/settings.plugin.json`。
 - Core `cargo test -p lithe-plugin-model localization` 与 `cargo test -p lithe-core settings_state_`：候选顺序、上限、逐条回退和拒绝原因；契约用例在 `fixtures/settings/localization-cases.json`。
 - `./scripts/desktop/desktop-go.sh test ./internal/pluginsettings -run 'Presented|Unreadable'`：按契约用例逐条比对 applied/rejected，保存回读保留译文，读不了的候选被跳过并上报，包内容不变。
@@ -220,12 +179,6 @@ Go 端直接读 JSON 再替换文字最省一次 Core 调用。但候选顺序�
 - Lithe-core-rust 锁定修订：[rust/lithe-core/src/plugins/settings.rs](https://github.com/Lithe-IDEA/Lithe-core-rust/blob/0ffd327b4329261e393b08ed76fbd134b4dd17e9/rust/lithe-core/src/plugins/settings.rs)
 - Lithe-core-rust 锁定修订：[rust/lithe-core/src/plugins/declarative.rs](https://github.com/Lithe-IDEA/Lithe-core-rust/blob/0ffd327b4329261e393b08ed76fbd134b4dd17e9/rust/lithe-core/src/plugins/declarative.rs)
 - Lithe-core-rust 锁定修订：[rust/lithe-core/src/lsp/interface/engine.rs](https://github.com/Lithe-IDEA/Lithe-core-rust/blob/0ffd327b4329261e393b08ed76fbd134b4dd17e9/rust/lithe-core/src/lsp/interface/engine.rs)
-- ~~`macos/Sources/Lithe/Application/Features/PluginSettingsRegistry.swift`~~（已随 #1794 移除）
-- ~~`macos/Sources/Lithe/Models/AppModel/AppModel+PluginSettings.swift`~~（已随 #1794 移除）
-- ~~`macos/Sources/Lithe/Platform/MacOS/Plugins/MacPluginSettingsStore.swift`~~（已随 #1794 移除）
-- ~~`macos/Sources/Lithe/Views/App/PluginSettingsSection.swift`~~（已随 #1794 移除）
-- ~~`macos/Sources/Lithe/Views/Components/LitheSettingsControls.swift`~~（已随 #1794 移除）
-- ~~`macos/Sources/Lithe/Views/App/ContributedSettingsPageView.swift`~~（已随 #1794 移除）
 - `https://github.com/Lithe-IDEA/Lithe-core-rust/blob/main/shared/plugins/contract/v1/README.md`
 - Lithe-core-rust 锁定修订：[rust/crates/plugin-model/src/settings/localization.rs](https://github.com/Lithe-IDEA/Lithe-core-rust/blob/3cff44040167971ea4384393238549d61e77746c/rust/crates/plugin-model/src/settings/localization.rs)
 - Lithe-core-rust 锁定修订：[shared/plugins/contract/v1/plugin-l10n.schema.json](https://github.com/Lithe-IDEA/Lithe-core-rust/blob/3cff44040167971ea4384393238549d61e77746c/shared/plugins/contract/v1/plugin-l10n.schema.json)

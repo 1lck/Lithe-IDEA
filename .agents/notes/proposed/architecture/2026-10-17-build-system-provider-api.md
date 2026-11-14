@@ -2,17 +2,15 @@
 
 状态：提议中
 
-> Viva 迁移状态：下文关于 macOS 宿主已经接入 Provider 的描述属于旧客户端；Viva 当前只有通用 Core 后端通信基础，尚未接入构建 Provider、工具窗口与运行配置。原有信任、生命周期、取消和诊断验收要求仍适用。
-
-> 2026-11-07 更新：本文提到的部分文件已不存在。Maven 专属逻辑已从 Core 与宿主移入 Maven 插件（[lithe-plugin-maven](https://github.com/Lithe-IDEA/lithe-plugin-maven)）（#1495）；宿主侧 Java 专属代码已删除（#1495）；运行、调试、入口标记与工具链改走通用插件 API（`run/start`、`debug/start`、`editor/registerActions`、`toolDefinitions`），实现见 [lithe-plugin-java](https://github.com/Lithe-IDEA/lithe-plugin-java)。下文保留当时的决策与理由，路径以“适用范围”里标注的去向为准。
+> Viva 迁移状态：桌面端目前只有通用 Core 后端通信基础，尚未接入构建 Provider、构建工具窗口与运行配置。Maven 与 Java 专属逻辑已移入插件仓库（[lithe-plugin-maven](https://github.com/Lithe-IDEA/lithe-plugin-maven)、[lithe-plugin-java](https://github.com/Lithe-IDEA/lithe-plugin-java)，#1495），宿主不再保留对应实现。原有信任、生命周期、取消和诊断验收要求仍适用。
 
 ## 先说结论
 
 Lithe 对构建工具的支持原本分散在三处：Rust Core 里写死的运行入口探测器、一整套 Maven 专用类型和工具窗口，以及只认“语言”的声明式插件契约。新增一个构建工具或构建插件（例如 Issue #10 里 Gradle 的 Loom/NeoForge 任务）都要改 Core 代码。
 
-统一模型的第一步已经落地：插件 API 级别 3 的 `buildSystems` 契约、Rust Core 的校验与解码、13 个 `build.*` 命令，以及进程型 Provider 的 Core 部分（与语言服务器共用启动字段和启动计划），见[构建系统插件契约](../../implemented/architecture/2026-10-17-build-system-plugin-contract.md)。macOS 宿主也已经能启动 Provider 并发送 `lithe/build/model`、`lithe/build/dependencies`。本提案只保留**还没做的部分**：Windows 宿主的通用 Build 工具窗口和 Provider、运行配置接入构建模型、现有探测器和 Maven 功能迁移到同一契约，以及以后的 `lithe/build/execute` 和 BSP（构建服务协议）档。
+统一模型的第一步已经在 Core 落地：插件 API 级别 3 的 `buildSystems` 契约、校验与解码、13 个 `build.*` 命令，以及进程型 Provider 的 Core 部分（与语言服务器共用启动字段和启动计划），见[构建系统插件契约](../../implemented/architecture/2026-10-17-build-system-plugin-contract.md)。本提案只保留**还没做的部分**：桌面端的通用 Build 工具窗口和 Provider、运行配置接入构建模型、现有探测器迁移到同一契约，以及以后的 `lithe/build/execute` 和 BSP（构建服务协议）档。
 
-对日常开发的影响：在宿主接入之前，不要再给 `execution/detectors/` 增加新生态，也不要照着 Maven 再写一套工具窗口；新构建工具先写成声明和 fixture，等宿主接入后直接可用。Maven 每项现有功能的迁移归属见第 6 节的对照表。
+对日常开发的影响：在宿主接入之前，不要再给 Core 的 `execution/detectors/` 增加新生态，也不要再写一套针对单个构建工具的工具窗口；新构建工具先写成声明和 fixture，等宿主接入后直接可用。
 
 ## 问题
 
@@ -21,8 +19,8 @@ Lithe 对构建工具的支持原本分散在三处：Rust Core 里写死的运�
 | 位置 | 做了什么 | 问题 |
 | --- | --- | --- |
 | `rust/crates/execution/src/detectors/` | npm、Cargo、Go、Gradle、Python、Make、just、Compose、Procfile 等探测器，在一次共享目录遍历中产出运行配置 | 生态知识写死在 Core 里。Gradle 只能匹配一张固定的插件 ID 表（Spring Boot、Quarkus、Micronaut、`application`），表外插件注入的任务完全看不到，这就是 Issue #10 |
-| `rust/lithe-core/src/project/maven*.rs` + `MavenService` / `MavenView`（macOS）+ `windows/tauri/src/features/maven/`（Windows） | Reactor（Maven 的多模块聚合工程）扫描、Profile、生命周期、依赖树、诊断解析、Surefire 测试报告、工具窗口 | 质量很高，但类型全是 `Maven*`，其他构建工具无法复用；工具窗口的“生命周期 / 依赖 / Profile / 执行目标”结构也没有通用版本 |
-| `Lithe-core-rust/shared/plugins/contract/v1/` | API 1/2 只有 `languages`、`languageServers`、`executionProviders`（按语言运行/测试单个文件）；API 3 已加入 `buildSystems` | 契约和 Core 已就绪。macOS 宿主已经通过通用 Build 工具窗口使用 `build.*` 命令，声明 `buildSystems: [1]` 和 `buildProviders: [1]`；Windows 宿主还没有接入，也不声明能力 |
+| 原 Maven 专用实现（Core 与宿主，现已移入 lithe-plugin-maven） | Reactor（Maven 的多模块聚合工程）扫描、Profile、生命周期、依赖树、诊断解析、Surefire 测试报告、工具窗口 | 质量很高，但类型全是 `Maven*`，其他构建工具无法复用；工具窗口的“生命周期 / 依赖 / Profile / 执行目标”结构也没有通用版本 |
+| `Lithe-core-rust/shared/plugins/contract/v1/` | API 1/2 只有 `languages`、`languageServers`、`executionProviders`（按语言运行/测试单个文件）；API 3 已加入 `buildSystems` | 契约和 Core 已就绪。桌面端宿主还没有接入 `build.*` 命令，也不声明 `buildSystems` 和 `buildProviders` 能力 |
 
 [公共扩展契约提案](2026-10-13-public-extension-contract-and-provider-api.md) 已把 BuildSystem/Task 列为领域扩展点，但没有展开字段和边界。
 
@@ -97,7 +95,6 @@ Lithe 对构建工具的支持原本分散在三处：Rust Core 里写死的运�
 - 解码格式是静态模型的 `toml`、命令输出的 `jsonStream`、`junitXml`、`lineMatcher` 和四个规范格式（`litheBuildModel`、`litheTestResults`、`litheDependencies`、`litheDiagnostics`），其余格式在第 7 节的审查中拿掉了。原计划的 `trx`、`tap`、`sarif`、`goTestJson` 还没有实现，有实际插件需要时作为 `buildSystems` 的新版本加入。
 - 选项参数通过 `${optionArguments}` 或 `${optionArguments:<id>}` 整体放置，没有原计划的 `${option:<id>}` 拼接变量；拼接方式由选项自己的 `arguments` 模板决定。
 - `runtimeDependencies` 是开放列表：`java`、`node`、`go` 由宿主管理，其他运行时由插件自己描述。可执行文件新增了 `runtime` 一类。
-- Maven 用 `outermost` 嵌套加 `maven` 集成，没有为它增加专用的嵌套方式。
 
 ### 2. 宿主要做的事
 
@@ -113,12 +110,12 @@ Lithe 对构建工具的支持原本分散在三处：Rust Core 里写死的运�
 | 诊断 | 把构建输出交给 Core，结果进入现有诊断列表 | `build.decodeDiagnostics` |
 | 重载提示 | 监听 `sync.watch` 里的文件，用指纹判断模型是否过期 | `build.syncFingerprint` |
 
-通用 Build 工具窗口按 IDEA 的形态组织：构建系统实例 → 工程 → {任务分组、运行入口、依赖、选项}。工具栏提供重载、执行任务（带任务目录补全，相当于现在的“Execute Maven Goal”）和选项开关；输出区复用现有构建输出和诊断列表。现有 `MavenView` 是它的第一个用户，迁移期间行为不能退化。
+通用 Build 工具窗口按 IDEA 的形态组织：构建系统实例 → 工程 → {任务分组、运行入口、依赖、选项}。工具栏提供重载、执行任务（带任务目录补全）和选项开关；输出区复用现有构建输出和诊断列表。
 
 另外两项不属于工具窗口，但要一起完成：
 
 - **运行配置接入构建模型**：`runConfig.generate` 增加“构建模型”这个输入来源，生成、覆盖和 ID 仍走原流程，不另起一套运行配置。Cargo fixture 已经证明运行入口与现有探测器逐字一致，可以作为第一个迁移对象。
-- **插件市场放开 API 3**：宿主具备 Build 工具窗口后，让宿主接受级别 3，并在宿主自己的能力表里加上 `buildSystems: [1]`，通过 `hostCapabilities` 发给 Core。macOS 已完成声明式构建这一步，Windows 待做；Provider 插件还要求独立的 `buildProviders: 1`，宿主必须完成协议协商、请求和生命周期管理后才可声明，macOS 已声明，Windows 待做。不需要再改 `plugins/marketplace.rs`：只用语言服务器的级别 3 插件，在宿主声明对应能力后就能先上架，不必等 Build 工具窗口。规则见[插件契约从统一基线 0 开始](../../implemented/architecture/2026-11-11-plugin-contract-single-baseline.md)。
+- **插件市场放开 API 3**：宿主具备 Build 工具窗口后，让宿主接受级别 3，并在宿主自己的能力表里加上 `buildSystems: [1]`，通过 `hostCapabilities` 发给 Core。Provider 插件还要求独立的 `buildProviders: 1`，宿主必须完成协议协商、请求和生命周期管理后才可声明。不需要再改 Core 仓库的 `plugins/marketplace.rs`：只用语言服务器的级别 3 插件，在宿主声明对应能力后就能先上架，不必等 Build 工具窗口。规则见[插件契约从统一基线 0 开始](../../implemented/architecture/2026-11-11-plugin-contract-single-baseline.md)。
 
 ### 3. 执行仓库代码的信任边界
 
@@ -130,7 +127,7 @@ Lithe 对构建工具的支持原本分散在三处：Rust Core 里写死的运�
 
 ### 4. 进程型 Provider 的宿主部分
 
-Provider 的 Core 部分已经落地：两种 `provider` 写法均要求 `buildProviders: 1`，Core 支持校验和计划，但这不表示宿主已经实现；未传 `hostCapabilities` 的工具调用仍可使用。`provider` 声明与语言服务器共用 `ServerProcess` 启动字段和校验，`languageServerLaunchPlan` 可以按 `buildSystemID` 选中进程，`model`、`dependencies` 支持 `source: "provider"`，`build.modelPlan`、`build.dependencyPlan` 返回 `lithe/build/*` 请求，`build.decodeModel`、`build.decodeDependencies` 解码回复。细节见[构建系统插件契约](../../implemented/architecture/2026-10-17-build-system-plugin-contract.md)第 9 节。协商（`capabilities.experimental.litheBuild`）、`lsp.buildRequest` 和 macOS 宿主的进程管理也已落地，见同一 Note 第 9、10 节；下表保留作为 Windows 接入时的对照。这里只保留还没做的部分。
+Provider 的 Core 部分已经落地：两种 `provider` 写法均要求 `buildProviders: 1`，Core 支持校验和计划，但这不表示宿主已经实现；未传 `hostCapabilities` 的工具调用仍可使用。`provider` 声明与语言服务器共用 `ServerProcess` 启动字段和校验，`languageServerLaunchPlan` 可以按 `buildSystemID` 选中进程，`model`、`dependencies` 支持 `source: "provider"`，`build.modelPlan`、`build.dependencyPlan` 返回 `lithe/build/*` 请求，`build.decodeModel`、`build.decodeDependencies` 解码回复。细节见[构建系统插件契约](../../implemented/architecture/2026-10-17-build-system-plugin-contract.md)第 9 节。协商（`capabilities.experimental.litheBuild`）和 `lsp.buildRequest` 也已落地，见同一 Note 第 9、10 节；下表保留作为宿主接入时的对照。这里只保留还没做的部分。
 
 Provider 就是语言服务器那一种进程，所以宿主侧也全部复用：
 
@@ -152,10 +149,6 @@ Provider 自己执行任务或测试，用 `lithe/build/output`、`lithe/build/t
 - 单独的 Provider 进程与 `command` 档同级，只在用户显式操作或工作区已信任后启动。
 - 复用语言服务器进程时，进程可以照常随文件打开启动，但宿主在工作区被信任之前不发送任何 `lithe/build/*` 请求。
 
-#### 对 `hostIntegration` 的影响
-
-`hostIntegration: maven` 是迁移期的例外：它让 Maven 的解析代码继续留在 Core 里。有了 Provider 之后，Maven 的终点也是插件自带的进程，可以是单独的 Provider（Maven 自己的模型构建器，结果比现在的静态 POM 读取更准确），也可以复用 Java 插件的 JDT LS 进程，因为它已经导入了 Maven 工程。等两端都切换过去，就从契约里删除 `hostIntegration`，Core 里的 `project::maven` 也随之删除。
-
 #### 与 BSP 的关系
 
 BSP 本身也是 JSON-RPC 上的进程外构建协议，生命周期与 LSP 几乎相同。以后要接现成的 BSP 服务器时，用同一个传输层和进程管理，由 Core 把 BSP 的 `BuildTarget` 等回复映射成统一模型。先做 `lithe/build/*` 方法，因为载荷已经存在，Gradle 和 Maven 用它就够了。
@@ -167,98 +160,14 @@ BSP 本身也是 JSON-RPC 上的进程外构建协议，生命周期与 LSP 几�
 ### 5. 分阶段落地
 
 1. **P0 契约骨架（Core 已完成）**：API 3 的 `buildSystems`、13 个 `build.*` 命令、Cargo/Go/Gradle/Maven 四个 fixture 和 `build-plans.json` 标准答案。
-2. **P1 通用工具窗口与运行配置**：两端实现第 2 节的宿主能力和 Build 工具窗口；`runConfig.generate` 接入构建模型，先迁移 Cargo；把 npm、just、Make、Composer 等现有探测器改写成内置声明；定下 `buildSystems.test` 与 `executionProviders.test` 在同一工程里谁优先。
-3. **P2 进程型 Provider 与 Gradle**：`provider` 声明、启动计划和回复解码的 Core 部分已完成（`build-provider`、`build-provider-language-server` fixture 和标准答案）。macOS 宿主部分（协商、发送 `lithe/build/*`、进程生命周期）已完成，剩下 Windows 宿主。Gradle 先用插件包内的 init script 输出 `litheBuildModel`（fixture 已验证这条路）关闭 Issue #10，再评估改用 Tooling API 的 Provider 以获得结构化进度和测试事件；Go、Cargo 的依赖树走模型命令档。
+2. **P1 通用工具窗口与运行配置**：桌面端实现第 2 节的宿主能力和 Build 工具窗口；`runConfig.generate` 接入构建模型，先迁移 Cargo；把 npm、just、Make、Composer 等现有探测器改写成内置声明；定下 `buildSystems.test` 与 `executionProviders.test` 在同一工程里谁优先。
+3. **P2 进程型 Provider 与 Gradle**：`provider` 声明、启动计划和回复解码的 Core 部分已完成（`build-provider`、`build-provider-language-server` fixture 和标准答案）。桌面端的宿主部分（协商、发送 `lithe/build/*`、进程生命周期）尚未实现。Gradle 先用插件包内的 init script 输出 `litheBuildModel`（fixture 已验证这条路）关闭 Issue #10，再评估改用 Tooling API 的 Provider 以获得结构化进度和测试事件；Go、Cargo 的依赖树走模型命令档。
 4. **P3 BSP**：有实际需求（Scala、Bazel、SwiftPM）时，在同一传输层上加入 `bsp/2` 协议。
-5. **P4 Maven 收编**：官方插件 `dev.lithe.maven` 先以 `hostIntegration: maven` 进入同一领域模型，由通用工具窗口渲染，Windows 随后用同一组 fixture 切换。最后改为插件自带的 Provider，从 Core 删除 `maven` 集成。逐项对照见下一节。
+5. **P4 Maven 收编**：已由 lithe-plugin-maven 完成（#1495），本阶段不再有待办。
 
-### 6. Maven 插件化对照表
+### 6. Maven 收编（已完成）
 
-迁移后，Maven 由官方插件 `dev.lithe.maven` 提供。它的清单声明一个 `id` 为 `maven` 的构建系统，模型来源是 `hostIntegration: maven`。下表的“归属”只有四种：
-
-- **声明**：写在 `dev.lithe.maven` 清单里的纯数据。
-- **集成**：`maven` 宿主集成，也就是 Core 里现有的 Rust 实现。迁移期间保留不重写，终点是移进 Maven 插件的 Provider 进程（第 4 节）。
-- **通用宿主**：所有构建系统共用的宿主能力，代码里不出现 Maven 字样。
-- **Java 插件**：留在 Java/JDT 集成里，通过声明和 Maven 的选项、任务关联。
-
-除特别标注外，各项都在 P4 迁移。
-
-Core 侧已经具备的部分：fixture `build-host-integration.plugin.json`（插件 ID 为 `dev.lithe.fixture.build-host-integration`）声明了 Wrapper、`MAVEN_HOME` 和 `PATH` 三类候选，Profile、`settings.xml`、本地仓库、离线和跳过测试五个选项，`clean`、`compile`、`package`、`install` 和自由输入的 goal，统一后的单测模板，以及诊断正则；`maven` 集成负责 reactor 模型、依赖树和 Surefire 结果。表里“迁移做法”剩下的主要是宿主工作、正式的 `dev.lithe.maven` 清单，以及删除旧命令。
-
-#### 工程模型
-
-| 现有功能 | 现在在哪 | 归属 | 迁移做法 |
-| --- | --- | --- | --- |
-| 识别 Reactor 根、多个独立 Reactor | Core `maven.scan`、`detect_all(root, maven_root)` | 声明 + 集成 | `detection.markers` 写 `pom.xml`。哪个 POM 是根、哪些是子模块要解析 `<modules>`，继续由集成判断 |
-| 模块树、坐标、packaging | Core `maven.scan`；macOS `MavenProject`；Windows `maven.types` | 集成 | 集成把模块映射成统一模型里的“工程”，坐标和 packaging 作为工程属性 |
-| 源码根（main/test/generated × 源码/资源） | Core `MavenSourceRoot`；macOS 模块树；Windows `maven-source-root-rows` | 集成 + 通用宿主 | 统一模型增加可选的 `contentRoots`（内容根，参考 IDEA 的概念），Maven 是第一个提供者，Cargo、Gradle 以后也能填 |
-| 框架服务入口（Spring Boot、Quarkus、Micronaut） | Core `detectors/maven.rs` 的 `SERVICE_PLUGINS` | 声明 | 集成在模型里给出每个模块用到的构建插件坐标；“坐标 → 启动 goal（`spring-boot:run`、`quarkus:dev`、`mn:run`）、执行分类为服务”的对照表搬进清单，社区插件可以补充其他框架 |
-
-#### 调用与配置
-
-| 现有功能 | 现在在哪 | 归属 | 迁移做法 |
-| --- | --- | --- | --- |
-| 固定的全局参数 `-B -ntp` | Core `launch_plan` | 声明 | `invocation.globalArguments` |
-| Maven 可执行文件发现与覆盖 | macOS `MacRuntimeDiscovery`（Homebrew 路径、`maven-core-*` 探测、mvnd 排在普通 Maven 之后）；Windows `run.rs`（`mvnw.cmd`、`MAVEN_HOME`、`M2_HOME`、`MVND_HOME`） | 声明 + 通用宿主 | `invocation` 声明 Wrapper 名和它必需的 `.mvn/wrapper/maven-wrapper.properties`、启动器名、环境变量、常见安装位置、低优先级的 mvnd，以及版本探测参数和 `Apache Maven\s+(…)` 正则。候选顺序由 `build.invocationPlan` 统一计算，两端只检查文件是否存在、执行探测。Homebrew 等常见安装位置和 mvnd 还没有对应的候选种类，迁移前要决定是新增候选种类还是让宿主的运行时设置补充。可以提前到 P1 验证 |
-| Maven 使用的 JDK | `java_home_path`；macOS `ProjectRuntimeService.mavenProcessEnvironment`、`DebugLaunchConfigurationResolver` 的 `.maven(homeOverride:)` | 声明 + 通用宿主 | `invocation.runtimeDependencies` 声明 `java`，宿主按通用规则选 JDK 并设置 `JAVA_HOME`。用户覆盖存为构建系统的“调用覆盖”，所有构建系统共用这一项 |
-| Profile 列表、默认激活、自定义 Profile、恢复默认 | Core 扫描出 `profiles`；macOS `addCustomProfile`、`restoreDefaultProfiles`；Windows `maven.store` | 声明 + 集成 + 通用宿主 | 清单声明多选选项 `profiles`：取值来自模型，允许用户补充，用 `,` 拼接后映射成 `-P`。选择界面和“恢复默认”由通用宿主提供 |
-| 跳过测试、`settings.xml`、本地仓库 | `MavenLaunchContextRequest` 的 `skip_tests`、`settings_path`、`local_repository_path` | 声明 + 通用宿主 | 布尔选项 → `-DskipTests`；文件选项 → `-s`；目录选项 → `-Dmaven.repo.local=`。路径只能由用户填写 |
-| 配置保存：团队共享的 `.lithe/maven/config.json` 加按 Reactor 分开的本机文件 | macOS `MacMavenConfigurationStore`；Windows `maven_load_configuration`、`maven_write_configuration` | 通用宿主 | 通用存储按“构建系统 ID + 实例根”分键。首次读取时从旧位置迁移，旧文件不删除，迁移规则用 fixture 锁住 |
-| 生效配置预览（空字段实际解析成什么） | Windows `maven_resolve_effective_configuration`；macOS 目前没有 | 通用宿主 | 基于 `build.invocationPlan` 和 `build.resolveOptions`，两端的任何构建系统都能显示“自动检测到的值” |
-| `pom.xml` 变更提示与重载 | macOS `markPomChanged`、`isReloadRequired`、`reloadProject` | 声明 + 通用宿主 | `sync.watch` 列出 `pom.xml`；通用宿主监听文件，用 `build.syncFingerprint` 判断是否过期。通用部分在 P1 完成 |
-
-#### 任务与运行
-
-| 现有功能 | 现在在哪 | 归属 | 迁移做法 |
-| --- | --- | --- | --- |
-| 生命周期 clean … deploy | macOS `MavenLifecyclePhase`；Windows `maven.types`；Core `maven.launchPlan` 的 goals | 声明 | `tasks.catalog` 固定列出 9 个阶段，分组为 `lifecycle`，作用范围为工作区和工程 |
-| 执行任意 goal（Execute Maven Goal） | macOS `runCustomGoal`；Windows `maven-tool-window-actions` | 通用宿主 + 声明 | 通用“执行任务”输入框，清单声明允许自由输入，补全来自任务目录。输入框在 P1 完成 |
-| 按模块执行（`-pl <模块> -am`） | Core `maven.launchPlan` | 声明 | 已用 `nestedProjectSelected` 条件参数写进 fixture，`build_systems` 测试证明结果与内置 `maven_arguments` 逐字一致；宿主切到 `build.taskPlan` 即可 |
-| 模块右键菜单（Run、Test、Package、Execute Goal、Reload）与启动模块（含调试） | macOS `MavenModuleOperations`、`AppModel+MavenOperations`；Windows `maven-module-operations`、`maven-node-context-menu` | 通用宿主 + 声明 | 工程节点菜单由“作用范围包含工程”的任务和运行入口生成；哪些任务放进菜单由任务声明决定 |
-| 运行配置的 `extensions.maven`（module、mainClass、profiles、jvmArguments、programArguments、reactorPath）和 `project-maven` 工具链 | Core `execution/configuration.rs` | 集成 | `extensions.maven` 成为 `maven` 构建系统专属的扩展命名空间，字段和运行配置 ID 都不变。其他构建系统使用 `extensions.<buildSystemID>`。`project-maven` 改由 `build.invocationPlan` 解析，工具链 ID 不变 |
-| 输出、停止、50 万字符输出上限、依赖树 60 秒超时 | macOS `MavenService` | 通用宿主 | 进程进入[统一子进程生命周期](2026-10-16-unified-child-process-lifecycle.md)的进程账本；上限用通用值，超时按声明的档位。P1 完成 |
-
-#### 测试与诊断
-
-| 现有功能 | 现在在哪 | 归属 | 迁移做法 |
-| --- | --- | --- | --- |
-| 运行单个测试类或方法 | macOS `StandardLanguageTestProvider`：`-Dtest=<类>#<方法> test`；Windows `maven.store`：`test -Dtest=<类>#<方法> -Dsurefire.failIfNoSpecifiedTests=false` | 声明 | 写成 `test` 的过滤模板。**两端现在的参数和顺序都不一致**：Windows 多出的参数让没有匹配测试的上游模块不报错。fixture 已统一成一个模板（保留 Windows 的 `-Dsurefire.failIfNoSpecifiedTests=false`），两端切到 `build.testPlan` 后不一致自然消失 |
-| Surefire/Failsafe 结果 | Core `maven.testResults`：解析文本汇总，再读 XML 报告补全每个方法的结果 | 集成 + 声明 | 目前由 `maven` 集成负责（文本汇总加 XML 报告）。目标是改走通用 `junitXml` 解码器、只依赖 XML，届时把 fixture 的 `results` 换成报告 glob |
-| 测试结果类型 | macOS `LanguageTestResults = MavenTestResults` | 通用宿主 | 改成通用测试结果类型，Maven 只是其中一个产出者。P1 完成 |
-| 构建诊断（`[ERROR] 路径:[行,列] 消息`） | Core `maven.diagnostics` 的正则 | 声明 | 正则已写进 fixture，用 `lineMatcher` 解码；两端改调 `build.decodeDiagnostics` 后删除 `maven.diagnostics` |
-
-#### 依赖
-
-| 现有功能 | 现在在哪 | 归属 | 迁移做法 |
-| --- | --- | --- | --- |
-| 依赖树计划（固定 `maven-dependency-plugin:3.8.1:tree`，写输出文件） | Core `maven.dependencyPlan` | 集成 | 保留在集成里，经 `build.dependencyPlan` 调用 |
-| 依赖树解析（resolved、omittedDuplicate、omittedConflict、selectedVersion） | Core `maven.dependencies` | 集成 + 通用模型 | 这些字段成为通用依赖节点的可选字段，其他构建系统也能用来表达冲突 |
-| 依赖输出文件分配与清理 | macOS `MacMavenDependencyOutputStore`；Windows `maven_create_dependency_output`、`maven_remove_dependency_output` | 通用宿主 | 通用宿主在 `${workspaceStateDir}` 下分配 `${outputFile}`，所有构建系统共用 |
-| 依赖区（加载、取消、失败状态） | macOS `MavenView`；Windows `maven-pane` | 通用宿主 | Build 工具窗口的通用依赖区 |
-
-#### Java 联动
-
-| 现有功能 | 现在在哪 | 归属 | 迁移做法 |
-| --- | --- | --- | --- |
-| 把 Profile、settings 同步给 JDT LS | Core `lsp.updateMavenConfiguration`、`lsp.retryMavenProfiles`、`JdtMavenConfiguration` | Java 插件 | Java 插件清单声明它要读取 `maven` 构建系统的哪些选项。选项变化时，通用宿主把生效选项快照转给语言服务器会话；写进 JDT 设置的逻辑仍在 Core 的 `jdt` 集成里 |
-| 直接启动前执行资源处理 goal | [Java 构建与启动边界](../../implemented/architecture/2026-09-18-java-project-build-and-launch-boundary.md) | Java 插件 | 留在 Java 集成，但改为通过 `build.taskPlan` 请求 `maven` 构建系统执行，不再自己拼 Maven argv |
-| `pom.xml` 上的解析问题 | macOS `MavenResolutionProblems`；Windows `use-maven-resolution-problems` | 通用宿主 | Build 工具窗口显示“构建清单文件上的语言服务器诊断”。文件名来自 `detection.markers`，代码里不写 `pom.xml` |
-| 依赖浏览器的 Maven 回退 | [工作区依赖浏览器](../../implemented/architecture/2026-09-18-workspace-dependency-browser.md) | Java 插件 | 投影的输入改成通用依赖节点 |
-| 混合协议 `RustJavaMavenOperations` | macOS | 拆分 | Maven 部分并入通用的构建操作协议；代码视觉、类名、Spring/MyBatis 索引等留在 Java |
-
-#### 界面入口
-
-| 现有功能 | 现在在哪 | 归属 | 迁移做法 |
-| --- | --- | --- | --- |
-| Maven 工具窗口 | macOS `BuildSystemToolWindowView`；Windows `maven-pane`、`maven-run-pane` | 通用宿主 | macOS 已改为每个构建系统各有一个窗口，由同一视图按声明渲染；内置 `MavenView` 已删除，Windows 迁移待完成 |
-| `toggle-maven` 命令与快捷键 | macOS `LitheCommandCatalog` | 通用宿主 | 2026-10-18 用户决定删除旧命令，不保留别名；每个构建系统按声明推导自己的切换命令，见已实现 Note 第 11 节 |
-
-Maven 在 P4 内部的迁移顺序：
-
-1. Core 加入 `build/integrations/maven.rs`。`build.*` 与 `maven.*` 并行，用 fixture 证明两者结果一致。
-2. macOS 切到通用 Build 工具窗口，逐项核对生命周期、Profile、依赖树、执行 goal 和模块右键菜单。
-3. Windows 用同一组 fixture 切换。
-4. 删除已被声明取代的 Core 命令（先删 `maven.diagnostics`）；其余 `maven.*` 降为集成内部函数，从 `rust-core-api.md` 中移除。
+Maven 的收编已由官方插件仓库 [lithe-plugin-maven](https://github.com/Lithe-IDEA/lithe-plugin-maven) 完成（#1495），宿主与 Core 中的 Maven 专用代码已删除，原迁移对照表随之作废。Maven 之外仍可复用的能力（选项、依赖输出文件、依赖区、通用测试结果类型）按第 2 节的宿主能力在桌面端实现。
 
 ### 7. 发布前按真实插件审查 API 3 的字段（已完成）
 
@@ -315,8 +224,8 @@ API 3 还没有发布。`buildSystems` 的版本 1 一旦发布就要长期支�
 
 Core 契约部分的验收已在已实现的 Note 里完成。剩下的工作按下列标准验收：
 
-- 一个只声明 `buildSystems`、不声明语言和 UI 的插件能在两端安装、启用和禁用；宿主的 `hostCapabilities` 含 `buildSystems` 后，插件市场列出它的 API 3 版本。
-- 发布 API 3 之前，第 7 节的字段审查已完成（2026-10-18），拿掉的部分已从 schema、README 和 Core 中删除；发布前如果又加了 `buildSystems` 字段，按同样方法再审一遍。
+- 一个只声明 `buildSystems`、不声明语言和 UI 的插件能在桌面端安装、启用和禁用；宿主的 `hostCapabilities` 含 `buildSystems` 后，插件市场列出它的 API 3 版本。
+- 第 7 节的字段审查已完成（2026-10-18），拿掉的部分已从 schema、README 和 Core 中删除；以后如果又加 `buildSystems` 字段，按同样方法再审一遍。
 - Cargo 改由构建模型生成运行配置后，生成结果（含 ID）与现有探测器的标准答案一致；用户已写的覆盖配置不会脱钩。
 - 安装一个第三方 Gradle 构建插件后，它注入的每个运行任务各自生成一条运行配置，名字包含 project 路径和任务名，满足 Issue #10 的验收条件，Core 和宿主都不改代码。
 - 在未信任的工作区打开项目时，没有任何 `command` 档进程被启动；Wrapper 只在用户操作后运行。
@@ -324,8 +233,7 @@ Core 契约部分的验收已在已实现的 Note 里完成。剩下的工作按
 - `build-provider` 这类自有 Provider 只在用户操作或工作区信任后启动，并登记进进程账本；`build-provider-language-server` 这类共享写法不启动第二个进程，在工作区信任前不发送 `lithe/build/*`。
 - 任务通过现有执行链路运行，具备取消、期限和输出上限；禁用插件会停止它登记的守护进程，用户在终端启动的同一工具不受影响。
 - `junitXml` 和 `lineMatcher` 解码出的诊断与测试结果能跳转到编辑器位置。
-- 迁移过程中 Maven 工具窗口的生命周期、Profile、依赖树和执行目标行为不变；`build.*` 与 `maven.*` 并行期间，两者对同一组 Maven fixture 的结果一致。
-- 两端宿主代码里没有按构建系统 ID 写的分支；运行 ~~./scripts/architecture/verify-shared-contracts.sh~~（随旧客户端移除）、`./scripts/desktop/verify/verify-runtime-bundle-immutability.sh` 通过。
+- 桌面端宿主代码里没有按构建系统 ID 写的分支；运行 `./scripts/desktop/verify/verify-runtime-bundle-immutability.sh` 通过。
 
 ## 风险
 
@@ -339,22 +247,10 @@ Core 契约部分的验收已在已实现的 Note 里完成。剩下的工作按
 ## 适用范围
 
 - `https://github.com/Lithe-IDEA/Lithe-core-rust/blob/main/shared/plugins/contract/v1/`
-- Lithe-core-rust 锁定修订：[rust/lithe-core/src/plugins/declarative.rs](https://github.com/Lithe-IDEA/Lithe-core-rust/blob/0ffd327b4329261e393b08ed76fbd134b4dd17e9/rust/lithe-core/src/plugins/declarative.rs)
-- Lithe-core-rust 锁定修订：[rust/lithe-core/src/execution/detectors/](https://github.com/Lithe-IDEA/Lithe-core-rust/tree/0ffd327b4329261e393b08ed76fbd134b4dd17e9/rust/lithe-core/src/execution/detectors)
-- Lithe-core-rust 锁定修订：[rust/lithe-core/src/execution/types.rs](https://github.com/Lithe-IDEA/Lithe-core-rust/blob/0ffd327b4329261e393b08ed76fbd134b4dd17e9/rust/lithe-core/src/execution/types.rs)
-- 已迁出：原 `rust/lithe-core/src/project/maven.rs`。Maven 专属逻辑已从 Core 与宿主移入 Maven 插件（[lithe-plugin-maven](https://github.com/Lithe-IDEA/lithe-plugin-maven)）（#1495）。
-- Lithe-core-rust 锁定修订：[rust/lithe-core/src/execution/configuration.rs](https://github.com/Lithe-IDEA/Lithe-core-rust/blob/0ffd327b4329261e393b08ed76fbd134b4dd17e9/rust/lithe-core/src/execution/configuration.rs)
-- Lithe-core-rust 锁定修订：[rust/lithe-core/src/lsp/interface/engine.rs](https://github.com/Lithe-IDEA/Lithe-core-rust/blob/0ffd327b4329261e393b08ed76fbd134b4dd17e9/rust/lithe-core/src/lsp/interface/engine.rs)
-- Lithe-core-rust 锁定修订：[rust/lithe-core/src/runtime/dispatcher.rs](https://github.com/Lithe-IDEA/Lithe-core-rust/blob/0ffd327b4329261e393b08ed76fbd134b4dd17e9/rust/lithe-core/src/runtime/dispatcher.rs)
-- `https://github.com/Lithe-IDEA/Lithe-core-rust/blob/main/rust/contracts/rust-core-api.md`
-- 已迁出：原 `macos/Sources/Lithe/Platform/MacOS/Runtime/MacRuntimeDiscovery.swift`。宿主侧 Java 专属代码已删除（#1495）；运行、调试、入口标记与工具链改走通用插件 API（`run/start`、`debug/start`、`editor/registerActions`、`toolDefinitions`），实现见 [lithe-plugin-java](https://github.com/Lithe-IDEA/lithe-plugin-java)。
-- 已迁出：原 `macos/Sources/Lithe/Platform/MacOS/Persistence/MacLegacyMavenConfigurationMigration.swift`。Maven 专属逻辑已从 Core 与宿主移入 Maven 插件（[lithe-plugin-maven](https://github.com/Lithe-IDEA/lithe-plugin-maven)）（#1495）。
-- [旧版 macOS 构建服务与测试 Provider](https://github.com/1lck/Lithe-IDEA/tree/5a54c41aa37a4e6e6b68918a4b05765b9dd07a36/macos/Sources/LitheExecutionModule/Services)
-- 已迁出：原 `macos/Sources/LitheCoreContracts/Execution/MavenContracts.swift`。Maven 专属逻辑已从 Core 与宿主移入 Maven 插件（[lithe-plugin-maven](https://github.com/Lithe-IDEA/lithe-plugin-maven)）（#1495）。
-- [旧版 macOS 构建工具窗口](https://github.com/1lck/Lithe-IDEA/blob/5a54c41aa37a4e6e6b68918a4b05765b9dd07a36/macos/Sources/Lithe/Views/Run/BuildSystemToolWindowView.swift)
-- [旧版 Windows Maven 与运行功能](https://github.com/1lck/Lithe-IDEA/tree/5a54c41aa37a4e6e6b68918a4b05765b9dd07a36/windows/tauri/src/features)
-- [旧版 Windows 宿主实现](https://github.com/1lck/Lithe-IDEA/tree/5a54c41aa37a4e6e6b68918a4b05765b9dd07a36/windows/tauri/src-tauri/src)
+- Core 仓库的执行与插件模型：[rust/crates/](https://github.com/Lithe-IDEA/Lithe-core-rust/tree/main/rust/crates)
 - `desktop/internal/core/plugin_session.go`
+- `desktop/internal/buildprovider/`
+- `desktop/internal/buildprocess/`
 
 ## 调研来源
 
@@ -366,4 +262,4 @@ Core 契约部分的验收已在已实现的 Note 里完成。剩下的工作按
 - [Go 提案：`go build -json`](https://github.com/golang/go/issues/62067)
 - [uv 工作区元数据](https://docs.astral.sh/uv/reference/internals/metadata/)
 - [SourceKit-LSP 与 BSP](https://forums.swift.org/t/extending-functionality-of-build-server-protocol-with-sourcekit-lsp/74400)
-- 相关 Note：[构建系统插件契约](../../implemented/architecture/2026-10-17-build-system-plugin-contract.md)、[声明式语言插件](../../implemented/architecture/2026-10-12-declarative-language-plugins.md)、[Java 语言服务器是声明式插件](../../implemented/architecture/2026-10-13-java-language-server-as-declarative-plugin.md)、[Java 构建与启动边界](../../implemented/architecture/2026-09-18-java-project-build-and-launch-boundary.md)、[运行配置发现质量](../../implemented/feature/2026-09-20-run-configuration-discovery-quality.md)、[工作区依赖浏览器](../../implemented/architecture/2026-09-18-workspace-dependency-browser.md)
+- 相关 Note：[构建系统插件契约](../../implemented/architecture/2026-10-17-build-system-plugin-contract.md)、[声明式语言插件](../../implemented/architecture/2026-10-12-declarative-language-plugins.md)、Java 语言服务器是声明式插件、Java 构建与启动边界、[运行配置发现质量](../../implemented/feature/2026-09-20-run-configuration-discovery-quality.md)、[工作区依赖浏览器](../../implemented/architecture/2026-09-18-workspace-dependency-browser.md)

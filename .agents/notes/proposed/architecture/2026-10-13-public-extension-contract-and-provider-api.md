@@ -6,23 +6,23 @@
 
 ## 先说结论
 
-PR #37 建立了第一阶段 UI Contribution（插件声明的界面入口）；到 2026-10-30，Mac 已有原生 Tree/List/Form、包内网页和独立后端，不再只是静态文本窗口。下一步先走 macOS 路线，把已有编辑器、文件和命令功能开放成有授权、版本与生命周期的公共 API，再接续领域 Provider（提供业务数据、行为或进程的实现）。不恢复任意第三方 Swift Bundle 动态加载，也不把 WASM 运行时作为补齐 API 的前置条件；任务与公开文档待办见 [macOS 插件 API 实施计划](../../../../docs/development/macos-plugin-api-plan.md)。
+PR #37 建立了第一阶段 UI Contribution（插件声明的界面入口）；到 2026-10-30，Mac 已有原生 Tree/List/Form、包内网页和独立后端，不再只是静态文本窗口。下一步先在 Viva 桌面端（`desktop/`，macOS 与 Windows 共用）把已有编辑器、文件和命令功能开放成有授权、版本与生命周期的公共 API，再接续领域 Provider（提供业务数据、行为或进程的实现）。不开放任意第三方原生二进制动态加载，也不把 WASM 运行时作为补齐 API 的前置条件；任务与公开文档待办见 [macOS 插件 API 实施计划](../../../../docs/development/macos-plugin-api-plan.md)。
 
 ## 问题
 
-最初的 API level 2 要求窗口使用 `text`，命令只能打开自身窗口，插件校验依赖语言或 UI。这是第一阶段的历史背景，不是今天的完整能力表：当前 Core 已允许纯 Build/VCS/Debug/项目生成器插件，Mac 的 `ui:3` 也已经支持原生树、列表和表单。
+最初的 API level 2 要求窗口使用 `text`，命令只能打开自身窗口，插件校验依赖语言或 UI。这是第一阶段的历史背景，不是今天的完整能力表：当前 Core 已允许纯 Build/VCS/Debug/项目生成器插件，桌面端的 `ui:3` 也已经支持原生树、列表和表单。
 
-当前缺口在于通用接入：`ui.commands` 仍绑定自身窗口；原生动态数据源绑定自身构建系统和唯一实例；`backend:1` 是每插件一个应用级本机进程，只由自身网页调用，不识别远程工作区。函数协议 v2 已有本插件凭据服务，但尚不是通用工作区/编辑器 SDK。开发者不能因为内部 Swift 模块能操作文件或编辑器，就直接从第三方后端调用它。领域能力的进一步迁移也不能与通用宿主 API 混为一谈。
+当前缺口在于通用接入：`ui.commands` 仍绑定自身窗口；原生动态数据源绑定自身构建系统和唯一实例；`backend:1` 是每插件一个应用级本机进程，只由自身网页调用，不识别远程工作区。函数协议 v2 已有本插件凭据服务，但尚不是通用工作区/编辑器 SDK。开发者不能因为宿主内部模块能操作文件或编辑器，就直接从第三方后端调用它。领域能力的进一步迁移也不能与通用宿主 API 混为一谈。
 
 ## 提案
 
 ### 原生 UI 与窗口管理分离
 
-第三方插件可声明版本化 JSON UI 组件树，包含 Tree/List/Form/Input/Button、数据源和事件，由 macOS SwiftUI 等原生适配器渲染。窗口外壳继续由宿主管理停靠、标题、活动栏、顺序、显隐、布局和生命周期；组件事件通过宿主授权的动作或 Provider 调用。
+第三方插件可声明版本化 JSON UI 组件树，包含 Tree/List/Form/Input/Button、数据源和事件，由各平台的原生适配器渲染。窗口外壳继续由宿主管理停靠、标题、活动栏、顺序、显隐、布局和生命周期；组件事件通过宿主授权的动作或 Provider 调用。
 
 2026-10-18 起，插件也可以在宿主管理的窗口里放自己的包内网页（`ui` 能力版本 2），这是可选项，不替代组件树。外壳规则不变，加载与桥接边界见[插件自带网页界面](../../implemented/architecture/2026-10-18-plugin-web-content-in-host-windows.md)。
 
-内置或受信任的原生模块可通过 Native View/Renderer Factory（宿主登记的原生视图构造器）接入复杂 SwiftUI 内容，并共用同一套窗口管理。这个路径不等于恢复任意第三方 Swift Bundle 动态加载；二进制接口（ABI）、签名、分发与隔离仍需单独设计。数据契约不含 SwiftUI 类型，但本轮只实施和验收 Mac，不要求先完成 Windows 适配。
+内置或受信任的原生模块可通过 Native View/Renderer Factory（宿主登记的原生视图构造器）接入复杂原生内容，并共用同一套窗口管理。这个路径不等于开放任意第三方原生动态库加载；二进制接口（ABI）、签名、分发与隔离仍需单独设计。数据契约不含任何平台 UI 类型，各平台适配器的完成度以跨平台功能矩阵为准。
 
 截至 2026-10-28，原生 Tree/List/Form 及面板动作已落地，见[声明式原生插件树与动作](../../implemented/feature/2026-10-21-declarative-native-plugin-ui.md)。后续应扩展通用数据源与分页，而不是重新实现一套控件；面板内动作不等于已支持独立全局命令。
 
@@ -52,7 +52,7 @@ PR #37 建立了第一阶段 UI Contribution（插件声明的界面入口）；
 
 内置模块和插件尽量实现相同领域 Provider 契约。Build/Run/Test/Debug 等采用类型化 Registry（按能力类型登记和查询实现的目录），组合根负责装配通用适配器，不按新增插件名追加分支。先盘点并复用已有语言服务器、构建工具、运行/测试和 DAP（调试适配器协议）链路；上游拥有的项目、任务和依赖事实仍由原工具提供，避免再造一套解释器、工程模型或调试 UI。
 
-[PR #1517](https://github.com/1lck/Lithe-IDEA/pull/1517) 已于 2026-10-28 合并，扩展了原生 Build/Run/Test/Debug 准备与只读工程模型输入；Mac 已声明 `buildProviders:1–6`、`buildModelInputs:1`、`debugAdapters:1/2`（以 `PluginTypes.swift` 的 `hostCapabilities` 为准）。后续只补文档、SDK 对齐和端到端验收，不另建协议。[PR #1515](https://github.com/1lck/Lithe-IDEA/pull/1515) 于 2026-10-29 合并，把远程工作区的文件、工作区、终端、Build 以及 Build/VCS/语言 Provider 启动路由到远程适配器，但它是阶段性实现，范围见下一节。
+[PR #1517](https://github.com/1lck/Lithe-IDEA/pull/1517) 已于 2026-10-28 合并，扩展了原生 Build/Run/Test/Debug 准备与只读工程模型输入；该 PR 声明的 `buildProviders:1–6`、`buildModelInputs:1`、`debugAdapters:1/2` 以宿主能力声明为准（`desktop/internal/pluginhost`）。后续只补文档、SDK 对齐和端到端验收，不另建协议。[PR #1515](https://github.com/1lck/Lithe-IDEA/pull/1515) 于 2026-10-29 合并，把远程工作区的文件、工作区、终端、Build 以及 Build/VCS/语言 Provider 启动路由到远程适配器，但它是阶段性实现，范围见下一节。
 
 Debug 的统一内核、三层能力、插件声明与迁移验收见[统一调试内核与调试适配器 Registry](2026-10-25-unified-debug-engine-and-adapter-registry.md)，跟踪当前仓库的 [#1210](https://github.com/1lck/Lithe-IDEA/issues/1210)。寄存器、内存、反汇编等可选能力另见[可选调试扩展](2026-10-25-optional-debug-extensions.md)，插件依赖与导出另见[平台级独立提案](2026-10-25-plugin-dependencies-and-exports.md)；两者都不作为 #1210 的前置条件。这些提案没有开放新字段，也不改变其他领域 Provider 的设计。
 
@@ -64,7 +64,7 @@ Services 接入容器、Spring Boot、数据库和本地服务。后续统一设
 
 ### 工作区 authority、激活与保存前事件
 
-远程工作区（见[远程工作区按根目录路由](../../implemented/architecture/2026-10-24-remote-workspace-routing.md)）在本机以空占位根目录打开，由 `RemoteWorkspaceRegistry` 绑定会话和远程根；`backend:1` 与网页 bridge 目前只认本机工作区。公共 API 的资源标识因此需要显式 authority：首版只承诺本机，未实现的 authority 明确拒绝，不把占位根或远程路径当本机路径，也不静默在本机执行。
+远程工作区（见[远程工作区按根目录路由](../../implemented/architecture/2026-10-24-remote-workspace-routing.md)）在本机以空占位根目录打开，由远程工作区注册表绑定会话和远程根；`backend:1` 与网页 bridge 目前只认本机工作区。公共 API 的资源标识因此需要显式 authority：首版只承诺本机，未实现的 authority 明确拒绝，不把占位根或远程路径当本机路径，也不静默在本机执行。
 
 激活事件目前只能与已声明的 Provider 或窗口命令一一对应，没有独立命令、工作区匹配事件和统一的启动预算；应用也没有工作区信任概念，只有逐操作确认。这两点在实施计划 M0 定稿（API-40、API-41），本 Note 不预设答案。保存前事件（`documents.onWillSave`，API-43）依赖版本化编辑与严格截止时间，晚于单文档编辑落地。
 
@@ -88,11 +88,11 @@ Agent 的 Skills、Hooks、MCP 是用户管理的 Codex/Claude 原生配置，�
 ## 考虑过的备选方案
 
 - 将静态文本和打开窗口固定为最终 API：易验证，但无法覆盖交互 UI 和纯领域能力，因此仅保留为 v2 子集。
-- 直接载入第三方 Swift Bundle：可快速表达复杂原生内容，但没有稳定 ABI，签名与隔离无法覆盖，不采用。
+- 直接载入第三方原生 Bundle 或动态库：可快速表达复杂原生内容，但没有稳定 ABI，签名与隔离无法覆盖，不采用。
 - 第三方 Webview UI：原先不采用。2026-10-18 改为可选路径，限定为包内页面、宿主外壳和白名单桥接，理由与边界见[插件自带网页界面](../../implemented/architecture/2026-10-18-plugin-web-content-in-host-windows.md)。
 - 在 #37 一次完成全部组件和 Provider：会扩大未验证协议及迁移面；先保留基础设施，再按领域纵向验收。
 - 先全面改为 WASM 再开放 API：可以研究更严格的执行限制，但不能替代文件、编辑器和命令语义，还会增加工具链与分发工作；先交付 API，运行时以后单独验证。
-- 直接导出 AppModel、完整命令 dispatcher 或原生模块接口：接入快，但会泄漏内部类型、扩大权限并造成递归/生命周期耦合；只开放有类型、有授权且可撤销的能力。
+- 直接导出宿主内部应用模型、完整命令 dispatcher 或原生模块接口：接入快，但会泄漏内部类型、扩大权限并造成递归/生命周期耦合；只开放有类型、有授权且可撤销的能力。
 
 ## 验收标准
 
@@ -119,7 +119,7 @@ Agent 的 Skills、Hooks、MCP 是用户管理的 Codex/Claude 原生配置，�
 ## 适用范围
 
 - `https://github.com/Lithe-IDEA/Lithe-core-rust/blob/main/shared/plugins/contract/v1/`
-- Lithe-core-rust 锁定修订：[rust/lithe-core/src/plugins/](https://github.com/Lithe-IDEA/Lithe-core-rust/tree/0ffd327b4329261e393b08ed76fbd134b4dd17e9/rust/lithe-core/src/plugins)
+- Core 仓库的插件执行契约：[rust/crates/plugin-model](https://github.com/Lithe-IDEA/Lithe-core-rust/tree/main/rust/crates/plugin-model)、[rust/crates/plugin-rpc](https://github.com/Lithe-IDEA/Lithe-core-rust/tree/main/rust/crates/plugin-rpc)
 - `desktop/internal/core/plugin_session.go`
 - `desktop/internal/workbench/`
 - `desktop/internal/settingswindow/`

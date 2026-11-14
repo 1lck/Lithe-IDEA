@@ -4,11 +4,7 @@
 
 ## 先说结论
 
-当前调试传输这轮只做普通 TCP（可靠的双向字节流）连接和生命周期，复用 [#1520](https://github.com/1lck/Lithe-IDEA/pull/1520) 的 socket 基础，不另写一套 TCP 实现，也不取代标准输入输出（stdio）传输。代理、隧道、端口转发和远端执行是独立的网络通路方案，本轮不实现，不作为普通 TCP 的交付前置。
-
-远程调试不等于必须使用 SSH：端点可以直接可达，也可以经用户自己配置的 VPN 或隧道可达；Lithe 本轮只连接最终可达的端点，不创建或管理这些网络设施。[#1525](https://github.com/1lck/Lithe-IDEA/pull/1525) 当前只实现远程 attach 的契约与 Rust 校验；本 Note 记录后续连接实现的边界和验收要求，不表示宿主已经支持全部场景。
-
-普通 TCP 与显式外部端点入口的已实现边界见[普通 TCP 生命周期决策](../../implemented/architecture/2026-10-27-debug-tcp-transport-lifecycle.md)。本提案保留未实施的代理、隧道和网络通路问题，不以传输测试代替真实语言调试验收。
+这轮调试传输只做普通 TCP（可靠的双向字节流）连接和生命周期，复用 [#1520](https://github.com/1lck/Lithe-IDEA/pull/1520) 的 socket 基础，不取代标准输入输出（stdio）传输。远程调试不等于必须使用 SSH：Lithe 只连接用户最终可达的端点，不创建或管理 VPN、隧道等网络设施。代理、隧道、端口转发和远端执行是独立的网络通路方案，本轮不实现，也不作为普通 TCP 的交付前置。[#1525](https://github.com/1lck/Lithe-IDEA/pull/1525) 已实现远程 attach 的契约、Core 校验和桌面端的非回环端点确认，但外部 DAP 直连与网络通路仍未实现，已实现边界见[普通 TCP 生命周期决策](../../implemented/architecture/2026-10-27-debug-tcp-transport-lifecycle.md)。
 
 ## 问题
 
@@ -31,7 +27,7 @@ IDE -- DAP（调试适配器协议，stdio 或 TCP）--> 调试适配器
 
 | 边界 | 开发动作 |
 | --- | --- |
-| 复用已有传输 | 复用 #1520 的 socket 接口、异步端点解析和会话清理思路；`tcpLanguageServer` 从同插件 LSP 命令获取回环端口。现有实现不是任意远端 DAP 的直连入口。 |
+| 复用已有传输 | 复用 #1520 的 socket 生命周期；桌面端的 `tcpLanguageServer` 从同插件语言服务器命令获取回环端口（`desktop/internal/workbench/debug_start.go`）。现有实现不是任意远端 DAP 的直连入口。 |
 | 不混用端点 | 自动取得的语言服务器端点继续限制在回环。未来用户提供的外部 DAP 端点要有独立来源、确认和校验，不能直接把 attach 目标的 `host/port` 当作 IDE 的 socket 地址。 |
 | 正常连接与收发 | 明确连接准备、连接中、可收发、停止和失败；有界等待端点解析、建连及停止，连接成功前的写入有顺序和资源上限，读写失败不静默丢弃。 |
 | 取消与过期结果 | 解析端点、建连、等待响应时都能取消。回调绑定会话和连接代次，旧连接晚到的成功、数据或失败不能改变新会话，也不能重新打开已停止的连接。 |
@@ -84,18 +80,15 @@ IDE -- DAP（调试适配器协议，stdio 或 TCP）--> 调试适配器
 
 ## 验证
 
-原提案阶段仅补充设计；TCP 实现与验证入口以已实现决策为准。维护本提案时运行 `./scripts/agent-notes/verify-agent-notes.sh`、~~./scripts/architecture/verify-shared-contracts.sh~~（随旧客户端移除）、`./scripts/platform-feature-matrix/verify-platform-feature-matrix.sh` 和 `git diff --check`，不据此声称有运行时连接证据。
+原提案阶段仅补充设计；TCP 实现与验证入口以已实现决策为准。维护本提案时运行 `./scripts/agent-notes/verify-agent-notes.sh`、`./scripts/platform-feature-matrix/verify-platform-feature-matrix.sh` 和 `git diff --check`，不据此声称有运行时连接证据。
 
-后续实现先加载 `write-stable-tests`，用可控 socket 和有界等待覆盖验收标准，再执行对应平台测试与真实适配器流程；同步平台功能矩阵，验证发行包只读，清理本次启动的所有进程。
+后续实现先加载 `write-stable-tests`，用可控 socket 和有界等待覆盖验收标准，再执行 `scripts/desktop/desktop-go.sh test ./internal/core/... ./internal/workbench/...` 与真实适配器流程；同步平台功能矩阵，验证发行包只读，清理本次启动的所有进程。
 
 ## 适用范围
 
-- Lithe-core-rust 锁定修订：[rust/lithe-core/src/debug/](https://github.com/Lithe-IDEA/Lithe-core-rust/tree/0ffd327b4329261e393b08ed76fbd134b4dd17e9/rust/lithe-core/src/debug)
-- ~~`macos/Sources/Lithe/Platform/MacOS/Debug/`~~（已随 #1794 移除）
-- ~~`windows/tauri/src-tauri/src/debug.rs`~~（已随 #1794 移除）
-- `https://github.com/Lithe-IDEA/Lithe-core-rust/blob/main/shared/plugins/contract/v1/`
-- Lithe-core-rust 锁定修订：[rust/lithe-remote/src/client/transport.rs](https://github.com/Lithe-IDEA/Lithe-core-rust/blob/0ffd327b4329261e393b08ed76fbd134b4dd17e9/rust/lithe-remote/src/client/transport.rs)
-- Lithe-core-rust 锁定修订：[rust/lithe-remote/src/client/forward.rs](https://github.com/Lithe-IDEA/Lithe-core-rust/blob/0ffd327b4329261e393b08ed76fbd134b4dd17e9/rust/lithe-remote/src/client/forward.rs)
+- [Core 仓库的 Rust Core 调试模块](https://github.com/Lithe-IDEA/Lithe-core-rust/tree/main/rust/crates/debug)
+- [插件契约 v1](https://github.com/Lithe-IDEA/Lithe-core-rust/blob/main/shared/plugins/contract/v1/)
+- `desktop/internal/core/debug_transport.go`、`desktop/internal/workbench/debug_transport.go`
 
 ## 依据
 
