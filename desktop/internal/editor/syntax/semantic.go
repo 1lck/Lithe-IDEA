@@ -2,6 +2,7 @@ package syntax
 
 import (
 	"errors"
+	"math"
 	"slices"
 	"strings"
 	"unicode/utf8"
@@ -201,21 +202,35 @@ func searchTokens(n int, f func(int) bool) int {
 	return lo
 }
 
+// PreparedSemantic is a set of semantic tokens laid over the text they were asked for, built
+// by PrepareSemantic on a worker and applied with Highlighter.SetPreparedSemantic.
+type PreparedSemantic struct {
+	text   rope.Rope
+	tokens semanticTokens
+}
+
+// PrepareSemantic converts tokens to byte positions in text, as buildSemantic does. It takes time
+// in proportion to the tokens, so it runs on a worker, not on the window thread.
+func PrepareSemantic(text rope.Rope, legend *SemanticLegend, tokens []SemanticToken) PreparedSemantic {
+	return PreparedSemantic{text: text, tokens: buildSemantic(text, legend, tokens)}
+}
+
 // buildSemantic validates tokens against text, converts their UTF-16 positions to bytes and
 // returns them sorted, with tokens that overlap an earlier one on the same line dropped. A
 // token is dropped when its type is not styled, its length is 0, its line is past the text or
 // it starts past its line; a token that runs past its line ends at the line's end.
+//
+// The text is read once, a leaf at a time: a line is found by its newlines, not by a search of
+// its leaf from the start, and only a line that has tokens is copied. Each line's tokens are
+// walked in order, so a token continues from where the one before it ended.
 func buildSemantic(text rope.Rope, legend *SemanticLegend, tokens []SemanticToken) semanticTokens {
 	sorted := tokens
 	if !slices.IsSortedFunc(tokens, compareSemantic) {
 		sorted = slices.Clone(tokens)
 		slices.SortStableFunc(sorted, compareSemantic)
 	}
-	out := make(semanticTokens, 0, len(sorted)*semanticStride)
 	lines := text.LineCount()
-	var buf []byte
-	bufLine := -1
-	lastLine, lastEnd := -1, 0
+	spans := make([]semanticSpan, 0, len(sorted))
 	for _, t := range sorted {
 		if t.Length == 0 || int64(t.Line) >= int64(lines) {
 			continue
@@ -224,22 +239,90 @@ func buildSemantic(text rope.Rope, legend *SemanticLegend, tokens []SemanticToke
 		if !ok {
 			continue
 		}
-		line := int(t.Line)
-		if line != bufLine {
-			buf, bufLine = text.AppendLine(buf[:0], line), line
-		}
-		start, ok := utf16Offset(buf, 0, t.StartChar)
-		if !ok || start >= len(buf) {
-			continue
-		}
-		end, _ := utf16Offset(buf, start, t.Length)
-		if line == lastLine && start < lastEnd {
-			continue
-		}
-		out = append(out, uint32(line), uint32(start), uint32(end), uint32(name))
-		lastLine, lastEnd = line, end
+		spans = append(spans, semanticSpan{line: t.Line, start: t.StartChar, length: t.Length, name: uint32(name)})
 	}
-	return out
+	b := semanticBuilder{spans: spans, out: make(semanticTokens, 0, len(spans)*semanticStride), lastLine: -1}
+	if len(spans) == 0 {
+		return b.out
+	}
+	var buf []byte
+	line := 0
+	inLine := b.hasSpans(line)
+	text.Chunks(0, text.Len(), func(chunk string) bool {
+		for {
+			i := strings.IndexByte(chunk, '\n')
+			if inLine {
+				if i >= 0 {
+					buf = append(buf, chunk[:i]...)
+				} else {
+					buf = append(buf, chunk...)
+				}
+			}
+			if i < 0 {
+				return true
+			}
+			if inLine {
+				b.line(line, string(buf))
+				buf, inLine = buf[:0], false
+			}
+			line++
+			chunk = chunk[i+1:]
+			inLine = b.hasSpans(line)
+		}
+	})
+	if inLine {
+		b.line(line, string(buf))
+	}
+	return b.out
+}
+
+// semanticSpan is a validated token: its line, its UTF-16 start and length on the line, and its
+// name.
+type semanticSpan struct {
+	line, start, length, name uint32
+}
+
+// semanticBuilder appends the semantic tokens of each line in turn; spans are sorted by line and
+// start, and next is the first one not yet appended.
+type semanticBuilder struct {
+	spans    []semanticSpan
+	next     int
+	out      semanticTokens
+	lastLine int
+	lastEnd  int
+}
+
+// hasSpans reports whether the next span not yet appended is on line.
+func (b *semanticBuilder) hasSpans(line int) bool {
+	return b.next < len(b.spans) && int(b.spans[b.next].line) == line
+}
+
+// line appends the tokens of line, whose text is text, the spans of it from next on.
+func (b *semanticBuilder) line(line int, text string) {
+	at, col := 0, uint32(0)
+	for ; b.next < len(b.spans) && int(b.spans[b.next].line) == line; b.next++ {
+		t := b.spans[b.next]
+		// Spans are sorted by start, so the walk moves forward, unless two spans share a column
+		// that the walk has passed: then it starts again from the line's start.
+		if t.start < col {
+			at, col = 0, 0
+		}
+		start, startCol, ok := advanceUTF16(text, at, col, t.start)
+		if !ok || start >= len(text) {
+			continue
+		}
+		target := startCol + t.length
+		if target < startCol {
+			target = math.MaxUint32
+		}
+		end, _, _ := advanceUTF16(text, start, startCol, target)
+		at, col = start, startCol
+		if line == b.lastLine && start < b.lastEnd {
+			continue
+		}
+		b.out = append(b.out, uint32(line), uint32(start), uint32(end), t.name)
+		b.lastLine, b.lastEnd = line, end
+	}
 }
 
 func compareSemantic(a, b SemanticToken) int {
@@ -259,24 +342,24 @@ func cmpUint32(a, b uint32) int {
 	return 0
 }
 
-// utf16Offset returns the byte offset in line that is units UTF-16 code units past byte
-// offset from, and whether line has that many. Short of them it returns len(line). An offset
-// inside a surrogate pair rounds up to the end of the character.
-func utf16Offset(line []byte, from int, units uint32) (int, bool) {
-	at := from
-	for units > 0 {
+// advanceUTF16 walks line from byte offset at, which is UTF-16 column col, to the first byte at
+// or past UTF-16 column target. It returns that byte offset, the column reached and whether
+// line reaches target: short of it the offset is len(line). A target inside a surrogate pair
+// rounds up to the end of the character, as the column of a token's end does.
+func advanceUTF16(line string, at int, col, target uint32) (int, uint32, bool) {
+	for col < target {
 		if at >= len(line) {
-			return len(line), false
+			return len(line), col, false
 		}
-		r, size := utf8.DecodeRune(line[at:])
+		r, size := utf8.DecodeRuneInString(line[at:])
 		at += size
-		if r >= 0x10000 && units >= 2 {
-			units -= 2
+		if r >= 0x10000 {
+			col += 2
 		} else {
-			units--
+			col++
 		}
 	}
-	return at, true
+	return at, col, true
 }
 
 // edit moves semantic tokens across an edit that replaced the text from (startLine, startCol)

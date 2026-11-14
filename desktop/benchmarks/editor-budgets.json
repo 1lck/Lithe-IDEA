@@ -85,6 +85,14 @@
       }
     },
     {
+      "pattern": "^BenchmarkEditorSyntaxSemanticBuild/",
+      "why": "Converting a server's semantic tokens to byte positions is one pass over the text, a line read once and only when it has tokens, so its cost is bounded by a small constant plus 1.5 ns per byte. It runs on a worker, and the window thread only applies the result.",
+      "nsMax": {
+        "constant": 100000,
+        "perTextByte": 1.5
+      }
+    },
+    {
       "pattern": "^BenchmarkEditorViewRewrap/",
       "why": "Re-wrapping after a width change is one linear pass over the text, so its cost is bounded by a small constant plus 1.5 ns per byte.",
       "nsMax": {

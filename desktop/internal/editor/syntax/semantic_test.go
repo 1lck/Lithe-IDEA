@@ -5,6 +5,7 @@ import (
 	"slices"
 	"testing"
 
+	"github.com/1lck/Lithe-IDEA/desktop/internal/editor/editorperf"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/editor/rope"
 )
 
@@ -53,25 +54,25 @@ func TestSemanticLegend(t *testing.T) {
 	}
 }
 
-func TestUTF16Offset(t *testing.T) {
-	line := []byte("中文😀abc")
+func TestAdvanceUTF16(t *testing.T) {
+	line := "中文😀abc"
 	for _, c := range []struct {
-		from  int
-		units uint32
-		want  int
-		ok    bool
+		from, col, target uint32
+		want              int
+		wantCol           uint32
+		ok                bool
 	}{
-		{0, 0, 0, true},
-		{0, 2, 6, true},
-		{0, 4, 10, true},
+		{0, 0, 0, 0, 0, true},
+		{0, 0, 2, 6, 2, true},
+		{0, 0, 4, 10, 4, true},
 		// Inside the surrogate pair: the end of the character.
-		{0, 3, 10, true},
-		{10, 3, 13, true},
-		{10, 5, 13, false},
+		{0, 0, 3, 10, 4, true},
+		{10, 4, 7, 13, 7, true},
+		{10, 4, 9, 13, 7, false},
 	} {
-		got, ok := utf16Offset(line, c.from, c.units)
-		if got != c.want || ok != c.ok {
-			t.Fatalf("utf16Offset(%d, %d) = %d, %v, want %d, %v", c.from, c.units, got, ok, c.want, c.ok)
+		got, col, ok := advanceUTF16(line, int(c.from), c.col, c.target)
+		if got != c.want || col != c.wantCol || ok != c.ok {
+			t.Fatalf("advanceUTF16(%d, col %d, target %d) = %d, %d, %v, want %d, %d, %v", c.from, c.col, c.target, got, col, ok, c.want, c.wantCol, c.ok)
 		}
 	}
 }
@@ -127,6 +128,44 @@ func TestSemanticEdit(t *testing.T) {
 		got := base().edit(c.startLine, c.startCol, c.endLine, c.endCol, c.newlines, c.lastLen, c.firstByte)
 		if !slices.Equal(got, c.want) {
 			t.Fatalf("%s: tokens %v, want %v", c.name, got, c.want)
+		}
+	}
+}
+
+// TestBuildSemanticAcrossLeaves checks the one-pass build against a line-by-line reading of a text
+// spread over many leaves, with characters outside the BMP and tokens on lines of every kind.
+func TestBuildSemanticAcrossLeaves(t *testing.T) {
+	text := rope.New(editorperf.Text(editorperf.Mixed, 300<<10))
+	legend := NewSemanticLegend([]string{"variable"}, nil)
+	var tokens []SemanticToken
+	for line := 0; line < text.LineCount(); line += 3 {
+		for _, at := range []uint32{0, 1, 5, 9} {
+			tokens = append(tokens, SemanticToken{Line: uint32(line), StartChar: at, Length: 1 + at%4})
+		}
+	}
+	got := buildSemantic(text, legend, tokens)
+
+	var want semanticTokens
+	lastLine, lastEnd := -1, 0
+	for _, tok := range tokens {
+		line := text.Line(int(tok.Line))
+		start, startCol, ok := advanceUTF16(line, 0, 0, tok.StartChar)
+		if !ok || start >= len(line) {
+			continue
+		}
+		end, _, _ := advanceUTF16(line, start, startCol, startCol+tok.Length)
+		if int(tok.Line) == lastLine && start < lastEnd {
+			continue
+		}
+		want = append(want, tok.Line, uint32(start), uint32(end), uint32(Intern("variable")))
+		lastLine, lastEnd = int(tok.Line), end
+	}
+	if len(got) != len(want) {
+		t.Fatalf("built %d values, want %d", len(got), len(want))
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Fatalf("value %d = %d, want %d", i, got[i], want[i])
 		}
 	}
 }

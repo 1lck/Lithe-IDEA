@@ -520,13 +520,20 @@ func (h *Highlighter) step() bool {
 // text is no longer text: the server answered for a version since edited. The tokens are
 // sorted and converted before the lock is taken, so a large answer never stalls painting.
 func (h *Highlighter) SetSemantic(text rope.Rope, legend *SemanticLegend, tokens []SemanticToken) bool {
-	built := buildSemantic(text, legend, tokens)
+	return h.SetPreparedSemantic(PrepareSemantic(text, legend, tokens))
+}
+
+// SetPreparedSemantic lays tokens prepared by PrepareSemantic over the text they were prepared for,
+// and reports whether that text is still the highlighter's. It takes no time in proportion to the
+// tokens, so the window thread may apply them.
+func (h *Highlighter) SetPreparedSemantic(prepared PreparedSemantic) bool {
+	text := prepared.text
 	h.mu.Lock()
 	if !h.text.Same(text) {
 		h.mu.Unlock()
 		return false
 	}
-	h.semantic = built
+	h.semantic = prepared.tokens
 	count := h.text.LineCount()
 	onChange := h.onChange
 	h.mu.Unlock()
