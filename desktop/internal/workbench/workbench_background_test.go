@@ -124,14 +124,21 @@ func (h *harness) veilAlpha() float32 {
 
 func near(a, b float32) bool { return math.Abs(float64(a-b)) < 0.002 }
 
+// windowControlsLayer is the layer of the minimize, maximize and close buttons Viva draws in the
+// custom title bar on Windows and Linux: above every layer an application uses, and declared
+// last. They are not workbench controls.
+const windowControlsLayer = math.MaxUint16
+
 // frontLabeled is where the front-most control named label was laid out in the last frame:
 // a popover's buttons are declared after the workbench under it, whose controls may share
-// their names.
+// their names. The title bar's window buttons are skipped. On Windows and Linux they are
+// declared after the popover, and the window's close button has the same name as the
+// popover's (关闭), so taking it instead would click the window's close button.
 func (h *harness) frontLabeled(label string) gfx.Rect {
 	h.t.Helper()
 	hits := h.driver.Snapshot().Hits
 	for i := len(hits) - 1; i >= 0; i-- {
-		if hit := hits[i]; hit.Label == label && !hit.IsLabel && !hit.Backdrop {
+		if hit := hits[i]; hit.Label == label && !hit.IsLabel && !hit.Backdrop && hit.Layer != windowControlsLayer {
 			return hit.Bounds
 		}
 	}

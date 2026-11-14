@@ -37,9 +37,13 @@ func TestWindowsShellReportsDirectoryAfterChangingIt(t *testing.T) {
 			screen.SetPromptToken("test-token")
 			started := false
 			screen.SetPromptStart(func() { started = true })
-			wait := func(want string) {
+			// The first prompt waits for the shell to start. Windows PowerShell 5.1 takes about 9 s
+			// to start on the Windows CI runners and sometimes more than 12 s; the prompt after a
+			// directory change comes much sooner.
+			const startDeadline, promptDeadline = 45 * time.Second, 12 * time.Second
+			wait := func(want string, limit time.Duration) {
 				t.Helper()
-				deadline := time.NewTimer(12 * time.Second)
+				deadline := time.NewTimer(limit)
 				defer deadline.Stop()
 				for {
 					screen.Write(shell.Drain(nil))
@@ -54,7 +58,7 @@ func TestWindowsShellReportsDirectoryAfterChangingIt(t *testing.T) {
 					}
 				}
 			}
-			wait(home)
+			wait(home, startDeadline)
 			command := "Set-Location -LiteralPath '" + strings.ReplaceAll(target, "'", "''") + "'\r"
 			if strings.EqualFold(filepath.Base(program), "cmd.exe") {
 				command = "cd /d \"" + target + "\"\r"
@@ -62,7 +66,7 @@ func TestWindowsShellReportsDirectoryAfterChangingIt(t *testing.T) {
 			if !shell.Write([]byte(command)) {
 				t.Fatal("shell refused input")
 			}
-			wait(target)
+			wait(target, promptDeadline)
 		})
 	}
 }
