@@ -15337,14 +15337,11 @@
       ]
     },
     {
-      "id": "desktop.settings.localHistory.builtIns",
-      "description": "Settings > General > Local History: the built-in ignore rules Core applies besides the user rules, and how to turn one off",
+      "id": "desktop.settings.localHistory.builtInsHelp",
+      "description": "Settings > General > Local History: the built-in ignore rules are lines of the wildcard list; deleting one keeps its folder out of history, and deleting its \"!\" line turns it back on",
       "platforms": [
         "desktop"
-      ],
-      "parameters": {
-        "patterns": "string"
-      }
+      ]
     },
     {
       "id": "desktop.settings.localHistory.help",

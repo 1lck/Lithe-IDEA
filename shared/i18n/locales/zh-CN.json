@@ -10946,7 +10946,7 @@
     "desktop.settings.network.ignoredExclusions": "以下排除项不是支持的格式，已忽略：{entries}",
     "desktop.settings.localHistory.help": "本地历史在你保存和编辑项目文件时保留各个版本，存放在 Lithe 自己的数据目录中。忽略规则只让文件不进入本地历史，项目树仍然显示它们。",
     "desktop.settings.localHistory.wildcardHelp": "每行一条规则，按项目内的路径匹配，例如 `*.log` 或 `**/generated/`。",
-    "desktop.settings.localHistory.builtIns": "同时生效的内置规则：{patterns}。添加一行例如 `!**/target/`，可以重新记录其中的某个目录。",
+    "desktop.settings.localHistory.builtInsHelp": "内置规则也列在这里。删除其中一行，应用后该目录不再记入本地历史，并以 `!` 开头的行显示；删除这行 `!` 行即可重新开启该规则。",
     "desktop.settings.localHistory.regexHelp": "每行一条，不区分大小写，在以 `/` 分隔的项目内相对路径中任意位置匹配，例如 `^build/` 或 `(test|spec)/`。",
     "desktop.settings.localHistory.invalidLimit": "上限请填写不小于 1 的整数（单位 MB），留空则使用默认值。",
     "desktop.settings.editor.tabLimit": "标签数量上限",

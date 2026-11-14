@@ -114,13 +114,14 @@ func TestLocalHistoryCardChecksTheRulesAsTheyAreTyped(t *testing.T) {
 	}
 
 	d.until("the project's history size", func() bool { return d.text("3.5 MB / 100 MB") })
-	builtIns := format("desktop.settings.localHistory.builtIns", "patterns", strings.Join(fakeBuiltIns, "  "))
-	d.until("Core's built-in rules", func() bool { return d.showsHelp(builtIns) })
+	d.until("Core's built-in rules as lines of the wildcard list", func() bool {
+		return strings.Contains(w.localHistory.patterns.Text(), "**/node_modules/")
+	})
 	if rules, path := source.lastPreview(); !slices.Equal(rules.PathPatterns, []string{"*.log"}) || path != "" {
 		t.Fatalf("the first preview sent %+v for %q, want the stored rule", rules, path)
 	}
 
-	w.localHistory.patterns.SetText("*.log\n**/gen/")
+	w.localHistory.patterns.SetText("**/node_modules/\n**/target/\n*.log\n**/gen/")
 	w.localHistory.regexes.SetText("^build/\n(")
 	w.localHistory.path.SetText("src/gen/api.txt")
 	verdict := format("native.localHistoryFormat", "arg1", format("native.ignoredByWildcardRule", "arg1", "**/gen/"))
@@ -128,6 +129,7 @@ func TestLocalHistoryCardChecksTheRulesAsTheyAreTyped(t *testing.T) {
 	if rules, _ := source.lastPreview(); !slices.Equal(rules.PathRegexes, []string{"^build/", "("}) {
 		t.Fatalf("the preview sent the regular expressions %q, want the lines as typed", rules.PathRegexes)
 	}
+	d.click(text("native.regularExpression.variant2"))
 	failure := format("native.lineLldIsNotAValidRegularExpressionAndIsSkipped", "arg1", "2") + " unclosed group"
 	d.until("the line Core cannot read", func() bool { return d.showsHelp(failure) })
 
@@ -137,8 +139,39 @@ func TestLocalHistoryCardChecksTheRulesAsTheyAreTyped(t *testing.T) {
 
 	w.localHistory.path.SetText("../outside.txt")
 	d.until("a path outside the project", func() bool { return d.text(text("native.aTestPathMustStayInsideTheCurrent")) })
-	if !d.showsHelp(builtIns) {
-		t.Fatal("a refused path took Core's built-in rules off the card")
+	if got := w.localHistory.patterns.Text(); !strings.Contains(got, "**/target/") {
+		t.Fatalf("a refused path took Core's built-in rules off the list: %q", got)
+	}
+}
+
+// TestLocalHistoryCardSwitchesBuiltInRulesOffAndOn: deleting a built-in line and applying keeps
+// its folder out of history, shown as a "!" line; deleting that line and applying turns the
+// built-in rule back on.
+func TestLocalHistoryCardSwitchesBuiltInRulesOffAndOn(t *testing.T) {
+	source := &fakeLocalHistory{usage: core.HistoryUsage{UsedBytes: 1 << 20, LimitBytes: 100 << 20}, open: true}
+	var applied []LocalHistorySettings
+	w, d := openLocalHistoryCard(t, source, LocalHistorySettings{}, func(next LocalHistorySettings) { applied = append(applied, next) })
+	text := func(id string) string { return i18n.Shared(i18n.English, id) }
+	d.until("the built-in rules in the wildcard list", func() bool {
+		return strings.Contains(w.localHistory.patterns.Text(), "**/target/")
+	})
+
+	w.localHistory.patterns.SetText("**/node_modules/")
+	d.click(text("desktop.settings.network.apply"))
+	d.until("the switched-off rule shown as a \"!\" line", func() bool {
+		return w.localHistory.patterns.Text() == "**/node_modules/\n!**/target/"
+	})
+	if len(applied) != 1 || !slices.Equal(applied[0].IgnorePatterns, []string{"!**/target/"}) {
+		t.Fatalf("deleting the target line stored %+v, want the rule switched off", applied)
+	}
+
+	w.localHistory.patterns.SetText("**/node_modules/")
+	d.click(text("desktop.settings.network.apply"))
+	d.until("the rule back on", func() bool {
+		return w.localHistory.patterns.Text() == "**/node_modules/\n**/target/"
+	})
+	if len(applied) != 2 || len(applied[1].IgnorePatterns) != 0 {
+		t.Fatalf("deleting the \"!\" line stored %+v, want no rules", applied)
 	}
 }
 
@@ -175,10 +208,11 @@ func TestLocalHistoryCardAppliesTrimmedRulesAndTheLimit(t *testing.T) {
 		}
 	}
 
-	builtIns := i18n.SharedFormat(i18n.English, "desktop.settings.localHistory.builtIns", map[string]string{"patterns": strings.Join(fakeBuiltIns, "  ")})
-	d.until("the initial preview row to be rendered before locating Apply", func() bool { return d.showsHelp(builtIns) })
+	d.until("the initial preview row to be rendered before locating Apply", func() bool {
+		return strings.Contains(w.localHistory.patterns.Text(), "**/target/")
+	})
 
-	w.localHistory.patterns.SetText("  *.log \n\n**/gen/\n")
+	w.localHistory.patterns.SetText("  **/node_modules/ \n  *.log \n\n**/gen/\n**/target/\n")
 	w.localHistory.regexes.SetText("\n^build/ ")
 	w.localHistory.limit.SetText("2.5")
 	d.click(text("desktop.settings.network.apply"))
@@ -202,15 +236,16 @@ func TestLocalHistoryCardAppliesTrimmedRulesAndTheLimit(t *testing.T) {
 		defer source.mu.Unlock()
 		return slices.Contains(source.limits, 250)
 	})
-	if got := w.localHistory.patterns.Text(); got != "*.log\n**/gen/" {
-		t.Fatalf("the applied rules read %q, want them as stored", got)
+	const listed = "**/node_modules/\n**/target/\n*.log\n**/gen/"
+	if got := w.localHistory.patterns.Text(); got != listed {
+		t.Fatalf("the applied rules read %q, want them as stored with the built-in rules listed: %q", got, listed)
 	}
 
 	w.localHistory.patterns.SetText("other/")
 	w.localHistory.limit.SetText("")
 	d.click(text("desktop.settings.network.revert"))
 	d.pump()
-	if w.localHistory.patterns.Text() != "*.log\n**/gen/" || w.localHistory.limit.Text() != "250" || len(applied) != 1 {
+	if w.localHistory.patterns.Text() != listed || w.localHistory.limit.Text() != "250" || len(applied) != 1 {
 		t.Fatalf("Revert left %q and %q, applied %d", w.localHistory.patterns.Text(), w.localHistory.limit.Text(), len(applied))
 	}
 }
