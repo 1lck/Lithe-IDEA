@@ -83,7 +83,7 @@ func reviewReason(err error) string {
 // reviewFailed words a failed review operation for the user and logs it.
 func (a *App) reviewFailed(operation string, err error) {
 	a.notifyError(i18n.SharedFormat(a.language(), "desktop.gitReview.operationFailed", map[string]string{"reason": reviewReason(err)}))
-	a.gitOperationFailed(operation, err)
+	a.operationFailed(operation, err)
 }
 
 // --- Blame ---
@@ -126,7 +126,7 @@ func (a *App) openBlame(p *project, relative string) {
 			b.loading = false
 			if err != nil {
 				b.err = i18n.SharedFormat(a.language(), "desktop.gitReview.blameFailed", map[string]string{"reason": reviewReason(err)})
-				a.gitOperationFailed("git_blame", err)
+				a.operationFailed("git_blame", err)
 				return
 			}
 			b.lines, b.text = lines, text
@@ -194,7 +194,7 @@ func (a *App) loadUntracked(p *project) {
 			u.loading = false
 			if err != nil {
 				u.err = reviewReason(err)
-				a.gitOperationFailed("git_untracked_directory", err)
+				a.operationFailed("git_untracked_directory", err)
 				return
 			}
 			u.err, u.changes = "", changes

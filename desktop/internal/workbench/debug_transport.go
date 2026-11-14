@@ -33,6 +33,9 @@ type debugTransportHooks struct {
 	Discover func(ctx context.Context) (host string, port int, err error)
 	// Dial opens the socket; nil dials TCP.
 	Dial func(ctx context.Context, host string, port int) (net.Conn, error)
+	// Connected, when set, runs once Core took the socket as ready, before anything is read
+	// from it.
+	Connected func()
 	// Deliver receives bytes the adapter sent, in order.
 	Deliver func(data []byte)
 	// Failure reports why Core failed the stream; Message is only set for the
@@ -318,8 +321,12 @@ func (t *debugTransport) connect(wait context.Context, generation uint64, host s
 	}
 	t.conn = conn
 	t.mu.Unlock()
-	if _, err := t.apply(core.DebugTransportEvent{Type: "connectionReady", Generation: &generation}, nil, nil); err != nil {
+	step, err := t.apply(core.DebugTransportEvent{Type: "connectionReady", Generation: &generation}, nil, nil)
+	if err != nil {
 		return
+	}
+	if step.Phase == "ready" && t.hooks.Connected != nil {
+		t.hooks.Connected()
 	}
 	t.read(generation, conn)
 }

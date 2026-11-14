@@ -209,7 +209,7 @@ func (a *App) runBranchWrite(p *project, operation string, failed func(reason st
 			b.busy = false
 			if err != nil {
 				a.notifyError(failed(err.Error()))
-				a.gitOperationFailed(operation, err)
+				a.operationFailed(operation, err)
 				return
 			}
 			// The project's status describes its own repository only.
@@ -244,7 +244,7 @@ func (a *App) checkoutBranch(p *project, r core.GitReference, surface actionSurf
 			b.busy = false
 			if err != nil {
 				a.notifyError(a.text.Branch.CheckoutFailed(err.Error()))
-				a.gitOperationFailed("git_checkout", err)
+				a.operationFailed("git_checkout", err)
 				return
 			}
 			if len(blocking) > 0 {
@@ -338,7 +338,7 @@ func (a *App) previewBranchName(p *project, raw string, require bool) core.Branc
 	if err != nil {
 		// The kernel could not clean the name; the typed text stands, and the submit tells
 		// the user what Git says.
-		a.gitOperationFailed("git_branch_name_preview", err)
+		a.backgroundFailed("git_branch_name_preview", err)
 		return core.BranchNamePreview{TypingCleanedName: raw, CleanedName: strings.TrimSpace(raw)}
 	}
 	return preview

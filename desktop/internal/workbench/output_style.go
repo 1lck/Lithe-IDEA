@@ -217,9 +217,10 @@ func (b *outputBuffer) all() string {
 }
 
 // reportOutputStyleFailure logs that Core could not decode a console's escapes; that console
-// shows the rest of its output as it came. Each decoder reports its failure once; nil is none.
+// shows the rest of its output as it came, so the colors are what is lost, not the output. Each
+// decoder reports its failure once; nil is none.
 func (a *App) reportOutputStyleFailure(failure error) {
 	if failure != nil {
-		a.emit(operationFailedLevel, operationFailedEvent, operationFailedFields("output_style", failure))
+		a.backgroundFailed("output_style", failure)
 	}
 }

@@ -223,6 +223,7 @@ func revealLabel(language i18n.Language) string {
 // revealPath shows full in the platform's file manager and says why when it cannot.
 func (a *App) revealPath(full string) {
 	if err := treeRevealPath(full); err != nil {
+		a.operationFailed("project_tree_reveal", documentLogError(err))
 		a.notifyError(i18n.SharedFormat(a.language(), "desktop.files.revealFailed", map[string]string{"reason": treeErrorReason(err)}))
 	}
 }
@@ -264,6 +265,7 @@ func (a *App) copyTreePath(full string, relative bool) {
 		}
 	}
 	if err := treeCopyText(text); err != nil {
+		a.operationFailed("clipboard_copy", err)
 		a.notifyError(i18n.SharedFormat(a.language(), "desktop.files.copyFailed", map[string]string{"reason": treeErrorReason(err)}))
 	}
 }
@@ -368,6 +370,7 @@ func (a *App) createTreeItem(p *project) {
 		err = os.Mkdir(full, 0o755)
 	}
 	if err != nil {
+		a.operationFailed("project_tree_create", documentLogError(err))
 		a.notifyError(i18n.SharedFormat(language, "desktop.files.createFailed", map[string]string{"reason": treeErrorReason(err)}))
 		return
 	}
@@ -410,10 +413,12 @@ func (a *App) renameTreeItem(p *project) {
 	a.saveDocumentsThen(p, docs, func() {
 		before := readForLocalHistory(oldFull)
 		if err := wslpath.CheckMove(oldFull, newFull); err != nil {
-			a.notifyError(err.Error())
+			a.operationRejected("project_tree_rename", "cross_wsl_boundary")
+			a.notifyError(i18n.Shared(language, "desktop.files.crossBoundaryMove"))
 			return
 		}
 		if err := os.Rename(oldFull, newFull); err != nil {
+			a.operationFailed("project_tree_rename", documentLogError(err))
 			a.notifyError(i18n.SharedFormat(language, "desktop.files.renameFailed", map[string]string{"reason": treeErrorReason(err)}))
 			return
 		}

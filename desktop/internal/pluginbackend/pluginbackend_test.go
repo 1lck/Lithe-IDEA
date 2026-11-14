@@ -26,6 +26,8 @@ type fakeKernel struct {
 	startErr         error
 	started_         core.PluginBackendStart
 	events           [][]core.BackendEvent
+	traces           chan traceCall
+	traceRefused     map[string]error
 	answeredMu       sync.Mutex
 	answered         []answeredRequest
 	stopErr          error
@@ -96,6 +98,18 @@ func (k *fakeKernel) StopPluginBackend(context.Context, string) error {
 func (k *fakeKernel) DestroyPluginBackend(context.Context, string) error {
 	k.destroyed = true
 	return k.destroyErr
+}
+
+// SetDetailedDiagnostics records each switch on traces when a test watches them, and refuses
+// the sessions in traceRefused.
+func (k *fakeKernel) SetDetailedDiagnostics(_ context.Context, session string, enabled bool) error {
+	if k.traces != nil {
+		k.traces <- traceCall{session: session, enabled: enabled}
+	}
+	if err, ok := k.traceRefused[session]; ok {
+		return err
+	}
+	return nil
 }
 
 func (k *fakeKernel) RespondPluginHostRequest(_ context.Context, session, requestID string, result json.RawMessage, failure *core.PluginHostFailure) error {
@@ -516,6 +530,44 @@ func TestStartUsesLanguageServerPlanAndRole(t *testing.T) {
 	}
 	if !kernel.startedLanguageServer {
 		t.Fatal("the runner used the plugin backend start entry point")
+	}
+}
+
+// A language-server start hands its attempt to Core with the start itself, so Core records
+// the result; a plugin backend reports its own operations and hands nothing over, and a start
+// that fails before Core is asked keeps the attempt for the host to record.
+func TestStartHandsTheLanguageServerAttemptToCore(t *testing.T) {
+	root := backendPackage(t)
+	kernel := &fakeKernel{plan: packagedPlan(), started: core.PluginBackendStarted{SessionID: "session-1"}}
+	request := startRequest(root)
+	request.LanguageID = "java"
+	request.Attempt = core.StartPluginAttempt("example", core.OperationLanguageServerStart, "action-5")
+	if _, err := New(kernel, echoServices(t)).Start(context.Background(), request); err != nil {
+		t.Fatalf("start: %v", err)
+	}
+	handoff := kernel.started_.StartupOperation
+	if handoff == nil || handoff.PluginID != "example" || handoff.OperationID != "action-5" || !request.Attempt.HandedOff() {
+		t.Fatalf("the language-server start carried %+v", handoff)
+	}
+
+	backend := startRequest(root)
+	backend.Attempt = core.StartPluginAttempt("example", core.OperationLanguageServerStart, "action-6")
+	if _, err := New(kernel, echoServices(t)).Start(context.Background(), backend); err != nil {
+		t.Fatalf("backend start: %v", err)
+	}
+	if kernel.started_.StartupOperation != nil || backend.Attempt.HandedOff() {
+		t.Fatalf("a plugin backend start handed off %+v", kernel.started_.StartupOperation)
+	}
+
+	refused := &fakeKernel{planErr: errors.New("refused")}
+	early := startRequest(root)
+	early.LanguageID = "java"
+	early.Attempt = core.StartPluginAttempt("example", core.OperationLanguageServerStart, "action-7")
+	if _, err := New(refused, echoServices(t)).Start(context.Background(), early); err == nil {
+		t.Fatal("a refused plan started")
+	}
+	if early.Attempt.HandedOff() {
+		t.Fatal("a start that never reached Core handed its attempt over")
 	}
 }
 

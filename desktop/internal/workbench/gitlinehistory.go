@@ -83,7 +83,7 @@ func (a *App) startLineHistory(p *project, d *document, surface actionSurface) {
 			h.busy = false
 			if err != nil {
 				h.err = reviewReason(err)
-				a.gitOperationFailed("git_line_history", err)
+				a.operationFailed("git_line_history", err)
 				return
 			}
 			h.history = history

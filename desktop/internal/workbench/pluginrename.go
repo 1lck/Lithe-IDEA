@@ -170,7 +170,7 @@ func (a *App) applySemanticRename(pending *semanticPending, event core.BackendEv
 	changes, err := core.PluginSemanticWorkspaceChanges(event)
 	a.closePluginRename()
 	if err != nil {
-		a.emit(operationFailedLevel, operationFailedEvent, operationFailedFields("plugin_rename", err))
+		a.operationFailed("plugin_rename", err)
 		a.notifyError(i18n.Shared(a.language(), "desktop.semantics.operationFailed"))
 		return
 	}
@@ -213,7 +213,7 @@ func (a *App) applyWorkspaceChanges(p *project, changes map[string][]core.Plugin
 				if errors.Is(err, errRenameRejected) {
 					a.notifyError(i18n.Shared(a.language(), "desktop.semantics.renameRejected"))
 				} else {
-					a.emit(operationFailedLevel, operationFailedEvent, operationFailedFields("plugin_rename", err))
+					a.operationFailed("plugin_rename", err)
 					a.notifyError(i18n.Shared(a.language(), "desktop.semantics.renameFailed"))
 				}
 				return
@@ -226,6 +226,7 @@ func (a *App) applyWorkspaceChanges(p *project, changes map[string][]core.Plugin
 				}
 			}
 			if stale > 0 {
+				a.operationFailed("plugin_rename_apply", fmt.Errorf("%d of %d open documents changed before the rename reached them", stale, len(updates)))
 				a.notifyError(i18n.Shared(a.language(), "desktop.semantics.renamePartial"))
 				return
 			}

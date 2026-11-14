@@ -121,6 +121,7 @@ func buildProjectSelection(project core.BuildProject) *core.BuildSelection {
 func (a *App) runBuildProjectTests(p *project, instance *buildInstance, projectID string) {
 	project, ok := buildProjectByID(instance.Model, projectID)
 	if !ok {
+		a.operationRejected("build_tests", "project_missing")
 		a.notifyError(a.text.Build.ProjectMissing)
 		return
 	}
@@ -136,11 +137,13 @@ func (a *App) runBuildProjectTests(p *project, instance *buildInstance, projectI
 func (a *App) runBuildTargetTests(p *project, instance *buildInstance, targetID string) {
 	target, ok := buildTargetByID(instance.Model, targetID)
 	if !ok {
+		a.operationRejected("build_tests", "target_missing")
 		a.notifyError(a.text.Build.TargetMissing)
 		return
 	}
 	project, ok := buildProjectByID(instance.Model, target.ProjectID)
 	if !ok {
+		a.operationRejected("build_tests", "project_missing")
 		a.notifyError(a.text.Build.ProjectMissing)
 		return
 	}
@@ -197,7 +200,7 @@ func (a *App) discoverBuildTests(p *project, instance *buildInstance, refresh bo
 			}
 			tests.loading = false
 			if err != nil {
-				a.emit(operationFailedLevel, operationFailedEvent, operationFailedFields("build_test_discovery", err))
+				a.operationFailed("build_test_discovery", err)
 				tests.failed = err.Error()
 				return
 			}

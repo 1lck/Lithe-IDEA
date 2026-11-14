@@ -34,7 +34,7 @@ func (a *App) openClone(surface actionSurface) {
 	c.name.SetText("")
 	home, err := os.UserHomeDir()
 	if err != nil {
-		a.gitOperationFailed("clone_home_directory", documentLogError(err))
+		a.backgroundFailed("clone_home_directory", documentLogError(err))
 	}
 	c.parent.SetText(home)
 	a.performed("workspace.clone", surface)
@@ -74,7 +74,7 @@ func (a *App) chooseCloneParent() {
 			c := &a.clone
 			if !c.open || c.generation != generation || c.busy {
 				if err != nil && !errors.Is(err, app.ErrCanceled) {
-					a.gitOperationFailed("clone_choose_directory", documentLogError(err))
+					a.operationFailed("clone_choose_directory", documentLogError(err))
 				}
 				// log-exempt: 用户取消：关闭对话框后不再应用目录选择结果。
 				return
@@ -84,7 +84,7 @@ func (a *App) chooseCloneParent() {
 				return
 			}
 			if err != nil {
-				a.gitOperationFailed("clone_choose_directory", documentLogError(err))
+				a.operationFailed("clone_choose_directory", documentLogError(err))
 				c.err = err.Error()
 				return
 			}
@@ -111,13 +111,13 @@ func (a *App) submitClone() {
 	parent, source := c.parent.Text(), c.source.Text()
 	destination, valid := cloneDestination(parent, c.name.Text())
 	if !valid {
-		a.gitOperationFailed("git_clone_destination", errors.New("invalid clone destination"))
+		a.operationFailed("git_clone_destination", errors.New("invalid clone destination"))
 		c.err = i18n.Shared(a.language(), "desktop.clone.invalidName")
 		return
 	}
 	c.busy, c.cancelling, c.err = true, false, ""
 	generation := c.generation
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Minute)
+	ctx, cancel := context.WithTimeout(a.operationContext(context.Background()), 30*time.Minute)
 	c.cancel = cancel
 	kernel := a.kernel
 	a.background(nil, 0, func(context.Context) func(*App) {
@@ -127,7 +127,7 @@ func (a *App) submitClone() {
 			c := &a.clone
 			if !c.open || c.generation != generation {
 				if err != nil && !errors.Is(err, context.Canceled) {
-					a.gitOperationFailed("git_clone", errors.New("clone operation failed after closing"))
+					a.operationFailed("git_clone", errors.New("clone operation failed after closing"))
 				}
 				// log-exempt: 用户取消：关闭对话框后不再应用克隆结果。
 				return
@@ -136,7 +136,7 @@ func (a *App) submitClone() {
 			c.busy = false
 			if c.cancelling || errors.Is(err, context.Canceled) {
 				if err != nil && !errors.Is(err, context.Canceled) {
-					a.gitOperationFailed("git_clone", errors.New("clone operation failed during cancellation"))
+					a.operationFailed("git_clone", errors.New("clone operation failed during cancellation"))
 				}
 				// log-exempt: 用户取消：克隆已结束，任何部分目录留给用户处理。
 				a.closeClone()
@@ -145,7 +145,7 @@ func (a *App) submitClone() {
 			if err != nil {
 				// Git's stderr can contain credentials or repository URLs. Neither
 				// the on-screen message nor the log may reproduce those bytes.
-				a.gitOperationFailed("git_clone", errors.New("clone operation failed"))
+				a.operationFailed("git_clone", errors.New("clone operation failed"))
 				c.err = i18n.Shared(a.language(), "desktop.clone.failed")
 				return
 			}

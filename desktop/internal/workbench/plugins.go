@@ -14,7 +14,6 @@ import (
 	"time"
 
 	"github.com/1lck/Lithe-IDEA/desktop/internal/core"
-	"github.com/1lck/Lithe-IDEA/desktop/internal/logwindow"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/marketplace"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/plugininstall"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/pluginmanager"
@@ -45,7 +44,7 @@ func (a *App) refreshPluginState() {
 		return func(a *App) {
 			a.pluginFacts.Store(&facts)
 			if err != nil {
-				a.emit(operationFailedLevel, operationFailedEvent, operationFailedFields("plugin_list", err))
+				a.backgroundFailed("plugin_list", err)
 				if entries == nil {
 					return
 				}
@@ -86,7 +85,7 @@ func (a *App) installPlugin(plugin core.MarketplacePlugin, feedback settingswind
 			return plugininstall.Plan{}, err
 		}
 		defer func() {
-			a.recordPluginInstallCleanup(archive.Discard())
+			a.recordPluginInstallCleanup(ctx, archive.Discard())
 		}()
 		if feedback.Preparing != nil {
 			feedback.Preparing()
@@ -100,7 +99,7 @@ func (a *App) installPlugin(plugin core.MarketplacePlugin, feedback settingswind
 			ExpectedVersion: availability.Version,
 		})
 		if err != nil && !errors.Is(err, context.Canceled) && !errors.Is(err, context.DeadlineExceeded) {
-			a.recordPluginInstallCleanup(downloads.Forget(archive))
+			a.recordPluginInstallCleanup(ctx, downloads.Forget(archive))
 		}
 		return plan, err
 	})
@@ -110,8 +109,8 @@ func (a *App) closePluginDownloads() {
 	downloads := a.pluginDownloads
 	a.pluginDownloads = nil
 	if downloads != nil {
-		a.background(nil, 0, func(context.Context) func(*App) {
-			a.recordPluginInstallCleanup(downloads.Close())
+		a.background(nil, 0, func(ctx context.Context) func(*App) {
+			a.recordPluginInstallCleanup(ctx, downloads.Close())
 			return nil
 		})
 	}
@@ -131,7 +130,7 @@ func (a *App) installPluginFromFile(path string, feedback settingswindow.PluginI
 
 func (a *App) preparePluginInstall(feedback settingswindow.PluginInstallFeedback, prepare func(context.Context) (plugininstall.Plan, error)) {
 	if a.plugins == nil {
-		a.emit(operationFailedLevel, operationFailedEvent, operationFailedFields("plugin_install", errors.New("plugin service unavailable")))
+		a.operationFailed("plugin_install", errors.New("plugin service unavailable"))
 		if feedback.Failure != nil {
 			feedback.Failure(errors.New("plugin service unavailable"))
 		}
@@ -140,8 +139,11 @@ func (a *App) preparePluginInstall(feedback settingswindow.PluginInstallFeedback
 	}
 	// Register the worker on the workbench thread so application shutdown waits
 	// for cancelled downloads and unapproved packages to be cleaned up.
-	a.background(nil, 0, func(context.Context) func(*App) {
-		ctx, cancel := context.WithTimeout(feedback.Context, pluginDownloadTimeout)
+	a.background(nil, 0, func(work context.Context) func(*App) {
+		// The review window's context ends the install; the install still belongs to the
+		// action that started it, so its records and Core requests carry its op.
+		origin := core.OriginOf(work)
+		ctx, cancel := context.WithTimeout(core.WithOrigin(feedback.Context, origin), pluginDownloadTimeout)
 		plan, err := prepare(ctx)
 		cancel()
 		if err != nil {
@@ -150,7 +152,7 @@ func (a *App) preparePluginInstall(feedback settingswindow.PluginInstallFeedback
 			if cancelled && errors.Is(err, context.Canceled) {
 				return nil
 			}
-			a.emit(operationFailedLevel, operationFailedEvent, operationFailedFields("plugin_install", err))
+			a.operationFailedIn(work, "plugin_install", err)
 			if !cancelled {
 				if feedback.Failure != nil {
 					feedback.Failure(err)
@@ -162,20 +164,22 @@ func (a *App) preparePluginInstall(feedback settingswindow.PluginInstallFeedback
 		// The worker holds staging until the originating window accepts the
 		// verified package; a cancelled window discards it before installation.
 		if !feedback.Review(plan.Version, plan.Review, plan.Decision.Reuse) {
-			a.recordPluginInstallCleanup(a.plugins.Installer.Discard(plan))
+			a.recordPluginInstallCleanup(work, a.plugins.Installer.Discard(plan))
 			return nil
 		}
-		commitCtx, cancelCommit := context.WithTimeout(context.Background(), pluginInstallTimeout)
+		commitCtx, cancelCommit := context.WithTimeout(core.WithOrigin(context.Background(), origin), pluginInstallTimeout)
 		defer cancelCommit()
 		return a.commitPluginInstall(commitCtx, plan, feedback)
 	})
 }
 
-func (a *App) recordPluginInstallCleanup(err error) {
+// recordPluginInstallCleanup records a download or staging package the install could not
+// remove, under the action ctx belongs to. It is safe from any goroutine.
+func (a *App) recordPluginInstallCleanup(ctx context.Context, err error) {
 	if err != nil {
-		fields := logwindow.ErrorFields(err)
+		fields := core.LogErrorFields(err)
 		fields["stage"] = "plugin_install_cleanup"
-		a.emit(core.LevelWarn, "app.storage.maintenance_failed", fields)
+		a.emitIn(ctx, core.LevelWarn, "app.storage.maintenance_failed", fields)
 	}
 }
 
@@ -194,12 +198,12 @@ func (a *App) commitPluginInstall(ctx context.Context, plan plugininstall.Plan, 
 		displaced = a.describeDisplacement(ctx, plan.ID, outcome.Displaced)
 	}
 	if err != nil && approval == nil {
-		a.recordPluginInstallCleanup(a.plugins.Installer.Discard(plan))
+		a.recordPluginInstallCleanup(ctx, a.plugins.Installer.Discard(plan))
 	}
 	return func(a *App) {
 		installed := err == nil
 		if enableErr != nil {
-			a.emit(operationFailedLevel, operationFailedEvent, operationFailedFields("plugin_enable", enableErr))
+			a.operationFailed("plugin_enable", enableErr)
 		}
 		if err != nil {
 			if approval != nil {
@@ -207,9 +211,9 @@ func (a *App) commitPluginInstall(ctx context.Context, plan plugininstall.Plan, 
 				// The package is on disk; only its approval record failed, so the
 				// user is not told the installation failed. The next installation
 				// of the same version asks again.
-				a.emit(operationFailedLevel, operationFailedEvent, operationFailedFields("plugin_approval", err))
+				a.operationFailed("plugin_approval", err)
 			} else {
-				a.emit(operationFailedLevel, operationFailedEvent, operationFailedFields("plugin_commit", err))
+				a.operationFailed("plugin_commit", err)
 			}
 		}
 		if installed && plan.ID != "" {
@@ -253,7 +257,7 @@ func (a *App) setPluginEnabled(id string, enabled bool) {
 		}
 		return func(a *App) {
 			if err != nil {
-				a.emit(operationFailedLevel, operationFailedEvent, operationFailedFields("plugin_enable", err))
+				a.operationFailed("plugin_enable", err)
 			}
 			if enabled {
 				// An enable clears the tombstone a disable left for an in-flight start.
@@ -287,7 +291,7 @@ func (a *App) uninstallPlugin(id string) {
 		err := a.plugins.Uninstall(ctx, id, nil, stop)
 		return func(a *App) {
 			if err != nil {
-				a.emit(operationFailedLevel, operationFailedEvent, operationFailedFields("plugin_uninstall", err))
+				a.operationFailed("plugin_uninstall", err)
 			}
 			for _, tab := range a.everyTab() {
 				if err == nil {
@@ -313,7 +317,7 @@ func (a *App) reloadPluginLanguages() {
 		entries, err := a.plugins.Manager.Installed()
 		if err != nil {
 			return func(a *App) {
-				a.emit(operationFailedLevel, operationFailedEvent, operationFailedFields("plugin_languages", err))
+				a.backgroundFailed("plugin_languages", err)
 			}
 		}
 		languages, loadErr := a.plugins.LoadLanguages(ctx, entries)
@@ -322,24 +326,23 @@ func (a *App) reloadPluginLanguages() {
 		vcsPlugins, vcsErr := a.plugins.VcsPlugins(ctx, entries)
 		return func(a *App) {
 			if commandsErr != nil {
-				a.emit(operationFailedLevel, operationFailedEvent, operationFailedFields("plugin_tool_commands", commandsErr))
+				a.backgroundFailed("plugin_tool_commands", commandsErr)
 			}
 			a.pluginCommands = commands
 			shortcuts.SetPluginActions(pluginCommandActions(commands))
 			if loadErr != nil {
-				a.emit(operationFailedLevel, operationFailedEvent, operationFailedFields("plugin_languages", loadErr))
+				a.backgroundFailed("plugin_languages", loadErr)
 			}
 			if windowsErr != nil {
-				a.emit(operationFailedLevel, operationFailedEvent, operationFailedFields("plugin_tool_windows", windowsErr))
+				a.backgroundFailed("plugin_tool_windows", windowsErr)
 			}
 			if vcsErr != nil {
-				a.emit(operationFailedLevel, operationFailedEvent, operationFailedFields("plugin_vcs_providers", vcsErr))
+				a.backgroundFailed("plugin_vcs_providers", vcsErr)
 			}
 			a.setPluginTools(windows, vcsWindows(vcsPlugins))
 			failed, _ := a.syntaxRegistry().SetPluginLanguages(languages)
 			if len(failed) > 0 {
-				a.emit(operationFailedLevel, operationFailedEvent, operationFailedFields("plugin_languages",
-					fmt.Errorf("%d plugin languages were rejected", len(failed))))
+				a.backgroundFailed("plugin_languages", fmt.Errorf("%d plugin languages were rejected", len(failed)))
 			}
 		}
 	})

@@ -288,6 +288,11 @@ type debugSession struct {
 	generation uint64
 	// adapter is the declaration the session runs, so a child session starts on the same adapter.
 	adapter debugAdapter
+	// adapterStart is this session's start of its adapter, recorded on the plugin's channel
+	// once it has a result (see recordDebugStart). reached is set once the adapter can be
+	// talked to: its process runs, or its socket connected.
+	adapterStart *core.PluginAttempt
+	reached      atomic.Bool
 	// parent is the session whose adapter asked for this one through startDebugging;
 	// startRequestID is that reverse request, answered once with this session's outcome.
 	parent         *debugSession
@@ -331,11 +336,22 @@ func (s *debugSession) writeFrames(frames []string) error {
 			return fmt.Errorf("debug frame: %w", err)
 		}
 		if _, err := transport.Write(data); err != nil {
+			if errors.Is(ctx.Err(), context.DeadlineExceeded) {
+				return &debugWriteTimedOut{cause: err}
+			}
 			return err
 		}
 	}
 	return nil
 }
+
+// debugWriteTimedOut is a write the adapter did not take within the session's write deadline.
+// Its text is the write's own; it also is a context.DeadlineExceeded, so the adapter start
+// it ends is a timeout.
+type debugWriteTimedOut struct{ cause error }
+
+func (e *debugWriteTimedOut) Error() string   { return e.cause.Error() }
+func (e *debugWriteTimedOut) Unwrap() []error { return []error{e.cause, context.DeadlineExceeded} }
 
 // recordFailure keeps the reason Core failed the stream so the termination that
 // follows it can show that reason.
@@ -491,11 +507,16 @@ func (a *App) receiveDebug(p *project, session *debugSession, chunk []byte) {
 		if session.stopped.Load() || p.ctx.Err() != nil {
 			return
 		}
+		// Bytes Core cannot read before initialize was answered fail the handshake.
+		a.recordDebugStart(session.ctx, session, core.StageInitialize, err)
 		a.post(func(a *App) { a.finishDebugError(p, session, err) })
 		return
 	}
+	a.debugAdapterAnswered(session, update.State)
 	if err := session.writeFrames(update.OutboundFrames); err != nil && !session.stopped.Load() {
-		a.post(func(a *App) { a.finishDebugError(p, session, err) })
+		if finish := a.debugWriteFailed(p, session, err); finish != nil {
+			a.post(finish)
+		}
 		return
 	}
 	a.postDebugUpdate(p, session, update)
@@ -825,6 +846,9 @@ func (a *App) releaseDebugSession(p *project, session *debugSession) {
 			p.debug.removeSession(child)
 		}
 		session.stopped.Store(true)
+		// A start still without a result when its session is taken apart was stopped, or
+		// failed for a reason that is not the adapter's: it records nothing.
+		session.adapterStart.Abandon()
 		session.cancel()
 		drain := session.drainOnStop.Load() && session.hosted != nil
 		if !drain {
@@ -955,7 +979,7 @@ func (a *App) finishDebugError(p *project, session *debugSession, err error) {
 	if errors.As(err, &settingsError) {
 		message = i18n.Shared(a.language(), "desktop.debug.settingsUnreadable")
 	}
-	a.emit(operationFailedLevel, operationFailedEvent, operationFailedFields("debug", err))
+	a.operationFailed("debug", err)
 	a.endDebugSession(p, session)
 	p.debug.failure = message
 	if p.debug.activeSession() != nil {

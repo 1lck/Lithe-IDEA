@@ -170,7 +170,7 @@ func (a *App) applyWorkspaceSymbols(pending *semanticPending, event core.Backend
 	}
 	symbols, err := core.PluginWorkspaceSymbols(event)
 	if err != nil {
-		a.emit(operationFailedLevel, operationFailedEvent, operationFailedFields("workspace_symbols", err))
+		a.backgroundFailed("workspace_symbols", err)
 		return
 	}
 	if st.itemKeys == nil {
@@ -214,7 +214,7 @@ func (a *App) applyWorkspaceSymbols(pending *semanticPending, event core.Backend
 				return
 			}
 			if err != nil {
-				a.emit(operationFailedLevel, operationFailedEvent, operationFailedFields("workspace_symbols_rank", err))
+				a.backgroundFailed("workspace_symbols_rank", err)
 				return
 			}
 			st.ranked = everywhereRankedMatches(p, items, order)

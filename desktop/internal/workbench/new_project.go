@@ -208,7 +208,7 @@ func (a *App) chooseNewProjectParent() {
 				return
 			}
 			if err != nil {
-				a.emit(operationFailedLevel, operationFailedEvent, operationFailedFields("new_project_choose_directory", documentLogError(err)))
+				a.operationFailed("new_project_choose_directory", documentLogError(err))
 				if n.open && n.generation == generation {
 					n.err = i18n.Shared(a.language(), "desktop.newProject.chooseFailed")
 				}
@@ -539,7 +539,7 @@ func (a *App) submitNewProject() {
 	if parent == "~" || strings.HasPrefix(parent, "~/") || strings.HasPrefix(parent, "~\\") {
 		home, err := os.UserHomeDir()
 		if err != nil {
-			a.emit(operationFailedLevel, operationFailedEvent, operationFailedFields("new_project_home", documentLogError(err)))
+			a.operationFailed("new_project_home", documentLogError(err))
 			n.err = i18n.Shared(a.language(), "desktop.newProject.invalidLocation")
 			return
 		}
@@ -553,7 +553,7 @@ func (a *App) submitNewProject() {
 	n.busy, n.cancelling, n.err = true, false, ""
 	n.progress = nil
 	generation := n.generation
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	ctx, cancel := context.WithTimeout(a.operationContext(context.Background()), 30*time.Second)
 	n.cancel = cancel
 	kernel := a.kernel
 	a.background(nil, 0, func(context.Context) func(*App) {
@@ -567,7 +567,7 @@ func (a *App) submitNewProject() {
 func (a *App) finishNewProject(generation uint64, result newProjectResult) {
 	n := &a.newProject
 	if result.err != nil && !errors.Is(result.err, context.Canceled) {
-		a.emit(operationFailedLevel, operationFailedEvent, operationFailedFields("new_project_create", documentLogError(result.err)))
+		a.operationFailed("new_project_create", documentLogError(result.err))
 	}
 	if !n.open || n.generation != generation {
 		// log-exempt: 用户取消：窗口已关闭，保留可能已创建的目录。
@@ -624,7 +624,7 @@ func (a *App) submitGenerator(parent string) {
 	progress := &runProgress{}
 	n.progress = progress
 	generation := n.generation
-	ctx, cancel := context.WithCancel(context.Background())
+	ctx, cancel := context.WithCancel(a.operationContext(context.Background()))
 	n.cancel = cancel
 	kernel := a.kernel
 	a.background(nil, 0, func(context.Context) func(*App) {
@@ -660,7 +660,7 @@ func (a *App) submitGenerator(parent string) {
 func (a *App) finishGenerator(generation uint64, result projectgen.Result) {
 	n := &a.newProject
 	if result.Failure != nil && !errors.Is(result.Failure, context.Canceled) {
-		a.emit(operationFailedLevel, operationFailedEvent, operationFailedFields("new_project_generate", documentLogError(result.Failure.Err)))
+		a.operationFailed("new_project_generate", documentLogError(result.Failure.Err))
 	}
 	if !n.open || n.generation != generation {
 		// log-exempt: 用户取消：窗口已关闭，保留可能已创建的目录。

@@ -82,12 +82,14 @@ func (a *App) moveTreeItem(p *project, rel, dir string) {
 		return
 	}
 	if err := wslpath.CheckMove(oldFull, newFull); err != nil {
-		a.notifyError(err.Error())
+		a.operationRejected("project_tree_move", "cross_wsl_boundary")
+		a.notifyError(i18n.Shared(language, "desktop.files.crossBoundaryMove"))
 		return
 	}
 	docs := a.documentsUnder(p, oldFull)
 	a.saveDocumentsThen(p, docs, func() {
 		if err := os.Rename(oldFull, newFull); err != nil {
+			a.operationFailed("project_tree_move", documentLogError(err))
 			a.notifyError(i18n.SharedFormat(language, "desktop.files.moveFailed", map[string]string{"reason": treeErrorReason(err)}))
 			return
 		}
@@ -152,10 +154,11 @@ func (a *App) treePaste(p *project, n *treeNode) {
 	if clip.cut {
 		p.tree.clip = treeClipboard{}
 	}
+	a.performed("workspace.file.paste", surfaceContextMenu)
 	if failed != nil {
+		a.operationFailed("project_tree_paste", documentLogError(failed))
 		a.notifyError(i18n.SharedFormat(language, "desktop.files.pasteFailed", map[string]string{"reason": treeErrorReason(failed)}))
 	}
-	a.performed("workspace.file.paste", surfaceContextMenu)
 	a.listTree(p, dir)
 	for _, rel := range clip.paths {
 		a.listTree(p, path.Dir(rel))

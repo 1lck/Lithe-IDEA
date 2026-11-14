@@ -95,7 +95,7 @@ func (a *App) planStartupSweep() {
 		}
 		return func(a *App) {
 			if err != nil {
-				a.emit(operationFailedLevel, operationFailedEvent, operationFailedFields("startup_sweep_plan", err))
+				a.backgroundFailed("startup_sweep_plan", err)
 				a.startupSweep = startupSweepState{open: true, leftovers: leftovers, settings: settings, grace: buildprocess.StopGrace()}
 				return
 			}
@@ -140,7 +140,7 @@ func (a *App) settleLeftovers(ended, kept []processledger.Record, grace time.Dur
 		err := errors.Join(keepErr, endErr)
 		return func(a *App) {
 			if err != nil {
-				a.emit(operationFailedLevel, operationFailedEvent, operationFailedFields("startup_sweep", err))
+				a.operationFailed("startup_sweep", err)
 				return
 			}
 			a.emit(core.LevelInfo, "app.startup.leftovers_resolved", map[string]any{"decided_by": decidedBy, "ended": count, "kept": len(kept)})
@@ -216,7 +216,7 @@ func (a *App) settleStartupSweep(end bool) {
 		settlement, err := a.kernel.SettleProcessLifecycle(ctx, question.settings, decisions, answers, false)
 		return func(a *App) {
 			if err != nil {
-				a.emit(operationFailedLevel, operationFailedEvent, operationFailedFields("startup_sweep_settle", err))
+				a.operationFailed("startup_sweep_settle", err)
 				return
 			}
 			pick := func(ids []string) []processledger.Record {

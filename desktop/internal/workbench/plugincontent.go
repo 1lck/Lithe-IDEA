@@ -94,7 +94,7 @@ func (a *App) openContentTarget(p *project, uri string, line, column int) {
 			if err == nil || errors.Is(err, context.Canceled) {
 				return
 			}
-			a.emit(operationFailedLevel, operationFailedEvent, operationFailedFields("plugin_content", err))
+			a.operationFailed("plugin_content", err)
 			a.notifyError(i18n.SharedFormat(a.language(), "desktop.pluginHost.contentFailed", map[string]string{"uri": uri}))
 		}
 	})

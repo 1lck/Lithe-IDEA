@@ -244,7 +244,7 @@ func (a *App) reportDocumentSyncFailure(event string, ctxErr, err error) {
 	if errors.Is(err, context.Canceled) || errors.Is(ctxErr, context.Canceled) {
 		return
 	}
-	a.emit(operationFailedLevel, operationFailedEvent, operationFailedFields(event, err))
+	a.backgroundFailed(event, err)
 }
 
 // openDocumentsForPlugin opens every document of languageID in a newly started

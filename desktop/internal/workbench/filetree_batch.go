@@ -190,10 +190,11 @@ func treeParents(paths []string) []string {
 // still ran; failure words it.
 func (a *App) finishRemoval(p *project, parents []string, performed string, failed int, reason error, failure func(i18n.Language, string) string) {
 	p.tree.marked, p.tree.anchor, p.tree.targets = nil, "", nil
+	a.performed(performed, surfaceButton)
 	if failed > 0 && reason != nil {
+		a.operationFailed("project_tree_remove", documentLogError(reason))
 		a.notifyError(failure(a.language(), treeErrorReason(reason)))
 	}
-	a.performed(performed, surfaceButton)
 	for _, dir := range parents {
 		a.listTree(p, dir)
 	}

@@ -36,6 +36,7 @@ func (a *App) openTreeFileWith(file string) {
 		err = app.OpenWith(paths[0], filepath.Clean(file))
 	}
 	if err != nil {
+		a.operationFailed("project_tree_open_with", documentLogError(err))
 		a.notifyError(i18n.SharedFormat(lang, "desktop.files.openWithFailed", map[string]string{"reason": treeErrorReason(err)}))
 	}
 }

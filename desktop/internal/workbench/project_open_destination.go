@@ -101,6 +101,7 @@ func (a *App) askProjectOpenDestination(path string) {
 // own project.
 func (a *App) openProjectInNewWindow(path string) {
 	if err := launchClient(path); err != nil {
+		a.operationFailed("project_open_new_window", documentLogError(err))
 		a.notifyError(i18n.SharedFormat(a.language(), "desktop.projectOpen.newWindowFailed", map[string]string{"reason": treeErrorReason(err)}))
 	}
 }

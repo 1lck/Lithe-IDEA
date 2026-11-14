@@ -65,7 +65,7 @@ func (a *App) restartSettingsPlugin(id, version, scope, workspace string) {
 		// Cleanup belongs to the detached native session, not to the project
 		// context. Record failures even when its UI continuation was revoked.
 		if err != nil {
-			a.emit(operationFailedLevel, operationFailedEvent, operationFailedFields("plugin_settings_restart", err))
+			a.operationFailedIn(ctx, "plugin_settings_restart", err)
 		}
 		return func(a *App) {
 			a.pluginServerMu.Lock()

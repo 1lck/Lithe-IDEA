@@ -125,7 +125,7 @@ func (a *App) applyFoldRanges(pending *semanticPending, event core.BackendEvent,
 	}
 	if failed || err != nil {
 		if err != nil {
-			a.emit(operationFailedLevel, operationFailedEvent, operationFailedFields("plugin_folding_ranges", err))
+			a.backgroundFailed("plugin_folding_ranges", err)
 		}
 		a.foldFromIndent(p, d, pending.revision)
 		return

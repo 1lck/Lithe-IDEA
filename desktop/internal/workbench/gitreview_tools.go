@@ -84,7 +84,7 @@ func (a *App) loadPush(p *project) {
 			s.loading = false
 			if err != nil {
 				s.err, s.hasPrev = i18n.Shared(a.language(), "git.pushDialog.previewFailed")+" "+reviewReason(err), false
-				a.gitOperationFailed("git_push_preview", err)
+				a.operationFailed("git_push_preview", err)
 				return
 			}
 			s.preview, s.hasPrev = preview, true
@@ -191,7 +191,7 @@ func (a *App) loadTools(p *project) {
 			t.loading, t.repositories = false, repos
 			if err != nil {
 				t.err = reviewReason(err)
-				a.gitOperationFailed("git_repositories", err)
+				a.operationFailed("git_repositories", err)
 				return
 			}
 			t.err = ""

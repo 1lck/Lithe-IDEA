@@ -1270,6 +1270,22 @@ func (m *Model) compose(term core.LogFilterTerm) {
 	})
 }
 
+// showOperation narrows the table to every record of one operation of this session, which a
+// notice's View Logs asks for: the current session, no time limit, every channel and level,
+// and an expression of only the op term, which the kernel writes. The filter field shows the
+// term, so clearing it shows everything again.
+func (m *Model) showOperation(op string) {
+	m.follows = false
+	m.changeQuery(func(q *windowQuery) {
+		q.Session = sessionCurrent
+		q.Since, q.Until = "", ""
+		q.ChannelPrefixes = []string{}
+		q.Levels = slices.Clone(allLevels)
+		q.Expression = ""
+	})
+	m.compose(core.LogFilterTerm{Kind: "op", Value: op})
+}
+
 // copyFormatted formats records in format, json or markdown, and puts the text on the
 // clipboard. Copies carry the description of the client; the details pane does not.
 func (m *Model) copyFormatted(records []core.LogRecord, format string) {

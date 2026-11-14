@@ -57,6 +57,7 @@ type Kernel interface {
 	DecodeDebugBackendConfiguration(ctx context.Context, manifest json.RawMessage, params json.RawMessage) (core.DebugBackendStart, error)
 	DecodeOutputLinkResolution(ctx context.Context, reply json.RawMessage) (*core.OutputLocation, error)
 	DecodePluginLanguageServerLaunch(ctx context.Context, manifest json.RawMessage, languageID string, directories core.PluginBackendDirectories, answer json.RawMessage) (core.PluginBackendPlan, error)
+	RecordPluginOperation(ctx context.Context, operation core.PluginOperation) error
 }
 
 // Service is the assembled plugin stack.
@@ -106,6 +107,15 @@ type Service struct {
 	// LanguageTool resolves an optional installation for a backend-resolved
 	// language server. A nil installation means the tool is unavailable.
 	LanguageTool func(context.Context, string, string) (*core.ToolchainSelection, error)
+	// LogDirectory gives the ${logDir} of a process started for a plugin: the current log
+	// session's plugins/<id>/files directory, created by the window's log store. An empty
+	// answer, or a nil LogDirectory, means there is no local log store; the process then gets
+	// no logDirectory and a launch that names ${logDir} is refused, as the contract says.
+	LogDirectory func(ctx context.Context, pluginID string) string
+	// RecordFailed reports that Core refused or could not queue the result of a declarative
+	// contribution the host ran. A nil RecordFailed drops the error: the result is diagnostics,
+	// and the attempt it describes already went its own way.
+	RecordFailed func(ctx context.Context, err error)
 	// kernel reads what only Core can validate, such as a plugin's grammar.
 	kernel Kernel
 	// lsMu guards the running plugin-owned language servers backends reach.

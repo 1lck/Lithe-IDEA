@@ -238,7 +238,7 @@ func (a *App) restoredBackground(serial uint64, pix []byte, width, height int, e
 		b.set, b.name = false, ""
 	default:
 		b.mu.Unlock()
-		a.emit(operationFailedLevel, operationFailedEvent, operationFailedFields("workbench_background", documentLogError(err)))
+		a.operationFailed("workbench_background", documentLogError(err))
 		a.notifyError(backgroundFailureText(a.language(), err))
 		a.dropBackground(err)
 		return
@@ -337,7 +337,7 @@ func checkBackgroundHeader(data []byte) error {
 // backgroundChoiceFailed tells why the chosen file cannot be used; the background is left as
 // it was.
 func (a *App) backgroundChoiceFailed(err error) {
-	a.emit(operationFailedLevel, operationFailedEvent, operationFailedFields("workbench_background", documentLogError(err)))
+	a.operationFailed("workbench_background", documentLogError(err))
 	a.notifyError(backgroundFailureText(a.language(), err))
 }
 
@@ -373,7 +373,7 @@ func (a *App) backgroundCopied(serial uint64, chosen chosenBackground, err error
 	if err != nil {
 		set, decoded := b.set, b.pix != nil
 		b.mu.Unlock()
-		a.emit(operationFailedLevel, operationFailedEvent, operationFailedFields("workbench_background_save", documentLogError(err)))
+		a.operationFailed("workbench_background_save", documentLogError(err))
 		a.notifyError(a.text.Errors.SaveFailed(err.Error()))
 		switch {
 		case !set:
@@ -422,7 +422,7 @@ func (a *App) deleteBackgroundCopy(serial uint64) {
 			return nil
 		}
 		return func(a *App) {
-			a.emit(operationFailedLevel, operationFailedEvent, operationFailedFields("workbench_background_remove", documentLogError(err)))
+			a.backgroundFailed("workbench_background_remove", documentLogError(err))
 		}
 	})
 }

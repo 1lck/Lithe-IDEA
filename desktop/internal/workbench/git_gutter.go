@@ -193,7 +193,7 @@ func (a *App) refreshGitGutter(p *project, d *document) {
 				return
 			}
 			if err != nil {
-				a.gitOperationFailed("git_gutter", err)
+				a.backgroundFailed("git_gutter", err)
 				return
 			}
 			d.gutter.hunks = hunks

@@ -60,7 +60,7 @@ func (a *App) markRecentlyEdited(p *project, d *document) {
 	}
 }
 func (a *App) recentFailed(err error) {
-	a.emit(operationFailedLevel, operationFailedEvent, operationFailedFields("editor_recent", documentLogError(err)))
+	a.operationFailed("editor_recent", documentLogError(err))
 	a.notifyError(i18n.Shared(a.language(), "desktop.recentFiles.failed"))
 }
 func (a *App) openRecentFiles(edited bool) {

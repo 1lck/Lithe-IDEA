@@ -108,7 +108,7 @@ func (a *App) sessionConfig() app.Config {
 		paint(canvas, size)
 		a.endPaint()
 	}
-	return config
+	return a.operating(config)
 }
 
 // beginPaint settles the look of the paint about to be declared and forgets what the last
@@ -150,6 +150,7 @@ func (a *App) page(c ui.C) {
 		a.noteEditorFocus(c.Canvas().Focused())
 		a.overlays(c)
 		ui.Toasts(c, &a.overlay.toaster)
+		a.notificationActed(c)
 	})
 }
 

@@ -45,6 +45,7 @@ func (a *App) duplicateTreeItem(p *project, n *treeNode) {
 		}
 	}
 	if err := copyTreeEntry(source, target); err != nil {
+		a.operationFailed("project_tree_duplicate", documentLogError(err))
 		a.notifyError(i18n.SharedFormat(language, "desktop.files.duplicateFailed", map[string]string{"reason": treeErrorReason(err)}))
 		return
 	}

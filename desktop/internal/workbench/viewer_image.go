@@ -118,6 +118,7 @@ func (a *App) viewerToolbar(c ui.C, bar viewerBar) {
 			path := bar.path
 			c.After(func() {
 				if err := app.OpenPath(path); err != nil {
+					a.operationFailed("open_externally", documentLogError(err))
 					a.notifyError(i18n.SharedFormat(language, "desktop.viewer.openFailed", map[string]string{"reason": err.Error()}))
 				}
 			})

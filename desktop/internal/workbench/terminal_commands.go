@@ -43,6 +43,7 @@ func (a *App) sendTerminalCommand(t *terminal, command string) bool {
 	}
 	line, path, err := writeCommandScript(kind, command)
 	if err != nil {
+		a.operationFailed("terminal_command_script", documentLogError(err))
 		a.notifyError(err.Error())
 		return false
 	}

@@ -74,7 +74,7 @@ func (a *App) importLegacyCredentials() {
 			lang := a.language()
 			switch {
 			case err != nil:
-				a.emit(operationFailedLevel, operationFailedEvent, operationFailedFields("credentials_import_legacy", err))
+				a.operationFailed("credentials_import_legacy", err)
 				a.notifyError(i18n.SharedFormat(lang, "desktop.credentials.importLegacyFailed", map[string]string{"error": err.Error()}))
 			case result == credentials.ImportResult{}:
 				a.notifyInfo(i18n.Shared(lang, "desktop.credentials.importLegacyNone"))

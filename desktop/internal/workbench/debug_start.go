@@ -432,8 +432,9 @@ func (a *App) beginDebug(p *project, start debugStart) {
 		breakpoints[path] = append([]debugBreakpoint(nil), lines...)
 	}
 	ctx, cancel := context.WithCancel(p.ctx)
+	id := fmt.Sprintf("desktop-debug-%d", debugSessionSequence.Add(1))
 	session := &debugSession{
-		id:             fmt.Sprintf("desktop-debug-%d", debugSessionSequence.Add(1)),
+		id:             id,
 		adapterID:      adapter.Declaration.AdapterID,
 		project:        p,
 		cancel:         cancel,
@@ -446,6 +447,9 @@ func (a *App) beginDebug(p *project, start debugStart) {
 		adapter:        adapter,
 		parent:         start.parent,
 		startRequestID: start.startRequestID,
+		// The debug session ID is the start's operation ID, so its result sits with the
+		// session's own debug records.
+		adapterStart: core.StartPluginAttempt(adapter.PluginID, core.OperationDebugAdapterStart, id),
 	}
 	// A session started while the breakpoints are muted starts muted.
 	session.muted.Store(p.debug.muted)
@@ -464,7 +468,7 @@ func (a *App) beginDebug(p *project, start debugStart) {
 				p.debug.state = "failed"
 				p.debug.failure = err.Error()
 			}
-			a.emit(operationFailedLevel, operationFailedEvent, operationFailedFields("debug", err))
+			a.operationFailed("debug", err)
 			return
 		}
 		stdinReader = reader
@@ -497,16 +501,27 @@ func (a *App) beginDebug(p *project, start debugStart) {
 			return nil
 		}
 		if err := os.MkdirAll(stateRoot, 0o700); err != nil {
+			a.recordDebugStart(ctx, session, core.StageResolve, err)
 			return func(a *App) { a.finishDebugError(p, session, err) }
 		}
 		stateDirectory, err := os.MkdirTemp(stateRoot, "desktop-debug-")
 		if err != nil {
+			a.recordDebugStart(ctx, session, core.StageResolve, err)
 			return func(a *App) { a.finishDebugError(p, session, err) }
 		}
 		// Assigned only by startup; cleanup reads it after startupDone closes.
 		session.stateDirectory = stateDirectory
 		preparationContext, cancelPreparation := context.WithTimeout(ctx, debugOperationTimeout)
 		prepared, err := a.prepareDebugLaunch(preparationContext, start, session.stateDirectory, p.root, targetPath, generation, targetUnavailable)
+		if err != nil {
+			// Only the adapter's own launch is the plugin's start; a debuggee that cannot be
+			// found or a remote endpoint waiting for the user is not. The preparation's
+			// context says whether its deadline stopped it, so it is read before release.
+			var unresolved *debugAdapterUnresolved
+			if errors.As(err, &unresolved) || errors.Is(preparationContext.Err(), context.DeadlineExceeded) {
+				a.recordDebugStart(preparationContext, session, core.StageResolve, err)
+			}
+		}
 		cancelPreparation()
 		if err != nil {
 			return func(a *App) { a.finishDebugError(p, session, err) }
@@ -518,9 +533,11 @@ func (a *App) beginDebug(p *project, start debugStart) {
 		}
 		if hosted {
 			if err := a.openHostedTransport(p, session, adapter, messages); err != nil {
+				a.recordDebugStart(ctx, session, core.StageLaunch, err)
 				return func(a *App) { a.finishDebugError(p, session, err) }
 			}
 		} else if err := a.startAdapterProcess(ctx, p, session, prepared, stdinReader); err != nil {
+			a.recordDebugStart(ctx, session, core.StageLaunch, err)
 			return func(a *App) { a.finishDebugError(p, session, err) }
 		}
 		update, err := a.kernel.CreateDebugSession(ctx, core.DebugCreateSessionRequest{
@@ -551,7 +568,7 @@ func (a *App) beginDebug(p *project, start debugStart) {
 		}
 		a.watchDebugInitialize(p, session, window)
 		if err := session.writeFrames(update.OutboundFrames); err != nil {
-			return func(a *App) { a.finishDebugError(p, session, err) }
+			return a.debugWriteFailed(p, session, err)
 		}
 		a.postDebugUpdate(p, session, update)
 		// Muting comes before the first breakpoint set, so a muted session never stops on
@@ -562,7 +579,7 @@ func (a *App) beginDebug(p *project, start debugStart) {
 				return func(a *App) { a.finishDebugError(p, session, err) }
 			}
 			if err := session.writeFrames(update.OutboundFrames); err != nil {
-				return func(a *App) { a.finishDebugError(p, session, err) }
+				return a.debugWriteFailed(p, session, err)
 			}
 			a.postDebugUpdate(p, session, update)
 		}
@@ -572,7 +589,7 @@ func (a *App) beginDebug(p *project, start debugStart) {
 				return func(a *App) { a.finishDebugError(p, session, err) }
 			}
 			if err := session.writeFrames(update.OutboundFrames); err != nil {
-				return func(a *App) { a.finishDebugError(p, session, err) }
+				return a.debugWriteFailed(p, session, err)
 			}
 			a.postDebugUpdate(p, session, update)
 		}
@@ -582,7 +599,7 @@ func (a *App) beginDebug(p *project, start debugStart) {
 				return func(a *App) { a.finishDebugError(p, session, err) }
 			}
 			if err := session.writeFrames(update.OutboundFrames); err != nil {
-				return func(a *App) { a.finishDebugError(p, session, err) }
+				return a.debugWriteFailed(p, session, err)
 			}
 			a.postDebugUpdate(p, session, update)
 		}
@@ -592,7 +609,7 @@ func (a *App) beginDebug(p *project, start debugStart) {
 				return func(a *App) { a.finishDebugError(p, session, err) }
 			}
 			if err := session.writeFrames(update.OutboundFrames); err != nil {
-				return func(a *App) { a.finishDebugError(p, session, err) }
+				return a.debugWriteFailed(p, session, err)
 			}
 			a.postDebugUpdate(p, session, update)
 		}
@@ -601,7 +618,7 @@ func (a *App) beginDebug(p *project, start debugStart) {
 			return func(a *App) { a.finishDebugError(p, session, err) }
 		}
 		if err := session.writeFrames(update.OutboundFrames); err != nil {
-			return func(a *App) { a.finishDebugError(p, session, err) }
+			return a.debugWriteFailed(p, session, err)
 		}
 		a.postDebugUpdate(p, session, update)
 		return nil
@@ -613,6 +630,9 @@ func (a *App) beginDebug(p *project, start debugStart) {
 // deadline); the host only runs the clock.
 func (a *App) watchDebugInitialize(p *project, session *debugSession, window time.Duration) {
 	timer := time.AfterFunc(window, func() {
+		// The window is the start's deadline: an adapter start that has no result by now
+		// timed out. A start that already ended keeps its result.
+		a.recordDebugStart(session.ctx, session, core.StageTimeout, context.DeadlineExceeded)
 		a.post(func(a *App) {
 			if a.project != p || !p.debug.hasSession(session) {
 				return
@@ -651,10 +671,14 @@ func (a *App) startAdapterProcess(ctx context.Context, p *project, session *debu
 		return err
 	}
 	session.process.Store(process)
+	session.reached.Store(true)
 	// Observe native exit even when the adapter cannot send a DAP terminated event.
 	go func() {
 		defer close(session.exitObserved)
 		err := process.Wait()
+		// An exit before initialize was answered ends the start, whatever its status. It is
+		// read before the session's context ends, which would make it a stop by the user.
+		a.recordDebugStart(session.ctx, session, core.StageExit, errDebugAdapterExited)
 		session.cancel()
 		session.closeTransport()
 		a.debugStreamEnded(p, session, err)
@@ -710,15 +734,25 @@ func (a *App) openHostedTransport(p *project, session *debugSession, adapter deb
 		return debugLoopback, port, err
 	}
 	hooks := debugTransportHooks{
-		Discover: discover,
-		Deliver:  func(data []byte) { a.receiveDebug(p, session, data) },
+		Discover:  discover,
+		Connected: func() { session.reached.Store(true) },
+		Deliver:   func(data []byte) { a.receiveDebug(p, session, data) },
 		Failure: func(reason, message string) {
-			session.recordFailure(debugTransportFailureText(messages, reason, message))
+			failure := debugTransportFailureText(messages, reason, message)
+			session.recordFailure(failure)
+			a.recordDebugStart(session.ctx, session, hostedFailureStage(session.reached.Load(), reason), failure)
 		},
 		Terminated: func(exitCode int) {
 			if session.stopped.Load() {
 				return
 			}
+			// A failure already ended the start; a clean close of a reached socket before
+			// initialize was answered is the adapter leaving.
+			stage := core.StageExit
+			if !session.reached.Load() {
+				stage = core.StageLaunch
+			}
+			a.recordDebugStart(session.ctx, session, stage, errDebugAdapterExited)
 			if exitCode == 0 {
 				a.debugStreamEnded(p, session, nil)
 				return

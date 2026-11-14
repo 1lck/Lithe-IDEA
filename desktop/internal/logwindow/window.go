@@ -125,6 +125,23 @@ func (c *Controller) Open(application *app.Application) error {
 	return nil
 }
 
+// OpenOperation opens the window as Open does and narrows it to the records of one operation
+// of this session. Like Open, it must run on a window thread of application; the window
+// applies the filter on its own thread.
+func (c *Controller) OpenOperation(application *app.Application, op string) error {
+	if err := c.Open(application); err != nil {
+		return err
+	}
+	c.mu.Lock()
+	current := c.current
+	c.mu.Unlock()
+	if current != nil && current.model != nil {
+		model := current.model
+		model.post(func() { model.showOperation(op) })
+	}
+	return nil
+}
+
 // Close closes the open window, if any. It is safe from any goroutine.
 func (c *Controller) Close() {
 	c.mu.Lock()

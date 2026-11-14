@@ -8,7 +8,6 @@ import (
 	"runtime"
 	"strings"
 
-	"github.com/1lck/Lithe-IDEA/desktop/internal/core"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/i18n"
 	"github.com/vivaui/viva/app"
 )
@@ -95,7 +94,7 @@ func treeUsesRecursiveWatch() bool { return runtime.GOOS == "darwin" || runtime.
 func (a *App) applyTreeRecursiveWatch(p *project, ready, available bool, err error, changes app.DirectoryChanges) {
 	if ready && err != nil {
 		if p.search.watchAttached || p.everywhere.watchAttached {
-			a.emit(operationFailedLevel, operationFailedEvent, operationFailedFields("project_tree_watch", err))
+			a.backgroundFailed("project_tree_watch", err)
 		} else {
 			a.treeWatchFailed(err)
 		}
@@ -112,7 +111,7 @@ func (a *App) applyTreeRecursiveWatch(p *project, ready, available bool, err err
 	if len(p.tree.eventPending)+len(changes.Names) > searchEventLimit {
 		p.tree.eventEpoch++
 		p.tree.eventPending = nil
-		a.emit(core.LevelWarn, "app.notification.operation_rejected", map[string]any{"operation": "project_tree_watch", "reason": "event_limit_exceeded"})
+		a.backgroundFailed("project_tree_watch", errWatchEventLimit)
 		a.resyncTreeListings(p)
 		return
 	}
@@ -136,7 +135,7 @@ func (a *App) filterTreeEvents(p *project) {
 		return func(a *App) {
 			t.eventFiltering = false
 			if err != nil {
-				a.emit(operationFailedLevel, operationFailedEvent, operationFailedFields("project_tree_filter_changes", err))
+				a.backgroundFailed("project_tree_filter_changes", err)
 				if t.recursiveWatch {
 					a.resyncTreeListings(p)
 				}
@@ -235,7 +234,7 @@ func (a *App) detachTreeRecursiveWatch(p *project) {
 }
 
 func (a *App) treeWatchFailed(err error) {
-	a.emit(operationFailedLevel, operationFailedEvent, operationFailedFields("project_tree_watch", err))
+	a.operationFailed("project_tree_watch", err)
 	a.notifyError(i18n.Shared(a.language(), "desktop.project.watchUnavailable"))
 }
 
@@ -252,7 +251,7 @@ func (a *App) drainTreeWatch(p *project, path string, slot *documentWatch) {
 		changes := watch.Changes(nil)
 		changed = changed || changes.Resync || len(changes.Names) != 0
 		if changes.Resync {
-			a.emit(core.LevelWarn, "app.notification.operation_rejected", map[string]any{"operation": "project_tree_watch", "reason": "watch_events_lost"})
+			a.backgroundFailed("project_tree_watch", errWatchEventsLost)
 			slot.close()
 			delete(p.tree.watches, path)
 			if n := p.tree.find(path); n != nil {

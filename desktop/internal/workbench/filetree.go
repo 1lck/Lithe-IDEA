@@ -259,7 +259,13 @@ func (a *App) pumpTreeListings(p *project) {
 				n.loading = false
 				if err != nil {
 					if !loggedFailure {
-						a.emit(operationFailedLevel, operationFailedEvent, operationFailedFields("project_tree_list", err))
+						// A root that cannot be listed leaves the project without a tree; a
+						// folder that cannot be listed just closes again.
+						if _, root := batch[t.root.path]; root {
+							a.operationFailed("project_tree_list", err)
+						} else {
+							a.backgroundFailed("project_tree_list", err)
+						}
 						loggedFailure = true
 						t.failureReported = true
 					}
@@ -278,7 +284,7 @@ func (a *App) pumpTreeListings(p *project) {
 					}
 				} else {
 					if n == t.root {
-						a.emit(operationFailedLevel, operationFailedEvent, operationFailedFields("project_tree_list", errors.New("workspace root unavailable")))
+						a.operationFailed("project_tree_list", errors.New("workspace root unavailable"))
 						t.failed = i18n.Shared(a.language(), "desktop.project.rootUnavailable")
 					} else {
 						// log-exempt: 目标已消失：目录可能已被外部删除或隐藏。

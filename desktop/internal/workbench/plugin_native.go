@@ -676,7 +676,7 @@ func (a *App) runNativeAction(p *project, tool *pluginservice.ToolWindow, state 
 		return func(a *App) {
 			state.busy = false
 			if err != nil {
-				a.emit(operationFailedLevel, operationFailedEvent, operationFailedFields("plugin_native_action", err))
+				a.operationFailed("plugin_native_action", err)
 				a.notifyError(i18n.Shared(a.language(), "desktop.nativePanel.failed"))
 				return
 			}
@@ -723,7 +723,7 @@ func (a *App) loadNativeSource(p *project, tool *pluginservice.ToolWindow, state
 			state.sourceBusy = false
 			state.sourceLoaded = true
 			if err != nil {
-				a.emit(operationFailedLevel, operationFailedEvent, operationFailedFields("plugin_native_source", err))
+				a.operationFailed("plugin_native_source", err)
 				state.nodes = nil
 				state.sourceFailure = i18n.Shared(a.language(), "desktop.nativePanel.sourceFailed")
 				return

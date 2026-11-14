@@ -37,7 +37,7 @@ type savedNativeProject struct {
 func (a *App) restoreNativePanels(p *project) {
 	all := map[string]savedNativeProject{}
 	if found, err := a.store.Load(nativePanelsFile, &all); err != nil {
-		a.emit(operationFailedLevel, operationFailedEvent, operationFailedFields("plugin_native_state_load", documentLogError(err)))
+		a.backgroundFailed("plugin_native_state_load", documentLogError(err))
 		return
 	} else if !found {
 		return
@@ -52,7 +52,7 @@ func (a *App) restoreNativePanels(p *project) {
 func (a *App) saveNativePanels(p *project) {
 	all := map[string]savedNativeProject{}
 	if _, err := a.store.Load(nativePanelsFile, &all); err != nil {
-		a.emit(operationFailedLevel, operationFailedEvent, operationFailedFields("plugin_native_state_load", documentLogError(err)))
+		a.backgroundFailed("plugin_native_state_load", documentLogError(err))
 		all = map[string]savedNativeProject{}
 	}
 	panels := map[string]savedNativePanel{}
@@ -83,7 +83,7 @@ func (a *App) saveNativePanels(p *project) {
 		}
 	}
 	if err := a.store.Save(nativePanelsFile, all); err != nil {
-		a.emit(operationFailedLevel, operationFailedEvent, operationFailedFields("plugin_native_state_save", documentLogError(err)))
+		a.backgroundFailed("plugin_native_state_save", documentLogError(err))
 	}
 }
 

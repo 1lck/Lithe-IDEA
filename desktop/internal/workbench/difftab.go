@@ -500,7 +500,7 @@ func (a *App) loadDiff(p *project, t *diffTab) {
 			t.loading = false
 			if err != nil {
 				t.err = i18n.SharedFormat(a.language(), "git.diff.getFileDiffFailed", map[string]string{"file": change.Path, "error": reviewReason(err)})
-				a.gitOperationFailed("git_diff", err)
+				a.operationFailed("git_diff", err)
 				return
 			}
 			a.readDiff(t, file, plan)
@@ -920,5 +920,5 @@ func (a *App) diffBlockRefused(t *diffTab, err error) {
 	default:
 		t.note = i18n.Shared(a.language(), "git.diff.stageFailed")
 	}
-	a.gitOperationFailed("git_diff_block", err)
+	a.operationFailed("git_diff_block", err)
 }

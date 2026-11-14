@@ -94,6 +94,10 @@ func readDocumentEncoded(ctx context.Context, kernel editorKernel, path string) 
 	return documentRead{text: []byte(decoded.Text), encoding: decoded.Encoding, hasBOM: decoded.HasBOM, disk: raw}, nil
 }
 
+// errLossyDecode is the failure logged when a file reopened in an encoding that cannot decode
+// all of it: the window shows replacement characters for the bytes it lost.
+var errLossyDecode = errors.New("the file has bytes the chosen encoding cannot decode")
+
 // readDocumentAs reads the file at path decoded as encoding, which is the reopen path: a wrong
 // choice shows replacement characters and Lossy says so.
 func readDocumentAs(ctx context.Context, kernel editorKernel, path, encoding string) (documentRead, bool, error) {
@@ -181,7 +185,7 @@ func (a *App) reopenWithEncoding(p *project, d *document, encoding string) {
 		}
 		return func(a *App) {
 			if err != nil {
-				a.emit(operationFailedLevel, operationFailedEvent, operationFailedFields("editor_encoding_reopen", err))
+				a.operationFailed("editor_encoding_reopen", err)
 				a.notifyError(i18n.Shared(a.language(), "desktop.encoding.reopenFailed"))
 				return
 			}
@@ -195,6 +199,8 @@ func (a *App) reopenWithEncoding(p *project, d *document, encoding string) {
 			d.savedRevision = d.view.Revision()
 			a.clearDocumentConflict(d)
 			if lossy {
+				// The file reopened, but not all of it: what the encoding cannot decode is lost.
+				a.operationFailed("editor_encoding_reopen", errLossyDecode)
 				a.notifyError(i18n.Shared(a.language(), "desktop.encoding.reopenLossy"))
 			}
 		}

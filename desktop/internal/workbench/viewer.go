@@ -202,7 +202,7 @@ func (a *App) viewerCanvas(p *project, t *viewerTab) *imageCanvas {
 			}
 			if err != nil {
 				n.state = canvasFailed
-				a.emit(operationFailedLevel, operationFailedEvent, operationFailedFields("viewer_decode", err))
+				a.operationFailed("viewer_decode", err)
 				return
 			}
 			n.bitmap, n.state = bitmap, canvasReady

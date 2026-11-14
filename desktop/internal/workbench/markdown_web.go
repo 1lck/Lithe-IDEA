@@ -169,7 +169,7 @@ func (a *App) renderMarkdownWeb(p *project, d *document, s *markdownPreviewState
 			w.rendering, w.rendered = -1, revision
 			if err != nil {
 				// The page keeps the last HTML; the next change renders again.
-				a.emit(operationFailedLevel, operationFailedEvent, operationFailedFields("markdown_render", err))
+				a.backgroundFailed("markdown_render", err)
 				return
 			}
 			w.html = html

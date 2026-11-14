@@ -320,7 +320,7 @@ func (a *App) applyDocumentCheck(p *project, d *document, baseline rope.Rope, co
 		d.conflictGeneration++
 		if !d.conflicted {
 			d.conflicted = true
-			a.emit(core.LevelWarn, "app.notification.operation_rejected", map[string]any{"operation": "document_external_change", "reason": "disk_conflict"})
+			a.operationRejected("document_external_change", "disk_conflict")
 		}
 	default:
 		d.checkFailed = true

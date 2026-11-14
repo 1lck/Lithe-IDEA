@@ -859,7 +859,7 @@ func (a *App) saveProjectPass(p *project, verified map[int]int, done func(bool))
 	plan, err := a.kernel.PlanDocumentSaveBatch(ctx, documents)
 	cancel()
 	if err != nil {
-		a.emit(operationFailedLevel, operationFailedEvent, operationFailedFields("document_save_batch", err))
+		a.operationFailed("document_save_batch", err)
 		a.notifyError(a.text.Errors.Core(err.Error()))
 		done(false)
 		return
@@ -884,7 +884,7 @@ func (a *App) saveProjectPass(p *project, verified map[int]int, done func(bool))
 			decision, err := a.kernel.ReduceDocumentSaveBatch(ctx, plan.Members, nil, documents)
 			cancel()
 			if err != nil {
-				a.emit(operationFailedLevel, operationFailedEvent, operationFailedFields("document_save_batch", err))
+				a.operationFailed("document_save_batch", err)
 				a.notifyError(a.text.Errors.Core(err.Error()))
 				done(false)
 				return

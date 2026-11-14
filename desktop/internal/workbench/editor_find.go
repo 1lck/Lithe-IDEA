@@ -191,7 +191,7 @@ func (a *App) applyEditorFind(p *project, d *document, before rope.Rope, gen uin
 			code = failure.Details
 		}
 		if code != f.failure {
-			a.emit(operationFailedLevel, operationFailedEvent, operationFailedFields("editor_find", err))
+			a.operationFailed("editor_find", err)
 		}
 		f.failure = code
 		return

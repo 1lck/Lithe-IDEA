@@ -532,6 +532,7 @@ func (a *App) loadChrome() {
 	var saved core.ChromeLayout
 	found, err := a.store.Load(layoutFile, &saved)
 	if err != nil {
+		a.storedStateFailed("chrome_layout", err)
 		a.notifyError(a.text.Errors.Core(err.Error()))
 		saved, found = core.ChromeLayout{}, false
 	}
@@ -542,10 +543,11 @@ func (a *App) loadChrome() {
 	if !found {
 		action = core.ResetChrome()
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), kernelCallTimeout)
+	ctx, cancel := context.WithTimeout(a.operationContext(context.Background()), kernelCallTimeout)
 	defer cancel()
 	layout, _, err := a.kernel.ReduceChromeLayout(ctx, a.chrome.coreItems, saved, action)
 	if err != nil {
+		a.operationFailed("chrome_layout_load", err)
 		a.notifyError(a.text.Errors.Core(err.Error()))
 		return
 	}
@@ -555,10 +557,11 @@ func (a *App) loadChrome() {
 // reduceChrome sends one layout action to the kernel, shows the result and saves it
 // when it changed. A failure leaves the arrangement as it was and is reported.
 func (a *App) reduceChrome(action core.ChromeAction) {
-	ctx, cancel := context.WithTimeout(context.Background(), kernelCallTimeout)
+	ctx, cancel := context.WithTimeout(a.operationContext(context.Background()), kernelCallTimeout)
 	defer cancel()
 	layout, changed, err := a.kernel.ReduceChromeLayout(ctx, a.chrome.coreItems, a.chrome.layout, action)
 	if err != nil {
+		a.operationFailed("chrome_layout_reduce", err)
 		a.notifyError(a.text.Errors.Core(err.Error()))
 		return
 	}
@@ -576,6 +579,7 @@ func (a *App) reduceChrome(action core.ChromeAction) {
 	}
 	saved := a.chrome.withAbsent(layout)
 	if err := a.store.Save(layoutFile, saved); err != nil {
+		a.operationFailed("chrome_layout_save", documentLogError(err))
 		a.notifyError(a.text.Errors.SaveFailed(err.Error()))
 		return
 	}

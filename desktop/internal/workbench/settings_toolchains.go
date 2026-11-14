@@ -17,7 +17,7 @@ type settingsToolchains struct {
 // Load reads toolchains for the open project. No project means an empty
 // snapshot, which the page shows as "open a project".
 func (s settingsToolchains) Load(ctx context.Context) (snapshot toolchain.Snapshot, err error) {
-	defer func() { s.recordFailure("toolchain_settings_load", err) }()
+	defer func() { s.recordFailure(ctx, "toolchain_settings_load", err) }()
 	root := s.app.toolchainRoot.Load()
 	if root == nil || *root == "" {
 		return toolchain.Snapshot{}, nil
@@ -36,7 +36,7 @@ func (s settingsToolchains) loadAt(ctx context.Context, root string) (toolchain.
 // Save applies all draft changes in one Core edit, against the exact
 // bytes the snapshot was read from, then re-reads the effective values.
 func (s settingsToolchains) Save(ctx context.Context, snapshot toolchain.Snapshot, edits []toolchain.Edit) (updated toolchain.Snapshot, err error) {
-	defer func() { s.recordFailure("toolchain_settings_save", err) }()
+	defer func() { s.recordFailure(ctx, "toolchain_settings_save", err) }()
 	root := s.app.toolchainRoot.Load()
 	if root == nil || *root == "" || snapshot.Root == "" {
 		return snapshot, toolchain.ErrPinConflict
@@ -56,10 +56,12 @@ func (s settingsToolchains) Save(ctx context.Context, snapshot toolchain.Snapsho
 	return updated, nil
 }
 
-func (s settingsToolchains) recordFailure(operation string, err error) {
+// recordFailure logs a failed settings request from the settings worker that ran it, under the
+// user action ctx carries; it never reads the window thread's operation.
+func (s settingsToolchains) recordFailure(ctx context.Context, operation string, err error) {
 	// log-exempt: 用户取消：设置窗口关闭或取消操作不是失败。
 	if err == nil || errors.Is(err, context.Canceled) {
 		return
 	}
-	s.app.emit(operationFailedLevel, operationFailedEvent, operationFailedFields(operation, err))
+	s.app.operationFailedIn(ctx, operation, err)
 }

@@ -292,7 +292,7 @@ func (a *App) revealRecent(path string) {
 		err := app.RevealPath(path)
 		return func(a *App) {
 			if err != nil {
-				a.emit(operationFailedLevel, operationFailedEvent, operationFailedFields("workspace_reveal_recent", documentLogError(err)))
+				a.operationFailed("workspace_reveal_recent", documentLogError(err))
 				a.notifyError(a.text.Errors.OpenFailed(err.Error()))
 			}
 		}

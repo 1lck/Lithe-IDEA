@@ -2,6 +2,7 @@ package workbench
 
 import (
 	"context"
+	"errors"
 	"strconv"
 	"strings"
 
@@ -192,6 +193,7 @@ func (a *App) copyRevisions(revisions []string, short bool, label string) {
 		}
 	}
 	if err := app.SetClipboardText(strings.Join(hashes, "\n")); err != nil {
+		a.operationFailed("clipboard_copy", err)
 		a.notifyError(i18n.SharedFormat(a.language(), "git.log.copyFailed", map[string]string{"label": label}))
 	}
 }
@@ -234,7 +236,7 @@ func (a *App) reviewHistoryRewrite(p *project, operation string, revisions []str
 			r.busy, r.loaded = false, true
 			if err != nil {
 				r.err = reviewReason(err)
-				a.gitOperationFailed("git_history_preview", err)
+				a.operationFailed("git_history_preview", err)
 				return
 			}
 			r.preview = preview
@@ -312,6 +314,8 @@ func (a *App) runHistoryRewrite(p *project) {
 					r.open = false
 				}
 				if result != nil && result.WorktreeRefresh == "failed" {
+					// The history was rewritten; only the worktree did not follow it.
+					a.operationFailed("git_history_rewrite_refresh", errors.New("the rewrite succeeded but the worktree refresh failed"))
 					a.notifyError(i18n.Shared(lang, "git.historyReview.refreshFailed"))
 				} else {
 					a.notifySuccess(i18n.Shared(lang, "git.historyReview.completed"))
@@ -324,7 +328,7 @@ func (a *App) runHistoryRewrite(p *project) {
 				} else {
 					a.notifyError(historyRecoveryNotice(lang, result))
 				}
-				a.gitOperationFailed("git_history_write", err)
+				a.operationFailed("git_history_write", err)
 			default:
 				// Nothing changed; the preview is spent and has to be read again.
 				if current && r.open {
@@ -332,7 +336,7 @@ func (a *App) runHistoryRewrite(p *project) {
 				} else {
 					a.notifyError(i18n.SharedFormat(lang, "git.operationError", map[string]string{"error": reviewReason(err)}))
 				}
-				a.gitOperationFailed("git_history_write", err)
+				a.operationFailed("git_history_write", err)
 				return
 			}
 			a.afterHistoryWrite(p, root)
@@ -370,6 +374,7 @@ func (a *App) copyRecoveryReference(p *project) {
 	a.performed("git.history.copyRecovery", surfaceButton)
 	lang := a.language()
 	if err := app.SetClipboardText(result.RecoveryReference); err != nil {
+		a.operationFailed("clipboard_copy", err)
 		a.notifyError(i18n.Shared(lang, "git.historyReview.copyFailed"))
 		return
 	}
@@ -419,7 +424,7 @@ func (a *App) runCherryPick(p *project) {
 				return
 			case err != nil:
 				a.notifyError(i18n.SharedFormat(lang, "git.operationError", map[string]string{"error": reviewReason(err)}))
-				a.gitOperationFailed("git_"+operation, err)
+				a.operationFailed("git_"+operation, err)
 			case operation == gitOperationRevert:
 				a.notifySuccess(i18n.SharedFormat(lang, "desktop.gitHistory.reverted", map[string]string{"hash": shortHash(revision)}))
 			default:
@@ -465,7 +470,7 @@ func (a *App) runHistoryReset(p *project) {
 			lang := a.language()
 			if err != nil {
 				a.notifyError(i18n.SharedFormat(lang, "git.operationError", map[string]string{"error": reviewReason(err)}))
-				a.gitOperationFailed("git_reset", err)
+				a.operationFailed("git_reset", err)
 			} else {
 				a.notifySuccess(i18n.SharedFormat(lang, "desktop.gitHistory.resetDone", map[string]string{"hash": shortHash(reset.revision)}))
 			}
@@ -535,7 +540,7 @@ func (a *App) controlGitOperation(p *project, control string) {
 			p.gitHistory.busy = false
 			if err != nil {
 				a.notifyError(i18n.SharedFormat(a.language(), "git.operationError", map[string]string{"error": reviewReason(err)}))
-				a.gitOperationFailed("git_"+control, err)
+				a.operationFailed("git_"+control, err)
 			}
 			a.afterHistoryWrite(p, root)
 		}

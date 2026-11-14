@@ -149,10 +149,11 @@ func (a *App) setPluginTools(windows []pluginservice.ToolWindow, vcs []vcsWindow
 	a.drag = dragState{}
 	a.chrome.setItems(items)
 	a.closeStalePluginPages()
-	ctx, cancel := context.WithTimeout(context.Background(), kernelCallTimeout)
+	ctx, cancel := context.WithTimeout(a.operationContext(context.Background()), kernelCallTimeout)
 	defer cancel()
 	layout, _, err := a.kernel.ReduceChromeLayout(ctx, a.chrome.coreItems, restated, core.NormalizeChrome())
 	if err != nil {
+		a.operationFailed("chrome_layout_reduce", err)
 		a.notifyError(a.text.Errors.Core(err.Error()))
 		layout = a.chrome.layout
 	}

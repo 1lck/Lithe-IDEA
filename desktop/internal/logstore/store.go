@@ -243,6 +243,12 @@ type Store struct {
 	subsMu      sync.Mutex
 	subscribers map[*subscriber]struct{}
 
+	// watchMu orders the detailed-diagnostics watchers against the gate changes they are told
+	// about, so a watcher that joins while the gate changes still ends on the current value.
+	watchMu   sync.Mutex
+	watchers  map[*func(on bool)]struct{}
+	watchedOn bool
+
 	// Everything below is owned by the writer goroutine (and by Open before it starts).
 	sequence        uint64
 	previous        *core.LogEvent
@@ -565,6 +571,37 @@ func (s *Store) SessionPath() string {
 	return s.sessionPath
 }
 
+// PluginFilesDirectory creates and returns this session's private file directory of a plugin,
+// sessions/<session>/plugins/<id>/files below Directory. The kernel derives it from the
+// plugin's host channel and refuses an id that is not a plugin identity. A plugin process
+// receives it as ${logDir}, so what the plugin writes there is a file of this session: the
+// retention plan's plugin file budget covers it and Clear Logs removes it. The directory is
+// made 0700 and no symbolic link on the way is followed. A process started before the log
+// directory changed keeps writing where it was told; the old directory keeps its files.
+func (s *Store) PluginFilesDirectory(ctx context.Context, pluginID string) (string, error) {
+	resolved, err := s.kernel.ResolveLogChannel(ctx, "plugins/"+pluginID+"/host", 0, nil)
+	if err != nil {
+		return "", err
+	}
+	if resolved.PluginFilesPath == "" {
+		return "", errUnsafePath
+	}
+	s.mu.Lock()
+	root, session := s.directory, s.sessionPath
+	s.mu.Unlock()
+	if root == "" || session == "" {
+		return "", errNoDirectory
+	}
+	target, err := safePath(root, session+"/"+strings.TrimSuffix(resolved.PluginFilesPath, "/"))
+	if err != nil {
+		return "", err
+	}
+	if err := os.MkdirAll(target, 0o700); err != nil {
+		return "", err
+	}
+	return target, nil
+}
+
 // Stats reports how many events were dropped, from a full queue or with a batch the kernel
 // could not encode, and how many writes or maintenance steps failed since the process started.
 func (s *Store) Stats() (dropped, writeFailures int) {
@@ -866,9 +903,41 @@ func (s *Store) syncGate(ctx context.Context) {
 		return
 	}
 	s.gateKnown, s.gateOn = true, on
+	s.tellWatchers(on)
 	if err := s.kernel.ConfigureCoreEvents(ctx, on, nil); err != nil {
 		s.fail()
 		s.Emit(core.LevelWarn, "app.logging.diagnostics_failed", "", core.LogErrorFields(err))
+	}
+}
+
+// WatchDiagnostics tells watch whether detailed diagnostics are on, at once, and again every
+// time they turn on or off, including when they expire and when the store stops, until the
+// returned function is called. The later calls run on the writer goroutine, so watch must
+// return quickly and must not call the store.
+func (s *Store) WatchDiagnostics(watch func(on bool)) (stop func()) {
+	key := &watch
+	s.watchMu.Lock()
+	if s.watchers == nil {
+		s.watchers = map[*func(on bool)]struct{}{}
+	}
+	s.watchers[key] = struct{}{}
+	watch(s.watchedOn)
+	s.watchMu.Unlock()
+	return func() {
+		s.watchMu.Lock()
+		delete(s.watchers, key)
+		s.watchMu.Unlock()
+	}
+}
+
+// tellWatchers hands a change of the DEBUG gate to the diagnostics watchers. It runs on the
+// writer goroutine.
+func (s *Store) tellWatchers(on bool) {
+	s.watchMu.Lock()
+	defer s.watchMu.Unlock()
+	s.watchedOn = on
+	for watch := range s.watchers {
+		(*watch)(on)
 	}
 }
 

@@ -180,7 +180,7 @@ func (a *App) askHTMLSite(p *project, d *document, s *htmlPreviewState) {
 			}
 			if err != nil {
 				s.failed = true
-				a.emit(operationFailedLevel, operationFailedEvent, operationFailedFields("html_preview_site", err))
+				a.operationFailed("html_preview_site", err)
 				return
 			}
 			s.site = &site

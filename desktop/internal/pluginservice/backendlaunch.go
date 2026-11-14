@@ -23,8 +23,9 @@ type backendLaunch struct {
 // the command line through its launch function, and Core checks the answer and
 // returns the plan the host starts like any other.
 //
-// Every writable location is the platform's plugin storage or a scratch directory
-// under the system temporary directory. Nothing is derived from the installed
+// Every writable location is the platform's plugin storage, the log session's
+// plugin directory start already carries, or a scratch directory under the
+// system temporary directory. Nothing is derived from the installed
 // package or the application bundle, which stay read-only so the next
 // differential update still matches what the user installed.
 func (s *Service) resolveBackendLaunch(ctx context.Context, pluginID, version string, manifest json.RawMessage, languageID string, workspace WorkspaceContext, start pluginbackend.StartRequest) (backendLaunch, error) {
@@ -39,7 +40,7 @@ func (s *Service) resolveBackendLaunch(ctx context.Context, pluginID, version st
 	directories := pluginDirectories{
 		state:          start.StateDirectory,
 		workspaceState: filepath.Join(base, "servers", languageID, "workspaces", WorkspaceKey(workspace.Path)),
-		log:            filepath.Join(base, "logs"),
+		log:            start.LogDirectory,
 		temporary:      temporary,
 	}
 	fail := func(err error) (backendLaunch, error) {

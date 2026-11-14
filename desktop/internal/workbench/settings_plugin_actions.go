@@ -48,8 +48,10 @@ func (s pluginSettingsSources) actionWorkspaceCheck(editor pluginservice.Setting
 // Action runs on the settings worker. Neither confirmation planning nor an
 // unavailable action starts a process or publishes a settings draft.
 func (s pluginSettingsSources) Action(ctx context.Context, editor pluginservice.SettingsEditor, id string, confirmed bool) (result pluginservice.SettingsActionResult, err error) {
-	defer func() { (settingsToolchains{app: s.app}).recordFailure("plugin_settings_action", err) }()
-	s.app.performed("plugin.settingsAction", surfaceButton)
+	// The click is the action; its operation travels in ctx, since the settings worker must not
+	// touch the window thread's operation.
+	ctx = s.app.performedIn(ctx, "plugin.settingsAction", surfaceButton)
+	defer func() { (settingsToolchains{app: s.app}).recordFailure(ctx, "plugin_settings_action", err) }()
 	check := s.actionWorkspaceCheck(editor)
 	result.Plan, err = s.app.plugins.PlanSettingsEditorAction(ctx, editor, id, confirmed, check)
 	if err != nil {
@@ -57,7 +59,7 @@ func (s pluginSettingsSources) Action(ctx context.Context, editor pluginservice.
 	}
 	if result.Plan.Kind != "invoke" {
 		if result.Plan.Kind == "unavailable" {
-			s.app.emit(core.LevelWarn, "app.notification.operation_rejected", map[string]any{"operation": "plugin_settings_action", "reason": result.Plan.Reason})
+			s.app.operationRejectedIn(ctx, "plugin_settings_action", result.Plan.Reason)
 		}
 		return result, nil
 	}
@@ -128,7 +130,7 @@ func (s pluginSettingsSources) Action(ctx context.Context, editor pluginservice.
 	}
 	if live.Kind != "invoke" {
 		result.Plan = live
-		s.app.emit(core.LevelWarn, "app.notification.operation_rejected", map[string]any{"operation": "plugin_settings_action", "reason": live.Reason})
+		s.app.operationRejectedIn(ctx, "plugin_settings_action", live.Reason)
 		return result, nil
 	}
 	if err := ctx.Err(); err != nil {

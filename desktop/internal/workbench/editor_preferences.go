@@ -13,13 +13,13 @@ func (a *App) loadEditorEssentials() {
 	client := core.NewClient()
 	prefs, err := client.ResolveEditorPreferences(ctx, a.settings.EditorPreferences)
 	if err != nil {
-		a.emit(operationFailedLevel, operationFailedEvent, operationFailedFields("editor_preferences", err))
+		a.backgroundFailed("editor_preferences", err)
 	} else {
 		a.editorPreferences = prefs
 	}
 	schemes, err := client.ReduceKeymapSchemes(ctx, core.KeymapSchemeRequest{State: a.settings.KeymapSchemes, Current: a.settings.Keymap})
 	if err != nil {
-		a.emit(operationFailedLevel, operationFailedEvent, operationFailedFields("keymap_schemes", err))
+		a.backgroundFailed("keymap_schemes", err)
 	} else {
 		a.settings.KeymapSchemes = schemes.State
 		a.settings.Keymap = shortcuts.Overrides(schemes.Bindings)

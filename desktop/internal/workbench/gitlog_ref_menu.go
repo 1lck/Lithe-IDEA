@@ -175,6 +175,7 @@ func (a *App) drawLogRefMenuItems(c ui.C, menu *ui.MenuItems, p *project, r core
 		if menu.Item(i18n.Shared(lang, "git.log.copyBranchName")).Clicked() {
 			c.After(func() {
 				if err := app.SetClipboardText(r.ShortName); err != nil {
+					a.operationFailed("clipboard_copy", err)
 					a.notifyError(i18n.SharedFormat(a.language(), "git.log.copyFailed", map[string]string{"label": r.ShortName}))
 				}
 			})
@@ -298,7 +299,7 @@ func (a *App) runRefIntegration(p *project) {
 				return
 			case err != nil:
 				a.notifyError(i18n.SharedFormat(lang, "git.operationError", map[string]string{"error": reviewReason(err)}))
-				a.gitOperationFailed("git_"+in.operation, err)
+				a.operationFailed("git_"+in.operation, err)
 			case in.operation == refMerge:
 				a.notifySuccess(i18n.SharedFormat(lang, "desktop.refs.merged", map[string]string{"branch": name}))
 			case in.operation == refRebase:

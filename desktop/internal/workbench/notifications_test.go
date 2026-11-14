@@ -6,6 +6,8 @@ import (
 	"time"
 
 	"github.com/1lck/Lithe-IDEA/desktop/internal/core"
+	"github.com/1lck/Lithe-IDEA/desktop/internal/i18n"
+	"github.com/1lck/Lithe-IDEA/desktop/internal/logwindow"
 	"github.com/vivaui/viva/ui"
 )
 
@@ -66,6 +68,81 @@ func TestNotificationBellOpensReadsAndClearsTheHistory(t *testing.T) {
 	}
 	if !h.shows("No notifications") {
 		t.Fatal("the emptied history does not say so")
+	}
+}
+
+// pageControls counts the controls named name that the pages declared.
+func (h *harness) pageControls(name string) int {
+	count := 0
+	for _, hit := range h.driver.Snapshot().Hits {
+		if hit.Label == name && !hit.IsLabel && !hit.Backdrop && !hit.ID.IsZero() {
+			count++
+		}
+	}
+	return count
+}
+
+// A failure reported during a user action refers to the action's records: its toast and its
+// history entry offer View Logs, which opens the log window on them as an action of its own.
+// A failure outside an action and a notice of another kind offer none.
+func TestFailureNoticeOpensTheLogsOfTheActionThatFailed(t *testing.T) {
+	h := newHarnessWithLanguages(t, &testKernel{Client: core.NewClient()}, []string{"en-US"})
+	h.open(t.TempDir())
+	logger := &opRecordingLog{}
+	h.app.logSink = logger
+	h.app.logs = logwindow.NewController(logwindow.WindowOptions{})
+	var opened []string
+	h.app.logWindowOpen = func(op string) error {
+		opened = append(opened, op)
+		return nil
+	}
+	viewLogs := i18n.Shared(h.app.language(), "desktop.notifications.viewLogs")
+
+	h.app.performed("test.build", surfaceButton)
+	failed := h.app.op.id
+	h.app.notifyError("Build failed")
+	h.app.notifySuccess("Build cached")
+	h.app.endOperation()
+	h.app.notifyError("Index broken")
+	h.app.invalidator.Invalidate()
+	h.settle()
+
+	ops := map[string]string{}
+	for _, entry := range h.app.notifications.list {
+		ops[entry.text] = entry.op
+	}
+	if ops["Build failed"] != failed || ops["Build cached"] != "" || ops["Index broken"] != "" {
+		t.Fatalf("the notices refer to %v; only the failure during action %q should", ops, failed)
+	}
+	if n := h.pageControls(viewLogs); n != 1 {
+		t.Fatalf("%d toasts offer %s, want only the failure's", n, viewLogs)
+	}
+
+	h.clickNamed(viewLogs)
+	h.settle()
+	if len(opened) != 1 || opened[0] != failed {
+		t.Fatalf("the toast opened the logs of %q, want %q", opened, failed)
+	}
+	viewed := logger.ops("app.action.performed")
+	if len(viewed) != 2 || viewed[1] == "" || viewed[1] == failed {
+		t.Fatalf("View Logs was recorded under %q; want an action of its own after %q", viewed, failed)
+	}
+
+	// The history offers the same once the toasts have gone.
+	for _, entry := range h.app.notifications.list {
+		h.app.overlay.toaster.Close(entry.toast)
+	}
+	h.app.invalidator.Invalidate()
+	h.settle()
+	h.clickNamed("Notifications, 3 unread")
+	h.settle()
+	if n := h.pageControls(viewLogs); n != 1 {
+		t.Fatalf("%d history entries offer %s, want only the failure's", n, viewLogs)
+	}
+	h.clickNamed(viewLogs)
+	h.settle()
+	if len(opened) != 2 || opened[1] != failed {
+		t.Fatalf("the history opened the logs of %q, want %q", opened, failed)
 	}
 }
 

@@ -180,10 +180,10 @@ func (a *App) runSyncAt(p *project, root, operation, label string, failed func(r
 				a.notifyInfo(a.text.Sync.Cancelled)
 			case core.IsAuthenticationFailure(err):
 				a.notifyError(a.text.Sync.AuthFailed(syncReason(err)))
-				a.gitOperationFailed(operation, err)
+				a.operationFailed(operation, err)
 			default:
 				a.notifyError(failed(syncReason(err)))
-				a.gitOperationFailed(operation, err)
+				a.operationFailed(operation, err)
 			}
 		}
 	})

@@ -154,7 +154,7 @@ func (a *App) confirmProcessExit(p *project, lifecycleContext string, proceed fu
 		}
 		return func(a *App) {
 			if err != nil {
-				a.emit(operationFailedLevel, operationFailedEvent, operationFailedFields("process_exit_plan", err))
+				a.backgroundFailed("process_exit_plan", err)
 				proceed()
 				return
 			}
@@ -201,7 +201,7 @@ func (a *App) requestCloseTerminal(p *project, id int) {
 		names, err := a.confirmationNames(ctx, exitContextCloseTerminal, settings, terminalRecords(terminals))
 		return func(a *App) {
 			if err != nil {
-				a.emit(operationFailedLevel, operationFailedEvent, operationFailedFields("terminal_close_plan", err))
+				a.backgroundFailed("terminal_close_plan", err)
 			}
 			if err != nil || len(names) == 0 {
 				a.closeTerminal(p, id)
@@ -256,7 +256,7 @@ func (a *App) refreshStopGrace() {
 				return
 			}
 			if err != nil {
-				a.emit(operationFailedLevel, operationFailedEvent, operationFailedFields("process_stop_grace", err))
+				a.backgroundFailed("process_stop_grace", err)
 				return
 			}
 			buildprocess.SetStopGrace(time.Duration(plan.GracefulStopMilliseconds) * time.Millisecond)

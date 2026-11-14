@@ -181,14 +181,14 @@ func (a *App) finishPluginServerStart(p *project, languageID string, session *pl
 	delete(a.pluginServerStarting, languageID)
 	a.pluginServerMu.Unlock()
 	if err != nil {
-		a.emit(operationFailedLevel, operationFailedEvent, operationFailedFields("plugin_server_start", err))
+		a.operationFailed("plugin_server_start", err)
 		return
 	}
 	if session == nil {
 		return
 	}
 	if session.Warnings != nil {
-		a.emit(operationFailedLevel, operationFailedEvent, operationFailedFields("plugin_server_selection", session.Warnings))
+		a.backgroundFailed("plugin_server_selection", session.Warnings)
 	}
 	if a.plugins == nil {
 		a.stopPluginSession(session)
@@ -277,7 +277,7 @@ func (a *App) servePluginServer(server *pluginServer, ctx context.Context) {
 		}
 		if serveErr := a.plugins.ServeLanguageSession(ctx, server.session, observe); serveErr != nil && ctx.Err() == nil {
 			a.post(func(a *App) {
-				a.emit(operationFailedLevel, operationFailedEvent, operationFailedFields("plugin_server", serveErr))
+				a.operationFailed("plugin_server", serveErr)
 			})
 		}
 		// A server that exits on its own, crashes, or ends after a stop must not
@@ -371,7 +371,7 @@ func (a *App) activatePluginWorkspace(root string) {
 		}
 		return func(a *App) {
 			if err != nil {
-				a.emit(operationFailedLevel, operationFailedEvent, operationFailedFields("plugin_backend_start", err))
+				a.operationFailed("plugin_backend_start", err)
 			}
 		}
 	})
@@ -434,7 +434,7 @@ func (a *App) stopPluginSession(session *pluginservice.LanguageSession) {
 		err := a.plugins.StopLanguageServer(ctx, session)
 		return func(a *App) {
 			if err != nil {
-				a.emit(operationFailedLevel, operationFailedEvent, operationFailedFields("plugin_server_stop", err))
+				a.backgroundFailed("plugin_server_stop", err)
 			}
 		}
 	})

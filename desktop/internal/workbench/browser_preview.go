@@ -35,7 +35,7 @@ func (a *App) openInBrowser(p *project, d *document, surface actionSurface) {
 			err := app.OpenPathInBrowser(path)
 			return func(a *App) {
 				if err != nil {
-					a.emit(operationFailedLevel, operationFailedEvent, operationFailedFields("editor_open_in_browser", documentLogError(err)))
+					a.operationFailed("editor_open_in_browser", documentLogError(err))
 					a.notifyError(i18n.SharedFormat(a.language(), "desktop.editorMenu.openInBrowserFailed", map[string]string{"reason": err.Error()}))
 					return
 				}

@@ -61,7 +61,8 @@ func TestEveryLoggedEventIsAcceptedByTheKernel(t *testing.T) {
 	}
 	// The scan must keep finding the calls it was written against, or a change to how the
 	// client logs would make this test pass by checking nothing.
-	for _, event := range []string{"app.session.started", "app.action.performed", "app.notification.operation_failed", "app.background.operation_failed"} {
+	for _, event := range []string{"app.session.started", "app.action.performed", "app.notification.operation_failed",
+		"app.notification.operation_rejected", "app.background.operation_failed", "app.settings.decode_failed"} {
 		if !seen[event] {
 			t.Errorf("the scan found no call that logs %s", event)
 		}
@@ -122,6 +123,11 @@ func forwardedLogEvents(t *testing.T, scan *logScan) map[string][]logSite {
 			{level: LevelWarn, event: scan.constant(t, "internal/termview", "eventStartFailed"), fields: errorKeys("stage")},
 			{level: LevelDebug, event: scan.constant(t, "internal/termview", "eventInputFailed"), fields: errorKeys("stage")},
 		},
+		// recordEngineFact relays the facts Core attaches to plugin session events. Core picks
+		// them from its own catalog and checks them there before they leave it, so the client
+		// chooses none of them and has nothing to list; copying Core's choice here would only
+		// drift from it.
+		"internal/workbench.recordEngineFact": nil,
 	}
 }
 

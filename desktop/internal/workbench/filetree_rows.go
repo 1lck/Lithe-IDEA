@@ -36,10 +36,11 @@ func (a *App) refreshTreeRows(p *project, top *string) bool {
 		}
 	}
 	walk(t.root)
-	ctx, cancel := context.WithTimeout(context.Background(), kernelCallTimeout)
+	ctx, cancel := context.WithTimeout(a.operationContext(context.Background()), kernelCallTimeout)
 	defer cancel()
 	result, err := a.kernel.ProjectTreeRows(ctx, core.ProjectTreeQuery{Nodes: nodes, Selection: t.selection(), Top: top})
 	if err != nil {
+		a.operationFailed("project_tree_rows", err)
 		a.notifyError(a.text.Errors.Core(err.Error()))
 		return false
 	}
@@ -77,10 +78,11 @@ func (a *App) reduceTreeSelection(p *project, action core.RowAction) bool {
 	for i, n := range t.rows {
 		rows[i] = n.path
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), kernelCallTimeout)
+	ctx, cancel := context.WithTimeout(a.operationContext(context.Background()), kernelCallTimeout)
 	defer cancel()
 	result, err := a.kernel.ReduceRowSelection(ctx, rows, t.selection(), action)
 	if err != nil {
+		a.operationFailed("project_tree_selection", err)
 		a.notifyError(a.text.Errors.Core(err.Error()))
 		return false
 	}

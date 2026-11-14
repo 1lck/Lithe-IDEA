@@ -395,7 +395,7 @@ func (a *App) rerunRun(p *project, entry *runEntry) {
 		a.background(p, runRerunTimeout, func(ctx context.Context) func(*App) {
 			if err := runs.Rerun(ctx, rerun); err != nil {
 				return func(a *App) {
-					a.emit(operationFailedLevel, operationFailedEvent, operationFailedFields("run_rerun", err))
+					a.operationFailed("run_rerun", err)
 				}
 			}
 			return nil

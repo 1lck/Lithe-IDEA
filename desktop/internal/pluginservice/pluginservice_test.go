@@ -35,6 +35,9 @@ type fakeKernel struct {
 	synced           []string
 	documentVersion  int64
 	semanticRequests []core.PluginSemanticRequest
+	languageStarts   []core.PluginBackendStart
+	operations       []core.PluginOperation
+	recordErr        error
 }
 
 func (k *fakeKernel) ValidatePluginManifest(_ context.Context, manifest json.RawMessage, _ map[string][]int) (json.RawMessage, error) {
@@ -69,8 +72,14 @@ func (k *fakeKernel) StartPluginBackend(context.Context, core.PluginBackendStart
 	return k.started, k.startErr
 }
 
-func (k *fakeKernel) StartPluginLanguageServer(context.Context, core.PluginBackendStart) (core.PluginBackendStarted, error) {
+func (k *fakeKernel) StartPluginLanguageServer(_ context.Context, request core.PluginBackendStart) (core.PluginBackendStarted, error) {
+	k.languageStarts = append(k.languageStarts, request)
 	return k.started, k.startErr
+}
+
+func (k *fakeKernel) RecordPluginOperation(_ context.Context, operation core.PluginOperation) error {
+	k.operations = append(k.operations, operation)
+	return k.recordErr
 }
 
 func (k *fakeKernel) WaitBackendEvents(context.Context, string, int) ([]core.BackendEvent, error) {
@@ -85,6 +94,8 @@ func (k *fakeKernel) WaitBackendEvents(context.Context, string, int) ([]core.Bac
 func (k *fakeKernel) StopPluginBackend(context.Context, string) error { return k.stopErr }
 
 func (k *fakeKernel) DestroyPluginBackend(context.Context, string) error { return k.destroyErr }
+
+func (k *fakeKernel) SetDetailedDiagnostics(context.Context, string, bool) error { return nil }
 
 func (k *fakeKernel) RespondPluginHostRequest(context.Context, string, string, json.RawMessage, *core.PluginHostFailure) error {
 	return k.hostResponseErr

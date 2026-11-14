@@ -295,6 +295,8 @@ func (a *App) requestDataBreakpoint(p *project, name string, variablesReference 
 		return a.kernel.DebugDataBreakpointInfo(ctx, session.id, operationID, name, variablesReference)
 	}, debugOperationHandlers{done: func(a *App, result core.DebugOperationResult) {
 		if result.Kind != "dataBreakpointInfo" || result.DataID == "" {
+			// The adapter has no data breakpoint for the variable.
+			a.operationRejected("debug_data_breakpoint", "data_unavailable")
 			a.notifyError(a.text.Debug.Breakpoint.DataUnavailable)
 			return
 		}

@@ -52,7 +52,7 @@ func (s localHistorySettings) Preview(ctx context.Context, rules core.HistoryIgn
 	// log-exempt: 随输入实时重算的校验提示：测试路径越出项目时 Core 拒绝请求，卡片随键入提示，不是系统失败。
 	var refused *core.Error
 	if !errors.As(err, &refused) || refused.Code != core.CodeInvalidRequest {
-		s.logFailure("local_history_preview", err)
+		s.logFailure(ctx, "local_history_preview", err)
 	}
 	return preview, err
 }
@@ -65,7 +65,7 @@ func (s localHistorySettings) Usage(ctx context.Context, limitMegabytes int) (co
 	}
 	limit := settingswindow.LocalHistorySettings{LimitMegabytes: limitMegabytes}.Policy().StorageLimitBytes
 	usage, err := s.kernel.LocalHistoryUsage(ctx, storage, limit)
-	s.logFailure("local_history_usage", err)
+	s.logFailure(ctx, "local_history_usage", err)
 	return usage, true, err
 }
 
@@ -76,16 +76,17 @@ func (s localHistorySettings) Clear(ctx context.Context) error {
 		return nil
 	}
 	err := s.kernel.ClearHistory(ctx, storage)
-	s.logFailure("local_history_clear", err)
+	s.logFailure(ctx, "local_history_clear", err)
 	return err
 }
 
 // logFailure records a failed local history request. The settings window gave up on it when
-// its context ended, which is not a failure.
-func (s localHistorySettings) logFailure(operation string, err error) {
+// its context ended, which is not a failure. It runs on the settings worker, so it logs under
+// the user action ctx carries.
+func (s localHistorySettings) logFailure(ctx context.Context, operation string, err error) {
 	// log-exempt: 用户取消：设置窗口关闭或放弃了这次请求。
 	if err == nil || errors.Is(err, context.Canceled) {
 		return
 	}
-	s.app.emit(operationFailedLevel, operationFailedEvent, operationFailedFields(operation, err))
+	s.app.operationFailedIn(ctx, operation, err)
 }

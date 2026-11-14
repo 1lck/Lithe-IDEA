@@ -370,8 +370,9 @@ func (r *vcsRuntime) live(key string) *buildprovider.Client {
 // session is the running session of window, started when there is none. A session that did not
 // negotiate the window's provider is stopped and refused, as the contract asks. The process starts
 // outside the lock, so detaching on the window thread never waits for a start; a start that lost
-// to another one or to detaching is stopped again.
-func (r *vcsRuntime) session(ctx context.Context, runner *pluginbackend.Runner, pluginRoot, root, rootURI string, window vcsWindow, settings core.PluginSettingsState) (client *buildprovider.Client, err error) {
+// to another one or to detaching is stopped again. logDirectory gives the process's ${logDir}, and
+// is asked only when a process starts.
+func (r *vcsRuntime) session(ctx context.Context, runner *pluginbackend.Runner, pluginRoot, root, rootURI string, window vcsWindow, settings core.PluginSettingsState, logDirectory func(context.Context, string) string) (client *buildprovider.Client, err error) {
 	ctx, finish, err := r.launches.begin(ctx, window.PluginID)
 	if err != nil {
 		return nil, err
@@ -389,9 +390,8 @@ func (r *vcsRuntime) session(ctx context.Context, runner *pluginbackend.Runner, 
 	}
 	state := filepath.Join(pluginRoot, ".state", window.PluginID, window.Version, "vcs", workspaceDigest(root))
 	workspaceState := filepath.Join(state, "workspace")
-	logDirectory := filepath.Join(state, "log")
 	temporaryDirectory := filepath.Join(state, "tmp")
-	for _, directory := range []string{state, workspaceState, logDirectory, temporaryDirectory} {
+	for _, directory := range []string{state, workspaceState, temporaryDirectory} {
 		if err := os.MkdirAll(directory, 0o700); err != nil {
 			return nil, err
 		}
@@ -405,7 +405,7 @@ func (r *vcsRuntime) session(ctx context.Context, runner *pluginbackend.Runner, 
 		Role:                    "vcs",
 		StateDirectory:          state,
 		WorkspaceStateDirectory: workspaceState,
-		LogDirectory:            logDirectory,
+		LogDirectory:            logDirectory(ctx, window.PluginID),
 		TemporaryDirectory:      temporaryDirectory,
 		Architecture:            core.PluginArchitecture(),
 		Settings:                settings.Settings,
@@ -527,7 +527,7 @@ func (a *App) detectVcsRoots(p *project) {
 	}
 	mappings, err := a.loadVcsMappings(p.root)
 	if err != nil {
-		a.emit(operationFailedLevel, operationFailedEvent, operationFailedFields("vcs_root_mappings_load", documentLogError(err)))
+		a.operationFailed("vcs_root_mappings_load", documentLogError(err))
 		a.notifyError(i18n.SharedFormat(a.language(), "desktop.project.readFailed", map[string]string{"reason": err.Error()}))
 	}
 	s.generation++
@@ -542,7 +542,7 @@ func (a *App) detectVcsRoots(p *project) {
 			s.detecting, s.detected = false, true
 			if err != nil {
 				s.failure = a.vcsFailureText(err)
-				a.emit(operationFailedLevel, operationFailedEvent, operationFailedFields("vcs_detect_roots", documentLogError(err)))
+				a.operationFailed("vcs_detect_roots", documentLogError(err))
 				return
 			}
 			s.detection, s.manifests = detection, plugins
@@ -596,7 +596,7 @@ func (a *App) mapVcsRoot(p *project, id, vcs string) {
 		err = a.storeVcsMappings(p.root, append(mappings, core.VcsMapping{ID: id, Vcs: vcs}))
 	}
 	if err != nil {
-		a.emit(operationFailedLevel, operationFailedEvent, operationFailedFields("vcs_root_mappings_save", documentLogError(err)))
+		a.operationFailed("vcs_root_mappings_save", documentLogError(err))
 		a.notifyError(i18n.SharedFormat(a.language(), "desktop.runConfig.saveFailed", map[string]string{"reason": err.Error()}))
 		return
 	}
@@ -611,7 +611,7 @@ func (a *App) dropVcsMappings(root string, unused []core.VcsMapping) {
 		err = a.storeVcsMappings(root, mappings)
 	}
 	if err != nil {
-		a.emit(operationFailedLevel, operationFailedEvent, operationFailedFields("vcs_root_mappings_save", documentLogError(err)))
+		a.backgroundFailed("vcs_root_mappings_save", documentLogError(err))
 	}
 }
 
@@ -654,7 +654,7 @@ func (a *App) runVcs(ctx context.Context, p *project, sessions *vcsRuntime, call
 		if err != nil {
 			return nil, nil, err
 		}
-		if client, err = sessions.session(ctx, a.plugins.Backend, a.plugins.Root, p.root, rootURI, call.window, settings.State); err != nil {
+		if client, err = sessions.session(ctx, a.plugins.Backend, a.plugins.Root, p.root, rootURI, call.window, settings.State, a.pluginLogDirectory); err != nil {
 			return nil, nil, err
 		}
 	}
@@ -786,7 +786,7 @@ func (a *App) refreshVcsStatus(p *project, t vcsTarget) {
 			}
 			if err != nil {
 				t.state.failure = a.vcsFailureText(err)
-				a.emit(operationFailedLevel, operationFailedEvent, operationFailedFields("vcs_status", documentLogError(err)))
+				a.operationFailed("vcs_status", documentLogError(err))
 				return
 			}
 			t.state.status = &status
@@ -834,7 +834,7 @@ func (a *App) loadVcsHistory(p *project, t vcsTarget, more bool) {
 			}
 			if err != nil {
 				t.state.historyFailure = a.vcsFailureText(err)
-				a.emit(operationFailedLevel, operationFailedEvent, operationFailedFields("vcs_history", documentLogError(err)))
+				a.operationFailed("vcs_history", documentLogError(err))
 				return
 			}
 			if !more {
@@ -870,7 +870,7 @@ func (a *App) runVcsChange(p *project, t vcsTarget, action, operation string, ar
 			}
 			if err != nil {
 				t.view.failure = a.vcsFailureText(err)
-				a.emit(operationFailedLevel, operationFailedEvent, operationFailedFields("vcs_"+operation, documentLogError(err)))
+				a.operationFailed("vcs_"+operation, documentLogError(err))
 			} else {
 				t.view.notice = done(a, decoded)
 			}
@@ -985,7 +985,7 @@ func (a *App) showVcsDiff(p *project, t vcsTarget, change core.VcsChange) {
 				t.view.capabilities = capabilities
 			}
 			if err != nil {
-				a.emit(operationFailedLevel, operationFailedEvent, operationFailedFields("vcs_diff", documentLogError(err)))
+				a.operationFailed("vcs_diff", documentLogError(err))
 				a.notifyError(a.vcsFailureText(err))
 				return
 			}

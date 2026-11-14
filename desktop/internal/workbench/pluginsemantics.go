@@ -138,8 +138,10 @@ type semanticPending struct {
 	// fromPointer marks a hover started by pointer movement; its anchor is the
 	// row under the pointer rather than the caret cell.
 	fromPointer bool
-	anchor      gfx.Rect
-	operation   string
+	// automatic marks a completion the editor asked for while the user typed.
+	automatic bool
+	anchor    gfx.Rect
+	operation string
 	// join is set on the language-server side of an explicit completion that also asks a
 	// plugin completion provider; the answer feeds the join instead of opening the popup.
 	join *completionMergeJoin
@@ -637,7 +639,7 @@ func (a *App) startProviderHover(p *project, d *document, line, column int, anch
 				return
 			}
 			if err != nil {
-				a.emit(operationFailedLevel, operationFailedEvent, operationFailedFields("plugin_provider", err))
+				a.backgroundFailed("plugin_provider", err)
 				return
 			}
 			if contents == "" {
@@ -692,6 +694,7 @@ func (a *App) requestPluginCompletion(p *project, d *document, line, column int,
 	position := core.PluginDocumentPosition{Line: line, UTF16Column: column}
 	a.cancelSemanticKind(pluginSemanticCompletion)
 	pending := a.newSemanticPending(pluginSemanticCompletion, p, d, server, line, column, true, false)
+	pending.automatic = automatic
 	if join := a.newCompletionMergeJoin(p, d, line, column, automatic); join != nil {
 		pending.join = join
 		a.startProviderCompletionFor(p, d, line, column, join)
@@ -847,8 +850,13 @@ func (a *App) newSemanticPending(kind semanticKind, p *project, d *document, ser
 	}
 }
 
+// submitSemantic sends one request to the language server. A request the user asked for is an
+// action of its own; a hover under the moving pointer and a completion while typing are the
+// editor's, and stay part of whatever action is current.
 func (a *App) submitSemantic(pending *semanticPending, request core.PluginSemanticRequest) {
-	a.performed("editor.semantics."+string(pending.kind), surfaceShortcut)
+	if !pending.fromPointer && !pending.automatic {
+		a.performed("editor.semantics."+string(pending.kind), surfaceShortcut)
+	}
 	a.background(pending.project, semanticStartTimeout, func(ctx context.Context) func(*App) {
 		operation, err := a.plugins.RequestLanguageSession(ctx, pending.server.session, request)
 		return func(a *App) { a.semanticRequestStarted(pending, operation, err, ctx.Err()) }
@@ -872,7 +880,14 @@ func (a *App) semanticRequestStarted(pending *semanticPending, operation string,
 		if errors.Is(err, context.Canceled) || errors.Is(ctxErr, context.Canceled) {
 			return
 		}
-		a.emit(operationFailedLevel, operationFailedEvent, operationFailedFields("plugin_semantics", err))
+		// A request the server never received fails like one it refused: formatting and rename
+		// tell the user, the others go without.
+		if pending.kind.toldToUser() {
+			a.operationFailed("plugin_semantics", err)
+			a.semanticOperationFailed(pending.kind)
+		} else {
+			a.backgroundFailed("plugin_semantics", err)
+		}
 	}
 }
 
@@ -941,7 +956,7 @@ func (a *App) applySemanticDefinition(pending *semanticPending, event core.Backe
 	}
 	locations, err := core.PluginSemanticLocations(event)
 	if err != nil {
-		a.emit(operationFailedLevel, operationFailedEvent, operationFailedFields("plugin_semantics", err))
+		a.backgroundFailed("plugin_semantics", err)
 		return
 	}
 	if pending.usages {
@@ -984,7 +999,7 @@ func (a *App) gestureOnDeclaration(d *document, line, column int, targets []core
 	position := core.PluginDocumentPosition{Line: line, UTF16Column: column}
 	usages, err := kernel.DeclarationOrUsages(ctx, d.sync.uri, position, targets)
 	if err != nil {
-		a.emit(operationFailedLevel, operationFailedEvent, operationFailedFields("editor_declaration_or_usages", err))
+		a.backgroundFailed("editor_declaration_or_usages", err)
 		return false
 	}
 	return usages
@@ -1016,7 +1031,7 @@ func (a *App) mergeProviderDefinitions(p *project, d *document, pending *semanti
 				return
 			}
 			if err != nil {
-				a.emit(operationFailedLevel, operationFailedEvent, operationFailedFields("plugin_provider", err))
+				a.backgroundFailed("plugin_provider", err)
 				merged = server
 			}
 			a.presentDefinitionOrUsages(p, d, line, column, requireCaret, a.usableDefinitionTargets(merged, maxDefinitionTargets), len(merged), revision)
@@ -1033,6 +1048,7 @@ func (a *App) presentDefinitionTargets(p *project, d *document, kind semanticKin
 		case answered > 0:
 			// Every target is outside the file system (a class in a jar):
 			// say so instead of looking like an empty answer.
+			a.operationRejected("plugin_navigation", "target_outside_file_system")
 			a.notifyError(i18n.Shared(a.language(), "desktop.semantics.targetUnavailable"))
 		case references:
 			a.notifyInfo(i18n.Shared(a.language(), "desktop.semantics.noReferences"))
@@ -1081,7 +1097,7 @@ func (a *App) startProviderDefinition(p *project, d *document, line, column int)
 				return
 			}
 			if err != nil {
-				a.emit(operationFailedLevel, operationFailedEvent, operationFailedFields("plugin_provider", err))
+				a.backgroundFailed("plugin_provider", err)
 				return
 			}
 			targets := a.usableDefinitionTargets(locations, maxDefinitionTargets)
@@ -1098,7 +1114,7 @@ func (a *App) applySemanticHover(pending *semanticPending, event core.BackendEve
 	}
 	hover, err := core.PluginSemanticHoverFromEvent(event)
 	if err != nil {
-		a.emit(operationFailedLevel, operationFailedEvent, operationFailedFields("plugin_semantics", err))
+		a.backgroundFailed("plugin_semantics", err)
 		return
 	}
 	if hover == nil || hover.Contents == "" {
@@ -1120,7 +1136,7 @@ func (a *App) applySemanticCompletion(pending *semanticPending, event core.Backe
 	}
 	items, incomplete, err := core.PluginSemanticCompletions(event)
 	if err != nil {
-		a.emit(operationFailedLevel, operationFailedEvent, operationFailedFields("plugin_semantics", err))
+		a.backgroundFailed("plugin_semantics", err)
 		return
 	}
 	if len(items) > maxCompletionItems {
@@ -1163,7 +1179,7 @@ func (a *App) startProviderCompletionFor(p *project, d *document, line, column i
 				return
 			}
 			if err != nil {
-				a.emit(operationFailedLevel, operationFailedEvent, operationFailedFields("plugin_provider", err))
+				a.backgroundFailed("plugin_provider", err)
 				a.settleMergeSide(join, false, nil, false)
 				return
 			}
@@ -1282,7 +1298,7 @@ func (a *App) acceptPluginCompletion(index int) {
 		return func(a *App) {
 			current, document := a.currentSemanticDocument(documentID)
 			if err != nil {
-				a.emit(operationFailedLevel, operationFailedEvent, operationFailedFields("plugin_completion_apply", err))
+				a.operationFailed("plugin_completion_apply", err)
 				a.notifyError(i18n.Shared(a.language(), "desktop.semantics.completionFailed"))
 				return
 			}
@@ -1668,9 +1684,7 @@ func (a *App) removePending(pending *semanticPending) bool {
 
 // logSemanticError records that the language server failed a request, with the error's stable
 // code and never its message, which can quote the user's code. The code is the JSON-RPC
-// number or the plugin's token; anything else is recorded as unknown. Formatting and rename
-// tell the user (semanticOperationFailed), so they are notification failures; the other
-// requests fail quietly and are background failures.
+// number or the plugin's token; anything else is recorded as unknown.
 func (a *App) logSemanticError(kind semanticKind, raw json.RawMessage) {
 	var failure struct {
 		Code json.RawMessage `json:"code"`
@@ -1692,12 +1706,22 @@ func (a *App) logSemanticError(kind semanticKind, raw json.RawMessage) {
 		"error_code":   code,
 		"error_domain": "lsp",
 	}
-	switch kind {
-	case pluginSemanticFormatting, pluginSemanticRangeFormatting, pluginSemanticRename:
+	if kind.toldToUser() {
 		a.emit(operationFailedLevel, operationFailedEvent, fields)
-	default:
+	} else {
 		a.emit(backgroundFailedLevel, backgroundFailedEvent, fields)
 	}
+}
+
+// toldToUser says a failed request of this kind is told to the user (semanticOperationFailed),
+// so it is a notification failure. The other requests fail quietly: the editor goes without the
+// hover, completion or location, and the failure is a background one.
+func (k semanticKind) toldToUser() bool {
+	switch k {
+	case pluginSemanticFormatting, pluginSemanticRangeFormatting, pluginSemanticRename:
+		return true
+	}
+	return false
 }
 
 // logToken is the catalog's token type: what a token field accepts.

@@ -34,8 +34,11 @@ func (a *App) newSettingsWindow() *settingswindow.Controller {
 		PluginInstallsClosed: func() {
 			a.post(func(a *App) { a.closePluginDownloads() })
 		},
-		GitHub:             a.githubSettings(),
-		SettingsError:      func(operation string, err error) { (settingsToolchains{app: a}).recordFailure(operation, err) },
+		GitHub: a.githubSettings(),
+		// The settings window reports from its own jobs, which run no action of this window.
+		SettingsError: func(operation string, err error) {
+			(settingsToolchains{app: a}).recordFailure(context.Background(), operation, err)
+		},
 		SettingsNavigation: navigation,
 		SettingsPages: func(ctx context.Context) ([]core.SettingsPage, error) {
 			if a.plugins == nil {
@@ -54,11 +57,7 @@ func (a *App) newSettingsWindow() *settingswindow.Controller {
 				if plugins == nil {
 					return marketplace.Snapshot{}, err
 				}
-				a.post(func(a *App) {
-					fields := core.LogErrorFields(err)
-					fields["operation"] = "plugin_settings_catalog"
-					a.emit(core.LevelError, "app.notification.operation_failed", fields)
-				})
+				a.operationFailedIn(ctx, "plugin_settings_catalog", err)
 			}
 			return marketplace.Snapshot{Index: core.MarketplaceIndex{Plugins: plugins}}, nil
 		},
@@ -78,19 +77,14 @@ func (a *App) newSettingsWindow() *settingswindow.Controller {
 			}
 			return service.Fetch(ctx, marketplace.OfficialIndexURL, core.MarketplaceOfficial, runtime.GOOS+"-"+arch, pluginhost.Declared().Clone())
 		},
+		// The plugin page reports from the settings window's own jobs. They run no action of
+		// this window, so the events are written straight from that goroutine, under no
+		// operation, rather than posted to the window thread under whatever it was doing.
 		MarketplaceError: func(err error) {
-			a.post(func(a *App) {
-				fields := core.LogErrorFields(err)
-				fields["operation"] = "plugin_marketplace"
-				a.emit(core.LevelError, "app.notification.operation_failed", fields)
-			})
+			a.operationFailedIn(context.Background(), "plugin_marketplace", err)
 		},
 		MarketplaceRejected: func(_ int) {
-			a.post(func(a *App) {
-				a.emit(core.LevelWarn, "app.notification.operation_rejected", map[string]any{
-					"operation": "plugin_marketplace", "reason": "invalid_index_entries",
-				})
-			})
+			a.operationRejectedIn(context.Background(), "plugin_marketplace", "invalid_index_entries")
 		},
 		MarketplaceResized: func(width float32) {
 			a.post(func(a *App) { a.setMarketplaceWidth(width) })
@@ -437,6 +431,7 @@ func (a *App) openSettingsPageWith(surface actionSurface, page settingsPage, que
 			err = a.settingsWindow.Open(a.application, current)
 		}
 		if err != nil {
+			a.operationFailed("settings_open", err)
 			a.notifyError(a.text.Errors.SettingsFailed(err.Error()))
 		}
 	})
@@ -446,7 +441,7 @@ func (a *App) openSettingsPageWith(surface actionSurface, page settingsPage, que
 // browser. When the system cannot, the window says so and the log records why.
 func (a *App) openSettingsLink(address string) {
 	if err := openURL(address); err != nil {
-		a.emit(operationFailedLevel, operationFailedEvent, operationFailedFields("settings_open_link", err))
+		a.operationFailed("settings_open_link", err)
 		a.notifyError(i18n.SharedFormat(a.language(), "desktop.terminal.openLinkFailed", map[string]string{"reason": err.Error()}))
 		return
 	}

@@ -9397,6 +9397,13 @@
       }
     },
     {
+      "id": "desktop.files.crossBoundaryMove",
+      "description": "Notice when a move or rename would cross between WSL distributions or between a distribution and a local folder",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
       "id": "desktop.files.moveToTrash",
       "description": "Delete dialog: the default button, which moves the items to the system trash",
       "platforms": [
@@ -13063,6 +13070,13 @@
       "parameters": {
         "count": "string"
       }
+    },
+    {
+      "id": "desktop.notifications.viewLogs",
+      "description": "Button on a failure notice, in its toast and in the notification history, that opens the log window on the records of the action that failed",
+      "platforms": [
+        "desktop"
+      ]
     },
     {
       "id": "desktop.outline.empty",

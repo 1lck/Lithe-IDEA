@@ -891,6 +891,7 @@ func (a *App) copyConsoleRecord(action, value string) {
 // symbol.
 func (a *App) copyConsoleText(value string) {
 	if err := app.SetClipboardText(strings.ReplaceAll(value, "\x00", "\u2400")); err != nil {
+		a.operationFailed("clipboard_copy", err)
 		a.notifyError(a.text.Errors.Core(err.Error()))
 	}
 }

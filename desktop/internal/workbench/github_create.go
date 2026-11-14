@@ -263,7 +263,7 @@ func (a *App) finishPullRequestDraft(title, description string, err error) func(
 				return
 			}
 			cr.err = aiPullRequestFailure(a.language(), err)
-			a.gitOperationFailed("ai_pull_request_description", err)
+			a.operationFailed("ai_pull_request_description", err)
 			return
 		}
 		cr.title.SetText(strings.TrimSpace(title))
@@ -318,7 +318,7 @@ func (a *App) publishCreateBranch(p *project) {
 				} else {
 					cr.err = githubFailure(language, err)
 				}
-				a.gitOperationFailed("git_publish_branch", err)
+				a.operationFailed("git_publish_branch", err)
 				return
 			}
 			cr.blocked = creationBlockedReason(language, facts)
