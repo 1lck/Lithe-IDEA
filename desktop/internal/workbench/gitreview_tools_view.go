@@ -97,7 +97,7 @@ func (a *App) drawPushDialog(c ui.C, p *project) {
 				ui.Text(c, i18n.Shared(a.language(), "git.pushDialog.noCommits")).Muted()
 			}
 			size := a.theme.Metrics.FontSizeS
-			ui.Scroll(c).Grow(1).FillWidth().Children(func() {
+			ui.Scroll(c).Scrollbars().Grow(1).FillWidth().Children(func() {
 				for _, commit := range pv.Commits {
 					ui.Row(c.Key(commit.Hash)).FillWidth().Height(reviewRowHeight + 2).Items(ui.Center).Gap(8).PadX(4).Children(func() {
 						ui.Text(c, commit.ShortHash).Mono().FontSize(size).Color(a.colors.Accent).Shrink(0)
@@ -203,5 +203,5 @@ func (a *App) drawRepositories(c ui.C, p *project) {
 			ui.Text(row.C, strconv.Itoa(row.Index+1)).Muted().Shrink(0)
 			ui.Text(row.C, filepath.FromSlash(repo.Path)).Muted().Ellipsis().Grow(1)
 		})
-	}).Grow(1).FillWidth()
+	}).Scrollbars().Grow(1).FillWidth()
 }

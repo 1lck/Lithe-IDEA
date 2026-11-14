@@ -85,7 +85,7 @@ func (a *App) drawChangeListSections(c ui.C, p *project) {
 	l, t := &p.lists, a.text.Commit
 	suffix := i18n.Shared(a.language(), "git.changelists.activeSuffix")
 	busy := p.commit.busy || !p.listsReady()
-	ui.Scroll(c).Grow(1).FillWidth().PadY(4).Children(func() {
+	ui.Scroll(c).Scrollbars().Grow(1).FillWidth().PadY(4).Children(func() {
 		for _, list := range l.state.Lists {
 			changes := p.listChanges(list.ID)
 			title := a.changeListName(list)

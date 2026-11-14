@@ -479,7 +479,7 @@ func (a *App) lspLogView(c ui.C) {
 		wrap := v.wrap
 		ui.List(c, &v.list, len(lines), func(row ui.ListRow) {
 			a.lspLogRow(row, lines[row.Index], wrap)
-		}).Label(i18n.Shared(language, "logs.language.tabTitle")).Fill().MinHeight(0)
+		}).Scrollbars().Label(i18n.Shared(language, "logs.language.tabTitle")).Fill().MinHeight(0)
 	})
 }
 

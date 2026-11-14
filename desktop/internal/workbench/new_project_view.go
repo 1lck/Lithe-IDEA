@@ -205,7 +205,7 @@ func (a *App) newProjectSidebar(c ui.C, language i18n.Language, background, divi
 					ui.Icon(row.C, icons.Folder).Size(15, 15).Color(a.colors.Subtle)
 					ui.Text(row.C, entry.title)
 				})
-			}).Label(i18n.Shared(language, "desktop.newProject.title")).Grow(1).FillWidth()
+			}).Scrollbars().Label(i18n.Shared(language, "desktop.newProject.title")).Grow(1).FillWidth()
 			if n.list.Changed() {
 				if i := n.list.Selected(); i >= 0 && i < len(rows) && !rows[i].header && rows[i].key != n.choice {
 					n.choice, n.err = rows[i].key, ""
@@ -240,7 +240,7 @@ func (a *App) newProjectContent(c ui.C, language i18n.Language) {
 			a.newProjectProgress(c, language)
 			return
 		}
-		ui.Scroll(c).FillWidth().Grow(1).Gap(12).Children(func() {
+		ui.Scroll(c).Scrollbars().FillWidth().Grow(1).Gap(12).Children(func() {
 			a.newProjectFields(c, language, choice)
 		})
 	})

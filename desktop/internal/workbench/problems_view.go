@@ -96,7 +96,7 @@ func (a *App) problemsPanel(c ui.C, p *project) {
 			} else if a.drawProblemsRow(row, v, group, index) && !v.show {
 				opened = row.Index
 			}
-		}).Label(i18n.Shared(lang, "native.problems")).FillWidth().Grow(1).Basis(0).Shrink(1).MinHeight(0)
+		}).Scrollbars().Label(i18n.Shared(lang, "native.problems")).FillWidth().Grow(1).Basis(0).Shrink(1).MinHeight(0)
 	}
 	if v.show {
 		if v.split.Pos <= 0 {

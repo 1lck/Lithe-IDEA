@@ -148,7 +148,7 @@ func (w *window) pluginSettingsPanel(c ui.C, id string) {
 		// regrouping them; the list declares only the rows in its viewport.
 		ui.List(c, &p.rows, len(p.layout), func(row ui.ListRow) {
 			w.pluginSettingsListRow(row, p, source != "")
-		}).FillWidth().Grow(1).MinHeight(settingsListMinHeight).Label(i18n.Shared(language, "desktop.pluginSettings.title"))
+		}).Scrollbars().FillWidth().Grow(1).MinHeight(settingsListMinHeight).Label(i18n.Shared(language, "desktop.pluginSettings.title"))
 	})
 }
 

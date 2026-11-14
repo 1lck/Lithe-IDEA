@@ -223,7 +223,7 @@ func (a *App) drawHistoryPreview(c ui.C, p *project) {
 			ui.Text(row.C, shortHash(commit.Hash)).Mono().FontSize(size).Color(a.colors.Accent).Width(64).Shrink(0)
 			ui.Text(row.C, firstLine(commit.Message)).FontSize(size).Ellipsis().Grow(1)
 		})
-	})
+	}).Scrollbars()
 	if !historyTakesMessage(r.operation) {
 		list.Grow(1)
 		return

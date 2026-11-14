@@ -131,7 +131,7 @@ func (w *window) exportBody(c ui.C) {
 // last. It is empty until the evidence is staged.
 func (w *window) exportContents(c ui.C) {
 	e := &w.model.export
-	area := ui.Scroll(c).FillWidth().Height(exportContentsHeight).Shrink(0).
+	area := ui.Scroll(c).Scrollbars().FillWidth().Height(exportContentsHeight).Shrink(0).
 		PadX(10).PadY(6).Gap(4).Background(w.pal.bg2).Radius(6).Border(1, w.pal.line)
 	if e.manifest == nil {
 		area.Children(func() {})

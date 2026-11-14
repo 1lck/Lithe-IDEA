@@ -42,7 +42,7 @@ func (a *App) inlineEditView(c ui.C, p *project) {
 				} else if s.result == s.selected {
 					ui.Text(c, t.Unchanged).Color(a.colors.Subtle)
 				}
-				ui.Scroll(c).FillWidth().MaxHeight(360).Children(func() {
+				ui.Scroll(c).Scrollbars().FillWidth().MaxHeight(360).Children(func() {
 					for i, line := range s.diff {
 						color, mark := a.colors.Text, "  "
 						switch line.kind {

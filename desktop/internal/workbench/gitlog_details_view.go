@@ -103,7 +103,7 @@ func (a *App) drawLogFileList(c ui.C, p *project) {
 	}
 	// The arrow keys are the list's container's, so they act while a row has the keyboard.
 	pane := ui.Column(c).Grow(1).FillWidth().Children(func() {
-		ui.List(c, &v.files, len(v.fileRows), func(row ui.ListRow) { a.drawLogFileRow(c, p, row) }).Grow(1).FillWidth()
+		ui.List(c, &v.files, len(v.fileRows), func(row ui.ListRow) { a.drawLogFileRow(c, p, row) }).Scrollbars().Grow(1).FillWidth()
 	})
 	if v.files.Changed() {
 		if i := v.files.Selected(); i >= 0 && i < len(v.fileRows) {
@@ -385,7 +385,7 @@ func (a *App) drawLogCommitDetail(c ui.C, p *project) ui.Box {
 				break
 			}
 		}
-		ui.Scroll(c).Grow(1).Pad(logDetailPad).Gap(8).Children(func() {
+		ui.Scroll(c).Scrollbars().Grow(1).Pad(logDetailPad).Gap(8).Children(func() {
 			ui.Wrap(c, d.Commit.Subject).Mono().Bold().FontSize(logFontSize).FillWidth()
 			a.drawLogMeta(c, d)
 			if chips := slices.DeleteFunc(slices.Clone(labels), func(x core.GraphLabel) bool { return x.Kind == "head" }); len(chips) > 0 {

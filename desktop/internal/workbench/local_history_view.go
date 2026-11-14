@@ -45,7 +45,7 @@ func (a *App) drawLocalHistory(c ui.C, p *project) {
 							c.After(func() { a.renameLocalHistory(p) })
 						}
 					})
-					ui.Scroll(c.Part("preview-text")).Grow(1).MinHeight(0).FillWidth().Children(func() {
+					ui.Scroll(c.Part("preview-text")).Scrollbars().Grow(1).MinHeight(0).FillWidth().Children(func() {
 						if !h.previewReady {
 							ui.Text(c, t.PreviewLoading).Muted()
 							return
@@ -110,7 +110,7 @@ func (a *App) localHistoryList(c ui.C, p *project) {
 		if row.Element.Clicked() {
 			pick = row.Index
 		}
-	}).Label(t.Title).Width(240).FillHeight()
+	}).Scrollbars().Label(t.Title).Width(240).FillHeight()
 	if h.list.Changed() && h.list.Selected() >= 0 {
 		pick = h.list.Selected()
 	}

@@ -282,7 +282,7 @@ func (a *App) nativeTree(c ui.C, p *project, tool *pluginservice.ToolWindow, sta
 	ui.Tree(c, &state.tree, len(rows), func(i int) string { return rows[i].node.Label }, func(i int) {
 		a.nativeRowPointer(c, tool, state, i, rows[i].node.ID)
 		a.nativeRowContent(c.KeyInt(i), rows[i])
-	}).Label(tool.Title).Grow(1).FillWidth()
+	}).Scrollbars().Label(tool.Title).Grow(1).FillWidth()
 	if state.menu.open {
 		id := state.menu.id
 		ui.MenuAt(c.Key("native-row-menu"), state.menu.at.X, state.menu.at.Y, &state.menu.open, func(menu *ui.MenuItems) {
@@ -351,7 +351,7 @@ func (a *App) nativeList(c ui.C, p *project, tool *pluginservice.ToolWindow, sta
 			state.selected = item.node.ID
 		}
 		a.nativeContextMenu(row.C, row.Element, p, tool, state, item.node.ID)
-	}).Label(tool.Title).Grow(1).FillWidth()
+	}).Scrollbars().Label(tool.Title).Grow(1).FillWidth()
 }
 
 // nativeContextMenu attaches the panel's context menu to a list row.

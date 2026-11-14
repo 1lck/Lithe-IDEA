@@ -71,7 +71,7 @@ func (a *App) drawProjectReplace(c ui.C, p *project) {
 			case len(r.files) == 0:
 				ui.Text(c, t.NoReplacements).Muted()
 			default:
-				ui.Scroll(c.Part("replace-files")).FillWidth().MaxHeight(360).Children(func() {
+				ui.Scroll(c.Part("replace-files")).Scrollbars().FillWidth().MaxHeight(360).Children(func() {
 					for i := range r.files {
 						a.replacePreviewFile(c.KeyInt(i), p, i)
 					}

@@ -188,7 +188,7 @@ func (a *App) scratchPopup(c ui.C) {
 					})
 				}
 			})
-		}).Height(300)
+		}).Scrollbars().Height(300)
 	}, func() {
 		if ui.Button(c, i18n.Shared(a.language(), "desktop.drafts.new")).Clicked() {
 			c.After(func() { v.open = false; a.newScratch(p) })

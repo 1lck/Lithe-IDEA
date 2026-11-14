@@ -27,7 +27,7 @@ func (a *App) referencesPanel(c ui.C, p *project) {
 		} else if a.drawReferenceRow(row, group, index) {
 			opened = row.Index
 		}
-	}).Label(i18n.Shared(a.language(), "desktop.semantics.references")).FillWidth().Grow(1).Shrink(1).MinHeight(0)
+	}).Scrollbars().Label(i18n.Shared(a.language(), "desktop.semantics.references")).FillWidth().Grow(1).Shrink(1).MinHeight(0)
 	if row, ok := s.list.Submitted(); ok {
 		opened = row
 	}

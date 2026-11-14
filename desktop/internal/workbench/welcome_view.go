@@ -229,7 +229,7 @@ func (a *App) welcomeProjects(c ui.C) {
 		if row.Element.Clicked() {
 			open = entry.Path
 		}
-	}).Label(a.text.Welcome.Projects).Grow(1).PadX(22).PadY(4)
+	}).Scrollbars().Label(a.text.Welcome.Projects).Grow(1).PadX(22).PadY(4)
 	if path, ok := w.list.Submitted(); ok && path >= 0 && path < len(shown) {
 		open = a.recent[shown[path]].Path
 	}

@@ -121,7 +121,7 @@ func (a *App) testTree(c ui.C, p *project, s *testState) {
 	}
 	ui.List(c, list, len(s.rows), func(row ui.ListRow) {
 		a.testRow(row, p, s)
-	}).Label(a.text.Tests.Summary(s.results.Summary.Passed, s.results.Summary.Failed, s.results.Summary.Skipped)).
+	}).Scrollbars().Label(a.text.Tests.Summary(s.results.Summary.Passed, s.results.Summary.Failed, s.results.Summary.Skipped)).
 		FillWidth().Grow(1).Shrink(1).MinHeight(0)
 }
 

@@ -104,7 +104,7 @@ func (w *window) sidebar(c ui.C) {
 			})
 			return
 		}
-		ui.Tree(c, &w.nav, len(w.rows), w.navLabel, func(i int) { w.navContent(c, i) }).Grow(1).Shrink(1).MinHeight(0).PadSides(12, 12, 0, 12).Label(settings.Categories)
+		ui.Tree(c, &w.nav, len(w.rows), w.navLabel, func(i int) { w.navContent(c, i) }).Scrollbars().Grow(1).Shrink(1).MinHeight(0).PadSides(12, 12, 0, 12).Label(settings.Categories)
 		if i, ok := w.nav.Toggled(); ok && i < len(w.rows) {
 			w.toggleRow(w.rows[i])
 		}
@@ -277,7 +277,7 @@ func (w *window) unavailablePage(c ui.C) {
 // pageScroll is the scroll area of one page. It is named by the page, so it starts at its
 // top each time the page is opened.
 func (w *window) pageScroll(c ui.C, page pageID, body func()) {
-	ui.Scroll(c.KeyInt(int(page))).Grow(1).Shrink(1).MinHeight(0).PadSides(20, contentPad, 36, contentPad).Gap(cardGap).Children(body)
+	ui.Scroll(c.KeyInt(int(page))).Scrollbars().Grow(1).Shrink(1).MinHeight(0).PadSides(20, contentPad, 36, contentPad).Gap(cardGap).Children(body)
 }
 
 // card puts the section label outside its bounded settings rows, as in the native client.

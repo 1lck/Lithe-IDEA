@@ -230,7 +230,7 @@ func (w *window) tablePanel(c ui.C) {
 		w.tableHeader(c, &grid, &widths, viewport, rowWidth)
 		area := ui.List(c, &t.list, n, func(row ui.ListRow) {
 			w.tableRow(row, &grid, &widths, &paint)
-		}).Label(w.text.Logs.Logs).Grow(1).Shrink(1).MinHeight(0).FillWidth().Follow(m.follows)
+		}).Scrollbars().Label(w.text.Logs.Logs).Grow(1).Shrink(1).MinHeight(0).FillWidth().Follow(m.follows)
 		if t.list.Changed() {
 			w.applyTableSelection()
 		}

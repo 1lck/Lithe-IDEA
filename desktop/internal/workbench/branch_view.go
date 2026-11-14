@@ -75,7 +75,7 @@ func (a *App) drawBranchPanel(c ui.C, p *project, t i18n.BranchMessages) {
 	if a.drawBranchActions(c, p, current, query) {
 		ui.Divider(c)
 	}
-	ui.Scroll(c).FillWidth().MaxHeight(branchPopupMaxHeight).Children(func() {
+	ui.Scroll(c).Scrollbars().FillWidth().MaxHeight(branchPopupMaxHeight).Children(func() {
 		switch {
 		case b.err != nil && !b.loading:
 			ui.Paragraph(c, t.LoadFailed(b.err.Error()), 4).Color(a.colors.Subtle).PadX(chromeEdge)
@@ -590,7 +590,7 @@ func (a *App) drawBranchConflictDialog(c ui.C, p *project) {
 	b, t := &a.branch, a.text.Branch
 	a.branchDialogOf(c, t.ConflictTitle, t.ConflictPrompt(b.target.ShortName), func() {
 		ui.Column(c).FillWidth().Gap(8).Children(func() {
-			ui.Scroll(c).FillWidth().MaxHeight(branchBlockingHeight).Children(func() {
+			ui.Scroll(c).Scrollbars().FillWidth().MaxHeight(branchBlockingHeight).Children(func() {
 				ui.Column(c).FillWidth().Gap(2).Children(func() {
 					for _, path := range b.blocking {
 						ui.Text(c.Key(path), path).FontSize(a.theme.Metrics.FontSizeS).Color(a.colors.Text).Ellipsis()

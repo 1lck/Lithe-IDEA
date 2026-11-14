@@ -277,7 +277,7 @@ func (a *App) everywhereActions(c ui.C) {
 		if row.Element.Clicked() {
 			run = row.Index
 		}
-	}).Label(a.text.Commands.FindAction).Grow(1).MinHeight(0)
+	}).Scrollbars().Label(a.text.Commands.FindAction).Grow(1).MinHeight(0)
 	if v.actionList.Changed() {
 		v.actionSelected = max(v.actionList.Selected(), 0)
 	}

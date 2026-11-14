@@ -84,7 +84,7 @@ func (a *App) drawRebaseRows(c ui.C, p *project) {
 			ui.Text(row.C, shortHash(commit.Hash)).Mono().FontSize(size).Color(a.colors.Accent).Width(64).Shrink(0)
 			ui.Text(row.C, firstLine(r.messageOf(commit))).FontSize(size).Ellipsis().Grow(1)
 		})
-	})
+	}).Scrollbars()
 }
 
 // drawRebaseEditor declares the message editor of the dialog: the message of a reword or a

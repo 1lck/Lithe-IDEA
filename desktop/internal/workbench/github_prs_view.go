@@ -72,7 +72,7 @@ func (a *App) drawPullRequestList(c ui.C, p *project) {
 			number := item.Number
 			c.After(func() { a.selectPullRequest(p, number) })
 		}
-	})
+	}).Scrollbars()
 }
 
 // drawPullRequestDetail declares the selected pull request: its state and branches, its
@@ -88,7 +88,7 @@ func (a *App) drawPullRequestDetail(c ui.C, p *project) {
 	}
 	d := pr.detail
 	size := a.theme.Metrics.FontSizeS
-	ui.Scroll(c).Grow(1).FillWidth().Children(func() {
+	ui.Scroll(c).Scrollbars().Grow(1).FillWidth().Children(func() {
 		ui.Column(c).FillWidth().Gap(6).PadX(8).Children(func() {
 			ui.Text(c, d.Title).Weight(gfx.WeightSemibold)
 			ui.Text(c, i18n.SharedFormat(lang, "desktop.github.prMeta", map[string]string{

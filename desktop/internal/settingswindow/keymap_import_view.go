@@ -130,7 +130,7 @@ func (w *window) keymapImportDialog(c ui.C) {
 							ui.Text(row.C, detail).FontSize(11).Color(w.pal.muted).Ellipsis()
 						})
 					})
-				}).FillWidth().Height(float32(min(230, count*46))).Label(i18n.Shared(language, "desktop.keymapImport.preview"))
+				}).Scrollbars().FillWidth().Height(float32(min(230, count*46))).Label(i18n.Shared(language, "desktop.keymapImport.preview"))
 			}
 		})
 	}, func() {

@@ -110,7 +110,7 @@ func (a *App) outputList(c ui.C, p *project, state *ui.ListState, scope, label s
 		if menu != nil {
 			ui.ContextMenu(row.C, row.Element, a.outputLineMenu(row.C, line.text, true, menu))
 		}
-	}).Label(label).FillWidth().Follow(true)
+	}).Scrollbars().Label(label).FillWidth().Follow(true)
 	a.flushOutputLinks(p)
 	if menu != nil {
 		list = list.Hit(ui.ID(c.Key(menu.key)), label)
