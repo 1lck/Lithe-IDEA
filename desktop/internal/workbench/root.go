@@ -80,6 +80,13 @@ func (a *App) sessionConfig() app.Config {
 		BarStyle: uistyle.Bars,
 	})
 	config := a.root.Config(base)
+	// An open pointer hover follows the pointer over the whole window, before the element under
+	// it does, so the pointer resting on the popup keeps it open (pluginsemantics_hover.go).
+	pointer := config.OnPointer
+	config.OnPointer = func(event gfx.PointerEvent) gfx.EventResult {
+		a.hoverTrackPointer(event)
+		return pointer(event)
+	}
 	wheel := config.OnScroll
 	config.OnScroll = func(event gfx.ScrollEvent) gfx.EventResult {
 		if a.focusedDocument(event.Target) == nil && a.focusedTerminal(event.Target) == nil {

@@ -80,8 +80,6 @@ const (
 	semanticDefinitionWidth = float32(480)
 	semanticRowHeight       = float32(24)
 	semanticPopupPad        = float32(4)
-	semanticHoverWidth      = float32(420)
-	semanticHoverMaxHeight  = float32(240)
 	// semanticHoverDelay is how long the pointer rests on a symbol before the
 	// hover request starts. Negative lets tests exercise it without a clock wait.
 	semanticHoverDelay = 500 * time.Millisecond
@@ -137,7 +135,7 @@ type semanticPending struct {
 	// makes the answer stale. A modifier-click request uses the pointer instead.
 	requireCaret bool
 	// fromPointer marks a hover started by pointer movement; its anchor is the
-	// pointer point rather than the caret cell.
+	// row under the pointer rather than the caret cell.
 	fromPointer bool
 	anchor      gfx.Rect
 	operation   string
@@ -178,11 +176,23 @@ type definitionState struct {
 	revision   int
 }
 
-// hoverState is the hover popup.
+// hoverState is the hover popup (pluginsemantics_hover.go).
 type hoverState struct {
 	open     bool
 	contents string
-	anchor   gfx.Rect
+	// anchor is the row (pointer) or caret (keyboard) the popup is placed under; rect is where
+	// the popup was declared last.
+	anchor gfx.Rect
+	rect   gfx.Rect
+	// documentID, line, start and end are the hovered symbol, as UTF-16 columns: while the
+	// pointer stays on it no new hover is asked for.
+	documentID int
+	line       int
+	start, end int
+	// fromPointer marks a hover the pointer opened, which closes once the pointer has left
+	// the symbol and the popup.
+	fromPointer bool
+	page        *hoverPage
 }
 
 // hoverCandidate is the symbol under the resting pointer.
@@ -214,6 +224,13 @@ type pluginSemantics struct {
 	rename     renameState
 	candidate  hoverCandidate
 	hoverDelay time.Duration
+	// hoverHideDelay overrides semanticHoverHideDelay; hideCancel ends the pending close of a
+	// pointer hover and hideToken names the newest one, so an older wait that fired is ignored.
+	hoverHideDelay time.Duration
+	hideCancel     context.CancelFunc
+	hideToken      uint64
+	// hoverColors turns code tokens into the hover popup's code colors.
+	hoverColors hoverPalette
 	// autoDelay and autoCancel debounce automatic completion while typing.
 	autoDelay  time.Duration
 	autoCancel context.CancelFunc
@@ -458,7 +475,14 @@ func (a *App) pluginSemanticsPointer(event gfx.PointerEvent, p *project, d *docu
 		if !ok {
 			return gfx.EventResult{}, false
 		}
-		a.pointPluginHover(p, d, line, column, gfx.Rect{X: event.X + 12, Y: event.Y + 18})
+		// The pointer moving along the hovered symbol keeps the popup where it is instead of
+		// asking again for every character; leaving it starts the popup's close.
+		if a.hoverCovers(d, line, column) {
+			a.holdSemanticHover()
+			return gfx.EventResult{}, false
+		}
+		a.releaseSemanticHover()
+		a.pointPluginHover(p, d, line, column, hoverRowAnchor(d, event.X, event.Y))
 		return gfx.EventResult{}, false
 	case gfx.PointerExit:
 		a.closeSemanticHover()
@@ -571,7 +595,7 @@ func (a *App) startPluginHover(p *project, d *document, line, column int, anchor
 	}
 	server, ok := a.semanticServer(d)
 	if !ok {
-		a.startProviderHover(p, d, line, column, anchor)
+		a.startProviderHover(p, d, line, column, anchor, fromPointer)
 		return
 	}
 	if !server.isReady() {
@@ -595,7 +619,7 @@ func (a *App) startPluginHover(p *project, d *document, line, column int, anchor
 
 // startProviderHover shows a plugin hover provider's text when no language server serves the document.
 // A language server that is ready keeps its own hover, since a plugin's text would show twice.
-func (a *App) startProviderHover(p *project, d *document, line, column int, anchor gfx.Rect) {
+func (a *App) startProviderHover(p *project, d *document, line, column int, anchor gfx.Rect, fromPointer bool) {
 	if a.plugins == nil || d == nil || d.virtual || d.path == "" {
 		return
 	}
@@ -618,7 +642,7 @@ func (a *App) startProviderHover(p *project, d *document, line, column int, anch
 				a.closeSemanticHover()
 				return
 			}
-			a.semantics.hover = hoverState{open: true, contents: truncateHover(contents), anchor: anchor}
+			a.showSemanticHover(p, d, contents, true, line, column, nil, anchor, fromPointer)
 		}
 	})
 }
@@ -1079,7 +1103,7 @@ func (a *App) applySemanticHover(pending *semanticPending, event core.BackendEve
 		a.closeSemanticHover()
 		return
 	}
-	a.semantics.hover = hoverState{open: true, contents: truncateHover(hover.Contents), anchor: pending.anchor}
+	a.showSemanticHover(p, d, hover.Contents, hover.IsMarkdown, pending.line, pending.column, hover.Range, pending.anchor, pending.fromPointer)
 }
 
 func (a *App) applySemanticCompletion(pending *semanticPending, event core.BackendEvent) {
@@ -1541,6 +1565,7 @@ func (a *App) pluginSemanticsReset() {
 	a.semantics.project = nil
 	a.semantics.documentID = 0
 	a.semantics.hoverDelay = 0
+	a.semantics.hoverHideDelay = 0
 	a.semantics.autoDelay = 0
 }
 
@@ -1578,6 +1603,7 @@ func (a *App) closeSemanticDefinition() {
 }
 
 func (a *App) closeSemanticHover() {
+	a.stopSemanticHoverHide()
 	a.semantics.hover = hoverState{}
 }
 

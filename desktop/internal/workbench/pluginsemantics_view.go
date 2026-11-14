@@ -123,17 +123,6 @@ func (a *App) completionPopup(c ui.C) {
 	}
 }
 
-func (a *App) hoverPopup(c ui.C) {
-	state := &a.semantics.hover
-	x, y := popupOrigin(state.anchor.X, state.anchor.Y, semanticHoverWidth, c.Bounds())
-	a.semanticPopup(c, x, y, semanticHoverWidth, semanticHoverMaxHeight,
-		i18n.Shared(a.language(), "desktop.semantics.hover"), 10, func() {
-			ui.Scroll(c).FillWidth().MaxHeight(semanticHoverMaxHeight - 20).Children(func() {
-				ui.Wrap(c, state.contents).FontSize(12).Mono()
-			})
-		})
-}
-
 // renameDialog is the thin view over renameState: it shows the name field and
 // reports confirm or cancel to the rename logic.
 func (a *App) renameDialog(c ui.C) {
