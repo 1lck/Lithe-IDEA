@@ -327,7 +327,6 @@ var english = Messages{
 		Encoding:       Shared(English, "desktop.status.encoding"),
 		Problems:       func(count int) string { return statusProblems(English, count) },
 		Memory:         Shared(English, "desktop.status.memory"),
-		MemoryValue:    func(megabytes int) string { return statusMemory(English, megabytes) },
 		FPS:            Shared(English, "desktop.status.fPS"),
 		FPSValue:       func(fps int) string { return statusFPS(English, fps) },
 		NoChanges:      Shared(English, "desktop.status.noChanges"),
