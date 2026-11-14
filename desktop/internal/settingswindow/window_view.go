@@ -355,7 +355,8 @@ func (w *window) generalPage(c ui.C) {
 			choice := func() {
 				ui.Choice(c, &w.themePick, themeValues[:], w.themeLabel).Width(420).Shrink(1).MinWidth(0).Label(settings.AppearanceMode)
 			}
-			if w.extent-2*contentPad-2*cardPad < 460 {
+			narrow := w.extent-2*contentPad-2*cardPad < 460
+			if narrow {
 				ui.Column(c).FillWidth().Gap(8).Children(func() {
 					ui.Text(c, settings.AppearanceMode).FontSize(12).Color(p.text)
 					choice()
@@ -368,6 +369,7 @@ func (w *window) generalPage(c ui.C) {
 					choice()
 				})
 			}
+			w.workbenchBackgroundRows(c, narrow)
 		})
 		w.card(c, settings.Language, "", func() {
 			ui.Row(c).FillWidth().Height(28).Items(ui.Center).Gap(12).Children(func() {

@@ -60,6 +60,13 @@ func TestLogEventsMatchCatalog(t *testing.T) {
 		{core.LevelWarn, "app.notification.operation_rejected", map[string]any{"operation": "workspace_search", "reason": "invalid_result_path"}},
 		{core.LevelWarn, "app.notification.operation_rejected", map[string]any{"operation": "workspace_search_incremental_update", "reason": "watch_events_lost"}},
 		{core.LevelWarn, "app.notification.operation_rejected", map[string]any{"operation": "workspace_search_incremental_update", "reason": "event_limit_exceeded"}},
+		{operationFailedLevel, operationFailedEvent, operationFailedFields("workbench_background", documentLogError(errors.New("image: unknown format")))},
+		{operationFailedLevel, operationFailedEvent, operationFailedFields("workbench_background_save", failure)},
+		{operationFailedLevel, operationFailedEvent, operationFailedFields("workbench_background_remove", failure)},
+		{core.LevelInfo, "app.action.performed", map[string]any{"action": "workspace.background.open", "surface": surfaceButton}},
+		{core.LevelInfo, "app.action.performed", map[string]any{"action": "workspace.background.choose", "surface": surfaceButton}},
+		{core.LevelInfo, "app.action.performed", map[string]any{"action": "workspace.background.remove", "surface": surfaceButton}},
+		{core.LevelInfo, "app.action.performed", map[string]any{"action": "workspace.background.strength", "surface": surfaceButton}},
 	}
 	events := make([]core.LogEvent, len(cases))
 	for i, c := range cases {

@@ -36,7 +36,7 @@ func (v *View) Paint(canvas *gfx.Canvas, area gfx.Rect, look Look) {
 	// for, before the rows of this frame are prepared.
 	v.stepSelectionScroll(v.clock)
 
-	canvas.Fill(area, v.pal.terminal)
+	canvas.Fill(area, v.pal.ground)
 	v.paintGrid(canvas, v.layout)
 	v.paintScrollbar(canvas)
 }

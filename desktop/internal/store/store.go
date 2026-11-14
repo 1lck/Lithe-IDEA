@@ -67,7 +67,26 @@ func (store *Store) Save(name string, value any) error {
 	if err != nil {
 		return fmt.Errorf("encode %s: %w", name, err)
 	}
-	data = append(data, '\n')
+	return store.WriteFile(name, append(data, '\n'))
+}
+
+// Path is where the file name lives, for a reader that streams it instead of loading it whole,
+// such as an image decoder.
+func (store *Store) Path(name string) string {
+	return filepath.Join(store.dir, name)
+}
+
+// Remove deletes the file name. A file that does not exist is already removed.
+func (store *Store) Remove(name string) error {
+	if err := os.Remove(filepath.Join(store.dir, name)); err != nil && !errors.Is(err, fs.ErrNotExist) {
+		return err
+	}
+	return nil
+}
+
+// WriteFile replaces the file name with data atomically, as Save does for JSON. It keeps a
+// file the client owns that is not JSON, such as the workbench background image.
+func (store *Store) WriteFile(name string, data []byte) error {
 	if err := os.MkdirAll(store.dir, 0o755); err != nil {
 		return err
 	}

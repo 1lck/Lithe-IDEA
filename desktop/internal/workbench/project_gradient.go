@@ -39,10 +39,11 @@ func (a *App) projectGradientOn() bool {
 	return a.project != nil && !a.settings.HideProjectColors
 }
 
-// chromeFill is the background of the chrome's own surfaces: none while the gradient
-// shows, so the gradient painted under them shows through; the chrome color otherwise.
+// chromeFill is the background of the chrome's own surfaces: none while the gradient or a
+// workbench background image shows, so what is painted under them shows through; the chrome
+// color otherwise.
 func (a *App) chromeFill() gfx.Color {
-	if a.projectGradientOn() {
+	if a.projectGradientOn() || a.backdropShown() {
 		return gfx.Color{}
 	}
 	return a.colors.Chrome

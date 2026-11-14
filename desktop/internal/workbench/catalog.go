@@ -224,7 +224,7 @@ var catalog = []item{
 	{id: itemNotifications, zone: zoneRightTop, icon: &icons.Bell, label: func(m *i18n.Messages) string { return m.Tools.Notifications }, panel: true},
 
 	{id: itemUpdates, zone: zoneBottomRight, icon: &icons.RefreshCw, label: func(m *i18n.Messages) string { return m.Tools.Updates }, panel: true},
-	{id: itemBackground, zone: zoneBottomRight, icon: &icons.Image, label: func(m *i18n.Messages) string { return m.Tools.Background }, panel: true},
+	{id: itemBackground, zone: zoneBottomRight, icon: &icons.Image, label: func(m *i18n.Messages) string { return m.Tools.Background }},
 
 	{id: itemRunConfig, zone: zoneTitle, icon: &icons.FileCode, label: func(m *i18n.Messages) string { return m.Title.RunConfiguration }},
 	{id: itemTitleRun, zone: zoneTitle, icon: &icons.Play, label: func(m *i18n.Messages) string { return m.Title.Run }},
@@ -379,7 +379,8 @@ func defaultLayout() core.ChromeLayout {
 }
 
 // apply makes layout the current arrangement. Placements of unknown items or zones are
-// skipped; the kernel never returns them.
+// skipped; the kernel never returns them. An open item that is not a tool window, such as the
+// background button an earlier layout saved as open, takes no slot.
 func (c *chromeState) apply(layout core.ChromeLayout) {
 	c.layout = layout
 	for z := range c.items {
@@ -398,7 +399,7 @@ func (c *chromeState) apply(layout core.ChromeLayout) {
 	}
 	for _, id := range layout.Open {
 		index, known := c.index[id]
-		if !known {
+		if !known || !c.catalog[index].panel {
 			continue
 		}
 		if s, ok := c.zoneOf(index).slot(); ok {

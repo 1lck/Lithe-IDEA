@@ -11070,7 +11070,21 @@
     "desktop.keymapSchemes.failed": "无法更新快捷键方案，原方案仍然保留。",
     "desktop.editorFind.count": "{current}/{total}",
     "desktop.editorFind.replaced": "已替换 {count} 处。",
-    "desktop.drafts.untitled": "临时草稿 {number}"
+    "desktop.drafts.untitled": "临时草稿 {number}",
+    "desktop.workbenchBackground.help": "在整个工作台后面显示你自己的图片。Lithe 会在自己的数据目录中保留一份副本，移动或删除原图不会影响背景。",
+    "desktop.workbenchBackground.remove": "移除",
+    "desktop.workbenchBackground.close": "关闭",
+    "desktop.workbenchBackground.visibility": "图片可见度",
+    "desktop.workbenchBackground.subtle": "淡",
+    "desktop.workbenchBackground.medium": "中",
+    "desktop.workbenchBackground.strong": "浓",
+    "desktop.workbenchBackground.loading": "正在载入背景图片…",
+    "desktop.workbenchBackground.status": "{name}，{width}×{height}",
+    "desktop.workbenchBackground.failed": "无法使用该图片：{reason}",
+    "desktop.workbenchBackground.tooLarge": "图片文件超过 30 MB。",
+    "desktop.workbenchBackground.tooManyPixels": "图片像素超过 6400 万。",
+    "desktop.workbenchBackground.unsupported": "只支持 PNG 和 JPEG 图片。",
+    "desktop.workbenchBackground.imageFilter": "PNG 和 JPEG 图片"
   },
   "overrides": {
     "macos": {

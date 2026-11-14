@@ -576,7 +576,7 @@ func (a *App) drawDiffBlockControls(canvas *gfx.Canvas, t *diffTab, i int, f dif
 	look := components.CheckboxRecipe(a.theme, state)
 	fill := look.Fill
 	if fill.Alpha < 1 {
-		fill = fill.Over(a.colors.Editor)
+		fill = fill.Over(a.colors.Ground)
 	}
 	canvas.RoundedBorder(box, look.Radius, 1, look.Border, fill)
 	components.PaintCheckboxMark(canvas, box, state, look.Mark)

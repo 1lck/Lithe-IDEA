@@ -47,6 +47,9 @@ func (a *App) terminalLook() termview.Look {
 	look := termview.Look{
 		Dark:       a.colors.Dark,
 		Background: a.colors.Editor,
+		// The editor color is clear behind a background image; the terminal measures its ink
+		// and answers color queries against the opaque one.
+		Solid:      a.colors.Ground,
 		Foreground: a.colors.Text,
 		Cursor:     gfx.Color{Red: 0.18, Green: 0.43, Blue: 0.79, Alpha: 1},
 		Selection:  gfx.Color{Red: 0.69, Green: 0.82, Blue: 0.98, Alpha: 1},

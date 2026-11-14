@@ -243,7 +243,12 @@ func (a *App) stripeZone(c ui.C, z zone, dragging bool) int {
 	}
 	column = column.Children(func() {
 		for _, i := range a.chrome.items[z] {
+			// The background button opens a popover, not a tool window.
+			background := a.chrome.catalog[i].id == itemBackground
 			open := a.chrome.isOpen(i)
+			if background {
+				open = a.backdropOpen
+			}
 			rest := a.colors.Subtle
 			if open {
 				rest = a.theme.PrimaryForeground
@@ -253,7 +258,18 @@ func (a *App) stripeZone(c ui.C, z zone, dragging bool) int {
 				hover = a.theme.PrimaryForeground
 			}
 			box, hit := a.chromeGlyph(c, i, chromeToolButton, rest, hover, open)
-			if hit {
+			switch {
+			case background:
+				// As the title bar's gear: the press on the button that dismisses the open
+				// popover must not open it again.
+				if open {
+					a.backgroundPopover(c, box)
+				}
+				if hit && !open {
+					a.performed("workspace.background.open", surfaceButton)
+					a.backdropOpen = true
+				}
+			case hit:
 				clicked = i
 			}
 			ui.ContextMenu(c.Part("menu").KeyInt(i), box, a.stripeButtonMenu(c, i, z))

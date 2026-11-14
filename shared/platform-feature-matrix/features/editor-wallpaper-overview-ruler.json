@@ -41,5 +41,5 @@
       ]
     }
   },
-  "notes": "Viva：放弃迁移（见 docs/viva-migration.md 对应行），不再按旧客户端行为对齐。现状：desktop/ 中没有工作台壁纸模式（grep wallpaper 无结果），编辑器概览标尺和缩略图也没有随背景透明的处理。"
+  "notes": "Viva：放弃迁移（见 docs/viva-migration.md 对应行），不再按旧客户端行为对齐。现状：Viva 已有工作台背景图（见 workbench-background-image），编辑区透出背景时缩略图不画实底，不会出现旧 Monaco 概览标尺的黑色竖条；Viva 编辑器没有概览标尺，本项不再单独实现。"
 }

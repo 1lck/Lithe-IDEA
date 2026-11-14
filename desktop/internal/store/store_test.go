@@ -66,3 +66,30 @@ func TestLoadReportsCorruptFile(t *testing.T) {
 		t.Fatalf("Load = %v, %v; want found with an error", found, err)
 	}
 }
+
+func TestWriteFileReplacesBytesAndRemoveDeletes(t *testing.T) {
+	store := At(filepath.Join(t.TempDir(), "Lithe Desktop"))
+	if err := store.WriteFile("image.img", []byte("first")); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.WriteFile("image.img", []byte("second")); err != nil {
+		t.Fatal(err)
+	}
+	data, err := os.ReadFile(store.Path("image.img"))
+	if err != nil || string(data) != "second" {
+		t.Fatalf("ReadFile = %q, %v; want the second write", data, err)
+	}
+	entries, err := os.ReadDir(store.Dir())
+	if err != nil || len(entries) != 1 {
+		t.Fatalf("ReadDir = %d entries, %v; want only the file", len(entries), err)
+	}
+	if err := store.Remove("image.img"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(store.Path("image.img")); !os.IsNotExist(err) {
+		t.Fatalf("the file is still there: %v", err)
+	}
+	if err := store.Remove("image.img"); err != nil {
+		t.Fatalf("Remove of a missing file = %v, want nil", err)
+	}
+}

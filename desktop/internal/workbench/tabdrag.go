@@ -91,7 +91,7 @@ func (a *App) paintTabDrag(canvas *gfx.Canvas) {
 		ghost.X = max(min(ghost.X, d.viewport.Width-ghost.Width-dragGhostMargin), 0)
 		ghost.Y = max(min(ghost.Y, d.viewport.Height-ghost.Height-dragGhostMargin), 0)
 	}
-	canvas.RoundedBorder(ghost, dragGhostRadius, 1, a.colors.Accent, a.colors.Editor)
+	canvas.RoundedBorder(ghost, dragGhostRadius, 1, a.colors.Accent, a.colors.Ground)
 	canvas.DrawIcon(icon, gfx.Rect{
 		X:      ghost.X + chromeEdge,
 		Y:      ghost.Y + (ghost.Height-terminalChipIcon)/2,
