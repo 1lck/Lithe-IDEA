@@ -4,8 +4,9 @@ The Swift client was removed from the current Viva branch. The macOS entry
 now times desktop Go tests; the Swift-specific guidance below is historical and
 does not establish coverage of the current client.
 
-The macOS harness requires only Swift, zsh, and Node.js. Bun is not installed,
-loaded, or invoked anywhere in this path.
+The current macOS desktop harness requires Go, the matching Core build
+toolchain, zsh and Node.js. The Swift instructions below are retained only for
+explicit historical investigation; they are not prerequisites for Viva checks.
 
 ## Toolchain compatibility
 

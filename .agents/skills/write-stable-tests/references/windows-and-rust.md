@@ -1,196 +1,71 @@
-# Windows, TypeScript, and Rust Test Stability
+# Windows desktop Go and Core Rust test stability
 
-Viva desktop Go uses `test-stability-windows.ps1 -Scope DesktopGo`; it needs
-Git Bash and the Windows Go/Core build toolchain. The old Tauri frontend and
-Windows Rust scopes below describe the removed client and cannot verify Viva.
+## Run local Windows verification in the VM
 
-Bun is a Windows Frontend test-runtime dependency only. The report generator,
-static verifier, Swift runner, and Rust runner are Node.js-only.
+Use the local Windows VM under [debug-windows-on-parallels](../../debug-windows-on-parallels/SKILL.md).
+The former standalone cloud server is retired. Existing GitHub Actions Windows
+checks remain in CI; historical cloud measurements are not a current execution
+route or evidence for this revision.
 
-## TypeScript and Bun
+Record guest and output architectures, emulation, source revision and toolchain.
+Run as the interactive user with the correct Go, GNU Rust target, MinGW-w64 GCC,
+Node.js and Git for Windows Bash. The current desktop wrapper supports Windows
+amd64; an ARM64 guest does not establish native Windows ARM64 client support.
 
-- Inject timer functions or a scheduler and advance them manually. The
-  `ManualTimer` pattern in the nearby Windows tests is preferred for debounce,
-  cooldown, retry, and delayed-work behavior.
-- Use deferred promises only when the test controls every resolution path.
-  Release or reject pending deferred work in teardown after an assertion fails.
-- Flush a known microtask boundary with resolved promises when necessary. Do
-  not use real `setTimeout` calls to wait for application state.
-- Never leave intervals, listeners, subscriptions, workers, or mocked native
-  operations active after a test.
+## Time current desktop Go tests
 
-The Windows timing harness passes an explicit timeout to Bun and reads the
-JUnit duration for every executed test case.
+From the guest checkout:
 
-## Rust
+```powershell
+./.agents/skills/write-stable-tests/scripts/test-stability-windows.ps1 -Scope DesktopGo -GoPackages ./internal/core -GoTestPattern '<focused-test>'
+```
 
-- Prefer channels, barriers, and injected clocks to `thread::sleep`. Channel
-  receives used for coordination require `recv_timeout` or an equivalent
-  bounded operation.
-- A thread may be joined only after a bounded signal proves that it reached a
-  terminating path. Keep cleanup capable of releasing all barriers and killing
-  child processes.
-- Test subprocesses require a watchdog and process-tree termination. Reading to
-  EOF or calling `wait` is not a timeout strategy.
-- Avoid shared global environment mutation. If unavoidable, serialize access
-  with an owned guard and restore the previous value in teardown.
+The harness resolves Git for Windows Bash and invokes
+`scripts/desktop/desktop-go.sh` with serialized Go execution, explicit test and
+suite deadlines and per-test reporting. Inspect HTML/JUnit results under
+`.artifacts/test-stability/`; zero matches or an unfinished test are failures.
+The wrapper selects the pinned Core and its fixtures. Do not bypass it with an
+unconfigured `go test` or compare against a different Core revision.
 
-`./.agents/skills/write-stable-tests/scripts/test-stability-windows.ps1 -Scope WindowsRust` and `-Scope SharedRust`
-compile the selected Cargo tests once, enumerate the produced test binaries,
-then run every test case individually with a process-level timeout and duration
-report. One suite deadline covers compilation, enumeration, every test process,
-and the clean cache retry; a timeout writes the completed records before the
-runner exits. A completed test failure or timeout preserves the report and fails
-without clearing/rebuilding cached binaries. Only failures before any test ran
-remain eligible for the existing one-time cache recovery. This isolation makes the exact hanging test visible.
+For concurrency tests, use channels and controllable events; bound channel
+receives, cancellation and completion. Give each goroutine and subprocess an
+owner and teardown path. Do not coordinate with real sleeps or wait on the UI
+thread. Run the affected packages with the race detector where the target
+Windows toolchain supports it; report an unavailable race lane explicitly.
 
-SharedRust explicitly runs `lithe-agent-host`, `lithe-git-host`, and `lithe-core`, keeping the
-native Git process/AskPass tests in `git-host-rust.json` and Core tests in
-`shared-rust.json`. Testing a Cargo package does not run its dependencies' own
-tests. macOS's `verify-rust-core.sh` runs the same native adapter timing lane.
+UI changes also require actual headless screenshots attached to the PR under
+`develop-lithe` section 五. Native windows, ConPTY, installation and updates need
+their Windows workflow checks in addition to headless output.
 
-In macOS's Rust-only lane, Agent Host uses the Rust runner's default 20-minute
-suite budget, including compilation. Run 39939156503 exhausted the old two-minute
-override while still compiling Agent Host and its ACP/MCP dependencies; no test
-had started. Git Host keeps its smaller two-minute suite allowance. Agent Host's
-individual cases retain the default 15-second watchdog, and the CI job keeps its
-30-minute limit. A warm-cache pass does not verify this path: use an empty Cargo
-target directory and inspect both compilation time and per-case report budgets.
+## Run Rust tests where the implementation lives
 
-Every Bun and Rust lane writes JUnit XML plus a self-contained HTML dashboard
-below `.artifacts/test-stability/`. The dashboard groups Rust cases by crate
-module and Bun cases by their JUnit class or suite.
+Shared rules and their tests belong to the external Core checkout linked by the
+desktop wrapper. Follow that checkout's current `AGENTS.md`, crate layout and
+bounded timing entries. Do not re-create `rust/` in this host repository or copy
+Core/plugin tests back into the desktop host.
 
-History-rewrite integration tests create and rewrite real repositories with many
-Git subprocesses, sometimes rebuilding several repositories in one case. The
-Fetch configuration integration case also gets a 30-second process budget: it
-creates a real remote and exercises multiple configuration and dry-run Fetch
-scenarios, taking 12.5 seconds on Lithe-dev. Its individual Core requests keep
-their own five-second deadlines.
-The
-SharedRust lane assigns the `tests::git_history_rewrite::` module and the older
-`tests::git::git_write_squashes_`, `git_write_deletes_a_local_commit_`, and
-`git_write_edits_a_local_commit_message_` scenarios a 30-second process budget.
-The specific
-`tests::git_history_rewrite::native_rebase_skip_omits_conflicted_message_from_later_squash`
-case gets 45 seconds in both SharedRust and real-JDT: it creates six commits,
-reorders them into a conflict, skips the conflict and checks the final squash.
-Windows run 38698271030 hit its 30-second process deadline without an assertion
-failure; a clean rerun completed the same case in 9.2 seconds. The enclosing
-suite deadline and Core's nested 20-second request deadline remain in force.
-The `tests::git_patch_exchange::patch_metadata_can_list_an_oversized_export_before_selecting_a_small_subset`
-case also gets 30 seconds because it writes and inspects a real file larger
-than the 32 MiB patch limit; Windows CI terminated it at 16.1 seconds under
-the default 15-second limit. The `tests::git_patch_exchange::` cases for hidden
-destination edits, stale previews, rename/delete/file-mode roundtrips, and
-index/binary snapshot roundtrips each get 30 seconds: their real-Git setup and
-multiple preview/apply operations measured 19 to 24 seconds on Windows and
-reached the default 15-second watchdog again without a concurrent build.
-`patch_exchange_reverse_roundtrip_preserves_both_versions_and_untracked_bytes`
-gets 60 seconds after measuring 52.7 seconds across four preview/apply cycles.
-The retained-path Shelf roundtrips (`shelf_roundtrip_preserves_staged_deletions_with_retained_paths`
-and `shelf_roundtrip_preserves_staged_rename_with_recreated_source`) use the same
-60-second allowance for four preview/apply cycles; the deletion and rename
-cases measured 51.8 and 54.9 seconds on Windows. `patch_exchange_distinguishes_sources_and_commit_direction`
-gets 30 seconds after its real-Git source exports passed assertions but took
-15.1 seconds under the default 15-second process budget.
-`shelf_clean_and_retry_restore_preserve_staged_working_and_untracked` has a
-60-second SharedRust allowance: GitHub run 41846985240 hit the 15-second
-watchdog twice, while an isolated Windows cloud run completed all assertions in
-17.025 seconds. It captures and cleans staged and working layers, then restores
-and retries both; each Core request retains its own five-second deadline and
-the suite deadline is unchanged.
-Each patch request still has its own 15-second deadline, and the enclosing
-suite deadline remains unchanged. Both SharedRust and the real-JDT lane use
-these narrowly scoped budgets. Core rebase requests use a nested 20-second
-deadline. The `tests::git_workspace_commit::` module gets 30 seconds because its
-integration cases create multiple repositories/remotes and run real Git pushes.
-Windows run 39947608155 reached the default 15-second deadline in
-`git_workspace_commit_push_confirms_each_repository_separately` at 15.16 seconds
-without an assertion failure; this replaces the previous single-case allowance
-for submodule publication. That case additionally gets 60 seconds in both
-SharedRust and real-JDT. It initializes two working repositories and two bare
-remotes, prepares three independent confirmation states, then commits and pushes
-both repositories. A local Windows profile completed all assertions in 49.9
-seconds across 287 Git processes, with every Git process exiting and no
-individual Git operation taking more than 0.6 seconds internally, so the
-module's 30-second allowance is not enough for it. Each Git request retains its
-native deadline and process-tree cleanup, and the suite deadline remains
-unchanged. Other
-multi-repository coverage includes
-`tests::git::git_write_updates_a_noncurrent_branch_without_switching_head`,
-which also gets 30 seconds in both SharedRust and real-JDT lanes: it builds a
-bare remote and two working repositories, pushes and fetches commits, then
-checks branch updates with an attached and detached HEAD. A Windows real-JDT
-run reached the 15-second process deadline during this case, while the same
-revision passed it in 2.4 seconds in SharedRust. The `tests::git_remote_checkout::`
-module also gets 30 seconds in both lanes: each case clones a real remote,
-fetches through Core, and runs about 30 Git subprocesses for setup and
-snapshots. Its cases usually finish in 5 to 7 seconds on Windows, but one
-real-JDT run reached the 15-second process deadline in
-`remote_checkout_force_updates_the_current_branch` without an assertion
-failure. This scoped allowance covers
-native process and filesystem variability without changing assertions; other
-cases retain the normal 15-second budget. The Rust runner's repeatable
-`--test-budget prefix=milliseconds` option uses the most specific matching
-prefix, records each case's effective budget in JSON, uses that budget for
-HTML/JUnit classification, and remains capped by the shared suite deadline.
-The `watch_context_resolves_a_submodule_git_directory_outside_its_workspace`
-integration case also gets 30 seconds in SharedRust: it initializes and commits
-in two real repositories, clones one as a submodule, and resolves its external
-Git directory. Windows run 39933498873 terminated it at 16.1 seconds under the
-15-second watchdog; the resulting clean rebuild/retry then exhausted the CI
-step. Other cases and suite/step deadlines retain their existing budgets.
-Use scoped budgets only for measured
-integration costs, never to bypass an unbounded wait or an assertion failure.
+- Prefer channels, barriers and injected clocks over `thread::sleep`; coordination
+  receives need `recv_timeout` or an equivalent bounded operation.
+- Join a worker only after a bounded signal proves it is terminating. Teardown
+  must release gates and reclaim tasks and child process trees on failure too.
+- A child requires a watchdog and process-tree termination; reading to EOF or
+  calling `wait` alone is not a timeout strategy.
+- Avoid shared environment mutation. If unavoidable, serialize it and restore
+  the previous value during teardown.
+- Choose narrow budgets from measurements of the current test and environment,
+  retaining the enclosing suite deadline and in-test deadlines. Never increase
+  a budget to conceal a hang or retry a failed assertion as cache recovery.
 
-The linked-worktree `watch_context_distinguishes_linked_worktree_git_and_common_directories`
-case gets 30 seconds in SharedRust and real-JDT after Windows run 40442602987
-hit the 15-second watchdog at 15.419 seconds without an assertion failure.
-Fixture setup now writes identity/signing configuration locally instead of
-starting two extra Git processes, bounds every Git child to 10 seconds through
-Git Host's process-tree cleanup, and bounds the Core request to 5 seconds.
-On the Windows ARM64 guest the original case took 1.799 seconds and the fixed
-case 1.362 seconds; that faster guest result does not establish the hosted
-runner's worst-case latency. Other cases and suite deadlines remain unchanged.
+## Keep retired test scopes out of current instructions
 
-`git_paths_roundtrip_` imports the production TypeScript path normalizer in
-real Node subprocesses between native Git/Core requests. Windows run 39933419913
-cancelled Node at the fixture's 10-second subprocess deadline in the long-path
-case; no path-result mismatch was reported. Only Node's Windows allowance is
-20 seconds; Git setup stays at 10 seconds and Core requests at 5 seconds. Both
-SharedRust and real-JDT give these path roundtrip cases a 60-second case budget
-for the repeated subprocess exchanges. Other cases keep their default budget,
-the suite deadline is unchanged, and cancellation still reclaims the process
-tree through the native Git Host. Do not replace the frontend import with a
-Rust copy of its normalization logic or retry a failed assertion.
-The prefix matches the raw Rust test name, without the Cargo target printed
-before it in the console. Check each report's `maxMs` to confirm the allowance
-actually applies; a successful fast run alone does not prove prefix matching.
+The retained PowerShell harness still has legacy `Frontend`, `WindowsRust`,
+`SharedRust*` and `All` branches referencing deleted `windows/tauri/` or host
+`rust/` directories. Their old Bun/Rust budgets and cloud reports do not verify
+the current Viva client. Executor cleanup is tracked in
+[#1940](https://github.com/1lck/Lithe-IDEA/issues/1940). Do not select these branches, infer a passing lane from
+missing files, or change an old timeout solely to make a new run pass. Use
+`DesktopGo` and the actual external Core test entry points.
 
-`tests::git::git_write_executes_checkout_preflight_clone_and_validation`
-gets 30 seconds in both Windows lanes. Run 39935852248 reported its assertions
-passing in 15.22 seconds, but the complete test process took 18.529 seconds and
-exceeded the default 15-second budget. It creates divergent branches, checks
-clean/dirty/untracked checkout preflights, performs smart and forced checkouts,
-and clones a real local repository. The cache retry then exhausted the existing
-suite deadline; that secondary timeout does not justify extending the whole
-suite. Keep every checkout/clone assertion and the existing request deadlines.
-
-`real_jdtls_lists_entrypoints_in_a_plain_java_folder` gets 240 seconds in the
-real-JDT lane. Like the Java 25 case, it cold-starts a real JDT LS, waits up to
-90 seconds for readiness, then up to 120 seconds for the plain folder's
-invisible project to import and list its entry point. Windows run 41817286665
-terminated it at 15.144 seconds under the default watchdog without an
-assertion failure, while the same revision passed it in 6.0 seconds on macOS
-arm64; the Java 25 case took 39.4 seconds in that run. The budget covers both
-in-test deadlines so a silent server fails with the test's own diagnostic
-rather than the watchdog. Other real-JDT cases and the suite deadline keep
-their budgets.
-
-## Windows verification
-
-Run the PowerShell harness in a real Windows environment. A macOS boundary
-check does not verify Bun timers, Windows process termination, or native Rust
-test execution. When using the Parallels guest, establish the user toolchain
-paths before invoking the script as required by `debug-windows-on-parallels`.
+At the end of the session, clean up task-owned processes and restore the VM's
+initial lifecycle as required by the VM Skill. An x64 run emulated on ARM64 must
+be identified as such; it is not a native AMD64 performance baseline.
