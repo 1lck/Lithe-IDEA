@@ -10997,6 +10997,7 @@
     "desktop.terminal.runSelection": "Run Selection in Terminal",
     "desktop.build.debugTarget": "Debug",
     "desktop.build.filter": "Filter build systems, tasks and targets",
+    "desktop.build.dependenciesHelp": "The build tool reads the dependency tree only when this is first opened, which can take a while as the tool runs. The tree is then kept until the build systems are detected again or Reload is chosen on the build system or on Dependencies.",
     "desktop.build.noMatches": "No matching build items",
     "desktop.build.noDebugAdapter": "The build provider's own plugin declares no debug adapter that can start a prepared program.",
     "desktop.debug.consoleEmpty": "The debug session's output appears here.",

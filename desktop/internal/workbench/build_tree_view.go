@@ -325,7 +325,8 @@ var buildSectionIcons = map[string]*gfx.Icon{
 
 // buildSectionRow declares the heading of one section of a group: its arrow, icon, name and
 // how many rows it holds, once that is known. A click opens or closes it, unless a filter
-// keeps it open. The Dependencies and Discovered Tests headings have the menu of their rows.
+// keeps it open. The Dependencies and Discovered Tests headings have the menu of their rows,
+// and the Dependencies heading the ⓘ that says when its tree is read.
 func (a *App) buildSectionRow(row ui.ListRow, p *project, instance *buildInstance, spec buildRow) {
 	c := row.C
 	element := a.buildTreeRowElement(row, spec)
@@ -336,6 +337,13 @@ func (a *App) buildSectionRow(row ui.ListRow, p *project, instance *buildInstanc
 	ui.Text(c, spec.label).FontSize(treeFontSize).Weight(gfx.WeightMedium).Color(treelist.Text(a.colors.Dark)).Ellipsis().Shrink(1).MinWidth(0)
 	if spec.count >= 0 {
 		ui.Text(c, strconv.Itoa(spec.count)).FontSize(treeFontSize - 1).Color(a.colors.Subtle).Shrink(0)
+	}
+	if spec.section == buildSectionDependencies {
+		// The heading shows no count until the tree is read, and opening it runs the build
+		// tool, so the ⓘ says when that happens and how to read it again.
+		language := a.language()
+		ui.Button(c.Part("help"), i18n.Shared(language, "native.moreInformation")).Icon(icons.Info).IconOnly().Ghost().Size(18, 18).
+			Tooltip(i18n.Shared(language, "desktop.build.dependenciesHelp")).TooltipOn(ui.TooltipRight)
 	}
 	ui.Spacer(c)
 	if !spec.fixed && (toggled || element.Clicked()) {
@@ -398,33 +406,65 @@ func (a *App) buildNoteRow(row ui.ListRow, p *project, instance *buildInstance, 
 	}
 }
 
-// buildItemIcons are the icons of the rows a user chooses or runs.
+// buildItemIcons are the icons of the rows a user chooses or runs that have nothing to run.
 var buildItemIcons = map[buildRowKind]*gfx.Icon{
 	buildRowProject: &icons.Folder,
 	buildRowTarget:  &icons.CircleDot,
 	buildRowTask:    &icons.SquareTerminal,
 }
 
-// buildItemRow declares a project, target or task: its icon, name and detail. A click chooses
-// it, in its build system, which it selects first, and a click on the row already chosen lets
-// it go; a double click runs a task or a target's first run, and opens a project's build file.
-// The chosen target or task has the button that runs it, and a target whose first run debugs
-// the button that debugs it.
+// buildDetailShrink is how much faster than its name a row's detail gives way when the row is
+// too narrow for both: the path goes first, and the name gives way only once the path is gone.
+const buildDetailShrink = 1000
+
+// buildRunMark declares the green triangle that leads a row that runs, in the place of its
+// kind's icon, as IntelliJ's Make window marks every target it runs, and reports a click on
+// it. label names what the click starts, for its hover hint and for assistive technology.
+// While a build operation runs or the model loads, the triangle is dimmed and takes no click,
+// and a click there falls to the row.
+func (a *App) buildRunMark(c ui.C, label string, disabled bool) bool {
+	k := c.Part("run")
+	// As wide as the icons of the rows beside it, so the names line up.
+	slot := ui.Row(k).Size(14, treelist.Icon).Shrink(0).Center()
+	if disabled {
+		slot.Children(func() {
+			ui.Icon(k, icons.Play).Size(14, 14).Color(a.colors.Subtle).Opacity(0.5)
+		})
+		return false
+	}
+	slot = slot.HitWith(ui.ID(k), label, gfx.HitOptions{Role: gfx.RoleButton, Cursor: gfx.PointerCursorHand, SkipFocus: true}).Tooltip(label)
+	slot.Children(func() {
+		ui.Icon(k, icons.Play).Size(14, 14).Color(a.colors.Success)
+	})
+	return slot.Clicked()
+}
+
+// buildItemTip is the hover hint of a project, target or task row: its whole name and, under
+// it, its whole detail, which a narrow window cuts short; or the row's own tooltip, the full
+// name of a target that shows only its path (buildTargetLabel).
+func buildItemTip(spec buildRow) string {
+	if spec.tooltip != "" {
+		return spec.tooltip
+	}
+	if spec.detail == "" || spec.detail == spec.label {
+		return spec.label
+	}
+	return spec.label + "\n" + spec.detail
+}
+
+// buildItemRow declares a project, target or task: its icon, name and detail. A task, and a
+// target that has a run, lead with the green triangle that runs it; the others lead with the
+// icon of their kind. A click chooses the row, in its build system, which it selects first,
+// and a click on the row already chosen lets it go; a double click runs a task or a target's
+// first run, and opens a project's build file. The chosen target whose first run debugs has
+// the button that debugs it. When the row is too narrow, the detail gives way before the
+// name, and the hover hint shows both whole.
 func (a *App) buildItemRow(row ui.ListRow, p *project, instance *buildInstance, spec buildRow) {
 	c, b := row.C, &p.build
 	element := a.buildTreeRowElement(row, spec)
-	if spec.tooltip != "" {
-		element = element.Tooltip(spec.tooltip)
+	if tip := buildItemTip(spec); tip != "" {
+		element = element.Tooltip(tip)
 	}
-	ui.Row(c.Part("arrow")).Size(treelist.Disclosure, treelist.Icon).Shrink(0)
-	if icon := buildItemIcons[spec.kind]; icon != nil {
-		ui.Icon(c, *icon).Size(14, 14).Shrink(0).Color(a.colors.Subtle)
-	}
-	ui.Text(c, spec.label).FontSize(treeFontSize).Color(treelist.Text(a.colors.Dark)).Ellipsis().Shrink(0).MaxWidth(320)
-	if spec.detail != "" {
-		ui.Text(c, spec.detail).FontSize(treeFontSize - 1).Color(a.colors.Subtle).Ellipsis().Shrink(1).MinWidth(0)
-	}
-	ui.Spacer(c)
 	busy := b.operation != nil || instance.modelLoading
 	index := spec.instance
 	// choose makes the row the window's choice; run, when set, then starts what it runs.
@@ -444,7 +484,8 @@ func (a *App) buildItemRow(row ui.ListRow, p *project, instance *buildInstance, 
 	runLabel := ""
 	switch spec.kind {
 	case buildRowTask:
-		runLabel = i18n.Shared(a.language(), "desktop.runConfig.run")
+		// Every task row has its triangle, so each names its own task.
+		runLabel = a.text.Build.RunTarget(spec.label)
 		run = func() { a.runSelectedBuildTask(p) }
 	case buildRowTarget:
 		if action, ok := buildPrimaryAction(instance, spec.target); ok {
@@ -456,14 +497,24 @@ func (a *App) buildItemRow(row ui.ListRow, p *project, instance *buildInstance, 
 			}
 		}
 	}
-	if spec.selected && run != nil && a.gitIconButton(c.Part("run"), runLabel, icons.Play, false, busy) {
-		c.After(func() {
-			a.performed("build.item.run", surfaceButton)
-			choose()
-			run()
-			a.showBuildConsole(p)
-		})
+	ui.Row(c.Part("arrow")).Size(treelist.Disclosure, treelist.Icon).Shrink(0)
+	if run != nil {
+		if a.buildRunMark(c, runLabel, busy) {
+			c.After(func() {
+				a.performed("build.item.run", surfaceButton)
+				choose()
+				run()
+				a.showBuildConsole(p)
+			})
+		}
+	} else if icon := buildItemIcons[spec.kind]; icon != nil {
+		ui.Icon(c, *icon).Size(14, 14).Shrink(0).Color(a.colors.Subtle)
 	}
+	ui.Text(c, spec.label).FontSize(treeFontSize).Color(treelist.Text(a.colors.Dark)).Ellipsis().Shrink(1).MinWidth(0)
+	if spec.detail != "" {
+		ui.Text(c, spec.detail).FontSize(treeFontSize - 1).Color(a.colors.Subtle).Ellipsis().Shrink(buildDetailShrink).MinWidth(0)
+	}
+	ui.Spacer(c)
 	if spec.selected && debug != nil && a.gitIconButton(c.Part("debug"), i18n.Shared(a.language(), "desktop.build.debugTarget"), icons.Bug, false, busy || p.debug.preparing) {
 		c.After(func() {
 			a.performed("build.target.debug", surfaceButton)

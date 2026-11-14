@@ -8,6 +8,7 @@
 | --- | --- | --- |
 | 右侧构建窗口（运行配置列表和聚合构建树）与底部运行窗口（只显示构建控制台） | [截图](build-and-run-dark.png) | [截图](build-and-run-light.png) |
 | 构建窗口按名称筛选 | [截图](build-filter-dark.png) | [截图](build-filter-light.png) |
+| Go 模块的目标以完整导入路径命名，行上只显示所在目录：可运行的目标和任务行首是绿色运行按钮，依赖标题旁有 ⓘ | [截图](build-go-targets-dark.png) | [截图](build-go-targets-light.png) |
 
 复验：设置 `LITHE_VISUAL_OUTPUT_DIR`，通过 `scripts/desktop/desktop-go.sh test
 -tags vivahead,lithevisual ./internal/workbench -run '^TestVisualBuildPanels'

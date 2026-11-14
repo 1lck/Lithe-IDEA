@@ -21,6 +21,8 @@ func TestRepeatedNoticesAreOneEntryWithACount(t *testing.T) {
 	h.app.notify("Index ready")
 	clock = clock.Add(time.Minute)
 	h.app.notify("Build failed")
+	// The notices came outside a frame: ask for the repaint the window would make.
+	h.app.invalidator.Invalidate()
 	h.settle()
 
 	list := h.app.notifications.list
@@ -46,6 +48,7 @@ func TestNotificationBellOpensReadsAndClearsTheHistory(t *testing.T) {
 	h.open(t.TempDir())
 	h.app.notify("Plugin updated")
 	h.app.notify("Index ready")
+	h.app.invalidator.Invalidate()
 	h.settle()
 
 	h.clickNamed("Notifications, 2 unread")
@@ -88,6 +91,7 @@ func TestNoticesKeepTheirKindAndShowAtMostThreeToasts(t *testing.T) {
 	h.app.notifySuccess("Sync")
 	h.app.notifyInfo("Index ready")
 	h.app.notify("Disk almost full")
+	h.app.invalidator.Invalidate()
 	h.settle()
 
 	list := h.app.notifications.list

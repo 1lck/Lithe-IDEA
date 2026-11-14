@@ -425,6 +425,71 @@ func (k *captureBuildTask) PlanBuildTask(_ context.Context, _ json.RawMessage, _
 	return core.BuildPlan{}, errors.New("captured")
 }
 
+// A task, and a target that has a run, lead with the green triangle that runs them whether
+// they are chosen or not, as IntelliJ's Make window marks its targets: one click on it chooses
+// the row and runs it. A target with nothing to run keeps the icon of its kind, a build
+// operation in flight leaves no triangle to click, a row's hover hint holds its whole name and
+// path, and the Dependencies heading has the ⓘ that says when its tree is read.
+func TestBuildTreeRunMarksRunTheirRowsAtOnce(t *testing.T) {
+	instance := runConfigInstance("app")
+	instance.System.Tasks = []pluginservice.BuildTaskDeclaration{{ID: "vet", DisplayName: "Vet verification", Scopes: []string{"project"}, Source: "provider"}}
+	instance.System.Dependencies = &pluginservice.BuildDependenciesDeclaration{Scopes: []string{"project"}}
+	instance.Model.Targets[0].Path = "server/cmd/main"
+	kernel := &captureBuildTask{Kernel: &testKernel{Client: core.NewClient()}, requests: make(chan core.BuildPlanRequest, 1)}
+	h, p := openBuildTree(t, kernel, []buildInstance{instance})
+	h.app.reduceChrome(core.SetChromeOpen(itemBuild, true))
+	if err := h.driver.Resize(1280, 1400); err != nil {
+		t.Fatal(err)
+	}
+	h.settle()
+	h.settle()
+	text, language := h.app.text.Build, h.app.language()
+	controls := func(label string) []gfx.Hit {
+		var found []gfx.Hit
+		for _, hit := range h.driver.Snapshot().Hits {
+			if hit.Label == label && !hit.IsLabel {
+				found = append(found, hit)
+			}
+		}
+		return found
+	}
+	if marks := controls(text.RunTarget("Run")); len(marks) != 1 {
+		t.Fatalf("%d target triangles, want only the one of the target that has a run", len(marks))
+	}
+	task := controls(text.RunTarget("Vet verification"))
+	if len(task) != 1 || task[0].Hint != text.RunTarget("Vet verification") {
+		t.Fatalf("the task's triangle is %+v", task)
+	}
+	if rows := controls("Main"); len(rows) != 1 || rows[0].Hint != "Main\nserver/cmd/main" {
+		t.Fatalf("the target row's hover hint is %+v", rows)
+	}
+	help := controls(i18n.Shared(language, "native.moreInformation"))
+	if len(help) != 1 || help[0].Hint != i18n.Shared(language, "desktop.build.dependenciesHelp") {
+		t.Fatalf("the Dependencies heading's ⓘ is %+v", help)
+	}
+
+	// One click on the triangle of a task nothing chose chooses it and runs it.
+	if p.build.taskID != "" || p.build.targetID != "" {
+		t.Fatalf("task %q and target %q chosen before the click", p.build.taskID, p.build.targetID)
+	}
+	h.click(center(task[0].Bounds))
+	awaitStateWithin(t, h, 10*time.Second, "the task plan request", func() bool { return len(kernel.requests) == 1 })
+	if request := <-kernel.requests; request.Task != "vet" || p.build.taskID != "vet" {
+		t.Fatalf("the triangle asked for %+v with task %q chosen", request, p.build.taskID)
+	}
+	awaitStateWithin(t, h, 10*time.Second, "the refused plan", func() bool { return p.build.operation == nil })
+
+	// While a build operation runs, no triangle takes a click.
+	var operation *buildOperation
+	h.app.post(func(a *App) { operation = a.beginBuildOperation(p, "build", "vet", "") })
+	h.settle()
+	if len(controls(text.RunTarget("Vet verification"))) != 0 || len(controls(text.RunTarget("Run"))) != 0 {
+		t.Fatal("a triangle took clicks while a build operation ran")
+	}
+	h.app.post(func(a *App) { a.finishBuildTask(p, operation, json.RawMessage(`{"exitCode":0}`)) })
+	h.settle()
+}
+
 // A task row of the tree carries no project, so the run fits the selection to the task: a
 // project task runs on the build system's only project instead of the workspace, a model task
 // on its own project, and a project task with no project to infer asks for one.

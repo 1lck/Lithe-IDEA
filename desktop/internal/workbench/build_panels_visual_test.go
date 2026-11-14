@@ -59,9 +59,39 @@ func visualBuildSystems() []buildInstance {
 	}
 }
 
+// visualGoModule is one Go module whose targets are named by their whole import path, under
+// the folder each is in, which their rows show alone. Two of its packages are commands, which
+// run; the others are packages with tests.
+func visualGoModule() buildInstance {
+	const module = "github.com/example/shop/desktop"
+	pkg := func(dir, tag string) core.BuildTarget {
+		return core.BuildTarget{ID: dir, ProjectID: "desktop", Name: module + "/" + dir, Path: dir, Tags: []string{tag}}
+	}
+	return buildInstance{
+		BuildInstance: core.BuildInstance{ID: "go@desktop", PluginID: "dev.example.go", BuildSystemID: "go", Root: "desktop"},
+		PluginID:      "dev.example.go",
+		System: pluginservice.BuildSystemDeclaration{
+			DisplayName:  "Go Modules",
+			Runs:         []pluginservice.BuildRunDeclaration{{ID: "main", Name: "Run", Tags: []string{"application"}}},
+			Tasks:        []pluginservice.BuildTaskDeclaration{{ID: "build", DisplayName: "Build", Source: "provider"}, {ID: "vet", DisplayName: "Vet", Source: "provider"}},
+			Dependencies: &pluginservice.BuildDependenciesDeclaration{Scopes: []string{"project"}},
+		},
+		Model: core.BuildModel{
+			Projects: []core.BuildProject{{ID: "desktop", Path: ".", Name: module}},
+			Targets: []core.BuildTarget{
+				pkg("cmd/shop", "application"), pkg("cmd/shop-perf", "application"),
+				pkg("internal/checkout", "test"), pkg("internal/catalog", "test"), pkg("internal/catalog/search", "test"),
+				pkg("internal/payments", "test"), pkg("internal/storage", "test"), pkg("internal/i18n", "test"),
+			},
+		},
+		modelLoaded: true,
+	}
+}
+
 // TestVisualBuildPanels captures the Build window on the right, with the run configurations
 // above the aggregated build tree, beside the Run window at the bottom showing only the build
-// console, and the Build window filtered.
+// console; the Build window filtered; and a Go module, whose runnable rows lead with the green
+// triangle.
 func TestVisualBuildPanels(t *testing.T) {
 	out := os.Getenv("LITHE_VISUAL_OUTPUT_DIR")
 	if out == "" {
@@ -71,7 +101,7 @@ func TestVisualBuildPanels(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, look := range []struct{ theme, language string }{{"dark", "zh-Hans"}, {"light", "en"}} {
-		for _, scene := range []string{"build-and-run", "build-filter"} {
+		for _, scene := range []string{"build-and-run", "build-filter", "build-go-targets"} {
 			t.Run(scene+"-"+look.theme, func(t *testing.T) {
 				prefs := store.At(t.TempDir())
 				if err := prefs.Save(settingsFile, settings{Theme: themeChoice(look.theme), Language: look.language, DisableAutoSave: true}); err != nil {
@@ -130,6 +160,12 @@ func TestVisualBuildPanels(t *testing.T) {
 					})
 				case "build-filter":
 					h.app.post(func(*App) { p.panels.buildFilter = "app" })
+				case "build-go-targets":
+					h.app.post(func(a *App) {
+						p.build.instances, p.build.selected = []buildInstance{visualGoModule()}, 0
+						p.build.projectID, p.build.targetID, p.build.taskID = "desktop", "internal/catalog", ""
+						a.refreshRunConfigurations(p)
+					})
 				}
 				h.settleChain()
 				h.app.invalidator.Invalidate()
