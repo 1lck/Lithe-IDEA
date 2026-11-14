@@ -33,7 +33,7 @@ PR 里修，而不是问题轻重不同。
 可复核的写法：
 
 > **[P2 / 本次引入] 后退失败时不回滚历史快照，后退会停在失效位置**
-> `macos/Sources/Lithe/Application/Features/NavigationHistoryFeatureModel.swift:71`
+> `desktop/internal/workbench/documents.go:71`
 > - 实际影响：目标文件已被外部删除时，一次失败的后退仍消耗一条历史记录
 > - 触发条件：`navigateBack` 找不到目标，`onFailure` 未恢复 `historySnapshot`
 > - 复现步骤：打开 A、B → 后退到 A → 在 Finder 删除 A → 再后退一次
@@ -41,7 +41,7 @@ PR 里修，而不是问题轻重不同。
 
 该报却没报的写法（归属为“存量未建单”）：
 
-> 发现两端各写一份历史快照逻辑，但 PR 里写“后续再沉入 Core”——没有 Issue 编号，
+> 发现桌面端与 Core 各写一份历史快照逻辑，但 PR 里写“后续再沉入 Core”——没有 Issue 编号，
 > 按存量未建单报告，合并前补齐。
 
 ## 存量条目的去向

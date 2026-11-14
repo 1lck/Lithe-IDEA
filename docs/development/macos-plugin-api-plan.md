@@ -158,16 +158,16 @@ Windows 不在本轮，平台矩阵的 partial/pending 保持真实。
 | 内置 Git | Git 在 `LitheGitModule`，按 2026-10-22 评审不接入统一 VCS 层；IDE broker 的 13 个工具没有 Git 工具 [S15/S21] | API-31 只覆盖插件提供的 VCS，插件没有读取内置 Git 状态的公共入口 |
 | Agent 侧 | Skills、Hooks、MCP 是用户管理的 Codex/Claude 原生配置，宿主只读取并编辑用户选定的来源 [S22] | 插件没有贡献来源；不能让插件绕过用户确认写入这些配置 |
 
-Mac 当前声明的能力版本为：`backend:1`、`buildModelInputs:1`、`buildProviders:1–6`、`buildSystems:1/2`、`debugAdapters:1/2`、`executionProviders:1`、`executableResolution:1`、`languageServers:1/2`、`languages:1`、`packageTrust:1`、`projectGenerators:1/2`、`serverProcess:1`、`settings:1/2`、`ui:1/2/3`、`vcsProviders:1`。Core 能校验某版本不等于 Mac 会执行它：Core 的 `serverProcess` 声明 1/2，而 Mac 只声明 1，不能因此给 Mac 标记支持 `serverProcess:2`。以上以 `PluginTypes.swift` 的 `hostCapabilities` 为准，与 Core 的 `SUPPORTED_CAPABILITIES` 逐项比对过，唯一差异是 `serverProcess`。
+Mac 当前声明的能力版本为：`backend:1`、`buildModelInputs:1`、`buildProviders:1–6`、`buildSystems:1/2`、`debugAdapters:1/2`、`executionProviders:1`、`executableResolution:1`、`languageServers:1/2`、`languages:1`、`packageTrust:1`、`projectGenerators:1/2`、`serverProcess:1`、`settings:1/2`、`ui:1/2/3`、`vcsProviders:1`。Core 能校验某版本不等于 Mac 会执行它：Core 的 `serverProcess` 声明 1/2，而 Mac 只声明 1，不能因此给 Mac 标记支持 `serverProcess:2`。以上以盘点时旧 macOS 客户端的 `hostCapabilities` 为准，与 Core 的 `SUPPORTED_CAPABILITIES` 逐项比对过，唯一差异是 `serverProcess`。该客户端已删除，当前桌面端的能力声明需重新与 Core 逐项核对，本表不代表桌面端现状。
 
-当前 Web bridge 的方法白名单为 `build.instances/refresh/runTask/runTests/cancel/dependencies/setOptions`、`workspace.openFile`、`ui.getState/setState`、`functions.list/invoke/cancel`、`dialog.openFile/saveFile`。后两个选择文件方法已在 Mac bridge v2 实现；盘点不能只依据较早 README 的列表。网页调用权限也不自动转授给后端进程。
+当前 Web bridge 的方法白名单为 `build.instances/refresh/runTask/runTests/cancel/dependencies/setOptions`、`workspace.openFile`、`ui.getState/setState`、`functions.list/invoke/cancel`、`dialog.openFile/saveFile`。后两个选择文件方法已在旧 macOS 客户端的 bridge v2 中实现；盘点不能只依据较早 README 的列表。网页调用权限也不自动转授给后端进程。
 
 ### 2.2 参考 OpenIDEA 和 VS Code 的哪些部分
 
 | 参考对象 | 已核对的做法 | Lithe 应借鉴/不照搬的部分 |
 | --- | --- | --- |
 | OpenIDEA [WIT 接口](https://github.com/l0ng-ai/openidea/blob/8ff8f229407df73e722d0a933f8e0aebd48f516c/wit/plugin.wit) | v0.1 定义日志、命令注册、通知、工程根/当前文件、读文件、插入文本/替换选区、语言/主题注册，以及激活/停用/命令回调 | 借鉴“小而明确的宿主能力面”；不把这份短接口当完整 IDE SDK，也不直接复制全局隐式上下文或缺少版本参数的编辑设计 |
-| OpenIDEA [运行时](https://github.com/l0ng-ai/openidea/blob/8ff8f229407df73e722d0a933f8e0aebd48f516c/crates/ide-plugin/src/runtime.rs) | 使用 Wasmtime Component、WASI、内存限制、fuel 与 epoch 截止时间 | WASM 由运行时和宿主适配提供，不是 Tauri 自动提供；Lithe 的 Rust/Mac 宿主也能接，但仍需同样的 API、权限、分发和清理工作 |
+| OpenIDEA [运行时](https://github.com/l0ng-ai/openidea/blob/8ff8f229407df73e722d0a933f8e0aebd48f516c/crates/ide-plugin/src/runtime.rs) | 使用 Wasmtime Component、WASI、内存限制、fuel 与 epoch 截止时间 | WASM 由运行时和宿主适配提供，不是 Tauri 自动提供；Lithe 宿主也能接，但仍需同样的 API、权限、分发和清理工作 |
 | VS Code [能力概览](https://code.visualstudio.com/api/extension-capabilities/overview)、[贡献点](https://code.visualstudio.com/api/references/contribution-points)、[API](https://code.visualstudio.com/api/references/vscode-api) | 声明贡献、可调用 API、事件与 Provider 分工；使用稳定资源和注册/释放模型 | 借鉴分层和文档组织，不承诺兼容 `vscode` 包、VSIX 或照搬全部接口 |
 | VS Code [Extension Host](https://code.visualstudio.com/api/advanced-topics/extension-host)、[运行时安全](https://code.visualstudio.com/docs/configure/extensions/extension-runtime-security) | 桌面扩展可在 Node.js 扩展宿主执行，Web 扩展使用受限浏览器运行环境；进程隔离不等于 OS 沙盒 | 继续让第三方执行逻辑位于外部宿主；权限代理只能约束代理通道，不能承诺限制任意原生后端的一切系统调用 |
 | VS Code [Webview](https://code.visualstudio.com/api/extension-guides/webview)、[Custom Editor](https://code.visualstudio.com/api/extension-guides/custom-editors)、[WASM](https://code.visualstudio.com/blogs/2024/05/08/wasm) | 网页界面、文档编辑器和可移植运行时是不同扩展层 | 原生 Tree/Form 优先；复杂网页可选；WASM 不能代替编辑器保存/撤销、权限和生命周期协议 |
@@ -363,7 +363,7 @@ Mac 当前声明的能力版本为：`backend:1`、`buildModelInputs:1`、`build
 | M4 | 在 #1517 已合并的协议上，逐个完成 Build/Run/Test/Debug/VCS/语言/生成器文档与缺口 | 不重写已合并的 Provider 协议；真实项目完成 save → 同步模型 → build → run/test/debug → cancel/cleanup；远程工作区只承诺 #1515 已适配范围，其余按 API-40 明确拒绝 |
 | 后续 | 主题/自定义编辑器/Services/终端/跨插件/远程剩余适配/AI/Agent 侧贡献/WASM、完整语言包/网络/账号各自立项 | 有实际插件需求、资源预算、许可/分发与风险证据后再进入实施；不是 M1–M3 发布门槛 |
 
-#1517、#1515 已合并，M1–M3 与领域扩展可独立推进；若修改同一协议/入口，以 preview 当前代码为准协调，不能复制一份 Provider manager，也不能绕开 `RemoteWorkspaceRegistry` 的路由。领域迁移另由[Maven/Java 迁移提案](../../.agents/notes/proposed/architecture/2026-10-26-maven-java-domain-plugin-migration.md)跟踪，其特定版本匹配策略不能不加区分地变成整个公共 API 的兼容政策。Java 拆分是 M4 领域接续的一个用例：它用到的通用 API、API-35 第一阶段（Core 中转的插件函数调用）、PR 拆分和宿主语言闸门见[Java 拆分 Note](../../.agents/notes/proposed/architecture/2026-11-04-java-extraction-generic-apis-and-gate.md)，不新增 API 编号。
+#1517、#1515 已合并，M1–M3 与领域扩展可独立推进；若修改同一协议/入口，以 preview 当前代码为准协调，不能复制一份 Provider manager，也不能绕开 `RemoteWorkspaceRegistry` 的路由。Maven/Java 领域迁移已由 #1495 在插件仓库完成（[归档记录](../../.agents/notes/archived/architecture/2026-10-26-maven-java-domain-plugin-migration.md)），其特定版本匹配策略不能不加区分地变成整个公共 API 的兼容政策。Java 拆分是 M4 领域接续的一个用例：它用到的通用 API、API-35 第一阶段（Core 中转的插件函数调用）、PR 拆分和宿主语言闸门见[Java 拆分 Note](../../.agents/notes/proposed/architecture/2026-11-04-java-extraction-generic-apis-and-gate.md)，不新增 API 编号。
 
 ## 7. Mac 验收样例与发布检查
 
@@ -387,29 +387,29 @@ Mac 当前声明的能力版本为：`backend:1`、`buildModelInputs:1`、`build
 
 ## 8. 源码与决策索引
 
-这些入口供后续认领任务时定位 owner，不表示可直接导出内部 Swift 类型。外部比较来源见 2.2；SDK 源码均以第 1 节锁定 commit 为准。
+这些入口供后续认领任务时定位 owner。表中的 macOS 源文件已随旧 Swift 客户端删除，只保留名称作为历史线索，不再是可点击的路径；当前桌面端实现位于 `desktop/`。外部比较来源见 2.2；SDK 源码均以第 1 节锁定 commit 为准。
 
 | 索引 | 所有者与证据 |
 | --- | --- |
-| S1 | [插件契约](https://github.com/Lithe-IDEA/Lithe-core-rust/blob/main/shared/plugins/contract/v1/README.md)、[Core 能力](https://github.com/Lithe-IDEA/Lithe-core-rust/blob/main/rust/crates/plugin-model/src/capabilities.rs)、[清单校验与激活事件](https://github.com/Lithe-IDEA/Lithe-core-rust/tree/main/rust/crates/plugin-manifest/src)、[清单 schema](https://github.com/Lithe-IDEA/Lithe-core-rust/blob/main/shared/plugins/contract/v1/plugin-manifest.schema.json)、[Mac 能力表](../../macos/Sources/LitheModuleAPI/Plugins/PluginTypes.swift) |
-| S2 | [backend 1](https://github.com/Lithe-IDEA/Lithe-core-rust/blob/main/rust/crates/plugin-backend/src/lib.rs)、[函数协议](https://github.com/Lithe-IDEA/Lithe-core-rust/tree/main/rust/crates/plugin-rpc/src)、[Mac 后端会话](../../macos/Sources/Lithe/Platform/MacOS/Plugins/MacPluginBackendSessions.swift)、[宿主凭据服务](../../macos/Sources/Lithe/Application/Features/PluginHostServices.swift) |
-| S3 | [原生 UI 功能](../../macos/Sources/Lithe/Application/Features/PluginNativeUIFeature.swift)、[Core UI 校验](https://github.com/Lithe-IDEA/Lithe-core-rust/blob/main/rust/crates/plugin-native-ui/src/lib.rs)、[已实现原生 UI Note](../../.agents/notes/implemented/feature/2026-10-21-declarative-native-plugin-ui.md) |
-| S4 | [Web bridge](../../macos/Sources/Lithe/Application/Features/PluginWebBridge.swift)、[包内内容](../../macos/Sources/Lithe/Platform/MacOS/Plugins/Web/MacPluginWebContent.swift)、[页面生命周期](../../macos/Sources/Lithe/Application/Features/PluginWebPageLifecycle.swift)、[状态存储](../../macos/Sources/Lithe/Platform/MacOS/Plugins/Web/MacPluginWebStateStore.swift) |
-| S5 | [文档功能](../../macos/Sources/Lithe/Application/Features/DocumentFeatureModel.swift)、[LSP 编辑入口](../../macos/Sources/Lithe/Application/Features/LanguageWorkspaceEditService.swift)、[Monaco model](../../frontend/editor/src/model-source.ts)、[diff review](../../frontend/editor/src/diff-review.ts) |
-| S6 | [文件端口](../../macos/Sources/LitheCoreContracts/Workspace/WorkspaceFileOperations.swift)、[Mac 文件适配](../../macos/Sources/Lithe/Platform/MacOS/FileSystem/MacWorkspaceFileOperations.swift)、[目录变更](../../macos/Sources/Lithe/Core/Ports/DirectoryChangeSource.swift)、[工程功能](../../macos/Sources/LitheWorkspaceModule/Application/WorkspaceFeatureModel.swift) |
-| S7 | [搜索端口](../../macos/Sources/LitheSearchModule/Ports/SearchOperations.swift)、[搜索功能](../../macos/Sources/LitheSearchModule/Application/SearchFeatureModel.swift) |
-| S8 | [命令目录](../../macos/Sources/Lithe/Models/Keymap/LitheCommandCatalog.swift)、[快捷键功能](../../macos/Sources/Lithe/Application/Features/KeyboardShortcutFeatureModel.swift) |
-| S9 | [HTML 浏览器](../../macos/Sources/Lithe/Platform/MacOS/HTMLPreviewBrowser.swift)、[HTML 视图](../../macos/Sources/Lithe/Views/Editor/HTMLPreviewView.swift)、[平台 UI](../../macos/Sources/Lithe/Core/Ports/PlatformUI.swift)、[Mac UI adapter](../../macos/Sources/Lithe/Platform/MacOS/UI/MacPlatformUI.swift) |
-| S10 | [插件设置注册](../../macos/Sources/Lithe/Application/Features/PluginSettingsRegistry.swift)、[源配置决策](../../.agents/notes/implemented/architecture/2026-10-25-settings-native-configuration-editing.md) |
-| S11 | [Build 服务](../../macos/Sources/LitheExecutionModule/Services/BuildSystemService.swift)、[Mac Provider 会话](../../macos/Sources/Lithe/Platform/MacOS/Build/MacBuildProviderSessions.swift)、[Run 服务](../../macos/Sources/LitheExecutionModule/Services/RunService.swift) |
-| S12 | [终端端口](../../macos/Sources/LitheTerminalModule/Ports/TerminalTransport.swift)、[终端功能](../../macos/Sources/LitheTerminalModule/Application/TerminalFeatureModel.swift) |
-| S13 | [语言 Provider 目录](../../macos/Sources/Lithe/Core/Language/PluginLanguageProviderCatalogSource.swift)、[LSP 资源归属](../../.agents/notes/implemented/architecture/2026-09-30-lsp-plugin-build-and-distribution.md)、[诊断功能](../../macos/Sources/Lithe/Application/Features/DiagnosticsFeatureModel.swift) |
-| S14 | [Debug 会话](../../macos/Sources/LitheDebugModule/Runtime/DebugAdapterSessionManager.swift)、[VCS 功能](../../macos/Sources/Lithe/Application/Features/VcsProvidersFeatureModel.swift)、[项目生成服务](../../macos/Sources/Lithe/Services/ProjectGeneration/ProjectGenerationService.swift) |
-| S15 | [独立 IDE API](https://github.com/Lithe-IDEA/Lithe-core-rust/blob/main/rust/contracts/ide-api/v1.md)、[原生模块接口](../../macos/Sources/LitheModuleAPI/Plugins/IDECapabilities.swift)、[授权功能](../../macos/Sources/Lithe/Application/Features/IdeCapabilitiesFeatureModel.swift)、[工具目录](https://github.com/Lithe-IDEA/Lithe-core-rust/blob/main/rust/crates/ide-host/src/catalog.rs) |
-| S16 | [Mac 主题](../../macos/Sources/Lithe/Theme/LitheTheme.swift)、[图标入口](../../macos/Sources/Lithe/Theme/LitheIcons.swift) |
+| S1 | [插件契约](https://github.com/Lithe-IDEA/Lithe-core-rust/blob/main/shared/plugins/contract/v1/README.md)、[Core 能力](https://github.com/Lithe-IDEA/Lithe-core-rust/blob/main/rust/crates/plugin-model/src/capabilities.rs)、[清单校验与激活事件](https://github.com/Lithe-IDEA/Lithe-core-rust/tree/main/rust/crates/plugin-manifest/src)、[清单 schema](https://github.com/Lithe-IDEA/Lithe-core-rust/blob/main/shared/plugins/contract/v1/plugin-manifest.schema.json)、Mac 能力表 |
+| S2 | [backend 1](https://github.com/Lithe-IDEA/Lithe-core-rust/blob/main/rust/crates/plugin-backend/src/lib.rs)、[函数协议](https://github.com/Lithe-IDEA/Lithe-core-rust/tree/main/rust/crates/plugin-rpc/src)、Mac 后端会话、宿主凭据服务 |
+| S3 | 原生 UI 功能、[Core UI 校验](https://github.com/Lithe-IDEA/Lithe-core-rust/blob/main/rust/crates/plugin-native-ui/src/lib.rs)、[已实现原生 UI Note](../../.agents/notes/implemented/feature/2026-10-21-declarative-native-plugin-ui.md) |
+| S4 | Web bridge、包内内容、页面生命周期、状态存储 |
+| S5 | 文档功能、LSP 编辑入口、Monaco model、diff review |
+| S6 | 文件端口、Mac 文件适配、目录变更、工程功能 |
+| S7 | 搜索端口、搜索功能 |
+| S8 | 命令目录、快捷键功能 |
+| S9 | HTML 浏览器、HTML 视图、平台 UI、Mac UI adapter |
+| S10 | 插件设置注册、[源配置决策](../../.agents/notes/implemented/architecture/2026-10-25-settings-native-configuration-editing.md) |
+| S11 | Build 服务、Mac Provider 会话、Run 服务 |
+| S12 | 终端端口、终端功能 |
+| S13 | 语言 Provider 目录、[LSP 资源归属](../../.agents/notes/implemented/architecture/2026-09-30-lsp-plugin-build-and-distribution.md)、诊断功能 |
+| S14 | Debug 会话、VCS 功能、项目生成服务 |
+| S15 | [独立 IDE API](https://github.com/Lithe-IDEA/Lithe-core-rust/blob/main/rust/contracts/ide-api/v1.md)、原生模块接口、授权功能、[工具目录](https://github.com/Lithe-IDEA/Lithe-core-rust/blob/main/rust/crates/ide-host/src/catalog.rs) |
+| S16 | Mac 主题、图标入口 |
 | S17 | [Services/公共扩展提案](../../.agents/notes/proposed/architecture/2026-10-13-public-extension-contract-and-provider-api.md)、[数据库后端](../../.agents/notes/implemented/architecture/2026-10-24-database-provider-plugin.md)、[依赖与导出提案](../../.agents/notes/proposed/architecture/2026-10-25-plugin-dependencies-and-exports.md) |
 | S18 | [有限热激活范围](../../.agents/notes/implemented/architecture/2026-10-26-plugin-live-activation.md)、[既有函数调用方向](../../.agents/notes/implemented/architecture/2026-10-20-plugin-function-contract.md) |
-| S19 | [应用语言](../../macos/Sources/LitheModuleAPI/Localization/InterfaceLanguage.swift)、[GitHub HTTP adapter](../../macos/Sources/Lithe/Platform/MacOS/GitHub/MacGitHubHTTPTransport.swift)、[GitHub 服务](../../macos/Sources/Lithe/Services/GitHub/GitHubService.swift)、[Agent 登录端口](../../macos/Sources/Lithe/Core/Ports/AgentAccountSignIn.swift) |
-| S20 | [远程工作区路由 Note](../../.agents/notes/implemented/architecture/2026-10-24-remote-workspace-routing.md)、[占位根](../../macos/Sources/Lithe/Platform/MacOS/Remote/MacRemoteWorkspaceRoots.swift)、[绑定与路由](../../macos/Sources/Lithe/Services/Remote/RemoteWorkspaceRouting.swift)、[远程插件启动](../../macos/Sources/Lithe/Platform/MacOS/Remote/MacRemotePluginLaunchPreparer.swift)、[远程主机提案](../../.agents/notes/proposed/architecture/2026-10-24-remote-development-workspace-host.md)、[SSH 调试提案](../../.agents/notes/proposed/architecture/2026-10-27-remote-debug-adapter-over-ssh.md) |
-| S21 | [Git 功能](../../macos/Sources/LitheGitModule/Application/GitFeatureModel.swift)、[Git 服务端口](../../macos/Sources/LitheGitModule/Services/GitService.swift)、[统一 VCS 提案](../../.agents/notes/proposed/architecture/2026-10-22-unified-vcs-provider-model.md) |
-| S22 | [Skills](../../macos/Sources/Lithe/Application/Features/AgentSkillsFeatureModel.swift)、[Hooks](../../macos/Sources/Lithe/Application/Features/AgentHooksFeatureModel.swift)、[MCP 注册](../../macos/Sources/Lithe/Application/Features/McpRegistryFeatureModel.swift)、[MCP 服务器库](../../macos/Sources/Lithe/Application/Features/McpServerLibraryFeatureModel.swift)、[Skill 管理 Note](../../.agents/notes/archived/feature/2026-10-20-agent-skill-management.md)、[Hooks Note](../../.agents/notes/archived/feature/2026-10-24-agent-hooks.md)、[MCP 服务器库 Note](../../.agents/notes/archived/feature/2026-10-17-mcp-server-library.md) |
+| S19 | 应用语言、GitHub HTTP adapter、GitHub 服务、Agent 登录端口 |
+| S20 | [远程工作区路由 Note](../../.agents/notes/implemented/architecture/2026-10-24-remote-workspace-routing.md)、占位根、绑定与路由、远程插件启动、[远程主机提案](../../.agents/notes/proposed/architecture/2026-10-24-remote-development-workspace-host.md)、[SSH 调试提案](../../.agents/notes/proposed/architecture/2026-10-27-remote-debug-adapter-over-ssh.md) |
+| S21 | Git 功能、Git 服务端口、[统一 VCS 提案](../../.agents/notes/proposed/architecture/2026-10-22-unified-vcs-provider-model.md) |
+| S22 | Skills、Hooks、MCP 注册、MCP 服务器库、[Skill 管理 Note](../../.agents/notes/archived/feature/2026-10-20-agent-skill-management.md)、[Hooks Note](../../.agents/notes/archived/feature/2026-10-24-agent-hooks.md)、[MCP 服务器库 Note](../../.agents/notes/archived/feature/2026-10-17-mcp-server-library.md) |

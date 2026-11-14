@@ -2,11 +2,9 @@
 
 状态：提议中
 
-> 2026-11-07 更新：本文提到的部分文件已不存在。宿主侧 Java 专属代码已删除（#1495）；运行、调试、入口标记与工具链改走通用插件 API（`run/start`、`debug/start`、`editor/registerActions`、`toolDefinitions`），实现见 [lithe-plugin-java](https://github.com/Lithe-IDEA/lithe-plugin-java)。下文保留当时的决策与理由，路径以“适用范围”里标注的去向为准。
-
 ## 先说结论
 
-从 Dock 启动时找不到版本管理器安装的运行时、项目要求的版本未生效，不能靠宿主逐个补目录和版本文件解析器解决。本方案把工具定义、安装事实提供方和使用方分开：插件说明工具是什么，版本管理器回答当前事实，宿主只提供统一选择、查询和环境展示框架；Java、Maven 等定义全部由插件贡献，不保留宿主内置定义表或兼容别名。当前已实现 Core 基础切片及 macOS 只读设置页；macOS 设置页已按声明式路线真实扫描本机安装、运行定义的版本探测并交 Core 选择，并通过插件后端查询提供方、监听其输入后整份重查；每行哪一层生效由 Core `toolchains.resolve` 用页面展示的同一份事实决定，Swift 不自己排优先级。macOS 已补已接通 Build 使用方的本机偏好编辑，目录 pin 保存、选择版本管理器等写入操作尚未实现；阶段 D 已补两端 Build 运行前消费者、Windows 操作内查询及通用偏好基础，完整 Windows 产品准入和旧默认转换仍未接通。完整方案仍在本提案中跟踪，不能把页面出现解释成产品已能使用 mise 或已经完成工具迁移。
+从 Dock 启动时找不到版本管理器里安装的运行时，项目要求的版本也不生效，靠宿主逐个补目录和版本文件解析器解决不了。本方案把工具定义、安装事实提供方和使用方分开：插件说明工具是什么，版本管理器回答当前事实，宿主只提供统一的扫描、选择和展示框架，Java、Maven 等定义全部由插件贡献。Viva 桌面端已实现声明式扫描、版本探测、Core 四层解析、目录固定和设置页；提供方查询、文件监听和使用方偏好编辑仍是本提案要完成的部分。
 
 ## 问题
 
@@ -28,7 +26,7 @@
 | 提供方插件 | 调用上游或读取自己支持的配置，返回安装；声明了 `watchFiles` 时再返回带来源的要求和监听对象 | 修改宿主选择顺序、执行下载或自动信任项目配置 |
 | 使用方插件 | 显式引用工具 ID，声明最低版本、工作目录和切换后的生效策略 | 按文件名猜工具，或在宿主选定后私自再找另一份安装 |
 | Rust Core | 校验声明和结果、确定性候选排序、四层选择、带原因的解析轨迹 | 解释管理器私有版本表达式，启动进程或直接拥有平台文件系统能力 |
-| 平台宿主 | 安装身份验证、只读文件探测、进程与查询生命周期、存储、文件观察、通用界面 | 内置工具定义、硬编码 SDKMAN 等位置、解析 `mise.toml` 或 `.sdkmanrc` |
+| 平台宿主（Viva 桌面端） | 安装身份验证、只读文件探测、进程与查询生命周期、存储、文件观察、通用界面 | 内置工具定义、硬编码 SDKMAN 等位置、解析 `mise.toml` 或 `.sdkmanrc` |
 
 安装从两条路线进入，同一个工具可以只用一条，也可以两条都用；两条都没有时，工具仍可以靠固定值、项目文件、全局默认和登录 Shell 的命令解析：
 
@@ -43,7 +41,7 @@
 
 宿主扫描没有自己的工具表；没有定义时不扫描、不导出变量、不生成工具行。
 
-工具链是独立领域，Core 代码放在 `rust/crates/toolchain/src/`，不能因为事实由插件贡献就把解析、固定和选择模型放进 `plugins/`。插件清单模块只负责贡献准入，调用工具链领域校验；公开契约仍在插件契约目录中描述贡献接口，不改变工具链本身的含义。
+工具链是独立领域，Core 代码放在 [Core 仓库的 `rust/crates/toolchain`](https://github.com/Lithe-IDEA/Lithe-core-rust/tree/main/rust/crates/toolchain)，不能因为事实由插件贡献就把解析、固定和选择模型放进 `plugins/`。插件清单模块只负责贡献准入，调用工具链领域校验；公开契约仍在插件契约目录中描述贡献接口，不改变工具链本身的含义。
 
 正确做法：Java 支持插件贡献工具定义，mise 插件调用 mise 自己的机器可读接口回答选中了哪份安装，宿主展示来源并执行通用校验。不要这样做：把 `miseToml` 改名成 `tomlTools` 后继续在 Core 解释它，或用 `if tool == "java"` 把返回目录当作特殊的 JDK home。
 
@@ -51,7 +49,7 @@
 
 工具 ID 是显式关联，不靠命令名关联。任何插件都可以定义不带前缀的短名（如 `java`），也可以定义限定名 `<pluginID>:<tool>`；宿主不再给 Core 提供“是否官方”的来源证明（2026-11-05 起，原先短名只允许经宿主验证的官方签名插件定义）。限定名的前缀必须是定义者自己的插件 ID，所以不同插件的限定名不会冲突。
 
-短名可能撞车。同一个短名被多个已启用插件定义时，它不归属任何一方：这些定义一个都不注册，其余定义照常注册，`toolchains.registry` 的结果用 `conflicts: [{tool, pluginIDs}]` 报告每个被争用的工具（按 `tool` 排序，`pluginIDs` 也排序）。被争用的工具不会出现在 `toolchains.discoveryPlan` 里，使用方解析它时按“无人声明”处理。macOS 设置页为每个冲突显示一条诊断，提示用户只保留一个插件启用；Swift 不替用户挑插件。插件 ID 重复仍然整批拒绝，不允许覆盖已有定义。
+短名可能撞车。同一个短名被多个已启用插件定义时，它不归属任何一方：这些定义一个都不注册，其余定义照常注册，`toolchains.registry` 的结果用 `conflicts: [{tool, pluginIDs}]` 报告每个被争用的工具（按 `tool` 排序，`pluginIDs` 也排序）。被争用的工具不会出现在 `toolchains.discoveryPlan` 里，使用方解析它时按“无人声明”处理。设置页为每个冲突显示一条诊断，提示用户只保留一个插件启用；宿主不替用户挑插件。插件 ID 重复仍然整批拒绝，不允许覆盖已有定义。
 
 社区提供方可以回答 `java` 等短名，但结果只对它已声明、请求已授权、且存在已启用定义的工具生效。提供方不能通过返回 `git` 的同名文件取得宿主命令替换权。安装审查须列出被影响的工具、运行的后端和探测参数；`toolchains.provide` 的说明必须表达“影响工具选择”，不能只说读取目录。
 
@@ -110,20 +108,6 @@ Core 基础切片先独立验证固定值，因此低层提供方超时不能撤
 
 插件停用或卸载后，撤销其工具行、使用方、导出变量和设置页，取消它拥有的查询及监听；写下的固定值保留，重新启用再校验并恢复。存在固定值不代表定义仍然有效，不能靠残留固定继续导出环境或启动程序。所有用户文案实现时进入 `shared/i18n/`，不把原型里的字符串直接写进视图或服务。
 
-当前 macOS 页面先交付通用只读框架：构建分组新增“运行环境”和“环境来源”，保留旧项目页，直到真实使用方迁移后再删除旧链路。加载器只读取已注册且已启用插件的声明与本机 `local.json`；固定继承仍调用 Core，不在 Swift 维护第二份规则。页面只显示读到的事实：存在的版本文件在提供方回答前说明“版本未查询”，回答后显示提供方原文的要求和对应安装版本；固定值由 Core 校验并探测，生效时与其他层一样显示版本，不可用时显示 Core 的原因，只有没能检查时才显示“已保存，未验证”；全局默认列出登录 Shell 里定义声明的 home 变量及其探测出的版本，再列 `PATH` 上按声明顺序找到的第一个命令并标“版本未验证”（不运行它）；自动检测列出声明式扫描找到并通过 Core 校验的安装，版本最高的打勾，同版本不同 home 标冲突，未通过校验的只计数并在悬停里给原因。提供方报告的全局要求列在全局步骤，安装并入自动检测并保留提供方归属；使用方与变量没有事实就不显示。每行标出的“第几层生效”、摘要里的版本和徽标都来自 Core 对这一行的解析结果（见“macOS 设置页的解析取舍”）。添加、切换和保存还没有真实实现，所以界面上直接不放这些控件，也不放禁用的占位按钮。目录树只列项目根目录、自己有版本文件或固定值的目录及其上级，扫描与行数有上限，超出时用诊断说明覆盖了多少目录。隔离预览（`--toolchain-settings-demo`，仅 Debug）只用样例插件清单代替已安装插件：工作区是真实文件（临时生成或 `--toolchain-demo-workspace` 指定），固定、版本文件、自动检测和登录 Shell 都走生产加载器、Core 和启动时的同一读取流程；它不进入生产插件表或运行流程，退出时删除临时目录。远程工作区在读本机文件前拒绝。
-
-来源页只展示两类已有事实。第一类是登录 Shell 读取：使用的 Shell、读取状态、变量数量、耗时与时间，以及 `PATH` 各目录来自登录 Shell 还是 Lithe 的启动环境。其他变量可能含有密钥，只计数不显示值。“重新读取”只刷新子进程缺少的变量和下次启动用的 `PATH` 缓存，不改本进程的 `PATH`（线程启动后 `setenv` 不安全）；发现 `PATH` 变了就提示重启。第二类是插件声明的版本管理器：它监视的文件、本项目里实际找到的文件，以及来自哪个插件。每个版本管理器显示最近一次查询的结果：耗时，或提供方原样给出的失败原因（如未受信任的配置），不替用户执行 trust 或安装。
-
-macOS 的声明式路线由 `MacToolchainDiscovery` 执行，宿主不认识任何工具名，只照 `discoveryPlan` 做三件事：
-
-1. 展开每个工具的扫描根和单层 glob（隐藏项只在模式本身以 `.` 开头时匹配），跟随链接，丢弃规范路径落在工作区内的条目；再按 `homeLayouts` 首个匹配取 home，未匹配的条目跳过。
-2. 为 home、可执行布局和 `pathPrepend` 收集 `stat`/`realpath` 文件事实，连同登录 Shell 中声明的 home 变量交给 `toolchains.candidates`；Core 返回需要探测的规范可执行文件。
-3. 只探测这些文件，参数取自定义的 `version`，不经 shell；再把输出交回 Core 取版本并选出自动层。
-
-扫描根和条目数沿用 `discoveryPlan` 的上限，每个工具的安装数和文件事实数沿用 Core 的上限，探测有总数（64）、并发（最多 4）和总时长（20 秒）上限；超出部分作为诊断显示，不当作“未找到”。卡片里的路径是扫描到的条目（例如 `jdk-21.jdk`），因为 home 后缀（`Contents/Home`）对每个安装都一样，悬停显示完整 home。Homebrew 的 python 这类目录形态无法用冻结的原语表达，隔离预览不扫描它，留给提供方路线；不为它扩充原语或在宿主写特判。隔离预览的样例清单必须通过 Core 准入，测试会检查这一点，避免预览靠宿主放宽校验才能显示。
-
-设置页复用既有布局框架，而不是把 HTML 的像素宽度写成整页不可压缩尺寸。嵌套 `LitheSplitPaneView` 声明理想页尺寸，目录和详情接受父容器分配的双轴边界；标签组用共享 `LitheChipFlowLayout` 换行；工具行和提供方行用 `ToolchainEdgeLayout`，主体放不下时把右侧徽标移到下一行；四个来源卡片用 `ToolchainStepGridLayout` 等宽分列，列数只取 4、2、1，避免出现半空的一行，同一行卡片取最高的高度。卡片里的路径保持单行，从前面截断以保留文件名，悬停显示完整路径。宽度不足时改变行列数并重新计算真实高度，不能只裁掉控件、让 `ViewThatFits` 测量与显示走不同高度分支，或用最大卡片高度压住增长的内容。原生缩放回归同时检查反复缩小/放大、分隔条拖动、卡片边界及后续行顺序；隔离预览也使用生产 `SettingsWindowChrome` 和外观容器，避免演示窗口与产品的内容尺寸含义不同。
-
 ### 8. 资源归属和分阶段迁移
 
 | 资源 | 所有者与生命周期 | 可写位置及校验 |
@@ -131,10 +115,42 @@ macOS 的声明式路线由 `MacToolchainDiscovery` 执行，宿主不认识任�
 | 工具定义与插件固定资源 | 插件版本，构建时生成并签名；运行时只读 | 已安装包内仅可读，不影响代码签名或 Sparkle 增量更新基线 |
 | 查询快照与文件指纹 | 工作区和插件代次，失效、关闭或停用即撤销 | 内存；若以后落盘缓存，单独补资源注册、身份与清理规则 |
 | 固定值 | 用户的本机项目偏好，停用后仍保留 | 工作区 `.lithe/toolchains/local.json`，明确保存并回读 |
-| 手动安装与全局默认 | 用户应用偏好，用户删除或修改前保留 | 平台应用存储，不复制运行时，不写 app bundle |
+| 手动安装与全局默认 | 用户应用偏好，用户删除或修改前保留 | 平台应用存储，不复制运行时，不写安装包 |
 | 查询后端临时物和日志 | 插件、工作区和操作拥有，结束时有界清理 | 平台缓存或临时适配器，禁止从发行目录推导写入目标 |
 
-本轮没有下载、运行时缓存或生成资源入口，不更新资源复用清单。后续新增时同步 `scripts/resources/worktree-resources.json`、校验路由和测试、`docs/ci-builds.md`；查询状态和语言服务器工作区状态不能跨工作树共享。
+本提案当前没有新增下载、运行时缓存或生成资源入口，不更新资源复用清单。后续新增时同步 `scripts/resources/worktree-resources.json`、校验路由和测试、`docs/ci-builds.md`；查询状态和语言服务器工作区状态不能跨工作树共享。
+
+### 9. 桌面端的扫描、解析与设置页
+
+桌面端共用同一份 Go 实现（macOS、Windows、Linux），宿主不认识任何工具名，只照 `discoveryPlan` 做三件事：
+
+1. 展开每个工具的扫描根和单层 glob（隐藏项只在模式本身以 `.` 开头时匹配），跟随链接，丢弃规范路径落在工作区内的条目；再按 `homeLayouts` 首个匹配取 home，未匹配的条目跳过。实现见 `desktop/internal/toolchain/scan.go`。
+2. 为 home、可执行布局和 `pathPrepend` 收集 `stat`/`realpath` 文件事实，连同登录 Shell 中声明的 home 变量（`desktop/internal/loginenv`）交给 `toolchains.candidates`；Core 返回需要探测的规范可执行文件。
+3. 只探测这些文件，参数取自定义的 `version`，不经 shell（`desktop/internal/toolchain/probe.go`）；再把输出交回 Core 取版本并选出自动层。
+
+扫描根和条目数沿用 `discoveryPlan` 的上限，每个工具的安装数和文件事实数沿用 Core 的上限；探测有单次 5 秒超时、128 KiB 输出上限、总数 64 和并发 4 的上限（`scan.go`、`probe.go`）。超出部分作为诊断显示，不当作“未找到”。卡片里的路径是扫描到的条目（例如 `jdk-21.jdk`），因为 home 后缀（如 `Contents/Home`）对每个安装都一样，悬停显示完整 home。Homebrew 的 python 这类目录形态无法用冻结的原语表达，留给提供方路线；不为它扩充原语或在宿主写特判。
+
+解析结果由 Core 决定。`desktop/internal/toolchain/load.go` 把每个工具的 `trace`、`unmet`、`conflicts` 和自动候选原样交给设置页（`desktop/internal/settingswindow/toolchains_view.go`），视图不再自己判断优先级。页面每行读哪个目录也由 Core 结果决定：有固定值的行读固定值所在目录的结果，其余行读最近一个有自己版本文件的目录（没有就是根目录）。
+
+设置页的读写走 `desktop/internal/workbench/settings_toolchains.go`：打开时只读加载，保存时用 Core 的 `toolchains.editPins` 生成新文档，经 `desktop/internal/toolchain/pins.go` 按捕获的文件基线（`desktop/internal/configfile`）条件写入并回读。草稿、取消、冲突保留草稿和“已提交但回读失败”的处理都有测试覆盖（见验证）。
+
+布局沿用桌面端设置窗口既有的布局框架（`desktop/internal/settingswindow`）：标签和工具行在宽度不足时换行，而不是裁掉控件；宽度变化后按真实高度重新排版，不用最大卡片高度压住增长的内容。视觉截图测试（`visual_capture_test.go`）保护这些不变量。
+
+### 10. 使用方偏好与 Build、Run 的运行前解析
+
+Build 和 Run 的运行前解析（`desktop/internal/workbench/toolchains.go`、`runs.go`）复用第 9 节的扫描、查询和 Core 规则，不读取设置页的检测结果来授权进程。用户目录 pin 只读；解析后重新核对原生路径、安装与来源文件身份、工作区上下文及插件清单。包装脚本只在显式执行时允许，不作被动版本探测。
+
+Maven 社区插件使用 `<plugin-id>:maven` 定义。短 ID（如 `java`）不要求独立的官方来源证明，任何插件都可以定义；多个已启用插件定义同一短 ID 时都不注册（见第 2 节）。`executableResolution: 2` 同时供工具定义和已有 Build toolchain 候选使用，不能把后者误判成“没有定义就未使用能力”，也不能放开旧候选的未知字段。
+
+“跟随项目默认”是会随项目默认变化的关系，不能迁移成今天探测到的 home 或目录 pin；旧路径覆盖的空字段还可能跳过父目录的显式覆盖，直接读取项目默认，只合并所有祖先的非空字段会改变结果。因此新的通用偏好保存 workspace/consumer 引用（契约见 `rust/contracts/toolchain-consumer-preferences-v1.schema.json`），由 Core 在每次操作时读取当前默认；按 Run 的明确选择仍优先，原生端随后复用现有工具解析。不在 Core 引入 Maven/Java 名称或版本管理器格式，不改变项目文件、全局和自动层的选择。
+
+Core 提供有界、无 I/O 的消费偏好解析与共享 fixture。消费者是当前插件贡献的完整身份，文件中休眠身份只保留数据，不注册工具，也不授予执行权限。引用不能指定任意工具或作用域，也不能指回自身，因此无需运行时循环回退。消费者可以用 tool 引用跟随请求目录的通用工具：它保留最初请求目录，沿通用工具自己的目录规则解析；通用工具不能反向引用消费者，因此这不是任意引用图，也不会形成循环。目录消费者先继承同消费者的工作区值、该值再引用 tool 时，不能把请求目录改成根目录。
+
+正常使用方不能通过复制旧的项目运行时输出取得“默认”；必须读取同一份原生来源并在探测后重查原始版本，取消、错误、过期和插件撤销不能伪装成自动选择。
+
+当前状态：桌面端的 Build 和 Run 已经按当前消费者身份读取并重查偏好；消费偏好的编辑入口、Windows 与 macOS 共用的全局默认，以及一次性旧默认转换仍是目标。这些接线完成前不能清除旧来源或宣称默认迁移结束。空路径与“跳过默认”的语义不能合并：空路径表示继续读取根默认，而通用消费者引用可以跳过该默认并返回无明确选择，两者都投影为空字符串会让运行时重新使用已跳过的默认。旧无效 Maven JDK 的回落语义若不能无损表达，应保留来源并报告，不把它变成新的隐式 fallback。
+
+编辑入口的写入边界：只有通用偏好的 Run 文档不证明旧默认已经迁移；旧项目设置仍须继续读取自己的来源，并在成功读回目标后才清理旧值。打开、切页、未修改保存和空重置不写磁盘；明确保存或重置复用 Run 本机文档的条件原子写入，只替换 preferences，保留无关字段与文件元数据。取消重新读取，保存失败保留草稿；草稿跨重开仍携带最初文件版本，不能因后台读取较新文件而悄悄覆盖外部修改。关闭编辑器时取消当前操作并等待回执，晚到结果不能发布到另一个工作区。Run 本机文件纳入既有输入观察（即使首次尚不存在），后台重载只更新未编辑的表单；有草稿时保留最初基线并报告冲突。目标是用户工作区的本机 Run 文件，不写应用安装目录、已安装插件或共享缓存，因此不改变发行基线。
 
 ## 考虑过的备选方案
 
@@ -152,14 +168,14 @@ macOS 的声明式路线由 `MacToolchainDiscovery` 执行，宿主不认识任�
 
 | 阶段 | 交付内容 | 必须证明 |
 | --- | --- | --- |
-| 1：提案 | 本笔记、隔离的清单贡献、查询和解析、`pins` 契约草案及 fixture（草案和 fixture 已于 2026-11-05 删除，见下文） | Java 风格定义、mise 提供方、未定义工具反例可读且一致；未实施的草案字段不能被误当成已支持能力 |
-| 2：Core 与查询客户端，部分完成 | Core 已支持定义/答案校验、目录固定、四层解析、同时列出扫描规则与提供方的发现计划、设置页候选（`toolchains.candidates`）、只报告安装的提供方和版本校验；macOS 设置页已接入声明式扫描、版本探测、提供方查询客户端和输入监听；Windows 未接入 | 已有纯数据测试保护固定失效、来源与最低版本、冲突、路径和数量边界，以及只扫描、只由定义插件自供、两条路线报告同一 home 时只算一份；macOS 用真实临时目录和注入的探测证明扫描、工作区排除、只探测 Core 返回的文件和冲突；macOS 已用脚本后端与注入查询证明协商、原样回复、同一轮共享代次而操作 ID 各不相同、整份重查与合并，并用 `toolchains.resolve` 证明项目要求、未安装要求退到下一层、固定值生效与失效，以及超时和后端不可用的提供方带着各自原因留在结果里、由下一层决定；真实后端超时、进程回收与 Windows 仍须平台实现证明；不新增宿主工具表 |
-| 3：统一选择与设置界面，部分完成 | macOS 环境/来源页和只读加载器已接入；实际启动与展示共用快照、Java/Maven 定义迁移尚未完成 | 现有目录、插件撤销、错误及过期快照测试；手动添加、确认保存、冲突回读和消费者切换仍须后续验证；同项删除被替换的专属路径 |
-| 4：两个真实提供方 | mise 后端调用上游输出，SDKMAN 作为不同机制的验收插件，设置各自注入插件页 | 第二个提供方只改插件；SDKMAN 路径从 `MacRuntimeDiscovery` 迁出；原生工作流、离线/未信任/未安装/取消、进程清理与安装包哈希不变 |
+| 1：提案 | 本笔记、隔离的清单贡献、查询和解析、`pins` 契约草案及 fixture（草案和 fixture 已于 2026-11-05 从 Core 删除，见下文） | Java 风格定义、mise 提供方、未定义工具反例可读且一致；未实施的草案字段不能被误当成已支持能力 |
+| 2：Core 与查询客户端，部分完成 | Core 已支持定义与答案校验、目录固定、四层解析、同时列出扫描规则与提供方的发现计划、设置页候选（`toolchains.candidates`）、只报告安装的提供方和版本校验；桌面端已接入声明式扫描、版本探测和设置页候选；提供方查询客户端（`toolchains/query`）和输入监听尚未接入（`desktop/internal/toolchain/load.go` 对有提供方的工具标记 `providerQueriesUnsupported`） | 已有纯数据测试保护固定失效、来源与最低版本、冲突、路径和数量边界，以及只扫描、只由定义插件自供、两条路线报告同一 home 时只算一份；桌面端用真实临时目录和注入的探测证明扫描、工作区排除、只探测 Core 返回的文件和冲突（`desktop/internal/toolchain/toolchain_test.go`）；提供方协商、整份重查、超时与后端不可用的原因保留，必须在真实后端和三个平台上另行证明；不新增宿主工具表 |
+| 3：统一选择与设置界面，部分完成 | 桌面端环境设置页、只读加载、目录固定的显式保存与回读已接入；Build 和 Run 的运行前解析已读取消费者偏好；Java/Maven 定义已迁出宿主 | 现有目录、插件撤销、错误及过期快照测试；手动添加、冲突选择的写入、消费偏好的编辑入口、Lithe 全局默认和一次性旧默认转换仍须后续验证；同项删除被替换的专属路径 |
+| 4：两个真实提供方 | mise 后端调用上游输出，SDKMAN 作为不同机制的验收插件，设置各自注入插件页 | 第二个提供方只改插件；原生工作流、离线/未信任/未安装/取消、进程清理与安装包哈希不变 |
 
-阶段 3 清理 `ProjectRuntimeService` 的专属选择链和 `project-jdk`、`project-maven` 等被替代引用前，须按 [Java/Maven 迁移清单](2026-10-26-maven-java-domain-plugin-migration.md)核对真实消费者和数据迁移。Node、Go、Python 等在其插件声明定义之前保持当前实现，不新增特判；不能在本次提案删除仍在生产使用的代码，或用永久兼容别名伪装迁移完成。
+Node、Go、Python 等在其插件声明定义之前不新增宿主特判；不能用永久兼容别名伪装迁移完成，也不能在仍有真实消费者的路径上直接删除旧实现。
 
-阶段 1 的契约草案 `Lithe-core-rust/shared/plugins/contract/v1/toolchains/proposal/` 及其 fixture 已于 2026-11-05 删除。草案把已实现和未实现的行为写在一起，插件开发者读到的是整个契约目录，分不清哪些能用。其中已经实现的后端协商 `litheToolchains`、稳定失败码和错误回复规则已写进正式契约 `Lithe-core-rust/shared/plugins/contract/v1/toolchains/README.md`；Core 测试改用 `rust/crates/core/src/tests/toolchain_vectors.rs` 里的内联数据。消费者迁移、查询生命周期与缓存、固定值保存和版本管理器插件等未实现部分只在本笔记跟踪，实现时再写进正式契约；旧 `local-v1` schema 与 Run 配置读写路径保持不变，新 Core 固定解析入口只处理调用方传入的 JSON，不打开文件或保存忽略规则。契约、API 总表和协议更新记录在同一个 Core PR 里完成；实际插件后端协议接入时在同一个 Core PR 里更新 Node、Java、Rust SDK，并在合并前于 Core 仓库根运行 `node shared/plugins/scripts/sdk-e2e.mjs`。每阶段的功能矩阵只记录实际实现和目标平台运行证据，不把本提案或 Core 单元测试当作 Windows 已完成。
+阶段 1 的契约草案 `shared/plugins/contract/v1/toolchains/proposal/` 及其 fixture 已于 2026-11-05 从 Core 删除。草案把已实现和未实现的行为写在一起，插件开发者读到的是整个契约目录，分不清哪些能用。其中已经实现的后端协商 `litheToolchains`、稳定失败码和错误回复规则已写进正式契约 [`toolchains/README.md`](https://github.com/Lithe-IDEA/Lithe-core-rust/blob/main/shared/plugins/contract/v1/toolchains/README.md)；Core 测试使用[内联数据](https://github.com/Lithe-IDEA/Lithe-core-rust/blob/main/rust/crates/core/src/tests/toolchain_vectors.rs)。消费者迁移、查询生命周期与缓存、固定值保存和版本管理器插件等未实现部分只在本笔记跟踪，实现时再写进正式契约；旧 `toolchain-local-v1` schema 与 Run 配置读写路径保持不变，新 Core 固定解析入口只处理调用方传入的 JSON，不打开文件或保存忽略规则。契约、API 总表和协议更新记录在同一个 Core PR 里完成；实际插件后端协议接入时，在同一个 Core PR 里更新 Node、Java、Rust SDK，并在合并前于 Core 仓库根运行 `node shared/plugins/scripts/sdk-e2e.mjs`。每阶段的功能矩阵只记录实际实现和目标平台运行证据，不把本提案或 Core 单元测试当作 Windows 已完成。
 
 ## 风险
 
@@ -168,131 +184,30 @@ macOS 的声明式路线由 `MacToolchainDiscovery` 执行，宿主不认识任�
 - **版本比较再次泄漏工具语义。** 已安装版本需要统一的可比较结果，未知版本不能靠工具名修补；Java 8 的特殊输出应由定义的探测规则处理，无法规范的版本不能静默参与“最新”选择。
 - **文件监听遗漏或查询失败。** 新建文件、符号链接替换和丢失事件可能留下旧快照，必须覆盖目录身份变化和失败状态；不能把失败翻译成“已更新”。
 - **源优先级仍可能冲突。** 原生与兼容声明之间、多个原生项目要求之间不能仅靠稳定排序得到业务答案；需要明确冲突结果与用户可行动入口。
-- **多文件保存不是天然事务。** 忽略规则和固定文件的保存需定义失败与重试结果；任何部分成功都不得丢掉用户源数据或误报全部成功。
-- **迁移跨度大。** Java/Maven 仍有真实生产消费者；按阶段替换并删除对应旧路径，否则会长期保留两套真源。未验证的平台保持待验证，不能以契约共用推断产品一致。
+- **多文件保存不是天然事务。** 固定文件与忽略规则的保存需定义失败与重试结果；任何部分成功都不得丢掉用户源数据或误报全部成功。
+- **迁移跨度大。** 每接入一个真实消费者都要按阶段替换旧路径并删除对应旧代码，否则会长期保留两套真源。未在某平台实测的能力保持待验证，不能以共用代码推断该平台已经可用。
 
 ## 验证
 
-当前验证覆盖文档、契约、Core 纯数据边界和 macOS 设置页的扫描与布局测试，不声称运行时流程已验收：
+当前验证覆盖文档、契约、Core 纯数据边界和桌面端的扫描、固定与设置页测试，不声称运行时流程已完整验收：
 
 - `./scripts/agent-notes/verify-agent-notes.sh`：中文笔记格式、生命周期、链接与路径。
-- `node shared/plugins/scripts/verify-docs.mjs`（在 Core 仓库根运行）：契约、指南和参考文档的检查；不检查 Core 语义，语义由下面的 Core 测试保护。
+- `scripts/desktop/desktop-go.sh test ./internal/toolchain/... ./internal/core/ ./internal/workbench/ ./internal/settingswindow/`：桌面端的扫描、探测、固定保存与回读、设置页草稿、Build 与 Run 的运行前解析；契约 fixture 通过 `LITHE_PLUGIN_CONTRACT_DIR` 读取链接的 Core 检出。
+- `node shared/plugins/scripts/verify-docs.mjs`（在 Core 仓库根运行）：契约、指南和参考文档的检查；不检查 Core 语义，语义由 Core 仓库中 `core` crate 的 `toolchain_*` 测试保护。
 - `./scripts/platform-feature-matrix/verify-platform-feature-matrix.sh`：矩阵记录实际 Core 切片与平台待接入状态，不把纯数据测试标成产品运行时已验证。
-- `cargo test --manifest-path rust/Cargo.toml -p lithe-core --lib toolchain_definitions -- --test-threads=1`：任何插件可定义短 ID、多个插件定义同一短 ID 时都不注册且 `conflicts` 排序稳定、其余定义照常注册、重复插件 ID 整批拒绝、嵌套字段失败即拒绝、只报告安装的提供方，以及定义插件为自己的工具声明提供方。
-- `cargo test --manifest-path rust/Cargo.toml -p lithe-core --lib toolchain_pins -- --test-threads=1`：目录按组件继承、失效数据、跨平台路径语法、数量边界和 legacy 数据保留。
-- `cargo test --manifest-path rust/Cargo.toml -p lithe-core --lib toolchain_resolution -- --test-threads=1`：通过正式命令验证四层选择、真实回复解码、冲突和版本规则，以及设置页候选的登录 Shell home、跳过原因和自动选择；文件事实与探测结果由隔离快照注入，不访问本机工具。
-- macOS 稳定性测试 `--filter 'MacToolchainDiscoveryTests|ToolchainSettings'`：真实临时目录与注入的 home 和探测，验证扫描、隐藏项与未匹配条目、工作区链接不探测、同版本冲突、拒绝的声明不扫描、Core 解析出的生效层与未满足要求、固定值只在自己的目录生效且不进入自动检测，以及隔离预览样例清单通过 Core 准入；不运行本机安装的工具。
+- `./scripts/desktop/verify/verify-runtime-bundle-immutability.sh`：安装包资源与运行时写入边界。
 
-后续实现必须按对应平台执行稳定性测试、Core/边界验证和 `./scripts/desktop/verify/verify-runtime-bundle-immutability.sh`，并留下真实视口、完整启动流程和进程清理证据。安全与生命周期测试使用隔离文件系统、可控制的时钟/事件和明确本地期限，不依赖开发者安装的 mise、SDKMAN 或个人配置。
+后续实现必须按受影响平台执行测试、Core/边界验证和上述不可变性脚本，并留下真实视口、完整启动流程和进程清理证据。安全与生命周期测试使用隔离文件系统、可控制的时钟/事件和明确本地期限，不依赖开发者安装的 mise、SDKMAN 或个人配置。
 
 ## 适用范围
 
 - `https://github.com/Lithe-IDEA/Lithe-core-rust/blob/main/shared/plugins/contract/v1/`
 - `https://github.com/Lithe-IDEA/Lithe-core-rust/blob/main/rust/contracts/toolchain-local-v1.schema.json`
-- Lithe-core-rust 锁定修订：[rust/lithe-core/src/plugins/](https://github.com/Lithe-IDEA/Lithe-core-rust/tree/0ffd327b4329261e393b08ed76fbd134b4dd17e9/rust/lithe-core/src/plugins)
-- Lithe-core-rust 锁定修订：[rust/lithe-core/src/execution/](https://github.com/Lithe-IDEA/Lithe-core-rust/tree/0ffd327b4329261e393b08ed76fbd134b4dd17e9/rust/lithe-core/src/execution)
-- 已迁出：原 `macos/Sources/Lithe/Services/Java/ProjectRuntimeService.swift`。宿主侧 Java 专属代码已删除（#1495）；运行、调试、入口标记与工具链改走通用插件 API（`run/start`、`debug/start`、`editor/registerActions`、`toolDefinitions`），实现见 [lithe-plugin-java](https://github.com/Lithe-IDEA/lithe-plugin-java)。
-- ~~`macos/Sources/Lithe/Platform/MacOS/Runtime/`~~（已随 #1794 移除）
-- ~~`macos/Sources/Lithe/Platform/MacOS/Plugins/`~~（已随 #1794 移除）
-- ~~`windows/tauri/src/platform/`~~（已随 #1794 移除）
-- ~~`Plugins/mac/`~~（已随 #1794 移除）
-- ~~`Plugins/win/`~~（已随 #1794 移除）
-
-## 阶段 D 的固定提交预集成
-
-#1495 在用户授权下先固定本提案的 `b87c7f6` 做集成验证，暂不改变合并与发行顺序。
-Build 和 Provider Run 新增独立的运行前解析，复用这里的扫描、查询和 Core 规则；不读取
-设置页的检测结果来授权进程。用户目录 pin 只读，解析后重新核对原生路径、安装与来源
-文件身份、工作区上下文及插件清单；Wrapper 只在显式执行时允许，不作被动版本探测。
-
-Maven 社区插件使用 `<plugin-id>:maven` 定义。短 ID（如 `java`）不再要求独立官方来源
-证明，任何插件都可以定义；多个已启用插件定义同一短 ID 时都不注册（见第 2 节）。`executableResolution: 2` 同时供工具定义和已有 Build toolchain 候选使用，不能把
-后者误判成“没有定义就未使用能力”，也不能放开旧候选的未知字段。Windows 和旧 Java
-消费者的切换尚未完成，原有选择链只可随真实消费者迁移逐项删除。
-
-## macOS 查询客户端的取舍
-
-- 复用 `MacPluginBackendSessions` 的单插件单进程，不另起进程：查询与页面调用共用同一后端和设置重启规则。协商结果在 Core 会话状态里，未协商的提供方由 Core 拒绝，不写到进程。
-- Core 只搬运原始回复（`{id,response}`），所有成功与错误规则留给 `toolchains.decodeReply`；否则引擎和解码器会各维护一份错误码表。
-- 每个提供方先发一次全局查询（`workspace:null`），再对根目录和有自己版本文件的目录逐个查询（上限 32）。这样项目配置不可用时仍能列出安装；未打开窗口的工作区没有 context，只做全局查询并说明原因。同一目录的一轮查询里所有提供方共用一个代次（generation），每个请求的操作 ID 不同；全局查询单独一个代次。原因是 `toolchains.resolve` 要求它收到的每份回复都和解析请求同代次、同 context，各自独立的代次无法放在一起解析。如果加载途中窗口的 context 变了，后到的回复不进这一轮：Core 不解析它，页面也不显示它的项目要求，否则用户看到的要求和生效结果会来自两个不同的 context。
-- **没回复的查询也交给 Core。** 查询超过 15 秒没有回复，或者后端起不来、断开、没有协商这个提供方时，宿主调用 `toolchains.failureReply` 生成一份错误回复（超时用 `plugin.toolchain.timeout`，其余用 `plugin.toolchain.providerUnavailable`），再和提供方自己发来的错误一样交给 `decodeReply`。这份回复照常进入目录轮次，`toolchains.resolve` 把它记成 `providerUnavailable` 并继续解析下一层。原因有两个：一是契约要求这类提供方要“保持可见”，不能让它从解析结果里消失；二是错误码映射只在 Core 维护一份，Swift 不手写 JSON-RPC 错误码。Core 只为问过这个工具的查询记录，并用 `cause` 区分是超时还是不可用，所以工具行可以写出“mise 未响应”或“mise 不可用”。超时由接线层把 Core 的 `requestTimeout` 转成 `MacToolchainDiscovery.QueryTimeout`；取消不生成回复，因为取消后这次加载的结果整份丢弃。提供方回复不合法或路径不安全时仍按失败处理，不进轮次，这和契约里“安全与身份失败不转成缺少工具”一致。
-- 宿主只读取回复与定义点名的路径（home、可执行布局、`${home}` 前缀、来源文件）作为事实。别名链接（如 mise 的 `latest`）只有链接路径的事实，Core 由链接事实推出规范目标再校验，避免宿主为规范路径再读一遍。
-- 失效用整份重载：工作区内按 `watchFiles` 尾部匹配，工作区外按回复的 `watch` 用一个 FSEvents 流监听其最近存在的父目录；短时间事件合并为一次重载，关闭页面即释放监听。
-
-## macOS 设置页的解析取舍
-
-- **哪一层生效由 Core 决定。** 页面曾在 Swift 里按“固定 → 项目 → 全局 → 自动”自己找第一个有值的层，提供方加入项目要求和全局要求后，这份顺序就和 Core 的规则分叉了（例如未安装的项目要求该退到下一层，同一层两个版本管理器不一致该报冲突）。现在每个查询过的目录、每个工具调用一次 `toolchains.resolve`，页面的摘要、徽标和“第几层生效”都读它的结果。不要在视图里再写优先级判断；需要新的展示信息时，从 Core 返回的 `trace`、`unmet`、`conflicts` 读。没给出回答的提供方也从 `unmet` 读（`providerUnavailable` 和它的 `cause`），工具行在结果旁边写出是哪个版本管理器、是未响应还是不可用；版本文件存在但提供方没回答时，第 2 步也显示同样的原因，而不是“版本未查询”。
-- **解析与查询用同一份事实。** 解析请求的文件事实由定义需要的事实加上这一轮回复点名的路径组成，并替换进每份回复的 `filesystem`，这样 Core 重新解码回复时和解析时看到的是同一个快照。注意查询阶段给 `decodeReply` 的事实和解析阶段的事实是分两次读的：如果两次之间文件变了，页面列出的安装与要求（来自查询阶段）可能和生效结果（来自解析阶段）暂时不一致，下一次加载会重新读取；但单次解析内部不会混用两份事实。
-- **固定值单独决定。** Core 先按目录向上找固定值，找到就只看它：能用就生效，不能用就是终止失败，不再往下找。所以只有固定值、没有版本文件的目录不发提供方查询，只为它固定的工具解析一次（每次加载最多 256 个）。固定的 home 也要有文件事实和探测结果，宿主通过 `toolchains.candidates` 让 Core 检查这些 home 并给出要探测的文件；这批结果只决定探测什么，不会让固定的 home 出现在自动检测列表里。
-- **每行读哪个目录。** 有固定值的行读固定值所在目录的结果；其余行读最近一个有自己版本文件的目录（没有就是根目录）。
-- **已知限制。** 一是 `PATH` 上的命令永远不会被 Core 选中，因为页面不传 `commandHomes`；Core 跳过所有层时，页面把这条命令当作“版本未验证”的兜底显示，后续见 [#1641](https://github.com/1lck/Lithe-IDEA/issues/1641)。二是 `mvnw`、`gradlew` 这类项目文件候选不参与解析，因为 `discoveryPlan` 不提供它们的路径，也没有项目代码授权；要支持它就得改插件契约，不在本轮做，后续见 [#1640](https://github.com/1lck/Lithe-IDEA/issues/1640)。
-- **冲突要用户选，现在只能看。** Core 遇到同层版本管理器不一致时返回 `chooseProvider`，遇到同版本的多个安装时返回 `chooseInstallation`，并且明确不允许靠排序替用户决定。页面现在只显示冲突原因，没有选择按钮，因为写入还没实现。计划中，用户的选择存成本机 `local.json` 里的固定值：固定值格式已在契约里，优先级最高，还会被 `.lithe/.gitignore` 排除。`providerChoices` 的存放位置契约里没有定义，单独保存它需要先改契约。选择入口、固定值的添加与切换以及 Lithe 全局默认的写入，后续见 [#1639](https://github.com/1lck/Lithe-IDEA/issues/1639)。
-- **短 ID 争用只显示，不选择。** `toolchains.registry` 返回的 `conflicts` 每项对应设置页上的一条诊断，内容是被争用的工具和涉及的插件，并提示只保留一个插件启用。页面不在 Swift 里挑一个插件，也不给被争用的工具生成行；用户停用其一后，下一次加载时工具恢复。
-
-
-### 阶段 D 的使用方默认值与符号继承（实现中）
-
-旧配置中“跟随项目 JDK”是会随项目默认变化的关系，不能迁移成今天探测到的 home 或
-目录 pin。旧路径覆盖的空字段还可能跳过父目录的显式覆盖，直接读取项目默认；只合并
-所有祖先的非空字段会改变结果。新的通用偏好因此保存 workspace/consumer 引用，由
-Core 在每次操作读取当前默认；按 Run 的明确选择仍优先，原生端随后复用现有工具解析。
-不在 Core 引入 Maven/Java 名称或版本管理器格式，不改变项目文件/全局/自动层的选择。
-
-Core 开发切片提供有界、无 I/O 的消费偏好解析与共享 fixture。消费者是当前插件贡献的
-完整身份，文件中休眠身份只保留数据，不注册工具，也不授予执行权限。引用不能指定任意工具或作用域，也不能指回自身，因此无需运行时循环回退。
-消费者还可用 tool 引用跟随请求目录的通用工具：它保留最初请求目录，沿通用工具自己的
-目录规则解析。通用工具不能反向引用消费者，因此这不是任意引用图，也不会形成循环。
-这与 workspace 引用不同：前者跟随当前目录的应用工具选择，后者明确跳过目录覆盖。
-目录消费者先继承同消费者的工作区值、该值再引用 tool 时，不能把请求目录改成根目录。
-正常使用方不能通过复制旧 ProjectRuntimeService 输出取得“默认”；必须读取同一份
-原生来源并在探测后重查原始版本，取消、错误、过期和插件撤销不能伪装成自动选择。
-
-本切片已保存在现有 Run 本机文档，两端 Build 运行前 native adapter 已按当前消费者身份读取并重查；macOS 设置页已补显式偏好编辑，Windows 设置页、全局默认与一次性旧默认转换仍未接入。
-这些接线完成前不能清除旧来源或宣称默认迁移结束。旧 Java 端口把空路径解释为继续
-读取根默认，而通用消费者引用可以跳过该默认并返回无明确选择；不能将两者都投影为
-空字符串，否则运行时会重新使用已经跳过的默认。一次性转换须与现有 Java 消费者的
-明确选择状态一起切换，不能仅删除迁移器中的拒绝检查。旧无效 Maven JDK 的回落语义
-若不能无损表达，保留来源并报告，不把它变成新的隐式 fallback。验收须实际更改项目
-默认、确认继承者随之更新且显式覆盖不变，并覆盖取消/冲突/重开及包文件清单不变。
-
-
-### Build 使用方偏好的编辑边界
-
-macOS 运行环境页只为 Core invocation 真实引用该工具的当前 Build 贡献展示编辑入口。
-使用方名字来自已启用插件，完整身份为插件 ID/构建系统 ID；不把尚未迁移的语言服务
-列成可配置消费者，也不按 Maven、Java 或命令名称推断关系。停用插件后列表撤回，
-休眠偏好仍作为惰性数据保留，不能借此注册工具或取得运行权限。
-
-草稿、继承值和已验证安装分开。页面显示 Core 解析出的“下次构建输入”，明确说明它
-仍需运行时校验；不能把固定路径回显成已探测安装。继承引用由 Core 编辑命令保存，
-不在 Swift 展开成当前路径。比如消费者保存 workspace 引用后，改工作区默认会影响
-下次运行；不要把它保存成今天读到的安装目录。
-
-打开、切页、未修改保存及空重置不写磁盘。明确 Save/Reset 复用 Run 本机文档的条件
-原子写入，只替换 preferences，保留无关字段与现有文件元数据；Core 编辑只接收捕获
-文档，不读取文件、不触发 v1 Run 的领域迁移，未知版本不作整数截断。首次写入按现有流程
-保护本机文件的 Git 忽略。取消重新读取，保存失败保留草稿。草稿跨重开仍携带最初
-文件版本，不能因后台读取较新文件而悄悄覆盖外部修改。关闭或撤销编辑器取消当前
-操作并等待原生回执，晚到结果不能发布到另一个工作区。
-
-只有通用偏好的 Run 文档不证明旧默认已经迁移。旧 Project 设置仍须继续读取自己的
-来源，并在成功读回目标后才清理旧值；两者共享文档但没有完成彼此的迁移条件。
-目录列表也读取同一文档的作用域，仅有消费者偏好的目录及其父目录仍可进入编辑；
-不能只依赖版本文件或 pin，否则保存后重开的目录会消失。读取有大小和层级上限，
-目录元数据交给同一 Core 校验，不将 Run 参数或环境送到设置快照。加载期间来源变化
-只重试一次，持续变化显示可刷新的失败；不将它当作普通取消留下空白页面。
-Run 本机文件纳入既有输入观察，即使首次尚不存在。后台重载会更新未编辑表单，
-有草稿时保留最初基线并报告冲突；正在保存时不重新进入编辑器，以免自身文件通知
-等待同一保存或撤销成功回执。比如外部改了默认 JDK，干净表单应显示新输入；
-不要先把新版本设为旧草稿的基线，再让旧草稿覆盖它。
-读写入口复用逐目录不跟随链接校验，尤其检查最终文件不存在时已存在的父目录，避免
-Foundation 的整路径规范化漏过外部别名。目标是用户工作区的本机 Run 文件，不写 app、
-已安装插件、代码签名资源或共享缓存，因此不会改变 Sparkle 的发行基线。
-
-验证用 `ToolchainPreferencesTests`、`ToolchainSettingsLoaderTests`、Core 偏好/Run JSON
-回归及 `scripts/desktop/verify/verify-runtime-bundle-immutability.sh`。深浅主题的原生按钮
-验证仍是组件级证据，不能替代完整 Maven 插件、Windows 和正式发行组合验收。
-显式集成场景 `consumerDefaultChangesReachTheRealMavenProcessWhileExplicitRunsStayFixed`
-通过生产保存和解析入口切换两个已选 JDK，再启动真实 Maven 检查实际 Java home，
-同时确认按 Run 明确选择不随默认改变、插件目录清单不变；外部工具依赖只在明确启用
-的集成测试使用，不进入普通单元测试。
+- `https://github.com/Lithe-IDEA/Lithe-core-rust/tree/main/rust/crates/toolchain`
+- `desktop/internal/toolchain/`
+- `desktop/internal/core/toolchain.go`
+- `desktop/internal/core/toolchain_sources.go`
+- `desktop/internal/workbench/toolchains.go`
+- `desktop/internal/workbench/settings_toolchains.go`
+- `desktop/internal/settingswindow/toolchains_view.go`
+- `desktop/internal/pluginservice/toolchains.go`

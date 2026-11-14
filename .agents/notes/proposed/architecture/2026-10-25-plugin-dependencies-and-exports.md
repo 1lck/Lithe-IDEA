@@ -4,9 +4,9 @@
 
 ## 先说结论
 
-插件之间复用运行时、JSON 声明和计算能力属于整个插件平台，不应由某个 Debug 格式顺带定义。本提案从 [Debug #1210](https://github.com/1lck/Lithe-IDEA/issues/1210) 拆出依赖、导出和授权，挂在[公共扩展契约](2026-10-13-public-extension-contract-and-provider-api.md)下；Debug 的 Registry 与第三方 DAP 接入不依赖它。
+插件之间复用运行时、JSON 声明和计算能力属于整个插件平台，不应由某个 Debug 格式顺带定义，因此依赖、导出和授权从 [Debug #1210](https://github.com/1lck/Lithe-IDEA/issues/1210) 拆出，挂在[公共扩展契约](2026-10-13-public-extension-contract-and-provider-api.md)下；Debug 的 Registry 与第三方 DAP 接入不依赖它。
 
-方向仍是插件好写、共享逻辑尽量复用，但安装闭包（某个插件及其全部间接依赖）、版本冲突和信任必须先有明确规则。其中**第一阶段已经落地**：两个已安装、已启用的插件之间，可以经 Rust Core 中转调用被明确导出的函数（见提案第 5 节）。其余仍只是待单独实施的决策边界：安装依赖、版本范围解析、依赖闭包、跨包资源租约和工作流字段都没有开放，`pluginDependencies` 也不存在。
+**第一阶段已经落地**：两个已安装、已启用的插件之间，可以经 Rust Core 中转调用被明确导出的函数（见提案第 5 节）。安装依赖、版本范围解析、依赖闭包、跨包资源租约和工作流字段仍只是待单独实施的决策边界，`pluginDependencies` 也不存在；安装闭包（某个插件及其全部间接依赖）、版本冲突和信任必须先有明确规则。
 
 ## 问题
 
@@ -96,14 +96,11 @@
 
 ## 验证
 
-第一阶段的跨插件调用由 Core 测试（`plugins::plugin_functions`、`lsp::interface::function_relay`、`lsp::interface::engine`）和 macOS 单测（`MacPluginBackendSessionsTests`、`PluginHostServiceDispatchTests`、`PluginPublicHostAPITests`）覆盖，细节见实现 Note 的“验证”。依赖解析器和安装期规则仍没有实现，不能声称安装、版本冲突或依赖授权用例通过。实施时使用 `write-stable-tests`、~~./scripts/rust-core/verify-rust-core.sh~~（随旧客户端移除），并分别验证两个宿主和函数 SDK（在 Core 仓库根运行 `node shared/plugins/scripts/sdk-e2e.mjs`，契约与指南改动再运行 `node shared/plugins/scripts/verify-docs.mjs`）；新增资源时遵守工作树复用与安装目录只读要求。
+第一阶段的跨插件调用由 Core 测试（`plugins::plugin_functions`、`lsp::interface::function_relay`、`lsp::interface::engine`）和桌面端测试（`desktop/internal/pluginservice/pluginservice_test.go`、`desktop/internal/pluginhost/pluginhost_test.go`）覆盖，细节见实现 Note 的“验证”。依赖解析器和安装期规则仍没有实现，不能声称安装、版本冲突或依赖授权用例通过。实施时使用 `write-stable-tests`，运行 `scripts/desktop/desktop-go.sh test ./internal/pluginservice/... ./internal/pluginhost/...` 验证桌面端，并在 Core 仓库根运行 `node shared/plugins/scripts/sdk-e2e.mjs` 验证函数 SDK（契约与指南改动再运行 `node shared/plugins/scripts/verify-docs.mjs`）；新增资源时遵守工作树复用与安装目录只读要求。
 
 ## 适用范围
 
-- Lithe-core-rust 锁定修订：[rust/lithe-core/src/plugins/](https://github.com/Lithe-IDEA/Lithe-core-rust/tree/0ffd327b4329261e393b08ed76fbd134b4dd17e9/rust/lithe-core/src/plugins)
-- Lithe-core-rust 锁定修订：[rust/lithe-core/src/lsp/interface/plugin_function.rs](https://github.com/Lithe-IDEA/Lithe-core-rust/blob/0ffd327b4329261e393b08ed76fbd134b4dd17e9/rust/lithe-core/src/lsp/interface/plugin_function.rs)
-- Lithe-core-rust 锁定修订：[rust/lithe-core/src/lsp/interface/function_relay.rs](https://github.com/Lithe-IDEA/Lithe-core-rust/blob/0ffd327b4329261e393b08ed76fbd134b4dd17e9/rust/lithe-core/src/lsp/interface/function_relay.rs)
-- `https://github.com/Lithe-IDEA/Lithe-core-rust/blob/main/shared/plugins/contract/v1/`
-- ~~`macos/Sources/Lithe/Platform/MacOS/`~~（已随 #1794 移除）
-- ~~`windows/tauri/src-tauri/src/plugin_host/`~~（已随 #1794 移除）
-- `https://github.com/Lithe-IDEA/Lithe-core-rust/tree/main/shared/plugins/sdk`
+- [Core 仓库的 Rust Core 插件模块](https://github.com/Lithe-IDEA/Lithe-core-rust/tree/main/rust/crates)
+- [插件契约 v1](https://github.com/Lithe-IDEA/Lithe-core-rust/blob/main/shared/plugins/contract/v1/)
+- [插件 SDK](https://github.com/Lithe-IDEA/Lithe-core-rust/tree/main/shared/plugins/sdk)
+- `desktop/internal/pluginservice/`、`desktop/internal/pluginhost/`

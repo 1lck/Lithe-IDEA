@@ -2,8 +2,6 @@
 
 本文说明如何在 macOS、Windows 和 Linux 上从源码构建并启动 Lithe 桌面客户端（`desktop/`，基于 Viva 的 Go 客户端），以及日常开发中常用的命令。
 
-> `desktop/` 客户端目前在 [#1799](https://github.com/1lck/Lithe-IDEA/pull/1799) 的 `feature/1794-viva-workbench-shell` 分支上开发；该 PR 合入前，`preview` 分支里还没有 `desktop/` 目录。
-
 ## 目录
 
 - [一、构建流程概览](#一构建流程概览)
@@ -95,7 +93,7 @@ clang --version && make --version | head -1 && go version && rustc --version && 
 ```bash
 git clone https://github.com/1lck/Lithe-IDEA.git
 cd Lithe-IDEA
-git switch feature/1794-viva-workbench-shell
+git switch preview
 
 make -C desktop run
 ```
@@ -170,7 +168,7 @@ export PATH="/c/<上一步输出的目录>:$PATH"
 ```bash
 git clone -c core.autocrlf=false https://github.com/1lck/Lithe-IDEA.git
 cd Lithe-IDEA
-git switch feature/1794-viva-workbench-shell
+git switch preview
 
 mingw32-make -C desktop run
 ```
@@ -242,7 +240,7 @@ gcc --version && make --version | head -1 && go version && rustc --version && no
 ```bash
 git clone https://github.com/1lck/Lithe-IDEA.git
 cd Lithe-IDEA
-git switch feature/1794-viva-workbench-shell
+git switch preview
 
 make -C desktop run
 ```
@@ -324,7 +322,7 @@ Linux 的偏好目录和插件目录按 `$XDG_CONFIG_HOME` 解析，表中是未
 make -C desktop check                                      # gofmt、vet 和测试
 node scripts/i18n/verify-app-language-localization.mjs     # 界面文案都走 i18n
 node scripts/i18n/generate-i18n.mjs --check                # i18n 生成结果是最新的
-./scripts/macos/verify/verify-runtime-bundle-immutability.sh
+./scripts/desktop/verify/verify-runtime-bundle-immutability.sh
 ```
 
 - 新增或修改界面文案时，先在 `shared/i18n/` 补齐中英词条，再运行 `node scripts/i18n/generate-i18n.mjs`，规则见 [`shared/i18n/README.md`](../../shared/i18n/README.md)。

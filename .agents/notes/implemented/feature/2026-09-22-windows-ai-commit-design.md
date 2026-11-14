@@ -1,100 +1,82 @@
-# Agent 笔记：Windows AI 提交信息设计
+# Agent 笔记：AI 提交信息设计
 
 状态：已实现
 
 ## 先说结论
 
-Windows 的 AI 提交信息参照 macOS，采用独立服务商配置和可配置生成规则，支持手动添加以及导入本机 Codex、Claude 配置。生成只修改提交草稿，最终提交仍由用户操作。Windows 保留“勾选文件的工作区完整内容”提交语义，因此生成依据也来自相同范围，不改成 macOS 的暂存区语义。
+AI 提交信息使用独立的服务商配置和可配置的生成规则，支持手动添加服务商以及导入本机 Codex、Claude 配置。生成只修改提交草稿，最终提交仍由用户操作。生成依据是 Core 采集的暂存改动证据，并在应用结果前再次核对 Git 状态。
 
 ## 问题
 
-原实现借用编辑器行内编辑服务，提交格式写死在组件中，无法配置语言和自定义提示词。设置页写入 `aiModelId`，Custom 服务商生成时却读取 `aiCustomModelId`，导致配置界面和实际请求不一致。
+早期实现借用编辑器行内编辑服务，提交格式写死在组件中，无法配置语言和自定义提示词。设置页写入的模型字段与生成时读取的字段不一致，导致配置界面和实际请求不一致。
 
-原流程最多抽取十个文件的差异；结果直接覆盖草稿。大量文件、请求期间切换项目、继续编辑草稿等场景，容易出现信息不完整或覆盖用户输入的问题。
+早期流程只抽取有限数量的文件差异，结果直接覆盖草稿。大量文件、请求期间切换项目、继续编辑草稿等场景，容易出现信息不完整或覆盖用户输入的问题。
 
 ## 决策
 
 ### 服务商和生成规则分别保存
 
-`aiCommit` 是独立设置，保存服务商列表、当前服务商 ID、开关及提交规则。聊天和补全继续使用原来的配置。服务商包含地址、模型、协议和凭据来源；规则包含语言、六类格式、自定义提示词、正文、标题长度、差异预算和推理强度。
+提交生成的设置独立于聊天和补全的设置。服务商包含地址、模型、协议和凭据来源；规则包含语言、提交格式、自定义提示词、是否包含正文、标题长度、差异预算和推理强度。聊天和行内编辑继续读取各自原来的配置，不能用提交设置替换它们。
 
-设置侧栏分别挂载“AI 聊天与编辑”和“AI 与提交”。前者复用已有通用 AI 设置组件，保留公司网关、模型和密钥的编辑入口；Git 提交区直接打开后者。不能用提交设置替换通用设置，因为聊天和行内编辑仍然读取各自原来的配置。
+界面只保存凭据的引用，不把密钥写入设置、导出文件或共享夹具。手动输入的密钥保存在系统钥匙串中（`desktop/internal/credentials`，macOS 使用 `backend_darwin.go`，其他平台使用 `backend_other.go` 的系统密钥环）。导入的服务商在每次生成前重新读取来源配置。导入后的地址、协议、模型和认证字段不可编辑；“允许 HTTP”属于用户明确作出的选择，可以单独更改。
 
-界面只保存凭据的引用，不把密钥写入设置、导出文件或共享夹具。手动密钥通过 Windows 凭据管理器保存；导入服务商在每次生成前重新读取来源配置。导入后的地址、协议、模型和认证字段不可编辑；“允许 HTTP”属于用户在 Lithe 中明确作出的选择，可以单独更改。
-
-Codex 导入同时识别 provider 内的 `experimental_bearer_token`。它与环境变量和 auth JSON 中的 API 密钥一样，只在主机请求期间使用；识别结果仅向界面暴露“是否已有凭据”，不返回令牌。这样能复用本地自定义服务商配置，同时保留原来的凭据边界。
-
-凭据来源必须绑定到当前服务商。声明 `env_key` 后，只读取该变量；变量缺失或为空时应提示缺少密钥，不能回退到其他账号。没有指定变量时可读取该服务商的内置令牌；只有内置 OpenAI 或显式声明 `requires_openai_auth=true` 的服务商才能读取 OpenAI 的 auth JSON 与全局 API key。自定义服务商默认不使用 OpenAI 认证，且没有声明凭据来源时允许免密连接。`requires_openai_auth` 不能直接当作“任意 API 是否需要密钥”的开关。
+凭据来源必须绑定到当前服务商。声明了环境变量来源后，只读取该变量；变量缺失或为空时提示缺少密钥，不能回退到其他账号。自定义服务商默认不使用 OpenAI 的认证来源，也不能因为一个服务商需要密钥就推断其他服务商也需要。
 
 ### 确定性规则与平台输入输出分开
 
-Rust Core 的 `ai` 模块负责纯文本配置解析、输入校验、提示词、字符预算、协议请求计划和响应提取。这里的请求计划只是 URL 和 JSON 请求体，不读取磁盘、不访问网络、不存储凭据。
+`desktop/internal/ai` 负责配置解析、输入校验、提示词、字符预算、协议请求计划和响应提取。Core 的 `ai.planCommit` 只输出不含凭据的 URL 与 JSON 请求体，不读取磁盘、不访问网络、不存储凭据；`ai.decodeCommitMessage` 解码结果。
 
-Windows 主机（Tauri 应用中的原生 Rust 层）负责用户目录、配置文件、环境变量、Windows 凭据管理器、HTTP 请求和取消。前端通过已有 `platform_invoke` 统一入口调用，不为每条共享规则创建一个 Tauri 命令。
+宿主负责用户目录、配置文件、环境变量、凭据、HTTP 请求和取消。凭据和 HTTP 留在宿主，Core 接口不接收密钥。发请求前由宿主补上认证头，返回前丢弃密钥。
 
-macOS 提交信息通过 `ai.commitInputBudget` 先取得每份差异的字符预算，只把对应前缀送入 `ai.planCommit`；Core 校验原始长度、保留截断提示，再用 `ai.decodeCommitMessage` 解码。凭据和 HTTP 留在原生宿主，Core 接口不接收密钥。生成依据仍是暂存差异；Core 限制敏感文件、输出预算和部分结果，关闭正文时只接受标题。PR 描述生成仍是独立路径，不因此宣称完成 AGT-11。共享 fixture 同时由 Core 和 macOS 桥接回归消费。
+正确示例：宿主读取配置文件，把文本交给 Core 解析；发请求前补上密钥，返回前丢弃密钥。
 
-正确示例：主机读取 `config.toml`，将文本交给 Core 解析；发请求前补上密钥，返回前丢弃密钥。
+不要这样做：界面直接读取服务商的认证文件并把完整解析结果写进界面状态或普通设置。这样会让凭据混入界面状态和设置导出。
 
-不要这样做：React 直接读取 `auth.json` 并把完整解析结果写到 Zustand 或普通设置。这样会让凭据混入前端状态和设置导出。
+### 以暂存改动生成草稿
 
-### 以真实提交范围生成草稿
+生成依据是提交面板中当前变更列表的暂存改动（`desktop/internal/workbench/aicommit.go`）。Core 的 `git.commitMessageContext` 采集证据，并基于完整未截断的内容、仓库状态和索引标志生成令牌；应用生成结果前重新核对这个令牌，状态变化时不应用结果。
 
-Windows 的 `commitSelectedChanges` 提交勾选路径的工作区内容。生成复用同一套仓库相对路径和重命名映射，通过现有 `worktreeSnapshot` Git 差异接口读取，不临时修改真实 index，也不执行 `git commit`。
+采集的证据有上限：超过 Git 补丁输出上限或读取不完整时中止，不把部分结果当成完整证据。环境文件和常见凭据路径在发送前拒绝。未跟踪目录展开后逐文件检查敏感名称。字符预算按文件分配，截断必须标识，提示词禁止推断被省略的部分。
 
-读取覆盖所有勾选文件，限制为同一仓库、最多 1000 个文件，同时最多四个 Git 读取。保留的提示文本有总预算；每个文件都保留边界，截断必须标识，二进制文件没有文本证据。读取失败时停止生成，不能把部分成功误报为完整范围。环境文件和常见凭据路径在发送前拒绝。
-
-生成完成后重新读取差异并比较完整可用 patch 的 SHA-256 摘要（内容指纹），防止文件名相同但内容已经改变。工作区、分支、勾选范围变化或取消后不应用结果。已有草稿须确认替换；确认期间继续修改的内容仍优先保留。
-
-两端现在通过 `git.commitMessageContext` 读取提交证据。macOS 保留暂存区语义，Windows 保留勾选路径的工作区语义；Windows 不再从 30 秒 Diff 缓存读取。Core 基于完整未截断内容、仓库状态和索引标志生成令牌，应用生成结果前重新核对；macOS 替换确认时再次核对并保护等待期间的草稿输入。未跟踪目录展开后逐文件检查敏感名称，读取不完整或超过 Git 补丁上限时中止，不把部分结果当成完整证据。两端字符预算继续由 `ai` 分配，并保留原始长度和截断提示。
+已有草稿须确认替换；确认期间继续修改的内容仍优先保留。工作区、分支或暂存范围变化后，不应用结果。
 
 ### 请求边界与失败行为
 
-支持 Responses、Chat Completions 和 Anthropic Messages。网络请求限制 45 秒，响应最多 2 MiB；每个配置文件最多 1 MiB。取消会使主机丢弃正在等待的 HTTP 请求。已开始的 Git 读取沿用 Core 的有界执行，停止发起后续读取，并等待在途读取结束。
+支持 Responses、Chat Completions 和 Anthropic Messages 三种协议。网络请求和响应大小有上限，取消会使宿主丢弃正在等待的 HTTP 请求。
 
-Chat Completions 新服务商默认使用 `max_completion_tokens`，使预算包含 o 系列模型的推理输出；可明确选择旧网关的 `max_tokens`。macOS 在新增该设置前保存的服务商继续使用原来的 `max_tokens`；设置写入 Lithe 自己的服务商偏好，不改写导入工具的配置文件，重新导入时保留用户选择。不按模型名称猜测网关能力，也不在失败后自动换字段重复请求。推理强度新增“服务商默认”，此时完全省略参数；显式 `none` 仍按协议发送，避免把不支持推理字段的普通模型也强行带上该字段。
+输出预算同时包含模型推理和最终文本，因此不能按短标题的长度直接设置额度。即使已经返回部分文本，额度耗尽也应提示重试，不能把未完成的标题当作成功结果。
 
-输出预算同时包含模型推理和最终文本，不能按短标题长度直接设成 512 token。真实服务联调中，该额度曾只返回推理内容；因此统一预留 4096 token，并识别三种协议的输出额度耗尽状态。即使已经返回部分文本，也应提示重试，不能把未完成的标题当作成功结果。代价是单次请求允许更高的输出上限，实际用量仍取决于模型。
-
-默认仅允许 HTTPS；HTTP 需要服务商级开关。禁止 URL 内嵌账号密码、查询参数和片段，禁止 HTTP 自动重定向，避免将认证信息带到未选择的地址。错误通过稳定代码转为中英文提示，不直接展示服务商响应正文或含凭据的网络错误。
+默认仅允许 HTTPS；HTTP 需要服务商级开关。禁止 URL 内嵌账号密码、查询参数和片段，禁止 HTTP 自动重定向，避免把认证信息带到未选择的地址。错误通过稳定代码转为提示，不直接展示服务商响应正文或含凭据的网络错误。
 
 ## 考虑过的备选方案
 
-- **继续复用行内编辑接口**：能减少接线，但提交输入、配置与草稿生命周期都不是编辑器修改语义，继续使用会让两个功能互相牵制。因此只复用成熟的 Git、HTTP、凭据能力，建立独立提交服务。
-- **把 Swift 实现翻译成 React 内的提示词逻辑**：交付快，但纯解析和协议语义会再出现一份平台副本。因此新规则放在 Rust Core，macOS 和 Windows 的提交信息生成现已共用该规则；PR 描述仍有独立迁移范围。
-- **Windows 也只读取暂存区**：表面更像 macOS，但与当前 Windows 勾选路径提交行为不一致，会生成另一组内容的说明，因此不采用。
-- **复制导入密钥到 Lithe 设置**：实现简单，但密钥轮换不会自动生效且容易进入设置导出，因此采用来源引用和请求时重读。
-- **自动提交生成结果**：节省一步操作，却取消了用户检查和编辑机会，因此 AI 入口始终只生成草稿。
+- **继续复用行内编辑接口**：提交输入、配置与草稿生命周期都不是编辑器修改语义，继续使用会让两个功能互相牵制。因此只复用成熟的 Git、HTTP 与凭据能力，建立独立的提交服务。
+- **把提示词逻辑直接写在界面层**：会让纯解析和协议语义在各平台重复一份。因此规则放在共享的 Core。
+- **复制导入的密钥到 Lithe 设置**：实现简单，但密钥轮换不会自动生效，且容易进入设置导出，因此采用来源引用和请求时重读。
+- **自动提交生成结果**：节省一步操作，却取消了用户检查和编辑的机会，因此 AI 入口始终只生成草稿。
+- **只读取工作区中被勾选的文件**：与提交实际包含的内容不一致，会生成另一组内容的说明，因此采用暂存改动。
 
 ## 后果
 
-用户可以独立控制提交信息的服务商和格式，也能复用本机 API 配置。通用 AI 的模型字段不再影响提交生成，从调用结构上消除了原字段不一致问题。
+用户可以独立控制提交信息的服务商和格式，也能复用本机 API 配置。提交生成的模型字段与聊天的模型字段互不影响。
 
-代价是生成前后各读取一次差异，以换取更可靠的过期结果判断。字符预算会省略部分大文件内容，因此提示词明确禁止推断省略部分；超过 Core Git 的补丁输出上限时生成会明确失败，不会发送或接受不完整证据。
+代价是生成前后各读取一次证据，以换取更可靠的过期结果判断。字符预算会省略部分大文件内容，超过 Git 补丁输出上限时生成会明确失败，不会发送或接受不完整证据。
 
-Codex/Claude 的 OAuth 登录不等同于可用 API 密钥，本次不实现 CLI 登录令牌刷新或代理 CLI 调用。macOS 的 PR 描述生成有独立入口，本次聚焦 Git 提交草稿，不向 Windows 设置添加尚未接入的 PR 模板选项。
-
-标题长度作为模型指令，不强制切断生成的标题。推理强度由服务商决定是否支持，Anthropic Messages 当前不发送此字段。
+Codex/Claude 的 OAuth 登录不等同于可用的 API 密钥，本次不实现 CLI 登录令牌刷新或代理 CLI 调用。标题长度只作为模型指令，不强制切断生成的标题。推理强度由服务商决定是否支持。
 
 ## 验证
 
-- `cargo test --manifest-path rust/crates/core/Cargo.toml ai::tests --lib`：配置解析、凭据不序列化、协议映射、截断和错误边界。
-- `./.agents/skills/write-stable-tests/scripts/verify-test-stability.ps1`：测试稳定性静态检查。
-- `./.agents/skills/write-stable-tests/scripts/test-stability-windows.ps1 -Scope Frontend`：前端行为和单测试计时。
-- `./.agents/skills/write-stable-tests/scripts/test-stability-windows.ps1 -Scope SharedRust`：共享 Rust 的计时验证。
-- ~~./scripts/windows/build/build-windows.ps1 -Configuration Release~~（随旧客户端移除）：Windows 完整构建。
-- `cargo test --manifest-path windows/tauri/src-tauri/Cargo.toml`：宿主适配器回归。
-- `node scripts/agent-notes/verify-agent-notes.mjs`：设计笔记格式和链接。
+- `scripts/desktop/desktop-go.sh test ./internal/ai/... ./internal/workbench/...`：配置解析、凭据不序列化、协议映射、截断和错误边界。
+- Core 仓库的 [AI 提交契约](https://github.com/Lithe-IDEA/Lithe-core-rust/blob/main/rust/contracts/ai-commit.md) 与 [共享夹具](https://github.com/Lithe-IDEA/Lithe-core-rust/blob/main/rust/fixtures/ai/commit-generation-v1.json)。
+- `node scripts/agent-notes/verify-agent-notes.sh`
 
-具体执行结果与使用步骤记录在[实现文档](../../../../docs/development/windows-ai-commit.md)。
+具体执行结果与使用步骤记录在 [实现文档](../../../../docs/development/windows-ai-commit.md)。
 
 ## 适用范围
 
-- Lithe-core-rust 锁定修订：[rust/lithe-core/src/ai/](https://github.com/Lithe-IDEA/Lithe-core-rust/tree/0ffd327b4329261e393b08ed76fbd134b4dd17e9/rust/lithe-core/src/ai)
-- ~~`macos/Sources/Lithe/Core/Rust/RustAICommitPlanning.swift`~~（已随 #1794 移除）
-- ~~`macos/Sources/LitheAIAssistanceModule/Services/CommitMessageGenerationService.swift`~~（已随 #1794 移除）
-- ~~`windows/tauri/src-tauri/src/ai_commit.rs`~~（已随 #1794 移除）
-- ~~`windows/tauri/src/features/git/`~~（已随 #1794 移除）
-- ~~`windows/tauri/src/features/settings/components/ai-commit-settings-panel.tsx`~~（已随 #1794 移除）
-- `https://github.com/Lithe-IDEA/Lithe-core-rust/blob/main/rust/contracts/ai-commit.md`
-- `https://github.com/Lithe-IDEA/Lithe-core-rust/blob/main/rust/fixtures/ai/commit-generation-v1.json`
+- `desktop/internal/ai/commit.go`
+- `desktop/internal/ai/http.go`
+- `desktop/internal/workbench/aicommit.go`
+- `desktop/internal/credentials/backend_darwin.go`
+- `desktop/internal/credentials/backend_other.go`
+- Core 仓库的 [AI 模块](https://github.com/Lithe-IDEA/Lithe-core-rust/tree/main/rust/crates/ai)，以 [Lithe-core-rust](https://github.com/Lithe-IDEA/Lithe-core-rust) 当前固定的修订为准。

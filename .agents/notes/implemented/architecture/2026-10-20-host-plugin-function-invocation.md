@@ -2,11 +2,11 @@
 
 状态：已实现
 
-> Viva 迁移状态：下文的网页和设置入口、权限同意及进程清理是旧 macOS 客户端的历史实现。Viva 已具备通用 Core 会话及函数调用的基础桥接，尚未接入插件安装、权限审查、网页或设置入口。本文当时暂缓宿主方法的决定不等于现行协议不支持宿主方法；其当前契约及授权要求以 `Lithe-core-rust/shared/plugins/contract/v1/README.md` 为准。
+> Viva 迁移状态：Viva 已具备通用 Core 会话及函数调用的基础桥接，尚未接入插件安装、权限审查、网页或设置入口。本文当时暂缓宿主方法的决定不等于现行协议不支持宿主方法；其当前契约及授权要求以 `Lithe-core-rust/shared/plugins/contract/v1/README.md` 为准。
 
 ## 先说结论
 
-macOS 现在能调用插件函数了。入口只有一个：插件自己的网页窗口通过 `window.lithe` 调用 `functions.list`、`functions.invoke`、`functions.cancel`，宿主把请求交给**这个插件自己启动的构建 Provider 进程**。Rust Core 的 `lsp.functionRequest` 负责路由和结果。
+宿主调用插件函数的入口只有一个：插件自己的网页窗口通过 `window.lithe` 调用 `functions.list`、`functions.invoke`、`functions.cancel`，宿主把请求交给**这个插件自己启动的构建 Provider 进程**。Rust Core 的 `lsp.functionRequest` 负责路由和结果。
 
 为了让 Core 能协商函数，宿主启动构建 Provider 时会带上它所属插件的 `pluginId`。这是唯一的接线改动，宿主代码里没有任何按插件名的分支。
 
@@ -16,7 +16,7 @@ macOS 现在能调用插件函数了。入口只有一个：插件自己的网�
 
 ## 问题
 
-[插件函数契约](2026-10-20-plugin-function-contract.md)只在 Core 里实现了协议，宿主还没有入口。macOS 启动构建 Provider 时也从不传 `pluginId`，所以 Core 永远不会和这些进程协商 `litheFunctions`，函数一个都不会出现。
+[插件函数契约](2026-10-20-plugin-function-contract.md)只在 Core 里实现了协议，宿主还没有入口。宿主启动构建 Provider 时也从不传 `pluginId`，所以 Core 永远不会和这些进程协商 `litheFunctions`，函数一个都不会出现。
 
 接入时要回答四个问题：
 
@@ -29,7 +29,7 @@ macOS 现在能调用插件函数了。入口只有一个：插件自己的网�
 
 ### 1. 只有插件自己的网页能调用，归属检查两层
 
-网页桥接（`PluginWebBridge`，宿主给插件网页提供 `window.lithe` 的那一层）沿用 `build.*` 方法已有的 `entry()` 检查：页面只能指定自己插件的构建实例，不能指定别的插件的实例。
+网页桥接（`desktop/internal/pluginweb`，宿主给插件网页提供 `window.lithe` 的那一层）沿用 `build.*` 方法已有的实例归属检查：页面只能指定自己插件的构建实例，不能指定别的插件的实例。
 
 Core 再检查一次：`lsp.functionRequest` 里的 `pluginID` 必须和会话启动时的 `pluginId` 相同，否则返回 `plugin.function.wrongPlugin`。
 
@@ -37,7 +37,7 @@ Core 再检查一次：`lsp.functionRequest` 里的 `pluginID` 必须和会话�
 
 ### 2. 只有插件自己拥有的进程才提供函数
 
-`MacBuildProviderSessions` 用 `startPluginLanguageServer(pluginID:…)` 启动 Provider，Core 因此能协商这个进程的函数。
+构建 Provider 会话用 `startPluginLanguageServer(pluginID:…)` 启动 Provider，Core 因此能协商这个进程的函数。
 
 如果 Provider 其实是一个共享语言服务器（清单里写的是 `languageServer`），宿主直接拒绝，错误码是 `plugin.function.unavailable`。共享语言服务器是宿主为一种语言的所有插件启动的，不属于任何一个插件，让它提供某个插件的函数会把归属弄乱。
 
@@ -45,7 +45,7 @@ Core 再检查一次：`lsp.functionRequest` 里的 `pluginID` 必须和会话�
 
 ### 3. 每次调用都要过同意和上限
 
-- **同意**：`functions.list` 和每次 `functions.invoke` 都要经过宿主现有的进程启动同意（`PluginWebPages.confirmProcessStart`），和 `build.*` 是同一套工作区信任规则。同一插件在同一工作区同意过一次后，本次打开项目期间不再弹框；关闭并重新打开项目后会重新询问。
+- **同意**：`functions.list` 和每次 `functions.invoke` 都要经过宿主现有的进程启动同意，和 `build.*` 是同一套工作区信任规则。同一插件在同一工作区同意过一次后，本次打开项目期间不再弹框；关闭并重新打开项目后会重新询问。
 - **上限**：一个页面最多同时有 16 个调用，等待同意的调用也计入。调用在等待同意之前就占用名额并登记 `call` ID，因此并发请求不会同时通过旧计数，等待同意期间的 `functions.cancel` 也会让它在获准后不再启动。
 - **`call` ID**：页面用过的 `call` ID 在页面生命周期内永久拒绝复用（结束或取消后也一样），旧调用迟到的进度不会被认成新调用；集合随页面关闭释放。
 - **页面关闭**：取消该页面所有正在跑的调用。
@@ -72,7 +72,7 @@ Core 的 `lsp.functionRequest` 和 `lithe/build/*` 请求是同步把消息写�
 
 ### 6. 不留进程
 
-函数和 `lithe/build/*` 用的是同一个 Provider 会话，也走同一套进程表。下面这些已有的停止路径都会把它停掉：项目关闭（`retainProviders`）、插件停用或替换（`stopProviders(ofPlugin:)`）、设置变更引起的重启。本次没有新增缓存目录。
+函数和 `lithe/build/*` 用的是同一个 Provider 会话，也走同一套进程表。下面这些已有的停止路径都会把它停掉：项目关闭、插件停用或替换、设置变更引起的重启。本次没有新增缓存目录。
 
 后端被强杀或崩溃时，SDK 来不及结束它启动的工具。这条边界由宿主的[统一子进程生命周期](../../proposed/architecture/2026-10-16-unified-child-process-lifecycle.md)负责：
 
@@ -95,8 +95,8 @@ Core 的 `lsp.functionRequest` 和 `lithe/build/*` 请求是同步把消息写�
 
 ```text
 插件网页: lithe.request("functions.invoke", {instance, function: "snapshot.read", call: "c1"})
-  → PluginWebBridge.entry() 确认实例属于本插件 → 同意框
-  → BuildSystemService.invokePluginFunction → MacBuildProviderSessions（本插件的 Provider 会话）
+  → pluginweb 确认实例属于本插件 → 同意框
+  → 宿主的构建 Provider 会话（本插件的 Provider 进程）
   → Core lsp.functionRequest {function: {pluginID, functionID}}（Core 再校验 pluginID）
 ```
 
@@ -105,7 +105,7 @@ Core 的 `lsp.functionRequest` 和 `lithe/build/*` 请求是同步把消息写�
 ```text
 if pluginID == "dev.lithe.maven" { 启动带函数的会话 }   // 宿主按插件名开特例
 让共享 JDT LS 会话带上某个插件的 pluginId           // 一种语言的所有插件共用这个进程
-在宿主的 Swift 原生界面里直接调别的插件的函数         // 绕过了“只有插件自己能调用”的边界
+在宿主的原生界面里直接调别的插件的函数         // 绕过了“只有插件自己能调用”的边界
 ```
 
 ## 考虑过的备选方案
@@ -129,35 +129,17 @@ if pluginID == "dev.lithe.maven" { 启动带函数的会话 }   // 宿主按插�
 
 - **收益**：插件能在自己的网页里调用自己后端的私有动作，带进度、取消和插件错误码，宿主里没有插件特例。
 - **收益**：协议没有新版本，旧插件包和旧后端都不受影响。
-- **代价**：只有 macOS，并且只有“构建 Provider 由插件自己的进程实现”时才有函数。纯声明式插件和共享语言服务器都没有函数。
+- **代价**：只有“构建 Provider 由插件自己的进程实现”时才有函数。纯声明式插件和共享语言服务器都没有函数。
 - **代价**：同意只在一次项目会话内记住（与 `build.*` 一致），每次重新打开项目都要再确认一次。以后可以随工作区信任设计统一的记忆规则。
 - **代价**：插件后端还不能请宿主做任何事。
 - **代价**：有写入在途时同一会话的其他事件会暂缓投递。正常写入只需毫秒；只有后端卡住时才会暂缓到逃生路径结束它。
 
 ## 验证
 
-- 旧版 macOS 测试入口已移除，见[历史测试脚本](https://github.com/1lck/Lithe-IDEA/blob/5a54c41aa37a4e6e6b68918a4b05765b9dd07a36/scripts/macos/test/test-macos.sh)；它曾覆盖以下场景，不能作为 Viva 已通过的证据：
-  - 页面只能访问本插件的实例，并且必须同意。
-  - 结果、进度和 `pluginErrorCode` 能到达页面。
-  - 取消调用和关闭页面都会取消函数。
-  - Provider 以插件会话启动，并带上 `pluginID`。
-  - Core 拒绝时保留 `plugin.function.*` 码。
-  - 取消会调用 Core 的 `cancelLanguageServerOperation`。
-  - 停用插件会停止 Provider。
-  - 写入被阻塞时主线程不被占用；调用取消或 Provider 停止后，宿主立即结束该后端，调用随之结束。
-  - 传输失败保留 `processFailed`，OS 错误文字不会成为页面的 `code`。
-  - Provider 初始化中取消调用会立刻结束该调用，启动继续并服务下一次调用；初始化中停止时迟到的 ready 不会触发请求。
-  - 每个 Provider 带独有的 `LITHE_PLUGIN_BACKEND_SCOPE`，会话结束后宿主按该标记优雅结束遗留进程。
+- `./scripts/desktop/desktop-go.sh test ./internal/core -run 'Plugin'`：会话协商、函数调用、进度、取消与超时（`plugin_session_test.go`）。
+- `./scripts/desktop/desktop-go.sh test ./internal/pluginweb`：页面调用的实例归属、进程启动同意和结果回传（`page_test.go`）。
 - `./scripts/desktop/verify/verify-runtime-bundle-immutability.sh`：确认没有新增写入 bundle 的路径。
-- macOS 原生验收（2026-10-20，PR #1366 合并 PR #1365 后的 debug 应用）：
-  - 环境：Node SDK 的示例插件 `sdk/node/examples/sample-build`（当时在主仓库，现位于 Core 仓库的 `shared/plugins/sdk/node/examples/sample-build`）加一个只用于验收的网页窗口，作为开发包从磁盘安装；另装一个带自己构建系统和网页窗口的验收插件；示例工作区含成功、失败（退出码 3）和长时间运行三个项目。页面把每一步结果写进 `ui.setState`，验收读取 Application Support 中的状态文件核对。
-  - `functions.list` 返回 `snapshot.read`、`workspace.build`；一次成功构建后再列出，多了运行时注册的 `snapshot.clear`。
-  - `functions.invoke` 带 `call` 时，页面依次收到 `Preparing`、`Building app`、`Done` 三个 `functions.progress`，结果作为 `{ value }` 到达；失败项目返回 `plugin.function.failed`，并带上插件自己的 `pluginErrorCode: sample.buildFailed`。
-  - `functions.cancel` 后调用以 `requestCancelled` 结束；构建子进程在取消后立刻退出（采样中最后一次出现早于取消约 0.1 秒）。对已结束的 `call` 再取消返回 `{}`。未注册的函数返回 `plugin.function.unknown`，`params` 不是对象返回 `plugin.web.invalidRequest`。
-  - 另一个插件的页面用 `sample:.` 调用 `functions.list` / `functions.invoke` 都得到 `plugin.web.forbidden`，并且在弹同意框之前就被拒绝；它调用自己实例上的 `snapshot.read` 得到 `plugin.function.unknown`，说明函数按进程隔离。
-  - 进程清理：调用进行中关闭项目、或在设置里停用插件，Provider 及其构建子进程都会退出（`ps`/`pgrep` 确认）；从磁盘替换插件包时旧 Provider 也会停止；退出应用后没有任何 Lithe 或插件进程残留。重启应用后 `snapshot.read` 返回上次会话的快照。
-  - 验收发现示例的路径检查在宿主 `rootUri` 带尾部斜杠时拒绝所有路径（macOS 传的是目录 URL 的 `absoluteString`），所有构建都报 `sample.config`。已在示例里用 `path.resolve` 规范化根目录，并让当时主仓库的 `rust/lithe-core/tests/plugin_sdk_node.rs`（现为 Core 仓库的 `shared/plugins/sdk/e2e/plugin_sdk_node.rs`）用带尾部斜杠的 `rootUri`；未修复时该测试失败，修复后通过。
-- `./scripts/platform-feature-matrix/verify-platform-feature-matrix.sh`：`plugin-functions` 的 macOS 证据已更新。
+- `./scripts/platform-feature-matrix/verify-platform-feature-matrix.sh`：`plugin-functions` 的证据路径。
 
 ## 适用范围
 

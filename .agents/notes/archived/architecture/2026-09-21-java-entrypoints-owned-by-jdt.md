@@ -1,0 +1,333 @@
+# Agent 笔记：Java 入口点和测试由 JDT 判定
+
+状态：已实现
+
+归档日期：2026-11-15
+
+> Java 入口点与测试判定已迁到 lithe-plugin-java 插件仓库（#1495），宿主不再有对应实现；本文只保留历史取舍。
+
+> 2026-11-07 更新：本文提到的部分文件已不存在。Java/JDT LS/Spring 专属逻辑已从 Core 移入 Java 插件后端（[lithe-plugin-java](https://github.com/Lithe-IDEA/lithe-plugin-java) 的 `backend/`），Core 只保留通用能力（#1495）；Windows 过渡期副本在 `windows/tauri/crates/lithe-legacy-tooling/`。下文保留当时的决策与理由，路径以“适用范围”里标注的去向为准。
+
+## 先说结论
+
+“哪个 Java 类能运行”“哪个方法是测试”由 JDT（Eclipse 的 Java 语言服务，
+Lithe 已经内置）回答，Lithe 不再用自己写的语法扫描判断。Issue #769 暴露了
+这个问题：Java 25 允许 `static void main()` 这类新写法，Lithe 自己的规则还停在旧
+Java，所以运行列表里没有它们。修法不是把规则改宽，而是删掉这套规则：以后
+Java 再出新写法，只需升级 JDT。
+
+开发者要记住一句话：**答案会随 Java 版本、编译设置或类型系统变化的问题，
+交给 JDT；Lithe 只负责整理结果、排序、命名和产品分类。**
+
+## 问题
+
+运行列表由 Rust Core 用 tree-sitter（一种只看语法、不懂类型的解析器）扫描源码
+生成。`rust/lithe-core/src/languages/java_syntax.rs` 的 `is_main_method` 要求
+`static`、恰好一个参数，因此 Java 25 的无参 main、实例 main 全部漏掉。同一个
+旧假设还复制在另外几处：`java.rs` 的 `main_declaration_index`、
+`execution/configuration.rs` 的 `main_class_exists`，以及 macOS
+`DebugLaunchSourceResolver.swift` 的正则。只改一处，另外几处照样会否决结果。
+
+测试发现也是同一个问题：Windows 用 `java.testMethods` 在本地扫描注解，看不见
+自定义组合注解（例如自己定义的 `@FastTest`）；macOS 先按 `*Test.java` 文件名
+筛选，再去问 JDT，文件名不符合的测试在问之前就被丢掉了。
+
+阶段 0 在 Linux 上实测（真 JDK 25 + 真 JDT）得出的事实：
+
+| 写法 | JVM 能运行 | 当前 JDT 1.38.0 | JDT 1.61.0 | 当前 Lithe 扫描 |
+| --- | --- | --- | --- | --- |
+| `public static void main(String[])` | 是 | 是 | 是 | 是 |
+| `static void main()`（#769） | 是 | 否 | 是 | 否 |
+| 实例 `void main(String[])` / `void main()` | 是 | 否 | 是 | 否 |
+| 紧凑源文件（整个文件没有 `class`） | 是 | 否 | 是 | 否 |
+| 从父类继承的 main | 是 | 否 | 否 | 否 |
+| `private` main、返回 `int` 的 main、字符串里的示例 | 否 | 否 | 否 | 否 |
+
+结论：**只改成“问 JDT”而不升级修不好 #769**，当前锁定的 JDT 1.38.0（2024-08）
+本身不认识这些写法。
+
+## 决策
+
+### 版本组合
+
+JDT 及插件作为一个整体锁定，并由真实 JDT 测试证明可用：
+
+- JDT LS 1.61.0
+- Java Debug 插件 0.53.2（来自 `vscode-java-debug` 0.59.0）
+- Java Test 插件 0.43.1（来自 `vscode-java-test` 0.46.0）
+- 运行 JDT 的 JDK 仍是内置 Temurin 21（JDT LS 从 1.44 起最低要求 21）
+- Lombok 1.18.46 保持不变（实测兼容）
+
+Java Test 需要的 jar 列表以 VSIX 中 `package.json` 的
+`contributes.javaExtensions` 为准，不再在脚本里写死数量。Windows 和 macOS 打包
+同一组 jar。
+
+### 数据流
+
+```text
+平台工作流（Windows run.store / macOS RunService）
+  → lsp.request(operation = "javaEntrypoints")
+  → Rust JDT 适配层调用 vscode.java.resolveMainClass
+  → Rust 整理成统一结果（相对路径、排序、去重、诊断）
+  → runConfig.generate(整理后的入口 + 项目模型)
+  → .lithe/run/generated.json
+```
+
+启动时同样使用 `javaEntrypoints` 的结果按源码路径挑选目标。平台代码不再各自
+解析 Java Debug 插件的原始 JSON。
+
+测试发现使用同一条边界：
+
+```text
+平台测试工作流
+  → lsp.request(operation = "javaTestItems", uri = 当前 Java 文件)
+  → Rust 调用 vscode.java.test.findTestTypesAndMethods
+  → Rust 校验并整理成版本化的类/方法树和 UTF-16 范围
+  → 平台只投影列表、Maven 选择器和 Debug 请求
+```
+
+macOS 会把工作区内每个 Java 源文件交给该操作，不按 `src/test` 或文件名预筛；
+Windows 会先同步当前编辑文档再请求该操作。两端都不再解析 Java Test 插件的
+原始发现 JSON，也不再调用本地 `java.testMethods`。
+
+### 正确做法
+
+- 需要知道“能不能运行 / 是不是测试”时，调用 `javaEntrypoints` 或 JDT 测试发现，
+  不要读源码自己判断。
+- Spring Boot 分类、配置 ID、排序、模块归属在拿到 JDT 结果之后由 Core 补充；
+  它们只能给已确认的入口加标签，不能新增或删除入口。
+- 列表状态分 `idle / loading / ready / stale / failed`。JDT 未就绪时显示上次
+  成功的结果并标记为刷新中；刷新失败不能用空列表覆盖旧结果；用户点运行时必须
+  重新向当前 JDT 确认。
+- 判断“运行列表是否过期”也以 JDT 为准：打开项目且 JDT 就绪后，平台把
+  `javaEntrypoints` 的结果传给 `runConfig.inspect`，由 Core 和已生成的 Java 入口
+  比对。输入指纹不再对全部 Java 源码做内容哈希（见
+  `.agents/notes/implemented/bug-fix/2026-09-22-run-panel-fingerprint-loading.md`）。
+
+### 阶段 D 的运行生成归属
+
+macOS 在生成配置前等待当前 Build 模型与导入，随后把模型的项目路径、Maven
+reactor 根及该项目的主/测试源码根交给 Core。Core 只校验、选取上游已经发布的
+归属，不再沿 Java 源码祖先寻找 POM，也不按 `src/test` 推断已提供模型的源码集。
+同一工作区有两个独立 reactor、都含 `app` 和同名 Main 类时，用工作区内完整
+模块路径区分配置；同一个 reactor 里原有配置 ID 保持稳定，避免丢失覆盖。原来已被合并成单个 ID 的多 reactor 记录无法确定归属时，旧覆盖由
+现有 orphan 诊断保留，不能猜测性地挂到其中一个新配置。
+
+`projectOwnership: []` 是明确的空模型，不能偷偷用 POM 补齐；不传该字段才保留
+现有 Windows 消费者的兼容路径。快照未准备好、失效或截断时宿主拒绝生成，
+工作区或 Build 代次变化后拒绝旧 JDT 答复。只转交声明 Java 导入的 Provider 模型，
+其他构建插件不能凭共享目录占用 Java 项目。Maven 后端现在从生效的
+`MavenProject.getBuildPlugins()` 识别框架，包含当前 Profile 和父 POM 继承；
+仅放在插件管理（pluginManagement）中的插件不算已经应用。模型通过公开属性
+`run.modelVersion` / `run.provider` 发布结果，宿主只投影项目名和服务标识。
+Core 收到当前快照后关闭旧 POM 框架检测，只生成与既有配置 ID 一致的服务。
+旧插件缺少模型版本时明确要求更新，不能退回宿主解析；后端缓存指纹包含扩展 JAR
+字节，更新扩展也会使旧快照失效。Java 编译版本要求也改由 Maven 的执行计划计算器
+（`LifecycleExecutionPlanCalculator`）及参数解析器提供：只计算到 `test-compile`，
+不执行目标；在克隆的会话里检查所有实际 compiler execution 的 release，或
+source/target，包含 Profile、继承、测试专用版本和自定义执行。不可解析时记录
+诊断并保持未知，不能再按 POM 属性名猜测。Core 只校验标准化版本并取当前工程的
+最高要求；本机 `.java-version` 不得降低已知编译下限。
+
+编译计划接口在 Maven 内部包中，3.6.3 已提供相同签名；扩展仍按 3.6.3 编译，
+升级时必须运行最低版本真实集成。已否决宿主正则和独立解析 compiler XML：它们
+不能重现 execution 合并和参数默认值。模型使用原有 Maven 本地仓库解析描述符，
+不新增缓存目录；状态和下载物不进入插件包，安装文件清单验证保持有效。
+Wrapper 的存在和发行版本也由 Maven 后端读取选定 reactor 的原生文件后发布。
+Java `Properties` 负责转义和注释语义，分发 URL 仅提取可识别发行文件名；自定义
+文件名保持未知。读取有 1 MiB 硬上限，不执行脚本，不导出可能含凭据的完整 URL。
+脚本与 properties 都参与后端指纹和宿主同步观察；脚本替换/删除必须撤销缓存。
+宿主把脚本投影成工作区相对路径；两个独立 reactor 不共用全局 Wrapper，实际
+Run 仍由平台按其 cwd 和工具选择解析。Windows `.cmd` 也参与生成指纹。
+这些模型事实继续使用现有仓库、状态与包生命周期，不新增资源目录；Core 收到
+快照时不读取 Wrapper 文件补齐。旧 Maven 启动规划仍待迁移，不能据此声称整个生成器已移出 Core。
+
+生成文档还记录模型摘要（`generator.providerFingerprint`）。文件没有改变不代表
+Profile 或插件仍然相同，所以检查与启动必须比较当前工程投影，不能只看文件指纹。
+项目和源码根排序不影响摘要，工程名、归属、角色、框架及工具要求变化都会使它
+过期；老文档缺少摘要时提示重新生成。摘要不含环境值或配置秘密。
+
+macOS 在模型存储提交后发事件，Run 列表异步检查；工作区、生成或模型变化会撤销
+旧答复；连续通知只保留一个在途检查和一次待处理读取，不累积后台文件检查。模型未加载、截断或失效时显示等待提示。真正启动前还要同步确认当前模型，
+覆盖主 Run、服务单项/批量、Agent 共用入口和 Java Debug 准备，不能把屏幕上的
+诊断当作授权。切回原 Profile 可以重新匹配同一份生成文档，但不能让旧异步任务
+借 ABA 变化发布结果；操作代次与语义摘要解决的是不同问题。
+
+正确例子：Maven 模型把 `custom-checks` 声明为测试源码，即按测试源码生成配置。
+不要因为路径里没有 `test` 就改成主源码，也不要遇到损坏的 POM 就覆盖上游提供的
+已验证工程归属。共享 fixture 在损坏 POM 下同时验证两条 reactor、同名类、自定义
+源码角色和空模型；Swift 使用真实 Core bridge 验证同一份 fixture。该 fixture 只证明 Core 不解析 POM；
+生产宿主仍须在 POM 变化后撤销旧模型，不能借此复用失效快照。
+
+### Spring 服务也必须有已确认的入口
+
+Maven 的 Spring Boot 插件可以由父模块继承；继承到插件的库模块不一定包含
+可运行应用。自动生成时，插件检测只提供候选，只有同一模块中恰好存在一个
+JDT 已确认、被分类为 Spring Boot 的非测试入口，Core 才保留服务配置并绑定
+入口源码。普通工具 main 和测试 main 仍以独立 Java 入口出现，多个 Spring
+入口则保留各自的 Java 配置，不猜测模块默认启动哪个类。
+
+例如父项目把插件传给 `app` 和 `library`，只有 `app` 有确认的应用入口时，
+服务列表只增加 `app`。不要因为 `library/nested` 有入口而把 `library` 也当作
+服务：匹配使用最具体模块的相等关系，不使用源码路径前缀来借用子模块入口。
+模块位置从已确认入口的源码集合推导，不依赖编辑器此次上传的文件列表是否完整。
+
+JDT 尚未完成发现时，已有确认入口可沿用上次生成结果；没有上次结果就不虚构
+服务。明确返回空入口后移除自动服务。用户主动保存的 Maven-goal 配置仍保留
+原身份与参数；阶段 D 的 macOS 入口重新交给 Provider 准备，Windows 暂时保留
+原共享调用。这条规则只收紧自动发现。生成器 revision 同步增加，使旧缓存
+不能长期保留误识别的库模块。已有真实服务的 ID 不变，用户覆盖配置仍可关联。
+
+### 不要这样做
+
+- 不要在 Core 或平台代码里写“main 方法长什么样”“测试注解叫什么”的规则，
+  哪怕只是兜底。兜底会变回第二套标准，下一次 Java 升级又会出同样的 bug。
+- 不要在 JDT 不可用时偷偷退回本地扫描；应显示“Java 服务未就绪/不可用”。
+- 不要为了 Java 21–24 的 preview 项目写本地识别：JDT 1.61.0 的编译器只允许在
+  它支持的最新版本（26）上开启 preview，这是上游限制，编辑器会直接显示 JDT
+  的报错。
+
+## 考虑过的备选方案
+
+### 放宽 `is_main_method` 的规则
+
+改动最小，几行就能让 #769 的写法出现。但它只是把规则更新到 Java 25，下一次
+语言变化还会重演；而且继承的 main、组合注解这类需要类型信息的情况，语法扫描
+永远看不到。负责人明确要求不打补丁、一次根治。
+
+### 先发临时修复，再做迁移
+
+外部评审（Codex）建议 P0 先发一个标明待删的最小修复。负责人否决：宁可让用户
+多等，也不引入第二套标准。
+
+### 本地扫描作为 JDT 未就绪时的兜底
+
+能避免冷启动时列表为空。但它会造成“先显示 3 个、JDT 就绪后变 5 个”的跳动，并
+重新引入双真源。改用“显示上次成功结果 + 刷新中”解决冷启动问题。
+
+### 一次迁移所有“语义类”功能（跳转定义、引用计数等）
+
+原则上一致，但会让 #769 没有边界。判断标准是：是否影响“JDT 找到的入口能否出现
+在列表、能否被选中、能否启动”。入口发现、启动解析、测试发现在范围内；跳转定义
+的正则、引用计数、参数提示另开 issue。
+
+## 验证
+
+- 生成身份增量：1399 项普通 Core 计时通过，源码根排序与归属变化的最终定向
+  复验也通过；289 项 Swift（含迟到检查的输入/工作区/重置三种顺序、100 次通知
+  合并为一次后续读取）通过。新异步用例均为 1 毫秒，生产 Swift bridge fixture
+  42 毫秒，关闭时先移除订阅再停止 Provider，后续 4 项生命周期定向复验通过。
+  当前源码 SDK E2E 6 项、完整 Rust crates、Core/共享/服务/Windows 边界及最终
+  C ABI/24 项 Swift bridge 通过。首轮应用早期 AskPass 辅助进程未在 5 秒内连接，
+  串行复验在相同期限下 4.359 秒通过，没有延长超时。4 项真实 macOS Provider 集成通过；默认 Profile A→B→A 在 POM
+  不变时使已存生成过期/恢复，7.496 秒。另显式执行 3 项真实 JDT，含 Cargo
+  进程的计时 26.984/13.763/10.486 秒，验证过滤资源和运行路径仍到达实际 JVM，
+  退出后安装包清单不变。旧失败计时保留作诊断，后续 complete/native 报告是通过依据。
+- Wrapper 增量：1399 项含真实 JDT 的 Core/集成、286 项 Swift、4 项生产
+  Provider 和完整 Rust/24 项 bridge 通过。共享 Core fixture 21 毫秒验证双根不
+  共用 Wrapper、单根 Windows 脚本及 `.cmd` 内容变化影响指纹；Swift fixture
+  33 毫秒。真实 Core→Maven 19 项、缓存 17 项、受控原生 16 项、常规 Maven
+  16 项通过；Wrapper 原生 properties、脚本缓存撤销和超限文件拒绝 3.739 秒。
+  后端指纹改为有单文件 64 MiB 上限的流式哈希，避免新增脚本输入触发整文件分配。
+  最终包再次执行 3 项真实 JDT，含 Cargo 启动的计时为 16.199/8.056/6.940 秒；
+  退出、安装目录文件清单和进程清理均通过。HTML 由现有有界进程/报告入口生成，
+  每项命令 600 秒期限，目标测试本身继续使用原有 JDT 操作期限。
+- 编译要求增量：1399 项含真实 JDT 的 Core/集成计时、286 项 Swift、4 项生产
+  Provider 集成和完整 Rust/24 项 bridge 通过。真实 Core→Maven 18 项通过，
+  编译计划场景 2.964 秒，覆盖 Profile/testRelease、自定义 execution、模块覆盖、
+  Maven 将缺失表达式视为未设置、非法语言版本保持未知，以及损坏 POM 不改变
+  已提供要求。Core fixture 19 毫秒，生产 Swift bridge 21 毫秒。
+  Provider→JDT→JVM 场景 17.038 秒；普通入口与链接工作区分别 10.750/6.433 秒。
+- 框架识别增量：1399 项 Core 计时、286 项 Swift、4 项生产 macOS Provider 集成、
+  C ABI/24 项 bridge 及完整 Rust crates 通过。共享 fixture 经 Core 22 毫秒和
+  真实 Swift bridge 32 毫秒验证；缺少后端元数据的模型拒绝生成，2 毫秒。
+  真实 Core→Maven 17 项通过，其中 Profile/继承、仅插件管理及损坏 POM 下的框架
+  配置生成 2.127 秒；退出后包文件清单不变。该轮普通 Core 计时没有启用真实 JDT，
+  真实 JDT 的证据仍是下述专用集成记录；不能把早退用例当成新的 JDT 运行证据。
+- 2026-10-30 的归属生成增量通过 1399 项 Core/集成计时与 285 项 Swift 回归。
+  新共享 fixture 的 Core 用例 17 毫秒；Swift 使用生产存储和真实 Core bridge，验证
+  生成文档的 reactor、模块、同名配置 ID 与源码角色。Windows Cargo 检查与同一
+  preview 基线保持相同的两项 macOS 平台错误，无新增 Rust 调用类型错误，不代表
+  Windows 实机通过。当前源码快照的 SDK E2E 6 项通过。
+
+- Rust 单元与契约测试覆盖入口点和测试项的版本化规范化、错误结果、Windows 路径、
+  Maven 多模块同名类，以及旧生成结果在 JDT 未就绪时的保留。
+- 真实 JDT 测试使用 JDK 25 项目验证 `static void main()`、实例 main、紧凑源文件，
+  排除 `private`/错误返回类型/字符串示例，并实际编译运行 #769 的入口。
+- 同一真实测试让 Java Test/JDT 发现自定义组合注解和继承来的测试，再用 Maven
+  精确运行这两个非传统命名测试并检查执行标记。
+- 真实 JDT 测试 `real_jdtls_lists_entrypoints_and_classpaths_behind_a_symbolic_link`
+  通过符号链接打开工作区，要求仍然列出入口；去掉作用域解析后它会得到空列表。
+- ~~scripts/architecture/verify-no-host-language-specifics.mjs~~（脚本已随旧客户端移除） 阻止已删除的本地入口/测试扫描标识符
+  回到 Rust、macOS 或 Windows 产品源码。
+- Windows 和 macOS 打包同一份上游 `contributes.javaExtensions` bundle 列表；
+  Windows CI 的独立真实 JDT 任务只在 Java/JDT 相关路径变化时运行。
+
+## 后果
+
+收益是 Java 语言版本升级、组合注解和继承等语义变化只需要跟随 JDT，不会再要求
+三个实现各自追上规则。代价是运行列表和测试列表必须等待 Java 服务准备完成，
+真实 JDT 集成验证也比纯解析器单元测试更慢。
+
+- `vscode.java.resolveMainClass` 是插件内部命令，不是公开标准。升级插件可能
+  悄悄改变返回格式，所以版本必须锁定，并用契约测试和真实 JDT 测试盯住。
+- 插件在内部出错时可能返回空列表，产品层无法和“确实没有入口”区分。只能靠
+  状态机不让失败覆盖旧结果、真实 JDT 测试和日志关联降低风险。
+- `vscode.java.resolveMainClass` 使用当前 JDT 会话的完整查询（空 arguments），
+  然后由既有 Core normalizer 按打开的工作区与解析链接后的目录筛选源码归属。
+  2026-11-03 Windows 实机中，同一会话的路径查询返回空，完整查询和项目名查询
+  都返回 Main。检查打包的 Java Debug 0.53.2 字节码确认：路径查询先用项目自身
+  所在目录缩小搜索范围，plain Java 的隐式项目位于 JDT 可写缓存，因此在检查
+  链接源码前就被过滤。仅解析工作区链接仍不能修复此问题。
+  不按空结果猜测源码、不新增 Main，也不绑定不稳定的 JDT 项目名；使用上游已有
+  完整查询后仍拒绝相邻或外部工作区的源码。既有链接路径回归继续保护 macOS
+  `/tmp`、`/var` 等路径；新增真实 plain 文件夹回归保护隐式项目入口发现。平台
+  代码不要自己拼作用域，也不要假设打开时的路径就是 JDT 看到的路径。
+- 同一个根因也影响诊断：JDT 以规范路径发布 `textDocument/publishDiagnostics`
+  （`/private/tmp/...`），宿主却是用 `/tmp/...` 打开的文档，客户端归约器按文本匹配
+  URI，会丢掉整个工作区的 Java 错误。Rust 引擎因此在归约前把这类诊断改写成对应的
+  已打开文档 URI（`diagnostics_addressed_to_open_document`），它对所有语言生效。
+  服务器会为大量未打开的文件发布诊断，这是热路径，所以只有“经链接打开”的文档才可能
+  成为改写目标，引擎在会话里记住这类文档的规范路径（`LinkedDocumentPaths`）；没有
+  这类文档时每条诊断都不做文件系统调用，有时只对被发布的文件做一次 `canonicalize`。
+  该规则只覆盖“服务器报告规范路径、宿主经链接打开”这一方向。
+- 从父类继承的 main 目前 JDT 也识别不到（JVM 能运行）。这是上游缺口，不在本地
+  补规则，记录为已知限制。
+- JDT 升级影响补全、跳转、Maven 导入等全部 Java 功能，需要单独回归。
+
+## 适用范围
+
+- 已迁出：原 `rust/lithe-core/src/languages/`。Java/JDT LS/Spring 专属逻辑已从 Core 移入 Java 插件后端（[lithe-plugin-java](https://github.com/Lithe-IDEA/lithe-plugin-java) 的 `backend/`），Core 只保留通用能力（#1495）；Windows 过渡期副本在 `windows/tauri/crates/lithe-legacy-tooling/`。
+- Lithe-core-rust 锁定修订：[rust/lithe-core/src/lsp/languages/](https://github.com/Lithe-IDEA/Lithe-core-rust/tree/0ffd327b4329261e393b08ed76fbd134b4dd17e9/rust/lithe-core/src/lsp/languages)
+- Lithe-core-rust 锁定修订：[rust/lithe-core/src/execution/configuration.rs](https://github.com/Lithe-IDEA/Lithe-core-rust/blob/0ffd327b4329261e393b08ed76fbd134b4dd17e9/rust/lithe-core/src/execution/configuration.rs)
+- ~~`third_party/jdtls/manifest.json`~~（已随 #1794 移除）
+- 已迁出：原 `scripts/macos/prepare/prepare-jdtls.sh`。Java/JDT LS/Spring 专属逻辑已从 Core 移入 Java 插件后端（[lithe-plugin-java](https://github.com/Lithe-IDEA/lithe-plugin-java) 的 `backend/`），Core 只保留通用能力（#1495）；Windows 过渡期副本在 `windows/tauri/crates/lithe-legacy-tooling/`。
+- ~~`scripts/windows/prepare/prepare-jdtls.ps1`~~（脚本已随旧客户端移除）
+- ~~`windows/tauri/src/features/run/`~~（已随 #1794 移除）
+- ~~`windows/tauri/src/platform/lsp-core-adapter.ts`~~（已随 #1794 移除）
+- ~~`macos/Sources/LitheExecutionModule/Services/`~~（已随 #1794 移除）
+- ~~`.github/workflows/ci-windows.yml`~~（已随 #1794 移除）
+- 相关笔记：
+  `.agents/notes/implemented/feature/2026-09-20-run-configuration-discovery-quality.md`、
+  `.agents/notes/implemented/architecture/2026-09-18-java-project-build-and-launch-boundary.md`
+
+## 运行生成的通用构建项目引用
+
+阶段 D 后续把归属投影中的 `mavenReactorPath` 改为完整构建项目身份：插件、构建声明、
+实例根和 Provider 项目 ID。Core 只校验身份、路径包含与源码角色，不据此解析 Maven；
+主类和相对模块来自已有 Java 入口事实，写在 `extensions.java`，生成结果没有 Maven
+扩展或 Maven 工具绑定。源码归属指纹包含这份完整身份，改名、换包、目标撤回或模型
+未准备不能复用旧结果。
+
+原生 Run 持有这份引用，Java 准备向当前启用的同一构建模型取导入输入。四个身份任一
+不符、模型过期或重开到另一个工作区都拒绝；不按显示名称、祖先 POM 或工作目录补猜。
+用户修改 cwd 不改变归属，团队/本机层也不能伪造生成项的构建身份。旧 Windows 调用者
+尚未传入归属时继续走已有兼容路径；它的 Maven 业务须随真实消费者切换删除，不能把
+本次通用引用当成整个 Java/Windows 迁移完成。
+
+JDT 暂时没有源码结果时，Provider 已知的 Java 编译版本仍生成 JDK 要求；否则删除
+Maven reactor 字段后，首次导入可能误把当前工程当成不需要 Java。缺失版本仍是未知，
+不能据此重新解析 POM 或从框架名称猜测。
+
+验证使用共享损坏 POM fixture 的 Rust、Swift 生产桥接与 Windows 映射，并检查精确
+导入查询的错误插件、构建声明、根和项目，以及模型撤销后的拒绝。

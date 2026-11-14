@@ -4,11 +4,9 @@
 
 ## 先说结论
 
-macOS 已有数学公式和 Mermaid 图表的离线引擎，不需要再造解析器或接在线服务。
+Viva 桌面端的 Markdown 预览已有数学公式和 Mermaid 图表的离线引擎，不需要再造解析器或接在线服务。
 本次补上 KaTeX 的化学扩展 mhchem，使 `\ce{...}` 反应式和 `\pu{...}` 物理单位可用，
-并启用 Comrak 现成的下标扩展。macOS PlantUML 已由独立改动接入，见
-[离线 PlantUML 预览](2026-11-01-macos-offline-plantuml.md)；Windows 方言对齐等仍未完成，
-不能因这些 macOS 增强而把 Issue #706 当作整体完成。
+并启用 Comrak 现成的下标扩展。PlantUML 不在本笔记范围内，不能因此把 Issue #706 当作整体完成。
 
 ## 问题
 
@@ -26,7 +24,7 @@ KaTeX 是把 LaTeX 数学语法转换为网页公式的成熟库，但基础库�
 - 开启 Comrak 的 `subscript`。单波浪线表示下标，双波浪线仍表示删除线，
   代码中的字面语法保持原文。正确例子是 `H~2~O`，不要用正则替换全文中的 `~`，
   否则代码、删除线和公式会被误改。
-- 共享输入加真实 WebKit 浏览器引擎回归，同时检查数学、化学、Mermaid 生成的 SVG、
+- 共享输入加浏览器引擎回归，同时检查数学、化学、Mermaid 生成的 SVG、
   脚注及回链，不能仅断言代码块带有语言类名就声称图表可用。
 
 ## 考虑过的备选方案
@@ -42,7 +40,7 @@ KaTeX 是把 LaTeX 数学语法转换为网页公式的成熟库，但基础库�
 
 数学公式、化学反应、单位和上下标可以在无网络预览中共存，新增脚本与已有 KaTeX 版本绑定。
 代价是需要随 KaTeX 更新一起核对扩展、许可、来源哈希及真实引擎回归。
-GitHub 特有媒体及 Windows 方言对齐不是本批已交付能力；macOS PlantUML 的能力和限制以独立笔记为准。
+GitHub 特有媒体不是本笔记已交付的能力。
 
 这些模板和第三方脚本是 Git 输入，构建复制后再签名，运行时只读加载。
 渲染状态仅在内存和非持久 WebKit 中存活，不新增缓存、下载或安装目录写入；
@@ -51,19 +49,17 @@ GitHub 特有媒体及 Windows 方言对齐不是本批已交付能力；macOS P
 
 ## 验证
 
-- `cargo test --manifest-path rust/Cargo.toml -p lithe-core project::markdown::tests`。
-- `./.agents/skills/write-stable-tests/scripts/test-stability-macos.sh -- --filter MarkdownPreviewRichContentTests`：
-  深浅主题使用生产 Rust bridge 和打包模板，检查公式与可访问数学标记 MathML、图表、脚注和代码，
-  并比较运行前后全部预览文件 SHA-256，检查没有远程资源请求。
+- `scripts/desktop/desktop-go.sh test ./internal/webpreview/... -count=1`（在 `desktop/` 下运行）：预览模板与资源的回归。
 - `node --test scripts/resources/test-reuse-worktree-resources.mjs`：拒绝跨工作树复制预览资源。
 - `./scripts/desktop/verify/verify-runtime-bundle-immutability.sh`。
 
-原生组件测试不代替完整应用操作验收，Windows 运行时未在本批验证。
+浏览器引擎回归不代替完整应用操作验收。
 
 ## 适用范围
 
 - Lithe-core-rust 锁定修订：[rust/lithe-core/src/project/markdown.rs](https://github.com/Lithe-IDEA/Lithe-core-rust/blob/0ffd327b4329261e393b08ed76fbd134b4dd17e9/rust/lithe-core/src/project/markdown.rs)
-- ~~`macos/Sources/Lithe/Resources/MarkdownPreview/`~~（已随 #1794 移除）
-- ~~`macos/Tests/LitheTests/MarkdownPreviewRichContentTests.swift`~~（已随 #1794 移除）
+- `desktop/internal/webpreview/assets/markdown.js`
+- `desktop/internal/webpreview/assets/markdown.css`
+- `desktop/internal/webpreview/assets/THIRD_PARTY_NOTICES.md`
 - `https://github.com/Lithe-IDEA/Lithe-core-rust/blob/main/rust/fixtures/editor/markdown-rich-content-v1.json`
 - `scripts/resources/worktree-resources.json`

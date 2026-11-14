@@ -8,7 +8,7 @@
 
 这次同时定下了能力的三个方向：插件提供**领域能力**（构建模型、依赖树，契约归 Lithe）、插件提供**插件函数**（契约归插件）、插件调用**宿主能力**（契约归宿主）。领域操作仍走类型化的 `lithe/build/*`，插件函数不能代替它；后端也不能请宿主再派发领域操作或函数，避免处理器绕回自己。
 
-Rust Core 负责校验、路由、协商和测试（`lsp/interface/plugin_function.rs`、`lsp.functionRequest`）。macOS 宿主的调用入口见[宿主调用插件函数的入口](2026-10-20-host-plugin-function-invocation.md)：只有插件自己的网页、只对插件自己的构建 Provider 进程。版本 1 不提供任何宿主能力。旧插件包和旧后端不受影响。
+Rust Core 负责校验、路由、协商和测试（`lsp/interface/plugin_function.rs`、`lsp.functionRequest`）。桌面端的调用入口见[宿主调用插件函数的入口](2026-10-20-host-plugin-function-invocation.md)：只有插件自己的网页、只对插件自己的构建 Provider 进程。版本 1 不提供任何宿主能力。旧插件包和旧后端不受影响。
 
 函数默认仍然私有。协议 4（见决策 8）新增了一条经过 Core 中转的跨插件通道：插件在清单里用 `pluginFunctions.exports` 明确选择导出函数、用 `calls` 声明要调用的函数，协商到协议 4 的后端用 `lithe/host/functions/providers` 与 `lithe/host/functions/invoke` 发现并调用。这条通道只放宽“私有”这一条，不放宽下面的递归、归属和信任规则。
 
@@ -19,9 +19,6 @@ Issue #1351 要把 Maven、Gradle 这类插件从“只给声明”推进到“�
 - **声明式 `buildSystems`**：Core 计划命令、解码输出。能力固定为模型、任务、测试、依赖等十个能力块，插件自己的一次性动作（刷新私有快照、准备安装）没有位置。
 - **构建 Provider（`litheBuild`）**：LSP 基础协议进程，只回答 `lithe/build/model` 和 `lithe/build/dependencies`，回复由 Core 解码。它是领域协议，不适合放插件私有动作。
 - **LSP 引擎**（`lsp/interface/engine.rs`）：已经有请求超时、`$/cancelRequest`、迟到回复丢弃和 `client/registerCapability`，是现成可复用的调用机制。
-- **macOS `ModuleContracts.swift`**：有事件和贡献点，但没有回复、进度和取消。`MacPluginStartupLoader` 不加载插件代码。
-- **macOS `PluginWebBridge`**：网页插件只能调用固定的 `build.*` 方法。
-- **Windows `ui-extension-worker-runtime.ts`**：有 `hostCall`（数字 ID）和 `commands.register`，超时在 `ui-extension-host.ts`；它是 UI 扩展通道，跟后端进程无关。
 
 如果不先定边界，后续很容易出现两种坏结果：一是给每个插件开一个“万能调用”通道，把构建协议也塞进去，宿主和其他平台就再也无法按类型理解结果；二是插件处理器调用宿主的“运行任务”，宿主又把任务路由回同一个插件，处理器等待自己，直到超时。
 
@@ -95,7 +92,7 @@ Issue #1351 要把 Maven、Gradle 这类插件从“只给声明”推进到“�
 
 **信任不传递。** 被调方用自己的权限、状态目录和凭据运行；调用方的权限不会借给它，被调方的权限也不属于调用方。Core 不把调用方的插件 ID 写进被调方的会话身份，只在转发的 `lithe/function/invoke` 里加一个由 Core 填写的顶层 `caller: {pluginID}`，仅在被调方协商到协议 4 时出现，宿主自己发起的调用没有这个字段（没有即宿主）；调用方在宿主请求里自带的同名顶层字段会被 `plugin.host.unsupportedOption` 拒绝，所以按调用方区分的状态可以放心以它为键。导出函数不得接受调用方传来的可执行文件路径或命令并据此启动进程，这条写进契约 README，由被调方自己负责。没有新增权限项：调用方的 `calls` 声明加被调方的 `exports` 就是双方的同意。
 
-**被调方没在运行。** Core 只发出运行时事件 `functionProviderStartRequired {pluginID}`；宿主（Swift）把它当作 I/O，按普通的插件启动流程启动那个后端，Core 等被调方协商并注册函数后再派发，最多等 30 秒，超时按 `plugin.function.providerUnavailable` 失败。Core 从不替宿主启动后端，也不自动重试。
+**被调方没在运行。** Core 只发出运行时事件 `functionProviderStartRequired {pluginID}`；宿主把它当作 I/O，按普通的插件启动流程启动那个后端，Core 等被调方协商并注册函数后再派发，最多等 30 秒，超时按 `plugin.function.providerUnavailable` 失败。Core 从不替宿主启动后端，也不自动重试。
 
 **热激活。** 宿主用 Core 命令 `lsp.configureFunctionRelay` 发布插件与工作区上下文的快照，Core 据此更新发现结果，并让快照已不允许的进行中调用立刻以明确的错误结束：被调方被禁用、卸载、更新后不再导出或改了版本是 `providerDisabled`，被调方后端退出或撤回函数是 `providerUnavailable`，调用方更新后不再声明是 `notDeclared`。工作区上下文被宿主关闭，或 generation 被替换成更新的值时，携带该上下文的中转调用以 `plugin.host.contextExpired` 结束，既包括还在等被调方启动的调用，也包括已经在运行的调用，运行中的被调方同时收到取消。禁用、启用、替换和卸载对中转即时生效，不需要重启。但只在启动时注册带后端插件的宿主（目前是 macOS），要重启后才会在发现结果里列出新安装或更新的带后端插件。
 
@@ -147,9 +144,9 @@ Maven 插件窗口的“刷新快照”按钮
 
 后端直接回显宿主 ID 虽少一次映射，但函数 A 已结束、宿主用同一 ID 调用函数 B 时，A 的迟到进度仍会被误认成 B。永久保存已用 ID 并拒绝复用也能隔离，却会引入随会话历史增长的墓碑集合，并改变宿主调用习惯。采用每次调用唯一的后端 ID：只保留正在执行的关联，后端原样回显，宿主接口继续允许在终止后复用 ID；代价是 Core 必须在全部终止路径删除关联并在事件出口转换 ID。
 
-### 让调用方直接连被调方的进程，或由宿主在 Swift 里中转
+### 让调用方直接连被调方的进程，或由宿主层中转
 
-让两个后端互相知道对方的管道，或在 macOS 层按插件名转发。被否：调用方会看到被调方的进程细节，清单声明、调用链、取消和限额无处统一执行，Windows 也要再写一份。所有检查放在 Rust Core，宿主只做“启动被调方后端”这一步 I/O。
+让两个后端互相知道对方的管道，或在宿主层按插件名转发。被否：调用方会看到被调方的进程细节，清单声明、调用链、取消和限额无处统一执行，Windows 也要再写一份。所有检查放在 Rust Core，宿主只做“启动被调方后端”这一步 I/O。
 
 ### 导出时带上调用方的权限，或在被调方会话里写入调用方身份
 
@@ -174,10 +171,10 @@ Maven 插件窗口的“刷新快照”按钮
 - 代价：函数不进清单，安装审查看不到插件会提供哪些函数；如果以后函数需要额外权限，必须随新协议版本补审查。
 - 代价：本 Note 只覆盖 Core 一侧；宿主入口另见[宿主调用插件函数的入口](2026-10-20-host-plugin-function-invocation.md)，宿主能力仍未开放。
 - 后续：后端一侧的官方实现见 [官方插件后端 SDK（Node）](2026-10-20-plugin-backend-sdk.md)，它只实现本契约，不新增线上字段。
-- 收益：跨插件调用的所有判断（声明、导出、版本、调用链、深度、并发、字节上限、超时、取消）都在 Rust Core，macOS 与 Windows 以后共用；macOS 宿主只发布快照和启动被调方后端。
+- 收益：跨插件调用的所有判断（声明、导出、版本、调用链、深度、并发、字节上限、超时、取消）都在 Rust Core，桌面端与其他平台共用；宿主只发布快照和启动被调方后端。
 - 收益：每个后端会话有自己的一条写入队列。某个后端不读它的 stdin（标准输入），只会拖慢发给它自己的调用和回复，其他插件的中转调用照常进行。
 - 代价：如果对某个后端的写入卡住超过请求超时，Core 会把这个会话按传输失败结束（`transportFailed`，阶段 `relayWrite`），它的调用和任何会话失败一样结束，不会再继续等。
-- 代价：macOS 对带后端的插件仍只在启动时注册，所以新安装或更新的后端插件要重启后才会出现在发现结果里；禁用、启用、替换和卸载是即时的。让带后端的插件免重启激活属于 #1515 的后续工作。
+- 代价：宿主对带后端的插件仍只在启动时注册，所以新安装或更新的后端插件要重启后才会出现在发现结果里；禁用、启用、替换和卸载是即时的。让带后端的插件免重启激活属于 #1515 的后续工作。
 - 代价：没有操作系统级沙盒，隔离仍只到进程和通信通道。
 
 ## 验证
@@ -185,9 +182,6 @@ Maven 插件窗口的“刷新快照”按钮
 - `cargo test -p lithe-core --lib plugin_function`：`function-protocol.json` 的协商、注册、调用、结果、进度和后端请求全部标准答案，以及消息截断、超大结果和注册上限。
 - `cargo test -p lithe-core --lib lsp::interface::engine`：用脚本化后端覆盖路由与结果、失败与插件错误码、初始函数列表（包括空列表）只靠事件发现、取消/超时/成功/失败/撤回后复用宿主 ID 的迟到进度隔离、函数结束后复用 ID 发构建请求不受旧函数撤回影响、会话停止/失败后清空注册表且迟到注册不能恢复能力、自身超时、只支持 `litheBuild` 的旧后端照常工作、宿主自有会话不提供函数、后端请求回调自己被拒绝。
 - `cargo test -p lithe-core plugins::plugin_functions`、`cargo test -p lithe-core lsp::interface::function_relay`、`cargo test -p lithe-core lsp::interface::engine`：`pluginFunctions` 清单校验，纯逻辑的深度与并发限额，以及用脚本化后端覆盖发现与调用、每一个拒绝码及其顺序、调用链、取消沿链传播、被调方未运行时的启动请求与超时、热激活后的进行中调用、`caller` 字段只在协议 4 出现且伪造被拒、旧后端不受影响。示例用一个 Python 插件调用一个 Go 插件的导出。
-- ~~scripts/macos/test/test-macos.sh --filter "MacPluginBackendSessionsTests|PluginHostServiceDispatchTests|PluginPublicHostAPITests"~~（随旧客户端移除）：快照发布、启动被调方后端的 I/O、`functions` 服务授权。
-- ~~./scripts/architecture/verify-shared-contracts.sh~~（随旧客户端移除）：`function-protocol.json` 的 schema 版本、协议名、用例名唯一、错误码都在 README 里有文档、不含机器路径。
-- ~~./scripts/rust-core/verify-rust-core.sh~~（随旧客户端移除） 与 ~~./scripts/rust-core/verify-rust-core-comments.sh~~（随旧客户端移除）：Core 编译、测试和注释规范。
 
 ## 适用范围
 
@@ -195,7 +189,6 @@ Maven 插件窗口的“刷新快照”按钮
 - Lithe-core-rust 锁定修订：[rust/lithe-core/src/lsp/interface/function_relay.rs](https://github.com/Lithe-IDEA/Lithe-core-rust/blob/0ffd327b4329261e393b08ed76fbd134b4dd17e9/rust/lithe-core/src/lsp/interface/function_relay.rs)
 - Lithe-core-rust 锁定修订：[rust/lithe-core/src/lsp/interface/engine_function_relay.rs](https://github.com/Lithe-IDEA/Lithe-core-rust/blob/0ffd327b4329261e393b08ed76fbd134b4dd17e9/rust/lithe-core/src/lsp/interface/engine_function_relay.rs)
 - Lithe-core-rust 锁定修订：[rust/lithe-core/src/plugins/plugin_functions.rs](https://github.com/Lithe-IDEA/Lithe-core-rust/blob/0ffd327b4329261e393b08ed76fbd134b4dd17e9/rust/lithe-core/src/plugins/plugin_functions.rs)
-- ~~`macos/Sources/Lithe/Platform/MacOS/Plugins/MacPluginBackendSessions.swift`~~（已随 #1794 移除）
 - Lithe-core-rust 锁定修订：[rust/lithe-core/src/lsp/interface/client.rs](https://github.com/Lithe-IDEA/Lithe-core-rust/blob/0ffd327b4329261e393b08ed76fbd134b4dd17e9/rust/lithe-core/src/lsp/interface/client.rs)
 - Lithe-core-rust 锁定修订：[rust/lithe-core/src/lsp/interface/engine.rs](https://github.com/Lithe-IDEA/Lithe-core-rust/blob/0ffd327b4329261e393b08ed76fbd134b4dd17e9/rust/lithe-core/src/lsp/interface/engine.rs)
 - Lithe-core-rust 锁定修订：[rust/lithe-core/src/protocol/command.rs](https://github.com/Lithe-IDEA/Lithe-core-rust/blob/0ffd327b4329261e393b08ed76fbd134b4dd17e9/rust/lithe-core/src/protocol/command.rs)
@@ -203,4 +196,3 @@ Maven 插件窗口的“刷新快照”按钮
 - `https://github.com/Lithe-IDEA/Lithe-core-rust/blob/main/shared/plugins/contract/v1/README.md`
 - `https://github.com/Lithe-IDEA/Lithe-core-rust/blob/main/shared/plugins/contract/v1/fixtures/backend/function-protocol.json`
 - `https://github.com/Lithe-IDEA/Lithe-core-rust/blob/main/rust/contracts/rust-core-api.md`
-- ~~scripts/architecture/verify-shared-contracts.sh~~（脚本已随旧客户端移除）
