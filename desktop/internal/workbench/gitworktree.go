@@ -4,9 +4,7 @@ import (
 	"context"
 	"errors"
 	"path/filepath"
-	"slices"
 	"strings"
-	"unicode"
 
 	"github.com/1lck/Lithe-IDEA/desktop/internal/core"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/i18n"
@@ -30,11 +28,6 @@ const (
 	// worktreeLoadMoreMargin is how near the end of the history the list is scrolled when the
 	// next page is read.
 	worktreeLoadMoreMargin = 200
-	// worktreeLeafFallback is the last part of a suggested destination when the dialog's
-	// inputs name nothing.
-	worktreeLeafFallback = "worktree"
-	// worktreeRevisionLeaf is how many characters of a typed revision name a destination.
-	worktreeRevisionLeaf = 9
 )
 
 // worktreeDialog is the dialog of the Worktrees tab that is open over the window.
@@ -62,18 +55,6 @@ const (
 
 // worktreeTabs are the details' tabs in the order they are shown.
 var worktreeTabs = []worktreeTab{worktreeTabOverview, worktreeTabChanges, worktreeTabHistory}
-
-// worktreeStatus is the one state a worktree's row shows, the most pressing of what is true of
-// it: a missing checkout, then a lock, local changes, being the open one, and otherwise none.
-type worktreeStatus uint8
-
-const (
-	worktreeAvailable worktreeStatus = iota
-	worktreeCurrent
-	worktreeModified
-	worktreeLocked
-	worktreeMissing
-)
 
 // The modes a worktree can be created in, in the order the dialog offers them.
 var worktreeModes = []string{core.GitWorktreeNewBranch, core.GitWorktreeExistingBranch, core.GitWorktreeDetached}
@@ -132,17 +113,38 @@ type worktreeCreation struct {
 	// reference is the FullName of the chosen reference, empty for none.
 	reference string
 	name      ui.Field
-	// typed is the name the preview was made for, so it is made again only when the name
-	// changes.
-	typed    string
-	preview  core.BranchNamePreview
-	revision ui.Field
-	// destination is the path of the new checkout. It follows the suggestion the inputs make
-	// for as long as it holds the last suggestion, that is until the user edits it.
+	revision  ui.Field
+	// destination is the path of the new checkout. Core keeps it on the suggestion the inputs
+	// make for as long as it holds the last one, suggested, that is until the user edits it.
 	destination ui.Field
 	suggested   string
-	noCheckout  bool
-	after       worktreeAfterCreate
+	// result is Core's preview of the inputs: the references to choose from, the cleaned and
+	// checked branch name, the destination and whether the worktree can be created. key is the
+	// inputs it was made for, so it is made again only when they change.
+	result     core.GitWorktreeCreationPreview
+	key        worktreeCreationKey
+	noCheckout bool
+	after      worktreeAfterCreate
+}
+
+// worktreeCreationKey is what a creation preview is made from: the dialog's inputs, whether
+// the references were read, and the reading of the list that tells which branches are
+// checked out.
+type worktreeCreationKey struct {
+	mode, kind, reference       string
+	name, revision, destination string
+	refsLoaded                  bool
+	listGen                     int
+}
+
+// inputs is the key of a preview of the dialog's inputs as they stand; gen is the reading of
+// the worktree list.
+func (cr *worktreeCreation) inputs(gen int) worktreeCreationKey {
+	return worktreeCreationKey{
+		mode: cr.mode, kind: cr.kind, reference: cr.reference,
+		name: cr.name.Text(), revision: cr.revision.Text(), destination: cr.destination.Text(),
+		refsLoaded: cr.refsLoaded, listGen: gen,
+	}
 }
 
 // worktreeState is a project's Worktrees tab: the registered worktrees, their changes and the
@@ -153,10 +155,13 @@ type worktreeState struct {
 	// gen counts the readings of the list, so the answer of one that was overtaken is dropped.
 	gen  int
 	list []core.GitWorktree
-	// counts are the numbers of local changes of the worktrees by path; a worktree whose
-	// status could not be read has none.
+	// counts are the numbers of local changes of the worktrees by path, and statuses the
+	// states Core derived with them; a worktree whose status could not be read has neither.
+	// countGen tells the answer of a count that a later one overtook.
 	counts      map[string]int
+	statuses    map[string]string
 	countsKnown bool
+	countGen    int
 	selected    string
 	changes     map[string]*worktreeChanges
 	// commits are the commits of the linked worktrees by path, each with its own message,
@@ -237,65 +242,64 @@ func worktreeName(w core.GitWorktree) string {
 	return filepath.Base(w.Path)
 }
 
-// worktreeStatusOf is the state w's row shows; changes is its number of local changes, zero
-// while unknown.
-func worktreeStatusOf(w core.GitWorktree, changes int) worktreeStatus {
-	switch {
-	case w.IsPrunable:
-		return worktreeMissing
-	case w.IsLocked:
-		return worktreeLocked
-	case changes > 0:
-		return worktreeModified
-	case w.IsCurrent:
-		return worktreeCurrent
+// statusOf is the state w's row shows, which Core derives: with its counted local changes once
+// they are, from its registration alone before.
+func (ws *worktreeState) statusOf(w core.GitWorktree) string {
+	if status, ok := ws.statuses[w.Path]; ok {
+		return status
 	}
-	return worktreeAvailable
+	return w.Status
 }
 
-// worktreeRemoveBlocked is why w cannot be removed, empty when it can.
-func worktreeRemoveBlocked(t *i18n.WorktreeMessages, w core.GitWorktree) string {
-	switch {
-	case w.IsPrimary:
-		return t.RemovePrimary
-	case w.IsCurrent:
-		return t.RemoveCurrent
-	case w.IsPrunable:
-		return t.RemovePrunable
-	case w.IsLocked:
-		return t.RemoveLocked
-	}
-	return ""
-}
-
-// worktreeLockBlocked is why the lock of w cannot be changed, empty when it can.
-func worktreeLockBlocked(t *i18n.WorktreeMessages, w core.GitWorktree) string {
-	switch {
-	case w.IsPrimary:
+// worktreeReasonText words why Core refuses or blocks a worktree write, empty for a code that
+// is not such a reason. removing says the write is a removal, whose refusal of the primary
+// worktree and of a missing checkout reads differently from a lock's.
+func worktreeReasonText(t *i18n.WorktreeMessages, removing bool, code core.ErrorCode) string {
+	switch code {
+	case core.CodeGitWorktreePrimary:
+		if removing {
+			return t.RemovePrimary
+		}
 		return t.LockPrimary
-	case w.IsPrunable:
+	case core.CodeGitWorktreeCurrent:
+		return t.RemoveCurrent
+	case core.CodeGitWorktreeLocked:
+		return t.RemoveLocked
+	case core.GitWorktreeBlockedMissing:
+		if removing {
+			return t.RemovePrunable
+		}
 		return t.LockPrunable
 	}
 	return ""
 }
 
+// worktreeRemoveBlocked is why w cannot be removed, as Core gave it, empty when it can.
+func worktreeRemoveBlocked(t *i18n.WorktreeMessages, w core.GitWorktree) string {
+	if w.Actions.Remove.Allowed {
+		return ""
+	}
+	return worktreeReasonText(t, true, w.Actions.Remove.Reason)
+}
+
+// worktreeLockBlocked is why the lock of w cannot be changed, as Core gave it, empty when it
+// can.
+func worktreeLockBlocked(t *i18n.WorktreeMessages, w core.GitWorktree) string {
+	if w.Actions.Lock.Allowed {
+		return ""
+	}
+	return worktreeReasonText(t, false, w.Actions.Lock.Reason)
+}
+
 // worktreeFailureText words the failure of a worktree write for the user. Core names each
 // refusal with its own code, so the words come from the code, never from the message; a
 // failure without one of those codes is shown with what Git or Core said. removing says the
-// write was a removal, whose refusal of the primary worktree reads differently from a lock's.
+// write was a removal.
 func worktreeFailureText(t *i18n.WorktreeMessages, removing bool, err error) string {
 	var e *core.Error
 	if errors.As(err, &e) {
-		switch e.Code {
-		case core.CodeGitWorktreePrimary:
-			if removing {
-				return t.RemovePrimary
-			}
-			return t.LockPrimary
-		case core.CodeGitWorktreeCurrent:
-			return t.RemoveCurrent
-		case core.CodeGitWorktreeLocked:
-			return t.RemoveLocked
+		if text := worktreeReasonText(t, removing, e.Code); text != "" {
+			return text
 		}
 		if e.Message != "" {
 			return t.Failed(e.Message)
@@ -309,49 +313,6 @@ func worktreeErrorCode(err error) core.ErrorCode {
 	var e *core.Error
 	if errors.As(err, &e) {
 		return e.Code
-	}
-	return ""
-}
-
-// worktreeLeaf is the last part of a suggested destination made from source: its last
-// "/"-separated segment with every character that is not a letter, a digit, "-" or "_"
-// replaced by "-", or worktreeLeafFallback when nothing is left.
-func worktreeLeaf(source string) string {
-	if i := strings.LastIndexByte(source, '/'); i >= 0 {
-		source = source[i+1:]
-	}
-	var b strings.Builder
-	for _, r := range source {
-		if unicode.IsLetter(r) || unicode.IsDigit(r) || r == '-' || r == '_' {
-			b.WriteRune(r)
-		} else {
-			b.WriteByte('-')
-		}
-	}
-	if b.Len() == 0 {
-		return worktreeLeafFallback
-	}
-	return b.String()
-}
-
-// worktreeDestination suggests where a worktree named from source is checked out: beside the
-// repository at root, named after it and the leaf of source.
-func worktreeDestination(root, source string) string {
-	return filepath.Join(filepath.Dir(root), filepath.Base(root)+"-"+worktreeLeaf(source))
-}
-
-// suggestionSource is what the creation dialog names its suggested destination after: the new
-// branch, the start of a typed revision, or the chosen reference.
-func (cr *worktreeCreation) suggestionSource() string {
-	revision := strings.TrimSpace(cr.revision.Text())
-	switch {
-	case cr.mode == core.GitWorktreeNewBranch && cr.preview.CleanedName != "":
-		return cr.preview.CleanedName
-	case cr.mode == core.GitWorktreeDetached && revision != "":
-		return revision[:min(len(revision), worktreeRevisionLeaf)]
-	}
-	if r, ok := cr.chosenReference(); ok {
-		return r.ShortName
 	}
 	return ""
 }
@@ -373,42 +334,16 @@ func (cr *worktreeCreation) chosenReference() (core.GitReference, bool) {
 // it offers them.
 var worktreeReferenceKinds = []string{"local", "remote", "tag"}
 
-// referenceChoices are the references of the dialog's kind it can start from; an
-// existing-branch worktree can only check out a local branch no worktree has checked out.
-func (cr *worktreeCreation) referenceChoices(worktrees []core.GitWorktree) []core.GitReference {
-	kind := cr.kind
-	if cr.mode == core.GitWorktreeExistingBranch {
-		kind = "local"
-	}
-	var choices []core.GitReference
-	for _, r := range cr.refs.References {
-		if r.Kind != kind {
-			continue
+// checkedOutBranches are the full names of the branches the worktrees in list have checked
+// out, which an existing-branch worktree cannot check out again.
+func checkedOutBranches(list []core.GitWorktree) []string {
+	branches := make([]string, 0, len(list))
+	for _, w := range list {
+		if w.Branch != "" {
+			branches = append(branches, w.Branch)
 		}
-		if cr.mode == core.GitWorktreeExistingBranch &&
-			slices.ContainsFunc(worktrees, func(w core.GitWorktree) bool { return w.Branch == r.FullName }) {
-			continue
-		}
-		choices = append(choices, r)
 	}
-	return choices
-}
-
-// ready reports whether the dialog can create the worktree.
-func (cr *worktreeCreation) ready() bool {
-	if !filepath.IsAbs(strings.TrimSpace(cr.destination.Text())) {
-		return false
-	}
-	_, hasReference := cr.chosenReference()
-	switch cr.mode {
-	case core.GitWorktreeNewBranch:
-		return hasReference && cr.preview.Error == nil && cr.preview.CleanedName != ""
-	case core.GitWorktreeExistingBranch:
-		return hasReference
-	case core.GitWorktreeDetached:
-		return hasReference || strings.TrimSpace(cr.revision.Text()) != ""
-	}
-	return false
+	return branches
 }
 
 // loadWorktrees reads the worktrees of p's repository again, then the number of local changes
@@ -450,34 +385,36 @@ func (a *App) loadWorktrees(p *project) {
 			// A write may have changed every checkout, so what was read of them is read again.
 			w.changes = nil
 			a.dropWorktreeHistory(p)
+			w.countsKnown = false
 			a.countWorktreeChanges(p, gen)
 		}
 	})
 }
 
-// countWorktreeChanges reads the number of local changes of every worktree that has a
-// checkout, in one task. gen is the reading of the list the counts belong to.
+// countWorktreeChanges has Core count the local changes of every worktree that has a
+// checkout and derive the states that follow from them, in one listing. gen is the reading of
+// the list the counts belong to; the counts known before stay on show until the answer.
 func (a *App) countWorktreeChanges(p *project, gen int) {
 	w := &p.worktrees
-	w.countsKnown = false
-	paths := make([]string, 0, len(w.list))
-	for _, worktree := range w.list {
-		if !worktree.IsPrunable && !worktree.IsBare {
-			paths = append(paths, worktree.Path)
-		}
-	}
-	kernel := a.kernel
+	w.countGen++
+	countGen := w.countGen
+	kernel, root := a.kernel, p.git.repositoryRoot(p.root)
 	a.background(p, gitTimeout, func(ctx context.Context) func(*App) {
-		counts := make(map[string]int, len(paths))
-		for _, path := range paths {
-			if status, err := kernel.GitStatus(core.AutomaticRefresh(ctx), path); err == nil {
-				counts[path] = len(status.Changes)
-			}
-		}
+		counted, err := kernel.GitWorktreesWithChanges(core.AutomaticRefresh(ctx), root)
 		return func(a *App) {
-			if w := &p.worktrees; w.gen == gen {
-				w.counts, w.countsKnown = counts, true
+			w := &p.worktrees
+			if w.gen != gen || w.countGen != countGen {
+				return
 			}
+			counts, statuses := make(map[string]int, len(counted)), make(map[string]string, len(counted))
+			if err == nil {
+				for _, worktree := range counted {
+					if worktree.Changes != nil {
+						counts[worktree.Path], statuses[worktree.Path] = *worktree.Changes, worktree.Status
+					}
+				}
+			}
+			w.counts, w.statuses, w.countsKnown = counts, statuses, true
 		}
 	})
 }
@@ -513,11 +450,15 @@ func (a *App) loadWorktreeChanges(p *project, path string) {
 				return
 			}
 			entry.loading, entry.err, entry.changes = false, err, status.Changes
-			if err == nil {
-				if p.worktrees.counts == nil {
-					p.worktrees.counts = map[string]int{}
+			w := &p.worktrees
+			if known, ok := w.counts[path]; err == nil && (!ok || known != len(status.Changes)) {
+				if w.counts == nil {
+					w.counts = map[string]int{}
 				}
-				p.worktrees.counts[path] = len(status.Changes)
+				// The count shows at once; the state that follows from it is Core's to derive
+				// again.
+				w.counts[path] = len(status.Changes)
+				a.countWorktreeChanges(p, w.gen)
 			}
 		}
 	})
@@ -887,7 +828,7 @@ func (a *App) beginCreateWorktree(p *project) {
 	cr.name.SetText("")
 	cr.revision.SetText("")
 	cr.destination.SetText("")
-	cr.typed, cr.preview, cr.suggested, cr.noCheckout, cr.after = "", core.BranchNamePreview{}, "", false, worktreeStay
+	cr.suggested, cr.result, cr.key, cr.noCheckout, cr.after = "", core.GitWorktreeCreationPreview{}, worktreeCreationKey{}, false, worktreeStay
 	w.dialog = worktreeDialogCreate
 	kernel, root := a.kernel, p.git.repositoryRoot(p.root)
 	a.background(p, gitTimeout, func(ctx context.Context) func(*App) {
@@ -906,62 +847,59 @@ func (a *App) beginCreateWorktree(p *project) {
 	})
 }
 
-// syncWorktreeCreation keeps the dialog's derived values in step with its inputs: the
-// reference stays one the mode can use, the branch name is cleaned and checked as the user
-// types, and the destination follows the suggestion until the user edits it.
+// syncWorktreeCreation keeps the dialog's derived values in step with its inputs, asking Core
+// again whenever they changed: the reference stays one the mode can use, the branch name is
+// cleaned and checked as the user types, and the destination follows the suggestion until the
+// user edits it.
 func (a *App) syncWorktreeCreation(p *project) {
-	cr := &p.worktrees.create
-	if cr.refsLoaded {
-		choices := cr.referenceChoices(p.worktrees.list)
-		if !slices.ContainsFunc(choices, func(r core.GitReference) bool { return r.FullName == cr.reference }) {
-			cr.reference = ""
-			for _, r := range choices {
-				if r.Kind == "local" && r.IsCurrent {
-					cr.reference = r.FullName
-				}
-			}
-			if cr.reference == "" && len(choices) > 0 {
-				cr.reference = choices[0].FullName
-			}
-		}
-	}
-	if text := cr.name.Text(); text != cr.typed {
-		cr.preview = a.previewWorktreeBranch(p, text, false)
-		if cr.preview.TypingCleanedName != text {
-			cr.name.SetText(cr.preview.TypingCleanedName)
-		}
-		cr.typed = cr.name.Text()
-	}
-	destination := cr.destination.Text()
-	if destination == cr.suggested {
-		suggestion := worktreeDestination(p.git.repositoryRoot(p.root), cr.suggestionSource())
-		if suggestion != destination {
-			cr.destination.SetText(suggestion)
-		}
-		cr.suggested = suggestion
+	if cr := &p.worktrees.create; cr.inputs(p.worktrees.gen) != cr.key {
+		a.previewWorktreeCreation(p, false)
 	}
 }
 
-// previewWorktreeBranch asks Core to clean and check the name of the branch a new worktree
-// creates; require makes an empty name an error, as a submit does.
-func (a *App) previewWorktreeBranch(p *project, raw string, require bool) core.BranchNamePreview {
+// previewWorktreeCreation has Core derive the dialog's values from its inputs and applies
+// them; require makes an empty branch name an error, as a submit does. It reports whether Core
+// answered; without an answer the dialog cannot create the worktree.
+func (a *App) previewWorktreeCreation(p *project, require bool) bool {
+	w := &p.worktrees
+	cr := &w.create
 	ctx, cancel := context.WithTimeout(context.Background(), kernelCallTimeout)
 	defer cancel()
-	preview, err := a.kernel.GitBranchNamePreview(ctx, core.BranchNameRequest{
-		RawName: raw, RequireName: require, References: p.worktrees.create.refs.References})
+	result, err := a.kernel.GitWorktreeCreationPreview(ctx, core.GitWorktreeCreationInput{
+		Root: p.git.repositoryRoot(p.root), Mode: cr.mode, Kind: cr.kind, Reference: cr.reference,
+		Name: cr.name.Text(), RequireName: require, Revision: cr.revision.Text(),
+		Destination: cr.destination.Text(), LastSuggestion: cr.suggested,
+		References: cr.refs.References, CheckedOutBranches: checkedOutBranches(w.list),
+	})
 	if err != nil {
-		// The kernel could not clean the name; the typed text stands, and the submit tells the
-		// user what Git says.
-		a.gitOperationFailed("git_branch_name_preview", err)
-		return core.BranchNamePreview{TypingCleanedName: raw, CleanedName: strings.TrimSpace(raw)}
+		a.gitOperationFailed("git_worktree_creation_preview", err)
+		cr.result.Ready = false
+		cr.key = cr.inputs(w.gen)
+		return false
 	}
-	return preview
+	cr.result = result
+	if cr.refsLoaded {
+		cr.reference = ""
+		if result.Reference != nil {
+			cr.reference = *result.Reference
+		}
+	}
+	if b := result.Branch; b != nil && b.TypingCleanedName != cr.name.Text() {
+		cr.name.SetText(b.TypingCleanedName)
+	}
+	if result.Destination != cr.destination.Text() {
+		cr.destination.SetText(result.Destination)
+	}
+	cr.suggested = result.SuggestedDestination
+	cr.key = cr.inputs(w.gen)
+	return true
 }
 
-// submitCreateWorktree creates the worktree the dialog describes.
+// submitCreateWorktree creates the worktree the dialog describes, once Core confirms, with the
+// branch name required, that it can be created.
 func (a *App) submitCreateWorktree(p *project) {
 	cr := &p.worktrees.create
-	if p.worktrees.busy || !cr.ready() {
+	if p.worktrees.busy || !cr.result.Ready || !a.previewWorktreeCreation(p, true) || !cr.result.Ready {
 		return
 	}
 	creation := core.GitWorktreeCreation{
@@ -970,12 +908,8 @@ func (a *App) submitCreateWorktree(p *project) {
 		NoCheckout:  cr.noCheckout,
 	}
 	name := filepath.Base(creation.Destination)
-	if cr.mode == core.GitWorktreeNewBranch {
-		cr.preview = a.previewWorktreeBranch(p, cr.name.Text(), true)
-		if cr.preview.Error != nil {
-			return
-		}
-		creation.Name, name = cr.preview.CleanedName, cr.preview.CleanedName
+	if b := cr.result.Branch; cr.mode == core.GitWorktreeNewBranch && b != nil {
+		creation.Name, name = b.CleanedName, b.CleanedName
 	}
 	if r, ok := cr.chosenReference(); ok {
 		creation.Reference = &r

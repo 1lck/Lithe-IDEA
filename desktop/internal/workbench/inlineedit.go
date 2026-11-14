@@ -2,32 +2,19 @@ package workbench
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"regexp"
-	"unicode/utf8"
 
-	"github.com/1lck/Lithe-IDEA/desktop/internal/core"
+	"github.com/1lck/Lithe-IDEA/desktop/internal/ai"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/editorview"
 	"github.com/vivaui/viva/ui"
 )
 
 // This file is the editor's AI inline edit (matrix id ai-inline-edit): the user selects code,
-// asks for a change, reviews a diff and accepts or rejects it. Core plans the request
-// (ai.inlineEdit.plan) and decodes the answer (ai.inlineEdit.decode); this file picks the
-// provider and credential from the Codex or Claude configuration, makes the HTTP call and
-// applies an accepted edit as one undoable step. Nothing is applied before the user accepts,
-// and nothing is applied if the file changed in the meantime.
-
-// inlineEditWindow is how many bytes of context are read on each side of the selection. Core
-// keeps 12,000 Unicode scalars of them; a scalar is at most 4 bytes.
-const inlineEditWindow = 48_000
-
-// aiInlineKernel is the part of the kernel an inline edit uses.
-type aiInlineKernel interface {
-	AIInlineEditPlan(ctx context.Context, provider core.AIInlineEditProvider, model core.AIInlineEditModel, edit core.AIInlineEdit) (core.AIInlineEditPlan, error)
-	AIInlineEditDecode(ctx context.Context, wireProtocol string, response json.RawMessage) (string, error)
-}
+// asks for a change, reviews a diff and accepts or rejects it. The ai package sends the
+// request with Core; this file keeps the dialog's state and applies an accepted edit as one
+// undoable step. Nothing is applied before the user accepts, and nothing is applied if the file
+// changed in the meantime.
 
 // inlineEditState is the open inline edit, if any.
 type inlineEditState struct {
@@ -61,7 +48,7 @@ var inlineEditCode = regexp.MustCompile(`AI_INLINE_EDIT_[A-Z_]+`)
 // requestInlineEdit opens the inline edit on the selection of the document that has the
 // keyboard. A missing selection or a read-only file is reported and nothing opens.
 func (a *App) requestInlineEdit(p *project, view *editorview.View) {
-	if _, ok := a.kernel.(aiInlineKernel); !ok || !a.aiKernelReady() || a.inline.open {
+	if !a.aiKernelReady() || a.inline.open {
 		return
 	}
 	var doc *document
@@ -99,29 +86,16 @@ func (a *App) requestInlineEdit(p *project, view *editorview.View) {
 	*s = inlineEditState{open: true, doc: doc, start: start, end: end, selected: string(text[start:end]), revision: view.Revision(), currentLine: currentLine}
 }
 
-// inlineContext is the text around the selection, cut at character boundaries.
-func inlineContext(text []byte, start, end int) (before, after string) {
-	from := max(0, start-inlineEditWindow)
-	for from < start && !utf8.RuneStart(text[from]) {
-		from++
-	}
-	to := min(len(text), end+inlineEditWindow)
-	for to > end && to < len(text) && !utf8.RuneStart(text[to]) {
-		to--
-	}
-	return string(text[from:start]), string(text[end:to])
-}
-
 // runInlineEdit sends the request. The answer replaces any earlier result.
 func (a *App) runInlineEdit(p *project) {
 	s := &a.inline
-	kernel, ok := a.kernel.(aiInlineKernel)
-	if !ok || s.running || s.doc == nil {
+	kernel := a.aiKernel
+	if kernel == nil || s.running || s.doc == nil {
 		return
 	}
 	text, _ := s.doc.view.Text()
-	before, after := inlineContext(text, s.start, s.end)
-	edit := core.AIInlineEdit{
+	before, after := ai.InlineContext(text, s.start, s.end)
+	edit := ai.InlineEdit{
 		BeforeSelection: before, SelectedText: s.selected, AfterSelection: after,
 		Instruction: s.instruction.Text(), FilePath: s.doc.path, LanguageID: s.doc.languageID,
 	}
@@ -130,7 +104,7 @@ func (a *App) runInlineEdit(p *project) {
 	sources := a.inlineEditSources()
 	a.background(p, 0, func(context.Context) func(*App) {
 		defer cancel()
-		edited, err := a.fetchInlineEdit(ctx, kernel, edit, sources)
+		edited, err := ai.EditInline(ctx, kernel, edit, sources)
 		return func(a *App) {
 			s := &a.inline
 			s.running, s.cancel = false, nil
@@ -156,53 +130,17 @@ func (a *App) inlineEditSources() []string {
 	return a.aiGenerationSources()
 }
 
-// fetchInlineEdit plans, sends and decodes one request off the window thread.
-func (a *App) fetchInlineEdit(ctx context.Context, kernel aiInlineKernel, edit core.AIInlineEdit, sources []string) (string, error) {
-	providers := a.discoverAIProviders(ctx)
-	provider, ok := pickAIProviderFrom(providers, sources)
-	if !ok {
-		return "", errAINoProvider
-	}
-	model := core.AIInlineEditModel{ID: provider.Model, Listing: "unlisted"}
-	plan, err := kernel.AIInlineEditPlan(ctx, core.AIInlineEditProvider{
-		WireProtocol: provider.Protocol, Endpoint: provider.Endpoint, RequiresAPIKey: true,
-		AcceptsUnlistedModels: true, ChatTokenLimitField: "max_completion_tokens",
-	}, model, edit)
-	if err != nil {
-		return "", err
-	}
-	headers := map[string]string{"Content-Type": "application/json"}
-	for name, value := range plan.Headers {
-		headers[name] = value
-	}
-	if plan.Credential.Required {
-		value := provider.APIKey
-		if plan.Credential.Scheme == "bearer" {
-			value = "Bearer " + value
-		}
-		headers[plan.Credential.Header] = value
-	}
-	answer, err := aiPost(ctx, plan.URL, headers, plan.Body)
-	if err != nil {
-		return "", err
-	}
-	if !json.Valid(answer) {
-		return "", errors.New("AI_INLINE_EDIT_INVALID_RESPONSE")
-	}
-	return kernel.AIInlineEditDecode(ctx, provider.Protocol, answer)
-}
-
 // inlineEditFailure is the notice for a failed request: a stable code or a status, never a
 // response body or the request.
 func (a *App) inlineEditFailure(err error) string {
 	t, c := a.text.AI.InlineEdit, a.text.AI.Commit
-	var status *aiHTTPError
+	var status *ai.HTTPError
 	switch {
-	case errors.Is(err, errAINoProvider):
+	case errors.Is(err, ai.ErrNoProvider):
 		return c.NoProvider
-	case errors.Is(err, errAIResponseTooLarge):
+	case errors.Is(err, ai.ErrResponseTooLarge):
 		return t.Failed(c.ResponseTooLarge)
-	case errors.Is(err, errAITimeout):
+	case errors.Is(err, ai.ErrTimeout):
 		return t.Failed(c.Timeout)
 	case errors.As(err, &status):
 		return t.Failed(c.HTTPStatus(status.Status))

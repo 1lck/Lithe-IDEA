@@ -18,9 +18,32 @@ Viva 客户端在已加载根目录后将根节点作为第 0 层行显示，包
 13pt 文字及圆角选中背景参照迁移前原生实现；展开箭头直接使用原版 IDEA SVG。
 这只覆盖了上述树行和基础交互，不能据此认为包压缩、多选、批量移动、完整菜单或逐像素视觉对照已完成。
 原生窗口失焦时 Viva 的焦点接口目前只提供控件焦点，选中态的窗口失焦表现仍需实机确认。
-当前可见行投影和方向键目标仍在 Go 客户端，违反共享规则归属；已建
-[#1800](https://github.com/1lck/Lithe-IDEA/issues/1800) 跟踪下沉到 Core。原版多选规则
-不在当前 Core 接口中，不能继续把其状态转换新增到界面层；本次临时实现已撤回。
+
+### 哪些行显示、选中谁，由 Core 决定（#1800）
+
+项目树“显示哪些行”和“选中、标记哪些行”是所有客户端都要一致的规则，所以放在 Rust Core，
+界面只负责列目录的结果、哪些目录打开、焦点、滚动和绘制：
+
+- `workspace.projectTree.rows`（Core crate `lithe-project-tree`）：树的形状变化后
+  （目录打开或关闭、列表返回、节点消失），界面把已加载节点按先序连同层级和是否打开发给 Core，
+  Core 返回要显示的行、修正后的选择，以及变化前视口顶端那一行现在的位置。
+  选中的节点消失时，选择交给仍加载的最近上级目录；被关闭的目录挡住时，交给它上方最近的可见行。
+  被关闭目录里的标记保留，消失节点的标记和锚点丢弃。
+- `workspace.rowSelection.reduce`（Core crate `lithe-row-selection`）：一次点击怎样改选择。
+  普通点击选中一行并清掉标记；Cmd/Ctrl 点击切换一行的标记并把它设为锚点（Shift 扩选的起点）；
+  Shift 点击标记锚点（没有锚点时从选中行）到点击行之间的所有行。根节点永远不会被标记。
+  批量操作的目标是标记行去掉已被标记目录包含的那些。Commit 窗口的改动行使用同一个归约。
+
+开发者要记住：
+
+- 只在树的形状变化后调用一次 `workspace.projectTree.rows`（Go 侧设置 `rowsDirty`，
+  下一次绘制或列表返回时刷新），不要每帧发送整棵树。缩放窗口、滚动和重绘不调用 Core。
+- 不要在 Go 里自己算可见行、扩选范围或“选择移到哪里”。需要新的选择语义时改 Core 的
+  fixture（`rust/fixtures/workspace/row-selection-v1.json`、`project-tree-rows-v1.json`）和 crate。
+- 方向键在行之间移动焦点由 Viva 的 `ui.Tree` 组件负责，选中行跟随焦点；这是通用控件行为，
+  不是项目树专有规则。
+- Collapse All 把选中行藏起来时，界面把键盘焦点交给新选中的行；外部文件变化
+  （例如选中的文件被删除）移动选择时只改选中行，不抢键盘焦点。
 
 
 ## 问题
@@ -186,6 +209,10 @@ Windows 以后也没法复用。因此生产路径走 Rust，Swift 版本只作�
 ## 验证
 
 - Viva 项目树回归：`./scripts/desktop/desktop-go.sh test -race ./internal/workbench -run TestProjectTree`
+- 选择归约与改动行多选：`./scripts/desktop/desktop-go.sh test ./internal/workbench -run 'TestProjectTreeBatchSelectionFollowsCore|TestChangeListRowSelectionFollowsCore'`
+- Core 规则与 fixture：在 Lithe-core-rust 运行 `cargo test -p lithe-core -- project_tree row_selection`
+- 1000 行项目树缩放耗时：`./scripts/desktop/desktop-go.sh test ./internal/workbench -run '^$' -bench BenchmarkProjectTreeResize1000 -benchmem`
+  （#1800 前后同机约 397µs/op 与 394µs/op，内存分配不变）
 - `./scripts/desktop/verify/verify-runtime-bundle-immutability.sh`
 - `./scripts/agent-notes/verify-agent-notes.sh`
 - 旧版 macOS 的 Swift 和 Core 测试及共享契约脚本仅是迁移前的历史验证，不能代替 Viva 验收。
@@ -193,7 +220,11 @@ Windows 以后也没法复用。因此生产路径走 Rust，Swift 版本只作�
 ## 适用范围
 
 - Lithe-core-rust 锁定修订：[rust/lithe-core/src/project/files.rs](https://github.com/Lithe-IDEA/Lithe-core-rust/blob/0ffd327b4329261e393b08ed76fbd134b4dd17e9/rust/lithe-core/src/project/files.rs)
+- Lithe-core-rust：`rust/crates/project-tree/`、`rust/crates/row-selection/`
+- `desktop/internal/core/project_tree.go`
 - `desktop/internal/workbench/filetree.go`
+- `desktop/internal/workbench/filetree_rows.go`
+- `desktop/internal/workbench/changelists_select.go`
 - `desktop/internal/workbench/filetree_watch.go`
 - `desktop/internal/workbench/filetree_test.go`
 - 原版实现保留为历史参考：[ProjectTreeLoader.swift](https://github.com/1lck/Lithe-IDEA/blob/5a54c41aa37a4e6e6b68918a4b05765b9dd07a36/macos/Sources/Lithe/Models/Workspace/ProjectTreeLoader.swift)、[FileNodePathLookup.swift](https://github.com/1lck/Lithe-IDEA/blob/5a54c41aa37a4e6e6b68918a4b05765b9dd07a36/macos/Sources/LitheCoreContracts/Workspace/FileNodePathLookup.swift)、[LitheWorkspaceModule](https://github.com/1lck/Lithe-IDEA/tree/5a54c41aa37a4e6e6b68918a4b05765b9dd07a36/macos/Sources/LitheWorkspaceModule)。

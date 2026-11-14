@@ -175,5 +175,5 @@ func checkNetwork(ctx context.Context, kernel networkKernel, secrets secretReade
 		return settingswindow.NetworkCheck{Incomplete: true}
 	}
 	status, elapsed, err := netproxy.Check(ctx, policy, target)
-	return settingswindow.NetworkCheck{Status: status, Elapsed: elapsed, Err: err}
+	return settingswindow.NetworkCheck{Status: status, Elapsed: elapsed, Err: err, IgnoredExclusions: policy.InvalidExclusions}
 }

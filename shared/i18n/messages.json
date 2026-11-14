@@ -14920,6 +14920,16 @@
       ]
     },
     {
+      "id": "desktop.settings.network.ignoredExclusions",
+      "description": "Network settings page: connection check result, followed by the exclusion entries that have none of the supported forms",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "entries": "string"
+      }
+    },
+    {
       "id": "desktop.settings.network.invalidPort",
       "description": "Network settings page",
       "platforms": [

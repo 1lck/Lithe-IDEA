@@ -1,7 +1,6 @@
 package core
 
 import (
-	"context"
 	"encoding/json"
 	"errors"
 	"slices"
@@ -119,11 +118,16 @@ const (
 	editorMerge     editorKind = "mergeGroup"
 	editorPin       editorKind = "setPinned"
 	editorPinAll    editorKind = "setPinnedEverywhere"
+	// The transitions only editor.groupLayout.reduce has (editor_layout.go).
+	editorOpenTab     editorKind = "openTab"
+	editorDropTab     editorKind = "dropTab"
+	editorRemoveEmpty editorKind = "removeEmptyGroups"
 )
 
-// EditorAction is one transition of an EditorWorkbench. Build it with NormalizeEditor,
-// OpenEditor, CloseEditor, ActivateEditor, MoveEditor, ReorderEditor or MergeEditorGroups; the
-// zero value is not a valid action and cannot be encoded.
+// EditorAction is one transition of an EditorWorkbench and its layout. Build it with
+// NormalizeEditor, OpenEditor, CloseEditor, ActivateEditor, MoveEditor, ReorderEditor,
+// MergeEditorGroups, PinEditor, PinEditorEverywhere, OpenEditorTab, DropEditorTab or
+// RemoveEmptyEditorGroups; the zero value is not a valid action and cannot be encoded.
 type EditorAction struct {
 	kind     editorKind
 	group    string
@@ -131,8 +135,11 @@ type EditorAction struct {
 	activate bool
 	empty    EmptyGroups
 	fallback SelectionFallback
+	// unplaced is the members NormalizeEditor places, and the groups RemoveEmptyEditorGroups
+	// names.
 	unplaced []string
 	move     EditorMove
+	drop     EditorDrop
 	from, to int
 }
 
@@ -301,42 +308,12 @@ func (a EditorAction) MarshalJSON() ([]byte, error) {
 		return json.Marshal(editorPinWire{Kind: a.kind, Group: a.group, Member: a.member, Pinned: a.activate})
 	case editorMerge:
 		return json.Marshal(editorMergeWire{Kind: a.kind, From: a.group, Into: a.member, ActivateSelected: a.activate})
+	case editorOpenTab:
+		return json.Marshal(editorOpenTabWire{Kind: a.kind, Member: a.member, PreferredGroup: optional(a.group), NewGroup: a.drop.NewGroup})
+	case editorDropTab:
+		return a.drop.marshal()
+	case editorRemoveEmpty:
+		return json.Marshal(editorRemoveEmptyWire{Kind: a.kind, Groups: nonNil(a.unplaced)})
 	}
-	return nil, errors.New("core: zero EditorAction; build one with NormalizeEditor, OpenEditor, CloseEditor, ActivateEditor, MoveEditor, ReorderEditor, PinEditor or MergeEditorGroups")
-}
-
-// editorWorkbenchRequest is the payload of editor.workbenchState.reduce. The kernel rejects
-// unknown fields.
-type editorWorkbenchRequest struct {
-	State  EditorWorkbench `json:"state"`
-	Action EditorAction    `json:"action"`
-}
-
-// editorWorkbenchResponse is the data of editor.workbenchState.reduce.
-type editorWorkbenchResponse struct {
-	State   EditorWorkbench `json:"state"`
-	Removed []string        `json:"removedGroupIds"`
-}
-
-// ReduceEditorWorkbench applies action to state and returns the new state with the identifiers
-// of the groups that left it, in their old order. The host keeps only what a gesture needs while
-// it runs and sends one action when it ends.
-//
-// Groups the action does not touch come back unchanged, and an action that names a group the
-// state does not have changes nothing. A new group is made by the host: it adds an empty group
-// to the state and moves a member into it.
-//
-// The call only computes over its arguments and is fast enough for an event handler.
-func (c *Client) ReduceEditorWorkbench(ctx context.Context, state EditorWorkbench, action EditorAction) (EditorWorkbench, []string, error) {
-	var response editorWorkbenchResponse
-	if err := c.Execute(ctx, "editor.workbenchState.reduce", editorWorkbenchRequest{State: state, Action: action}, &response); err != nil {
-		return EditorWorkbench{}, nil, err
-	}
-	state = response.State
-	state.Groups = nonNil(state.Groups)
-	for i := range state.Groups {
-		g := &state.Groups[i]
-		g.Members, g.MRU, g.Pinned = nonNil(g.Members), nonNil(g.MRU), nonNil(g.Pinned)
-	}
-	return state, nonNil(response.Removed), nil
+	return nil, errors.New("core: zero EditorAction; build one with NormalizeEditor, OpenEditor, CloseEditor, ActivateEditor, MoveEditor, ReorderEditor, MergeEditorGroups, PinEditor, PinEditorEverywhere, OpenEditorTab, DropEditorTab or RemoveEmptyEditorGroups")
 }

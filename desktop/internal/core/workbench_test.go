@@ -6,17 +6,17 @@ import (
 	"testing"
 )
 
-func TestReduceEditorWorkbench(t *testing.T) {
+func TestReduceEditorWorkbenchActions(t *testing.T) {
 	client := NewClient()
 	ctx := testContext(t)
 
 	reduce := func(t *testing.T, state EditorWorkbench, action EditorAction) (EditorWorkbench, []string) {
 		t.Helper()
-		next, removed, err := client.ReduceEditorWorkbench(ctx, state, action)
+		result, err := client.ReduceEditorLayout(ctx, state, nil, action)
 		if err != nil {
-			t.Fatalf("ReduceEditorWorkbench() error: %v", err)
+			t.Fatalf("ReduceEditorLayout() error: %v", err)
 		}
-		return next, removed
+		return result.State, result.Removed
 	}
 
 	tool := EditorWorkbench{Groups: []EditorGroup{{ID: "tool"}}}

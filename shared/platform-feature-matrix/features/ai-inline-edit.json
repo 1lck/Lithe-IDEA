@@ -11,8 +11,9 @@
       "desktop/internal/workbench/inlineedit_view.go",
       "desktop/internal/workbench/inlinediff.go",
       "desktop/internal/workbench/inlinediff_test.go",
-      "desktop/internal/core/ai_generation.go",
-      "desktop/internal/core/ai_generation_test.go"
+      "desktop/internal/ai/inline_edit.go",
+      "desktop/internal/ai/inline_edit_test.go",
+      "desktop/internal/ai/commands_test.go"
     ]
   },
   "windows": {
@@ -23,13 +24,14 @@
       "desktop/internal/workbench/inlineedit_view.go",
       "desktop/internal/workbench/inlinediff.go",
       "desktop/internal/workbench/inlinediff_test.go",
-      "desktop/internal/core/ai_generation.go",
-      "desktop/internal/core/ai_generation_test.go"
+      "desktop/internal/ai/inline_edit.go",
+      "desktop/internal/ai/inline_edit_test.go",
+      "desktop/internal/ai/commands_test.go"
     ]
   },
   "owner": "AI",
   "verification": "Windows：分别使用 OpenRouter、Anthropic、Gemini、Ollama 和自定义服务商对选区执行行内编辑，确认替换结果、缺少密钥/模型/地址时的本地化错误，以及输出被截断时不替换选区。",
-  "notes": "2026-11-10：Viva 编辑器选中代码后按 Cmd/Ctrl+K 打开 AI 行内编辑：输入指令，Core 的 ai.inlineEdit.plan 规划请求（上下文窗口取选区两侧各 48000 字节且不切开字符），Go 从 Codex/Claude 本机配置取首个带凭据的服务商并按 plan.credential 附加认证头、发起 HTTP（45 秒、不跟随重定向、2 MiB 上限、错误只显示状态码或稳定码），ai.inlineEdit.decode 解码后显示逐行差异，接受才作为一次可撤销编辑写入，选区文本已变化时拒绝应用，空替换需用户明确接受。未接入：模型选择器与服务商选择设置、手动服务商、选区浮动工具栏入口、AI 聊天中的行内编辑；真实供应商和原生窗口验收 pending。",
+  "notes": "2026-11-10：Viva 编辑器选中代码后按 Cmd/Ctrl+K 打开 AI 行内编辑：输入指令，Core 的 ai.inlineEdit.plan 规划请求（上下文窗口取选区两侧各 48000 字节且不切开字符），Go 从 Codex/Claude 本机配置取首个带凭据的服务商并按 plan.credential 附加认证头、发起 HTTP（45 秒、不跟随重定向、2 MiB 上限、错误只显示状态码或稳定码），ai.inlineEdit.decode 解码后显示逐行差异，接受才作为一次可撤销编辑写入，选区文本已变化时拒绝应用，空替换需用户明确接受。未接入：模型选择器与服务商选择设置、手动服务商、选区浮动工具栏入口、AI 聊天中的行内编辑；真实供应商和原生窗口验收 pending。 2026-11-14：AI 代码移到独立 Go 包 desktop/internal/ai（Core AI 命令封装、Codex/Claude 服务商发现、HTTP 与生成流程），desktop/internal/core 不再含 AI 代码，workbench 只保留界面状态与本地化错误文案。",
   "legacy": {
     "revision": "5a54c41aa37a4e6e6b68918a4b05765b9dd07a36",
     "macos": {

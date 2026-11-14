@@ -151,17 +151,15 @@ type tabSlotDecl struct {
 // The rectangles are written by draw hooks as the paint goes, so between paints they are
 // those of the last complete one.
 type groupPlace struct {
-	id string
-	// tool says the group is the Terminal tool window.
-	tool        bool
+	id          string
 	strip, body gfx.Rect
 	chips       []tabSlotDecl
 	stripHook   func(*ui.DrawContext)
 	bodyHook    func(*ui.DrawContext)
 }
 
-func newGroupPlace(id string, tool bool) *groupPlace {
-	g := &groupPlace{id: id, tool: tool}
+func newGroupPlace(id string) *groupPlace {
+	g := &groupPlace{id: id}
 	g.stripHook = func(d *ui.DrawContext) { g.strip = d.Rect }
 	g.bodyHook = func(d *ui.DrawContext) { g.body = d.Rect }
 	return g
@@ -174,7 +172,7 @@ func (g *groupPlace) chipHook(i int) func(*ui.DrawContext) {
 
 // place is where the group was laid out, for a drag to aim at.
 func (g *groupPlace) place() dropPlace {
-	p := dropPlace{group: g.id, tool: g.tool, strip: g.strip, body: g.body, tabs: make([]tabSlot, 0, len(g.chips))}
+	p := dropPlace{group: g.id, strip: g.strip, body: g.body, tabs: make([]tabSlot, 0, len(g.chips))}
 	for _, t := range g.chips {
 		p.tabs = append(p.tabs, tabSlot{member: t.member, rect: t.rect})
 	}
@@ -306,24 +304,42 @@ func (a *App) endTerminalFrame() {
 // is what a person who just picked, opened or moved a terminal expects to type into.
 func (a *App) focusTerminal(id int) { a.focus = focusTarget{term: id} }
 
-// reduceTerminals applies action to state through the kernel and, if the kernel accepts
-// it, makes the result the project's tab groups. A group the kernel removed leaves the split
-// layout with it, so the layout never shows a group that does not exist. It reports whether
-// the state changed; on an error nothing is changed and the notice banner says why.
+// reduceTerminals applies action to state and the split layout through the kernel and, if the
+// kernel accepts it, makes the result the project's tab groups and layout. A group the kernel
+// removed leaves the layout with it, so the layout never shows a group that does not exist. It
+// reports whether the state changed; on an error nothing is changed and the notice banner says
+// why, and a rejected drop changes nothing either.
 func (a *App) reduceTerminals(p *project, state core.EditorWorkbench, action core.EditorAction) bool {
+	_, ok := a.reduceEditorLayout(p, state, action)
+	return ok
+}
+
+// reduceEditorLayout is reduceTerminals with what the kernel answered.
+func (a *App) reduceEditorLayout(p *project, state core.EditorWorkbench, action core.EditorAction) (core.EditorLayoutResult, bool) {
 	ctx, cancel := context.WithTimeout(context.Background(), kernelCallTimeout)
 	defer cancel()
-	next, removed, err := a.kernel.ReduceEditorWorkbench(ctx, state, action)
+	set := &p.terms
+	result, err := a.kernel.ReduceEditorLayout(ctx, state, layoutShape(set.layout), action)
 	if err != nil {
 		a.notifyError(a.text.Errors.Core(err.Error()))
-		return false
+		return result, false
 	}
-	set := &p.terms
-	set.bench = next
-	for _, group := range removed {
-		set.layout = removeLeaf(set.layout, group)
+	if result.Rejection != "" {
+		return result, false
 	}
-	return true
+	set.bench = result.State
+	set.layout = adoptLayout(set.layout, result.Layout)
+	return result, true
+}
+
+// dockedGroups are the groups docked in a tool window: the Terminal tool window's, which only a
+// terminal's tab joins and which is never split.
+var dockedGroups = []string{toolGroup}
+
+// dockable says the tab of member may join a group docked in a tool window.
+func dockable(member string) bool {
+	_, ok := memberTerminal(member)
+	return ok
 }
 
 // newTerminal opens a terminal at the end of the Terminal tool window's tabs and shows it,
@@ -458,25 +474,34 @@ func (a *App) selectTerminal(p *project, id int) {
 }
 
 // dropTab does what dropping the tab of group member on target asks for, and shows the
-// terminal, the file, the diff, the viewer or the LSP Logs tab with the keyboard if it was done: a tab dropped on a strip or
-// on the middle of a group joins it, one dropped near the edge of a group splits it, and one
-// dropped on an empty editor opens the first group. A target that is no place does nothing.
+// terminal, the file, the diff, the viewer or the LSP Logs tab with the keyboard if it was
+// done. The kernel carries the drop out over the groups and the layout: a tab dropped on a
+// strip or on the middle of a group joins it, one dropped near the edge of a group splits it,
+// and one dropped on an empty editor opens the first group. A target that is no place, or one
+// the kernel rejects because the groups changed under the drag, does nothing.
 func (a *App) dropTab(member string, target dropTarget) {
 	p := a.project
 	if p == nil {
 		return
 	}
-	done := false
-	switch target.kind {
-	case dropJoin:
-		done = a.moveTab(p, member, target.group, target.index)
-	case dropSplit:
-		done = a.splitTab(p, member, target.group, target.edge)
-	case dropEmpty:
-		done = a.placeInEmptyEditor(p, member)
-	}
-	if !done {
+	place, ok := target.place()
+	if !ok {
 		return
+	}
+	set := &p.terms
+	added, node := editorGroupID(set.nextGroup+1), set.nextNode+1
+	result, ok := a.reduceEditorLayout(p, set.bench, core.DropEditorTab(core.EditorDrop{
+		Member: member, Target: place, Docked: dockedGroups, Dockable: dockable(member),
+		NewGroup: added, NewNode: node,
+	}))
+	if !ok {
+		return
+	}
+	if result.Group == added {
+		set.nextGroup++
+	}
+	if target.kind == dropSplit {
+		set.nextNode = node
 	}
 	if id, ok := memberTerminal(member); ok {
 		a.focusTerminal(id)
@@ -489,93 +514,6 @@ func (a *App) dropTab(member string, target dropTarget) {
 	} else if member == lspLogMember {
 		a.selectLSPLog(p)
 	}
-}
-
-// moveTab puts group member into group as the tab at index, counted among the group's tabs
-// without it, and shows it there. Inside its own group that reorders the tabs. It reports
-// whether the kernel accepted the move.
-func (a *App) moveTab(p *project, member, group string, index int) bool {
-	set := &p.terms
-	src, dest := set.bench.GroupOf(member), set.bench.Group(group)
-	if src == nil || dest == nil {
-		return false
-	}
-	if src.ID == group {
-		at := slices.Index(src.Members, member)
-		index = min(max(index, 0), len(src.Members)-1)
-		if at >= 0 && at != index && !a.reduceTerminals(p, set.bench, core.ReorderEditor(group, at, index)) {
-			return false
-		}
-		return a.reduceTerminals(p, set.bench, core.ActivateEditor(group, member))
-	}
-	before := ""
-	if index = max(index, 0); index < len(dest.Members) {
-		before = dest.Members[index]
-	}
-	return a.reduceTerminals(p, set.bench, core.MoveEditor(core.EditorMove{
-		Member: member, From: src.ID, To: group, Before: before, Activate: true,
-		Empty: emptyPolicy(src.ID), Fallback: core.SelectAdjacent,
-	}))
-}
-
-// moveIntoNewGroup moves group member into a group of the editor area that it makes, and
-// returns the new group's name. The caller gives the group its place in the layout. The
-// group it left goes if that leaves it empty, which the layout follows.
-func (a *App) moveIntoNewGroup(p *project, member string) (string, bool) {
-	set := &p.terms
-	src := set.bench.GroupOf(member)
-	if src == nil {
-		return "", false
-	}
-	from := src.ID
-	added := editorGroupID(set.nextGroup + 1)
-	state := set.bench
-	state.Groups = append(slices.Clone(state.Groups), core.EditorGroup{ID: added})
-	if !a.reduceTerminals(p, state, core.MoveEditor(core.EditorMove{
-		Member: member, From: from, To: added, Activate: true,
-		Empty: emptyPolicy(from), Fallback: core.SelectAdjacent,
-	})) {
-		return "", false
-	}
-	set.nextGroup++
-	return added, true
-}
-
-// splitTab moves group member into a new group beside the group target, on the side e
-// names. Whether it can is checked before anything changes, so the layout never gets a
-// group the state does not have: target must be in the layout, and a group's only tab
-// cannot split off its own group, since nothing would be left to split from.
-func (a *App) splitTab(p *project, member, target string, e edge) bool {
-	set := &p.terms
-	src := set.bench.GroupOf(member)
-	if src == nil || e == edgeNone || !set.layout.contains(target) {
-		return false
-	}
-	if src.ID == target && len(src.Members) < 2 {
-		return false
-	}
-	added, ok := a.moveIntoNewGroup(p, member)
-	if !ok {
-		return false
-	}
-	set.nextNode++
-	set.layout = splitLeaf(set.layout, target, added, e, set.nextNode)
-	return true
-}
-
-// placeInEmptyEditor moves group member into the first group of an editor that has none,
-// which then fills the editor.
-func (a *App) placeInEmptyEditor(p *project, member string) bool {
-	set := &p.terms
-	if set.layout != nil {
-		return false
-	}
-	added, ok := a.moveIntoNewGroup(p, member)
-	if !ok {
-		return false
-	}
-	set.layout = newLeaf(added)
-	return true
 }
 
 // terminalTitle is the name on a terminal's tab: the plugin's title, or "Local (n)".

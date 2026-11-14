@@ -303,7 +303,7 @@ func (a *App) tabBar(c ui.C, place *groupPlace, layout tabLayout, buttons func()
 
 	ui.Row(c).Height(panelHeaderHeight).Shrink(1).MinWidth(0).Items(ui.Center).Gap(chromeGap).Grow(1).Children(func() {
 		view := ui.Row(c).FillHeight().Items(ui.Center).Shrink(1).MinWidth(0).Clip()
-		if !place.tool {
+		if place.id != toolGroup {
 			view.Grow(1)
 		} else {
 			// The tool window's tabs keep their width and give way before the buttons do.
@@ -514,7 +514,7 @@ func (a *App) closeTab(t shownTab) {
 // tabMenuMaxHeight.
 func (a *App) hiddenTabsButton(c ui.C, place *groupPlace, s *tabStrip, tabs []shownTab, current string) {
 	icon := icons.ChevronDown
-	if place.tool {
+	if place.id == toolGroup {
 		icon = icons.Ellipsis
 	}
 	button, clicked := a.toolIconButton(c.Part("more"), a.text.Editor.HiddenTabs, icon, s.menu, false)

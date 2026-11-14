@@ -2,30 +2,19 @@ package workbench
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"strings"
 
-	"github.com/1lck/Lithe-IDEA/desktop/internal/core"
+	"github.com/1lck/Lithe-IDEA/desktop/internal/ai"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/i18n"
 	"github.com/vivaui/viva/text"
 	"github.com/vivaui/viva/ui"
 )
 
 // This file is the Commit panel's "generate message" action (matrix id ai-commit-generation).
-// Core owns the evidence (git.commitMessageContext), the request plan (ai.planCommit) and the
-// decoding (ai.decodeCommitMessage); this file only picks the provider and its credential from
-// the Codex or Claude configuration, makes the HTTP call, and puts the answer in the message
-// field. A generation never stages, commits or pushes: its result is a draft.
-
-// aiCommitKernel is the part of the kernel the generation uses. *core.Client implements it; a
-// kernel that does not (a test double) turns the button off.
-type aiCommitKernel interface {
-	CommitMessageContext(ctx context.Context, mode string, repositories []core.CommitContextRepository, maximumDiffCharacters int) (core.CommitContextEvidence, error)
-	CommitMessageContextIsCurrent(ctx context.Context, mode string, repositories []core.CommitContextRepository, token string) (bool, error)
-	AIPlanCommit(ctx context.Context, provider core.AICommitProvider, options core.AICommitOptions, files []core.AICommitFile) (core.AIHTTPRequest, error)
-	AIDecodeCommitMessage(ctx context.Context, protocol string, response json.RawMessage, includeBody bool) (string, error)
-}
+// The ai package runs the generation with Core; this file keeps the panel's state, hands the
+// staged changes of the active ChangeList to it and puts the answer in the message field. A
+// generation never stages, commits or pushes: its result is a draft.
 
 // aiCommitState is what the commit area keeps of a generation.
 type aiCommitState struct {
@@ -39,12 +28,12 @@ type aiCommitState struct {
 	// token and repositories are the evidence the pending message was generated from; they
 	// are checked again before it replaces the typed text.
 	token        string
-	repositories []core.CommitContextRepository
+	repositories []ai.ContextRepository
 }
 
 // aiCommitOptions are the options of a generation: the language, the body and the instructions
-// the settings chose, and the shared defaults of the contract for the rest.
-func (a *App) aiCommitOptions() core.AICommitOptions {
+// the settings chose.
+func (a *App) aiCommitOptions() ai.CommitOptions {
 	generation := a.aiGenerationSettings()
 	language := "english"
 	if a.language() == i18n.Chinese {
@@ -53,91 +42,44 @@ func (a *App) aiCommitOptions() core.AICommitOptions {
 	if generation.Language != "" {
 		language = generation.Language
 	}
-	return core.AICommitOptions{
-		Language: language, Format: "conventional", SubjectMaximumLength: 72,
-		MaximumDiffCharacters: 32000, ReasoningEffort: "default", IncludeBody: generation.IncludeBody,
-		CustomInstructions: strings.TrimSpace(generation.CustomInstructions),
-	}
+	return ai.NewCommitOptions(language, generation.IncludeBody, strings.TrimSpace(generation.CustomInstructions))
 }
 
 // canGenerateCommit reports that the button may start a generation.
 func (a *App) canGenerateCommit(p *project) bool {
-	_, ok := a.kernel.(aiCommitKernel)
 	c := &p.commit
-	return ok && a.aiKernelReady() && p.git.isRepository() && !c.busy && !c.ai.running && c.review == nil &&
+	return a.aiKernelReady() && p.git.isRepository() && !c.busy && !c.ai.running && c.review == nil &&
 		p.listsReady() && p.activeStagedCount() > 0 && !p.otherStaged()
 }
 
 // stagedCommitRepositories are the repositories and staged files the generation reads,
 // matching what a commit takes: the staged changes of the active ChangeList.
-func (p *project) stagedCommitRepositories() []core.CommitContextRepository {
-	var files []core.CommitContextFile
+func (p *project) stagedCommitRepositories() []ai.ContextRepository {
+	var files []ai.ContextFile
 	for _, change := range p.activeChanges() {
 		if !change.Staged {
 			continue
 		}
-		files = append(files, core.CommitContextFile{Path: change.Path, OriginalPath: change.OriginalPath, ChangeKind: stagedChangeKind(change.Status)})
+		files = append(files, ai.ContextFile{Path: change.Path, OriginalPath: change.OriginalPath, ChangeKind: ai.StagedChangeKind(change.Status)})
 	}
-	return []core.CommitContextRepository{{Root: p.git.repositoryRoot(p.root), Files: files}}
+	return []ai.ContextRepository{{Root: p.git.repositoryRoot(p.root), Files: files}}
 }
-
-// stagedChangeKind names the index side of a porcelain status for Core.
-func stagedChangeKind(status string) string {
-	if status == "" {
-		return "modified"
-	}
-	switch status[0] {
-	case 'A':
-		return "added"
-	case 'D':
-		return "deleted"
-	case 'R':
-		return "renamed"
-	case 'C':
-		return "copied"
-	case 'U':
-		return "unmerged"
-	}
-	return "modified"
-}
-
-// pickAIProvider is the first provider of the Codex then the Claude configuration that can
-// be used: it has no issue and holds a credential.
-func pickAIProvider(providers map[string][]aiProvider) (aiProvider, bool) {
-	return pickAIProviderFrom(providers, aiProviderSources())
-}
-
-// pickAIProviderFrom is pickAIProvider over the given sources in their order.
-func pickAIProviderFrom(providers map[string][]aiProvider, sources []string) (aiProvider, bool) {
-	for _, source := range sources {
-		for _, provider := range providers[source] {
-			if provider.Issue == "" && !provider.MissingKey && provider.APIKey != "" && provider.Endpoint != "" {
-				return provider, true
-			}
-		}
-	}
-	return aiProvider{}, false
-}
-
-// errAINoProvider reports that no configured provider can be used.
-var errAINoProvider = errors.New("no AI provider")
 
 // generateCommitMessage starts a generation for the staged changes.
 func (a *App) generateCommitMessage(p *project) {
-	kernel, ok := a.kernel.(aiCommitKernel)
 	c := &p.commit
-	if !ok || !a.canGenerateCommit(p) {
+	if !a.canGenerateCommit(p) {
 		return
 	}
 	a.performed("ai.commitMessage", surfaceButton)
 	ctx, cancel := context.WithCancel(p.ctx)
 	c.ai.running, c.ai.cancel = true, cancel
-	repositories := p.stagedCommitRepositories()
+	kernel, repositories := a.aiKernel, p.stagedCommitRepositories()
 	options := a.aiCommitOptions()
 	sources := a.aiGenerationSources()
 	a.background(p, 0, func(context.Context) func(*App) {
 		defer cancel()
-		message, token, err := a.runCommitGeneration(ctx, kernel, repositories, options, sources)
+		message, token, err := ai.GenerateCommitMessage(ctx, kernel, repositories, options, sources)
 		return func(a *App) {
 			c.ai.running, c.ai.cancel = false, nil
 			a.finishCommitGeneration(p, message, token, repositories, err)
@@ -145,52 +87,9 @@ func (a *App) generateCommitMessage(p *project) {
 	})
 }
 
-// runCommitGeneration captures the evidence, plans and sends the request and decodes the
-// answer. It runs off the window thread.
-func (a *App) runCommitGeneration(ctx context.Context, kernel aiCommitKernel, repositories []core.CommitContextRepository, options core.AICommitOptions, sources []string) (string, string, error) {
-	providers := a.discoverAIProviders(ctx)
-	provider, ok := pickAIProviderFrom(providers, sources)
-	if !ok {
-		return "", "", errAINoProvider
-	}
-	evidence, err := kernel.CommitMessageContext(ctx, "staged", repositories, options.MaximumDiffCharacters)
-	if err != nil {
-		return "", "", err
-	}
-	plan, err := kernel.AIPlanCommit(ctx, core.AICommitProvider{
-		ID: provider.Source, Name: provider.Name, Endpoint: provider.Endpoint, Model: provider.Model,
-		APIProtocol: provider.Protocol, Authentication: provider.Authentication, Source: provider.Source, RequiresAPIKey: true,
-	}, options, evidence.Files)
-	if err != nil {
-		return "", "", err
-	}
-	answer, err := aiPost(ctx, plan.URL, aiHeaders(provider.Protocol, provider.Authentication, provider.APIKey), plan.Body)
-	if err != nil {
-		return "", "", err
-	}
-	if !json.Valid(answer) {
-		return "", "", errors.New("AI_COMMIT_INVALID_RESPONSE")
-	}
-	message, err := kernel.AIDecodeCommitMessage(ctx, provider.Protocol, answer, options.IncludeBody)
-	if err != nil {
-		return "", "", err
-	}
-	current, err := kernel.CommitMessageContextIsCurrent(ctx, "staged", repositories, evidence.Token)
-	if err != nil {
-		return "", "", err
-	}
-	if !current {
-		return "", "", errAIStale
-	}
-	return message, evidence.Token, nil
-}
-
-// errAIStale reports that the staged changes moved while the message was generated.
-var errAIStale = errors.New("staged changes changed")
-
 // finishCommitGeneration applies a generated message, or reports why there is none. The
 // message replaces an empty field at once and a typed one only after the user confirms.
-func (a *App) finishCommitGeneration(p *project, message, token string, repositories []core.CommitContextRepository, err error) {
+func (a *App) finishCommitGeneration(p *project, message, token string, repositories []ai.ContextRepository, err error) {
 	c := &p.commit
 	if err != nil {
 		if errors.Is(err, context.Canceled) {
@@ -211,15 +110,15 @@ func (a *App) finishCommitGeneration(p *project, message, token string, reposito
 // aiCommitFailure is the notification for a failed generation.
 func (a *App) aiCommitFailure(err error) string {
 	t := a.text.AI.Commit
-	var status *aiHTTPError
+	var status *ai.HTTPError
 	switch {
-	case errors.Is(err, errAINoProvider):
+	case errors.Is(err, ai.ErrNoProvider):
 		return t.NoProvider
-	case errors.Is(err, errAIStale):
+	case errors.Is(err, ai.ErrStale):
 		return t.Stale
-	case errors.Is(err, errAIResponseTooLarge):
+	case errors.Is(err, ai.ErrResponseTooLarge):
 		return t.Failed(t.ResponseTooLarge)
-	case errors.Is(err, errAITimeout):
+	case errors.Is(err, ai.ErrTimeout):
 		return t.Failed(t.Timeout)
 	case errors.As(err, &status):
 		return t.Failed(t.HTTPStatus(status.Status))
@@ -244,19 +143,19 @@ func (a *App) confirmGeneratedMessage(p *project, replace bool) {
 	}
 	pending, token, repositories := c.ai.pending, c.ai.token, c.ai.repositories
 	c.ai.pending, c.ai.hasPending, c.ai.token, c.ai.repositories = "", false, "", nil
-	kernel, ok := a.kernel.(aiCommitKernel)
-	if !replace || !ok {
+	kernel := a.aiKernel
+	if !replace || kernel == nil {
 		return
 	}
 	typed := c.message()
 	a.background(p, gitTimeout, func(ctx context.Context) func(*App) {
-		current, err := kernel.CommitMessageContextIsCurrent(ctx, "staged", repositories, token)
+		current, err := kernel.CommitContextIsCurrent(ctx, "staged", repositories, token)
 		return func(a *App) {
 			switch {
 			case err != nil:
 				a.notifyError(a.aiCommitFailure(err))
 			case !current:
-				a.notifyError(a.aiCommitFailure(errAIStale))
+				a.notifyError(a.aiCommitFailure(ai.ErrStale))
 			case c.message() != typed:
 				// The user kept typing: the draft is theirs, not ours.
 			default:

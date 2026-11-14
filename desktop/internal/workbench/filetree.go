@@ -3,7 +3,6 @@ package workbench
 import (
 	"context"
 	"errors"
-	"path"
 	"path/filepath"
 
 	"github.com/1lck/Lithe-IDEA/desktop/internal/core"
@@ -41,9 +40,11 @@ type fileTree struct {
 	// selected is the node whose row is highlighted, which the arrow keys move.
 	selected *treeNode
 	// marked are the paths a Ctrl or Shift click selected for a batch; anchor is the path a
-	// Shift click extends from (filetree_batch.go).
-	marked map[string]bool
-	anchor string
+	// Shift click extends from, and targets what a batch acts on, as Core last said
+	// (filetree_batch.go).
+	marked  map[string]bool
+	anchor  string
+	targets []string
 	// batch is the batch delete dialog, open while the user confirms it.
 	batch treeBatchDelete
 	// rowRefs maps the hit identity of each row the last paint declared to its node, so a drag
@@ -53,11 +54,13 @@ type fileTree struct {
 	// failed is why the root could not be listed; empty otherwise.
 	failed string
 	next   int
-	// rows are the nodes the last paint showed, top to bottom; view is the Tree that shows
-	// them, which declares only the ones in view and scrolls sideways when the widest row is
-	// wider than it, by view.RowWidth.
-	rows []*treeNode
-	view ui.TreeState
+	// rows are the nodes the tree shows, top to bottom, as Core laid them out when the shape of
+	// the tree last changed, and rowsDirty says it changed since (filetree_rows.go); view is the
+	// Tree that shows them, which declares only the ones in view and scrolls sideways when the
+	// widest row is wider than it, by view.RowWidth.
+	rows      []*treeNode
+	rowsDirty bool
+	view      ui.TreeState
 	// area is where the tree was laid out in the last paint, read by its draw hook.
 	area     gfx.Rect
 	areaDraw func(*ui.DrawContext)
@@ -65,8 +68,8 @@ type fileTree struct {
 	focusNode *treeNode
 	// wake asks for a paint.
 	wake func()
-	// measureDirty says a row was added, removed, opened or renamed since the width of the
-	// widest row was measured, and measureFont the font size it was measured with.
+	// measureDirty says the rows were laid out again since the width of the widest row was
+	// measured, and measureFont the font size it was measured with.
 	measureDirty bool
 	measureFont  float32
 	// pending and reading coalesce native events into one bounded Core request.
@@ -138,8 +141,8 @@ func (t *fileTree) forgetNode(n *treeNode) {
 	}
 }
 
-// replaceChildren keeps the identities and loaded descendants of entries that
-// still exist. Selection must never point into a subtree that has disappeared.
+// replaceChildren keeps the identities and loaded descendants of entries that still exist.
+// The rows are laid out again after it, which moves a selection whose node went away.
 func (t *fileTree) replaceChildren(parent *treeNode, entries []core.WorkspaceNode) {
 	old := make(map[string]*treeNode, len(parent.children))
 	for _, child := range parent.children {
@@ -173,17 +176,7 @@ func (t *fileTree) replaceChildren(parent *treeNode, entries []core.WorkspaceNod
 		t.forgetNode(removed)
 	}
 	parent.children = children
-	if t.selected != nil && t.find(t.selected.path) != t.selected {
-		selectedPath := t.selected.path
-		t.selected = nil
-		for ancestor := path.Dir(selectedPath); ancestor != "." && ancestor != "/"; ancestor = path.Dir(ancestor) {
-			if n := t.find(ancestor); n != nil && n.dir {
-				t.selected = n
-				break
-			}
-		}
-	}
-	t.measureDirty = true
+	t.rowsDirty = true
 }
 
 // listTree asks the kernel for the children of the folders at paths, away from the window
@@ -250,7 +243,7 @@ func (a *App) pumpTreeListings(p *project) {
 				// The tree listed again, so a later failure is a new one to report.
 				t.failureReported = false
 			}
-			anchor := a.treeViewportAnchor(t)
+			top := treeTopPath(t)
 			loggedFailure := t.failureReported
 			byPath := make(map[string]core.DirectoryListing, len(listings))
 			for _, listing := range listings {
@@ -272,7 +265,7 @@ func (a *App) pumpTreeListings(p *project) {
 					if n == t.root {
 						t.failed = i18n.Shared(a.language(), "desktop.project.rootUnavailable")
 					} else if !n.listed {
-						n.expanded = false
+						n.expanded, t.rowsDirty = false, true
 					}
 					continue
 				}
@@ -288,11 +281,14 @@ func (a *App) pumpTreeListings(p *project) {
 						t.failed = i18n.Shared(a.language(), "desktop.project.rootUnavailable")
 					} else {
 						// log-exempt: 目标已消失：目录可能已被外部删除或隐藏。
-						n.expanded = false
+						n.expanded, t.rowsDirty = false, true
 					}
 				}
 			}
-			a.restoreTreeViewportAnchor(t, anchor)
+			if t.rowsDirty {
+				// Rows inserted or removed above the top of the view leave the same row at its top.
+				a.refreshTreeRows(p, top)
+			}
 			a.pruneTreeWatches(p)
 			if t.failed == "" {
 				for _, path := range paths {
@@ -311,43 +307,6 @@ func (a *App) pumpTreeListings(p *project) {
 	})
 }
 
-// Keep the first visible row stable when an asynchronous listing inserts or removes rows above
-// it. Selection is independent of this anchor: the selected row may be outside the viewport.
-func (a *App) treeViewportAnchor(t *fileTree) *treeNode {
-	first, last := t.view.Visible()
-	if first <= 0 || first > last || first+treeOverscan >= len(t.rows) {
-		return nil
-	}
-	return t.rows[first+treeOverscan]
-}
-
-func (a *App) restoreTreeViewportAnchor(t *fileTree, anchor *treeNode) {
-	if anchor == nil || t.root == nil {
-		return
-	}
-	index, found := 0, false
-	var visit func([]*treeNode)
-	visit = func(nodes []*treeNode) {
-		for _, n := range nodes {
-			if found {
-				return
-			}
-			if n == anchor {
-				found = true
-				return
-			}
-			index++
-			if n.dir && n.expanded {
-				visit(n.children)
-			}
-		}
-	}
-	visit([]*treeNode{t.root})
-	if found {
-		t.view.ScrollTo(index, ui.ListStart)
-	}
-}
-
 // toggleFolder expands a collapsed folder, listing it the first time, and collapses an
 // expanded one.
 func (a *App) toggleFolder(p *project, n *treeNode) {
@@ -356,12 +315,12 @@ func (a *App) toggleFolder(p *project, n *treeNode) {
 	}
 	if n.expanded {
 		n.expanded = false
-		p.tree.measureDirty = true
+		p.tree.rowsDirty = true
 		a.pruneTreeWatches(p)
 		return
 	}
 	n.expanded = true
-	p.tree.measureDirty = true
+	p.tree.rowsDirty = true
 	// The directory may have changed while collapsed and unobserved.
 	a.listTree(p, n.path)
 }

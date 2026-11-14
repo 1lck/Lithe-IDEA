@@ -164,7 +164,7 @@ type documentLocation struct {
 	column    int
 	columnSet bool
 	// group is the editor group the file opens in when it is still there; "" opens it
-	// where files open (documentGroup). A restored session sets it (editor_session.go).
+	// where files open (placeEditorMember). A restored session sets it (editor_session.go).
 	group string
 }
 
@@ -304,7 +304,8 @@ func (a *App) openFile(p *project, path string) {
 				a.notifyError(a.text.Editor.OpenFailed(name, a.documentReason(err)))
 				return
 			}
-			if g := location.group; g != "" && p.terms.layout.contains(g) && p.terms.bench.Group(g) != nil {
+			if g := location.group; g != "" {
+				// The kernel opens the file there only while the layout shows the group.
 				p.docs.group = g
 			}
 			a.placeDocument(p, path, name, content, grammar, languageID)
@@ -478,23 +479,12 @@ func (a *App) placeDocumentAs(p *project, path, name string, content editorview.
 		a.selectDocument(p, d.id)
 		return
 	}
-	set := &p.terms
-	state := set.bench
-	group, added := a.documentGroup(p), ""
-	if group == "" {
-		added = editorGroupID(set.nextGroup + 1)
-		state.Groups = append(slices.Clone(state.Groups), core.EditorGroup{ID: added})
-		group = added
-	}
 	id := p.docs.next + 1
-	if !a.reduceTerminals(p, state, core.OpenEditor(group, documentMember(id), true)) {
+	group, ok := a.placeEditorMember(p, documentMember(id))
+	if !ok {
 		return
 	}
 	p.docs.next = id
-	if added != "" {
-		set.nextGroup++
-		set.layout = newLeaf(added)
-	}
 	d := &document{id: id, path: path, name: name, languageID: languageID, virtual: virtual}
 	d.view = editorview.New(editorview.Config{
 		Label:   name,
@@ -531,21 +521,21 @@ func (a *App) placeDocumentAs(p *project, path, name string, content editorview.
 	}
 }
 
-// documentGroup is the editor group a file opens in: the one a document was last shown in,
-// while it is still there, or else the first group of the editor; "" when it has none.
-func (a *App) documentGroup(p *project) string {
+// placeEditorMember opens member, a file's, a Diff tab's, a viewer tab's or the LSP Logs tab's,
+// in the group a file opens in, and shows it. The kernel picks the group: the one a file was
+// last shown in while the layout shows it, else the first group of the layout, else a group it
+// makes as the whole layout. It returns that group and whether the kernel accepted the member.
+func (a *App) placeEditorMember(p *project, member string) (string, bool) {
 	set := &p.terms
-	if g := p.docs.group; g != "" && set.layout.contains(g) && set.bench.Group(g) != nil {
-		return g
+	added := editorGroupID(set.nextGroup + 1)
+	result, ok := a.reduceEditorLayout(p, set.bench, core.OpenEditorTab(member, p.docs.group, added))
+	if !ok {
+		return "", false
 	}
-	n := set.layout
-	for n != nil && !n.leaf() {
-		n = n.first
+	if result.Group == added {
+		set.nextGroup++
 	}
-	if n == nil {
-		return ""
-	}
-	return n.group
+	return result.Group, true
 }
 
 // selectDocument shows document id in its group and gives it the keyboard.

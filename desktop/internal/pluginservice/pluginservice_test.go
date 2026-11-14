@@ -423,6 +423,10 @@ func (k *fakeKernel) UpdatePluginWorkspaceConfiguration(context.Context, string,
 	return false, nil
 }
 
+func (k *fakeKernel) PlanPluginLifecycle(ctx context.Context, request core.PluginLifecycleRequest) (core.PluginLifecycle, error) {
+	return core.NewClient().PlanPluginLifecycle(ctx, request)
+}
+
 func (k *fakeKernel) SelectInstalledPluginVersions(ctx context.Context, entries []core.InstalledPluginFact, includeDisabled bool) (core.InstalledPluginSelection, error) {
 	return core.NewClient().SelectInstalledPluginVersions(ctx, entries, includeDisabled)
 }

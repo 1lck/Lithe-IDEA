@@ -6,6 +6,7 @@ import (
 	"errors"
 	"strings"
 
+	"github.com/1lck/Lithe-IDEA/desktop/internal/ai"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/core"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/githubapi"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/i18n"
@@ -204,23 +205,19 @@ func (a *App) generatePullRequestDescription(p *project) {
 	cr := &a.prCreate
 	client := a.githubAPI()
 	token := a.githubToken()
-	kernel, ok := a.kernel.(interface {
-		AIPlanPullRequest(ctx context.Context, provider core.AICommitProvider, options core.AIPullRequestOptions, comparison core.PullRequestComparison) (core.AIHTTPRequest, error)
-		AIDecodePullRequest(ctx context.Context, protocol string, response json.RawMessage) (string, string, error)
-	})
-	if !ok || client == nil || token == "" || cr.repo == nil || cr.generating || cr.base == "" || cr.head == "" || !a.aiKernelReady() {
+	kernel := a.aiKernel
+	if kernel == nil || client == nil || token == "" || cr.repo == nil || cr.generating || cr.base == "" || cr.head == "" {
 		return
 	}
 	repo, base, head := *cr.repo, cr.base, cr.head
 	cr.generating, cr.err = true, ""
 	a.performed("ai.pullRequestDescription", surfaceButton)
-	options := a.aiCommitOptions()
+	options := ai.PullRequestOptionsFor(a.aiCommitOptions())
 	sources := a.aiGenerationSources()
 	a.background(p, aiRequestTimeoutPR, func(ctx context.Context) func(*App) {
-		providers := a.discoverAIProviders(ctx)
-		provider, found := pickAIProviderFrom(providers, sources)
-		if !found {
-			return a.finishPullRequestDraft("", "", errAINoProvider)
+		provider, err := ai.Choose(ctx, kernel, sources)
+		if err != nil {
+			return a.finishPullRequestDraft("", "", err)
 		}
 		raw, err := client.Do(ctx, core.GitHubRequest{Operation: "compareBranches", Repository: &repo, Base: base, Head: head}, token)
 		var comparison githubapi.Comparison
@@ -230,32 +227,18 @@ func (a *App) generatePullRequestDescription(p *project) {
 		if err != nil {
 			return a.finishPullRequestDraft("", "", err)
 		}
-		plan, err := kernel.AIPlanPullRequest(ctx, core.AICommitProvider{
-			ID: provider.Source, Name: provider.Name, Endpoint: provider.Endpoint, Model: provider.Model,
-			APIProtocol: provider.Protocol, Authentication: provider.Authentication, Source: provider.Source, RequiresAPIKey: true,
-		}, core.AIPullRequestOptions{
-			Language: options.Language, Format: "standard", MaximumDiffCharacters: options.MaximumDiffCharacters,
-			ReasoningEffort: options.ReasoningEffort,
-		}, comparisonForCore(repo, base, head, comparison))
-		if err != nil {
-			return a.finishPullRequestDraft("", "", err)
-		}
-		answer, err := aiPost(ctx, plan.URL, aiHeaders(provider.Protocol, provider.Authentication, provider.APIKey), plan.Body)
-		if err != nil {
-			return a.finishPullRequestDraft("", "", err)
-		}
-		title, description, err := kernel.AIDecodePullRequest(ctx, provider.Protocol, answer)
+		title, description, err := ai.DraftPullRequest(ctx, kernel, provider, options, comparisonForCore(repo, base, head, comparison))
 		return a.finishPullRequestDraft(title, description, err)
 	})
 }
 
 // aiRequestTimeoutPR bounds a whole draft: the comparison, the provider call and the decode.
-const aiRequestTimeoutPR = aiRequestTimeout
+const aiRequestTimeoutPR = ai.RequestTimeout
 
 // comparisonForCore is the comparison Core plans from: the repository as owner/name, the branches,
 // the commit messages, and each file with its patch (an empty patch for a file without one).
-func comparisonForCore(repo core.GitHubRepo, base, head string, comparison githubapi.Comparison) core.PullRequestComparison {
-	out := core.PullRequestComparison{Repository: repo.Owner + "/" + repo.Name, Base: base, Head: head}
+func comparisonForCore(repo core.GitHubRepo, base, head string, comparison githubapi.Comparison) ai.PullRequestComparison {
+	out := ai.PullRequestComparison{Repository: repo.Owner + "/" + repo.Name, Base: base, Head: head}
 	for _, commit := range comparison.Commits {
 		out.CommitMessages = append(out.CommitMessages, commit.Message)
 	}
@@ -264,7 +247,7 @@ func comparisonForCore(repo core.GitHubRepo, base, head string, comparison githu
 		if file.Patch != nil {
 			diff = *file.Patch
 		}
-		out.Files = append(out.Files, core.PullRequestComparisonFile{Path: file.Path, ChangeKind: file.Status, Diff: diff})
+		out.Files = append(out.Files, ai.PullRequestFile{Path: file.Path, ChangeKind: file.Status, Diff: diff})
 	}
 	return out
 }
@@ -290,7 +273,7 @@ func (a *App) finishPullRequestDraft(title, description string, err error) func(
 
 // aiPullRequestFailure is the text a failed description draft shows.
 func aiPullRequestFailure(language i18n.Language, err error) string {
-	if errors.Is(err, errAINoProvider) {
+	if errors.Is(err, ai.ErrNoProvider) {
 		return i18n.Shared(language, "desktop.github.draftNoProvider")
 	}
 	return i18n.SharedFormat(language, "desktop.github.draftFailed", map[string]string{"reason": err.Error()})

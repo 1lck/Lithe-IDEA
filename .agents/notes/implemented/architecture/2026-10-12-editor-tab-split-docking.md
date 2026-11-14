@@ -2,7 +2,7 @@
 
 状态：已实现
 
-> Viva 迁移状态：本文记录旧 macOS 客户端的分组、终端和 Diff 行为，不代表 Viva 已全部实现。Viva 已有部分文本与终端分组展示；跨类型拖放、Diff 会话、焦点及生命周期需按下述要求逐项核验，原版像素对照和 Windows 实机验收仍未完成。Go 宿主现有分组状态转换下沉 Core 的债务已登记 [#1806](https://github.com/1lck/Lithe-IDEA/issues/1806)。
+> Viva 迁移状态：本文记录旧 macOS 客户端的分组、终端和 Diff 行为，不代表 Viva 已全部实现。Viva 已有部分文本与终端分组展示；跨类型拖放、Diff 会话、焦点及生命周期需按下述要求逐项核验，原版像素对照和 Windows 实机验收仍未完成。Viva 的分组与布局规则已由 Core 计算（[#1806](https://github.com/1lck/Lithe-IDEA/issues/1806)），见下文“Viva 宿主只画布局，规则在 Core”。
 
 ## 先说结论
 
@@ -31,6 +31,20 @@ LSP 日志是普通编辑器标签（`EditorTabItem.languageLogs`），不登记
 选中它要清除活动文件、媒体和终端投影，关闭后通过混合标签选择恢复原来的内容，不能关闭未保存的文件。
 文件通过功能模型直接打开时，日志标签也必须让出活动选择；工作区重置会移除日志标签并停止它的查询。
 与数据库 PR #17 集成后，数据库标签继续使用其共享工作区和查询状态，统一保留在同一个编辑分组，只允许组内重排；不能直接开放跨组移动，否则两个分组会显示同一数据库上下文。数据库工具窗口及 Services 工具窗口仍支持停靠分组。
+
+### Viva 宿主只画布局，规则在 Core
+
+Viva 桌面端（Go 宿主）不自己决定标签能放到哪里、放下后分组怎么变。
+这些规则在 Core 的 `lithe-editor-layout` crate，宿主通过两条命令使用：
+
+- `editor.groupLayout.dropTargets`：拖动开始时问一次，Core 回答每个分组的标签栏能否插入（join）、正文边缘能否拆分（split）、正文中间能否追加（append），以及空编辑区能否接收。宿主只拿这份答案和上一帧画出的位置做命中测试，算出插入序号、拆分方向和预览区域。
+- `editor.groupLayout.reduce`：打开标签、放下拖动的标签、移除空分组时调用。Core 同时改分组状态和布局树：拆分时插入新分组，最后一个标签离开后删掉空分组，兄弟分组占满空出的位置。过期的落点（标签已关闭、分组已消失）被拒绝，不会变成另一种移动。
+
+宿主保留的只有 Core 不需要知道的东西：每个拆分节点的分隔条比例，按 Core 返回的节点编号复用原节点，所以分隔条比例和 Viva 持有的指针在其他分组变化时不丢。
+停靠在 Terminal 工具窗口里的分组作为 `docked` 传给 Core，只有终端标签（`dockable`）能拖进去，它永远不拆分，最后一个终端离开后保留。
+
+正确做法：拖放、打开位置、空分组的规则改在 Core，桌面端只改命中几何和绘制。
+不要这样做：在 `desktop/internal/workbench` 里重新写 `splitLeaf`、`removeLeaf` 这类布局树算法，或按标签种类加“能不能放”的分支。
 
 ### 终端标签使用独立的 AppKit 拖放
 
@@ -118,6 +132,7 @@ Windows 的既有分栏实现不受此次 macOS 呈现改动影响，完整两�
 - `./scripts/desktop/verify/verify-runtime-bundle-immutability.sh`
 - `./scripts/platform-feature-matrix/verify-platform-feature-matrix.sh`
 - `./scripts/agent-notes/verify-agent-notes.sh`
+- Viva：`desktop/internal/core` 的 `TestReduceEditorLayout`、`TestEditorDropTargets` 对真实 Core 检查打开、拆分、合并、拒绝和落点规则；`desktop/internal/workbench` 的 `TestDropAt*`、`TestAdoptLayout*` 检查命中几何与节点复用，`TestTerminalTabDragJoinsAndSplitsEditorGroupsThroughThePage`、`TestFileTabDragSplitsTheEditorThroughThePage` 经页面拖放走完整流程。
 - 原生事件检查右侧、底部半区、释放提交、Esc 取消、重排、关闭与焦点；实机预览另检查真实字体资源、代码输入、灰色浮动标签及分隔器调整。
 - 终端标签拖放：聚焦测试覆盖外部插入/边缘分屏、私有 pasteboard 与拖拽状态、工具窗终端拖入编辑器不重建进程；真实窗口录屏确认工具窗→底边分屏→右侧分屏→工具窗往返中 PTY 未重建。
 - `TerminalPlacementFeatureModelTests.toolTerminalDropOverlayLeavesTheTabBarAvailable` 在两种面板高度挂载真实工具窗视图，检查正文覆盖层不命中标签栏；`EditorTabOrderFeatureModelTests.editorGroupDropPreviewPublishesOnlyChangedTargets` 检查相同落点、目标切换和重复清空的发布次数。实机拖放仍需检查拖回已有标签前后的位置，组件命中验证不代替系统拖放验收。

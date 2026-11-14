@@ -2,7 +2,6 @@ package workbench
 
 import (
 	"context"
-	"path"
 	"slices"
 	"strings"
 	"time"
@@ -608,6 +607,10 @@ func (a *App) selectCommit(p *project, hash string) {
 		ctx, cancel := untilStopped(ctx, stop)
 		defer cancel()
 		files, err := kernel.GitCommitFiles(ctx, root, hash)
+		var folders []logFolder
+		if err == nil {
+			folders, err = groupLogFiles(ctx, kernel, commitFilePaths(files))
+		}
 		if ctx.Err() != nil {
 			return nil
 		}
@@ -619,7 +622,7 @@ func (a *App) selectCommit(p *project, hash string) {
 			if err != nil {
 				l.filesState = logFilesFailed
 			} else {
-				l.files, l.folders, l.filesState = files, groupLogFiles(files), logFilesReady
+				l.files, l.folders, l.filesState = files, folders, logFilesReady
 			}
 			if detailErr == nil {
 				l.detail = &detail
@@ -644,30 +647,45 @@ func untilStopped(ctx context.Context, stop <-chan struct{}) (context.Context, c
 	return ctx, cancel
 }
 
-// logFolder is one folder of the selected commit's changed files: its path from the top of
-// the repository, "." for the top itself, and the indices into the files of the ones in it, in
-// the order Git listed them.
+// logFolder is one folder of a list of changed files as Core grouped it
+// (git.changedFileGroups): its path from the top of the repository, "" for the top itself, and
+// the indices into the files of the ones directly in it, in name order.
 type logFolder struct {
 	dir   string
 	files []int
 }
 
-// groupLogFiles groups files by their folder, the folders sorted by path.
-func groupLogFiles(files []core.GitCommitFile) []logFolder {
-	at := map[string]int{}
-	var folders []logFolder
-	for i, file := range files {
-		dir := path.Dir(file.Path)
-		j, ok := at[dir]
-		if !ok {
-			j = len(folders)
-			at[dir] = j
-			folders = append(folders, logFolder{dir: dir})
-		}
-		folders[j].files = append(folders[j].files, i)
+// changedFileGrouper is the kernel as the lists of changed files group their files.
+type changedFileGrouper interface {
+	GitChangedFileGroups(ctx context.Context, paths []string) ([]core.GitChangedFolder, error)
+}
+
+// groupLogFiles has Core group the files at paths by folder, folders and files in the project
+// tree's natural order. A list is grouped once, when it loads.
+func groupLogFiles(ctx context.Context, kernel changedFileGrouper, paths []string) ([]logFolder, error) {
+	groups, err := kernel.GitChangedFileGroups(ctx, paths)
+	if err != nil {
+		return nil, err
 	}
-	slices.SortFunc(folders, func(a, b logFolder) int { return strings.Compare(a.dir, b.dir) })
-	return folders
+	folders := make([]logFolder, len(groups))
+	for i, group := range groups {
+		folders[i] = logFolder{dir: group.Path, files: group.Files}
+	}
+	return folders, nil
+}
+
+// holds says the folder lists the file at file, pathOf naming the file at an index.
+func (f logFolder) holds(file string, pathOf func(int) string) bool {
+	return slices.ContainsFunc(f.files, func(i int) bool { return pathOf(i) == file })
+}
+
+// commitFilePaths are the paths of a commit's changed files.
+func commitFilePaths(files []core.GitCommitFile) []string {
+	paths := make([]string, len(files))
+	for i, file := range files {
+		paths[i] = file.Path
+	}
+	return paths
 }
 
 // locateReference selects the newest loaded commit that the reference with short name

@@ -1,10 +1,13 @@
 package workbench
 
 import (
+	"context"
 	"os"
 	"path/filepath"
+	"reflect"
 	"slices"
 	"testing"
+	"time"
 
 	"github.com/1lck/Lithe-IDEA/desktop/internal/core"
 	"github.com/vivaui/viva/gfx"
@@ -23,97 +26,79 @@ func leaves(n *splitNode) []string {
 	return append(leaves(n.first), leaves(n.second)...)
 }
 
-// threeWay is the tree "a | (b over c)": a container with id 1 that holds a and a container
-// with id 2.
+// threeWayShape is the layout "a | (b over c)": split 1 side by side holds a and split 2,
+// which holds b over c.
+func threeWayShape() *core.EditorLayout {
+	return &core.EditorLayout{Node: 1, Row: true, First: &core.EditorLayout{Group: "a"}, Second: &core.EditorLayout{
+		Node: 2, First: &core.EditorLayout{Group: "b"}, Second: &core.EditorLayout{Group: "c"},
+	}}
+}
+
+// threeWay is the tree of threeWayShape, as the kernel's first answer makes it.
 func threeWay(t *testing.T) *splitNode {
 	t.Helper()
-	root := splitLeaf(newLeaf("a"), "a", "b", edgeRight, 1)
-	root = splitLeaf(root, "b", "c", edgeBottom, 2)
+	root := adoptLayout(nil, threeWayShape())
 	if got := leaves(root); !slices.Equal(got, []string{"a", "b", "c"}) {
 		t.Fatalf("leaves = %v, want [a b c]", got)
 	}
-	if root.second.leaf() || root.second.id != 2 || root.second.row {
-		t.Fatalf("second child = %+v, want the column with id 2", root.second)
+	if root.id != 1 || !root.row || root.second.leaf() || root.second.id != 2 || root.second.row {
+		t.Fatalf("tree = %+v, want row 1 holding the column 2", root)
 	}
 	return root
 }
 
-func TestSplitLeafPutsTheNewGroupOnTheNamedSide(t *testing.T) {
-	cases := []struct {
-		edge edge
-		row  bool
-		want []string
-	}{
-		{edgeRight, true, []string{"a", "b"}},
-		{edgeLeft, true, []string{"b", "a"}},
-		{edgeBottom, false, []string{"a", "b"}},
-		{edgeTop, false, []string{"b", "a"}},
+func TestLayoutShapeIsWhatTheTreeShows(t *testing.T) {
+	if layoutShape(nil) != nil {
+		t.Errorf("no tree has a shape")
 	}
-	for _, c := range cases {
-		got := splitLeaf(newLeaf("a"), "a", "b", c.edge, 7)
-		if got.leaf() || got.id != 7 || got.row != c.row || got.state.Ratio != 0.5 {
-			t.Errorf("edge %d: container = %+v, want id 7, row %v, ratio 0.5", c.edge, got, c.row)
-		}
-		if order := leaves(got); !slices.Equal(order, c.want) {
-			t.Errorf("edge %d: leaves = %v, want %v", c.edge, order, c.want)
-		}
+	if got, want := layoutShape(threeWay(t)), threeWayShape(); !reflect.DeepEqual(got, want) {
+		t.Errorf("layoutShape = %+v, want %+v", got, want)
 	}
 }
 
-func TestSplitLeafEditsInPlaceAndIgnoresUnknownTargets(t *testing.T) {
+func TestAdoptLayoutKeepsTheNodesThatStay(t *testing.T) {
 	root := threeWay(t)
+	if root.state.Ratio != 0.5 || root.second.state.Ratio != 0.5 {
+		t.Errorf("ratios = %v, %v, want new splits divided in half", root.state.Ratio, root.second.state.Ratio)
+	}
+	root.state.Ratio = 0.3
 	first, inner := root.first, root.second
 
-	// A target the tree does not show changes nothing.
-	if got := splitLeaf(root, "zzz", "d", edgeLeft, 3); got != root || !slices.Equal(leaves(got), []string{"a", "b", "c"}) {
-		t.Errorf("splitting an unknown group changed the tree: %v", leaves(got))
-	}
-	// Splitting a leaf deep in the tree keeps every node that stays, so their splitters keep
-	// their state.
-	got := splitLeaf(root, "c", "d", edgeRight, 3)
-	if got != root || root.first != first || root.second != inner {
-		t.Errorf("splitting a leaf replaced a node that stays")
+	// The kernel split c with d on its right as split 3: every node that stays is the same,
+	// so the splitters keep their state, and the new split starts in half.
+	shape := threeWayShape()
+	shape.Second.Second = &core.EditorLayout{Node: 3, Row: true, First: &core.EditorLayout{Group: "c"}, Second: &core.EditorLayout{Group: "d"}}
+	got := adoptLayout(root, shape)
+	if got != root || root.first != first || root.second != inner || root.state.Ratio != 0.3 {
+		t.Errorf("adopting a split replaced a node that stays")
 	}
 	if order := leaves(got); !slices.Equal(order, []string{"a", "b", "c", "d"}) {
 		t.Errorf("leaves = %v, want [a b c d]", order)
 	}
-	if splitLeaf(nil, "a", "b", edgeLeft, 1) != nil {
-		t.Errorf("splitting no tree made one")
+	if split := inner.second; split.id != 3 || !split.row || split.state.Ratio != 0.5 {
+		t.Errorf("new split = %+v, want split 3 side by side, in half", split)
 	}
 }
 
-func TestRemoveLeafLetsTheSiblingTakeTheRoom(t *testing.T) {
-	// Removing c leaves the column's other child, b, in its place.
+func TestAdoptLayoutLetsTheSiblingTakeTheRoom(t *testing.T) {
+	// Without a, the column is the whole tree.
 	root := threeWay(t)
-	if got := removeLeaf(root, "c"); got != root || !root.second.leaf() || root.second.group != "b" {
-		t.Errorf("after removing c: leaves = %v, second = %+v", leaves(got), root.second)
-	}
-
-	// Removing a leaves the column as the whole tree.
-	root = threeWay(t)
 	inner := root.second
-	if got := removeLeaf(root, "a"); got != inner || !slices.Equal(leaves(got), []string{"b", "c"}) {
-		t.Errorf("after removing a: leaves = %v", leaves(got))
+	shape := threeWayShape().Second
+	if got := adoptLayout(root, shape); got != inner || !slices.Equal(leaves(got), []string{"b", "c"}) {
+		t.Errorf("after a left: leaves = %v", leaves(got))
 	}
-
-	// Removing b leaves c beside a.
+	// Without b, c stands beside a in the same row.
 	root = threeWay(t)
-	if got := removeLeaf(root, "b"); got != root || !slices.Equal(leaves(got), []string{"a", "c"}) || !root.second.leaf() {
-		t.Errorf("after removing b: leaves = %v", leaves(got))
+	c := root.second.second
+	shape = threeWayShape()
+	shape.Second = shape.Second.Second
+	if got := adoptLayout(root, shape); got != root || root.second != c || !slices.Equal(leaves(got), []string{"a", "c"}) {
+		t.Errorf("after b left: leaves = %v", leaves(got))
 	}
-
-	// A group the tree does not show changes nothing.
-	root = threeWay(t)
-	if got := removeLeaf(root, "zzz"); got != root || !slices.Equal(leaves(got), []string{"a", "b", "c"}) {
-		t.Errorf("removing an unknown group changed the tree: %v", leaves(got))
-	}
-
-	// The only leaf leaves no tree, and no tree stays none.
-	if got := removeLeaf(newLeaf("a"), "a"); got != nil {
-		t.Errorf("removing the only leaf left %+v", got)
-	}
-	if removeLeaf(nil, "a") != nil {
-		t.Errorf("removing from no tree made one")
+	// No layout is no tree.
+	if adoptLayout(threeWay(t), nil) != nil {
+		t.Errorf("an empty layout kept a tree")
 	}
 }
 
@@ -158,24 +143,24 @@ func TestSplitEdgeAt(t *testing.T) {
 	}
 	for _, c := range cases {
 		if got := splitEdgeAt(body, c.x, c.y); got != c.want {
-			t.Errorf("%s: splitEdgeAt(%v, %v) = %d, want %d", c.name, c.x, c.y, got, c.want)
+			t.Errorf("%s: splitEdgeAt(%v, %v) = %q, want %q", c.name, c.x, c.y, got, c.want)
 		}
 	}
 
 	// A tie goes to the first of left, right, top and bottom.
 	square := gfx.Rect{Width: 100, Height: 100}
 	if got := splitEdgeAt(square, 10, 10); got != edgeLeft {
-		t.Errorf("tie of left and top = %d, want left", got)
+		t.Errorf("tie of left and top = %q, want left", got)
 	}
 	if got := splitEdgeAt(square, 90, 10); got != edgeRight {
-		t.Errorf("tie of right and top = %d, want right", got)
+		t.Errorf("tie of right and top = %q, want right", got)
 	}
 	// A body with no area has no edge.
 	if got := splitEdgeAt(gfx.Rect{}, 0, 0); got != edgeNone {
-		t.Errorf("empty body = %d, want none", got)
+		t.Errorf("empty body = %q, want none", got)
 	}
 	if got := splitEdgeAt(gfx.Rect{Width: 100}, 1, 0); got != edgeNone {
-		t.Errorf("body with no height = %d, want none", got)
+		t.Errorf("body with no height = %q, want none", got)
 	}
 }
 
@@ -193,7 +178,7 @@ func TestEdgePreviewIsTheHalfOnThatSide(t *testing.T) {
 	}
 	for _, c := range cases {
 		if got := edgePreview(body, c.edge); got != c.want {
-			t.Errorf("edgePreview(edge %d) = %v, want %v", c.edge, got, c.want)
+			t.Errorf("edgePreview(edge %q) = %v, want %v", c.edge, got, c.want)
 		}
 	}
 }
@@ -327,24 +312,48 @@ func TestUnionRectAndPointInRect(t *testing.T) {
 	}
 }
 
-func TestDropPlaceHelpers(t *testing.T) {
+func TestDropPlaceOthers(t *testing.T) {
 	p := dropPlace{tabs: []tabSlot{{member: terminalMember(1)}, {member: terminalMember(2)}}}
-	if !p.has(terminalMember(1)) || p.has(terminalMember(3)) {
-		t.Errorf("has: 1 = %v, 3 = %v, want true and false", p.has(terminalMember(1)), p.has(terminalMember(3)))
-	}
 	if got := p.others(terminalMember(1)); len(got) != 1 || got[0].member != terminalMember(2) {
 		t.Errorf("others(1) = %v, want only the tab of 2", got)
 	}
 	if got := p.others(terminalMember(3)); len(got) != 2 {
 		t.Errorf("others(3) has %d tabs, want 2", len(got))
 	}
-	if p.solo(terminalMember(1)) {
-		t.Errorf("a place with two tabs is not solo")
+}
+
+// dropRules has the kernel say where member may land: the groups are the places, each with
+// its tabs, and then extra, which are open but not laid out; the layout shows the editor's
+// places side by side, and the tool window is docked.
+func dropRules(t *testing.T, places []dropPlace, member string, extra ...core.EditorGroup) *core.EditorDropRules {
+	t.Helper()
+	var state core.EditorWorkbench
+	var layout *core.EditorLayout
+	for i, p := range places {
+		g := core.EditorGroup{ID: p.group}
+		for _, tab := range p.tabs {
+			g.Members = append(g.Members, tab.member)
+		}
+		state.Groups = append(state.Groups, g)
+		if p.group == toolGroup {
+			continue
+		}
+		if leaf := (&core.EditorLayout{Group: p.group}); layout == nil {
+			layout = leaf
+		} else {
+			layout = &core.EditorLayout{Node: i, Row: true, First: layout, Second: leaf}
+		}
 	}
-	one := dropPlace{tabs: []tabSlot{{member: terminalMember(5)}}}
-	if !one.solo(terminalMember(5)) || one.solo(terminalMember(6)) {
-		t.Errorf("solo: 5 = %v, 6 = %v, want true and false", one.solo(terminalMember(5)), one.solo(terminalMember(6)))
+	state.Groups = append(state.Groups, extra...)
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	rules, err := core.NewClient().EditorDropTargets(ctx, core.EditorDropQuery{
+		State: state, Layout: layout, Member: member, Docked: dockedGroups, Dockable: dockable(member),
+	})
+	if err != nil {
+		t.Fatalf("EditorDropTargets() error: %v", err)
 	}
+	return &rules
 }
 
 // dragFixture is the Terminal tool window at the bottom left, with the tabs of terminals 1
@@ -353,7 +362,7 @@ func TestDropPlaceHelpers(t *testing.T) {
 func dragFixture() []dropPlace {
 	return []dropPlace{
 		{
-			group: toolGroup, tool: true,
+			group: toolGroup,
 			strip: gfx.Rect{X: 0, Y: 600, Width: 400, Height: 32},
 			body:  gfx.Rect{X: 0, Y: 632, Width: 400, Height: 200},
 			tabs: []tabSlot{
@@ -377,24 +386,24 @@ func TestDropAtStrips(t *testing.T) {
 	places := dragFixture()
 
 	// A tab from the tool window dropped at the right end of the editor's strip joins it last.
-	got := dropAt(places, gfx.Rect{}, terminalMember(1), 900, 10)
+	got := dropAt(places, dropRules(t, places, terminalMember(1)), gfx.Rect{}, terminalMember(1), 900, 10)
 	if got.kind != dropJoin || got.group != "editor:1" || got.index != 2 || !got.hasLine || got.preview != places[1].strip {
 		t.Errorf("end of the editor strip = %+v, want a join at index 2 with a line", got)
 	}
 	// Dropped before the middle of the first tab it goes first, and the line stands in front
 	// of that tab.
-	got = dropAt(places, gfx.Rect{}, terminalMember(1), 430, 10)
+	got = dropAt(places, dropRules(t, places, terminalMember(1)), gfx.Rect{}, terminalMember(1), 430, 10)
 	if got.kind != dropJoin || got.index != 0 || got.line != (gfx.Rect{X: 401, Y: 4, Width: 2, Height: 24}) {
 		t.Errorf("front of the editor strip = %+v, want a join at index 0 with its line at 401", got)
 	}
 	// A tab of the editor's own group dropped in its strip reorders it: the dragged tab is
 	// not counted, so the only other tab, 4, is before the pointer.
-	got = dropAt(places, gfx.Rect{}, terminalMember(3), 900, 10)
+	got = dropAt(places, dropRules(t, places, terminalMember(3)), gfx.Rect{}, terminalMember(3), 900, 10)
 	if got.kind != dropJoin || got.group != "editor:1" || got.index != 1 || got.line != (gfx.Rect{X: 609, Y: 4, Width: 2, Height: 24}) {
 		t.Errorf("own strip = %+v, want a join at index 1 with its line at 609", got)
 	}
 	// And a tab from the editor dropped in the tool window's strip joins that.
-	got = dropAt(places, gfx.Rect{}, terminalMember(3), 300, 610)
+	got = dropAt(places, dropRules(t, places, terminalMember(3)), gfx.Rect{}, terminalMember(3), 300, 610)
 	if got.kind != dropJoin || got.group != toolGroup || got.index != 2 {
 		t.Errorf("tool strip = %+v, want a join of the tool window at index 2", got)
 	}
@@ -405,33 +414,33 @@ func TestDropAtBodies(t *testing.T) {
 	body := places[1].body
 
 	// The middle of a group's body joins it at the end and tints the whole group.
-	got := dropAt(places, gfx.Rect{}, terminalMember(1), 700, 300)
+	got := dropAt(places, dropRules(t, places, terminalMember(1)), gfx.Rect{}, terminalMember(1), 700, 300)
 	if got.kind != dropJoin || got.group != "editor:1" || got.index != 2 || got.hasLine ||
 		got.preview != (gfx.Rect{X: 400, Y: 0, Width: 600, Height: 600}) {
 		t.Errorf("middle of the editor body = %+v, want a join at the end over the whole group", got)
 	}
 	// Near an edge of the body the tab splits the group, and the preview is that half.
-	got = dropAt(places, gfx.Rect{}, terminalMember(1), 990, 300)
+	got = dropAt(places, dropRules(t, places, terminalMember(1)), gfx.Rect{}, terminalMember(1), 990, 300)
 	if got.kind != dropSplit || got.group != "editor:1" || got.edge != edgeRight || got.preview != edgePreview(body, edgeRight) {
 		t.Errorf("right of the editor body = %+v, want a split on the right", got)
 	}
 	// A group with other tabs can be split by its own tab.
-	got = dropAt(places, gfx.Rect{}, terminalMember(3), 410, 300)
+	got = dropAt(places, dropRules(t, places, terminalMember(3)), gfx.Rect{}, terminalMember(3), 410, 300)
 	if got.kind != dropSplit || got.group != "editor:1" || got.edge != edgeLeft {
 		t.Errorf("left of its own body = %+v, want a split on the left", got)
 	}
 	// But the middle of its own group is nowhere to go.
-	if got = dropAt(places, gfx.Rect{}, terminalMember(3), 700, 300); got.kind != dropNone {
+	if got = dropAt(places, dropRules(t, places, terminalMember(3)), gfx.Rect{}, terminalMember(3), 700, 300); got.kind != dropNone {
 		t.Errorf("middle of its own body = %+v, want no place", got)
 	}
 	// The Terminal tool window is never split: near its edge the tab joins it.
-	got = dropAt(places, gfx.Rect{}, terminalMember(3), 5, 700)
+	got = dropAt(places, dropRules(t, places, terminalMember(3)), gfx.Rect{}, terminalMember(3), 5, 700)
 	if got.kind != dropJoin || got.group != toolGroup || got.index != 2 ||
 		got.preview != (gfx.Rect{X: 0, Y: 600, Width: 400, Height: 232}) {
 		t.Errorf("edge of the tool body = %+v, want a join, not a split", got)
 	}
 	// A tool window tab dropped on its own body is nowhere to go either.
-	if got = dropAt(places, gfx.Rect{}, terminalMember(1), 5, 700); got.kind != dropNone {
+	if got = dropAt(places, dropRules(t, places, terminalMember(1)), gfx.Rect{}, terminalMember(1), 5, 700); got.kind != dropNone {
 		t.Errorf("own tool body = %+v, want no place", got)
 	}
 }
@@ -443,35 +452,44 @@ func TestDropAtSoloPlaceAcceptsNothing(t *testing.T) {
 		body:  gfx.Rect{X: 0, Y: 32, Width: 300, Height: 200},
 		tabs:  []tabSlot{{member: terminalMember(5), rect: gfx.Rect{X: 4, Y: 4, Width: 100, Height: 24}}},
 	}}
+	// Terminal 6 is open in the tool window, which this page does not lay out.
+	elsewhere := core.EditorGroup{ID: toolGroup, Members: []string{terminalMember(6)}}
 	for _, at := range [][2]float32{{10, 10}, {100, 100}, {2, 100}} {
-		if got := dropAt(places, gfx.Rect{}, terminalMember(5), at[0], at[1]); got.kind != dropNone {
+		if got := dropAt(places, dropRules(t, places, terminalMember(5)), gfx.Rect{}, terminalMember(5), at[0], at[1]); got.kind != dropNone {
 			t.Errorf("solo place at %v = %+v, want no place", at, got)
 		}
 	}
 	// Another terminal can still be dropped into it.
-	if got := dropAt(places, gfx.Rect{}, terminalMember(6), 10, 10); got.kind != dropJoin || got.index != 0 {
+	if got := dropAt(places, dropRules(t, places, terminalMember(6), elsewhere), gfx.Rect{}, terminalMember(6), 10, 10); got.kind != dropJoin || got.index != 0 {
 		t.Errorf("strip of the solo place for another terminal = %+v, want a join at 0", got)
 	}
-	if got := dropAt(places, gfx.Rect{}, terminalMember(6), 100, 100); got.kind != dropJoin || got.index != 1 {
+	if got := dropAt(places, dropRules(t, places, terminalMember(6), elsewhere), gfx.Rect{}, terminalMember(6), 100, 100); got.kind != dropJoin || got.index != 1 {
 		t.Errorf("body of the solo place for another terminal = %+v, want a join at 1", got)
 	}
 }
 
 func TestDropAtEmptyEditorAndOutside(t *testing.T) {
 	empty := gfx.Rect{X: 0, Y: 32, Width: 1000, Height: 568}
-	got := dropAt(nil, empty, terminalMember(1), 500, 300)
+	// Terminal 1 is in the tool window and the editor shows no group.
+	docked := dropRules(t, nil, terminalMember(1), core.EditorGroup{ID: toolGroup, Members: []string{terminalMember(1)}})
+	got := dropAt(nil, docked, empty, terminalMember(1), 500, 300)
 	if got.kind != dropEmpty || got.preview != empty {
 		t.Errorf("empty editor = %+v, want dropEmpty over the editor", got)
 	}
-	if got = dropAt(nil, empty, terminalMember(1), 500, 10); got.kind != dropNone {
+	if got = dropAt(nil, docked, empty, terminalMember(1), 500, 10); got.kind != dropNone {
 		t.Errorf("above the empty editor = %+v, want no place", got)
 	}
-	if got = dropAt(nil, gfx.Rect{}, terminalMember(1), 0, 0); got.kind != dropNone {
+	if got = dropAt(nil, docked, gfx.Rect{}, terminalMember(1), 0, 0); got.kind != dropNone {
 		t.Errorf("no editor box = %+v, want no place", got)
 	}
-	// Between the tool window and the editor is no place.
-	if got = dropAt(dragFixture(), gfx.Rect{}, terminalMember(1), 200, 300); got.kind != dropNone {
+	// An editor that shows a group has no empty area to drop on.
+	places := dragFixture()
+	if got = dropAt(places, dropRules(t, places, terminalMember(1)), empty, terminalMember(1), 200, 300); got.kind != dropNone {
 		t.Errorf("gap = %+v, want no place", got)
+	}
+	// Without the kernel's rules nothing accepts the tab.
+	if got = dropAt(places, nil, gfx.Rect{}, terminalMember(1), 900, 10); got.kind != dropNone {
+		t.Errorf("no rules = %+v, want no place", got)
 	}
 }
 
@@ -542,11 +560,13 @@ func TestTabDragLocateStaysInsideTheWindow(t *testing.T) {
 	a.term.tool, a.term.groups = groupsOf(dragFixture())
 	viewport := gfx.Size{Width: 1000, Height: 840}
 
-	if got := a.tabDragLocate(terminalMember(1), 900, 10, viewport); got.kind != dropJoin || got.group != "editor:1" {
+	rules := dropRules(t, dragFixture(), terminalMember(1))
+
+	if got := a.tabDragLocate(terminalMember(1), rules, 900, 10, viewport); got.kind != dropJoin || got.group != "editor:1" {
 		t.Errorf("inside the window = %+v, want a join of editor:1", got)
 	}
 	for _, at := range [][2]float32{{-1, 10}, {900, -1}, {1000, 10}, {900, 840}} {
-		if got := a.tabDragLocate(terminalMember(1), at[0], at[1], viewport); got.kind != dropNone {
+		if got := a.tabDragLocate(terminalMember(1), rules, at[0], at[1], viewport); got.kind != dropNone {
 			t.Errorf("outside the window at %v = %+v, want no place", at, got)
 		}
 	}
@@ -558,12 +578,12 @@ func groupsOf(places []dropPlace) (*groupPlace, []*groupPlace) {
 	var tool *groupPlace
 	var groups []*groupPlace
 	for _, p := range places {
-		g := newGroupPlace(p.group, p.tool)
+		g := newGroupPlace(p.group)
 		g.strip, g.body = p.strip, p.body
 		for _, t := range p.tabs {
 			g.chips = append(g.chips, tabSlotDecl{member: t.member, rect: t.rect})
 		}
-		if p.tool {
+		if p.group == toolGroup {
 			tool = g
 		} else {
 			groups = append(groups, g)
@@ -573,8 +593,8 @@ func groupsOf(places []dropPlace) (*groupPlace, []*groupPlace) {
 }
 
 func TestGroupPlaceReportsWhatTheLastPaintLaidOut(t *testing.T) {
-	g := newGroupPlace("editor:1", false)
-	if p := g.place(); p.group != "editor:1" || p.tool || p.strip != (gfx.Rect{}) || p.body != (gfx.Rect{}) || len(p.tabs) != 0 {
+	g := newGroupPlace("editor:1")
+	if p := g.place(); p.group != "editor:1" || p.strip != (gfx.Rect{}) || p.body != (gfx.Rect{}) || len(p.tabs) != 0 {
 		t.Errorf("place of a group nothing was laid out for = %+v, want only its name", p)
 	}
 	g.stripHook(&ui.DrawContext{Rect: gfx.Rect{X: 1, Y: 2, Width: 3, Height: 4}})
@@ -584,15 +604,12 @@ func TestGroupPlaceReportsWhatTheLastPaintLaidOut(t *testing.T) {
 	if p.strip.Width != 3 || len(p.tabs) != 1 || p.tabs[0].member != terminalMember(5) || p.tabs[0].rect.X != 9 {
 		t.Errorf("place = %+v, want the strip and the tab the hooks were given", p)
 	}
-	if got := newGroupPlace(toolGroup, true).place(); !got.tool {
-		t.Errorf("place of the tool window = %+v, want tool", got)
-	}
 }
 
 func TestTerminalUIPlacesTheToolWindowFirst(t *testing.T) {
 	u := terminalUI{
-		tool:   newGroupPlace(toolGroup, true),
-		groups: []*groupPlace{newGroupPlace("editor:1", false), newGroupPlace("editor:2", false)},
+		tool:   newGroupPlace(toolGroup),
+		groups: []*groupPlace{newGroupPlace("editor:1"), newGroupPlace("editor:2")},
 	}
 	ids := func() []string {
 		var ids []string
@@ -613,8 +630,8 @@ func TestTerminalUIPlacesTheToolWindowFirst(t *testing.T) {
 func TestBeginTerminalFrameKeepsTheGesture(t *testing.T) {
 	a := &App{}
 	u := &a.term
-	u.tool, u.toolDrawn, u.emptyDrawn = newGroupPlace(toolGroup, true), true, true
-	u.groups = append(u.groups, newGroupPlace("editor:1", false), newGroupPlace("editor:2", false))
+	u.tool, u.toolDrawn, u.emptyDrawn = newGroupPlace(toolGroup), true, true
+	u.groups = append(u.groups, newGroupPlace("editor:1"), newGroupPlace("editor:2"))
 	u.tabIDs = append(u.tabIDs, tabID{member: terminalMember(1)})
 	u.drag = tabDrag{active: true, member: terminalMember(2)}
 
@@ -636,24 +653,24 @@ func TestDropAtFileTab(t *testing.T) {
 	file := documentMember(7)
 
 	// In its own strip the file is not counted, so the two terminals are before the pointer.
-	if got := dropAt(places, gfx.Rect{}, file, 900, 10); got.kind != dropJoin || got.group != "editor:1" || got.index != 2 {
+	if got := dropAt(places, dropRules(t, places, file), gfx.Rect{}, file, 900, 10); got.kind != dropJoin || got.group != "editor:1" || got.index != 2 {
 		t.Errorf("own strip = %+v, want a join at index 2", got)
 	}
 	// Before the middle of the first tab it goes first, in front of the terminals.
-	if got := dropAt(places, gfx.Rect{}, file, 430, 10); got.kind != dropJoin || got.index != 0 {
+	if got := dropAt(places, dropRules(t, places, file), gfx.Rect{}, file, 430, 10); got.kind != dropJoin || got.index != 0 {
 		t.Errorf("front of its strip = %+v, want a join at index 0", got)
 	}
 	// Near an edge of its group's body it splits the group.
-	if got := dropAt(places, gfx.Rect{}, file, 410, 300); got.kind != dropSplit || got.edge != edgeLeft {
+	if got := dropAt(places, dropRules(t, places, file), gfx.Rect{}, file, 410, 300); got.kind != dropSplit || got.edge != edgeLeft {
 		t.Errorf("left edge = %+v, want a split on the left", got)
 	}
 	// A terminal of the group counts the file's tab among the others.
-	if got := dropAt(places, gfx.Rect{}, terminalMember(3), 990, 10); got.kind != dropJoin || got.index != 2 {
+	if got := dropAt(places, dropRules(t, places, terminalMember(3)), gfx.Rect{}, terminalMember(3), 990, 10); got.kind != dropJoin || got.index != 2 {
 		t.Errorf("terminal at the end of a mixed strip = %+v, want a join at index 2", got)
 	}
 	// The Terminal tool window's strip and body take no file.
 	for _, at := range [][2]float32{{300, 610}, {200, 700}} {
-		if got := dropAt(places, gfx.Rect{}, file, at[0], at[1]); got.kind != dropNone {
+		if got := dropAt(places, dropRules(t, places, file), gfx.Rect{}, file, at[0], at[1]); got.kind != dropNone {
 			t.Errorf("file over the tool window at %v = %+v, want no place", at, got)
 		}
 	}

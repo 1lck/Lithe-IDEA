@@ -10908,6 +10908,7 @@
     "desktop.settings.network.revert": "Revert",
     "desktop.settings.network.apply": "Apply",
     "desktop.settings.network.invalidPort": "The port must be a number from 1 to 65535.",
+    "desktop.settings.network.ignoredExclusions": "These exclusions have none of the supported forms and are ignored: {entries}",
     "desktop.settings.localHistory.help": "Local history keeps versions of a project's files as you save and edit them, in Lithe's own data folder. Ignore rules only keep files out of local history; the project tree still shows them.",
     "desktop.settings.localHistory.wildcardHelp": "One pattern per line, matched against the path inside the project, for example `*.log` or `**/generated/`.",
     "desktop.settings.localHistory.builtIns": "Built-in rules, which also apply: {patterns}. Add a line such as `!**/target/` to record one of these folders again.",

@@ -29,16 +29,28 @@ type NetworkProxyRequest struct {
 // NetworkProxyPolicy is the policy the network stack applies: Policy "system",
 // "direct" or "custom". Credentials are present only for a custom policy whose
 // password belongs to its endpoint. Configured is false when a custom server was
-// incomplete and the policy fell back to the system's.
+// incomplete and the policy fell back to the system's. ExclusionRules is what Core
+// read the exclusions as; InvalidExclusions are the entries it could not read, which
+// send no host direct.
 type NetworkProxyPolicy struct {
-	Policy     string   `json:"policy"`
-	ProxyType  string   `json:"proxyType"`
-	Host       string   `json:"host"`
-	Port       int      `json:"port"`
-	Username   string   `json:"username"`
-	Password   string   `json:"password"`
-	Exclusions []string `json:"exclusions"`
-	Configured bool     `json:"configured"`
+	Policy            string                      `json:"policy"`
+	ProxyType         string                      `json:"proxyType"`
+	Host              string                      `json:"host"`
+	Port              int                         `json:"port"`
+	Username          string                      `json:"username"`
+	Password          string                      `json:"password"`
+	Exclusions        []string                    `json:"exclusions"`
+	ExclusionRules    []NetworkProxyExclusionRule `json:"exclusionRules"`
+	InvalidExclusions []string                    `json:"invalidExclusions"`
+	Configured        bool                        `json:"configured"`
+}
+
+// NetworkProxyExclusionRule is one exclusion entry as Core read it. Kind is "host",
+// "suffix", "ip", "cidr" or "local"; Value is the lowercase host or domain, the
+// canonical address or block, or empty for "local".
+type NetworkProxyExclusionRule struct {
+	Kind  string `json:"kind"`
+	Value string `json:"value"`
 }
 
 // ProxyPolicy has Core normalize stored proxy settings (network.proxyPolicy).

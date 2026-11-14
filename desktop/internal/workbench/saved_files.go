@@ -1,6 +1,7 @@
 package workbench
 
 import (
+	"context"
 	"path"
 
 	"github.com/1lck/Lithe-IDEA/desktop/internal/core"
@@ -52,9 +53,29 @@ type savedFileRow struct {
 	depth                    int
 }
 
-// newSavedLayer is a layer of files, grouped by folder.
-func newSavedLayer(label string, files []core.GitDiffFile) savedLayer {
-	return savedLayer{label: label, files: files, folders: groupLogFiles(stashCommitFiles(files))}
+// newSavedLayer is a layer of files, grouped by folder through kernel.
+func newSavedLayer(ctx context.Context, kernel changedFileGrouper, label string, files []core.GitDiffFile) (savedLayer, error) {
+	paths := make([]string, len(files))
+	for i, file := range files {
+		paths[i] = file.Path
+	}
+	folders, err := groupLogFiles(ctx, kernel, paths)
+	return savedLayer{label: label, files: files, folders: folders}, err
+}
+
+// holds says the folder g of the layer lists the file at file.
+func (layer savedLayer) holds(g int, file string) bool {
+	return layer.folders[g].holds(file, func(i int) string { return layer.files[i].Path })
+}
+
+// atTop says the layer lists the file at file at the top of the repository.
+func (layer savedLayer) atTop(file string) bool {
+	for g, folder := range layer.folders {
+		if folder.dir == "" {
+			return layer.holds(g, file)
+		}
+	}
+	return false
 }
 
 // reset forgets the files, the folders the user closed and the selected file.
@@ -95,7 +116,7 @@ func (f *savedFiles) collect() {
 		}
 		for g, folder := range layer.folders {
 			depth := indent
-			if folder.dir != "." {
+			if folder.dir != "" {
 				f.rows = append(f.rows, savedFileRow{key: base + 1 + g, layer: l, folder: g, file: -1, depth: indent})
 				if f.closed[savedPath{l, folder.dir}] {
 					continue
@@ -125,7 +146,7 @@ func (f *savedFiles) toggleFolder(l, g int) {
 		f.closed = map[savedPath]bool{}
 	}
 	f.closed[folder] = true
-	if f.file.path != "" && f.file.layer == l && path.Dir(f.file.path) == folder.path {
+	if f.file.path != "" && f.file.layer == l && f.layers[l].holds(g, f.file.path) {
 		f.file = savedPath{}
 	}
 }
@@ -139,12 +160,12 @@ func (f *savedFiles) openFolders(open bool) {
 	f.closed = map[savedPath]bool{}
 	for l, layer := range f.layers {
 		for _, folder := range layer.folders {
-			if folder.dir != "." {
+			if folder.dir != "" {
 				f.closed[savedPath{l, folder.dir}] = true
 			}
 		}
 	}
-	if f.file.path != "" && path.Dir(f.file.path) != "." {
+	if f.file.path != "" && !f.layers[f.file.layer].atTop(f.file.path) {
 		f.file = savedPath{}
 	}
 }

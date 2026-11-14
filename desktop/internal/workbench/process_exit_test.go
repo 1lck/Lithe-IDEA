@@ -1,6 +1,7 @@
 package workbench
 
 import (
+	"context"
 	"runtime"
 	"strings"
 	"testing"
@@ -208,8 +209,15 @@ func TestStopTimeFollowsCoreAndTheSetting(t *testing.T) {
 	// Run calls this when the window opens; the harness never runs the application.
 	h.app.refreshStopGrace()
 	awaitStateWithin(t, h, 20*time.Second, "Core's stop time rule", func() bool { return h.app.stopTime.Load() != nil })
-	if rule := *h.app.stopTime.Load(); rule != (settingswindow.StopTime{Default: 5, Min: 1, Max: 60}) {
-		t.Fatalf("the rule is %+v", rule)
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	defer cancel()
+	plan, err := core.NewClient().ResolveProcessLifecycle(ctx, exitContextQuit, nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := plan.GracefulStopRule
+	if rule := *h.app.stopTime.Load(); rule != (settingswindow.StopTime{Default: want.DefaultSeconds, Min: want.MinSeconds, Max: want.MaxSeconds}) {
+		t.Fatalf("the rule is %+v, Core gives %+v", rule, want)
 	}
 	for _, step := range []struct {
 		stored *uint32

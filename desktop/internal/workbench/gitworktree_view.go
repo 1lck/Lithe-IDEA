@@ -168,7 +168,7 @@ func (a *App) drawWorktreeRow(p *project, shown []core.GitWorktree, row ui.ListR
 	} else {
 		item = item.Hover(ui.Look{}.Background(a.colors.Hover))
 	}
-	status := worktreeStatusOf(w, p.worktrees.counts[w.Path])
+	status := p.worktrees.statusOf(w)
 	item.Children(func() {
 		icon := icons.GitBranch
 		if w.IsLocked {
@@ -233,32 +233,32 @@ func (a *App) worktreeBranchText(w core.GitWorktree) string {
 	return t.Detached
 }
 
-// worktreeStatusText is the label of a worktree's state.
-func (a *App) worktreeStatusText(s worktreeStatus) string {
+// worktreeStatusText is the label of a worktree's state as Core names it.
+func (a *App) worktreeStatusText(status string) string {
 	t := &a.text.Worktrees
-	switch s {
-	case worktreeMissing:
+	switch status {
+	case core.GitWorktreeMissing:
 		return t.PathMissing
-	case worktreeLocked:
+	case core.GitWorktreeLocked:
 		return t.Locked
-	case worktreeModified:
+	case core.GitWorktreeModified:
 		return t.Modified
-	case worktreeCurrent:
+	case core.GitWorktreeCurrent:
 		return t.Current
 	}
 	return t.Available
 }
 
-// worktreeStatusColor is the color of a worktree's state.
-func (a *App) worktreeStatusColor(s worktreeStatus) gfx.Color {
-	switch s {
-	case worktreeMissing:
+// worktreeStatusColor is the color of a worktree's state as Core names it.
+func (a *App) worktreeStatusColor(status string) gfx.Color {
+	switch status {
+	case core.GitWorktreeMissing:
 		return a.theme.Danger
-	case worktreeLocked:
+	case core.GitWorktreeLocked:
 		return a.colors.Warning
-	case worktreeModified:
+	case core.GitWorktreeModified:
 		return a.colors.Accent
-	case worktreeCurrent:
+	case core.GitWorktreeCurrent:
 		return a.colors.Success
 	}
 	return a.colors.Subtle
@@ -305,7 +305,7 @@ func (a *App) drawWorktreeDetails(c ui.C, p *project) ui.Box {
 // state and what can be done with it.
 func (a *App) drawWorktreeOverview(c ui.C, p *project, w core.GitWorktree) {
 	ws, t := &p.worktrees, &a.text.Worktrees
-	status := worktreeStatusOf(w, ws.counts[w.Path])
+	status := ws.statusOf(w)
 	ui.Scroll(c).Grow(1).FillWidth().Pad(shellContentPad).Gap(12).Children(func() {
 		a.worktreeCard(c, t.BasicInformation, func() {
 			a.worktreeField(c, t.Path, w.Path)
@@ -732,9 +732,18 @@ func (a *App) drawWorktreeCreateDialog(c ui.C, p *project) {
 	a.syncWorktreeCreation(p)
 	w, t := &p.worktrees, &a.text.Worktrees
 	cr := &w.create
-	ready := !w.busy && cr.ready()
-	problem := a.branchNameErrorText(cr.preview.Error)
-	choices := cr.referenceChoices(w.list)
+	ready := !w.busy && cr.result.Ready
+	problem := ""
+	if cr.result.Branch != nil {
+		problem = a.branchNameErrorText(cr.result.Branch.Error)
+	}
+	// Core names the choices by their places in the references the dialog read.
+	choices := make([]core.GitReference, 0, len(cr.result.Choices))
+	for _, i := range cr.result.Choices {
+		if i >= 0 && i < len(cr.refs.References) {
+			choices = append(choices, cr.refs.References[i])
+		}
+	}
 	names := make([]string, len(choices))
 	for i, r := range choices {
 		names[i] = r.FullName
@@ -795,7 +804,7 @@ func (a *App) drawWorktreeCreateDialog(c ui.C, p *project) {
 				ui.Paragraph(c, t.DetachedHint, 3).FontSize(a.theme.Metrics.FontSizeS).Color(a.colors.Subtle)
 			}
 			submitted = ui.TextField(c, &cr.destination, t.Destination, t.Destination).FillWidth().Submitted() || submitted
-			if !filepath.IsAbs(strings.TrimSpace(cr.destination.Text())) {
+			if !cr.result.DestinationIsAbsolute {
 				ui.Paragraph(c, t.DestinationAbsolute, 3).FontSize(a.theme.Metrics.FontSizeS).Color(a.theme.Danger)
 			}
 			ui.Checkbox(c, &cr.noCheckout, t.NoCheckout).Disabled(w.busy)

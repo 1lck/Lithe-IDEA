@@ -1,6 +1,7 @@
 package workbench
 
 import (
+	"github.com/1lck/Lithe-IDEA/desktop/internal/core"
 	"github.com/vivaui/viva/gfx"
 	"github.com/vivaui/viva/ui"
 )
@@ -21,23 +22,16 @@ const (
 	tabMarkInset = 4
 )
 
-// edge is a side of a group, which is where a dropped tab splits it.
-type edge uint8
+// edge is a side of a group, which is where a dropped tab splits it; edgeNone is no side.
+type edge = core.EditorEdge
 
 const (
-	edgeNone edge = iota
-	edgeLeft
-	edgeRight
-	edgeTop
-	edgeBottom
+	edgeNone   edge = ""
+	edgeLeft        = core.EditorEdgeLeft
+	edgeRight       = core.EditorEdgeRight
+	edgeTop         = core.EditorEdgeTop
+	edgeBottom      = core.EditorEdgeBottom
 )
-
-// sideBySide says the edge splits the group into a left half and a right half; the top and
-// bottom edges split it into an upper and a lower one.
-func (e edge) sideBySide() bool { return e == edgeLeft || e == edgeRight }
-
-// leading says the new group goes before the old one: to its left or above it.
-func (e edge) leading() bool { return e == edgeLeft || e == edgeTop }
 
 // splitNode is a node of the tree that divides the editor area among its groups. A leaf
 // shows one group; a container lays out two children side by side or one over the other
@@ -79,55 +73,54 @@ func (n *splitNode) contains(group string) bool {
 	return n.first.contains(group) || n.second.contains(group)
 }
 
-// splitLeaf returns root with the leaf that shows target replaced by a container that
-// holds it and a new leaf for added, on the side e names: a leading edge puts the new group
-// first. The container is given id and starts divided in half. The tree is edited in
-// place, so the splitters of the nodes that stay keep their state; a root that does not
-// show target is returned as it is.
-func splitLeaf(root *splitNode, target, added string, e edge, id int) *splitNode {
+// layoutShape is the shape of the tree the kernel reduces: groups by name and containers by id.
+func layoutShape(n *splitNode) *core.EditorLayout {
 	switch {
-	case root == nil:
+	case n == nil:
 		return nil
-	case root.leaf():
-		if root.group != target {
-			return root
-		}
-		fresh := newLeaf(added)
-		parent := &splitNode{id: id, row: e.sideBySide(), state: ui.SplitterState{Ratio: 0.5}}
-		if e.leading() {
-			parent.first, parent.second = fresh, root
-		} else {
-			parent.first, parent.second = root, fresh
-		}
-		return parent
+	case n.leaf():
+		return &core.EditorLayout{Group: n.group}
 	}
-	root.first = splitLeaf(root.first, target, added, e, id)
-	root.second = splitLeaf(root.second, target, added, e, id)
-	return root
+	return &core.EditorLayout{Node: n.id, Row: n.row, First: layoutShape(n.first), Second: layoutShape(n.second)}
 }
 
-// removeLeaf returns root without the leaf that shows group. The container that held it is
-// replaced by its other child, which then takes the whole room, as a split closes when its
-// last tab leaves. Removing the only leaf leaves no tree.
-func removeLeaf(root *splitNode, group string) *splitNode {
-	switch {
-	case root == nil:
-		return nil
-	case root.leaf():
-		if root.group == group {
-			return nil
+// adoptLayout is the tree of shape, the kernel's answer, built from the nodes of old: a container
+// whose id old has is that node, so its splitter keeps its state and the pointer Viva holds, and
+// a leaf whose group old shows is that leaf. A container the kernel made starts divided in half.
+func adoptLayout(old *splitNode, shape *core.EditorLayout) *splitNode {
+	containers, leaves := map[int]*splitNode{}, map[string]*splitNode{}
+	var index func(*splitNode)
+	index = func(n *splitNode) {
+		switch {
+		case n == nil:
+		case n.leaf():
+			leaves[n.group] = n
+		default:
+			containers[n.id] = n
+			index(n.first)
+			index(n.second)
 		}
-		return root
 	}
-	root.first = removeLeaf(root.first, group)
-	root.second = removeLeaf(root.second, group)
-	switch {
-	case root.first == nil:
-		return root.second
-	case root.second == nil:
-		return root.first
+	index(old)
+	var build func(*core.EditorLayout) *splitNode
+	build = func(s *core.EditorLayout) *splitNode {
+		switch {
+		case s == nil:
+			return nil
+		case s.Group != "":
+			if n := leaves[s.Group]; n != nil {
+				return n
+			}
+			return newLeaf(s.Group)
+		}
+		n := containers[s.Node]
+		if n == nil {
+			n = &splitNode{id: s.Node, state: ui.SplitterState{Ratio: 0.5}}
+		}
+		n.row, n.first, n.second = s.Row, build(s.First), build(s.Second)
+		return n
 	}
-	return root
+	return build(shape)
 }
 
 // tabSlot is where the chip of one tab, a terminal's or a file's, was laid out. member is
@@ -140,22 +133,9 @@ type tabSlot struct {
 // dropPlace is one tab group as the last frame laid it out: where its strip of tabs and its
 // body are, and where each tab is. It is what a drag is aimed against.
 type dropPlace struct {
-	group string
-	// tool says the place is the Terminal tool window, which a terminal's tab can join but
-	// not split and a file's tab cannot join.
-	tool        bool
+	group       string
 	strip, body gfx.Rect
 	tabs        []tabSlot
-}
-
-// has says the dragged tab is one of the tabs of the place.
-func (p dropPlace) has(dragged string) bool {
-	for _, t := range p.tabs {
-		if t.member == dragged {
-			return true
-		}
-	}
-	return false
 }
 
 // others are the tabs of the place except the dragged one. The dragged tab is not counted,
@@ -169,10 +149,6 @@ func (p dropPlace) others(dragged string) []tabSlot {
 	}
 	return others
 }
-
-// solo says the dragged tab is the only tab of the place, so there is nothing to reorder it
-// against and dropping it anywhere in the place would change nothing.
-func (p dropPlace) solo(dragged string) bool { return len(p.tabs) == 1 && p.has(dragged) }
 
 // dropKind is what dropping a tab would do.
 type dropKind uint8
@@ -204,44 +180,57 @@ type dropTarget struct {
 	hasLine bool
 }
 
+// place is the target as the kernel's drop place, and false for dropNone.
+func (t dropTarget) place() (core.EditorDropPlace, bool) {
+	switch t.kind {
+	case dropJoin:
+		return core.JoinEditorGroup(t.group, t.index), true
+	case dropSplit:
+		return core.SplitEditorGroup(t.group, t.edge), true
+	case dropEmpty:
+		return core.EmptyEditorArea(), true
+	}
+	return core.EditorDropPlace{}, false
+}
+
 // dropAt finds where releasing the tab dragged at (x, y), the group member dragged, would
-// put it.
+// put it, among the places rules accepts; the kernel said once, as the drag started, which
+// places of each group take the tab (core.EditorDropTargets), and nil rules accept nothing.
 //
 // In a group's strip the tab joins the group at the place among the tabs the pointer is
 // at. Over a group's body, near an edge, the tab splits the group on that side; anywhere
-// else in the body it joins the group at the end. The Terminal tool window never splits,
-// and takes only terminals. A place whose only tab is the dragged one accepts nothing, and
-// neither does the middle of the dragged tab's own group. Over an editor with no group the
-// tab opens the first one.
-func dropAt(places []dropPlace, empty gfx.Rect, dragged string, x, y float32) dropTarget {
-	_, terminal := memberTerminal(dragged)
+// else in the body it joins the group at the end. A place the rules refuse is no place, and
+// so is the editor with no group unless the rules let the tab open the first one.
+func dropAt(places []dropPlace, rules *core.EditorDropRules, empty gfx.Rect, dragged string, x, y float32) dropTarget {
+	if rules == nil {
+		return dropTarget{}
+	}
 	for _, p := range places {
 		inStrip, inBody := pointInRect(p.strip, x, y), pointInRect(p.body, x, y)
 		if !inStrip && !inBody {
 			continue
 		}
-		if p.solo(dragged) || (p.tool && !terminal) {
-			return dropTarget{}
-		}
+		r := rules.For(p.group)
 		others := p.others(dragged)
-		if inStrip {
+		switch {
+		case inStrip && r.Join:
 			index := insertionIndex(others, x, y)
 			return dropTarget{
 				kind: dropJoin, group: p.group, index: index, preview: p.strip,
 				line: insertionMark(p.strip, others, index, y), hasLine: true,
 			}
+		case inStrip:
+			return dropTarget{}
 		}
-		if !p.tool {
-			if e := splitEdgeAt(p.body, x, y); e != edgeNone {
-				return dropTarget{kind: dropSplit, group: p.group, edge: e, preview: edgePreview(p.body, e)}
-			}
+		if e := splitEdgeAt(p.body, x, y); r.Split && e != edgeNone {
+			return dropTarget{kind: dropSplit, group: p.group, edge: e, preview: edgePreview(p.body, e)}
 		}
-		if p.has(dragged) {
+		if !r.Append {
 			return dropTarget{}
 		}
 		return dropTarget{kind: dropJoin, group: p.group, index: len(others), preview: unionRect(p.strip, p.body)}
 	}
-	if pointInRect(empty, x, y) {
+	if rules.Empty && pointInRect(empty, x, y) {
 		return dropTarget{kind: dropEmpty, preview: empty}
 	}
 	return dropTarget{}

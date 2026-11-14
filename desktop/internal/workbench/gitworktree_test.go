@@ -1,11 +1,13 @@
 package workbench
 
 import (
+	"context"
 	"errors"
 	"os"
 	"path/filepath"
-	"slices"
+	"strings"
 	"testing"
+	"time"
 
 	"github.com/1lck/Lithe-IDEA/desktop/internal/core"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/i18n"
@@ -118,6 +120,13 @@ func TestWorktreesListThePrimaryAndTheLinkedCheckouts(t *testing.T) {
 	if w.counts[current.Path] == 0 {
 		t.Fatalf("counts = %v, want the primary worktree's modified file counted", w.counts)
 	}
+	// Core derives the states: the primary worktree's change outranks its being the open one.
+	if got := w.statusOf(current); got != core.GitWorktreeModified {
+		t.Fatalf("the primary worktree's state = %q, want modified", got)
+	}
+	if other, _ := w.find(linked); w.statusOf(other) != core.GitWorktreeAvailable {
+		t.Fatalf("the linked worktree's state = %q, want available", w.statusOf(other))
+	}
 }
 
 func TestWorktreesRemoveACleanLinkedCheckout(t *testing.T) {
@@ -210,7 +219,11 @@ func TestWorktreesCreateANewBranchBesideTheRepository(t *testing.T) {
 	w.create.name.SetText("topic/new thing")
 	h.app.invalidator.Invalidate()
 	h.settle()
-	want := worktreeDestination(p.git.repositoryRoot(p.root), w.create.preview.CleanedName)
+	root := p.git.repositoryRoot(p.root)
+	want := w.create.result.SuggestedDestination
+	if filepath.Dir(want) != filepath.Dir(root) || !strings.HasPrefix(filepath.Base(want), filepath.Base(root)+"-") {
+		t.Fatalf("suggestion = %q, want a checkout beside %q named after it", want, root)
+	}
 	if got := w.create.destination.Text(); got != want {
 		t.Fatalf("destination = %q, want the suggestion %q", got, want)
 	}
@@ -219,27 +232,40 @@ func TestWorktreesCreateANewBranchBesideTheRepository(t *testing.T) {
 	h.clickNamed(text.Create)
 	h.awaitWorktreeWrite("the creation", w, func() bool { return len(w.list) == 2 })
 	created, ok := w.find(w.selected)
-	if !ok || created.IsPrimary || created.Branch != "refs/heads/"+w.create.preview.CleanedName {
+	if !ok || created.IsPrimary || created.Branch != "refs/heads/"+w.create.result.Branch.CleanedName {
 		t.Fatalf("selected %+v, want the new worktree on its new branch", created)
 	}
 }
 
-func TestWorktreeDestinationNamesTheLeafBesideTheRepository(t *testing.T) {
-	root := filepath.Join(string(filepath.Separator), "work", "app")
-	for _, tc := range []struct{ source, leaf string }{
-		{"feature/login", "login"},
-		{"fix bug#12", "fix-bug-12"},
-		{"版本", "版本"},
-		{"", worktreeLeafFallback},
-		{"refs/heads/", worktreeLeafFallback},
-	} {
-		if got := worktreeLeaf(tc.source); got != tc.leaf {
-			t.Errorf("worktreeLeaf(%q) = %q, want %q", tc.source, got, tc.leaf)
-		}
+// The creation preview is Core's: the client sends the dialog's inputs and gets the
+// suggestion, which the destination follows until the user edits it.
+func TestWorktreeCreationPreviewFollowsTheSuggestionUntilEdited(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	client := core.NewClient()
+	root := filepath.Join(t.TempDir(), "app")
+	input := core.GitWorktreeCreationInput{
+		Root: root, Mode: core.GitWorktreeNewBranch, Kind: "local", Name: "feature/login",
+		References: []core.GitReference{{FullName: "refs/heads/main", ShortName: "main", Kind: "local", IsCurrent: true}},
 	}
-	want := filepath.Join(string(filepath.Separator), "work", "app-login")
-	if got := worktreeDestination(root, "feature/login"); got != want {
-		t.Fatalf("worktreeDestination() = %q, want %q", got, want)
+	got, err := client.GitWorktreeCreationPreview(ctx, input)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := filepath.Join(filepath.Dir(root), "app-login")
+	if got.SuggestedDestination != want || got.Destination != want || !got.DestinationIsAbsolute || !got.Ready {
+		t.Fatalf("preview = %+v, want the ready suggestion %q", got, want)
+	}
+	if got.Reference == nil || *got.Reference != "refs/heads/main" || got.Branch == nil || got.Branch.CleanedName != "feature/login" {
+		t.Fatalf("preview = %+v, want the current branch held and the name kept", got)
+	}
+	edited := filepath.Join(t.TempDir(), "elsewhere")
+	input.Name, input.Destination, input.LastSuggestion = "feature/other", edited, want
+	if got, err = client.GitWorktreeCreationPreview(ctx, input); err != nil {
+		t.Fatal(err)
+	}
+	if got.Destination != edited || got.SuggestedDestination != filepath.Join(filepath.Dir(root), "app-other") {
+		t.Fatalf("preview = %+v, want the edited destination kept beside a new suggestion", got)
 	}
 }
 
@@ -254,6 +280,8 @@ func TestWorktreeFailureTextFollowsTheCode(t *testing.T) {
 		{core.CodeGitWorktreePrimary, false, text.LockPrimary},
 		{core.CodeGitWorktreeCurrent, true, text.RemoveCurrent},
 		{core.CodeGitWorktreeLocked, true, text.RemoveLocked},
+		{core.GitWorktreeBlockedMissing, true, text.RemovePrunable},
+		{core.GitWorktreeBlockedMissing, false, text.LockPrunable},
 		{core.CodeProcessFailed, true, text.Failed("fatal: refused")},
 	} {
 		err := &core.Error{Code: tc.code, Message: "fatal: refused"}
@@ -266,26 +294,30 @@ func TestWorktreeFailureTextFollowsTheCode(t *testing.T) {
 	}
 }
 
-func TestWorktreeStatusPutsTheMostPressingFirst(t *testing.T) {
-	all := core.GitWorktree{IsPrunable: true, IsLocked: true, IsCurrent: true}
-	steps := []worktreeStatus{worktreeMissing, worktreeLocked, worktreeModified, worktreeCurrent, worktreeAvailable}
-	var got []worktreeStatus
-	changes := 3
-	for range steps {
-		got = append(got, worktreeStatusOf(all, changes))
-		switch {
-		case all.IsPrunable:
-			all.IsPrunable = false
-		case all.IsLocked:
-			all.IsLocked = false
-		case changes > 0:
-			changes = 0
-		default:
-			all.IsCurrent = false
-		}
+// A row shows the state Core derived from the registration until the changes are counted,
+// then the one Core derived with them; the blocked writes are named by the reasons Core gave.
+func TestWorktreeRowFollowsCoreStatesAndReasons(t *testing.T) {
+	text := i18n.For(i18n.English).Worktrees
+	w := core.GitWorktree{
+		Path: "/work/app-feature", Status: core.GitWorktreeAvailable,
+		Actions: core.GitWorktreeActions{
+			Remove: core.GitWorktreeAction{Reason: core.GitWorktreeBlockedMissing},
+			Lock:   core.GitWorktreeAction{Allowed: true},
+		},
 	}
-	if !slices.Equal(got, steps) {
-		t.Fatalf("statuses = %v, want %v", got, steps)
+	var ws worktreeState
+	if got := ws.statusOf(w); got != core.GitWorktreeAvailable {
+		t.Fatalf("uncounted state = %q, want the registration's", got)
+	}
+	ws.statuses = map[string]string{w.Path: core.GitWorktreeModified}
+	if got := ws.statusOf(w); got != core.GitWorktreeModified {
+		t.Fatalf("counted state = %q, want modified", got)
+	}
+	if got := worktreeRemoveBlocked(&text, w); got != text.RemovePrunable {
+		t.Errorf("removal blocked by %q, want %q", got, text.RemovePrunable)
+	}
+	if got := worktreeLockBlocked(&text, w); got != "" {
+		t.Errorf("lock blocked by %q, want none", got)
 	}
 }
 

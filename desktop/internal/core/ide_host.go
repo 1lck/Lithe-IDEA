@@ -206,3 +206,15 @@ func (c *Client) IDEHostOutputPage(ctx context.Context, snapshot any, cursor str
 	}
 	return c.IDEHostControl(ctx, "output", args)
 }
+
+// IDEHostControl sends one ideHost.control action to the local capability
+// broker and returns the raw result. Actions are open, close, closeOwner, poll,
+// claim, respond, catalog, validate and output; see Lithe-core-rust rust/contracts/ide-api/v1.md.
+func (c *Client) IDEHostControl(ctx context.Context, action string, arguments any) (json.RawMessage, error) {
+	var result json.RawMessage
+	err := c.Execute(ctx, "ideHost.control", struct {
+		Action    string `json:"action"`
+		Arguments any    `json:"arguments"`
+	}{action, arguments}, &result)
+	return result, err
+}

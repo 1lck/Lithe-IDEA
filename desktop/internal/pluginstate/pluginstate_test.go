@@ -7,54 +7,44 @@ import (
 	"github.com/1lck/Lithe-IDEA/desktop/internal/store"
 )
 
-func TestEnabledDefaultsToDisabled(t *testing.T) {
-	state := New(store.At(t.TempDir()))
-	enabled, err := state.Enabled("example")
+// choices reports the stored choices by plugin ID.
+func choices(t *testing.T, state *Store) map[string]bool {
+	t.Helper()
+	entries, err := state.List()
 	if err != nil {
-		t.Fatalf("enabled: %v", err)
+		t.Fatalf("list: %v", err)
 	}
-	if enabled {
-		t.Fatal("a plugin with no record was enabled")
+	found := make(map[string]bool, len(entries))
+	for _, entry := range entries {
+		found[entry.PluginID] = entry.Enabled
+	}
+	return found
+}
+
+func TestNoChoiceIsStoredAtFirst(t *testing.T) {
+	if found := choices(t, New(store.At(t.TempDir()))); len(found) != 0 {
+		t.Fatalf("a new store holds %v", found)
 	}
 }
 
 func TestSetEnabledRoundTrips(t *testing.T) {
-	state := New(store.At(t.TempDir()))
+	dir := t.TempDir()
+	state := New(store.At(dir))
 	if err := state.SetEnabled("example", true); err != nil {
 		t.Fatalf("set enabled: %v", err)
 	}
-	enabled, err := state.Enabled("example")
-	if err != nil || !enabled {
-		t.Fatalf("enabled = %v, err = %v", enabled, err)
+	if enabled, ok := choices(t, New(store.At(dir)))["example"]; !ok || !enabled {
+		t.Fatalf("enabled = %v, recorded = %v", enabled, ok)
 	}
 	if err := state.SetEnabled("example", false); err != nil {
 		t.Fatalf("set disabled: %v", err)
 	}
-	enabled, err = state.Enabled("example")
-	if err != nil || enabled {
-		t.Fatalf("enabled = %v, err = %v", enabled, err)
+	if enabled, ok := choices(t, state)["example"]; !ok || enabled {
+		t.Fatalf("enabled = %v, recorded = %v", enabled, ok)
 	}
 }
 
-func TestForgetReturnsToDisabled(t *testing.T) {
-	state := New(store.At(t.TempDir()))
-	if err := state.SetEnabled("example", true); err != nil {
-		t.Fatal(err)
-	}
-	if err := state.Forget("example"); err != nil {
-		t.Fatalf("forget: %v", err)
-	}
-	enabled, err := state.Enabled("example")
-	if err != nil || enabled {
-		t.Fatalf("enabled = %v, err = %v", enabled, err)
-	}
-	// Forgetting a plugin that was never recorded is not an error.
-	if err := state.Forget("absent"); err != nil {
-		t.Fatalf("forget absent: %v", err)
-	}
-}
-
-func TestForgetKeepsOtherPlugins(t *testing.T) {
+func TestForgetDropsOnlyThatChoice(t *testing.T) {
 	state := New(store.At(t.TempDir()))
 	if err := state.SetEnabled("first", true); err != nil {
 		t.Fatal(err)
@@ -63,11 +53,15 @@ func TestForgetKeepsOtherPlugins(t *testing.T) {
 		t.Fatal(err)
 	}
 	if err := state.Forget("first"); err != nil {
-		t.Fatal(err)
+		t.Fatalf("forget: %v", err)
 	}
-	enabled, err := state.Enabled("second")
-	if err != nil || !enabled {
-		t.Fatalf("enabled = %v, err = %v", enabled, err)
+	found := choices(t, state)
+	if _, ok := found["first"]; ok || !found["second"] {
+		t.Fatalf("choices after forgetting first = %v", found)
+	}
+	// Forgetting a plugin that was never recorded is not an error.
+	if err := state.Forget("absent"); err != nil {
+		t.Fatalf("forget absent: %v", err)
 	}
 }
 
@@ -98,35 +92,10 @@ func TestListIsSorted(t *testing.T) {
 
 func TestRefusesEmptyID(t *testing.T) {
 	state := New(store.At(t.TempDir()))
-	if _, err := state.Enabled(""); !errors.Is(err, ErrInvalidPlugin) {
-		t.Fatalf("err = %v", err)
-	}
 	if err := state.SetEnabled("", true); !errors.Is(err, ErrInvalidPlugin) {
 		t.Fatalf("err = %v", err)
 	}
 	if err := state.Forget(""); !errors.Is(err, ErrInvalidPlugin) {
 		t.Fatalf("err = %v", err)
-	}
-}
-
-func TestEnableUnlessChosenRecordsOnlyAFirstChoice(t *testing.T) {
-	state := New(store.At(t.TempDir()))
-	if changed, err := state.EnableUnlessChosen("fresh"); err != nil || !changed {
-		t.Fatalf("fresh: changed = %v, err = %v", changed, err)
-	}
-	if enabled, err := state.Enabled("fresh"); err != nil || !enabled {
-		t.Fatalf("fresh: enabled = %v, err = %v", enabled, err)
-	}
-	if err := state.SetEnabled("chosen", false); err != nil {
-		t.Fatal(err)
-	}
-	if changed, err := state.EnableUnlessChosen("chosen"); err != nil || changed {
-		t.Fatalf("chosen: changed = %v, err = %v", changed, err)
-	}
-	if enabled, err := state.Enabled("chosen"); err != nil || enabled {
-		t.Fatalf("an explicit disable was overridden: enabled = %v, err = %v", enabled, err)
-	}
-	if _, err := state.EnableUnlessChosen(""); !errors.Is(err, ErrInvalidPlugin) {
-		t.Fatalf("empty ID: %v", err)
 	}
 }
