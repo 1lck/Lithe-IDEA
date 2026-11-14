@@ -6611,6 +6611,13 @@
       ]
     },
     {
+      "id": "desktop.build.dependenciesHelp",
+      "description": "Hover hint of the information button on the Build window's Dependencies heading: when the dependency tree is read and how to read it again",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
       "id": "desktop.build.noMatches",
       "description": "Build tool window text when no build system, project, target, task or test matches the filter",
       "platforms": [

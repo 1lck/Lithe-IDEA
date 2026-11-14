@@ -10997,6 +10997,7 @@
     "desktop.terminal.runSelection": "在终端运行选中内容",
     "desktop.build.debugTarget": "调试",
     "desktop.build.filter": "筛选构建系统、任务与目标",
+    "desktop.build.dependenciesHelp": "第一次展开时才让构建工具读取依赖树，构建工具运行期间可能要等一会儿。读到的依赖会一直保留，直到重新检测构建系统，或在构建系统或“依赖”上选“重新加载”。",
     "desktop.build.noMatches": "没有匹配的构建项",
     "desktop.build.noDebugAdapter": "该构建插件所属的插件没有声明可以启动已准备程序的调试适配器。",
     "desktop.debug.consoleEmpty": "调试会话的输出会显示在这里。",
