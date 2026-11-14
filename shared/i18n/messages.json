@@ -103068,7 +103068,8 @@
       "description": "Common action: Close.",
       "platforms": [
         "macos",
-        "windows"
+        "windows",
+        "desktop"
       ],
       "macos": {
         "key": "Close",
