@@ -1209,7 +1209,6 @@
     "desktop.marketplace.reviewEmpty": "该插件不申请权限，也不启动任何程序。",
     "desktop.marketplace.reviewPermissions": "权限",
     "desktop.marketplace.reviewPrograms": "程序",
-    "desktop.marketplace.reviewReused": "此前的批准已覆盖这个包。",
     "desktop.marketplace.reviewTitle": "审查插件",
     "desktop.marketplace.uninstall": "卸载",
     "desktop.navigation.historyUnavailable": "该位置已不存在。",
@@ -11172,7 +11171,12 @@
     "desktop.keymapImport.title": "从其他 IDE 导入…",
     "desktop.keymapImport.unbound": "清除此操作的快捷键",
     "desktop.keymapImport.vscode": "VS Code / Cursor（JSON）",
-    "desktop.keymapImport.working": "正在读取并检查快捷键…"
+    "desktop.keymapImport.working": "正在读取并检查快捷键…",
+    "desktop.marketplace.downloadProgress": "正在下载插件… {received} / {total} MiB",
+    "desktop.marketplace.downloadReceived": "正在下载插件… {received} MiB",
+    "desktop.marketplace.verifying": "正在解压并校验插件…",
+    "desktop.marketplace.downloadTitle": "下载并安装插件",
+    "desktop.marketplace.downloadPrompt": "是否下载并安装此插件？下载并校验完成后，将自动安装，同时批准插件声明的权限和程序。"
   },
   "overrides": {
     "macos": {

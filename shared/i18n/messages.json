@@ -12279,13 +12279,6 @@
       ]
     },
     {
-      "id": "desktop.marketplace.reviewReused",
-      "description": "Shown when an earlier approval covers this exact package.",
-      "platforms": [
-        "desktop"
-      ]
-    },
-    {
       "id": "desktop.marketplace.reviewTitle",
       "description": "Title of the sheet that shows what a plugin asks for before it is installed.",
       "platforms": [
@@ -20607,8 +20600,7 @@
       "description": "Windows UI: extensions.reinstall",
       "platforms": [
         "macos",
-        "windows",
-        "desktop"
+        "windows"
       ],
       "macos": {
         "key": "Reinstall",
@@ -51473,7 +51465,8 @@
       "id": "native.downloadAndInstall",
       "description": "Native UI: Download and Install",
       "platforms": [
-        "macos"
+        "macos",
+        "desktop"
       ],
       "macos": {
         "key": "Download and Install",
@@ -51580,7 +51573,8 @@
       "id": "native.downloadingAndVerifyingPlugin",
       "description": "Plugin marketplace installation preparation progress",
       "platforms": [
-        "macos"
+        "macos",
+        "desktop"
       ],
       "macos": {
         "key": "Downloading and verifying plugin…",
@@ -98516,7 +98510,8 @@
       "id": "settings.general.installing",
       "description": "Windows UI: settings.general.installing",
       "platforms": [
-        "windows"
+        "windows",
+        "desktop"
       ]
     },
     {
@@ -106152,6 +106147,48 @@
     {
       "id": "desktop.keymapImport.working",
       "description": "Built-in shortcut import: working",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.marketplace.downloadProgress",
+      "description": "Plugin archive transfer progress with known size",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "received": "string",
+        "total": "string"
+      }
+    },
+    {
+      "id": "desktop.marketplace.downloadReceived",
+      "description": "Plugin archive transfer progress with unknown size",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "received": "string"
+      }
+    },
+    {
+      "id": "desktop.marketplace.verifying",
+      "description": "Local extraction and verification before plugin review",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.marketplace.downloadTitle",
+      "description": "Plugin download confirmation title",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.marketplace.downloadPrompt",
+      "description": "Confirm download, verification, installation and approval of the selected plugin package in one action",
       "platforms": [
         "desktop"
       ]

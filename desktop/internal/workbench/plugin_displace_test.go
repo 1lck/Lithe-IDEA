@@ -80,9 +80,7 @@ func TestInstallingAPluginTurnsOffTheOneServingTheSameLanguage(t *testing.T) {
 		return (*states)[id]
 	}
 	install := func(id, name string) {
-		h.app.installPluginFromFile(writeServingPlugin(t, id, name))
-		awaitStateWithin(t, h, 30*time.Second, "the install review of "+name, func() bool { return h.app.pluginInstall.open })
-		h.app.confirmPluginInstall()
+		h.app.installPluginFromFile(writeServingPlugin(t, id, name), approvingPluginInstall(t))
 		awaitStateWithin(t, h, 30*time.Second, "the installed "+name, func() bool { return state(id).Installed && state(id).Enabled })
 	}
 	notice := func(disabled, enabled string) string {

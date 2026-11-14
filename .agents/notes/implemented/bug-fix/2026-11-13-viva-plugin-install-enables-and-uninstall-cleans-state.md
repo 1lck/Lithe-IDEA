@@ -27,12 +27,35 @@ Viva 客户端从插件市场装好插件后，插件默认是禁用的，用户
 - **未安装的插件**：对没有安装版本的插件启用、禁用或卸载，Core 返回拒绝 `plugin.lifecycle.notInstalled`，`Manager` 报 `ErrUnknownPlugin`，不写任何选择，避免以后安装时被悄悄启用。
 - **状态目录**：`pluginpkg.StateDirectory` 是 `.state` 的唯一定义（`pluginservice` 的 `pluginStateDirectory` 引用它）。`pluginpkg.RemoveState` 和卸载包一样，先把 `.state/<插件 ID>` 改名进 `.trash`，再递归删除，删除失败也不会把半份状态留在下次安装会读取的位置；它只处理目录，不跟随符号链接。`.state/host-secret` 和其他插件的目录不动。插件设置保存在应用偏好目录，不在 `.state` 里，所以卸载不会丢用户设置。
 
+
+### 安装审查跟随设置窗口
+
+设置窗口的市场列表、详情和已安装页的更新入口先询问是否「下载并安装」。确认页明确说明：下载并校验完成后自动安装，同时批准所选插件声明的权限和程序。此时不启动后台下载；用户确认后才传输、校验和安装，不再出现下载后的第二次权限确认。取消、Escape 或关闭窗口都不会启动下载。本地包入口直接准备用户选定的文件，之后仍展示完整权限和程序并等待安装确认。旧实现把弹窗绘制在主窗口，设置窗口会挡住它，用户重复点击又会重新下载。
+
+权限和程序声明较多时，详情区最多占 300 个逻辑像素，使用 Viva 的虚拟列表滚动查看。标题和确认按钮留在详情区外，程序声明在准备完成时转换为可读文本。
+
+设置窗口记录用户对具体所选插件的包级安装同意。该同意只属于当前弹窗和当前请求，不能由旧批准记录或另一个插件的操作代替。工作台仍先执行归档 SHA-256 校验、Core 清单/身份/版本/能力与程序声明检查，全部成功后才由当前弹窗消费初始同意并提交安装、记录完整规范程序。初始同意不代表发布者身份认证，也不绕过 Core 或包校验。
+
+在校验完成前取消、按 Escape 或关闭设置窗口，会撤销当前同意，迟到的准备结果只能被清理。进入提交阶段后，安装继续完成。本地包的决定来自下载后展示的审查页，不能用市场的初始同意代替。后台任务负责清理下载和暂存目录。
+
+下载时显示已接收和总 MiB，以及确定的字节进度。服务器没有提供大小时只显示已接收量；下载完成后切换为解压校验，避免把网络等待都称为校验。通知在传输线程合并，最多每 100 毫秒发送一次，开始和结束时另发一次；没有空闲轮询。
+
+设置会话保留最近一个已完整校验的归档文件，最多沿用下载上限 512 MiB，不把归档内容留在内存。取消准备后再次安装相同来源和摘要时借用该临时文件；更换包、关闭设置和退出应用都释放保留的所有权。正在准备的任务单独持有文件所有权，直到读完才删除，避免关闭窗口时删除正在读取的文件。每次准备仍从同一文件句柄校验 SHA-256 再解压；排除用户取消和超时后的准备错误会淘汰保留文件，下次重试重新下载。
+
+这个保留文件由 Go 原生文件适配器管理，只用于避免重复传输 Core 已选定的字节。可用性、插件身份、版本、审批和程序校验仍由现有 Core 流程决定；这不是可跨工作树、跨来源分享的构建缓存。写入只在系统临时目录，不影响发行包签名和 Sparkle 增量基线。资源复用清单明确拒绝复制这些文件。
+
+
+已安装页在市场提供可安装的新版时才显示「更新到…」。此前的「重新安装」会把同版本交给普通安装器，安装器拒绝覆盖已有版本目录。
+
+
 ## 考虑过的备选方案
 
 1. **保持“下载默认禁用”，在安装完成提示里引导用户去启用**：多一步操作，用户普遍以为装好就能用；与旧 macOS 客户端和 IntelliJ IDEA 的行为都不一致。放弃。
 2. **每次确认安装都强制启用**：会覆盖用户“禁用后再更新”的明确选择。放弃，改为只在没有记录时启用。
 3. **卸载时只删 `.state/<插件 ID>/<版本>`**：页面状态、工作区状态、日志在 `.state/<插件 ID>` 下按功能分目录，不在版本目录里，只删版本目录仍会留下大部分文件。放弃。
 4. **启动时清理不再安装的插件的状态目录**：进程崩溃或并发时会删错，也让卸载结果依赖下次启动。放弃。
+
+5. **准备完成后把主窗口拉到前面**。这会把用户从插件列表切走，仍需在两个窗口之间来回操作。采用设置窗口内的弹窗。
 
 ## 后果
 
@@ -62,6 +85,16 @@ Viva 客户端从插件市场装好插件后，插件默认是禁用的，用户
 - #1843 的自动回归使用虚构清单及复制的测试程序，不依赖任何具体插件：`TestUninstallWaitsForTheDebugAdapter`、`TestUninstallStopsProviderSessionsBeforeDeletingFiles` 检查进程先退出/销毁再删包；`TestUninstallWaitsForAProviderStillStartingInHiddenTab` 用受控事件检查取消、等待迟到启动、隐藏标签和卸载后的启动阻断；`TestUninstallPreservesFilesWhenProgramsCannotStop` 检查停止失败时包、批准和状态保留。macOS 已验证，Windows 文件锁场景仍需原生验证。
 - 2026-11-13 在 macOS 上用 `-tags vivahead` 构建的无头客户端（真实渲染，临时用户目录）从线上 Lithe Store 安装 Java Navigation 0.0.1：确认后显示“已启用”，F12 跳到项目内定义和 JDK `String.trim`，卸载后插件包、进程和 `.state/<插件 ID>` 都不存在，再按 F12 不跳转、不重新拉起进程，退出后无残留进程。Windows 共用同一份 Go 代码，尚未在 Windows 上验证。
 
+- `TestMarketplaceInstallCompletesAfterInitialConfirmation` 驱动市场列表、详情和更新按钮，验证确认前不下载、一次确认后进入安装、关闭设置时拒绝迟到结果，以及下载失败。`TestMarketplaceInitialConfirmationApprovesInstallation` 在旧实现中等待第二次确认而失败，修复后无需再次点击即可进入安装并结束弹窗。
+- `TestMarketplaceCancelBeforeVerificationDoesNotInstall` 验证取消、Escape 和关闭窗口都会撤销初始同意；`TestLocalPackageStillWaitsForInstallConfirmation` 验证本地包继续显示权限并等待明确安装确认。
+- `TestPluginInstallReviewScrollsLongDetails` 验证长权限列表滚动到最后一条程序声明时，底部按钮保持可见且位置固定。
+- `TestArchiveSessionReusesTheLastVerifiedTransfer` 覆盖重试不重新请求、摘要变化、替换/关闭时活跃借用不被删除，以及最终临时目录清空。
+- `TestMarketplaceRetryReusesBytesAndStillRejectsTampering` 通过真实安装准备链验证重复审查只下载一次、保留文件被篡改后不进入审查、错误后重新下载，以及设置关闭后的清理。
+- `TestPluginInstallShowsTransferBytesAndLocalVerification` 覆盖已知大小、未知大小与解压校验阶段的界面回显。
+- `TestMarketplaceAsksBeforeDownloading` 在旧实现中因提前启动下载而失败；修复后覆盖确认、取消、Escape 和关闭窗口。市场列表、详情与已安装更新测试同时验证确认后才调用安装准备入口。
+- 下载会话测试也覆盖旧包的准备错误迟到时，不会清掉较新的保留文件。单次确认回归命令为 `./.agents/skills/write-stable-tests/scripts/test-stability-macos.sh --package ./internal/settingswindow --package ./internal/workbench -- --filter 'TestMarketplace|TestPluginInstall|TestLocalPackage|TestInstalledTab|TestConfirmedInstallIsEnabledAndUninstallRemovesItsState'`，记录 50 项通过，全部低于 1 秒。HTML/JUnit 位于 `.artifacts/test-stability/`，产物不提交。
+- 同次运行 `scripts/desktop/desktop-go.sh test ./... -p=4 -count=1 -timeout=300s` 全量通过，受影响两个包的相关 `-race` 检查通过，i18n 41 项和资源复用 35 项检查通过。Windows 与新的 macOS 原生单次确认窗口仍未做整机验收。
+
 ## 适用范围
 
-Viva 客户端（`desktop/`）的插件安装、启用、禁用和卸载：Core 的 `plugins.installed.lifecycle`、`desktop/internal/core/plugin_lifecycle.go`、`desktop/internal/pluginstate/`、`desktop/internal/pluginmanager/`、`desktop/internal/pluginpkg/install.go`、`desktop/internal/pluginservice/lifecycle.go`、`desktop/internal/workbench/plugins.go`。旧 Swift/Tauri 客户端的规则以各自原 Note 为准。
+Viva 客户端（`desktop/`）的插件安装、启用、禁用和卸载：Core 的 `plugins.installed.lifecycle`、`desktop/internal/core/plugin_lifecycle.go`、`desktop/internal/pluginstate/`、`desktop/internal/pluginmanager/`、`desktop/internal/pluginpkg/install.go`、`desktop/internal/pluginservice/lifecycle.go`、`desktop/internal/workbench/plugins.go`。设置弹窗入口在 `desktop/internal/settingswindow/plugin_install.go`。

@@ -3,6 +3,7 @@ package settingswindow
 import (
 	"errors"
 	"hash/fnv"
+	"path/filepath"
 	"strings"
 	"unicode"
 
@@ -189,7 +190,7 @@ func (w *window) pickPluginPackage() {
 		}
 		return
 	}
-	w.ctrl.opts.InstallPluginFromFile(paths[0])
+	w.ctrl.opts.InstallPluginFromFile(paths[0], w.startPluginInstall(filepath.Base(paths[0]), false))
 }
 
 // pluginColumns declares a tab's list beside its detail, with the divider between them.
@@ -447,11 +448,11 @@ func (w *window) marketRowAction(c ui.C, language i18n.Language, plugin core.Mar
 	switch w.marketOfferFor(plugin) {
 	case offerInstall:
 		if w.ctrl.opts.InstallPlugin != nil && ui.Button(c, i18n.Shared(language, "desktop.marketplace.install")).Outline().XSmall().Clicked() {
-			w.ctrl.opts.InstallPlugin(plugin)
+			w.startMarketplaceInstall(plugin)
 		}
 	case offerUpdate:
 		if w.ctrl.opts.InstallPlugin != nil && ui.Button(c, i18n.Shared(language, "native.update")).Outline().XSmall().Clicked() {
-			w.ctrl.opts.InstallPlugin(plugin)
+			w.startMarketplaceInstall(plugin)
 		}
 	case offerInstalled:
 		ui.Text(c, i18n.Shared(language, "native.installed")).FontSize(11).Color(w.pal.muted).Shrink(0)
@@ -539,12 +540,12 @@ func (w *window) marketDetailAction(c ui.C, language i18n.Language, plugin core.
 	switch w.marketOfferFor(plugin) {
 	case offerInstall:
 		if ui.Button(c, i18n.Shared(language, "desktop.marketplace.install")).Small().Disabled(install == nil).Clicked() && install != nil {
-			install(plugin)
+			w.startMarketplaceInstall(plugin)
 		}
 	case offerUpdate:
 		label := i18n.SharedFormat(language, "native.updateTo.variant2", map[string]string{"arg1": offeredVersion(plugin)})
 		if ui.Button(c, label).Small().Disabled(install == nil).Clicked() && install != nil {
-			install(plugin)
+			w.startMarketplaceInstall(plugin)
 		}
 	case offerInstalled:
 		ui.Button(c, i18n.Shared(language, "native.installed")).Small().Secondary().Disabled(true)
