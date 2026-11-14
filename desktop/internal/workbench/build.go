@@ -41,8 +41,9 @@ type buildState struct {
 	loaded  bool
 	loading bool
 	failed  string
-	// options is the Build options editor of the selected instance (build_options.go).
-	options buildOptionsEditor
+	// options is the Build options dialog (build_options.go) and optionsSessions counts its openings.
+	options         buildOptionsEditor
+	optionsSessions int
 	// reloadPending says a stored option changed while a detection was running, so the instances are
 	// detected again when that detection ends.
 	reloadPending bool
