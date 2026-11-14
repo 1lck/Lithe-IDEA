@@ -11,6 +11,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/1lck/Lithe-IDEA/desktop/internal/buildinfo"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/core"
@@ -381,6 +382,8 @@ func TestDeltaUpdateInstallsTheRebuiltApplication(t *testing.T) {
 
 	a.updateNow()
 	h.await("the install", func() bool { _, _, _, _, quits := fakes.state(); return quits == 1 })
+	// The copy is deleted in the background.
+	a.wait()
 	applied, payloads, installs, present, _ := fakes.state()
 	if len(applied) != 1 || applied[0] != "0.7.0 → 0.8.0" || len(payloads) != 1 {
 		t.Fatalf("applied %v into %v, want one patch from 0.7.0 to 0.8.0", applied, payloads)
@@ -426,6 +429,7 @@ func TestDeltaUpdateFallsBackToTheFullArchive(t *testing.T) {
 			h.await("the available version", func() bool { return a.updateStatus().Available == "0.8.0" })
 			a.updateNow()
 			h.await("the archive's install", func() bool { return a.updateStatus().Failure != "" })
+			a.wait()
 			_, payloads, installs, _, _ := fakes.state()
 			if len(installs) == 0 || installs[len(installs)-1].Artifact != source.archive || installs[len(installs)-1].Payload != "" {
 				t.Fatalf("installed %+v, want the full archive last", installs)
@@ -466,6 +470,7 @@ func TestDeltaUpdateRefusalIsNotRetriedInFull(t *testing.T) {
 	h.await("the available version", func() bool { return a.updateStatus().Available == "0.8.0" })
 	a.updateNow()
 	h.await("the refusal", func() bool { return a.updateStatus().Failure != "" })
+	a.wait()
 	if full, _ := source.downloadCounts(); full != 0 {
 		t.Fatalf("downloaded the full archive %d times after a refusal it would meet too", full)
 	}
@@ -557,6 +562,7 @@ func TestRebuiltApplicationIsDeletedWhenNothingWillInstallIt(t *testing.T) {
 			}
 
 			tc.end(t, h, source)
+			a.wait()
 			failures := loggedEvents(logger, deltaCleanupFailedEvent)
 			if tc.removeErr != nil {
 				if len(failures) != 1 || failures[0].Level != core.LevelWarn || failures[0].Fields["error"] == nil {
@@ -568,5 +574,68 @@ func TestRebuiltApplicationIsDeletedWhenNothingWillInstallIt(t *testing.T) {
 				t.Fatalf("the copy is gone = %v and %d deletions failed, want it deleted", gone(payloads[0]), len(failures))
 			}
 		})
+	}
+}
+
+// TestRebuiltApplicationIsDeletedOffTheWindowThread holds the deletion of a rebuilt copy that
+// a check found another version for: the check shows its result while the deletion is held,
+// because the window thread does not wait for it, and the copy goes once it is let through.
+func TestRebuiltApplicationIsDeletedOffTheWindowThread(t *testing.T) {
+	fakes := installFakes(t)
+	updateQuit = func(*App) func() { return nil }
+	started, release := make(chan struct{}, 1), make(chan struct{})
+	var once sync.Once
+	let := func() { once.Do(func() { close(release) }) }
+	removeUpdateDir = func(path string) error {
+		select {
+		case started <- struct{}{}:
+		default:
+		}
+		// The bound only matters if the deletion runs on the window thread, which it would
+		// hold; the copy is then gone before the check shows its result, and the test fails.
+		held := time.NewTimer(8 * time.Second)
+		defer held.Stop()
+		select {
+		case <-release:
+		case <-held.C:
+		}
+		return os.RemoveAll(path)
+	}
+	source := &fakeUpdateSource{feed: deltaFeed("0.8.0", "0.7.0"), patch: updateFile(t, "lithe.patch")}
+	h, _ := newDeltaHarness(t, source)
+	// Registered after the harness, so a test that fails early lets the deletion through
+	// before the harness stops.
+	t.Cleanup(let)
+	a := h.app
+
+	a.checkForUpdates(true)
+	h.await("the available version", func() bool { return a.updateStatus().Available == "0.8.0" })
+	a.updateNow()
+	h.await("the rebuilt copy", func() bool {
+		status := a.updateStatus()
+		return status.Ready && !status.Downloading
+	})
+	_, payloads, _, _, _ := fakes.state()
+	if len(payloads) != 1 {
+		t.Fatalf("rebuilt %v, want one copy waiting", payloads)
+	}
+
+	source.offer(deltaFeed("0.9.0", "0.7.0"))
+	a.checkForUpdates(true)
+	h.await("the next check", func() bool { return a.updateStatus().Available == "0.9.0" })
+	deadline := time.NewTimer(8 * time.Second)
+	defer deadline.Stop()
+	select {
+	case <-started:
+	case <-deadline.C:
+		t.Fatal("the check found another version but the rebuilt copy was never deleted")
+	}
+	if gone(payloads[0]) {
+		t.Fatal("the rebuilt copy was deleted before the check showed its result, so the window thread waited for it")
+	}
+	let()
+	a.wait()
+	if !gone(payloads[0]) {
+		t.Fatalf("the rebuilt copy %s is still there after its deletion was let through", payloads[0])
 	}
 }

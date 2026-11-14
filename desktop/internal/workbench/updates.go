@@ -449,10 +449,23 @@ func (a *App) updatePatch(asset appupdate.Asset, version string) (appupdate.Patc
 	return asset.PatchFrom(a.version)
 }
 
-// removeUpdatePayload deletes an application a patch rebuilt in the temporary directory. A
-// deletion that fails leaves a copy the system cleans up later, so it is logged and nothing
-// else.
+// removeUpdatePayload deletes, from the window thread, an application a patch rebuilt. The
+// copy holds every file of the application, so the deletion is a background task, which
+// shutdown waits for.
 func (a *App) removeUpdatePayload(payload string) {
+	if payload == "" {
+		return
+	}
+	a.background(nil, 0, func(context.Context) func(*App) {
+		a.deleteUpdatePayload(payload)
+		return nil
+	})
+}
+
+// deleteUpdatePayload deletes an application a patch rebuilt in the system's temporary
+// directory, on the calling goroutine, which is not the window thread. A deletion that fails
+// leaves a copy the system cleans up later, so it is logged and nothing else.
+func (a *App) deleteUpdatePayload(payload string) {
 	if payload == "" {
 		return
 	}
@@ -549,7 +562,7 @@ func (a *App) fetchDelta(ctx context.Context, source updateSource, version strin
 	if ctxErr := ctx.Err(); ctxErr != nil {
 		// The window closed or the download was cancelled while the patch applied: nothing
 		// will install the copy.
-		a.removeUpdatePayload(payload)
+		a.deleteUpdatePayload(payload)
 		return "", ctxErr
 	}
 	if err != nil {
