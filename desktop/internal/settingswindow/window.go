@@ -68,6 +68,7 @@ const (
 // window is one open settings window and the model of its Page. Everything in it runs on
 // its window thread, but for the fields that say so.
 type window struct {
+	installDialog    PluginInstallDialogState
 	editorDelay      ui.Field
 	editorDelayReady bool
 	editorPrefsError string
@@ -363,6 +364,11 @@ func (w *window) native() *app.Window {
 // the system look is no longer watched and the controller forgets the window, so the next
 // Open makes a new one. The Page has cancelled its effects by then.
 func (w *window) closed() {
+	defer func() {
+		if w.ctrl.opts.Closed != nil {
+			w.ctrl.opts.Closed()
+		}
+	}()
 	w.sess.finished.Store(true)
 	c := w.ctrl
 	c.mu.Lock()

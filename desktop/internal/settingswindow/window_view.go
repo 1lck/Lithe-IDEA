@@ -32,6 +32,7 @@ func (w *window) view(c ui.C) {
 		w.footer(c)
 	})
 	w.keymapImportDialog(c)
+	w.pluginInstallDialog(c)
 	w.declareWork(c)
 }
 

@@ -79,7 +79,14 @@ func (a *DownloadedArchive) Discard() error {
 // Download streams the Core-selected archive into a private temporary folder,
 // refuses oversized responses while reading, and checks the index digest before
 // returning the file. No archive contents are opened or executed here.
-func (d *ArchiveDownloader) Download(ctx context.Context, selection core.MarketplaceAvailability) (archive *DownloadedArchive, err error) {
+func (d *ArchiveDownloader) Download(ctx context.Context, selection core.MarketplaceAvailability) (*DownloadedArchive, error) {
+	return d.DownloadWithProgress(ctx, selection, nil)
+}
+
+// DownloadWithProgress reports native transfer byte counts, at most ten times a second.
+// Total is negative when the server did not declare a response length. Callbacks run
+// on the transfer goroutine; consumers must marshal them to their window thread.
+func (d *ArchiveDownloader) DownloadWithProgress(ctx context.Context, selection core.MarketplaceAvailability, progress func(received, total int64)) (archive *DownloadedArchive, err error) {
 	if selection.Status != "available" || selection.DownloadURL == "" || d.maximumBytes <= 0 {
 		return nil, ErrArchiveSelection
 	}
@@ -131,6 +138,14 @@ func (d *ArchiveDownloader) Download(ctx context.Context, selection core.Marketp
 	hash := sha256.New()
 	buffer := make([]byte, 32*1024)
 	var received int64
+	lastProgress := time.Time{}
+	report := func(force bool) {
+		if progress != nil && (force || time.Since(lastProgress) >= 100*time.Millisecond) {
+			lastProgress = time.Now()
+			progress(received, response.ContentLength)
+		}
+	}
+	report(true)
 	emptyReads := 0
 	for {
 		if err = ctx.Err(); err != nil {
@@ -151,6 +166,7 @@ func (d *ArchiveDownloader) Download(ctx context.Context, selection core.Marketp
 			}
 			hash.Write(buffer[:count]) // hash.Hash.Write never returns an error.
 			received += int64(count)
+			report(false)
 		} else if readErr == nil {
 			emptyReads++
 			if emptyReads >= 100 {
@@ -170,5 +186,6 @@ func (d *ArchiveDownloader) Download(ctx context.Context, selection core.Marketp
 	if subtle.ConstantTimeCompare(hash.Sum(nil), want) != 1 {
 		return nil, ErrArchiveChecksum
 	}
+	report(true)
 	return &DownloadedArchive{directory: directory, path: path}, nil
 }

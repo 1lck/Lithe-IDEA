@@ -106155,6 +106155,170 @@
       "platforms": [
         "desktop"
       ]
+    },
+    {
+      "id": "desktop.marketplace.downloading",
+      "description": "Plugin installation progress or review presentation.",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.marketplace.preparing",
+      "description": "Plugin installation progress or review presentation.",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.marketplace.installing",
+      "description": "Plugin installation progress or review presentation.",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.marketplace.downloadBytes",
+      "description": "Plugin installation progress or review presentation.",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "received": "string",
+        "total": "string"
+      }
+    },
+    {
+      "id": "desktop.marketplace.downloadReceived",
+      "description": "Plugin installation progress or review presentation.",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "received": "string"
+      }
+    },
+    {
+      "id": "desktop.marketplace.reviewConsent",
+      "description": "Plugin installation progress or review presentation.",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.marketplace.programDetails",
+      "description": "Plugin installation progress or review presentation.",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "count": "string"
+      }
+    },
+    {
+      "id": "desktop.marketplace.permissionBuild",
+      "description": "Plugin installation progress or review presentation.",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.marketplace.permissionGenerate",
+      "description": "Plugin installation progress or review presentation.",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.marketplace.permissionBackend",
+      "description": "Plugin installation progress or review presentation.",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.marketplace.permissionDebug",
+      "description": "Plugin installation progress or review presentation.",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.marketplace.connecting",
+      "description": "Plugin download stage and installation confirmation guidance.",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.marketplace.downloadTitle",
+      "description": "Plugin download stage and installation confirmation guidance.",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.marketplace.installTitle",
+      "description": "Plugin download stage and installation confirmation guidance.",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.marketplace.installHelp",
+      "description": "Plugin download stage and installation confirmation guidance.",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.marketplace.installComplete",
+      "description": "Plugin installation result and recovery guidance.",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.marketplace.installCompleteHelp",
+      "description": "Plugin installation result and recovery guidance.",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.marketplace.failureTimeout",
+      "description": "Plugin installation result and recovery guidance.",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.marketplace.failureChecksum",
+      "description": "Plugin installation result and recovery guidance.",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.marketplace.failureNetwork",
+      "description": "Plugin installation result and recovery guidance.",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.marketplace.failurePermission",
+      "description": "Plugin installation result and recovery guidance.",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.marketplace.failureHelp",
+      "description": "Plugin installation result and recovery guidance.",
+      "platforms": [
+        "desktop"
+      ]
     }
   ]
 }

@@ -2,7 +2,7 @@
   "id": "plugin-marketplace",
   "area": "扩展",
   "group": "插件与主题",
-  "capability": "插件市场、插件仓库源与社区插件市场/磁盘安装；macOS 安装准备期间在详情操作区显示带说明的线性不定进度条",
+  "capability": "插件市场、仓库源与市场/磁盘安装；在当前窗口显示可取消的下载进度与权限确认，技术详情按需展开，安装结果与失败重试",
   "macos": {
     "implementationStatus": "partial",
     "verificationStatus": "pending",
@@ -28,7 +28,9 @@
       "desktop/internal/settingswindow/plugin_settings_view.go",
       "desktop/internal/workbench/startup.go",
       "desktop/internal/workbench/startup_test.go",
-      "desktop/internal/settingswindow/marketplace_sources.go"
+      "desktop/internal/settingswindow/marketplace_sources.go",
+      "desktop/internal/settingswindow/plugin_install_view.go",
+      "desktop/internal/settingswindow/plugin_install_view_test.go"
     ]
   },
   "windows": {
@@ -51,12 +53,14 @@
       "desktop/internal/settingswindow/plugin_settings_view.go",
       "desktop/internal/workbench/startup.go",
       "desktop/internal/workbench/startup_test.go",
-      "desktop/internal/settingswindow/marketplace_sources.go"
+      "desktop/internal/settingswindow/marketplace_sources.go",
+      "desktop/internal/settingswindow/plugin_install_view.go",
+      "desktop/internal/settingswindow/plugin_install_view_test.go"
     ]
   },
   "owner": "Extensions",
-  "notes": "Viva 可分别读取 Lithe Store 社区索引和当前主仓库的官方索引，通过 Core 校验并支持名称或 ID 搜索；旧官方地址指向临时仓库（#1781），当前主仓库官方索引为空。保留官方索引文件以维持客户端已使用的公开地址，不能将社区索引改标为官方来源。离线“已安装”入口读取本机目录并使用 Core 的数字版本选择；禁用插件也可查看和编辑声明偏好。生产启动入口已连接同一个 Core client，通用设置入口会后台读取安装状态并刷新离线目录。离线官方索引、描述及标签搜索、完整可信安装、更新与卸载流程仍未完成，Windows 整机验收待做。下载适配器可流式限额并校验索引摘要、清理临时文件，但尚无生产调用者，不能代替签名、审批或安装。安装器现在同时接受契约的 `<plugin-id>/plugin.json` 目录布局和旧的无外层目录布局：内容根由唯一清单确定，内容根目录必须等于插件 ID，内容根外的条目、第二个清单或更深层的清单会拒绝安装，不会 flatten 后继续；磁盘来源没有发布者签名时仍必须经过用户审批，布局支持不改变信任判断。 插件仓库在齿轮菜单的“管理插件仓库…”弹窗中管理：列出社区、官方和自定义索引的实际地址，可添加、刷新和移除自定义索引；市场标签可选单个来源或全部来源聚合，某个来源读取失败时其余来源照常显示。",
-  "verification": "macOS 无头界面覆盖来源选择、下载中切换、搜索、取消、迟到结果隔离及并发上限；市场服务以 Core 校验固定的社区和官方索引，搜索使用共享匹配样例。已对照原版窗口截图；完整布局、聚合搜索、可信安装与宿主接入后仍需在 macOS 和 Windows 验收并核对发行包只读。 下载适配器以离线传输测试摘要不匹配、超限、取消、危险重定向及清理；尚未接通真实安装。安装器回归同时覆盖契约目录布局与 flat 布局、内容根目录与清单 ID 不一致、两个清单、内容根外文件和深层清单会被拒绝且不留 staging、符号链接与大小写冲突；修复前同一测试以“plugin package has no plugin.json at its root”失败。 macOS 隔离原生窗口已验证从通用设置进入插件页、读取离线已安装条目、七种设置控件的明确保存/冲突/重新加载；此证据不代表市场下载或 settings v2 整体验收。",
+  "notes": "Viva 可分别读取 Lithe Store 社区索引和当前主仓库的官方索引，通过 Core 校验并支持名称或 ID 搜索；旧官方地址指向临时仓库（#1781），当前主仓库官方索引为空。保留官方索引文件以维持客户端已使用的公开地址，不能将社区索引改标为官方来源。离线“已安装”入口读取本机目录并使用 Core 的数字版本选择；禁用插件也可查看和编辑声明偏好。生产启动入口已连接同一个 Core client，通用设置入口会后台读取安装状态并刷新离线目录。离线官方索引、描述及标签搜索、完整可信安装、更新与卸载流程仍未完成，Windows 整机验收待做。下载适配器可流式限额并校验索引摘要、清理临时文件，但尚无生产调用者，不能代替签名、审批或安装。安装器现在同时接受契约的 `<plugin-id>/plugin.json` 目录布局和旧的无外层目录布局：内容根由唯一清单确定，内容根目录必须等于插件 ID，内容根外的条目、第二个清单或更深层的清单会拒绝安装，不会 flatten 后继续；磁盘来源没有发布者签名时仍必须经过用户审批，布局支持不改变信任判断。 插件仓库在齿轮菜单的“管理插件仓库…”弹窗中管理：列出社区、官方和自定义索引的实际地址，可添加、刷新和移除自定义索引；市场标签可选单个来源或全部来源聚合，某个来源读取失败时其余来源照常显示。 Viva 安装使用原生下载字节回调，每秒最多十次进度通知，不解析工具专属语义；主窗口与设置读取不可变快照，确认仍交给原有安装器。macOS 确认框与进度在当前设置窗口呈现，Windows 共用界面但原生验收仍 pending。 本轮 macOS 原生窗口已复验市场下载状态、同窗口权限确认及固定视口的技术详情；整体能力的其他项目保持原验收状态。 市场入口文案明确为下载并安装，并提示下载校验后还要确认权限；连接阶段不显示虚构的下载体积。；安装终态在当前窗口呈现，失败给出本地化原因及重试，重试重新准备并确认权限，成功提示不覆盖原有启用选择。",
+  "verification": "macOS 无头界面覆盖来源选择、下载中切换、搜索、取消、迟到结果隔离及并发上限；市场服务以 Core 校验固定的社区和官方索引，搜索使用共享匹配样例。已对照原版窗口截图；完整布局、聚合搜索、可信安装与宿主接入后仍需在 macOS 和 Windows 验收并核对发行包只读。 下载适配器以离线传输测试摘要不匹配、超限、取消、危险重定向及清理；尚未接通真实安装。安装器回归同时覆盖契约目录布局与 flat 布局、内容根目录与清单 ID 不一致、两个清单、内容根外文件和深层清单会被拒绝且不留 staging、符号链接与大小写冲突；修复前同一测试以“plugin package has no plugin.json at its root”失败。 macOS 隔离原生窗口已验证从通用设置进入插件页、读取离线已安装条目、七种设置控件的明确保存/冲突/重新加载；此证据不代表市场下载或 settings v2 整体验收。 验证下载字节进度、未知长度、取消清理、重复请求不替换在途下载；设置窗口中的安装确认直接可见，程序详情默认折叠并在固定高度列表中查看，关闭设置后主窗口继续呈现同一操作，旧窗口操作编号不能确认新操作。 点击后立即显示连接状态，响应头到达后显示字节进度；下载与确认安装使用不同标题，确认前清楚显示目标插件和版本。",
   "legacy": {
     "revision": "5a54c41aa37a4e6e6b68918a4b05765b9dd07a36",
     "macos": {

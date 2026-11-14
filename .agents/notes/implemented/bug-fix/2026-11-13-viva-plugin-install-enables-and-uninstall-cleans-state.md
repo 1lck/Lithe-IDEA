@@ -65,3 +65,23 @@ Viva 客户端从插件市场装好插件后，插件默认是禁用的，用户
 ## 适用范围
 
 Viva 客户端（`desktop/`）的插件安装、启用、禁用和卸载：Core 的 `plugins.installed.lifecycle`、`desktop/internal/core/plugin_lifecycle.go`、`desktop/internal/pluginstate/`、`desktop/internal/pluginmanager/`、`desktop/internal/pluginpkg/install.go`、`desktop/internal/pluginservice/lifecycle.go`、`desktop/internal/workbench/plugins.go`。旧 Swift/Tauri 客户端的规则以各自原 Note 为准。
+
+
+## 安装进度与确认窗口（2026-11-14）
+
+安装器仍是准备、校验和批准记录的唯一执行入口；界面不从程序声明推断工具行为。下载适配器报告已接收字节和服务器声明的长度，每秒最多十次；未提供长度时只显示已下载体积，不虚构百分比。取消会结束本次原生请求，过期结果只能清理自己的暂存目录，不能打开确认框。确认后写包阶段不允许取消，避免对已提交的安装显示“已取消”。
+
+主窗口发布只读安装快照，设置窗口直接在自己的页面显示进度、错误和权限确认。设置打开时主窗口不再同时弹出确认；关闭设置后通知主窗口重绘，接续同一个安装。所有跨窗口按钮带操作编号，迟到的旧确认不能批准另一份包。正确做法是设置读取快照、把编号交回安装所有者；不要让设置直接提交包，也不要把确认留在被设置遮挡的主窗口。
+
+权限先使用宿主已有的权限说明翻译，未知权限保留原始标识。完整程序声明默认折叠，展开时仅做 JSON 排版并用固定高度虚拟列表呈现，长行保留完整提示；不把程序内容改写成未经 Core 证明的执行计划。放弃默认铺开全部程序 JSON：大型声明会把确认按钮挤出可见区域。也不使用逐帧刷新下载进度，因为网络回调只需有界唤醒界面。
+
+回归入口是 `TestBusyInstallKeepsItsOwnedTransfer`、`TestArchiveDownloadProgressAndCancellation`、`TestPluginInstallReviewStaysInSettingsAndHidesTechnicalDetails` 和 `TestPluginInstallProgressCanCancelFromSettings`，分别覆盖请求所有权、真实传输取消与清理、当前窗口确认和进度取消。它们只使用合成插件或内存 HTTP 响应，不依赖具体插件。生产路径仍须在目标平台的原生窗口验收。
+
+
+macOS 原生复验：从市场下载时显示实际体积和进度条；取消大包下载后，立即安装另一份包仍能出现审阅；确认框留在设置窗口内，展开详情后安装/取消仍可见。确认安装后插件显示为已启用，退出应用后没有本次进程或下载临时目录残留。Windows 共用呈现代码，原生窗口尚未复验。
+
+
+点击市场入口后，先显示“正在连接下载源”，收到 HTTP 响应头后才切到下载字节进度；连接阶段不把 0 字节冒充已经开始传输。市场入口使用“下载并安装”，提示说明还需要一次权限确认；下载与实际安装使用各自标题，只有校验完成后的批准步骤显示“确认安装插件”，并保留插件名称和版本。`TestPluginInstallConnectingExplainsTheInitialWait` 验证初始等待有明确说明、连接时不提供安装确认，以及准备好的包才提供确认按钮。
+
+
+安装反馈覆盖终态：成功明确显示“安装完成”，但不声称一定启用，因为更新必须保留已有停用选择。失败在当前窗口显示超时、网络、校验或文件权限等本地化提示及重试按钮，完整原始错误继续写入统一日志，不把含路径或凭据的传输错误直接展示。重试重新执行原来源的下载/准备和权限确认，不沿用已失败的 staging；过期操作编号不得触发新任务。回归测试包括 `TestPluginInstallFailureOffersRetry`、`TestPluginInstallCompletionCanBeDismissed` 和 `TestPluginInstallFailureSnapshotDoesNotExposeNativeError`。终态呈现已通过无头 Viva 测试，Windows 原生复验仍待完成。

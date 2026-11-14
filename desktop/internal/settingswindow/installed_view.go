@@ -914,6 +914,15 @@ func capabilityDetail(language i18n.Language, capability PluginCapability) strin
 // that shows only its name.
 func permissionDescription(language i18n.Language, permission string) string {
 	switch permission {
+	case "process.build":
+		return i18n.Shared(language, "desktop.marketplace.permissionBuild")
+	case "project.generate":
+		return i18n.Shared(language, "desktop.marketplace.permissionGenerate")
+	case "backend.launch":
+		return i18n.Shared(language, "desktop.marketplace.permissionBackend")
+	case "debug.launch":
+		return i18n.Shared(language, "desktop.marketplace.permissionDebug")
+
 	case "languageServer.launch":
 		return i18n.Shared(language, "native.startALanguageServerWhenYouOpenFilesOfItsLanguage")
 	case "process.run":

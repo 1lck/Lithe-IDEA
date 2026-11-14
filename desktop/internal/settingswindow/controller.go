@@ -200,6 +200,14 @@ type PluginSettingsActionLoader interface {
 
 // Options configure the settings window.
 type Options struct {
+	// PluginInstall reads an immutable presentation snapshot; callbacks queue work to its owner.
+	PluginInstall        func() PluginInstallStatus
+	ConfirmPluginInstall func(uint64)
+	CancelPluginInstall  func(uint64)
+	RetryPluginInstall   func(uint64)
+	// Closed wakes the owner when a dialog must return to the main window.
+	Closed func()
+
 	// GitHub is the account the Version Control page shows and drives; nil hides the card.
 	GitHub *GitHubAccount
 	// SettingsError logs a failure of the window, with the operation that failed as the log
@@ -631,3 +639,10 @@ const (
 
 // projectOpenDestinations are the choices of the setting, asking first.
 var projectOpenDestinations = []string{"", ProjectOpenThisWindow, ProjectOpenNewWindow}
+
+// IsOpen reports whether this controller currently owns a native settings window.
+func (c *Controller) IsOpen() bool {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.current != nil
+}

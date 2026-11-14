@@ -7,6 +7,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -39,6 +40,21 @@ func TestInstallPluginWithoutStackDoesNothing(t *testing.T) {
 	}
 	if h.app.pluginInstall.generation != 0 {
 		t.Fatalf("generation = %d", h.app.pluginInstall.generation)
+	}
+}
+
+func TestBusyInstallKeepsItsOwnedTransfer(t *testing.T) {
+	h := newHarness(t, &testKernel{Client: core.NewClient()})
+	service, err := pluginservice.Open(core.NewClient(), h.store, t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	h.app.plugins = service
+	h.app.pluginInstall.busy = true
+	h.app.pluginInstall.generation = 7
+	h.app.installPluginFromFile(filepath.Join(t.TempDir(), "not-started.zip"))
+	if h.app.pluginInstall.generation != 7 {
+		t.Fatal("a repeated install replaced the active transfer")
 	}
 }
 
@@ -441,4 +457,38 @@ func TestEnableReopensVcsAfterCatalogRefresh(t *testing.T) {
 		}
 	})
 	h.settle()
+}
+
+func TestCancelPluginInstallStopsTransferAndRejectsLateReview(t *testing.T) {
+	h := newHarness(t, &testKernel{Client: core.NewClient()})
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	h.app.pluginInstall = pluginInstallState{busy: true, generation: 4, cancel: cancel, phase: "download"}
+	h.app.cancelPluginInstall()
+	if !errors.Is(ctx.Err(), context.Canceled) {
+		t.Fatal("cancel left the transfer running")
+	}
+	h.app.finishPluginInstall(4, plugininstall.Plan{ID: "dev.lithe.test.late", Version: "1.0.0"}, nil)
+	if status := h.app.installPresentation(); status.Busy || status.Review || status.Failed {
+		t.Fatalf("late review replaced cancellation: %+v", status)
+	}
+}
+
+func TestPluginInstallFailureSnapshotDoesNotExposeNativeError(t *testing.T) {
+	h := newHarness(t, &testKernel{Client: core.NewClient()})
+	h.app.pluginInstall.generation = 19
+	h.app.finishPluginInstall(19, plugininstall.Plan{}, errors.New("https://private.invalid/?token=secret"))
+	status := h.app.installPresentation()
+	if !status.Failed || status.Failure == "" || strings.Contains(status.Failure, "secret") {
+		t.Fatalf("unsafe failure feedback: %+v", status)
+	}
+	h.app.retryPluginInstall(18)
+	if h.app.pluginInstall.generation != 19 {
+		t.Fatal("stale retry affected the current operation")
+	}
+	h.app.cancelPluginInstall()
+	status = h.app.installPresentation()
+	if status.Failed || status.Completed || status.Failure != "" {
+		t.Fatalf("dismissed result is still active: %+v", status)
+	}
 }

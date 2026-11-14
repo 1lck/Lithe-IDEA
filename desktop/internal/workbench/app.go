@@ -535,7 +535,9 @@ type App struct {
 	// checker is the checkerboard the native image viewers draw images over (viewer_image.go).
 	checker checker
 	// pluginInstall is the install the user started.
-	pluginInstall pluginInstallState
+	pluginInstall       pluginInstallState
+	pluginInstallStatus atomic.Pointer[settingswindow.PluginInstallStatus]
+	pluginInstallDialog settingswindow.PluginInstallDialogState
 	// credentialImport is the import of an earlier client's plugin secrets the user asked
 	// for from the settings menu (credentials_import.go).
 	credentialImport credentialImportState
@@ -866,6 +868,7 @@ func (a *App) systemAppearanceChanged() {
 // closed runs when the window has closed: the project closes, and so does the log window,
 // which would otherwise keep the application running without the window it belongs to.
 func (a *App) closed() {
+	a.cancelPluginInstall()
 	a.unsubscribeSettings()
 	a.closeClone()
 	a.closeNewProject()

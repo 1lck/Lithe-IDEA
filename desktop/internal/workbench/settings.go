@@ -32,6 +32,23 @@ func (a *App) newSettingsWindow() *settingswindow.Controller {
 		navigation = kernel.SettingsNavigation
 	}
 	return settingswindow.NewController(settingswindow.Options{
+		PluginInstall: a.installPresentation,
+		ConfirmPluginInstall: func(token uint64) {
+			a.post(func(a *App) {
+				if a.pluginInstall.generation == token {
+					a.confirmPluginInstall()
+				}
+			})
+		},
+		CancelPluginInstall: func(token uint64) {
+			a.post(func(a *App) {
+				if a.pluginInstall.generation == token {
+					a.cancelPluginInstall()
+				}
+			})
+		},
+		RetryPluginInstall: func(token uint64) { a.post(func(a *App) { a.retryPluginInstall(token) }) },
+		Closed:             func() { a.post(func(*App) {}) },
 		GitHub:             a.githubSettings(),
 		SettingsError:      func(operation string, err error) { (settingsToolchains{app: a}).recordFailure(operation, err) },
 		SettingsNavigation: navigation,

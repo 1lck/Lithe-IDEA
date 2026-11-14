@@ -446,7 +446,7 @@ func newerOffered(plugin core.MarketplacePlugin, installed string) bool {
 func (w *window) marketRowAction(c ui.C, language i18n.Language, plugin core.MarketplacePlugin) {
 	switch w.marketOfferFor(plugin) {
 	case offerInstall:
-		if w.ctrl.opts.InstallPlugin != nil && ui.Button(c, i18n.Shared(language, "desktop.marketplace.install")).Outline().XSmall().Clicked() {
+		if w.ctrl.opts.InstallPlugin != nil && ui.Button(c, i18n.Shared(language, "desktop.marketplace.install")).Outline().XSmall().Tooltip(i18n.Shared(language, "desktop.marketplace.installHelp")).Clicked() {
 			w.ctrl.opts.InstallPlugin(plugin)
 		}
 	case offerUpdate:
@@ -538,7 +538,7 @@ func (w *window) marketDetailAction(c ui.C, language i18n.Language, plugin core.
 	install := w.ctrl.opts.InstallPlugin
 	switch w.marketOfferFor(plugin) {
 	case offerInstall:
-		if ui.Button(c, i18n.Shared(language, "desktop.marketplace.install")).Small().Disabled(install == nil).Clicked() && install != nil {
+		if ui.Button(c, i18n.Shared(language, "desktop.marketplace.install")).Small().Tooltip(i18n.Shared(language, "desktop.marketplace.installHelp")).Disabled(install == nil).Clicked() && install != nil {
 			install(plugin)
 		}
 	case offerUpdate:
