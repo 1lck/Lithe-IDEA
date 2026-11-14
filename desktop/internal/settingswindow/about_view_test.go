@@ -137,6 +137,38 @@ func TestUpdatesPageNamesTheRunningVersionAsItIsReleased(t *testing.T) {
 	}
 }
 
+// TestApplyingADeltaUpdateOffersNoCancel shows the update card while a download runs, which
+// Cancel stops, and while the patch applies, which nothing can stop: then the card offers no
+// Cancel. The window's own Cancel is there throughout, so the card's is counted against a
+// version that is only available.
+func TestApplyingADeltaUpdateOffersNoCancel(t *testing.T) {
+	cancels := func(status UpdateStatus) int {
+		w := newWindow(NewController(Options{
+			Version: "0.7.0", UpdateStatus: func() UpdateStatus { return status },
+		}), Values{})
+		w.sess.page = pageUpdates
+		d := openWindow(t, w)
+		n := 0
+		for _, hit := range d.driver.Snapshot().Hits {
+			if hit.Label == w.text.Settings.Cancel && !hit.IsLabel && !hit.Backdrop && !hit.ID.IsZero() {
+				n++
+			}
+		}
+		return n
+	}
+	available := UpdateStatus{Configured: true, Available: "0.7.1", Delta: true}
+	downloading, applying := available, available
+	downloading.Downloading, downloading.Progress = true, 0.5
+	applying.Downloading, applying.Applying, applying.Progress = true, true, 1
+	base := cancels(available)
+	if n := cancels(downloading); n != base+1 {
+		t.Errorf("downloading the patch shows %d Cancel buttons, want the card's beside the window's %d", n, base)
+	}
+	if n := cancels(applying); n != base {
+		t.Errorf("applying the patch shows %d Cancel buttons, want only the window's %d", n, base)
+	}
+}
+
 // TestUpdateLineSaysTheStepUnderWay checks what the update row says for each state, the step
 // under way first.
 func TestUpdateLineSaysTheStepUnderWay(t *testing.T) {
@@ -156,6 +188,16 @@ func TestUpdateLineSaysTheStepUnderWay(t *testing.T) {
 			format("desktop.settings.updates.available", map[string]string{"version": "0.7.1"})},
 		{"downloading", UpdateStatus{Configured: true, Available: "0.7.1", Downloading: true, Progress: 0.426},
 			format("desktop.settings.updates.downloading", map[string]string{"version": "0.7.1", "percent": "42"})},
+		{"delta available", UpdateStatus{Configured: true, Available: "0.7.1", Delta: true, DeltaSize: 3 << 20, FullSize: 96 << 20},
+			format("desktop.settings.updates.availableDelta", map[string]string{"version": "0.7.1", "size": "3 MB", "full": "96 MB"})},
+		{"delta without sizes", UpdateStatus{Configured: true, Available: "0.7.1", Delta: true},
+			format("desktop.settings.updates.available", map[string]string{"version": "0.7.1"})},
+		{"downloading the delta", UpdateStatus{Configured: true, Available: "0.7.1", Delta: true, Downloading: true, Progress: 0.5},
+			format("desktop.settings.updates.downloadingDelta", map[string]string{"version": "0.7.1", "percent": "50"})},
+		{"applying the delta", UpdateStatus{Configured: true, Available: "0.7.1", Delta: true, Downloading: true, Applying: true, Progress: 1},
+			format("desktop.settings.updates.applying", map[string]string{"version": "0.7.1"})},
+		{"downloading in full after the delta failed", UpdateStatus{Configured: true, Available: "0.7.1", Downloading: true, FellBack: true, Progress: 0.1},
+			format("desktop.settings.updates.downloadingFull", map[string]string{"version": "0.7.1", "percent": "10"})},
 		{"ready", UpdateStatus{Configured: true, Available: "0.7.1", Ready: true},
 			format("desktop.settings.updates.ready", map[string]string{"version": "0.7.1"})},
 		{"installing", UpdateStatus{Configured: true, Available: "0.7.1", Ready: true, Installing: true},

@@ -12,6 +12,8 @@ import (
 	"time"
 
 	"github.com/1lck/Lithe-IDEA/desktop/internal/buildinfo"
+	"github.com/1lck/Lithe-IDEA/desktop/internal/core"
+	"github.com/1lck/Lithe-IDEA/desktop/internal/logwindow"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/settingswindow"
 	appupdate "github.com/vivaui/viva/update"
 )
@@ -21,6 +23,21 @@ import (
 // its size and SHA-256 checked, and installs it, keeping the old application until the new
 // one starts. The download lands in the user's cache directory, never in the installed
 // application.
+//
+// When the feed lists a patch from the running version, Update downloads that instead, as
+// Sparkle's delta updates did on the old macOS client. The patch is checked like the archive.
+// Viva rebuilds the new application from the installed one in a temporary directory
+// (update.ApplyPatch): it reads the installed application and never writes into it. The
+// rebuilt copy is installed with the same checks as an unpacked archive. Viva makes patches
+// for macOS and Linux only, and a Windows feed lists none, so Windows always downloads the
+// full installer. If the patch cannot be downloaded, applied or installed, Update logs why
+// (update.delta.fallback_selected) and downloads the full archive. It skips the patch for
+// that version from then on. A refusal the full archive would meet too is not retried: an
+// application its package manager updates, or one that cannot be replaced.
+//
+// The rebuilt copy is used once. It is deleted when the installer has copied it, when an
+// install with it fails, when a check finds another version, and when the window closes; a
+// deletion that fails is logged (update.delta.cleanup_failed).
 //
 // The checks are Motty's. With the automatic check on, the first runs updateFirstCheck after
 // launch and each next one updateCheckInterval after the one before. A check that comes due
@@ -41,18 +58,49 @@ const (
 	updateCheckTimeout = time.Minute
 )
 
-// updateSource reads the feed and downloads a release: *appupdate.Client, or a test's.
+// The events a delta update logs, which Core's catalog declares (rust/logging/events/update.json).
+const (
+	deltaFallbackEvent      = "update.delta.fallback_selected"
+	deltaCleanupFailedEvent = "update.delta.cleanup_failed"
+)
+
+// The step of a delta update that failed, as update.delta.fallback_selected names it.
+const (
+	deltaStageDownload = "download"
+	deltaStageApply    = "apply"
+	deltaStageInstall  = "install"
+)
+
+// updateSource reads the feed and downloads a release or a patch to it: *appupdate.Client,
+// or a test's.
 type updateSource interface {
 	Check(ctx context.Context) (*appupdate.Feed, error)
 	Download(ctx context.Context, asset appupdate.Asset, dir string, progress func(done, total int64)) (string, error)
+	DownloadPatch(ctx context.Context, asset appupdate.Asset, patch appupdate.Patch, dir string, progress func(done, total int64)) (string, error)
 }
 
-// installUpdateArchive replaces the application with a verified download and restarts it;
-// a test replaces it.
+// installUpdateArchive replaces the application with a verified download or a rebuilt copy
+// and restarts it; a test replaces it.
 var installUpdateArchive = appupdate.Install
+
+// applyUpdatePatch rebuilds the new application from the installed one and a verified patch
+// in a temporary directory, returning that directory; a test replaces it.
+var applyUpdatePatch = appupdate.ApplyPatch
+
+// updateQuit is what an install calls to end the running application once the new one is in
+// place: the application's Quit, or nil in a window without one. A test replaces it.
+var updateQuit = func(a *App) func() {
+	if a.application == nil {
+		return nil
+	}
+	return a.application.Quit
+}
 
 // updateCacheDir is the user's cache directory, which downloads go under; a test replaces it.
 var updateCacheDir = os.UserCacheDir
+
+// removeUpdateDir deletes the application a patch rebuilt; a test makes it fail.
+var removeUpdateDir = os.RemoveAll
 
 // updater is the update state of the window, which every project tab of it shares: the
 // window has one application to update and one setting for checking. The settings windows
@@ -65,7 +113,12 @@ type updater struct {
 	feed     *appupdate.Feed
 	asset    appupdate.Asset
 	artifact string
-	cancel   context.CancelFunc
+	// payload is the application a patch rebuilt in the temporary directory, waiting to be
+	// installed; at most one of it and artifact is set.
+	payload string
+	// noDelta is the version whose patch failed, which Update downloads in full from then on.
+	noDelta string
+	cancel  context.CancelFunc
 
 	// auto says Lithe checks on its own, and checkedAt is when a check last read the feed;
 	// both are saved with the settings.
@@ -251,7 +304,8 @@ func (a *App) resumeUpdateCheck() {
 	a.updateCheckDue()
 }
 
-// stopUpdates is the window closing: no check is armed again, and a download stops.
+// stopUpdates is the window closing: no check is armed again, a download stops, and an
+// application a patch rebuilt is deleted, since nothing will install it.
 func (a *App) stopUpdates() {
 	u := a.updates
 	if u == nil {
@@ -260,11 +314,13 @@ func (a *App) stopUpdates() {
 	u.stopped = true
 	a.stopUpdateCheck()
 	u.mu.Lock()
-	cancel := u.cancel
+	cancel, payload := u.cancel, u.payload
+	u.payload = ""
 	u.mu.Unlock()
 	if cancel != nil {
 		cancel()
 	}
+	a.removeUpdatePayload(payload)
 }
 
 // checkForUpdates reads the feed, unless a step is under way. asked says the user started
@@ -301,7 +357,8 @@ func (a *App) checkForUpdates(asked bool) {
 }
 
 // updateChecked takes in what a check found: nothing newer, or a version to update to.
-// A download of another version is forgotten, since Update would install the wrong one.
+// A download of another version is forgotten, since Update would install the wrong one, and
+// an application a patch rebuilt for it is deleted.
 func (a *App) updateChecked(asked bool, feed *appupdate.Feed, asset appupdate.Asset, err error) {
 	u := a.updates
 	if err != nil {
@@ -320,18 +377,26 @@ func (a *App) updateChecked(asked bool, feed *appupdate.Feed, asset appupdate.As
 	}
 	now := time.Now()
 	u.checkedAt = now
+	var stale string
 	a.changeUpdate(func(s *settingswindow.UpdateStatus) {
 		// changeUpdate holds u.mu, which guards what the check found too.
 		if u.feed == nil || feed == nil || u.feed.Latest.Version != version {
 			u.artifact = ""
+			stale, u.payload = u.payload, ""
 		}
 		u.feed, u.asset = feed, asset
 		s.Checking, s.Failure, s.LastChecked = false, "", now
-		s.Available, s.NotesURL, s.UpToDate, s.Ready = version, "", feed == nil, u.artifact != ""
+		s.Available, s.NotesURL, s.UpToDate = version, "", feed == nil
+		s.Ready = u.artifact != "" || u.payload != ""
+		s.Delta, s.DeltaSize, s.FullSize = false, 0, 0
 		if feed != nil {
-			s.NotesURL = feed.Latest.NotesURL
+			s.NotesURL, s.FullSize = feed.Latest.NotesURL, asset.Size
+			if patch, ok := a.updatePatch(asset, version); ok {
+				s.Delta, s.DeltaSize = true, patch.Size
+			}
 		}
 	})
+	a.removeUpdatePayload(stale)
 	a.saveSettings()
 	if version == "" || version == u.announced {
 		return
@@ -343,13 +408,13 @@ func (a *App) updateChecked(asked bool, feed *appupdate.Feed, asset appupdate.As
 	}
 }
 
-// updateNow is Update: it installs the verified download, or downloads the available
-// version first and installs it once verified.
+// updateNow is Update: it installs the verified download or the rebuilt application, or
+// downloads the available version first and installs it once verified.
 func (a *App) updateNow() {
 	u := a.updates
 	u.mu.Lock()
 	busy := u.status.Checking || u.status.Downloading || u.status.Installing
-	ready, available := u.artifact != "", u.feed != nil
+	ready, available := u.artifact != "" || u.payload != "", u.feed != nil
 	u.mu.Unlock()
 	if busy || !available {
 		return
@@ -362,24 +427,64 @@ func (a *App) updateNow() {
 	a.downloadUpdate()
 }
 
-// cancelUpdate stops the download under way.
+// cancelUpdate stops the download under way. Applying a patch cannot be interrupted, so
+// the page offers no Cancel while it runs.
 func (a *App) cancelUpdate() {
 	u := a.updates
 	u.mu.Lock()
-	cancel := u.cancel
+	cancel, applying := u.cancel, u.status.Applying
 	u.mu.Unlock()
-	if cancel != nil {
+	if cancel != nil && !applying {
 		cancel()
 		a.performed("updates.cancel", surfaceButton)
 	}
 }
 
-// downloadUpdate fetches and verifies the archive of the available version into the
-// user's cache directory, then installs it.
+// updatePatch is the patch the feed lists from the running version to version, unless a
+// patch to that version already failed. The caller holds u.mu.
+func (a *App) updatePatch(asset appupdate.Asset, version string) (appupdate.Patch, bool) {
+	if a.version == "" || a.updates.noDelta == version {
+		return appupdate.Patch{}, false
+	}
+	return asset.PatchFrom(a.version)
+}
+
+// removeUpdatePayload deletes an application a patch rebuilt in the temporary directory. A
+// deletion that fails leaves a copy the system cleans up later, so it is logged and nothing
+// else.
+func (a *App) removeUpdatePayload(payload string) {
+	if payload == "" {
+		return
+	}
+	if err := removeUpdateDir(payload); err != nil {
+		a.emit(core.LevelWarn, deltaCleanupFailedEvent, logwindow.ErrorFields(err))
+	}
+}
+
+// deltaFellBack logs the step of a delta update that failed and skips the patch to version
+// from then on, so the next download is the full archive. It runs on any goroutine.
+func (a *App) deltaFellBack(stage, version string, err error) {
+	fields := logwindow.ErrorFields(err)
+	fields["stage"] = stage
+	a.emit(core.LevelWarn, deltaFallbackEvent, fields)
+	a.updates.mu.Lock()
+	a.updates.noDelta = version
+	a.updates.mu.Unlock()
+}
+
+// downloadUpdate fetches the available version into the user's cache directory and installs
+// it once verified: the patch from the running version when the feed lists one, else the
+// full archive.
 func (a *App) downloadUpdate() {
 	u := a.updates
 	u.mu.Lock()
 	source, feed, asset := u.source, u.feed, u.asset
+	var patch appupdate.Patch
+	delta, fellBack := false, false
+	if feed != nil {
+		patch, delta = a.updatePatch(asset, feed.Latest.Version)
+		fellBack = u.noDelta == feed.Latest.Version
+	}
 	u.mu.Unlock()
 	if source == nil || feed == nil {
 		return
@@ -394,75 +499,167 @@ func (a *App) downloadUpdate() {
 	u.mu.Lock()
 	u.cancel = cancel
 	u.mu.Unlock()
-	a.changeUpdate(func(s *settingswindow.UpdateStatus) { s.Downloading, s.Progress, s.Failure = true, 0, "" })
+	a.changeUpdate(func(s *settingswindow.UpdateStatus) {
+		s.Downloading, s.Applying, s.Progress, s.Failure = true, false, 0, ""
+		s.Delta, s.FellBack = delta, fellBack
+	})
 	go func() {
 		defer cancel()
-		var artifact string
+		var artifact, payload string
 		err := os.MkdirAll(dir, 0o700)
-		if err == nil {
-			// Progress arrives on the download goroutine: it repaints the settings window
-			// through post, once per whole percent.
-			shown := -1
-			artifact, err = source.Download(ctx, asset, dir, func(done, total int64) {
-				if total <= 0 || int(done*100/total) == shown {
-					return
-				}
-				shown = int(done * 100 / total)
-				progress := float32(done) / float32(total)
-				a.post(func(a *App) { a.changeUpdate(func(s *settingswindow.UpdateStatus) { s.Progress = progress }) })
-			})
+		if err == nil && delta {
+			payload, err = a.fetchDelta(ctx, source, feed.Latest.Version, asset, patch, dir)
+			if err != nil && ctx.Err() == nil {
+				// A patch that cannot be used is replaced by the full archive, which the
+				// page says it is downloading now.
+				a.post(func(a *App) {
+					a.changeUpdate(func(s *settingswindow.UpdateStatus) {
+						s.Delta, s.Applying, s.FellBack, s.Progress = false, false, true, 0
+					})
+				})
+				err = nil
+			}
 		}
-		a.post(func(a *App) { a.updateDownloaded(feed, artifact, err) })
+		if err == nil && payload == "" {
+			artifact, err = source.Download(ctx, asset, dir, a.updateProgress())
+		}
+		a.post(func(a *App) { a.updateDownloaded(feed, artifact, payload, err) })
 	}()
 }
 
+// fetchDelta downloads the patch to version and rebuilds the new application from the
+// installed one with it, returning the rebuilt copy. It runs on the download goroutine. A
+// step that fails is logged, with what made it fail, before the caller falls back to the full
+// archive; a cancel is not a failure.
+func (a *App) fetchDelta(ctx context.Context, source updateSource, version string, asset appupdate.Asset, patch appupdate.Patch, dir string) (string, error) {
+	path, err := source.DownloadPatch(ctx, asset, patch, dir, a.updateProgress())
+	if ctxErr := ctx.Err(); ctxErr != nil {
+		return "", ctxErr
+	}
+	if err != nil {
+		a.deltaFellBack(deltaStageDownload, version, err)
+		return "", err
+	}
+	// Applying reads every file of the installed application and cannot be interrupted, so
+	// the page shows it without a progress bar or Cancel.
+	a.post(func(a *App) {
+		a.changeUpdate(func(s *settingswindow.UpdateStatus) { s.Applying, s.Progress = true, 1 })
+	})
+	payload, err := applyUpdatePatch(path, buildinfo.UpdateApp, a.version, version)
+	if ctxErr := ctx.Err(); ctxErr != nil {
+		// The window closed or the download was cancelled while the patch applied: nothing
+		// will install the copy.
+		a.removeUpdatePayload(payload)
+		return "", ctxErr
+	}
+	if err != nil {
+		a.deltaFellBack(deltaStageApply, version, err)
+		return "", err
+	}
+	return payload, nil
+}
+
+// updateProgress is the progress callback of one download. Progress arrives on the download
+// goroutine: it repaints the settings window through post, once per whole percent.
+func (a *App) updateProgress() func(done, total int64) {
+	shown := -1
+	return func(done, total int64) {
+		if total <= 0 || int(done*100/total) == shown {
+			return
+		}
+		shown = int(done * 100 / total)
+		progress := float32(done) / float32(total)
+		a.post(func(a *App) { a.changeUpdate(func(s *settingswindow.UpdateStatus) { s.Progress = progress }) })
+	}
+}
+
 // updateDownloaded takes in the end of a download: a cancel puts the row back as it was, a
-// verified archive is installed at once.
-func (a *App) updateDownloaded(feed *appupdate.Feed, artifact string, err error) {
+// verified archive or a rebuilt application is installed at once. A rebuilt copy nothing will
+// install, because the window closed or a check found another version, is deleted.
+func (a *App) updateDownloaded(feed *appupdate.Feed, artifact, payload string, err error) {
 	u := a.updates
 	u.mu.Lock()
 	u.cancel = nil
-	current := u.feed == feed
+	current := u.feed == feed && !u.stopped
+	stale := payload
 	if err == nil && current {
-		u.artifact = artifact
+		u.artifact, u.payload, stale = artifact, payload, ""
 	}
 	u.mu.Unlock()
+	a.removeUpdatePayload(stale)
 	switch {
 	case errors.Is(err, context.Canceled):
 		// log-exempt: 用户取消下载或窗口关闭，不是失败。
-		a.changeUpdate(func(s *settingswindow.UpdateStatus) { s.Downloading, s.Progress = false, 0 })
+		a.changeUpdate(func(s *settingswindow.UpdateStatus) {
+			s.Downloading, s.Applying, s.FellBack, s.Progress = false, false, false, 0
+		})
 	case err != nil:
 		a.updateFailed(err)
 	case !current:
 		// A check replaced the version while it downloaded: Update starts again from it.
-		a.changeUpdate(func(s *settingswindow.UpdateStatus) { s.Downloading, s.Progress = false, 0 })
+		a.changeUpdate(func(s *settingswindow.UpdateStatus) {
+			s.Downloading, s.Applying, s.FellBack, s.Progress = false, false, false, 0
+		})
 	default:
-		a.changeUpdate(func(s *settingswindow.UpdateStatus) { s.Downloading, s.Ready, s.Progress = false, true, 1 })
+		a.changeUpdate(func(s *settingswindow.UpdateStatus) {
+			s.Downloading, s.Applying, s.FellBack, s.Ready, s.Progress = false, false, false, true, 1
+		})
 		a.installUpdate()
 	}
 }
 
 // installUpdate closes every project tab the way quitting does, saving or asking about
-// unsaved files, then hands the verified archive to the installer, which restarts into the
-// new version. If a tab is not let go, nothing happens and Update installs on the next try;
-// if the installer refuses, nothing was changed and the window stays.
+// unsaved files, then hands the verified archive or the rebuilt application to the installer,
+// which restarts into the new version. If a tab is not let go, nothing happens and Update
+// installs on the next try; if the installer refuses, nothing was changed and the window
+// stays.
+//
+// A rebuilt application is installed once. The installer copies it before it quits the
+// window, and it is deleted then; one the installer refuses is deleted too, and Update
+// downloads the full archive instead, unless the refusal would meet the archive as well.
 func (a *App) installUpdate() {
 	u := a.updates
 	u.mu.Lock()
-	artifact, asset, feed := u.artifact, u.asset, u.feed
+	ready := (u.artifact != "" || u.payload != "") && u.feed != nil
 	u.mu.Unlock()
-	if artifact == "" || feed == nil || a.application == nil {
+	if !ready || updateQuit(a) == nil {
 		return
 	}
 	install := func() {
+		// What to install is read again: a check may have replaced it while the tabs closed.
+		u.mu.Lock()
+		artifact, payload, asset, feed := u.artifact, u.payload, u.asset, u.feed
+		u.payload = ""
+		u.mu.Unlock()
+		if artifact == "" && payload == "" || feed == nil {
+			return
+		}
 		a.changeUpdate(func(s *settingswindow.UpdateStatus) { s.Installing, s.Failure = true, "" })
-		options := appupdate.InstallOptions{Artifact: artifact, Asset: asset, Version: feed.Latest.Version, App: buildinfo.UpdateApp}
+		options := appupdate.InstallOptions{Artifact: artifact, Payload: payload, Asset: asset, Version: feed.Latest.Version, App: buildinfo.UpdateApp}
 		if runtime.GOOS != "darwin" {
 			options.App = ""
 		}
-		if err := installUpdateArchive(options, a.application.Quit); err != nil {
-			a.updateFailed(err)
+		quit := updateQuit(a)
+		err := installUpdateArchive(options, func() {
+			// The installer has copied the rebuilt application into its own staging
+			// directory by now, and the window ends once quit returns.
+			a.removeUpdatePayload(payload)
+			quit()
+		})
+		if err == nil {
+			return
 		}
+		a.removeUpdatePayload(payload)
+		if payload == "" || errors.Is(err, appupdate.ErrManagedExternally) || errors.Is(err, appupdate.ErrNotWritable) {
+			a.updateFailed(err)
+			if payload != "" {
+				a.changeUpdate(func(s *settingswindow.UpdateStatus) { s.Ready = false })
+			}
+			return
+		}
+		a.deltaFellBack(deltaStageInstall, feed.Latest.Version, err)
+		a.changeUpdate(func(s *settingswindow.UpdateStatus) { s.Installing, s.Ready = false, false })
+		a.downloadUpdate()
 	}
 	if a.sessions == nil {
 		a.requestCloseProject(install)
@@ -474,7 +671,7 @@ func (a *App) installUpdate() {
 // updateFailed shows why a step the user started failed and logs it.
 func (a *App) updateFailed(err error) {
 	a.changeUpdate(func(s *settingswindow.UpdateStatus) {
-		s.Downloading, s.Installing, s.Checking, s.Progress = false, false, false, 0
+		s.Downloading, s.Applying, s.FellBack, s.Installing, s.Checking, s.Progress = false, false, false, false, false, 0
 		s.Failure = err.Error()
 	})
 	a.emit(operationFailedLevel, operationFailedEvent, operationFailedFields("update", err))
