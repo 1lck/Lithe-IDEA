@@ -55,15 +55,17 @@ If you cannot scan the WeChat QR code, [click here to join through Feishu](https
 
 ## Why Lithe
 
-Codex, Claude Code, and other AI coding tools can now handle much of the implementation work. Developers still need an IDE to understand the generated code, follow symbols, run and debug the project, and review every diff. Keeping a heavyweight development environment open for those tasks can mean several gigabytes of resident memory.
+AI coding tools can change many files at once. Reviewing that work still means reading the project, following symbols, running and debugging code, and checking each diff. Lithe brings those workflows into a workbench that can be extended with the tools a project needs.
 
 ## Meet Lithe
 
-Lithe is a lightweight, low-memory IntelliJ IDEA alternative. It keeps the core workflows for browsing, editing, navigation, search, Maven, run and debug, Git diff review, local history, and databases.
+Lithe is a general-purpose IDE designed to keep resource use low and add capabilities through plugins. Its workbench brings together project browsing, editing, search, Git review, and terminals. Installed plugins connect language intelligence, build tools, run targets, and debuggers.
 
-The Lithe application typically uses about **300–400 MB of baseline memory** after opening a regular project. Language servers, terminals, build tools, and debuggers start on demand. Actual usage varies with the project and active services.
+The current `preview` branch is developing a unified desktop client built with **Viva (Go) and Rust Core**. macOS, Windows, and Linux share the workbench code, with adapters for system integration. Feature migration and platform validation are still in progress; check the [feature matrix and decision board](https://1lck.github.io/Lithe-IDEA/) for status. The old client's feature list is not a promise of complete support in the new client.
 
-> **AI writes the code. Lithe helps you understand it, run it, and review it.**
+Language servers, plugin backends, build tools, and debuggers start when needed. Memory use depends on the project, open content, and enabled plugins; measurements from the old client do not describe the current preview.
+
+> **AI writes the code. Lithe helps you understand the project, run it, and review the changes.**
 
 ## If macOS says it cannot open `Lithe.app`
 
@@ -85,33 +87,20 @@ Only use these steps for an app whose source you trust. Homebrew installations u
 
 ## Core features
 
-<details>
-<summary>Expand core features</summary>
+| Workflow | Responsibility and entry point |
+| --- | --- |
+| Projects and editing | Project trees, file tabs, a native editor, and search for files, symbols, and actions. |
+| Git review | Changes, diffs, commits, branches, history, and worktree management. |
+| Language intelligence | Plugins connect language servers for completion, diagnostics, navigation, and other language features. |
+| Build, run, and debug | Plugins declare project models, tasks, and debug providers; the workbench supplies shared controls, output, and debug views. |
+| Plugin management | Install from the marketplace or disk, review permissions and program declarations, and enable, disable, or manage plugins. |
+| AI and resources | Use agent chat and context tools in the workbench, and inspect resource use by the app and related processes. |
 
-1. Built for Spring Boot projects and Java development.
-2. Maven management, breakpoint debugging, and custom run configurations.
-3. Git management and side-by-side diff review.
-4. Double-Shift search and `Command + Shift + F` project-wide search.
-5. Process-free lightweight completion and current-file navigation, with on-demand language servers for richer completion, hover, and semantic navigation.
-6. Local snapshot history.
-7. Multiple projects open within the app.
-8. Multiple files open independently in the same window.
-9. AI-generated commit messages with customizable formats.
-10. Rich Markdown rendering consistent with Yuque syntax.
-11. Local application memory usage monitoring.
-12. One-command installation and updates through Homebrew.
-13. One-click in-app updates and installation.
-14. Automatic project entry-point detection with one-click run support for Spring Boot, Java, Maven, Gradle, npm, Cargo, Go, Python, Make, Docker Compose, Procfile, and shell projects.
-15. Per-language service switches so language servers can be enabled or disabled independently to match the machine's resources.
-16. Multi-line editor tabs for keeping more files visible in the same workspace.
-17. Database connections as a community plugin (currently macOS only), installed from Lithe Store in the Plugin Marketplace: multiple database types, connection management, SQL history, table browsing, and database operations.
-18. Ongoing bug fixes and user experience improvements.
-
-</details>
+These describe the workbench's responsibilities. Availability depends on the platform, build, and installed plugins. Each plugin's repository and marketplace listing describe its tool requirements and supported features.
 
 ## Product tour
 
-Screenshots show the macOS app with Chinese annotations. Click an image to view it at full resolution.
+The screenshots below and the demo above show the previous macOS client. They remain as references for earlier workflows and interactions, not as screenshots or validation of the current Viva preview. Click an image to view it at full resolution.
 
 ### Git, diffs, and worktrees
 
@@ -174,7 +163,11 @@ Manage agent instructions, skills, hooks, and MCP configuration, and inspect run
 
 </details>
 
+---
+
 ## Download and install
+
+The Viva client on this branch is still being migrated. Published stable and AutoBuild releases may use the earlier client. Read the [release notes](https://github.com/1lck/Lithe-IDEA/releases) for the client architecture, platforms, and plugin compatibility. Homebrew follows published versions, not the current `preview` source; use the development instructions below to run this branch.
 
 - **macOS 13+:** Download the `arm64` DMG for Apple silicon or the `x86_64` DMG for Intel Macs from [GitHub Releases](https://github.com/1lck/Lithe-IDEA/releases/latest).
 - **Windows x64:** Download the Windows `.exe` installer from [GitHub Releases](https://github.com/1lck/Lithe-IDEA/releases/latest).
@@ -189,79 +182,71 @@ brew upgrade --cask lithe
 
 ## Architecture Overview
 
-macOS is the current reference product. Windows is an independent React/Tauri implementation. Both products share deterministic commands and contracts through Rust Core while keeping native UI and platform integrations separate.
+The current source uses one Viva desktop workbench and native editor, with a typed Go bridge to Rust Core in its own repository. Platform adapters handle windows, files, processes, terminals, and other system I/O. Core owns shared rules and contracts; the feature matrix tracks migration status. SwiftUI, React/Tauri, and Monaco are no longer this branch's client architecture.
 
 ```mermaid
-flowchart LR
-    subgraph macOS["macOS"]
-        MacViews["SwiftUI / AppKit Views"] --> MacModel["AppModel and UI models"]
-        MacModel --> MacFeatures["Application feature models"]
-        MacFeatures --> MacServices["AppServices and Swift services"]
-        MacServices --> MacRust["Typed Rust operations"]
-        MacServices --> MacPorts["Platform ports"]
-        MacPorts --> MacAdapters["macOS adapters"]
+flowchart TB
+    accTitle: Lithe desktop architecture and plugin boundaries
+    accDescr: The Viva client calls Rust Core through a Go bridge and uses native adapters to connect independently distributed plugins and upstream tools.
+
+    subgraph desktop_client["Lithe desktop client · desktop/"]
+        workbench["Viva workbench and native editor"]
+        core_bridge["Typed Go bridge"]
+        native_adapters["Platform and plugin I/O adapters<br/>macOS · Windows · Linux"]
+        workbench --> core_bridge
+        workbench --> native_adapters
+        native_adapters --> core_bridge
     end
 
-    subgraph Shared["Shared behavior"]
-        Editor["Shared Monaco editor"]
-        Contracts["JSON contracts and fixtures"] --> Core["Rust lithe-core"]
-    end
+    rust_core["Rust Core · separate repository<br/>Shared rules, models, and contracts"]
+    marketplace["Lithe Store<br/>Marketplace index"]
+    plugin_packages["Plugin packages · separate repositories<br/>Declarations, resources, optional backends"]
+    upstream_tools["Upstream tools<br/>Language servers, build tools, debuggers"]
 
-    subgraph Windows["Windows"]
-        WinUI["React workbench and feature state"] --> WinBoundary["src/platform/tauri-core.ts"]
-        WinBoundary --> Tauri["Tauri composition root and Windows adapters"]
-    end
-
-    Editor -.-> MacViews
-    Editor -.-> WinUI
-    MacRust -->|"JSON C ABI"| Core
-    Tauri -->|"Rust crate"| Core
+    core_bridge -->|JSON C ABI| rust_core
+    marketplace -->|Packages| plugin_packages
+    native_adapters -->|Declarations and protocols| plugin_packages
+    plugin_packages -->|Connect or launch| upstream_tools
 ```
+
+Plugin repositories own their source, translations, resources, and tests. The Rust Core repository owns the [plugin contracts, guides, and SDKs](https://github.com/Lithe-IDEA/Lithe-core-rust/tree/main/shared/plugins). Installed app and plugin packages stay read-only; caches, logs, and working state use platform-writable directories. See [repository ownership and sharing boundaries](./.agents/notes/implemented/architecture/2026-11-08-viva-repository-ownership-and-sharing-boundaries.md) for responsibilities.
+
+<a id="develop-lithe"></a>
 
 <details>
 <summary><strong>Develop Lithe</strong></summary>
 
-Development and CI use Swift 6.3.3, pinned in `.swift-version`, with Xcode 26.6. Running the complete test suite requires Xcode; basic SwiftPM builds only need matching Command Line Tools. Developers using Xcode 27 may also build locally; the macOS 27 SDK compatibility path is detected by the build scripts. `Package.swift` keeps its Swift 6.2 manifest API minimum; this does not select the compiler version.
+Use the Go toolchain pinned in `desktop/go.mod`, Rust/Cargo, and the native build dependencies for your platform. macOS needs Xcode Command Line Tools; see [Desktop CI](./.github/workflows/desktop-ci.yml) for Windows and Linux setup. The `replace` in `desktop/go.mod` pins the Viva fork and version.
 
-Run the development build from the repository root:
-
-```bash
-./scripts/macos/build/preview.sh
-```
-
-The script builds and links Rust Core before launching the macOS app. To validate only the Swift source, run:
+Start a development build from the repository root:
 
 ```bash
-swift run --disable-sandbox Lithe
+./scripts/desktop/desktop-go.sh run ./cmd/lithe
 ```
 
-Build an app bundle:
+This entry point prepares and links the Rust Core revision pinned by the build script. Package the client for the host platform:
 
 ```bash
-./scripts/macos/package/package-app.sh
-open dist/Lithe.app
+./scripts/desktop/package-desktop.sh
 ```
 
-Before submitting a change, run:
+Output defaults to `dist/desktop/<os>-<arch>/`. See the [packaging script](./scripts/desktop/package-desktop.sh) for platform formats and options.
+
+Validate the desktop client:
 
 ```bash
-./scripts/macos/test/test-macos.sh
-./scripts/macos/perf/test-git-performance-baseline.sh
-./scripts/architecture/verify-core.sh
-./scripts/git-graph/verify-git-graph.sh
-./scripts/architecture/verify-service-boundaries.sh
-./scripts/windows/verify/verify-windows-boundaries.sh
-./scripts/rust-core/verify-rust-core.sh
+./scripts/desktop/check.sh
+./scripts/desktop/verify/verify-runtime-bundle-immutability.sh
+node scripts/i18n/verify-app-language-localization.mjs
+node scripts/i18n/generate-i18n.mjs --check
+./scripts/platform-feature-matrix/verify-platform-feature-matrix.sh
 ```
 
-The plugin contract, guides, and official SDKs live in the Rust Core repository under [`shared/plugins/`](https://github.com/Lithe-IDEA/Lithe-core-rust/tree/main/shared/plugins). For changes there, run `node shared/plugins/scripts/verify-docs.mjs` (and `node shared/plugins/scripts/sdk-e2e.mjs` for backend protocol changes) from the root of that repository.
-
-`scripts/macos/perf/test-git-performance-baseline.sh` runs deterministic Git graph work gates and
-records an optimized multi-sample timing baseline under `.artifacts/`.
-
-See [Repository ownership and sharing boundaries](./.agents/notes/implemented/architecture/2026-11-08-viva-repository-ownership-and-sharing-boundaries.md) for directory ownership, cross-platform boundaries, sharing rules, and the required Rust Core comment standard. Include your verification steps and known limitations when submitting a change.
+Validate plugin contract and SDK changes in the Rust Core repository, and plugin tests in their own repositories. Read [AGENTS.md](./AGENTS.md) and its development rules before contributing. Include your verification scope and unverified platforms with the change.
 
 </details>
+
+---
 
 ## Project support
 
@@ -304,16 +289,6 @@ See [Repository ownership and sharing boundaries](./.agents/notes/implemented/ar
 <table>
   <tr>
     <td width="112" align="center">
-      <a href="https://www.packyapi.ai/register?aff=dWNN">
-        <img src="./docs/assets/sponsors/packycode.png" width="112" alt="PackyCode">
-      </a>
-    </td>
-    <td>
-      <a href="https://www.packyapi.ai/register?aff=dWNN"><strong>PackyCode</strong></a> provides API relay access to leading models through one key, with intelligent failover and dedicated Codex and Claude Code channels. Top up in RMB at a 1:1 rate with no transaction fees. New users receive a first-top-up discount and $1 in trial credit.
-    </td>
-  </tr>
-  <tr>
-    <td width="112" align="center">
       <a href="https://timicc.com">
         <img src="./docs/assets/sponsors/timicc.png" width="64" alt="TIMI CC">
       </a>
@@ -330,16 +305,6 @@ See [Repository ownership and sharing boundaries](./.agents/notes/implemented/ar
     </td>
     <td>
       <a href="https://torchai.ai/sign-up?aff=FdkE"><strong>TorchAI</strong></a> provides convenient large language model relay access for coding, content, and automation. Thank you to TorchAI for supporting Lithe!
-    </td>
-  </tr>
-  <tr>
-    <td width="112" align="center">
-      <a href="https://www.ccsub.net/register?ref=FKVAWH6E">
-        <img src="./docs/assets/sponsors/ccsub.svg" width="112" alt="CCSub">
-      </a>
-    </td>
-    <td>
-      <a href="https://www.ccsub.net/register?ref=FKVAWH6E"><strong>CCSub</strong></a> provides Claude, GPT, Gemini, and DeepSeek access through one API key, with support for major AI coding tools. New users receive $5 in trial credit.
     </td>
   </tr>
   <tr>
@@ -392,36 +357,7 @@ See [Repository ownership and sharing boundaries](./.agents/notes/implemented/ar
       <a href="https://codezsy.com/register?aff=fDyA"><strong>CodeZ</strong></a> provides stable relay access to GPT-family models for integrating model APIs into tools and projects. Thank you to CodeZ for supporting Lithe!
     </td>
   </tr>
-  <tr>
-    <td width="112" align="center">
-      <a href="https://app.rainyun.com/apps/rcs/392785/detail?view=info">
-        <img src="./docs/assets/sponsors/rainyun.png" width="112" alt="RainYun">
-      </a>
-    </td>
-    <td>
-      <a href="https://app.rainyun.com/apps/rcs/392785/detail?view=info"><strong>RainYun</strong></a> offers cloud servers for application deployment, website hosting, and development environments. Thank you to RainYun for supporting Lithe!
-    </td>
-  </tr>
 </table>
-
-### ☕ Support Lithe
-
-If Lithe is useful to you, you are welcome to buy the project a cup of coffee. Every contribution will be put back into Lithe's continued development and maintenance.
-
-<div align="center">
-<table>
-  <tr>
-    <td align="center">
-      <img src="./docs/assets/donation/wechat.png" width="280" alt="WeChat donation QR code"><br>
-      <strong>WeChat</strong>
-    </td>
-    <td align="center">
-      <img src="./docs/assets/donation/alipay.png" width="280" alt="Alipay donation QR code"><br>
-      <strong>Alipay</strong>
-    </td>
-  </tr>
-</table>
-</div>
 
 ### ⭐ Special thanks
 
