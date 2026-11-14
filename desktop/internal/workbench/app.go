@@ -474,6 +474,9 @@ type App struct {
 	// is whether this workbench's stripe shows its popover (workbench_background.go).
 	backdrop     *workbenchBackground
 	backdropOpen bool
+	// hiddenListOpen is whether the "…" button under the left stripe's top group shows the
+	// list of the hidden stripe buttons (chrome_view.go hiddenToolWindows).
+	hiddenListOpen bool
 	// shownTitle is the system title last given to the window (window_title.go).
 	shownTitle string
 	// updates is the update check, download and install, which every tab of the window
@@ -963,6 +966,36 @@ func (a *App) saveSettings() {
 
 // resetLayout puts every rearrangeable button back where the catalog puts it.
 func (a *App) resetLayout() { a.reduceChrome(core.ResetChrome()) }
+
+// hideEntry takes the stripe button of catalog item index off its stripe. The kernel keeps its
+// zone and position and closes its tool window; the background button's popover closes with
+// it, because it hangs off the button.
+func (a *App) hideEntry(index int) {
+	id := a.chrome.catalog[index].id
+	if id == itemBackground {
+		a.backdropOpen = false
+	}
+	a.reduceChrome(core.SetChromeHidden(id, true))
+}
+
+// showEntry puts the hidden stripe button of catalog item index back where it was and, when
+// open is set, opens what the button opens, as a click on it does: its tool window, or the
+// background button's popover. A tool window that is already open, from a shortcut, stays
+// open.
+func (a *App) showEntry(index int, open bool) {
+	it := a.chrome.catalog[index]
+	a.reduceChrome(core.SetChromeHidden(it.id, false))
+	if !open || a.chrome.isHidden(index) {
+		// The kernel refused, which reduceChrome reported.
+		return
+	}
+	switch {
+	case it.id == itemBackground:
+		a.backdropOpen = true
+	case it.panel && !a.chrome.isOpen(index):
+		a.activate(index)
+	}
+}
 
 // activate is a click on the rearrangeable button of catalog item index: a tool
 // button opens or closes its tool window, the settings button opens or closes its menu

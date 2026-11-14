@@ -28,7 +28,9 @@ native_path() {
 }
 
 PINNED_CORE_REPOSITORY="https://github.com/Lithe-IDEA/Lithe-core-rust.git"
-# Lithe-core-rust #33, squash-merged into main: build.detect and automatic run discovery skip
+# Lithe-core-rust #34, squash-merged into main: workbench.chromeLayout.reduce setHidden hides a
+# stripe entry and the layout keeps it in hidden. It is on top of #33, squash-merged into
+# main: build.detect and automatic run discovery skip
 # directories Git ignores (the .gitignore files inside the workspace and the info/exclude of each
 # repository rooted there, a linked worktree's shared one included), so agent worktrees and local
 # copies are no longer build or run roots; fingerprint scans are unchanged. It is on top of #32
@@ -61,7 +63,7 @@ PINNED_CORE_REPOSITORY="https://github.com/Lithe-IDEA/Lithe-core-rust.git"
 # the contract, plugin guides, reference and SDKs live only in shared/plugins; on top of #16 (reported Git queries folded in the console),
 # #15 (git.write cherryPick, revert and reset fields), #14 (word-level changed ranges of diff
 # rows), #13, #8, #7, #6 and #4.
-PINNED_CORE_REVISION="29b35bfd7fd8efb53efaa86c62a2065f35a86aa3"
+PINNED_CORE_REVISION="1d4556b09d156ad93724368750cddd32a49ca09f"
 PROFILE="debug"
 while [[ $# -gt 0 ]]; do
     case "$1" in

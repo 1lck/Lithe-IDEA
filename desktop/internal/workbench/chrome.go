@@ -11,6 +11,10 @@ import (
 // and their shortcuts.
 const gearMenuWidth = 224
 
+// hiddenListWidth is the width of the list of hidden stripe buttons, which holds a tool
+// window's name and its shortcut.
+const hiddenListWidth = 240
+
 const (
 	// chromeIconButton is the side of a title bar icon button and the height of the
 	// other title bar controls. It is even and fits its bar with a whole pixel above and
