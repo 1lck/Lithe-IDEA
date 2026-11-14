@@ -219,6 +219,9 @@ var typeCases = []typeCase{
 	{name: "longline", kind: editorperf.JSON},
 	{name: "longline-wrap", kind: editorperf.JSON, layout: func(v *View) { v.SetWrap(true) }},
 	{name: "minimap", kind: editorperf.Go, layout: func(v *View) { v.SetMinimap(true) }},
+	// A minified file with the minimap shown and soft wrap on: the minimap lays out the long line
+	// again on every edit unless the view's rows of the line are kept.
+	{name: "longline-wrap-minimap", kind: editorperf.JSON, layout: func(v *View) { v.SetWrap(true); v.SetMinimap(true) }},
 }
 
 // BenchmarkEditorViewType is a keystroke and the frame that shows it: a character typed at the end
