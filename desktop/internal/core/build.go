@@ -269,7 +269,8 @@ type buildOutcome struct {
 	Version     *BuildToolVersion      `json:"version"`
 	// Dependencies is the answer of build.decodeDependencies.
 	Dependencies *BuildDependencyTree `json:"dependencies"`
-	// Storage and Edit answer build.resolveStoredOptions and build.editStoredOption.
+	// Storage and Edit answer build.resolveStoredOptions and build.editStoredOption; build.editIgnoredPaths
+	// decodes its own edit.
 	Storage *BuildStoredOptions `json:"storage"`
 	Edit    *BuildOptionEdit    `json:"edit"`
 	// Discovery answers build.decodeTestDiscovery.
@@ -312,7 +313,8 @@ func (c *Client) DetectBuildSystemsWithOptions(ctx context.Context, workspaceRoo
 		InstanceOptions  map[string]map[string]map[string]json.RawMessage `json:"instanceOptions,omitempty"`
 		InstanceDefaults map[string]map[string]json.RawMessage            `json:"instanceDefaults,omitempty"`
 		EmptySelections  map[string]map[string][]string                   `json:"emptySelections,omitempty"`
-	}{workspaceRoot, plugins, options.Options, options.InstanceOptions, options.InstanceDefaults, options.EmptySelections}, &result); err != nil {
+		IgnoredPaths     []string                                         `json:"ignoredPaths"`
+	}{workspaceRoot, plugins, options.Options, options.InstanceOptions, options.InstanceDefaults, options.EmptySelections, options.IgnoredPaths}, &result); err != nil {
 		return BuildDetection{}, err
 	}
 	if err := result.failure(command); err != nil {

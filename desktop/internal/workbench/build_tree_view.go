@@ -18,9 +18,9 @@ import (
 // console (build_view.go), which an action here brings forward.
 
 // buildToolActions declares the Build window's header buttons: run what is chosen, stop the
-// running build operation, detect the build systems again, open and close every group. The
-// run waits for a task or a runnable target to be chosen; folding waits for the filter to be
-// cleared, because a filter shows every match open.
+// running build operation, detect the build systems again, open and close every group, and open
+// the Build options of the project. The run waits for a task or a runnable target to be chosen;
+// folding waits for the filter to be cleared, because a filter shows every match open.
 func (a *App) buildToolActions(c ui.C, p *project) {
 	b, t, language := &p.build, a.text.Build, a.language()
 	ui.Row(c).Shrink(0).Items(ui.Center).Gap(2).Children(func() {
@@ -58,6 +58,12 @@ func (a *App) buildToolActions(c ui.C, p *project) {
 			c.After(func() {
 				a.performed("build.collapseAll", surfaceButton)
 				p.setAllBuildGroups(false)
+			})
+		}
+		if _, hit := a.toolIconButton(c.Part("options"), i18n.Shared(language, "desktop.build.optionsTitle"), icons.Settings, false, false); hit {
+			c.After(func() {
+				a.performed("build.options.open", surfaceButton)
+				a.openBuildOptions(p, nil)
 			})
 		}
 	})
@@ -272,7 +278,7 @@ func (a *App) buildGroupRow(row ui.ListRow, p *project, instance *buildInstance,
 		if options && a.gitIconButton(c.Part("options"), i18n.Shared(language, "desktop.build.options"), icons.Settings, false, false) {
 			c.After(func() {
 				a.performed("build.options.open", surfaceButton)
-				a.openBuildOptions(p)
+				a.openBuildOptions(p, p.selectedBuildInstance())
 			})
 		}
 	}
@@ -308,7 +314,7 @@ func (a *App) buildGroupRow(row ui.ListRow, p *project, instance *buildInstance,
 			c.After(func() {
 				a.performed("build.options.open", surfaceMenu)
 				a.chooseBuildInstance(p, index)
-				a.openBuildOptions(p)
+				a.openBuildOptions(p, p.selectedBuildInstance())
 			})
 		}
 	})
