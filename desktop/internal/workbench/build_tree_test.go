@@ -158,6 +158,56 @@ func TestBuildTreeFilterKeepsMatchesUnderTheirGroups(t *testing.T) {
 	}
 }
 
+// A target whose name ends with its path, as a Go package's import path ends with its folder,
+// shows the path alone and its full name while the pointer rests on the row; another target
+// shows its name with its path beside it. The filter still finds a target by the part of its
+// name the row leaves out.
+func TestBuildTargetRowShowsThePathAndTheFullNameOnHover(t *testing.T) {
+	instance := runConfigInstance("go")
+	instance.System.DisplayName = "Engine"
+	instance.Model.Targets = []core.BuildTarget{
+		{ID: "api", ProjectID: "server", Name: "example.com/shop/cmd/api", Path: "shop/cmd/api", Tags: []string{"app"}},
+		{ID: "cli", ProjectID: "server", Name: "shop-cli", Path: "cli", Tags: []string{"app"}},
+		{ID: "shop", ProjectID: "server", Name: "shop", Path: "shop/", Tags: []string{"library"}},
+	}
+	h, p := openBuildTree(t, &testKernel{Client: core.NewClient()}, []buildInstance{instance})
+	targets := func() [][3]string {
+		var out [][3]string
+		for _, row := range h.app.buildTreeRows(p) {
+			if row.kind == buildRowTarget {
+				out = append(out, [3]string{row.label, row.detail, row.tooltip})
+			}
+		}
+		return out
+	}
+	want := [][3]string{{"shop/cmd/api", "", "example.com/shop/cmd/api"}, {"shop-cli", "cli", ""}, {"shop", "", ""}}
+	if got := targets(); !slices.Equal(got, want) {
+		t.Fatalf("target rows (label, detail, tooltip) = %q, want %q", got, want)
+	}
+
+	h.app.reduceChrome(core.SetChromeOpen(itemBuild, true))
+	h.settle()
+	h.settle()
+	if h.labelBounds("shop/cmd/api") == (gfx.Rect{}) || h.labelBounds("example.com/shop/cmd/api") != (gfx.Rect{}) {
+		t.Fatal("the row of a target named after its path did not show the path alone")
+	}
+	label, hinted := center(h.labelBounds("shop/cmd/api")), false
+	for _, hit := range h.driver.Snapshot().Hits {
+		b := hit.Bounds
+		if hit.Hint == "example.com/shop/cmd/api" && !hit.ID.IsZero() && label.X >= b.X && label.X < b.Right() && label.Y >= b.Y && label.Y < b.Bottom() {
+			hinted = true
+		}
+	}
+	if !hinted {
+		t.Fatal("the row of a target shown by its path does not give its full name on hover")
+	}
+
+	p.panels.buildFilter = "example.com"
+	if got := targets(); len(got) != 1 || got[0][0] != "shop/cmd/api" {
+		t.Fatalf("filtering by the hidden part of the name kept %q", got)
+	}
+}
+
 // gatedModelKernel holds each model load of an instance whose root starts with "m" until
 // release closes, then refuses it, so a test sees which loads run together.
 type gatedModelKernel struct {
