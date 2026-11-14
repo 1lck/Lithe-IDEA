@@ -1202,6 +1202,7 @@
     "desktop.marketplace.enable": "Enable",
     "desktop.marketplace.install": "Install",
     "desktop.marketplace.installFailed": "The plugin could not be installed.",
+    "desktop.marketplace.languageServerDisplaced": "Turned off {disabled}: {enabled} also provides the {languages} language server, and only one plugin can serve a language.",
     "desktop.marketplace.installedSource": "Installed",
     "desktop.marketplace.officialSource": "Official",
     "desktop.marketplace.queryTooLong": "Search query is too long",

@@ -28,6 +28,13 @@ func (s *Service) Disable(ctx context.Context, id string, server *LanguageSessio
 	return err
 }
 
+// StopDisplaced stops what plugin id runs after enabling another plugin turned it
+// off (pluginmanager.Displaced): its choice is already recorded, so only the
+// programs remain. server is its language server session, or nil.
+func (s *Service) StopDisplaced(ctx context.Context, id string, server *LanguageSession) error {
+	return s.stopPlugin(ctx, id, server)
+}
+
 // stopPlugin stops a plugin's language server session and its backend, and
 // returns once both ended or gave up.
 func (s *Service) stopPlugin(ctx context.Context, id string, server *LanguageSession) error {

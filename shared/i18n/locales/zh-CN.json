@@ -1202,6 +1202,7 @@
     "desktop.marketplace.enable": "启用",
     "desktop.marketplace.install": "安装",
     "desktop.marketplace.installFailed": "插件安装失败。",
+    "desktop.marketplace.languageServerDisplaced": "已停用「{disabled}」：「{enabled}」也提供 {languages} 语言服务器，同一语言只能启用一个插件。",
     "desktop.marketplace.installedSource": "已安装",
     "desktop.marketplace.officialSource": "官方",
     "desktop.marketplace.queryTooLong": "搜索内容过长",

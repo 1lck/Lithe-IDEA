@@ -20,7 +20,7 @@ const (
 // PluginNotInstalled is the rejection of an action on a plugin that has no installed version.
 const PluginNotInstalled = "plugin.lifecycle.notInstalled"
 
-// The kinds of PluginLifecycleStep, all on the action's plugin.
+// The kinds of PluginLifecycleStep, all on the action's plugin but PluginDisplacePlugin.
 const (
 	// PluginRecordChoice records the user's choice, Enabled.
 	PluginRecordChoice = "recordChoice"
@@ -34,12 +34,19 @@ const (
 	PluginRemoveVersion = "removeVersion"
 	// PluginRemoveState removes the state directory the plugin's programs wrote.
 	PluginRemoveState = "removeState"
+	// PluginDisplacePlugin turns off another plugin, PluginID, because the action's plugin now
+	// serves LanguageIDs too and one enabled plugin serves a language: the host records the
+	// choice disabled for PluginID, stops its programs and tells the user.
+	PluginDisplacePlugin = "displacePlugin"
 )
 
-// PluginInstalledVersion is one installed plugin version, by identity only.
+// PluginInstalledVersion is one installed plugin version: its identity and the languageID of
+// every language server its manifest declares, which Core uses to keep one enabled plugin per
+// language.
 type PluginInstalledVersion struct {
-	PluginID string `json:"pluginID"`
-	Version  string `json:"version"`
+	PluginID        string   `json:"pluginID"`
+	Version         string   `json:"version"`
+	LanguageServers []string `json:"languageServers,omitempty"`
 }
 
 // PluginEnablement is one plugin and whether it is enabled: a choice the user made, or a
@@ -59,11 +66,14 @@ type PluginLifecycleRequest struct {
 	PluginID string
 }
 
-// PluginLifecycleStep is one thing the host does on the action's plugin.
+// PluginLifecycleStep is one thing the host does, on the action's plugin unless Kind is
+// PluginDisplacePlugin, which names the plugin it turns off and the languages they share.
 type PluginLifecycleStep struct {
-	Kind    string `json:"kind"`
-	Enabled bool   `json:"enabled,omitempty"`
-	Version string `json:"version,omitempty"`
+	Kind        string   `json:"kind"`
+	Enabled     bool     `json:"enabled,omitempty"`
+	Version     string   `json:"version,omitempty"`
+	PluginID    string   `json:"pluginID,omitempty"`
+	LanguageIDs []string `json:"languageIDs,omitempty"`
 }
 
 // PluginLifecycle is Core's answer: every installed plugin with its enablement once the steps
@@ -109,6 +119,10 @@ func (c *Client) PlanPluginLifecycle(ctx context.Context, request PluginLifecycl
 		case PluginRemoveVersion:
 			if step.Version == "" {
 				return PluginLifecycle{}, newParseError(command, "a removeVersion step has no version", "")
+			}
+		case PluginDisplacePlugin:
+			if step.PluginID == "" || len(step.LanguageIDs) == 0 {
+				return PluginLifecycle{}, newParseError(command, "a displacePlugin step has no plugin or no language", "")
 			}
 		default:
 			return PluginLifecycle{}, newParseError(command, "unknown lifecycle step", step.Kind)

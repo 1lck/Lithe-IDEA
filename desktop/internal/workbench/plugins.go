@@ -185,15 +185,19 @@ func (a *App) confirmPluginInstall() {
 	if a.plugins == nil || plan.Staging == "" {
 		return
 	}
-	a.background(nil, pluginInstallTimeout, func(context.Context) func(*App) {
+	a.background(nil, pluginInstallTimeout, func(ctx context.Context) func(*App) {
 		_, err := a.plugins.Installer.Commit(plan)
 		var approval *plugininstall.ApprovalError
 		var enableErr error
+		var displaced displacement
 		if err == nil || errors.As(err, &approval) {
 			// Confirming the install is the user choosing to use the plugin, so it
 			// works at once; a choice the user already made, such as disabling
-			// the plugin before this update, is kept.
-			_, enableErr = a.plugins.Manager.EnableInstalled(plan.ID)
+			// the plugin before this update, is kept. An enabled plugin turns off
+			// the plugins that served one of its languages.
+			var outcome pluginmanager.Outcome
+			outcome, enableErr = a.plugins.Manager.EnableInstalled(plan.ID)
+			displaced = a.describeDisplacement(ctx, plan.ID, outcome.Displaced)
 		}
 		return func(a *App) {
 			installed := err == nil
@@ -223,6 +227,7 @@ func (a *App) confirmPluginInstall() {
 				delete(a.pluginServerSuppressed, plan.ID)
 				a.pluginServerMu.Unlock()
 			}
+			a.stopDisplaced(displaced)
 			a.refreshPluginState()
 			a.reloadPluginLanguages()
 		}
@@ -258,8 +263,13 @@ func (a *App) setPluginEnabled(id string, enabled bool) {
 	}
 	a.background(nil, pluginStateTimeout+pluginServerStopTimeout, func(ctx context.Context) func(*App) {
 		var err error
+		var displaced displacement
 		if enabled {
-			err = a.plugins.Manager.SetEnabled(id, true)
+			// Enabling a plugin turns off the plugins that served one of its
+			// languages; their programs stop once the window has detached them.
+			var list []pluginmanager.Displaced
+			list, err = a.plugins.Manager.Enable(id)
+			displaced = a.describeDisplacement(ctx, id, list)
 		} else {
 			err = a.plugins.Disable(ctx, id, server)
 		}
@@ -273,6 +283,7 @@ func (a *App) setPluginEnabled(id string, enabled bool) {
 				delete(a.pluginServerSuppressed, id)
 				a.pluginServerMu.Unlock()
 			}
+			a.stopDisplaced(displaced)
 			// Enabling and disabling both change the detected build systems.
 			a.invalidateBuild(a.project)
 			a.refreshPluginState()
