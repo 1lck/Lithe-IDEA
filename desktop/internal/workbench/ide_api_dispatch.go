@@ -69,9 +69,10 @@ type ideAPIOperation struct {
 	ConfigurationID string
 	// failure is why an execution that never launched failed; a start reports it.
 	failure string
-	// startSequence and endSequence bound the execution's lines in the Build output;
-	// endSequence is -1 while it is active.
-	startSequence, endSequence int
+	// output is the console of the execution's Run window session. endSequence is the number
+	// of its lines when the execution ended, -1 while it is active.
+	output      *outputBuffer
+	endSequence int
 	// launched is closed when the execution leaves preparation, however it does.
 	launched chan struct{}
 }
@@ -135,7 +136,6 @@ func (p *project) recordIDEOperation(kind, label, configuration string) *ideAPIO
 		Label:           label,
 		State:           "preparing",
 		ConfigurationID: configuration,
-		startSequence:   p.build.outputSequence,
 		endSequence:     -1,
 		launched:        make(chan struct{}),
 	}
@@ -199,20 +199,18 @@ func (p *project) ideAPIOperationSnapshot(operation *ideAPIOperation, output boo
 	return entry
 }
 
-// ideAPIOperationText joins the execution's lines the bounded output still holds. Lines that
-// were trimmed are missing from the front, so a cursor into them no longer matches and Core
-// reports the discontinuity.
+// ideAPIOperationText joins the execution's finished lines its bounded console still holds,
+// without their escapes. Lines that were trimmed are missing from the front, so a cursor into
+// them no longer matches and Core reports the discontinuity.
 func (p *project) ideAPIOperationText(operation *ideAPIOperation) string {
-	first := p.build.outputStart
-	start := max(operation.startSequence, first)
-	end := p.build.outputSequence
+	if operation.output == nil {
+		return ""
+	}
+	end := operation.output.sequence
 	if operation.endSequence >= 0 {
 		end = min(end, operation.endSequence)
 	}
-	if start >= end {
-		return ""
-	}
-	return strings.Join(p.build.output[start-first:end-first], "")
+	return operation.output.text(0, end)
 }
 
 // ideAPIDispatch runs one admitted tool and returns its result. The result is either the

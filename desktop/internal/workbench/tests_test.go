@@ -290,12 +290,17 @@ func TestTestsPanelDropsStaleResultAndBoundsOutput(t *testing.T) {
 	}
 
 	p.tests.generation = 3
-	h.app.appendTestOutput(p, 3, strings.Repeat("line\n", testOutputMaxLines+50))
-	if len(p.tests.output) > testOutputMaxLines {
-		t.Fatalf("output has %d lines, want at most %d", len(p.tests.output), testOutputMaxLines)
+	p.tests.output = newOutputBuffer(testOutputMaxLines, testOutputBytes)
+	decoder := newOutputDecoder(h.app.kernel)
+	h.app.streamTestOutput(p, 2, decoder, "stale\n")
+	h.app.streamTestOutput(p, 3, decoder, strings.Repeat("line\n", testOutputMaxLines+50))
+	h.settle()
+	output := &p.tests.output
+	if len(output.lines) > testOutputMaxLines || output.lines[0].text != "line" {
+		t.Fatalf("output has %d lines starting %q, want at most %d of this run's", len(output.lines), output.lines[0].text, testOutputMaxLines)
 	}
-	if p.tests.outputBytes > testOutputBytes {
-		t.Fatalf("output has %d bytes, want at most %d", p.tests.outputBytes, testOutputBytes)
+	if output.bytes > testOutputBytes {
+		t.Fatalf("output has %d bytes, want at most %d", output.bytes, testOutputBytes)
 	}
 }
 

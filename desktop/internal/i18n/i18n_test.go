@@ -374,3 +374,27 @@ func TestParseRoundTrips(t *testing.T) {
 		t.Error("Parse accepts an unsupported code")
 	}
 }
+
+// A run's duration is milliseconds under a second, then seconds and milliseconds, then minutes
+// and seconds, then hours and minutes; a clock that steps back reads as no time.
+func TestRunDurationPicksTheLargestTwoUnits(t *testing.T) {
+	for _, test := range []struct {
+		language     Language
+		milliseconds int
+		want         string
+	}{
+		{English, -5, "0 ms"},
+		{English, 999, "999 ms"},
+		{English, 1632, "1 s 632 ms"},
+		{English, 61_000, "1 min 1 s"},
+		{English, 3_725_000, "1 h 2 min"},
+		{Chinese, 999, "999毫秒"},
+		{Chinese, 1632, "1秒632毫秒"},
+		{Chinese, 61_000, "1分1秒"},
+		{Chinese, 3_725_000, "1小时2分"},
+	} {
+		if got := For(test.language).Run.Duration(test.milliseconds); got != test.want {
+			t.Errorf("language %s, %d ms: duration %q, want %q", test.language.Code(), test.milliseconds, got, test.want)
+		}
+	}
+}

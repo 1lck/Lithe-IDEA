@@ -30,23 +30,30 @@ func TestBuildOutputKeepsWholeLinesWithinTheBudget(t *testing.T) {
 	h := newHarness(t, &testKernel{Client: core.NewClient()})
 	h.open(t.TempDir())
 	p := h.app.project
-	op := h.app.beginBuildOperation(p, "build", "build", "")
-	for i := 0; i < buildOutputMaxLines+50; i++ {
-		h.app.appendBuildOutput(p, op, "line "+strings.Repeat("x", 8)+"\n")
+	op := h.app.beginBuildOperation(p, "build", "build", "", nil)
+	feedBuildOutput(h.app, p, op, strings.Repeat("line "+strings.Repeat("x", 8)+"\n", buildOutputMaxLines+50))
+	output := &op.session.output
+	if len(output.lines) > buildOutputMaxLines {
+		t.Fatalf("output has %d lines, want at most %d", len(output.lines), buildOutputMaxLines)
 	}
-	if len(p.build.output) > buildOutputMaxLines {
-		t.Fatalf("output has %d lines, want at most %d", len(p.build.output), buildOutputMaxLines)
+	if output.bytes > buildOutputBytes {
+		t.Fatalf("output has %d bytes, want at most %d", output.bytes, buildOutputBytes)
 	}
-	if p.build.outputBytes > buildOutputBytes {
-		t.Fatalf("output has %d bytes, want at most %d", p.build.outputBytes, buildOutputBytes)
+	if output.open.text != "" || output.lines[len(output.lines)-1].text != "line xxxxxxxx" {
+		t.Fatalf("the last output line was cut: %q, open %q", output.lines[len(output.lines)-1].text, output.open.text)
 	}
-	if !strings.HasSuffix(p.build.output[len(p.build.output)-1], "\n") {
-		t.Fatal("the last output line lost its terminator")
+	if output.sequence != buildOutputMaxLines+50 || output.start != output.sequence-len(output.lines) {
+		t.Fatalf("output counts %d lines from %d, holding %d", output.sequence, output.start, len(output.lines))
 	}
-	visible := buildVisibleOutput(p.build.output)
-	if len(visible) == 0 || len(visible) > buildOutputVisible {
-		t.Fatalf("visible lines = %d", len(visible))
-	}
+}
+
+// feedBuildOutput decodes text as op's readers do and adds it to op's console at once, where
+// streamBuildOutput posts it to the window thread.
+func feedBuildOutput(a *App, p *project, op *buildOperation, text string) {
+	op.decoder.deliver(text, func(chunk outputChunk, failure error) {
+		a.reportOutputStyleFailure(failure)
+		a.applyBuildOutput(p, op, chunk)
+	})
 }
 
 func TestBuildRunAppliesToTargetTags(t *testing.T) {

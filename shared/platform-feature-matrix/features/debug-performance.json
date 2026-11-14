@@ -14,7 +14,7 @@
       "desktop/internal/workbench/chrome.go",
       "desktop/internal/workbench/run_performance.go",
       "desktop/internal/workbench/runs.go",
-      "desktop/internal/workbench/build_view.go"
+      "desktop/internal/workbench/run_view.go"
     ]
   },
   "windows": {
@@ -28,7 +28,7 @@
       "desktop/internal/workbench/chrome.go",
       "desktop/internal/workbench/run_performance.go",
       "desktop/internal/workbench/runs.go",
-      "desktop/internal/workbench/build_view.go"
+      "desktop/internal/workbench/run_view.go"
     ]
   },
   "owner": "Debug",

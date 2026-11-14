@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/1lck/Lithe-IDEA/desktop/internal/core"
@@ -137,24 +138,29 @@ func TestVisualBuildPanels(t *testing.T) {
 				switch scene {
 				case "build-and-run":
 					h.app.post(func(a *App) {
-						op := a.beginBuildOperation(p, "build", "package", "")
-						for _, line := range []string{
-							"[INFO] Scanning for projects...\n",
-							"[INFO] Reactor Build Order:\n",
-							"[INFO]   shop        [pom]\n",
-							"[INFO]   shop-core   [jar]\n",
-							"[INFO]   shop-web    [jar]\n",
-							"[INFO] --- compiler:3.13.0:compile (default-compile) @ shop-core ---\n",
-							"[INFO] Compiling 42 source files to core/target/classes\n",
-							"[INFO] --- surefire:3.2.5:test (default-test) @ shop-core ---\n",
-							"[INFO] Tests run: 128, Failures: 0, Errors: 0, Skipped: 2\n",
-							"[INFO] --- jar:3.4.1:jar (default-jar) @ shop-web ---\n",
-							"[INFO] Building jar: web/target/shop-web-1.4.0.jar\n",
-							"[INFO] BUILD SUCCESS\n",
-							"[INFO] Total time:  8.214 s\n",
-						} {
-							a.appendBuildOutput(p, op, line)
+						// A restart, so the tab offers to run it again as a real task's does.
+						op := a.beginBuildOperation(p, "build", "package", "", func(*App, *project) {})
+						// Maven's output with -Dstyle.color=always, so the console shows its colors.
+						const info = "[\x1b[1;34mINFO\x1b[m] "
+						goal := func(plugin, execution, module string) string {
+							return info + "\x1b[1m--- \x1b[0;32m" + plugin + "\x1b[m \x1b[1m(" + execution + ")\x1b[m @ \x1b[36m" + module + "\x1b[0;1m ---\x1b[m\n"
 						}
+						feedBuildOutput(a, p, op, strings.Join([]string{
+							info + "Scanning for projects...\n",
+							info + "\x1b[1mReactor Build Order:\x1b[m\n",
+							info + "  shop        [pom]\n",
+							info + "  shop-core   [jar]\n",
+							info + "  shop-web    [jar]\n",
+							goal("compiler:3.13.0:compile", "default-compile", "shop-core"),
+							info + "Compiling 42 source files to core/target/classes\n",
+							goal("surefire:3.2.5:test", "default-test", "shop-core"),
+							"[\x1b[1;33mWARNING\x1b[m] \x1b[1;33mTests run: 128, Failures: 0, Errors: 0, Skipped: 2\x1b[m\n",
+							goal("jar:3.4.1:jar", "default-jar", "shop-web"),
+							info + "Building jar: web/target/shop-web-1.4.0.jar\n",
+							info + "\x1b[1m------------------------------------------------------------------------\x1b[m\n",
+							info + "\x1b[1;32mBUILD SUCCESS\x1b[m\n",
+							info + "Total time:  8.214 s\n",
+						}, ""))
 						a.finishBuildTask(p, op, json.RawMessage(`{"exitCode":0}`))
 						a.showBuildConsole(p)
 					})
