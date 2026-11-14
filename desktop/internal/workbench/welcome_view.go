@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"github.com/1lck/Lithe-IDEA/desktop/internal/appicon"
+	"github.com/1lck/Lithe-IDEA/desktop/internal/buildinfo"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/core"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/i18n"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/icons"
@@ -67,7 +68,7 @@ func (a *App) welcomeSidebar(c ui.C) {
 			ui.Image(c, appicon.Welcome()).Size(28, 28).Shrink(0)
 			ui.Column(c).Children(func() {
 				ui.Text(c, a.text.App.Name).FontSize(13)
-				ui.Text(c, a.version).Muted().FontSize(11)
+				ui.Text(c, a.text.App.Version(a.version, buildinfo.Stable)).Muted().FontSize(11)
 			})
 		})
 		ui.Column(c).PadX(14).Children(func() {

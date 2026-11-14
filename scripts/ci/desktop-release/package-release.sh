@@ -42,6 +42,15 @@ if [[ "$VERSION" != "$MANIFEST_VERSION" ]]; then
     printf '%s\n' "Requested version $VERSION does not match desktop/viva.toml version $MANIFEST_VERSION." >&2
     exit 1
 fi
+# The packages are the stable release (package-desktop.sh --stable), which shows the plain version:
+# the release publishes them under desktop-v<version>, the tag of the commit built. A run started by
+# pushing that tag must find it on HEAD; a manual run creates the tag on this commit when it
+# publishes, or publishes nothing.
+RELEASE_TAG="desktop-v$VERSION"
+if [[ "${GITHUB_REF_TYPE:-}" == "tag" ]] && ! git -C "$ROOT_DIR" tag --points-at HEAD | grep -Fqx -- "$RELEASE_TAG"; then
+    printf '%s\n' "The checked-out commit does not carry $RELEASE_TAG, the tag this release publishes." >&2
+    exit 1
+fi
 
 SIGN_ARGS=()
 SIGNED=0
@@ -94,6 +103,15 @@ contains_version_line() {
     strings -a "$1" | grep -Fqx -- "$EXPECTED_VERSION_LINE"
 }
 
+# is_stable_program says the program was built with the lithe_stable tag, so it shows the plain
+# version rather than a preview; go version -m reads the build settings Go records in every binary.
+is_stable_program() {
+    go version -m "$1" | awk '$1 == "build" && $2 ~ /^-tags=/ {
+        n = split(substr($2, 7), tags, ",")
+        for (i = 1; i <= n; i++) if (tags[i] == "lithe_stable") found = 1
+    } END { exit !found }'
+}
+
 write_checksum() {
     local artifact_name="$1"
     (
@@ -114,7 +132,7 @@ write_checksum() {
 
 case "$GOOS" in
     darwin)
-        APPLE_ARGS=(--arch "$ARCH" --format 'app,zip,dmg' --out "$OUT_DIR")
+        APPLE_ARGS=(--arch "$ARCH" --format 'app,zip,dmg' --out "$OUT_DIR" --stable)
         APPLE_ARGS+=("${SIGN_ARGS[@]+"${SIGN_ARGS[@]}"}")
         "$ROOT_DIR/scripts/desktop/package-desktop.sh" "${APPLE_ARGS[@]+"${APPLE_ARGS[@]}"}"
 
@@ -133,6 +151,10 @@ case "$GOOS" in
             printf '%s\n' "The program does not carry $EXPECTED_VERSION_LINE from viva.toml." >&2
             exit 1
         fi
+        if ! is_stable_program "$PROGRAM"; then
+            printf '%s\n' 'The program was not built as the stable release (no lithe_stable build tag).' >&2
+            exit 1
+        fi
         if [[ "$SIGNED" == 1 ]]; then
             codesign --verify --deep --strict "$APP"
         fi
@@ -148,7 +170,7 @@ case "$GOOS" in
         ;;
     windows)
         STEM="lithe-$VERSION-windows-$ARCH"
-        "$ROOT_DIR/scripts/desktop/package-desktop.sh" --arch "$ARCH" --format nsis,zip --out "$OUT_DIR" \
+        "$ROOT_DIR/scripts/desktop/package-desktop.sh" --arch "$ARCH" --format nsis,zip --out "$OUT_DIR" --stable \
             "${SIGN_ARGS[@]+"${SIGN_ARGS[@]}"}"
 
         INSTALLER="$OUT_DIR/$STEM-setup.exe"
@@ -167,6 +189,10 @@ case "$GOOS" in
         unzip -p "$ZIP" lithe.exe > "$EXTRACTED_PROGRAM"
         if [[ ! -s "$EXTRACTED_PROGRAM" ]] || ! contains_version_line "$EXTRACTED_PROGRAM"; then
             printf '%s\n' "The extracted Windows program does not carry $EXPECTED_VERSION_LINE." >&2
+            exit 1
+        fi
+        if ! is_stable_program "$EXTRACTED_PROGRAM"; then
+            printf '%s\n' 'The Windows program was not built as the stable release (no lithe_stable build tag).' >&2
             exit 1
         fi
         if [[ "$SIGNED" == 1 ]]; then
@@ -199,7 +225,7 @@ case "$GOOS" in
         fi
         STEM="lithe-$VERSION-linux-$ARCH"
         DEB_NAME="lithe_${VERSION}_${DEB_ARCH}.deb"
-        "$ROOT_DIR/scripts/desktop/package-desktop.sh" --arch "$ARCH" --format tar.gz,deb --out "$OUT_DIR"
+        "$ROOT_DIR/scripts/desktop/package-desktop.sh" --arch "$ARCH" --format tar.gz,deb --out "$OUT_DIR" --stable
 
         TARBALL="$OUT_DIR/$STEM.tar.gz"
         DEB="$OUT_DIR/$DEB_NAME"
@@ -227,6 +253,10 @@ case "$GOOS" in
         fi
         if ! contains_version_line "$EXTRACTED_PROGRAM"; then
             printf '%s\n' "The extracted Linux program does not carry $EXPECTED_VERSION_LINE." >&2
+            exit 1
+        fi
+        if ! is_stable_program "$EXTRACTED_PROGRAM"; then
+            printf '%s\n' 'The Linux program was not built as the stable release (no lithe_stable build tag).' >&2
             exit 1
         fi
         DEB_VERSION="$(dpkg-deb -f "$DEB" Version)"

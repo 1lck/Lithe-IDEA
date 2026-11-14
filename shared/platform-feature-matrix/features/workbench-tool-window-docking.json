@@ -11,7 +11,9 @@
       "desktop/internal/workbench/dockdrag.go",
       "desktop/internal/workbench/visual_capture_test.go",
       "desktop/internal/workbench/root.go",
-      "desktop/internal/workbench/tabstrip.go"
+      "desktop/internal/workbench/tabstrip.go",
+      "desktop/internal/workbench/chrome_view.go",
+      "desktop/internal/workbench/chrome_menu_test.go"
     ]
   },
   "windows": {
@@ -22,7 +24,9 @@
       "desktop/internal/workbench/dockdrag.go",
       "desktop/internal/workbench/visual_capture_test.go",
       "desktop/internal/workbench/root.go",
-      "desktop/internal/workbench/tabstrip.go"
+      "desktop/internal/workbench/tabstrip.go",
+      "desktop/internal/workbench/chrome_view.go",
+      "desktop/internal/workbench/chrome_menu_test.go"
     ]
   },
   "owner": "Workbench",
@@ -56,5 +60,5 @@
       "verificationStatus": "pending"
     }
   },
-  "notes": "Viva：catalog.go 定义六个停靠区，dockdrag.go 处理拖动落点与遮罩，布局经 loadChrome 保存；未核到组内排序、右键移动和多工作区布局恢复的完整实现。 全页对照恢复活动侧栏蓝色与焦点相关的标签边框；项目渐变由根容器在子元素前绘制，不覆盖不透明工具面板。首次打开仅展开 Project，Git 按需打开，已有保存布局保持优先。像素回归 TestVisualWorkbenchGradientStaysBehindPanels 证明修复前失败、修复后通过；Windows 原生验收仍待执行。"
+  "notes": "Viva：catalog.go 定义六个停靠区，dockdrag.go 处理拖动落点与遮罩，布局经 loadChrome 保存；组内排序和右键移动由 chrome_menu_test.go 覆盖；布局保存在全局 workbench-layout-v2.json，未按工作区分别恢复。 全页对照恢复活动侧栏蓝色与焦点相关的标签边框；项目渐变由根容器在子元素前绘制，不覆盖不透明工具面板。首次打开仅展开 Project，Git 按需打开，已有保存布局保持优先。像素回归 TestVisualWorkbenchGradientStaysBehindPanels 证明修复前失败、修复后通过；Windows 原生验收仍待执行。 侧栏按钮右键“隐藏入口”把按钮从侧栏收起，Core 布局状态记录 hidden 并保留原分区和位置；左侧栏上方组之后的“…”按钮只在有隐藏入口时出现，尺寸和间距与侧栏按钮一致、悬停显示名称，列出隐藏的工具窗口（图标、名称、快捷键，已打开的行高亮），点击行恢复按钮并打开窗口，行的右键“取消隐藏”只恢复按钮；隐藏按钮的窗口仍可由快捷键打开，此时“…”按钮高亮。TestHiddenStripeButtonIsListedUnderTheEllipsisAndComesBack、TestUnhidePutsTheButtonBackWithoutTouchingItsToolWindow 覆盖；macOS 与 Windows 实机验收待执行。"
 }

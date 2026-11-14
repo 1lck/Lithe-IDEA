@@ -1,0 +1,20 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="light dark">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'; font-src 'self'; img-src 'self' data:; media-src 'none'; connect-src 'none'; object-src 'none'; frame-src 'none'; child-src 'none'; worker-src 'none'; manifest-src 'none'; base-uri 'none'; form-action 'none'">
+  <link rel="icon" href="data:,">
+  <link rel="stylesheet" href="vendor/katex.min.css">
+  <link rel="stylesheet" href="markdown.css">
+  <script defer src="markdown.js"></script>
+</head>
+<body>
+  <main id="content" class="markdown-body"></main>
+  <div id="image-viewer" class="image-viewer" role="dialog" aria-modal="true" hidden>
+    <button id="image-close" class="image-close" type="button">×</button>
+    <img id="image-full" alt="">
+  </div>
+</body>
+</html>

@@ -219,6 +219,10 @@ func stripeLucide(icon gfx.Icon) *gfx.Icon {
 	return &icon
 }
 
+// hiddenToolWindowsIcon is the glyph of the left stripe's "…" button, which lists the stripe
+// buttons the user hid, at the weight of the other stripe icons.
+var hiddenToolWindowsIcon = stripeLucide(icons.Ellipsis)
+
 // catalog is every rearrangeable button, in the default order of each zone. The
 // kernel owns the layout rules; this is only the host's list of what exists. A tool
 // stripe button shows the IntelliJ New UI icon of its window (toolicons), or a Lucide icon
@@ -290,8 +294,16 @@ type chromeState struct {
 	// places the tool windows of plugins that are not enabled now, so they come back where
 	// the user left them.
 	saved core.ChromeLayout
-	// items lists the catalog indices of each zone in display order.
+	// items lists the catalog indices of the shown buttons of each zone in display order.
 	items [zoneCount][]int
+	// zones is the zone each catalog item sits in, by catalog index. A hidden stripe button
+	// keeps its zone: its tool window still opens in that zone's slot, and showing the button
+	// again puts it back there.
+	zones []zone
+	// hidden lists the catalog indices of the stripe buttons the user hid, in layout order,
+	// and hiddenMark marks them by catalog index.
+	hidden     []int
+	hiddenMark []bool
 	// open is the catalog index of the open tool window of each slot, -1 for none.
 	open [slotCount]int
 
@@ -328,6 +340,12 @@ func (c *chromeState) setItems(items []item) {
 		c.coreItems[i] = core.ChromeItem{ID: it.id, DefaultZone: zoneNames[it.zone], Panel: it.panel, OpenByDefault: it.open}
 		c.index[it.id] = i
 	}
+	c.zones = make([]zone, len(items))
+	for i, it := range items {
+		c.zones[i] = it.zone
+	}
+	c.hidden = c.hidden[:0]
+	c.hiddenMark = make([]bool, len(items))
 	c.ids = make([]gfx.ID, len(items))
 	c.rects = make([]gfx.Rect, len(items))
 	c.rectHooks = make([]func(*ui.DrawContext), len(items))
@@ -337,11 +355,13 @@ func (c *chromeState) setItems(items []item) {
 }
 
 // withAbsent is layout with the saved places of plugin tool windows the catalog does not
-// list now, which the kernel leaves out of every layout it returns.
+// list now, which the kernel leaves out of every layout it returns, and whether they are open
+// or hidden.
 func (c *chromeState) withAbsent(layout core.ChromeLayout) core.ChromeLayout {
 	merged := core.ChromeLayout{
 		Placements: append([]core.Placement(nil), layout.Placements...),
 		Open:       append([]string(nil), layout.Open...),
+		Hidden:     append([]string(nil), layout.Hidden...),
 	}
 	for _, placement := range c.saved.Placements {
 		if _, known := c.index[placement.ID]; !known && isPluginItem(placement.ID) {
@@ -351,6 +371,11 @@ func (c *chromeState) withAbsent(layout core.ChromeLayout) core.ChromeLayout {
 	for _, id := range c.saved.Open {
 		if _, known := c.index[id]; !known && isPluginItem(id) {
 			merged.Open = append(merged.Open, id)
+		}
+	}
+	for _, id := range c.saved.Hidden {
+		if _, known := c.index[id]; !known && isPluginItem(id) {
+			merged.Hidden = append(merged.Hidden, id)
 		}
 	}
 	return merged
@@ -366,6 +391,7 @@ func (c *chromeState) restated() core.ChromeLayout {
 	restated := core.ChromeLayout{
 		Placements: append([]core.Placement(nil), c.saved.Placements...),
 		Open:       append([]string(nil), c.saved.Open...),
+		Hidden:     append([]string(nil), c.saved.Hidden...),
 	}
 	saved := make(map[string]bool, len(c.saved.Placements))
 	for _, placement := range c.saved.Placements {
@@ -374,6 +400,11 @@ func (c *chromeState) restated() core.ChromeLayout {
 	for _, placement := range c.layout.Placements {
 		if !saved[placement.ID] {
 			restated.Placements = append(restated.Placements, placement)
+		}
+	}
+	for _, id := range c.layout.Hidden {
+		if !saved[id] {
+			restated.Hidden = append(restated.Hidden, id)
 		}
 	}
 	return restated
@@ -397,8 +428,9 @@ func defaultLayout() core.ChromeLayout {
 }
 
 // apply makes layout the current arrangement. Placements of unknown items or zones are
-// skipped; the kernel never returns them. An open item that is not a tool window, such as the
-// background button an earlier layout saved as open, takes no slot.
+// skipped; the kernel never returns them. A hidden button keeps its zone but is left out of
+// the zone's shown buttons. An open item that is not a tool window, such as the background
+// button an earlier layout saved as open, takes no slot.
 func (c *chromeState) apply(layout core.ChromeLayout) {
 	c.layout = layout
 	for z := range c.items {
@@ -407,10 +439,25 @@ func (c *chromeState) apply(layout core.ChromeLayout) {
 	for s := range c.open {
 		c.open[s] = -1
 	}
+	for i := range c.catalog {
+		c.zones[i] = c.catalog[i].zone
+	}
+	clear(c.hiddenMark)
+	c.hidden = c.hidden[:0]
+	for _, id := range layout.Hidden {
+		if index, known := c.index[id]; known {
+			c.hiddenMark[index] = true
+		}
+	}
 	for _, placement := range layout.Placements {
 		index, known := c.index[placement.ID]
 		z, valid := zoneFromCore(placement.Zone)
 		if !known || !valid {
+			continue
+		}
+		c.zones[index] = z
+		if c.hiddenMark[index] {
+			c.hidden = append(c.hidden, index)
 			continue
 		}
 		c.items[z] = append(c.items[z], index)
@@ -426,16 +473,21 @@ func (c *chromeState) apply(layout core.ChromeLayout) {
 	}
 }
 
-// zoneOf returns the zone catalog item index sits in now.
-func (c *chromeState) zoneOf(index int) zone {
-	for z := range c.items {
-		for _, candidate := range c.items[z] {
-			if candidate == index {
-				return zone(z)
-			}
+// zoneOf returns the zone catalog item index sits in now, whether its button is shown or
+// hidden.
+func (c *chromeState) zoneOf(index int) zone { return c.zones[index] }
+
+// isHidden reports whether the user hid the stripe button of catalog item index.
+func (c *chromeState) isHidden(index int) bool { return c.hiddenMark[index] }
+
+// hiddenOpen reports whether the tool window of a hidden stripe button is open.
+func (c *chromeState) hiddenOpen() bool {
+	for _, index := range c.hidden {
+		if c.isOpen(index) {
+			return true
 		}
 	}
-	return c.catalog[index].zone
+	return false
 }
 
 // isOpen reports whether the tool window of catalog item index is open.

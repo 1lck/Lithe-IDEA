@@ -1,13 +1,14 @@
 package workbench
 
 import (
-	"net/url"
+	"context"
 	"os"
 	"path/filepath"
 	"sort"
 	"strconv"
 	"strings"
 
+	"github.com/1lck/Lithe-IDEA/desktop/internal/core"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/editorview"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/i18n"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/icons"
@@ -19,14 +20,18 @@ import (
 
 // A Markdown file opens as a two-column editor: its source on the left and the rendered page on
 // the right, the two scrolled together by source line. The switch at the end of the group's tab
-// strip shows the source alone, both, or the page alone, and the page's Contents button lists
-// its headings to jump to.
+// strip shows the source alone, both, or the page alone, and the Contents button before it lists
+// the page's headings to jump to. The button is in the strip rather than on the page because
+// nothing can be drawn over a web page.
 //
-// Viva draws Markdown from the source itself (package markdown and components.MarkdownView),
-// so the page parses the file's text directly and does not ask Core for HTML (core.Client's
-// RenderMarkdown is for the places that need it, such as exports). The text is read from the
-// editor, so the page follows edits. A file over markdownPreviewMaxBytes is not rendered:
-// parsing and laying out grow with the file and the page redoes both on each change.
+// Where the system has a web engine the page is a web page of Core's HTML (markdown_web.go), so
+// that the HTML, SVG, math and diagrams a file holds are shown. Before the window's web host is
+// ready, without a web engine (Linux) and once a web page could not be opened, Viva draws the
+// page natively from the source (package markdown and components.MarkdownView), which shows the
+// Markdown but not the HTML. Both read the text from the editor, so the page follows edits, and
+// both follow links and load images as Core resolves them (markdown.resolveReference). A file
+// over markdownPreviewMaxBytes is not rendered: rendering and laying out grow with the file and
+// the page redoes both on each change.
 
 const (
 	markdownPreviewMaxBytes = 1 << 20
@@ -37,33 +42,36 @@ const (
 	markdownContentsWidth = 280
 )
 
-// markdownMode is how the tab of a Markdown file shows it. The zero mode, both side by side, is
-// how a file opens.
-type markdownMode uint8
+// pageMode is how the tab of a file with a page shows it, a Markdown file or an SVG file
+// (svg_preview.go): its source, the page, or both. The zero mode, both side by side, is how a
+// file opens.
+type pageMode uint8
 
 const (
-	markdownSplit markdownMode = iota
-	markdownSource
-	markdownPage
+	pageSplit pageMode = iota
+	pageSource
+	pageOnly
 )
 
-// markdownModes are the switch's buttons in the order they are shown; markdownModeSwitch names
+// pageModes are the switch's buttons in the order they are shown; pageModeSwitch names
 // them in the same order.
-var markdownModes = [...]struct {
-	mode markdownMode
+var pageModes = [...]struct {
+	mode pageMode
 	icon gfx.Icon
 }{
-	{markdownSource, icons.Pencil},
-	{markdownSplit, icons.Columns2},
-	{markdownPage, icons.FileText},
+	{pageSource, icons.Pencil},
+	{pageSplit, icons.Columns2},
+	{pageOnly, icons.FileText},
 }
 
 // markdownHeading is one entry of the page's contents.
 type markdownHeading struct {
 	level int
 	text  string
-	// start is the byte offset of the heading in the source.
+	// start is the byte offset of the heading in the source, -1 on a web page; line is the
+	// source line it starts on, from 1.
 	start int
+	line  float64
 }
 
 // markdownPreviewState is the rendered page of one Markdown file.
@@ -100,6 +108,9 @@ type markdownPreviewState struct {
 	followOnce   bool
 	// too says the file is too large to render.
 	too bool
+	// web is the web page while the page is one; the fields above it, but for the headings, the
+	// Contents list and the editor's scroll, are the native page's.
+	web *markdownWeb
 }
 
 // isMarkdownDocument reports whether d is a Markdown file by its language or name.
@@ -157,7 +168,7 @@ func (a *App) markdownState(p *project, d *document) *markdownPreviewState {
 			return gfx.EventResult{Handled: true, Repaint: true}
 		},
 	}
-	s.image = func(destination string) (gfx.Bitmap, bool) { return a.markdownImageBitmap(d, s, destination) }
+	s.image = func(destination string) (gfx.Bitmap, bool) { return a.markdownImageBitmap(p, d, s, destination) }
 	s.draw = func(dc *ui.DrawContext) { a.paintMarkdown(dc, d, s) }
 	return s
 }
@@ -204,22 +215,23 @@ func (s *markdownPreviewState) sync(d *document) {
 				title.WriteString(span.Text)
 			}
 		}
-		s.headings = append(s.headings, markdownHeading{level: b.Level, text: title.String(), start: b.Start})
+		line := float64(sort.SearchInts(s.lineStarts, b.Start+1))
+		s.headings = append(s.headings, markdownHeading{level: b.Level, text: title.String(), start: b.Start, line: line})
 	}
 }
 
-// markdownModeSwitch declares the buttons at the end of the tab strip that show d's source, both
+// pageModeSwitch declares the buttons at the end of the tab strip that show d's source, both
 // side by side, or the page.
-func (a *App) markdownModeSwitch(c ui.C, d *document) {
+func (a *App) pageModeSwitch(c ui.C, d *document) {
 	language := a.language()
-	labels := [len(markdownModes)]string{
+	labels := [len(pageModes)]string{
 		i18n.Shared(language, "editor.markdownSourceView"),
 		i18n.Shared(language, "editor.markdownSplitView"),
 		i18n.Shared(language, "editor.markdownPreviewView"),
 	}
-	for i, entry := range markdownModes {
+	for i, entry := range pageModes {
 		label := labels[i]
-		on := d.markdownMode == entry.mode
+		on := d.pageMode == entry.mode
 		k := c.Part("md" + strconv.Itoa(int(entry.mode)))
 		button := ui.Row(k).Size(shellHideSize, shellHideSize).Shrink(0).Center().Radius(a.theme.Metrics.RadiusItem()).
 			HitWith(ui.ID(k), label, gfx.HitOptions{Role: gfx.RoleRadio, Checked: on, Cursor: gfx.PointerCursorHand}).
@@ -236,14 +248,14 @@ func (a *App) markdownModeSwitch(c ui.C, d *document) {
 				StateFrom(button).Hover(ui.Look{}.Color(a.colors.Text))
 		})
 		if button.Clicked() && !on {
-			from := d.markdownMode
-			d.markdownMode = entry.mode
+			from := d.pageMode
+			d.pageMode = entry.mode
 			// The side coming back takes up where the side shown alone was.
 			if s := d.markdown; s != nil {
 				switch from {
-				case markdownSource:
+				case pageSource:
 					s.led, s.followOnce = false, true
-				case markdownPage:
+				case pageOnly:
 					s.moveEditor(d)
 				}
 			}
@@ -254,11 +266,11 @@ func (a *App) markdownModeSwitch(c ui.C, d *document) {
 // markdownDocument declares the body of group for Markdown file d in the file's mode: the
 // source, the page, or the two in equal halves.
 func (a *App) markdownDocument(c ui.C, p *project, group string, d *document) {
-	switch d.markdownMode {
-	case markdownSource:
+	switch d.pageMode {
+	case pageSource:
 		a.documentView(c, group, d)
 		return
-	case markdownPage:
+	case pageOnly:
 		d.group = group
 		a.markdownPage(c, p, d)
 		return
@@ -274,54 +286,83 @@ func (a *App) markdownDocument(c ui.C, p *project, group string, d *document) {
 	})
 }
 
-// markdownPage declares d's rendered page with the Contents button in its top right corner and,
-// while it is open, the list of headings under it.
+// markdownPage declares d's rendered page: the web page where one can be shown, and otherwise
+// the page Viva draws.
 func (a *App) markdownPage(c ui.C, p *project, d *document) {
 	language := a.language()
 	s := a.markdownState(p, d)
+	if w := a.markdownWebPage(p, d, s); w != nil {
+		ui.Column(c).Fill().Background(a.colors.Editor).Clip().Children(func() {
+			a.markdownWebBody(c, p, d, s, w)
+		})
+		return
+	}
 	s.sync(d)
 	if s.too {
 		a.panelMessage(c, i18n.Shared(language, "desktop.markdown.tooLarge"), a.colors.Subtle)
 		return
 	}
-	title := i18n.Shared(language, "desktop.markdown.contents")
-	jump := -1
 	ui.Column(c).Fill().Background(a.colors.Editor).Clip().Children(func() {
 		ui.Control(c.Part("markdown"+strconv.Itoa(d.id)), i18n.Shared(language, "desktop.markdown.preview"), &s.input).Fill().Draw(s.draw)
-		if len(s.headings) == 0 {
-			s.contentsOpen = false
-			return
-		}
-		ui.Row(c).Absolute().Top(markdownPadding / 2).Right(markdownPadding).Background(a.colors.Ground).
-			Radius(a.theme.Metrics.RadiusItem()).Children(func() {
-			button := ui.Button(c.Part("contents"), title).Icon(icons.ListTree).IconOnly().Ghost().
-				Size(shellHideSize, shellHideSize).Shrink(0).Tooltip(title)
-			if button.Clicked() {
-				s.contentsOpen = !s.contentsOpen
-			}
-			spec := ui.PopoverSpec{Align: ui.End, Width: markdownContentsWidth, ConsumeOutsidePress: true, Title: title}
-			ui.PopoverWith(c, button, spec, &s.contentsOpen, func() {
-				height := min(float32(len(s.headings))*markdownContentsRow, markdownContentsMax)
-				ui.List(c, &s.contents, len(s.headings), func(row ui.ListRow) {
-					h := s.headings[row.Index]
-					row.Element.FillWidth().Height(markdownContentsRow).PadSides(8+float32(max(h.level-1, 0))*12, 0, 8, 0).Items(ui.Center).
-						Radius(a.theme.Metrics.RadiusItem()).Hover(ui.Look{}.Background(a.colors.Hover)).Children(func() {
-						ui.Text(row.C, h.text).FontSize(12.5).Color(a.colors.Text).Ellipsis().Shrink(1)
-					})
-					if row.Element.Clicked() {
-						jump = row.Index
-					}
-				}).Label(title).FillWidth().Height(height)
-				if row, ok := s.contents.Submitted(); ok {
-					jump = row
-				}
+	})
+}
+
+// markdownContentsButton declares, in the tab strip before the mode switch, the Contents button
+// of d's page and, while it is open, the list of headings under it. It is not shown with the
+// source alone or while the page has no headings.
+func (a *App) markdownContentsButton(c ui.C, p *project, d *document) {
+	if d.pageMode == pageSource {
+		return
+	}
+	s := a.markdownState(p, d)
+	if s.web == nil && !a.previewWeb() {
+		// The page Viva draws reads its headings from the source; the strip is declared before it.
+		s.sync(d)
+	}
+	if s.too || len(s.headings) == 0 {
+		s.contentsOpen = false
+		return
+	}
+	title := i18n.Shared(a.language(), "desktop.markdown.contents")
+	jump := -1
+	button := ui.Button(c.Part("contents"), title).Icon(icons.ListTree).IconOnly().Ghost().
+		Size(shellHideSize, shellHideSize).Shrink(0).Tooltip(title)
+	if button.Clicked() {
+		s.contentsOpen = !s.contentsOpen
+	}
+	spec := ui.PopoverSpec{Align: ui.End, Width: markdownContentsWidth, ConsumeOutsidePress: true, Title: title}
+	ui.PopoverWith(c, button, spec, &s.contentsOpen, func() {
+		height := min(float32(len(s.headings))*markdownContentsRow, markdownContentsMax)
+		ui.List(c, &s.contents, len(s.headings), func(row ui.ListRow) {
+			h := s.headings[row.Index]
+			row.Element.FillWidth().Height(markdownContentsRow).PadSides(8+float32(max(h.level-1, 0))*12, 0, 8, 0).Items(ui.Center).
+				Radius(a.theme.Metrics.RadiusItem()).Hover(ui.Look{}.Background(a.colors.Hover)).Children(func() {
+				ui.Text(row.C, h.text).FontSize(12.5).Color(a.colors.Text).Ellipsis().Shrink(1)
 			})
-		})
+			if row.Element.Clicked() {
+				jump = row.Index
+			}
+		}).Label(title).FillWidth().Height(height)
+		if row, ok := s.contents.Submitted(); ok {
+			jump = row
+		}
 	})
 	if jump >= 0 && jump < len(s.headings) {
 		s.contentsOpen = false
-		s.scrollTo(d, s.headings[jump].start)
+		s.jump(d, jump)
 	}
+}
+
+// jump puts heading index at the top of d's page and, beside the source, the editor at its line.
+func (s *markdownPreviewState) jump(d *document, index int) {
+	heading := s.headings[index]
+	if w := s.web; w != nil {
+		w.line = heading.line
+		w.entry.view.Send(markdownPageScroll{Type: "scroll", Line: heading.line})
+		s.leadEditor(d)
+		return
+	}
+	s.scrollTo(d, heading.start)
 }
 
 // paintMarkdown lays the page out for the width it has and draws it scrolled. Beside the source
@@ -351,7 +392,7 @@ func (a *App) paintMarkdown(dc *ui.DrawContext, d *document, s *markdownPreviewS
 			}
 		}
 	}
-	if d.markdownMode == markdownSplit || s.followOnce {
+	if d.pageMode == pageSplit || s.followOnce {
 		s.followEditor(d.view, relaid || s.followOnce)
 		s.followOnce = false
 	}
@@ -461,14 +502,20 @@ func (s *markdownPreviewState) editorOffsetForPage(v *editorview.View) (float32,
 
 // leadEditor scrolls the source beside the page to the line at the page's top.
 func (s *markdownPreviewState) leadEditor(d *document) {
-	if d.markdownMode == markdownSplit {
+	if d.pageMode == pageSplit {
 		s.moveEditor(d)
 	}
 }
 
 // moveEditor scrolls d's editor to the source line at the page's top.
 func (s *markdownPreviewState) moveEditor(d *document) {
-	y, ok := s.editorOffsetForPage(d.view)
+	var y float32
+	var ok bool
+	if s.web != nil {
+		y, ok = editorOffsetForLine(d, s.web.line)
+	} else {
+		y, ok = s.editorOffsetForPage(d.view)
+	}
 	if !ok {
 		return
 	}
@@ -477,63 +524,56 @@ func (s *markdownPreviewState) moveEditor(d *document) {
 	s.led = true
 }
 
-// markdownLinkTarget is where a Markdown link points: an external address, a file relative to
-// the document or an anchor inside it.
-type markdownLinkTarget struct {
-	external string
-	path     string
-	anchor   string
-}
-
-// markdownLinkTargetOf classifies one destination. A scheme other than http, https or mailto
-// is not followed: a preview never launches a local handler from a file's text.
-func markdownLinkTargetOf(documentPath, destination string) markdownLinkTarget {
-	destination = strings.TrimSpace(destination)
-	if destination == "" {
-		return markdownLinkTarget{}
-	}
-	if strings.HasPrefix(destination, "#") {
-		return markdownLinkTarget{anchor: strings.TrimPrefix(destination, "#")}
-	}
-	if parsed, err := url.Parse(destination); err == nil && parsed.Scheme != "" {
-		switch strings.ToLower(parsed.Scheme) {
-		case "http", "https", "mailto":
-			return markdownLinkTarget{external: destination}
-		}
-		return markdownLinkTarget{}
-	}
-	path := destination
-	if index := strings.IndexAny(path, "?#"); index >= 0 {
-		path = path[:index]
-	}
-	if path == "" {
-		return markdownLinkTarget{}
-	}
-	path = filepath.FromSlash(path)
-	if !filepath.IsAbs(path) {
-		path = filepath.Join(filepath.Dir(documentPath), path)
-	}
-	return markdownLinkTarget{path: filepath.Clean(path)}
-}
-
-// followMarkdownLink opens what a page link points at: an external address in the system
-// browser, a file in the editor, or the heading an anchor names.
+// followMarkdownLink opens what a link of d's page points at (followDocumentLink), an anchor at
+// the heading it names.
 func (a *App) followMarkdownLink(p *project, d *document, s *markdownPreviewState, destination string) {
-	target := markdownLinkTargetOf(d.path, destination)
-	switch {
-	case target.external != "":
-		_ = openURL(target.external)
-	case target.anchor != "":
-		if index := s.headingIndex(target.anchor); index >= 0 {
-			s.scrollTo(d, s.headings[index].start)
+	a.followDocumentLink(p, d.path, destination, func(anchor string) {
+		if d.markdown == s {
+			if index := s.headingIndex(anchor); index >= 0 {
+				s.jump(d, index)
+			}
 		}
-	case target.path != "":
-		info, err := os.Stat(target.path)
-		if err != nil || info.IsDir() {
-			return
-		}
-		a.openFileAtPosition(p, target.path, 0, 0)
+	})
+}
+
+// followDocumentLink opens what a link of the page of path points at, as Core resolves it: a web
+// or mail address in the system's browser or mail client, a file in the editor, or an anchor of
+// the page through anchor, when the page has anchors. Another scheme is not followed: a preview
+// never launches a local handler from a file's content. The file is looked at off the window
+// thread.
+func (a *App) followDocumentLink(p *project, path, destination string, anchor func(string)) {
+	kernel, ok := a.kernel.(markdownKernel)
+	if !ok {
+		return
 	}
+	root := p.root
+	a.background(p, kernelCallTimeout, func(ctx context.Context) func(*App) {
+		target, err := kernel.ResolveMarkdownReference(ctx, path, root, destination, core.MarkdownLink)
+		if err != nil {
+			return func(a *App) {
+				a.emit(operationFailedLevel, operationFailedEvent, operationFailedFields("preview_link", err))
+			}
+		}
+		if target.Kind == "file" {
+			if info, err := os.Stat(target.Path); err != nil || info.IsDir() {
+				return nil
+			}
+		}
+		return func(a *App) {
+			switch target.Kind {
+			case "external":
+				if err := openURL(target.URL); err != nil {
+					a.emit(operationFailedLevel, operationFailedEvent, operationFailedFields("preview_link", err))
+				}
+			case "anchor":
+				if anchor != nil {
+					anchor(target.Anchor)
+				}
+			case "file":
+				a.openFileAtPosition(p, target.Path, 0, 0)
+			}
+		}
+	})
 }
 
 // headingIndex finds the heading an anchor names, matching GitHub's slug of the heading text.

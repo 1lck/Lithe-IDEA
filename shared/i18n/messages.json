@@ -6231,16 +6231,6 @@
       ]
     },
     {
-      "id": "desktop.app.coreVersion",
-      "description": "Core version shown in application information.",
-      "platforms": [
-        "desktop"
-      ],
-      "parameters": {
-        "version": "string"
-      }
-    },
-    {
       "id": "desktop.app.devBadge",
       "description": "Development build badge on the application icon.",
       "platforms": [
@@ -6248,8 +6238,8 @@
       ]
     },
     {
-      "id": "desktop.app.version",
-      "description": "Application version displayed on the welcome and settings screens.",
+      "id": "desktop.app.previewVersion",
+      "description": "The version of a build that was not packaged from its desktop-v release tag, on the start screen and in Settings > About and Updates. A release build shows the plain version.",
       "platforms": [
         "desktop"
       ],
@@ -6702,14 +6692,76 @@
     },
     {
       "id": "desktop.build.options",
-      "description": "Build tool window button that opens the Build options of the selected instance",
+      "description": "Build tool window button and menu item that open the Build options of one build system, beside the project-wide ones",
       "platforms": [
         "desktop"
       ]
     },
     {
       "id": "desktop.build.optionsTitle",
-      "description": "Title of the Build options dialog",
+      "description": "Title of the Build options dialog and of the Build tool window header button that opens it",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.build.detection",
+      "description": "Heading of the Build options dialog section that sets how build systems are detected",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.build.ignoredPaths",
+      "description": "Label of the Build options field that lists the folders build detection skips, one .gitignore pattern a line",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.build.ignoredPathsHelp",
+      "description": "Tip of the ⓘ beside the ignored paths field: how the patterns are written and what is skipped by default",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.build.ignoredPathsLocal",
+      "description": "Caption under the ignored paths field when the list shown is the one saved on this machine",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.build.ignoredPathsTeam",
+      "description": "Caption under the ignored paths field when the list shown comes from the team Build options file; file is that file's path relative to the project",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "file": "string"
+      }
+    },
+    {
+      "id": "desktop.build.ignoredPathsDefault",
+      "description": "Caption under the ignored paths field when no Build options file sets the list and the default applies",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.build.invalidIgnoredPath",
+      "description": "Build options error when one ignored path is not a usable pattern; line is its line in the field",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "line": "string"
+      }
+    },
+    {
+      "id": "desktop.build.invalidIgnoredPaths",
+      "description": "Build options error when the ignored paths are each valid but cannot be used together",
       "platforms": [
         "desktop"
       ]
@@ -12047,8 +12099,50 @@
       ]
     },
     {
+      "id": "desktop.markdown.closeImage",
+      "description": "Accessible name of the button that closes an image enlarged in the Markdown preview",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
       "id": "desktop.markdown.contents",
       "description": "Name of the list of headings above the Markdown preview",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.markdown.empty",
+      "description": "Markdown preview text when the file has nothing to show",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.markdown.imagePreview",
+      "description": "Accessible name of an image enlarged in the Markdown preview",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.markdown.markmap",
+      "description": "Accessible name of a mind map drawn from a markmap code block in the Markdown preview",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.markdown.markmapFailed",
+      "description": "Markdown preview text in place of a markmap code block that could not be drawn",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.markdown.mermaidFailed",
+      "description": "Markdown preview text in place of a Mermaid code block that could not be drawn",
       "platforms": [
         "desktop"
       ]
@@ -13076,13 +13170,6 @@
     {
       "id": "desktop.pluginSettings.globalOnly",
       "description": "Installed plugin settings editor: globalOnly",
-      "platforms": [
-        "desktop"
-      ]
-    },
-    {
-      "id": "desktop.pluginSettings.inherited",
-      "description": "Installed plugin settings editor: inherited",
       "platforms": [
         "desktop"
       ]
@@ -14394,6 +14481,159 @@
       ]
     },
     {
+      "id": "desktop.settings.about.tagline",
+      "description": "Desktop settings About page: version facts, community and project links.",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.settings.about.copy",
+      "description": "Desktop settings About page: version facts, community and project links.",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.settings.about.copied",
+      "description": "Desktop settings About page: version facts, community and project links.",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.settings.about.copyHelp",
+      "description": "Desktop settings About page: version facts, community and project links.",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.settings.about.copyFailed",
+      "description": "Desktop settings About page: version facts, community and project links.",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "reason": "string"
+      }
+    },
+    {
+      "id": "desktop.settings.about.info",
+      "description": "Desktop settings About page: version facts, community and project links.",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.settings.about.version",
+      "description": "Desktop settings About page: version facts, community and project links.",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.settings.about.platform",
+      "description": "Desktop settings About page: version facts, community and project links.",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.settings.about.build",
+      "description": "Desktop settings About page: version facts, community and project links.",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.settings.about.buildUnknown",
+      "description": "Desktop settings About page: version facts, community and project links.",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.settings.about.runtime",
+      "description": "Desktop settings About page: version facts, community and project links.",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.settings.about.community",
+      "description": "Desktop settings About page: version facts, community and project links.",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.settings.about.qq",
+      "description": "Desktop settings About page: version facts, community and project links.",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.settings.about.qqHelp",
+      "description": "Desktop settings About page: version facts, community and project links.",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "number": "string"
+      }
+    },
+    {
+      "id": "desktop.settings.about.wechat",
+      "description": "Desktop settings About page: version facts, community and project links.",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.settings.about.wechatHelp",
+      "description": "Desktop settings About page: version facts, community and project links.",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.settings.about.project",
+      "description": "Desktop settings About page: version facts, community and project links.",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.settings.about.repo",
+      "description": "Desktop settings About page: version facts, community and project links.",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.settings.about.repoHelp",
+      "description": "Desktop settings About page: version facts, community and project links.",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.settings.about.issues",
+      "description": "Desktop settings About page: version facts, community and project links.",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.settings.about.issuesHelp",
+      "description": "Desktop settings About page: version facts, community and project links.",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
       "id": "desktop.settings.aiGeneration.help",
       "description": "AI settings page: generation options help",
       "platforms": [
@@ -15415,19 +15655,13 @@
       ]
     },
     {
-      "id": "desktop.settings.updates.download",
-      "description": "Updates settings page and update notices.",
-      "platforms": [
-        "desktop"
-      ]
-    },
-    {
       "id": "desktop.settings.updates.downloading",
       "description": "Updates settings page and update notices.",
       "platforms": [
         "desktop"
       ],
       "parameters": {
+        "version": "string",
         "percent": "string"
       }
     },
@@ -15443,13 +15677,6 @@
     },
     {
       "id": "desktop.settings.updates.help",
-      "description": "Updates settings page and update notices.",
-      "platforms": [
-        "desktop"
-      ]
-    },
-    {
-      "id": "desktop.settings.updates.install",
       "description": "Updates settings page and update notices.",
       "platforms": [
         "desktop"
@@ -15505,6 +15732,30 @@
     },
     {
       "id": "desktop.settings.updates.upToDate",
+      "description": "Updates settings page and update notices.",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "version": "string"
+      }
+    },
+    {
+      "id": "desktop.settings.updates.row",
+      "description": "Updates settings page and update notices.",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.settings.updates.autoHelp",
+      "description": "Updates settings page and update notices.",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.settings.updates.update",
       "description": "Updates settings page and update notices.",
       "platforms": [
         "desktop"
@@ -16971,15 +17222,15 @@
       ]
     },
     {
-      "id": "desktop.viewer.actualSize",
+      "id": "desktop.viewer.binaryHint",
       "description": "Editor viewer tab for non-text files",
       "platforms": [
         "desktop"
       ]
     },
     {
-      "id": "desktop.viewer.binaryHint",
-      "description": "Editor viewer tab for non-text files",
+      "id": "desktop.viewer.close",
+      "description": "Viewer toolbar: button that closes the viewer tab",
       "platforms": [
         "desktop"
       ]
@@ -17002,8 +17253,8 @@
       }
     },
     {
-      "id": "desktop.viewer.fit",
-      "description": "Editor viewer tab for non-text files",
+      "id": "desktop.viewer.imageFailed",
+      "description": "Image viewer: shown over the file path when the image could not be decoded",
       "platforms": [
         "desktop"
       ]
@@ -17026,8 +17277,50 @@
       }
     },
     {
+      "id": "desktop.viewer.resetZoom",
+      "description": "Image viewer toolbar: tooltip of the zoom percentage",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.viewer.resetZoomHint",
+      "description": "Image viewer toolbar: accessibility hint of the zoom percentage",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.viewer.tooLarge",
+      "description": "Viewer: shown instead of an image or PDF above the size the viewer shows",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
       "id": "desktop.viewer.truncated",
       "description": "Editor viewer tab for non-text files",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.viewer.zoom",
+      "description": "Image viewer toolbar: accessibility label of the zoom percentage, which resets to 100% when clicked",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.viewer.zoomIn",
+      "description": "Image viewer toolbar: button that zooms the image in by 25%",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.viewer.zoomOut",
+      "description": "Image viewer toolbar: button that zooms the image out by 25%",
       "platforms": [
         "desktop"
       ]
@@ -37357,7 +37650,8 @@
       "id": "mac.workbench.unhide",
       "description": "Restore a hidden tool window rail entry without opening its panel",
       "platforms": [
-        "macos"
+        "macos",
+        "desktop"
       ],
       "macos": {
         "key": "Unhide",
@@ -56313,7 +56607,8 @@
       "id": "native.hideEntry",
       "description": "Native UI: Hide Entry",
       "platforms": [
-        "macos"
+        "macos",
+        "desktop"
       ],
       "macos": {
         "key": "Hide Entry",
@@ -86775,7 +87070,8 @@
       "id": "native.toolWindows",
       "description": "Native UI: Tool Windows",
       "platforms": [
-        "macos"
+        "macos",
+        "desktop"
       ],
       "macos": {
         "key": "Tool Windows",
@@ -105474,6 +105770,13 @@
     {
       "id": "desktop.workbenchBackground.imageFilter",
       "description": "Workbench background file picker: the file type filter",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.svg.tooLarge",
+      "description": "SVG preview beside the editor: shown instead of the picture when the text is too large",
       "platforms": [
         "desktop"
       ]

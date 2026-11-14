@@ -1,7 +1,10 @@
 #!/usr/bin/env bash
 # Packages the Viva desktop client for the host OS:
 #
-# Usage: scripts/desktop/package-desktop.sh [--arch arm64|amd64] [--format LIST] [--out DIR] [--no-sign]
+# Usage: scripts/desktop/package-desktop.sh [--arch arm64|amd64] [--format LIST] [--out DIR] [--no-sign] [--stable]
+#
+# --stable packages the stable release, which shows the plain version; without it the client shows
+# the version as a preview. Only the Desktop Release passes it (scripts/ci/desktop-release).
 #
 # Viva builds the program from desktop/viva.toml, embeds that manifest and applies Windows
 # resources and signing. It must receive desktop-go.sh's cgo environment so the packaged client
@@ -38,6 +41,7 @@ ARCH="${GOARCH:-$(go env GOARCH)}"
 FORMATS=""
 OUT_DIR=""
 SIGN_ARGS=()
+STABLE=0
 while [[ $# -gt 0 ]]; do
     case "$1" in
         --arch)
@@ -65,8 +69,9 @@ while [[ $# -gt 0 ]]; do
             shift 2
             ;;
         --no-sign) SIGN_ARGS=(--no-sign); shift ;;
+        --stable) STABLE=1; shift ;;
         *)
-            printf '%s\n' "Usage: $0 [--arch arm64|amd64] [--format LIST] [--out DIR] [--no-sign]" >&2
+            printf '%s\n' "Usage: $0 [--arch arm64|amd64] [--format LIST] [--out DIR] [--no-sign] [--stable]" >&2
             exit 2
             ;;
     esac
@@ -192,9 +197,19 @@ trap 'rm -f -- "$EMBED_FILE"' EXIT
 # The macOS client's fonts (desktop/internal/bundledfont/fonts, tracked in Git) are compiled into the
 # executable under the lithe_bundled_fonts build tag, so the app bundle gets no font files and the
 # client never reads its own installation for them. Other platforms ignore the tag.
+BUILD_TAGS="lithe_bundled_helper,lithe_bundled_fonts"
+# --stable, which only the Desktop Release passes for the commit of its desktop-v<version> tag, adds
+# the lithe_stable build tag: the client then shows the plain version. Any other package, the daily
+# AutoBuild or a local one, shows the version as a preview.
+if [[ "$STABLE" == 1 ]]; then
+    BUILD_TAGS="$BUILD_TAGS,lithe_stable"
+    printf '%s\n' "Packaging the stable release $VERSION."
+else
+    printf '%s\n' "Packaging a preview of $VERSION."
+fi
 GOARCH="$ARCH" LITHE_DESKTOP_CORE_PROFILE=release \
     "$ROOT_DIR/scripts/desktop/desktop-go.sh" --exec "$VIVA_BIN" package \
     --target "$GOOS" --arch "$ARCH" --format "$FORMATS" -o "$VIVA_OUT" \
-    -tags lithe_bundled_helper,lithe_bundled_fonts \
+    -tags "$BUILD_TAGS" \
     "${SIGN_ARGS[@]+"${SIGN_ARGS[@]}"}"
 printf '%s\n' "$OUT_DIR"

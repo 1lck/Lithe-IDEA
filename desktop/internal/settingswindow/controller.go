@@ -107,7 +107,8 @@ type Values struct {
 	// Keymap is the user's changes to the keys of the shortcut catalog; nil keeps every
 	// default.
 	Keymap shortcuts.Overrides
-	// AutoCheckUpdates has Lithe check for a newer version when it starts, at most daily.
+	// AutoCheckUpdates has Lithe check for a newer version 5 seconds after it starts and
+	// then every hour, pausing while its window is in the background.
 	AutoCheckUpdates bool
 	// Network is the proxy settings of the application's own HTTP traffic.
 	Network NetworkSettings
@@ -198,8 +199,10 @@ type PluginSettingsActionLoader interface {
 // Options configure the settings window.
 type Options struct {
 	// GitHub is the account the Version Control page shows and drives; nil hides the card.
-	GitHub             *GitHubAccount
-	SettingsError      func(error)
+	GitHub *GitHubAccount
+	// SettingsError logs a failure of the window, with the operation that failed as the log
+	// names it (plugin_settings_surface, keymap_schemes, settings_about_copy, ...).
+	SettingsError      func(operation string, err error)
 	SettingsPages      func(context.Context) ([]core.SettingsPage, error)
 	SettingsNavigation func(context.Context, []core.SettingsNavigationItem, string) ([]core.SettingsNavigationRow, error)
 	// Marketplace fetches the enabled source only while the plugin page is open.
@@ -260,8 +263,11 @@ type Options struct {
 	// SystemLanguage is the language the system asks for, which the choice "follow the
 	// system" resolves to and names.
 	SystemLanguage i18n.Language
-	// Version is the application's version, shown on the About card.
+	// Version is the application's version, shown on the About and Updates pages.
 	Version string
+	// Stable says the build is a stable release, packaged from its release tag
+	// (buildinfo.Stable). The pages show any other build's version as a preview.
+	Stable bool
 	// SetLanguage and SetTheme run on the settings window's thread and must hand their
 	// individual changes to the settings owner without waiting for its window thread.
 	SetLanguage func(string)
@@ -326,13 +332,16 @@ type Options struct {
 	SetLocalHistory func(LocalHistorySettings)
 	LocalHistory    LocalHistorySource
 	// UpdateStatus reads what the updater is doing; it is safe from the window thread.
-	// CheckForUpdates, DownloadUpdate and InstallUpdate start the steps the Updates page
-	// offers, without waiting; SetAutoCheckUpdates hands a change of
-	// Values.AutoCheckUpdates to the owner. A nil UpdateStatus leaves the page unavailable.
+	// CheckForUpdates reads the feed, UpdateNow downloads and verifies the available
+	// version and then installs it and restarts (it installs at once a download that is
+	// already verified), and CancelUpdate stops a download; none of them waits.
+	// SetAutoCheckUpdates hands a change of Values.AutoCheckUpdates to the owner. A nil
+	// UpdateStatus leaves the Updates page unavailable and the About page without its
+	// update card.
 	UpdateStatus        func() UpdateStatus
 	CheckForUpdates     func()
-	DownloadUpdate      func()
-	InstallUpdate       func()
+	UpdateNow           func()
+	CancelUpdate        func()
 	SetAutoCheckUpdates func(bool)
 	// OpenURL opens an HTTPS page in the system browser.
 	OpenURL func(string)

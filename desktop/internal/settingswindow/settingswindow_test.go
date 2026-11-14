@@ -123,6 +123,7 @@ func TestDefaultSidebarListsTheTopLevelWithAppearanceExpanded(t *testing.T) {
 		{page: pageLanguages},
 		{page: pageTools, group: true},
 		{page: pageAI, group: true},
+		{page: pageAbout},
 	}
 	if !slices.Equal(rows, want) {
 		t.Fatalf("rows = %v, want %v", rows, want)
@@ -132,8 +133,8 @@ func TestDefaultSidebarListsTheTopLevelWithAppearanceExpanded(t *testing.T) {
 func TestCollapsedGroupHidesItsPages(t *testing.T) {
 	var open [pageCount]bool
 	rows := appendVisible(nil, english(), &open, "")
-	if len(rows) != 7 {
-		t.Fatalf("rows = %v, want the three groups and the four pages on the top level", rows)
+	if len(rows) != 8 {
+		t.Fatalf("rows = %v, want the three groups and the five pages on the top level", rows)
 	}
 	for _, r := range rows {
 		if r.level != 0 || r.expanded {
@@ -149,8 +150,8 @@ func TestExpandedToolsGroupListsTerminal(t *testing.T) {
 	open := initialOpen()
 	open[pageTools] = true
 	rows := appendVisible(nil, english(), &open, "")
-	if len(rows) != 15 {
-		t.Fatalf("rows = %v, want the 14 of the default sidebar and the Terminal page", rows)
+	if len(rows) != 16 {
+		t.Fatalf("rows = %v, want the 15 of the default sidebar and the Terminal page", rows)
 	}
 	for i, r := range rows {
 		if r.page != pageTools {
@@ -266,8 +267,8 @@ func TestAppendVisibleKeepsWhatIsAlreadyInDst(t *testing.T) {
 	open := initialOpen()
 	dst := []row{{page: pageAI}}
 	rows := appendVisible(dst, english(), &open, "")
-	if len(rows) != 15 || rows[0] != (row{page: pageAI}) {
-		t.Fatalf("rows = %v, want the old row followed by the 14 of the sidebar", rows)
+	if len(rows) != 16 || rows[0] != (row{page: pageAI}) {
+		t.Fatalf("rows = %v, want the old row followed by the 15 of the sidebar", rows)
 	}
 }
 
@@ -295,6 +296,7 @@ func TestBreadcrumb(t *testing.T) {
 		{pageIDEAPI, []string{"AI", "IDE Connection"}},
 		{pageTools, []string{"Tools"}},
 		{pageTerminal, []string{"Tools", "Terminal"}},
+		{pageAbout, []string{"About"}},
 	}
 	for _, tc := range cases {
 		if got := appendBreadcrumb(nil, english(), tc.page); !slices.Equal(got, tc.want) {

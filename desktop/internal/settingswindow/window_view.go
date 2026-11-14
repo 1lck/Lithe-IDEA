@@ -183,6 +183,9 @@ func (w *window) content(c ui.C) {
 		// Leaving the page stops wanting the fetch, which cancels it.
 		w.market.close()
 	}
+	if w.sess.page != pageAbout {
+		w.about = aboutState{}
+	}
 	ui.Column(c).Grow(1).Shrink(1).FillHeight().MinWidth(0).Children(func() {
 		if w.sess.page == pagePlugins && w.ctrl.opts.Marketplace != nil {
 			w.marketplacePage(c)
@@ -218,6 +221,8 @@ func (w *window) content(c ui.C) {
 			w.processTerminationPage(c)
 		case w.sess.page == pageIDEAPI && w.ctrl.opts.IDEAPI != nil:
 			w.ideAPIPage(c)
+		case w.sess.page == pageAbout:
+			w.aboutPage(c)
 		default:
 			w.unavailablePage(c)
 		}
@@ -343,8 +348,8 @@ func (w *window) radio(c ui.C, value *string, option, label string, disabled boo
 	return choice.Changed()
 }
 
-// generalPage is the general page: the cards that edit settings, then the one that
-// reports the version.
+// generalPage is the general page: the cards that edit the look, the language and how
+// projects open and save. The version is on the About page.
 func (w *window) generalPage(c ui.C) {
 	p := &w.pal
 	settings := &w.text.Settings
@@ -420,12 +425,6 @@ func (w *window) generalPage(c ui.C) {
 		if w.ctrl.opts.SetLocalHistory != nil {
 			w.localHistoryCard(c)
 		}
-		w.card(c, settings.About, "", func() {
-			ui.Column(c).FillWidth().Gap(2).Children(func() {
-				ui.Text(c, w.text.App.Name).FontSize(13).Weight(gfx.WeightSemibold).Color(p.text).Ellipsis()
-				ui.Text(c, w.text.App.Version(w.ctrl.opts.Version)).FontSize(12).Color(p.muted).Ellipsis()
-			})
-		})
 	})
 	// A control wrote into a copy of the value: only what changed is told to the owner.
 	if w.themePick != w.sess.values.Theme {

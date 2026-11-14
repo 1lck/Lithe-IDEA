@@ -103,7 +103,7 @@ func (s *settingsSurfaces) run(parent context.Context) (surfacesResult, error) {
 			result.err = err
 			// log-exempt: 用户取消：快速搜索或关闭窗口取代旧请求。
 			if !errors.Is(err, context.Canceled) {
-				reportSettingsError(opts, err)
+				reportSettingsError(opts, pluginSettingsOperation, err)
 			}
 		}
 	}
@@ -148,7 +148,7 @@ func (s *settingsSurfaces) run(parent context.Context) (surfacesResult, error) {
 		result.err = err
 		// log-exempt: 用户取消：快速搜索或关闭窗口取代旧请求。
 		if !errors.Is(err, context.Canceled) {
-			reportSettingsError(opts, err)
+			reportSettingsError(opts, pluginSettingsOperation, err)
 		}
 	} else {
 		for _, item := range projected {
@@ -234,13 +234,13 @@ func (w *window) selectPluginForm(id string) bool {
 	}
 	if len(w.pluginForms) >= 64 {
 		if !w.formLimitReported {
-			reportSettingsError(w.ctrl.opts, errors.New("plugin settings form capacity exceeded"))
+			reportSettingsError(w.ctrl.opts, pluginSettingsOperation, errors.New("plugin settings form capacity exceeded"))
 			w.formLimitReported = true
 		}
 		return false
 	}
 	form := newPluginSettingsForm(w.ctrl.opts.PluginSettings)
-	form.report = func(err error) { reportSettingsError(w.ctrl.opts, err) }
+	form.report = func(err error) { reportSettingsError(w.ctrl.opts, pluginSettingsOperation, err) }
 	w.formLimitReported = false
 	w.pluginSettings = form
 	w.pluginForms[id] = form
@@ -297,9 +297,14 @@ func (w *window) contributorLabel(id string) string {
 	return id
 }
 
-func reportSettingsError(opts Options, err error) {
+// pluginSettingsOperation names, in the log, a failure of the settings a plugin contributes.
+const pluginSettingsOperation = "plugin_settings_surface"
+
+// reportSettingsError hands a failure of the settings window to the host, with the operation
+// that failed as the log names it, so a failure of one page is not logged as another's.
+func reportSettingsError(opts Options, operation string, err error) {
 	if opts.SettingsError != nil {
-		opts.SettingsError(err)
+		opts.SettingsError(operation, err)
 	} else if opts.MarketplaceError != nil {
 		opts.MarketplaceError(err)
 	}

@@ -5,6 +5,7 @@ import (
 	"math"
 	"os"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strings"
 	"testing"
@@ -254,19 +255,30 @@ func TestMarkdownModeSwitchKeepsThePlace(t *testing.T) {
 	}
 }
 
-func TestMarkdownLinkTargetResolvesExternalRelativeAndAnchor(t *testing.T) {
-	document := filepath.Join("work", "README.md")
-	if got := markdownLinkTargetOf(document, "https://example.com/a?b=1"); got.external != "https://example.com/a?b=1" || got.path != "" {
-		t.Fatalf("external target = %+v", got)
+// TestMarkdownPreviewFollowsLinksAsCoreResolvesThem: a web or mail link opens outside, an anchor
+// brings its heading to the top of the page and the source, and another scheme is not followed.
+func TestMarkdownPreviewFollowsLinksAsCoreResolvesThem(t *testing.T) {
+	var opened []string
+	previous := openURL
+	openURL = func(address string) error { opened = append(opened, address); return nil }
+	t.Cleanup(func() { openURL = previous })
+
+	h := newHarness(t, &testKernel{Client: core.NewClient()})
+	d := openMarkdown(t, h, longMarkdown())
+	p, s := h.app.project, d.markdown
+	for _, destination := range []string{"https://example.com/a?b=1", "mailto:me@example.com", "file:///etc/hosts", "javascript:alert(1)", "#part-12"} {
+		h.app.followMarkdownLink(p, d, s, destination)
+		h.settle()
 	}
-	if got := markdownLinkTargetOf(document, "docs/guide.md#setup"); got.path != filepath.Join("work", "docs", "guide.md") {
-		t.Fatalf("relative target = %+v", got)
+	if want := []string{"https://example.com/a?b=1", "mailto:me@example.com"}; !slices.Equal(opened, want) {
+		t.Fatalf("opened %v, want %v", opened, want)
 	}
-	if got := markdownLinkTargetOf(document, "#Second-part"); got.anchor != "Second-part" {
-		t.Fatalf("anchor target = %+v", got)
+	want, _ := s.view.YAtSource(s.source, s.headings[11].start)
+	if math.Abs(float64(s.scroll-want)) > 1 {
+		t.Fatalf("the page is at %v after the anchor, want the heading at %v", s.scroll, want)
 	}
-	if got := markdownLinkTargetOf(document, "file:///tmp/secret"); got != (markdownLinkTarget{}) {
-		t.Fatalf("a non-web scheme resolved to a path: %+v", got)
+	if line := editorTopLine(d); line != 55 {
+		t.Fatalf("the source's top line is %d after the anchor, want the heading's line 55", line)
 	}
 }
 

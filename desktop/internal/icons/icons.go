@@ -752,6 +752,29 @@ var Eraser = gfx.Icon{
 	},
 }
 
+// external-link is a compiled vector icon.
+var ExternalLink = gfx.Icon{
+	ViewBox: 24.0,
+	Stroke:  2.0,
+	Cap:     gfx.CapRound,
+	Join:    gfx.JoinRound,
+	Commands: []gfx.PathCommand{
+		gfx.MoveTo(15.0, 3.0),
+		gfx.LineTo(21.0, 3.0),
+		gfx.LineTo(21.0, 9.0),
+		gfx.MoveTo(10.0, 14.0),
+		gfx.LineTo(21.0, 3.0),
+		gfx.MoveTo(18.0, 13.0),
+		gfx.LineTo(18.0, 19.0),
+		gfx.CubicTo(18.0, 20.1046, 17.1046, 21.0, 16.0, 21.0),
+		gfx.LineTo(5.0, 21.0),
+		gfx.CubicTo(3.89543, 21.0, 3.0, 20.1046, 3.0, 19.0),
+		gfx.LineTo(3.0, 8.0),
+		gfx.CubicTo(3.0, 6.89543, 3.89543, 6.0, 5.0, 6.0),
+		gfx.LineTo(11.0, 6.0),
+	},
+}
+
 // eye is a compiled vector icon.
 var Eye = gfx.Icon{
 	ViewBox: 24.0,
@@ -1079,6 +1102,33 @@ var GitCompare = gfx.Icon{
 	},
 }
 
+// github is a compiled vector icon.
+var Github = gfx.Icon{
+	ViewBox: 24.0,
+	Stroke:  2.0,
+	Cap:     gfx.CapRound,
+	Join:    gfx.JoinRound,
+	Commands: []gfx.PathCommand{
+		gfx.MoveTo(15.0, 22.0),
+		gfx.LineTo(15.0, 18.0),
+		gfx.CubicTo(15.1391, 16.7473, 14.7799, 15.4901, 14.0, 14.5),
+		gfx.CubicTo(17.0, 14.5, 20.0, 12.5, 20.0, 9.0),
+		gfx.CubicTo(20.08, 7.75, 19.73, 6.52, 19.0, 5.5),
+		gfx.CubicTo(19.28, 4.35, 19.28, 3.15, 19.0, 2.0),
+		gfx.CubicTo(19.0, 2.0, 18.0, 2.0, 16.0, 3.5),
+		gfx.CubicTo(13.36, 3.0, 10.64, 3.0, 8.0, 3.5),
+		gfx.CubicTo(6.0, 2.0, 5.0, 2.0, 5.0, 2.0),
+		gfx.CubicTo(4.7, 3.15, 4.7, 4.35, 5.0, 5.5),
+		gfx.CubicTo(4.27187, 6.51588, 3.91847, 7.75279, 4.0, 9.0),
+		gfx.CubicTo(4.0, 12.5, 7.0, 14.5, 10.0, 14.5),
+		gfx.CubicTo(9.61, 14.99, 9.32, 15.55, 9.15, 16.15),
+		gfx.CubicTo(8.98, 16.75, 8.93, 17.38, 9.0, 18.0),
+		gfx.LineTo(9.0, 22.0),
+		gfx.MoveTo(9.0, 18.0),
+		gfx.CubicTo(4.49, 20.0, 4.0, 16.0, 2.0, 16.0),
+	},
+}
+
 // history is a compiled vector icon.
 var History = gfx.Icon{
 	ViewBox: 24.0,
@@ -1127,6 +1177,35 @@ var Image = gfx.Icon{
 		gfx.LineTo(17.914, 11.914),
 		gfx.CubicTo(17.133, 11.1332, 15.867, 11.1332, 15.086, 11.914),
 		gfx.LineTo(6.0, 21.0),
+	},
+}
+
+// image-off is a compiled vector icon.
+var ImageOff = gfx.Icon{
+	ViewBox: 24.0,
+	Stroke:  2.0,
+	Cap:     gfx.CapRound,
+	Join:    gfx.JoinRound,
+	Commands: []gfx.PathCommand{
+		gfx.MoveTo(2.0, 2.0),
+		gfx.LineTo(22.0, 22.0),
+		gfx.MoveTo(10.41, 10.41),
+		gfx.CubicTo(9.62852, 11.1915, 8.36148, 11.1915, 7.58, 10.41),
+		gfx.CubicTo(6.79852, 9.62852, 6.79852, 8.36148, 7.58, 7.58),
+		gfx.MoveTo(13.5, 13.5),
+		gfx.LineTo(6.0, 21.0),
+		gfx.MoveTo(18.0, 12.0),
+		gfx.LineTo(21.0, 15.0),
+		gfx.MoveTo(3.59, 3.59),
+		gfx.CubicTo(3.21348, 3.96272, 3.00113, 4.4702, 3.0, 5.0),
+		gfx.LineTo(3.0, 19.0),
+		gfx.CubicTo(3.0, 20.1046, 3.89543, 21.0, 5.0, 21.0),
+		gfx.LineTo(19.0, 21.0),
+		gfx.CubicTo(19.55, 21.0, 20.052, 20.78, 20.41, 20.41),
+		gfx.MoveTo(21.0, 15.0),
+		gfx.LineTo(21.0, 5.0),
+		gfx.CubicTo(21.0, 3.89543, 20.1046, 3.0, 19.0, 3.0),
+		gfx.LineTo(9.0, 3.0),
 	},
 }
 
@@ -1306,6 +1385,50 @@ var LockOpen = gfx.Icon{
 	},
 }
 
+// message-circle is a compiled vector icon.
+var MessageCircle = gfx.Icon{
+	ViewBox: 24.0,
+	Stroke:  2.0,
+	Cap:     gfx.CapRound,
+	Join:    gfx.JoinRound,
+	Commands: []gfx.PathCommand{
+		gfx.MoveTo(7.9, 20.0),
+		gfx.CubicTo(11.8432, 22.0227, 16.672, 20.8739, 19.2818, 17.2922),
+		gfx.CubicTo(21.8915, 13.7104, 21.5055, 8.76188, 18.3718, 5.62819),
+		gfx.CubicTo(15.2381, 2.49451, 10.2896, 2.10846, 6.70782, 4.71825),
+		gfx.CubicTo(3.12607, 7.32804, 1.97725, 12.1568, 4.0, 16.1),
+		gfx.LineTo(2.0, 22.0),
+		gfx.ClosePath(),
+	},
+}
+
+// messages-square is a compiled vector icon.
+var MessagesSquare = gfx.Icon{
+	ViewBox: 24.0,
+	Stroke:  2.0,
+	Cap:     gfx.CapRound,
+	Join:    gfx.JoinRound,
+	Commands: []gfx.PathCommand{
+		gfx.MoveTo(14.0, 9.0),
+		gfx.CubicTo(14.0, 10.1046, 13.1046, 11.0, 12.0, 11.0),
+		gfx.LineTo(6.0, 11.0),
+		gfx.LineTo(2.0, 15.0),
+		gfx.LineTo(2.0, 4.0),
+		gfx.CubicTo(2.0, 2.89543, 2.89543, 2.0, 4.0, 2.0),
+		gfx.LineTo(12.0, 2.0),
+		gfx.CubicTo(13.1046, 2.0, 14.0, 2.89543, 14.0, 4.0),
+		gfx.ClosePath(),
+		gfx.MoveTo(18.0, 9.0),
+		gfx.LineTo(20.0, 9.0),
+		gfx.CubicTo(21.1046, 9.0, 22.0, 9.89543, 22.0, 11.0),
+		gfx.LineTo(22.0, 22.0),
+		gfx.LineTo(18.0, 18.0),
+		gfx.LineTo(12.0, 18.0),
+		gfx.CubicTo(10.8954, 18.0, 10.0, 17.1046, 10.0, 16.0),
+		gfx.LineTo(10.0, 15.0),
+	},
+}
+
 // minus is a compiled vector icon.
 var Minus = gfx.Icon{
 	ViewBox: 24.0,
@@ -1315,6 +1438,29 @@ var Minus = gfx.Icon{
 	Commands: []gfx.PathCommand{
 		gfx.MoveTo(5.0, 12.0),
 		gfx.LineTo(19.0, 12.0),
+	},
+}
+
+// monitor is a compiled vector icon.
+var Monitor = gfx.Icon{
+	ViewBox: 24.0,
+	Stroke:  2.0,
+	Cap:     gfx.CapRound,
+	Join:    gfx.JoinRound,
+	Commands: []gfx.PathCommand{
+		gfx.MoveTo(20.0, 3.0),
+		gfx.CubicTo(21.1046, 3.0, 22.0, 3.89543, 22.0, 5.0),
+		gfx.LineTo(22.0, 15.0),
+		gfx.CubicTo(22.0, 16.1046, 21.1046, 17.0, 20.0, 17.0),
+		gfx.LineTo(4.0, 17.0),
+		gfx.CubicTo(2.89543, 17.0, 2.0, 16.1046, 2.0, 15.0),
+		gfx.LineTo(2.0, 5.0),
+		gfx.CubicTo(2.0, 3.89543, 2.89543, 3.0, 4.0, 3.0),
+		gfx.ClosePath(),
+		gfx.MoveTo(8.0, 21.0),
+		gfx.LineTo(16.0, 21.0),
+		gfx.MoveTo(12.0, 17.0),
+		gfx.LineTo(12.0, 21.0),
 	},
 }
 
@@ -1947,5 +2093,47 @@ var X = gfx.Icon{
 		gfx.LineTo(6.0, 18.0),
 		gfx.MoveTo(6.0, 6.0),
 		gfx.LineTo(18.0, 18.0),
+	},
+}
+
+// zoom-in is a compiled vector icon.
+var ZoomIn = gfx.Icon{
+	ViewBox: 24.0,
+	Stroke:  2.0,
+	Cap:     gfx.CapRound,
+	Join:    gfx.JoinRound,
+	Commands: []gfx.PathCommand{
+		gfx.MoveTo(19.0, 11.0),
+		gfx.CubicTo(19.0, 15.4183, 15.4183, 19.0, 11.0, 19.0),
+		gfx.CubicTo(6.58172, 19.0, 3.0, 15.4183, 3.0, 11.0),
+		gfx.CubicTo(3.0, 6.58172, 6.58172, 3.0, 11.0, 3.0),
+		gfx.CubicTo(15.4183, 3.0, 19.0, 6.58172, 19.0, 11.0),
+		gfx.ClosePath(),
+		gfx.MoveTo(21.0, 21.0),
+		gfx.LineTo(16.65, 16.65),
+		gfx.MoveTo(11.0, 8.0),
+		gfx.LineTo(11.0, 14.0),
+		gfx.MoveTo(8.0, 11.0),
+		gfx.LineTo(14.0, 11.0),
+	},
+}
+
+// zoom-out is a compiled vector icon.
+var ZoomOut = gfx.Icon{
+	ViewBox: 24.0,
+	Stroke:  2.0,
+	Cap:     gfx.CapRound,
+	Join:    gfx.JoinRound,
+	Commands: []gfx.PathCommand{
+		gfx.MoveTo(19.0, 11.0),
+		gfx.CubicTo(19.0, 15.4183, 15.4183, 19.0, 11.0, 19.0),
+		gfx.CubicTo(6.58172, 19.0, 3.0, 15.4183, 3.0, 11.0),
+		gfx.CubicTo(3.0, 6.58172, 6.58172, 3.0, 11.0, 3.0),
+		gfx.CubicTo(15.4183, 3.0, 19.0, 6.58172, 19.0, 11.0),
+		gfx.ClosePath(),
+		gfx.MoveTo(21.0, 21.0),
+		gfx.LineTo(16.65, 16.65),
+		gfx.MoveTo(8.0, 11.0),
+		gfx.LineTo(14.0, 11.0),
 	},
 }

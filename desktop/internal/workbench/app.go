@@ -52,7 +52,6 @@ import (
 // test chooses.
 type Kernel interface {
 	SelectPluginFunctionProvider(context.Context, string, string, string, string, []core.PluginFunctionProviderCandidate) (string, error)
-	Version() string
 	ReduceRecentProjects(ctx context.Context, entries []core.RecentProject, action core.RecentAction, capacity int) (core.RecentProjectsResult, error)
 	GitCheckoutBranch(ctx context.Context, text string) (string, error)
 	GitDirectoryPointer(ctx context.Context, text string) (string, error)
@@ -64,6 +63,7 @@ type Kernel interface {
 	DetectBuildSystemsWithOptions(ctx context.Context, workspaceRoot string, manifests []json.RawMessage, options core.BuildDetectOptions) (core.BuildDetection, error)
 	ResolveStoredBuildOptions(ctx context.Context, document, local json.RawMessage) (core.BuildStoredOptions, error)
 	EditStoredBuildOption(ctx context.Context, manifest json.RawMessage, buildSystemID string, request core.BuildOptionEditRequest) (core.BuildOptionEdit, error)
+	EditBuildIgnoredPaths(ctx context.Context, request core.BuildIgnoredPathsEditRequest) (core.BuildIgnoredPathsEdit, error)
 	IDEHostOpen(ctx context.Context, request core.IDEHostOpenRequest) (core.IDEHostOpenResult, error)
 	IDEHostPoll(ctx context.Context, hostID string) (core.IDEHostPollResult, error)
 	IDEHostClaim(ctx context.Context, hostID, requestID string) (core.IDEHostClaimResult, error)
@@ -311,8 +311,9 @@ type settings struct {
 	// settingswindow.ProjectOpenThisWindow, ProjectOpenNewWindow, or empty to ask
 	// (project_open_destination.go).
 	ProjectOpenDestination string `json:"projectOpenDestination,omitempty"`
-	// UpdatesManual stops the daily check at startup; UpdatesCheckedAt is the last check
-	// that read the feed (updates.go).
+	// UpdatesManual turns off the automatic update check, which otherwise runs shortly
+	// after launch and then hourly; UpdatesCheckedAt is the last check that read the feed.
+	// Both are the window's (updater.store, updates.go).
 	UpdatesManual    bool      `json:"updatesManual,omitempty"`
 	UpdatesCheckedAt time.Time `json:"updatesCheckedAt,omitzero"`
 	// Network is the proxy settings of the application's own HTTP traffic (network.go).
@@ -474,10 +475,14 @@ type App struct {
 	// is whether this workbench's stripe shows its popover (workbench_background.go).
 	backdrop     *workbenchBackground
 	backdropOpen bool
+	// hiddenListOpen is whether the "…" button under the left stripe's top group shows the
+	// list of the hidden stripe buttons (chrome_view.go hiddenToolWindows).
+	hiddenListOpen bool
 	// shownTitle is the system title last given to the window (window_title.go).
 	shownTitle string
-	// updates is the update check, download and install (updates.go).
-	updates updater
+	// updates is the update check, download and install, which every tab of the window
+	// shares (updates.go).
+	updates *updater
 	tasks   taskQueue
 	// languages are the languages the editor knows, made when the first file is opened.
 	languages *syntax.Registry
@@ -525,6 +530,10 @@ type App struct {
 	webReady bool
 	// pluginPages are the open pages of web tool windows by chrome identifier.
 	pluginPages map[string]*pluginPage
+	// previews are the web pages of the editor area: Markdown pages and file viewers.
+	previews previewPages
+	// checker is the checkerboard the native image viewers draw images over (viewer_image.go).
+	checker checker
 	// pluginInstall is the install the user started.
 	pluginInstall pluginInstallState
 	// credentialImport is the import of an earlier client's plugin secrets the user asked
@@ -712,8 +721,10 @@ func New(options Options) *App {
 		a.invalidator = first.invalidator
 		a.application, a.window, a.fullscreen = first.application, first.window, first.fullscreen
 		a.logSink, a.logs = first.logSink, first.logs
+		a.updates = first.updates
 	} else {
 		a.sessions = newWindowSessions(a, options)
+		a.updates = newUpdater(a.settings)
 		a.invalidator = windowWake{invalidator: new(app.Invalidator)}
 	}
 	if options.Logs != nil && options.first == nil {
@@ -861,6 +872,7 @@ func (a *App) closed() {
 	a.closeNewProject()
 	a.closeProject()
 	a.settingsWindow.Close()
+	a.stopUpdates()
 }
 
 // openLogs shows the log window. The window is opened from the queue drained in OnWake,
@@ -951,6 +963,7 @@ func (a *App) setTheme(choice themeChoice) {
 func (a *App) saveSettings() {
 	// The background is the window's, which another tab may have changed since this one loaded.
 	a.settings.WorkbenchBackground = a.savedBackgroundState()
+	a.updates.store(&a.settings)
 	if err := a.store.Save(settingsFile, a.settings); err != nil {
 		a.emit(operationFailedLevel, operationFailedEvent, operationFailedFields("settings_save", documentLogError(err)))
 		a.notifyError(a.text.Errors.SaveFailed(err.Error()))
@@ -959,6 +972,36 @@ func (a *App) saveSettings() {
 
 // resetLayout puts every rearrangeable button back where the catalog puts it.
 func (a *App) resetLayout() { a.reduceChrome(core.ResetChrome()) }
+
+// hideEntry takes the stripe button of catalog item index off its stripe. The kernel keeps its
+// zone and position and closes its tool window; the background button's popover closes with
+// it, because it hangs off the button.
+func (a *App) hideEntry(index int) {
+	id := a.chrome.catalog[index].id
+	if id == itemBackground {
+		a.backdropOpen = false
+	}
+	a.reduceChrome(core.SetChromeHidden(id, true))
+}
+
+// showEntry puts the hidden stripe button of catalog item index back where it was and, when
+// open is set, opens what the button opens, as a click on it does: its tool window, or the
+// background button's popover. A tool window that is already open, from a shortcut, stays
+// open.
+func (a *App) showEntry(index int, open bool) {
+	it := a.chrome.catalog[index]
+	a.reduceChrome(core.SetChromeHidden(it.id, false))
+	if !open || a.chrome.isHidden(index) {
+		// The kernel refused, which reduceChrome reported.
+		return
+	}
+	switch {
+	case it.id == itemBackground:
+		a.backdropOpen = true
+	case it.panel && !a.chrome.isOpen(index):
+		a.activate(index)
+	}
+}
 
 // activate is a click on the rearrangeable button of catalog item index: a tool
 // button opens or closes its tool window, the settings button opens or closes its menu
@@ -1178,6 +1221,7 @@ func (a *App) finishCloseProject(p *project, after func()) {
 		a.ideAPIDisable(p)
 		p.cancel()
 		a.closePluginPages()
+		a.closePreviewPages()
 		a.closeTree(p)
 		a.closeGitObservation(p)
 		a.releaseProjectSearch(p)

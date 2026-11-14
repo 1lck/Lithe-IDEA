@@ -7,6 +7,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/1lck/Lithe-IDEA/desktop/internal/buildinfo"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/core"
 	"github.com/vivaui/viva/app"
 	"github.com/vivaui/viva/gfx"
@@ -18,6 +19,8 @@ func TestWelcomeTitleAndVersionMatchWindowChrome(t *testing.T) {
 	if err := h.driver.Resize(900, 600); err != nil {
 		t.Fatal(err)
 	}
+	// A test build is not a release, so the version carries the preview label.
+	version := h.app.text.App.Version("0.6.7", buildinfo.Stable)
 	var titleFound, versionFound bool
 	for _, label := range h.driver.Snapshot().Labels {
 		switch label.Value {
@@ -26,7 +29,7 @@ func TestWelcomeTitleAndVersionMatchWindowChrome(t *testing.T) {
 			if runtime.GOOS == "darwin" && (label.Bounds.X < 80 || label.Bounds.X > 120) {
 				t.Fatalf("welcome title overlaps the system controls or is centered: %v", label.Bounds)
 			}
-		case "0.6.7":
+		case version:
 			versionFound = true
 		case "版本 0.6.7":
 			t.Fatal("welcome version includes an extra label absent from the native sidebar")
