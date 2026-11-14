@@ -134,31 +134,45 @@ feat 和 fix 必填，docs 和 release 只处理确实涉及的组。每组的�
 
 ### 功能矩阵 / Feature matrix
 
-<!-- 触发：新增用户可见能力，或改变了跨平台行为（见 `develop-lithe` 第十节）。 -->
+<!-- 触发：新增宿主的用户可见能力，或改变了宿主的跨平台行为（见 `develop-lithe` 第十节）。具体插件提供的能力不在宿主矩阵建条目，由插件仓库维护。 -->
 
 - [ ] 已更新 `shared/platform-feature-matrix/features/<id>.json`：两端的实现状态和验证状态、证据路径、owner、验证动作都如实填写；没有运行验证的保持 `pending`
 - [ ] 已运行 `./scripts/platform-feature-matrix/verify-platform-feature-matrix.sh`；改了平台实现路径的，还运行了 `./scripts/platform-feature-matrix/verify-platform-feature-matrix-change.sh origin/preview HEAD`
 - [ ] 没有提交 `.artifacts/` 下生成的矩阵视图
 - [ ] 没有更新矩阵的，理由（`matrix-exempt` 标签只能由 reviewer 给已审查、且没有用户可观察变化的重构添加，作者不要自行声明）：
 
+### 插件归属 / Plugin ownership
+
+<!--
+触发：任何改动都要检查。插件的代码、测试（包括端到端测试）、功能矩阵、翻译和构建资源说明只在插件仓库；
+宿主和 Core 对具体插件零依赖。规则见 `develop-lithe` 第三节“插件归属与宿主零依赖”，违反时审查按 P1 阻塞。
+-->
+
+- [ ] 已在仓库根目录运行 `develop-lithe` 第三节“插件归属与宿主零依赖”的自查命令，结果为空
+- [ ] 新增或修改的测试只使用测试内联的合成插件、Core 契约 fixture 或插件市场索引快照；没有读取具体插件的插件包、仓库检出、构建产物或清单，没有使用真实插件 ID，没有“缺少插件时跳过”的测试
+- [ ] 没有为具体插件提供的能力新建或更新宿主功能矩阵条目；宿主条目的证据和验证动作不引用插件的测试、插件包或插件仓库
+- [ ] 插件文案没有写进 `shared/i18n/`；插件的构建步骤、资源路径和补丁没有写进 `scripts/resources/`、`docs/ci-builds.md`、Agent Note 或 Skill
+- [ ] 修改了通用扩展点、可能影响已发布插件的，已在受影响插件的仓库运行它的测试，插件仓库与结果：
+
 ### 统一日志系统 / Structured logging
 
 <!--
 触发：新增或改动了生命周期里程碑、用户操作的终态、功能降级、自动恢复或失败路径。
-规则见 `.agents/skills/develop-lithe/references/logging.md` 和 `shared/logging/README.md`。
+规则见 `.agents/skills/develop-lithe/references/logging.md` 和固定 Core 修订的 `rust/logging/README.md`。
 Windows 目前仍使用 v1 日志，Windows 改动沿用现有写法，并在此注明。
 -->
 
-- [ ] 已接入统一日志系统：事件先在 `shared/logging/events/<root>.json` 声明，再用生成的事件类型和 span 记录；没有 `NSLog`、`os_log`/`Logger`、直接写 stderr、`print` 或手写事件 ID
+- [ ] 已接入统一日志系统：事件先在固定 Core 修订的 `rust/logging/events/<root>.json` 声明，再用生成的事件类型和 span 记录；没有 `NSLog`、`os_log`/`Logger`、直接写 stderr、`print` 或手写事件 ID
 - [ ] 一个操作只有一条终态，错误只在处理它的边界记录一次；高频路径没有用 INFO 逐项输出
 - [ ] 没有记录源码、编辑内容、环境变量值、命令输出、凭据；路径用 `path`、错误用 `error` 类型，动态通道段来自已校验的 ID
-- [ ] 已运行 `node scripts/logging/generate-log-events.mjs --check` 和 `node scripts/logging/verify-log-usage.mjs`；没有为新违规往 `scripts/logging/log-usage-allowlist.json` 加条目或增大计数（永久例外必须有具体的协议或架构理由）
+- [ ] 旧日志生成和使用校验脚本（`scripts/logging/`）已移除，等价检查恢复前在“验证”一节写明日志门禁未完成，不记为通过
 
 ### 界面文案 / i18n
 
 <!-- 触发：任何会显示给用户的文字（错误、弹窗、按钮、状态、通知、占位符、提示、无障碍标签、菜单与窗口标题）。 -->
 
-- [ ] 文案都走共享 i18n：在 `shared/i18n/` 补齐中英词条，运行 `node scripts/i18n/generate-i18n.mjs` 并提交生成结果，没有手改生成文件；macOS 视图外使用 `L10n.string`
+- [ ] 宿主文案都走共享 i18n：在 `shared/i18n/` 补齐中英词条，运行 `node scripts/i18n/generate-i18n.mjs` 并提交生成结果，没有手改生成文件；Viva 代码通过 `desktop/internal/i18n/` 的接口读取
+- [ ] 插件提供的文字（清单标题和说明、插件界面、插件后端消息）由插件自己翻译，没有写进 `shared/i18n/`
 - [ ] 已运行 `node scripts/i18n/verify-app-language-localization.mjs` 和 `node scripts/i18n/generate-i18n.mjs --check`，没有放宽脚本或扩大豁免名单
 
 ### 逻辑归属 / Logic placement
@@ -174,7 +188,7 @@ Windows 目前仍使用 v1 日志，Windows 改动沿用现有写法，并在此
 <!-- 触发：新增后台功能、子进程、缓存、定时器、依赖，或改动了启动、打开项目、输入、滚动、大文件、长输出、搜索（见 `develop-lithe` 第四节）。 -->
 
 - [ ] 功能、子进程、语言服务器、WebView 首次需要才启动；没有新增空闲轮询；缓存和缓冲有上限；关闭项目、窗口、面板、标签时释放独占资源
-- [ ] 主线程没有文件读写、目录遍历、进程启动；跨 C ABI、Tauri IPC、WebView 只传增量或可见窗口
+- [ ] 主线程没有文件读写、目录遍历、进程启动；跨 C ABI、web view 只传增量或可见窗口
 - [ ] 涉及启动、打开项目、输入、滚动、大文件、长输出或搜索的，已附改动前后的性能基线数据；新增运行时或大型依赖的，已写明对启动时间、常驻内存和安装包体积的影响：
 
 ### 设置 / Settings
@@ -206,7 +220,7 @@ Windows 目前仍使用 v1 日志，Windows 改动沿用现有写法，并在此
 <!-- 触发：新增或修改运行时资源、缓存、下载物、解压物、日志或锁文件，或任何下载、解压、生成资源的构建步骤。 -->
 
 - [ ] 运行时不向已安装的 app bundle 或 Windows 安装目录写入；新增的资源路径已说明生命周期、所有权和可写位置，并运行 `./scripts/desktop/verify/verify-runtime-bundle-immutability.sh`
-- [ ] 新增或修改下载、解压、生成或缓存资源的，已同步 `scripts/resources/worktree-resources.json`、`scripts/resources/reuse-worktree-resources.mjs` 的校验路由、对应测试和 `docs/ci-builds.md`“独立工作树的本地编译”一节
+- [ ] 新增或修改宿主自身的下载、解压、生成或缓存资源的，已同步 `scripts/resources/worktree-resources.json`、`scripts/resources/reuse-worktree-resources.mjs` 的校验路由、对应测试和 `docs/ci-builds.md`“独立工作树的本地编译”一节
 
 ### 无用代码与重构 / Dead code and refactoring
 

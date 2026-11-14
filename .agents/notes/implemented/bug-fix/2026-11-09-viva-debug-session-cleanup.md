@@ -39,7 +39,7 @@
 
 ## 验证
 
-`desktop/internal/workbench/debug_test.go` 覆盖无结束事件的退出、旧错误迟到、创建返回前停止、取消阻塞写入，以及正常断点/暂停/继续流程。前两项在修复前失败，修复后通过。新增空启动参数回归先失败后通过；Core 的延迟启动确认回归先失败，再通过 59 项引擎测试及逐项计时。`debug_launch_test.go` 覆盖缺失目标在进程启动前拒绝，以及运行时参数来自工具定义。`debug_native_e2e_test.go` 显式读取外部 LLDB 插件原始清单，用 clang -g、真实 lldb-dap、Core 与工作台夹具验证程序路径/cwd/默认参数、断点、main 栈帧、继续、输出及退出清理；安装清单字节保持不变。三轮重复通过，不代替真实原生窗口或 Windows 验收。
+`desktop/internal/workbench/debug_test.go` 覆盖无结束事件的退出、旧错误迟到、创建返回前停止、取消阻塞写入，以及正常断点/暂停/继续流程。前两项在修复前失败，修复后通过。新增空启动参数回归先失败后通过；Core 的延迟启动确认回归先失败，再通过 59 项引擎测试及逐项计时。`debug_launch_test.go` 覆盖缺失目标在进程启动前拒绝，以及运行时参数来自工具定义。`debug_native_e2e_test.go` 显式读取外部 LLDB 插件原始清单，用 clang -g、真实 lldb-dap、Core 与工作台夹具验证程序路径/cwd/默认参数、断点、main 栈帧、继续、输出及退出清理；安装清单字节保持不变。三轮重复通过，不代替真实原生窗口或 Windows 验收。（`debug_native_e2e_test.go` 已随插件归属规则从宿主删除，真实 LLDB 流程归 LLDB 插件仓库验证，见 [插件的测试、功能矩阵和翻译只在插件仓库](../architecture/2026-11-14-plugin-owned-tests-matrix-i18n.md)）
 
 ```bash
 scripts/desktop/desktop-go.sh test -race ./internal/workbench -run TestDebug -count=1 -timeout=90s

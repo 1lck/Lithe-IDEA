@@ -32,7 +32,7 @@ Run 自己启动的进程还必须随附加的调试会话释放。单独发送 
 
 真实 ZIP 集成测试覆盖含第三方依赖的 Maven 编译、补全、运行、断点变量、继续退出、再次调试后停止及编译错误拒绝旧 class；同时核对 Core 操作日志与包哈希不变。这是 macOS arm64 无头工作台的证据，原生窗口与其他平台仍需分别验收。
 
-旧项目的实际运行时与源码级别必须分别验证。JDK 8 可以为 Java 5/7 源码生成旧 class，当前 ECJ（Eclipse 的 Java 编译器）却只接受 Java 8 及以上，运行前 JDT 构建因此失败。`TestJavaPluginLegacySourceBoundaries` 验证的是安全拒绝，不能当成 Java 5/7 Run/Debug 验收。不得恢复“编译失败也运行旧产物”，也不得由宿主改写用户 POM 升级源码级别；历史项目的临时 POM 改动只能发生在测试副本，并单独报告。
+旧项目的实际运行时与源码级别必须分别验证。JDK 8 可以为 Java 5/7 源码生成旧 class，当前 ECJ（Eclipse 的 Java 编译器）却只接受 Java 8 及以上，运行前 JDT 构建因此失败。`TestJavaPluginLegacySourceBoundaries`（该测试已随插件归属规则从宿主删除，同类验证归插件仓库，见 [插件的测试、功能矩阵和翻译只在插件仓库](2026-11-14-plugin-owned-tests-matrix-i18n.md)）验证的是安全拒绝，不能当成 Java 5/7 Run/Debug 验收。不得恢复“编译失败也运行旧产物”，也不得由宿主改写用户 POM 升级源码级别；历史项目的临时 POM 改动只能发生在测试副本，并单独报告。
 
 多工作区关闭还暴露既有 `pluginbackend.Runner.Stop` 通过销毁失败循环等待终态的问题：进程最终退出，但正常关闭产生 Core WARN。它属于本次之前已有的共享状态职责债务，独立记录为 [#1860](https://github.com/1lck/Lithe-IDEA/issues/1860)，不混入 Java 接入修复。
 
@@ -58,7 +58,7 @@ Run 自己启动的进程还必须随附加的调试会话释放。单独发送 
 - `scripts/desktop/desktop-go.sh test ./internal/workbench -run 'TestRunAttachLoadsAdaptersWithoutOpeningDebugPanel|TestRunLaunchTargetBindsTheRunsProcessIntoTheLaunch' -count=1`：不打开调试面板也能加载目录；适配器启动与参数绑定保持原有流程。
 
 - `scripts/desktop/desktop-go.sh test ./internal/pluginservice/... ./internal/pluginbackend/... ./internal/pluginhost/... -race -count=1`。
-- 设置 `LITHE_JAVA_PLUGIN_MANIFEST` 指向 Java Support 的 `plugin.json` 时，`TestJavaSupportManifestOnlyLacksOtherLanesCapabilities` 用 Core 验证清单仅缺上述其他车道的能力。
+- ~~设置 `LITHE_JAVA_PLUGIN_MANIFEST` 指向 Java Support 的 `plugin.json` 时，`TestJavaSupportManifestOnlyLacksOtherLanesCapabilities` 用 Core 验证清单仅缺上述其他车道的能力。~~（该测试已随插件归属规则从宿主删除，同类验证归插件仓库，见 [插件的测试、功能矩阵和翻译只在插件仓库](2026-11-14-plugin-owned-tests-matrix-i18n.md)）
 
 - 设置 `LITHE_JAVA_PLUGIN_PACKAGE` 指向用插件仓库的 build-package 脚本（arm64）构建出的包目录时，`TestJavaSupportStartsJDTLSAndPublishesDiagnostics` 在 macOS 上安装包副本、启动后端、解析启动、启动 JDT LS 并收到含类型错误文件的诊断（约 15 秒，需要先下载 JDT LS 与 JDK）。
 

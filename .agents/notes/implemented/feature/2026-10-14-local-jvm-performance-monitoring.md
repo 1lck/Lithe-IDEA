@@ -98,7 +98,7 @@ allocation-by-site` 解释记录，UI 使用已有原生文本控件展示报告
 `2026-09-30-macos-shared-dropdown-style.md` 的 Debug 部分持有。
 
 Java/JDK 资源保持只读。JFR仅在原生临时目录 `lithe-jfr-<uuid>` 生成单次录制，归属于当前运行，关闭/替换时
-删除；资源清单以 `test-jfr-recordings` 明确排除跨工作树复制。没有新下载或可复用缓存。OpenJDK 自己管理系统临时性能数据；测试 Java 源文件只在
+删除；宿主资源清单原有的 `test-jfr-recordings` 排除项已随插件归属规则删除，JFR 录制的资源说明归 Java 插件仓库，见 [插件的测试、功能矩阵和翻译只在插件仓库](../architecture/2026-11-14-plugin-owned-tests-matrix-i18n.md)。没有新下载或可复用缓存。OpenJDK 自己管理系统临时性能数据；测试 Java 源文件只在
 测试拥有的唯一临时目录生成并删除。应用 bundle 和安装目录不写入，不影响签名或
 Sparkle 差分更新基线。未来若打包额外工具，必须先更新资源归属和 worktree 清单。
 

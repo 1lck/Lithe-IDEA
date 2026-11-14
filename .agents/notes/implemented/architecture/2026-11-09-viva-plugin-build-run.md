@@ -51,8 +51,8 @@ Viva 的 Build 工具窗口现在由插件声明的构建系统驱动：Core 负
 
 - `./scripts/desktop/desktop-go.sh test ./...`
 - `./scripts/desktop/desktop-go.sh test ./internal/pluginpkg ./internal/plugininstall -count=1 -v`（覆盖契约目录布局、flat 布局、歧义清单、内容根外条目、符号链接/冲突/配额回归）
-- `LITHE_RAW_CARGO_PLUGIN_ARCHIVE=<未修改的 cargo-build-0.1.0-darwin.zip> ./scripts/desktop/desktop-go.sh test ./internal/workbench -run TestOfficialCargoReleasePluginBuildsAWorkspace -v`
-- `LITHE_REPACKED_CARGO_PLUGIN_ARCHIVE=<cargo-build-0.1.0-darwin.zip 的根目录重打包> ./scripts/desktop/desktop-go.sh test ./internal/workbench -run TestRepackedOfficialCargoPluginBuildsAWorkspace -v`
+- ~~`LITHE_RAW_CARGO_PLUGIN_ARCHIVE=<未修改的 cargo-build-0.1.0-darwin.zip> ./scripts/desktop/desktop-go.sh test ./internal/workbench -run TestOfficialCargoReleasePluginBuildsAWorkspace -v`~~
+- ~~`LITHE_REPACKED_CARGO_PLUGIN_ARCHIVE=<cargo-build-0.1.0-darwin.zip 的根目录重打包> ./scripts/desktop/desktop-go.sh test ./internal/workbench -run TestRepackedOfficialCargoPluginBuildsAWorkspace -v`~~（这些测试已随插件归属规则从宿主删除，同类验证归插件仓库，见 [插件的测试、功能矩阵和翻译只在插件仓库](2026-11-14-plugin-owned-tests-matrix-i18n.md)）
 - `./scripts/desktop/desktop-go.sh test ./internal/buildprovider -run TestProviderModelTaskAndCancellation -v`
 - `./scripts/desktop/desktop-go.sh test ./internal/buildprocess -v`
 - `./scripts/desktop/desktop-go.sh test -race ./internal/buildprovider ./internal/workbench -count=1 -timeout=120s`
@@ -65,7 +65,7 @@ Viva 的 Build 工具窗口现在由插件声明的构建系统驱动：Core 负
 - `./scripts/agent-notes/verify-agent-notes.sh`
 - `./scripts/platform-feature-matrix/verify-platform-feature-matrix.sh`
 
-Windows 没有运行本切片；真实执行证据是 macOS 上用未修改的官方 Cargo 0.1.0 Release 包完成安装、启用、provider 模型加载和 `cargo build`，flat 重打包版本作为兼容回归仍然通过。修复前的证据是同一份原始包在 `Prepare` 阶段返回 `plugin package has no plugin.json at its root`，新的 `TestOfficialCargoReleasePluginBuildsAWorkspace` 在修改提取器前以该错误失败。原始包没有发布者签名，清单声明 `signatureRequirement: none`，测试因此要求磁盘来源仍然弹出审批；布局修复没有把“无签名”变成可信来源。Maven 0.1.1 因清单中的 `languageImport` 字段与固定 Core 不兼容，未能安装；这是插件/Core 版本匹配缺口，不是本切片伪造的成功。
+Windows 没有运行本切片；真实执行证据是 macOS 上用未修改的官方 Cargo 0.1.0 Release 包完成安装、启用、provider 模型加载和 `cargo build`，flat 重打包版本作为兼容回归仍然通过。修复前的证据是同一份原始包在 `Prepare` 阶段返回 `plugin package has no plugin.json at its root`，新的 `TestOfficialCargoReleasePluginBuildsAWorkspace` 在修改提取器前以该错误失败（该测试已随插件归属规则从宿主删除，同类验证归插件仓库，见 [插件的测试、功能矩阵和翻译只在插件仓库](2026-11-14-plugin-owned-tests-matrix-i18n.md)）。原始包没有发布者签名，清单声明 `signatureRequirement: none`，测试因此要求磁盘来源仍然弹出审批；布局修复没有把“无签名”变成可信来源。Maven 0.1.1 因清单中的 `languageImport` 字段与固定 Core 不兼容，未能安装；这是插件/Core 版本匹配缺口，不是本切片伪造的成功。
 
 ## 适用范围
 
@@ -78,6 +78,6 @@ Windows 没有运行本切片；真实执行证据是 macOS 上用未修改的�
 - `desktop/internal/pluginhost/pluginhost.go`
 - `desktop/internal/pluginpkg/`
 - `desktop/internal/plugininstall/`
-- `desktop/internal/workbench/official_cargo_test.go`
+- ~~`desktop/internal/workbench/official_cargo_test.go`~~（已随插件归属规则移出宿主，见 [插件的测试、功能矩阵和翻译只在插件仓库](2026-11-14-plugin-owned-tests-matrix-i18n.md)）
 
 共享协议和 Rust Core 的构建模型仍以 `Lithe-core-rust/rust/contracts/` 和固定 Core 修订为准；本笔记不定义新的插件协议。

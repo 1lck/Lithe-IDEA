@@ -1,6 +1,6 @@
 {
   "schemaVersion": 4,
-  "lastReviewed": "2026-11-11",
+  "lastReviewed": "2026-11-14",
   "review": {
     "status": "viva-migration-in-progress",
     "method": "保留迁移前能力清单；每项能力已按 Viva 客户端（desktop/）的代码与接入逐项盘点实现状态，历史状态与证据单独保留在 legacy，不能视为 Viva 证据。迁移文档标为放弃或不纳入的能力记为未实现并在备注说明。",
@@ -27,11 +27,6 @@
         "label": "平台专属",
         "icon": "🧩",
         "description": "刻意只属于某个平台，不以跨平台对齐为目标。"
-      },
-      "plugin-provided": {
-        "label": "插件提供",
-        "icon": "🔌",
-        "description": "宿主只保留通用能力入口和契约，该能力由独立插件实现；运行时验证记录归插件仓库。"
       },
       "unassessed": {
         "label": "尚未盘点",

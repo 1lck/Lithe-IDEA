@@ -13,7 +13,6 @@
       "desktop/internal/pluginservice/hostmethods_test.go",
       ".agents/notes/implemented/architecture/2026-11-10-viva-plugin-host-services-and-backend-sessions.md",
       "desktop/internal/pluginservice/backendlaunch_test.go",
-      "desktop/internal/workbench/java_unmanaged_e2e_test.go",
       "desktop/internal/pluginbackend/pluginbackend.go",
       "desktop/internal/pluginbackend/pluginbackend_test.go",
       "desktop/internal/pluginhost/launch.go",
@@ -30,7 +29,6 @@
       "desktop/internal/pluginservice/hostmethods_test.go",
       ".agents/notes/implemented/architecture/2026-11-10-viva-plugin-host-services-and-backend-sessions.md",
       "desktop/internal/pluginservice/backendlaunch_test.go",
-      "desktop/internal/workbench/java_unmanaged_e2e_test.go",
       "desktop/internal/pluginbackend/pluginbackend.go",
       "desktop/internal/pluginbackend/pluginbackend_test.go",
       "desktop/internal/pluginhost/launch.go",
@@ -38,7 +36,7 @@
     ]
   },
   "owner": "Extensions",
-  "verification": "Viva：scripts/desktop/desktop-go.sh test ./internal/pluginservice -run TestLanguageLaunch -count=1，验证所选安装、可选缺失、项目脚本排除与实际错误传播。显式真实插件集成 TestJavaPluginUnmanagedProjects 验证运行前编译与项目 JVM 一致，需独立插件 ZIP/JDK 输入。两平台另行验证原生窗口中的后端启动、请求/通知、准备状态、只读虚拟文档、关闭项目后的进程释放；远程工作区与状态保留清理未实现，不视为已验收。scripts/desktop/verify/verify-runtime-bundle-immutability.sh 检查资源只读边界。 TestToolEntryUsesCoreInstantiationAfterNativeVerification 读取链接 Core 的非 Java 工具 fixture，验证通用入口模板；TestToolEntryIsVerifiedInsideThePackage 拒绝越界入口。Gradle 的真实设置回读与无中转超时由 TestJavaPluginGradleLegacyReactor 断言。",
+  "verification": "Viva：scripts/desktop/desktop-go.sh test ./internal/pluginservice -run TestLanguageLaunch -count=1，验证所选安装、可选缺失、项目脚本排除与实际错误传播。两平台另行验证原生窗口中的后端启动、请求/通知、准备状态、只读虚拟文档、关闭项目后的进程释放；远程工作区与状态保留清理未实现，不视为已验收。scripts/desktop/verify/verify-runtime-bundle-immutability.sh 检查资源只读边界。 TestToolEntryUsesCoreInstantiationAfterNativeVerification 读取链接 Core 的非 Java 工具 fixture，验证通用入口模板；TestToolEntryIsVerifiedInsideThePackage 拒绝越界入口。",
   "notes": "Viva 通过后端函数解析语言服务器启动，Core 校验计划与会话权限，宿主提供所选工具的 executable/home/version，不传环境或凭据，也不把项目脚本当作本地安装。可选工具缺失时保留服务器自己的配置，实际读取失败交给既有启动失败边界。通用逻辑不识别 Java 或其他工具名。远程工作区、状态保留清理及完整原生窗口验收仍有缺口；无头测试不能据此标记全部平台验证完成。",
   "legacy": {
     "revision": "5a54c41aa37a4e6e6b68918a4b05765b9dd07a36",

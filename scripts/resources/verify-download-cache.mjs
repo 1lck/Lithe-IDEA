@@ -27,10 +27,6 @@ function parseArguments(argv) {
     cargoCache: path.join(REPOSITORY_ROOT, ".artifacts", "cargo-home", "registry", "cache"),
     cargoLocks: [],
     skipCargo: false,
-    jdtlsCache: null,
-    jdtlsManifest: null,
-    jdkCache: null,
-    jdkManifest: null,
     swiftpmCache: null,
     swiftpmResolved: null,
     swiftVersion: null,
@@ -60,10 +56,6 @@ function parseArguments(argv) {
     index += 1;
     if (option === "--cargo-cache") options.cargoCache = value;
     else if (option === "--cargo-lock") options.cargoLocks.push(value);
-    else if (option === "--jdtls-cache") options.jdtlsCache = value;
-    else if (option === "--jdtls-manifest") options.jdtlsManifest = value;
-    else if (option === "--jdk-cache") options.jdkCache = value;
-    else if (option === "--jdk-manifest") options.jdkManifest = value;
     else if (option === "--swiftpm-cache") options.swiftpmCache = value;
     else if (option === "--swiftpm-resolved") options.swiftpmResolved = value;
     else if (option === "--swift-version") options.swiftVersion = value;
@@ -179,92 +171,6 @@ async function verifyCargoCache(cacheRoot, lockPaths) {
     }
   }
   process.stdout.write(`Cargo download cache verified: ${verified} archive(s), ${removed} rejected.\n`);
-}
-
-function safeVersion(value) {
-  return String(value).replaceAll(/[^A-Za-z0-9._-]/g, "_");
-}
-
-async function verifyJdtlsCache(cacheRoot, manifestPath) {
-  if (!cacheRoot || !manifestPath) return;
-  const manifest = JSON.parse(await fs.readFile(manifestPath, "utf8"));
-  const expected = new Map();
-  const addExpected = (name, hash) => {
-    if (name && hash) expected.set(name, String(hash).toLowerCase());
-  };
-  const archiveHash = String(manifest.archiveSHA256).toLowerCase();
-  const licenseHash = String(manifest.licenseSHA256).toLowerCase();
-  const lombokHash = String(manifest.lombokSHA256).toLowerCase();
-  const lombokLicenseHash = String(manifest.lombokLicenseSHA256).toLowerCase();
-  addExpected(`jdtls-${safeVersion(manifest.version)}-${archiveHash}.tar.gz`, archiveHash);
-  addExpected(`EPL-2.0-${licenseHash}.txt`, licenseHash);
-  addExpected(`lombok-${safeVersion(manifest.lombokVersion)}-${lombokHash}.jar`, lombokHash);
-  addExpected(`lombok-MIT-${safeVersion(manifest.lombokVersion)}-${lombokLicenseHash}.txt`, lombokLicenseHash);
-
-  if (manifest.javaDebugArchiveSHA256) {
-    const hash = String(manifest.javaDebugArchiveSHA256).toLowerCase();
-    const prefix = `vscode-java-debug-${safeVersion(manifest.javaDebugExtensionVersion)}-${hash}`;
-    addExpected(`${prefix}.vsix`, hash);
-    addExpected(`${prefix}.zip`, hash);
-  }
-  if (manifest.javaDebugLicenseSHA256) {
-    const hash = String(manifest.javaDebugLicenseSHA256).toLowerCase();
-    addExpected(`java-debug-EPL-1.0-${safeVersion(manifest.javaDebugServerVersion)}-${hash}.txt`, hash);
-  }
-  if (manifest.javaTestArchiveSHA256) {
-    const hash = String(manifest.javaTestArchiveSHA256).toLowerCase();
-    const prefix = `vscode-java-test-${safeVersion(manifest.javaTestExtensionVersion)}-${hash}`;
-    addExpected(`${prefix}.vsix`, hash);
-    addExpected(`${prefix}.zip`, hash);
-  }
-  if (manifest.javaTestLicenseSHA256) {
-    const hash = String(manifest.javaTestLicenseSHA256).toLowerCase();
-    addExpected(`java-test-MIT-${safeVersion(manifest.javaTestExtensionVersion)}-${hash}.txt`, hash);
-  }
-  let verified = 0;
-  let removed = 0;
-  for (const artifact of await collectFiles(cacheRoot)) {
-    const artifactName = path.basename(artifact);
-    const expectedHash = expected.get(artifactName)?.toLowerCase();
-    const actualHash = expectedHash ? await sha256(artifact) : null;
-    if (!expectedHash || actualHash !== expectedHash) {
-      const reason = expectedHash ? "SHA-256 mismatch" : "not referenced by the JDTLS manifest";
-      warn("JDTLS cache entry rejected", `${artifactName}: ${reason}; it will be downloaded normally.`);
-      await fs.rm(artifact, { force: true });
-      removed += 1;
-    } else {
-      verified += 1;
-    }
-  }
-  process.stdout.write(`JDTLS download cache verified: ${verified} artifact(s), ${removed} rejected.\n`);
-}
-
-async function verifyJdkCache(cacheRoot, manifestPath) {
-  if (!cacheRoot || !manifestPath) return;
-  const manifest = JSON.parse(await fs.readFile(manifestPath, "utf8"));
-  const expected = new Map(
-    Object.entries(manifest.platforms ?? {})
-      .map(([platform, entry]) => [
-        `jdk-${safeVersion(manifest.version)}-${platform}-${entry.sha256.toLowerCase()}${platform.startsWith("windows-") ? ".zip" : ".tar.gz"}`,
-        entry.sha256.toLowerCase(),
-      ]),
-  );
-  let verified = 0;
-  let removed = 0;
-  for (const artifact of await collectFiles(cacheRoot)) {
-    const artifactName = path.basename(artifact);
-    const expectedHash = expected.get(artifactName);
-    const actualHash = expectedHash ? await sha256(artifact) : null;
-    if (!expectedHash || actualHash !== expectedHash) {
-      const reason = expectedHash ? "SHA-256 mismatch" : "not referenced by the JDK manifest";
-      warn("JDK cache entry rejected", `${artifactName}: ${reason}; it will be downloaded normally.`);
-      await fs.rm(artifact, { force: true });
-      removed += 1;
-    } else {
-      verified += 1;
-    }
-  }
-  process.stdout.write(`JDK download cache verified: ${verified} artifact(s), ${removed} rejected.\n`);
 }
 
 async function verifyConptyCache(cacheRoot, manifestPath) {
@@ -629,14 +535,6 @@ async function main() {
   if (!options.skipCargo) {
     await verifyCargoCache(path.resolve(options.cargoCache), options.cargoLocks.map((item) => path.resolve(item)));
   }
-  await verifyJdtlsCache(
-    options.jdtlsCache ? path.resolve(options.jdtlsCache) : null,
-    options.jdtlsManifest ? path.resolve(options.jdtlsManifest) : null,
-  );
-  await verifyJdkCache(
-    options.jdkCache ? path.resolve(options.jdkCache) : null,
-    options.jdkManifest ? path.resolve(options.jdkManifest) : null,
-  );
   await verifyConptyCache(
     options.conptyCache ? path.resolve(options.conptyCache) : null,
     options.conptyManifest ? path.resolve(options.conptyManifest) : null,

@@ -27,8 +27,8 @@
       "desktop/internal/workbench/build_view.go"
     ]
   },
-  "owner": "Workspace / Java",
-  "verification": "打开 Maven 项目依赖和模块树，验证导航、刷新和空项目状态；在 macOS 打开 /tmp 或 /var 下的 Maven 项目，Java 服务就绪后依赖树由 JDT LS 的运行时 classpath 给出第三方 JAR，JDT LS 日志中没有 java.project.getClasspaths 的 NullPointerException。 Windows 在工作区子目录 backend 打开 Maven reactor，双击根模块与 service 模块的依赖，分别导航 backend/pom.xml 与 backend/service/pom.xml；同时检查根目录 reactor 和 WSL UNC 路径。",
+  "owner": "Workspace / Build",
+  "verification": "用测试内联的合成 Build Provider 打开项目依赖和模块树，验证导航、刷新和空项目状态。 Windows 在工作区子目录 backend 打开多模块项目，双击根模块与 service 模块的依赖，分别导航到各自的构建文件；同时检查根目录 reactor 和 WSL UNC 路径。",
   "notes": "Viva：Build 工具窗口在所选项目（未选时为整个构建）下列出依赖：Core 规划命令或 Provider 请求（build.dependencyPlan）并解码为有界树（build.decodeDependencies），窗口只负责运行、显示与导航，依赖行可展开，双击打开项目构建文件。依赖源码跳转、索引与搜索尚未实现。",
   "legacy": {
     "revision": "5a54c41aa37a4e6e6b68918a4b05765b9dd07a36",

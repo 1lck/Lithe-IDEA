@@ -2,6 +2,7 @@ package workbench
 
 import (
 	"errors"
+	"os"
 	"path/filepath"
 	"testing"
 
@@ -42,6 +43,20 @@ func TestEditorActionBindingRefreshDropsEarlierCollectionAtSameTextVersion(t *te
 	for _, event := range logger.events {
 		if event.Event == operationFailedEvent && event.Fields["operation"] == "editor_actions" {
 			t.Fatal("earlier collection replaced current failure presentation")
+		}
+	}
+}
+
+// writeFixture writes files (relative path to content) below root.
+func writeFixture(t *testing.T, root string, files map[string]string) {
+	t.Helper()
+	for name, content := range files {
+		path := filepath.Join(root, filepath.FromSlash(name))
+		if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(path, []byte(content), 0o600); err != nil {
+			t.Fatal(err)
 		}
 	}
 }

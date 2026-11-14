@@ -1,6 +1,6 @@
 ---
 name: develop-lithe
-description: 在 Lithe 仓库进行实现、重构、缺陷修复、审查、调试、测试、构建或文档工作时使用。规定产品核心要求（性能好、内存少）、逻辑归属（可共享逻辑必须放进 Rust Core）、架构边界、界面与文案规则、缺陷修复流程、无用代码处理和交付前验证。
+description: 在 Lithe 仓库进行实现、重构、缺陷修复、审查、调试、测试、构建或文档工作时使用。规定产品核心要求（性能好、内存少）、逻辑归属（可共享逻辑必须放进 Rust Core）、插件归属（插件的代码、测试、功能矩阵和翻译只在插件仓库，宿主对具体插件零依赖）、架构边界、界面与文案规则、缺陷修复流程、无用代码处理和交付前验证。
 ---
 
 # Lithe 开发规范
@@ -24,7 +24,7 @@ description: 在 Lithe 仓库进行实现、重构、缺陷修复、审查、调
 
 ## 一、核心要求
 
-以下七条适用于所有改动，完整规则在括号内的章节。
+以下八条适用于所有改动，完整规则在括号内的章节。
 
 1. **性能好、内存少**是产品的首要要求。多个方案都能满足功能时，选择常驻内存更少、主线程工作更少的方案。（第四节）
 2. **可共享的逻辑必须放进 Rust Core。** 不依赖操作系统或界面框架 API 的逻辑一律在 Core 实现；平台层只做原生 I/O 和呈现。（第三节“逻辑归属”）
@@ -33,6 +33,7 @@ description: 在 Lithe 仓库进行实现、重构、缺陷修复、审查、调
 5. **用户可修改的配置不得只显示“自动”**，必须显示为“自动（实际生效值）”。（第五节“显示实际生效值”）
 6. **发现无用代码或可重构之处，提交 `refactor` Issue**，不在当前 PR 中顺手处理。（第九节）
 7. **警告、错误和被丢弃的失败必须走日志。** 显示给用户的警告和错误、功能降级、回退、自动恢复、重试耗尽和被丢弃的错误，都必须在处理边界记录一条目录事件；只有封闭清单里的例外可以不记录，并且必须写 `// log-exempt: <类别>：<原因>`。日志用法门禁没有存量额度，任何违规都直接失败；新增的 `logSink` 参数必须在每个生产构造处传入真实 sink。（[日志接入](references/logging.md)）
+8. **插件的内容只在插件仓库，宿主对具体插件零依赖。** 插件的代码、测试（包括端到端测试）、功能矩阵、界面文案翻译和构建资源说明只在该插件的仓库维护；本仓库和 Core 仓库的代码、测试、CI、功能矩阵和 i18n 词条不得依赖或收录任何具体插件。（第三节“插件归属与宿主零依赖”）
 
 ## 二、开始前：按任务读取资料
 
@@ -44,6 +45,7 @@ description: 在 Lithe 仓库进行实现、重构、缺陷修复、审查、调
 | 跨平台行为或共享接口 | Lithe-core-rust 仓库的 `rust/contracts/application-boundary.md`、`rust/contracts/rust-core-api.md` 和 `rust/fixtures/` 下的相关 fixture |
 | 新增插件 API，或把内置工具迁移为插件 | `.agents/notes/implemented/architecture/2026-10-31-plugin-capability-and-domain-boundaries.md` |
 | 创建插件，或为已有插件新增提供者 | `.agents/skills/create-lithe-plugin/SKILL.md` |
+| 编写或审查涉及插件的测试、功能矩阵条目、界面文案或资源登记 | 本文件第三节“插件归属与宿主零依赖” |
 | macOS 界面、控件或视觉交互 | [macOS 共享控件规范](references/macos-ui.md)，以及其中与本次改动相关的 Note |
 | 滚动列表、树、表格、日志、长文本或分页列表 | [滚动内容与连续列表](references/scrolling-content.md) |
 | 编辑器模块（`desktop/internal/editor/**`、`desktop/internal/editorview/**`）或它的性能基线 | [编辑器性能基线](references/editor-performance.md) |
@@ -52,7 +54,7 @@ description: 在 Lithe 仓库进行实现、重构、缺陷修复、审查、调
 | 新增、修改或审查设置 | `.agents/notes/implemented/architecture/2026-10-25-settings-native-configuration-editing.md` 和本文件第五节 |
 | 新增或移动 macOS 设置页 | `.agents/notes/implemented/feature/2026-10-15-macos-settings-hierarchy.md` |
 | 修复缺陷 | 本文件第八节，以及 `.agents/notes/implemented/bug-fix/` 中涉及同一模块的 Note |
-| 新增、迁移或审查日志事件、写入器和诊断采集；新增界面警告或错误；写会丢弃错误的代码 | [日志接入](references/logging.md)，声明规则以固定 Core 仓库的 `shared/logging/README.md` 为准 |
+| 新增、迁移或审查日志事件、写入器和诊断采集；新增界面警告或错误；写会丢弃错误的代码 | [日志接入](references/logging.md)，声明规则以固定 Core 修订的 `rust/logging/README.md` 为准 |
 | 新增、移动或审查脚本 | [脚本放置与分类](references/scripts.md) |
 | 新增需要同步调用的共享纯规则（按键、选择、渲染路径） | 先核对外部 Lithe-core-rust 的现有接口，规则仍归 Rust Core；不能在 Viva 界面新增第二份 |
 | 创建、迁移、更新、归档或审查 Agent Note | `.agents/skills/agent-notes/SKILL.md` |
@@ -69,8 +71,8 @@ description: 在 Lithe 仓库进行实现、重构、缺陷修复、审查、调
 | Lithe-core-rust 的 `rust/crates/core/` 及 `core-rules/`、`ai/` 等同级 crate | 共享确定性逻辑：命令、模型、解析、校验、状态规则和 C ABI；修订由 `scripts/desktop/build-desktop-core.sh` 固定 |
 | Lithe-core-rust 的 `rust/crates/git-host/` | 原生子进程执行、管道、临时输入、进程树归属与有界清理 |
 | `desktop/` | Viva（Go）统一客户端：窗口、工作台呈现、平台适配和 Core C ABI 调用。功能仍在迁移，不能因代码存在就视为已验收 |
-| Lithe-IDEA 组织的插件仓库 | 插件源码、工具专属知识和插件包；不要在本仓库维护第二份 SDK 或插件业务 |
-| `shared/` | i18n 词条（`shared/i18n/`）和跨平台功能矩阵（`shared/platform-feature-matrix/`）；不放编译实现。应用契约与 fixture 只在 Lithe-core-rust 的 `rust/contracts/`、`rust/fixtures/`，本仓库不保存副本 |
+| 各插件自己的仓库 | 插件源码、工具专属知识、插件包，以及插件自己的测试（包括端到端测试）、功能矩阵、界面文案翻译和构建资源说明；本仓库不保存这些内容的副本，也不维护第二份 SDK 或插件业务 |
+| `shared/` | 宿主文案的 i18n 词条（`shared/i18n/`）和宿主能力的跨平台功能矩阵（`shared/platform-feature-matrix/`）；不收录插件文案和插件能力，不放编译实现。应用契约与 fixture 只在 Lithe-core-rust 的 `rust/contracts/`、`rust/fixtures/`，本仓库不保存副本 |
 | `scripts/`、`.github/` | 仓库级脚本和 CI 工作流；脚本按[脚本放置与分类](references/scripts.md)放置 |
 
 macOS 旧客户端是视觉与行为对照基线；新客户端共用 Viva 界面，macOS、Windows 和 Linux 的系统适配仍需分别验证。旧 Swift、React/Tauri 和 Monaco 目录已经从本分支移除，历史决策不能当作当前代码位置。
@@ -141,6 +143,48 @@ Lithe 自己负责的是：有界生命周期、取消、过期结果隔离、�
 6. 工具定义（可执行入口、探测方式、环境）、事实提供方（安装位置与作用域）和使用方（按工具 ID 引用）分属不同角色，不得混在一处。
 7. 插件配置由插件负责格式和语义，宿主负责用户确认、版本冲突检测和原子写入。插件专属设置通过插件设置注入点显示，宿主不得为某个工具写固定表单。需要监听的文件由插件声明；宿主统一监听，在变化时让整份查询结果失效，但不得复制工具的配置发现或优先级规则。
 8. 一次性兼容迁移代码必须标明适用版本、删除条件和跟踪 Issue；新的生产路径不得把它当作回退逻辑调用。
+
+### 插件归属与宿主零依赖
+
+目的：插件和宿主各自独立开发、测试和发布。宿主的测试结果不得因为某个插件的版本、构建产物或本机检出而改变；插件修改自己的测试、功能矩阵和翻译时，宿主仓库不需要任何改动。
+
+定义：
+
+| 用词 | 含义 |
+| --- | --- |
+| 宿主仓库 | 本仓库。本节规则同样适用于 Core 仓库。 |
+| 具体插件 | 一个真实存在的插件，无论它以插件 ID、插件包、插件仓库检出、构建产物还是发布物出现；Lithe-IDEA 组织的插件和第三方插件都算。 |
+| 合成插件 | 测试代码内联的插件清单，只为验证宿主的通用扩展点而写，插件 ID 使用 `dev.lithe.test.<名称>` 这类明显虚构的值。合成插件不是具体插件。 |
+| 插件专属内容 | 只有某个具体插件存在时才有意义的内容：插件的源码、清单、后端、语言服务器和其他打包资源；插件的单元测试、集成测试和端到端测试；插件能力的功能矩阵记录和验证证据；插件文案的翻译；插件构建、打包、打补丁和下载缓存的说明。 |
+
+规则：
+
+1. 插件专属内容只放在该插件自己的仓库，不得提交到宿主仓库或 Core 仓库，也不得在这两个仓库保留副本、摘要或临时版本。
+2. 宿主仓库和 Core 仓库的测试（单元、集成、端到端、基准）与 CI 对具体插件零依赖：
+   - 不得读取具体插件的插件包、仓库检出、构建产物或清单，不得通过环境变量、固定路径、下载或 Git 子模块获取它们。
+   - 不得使用具体插件的真实插件 ID，不得断言某个具体插件的行为。
+   - 不得用“缺少插件时跳过”的写法保留这类测试。跳过的测试仍然把插件知识留在宿主里，而且在 CI 中从不运行。
+3. 验证宿主的通用扩展点时，只使用以下输入：
+   - 测试内联的合成插件，只声明被测扩展点需要的字段。它背后的后端或语言服务器默认由测试自己提供替身。合成插件需要启动通用的外部工具（例如系统安装的 `clangd`）时，测试在缺少该工具时跳过并写明原因，断言只针对宿主的通用行为（会话生命周期、导航、诊断投递），不针对该工具的私有输出格式。
+   - Core 契约 fixture，经 `scripts/desktop/desktop-go.sh` 导出的 `LITHE_PLUGIN_CONTRACT_DIR` 读取（见 `AGENTS.md`“插件契约只在 Rust Core”）。
+   - 插件市场索引快照（`desktop/internal/core/testdata/marketplace/`）。快照可以包含真实条目，用来证明宿主能解析公开索引；断言只针对所有条目共同适用的规则，不得按插件 ID 断言单个条目。
+4. 插件能力的端到端验证（真实语言服务器、构建工具、调试器、插件界面）在插件仓库进行，由插件仓库的测试和 CI 针对宿主或 Core 的固定版本运行。宿主修改通用扩展点、可能影响已发布插件时，在受影响插件的仓库运行它的测试，把结果写进宿主 PR 说明；不得把这些测试搬进宿主仓库。
+5. 宿主的功能矩阵只记录宿主自身的能力：通用扩展点、插件安装与管理、插件市场和宿主自带的工作台功能。具体插件提供的能力不得在 `shared/platform-feature-matrix/` 建条目；宿主条目的证据路径和验证动作不得引用具体插件的测试、插件包或插件仓库。插件在自己的仓库维护自己的功能矩阵。
+6. 插件文案由插件自己翻译：清单中的文案使用插件包的 `l10n/<语言>.json`，插件界面和插件后端返回的文字由插件按界面语言自行翻译。契约当前支持的翻译范围、文件格式和回退顺序，以 Core 插件契约 README 的 Translations 一节为准。宿主 `shared/i18n/` 只放宿主自己的文案；契约无法翻译某段插件文字时，在 Core 扩展插件翻译契约，不得在宿主为某个插件补词条或译文。
+7. 插件构建时下载、生成、打包或打补丁的资源，其来源、校验方式和工作树复用说明写在插件仓库。宿主的 `scripts/resources/worktree-resources.json` 和 `docs/ci-builds.md` 只登记宿主自身构建产生的资源，以及宿主运行时为所有插件统一管理的通用目录（插件安装目录、插件状态目录），不得写某个具体插件的路径或构建步骤。
+8. 宿主的 Skill、Agent Note、文档和代码注释可以链接具体插件的仓库作为示例，但不得把插件的实现细节、测试命令或验证结果写成宿主的规则或宿主的验证证据。
+
+自查：提交前在宿主仓库根目录运行以下命令，结果必须为空。有命中时，按规则 1 到 3 把内容迁到插件仓库、改用合成插件或删除。命令排除了规则 3 允许的插件市场索引快照：
+
+```bash
+rg -n -i 'io\.github\.lithe-idea\.|lithe-idea/lithe-plugin-|PLUGIN_(ARCHIVE|MANIFEST|PACKAGE)\b|"plugin-provided"' \
+  desktop scripts shared .github docs/ci-builds.md \
+  -g '!desktop/internal/core/testdata/marketplace/**'
+```
+
+这条命令只能发现 Lithe-IDEA 组织插件的 ID 和仓库、指向插件包的环境变量和插件能力状态这几种常见写法；结果为空不代表符合规则。第三方插件的 ID、按语言或工具命名的测试变量（例如指向某个插件检出的目录变量）和只在宿主测试里描述某个插件行为的断言，仍要按规则 2 逐项检查。
+
+决策原因和被否方案见 `.agents/notes/implemented/architecture/2026-11-14-plugin-owned-tests-matrix-i18n.md`。
 
 ### 共享契约
 
@@ -265,7 +309,9 @@ Lithe 自己负责的是：有界生命周期、取消、过期结果隔离、�
 
 ### 界面文案与 i18n
 
-所有用户可见文案必须通过共享 i18n 生成。词条的唯一来源是 `shared/i18n/`，格式规则以 `shared/i18n/README.md` 为准。硬编码文案会在系统语言与应用语言不一致时显示错误的语言。
+宿主的所有用户可见文案必须通过共享 i18n 生成。词条的唯一来源是 `shared/i18n/`，格式规则以 `shared/i18n/README.md` 为准。硬编码文案会在系统语言与应用语言不一致时显示错误的语言。
+
+插件提供的文字（清单中的标题和说明、插件界面、插件后端返回的消息）不属于宿主文案，不得写进 `shared/i18n/`。它们由插件自己翻译，宿主显示插件给出的本地化结果，规则见第三节“插件归属与宿主零依赖”规则 6。
 
 Viva 在 macOS、Windows 和 Linux 使用 `desktop/internal/i18n/` 的接口及生成字典；共享词条通过 `i18n.Shared` 读取，不能在 Go 字典手写译文。旧 Swift 和 Tauri 接口仅是历史客户端的参考。
 
@@ -398,9 +444,10 @@ macOS app bundle 和 Windows 安装目录是发行基线。Sparkle 增量更新�
 
 ## 十、跨平台功能矩阵与提交门禁
 
-新增用户可见能力或改变跨平台行为时，在同一个 PR 中更新 `shared/platform-feature-matrix/features/<id>.json`。
+功能矩阵只记录宿主自身的能力，范围见第三节“插件归属与宿主零依赖”规则 5。新增宿主的用户可见能力或改变跨平台行为时，在同一个 PR 中更新 `shared/platform-feature-matrix/features/<id>.json`。
 
-- 每个文件对应一项可以独立验证的用户能力，包含两个平台的 `implementationStatus`、`verificationStatus`、证据路径、owner 和具体验证动作。只在一个平台存在的能力，另一平台记录 `implementationStatus: platform-specific`。
+- 具体插件提供的能力不建条目，由插件在自己的仓库维护功能矩阵。宿主的通用扩展点（例如插件构建提供者、插件语言服务器会话）可以建条目；它的证据路径只引用宿主代码和使用合成插件或契约 fixture 的宿主测试，验证动作不得要求安装具体插件。
+- 每个文件对应一项可以独立验证的宿主能力，包含两个平台的 `implementationStatus`、`verificationStatus`、证据路径、owner 和具体验证动作。只在一个平台存在的能力，另一平台记录 `implementationStatus: platform-specific`。
 - 实现状态和验证状态相互独立。只有代码、没有运行时证据时，验证状态保持 `pending`；在目标平台完成验证流程后才能标为 `verified`。JSON 中的状态标签、图标和说明是生成器的唯一状态来源。
 - 公共状态定义在 `shared/platform-feature-matrix/metadata.json`。只改日期或 metadata 不满足能力更新门禁。
 - 更新源数据后运行 `node scripts/platform-feature-matrix/generate-platform-feature-matrix.mjs`，检查 `.artifacts/platform-feature-matrix/` 下的 HTML、Markdown、CSV 和 JSON；不得提交生成的视图。
@@ -437,6 +484,7 @@ git diff --name-only origin/preview...HEAD
 | Agent Note 或架构决策迁移 | `./scripts/agent-notes/verify-agent-notes.sh` |
 | 日志事件、日志调用、界面警告或错误、会丢弃错误的代码 | 按共享日志契约检查目录与使用；旧日志生成和使用校验脚本已移除，等价检查恢复前标记门禁未完成 |
 | 测试代码或测试基础设施 | `./.agents/skills/write-stable-tests/scripts/verify-test-stability.sh`，再运行该 Skill 中对应平台的逐项计时入口 |
+| 任何改动（插件内容最常从测试、功能矩阵、i18n 词条和资源登记进入宿主） | 第三节“插件归属与宿主零依赖”的自查命令，结果为空，并按规则 2 检查命令覆盖不到的写法 |
 | Viva 桌面代码 | `./scripts/desktop/desktop-go.sh test ./...`、受影响包的竞态测试，以及目标平台相应原生验证 |
 | 共享应用行为或 JSON fixture | 在 Core 仓库运行受影响的测试；升级 `PINNED_CORE_REVISION`（或用 `LITHE_CORE_RUST_DIR` 指向本地 Core 检出）后，用 `./scripts/desktop/desktop-go.sh test` 运行读取该 fixture 的桌面测试；旧 `verify-shared-contracts.sh` 已移除，等价边界检查恢复前标记门禁未完成 |
 | Rust Core、JSON C ABI 或桌面桥接 | 先完成 Core 注释与契约检查，再运行受影响 crate、桥接和目标平台消费者测试；旧 Core 验证脚本移除后不得把缺失检查记为通过 |
@@ -457,6 +505,6 @@ git diff --name-only origin/preview...HEAD
 
 ### 交付说明
 
-交付前确认：逻辑放在了正确的层（第三节），性能与内存影响已评估（第四节），相关验证已经执行，共享契约的消费者已经检查，没有写死机器专属的值。
+交付前确认：逻辑放在了正确的层（第三节），插件专属内容没有进入宿主仓库（第三节“插件归属与宿主零依赖”），性能与内存影响已评估（第四节），相关验证已经执行，共享契约的消费者已经检查，没有写死机器专属的值。
 
 最终说明写清：改了什么、验证了什么、提交了哪些 `refactor` Issue、还有哪些平台或测试限制。组件测试通过不等于整机工作流验收通过。

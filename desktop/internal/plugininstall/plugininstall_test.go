@@ -146,11 +146,11 @@ func writeArchiveUnder(t *testing.T, directory, manifest string, files map[strin
 	return path
 }
 
-const sampleManifest = `{"id":"io.github.lithe-idea.java-support","version":"1.0.0"}`
+const sampleManifest = `{"id":"dev.lithe.test.sample","version":"1.0.0"}`
 
 // sampleID is the plugin ID sampleManifest declares and the content-root
 // directory the contract's layout uses.
-const sampleID = "io.github.lithe-idea.java-support"
+const sampleID = "dev.lithe.test.sample"
 
 // newService builds a service with an isolated plugin root and approval file.
 func newService(t *testing.T, validator pluginhost.ManifestValidator, reviewer Reviewer) (*Service, *plugintrust.Store, string) {
@@ -163,7 +163,7 @@ func newService(t *testing.T, validator pluginhost.ManifestValidator, reviewer R
 func sampleReviewer() *fakeReviewer {
 	return &fakeReviewer{
 		permissions: []string{"workspace.read"},
-		programs:    []json.RawMessage{json.RawMessage(`{"kind":"runtime","command":"java"}`)},
+		programs:    []json.RawMessage{json.RawMessage(`{"kind":"runtime","command":"sample-runtime"}`)},
 	}
 }
 
@@ -182,7 +182,7 @@ func TestPrepareAsksForApprovalOnFirstInstall(t *testing.T) {
 	if !plan.NeedsApproval() {
 		t.Fatalf("plan = %+v", plan)
 	}
-	if plan.ID != "io.github.lithe-idea.java-support" || plan.Version != "1.0.0" {
+	if plan.ID != "dev.lithe.test.sample" || plan.Version != "1.0.0" {
 		t.Fatalf("identity = %q %q", plan.ID, plan.Version)
 	}
 	if plan.ContentDigest == "" {

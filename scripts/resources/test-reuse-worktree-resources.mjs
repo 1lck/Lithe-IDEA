@@ -59,7 +59,7 @@ function reuse(extraArguments = []) {
     reuseScript,
     "--source", sourceRoot,
     "--target", targetRoot,
-    "--resource", "jdtls",
+    "--resource", "cargo",
     ...extraArguments,
   ]);
 }
@@ -248,15 +248,6 @@ try {
     assert.notEqual(refused.status, 0);
     assert.match(diagnostics(refused), /plugin-ui-icons.*cannot be reused/);
   });
-  await test("test JFR recordings remain isolated to their worker and run", { timeout: 15000 }, async () => {
-    const registry = JSON.parse(await fs.readFile(path.join(scriptDirectory, "worktree-resources.json"), "utf8"));
-    const resource = registry.excludedResources.find(item => item.id === "test-jfr-recordings");
-    assert.equal(resource.reusable, false);
-    assert.match(resource.identity, /PID.*process start identity.*JDK/);
-    const rejected = reuse(["--resource", "test-jfr-recordings"]);
-    assert.notEqual(rejected.status, 0);
-    assert.match(diagnostics(rejected), /test-jfr-recordings.*cannot be reused/);
-  });
   await test("bundled UI fonts come from Git and cannot be copied from worktree artifacts", { timeout: 15000 }, async () => {
     const listed = run(process.execPath, [reuseScript, "--list"]);
     assertSucceeded(listed);
@@ -366,40 +357,22 @@ try {
     assert.notEqual(refused.status, 0);
     assert.match(diagnostics(refused), /agent-edit-and-paste-state.*pasted-images.*recovery.*cannot be reused/);
   });
-  await test("JDT Maven settings snapshots cannot be copied between worktrees", { timeout: 15000 }, () => {
-    const refused = reuse(["--resource", "jdt-maven-settings"]);
-    assert.notEqual(refused.status, 0);
-    assert.match(diagnostics(refused), /jdt-maven-settings.*cannot be reused/);
-  });
   await test("team and local Build preferences cannot be copied as worktree resources", { timeout: 15000 }, async () => {
     const registry = JSON.parse(await fs.readFile(path.join(scriptDirectory, "worktree-resources.json"), "utf8"));
     const resource = registry.excludedResources.find(item => item.id === "build-project-preferences");
     assert.equal(resource.reusable, false);
     assert.ok(resource.locations.includes(".lithe/build/options.json"));
     assert.ok(resource.locations.includes("<windows-app-data>/<app-id>/build-options/<canonical-workspace-digest>.json"));
-    assert.ok(resource.locations.includes("<platform-preferences>/BuildSystems.Migrations.Maven.<workspace-digest>"));
     assert.ok(resource.locations.includes("<platform-preferences>/BuildSystems.Options.<build-system-id>.<workspace-digest>.InstanceDefaults"));
-    assert.ok(resource.locations.includes("<platform-preferences>/BuildSystems.Migrations.Maven.<workspace-digest>.Runtime"));
     const refused = reuse(["--resource", resource.id]);
     assert.notEqual(refused.status, 0);
     assert.match(diagnostics(refused), /build-project-preferences.*cannot be reused/);
-  });
-  await test("Maven operation reports cannot be copied between worktrees", { timeout: 15000 }, async () => {
-    const registry = JSON.parse(await fs.readFile(path.join(scriptDirectory, "worktree-resources.json"), "utf8"));
-    const resource = registry.excludedResources.find(item => item.id === "maven-operation-report-snapshots");
-    assert.equal(resource.reusable, false);
-    assert.ok(resource.locations.includes("<workspaceStateDir>/execution-*/index.json"));
-    const refused = reuse(["--resource", resource.id]);
-    assert.notEqual(refused.status, 0);
-    assert.match(diagnostics(refused), /maven-operation-report-snapshots.*cannot be reused/);
   });
   await test("native configuration probe and conditional replacement state cannot be reused", { timeout: 15000 }, async () => {
     const registry = JSON.parse(await fs.readFile(path.join(scriptDirectory, "worktree-resources.json"), "utf8"));
     const resource = registry.excludedResources.find(item => item.id === "build-native-configuration-state");
     assert.equal(resource.reusable, false);
     assert.ok(resource.locations.some(location => location.endsWith("configuration-*/configuration.json")));
-    assert.ok(resource.locations.some(location => location.endsWith("configuration-*/repository")));
-    assert.ok(resource.locations.some(location => location.endsWith("maven-snapshot.json")));
     assert.ok(resource.locations.some(location => location.includes(".<filename>.lithe-<uuid>")));
     assert.ok(resource.locations.includes("<native-configuration-parent>/.lithe-document-<pid>-<sequence>.tmp"));
     assert.ok(resource.locations.includes("<windows-native-host-memory>/native-configuration/<window>/<operation-id>"));
@@ -427,13 +400,7 @@ try {
     const registry = JSON.parse(await fs.readFile(path.join(scriptDirectory, "worktree-resources.json"), "utf8"));
     const packages = registry.excludedResources.find(item => item.id === "official-plugin-packages");
     assert.ok(packages.locations.includes("dist/packages/<arch>/<plugin-id>/"));
-    assert.ok(packages.locations.includes("<java-plugin-worktree>/.artifacts/package/<arch>/<plugin-id>/"));
-    assert.ok(packages.locations.includes("<java-plugin-worktree>/.artifacts/windows-package-<pid>/"));
-    assert.ok(packages.locations.includes("<os-temp>/lithe-jdt-decompiler-*/"));
-    assert.match(packages.identity, /compiler version\/platform\/archive hash/);
-    assert.match(packages.reason, /read-only inputs/);
     assert.ok(packages.locations.includes("dist/verify/<arch>/<plugin-id>/"));
-    assert.ok(packages.locations.includes(".artifacts/java-plugin-distribution/"));
     assert.ok(packages.locations.includes("<test-temp>/lithe-package-verification.*/published-index.fixture.json"));
     assert.match(packages.reason, /LITHE_OFFICIAL_PLUGIN_INDEX/);
     const refused = reuse(["--resource", packages.id]);
@@ -491,7 +458,7 @@ try {
     for (const id of [resource.id, "plugin-marketplace-state"]) {
       const refused = run(process.execPath, [
         reuseScript, "--source", missingSource, "--target", missingTarget,
-        "--resource", "jdtls", "--resource", id,
+        "--resource", "cargo", "--resource", id,
       ]);
       assert.notEqual(refused.status, 0);
       assert.match(diagnostics(refused), new RegExp(`${id} is isolated.*cannot be reused`));
@@ -500,43 +467,24 @@ try {
     }
   });
   await testFailedBackupPreservesDestination();
-  await fs.mkdir(path.join(sourceRoot, "third_party", "jdtls"), { recursive: true });
+  // Eight locked crates let one corrupted source archive leave the target with more
+  // verified files than the source, which must keep the target cache unchanged.
+  const crateNames = Array.from({ length: 8 }, (_, index) => `fixture-${index}`);
+  await fs.mkdir(path.join(sourceRoot, "rust"), { recursive: true });
   await fs.writeFile(
-    path.join(sourceRoot, "third_party", "jdtls", "manifest.json"),
-    `${JSON.stringify({
-      version: "1.0.0",
-      archiveSHA256: emptySha256,
-      licenseSHA256: emptySha256,
-      lombokVersion: "1.0.0",
-      lombokSHA256: emptySha256,
-      lombokLicenseSHA256: emptySha256,
-      javaDebugExtensionVersion: "1.0.0",
-      javaDebugServerVersion: "1.0.0",
-      javaDebugArchiveSHA256: emptySha256,
-      javaDebugLicenseSHA256: emptySha256,
-      javaTestExtensionVersion: "1.0.0",
-      javaTestArchiveSHA256: emptySha256,
-      javaTestLicenseSHA256: emptySha256,
-    })}\n`,
+    path.join(sourceRoot, "rust", "Cargo.lock"),
+    `version = 4\n${crateNames.map(name => `\n[[package]]\nname = "${name}"\nversion = "1.0.0"\nsource = "registry+https://github.com/rust-lang/crates.io-index"\nchecksum = "${emptySha256}"\n`).join("")}`,
   );
   assertSucceeded(run("git", ["init", "--quiet", "--initial-branch=main"], sourceRoot));
   assertSucceeded(run("git", ["config", "user.name", "Resource Reuse Test"], sourceRoot));
   assertSucceeded(run("git", ["config", "user.email", "resource-reuse@example.invalid"], sourceRoot));
-  assertSucceeded(run("git", ["add", "third_party/jdtls/manifest.json"], sourceRoot));
+  assertSucceeded(run("git", ["add", "rust/Cargo.lock"], sourceRoot));
   assertSucceeded(run("git", ["commit", "--quiet", "-m", "fixture"], sourceRoot));
   assertSucceeded(run("git", ["worktree", "add", "--quiet", "--detach", targetRoot], sourceRoot));
 
-  const cache = path.join(sourceRoot, ".artifacts", "jdtls-downloads");
-  const expectedFiles = [
-    `jdtls-1.0.0-${emptySha256}.tar.gz`,
-    `EPL-2.0-${emptySha256}.txt`,
-    `lombok-1.0.0-${emptySha256}.jar`,
-    `lombok-MIT-1.0.0-${emptySha256}.txt`,
-    `vscode-java-debug-1.0.0-${emptySha256}.vsix`,
-    `java-debug-EPL-1.0-1.0.0-${emptySha256}.txt`,
-    `vscode-java-test-1.0.0-${emptySha256}.vsix`,
-    `java-test-MIT-1.0.0-${emptySha256}.txt`,
-  ];
+  const cacheRelativePath = path.join(".artifacts", "cargo-home", "registry", "cache", "index.crates.io-fixture");
+  const cache = path.join(sourceRoot, cacheRelativePath);
+  const expectedFiles = crateNames.map(name => `${name}-1.0.0.crate`);
   await fs.mkdir(cache, { recursive: true });
   for (const fileName of expectedFiles) await fs.writeFile(path.join(cache, fileName), "");
 
@@ -554,15 +502,15 @@ try {
 
   let result = reuse();
   assertSucceeded(result);
-  assert.match(result.stdout, /Reused jdtls: published 8 verified file/);
-  const targetCache = path.join(targetRoot, ".artifacts", "jdtls-downloads");
+  assert.match(result.stdout, /Reused cargo: published 8 verified file/);
+  const targetCache = path.join(targetRoot, cacheRelativePath);
   for (const fileName of expectedFiles) await fs.access(path.join(targetCache, fileName));
 
   const archiveName = expectedFiles[0];
   await fs.writeFile(path.join(cache, archiveName), "corrupted");
   result = reuse();
   assertSucceeded(result);
-  assert.match(result.stdout, /Keeping jdtls: target already has 8 verified file/);
+  assert.match(result.stdout, /Keeping cargo: target already has 8 verified file/);
   assert.match(await fs.readFile(path.join(targetCache, archiveName), "utf8"), /^$/);
   assert.match(diagnostics(result), /SHA-256 mismatch/);
 
@@ -570,21 +518,21 @@ try {
   await fs.writeFile(path.join(cache, archiveName), "");
   result = reuse();
   assertSucceeded(result);
-  assert.match(result.stdout, /Reused jdtls: published 8 verified file/);
+  assert.match(result.stdout, /Reused cargo: published 8 verified file/);
   await fs.access(path.join(targetCache, archiveName));
 
   result = run(process.execPath, [reuseScript, "--source", sourceRoot, "--target", targetRoot, "--resource", "unknown"]);
   assert.notEqual(result.status, 0);
   assert.match(result.stderr, /Unknown resource: unknown/);
 
-  result = run(process.execPath, [reuseScript, "--source", sourceRoot, "--target", sourceRoot, "--resource", "jdtls"]);
+  result = run(process.execPath, [reuseScript, "--source", sourceRoot, "--target", sourceRoot, "--resource", "cargo"]);
   assert.notEqual(result.status, 0);
   assert.match(result.stderr, /must be different/);
 
   result = run(process.execPath, [reuseScript, "--list"]);
   assertSucceeded(result);
   assert.match(result.stdout, /^cargo\t\.artifacts\/cargo-home\/registry\/cache$/m);
-  assert.match(result.stdout, /^jdk\t\.artifacts\/jdk-downloads$/m);
+  assert.match(result.stdout, /^conpty\t\.artifacts\/conpty-downloads$/m);
 
   result = run(process.execPath, [reuseScript, "--source", sourceRoot, "--target", targetRoot, "--resource", "language-tools"]);
   assert.notEqual(result.status, 0);

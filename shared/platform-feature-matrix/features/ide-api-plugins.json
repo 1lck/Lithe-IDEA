@@ -2,7 +2,7 @@
   "id": "ide-api-plugins",
   "area": "插件与扩展",
   "group": "IDE API / MCP",
-  "capability": "插件调用已授权项目的环境、Maven 与运行 API",
+  "capability": "插件调用已授权项目的环境、构建与运行 API",
   "owner": "IDE API",
   "macos": {
     "implementationStatus": "partial",
@@ -23,7 +23,7 @@
     ]
   },
   "verification": "双端插件枚举显式授权的项目，读取环境并调用已允许的操作；撤销项目权限后拒绝调用，Windows 未声明 permissions.ide 的 Worker 无法访问。",
-  "notes": "Viva：插件宿主提供 workspace/listContexts、workspace/getContext 与 run/start、run/stop（contexts.go、runs.go、hostmethods.go）；未找到插件侧的环境与 Maven API，也没有 permissions.ide 授权门控。",
+  "notes": "Viva：插件宿主提供 workspace/listContexts、workspace/getContext 与 run/start、run/stop（contexts.go、runs.go、hostmethods.go）；未找到插件侧的环境与构建 API，也没有 permissions.ide 授权门控。",
   "legacy": {
     "revision": "5a54c41aa37a4e6e6b68918a4b05765b9dd07a36",
     "macos": {

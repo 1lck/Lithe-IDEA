@@ -1107,7 +1107,7 @@
     "desktop.gitReview.untrackedMenu": "显示未跟踪文件…",
     "desktop.gitReview.untrackedTitle": "{path} 中的未跟踪文件",
     "desktop.ideApi.allowConfigure": "允许配置",
-    "desktop.ideApi.allowConfigureHelp": "允许客户端读取并修改项目的 Java、Maven 与构建选项。",
+    "desktop.ideApi.allowConfigureHelp": "允许客户端修改项目的构建选项。",
     "desktop.ideApi.allowExecute": "允许执行",
     "desktop.ideApi.allowExecuteHelp": "允许客户端启动和停止构建与运行。这可能下载依赖或执行插件。",
     "desktop.ideApi.copyConfiguration": "复制 stdio 客户端配置",

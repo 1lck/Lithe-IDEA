@@ -71,12 +71,12 @@ func TestExtractWritesFilesInPathOrder(t *testing.T) {
 	pkg, target, err := extractInto(t, []archiveEntry{
 		{name: "plugin.json", body: []byte(`{"id":"example"}`), mode: 0o644},
 		{name: "lib/a.txt", body: []byte("hello"), mode: 0o644},
-		{name: "languages/java/tmLanguage.json", body: []byte("{}"), mode: 0o644},
+		{name: "languages/sample/tmLanguage.json", body: []byte("{}"), mode: 0o644},
 	})
 	if err != nil {
 		t.Fatalf("extract: %v", err)
 	}
-	want := []string{"languages/java/tmLanguage.json", "lib/a.txt", "plugin.json"}
+	want := []string{"languages/sample/tmLanguage.json", "lib/a.txt", "plugin.json"}
 	if len(pkg.Files) != len(want) {
 		t.Fatalf("files = %+v", pkg.Files)
 	}
@@ -142,10 +142,10 @@ func TestExtractDefaultsPermissionWithoutMode(t *testing.T) {
 }
 
 func TestExtractAcceptsTheContractDirectoryLayout(t *testing.T) {
-	const root = "io.github.lithe-idea.cargo-build"
+	const root = "dev.lithe.test.sample"
 	pkg, target, err := extractInto(t, []archiveEntry{
 		{name: root + "/", mode: fs.ModeDir | 0o755},
-		{name: root + "/plugin.json", body: []byte(`{"id":"io.github.lithe-idea.cargo-build"}`), mode: 0o644},
+		{name: root + "/plugin.json", body: []byte(`{"id":"dev.lithe.test.sample"}`), mode: 0o644},
 		{name: root + "/backend/main.mjs", body: []byte("export {};"), mode: 0o644},
 		{name: root + "/templates/project/plugin.json.template", body: []byte("{}"), mode: 0o644},
 	})
