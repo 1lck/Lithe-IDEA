@@ -55,7 +55,7 @@ func (a *App) diffView(c ui.C, p *project, t *diffTab) {
 		a.diffToolbar(c, p, t)
 		ui.Divider(c)
 		if t.find.open && t.file != nil {
-			a.diffFindBar(c, t)
+			a.diffFindBar(c, p, t)
 		}
 		a.diffSides(c, t)
 		ui.Divider(c)

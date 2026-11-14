@@ -17,7 +17,7 @@ func BenchmarkProjectTreeResize1000(b *testing.B) {
 	tree := &h.app.project.tree
 	tree.root = &treeNode{name: "project", dir: true, expanded: true, listed: true}
 	tree.byPath = nil
-	tree.measureDirty = true
+	tree.rowsDirty = true
 	for i := 0; i < 1000; i++ {
 		tree.root.children = append(tree.root.children, tree.node(core.WorkspaceNode{Path: fmt.Sprintf("file-%04d.txt", i), Name: fmt.Sprintf("file-%04d.txt", i)}, 1))
 	}

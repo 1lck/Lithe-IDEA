@@ -9,7 +9,7 @@
     "evidence": [
       "docs/viva-migration.md",
       "desktop/internal/workbench/github_create.go",
-      "desktop/internal/core/ai_pull_request.go"
+      "desktop/internal/ai/pull_request.go"
     ]
   },
   "windows": {
@@ -18,12 +18,12 @@
     "evidence": [
       "docs/viva-migration.md",
       "desktop/internal/workbench/github_create.go",
-      "desktop/internal/core/ai_pull_request.go"
+      "desktop/internal/ai/pull_request.go"
     ]
   },
   "owner": "AI",
   "verification": "macOS：在测试仓库的新建 PR 页面生成描述，确认标题和描述同时填入、含敏感文件（如 credentials.json）的比较被拒绝、只返回标题的响应报错。Windows：使用 AI 提交服务商在新建 PR 页面生成草稿，确认使用本地 base...head 差异并报告本地化错误。",
-  "notes": "Viva：新建 PR 对话框填写标题、Markdown 描述、base/head 与是否草稿；可让已配置的 AI 提供方起草：GitHub 提供两分支的提交与补丁，Core 统一证据预算、敏感路径策略与提示词并严格解码标题和描述（ai.pullRequest.plan/decode），凭据与 HTTP 留在宿主；起草结果只是对话框文本，确认后才创建。未发布的分支或分离 HEAD 阻止创建，此处不提供发布分支。",
+  "notes": "Viva：新建 PR 对话框填写标题、Markdown 描述、base/head 与是否草稿；可让已配置的 AI 提供方起草：GitHub 提供两分支的提交与补丁，Core 统一证据预算、敏感路径策略与提示词并严格解码标题和描述（ai.pullRequest.plan/decode），凭据与 HTTP 留在宿主；起草结果只是对话框文本，确认后才创建。未发布的分支或分离 HEAD 阻止创建，此处不提供发布分支。 2026-11-14：AI 代码移到独立 Go 包 desktop/internal/ai（Core AI 命令封装、Codex/Claude 服务商发现、HTTP 与生成流程），desktop/internal/core 不再含 AI 代码，workbench 只保留界面状态与本地化错误文案。",
   "legacy": {
     "revision": "5a54c41aa37a4e6e6b68918a4b05765b9dd07a36",
     "macos": {

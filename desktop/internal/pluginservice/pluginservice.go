@@ -44,6 +44,7 @@ type Kernel interface {
 	ReadInstalledPluginSettingsState(context.Context, json.RawMessage, string, string) (core.PluginSettingsState, error)
 	ValidatePluginNativeData(ctx context.Context, declaration, data json.RawMessage) (json.RawMessage, error)
 	SelectInstalledPluginVersions(context.Context, []core.InstalledPluginFact, bool) (core.InstalledPluginSelection, error)
+	pluginmanager.Kernel
 	ExpandPluginWorkspaceConfiguration(context.Context, json.RawMessage, string, map[string]json.RawMessage, map[string]json.RawMessage) (json.RawMessage, error)
 	UpdatePluginWorkspaceConfiguration(context.Context, string, json.RawMessage) (bool, error)
 	ReviewMarketplaceInstall(ctx context.Context, manifest json.RawMessage, expectedID, expectedVersion string, approvedPrograms []json.RawMessage, hostCapabilities map[string][]int) (core.MarketplaceReview, error)
@@ -157,7 +158,7 @@ func open(kernel Kernel, preferences *store.Store, root string, first bool) (*Se
 	service := &Service{
 		startupLeftovers: leftovers,
 		Root:             root,
-		Manager:          pluginmanager.New(root, approvals, state),
+		Manager:          pluginmanager.New(kernel, root, approvals, state),
 		Installer:        plugininstall.New(kernel, NewReviewer(kernel), approvals, pluginhost.Declared()),
 		Backend:          pluginbackend.New(kernel, hostServices),
 		Settings:         pluginsettings.New(kernel, preferences.Dir()),

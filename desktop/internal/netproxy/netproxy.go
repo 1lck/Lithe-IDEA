@@ -13,6 +13,7 @@ import (
 	"errors"
 	"net"
 	"net/http"
+	"net/netip"
 	"net/url"
 	"strconv"
 	"strings"
@@ -63,7 +64,7 @@ func proxyFor(policy *core.NetworkProxyPolicy, request *http.Request) (*url.URL,
 	if policy.Policy == "direct" || request.URL == nil {
 		return nil, nil
 	}
-	if Excluded(request.URL.Hostname(), policy.Exclusions) {
+	if Bypasses(request.URL.Hostname(), policy.ExclusionRules) {
 		return nil, nil
 	}
 	return proxyURL(*policy), nil
@@ -120,34 +121,40 @@ func proxyURL(policy core.NetworkProxyPolicy) *url.URL {
 	return out
 }
 
-// Excluded reports whether host is reached directly under exclusions: an entry is an
-// exact host, a domain suffix written ".example.com" or "*.example.com", an IP
-// address, a CIDR block, or "<local>" for names without a dot.
-func Excluded(host string, exclusions []string) bool {
+// Bypasses reports whether host, a request URL's host name or address, goes direct under
+// rules. Core reads what each exclusion entry means (network.proxyPolicy); this is only the
+// comparison its contract states, replayed against rust/fixtures/network/proxy-bypass-v1.json:
+// the host lowercase and without a trailing dot; "host" equal; "suffix" the domain or a host
+// ending in "." and the domain; "ip" an equal address and "cidr" an address inside the block,
+// both of the same family, an IPv6 zone not compared; "local" a name without a dot.
+func Bypasses(host string, rules []core.NetworkProxyExclusionRule) bool {
 	host = strings.ToLower(strings.TrimSuffix(host, "."))
 	if host == "" {
 		return false
 	}
-	ip := net.ParseIP(host)
-	for _, entry := range exclusions {
-		entry = strings.ToLower(strings.TrimSpace(entry))
-		switch {
-		case entry == "":
-		case entry == "<local>":
-			if ip == nil && !strings.Contains(host, ".") {
+	address, err := netip.ParseAddr(host)
+	isAddress := err == nil
+	address = address.WithZone("")
+	for _, rule := range rules {
+		switch rule.Kind {
+		case "host":
+			if host == rule.Value {
 				return true
 			}
-		case strings.Contains(entry, "/"):
-			if _, block, err := net.ParseCIDR(entry); err == nil && ip != nil && block.Contains(ip) {
+		case "suffix":
+			if host == rule.Value || strings.HasSuffix(host, "."+rule.Value) {
 				return true
 			}
-		case strings.HasPrefix(entry, "*."), strings.HasPrefix(entry, "."):
-			suffix := strings.TrimPrefix(entry, "*")
-			if strings.HasSuffix(host, suffix) || host == suffix[1:] {
+		case "ip":
+			if value, err := netip.ParseAddr(rule.Value); err == nil && isAddress && address == value {
 				return true
 			}
-		default:
-			if host == entry {
+		case "cidr":
+			if block, err := netip.ParsePrefix(rule.Value); err == nil && isAddress && block.Contains(address) {
+				return true
+			}
+		case "local":
+			if !isAddress && !strings.Contains(host, ".") {
 				return true
 			}
 		}

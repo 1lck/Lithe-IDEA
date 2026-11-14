@@ -18,9 +18,13 @@ Viva 客户端从插件市场装好插件后，插件默认是禁用的，用户
 
 ## 决策
 
-- **确认安装即启用**：`pluginstate.Store.EnableUnlessChosen` 在同一把锁里检查并写入：没有记录才写 `enabled: true`，有记录（无论启用还是禁用）都保留。`pluginmanager.Manager.EnableInstalled` 先确认插件已安装，再调用它。工作台在 `confirmPluginInstall` 提交成功后（包括只是批准记录写入失败的 `ApprovalError`）调用一次。卸载时 `Forget` 清除选择，所以“卸载后重装”又会启用。
-- **卸载顺序**：`pluginservice.Service.Uninstall(ctx, id, server)` 先摘除并停止后端、停止语言服务器（`Runner.Stop` 等到 Core 销毁会话才返回，进程此时已经退出），再调用 `Manager.Uninstall`。工作台在窗口线程先用 `detachPluginServer` 把语言服务器移出登记表（不再接收请求、不会被重新启动），再把会话交给后台的 `Service.Uninstall`。
-- **禁用顺序**：`Service.Disable` 先记录禁用，再停止语言服务器和后端，这样停止期间没有路径会把插件重新拉起来。
+启用规则和每个动作的步骤顺序由 Core 命令 `plugins.installed.lifecycle` 决定（实现在 Core 的 `rust/crates/plugin-lifecycle`，规则表和用例在 `rust/fixtures/plugins/installed-lifecycle.json`）。客户端只保存用户的选择、插件包和批准记录，把它们的身份交给 Core，再按 Core 返回的步骤逐条执行文件和进程操作。这样 Windows、macOS 和以后换的界面外壳共用同一套规则，不会各自再写一份。
+
+- **谁是“启用”**：Core 按“插件”而不是“版本”回答启用状态，没有用户选择就是禁用。`pluginstate` 只读写选择（`SetEnabled`、`Forget`、`List`），不再自己判断启用；`pluginmanager.Manager.Installed` 用 Core 的回答。
+- **确认安装即启用**：确认安装时，没有选择 Core 才返回“记录启用”这一步，有选择（无论启用还是禁用）就没有步骤。工作台在 `confirmPluginInstall` 提交成功后（包括只是批准记录写入失败的 `ApprovalError`）调用一次 `Manager.EnableInstalled`。卸载时 Core 返回“忘掉选择”，所以“卸载后重装”又会启用。
+- **卸载顺序**：Core 返回的步骤依次是：停止插件程序 → 删除每个已安装版本（删成功才删它的批准记录）→ 忘掉选择 → 删除状态目录。`pluginmanager.Manager.Apply` 按顺序执行并汇总每个失败，“停止插件程序”由调用方传入：`pluginservice.Service.Uninstall(ctx, id, server)` 传的是先摘除并停止后端、再停止语言服务器（`Runner.Stop` 等到 Core 销毁会话才返回，进程此时已经退出）。工作台在窗口线程先用 `detachPluginServer` 把语言服务器移出登记表（不再接收请求、不会被重新启动），再把会话交给后台的 `Service.Uninstall`。
+- **禁用顺序**：Core 先返回“记录禁用”，再返回“停止插件程序”，这样停止期间没有路径会把插件重新拉起来。
+- **未安装的插件**：对没有安装版本的插件启用、禁用或卸载，Core 返回拒绝 `plugin.lifecycle.notInstalled`，`Manager` 报 `ErrUnknownPlugin`，不写任何选择，避免以后安装时被悄悄启用。
 - **状态目录**：`pluginpkg.StateDirectory` 是 `.state` 的唯一定义（`pluginservice` 的 `pluginStateDirectory` 引用它）。`pluginpkg.RemoveState` 和卸载包一样，先把 `.state/<插件 ID>` 改名进 `.trash`，再递归删除，删除失败也不会把半份状态留在下次安装会读取的位置；它只处理目录，不跟随符号链接。`.state/host-secret` 和其他插件的目录不动。插件设置保存在应用偏好目录，不在 `.state` 里，所以卸载不会丢用户设置。
 
 ## 考虑过的备选方案
@@ -35,12 +39,12 @@ Viva 客户端从插件市场装好插件后，插件默认是禁用的，用户
 - 用户从商店装好带语言服务器的插件，打开对应文件即可使用。
 - 卸载会删除插件的全部运行时状态，包括较大的源码副本和索引；重装后需要重新生成，首次跳转进 JDK 会再解压一次。
 - 卸载时要等进程停止（有界：语言服务器最长按 `pluginInstallTimeout`，后端按 `backendStopTimeout`），再删文件，卸载完成会稍晚出现在界面上。
-- 构建 Provider、VCS Provider 和调试适配器进程仍没有在删包前停止，已建单 #1843。工作台三处写死 `".state"` 的路径拼接已建单 #1841。启用规则和卸载顺序仍在 Go 平台层，迁入 Core 已建单 #1842。
+- 构建 Provider、VCS Provider 和调试适配器进程仍没有在删包前停止，已建单 #1843。工作台三处写死 `".state"` 的路径拼接已建单 #1841。启用规则和步骤顺序已按 #1842 迁入 Core。
 
 ## 验证
 
-- `scripts/desktop/desktop-go.sh test ./internal/pluginstate ./internal/pluginmanager ./internal/pluginpkg ./internal/pluginservice ./internal/workbench -count=1`：
-  - `TestEnableUnlessChosenRecordsOnlyAFirstChoice`：没有记录时启用，有明确禁用时不改。
+- `scripts/desktop/desktop-go.sh test ./internal/core ./internal/pluginstate ./internal/pluginmanager ./internal/pluginpkg ./internal/pluginservice ./internal/workbench -count=1`：
+  - Core 仓库 `cargo test -p lithe-core --lib installed_lifecycle`：逐条跑 `installed-lifecycle.json` 的用例，覆盖首次确认安装、禁用后更新保持禁用、卸载的步骤顺序、未安装插件的拒绝和非法请求。
   - `TestEnableInstalledKeepsAnExplicitChoice`：首次安装启用、禁用后升级保持禁用、未安装报 `ErrUnknownPlugin`、卸载后重装又启用。
   - `TestUninstallRemovesThePluginState`：删除本插件的 `.state/<插件 ID>`（含版本目录和 `pages/workspaces`），保留其他插件和 `host-secret`。
   - `TestUninstallStopsTheBackendBeforeRemovingThePlugin`、`TestDisableStopsTheBackend`：后端在删包前停止、禁用先记录后停止、其他插件后端不受影响。
@@ -49,4 +53,4 @@ Viva 客户端从插件市场装好插件后，插件默认是禁用的，用户
 
 ## 适用范围
 
-Viva 客户端（`desktop/`）的插件安装、启用、禁用和卸载：`desktop/internal/pluginstate/`、`desktop/internal/pluginmanager/`、`desktop/internal/pluginpkg/install.go`、`desktop/internal/pluginservice/lifecycle.go`、`desktop/internal/workbench/plugins.go`。旧 Swift/Tauri 客户端的规则以各自原 Note 为准。
+Viva 客户端（`desktop/`）的插件安装、启用、禁用和卸载：Core 的 `plugins.installed.lifecycle`、`desktop/internal/core/plugin_lifecycle.go`、`desktop/internal/pluginstate/`、`desktop/internal/pluginmanager/`、`desktop/internal/pluginpkg/install.go`、`desktop/internal/pluginservice/lifecycle.go`、`desktop/internal/workbench/plugins.go`。旧 Swift/Tauri 客户端的规则以各自原 Note 为准。

@@ -1,11 +1,13 @@
 package pluginmanager
 
 import (
+	"context"
 	"errors"
 	"os"
 	"path/filepath"
 	"testing"
 
+	"github.com/1lck/Lithe-IDEA/desktop/internal/core"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/pluginpkg"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/pluginstate"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/plugintrust"
@@ -18,7 +20,43 @@ func newManager(t *testing.T) (*Manager, *plugintrust.Store, *pluginstate.Store,
 	approvals := plugintrust.New(store.At(t.TempDir()))
 	state := pluginstate.New(store.At(t.TempDir()))
 	root := t.TempDir()
-	return New(root, approvals, state), approvals, state, root
+	return New(core.NewClient(), root, approvals, state), approvals, state, root
+}
+
+// uninstall removes plugin id; nothing of it runs in these tests.
+func uninstall(manager *Manager, id string) error {
+	_, err := manager.Apply(context.Background(), core.PluginUninstall, id, nil)
+	return err
+}
+
+// enabled reports whether plugin id is installed and enabled.
+func enabled(t *testing.T, manager *Manager, id string) bool {
+	t.Helper()
+	entries, err := manager.Installed()
+	if err != nil {
+		t.Fatalf("installed: %v", err)
+	}
+	for _, entry := range entries {
+		if entry.Installed.ID == id {
+			return entry.Enabled
+		}
+	}
+	return false
+}
+
+// recorded reports whether the user's choice for plugin id is stored.
+func recorded(t *testing.T, state *pluginstate.Store, id string) bool {
+	t.Helper()
+	entries, err := state.List()
+	if err != nil {
+		t.Fatalf("list: %v", err)
+	}
+	for _, entry := range entries {
+		if entry.PluginID == id {
+			return true
+		}
+	}
+	return false
 }
 
 // install puts one plugin version into the root.
@@ -87,7 +125,7 @@ func TestUninstallRemovesPackageAndApproval(t *testing.T) {
 	manager, approvals, _, root := newManager(t)
 	install(t, root, "example", "1.0.0")
 	approve(t, approvals, "example", "1.0.0")
-	if err := manager.Uninstall("example"); err != nil {
+	if err := uninstall(manager, "example"); err != nil {
 		t.Fatalf("uninstall: %v", err)
 	}
 	if _, err := os.Stat(filepath.Join(root, "example")); !errors.Is(err, os.ErrNotExist) {
@@ -104,12 +142,11 @@ func TestUninstallForgetsEnablement(t *testing.T) {
 	if err := manager.SetEnabled("example", true); err != nil {
 		t.Fatal(err)
 	}
-	if err := manager.Uninstall("example"); err != nil {
+	if err := uninstall(manager, "example"); err != nil {
 		t.Fatalf("uninstall: %v", err)
 	}
-	enabled, err := state.Enabled("example")
-	if err != nil || enabled {
-		t.Fatalf("enabled = %v, err = %v", enabled, err)
+	if recorded(t, state, "example") {
+		t.Fatal("the enablement choice survived the uninstall")
 	}
 }
 
@@ -119,7 +156,7 @@ func TestUninstallRemovesEveryVersion(t *testing.T) {
 	install(t, root, "example", "1.1.0")
 	approve(t, approvals, "example", "1.0.0")
 	approve(t, approvals, "example", "1.1.0")
-	if err := manager.Uninstall("example"); err != nil {
+	if err := uninstall(manager, "example"); err != nil {
 		t.Fatalf("uninstall: %v", err)
 	}
 	// Installing leaves the earlier version on disk, and the plugin page shows one
@@ -136,7 +173,7 @@ func TestUninstallRemovesEveryVersion(t *testing.T) {
 
 func TestUninstallRefusesAnUnknownPlugin(t *testing.T) {
 	manager, _, _, _ := newManager(t)
-	if err := manager.Uninstall("example"); !errors.Is(err, ErrUnknownPlugin) {
+	if err := uninstall(manager, "example"); !errors.Is(err, ErrUnknownPlugin) {
 		t.Fatalf("err = %v", err)
 	}
 }
@@ -148,22 +185,23 @@ func TestSetEnabledRefusesUnknownPlugin(t *testing.T) {
 	}
 }
 
-func TestSetEnabledAndEnabledRoundTrip(t *testing.T) {
+func TestSetEnabledAndInstalledRoundTrip(t *testing.T) {
 	manager, _, _, root := newManager(t)
 	install(t, root, "example", "1.0.0")
+	if enabled(t, manager, "example") {
+		t.Fatal("a plugin without a choice is enabled")
+	}
 	if err := manager.SetEnabled("example", true); err != nil {
 		t.Fatalf("set enabled: %v", err)
 	}
-	enabled, err := manager.Enabled("example")
-	if err != nil || !enabled {
-		t.Fatalf("enabled = %v, err = %v", enabled, err)
+	if !enabled(t, manager, "example") {
+		t.Fatal("the enabled plugin is reported disabled")
 	}
 	if err := manager.SetEnabled("example", false); err != nil {
 		t.Fatalf("set disabled: %v", err)
 	}
-	enabled, err = manager.Enabled("example")
-	if err != nil || enabled {
-		t.Fatalf("enabled = %v, err = %v", enabled, err)
+	if enabled(t, manager, "example") {
+		t.Fatal("the disabled plugin is reported enabled")
 	}
 }
 
@@ -189,7 +227,7 @@ func TestUninstallRemovesThePluginState(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	if err := manager.Uninstall("example"); err != nil {
+	if err := uninstall(manager, "example"); err != nil {
 		t.Fatalf("uninstall: %v", err)
 	}
 	if _, err := os.Stat(filepath.Join(stateRoot, "example")); !errors.Is(err, os.ErrNotExist) {
@@ -205,7 +243,7 @@ func TestUninstallRemovesThePluginState(t *testing.T) {
 // Confirming an installation enables a plugin the user made no choice for, and
 // keeps a choice the user made, such as disabling it before an update.
 func TestEnableInstalledKeepsAnExplicitChoice(t *testing.T) {
-	manager, _, state, root := newManager(t)
+	manager, _, _, root := newManager(t)
 	install(t, root, "fresh", "1.0.0")
 	install(t, root, "disabled", "1.0.0")
 	if err := manager.SetEnabled("disabled", false); err != nil {
@@ -219,19 +257,19 @@ func TestEnableInstalledKeepsAnExplicitChoice(t *testing.T) {
 		if _, err := manager.EnableInstalled(c.id); err != nil {
 			t.Fatalf("enable %s: %v", c.id, err)
 		}
-		if enabled, err := state.Enabled(c.id); err != nil || enabled != c.want {
-			t.Fatalf("%s: enabled = %v, err = %v, want %v", c.id, enabled, err, c.want)
+		if got := enabled(t, manager, c.id); got != c.want {
+			t.Fatalf("%s: enabled = %v, want %v", c.id, got, c.want)
 		}
 	}
 	if _, err := manager.EnableInstalled("absent"); !errors.Is(err, ErrUnknownPlugin) {
 		t.Fatalf("enabling a plugin that is not installed: %v", err)
 	}
 	// After an uninstall the choice is forgotten, so installing again enables it.
-	if err := manager.Uninstall("disabled"); err != nil {
+	if err := uninstall(manager, "disabled"); err != nil {
 		t.Fatal(err)
 	}
 	install(t, root, "disabled", "1.1.0")
-	if enabled, err := manager.EnableInstalled("disabled"); err != nil || !enabled {
-		t.Fatalf("reinstall after uninstall: enabled = %v, err = %v", enabled, err)
+	if changed, err := manager.EnableInstalled("disabled"); err != nil || !changed {
+		t.Fatalf("reinstall after uninstall: changed = %v, err = %v", changed, err)
 	}
 }

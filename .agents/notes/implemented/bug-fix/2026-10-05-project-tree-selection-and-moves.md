@@ -5,8 +5,9 @@
 > 2026-11-08 Viva 迁移：本笔记记录的多选、批量移动和平台专属实现属于迁移前版本；
 > Viva 目前只接入目录单击选择、双击名称或点击箭头切换展开，以及方向键导航和选中项滚动到视口。
 > 多选、批量移动、右键菜单和实机交互验收仍待完成，不能用下文旧测试证明已迁移。
-> 当前 Go 可见行投影和导航目标尚未下沉，跟踪 [#1800](https://github.com/1lck/Lithe-IDEA/issues/1800)；
-> 不得在界面层继续增加多选等共享规则。
+> 2026-11-14 起可见行、选择修正、视口顶端行和多选（普通、Cmd/Ctrl、Shift 点击与批量目标）由 Core 的
+> `workspace.projectTree.rows` 和 `workspace.rowSelection.reduce` 计算（[#1800](https://github.com/1lck/Lithe-IDEA/issues/1800)），
+> 规则见 `2026-10-19-lazy-project-tree.md`；不得在界面层再增加这类共享规则。
 > 同一次目录批量请求失败只记录一次宿主错误，不复用 Core 拥有的目录跳过事件；Viva 日志
 > 事件类型生成和静态使用门禁尚未恢复，跟踪 [#1802](https://github.com/1lck/Lithe-IDEA/issues/1802)。
 

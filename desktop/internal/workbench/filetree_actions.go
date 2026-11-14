@@ -123,7 +123,7 @@ func (a *App) stepTreeReveal(p *project) {
 				a.giveUpTreeReveal(p, "folder_unavailable")
 				return
 			}
-			n.expanded, t.measureDirty, t.revealAsked = true, true, n
+			n.expanded, t.rowsDirty, t.revealAsked = true, true, n
 			a.listTree(p, n.path)
 			return
 		}
@@ -188,7 +188,7 @@ func (a *App) retryProjectTree(p *project) {
 		slot.close()
 		delete(t.watches, "")
 	}
-	t.failed, t.root.listed, t.root.expanded = "", false, true
+	t.failed, t.root.listed, t.root.expanded, t.rowsDirty = "", false, true, true
 	a.listTree(p, "")
 }
 
@@ -225,7 +225,7 @@ func (a *App) stepTreeExpandAll(p *project) {
 				continue
 			}
 			t.expandSeen[n.id] = true
-			n.expanded, t.measureDirty = true, true
+			n.expanded, t.rowsDirty = true, true
 			ask = append(ask, n.path)
 		}
 		if n.listed {
@@ -264,16 +264,9 @@ func (a *App) collapseProjectTree(p *project) {
 		}
 	}
 	collapse(t.root)
-	t.measureDirty = true
-	if s := t.selected; s != nil && s != t.root && (s.depth > 1 || !t.root.expanded) {
-		shown := t.root
-		if t.root.expanded {
-			top, _, _ := strings.Cut(s.path, "/")
-			if n := t.find(top); n != nil {
-				shown = n
-			}
-		}
-		t.selected, t.show = shown, shown
+	t.rowsDirty = true
+	if a.refreshTreeRows(p, nil) {
+		t.show = t.selected
 	}
 	a.pruneTreeWatches(p)
 }

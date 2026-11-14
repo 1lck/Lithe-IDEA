@@ -90,11 +90,15 @@ func TestDisableStopsTheBackend(t *testing.T) {
 	stopped, enabledWhenStopped := false, true
 	runningBackend(service, "example", func() {
 		stopped = true
-		enabled, err := service.Manager.Enabled("example")
+		entries, err := service.Manager.Installed()
 		if err != nil {
 			t.Error(err)
 		}
-		enabledWhenStopped = enabled
+		for _, entry := range entries {
+			if entry.Installed.ID == "example" {
+				enabledWhenStopped = entry.Enabled
+			}
+		}
 	})
 	if err := service.Disable(context.Background(), "example", nil); err != nil {
 		t.Fatal(err)

@@ -64,7 +64,7 @@ func (a *App) editorNode(c ui.C, n *splitNode) ui.Box {
 // the switch of a Markdown file's view.
 func (a *App) editorGroup(c ui.C, id string) ui.Box {
 	u := &a.term
-	place := newGroupPlace(id, false)
+	place := newGroupPlace(id)
 	u.groups = append(u.groups, place)
 	p := a.project
 	doc := p.selectedDocument(id)
@@ -319,7 +319,7 @@ func (a *App) terminalInput(t *terminal) {
 // a dragged tab can join the group.
 func (a *App) terminalTabs(c ui.C) {
 	u := &a.term
-	place := newGroupPlace(toolGroup, true)
+	place := newGroupPlace(toolGroup)
 	u.tool, u.toolDrawn = place, true
 	ui.Row(c).Grow(1).Shrink(1).MinWidth(0).Height(panelHeaderHeight).Items(ui.Center).Gap(chromeGap).Clip().Draw(place.stripHook).Children(func() {
 		a.tabBar(c, place, tabsScroll, func() {

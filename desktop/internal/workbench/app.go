@@ -26,6 +26,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/1lck/Lithe-IDEA/desktop/internal/ai"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/buildinfo"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/core"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/documentio"
@@ -125,8 +126,12 @@ type Kernel interface {
 	GitCommit(ctx context.Context, root, commit string) (core.GitCommitDetail, error)
 	GitGraph(ctx context.Context, request core.GraphRequest) (core.Graph, error)
 	GitReferenceTree(ctx context.Context, names []string, prioritized map[string]bool) ([]core.ReferenceTreeNode, error)
+	GitChangedFileGroups(ctx context.Context, paths []string) ([]core.GitChangedFolder, error)
 	GitHistoryDates(ctx context.Context, entries []core.HistoryDateEntry, after, before *int64) ([]string, error)
-	ReduceEditorWorkbench(ctx context.Context, state core.EditorWorkbench, action core.EditorAction) (core.EditorWorkbench, []string, error)
+	ReduceEditorLayout(ctx context.Context, state core.EditorWorkbench, layout *core.EditorLayout, action core.EditorAction) (core.EditorLayoutResult, error)
+	EditorDropTargets(ctx context.Context, query core.EditorDropQuery) (core.EditorDropRules, error)
+	ReduceRowSelection(ctx context.Context, rows []string, selection core.RowSelection, action core.RowAction) (core.RowSelectionResult, error)
+	ProjectTreeRows(ctx context.Context, query core.ProjectTreeQuery) (core.ProjectTreeRows, error)
 	GitStage(ctx context.Context, root string, paths []string) error
 	GitClone(ctx context.Context, root, source, destination string) error
 	CheckProjectName(context.Context, string) (core.ProjectNameProblem, error)
@@ -157,6 +162,8 @@ type Kernel interface {
 	GitDeleteTag(ctx context.Context, root, name string) error
 	GitBranchNamePreview(ctx context.Context, request core.BranchNameRequest) (core.BranchNamePreview, error)
 	GitWorktrees(ctx context.Context, root string) ([]core.GitWorktree, error)
+	GitWorktreesWithChanges(ctx context.Context, root string) ([]core.GitWorktree, error)
+	GitWorktreeCreationPreview(ctx context.Context, input core.GitWorktreeCreationInput) (core.GitWorktreeCreationPreview, error)
 	GitCreateWorktree(ctx context.Context, root string, creation core.GitWorktreeCreation) error
 	GitRemoveWorktree(ctx context.Context, root, path string, force bool) error
 	GitLockWorktree(ctx context.Context, root, path string) error
@@ -214,10 +221,10 @@ type Options struct {
 	// PluginRoot is the directory installed plugin packages live in. Empty asks
 	// pluginpkg.DefaultRoot, which is the platform's own data directory.
 	PluginRoot string
-	// AIKernel discovers the providers of commit message generation and inline edits from
-	// the user's Codex and Claude configuration. nil leaves AI generation unavailable
-	// instead of refusing to start.
-	AIKernel AIKernel
+	// AIKernel runs AI generation (the ai package): the commit message, the inline edit and
+	// the pull request description, with the providers of the user's Codex and Claude
+	// configuration. nil leaves AI generation unavailable instead of refusing to start.
+	AIKernel ai.Kernel
 	// PluginInitializeTimeout bounds every plugin backend's startup handshake.
 	// Zero keeps Core's default. Host tests whose fixture is a copy of the large
 	// instrumented test binary raise it so scheduler load cannot masquerade as
@@ -534,9 +541,8 @@ type App struct {
 	// pluginServerMu guards the language-server maps because a build provider
 	// may attach to a shared session from a background model load.
 	pluginServerMu sync.Mutex
-	// aiKernel discovers AI generation providers (ai_provider.go), nil when the window was
-	// built without one.
-	aiKernel AIKernel
+	// aiKernel runs AI generation (ai_generation.go), nil when the window was built without one.
+	aiKernel ai.Kernel
 	// inline is the editor's AI inline edit dialog (inlineedit.go).
 	inline inlineEditState
 	// ideAPIBridgeState lets the IDE Connection settings page reach the open project (settings_ide_api.go).

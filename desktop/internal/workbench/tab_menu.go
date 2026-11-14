@@ -153,5 +153,7 @@ func (a *App) setTabPinned(p *project, group string, d *document, pinned bool) {
 			front++
 		}
 	}
-	a.moveTab(p, member, group, front)
+	a.reduceTerminals(p, p.terms.bench, core.DropEditorTab(core.EditorDrop{
+		Member: member, Target: core.JoinEditorGroup(group, front), Docked: dockedGroups, Dockable: dockable(member),
+	}))
 }

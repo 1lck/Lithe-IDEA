@@ -1,6 +1,7 @@
 package workbench
 
 import (
+	"context"
 	"strconv"
 
 	"github.com/1lck/Lithe-IDEA/desktop/internal/core"
@@ -27,48 +28,44 @@ func (p *project) selectedChanges() []core.GitChange {
 	return out
 }
 
-// clickChangeRow applies a click on the row of change with the modifiers it came with.
+// clickChangeRow applies a click on the row of change with the modifiers it came with, as Core
+// says (workspace.rowSelection.reduce over the changes in the order they show). A plain click
+// drops the marks; the row a click opens is the review's business, not the selection's.
 func (a *App) clickChangeRow(p *project, change core.GitChange, mods gfx.Modifiers) {
 	l := &p.lists
+	action := core.ClearRows()
 	switch {
 	case mods&ui.Primary != 0:
-		if l.selected == nil {
-			l.selected = map[string]bool{}
-		}
-		if l.selected[change.Path] {
-			delete(l.selected, change.Path)
-		} else {
-			l.selected[change.Path] = true
-		}
-		l.anchor = change.Path
+		action = core.ToggleRow(change.Path)
 	case mods&gfx.ModifierShift != 0:
-		if l.selected == nil {
-			l.selected = map[string]bool{}
-		}
-		from := l.anchor
-		if from == "" {
-			from = change.Path
-		}
-		lo, hi := changeRowIndex(p.git.status.Changes, from), changeRowIndex(p.git.status.Changes, change.Path)
-		if lo > hi {
-			lo, hi = hi, lo
-		}
-		for i := max(lo, 0); i <= hi && i < len(p.git.status.Changes); i++ {
-			l.selected[p.git.status.Changes[i].Path] = true
-		}
-	default:
-		l.selected, l.anchor = nil, ""
+		action = core.ExtendRow(change.Path)
 	}
-}
-
-// changeRowIndex is the index of the change at path in changes, -1 when there is none.
-func changeRowIndex(changes []core.GitChange, path string) int {
-	for i, change := range changes {
-		if change.Path == path {
-			return i
+	rows := make([]string, len(p.git.status.Changes))
+	for i, c := range p.git.status.Changes {
+		rows[i] = c.Path
+	}
+	selection := core.RowSelection{Anchor: l.anchor}
+	for at := range l.selected {
+		selection.Marked = append(selection.Marked, at)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), kernelCallTimeout)
+	defer cancel()
+	result, err := a.kernel.ReduceRowSelection(ctx, rows, selection, action)
+	if err != nil {
+		a.notifyError(a.text.Errors.Core(err.Error()))
+		return
+	}
+	if result.Rejection != "" {
+		return
+	}
+	l.selected = nil
+	if len(result.Selection.Marked) > 0 {
+		l.selected = make(map[string]bool, len(result.Selection.Marked))
+		for _, at := range result.Selection.Marked {
+			l.selected[at] = true
 		}
 	}
-	return -1
+	l.anchor = result.Selection.Anchor
 }
 
 // changeListBatchMenu declares the batch items of a selected change's menu: how many changes the

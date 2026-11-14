@@ -2,9 +2,7 @@ package workbench
 
 import (
 	"errors"
-	"strings"
 	"testing"
-	"unicode/utf8"
 )
 
 func TestLineDiffMarksOnlyWhatChanged(t *testing.T) {
@@ -20,18 +18,6 @@ func TestLineDiffMarksOnlyWhatChanged(t *testing.T) {
 	}
 	if d := lineDiff("x", ""); len(d) != 1 || d[0].kind != diffRemoved {
 		t.Fatalf("empty replacement = %v", d)
-	}
-}
-
-func TestInlineContextNeverSplitsACharacter(t *testing.T) {
-	text := []byte(strings.Repeat("é", inlineEditWindow) + "SEL" + strings.Repeat("世", inlineEditWindow))
-	start := len(strings.Repeat("é", inlineEditWindow))
-	before, after := inlineContext(text, start, start+3)
-	if !utf8.ValidString(before) || !utf8.ValidString(after) {
-		t.Fatal("the context splits a character")
-	}
-	if len([]rune(before)) < 12000 || len([]rune(after)) < 12000 {
-		t.Fatalf("context is shorter than Core keeps: %d, %d", len([]rune(before)), len([]rune(after)))
 	}
 }
 
