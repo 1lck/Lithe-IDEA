@@ -6692,14 +6692,76 @@
     },
     {
       "id": "desktop.build.options",
-      "description": "Build tool window button that opens the Build options of the selected instance",
+      "description": "Build tool window button and menu item that open the Build options of one build system, beside the project-wide ones",
       "platforms": [
         "desktop"
       ]
     },
     {
       "id": "desktop.build.optionsTitle",
-      "description": "Title of the Build options dialog",
+      "description": "Title of the Build options dialog and of the Build tool window header button that opens it",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.build.detection",
+      "description": "Heading of the Build options dialog section that sets how build systems are detected",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.build.ignoredPaths",
+      "description": "Label of the Build options field that lists the folders build detection skips, one .gitignore pattern a line",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.build.ignoredPathsHelp",
+      "description": "Tip of the ⓘ beside the ignored paths field: how the patterns are written and what is skipped by default",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.build.ignoredPathsLocal",
+      "description": "Caption under the ignored paths field when the list shown is the one saved on this machine",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.build.ignoredPathsTeam",
+      "description": "Caption under the ignored paths field when the list shown comes from the team Build options file; file is that file's path relative to the project",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "file": "string"
+      }
+    },
+    {
+      "id": "desktop.build.ignoredPathsDefault",
+      "description": "Caption under the ignored paths field when no Build options file sets the list and the default applies",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.build.invalidIgnoredPath",
+      "description": "Build options error when one ignored path is not a usable pattern; line is its line in the field",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "line": "string"
+      }
+    },
+    {
+      "id": "desktop.build.invalidIgnoredPaths",
+      "description": "Build options error when the ignored paths are each valid but cannot be used together",
       "platforms": [
         "desktop"
       ]

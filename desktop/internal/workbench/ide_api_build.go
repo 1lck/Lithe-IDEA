@@ -38,7 +38,7 @@ func (a *App) ideAPIBuildConfigure(p *project, instanceID, optionID string, raw 
 		}
 	}
 	answer := make(chan any, 1)
-	a.saveBuildOptionChanges(p, *instance, []buildOptionChange{{optionID: optionID, value: value}}, func(options json.RawMessage, err error) {
+	a.saveBuildOptionChanges(p, instance, []buildOptionChange{{optionID: optionID, value: value}}, nil, func(options json.RawMessage, err error) {
 		answer <- ideAPIConfiguredOption(instanceID, optionID, options, err)
 	})
 	return answer, nil
