@@ -28,7 +28,7 @@ native_path() {
 }
 
 PINNED_CORE_REPOSITORY="https://github.com/Lithe-IDEA/Lithe-core-rust.git"
-# Lithe-core-rust #42 (branch feat/html-preview-site, not yet merged): htmlPreview.site names the
+# Lithe-core-rust #42, squash-merged into main: htmlPreview.site names the
 # folder an HTML file is previewed from as a static site, and htmlPreview.resolveRequest decides
 # what each request of the preview serves. It is on top of #41, squash-merged into main:
 # markdown.outline outlines the headings of Markdown source as a document-symbol tree for the
@@ -81,7 +81,7 @@ PINNED_CORE_REPOSITORY="https://github.com/Lithe-IDEA/Lithe-core-rust.git"
 # the contract, plugin guides, reference and SDKs live only in shared/plugins; on top of #16 (reported Git queries folded in the console),
 # #15 (git.write cherryPick, revert and reset fields), #14 (word-level changed ranges of diff
 # rows), #13, #8, #7, #6 and #4.
-PINNED_CORE_REVISION="659805ebc289a1cd040720189feaf0213072a558"
+PINNED_CORE_REVISION="f88bc49562fbc5066dfb8783054611ee4e80e348"
 PROFILE="debug"
 while [[ $# -gt 0 ]]; do
     case "$1" in
