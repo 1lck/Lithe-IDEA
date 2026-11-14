@@ -134,6 +134,7 @@ func (a *App) beginPaint(canvas *gfx.Canvas) {
 func (a *App) endPaint() {
 	a.endTerminalFrame()
 	a.endPluginPageFrame()
+	a.endPreviewFrame()
 	a.endNativePanels()
 }
 

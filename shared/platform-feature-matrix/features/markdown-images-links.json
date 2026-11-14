@@ -11,7 +11,9 @@
       "desktop/internal/workbench/markdown_preview.go",
       "desktop/internal/workbench/markdown_preview_test.go",
       "desktop/internal/workbench/markdown_images.go",
-      "desktop/internal/workbench/markdown_images_test.go"
+      "desktop/internal/workbench/markdown_images_test.go",
+      "desktop/internal/workbench/markdown_web.go",
+      "desktop/internal/workbench/markdown_web_test.go"
     ]
   },
   "windows": {
@@ -22,11 +24,13 @@
       "desktop/internal/workbench/markdown_preview.go",
       "desktop/internal/workbench/markdown_preview_test.go",
       "desktop/internal/workbench/markdown_images.go",
-      "desktop/internal/workbench/markdown_images_test.go"
+      "desktop/internal/workbench/markdown_images_test.go",
+      "desktop/internal/workbench/markdown_web.go",
+      "desktop/internal/workbench/markdown_web_test.go"
     ]
   },
   "owner": "Editor",
-  "verification": "验证本地图片、远程图片、相对链接和打开源文件行为。 运行 scripts/desktop/desktop-go.sh test ./internal/workbench -run 'TestMarkdownPreviewShowsRelativeAndRemoteImages|TestMarkdownImageSource' -count=1，覆盖相对图片、本地 HTTP 服务图片、404 与 SVG 显示替代文字；实机检查大图缩放与深浅主题仍待验收。",
+  "verification": "验证本地图片、远程图片、相对链接和打开源文件行为。 运行 scripts/desktop/desktop-go.sh test ./internal/workbench -run 'TestMarkdownPreviewShowsRelativeAndRemoteImages|TestMarkdownImageSource' -count=1，覆盖 Viva 原生页的相对图片、本地 HTTP 服务图片、404 与 SVG 显示替代文字；web view 页运行 -run 'TestMarkdownWebPageFollowsLinksAndServesImagesAsCoreResolvesThem|TestMarkdownImagesAreServedOnlyAsCoreResolvesThem'，覆盖图片只按 Core 解析结果提供（含 SVG 图片）、远程图片由宿主拉取并缓存、页内链接交回宿主跳转；实机检查大图缩放与深浅主题仍待验收。",
   "legacy": {
     "revision": "5a54c41aa37a4e6e6b68918a4b05765b9dd07a36",
     "macos": {

@@ -530,6 +530,10 @@ type App struct {
 	webReady bool
 	// pluginPages are the open pages of web tool windows by chrome identifier.
 	pluginPages map[string]*pluginPage
+	// previews are the web pages of the editor area: Markdown pages and file viewers.
+	previews previewPages
+	// checker is the checkerboard the native image viewers draw images over (viewer_image.go).
+	checker checker
 	// pluginInstall is the install the user started.
 	pluginInstall pluginInstallState
 	// credentialImport is the import of an earlier client's plugin secrets the user asked
@@ -1216,6 +1220,7 @@ func (a *App) finishCloseProject(p *project, after func()) {
 		a.ideAPIDisable(p)
 		p.cancel()
 		a.closePluginPages()
+		a.closePreviewPages()
 		a.closeTree(p)
 		a.closeGitObservation(p)
 		a.releaseProjectSearch(p)

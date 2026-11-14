@@ -467,18 +467,31 @@ func (a *App) paintHover(dc *ui.DrawContext, page *hoverPage) {
 	dc.Canvas.Rounded(gfx.Rect{X: dc.Rect.X + dc.Rect.Width - 6, Y: top, Width: 3, Height: thumb}, 1.5, bar)
 }
 
-// followHoverLink opens a web or mail link of the hover in the system browser; other links,
-// such as a server's own document addresses, are not followed.
+// followHoverLink opens a web or mail link of the hover in the system browser, as Core resolves
+// it (markdown.resolveReference); other links, such as a server's own document addresses, are
+// not followed. The hover belongs to no file, so it has no path to resolve a relative one.
 func (a *App) followHoverLink(destination string) {
-	target := markdownLinkTargetOf("", destination)
-	if target.external == "" {
+	kernel, ok := a.kernel.(markdownKernel)
+	if !ok {
 		return
 	}
-	if err := openURL(target.external); err != nil {
-		a.emit(operationFailedLevel, operationFailedEvent, operationFailedFields("plugin_semantics", err))
-		return
-	}
-	a.closeSemanticHover()
+	p := a.project
+	a.background(p, kernelCallTimeout, func(ctx context.Context) func(*App) {
+		target, err := kernel.ResolveMarkdownReference(ctx, "", "", destination, core.MarkdownLink)
+		if err == nil && target.Kind != "external" {
+			return nil
+		}
+		return func(a *App) {
+			if err == nil {
+				err = openURL(target.URL)
+			}
+			if err != nil {
+				a.emit(operationFailedLevel, operationFailedEvent, operationFailedFields("plugin_semantics", err))
+				return
+			}
+			a.closeSemanticHover()
+		}
+	})
 }
 
 // hoverSpan is the hovered symbol on line, as UTF-16 columns from start to end: the answer's

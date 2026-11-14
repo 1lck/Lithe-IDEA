@@ -5,42 +5,20 @@ import (
 	"strconv"
 
 	"github.com/1lck/Lithe-IDEA/desktop/internal/i18n"
-	"github.com/1lck/Lithe-IDEA/desktop/internal/icons"
-	"github.com/vivaui/viva/app"
-	"github.com/vivaui/viva/gfx"
 	"github.com/vivaui/viva/ui"
 )
 
-// viewerView is a viewer tab's body: a bar with what the file is and what can be done
-// with it, over the image, the hex lines or the offer to open it elsewhere.
-func (a *App) viewerView(c ui.C, t *viewerTab) {
+// viewerView is a viewer tab's body: the bar with the file's name, an image's zoom and the
+// file's actions (viewer_image.go), over the image, the PDF, the hex lines or the offer to open
+// the file in the system's application.
+func (a *App) viewerView(c ui.C, p *project, t *viewerTab) {
 	language := a.language()
-	ui.Column(c.Key("viewer-" + strconv.Itoa(t.id))).Fill().Background(a.colors.Panel).Children(func() {
-		ui.Row(c).FillWidth().Height(32).Shrink(0).PadX(10).Gap(8).Items(ui.Center).Children(func() {
-			info := formatByteSize(uint64(max(t.size, 0)))
-			if t.bitmap.Width > 0 {
-				info = strconv.Itoa(t.bitmap.Width) + " × " + strconv.Itoa(t.bitmap.Height) + " · " + info
-			}
-			ui.Text(c, info).FontSize(12).Color(a.colors.Subtle).Grow(1).MinWidth(0).Ellipsis()
-			if t.kind == viewerImage && t.bitmap.Width > 0 {
-				label := i18n.Shared(language, "desktop.viewer.actualSize")
-				if t.actual {
-					label = i18n.Shared(language, "desktop.viewer.fit")
-				}
-				if ui.Button(c.Part("zoom"), label).Ghost().Small().Clicked() {
-					t.actual = !t.actual
-				}
-			}
-			if ui.Button(c.Part("open"), i18n.Shared(language, "desktop.viewer.openExternally")).Icon(icons.FolderOpen).Ghost().Small().Clicked() {
-				path := t.path
-				c.After(func() {
-					if err := app.OpenPath(path); err != nil {
-						a.notifyError(i18n.SharedFormat(language, "desktop.viewer.openFailed", map[string]string{"reason": err.Error()}))
-					}
-				})
-			}
-		})
-		ui.Row(c).FillWidth().Height(1).Shrink(0).Background(a.colors.Line)
+	ui.Column(c.Key("viewer-" + strconv.Itoa(t.id))).Fill().Background(a.colors.Editor).Children(func() {
+		bar := viewerBar{name: t.name, info: t.info(), path: t.path, close: func() { a.closeViewer(p, t.id) }}
+		if t.kind == viewerImage {
+			bar.zoom, bar.zoomTo = t.imageZoom(), func(request zoomRequest) { a.zoomViewer(t, request) }
+		}
+		a.viewerToolbar(c, bar)
 		switch {
 		case t.loading:
 			ui.Row(c).Fill().Center().Children(func() { ui.Spinner(c) })
@@ -48,36 +26,88 @@ func (a *App) viewerView(c ui.C, t *viewerTab) {
 			ui.Row(c).Fill().Center().Pad(20).Children(func() {
 				ui.Paragraph(c, i18n.SharedFormat(language, "desktop.viewer.failed", map[string]string{"reason": t.failure}), 4).Color(a.theme.Danger)
 			})
-		case t.kind == viewerExternal:
-			ui.Column(c).Fill().Center().Gap(10).Children(func() {
-				ui.Text(c, t.name).FontSize(14).Color(a.colors.Text)
-				ui.Text(c, i18n.Shared(language, "desktop.viewer.externalHint")).FontSize(12).Color(a.colors.Subtle)
-			})
+		case t.tooLarge:
+			a.panelMessage(c, i18n.Shared(language, "desktop.viewer.tooLarge"), a.colors.Subtle)
 		case t.kind == viewerImage:
-			a.viewerImage(c, t)
+			a.viewerImageBody(c, p, t)
+		case t.kind == viewerPDF:
+			if entry := a.viewerWebPage(p, t); entry != nil {
+				a.showPreviewPage(c, entry)
+			} else {
+				a.viewerExternalHint(c, t)
+			}
+		case t.kind == viewerExternal:
+			a.viewerExternalHint(c, t)
 		default:
 			a.viewerHex(c, t)
 		}
 	})
 }
 
-// viewerImage draws the image fitted to the tab, never enlarged past its own size, or at
-// its own size in a scroll area.
-func (a *App) viewerImage(c ui.C, t *viewerTab) {
-	bitmap := t.bitmap
-	if t.actual {
-		ui.Scroll(c.Part("image")).Fill().Children(func() {
-			ui.Row(c).Size(float32(bitmap.Width), float32(bitmap.Height)).Shrink(0).Draw(func(d *ui.DrawContext) {
-				d.Canvas.DrawBitmap(bitmap, d.Rect)
-			})
-		})
+// info is what the bar says of t: an image's dimensions, once known, and the file's size.
+func (t *viewerTab) info() string {
+	if t.loading || t.failure != "" {
+		return ""
+	}
+	info := formatByteSize(uint64(max(t.size, 0)))
+	if zoom := t.imageZoom(); zoom != nil && zoom.known() {
+		info = strconv.Itoa(zoom.width) + " × " + strconv.Itoa(zoom.height) + " · " + info
+	}
+	return info
+}
+
+// imageZoom is the zoom of t's image, from its page or its canvas; nil while it is not shown.
+func (t *viewerTab) imageZoom() *imageZoom {
+	if t.kind != viewerImage || t.loading || t.failure != "" || t.tooLarge || t.webFailed {
+		return nil
+	}
+	if t.web != nil {
+		return &t.zoom
+	}
+	if n := t.canvas; n != nil && n.state == canvasReady {
+		zoom := n.zoom()
+		return &zoom
+	}
+	return nil
+}
+
+// zoomViewer applies what the bar asked to t's image, on its page or its canvas.
+func (a *App) zoomViewer(t *viewerTab, request zoomRequest) {
+	if t.web != nil {
+		t.web.view.Send(zoomMessage(request))
 		return
 	}
-	ui.Row(c.Part("image")).Fill().Pad(12).Draw(func(d *ui.DrawContext) {
-		r := d.Rect
-		scale := min(r.Width/float32(bitmap.Width), r.Height/float32(bitmap.Height), 1)
-		w, h := float32(bitmap.Width)*scale, float32(bitmap.Height)*scale
-		d.Canvas.DrawBitmap(bitmap, gfx.Rect{X: r.X + (r.Width-w)/2, Y: r.Y + (r.Height-h)/2, Width: w, Height: h})
+	if t.canvas != nil && t.canvas.state == canvasReady {
+		t.canvas.zoomTo(request)
+	}
+}
+
+// viewerImageBody declares t's image: on its web page, or, where none can show it, drawn by Viva.
+func (a *App) viewerImageBody(c ui.C, p *project, t *viewerTab) {
+	if entry := a.viewerWebPage(p, t); entry != nil {
+		a.showPreviewPage(c, entry)
+		return
+	}
+	if t.webFailed {
+		a.imageFailure(c, t.path)
+		return
+	}
+	n := a.viewerCanvas(p, t)
+	switch n.state {
+	case canvasReady:
+		a.imageCanvasView(c, t.name, n)
+	case canvasFailed:
+		a.imageFailure(c, t.path)
+	default:
+		ui.Row(c).Fill().Center().Children(func() { ui.Spinner(c) })
+	}
+}
+
+// viewerExternalHint offers to open t in the system's application, with the bar's button.
+func (a *App) viewerExternalHint(c ui.C, t *viewerTab) {
+	ui.Column(c).Fill().Center().Gap(10).PadX(20).Children(func() {
+		ui.Text(c, t.name).FontSize(14).Color(a.colors.Text)
+		ui.Text(c, i18n.Shared(a.language(), "desktop.viewer.externalHint")).FontSize(12).Color(a.colors.Subtle)
 	})
 }
 

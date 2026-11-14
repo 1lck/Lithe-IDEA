@@ -2,6 +2,7 @@ package settingswindow
 
 import (
 	"context"
+	"slices"
 	"strings"
 	"testing"
 
@@ -34,6 +35,10 @@ func (f *fakeToolchainLoader) Save(_ context.Context, snapshot toolchain.Snapsho
 	if f.saveErr != nil {
 		return snapshot, f.saveErr
 	}
+	// The page keeps painting from its own snapshot while this runs on the effect goroutine, and
+	// that snapshot shares the Tools array with the argument. Like the real loader, which rereads
+	// the project instead of editing its input, the fake returns a new array.
+	snapshot.Tools = slices.Clone(snapshot.Tools)
 	for _, edit := range edits {
 		for index := range snapshot.Tools {
 			if snapshot.Tools[index].ID == edit.Tool {
