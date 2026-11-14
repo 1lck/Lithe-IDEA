@@ -1472,7 +1472,7 @@
     "desktop.status.caret": "光标位置",
     "desktop.status.encoding": "文本编码",
     "desktop.status.fPS": "帧率",
-    "desktop.status.fpsValue": "{value} FPS",
+    "desktop.status.fpsTooltip": "帧率：最近一秒界面线程来得及显示的帧数。空闲时等于屏幕刷新率；界面线程卡住时会下降，后台任务没跑完不会拉低它。",
     "desktop.status.healthy": "运行正常",
     "desktop.status.lSPNotStarted": "LSP 未启动",
     "desktop.status.lspFailed": "LSP 出错",

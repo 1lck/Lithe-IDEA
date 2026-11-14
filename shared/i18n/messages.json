@@ -16020,14 +16020,11 @@
       ]
     },
     {
-      "id": "desktop.status.fpsValue",
-      "description": "Desktop terminal or status value.",
+      "id": "desktop.status.fpsTooltip",
+      "description": "Desktop status: tooltip of the frame rate readout, which shows a bare number. It says what the number measures and how to read it.",
       "platforms": [
         "desktop"
-      ],
-      "parameters": {
-        "value": "integer"
-      }
+      ]
     },
     {
       "id": "desktop.status.healthy",

@@ -1472,7 +1472,7 @@
     "desktop.status.caret": "Caret position",
     "desktop.status.encoding": "Text encoding",
     "desktop.status.fPS": "Frame rate",
-    "desktop.status.fpsValue": "{value} FPS",
+    "desktop.status.fpsTooltip": "Frame rate: frames the UI thread was free to show in the last second. At rest it is the display's refresh rate; it drops while the UI thread is held up, not while work is still running in the background.",
     "desktop.status.healthy": "Running normally",
     "desktop.status.lSPNotStarted": "LSP not started",
     "desktop.status.lspFailed": "LSP failed",

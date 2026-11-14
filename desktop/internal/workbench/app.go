@@ -614,7 +614,6 @@ type App struct {
 	drag                 dragState
 	title                titleState
 	layout               layoutState
-	status               statusState
 	logView              logView
 	// branch is the title bar's branch popup and the dialogs it opens.
 	branch branchState
@@ -1257,31 +1256,5 @@ func (a *App) finishCloseProject(p *project, after func()) {
 			// A project closed on its own leaves its tab when the window has others.
 			a.sessions.leave(a)
 		}
-	}
-}
-
-// statusState is what the status bar measures about the window itself.
-type statusState struct {
-	// frames are the times of the paints of the last second, oldest first.
-	frames []time.Time
-	// fps is the number of paints in the second before the last paint.
-	fps int
-}
-
-// frame counts a paint at now. While the window paints, the count of the last second is
-// shown; after the last paint of a burst one more paint is asked for a second later, so
-// the readout settles instead of keeping the count of the burst. That paint asks for no
-// other.
-func (s *statusState) frame(canvas *gfx.Canvas, now time.Time) {
-	cutoff := now.Add(-time.Second)
-	drop := 0
-	for drop < len(s.frames) && !s.frames[drop].After(cutoff) {
-		drop++
-	}
-	s.frames = append(s.frames[:0], s.frames[drop:]...)
-	s.frames = append(s.frames, now)
-	s.fps = len(s.frames)
-	if s.fps > 1 {
-		canvas.RequestFrameIn(time.Second)
 	}
 }

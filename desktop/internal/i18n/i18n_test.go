@@ -201,7 +201,7 @@ func TestTerminalAndStatusValuesPreserveExistingWording(t *testing.T) {
 		{Chinese, "本地", "本地 (2)", "会话已结束，退出状态 -1。", "1 个更改", "2 个更改"},
 	} {
 		messages := For(test.language)
-		if messages.Terminal.Tab(1) != test.local || messages.Terminal.Tab(2) != test.second || messages.Terminal.SessionEndedStatus(-1) != test.ended || messages.Status.Changes(1) != test.one || messages.Status.Changes(2) != test.many || messages.Status.FPSValue(60) != "60 FPS" {
+		if messages.Terminal.Tab(1) != test.local || messages.Terminal.Tab(2) != test.second || messages.Terminal.SessionEndedStatus(-1) != test.ended || messages.Status.Changes(1) != test.one || messages.Status.Changes(2) != test.many {
 			t.Fatalf("language %s: terminal or status wording changed", test.language.Code())
 		}
 	}
