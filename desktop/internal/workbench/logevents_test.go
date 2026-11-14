@@ -42,6 +42,7 @@ func TestLogEventsMatchCatalog(t *testing.T) {
 		{operationFailedLevel, operationFailedEvent, operationFailedFields("git_commit", failure)},
 		{operationFailedLevel, operationFailedEvent, operationFailedFields("settings_save", failure)},
 		{operationFailedLevel, operationFailedEvent, operationFailedFields("workspace_reveal_recent", failure)},
+		{operationFailedLevel, operationFailedEvent, operationFailedFields("editor_open_in_browser", failure)},
 		{operationFailedLevel, operationFailedEvent, operationFailedFields("workspace_open", failure)},
 		{operationFailedLevel, operationFailedEvent, operationFailedFields("workspace_recent_reduce", failure)},
 		{operationFailedLevel, operationFailedEvent, operationFailedFields("workspace_recent_save", failure)},
