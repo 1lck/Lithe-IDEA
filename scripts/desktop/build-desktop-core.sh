@@ -28,9 +28,11 @@ native_path() {
 }
 
 PINNED_CORE_REPOSITORY="https://github.com/Lithe-IDEA/Lithe-core-rust.git"
-# Lithe-core-rust #43 (branch feat/process-memory-summary, not yet merged): processMemory.summarize
-# sorts the native process table into the parts of a Lithe instance (main process, language
-# servers, plugin services, their child processes and the system helpers macOS holds the main
+# Lithe-core-rust #45 (branch feat/process-memory-cpu-gpu, not yet merged): processMemory.summarize
+# also sums the memory the system compressed or swapped out, graphics memory, and the processor
+# and graphics use between two tables, which the host sends back as a baseline. It is on top of
+# #43, squash-merged into main: processMemory.summarize sorts the native process table into the
+# parts of a Lithe instance (main process, language servers, plugin services, their child processes and the system helpers macOS holds the main
 # process responsible for) for the memory details of the status bar. It is on top of #42,
 # squash-merged into main: htmlPreview.site names the folder an HTML file is previewed from as a
 # static site, and htmlPreview.resolveRequest decides what each request of the preview serves. It
@@ -85,7 +87,7 @@ PINNED_CORE_REPOSITORY="https://github.com/Lithe-IDEA/Lithe-core-rust.git"
 # the contract, plugin guides, reference and SDKs live only in shared/plugins; on top of #16 (reported Git queries folded in the console),
 # #15 (git.write cherryPick, revert and reset fields), #14 (word-level changed ranges of diff
 # rows), #13, #8, #7, #6 and #4.
-PINNED_CORE_REVISION="5e2a5803966c953004f4c9730d91c156b64f422e"
+PINNED_CORE_REVISION="c7213c249f246dbebe1937b155e5a54d28e96c55"
 PROFILE="debug"
 while [[ $# -gt 0 ]]; do
     case "$1" in

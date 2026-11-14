@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"os"
+	"reflect"
 	"sync"
 	"testing"
 	"time"
@@ -49,25 +50,44 @@ func (k *memoryKernel) last() (core.MemoryRequest, int) {
 
 const mib = 1 << 20
 
+func pointerTo[T any](value T) *T { return &value }
+
+// memoryUsage is a figure set of the fixture: what is compressed or swapped out, in mebibytes,
+// and the processor and graphics use.
+func memoryUsage(compressed uint64, cpu, gpu float64) core.MemoryUsage {
+	return core.MemoryUsage{CompressedBytes: pointerTo(compressed * mib), CPUPercent: pointerTo(cpu), GPUPercent: pointerTo(gpu)}
+}
+
 // memorySummaryFixture is an instance with a main process, two language-server processes,
 // three system helpers and no plugin service, of which the list shows three entries and sums
-// two more.
+// two more. Every part and entry has its compressed memory and its processor and graphics use,
+// and the main process holds graphics memory.
 func memorySummaryFixture() core.MemorySummary {
+	total := memoryUsage(640, 12.5, 3)
+	total.GPUMemoryBytes = pointerTo(uint64(96 * mib))
+	host := memoryUsage(120, 8, 3)
+	host.GPUMemoryBytes = total.GPUMemoryBytes
 	return core.MemorySummary{
-		TotalBytes: 1536 * mib,
+		TotalBytes:  1536 * mib,
+		MemoryUsage: total,
 		Categories: []core.MemoryCategory{
-			{Kind: core.MemoryHost, Bytes: 302 * mib, ProcessCount: 1},
-			{Kind: core.MemoryLanguageServer, Bytes: 1012 * mib, ProcessCount: 2},
-			{Kind: core.MemoryPluginService},
-			{Kind: core.MemorySystemHelper, Bytes: 210 * mib, ProcessCount: 3},
-			{Kind: core.MemoryChildProcess, Bytes: 12 * mib, ProcessCount: 2},
+			{Kind: core.MemoryHost, Bytes: 302 * mib, ProcessCount: 1, MemoryUsage: host},
+			{Kind: core.MemoryLanguageServer, Bytes: 1012 * mib, ProcessCount: 2, MemoryUsage: memoryUsage(500, 4, 0)},
+			{Kind: core.MemoryPluginService, MemoryUsage: memoryUsage(0, 0, 0)},
+			{Kind: core.MemorySystemHelper, Bytes: 210 * mib, ProcessCount: 3, MemoryUsage: memoryUsage(24, 0.5, 0)},
+			{Kind: core.MemoryChildProcess, Bytes: 12 * mib, ProcessCount: 2, MemoryUsage: memoryUsage(0, 0, 0)},
 		},
 		Entries: []core.MemoryEntry{
-			{Kind: core.MemoryLanguageServer, Name: "Quill Tools · Quill", ProcessID: 41, Bytes: 1012 * mib, ProcessCount: 2},
-			{Kind: core.MemorySystemHelper, Name: "PageRenderer", ProcessID: 52, Bytes: 180 * mib, ProcessCount: 1},
-			{Kind: core.MemorySystemHelper, Name: "PageNetwork", ProcessID: 53, Bytes: 30 * mib, ProcessCount: 2},
+			{Kind: core.MemoryLanguageServer, Name: "Quill Tools · Quill", ProcessID: 41, Bytes: 1012 * mib, ProcessCount: 2, MemoryUsage: memoryUsage(500, 4, 0)},
+			{Kind: core.MemorySystemHelper, Name: "PageRenderer", ProcessID: 52, Bytes: 180 * mib, ProcessCount: 1, MemoryUsage: memoryUsage(15, 0.4, 0)},
+			{Kind: core.MemorySystemHelper, Name: "PageNetwork", ProcessID: 53, Bytes: 30 * mib, ProcessCount: 2, MemoryUsage: memoryUsage(5, 0.1, 0)},
 		},
 		Omitted: core.MemoryOmitted{Count: 2, Bytes: 12 * mib},
+		Baseline: &core.MemoryBaseline{SampledAt: 2_000_000, Processes: []core.BaselineProcess{
+			{ProcessID: int64(os.Getpid()), StartTime: pointerTo(uint64(1_000)), CPUTime: pointerTo(uint64(250_000)),
+				GPUEngines: []core.GPUEngineTime{{Engine: "accelerator-1", BusyTime: 30_000}}},
+			{ProcessID: 41, StartTime: pointerTo(uint64(1_500)), CPUTime: pointerTo(uint64(90_000))},
+		}},
 	}
 }
 
@@ -82,10 +102,13 @@ func openMemoryDetails(h *harness, want string) {
 }
 
 // TestMemoryDetailsShowTheSummaryOfTheWholeInstance checks that the window sends Core the
-// process table with itself as the host, and that the details show Core's sums: the total, every
-// part that holds something with its process count, the largest entries and the rest summed.
+// process table with itself as the host, timed and with the host's processor time, and sends
+// back the baseline of the reading before; and that the details show Core's sums: the total
+// with the instance's other figures, every part that holds something with its process count,
+// the largest entries and the rest summed, each with its use and compressed memory.
 func TestMemoryDetailsShowTheSummaryOfTheWholeInstance(t *testing.T) {
-	kernel := &memoryKernel{Client: core.NewClient(), summary: memorySummaryFixture()}
+	fixture := memorySummaryFixture()
+	kernel := &memoryKernel{Client: core.NewClient(), summary: fixture}
 	h := newHarness(t, kernel)
 	h.open(t.TempDir())
 	h.await("the first reading", func() bool { return h.app.memory.read })
@@ -97,14 +120,20 @@ func TestMemoryDetailsShowTheSummaryOfTheWholeInstance(t *testing.T) {
 	if request.HostProcessID != int64(os.Getpid()) {
 		t.Fatalf("host = %d, want this process %d", request.HostProcessID, os.Getpid())
 	}
+	if request.SampledAt == nil {
+		t.Fatal("the request does not say when the table was read")
+	}
+	if sent == 1 && request.Previous != nil {
+		t.Fatalf("the first request sends a baseline %+v though there was no reading before", request.Previous)
+	}
 	host := false
 	for _, process := range request.Processes {
 		if process.ProcessID == request.HostProcessID {
-			host = process.Bytes > 0 && process.Name != ""
+			host = process.Bytes > 0 && process.Name != "" && process.CPUTime != nil
 		}
 	}
 	if !host {
-		t.Fatalf("the table of %d processes has no named row with memory for the host", len(request.Processes))
+		t.Fatalf("the table of %d processes has no named row with memory and processor time for the host", len(request.Processes))
 	}
 	if got, want := h.app.memoryTooltip(), "内存：共 1.50 GB，其中 Lithe 主进程 302 MB。"; got != want {
 		t.Fatalf("tooltip = %q, want %q", got, want)
@@ -112,8 +141,11 @@ func TestMemoryDetailsShowTheSummaryOfTheWholeInstance(t *testing.T) {
 
 	openMemoryDetails(h, "Quill Tools · Quill")
 	for _, want := range []string{
-		"1.50 GB", "Lithe 主进程", "302 MB", "语言服务器", "1012 MB", "系统辅助进程", "3 个进程", "210 MB",
-		"其他子进程", "PageRenderer", "180 MB", "PageNetwork", "另有 2 项，共 12 MB",
+		"1.50 GB", "压缩/换出 640 MB · 显存 96 MB · CPU 12.5% · GPU 3.0%",
+		"内存中", "压缩/换出", "CPU", "GPU",
+		"Lithe 主进程", "302 MB", "8.0%", "120 MB", "语言服务器", "1012 MB", "4.0%", "500 MB",
+		"系统辅助进程", "3 个进程", "210 MB", "0.5%", "24 MB",
+		"其他子进程", "PageRenderer", "180 MB", "0.4%", "15 MB", "PageNetwork", "0.1%", "另有 2 项，共 12 MB",
 	} {
 		if !h.shows(want) {
 			t.Errorf("the details do not show %q", want)
@@ -122,13 +154,36 @@ func TestMemoryDetailsShowTheSummaryOfTheWholeInstance(t *testing.T) {
 	if h.shows("插件服务") {
 		t.Error("the details show the plugin services, which hold nothing")
 	}
-	if _, after := kernel.last(); after <= sent {
+	request, after := kernel.last()
+	if after <= sent {
 		t.Fatalf("opening the details sent %d requests in all, want a reading beyond the first %d", after, sent)
+	}
+	if !reflect.DeepEqual(request.Previous, fixture.Baseline) {
+		t.Fatalf("the request after a reading sends baseline %+v, want the one Core returned %+v", request.Previous, fixture.Baseline)
+	}
+}
+
+// TestMemoryPercentWritesATenth checks that a use is written with its tenth and that a use the
+// reading does not have is left blank.
+func TestMemoryPercentWritesATenth(t *testing.T) {
+	for _, test := range []struct {
+		value *float64
+		want  string
+	}{
+		{nil, ""},
+		{pointerTo(0.0), "0.0%"},
+		{pointerTo(12.345), "12.3%"},
+		{pointerTo(100.0), "100.0%"},
+	} {
+		if got := memoryPercent(i18n.English, test.value); got != test.want {
+			t.Errorf("memoryPercent(%v) = %q, want %q", test.value, got, test.want)
+		}
 	}
 }
 
 // TestMemoryDetailsHideTheFiguresWhileTheReadingFails checks that a failed reading hides the
-// figures instead of keeping stale ones, and that the next reading shows them again.
+// figures instead of keeping stale ones, and that the next reading shows them again, with only
+// the columns it has figures for.
 func TestMemoryDetailsHideTheFiguresWhileTheReadingFails(t *testing.T) {
 	kernel := &memoryKernel{Client: core.NewClient(), err: errors.New("the table could not be read")}
 	h := newHarness(t, kernel)
@@ -146,8 +201,11 @@ func TestMemoryDetailsHideTheFiguresWhileTheReadingFails(t *testing.T) {
 	// The next paint reads again without waiting for the interval.
 	h.app.post(func(a *App) { a.memory.sampledAt = time.Time{} })
 	h.await("a reading after the failure", func() bool { return h.shows("Lithe 目前没有启动其他进程。") })
-	if h.shows("无法读取进程内存。") || !h.shows("302 MB") {
+	if h.shows("无法读取进程内存。") || !h.shows("302 MB") || !h.shows("内存中") {
 		t.Fatal("the details do not show the reading that followed the failure")
+	}
+	if h.shows("压缩/换出") || h.shows("%") {
+		t.Fatal("the details show a column the reading has no figures for")
 	}
 }
 
