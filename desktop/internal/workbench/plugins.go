@@ -223,9 +223,7 @@ func (a *App) confirmPluginInstall() {
 				// The installation was just enabled, unless the user had disabled the
 				// plugin, so a disable tombstone from a previous version must not
 				// block its server.
-				a.pluginServerMu.Lock()
-				delete(a.pluginServerSuppressed, plan.ID)
-				a.pluginServerMu.Unlock()
+				a.allowPluginPrograms(plan.ID)
 			}
 			a.stopDisplaced(displaced)
 			a.refreshPluginState()
@@ -279,9 +277,7 @@ func (a *App) setPluginEnabled(id string, enabled bool) {
 			}
 			if enabled {
 				// An enable clears the tombstone a disable left for an in-flight start.
-				a.pluginServerMu.Lock()
-				delete(a.pluginServerSuppressed, id)
-				a.pluginServerMu.Unlock()
+				a.allowPluginPrograms(id)
 			}
 			a.stopDisplaced(displaced)
 			// Enabling and disabling both change the detected build systems.
@@ -304,18 +300,22 @@ func (a *App) uninstallPlugin(id string) {
 	if state := (*states)[id]; !state.Installed {
 		return
 	}
-	// The server leaves the workbench now; Uninstall stops it and the plugin's
-	// backend before it removes the package and the state.
-	server := a.detachPluginServer(id)
+	// Detach native owners on their window thread before asking Core to remove
+	// anything. The stopPrograms step waits for every tab, including late starts.
+	stop := a.detachPluginPrograms(id)
 	a.background(nil, pluginInstallTimeout, func(ctx context.Context) func(*App) {
-		err := a.plugins.Uninstall(ctx, id, server)
+		err := a.plugins.Uninstall(ctx, id, nil, stop)
 		return func(a *App) {
 			if err != nil {
 				a.emit(operationFailedLevel, operationFailedEvent, operationFailedFields("plugin_uninstall", err))
 			}
-			a.invalidateBuild(a.project)
-			a.refreshPluginState()
-			a.reloadPluginLanguages()
+			for _, tab := range a.everyTab() {
+				if err == nil {
+					tab.invalidateBuild(tab.project)
+					tab.reloadPluginLanguages()
+				}
+				tab.refreshPluginState()
+			}
 		}
 	})
 }
