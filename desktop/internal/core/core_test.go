@@ -703,6 +703,30 @@ func TestReduceChromeLayout(t *testing.T) {
 		}
 	})
 
+	// A hidden button keeps its place and its panel closes; showing it again leaves the panel
+	// closed, and a shortcut can still open the panel of a hidden button.
+	t.Run("hide and show a stripe button", func(t *testing.T) {
+		layout, changed := reduce(t, defaults, SetChromeHidden("project", true))
+		if !changed || !slices.Equal(layout.Hidden, []string{"project"}) || len(layout.Open) != 0 {
+			t.Fatalf("hide project: hidden %q, open %q, changed %v, want [project], [], true", layout.Hidden, layout.Open, changed)
+		}
+		if !slices.Equal(layout.Placements, defaults.Placements) {
+			t.Errorf("hide project: placements %+v, want them unchanged", layout.Placements)
+		}
+		layout, _ = reduce(t, layout, SetChromeOpen("project", true))
+		if !slices.Equal(layout.Hidden, []string{"project"}) || !slices.Equal(layout.Open, []string{"project"}) {
+			t.Errorf("open hidden project: hidden %q, open %q, want [project], [project]", layout.Hidden, layout.Open)
+		}
+		layout, changed = reduce(t, layout, SetChromeHidden("project", false))
+		if !changed || len(layout.Hidden) != 0 || layout.Hidden == nil || !slices.Equal(layout.Open, []string{"project"}) {
+			t.Errorf("show project: hidden %#v, open %q, changed %v, want a non-nil empty list, [project], true", layout.Hidden, layout.Open, changed)
+		}
+		_, _, err := client.ReduceChromeLayout(ctx, catalog, defaults, SetChromeHidden("run", true))
+		requireCode(t, err, CodeInvalidRequest)
+		_, _, err = client.ReduceChromeLayout(ctx, catalog, defaults, SetChromeHidden("missing", true))
+		requireCode(t, err, CodeInvalidRequest)
+	})
+
 	t.Run("only known panels open", func(t *testing.T) {
 		_, _, err := client.ReduceChromeLayout(ctx, catalog, defaults, ToggleChrome("run"))
 		requireCode(t, err, CodeInvalidRequest)
@@ -812,8 +836,10 @@ func TestChromeJSON(t *testing.T) {
 		{"move before", MoveChrome("git", ZoneRightTop, "run"), `{"kind":"move","id":"git","zone":"rightTop","before":"run"}`},
 		{"toggle", ToggleChrome("git"), `{"kind":"toggle","id":"git"}`},
 		{"set open", SetChromeOpen("git", false), `{"kind":"setOpen","id":"git","open":false}`},
-		{"empty layout", ChromeLayout{}, `{"placements":[],"open":[]}`},
-		{"layout", ChromeLayout{Placements: []Placement{{ID: "a", Zone: ZoneLeftTop}}, Open: []string{"a"}}, `{"placements":[{"id":"a","zone":"leftTop"}],"open":["a"]}`},
+		{"hide", SetChromeHidden("git", true), `{"kind":"setHidden","id":"git","hidden":true}`},
+		{"show", SetChromeHidden("git", false), `{"kind":"setHidden","id":"git","hidden":false}`},
+		{"empty layout", ChromeLayout{}, `{"placements":[],"open":[],"hidden":[]}`},
+		{"layout", ChromeLayout{Placements: []Placement{{ID: "a", Zone: ZoneLeftTop}}, Open: []string{"a"}, Hidden: []string{"a"}}, `{"placements":[{"id":"a","zone":"leftTop"}],"open":["a"],"hidden":["a"]}`},
 		{"plain item", ChromeItem{ID: "a", DefaultZone: ZoneLeftTop}, `{"id":"a","defaultZone":"leftTop"}`},
 		{"panel item", ChromeItem{ID: "a", DefaultZone: ZoneLeftTop, Panel: true, OpenByDefault: true}, `{"id":"a","defaultZone":"leftTop","panel":true,"openByDefault":true}`},
 	}

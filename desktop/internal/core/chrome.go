@@ -69,13 +69,17 @@ type Placement struct {
 // an empty layout and is a valid input: the kernel completes it from the catalog.
 //
 // A layout returned by ReduceChromeLayout lists every catalog item exactly once, zone by zone in
-// the order of the Zone constants, and Open names at most one panel item per zone, also in zone
-// order.
+// the order of the Zone constants, Open names at most one panel item per zone, also in zone
+// order, and Hidden lists the hidden tool stripe items in the order of Placements.
 type ChromeLayout struct {
-	// Placements is every item with its zone.
+	// Placements is every item with its zone. A hidden item keeps its placement, so showing it
+	// again puts it back where it was.
 	Placements []Placement `json:"placements"`
-	// Open lists the panel items whose panel is shown.
+	// Open lists the panel items whose panel is shown. A hidden item's panel can be open: a
+	// shortcut or command opens it without showing the button.
 	Open []string `json:"open"`
+	// Hidden lists the tool stripe items whose button the user hid from the stripe.
+	Hidden []string `json:"hidden"`
 }
 
 // MarshalJSON encodes the layout with empty lists as [] instead of null, because the kernel
@@ -84,8 +88,9 @@ func (l ChromeLayout) MarshalJSON() ([]byte, error) {
 	type wire struct {
 		Placements []Placement `json:"placements"`
 		Open       []string    `json:"open"`
+		Hidden     []string    `json:"hidden"`
 	}
-	return json.Marshal(wire{Placements: nonNil(l.Placements), Open: nonNil(l.Open)})
+	return json.Marshal(wire{Placements: nonNil(l.Placements), Open: nonNil(l.Open), Hidden: nonNil(l.Hidden)})
 }
 
 // chromeKind names the variants of a ChromeAction. The values are the "kind" tags of the Rust
@@ -98,17 +103,19 @@ const (
 	chromeMove      chromeKind = "move"
 	chromeToggle    chromeKind = "toggle"
 	chromeSetOpen   chromeKind = "setOpen"
+	chromeSetHidden chromeKind = "setHidden"
 )
 
 // ChromeAction is one transition of the chrome layout. Build it with NormalizeChrome,
-// ResetChrome, MoveChrome, ToggleChrome or SetChromeOpen; the zero value is not a valid action
-// and cannot be encoded.
+// ResetChrome, MoveChrome, ToggleChrome, SetChromeOpen or SetChromeHidden; the zero value is not
+// a valid action and cannot be encoded.
 type ChromeAction struct {
 	kind   chromeKind
 	id     string
 	zone   Zone
 	before string
 	open   bool
+	hidden bool
 }
 
 // NormalizeChrome repairs a saved layout against the catalog without changing anything else:
@@ -118,7 +125,8 @@ func NormalizeChrome() ChromeAction {
 	return ChromeAction{kind: chromeNormalize}
 }
 
-// ResetChrome replaces the layout with the default layout of the catalog.
+// ResetChrome replaces the layout with the default layout of the catalog, which shows every
+// item.
 func ResetChrome() ChromeAction {
 	return ChromeAction{kind: chromeReset}
 }
@@ -142,8 +150,15 @@ func SetChromeOpen(id string, open bool) ChromeAction {
 	return ChromeAction{kind: chromeSetOpen, id: id, open: open}
 }
 
-// chromeKindWire, chromeMoveWire, chromeIDWire and chromeSetOpenWire are the exact JSON shapes
-// of the action variants. The kernel rejects unknown fields, so each variant encodes only its
+// SetChromeHidden hides or shows the tool stripe button of the item id. Hiding closes the item's
+// panel; showing leaves the panel as it is. A hidden item keeps its zone and position. Only tool
+// stripe items can be hidden; a title or status bar item fails with CodeInvalidRequest.
+func SetChromeHidden(id string, hidden bool) ChromeAction {
+	return ChromeAction{kind: chromeSetHidden, id: id, hidden: hidden}
+}
+
+// chromeKindWire, chromeMoveWire, chromeIDWire, chromeSetOpenWire and chromeSetHiddenWire are
+// the exact JSON shapes of the action variants. The kernel rejects unknown fields, so each variant encodes only its
 // own fields.
 type chromeKindWire struct {
 	Kind chromeKind `json:"kind"`
@@ -167,6 +182,12 @@ type chromeSetOpenWire struct {
 	Open bool       `json:"open"`
 }
 
+type chromeSetHiddenWire struct {
+	Kind   chromeKind `json:"kind"`
+	ID     string     `json:"id"`
+	Hidden bool       `json:"hidden"`
+}
+
 // MarshalJSON encodes the action as the exact object of its variant.
 func (a ChromeAction) MarshalJSON() ([]byte, error) {
 	switch a.kind {
@@ -178,8 +199,10 @@ func (a ChromeAction) MarshalJSON() ([]byte, error) {
 		return json.Marshal(chromeIDWire{Kind: a.kind, ID: a.id})
 	case chromeSetOpen:
 		return json.Marshal(chromeSetOpenWire{Kind: a.kind, ID: a.id, Open: a.open})
+	case chromeSetHidden:
+		return json.Marshal(chromeSetHiddenWire{Kind: a.kind, ID: a.id, Hidden: a.hidden})
 	}
-	return nil, errors.New("core: zero ChromeAction; build one with NormalizeChrome, ResetChrome, MoveChrome, ToggleChrome or SetChromeOpen")
+	return nil, errors.New("core: zero ChromeAction; build one with NormalizeChrome, ResetChrome, MoveChrome, ToggleChrome, SetChromeOpen or SetChromeHidden")
 }
 
 // chromeLayoutRequest is the payload of workbench.chromeLayout.reduce. The kernel rejects
@@ -209,8 +232,8 @@ type chromeLayoutResponse struct {
 //
 // The kernel answers CodeInvalidRequest for a malformed catalog (an empty or repeated id, a
 // panel outside the tool stripes, a default-open item that is not a panel) and for an action
-// that names an unknown item, moves an item to another surface or opens an item that is not a
-// panel.
+// that names an unknown item, moves an item to another surface, opens an item that is not a
+// panel or hides an item outside the tool stripes.
 //
 // The call only computes over its arguments and is fast enough for an event handler.
 func (c *Client) ReduceChromeLayout(ctx context.Context, catalog []ChromeItem, state ChromeLayout, action ChromeAction) (ChromeLayout, bool, error) {
@@ -226,5 +249,6 @@ func (c *Client) ReduceChromeLayout(ctx context.Context, catalog []ChromeItem, s
 	return ChromeLayout{
 		Placements: nonNil(response.State.Placements),
 		Open:       nonNil(response.State.Open),
+		Hidden:     nonNil(response.State.Hidden),
 	}, response.Changed, nil
 }

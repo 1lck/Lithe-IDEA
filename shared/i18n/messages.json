@@ -37504,7 +37504,8 @@
       "id": "mac.workbench.unhide",
       "description": "Restore a hidden tool window rail entry without opening its panel",
       "platforms": [
-        "macos"
+        "macos",
+        "desktop"
       ],
       "macos": {
         "key": "Unhide",
@@ -56460,7 +56461,8 @@
       "id": "native.hideEntry",
       "description": "Native UI: Hide Entry",
       "platforms": [
-        "macos"
+        "macos",
+        "desktop"
       ],
       "macos": {
         "key": "Hide Entry",
@@ -86922,7 +86924,8 @@
       "id": "native.toolWindows",
       "description": "Native UI: Tool Windows",
       "platforms": [
-        "macos"
+        "macos",
+        "desktop"
       ],
       "macos": {
         "key": "Tool Windows",

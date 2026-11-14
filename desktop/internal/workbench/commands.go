@@ -17,6 +17,11 @@ import (
 // same function its button, menu item or shortcut calls, so running it by name
 // behaves exactly like those.
 
+// toolCommandPrefix starts the id of the command that shows a tool window; the item id
+// follows it. A shortcut bound to that id opens the window, and its label is shown beside the
+// window's name in the hidden tool windows list.
+const toolCommandPrefix = "tool."
+
 // command is one action of the catalog.
 type command struct {
 	id    string
@@ -135,7 +140,7 @@ func (a *App) commands() []command {
 		}
 		id := it.id
 		open := a.chrome.isOpen(index)
-		add("tool."+id, t.GroupToolWindows, t.ShowTool(it.label(a.text)), "", !open, func() {
+		add(toolCommandPrefix+id, t.GroupToolWindows, t.ShowTool(it.label(a.text)), "", !open, func() {
 			a.reduceChrome(core.SetChromeOpen(id, true))
 		})
 	}

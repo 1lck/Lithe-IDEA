@@ -5,6 +5,7 @@ import (
 	"github.com/1lck/Lithe-IDEA/desktop/internal/i18n"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/icons"
 	"github.com/vivaui/viva/app"
+	"github.com/vivaui/viva/components"
 	"github.com/vivaui/viva/gfx"
 	"github.com/vivaui/viva/ui"
 	"runtime"
@@ -242,6 +243,9 @@ func (a *App) chromeTitleButton(c ui.C, i int) bool {
 // While a tool button is dragged, every zone gets at least the height of a button, so an
 // empty zone remains visible and can be hit. No separator is needed between the top and
 // split groups: the flexible space makes their placement clear.
+//
+// While the user has hidden a button, the left stripe has a "…" button under its top group
+// that lists the hidden ones (hiddenToolWindows).
 func (a *App) stripe(c ui.C, left bool) {
 	top, split, end := zoneLeftTop, zoneLeftBottom, zoneBottomLeft
 	if !left {
@@ -253,6 +257,11 @@ func (a *App) stripe(c ui.C, left bool) {
 	ui.Column(c).Width(stripeWidth).FillHeight().Shrink(0).Background(a.chromeFill()).Pad(chromeToolInset).Children(func() {
 		if i := a.stripeZone(c, top, left, dragging); i >= 0 {
 			clicked = i
+		}
+		if left {
+			// The "…" button follows the top group a gap below, as one more of its buttons;
+			// while a button is dragged the group is a button high even when empty.
+			a.hiddenToolWindows(c, dragging || len(a.chrome.items[top]) > 0)
 		}
 		ui.Spacer(c)
 		if i := a.stripeZone(c, split, left, dragging); i >= 0 {
@@ -323,6 +332,137 @@ func (a *App) stripeZone(c ui.C, z zone, left, dragging bool) int {
 	})
 	a.chrome.placeZone(z, column)
 	return clicked
+}
+
+// hiddenToolWindows declares the "…" button under the left stripe's top group and, while it is
+// open, the list of the stripe buttons the user hid, as the earlier client and IDEA put them
+// there. The button is there only while a button is hidden, so a hidden button can always be
+// found again. While the tool window of a hidden button is open, the "…" button takes the open
+// look of a stripe button, because that window has no button of its own to show it. The
+// button is laid out as a stripe button (stripeGlyph), below is whether the top group has
+// buttons above it, and as they do it names itself in a tip, except while its list is open
+// beside it on the same side.
+func (a *App) hiddenToolWindows(c ui.C, below bool) {
+	if len(a.chrome.hidden) == 0 {
+		// The last hidden button came back, and the list went with its button.
+		a.hiddenListOpen = false
+		return
+	}
+	k := c.Part("hiddenToolWindows")
+	listOpen := a.hiddenListOpen
+	shown := a.chrome.hiddenOpen()
+	layout := stripeGlyph(true)
+	name := i18n.Shared(a.language(), "native.toolWindows")
+	button := ui.Row(k).Size(layout.side, layout.side).Shrink(0).Center().
+		Radius(a.theme.Metrics.RadiusItem()).
+		HitWith(ui.ID(k), name, gfx.HitOptions{
+			Role:       gfx.RoleButton,
+			Cursor:     gfx.PointerCursorHand,
+			Selected:   shown,
+			Expandable: true,
+			Expanded:   listOpen,
+		}).
+		Pressed(ui.Look{}.Background(a.colors.Active))
+	if below {
+		button = button.MarginTop(chromeToolGap)
+	}
+	if !listOpen {
+		button = button.Tooltip(name).TooltipOn(layout.tooltip)
+	}
+	rest, hover := a.colors.Subtle, a.colors.Text
+	switch {
+	case shown:
+		button = button.Background(a.theme.Primary)
+		rest, hover = a.theme.PrimaryForeground, a.theme.PrimaryForeground
+	case listOpen:
+		button = button.Background(a.colors.Active)
+	default:
+		button = button.Hover(ui.Look{}.Background(a.colors.Hover))
+	}
+	button.Children(func() {
+		ui.Icon(k, *hiddenToolWindowsIcon).Size(layout.icon, layout.icon).Color(rest).
+			StateFrom(button).Hover(ui.Look{}.Color(hover))
+	})
+	clicked := button.Clicked()
+	if listOpen {
+		a.hiddenToolWindowList(c, button)
+	}
+	// As the background button: the press on the button that dismisses the open list must not
+	// open it again.
+	if clicked && !listOpen {
+		a.hiddenListOpen = true
+	}
+}
+
+// hiddenToolWindowList declares the list of the hidden stripe buttons beside anchor, the "…"
+// button, in layout order. A click on a row puts the button back where it was and opens what
+// it opens, as a click on the button would; Unhide in the row's context menu only puts the
+// button back and leaves the list open on the others.
+func (a *App) hiddenToolWindowList(c ui.C, anchor ui.Box) {
+	language := a.language()
+	unhide := i18n.Shared(language, "mac.workbench.unhide")
+	shown, restored := -1, -1
+	open := true
+	spec := ui.PopoverSpec{Side: components.PopoverRight, Align: ui.Start, Offset: chromeMenuOffset, Width: hiddenListWidth, ConsumeOutsidePress: true}
+	ui.PopoverWith(c, anchor, spec, &open, func() {
+		ui.Column(c).FillWidth().Gap(chromeMenuItems).Children(func() {
+			for _, i := range a.chrome.hidden {
+				row, clicked := a.hiddenToolWindowRow(c.KeyInt(i), i)
+				if clicked {
+					shown = i
+				}
+				ui.ContextMenu(c.Part("unhide").KeyInt(i), row, func(menu *ui.MenuItems) {
+					if menu.Item(unhide).Clicked() {
+						restored = i
+					}
+				})
+			}
+		})
+	})
+	switch {
+	case shown >= 0:
+		a.hiddenListOpen = false
+		c.After(func() {
+			a.performed("workbench.toolWindow.showHidden", surfaceMenu)
+			a.showEntry(shown, true)
+		})
+	case restored >= 0:
+		c.After(func() {
+			a.performed("workbench.toolWindow.unhide", surfaceMenu)
+			a.showEntry(restored, false)
+		})
+	case !open:
+		a.hiddenListOpen = false
+	}
+}
+
+// hiddenToolWindowRow declares the row of the hidden stripe button of catalog item i: its
+// icon, its name and the shortcut that shows its tool window. The row of an open tool window
+// is marked as selected. It returns the row, for its context menu, and whether it was clicked.
+func (a *App) hiddenToolWindowRow(c ui.C, i int) (ui.Box, bool) {
+	it := a.chrome.catalog[i]
+	label := it.label(a.text)
+	open := a.chrome.isOpen(i)
+	row := ui.Row(c).FillWidth().Height(chromeMenuRow).Shrink(0).Items(ui.Center).Gap(chromeMenuGap).PadX(chromeEdge).
+		Radius(a.theme.Metrics.RadiusItem()).
+		HitWith(ui.ID(c), label, gfx.HitOptions{Role: gfx.RoleMenuItem, Cursor: gfx.PointerCursorHand, Selected: open})
+	if open {
+		row = row.Background(a.colors.Selection)
+	} else {
+		row = a.chromeHover(row)
+	}
+	row.Children(func() {
+		if it.icon != nil {
+			ui.Icon(c, *it.icon).Size(chromeIconSize, chromeIconSize).Shrink(0).Color(a.colors.Subtle)
+		}
+		ui.Text(c, label).Grow(1).Color(a.colors.Text).LineHeight(chromeLineHeight).Ellipsis()
+		if it.panel {
+			if keys := a.settings.Keymap.Label(toolCommandPrefix + it.id); keys != "" {
+				ui.Text(c, keys).Shrink(0).FontSize(a.theme.Metrics.FontSizeS).Color(a.colors.Subtle).LineHeight(chromeLineHeight)
+			}
+		}
+	})
+	return row, row.Clicked()
 }
 
 // statusBar is the strip across the bottom of the workbench: the project on the left, and at
@@ -632,8 +772,9 @@ func stripeZoneMoveText(lang i18n.Language, z zone) string {
 }
 
 // stripeButtonMenu is the context menu of the stripe button of catalog item i, which sits
-// in zone at: hiding its open tool window, and moving it to the end of another stripe zone,
-// the keyboard and pointer alternative to dragging it.
+// in zone at: hiding its open tool window, hiding the button itself, which the "…" button
+// under the left stripe's top group then lists, and moving it to the end of another stripe
+// zone, the keyboard and pointer alternative to dragging it.
 func (a *App) stripeButtonMenu(c ui.C, i int, at zone) func(*ui.MenuItems) {
 	return func(menu *ui.MenuItems) {
 		language := a.language()
@@ -646,8 +787,14 @@ func (a *App) stripeButtonMenu(c ui.C, i int, at zone) func(*ui.MenuItems) {
 					a.reduceChrome(core.SetChromeOpen(id, false))
 				})
 			}
-			menu.Separator()
 		}
+		if menu.Item(i18n.Shared(language, "native.hideEntry")).Clicked() {
+			c.After(func() {
+				a.performed("workbench.toolWindow.hideEntry", surfaceMenu)
+				a.hideEntry(i)
+			})
+		}
+		menu.Separator()
 		menu.Sub(i18n.Shared(language, "desktop.tools.moveTo"), func(sub *ui.MenuItems) {
 			for z := zoneLeftTop; z <= zoneBottomRight; z++ {
 				if z == at {
