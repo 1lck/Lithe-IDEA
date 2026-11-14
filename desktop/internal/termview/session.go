@@ -34,7 +34,7 @@ func (v *View) start() {
 		v.ended = true
 		v.say(sgrFail, v.cfg.Messages.StartFailed(err.Error()))
 		v.say(sgrMuted, v.cfg.Messages.RestartHint)
-		v.failed(Failure{Event: eventStartFailed, Warn: true, Err: err})
+		v.failed(Failure{Event: eventStartFailed, Stage: stageSpawn, Warn: true, Err: err})
 		v.exited(nil)
 		return
 	}

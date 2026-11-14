@@ -201,7 +201,7 @@ func (a *App) worktreeRowMenu(row ui.ListRow, p *project, w core.GitWorktree) {
 		item := func(label string, disabled bool, action string, run func()) {
 			if menu.Item(label).Disabled(disabled).Clicked() {
 				c.After(func() {
-					a.performed(action, surfaceMenu)
+					a.performed(action, surfaceContextMenu)
 					run()
 				})
 			}
@@ -491,7 +491,7 @@ func (a *App) drawWorktreeChange(c ui.C, p *project, root string, busy bool, cha
 		c.After(func() { a.stageWorktreeChange(p, root, change) })
 	}
 	if opened && !strings.HasSuffix(change.Path, "/") {
-		c.After(func() { a.openDiffIn(p, root, change) })
+		c.After(func() { a.openDiffIn(p, root, change, surfaceButton) })
 	}
 }
 
@@ -503,7 +503,7 @@ func (a *App) worktreeChangeMenuItems(c ui.C, p *project, root string, change co
 		_, review := a.reviewKernel()
 		folder := strings.HasSuffix(change.Path, "/")
 		if review && !folder && menu.Item(i18n.Shared(a.language(), "git.showDiff")).Clicked() {
-			c.After(func() { a.openDiffIn(p, root, change) })
+			c.After(func() { a.openDiffIn(p, root, change, surfaceContextMenu) })
 		}
 		if menu.Item(a.text.Worktrees.CopyPath).Clicked() {
 			c.After(func() {

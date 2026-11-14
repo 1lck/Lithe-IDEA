@@ -160,7 +160,7 @@ func (a *App) applyProblemsQuery(p *project, generation uint64, diagnostics []co
 	v.loaded = true
 	v.queried = generation
 	if err != nil {
-		a.emit(operationFailedLevel, operationFailedEvent, operationFailedFields("plugin_problems_query", err))
+		a.operationFailed("plugin_problems_query", err)
 		v.failure = err
 		v.diagnostics, v.result, v.starts, v.rows = nil, core.ProblemsResult{}, nil, 0
 		a.invalidator.Invalidate()

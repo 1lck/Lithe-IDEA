@@ -132,7 +132,7 @@ func (a *App) applyDiffFind(t *diffTab, gen uint64, found []diffMatch, truncated
 	}
 	if err != nil {
 		if !errors.Is(err, context.Canceled) {
-			a.gitOperationFailed("diff_find", err)
+			a.operationFailed("diff_find", err)
 		}
 		return
 	}

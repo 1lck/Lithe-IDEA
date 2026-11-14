@@ -62,9 +62,17 @@ func (s *Service) StartLanguageServer(ctx context.Context, entries []pluginmanag
 	if !ok {
 		return nil, err
 	}
+	// The start is one attempt of the plugin's languageServers declaration. What fails before
+	// the runner hands it to Core is the host's to record, as a launch it could not resolve;
+	// Core records everything after the handoff.
+	attempt := core.StartPluginAttempt(entry.Installed.ID, core.OperationLanguageServerStart, core.OriginOf(ctx).Operation)
+	fail := func(cause error) (*LanguageSession, error) {
+		s.EndAttempt(ctx, attempt, core.StageResolve, cause)
+		return nil, errors.Join(err, cause)
+	}
 	manifest, readErr := readBounded(filepath.Join(entry.Installed.Path, pluginpkg.ManifestFile), MaxManifestBytes)
 	if readErr != nil {
-		return nil, errors.Join(err, readErr)
+		return fail(readErr)
 	}
 	var workspaceContext WorkspaceContext
 	if request.WorkingDirectory != "" && s.Contexts != nil {
@@ -74,14 +82,14 @@ func (s *Service) StartLanguageServer(ctx context.Context, entries []pluginmanag
 	}
 	settings, settingsErr := s.Settings.Load(ctx, manifest, request.WorkingDirectory)
 	if settingsErr != nil {
-		return nil, errors.Join(err, settingsErr)
+		return fail(settingsErr)
 	}
 	// State lives beside the installed versions, never inside one: an installed
 	// package is read-only for the host, and a version directory that changed
 	// would no longer match the digest the user approved.
 	stateDirectory := filepath.Join(s.Root, pluginStateDirectory, entry.Installed.ID, entry.Installed.Version)
 	if stateErr := os.MkdirAll(stateDirectory, 0o700); stateErr != nil {
-		return nil, errors.Join(err, stateErr)
+		return fail(stateErr)
 	}
 	start := pluginbackend.StartRequest{
 		Manifest:         manifest,
@@ -89,7 +97,9 @@ func (s *Service) StartLanguageServer(ctx context.Context, entries []pluginmanag
 		PluginID:         entry.Installed.ID,
 		ProviderID:       entry.Installed.ID + "/language-server",
 		LanguageID:       languageID,
+		Attempt:          attempt,
 		StateDirectory:   stateDirectory,
+		LogDirectory:     s.logDirectory(ctx, entry.Installed.ID),
 		Architecture:     request.Architecture,
 		Settings:         settings.State.Settings,
 		ProjectSettings:  settings.State.ProjectSettings,
@@ -100,17 +110,16 @@ func (s *Service) StartLanguageServer(ctx context.Context, entries []pluginmanag
 	if declaresBackendLaunch(manifest, languageID) {
 		resolved, resolveErr := s.resolveBackendLaunch(ctx, entry.Installed.ID, entry.Installed.Version, manifest, languageID, workspaceContext, start)
 		if resolveErr != nil {
-			return nil, errors.Join(err, resolveErr)
+			return fail(resolveErr)
 		}
 		start.Plan = resolved.plan
-		start.LogDirectory = resolved.directories.log
 		start.WorkspaceStateDirectory = resolved.directories.workspaceState
 		temporary = resolved.directories.temporary
 	}
 	started, startErr := s.Backend.Start(ctx, start)
 	if startErr != nil {
 		removeTemporary(temporary)
-		return nil, errors.Join(err, startErr)
+		return fail(startErr)
 	}
 	session := &LanguageSession{
 		PluginID:          entry.Installed.ID,

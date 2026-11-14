@@ -56,7 +56,7 @@ func (a *App) stopDisplaced(d displacement) {
 		return
 	}
 	if d.err != nil {
-		a.emit(operationFailedLevel, operationFailedEvent, operationFailedFields("plugin_list", d.err))
+		a.backgroundFailed("plugin_list", d.err)
 	}
 	p := a.project
 	for _, item := range d.displaced {
@@ -66,7 +66,7 @@ func (a *App) stopDisplaced(d displacement) {
 			err := a.plugins.StopDisplaced(ctx, id, server)
 			return func(a *App) {
 				if err != nil {
-					a.emit(operationFailedLevel, operationFailedEvent, operationFailedFields("plugin_displace", err))
+					a.backgroundFailed("plugin_displace", err)
 				}
 				if a.project != p || p == nil {
 					return

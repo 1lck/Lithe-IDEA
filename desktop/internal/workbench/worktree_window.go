@@ -10,6 +10,7 @@ import (
 func (a *App) openWorktreeInNewWindow(path string) {
 	a.performed("git.worktree.openNewWindow", surfaceButton)
 	if err := launchClient(path); err != nil {
+		a.operationFailed("worktree_open_new_window", documentLogError(err))
 		a.notifyError(i18n.SharedFormat(a.language(), "desktop.worktree.openNewWindowFailed", map[string]string{"reason": treeErrorReason(err)}))
 	}
 }

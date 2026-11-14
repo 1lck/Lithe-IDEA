@@ -121,6 +121,7 @@ func buildProjectSelection(project core.BuildProject) *core.BuildSelection {
 func (a *App) runBuildProjectTests(p *project, instance *buildInstance, projectID string) {
 	project, ok := buildProjectByID(instance.Model, projectID)
 	if !ok {
+		a.operationRejected("build_tests", "project_missing")
 		a.notifyError(a.text.Build.ProjectMissing)
 		return
 	}
@@ -136,11 +137,13 @@ func (a *App) runBuildProjectTests(p *project, instance *buildInstance, projectI
 func (a *App) runBuildTargetTests(p *project, instance *buildInstance, targetID string) {
 	target, ok := buildTargetByID(instance.Model, targetID)
 	if !ok {
+		a.operationRejected("build_tests", "target_missing")
 		a.notifyError(a.text.Build.TargetMissing)
 		return
 	}
 	project, ok := buildProjectByID(instance.Model, target.ProjectID)
 	if !ok {
+		a.operationRejected("build_tests", "project_missing")
 		a.notifyError(a.text.Build.ProjectMissing)
 		return
 	}
@@ -197,7 +200,7 @@ func (a *App) discoverBuildTests(p *project, instance *buildInstance, refresh bo
 			}
 			tests.loading = false
 			if err != nil {
-				a.emit(operationFailedLevel, operationFailedEvent, operationFailedFields("build_test_discovery", err))
+				a.operationFailed("build_test_discovery", err)
 				tests.failed = err.Error()
 				return
 			}
@@ -372,7 +375,7 @@ func (a *App) buildTestRow(row ui.ListRow, p *project, instance *buildInstance, 
 		menu.WidthRange(180, 280)
 		if menu.Item(label).Disabled(p.tests.running).Clicked() {
 			c.After(func() {
-				a.performed("build.tests.runCase", surfaceMenu)
+				a.performed("build.tests.runCase", surfaceContextMenu)
 				a.runDiscoveredTest(p, instance, test)
 			})
 		}
@@ -393,7 +396,7 @@ func (a *App) buildTestsMenuItems(c ui.C, menu *ui.MenuItems, p *project, instan
 	tests := p.discoveredTestsView(instance)
 	if menu.Item(i18n.Shared(a.language(), "native.refreshDiscoveredTests")).Disabled(tests.loading).Clicked() {
 		c.After(func() {
-			a.performed("build.tests.refresh", surfaceMenu)
+			a.performed("build.tests.refresh", surfaceContextMenu)
 			a.discoverBuildTests(p, instance, true)
 		})
 	}

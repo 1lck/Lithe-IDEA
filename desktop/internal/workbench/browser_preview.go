@@ -25,7 +25,7 @@ func browserPreviewable(d *document) bool {
 
 // openInBrowser saves d when it has changes and opens the file in the default web browser. The
 // system is asked off the window thread: on macOS the handoff waits for open to report.
-func (a *App) openInBrowser(p *project, d *document) {
+func (a *App) openInBrowser(p *project, d *document, surface actionSurface) {
 	if !browserPreviewable(d) {
 		return
 	}
@@ -35,11 +35,11 @@ func (a *App) openInBrowser(p *project, d *document) {
 			err := app.OpenPathInBrowser(path)
 			return func(a *App) {
 				if err != nil {
-					a.emit(operationFailedLevel, operationFailedEvent, operationFailedFields("editor_open_in_browser", documentLogError(err)))
+					a.operationFailed("editor_open_in_browser", documentLogError(err))
 					a.notifyError(i18n.SharedFormat(a.language(), "desktop.editorMenu.openInBrowserFailed", map[string]string{"reason": err.Error()}))
 					return
 				}
-				a.performed("editor.openInBrowser", surfaceMenu)
+				a.performed("editor.openInBrowser", surface)
 			}
 		})
 	}

@@ -33,7 +33,7 @@ func (a *App) welcomeFileDrop(event gfx.FileDropEvent) gfx.EventResult {
 		a.notifyInfo(a.text.Welcome.DropFolderOnly)
 		return gfx.EventResult{Handled: true, Repaint: true}
 	}
-	a.performed("workspace.drop.open", surfaceMenu)
+	a.performed("workspace.drop.open", surfaceDragDrop)
 	a.openProject(folder)
 	return gfx.EventResult{Handled: true, Repaint: true}
 }

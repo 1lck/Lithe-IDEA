@@ -96,7 +96,7 @@ func (a *App) finishCommitGeneration(p *project, message, token string, reposito
 			return
 		}
 		a.notifyError(a.aiCommitFailure(err))
-		a.gitOperationFailed("ai_commit_generation", err)
+		a.operationFailed("ai_commit_generation", err)
 		return
 	}
 	message = strings.TrimSpace(message)
@@ -153,8 +153,11 @@ func (a *App) confirmGeneratedMessage(p *project, replace bool) {
 		return func(a *App) {
 			switch {
 			case err != nil:
+				a.operationFailed("ai_commit_confirm", err)
 				a.notifyError(a.aiCommitFailure(err))
 			case !current:
+				// The staged changes moved on since the message was generated.
+				a.operationRejected("ai_commit_confirm", "stale")
 				a.notifyError(a.aiCommitFailure(ai.ErrStale))
 			case c.message() != typed:
 				// The user kept typing: the draft is theirs, not ours.

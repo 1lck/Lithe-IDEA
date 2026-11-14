@@ -17,7 +17,7 @@ import (
 type pluginSettingsSources struct{ app *App }
 
 func (s pluginSettingsSources) Load(ctx context.Context, id string, language i18n.Language) (editor pluginservice.SettingsEditor, err error) {
-	defer func() { (settingsToolchains{app: s.app}).recordFailure("plugin_settings_load", err) }()
+	defer func() { (settingsToolchains{app: s.app}).recordFailure(ctx, "plugin_settings_load", err) }()
 	root := ""
 	if current := s.app.toolchainRoot.Load(); current != nil {
 		root = *current
@@ -27,10 +27,10 @@ func (s pluginSettingsSources) Load(ctx context.Context, id string, language i18
 		// A skipped translation falls back to the next candidate or to manifest
 		// text; the page still loads, so this is a degraded read, not a failure.
 		if len(editor.Snapshot.LocalizationReadFailures()) > 0 {
-			s.app.emit(core.LevelWarn, pluginSettingsLoadRejectedEvent, pluginSettingsLoadRejected("localization_unreadable"))
+			s.app.operationRejectedIn(ctx, "plugin_settings_load", "localization_unreadable")
 		}
 		if localization := editor.Snapshot.State.Localization; localization != nil && len(localization.Rejected) > 0 {
-			s.app.emit(core.LevelWarn, pluginSettingsLoadRejectedEvent, pluginSettingsLoadRejected("invalid_localization"))
+			s.app.operationRejectedIn(ctx, "plugin_settings_load", "invalid_localization")
 		}
 		invalid := false
 		for _, value := range editor.Snapshot.State.Editors.Global {
@@ -40,24 +40,14 @@ func (s pluginSettingsSources) Load(ctx context.Context, id string, language i18
 			invalid = invalid || value.InvalidStored
 		}
 		if invalid {
-			s.app.emit(core.LevelWarn, pluginSettingsLoadRejectedEvent, pluginSettingsLoadRejected("invalid_stored_values"))
+			s.app.operationRejectedIn(ctx, "plugin_settings_load", "invalid_stored_values")
 		}
 	}
 	return editor, err
 }
 
-// pluginSettingsLoadRejectedEvent logs a plugin settings read that loaded but refused part of
-// what it read: a stored value or a translation file of the package.
-const pluginSettingsLoadRejectedEvent = "app.notification.operation_rejected"
-
-// pluginSettingsLoadRejected are the fields of that event; reason is localization_unreadable,
-// invalid_localization or invalid_stored_values.
-func pluginSettingsLoadRejected(reason string) map[string]any {
-	return map[string]any{"operation": "plugin_settings_load", "reason": reason}
-}
-
 func (s pluginSettingsSources) Save(ctx context.Context, editor pluginservice.SettingsEditor, scope string, edits []core.PluginSettingEdit) (result pluginsettings.SaveResult, err error) {
-	defer func() { (settingsToolchains{app: s.app}).recordFailure("plugin_settings_save", err) }()
+	defer func() { (settingsToolchains{app: s.app}).recordFailure(ctx, "plugin_settings_save", err) }()
 	check := func() error {
 		if scope != "project" {
 			return nil

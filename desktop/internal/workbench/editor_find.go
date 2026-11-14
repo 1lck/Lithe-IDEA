@@ -45,7 +45,7 @@ type editorFindKernel interface {
 	FindEditorText(context.Context, []byte, core.EditorFindRequest) (core.EditorFindResult, error)
 }
 
-func (a *App) openEditorFind(replace bool) {
+func (a *App) openEditorFind(replace bool, surface actionSurface) {
 	p := a.project
 	if p == nil {
 		return
@@ -66,7 +66,7 @@ func (a *App) openEditorFind(replace bool) {
 	}
 	f.open, f.replace, f.focus = true, replace, true
 	f.computed = false
-	a.performed("editor.find.open", surfaceShortcut)
+	a.performed("editor.find.open", surface)
 	a.invalidator.Invalidate()
 }
 
@@ -191,7 +191,7 @@ func (a *App) applyEditorFind(p *project, d *document, before rope.Rope, gen uin
 			code = failure.Details
 		}
 		if code != f.failure {
-			a.emit(operationFailedLevel, operationFailedEvent, operationFailedFields("editor_find", err))
+			a.operationFailed("editor_find", err)
 		}
 		f.failure = code
 		return

@@ -119,7 +119,7 @@ func TestPluginSettingsLoadLogsSkippedAndRefusedTranslations(t *testing.T) {
 		var reasons []string
 		for _, event := range log.events {
 			if event.Fields["operation"] == "plugin_settings_load" {
-				if event.Level != core.LevelWarn || event.Event != pluginSettingsLoadRejectedEvent {
+				if event.Level != operationRejectedLevel || event.Event != operationRejectedEvent {
 					t.Fatalf("plugin settings load logged %s %s %v", event.Level, event.Event, event.Fields)
 				}
 				reasons = append(reasons, event.Fields["reason"].(string))

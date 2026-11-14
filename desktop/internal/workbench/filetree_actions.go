@@ -3,7 +3,6 @@ package workbench
 import (
 	"strings"
 
-	"github.com/1lck/Lithe-IDEA/desktop/internal/core"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/i18n"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/icons"
 	"github.com/vivaui/viva/ui"
@@ -161,7 +160,7 @@ func childTreePath(parent, name string) string {
 
 // giveUpTreeReveal ends locating a file the tree cannot show, for reason.
 func (a *App) giveUpTreeReveal(p *project, reason string) {
-	a.emit(core.LevelWarn, "app.notification.operation_rejected", map[string]any{"operation": "project_tree_reveal", "reason": reason})
+	a.operationRejected("project_tree_reveal", reason)
 	p.tree.reveal, p.tree.revealAsked = "", nil
 }
 

@@ -160,7 +160,7 @@ func (a *App) htmlActions(c ui.C, p *project, d *document, s *htmlPreviewState, 
 		}
 	}
 	if a.viewerIconButton(c.Part("browser"), i18n.Shared(language, "desktop.editorMenu.openInBrowser"), icons.ExternalLink) {
-		c.After(func() { a.openInBrowser(p, d) })
+		c.After(func() { a.openInBrowser(p, d, surfaceButton) })
 	}
 }
 
@@ -180,7 +180,7 @@ func (a *App) askHTMLSite(p *project, d *document, s *htmlPreviewState) {
 			}
 			if err != nil {
 				s.failed = true
-				a.emit(operationFailedLevel, operationFailedEvent, operationFailedFields("html_preview_site", err))
+				a.operationFailed("html_preview_site", err)
 				return
 			}
 			s.site = &site

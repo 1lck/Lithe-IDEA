@@ -141,9 +141,19 @@ func (s *Store) Collect(ctx context.Context, q ExportQuery) (Export, error) {
 	}
 	truncated := plan.Truncated || short || result.Truncated || result.SkippedInvalidLines > 0
 	dropped, failures := s.Stats()
-	status := fmt.Sprintf("truncated=%t dropped_events=%d write_failures=%d skipped_invalid_lines=%d\n",
-		truncated, dropped, failures, result.SkippedInvalidLines)
-	files = append(files, ExportFile{RelativePath: "collection-status.txt", Data: []byte(status)})
+	rejected, rejections := s.Rejections()
+	var status strings.Builder
+	fmt.Fprintf(&status, "truncated=%t dropped_events=%d write_failures=%d rejected_events=%d skipped_invalid_lines=%d\n",
+		truncated, dropped, failures, rejected, result.SkippedInvalidLines)
+	// The newest reasons come first; an event id is code the application declares, never data.
+	for _, rejection := range slices.Backward(rejections) {
+		event := rejection.Event
+		if event == "" {
+			event = "unknown"
+		}
+		fmt.Fprintf(&status, "rejected event=%s code=%d count=%d\n", event, rejection.Code, rejection.Count)
+	}
+	files = append(files, ExportFile{RelativePath: "collection-status.txt", Data: []byte(status.String())})
 	return Export{
 		Files:          files,
 		Truncated:      truncated,

@@ -140,7 +140,7 @@ func (a *App) runLineOperation(p *project, d *document, op core.LineEditOperatio
 }
 
 func (a *App) lineEditFailed(err error) {
-	a.emit(operationFailedLevel, operationFailedEvent, operationFailedFields("editor_line_edit", err))
+	a.operationFailed("editor_line_edit", err)
 	a.notifyError(i18n.Shared(a.language(), "desktop.editor.lineEditFailed"))
 }
 

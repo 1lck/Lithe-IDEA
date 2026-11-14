@@ -500,7 +500,7 @@ func (m *Model) revealExport() {
 	// The file manager can take a while to answer, so the window thread does not wait.
 	m.spawn(func() {
 		if err := m.opts.Reveal(destination); err != nil {
-			m.post(func() { m.report(err) })
+			m.post(func() { m.report(opRevealExport, err) })
 		}
 	})
 }
@@ -512,7 +512,7 @@ func (m *Model) exportFailure(stage string, err error) {
 }
 
 func (m *Model) emitExportFailure(stage string, err error) {
-	fields := ErrorFields(err)
+	fields := core.LogErrorFields(err)
 	fields["stage"] = stage
 	m.opts.Source.Emit(core.LevelError, exportFailedEvent, "", fields)
 }

@@ -251,7 +251,7 @@ func (a *App) welcomeMenuItems(c ui.C, path string) func(*ui.MenuItems) {
 		if !a.missing[path] {
 			if menu.Item(a.text.Welcome.MenuOpen).Clicked() {
 				c.After(func() {
-					a.performed("workspace.recent.open", surfaceMenu)
+					a.performed("workspace.recent.open", surfaceContextMenu)
 					a.openProject(path)
 				})
 			}
@@ -272,13 +272,13 @@ func (a *App) welcomeMenuItems(c ui.C, path string) func(*ui.MenuItems) {
 		}
 		if menu.Item(pinLabel).Clicked() {
 			c.After(func() {
-				a.performed("workspace.recent.pin", surfaceMenu)
+				a.performed("workspace.recent.pin", surfaceContextMenu)
 				a.reduceRecent(a.recent, core.TogglePinnedRecent(path), true)
 			})
 		}
 		if menu.Item(a.text.Welcome.MenuRemove).Clicked() {
 			c.After(func() {
-				a.performed("workspace.recent.remove", surfaceMenu)
+				a.performed("workspace.recent.remove", surfaceContextMenu)
 				a.reduceRecent(a.recent, core.RemoveRecent(path), true)
 			})
 		}
@@ -287,12 +287,12 @@ func (a *App) welcomeMenuItems(c ui.C, path string) func(*ui.MenuItems) {
 
 // revealRecent shows a recent project in the system's file browser.
 func (a *App) revealRecent(path string) {
-	a.performed("workspace.recent.reveal", surfaceMenu)
+	a.performed("workspace.recent.reveal", surfaceContextMenu)
 	a.background(nil, 0, func(context.Context) func(*App) {
 		err := app.RevealPath(path)
 		return func(a *App) {
 			if err != nil {
-				a.emit(operationFailedLevel, operationFailedEvent, operationFailedFields("workspace_reveal_recent", documentLogError(err)))
+				a.operationFailed("workspace_reveal_recent", documentLogError(err))
 				a.notifyError(a.text.Errors.OpenFailed(err.Error()))
 			}
 		}

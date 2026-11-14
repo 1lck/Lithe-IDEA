@@ -90,11 +90,11 @@ func (a *App) openContentTarget(p *project, uri string, line, column int) {
 			if a.contentOpen == request {
 				a.contentOpen = nil
 			}
-			// log-exempt: user cancellation: an abandoned navigation opens no tab.
+			// log-exempt: 用户取消：放弃的导航不打开标签页。
 			if err == nil || errors.Is(err, context.Canceled) {
 				return
 			}
-			a.emit(operationFailedLevel, operationFailedEvent, operationFailedFields("plugin_content", err))
+			a.operationFailed("plugin_content", err)
 			a.notifyError(i18n.SharedFormat(a.language(), "desktop.pluginHost.contentFailed", map[string]string{"uri": uri}))
 		}
 	})

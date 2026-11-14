@@ -89,7 +89,7 @@ func (a *App) settleMergeSide(join *completionMergeJoin, server bool, items []co
 		result, err := merger.MergeCompletions(ctx, lists)
 		return func(a *App) {
 			if err != nil {
-				a.emit(operationFailedLevel, operationFailedEvent, operationFailedFields("plugin_semantics", err))
+				a.backgroundFailed("plugin_semantics", err)
 				a.finishMergedCompletion(join, concatCompletionSources(sources), anyIncomplete)
 				return
 			}
@@ -172,7 +172,7 @@ func (a *App) settleServerCompletion(pending *semanticPending, event core.Backen
 	}
 	items, incomplete, err := core.PluginSemanticCompletions(event)
 	if err != nil {
-		a.emit(operationFailedLevel, operationFailedEvent, operationFailedFields("plugin_semantics", err))
+		a.backgroundFailed("plugin_semantics", err)
 		a.settleMergeSide(pending.join, true, nil, false)
 		return
 	}

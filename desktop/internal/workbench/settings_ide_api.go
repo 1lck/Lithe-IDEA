@@ -35,7 +35,7 @@ func (a *App) ideAPISetProject(p *project) {
 	if p != nil {
 		all := map[string]ideAPIGrants{}
 		if _, err := a.store.Load(ideAPIGrantsFile, &all); err != nil {
-			a.gitOperationFailed("ide_api_grants", err)
+			a.backgroundFailed("ide_api_grants", err)
 		}
 		grants = all[p.root]
 	}

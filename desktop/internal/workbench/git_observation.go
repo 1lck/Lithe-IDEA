@@ -76,7 +76,7 @@ func (a *App) startGitObservation(p *project) {
 				return
 			}
 			if err != nil {
-				a.emit(operationFailedLevel, operationFailedEvent, operationFailedFields("git_metadata_watch", documentLogError(err)))
+				a.backgroundFailed("git_metadata_watch", documentLogError(err))
 				return
 			}
 			if !found {
@@ -133,7 +133,7 @@ func (a *App) drainGitWatch(p *project, dir string, slot *documentWatch) {
 		// The watch was installed after the last status: one rescan covers the gap.
 		p.observe.full = true
 		if err != nil {
-			a.emit(operationFailedLevel, operationFailedEvent, operationFailedFields("git_metadata_watch", documentLogError(err)))
+			a.backgroundFailed("git_metadata_watch", documentLogError(err))
 		}
 	}
 	if watch != nil {

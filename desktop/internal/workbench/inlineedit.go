@@ -112,7 +112,7 @@ func (a *App) runInlineEdit(p *project) {
 			case errors.Is(err, context.Canceled):
 			case err != nil:
 				s.failure = a.inlineEditFailure(err)
-				a.gitOperationFailed("ai_inline_edit", err)
+				a.operationFailed("ai_inline_edit", err)
 			default:
 				s.hasResult, s.result = true, edited
 				s.diff = lineDiff(s.selected, edited)
@@ -162,6 +162,8 @@ func (a *App) acceptInlineEdit(p *project) {
 	view := s.doc.view
 	text, _ := view.Text()
 	if view.Revision() != s.revision && (s.end > len(text) || string(text[s.start:s.end]) != s.selected) || view.IsComposing() {
+		// The document changed under the suggestion since it was made.
+		a.operationRejected("inline_edit_accept", "stale")
 		a.notifyError(t.Stale)
 		a.closeInlineEdit()
 		return
@@ -169,7 +171,7 @@ func (a *App) acceptInlineEdit(p *project) {
 	a.performed("ai.inlineEdit.accept", surfaceButton)
 	if err := view.ApplyEdits([]editorview.TextEdit{{Range: editorview.Range{Start: s.start, End: s.end}, Text: s.result}}); err != nil {
 		a.notifyError(t.Failed(err.Error()))
-		a.gitOperationFailed("ai_inline_edit", err)
+		a.operationFailed("ai_inline_edit", err)
 	}
 	a.closeInlineEdit()
 }

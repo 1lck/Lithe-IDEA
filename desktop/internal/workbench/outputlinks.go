@@ -96,7 +96,7 @@ func (a *App) finishOutputLinkSources(p *project, sources []core.OutputLinkSourc
 	p.links.loaded = true
 	p.links.sources = sources
 	if err != nil {
-		a.emit(operationFailedLevel, operationFailedEvent, operationFailedFields("output_links", err))
+		a.backgroundFailed("output_links", err)
 	}
 }
 
@@ -160,7 +160,7 @@ func (a *App) flushOutputLinks(p *project) {
 				l.links[key] = links
 			}
 			if failure != nil {
-				a.emit(operationFailedLevel, operationFailedEvent, operationFailedFields("output_links", failure))
+				a.backgroundFailed("output_links", failure)
 			}
 		}
 	})
@@ -178,7 +178,10 @@ func (a *App) openOutputLink(p *project, link core.OutputLink) {
 		a.background(p, outputLinkTimeout, func(ctx context.Context) func(*App) {
 			path := firstExistingFile(location.Paths)
 			if path == "" {
-				return func(a *App) { a.notifyError(messages.LinkMissing) }
+				return func(a *App) {
+					a.operationRejected("output_link_open", "target_missing")
+					a.notifyError(messages.LinkMissing)
+				}
 			}
 			return func(a *App) { a.openFileAtPosition(p, path, zeroBased(location.Line), zeroBased(location.Column)) }
 		})
@@ -188,16 +191,22 @@ func (a *App) openOutputLink(p *project, link core.OutputLink) {
 			location, err := a.plugins.ResolveOutputLink(ctx, pluginID, function, json.RawMessage(groups), p.root)
 			if err != nil {
 				return func(a *App) {
-					a.emit(operationFailedLevel, operationFailedEvent, operationFailedFields("output_link_resolve", err))
+					a.operationFailed("output_link_resolve", err)
 					a.notifyError(messages.LinkUnresolved)
 				}
 			}
 			if location == nil {
-				return func(a *App) { a.notifyError(messages.LinkUnresolved) }
+				return func(a *App) {
+					a.operationRejected("output_link_open", "unresolved")
+					a.notifyError(messages.LinkUnresolved)
+				}
 			}
 			path := firstExistingFile([]string{location.Path})
 			if path == "" {
-				return func(a *App) { a.notifyError(messages.LinkMissing) }
+				return func(a *App) {
+					a.operationRejected("output_link_open", "target_missing")
+					a.notifyError(messages.LinkMissing)
+				}
 			}
 			return func(a *App) { a.openFileAtPosition(p, path, zeroBased(location.Line), zeroBased(location.Column)) }
 		})

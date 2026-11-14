@@ -239,11 +239,11 @@ func (a *App) loadShelves(p *project) {
 			}
 			s.loading, s.loaded = false, true
 			if skipped != nil {
-				a.gitOperationFailed("git_shelf_read", skipped)
+				a.backgroundFailed("git_shelf_read", skipped)
 			}
 			if err != nil {
 				s.err = err.Error()
-				a.gitOperationFailed("git_shelf_list", err)
+				a.operationFailed("git_shelf_list", err)
 				return
 			}
 			s.err, s.list = "", list
@@ -299,7 +299,7 @@ func (a *App) selectShelf(p *project, id string) {
 			s.filesLoading = false
 			if err != nil {
 				s.filesErr = i18n.Shared(a.language(), "native.couldNotLoadSavedChanges") + ": " + reviewReason(err)
-				a.gitOperationFailed("git_shelf_diff", err)
+				a.operationFailed("git_shelf_diff", err)
 				return
 			}
 			for i, kind := range kinds {
@@ -395,7 +395,7 @@ func (a *App) shelfWrite(p *project, operation string, checkout bool, write func
 			a.loadShelves(p)
 			if err != nil {
 				s.writeErr = a.shelfReason(err)
-				a.gitOperationFailed(operation, err)
+				a.operationFailed(operation, err)
 			}
 		}
 	})

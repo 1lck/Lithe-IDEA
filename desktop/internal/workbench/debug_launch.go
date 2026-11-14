@@ -23,6 +23,16 @@ type debugSettingsError struct{ cause error }
 func (e *debugSettingsError) Error() string { return e.cause.Error() }
 func (e *debugSettingsError) Unwrap() error { return e.cause }
 
+// debugAdapterUnresolved marks a preparation failure of the adapter's own launch, as opposed
+// to the debuggee's: its settings, plan, program or state directories could not be resolved.
+// Only these end the plugin's adapter start. The text is the cause's.
+type debugAdapterUnresolved struct{ cause error }
+
+func (e *debugAdapterUnresolved) Error() string { return e.cause.Error() }
+func (e *debugAdapterUnresolved) Unwrap() error { return e.cause }
+
+func adapterUnresolved(err error) error { return &debugAdapterUnresolved{cause: err} }
+
 // preparedDebugLaunch contains only Core's plan and verified native executable paths.
 type preparedDebugLaunch struct {
 	Executable    string
@@ -120,13 +130,13 @@ func (a *App) prepareDebugLaunch(ctx context.Context, start debugStart, stateDir
 	hosted := adapter.Declaration.Transport == "tcpLanguageServer"
 	settings, err := a.loadPluginPreferenceSources(ctx, adapter.Manifest, root)
 	if err != nil {
-		return preparedDebugLaunch{}, &debugSettingsError{cause: err}
+		return preparedDebugLaunch{}, adapterUnresolved(&debugSettingsError{cause: err})
 	}
 	directories := core.PluginBackendDirectories{
 		PluginDirectory:         adapter.Directory,
 		StateDirectory:          stateDirectory,
 		WorkspaceStateDirectory: filepath.Join(stateDirectory, "workspace"),
-		LogDirectory:            filepath.Join(stateDirectory, "log"),
+		LogDirectory:            a.pluginLogDirectory(ctx, adapter.PluginID),
 		TemporaryDirectory:      filepath.Join(stateDirectory, "tmp"),
 		Architecture:            core.PluginArchitecture(),
 		Settings:                settings.State.Settings,
@@ -134,7 +144,7 @@ func (a *App) prepareDebugLaunch(ctx context.Context, start debugStart, stateDir
 	}
 	plan, err := a.kernel.PlanPluginDebugAdapter(ctx, adapter.Manifest, adapter.Declaration.ID, directories)
 	if err != nil {
-		return preparedDebugLaunch{}, err
+		return preparedDebugLaunch{}, adapterUnresolved(err)
 	}
 	var executable string
 	processArguments := plan.Arguments
@@ -144,10 +154,10 @@ func (a *App) prepareDebugLaunch(ctx context.Context, start debugStart, stateDir
 	if !hosted {
 		executable, processArguments, environment, err = a.resolveAdapterProcess(ctx, adapter, plan, root, stateDirectory)
 		if err != nil {
-			return preparedDebugLaunch{}, err
+			return preparedDebugLaunch{}, adapterUnresolved(err)
 		}
 		if executable == "" {
-			return preparedDebugLaunch{}, errors.New(unavailable)
+			return preparedDebugLaunch{}, adapterUnresolved(errors.New(unavailable))
 		}
 	}
 	target := core.DebugTargetFacts{Kind: "file", Path: targetPath, WorkingDirectory: root, Arguments: []string{}, Environment: map[string]string{}}
@@ -215,16 +225,16 @@ func (a *App) prepareDebugLaunch(ctx context.Context, start debugStart, stateDir
 	for _, directory := range plan.RequiredDirectories {
 		relative, err := filepath.Rel(stateDirectory, directory)
 		if err != nil {
-			return preparedDebugLaunch{}, err
+			return preparedDebugLaunch{}, adapterUnresolved(err)
 		}
 		if relative == ".." || strings.HasPrefix(relative, ".."+string(filepath.Separator)) || filepath.IsAbs(relative) {
-			return preparedDebugLaunch{}, errors.New(unavailable)
+			return preparedDebugLaunch{}, adapterUnresolved(errors.New(unavailable))
 		}
 		if err := ctx.Err(); err != nil {
 			return preparedDebugLaunch{}, err
 		}
 		if err := os.MkdirAll(directory, 0o700); err != nil {
-			return preparedDebugLaunch{}, err
+			return preparedDebugLaunch{}, adapterUnresolved(err)
 		}
 	}
 	prepared := preparedDebugLaunch{

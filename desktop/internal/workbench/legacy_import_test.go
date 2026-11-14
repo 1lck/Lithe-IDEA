@@ -38,7 +38,7 @@ func TestLegacyImportAppliesTheChosenSettings(t *testing.T) {
 	recent := filepath.Join(t.TempDir(), "earlier")
 	h.app.legacyImport.read = func(context.Context) (legacyimport.Found, error) { return earlierLithe(recent), nil }
 	s := &h.app.legacyImport
-	h.app.post((*App).readLegacyImport)
+	h.app.post(func(a *App) { a.readLegacyImport(surfaceMenu) })
 	awaitStateWithin(t, h, 10*time.Second, "the import dialog", func() bool { return s.open })
 	h.settle()
 	language := h.app.language()
@@ -94,7 +94,7 @@ func TestLegacyImportWithoutAnEarlierClient(t *testing.T) {
 	h.app.legacyImport.read = func(context.Context) (legacyimport.Found, error) {
 		return legacyimport.Found{}, legacyimport.ErrNotFound
 	}
-	h.app.post((*App).readLegacyImport)
+	h.app.post(func(a *App) { a.readLegacyImport(surfaceMenu) })
 	want := i18n.Shared(h.app.language(), "desktop.legacyImport.none")
 	awaitStateWithin(t, h, 10*time.Second, "the notice", func() bool { return h.app.notice == want })
 	if h.app.legacyImport.open || h.app.legacyImport.reading {
@@ -130,7 +130,7 @@ func TestLegacyImportListsMissingPlugins(t *testing.T) {
 		}}, nil
 	}
 	s := &h.app.legacyImport
-	h.app.post((*App).readLegacyImport)
+	h.app.post(func(a *App) { a.readLegacyImport(surfaceMenu) })
 	awaitStateWithin(t, h, 10*time.Second, "the import dialog", func() bool { return s.open })
 	h.settle()
 	if !h.shows("Database Tools") || h.shows("Java Support") || len(s.items) != 0 {
@@ -143,7 +143,7 @@ func TestLegacyImportListsMissingPlugins(t *testing.T) {
 	// Once every earlier plugin is installed, nothing is left to import.
 	h.app.post(func(a *App) { a.legacyImport.open = false })
 	h.app.pluginState.Store(&map[string]settingswindow.PluginState{"dev.example.java": {Installed: true}, "dev.example.db": {Installed: true}})
-	h.app.post((*App).readLegacyImport)
+	h.app.post(func(a *App) { a.readLegacyImport(surfaceMenu) })
 	want := i18n.Shared(h.app.language(), "desktop.legacyImport.none")
 	awaitStateWithin(t, h, 10*time.Second, "the notice", func() bool { return h.app.notice == want })
 	if s.open {

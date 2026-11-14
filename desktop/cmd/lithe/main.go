@@ -44,6 +44,8 @@ func main() {
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "lithe: log:", err)
 	} else {
+		// Core holds one waker for the process; this client's log is the one that drains it.
+		logs.ObserveCoreFacts()
 		options.Logs = logs
 	}
 	err = workbench.New(options).Run()

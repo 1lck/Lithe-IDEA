@@ -68,7 +68,7 @@ func (a *App) applyPluginDiagnostics(pluginID string, event core.PluginDiagnosti
 	records := pluginservice.DiagnosticsFromEvent(event, resolve)
 	set := a.pluginDiagnosticSet(pluginID)
 	if err := set.Replace(fileKey, records); err != nil {
-		a.emit(operationFailedLevel, operationFailedEvent, operationFailedFields("plugin_diagnostics", err))
+		a.backgroundFailed("plugin_diagnostics", err)
 		return
 	}
 	a.refreshDocumentMarkers(fileKey)
@@ -218,7 +218,7 @@ func (a *App) pluginDocumentResolver() pluginservice.Resolver {
 			if err != nil {
 				// log-exempt: 用户取消：关闭工作区后迟到的诊断不再需要归属。
 				if !errors.Is(err, context.Canceled) {
-					a.emit(operationFailedLevel, operationFailedEvent, operationFailedFields("plugin_diagnostic_identity", err))
+					a.backgroundFailed("plugin_diagnostic_identity", err)
 				}
 				identity = nil
 			}

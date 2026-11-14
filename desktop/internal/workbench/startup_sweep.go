@@ -95,7 +95,7 @@ func (a *App) planStartupSweep() {
 		}
 		return func(a *App) {
 			if err != nil {
-				a.emit(operationFailedLevel, operationFailedEvent, operationFailedFields("startup_sweep_plan", err))
+				a.backgroundFailed("startup_sweep_plan", err)
 				a.startupSweep = startupSweepState{open: true, leftovers: leftovers, settings: settings, grace: buildprocess.StopGrace()}
 				return
 			}
@@ -113,17 +113,23 @@ func (a *App) planStartupSweep() {
 					kept = append(kept, leftovers[i])
 				}
 			}
-			a.settleLeftovers(ended, kept, grace, "policy")
+			a.settleLeftovers(ended, kept, grace, leftoversByPolicy)
 			question.open = len(question.leftovers) > 0
 			a.startupSweep = question
 		}
 	})
 }
 
+// What decided the leftovers, as app.startup.leftovers_resolved records it: Core's process
+// lifecycle policy, or the user's answer to the start-up question.
+const (
+	leftoversByPolicy = "policy"
+	leftoversByDialog = "dialog"
+)
+
 // settleLeftovers forgets ended and kept off the window thread, ending the ones in ended with
-// grace to stop before they are killed. surface says what decided them: Core's policy or the
-// user's answer.
-func (a *App) settleLeftovers(ended, kept []processledger.Record, grace time.Duration, surface string) {
+// grace to stop before they are killed. decidedBy is leftoversByPolicy or leftoversByDialog.
+func (a *App) settleLeftovers(ended, kept []processledger.Record, grace time.Duration, decidedBy string) {
 	service := a.plugins
 	if service == nil || len(ended)+len(kept) == 0 {
 		return
@@ -134,10 +140,10 @@ func (a *App) settleLeftovers(ended, kept []processledger.Record, grace time.Dur
 		err := errors.Join(keepErr, endErr)
 		return func(a *App) {
 			if err != nil {
-				a.emit(operationFailedLevel, operationFailedEvent, operationFailedFields("startup_sweep", err))
+				a.operationFailed("startup_sweep", err)
 				return
 			}
-			a.emit(core.LevelInfo, "app.action.performed", map[string]any{"action": "startupSweep", "surface": surface, "ended": count, "kept": len(kept)})
+			a.emit(core.LevelInfo, "app.startup.leftovers_resolved", map[string]any{"decided_by": decidedBy, "ended": count, "kept": len(kept)})
 		}
 	})
 }
@@ -178,14 +184,19 @@ func (a *App) drawStartupSweep(c ui.C) {
 // forgotten. The question closes at once; the ending itself is bounded. A settlement that
 // cannot be had ends nothing and leaves the leftovers recorded, so the next start asks again.
 func (a *App) settleStartupSweep(end bool) {
+	if end {
+		a.performed("startupSweep.end", surfaceButton)
+	} else {
+		a.performed("startupSweep.keep", surfaceButton)
+	}
 	question := a.startupSweep
 	a.startupSweep = startupSweepState{}
 	if question.decisions == nil {
 		// Core made no plan, so there is nothing to settle the answer with.
 		if end {
-			a.settleLeftovers(question.leftovers, nil, question.grace, "dialog")
+			a.settleLeftovers(question.leftovers, nil, question.grace, leftoversByDialog)
 		} else {
-			a.settleLeftovers(nil, question.leftovers, question.grace, "dialog")
+			a.settleLeftovers(nil, question.leftovers, question.grace, leftoversByDialog)
 		}
 		return
 	}
@@ -205,7 +216,7 @@ func (a *App) settleStartupSweep(end bool) {
 		settlement, err := a.kernel.SettleProcessLifecycle(ctx, question.settings, decisions, answers, false)
 		return func(a *App) {
 			if err != nil {
-				a.emit(operationFailedLevel, operationFailedEvent, operationFailedFields("startup_sweep_settle", err))
+				a.operationFailed("startup_sweep_settle", err)
 				return
 			}
 			pick := func(ids []string) []processledger.Record {
@@ -217,7 +228,7 @@ func (a *App) settleStartupSweep(end bool) {
 				}
 				return picked
 			}
-			a.settleLeftovers(pick(settlement.Terminate), pick(settlement.Keep), question.grace, "dialog")
+			a.settleLeftovers(pick(settlement.Terminate), pick(settlement.Keep), question.grace, leftoversByDialog)
 		}
 	})
 }

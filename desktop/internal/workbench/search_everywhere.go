@@ -244,7 +244,7 @@ func (a *App) startEverywhereWatch(p *project) {
 		if !s.watchAvailable {
 			_, _, err := p.search.watch.state()
 			if err != nil {
-				a.emit(operationFailedLevel, operationFailedEvent, operationFailedFields("workspace_search_everywhere_watch", err))
+				a.operationFailed("workspace_search_everywhere_watch", err)
 			}
 			a.notifyError(i18n.Shared(a.language(), "desktop.everywhere.watchUnavailable"))
 		}
@@ -261,7 +261,7 @@ func (a *App) applyEverywhereWatch(p *project, ready, available bool, err error,
 	if ready {
 		s.watchReady, s.watchAvailable, s.fullResync = true, available, true
 		if err != nil {
-			a.emit(operationFailedLevel, operationFailedEvent, operationFailedFields("workspace_search_everywhere_watch", err))
+			a.operationFailed("workspace_search_everywhere_watch", err)
 			a.notifyError(i18n.Shared(a.language(), "desktop.everywhere.watchUnavailable"))
 		}
 	}
@@ -272,7 +272,7 @@ func (a *App) applyEverywhereWatch(p *project, ready, available bool, err error,
 		changed = true
 	} else if len(events.Names) > 0 {
 		if len(s.pending)+len(events.Names) > searchEventLimit {
-			a.emit(core.LevelWarn, "app.notification.operation_rejected", map[string]any{"operation": "workspace_search_incremental_update", "reason": "event_limit_exceeded"})
+			a.backgroundFailed("workspace_search_incremental_update", errWatchEventLimit)
 			s.pending, s.fullResync = nil, true
 		} else if !s.fullResync {
 			s.pending = append(s.pending, events.Names...)
@@ -357,7 +357,7 @@ func (a *App) finishEverywhere(p *project, generation uint64, next bool, page co
 	}
 	if generation != s.generation {
 		if err != nil && !errors.Is(err, context.Canceled) {
-			a.emit(operationFailedLevel, operationFailedEvent, operationFailedFields("workspace_search_everywhere", err))
+			a.backgroundFailed("workspace_search_everywhere", err)
 		}
 		if s.watchReady && a.everywhereView.open && strings.TrimSpace(s.query) != "" {
 			a.runEverywhere(p, false)
@@ -371,7 +371,7 @@ func (a *App) finishEverywhere(p *project, generation uint64, next bool, page co
 	if err != nil {
 		if !errors.Is(err, context.Canceled) {
 			s.failed = true
-			a.emit(operationFailedLevel, operationFailedEvent, operationFailedFields("workspace_search_everywhere", err))
+			a.operationFailed("workspace_search_everywhere", err)
 		}
 		return
 	}
@@ -404,7 +404,7 @@ func (a *App) finishEverywhere(p *project, generation uint64, next bool, page co
 			}
 		}
 		if page.NextCursor != nil && ((s.cursor != nil && *page.NextCursor == *s.cursor) || len(s.matches) == before) {
-			a.emit(operationFailedLevel, operationFailedEvent, operationFailedFields("workspace_search_everywhere_page", errors.New("search page did not advance")))
+			a.operationFailed("workspace_search_everywhere_page", errors.New("search page did not advance"))
 			s.failed, s.cursor = true, nil
 			return
 		}

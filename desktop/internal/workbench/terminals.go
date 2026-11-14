@@ -316,11 +316,12 @@ func (a *App) reduceTerminals(p *project, state core.EditorWorkbench, action cor
 
 // reduceEditorLayout is reduceTerminals with what the kernel answered.
 func (a *App) reduceEditorLayout(p *project, state core.EditorWorkbench, action core.EditorAction) (core.EditorLayoutResult, bool) {
-	ctx, cancel := context.WithTimeout(context.Background(), kernelCallTimeout)
+	ctx, cancel := context.WithTimeout(a.operationContext(context.Background()), kernelCallTimeout)
 	defer cancel()
 	set := &p.terms
 	result, err := a.kernel.ReduceEditorLayout(ctx, state, layoutShape(set.layout), action)
 	if err != nil {
+		a.operationFailed("editor_layout_reduce", err)
 		a.notifyError(a.text.Errors.Core(err.Error()))
 		return result, false
 	}

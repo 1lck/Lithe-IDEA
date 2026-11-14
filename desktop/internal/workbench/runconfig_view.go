@@ -100,7 +100,10 @@ func (a *App) drawRunConfigRows(c ui.C, p *project, title string) {
 			key := b.groups[row.group].key
 			c.After(func() { s.toggleRunConfigGroup(key) })
 		} else if configuration := s.list[row.configuration]; p.build.operation == nil && p.runConfigurationReady(configuration) {
-			c.After(func() { a.runConfiguration(p, configuration.ID) })
+			c.After(func() {
+				a.performed("run.configuration.run", surfaceButton)
+				a.runConfiguration(p, configuration.ID)
+			})
 		}
 	}
 }
@@ -148,7 +151,10 @@ func (a *App) drawRunConfigRow(p *project, row ui.ListRow, selected bool) {
 		}
 		disabled := p.build.operation != nil || !p.runConfigurationReady(configuration)
 		if a.gitIconButton(c.Part("run"), i18n.Shared(language, "desktop.runConfig.run"), icons.Play, false, disabled) {
-			c.After(func() { a.runConfiguration(p, configuration.ID) })
+			c.After(func() {
+				a.performed("run.configuration.run", surfaceButton)
+				a.runConfiguration(p, configuration.ID)
+			})
 		}
 	})
 }
@@ -192,12 +198,15 @@ func (a *App) runConfigMenu(c ui.C, row ui.Box, p *project, configuration core.R
 				c.After(func() { a.stopBuildOperation(p) })
 			}
 		} else if menu.Item(i18n.Shared(language, "desktop.runConfig.run")).Disabled(p.build.operation != nil || !p.runConfigurationReady(configuration)).Clicked() {
-			c.After(func() { a.runConfiguration(p, id) })
+			c.After(func() {
+				a.performed("run.configuration.run", surfaceContextMenu)
+				a.runConfiguration(p, id)
+			})
 		}
 		menu.Separator()
 		if menu.Item(i18n.Shared(language, "native.editConfiguration")).Clicked() {
 			c.After(func() {
-				a.performed("run.configuration.edit", surfaceMenu)
+				a.performed("run.configuration.edit", surfaceContextMenu)
 				a.openRunConfigEditor(p, id)
 			})
 		}
@@ -207,7 +216,7 @@ func (a *App) runConfigMenu(c ui.C, row ui.Box, p *project, configuration core.R
 		}
 		if menu.Item(pin).Clicked() {
 			c.After(func() {
-				a.performed(action, surfaceMenu)
+				a.performed(action, surfaceContextMenu)
 				a.toggleRunConfigPin(p, id)
 			})
 		}

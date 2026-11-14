@@ -125,6 +125,23 @@ func (c *Controller) Open(application *app.Application) error {
 	return nil
 }
 
+// OpenOperation opens the window as Open does and narrows it to the records of one operation
+// of this session. Like Open, it must run on a window thread of application; the window
+// applies the filter on its own thread.
+func (c *Controller) OpenOperation(application *app.Application, op string) error {
+	if err := c.Open(application); err != nil {
+		return err
+	}
+	c.mu.Lock()
+	current := c.current
+	c.mu.Unlock()
+	if current != nil && current.model != nil {
+		model := current.model
+		model.post(func() { model.showOperation(op) })
+	}
+	return nil
+}
+
 // Close closes the open window, if any. It is safe from any goroutine.
 func (c *Controller) Close() {
 	c.mu.Lock()
@@ -499,6 +516,13 @@ func (w *window) status(c ui.C) {
 		ui.Spacer(c)
 		w.mono(c, w.text.Logs.Dropped(m.discarded+m.dropped), 11.5, w.pal.white)
 		w.mono(c, w.text.Logs.WriteFailures(m.writeFailures), 11.5, w.pal.white)
+		if m.rejected > 0 {
+			event := m.latestRejection.Event
+			if event == "" {
+				event = "—"
+			}
+			w.mono(c, w.text.Logs.Rejected(m.rejected, event, m.latestRejection.Code), 11.5, w.pal.white)
+		}
 		w.mono(c, "v2 · UTF-8 · NDJSON", 11.5, w.pal.white)
 	})
 }
@@ -657,7 +681,7 @@ func (w *window) revealRecord() {
 		relative = w.model.currentSessionPath + "/" + relative
 	}
 	if err := w.model.opts.Reveal(filepath.Join(w.model.directory, filepath.FromSlash(relative))); err != nil {
-		w.model.report(err)
+		w.model.report(opRevealRecord, err)
 	}
 }
 

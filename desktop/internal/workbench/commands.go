@@ -32,7 +32,28 @@ type command struct {
 	shortcut string
 	// enabled is false for an action that cannot run now; it is listed greyed.
 	enabled bool
-	run     func()
+	// run is the action. startCommand records it as command.<id> before running it.
+	run func()
+	// runFrom, set instead of run, is an action that records the user action itself, such as
+	// opening Settings: it is handed the surface the command was started from, so the action
+	// is recorded once, under its own id and with the right surface.
+	runFrom func(actionSurface)
+}
+
+// runnable reports whether the command is listed enabled and has an action.
+func (c command) runnable() bool {
+	return c.enabled && (c.run != nil || c.runFrom != nil)
+}
+
+// startCommand runs c, started from surface, and records it once: a command with runFrom
+// records itself, every other one is recorded as command.<id>.
+func (a *App) startCommand(c command, surface actionSurface) {
+	if c.runFrom != nil {
+		c.runFrom(surface)
+		return
+	}
+	a.performed("command."+c.id, surface)
+	c.run()
 }
 
 // commands lists the actions available in the current window.
@@ -44,16 +65,21 @@ func (a *App) commands() []command {
 	add := func(id, group, title, _ string, enabled bool, run func()) {
 		list = append(list, command{id: id, group: group, title: title, shortcut: keys.Label(id), enabled: enabled, run: run})
 	}
+	// addFrom adds a command whose action records itself with the surface it is handed.
+	addFrom := func(id, group, title string, enabled bool, run func(actionSurface)) {
+		list = append(list, command{id: id, group: group, title: title, shortcut: keys.Label(id), enabled: enabled, runFrom: run})
+	}
 
-	add("settings.open", t.GroupApp, t.Settings, "", true, func() { a.openSettings(surfaceMenu) })
-	add("plugins.open", t.GroupApp, t.Plugins, "", true, func() { a.openPluginSettings(surfaceMenu) })
+	addFrom("settings.open", t.GroupApp, t.Settings, true, a.openSettings)
+	addFrom("plugins.open", t.GroupApp, t.Plugins, true, a.openPluginSettings)
 	add("logs.open", t.GroupApp, t.Logs, "", true, a.openLogs)
-	add("legacy.import", t.GroupApp, t.ImportLegacy, "", true, a.readLegacyImport)
+	addFrom("legacy.import", t.GroupApp, t.ImportLegacy, true, a.readLegacyImport)
 	add("theme.system", t.GroupView, t.ThemeSystem, "", a.settings.Theme != themeSystem, func() { a.setTheme(themeSystem) })
 	add("theme.light", t.GroupView, t.ThemeLight, "", a.settings.Theme != themeLight, func() { a.setTheme(themeLight) })
 	add("theme.dark", t.GroupView, t.ThemeDark, "", a.settings.Theme != themeDark, func() { a.setTheme(themeDark) })
 	add("window.fullscreen", t.GroupView, a.text.Keymap.ToggleFullscreen, "", a.window != nil, func() {
 		if err := a.window.SetFullscreen(!a.window.Fullscreen()); err != nil {
+			a.operationFailed("window_fullscreen", err)
 			a.notifyError(a.text.Keymap.FullscreenFailed(err.Error()))
 		}
 	})
@@ -61,9 +87,9 @@ func (a *App) commands() []command {
 	add("language.zh", t.GroupView, t.LanguageChinese, "", a.settings.Language != "zh-Hans", func() { a.setLanguage("zh-Hans") })
 	add("editor.vimMode", t.GroupEditor, t.ToggleVim, "", true, func() { a.setVimMode(!a.settings.VimMode) })
 
-	add("project.open", t.GroupProject, t.OpenProject, "", true, func() { a.chooseProject(surfaceMenu) })
-	add("project.new", t.GroupProject, t.NewProject, "", true, func() { a.openNewProject(surfaceMenu) })
-	add("project.clone", t.GroupProject, t.Clone, "", true, func() { a.openClone(surfaceMenu) })
+	addFrom("project.open", t.GroupProject, t.OpenProject, true, a.chooseProject)
+	addFrom("project.new", t.GroupProject, t.NewProject, true, a.openNewProject)
+	addFrom("project.clone", t.GroupProject, t.Clone, true, a.openClone)
 	if p == nil {
 		return sortCommands(list)
 	}
@@ -101,12 +127,12 @@ func (a *App) commands() []command {
 		}
 	}
 	if d := p.selectedDocument(p.docs.group); browserPreviewable(d) {
-		add("editor.openInBrowser", t.GroupEditor, i18n.Shared(a.language(), "desktop.editorMenu.openInBrowser"), "", true, func() { a.openInBrowser(p, d) })
+		addFrom("editor.openInBrowser", t.GroupEditor, i18n.Shared(a.language(), "desktop.editorMenu.openInBrowser"), true, func(surface actionSurface) { a.openInBrowser(p, d, surface) })
 	}
 	// Code folding of the selected document.
 	if d := p.selectedDocument(p.docs.group); d != nil {
-		add("editor.find", t.GroupEditor, i18n.Shared(a.language(), "desktop.editorFind.find"), "", true, func() { a.openEditorFind(false) })
-		add("editor.replace", t.GroupEditor, i18n.Shared(a.language(), "desktop.editorFind.replace"), "", !d.virtual, func() { a.openEditorFind(true) })
+		addFrom("editor.find", t.GroupEditor, i18n.Shared(a.language(), "desktop.editorFind.find"), true, func(surface actionSurface) { a.openEditorFind(false, surface) })
+		addFrom("editor.replace", t.GroupEditor, i18n.Shared(a.language(), "desktop.editorFind.replace"), !d.virtual, func(surface actionSurface) { a.openEditorFind(true, surface) })
 		add("editor.fold", t.GroupEditor, t.Fold, "", true, func() { a.foldCommand(d, func(v *editorview.View) { v.FoldAtCaret() }) })
 		add("editor.unfold", t.GroupEditor, t.Unfold, "", true, func() { a.foldCommand(d, func(v *editorview.View) { v.UnfoldAtCaret() }) })
 		add("editor.foldAll", t.GroupEditor, t.FoldAll, "", true, func() { a.foldCommand(d, (*editorview.View).FoldAll) })
@@ -168,12 +194,12 @@ func (a *App) commands() []command {
 	add("search.files", t.GroupSearch, t.FindInFiles, "", true, func() { a.openFindInFiles(p, false) })
 	add("search.replace", t.GroupSearch, t.ReplaceInFiles, "", true, func() { a.openFindInFiles(p, true) })
 
-	add("git.commit", t.GroupGit, t.Commit, "", true, func() { a.startCommit(p, false, surfaceMenu) })
-	add("git.commitPush", t.GroupGit, t.CommitAndPush, "", true, func() { a.startCommit(p, true, surfaceMenu) })
+	addFrom("git.commit", t.GroupGit, t.Commit, true, func(surface actionSurface) { a.startCommit(p, false, surface) })
+	addFrom("git.commitPush", t.GroupGit, t.CommitAndPush, true, func(surface actionSurface) { a.startCommit(p, true, surface) })
 	add("git.branches", t.GroupGit, t.Branches, "", true, a.openBranches)
 	add("git.pull", t.GroupGit, a.text.Sync.Pull.MenuItem, "", p.git.isRepository(), func() { a.openPullDialog(p) })
 	if d := p.selectedDocument(p.docs.group); d != nil && !d.virtual {
-		add("git.lineHistory", t.GroupGit, i18n.Shared(a.language(), "desktop.editorMenu.lineHistory"), "", p.git.isRepository(), func() { a.startLineHistory(p, d) })
+		addFrom("git.lineHistory", t.GroupGit, i18n.Shared(a.language(), "desktop.editorMenu.lineHistory"), p.git.isRepository(), func(surface actionSurface) { a.startLineHistory(p, d, surface) })
 	}
 	add("git.console", t.GroupGit, t.GitConsole, "", true, func() { a.showGitConsole("") })
 
@@ -221,9 +247,10 @@ func matchCommands(list []command, query string) []command {
 	return out
 }
 
-// runCommand closes Search Everywhere and runs one action.
-func (a *App) runCommand(c command) {
-	if !c.enabled || c.run == nil {
+// runCommand closes Search Everywhere and runs one action, started from surface: the Find
+// Action list or the compact menu.
+func (a *App) runCommand(c command, surface actionSurface) {
+	if !c.runnable() {
 		return
 	}
 	if p := a.project; p != nil {
@@ -231,8 +258,7 @@ func (a *App) runCommand(c command) {
 	} else {
 		a.everywhereView.open = false
 	}
-	a.performed("command."+c.id, surfaceMenu)
-	c.run()
+	a.startCommand(c, surface)
 }
 
 // openFindAction opens Search Everywhere on its Actions tab.
@@ -283,7 +309,7 @@ func (a *App) everywhereActions(c ui.C) {
 	}
 	if run >= 0 {
 		command := matches[run]
-		c.After(func() { a.runCommand(command) })
+		c.After(func() { a.runCommand(command, surfacePalette) })
 	}
 }
 
@@ -292,7 +318,7 @@ func (a *App) runSelectedAction() {
 	v := &a.everywhereView
 	matches := matchCommands(a.commands(), v.actionQuery())
 	if v.actionSelected >= 0 && v.actionSelected < len(matches) {
-		a.runCommand(matches[v.actionSelected])
+		a.runCommand(matches[v.actionSelected], surfacePalette)
 	}
 }
 

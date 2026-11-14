@@ -95,7 +95,7 @@ func (a *App) presentEditorActions(p *project, snapshot editorActionSnapshot, ac
 		return
 	}
 	if err != nil {
-		a.emit(operationFailedLevel, operationFailedEvent, operationFailedFields("editor_actions", err))
+		a.backgroundFailed("editor_actions", err)
 	}
 	d.actions = actions
 	a.annotateEditorActions(d)
@@ -306,7 +306,7 @@ func (a *App) runEditorAction(p *project, d *document, action pluginservice.Edit
 		return func(a *App) {
 			if err != nil {
 				a.notifyError(i18n.Shared(a.language(), "desktop.editorActions.failed"))
-				a.emit(operationFailedLevel, operationFailedEvent, operationFailedFields("editor_action", err))
+				a.operationFailed("editor_action", err)
 				return
 			}
 			if len(locations) == 0 {
@@ -347,6 +347,9 @@ func (a *App) revealEditorLocations(p *project, d *document, root string, locati
 func (a *App) revealEditorLocation(p *project, root string, location pluginservice.EditorLocation) {
 	parsed, err := url.Parse(location.URI)
 	if err != nil {
+		// The plugin named a location that is not a URI; the error would repeat it, so only the
+		// refusal is recorded.
+		a.operationRejected("editor_action_reveal", "invalid_uri")
 		a.notifyError(i18n.Shared(a.language(), "desktop.editorActions.failed"))
 		return
 	}
@@ -358,7 +361,10 @@ func (a *App) revealEditorLocation(p *project, root string, location pluginservi
 		uri, line, column := location.URI, location.StartLine, location.StartCharacter
 		a.background(p, 30*time.Second, func(ctx context.Context) func(*App) {
 			if err := a.plugins.OpenContentURI(ctx, root, uri, line, column); err != nil {
-				return func(a *App) { a.notifyError(i18n.Shared(a.language(), "desktop.editorActions.failed")) }
+				return func(a *App) {
+					a.operationFailed("editor_action_reveal", err)
+					a.notifyError(i18n.Shared(a.language(), "desktop.editorActions.failed"))
+				}
 			}
 			return nil
 		})

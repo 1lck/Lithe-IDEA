@@ -69,7 +69,7 @@ func (a *App) applyLivePluginSettings(p *project, id, version string) {
 		}
 		return func(a *App) {
 			if err != nil && server.settingsRevision.Load() == revision && a.isCurrentPluginServer(id, server) {
-				a.emit(operationFailedLevel, operationFailedEvent, operationFailedFields("plugin_settings_immediate", err))
+				a.backgroundFailed("plugin_settings_immediate", err)
 				a.pluginSettingsRestart.Store(id, true)
 				if a.settingsWindow != nil {
 					a.settingsWindow.Invalidate()

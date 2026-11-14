@@ -108,7 +108,7 @@ func (a *App) loadStashes(p *project) {
 			s.loading, s.loaded = false, true
 			if err != nil {
 				s.err = reviewReason(err)
-				a.gitOperationFailed("git_stash_list", err)
+				a.operationFailed("git_stash_list", err)
 				return
 			}
 			s.err, s.list = "", list
@@ -150,7 +150,7 @@ func (a *App) selectStash(p *project, oid string) {
 			s.filesLoading = false
 			if err != nil {
 				s.filesErr = i18n.SharedFormat(a.language(), "git.diff.getStashDiffFailed", map[string]string{"stash": stash.Reference, "error": reviewReason(err)})
-				a.gitOperationFailed("git_stash_diff", err)
+				a.operationFailed("git_stash_diff", err)
 				return
 			}
 			s.files = files
@@ -201,7 +201,7 @@ func (a *App) stashWrite(p *project, operation string, write func(ctx context.Co
 			a.reloadDiffs(p, root)
 			if err != nil {
 				s.writeErr = reviewReason(err)
-				a.gitOperationFailed(operation, err)
+				a.operationFailed(operation, err)
 			}
 		}
 	})

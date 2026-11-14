@@ -431,7 +431,7 @@ func TestWorktreeChangesShowTheDiffAndRollBackInTheirCheckout(t *testing.T) {
 	changes := h.awaitWorktreeChanges("the linked checkout's changes", linked, func(c []core.GitChange) bool { return len(c) == 2 })
 
 	// draft.txt exists only in the linked checkout, so its diff can only be read there.
-	d := h.app.openDiffIn(p, linked, changeAt(t, changes, "draft.txt"))
+	d := h.app.openDiffIn(p, linked, changeAt(t, changes, "draft.txt"), surfaceButton)
 	if d == nil {
 		t.Fatal("no Diff tab opened for the linked checkout's change")
 	}

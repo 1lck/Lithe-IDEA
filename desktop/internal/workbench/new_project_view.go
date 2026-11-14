@@ -54,7 +54,7 @@ func (a *App) collectNewProject(c ui.C) {
 	n.catalogFx.declare(c, revision, struct{}{})
 	if result, err, ok := n.catalogFx.take(); ok {
 		if err != nil {
-			a.emit(operationFailedLevel, operationFailedEvent, operationFailedFields("new_project_catalog", documentLogError(err)))
+			a.operationFailed("new_project_catalog", documentLogError(err))
 		}
 		if result.plugins != nil {
 			n.applyCatalog(a, result)
@@ -82,7 +82,7 @@ func (a *App) collectNewProject(c ui.C) {
 		n.toolsFx.declare(c, form.key+"#"+revision, ids)
 		if tools, err, ok := n.toolsFx.take(); ok {
 			if err != nil {
-				a.emit(operationFailedLevel, operationFailedEvent, operationFailedFields("new_project_tools", documentLogError(err)))
+				a.operationFailed("new_project_tools", documentLogError(err))
 			}
 			form.setTools(tools, err != nil)
 		}
@@ -96,7 +96,7 @@ func (a *App) collectNewProject(c ui.C) {
 	n.formFx.declare(c, key, formRequest{manifest: form.plugin.Manifest, generatorID: form.entry.Generator.ID, input: input})
 	if result, err, ok := n.formFx.take(); ok {
 		if err != nil {
-			a.emit(operationFailedLevel, operationFailedEvent, operationFailedFields("new_project_form", documentLogError(err)))
+			a.operationFailed("new_project_form", documentLogError(err))
 		} else {
 			form.apply(result)
 			form.formKey = key
@@ -126,7 +126,7 @@ func (a *App) collectNewProjectSearch(c ui.C) {
 	n.searchFx.declare(c, key, searchRequest{query: query, candidates: candidates})
 	if indices, err, ok := n.searchFx.take(); ok {
 		if err != nil {
-			a.emit(operationFailedLevel, operationFailedEvent, operationFailedFields("new_project_search", documentLogError(err)))
+			a.operationFailed("new_project_search", documentLogError(err))
 			n.visible = nil
 			return
 		}

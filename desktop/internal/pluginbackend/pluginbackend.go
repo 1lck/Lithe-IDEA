@@ -12,6 +12,7 @@
 package pluginbackend
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -67,6 +68,7 @@ type Kernel interface {
 	WaitBackendEvents(ctx context.Context, session string, timeoutMilliseconds int) ([]core.BackendEvent, error)
 	StopPluginBackend(ctx context.Context, session string) error
 	DestroyPluginBackend(ctx context.Context, session string) error
+	SetDetailedDiagnostics(ctx context.Context, session string, enabled bool) error
 	RespondPluginHostRequest(ctx context.Context, session, requestID string, result json.RawMessage, failure *core.PluginHostFailure) error
 	RequestPluginSemantics(ctx context.Context, request core.PluginSemanticRequest) (string, error)
 	RequestPluginBuild(ctx context.Context, request core.PluginBuildProviderRequest) (string, error)
@@ -128,6 +130,10 @@ type StartRequest struct {
 	// instrumented binary raises it so scheduler load cannot masquerade as a
 	// provider failure.
 	InitializeTimeoutMilliseconds int
+	// Attempt is the languageServer/start attempt of a language-server start. The runner hands
+	// it to Core with the start itself, so the host records only what fails before that and
+	// Core records the rest. It is nil for every other role.
+	Attempt *core.PluginAttempt
 }
 
 // Session is one running plugin backend.
@@ -161,6 +167,41 @@ type Runner struct {
 	// initializeTimeout is the startup-handshake deadline applied to a request
 	// that does not carry its own. Zero keeps Core's default.
 	initializeTimeout time.Duration
+	// logFacts receives the catalog facts Core attaches to runtime events. Nil
+	// drops them.
+	logFacts LogFacts
+	// trace is the detailed-diagnostics switch of the sessions this runner started.
+	trace traceSwitch
+}
+
+// LogFacts receives one catalog fact Core attached to a session's runtime event:
+// the catalog level, the event id and the fields Core already validated and
+// redacted. The writer derives the channel from them exactly as Core did. It runs
+// on the goroutine that read the event, so it must queue the fact, not write it.
+type LogFacts func(level core.LogLevel, event string, fields map[string]any)
+
+// SetLogFacts installs the sink of the facts on runtime events. It must be called
+// before the first Start.
+func (r *Runner) SetLogFacts(sink LogFacts) { r.logFacts = sink }
+
+// forwardLog hands the catalog fact event carries to the sink, once. Core puts a
+// fact on any event type, the exit event included, and leaves the identity off a
+// fact that failed its own catalog check, so only an event with an id and a
+// level is a fact. Numbers are kept as written, so a large integer is not
+// rounded on its way to the writer.
+func (r *Runner) forwardLog(event core.BackendEvent) {
+	if r.logFacts == nil || event.Event == "" || event.Level == "" {
+		return
+	}
+	fields := map[string]any{}
+	if len(event.Fields) != 0 {
+		decoder := json.NewDecoder(bytes.NewReader(event.Fields))
+		decoder.UseNumber()
+		if decoder.Decode(&fields) != nil {
+			return
+		}
+	}
+	r.logFacts(core.LogLevel(event.Level), event.Event, fields)
 }
 
 // SetInitializeTimeout sets the startup-handshake deadline of every backend
@@ -351,6 +392,9 @@ func (r *Runner) Start(ctx context.Context, request StartRequest) (Session, erro
 	}
 	var started core.PluginBackendStarted
 	if request.LanguageID != "" {
+		// From here Core owns the attempt: it records the launch, the early exit, the
+		// initialize failure, the deadline or the finish.
+		start.StartupOperation = request.Attempt.HandOff()
 		started, err = r.kernel.StartPluginLanguageServer(ctx, start)
 	} else {
 		started, err = r.kernel.StartPluginBackend(ctx, start)
@@ -370,6 +414,7 @@ func (r *Runner) Start(ctx context.Context, request StartRequest) (Session, erro
 	if started.ProcessID != nil {
 		session.ProcessID = *started.ProcessID
 	}
+	r.trackTrace(session.ID)
 	return session, nil
 }
 
@@ -398,6 +443,7 @@ func (r *Runner) Stop(ctx context.Context, session Session) error {
 	if session.ID == "" {
 		return ErrNoSession
 	}
+	r.untrackTrace(session.ID)
 	stopErr := r.kernel.StopPluginBackend(ctx, session.ID)
 	// Core keeps the session until its shutdown reaches a terminal state, so a
 	// destroy immediately after stop is normally refused. Wait for queued
@@ -408,8 +454,14 @@ func (r *Runner) Stop(ctx context.Context, session Session) error {
 		if destroyErr == nil || ctx.Err() != nil {
 			break
 		}
-		if _, waitErr := r.kernel.WaitBackendEvents(ctx, session.ID, 250); waitErr != nil {
+		events, waitErr := r.kernel.WaitBackendEvents(ctx, session.ID, 250)
+		if waitErr != nil {
 			break
+		}
+		// The session's last lifecycle facts arrive here when nothing serves it
+		// any more.
+		for _, event := range events {
+			r.forwardLog(event)
 		}
 	}
 	return errors.Join(stopErr, destroyErr)
@@ -449,6 +501,9 @@ func (r *Runner) Serve(ctx context.Context, session Session, observe EventObserv
 	// pending requests, and cancelled when the backend cancels it.
 	answers := newAnswerGroup(ctx)
 	defer answers.wait()
+	// Once nothing serves the session it has ended or is being stopped: a trace switch
+	// would only be refused.
+	defer r.untrackTrace(session.ID)
 	for {
 		if err := ctx.Err(); err != nil {
 			return err
@@ -464,6 +519,7 @@ func (r *Runner) Serve(ctx context.Context, session Session, observe EventObserv
 			return err
 		}
 		for _, event := range events {
+			r.forwardLog(event)
 			switch event.Type {
 			case EventExit:
 				return nil

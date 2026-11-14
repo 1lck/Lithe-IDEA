@@ -49,12 +49,15 @@ func (a *App) wakeForEarlyResults() {
 // project's shell produced. It is the window's OnWake, which runs before every repaint a
 // wake asks for, so output reaches the screen without a timer.
 func (a *App) drain() {
+	// The window drains every workbench directly, not through the callback operating wraps.
+	defer a.endOperation()
 	a.tasks.mu.Lock()
 	pending := a.tasks.pending
 	a.tasks.pending = nil
 	a.tasks.mu.Unlock()
+	// Each result runs as a turn of its own: an action one of them starts ends with it.
 	for _, apply := range pending {
-		apply(a)
+		a.within(operation{}, apply)
 	}
 	a.drainSettings()
 	a.pumpTerminal()
@@ -66,12 +69,15 @@ func (a *App) drain() {
 // replaced is dropped. timeout bounds the work; zero leaves it unbounded, for work the
 // user ends, such as a folder dialog.
 //
-// work returns nil when there is nothing to apply.
+// work returns nil when there is nothing to apply. Work started during a user action belongs to
+// it (operation.go): its context carries the action, and its result is applied under it.
 func (a *App) background(p *project, timeout time.Duration, work func(ctx context.Context) func(*App)) {
 	parent := context.Background()
 	if p != nil {
 		parent = p.ctx
 	}
+	op := a.op
+	parent = a.operationContext(parent)
 	ctx, cancel := parent, context.CancelFunc(func() {})
 	if timeout > 0 {
 		ctx, cancel = context.WithTimeout(parent, timeout)
@@ -88,7 +94,7 @@ func (a *App) background(p *project, timeout time.Duration, work func(ctx contex
 			if p != nil && a.project != p {
 				return
 			}
-			apply(a)
+			a.within(op, apply)
 		})
 	}()
 }

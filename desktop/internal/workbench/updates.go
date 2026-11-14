@@ -13,7 +13,6 @@ import (
 
 	"github.com/1lck/Lithe-IDEA/desktop/internal/buildinfo"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/core"
-	"github.com/1lck/Lithe-IDEA/desktop/internal/logwindow"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/settingswindow"
 	appupdate "github.com/vivaui/viva/update"
 )
@@ -344,8 +343,10 @@ func (a *App) checkForUpdates(asked bool) {
 			s.Failure = ""
 		}
 	})
+	// A check the user asked for carries the action; an automatic one carries none.
+	parent := a.operationContext(context.Background())
 	go func() {
-		ctx, cancel := context.WithTimeout(context.Background(), updateCheckTimeout)
+		ctx, cancel := context.WithTimeout(parent, updateCheckTimeout)
 		defer cancel()
 		feed, err := source.Check(ctx)
 		var asset appupdate.Asset
@@ -362,7 +363,12 @@ func (a *App) checkForUpdates(asked bool) {
 func (a *App) updateChecked(asked bool, feed *appupdate.Feed, asset appupdate.Asset, err error) {
 	u := a.updates
 	if err != nil {
-		a.emit(operationFailedLevel, operationFailedEvent, operationFailedFields("update_check", err))
+		// A check the user asked for shows its failure; a scheduled one tries again later.
+		if asked {
+			a.operationFailed("update_check", err)
+		} else {
+			a.backgroundFailed("update_check", err)
+		}
 		a.changeUpdate(func(s *settingswindow.UpdateStatus) {
 			s.Checking = false
 			if asked {
@@ -456,30 +462,32 @@ func (a *App) removeUpdatePayload(payload string) {
 	if payload == "" {
 		return
 	}
-	a.background(nil, 0, func(context.Context) func(*App) {
-		a.deleteUpdatePayload(payload)
+	a.background(nil, 0, func(ctx context.Context) func(*App) {
+		a.deleteUpdatePayload(ctx, payload)
 		return nil
 	})
 }
 
 // deleteUpdatePayload deletes an application a patch rebuilt in the system's temporary
-// directory, on the calling goroutine, which is not the window thread. A deletion that fails
-// leaves a copy the system cleans up later, so it is logged and nothing else.
-func (a *App) deleteUpdatePayload(payload string) {
+// directory, on the calling goroutine, which is not the window thread; ctx is the work's
+// context, whose action the record belongs to. A deletion that fails leaves a copy the system
+// cleans up later, so it is logged and nothing else.
+func (a *App) deleteUpdatePayload(ctx context.Context, payload string) {
 	if payload == "" {
 		return
 	}
 	if err := removeUpdateDir(payload); err != nil {
-		a.emit(core.LevelWarn, deltaCleanupFailedEvent, logwindow.ErrorFields(err))
+		a.emitIn(ctx, core.LevelWarn, deltaCleanupFailedEvent, core.LogErrorFields(err))
 	}
 }
 
 // deltaFellBack logs the step of a delta update that failed and skips the patch to version
-// from then on, so the next download is the full archive. It runs on any goroutine.
-func (a *App) deltaFellBack(stage, version string, err error) {
-	fields := logwindow.ErrorFields(err)
+// from then on, so the next download is the full archive. It runs on any goroutine; ctx
+// carries the action the record belongs to.
+func (a *App) deltaFellBack(ctx context.Context, stage, version string, err error) {
+	fields := core.LogErrorFields(err)
 	fields["stage"] = stage
-	a.emit(core.LevelWarn, deltaFallbackEvent, fields)
+	a.emitIn(ctx, core.LevelWarn, deltaFallbackEvent, fields)
 	a.updates.mu.Lock()
 	a.updates.noDelta = version
 	a.updates.mu.Unlock()
@@ -508,7 +516,7 @@ func (a *App) downloadUpdate() {
 		return
 	}
 	dir := filepath.Join(cache, "Lithe", "Updates", feed.Latest.Version)
-	ctx, cancel := context.WithCancel(context.Background())
+	ctx, cancel := context.WithCancel(a.operationContext(context.Background()))
 	u.mu.Lock()
 	u.cancel = cancel
 	u.mu.Unlock()
@@ -550,7 +558,7 @@ func (a *App) fetchDelta(ctx context.Context, source updateSource, version strin
 		return "", ctxErr
 	}
 	if err != nil {
-		a.deltaFellBack(deltaStageDownload, version, err)
+		a.deltaFellBack(ctx, deltaStageDownload, version, err)
 		return "", err
 	}
 	// Applying reads every file of the installed application and cannot be interrupted, so
@@ -562,11 +570,11 @@ func (a *App) fetchDelta(ctx context.Context, source updateSource, version strin
 	if ctxErr := ctx.Err(); ctxErr != nil {
 		// The window closed or the download was cancelled while the patch applied: nothing
 		// will install the copy.
-		a.deleteUpdatePayload(payload)
+		a.deleteUpdatePayload(ctx, payload)
 		return "", ctxErr
 	}
 	if err != nil {
-		a.deltaFellBack(deltaStageApply, version, err)
+		a.deltaFellBack(ctx, deltaStageApply, version, err)
 		return "", err
 	}
 	return payload, nil
@@ -602,7 +610,7 @@ func (a *App) updateDownloaded(feed *appupdate.Feed, artifact, payload string, e
 	a.removeUpdatePayload(stale)
 	switch {
 	case errors.Is(err, context.Canceled):
-		// log-exempt: 用户取消下载或窗口关闭，不是失败。
+		// log-exempt: 用户取消：用户取消下载或关闭窗口，不是失败。
 		a.changeUpdate(func(s *settingswindow.UpdateStatus) {
 			s.Downloading, s.Applying, s.FellBack, s.Progress = false, false, false, 0
 		})
@@ -670,7 +678,7 @@ func (a *App) installUpdate() {
 			}
 			return
 		}
-		a.deltaFellBack(deltaStageInstall, feed.Latest.Version, err)
+		a.deltaFellBack(a.operationContext(context.Background()), deltaStageInstall, feed.Latest.Version, err)
 		a.changeUpdate(func(s *settingswindow.UpdateStatus) { s.Installing, s.Ready = false, false })
 		a.downloadUpdate()
 	}
@@ -687,5 +695,5 @@ func (a *App) updateFailed(err error) {
 		s.Downloading, s.Applying, s.FellBack, s.Installing, s.Checking, s.Progress = false, false, false, false, false, 0
 		s.Failure = err.Error()
 	})
-	a.emit(operationFailedLevel, operationFailedEvent, operationFailedFields("update", err))
+	a.operationFailed("update", err)
 }

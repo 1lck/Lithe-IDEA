@@ -29,6 +29,9 @@ type PluginBackendStart struct {
 	InitializeTimeoutMilliseconds int             `json:"initializeTimeoutMilliseconds,omitempty"`
 	RequestTimeoutMilliseconds    int             `json:"requestTimeoutMilliseconds,omitempty"`
 	ShutdownTimeoutMilliseconds   int             `json:"shutdownTimeoutMilliseconds,omitempty"`
+	// StartupOperation hands a declarative language-server start to Core, which records its
+	// one result from here on. Core takes it only for the language-server role.
+	StartupOperation *StartupOperation `json:"startupOperation,omitempty"`
 }
 
 // PluginHostOptions are what the host declares about the services it grants one session.
@@ -441,6 +444,17 @@ func (c *Client) StopPluginBackend(ctx context.Context, session string) error {
 	return c.Execute(ctx, "lsp.stopServer", struct {
 		SessionID string `json:"sessionId"`
 	}{session}, nil)
+}
+
+// SetDetailedDiagnostics turns the upstream trace of one running session on or off: Core sends
+// the server $/setTrace verbose or off, and only a session with it on reports trace summaries.
+// Before the startup handshake ends Core keeps the value and sends it after initialized. A
+// session that is no longer running is refused with invalid_request.
+func (c *Client) SetDetailedDiagnostics(ctx context.Context, session string, enabled bool) error {
+	return c.Execute(ctx, "lsp.setDetailedDiagnostics", struct {
+		SessionID string `json:"sessionId"`
+		Enabled   bool   `json:"enabled"`
+	}{session, enabled}, nil)
 }
 
 // DestroyPluginBackend disposes a terminal session. It must not race stop.

@@ -20,33 +20,33 @@ func (a *App) terminalMenu(c ui.C, name string, box ui.Box, t *terminal) {
 		if menu.Item(i18n.Shared(lang, "menu.copy")).Disabled(!t.view.HasSelection()).Clicked() {
 			text := t.view.SelectionText()
 			c.After(func() {
-				a.performed("terminal.copy", surfaceMenu)
+				a.performed("terminal.copy", surfaceContextMenu)
 				_ = app.SetClipboardText(text)
 			})
 		}
 		if menu.Item(i18n.Shared(lang, "menu.paste")).Clicked() {
 			c.After(func() {
-				a.performed("terminal.paste", surfaceMenu)
+				a.performed("terminal.paste", surfaceContextMenu)
 				t.view.PasteClipboard()
 				a.focusTerminal(t.id)
 			})
 		}
 		if menu.Item(i18n.Shared(lang, "menu.selectAll")).Clicked() {
 			c.After(func() {
-				a.performed("terminal.selectAll", surfaceMenu)
+				a.performed("terminal.selectAll", surfaceContextMenu)
 				t.view.SelectAll()
 			})
 		}
 		menu.Separator()
 		if menu.Item(i18n.Shared(lang, "ui.clear")).Clicked() {
 			c.After(func() {
-				a.performed("terminal.clear", surfaceMenu)
+				a.performed("terminal.clear", surfaceContextMenu)
 				t.view.Clear()
 			})
 		}
 		if t.view.Ended() && menu.Item(i18n.Shared(lang, "native.restart")).Clicked() {
 			c.After(func() {
-				a.performed("terminal.restart", surfaceMenu)
+				a.performed("terminal.restart", surfaceContextMenu)
 				t.view.Restart()
 			})
 		}
@@ -54,7 +54,7 @@ func (a *App) terminalMenu(c ui.C, name string, box ui.Box, t *terminal) {
 		if menu.Item(i18n.Shared(lang, "terminal.contextClose")).Clicked() {
 			id := t.id
 			c.After(func() {
-				a.performed("terminal.close", surfaceMenu)
+				a.performed("terminal.close", surfaceContextMenu)
 				a.requestCloseTerminal(p, id)
 			})
 		}

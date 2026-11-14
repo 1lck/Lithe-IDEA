@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/1lck/Lithe-IDEA/desktop/internal/core"
+	"github.com/1lck/Lithe-IDEA/desktop/internal/pluginservice"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/pluginstate"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/store"
 )
@@ -75,6 +76,12 @@ const debugAttachManifest = `{
 // it has a stdio process) and opens a window over it.
 func debugPluginHarness(t *testing.T, id, manifest string, withBinary bool) *harness {
 	t.Helper()
+	return debugPluginHarnessOn(t, id, manifest, withBinary, &testKernel{Client: core.NewClient()})
+}
+
+// debugPluginHarnessOn is debugPluginHarness whose plugin service runs on plugins.
+func debugPluginHarnessOn(t *testing.T, id, manifest string, withBinary bool, plugins pluginservice.Kernel) *harness {
+	t.Helper()
 	dir := t.TempDir()
 	if err := os.WriteFile(filepath.Join(dir, settingsFile), []byte(`{"theme":"dark"}`), 0o600); err != nil {
 		t.Fatal(err)
@@ -101,7 +108,7 @@ func debugPluginHarness(t *testing.T, id, manifest string, withBinary bool) *har
 	}
 	return newHarnessWithOptions(t, Options{
 		Kernel:       &testKernel{Client: core.NewClient()},
-		PluginKernel: &testKernel{Client: core.NewClient()},
+		PluginKernel: plugins,
 		PluginRoot:   pluginRoot,
 		Store:        preferences,
 		Languages:    []string{"zh-Hans"},

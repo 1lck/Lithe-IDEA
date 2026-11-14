@@ -172,10 +172,10 @@ func (a *App) startRunConfiguration(p *project, id string) (*buildOperation, err
 	}
 	index := p.buildInstanceIndex(reference)
 	if index < 0 || !p.build.instances[index].modelLoaded {
+		a.operationRejected("run_configuration", "target_missing")
 		a.notifyError(a.text.Build.TargetMissing)
 		return nil, refuseBuild(refusalNotReady, a.text.Build.TargetMissing)
 	}
-	a.emit(core.LevelInfo, "app.action.performed", map[string]any{"action": "run.configuration", "surface": "build"})
 	op := a.beginBuildOperation(p, "run", configuration.Name, id, func(a *App, p *project) {
 		a.runConfiguration(p, id)
 	})

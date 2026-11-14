@@ -52,6 +52,7 @@ func (a *App) clickChangeRow(p *project, change core.GitChange, mods gfx.Modifie
 	defer cancel()
 	result, err := a.kernel.ReduceRowSelection(ctx, rows, selection, action)
 	if err != nil {
+		a.operationFailed("changes_selection", err)
 		a.notifyError(a.text.Errors.Core(err.Error()))
 		return
 	}

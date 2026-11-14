@@ -179,7 +179,7 @@ func (h *BackendHost) start(ctx context.Context, pluginID string) (*BackendSessi
 	if err != nil {
 		return nil, err
 	}
-	directories := s.backendDirectories(entry.Installed.ID, entry.Installed.Version)
+	directories := s.backendDirectories(ctx, entry.Installed.ID, entry.Installed.Version)
 	if err := directories.create(); err != nil {
 		return nil, err
 	}
@@ -606,12 +606,21 @@ func (d pluginDirectories) create() error {
 // never inside one: an installed package is read-only for the host, and a
 // version directory that changed would no longer match the digest the user
 // approved. The plugin root is the platform's plugin storage, not the app bundle.
-func (s *Service) backendDirectories(pluginID, version string) pluginDirectories {
-	base := filepath.Join(s.Root, pluginStateDirectory, pluginID)
+// The log directory is the log session's, which the log store has already created.
+func (s *Service) backendDirectories(ctx context.Context, pluginID, version string) pluginDirectories {
 	return pluginDirectories{
-		state: filepath.Join(base, version),
-		log:   filepath.Join(base, "logs"),
+		state: filepath.Join(s.Root, pluginStateDirectory, pluginID, version),
+		log:   s.logDirectory(ctx, pluginID),
 	}
+}
+
+// logDirectory is the ${logDir} of a process started for pluginID, or empty when the window
+// has no local log store.
+func (s *Service) logDirectory(ctx context.Context, pluginID string) string {
+	if s.LogDirectory == nil {
+		return ""
+	}
+	return s.LogDirectory(ctx, pluginID)
 }
 
 // fileURI is the file URL of an absolute native path.

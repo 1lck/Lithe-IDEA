@@ -57,7 +57,7 @@ func (a *App) compareReferencesAt(p *project, root string, base core.GitReferenc
 				} else {
 					a.notifyError(i18n.SharedFormat(lang, "git.diff.compareRefsFailed", map[string]string{"base": base.ShortName, "target": target.ShortName, "error": reviewReason(err)}))
 				}
-				a.gitOperationFailed("git_comparison", err)
+				a.operationFailed("git_comparison", err)
 				return
 			}
 			if len(files) == 0 {

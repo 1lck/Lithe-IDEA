@@ -249,7 +249,7 @@ func (a *App) loadRunConfigPins(p *project) {
 	}
 	all := map[string][]string{}
 	if _, err := a.store.Load(runConfigPinsFile, &all); err != nil {
-		a.emit(operationFailedLevel, operationFailedEvent, operationFailedFields("run_configuration_pins_load", documentLogError(err)))
+		a.operationFailed("run_configuration_pins_load", documentLogError(err))
 		a.notifyError(i18n.SharedFormat(a.language(), "desktop.runConfig.loadFailed", map[string]string{"reason": err.Error()}))
 		return
 	}
@@ -272,7 +272,7 @@ func (a *App) toggleRunConfigPin(p *project, id string) {
 		pins[id] = true
 	}
 	if err := a.storeRunConfigPins(p.root, pins); err != nil {
-		a.emit(operationFailedLevel, operationFailedEvent, operationFailedFields("run_configuration_pins_save", documentLogError(err)))
+		a.operationFailed("run_configuration_pins_save", documentLogError(err))
 		a.notifyError(i18n.SharedFormat(a.language(), "desktop.runConfig.saveFailed", map[string]string{"reason": err.Error()}))
 		return
 	}

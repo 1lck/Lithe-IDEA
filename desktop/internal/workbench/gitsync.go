@@ -180,10 +180,10 @@ func (a *App) runSyncAt(p *project, root, operation, label string, failed func(r
 				a.notifyInfo(a.text.Sync.Cancelled)
 			case core.IsAuthenticationFailure(err):
 				a.notifyError(a.text.Sync.AuthFailed(syncReason(err)))
-				a.gitOperationFailed(operation, err)
+				a.operationFailed(operation, err)
 			default:
 				a.notifyError(failed(syncReason(err)))
-				a.gitOperationFailed(operation, err)
+				a.operationFailed(operation, err)
 			}
 		}
 	})
@@ -206,11 +206,14 @@ func (a *App) cancelSync(p *project) {
 }
 
 // fetchAll fetches every remote of the repository the log walks with Core's default options.
-func (a *App) fetchAll(p *project) { a.fetchAllAt(p, p.logRepositoryRoot()) }
+func (a *App) fetchAll(p *project, surface actionSurface) {
+	a.fetchAllAt(p, p.logRepositoryRoot(), surface)
+}
 
 // fetchAllAt fetches every remote of the repository at root with Core's default options.
-func (a *App) fetchAllAt(p *project, root string) {
-	a.performed("git.fetch", surfaceMenu)
+// surface is where the user asked.
+func (a *App) fetchAllAt(p *project, root string, surface actionSurface) {
+	a.performed("git.fetch", surface)
 	a.runSyncAt(p, root, "git_fetch", a.text.Sync.Fetching(), a.text.Sync.FetchFailed,
 		func(ctx context.Context, kernel Kernel, root string) (func(*App), error) {
 			return func(a *App) { a.notifySuccess(a.text.Sync.Fetched) }, kernel.GitFetch(ctx, root, nil)
@@ -291,18 +294,18 @@ func (a *App) submitFetchOptions(p *project) {
 
 // updateCurrentBranch fetches, then brings the branch checked out in the repository the log
 // walks up to its upstream, see updateCurrentBranchAt.
-func (a *App) updateCurrentBranch(p *project) {
-	a.updateCurrentBranchAt(p, p.logRepositoryRoot(), p.log.current)
+func (a *App) updateCurrentBranch(p *project, surface actionSurface) {
+	a.updateCurrentBranchAt(p, p.logRepositoryRoot(), p.log.current, surface)
 }
 
 // updateCurrentBranchAt fetches, then brings branch, the one checked out in the repository at
 // root, up to its upstream. A branch that has diverged asks how to combine, unless Git's
-// configuration already says.
-func (a *App) updateCurrentBranchAt(p *project, root, branch string) {
+// configuration already says. surface is where the user asked.
+func (a *App) updateCurrentBranchAt(p *project, root, branch string, surface actionSurface) {
 	if branch == "" {
 		return
 	}
-	a.performed("git.updateBranch", surfaceMenu)
+	a.performed("git.updateBranch", surface)
 	t := a.text.Sync
 	a.runSyncAt(p, root, "git_update_branch", t.Updating(branch), t.UpdateFailed,
 		func(ctx context.Context, kernel Kernel, root string) (func(*App), error) {
@@ -339,20 +342,20 @@ type branchUpdateKernel interface {
 
 // updateBranch brings the local branch r of the repository the log walks up to its upstream,
 // see updateBranchAt; any other reference updates the checked out branch.
-func (a *App) updateBranch(p *project, r core.GitReference) {
+func (a *App) updateBranch(p *project, r core.GitReference, surface actionSurface) {
 	if r.Kind != "local" {
-		a.updateCurrentBranch(p)
+		a.updateCurrentBranch(p, surface)
 		return
 	}
-	a.updateBranchAt(p, p.logRepositoryRoot(), r)
+	a.updateBranchAt(p, p.logRepositoryRoot(), r, surface)
 }
 
 // updateBranchAt brings the local branch r of the repository at root up to its upstream: the
 // checked out one the way updateCurrentBranchAt does, any other by fetching and
 // fast-forwarding it without touching HEAD.
-func (a *App) updateBranchAt(p *project, root string, r core.GitReference) {
+func (a *App) updateBranchAt(p *project, root string, r core.GitReference, surface actionSurface) {
 	if r.IsCurrent {
-		a.updateCurrentBranchAt(p, root, r.ShortName)
+		a.updateCurrentBranchAt(p, root, r.ShortName, surface)
 		return
 	}
 	updater, ok := a.kernel.(branchUpdateKernel)
@@ -364,7 +367,7 @@ func (a *App) updateBranchAt(p *project, root string, r core.GitReference) {
 		a.notifyInfo(a.text.Sync.NoUpstream(branch))
 		return
 	}
-	a.performed("git.updateBranch", surfaceButton)
+	a.performed("git.updateBranch", surface)
 	t := a.text.Sync
 	a.runSyncAt(p, root, "git_update_branch", t.Updating(branch), t.UpdateFailed,
 		func(ctx context.Context, kernel Kernel, root string) (func(*App), error) {
@@ -397,7 +400,6 @@ func (a *App) resolveDiverged(p *project, strategy core.GitPullStrategy) {
 
 // showChanges opens the Commit tool window, which lists the working tree changes.
 func (a *App) showChanges() {
-	a.performed("git.showChanges", surfaceMenu)
 	if !a.chrome.isOpen(catalogIndex[itemCommit]) {
 		a.reduceChrome(core.SetChromeOpen(itemCommit, true))
 	}

@@ -21,6 +21,7 @@ import (
 	"fmt"
 	"io/fs"
 	"maps"
+	"math"
 	"os"
 	"path"
 	"path/filepath"
@@ -43,10 +44,9 @@ const (
 	defaultReserved = 2000
 	// batchSize is the most events one encoder call takes.
 	batchSize = 256
-	// coalesceDelay lets a burst of events share one drain.
+	// coalesceDelay lets a burst of events share one drain. The kernel's own facts arrive the
+	// same way: its waker schedules one drain, so an idle writer never polls.
 	coalesceDelay = 100 * time.Millisecond
-	// kernelTick is how often the writer drains the kernel's own facts when the host is idle.
-	kernelTick = 500 * time.Millisecond
 	// maintenanceInterval is how often retention runs; the first run is the startup cleanup.
 	maintenanceInterval = time.Minute
 	// defaultFileLimit rotates a channel file before it grows past this size.
@@ -71,6 +71,10 @@ const (
 	controlLimit = 4
 	// controlTimeout bounds how long one control operation may take.
 	controlTimeout = 10 * time.Second
+	// rejectionLimit is how many distinct (event, code) rejections the writer remembers.
+	rejectionLimit = 20
+	// droppedEvent reports how many events never reached the disk.
+	droppedEvent = "log.dropped"
 	// windowLimit and windowBuckets shape the log window's queries.
 	windowLimit   = 10000
 	windowBuckets = 90
@@ -111,6 +115,20 @@ type Kernel interface {
 	PlanLogRetention(ctx context.Context, request core.LogRetentionRequest) (core.LogRetentionPlan, error)
 	DrainCoreEvents(ctx context.Context) (core.CoreEvents, error)
 	ConfigureCoreEvents(ctx context.Context, debug bool, roots []string) error
+	// WatchCoreEvents installs the kernel's single, process-wide waker; see ObserveCoreFacts.
+	WatchCoreEvents(wake func()) (stop func())
+}
+
+// Rejection counts the events the kernel refused to encode for one reason. A rejected event is
+// a bug in the code that emitted it: an id the catalog does not declare, a level that differs
+// from the catalog's, or fields of the wrong shape.
+type Rejection struct {
+	// Event is the id the caller emitted; empty when the kernel did not say which input it was.
+	Event string
+	// Code is the logging v2 error code, for example -32055 for an invalid field.
+	Code int
+	// Count is how many times this pair was rejected since the process started.
+	Count int
 }
 
 // Options configures Open.
@@ -128,10 +146,12 @@ type Options struct {
 	// Now is the clock; nil means time.Now.
 	Now func() time.Time
 
-	// The fields below shrink the limits so tests reach them with a handful of events.
-	capacity  int
-	reserved  int
-	fileLimit int
+	// The fields below shrink the limits so tests reach them with a handful of events, or the
+	// diagnostics window so a test sees it expire.
+	capacity         int
+	reserved         int
+	fileLimit        int
+	diagnosticWindow time.Duration
 }
 
 // directorySetting is the content of logging.json.
@@ -190,6 +210,8 @@ type Store struct {
 	capacity   int
 	reserved   int
 	fileLimit  int64
+	// window is how long detailed diagnostics stay on, diagnosticWindow outside tests.
+	window time.Duration
 
 	// mu guards the ingress state and the fields the writer publishes to other goroutines.
 	// Only the writer goroutine changes directory and sessionPath, so the writer itself may
@@ -201,11 +223,15 @@ type Store struct {
 	dropped           int
 	unreportedDropped int
 	failures          int
+	rejected          int
+	rejections        []Rejection
 	diagnosticUntil   time.Time
 	stopped           bool
 	controls          int
 	directory         string
 	sessionPath       string
+	// unwatch removes the kernel's waker; nil while the store does not observe the kernel.
+	unwatch func()
 
 	wake      chan struct{} // work was queued; arm the coalescing timer
 	full      chan struct{} // a whole batch is waiting; drain now
@@ -216,6 +242,12 @@ type Store struct {
 
 	subsMu      sync.Mutex
 	subscribers map[*subscriber]struct{}
+
+	// watchMu orders the detailed-diagnostics watchers against the gate changes they are told
+	// about, so a watcher that joins while the gate changes still ends on the current value.
+	watchMu   sync.Mutex
+	watchers  map[*func(on bool)]struct{}
+	watchedOn bool
 
 	// Everything below is owned by the writer goroutine (and by Open before it starts).
 	sequence        uint64
@@ -232,12 +264,16 @@ type Store struct {
 	recent          []Batch
 	recentBytes     int
 	replays         []replay
+	// expiry ends detailed diagnostics at expiryAt even when nothing else drains.
+	expiry   *time.Timer
+	expiryC  <-chan time.Time
+	expiryAt time.Time
 }
 
 // Open starts a store. It creates and probes the log directory, derives the session's path
 // from the kernel, starts the writer and queues the app.session.started event. A custom
-// directory that cannot be used falls back to the default one; Open fails only when no
-// directory works.
+// directory that cannot be used falls back to the default one and the fallback is logged as
+// app.logging.redirect_failed; Open fails only when no directory works.
 func Open(opts Options) (*Store, error) {
 	if opts.Kernel == nil {
 		return nil, errors.New("logstore: a kernel is required")
@@ -257,8 +293,9 @@ func Open(opts Options) (*Store, error) {
 		defaultDir, defaultErr = DefaultDir()
 	}
 	chosen := opts.Dir
+	var settingErr error
 	if chosen == "" {
-		chosen = loadDirectory(opts.Settings)
+		chosen, settingErr = loadDirectory(opts.Settings)
 	}
 	if chosen == "" {
 		if defaultErr != nil {
@@ -284,6 +321,10 @@ func Open(opts Options) (*Store, error) {
 	if opts.fileLimit > 0 {
 		fileLimit = int64(opts.fileLimit)
 	}
+	window := diagnosticWindow
+	if opts.diagnosticWindow > 0 {
+		window = opts.diagnosticWindow
+	}
 
 	s := &Store{
 		kernel:      opts.Kernel,
@@ -297,6 +338,7 @@ func Open(opts Options) (*Store, error) {
 		capacity:    capacity,
 		reserved:    reserved,
 		fileLimit:   fileLimit,
+		window:      window,
 		wake:        make(chan struct{}, 1),
 		full:        make(chan struct{}, 1),
 		jobs:        make(chan func()),
@@ -307,9 +349,10 @@ func Open(opts Options) (*Store, error) {
 		headers:     make(map[string]string),
 		handles:     make(map[string]*openLog),
 	}
-	if err := s.switchDirectory(chosen); err != nil {
+	redirectErr := s.switchDirectory(chosen)
+	if redirectErr != nil {
 		if defaultDir == "" || chosen == defaultDir {
-			return nil, err
+			return nil, redirectErr
 		}
 		if fallbackErr := s.switchDirectory(defaultDir); fallbackErr != nil {
 			return nil, fallbackErr
@@ -322,7 +365,40 @@ func Open(opts Options) (*Store, error) {
 
 	go s.run()
 	s.Emit(core.LevelInfo, "app.session.started", "", nil)
+	if settingErr != nil {
+		fields := core.LogErrorFields(settingErr)
+		fields["stage"] = "log_directory"
+		s.Emit(core.LevelWarn, "app.settings.decode_failed", "", fields)
+	}
+	if redirectErr != nil {
+		s.redirected(chosen, redirectErr)
+	}
 	return s, nil
+}
+
+// redirected records that logging left dir for the default directory. It is emitted only after
+// the default directory took over, so the record has somewhere to go and a failing directory
+// can never make the writer log about itself in a loop.
+func (s *Store) redirected(dir string, err error) {
+	fields := core.LogErrorFields(err)
+	fields["directory"] = dir
+	s.Emit(core.LevelWarn, "app.logging.redirect_failed", "", fields)
+}
+
+// ObserveCoreFacts asks the kernel to wake the writer whenever it records a fact for the host,
+// so those facts reach the disk within coalesceDelay even while the host itself is idle. The
+// kernel keeps a single waker per process, so only the application's one store may observe;
+// a store that does not observe drains the kernel's facts together with its own events. Close
+// removes the waker before the final drain.
+func (s *Store) ObserveCoreFacts() {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.stopped || s.unwatch != nil {
+		return
+	}
+	// The kernel calls wake while holding its waker lock: it may only signal the writer, and
+	// signal neither blocks nor takes s.mu.
+	s.unwatch = s.kernel.WatchCoreEvents(func() { signal(s.wake) })
 }
 
 // newSessionID returns a random version 4 UUID in lowercase, the form the kernel's session
@@ -337,16 +413,20 @@ func newSessionID() (string, error) {
 	return fmt.Sprintf("%x-%x-%x-%x-%x", b[0:4], b[4:6], b[6:8], b[8:10], b[10:]), nil
 }
 
-// loadDirectory reads the user's saved log directory; an unreadable setting means none.
-func loadDirectory(settings *store.Store) string {
+// loadDirectory reads the user's saved log directory. An unreadable setting means none, and
+// its error is returned so Open can record why the default directory is used.
+func loadDirectory(settings *store.Store) (string, error) {
 	if settings == nil {
-		return ""
+		return "", nil
 	}
 	var saved directorySetting
-	if _, err := settings.Load(settingsName, &saved); err != nil || !filepath.IsAbs(saved.Directory) {
-		return ""
+	if _, err := settings.Load(settingsName, &saved); err != nil {
+		return "", err
 	}
-	return saved.Directory
+	if !filepath.IsAbs(saved.Directory) {
+		return "", nil
+	}
+	return saved.Directory, nil
 }
 
 // formatTime renders an instant the way the kernel takes it.
@@ -367,6 +447,52 @@ func (s *Store) fail() {
 	s.mu.Lock()
 	s.failures++
 	s.mu.Unlock()
+}
+
+// lose counts the events of a batch the kernel could not encode at all, so they reach neither
+// the disk nor the live window. They are reported like queue overflow, by the log.dropped of a
+// later drain. A log.dropped in the lost batch is not an event of its own: the loss it carried
+// is reported again instead of being counted twice.
+func (s *Store) lose(batch []core.LogEvent) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for _, event := range batch {
+		if event.Event == droppedEvent {
+			if count, ok := event.Fields["count"].(uint64); ok {
+				s.unreportedDropped = saturatingAdd(s.unreportedDropped, count)
+				continue
+			}
+		}
+		s.dropped++
+		s.unreportedDropped++
+	}
+}
+
+// saturatingAdd adds a carried loss count without overflowing the counter.
+func saturatingAdd(total int, count uint64) int {
+	if count > uint64(math.MaxInt-total) {
+		return math.MaxInt
+	}
+	return total + int(count)
+}
+
+// reject remembers one event the kernel refused. The list keeps the most recently seen
+// distinct (event, code) pairs, so a single faulty call site cannot hide the others.
+func (s *Store) reject(event string, code int) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.rejected++
+	for i, known := range s.rejections {
+		if known.Event == event && known.Code == code {
+			known.Count++
+			s.rejections = append(slices.Delete(s.rejections, i, i+1), known)
+			return
+		}
+	}
+	if len(s.rejections) >= rejectionLimit {
+		s.rejections = slices.Delete(s.rejections, 0, 1)
+	}
+	s.rejections = append(s.rejections, Rejection{Event: event, Code: code, Count: 1})
 }
 
 // signal wakes the writer without ever blocking the caller.
@@ -445,12 +571,51 @@ func (s *Store) SessionPath() string {
 	return s.sessionPath
 }
 
-// Stats reports how many events were dropped from a full queue and how many writes or
-// maintenance steps failed since the process started.
+// PluginFilesDirectory creates and returns this session's private file directory of a plugin,
+// sessions/<session>/plugins/<id>/files below Directory. The kernel derives it from the
+// plugin's host channel and refuses an id that is not a plugin identity. A plugin process
+// receives it as ${logDir}, so what the plugin writes there is a file of this session: the
+// retention plan's plugin file budget covers it and Clear Logs removes it. The directory is
+// made 0700 and no symbolic link on the way is followed. A process started before the log
+// directory changed keeps writing where it was told; the old directory keeps its files.
+func (s *Store) PluginFilesDirectory(ctx context.Context, pluginID string) (string, error) {
+	resolved, err := s.kernel.ResolveLogChannel(ctx, "plugins/"+pluginID+"/host", 0, nil)
+	if err != nil {
+		return "", err
+	}
+	if resolved.PluginFilesPath == "" {
+		return "", errUnsafePath
+	}
+	s.mu.Lock()
+	root, session := s.directory, s.sessionPath
+	s.mu.Unlock()
+	if root == "" || session == "" {
+		return "", errNoDirectory
+	}
+	target, err := safePath(root, session+"/"+strings.TrimSuffix(resolved.PluginFilesPath, "/"))
+	if err != nil {
+		return "", err
+	}
+	if err := os.MkdirAll(target, 0o700); err != nil {
+		return "", err
+	}
+	return target, nil
+}
+
+// Stats reports how many events were dropped, from a full queue or with a batch the kernel
+// could not encode, and how many writes or maintenance steps failed since the process started.
 func (s *Store) Stats() (dropped, writeFailures int) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	return s.dropped, s.failures
+}
+
+// Rejections reports how many events the kernel refused since the process started and the most
+// recent distinct reasons, oldest first.
+func (s *Store) Rejections() (total int, recent []Rejection) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.rejected, slices.Clone(s.rejections)
 }
 
 // UsedBytes is the size of every log file in the directory, after writing what is queued. It is
@@ -496,14 +661,14 @@ func (s *Store) diagnosticsLocked(at time.Time) (string, time.Duration, bool) {
 }
 
 // ConfigureDiagnostics turns detailed diagnostics on or off. Turning them on lasts
-// diagnosticWindow and then expires by itself; both the kernel's and the host's DEBUG events
-// follow the same switch.
+// diagnosticWindow and then expires by itself, on a one-shot timer of the writer; both the
+// kernel's and the host's DEBUG events follow the same switch.
 func (s *Store) ConfigureDiagnostics(enabled bool) {
 	err := s.do(context.Background(), func(ctx context.Context) error {
 		at := s.now()
 		s.mu.Lock()
 		if enabled {
-			s.diagnosticUntil = at.Add(diagnosticWindow)
+			s.diagnosticUntil = at.Add(s.window)
 		} else {
 			s.diagnosticUntil = time.Time{}
 		}
@@ -512,7 +677,7 @@ func (s *Store) ConfigureDiagnostics(enabled bool) {
 		return nil
 	})
 	if err != nil && !errors.Is(err, ErrClosed) {
-		// The switch could not reach the writer: fail closed, and let the next tick tell the
+		// The switch could not reach the writer: fail closed, and let the next drain tell the
 		// kernel.
 		s.mu.Lock()
 		s.failures++
@@ -649,8 +814,7 @@ func (s *Store) do(ctx context.Context, fn func(context.Context) error) error {
 // run is the writer goroutine's loop. It is the only code that touches the open files.
 func (s *Store) run() {
 	defer close(s.done)
-	ticker := time.NewTicker(kernelTick)
-	defer ticker.Stop()
+	defer s.stopExpiry()
 
 	var coalesce *time.Timer
 	var coalesceC <-chan time.Time
@@ -675,8 +839,10 @@ func (s *Store) run() {
 		case <-coalesceC:
 			coalesce, coalesceC = nil, nil
 			s.drainSafely()
-		case <-ticker.C:
-			// Also drains the kernel's own facts and expires diagnostics when the host is idle.
+		case <-s.expiryC:
+			// Detailed diagnostics ran out while nothing else drained: the drain tells the
+			// kernel, whose DEBUG gate would otherwise stay open.
+			s.expiry, s.expiryC, s.expiryAt = nil, nil, time.Time{}
 			disarm()
 			s.drainSafely()
 		case job := <-s.jobs:
@@ -689,9 +855,18 @@ func (s *Store) run() {
 	}
 }
 
-// shutdown runs the final drain, which also switches the kernel's DEBUG gate off because the
-// store is stopped, then releases every resource.
+// shutdown removes the kernel's waker, runs the final drain, which also switches the kernel's
+// DEBUG gate off because the store is stopped, then releases every resource. The waker goes
+// first so nothing can signal a store that is going away; the final drain still takes every
+// fact the kernel recorded until then.
 func (s *Store) shutdown() {
+	s.mu.Lock()
+	unwatch := s.unwatch
+	s.unwatch = nil
+	s.mu.Unlock()
+	if unwatch != nil {
+		unwatch()
+	}
 	s.drainSafely()
 	s.closeHandles()
 	s.subsMu.Lock()
@@ -710,20 +885,77 @@ func (s *Store) drainSafely() {
 }
 
 // syncGate pushes the DEBUG gate to the kernel when it differs from what the kernel was last
-// told. A failed push is not retried until the wanted state changes, so a broken kernel cannot
-// make every drain fail again.
+// told, and keeps the expiry timer on the current deadline. A failed push is logged once and
+// not retried until the wanted state changes, so a broken kernel cannot make every drain fail
+// again.
 func (s *Store) syncGate(ctx context.Context) {
 	at := s.now()
 	s.mu.Lock()
-	_, _, on := s.diagnosticsLocked(at)
+	_, remaining, on := s.diagnosticsLocked(at)
+	until := s.diagnosticUntil
 	s.mu.Unlock()
+	if on {
+		s.armExpiry(until, remaining)
+	} else {
+		s.stopExpiry()
+	}
 	if s.gateKnown && s.gateOn == on {
 		return
 	}
 	s.gateKnown, s.gateOn = true, on
+	s.tellWatchers(on)
 	if err := s.kernel.ConfigureCoreEvents(ctx, on, nil); err != nil {
 		s.fail()
+		s.Emit(core.LevelWarn, "app.logging.diagnostics_failed", "", core.LogErrorFields(err))
 	}
+}
+
+// WatchDiagnostics tells watch whether detailed diagnostics are on, at once, and again every
+// time they turn on or off, including when they expire and when the store stops, until the
+// returned function is called. The later calls run on the writer goroutine, so watch must
+// return quickly and must not call the store.
+func (s *Store) WatchDiagnostics(watch func(on bool)) (stop func()) {
+	key := &watch
+	s.watchMu.Lock()
+	if s.watchers == nil {
+		s.watchers = map[*func(on bool)]struct{}{}
+	}
+	s.watchers[key] = struct{}{}
+	watch(s.watchedOn)
+	s.watchMu.Unlock()
+	return func() {
+		s.watchMu.Lock()
+		delete(s.watchers, key)
+		s.watchMu.Unlock()
+	}
+}
+
+// tellWatchers hands a change of the DEBUG gate to the diagnostics watchers. It runs on the
+// writer goroutine.
+func (s *Store) tellWatchers(on bool) {
+	s.watchMu.Lock()
+	defer s.watchMu.Unlock()
+	s.watchedOn = on
+	for watch := range s.watchers {
+		(*watch)(on)
+	}
+}
+
+// armExpiry points the one-shot expiry timer at until, which is remaining away.
+func (s *Store) armExpiry(until time.Time, remaining time.Duration) {
+	if s.expiry != nil && s.expiryAt.Equal(until) {
+		return
+	}
+	s.stopExpiry()
+	s.expiry = time.NewTimer(remaining)
+	s.expiryC, s.expiryAt = s.expiry.C, until
+}
+
+func (s *Store) stopExpiry() {
+	if s.expiry != nil {
+		s.expiry.Stop()
+	}
+	s.expiry, s.expiryC, s.expiryAt = nil, nil, time.Time{}
 }
 
 // diagnosticsOn reports whether DEBUG events are admitted right now.
@@ -818,7 +1050,7 @@ func (s *Store) drain(ctx context.Context) error {
 			Ts:      formatTime(s.now()),
 			Level:   core.LevelWarn,
 			Seq:     s.sequence,
-			Event:   "log.dropped",
+			Event:   droppedEvent,
 			Msg:     "Dropped events",
 			Fields:  map[string]any{"count": count},
 			Channel: "app",
@@ -837,7 +1069,8 @@ func (s *Store) drain(ctx context.Context) error {
 }
 
 // persist encodes one batch and appends the resulting lines. The caller keeps ownership of
-// batch and may reuse it afterwards.
+// batch and may reuse it afterwards. A batch the kernel cannot encode at all is lost and counted
+// as dropped; an event it refuses is remembered as a rejection.
 func (s *Store) persist(ctx context.Context, batch []core.LogEvent) {
 	encoded, err := s.kernel.EncodeLogBatch(ctx, core.LogBatch{
 		Events:          batch,
@@ -846,7 +1079,7 @@ func (s *Store) persist(ctx context.Context, batch []core.LogEvent) {
 		Previous:        s.previous,
 	})
 	if err != nil {
-		s.fail()
+		s.lose(batch)
 		return
 	}
 	// The next call hands the last input back so the kernel can fold consecutive duplicates
@@ -856,7 +1089,15 @@ func (s *Store) persist(ctx context.Context, batch []core.LogEvent) {
 
 	published := make([]Batch, 0, len(encoded.Results))
 	for _, result := range encoded.Results {
-		if result.Error != nil || result.Line == "" || result.Channel == "" {
+		if result.Error != nil {
+			event := ""
+			if result.Index != nil && *result.Index >= 0 && *result.Index < len(batch) {
+				event = batch[*result.Index].Event
+			}
+			s.reject(event, result.Error.Code)
+			continue
+		}
+		if result.Line == "" || result.Channel == "" {
 			s.fail()
 			continue
 		}
@@ -886,17 +1127,20 @@ func (s *Store) persist(ctx context.Context, batch []core.LogEvent) {
 // retry fails too, so the failure can be diagnosed from the window; it is dropped only when
 // there is no other directory to try.
 func (s *Store) write(ctx context.Context, entry Batch) bool {
-	if err := s.appendEntry(ctx, entry); err == nil {
+	appendErr := s.appendEntry(ctx, entry)
+	if appendErr == nil {
 		return true
 	}
 	s.fail()
 	if s.defaultDir == "" || s.directory == s.defaultDir {
 		return false
 	}
+	failed := s.directory
 	if err := s.switchDirectory(s.defaultDir); err != nil {
 		s.fail()
 		return false
 	}
+	s.redirected(failed, appendErr)
 	if err := s.appendEntry(ctx, entry); err != nil {
 		s.fail()
 	}

@@ -46,7 +46,7 @@ func (a *App) onModifierTap(event gfx.ModifierTapEvent) gfx.EventResult {
 		if err != nil {
 			// There is no second implementation of the rule; the gesture just does not fire.
 			v.gesture = nil
-			a.emit(operationFailedLevel, operationFailedEvent, operationFailedFields("keymap_modifier_gesture", err))
+			a.backgroundFailed("keymap_modifier_gesture", err)
 			return gfx.EventResult{}
 		}
 		v.gesture = state

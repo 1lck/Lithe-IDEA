@@ -47,6 +47,7 @@ func (a *App) toggleLineEnding(d *document) {
 		return
 	}
 	if err := d.view.ApplyEdits([]editorview.TextEdit{{Range: editorview.Range{Start: 0, End: len(text)}, Text: next}}); err != nil {
+		a.operationFailed("line_ending_toggle", err)
 		a.notifyError(a.text.Errors.OpenFailed(err.Error()))
 	}
 }

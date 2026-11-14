@@ -49,7 +49,7 @@ func TestEditorEssentialsFindReplaceNativeFlow(t *testing.T) {
 	if start != 11 || end != 16 {
 		t.Fatalf("next match %d..%d", start, end)
 	}
-	h.app.openEditorFind(true)
+	h.app.openEditorFind(true, surfaceButton)
 	d.find.replacement.SetText("omega")
 	h.settleChain()
 	h.clickNamed(h.shared("desktop.editorFind.replaceAll"))
@@ -240,7 +240,7 @@ func TestEditorEssentialsSelectionScopeFollowsBulkReplacement(t *testing.T) {
 	h, p, d := essentialsDocument(t, "one one one")
 	d.view.SetSelection(0, 7)
 	d.find.debounce = -1
-	h.app.openEditorFind(true)
+	h.app.openEditorFind(true, surfaceButton)
 	d.find.selection = true
 	d.find.query.SetText("one")
 	d.find.replacement.SetText("a")

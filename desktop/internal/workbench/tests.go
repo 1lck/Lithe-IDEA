@@ -216,7 +216,7 @@ func (a *App) startTests(p *project, selection testSelection) {
 	p.tests.last = &last
 	captured := *instance
 	startedMillis := time.Now().UnixMilli()
-	a.emit(core.LevelInfo, "app.action.performed", map[string]any{"action": "tests.run", "surface": "tests", "scope": selection.scope()})
+	a.performed("tests.run."+selection.scope(), surfaceButton)
 	a.background(p, testRequestTimeout, func(ctx context.Context) func(*App) {
 		return a.executeTestRun(ctx, p, captured, selection, generation, startedMillis)
 	})
@@ -430,7 +430,7 @@ func (a *App) finishTestRun(p *project, generation uint64, selection testSelecti
 	if a.project != p || p.tests.generation != generation {
 		return
 	}
-	verdict, err := a.kernel.ResolveBuildTestOutcome(context.Background(), termination, selection.scopeProject(), selection.suite, selection.caseName, &results.Summary)
+	verdict, err := a.kernel.ResolveBuildTestOutcome(a.operationContext(context.Background()), termination, selection.scopeProject(), selection.suite, selection.caseName, &results.Summary)
 	if err != nil {
 		a.finishTestError(p, generation, err)
 		return
@@ -452,7 +452,7 @@ func (a *App) finishTestInterrupted(p *project, generation uint64, selection tes
 	if a.project != p || p.tests.generation != generation {
 		return
 	}
-	verdict, err := a.kernel.ResolveBuildTestOutcome(context.Background(), termination, selection.scopeProject(), selection.suite, selection.caseName, nil)
+	verdict, err := a.kernel.ResolveBuildTestOutcome(a.operationContext(context.Background()), termination, selection.scopeProject(), selection.suite, selection.caseName, nil)
 	if err != nil {
 		a.finishTestError(p, generation, err)
 		return
@@ -488,7 +488,7 @@ func (a *App) finishTestError(p *project, generation uint64, err error) {
 	}
 	p.tests.failed = a.text.Tests.ResultsUnavailable(err.Error())
 	p.tests.status = a.text.Tests.ResultsUnavailable(err.Error())
-	a.emit(operationFailedLevel, operationFailedEvent, operationFailedFields("tests", err))
+	a.operationFailed("tests", err)
 }
 
 // stopTests stops the process and asks the provider to cancel. The terminal

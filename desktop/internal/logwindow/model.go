@@ -25,7 +25,6 @@ import (
 	"strings"
 	"sync"
 	"sync/atomic"
-	"syscall"
 	"time"
 	"unicode/utf8"
 
@@ -78,8 +77,27 @@ const (
 	prefsFile = "log-window.json"
 	// defaultDebounce is how long typing in the filter waits before it queries.
 	defaultDebounce = 150 * time.Millisecond
-	// diagnosticsFailed is the event the window records when it cannot read the logs.
-	diagnosticsFailed = "app.logging.diagnostics_failed"
+	// operationFailed records an operation the user started in the window that failed;
+	// backgroundFailed records work the window runs on its own that failed.
+	operationFailed  = "app.notification.operation_failed"
+	backgroundFailed = "app.background.operation_failed"
+)
+
+// The operation field of operationFailed and backgroundFailed, one per kind of work.
+const (
+	opPreferencesSave  = "logs_preferences_save"
+	opQuery            = "logs_query"
+	opLive             = "logs_live"
+	opTrace            = "logs_trace"
+	opDetail           = "logs_detail"
+	opFilterCompose    = "logs_filter_compose"
+	opCopy             = "logs_copy"
+	opRevealDirectory  = "logs_reveal_directory"
+	opRevealExport     = "logs_reveal_export"
+	opRevealRecord     = "logs_reveal_record"
+	opChangeDirectory  = "logs_change_directory"
+	opRestoreDirectory = "logs_restore_directory"
+	opClear            = "logs_clear"
 )
 
 // Sessions the session menu offers, in its order.
@@ -309,6 +327,8 @@ type Model struct {
 	directory, currentSessionPath string
 	defaultDirectory              string
 	dropped, writeFailures        int
+	rejected                      int
+	latestRejection               logstore.Rejection
 	diagnosticRemaining           time.Duration
 	diagnosticCategory            string
 	diagnosticSince               time.Time
@@ -505,7 +525,7 @@ func (m *Model) persist() {
 		return
 	}
 	if err := m.opts.Store.Save(prefsFile, m.prefs); err != nil {
-		m.report(err)
+		m.reportBackground(opPreferencesSave, err)
 	}
 }
 
@@ -605,7 +625,7 @@ func (m *Model) queryFailed(token int, err error) {
 		return
 	}
 	m.queryPending = false
-	m.report(err)
+	m.reportBackground(opQuery, err)
 }
 
 // applyCollection replaces the records with the answer to a query.
@@ -615,6 +635,7 @@ func (m *Model) applyCollection(q logstore.Query, c logstore.Collection) {
 	m.directory = c.Directory
 	m.currentSessionPath = c.CurrentSessionPath
 	m.dropped, m.writeFailures = c.Dropped, c.WriteFailures
+	m.setRejections(c.Rejected, c.Rejections)
 	m.setDiagnostics(c.DiagnosticCategory, c.DiagnosticRemaining)
 	m.latestSequences = maps.Clone(c.Result.SessionSequences)
 	if m.latestSequences == nil {
@@ -774,7 +795,7 @@ func (m *Model) liveError(revision int, err error) {
 		m.unsubscribe()
 		m.unsubscribe = nil
 	}
-	m.report(err)
+	m.reportBackground(opLive, err)
 }
 
 // liveKey identifies a live record against one read back from disk, whose path differs.
@@ -848,6 +869,7 @@ func (m *Model) append(result core.LogQueryResult, summary *logstore.LiveSummary
 	if summary != nil {
 		m.histogram = summary.Histogram
 		m.dropped, m.writeFailures = summary.Dropped, summary.WriteFailures
+		m.setRejections(summary.Rejected, summary.Rejections)
 		m.setDiagnostics(summary.DiagnosticCategory, summary.DiagnosticRemaining)
 	}
 	if result.FoldMinimumRun > 0 {
@@ -1004,7 +1026,7 @@ func (m *Model) selectIDs(ids map[string]bool) {
 				return
 			}
 			if err != nil {
-				m.report(err)
+				m.reportBackground(opTrace, err)
 				return
 			}
 			m.trace = &collection.Result
@@ -1062,7 +1084,7 @@ func (m *Model) scheduleDetail(id, line string) {
 				return
 			}
 			if err != nil {
-				m.report(err)
+				m.reportBackground(opDetail, err)
 				return
 			}
 			m.detailText = text
@@ -1240,12 +1262,28 @@ func (m *Model) compose(term core.LogFilterTerm) {
 		composed, err := m.opts.Kernel.ComposeLogFilter(m.ctx, expression, term)
 		m.post(func() {
 			if err != nil {
-				m.report(err)
+				m.report(opFilterCompose, err)
 				return
 			}
 			m.replaceExpression(composed)
 		})
 	})
+}
+
+// showOperation narrows the table to every record of one operation of this session, which a
+// notice's View Logs asks for: the current session, no time limit, every channel and level,
+// and an expression of only the op term, which the kernel writes. The filter field shows the
+// term, so clearing it shows everything again.
+func (m *Model) showOperation(op string) {
+	m.follows = false
+	m.changeQuery(func(q *windowQuery) {
+		q.Session = sessionCurrent
+		q.Since, q.Until = "", ""
+		q.ChannelPrefixes = []string{}
+		q.Levels = slices.Clone(allLevels)
+		q.Expression = ""
+	})
+	m.compose(core.LogFilterTerm{Kind: "op", Value: op})
 }
 
 // copyFormatted formats records in format, json or markdown, and puts the text on the
@@ -1267,7 +1305,7 @@ func (m *Model) copyFormatted(records []core.LogRecord, format string) {
 		text, err := m.opts.Kernel.FormatLogRecords(m.ctx, lines, format, environment)
 		m.post(func() {
 			if err != nil {
-				m.report(err)
+				m.report(opCopy, err)
 				return
 			}
 			m.copyText(text)
@@ -1281,7 +1319,7 @@ func (m *Model) copyText(text string) {
 		return
 	}
 	if err := m.opts.Clipboard(text); err != nil {
-		m.report(err)
+		m.report(opCopy, err)
 	}
 }
 
@@ -1379,7 +1417,7 @@ func (m *Model) revealDirectory() {
 		return
 	}
 	if err := m.opts.Reveal(m.directory); err != nil {
-		m.report(err)
+		m.report(opRevealDirectory, err)
 	}
 }
 
@@ -1398,7 +1436,7 @@ func (m *Model) chooseDirectory() {
 		m.post(func() {
 			m.busy = false
 			if err != nil {
-				m.report(err)
+				m.report(opChangeDirectory, err)
 				return
 			}
 			if dir != "" {
@@ -1424,7 +1462,7 @@ func (m *Model) restoreDirectory() {
 		m.post(func() {
 			m.busy = false
 			if err != nil {
-				m.report(err)
+				m.report(opRestoreDirectory, err)
 				return
 			}
 			m.refresh(false)
@@ -1443,7 +1481,7 @@ func (m *Model) clearLogs() {
 		m.post(func() {
 			m.busy = false
 			if err != nil {
-				m.report(err)
+				m.report(opClear, err)
 			}
 			m.usedBytes = 0
 			m.refresh(false)
@@ -1451,42 +1489,33 @@ func (m *Model) clearLogs() {
 	})
 }
 
-// report records a failure to read the logs and shows the error line.
-func (m *Model) report(err error) {
+// setRejections keeps the writer's count of refused events and the latest refusal, which the
+// status bar names so a faulty call site is visible without opening an export.
+func (m *Model) setRejections(total int, recent []logstore.Rejection) {
+	m.rejected = total
+	m.latestRejection = logstore.Rejection{}
+	if len(recent) > 0 {
+		m.latestRejection = recent[len(recent)-1]
+	}
+}
+
+// report records an operation the user started that failed, and shows the error line.
+func (m *Model) report(operation string, err error) {
+	m.fail(core.LevelError, operationFailed, operation, err)
+}
+
+// reportBackground records work the window runs on its own, reading or formatting the logs
+// or saving its preferences, that failed, and shows the error line.
+func (m *Model) reportBackground(operation string, err error) {
+	m.fail(core.LevelWarn, backgroundFailed, operation, err)
+}
+
+func (m *Model) fail(level core.LogLevel, event, operation string, err error) {
 	if err == nil || errors.Is(err, context.Canceled) {
 		return
 	}
-	m.opts.Source.Emit(core.LevelWarn, diagnosticsFailed, "", ErrorFields(err))
+	fields := core.LogErrorFields(err)
+	fields["operation"] = operation
+	m.opts.Source.Emit(level, event, "", fields)
 	m.failed = true
-}
-
-// ErrorFields encodes an error the way the event catalog asks: a bounded message without
-// control characters, a code and the domain the code belongs to.
-func ErrorFields(err error) map[string]any {
-	message := strings.Map(func(r rune) rune {
-		if r < 0x20 || r == 0x7f || (r >= 0x80 && r < 0xa0) {
-			return ' '
-		}
-		return r
-	}, err.Error())
-	if len(message) > 1024 {
-		cut := 1024
-		for cut > 0 && !utf8.RuneStart(message[cut]) {
-			cut--
-		}
-		message = message[:cut]
-	}
-	code, domain := any("unknown"), "go"
-	var logErr *core.LogError
-	var coreErr *core.Error
-	var errno syscall.Errno
-	switch {
-	case errors.As(err, &logErr):
-		code, domain = logErr.Code, "lithe.logging"
-	case errors.As(err, &coreErr):
-		code, domain = string(coreErr.Code), "lithe.core"
-	case errors.As(err, &errno):
-		code, domain = int(errno), "posix"
-	}
-	return map[string]any{"error": message, "error_code": code, "error_domain": domain}
 }

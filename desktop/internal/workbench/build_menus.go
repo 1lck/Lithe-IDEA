@@ -26,7 +26,7 @@ func (a *App) buildRowMenu(c ui.C, row ui.Box, p *project, instance *buildInstan
 		case buildRowTask:
 			if menu.Item(i18n.Shared(lang, "desktop.runConfig.run")).Disabled(b.operation != nil).Clicked() {
 				c.After(func() {
-					a.performed("build.task.run", surfaceMenu)
+					a.performed("build.task.run", surfaceContextMenu)
 					a.chooseBuildInstance(p, spec.instance)
 					b.taskID = spec.id
 					a.runSelectedBuildTask(p)
@@ -41,7 +41,7 @@ func (a *App) buildRowMenu(c ui.C, row ui.Box, p *project, instance *buildInstan
 				runID := run.ID
 				if menu.Item(a.text.Build.RunTarget(run.Name)).Disabled(b.operation != nil || instance.modelLoading).Clicked() {
 					c.After(func() {
-						a.performed("build.target.run", surfaceMenu)
+						a.performed("build.target.run", surfaceContextMenu)
 						a.chooseBuildInstance(p, spec.instance)
 						b.projectID, b.targetID = spec.project, spec.id
 						a.runBuildTarget(p, spec.id, runID)
@@ -52,7 +52,7 @@ func (a *App) buildRowMenu(c ui.C, row ui.Box, p *project, instance *buildInstan
 				// plugin: the provider prepares the native debug program and that adapter starts it.
 				if run.DebugAdapter != "" && menu.Item(i18n.Shared(lang, "desktop.build.debugTarget")).Disabled(b.operation != nil || instance.modelLoading || p.debug.preparing).Clicked() {
 					c.After(func() {
-						a.performed("build.target.debug", surfaceMenu)
+						a.performed("build.target.debug", surfaceContextMenu)
 						a.chooseBuildInstance(p, spec.instance)
 						b.projectID, b.targetID = spec.project, spec.id
 						a.debugBuildTarget(p, spec.id, runID)
@@ -63,7 +63,7 @@ func (a *App) buildRowMenu(c ui.C, row ui.Box, p *project, instance *buildInstan
 				entryID := entry.ID
 				if menu.Item(a.text.Build.RunTarget(entry.Name)).Disabled(b.operation != nil || instance.modelLoading).Clicked() {
 					c.After(func() {
-						a.performed("build.target.run", surfaceMenu)
+						a.performed("build.target.run", surfaceContextMenu)
 						a.chooseBuildInstance(p, spec.instance)
 						b.projectID, b.targetID = spec.project, spec.id
 						a.runBuildEntry(p, entryID)
@@ -74,7 +74,7 @@ func (a *App) buildRowMenu(c ui.C, row ui.Box, p *project, instance *buildInstan
 			if buildTargetTestable(instance, *spec.target) {
 				if menu.Item(i18n.Shared(lang, "native.runTests")).Disabled(p.tests.running || instance.modelLoading).Clicked() {
 					c.After(func() {
-						a.performed("build.target.test", surfaceMenu)
+						a.performed("build.target.test", surfaceContextMenu)
 						a.chooseBuildInstance(p, spec.instance)
 						b.projectID, b.targetID = spec.project, spec.id
 						a.runBuildTargetTests(p, instance, spec.id)
@@ -85,7 +85,7 @@ func (a *App) buildRowMenu(c ui.C, row ui.Box, p *project, instance *buildInstan
 			if buildTestDeclares(instance, "project") {
 				if menu.Item(i18n.Shared(lang, "native.runTests")).Disabled(p.tests.running || instance.modelLoading).Clicked() {
 					c.After(func() {
-						a.performed("build.project.test", surfaceMenu)
+						a.performed("build.project.test", surfaceContextMenu)
 						a.chooseBuildInstance(p, spec.instance)
 						a.runBuildProjectTests(p, instance, spec.id)
 					})
@@ -95,7 +95,7 @@ func (a *App) buildRowMenu(c ui.C, row ui.Box, p *project, instance *buildInstan
 				label := i18n.SharedFormat(lang, "native.open", map[string]string{"arg1": filepath.Base(path)})
 				if menu.Item(label).Clicked() {
 					c.After(func() {
-						a.performed("build.project.openBuildFile", surfaceMenu)
+						a.performed("build.project.openBuildFile", surfaceContextMenu)
 						a.openFile(p, path)
 					})
 				}
@@ -103,7 +103,7 @@ func (a *App) buildRowMenu(c ui.C, row ui.Box, p *project, instance *buildInstan
 			index := spec.instance
 			if menu.Item(i18n.Shared(lang, "native.reload")).Disabled(instance.modelLoading || b.operation != nil).Clicked() {
 				c.After(func() {
-					a.performed("build.model.reload", surfaceMenu)
+					a.performed("build.model.reload", surfaceContextMenu)
 					a.reloadBuildModel(p, index)
 				})
 			}
@@ -120,7 +120,7 @@ func (a *App) buildDependencyMenu(c ui.C, row ui.Box, p *project, instance *buil
 		deps := a.dependenciesOf(p, instance, projectID)
 		if menu.Item(i18n.Shared(lang, "native.reload")).Disabled(deps.loading).Clicked() {
 			c.After(func() {
-				a.performed("build.dependencies.reload", surfaceMenu)
+				a.performed("build.dependencies.reload", surfaceContextMenu)
 				a.loadBuildDependencies(p, instance, projectID, deps, true)
 			})
 		}
@@ -128,7 +128,7 @@ func (a *App) buildDependencyMenu(c ui.C, row ui.Box, p *project, instance *buil
 			label := i18n.SharedFormat(lang, "native.open", map[string]string{"arg1": filepath.Base(path)})
 			if menu.Item(label).Clicked() {
 				c.After(func() {
-					a.performed("build.dependencies.openBuildFile", surfaceMenu)
+					a.performed("build.dependencies.openBuildFile", surfaceContextMenu)
 					a.openFile(p, path)
 				})
 			}

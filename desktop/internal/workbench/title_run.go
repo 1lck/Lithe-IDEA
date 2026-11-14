@@ -121,7 +121,7 @@ func (a *App) titleRun(p *project) {
 	if p == nil {
 		return
 	}
-	a.performed("title.run", surfaceButton)
+	a.performed("title.run", surfaceToolbar)
 	a.openToolWindow(itemRun)
 	a.titleStart(p, titleActionRun)
 }
@@ -132,7 +132,7 @@ func (a *App) titleDebug(p *project) {
 	if p == nil {
 		return
 	}
-	a.performed("title.debug", surfaceButton)
+	a.performed("title.debug", surfaceToolbar)
 	a.openToolWindow(itemDebug)
 	a.titleStart(p, titleActionDebug)
 }
@@ -188,7 +188,7 @@ func (a *App) decideTitleAction(p *project, action titleAction, trigger string) 
 	cancel()
 	p.runConfigs.pending = titleActionNone
 	if err != nil {
-		a.emit(operationFailedLevel, operationFailedEvent, operationFailedFields("title_run", err))
+		a.operationFailed("title_run", err)
 		a.notifyError(err.Error())
 		return
 	}
@@ -203,11 +203,11 @@ func (a *App) decideTitleAction(p *project, action titleAction, trigger string) 
 	case "unsupported":
 		a.notifyInfo(i18n.SharedFormat(a.language(), "desktop.title.configurationNotStartable", map[string]string{"name": configuration.Name}))
 	case "targetMissing":
-		a.emit(operationFailedLevel, operationFailedEvent, operationFailedFields("title_run", errors.New("the configuration's build instance was not detected")))
+		a.operationFailed("title_run", errors.New("the configuration's build instance was not detected"))
 		a.notifyError(a.text.Build.TargetMissing)
 	case "modelFailed":
 		failure := p.build.instances[index].modelError
-		a.emit(operationFailedLevel, operationFailedEvent, operationFailedFields("title_run", errors.New(failure)))
+		a.operationFailed("title_run", errors.New(failure))
 		a.notifyError(failure)
 	case "run":
 		if _, err := a.startRunConfiguration(p, configuration.ID); errors.Is(err, errBuildBusy) {

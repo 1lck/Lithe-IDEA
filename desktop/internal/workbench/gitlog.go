@@ -453,6 +453,7 @@ func (a *App) reproject(p *project, delay time.Duration) {
 				l.pathFiles = files
 			}
 			if err != nil {
+				a.operationFailed("git_log_project", err)
 				a.notifyError(a.text.Git.Failed(err.Error()))
 				return
 			}

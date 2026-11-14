@@ -78,7 +78,7 @@ func (a *App) refreshInlineBlame(p *project, d *document) {
 				return
 			}
 			if err != nil {
-				a.gitOperationFailed("git_blame_inline", err)
+				a.backgroundFailed("git_blame_inline", err)
 				return
 			}
 			d.blame.lines = lines
@@ -187,7 +187,7 @@ func (a *App) blameSubject(p *project, hash string) (string, bool) {
 		return func(a *App) {
 			delete(cache.pending, hash)
 			if err != nil {
-				a.gitOperationFailed("git_blame_subject", err)
+				a.backgroundFailed("git_blame_subject", err)
 				return
 			}
 			if cache.subjects == nil || len(cache.subjects) >= blameSubjectLimit {

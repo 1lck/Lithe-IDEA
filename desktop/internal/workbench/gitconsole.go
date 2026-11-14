@@ -882,7 +882,7 @@ func (a *App) copyConsoleAll() {
 // copyConsoleRecord puts value, which a record's context menu action named action made, on
 // the clipboard.
 func (a *App) copyConsoleRecord(action, value string) {
-	a.performed("git.console."+action, surfaceMenu)
+	a.performed("git.console."+action, surfaceContextMenu)
 	a.copyConsoleText(value)
 }
 
@@ -891,6 +891,7 @@ func (a *App) copyConsoleRecord(action, value string) {
 // symbol.
 func (a *App) copyConsoleText(value string) {
 	if err := app.SetClipboardText(strings.ReplaceAll(value, "\x00", "\u2400")); err != nil {
+		a.operationFailed("clipboard_copy", err)
 		a.notifyError(a.text.Errors.Core(err.Error()))
 	}
 }
