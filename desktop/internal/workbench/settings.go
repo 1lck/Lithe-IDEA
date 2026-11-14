@@ -32,6 +32,9 @@ func (a *App) newSettingsWindow() *settingswindow.Controller {
 		navigation = kernel.SettingsNavigation
 	}
 	return settingswindow.NewController(settingswindow.Options{
+		PluginInstallsClosed: func() {
+			a.post(func(a *App) { a.closePluginDownloads() })
+		},
 		GitHub:             a.githubSettings(),
 		SettingsError:      func(operation string, err error) { (settingsToolchains{app: a}).recordFailure(operation, err) },
 		SettingsNavigation: navigation,
@@ -102,8 +105,8 @@ func (a *App) newSettingsWindow() *settingswindow.Controller {
 			}
 			return (*states)[id]
 		},
-		InstallPlugin: func(plugin core.MarketplacePlugin) {
-			a.post(func(a *App) { a.installPlugin(plugin) })
+		InstallPlugin: func(plugin core.MarketplacePlugin, feedback settingswindow.PluginInstallFeedback) {
+			a.post(func(a *App) { a.installPlugin(plugin, feedback) })
 		},
 		InstalledPlugins: func() []settingswindow.PluginFacts {
 			if facts := a.pluginFacts.Load(); facts != nil {
@@ -130,8 +133,8 @@ func (a *App) newSettingsWindow() *settingswindow.Controller {
 		SetMarketplaceSources: func(urls []string) {
 			a.post(func(a *App) { a.setMarketplaceSources(urls) })
 		},
-		InstallPluginFromFile: func(path string) {
-			a.post(func(a *App) { a.installPluginFromFile(path) })
+		InstallPluginFromFile: func(path string, feedback settingswindow.PluginInstallFeedback) {
+			a.post(func(a *App) { a.installPluginFromFile(path, feedback) })
 		},
 		SetPluginEnabled: func(id string, enabled bool) {
 			a.post(func(a *App) { a.setPluginEnabled(id, enabled) })

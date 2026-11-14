@@ -89,7 +89,8 @@ async function readRegistry() {
   // Viva's Core checkout, Cargo target and staged static libraries have no sealed
   // cross-worktree identity, including Windows GNU winapi-import-libraries=mingw-system.
   // WINAPI_NO_BUNDLED_LIBRARIES selects installed MinGW inputs, not reusable downloads.
-  // Marketplace transfer directories are runtime-owned.
+  // Marketplace transfer directories and the settings session's last verified
+  // archive lease are runtime-owned; neither has a build reuse validator.
   // Both remain excluded before any source access or copy operation.
   // Build Provider snapshots remain under the excluded per-workspace PluginState owner.
   // They and Viva per-session Debug scratch directories are mutable runtime state

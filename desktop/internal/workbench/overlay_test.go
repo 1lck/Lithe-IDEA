@@ -5,7 +5,6 @@ import (
 	"testing"
 
 	"github.com/1lck/Lithe-IDEA/desktop/internal/core"
-	"github.com/1lck/Lithe-IDEA/desktop/internal/plugininstall"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/pluginservice"
 	"github.com/vivaui/viva/gfx"
 )
@@ -52,30 +51,6 @@ func TestPluginPromptEscapeDismissesIt(t *testing.T) {
 	}
 }
 
-func TestPluginReviewCancelAndEscapeDiscardTheInstall(t *testing.T) {
-	for _, dismiss := range []string{"button", "escape"} {
-		t.Run(dismiss, func(t *testing.T) {
-			h := newHarnessWithLanguages(t, &testKernel{Client: core.NewClient()}, []string{"en-US"})
-			h.app.pluginInstall.generation = 1
-			h.app.pluginInstall.busy = true
-			h.app.finishPluginInstall(1, plugininstall.Plan{ID: "example", Version: "1.0.0"}, nil)
-			h.app.invalidator.Invalidate()
-			h.settle()
-			if !h.overlayOpen() {
-				t.Fatal("the review is not on screen")
-			}
-			if dismiss == "button" {
-				h.clickShared("desktop.marketplace.cancel")
-			} else if err := h.driver.Key(gfx.KeyEscape, 0); err != nil {
-				t.Fatal(err)
-			}
-			if h.app.pluginInstall.open || h.app.pluginInstall.plan.Version != "" {
-				t.Fatalf("the install was not discarded: %+v", h.app.pluginInstall)
-			}
-		})
-	}
-}
-
 func TestNoticeIsShownAsAToast(t *testing.T) {
 	h := newHarnessWithLanguages(t, &testKernel{Client: core.NewClient()}, []string{"en-US"})
 	h.app.notify("Something to know")
@@ -88,5 +63,5 @@ func TestNoticeIsShownAsAToast(t *testing.T) {
 
 // overlayOpen reports whether a dialog of the overlay page holds the window.
 func (h *harness) overlayOpen() bool {
-	return h.app.pluginInstall.open || len(h.app.prompts.queue) > 0 || h.app.clone.open
+	return len(h.app.prompts.queue) > 0 || h.app.clone.open
 }
