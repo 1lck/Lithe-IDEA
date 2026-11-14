@@ -146,7 +146,8 @@ type window struct {
 	about      aboutState
 	aboutFacts *aboutFacts
 	// keymap is the Keymap page's filter and recording.
-	keymap keymapState
+	keymap    keymapState
+	keyImport keymapImportState
 
 	// focusSearch asks the sidebar's search field, declared later in the paint, to take the
 	// focus (the platform's Find).
@@ -426,6 +427,7 @@ func (w *window) collect() {
 	}
 	w.terminal.take()
 	w.fonts.take()
+	w.takeKeymapImport()
 	if w.dynamic.take() {
 		w.rowsValid = false
 	}
@@ -463,6 +465,9 @@ func (w *window) declareWork(c ui.C) {
 	w.stepping.declare(c)
 	w.terminal.declare(c)
 	w.fonts.declare(c)
+	if s := &w.keyImport; s.open && s.effect != nil && s.request != nil {
+		ui.Effect(c, s.effect, s.request)
+	}
 	w.dynamic.declare(c)
 	w.market.declare(c)
 	w.market.search.declare(c)

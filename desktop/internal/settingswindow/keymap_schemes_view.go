@@ -92,6 +92,9 @@ func (w *window) keymapSchemeCard(c ui.C) {
 			}).Width(selectWidth).Label(i18n.Shared(w.marketLanguage(), "desktop.keymapSchemes.scheme")).Changed() {
 				w.reduceScheme(core.KeymapSchemeRequest{Operation: "select", ID: selected})
 			}
+			if ui.Button(c, i18n.Shared(w.marketLanguage(), "desktop.keymapImport.title")).Outline().Small().Clicked() {
+				w.openKeymapImport()
+			}
 		})
 		ui.Row(c.Part("scheme-actions")).FillWidth().Gap(8).Items(ui.Center).Children(func() {
 			begin := func(operation string) {

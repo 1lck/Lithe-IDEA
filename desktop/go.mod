@@ -8,6 +8,7 @@ toolchain go1.27.3
 
 require (
 	github.com/creack/pty v1.1.24
+	github.com/tailscale/hujson v0.0.0-20260727124030-b80ff77dac4f
 	github.com/vivaui/viva v0.6.4-0.20261114064951-b63e4a0994d3
 	github.com/zalando/go-keyring v0.2.8
 	golang.org/x/sys v0.50.0
