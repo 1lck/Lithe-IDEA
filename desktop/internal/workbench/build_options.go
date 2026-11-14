@@ -209,28 +209,25 @@ func (a *App) openBuildOptions(p *project, instance *buildInstance) {
 }
 
 // readBuildIgnoredPaths fills the ignored-paths field with the list Core picks from the stored documents or,
-// for Restore Default, with the list that applies once the local one is removed. Neither stores anything.
+// for Restore Default, with the list that applies once the local one is removed. The documents are read in
+// the background with Core's answer; neither stores anything.
 func (a *App) readBuildIgnoredPaths(p *project, inherit bool) {
 	e := &p.build.options
-	docs, err := a.readBuildOptionDocuments(context.Background(), p.root)
-	if err != nil {
-		e.failure = err.Error()
-		return
-	}
 	e.ignored.restoring = inherit
-	kernel, session := a.kernel, e.session
+	kernel, root, session := a.kernel, p.root, e.session
 	a.background(p, buildRequestTimeout, func(ctx context.Context) func(*App) {
-		var ignored core.BuildIgnoredPaths
-		var err error
-		if inherit {
-			var edit core.BuildIgnoredPathsEdit
-			edit, err = kernel.EditBuildIgnoredPaths(ctx, core.BuildIgnoredPathsEditRequest{Document: docs.team, Local: docs.local, Inherit: true})
-			ignored = edit.IgnoredPaths
-		} else {
-			var storage core.BuildStoredOptions
-			storage, err = kernel.ResolveStoredBuildOptions(ctx, docs.team, docs.local)
-			ignored = storage.IgnoredPaths
-		}
+		ignored, err := func() (core.BuildIgnoredPaths, error) {
+			docs, err := a.readBuildOptionDocuments(ctx, root)
+			if err != nil {
+				return core.BuildIgnoredPaths{}, err
+			}
+			if inherit {
+				edit, err := kernel.EditBuildIgnoredPaths(ctx, core.BuildIgnoredPathsEditRequest{Document: docs.team, Local: docs.local, Inherit: true})
+				return edit.IgnoredPaths, err
+			}
+			storage, err := kernel.ResolveStoredBuildOptions(ctx, docs.team, docs.local)
+			return storage.IgnoredPaths, err
+		}()
 		return func(a *App) {
 			e := &p.build.options
 			if !e.open || e.session != session {
