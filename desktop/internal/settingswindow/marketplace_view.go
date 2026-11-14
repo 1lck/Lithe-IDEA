@@ -3,7 +3,6 @@ package settingswindow
 import (
 	"errors"
 	"hash/fnv"
-	"path/filepath"
 	"strings"
 	"unicode"
 
@@ -190,7 +189,7 @@ func (w *window) pickPluginPackage() {
 		}
 		return
 	}
-	w.ctrl.opts.InstallPluginFromFile(paths[0], w.startPluginInstall(filepath.Base(paths[0]), false))
+	w.startLocalPluginInstall(paths[0])
 }
 
 // pluginColumns declares a tab's list beside its detail, with the divider between them.
@@ -447,7 +446,7 @@ func newerOffered(plugin core.MarketplacePlugin, installed string) bool {
 func (w *window) marketRowAction(c ui.C, language i18n.Language, plugin core.MarketplacePlugin) {
 	switch w.marketOfferFor(plugin) {
 	case offerInstall:
-		if w.ctrl.opts.InstallPlugin != nil && ui.Button(c, i18n.Shared(language, "desktop.marketplace.install")).Outline().XSmall().Clicked() {
+		if w.ctrl.opts.InstallPlugin != nil && ui.Button(c, i18n.Shared(language, "desktop.marketplace.install")).Tooltip(i18n.Shared(language, "desktop.marketplace.installHelp")).Outline().XSmall().Clicked() {
 			w.startMarketplaceInstall(plugin)
 		}
 	case offerUpdate:
@@ -539,7 +538,7 @@ func (w *window) marketDetailAction(c ui.C, language i18n.Language, plugin core.
 	install := w.ctrl.opts.InstallPlugin
 	switch w.marketOfferFor(plugin) {
 	case offerInstall:
-		if ui.Button(c, i18n.Shared(language, "desktop.marketplace.install")).Small().Disabled(install == nil).Clicked() && install != nil {
+		if ui.Button(c, i18n.Shared(language, "desktop.marketplace.install")).Tooltip(i18n.Shared(language, "desktop.marketplace.installHelp")).Small().Disabled(install == nil).Clicked() && install != nil {
 			w.startMarketplaceInstall(plugin)
 		}
 	case offerUpdate:

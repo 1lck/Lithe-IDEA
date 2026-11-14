@@ -3,6 +3,7 @@ package settingswindow
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"strings"
 	"testing"
@@ -36,8 +37,16 @@ func TestMarketplaceRequiresApprovalOfVerifiedDeclarations(t *testing.T) {
 					t.Fatalf("review returned %v before showing the declarations", accepted)
 				default:
 				}
-				return d.text("example.read") && d.text("example.write") && d.text(program)
+				return d.text("example.read") && d.text("example.write")
 			})
+			if d.text(program) {
+				t.Fatal("technical details were expanded by default")
+			}
+			d.click(i18n.SharedFormat(i18n.English, "desktop.marketplace.programDetails", map[string]string{"count": "1"}))
+			d.pump()
+			if !d.text(program) {
+				t.Fatal("complete declaration is missing after expansion")
+			}
 			switch action {
 			case "install":
 				d.click(i18n.Shared(i18n.English, "desktop.marketplace.confirmInstall"))
@@ -93,6 +102,10 @@ func TestMarketplaceReusesVerifiedApproval(t *testing.T) {
 	}
 	feedback.Finish(false)
 	d.pump()
+	if !d.showsHelp(i18n.Shared(i18n.English, "desktop.marketplace.installCompleteHelp")) {
+		t.Fatal("missing completion feedback")
+	}
+	d.click(i18n.Shared(i18n.English, "ui.done"))
 	if w.install != nil {
 		t.Fatal("the completed installation left its dialog open")
 	}
@@ -270,6 +283,7 @@ func TestPluginInstallReviewScrollsLongDetails(t *testing.T) {
 	}
 	w.install.review.Store(review)
 	d := openWindow(t, w)
+	d.click(i18n.SharedFormat(i18n.English, "desktop.marketplace.programDetails", map[string]string{"count": "1"}))
 	if err := d.driver.Advance(time.Second); err != nil {
 		t.Fatal(err)
 	}
@@ -357,7 +371,7 @@ func TestMarketplaceInstallEntryPointsShowProgressAndReview(t *testing.T) {
 			}
 			d.click(words("native.download"))
 			d.pump()
-			if feedback.Context == nil || !d.text(words("native.downloadingAndVerifyingPlugin")) {
+			if feedback.Context == nil || !d.text(words("desktop.marketplace.connecting")) {
 				t.Fatal("Settings did not show download progress")
 			}
 			if name == "download failure" {
@@ -381,9 +395,40 @@ func TestMarketplaceInstallEntryPointsShowProgressAndReview(t *testing.T) {
 			d.pump()
 			feedback.Finish(false)
 			d.pump()
+			d.click(words("ui.done"))
 			if w.install != nil {
 				t.Fatal("successful installation did not close the progress dialog")
 			}
 		})
+	}
+}
+
+func TestMarketplaceFailureOffersRetryInCurrentWindow(t *testing.T) {
+	var feedback PluginInstallFeedback
+	calls := 0
+	w := newWindow(NewController(Options{InstallPlugin: func(_ core.MarketplacePlugin, value PluginInstallFeedback) { calls++; feedback = value }}), Values{})
+	w.startMarketplaceInstall(core.MarketplacePlugin{Name: "Example"})
+	d := openWindow(t, w)
+	d.click(i18n.Shared(i18n.English, "native.download"))
+	feedback.Finish(true)
+	d.pump()
+	if !d.has(i18n.Shared(i18n.English, "ui.retry")) {
+		t.Fatal("failed download has no retry action")
+	}
+	d.click(i18n.Shared(i18n.English, "ui.retry"))
+	if calls != 2 {
+		t.Fatalf("retry started %d installs, want 2", calls)
+	}
+}
+
+func TestInstallFailureGuidanceHidesNativeSecrets(t *testing.T) {
+	w := newWindow(NewController(Options{}), Values{})
+	feedback := w.startPluginInstall("Example", true)
+	d := openWindow(t, w)
+	feedback.Failure(errors.New("https://private.invalid/?token=secret"))
+	feedback.Finish(true)
+	d.pump()
+	if !d.showsHelp(i18n.Shared(i18n.English, "desktop.marketplace.failureHelp")) || d.textContaining("secret") {
+		t.Fatal("missing or unsafe failure guidance")
 	}
 }

@@ -132,6 +132,9 @@ func (a *App) installPluginFromFile(path string, feedback settingswindow.PluginI
 func (a *App) preparePluginInstall(feedback settingswindow.PluginInstallFeedback, prepare func(context.Context) (plugininstall.Plan, error)) {
 	if a.plugins == nil {
 		a.emit(operationFailedLevel, operationFailedEvent, operationFailedFields("plugin_install", errors.New("plugin service unavailable")))
+		if feedback.Failure != nil {
+			feedback.Failure(errors.New("plugin service unavailable"))
+		}
 		feedback.Finish(true)
 		return
 	}
@@ -149,6 +152,9 @@ func (a *App) preparePluginInstall(feedback settingswindow.PluginInstallFeedback
 			}
 			a.emit(operationFailedLevel, operationFailedEvent, operationFailedFields("plugin_install", err))
 			if !cancelled {
+				if feedback.Failure != nil {
+					feedback.Failure(err)
+				}
 				feedback.Finish(true)
 			}
 			return nil
@@ -215,6 +221,9 @@ func (a *App) commitPluginInstall(ctx context.Context, plan plugininstall.Plan, 
 		a.stopDisplaced(displaced)
 		a.refreshPluginState()
 		a.reloadPluginLanguages()
+		if !installed && feedback.Failure != nil {
+			feedback.Failure(err)
+		}
 		feedback.Finish(!installed)
 	}
 }

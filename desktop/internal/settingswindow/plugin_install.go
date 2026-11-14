@@ -2,7 +2,12 @@ package settingswindow
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"net"
+	"os"
+	"path/filepath"
+	"strconv"
 	"sync/atomic"
 
 	"github.com/1lck/Lithe-IDEA/desktop/internal/core"
@@ -23,6 +28,8 @@ type PluginInstallFeedback struct {
 	Review func(version string, review plugintrust.Review, reused bool) bool
 	// Finish publishes the outcome after preparation or installation.
 	Finish func(failed bool)
+	// Failure supplies a native I/O error for localized recovery guidance.
+	Failure func(error)
 }
 
 type pluginInstallReview struct {
@@ -36,6 +43,8 @@ type pluginInstallProgress struct {
 	preparing bool
 }
 
+type pluginInstallFailure struct{ err error }
+
 type pluginInstallOutcome uint32
 
 const (
@@ -44,13 +53,16 @@ const (
 	pluginInstallFailed
 )
 
-const pluginReviewMaxDetailsHeight = 300
+const pluginReviewMaxDetailsHeight = 210
 
 type pluginInstallDialog struct {
 	name        string
 	version     string
 	marketplace bool
 	download    func()
+	retry       func()
+	failure     atomic.Pointer[pluginInstallFailure]
+	expanded    bool
 	open        bool
 	cancel      context.CancelFunc
 	approved    chan struct{}
@@ -64,6 +76,12 @@ func (w *window) startMarketplaceInstall(plugin core.MarketplacePlugin) {
 	feedback := w.startPluginInstall(plugin.Name, true)
 	w.install.version = plugin.Availability.Version
 	w.install.download = func() { w.ctrl.opts.InstallPlugin(plugin, feedback) }
+	w.install.retry = func() {
+		w.startMarketplaceInstall(plugin)
+		start := w.install.download
+		w.install.download = nil
+		start()
+	}
 }
 
 func (w *window) startPluginInstall(name string, fromMarketplace bool) PluginInstallFeedback {
@@ -111,6 +129,7 @@ func (w *window) startPluginInstall(name string, fromMarketplace bool) PluginIns
 				}
 			}
 		},
+		Failure: func(err error) { dialog.failure.Store(&pluginInstallFailure{err}); w.inv.Invalidate() },
 		Finish: func(failed bool) {
 			outcome := pluginInstallSucceeded
 			if failed {
@@ -142,10 +161,7 @@ func (w *window) pluginInstallModal(c ui.C) {
 	default:
 	}
 	outcome := pluginInstallOutcome(dialog.outcome.Load())
-	if outcome == pluginInstallSucceeded {
-		w.dismissPluginInstall()
-		return
-	}
+
 	review := dialog.review.Load()
 	description := dialog.name
 	version := dialog.version
@@ -155,56 +171,85 @@ func (w *window) pluginInstallModal(c ui.C) {
 	if version != "" {
 		description += " · " + version
 	}
-	confirmed, cancelled, downloadConfirmed := false, false, false
+	confirmed, cancelled, downloadConfirmed, retried := false, false, false, false
 	title := i18n.Shared(language, "desktop.marketplace.reviewTitle")
 	if dialog.marketplace && review == nil && !committing && outcome != pluginInstallFailed {
 		title = i18n.Shared(language, "desktop.marketplace.downloadTitle")
 	}
+	if committing {
+		title = i18n.Shared(language, "desktop.marketplace.installTitle")
+	}
+	if outcome == pluginInstallSucceeded {
+		title = i18n.Shared(language, "desktop.marketplace.installComplete")
+	}
+	if outcome == pluginInstallFailed {
+		title = i18n.Shared(language, "desktop.marketplace.installFailed")
+	}
 	closed := ui.ModalWith(c, &dialog.open, title,
 		ui.ModalSpec{Width: 620, Description: description}, func() {
-			switch {
-			case dialog.download != nil:
-				ui.Wrap(c, i18n.Shared(language, "desktop.marketplace.downloadPrompt"))
-			case outcome == pluginInstallFailed:
-				ui.Wrap(c, i18n.Shared(language, "desktop.marketplace.installFailed")).Color(w.pal.danger)
-			case review != nil && !committing:
-				pluginInstallReviewBody(c, language, &dialog.details, review)
-			default:
-				label := i18n.Shared(language, "native.loading")
-				progress := dialog.progress.Load()
-				determinate := false
-				var fraction float32
+			ui.Column(c).FillWidth().Gap(8).Children(func() {
 				switch {
-				case committing:
-					label = i18n.Shared(language, "settings.general.installing")
-				case progress != nil && progress.preparing:
-					label = i18n.Shared(language, "desktop.marketplace.verifying")
-				case progress != nil && progress.Total > 0:
-					label = i18n.SharedFormat(language, "desktop.marketplace.downloadProgress", map[string]string{
-						"received": fmt.Sprintf("%.1f", float64(progress.Received)/(1<<20)),
-						"total":    fmt.Sprintf("%.1f", float64(progress.Total)/(1<<20)),
-					})
-					determinate = true
-					fraction = float32(progress.Received) / float32(progress.Total)
-				case progress != nil:
-					label = i18n.SharedFormat(language, "desktop.marketplace.downloadReceived", map[string]string{
-						"received": fmt.Sprintf("%.1f", float64(progress.Received)/(1<<20)),
-					})
-				case dialog.marketplace:
-					label = i18n.Shared(language, "native.downloadingAndVerifyingPlugin")
-				}
-				ui.Column(c).FillWidth().Gap(8).Children(func() {
-					ui.Text(c, label)
-					if determinate {
-						ui.Progress(c, fraction).FillWidth()
-					} else {
-						ui.Progress(c, 0).Indeterminate().FillWidth()
+				case outcome == pluginInstallSucceeded:
+					ui.Wrap(c, i18n.Shared(language, "desktop.marketplace.installCompleteHelp"))
+				case dialog.download != nil:
+					ui.Wrap(c, i18n.Shared(language, "desktop.marketplace.downloadPrompt"))
+				case outcome == pluginInstallFailed:
+					ui.Wrap(c, pluginInstallFailureText(language, dialog.failure.Load())).Color(w.pal.danger)
+				case review != nil && !committing:
+					ui.Wrap(c, i18n.Shared(language, "desktop.marketplace.reviewConsent"))
+					shown := *review
+					if len(review.programs) > 0 {
+						label := i18n.SharedFormat(language, "desktop.marketplace.programDetails", map[string]string{"count": strconv.Itoa(len(review.programs))})
+						if ui.Button(c, label).Outline().Clicked() {
+							dialog.expanded = !dialog.expanded
+						}
+						if !dialog.expanded {
+							shown.programs = nil
+						}
 					}
-				})
-			}
+					pluginInstallReviewBody(c, language, &dialog.details, &shown)
+				default:
+					label := i18n.Shared(language, "native.loading")
+					progress := dialog.progress.Load()
+					determinate := false
+					var fraction float32
+					switch {
+					case committing:
+						label = i18n.Shared(language, "settings.general.installing")
+					case progress != nil && progress.preparing:
+						label = i18n.Shared(language, "desktop.marketplace.verifying")
+					case progress != nil && progress.Total > 0:
+						label = i18n.SharedFormat(language, "desktop.marketplace.downloadProgress", map[string]string{
+							"received": fmt.Sprintf("%.1f", float64(progress.Received)/(1<<20)),
+							"total":    fmt.Sprintf("%.1f", float64(progress.Total)/(1<<20)),
+						})
+						determinate = true
+						fraction = float32(progress.Received) / float32(progress.Total)
+					case progress != nil:
+						label = i18n.SharedFormat(language, "desktop.marketplace.downloadReceived", map[string]string{
+							"received": fmt.Sprintf("%.1f", float64(progress.Received)/(1<<20)),
+						})
+					case dialog.marketplace:
+						label = i18n.Shared(language, "desktop.marketplace.connecting")
+					}
+					ui.Column(c).FillWidth().Gap(8).Children(func() {
+						ui.Text(c, label)
+						if determinate {
+							ui.Progress(c, fraction).FillWidth()
+						} else {
+							ui.Progress(c, 0).Indeterminate().FillWidth()
+						}
+					})
+				}
+			})
 		}, func() {
+			if outcome == pluginInstallSucceeded {
+				cancelled = ui.Button(c, i18n.Shared(language, "ui.done")).Clicked()
+				return
+			}
 			if outcome == pluginInstallFailed {
-				cancelled = ui.Button(c, w.text.Settings.OK).Clicked()
+				cancelled = ui.Button(c, i18n.Shared(language, "ui.close")).Outline().Clicked()
+				retried = ui.Button(c, i18n.Shared(language, "ui.retry")).Disabled(dialog.retry == nil).Clicked()
 				return
 			}
 			if committing {
@@ -218,6 +263,12 @@ func (w *window) pluginInstallModal(c ui.C) {
 			}
 		})
 	switch {
+	case retried:
+		c.After(func() {
+			if w.install == dialog && dialog.retry != nil {
+				dialog.retry()
+			}
+		})
 	case downloadConfirmed:
 		c.After(func() {
 			if w.install == dialog && dialog.download != nil {
@@ -268,11 +319,41 @@ func pluginInstallReviewBody(c ui.C, language i18n.Language, details *ui.ListSta
 				case row.Index == 0 || row.Index == programHeading:
 					ui.Text(row.C, label).FontSize(13).Bold()
 				case row.Index < programHeading:
-					ui.Wrap(row.C, label).FontSize(12).FillWidth()
+					description := permissionDescription(language, label)
+					if description != "" {
+						ui.Wrap(row.C, description).FontSize(12).FillWidth()
+					}
+					ui.Wrap(row.C, label).FontSize(11).Mono().Muted().FillWidth()
 				default:
 					ui.Wrap(row.C, label).FontSize(11).Mono().Muted().FillWidth()
 				}
 			})
 		}).Label(i18n.Shared(language, "desktop.marketplace.reviewTitle")).FillWidth().MaxHeight(pluginReviewMaxDetailsHeight)
 	})
+}
+
+// pluginInstallFailureText presents native failures without exposing URLs or paths.
+func pluginInstallFailureText(language i18n.Language, failure *pluginInstallFailure) string {
+	if failure == nil {
+		return i18n.Shared(language, "desktop.marketplace.failureHelp")
+	}
+	var network net.Error
+	switch {
+	case errors.Is(failure.err, context.DeadlineExceeded):
+		return i18n.Shared(language, "desktop.marketplace.failureTimeout")
+	case errors.Is(failure.err, marketplace.ErrArchiveChecksum):
+		return i18n.Shared(language, "desktop.marketplace.failureChecksum")
+	case errors.As(failure.err, &network):
+		return i18n.Shared(language, "desktop.marketplace.failureNetwork")
+	case errors.Is(failure.err, os.ErrPermission):
+		return i18n.Shared(language, "desktop.marketplace.failurePermission")
+	default:
+		return i18n.Shared(language, "desktop.marketplace.failureHelp")
+	}
+}
+
+func (w *window) startLocalPluginInstall(path string) {
+	feedback := w.startPluginInstall(filepath.Base(path), false)
+	w.install.retry = func() { w.startLocalPluginInstall(path) }
+	w.ctrl.opts.InstallPluginFromFile(path, feedback)
 }
