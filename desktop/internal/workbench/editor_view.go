@@ -61,8 +61,8 @@ func (a *App) editorNode(c ui.C, n *splitNode) ui.Box {
 // editorGroup declares one group of the editor: a strip of its tabs over a body that shows
 // the selected file or terminal. The group is recorded for the drag, which aims at the strip
 // and the body. A group that shows an open file ends its strip with the soft wrap switch, after
-// the Contents button and the switch of a Markdown file's view, or the switch of an SVG file's
-// view where its picture can be shown.
+// the Contents button and the switch of a Markdown file's view, or the switch of an SVG or an
+// HTML file's view where its picture or page can be shown.
 func (a *App) editorGroup(c ui.C, id string) ui.Box {
 	u := &a.term
 	place := newGroupPlace(id)
@@ -82,7 +82,7 @@ func (a *App) editorGroup(c ui.C, id string) ui.Box {
 				if isMarkdownDocument(doc) {
 					a.markdownContentsButton(c, p, doc)
 					a.pageModeSwitch(c, doc)
-				} else if isSVGDocument(doc) && a.previewWeb() {
+				} else if (isSVGDocument(doc) && a.previewWeb()) || a.htmlPreviewable(doc) {
 					a.pageModeSwitch(c, doc)
 				}
 				if doc != nil {
@@ -103,8 +103,8 @@ func (a *App) editorGroup(c ui.C, id string) ui.Box {
 }
 
 // groupBody declares the body of group id: the control of the file it shows (a Markdown file
-// with its rendered page, an SVG file with its picture), of the Diff tab, of the viewer tab, the
-// LSP Logs tab or the terminal.
+// with its rendered page, an SVG file with its picture, an HTML file with its page), of the Diff
+// tab, of the viewer tab, the LSP Logs tab or the terminal.
 func (a *App) groupBody(c ui.C, id string, doc *document) {
 	if isMarkdownDocument(doc) {
 		a.markdownDocument(c, a.project, id, doc)
@@ -112,6 +112,10 @@ func (a *App) groupBody(c ui.C, id string, doc *document) {
 	}
 	if isSVGDocument(doc) && a.previewWeb() {
 		a.svgDocument(c, a.project, id, doc)
+		return
+	}
+	if a.htmlPreviewable(doc) {
+		a.htmlDocument(c, a.project, id, doc)
 		return
 	}
 	if doc != nil {

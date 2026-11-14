@@ -110,11 +110,13 @@ type document struct {
 	// debugGutter is the debugger's breakpoints and paused line the view was given
 	// (debug_gutter.go).
 	debugGutter debugGutter
-	// markdown is the rendered page of a Markdown file and svg the picture of an SVG file, each
-	// made the first time it is shown, and pageMode how the file's tab shows them: source, both
-	// side by side, or the page alone (markdown_preview.go, svg_preview.go).
+	// markdown is the rendered page of a Markdown file, svg the picture of an SVG file and html
+	// the page of an HTML file, each made the first time it is shown, and pageMode how the file's
+	// tab shows them: source, both side by side, or the page alone (markdown_preview.go,
+	// svg_preview.go, html_preview.go).
 	markdown *markdownPreviewState
 	svg      *svgPreviewState
+	html     *htmlPreviewState
 	pageMode pageMode
 	// virtual marks a read-only document a plugin provides for a URI that names no
 	// file (a class inside a jar). path then holds the URI: the document is never

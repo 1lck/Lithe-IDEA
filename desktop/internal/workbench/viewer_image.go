@@ -87,6 +87,8 @@ type viewerBar struct {
 	// zoom is the image's, nil for a file without one; zoomTo takes what its buttons ask.
 	zoom   *imageZoom
 	zoomTo func(zoomRequest)
+	// actions declares the buttons of what the bar is over, after the zoom; nil has none.
+	actions func()
 	// path is the file the actions open in the system's application and reveal, close closes
 	// its tab; a bar without path has neither.
 	path  string
@@ -105,6 +107,9 @@ func (a *App) viewerToolbar(c ui.C, bar viewerBar) {
 		ui.Row(c).Grow(1).MinWidth(0)
 		if bar.zoom != nil && bar.zoom.known() {
 			a.viewerZoom(c, *bar.zoom, bar.zoomTo)
+		}
+		if bar.actions != nil {
+			bar.actions()
 		}
 		if bar.path == "" {
 			return
