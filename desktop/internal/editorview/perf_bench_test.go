@@ -204,30 +204,50 @@ func BenchmarkEditorViewPaint(b *testing.B) {
 	}
 }
 
+// typeCase is one variant of BenchmarkEditorViewType.
+type typeCase struct {
+	name string
+	kind editorperf.Kind
+	// layout changes the view before the frame that lays it out, as for paintCase.
+	layout func(v *View)
+}
+
+var typeCases = []typeCase{
+	{name: "go", kind: editorperf.Go},
+	// The JSON document is one line as long as the file, as a minified file is: a keystroke then
+	// edits a line whose length is the document's.
+	{name: "longline", kind: editorperf.JSON},
+	{name: "longline-wrap", kind: editorperf.JSON, layout: func(v *View) { v.SetWrap(true) }},
+	{name: "minimap", kind: editorperf.Go, layout: func(v *View) { v.SetMinimap(true) }},
+}
+
 // BenchmarkEditorViewType is a keystroke and the frame that shows it: a character typed at the end
 // of the middle line, and then deleted. It is the latency between a key and the text on screen, and
 // what an edit costs a document the size of the file: the rope, the highlighter, the widest-line
-// scan and the comparison with the saved text.
+// scan, the wrap layout and the comparison with the saved text. The longline variants type on a
+// line as long as the file, and the minimap variant types with the minimap shown.
 func BenchmarkEditorViewType(b *testing.B) {
-	for _, size := range editorperf.Sizes() {
-		b.Run("go/"+size.Name, func(b *testing.B) {
-			b.ReportAllocs()
-			canvas := new(gfx.Canvas)
-			v := benchView(b, canvas, editorperf.Go, size, true)
-			original := v.text.Len()
-			placeCaret(v, v.lineEnd(v.text.LineOf(v.caret)))
-			typed := app.TextEvent{Kind: app.TextInsert, Text: "x"}
-			i := 0
-			for ; b.Loop(); i++ {
-				if i%2 == 0 {
-					v.applyText(typed)
-				} else {
-					v.press(gfx.KeyBackspace, 0)
+	for _, c := range typeCases {
+		for _, size := range editorperf.Sizes() {
+			b.Run(c.name+"/"+size.Name, func(b *testing.B) {
+				b.ReportAllocs()
+				canvas := new(gfx.Canvas)
+				v := benchView(b, canvas, c.kind, size, true, c.layout)
+				original := v.text.Len()
+				placeCaret(v, v.lineEnd(v.text.LineOf(v.caret)))
+				typed := app.TextEvent{Kind: app.TextInsert, Text: "x"}
+				i := 0
+				for ; b.Loop(); i++ {
+					if i%2 == 0 {
+						v.applyText(typed)
+					} else {
+						v.press(gfx.KeyBackspace, 0)
+					}
+					frame(v, canvas)
 				}
-				frame(v, canvas)
-			}
-			requireLength(b, v, original+i%2)
-		})
+				requireLength(b, v, original+i%2)
+			})
+		}
 	}
 }
 

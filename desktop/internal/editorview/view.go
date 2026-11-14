@@ -181,6 +181,9 @@ type View struct {
 	// widest is the most cells any line takes, for the horizontal scroll range. It only grows
 	// while the view is open.
 	widest int
+	// caretLine is the cells of the line the last edit left the caret on, while that line has no
+	// tab; see lineCells.
+	caretLine lineCells
 	// markers are the diagnostics to underline, grouped by line. They are the view's only
 	// knowledge of a language server: the text and the caret never depend on them.
 	markers map[int][]Marker
@@ -724,19 +727,62 @@ func widestLine(text rope.Rope, first, last int) int {
 // never ends inside a character of valid UTF-8.
 func rangeCells(text rope.Rope, start, end, cells int) int {
 	text.Chunks(start, end, func(chunk string) bool {
-		for i := 0; i < len(chunk); {
-			if c := chunk[i]; c < utf8.RuneSelf {
-				cells += runeCells(rune(c), cells)
-				i++
-				continue
-			}
-			r, size := utf8.DecodeRuneInString(chunk[i:])
-			cells += runeCells(r, cells)
-			i += size
-		}
+		cells = addCells(chunk, cells)
 		return true
 	})
 	return cells
+}
+
+// addCells is cells plus the cells of the characters of chunk, the first at column cells.
+func addCells(chunk string, cells int) int {
+	for i := 0; i < len(chunk); {
+		if c := chunk[i]; c < utf8.RuneSelf {
+			cells += runeCells(rune(c), cells)
+			i++
+			continue
+		}
+		r, size := utf8.DecodeRuneInString(chunk[i:])
+		cells += runeCells(r, cells)
+		i += size
+	}
+	return cells
+}
+
+// lineCellsOf is the cells the line from start to end takes, from column 0, and whether it has a
+// tab. It reads the line a leaf at a time, as rangeCells does.
+func lineCellsOf(text rope.Rope, start, end int) (cells int, tabs bool) {
+	text.Chunks(start, end, func(chunk string) bool {
+		tabs = tabs || strings.IndexByte(chunk, '\t') >= 0
+		cells = addCells(chunk, cells)
+		return true
+	})
+	return cells, tabs
+}
+
+// lineCells is the cells of one line of a text, for the text it was measured in. It is kept for
+// the line the caret is on, and only while that line has no tab: a tab takes the cells up to the
+// next tab stop, which depend on the column, so the cells of a line with one cannot be adjusted
+// by the text an edit adds or removes. Tab-free text takes the same cells at any column.
+type lineCells struct {
+	text  rope.Rope
+	line  int
+	cells int
+	ok    bool
+}
+
+// adjustCaretLine is the cells of the caret line after the edit that replaces start to end of
+// line, with text, when they can be found from the cells the line had: the line had no tab, the
+// edit stays on the line, and text adds no tab or newline. It is called before the edit, while
+// the text still is the one the cells were measured in. ok is false when the cells must be
+// measured again.
+func (v *View) adjustCaretLine(line, start, end int, text string) (cells int, ok bool) {
+	c := v.caretLine
+	if !c.ok || c.line != line || !c.text.Same(v.text) || v.text.LineOf(start) != line || v.text.LineOf(end) != line ||
+		strings.ContainsAny(text, "\n\t") {
+		return 0, false
+	}
+	removed := rangeCells(v.text, start, end, 0)
+	return c.cells - removed + addCells(text, 0), true
 }
 
 // edit replaces the bytes from start to end with text, leaves the caret after it and keeps
@@ -797,6 +843,7 @@ func (v *View) edit(start, end int, text string, kind editKind) {
 	if cacheEdit {
 		column = v.caretUTF16Column - v.utf16Units(start, v.caretUTF16Offset) + utf16Length(text)
 	}
+	adjustedCells, adjusted := v.adjustCaretLine(firstLine, start, end, text)
 	v.text = v.text.Replace(start, end, []byte(text))
 	if len(v.vim.marks) > 0 {
 		v.vimShiftMarks(start, end, len(text))
@@ -804,6 +851,7 @@ func (v *View) edit(start, end int, text string, kind editKind) {
 	v.revision++
 	v.clearCursorHistory()
 	newLast := v.text.LineOf(start + len(text))
+	v.measureEdited(firstLine, newLast, adjusted, adjustedCells)
 	v.keepStops(firstLine, oldLast, newLast, start-v.text.LineStart(firstLine))
 	v.hl.Edit(v.text, start, end, start+len(text))
 	v.spliceRows(firstLine, oldLast, newLast, oldCount)
@@ -816,10 +864,28 @@ func (v *View) edit(start, end int, text string, kind editKind) {
 	if kind == editDeleting {
 		v.lastEnd = start
 	}
-	v.widest = max(v.widest, widestLine(v.text, firstLine, v.text.LineOf(v.caret)))
 	v.compare()
 	v.moved()
 	v.reportEdit(change)
+}
+
+// measureEdited updates the widest line and the caret line's cells after an edit that turned
+// lines first to last, the caret line being the last. adjusted and cells are what
+// adjustCaretLine found before the edit: when adjusted, the caret line's cells are cells and the
+// edit did not touch any other line, so no line is read again.
+func (v *View) measureEdited(first, last int, adjusted bool, cells int) {
+	switch {
+	case adjusted:
+		v.caretLine = lineCells{text: v.text, line: last, cells: cells, ok: true}
+		v.widest = max(v.widest, cells)
+	case first == last:
+		cells, tabs := lineCellsOf(v.text, v.text.LineStart(last), v.text.LineEnd(last))
+		v.caretLine = lineCells{text: v.text, line: last, cells: cells, ok: !tabs}
+		v.widest = max(v.widest, cells)
+	default:
+		v.caretLine = lineCells{}
+		v.widest = max(v.widest, widestLine(v.text, first, last))
+	}
 }
 
 // editBetween is the Edit that replaces the bytes from start to end of the current text with
