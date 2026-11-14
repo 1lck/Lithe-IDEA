@@ -1185,6 +1185,7 @@
     "desktop.logs.newLogs": "↓ {count} new logs, jump to latest",
     "desktop.logs.operation": "Op {op} · {count} records · {duration}",
     "desktop.logs.paused": "Paused",
+    "desktop.logs.rejected": "rejected {count} (latest: {event} {code})",
     "desktop.logs.repeated": "Repeated {count} times · last {last}",
     "desktop.logs.revealInFinder": "Reveal in Finder",
     "desktop.logs.savedTo": "Saved to {path}",

@@ -458,6 +458,9 @@ var chinese = Messages{
 		WriteFailures: func(count int) string {
 			return SharedFormat(Chinese, "desktop.logs.writeFailures", map[string]string{"count": strconv.Itoa(count)})
 		},
+		Rejected: func(count int, event string, code int) string {
+			return SharedFormat(Chinese, "desktop.logs.rejected", map[string]string{"count": strconv.Itoa(count), "event": event, "code": strconv.Itoa(code)})
+		},
 		Time:    Shared(Chinese, "logs.window.time"),
 		Level:   Shared(Chinese, "logs.window.level"),
 		Channel: Shared(Chinese, "logs.window.channel"),

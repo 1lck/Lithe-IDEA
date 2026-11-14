@@ -11,7 +11,6 @@ import (
 	"github.com/1lck/Lithe-IDEA/desktop/internal/fontprefs"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/i18n"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/localshell"
-	"github.com/1lck/Lithe-IDEA/desktop/internal/logwindow"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/marketplace"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/pluginhost"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/processledger"
@@ -56,7 +55,7 @@ func (a *App) newSettingsWindow() *settingswindow.Controller {
 					return marketplace.Snapshot{}, err
 				}
 				a.post(func(a *App) {
-					fields := logwindow.ErrorFields(err)
+					fields := core.LogErrorFields(err)
 					fields["operation"] = "plugin_settings_catalog"
 					a.emit(core.LevelError, "app.notification.operation_failed", fields)
 				})
@@ -81,7 +80,7 @@ func (a *App) newSettingsWindow() *settingswindow.Controller {
 		},
 		MarketplaceError: func(err error) {
 			a.post(func(a *App) {
-				fields := logwindow.ErrorFields(err)
+				fields := core.LogErrorFields(err)
 				fields["operation"] = "plugin_marketplace"
 				a.emit(core.LevelError, "app.notification.operation_failed", fields)
 			})

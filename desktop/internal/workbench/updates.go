@@ -13,7 +13,6 @@ import (
 
 	"github.com/1lck/Lithe-IDEA/desktop/internal/buildinfo"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/core"
-	"github.com/1lck/Lithe-IDEA/desktop/internal/logwindow"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/settingswindow"
 	appupdate "github.com/vivaui/viva/update"
 )
@@ -470,14 +469,14 @@ func (a *App) deleteUpdatePayload(payload string) {
 		return
 	}
 	if err := removeUpdateDir(payload); err != nil {
-		a.emit(core.LevelWarn, deltaCleanupFailedEvent, logwindow.ErrorFields(err))
+		a.emit(core.LevelWarn, deltaCleanupFailedEvent, core.LogErrorFields(err))
 	}
 }
 
 // deltaFellBack logs the step of a delta update that failed and skips the patch to version
 // from then on, so the next download is the full archive. It runs on any goroutine.
 func (a *App) deltaFellBack(stage, version string, err error) {
-	fields := logwindow.ErrorFields(err)
+	fields := core.LogErrorFields(err)
 	fields["stage"] = stage
 	a.emit(core.LevelWarn, deltaFallbackEvent, fields)
 	a.updates.mu.Lock()

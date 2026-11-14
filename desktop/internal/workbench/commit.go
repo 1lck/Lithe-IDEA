@@ -9,7 +9,6 @@ import (
 	"time"
 
 	"github.com/1lck/Lithe-IDEA/desktop/internal/core"
-	"github.com/1lck/Lithe-IDEA/desktop/internal/logwindow"
 	"github.com/vivaui/viva/text"
 	"github.com/vivaui/viva/ui"
 )
@@ -440,7 +439,7 @@ func (a *App) gitOperationFailed(operation string, err error) {
 
 // operationFailedFields are the fields of app.notification.operation_failed.
 func operationFailedFields(operation string, err error) map[string]any {
-	fields := logwindow.ErrorFields(err)
+	fields := core.LogErrorFields(err)
 	fields["operation"] = operation
 	return fields
 }

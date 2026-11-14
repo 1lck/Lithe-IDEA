@@ -2,7 +2,11 @@ package core
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"strings"
+	"syscall"
+	"unicode/utf8"
 )
 
 // LogLevel is the severity of a log record, in the kernel's canonical disk spelling.
@@ -29,6 +33,38 @@ type LogError struct {
 
 func (e *LogError) Error() string {
 	return fmt.Sprintf("log error %d: %s", e.Code, e.Reason)
+}
+
+// LogErrorFields encodes an error the way the event catalog asks for an error field: a bounded
+// message without control characters, a code and the domain the code belongs to. The message
+// is still redacted by the kernel before it reaches the disk.
+func LogErrorFields(err error) map[string]any {
+	message := strings.Map(func(r rune) rune {
+		if r < 0x20 || r == 0x7f || (r >= 0x80 && r < 0xa0) {
+			return ' '
+		}
+		return r
+	}, err.Error())
+	if len(message) > 1024 {
+		cut := 1024
+		for cut > 0 && !utf8.RuneStart(message[cut]) {
+			cut--
+		}
+		message = message[:cut]
+	}
+	code, domain := any("unknown"), "go"
+	var logErr *LogError
+	var coreErr *Error
+	var errno syscall.Errno
+	switch {
+	case errors.As(err, &logErr):
+		code, domain = logErr.Code, "lithe.logging"
+	case errors.As(err, &coreErr):
+		code, domain = string(coreErr.Code), "lithe.core"
+	case errors.As(err, &errno):
+		code, domain = int(errno), "posix"
+	}
+	return map[string]any{"error": message, "error_code": code, "error_domain": domain}
 }
 
 // logResult is how the logging commands that can fail in their own domain answer: either the
@@ -122,6 +158,9 @@ type EncodedLog struct {
 	Line string `json:"line"`
 	// Error explains why the item was rejected; nil on success.
 	Error *LogError `json:"error"`
+	// Index is the position of the input event a rejected result belongs to. Deduplication
+	// merges events, so the position of a result does not name its input; nil on success.
+	Index *int `json:"index,omitempty"`
 }
 
 // EncodedLogBatch is the encoder's answer, one entry per input in order.

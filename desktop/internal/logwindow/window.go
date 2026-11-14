@@ -499,6 +499,13 @@ func (w *window) status(c ui.C) {
 		ui.Spacer(c)
 		w.mono(c, w.text.Logs.Dropped(m.discarded+m.dropped), 11.5, w.pal.white)
 		w.mono(c, w.text.Logs.WriteFailures(m.writeFailures), 11.5, w.pal.white)
+		if m.rejected > 0 {
+			event := m.latestRejection.Event
+			if event == "" {
+				event = "—"
+			}
+			w.mono(c, w.text.Logs.Rejected(m.rejected, event, m.latestRejection.Code), 11.5, w.pal.white)
+		}
 		w.mono(c, "v2 · UTF-8 · NDJSON", 11.5, w.pal.white)
 	})
 }
@@ -657,7 +664,7 @@ func (w *window) revealRecord() {
 		relative = w.model.currentSessionPath + "/" + relative
 	}
 	if err := w.model.opts.Reveal(filepath.Join(w.model.directory, filepath.FromSlash(relative))); err != nil {
-		w.model.report(err)
+		w.model.report(opRevealRecord, err)
 	}
 }
 

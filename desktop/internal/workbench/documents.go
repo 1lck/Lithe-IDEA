@@ -17,7 +17,6 @@ import (
 	"github.com/1lck/Lithe-IDEA/desktop/internal/editor/syntax"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/editorview"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/i18n"
-	"github.com/1lck/Lithe-IDEA/desktop/internal/logwindow"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/pluginservice"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/winpath"
 	"github.com/vivaui/viva/gfx"
@@ -395,7 +394,7 @@ func readDocument(path string) ([]byte, error) {
 // documentOpenFields are the fields of editor.document.open_failed: the error, and the
 // catalog's token for why the file was not opened.
 func documentOpenFields(err error) map[string]any {
-	fields := logwindow.ErrorFields(documentLogError(err))
+	fields := core.LogErrorFields(documentLogError(err))
 	fields["reason"] = documentOpenReason(err)
 	return fields
 }
@@ -783,7 +782,7 @@ func (a *App) saveFailed(id, revision int, name string, err error) {
 // documentSaveFields are the fields of editor.document.save_failed for document id, whose
 // text was at revision when it was written.
 func documentSaveFields(id, revision int, err error) map[string]any {
-	fields := logwindow.ErrorFields(documentLogError(err))
+	fields := core.LogErrorFields(documentLogError(err))
 	fields["document"] = strconv.Itoa(id)
 	fields["revision"] = revision
 	fields["stage"] = documentSaveStage

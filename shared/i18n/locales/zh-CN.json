@@ -1185,6 +1185,7 @@
     "desktop.logs.newLogs": "↓ {count} 条新日志，回到最新",
     "desktop.logs.operation": "操作 {op} · {count} 条 · 共 {duration}",
     "desktop.logs.paused": "已暂停",
+    "desktop.logs.rejected": "被拒绝 {count}（最近：{event} {code}）",
     "desktop.logs.repeated": "重复 {count} 次 · 末次 {last}",
     "desktop.logs.revealInFinder": "在 Finder 中显示",
     "desktop.logs.savedTo": "已保存到 {path}",
