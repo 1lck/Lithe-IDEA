@@ -52,7 +52,10 @@ func (f *installedFixture) window() *window {
 			f.toggles = append(f.toggles, id)
 			f.enabled[id] = enabled
 		},
-		InstallPlugin:   func(plugin core.MarketplacePlugin) { f.installs = append(f.installs, plugin.ID) },
+		InstallPlugin: func(plugin core.MarketplacePlugin, feedback PluginInstallFeedback) {
+			f.installs = append(f.installs, plugin.ID)
+			feedback.Finish(false)
+		},
 		UninstallPlugin: func(id string) { f.uninstalled = append(f.uninstalled, id) },
 	}), Values{})
 }
@@ -81,6 +84,7 @@ func TestInstalledTabGroupsPluginsAndActsOnTheChosenOne(t *testing.T) {
 	// The marketplace offers 2.0.0 over the installed 1.0.0, so the header offers the update.
 	update := i18n.SharedFormat(i18n.English, "native.updateTo.variant2", map[string]string{"arg1": "2.0.0"})
 	d.click(update)
+	d.click(words("native.download"))
 	if len(f.installs) != 1 || f.installs[0] != "dev.example.go" {
 		t.Fatalf("update installed %v", f.installs)
 	}
@@ -123,6 +127,25 @@ func TestInstalledTabGroupsPluginsAndActsOnTheChosenOne(t *testing.T) {
 	d.pump()
 	if len(f.uninstalled) != 1 || f.uninstalled[0] != "dev.example.builder" {
 		t.Fatalf("confirmed uninstall removed %v", f.uninstalled)
+	}
+}
+
+func TestInstalledTabOmitsReinstallForCurrentVersion(t *testing.T) {
+	w := (&installedFixture{enabled: map[string]bool{"dev.example.go": true}}).window()
+	w.sess.page = pagePlugins
+	// The installed and available releases match. Seed the index before the
+	// first frame so the test does not wait for a marketplace request.
+	w.market.apply(marketplace.Snapshot{Index: core.MarketplaceIndex{Plugins: []core.MarketplacePlugin{{
+		ID: "dev.example.go", Name: "Go", LatestVersion: "1.0.0",
+		Availability: core.MarketplaceAvailability{Status: "available", Version: "1.0.0"},
+		Versions:     []core.MarketplaceVersion{{Version: "1.0.0"}},
+	}}}}, nil)
+	d := openWindow(t, w)
+	words := func(key string) string { return i18n.Shared(i18n.English, key) }
+	d.hit(words("native.disable"))
+	d.hit(words("desktop.marketplace.uninstall"))
+	if d.has("Reinstall") {
+		t.Fatal("the installed tab offers to reinstall the same version")
 	}
 }
 

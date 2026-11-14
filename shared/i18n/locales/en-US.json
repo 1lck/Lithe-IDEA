@@ -1209,7 +1209,6 @@
     "desktop.marketplace.reviewEmpty": "This plugin asks for no permissions and starts no programs.",
     "desktop.marketplace.reviewPermissions": "Permissions",
     "desktop.marketplace.reviewPrograms": "Programs",
-    "desktop.marketplace.reviewReused": "An earlier approval covers this exact package.",
     "desktop.marketplace.reviewTitle": "Review plugin",
     "desktop.marketplace.uninstall": "Uninstall",
     "desktop.navigation.historyUnavailable": "That location no longer exists.",
@@ -11182,7 +11181,12 @@
     "desktop.keymapImport.title": "Import from another IDE…",
     "desktop.keymapImport.unbound": "Remove this action’s shortcuts",
     "desktop.keymapImport.vscode": "VS Code / Cursor (JSON)",
-    "desktop.keymapImport.working": "Reading and checking shortcuts…"
+    "desktop.keymapImport.working": "Reading and checking shortcuts…",
+    "desktop.marketplace.downloadProgress": "Downloading plugin… {received} / {total} MiB",
+    "desktop.marketplace.downloadReceived": "Downloading plugin… {received} MiB",
+    "desktop.marketplace.verifying": "Extracting and verifying plugin…",
+    "desktop.marketplace.downloadTitle": "Download plugin",
+    "desktop.marketplace.downloadPrompt": "Download this plugin? After verification, you can review its permissions and programs before installing. If a previous approval still covers this package, installation continues automatically."
   },
   "overrides": {
     "windows": {

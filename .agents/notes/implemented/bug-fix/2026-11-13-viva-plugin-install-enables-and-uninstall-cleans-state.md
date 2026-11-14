@@ -27,12 +27,33 @@ Viva 客户端从插件市场装好插件后，插件默认是禁用的，用户
 - **未安装的插件**：对没有安装版本的插件启用、禁用或卸载，Core 返回拒绝 `plugin.lifecycle.notInstalled`，`Manager` 报 `ErrUnknownPlugin`，不写任何选择，避免以后安装时被悄悄启用。
 - **状态目录**：`pluginpkg.StateDirectory` 是 `.state` 的唯一定义（`pluginservice` 的 `pluginStateDirectory` 引用它）。`pluginpkg.RemoveState` 和卸载包一样，先把 `.state/<插件 ID>` 改名进 `.trash`，再递归删除，删除失败也不会把半份状态留在下次安装会读取的位置；它只处理目录，不跟随符号链接。`.state/host-secret` 和其他插件的目录不动。插件设置保存在应用偏好目录，不在 `.state` 里，所以卸载不会丢用户设置。
 
+
+### 安装审查跟随设置窗口
+
+设置窗口的市场列表、详情和已安装页的更新入口先询问是否下载。确认后只授权传输。旧审查弹窗绘制在主窗口，会被设置窗口挡住。下载、进度、准备后的权限审查和安装结果现在都在发起操作的设置窗口显示。
+
+工作台仍先校验归档 SHA-256，再用 Core 校验清单、身份、版本、能力和程序声明。对首次安装或历史批准不覆盖的包，设置窗口展示本次校验得到的完整权限和程序，用户点击「安装」后才提交并记录批准。市场包只有现有信任判定确认历史批准覆盖当前包时才直接进入安装。本地包始终展示完整声明并等待确认。
+
+权限和程序声明较多时，详情区最多占 300 个逻辑像素，使用 Viva 的虚拟列表滚动查看。标题和确认按钮留在详情区外，程序声明保留完整的 JSON 内容。进入提交前取消、按 Escape 或关闭设置窗口会中止当前操作。后台任务丢弃迟到的准备结果并清理暂存目录。
+
+下载时显示已接收和总 MiB，以及确定的字节进度。服务器没有提供大小时只显示已接收量；下载完成后切换为解压校验，避免把网络等待都称为校验。通知在传输线程合并，最多每 100 毫秒发送一次，开始和结束时另发一次；没有空闲轮询。
+
+设置会话保留最近一个已完整校验的归档文件，最多沿用下载上限 512 MiB，不把归档内容留在内存。取消准备后再次安装相同来源和摘要时借用该临时文件；更换包、关闭设置和退出应用都释放保留的所有权。正在准备的任务单独持有文件所有权，直到读完才删除，避免关闭窗口时删除正在读取的文件。每次准备仍从同一文件句柄校验 SHA-256 再解压；排除用户取消和超时后的准备错误会淘汰保留文件，下次重试重新下载。
+
+这个保留文件由 Go 原生文件适配器管理，只用于避免重复传输 Core 已选定的字节。可用性、插件身份、版本、审批和程序校验仍由现有 Core 流程决定；这不是可跨工作树、跨来源分享的构建缓存。写入只在系统临时目录，不影响发行包签名和 Sparkle 增量基线。资源复用清单明确拒绝复制这些文件。
+
+
+已安装页在市场提供可安装的新版时才显示「更新到…」。此前的「重新安装」会把同版本交给普通安装器，安装器拒绝覆盖已有版本目录。
+
+
 ## 考虑过的备选方案
 
 1. **保持“下载默认禁用”，在安装完成提示里引导用户去启用**：多一步操作，用户普遍以为装好就能用；与旧 macOS 客户端和 IntelliJ IDEA 的行为都不一致。放弃。
 2. **每次确认安装都强制启用**：会覆盖用户“禁用后再更新”的明确选择。放弃，改为只在没有记录时启用。
 3. **卸载时只删 `.state/<插件 ID>/<版本>`**：页面状态、工作区状态、日志在 `.state/<插件 ID>` 下按功能分目录，不在版本目录里，只删版本目录仍会留下大部分文件。放弃。
 4. **启动时清理不再安装的插件的状态目录**：进程崩溃或并发时会删错，也让卸载结果依赖下次启动。放弃。
+
+5. **准备完成后把主窗口拉到前面**。这会把用户从插件列表切走，仍需在两个窗口之间来回操作。采用设置窗口内的弹窗。
 
 ## 后果
 
@@ -62,6 +83,16 @@ Viva 客户端从插件市场装好插件后，插件默认是禁用的，用户
 - #1843 的自动回归使用虚构清单及复制的测试程序，不依赖任何具体插件：`TestUninstallWaitsForTheDebugAdapter`、`TestUninstallStopsProviderSessionsBeforeDeletingFiles` 检查进程先退出/销毁再删包；`TestUninstallWaitsForAProviderStillStartingInHiddenTab` 用受控事件检查取消、等待迟到启动、隐藏标签和卸载后的启动阻断；`TestUninstallPreservesFilesWhenProgramsCannotStop` 检查停止失败时包、批准和状态保留。macOS 已验证，Windows 文件锁场景仍需原生验证。
 - 2026-11-13 在 macOS 上用 `-tags vivahead` 构建的无头客户端（真实渲染，临时用户目录）从线上 Lithe Store 安装 Java Navigation 0.0.1：确认后显示“已启用”，F12 跳到项目内定义和 JDK `String.trim`，卸载后插件包、进程和 `.state/<插件 ID>` 都不存在，再按 F12 不跳转、不重新拉起进程，退出后无残留进程。Windows 共用同一份 Go 代码，尚未在 Windows 上验证。
 
+- `TestMarketplaceInstallEntryPointsShowProgressAndReview` 覆盖市场列表与详情入口、更新、进度、下载失败和迟到结果。
+- `TestMarketplaceRequiresApprovalOfVerifiedDeclarations` 在修复前因未展示完整声明就批准安装而失败。修复后覆盖权限与完整程序展示、明确安装确认、取消、Escape 和关闭窗口。
+- `TestMarketplaceReusesVerifiedApproval` 验证匹配的历史批准可以省去重复安装确认。`TestMarketplaceCancelBeforeVerificationDoesNotInstall` 覆盖下载取消，包括历史批准可复用但窗口已关闭的情况。`TestLocalPackageStillWaitsForInstallConfirmation` 验证本地包仍需主动确认。
+- `TestPluginInstallReviewScrollsLongDetails` 验证长权限列表滚动到最后一条程序声明时，底部按钮保持可见且位置固定。
+- `TestArchiveSessionReusesTheLastVerifiedTransfer` 覆盖重试不重新请求、摘要变化、替换/关闭时活跃借用不被删除，以及最终临时目录清空。
+- `TestMarketplaceRetryReusesBytesAndStillRejectsTampering` 通过真实安装准备链验证重复审查只下载一次、拒绝审查后没有安装包或批准记录、被篡改的归档不进入审查，以及设置关闭后的清理。
+- `TestPluginInstallShowsTransferBytesAndLocalVerification` 覆盖已知大小、未知大小与解压校验阶段的界面回显。
+- `TestMarketplaceAsksBeforeDownloading` 在旧实现中因提前启动下载而失败；修复后覆盖确认、取消、Escape 和关闭窗口。市场列表、详情与已安装更新测试同时验证确认后才调用安装准备入口。
+- 下载会话测试也覆盖旧包的准备错误迟到时，不会清掉较新的保留文件。macOS 与 Windows 的真实安装流程验收仍待完成。
+
 ## 适用范围
 
-Viva 客户端（`desktop/`）的插件安装、启用、禁用和卸载：Core 的 `plugins.installed.lifecycle`、`desktop/internal/core/plugin_lifecycle.go`、`desktop/internal/pluginstate/`、`desktop/internal/pluginmanager/`、`desktop/internal/pluginpkg/install.go`、`desktop/internal/pluginservice/lifecycle.go`、`desktop/internal/workbench/plugins.go`。旧 Swift/Tauri 客户端的规则以各自原 Note 为准。
+Viva 客户端（`desktop/`）的插件安装、启用、禁用和卸载：Core 的 `plugins.installed.lifecycle`、`desktop/internal/core/plugin_lifecycle.go`、`desktop/internal/pluginstate/`、`desktop/internal/pluginmanager/`、`desktop/internal/pluginpkg/install.go`、`desktop/internal/pluginservice/lifecycle.go`、`desktop/internal/workbench/plugins.go`。设置弹窗入口在 `desktop/internal/settingswindow/plugin_install.go`。

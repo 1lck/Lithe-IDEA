@@ -1,7 +1,6 @@
 package workbench
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -15,42 +14,23 @@ import (
 	"time"
 
 	"github.com/1lck/Lithe-IDEA/desktop/internal/core"
-	"github.com/1lck/Lithe-IDEA/desktop/internal/i18n"
+	"github.com/1lck/Lithe-IDEA/desktop/internal/logwindow"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/marketplace"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/plugininstall"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/pluginmanager"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/pluginservice"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/plugintrust"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/settingswindow"
-	"github.com/vivaui/viva/ui"
 )
 
 const (
-	// pluginDownloadTimeout bounds one marketplace download.
+	// pluginDownloadTimeout bounds downloading and preparing one package.
 	pluginDownloadTimeout = 5 * time.Minute
-	// pluginInstallTimeout bounds an extraction, a review or a commit.
+	// pluginInstallTimeout bounds the context-aware work after confirmation and during removal.
 	pluginInstallTimeout = 2 * time.Minute
 	// pluginStateTimeout bounds a listing of the installed packages.
 	pluginStateTimeout = 30 * time.Second
 )
-
-// pluginInstallState is the install the user started, from the click until the
-// review sheet closes.
-//
-// Downloading and extracting happen off the window thread; the review is the only
-// part the user sees, and nothing is installed before it closes with a confirm.
-type pluginInstallState struct {
-	// open says the review sheet is showing.
-	open bool
-	// busy says an archive is being downloaded and reviewed.
-	busy bool
-	// plugin is what the user asked to install.
-	plugin core.MarketplacePlugin
-	// plan is the prepared package, valid while open.
-	plan plugininstall.Plan
-	// generation rejects the result of an install the user replaced or cancelled.
-	generation uint64
-}
 
 // refreshPluginState reloads what the marketplace page shows about installed
 // plugins. It is called when the page opens and after every change, and it answers
@@ -92,37 +72,25 @@ func (a *App) refreshPluginState() {
 	})
 }
 
-// installPlugin downloads and reviews one marketplace version.
-//
-// Nothing is installed here: the review sheet opens with what the package asks for,
-// and only confirmPluginInstall writes anything the user can run.
-func (a *App) installPlugin(plugin core.MarketplacePlugin) {
-	if a.plugins == nil {
-		return
-	}
-	if plugin.Availability.Status != "available" || plugin.Availability.DownloadURL == "" {
-		a.notifyError(i18n.Shared(a.language(), "desktop.marketplace.installFailed"))
-		return
-	}
-	a.pluginInstall.generation++
-	generation := a.pluginInstall.generation
-	// A review may still be open in the settings window's own page; the user can
-	// start another install from there, so the earlier package is dropped here
-	// rather than left in the staging area with no owner.
-	a.discardPluginInstall()
-	a.pluginInstall.plugin = plugin
-	a.pluginInstall.busy = true
-	a.pluginInstall.open = false
-	a.performed("plugin.install", "marketplace")
+// installPlugin queues download, preparation and review for the settings window.
+func (a *App) installPlugin(plugin core.MarketplacePlugin, feedback settingswindow.PluginInstallFeedback) {
 	availability := plugin.Availability
-	a.background(nil, pluginDownloadTimeout, func(ctx context.Context) func(*App) {
-		archive, err := marketplace.NewArchiveDownloader(nil).Download(ctx, availability)
+	if a.pluginDownloads == nil {
+		a.pluginDownloads = marketplace.NewArchiveSession(nil)
+	}
+	downloads := a.pluginDownloads
+	a.performed("plugin.install", "marketplace")
+	a.preparePluginInstall(feedback, func(ctx context.Context) (plugininstall.Plan, error) {
+		archive, err := downloads.Download(ctx, availability, feedback.Progress)
 		if err != nil {
-			return func(a *App) { a.finishPluginInstall(generation, plugininstall.Plan{}, err) }
+			return plugininstall.Plan{}, err
 		}
-		// Extraction copies what it needs into the staging directory, so the
-		// download is no longer needed once Prepare returns.
-		defer archive.Discard()
+		defer func() {
+			a.recordPluginInstallCleanup(archive.Discard())
+		}()
+		if feedback.Preparing != nil {
+			feedback.Preparing()
+		}
 		plan, err := a.plugins.Installer.Prepare(ctx, plugininstall.Request{
 			ArchivePath:     archive.Path(),
 			Root:            a.plugins.Root,
@@ -131,120 +99,123 @@ func (a *App) installPlugin(plugin core.MarketplacePlugin) {
 			ExpectedID:      plugin.ID,
 			ExpectedVersion: availability.Version,
 		})
-		return func(a *App) { a.finishPluginInstall(generation, plan, err) }
+		if err != nil && !errors.Is(err, context.Canceled) && !errors.Is(err, context.DeadlineExceeded) {
+			a.recordPluginInstallCleanup(downloads.Forget(archive))
+		}
+		return plan, err
 	})
 }
 
-// installPluginFromFile reviews a package the user picked on disk. It goes through the
-// same review sheet as a marketplace install; nothing is written until the user confirms.
-// The package has no index digest to check, so its approval is asked for every time.
-func (a *App) installPluginFromFile(path string) {
-	if a.plugins == nil {
-		return
+func (a *App) closePluginDownloads() {
+	downloads := a.pluginDownloads
+	a.pluginDownloads = nil
+	if downloads != nil {
+		a.background(nil, 0, func(context.Context) func(*App) {
+			a.recordPluginInstallCleanup(downloads.Close())
+			return nil
+		})
 	}
-	a.pluginInstall.generation++
-	generation := a.pluginInstall.generation
-	a.discardPluginInstall()
-	a.pluginInstall.plugin = core.MarketplacePlugin{}
-	a.pluginInstall.busy = true
-	a.pluginInstall.open = false
+}
+
+// installPluginFromFile submits a local package to the same review.
+func (a *App) installPluginFromFile(path string, feedback settingswindow.PluginInstallFeedback) {
 	a.performed("plugin.install", "disk")
-	a.background(nil, pluginDownloadTimeout, func(ctx context.Context) func(*App) {
-		plan, err := a.plugins.Installer.Prepare(ctx, plugininstall.Request{
+	a.preparePluginInstall(feedback, func(ctx context.Context) (plugininstall.Plan, error) {
+		return a.plugins.Installer.Prepare(ctx, plugininstall.Request{
 			ArchivePath: path,
 			Root:        a.plugins.Root,
 			Source:      plugintrust.Disk,
 		})
-		return func(a *App) { a.finishPluginInstall(generation, plan, err) }
 	})
 }
 
-// finishPluginInstall takes the prepared plan back on the window thread.
-func (a *App) finishPluginInstall(generation uint64, plan plugininstall.Plan, err error) {
-	if a.pluginInstall.generation != generation {
-		if a.plugins != nil && plan.Staging != "" {
-			_ = a.plugins.Installer.Discard(plan)
-		}
+func (a *App) preparePluginInstall(feedback settingswindow.PluginInstallFeedback, prepare func(context.Context) (plugininstall.Plan, error)) {
+	if a.plugins == nil {
+		a.emit(operationFailedLevel, operationFailedEvent, operationFailedFields("plugin_install", errors.New("plugin service unavailable")))
+		feedback.Finish(true)
 		return
 	}
-	a.pluginInstall.busy = false
+	// Register the worker on the workbench thread so application shutdown waits
+	// for cancelled downloads and unapproved packages to be cleaned up.
+	a.background(nil, 0, func(context.Context) func(*App) {
+		ctx, cancel := context.WithTimeout(feedback.Context, pluginDownloadTimeout)
+		plan, err := prepare(ctx)
+		cancel()
+		if err != nil {
+			// log-exempt: 用户取消：关闭审查窗口取消未完成的安装。
+			cancelled := feedback.Context.Err() != nil
+			if cancelled && errors.Is(err, context.Canceled) {
+				return nil
+			}
+			a.emit(operationFailedLevel, operationFailedEvent, operationFailedFields("plugin_install", err))
+			if !cancelled {
+				feedback.Finish(true)
+			}
+			return nil
+		}
+		// The worker holds staging until the originating window accepts the
+		// verified package; a cancelled window discards it before installation.
+		if !feedback.Review(plan.Version, plan.Review, plan.Decision.Reuse) {
+			a.recordPluginInstallCleanup(a.plugins.Installer.Discard(plan))
+			return nil
+		}
+		commitCtx, cancelCommit := context.WithTimeout(context.Background(), pluginInstallTimeout)
+		defer cancelCommit()
+		return a.commitPluginInstall(commitCtx, plan, feedback)
+	})
+}
+
+func (a *App) recordPluginInstallCleanup(err error) {
 	if err != nil {
-		a.notifyError(i18n.Shared(a.language(), "desktop.marketplace.installFailed"))
-		a.emit(operationFailedLevel, operationFailedEvent, operationFailedFields("plugin_install", err))
-		return
+		fields := logwindow.ErrorFields(err)
+		fields["stage"] = "plugin_install_cleanup"
+		a.emit(core.LevelWarn, "app.storage.maintenance_failed", fields)
 	}
-	a.pluginInstall.plan = plan
-	a.pluginInstall.open = true
 }
 
-// confirmPluginInstall installs the reviewed package and records the approval.
-func (a *App) confirmPluginInstall() {
-	plan := a.pluginInstall.plan
-	a.pluginInstall.open = false
-	a.pluginInstall.plan = plugininstall.Plan{}
-	if a.plugins == nil || plan.Staging == "" {
-		return
+func (a *App) commitPluginInstall(ctx context.Context, plan plugininstall.Plan, feedback settingswindow.PluginInstallFeedback) func(*App) {
+	_, err := a.plugins.Installer.Commit(plan)
+	var approval *plugininstall.ApprovalError
+	var enableErr error
+	var displaced displacement
+	if err == nil || errors.As(err, &approval) {
+		// Confirming the install is the user choosing to use the plugin, so it
+		// works at once; a choice the user already made, such as disabling
+		// the plugin before this update, is kept. An enabled plugin turns off
+		// the plugins that served one of its languages.
+		var outcome pluginmanager.Outcome
+		outcome, enableErr = a.plugins.Manager.EnableInstalled(plan.ID)
+		displaced = a.describeDisplacement(ctx, plan.ID, outcome.Displaced)
 	}
-	a.background(nil, pluginInstallTimeout, func(ctx context.Context) func(*App) {
-		_, err := a.plugins.Installer.Commit(plan)
-		var approval *plugininstall.ApprovalError
-		var enableErr error
-		var displaced displacement
-		if err == nil || errors.As(err, &approval) {
-			// Confirming the install is the user choosing to use the plugin, so it
-			// works at once; a choice the user already made, such as disabling
-			// the plugin before this update, is kept. An enabled plugin turns off
-			// the plugins that served one of its languages.
-			var outcome pluginmanager.Outcome
-			outcome, enableErr = a.plugins.Manager.EnableInstalled(plan.ID)
-			displaced = a.describeDisplacement(ctx, plan.ID, outcome.Displaced)
+	if err != nil && approval == nil {
+		a.recordPluginInstallCleanup(a.plugins.Installer.Discard(plan))
+	}
+	return func(a *App) {
+		installed := err == nil
+		if enableErr != nil {
+			a.emit(operationFailedLevel, operationFailedEvent, operationFailedFields("plugin_enable", enableErr))
 		}
-		return func(a *App) {
-			installed := err == nil
-			if enableErr != nil {
-				a.emit(operationFailedLevel, operationFailedEvent, operationFailedFields("plugin_enable", enableErr))
+		if err != nil {
+			if approval != nil {
+				installed = true
+				// The package is on disk; only its approval record failed, so the
+				// user is not told the installation failed. The next installation
+				// of the same version asks again.
+				a.emit(operationFailedLevel, operationFailedEvent, operationFailedFields("plugin_approval", err))
+			} else {
+				a.emit(operationFailedLevel, operationFailedEvent, operationFailedFields("plugin_commit", err))
 			}
-			if err != nil {
-				if approval != nil {
-					installed = true
-					// The package is on disk; only its approval record failed, so the
-					// user is not told the installation failed. The next installation
-					// of the same version asks again.
-					a.emit(operationFailedLevel, operationFailedEvent, operationFailedFields("plugin_approval", err))
-				} else {
-					a.notifyError(i18n.Shared(a.language(), "desktop.marketplace.installFailed"))
-					a.emit(operationFailedLevel, operationFailedEvent, operationFailedFields("plugin_commit", err))
-					// A refused install leaves the extracted package behind; Discard
-					// is a no-op once the rename consumed it.
-					_ = a.plugins.Installer.Discard(plan)
-				}
-			}
-			if installed && plan.ID != "" {
-				// The installation was just enabled, unless the user had disabled the
-				// plugin, so a disable tombstone from a previous version must not
-				// block its server.
-				a.allowPluginPrograms(plan.ID)
-			}
-			a.stopDisplaced(displaced)
-			a.refreshPluginState()
-			a.reloadPluginLanguages()
 		}
-	})
-}
-
-// cancelPluginInstall drops a prepared package the user declined.
-func (a *App) cancelPluginInstall() {
-	a.pluginInstall.open = false
-	a.pluginInstall.generation++
-	a.discardPluginInstall()
-}
-
-// discardPluginInstall drops the prepared package that will not be installed.
-func (a *App) discardPluginInstall() {
-	plan := a.pluginInstall.plan
-	a.pluginInstall.plan = plugininstall.Plan{}
-	if a.plugins != nil && plan.Staging != "" {
-		_ = a.plugins.Installer.Discard(plan)
+		if installed && plan.ID != "" {
+			// The installation was just enabled, unless the user had disabled the
+			// plugin, so a disable tombstone from a previous version must not
+			// block its server.
+			a.allowPluginPrograms(plan.ID)
+		}
+		a.stopDisplaced(displaced)
+		a.refreshPluginState()
+		a.reloadPluginLanguages()
+		feedback.Finish(!installed)
 	}
 }
 
@@ -365,60 +336,6 @@ func (a *App) reloadPluginLanguages() {
 	})
 }
 
-// pluginReviewView declares the dialog that shows what a package asks for
-// before it is installed.
-func (a *App) pluginReviewView(c ui.C) {
-	in := &a.pluginInstall
-	if !in.open {
-		return
-	}
-	language := a.language()
-	plan := in.plan
-	confirmed, cancelled := false, false
-	closed := ui.ModalWith(c, &in.open, i18n.Shared(language, "desktop.marketplace.reviewTitle"),
-		ui.ModalSpec{Width: 620, Description: in.plugin.Name + " \u00b7 " + plan.Version}, func() {
-			ui.Column(c).FillWidth().Gap(8).Children(func() {
-				if plan.Decision.Reuse {
-					ui.Wrap(c, i18n.Shared(language, "desktop.marketplace.reviewReused")).FontSize(12).Muted()
-				}
-				ui.Text(c, i18n.Shared(language, "desktop.marketplace.reviewPermissions")).FontSize(13).Bold()
-				if len(plan.Review.Permissions) == 0 && len(plan.Review.Programs) == 0 {
-					ui.Wrap(c, i18n.Shared(language, "desktop.marketplace.reviewEmpty")).FontSize(12).Muted()
-				}
-				for index, permission := range plan.Review.Permissions {
-					ui.Text(c.KeyInt(index), permission).FontSize(12).Ellipsis()
-				}
-				if len(plan.Review.Programs) > 0 {
-					ui.Text(c, i18n.Shared(language, "desktop.marketplace.reviewPrograms")).FontSize(13).Bold()
-					for index, program := range plan.Review.Programs {
-						ui.Wrap(c.KeyInt(index), compactProgram(program)).FontSize(11).Mono().Muted()
-					}
-				}
-			})
-		}, func() {
-			cancelled = ui.Button(c, i18n.Shared(language, "desktop.marketplace.cancel")).Outline().Clicked()
-			confirmed = ui.Button(c, i18n.Shared(language, "desktop.marketplace.confirmInstall")).AutoFocus().Clicked()
-		})
-	switch {
-	case confirmed:
-		c.After(a.confirmPluginInstall)
-	case closed || cancelled:
-		in.open = true
-		c.After(a.cancelPluginInstall)
-	}
-}
-
-// compactProgram renders one program declaration on a single line. The contract
-// hands programs over as opaque JSON, so the review shows exactly what was
-// declared rather than a summary this client would have to interpret.
-func compactProgram(program json.RawMessage) string {
-	var buffer bytes.Buffer
-	if err := json.Compact(&buffer, program); err != nil {
-		return string(program)
-	}
-	return buffer.String()
-}
-
 // pluginManifestFacts is the part of an installed manifest the Installed tab shows.
 type pluginManifestFacts struct {
 	DisplayName string   `json:"displayName"`
@@ -501,7 +418,7 @@ func installedPluginFacts(entries []pluginmanager.Entry, approvals pluginApprova
 				item.ArchiveSHA256 = record.ArchiveSHA256
 				item.ContentDigest = record.ContentDigest
 				for _, program := range record.ApprovedPrograms {
-					item.Programs = append(item.Programs, compactProgram(program))
+					item.Programs = append(item.Programs, plugintrust.CompactProgram(program))
 				}
 			}
 		}

@@ -84,7 +84,8 @@ type window struct {
 	inv  app.Invalidator
 	page *ui.Page
 
-	market *marketplaceState
+	market  *marketplaceState
+	install *pluginInstallDialog
 	// pluginTab is the open tab of the plugin page, one of the pluginTab constants:
 	// what is installed, or the marketplace. installed is the Installed tab's own list,
 	// filter and detail (installed_view.go).
@@ -363,6 +364,10 @@ func (w *window) native() *app.Window {
 // the system look is no longer watched and the controller forgets the window, so the next
 // Open makes a new one. The Page has cancelled its effects by then.
 func (w *window) closed() {
+	w.dismissPluginInstall()
+	if w.ctrl.opts.PluginInstallsClosed != nil {
+		w.ctrl.opts.PluginInstallsClosed()
+	}
 	w.sess.finished.Store(true)
 	c := w.ctrl
 	c.mu.Lock()
