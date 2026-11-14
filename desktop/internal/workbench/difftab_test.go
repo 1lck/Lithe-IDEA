@@ -339,7 +339,7 @@ func TestDiffTabSidesScrollInStep(t *testing.T) {
 func TestDiffTabFindsIgnoresWhitespaceAndEditsTheWorkingCopy(t *testing.T) {
 	dir := newTestRepository(t)
 	commitLongFile(t, dir, numberedLines(20), func(lines []string) []string {
-		lines[2], lines[10] = "    line 3", "line eleven"
+		lines[2], lines[10] = "    line 3", "line eleven Ⱥ"
 		return lines
 	})
 	h := newHarness(t, &gitKernel{Client: core.NewClient()})
@@ -355,16 +355,19 @@ func TestDiffTabFindsIgnoresWhitespaceAndEditsTheWorkingCopy(t *testing.T) {
 	h.app.setDiffMode(p, d, true, false)
 	h.settle()
 	d.find.open = true
-	d.find.field.SetText("ELEVEN")
-	h.app.refreshDiffFind(d)
-	if m := d.find.matches; len(m) != 1 || m[0].view != d.after.view {
-		t.Fatalf("the find bar found %+v for ELEVEN, want the new side's line", m)
+	find := func(query string, want *editorview.View) {
+		t.Helper()
+		d.find.field.SetText(query)
+		h.app.refreshDiffFind(p, d)
+		h.await("the matches of "+query, func() bool { return !d.find.pending })
+		if m := d.find.matches; len(m) != 1 || m[0].view != want {
+			t.Fatalf("the find bar found %+v for %q, want one match in %p", m, query, want)
+		}
 	}
-	d.find.field.SetText("line 11")
-	h.app.refreshDiffFind(d)
-	if m := d.find.matches; len(m) != 1 || m[0].view != d.before.view {
-		t.Fatalf("the find bar found %+v for line 11, want the old side's line", m)
-	}
+	find("ELEVEN", d.after.view)
+	find("line 11", d.before.view)
+	// Ⱥ lowercases to ⱥ, which takes a byte more; Core folds case on the text as it is.
+	find("ⱥ", d.after.view)
 	h.app.stepDiffFind(d, 1)
 	if d.find.current != 0 {
 		t.Fatalf("stepping past the only match went to %d", d.find.current)
