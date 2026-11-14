@@ -3,6 +3,7 @@ package workbench
 import (
 	"context"
 	"fmt"
+	"strconv"
 
 	"github.com/1lck/Lithe-IDEA/desktop/internal/core"
 )
@@ -38,6 +39,11 @@ const (
 	// line in an even button would sit on a half pixel.
 	chromeLineHeight = 16
 	chromeStatusItem = 20
+	// chromeStatusPad is the space on each side of a status bar item's reading, inside its
+	// hover highlight, and chromeStatusGap the space between two items' highlights. The
+	// readings sit close, as IntelliJ's do: two of them are 2*chromeStatusPad apart.
+	chromeStatusPad = 6
+	chromeStatusGap = 0
 	// chromeProjectMax and chromeBranchMax cap the width of the names in the title bar,
 	// which are cut with an ellipsis beyond it.
 	chromeProjectMax = 240
@@ -154,7 +160,8 @@ func (a *App) chromeStatusText(i int) string {
 		}
 		return a.memoryStatusText()
 	case itemFPS:
-		return a.text.Status.FPSValue(a.status.fps)
+		// A bare number: the status bar has no room for a unit, which the tooltip names.
+		return strconv.Itoa(a.sessions.frameRate())
 	case itemChanges:
 		if a.project != nil {
 			if count, ok := a.project.git.changeCount(); ok && count > 0 {

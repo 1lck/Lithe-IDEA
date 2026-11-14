@@ -328,7 +328,7 @@ var chinese = Messages{
 		Problems:       func(count int) string { return statusProblems(Chinese, count) },
 		Memory:         Shared(Chinese, "desktop.status.memory"),
 		FPS:            Shared(Chinese, "desktop.status.fPS"),
-		FPSValue:       func(fps int) string { return statusFPS(Chinese, fps) },
+		FPSTooltip:     Shared(Chinese, "desktop.status.fpsTooltip"),
 		NoChanges:      Shared(Chinese, "desktop.status.noChanges"),
 		Changes:        func(count int) string { return statusChanges(Chinese, count) },
 		Healthy:        Shared(Chinese, "desktop.status.healthy"),

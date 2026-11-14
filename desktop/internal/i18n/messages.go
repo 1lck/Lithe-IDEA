@@ -528,11 +528,11 @@ type StatusMessages struct {
 	Problems func(count int) string
 	Memory   string
 	FPS      string
-	// FPSValue is the frame rate readout, for example "60 FPS".
-	FPSValue  func(fps int) string
-	NoChanges string
-	Changes   func(count int) string
-	Healthy   string
+	// FPSTooltip says what the frame rate readout, a bare number, measures and how to read it.
+	FPSTooltip string
+	NoChanges  string
+	Changes    func(count int) string
+	Healthy    string
 	// Indent is the status item of the editor's indentation: spaces per level, or the tab width
 	// when Tab inserts a tab. Clicking it switches between the two.
 	Indent       string
