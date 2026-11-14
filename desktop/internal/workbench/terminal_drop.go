@@ -39,7 +39,7 @@ func (a *App) terminalTreeDrop(source, target gfx.ID) {
 	if !ok || t == nil {
 		return
 	}
-	a.performed("terminal.dropPath", surfaceMenu)
+	a.performed("terminal.dropPath", surfaceDragDrop)
 	a.pasteTerminalPaths(t, []string{filepath.Join(p.root, filepath.FromSlash(ref.path))})
 }
 
@@ -55,7 +55,7 @@ func (a *App) terminalFileDrop(event gfx.FileDropEvent) (gfx.EventResult, bool) 
 		return gfx.EventResult{Handled: true}, true
 	case gfx.FileDropDrop:
 		if len(event.Paths) > 0 {
-			a.performed("terminal.dropPath", surfaceMenu)
+			a.performed("terminal.dropPath", surfaceDragDrop)
 			a.pasteTerminalPaths(t, event.Paths)
 			return gfx.EventResult{Handled: true, Repaint: true}, true
 		}

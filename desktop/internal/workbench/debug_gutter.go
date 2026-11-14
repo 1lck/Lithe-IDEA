@@ -37,7 +37,7 @@ func (a *App) applyDebugGutter(p *project, d *document) {
 		if g.click == nil {
 			path := d.path
 			g.click = func(line int) {
-				a.performed("debug.gutter.toggleBreakpoint", "editor")
+				a.performed("debug.gutter.toggleBreakpoint", surfaceButton)
 				a.toggleBreakpointAt(p, path, int64(line+1))
 			}
 		}

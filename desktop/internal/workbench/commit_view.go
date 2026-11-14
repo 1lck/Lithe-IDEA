@@ -71,7 +71,7 @@ func (a *App) drawCommitToolbar(c ui.C, p *project) {
 		}
 		if a.gitIconButton(c, i18n.Shared(lang, "git.previewFirstChange"), icons.Eye, false, !review || len(changes) == 0) {
 			first := changes[0]
-			c.After(func() { a.openChange(p, first) })
+			c.After(func() { a.openChange(p, first, surfaceButton) })
 		}
 		ui.Spacer(c)
 		if branch := p.git.branch(); branch != "" {
@@ -143,7 +143,7 @@ func (a *App) drawCommitChange(c ui.C, p *project, change core.GitChange) {
 		c.After(func() { a.stageChange(p, change) })
 	}
 	if opened {
-		c.After(func() { a.openChange(p, change) })
+		c.After(func() { a.openChange(p, change, surfaceButton) })
 	}
 }
 

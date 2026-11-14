@@ -111,7 +111,7 @@ func (a *App) openBlame(p *project, relative string) {
 	*b = blameState{open: true, loading: true, gen: b.gen + 1, path: relative, list: b.list}
 	gen, root := b.gen, p.git.repositoryRoot(p.root)
 	disk := filepath.Join(root, filepath.FromSlash(relative))
-	a.performed("git.blame.open", surfaceMenu)
+	a.performed("git.blame.open", surfaceContextMenu)
 	a.background(p, reviewTimeout, func(ctx context.Context) func(*App) {
 		lines, err := kernel.GitBlame(ctx, root, relative)
 		var text []string

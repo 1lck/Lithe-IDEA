@@ -224,12 +224,12 @@ func (c *commitState) retryable() bool {
 
 // startCommit plans a commit of the project's staged changes and runs it, through the review
 // when the plan or a push asks for one. surface is where the user asked.
-func (a *App) startCommit(p *project, push bool, surface string) {
+func (a *App) startCommit(p *project, push bool, surface actionSurface) {
 	a.startCommitIn(p, p.projectCommit(), push, surface)
 }
 
 // startCommitIn is startCommit in the checkout of t.
-func (a *App) startCommitIn(p *project, t commitTarget, push bool, surface string) {
+func (a *App) startCommitIn(p *project, t commitTarget, push bool, surface actionSurface) {
 	c := t.state
 	if c.busy || c.review != nil {
 		return
@@ -432,6 +432,20 @@ const (
 	operationFailedLevel = core.LevelError
 )
 
+// The log event of a failure no notification reports, such as cleanup after the work is done,
+// and the level the kernel's event catalog declares for it. It has the same fields as
+// app.notification.operation_failed.
+const (
+	backgroundFailedEvent = "app.background.operation_failed"
+	backgroundFailedLevel = core.LevelWarn
+)
+
+// backgroundFailed logs a failure of work the window runs on its own and does not tell the
+// user about.
+func (a *App) backgroundFailed(operation string, err error) {
+	a.emit(backgroundFailedLevel, backgroundFailedEvent, operationFailedFields(operation, err))
+}
+
 // gitOperationFailed logs a Git operation that failed.
 func (a *App) gitOperationFailed(operation string, err error) {
 	a.emit(operationFailedLevel, operationFailedEvent, operationFailedFields(operation, err))
@@ -485,7 +499,7 @@ func allStaged(changes []core.GitChange) bool {
 // stageAll stages every change of the active ChangeList, or unstages every staged one when
 // everything is staged already, as the checkbox of the change list does. While only the
 // default list exists that is every change of the repository.
-func (a *App) stageAll(p *project, surface string) {
+func (a *App) stageAll(p *project, surface actionSurface) {
 	if p.commit.busy || !p.listsReady() {
 		return
 	}
@@ -508,7 +522,7 @@ func (a *App) stageAll(p *project, surface string) {
 
 // stageChanges stages every one of changes, or unstages them all when they are all staged,
 // as the checkbox of a ChangeList section does.
-func (a *App) stageChanges(p *project, changes []core.GitChange, surface string) {
+func (a *App) stageChanges(p *project, changes []core.GitChange, surface actionSurface) {
 	if p.commit.busy || !p.listsReady() {
 		return
 	}
@@ -533,7 +547,7 @@ func (a *App) stageChanges(p *project, changes []core.GitChange, surface string)
 }
 
 // unstageAll unstages every staged change.
-func (a *App) unstageAll(p *project, surface string) {
+func (a *App) unstageAll(p *project, surface actionSurface) {
 	if p.commit.busy {
 		return
 	}

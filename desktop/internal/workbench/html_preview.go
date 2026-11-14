@@ -160,7 +160,7 @@ func (a *App) htmlActions(c ui.C, p *project, d *document, s *htmlPreviewState, 
 		}
 	}
 	if a.viewerIconButton(c.Part("browser"), i18n.Shared(language, "desktop.editorMenu.openInBrowser"), icons.ExternalLink) {
-		c.After(func() { a.openInBrowser(p, d) })
+		c.After(func() { a.openInBrowser(p, d, surfaceButton) })
 	}
 }
 

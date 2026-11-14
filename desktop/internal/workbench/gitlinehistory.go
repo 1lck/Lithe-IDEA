@@ -54,7 +54,7 @@ func lineHistoryRange(d *document) (start, end int) {
 
 // startLineHistory traces the lines the editor asks about in d against the repository of the
 // project and opens the dialog with the answer.
-func (a *App) startLineHistory(p *project, d *document) {
+func (a *App) startLineHistory(p *project, d *document, surface actionSurface) {
 	kernel, ok := a.kernel.(lineHistoryKernel)
 	if !ok {
 		return
@@ -66,7 +66,7 @@ func (a *App) startLineHistory(p *project, d *document) {
 		a.notify(i18n.Shared(a.language(), "desktop.lineHistory.outsideRepository"))
 		return
 	}
-	a.performed("git.lineHistory", surfaceMenu)
+	a.performed("git.lineHistory", surface)
 	start, end := lineHistoryRange(d)
 	content, _ := d.view.Text()
 	h.gen++

@@ -79,7 +79,7 @@ func (a *App) installPlugin(plugin core.MarketplacePlugin, feedback settingswind
 		a.pluginDownloads = marketplace.NewArchiveSession(nil)
 	}
 	downloads := a.pluginDownloads
-	a.performed("plugin.install", "marketplace")
+	a.performed("plugin.install.marketplace", surfaceButton)
 	a.preparePluginInstall(feedback, func(ctx context.Context) (plugininstall.Plan, error) {
 		archive, err := downloads.Download(ctx, availability, feedback.Progress)
 		if err != nil {
@@ -119,7 +119,7 @@ func (a *App) closePluginDownloads() {
 
 // installPluginFromFile submits a local package to the same review.
 func (a *App) installPluginFromFile(path string, feedback settingswindow.PluginInstallFeedback) {
-	a.performed("plugin.install", "disk")
+	a.performed("plugin.install.disk", surfaceButton)
 	a.preparePluginInstall(feedback, func(ctx context.Context) (plugininstall.Plan, error) {
 		return a.plugins.Installer.Prepare(ctx, plugininstall.Request{
 			ArchivePath: path,

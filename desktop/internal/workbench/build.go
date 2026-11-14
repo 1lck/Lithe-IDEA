@@ -904,7 +904,6 @@ func (a *App) runBuildTask(p *project, projectID, targetID, taskID string, userA
 			return nil, refuseBuild(refusalInvalid, "this task requires user arguments")
 		}
 	}
-	a.emit(core.LevelInfo, "app.action.performed", map[string]any{"action": "build.runTask", "surface": "build"})
 	captured := *instance
 	kernel := a.kernel
 	messages := a.text.Build
@@ -1144,7 +1143,6 @@ func (a *App) runBuildEntry(p *project, entryID string) {
 	}
 	captured := *instance
 	messages := a.text.Build
-	a.emit(core.LevelInfo, "app.action.performed", map[string]any{"action": "build.runEntry", "surface": "build"})
 	op := a.beginBuildOperation(p, "run", entry.Name, "", restartWithInstance(instance.ID, func(a *App, p *project) {
 		a.runBuildEntry(p, entryID)
 	}))
@@ -1222,7 +1220,6 @@ func (a *App) debugProviderTarget(p *project, index int, projectID, targetID, ru
 		Project:       &core.BuildSelection{Name: project.Name, Path: project.Path, Properties: project.Properties},
 		Target:        &core.BuildSelection{Name: target.Name, Path: target.Path, Tags: target.Tags, Properties: target.Properties},
 	}
-	a.emit(core.LevelInfo, "app.action.performed", map[string]any{"action": "build.debugTarget", "surface": "build"})
 	p.debug.preparing = true
 	fail := func(err error) func(*App) {
 		return func(a *App) {
@@ -1351,7 +1348,6 @@ func (a *App) runBuildTargetWith(p *project, op *buildOperation, instance *build
 	captured := *instance
 	kernel := a.kernel
 	messages := a.text.Build
-	a.emit(core.LevelInfo, "app.action.performed", map[string]any{"action": "build.runTarget", "surface": "build"})
 	a.background(p, buildRequestTimeout, func(ctx context.Context) func(*App) {
 		prepare, release := op.bind(ctx)
 		defer release()

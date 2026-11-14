@@ -226,14 +226,14 @@ func (a *App) runBranchWrite(p *project, operation string, failed func(reason st
 }
 
 // checkoutBranch checks out r, after asking the kernel whether local changes stand in the
-// way. A branch that is already checked out only says so.
-func (a *App) checkoutBranch(p *project, r core.GitReference) {
+// way. A branch that is already checked out only says so. surface is where the user asked.
+func (a *App) checkoutBranch(p *project, r core.GitReference, surface actionSurface) {
 	a.leaveBranches()
 	if r.Kind == "local" && r.IsCurrent {
 		a.notifyInfo(a.text.Branch.AlreadyOn(r.ShortName))
 		return
 	}
-	a.performed("git.checkout", surfaceMenu)
+	a.performed("git.checkout", surface)
 	b := &a.branch
 	b.busy = true
 	kernel, root := a.kernel, a.branchRoot(p)

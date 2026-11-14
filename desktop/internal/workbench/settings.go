@@ -339,28 +339,28 @@ func (a *App) invalidateSettingsWindow() {
 // The window is opened from a queued task because the toolkit only opens a window from a
 // window thread, which the task runs on. The settings in force are read there, at the
 // moment the window opens, so a window that has to be made starts from the latest ones.
-func (a *App) openSettings(surface string) {
+func (a *App) openSettings(surface actionSurface) {
 	a.openSettingsPage(surface, settingsHome)
 }
 
 // openPluginSettings shows the settings window on its plugin page.
-func (a *App) openPluginSettings(surface string) {
+func (a *App) openPluginSettings(surface actionSurface) {
 	a.openSettingsPage(surface, settingsPlugins)
 }
 
 // openPluginSettingsSearch shows the plugin page with the marketplace search set to query.
-func (a *App) openPluginSettingsSearch(surface, query string) {
+func (a *App) openPluginSettingsSearch(surface actionSurface, query string) {
 	a.openSettingsPageWith(surface, settingsPlugins, query)
 }
 
 // openTerminalSettings shows the settings window on its Terminal page, where the shell new
 // terminals run is picked.
-func (a *App) openTerminalSettings(surface string) {
+func (a *App) openTerminalSettings(surface actionSurface) {
 	a.openSettingsPage(surface, settingsTerminal)
 }
 
 // openKeymapSettings shows the settings window on its Keymap page.
-func (a *App) openKeymapSettings(surface string) {
+func (a *App) openKeymapSettings(surface actionSurface) {
 	a.openSettingsPage(surface, settingsKeymap)
 }
 
@@ -379,12 +379,12 @@ const (
 	settingsKeymap
 )
 
-func (a *App) openSettingsPage(surface string, page settingsPage) {
+func (a *App) openSettingsPage(surface actionSurface, page settingsPage) {
 	a.openSettingsPageWith(surface, page, "")
 }
 
 // openSettingsPageWith is openSettingsPage with the marketplace search text the plugin page starts with.
-func (a *App) openSettingsPageWith(surface string, page settingsPage, query string) {
+func (a *App) openSettingsPageWith(surface actionSurface, page settingsPage, query string) {
 	a.performed("settings.open", surface)
 	// Users can enter Plugins from any settings page. Publish native installed
 	// state when the window opens, including its general-settings entry point.

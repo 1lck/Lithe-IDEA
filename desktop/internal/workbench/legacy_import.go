@@ -64,19 +64,19 @@ type legacyImportItem struct {
 // disabled while the earlier preferences are read.
 func (a *App) legacyImportMenuItem(c ui.C, menu *ui.MenuItems) {
 	if menu.Item(i18n.Shared(a.language(), "desktop.legacyImport.menu")).Disabled(a.legacyImport.reading).Clicked() {
-		c.After(a.readLegacyImport)
+		c.After(func() { a.readLegacyImport(surfaceMenu) })
 	}
 }
 
 // readLegacyImport reads what the earlier client stored, off the window thread, and opens
-// the dialog that lists it.
-func (a *App) readLegacyImport() {
+// the dialog that lists it. surface is where the user started the import.
+func (a *App) readLegacyImport(surface actionSurface) {
 	s := &a.legacyImport
 	if s.reading || s.open {
 		return
 	}
 	s.reading = true
-	a.performed("settings.import_legacy", surfaceMenu)
+	a.performed("settings.import_legacy", surface)
 	read := s.read
 	if read == nil {
 		read = legacyimport.Read

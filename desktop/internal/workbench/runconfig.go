@@ -175,7 +175,6 @@ func (a *App) startRunConfiguration(p *project, id string) (*buildOperation, err
 		a.notifyError(a.text.Build.TargetMissing)
 		return nil, refuseBuild(refusalNotReady, a.text.Build.TargetMissing)
 	}
-	a.emit(core.LevelInfo, "app.action.performed", map[string]any{"action": "run.configuration", "surface": "build"})
 	op := a.beginBuildOperation(p, "run", configuration.Name, id, func(a *App, p *project) {
 		a.runConfiguration(p, id)
 	})

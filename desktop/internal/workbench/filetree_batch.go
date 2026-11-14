@@ -193,7 +193,7 @@ func (a *App) finishRemoval(p *project, parents []string, performed string, fail
 	if failed > 0 && reason != nil {
 		a.notifyError(failure(a.language(), treeErrorReason(reason)))
 	}
-	a.performed(performed, surfaceMenu)
+	a.performed(performed, surfaceButton)
 	for _, dir := range parents {
 		a.listTree(p, dir)
 	}

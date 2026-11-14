@@ -238,6 +238,7 @@ func (a *App) attachDebugForRun(ctx context.Context, request pluginservice.RunDe
 					if configurationType != request.ConfigurationType {
 						continue
 					}
+					a.performed("debug.start", surfacePlugin)
 					a.beginDebug(p, debugStart{
 						adapter: adapter, request: "attach", confirmed: true,
 						target:  &core.DebugTargetFacts{Kind: "connection", Host: request.Host, Port: request.Port},
@@ -297,6 +298,7 @@ func (a *App) launchDebugForRun(ctx context.Context, request pluginservice.RunDe
 				if environment == nil {
 					environment = map[string]string{}
 				}
+				a.performed("debug.start", surfacePlugin)
 				a.beginDebug(p, debugStart{
 					adapter: adapter, request: "launch", ended: ended,
 					launchTarget: &core.DebugTargetFacts{
@@ -349,6 +351,7 @@ func (a *App) startDebugForBackend(ctx context.Context, request pluginservice.De
 			if adapter.PluginID+"/"+adapter.Declaration.ID != request.AdapterID {
 				continue
 			}
+			a.performed("debug.start", surfacePlugin)
 			a.beginDebug(p, debugStart{adapter: adapter, request: request.Request, confirmed: true, configuration: request.Configuration})
 			if p.debug.activeSession() == nil {
 				result <- outcome{err: errors.New("the debug session could not start")}
@@ -480,7 +483,6 @@ func (a *App) beginDebug(p *project, start debugStart) {
 	// Instruction addresses are valid for one run of one process: the set is not replayed.
 	p.debug.instructionBreakpoints = nil
 	p.debug.hideFiltered = hideFiltered
-	a.emit(core.LevelInfo, "app.action.performed", map[string]any{"action": "debug.start", "surface": "debug"})
 
 	a.background(p, 0, func(_ context.Context) func(*App) {
 		session.operationMu.Lock()

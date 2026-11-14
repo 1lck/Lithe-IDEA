@@ -247,16 +247,16 @@ func (t *diffTab) untracked() bool {
 
 // openDiff opens the Diff tab of a change of the project's repository and reads it in the
 // background.
-func (a *App) openDiff(p *project, change core.GitChange) *diffTab {
-	return a.openDiffIn(p, p.git.repositoryRoot(p.root), change)
+func (a *App) openDiff(p *project, change core.GitChange, surface actionSurface) *diffTab {
+	return a.openDiffIn(p, p.git.repositoryRoot(p.root), change, surface)
 }
 
 // openDiffIn opens the Diff tab of a change of the checkout at root. The tab steps through the
-// checkout's other changes.
-func (a *App) openDiffIn(p *project, root string, change core.GitChange) *diffTab {
+// checkout's other changes. surface is where the user asked.
+func (a *App) openDiffIn(p *project, root string, change core.GitChange, surface actionSurface) *diffTab {
 	t := a.showDiff(p, root, "", change, a.changeSiblings(p, root), diffOrigin{})
 	if t != nil {
-		a.performed("git.diff.open", surfaceMenu)
+		a.performed("git.diff.open", surface)
 	}
 	return t
 }

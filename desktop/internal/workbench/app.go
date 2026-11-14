@@ -904,17 +904,41 @@ func (a *App) emit(level core.LogLevel, event string, fields map[string]any) {
 	}
 }
 
-// Surfaces a user action can be started from, written as the catalog's tokens.
+// actionSurface is the part of the window a user action was started from. The set is closed:
+// it is the list the catalog gives for the surface field of app.action.performed, and the
+// test that checks every logging call against the kernel rejects a value outside it.
+type actionSurface string
+
+// The surfaces, written as the catalog's tokens. Each one is typed, so performed cannot be
+// handed a bare string.
 const (
-	surfaceButton   = "button"
-	surfaceMenu     = "menu"
-	surfaceShortcut = "shortcut"
+	// surfaceMenu is a menu bar menu, the compact menu, or a drop-down opened from a menu
+	// button.
+	surfaceMenu actionSurface = "menu"
+	// surfaceShortcut is a key binding.
+	surfaceShortcut actionSurface = "shortcut"
+	// surfacePalette is a command picked in Search Everywhere.
+	surfacePalette actionSurface = "palette"
+	// surfaceToolbar is a control on the title bar.
+	surfaceToolbar actionSurface = "toolbar"
+	// surfaceButton is a control clicked in a panel, tool window, sheet or dialog: a button, a
+	// link, a list row or a gutter mark.
+	surfaceButton actionSurface = "button"
+	// surfaceContextMenu is a menu opened with a secondary click or from a "more" button on
+	// an item.
+	surfaceContextMenu actionSurface = "context_menu"
+	// surfaceNotification is a button on a notification.
+	surfaceNotification actionSurface = "notification"
+	// surfacePlugin is a plugin backend asking the host to do the action.
+	surfacePlugin actionSurface = "plugin"
+	// surfaceDragDrop is a drop of a dragged file, tab or tree item.
+	surfaceDragDrop actionSurface = "drag_drop"
 )
 
 // performed logs that the user started the action with the stable id from surface, as the
 // macOS client does; the id is never a localized title.
-func (a *App) performed(action, surface string) {
-	a.emit(core.LevelInfo, "app.action.performed", map[string]any{"action": action, "surface": surface})
+func (a *App) performed(action string, surface actionSurface) {
+	a.emit(core.LevelInfo, "app.action.performed", map[string]any{"action": action, "surface": string(surface)})
 }
 
 // titleBarHeight is the height of the title bar on both screens; the system's window
@@ -1034,7 +1058,7 @@ func (a *App) activate(index int) {
 		a.titleDebug(a.project)
 	case it.id == itemTitleSearch:
 		if a.project != nil {
-			a.performed("workspace.searchEverywhere.open", surfaceButton)
+			a.performed("workspace.searchEverywhere.open", surfaceToolbar)
 			a.openEverywhere(a.project)
 		}
 	case it.id == itemCaret:
@@ -1107,7 +1131,7 @@ func (a *App) reduceRecent(entries []core.RecentProject, action core.RecentActio
 
 // chooseProject asks for a project folder and opens it; surface is where the user asked.
 // The system dialog runs off the window thread so the window keeps painting behind it.
-func (a *App) chooseProject(surface string) {
+func (a *App) chooseProject(surface actionSurface) {
 	title := a.text.Welcome.OpenDialogTitle
 	a.background(nil, 0, func(context.Context) func(*App) {
 		path, err := app.OpenDirectory(app.OpenDirectoryOptions{Title: title})

@@ -70,13 +70,13 @@ func (a *App) drawLogMenu(c ui.C, p *project, button ui.Box) {
 	open := true
 	ui.Menu(c, button, &open, func(menu *ui.MenuItems) {
 		if menu.Item(g.FetchAll).Disabled(l.sync.busy).Clicked() {
-			c.After(func() { a.fetchAll(p) })
+			c.After(func() { a.fetchAll(p, surfaceMenu) })
 		}
 		if menu.Item(g.FetchOptions).Disabled(l.sync.busy).Clicked() {
 			c.After(func() { a.openFetchOptions(p) })
 		}
 		if menu.Item(g.UpdateBranch).Disabled(l.current == "" || l.sync.busy).Clicked() {
-			c.After(func() { a.updateCurrentBranch(p) })
+			c.After(func() { a.updateCurrentBranch(p, surfaceMenu) })
 		}
 		if menu.Item(a.text.Sync.Pull.MenuItem).Disabled(l.sync.busy).Clicked() {
 			c.After(func() { a.openPullDialog(p) })
@@ -89,7 +89,10 @@ func (a *App) drawLogMenu(c ui.C, p *project, button ui.Box) {
 		}
 		menu.Separator()
 		if menu.Item(g.ShowChanges).Clicked() {
-			c.After(a.showChanges)
+			c.After(func() {
+				a.performed("git.showChanges", surfaceMenu)
+				a.showChanges()
+			})
 		}
 	})
 	if !open {

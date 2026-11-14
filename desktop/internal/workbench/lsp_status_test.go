@@ -158,8 +158,8 @@ func TestLSPLogTabSplitsOffAndCloses(t *testing.T) {
 // runCommand runs the catalog's command id, reporting whether it was listed and enabled.
 func runCommand(a *App, id string) bool {
 	for _, cmd := range a.commands() {
-		if cmd.id == id && cmd.enabled {
-			cmd.run()
+		if cmd.id == id && cmd.runnable() {
+			a.startCommand(cmd, surfaceShortcut)
 			return true
 		}
 	}

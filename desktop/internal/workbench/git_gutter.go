@@ -265,14 +265,15 @@ func (a *App) stageGitGutter(p *project, d *document, h gitHunk) {
 
 // revertGitGutter opens the Diff of the file, where its blocks are rolled back under the
 // existing confirmation. The marker does not roll back on its own: a rollback discards work.
-func (a *App) revertGitGutter(p *project, d *document) {
+// surface is where the user asked.
+func (a *App) revertGitGutter(p *project, d *document, surface actionSurface) {
 	root := p.git.repositoryRoot(p.root)
 	rel, ok := gitRelativePath(root, d.path)
 	if !ok {
 		return
 	}
 	d.gutter.peekOpen, d.gutter.peek = false, nil
-	a.openDiff(p, core.GitChange{Path: rel, Status: "M", Worktree: true})
+	a.openDiff(p, core.GitChange{Path: rel, Status: "M", Worktree: true}, surface)
 }
 
 // gitGutterPeek declares the popover of a clicked marker: the text it replaced, and the stage and
@@ -308,7 +309,7 @@ func (a *App) gitGutterPeek(c ui.C, p *project, d *document, anchor ui.Box) {
 					c.After(func() { a.stageGitGutter(p, d, h) })
 				}
 				if ui.Button(c.Key("revert"), i18n.Shared(a.language(), "desktop.git.gutter.revert")).Outline().Clicked() {
-					c.After(func() { a.revertGitGutter(p, d) })
+					c.After(func() { a.revertGitGutter(p, d, surfaceButton) })
 				}
 			})
 		})

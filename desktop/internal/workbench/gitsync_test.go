@@ -51,7 +51,7 @@ func publishCommit(t *testing.T, clone, name string) {
 func TestLogFetchAllRefreshesTheReferences(t *testing.T) {
 	h, p, dir, other := syncFixture(t)
 	publishCommit(t, other, "fetched.txt")
-	h.app.fetchAll(p)
+	h.app.fetchAll(p, surfaceButton)
 	if !p.log.sync.busy {
 		t.Fatal("no operation is shown while the fetch runs")
 	}
@@ -97,7 +97,7 @@ func TestLogFetchOptionsFetchOneRemoteAndReportAFailure(t *testing.T) {
 
 func TestLogUpdateBranchFastForwardsAndAsksWhenDiverged(t *testing.T) {
 	h, p, dir, other := syncFixture(t)
-	h.app.updateCurrentBranch(p)
+	h.app.updateCurrentBranch(p, surfaceButton)
 	h.settle()
 	h.settle()
 	if want := h.app.text.Sync.UpToDate("main"); h.app.notice != want {
@@ -105,7 +105,7 @@ func TestLogUpdateBranchFastForwardsAndAsksWhenDiverged(t *testing.T) {
 	}
 
 	publishCommit(t, other, "one.txt")
-	h.app.updateCurrentBranch(p)
+	h.app.updateCurrentBranch(p, surfaceButton)
 	h.settle()
 	h.settle()
 	if want := h.app.text.Sync.Updated("main"); h.app.notice != want {
@@ -121,7 +121,7 @@ func TestLogUpdateBranchFastForwardsAndAsksWhenDiverged(t *testing.T) {
 	}
 	gitRun(t, dir, "add", "mine.txt")
 	gitRun(t, dir, "commit", "-m", "mine")
-	h.app.updateCurrentBranch(p)
+	h.app.updateCurrentBranch(p, surfaceButton)
 	h.settle()
 	h.settle()
 	s := &p.log.sync

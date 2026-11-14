@@ -698,7 +698,6 @@ func (a *App) toggleBreakpoint(p *project) {
 		return
 	}
 	caretLine, _ := doc.view.Caret()
-	a.emit(core.LevelInfo, "app.action.performed", map[string]any{"action": "debug.toggleBreakpoint", "surface": "debug"})
 	a.toggleBreakpointAt(p, doc.path, int64(caretLine+1))
 }
 
@@ -881,7 +880,7 @@ func (a *App) releaseDebugSession(p *project, session *debugSession) {
 			return func(a *App) {
 				a.releaseChildSessions(p, children, destroyed)
 				if cleanupErr != nil {
-					a.emit(core.LevelWarn, operationFailedEvent, operationFailedFields("debug", cleanupErr))
+					a.backgroundFailed("debug_cleanup", cleanupErr)
 				}
 			}
 		})

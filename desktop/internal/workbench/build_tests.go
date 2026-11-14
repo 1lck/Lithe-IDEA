@@ -372,7 +372,7 @@ func (a *App) buildTestRow(row ui.ListRow, p *project, instance *buildInstance, 
 		menu.WidthRange(180, 280)
 		if menu.Item(label).Disabled(p.tests.running).Clicked() {
 			c.After(func() {
-				a.performed("build.tests.runCase", surfaceMenu)
+				a.performed("build.tests.runCase", surfaceContextMenu)
 				a.runDiscoveredTest(p, instance, test)
 			})
 		}
@@ -393,7 +393,7 @@ func (a *App) buildTestsMenuItems(c ui.C, menu *ui.MenuItems, p *project, instan
 	tests := p.discoveredTestsView(instance)
 	if menu.Item(i18n.Shared(a.language(), "native.refreshDiscoveredTests")).Disabled(tests.loading).Clicked() {
 		c.After(func() {
-			a.performed("build.tests.refresh", surfaceMenu)
+			a.performed("build.tests.refresh", surfaceContextMenu)
 			a.discoverBuildTests(p, instance, true)
 		})
 	}

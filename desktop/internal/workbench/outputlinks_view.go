@@ -28,14 +28,14 @@ func (a *App) outputLineMenu(c ui.C, text string, line bool, m *outputMenu) func
 		menu.WidthRange(180, 260)
 		if menu.Item(i18n.Shared(lang, "menu.copy")).Disabled(!line).Clicked() {
 			c.After(func() {
-				a.performed("output.copyLine", surfaceMenu)
+				a.performed("output.copyLine", surfaceContextMenu)
 				_ = app.SetClipboardText(text)
 			})
 		}
 		if menu.Item(i18n.Shared(lang, "git.console.copyOutput")).Clicked() {
 			all := m.all()
 			c.After(func() {
-				a.performed("output.copyAll", surfaceMenu)
+				a.performed("output.copyAll", surfaceContextMenu)
 				_ = app.SetClipboardText(all)
 			})
 		}

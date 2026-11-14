@@ -49,7 +49,7 @@ func (s pluginSettingsSources) actionWorkspaceCheck(editor pluginservice.Setting
 // unavailable action starts a process or publishes a settings draft.
 func (s pluginSettingsSources) Action(ctx context.Context, editor pluginservice.SettingsEditor, id string, confirmed bool) (result pluginservice.SettingsActionResult, err error) {
 	defer func() { (settingsToolchains{app: s.app}).recordFailure("plugin_settings_action", err) }()
-	s.app.emit(core.LevelInfo, "app.action.performed", map[string]any{"action": "plugin.settingsAction", "surface": "settings"})
+	s.app.performed("plugin.settingsAction", surfaceButton)
 	check := s.actionWorkspaceCheck(editor)
 	result.Plan, err = s.app.plugins.PlanSettingsEditorAction(ctx, editor, id, confirmed, check)
 	if err != nil {

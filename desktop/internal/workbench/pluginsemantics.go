@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"path/filepath"
+	"regexp"
 	"runtime"
 	"strconv"
 	"strings"
@@ -1665,18 +1666,42 @@ func (a *App) removePending(pending *semanticPending) bool {
 	return false
 }
 
-// logSemanticError records Core's stable error code without copying server
-// internals into the user's log.
+// logSemanticError records that the language server failed a request, with the error's stable
+// code and never its message, which can quote the user's code. The code is the JSON-RPC
+// number or the plugin's token; anything else is recorded as unknown. Formatting and rename
+// tell the user (semanticOperationFailed), so they are notification failures; the other
+// requests fail quietly and are background failures.
 func (a *App) logSemanticError(kind semanticKind, raw json.RawMessage) {
 	var failure struct {
-		Code string `json:"code"`
+		Code json.RawMessage `json:"code"`
 	}
-	fields := map[string]any{"operation": "plugin_semantics", "request": string(kind)}
-	if err := json.Unmarshal(raw, &failure); err == nil && failure.Code != "" {
-		fields["code"] = failure.Code
+	code := any("unknown")
+	if json.Unmarshal(raw, &failure) == nil {
+		var number int64
+		var token string
+		switch {
+		case json.Unmarshal(failure.Code, &number) == nil:
+			code = number
+		case json.Unmarshal(failure.Code, &token) == nil && logToken.MatchString(token):
+			code = token
+		}
 	}
-	a.emit(operationFailedLevel, operationFailedEvent, fields)
+	fields := map[string]any{
+		"operation":    "plugin_semantics." + string(kind),
+		"error":        "the language server failed the " + kind.method() + " request",
+		"error_code":   code,
+		"error_domain": "lsp",
+	}
+	switch kind {
+	case pluginSemanticFormatting, pluginSemanticRangeFormatting, pluginSemanticRename:
+		a.emit(operationFailedLevel, operationFailedEvent, fields)
+	default:
+		a.emit(backgroundFailedLevel, backgroundFailedEvent, fields)
+	}
 }
+
+// logToken is the catalog's token type: what a token field accepts.
+var logToken = regexp.MustCompile(`^[A-Za-z0-9._:/$-]{1,64}$`)
 
 func truncateHover(contents string) string {
 	if len(contents) <= maxHoverBytes {

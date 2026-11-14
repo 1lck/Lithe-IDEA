@@ -68,7 +68,7 @@ func (a *App) treeCompareMenu(c ui.C, p *project, sub *ui.MenuItems, n *treeNode
 // showFileHistory shows the Git tool window's Log tab narrowed to the commits that changed the file
 // at rel, which is project-relative.
 func (a *App) showFileHistory(p *project, rel string) {
-	a.performed("git.showFileHistory", surfaceMenu)
+	a.performed("git.showFileHistory", surfaceContextMenu)
 	a.layout.gitTab = gitTabLog
 	if !a.chrome.isOpen(catalogIndex[itemGit]) {
 		a.reduceChrome(core.SetChromeOpen(itemGit, true))

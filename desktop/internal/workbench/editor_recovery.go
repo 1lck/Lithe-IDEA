@@ -209,7 +209,7 @@ func (a *App) applyRecoveredDocument(p *project, d *document, restored recovered
 	if restored.conflict {
 		message = i18n.Shared(a.language(), "desktop.drafts.conflict")
 	}
-	a.performed("editor.recovery.restored", surfaceMenu)
+	a.emit(core.LevelInfo, "editor.recovery.applied", map[string]any{"conflict": restored.conflict})
 	a.notifyInfo(message)
 }
 func (a *App) restoreCheckpoints(p *project) {

@@ -124,7 +124,7 @@ func (a *App) drawLogRefMenuItems(c ui.C, menu *ui.MenuItems, p *project, r core
 		if menu.Item(t.Checkout).Disabled(busy).Clicked() {
 			c.After(func() {
 				a.adoptLogBranches(p)
-				a.checkoutBranch(p, r)
+				a.checkoutBranch(p, r, surfaceContextMenu)
 			})
 		}
 		if r.Kind != "tag" {
@@ -142,10 +142,10 @@ func (a *App) drawLogRefMenuItems(c ui.C, menu *ui.MenuItems, p *project, r core
 		menu.Separator()
 		// Any other local branch fast-forwards from its upstream in place, as in IDEA.
 		if menu.Item(i18n.Shared(lang, "git.log.updateBranch")).Disabled(busy || !current && r.UpstreamShortName == "").Clicked() {
-			c.After(func() { a.updateBranchAt(p, root, r) })
+			c.After(func() { a.updateBranchAt(p, root, r, surfaceContextMenu) })
 		}
 		if menu.Item(i18n.Shared(lang, "git.contextMenu.push")).Disabled(busy).Clicked() {
-			c.After(func() { a.openPushOf(p, root, r) })
+			c.After(func() { a.openPushOf(p, root, r, surfaceContextMenu) })
 		}
 		if menu.Item(t.Rename).Disabled(busy).Clicked() {
 			c.After(func() {
@@ -228,7 +228,7 @@ func (a *App) setLogUpstream(p *project, branch core.GitReference, upstream *cor
 		return
 	}
 	a.adoptLogBranches(p)
-	a.performed("git.log.trackingBranch", surfaceMenu)
+	a.performed("git.log.trackingBranch", surfaceContextMenu)
 	lang := a.language()
 	a.runBranchWrite(p, "git_set_upstream",
 		func(reason string) string {

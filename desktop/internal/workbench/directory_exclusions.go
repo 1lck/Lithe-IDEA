@@ -142,9 +142,9 @@ func (a *App) excludeFromSearch(p *project, rel string, cancel bool) {
 		return
 	}
 	if cancel {
-		a.performed("workspace.tree.cancelExclusion", surfaceMenu)
+		a.performed("workspace.tree.cancelExclusion", surfaceContextMenu)
 	} else {
-		a.performed("workspace.tree.excludeFromSearch", surfaceMenu)
+		a.performed("workspace.tree.excludeFromSearch", surfaceContextMenu)
 	}
 	a.changeIndexingRules(p, func(ctx context.Context, rules json.RawMessage) (bool, json.RawMessage, error) {
 		if cancel {
@@ -159,7 +159,7 @@ func (a *App) setGitIgnoreIndexing(p *project, on bool) {
 	if !p.indexing.loaded || p.indexing.gitIgnore == on {
 		return
 	}
-	a.performed("workspace.indexing.gitIgnore", surfaceMenu)
+	a.performed("workspace.indexing.gitIgnore", surfaceContextMenu)
 	a.changeIndexingRules(p, func(context.Context, json.RawMessage) (bool, json.RawMessage, error) {
 		return true, p.indexing.rules, nil
 	}, on)

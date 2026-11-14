@@ -160,7 +160,6 @@ func (a *App) openViewer(p *project, path string, kind viewerKind) {
 	p.viewers.list = append(p.viewers.list, t)
 	p.docs.group = group
 	a.focus = focusTarget{}
-	a.performed("editor.viewer.open", surfaceMenu)
 	// The file is read off the window's thread, which a slow disk would hold up.
 	a.background(p, 0, func(ctx context.Context) func(*App) {
 		info, err := os.Stat(path)

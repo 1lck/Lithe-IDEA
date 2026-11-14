@@ -121,7 +121,7 @@ func (a *App) titleRun(p *project) {
 	if p == nil {
 		return
 	}
-	a.performed("title.run", surfaceButton)
+	a.performed("title.run", surfaceToolbar)
 	a.openToolWindow(itemRun)
 	a.titleStart(p, titleActionRun)
 }
@@ -132,7 +132,7 @@ func (a *App) titleDebug(p *project) {
 	if p == nil {
 		return
 	}
-	a.performed("title.debug", surfaceButton)
+	a.performed("title.debug", surfaceToolbar)
 	a.openToolWindow(itemDebug)
 	a.titleStart(p, titleActionDebug)
 }

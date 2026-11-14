@@ -81,7 +81,7 @@ func TestPushDialogReviewsAndPushes(t *testing.T) {
 	h := newHarness(t, &gitKernel{Client: core.NewClient()})
 	p := h.openCommit(dir)
 
-	h.app.openPush(p)
+	h.app.openPush(p, surfaceButton)
 	h.settle()
 	s := &p.review.push
 	if s.err != "" || !s.hasPrev || len(s.preview.Commits) != 1 || !s.canPush() {
@@ -106,7 +106,7 @@ func TestPushDialogWithoutRemoteReportsIt(t *testing.T) {
 	dir := newTestRepository(t)
 	h := newHarness(t, &gitKernel{Client: core.NewClient()})
 	p := h.openCommit(dir)
-	h.app.openPush(p)
+	h.app.openPush(p, surfaceButton)
 	h.settle()
 	s := &p.review.push
 	if s.err == "" || s.canPush() {
@@ -150,7 +150,7 @@ func TestUntrackedDirectoryListingStagesAFile(t *testing.T) {
 	if summary.UntrackedFileCount < 100 {
 		t.Fatalf("summary = %+v, want a summarized directory", summary)
 	}
-	h.app.openChange(p, summary)
+	h.app.openChange(p, summary, surfaceButton)
 	h.settle()
 	u := &p.review.untracked
 	if u.err != "" || len(u.changes) == 0 {

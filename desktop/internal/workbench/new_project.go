@@ -133,7 +133,7 @@ type searchRequest struct {
 	candidates []core.RankCandidate
 }
 
-func (a *App) openNewProject(surface string) {
+func (a *App) openNewProject(surface actionSurface) {
 	n := &a.newProject
 	if n.open {
 		return

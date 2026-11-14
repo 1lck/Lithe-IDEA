@@ -281,9 +281,8 @@ func (a *App) runShortcut(id string, view *editorview.View, term *terminal) {
 	}
 	for _, command := range a.commands() {
 		if command.id == id {
-			if command.enabled && command.run != nil {
-				a.performed("command."+id, surfaceShortcut)
-				command.run()
+			if command.runnable() {
+				a.startCommand(command, surfaceShortcut)
 			}
 			return
 		}

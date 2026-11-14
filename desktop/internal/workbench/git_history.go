@@ -180,9 +180,9 @@ func (a *App) historyHints(p *project, revisions []string) (core.HistoryActionCa
 // line. label names the menu item, for the notice of a failure.
 func (a *App) copyRevisions(revisions []string, short bool, label string) {
 	if short {
-		a.performed("git.log.copyShortHash", surfaceMenu)
+		a.performed("git.log.copyShortHash", surfaceContextMenu)
 	} else {
-		a.performed("git.log.copyCommitHash", surfaceMenu)
+		a.performed("git.log.copyCommitHash", surfaceContextMenu)
 	}
 	hashes := make([]string, len(revisions))
 	for i, revision := range revisions {
@@ -206,7 +206,7 @@ func (a *App) beginTagAt(p *project, revision string) {
 // beginHistoryRewrite opens the dialog of the rewrite operation of revisions and reads its preview.
 func (a *App) beginHistoryRewrite(p *project, operation string, revisions []string) {
 	a.reviewHistoryRewrite(p, operation, revisions, p.logRepositoryRoot())
-	a.performed("git.history."+operation, surfaceMenu)
+	a.performed("git.history."+operation, surfaceContextMenu)
 }
 
 // reviewHistoryRewrite opens the rewrite dialog of operation on revisions in root and reads its

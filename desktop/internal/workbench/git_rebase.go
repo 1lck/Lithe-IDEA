@@ -97,7 +97,7 @@ func (a *App) beginRebaseFromHere(p *project, base, subject string) {
 	root := p.logRepositoryRoot()
 	*r = rebaseState{open: true, gen: gen, busy: true, base: base, subject: subject, session: r.session, root: root}
 	kernel := a.kernel.(rebaseKernel)
-	a.performed("git.rebase.fromHere", surfaceMenu)
+	a.performed("git.rebase.fromHere", surfaceContextMenu)
 	a.background(p, gitTimeout, func(ctx context.Context) func(*App) {
 		preview, err := kernel.GitRebasePreview(ctx, root, base)
 		return func(a *App) {

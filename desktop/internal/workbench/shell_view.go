@@ -142,7 +142,7 @@ func (a *App) shellPanel(c ui.C, s slot, index int, hidden *slot) ui.Box {
 			menu.WidthRange(180, 280)
 			if menu.Item(i18n.SharedFormat(a.language(), "native.hideToolWindow", map[string]string{"arg1": title})).Clicked() {
 				c.After(func() {
-					a.performed("workbench.toolWindow.hide", surfaceMenu)
+					a.performed("workbench.toolWindow.hide", surfaceContextMenu)
 					a.hidePanel(s)
 				})
 			}

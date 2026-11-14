@@ -1,6 +1,7 @@
 // Package contractfixture locates the contract files that tests read. The plugin contract
-// (shared/plugins/contract/v1/) and the application fixtures (rust/fixtures/) each have a single
-// source in the Lithe-core-rust checkout this client links, and this repository keeps no copy.
+// (shared/plugins/contract/v1/), the application fixtures (rust/fixtures/) and the log event
+// catalog (rust/logging/events/) each have a single source in the Lithe-core-rust checkout this
+// client links, and this repository keeps no copy.
 // scripts/desktop/desktop-go.sh exports LITHE_PLUGIN_CONTRACT_DIR and LITHE_CORE_FIXTURE_DIR for
 // the same checkout it builds: the pinned clone, or LITHE_CORE_RUST_DIR when that is set.
 package contractfixture
@@ -30,6 +31,14 @@ func Path(rel string) string {
 // Path.
 func CoreFixture(rel string) string {
 	return join(CoreFixtureEnvironmentVariable, rel)
+}
+
+// CoreEventCatalog returns the directory of the kernel's log event catalog, rust/logging/events,
+// which sits beside rust/fixtures in the same checkout. Tests read the declared field types from
+// it; whether an event is accepted is still the kernel's answer, not the test's. It panics when
+// the variable is unset, for the same reason as Path.
+func CoreEventCatalog() string {
+	return join(CoreFixtureEnvironmentVariable, "../logging/events")
 }
 
 func join(variable, rel string) string {

@@ -216,7 +216,7 @@ func (a *App) startTests(p *project, selection testSelection) {
 	p.tests.last = &last
 	captured := *instance
 	startedMillis := time.Now().UnixMilli()
-	a.emit(core.LevelInfo, "app.action.performed", map[string]any{"action": "tests.run", "surface": "tests", "scope": selection.scope()})
+	a.performed("tests.run."+selection.scope(), surfaceButton)
 	a.background(p, testRequestTimeout, func(ctx context.Context) func(*App) {
 		return a.executeTestRun(ctx, p, captured, selection, generation, startedMillis)
 	})

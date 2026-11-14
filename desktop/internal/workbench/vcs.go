@@ -547,7 +547,7 @@ func (a *App) detectVcsRoots(p *project) {
 			}
 			s.detection, s.manifests = detection, plugins
 			for _, conflict := range detection.Conflicts {
-				a.emit(core.LevelWarn, "app.vcs.provider_conflict", map[string]any{"plugin": conflict.PluginID, "vcs": conflict.Vcs, "by": conflict.By})
+				a.emit(core.LevelWarn, "vcs.provider.skipped", map[string]any{"plugin": conflict.PluginID, "vcs": conflict.Vcs, "selected": conflict.By})
 			}
 			if len(detection.UnusedMappings) > 0 {
 				a.dropVcsMappings(root, detection.UnusedMappings)

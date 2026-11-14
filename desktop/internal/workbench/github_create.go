@@ -62,7 +62,7 @@ func (a *App) openCreatePullRequest(p *project) {
 		cr.busy = false
 		return
 	}
-	a.performed("github.createPullRequest.open", surfaceMenu)
+	a.performed("github.createPullRequest.open", surfaceButton)
 	root := p.git.repositoryRoot(p.root)
 	a.background(p, githubReadTimeout, func(ctx context.Context) func(*App) {
 		url, err := kernel.GitRemoteURL(ctx, root, "origin")

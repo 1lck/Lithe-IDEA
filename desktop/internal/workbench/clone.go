@@ -23,7 +23,7 @@ type cloneState struct {
 	err                    string
 }
 
-func (a *App) openClone(surface string) {
+func (a *App) openClone(surface actionSurface) {
 	c := &a.clone
 	if c.open {
 		return

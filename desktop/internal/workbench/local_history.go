@@ -203,7 +203,6 @@ func (a *App) openLocalHistory(p *project, path string) {
 			}
 		}
 	})
-	a.performed("localHistory.open", surfaceMenu)
 }
 
 // selectLocalHistory selects one snapshot and reads its text for the preview.
