@@ -3,7 +3,7 @@
 
   <h1>Lithe</h1>
 
-  <p><strong>低内存占用的轻量级 IntelliJ IDEA 替代品</strong></p>
+  <p><strong>轻量、通用、跨平台的插件化 IDE，按需灵活配置</strong></p>
 
   <p>
     <a href="./README.md"><strong>English</strong></a> ·

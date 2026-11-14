@@ -14440,7 +14440,7 @@
     },
     {
       "id": "desktop.settings.about.tagline",
-      "description": "Desktop settings About page: one-line product tagline under the app name, stressing low memory use and a light footprint.",
+      "description": "Desktop settings About page: one-line product tagline under the app name: lightweight, general-purpose, cross-platform, configured through plugins.",
       "platforms": [
         "desktop"
       ]

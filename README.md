@@ -3,7 +3,7 @@
 
   <h1>Lithe</h1>
 
-  <p><strong>A lightweight, low-memory IntelliJ IDEA alternative</strong></p>
+  <p><strong>A lightweight, general-purpose, cross-platform IDE, flexibly configured with plugins</strong></p>
 
   <p>
     <a href="./README.zh-CN.md"><strong>简体中文</strong></a> ·
