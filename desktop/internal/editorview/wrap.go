@@ -251,10 +251,19 @@ func (v *View) ensureRows() {
 // spliceRows follows an edit that turned lines first to oldLast into lines first to newLast:
 // it lays out the new lines and keeps the counts of all the others.
 func (v *View) spliceRows(first, oldLast, newLast, oldCount int) {
-	clear(v.rowCache)
 	collapsed := len(v.fold.collapsed)
 	v.shiftFolds(first, oldLast, newLast)
-	if len(v.fold.collapsed) != collapsed {
+	foldsChanged := len(v.fold.collapsed) != collapsed
+	// The rows of the lines the edit left alone are still right, unless the line numbers moved
+	// or a fold changed: then any line may have moved or hidden.
+	if foldsChanged || newLast != oldLast {
+		clear(v.rowCache)
+	} else {
+		for line := first; line <= newLast; line++ {
+			delete(v.rowCache, line)
+		}
+	}
+	if foldsChanged {
 		// A fold the edit opened changes the rows of lines outside it: lay them all out again.
 		v.wraps = v.wraps[:0]
 	}
@@ -267,12 +276,29 @@ func (v *View) spliceRows(first, oldLast, newLast, oldCount int) {
 		line := first + i
 		size := v.text.LineEnd(line) - v.text.LineStart(line)
 		fresh[i] = lineWrap{cells: int32(min(size*tabSize, 1<<30))}
+		if c := v.caretLine; c.ok && c.line == line && c.text.Same(v.text) {
+			// The edit measured this line already, so it is not read again.
+			fresh[i] = lineWrap{cells: int32(min(c.cells, 1<<30)), exact: true}
+		}
 	}
 	v.wraps = slices.Replace(v.wraps, first, oldLast+1, fresh...)
 	for line := first; line <= newLast; line++ {
 		v.countRows(line)
+		// countRows wrapped the line into rowBuf when it wraps; keep those rows, so that the
+		// paint which follows does not wrap the line again.
+		if v.wraps[line].rows > 1 && v.wrapCols > 0 && !v.fold.hides(line) {
+			v.cacheRows(line, v.rowBuf)
+		}
 	}
 	v.rowsDirty = true
+}
+
+// cacheRows keeps rows as the rows of line, under the same bound on the cache as rowsOf.
+func (v *View) cacheRows(line int, rows []wrapRow) {
+	if v.rowCache == nil || len(v.rowCache) >= rowCacheLimit {
+		v.rowCache = make(map[int][]wrapRow)
+	}
+	v.rowCache[line] = slices.Clone(rows)
 }
 
 // forgetRows drops the layout, for a text that changed as a whole.
