@@ -40,12 +40,17 @@ SVG 只能当文本看，PDF 只能交给外部应用。
 - **SVG 跟随编辑**。SVG 文件按 Markdown 的方式打开：源码与图片两栏，标签栏末尾切换源码 / 两者 / 仅图片。
   编辑后最多每 150 毫秒把文本交给页面一次，地址带上编辑版本号，避免引擎画出缓存的旧图；更新时保持用户的
   缩放和滚动位置。改成画不出来的内容时保留上一张图，只有从未画成功过才显示失败提示。超过 4 MiB 不绘制。
-- **Markdown 目录画在页面里**。web 页的目录是页面右上角的浮动大纲（`assets/markdown.js`）：页面从渲染结果的
+- **Markdown 目录画在页面里**。web 页的目录是页面右侧的大纲栏（`assets/markdown.js`）：页面从渲染结果的
   标题建树，按层级缩进，可以折叠，当前章节随页面滚动高亮，选中标题时像用户滚动页面一样回报 `scrolled`，
   宿主照常把源码带到那一行。标签栏的“目录”按钮只发 `outline{open}` 打开或关闭；用户在页面里按 Escape 关闭时，
   页面回报 `outline{open:false}`，宿主更新按钮状态，不再回发。大纲按固定行高只创建视口附近的行，长文档也不会
   一次生成上千个节点；折叠状态按“父级、层级、标题文字、同名序号”保存，重新渲染后保留。原生页仍用 Viva 的
   弹出列表，选中后关闭。
+- **目录不遮挡正文**。预览宽于 680 像素时（与旧 macOS 预览相同），打开目录会让正文右侧让出目录栏的宽度，
+  目录栏贴右侧占满高度，底色与页面相同；有工作台背景图时页面是透明的，目录栏也透出背景图。打开或关闭时正文
+  重新换行，页面保持顶部那一行不动。更窄时目录浮在正文上方，底色用宿主的 `--lithe-popup-background`。
+  宿主把这个变量设为 Ground：背景图下面板和编辑区颜色是透明的，Ground 仍不透明，所以浮层不会透出下面的文字。
+  插件页的弹层用的也是这个变量。
 - **页面生命周期**。文档或标签打开期间页面一直存在；没有被这一帧声明的页面隐藏起来，保留滚动位置和排版，
   切回来时原样显示。隐藏的页面最多保留 6 个，超出时关闭隐藏最久的那个，标签再次显示时重新打开。
   窗口的 web host 还没准备好、系统没有 web 引擎、或者某个页面打开失败后，编辑区改用原生预览。
@@ -73,6 +78,8 @@ SVG 只能当文本看，PDF 只能交给外部应用。
 - **web 页的目录也用 Viva 弹出列表画在页面上方**：弹层选中一个标题就关闭，不能一边看目录一边跳转；
   要高亮当前章节，宿主还得逐帧接收页面滚动位置再重画。页面本来就知道自己的滚动位置和标题位置，
   所以改为页面自己画，宿主只发开关。
+- **目录始终浮在正文上方**：宽预览里会挡住正文右侧；有背景图时页面底色透明，浮层下的文字会和目录叠在一起。
+  拒绝，改为宽预览让出位置、窄预览才浮起并用不透明的弹层底色。
 - **隐藏的页面立即关闭，或者全部常驻**：立即关闭会在每次切标签时丢掉滚动位置并重新排版；全部常驻会让每个
   打开过的预览都占一个 web 进程的内存。折中为最多保留 6 个隐藏页面。
 
@@ -102,7 +109,8 @@ SVG 和 PDF 可以在编辑区直接查看；页面能读到什么完全由宿�
   SVG 跟随编辑与失败保留，以及没有 web 引擎时的 Go 画布。
 - `scripts/desktop/verify/verify-runtime-bundle-immutability.sh`：确认打开预览不会改写发行目录。
 - `TestMarkdownWebPageRendersCoreHTMLAndScrollsWithTheSource` 覆盖目录按钮与页面之间的 `outline` 消息，
-  `TestMarkdownContentsIndentsHeadingsByLevel` 覆盖原生弹出列表按级别缩进且行不重叠。
+  `TestMarkdownContentsIndentsHeadingsByLevel` 覆盖原生弹出列表按级别缩进且行不重叠，
+  `TestPagePopupColorStaysOpaqueOverTheBackground` 覆盖背景图下页面透明而弹层颜色不透明。
 - 平台功能矩阵 `embedded-viewers`、`markdown-rendering`、`markdown-images-links`、`markdown-preview-outline`
   记录了待真机验收的步骤。
 
@@ -112,6 +120,7 @@ SVG 和 PDF 可以在编辑区直接查看；页面能读到什么完全由宿�
 - `desktop/internal/workbench/preview_pages.go`
 - `desktop/internal/workbench/markdown_web.go`
 - `desktop/internal/workbench/markdown_preview.go`
+- `desktop/internal/workbench/pluginpages.go`（页面主题变量）
 - `desktop/internal/workbench/viewer_web.go`
 - `desktop/internal/workbench/viewer_image.go`
 - `desktop/internal/workbench/svg_preview.go`

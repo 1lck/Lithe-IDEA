@@ -188,7 +188,9 @@ func pluginPageLocale(language i18n.Language) string {
 }
 
 // pluginPageTheme is the window's look in the --lithe-* variables pages style
-// themselves with, the names the macOS client gave them.
+// themselves with, the names the macOS client gave them. Over a workbench background
+// image the panel and editor colors are clear so the image shows through a page; a
+// popup floats over the page's own content, so it gets the ground, which stays opaque.
 func (a *App) pluginPageTheme() core.PluginWebTheme {
 	c := a.colors
 	theme := "light"
@@ -199,7 +201,7 @@ func (a *App) pluginPageTheme() core.PluginWebTheme {
 		"--lithe-background":           cssColor(c.Panel),
 		"--lithe-surface":              cssColor(c.Editor),
 		"--lithe-header":               cssColor(c.Panel),
-		"--lithe-popup-background":     cssColor(c.Editor),
+		"--lithe-popup-background":     cssColor(c.Ground),
 		"--lithe-foreground":           cssColor(c.Text),
 		"--lithe-secondary-foreground": cssColor(c.Subtle),
 		"--lithe-border":               cssColor(c.Line),

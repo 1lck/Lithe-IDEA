@@ -249,29 +249,57 @@ audio { width: min(100%, 520px); }
 .diagram-error { margin: 0 0 0.75em; color: var(--alert-caution); font-size: 0.84em; }
 .diagram-source-fallback { margin-top: 0.75em; }
 
-/* The outline floats at the page's top right, over the margin where the window is wide enough.
+/* The outline is a column down the page's right side. Where the page is wider than 680px, as in
+   the macOS preview before it, the text makes room for it (body.outline-open), so it covers
+   nothing and shares the page's color, which is clear over a workbench background image.
+   Narrower, it floats over the text on the popup color, which stays opaque over the image.
    Its rows are a fixed height: the script lays out only those in view (markdown.js). */
+:root {
+  --outline-width: 280px;
+  --outline-inset: 12px;
+  --popup: var(--lithe-popup-background, #ffffff);
+}
+
+:root[data-theme="dark"] { --popup: var(--lithe-popup-background, #1e1f22); }
+
 .outline {
   position: fixed;
   z-index: 50;
-  top: 10px;
-  right: 12px;
+  top: var(--outline-inset);
+  right: var(--outline-inset);
+  bottom: var(--outline-inset);
   display: flex;
   flex-direction: column;
-  width: min(280px, calc(100vw - 24px));
-  max-height: calc(100vh - 20px);
+  width: var(--outline-width);
   border: 1px solid var(--border);
   border-radius: 8px;
   background: var(--page);
   color: var(--text);
-  box-shadow: 0 8px 28px rgba(15, 18, 24, 0.14), 0 1px 3px rgba(15, 18, 24, 0.08);
   font-size: 13px;
   line-height: 1.3;
 }
 
 :root[data-theme="dark"] .outline {
   background: color-mix(in srgb, var(--lithe-foreground, #dfe1e5) 3%, var(--page));
-  box-shadow: 0 10px 32px rgba(0, 0, 0, 0.42), 0 1px 3px rgba(0, 0, 0, 0.3);
+}
+
+@media (min-width: 681px) {
+  body.outline-open { padding-right: calc(var(--outline-width) + 2 * var(--outline-inset)); }
+}
+
+@media (max-width: 680px) {
+  .outline {
+    bottom: auto;
+    width: min(var(--outline-width), calc(100vw - 2 * var(--outline-inset)));
+    max-height: calc(100vh - 2 * var(--outline-inset));
+    background: var(--popup);
+    box-shadow: 0 8px 28px rgba(15, 18, 24, 0.14), 0 1px 3px rgba(15, 18, 24, 0.08);
+  }
+
+  :root[data-theme="dark"] .outline {
+    background: color-mix(in srgb, var(--lithe-foreground, #dfe1e5) 3%, var(--popup));
+    box-shadow: 0 10px 32px rgba(0, 0, 0, 0.42), 0 1px 3px rgba(0, 0, 0, 0.3);
+  }
 }
 
 .outline[hidden] { display: none; }
@@ -287,7 +315,7 @@ audio { width: min(100%, 520px); }
 }
 
 .outline-tree {
-  flex: 0 1 auto;
+  flex: 1 1 auto;
   min-height: 0;
   overflow-x: hidden;
   overflow-y: auto;

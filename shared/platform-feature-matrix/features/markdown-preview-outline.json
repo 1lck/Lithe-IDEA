@@ -2,7 +2,7 @@
   "id": "markdown-preview-outline",
   "area": "编辑器",
   "group": "Markdown",
-  "capability": "Markdown 预览目录：右上角浮动大纲，按层级缩进与折叠，跟随当前章节并跳转到标题",
+  "capability": "Markdown 预览目录：右侧大纲栏，宽预览时正文让出位置不遮挡，按层级缩进与折叠，跟随当前章节并跳转到标题",
   "macos": {
     "implementationStatus": "implemented",
     "verificationStatus": "pending",
@@ -14,7 +14,9 @@
       "desktop/internal/webpreview/assets/markdown.js",
       "desktop/internal/webpreview/assets/markdown.css",
       "desktop/internal/workbench/markdown_preview_test.go",
-      "desktop/internal/workbench/markdown_web_test.go"
+      "desktop/internal/workbench/markdown_web_test.go",
+      "desktop/internal/workbench/pluginpages.go",
+      "desktop/internal/workbench/workbench_background_test.go"
     ]
   },
   "windows": {
@@ -28,11 +30,13 @@
       "desktop/internal/webpreview/assets/markdown.js",
       "desktop/internal/webpreview/assets/markdown.css",
       "desktop/internal/workbench/markdown_preview_test.go",
-      "desktop/internal/workbench/markdown_web_test.go"
+      "desktop/internal/workbench/markdown_web_test.go",
+      "desktop/internal/workbench/pluginpages.go",
+      "desktop/internal/workbench/workbench_background_test.go"
     ]
   },
   "owner": "Editor",
-  "verification": "在 macOS 原生 Lithe 打开含 60 节标题的 Markdown，验证默认展开、全高目录独立滚动、末尾标题跳转后保持展开、按钮与 Escape 收起；分栏中编辑保存及外部刷新保留折叠选择，删除全部标题隐藏目录，恢复标题保留展开偏好；检查短文档与无标题文档、宽预览正文避让和窄预览可收起。补充无标题时按 Escape 关闭图片后恢复标题的展开偏好验证。Viva 新桌面端（web view 页）：在深浅主题打开含多级标题与 80 节以上标题的 Markdown，点“目录”按钮在页面右上角显示大纲面板：标题栏与分隔线、每深一级多缩进一档、有子标题的行带折叠箭头且折叠只改大纲不滚动页面、超长标题省略；点行或用方向键与回车选标题后源码与渲染页一起滚到该标题，当前章节高亮随页面滚动更新、折叠时落在可见的上级；编辑后重新渲染保留折叠；面板内只排版视口附近的行；按 Escape 或再点按钮关闭面板并同步按钮状态；无标题时隐藏面板与按钮。Viva 原生页（Linux 无 web 引擎）：弹出标题列表按级别缩进且行不重叠。自动回归：scripts/desktop/desktop-go.sh test ./internal/workbench ./internal/webpreview -run 'Markdown|Preview|Serves|EveryPage' -count=1；页面交互用无头 Chrome 驱动 markdown.js 断言折叠、跳转、键盘、虚拟化与当前章节高亮。",
+  "verification": "在 macOS 原生 Lithe 打开含 60 节标题的 Markdown，验证默认展开、全高目录独立滚动、末尾标题跳转后保持展开、按钮与 Escape 收起；分栏中编辑保存及外部刷新保留折叠选择，删除全部标题隐藏目录，恢复标题保留展开偏好；检查短文档与无标题文档、宽预览正文避让和窄预览可收起。补充无标题时按 Escape 关闭图片后恢复标题的展开偏好验证。Viva 新桌面端（web view 页）：在深浅主题打开含多级标题与 80 节以上标题的 Markdown，点“目录”按钮显示右侧大纲栏：预览宽于 680 像素时正文让出目录栏宽度、目录栏占满高度且不遮挡正文，打开与关闭时顶部那一行不动；更窄的分栏中目录浮在正文上方且底色不透明；设置工作台背景图后重复以上检查，目录与正文不叠字；标题栏与分隔线、每深一级多缩进一档、有子标题的行带折叠箭头且折叠只改大纲不滚动页面、超长标题省略；点行或用方向键与回车选标题后源码与渲染页一起滚到该标题，当前章节高亮随页面滚动更新、折叠时落在可见的上级；编辑后重新渲染保留折叠；面板内只排版视口附近的行；按 Escape 或再点按钮关闭面板并同步按钮状态；无标题时隐藏面板与按钮。Viva 原生页（Linux 无 web 引擎）：弹出标题列表按级别缩进且行不重叠。自动回归：scripts/desktop/desktop-go.sh test ./internal/workbench ./internal/webpreview -run 'Markdown|Preview|Serves|EveryPage|PagePopup' -count=1；页面交互用无头 Chrome 驱动 markdown.js 断言折叠、跳转、键盘、虚拟化、当前章节高亮、宽页正文避让与窄页不透明浮层。",
   "legacy": {
     "revision": "5a54c41aa37a4e6e6b68918a4b05765b9dd07a36",
     "macos": {
@@ -51,5 +55,5 @@
       "verificationStatus": "not-applicable"
     }
   },
-  "notes": "Viva：标签栏模式切换前的“目录”按钮（可展开样式，打开时高亮）。有系统 web 引擎（macOS WKWebView、Windows WebView2）时，大纲画在 web view 页内：页面从渲染结果的标题（带源码行）建树，右上角浮动面板，固定行高虚拟化，只创建视口附近的行；折叠状态按父级、层级、文本和同名序号组成的稳定键保存，重新渲染后保留；当前章节随页面顶行高亮。宿主用 outline{open} 消息打开或关闭面板，页面内按 Escape 关闭时回报 outline{open:false} 同步按钮。Linux 没有 web 引擎时仍用 Viva 原生弹出列表，按级别缩进，点击或回车跳转并关闭。无标题时不显示按钮。"
+  "notes": "Viva：标签栏模式切换前的“目录”按钮（可展开样式，打开时高亮）。有系统 web 引擎（macOS WKWebView、Windows WebView2）时，大纲画在 web view 页内：页面从渲染结果的标题（带源码行）建树，显示为右侧大纲栏，固定行高虚拟化，只创建视口附近的行；预览宽于 680 像素时正文让出目录栏宽度（与旧 macOS 预览相同），更窄时浮在正文上方，底色用宿主的 --lithe-popup-background，宿主取不透明的 Ground，工作台背景图下也不透字；折叠状态按父级、层级、文本和同名序号组成的稳定键保存，重新渲染后保留；当前章节随页面顶行高亮。宿主用 outline{open} 消息打开或关闭面板，页面内按 Escape 关闭时回报 outline{open:false} 同步按钮。Linux 没有 web 引擎时仍用 Viva 原生弹出列表，按级别缩进，点击或回车跳转并关闭。无标题时不显示按钮。"
 }
