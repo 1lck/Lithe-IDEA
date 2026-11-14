@@ -66,7 +66,9 @@ func (s *Service) settingsEntry(ctx context.Context, id string) (pluginmanager.E
 }
 
 // LoadSettingsEditor captures real sources without creating files or processes.
-func (s *Service) LoadSettingsEditor(ctx context.Context, id, workspace string) (SettingsEditor, error) {
+// language is the interface language tag; translations are read from the
+// installed package, so an empty language keeps manifest text.
+func (s *Service) LoadSettingsEditor(ctx context.Context, id, workspace, language string) (SettingsEditor, error) {
 	if s == nil || s.Settings == nil {
 		return SettingsEditor{}, ErrAssembly
 	}
@@ -92,7 +94,12 @@ func (s *Service) LoadSettingsEditor(ctx context.Context, id, workspace string) 
 			return SettingsEditor{}, err
 		}
 	}
-	snapshot, err := s.Settings.Load(ctx, manifest.Bytes(), workspace)
+	var snapshot pluginsettings.Snapshot
+	if language == "" {
+		snapshot, err = s.Settings.Load(ctx, manifest.Bytes(), workspace)
+	} else {
+		snapshot, err = s.Settings.LoadPresented(ctx, manifest.Bytes(), workspace, pluginsettings.Presentation{Language: language, Package: entry.Installed.Path})
+	}
 	if err != nil {
 		return SettingsEditor{}, err
 	}

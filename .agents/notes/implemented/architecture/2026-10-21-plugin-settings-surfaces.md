@@ -8,7 +8,9 @@ macOS 设置窗口现在可以由插件“注册”页面：插件在 `plugin.js
 
 “立即生效”的设置通过 LSP 的 `workspace/configuration` 推给正在运行的语言服务器，不需要重启。项目级的值写进项目里的 `.lithe/plugin-settings.json`，团队可以通过版本控制共享。
 
-日常开发的直接影响：想给某个语言或构建工具加设置或按钮，改插件清单，不要改宿主。
+设置页的文字由插件包自带的 `l10n/<语言>.json` 翻译。Core 按界面语言挑文件，缺哪条就回退到清单原文；宿主只负责从已安装的包里只读地取文件，不为插件文字维护词条（见决策第 9 节）。
+
+日常开发的直接影响：想给某个语言或构建工具加设置或按钮，改插件清单，不要改宿主；想让插件设置显示中文，在插件包里加语言文件，不要往 `shared/i18n` 加插件的词条。
 
 ## 问题
 
@@ -139,6 +141,23 @@ macOS 保留既有原生控件和主题，只在通用 owner 中修复压缩规�
 传入，不在几何回调里重新加载插件、重建列表或保存宽度。拖动和持久化仍由
 既有 `LitheSplitPaneView` 负责，窄宽切换不替换表单实例。
 
+### 9. 插件包自带的设置文案翻译
+
+设置页上的分组名、设置标题、说明、选项名和按钮名都来自 `plugin.json`，只有插件作者写的一种语言。宿主的 `shared/i18n` 只翻译宿主自己的界面，不为插件文字维护词条：那样宿主就要按插件内容维护特判，第三方插件也拿不到。所以译文由插件包自带，属于 API-37、`pluginAPIVersion` 0 的补充：
+
+- 插件在包里放 `l10n/<语言标签>.json`（例如 `l10n/zh-Hans.json`），按设置 ID、选项值、分组名和按钮 ID 给出译文。格式只由 Core 契约的 `plugin-l10n.schema.json` 和契约 README 定义，宿主不解析这些文件。
+- 读取分两步，都走 `plugins.declarative.settingsState`。第一步宿主只带界面语言，Core 返回候选文件和单文件上限：`zh-Hans` 依次是 `l10n/zh-Hans.json`、`l10n/zh.json`（逐级去掉子标签），上限 1 MiB。第二步宿主把读到的文本按包内路径交回，Core 校验后应用第一个有效文件；某一条缺失或无效时，只有这一条回退到清单原文。Core 返回 `localization.applied` 和 `rejected`，并给出译后的 `state`。
+- 宿主读文件用 `configfile.Capture`（`pluginsettings.Store.LoadPresented`）。根目录是取清单时用的那个已安装插件目录，经 `os.Root` 限定在包内，不跟随指向包外的链接。不存在的候选直接跳过，不算错误；存在但读不了的（例如是目录或没有权限）记进 `Snapshot.LocalizationReadFailures()`，然后继续读下一个候选。保存后的回读带着同一个语言请求，保存之后页面仍显示译文。
+- 已安装的插件包是该插件版本的发行基线，运行时只读。这条功能只读包里的固定文件，不新增写入、缓存、下载或解压位置，不影响代码签名，也不影响 Sparkle delta。`pluginservice` 和 `pluginsettings` 的测试会对比包内文件清单和字节，确认读取前后没有变化。
+
+界面规则：
+
+- 分组标题显示 `state.Sections[].Title`。每行的 `Declaration.Section` 保持清单原文，只作分组键，不能拿来显示。
+- 界面语言改变后，设置页在下一次绘制时用新语言重读（`pluginSettingsForm.follow`）。如果用户有未保存的草稿，先不重读，保留当前文字和草稿；草稿保存或清掉后，再按新语言重读。正确做法：语言切换绝不丢草稿。不要这样做：语言一变就丢掉草稿、重建表单。
+- 按钮的确认弹窗用页面上译后的按钮标题。动作计划里的 `Title` 是清单原文，不能直接显示，否则中文按钮会弹出英文确认框。
+
+日志：页面仍能加载，所以翻译问题记为“部分拒绝”，不是失败。事件是 `app.notification.operation_rejected`（WARN），`operation=plugin_settings_load`，`reason` 三选一：`localization_unreadable`（有候选文件读不了）、`invalid_localization`（Core 拒绝了文件或其中的条目）、`invalid_stored_values`（既有：保存的值无效）。字段都是 Token，不写路径和插件文字。只有整个读取失败时，才走 `app.notification.operation_failed`（`operation=plugin_settings_load`）。
+
 ## 考虑过的备选方案
 
 ### 宿主为常见工具内置设置页
@@ -158,12 +177,25 @@ macOS 保留既有原生控件和主题，只在通用 owner 中修复压缩规�
 
 Swift 和 Windows 各写一遍合并规则最直接，但两边一旦有细微差异，界面显示的值和实际启动使用的值就会不同。所以合并只在 Core 做，宿主只负责存储和显示。
 
+### 宿主词条表翻译插件文字
+
+旧 macOS 客户端的做法是：官方插件的文字以英文原文为键，放进宿主的 `Localizable.strings`。这样第三方插件拿不到翻译，插件改一个字就失效，宿主还要跟着插件内容维护词条。所以不采用，改为插件包自带译文。
+
+### 由 Store 索引提供翻译
+
+译文放在 Store 可以不改插件包。但离线安装和本地开发的插件拿不到，译文也会和已安装的插件版本脱节。所以译文跟着插件包发布，和清单同版本。
+
+### 宿主解析并合并语言文件
+
+Go 端直接读 JSON 再替换文字最省一次 Core 调用。但候选顺序、逐条回退和校验规则都要在 Windows 再写一遍，和“合并只在 Core 做”冲突。所以宿主只负责取字节，由 Core 决定用哪个文件、哪些条目。
+
 ## 后果
 
 - 收益：新语言、新构建工具的设置不需要改宿主；社区插件和官方插件拿到同样的位置。
 - 收益：团队可以通过 `.lithe/plugin-settings.json` 共享项目设置；“立即生效”的选项不再打断语言服务。
 - 代价：宿主无法为某个工具做专门的交互（例如自定义排版）；需要更复杂的界面时，只能扩展通用控件类型，而不是写专用页面。
 - 代价：项目设置文件会出现在用户仓库里，团队需要决定是否提交它。
+- 收益：任何插件都能自带设置文字的翻译，不需要宿主发版。代价：插件作者要自己维护每种语言的文件。语言文件目前只覆盖设置，其它插件文字以后按同一格式扩展。
 - 现有的 Java/Maven 项目设置页（`ProjectRuntimeSettingsView`、`LSPControlCenterView` 中的 Maven 重试）仍是宿主代码，属于历史遗留，后续应迁移到 Java 插件的声明里，不能作为新增特判的先例。
 
 ## 验证
@@ -177,6 +209,11 @@ Swift 和 Windows 各写一遍合并规则最直接，但两边一旦有细微�
 - ~~./scripts/macos/test/test-macos.sh --filter PluginSettingsLayoutTests~~（随旧客户端移除）：480、640、900 点宽的深浅主题下，路径输入框和完整选择按钮都在容器内，按钮可调用选择器并写入所选路径。
 - ~~./scripts/macos/test/test-macos.sh --filter PluginDetailLayoutTests~~（随旧客户端移除）：实际 Java 插件表单在深浅主题中往返缩放，详情边界始终跟随分隔条，窄面板下右侧设置可经原生横向滚动到达。
 - 共享夹具：`Lithe-core-rust/shared/plugins/contract/v1/fixtures/settings/settings.plugin.json`。
+- Core `cargo test -p lithe-plugin-model localization` 与 `cargo test -p lithe-core settings_state_`：候选顺序、上限、逐条回退和拒绝原因；契约用例在 `fixtures/settings/localization-cases.json`。
+- `./scripts/desktop/desktop-go.sh test ./internal/pluginsettings -run 'Presented|Unreadable'`：按契约用例逐条比对 applied/rejected，保存回读保留译文，读不了的候选被跳过并上报，包内容不变。
+- `./scripts/desktop/desktop-go.sh test ./internal/pluginservice -run TestInstalledSettingsEditorTranslatesFromThePackageWithoutWritingIt`：从已安装插件目录取译文，包内文件清单和字节不变。
+- `./scripts/desktop/desktop-go.sh test ./internal/settingswindow -run TestPluginSettingsTextFollowsTheWindowLanguageWithoutDiscardingDrafts`：真实 Core 下切换界面语言，有草稿时不重读，确认弹窗使用译后的标题。
+- `./scripts/desktop/desktop-go.sh test ./internal/workbench -run 'TestPluginSettingsLoadLogsSkippedAndRefusedTranslations|TestLogEventsMatchCatalog'`：两种翻译问题各记一条 WARN，三个 reason 通过 Core 日志目录校验。
 
 ## 适用范围
 
@@ -190,3 +227,9 @@ Swift 和 Windows 各写一遍合并规则最直接，但两边一旦有细微�
 - ~~`macos/Sources/Lithe/Views/Components/LitheSettingsControls.swift`~~（已随 #1794 移除）
 - ~~`macos/Sources/Lithe/Views/App/ContributedSettingsPageView.swift`~~（已随 #1794 移除）
 - `https://github.com/Lithe-IDEA/Lithe-core-rust/blob/main/shared/plugins/contract/v1/README.md`
+- Lithe-core-rust 锁定修订：[rust/crates/plugin-model/src/settings/localization.rs](https://github.com/Lithe-IDEA/Lithe-core-rust/blob/3cff44040167971ea4384393238549d61e77746c/rust/crates/plugin-model/src/settings/localization.rs)
+- Lithe-core-rust 锁定修订：[shared/plugins/contract/v1/plugin-l10n.schema.json](https://github.com/Lithe-IDEA/Lithe-core-rust/blob/3cff44040167971ea4384393238549d61e77746c/shared/plugins/contract/v1/plugin-l10n.schema.json)
+- `desktop/internal/pluginsettings/store.go`（两步读取与包内只读取文件）
+- `desktop/internal/pluginservice/settings_editor.go`（以已安装插件目录作为包根）
+- `desktop/internal/settingswindow/plugin_settings_model.go`、`plugin_settings_view.go`（跟随界面语言、保留草稿、确认标题）
+- `desktop/internal/workbench/settings_plugins.go`（翻译问题的日志）

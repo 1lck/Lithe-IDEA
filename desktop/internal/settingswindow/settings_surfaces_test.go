@@ -159,7 +159,7 @@ type dynamicFormsSource struct {
 	other json.RawMessage
 }
 
-func (s dynamicFormsSource) Load(ctx context.Context, id string) (pluginservice.SettingsEditor, error) {
+func (s dynamicFormsSource) Load(ctx context.Context, id string, _ i18n.Language) (pluginservice.SettingsEditor, error) {
 	manifest := s.manifest
 	if id == "dev.example.settings-other" {
 		manifest = s.other

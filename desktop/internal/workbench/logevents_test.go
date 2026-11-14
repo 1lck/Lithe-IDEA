@@ -77,6 +77,10 @@ func TestLogEventsMatchCatalog(t *testing.T) {
 		{operationFailedLevel, operationFailedEvent, operationFailedFields("editor_preferences", failure)},
 		{operationFailedLevel, operationFailedEvent, operationFailedFields("keymap_schemes", failure)},
 		{operationFailedLevel, operationFailedEvent, operationFailedFields("plugin_settings_surface", failure)},
+		{operationFailedLevel, operationFailedEvent, operationFailedFields("plugin_settings_load", failure)},
+		{core.LevelWarn, pluginSettingsLoadRejectedEvent, pluginSettingsLoadRejected("localization_unreadable")},
+		{core.LevelWarn, pluginSettingsLoadRejectedEvent, pluginSettingsLoadRejected("invalid_localization")},
+		{core.LevelWarn, pluginSettingsLoadRejectedEvent, pluginSettingsLoadRejected("invalid_stored_values")},
 		{core.LevelInfo, "app.action.performed", map[string]any{"action": "settings.openLink", "surface": surfaceButton}},
 	}
 	events := make([]core.LogEvent, len(cases))

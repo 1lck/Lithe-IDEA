@@ -11,6 +11,7 @@ import (
 
 	"github.com/1lck/Lithe-IDEA/desktop/internal/contractfixture"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/core"
+	"github.com/1lck/Lithe-IDEA/desktop/internal/i18n"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/pluginservice"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/pluginsettings"
 )
@@ -136,15 +137,16 @@ func TestPluginSettingsInvalidIntegerDraftStaysUnparsedUntilCoreRejectsSave(t *t
 }
 
 type queuedSettingsLoad struct {
-	id      string
-	ctx     context.Context
-	release chan struct{}
+	id       string
+	language i18n.Language
+	ctx      context.Context
+	release  chan struct{}
 }
 type queuedSettingsSource struct{ requests chan queuedSettingsLoad }
 
-func (s queuedSettingsSource) Load(ctx context.Context, id string) (pluginservice.SettingsEditor, error) {
+func (s queuedSettingsSource) Load(ctx context.Context, id string, language i18n.Language) (pluginservice.SettingsEditor, error) {
 	release := make(chan struct{})
-	s.requests <- queuedSettingsLoad{id: id, ctx: ctx, release: release}
+	s.requests <- queuedSettingsLoad{id: id, language: language, ctx: ctx, release: release}
 	<-release // Model a native read completing just after cancellation.
 	return pluginservice.SettingsEditor{Snapshot: pluginsettings.Snapshot{State: core.PluginSettingsState{PluginID: id}}}, nil
 }

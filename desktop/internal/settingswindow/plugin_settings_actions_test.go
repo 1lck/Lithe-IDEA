@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/1lck/Lithe-IDEA/desktop/internal/core"
+	"github.com/1lck/Lithe-IDEA/desktop/internal/i18n"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/pluginservice"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/pluginsettings"
 )
@@ -19,7 +20,7 @@ type actionFormLoader struct {
 	returned chan struct{}
 }
 
-func (s *actionFormLoader) Load(context.Context, string) (pluginservice.SettingsEditor, error) {
+func (s *actionFormLoader) Load(context.Context, string, i18n.Language) (pluginservice.SettingsEditor, error) {
 	return pluginservice.SettingsEditor{}, errors.New("unexpected load")
 }
 func (s *actionFormLoader) Save(context.Context, pluginservice.SettingsEditor, string, []core.PluginSettingEdit) (pluginsettings.SaveResult, error) {

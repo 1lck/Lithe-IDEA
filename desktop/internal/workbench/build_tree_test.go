@@ -216,7 +216,7 @@ type gatedModelKernel struct {
 	release chan struct{}
 }
 
-func (k *gatedModelKernel) ReadPluginSettingsState(context.Context, json.RawMessage, *string, *string) (core.PluginSettingsState, error) {
+func (k *gatedModelKernel) ReadPluginSettingsState(context.Context, json.RawMessage, *string, *string, *core.PluginSettingsLocalizationRequest) (core.PluginSettingsState, error) {
 	return core.PluginSettingsState{}, nil
 }
 

@@ -10,6 +10,7 @@ import (
 
 	"github.com/1lck/Lithe-IDEA/desktop/internal/configfile"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/core"
+	"github.com/1lck/Lithe-IDEA/desktop/internal/i18n"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/pluginservice"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/pluginsettings"
 	"github.com/vivaui/viva/ui"
@@ -83,17 +84,23 @@ type pluginSettingsForm struct {
 	loadEffect     *ui.EffectState[pluginservice.SettingsEditor, int]
 	opEffect       *ui.EffectState[pluginSettingsResult, int]
 	loadKey, opKey int
-	// mu guards what a run reads when it starts, loadID and op, and the cancel of the
-	// operation running: a run may start after the window thread asked for the next one.
-	mu       sync.Mutex
-	loadID   string
-	op       pluginSettingsOp
-	cancelOp context.CancelFunc
-	running  bool
-	id       string
-	loaded   bool
-	failed   error
-	saved    bool
+	// mu guards what a run reads when it starts, loadID, loadLanguage and op, and the
+	// cancel of the operation running: a run may start after the window thread asked for
+	// the next one.
+	mu           sync.Mutex
+	loadID       string
+	loadLanguage i18n.Language
+	op           pluginSettingsOp
+	cancelOp     context.CancelFunc
+	running      bool
+	id           string
+	loaded       bool
+	failed       error
+	saved        bool
+	// language is the interface language the window shows; shown is the one the loaded
+	// editor's plugin text was translated for. They differ after a language change until
+	// the form is clean and idle and reloads.
+	language, shown i18n.Language
 	// scope and both drafts are view state; switching scope does not lose edits.
 	scope    int
 	editor   pluginservice.SettingsEditor
@@ -109,9 +116,9 @@ func newPluginSettingsForm(loader PluginSettingsLoader) *pluginSettingsForm {
 			ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
 			defer cancel()
 			p.mu.Lock()
-			id := p.loadID
+			id, language := p.loadID, p.loadLanguage
 			p.mu.Unlock()
-			return loader.Load(ctx, id)
+			return loader.Load(ctx, id, language)
 		})
 		p.opEffect = ui.NewEffect[pluginSettingsResult, int](p.runOp)
 	}
@@ -168,7 +175,7 @@ func (p *pluginSettingsForm) load(id string) {
 		return
 	}
 	p.mu.Lock()
-	p.loadID = id
+	p.loadID, p.loadLanguage = id, p.language
 	p.mu.Unlock()
 	p.id, p.loaded, p.failed, p.saved = id, false, nil, false
 	p.running = true
@@ -216,6 +223,15 @@ func (p *pluginSettingsForm) applyOp(result pluginSettingsResult) {
 		}
 		plan := result.action.Plan
 		if result.err == nil && plan.Kind == "confirmationRequired" {
+			// The plan carries the manifest's title; the dialog names the action the way
+			// its button does, in the editor's translation. No reload replaces the editor
+			// while an action runs, so it is the one the action was planned from.
+			for _, action := range p.editor.Snapshot.State.Actions {
+				if action.ID == plan.ActionID {
+					plan.Title = action.Title
+					break
+				}
+			}
 			p.actionConfirmation = &plan
 			p.confirmOpen = true
 		}
@@ -251,7 +267,9 @@ func (p *pluginSettingsForm) applyLoad(editor pluginservice.SettingsEditor, err 
 	if err != nil {
 		return
 	}
-	p.editor, p.loaded = editor, true
+	// Only the window thread writes loadLanguage, and a result of an earlier load is
+	// dropped before it gets here, so this is the language the editor was read in.
+	p.editor, p.loaded, p.shown = editor, true, p.loadLanguage
 	p.applyScope(0)
 	p.applyScope(1)
 	p.layoutRows()
@@ -444,6 +462,18 @@ func (p *pluginSettingsForm) sourceChanged() {
 	if !p.running && !p.hasDraft() {
 		p.load(p.id)
 	}
+}
+
+// follow keeps the plugin's own text in the window's language. A form that has a draft
+// or a request running keeps its text, so a language change never discards an edit; it
+// reloads once it is clean. The language check comes first, so a settled form costs one
+// comparison per paint.
+func (p *pluginSettingsForm) follow(language i18n.Language) {
+	p.language = language
+	if p.shown == language || !p.loaded || p.running || p.hasDraft() {
+		return
+	}
+	p.load(p.id)
 }
 
 // Leaving a surface dismisses transient dialogs, while retaining the drafts for the next

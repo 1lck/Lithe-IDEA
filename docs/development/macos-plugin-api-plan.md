@@ -59,7 +59,7 @@ Windows 不在本轮，平台矩阵的 partial/pending 保持真实。
 | API-34 | 未做 | 插件公共 IDE/AI/MCP 授权面未开放；独立 broker 不能直接转授 |
 | API-35 | 第一阶段进行中 | 第一阶段是 Java 拆分所需的 Core 中转插件函数调用（插件 1 → Core → 插件 2，C-IMPORT，进行中，不是安装依赖）；依赖/导出安装闭包、版本求解、远程 Provider 剩余接续未完成 |
 | API-36 | 未做 | WASM/WASI 非本轮前置，未引入运行时 |
-| API-37 | 部分完成 | getCapabilities 提供协议/方法/预算/后端执行位置；语言包与环境/主题事件未做；Java 拆分：界面语言走本项的环境信息，不在 workspace context 里加 locale |
+| API-37 | 部分完成 | getCapabilities 提供协议/方法/预算/后端执行位置；插件设置文字的包内语言文件 `l10n/<语言>.json` 已做（`pluginAPIVersion` 0 补充，Core #36；桌面端只读地从已安装包取文件，按界面语言重读且保留草稿）；其它插件文字的语言包与环境/主题事件未做；Java 拆分：界面语言走本项的环境信息，不在 workspace context 里加 locale |
 | API-38 | 未做 | 通用受管 fetch/download 未开放 |
 | API-39 | 未做 | 通用 authentication session/provider 未开放 |
 | API-40 | 部分完成 | 上下文携带 local/remote；新文件/编辑器服务对 remote 明确拒绝，非远程执行实现 |
@@ -256,7 +256,7 @@ Mac 当前声明的能力版本为：`backend:1`、`buildModelInputs:1`、`build
 
 | ID / 方向 | 候选能力与现状/所有者 | 权限、作用域与验收 | 阶段 |
 | --- | --- | --- | --- |
-| API-37 H/E | `environment.getInfo`、插件语言包/`l10n`、语言/主题变化；已有应用语言和主题 owner [S16/S19] | 只返回必要的产品/能力/界面语言信息，不导出进程环境、HOME 或账号；宿主文案走共享 i18n，插件文案用自己的包内语言资源并明确回退 | M1：最低能力信息；后续：完整语言包；Java 拆分：沿用本项，不加 locale 字段 |
+| API-37 H/E | `environment.getInfo`、插件语言包/`l10n`、语言/主题变化；已有应用语言和主题 owner [S16/S19] | 只返回必要的产品/能力/界面语言信息，不导出进程环境、HOME 或账号；宿主文案走共享 i18n，插件文案用自己的包内语言资源并明确回退 | M1：最低能力信息；已做：插件设置的包内语言文件；后续：其它插件文字的语言包与切语言事件；Java 拆分：沿用本项，不加 locale 字段 |
 | API-38 H | 可选受管 `network.fetch/download`；现有 HTTP adapter 服务具体业务，不是通用插件 API [S19] | 单独声明网络目标与授权；限制重定向、协议、内网目标、响应大小和超时，不转授宿主 cookie/代理凭据。下载只到平台可写临时目录，校验后显式交付，不能自动执行 | 后续 |
 | API-39 H/P/E | 可选 `authentication.getSession/registerProvider` 与登录变化；已有 GitHub/Agent 专属账号流程 [S19] | 凭据存储不是“读取 IDE 账号”权限；须按插件、服务、账号、scope 显式授权，撤销和注销可见，复用系统浏览器/Keychain，不向任意插件提供宿主 GitHub 或 Agent token | 后续，独立安全评审 |
 

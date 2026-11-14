@@ -407,7 +407,7 @@ func TestLoadLanguagesRefusesAnEscapingGrammarPath(t *testing.T) {
 
 // These package-assembly tests use minimal manifests, not declaration rules.
 // Settings-specific tests override this method with the real Core bridge.
-func (k *fakeKernel) ReadPluginSettingsState(context.Context, json.RawMessage, *string, *string) (core.PluginSettingsState, error) {
+func (k *fakeKernel) ReadPluginSettingsState(context.Context, json.RawMessage, *string, *string, *core.PluginSettingsLocalizationRequest) (core.PluginSettingsState, error) {
 	return core.PluginSettingsState{}, nil
 }
 

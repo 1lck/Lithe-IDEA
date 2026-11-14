@@ -186,8 +186,10 @@ type ToolchainLoader interface {
 }
 
 // PluginSettingsLoader reads and publishes captured native sources off the UI thread.
+// Load translates the plugin's own text for the language; a save's readback keeps the
+// language its editor was loaded in.
 type PluginSettingsLoader interface {
-	Load(context.Context, string) (pluginservice.SettingsEditor, error)
+	Load(context.Context, string, i18n.Language) (pluginservice.SettingsEditor, error)
 	Save(context.Context, pluginservice.SettingsEditor, string, []core.PluginSettingEdit) (pluginsettings.SaveResult, error)
 }
 

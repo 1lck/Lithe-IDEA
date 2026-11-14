@@ -2,7 +2,7 @@
   "id": "declarative-plugin-settings",
   "area": "插件",
   "group": "插件管理",
-  "capability": "声明式插件通过 Core 校验的设置声明提供整数、枚举、布尔、多选、文本、文件和目录设置，支持全局/项目继承、真实来源保存、通用界面、页面/动作注册及 restart/immediate/reload/nextRun 生效；实际启动与运行消费者必须读取同一来源。 声明动作经显式确认、安装/工作区身份复查与 Core 同工作区函数会话选择后调用；支持取消和完成状态，保留未保存草稿。 已启用插件动态贡献语言/构建系统页，同一应用内窗口按原生目录身份接收全局/项目保存通知，独立保留项目覆盖值与未保存草稿。",
+  "capability": "声明式插件通过 Core 校验的设置声明提供整数、枚举、布尔、多选、文本、文件和目录设置，支持全局/项目继承、真实来源保存、通用界面、页面/动作注册及 restart/immediate/reload/nextRun 生效；实际启动与运行消费者必须读取同一来源。 声明动作经显式确认、安装/工作区身份复查与 Core 同工作区函数会话选择后调用；支持取消和完成状态，保留未保存草稿。 已启用插件动态贡献语言/构建系统页，同一应用内窗口按原生目录身份接收全局/项目保存通知，独立保留项目覆盖值与未保存草稿。 插件包可自带 l10n/<语言>.json 翻译设置文字，Core 按界面语言挑选文件并逐条回退到清单原文；切换界面语言后重读文字，但保留未保存草稿。",
   "macos": {
     "implementationStatus": "partial",
     "verificationStatus": "pending",
@@ -37,7 +37,12 @@
       "desktop/internal/workbench/settings_publication.go",
       "desktop/internal/workbench/settings_publication_test.go",
       "desktop/internal/settingswindow/installed_view.go",
-      "desktop/internal/settingswindow/installed_view_test.go"
+      "desktop/internal/settingswindow/installed_view_test.go",
+      "desktop/internal/pluginsettings/localization_test.go",
+      "desktop/internal/settingswindow/plugin_settings_language_test.go",
+      "desktop/internal/workbench/settings_plugins.go",
+      "desktop/internal/workbench/startup_test.go",
+      ".agents/notes/implemented/architecture/2026-10-21-plugin-settings-surfaces.md"
     ]
   },
   "windows": {
@@ -74,11 +79,16 @@
       "desktop/internal/workbench/settings_publication.go",
       "desktop/internal/workbench/settings_publication_test.go",
       "desktop/internal/settingswindow/installed_view.go",
-      "desktop/internal/settingswindow/installed_view_test.go"
+      "desktop/internal/settingswindow/installed_view_test.go",
+      "desktop/internal/pluginsettings/localization_test.go",
+      "desktop/internal/settingswindow/plugin_settings_language_test.go",
+      "desktop/internal/workbench/settings_plugins.go",
+      "desktop/internal/workbench/startup_test.go",
+      ".agents/notes/implemented/architecture/2026-10-21-plugin-settings-surfaces.md"
     ]
   },
   "owner": "Plugin Platform",
-  "verification": "Viva：共享 settings-documents fixture 经真实 Core C ABI 验证类型、作用层、整批拒绝及文档保留；原生来源覆盖权限/元数据、冲突、取消、捕获来源回读、提交后回读失败。Build/Debug 读取实际文件，明确失效路径不能静默回退；Build 全局专属程序不能被项目文件替换。LSP 启动同时传全局/项目设置、初始化选项与 Core 展开的 workspaceConfiguration。真实协议子进程在同一 Core 会话接收更新通知并重新拉取值；保存来源后服务层回读、展开并更新现有会话，损坏来源不推空配置。macOS 有定向测试与真实子进程证据；此前设置动作节点已在 Lithe-dev 通过完整消费者与定向 race；本节点结果按独立报告记录。已安装本地目录独立于商店网络，Core 绑定注册 ID/版本；原生快照拒绝安装替换。七种控件与全局/项目草稿已接线，macOS 无头驱动验证原生文本输入、明确保存回读、冲突保留、重新加载；共享模型验证七种类型及非法整数原文。保存后的即时通知与所属插件模型刷新已接线，旧模型回包不会覆盖待刷新状态，运行任务及无关模型保持。动作原生窗体、重启与完整生效状态、目标平台原生 UI 及正式市场准入尚未验收，宿主仍不声明 settings 2。 动作节点增加：实际按钮确认/取消，草稿不保存；真实提供方函数成功与取消、原进程复用、会话关闭后不可用；拒绝不同工作区/版本/未注册函数，显示版本不可替代私有身份，项目同路径重开不能接受过期动作。 动态页面节点验证 Core 启用过滤、多个贡献者、动作独立页面、搜索保留父节点、作用域/版本通知规则；Viva 验证页面/动作筛选与切页草稿保留；多工作台驱动验证同偏好目录全局通知、同项目通知、项目覆盖隔离、私有身份及旧生命周期拒绝。同一应用进程内通知不代表独立进程实时同步，也不新增多工作台创建入口。 设置列表填满表单标题下的高度、最少 160 像素，窗口放不下时滚动整页而不截断；Viva 无头驱动在最小窗口、800、1000 高度下验证语言页与已安装插件“设置”标签页的列表随窗口等量增长、底部与确定按钮间距不变、最后一项完整显示。",
+  "verification": "Viva：共享 settings-documents fixture 经真实 Core C ABI 验证类型、作用层、整批拒绝及文档保留；原生来源覆盖权限/元数据、冲突、取消、捕获来源回读、提交后回读失败。Build/Debug 读取实际文件，明确失效路径不能静默回退；Build 全局专属程序不能被项目文件替换。LSP 启动同时传全局/项目设置、初始化选项与 Core 展开的 workspaceConfiguration。真实协议子进程在同一 Core 会话接收更新通知并重新拉取值；保存来源后服务层回读、展开并更新现有会话，损坏来源不推空配置。macOS 有定向测试与真实子进程证据；此前设置动作节点已在 Lithe-dev 通过完整消费者与定向 race；本节点结果按独立报告记录。已安装本地目录独立于商店网络，Core 绑定注册 ID/版本；原生快照拒绝安装替换。七种控件与全局/项目草稿已接线，macOS 无头驱动验证原生文本输入、明确保存回读、冲突保留、重新加载；共享模型验证七种类型及非法整数原文。保存后的即时通知与所属插件模型刷新已接线，旧模型回包不会覆盖待刷新状态，运行任务及无关模型保持。动作原生窗体、重启与完整生效状态、目标平台原生 UI 及正式市场准入尚未验收，宿主仍不声明 settings 2。 动作节点增加：实际按钮确认/取消，草稿不保存；真实提供方函数成功与取消、原进程复用、会话关闭后不可用；拒绝不同工作区/版本/未注册函数，显示版本不可替代私有身份，项目同路径重开不能接受过期动作。 动态页面节点验证 Core 启用过滤、多个贡献者、动作独立页面、搜索保留父节点、作用域/版本通知规则；Viva 验证页面/动作筛选与切页草稿保留；多工作台驱动验证同偏好目录全局通知、同项目通知、项目覆盖隔离、私有身份及旧生命周期拒绝。同一应用进程内通知不代表独立进程实时同步，也不新增多工作台创建入口。 设置列表填满表单标题下的高度、最少 160 像素，窗口放不下时滚动整页而不截断；Viva 无头驱动在最小窗口、800、1000 高度下验证语言页与已安装插件“设置”标签页的列表随窗口等量增长、底部与确定按钮间距不变、最后一项完整显示。 插件语言文件：契约 localization-cases 的 13 个用例经真实 Core 逐条比对 applied/rejected；保存回读保留译文；从已安装包读取前后，文件清单与字节不变；Viva 无头驱动验证切换界面语言、有草稿时不重读、确认弹窗用译后的按钮标题；读不了或被拒绝的语言文件各记一条 WARN。",
   "legacy": {
     "revision": "5a54c41aa37a4e6e6b68918a4b05765b9dd07a36",
     "macos": {
@@ -110,5 +120,5 @@
       "verificationStatus": "pending"
     }
   },
-  "notes": "partial 包含原生双层存储、运行消费、离线目录、七类控件、声明动作、动态页面及同一应用内跨窗口通知。语言状态卡、完整 settings v2、独立进程同步及原生产品验收仍 pending；宿主现已声明 settings 2。 Viva 2026-11-14：设置页每项是标题行（标题、ⓘ 说明、重置）加控件行，开关不再重复标题，标题只作无障碍名称；去掉每行常驻的“继承值”说明，作用范围的说明收进范围选择旁的 ⓘ；无效值和仅全局可改两条状态提示保留；自动化：TestPluginSettingsFormEditsOnlyOnExplicitSaveAndPreservesConflictDraft，截图场景 TestVisualPluginSettingsForm。"
+  "notes": "partial 包含原生双层存储、运行消费、离线目录、七类控件、声明动作、动态页面及同一应用内跨窗口通知。语言状态卡、完整 settings v2、独立进程同步及原生产品验收仍 pending；宿主现已声明 settings 2。 Viva 2026-11-14：设置页每项是标题行（标题、ⓘ 说明、重置）加控件行，开关不再重复标题，标题只作无障碍名称；去掉每行常驻的“继承值”说明，作用范围的说明收进范围选择旁的 ⓘ；无效值和仅全局可改两条状态提示保留；自动化：TestPluginSettingsFormEditsOnlyOnExplicitSaveAndPreservesConflictDraft，截图场景 TestVisualPluginSettingsForm。 Viva 2026-11-14：插件设置文字由包内 l10n/<语言>.json 翻译（API-37）。宿主经 configfile 从已安装插件目录只读地取文件，由 Core 选候选并逐条回退。自动化：TestPresentedLoadFollowsContractLocalizationCases、TestInstalledSettingsEditorTranslatesFromThePackageWithoutWritingIt、TestPluginSettingsTextFollowsTheWindowLanguageWithoutDiscardingDrafts、TestPluginSettingsLoadLogsSkippedAndRefusedTranslations；目标平台真机界面验收仍 pending。"
 }

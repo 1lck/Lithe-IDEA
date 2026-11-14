@@ -244,6 +244,7 @@ func (w *window) selectPluginForm(id string) bool {
 	w.formLimitReported = false
 	w.pluginSettings = form
 	w.pluginForms[id] = form
+	form.language = w.marketLanguage()
 	form.load(id)
 	return true
 }

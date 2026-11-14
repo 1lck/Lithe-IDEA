@@ -62,7 +62,7 @@ func TestSettingsActionPlanningRechecksNativeOwnersWithoutPublishing(t *testing.
 			if err != nil {
 				t.Fatal(err)
 			}
-			editor, err := service.LoadSettingsEditor(ctx, "dev.lithe.fixture.settings", workspace)
+			editor, err := service.LoadSettingsEditor(ctx, "dev.lithe.fixture.settings", workspace, "")
 			if err != nil {
 				t.Fatal(err)
 			}
