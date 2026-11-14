@@ -158,6 +158,8 @@ type Kernel interface {
 	GitDeleteTag(ctx context.Context, root, name string) error
 	GitBranchNamePreview(ctx context.Context, request core.BranchNameRequest) (core.BranchNamePreview, error)
 	GitWorktrees(ctx context.Context, root string) ([]core.GitWorktree, error)
+	GitWorktreesWithChanges(ctx context.Context, root string) ([]core.GitWorktree, error)
+	GitWorktreeCreationPreview(ctx context.Context, input core.GitWorktreeCreationInput) (core.GitWorktreeCreationPreview, error)
 	GitCreateWorktree(ctx context.Context, root string, creation core.GitWorktreeCreation) error
 	GitRemoveWorktree(ctx context.Context, root, path string, force bool) error
 	GitLockWorktree(ctx context.Context, root, path string) error
