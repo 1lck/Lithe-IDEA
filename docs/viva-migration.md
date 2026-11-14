@@ -363,7 +363,7 @@
 | `editor-line-operations` | 行注释、复制、删除与上下移动 | 必须迁移 | 本分支新增 | 完成 | — |
 | `vim-mode` | Vim 模式与命令状态 | 必须迁移 | 缺/实现 | 完成 | `workbench/vim_mode.go` |
 | `lsp-status-logs` | LSP 状态栏控制与按服务器查看日志 | 必须迁移 | 实现/缺 | 部分 | — |
-| `embedded-viewers` | HTML、SVG、媒体、PDF 与二进制预览 | 必须迁移 | 实现/实现 | 未开始 | — |
+| `embedded-viewers` | HTML、SVG、媒体、PDF 与二进制预览 | 必须迁移 | 实现/实现 | 部分 | `workbench/viewer_web.go`、`svg_preview.go`、`html_preview.go`；音视频播放未做 |
 
 ### 设置（3）
 
@@ -525,7 +525,7 @@ MCP 管理随 Agent 对话失去消费者后，本轮整块删除，后续重新
 | 单实例与项目窗口注册 | Windows `tauri_plugin_single_instance`、`project_window_registry.rs`；macOS `MacProcessLifecycle.swift` | 必须迁移 | 未找到；`workspace-open-switch` 当前只保留一个项目 |
 | 崩溃报告收集 | macOS `MacCrashReportCollector.swift` | 平台专属（macOS） | 未找到（`signal_guard_darwin.go` 仅为信号保护） |
 | Git Shelf（搁置） | macOS `ShelveService.swift`；Windows `shelf_storage.rs` | 必须迁移 | 未找到 |
-| HTML 预览打印/缩放 | macOS `HTMLPreviewPrint.swift`、`HTMLPreviewZoom.swift` | 放弃（依赖 WebKit，Viva 无嵌入网页；2026-11-10 确认） | 未找到 |
+| HTML 预览打印/缩放 | macOS `HTMLPreviewPrint.swift`、`HTMLPreviewZoom.swift` | 放弃（2026-11-10 确认；当时 Viva 无嵌入网页。2026-11-14 起 Viva 有 HTML 预览，但 web view 没有打印和页面缩放接口，需要时先在 Viva fork 补接口） | 未找到 |
 | 开发版配置迁入（Dev 取 Stable 配置） | macOS `MacDevelopmentProfileMigration.swift`；Windows `profile_migration.rs` | 放弃（内部并行试用用；新客户端与旧 Lithe 的关系见下文数据清单开头） | 未找到 |
 
 ## 旧客户端数据来源清单

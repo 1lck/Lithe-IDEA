@@ -11,15 +11,17 @@ import (
 )
 
 // The editor area shows some files in a web view of the system's engine, through the pages of
-// package webpreview: the rendered page of a Markdown file (markdown_web.go), and the viewer of
-// an image, an SVG or a PDF file (viewer_web.go).
+// package webpreview: the rendered page of a Markdown file (markdown_web.go), the viewer of an
+// image, an SVG or a PDF file (viewer_web.go), and an HTML file with its site (html_preview.go).
 //
 // A page lives while what it shows is open. A paint that does not declare it hides it, as when
 // its tab is not selected, and the page keeps its place and its layout, so the tab shows it as it
 // was when it is selected again. Past previewPagesKept hidden pages, the one shown longest ago
 // closes, and opens again when its tab comes back. Before the window's web host is ready, where
 // the system has no web engine (Linux), and once a page could not be opened, the editor shows its
-// native preview instead.
+// native preview instead. An HTML file's page needs more of the engine than the others (a store
+// of its own that keeps nothing); where it cannot be opened, HTML files alone are text from then
+// on.
 //
 // Note: the decision is recorded in
 // .agents/notes/implemented/architecture/2026-11-14-web-view-previews.md
@@ -34,6 +36,9 @@ type previewView interface {
 	Send(message any)
 	SetDocument(data []byte, mime string)
 	FileURL() string
+	Reload()
+	Back()
+	Forward()
 	Close()
 }
 
@@ -42,8 +47,9 @@ type previewPages struct {
 	list []*previewPage
 	// frame counts the paints; a page's shown is the paint that declared it last.
 	frame uint64
-	// failed says a page could not be opened: the previews are native from then on.
-	failed bool
+	// failed says a page could not be opened: the previews are native from then on. siteFailed
+	// says an HTML file's page could not: HTML files are text from then on.
+	failed, siteFailed bool
 	// remote fetches the web images of every Markdown page, native or not.
 	remote *webpreview.Remote
 	// open opens a page; nil is webpreview.Open. Tests replace it.
@@ -106,7 +112,11 @@ func (a *App) openPreviewPage(config webpreview.Config, alive func() bool) *prev
 	}
 	view, err := open(config)
 	if err != nil {
-		a.previews.failed = true
+		if config.Page == webpreview.SitePage {
+			a.previews.siteFailed = true
+		} else {
+			a.previews.failed = true
+		}
 		a.emit(operationFailedLevel, operationFailedEvent, operationFailedFields("web_preview_open", err))
 		return nil
 	}

@@ -26,7 +26,10 @@ type fakePreview struct {
 	ready     bool
 	sent      []any
 	documents [][]byte
+	mimes     []string
 	closed    bool
+	// reloads, backs and forwards count what the host asked of the page's history.
+	reloads, backs, forwards int
 }
 
 func (f *fakePreview) ID() gfx.NativeViewID { return f.id }
@@ -42,9 +45,14 @@ func (f *fakePreview) Send(message any) {
 	}
 }
 
-func (f *fakePreview) SetDocument(data []byte, _ string) {
+func (f *fakePreview) SetDocument(data []byte, mime string) {
 	f.documents = append(f.documents, data)
+	f.mimes = append(f.mimes, mime)
 }
+
+func (f *fakePreview) Reload()  { f.reloads++ }
+func (f *fakePreview) Back()    { f.backs++ }
+func (f *fakePreview) Forward() { f.forwards++ }
 
 // load is the page finishing loading: it is ready and says so.
 func (f *fakePreview) load() {

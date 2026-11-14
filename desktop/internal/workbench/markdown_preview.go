@@ -46,8 +46,8 @@ const (
 	markdownContentsIndent = 12
 )
 
-// pageMode is how the tab of a file with a page shows it, a Markdown file or an SVG file
-// (svg_preview.go): its source, the page, or both. The zero mode, both side by side, is how a
+// pageMode is how the tab of a file with a page shows it, a Markdown, an SVG (svg_preview.go)
+// or an HTML file (html_preview.go): its source, the page, or both. The zero mode, both side by side, is how a
 // file opens.
 type pageMode uint8
 

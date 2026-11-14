@@ -105850,6 +105850,41 @@
       "platforms": [
         "desktop"
       ]
+    },
+    {
+      "id": "desktop.htmlPreview.back",
+      "description": "HTML preview bar: button that goes back in the page's history",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.htmlPreview.forward",
+      "description": "HTML preview bar: button that goes forward in the page's history",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.htmlPreview.reload",
+      "description": "HTML preview bar: button that loads the page again",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.htmlPreview.tooLarge",
+      "description": "HTML preview beside the editor: shown instead of the page when the text is too large",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.htmlPreview.failed",
+      "description": "HTML preview beside the editor: shown instead of the page when the folder it is served from could not be found",
+      "platforms": [
+        "desktop"
+      ]
     }
   ]
 }
