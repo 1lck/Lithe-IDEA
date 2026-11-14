@@ -117,6 +117,9 @@ type vcsState struct {
 	failure   string
 	// sessions are the provider sessions the project started, nil until the first starts.
 	sessions *vcsRuntime
+	// launches survives catalog refreshes, so a pending refresh cannot reopen
+	// admission while uninstall is waiting for the old native sessions.
+	launches *pluginLaunches
 	// views are the view of each window, by its chrome identifier.
 	views map[string]*vcsView
 }
@@ -341,9 +344,10 @@ func (s *vcsState) rejection(plugin string) string {
 
 // vcsRuntime holds the provider sessions of one project, one per provider.
 type vcsRuntime struct {
-	mu      sync.Mutex
-	clients map[string]*buildprovider.Client
-	closed  bool
+	launches *pluginLaunches
+	mu       sync.Mutex
+	clients  map[string]*buildprovider.Client
+	closed   bool
 }
 
 // errVcsNotNegotiated is a session that started without negotiating the provider it was started
@@ -367,7 +371,12 @@ func (r *vcsRuntime) live(key string) *buildprovider.Client {
 // negotiate the window's provider is stopped and refused, as the contract asks. The process starts
 // outside the lock, so detaching on the window thread never waits for a start; a start that lost
 // to another one or to detaching is stopped again.
-func (r *vcsRuntime) session(ctx context.Context, runner *pluginbackend.Runner, pluginRoot, root, rootURI string, window vcsWindow, settings core.PluginSettingsState) (*buildprovider.Client, error) {
+func (r *vcsRuntime) session(ctx context.Context, runner *pluginbackend.Runner, pluginRoot, root, rootURI string, window vcsWindow, settings core.PluginSettingsState) (client *buildprovider.Client, err error) {
+	ctx, finish, err := r.launches.begin(ctx, window.PluginID)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { finish(err) }()
 	key := window.PluginID + "\x00" + window.Vcs
 	r.mu.Lock()
 	closed, client := r.closed, r.clients[key]
@@ -408,11 +417,12 @@ func (r *vcsRuntime) session(ctx context.Context, runner *pluginbackend.Runner, 
 		return nil, err
 	}
 	if vcs, _, ok := started.VcsProvider(); !ok || vcs != window.Vcs {
-		_ = started.Close(ctx)
-		return nil, errVcsNotNegotiated
+		stopCtx, cancel := context.WithTimeout(context.Background(), vcsStopTimeout)
+		defer cancel()
+		return nil, errors.Join(errVcsNotNegotiated, started.Close(stopCtx))
 	}
 	r.mu.Lock()
-	closed, client = r.closed, r.clients[key]
+	closed, client = r.closed || ctx.Err() != nil, r.clients[key]
 	if !closed && (client == nil || client.Closed()) {
 		if r.clients == nil {
 			r.clients = map[string]*buildprovider.Client{}
@@ -422,7 +432,11 @@ func (r *vcsRuntime) session(ctx context.Context, runner *pluginbackend.Runner, 
 		return started, nil
 	}
 	r.mu.Unlock()
-	_ = started.Close(ctx)
+	stopCtx, cancel := context.WithTimeout(context.Background(), vcsStopTimeout)
+	defer cancel()
+	if err := started.Close(stopCtx); err != nil {
+		return nil, err
+	}
 	if closed {
 		return nil, buildprovider.ErrClosed
 	}
@@ -447,7 +461,10 @@ func (r *vcsRuntime) detach(closing bool) []*buildprovider.Client {
 // runtime is the project's sessions, made on first use.
 func (s *vcsState) runtime() *vcsRuntime {
 	if s.sessions == nil {
-		s.sessions = &vcsRuntime{}
+		if s.launches == nil {
+			s.launches = &pluginLaunches{}
+		}
+		s.sessions = &vcsRuntime{launches: s.launches}
 	}
 	return s.sessions
 }
@@ -470,7 +487,7 @@ func (a *App) invalidateVcs(p *project) {
 	if p.vcs.sessions != nil {
 		a.closeVcsSessions(p.vcs.sessions.detach(true))
 	}
-	p.vcs = vcsState{generation: p.vcs.generation + 1}
+	p.vcs = vcsState{generation: p.vcs.generation + 1, launches: p.vcs.launches}
 }
 
 // closeVcsSessions closes clients on a background task with a bounded wait.

@@ -8,8 +8,9 @@ import (
 	"github.com/1lck/Lithe-IDEA/desktop/internal/i18n"
 )
 
-// HTML and SVG files are text the editor edits; what they look like is shown by the system
-// browser, as IntelliJ IDEA's "Open in Browser" does. The file on disk is opened, so unsaved
+// HTML and SVG files are text the editor edits; where the system has a web engine, what they look
+// like is also shown beside the text (html_preview.go, svg_preview.go). "Open in Browser" shows
+// the file in the system browser, as IntelliJ IDEA's does. The file on disk is opened, so unsaved
 // changes are saved first.
 
 // browserExtensions are the files a browser shows.

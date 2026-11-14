@@ -259,8 +259,12 @@ type debugSession struct {
 	created        bool
 	operationMu    sync.Mutex
 	cleanupOnce    sync.Once
-	writeMu        sync.Mutex
-	cancel         context.CancelFunc
+	// cleanupDone publishes native teardown completion independently of the UI
+	// callback, so uninstall can wait before removing an adapter's package.
+	cleanupDone chan struct{}
+	cleanupErr  error
+	writeMu     sync.Mutex
+	cancel      context.CancelFunc
 	// stopped is set when Stop or project close already took the session apart.
 	stopped atomic.Bool
 	// muted is the project's mute switch as this session should have it; written on the
@@ -809,6 +813,9 @@ func (a *App) stopDebugByUser(p *project) {
 // after startup returned, so cancellation cannot race a late session creation.
 // Note: Run 进程所有权见 .agents/notes/implemented/bug-fix/2026-11-13-viva-plugin-run-debug-lifecycle.md。
 func (a *App) releaseDebugSession(p *project, session *debugSession) {
+	if session.cleanupDone == nil {
+		session.cleanupDone = make(chan struct{})
+	}
 	session.cleanupOnce.Do(func() {
 		// A child that ends before its start was answered fails the parent's request.
 		a.answerChildStart(p, session, false, a.text.Debug.Child.Stopped)
@@ -829,6 +836,7 @@ func (a *App) releaseDebugSession(p *project, session *debugSession) {
 		}
 		// Cleanup belongs to the app, not the now-cancelled project.
 		a.background(nil, 0, func(_ context.Context) func(*App) {
+			defer close(session.cleanupDone)
 			if session.ended != nil {
 				// The run that stands for the session ends once it is fully released.
 				defer func() { session.ended <- session.exitCode.Load() }()
@@ -869,6 +877,7 @@ func (a *App) releaseDebugSession(p *project, session *debugSession) {
 			if session.stateDirectory != "" {
 				cleanupErr = errors.Join(cleanupErr, os.RemoveAll(session.stateDirectory))
 			}
+			session.cleanupErr = cleanupErr
 			return func(a *App) {
 				a.releaseChildSessions(p, children, destroyed)
 				if cleanupErr != nil {

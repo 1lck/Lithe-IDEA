@@ -32,10 +32,11 @@ PINNED_CORE_REPOSITORY="https://github.com/Lithe-IDEA/Lithe-core-rust.git"
 # sorts the native process table into the parts of a Lithe instance (main process, language
 # servers, plugin services, their child processes and the system helpers macOS holds the main
 # process responsible for) for the memory details of the status bar. It is on top of #42,
-# squash-merged into main: htmlPreview decides the site root of an HTML file preview and what each
-# request serves. It is on top of #41, squash-merged into main: markdown.outline outlines the
-# headings of Markdown source as a document-symbol tree for the Structure tool window. It is on
-# top of #40, squash-merged into main: the update.delta.cleanup_failed event, which the
+# squash-merged into main: htmlPreview.site names the folder an HTML file is previewed from as a
+# static site, and htmlPreview.resolveRequest decides what each request of the preview serves. It
+# is on top of #41, squash-merged into main: markdown.outline outlines the headings of Markdown
+# source as a document-symbol tree for the Structure tool window. It is on top of #40,
+# squash-merged into main: the update.delta.cleanup_failed event, which the
 # desktop logs when it cannot remove the application a delta update rebuilt in the temporary
 # directory. It is on top of #39, squash-merged into main: plugins.installed.lifecycle keeps one
 # enabled plugin per language server language; installed versions carry languageServers, and

@@ -204,6 +204,7 @@ func (a *App) attachProcess(p *project, op *buildOperation, process *buildproces
 // buildRuntime owns provider sessions for one project. A session is keyed by
 // plugin and build system, so two projects never share a process.
 type buildRuntime struct {
+	launches  pluginLaunches
 	mu        sync.Mutex
 	providers map[string]*buildprovider.Client
 	// shared maps a plugin and language to the client attached to that
@@ -220,7 +221,7 @@ type buildRuntime struct {
 // to another one or to a detach is stopped again.
 func (r *buildRuntime) provider(ctx context.Context, runner *pluginbackend.Runner, pluginRoot, root, rootURI string, instance buildInstance, settings core.PluginSettingsState) (*buildprovider.Client, error) {
 	key := instance.PluginID + "\x00" + instance.BuildSystemID
-	errClosing := errors.New("the project is closing")
+	errClosing := buildprovider.ErrClosed
 	r.mu.Lock()
 	closed, client, detached := r.closed, r.providers[key], r.detached
 	r.mu.Unlock()
@@ -263,7 +264,7 @@ func (r *buildRuntime) provider(ctx context.Context, runner *pluginbackend.Runne
 		return nil, err
 	}
 	r.mu.Lock()
-	current := !r.closed && r.detached == detached
+	current := !r.closed && r.detached == detached && ctx.Err() == nil
 	client = r.providers[key]
 	if current && (client == nil || client.Closed()) {
 		if r.providers == nil {
@@ -274,7 +275,11 @@ func (r *buildRuntime) provider(ctx context.Context, runner *pluginbackend.Runne
 		return started, nil
 	}
 	r.mu.Unlock()
-	_ = started.Close(ctx)
+	stopCtx, cancel := context.WithTimeout(context.Background(), buildStopTimeout)
+	defer cancel()
+	if err := started.Close(stopCtx); err != nil {
+		return nil, err
+	}
 	if !current {
 		return nil, errClosing
 	}
@@ -314,7 +319,12 @@ func buildStateDirectory(pluginRoot, workspace string, instance buildInstance) s
 
 // buildProvider starts a provider process, or attaches to the language server
 // that shares it. The caller runs this away from the window thread.
-func (a *App) buildProvider(ctx context.Context, p *project, instance buildInstance) (*buildprovider.Client, error) {
+func (a *App) buildProvider(ctx context.Context, p *project, instance buildInstance) (client *buildprovider.Client, err error) {
+	ctx, finish, err := p.buildSessions.launches.begin(ctx, instance.PluginID)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { finish(err) }()
 	settings, err := a.loadPluginPreferenceSources(ctx, instance.Manifest, p.root)
 	if err != nil {
 		return nil, err
@@ -323,7 +333,7 @@ func (a *App) buildProvider(ctx context.Context, p *project, instance buildInsta
 	if err != nil {
 		return nil, err
 	}
-	client, err := p.buildSessions.provider(ctx, a.plugins.Backend, a.plugins.Root, p.root, rootURI, instance, settings.State)
+	client, err = p.buildSessions.provider(ctx, a.plugins.Backend, a.plugins.Root, p.root, rootURI, instance, settings.State)
 	var shared *pluginbackend.SharedProviderError
 	if !errors.As(err, &shared) {
 		return client, err

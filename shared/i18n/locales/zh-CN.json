@@ -11141,7 +11141,12 @@
     "desktop.viewer.imageFailed": "无法载入此图片",
     "desktop.viewer.close": "关闭",
     "desktop.viewer.tooLarge": "此文件过大，无法在此显示，请用系统默认应用打开。",
-    "desktop.svg.tooLarge": "此 SVG 文件过大，无法预览。"
+    "desktop.svg.tooLarge": "此 SVG 文件过大，无法预览。",
+    "desktop.htmlPreview.back": "后退",
+    "desktop.htmlPreview.forward": "前进",
+    "desktop.htmlPreview.reload": "重新加载",
+    "desktop.htmlPreview.tooLarge": "此 HTML 文件过大，无法预览。",
+    "desktop.htmlPreview.failed": "无法预览此 HTML 文件。"
   },
   "overrides": {
     "macos": {

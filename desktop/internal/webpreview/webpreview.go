@@ -1,5 +1,6 @@
 // Package webpreview opens the pages the editor area shows in a web view: the rendered page of a
-// Markdown file, the viewer of an image or an SVG file, and a PDF document.
+// Markdown file, the viewer of an image or an SVG file, a PDF document, and an HTML file with its
+// site (site.go).
 //
 // The pages and the scripts they use are embedded in the application and served through the
 // "lithe-preview" scheme, one scheme server per page. What a page is served of the user's files
@@ -9,8 +10,9 @@
 // opens the link elsewhere; a page opens no window and downloads nothing.
 //
 // Nothing is written: the pages are read from the binary, the user's files are read and answered
-// with Cache-Control: no-store, and the pages are not ephemeral, since an ephemeral WebView2 page
-// leaves a profile folder behind for each page.
+// with Cache-Control: no-store, and these pages are not ephemeral, since an ephemeral WebView2
+// page leaves a profile folder behind for each page. The site page is the exception: it runs the
+// user's own scripts, so what they keep must stay apart from every other page.
 //
 // Note: the decision is recorded in
 // .agents/notes/implemented/architecture/2026-11-14-web-view-previews.md
@@ -53,6 +55,18 @@ const (
 	// PDFPage is a PDF file, shown by the web engine's own viewer.
 	PDFPage = "file"
 )
+
+// webView is the engine's page; *app.WebView is one, and tests stand in for it.
+type webView interface {
+	ID() gfx.NativeViewID
+	Load(url string)
+	Reload()
+	Back()
+	Forward()
+	Eval(script string)
+	PostMessage(text string)
+	Close()
+}
 
 const (
 	// fileRoute serves the viewer's file; a name may follow it, for the PDF viewer's title.
@@ -108,7 +122,7 @@ type Message struct {
 type Config struct {
 	// Host opens the web view.
 	Host *app.WebHost
-	// Page is MarkdownPage, ImagePage or PDFPage.
+	// Page is MarkdownPage, ImagePage, PDFPage or SitePage.
 	Page string
 	// File is the file a viewer shows: an image for ImagePage without a document, a PDF for
 	// PDFPage. FileLimit bounds what is read of it.
@@ -123,20 +137,29 @@ type Config struct {
 	// Follow receives the address of a navigation the user started away from the page, such as
 	// a link in a PDF, on the window's thread. The page stays where it is.
 	Follow func(address string)
+	// Address is the HTML file's address from the root of its site, as Core gives it
+	// (core.HTMLPreviewSite), for SitePage.
+	Address string
+	// Request answers what a request of the site page serves, from its decoded path from the
+	// root (core.Client.ResolveHTMLPreviewRequest); nil serves the file alone.
+	Request func(ctx context.Context, path string) (core.HTMLPreviewResource, error)
 	// Log reports a failure of the page's resources; nil logs to slog.
 	Log func(stage string, err error)
 }
 
 // Page is one open page.
 type Page struct {
-	view   *app.WebView
+	view   webView
 	config Config
 	ctx    context.Context
 	cancel context.CancelFunc
 	ready  bool
-	// document and documentMIME are what documentRoute serves.
+	// document and documentMIME are what documentRoute serves, or the site page's file.
 	document     []byte
 	documentMIME string
+	// site is what the site page follows of its main frame; now, when set, is its clock.
+	site siteState
+	now  func() time.Time
 }
 
 // Open opens a page. It fails with app.ErrUnsupported where the platform has no web engine.
@@ -145,19 +168,27 @@ func Open(config Config) (*Page, error) {
 		return nil, errors.New("webpreview: no web host")
 	}
 	switch config.Page {
-	case MarkdownPage, ImagePage, PDFPage:
+	case MarkdownPage, ImagePage, PDFPage, SitePage:
 	default:
 		return nil, errors.New("webpreview: unknown page " + config.Page)
 	}
 	ctx, cancel := context.WithCancel(context.Background())
 	p := &Page{config: config, ctx: ctx, cancel: cancel}
-	view, err := config.Host.Open(app.WebViewConfig{
+	web := app.WebViewConfig{
 		URL:                 p.address(),
 		Scheme:              &app.WebScheme{Name: SchemeName, ServeAsync: p.serve},
 		OnMessage:           p.receive,
 		Navigate:            p.navigate,
 		BridgeMainFrameOnly: true,
-	})
+	}
+	if config.Page == SitePage {
+		web.Scheme = &app.WebScheme{Name: SiteScheme, ServeAsync: p.serveSite}
+		web.Navigate = p.navigateSite
+		web.NewWindow = p.newWindow
+		web.OnLoad = p.siteLoaded
+		web.Ephemeral = true
+	}
+	view, err := config.Host.Open(web)
 	if err != nil {
 		cancel()
 		return nil, err
@@ -169,7 +200,8 @@ func Open(config Config) (*Page, error) {
 // ID names the page for ui.Element.NativeView.
 func (p *Page) ID() gfx.NativeViewID { return p.view.ID() }
 
-// Ready reports whether the page's script takes messages.
+// Ready reports whether the page's script takes messages. The site page's scripts are the
+// user's, so it never is.
 func (p *Page) Ready() bool { return p.ready }
 
 // Send posts a message to the page as JSON. It is dropped until the page is ready: the host sends
@@ -186,9 +218,39 @@ func (p *Page) Send(message any) {
 	p.view.PostMessage(string(text))
 }
 
-// SetDocument replaces the buffer an SVG viewer is served; the page loads it when told to.
+// SetDocument replaces the buffer an SVG viewer is served, which the page loads when told to, or
+// the site page's file, which the page shows at once when it shows the file.
 func (p *Page) SetDocument(data []byte, mime string) {
 	p.document, p.documentMIME = data, mime
+	if p.config.Page == SitePage {
+		p.site.version++
+		p.refresh()
+	}
+}
+
+// Reload loads the page again; the site page keeps where it is scrolled.
+func (p *Page) Reload() {
+	if p.view == nil {
+		return
+	}
+	if p.config.Page == SitePage {
+		p.reloadSite()
+		return
+	}
+	p.view.Reload()
+}
+
+// Back and Forward move through the page's history.
+func (p *Page) Back() {
+	if p.view != nil {
+		p.view.Back()
+	}
+}
+
+func (p *Page) Forward() {
+	if p.view != nil {
+		p.view.Forward()
+	}
 }
 
 // FileURL is the address of the viewer's file, ending in its name.
@@ -196,10 +258,14 @@ func (p *Page) FileURL() string {
 	return Origin + fileRoute + "/" + url.PathEscape(filepath.Base(p.config.File))
 }
 
-// address is where the page is loaded from: the page itself, or the file for the PDF page.
+// address is where the page is loaded from: the page itself, or the file for the PDF page and
+// the site page.
 func (p *Page) address() string {
-	if p.config.Page == PDFPage {
+	switch p.config.Page {
+	case PDFPage:
 		return p.FileURL()
+	case SitePage:
+		return SiteOrigin + p.config.Address
 	}
 	return Origin + p.config.Page
 }
@@ -217,6 +283,10 @@ func (p *Page) Close() {
 
 // receive decodes what the page posted and hands it to the host.
 func (p *Page) receive(text string) {
+	if p.config.Page == SitePage {
+		p.siteMessage(text)
+		return
+	}
 	var message Message
 	if err := json.Unmarshal([]byte(text), &message); err != nil || message.Type == "" {
 		return

@@ -11141,7 +11141,12 @@
     "desktop.viewer.imageFailed": "Could not load this image",
     "desktop.viewer.close": "Close",
     "desktop.viewer.tooLarge": "This file is too large to show here. Open it in the system's default application.",
-    "desktop.svg.tooLarge": "This SVG file is too large to preview."
+    "desktop.svg.tooLarge": "This SVG file is too large to preview.",
+    "desktop.htmlPreview.back": "Back",
+    "desktop.htmlPreview.forward": "Forward",
+    "desktop.htmlPreview.reload": "Reload",
+    "desktop.htmlPreview.tooLarge": "This HTML file is too large to preview.",
+    "desktop.htmlPreview.failed": "This HTML file can't be previewed."
   },
   "overrides": {
     "windows": {
