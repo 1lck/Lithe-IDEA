@@ -103068,7 +103068,8 @@
       "description": "Common action: Close.",
       "platforms": [
         "macos",
-        "windows"
+        "windows",
+        "desktop"
       ],
       "macos": {
         "key": "Close",
@@ -106370,6 +106371,121 @@
     {
       "id": "desktop.marketplace.downloadPrompt",
       "description": "Explain download confirmation and when the verified plugin needs install approval",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.marketplace.reviewConsent",
+      "description": "Plugin installation progress or review presentation.",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.marketplace.programDetails",
+      "description": "Plugin installation progress or review presentation.",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "count": "string"
+      }
+    },
+    {
+      "id": "desktop.marketplace.permissionBuild",
+      "description": "Plugin installation progress or review presentation.",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.marketplace.permissionGenerate",
+      "description": "Plugin installation progress or review presentation.",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.marketplace.permissionBackend",
+      "description": "Plugin installation progress or review presentation.",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.marketplace.permissionDebug",
+      "description": "Plugin installation progress or review presentation.",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.marketplace.connecting",
+      "description": "Plugin download stage and installation confirmation guidance.",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.marketplace.installTitle",
+      "description": "Plugin download stage and installation confirmation guidance.",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.marketplace.installHelp",
+      "description": "Plugin download stage and installation confirmation guidance.",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.marketplace.installComplete",
+      "description": "Plugin installation result and recovery guidance.",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.marketplace.installCompleteHelp",
+      "description": "Plugin installation result and recovery guidance.",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.marketplace.failureTimeout",
+      "description": "Plugin installation result and recovery guidance.",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.marketplace.failureChecksum",
+      "description": "Plugin installation result and recovery guidance.",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.marketplace.failureNetwork",
+      "description": "Plugin installation result and recovery guidance.",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.marketplace.failurePermission",
+      "description": "Plugin installation result and recovery guidance.",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.marketplace.failureHelp",
+      "description": "Plugin installation result and recovery guidance.",
       "platforms": [
         "desktop"
       ]

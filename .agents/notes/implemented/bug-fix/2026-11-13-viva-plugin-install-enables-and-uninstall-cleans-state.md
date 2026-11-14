@@ -96,3 +96,10 @@ Viva 客户端从插件市场装好插件后，插件默认是禁用的，用户
 ## 适用范围
 
 Viva 客户端（`desktop/`）的插件安装、启用、禁用和卸载：Core 的 `plugins.installed.lifecycle`、`desktop/internal/core/plugin_lifecycle.go`、`desktop/internal/pluginstate/`、`desktop/internal/pluginmanager/`、`desktop/internal/pluginpkg/install.go`、`desktop/internal/pluginservice/lifecycle.go`、`desktop/internal/workbench/plugins.go`。设置弹窗入口在 `desktop/internal/settingswindow/plugin_install.go`。
+
+
+## 安装反馈补充
+
+在 #1931 的设置窗口安装所有权和临时归档复用基础上，连接下载源、传输、校验、确认、安装与完成有分别的说明。失败保留在当前窗口并提供重试：市场和磁盘入口都重建反馈对象，旧任务只能更新自己的对象；仍由原有准备链重新校验和请求批准，不绕过 Core 审查。原始 I/O 错误进入既有统一日志，界面只显示本地化恢复建议，不泄露 URL、凭据或路径。成功需用户关闭完成提示，但不声称覆盖了用户原有的启用选择。
+
+权限显示可读说明并保留原始 ID；技术声明默认折叠，展开仍可查看完整内容。内容列表限制高度，底部按钮不随声明滚动。下载复用、只读发行目录和关闭窗口后的清理沿用 #1931，不另建第二套安装状态。新增回归 `TestMarketplaceFailureOffersRetryInCurrentWindow` 在改动前因缺少重试入口失败；`TestInstallFailureGuidanceHidesNativeSecrets` 覆盖错误脱敏。原生终态、异常网络和 Windows 的完整验收仍未执行，不据此声称发版就绪。

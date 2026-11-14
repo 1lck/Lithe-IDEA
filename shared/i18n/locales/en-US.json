@@ -11197,7 +11197,23 @@
     "desktop.marketplace.downloadReceived": "Downloading plugin… {received} MiB",
     "desktop.marketplace.verifying": "Extracting and verifying plugin…",
     "desktop.marketplace.downloadTitle": "Download plugin",
-    "desktop.marketplace.downloadPrompt": "Download this plugin? After verification, you can review its permissions and programs before installing. If a previous approval still covers this package, installation continues automatically."
+    "desktop.marketplace.downloadPrompt": "Download this plugin? After verification, you can review its permissions and programs before installing. If a previous approval still covers this package, installation continues automatically.",
+    "desktop.marketplace.connecting": "Connecting to the download source…",
+    "desktop.marketplace.installTitle": "Install plugin",
+    "desktop.marketplace.installHelp": "Download and verify the package first, then review its permissions. Installation starts only after you confirm.",
+    "desktop.marketplace.reviewConsent": "Install only if you trust this source. Installing approves the permissions and programs declared by this package.",
+    "desktop.marketplace.programDetails": "Program declarations ({count}) — show / hide details",
+    "desktop.marketplace.permissionBuild": "Run build tools for your projects",
+    "desktop.marketplace.permissionGenerate": "Create project files in the location you choose",
+    "desktop.marketplace.permissionBackend": "Start the plugin’s background service",
+    "desktop.marketplace.permissionDebug": "Start a debugger for your programs",
+    "desktop.marketplace.installComplete": "Installation complete",
+    "desktop.marketplace.installCompleteHelp": "The plugin is installed. You can check its enabled state in Installed plugins.",
+    "desktop.marketplace.failureTimeout": "The operation timed out. Check your connection and try again.",
+    "desktop.marketplace.failureChecksum": "The downloaded package failed integrity verification. Retry to download a fresh copy.",
+    "desktop.marketplace.failureNetwork": "Could not download the package. Check your network and proxy settings, then retry.",
+    "desktop.marketplace.failurePermission": "Lithe could not access the required files. Check folder permissions, then retry.",
+    "desktop.marketplace.failureHelp": "The package could not be downloaded, verified or installed. Retry; if it fails again, open Diagnostics to view the error details."
   },
   "overrides": {
     "windows": {
