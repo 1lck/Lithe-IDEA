@@ -51,9 +51,12 @@ func TestTerminalMenuSelectsAllAndCopies(t *testing.T) {
 	h.open(t.TempDir())
 	term := busyTerminal(t, h, "printf 'menu-marker\\n'; read line")
 	h.await("the shell's output", func() bool { return strings.Contains(term.view.RetainedText(1<<16), "menu-marker") })
+	// Finish the output's paint before opening the panel: a late shell wake must not
+	// hide a missing redraw in the operation that opens it.
+	h.settle()
 
 	if !h.app.chrome.isOpen(catalogIndex[itemTerminal]) {
-		h.app.reduceChrome(core.SetChromeOpen(itemTerminal, true))
+		h.click(center(h.button(itemTerminal)))
 	}
 	h.settle()
 	if term.hit.IsZero() {

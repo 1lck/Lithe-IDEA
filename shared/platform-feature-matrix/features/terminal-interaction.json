@@ -15,7 +15,9 @@
       "desktop/internal/workbench/terminal_find.go",
       "desktop/internal/workbench/fonts.go",
       "desktop/internal/workbench/fonts_test.go",
-      "desktop/internal/bundledfont/bundledfont.go"
+      "desktop/internal/bundledfont/bundledfont.go",
+      "desktop/internal/workbench/terminal_menu.go",
+      "desktop/internal/workbench/context_menu_test.go"
     ]
   },
   "windows": {
@@ -76,5 +78,5 @@
       "verificationStatus": "pending"
     }
   },
-  "notes": "Viva：复制粘贴与 Control 输入在 termview/input.go；终端内查找（termview/find.go、workbench/terminal_find.go）支持上下跳转与高亮；点击 http/https 链接用系统浏览器打开（openTerminalLink，其他协议不打开）；窗口大小变化时按单元格重新计算行列；终端切换快捷键走工作台快捷键。macOS 用户未选终端字体时，按 fonts.go 的 terminalNerdFonts 顺序选第一个可用的 Nerd Font：已安装的 MesloLGS Nerd Font Mono 优先，其次是发行包编译进可执行文件的 JetBrainsMono Nerd Font Mono（internal/bundledfont，lithe_bundled_fonts 构建标签），再其次其他已装 Nerd Font；都没有时用随包 JetBrains Mono。开发构建不带字体，回退到系统等宽字体。"
+  "notes": "Viva：复制粘贴与 Control 输入在 termview/input.go；终端内查找（termview/find.go、workbench/terminal_find.go）支持上下跳转与高亮；点击 http/https 链接用系统浏览器打开（openTerminalLink，其他协议不打开）；窗口大小变化时按单元格重新计算行列；终端切换快捷键走工作台快捷键。macOS 用户未选终端字体时，按 fonts.go 的 terminalNerdFonts 顺序选第一个可用的 Nerd Font：已安装的 MesloLGS Nerd Font Mono 优先，其次是发行包编译进可执行文件的 JetBrainsMono Nerd Font Mono（internal/bundledfont，lithe_bundled_fonts 构建标签），再其次其他已装 Nerd Font；都没有时用随包 JetBrains Mono。开发构建不带字体，回退到系统等宽字体。 #1907：macOS 无头终端菜单测试先消费 shell 输出的待绘制帧，再点击真实终端侧栏按钮，覆盖全选、复制和关闭；旧的直接布局调用连续 5 次失败，修复后连续 20 次通过，并通过相邻菜单用例的竞态检查。该用例使用 /bin/sh，在 Windows 跳过；原生窗口与 Windows 验收仍为 pending。"
 }
