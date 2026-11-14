@@ -50,6 +50,9 @@ type windowSessions struct {
 	configs map[*App]app.Config
 	// options make the workbench of a new tab.
 	options Options
+	// meter times the window thread for the status bar's frame readout (frame_meter.go). Every
+	// callback of the window starts in config, so that is where it is timed.
+	meter frameMeter
 }
 
 // Project tab metrics, as the earlier client drew them.
@@ -66,17 +69,26 @@ const (
 func newWindowSessions(first *App, options Options) *windowSessions {
 	options.OpenPath = ""
 	options.first = first
-	return &windowSessions{list: []*App{first}, active: first, configs: map[*App]app.Config{}, options: options}
+	return &windowSessions{
+		list: []*App{first}, active: first, configs: map[*App]app.Config{}, options: options,
+		meter: frameMeter{now: first.now},
+	}
 }
 
 // config is the window's configuration. It takes the window's settings from the first
 // workbench. Painting, typing, the pointer and the wheel go to the active workbench. Waking,
-// focus loss, fullscreen and closing go to every workbench.
+// focus loss, fullscreen and closing go to every workbench. The frame meter times each callback
+// that runs the workbench's code.
 func (s *windowSessions) config() app.Config {
 	window := s.of(s.list[0])
 	shown := func() app.Config { return s.of(s.active) }
+	meter := &s.meter
 	window.WindowControls = func() app.WindowControlsStyle { return shown().WindowControls() }
-	window.Paint = func(canvas *gfx.Canvas, size gfx.Size) { shown().Paint(canvas, size) }
+	window.Paint = func(canvas *gfx.Canvas, size gfx.Size) {
+		meter.beginPaint()
+		defer meter.endPaint(canvas)
+		shown().Paint(canvas, size)
+	}
 	window.TextInput = func(context app.TextInputContext) *app.TextInput {
 		if input := shown().TextInput; input != nil {
 			return input(context)
@@ -84,22 +96,32 @@ func (s *windowSessions) config() app.Config {
 		return nil
 	}
 	window.OnPointer = func(event gfx.PointerEvent) gfx.EventResult {
-		return forward(shown().OnPointer, event)
+		return timedEvent(meter, shown().OnPointer, event)
 	}
-	window.OnKey = func(event gfx.KeyEvent) gfx.EventResult { return forward(shown().OnKey, event) }
-	window.OnShortcut = func(event gfx.KeyEvent) gfx.EventResult { return forward(shown().OnShortcut, event) }
+	window.OnKey = func(event gfx.KeyEvent) gfx.EventResult { return timedEvent(meter, shown().OnKey, event) }
+	window.OnShortcut = func(event gfx.KeyEvent) gfx.EventResult {
+		return timedEvent(meter, shown().OnShortcut, event)
+	}
 	window.OnModifierTap = func(event gfx.ModifierTapEvent) gfx.EventResult {
-		return forward(shown().OnModifierTap, event)
+		return timedEvent(meter, shown().OnModifierTap, event)
 	}
-	window.OnScroll = func(event gfx.ScrollEvent) gfx.EventResult { return forward(shown().OnScroll, event) }
-	window.OnFileDrop = func(event gfx.FileDropEvent) gfx.EventResult { return forward(shown().OnFileDrop, event) }
+	window.OnScroll = func(event gfx.ScrollEvent) gfx.EventResult {
+		return timedEvent(meter, shown().OnScroll, event)
+	}
+	window.OnFileDrop = func(event gfx.FileDropEvent) gfx.EventResult {
+		return timedEvent(meter, shown().OnFileDrop, event)
+	}
 	window.OnWake = func() {
+		meter.begin(false)
+		defer meter.end()
 		// A retired workbench still finishes work it began, such as stopping a debug session.
 		for _, a := range s.everyOne() {
 			a.drain()
 		}
 	}
 	window.OnFocusLost = func() gfx.EventResult {
+		meter.begin(true)
+		defer meter.end()
 		var result gfx.EventResult
 		for _, a := range s.list {
 			// Another window holds the keyboard: every list greys the row it keeps selected
@@ -119,6 +141,8 @@ func (s *windowSessions) config() app.Config {
 	}
 	// OnActivate brings the selection color back when this window gets the keyboard again.
 	window.OnActivate = func() {
+		meter.begin(true)
+		defer meter.end()
 		for _, a := range s.list {
 			if !a.windowInactive {
 				continue
@@ -134,11 +158,17 @@ func (s *windowSessions) config() app.Config {
 		}
 	}
 	window.OnFullscreen = func(fullscreen bool) {
+		meter.begin(true)
+		defer meter.end()
 		for _, a := range s.list {
 			a.fullscreen = fullscreen
 		}
 	}
-	window.OnCloseRequest = s.closeAll
+	window.OnCloseRequest = func(allow func()) {
+		meter.begin(true)
+		defer meter.end()
+		s.closeAll(allow)
+	}
 	window.OnClosed = func() {
 		for _, a := range s.list {
 			if closed := s.of(a).OnClosed; closed != nil {
@@ -152,8 +182,10 @@ func (s *windowSessions) config() app.Config {
 	return window
 }
 
-// forward gives event to handle, which may be nil.
-func forward[E any](handle func(E) gfx.EventResult, event E) gfx.EventResult {
+// timedEvent gives event to handle, which may be nil, timed by meter as an event of the window.
+func timedEvent[E any](meter *frameMeter, handle func(E) gfx.EventResult, event E) gfx.EventResult {
+	meter.begin(true)
+	defer meter.end()
 	if handle == nil {
 		return gfx.EventResult{}
 	}

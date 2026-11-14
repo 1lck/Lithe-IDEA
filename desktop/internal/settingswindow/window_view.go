@@ -165,17 +165,27 @@ func (w *window) navContent(c ui.C, i int) {
 		return
 	}
 	r := w.rows[i]
-	if r.level == 0 {
-		if !r.group {
-			// A page that is not a group keeps the room of the chevron, so every tile lines up.
-			ui.Row(c).Width(chevronSlot - 8).Shrink(0)
-		}
-		t := tiles[r.page]
+	title := func() {
+		ui.Text(c, w.rowTitle(r)).FontSize(13).Color(w.pal.text).Grow(1).Shrink(1).MinWidth(0).Ellipsis()
+	}
+	if r.level != 0 {
+		title()
+		return
+	}
+	// The tile and the title are in a row of their own, which spaces them by tileGap rather
+	// than by the gap of the Tree's row, so childIndent can name where the title starts. A
+	// page that is not a group keeps the room of the chevron, so every tile lines up.
+	var lead float32
+	if !r.group {
+		lead = chevronSlot
+	}
+	t := tiles[r.page]
+	ui.Row(c).Grow(1).Shrink(1).MinWidth(0).PadLeft(lead).Gap(tileGap).Items(ui.Center).Children(func() {
 		ui.Row(c).Size(tileSize, tileSize).Shrink(0).Radius(tileRadius).Background(t.color).Center().Children(func() {
 			ui.Icon(c, t.icon).Size(tileGlyph, tileGlyph).Color(w.pal.white)
 		})
-	}
-	ui.Text(c, w.rowTitle(r)).FontSize(13).Color(w.pal.text).Grow(1).Shrink(1).MinWidth(0).Ellipsis()
+		title()
+	})
 }
 
 // content is the page beside the sidebar: the breadcrumb above the page itself.

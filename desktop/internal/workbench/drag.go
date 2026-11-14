@@ -238,6 +238,9 @@ func (a *App) dragInsertion(item int, z zone, x, y float32) (string, gfx.Rect) {
 	// position is where the line starts along the zone; before is the button it precedes.
 	// gap is the space between two buttons of the zone, which the line stands in the middle of.
 	position, before, gap := zr.X+dragMarkLead, "", float32(chromeGap)
+	if z == zoneStatus {
+		gap = chromeStatusGap
+	}
 	if vertical {
 		gap = chromeToolGap
 		position = zr.Y + dragMarkLead

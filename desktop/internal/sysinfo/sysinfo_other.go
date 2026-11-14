@@ -2,7 +2,10 @@
 
 package sysinfo
 
-import "runtime"
+import (
+	"errors"
+	"runtime"
+)
 
 var osName = runtime.GOOS
 
@@ -12,3 +15,5 @@ func Version() string { return "" }
 func residentBytes() uint64 { return 0 }
 
 func diskFree(string) uint64 { return 0 }
+
+func processes() ([]Process, error) { return nil, errors.ErrUnsupported }

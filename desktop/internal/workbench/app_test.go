@@ -747,6 +747,31 @@ func TestStatusItemCannotLeaveTheStatusBar(t *testing.T) {
 	}
 }
 
+func TestStatusBarItemsSitClose(t *testing.T) {
+	h := newHarness(t, &testKernel{Client: core.NewClient()})
+	h.open(t.TempDir())
+
+	// The readings of two neighbouring items are only their padding apart: the items touch.
+	var previous gfx.Rect
+	shown := 0
+	for _, index := range h.app.chrome.items[zoneStatus] {
+		r := h.app.chrome.rects[index]
+		if r.Width <= 0 || r.Height <= 0 {
+			continue
+		}
+		if shown > 0 {
+			if gap := r.X - previous.Right(); gap != chromeStatusGap {
+				t.Errorf("status item %s is %v after the one before it, want %v", h.app.chrome.catalog[index].id, gap, float32(chromeStatusGap))
+			}
+		}
+		previous = r
+		shown++
+	}
+	if shown < 2 {
+		t.Fatalf("the status bar shows %d items, want several to compare", shown)
+	}
+}
+
 func TestResetLayoutRestoresDefaults(t *testing.T) {
 	h := newHarness(t, &testKernel{Client: core.NewClient()})
 	h.open(t.TempDir())

@@ -21,14 +21,6 @@ func terminalTab(language Language, number int) string {
 	return SharedFormat(language, "desktop.terminal.localNumber", map[string]string{"number": strconv.Itoa(number)})
 }
 
-func statusMemory(language Language, value int) string {
-	return SharedFormat(language, "desktop.status.memoryValue", map[string]string{"value": strconv.Itoa(value)})
-}
-
-func statusFPS(language Language, value int) string {
-	return SharedFormat(language, "desktop.status.fpsValue", map[string]string{"value": strconv.Itoa(value)})
-}
-
 func statusChanges(language Language, count int) string {
 	if count == 1 {
 		return SharedFormat(language, "footer.change", map[string]string{"count": strconv.Itoa(count)})

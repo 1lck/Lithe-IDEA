@@ -23,7 +23,8 @@ import (
 // instead of a Button because these buttons carry icons, take their colors from the palette
 // and report their state to assistive technology. value is the reading of a status item,
 // empty for the other buttons. A button that is only an icon (iconOnly) shows its name in a
-// tooltip, since nothing else on it says what it is.
+// tooltip, since nothing else on it says what it is, and so does the frame rate, which shows a
+// bare number.
 func (a *App) chromeBox(row ui.Box, id gfx.ID, i int, open bool, value string, iconOnly bool) ui.Box {
 	it := a.chrome.catalog[i]
 	label := it.label(a.text)
@@ -31,8 +32,15 @@ func (a *App) chromeBox(row ui.Box, id gfx.ID, i int, open bool, value string, i
 		// The label of the changes item is a fixed "No changes"; the reading says how many.
 		label = value
 	}
+	tooltip := ""
+	switch {
+	case iconOnly:
+		tooltip = a.chromeTooltip(i, label)
+	case it.id == itemFPS:
+		tooltip = a.text.Status.FPSTooltip
+	}
 	options := gfx.HitOptions{Role: gfx.RoleButton, Hint: a.text.Tools.DragHint, Selected: open, Value: value}
-	if iconOnly {
+	if tooltip != "" {
 		// Viva hands a tooltip to assistive technology as the hint, so the drag hint, which
 		// that would replace, is announced as the description instead.
 		options.Hint, options.Description = "", a.text.Tools.DragHint
@@ -44,8 +52,8 @@ func (a *App) chromeBox(row ui.Box, id gfx.ID, i int, open bool, value string, i
 	row = row.Radius(a.theme.Metrics.RadiusItem()).
 		HitWith(id, label, options).
 		Pressed(ui.Look{}.Background(a.colors.Active))
-	if iconOnly {
-		row = row.Tooltip(a.chromeTooltip(i, label))
+	if tooltip != "" {
+		row = row.Tooltip(tooltip)
 	}
 	if open {
 		fill := a.colors.Active
@@ -475,7 +483,7 @@ func (a *App) statusBar(c ui.C) {
 		ui.Text(k, a.project.name).Grow(1).Ellipsis().FontSize(a.theme.Metrics.FontSizeS).LineHeight(chromeLineHeight).
 			Color(a.colors.Subtle).
 			HitWith(ui.ID(k), a.text.Status.Path, gfx.HitOptions{Role: gfx.RoleStatus, Value: a.project.name, SkipFocus: true})
-		zone := ui.Row(c).Items(ui.Center).Gap(chromeGap).Children(func() {
+		zone := ui.Row(c).Items(ui.Center).Gap(chromeStatusGap).Children(func() {
 			for _, i := range a.chrome.items[zoneStatus] {
 				if !a.vimStatusShown(i) {
 					continue
@@ -498,7 +506,7 @@ func (a *App) statusBar(c ui.C) {
 func (a *App) chromeStatusItem(c ui.C, i int) bool {
 	text := a.chromeStatusText(i)
 	k := c.KeyInt(i)
-	box := a.chromeBox(ui.Row(k).Height(chromeStatusItem).Shrink(0).Items(ui.Center).Gap(chromeGap).PadX(chromeEdge), ui.ID(k), i, false, text, false)
+	box := a.chromeBox(ui.Row(k).Height(chromeStatusItem).Shrink(0).Items(ui.Center).Gap(chromeGap).PadX(chromeStatusPad), ui.ID(k), i, false, text, false)
 	box.Children(func() {
 		switch a.chrome.catalog[i].id {
 		case itemLock:

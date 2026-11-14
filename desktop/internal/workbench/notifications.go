@@ -137,7 +137,7 @@ func (a *App) notificationBell(c ui.C) {
 	if unread > 0 {
 		label = i18n.SharedFormat(language, "desktop.notifications.unread", map[string]string{"count": strconv.Itoa(unread)})
 	}
-	bell := ui.Row(k).Height(chromeStatusItem).Shrink(0).Items(ui.Center).Gap(4).PadX(chromeEdge).
+	bell := ui.Row(k).Height(chromeStatusItem).Shrink(0).Items(ui.Center).Gap(4).PadX(chromeStatusPad).
 		Radius(a.theme.Metrics.RadiusItem()).
 		HitWith(ui.ID(k), label, gfx.HitOptions{Role: gfx.RoleButton, Cursor: gfx.PointerCursorHand}).
 		Hover(ui.Look{}.Background(a.colors.Hover))

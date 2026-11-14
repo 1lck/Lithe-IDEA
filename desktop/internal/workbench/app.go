@@ -21,7 +21,6 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
-	"runtime/metrics"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -88,6 +87,7 @@ type Kernel interface {
 	debugTransportKernel
 	debugStateKernel
 	processExitKernel
+	processMemoryKernel
 	MatchOutputLinks(context.Context, core.OutputLinkRequest) ([]core.OutputLink, error)
 	CreateDebugSession(ctx context.Context, request core.DebugCreateSessionRequest) (core.DebugUpdate, error)
 	LaunchDebug(ctx context.Context, sessionID, operationID string, configuration core.DebugLaunchConfiguration) (core.DebugUpdate, error)
@@ -614,7 +614,6 @@ type App struct {
 	drag                 dragState
 	title                titleState
 	layout               layoutState
-	status               statusState
 	logView              logView
 	// branch is the title bar's branch popup and the dialogs it opens.
 	branch branchState
@@ -1042,8 +1041,7 @@ func (a *App) activate(index int) {
 			a.editor.lsp.menu = !a.editor.lsp.menu
 		}
 	case it.id == itemMemory:
-		a.memory.open = !a.memory.open
-		a.memory.sampledAt = time.Time{}
+		a.toggleMemoryDetails()
 	case it.id == itemEncoding:
 		if a.project != nil && a.project.selectedDocument(a.project.docs.group) != nil {
 			a.editor.encoding.open = !a.editor.encoding.open
@@ -1258,53 +1256,5 @@ func (a *App) finishCloseProject(p *project, after func()) {
 			// A project closed on its own leaves its tab when the window has others.
 			a.sessions.leave(a)
 		}
-	}
-}
-
-// statusState is what the status bar measures about the window itself.
-type statusState struct {
-	// frames are the times of the paints of the last second, oldest first.
-	frames []time.Time
-	// fps is the number of paints in the second before the last paint.
-	fps int
-	// memory is the memory the process's Go runtime holds, in bytes, sampled at most
-	// once a second.
-	memory    uint64
-	sampledAt time.Time
-	sample    []metrics.Sample
-}
-
-// memoryMetric is the memory the Go runtime has mapped and not returned to the system.
-const (
-	memoryMetric   = "/memory/classes/total:bytes"
-	releasedMetric = "/memory/classes/heap/released:bytes"
-)
-
-// frame counts a paint at now. While the window paints, the count of the last second is
-// shown; after the last paint of a burst one more paint is asked for a second later, so
-// the readout settles instead of keeping the count of the burst. That paint asks for no
-// other.
-func (s *statusState) frame(canvas *gfx.Canvas, now time.Time) {
-	cutoff := now.Add(-time.Second)
-	drop := 0
-	for drop < len(s.frames) && !s.frames[drop].After(cutoff) {
-		drop++
-	}
-	s.frames = append(s.frames[:0], s.frames[drop:]...)
-	s.frames = append(s.frames, now)
-	s.fps = len(s.frames)
-	if s.fps > 1 {
-		canvas.RequestFrameIn(time.Second)
-	}
-	if !s.sampledAt.IsZero() && now.Sub(s.sampledAt) < time.Second {
-		return
-	}
-	s.sampledAt = now
-	if s.sample == nil {
-		s.sample = []metrics.Sample{{Name: memoryMetric}, {Name: releasedMetric}}
-	}
-	metrics.Read(s.sample)
-	if s.sample[0].Value.Kind() == metrics.KindUint64 && s.sample[1].Value.Kind() == metrics.KindUint64 {
-		s.memory = s.sample[0].Value.Uint64() - s.sample[1].Value.Uint64()
 	}
 }

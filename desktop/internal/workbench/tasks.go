@@ -14,6 +14,9 @@ type taskQueue struct {
 	mu      sync.Mutex
 	pending []func(*App)
 	running sync.WaitGroup
+	// painted is set by the first paint, which asks for the wake that results posted before
+	// the window opened lost (wakeForEarlyResults). The window thread alone reads and sets it.
+	painted bool
 }
 
 // post queues a result and wakes the window.
@@ -22,6 +25,24 @@ func (a *App) post(apply func(*App)) {
 	a.tasks.pending = append(a.tasks.pending, apply)
 	a.tasks.mu.Unlock()
 	a.invalidator.Invalidate()
+}
+
+// wakeForEarlyResults asks for a wake when the first paint finds results queued. The window
+// binds its Invalidator when it opens and drops a wake asked for before that, so a result that
+// work started in New posts early (restoreBackground decodes the saved background there) would
+// wait for an unrelated wake. The first paint runs once the window is bound; a result posted
+// after it wakes the window itself.
+func (a *App) wakeForEarlyResults() {
+	if a.tasks.painted {
+		return
+	}
+	a.tasks.painted = true
+	a.tasks.mu.Lock()
+	queued := len(a.tasks.pending) > 0
+	a.tasks.mu.Unlock()
+	if queued {
+		a.invalidator.Invalidate()
+	}
 }
 
 // drain applies the queued results on the window thread, then takes in the output the

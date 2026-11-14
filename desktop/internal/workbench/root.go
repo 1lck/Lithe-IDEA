@@ -96,7 +96,7 @@ func (a *App) sessionConfig() app.Config {
 	}
 	paint := config.Paint
 	config.Paint = func(canvas *gfx.Canvas, size gfx.Size) {
-		a.beginPaint(canvas)
+		a.beginPaint()
 		// The page fills the window with the look of this paint's chrome. Behind a background
 		// image the fill is the veil over it, the ground at the strength's opacity, and the image
 		// is drawn under everything the page paints (workbench_background.go).
@@ -113,13 +113,12 @@ func (a *App) sessionConfig() app.Config {
 
 // beginPaint settles the look of the paint about to be declared and forgets what the last
 // paint declared that this one declares afresh.
-func (a *App) beginPaint(canvas *gfx.Canvas) {
+func (a *App) beginPaint() {
+	a.wakeForEarlyResults()
 	a.applyLook(a.settings.Theme)
 	a.rememberWindowBackground(a.colors.Ground)
 	a.shared.text.Store(a.text)
 	a.shared.dark.Store(a.colors.Dark)
-	a.status.frame(canvas, a.now())
-	a.sampleMemory(a.now())
 	a.chrome.beginFrame()
 	a.beginTerminalFrame()
 	if a.clone.open || a.newProject.open {
