@@ -585,3 +585,12 @@ func TestConsoleDrawsTheProjectedCommandBeforeItIsPresented(t *testing.T) {
 		t.Fatalf("consoleDrawnHeader() without a projection = %q, want the raw header %q", got, want)
 	}
 }
+
+func TestConsoleRowKeysReserveValidMissingRowIdentity(t *testing.T) {
+	v := consoleView{keys: map[consoleRowID]int{}}
+	v.add(nil, consoleRow{})
+	missing := v.rowKey(len(v.rows))
+	if missing < 0 || uint64(missing) >= 1<<31 || missing == v.rowKey(0) {
+		t.Fatalf("missing row key %d is invalid or collides with the first row %d", missing, v.rowKey(0))
+	}
+}

@@ -367,10 +367,10 @@ func consoleSearchText(text string) string {
 }
 
 // rowKey is the list key of row i. The list may ask for a row the rows no longer have while
-// it settles, which gets a key no row has.
+// it settles, which gets zero, an identity reserved for a missing row.
 func (v *consoleView) rowKey(i int) int {
 	if i < 0 || i >= len(v.rows) {
-		return -1 - i
+		return 0
 	}
 	return v.rows[i].key
 }
@@ -388,7 +388,7 @@ func (v *consoleView) rowLabel(i int) string {
 func (v *consoleView) add(old map[consoleRowID]int, row consoleRow) int {
 	key, ok := old[row.id]
 	if _, taken := v.keys[row.id]; !ok || taken {
-		key = v.nextKey
+		key = v.nextKey + 1 // Zero belongs to a missing row while the list settles.
 		v.nextKey++
 	}
 	row.key = key
