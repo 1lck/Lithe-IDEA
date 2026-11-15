@@ -308,3 +308,62 @@ func TestVisualWorkbenchGradientStaysBehindPanels(t *testing.T) {
 		t.Fatalf("project gradient covered the opaque tool panel: %v, want #191a1c", got)
 	}
 }
+
+// TestVisualNewProjectFieldDescriptions captures a generator form whose fields describe
+// themselves: each description is the tip of an ⓘ beside its field, shown here resting
+// on the first one. It needs only LITHE_VISUAL_OUTPUT_DIR.
+func TestVisualNewProjectFieldDescriptions(t *testing.T) {
+	out := os.Getenv("LITHE_VISUAL_OUTPUT_DIR")
+	if out == "" {
+		t.Skip("set LITHE_VISUAL_OUTPUT_DIR")
+	}
+	if err := os.MkdirAll(out, 0755); err != nil {
+		t.Fatal(err)
+	}
+	for _, theme := range []string{"dark", "light"} {
+		for _, language := range []string{"zh-Hans", "en-US"} {
+			t.Run(theme+"-"+language, func(t *testing.T) {
+				var session *headless.Session
+				prefs := store.At(t.TempDir())
+				if err := prefs.Save(settingsFile, map[string]string{"theme": theme}); err != nil {
+					t.Fatal(err)
+				}
+				h := newHarnessWithDriver(t, Options{Kernel: &testKernel{Client: core.NewClient()}, Store: prefs, Languages: []string{language}}, func(config app.Config) (*app.Driver, func(), error) {
+					config.Width, config.Height = 800, 682
+					config.MinWidth = 800
+					var err error
+					session, err = headless.Open(config, nil, headless.Options{})
+					if err != nil {
+						return nil, nil, err
+					}
+					return session.Driver(), session.Close, nil
+				})
+				h.offerGenerators(describedGeneratorPlugin(t))
+				h.openNewProjectSheet()
+				h.chooseGenerator("Described", "dev.lithe.test.described/described")
+				more := i18n.Shared(h.app.language(), "native.moreInformation")
+				hovered := false
+				for _, hit := range h.driver.Snapshot().Hits {
+					if hit.Label == more && !hit.IsLabel {
+						at := center(hit.Bounds)
+						if err := h.driver.Move(at.X, at.Y); err != nil {
+							t.Fatal(err)
+						}
+						h.settle()
+						hovered = true
+						break
+					}
+				}
+				if !hovered {
+					t.Fatal("the form has no ⓘ")
+				}
+				if tips := h.tooltips(); len(tips) != 1 || tips[0].Value != "The flavor the project starts from." {
+					t.Fatalf("resting on the first ⓘ shows the tips %+v", tips)
+				}
+				if err := session.Screenshot(filepath.Join(out, "new-project-field-info-"+theme+"-"+language+".png")); err != nil {
+					t.Fatal(err)
+				}
+			})
+		}
+	}
+}

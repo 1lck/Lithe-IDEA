@@ -346,20 +346,28 @@ func (a *App) generatorFields(c ui.C, language i18n.Language, form *generatorFor
 	}
 }
 
-// generatorField draws one field by its declared type.
+// generatorField draws one field by its declared type. A field's description is
+// the tip of an ⓘ beside its title, or beside its checkbox: a tip needs an element
+// with an identity, which a plain text is not.
 func (a *App) generatorField(c ui.C, language i18n.Language, form *generatorForm, field *formField, locked bool) {
 	decl := field.decl
-	ui.Column(c.Part("field")).FillWidth().Gap(4).Children(func() {
+	help := func() {
+		if decl.Description != "" {
+			ui.Button(c.Part("help"), i18n.Shared(language, "native.moreInformation")).Icon(icons.Info).IconOnly().Ghost().
+				Size(18, 18).Shrink(0).Tooltip(decl.Description).TooltipOn(ui.TooltipRight)
+		}
+	}
+	// Core rejects a generator that declares a field ID twice, so the ID names the field
+	// among its siblings and keeps each field's ⓘ apart from the others'.
+	ui.Column(c.Key(decl.ID)).FillWidth().Gap(4).Children(func() {
 		ui.Row(c).FillWidth().Items(ui.Center).Gap(12).Children(func() {
-			if decl.Type == fieldBoolean {
+			ui.Row(c).Width(120).Shrink(0).Items(ui.Center).Gap(4).Children(func() {
 				// A checkbox carries its own label; keep it in the controls' column.
-				ui.Row(c).Width(120).Shrink(0)
-			} else {
-				label := ui.Text(c, decl.Title).Width(120).Shrink(0)
-				if decl.Description != "" {
-					label.Tooltip(decl.Description)
+				if decl.Type != fieldBoolean {
+					ui.Text(c, decl.Title).Ellipsis()
+					help()
 				}
-			}
+			})
 			if locked {
 				ui.Text(c, field.canonical()).Muted()
 				return
@@ -375,7 +383,11 @@ func (a *App) generatorField(c ui.C, language i18n.Language, form *generatorForm
 					ui.Select(c, &field.text, field.values, titleOf).Width(240)
 				}
 			case fieldBoolean:
-				ui.Checkbox(c, &field.flag, decl.Title)
+				// The ⓘ sits as close to the checkbox's label as it does to a title.
+				ui.Row(c).Items(ui.Center).Gap(4).Children(func() {
+					ui.Checkbox(c, &field.flag, decl.Title)
+					help()
+				})
 			case fieldMultiSelect:
 				a.multiSelectField(c, field)
 			case fieldTool:

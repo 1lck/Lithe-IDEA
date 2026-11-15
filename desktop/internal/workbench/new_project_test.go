@@ -98,6 +98,13 @@ func fixtureJavaTools() map[string]toolList {
 func newGeneratorHarness(t *testing.T, kernel Kernel, plugins ...pluginservice.GeneratorPlugin) *harness {
 	t.Helper()
 	h := newHarnessWithLanguages(t, kernel, []string{"en-US"})
+	h.offerGenerators(plugins...)
+	return h
+}
+
+// offerGenerators makes the plugins the app's project generators, with the fixture
+// tools as the tool lists their requirements resolve against.
+func (h *harness) offerGenerators(plugins ...pluginservice.GeneratorPlugin) {
 	h.app.generatorPlugins = func(context.Context) ([]pluginservice.GeneratorPlugin, error) { return plugins, nil }
 	h.app.projectToolLists = func(_ context.Context, tools []string) (map[string]toolList, error) {
 		lists := map[string]toolList{}
@@ -106,7 +113,6 @@ func newGeneratorHarness(t *testing.T, kernel Kernel, plugins ...pluginservice.G
 		}
 		return lists, nil
 	}
-	return h
 }
 
 func TestWelcomeCreatesEmptyProjectWithGitThroughCore(t *testing.T) {
@@ -721,6 +727,73 @@ func TestNewProjectGeneratorNeedsAValidFormAndOffersToEnableRequirements(t *test
 	}
 	if _, offered := h.findPageHit("Find in Marketplace"); !h.shows("This generator needs java.") || !offered {
 		t.Fatal("the missing language plugin is not offered in the marketplace")
+	}
+}
+
+// describedGeneratorPlugin declares a generator whose text, choice and checkbox
+// fields describe themselves, and one field that does not.
+func describedGeneratorPlugin(t *testing.T) pluginservice.GeneratorPlugin {
+	t.Helper()
+	manifest, err := json.Marshal(map[string]any{
+		"schemaVersion": 0, "id": "dev.lithe.test.described", "displayName": "Described", "version": "1.0.0",
+		"pluginAPIVersion": 0, "requires": map[string]int{"projectGenerators": 0},
+		"vendor":      map[string]string{"id": "org.example", "displayName": "Example", "signatureRequirement": "publisherPackage"},
+		"permissions": []string{"project.generate"}, "activationEvents": []string{},
+		"projectGenerators": []map[string]any{{
+			"id": "described", "displayName": "Described", "section": "generator",
+			"fields": []map[string]any{
+				{"id": "flavor", "type": "enum", "title": "Flavor", "description": "The flavor the project starts from.", "default": "plain",
+					"options": []map[string]string{{"value": "plain", "title": "Plain"}, {"value": "rich", "title": "Rich"}}},
+				{"id": "label", "type": "text", "title": "Label", "description": "The label written into the project.", "default": "hello"},
+				{"id": "note", "type": "text", "title": "Note", "default": "none"},
+				{"id": "sample", "type": "boolean", "title": "Add sample code", "description": "Adds a sample source file.", "default": true},
+			},
+			"steps": []map[string]any{{"kind": "command", "command": "scaffold-tool", "mayUseNetwork": false, "timeoutSeconds": 60}},
+		}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return pluginservice.GeneratorPlugin{PluginID: "dev.lithe.test.described", Version: "1.0.0", Path: t.TempDir(), Enabled: true, Manifest: manifest}
+}
+
+// A field's description is the tip of an ⓘ beside the field, each ⓘ its own
+// field's; a plain label cannot carry a tip, and drawing one there broke the
+// whole form.
+func TestNewProjectFieldDescriptionsAreInformationTips(t *testing.T) {
+	h := newGeneratorHarness(t, &testKernel{Client: core.NewClient()}, describedGeneratorPlugin(t))
+	h.openNewProjectSheet()
+	h.chooseGenerator("Described", "dev.lithe.test.described/described")
+	more := i18n.Shared(h.app.language(), "native.moreInformation")
+	var help []gfx.Hit
+	for _, hit := range h.driver.Snapshot().Hits {
+		if hit.Label == more && !hit.IsLabel {
+			help = append(help, hit)
+		}
+	}
+	want := []string{"The flavor the project starts from.", "The label written into the project.", "Adds a sample source file."}
+	if len(help) != len(want) {
+		t.Fatalf("%d ⓘ controls, want one per described field: %+v", len(help), help)
+	}
+	ids := map[gfx.ID]int{}
+	for i, hit := range help {
+		if hit.Hint != want[i] {
+			t.Fatalf("ⓘ %d tells assistive technology %q, want %q", i, hit.Hint, want[i])
+		}
+		if other, taken := ids[hit.ID]; taken {
+			t.Fatalf("ⓘ %d and ⓘ %d are one control %v", other, i, hit.ID)
+		}
+		ids[hit.ID] = i
+	}
+	for i, hit := range help {
+		at := center(hit.Bounds)
+		if err := h.driver.Move(at.X, at.Y); err != nil {
+			t.Fatal(err)
+		}
+		h.settle()
+		if tips := h.tooltips(); len(tips) != 1 || tips[0].Value != want[i] {
+			t.Fatalf("resting on ⓘ %d shows the tips %+v, want only %q", i, tips, want[i])
+		}
 	}
 }
 

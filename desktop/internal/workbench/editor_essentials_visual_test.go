@@ -64,7 +64,7 @@ func TestVisualEditorEssentials(t *testing.T) {
 				case "find-replace":
 					d.find.debounce = -1
 					d.view.SetSelection(0, 0)
-					h.app.openEditorFind(true)
+					h.app.openEditorFind(true, surfaceButton)
 					d.find.query.SetText("greet")
 					d.find.replacement.SetText("welcome")
 					h.app.refreshEditorFind(p, d)
