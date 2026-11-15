@@ -2,6 +2,7 @@ package store
 
 import (
 	"encoding/json"
+	"errors"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -72,6 +73,9 @@ func TestSaveKeepsKeysANewerVersionWrote(t *testing.T) {
 	if got, want := store.Unknown("settings.json"), []string{"editor.ligatures", "hosts.a.proxy", "updateChannel"}; !reflect.DeepEqual(got, want) {
 		t.Fatalf("Unknown = %v, want %v", got, want)
 	}
+	if unread := store.Unread("settings.json"); unread != nil {
+		t.Fatalf("Unread = %v; keys this version has no field for are kept, not unread", unread)
+	}
 
 	value.Theme = "light"
 	if err := store.Save("settings.json", value); err != nil {
@@ -126,6 +130,11 @@ func TestLoadKeepsAValueOfAShapeThisVersionCannotRead(t *testing.T) {
 	if got, want := store.Unknown("settings.json"), []string{"count", "editor.size"}; !reflect.DeepEqual(got, want) {
 		t.Fatalf("Unknown = %v, want %v", got, want)
 	}
+	// A known key it could not read is not silent: the caller can still log the defaults it used.
+	var typeErr *json.UnmarshalTypeError
+	if unread := store.Unread("settings.json"); !errors.As(unread, &typeErr) {
+		t.Fatalf("Unread = %v, want the decode error of the value left at its default", unread)
+	}
 
 	if err := store.Save("settings.json", value); err != nil {
 		t.Fatal(err)
@@ -149,6 +158,48 @@ func TestLoadKeepsAValueOfAShapeThisVersionCannotRead(t *testing.T) {
 	}
 	if saved := readObject(t, dir, "settings.json"); saved["count"] != float64(7) {
 		t.Fatalf("count = %v, want this version's 7", saved["count"])
+	}
+}
+
+func TestUnreadFollowsTheLastLoadOfTheFile(t *testing.T) {
+	dir := t.TempDir()
+	writeFile(t, dir, "settings.json", `{"theme": "dark", "count": "many"}`)
+	store := At(dir)
+	var value olderSettings
+	if _, err := store.Load("settings.json", &value); err != nil {
+		t.Fatal(err)
+	}
+	if store.Unread("settings.json") == nil {
+		t.Fatal("Unread = nil, want the count stored as a string reported")
+	}
+	if unread := store.Unread("other.json"); unread != nil {
+		t.Fatalf("Unread(other.json) = %v, want nil for a file never loaded", unread)
+	}
+
+	// The file is read whole again: the error goes with the value it was about.
+	writeFile(t, dir, "settings.json", `{"theme": "dark", "count": 3}`)
+	if _, err := store.Load("settings.json", &value); err != nil {
+		t.Fatal(err)
+	}
+	if unread := store.Unread("settings.json"); unread != nil {
+		t.Fatalf("Unread after a readable load = %v, want nil", unread)
+	}
+
+	writeFile(t, dir, "settings.json", `{"count": "many"}`)
+	if _, err := store.Load("settings.json", &value); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.Remove("settings.json"); err != nil {
+		t.Fatal(err)
+	}
+	if unread := store.Unread("settings.json"); unread != nil {
+		t.Fatalf("Unread after Remove = %v, want nil", unread)
+	}
+	if found, err := store.Load("settings.json", &value); found || err != nil {
+		t.Fatalf("Load of the removed file = %v, %v; want not found", found, err)
+	}
+	if unread := store.Unread("settings.json"); unread != nil {
+		t.Fatalf("Unread after a missing file = %v, want nil", unread)
 	}
 }
 

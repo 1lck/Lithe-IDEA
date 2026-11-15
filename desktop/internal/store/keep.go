@@ -155,10 +155,16 @@ func (object *keptObject) keepInner(name string, inner *keptObject) {
 }
 
 // noteLoaded records how each foreign value's field encoded right after the load, from the value
-// encoded as a whole.
+// encoded as a whole. An object the encoding leaves out (omitempty) has none of its fields
+// written, so each counts as left out.
 func (object *keptObject) noteLoaded(encoded json.RawMessage) {
 	var current map[string]json.RawMessage
-	_ = json.Unmarshal(encoded, &current)
+	if len(encoded) > 0 {
+		// log-exempt: 预期的缺失：walk 只进入结构体和字符串键 map，encoding/json 把它们（包括仓库里自带 MarshalJSON 的存储类型）编码成对象或 null，非空编码解不开时同样当作字段被省略，保存时不会多写任何值。
+		if json.Unmarshal(encoded, &current) != nil {
+			current = nil
+		}
+	}
 	for name, foreign := range object.foreign {
 		foreign.loaded = compacted(current[name])
 	}

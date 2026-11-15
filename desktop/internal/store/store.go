@@ -34,6 +34,8 @@ type Store struct {
 	mu sync.Mutex
 	// kept is, per file, what its last load found that the value could not hold.
 	kept map[string]*keptObject
+	// unread is, per file, why its last load could not read a stored value it kept (Unread).
+	unread map[string]error
 }
 
 // Open returns the store in the user's configuration directory. The directory is created
@@ -61,11 +63,12 @@ func (store *Store) Dir() string {
 //
 // Keys value has no field for, and known keys whose stored value has a shape the field cannot
 // take, do not fail the load: the fields keep what value held, and the next Save of name writes
-// the stored values back. Unknown lists them. A file that is not JSON still fails.
+// the stored values back. Unknown lists them, and Unread is why a known key's value could not be
+// read. A file that is not JSON still fails.
 func (store *Store) Load(name string, value any) (found bool, err error) {
 	data, err := os.ReadFile(filepath.Join(store.dir, name))
 	if errors.Is(err, fs.ErrNotExist) {
-		store.keep(name, nil)
+		store.keep(name, nil, nil)
 		return false, nil
 	}
 	if err != nil {
@@ -74,15 +77,24 @@ func (store *Store) Load(name string, value any) (found bool, err error) {
 	decodeErr := json.Unmarshal(data, value)
 	kept := walk(data, reflect.TypeOf(value))
 	if decodeErr != nil && (kept == nil || !foreignAnywhere(kept)) {
-		store.keep(name, nil)
+		store.keep(name, nil, nil)
 		return true, fmt.Errorf("decode %s: %w", name, decodeErr)
 	}
+	var unread error
+	if decodeErr != nil {
+		unread = fmt.Errorf("decode %s: %w", name, decodeErr)
+	}
 	if kept != nil {
-		if encoded, err := json.Marshal(value); err == nil {
+		// The value has just decoded, so it encodes; if it ever did not, the next Save fails the
+		// same way, and until then the foreign values count as left out.
+		encoded, err := json.Marshal(value)
+		if err != nil {
+			unread = errors.Join(unread, fmt.Errorf("encode %s: %w", name, err))
+		} else {
 			kept.noteLoaded(encoded)
 		}
 	}
-	store.keep(name, kept)
+	store.keep(name, kept, unread)
 	return true, nil
 }
 
@@ -100,9 +112,17 @@ func foreignAnywhere(object *keptObject) bool {
 	return false
 }
 
-func (store *Store) keep(name string, kept *keptObject) {
+func (store *Store) keep(name string, kept *keptObject, unread error) {
 	store.mu.Lock()
 	defer store.mu.Unlock()
+	if unread == nil {
+		delete(store.unread, name)
+	} else {
+		if store.unread == nil {
+			store.unread = map[string]error{}
+		}
+		store.unread[name] = unread
+	}
 	if kept == nil {
 		delete(store.kept, name)
 		return
@@ -111,6 +131,16 @@ func (store *Store) keep(name string, kept *keptObject) {
 		store.kept = map[string]*keptObject{}
 	}
 	store.kept[name] = kept
+}
+
+// Unread is why the last load of name could not read a known key's stored value, nil when it
+// read every key it has a field for. That load still succeeded and left those fields at what the
+// value held, so they run on defaults until the next save writes the stored values back; a
+// caller that logs stored state it replaced with defaults logs this as well.
+func (store *Store) Unread(name string) error {
+	store.mu.Lock()
+	defer store.mu.Unlock()
+	return store.unread[name]
 }
 
 // Unknown lists, as dotted key paths, what the last load of name could not read and the next save
@@ -163,7 +193,7 @@ func (store *Store) Path(name string) string {
 
 // Remove deletes the file name. A file that does not exist is already removed.
 func (store *Store) Remove(name string) error {
-	store.keep(name, nil)
+	store.keep(name, nil, nil)
 	if err := os.Remove(filepath.Join(store.dir, name)); err != nil && !errors.Is(err, fs.ErrNotExist) {
 		return err
 	}

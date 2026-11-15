@@ -756,6 +756,9 @@ func New(options Options) *App {
 	if settingsErr != nil {
 		a.settings = settings{}
 	}
+	// A value of a shape this version cannot take leaves only its own setting on the default;
+	// the rest loaded. It is logged below with the failures, and the notice tells it is kept.
+	settingsUnread := a.store.Unread(settingsFile)
 	a.settings.Keymap = shortcuts.Normalize(a.settings.Keymap)
 	a.loadEditorEssentials()
 	a.initRecovery()
@@ -811,6 +814,8 @@ func New(options Options) *App {
 	}
 	if settingsErr != nil {
 		a.storedStateFailed("settings", settingsErr)
+	} else if settingsUnread != nil {
+		a.storedStateFailed("settings", settingsUnread)
 	}
 	if restoreErr != nil {
 		a.backgroundFailed("update_snapshot", restoreErr)

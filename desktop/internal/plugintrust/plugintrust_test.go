@@ -222,6 +222,26 @@ func TestStoreRefusesInvalidRecord(t *testing.T) {
 	}
 }
 
+func TestStoreRefusesAnApprovalStoredInAnotherShape(t *testing.T) {
+	preferences := store.At(t.TempDir())
+	// A newer version stored the permissions in another shape: the approvals are not read in
+	// part, which would leave that plugin unapproved without a word.
+	stored := `{"schemaVersion":1,"plugins":{"example":{"1.0.0":{"pluginID":"example","version":"1.0.0","source":"marketplace","permissions":{"workspace.read":true},"approvedPrograms":[]}}}}`
+	if err := preferences.WriteFile(approvalsFile, []byte(stored)); err != nil {
+		t.Fatal(err)
+	}
+	approvals := New(preferences)
+	if _, _, err := approvals.Record("example", "1.0.0"); err == nil {
+		t.Fatal("Record read an approval whose permissions it could not decode")
+	}
+	if _, err := approvals.List(); err == nil {
+		t.Fatal("List read an approval whose permissions it could not decode")
+	}
+	if err := approvals.Approve(storedRecord()); err == nil {
+		t.Fatal("Approve rewrote approvals it could not read")
+	}
+}
+
 func TestStoreListIsSorted(t *testing.T) {
 	approvals := New(store.At(t.TempDir()))
 	for _, item := range []struct{ id, version string }{
