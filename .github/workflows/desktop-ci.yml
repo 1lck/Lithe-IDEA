@@ -226,7 +226,7 @@ jobs:
         env:
           LITHE_VISUAL_OUTPUT_DIR: ${{ github.workspace }}/.artifacts/native-settings-visual
         run: |
-          ./scripts/desktop/desktop-go.sh test -tags 'vivahead lithevisual' ./internal/settingswindow ./internal/workbench -run '^(TestVisualNativeSettingsForm|TestVisualDiagnosticUnderline)$' -count=1 -timeout=120s
+          ./scripts/desktop/desktop-go.sh test -tags 'vivahead lithevisual' ./internal/settingswindow ./internal/workbench -run '^(TestVisualNativeSettingsForm|TestVisualDiagnosticUnderline|TestVisualUpdatesPage|TestVisualUpdateDialog)$' -count=1 -timeout=120s
           test_bash="$BASH"
           if command -v cygpath >/dev/null 2>&1; then
             test_bash="$(cygpath -w "$BASH")"
@@ -326,7 +326,7 @@ jobs:
         env:
           LITHE_VISUAL_OUTPUT_DIR: ${{ github.workspace }}/.artifacts/native-settings-visual
         run: |
-          ./scripts/desktop/desktop-go.sh test -tags 'vivahead lithevisual' ./internal/settingswindow ./internal/workbench -run '^(TestVisualNativeSettingsForm|TestVisualDiagnosticUnderline)$' -count=1 -timeout=120s
+          ./scripts/desktop/desktop-go.sh test -tags 'vivahead lithevisual' ./internal/settingswindow ./internal/workbench -run '^(TestVisualNativeSettingsForm|TestVisualDiagnosticUnderline|TestVisualUpdatesPage|TestVisualUpdateDialog)$' -count=1 -timeout=120s
           test_bash="$BASH"
           if command -v cygpath >/dev/null 2>&1; then
             test_bash="$(cygpath -w "$BASH")"
