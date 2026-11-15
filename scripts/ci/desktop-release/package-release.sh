@@ -101,7 +101,10 @@ ARTIFACT_PATHS=()
 EXPECTED_VERSION_LINE="version = \"$VERSION\""
 
 contains_version_line() {
-    strings -a "$1" | grep -Fqx -- "$EXPECTED_VERSION_LINE"
+    # Read the whole stream: grep -q closes early after a match, making macOS
+    # strings fail to flush and pipefail reject a valid program. Keep producer
+    # errors fatal, including errors after the version was found.
+    strings -a "$1" | grep -Fx -- "$EXPECTED_VERSION_LINE" > /dev/null
 }
 
 # is_stable_program says the program was built with the lithe_stable tag, so it shows the plain

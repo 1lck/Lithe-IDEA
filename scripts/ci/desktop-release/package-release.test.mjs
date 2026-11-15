@@ -5,7 +5,7 @@ import path from 'node:path';
 import test from 'node:test';
 import { runProcess } from '../../../.agents/skills/write-stable-tests/scripts/test-timing-lib.mjs';
 
-async function linuxRelease(arch, wrongRPM = false) {
+async function linuxRelease(arch, wrongRPM = false, stringsMode = 'normal') {
   const root = await mkdtemp(path.join(os.tmpdir(), 'lithe-release-package-'));
   try {
     for (const dir of ['scripts/ci/desktop-release', 'scripts/ci/common', 'scripts/desktop', 'desktop', 'bin']) {
@@ -39,6 +39,15 @@ if [[ ",$formats," == *,rpm,* ]]; then
 fi
 `,
     };
+    if (stringsMode !== 'normal') {
+      const version = stringsMode === 'missing' ? '0.6.0' : '0.7.0';
+      // A version near the start of a real binary must not close strings' pipe
+      // while it still has output. A late producer error must still fail.
+      executables['bin/strings'] = `#!/usr/bin/env node
+process.stdout.write('version = "${version}"\\n');
+process.stdout.write('x'.repeat(2 * 1024 * 1024) + '\\n', () => { process.exitCode = ${stringsMode === 'late-failure' ? 9 : 0}; });
+`;
+    }
     for (const [name, source] of Object.entries(executables)) {
       await writeFile(path.join(root, name), source);
       await chmod(path.join(root, name), 0o755);
@@ -51,7 +60,10 @@ fi
       cwd: root, env, timeoutMs: 10000, maxCapturedBytes: 65536 });
     assert.equal(result.timedOut, false);
     assert.equal(result.terminationConfirmed, true);
-    if (wrongRPM) {
+    if (stringsMode === 'missing' || stringsMode === 'late-failure') {
+      assert.notEqual(result.code, 0);
+      assert.match(result.stderr, /does not carry version/);
+    } else if (wrongRPM) {
       assert.notEqual(result.code, 0);
       assert.match(result.stderr, /RPM metadata/);
     } else {
@@ -69,3 +81,7 @@ for (const arch of ['amd64', 'arm64']) {
   test(`Linux ${arch} Release packages and checks all three formats`, { timeout: 20000 }, () => linuxRelease(arch));
 }
 test('Release refuses mismatched RPM metadata', { timeout: 20000 }, () => linuxRelease('amd64', true));
+
+test('Release consumes output after a valid embedded version', { timeout: 20000 }, () => linuxRelease('amd64', false, 'large'));
+test('Release refuses a missing embedded version', { timeout: 20000 }, () => linuxRelease('amd64', false, 'missing'));
+test('Release refuses a strings failure after matching the version', { timeout: 20000 }, () => linuxRelease('amd64', false, 'late-failure'));
