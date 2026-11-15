@@ -18,7 +18,9 @@
     "evidence": [
       "desktop/internal/term/csi.go",
       "desktop/internal/term/terminal.go",
-      "desktop/internal/term/color_scheme_test.go"
+      "desktop/internal/term/color_scheme_test.go",
+      "desktop/internal/localshell/conpty_windows.go",
+      "desktop/internal/localshell/conpty_windows_test.go"
     ]
   },
   "owner": "Terminal",
@@ -43,5 +45,5 @@
       ]
     }
   },
-  "notes": "Viva：放弃迁移（见 docs/viva-migration.md 对应行），不再按旧客户端行为对齐。现状：term/parser.go 的 answerColor 应答 OSC 10/11 查询，termview/palette.go 的 applyLook 在主题变化时调用 SetDefaultColors 更新默认色；未找到 DSR 997 报告、DEC mode 2031 订阅与背景变化推送，也没有有壁纸时报告黑色的逻辑。 2026-11-12：终端已跟踪 DECSET 2031 背景订阅，主题切换时向订阅者推送 OSC 11 与颜色方案报告（CSI ? 997 n，1 暗 / 2 亮），模式查询 CSI ? 2031 $ p 如实应答，订阅即时上报当前背景。未做：壁纸/背景图模式下的透明画布合成（依赖尚不存在的背景图模式）。"
+  "notes": "Viva：放弃迁移（见 docs/viva-migration.md 对应行），不再按旧客户端行为对齐。现状：term/parser.go 的 answerColor 应答 OSC 10/11 查询，termview/palette.go 的 applyLook 在主题变化时调用 SetDefaultColors 更新默认色；未找到 DSR 997 报告、DEC mode 2031 订阅与背景变化推送，也没有有壁纸时报告黑色的逻辑。 2026-11-12：终端已跟踪 DECSET 2031 背景订阅，主题切换时向订阅者推送 OSC 11 与颜色方案报告（CSI ? 997 n，1 暗 / 2 亮），模式查询 CSI ? 2031 $ p 如实应答，订阅即时上报当前背景。未做：壁纸/背景图模式下的透明画布合成（依赖尚不存在的背景图模式）。 2026-11-16：Windows 本地终端改用随客户端携带的 ConPTY（Motty d61d1910）后，程序发出的 OSC 10/11 查询才送达 term/parser.go 应答；系统 ConPTY 会自行消费这些查询。回落到系统 ConPTY 时应答仍不可用（TestBundledConPTYDeliversColorQueriesAndKeepsSyncBlocksAtomic，Windows 运行时验证 pending）。"
 }

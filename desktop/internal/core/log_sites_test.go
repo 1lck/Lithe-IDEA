@@ -118,10 +118,12 @@ func forwardedLogEvents(t *testing.T, scan *logScan) map[string][]logSite {
 	}
 	return map[string][]logSite{
 		// termview.Failure carries the event of a terminal failure to the workbench, which
-		// logs a failed start as a warning and anything else at debug level.
+		// logs a failed start and a shell started on a fallback as warnings and anything else
+		// at debug level.
 		"internal/workbench.terminalFailed": {
 			{level: LevelWarn, event: scan.constant(t, "internal/termview", "eventStartFailed"), fields: errorKeys("stage")},
 			{level: LevelDebug, event: scan.constant(t, "internal/termview", "eventInputFailed"), fields: errorKeys("stage")},
+			{level: LevelWarn, event: scan.constant(t, "internal/termview", "eventBackgroundFailed"), fields: errorKeys("operation")},
 		},
 		// recordEngineFact relays the facts Core attaches to plugin session events. Core picks
 		// them from its own catalog and checks them there before they leave it, so the client

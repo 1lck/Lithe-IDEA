@@ -32,6 +32,10 @@ adapted to the merged View:
 - d0759bb3  a drag with Alt (Ctrl+Alt on Linux) selects a block of columns, copied
             line by line
 - 4116260e  Find opens with the selected text of one line as its query
+- d61d1910  a local Windows terminal runs on Microsoft's ConPTY package instead of the
+            inbox one; here the binaries are compiled into the client and installed in
+            the user's cache folder (desktop/internal/localshell/conpty), not beside the
+            executable, and a shell the inbox ConPTY hosts instead is logged
 
 These Motty changes, older than the port, were in the parts left out at the port and are
 taken now:

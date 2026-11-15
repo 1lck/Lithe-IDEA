@@ -113,6 +113,8 @@ type Failure struct {
 	Event string
 	// Stage is the event's stage field; empty when the event has none.
 	Stage string
+	// Operation is the event's operation field; empty when the event has none.
+	Operation string
 	// Warn records the event at warn level; otherwise it is recorded at debug level.
 	Warn bool
 	Err  error
@@ -124,6 +126,11 @@ const (
 	eventInputFailed = "terminal.input.failed"
 	stageSpawn       = "spawn"
 	stageSend        = "send"
+	// eventBackgroundFailed with operationConPTY is a shell that started on a fallback: the
+	// ConPTY the Windows client carries could not host it, so the inbox one does and
+	// re-renders the program's output.
+	eventBackgroundFailed = "app.background.operation_failed"
+	operationConPTY       = "terminal_conpty"
 )
 
 // Config sets up a terminal view.

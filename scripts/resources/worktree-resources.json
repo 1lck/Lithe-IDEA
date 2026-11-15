@@ -300,6 +300,17 @@
       "reason": "Checkout source files through Git; scripts/desktop/package-desktop.sh compiles them into the macOS executable, so the app bundle holds no font files and nothing reads or writes the installed package for them. Viva stages each registered face in the user cache directory, a per-user runtime cache named by content digest that the client never ships, signs or copies. Never copy fonts from another worktree artifact, a signed or installed bundle or that cache, and never modify them at runtime. No resource reuse copy stage is permitted."
     },
     {
+      "id": "windows-conpty-binaries",
+      "reusable": false,
+      "locations": [
+        "desktop/internal/localshell/conpty",
+        "<Windows executable> (go:embed on windows/amd64 and windows/arm64)",
+        "<user cache>/Lithe/conpty/<digest> (installed copy the client writes at the first terminal start of a process)"
+      ],
+      "identity": "Unmodified conpty.dll (win-x64, win-arm64) and OpenConsole.exe (x64, arm64) from Microsoft.Windows.Console.ConPTY 1.25.260930003 (microsoft/terminal v1.25.2733.0, MIT), tracked by Git with every file's SHA-256 and the package's SHA-256 fixed in NOTICE.md. conpty.dll follows the program's architecture and OpenConsole.exe the kernel's, so the x64 build also embeds the arm64 host. TestTheConPTYFolderMatchesItsNotice checks the hashes and PE machine types; TestTheBuildCarriesItsArchitecturesSet checks each build's embedded set.",
+      "reason": "Checkout source files through Git; the Go build embeds them, so the Windows installation directory holds no ConPTY files and its signed baseline and differential updates are unchanged. The installed copy is a per-user runtime cache named by the digest of the set; the client owns it, never ships or signs it, and keeps older digest folders because a running client of another release may have one loaded. Never copy the binaries from another worktree artifact, an installed client or that cache, and never modify them at runtime. No resource reuse copy stage is permitted."
+    },
+    {
       "id": "ide-mcp",
       "reusable": false,
       "locations": [
