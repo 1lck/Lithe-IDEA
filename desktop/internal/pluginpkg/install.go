@@ -21,6 +21,19 @@ const (
 	StateDirectory = ".state"
 )
 
+// StateRoot returns the writable state directory of one installed plugin.
+// It is outside every installed version, and RemoveState owns its cleanup.
+// The caller must supply a validated plugin identity.
+func StateRoot(root, pluginID string) string {
+	return filepath.Join(root, StateDirectory, pluginID)
+}
+
+// VersionStateRoot returns the writable state directory of one plugin version.
+// The caller must supply validated plugin and version identities.
+func VersionStateRoot(root, pluginID, version string) string {
+	return filepath.Join(StateRoot(root, pluginID), version)
+}
+
 // Installed is one plugin package version present in the root.
 type Installed struct {
 	// ID is the plugin identifier the package was installed under.
@@ -172,7 +185,7 @@ func RemoveState(root, id string) error {
 	if err := CheckIdentity("plugin ID", id); err != nil {
 		return err
 	}
-	target := filepath.Join(root, StateDirectory, id)
+	target := StateRoot(root, id)
 	switch info, err := os.Lstat(target); {
 	case errors.Is(err, fs.ErrNotExist):
 		return nil

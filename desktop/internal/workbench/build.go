@@ -21,6 +21,7 @@ import (
 	"github.com/1lck/Lithe-IDEA/desktop/internal/core"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/i18n"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/pluginbackend"
+	"github.com/1lck/Lithe-IDEA/desktop/internal/pluginpkg"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/pluginservice"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/processledger"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/toolchain"
@@ -333,7 +334,7 @@ func workspaceDigest(root string) string {
 }
 
 func buildStateDirectory(pluginRoot, workspace string, instance buildInstance) string {
-	return filepath.Join(pluginRoot, ".state", instance.PluginID, instance.Version, "build", workspaceDigest(workspace))
+	return filepath.Join(pluginpkg.VersionStateRoot(pluginRoot, instance.PluginID, instance.Version), "build", workspaceDigest(workspace))
 }
 
 // buildProvider starts a provider process, or attaches to the language server

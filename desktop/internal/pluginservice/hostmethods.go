@@ -11,6 +11,7 @@ import (
 
 	"github.com/1lck/Lithe-IDEA/desktop/internal/core"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/pluginhost"
+	"github.com/1lck/Lithe-IDEA/desktop/internal/pluginpkg"
 )
 
 // Host service grants and methods this client answers. A launch plan lists
@@ -128,7 +129,7 @@ func (s *Service) contextJSON(pluginID string, workspace WorkspaceContext) conte
 // plugin package and the application bundle. It is created on first use here and
 // nowhere else, so listing contexts leaves no directories behind.
 func (s *Service) contextState(pluginID string, workspace WorkspaceContext) (string, error) {
-	directory := filepath.Join(s.Root, pluginStateDirectory, pluginID, "backend", "workspaces", WorkspaceKey(workspace.Path))
+	directory := filepath.Join(pluginpkg.StateRoot(s.Root, pluginID), "backend", "workspaces", WorkspaceKey(workspace.Path))
 	if err := os.MkdirAll(directory, 0o700); err != nil {
 		return "", err
 	}

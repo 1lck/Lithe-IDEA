@@ -175,7 +175,7 @@ func open(kernel Kernel, preferences *store.Store, root string, first bool) (*Se
 		Manager:          pluginmanager.New(kernel, root, approvals, state),
 		Installer:        plugininstall.New(kernel, NewReviewer(kernel), approvals, pluginhost.Declared()),
 		Backend:          pluginbackend.New(kernel, hostServices),
-		Commands:         &pluginhost.CommandStore{State: filepath.Join(root, pluginStateDirectory)},
+		Commands:         &pluginhost.CommandStore{State: filepath.Join(root, pluginpkg.StateDirectory)},
 		Settings:         pluginsettings.New(kernel, preferences.Dir()),
 		HostServices:     hostServices,
 		Credentials:      credentials.Default(),
@@ -187,7 +187,7 @@ func open(kernel Kernel, preferences *store.Store, root string, first bool) (*Se
 	service.Backend.SetCommandStore(service.Commands)
 	service.Host = newBackendHost(service)
 	service.Runs = newRuns(service)
-	service.Contexts = newWorkspaceContexts(filepath.Join(root, pluginStateDirectory))
+	service.Contexts = newWorkspaceContexts(filepath.Join(root, pluginpkg.StateDirectory))
 	service.Contexts.SetObserver(service.contextsChanged)
 	service.Contexts.SetClosedObserver(service.resources.releaseContext)
 	if err := service.registerHostServices(); err != nil {

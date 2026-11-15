@@ -87,7 +87,7 @@ func (s *Service) StartLanguageServer(ctx context.Context, entries []pluginmanag
 	// State lives beside the installed versions, never inside one: an installed
 	// package is read-only for the host, and a version directory that changed
 	// would no longer match the digest the user approved.
-	stateDirectory := filepath.Join(s.Root, pluginStateDirectory, entry.Installed.ID, entry.Installed.Version)
+	stateDirectory := pluginpkg.VersionStateRoot(s.Root, entry.Installed.ID, entry.Installed.Version)
 	if stateErr := os.MkdirAll(stateDirectory, 0o700); stateErr != nil {
 		return fail(stateErr)
 	}
@@ -177,10 +177,6 @@ func (s *Service) StopLanguageServer(ctx context.Context, session *LanguageSessi
 	return s.Backend.Stop(ctx, session.Session)
 }
 
-// pluginStateDirectory is the reserved directory below the plugin root where
-// running servers keep their state. It starts with a dot, so List never reads it
-// as an installed plugin; uninstalling a plugin removes its part of it.
-const pluginStateDirectory = pluginpkg.StateDirectory
 
 type languageServerDeclaration struct {
 	LanguageServers []struct {
