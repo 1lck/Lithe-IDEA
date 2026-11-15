@@ -117,6 +117,9 @@ type generatorForm struct {
 	// formKey is the request key of the answer above; currentKey is the key of
 	// what the user has entered now. They agree once Core has answered for it.
 	formKey, currentKey string
+	// advancedProblem is whether an advanced field had a problem when the form
+	// was last drawn, so a new one can open the closed group once.
+	advancedProblem bool
 }
 
 func newGeneratorForm(key string, entry core.ProjectGeneratorEntry, plugin pluginservice.GeneratorPlugin) *generatorForm {
