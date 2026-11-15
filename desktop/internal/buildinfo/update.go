@@ -57,6 +57,15 @@ func KnownChannel(channel string) string {
 	return ""
 }
 
+// ReleaseBase is version without its pre-release and build suffixes: the release an AutoBuild
+// version, 0.7.0-autobuild.<time>, builds towards. An empty version stays empty.
+func ReleaseBase(version string) string {
+	if cut := strings.IndexAny(version, "-+"); cut >= 0 {
+		version = version[:cut]
+	}
+	return version
+}
+
 // DefaultFeedURL is the feed a channel reads unless the user set another.
 func DefaultFeedURL(channel string) string {
 	if channel == ChannelAutoBuild {

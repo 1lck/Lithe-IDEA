@@ -162,8 +162,11 @@ type updater struct {
 	stopped  bool
 	// announced is the last version a notice told about.
 	announced string
-	// dialog says the update dialog is open on the shown tab.
+	// dialog says the update dialog is open on the shown tab; notes are the release notes it
+	// laid out, and arrow the progress arc of the title bar's arrow (update_dialog.go).
 	dialog bool
+	notes  *updateNotesPage
+	arrow  updateArrowPaint
 	// first and every are updateFirstCheck and updateCheckInterval; a test shortens them.
 	first, every time.Duration
 }
@@ -269,8 +272,8 @@ func (a *App) updateStatus() settingswindow.UpdateStatus {
 	return status
 }
 
-// changeUpdate edits the status under the lock and repaints the settings window of every
-// tab, which all show it.
+// changeUpdate edits the status under the lock and repaints whatever shows it: the title bar's
+// arrow and the update dialog of the window, and the settings window of every tab.
 func (a *App) changeUpdate(change func(*settingswindow.UpdateStatus)) {
 	u := a.updates
 	u.mu.Lock()
@@ -281,6 +284,7 @@ func (a *App) changeUpdate(change func(*settingswindow.UpdateStatus)) {
 			tab.settingsWindow.Invalidate()
 		}
 	}
+	a.invalidator.Invalidate()
 }
 
 // everyTab is every workbench of the window, open or retired, or a alone without one.

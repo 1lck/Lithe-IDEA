@@ -5,7 +5,6 @@ import (
 
 	"github.com/1lck/Lithe-IDEA/desktop/internal/buildinfo"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/settingswindow"
-	"github.com/vivaui/viva/app"
 	appupdate "github.com/vivaui/viva/update"
 )
 
@@ -78,13 +77,10 @@ func (u *updater) wanted(version string) updateTarget {
 	return target
 }
 
-// releaseBase is version without its pre-release and build suffixes: the release an AutoBuild
-// version builds towards.
+// releaseBase is the release an AutoBuild version builds towards (buildinfo.ReleaseBase), or
+// any version for a build without one.
 func releaseBase(version string) string {
-	if cut := strings.IndexAny(version, "-+"); cut >= 0 {
-		version = version[:cut]
-	}
-	if version == "" {
+	if version = buildinfo.ReleaseBase(version); version == "" {
 		return updateFromAnyVersion
 	}
 	return version
@@ -233,16 +229,15 @@ func (a *App) closeUpdateDialog() {
 // itself.
 func (a *App) openUpdateDownloads() {
 	a.performed("updates.downloads", surfaceButton)
-	if err := app.OpenURL(buildinfo.DownloadsURL); err != nil {
+	if err := openURL(buildinfo.DownloadsURL); err != nil {
 		a.operationFailed("open_url", err)
 	}
 }
 
-// updatesChanged repaints whatever shows the update state: the title bar and dialog of the
-// shown tab, and the settings window of every tab.
+// updatesChanged repaints whatever shows the update state after a change outside the status:
+// the dialog opened or closed, a version skipped.
 func (a *App) updatesChanged() {
 	a.changeUpdate(func(*settingswindow.UpdateStatus) {})
-	a.invalidator.Invalidate()
 }
 
 // updateArrowShown says the title bar shows the update arrow: a version is available that the

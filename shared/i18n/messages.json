@@ -16338,6 +16338,13 @@
       }
     },
     {
+      "id": "desktop.settings.updates.sourceCustom",
+      "description": "Settings > Updates: the channel reads a feed the user set, beside the button that restores the default.",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
       "id": "desktop.settings.updates.sourceHelp",
       "description": "Settings > Updates help under the feed rows.",
       "platforms": [
@@ -16406,6 +16413,13 @@
     {
       "id": "desktop.settings.updates.toAutoBuild.body",
       "description": "Body of the confirmation before switching from stable to AutoBuild.",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.settings.updates.toAutoBuild.confirm",
+      "description": "Button that confirms switching from stable to AutoBuild.",
       "platforms": [
         "desktop"
       ]
@@ -18015,6 +18029,16 @@
     {
       "id": "desktop.updates.dialog.title",
       "description": "Title of the update dialog.",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "version": "string"
+      }
+    },
+    {
+      "id": "desktop.updates.dialog.titleReady",
+      "description": "Title of the update dialog once the version is downloaded and waits for a restart.",
       "platforms": [
         "desktop"
       ],
