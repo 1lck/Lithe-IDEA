@@ -265,9 +265,13 @@ before committing the notes.
   Ed25519 private key from `viva update-keygen`, which only that job receives
   and which is never committed. It also needs the variable
   `LITHE_UPDATE_PUBLIC_KEYS`, the matching public keys separated by commas,
-  which every package carries. Without the secret the job publishes nothing
-  and installed copies are not offered the release; without the variable the
-  packages cannot check for updates at all. The update dialog shows
+  which every package carries. One of those public keys belongs to a backup
+  private key kept offline, outside GitHub. A lost key is replaced by the
+  backup. A leaked key must be removed from the variable and followed by a
+  release signed with the remaining key, because clients accept any key they
+  carry and adding a key does not revoke one. Without the secret the job
+  publishes nothing and installed copies are not offered the release; without
+  the variable the packages cannot check for updates at all. The update dialog shows
   `docs/releases/v<version>.md` as what the update changes, so the notes must
   read well there too. A feed that already offers a later version is left as
   it is. See

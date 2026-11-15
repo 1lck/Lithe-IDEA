@@ -38,6 +38,7 @@ CI 构建缓存、架构并行、测试产物和 artifact 保留策略见
 - Windows 客户端安装 NSIS 安装程序，补丁只挂在同平台的 zip 上；两者的文件布局相同，客户端对 NSIS 安装版使用 zip 的补丁。
 - `stable.notes.md` 是 `docs/releases/v<version>.md`，首行为 `<!-- lithe-update-notes version=<version> -->`。更新对话框在用户决定下载前显示它；它不签名，安装哪个文件只由签名的更新源决定。
 - 私钥是 Actions secret `VIVA_UPDATE_KEY`（`viva update-keygen` 生成，base64），只交给这一个作业里的 `viva feed`；打包作业只拿到公钥 `vars.LITHE_UPDATE_PUBLIC_KEYS`。没有私钥时跳过更新源发布，Release 照常完成。同一时间只有一次运行写更新源。
+- `LITHE_UPDATE_PUBLIC_KEYS` 里还要有一把备用公钥，对应的私钥离线保存，不进 GitHub。客户端接受任何一把内置公钥签的更新源。私钥丢失时，换用备用私钥签名。私钥泄露时，从变量里删掉对应的公钥，并尽快发布一个用剩下那把钥签名的版本；只加新公钥不会撤销旧钥。完整步骤见 [Agent 笔记第 7 节](../.agents/notes/implemented/feature/2026-11-15-desktop-update-channels-and-dialog.md)。
 
 合并修复后，可等待下一次定时任务，或由仓库所有者及 `LITHE_RELEASE_ACTOR` 中的授权发布者手动重新构建并发布：
 
