@@ -1,7 +1,9 @@
 package settingswindow
 
 import (
+	"net/url"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/1lck/Lithe-IDEA/desktop/internal/i18n"
@@ -11,13 +13,41 @@ import (
 // UpdateStatus is what the updater is doing, as the update card shows it. The settings
 // owner keeps it and the card reads it on every paint.
 type UpdateStatus struct {
-	// Configured is false for a build that has no update feed.
+	// Configured is false for a build that cannot check: a local build, or a packaged one
+	// without the keys its feeds are signed with. Local says it is a local build, which has no
+	// channel.
 	Configured bool
-	Checking   bool
+	Local      bool
+	// Installed is the channel the build was packaged for, and Channel the one it updates
+	// from, which the user may have switched to; Sources is the feed of each channel.
+	Installed string
+	Channel   string
+	Sources   []UpdateSource
+	// Waiting is the release AutoBuild waits to go past on its way back to stable: stable
+	// offers a version only once one is newer than it. Empty unless the user switched to
+	// stable from AutoBuild to wait.
+	Waiting string
+	// Restorable are the channels whose settings were kept when Lithe last left them, which
+	// switching back can restore.
+	Restorable []string
+	// BuildTime and Commit say when and from what the build was packaged.
+	BuildTime, Commit string
+	Checking          bool
 	// Available is the newer version the feed offers, empty when none; NotesURL its
 	// release notes.
 	Available string
 	NotesURL  string
+	// Cross says Available is on another channel than the installed one: it replaces the
+	// build in full. Skipped says the user skipped it, so only a check they ask for shows it.
+	Cross   bool
+	Skipped bool
+	// Notes are the release notes of Available, Markdown, empty when the feed has none for
+	// it; NotesLoading says they are still on the way.
+	Notes        string
+	NotesLoading bool
+	// Manual is why the installation cannot replace itself, which an install found: the
+	// version has to be downloaded by hand.
+	Manual string
 	// UpToDate says the last check found nothing newer.
 	UpToDate bool
 	// Delta says Update downloads the patch from the running version, DeltaSize bytes,
@@ -39,6 +69,21 @@ type UpdateStatus struct {
 	Failure    string
 	// LastChecked is when the feed was last read successfully.
 	LastChecked time.Time
+}
+
+// UpdateSource is the feed one channel reads: URL, which Custom says the user set instead of
+// the channel's default.
+type UpdateSource struct {
+	Channel string
+	URL     string
+	Custom  bool
+}
+
+// ValidUpdateSource says text can be a feed address: an absolute HTTPS URL with a host, which
+// is all the updater accepts.
+func ValidUpdateSource(text string) bool {
+	parsed, err := url.Parse(strings.TrimSpace(text))
+	return err == nil && parsed.Scheme == "https" && parsed.Host != "" && parsed.User == nil
 }
 
 // updatesPage is the Updates page of Appearance & Behavior: the running version over the

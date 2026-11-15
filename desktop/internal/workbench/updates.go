@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/ed25519"
 	"errors"
+	"maps"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -13,15 +14,19 @@ import (
 
 	"github.com/1lck/Lithe-IDEA/desktop/internal/buildinfo"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/core"
+	"github.com/1lck/Lithe-IDEA/desktop/internal/i18n"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/settingswindow"
+	"github.com/vivaui/viva/ui"
 	appupdate "github.com/vivaui/viva/update"
 )
 
-// Updates come from the signed feed a release build names (buildinfo.UpdateFeedURL): Viva's
-// update package checks the Ed25519 signature, downloads the archive for this platform with
-// its size and SHA-256 checked, and installs it, keeping the old application until the new
-// one starts. The download lands in the user's cache directory, never in the installed
-// application.
+// Updates come from a signed feed of one of two channels (buildinfo.Channels): Viva's update
+// package checks the Ed25519 signature, downloads the archive for this platform with its size
+// and SHA-256 checked, and installs it, keeping the old application until the new one starts.
+// The download lands in the user's cache directory, never in the installed application. A
+// build updates from the channel it was packaged for unless the user switched to the other
+// (update_channels.go), and from the channel's default feed on the official repository unless
+// the user set another address; every address is checked against the keys built in.
 //
 // When the feed lists a patch from the running version, Update downloads that instead, as
 // Sparkle's delta updates did on the old macOS client. The patch is checked like the archive.
@@ -29,10 +34,12 @@ import (
 // (update.ApplyPatch): it reads the installed application and never writes into it. The
 // rebuilt copy is installed with the same checks as an unpacked archive. Viva makes patches
 // for macOS and Linux only, and a Windows feed lists none, so Windows always downloads the
-// full installer. If the patch cannot be downloaded, applied or installed, Update logs why
-// (update.delta.fallback_selected) and downloads the full archive. It skips the patch for
-// that version from then on. A refusal the full archive would meet too is not retried: an
-// application its package manager updates, or one that cannot be replaced.
+// full installer. A release of the other channel is never patched: a patch rebuilds the exact
+// bytes of the channel's previous release. If the patch cannot be downloaded, applied or
+// installed, Update logs why (update.delta.fallback_selected) and downloads the full archive.
+// It skips the patch for that version from then on. A refusal the full archive would meet too
+// is not retried: an application its package manager updates, or one that cannot be replaced;
+// the update dialog offers the downloads page for it instead.
 //
 // The rebuilt copy is used once. It is deleted when the installer has copied it, when an
 // install with it fails, when a check finds another version, and when the window closes; a
@@ -41,11 +48,12 @@ import (
 // The checks are Motty's. With the automatic check on, the first runs updateFirstCheck after
 // launch and each next one updateCheckInterval after the one before. A check that comes due
 // while the window is in the background waits until the window is active again, so an idle
-// Lithe does not read the feed every hour for nobody. A check nobody asked for says only that
-// a version is available, once per version, in a notice: it never opens anything over what
-// the user is doing, and it says nothing when it fails, which the log records. Update, in
-// Settings > About and Settings > Updates, downloads and verifies the version, then installs
-// it and restarts; while it downloads, Cancel stops it.
+// Lithe does not read the feed every hour for nobody. A version a check finds shows the green
+// arrow on the title bar, and a check nobody asked for says so once per version in a notice:
+// it never opens anything over what the user is doing, downloads nothing, and says nothing
+// when it fails, which the log records. The arrow, the notice and the settings open the update
+// dialog, which shows the release notes first (update_notes.go) and then offers to skip the
+// version, to decide later, or to download and install it.
 
 const (
 	// updateFirstCheck is how long after launch the first automatic check runs, late enough
@@ -103,11 +111,17 @@ var removeUpdateDir = os.RemoveAll
 
 // updater is the update state of the window, which every project tab of it shares: the
 // window has one application to update and one setting for checking. The settings windows
-// read the status from their own threads, so it and what the steps found are behind mu; the
-// fields after them belong to the window thread.
+// read the status from their own threads, so it, what the steps found and the channel
+// settings are behind mu; the fields after them belong to the window thread.
 type updater struct {
-	mu       sync.Mutex
-	status   settingswindow.UpdateStatus
+	mu     sync.Mutex
+	status settingswindow.UpdateStatus
+	// open makes the client that reads a target's feed, nil for a build that cannot update
+	// itself: a local build, or one without the keys. A test replaces it.
+	open func(updateTarget) (updateSource, error)
+	// target is the feed the last check read and source the client it read it with, which
+	// downloads what the check found.
+	target   updateTarget
 	source   updateSource
 	feed     *appupdate.Feed
 	asset    appupdate.Asset
@@ -118,6 +132,24 @@ type updater struct {
 	// noDelta is the version whose patch failed, which Update downloads in full from then on.
 	noDelta string
 	cancel  context.CancelFunc
+	// installed is the channel the build was packaged for, empty for a local build. chosen is
+	// the channel the user switched to, empty while it is the installed one; sources are the
+	// feed addresses the user set, and skipped the version the user skipped, by channel. All
+	// three are saved with the settings.
+	installed string
+	chosen    string
+	sources   map[string]string
+	skipped   map[string]string
+	// returnNow says the user going back to stable from AutoBuild asked for stable's latest
+	// release at once, even if it is older than the running build, and restore that the
+	// settings kept when Lithe last left the chosen channel come back with it. Both are saved
+	// with the settings, beside chosen, so a restart keeps what the user confirmed.
+	returnNow bool
+	restore   bool
+	// snapshots is the newest kept settings of each channel (update_snapshots.go).
+	snapshots map[string]string
+	// notesFor is the feed and version the notes being shown or fetched belong to.
+	notesFor string
 
 	// auto says Lithe checks on its own, and checkedAt is when a check last read the feed;
 	// both are saved with the settings.
@@ -130,29 +162,69 @@ type updater struct {
 	stopped  bool
 	// announced is the last version a notice told about.
 	announced string
+	// dialog says the update dialog is open on the shown tab.
+	dialog bool
 	// first and every are updateFirstCheck and updateCheckInterval; a test shortens them.
 	first, every time.Duration
 }
 
-// newUpdater is the updater of a new window, with the stored setting and last check.
+// newUpdater is the updater of a new window, with the stored settings and last check.
 func newUpdater(stored settings) *updater {
-	u := &updater{auto: !stored.UpdatesManual, checkedAt: stored.UpdatesCheckedAt, first: updateFirstCheck, every: updateCheckInterval}
+	u := &updater{
+		auto: !stored.UpdatesManual, checkedAt: stored.UpdatesCheckedAt,
+		installed: buildinfo.InstalledChannel(),
+		sources:   knownChannels(stored.UpdateSources),
+		skipped:   knownChannels(stored.UpdateSkipped),
+		snapshots: map[string]string{},
+		first:     updateFirstCheck, every: updateCheckInterval,
+	}
+	if chosen := buildinfo.KnownChannel(stored.UpdateChannel); chosen != u.installed {
+		u.chosen = chosen
+	}
+	if u.chosen != "" {
+		u.returnNow = stored.UpdateReturnNow && u.chosen == buildinfo.ChannelStable
+		// Whether there is a copy to restore is known once startUpdates has looked.
+		u.restore = stored.UpdateRestore
+	}
 	u.status.LastChecked = stored.UpdatesCheckedAt
 	return u
 }
 
-// store writes the update setting and the last check into the settings being saved, so
+// knownChannels is a copy of the per-channel values of stored that name a channel, so a value
+// for a channel this version does not know is dropped rather than read.
+func knownChannels(stored map[string]string) map[string]string {
+	known := map[string]string{}
+	for channel, value := range stored {
+		if channel = buildinfo.KnownChannel(channel); channel != "" && value != "" {
+			known[channel] = value
+		}
+	}
+	return known
+}
+
+// store writes the update settings and the last check into the settings being saved, so
 // whichever tab saves, it saves the window's.
 func (u *updater) store(into *settings) {
 	if u == nil {
 		return
 	}
+	u.mu.Lock()
+	defer u.mu.Unlock()
 	into.UpdatesManual, into.UpdatesCheckedAt = !u.auto, u.checkedAt
+	into.UpdateChannel, into.UpdateReturnNow, into.UpdateRestore = u.chosen, u.returnNow, u.restore
+	into.UpdateSources, into.UpdateSkipped = nil, nil
+	if len(u.sources) > 0 {
+		into.UpdateSources = maps.Clone(u.sources)
+	}
+	if len(u.skipped) > 0 {
+		into.UpdateSkipped = maps.Clone(u.skipped)
+	}
 }
 
-// newUpdateClient is the feed client of this build, nil when the build names no feed.
-func newUpdateClient(current string) *appupdate.Client {
-	if buildinfo.UpdateFeedURL == "" || buildinfo.UpdatePublicKeys == "" || current == "" {
+// newUpdateOpener is what makes the feed clients of a build packaged for installed, nil when
+// the build cannot update itself: a local build, or one without a key to check feeds with.
+func newUpdateOpener(installed, current string) func(updateTarget) (updateSource, error) {
+	if installed == "" || current == "" {
 		return nil
 	}
 	var keys []ed25519.PublicKey
@@ -164,14 +236,16 @@ func newUpdateClient(current string) *appupdate.Client {
 	if len(keys) == 0 {
 		return nil
 	}
-	client, err := appupdate.New(appupdate.Config{
-		FeedURL: buildinfo.UpdateFeedURL, PublicKeys: keys,
-		App: buildinfo.UpdateApp, Channel: buildinfo.UpdateChannel, Current: current,
-	})
-	if err != nil {
-		return nil
+	return func(target updateTarget) (updateSource, error) {
+		client, err := appupdate.New(appupdate.Config{
+			FeedURL: target.feedURL, PublicKeys: keys,
+			App: buildinfo.UpdateApp, Channel: target.channel, Current: target.against,
+		})
+		if err != nil {
+			return nil, err
+		}
+		return client, nil
 	}
-	return client
 }
 
 // updateStatus is a copy of the status for the settings window.
@@ -180,7 +254,18 @@ func (a *App) updateStatus() settingswindow.UpdateStatus {
 	u.mu.Lock()
 	defer u.mu.Unlock()
 	status := u.status
-	status.Configured = u.source != nil
+	status.Configured = u.open != nil
+	status.Local = u.installed == ""
+	status.Installed, status.Channel = u.installed, u.channel()
+	status.BuildTime, status.Commit = buildinfo.BuildTime, buildinfo.Commit
+	for _, channel := range buildinfo.Channels {
+		status.Sources = append(status.Sources, settingswindow.UpdateSource{
+			Channel: channel, URL: u.feedURL(channel), Custom: u.sources[channel] != "",
+		})
+		if u.snapshots[channel] != "" && channel != u.installed {
+			status.Restorable = append(status.Restorable, channel)
+		}
+	}
 	return status
 }
 
@@ -214,14 +299,19 @@ func (a *App) shownTab() *App {
 	return a
 }
 
-// startUpdates makes the feed client and, when the automatic check is on, arms the first.
+// startUpdates makes what opens the feed clients, finds the settings kept of each channel and,
+// when the automatic check is on, arms the first check.
 func (a *App) startUpdates() {
-	if client := newUpdateClient(a.version); client != nil {
-		a.updates.mu.Lock()
-		a.updates.source = client
-		a.updates.mu.Unlock()
+	u := a.updates
+	snapshots := a.updateSnapshots()
+	u.mu.Lock()
+	if u.open == nil {
+		u.open = newUpdateOpener(u.installed, a.version)
 	}
-	a.scheduleUpdateCheck(a.updates.first)
+	u.snapshots = snapshots
+	u.restore = u.restore && snapshots[u.chosen] != ""
+	u.mu.Unlock()
+	a.scheduleUpdateCheck(u.first)
 }
 
 // autoCheckUpdates is the setting, on unless the user turned it off.
@@ -249,7 +339,7 @@ func (a *App) scheduleUpdateCheck(delay time.Duration) {
 	u := a.updates
 	a.stopUpdateCheck()
 	u.mu.Lock()
-	configured := u.source != nil
+	configured := u.open != nil
 	u.mu.Unlock()
 	if u.stopped || !u.auto || !configured {
 		return
@@ -328,10 +418,10 @@ func (a *App) stopUpdates() {
 func (a *App) checkForUpdates(asked bool) {
 	u := a.updates
 	u.mu.Lock()
-	source := u.source
+	open, target := u.open, u.wanted(a.version)
 	busy := u.status.Checking || u.status.Downloading || u.status.Installing
 	u.mu.Unlock()
-	if source == nil || busy {
+	if open == nil || busy {
 		return
 	}
 	if asked {
@@ -348,20 +438,33 @@ func (a *App) checkForUpdates(asked bool) {
 	go func() {
 		ctx, cancel := context.WithTimeout(parent, updateCheckTimeout)
 		defer cancel()
-		feed, err := source.Check(ctx)
+		var feed *appupdate.Feed
 		var asset appupdate.Asset
+		source, err := open(target)
+		if err == nil {
+			feed, err = source.Check(ctx)
+		}
 		if err == nil && feed != nil {
 			asset, err = feed.Asset(runtime.GOOS, runtime.GOARCH)
 		}
-		a.post(func(a *App) { a.updateChecked(asked, feed, asset, err) })
+		a.post(func(a *App) { a.updateChecked(asked, target, source, feed, asset, err) })
 	}()
 }
 
-// updateChecked takes in what a check found: nothing newer, or a version to update to.
-// A download of another version is forgotten, since Update would install the wrong one, and
-// an application a patch rebuilt for it is deleted.
-func (a *App) updateChecked(asked bool, feed *appupdate.Feed, asset appupdate.Asset, err error) {
+// updateChecked takes in what a check of target found: nothing newer, or a version to update
+// to. A check of a feed the user has since switched away from is dropped and the new one read
+// instead. A download of another version is forgotten, since Update would install the wrong
+// one, and an application a patch rebuilt for it is deleted.
+func (a *App) updateChecked(asked bool, target updateTarget, source updateSource, feed *appupdate.Feed, asset appupdate.Asset, err error) {
 	u := a.updates
+	u.mu.Lock()
+	moved := u.wanted(a.version) != target
+	u.mu.Unlock()
+	if moved {
+		a.changeUpdate(func(s *settingswindow.UpdateStatus) { s.Checking = false })
+		a.checkForUpdates(asked)
+		return
+	}
 	if err != nil {
 		// A check the user asked for shows its failure; a scheduled one tries again later.
 		if asked {
@@ -384,15 +487,21 @@ func (a *App) updateChecked(asked bool, feed *appupdate.Feed, asset appupdate.As
 	now := time.Now()
 	u.checkedAt = now
 	var stale string
+	skipped := false
 	a.changeUpdate(func(s *settingswindow.UpdateStatus) {
 		// changeUpdate holds u.mu, which guards what the check found too.
-		if u.feed == nil || feed == nil || u.feed.Latest.Version != version {
+		if u.feed == nil || feed == nil || u.feed.Latest.Version != version || u.target != target {
 			u.artifact = ""
 			stale, u.payload = u.payload, ""
 		}
-		u.feed, u.asset = feed, asset
+		u.target, u.source, u.feed, u.asset = target, source, feed, asset
+		skipped = version != "" && u.skipped[target.channel] == version
 		s.Checking, s.Failure, s.LastChecked = false, "", now
 		s.Available, s.NotesURL, s.UpToDate = version, "", feed == nil
+		s.Cross, s.Skipped, s.Waiting = target.cross && version != "", skipped, ""
+		if target.waits() {
+			s.Waiting = target.against
+		}
 		s.Ready = u.artifact != "" || u.payload != ""
 		s.Delta, s.DeltaSize, s.FullSize = false, 0, 0
 		if feed != nil {
@@ -404,13 +513,17 @@ func (a *App) updateChecked(asked bool, feed *appupdate.Feed, asset appupdate.As
 	})
 	a.removeUpdatePayload(stale)
 	a.saveSettings()
+	a.loadUpdateNotes(target, version)
 	if version == "" || version == u.announced {
 		return
 	}
-	// A version the user just saw on the page needs no notice later.
+	// A version the user just saw on the page needs no notice later, and one they skipped none
+	// at all.
 	u.announced = version
-	if !asked {
-		a.shownTab().notifyInfo(a.text.Updates.Available(version))
+	if !asked && !skipped {
+		a.shownTab().notifyAction(a.text.Updates.Available(version), ui.ToastInfo,
+			i18n.Shared(a.language(), "desktop.updates.viewChanges"),
+			func(a *App) { a.showUpdateDialog(surfaceNotification) })
 	}
 }
 
@@ -447,9 +560,10 @@ func (a *App) cancelUpdate() {
 }
 
 // updatePatch is the patch the feed lists from the running version to version, unless a
-// patch to that version already failed. The caller holds u.mu.
+// patch to that version already failed or the version is on another channel, whose patches
+// start from that channel's previous release. The caller holds u.mu.
 func (a *App) updatePatch(asset appupdate.Asset, version string) (appupdate.Patch, bool) {
-	if a.version == "" || a.updates.noDelta == version {
+	if a.version == "" || a.updates.noDelta == version || a.updates.target.cross {
 		return appupdate.Patch{}, false
 	}
 	return asset.PatchFrom(a.version)
@@ -649,13 +763,23 @@ func (a *App) installUpdate() {
 	install := func() {
 		// What to install is read again: a check may have replaced it while the tabs closed.
 		u.mu.Lock()
-		artifact, payload, asset, feed := u.artifact, u.payload, u.asset, u.feed
+		artifact, payload, asset, feed, target := u.artifact, u.payload, u.asset, u.feed, u.target
+		restore := u.restore && target.cross
 		u.payload = ""
 		u.mu.Unlock()
 		if artifact == "" && payload == "" || feed == nil {
 			return
 		}
 		a.changeUpdate(func(s *settingswindow.UpdateStatus) { s.Installing, s.Failure = true, "" })
+		if target.cross {
+			// Moving to the other channel keeps the settings as this channel leaves them, and
+			// brings back the ones kept when Lithe last left the new channel if asked to.
+			if err := a.keepSettingsForSwitch(target.channel, feed.Latest.Version, restore); err != nil {
+				a.removeUpdatePayload(payload)
+				a.updateFailed(err)
+				return
+			}
+		}
 		options := appupdate.InstallOptions{Artifact: artifact, Payload: payload, Asset: asset, Version: feed.Latest.Version, App: buildinfo.UpdateApp}
 		if runtime.GOOS != "darwin" {
 			options.App = ""
@@ -671,10 +795,22 @@ func (a *App) installUpdate() {
 			return
 		}
 		a.removeUpdatePayload(payload)
-		if payload == "" || errors.Is(err, appupdate.ErrManagedExternally) || errors.Is(err, appupdate.ErrNotWritable) {
+		if target.cross {
+			a.dropPendingRestore()
+		}
+		managed, unwritable := errors.Is(err, appupdate.ErrManagedExternally), errors.Is(err, appupdate.ErrNotWritable)
+		if payload == "" || managed || unwritable {
 			a.updateFailed(err)
 			if payload != "" {
 				a.changeUpdate(func(s *settingswindow.UpdateStatus) { s.Ready = false })
+			}
+			if managed || unwritable {
+				// The installation cannot replace itself: the dialog offers the downloads page.
+				text := i18n.Shared(a.language(), "desktop.updates.manual.notWritable")
+				if managed {
+					text = i18n.Shared(a.language(), "desktop.updates.manual.managed")
+				}
+				a.changeUpdate(func(s *settingswindow.UpdateStatus) { s.Manual = text })
 			}
 			return
 		}

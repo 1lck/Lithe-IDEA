@@ -227,17 +227,37 @@ func gone(path string) bool {
 	return errors.Is(err, os.ErrNotExist)
 }
 
-// newUpdateHarness is a window whose updater reads source. The updater is stopped with the
-// test, so no check stays armed and a held download ends.
+// newUpdateHarness is a stable build whose updater reads source for every feed, and whose notes
+// fetch finds none. The updater is stopped with the test, so no check stays armed and a held
+// download ends.
 func newUpdateHarness(t *testing.T, source *fakeUpdateSource) *harness {
 	t.Helper()
 	h := newHarness(t, &testKernel{Client: core.NewClient()})
-	u := h.app.updates
-	u.mu.Lock()
-	u.source = source
-	u.mu.Unlock()
+	openUpdateSource(h, buildinfo.ChannelStable, func(updateTarget) (updateSource, error) { return source, nil })
+	replaceUpdateNotes(t, func(context.Context, string, int64) ([]byte, error) {
+		return nil, errors.New("no notes in this test")
+	})
 	t.Cleanup(h.app.stopUpdates)
 	return h
+}
+
+// openUpdateSource makes the harness a build packaged for installed whose feeds open opens.
+func openUpdateSource(h *harness, installed string, open func(updateTarget) (updateSource, error)) {
+	u := h.app.updates
+	u.mu.Lock()
+	u.installed, u.open = installed, open
+	if u.chosen == installed {
+		u.chosen = ""
+	}
+	u.mu.Unlock()
+}
+
+// replaceUpdateNotes makes the notes fetch fetch until the test ends.
+func replaceUpdateNotes(t *testing.T, fetch func(context.Context, string, int64) ([]byte, error)) {
+	t.Helper()
+	previous := fetchUpdateNotes
+	fetchUpdateNotes = fetch
+	t.Cleanup(func() { fetchUpdateNotes = previous })
 }
 
 // savedSettings reads the settings file afresh, so a field the file leaves out reads as unset.

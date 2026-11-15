@@ -346,6 +346,18 @@ type settings struct {
 	// Both are the window's (updater.store, updates.go).
 	UpdatesManual    bool      `json:"updatesManual,omitempty"`
 	UpdatesCheckedAt time.Time `json:"updatesCheckedAt,omitzero"`
+	// UpdateChannel is the channel the user chose to update from when it is not the one the
+	// build was packaged for; empty follows the build. UpdateSources are the feeds the user set
+	// in place of a channel's default, and UpdateSkipped the version the user skipped, both by
+	// channel. UpdateReturnNow and UpdateRestore are what the user chose with UpdateChannel:
+	// stable's latest release at once on the way back from AutoBuild rather than the first one
+	// past the build, and the settings kept when Lithe last left the channel brought back once
+	// its release is installed. All are the window's (updater.store, updates.go).
+	UpdateChannel   string            `json:"updateChannel,omitempty"`
+	UpdateReturnNow bool              `json:"updateReturnNow,omitempty"`
+	UpdateRestore   bool              `json:"updateRestore,omitempty"`
+	UpdateSources   map[string]string `json:"updateSources,omitempty"`
+	UpdateSkipped   map[string]string `json:"updateSkipped,omitempty"`
 	// Network is the proxy settings of the application's own HTTP traffic (network.go).
 	Network settingswindow.NetworkSettings `json:"network,omitzero"`
 	// LocalHistory is which files local history leaves out and how much of it a project keeps
@@ -734,7 +746,12 @@ func New(options Options) *App {
 	}
 	a.gitConsole = core.NewGitConsole(a.gitConsoleChanged)
 	// The settings are read before the log sink is in place; a failure is recorded below, once
-	// it is.
+	// it is. The first window first restores the settings an update to another channel asked
+	// to bring back (update_snapshots.go).
+	var restoreErr error
+	if options.first == nil {
+		_, restoreErr = restorePendingSettings(a.store, buildinfo.InstalledChannel(), options.Version)
+	}
 	_, settingsErr := a.store.Load(settingsFile, &a.settings)
 	if settingsErr != nil {
 		a.settings = settings{}
@@ -794,6 +811,9 @@ func New(options Options) *App {
 	}
 	if settingsErr != nil {
 		a.storedStateFailed("settings", settingsErr)
+	}
+	if restoreErr != nil {
+		a.backgroundFailed("update_snapshot", restoreErr)
 	}
 	a.openPlugins(options)
 	a.settingsWindow = a.newSettingsWindow()

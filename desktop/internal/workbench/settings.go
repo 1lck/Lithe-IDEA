@@ -260,7 +260,13 @@ func (a *App) newSettingsWindow() *settingswindow.Controller {
 		UpdateNow:           func() { a.post(func(a *App) { a.updateNow() }) },
 		CancelUpdate:        func() { a.post(func(a *App) { a.cancelUpdate() }) },
 		SetAutoCheckUpdates: func(on bool) { a.post(func(a *App) { a.setAutoCheckUpdates(on) }) },
-		OpenURL:             func(address string) { a.post(func(a *App) { a.openSettingsLink(address) }) },
+		SetUpdateChannel: func(channel string, now, restore bool) {
+			a.post(func(a *App) { a.setUpdateChannel(channel, now, restore) })
+		},
+		SetUpdateSource: func(channel, url string) { a.post(func(a *App) { a.setUpdateSource(channel, url) }) },
+		ShowUpdate:      func() { a.post(func(a *App) { a.showUpdateDialog(surfaceButton) }) },
+		SkipUpdate:      func() { a.post(func(a *App) { a.skipUpdate() }) },
+		OpenURL:         func(address string) { a.post(func(a *App) { a.openSettingsLink(address) }) },
 		SetNetwork: func(next settingswindow.NetworkSettings, password *string) {
 			a.post(func(a *App) { a.setNetwork(next, password) })
 		},
