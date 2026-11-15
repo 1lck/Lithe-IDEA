@@ -1,6 +1,9 @@
 package core
 
-import "context"
+import (
+	"context"
+	"encoding/json"
+)
 
 // DebugTransportEvent is one platform event applied to an IDE-to-adapter byte
 // stream lifecycle. Type selects which of the other fields Core requires; a
@@ -76,4 +79,37 @@ func (c *Client) DebugTransportRelease(ctx context.Context, transportID string) 
 	return c.Execute(ctx, "debug.transport.release", struct {
 		TransportID string `json:"transportId"`
 	}{transportID}, nil)
+}
+
+// DebugAnnouncement is Core's reading of one output line of a tcpAnnounced
+// adapter. Status is "none" for a line that does not announce the endpoint,
+// "announced" with the loopback Host and Port to connect to, or "invalid" with
+// the Reason ("malformed" or "notLoopback") the announced endpoint is refused.
+type DebugAnnouncement struct {
+	Status string `json:"status"`
+	Host   string `json:"host,omitempty"`
+	Port   int    `json:"port,omitempty"`
+	Reason string `json:"reason,omitempty"`
+}
+
+// ReadDebugAnnouncement asks Core whether line, read from stream ("stdout" or
+// "stderr") of a tcpAnnounced adapter's process without its line break,
+// announces the adapter's endpoint. endpoint is the launch plan's
+// `debugAdapter.endpoint`, passed unchanged: Core owns which line is the
+// announcement and which endpoints may be connected to.
+func (c *Client) ReadDebugAnnouncement(ctx context.Context, endpoint json.RawMessage, stream, line string) (DebugAnnouncement, error) {
+	const command = "debug.adapters.readAnnouncement"
+	var announcement DebugAnnouncement
+	if err := c.Execute(ctx, command, struct {
+		Endpoint json.RawMessage `json:"endpoint"`
+		Stream   string          `json:"stream"`
+		Line     string          `json:"line"`
+	}{endpoint, stream, line}, &announcement); err != nil {
+		return DebugAnnouncement{}, err
+	}
+	switch announcement.Status {
+	case "none", "announced", "invalid":
+		return announcement, nil
+	}
+	return DebugAnnouncement{}, newParseError(command, "invalid announcement reading", "")
 }

@@ -23,7 +23,7 @@ type DebugPlugin struct {
 }
 
 // DebugAdapterDeclaration is the subset of one `debugAdapters` entry the host
-// uses to start a stdio adapter and present it. Adapter behaviour stays in
+// uses to start an adapter and present it. Adapter behaviour stays in
 // Core; the host never interprets DAP payloads.
 type DebugAdapterDeclaration struct {
 	ID          string
@@ -38,7 +38,8 @@ type DebugAdapterDeclaration struct {
 	// ConfigurationTypes are the imported launch.json types the adapter answers to.
 	ConfigurationTypes []string
 	// Endpoint names the language server and command a tcpLanguageServer adapter
-	// asks for its loopback port.
+	// asks for its loopback port. A tcpAnnounced adapter's endpoint describes the
+	// output line its process prints; only Core reads it, from the launch plan.
 	Endpoint DebugAdapterEndpoint
 	// AcceptsConnection is true when the attach configuration binds a remote
 	// host and port, so the host may offer the host-and-port form.

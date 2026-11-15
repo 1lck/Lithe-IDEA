@@ -17,8 +17,9 @@ type Process struct {
 	Name string
 	// MemoryBytes is what the process has in memory: on macOS the physical footprint Activity
 	// Monitor shows less its compressed part, on Windows the private working set Task Manager
-	// shows, on Linux the resident pages less the shared ones. It is zero for a process whose
-	// memory this user may not read.
+	// shows (or the whole working set when the private counter is unavailable), on Linux
+	// the resident pages less the shared ones. It is zero for a process whose memory this
+	// user may not read.
 	MemoryBytes uint64
 	// CompressedBytes is what the system compressed or wrote out to disk for the process, which
 	// MemoryBytes does not include, nil when it was not read. macOS reports the compressed

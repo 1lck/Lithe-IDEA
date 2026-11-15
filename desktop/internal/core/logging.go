@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"strings"
 	"syscall"
-	"unicode/utf8"
 )
 
 // LogLevel is the severity of a log record, in the kernel's canonical disk spelling.
@@ -39,19 +38,7 @@ func (e *LogError) Error() string {
 // message without control characters, a code and the domain the code belongs to. The message
 // is still redacted by the kernel before it reaches the disk.
 func LogErrorFields(err error) map[string]any {
-	message := strings.Map(func(r rune) rune {
-		if r < 0x20 || r == 0x7f || (r >= 0x80 && r < 0xa0) {
-			return ' '
-		}
-		return r
-	}, err.Error())
-	if len(message) > 1024 {
-		cut := 1024
-		for cut > 0 && !utf8.RuneStart(message[cut]) {
-			cut--
-		}
-		message = message[:cut]
-	}
+	message := cutText(strings.Map(visible, err.Error()), logTextLimit)
 	code, domain := any("unknown"), "go"
 	var logErr *LogError
 	var coreErr *Error

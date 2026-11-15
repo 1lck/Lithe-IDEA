@@ -82,8 +82,15 @@ func debugPluginHarness(t *testing.T, id, manifest string, withBinary bool) *har
 // debugPluginHarnessOn is debugPluginHarness whose plugin service runs on plugins.
 func debugPluginHarnessOn(t *testing.T, id, manifest string, withBinary bool, plugins pluginservice.Kernel) *harness {
 	t.Helper()
+	return newHarnessWithOptions(t, debugPluginOptions(t, id, manifest, withBinary, plugins, "dark"))
+}
+
+// debugPluginOptions installs one fixture plugin, as debugPluginHarnessOn does, and
+// returns the window's options in theme, for a harness that opens its own driver.
+func debugPluginOptions(t *testing.T, id, manifest string, withBinary bool, plugins pluginservice.Kernel, theme string) Options {
+	t.Helper()
 	dir := t.TempDir()
-	if err := os.WriteFile(filepath.Join(dir, settingsFile), []byte(`{"theme":"dark"}`), 0o600); err != nil {
+	if err := os.WriteFile(filepath.Join(dir, settingsFile), []byte(`{"theme":"`+theme+`"}`), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	preferences := store.At(dir)
@@ -106,13 +113,13 @@ func debugPluginHarnessOn(t *testing.T, id, manifest string, withBinary bool, pl
 	if err := pluginstate.New(preferences).SetEnabled(id, true); err != nil {
 		t.Fatal(err)
 	}
-	return newHarnessWithOptions(t, Options{
+	return Options{
 		Kernel:       &testKernel{Client: core.NewClient()},
 		PluginKernel: plugins,
 		PluginRoot:   pluginRoot,
 		Store:        preferences,
 		Languages:    []string{"zh-Hans"},
-	})
+	}
 }
 
 // fixtureWorkspace is a project the fixture adapter accepts.

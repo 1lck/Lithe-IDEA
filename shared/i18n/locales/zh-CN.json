@@ -897,6 +897,7 @@
     "desktop.debug.noExceptionFilters": "此调试适配器没有可选的异常断点。",
     "desktop.debug.noFrames": "没有栈帧",
     "desktop.debug.noVariables": "暂停后在这里查看变量。",
+    "desktop.debug.notAnnounced": "调试适配器还没输出它监听的端口就退出了。",
     "desktop.debug.openFrame": "打开栈帧的源码位置",
     "desktop.debug.pause": "暂停",
     "desktop.debug.paused": "已暂停",

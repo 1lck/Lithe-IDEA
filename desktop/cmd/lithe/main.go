@@ -46,6 +46,9 @@ func main() {
 	} else {
 		// Core holds one waker for the process; this client's log is the one that drains it.
 		logs.ObserveCoreFacts()
+		// The runtime writes a fatal crash only to stderr, which a packaged app sends nowhere;
+		// the log keeps it for the next start, and tells how earlier sessions ended.
+		logs.CaptureCrashes()
 		options.Logs = logs
 	}
 	err = workbench.New(options).Run()

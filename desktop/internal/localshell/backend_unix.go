@@ -7,6 +7,7 @@ import (
 	"github.com/1lck/Lithe-IDEA/desktop/internal/processledger"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"slices"
 	"strings"
 	"syscall"
@@ -39,7 +40,11 @@ func startBackend(config Config) (backend, error) {
 			cmd.Dir = home
 		}
 	}
-	cmd.Env = append(withoutVariables(os.Environ(), config.Unset), "TERM=xterm-256color", "COLORTERM=truecolor")
+	inherited := os.Environ()
+	if pwd := workingDirectoryVariable(cmd.Dir); pwd != "" {
+		inherited = append(withoutVariables(inherited, []string{"PWD"}), "PWD="+pwd)
+	}
+	cmd.Env = append(withoutVariables(inherited, config.Unset), "TERM=xterm-256color", "COLORTERM=truecolor")
 	cmd.Env = append(cmd.Env, config.Env...)
 	cmd.Env = withUTF8Locale(cmd.Env)
 	size := &pty.Winsize{Cols: uint16(max(config.Cols, 1)), Rows: uint16(max(config.Rows, 1))}
@@ -91,6 +96,23 @@ func startBackend(config Config) (backend, error) {
 			return readErr == nil && err == nil && group > 0 && group != cmd.Process.Pid
 		},
 	}, nil
+}
+
+// workingDirectoryVariable is the PWD of a shell started in directory, or "" when
+// directory is unknown. A shell takes its directory from PWD when PWD names it and
+// from the kernel's spelling otherwise, so without this a shell in a directory
+// reached through a symbolic link (macOS's /var is /private/var) would print a
+// path other than the one the user opened. The inherited PWD is the host's own
+// directory, and os/exec sets PWD only for a command without an environment.
+func workingDirectoryVariable(directory string) string {
+	if directory == "" {
+		return ""
+	}
+	absolute, err := filepath.Abs(directory)
+	if err != nil {
+		return ""
+	}
+	return absolute
 }
 
 // withoutVariables is environment without the named variables.

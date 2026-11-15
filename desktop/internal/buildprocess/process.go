@@ -12,6 +12,8 @@ import (
 	"io"
 	"os"
 	"os/exec"
+	"path/filepath"
+	"runtime"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -101,7 +103,7 @@ func Start(ctx context.Context, spec Spec, observe func(Stream, string)) (*Proce
 	}
 	command := exec.Command(spec.Executable, spec.Arguments...)
 	command.Dir = spec.WorkingDirectory
-	command.Env = mergedEnvironment(spec.Environment)
+	command.Env = mergedEnvironment(spec.Environment, spec.WorkingDirectory)
 	command.Stdin = spec.Stdin
 	command.Stdout = stdoutWrite
 	command.Stderr = stderrWrite
@@ -258,18 +260,24 @@ func stream(reader io.Reader, kind Stream, observe func(Stream, string)) {
 	}
 }
 
-func mergedEnvironment(extra map[string]string) []string {
+// mergedEnvironment is the started process's environment: the login shell's
+// variables, then PWD for directory, then the spec's own variables, which win.
+func mergedEnvironment(extra map[string]string, directory string) []string {
 	// The login shell's variables fill what the process lacks (loginenv).
 	base := loginenv.Environ()
-	if len(extra) == 0 {
+	pwd := workingDirectoryVariable(directory)
+	if len(extra) == 0 && pwd == "" {
 		return base
 	}
-	merged := make(map[string]string, len(extra)+len(base))
+	merged := make(map[string]string, len(extra)+len(base)+1)
 	for _, entry := range base {
 		key, value, ok := splitEnvironment(entry)
 		if ok {
 			merged[key] = value
 		}
+	}
+	if pwd != "" {
+		merged["PWD"] = pwd
 	}
 	for key, value := range extra {
 		merged[key] = value
@@ -279,6 +287,26 @@ func mergedEnvironment(extra map[string]string) []string {
 		environment = append(environment, key+"="+value)
 	}
 	return environment
+}
+
+// workingDirectoryVariable is the PWD a process started in directory needs, or
+// "" when it needs none. On POSIX systems a process finds its directory through
+// PWD when PWD names it, and through the kernel's spelling otherwise. Without
+// this the process would see the host's PWD, which names another directory, and
+// a tool in it would spell a directory reached through a symbolic link (macOS's
+// /var is /private/var) differently from the paths the host passed it: Go, for
+// one, then finds the package /var/x outside the module it found in
+// /private/var/x. os/exec sets PWD the same way, but only when the command has
+// no environment of its own. Windows has no PWD.
+func workingDirectoryVariable(directory string) string {
+	if directory == "" || runtime.GOOS == "windows" {
+		return ""
+	}
+	absolute, err := filepath.Abs(directory)
+	if err != nil {
+		return ""
+	}
+	return absolute
 }
 
 func splitEnvironment(entry string) (string, string, bool) {

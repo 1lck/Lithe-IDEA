@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/1lck/Lithe-IDEA/desktop/internal/core"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/i18n"
@@ -306,5 +307,114 @@ func TestVisualWorkbenchGradientStaysBehindPanels(t *testing.T) {
 	got := picture.RGBAAt(150, 280)
 	if got.R != 25 || got.G != 26 || got.B != 28 {
 		t.Fatalf("project gradient covered the opaque tool panel: %v, want #191a1c", got)
+	}
+}
+
+// TestVisualNewProjectFieldDescriptions captures a generator form whose fields describe
+// themselves: each description is the tip of an ⓘ beside its field, shown here resting
+// on the first one. It needs only LITHE_VISUAL_OUTPUT_DIR.
+func TestVisualNewProjectFieldDescriptions(t *testing.T) {
+	out := os.Getenv("LITHE_VISUAL_OUTPUT_DIR")
+	if out == "" {
+		t.Skip("set LITHE_VISUAL_OUTPUT_DIR")
+	}
+	if err := os.MkdirAll(out, 0755); err != nil {
+		t.Fatal(err)
+	}
+	for _, theme := range []string{"dark", "light"} {
+		for _, language := range []string{"zh-Hans", "en-US"} {
+			t.Run(theme+"-"+language, func(t *testing.T) {
+				var session *headless.Session
+				prefs := store.At(t.TempDir())
+				if err := prefs.Save(settingsFile, map[string]string{"theme": theme}); err != nil {
+					t.Fatal(err)
+				}
+				h := newHarnessWithDriver(t, Options{Kernel: &testKernel{Client: core.NewClient()}, Store: prefs, Languages: []string{language}}, func(config app.Config) (*app.Driver, func(), error) {
+					config.Width, config.Height = 800, 682
+					config.MinWidth = 800
+					var err error
+					session, err = headless.Open(config, nil, headless.Options{})
+					if err != nil {
+						return nil, nil, err
+					}
+					return session.Driver(), session.Close, nil
+				})
+				h.offerGenerators(describedGeneratorPlugin(t))
+				h.openNewProjectSheet()
+				h.chooseGenerator("Described", "dev.lithe.test.described/described")
+				more := i18n.Shared(h.app.language(), "native.moreInformation")
+				hovered := false
+				for _, hit := range h.driver.Snapshot().Hits {
+					if hit.Label == more && !hit.IsLabel {
+						at := center(hit.Bounds)
+						if err := h.driver.Move(at.X, at.Y); err != nil {
+							t.Fatal(err)
+						}
+						h.settle()
+						hovered = true
+						break
+					}
+				}
+				if !hovered {
+					t.Fatal("the form has no ⓘ")
+				}
+				if tips := h.tooltips(); len(tips) != 1 || tips[0].Value != "The flavor the project starts from." {
+					t.Fatalf("resting on the first ⓘ shows the tips %+v", tips)
+				}
+				if err := session.Screenshot(filepath.Join(out, "new-project-field-info-"+theme+"-"+language+".png")); err != nil {
+					t.Fatal(err)
+				}
+			})
+		}
+	}
+}
+
+// TestVisualDebugAnnouncedAdapterExitedFirst captures the debug view after a synthetic
+// tcpAnnounced adapter exited before it announced its port: the session ends and the
+// view shows why. It needs only LITHE_VISUAL_OUTPUT_DIR.
+func TestVisualDebugAnnouncedAdapterExitedFirst(t *testing.T) {
+	out := os.Getenv("LITHE_VISUAL_OUTPUT_DIR")
+	if out == "" {
+		t.Skip("set LITHE_VISUAL_OUTPUT_DIR")
+	}
+	if err := os.MkdirAll(out, 0755); err != nil {
+		t.Fatal(err)
+	}
+	for _, theme := range []string{"dark", "light"} {
+		for _, language := range []string{"zh-Hans", "en-US"} {
+			t.Run(theme+"-"+language, func(t *testing.T) {
+				var session *headless.Session
+				options := debugPluginOptions(t, "dev.lithe.test.debug-announced", debugAnnouncedManifest, true, &testKernel{Client: core.NewClient()}, theme)
+				options.Languages = []string{language}
+				h := newHarnessWithDriver(t, options, func(config app.Config) (*app.Driver, func(), error) {
+					config.Width, config.Height = 1200, 760
+					var err error
+					session, err = headless.Open(config, nil, headless.Options{})
+					if err != nil {
+						return nil, nil, err
+					}
+					return session.Driver(), session.Close, nil
+				})
+				root, _, watch := announcedWorkspace(t, "exit")
+				p := openHostedPanel(t, h, root)
+				h.clickNamed(h.app.text.Debug.Start)
+				awaitStateWithin(t, h, 20*time.Second, "the failure", func() bool { return p.debug.failure != "" })
+				if p.debug.failure != h.app.text.Debug.NotAnnounced {
+					t.Fatalf("failure = %q, want the missing announcement", p.debug.failure)
+				}
+				watch.ended(t, 20*time.Second)
+				// The pointer leaves the start button so its tip does not cover the reason.
+				if err := h.driver.Move(800, 150); err != nil {
+					t.Fatal(err)
+				}
+				h.settle()
+				if tips := h.tooltips(); len(tips) != 0 {
+					t.Fatalf("tips still shown: %+v", tips)
+				}
+				if err := session.Screenshot(filepath.Join(out, "debug-announced-exited-"+theme+"-"+language+".png")); err != nil {
+					t.Fatal(err)
+				}
+			})
+		}
 	}
 }

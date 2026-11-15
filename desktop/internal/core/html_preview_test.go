@@ -79,7 +79,7 @@ func TestHTMLPreviewSharedFixture(t *testing.T) {
 				if request.File != "" {
 					want.Path, want.MIME = under(request.File), request.MIME
 				}
-				if got != want {
+				if got.Kind != want.Kind || got.MIME != want.MIME || !sameHTMLPreviewFile(got.Path, want.Path) {
 					t.Errorf("%q is %+v, want %+v", request.Path, got, want)
 				}
 			}
@@ -90,4 +90,17 @@ func TestHTMLPreviewSharedFixture(t *testing.T) {
 			t.Errorf("%q was given a site", document)
 		}
 	}
+}
+
+// Core's canonical path to a served file may use Windows' extended-length spelling.
+func sameHTMLPreviewFile(got, want string) bool {
+	if got == want {
+		return true
+	}
+	if want == "" || !filepath.IsAbs(got) {
+		return false
+	}
+	actual, actualErr := os.Stat(got)
+	expected, expectedErr := os.Stat(want)
+	return actualErr == nil && expectedErr == nil && os.SameFile(actual, expected)
 }
