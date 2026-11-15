@@ -60,6 +60,7 @@ fi
       const rpmArch = arch === 'amd64' ? 'x86_64' : 'aarch64';
       assert.match(await readFile(path.join(root, `dist/autobuild/lithe-0.7.0-1.${rpmArch}.rpm.sha256`), 'utf8'), /[a-f0-9]{64}  lithe-/);
       assert.match(result.stdout, /\.deb\n/);
+      assert.match(await readFile(path.join(root, 'package-args'), 'utf8'), /--autobuild/);
     } else if (invalidSignature) {
       assert.notEqual(result.code, 0, 'an invalid application signature must block publication');
     } else {

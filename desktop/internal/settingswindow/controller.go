@@ -428,6 +428,15 @@ type Options struct {
 	UpdateNow           func()
 	CancelUpdate        func()
 	SetAutoCheckUpdates func(bool)
+	// SetUpdateChannel switches the channel updates come from, as setUpdateChannel takes it:
+	// now picks stable's latest release at once on the way back from AutoBuild, and restore
+	// brings back the settings saved when Lithe last left the channel. SetUpdateSource sets a
+	// channel's feed, an empty address putting it back on the default. ShowUpdate opens the
+	// update dialog on the workbench window and brings that window forward, where the user
+	// downloads or skips the version. None of them waits.
+	SetUpdateChannel func(channel string, now, restore bool)
+	SetUpdateSource  func(channel, url string)
+	ShowUpdate       func()
 	// OpenURL opens an HTTPS page in the system browser.
 	OpenURL func(string)
 	// SetHideProjectColors hands a change of Values.HideProjectColors to the settings

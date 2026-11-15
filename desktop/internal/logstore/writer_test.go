@@ -369,6 +369,14 @@ func TestUnreadableDirectorySettingIsReported(t *testing.T) {
 	if directory != "" || err == nil {
 		t.Fatalf("loadDirectory = %q, %v, want no directory and an error", directory, err)
 	}
+	// A directory a newer version stored in another shape is no directory either, and Open
+	// records why the default is used.
+	if err := os.WriteFile(filepath.Join(dir, settingsName), []byte(`{"directory":{"path":"/logs"}}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if directory, err := loadDirectory(store.At(dir)); directory != "" || err == nil {
+		t.Fatalf("loadDirectory of another shape = %q, %v, want no directory and an error", directory, err)
+	}
 	if directory, err := loadDirectory(nil); directory != "" || err != nil {
 		t.Fatalf("loadDirectory(nil) = %q, %v", directory, err)
 	}

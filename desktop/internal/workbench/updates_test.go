@@ -227,17 +227,37 @@ func gone(path string) bool {
 	return errors.Is(err, os.ErrNotExist)
 }
 
-// newUpdateHarness is a window whose updater reads source. The updater is stopped with the
-// test, so no check stays armed and a held download ends.
+// newUpdateHarness is a stable build whose updater reads source for every feed, and whose notes
+// fetch finds none. The updater is stopped with the test, so no check stays armed and a held
+// download ends.
 func newUpdateHarness(t *testing.T, source *fakeUpdateSource) *harness {
 	t.Helper()
 	h := newHarness(t, &testKernel{Client: core.NewClient()})
-	u := h.app.updates
-	u.mu.Lock()
-	u.source = source
-	u.mu.Unlock()
+	openUpdateSource(h, buildinfo.ChannelStable, func(updateTarget) (updateSource, error) { return source, nil })
+	replaceUpdateNotes(t, func(context.Context, string, int64) ([]byte, error) {
+		return nil, errors.New("no notes in this test")
+	})
 	t.Cleanup(h.app.stopUpdates)
 	return h
+}
+
+// openUpdateSource makes the harness a build packaged for installed whose feeds open opens.
+func openUpdateSource(h *harness, installed string, open func(updateTarget) (updateSource, error)) {
+	u := h.app.updates
+	u.mu.Lock()
+	u.installed, u.open = installed, open
+	if u.chosen == installed {
+		u.chosen = ""
+	}
+	u.mu.Unlock()
+}
+
+// replaceUpdateNotes makes the notes fetch fetch until the test ends.
+func replaceUpdateNotes(t *testing.T, fetch func(context.Context, string, int64) ([]byte, error)) {
+	t.Helper()
+	previous := fetchUpdateNotes
+	fetchUpdateNotes = fetch
+	t.Cleanup(func() { fetchUpdateNotes = previous })
 }
 
 // savedSettings reads the settings file afresh, so a field the file leaves out reads as unset.
@@ -399,6 +419,34 @@ func TestDeltaUpdateInstallsTheRebuiltApplication(t *testing.T) {
 	}
 	if events := loggedEvents(logger, deltaFallbackEvent); len(events) != 0 {
 		t.Fatalf("logged a fallback %v for a patch that worked", events)
+	}
+}
+
+// TestNSISInstallationUsesTheZipPatch reads a feed laid out the way viva feed writes it for
+// Windows: the installer, which a Windows client installs from, has no patches and the zip
+// beside it has one. The installer uses the zip's patch for its own OS and architecture, and
+// no other asset's; an archive uses only its own.
+func TestNSISInstallationUsesTheZipPatch(t *testing.T) {
+	zipPatch := appupdate.Patch{FromVersion: "0.7.0", URL: "https://example.invalid/lithe-windows-amd64.zip.0.7.0.patch", Size: 2, SHA256: strings.Repeat("1", 64)}
+	armPatch := appupdate.Patch{FromVersion: "0.7.0", URL: "https://example.invalid/lithe-windows-arm64.zip.0.7.0.patch", Size: 3, SHA256: strings.Repeat("2", 64)}
+	installer := appupdate.Asset{OS: "windows", Arch: "amd64", Format: appupdate.FormatNSIS, URL: "https://example.invalid/lithe-setup.exe", Size: 4, SHA256: strings.Repeat("0", 64)}
+	feed := &appupdate.Feed{App: buildinfo.UpdateApp, Latest: appupdate.Release{Version: "0.8.0", Assets: []appupdate.Asset{
+		{OS: "windows", Arch: "arm64", Format: appupdate.FormatZIP, URL: "https://example.invalid/lithe-windows-arm64.zip", Size: 4, SHA256: strings.Repeat("0", 64), Patches: []appupdate.Patch{armPatch}},
+		installer,
+		{OS: "windows", Arch: "amd64", Format: appupdate.FormatZIP, URL: "https://example.invalid/lithe-windows-amd64.zip", Size: 4, SHA256: strings.Repeat("0", 64), Patches: []appupdate.Patch{zipPatch}},
+		{OS: "darwin", Arch: "amd64", Format: appupdate.FormatZIP, URL: "https://example.invalid/lithe-darwin-amd64.zip", Size: 4, SHA256: strings.Repeat("0", 64)},
+	}}}
+	if patch, ok := patchFrom(feed, installer, "0.7.0"); !ok || patch != zipPatch {
+		t.Fatalf("the installer's patch from 0.7.0 is %+v, %v; want the amd64 zip's %+v", patch, ok, zipPatch)
+	}
+	if patch, ok := patchFrom(feed, installer, "0.6.0"); ok {
+		t.Fatalf("the installer has a patch from 0.6.0 (%+v), which no asset lists", patch)
+	}
+	if patch, ok := patchFrom(feed, feed.Latest.Assets[3], "0.7.0"); ok {
+		t.Fatalf("the macOS zip has a patch (%+v) although it lists none", patch)
+	}
+	if patch, ok := patchFrom(feed, feed.Latest.Assets[0], "0.7.0"); !ok || patch != armPatch {
+		t.Fatalf("the arm64 zip's patch is %+v, %v; want its own %+v", patch, ok, armPatch)
 	}
 }
 

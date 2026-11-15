@@ -535,6 +535,9 @@ func (a *App) loadChrome() {
 		a.storedStateFailed("chrome_layout", err)
 		a.notifyError(a.text.Errors.Core(err.Error()))
 		saved, found = core.ChromeLayout{}, false
+	} else if unread := a.store.Unread(layoutFile); unread != nil {
+		// A part a newer version stored in another shape runs on its default and is kept.
+		a.storedStateFailed("chrome_layout", unread)
 	}
 	a.chrome.saved = saved
 	// Normalizing keeps the saved open list, and an empty one means every tool window

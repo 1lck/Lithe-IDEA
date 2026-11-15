@@ -5,8 +5,11 @@
 #
 # AutoBuild builds and publishes without running application tests. It checks the macOS bundle
 # signature before publication; fuller checks belong to Desktop Release. The version is
-# the one in desktop/viva.toml. Signing follows the release: a complete certificate configuration
-# signs, none uses an ad hoc macOS signature (unsigned on Windows), and a partial one is refused, so a broken secret fails
+# the one in desktop/viva.toml. The packages are built for the AutoBuild update channel
+# (package-desktop.sh --autobuild), with the build time, commit and feed keys the workflow
+# passes in LITHE_BUILD_TIME, LITHE_BUILD_COMMIT and LITHE_UPDATE_PUBLIC_KEYS. Signing follows
+# the release: a complete certificate configuration signs, none uses an ad hoc macOS signature
+# (unsigned on Windows), and a partial one is refused, so a broken secret fails
 # the build instead of quietly publishing unsigned packages. The packages and a .sha256 file for
 # each, whose entry contains only the file name, are copied flat into dist/autobuild/, the
 # directory the workflow uploads; their names are printed last.
@@ -72,7 +75,7 @@ esac
 
 PACKAGE_DIR="$ROOT_DIR/dist/desktop/$GOOS-$ARCH"
 OUT_DIR="$ROOT_DIR/dist/autobuild"
-"$ROOT_DIR/scripts/desktop/package-desktop.sh" --arch "$ARCH" --format "$FORMATS" --out "$PACKAGE_DIR" \
+"$ROOT_DIR/scripts/desktop/package-desktop.sh" --arch "$ARCH" --format "$FORMATS" --out "$PACKAGE_DIR" --autobuild \
     "${SIGN_ARGS[@]+"${SIGN_ARGS[@]}"}"
 
 # Even without a Developer ID, the assembled bundle must have a valid resource seal.

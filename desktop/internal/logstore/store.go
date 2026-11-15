@@ -435,6 +435,11 @@ func loadDirectory(settings *store.Store) (string, error) {
 	if _, err := settings.Load(settingsName, &saved); err != nil {
 		return "", err
 	}
+	// A directory stored in a shape this version cannot read is no directory, and the store
+	// keeps it for the version that wrote it.
+	if err := settings.Unread(settingsName); err != nil {
+		return "", err
+	}
 	if !filepath.IsAbs(saved.Directory) {
 		return "", nil
 	}

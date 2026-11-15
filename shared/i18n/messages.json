@@ -16271,6 +16271,218 @@
       ]
     },
     {
+      "id": "desktop.settings.updates.installed",
+      "description": "Settings > Updates row: the channel this build was packaged for.",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.settings.updates.build",
+      "description": "Settings > Updates: the channel of this build, when it was built and from which commit.",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "channel": "string",
+        "time": "string",
+        "commit": "string"
+      }
+    },
+    {
+      "id": "desktop.settings.updates.local",
+      "description": "Settings > Updates for a local development build: it belongs to no channel and does not update.",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.settings.updates.channel",
+      "description": "Settings > Updates row: the channel updates come from.",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.settings.updates.channelHelp",
+      "description": "Settings > Updates help under the channel row.",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.settings.updates.channelFollowsBuild",
+      "description": "Settings > Updates channel list: the entry for the channel the installed build was packaged for, which updates follow while the user has not switched to the other. {channel} is that channel's name (desktop.updates.channel.*).",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "channel": "string"
+      }
+    },
+    {
+      "id": "desktop.settings.updates.channelBusy",
+      "description": "Settings > Updates help while an update downloads or installs, during which the channel and feeds cannot change.",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.settings.updates.source",
+      "description": "Settings > Updates row: the feed one channel reads.",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "channel": "string"
+      }
+    },
+    {
+      "id": "desktop.settings.updates.sourceDefault",
+      "description": "Settings > Updates: the channel reads its default feed, from the named repository.",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "repo": "string"
+      }
+    },
+    {
+      "id": "desktop.settings.updates.sourceCustom",
+      "description": "Settings > Updates: the channel reads a feed the user set, beside the button that restores the default.",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.settings.updates.sourceHelp",
+      "description": "Settings > Updates help under the feed rows.",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.settings.updates.sourceInvalid",
+      "description": "Settings > Updates when the feed address typed is not an https address.",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.settings.updates.sourceSave",
+      "description": "Settings > Updates button that saves the feed address typed.",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.settings.updates.sourceReset",
+      "description": "Settings > Updates button that puts the channel back on its default feed.",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.settings.updates.waiting",
+      "description": "Settings > Updates after switching from AutoBuild back to stable, waiting for a stable release past the build.",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "version": "string"
+      }
+    },
+    {
+      "id": "desktop.settings.updates.cross",
+      "description": "Settings > Updates when the release found is from the other channel the user switched to.",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "version": "string",
+        "channel": "string"
+      }
+    },
+    {
+      "id": "desktop.settings.updates.skipped",
+      "description": "Settings > Updates when the available version is one the user skipped.",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "version": "string"
+      }
+    },
+    {
+      "id": "desktop.settings.updates.toAutoBuild.title",
+      "description": "Title of the confirmation before switching from stable to AutoBuild.",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.settings.updates.toAutoBuild.body",
+      "description": "Body of the confirmation before switching from stable to AutoBuild.",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.settings.updates.toAutoBuild.confirm",
+      "description": "Button that confirms switching from stable to AutoBuild.",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.settings.updates.toStable.title",
+      "description": "Title of the confirmation before switching from AutoBuild back to stable.",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.settings.updates.toStable.body",
+      "description": "Body of the confirmation before switching from AutoBuild back to stable. {version} is the release the running AutoBuild builds towards.",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "version": "string"
+      }
+    },
+    {
+      "id": "desktop.settings.updates.toStable.wait",
+      "description": "Button of the switch back to stable: wait for a stable release past the running build.",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.settings.updates.toStable.now",
+      "description": "Button of the switch back to stable: install stable's latest release now.",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.settings.updates.restore",
+      "description": "Toggle in the channel switch confirmation: start the other channel's build with the settings saved when Lithe last left that channel.",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "channel": "string"
+      }
+    },
+    {
+      "id": "desktop.settings.updates.restoreHelp",
+      "description": "Help under the restore toggle of the channel switch confirmation.",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
       "id": "desktop.settings.updates.ready",
       "description": "Updates settings page and update notices.",
       "platforms": [
@@ -17833,12 +18045,207 @@
     },
     {
       "id": "desktop.updates.available",
-      "description": "Notice after the startup update check finds a newer version.",
+      "description": "Notice after an update check Lithe made by itself finds a newer version of the channel; its button opens the update dialog. The green arrow is the update button at the top right of the title bar.",
       "platforms": [
         "desktop"
       ],
       "parameters": {
         "version": "string"
+      }
+    },
+    {
+      "id": "desktop.updates.viewChanges",
+      "description": "Button on the update notice and in Settings > Updates that opens the update dialog with the release notes.",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.updates.manual.managed",
+      "description": "Update dialog: the installation is managed by a package manager, so Lithe cannot replace itself.",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.updates.manual.notWritable",
+      "description": "Update dialog: Lithe has no permission to replace the application where it is installed.",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.updates.channel.stable",
+      "description": "Name of the stable update channel: released versions.",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.updates.channel.autobuild",
+      "description": "Name of the AutoBuild update channel: a build of every merge to main. Product name, kept in English.",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.updates.arrow.available",
+      "description": "Tooltip and accessibility label of the green update arrow on the title bar when a version is available.",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "version": "string"
+      }
+    },
+    {
+      "id": "desktop.updates.arrow.downloading",
+      "description": "Tooltip and accessibility label of the update arrow while the version downloads.",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "version": "string",
+        "percent": "string"
+      }
+    },
+    {
+      "id": "desktop.updates.arrow.ready",
+      "description": "Tooltip and accessibility label of the update arrow once the version is downloaded and waits for a restart.",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "version": "string"
+      }
+    },
+    {
+      "id": "desktop.updates.dialog.title",
+      "description": "Title of the update dialog.",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "version": "string"
+      }
+    },
+    {
+      "id": "desktop.updates.dialog.titleReady",
+      "description": "Title of the update dialog once the version is downloaded and waits for a restart.",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "version": "string"
+      }
+    },
+    {
+      "id": "desktop.updates.dialog.current",
+      "description": "Update dialog subtitle: the running version and the channel updates come from.",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "version": "string",
+        "channel": "string"
+      }
+    },
+    {
+      "id": "desktop.updates.dialog.sizeDelta",
+      "description": "Update dialog: the download is a delta update of {size}; {full} is the full package it replaces.",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "size": "string",
+        "full": "string"
+      }
+    },
+    {
+      "id": "desktop.updates.dialog.sizeFull",
+      "description": "Update dialog: the download is the full package of {size}.",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "size": "string"
+      }
+    },
+    {
+      "id": "desktop.updates.dialog.cross",
+      "description": "Update dialog: the release is from the other channel the user switched to, so it is a full install, and settings stay shared.",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "channel": "string"
+      }
+    },
+    {
+      "id": "desktop.updates.dialog.notesLoading",
+      "description": "Update dialog while the release notes load.",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.updates.dialog.noNotes",
+      "description": "Update dialog when the release has no notes Lithe could read.",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.updates.dialog.fullNotes",
+      "description": "Update dialog link to the release page with the full notes.",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.updates.dialog.skip",
+      "description": "Update dialog button: never offer this version again; a newer one is offered.",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.updates.dialog.later",
+      "description": "Update dialog button: close the dialog and keep the arrow on the title bar.",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.updates.dialog.download",
+      "description": "Update dialog button: download the version; Lithe asks before it restarts.",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.updates.dialog.restart",
+      "description": "Update dialog button once the version is downloaded: install it and restart Lithe.",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.updates.dialog.downloads",
+      "description": "Update dialog button for an installation that cannot replace itself: open the downloads page.",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.settings.unknownKept",
+      "description": "Notice at launch when settings.json holds settings this version does not recognize, such as ones a newer build or the other update channel wrote. They are ignored but kept in the file. {count} is how many, {keys} names up to five of them.",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "count": "string",
+        "keys": "string"
       }
     },
     {
