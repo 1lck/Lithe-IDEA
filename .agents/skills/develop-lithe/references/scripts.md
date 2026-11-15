@@ -16,7 +16,7 @@
 | `scripts/ci/<工作流名>/` | 只为某一个工作流存在的脚本，目录名与工作流名对应（例如 `desktop-release`、`desktop-autobuild`、`cancel-closed-pr-runs`） |
 | `scripts/release/notes/` | 发布说明的生成与校验 |
 | `scripts/macos/<作用子目录>/` | 只服务 macOS 上的 Lithe 产品的脚本，子目录按作用命名（现有 `package/`） |
-| `scripts/desktop/perf/` | Viva 桌面端的性能基线：编辑器基准的运行、记录、对比和报告；Lithe 与其他编辑器打开同一项目时的资源占用对比（`ide-compare.mjs` 和它的 macOS 采样器 `ide-compare-sampler-macos.c`） |
+| `scripts/desktop/perf/` | Viva 桌面端的性能基线：编辑器基准的运行、记录、对比和报告；Lithe 与其他编辑器打开同一项目时的资源占用对比（`ide-compare.mjs` 和它的 macOS 采样器 `ide-compare-sampler-macos.c`）；Go 跳转、悬停、查找引用和打字的交互延迟对比（`ide-compare-latency.mjs`、按键与录屏驱动 `ide-compare-input-macos.swift`、记录编辑器与 gopls 之间消息的代理 `ide-compare-lsp-proxy.mjs`） |
 | `scripts/desktop/` | 只服务 Viva 桌面端（`desktop/`，Go）的构建、打包、验证和运行入口：构建它链接的 Lithe-core-rust 静态库，以及带 cgo 参数运行 `desktop/` 里的 go 命令 |
 | `scripts/agent-notes/`、`i18n/`、`platform-feature-matrix/`、`resources/` | 跨平台领域的脚本，目录名就是领域名 |
 

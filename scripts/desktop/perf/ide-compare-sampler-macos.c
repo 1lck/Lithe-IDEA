@@ -11,6 +11,9 @@
 //   for XPC services such as the WebKit processes of a web view;
 // - memory is the physical footprint (ri_phys_footprint), the "Memory" column of Activity Monitor.
 //   The resident size is printed next to it for reference.
+// - processor time is printed per process twice: its own (cpuUs) and that of the children it has
+//   waited for (childCpuUs, ri_child_user_time + ri_child_system_time). Children that start and exit
+//   between two samples, such as the compilers the go command runs, are only seen in the second.
 //
 // A main window is an on-screen, opaque, layer-0 window of an instance process at least
 // --min-width by --min-height points, which leaves out splash screens and tooltips.
@@ -50,6 +53,7 @@ typedef struct {
     unsigned long long footprint;
     unsigned long long resident;
     unsigned long long cpu;
+    unsigned long long child_cpu;
     int threads;
     int member;
     char name[2 * MAXCOMLEN + 1];
@@ -94,6 +98,8 @@ static int read_rows(void) {
             row->resident = usage.ri_resident_size;
             long double ticks = (long double)usage.ri_user_time + (long double)usage.ri_system_time;
             row->cpu = (unsigned long long)(ticks * timebase.numer / timebase.denom / 1000.0L);
+            long double child = (long double)usage.ri_child_user_time + (long double)usage.ri_child_system_time;
+            row->child_cpu = (unsigned long long)(child * timebase.numer / timebase.denom / 1000.0L);
         }
         struct proc_taskinfo task;
         if (proc_pidinfo(pids[i], PROC_PIDTASKINFO, 0, &task, sizeof(task)) == (int)sizeof(task)) {
@@ -351,8 +357,8 @@ int main(int argc, char **argv) {
             printf("%s{\"pid\":%d,\"ppid\":%d,\"responsible\":%d,\"name\":", first ? "" : ",", rows[i].pid,
                    rows[i].ppid, rows[i].responsible);
             print_json_string(rows[i].name);
-            printf(",\"footprint\":%llu,\"resident\":%llu,\"cpuUs\":%llu,\"threads\":%d}", rows[i].footprint,
-                   rows[i].resident, rows[i].cpu, rows[i].threads);
+            printf(",\"footprint\":%llu,\"resident\":%llu,\"cpuUs\":%llu,\"childCpuUs\":%llu,\"threads\":%d}",
+                   rows[i].footprint, rows[i].resident, rows[i].cpu, rows[i].child_cpu, rows[i].threads);
             first = 0;
         }
         printf("]}\n");

@@ -6,8 +6,19 @@
 // Usage:
 //   node scripts/desktop/perf/ide-compare.mjs run [--ides lithe,goland,vscode,zed] [--repeats N]
 //        [--first-duration SECONDS] [--duration SECONDS] [--revision REV] [--out DIR] [--work DIR]
-//        [--keep-work]
+//        [--keep-work] [--source DIR] [--name NAME] [--go FILE] [--lithe-plugin ID]
 //   node scripts/desktop/perf/ide-compare.mjs report RESULTS.json
+//
+// --go FILE compares Go support instead: every editor opens FILE (relative to the project) as well
+// as the project, Lithe with the Go plugin whose ID --lithe-plugin gives (required with Lithe; the
+// scripts name no plugin of their own), copied as it is installed in Lithe on this machine, Zed
+// with its built-in Go support and GoLand as it ships. Lithe and Zed start the same gopls from
+// PATH; each launch of them gets a gopls cache of its own in the profile (GOPLSCACHE), which the
+// first open starts empty, like GoLand's index. The quiet moment then means the language server
+// has finished loading the project too, and gopls's memory and processor time are reported on
+// their own.
+// --source DIR is the Git checkout cloned for every editor (default this repository) and --name
+// the folder name of the clones (default Lithe-IDEA for this repository, else DIR's name).
 //
 // run     Clones the Lithe repository at --revision (default HEAD) once per editor, so files an
 //         editor writes into the project are not seen by another, and gives every editor a new,
@@ -72,7 +83,7 @@ const IDES = {
     executable: 'Contents/MacOS/lithe',
     quitSeconds: 20,
     profileNote: 'shadow $HOME whose Library/Application Support and Caches are empty; no plugins',
-    prepare(profile) {
+    prepare(profile, setup) {
       // Lithe reads its configuration from os.UserConfigDir(), which follows $HOME, so the
       // profile is a home of its own. Everything else of the real home (shell start files, Git
       // configuration, toolchains) is linked, so the login environment Lithe reads at start is
@@ -81,11 +92,25 @@ const IDES = {
       const config = path.join(profile, 'Library', 'Application Support', 'Lithe Desktop');
       fs.mkdirSync(config, { recursive: true });
       writeJson(path.join(config, 'settings.json'), { updatesManual: true });
+      if (setup.goFile) {
+        // The Go command keeps its settings (go env -w) and build cache under the folders the
+        // shadow home empties; the other editors use the user's, so these are linked back.
+        linkReal(profile, path.join('Library', 'Application Support', 'go'));
+        linkReal(profile, path.join('Library', 'Caches', 'go-build'));
+        return installLitheGoSupport(config, setup);
+      }
+      return null;
     },
-    launch(profile, project) {
-      return { env: { HOME: profile }, args: [project] };
+    launch(profile, project, setup) {
+      const env = { HOME: profile };
+      if (setup.goFile) env.GOPLSCACHE = path.join(profile, 'gopls-cache');
+      return { env, args: [project] };
     },
     profileDirs: (profile) => [path.join(profile, 'Library', 'Application Support'), path.join(profile, 'Library', 'Caches')],
+    go: {
+      note: 'the Go plugin --lithe-plugin names, as installed in Lithe on this machine (its gopls from PATH); the file opens through a saved editor session; gopls cache in the profile (GOPLSCACHE)',
+      indexDirs: (profile) => [path.join(profile, 'gopls-cache')],
+    },
   },
   goland: {
     label: 'GoLand',
@@ -152,14 +177,30 @@ const IDES = {
         ].join('\n'),
       );
     },
-    launch(profile, project) {
-      return { env: { GOLAND_PROPERTIES: path.join(profile, 'goland.properties') }, args: [project] };
+    launch(profile, project, setup) {
+      const args = setup.goFile ? [project, path.join(project, setup.goFile)] : [project];
+      return { env: { GOLAND_PROPERTIES: path.join(profile, 'goland.properties') }, args };
     },
     finish(profile) {
       fs.rmSync(path.join(profile, 'config', 'goland.key'), { force: true });
     },
     profileDirs: (profile) => ['config', 'system', 'plugins', 'log'].map((name) => path.join(profile, name)),
     projectDirs: (project) => [path.join(project, '.idea')],
+    go: {
+      note: 'the Go plugin GoLand ships with; its indexes and caches in the new system path',
+      indexDirs: (profile) => [path.join(profile, 'system')],
+      // smartMs is when this launch last left dumb mode (indexing) in GoLand's log, which counts
+      // milliseconds from the start of the IDE process.
+      smartMs(profile, projectName) {
+        const file = path.join(profile, 'log', 'idea.log');
+        if (!fs.existsSync(file)) return null;
+        const text = fs.readFileSync(file, 'utf8');
+        const launch = text.slice(text.lastIndexOf('IDE STARTED'));
+        const exits = [...launch.matchAll(/^\S+ \S+ \[\s*(\d+)\]\s+INFO - #c\.i\.o\.p\.DumbServiceImpl - exit dumb mode \[(.*)\]$/gm)];
+        const last = exits.filter((m) => m[2] === projectName).pop();
+        return last ? Number(last[1]) : null;
+      },
+    },
   },
   vscode: {
     label: 'VS Code',
@@ -190,20 +231,80 @@ const IDES = {
     bundles: ['Zed.app'],
     executable: 'Contents/MacOS/zed',
     quitSeconds: 20,
-    profileNote: 'new --user-data-dir (database, extensions, settings, logs); no extensions, HTML extension auto-install off',
+    profileNote: 'new --user-data-dir (database, extensions, settings); no extensions, HTML extension auto-install off, worktrees trusted',
     prepare(profile) {
       const config = path.join(profile, 'data', 'config');
       fs.mkdirSync(config, { recursive: true });
       // A new Zed profile downloads the HTML extension on its first launch
       // (auto_install_extensions defaults to { html: true }); it is not part of the install.
-      writeJson(path.join(config, 'settings.json'), { auto_update: false, auto_install_extensions: { html: false } });
+      // A new profile opens the project untrusted and starts no language server until the user
+      // trusts it; the other editors open the project trusted.
+      writeJson(path.join(config, 'settings.json'), {
+        auto_update: false,
+        auto_install_extensions: { html: false },
+        session: { trust_all_worktrees: true },
+      });
     },
-    launch(profile, project) {
-      return { env: {}, args: ['--user-data-dir', path.join(profile, 'data'), project] };
+    launch(profile, project, setup) {
+      const args = ['--user-data-dir', path.join(profile, 'data'), project];
+      if (!setup.goFile) return { env: {}, args };
+      return { env: { GOPLSCACHE: path.join(profile, 'gopls-cache') }, args: [...args, path.join(project, setup.goFile)] };
     },
     profileDirs: (profile) => [path.join(profile, 'data')],
+    go: {
+      note: "Zed's built-in Go support (gopls from PATH, as Zed finds it in the project's shell environment); gopls cache in the profile (GOPLSCACHE)",
+      indexDirs: (profile) => [path.join(profile, 'gopls-cache')],
+    },
   },
 };
+
+// installLitheGoSupport puts the Go plugin --lithe-plugin names (setup.plugin), as installed in
+// Lithe on this machine, into a new Lithe configuration: the installed files, the user's approval
+// of exactly that version and nothing else, the plugin turned on, and an editor session that
+// reopens the Go file, because Lithe opens only the project from its command line. Lithe checks
+// the files against the approval on start, so they are copied unchanged.
+function installLitheGoSupport(config, setup) {
+  const id = setup.plugin;
+  const real = path.join(HOME, 'Library', 'Application Support', 'Lithe Desktop');
+  const installed = path.join(real, 'plugins', id);
+  const versions = fs.existsSync(installed) ? fs.readdirSync(installed).sort((a, b) => b.localeCompare(a, 'en', { numeric: true })) : [];
+  const approvals = JSON.parse(fs.readFileSync(path.join(real, 'plugin-approvals.json'), 'utf8'));
+  const version = versions.find((v) => approvals.plugins?.[id]?.[v]);
+  if (!version) throw new Error(`install and approve ${id} in Lithe first (none under ${installed})`);
+  const target = path.join(config, 'plugins', id, version);
+  fs.mkdirSync(path.dirname(target), { recursive: true });
+  run1('ditto', [path.join(installed, version), target]);
+  writeJson(path.join(config, 'plugin-approvals.json'), {
+    schemaVersion: approvals.schemaVersion,
+    plugins: { [id]: { [version]: approvals.plugins[id][version] } },
+  });
+  writeJson(path.join(config, 'plugin-state.json'), {
+    schemaVersion: 1,
+    plugins: { [id]: { pluginID: id, enabled: true } },
+  });
+  const session = {
+    savedAt: new Date().toISOString(),
+    layout: { group: 'editor:1' },
+    groups: [{ id: 'editor:1', files: [{ path: setup.goFile, line: 0, column: 0 }], selected: setup.goFile }],
+    focused: 'editor:1',
+  };
+  // Sessions are keyed by the project path, which the command line can name through /tmp or
+  // through /private/tmp.
+  const sessions = {};
+  for (const key of new Set([setup.project, fs.realpathSync(setup.project)])) sessions[key] = session;
+  writeJson(path.join(config, 'editor-sessions.json'), sessions);
+  return target;
+}
+
+// linkReal replaces the shadow home's copy of a folder with a link to the real home's.
+function linkReal(home, relative) {
+  const real = path.join(HOME, relative);
+  if (!fs.existsSync(real)) return;
+  const shadow = path.join(home, relative);
+  fs.rmSync(shadow, { recursive: true, force: true });
+  fs.mkdirSync(path.dirname(shadow), { recursive: true });
+  fs.symlinkSync(real, shadow);
+}
 
 function main() {
   const [command, ...rest] = process.argv.slice(2);
@@ -223,6 +324,7 @@ function usage() {
     'Usage:\n' +
       '  ide-compare.mjs run [--ides lithe,goland,vscode,zed] [--repeats N] [--first-duration SECONDS]\n' +
       '                      [--duration SECONDS] [--revision REV] [--out DIR] [--work DIR] [--keep-work]\n' +
+      '                      [--source DIR] [--name NAME] [--go FILE] [--lithe-plugin ID]\n' +
       '  ide-compare.mjs report RESULTS.json\n',
   );
   process.exit(64);
@@ -238,6 +340,10 @@ function parseOptions(args) {
     out: path.join(ROOT_DIR, '.artifacts', 'ide-compare', new Date().toISOString().replace(/[:.]/g, '-')),
     work: null,
     keepWork: false,
+    source: ROOT_DIR,
+    name: null,
+    goFile: null,
+    plugin: null,
   };
   for (let i = 0; i < args.length; i++) {
     const arg = args[i];
@@ -253,10 +359,26 @@ function parseOptions(args) {
     else if (arg === '--out') options.out = path.resolve(value());
     else if (arg === '--work') options.work = path.resolve(value());
     else if (arg === '--keep-work') options.keepWork = true;
+    else if (arg === '--source') options.source = path.resolve(value());
+    else if (arg === '--name') options.name = value();
+    else if (arg === '--go') options.goFile = value();
+    else if (arg === '--lithe-plugin') options.plugin = value();
     else usage();
   }
+  options.name ??= options.source === ROOT_DIR ? 'Lithe-IDEA' : path.basename(options.source);
   for (const id of options.ides) {
     if (!IDES[id]) throw new Error(`unknown editor ${id}; known: ${Object.keys(IDES).join(', ')}`);
+  }
+  if (options.goFile !== null) {
+    if (path.isAbsolute(options.goFile) || !fs.existsSync(path.join(options.source, options.goFile))) {
+      throw new Error(`--go ${options.goFile} is not a file of ${options.source}`);
+    }
+    for (const id of options.ides) {
+      if (!IDES[id].go) throw new Error(`${IDES[id].label} has no Go comparison; leave it out of --ides`);
+    }
+    if (options.ides.includes('lithe') && !options.plugin) {
+      throw new Error('--go with Lithe needs --lithe-plugin ID, the ID of the Go plugin installed in Lithe');
+    }
   }
   if (!(options.duration > TAIL_SECONDS) || !(options.firstDuration > TAIL_SECONDS) || !(options.repeats >= 0)) {
     throw new Error(`durations must be over ${TAIL_SECONDS} seconds and repeats at least 0`);
@@ -277,16 +399,18 @@ async function run(options) {
   fs.mkdirSync(work, { recursive: true });
   // Command lines can name the work directory through /tmp or through /private/tmp.
   options.workPaths = [...new Set([work, fs.realpathSync(work)])];
+  const git = (args) => run1('git', ['-C', options.source, ...args]);
   const revision = git(['rev-parse', options.revision]).trim();
   const results = {
     schema: 1,
     startedAt: new Date().toISOString(),
     machine: machineInfo(),
     project: {
-      repository: 'Lithe-IDEA',
+      repository: options.name,
       revision,
       files: Number(git(['ls-tree', '-r', '--name-only', revision]).split('\n').filter(Boolean).length),
     },
+    go: options.goFile === null ? null : goInfo(options.goFile),
     settings: {
       repeats: options.repeats,
       firstDurationSeconds: options.firstDuration,
@@ -303,19 +427,21 @@ async function run(options) {
     const ide = IDES[id];
     const app = findApp(id, ide);
     const profile = path.join(work, id, 'profile');
-    const project = path.join(work, id, 'Lithe-IDEA');
-    cloneProject(revision, project);
+    const project = path.join(work, id, options.name);
+    cloneProject(options.source, revision, project);
     fs.mkdirSync(profile, { recursive: true });
-    ide.prepare(profile);
+    const setup = { project, goFile: options.goFile, plugin: options.plugin };
+    const plugin = ide.prepare(profile, setup);
     results.ides[id] = {
       label: ide.label,
       app,
       version: bundleVersion(app),
       installBytes: diskBytes([app]),
-      profileNote: ide.profileNote,
+      profileNote: options.goFile === null ? ide.profileNote : `${ide.profileNote}; Go: ${ide.go.note}`,
+      pluginBytes: typeof plugin === 'string' ? diskBytes([plugin]) : null,
       runs: [],
     };
-    contexts.push({ id, ide, app, profile, project });
+    contexts.push({ id, ide, app, profile, project, setup });
   }
   const save = () => writeJson(path.join(options.out, 'results.json'), results);
   save();
@@ -348,6 +474,7 @@ async function run(options) {
       const entry = results.ides[context.id];
       entry.profileBytes = diskBytes(context.ide.profileDirs(context.profile));
       entry.projectWrittenBytes = diskBytes(context.ide.projectDirs?.(context.project) ?? []);
+      if (options.goFile !== null) entry.indexBytes = diskBytes(context.ide.go.indexDirs(context.profile));
     }
     results.finishedAt = new Date().toISOString();
     save();
@@ -365,7 +492,7 @@ async function run(options) {
 
 // measure launches one instance, samples it for the round's duration and terminates it.
 async function measure(context, round, index, options, sampler) {
-  const { id, ide, app, profile, project } = context;
+  const { id, ide, app, profile, project, setup } = context;
   const rawFile = path.join(options.out, 'raw', `${id}-${round.kind}-${index}.jsonl`);
   const raw = fs.createWriteStream(rawFile);
   const loadBefore = os.loadavg();
@@ -391,7 +518,7 @@ async function measure(context, round, index, options, sampler) {
   });
   const samplerExit = new Promise((resolve) => samplerProcess.on('close', resolve));
 
-  const { env, args } = ide.launch(profile, project);
+  const { env, args } = ide.launch(profile, project, setup);
   const openArgs = ['-n', '-a', app];
   for (const [key, value] of Object.entries(env)) openArgs.push('--env', `${key}=${value}`);
   openArgs.push('--args', ...args);
@@ -412,6 +539,9 @@ async function measure(context, round, index, options, sampler) {
   const last = samples[samples.length - 1];
   const leftovers = await terminate(root.pid, last.list.map((entry) => entry.pid), ide.quitSeconds);
   const swept = await sweep(options.workPaths, last.list.map((entry) => entry.pid));
+  const summary = summarize(samples, root.pid, round.duration, path.basename(project));
+  const smartMs = setup.goFile ? ide.go.smartMs?.(profile, path.basename(project)) : undefined;
+  if (smartMs !== undefined) summary.smartMs = smartMs === null ? null : root.startMs + smartMs;
   return {
     kind: round.kind,
     round: index,
@@ -422,24 +552,65 @@ async function measure(context, round, index, options, sampler) {
     rootPid: root.pid,
     killedAfterTimeout: leftovers,
     sweptProcesses: swept,
-    summary: summarize(samples, round.duration, path.basename(project)),
+    summary,
   };
 }
 
-// summarize reduces one launch's samples to the compared numbers. Processor time is added per
-// process between samples, so a process that exits does not take its time out of the total.
-// windowMs is the first large window, which can still be an empty frame; projectWindowMs is the
-// first window, of any size, whose title names the project, and settling is timed from it.
-function summarize(samples, durationSeconds, projectName) {
+// summarize reduces one launch's samples to the compared numbers. windowMs is the first large
+// window, which can still be an empty frame; projectWindowMs is the first window, of any size, whose
+// title names the project, and settling is timed from it.
+//
+// Processor time is added per process between samples, so a process that exits does not take its
+// time out of the total, and the time of children that started and exited unseen between two
+// samples is taken from what their parent has waited for (childCpuUs). The time a seen process had
+// when it was last sampled is already counted, so when it exits that much is not counted again in
+// the waited-for time of its nearest ancestor still running.
+//
+// Memory and processor time are also split into groups: each child of the root counts with all of
+// its descendants under the child's name (gopls with the go commands it runs, for example), the
+// root with what else it waited for under its own name, and a process the root is only responsible
+// for under its own name.
+function summarize(samples, rootPid, durationSeconds, projectName) {
   const cumulative = [];
+  const cpuByGroup = new Map();
+  const firstSeenMs = new Map();
   let total = 0;
   let previous = new Map();
+  let previousGroups = new Map();
+  const timeOf = (entry) => entry.cpuUs + (entry.childCpuUs ?? 0);
+  const groupFootprints = [];
   for (const sample of samples) {
-    const current = new Map(sample.list.map((entry) => [entry.pid, entry.cpuUs]));
-    for (const [pid, cpu] of current) {
-      total += Math.max(0, cpu - (previous.get(pid) ?? 0));
+    const current = new Map(sample.list.map((entry) => [entry.pid, entry]));
+    const groups = groupsOf(sample.list, rootPid);
+    const counted = new Map();
+    for (const [pid, entry] of previous) {
+      if (current.has(pid)) continue;
+      let ancestor = entry.ppid;
+      for (let hops = 0; ancestor > 1 && !current.has(ancestor) && previous.has(ancestor) && hops < 64; hops++) ancestor = previous.get(ancestor).ppid;
+      if (current.has(ancestor)) counted.set(ancestor, (counted.get(ancestor) ?? 0) + timeOf(entry));
     }
+    for (const [pid, entry] of current) {
+      const before = previous.get(pid);
+      let used;
+      if (!before) {
+        used = timeOf(entry);
+      } else {
+        const waited = (entry.childCpuUs ?? 0) - (before.childCpuUs ?? 0);
+        used = Math.max(0, entry.cpuUs - before.cpuUs) + Math.max(0, waited - (counted.get(pid) ?? 0));
+      }
+      total += used;
+      const group = groups.get(pid) ?? previousGroups.get(pid) ?? entry.name;
+      cpuByGroup.set(group, (cpuByGroup.get(group) ?? 0) + used);
+    }
+    const footprints = new Map();
+    for (const entry of sample.list) {
+      const group = groups.get(entry.pid);
+      footprints.set(group, (footprints.get(group) ?? 0) + entry.footprint);
+      if (!firstSeenMs.has(group)) firstSeenMs.set(group, sample.tMs);
+    }
+    groupFootprints.push(footprints);
     previous = current;
+    previousGroups = groups;
     cumulative.push(total);
   }
   const cpuBetween = (fromMs, toMs) => {
@@ -473,15 +644,28 @@ function summarize(samples, durationSeconds, projectName) {
     }
   }
   const tailStart = durationSeconds * 1000 - TAIL_SECONDS * 1000;
-  const tail = samples.filter((s) => s.tMs >= tailStart);
+  const tailIndexes = samples.flatMap((s, i) => (s.tMs >= tailStart ? [i] : []));
+  const tail = tailIndexes.map((i) => samples[i]);
   const last = samples[samples.length - 1];
+  const lastGroups = groupsOf(last.list, rootPid);
   const groups = new Map();
+  for (const name of new Set([...cpuByGroup.keys(), ...firstSeenMs.keys()])) {
+    groups.set(name, {
+      name,
+      footprint: 0,
+      resident: 0,
+      processes: 0,
+      steadyFootprint: median(tailIndexes.map((i) => groupFootprints[i].get(name) ?? 0)),
+      peakFootprint: Math.max(...groupFootprints.map((f) => f.get(name) ?? 0)),
+      cpuSeconds: (cpuByGroup.get(name) ?? 0) / 1e6,
+      firstSeenMs: firstSeenMs.get(name) ?? null,
+    });
+  }
   for (const entry of last.list) {
-    const group = groups.get(entry.name) ?? { name: entry.name, footprint: 0, resident: 0, processes: 0 };
+    const group = groups.get(lastGroups.get(entry.pid));
     group.footprint += entry.footprint;
     group.resident += entry.resident;
     group.processes += 1;
-    groups.set(entry.name, group);
   }
   return {
     samples: samples.length,
@@ -496,8 +680,29 @@ function summarize(samples, durationSeconds, projectName) {
     cpuSecondsTotal: total / 1e6,
     processes: last.processes,
     threads: last.threads,
-    breakdown: [...groups.values()].sort((a, b) => b.footprint - a.footprint),
+    // footprint, resident and processes are the last sample's; the others cover the launch.
+    breakdown: [...groups.values()].sort((a, b) => b.footprint - a.footprint || b.cpuSeconds - a.cpuSeconds),
   };
+}
+
+// groupsOf names the group of every process of one sample (see summarize).
+function groupsOf(list, rootPid) {
+  const byPid = new Map(list.map((entry) => [entry.pid, entry]));
+  const groups = new Map();
+  for (const entry of list) {
+    let current = entry;
+    let group = entry.name;
+    for (let hops = 0; current && hops < 64; hops++) {
+      if (current.pid === rootPid) break;
+      if (current.ppid === rootPid) {
+        group = current.name;
+        break;
+      }
+      current = byPid.get(current.ppid);
+    }
+    groups.set(entry.pid, group);
+  }
+  return groups;
 }
 
 // terminate asks the root to quit with SIGTERM, waits for every process of the instance to exit
@@ -553,9 +758,9 @@ function buildSampler(outDir) {
   return binary;
 }
 
-function cloneProject(revision, target) {
+function cloneProject(source, revision, target) {
   fs.mkdirSync(path.dirname(target), { recursive: true });
-  run1('git', ['clone', '--quiet', '--no-checkout', ROOT_DIR, target]);
+  run1('git', ['clone', '--quiet', '--no-checkout', source, target]);
   run1('git', ['-C', target, 'checkout', '--quiet', '--detach', revision]);
 }
 
@@ -646,6 +851,7 @@ function diskBytes(paths) {
 // ---- report ----
 
 function renderReport(results) {
+  if (results.go) return renderGoReport(results);
   const ids = Object.keys(results.ides);
   const stat = (id, kind, pick) => {
     const values = results.ides[id].runs.filter((r) => r.kind === kind).map((r) => pick(r.summary)).filter((v) => v !== null && v !== undefined);
@@ -725,6 +931,127 @@ function renderReport(results) {
   return `${lines.join('\n')}\n`;
 }
 
+// renderGoReport is the report of a --go run: the same launches, read as the time and resources an
+// editor needs until its Go support has loaded the project, with the language server's share.
+function renderGoReport(results) {
+  const ids = Object.keys(results.ides);
+  const group = (summary, name) => summary.breakdown.find((g) => g.name === name) ?? null;
+  const stat = (id, kind, pick) => {
+    const values = results.ides[id].runs.filter((r) => r.kind === kind).map((r) => pick(r.summary)).filter((v) => v !== null && v !== undefined);
+    return values.length > 0 ? median(values) : null;
+  };
+  const header = ['编辑器', '项目窗口出现', 'Go 就绪（CPU 静下来）', '索引完成（GoLand 日志）', '稳定内存', '其中 gopls', '峰值内存', '累计 CPU 时间', '其中 gopls', '空闲 CPU', '进程数'];
+  const rows = (kind) =>
+    ids.map((id) => {
+      const e = results.ides[id];
+      return [
+        `${e.label} ${e.version.short}`,
+        fmtMs(stat(id, kind, (s) => s.projectWindowMs)),
+        fmtMs(stat(id, kind, (s) => s.settleMs)),
+        fmtMs(stat(id, kind, (s) => s.smartMs)),
+        fmtMiB(stat(id, kind, (s) => s.steadyFootprint)),
+        fmtMiB(stat(id, kind, (s) => group(s, 'gopls')?.steadyFootprint)),
+        fmtMiB(stat(id, kind, (s) => s.peakFootprint)),
+        fmtSeconds(stat(id, kind, (s) => s.cpuSecondsTotal)),
+        fmtSeconds(stat(id, kind, (s) => group(s, 'gopls')?.cpuSeconds)),
+        fmtPercent(stat(id, kind, (s) => s.idleCpuPercent)),
+        String(stat(id, kind, (s) => s.processes) ?? '—'),
+      ];
+    });
+  const m = results.machine;
+  const go = results.go;
+  const lines = [];
+  lines.push(`# Go 支持对比：${ids.map((id) => results.ides[id].label).join('、')}`, '');
+  lines.push(`- 机器：${m.cpu}，${m.cores} 核，${(m.memoryBytes / 2 ** 30).toFixed(0)} GiB，${m.os}`);
+  lines.push(`- 项目：${results.project.repository} @ ${results.project.revision.slice(0, 9)}（${results.project.files} 个文件），打开 \`${go.file}\``);
+  lines.push(`- Go：${go.go ?? '—'}；gopls：${go.gopls ?? '—'}（${go.goplsPath ?? '不在 PATH 中'}）`);
+  lines.push(
+    `- 每个编辑器：全新配置首次打开 1 次（${results.settings.firstDurationSeconds} 秒），再重开 ${results.settings.repeats} 次（每次 ${results.settings.durationSeconds} 秒），表中为重开的中位数`,
+  );
+  lines.push(
+    `- Go 就绪：项目窗口出现后，整个进程树（含 gopls 和它运行的 go 命令）的 CPU 第一次在 ${results.settings.settleWindowSeconds} 秒内平均低于单核 ${results.settings.settleCpuPercent}%，即加载、索引完成`,
+  );
+  lines.push(
+    `- 稳定内存、空闲 CPU 取每次最后 ${results.settings.tailSeconds} 秒；内存是物理占用（phys_footprint），按进程树和 macOS 归属汇总；CPU 时间含已退出的子进程（go list、cgo、编译器）`,
+  );
+  lines.push('- 索引完成：GoLand 日志里本次启动最后一次退出 dumb mode 的时间，此后 Go 功能可用，但 GoLand 可能仍在后台分析');
+  lines.push('- “其中 gopls”是 gopls 及其子进程；GoLand 不用 gopls，它的 Go 支持在 IDE 进程里', '');
+  lines.push('## 日常重开', '', table(header, rows('reopen')), '');
+  lines.push('## 全新配置首次打开（冷索引）', '', table(header, rows('first')), '');
+  lines.push('## 安装与磁盘', '');
+  lines.push(
+    table(
+      ['编辑器', '安装包', 'Go 插件', '索引与缓存', '配置与缓存合计', '写进项目'],
+      ids.map((id) => {
+        const e = results.ides[id];
+        return [
+          `${e.label} ${e.version.short}`,
+          fmtBytes(e.installBytes),
+          e.pluginBytes === null || e.pluginBytes === undefined ? '内置' : fmtBytes(e.pluginBytes),
+          fmtBytes(e.indexBytes),
+          fmtBytes(e.profileBytes),
+          fmtBytes(e.projectWrittenBytes),
+        ];
+      }),
+    ),
+    '',
+  );
+  lines.push('## 每次运行', '');
+  lines.push(
+    table(
+      ['编辑器', '类型', '项目窗口', 'gopls 启动', 'Go 就绪', '索引完成', '稳定内存', '峰值内存', '累计 CPU 时间', '空闲 CPU', '负载（1 分钟）'],
+      ids.flatMap((id) =>
+        results.ides[id].runs.map((r) => [
+          results.ides[id].label,
+          r.kind === 'first' ? '首次打开' : `重开 #${r.round}`,
+          fmtMs(r.summary.projectWindowMs),
+          fmtMs(group(r.summary, 'gopls')?.firstSeenMs),
+          fmtMs(r.summary.settleMs),
+          fmtMs(r.summary.smartMs),
+          fmtMiB(r.summary.steadyFootprint),
+          fmtMiB(r.summary.peakFootprint),
+          fmtSeconds(r.summary.cpuSecondsTotal),
+          fmtPercent(r.summary.idleCpuPercent),
+          r.loadBefore[0].toFixed(2),
+        ]),
+      ),
+    ),
+    '',
+  );
+  lines.push('## 进程构成', '');
+  for (const id of ids) {
+    const runs = results.ides[id].runs;
+    for (const run of new Set([runs.find((r) => r.kind === 'first'), runs[runs.length - 1]].filter(Boolean))) {
+      lines.push(`### ${results.ides[id].label}：${run.kind === 'first' ? '首次打开' : `重开 #${run.round}`}`, '');
+      lines.push(
+        table(
+          ['进程组', '进程数（结束时）', '稳定内存', '峰值内存', 'CPU 时间'],
+          run.summary.breakdown
+            .filter((g) => g.cpuSeconds >= 0.05 || g.peakFootprint >= 2 ** 20)
+            .slice(0, 12)
+            .map((g) => [g.name, String(g.processes), fmtMiB(g.steadyFootprint), fmtMiB(g.peakFootprint), fmtSeconds(g.cpuSeconds)]),
+        ),
+        '',
+      );
+    }
+  }
+  return `${lines.join('\n')}\n`;
+}
+
+function goInfo(file) {
+  const first = (command, args) => {
+    const result = spawnSync(command, args, { encoding: 'utf8' });
+    return result.status === 0 ? result.stdout.trim().split('\n')[0] : null;
+  };
+  return {
+    file,
+    go: first('go', ['version']),
+    goPath: first('/usr/bin/which', ['go']),
+    gopls: first('gopls', ['version']),
+    goplsPath: first('/usr/bin/which', ['gopls']),
+  };
+}
+
 function table(header, rows) {
   return [`| ${header.join(' | ')} |`, `| ${header.map(() => '---').join(' | ')} |`, ...rows.map((row) => `| ${row.join(' | ')} |`)].join('\n');
 }
@@ -748,6 +1075,7 @@ function fmtMiB(bytes) {
 function fmtBytes(bytes) {
   if (bytes === null || bytes === undefined) return '—';
   if (bytes >= 2 ** 30) return `${(bytes / 2 ** 30).toFixed(2)} GB`;
+  if (bytes > 0 && bytes < 2 ** 20) return `${Math.max(1, Math.round(bytes / 2 ** 10))} KB`;
   return `${(bytes / 2 ** 20).toFixed(bytes >= 100 * 2 ** 20 ? 0 : 1)} MB`;
 }
 function fmtPercent(value) {
@@ -775,9 +1103,6 @@ function signal(pid, name) {
 function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
-function git(args) {
-  return run1('git', ['-C', ROOT_DIR, ...args]);
-}
 function run1(command, args) {
   const result = spawnSync(command, args, { encoding: 'utf8', maxBuffer: 64 * 2 ** 20 });
   if (result.status !== 0) throw new Error(`${command} ${args.join(' ')} failed: ${result.stderr}`);
@@ -791,4 +1116,28 @@ function log(message) {
   process.stderr.write(`[ide-compare ${new Date().toISOString().slice(11, 19)}] ${message}\n`);
 }
 
-await main();
+// ide-compare-latency.mjs launches and stops the editors the same way.
+export {
+  IDES,
+  alive,
+  buildSampler,
+  bundleVersion,
+  cloneProject,
+  findApp,
+  fmtMs,
+  goInfo,
+  log,
+  machineInfo,
+  median,
+  removeTree,
+  run1,
+  runningCopies,
+  sleep,
+  summarize,
+  sweep,
+  table,
+  terminate,
+  writeJson,
+};
+
+if (process.argv[1] && fs.realpathSync(process.argv[1]) === fileURLToPath(import.meta.url)) await main();
