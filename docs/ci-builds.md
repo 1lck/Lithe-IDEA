@@ -52,7 +52,7 @@ Desktop Release 与 AutoBuild 共同读取 `scripts/ci/common/desktop-packages.m
 | Linux x64 | DEB、RPM、tar.gz |
 | Linux ARM64 | DEB、RPM、tar.gz |
 
-总共 12 个包和 12 个 `.sha256` 校验文件。RPM 架构名分别是 `x86_64` 和 `aarch64`。两个流程发布前都按完整清单校验文件名、非空内容和 SHA-256；少包、多包、旧包或哈希不一致均停止发布。Desktop Release 额外检查 RPM 内的版本、发行号和架构，以及 RPM 内部摘要。
+总共 12 个包和 12 个 `.sha256` 校验文件。RPM 架构名分别是 `x86_64` 和 `aarch64`。两个流程发布前都按完整清单校验文件名、非空内容和 SHA-256；少包、多包、旧包或哈希不一致均停止发布。Desktop Release 额外检查 RPM 内的版本、发行号和架构，以及 RPM 内部摘要。RPM 使用固定 Viva 打包器声明必需的文字与 XCB 共享库依赖，包管理器按共享库能力选择当前发行版的提供者。
 
 macOS 的本地手动打包可用 `package-desktop.sh --ad-hoc-sign` 生成有完整资源签名的测试包；此选项不代替 Developer ID 或 Apple 公证，首次打开仍按 README 手动放行。所有签名只在构建阶段执行，应用运行时不修改安装目录。新增格式仍使用原有 `dist/desktop/` 和 `dist/autobuild/` 输出，没有新增可复用缓存或运行时资源。
 
