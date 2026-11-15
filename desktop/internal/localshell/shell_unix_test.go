@@ -5,6 +5,7 @@ package localshell
 import (
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -65,6 +66,53 @@ func TestShellStartsInTheRequestedDirectoryWithTheTerminalType(t *testing.T) {
 	output := until(t, shell, wakes, "term=xterm-256color")
 	if !strings.Contains(output, dir) && !strings.Contains(output, strings.TrimPrefix(dir, "/private")) {
 		t.Fatalf("shell started somewhere else: %q (want %s)", output, dir)
+	}
+}
+
+// A project opened through a symbolic link is the directory the user named: the
+// shell's pwd keeps the link instead of the kernel's spelling of the target.
+func TestShellSeesItsDirectoryAsTheHostSpelledIt(t *testing.T) {
+	link := filepath.Join(t.TempDir(), "project")
+	if err := os.Symlink(t.TempDir(), link); err != nil {
+		t.Fatal(err)
+	}
+	shell, wakes := start(t, Config{Dir: link})
+	shell.Write([]byte("echo dir=$(pwd)\n"))
+	output := until(t, shell, wakes, "dir=/")
+	if !strings.Contains(output, "dir="+link+"\r\n") {
+		t.Fatalf("pwd = %q, want %s", output, link)
+	}
+}
+
+// A plugin terminal's own PWD replaces the directory's, and one it unsets is not
+// passed at all. env prints what the program received, which a shell would rewrite.
+func TestPluginTerminalKeepsItsOwnPWD(t *testing.T) {
+	for _, test := range []struct {
+		name   string
+		config Config
+		want   []string
+	}{
+		{"set", Config{Env: []string{"PWD=/chosen"}}, []string{"PWD=/chosen"}},
+		{"unset", Config{Unset: []string{"PWD"}}, nil},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			config := test.config
+			config.Shell, config.Args, config.Dir, config.Cols, config.Rows = "/usr/bin/env", []string{}, t.TempDir(), 80, 24
+			shell, err := Start(config)
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer shell.Close()
+			var got []string
+			for _, line := range strings.Split(waitForExit(t, shell, 5*time.Second), "\n") {
+				if line = strings.TrimSpace(line); strings.HasPrefix(line, "PWD=") {
+					got = append(got, line)
+				}
+			}
+			if !slices.Equal(got, test.want) {
+				t.Fatalf("PWD entries = %q, want %q", got, test.want)
+			}
+		})
 	}
 }
 
