@@ -5,9 +5,9 @@ import "strings"
 // Lithe updates from one of two channels: the stable releases, which go through the release
 // process, and AutoBuild, built from main every day. Each has its own signed feed. The channel a
 // build was packaged for, when and from which commit, and the keys the feeds are signed with are
-// set at link time by scripts/desktop/package-desktop.sh, with
-// -X github.com/1lck/Lithe-IDEA/desktop/internal/buildinfo.<name>=<value>. A build without a
-// channel, a development or local build, never replaces itself.
+// set by package_info.go, which scripts/desktop/package-desktop.sh generates for the
+// lithe_package_info build tag and removes once it has packaged (viva package takes no -ldflags).
+// A build without a channel, a development or local build, never replaces itself.
 const (
 	ChannelStable    = "stable"
 	ChannelAutoBuild = "autobuild"

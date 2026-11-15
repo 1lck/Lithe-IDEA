@@ -10,7 +10,7 @@ const scripts = path.dirname(fileURLToPath(import.meta.url));
 const desktop = path.join(scripts, '../../desktop');
 
 // Go stand-in: reports the simulated host, resolves the Viva module to a fixture directory and
-// "builds" a Viva tool that records which lithe-mcp helper was embedded when it packaged.
+// "builds" a Viva tool that records which lithe-mcp helper and build information it packaged.
 const fakeGo = `#!/usr/bin/env bash
 set -euo pipefail
 if [[ "\${1:-}" == "-C" ]]; then shift 2; fi
@@ -35,7 +35,8 @@ case "$1" in
         printf '%s\\n' '#!/usr/bin/env bash' 'set -euo pipefail' \\
             '[[ " $* " == *" --cgo "* ]] || { echo "packaging must retain the native core bridge" >&2; exit 1; }' \\
             'printf "%s\\n" "$@" > "$FIXTURE_ROOT/viva-args.txt"' \\
-            'cp internal/idehelp/lithe-mcp.bin "$FIXTURE_ROOT/embedded-helper.txt"' > "$3"
+            'cp internal/idehelp/lithe-mcp.bin "$FIXTURE_ROOT/embedded-helper.txt"' \\
+            'cp internal/buildinfo/package_info.go "$FIXTURE_ROOT/package-info.go"' > "$3"
         chmod +x "$3"
         ;;
     *) printf 'unexpected go command: %s\\n' "$*" >&2; exit 1 ;;
@@ -77,10 +78,10 @@ async function withFixture(host, body) {
     await mkdir(path.join(root, 'scripts/desktop'), { recursive: true });
     await mkdir(path.join(root, 'scripts/ci/common'), { recursive: true });
     await copyFile(path.join(scripts, '../ci/common/desktop-packages.mjs'), path.join(root, 'scripts/ci/common/desktop-packages.mjs'));
-    await mkdir(path.join(root, 'desktop'));
+    await mkdir(path.join(root, 'desktop/internal/buildinfo'), { recursive: true });
     await mkdir(path.join(root, 'viva-src'));
     await mkdir(bin);
-    for (const name of ['package-desktop.sh', 'desktop-go.sh']) {
+    for (const name of ['package-desktop.sh', 'build-viva-tool.sh', 'desktop-go.sh']) {
       await copyFile(path.join(scripts, name), path.join(root, 'scripts/desktop', name));
     }
     await copyFile(path.join(desktop, 'Makefile'), path.join(root, 'desktop/Makefile'));
@@ -100,18 +101,29 @@ async function withFixture(host, body) {
       FIXTURE_RUST_HOST: host.rustHost,
     };
     for (const name of ['GOOS', 'GOARCH', 'LITHE_CORE_TARGET', 'LITHE_CORE_RUST_DIR', 'LITHE_DESKTOP_CORE_PROFILE',
-      'CGO_CFLAGS', 'CGO_LDFLAGS', 'MACOSX_DEPLOYMENT_TARGET', 'MAKEFLAGS', 'MFLAGS', 'MAKELEVEL']) {
+      'CGO_CFLAGS', 'CGO_LDFLAGS', 'MACOSX_DEPLOYMENT_TARGET', 'MAKEFLAGS', 'MFLAGS', 'MAKELEVEL',
+      'LITHE_BUILD_TIME', 'LITHE_BUILD_COMMIT', 'LITHE_UPDATE_PUBLIC_KEYS']) {
       delete env[name];
     }
-    async function run(command, args) {
-      const result = await runProcess({ command, args, cwd: root, env, timeoutMs: 60_000, maxCapturedBytes: 1024 * 1024 });
+    async function exec(command, args, extra) {
+      const result = await runProcess({ command, args, cwd: root, env: { ...env, ...extra }, timeoutMs: 60_000, maxCapturedBytes: 1024 * 1024 });
       assert.equal(result.timedOut, false, `${command} timed out: ${result.stderr}`);
       assert.equal(result.terminationConfirmed, true, `${command} left a process tree`);
+      return result;
+    }
+    async function run(command, args, extra = {}) {
+      const result = await exec(command, args, extra);
       assert.equal(result.code, 0, `${command} ${args.join(' ')}: ${result.stdout}\n${result.stderr}`);
       return result.stdout.trim();
     }
+    // refused runs a command that must stop with a usage error and returns what it said.
+    async function refused(command, args, extra = {}) {
+      const result = await exec(command, args, extra);
+      assert.equal(result.code, 2, `${command} ${args.join(' ')} should be refused: ${result.stdout}\n${result.stderr}`);
+      return result.stderr;
+    }
     const coreBuilds = async () => (await readFile(path.join(root, 'core-builds.txt'), 'utf8')).trim().split('\n');
-    await body({ root: await realpath(root), run, coreBuilds });
+    await body({ root: await realpath(root), run, refused, coreBuilds });
   } finally {
     await rm(root, { recursive: true, force: true });
   }
@@ -147,6 +159,53 @@ test('macOS ad hoc packaging uses Viva signing rather than skipping the resource
     const args = (await readFile(path.join(root, 'viva-args.txt'), 'utf8')).trim().split('\n');
     assert.equal(args[args.indexOf('--sign-identity') + 1], '-');
     assert.equal(args.includes('--no-sign'), false);
+  });
+});
+
+const fixtureKey = 'MCowBQYDK2VwAyEAfixturefixturefixturefixturefixt=';
+
+test('an AutoBuild package records its channel, time, commit and feed keys, then removes the file', { timeout: 90000 }, async () => {
+  await withFixture({ goos: 'linux', goarch: 'amd64', rustHost: 'x86_64-unknown-linux-gnu' }, async ({ root, run }) => {
+    await run('bash', ['scripts/desktop/package-desktop.sh', '--autobuild', '--no-sign'], {
+      LITHE_BUILD_TIME: '2026-11-16T10:00:00Z',
+      LITHE_BUILD_COMMIT: '0123456789abcdef0123456789abcdef01234567',
+      LITHE_UPDATE_PUBLIC_KEYS: ` ${fixtureKey},\n${fixtureKey} `,
+    });
+    const info = await readFile(path.join(root, 'package-info.go'), 'utf8');
+    assert.match(info, /^\/\/ Code generated .* DO NOT EDIT\.\n\n\/\/go:build lithe_package_info\n\npackage buildinfo\n/);
+    assert.match(info, /\tChannel = "autobuild"\n/);
+    assert.match(info, /\tBuildTime = "2026-11-16T10:00:00Z"\n/);
+    assert.match(info, /\tCommit = "0123456789abcdef0123456789abcdef01234567"\n/);
+    assert.ok(info.includes(`\tUpdatePublicKeys = "${fixtureKey},${fixtureKey}"\n`), info);
+    const args = (await readFile(path.join(root, 'viva-args.txt'), 'utf8')).trim().split('\n');
+    const tags = args[args.indexOf('-tags') + 1].split(',');
+    assert.ok(tags.includes('lithe_package_info'), tags.join(','));
+    assert.equal(tags.includes('lithe_stable'), false);
+    await assert.rejects(readFile(path.join(root, 'desktop/internal/buildinfo/package_info.go')), { code: 'ENOENT' });
+  });
+});
+
+test('a stable package updates from the stable channel; a local one has no channel', { timeout: 90000 }, async () => {
+  await withFixture({ goos: 'linux', goarch: 'amd64', rustHost: 'x86_64-unknown-linux-gnu' }, async ({ root, run }) => {
+    await run('bash', ['scripts/desktop/package-desktop.sh', '--stable', '--no-sign'], { LITHE_UPDATE_PUBLIC_KEYS: fixtureKey });
+    assert.match(await readFile(path.join(root, 'package-info.go'), 'utf8'), /\tChannel = "stable"\n/);
+    const tags = (await readFile(path.join(root, 'viva-args.txt'), 'utf8')).trim().split('\n');
+    assert.ok(tags[tags.indexOf('-tags') + 1].split(',').includes('lithe_stable'));
+    await run('bash', ['scripts/desktop/package-desktop.sh', '--no-sign'], { LITHE_BUILD_COMMIT: 'abcdef1' });
+    const local = await readFile(path.join(root, 'package-info.go'), 'utf8');
+    assert.match(local, /\tChannel = ""\n/);
+    assert.match(local, /\tBuildTime = "\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z"\n/);
+    assert.match(local, /\tCommit = "abcdef1"\n/);
+    assert.match(local, /\tUpdatePublicKeys = ""\n/);
+  });
+});
+
+test('packaging refuses two channels and build information a Go string would need escaped', { timeout: 30000 }, async () => {
+  await withFixture({ goos: 'linux', goarch: 'amd64', rustHost: 'x86_64-unknown-linux-gnu' }, async ({ refused }) => {
+    assert.match(await refused('bash', ['scripts/desktop/package-desktop.sh', '--stable', '--autobuild']), /different channels/);
+    assert.match(await refused('bash', ['scripts/desktop/package-desktop.sh'], { LITHE_UPDATE_PUBLIC_KEYS: 'key"+os.Exit(1)+"' }), /LITHE_UPDATE_PUBLIC_KEYS/);
+    assert.match(await refused('bash', ['scripts/desktop/package-desktop.sh'], { LITHE_BUILD_COMMIT: 'main' }), /LITHE_BUILD_COMMIT/);
+    assert.match(await refused('bash', ['scripts/desktop/package-desktop.sh'], { LITHE_BUILD_TIME: 'yesterday' }), /LITHE_BUILD_TIME/);
   });
 });
 

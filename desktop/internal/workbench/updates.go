@@ -510,7 +510,7 @@ func (a *App) updateChecked(asked bool, target updateTarget, source updateSource
 		s.Delta, s.DeltaSize, s.FullSize = false, 0, 0
 		if feed != nil {
 			s.NotesURL, s.FullSize = feed.Latest.NotesURL, asset.Size
-			if patch, ok := a.updatePatch(asset, version); ok {
+			if patch, ok := a.updatePatch(feed, asset); ok {
 				s.Delta, s.DeltaSize = true, patch.Size
 			}
 		}
@@ -563,14 +563,31 @@ func (a *App) cancelUpdate() {
 	}
 }
 
-// updatePatch is the patch the feed lists from the running version to version, unless a
-// patch to that version already failed or the version is on another channel, whose patches
-// start from that channel's previous release. The caller holds u.mu.
-func (a *App) updatePatch(asset appupdate.Asset, version string) (appupdate.Patch, bool) {
-	if a.version == "" || a.updates.noDelta == version || a.updates.target.cross {
+// updatePatch is the patch feed lists from the running version to the version it offers,
+// unless a patch to that version already failed or the version is on another channel, whose
+// patches start from that channel's previous release. The caller holds u.mu.
+func (a *App) updatePatch(feed *appupdate.Feed, asset appupdate.Asset) (appupdate.Patch, bool) {
+	if a.version == "" || a.updates.noDelta == feed.Latest.Version || a.updates.target.cross {
 		return appupdate.Patch{}, false
 	}
-	return asset.PatchFrom(a.version)
+	return patchFrom(feed, asset, a.version)
+}
+
+// patchFrom is the patch from version in feed for asset. viva feed lists patches on the
+// archives only, never on the NSIS installer a Windows client installs from; a Windows patch
+// holds the files of the release's zip, which an NSIS installation keeps at the same paths,
+// so the installer uses the patch of the zip for its OS and architecture. Applying the patch
+// checks it against the installed files either way.
+func patchFrom(feed *appupdate.Feed, asset appupdate.Asset, version string) (appupdate.Patch, bool) {
+	if patch, ok := asset.PatchFrom(version); ok || asset.Format != appupdate.FormatNSIS {
+		return patch, ok
+	}
+	for _, archive := range feed.Latest.Assets {
+		if archive.OS == asset.OS && archive.Arch == asset.Arch && archive.Format == appupdate.FormatZIP {
+			return archive.PatchFrom(version)
+		}
+	}
+	return appupdate.Patch{}, false
 }
 
 // removeUpdatePayload deletes, from the window thread, an application a patch rebuilt. The
@@ -621,7 +638,7 @@ func (a *App) downloadUpdate() {
 	var patch appupdate.Patch
 	delta, fellBack := false, false
 	if feed != nil {
-		patch, delta = a.updatePatch(asset, feed.Latest.Version)
+		patch, delta = a.updatePatch(feed, asset)
 		fellBack = u.noDelta == feed.Latest.Version
 	}
 	u.mu.Unlock()

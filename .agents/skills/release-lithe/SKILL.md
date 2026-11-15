@@ -258,6 +258,20 @@ before committing the notes.
 - Check the comparison range, current platform requirements, bundled tools,
   signing status, updater availability, and known issues against the target
   commit and release configuration.
+- For a desktop release, check the in-app update feed it publishes: the
+  `update-feed` job of `desktop-release.yml` runs
+  `scripts/ci/desktop-release/publish-update-feed.sh` once the release holds
+  the packages. The repository needs the Actions secret `VIVA_UPDATE_KEY`, the
+  Ed25519 private key from `viva update-keygen`, which only that job receives
+  and which is never committed. It also needs the variable
+  `LITHE_UPDATE_PUBLIC_KEYS`, the matching public keys separated by commas,
+  which every package carries. Without the secret the job publishes nothing
+  and installed copies are not offered the release; without the variable the
+  packages cannot check for updates at all. The update dialog shows
+  `docs/releases/v<version>.md` as what the update changes, so the notes must
+  read well there too. A feed that already offers a later version is left as
+  it is. See
+  `.agents/notes/implemented/feature/2026-11-15-desktop-update-channels-and-dialog.md`.
 - Run `actionlint` after changing a GitHub Actions workflow. Run any focused
   packaging or manifest checks required by `develop-lithe` for other release
   changes.

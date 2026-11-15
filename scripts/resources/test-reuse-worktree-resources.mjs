@@ -89,6 +89,26 @@ try {
     await assert.rejects(fs.access(targetRoot), { code: "ENOENT" });
   });
 
+  await test("packaging build info and the Viva tool stay with the worktree that packages", { timeout: 15000 }, async () => {
+    const registry = JSON.parse(await fs.readFile(path.join(scriptDirectory, "worktree-resources.json"), "utf8"));
+    const info = registry.excludedResources.find(item => item.id === "desktop-package-build-info");
+    const tool = registry.excludedResources.find(item => item.id === "desktop-viva-tool");
+    assert.ok(info, "the generated package build info must be registered as nonreusable");
+    assert.ok(tool, "the Viva tool cache must be registered as nonreusable");
+    assert.equal(info.reusable, false);
+    assert.equal(tool.reusable, false);
+    assert.ok(tool.locations.includes(".artifacts/desktop/tools/viva-<module version>/"));
+    assert.ok(tool.locations.includes(".artifacts/desktop/tools/viva-local/"));
+    assert.match(tool.identity, /build-viva-tool\.sh/);
+    assert.match(tool.reason, /publish-update-feed\.sh/);
+    for (const id of [info.id, tool.id]) {
+      const refused = reuse(["--resource", id]);
+      assert.notEqual(refused.status, 0);
+      assert.match(diagnostics(refused), new RegExp(`${id} is isolated.*cannot be reused`));
+    }
+    await assert.rejects(fs.access(targetRoot), { code: "ENOENT" });
+  });
+
   await test("Viva Core outputs and marketplace transfers are never reused", { timeout: 15000 }, async () => {
     const registry = JSON.parse(await fs.readFile(path.join(scriptDirectory, "worktree-resources.json"), "utf8"));
     const core = registry.excludedResources.find(item => item.id === "viva-core-build-state");

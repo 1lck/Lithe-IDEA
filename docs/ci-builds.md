@@ -9,7 +9,7 @@ CI 构建缓存、架构并行、测试产物和 artifact 保留策略见
 | 工作流 | 触发 | 内容 |
 | --- | --- | --- |
 | **Desktop CI**（`desktop-ci.yml`） | PR（Draft 只跑 Linux 作业，`ready_for_review` 时补跑完整矩阵）、推送到 `main`、手动运行 | `pins` 校验固定版本；`linux`（Format and script tests）运行 gofmt、ShellCheck、本地化校验、安装资源路径检查和脚本测试；`linux-test` 通过 `scripts/desktop/check.sh` 运行 Linux 的 vet 和测试；`macos`（`macos-26`）、`windows`（`windows-2022`）同样运行 vet 和测试，只在非 Draft 时执行 |
-| **Desktop Release**（`desktop-release.yml`） | 推送 `desktop-v*.*.*` 标签，或手动运行并填写版本 | 打包并校验 macOS、Windows、Linux 产物，核对校验和，然后创建或更新 GitHub prerelease。手动版本必须与 `desktop/viva.toml` 中的版本一致 |
+| **Desktop Release**（`desktop-release.yml`） | 推送 `desktop-v*.*.*` 标签，或手动运行并填写版本 | 打包并校验 macOS、Windows、Linux 产物，核对校验和，然后创建或更新 GitHub prerelease，再签名发布正式版更新源。手动版本必须与 `desktop/viva.toml` 中的版本一致 |
 | **Desktop AutoBuild**（`desktop-autobuild.yml`） | 每天 UTC 10:00 定时，或手动运行 | 构建 macOS arm64 与 x64、Windows x64、Linux x64 和 arm64，发布到滚动预发布 `desktop-AutoBuild`。同一提交已经发布时，定时运行不会重复构建 |
 
 - Draft PR 只运行 Linux 检查：macOS 和 Windows 作业带有 `draft == false` 条件。标记为 ready 后，才运行完整的 Desktop CI。
@@ -30,6 +30,14 @@ CI 构建缓存、架构并行、测试产物和 artifact 保留策略见
 3. `publish` 等全部平台构建成功后，检出 `github.workflow_sha`（工作流自身所在提交）中的 `scripts/ci/desktop-autobuild/publish-autobuild.sh`，把安装包发布到滚动预发布 `desktop-AutoBuild`。该 Release 始终是 prerelease，不会标记为 latest。并发组保证同一时间只有一次发布。
 
 正式版由 `desktop-release.yml` 发布：推送 `desktop-v*.*.*` 标签，或手动运行并填写与 `desktop/viva.toml` 一致的版本。它打包并校验三个平台的产物后创建 prerelease，与 AutoBuild 的 Release 互不替换。 发布前必须先提交并校验 `docs/releases/v<version>.md`；版本解析器和发布步骤读取同一个文件，不能把 `desktop-v` 标签前缀当成发布说明文件名。正式包显示纯版本号，GitHub prerelease 标记仍用于隔离旧客户端的更新渠道。
+
+正式版的应用内更新读取滚动 Release `desktop-update-feed` 中的 `stable.json`、`stable.json.sig` 和 `stable.notes.md`。`publish` 把安装包上传到版本 Release 后，`update-feed` 作业运行 `scripts/ci/desktop-release/publish-update-feed.sh`：
+
+- 用 `scripts/desktop/build-viva-tool.sh` 编译 `desktop/go.mod` 固定的 Viva fork，再用 `viva feed` 写出更新源。更新源列出本版的 macOS zip、Windows 安装程序和 zip、Linux tar.gz，下载地址指向版本 Release；dmg、deb 和 rpm 不进更新源。
+- 增量补丁以当前更新源提供的版本为基线：下载该版本 Release 中各平台的 zip 或 tar.gz，同时核对更新源里的摘要和 Release 的 `.sha256`，一致后传给 `viva feed -patch-from`，生成的 `.patch` 上传到本版 Release。下载失败或摘要不符的平台只发完整包；还没有更新源时全部发完整包。更新源已经提供更新的版本时保持不变；对同一版本重新运行时，沿用原补丁的基线版本。
+- Windows 客户端安装 NSIS 安装程序，补丁只挂在同平台的 zip 上；两者的文件布局相同，客户端对 NSIS 安装版使用 zip 的补丁。
+- `stable.notes.md` 是 `docs/releases/v<version>.md`，首行为 `<!-- lithe-update-notes version=<version> -->`。更新对话框在用户决定下载前显示它；它不签名，安装哪个文件只由签名的更新源决定。
+- 私钥是 Actions secret `VIVA_UPDATE_KEY`（`viva update-keygen` 生成，base64），只交给这一个作业里的 `viva feed`；打包作业只拿到公钥 `vars.LITHE_UPDATE_PUBLIC_KEYS`。没有私钥时跳过更新源发布，Release 照常完成。同一时间只有一次运行写更新源。
 
 合并修复后，可等待下一次定时任务，或由仓库所有者及 `LITHE_RELEASE_ACTOR` 中的授权发布者手动重新构建并发布：
 
@@ -68,6 +76,9 @@ Viva 的 Core 源码检出、Cargo 目标目录和暂存静态库位于当前工
 `libwinapi_*` 归档；不增加下载、缓存目录或运行期资源。该身份尚不是可跨工作树复用的完整密封清单，故资源清单中的
 `viva-core-build-state` 明确拒绝复制；每个工作树独立构建和校验。Core 仓库恢复的 `scripts/rust-core/verify-rust-core-comments.sh` 先用固定词法器检查真实注释，再检查 Rustdoc；调用方应沿用本工作树的 `CARGO_TARGET_DIR`。独立 Core 检出未提供该变量时，输出只进入该检出的 `.artifacts/rust-core-checks/`（桌面默认检出内为 `.artifacts/desktop/lithe-core-rust/source/.artifacts/rust-core-checks/`）。词法器二进制、Cargo 状态与 Rustdoc 受 Core 修订、helper Cargo.lock、目标、编译器及环境约束，和已有 Core build state 一起排除，不注册复用 validator；只在构建/验证阶段生成，不进入安装包，不影响签名或增量更新。
 Viva 的 IDE API 辅助程序 `lithe-mcp` 由 `scripts/desktop/build-desktop-core.sh` 在同一固定 Core 检出上以 `features=mcp` 编到暂存目录的 `bin/`。`package-desktop.sh` 在 `viva package` 前把它复制成 `desktop/internal/idehelp/lithe-mcp.bin`，以 `lithe_bundled_helper` 构建标签嵌入客户端二进制，打包结束或失败时删除该生成文件；文件被 Git 忽略并在资源清单 `desktop-embedded-ide-helper` 中拒绝跨工作树复用。运行期客户端把嵌入的字节原子安装到应用数据目录的 `ide-host/bin/` 再启动，安装包本身不增加可执行文件、不被写入，也不改变签名或增量更新基线；开发运行由 `desktop-go.sh` 用暂存目录里的辅助程序通过 `LITHE_IDE_HELPER` 提供，不读取安装目录。
+`viva package` 的链接参数是固定的，不能用 `-X` 注入构建信息，所以 `package-desktop.sh` 每次打包都生成 `desktop/internal/buildinfo/package_info.go`，以 `lithe_package_info` 构建标签编进客户端。文件记录更新渠道（`--stable` 为正式版，`--autobuild` 为 AutoBuild，本地包为空，不会自我更新）、构建时间（`LITHE_BUILD_TIME`，缺省为打包时刻）、提交（`LITHE_BUILD_COMMIT`，缺省为 `git HEAD`），以及验证更新源签名的公钥（`LITHE_UPDATE_PUBLIC_KEYS`，逗号分隔，只含公钥）。打包结束或失败时删除这个文件；它被 Git 忽略，并在资源清单 `desktop-package-build-info` 中拒绝跨工作树复用。它只改变可执行文件本身，安装包里不会多出文件，签名和增量更新基线也不受影响。
+
+打包和更新源签名用的 `viva` 命令由 `scripts/desktop/build-viva-tool.sh` 按 `desktop/go.mod` 的 `replace` 从 Viva fork 编译，放在当前工作树的 `.artifacts/desktop/tools/viva-<模块版本>/`；`replace` 指向本地目录时没有版本，放在 `viva-local/` 并每次重新编译。目录名只固定 Viva 源码，不记录 Go 工具链和主机平台，所以资源清单 `desktop-viva-tool` 拒绝跨工作树复用，每个工作树自己编译。它只在打包（`package-desktop.sh`）和签名更新源（`publish-update-feed.sh`）时使用，不进入安装包，不影响签名或增量更新基线。
 
 Viva 的 `desktop-go.sh` 把暂存 Core 静态库、头文件、原生链接参数和实际选中的 Windows import archive 的 SHA-256 纳入 cgo 编译参数。只改 Rust 或 Core pin 也会使 Go 构建缓存失效；相同字节仍复用 Go 缓存，不清空用户缓存。这个摘要只是本地构建身份，不是跨工作树资源密封清单。`scripts/desktop/desktop-core-cache.test.mjs` 在系统临时目录创建独占的 `lithe core-cache-*` 夹具，只替换 C 静态库来验证真实 Go 编译结果；子进程有本地时限，结束后删除夹具。该目录和 Core 构建状态一起排除复用，不进入安装包；三个原生 CI 车道都运行此回归。
 

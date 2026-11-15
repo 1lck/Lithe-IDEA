@@ -146,6 +146,11 @@ jobs:
           WINDOWS_CERTIFICATE_PASSWORD: ${{ matrix.os == 'windows' && secrets.WINDOWS_SIGNING_CERTIFICATE_PASSWORD || '' }}
           WINDOWS_TIMESTAMP_URL: ${{ matrix.os == 'windows' && secrets.WINDOWS_TIMESTAMP_SERVER || '' }}
           DESKTOP_ARCH: ${{ matrix.arch }}
+          # Every platform records the same build time and commit. The feed keys are public; the
+          # private signing key never reaches a packaging runner.
+          LITHE_BUILD_TIME: ${{ needs.prepare.outputs.timestamp }}
+          LITHE_BUILD_COMMIT: ${{ needs.prepare.outputs.sha }}
+          LITHE_UPDATE_PUBLIC_KEYS: ${{ vars.LITHE_UPDATE_PUBLIC_KEYS }}
         run: bash scripts/ci/desktop-autobuild/package-autobuild.sh "$DESKTOP_ARCH"
 
       - name: Upload the packages
