@@ -10,6 +10,7 @@ import (
 	"github.com/1lck/Lithe-IDEA/desktop/internal/marketplace"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/pluginsettings"
 	"github.com/vivaui/viva/app"
+	"github.com/vivaui/viva/gfx"
 )
 
 // installedFixture is an Installed tab over two plugins: Go, on and with an update in the
@@ -128,6 +129,59 @@ func TestInstalledTabGroupsPluginsAndActsOnTheChosenOne(t *testing.T) {
 	d.pump()
 	if len(f.uninstalled) != 1 || f.uninstalled[0] != "dev.example.builder" {
 		t.Fatalf("confirmed uninstall removed %v", f.uninstalled)
+	}
+}
+
+// TestInstalledListClickChoosesTheRowUnderThePointer clicks every row of a list whose plugin
+// IDs all have an FNV-32a hash of 2^31 or more. Viva numbers a row's identity only below 2^31
+// and gives every key past that the same zero name, so when the keys were those hashes a click
+// on any row chose the last plugin.
+func TestInstalledListClickChoosesTheRowUnderThePointer(t *testing.T) {
+	ids := []string{"dev.lithe.test.first", "dev.lithe.test.second", "dev.lithe.test.third"}
+	names := []string{"First Fixture", "Second Fixture", "Third Fixture"}
+	facts := make([]PluginFacts, len(ids))
+	for i := range ids {
+		facts[i] = PluginFacts{ID: ids[i], Name: names[i], Version: "1.0.0", Source: PluginSourceDisk}
+	}
+	w := newWindow(NewController(Options{
+		Language: func() i18n.Language { return i18n.English },
+		Marketplace: func(context.Context) (marketplace.Snapshot, error) {
+			return marketplace.Snapshot{}, nil
+		},
+		InstalledPlugins: func() []PluginFacts { return facts },
+		PluginState: func(id string) PluginState {
+			return PluginState{Installed: true, Version: "1.0.0", Enabled: id != ids[2]}
+		},
+	}), Values{})
+	w.sess.page = pagePlugins
+	d := openWindow(t, w, func(config *app.Config) { config.Width, config.Height = 1100, 800 })
+	d.until("the marketplace index", func() bool { return w.market.status == marketReady })
+	d.pump()
+	row := func(name string) gfx.Hit {
+		for _, hit := range d.driver.Snapshot().Hits {
+			if hit.Label == name && hit.Role == gfx.RoleOption {
+				return hit
+			}
+		}
+		t.Fatalf("no row %q", name)
+		return gfx.Hit{}
+	}
+	// The third plugin is off, so it sits under the second heading. The list starts on the
+	// first row; the clicks go in an order that moves the choice every time.
+	for _, i := range []int{1, 2, 0, 1, 0} {
+		d.clickHit(row(names[i]))
+		d.pump()
+		if w.installed.selected != ids[i] {
+			t.Fatalf("clicking %q chose %q", names[i], w.installed.selected)
+		}
+	}
+	seen := map[gfx.ID]int{}
+	for i := range w.installed.rows {
+		id := w.installed.list.RowID(i)
+		if previous, ok := seen[id]; ok {
+			t.Fatalf("rows %d and %d share the identity %v", previous, i, id)
+		}
+		seen[id] = i
 	}
 }
 
