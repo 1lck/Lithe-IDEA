@@ -19,8 +19,8 @@ IntelliJ Community `fb72b4df43aba102479eb0502d20b03586b9c5b8` 的 `GitRemoteBran
 - 切换前按最终远程文件内容检查本地修改。更新复用 Git 的 `merge --ff-only`，只推进分支，不生成合并提交；切换后再次检查当前分支与提交，避免继续更新已被钩子或外部客户端改变的分支。
 - 本地独有提交必须在自动 stash（暂存本地未提交修改）之前被拒绝。Force Checkout 只授权丢弃未提交修改，不能授权丢弃本地提交。其他工作树占用仍由 Git 拒绝。
 - 普通本地 Checkout 与 Checkout and Rebase 保持原有含义，后者是把目标分支变基到原当前分支，不暗中改成远程更新。
-- 两端在成功和失败后都刷新真实仓库状态：切换、快进与恢复暂存修改是组合操作，后续失败不能被解释成仓库完全没有变化。
-- Windows Git Log 的 Checkout 成功提示由界面用现有本地化文案生成，包含所选引用名称。Checkout API 的成功 `message` 为空，直接把它作为 toast 文案会只剩成功图标；不能依赖 Git 输出作为产品成功提示。失败继续展示实际错误信息。
+- 成功和失败后都刷新真实仓库状态：切换、快进与恢复暂存修改是组合操作，后续失败不能被解释成仓库完全没有变化。
+- Checkout 成功提示由界面用本地化文案生成，包含所选引用名称。Checkout API 的成功 `message` 为空，不能依赖 Git 输出作为产品成功提示。失败继续展示实际错误信息。
 
 例如本地 `preview` 在 A、已 Fetch 的 `upstream/preview` 在后继 B，从其他分支 Checkout 远程后应得到 `HEAD = preview = B`；已在 `preview` 时也得到 B。不要只切到 A，也不要未经检查直接 `switch -C` 强制覆盖本地提交。
 
@@ -32,22 +32,20 @@ IntelliJ Community `fb72b4df43aba102479eb0502d20b03586b9c5b8` 的 `GitRemoteBran
 
 ## 后果
 
-更新位置由共享 Core 决定，Windows 和 macOS 不再各自补充网络或合并操作。代价是增加本地 Git 检查；本地有独有提交时需要用户先处理，不能强制落到远程节点。写租约只串行化 Lithe 写入，分支复查缩小外部客户端竞争窗口，不构成外部 Git 的跨进程锁。
+更新位置由共享 Core 决定，界面不再补充网络或合并操作。代价是增加本地 Git 检查；本地有独有提交时需要用户先处理，不能强制落到远程节点。写租约只串行化 Lithe 写入，分支复查缩小外部客户端竞争窗口，不构成外部 Git 的跨进程锁。
 
 ## 验证
 
-- 共享场景 `shared/fixtures/git/remote-checkout-v1.json` 由真实 Git 集成测试驱动，覆盖当前／其他分支、缺失本地分支、工作区／暂存区／未跟踪文件、Force、Smart Checkout、本地独有提交和其他工作树占用。
-- `rust/lithe-core/src/tests/git_remote_checkout.rs` 验证真实 Fetch 后 HEAD、本地引用、跟踪关系与文件内容一致，并验证失败保留引用、文件、暂存区和 stash；另覆盖旧请求格式、普通本地 Checkout 与 Checkout and Rebase。
-- `windows/tauri/src/features/git/components/log/git-log-branch-actions.test.tsx` 使用实际 API 的空成功 `message`，验证本地／远程 Checkout 在中英文下仍显示完整成功文案与所选引用名称，并刷新 Git Log。
-- 运行 `.agents/skills/write-stable-tests/scripts/verify-test-stability.ps1` 和共享 Rust 的单测试计时工具；运行 `scripts/rust-core/verify-rust-core-comments.sh`、`scripts/agent-notes/verify-agent-notes.sh`、`scripts/platform-feature-matrix/verify-platform-feature-matrix.sh`、`scripts/macos/verify/verify-runtime-bundle-immutability.sh`。
-- 用户于 2026-10-08 确认本次 Windows 改动的本地测试没有问题，作为远程 Checkout 更新与成功提示恢复的用户验收依据。macOS 编译／原生界面及其他矩阵验收场景仍需单独验证；不要把本次反馈扩大为整项能力的全平台验收。
+- 共享场景 `Lithe-core-rust/rust/fixtures/git/remote-checkout-v1.json` 由真实 Git 集成测试驱动，覆盖当前／其他分支、缺失本地分支、工作区／暂存区／未跟踪文件、Force、Smart Checkout、本地独有提交和其他工作树占用。
+- Core 仓库的 `rust/crates/core/src/tests/git_remote_checkout.rs` 验证真实 Fetch 后 HEAD、本地引用、跟踪关系与文件内容一致，并验证失败保留引用、文件、暂存区和 stash；另覆盖旧请求格式、普通本地 Checkout 与 Checkout and Rebase。
+- `scripts/desktop/desktop-go.sh test ./internal/core/...`：桌面端经 C ABI 调用 `git.write/checkout` 的桥接测试。
+- `./scripts/agent-notes/verify-agent-notes.sh`、`./scripts/desktop/verify/verify-runtime-bundle-immutability.sh`。
+- 桌面端的成功提示由界面用本地化文案生成，包含所选引用名称；Checkout API 的成功 `message` 为空，不能直接作为提示文案。
 
 ## 适用范围
 
-- `rust/lithe-core/src/git/mod.rs`
-- `rust/lithe-core/src/tests/git_remote_checkout.rs`
-- `shared/contracts/rust-core-api.md`
-- `shared/fixtures/git/remote-checkout-v1.json`
-- `windows/tauri/src/features/git/api/git-branches-api.ts`
-- `windows/tauri/src/features/git/components/log/git-log-tool-window.tsx`
-- `macos/Sources/LitheGitModule/Application/GitFeatureModel.swift`
+- Lithe-core-rust 锁定修订：[rust/lithe-core/src/git/mod.rs](https://github.com/Lithe-IDEA/Lithe-core-rust/blob/0ffd327b4329261e393b08ed76fbd134b4dd17e9/rust/lithe-core/src/git/mod.rs)
+- Lithe-core-rust 锁定修订：[rust/lithe-core/src/tests/git_remote_checkout.rs](https://github.com/Lithe-IDEA/Lithe-core-rust/blob/0ffd327b4329261e393b08ed76fbd134b4dd17e9/rust/lithe-core/src/tests/git_remote_checkout.rs)
+- `https://github.com/Lithe-IDEA/Lithe-core-rust/blob/main/rust/contracts/rust-core-api.md`
+- `https://github.com/Lithe-IDEA/Lithe-core-rust/blob/main/rust/fixtures/git/remote-checkout-v1.json`
+- `desktop/internal/core/`（Git 检出的桥接与界面刷新）

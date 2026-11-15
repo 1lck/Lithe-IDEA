@@ -4,82 +4,70 @@
 
 ## 先说结论
 
-以前 Lithe 识别出项目能运行的入口后，会把结果写进用户工程的
-`.lithe/run/generated.json`、`.lithe/toolchains/requirements.json`、`.lithe/project.json`
-和 `.lithe/.gitignore`；没写这些文件之前，Run 和 Debug 都不可用，要先点“识别项目”。
-现在识别结果（检测层，即 Lithe 自动找到的运行入口和工具链需求）只保存在 Rust Core
-的进程内存里，并把上次的结果缓存到应用自己的缓存目录。打开项目时，宿主发现还没识别就直接识别，
-工程里只剩用户自己保存的配置。
+Lithe 识别出项目能运行的入口后，识别结果（检测层，即 Lithe 自动找到的运行入口和工具链需求）只保存在 Rust Core 的进程内存里，并把上次的结果缓存到应用自己的缓存目录。打开项目时，宿主发现还没识别就直接识别，工程里只剩用户自己保存的配置。以前写进工程的 `.lithe/run/generated.json` 等检测文件已经不再写入。
 
 ## 问题
 
-- 打开项目就要往用户工程写文件：只读检出会失败，版本控制里多出用户没要的文件，
-  文件监听还会把这些写入当成“工程变化”。
-- 检测结果写成文件后就有了“文件坏了怎么办”“文件过期怎么办”两类状态，两端各自做了
-  “重新生成损坏文件”的入口和提示。
+- 打开项目就要往用户工程写文件：只读检出会失败，版本控制里多出用户没要的文件，文件监听还会把这些写入当成“工程变化”。
+- 检测结果写成文件后就有了“文件坏了怎么办”“文件过期怎么办”两类状态，两端各自做了“重新生成损坏文件”的入口和提示。
 - Run 和 Debug 依赖一次显式的“识别项目”，新用户第一次打开工程时看到的是空状态而不是运行列表。
 
 ## 决策
 
 ### 检测层归 Core 内存所有
 
-`rust/lithe-core/src/execution/generated_layer.rs` 按规范化后的工作区路径保存最近一次
-`runConfig.generate` 的结果（运行配置文档和工具链需求）。`inspect`、`resolve`、
-创建用户配置时的 id 冲突检查、`toolchain_diagnostics` 都从这里读。宿主不再写任何检测文件：
-Windows 删除了 `run_write_generated` 命令，macOS 删除了 `MacRunConfigurationStore.writeGenerated`。
+Core 按规范化后的工作区路径保存最近一次 `runConfig.generate` 的结果（运行配置文档和工具链需求）。`inspect`、`resolve`、创建用户配置时的 id 冲突检查、工具链诊断都从这里读。宿主不再写任何检测文件。
 
-两端的 Core 都和宿主跑在同一个进程里（Windows 由 Tauri 直接链接，macOS 经 C ABI 调用），
-所以同一进程内的多个窗口共享同一份检测层。
+桌面端与 Core 在同一进程里（经 C ABI 调用），同一进程内的多个窗口共享同一份检测层。
 
-### 跨会话只缓存 JDT 的上次入口
+### 跨会话只缓存语言服务的上次入口
 
-JDT（Java 语言服务）冷启动要几十秒。宿主在 `runConfig.generate` 里传 `cacheDirectory`
-（Windows 用 `appCacheDir()`，macOS 用 `FileStorage.cacheDirectory()`），Core 把结果写到
-`<cacheDirectory>/run-configurations/<sha256(工作区路径)>.json`。下次启动 JDT 还没回答时，
-生成器从这里取上次的 Java 入口，运行列表不会变空。
+语言服务冷启动可能要几十秒。宿主在 `runConfig.generate` 里传入应用缓存目录，Core 把结果写到 `<cacheDirectory>/run-configurations/<sha256(工作区路径)>.json`。下次启动时语言服务还没回答，生成器从这里取上次的入口，运行列表不会变空。
 
 - 生命周期：每次生成都覆盖；读不到、内容不对或写失败都只是少一份加速，不影响其他行为。
-- 所有权：Core 写、Core 读；宿主只提供目录。目录在应用缓存里，不在 app bundle 或安装目录里，
-  不影响代码签名和 Sparkle 增量更新。
-- 旧版本写进工程的 `.lithe/run/generated.json` 只在缓存也没有时作为上次 Java 入口的来源读取一次，
-  从不改写，也不再当作当前检测层。
+- 所有权：Core 写、Core 读；宿主只提供目录。目录在应用缓存里，不在应用包或安装目录里，不影响代码签名和 Sparkle 增量更新。
+- 旧版本写进工程的检测文件只在缓存也没有时读取一次，从不改写，也不再当作当前检测层。
 
 ### 打开项目时自动识别
 
-`inspect` 在本进程还没识别过这个工作区时返回 `requiresGeneration: true`。
-保存过构建任务的工作区即使没有检测层也可以返回 `ready`，因此两端不能只检查 `missing`：
-否则重启后只剩用户任务，Spring Boot 等自动入口不会恢复。宿主收到该标记或 `missing` 就直接识别，
-不再停在“请生成”的空状态：
+`inspect` 在本进程还没识别过这个工作区时返回 `requiresGeneration: true`。保存过构建任务的工作区即使没有检测层也可以返回 `ready`，因此宿主不能只检查 `missing`：否则重启后只剩用户任务，自动入口不会恢复。宿主收到该标记或 `missing` 就直接识别，不停在“请生成”的空状态。
 
-- Windows：`run.store.ts` 的 `loadProject` 调用 `generate(root, undefined, { automatic: true })`。
-  运行面板、设置、Agent 查询或 Java 启动需要运行信息时才会触发加载，打开工程本身不会。
-- macOS：`AppModel.loadProjectServices` 在工作区快照就绪后调用
-  `generateFromJavaEntrypoints(..., automatic: true)`。
-
-自动识别只报告问题（没有入口、识别失败），不弹“识别到 N 个入口”的提示；用户手动点“重新识别”
-时仍然显示数量。JDT 就绪后的刷新沿用发起那次识别的 `automatic` 标记。
+自动识别只报告问题（没有入口、识别失败），不弹“识别到 N 个入口”的提示；用户手动点“重新识别”时仍然显示数量。
 
 ### 默认配置由 Core 选
 
-`.lithe/project.json` 仍是用户可以编辑的团队文档，里面的 `defaultRunConfiguration` 依旧优先。
-没有写默认值时，`resolve` 按“框架服务（Spring Boot、Quarkus、Micronaut）优先，否则第一个不是
-Current File 的检测入口”选出默认项。以前两端各写了一份同样的规则，并在第一次生成时把结果写进
-`project.json`。
+`.lithe/project.json` 仍是用户可以编辑的团队文档，里面的默认运行配置依旧优先。没有写默认值时，`resolve` 优先选择声明为 service 的检测入口，否则选择第一个不是 Current File 的检测入口。宿主不再实现这套挑选规则。
+
+### 插件运行目标由插件声明
+
+插件声明自己的运行目标（例如“`serve` 适用于 `endpoint` 标签”），宿主只把插件公开的运行声明与当前模型中的匹配目标交给生成器。Core 只保存完整选择器和上游名称，不把某个目标 ID 翻译成框架、工具或调试器。没有 Java 导入的插件也能生成运行配置。
+
+选择器决定稳定 ID，名称和执行类型变化只更新内容，不丢失参数、环境与目录覆盖。模型指纹覆盖完整快照，顺序变化不算过期；目标撤回时移除自动配置，并保留用户层以提示孤立覆盖。不要从旧缓存重新补回插件已经撤回的目标。
+
+用户的运行时参数、入口和按次构建选项保存在独立的 `extensions.build-run` 段。参数不先拼成字符串，空参数、空格与 Unicode 都保留。Core 只检查通用大小和字段，准备时由当前声明校验选项，不能在 Core 里解释 Profile 或框架名称。显式空值表示清空，不把 `false` 和空数组当作“没有覆盖”。
+
+### 保存的选择器保留已有配置 ID
+
+配置 ID 是用户文档中的稳定身份，选择器是插件当前目标的身份，两者不能混为一谈。完整的保存记录可以沿用旧 ID，Core 不要求它必须以 `user:` 开头。没有完整记录的孤立覆盖仍然提示孤立；实际启动仍重新验证启用插件、声明与目标，ID 不授予权限。
+
+团队层和本机层先合并成有效选择器，再隐藏检测层中相同目标的重复项；用户明确保存的多个配置仍然保留。这样迁移可以保留默认项、选择、层级覆盖和操作身份，而无需改写 ID。不要只换一个新 ID 再删除旧记录，那会把用户默认项和本机覆盖变成孤立记录。Core 也不按历史前缀识别框架，它只比较选择器。
+
+`resolve` 可接收内存中的团队或本机文档，宿主在发布两个文件前先验证完整合并结果。这是通用的事务预检，不写文件、不授予操作权限；实际发布仍检查快照和当前工作区。
+
+### 发布用户文档的保护
+
+宿主先构造两层文档，用 Core 预检，然后比较所有输入（包括未改写的一层）和偏好状态，才使用带源版本检查的原子替换。写入、回读、取消或冲突失败时，只回滚自身仍未被改动的输出；不覆盖用户或另一进程的新数据。生成任务的租约（可撤销的写入资格）在取消、工作区切换、模型变化或后续生成时失效。
+
+这只约束用户文档与原生状态发布，不把检测缓存当作持久配置。
 
 ### 识别前也能选 JDK
 
-`ProjectRuntimeService` 在 JDT 启动前就要按项目最低 Java 版本选 JDK。检测层还不存在时，
-`read_requirements` 直接从工程自己的声明（`pom.xml`、`.java-version`、Maven Wrapper）推导需求，
-而不是读一份可能过期的 `requirements.json`。
+运行时服务在语言服务启动前就要按项目最低 Java 版本选 JDK。检测层还不存在时，需求直接从工程自己的声明（`pom.xml`、`.java-version`、Maven Wrapper）推导，而不是读一份可能过期的需求文件。
 
 ### 正确做法
 
-- 新增检测结果字段：放进 `RunConfigurationDocument` 或 `ToolchainRequirementsDocument`，
-  经 `generated_layer::store` 保存，读取方用 `generated_layer::get`。
-- Rust 测试需要检测层夹具：用 `tests/support.rs` 的 `seed_generated`、`seed_requirements`；
-  需要模拟新进程时用 `generated_layer::forget`。
-- Swift 测试需要检测层：写真实的工程文件（例如带 `spring-boot-maven-plugin` 的 `pom.xml`），
-  再调用 `MacRunConfigurationStore.generate`。
+- 新增检测结果字段：放进运行配置文档或工具链需求文档，经检测层保存，读取方从检测层读取。
+- 测试需要检测层夹具：用测试支持包里的种子函数写入，需要模拟新进程时使用清空函数。
 
 ### 不要这样做
 
@@ -91,43 +79,31 @@ Current File 的检测入口”选出默认项。以前两端各写了一份同�
 
 ### 继续写 `.lithe/run/generated.json`，只把写入挪到后台
 
-改动最小，冷启动时也能直接读到上次结果。但写工程文件本身就是问题：只读检出、版本控制噪音、
-文件监听误报都还在，“文件损坏”这类状态也还要维护。
+改动最小，冷启动时也能直接读到上次结果。但写工程文件本身就是问题：只读检出、版本控制噪音、文件监听误报都还在，“文件损坏”这类状态也还要维护。
 
 ### 把检测层写到应用缓存，inspect/resolve 直接读缓存
 
-跨会话最快。代价是 `inspect`、`resolve` 和 JDK 选择都要知道缓存目录，缓存过期还要再做一套
-新鲜度判断；而且缓存一旦成为“当前状态”，读失败就变成了错误路径。现在只让缓存服务生成器的
-“上次 Java 入口”，其余读取都以本进程的识别结果为准。
+跨会话最快。代价是 `inspect`、`resolve` 和 JDK 选择都要知道缓存目录，缓存过期还要再做一套新鲜度判断；而且缓存一旦成为“当前状态”，读失败就变成了错误路径。现在只让缓存服务生成器的“上次语言服务入口”，其余读取都以本进程的识别结果为准。
 
 ### 没有检测层时 `resolve` 按空检测层处理
 
-可以少一次“未识别”的判断。但团队层里覆盖检测入口的条目会全部变成“孤立覆盖”，
-用户会看到一批误导性的诊断。保留 `missing` 并让宿主自动识别更直接。
+对只有稀疏覆盖的文档，这可以少一次“未识别”的判断。但团队层里覆盖检测入口的条目会全部变成“孤立覆盖”，用户会看到一批误导性的诊断。保留 `missing` 并让宿主自动识别更直接。
 
 ## 后果
 
-- 收益：打开项目不再写用户工程；Run 和 Debug 不再需要先手动识别；两端删除了重复的写文件、
-  默认项挑选和“重新生成损坏文件”入口。
-- 代价：每个新进程打开工程都要重新识别一次（只读扫描，不启动进程）。Java 入口在 JDT 回答前
-  依赖缓存；缓存也没有时，Java 入口要等 JDT 就绪后才出现。
-- 远程工作区的 `requirements.json` 读取（macOS `runtimeRequirements`）不受影响：远程从未由
-  本地生成写入，这次也没有改变它。
-- 需要重新评估：如果 Core 改为独立进程或多进程共享，检测层需要随 Core 会话迁移；
-  如果识别本身变得很慢，再考虑让缓存直接作为启动时的检测层。
+- 收益：常规检测不再写用户工程。Run 和 Debug 不再需要先手动识别；重复的写文件、默认项挑选和“重新生成损坏文件”入口都已删除。
+- 代价：每个新进程打开工程都要重新识别一次（只读扫描，不启动进程）。语言服务入口在语言服务回答前依赖缓存；缓存也没有时，入口要等语言服务就绪后才出现。
+- 需要重新评估：如果 Core 改为独立进程或多进程共享，检测层需要随 Core 会话迁移；如果识别本身变得很慢，再考虑让缓存直接作为启动时的检测层。
 
 ## 验证
 
-- `cargo test -p lithe-core --lib run_configuration`
-- `cargo test -p lithe-core --lib detectors`
-- `cd windows/tauri && bun test src/features/run`
-- `./scripts/macos/test/test-macos.sh --filter 'RunConfigurationIntegrationTests|MavenRuntimeTests|RunEntryPointTests'`
-- `./scripts/macos/verify/verify-runtime-bundle-immutability.sh`
+- `scripts/desktop/desktop-go.sh test ./internal/core/...`：桌面端经 C ABI 调用运行配置命令的桥接测试。
+- `./scripts/desktop/verify/verify-runtime-bundle-immutability.sh`：确认检测与缓存不写入发行目录。
 
 ## 适用范围
 
-- `rust/lithe-core/src/execution/generated_layer.rs`
-- `rust/lithe-core/src/execution/configuration.rs`
-- `windows/tauri/src/features/run/`
-- `macos/Sources/Lithe/Platform/MacOS/RunConfiguration/MacRunConfigurationStore.swift`
-- `macos/Sources/LitheExecutionModule/Services/RunService.swift`
+- `desktop/internal/core/run_discovery.go`
+- `desktop/internal/core/run_config.go`
+- `desktop/internal/core/plugin_settings.go`
+- Core 仓库的运行配置实现（[锁定修订](https://github.com/Lithe-IDEA/Lithe-core-rust/blob/0ffd327b4329261e393b08ed76fbd134b4dd17e9/rust/lithe-core/src/execution/generated_layer.rs)）
+- `https://github.com/Lithe-IDEA/Lithe-core-rust/blob/main/rust/contracts/rust-core-api.md`

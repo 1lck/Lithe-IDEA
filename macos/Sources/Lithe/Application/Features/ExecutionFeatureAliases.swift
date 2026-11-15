@@ -1,8 +1,0 @@
-import LitheExecutionModule
-
-typealias MavenFeatureModel = LitheExecutionModule.MavenFeatureModel
-typealias RunFeatureModel = LitheExecutionModule.RunFeatureModel
-typealias ProjectDevelopmentFeatureModel = LitheExecutionModule.ProjectDevelopmentFeatureModel
-typealias RunConfigurationGenerationIntent = LitheExecutionModule.RunConfigurationGenerationIntent
-typealias JavaRunFeatureModel = LitheExecutionModule.RunFeatureModel
-typealias BuildSystemsFeatureModel = LitheExecutionModule.BuildSystemsFeatureModel

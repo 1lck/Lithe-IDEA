@@ -1,0 +1,37 @@
+{
+  "id": "workbench-tool-stripe-icons",
+  "area": "工作台",
+  "group": "工作台布局",
+  "capability": "工具窗口栏使用 IntelliJ New UI 的工具窗口图标和尺寸",
+  "owner": "Workbench",
+  "notes": "Viva 共享实现。项目、提交、结构、查找、Git、终端、问题、运行、调试、构建、通知、服务使用 IntelliJ Community（Apache-2.0，修订 c7f91397daa3a961b4e78bc634fe467a0a7d9ade）的 20×20 New UI 工具窗口图标，许可见 desktop/internal/toolicons/NOTICE；IDEA 没有对应图标的入口（引用、测试、安全、更新、背景）使用 Lucide 图标，描边减到 1.8 以接近 IDEA 的线宽；插件声明的通用工具图标名映射到同一套图标。icons.go 由 scripts/desktop/generate-desktop-file-icons.sh --tools-only 从 SVG 生成，运行时不读写文件。尺寸：40pt 工具栏、30pt 按钮、20pt 图标、10pt 间距。",
+  "verification": "打开工作区，对照 IntelliJ IDEA New UI 检查左右工具窗口栏：图标形状和大小一致，选中按钮为主题主色圆角底配反色图标；拖动按钮时拖动预览里的图标居中，插入线落在两个按钮正中。浅色和深色主题各看一次。自动化：stripe_test.go 的 TestToolStripeButtonsHaveTheToolWindowBarSizes。",
+  "macos": {
+    "implementationStatus": "implemented",
+    "verificationStatus": "pending",
+    "evidence": [
+      "desktop/internal/toolicons/icons.go",
+      "desktop/internal/toolicons/NOTICE",
+      "desktop/internal/workbench/catalog.go",
+      "desktop/internal/workbench/plugintools.go",
+      "desktop/internal/workbench/chrome.go",
+      "desktop/internal/workbench/chrome_view.go",
+      "desktop/internal/workbench/stripe_test.go",
+      "scripts/desktop/generate-desktop-file-icons.sh"
+    ]
+  },
+  "windows": {
+    "implementationStatus": "implemented",
+    "verificationStatus": "pending",
+    "evidence": [
+      "desktop/internal/toolicons/icons.go",
+      "desktop/internal/toolicons/NOTICE",
+      "desktop/internal/workbench/catalog.go",
+      "desktop/internal/workbench/plugintools.go",
+      "desktop/internal/workbench/chrome.go",
+      "desktop/internal/workbench/chrome_view.go",
+      "desktop/internal/workbench/stripe_test.go",
+      "scripts/desktop/generate-desktop-file-icons.sh"
+    ]
+  }
+}

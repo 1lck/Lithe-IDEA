@@ -97,15 +97,25 @@ export async function terminateProcessTree(
     gracePeriodMs = 1000,
     forcedTerminationTimeoutMs = 1000,
     pollIntervalMs = 20,
+    spawnSyncImpl = spawnSync,
   } = {},
 ) {
   if (!child.pid) return true;
   if (process.platform === "win32") {
-    spawnSync("taskkill", ["/PID", String(child.pid), "/T", "/F"], {
+    const result = spawnSyncImpl("taskkill", ["/PID", String(child.pid), "/T", "/F"], {
       stdio: "ignore",
       windowsHide: true,
+      timeout: 5000,
     });
-    return true;
+    if (result.error || result.status !== 0) {
+      // We cannot prove the entire tree stopped, but still try to stop the
+      // direct child before reporting the failed cleanup to the caller.
+      try { child.kill(); } catch { /* The process may already have exited. */ }
+      return false;
+    }
+    const deadline = performance.now() + forcedTerminationTimeoutMs;
+    while (processIsRunning(child.pid) && performance.now() < deadline) await delay(pollIntervalMs);
+    return !processIsRunning(child.pid);
   }
 
   const processIDs = new Set();
@@ -160,6 +170,8 @@ export function runProcess({
   terminationGraceMs = 1000,
   forcedTerminationTimeoutMs = 1000,
   terminationPollIntervalMs = 20,
+  terminateProcessTreeImpl = terminateProcessTree,
+  maxCapturedBytes = Infinity,
 }) {
   return new Promise((resolve, reject) => {
     const startedAt = performance.now();
@@ -172,20 +184,55 @@ export function runProcess({
     });
     const stdoutChunks = [];
     const stderrChunks = [];
+    let capturedBytes = 0;
     const stdoutLines = lineCollector(onStdoutLine);
     const stderrLines = lineCollector(onStderrLine);
     let timedOut = false;
     let timeout;
     let terminationPromise = null;
+    let cleanupFallback;
     let settled = false;
 
     const terminate = () => {
-      terminationPromise ??= terminateProcessTree(child, {
+      terminationPromise ??= Promise.resolve().then(() => terminateProcessTreeImpl(child, {
         gracePeriodMs: terminationGraceMs,
         forcedTerminationTimeoutMs,
         pollIntervalMs: terminationPollIntervalMs,
+      })).catch(() => false).then((confirmed) => {
+        if (!confirmed) {
+          try { child.kill(); } catch { /* Best effort; the report remains a failure. */ }
+          // An inherited pipe or an unkillable process must not keep the test
+          // runner alive forever. Close only this runner's handles and report
+          // that process-tree termination could not be confirmed.
+          cleanupFallback = setTimeout(() => {
+            child.stdout.destroy();
+            child.stderr.destroy();
+            child.unref();
+            void finish(null, null);
+          }, forcedTerminationTimeoutMs);
+        }
+        return confirmed;
       });
       return terminationPromise;
+    };
+
+    const finish = async (code, signal) => {
+      if (settled) return;
+      settled = true;
+      if (timeout) clearTimeout(timeout);
+      const terminationConfirmed = terminationPromise ? await terminationPromise : true;
+      if (cleanupFallback) clearTimeout(cleanupFallback);
+      stdoutLines.finish();
+      stderrLines.finish();
+      resolve({
+        code,
+        signal,
+        timedOut,
+        terminationConfirmed,
+        durationMs: performance.now() - startedAt,
+        stdout: Buffer.concat(stdoutChunks).toString("utf8"),
+        stderr: Buffer.concat(stderrChunks).toString("utf8"),
+      });
     };
 
     onSpawn({
@@ -202,14 +249,16 @@ export function runProcess({
 
     child.stdout.on("data", (chunk) => {
       if (chunk.length > 0) onOutputChunk(chunk, "stdout");
-      stdoutChunks.push(chunk);
-      stdoutLines.push(chunk);
+      const captured = chunk.subarray(0, Math.max(0, Math.min(chunk.length, maxCapturedBytes - capturedBytes)));
+      capturedBytes += captured.length;
+      if (captured.length) { stdoutChunks.push(captured); stdoutLines.push(captured); }
       if (streamStdout) process.stdout.write(chunk);
     });
     child.stderr.on("data", (chunk) => {
       if (chunk.length > 0) onOutputChunk(chunk, "stderr");
-      stderrChunks.push(chunk);
-      stderrLines.push(chunk);
+      const captured = chunk.subarray(0, Math.max(0, Math.min(chunk.length, maxCapturedBytes - capturedBytes)));
+      capturedBytes += captured.length;
+      if (captured.length) { stderrChunks.push(captured); stderrLines.push(captured); }
       if (streamStderr) process.stderr.write(chunk);
     });
     child.once("error", (error) => {
@@ -218,23 +267,7 @@ export function runProcess({
       if (timeout) clearTimeout(timeout);
       reject(error);
     });
-    child.once("close", async (code, signal) => {
-      if (settled) return;
-      settled = true;
-      if (timeout) clearTimeout(timeout);
-      const terminationConfirmed = terminationPromise ? await terminationPromise : true;
-      stdoutLines.finish();
-      stderrLines.finish();
-      resolve({
-        code,
-        signal,
-        timedOut,
-        terminationConfirmed,
-        durationMs: performance.now() - startedAt,
-        stdout: Buffer.concat(stdoutChunks).toString("utf8"),
-        stderr: Buffer.concat(stderrChunks).toString("utf8"),
-      });
-    });
+    child.once("close", (code, signal) => { void finish(code, signal); });
   });
 }
 

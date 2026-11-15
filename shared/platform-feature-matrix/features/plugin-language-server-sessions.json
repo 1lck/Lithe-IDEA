@@ -1,0 +1,78 @@
+{
+  "id": "plugin-language-server-sessions",
+  "area": "扩展",
+  "group": "插件与主题",
+  "capability": "插件自有语言服务器会话与后端决定启动方式：声明 languageServers 0 的插件，其后端经 lithe/host/languageServer/request|notify|setStatus 向自己的服务器发请求、通知并上报准备状态（preparing/ready/degraded/failed，随进程结束），收到 didChangeState 与 didReceiveNotification；会话策略（请求白名单、门控、串行命令、超时与排队上限、远程不支持）由 Rust Core 执行；launch.kind:backend 由后端函数在每次启动时给出可执行文件（包内文件或声明的工具）、参数、环境与初始化选项，Core 校验后宿主才启动；documents.contentProvider 让插件为自定义 scheme 提供只读文档（如 jar 内源码）；宿主按 state.retention 在后台回收每个工作区的服务器状态目录；状态栏显示插件自己上报的准备状态；宿主在 resolveParams.tools 中提供声明工具的所选安装事实，使语言服务器与 Build/Run 使用同一项目工具链；工具入口计划经原生路径校验后复用 Core 的工具模板实例化，保留包入口、运行时参数与工具定义的参数顺序",
+  "macos": {
+    "implementationStatus": "partial",
+    "verificationStatus": "pending",
+    "evidence": [
+      "desktop/internal/pluginservice/backendlaunch.go",
+      "desktop/internal/pluginservice/languagesession.go",
+      "desktop/internal/pluginservice/hostmethods.go",
+      "desktop/internal/pluginservice/hostmethods_test.go",
+      ".agents/notes/implemented/architecture/2026-11-10-viva-plugin-host-services-and-backend-sessions.md",
+      "desktop/internal/pluginservice/backendlaunch_test.go",
+      "desktop/internal/pluginbackend/pluginbackend.go",
+      "desktop/internal/pluginbackend/pluginbackend_test.go",
+      "desktop/internal/pluginhost/launch.go",
+      "desktop/internal/pluginhost/launch_test.go"
+    ]
+  },
+  "windows": {
+    "implementationStatus": "partial",
+    "verificationStatus": "pending",
+    "evidence": [
+      "desktop/internal/pluginservice/backendlaunch.go",
+      "desktop/internal/pluginservice/languagesession.go",
+      "desktop/internal/pluginservice/hostmethods.go",
+      "desktop/internal/pluginservice/hostmethods_test.go",
+      ".agents/notes/implemented/architecture/2026-11-10-viva-plugin-host-services-and-backend-sessions.md",
+      "desktop/internal/pluginservice/backendlaunch_test.go",
+      "desktop/internal/pluginbackend/pluginbackend.go",
+      "desktop/internal/pluginbackend/pluginbackend_test.go",
+      "desktop/internal/pluginhost/launch.go",
+      "desktop/internal/pluginhost/launch_test.go"
+    ]
+  },
+  "owner": "Extensions",
+  "verification": "Viva：scripts/desktop/desktop-go.sh test ./internal/pluginservice -run TestLanguageLaunch -count=1，验证所选安装、可选缺失、项目脚本排除与实际错误传播。两平台另行验证原生窗口中的后端启动、请求/通知、准备状态、只读虚拟文档、关闭项目后的进程释放；远程工作区与状态保留清理未实现，不视为已验收。scripts/desktop/verify/verify-runtime-bundle-immutability.sh 检查资源只读边界。 TestToolEntryUsesCoreInstantiationAfterNativeVerification 读取链接 Core 的非 Java 工具 fixture，验证通用入口模板；TestToolEntryIsVerifiedInsideThePackage 拒绝越界入口。",
+  "notes": "Viva 通过后端函数解析语言服务器启动，Core 校验计划与会话权限，宿主提供所选工具的 executable/home/version，不传环境或凭据，也不把项目脚本当作本地安装。可选工具缺失时保留服务器自己的配置，实际读取失败交给既有启动失败边界。通用逻辑不识别 Java 或其他工具名。远程工作区、状态保留清理及完整原生窗口验收仍有缺口；无头测试不能据此标记全部平台验证完成。",
+  "legacy": {
+    "revision": "5a54c41aa37a4e6e6b68918a4b05765b9dd07a36",
+    "macos": {
+      "implementationStatus": "implemented",
+      "verificationStatus": "pending",
+      "evidence": [
+        "rust/crates/plugin-server-policy/src/lib.rs",
+        "rust/crates/plugin-rpc/src",
+        "rust/crates/plugin-language-servers/src/lib.rs",
+        "rust/crates/plugin-content-providers/src/lib.rs",
+        "rust/crates/core/src/tests/language_server_sessions.rs",
+        "shared/contracts/plugins/v1/README.md",
+        "shared/contracts/plugins/v1/fixtures/languages/language-server-backend-launch.plugin.json",
+        "shared/contracts/plugins/v1/fixtures/languages/language-server-launch-resolution.json",
+        "macos/Sources/Lithe/Application/Features/PluginLanguageServerHostService.swift",
+        "macos/Sources/Lithe/Application/Features/PluginContentProviderHostService.swift",
+        "macos/Sources/Lithe/Models/AppModel/AppModel+PluginLanguageServers.swift",
+        "macos/Sources/Lithe/Platform/MacOS/Plugins/MacPluginBackendLaunchPreparer.swift",
+        "macos/Sources/Lithe/Platform/MacOS/Plugins/MacPluginLanguageServerWorkspaceState.swift",
+        "macos/Sources/LitheLanguageIntelligenceModule/Services/PluginLanguageServerRelay.swift",
+        "macos/Sources/Lithe/Views/Workbench/PluginServerStatusView.swift",
+        "macos/Tests/LitheTests/PluginLanguageServerHostServiceTests.swift",
+        "macos/Tests/LitheTests/PluginBackendLaunchTests.swift",
+        "macos/Tests/LitheTests/PluginContentProviderTests.swift",
+        "macos/Tests/LitheTests/MacPluginLanguageServerWorkspaceStateTests.swift",
+        "macos/Tests/LitheLanguageIntelligenceModuleTests/PluginLanguageServerRelayTests.swift"
+      ]
+    },
+    "windows": {
+      "implementationStatus": "missing",
+      "verificationStatus": "not-applicable",
+      "evidence": [
+        "shared/contracts/plugins/v1/README.md"
+      ]
+    },
+    "notes": "本条覆盖 #1495 计划的 API-25，并包含 API-12（内容提供者）、API-20（按工作区的服务器状态与回收）和 API-22（准备状态）。宿主只做 I/O：请求白名单、门控、超时与排队由 Core 的会话策略执行，状态目录的回收由 Core 的 plugins.languageServers.stateRetention 决定、Swift 只列目录并删除 Core 点名的目录。setStatus 不复用 lithe/function/progress，因为准备过程比任何一次调用都长；动作按钮（actions）与 done/total 进度暂未提供，只有 percentage。内容提供者的答案上限是 1 MiB。远程工作区暂不支持由后端启动的服务器。宿主附带的 tools 参数尚未发送。没有面向用户的“重置语言服务器状态”入口，只有引擎路径（rebuildWorkspaceState）。旧的 hostIntegration 路径与 Java 专属的 JDT 代码仍在，由后续 E1 与 Windows 的 W2 移除。Windows/Tauri 尚无插件后端宿主，仍走旧路径。"
+  }
+}

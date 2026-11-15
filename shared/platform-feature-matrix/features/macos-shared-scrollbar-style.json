@@ -4,23 +4,45 @@
   "group": "界面样式",
   "capability": "macOS 共享滚动条样式",
   "macos": {
-    "evidence": [
-      "macos/Sources/Lithe/Views/Components/LitheScrollViewChrome.swift",
-      "macos/Sources/Lithe/Views/Diff/DiffScrollSynchronization.swift",
-      "macos/Sources/Lithe/Views/Diff/DiffHorizontalScrollSupport.swift",
-      "macos/Tests/LitheTests/LitheScrollBarStyleTests.swift",
-      ".agents/notes/implemented/feature/2026-10-02-macos-shared-scrollbar.md"
-    ],
     "implementationStatus": "implemented",
-    "verificationStatus": "pending"
+    "verificationStatus": "pending",
+    "evidence": [
+      "desktop/internal/workbench/root.go",
+      "desktop/internal/editorview/scrollbar.go",
+      "desktop/internal/termview/scrollbar.go"
+    ]
   },
   "windows": {
+    "implementationStatus": "implemented",
+    "verificationStatus": "pending",
     "evidence": [
-      "windows/tauri/src/styles/scrollbars.css"
-    ],
-    "implementationStatus": "platform-specific",
-    "verificationStatus": "not-applicable"
+      "desktop/internal/workbench/root.go",
+      "desktop/internal/editorview/scrollbar.go",
+      "desktop/internal/termview/scrollbar.go"
+    ]
   },
   "owner": "Workbench",
-  "verification": "在 macOS 深浅色核对 Project/Dependencies、Settings/Keyboard Shortcuts/Project Runtime、LSP、Git Log/Console/Worktrees 共享轨道与滑块；默认 chrome 消费者使用共享绘制，AppKit 比例、页点击、嵌套滚轮边界与自动隐藏语义保留。Diff 横向/两侧/单栏入口共用编辑器用途配色和胶囊；标记与滑块在不同横向区域，左 rail 镜像，点击仍导航且 hover 不改变位置。真实 NSHostingView/NSScrollView 深浅像素与几何组件检查不代替完整应用滚动视觉验收；后者 pending。"
+  "verification": "在 macOS 深浅色核对 Project/Dependencies、Settings/Keyboard Shortcuts/Project Runtime、LSP、Git Log/Console/Worktrees 共享轨道与滑块；默认 chrome 消费者使用共享绘制，AppKit 比例、页点击、嵌套滚轮边界与自动隐藏语义保留。Diff 横向/两侧/单栏入口共用编辑器用途配色和胶囊；标记与滑块在不同横向区域，左 rail 镜像，点击仍导航且 hover 不改变位置。真实 NSHostingView/NSScrollView 深浅像素与几何组件检查不代替完整应用滚动视觉验收；后者 pending。",
+  "legacy": {
+    "revision": "5a54c41aa37a4e6e6b68918a4b05765b9dd07a36",
+    "macos": {
+      "evidence": [
+        "macos/Sources/Lithe/Views/Components/LitheScrollViewChrome.swift",
+        "macos/Sources/Lithe/Views/Diff/DiffScrollSynchronization.swift",
+        "macos/Sources/Lithe/Views/Diff/DiffHorizontalScrollSupport.swift",
+        "macos/Tests/LitheTests/LitheScrollBarStyleTests.swift",
+        ".agents/notes/implemented/feature/2026-10-02-macos-shared-scrollbar.md"
+      ],
+      "implementationStatus": "implemented",
+      "verificationStatus": "pending"
+    },
+    "windows": {
+      "evidence": [
+        "windows/tauri/src/styles/scrollbars.css"
+      ],
+      "implementationStatus": "platform-specific",
+      "verificationStatus": "not-applicable"
+    }
+  },
+  "notes": "Viva：放弃迁移（见 docs/viva-migration.md 对应行），不再按旧客户端行为对齐。现状：编辑器（editorview/scrollbar.go）和终端（termview/paint.go）各自绘制滚动条；desktop/ 中没有 AppKit 比例、自动隐藏或工作台共享滚动条轨道的实现，与迁移文档的“放弃”口径一致。 2026-11-12：viva 新增 components.ScrollBarStyle（Lithe-IDEA/viva#10），编辑器自绘 11/5，终端 ScrollArea 用同一组几何；工作台列表与树的滚动条仍在 viva 内部 ScrollArea、ui 层尚未透出该参数，因此本条保持部分实现。 2026-11-12：viva 新增 components.ScrollBarStyle 与 PageConfig.BarStyle（Lithe-IDEA/viva#10/#12/#13），工作台在 NewPage 设一次 11pt 轨道、5pt 滑块、1pt 内边距、20pt 最小滑块，项目树、Git Log、Commit 面板等全部列表与区域继承；编辑器自绘与终端同一组几何。原生窗口验收保持 pending。"
 }

@@ -1,13 +1,13 @@
 # macOS 插件公共 API 与开发文档实施计划
 
-状态：待实施计划。盘点日期：2026-10-28；2026-10-30 按 preview `e8c4e9fc9` 刷新（#1517、#1515 已合并）。
+状态：待实施计划。盘点日期：2026-10-28；2026-10-30 按 preview `e8c4e9fc9` 刷新（#1517、#1515 已合并）。2026-11-04 补充 Java 拆分对应条目的计划说明与 API-35 第一阶段，不新增 API 编号。
 
 ## 当前实现进度（PR #1595）
 
 本轮已将原有三组宿主内部服务注册为协议 3 的公共方法；`ui:4` 提供不打开
 工具窗口的命令。逐方法授权、上下文 lease、编辑器返回 documentID/version、
 真实 HTML 呈现模式、后端初始化/退出/通知背压也已接入。正式参数和限制以
-`shared/contracts/plugins/v1/README.md` 为准，历史盘点表不是当前能力表。
+`Lithe-core-rust/shared/plugins/contract/v1/README.md` 为准，历史盘点表不是当前能力表。
 
 尚未交付的部分包括：官方 SDK 新 API 的类型封装与发布、通用原生 Tree 后端
 数据源、精确全文搜索匹配范围、文件修改/保存事务、可替换预览标签和 Windows
@@ -34,32 +34,32 @@ Windows 不在本轮，平台矩阵的 partial/pending 保持真实。
 | API-09 | 已公开 | documents/list/getSnapshot、editor/getActive/getSelections，含 dirty/版本/编码/EOL |
 | API-10 | 已公开 | applyEdits/replaceSelections/insertText；版本校验、IME/只读拒绝、一次 Undo |
 | API-11 | 未做 | 公共 save/saveAs/close 与工作区文件变更接口未接入 |
-| API-12 | 未做 | 公共多文件 edit、content provider、showDiff 未接入 |
+| API-12 | 部分完成 | 已公开 `documents/registerContentProvider`（只读内容，≤1 MiB，每窗口每 scheme 一个，仅 macOS）；公共多文件 edit、showDiff 未接入 |
 | API-13 | 部分完成 | 既有 ui:3 原生 Tree/List/Form；通用独立后端数据源/懒加载未做 |
 | API-14 | 部分完成 | 既有包内网页 bridge、状态/生命周期；通用双向页面消息未做 |
 | API-15 | 部分完成 | editor/open/reveal 返回 documentID/version；range 只起点光标，替换预览标签未做 |
 | API-16 | 已公开 | preview/openHTML 支持 split/previewOnly；browser/openExternal 支持 HTTP(S)/已保存 HTML |
 | API-17 | 部分完成 | 三类窗口消息和按钮/取消；通用 QuickPick/InputBox/授权文件句柄未做 |
 | API-18 | 未做 | 通用剪贴板与 revealInFinder API 未开放 |
-| API-19 | 部分完成 | 已有声明式设置 1/2；通用 settings.get/inspect/update/events 未做 |
-| API-20 | 部分完成 | global/backend/workspace 可写目录与网页状态；统一 KV/配额/session API 未做 |
+| API-19 | 部分完成 | 已有声明式设置 1/2；通用 settings.get/inspect/update/events 未做；Java 拆分计划（M1、D1）：Maven 插件按真实配置读取、回显、写回 settings |
+| API-20 | 部分完成 | global/backend/workspace 可写目录与网页状态；语言服务器的按工作区状态目录按 `state.retention` 后台回收（Core 决定，仅 macOS，无用户可见重置入口）；统一 KV/配额/session API 未做 |
 | API-21 | 既有能力 | 协议 2 credentials/get/set/delete；权限与插件隔离不变 |
-| API-22 | 部分完成 | 既有函数进度与取消；独立 output channel、通用 log/progress API 未做 |
-| API-23 | 部分完成 | 已有进程声明与运行时解析；通用 toolchains/process 服务未开放 |
+| API-22 | 部分完成 | 既有函数进度与取消；语言服务器准备状态 `languageServer/setStatus`（仅百分比，无 actions，仅 macOS）；新增 `outputLinkMatchers:1`，插件声明的匹配器让 Run 与测试控制台出现链接（macOS）；独立 output channel、通用 log/progress API 未做 |
+| API-23 | 部分完成 | 已有进程声明与运行时解析；新增 `serverProcess:4` 的工具 ID 引用（清单 `requiresTools`）与后端发起的 `run/start`、`run/stop`、`run/didExit`（macOS，工具 ID 未找到或不可用时返回 -32025）；通用 toolchains/process 服务未开放 |
 | API-24 | 部分完成 | 已公开插件自有原生终端 create/show/close/reopen/dispose/onExit（macOS、本机）；不开放 sendText/输出读取，Windows 待接入 |
-| API-25 | 部分完成 | 既有语言/LSP 贡献；新增 `languages:2` 的清单与包内 JSON 语法/编辑配置，仅支持 Monarch；运行期传入 JSON 动态注册/替换高亮 Provider、独立语言语义 Provider 未做，详见下方范围说明 |
-| API-26 | 未做 | 公共诊断 collection/events API 未开放；既有 LSP 诊断不等于该 API |
-| API-27 | 部分完成 | 独立 `editor/registerActions` 绑定普通函数与文档范围，不依赖 LSP/Build/Run；通用主题、片段、其他装饰未做 |
+| API-25 | 部分完成 | 既有语言/LSP 贡献；`languages:2` 的清单与包内 JSON 语法/编辑配置，仅支持 Monarch；新增 `languageServers:3` 与 `serverProcess:3`：后端经 `languageServer/request\|notify\|setStatus` 使用自己的服务器、后端启动（`launch.kind:"backend"`），会话策略由 Core 执行（仅 macOS，远程后端启动未支持，见 Agent Note 2026-11-04-plugin-owned-language-server-sessions）；新增宿主方法 `lithe/host/editor/registerProviders`（权限 `editor.providers`，macOS，待运行验收）把 definition/hover/completion/codeLens/foldingRange/semanticTokens/documentLink 绑定到普通插件函数，语言服务器优先、插件只补充；符号、格式化、重命名、Code Action、签名帮助、内联提示和运行期传入 JSON 动态注册高亮未做，详见下方范围说明；Java 拆分计划（C-EDIT）：Spring、MyBatis 只补上游缺失的 Provider |
+| API-26 | 未做 | 公共诊断 collection/events API 未开放；既有 LSP 诊断不等于该 API；`registerProviders` 不接受 `diagnostics` 类型（返回 unsupportedOption），推送式诊断集合另行设计；Java 拆分计划（C-EDIT）：推送式 collection，带文档版本 |
+| API-27 | 部分完成 | 独立 `editor/registerActions` 绑定普通函数与文档范围，不依赖 LSP/Build/Run；版本 2 增加行首多图标（run/run-all/debug/test 与 test-passed/test-failed/test-skipped 结果态、navigate-super/navigate-implementations 导航）、同一标记的 `alternatives`（至多 4 个）和点击结果的 `reveal`（宿主展示位置）；通用主题、片段、其他装饰未做；Java 拆分计划（C-EDIT）：图标、alternatives、reveal、CodeLens、运行与测试标记 |
 | API-28 | 未做 | 公共 custom editor 文档 owner/保存/撤销/恢复未开放 |
-| API-29 | 部分完成 | #1517 BuildProvider 1–6/model inputs；普通编辑器动作不属于本领域项；新指南未齐全 |
-| API-30 | 既有能力 | 已有 debugAdapters 1/2 与 DAP 宿主；本 PR 不重建调试协议 |
+| API-29 | 部分完成 | #1517 BuildProvider 1–6/model inputs；普通编辑器动作不属于本领域项；新指南未齐全；Java 拆分不改协议：测试发现与运行沿用 #1517，由 Maven、Gradle 插件提供 |
+| API-30 | 部分完成 | 已有 debugAdapters 1/2 与 DAP 宿主；新增 `debugAdapters:3` 的 features/defaults（热代码替换、步进过滤器）与后端发起的 `debug/start`（macOS）；不重建调试协议 |
 | API-31 | 既有能力 | 已有 vcsProviders:1；不包含内置 Git 公共读取面 |
 | API-32 | 未做 | 通用 ServiceProvider 仍为提案 |
-| API-33 | 既有能力 | 已有 projectGenerators:1；新 hooks 不在本轮 |
+| API-33 | 部分完成 | projectGenerators 2 增加通用工具字段（`type:"tool"`，工具来自 `toolDefinitions`，选择写入项目的工具 pin），即 Java 拆分计划（C-PROJ）所需的版本；项目生成器与工具定义插件免重启生效；新 hooks 不在本轮 |
 | API-34 | 未做 | 插件公共 IDE/AI/MCP 授权面未开放；独立 broker 不能直接转授 |
-| API-35 | 未做 | 跨插件依赖/导出、远程 Provider 剩余接续未完成 |
+| API-35 | 第一阶段进行中 | 第一阶段是 Java 拆分所需的 Core 中转插件函数调用（插件 1 → Core → 插件 2，C-IMPORT，进行中，不是安装依赖）；依赖/导出安装闭包、版本求解、远程 Provider 剩余接续未完成 |
 | API-36 | 未做 | WASM/WASI 非本轮前置，未引入运行时 |
-| API-37 | 部分完成 | getCapabilities 提供协议/方法/预算/后端执行位置；语言包与环境/主题事件未做 |
+| API-37 | 部分完成 | getCapabilities 提供协议/方法/预算/后端执行位置；插件设置文字的包内语言文件 `l10n/<语言>.json` 已做（`pluginAPIVersion` 0 补充，Core #36；桌面端只读地从已安装包取文件，按界面语言重读且保留草稿）；其它插件文字的语言包与环境/主题事件未做；Java 拆分：界面语言走本项的环境信息，不在 workspace context 里加 locale |
 | API-38 | 未做 | 通用受管 fetch/download 未开放 |
 | API-39 | 未做 | 通用 authentication session/provider 未开放 |
 | API-40 | 部分完成 | 上下文携带 local/remote；新文件/编辑器服务对 remote 明确拒绝，非远程执行实现 |
@@ -70,15 +70,16 @@ Windows 不在本轮，平台矩阵的 partial/pending 保持真实。
 
 ### API-25：JSON 配置的支持范围与局限
 
-当前新增的是**静态编辑器资源贡献**，不是任意 Provider（能力提供者）的运行期注册框架。
+静态编辑器资源贡献（语法、编辑配置）与运行期 Provider 注册是两条独立入口：前者来自只读插件包，后者由后端调用宿主方法注册。
 
 | 场景 | 当前支持范围 |
 | --- | --- |
 | 新增文本格式或高亮规则 | 通过插件清单 `languages[]` 声明文件类型，`grammar.path` 引用包内 JSON 语法；宿主校验后由 worker 执行，不需要 LSP 或后端 |
 | 注释、括号、自动配对 | 可仅贡献 `configuration`，不要求同时提供 grammar |
 | 安装、更新、停用或卸载纯静态贡献 | 随已验证插件包的生命周期更新编辑器；这不等于插件可以调用动态 Provider 注册方法，也不授权修改已安装包或监听任意 JSON 文件自动重载 |
-| 运行中直接提交 JSON，注册、替换或释放高亮 Provider | 尚未开放公共方法；当前不是接收任意内联 grammar 的注册入口 |
-| 用 JSON 将独立补全、悬浮、定义、符号、格式化、重命名或 Code Action 绑定到普通插件函数 | 尚未开放；既有 LSP 能力不等于已有这些独立 Provider 接口，`editor/registerActions` 也不提供它们 |
+| 运行中直接提交 JSON，注册、替换或释放高亮 Provider | 尚未开放公共方法；当前不是接收任意内联 grammar 的注册入口。`semanticTokens` Provider 提供的是按文档请求的语义着色，只在语言服务器没有语义着色的位置生效，不替代 grammar |
+| 将补全、悬浮、定义、CodeLens、折叠、语义着色或文档链接绑定到普通插件函数 | 已开放：`lithe/host/editor/registerProviders`，需要 `editor.providers` 权限；每次最多 32 个注册，答案形状与预算由 Core 规定，宿主只能补充语言服务器的答案（见 Agent Note） |
+| 符号、格式化、重命名、Code Action、签名帮助、内联提示、诊断 | 尚未开放；`registerProviders` 对这些类型返回 `plugin.host.unsupportedOption`（`details.option` 为 `providers.<类型>`），诊断属于 API-26 |
 | 切换语法引擎或新增宿主不认识的能力种类 | `grammar.kind` 当前仅接受 `monarch`；TextMate、tree-sitter 等新引擎及新能力种类仍需宿主适配和明确契约，不能只增加一个 JSON `kind` 值 |
 
 新增一个使用**已支持结构**的语言实例、语法规则或编辑配置，只改插件内容，不因此升级宿主 API；
@@ -89,13 +90,13 @@ Windows 不在本轮，平台矩阵的 partial/pending 保持真实。
 嵌入语言在该 worker 适配器中按普通文本处理。Windows 接入、SDK 新能力封装与发布、
 打包后安装真实插件的完整验收仍未完成，功能矩阵保持 partial/pending。
 决策边界见[独立插件编辑器 API](../../.agents/notes/implemented/architecture/2026-10-31-plugin-editor-extension-apis.md)，
-正式资源契约见[语法与编辑配置](../../shared/contracts/plugins/v1/README.md#grammars-and-editor-configuration-languages-2)。
+正式资源契约见[语法与编辑配置](https://github.com/Lithe-IDEA/Lithe-core-rust/blob/main/shared/plugins/contract/v1/README.md#grammars-and-editor-configuration)。
 
 ### 当前公共调用面汇总
 
 所有宿主请求以 `lithe/host/` 为前缀；这里的点号是阅读简写，正式方法使用 `/`。
 精确参数、返回、权限、预算及失败语义见
-[契约公共方法表](../../shared/contracts/plugins/v1/README.md#public-document-file-and-window-methods-protocol-version-3)。
+[契约公共方法表](https://github.com/Lithe-IDEA/Lithe-core-rust/blob/main/shared/plugins/contract/v1/README.md#public-document-file-and-window-methods)。
 
 | 分组 | 已开放请求 | 权限 |
 | --- | --- | --- |
@@ -121,16 +122,16 @@ Windows 不在本轮，平台矩阵的 partial/pending 保持真实。
 
 本轮只规划 macOS。没有 Windows 实现任务、时间表或双端验收前置条件；共享数据协议仍不嵌入 SwiftUI/AppKit 类型。本 PR 不实现 API、不修改 schema/SDK，也不把未来能力记成已实现。
 
-这是**主仓库内部执行计划和文档待办**，不是可直接使用的开发者 API 参考。下文所有“候选”方法、事件及文档路径都需要后续契约 PR 定义；不能直接写进现有 `plugin.json`。公开指南、API 参考、SDK 和示例最终交付到 [lithe-plugin-docs](https://github.com/Lithe-IDEA/lithe-plugin-docs)，不在本仓库维护第二套开发者手册。
+这是**主仓库内部执行计划和文档待办**，不是可直接使用的开发者 API 参考。下文所有“候选”方法、事件及文档路径都需要后续契约 PR 定义；不能直接写进现有 `plugin.json`。公开指南、API 参考、SDK 和示例最终交付到 Core 仓库的 [`shared/plugins/`](https://github.com/Lithe-IDEA/Lithe-core-rust/tree/main/shared/plugins)，不在本仓库维护第二套开发者手册。
 
-架构选择由[公共扩展契约提案](../../.agents/notes/proposed/architecture/2026-10-13-public-extension-contract-and-provider-api.md)持有；本文件负责能力盘点、任务拆分和验收。契约发布遵循[两仓库同步决策](../../.agents/notes/implemented/architecture/2026-10-23-plugin-contract-publishing.md)。
+架构选择由[公共扩展契约提案](../../.agents/notes/proposed/architecture/2026-10-13-public-extension-contract-and-provider-api.md)持有；本文件负责能力盘点、任务拆分和验收。契约、指南和 SDK 的发布遵循[契约单一来源决策](../../.agents/notes/implemented/architecture/2026-11-11-plugin-contract-single-source-in-core.md)。
 
 ### 盘点基线
 
 | 对象 | 固定版本与证据 | 使用限制 |
 | --- | --- | --- |
 | Lithe | [preview `e8c4e9fc933a`](https://github.com/1lck/Lithe-IDEA/tree/e8c4e9fc933a85f789d603371e77efd219214452) | 本文件的本地源码路径均相对此版本，已包含下面两个合并的 PR；源码存在不代表本次做过实机验收 |
-| 插件文档/SDK | [main `be779d2000e3`](https://github.com/Lithe-IDEA/lithe-plugin-docs/tree/be779d2000e38415ea047fc2e2b2b7973e7d8e07) | 2026-10-30 复核仍是该 commit。`contract.lock.json` 锁定主仓库 `32021a86f0c6c4ad2964dbbe3c2bb7854d84ad67`，不能与本次 preview 基线混用；该锁之后 `shared/contracts/plugins/v1` 又有 4 个提交（含 #1517），副本尚未同步 |
+| 插件文档/SDK（已退役的 lithe-plugin-docs） | [main `be779d2000e3`](https://github.com/Lithe-IDEA/lithe-plugin-docs/tree/be779d2000e38415ea047fc2e2b2b7973e7d8e07) | 2026-10-30 复核仍是该 commit。`contract.lock.json` 锁定主仓库 `32021a86f0c6c4ad2964dbbe3c2bb7854d84ad67`，不能与本次 preview 基线混用；该锁之后 `shared/contracts/plugins/v1` 又有 4 个提交（含 #1517）。该仓库已退役，契约、指南和 SDK 现在在 Core 仓库的 `shared/plugins/`，不再有副本同步 |
 | OpenIDEA | [`8ff8f229407d`](https://github.com/l0ng-ai/openidea/tree/8ff8f229407df73e722d0a933f8e0aebd48f516c) | 比较其公开源码，不推断全量功能成熟度或产品安全结论 |
 | 原生 Provider 工作流 | [PR #1517](https://github.com/1lck/Lithe-IDEA/pull/1517)，合并提交 `659739011591`（2026-10-28 已合并） | 已在上面的 preview 中；Mac 已声明 `buildProviders:1–6`、`buildModelInputs:1`、`debugAdapters:1/2`，见 2.1 |
 | 远程工作区适配 | [PR #1515](https://github.com/1lck/Lithe-IDEA/pull/1515)，合并提交 `823fe428384d`（2026-10-29 已合并，关联 #1507） | 已在上面的 preview 中，但 PR 自述为阶段性实现，功能矩阵保持 partial / pending；不得据此认定远程工作区已完整可用，范围与缺口见 API-40 |
@@ -157,16 +158,16 @@ Windows 不在本轮，平台矩阵的 partial/pending 保持真实。
 | 内置 Git | Git 在 `LitheGitModule`，按 2026-10-22 评审不接入统一 VCS 层；IDE broker 的 13 个工具没有 Git 工具 [S15/S21] | API-31 只覆盖插件提供的 VCS，插件没有读取内置 Git 状态的公共入口 |
 | Agent 侧 | Skills、Hooks、MCP 是用户管理的 Codex/Claude 原生配置，宿主只读取并编辑用户选定的来源 [S22] | 插件没有贡献来源；不能让插件绕过用户确认写入这些配置 |
 
-Mac 当前声明的能力版本为：`backend:1`、`buildModelInputs:1`、`buildProviders:1–6`、`buildSystems:1/2`、`debugAdapters:1/2`、`executionProviders:1`、`executableResolution:1`、`languageServers:1/2`、`languages:1`、`packageTrust:1`、`projectGenerators:1`、`serverProcess:1`、`settings:1/2`、`ui:1/2/3`、`vcsProviders:1`。Core 能校验某版本不等于 Mac 会执行它：Core 的 `serverProcess` 声明 1/2，而 Mac 只声明 1，不能因此给 Mac 标记支持 `serverProcess:2`。以上以 `PluginTypes.swift` 的 `hostCapabilities` 为准，与 Core 的 `SUPPORTED_CAPABILITIES` 逐项比对过，唯一差异是 `serverProcess`。
+Mac 当前声明的能力版本为：`backend:1`、`buildModelInputs:1`、`buildProviders:1–6`、`buildSystems:1/2`、`debugAdapters:1/2`、`executionProviders:1`、`executableResolution:1`、`languageServers:1/2`、`languages:1`、`packageTrust:1`、`projectGenerators:1/2`、`serverProcess:1`、`settings:1/2`、`ui:1/2/3`、`vcsProviders:1`。Core 能校验某版本不等于 Mac 会执行它：Core 的 `serverProcess` 声明 1/2，而 Mac 只声明 1，不能因此给 Mac 标记支持 `serverProcess:2`。以上以盘点时旧 macOS 客户端的 `hostCapabilities` 为准，与 Core 的 `SUPPORTED_CAPABILITIES` 逐项比对过，唯一差异是 `serverProcess`。该客户端已删除，当前桌面端的能力声明需重新与 Core 逐项核对，本表不代表桌面端现状。
 
-当前 Web bridge 的方法白名单为 `build.instances/refresh/runTask/runTests/cancel/dependencies/setOptions`、`workspace.openFile`、`ui.getState/setState`、`functions.list/invoke/cancel`、`dialog.openFile/saveFile`。后两个选择文件方法已在 Mac bridge v2 实现；盘点不能只依据较早 README 的列表。网页调用权限也不自动转授给后端进程。
+当前 Web bridge 的方法白名单为 `build.instances/refresh/runTask/runTests/cancel/dependencies/setOptions`、`workspace.openFile`、`ui.getState/setState`、`functions.list/invoke/cancel`、`dialog.openFile/saveFile`。后两个选择文件方法已在旧 macOS 客户端的 bridge v2 中实现；盘点不能只依据较早 README 的列表。网页调用权限也不自动转授给后端进程。
 
 ### 2.2 参考 OpenIDEA 和 VS Code 的哪些部分
 
 | 参考对象 | 已核对的做法 | Lithe 应借鉴/不照搬的部分 |
 | --- | --- | --- |
 | OpenIDEA [WIT 接口](https://github.com/l0ng-ai/openidea/blob/8ff8f229407df73e722d0a933f8e0aebd48f516c/wit/plugin.wit) | v0.1 定义日志、命令注册、通知、工程根/当前文件、读文件、插入文本/替换选区、语言/主题注册，以及激活/停用/命令回调 | 借鉴“小而明确的宿主能力面”；不把这份短接口当完整 IDE SDK，也不直接复制全局隐式上下文或缺少版本参数的编辑设计 |
-| OpenIDEA [运行时](https://github.com/l0ng-ai/openidea/blob/8ff8f229407df73e722d0a933f8e0aebd48f516c/crates/ide-plugin/src/runtime.rs) | 使用 Wasmtime Component、WASI、内存限制、fuel 与 epoch 截止时间 | WASM 由运行时和宿主适配提供，不是 Tauri 自动提供；Lithe 的 Rust/Mac 宿主也能接，但仍需同样的 API、权限、分发和清理工作 |
+| OpenIDEA [运行时](https://github.com/l0ng-ai/openidea/blob/8ff8f229407df73e722d0a933f8e0aebd48f516c/crates/ide-plugin/src/runtime.rs) | 使用 Wasmtime Component、WASI、内存限制、fuel 与 epoch 截止时间 | WASM 由运行时和宿主适配提供，不是 Tauri 自动提供；Lithe 宿主也能接，但仍需同样的 API、权限、分发和清理工作 |
 | VS Code [能力概览](https://code.visualstudio.com/api/extension-capabilities/overview)、[贡献点](https://code.visualstudio.com/api/references/contribution-points)、[API](https://code.visualstudio.com/api/references/vscode-api) | 声明贡献、可调用 API、事件与 Provider 分工；使用稳定资源和注册/释放模型 | 借鉴分层和文档组织，不承诺兼容 `vscode` 包、VSIX 或照搬全部接口 |
 | VS Code [Extension Host](https://code.visualstudio.com/api/advanced-topics/extension-host)、[运行时安全](https://code.visualstudio.com/docs/configure/extensions/extension-runtime-security) | 桌面扩展可在 Node.js 扩展宿主执行，Web 扩展使用受限浏览器运行环境；进程隔离不等于 OS 沙盒 | 继续让第三方执行逻辑位于外部宿主；权限代理只能约束代理通道，不能承诺限制任意原生后端的一切系统调用 |
 | VS Code [Webview](https://code.visualstudio.com/api/extension-guides/webview)、[Custom Editor](https://code.visualstudio.com/api/extension-guides/custom-editors)、[WASM](https://code.visualstudio.com/blogs/2024/05/08/wasm) | 网页界面、文档编辑器和可移植运行时是不同扩展层 | 原生 Tree/Form 优先；复杂网页可选；WASM 不能代替编辑器保存/撤销、权限和生命周期协议 |
@@ -200,7 +201,7 @@ Mac 当前声明的能力版本为：`backend:1`、`buildModelInputs:1`、`build
 | API-09 H/E | `documents.list/getSnapshot`、`editor.getActive/getSelections`；已有文档和 Monaco 模型 [S5] | 编辑器读取与磁盘读取分开授权；返回文档 ID、版本、语言、只读/dirty、编码/EOL。选区读到未保存内容，而不是偷偷读盘 | M1 |
 | API-10 H | `editor.applyEdits/replaceSelections/insertText`；已有编辑与 LSP WorkspaceEdit 链路 [S5] | 编辑授权、明确文档/预期版本；先做单文档完整校验再应用，形成一个撤销组。版本冲突、越界、重叠范围或输入法组合中安全拒绝/延后，不覆盖用户新输入 | M2 |
 | API-11 H | `documents.save/saveAs/close`、`workspace.create/rename/copy/trash`；文件端口已有部分保护 [S5/S6] | 保存/文件变更单独授权；打开文档走文档 owner，校验磁盘身份及用户确认，不以直接写盘绕过 dirty/编码。首版不提供无确认永久删除 | M3：保存；后续：文件变更 |
-| API-12 H/P | `workspace.applyEdit`、`documents.registerContentProvider`、`editor.showDiff`；已有虚拟文档和 diff [S5] | 多文件预览、逐项版本和只读校验；明确部分失败/恢复语义，不承诺现有 LSP 实现已具备跨文件原子回滚。只读虚拟资源先行 | M2：复用 diff 预览；后续：虚拟/多文件 |
+| API-12 H/P | `workspace.applyEdit`、`documents.registerContentProvider`、`editor.showDiff`；已有虚拟文档和 diff [S5] | 多文件预览、逐项版本和只读校验；明确部分失败/恢复语义，不承诺现有 LSP 实现已具备跨文件原子回滚。只读虚拟资源先行 | M2：复用 diff 预览；后续：虚拟/多文件；Java 拆分（C-LS）：只读 content provider 承载 `jdt://` |
 | API-40 H/E | 工作区 authority：`workspace.getContext` 和资源标识携带 authority（本机或某个远程连接）。现状：远程文件夹是本机空占位根，文件、工作区、终端、Build 和 Build/VCS/语言 Provider 启动按 URL 路由到远程适配器；`backend:1` 与 Web bridge 只按本机 `workspaceURL` 工作，不识别远程绑定 [S20] | 首版只承诺 `local`；对未实现 authority 的任何新 API 必须返回稳定的“不支持”错误，不得把占位根或远程路径当本机路径读写，也不得静默在本机执行。占位根路径不是可持久化的资源 ID。远程 Java 原生集成、Agent、SSH 调试按远程 Note 推进，不借本项宣称完成。验收：本机与远程两个工作区同时打开时不串数据 | M0 |
 | API-43 E/P | `documents.onWillSave`：保存前事件，可选返回编辑。现状：保存经 `DocumentFeatureModel` 的保存入口落盘，没有保存前钩子；编辑器只有手动格式化动作 [S5] | 依赖 API-10 的版本化编辑授权与 API-04 的文档事件；带保存原因（手动/全部保存/关闭前/自动保存）。保存前等待有严格截止时间，超时则放弃该插件结果并继续保存，不卡住保存与主线程；保存期间有新输入则丢弃旧结果；只读/大文件/自动保存的规则和多插件顺序、冲突在契约 PR 定义。不能用它读取磁盘或阻止保存 | M3，晚于 M2 |
 
@@ -223,15 +224,15 @@ Mac 当前声明的能力版本为：`backend:1`、`buildModelInputs:1`、`build
 
 | ID / 方向 | 候选能力与现状/所有者 | 权限、作用域与验收 | 阶段 |
 | --- | --- | --- | --- |
-| API-19 H/C/E | `settings.get/inspect/update/onDidChange`；已有 settings 1/2 和注册表 [S10] | 只读/写入分权；区分 Lithe 偏好与工具真实配置，显示来源/作用域/有效值。工具配置显式 Apply、冲突保护、写后重读，不建立无效影子设置 | M3 |
-| API-20 H | `storage.global/workspace/session`、包内只读资源；已有平台 state store [S2/S4] | 插件命名空间和配额；状态放平台可写位置，迁移/卸载策略明确。工作区状态不是 v1 应用级 `${stateDir}` 的别名，不写插件包/bundle | M0：作用域；M3：扩展接口 |
+| API-19 H/C/E | `settings.get/inspect/update/onDidChange`；已有 settings 1/2 和注册表 [S10] | 只读/写入分权；区分 Lithe 偏好与工具真实配置，显示来源/作用域/有效值。工具配置显式 Apply、冲突保护、写后重读，不建立无效影子设置 | M3；Java 拆分（M1、D1）：Maven 插件内实现 |
+| API-20 H | `storage.global/workspace/session`、包内只读资源；已有平台 state store [S2/S4] | 插件命名空间和配额；状态放平台可写位置，迁移/卸载策略明确。工作区状态不是 v1 应用级 `${stateDir}` 的别名，不写插件包/bundle | M0：作用域；M3：扩展接口；Java 拆分（C-LS）：仅新增 temporaryDirectory |
 | API-21 H | `secrets.get/set/delete`；已有函数协议 v2 credentials 服务 [S2] | 保持本插件隔离和现有凭据授权；不得读取 IDE/Agent/其他插件密钥，不将 secret 放日志、普通配置或状态。先补 SDK/文档一致性，不另造密码库 | M1 |
-| API-22 H/E | `output.createChannel/append/dispose`、`log`、`progress.withCancellation`；已有函数进度与输出生命周期 [S2/S11] | 插件/操作归属、日志脱敏与字节预算；取消/超时后不再更新 UI。只复用已有进度状态机，不把 stdout 协议流与业务日志混用 | M1：命令结果/进度；M3：独立输出 |
-| API-23 H | `toolchains.resolve/list`、受管 `process.run/cancel`；已有 executable/runtime 解析与进程链路 [S1/S11] | 显式执行授权，executable/argv 分离，cwd/环境白名单、输出和超时上限、进程树清理；不提供任意 shell 字符串，也不自动下载运行时 | M4 |
+| API-22 H/E | `output.createChannel/append/dispose`、`log`、`progress.withCancellation`；已有函数进度与输出生命周期 [S2/S11] | 插件/操作归属、日志脱敏与字节预算；取消/超时后不再更新 UI。只复用已有进度状态机，不把 stdout 协议流与业务日志混用。输出链接由 Core 匹配、宿主只上样式和转发点击，`resolve` 函数在点击时才调用 | M1：命令结果/进度；M3：独立输出；Java 拆分（C-LS）：setStatus |
+| API-23 H | `toolchains.resolve/list`、受管 `process.run/cancel`；已有 executable/runtime 解析与进程链路 [S1/S11] | 显式执行授权，executable/argv 分离，cwd/环境白名单、输出和超时上限、进程树清理；不提供任意 shell 字符串，也不自动下载运行时。`run/start` 的可执行文件只能是工具定义 ID 或插件包内文件，工作目录限工作区内，由 Run 窗口展示 | M4 |
 | API-24 H/E | `terminal.create/show/close/reopen/dispose/onExit` 已复用原生终端模块 [S12]；函数协议 3 宿主服务 | `terminal.create` 权限、创建逐操作确认；只控制本 backend session/context 的终端，禁用/关闭工作区清理。无 sendText 或输出读取；本机 macOS，Windows 与远程未实现 | 首版接线，原生验收见功能矩阵 |
-| API-25 C/P | 语言/语法/LSP、补全/悬浮/定义/符号/格式化/重命名/Code Action；已有语言服务器贡献 [S1/S13] | 优先接成熟 LSP 的完整能力；自定义 Provider 仅补上游确实缺失项，按文档版本取消旧请求。避免让 SDK 成为第二套语言/工程引擎 | M4：已支持能力文档；`languages:2` 声明式语法已实现（见 Agent Note 2026-10-31-plugin-editor-extension-apis）；后续：新 Provider |
-| API-26 H/P/E | `diagnostics.createCollection/set/delete/onDidChange`；已有 Problems/诊断 owner [S13] | 只能写本插件 collection，带文档版本和稳定范围；编辑/卸载后旧诊断可撤回。不能覆盖其他 LSP 结果或伪造宿主诊断身份 | M4 |
-| API-27 C/H/P | 主题/图标/片段、只读装饰、CodeLens/Inlay；已有内部 theme/editor 能力 [S5/S16] | 数据贡献/资源路径校验、预算与卸载；图标/主题用宿主 token，不允许 CSS/原生视图注入。语言信息优先走 LSP，UI 资源不得执行脚本 | 独立编辑器动作 API 已接线（Mac，待运行验收；复用 backend 2/函数协议 3，不升领域版本）；主题/片段/其他装饰后续 |
+| API-25 C/P | 语言/语法/LSP、补全/悬浮/定义/符号/格式化/重命名/Code Action；已有语言服务器贡献 [S1/S13] | 优先接成熟 LSP 的完整能力；自定义 Provider 仅补上游确实缺失项，按文档版本取消旧请求。避免让 SDK 成为第二套语言/工程引擎 | M4：已支持能力文档；`languages:2` 声明式语法已实现；`editor/registerProviders` 已接线 macOS（Core 校验注册与结果形状，宿主按类型预算并发询问，合并规则见 Agent Note 2026-10-31-plugin-editor-extension-apis）；后续：符号/格式化/重命名/Code Action、Windows；Java 拆分（C-LS、C-EDIT）：后端启动解析器与向自有语言服务器的请求；Spring、MyBatis 属于上游缺失项 |
+| API-26 H/P/E | `diagnostics.createCollection/set/delete/onDidChange`；已有 Problems/诊断 owner [S13] | 只能写本插件 collection，带文档版本和稳定范围；编辑/卸载后旧诊断可撤回。不能覆盖其他 LSP 结果或伪造宿主诊断身份 | M4；Java 拆分（C-EDIT）：推送式 collection |
+| API-27 C/H/P | 主题/图标/片段、只读装饰、CodeLens/Inlay；已有内部 theme/editor 能力 [S5/S16] | 数据贡献/资源路径校验、预算与卸载；图标/主题用宿主 token，不允许 CSS/原生视图注入。语言信息优先走 LSP，UI 资源不得执行脚本 | 独立编辑器动作 API 已接线（Mac，待运行验收；复用 backend 2/函数协议 3，不升领域版本）；版本 2 的多图标、alternatives、reveal 同属该方法，由宿主声明的图标表约束；主题/片段/其他装饰后续；Java 拆分（C-EDIT）：图标、alternatives、reveal、CodeLens、运行与测试标记 |
 | API-28 C/P/H | `customEditors.register`、打开/保存/撤销/恢复；已有特殊文档视图不等于公开扩展点 [S5/S9] | 先说明唯一文档 owner 和 readonly/dirty/backup/undo 语义；可选 Webview 仅做视图。崩溃后可恢复且不丢未保存内容才可发布 | 后续 |
 
 设置分类遵循[macOS 设置层级](../../.agents/notes/implemented/feature/2026-10-15-macos-settings-hierarchy.md)，原生配置编辑遵循[真实来源决策](../../.agents/notes/implemented/architecture/2026-10-25-settings-native-configuration-editing.md)。插件提供的文本/上游诊断不伪装成宿主翻译；宿主新增按钮、权限说明和错误必须走 `shared/i18n/`。
@@ -240,13 +241,13 @@ Mac 当前声明的能力版本为：`backend:1`、`buildModelInputs:1`、`build
 
 | ID / 方向 | 候选能力与现状/所有者 | 权限、作用域与验收 | 阶段 |
 | --- | --- | --- | --- |
-| API-29 P/C | Build/Task/Test/Run Preparation、只读工程模型输入；#1517 已合并，Mac 已声明 `buildProviders:1–6`、`buildModelInputs:1`、`debugAdapters:2` [S1/S11] | 本项只补文档、SDK 对齐和真实项目端到端验收，不重复定义协议。原生 Build/Test/Run 展示、准备、取消共用宿主；快照带源/版本，不能成为第二份 classpath/工程真相；远程工作区下的 Provider 启动限制见 API-40。编辑器动作是独立扩展点，不计入领域执行。 | M4 |
-| API-30 P/C/E | Debug Adapter 注册、配置和会话事件；已有 DAP 宿主 [S14] | 进程/连接授权、launch 与 attach 所有权、终止和断开区别；复用断点/调试 UI。高级内存/反汇编按独立提案，不阻塞基础 API | M4 |
+| API-29 P/C | Build/Task/Test/Run Preparation、只读工程模型输入；#1517 已合并，Mac 已声明 `buildProviders:1–6`、`buildModelInputs:1`、`debugAdapters:2` [S1/S11] | 本项只补文档、SDK 对齐和真实项目端到端验收，不重复定义协议。原生 Build/Test/Run 展示、准备、取消共用宿主；快照带源/版本，不能成为第二份 classpath/工程真相；远程工作区下的 Provider 启动限制见 API-40。编辑器动作是独立扩展点，不计入领域执行。 | M4；Java 拆分不改协议 |
+| API-30 P/C/E | Debug Adapter 注册、配置和会话事件；已有 DAP 宿主 [S14] | 进程/连接授权、launch 与 attach 所有权、终止和断开区别；复用断点/调试 UI。后端发起的 `debug/start` 只能用自己声明的适配器，`run/start` 的 `debug.target` 目前只支持 connection。高级内存/反汇编按独立提案，不阻塞基础 API | M4 |
 | API-31 P/C | VCS 仓库/状态/diff/提交等领域能力；已有 vcsProviders 1 [S14]，只覆盖插件提供的 VCS，内置 Git 见 API-42 | 读取与修改仓库分权；危险操作有明确确认，结果有仓库/操作身份。插件私有函数不能代替宿主可理解的 VCS 协议 | M4 |
 | API-32 P/C/E | Services 的实例/状态/动作/日志；数据库已有自身路径，通用 ServiceProvider 仍为提案 [S17] | 插件拥有的连接/进程与用户外部服务分开；停用只清理前者，不默认停用户数据库/容器。服务接入现有 Services，不再画一套工作台 | 后续 |
-| API-33 P/C | 项目生成器发现、参数、预览与生成；已有 projectGenerators 1 [S14] | 写目标目录需确认，禁止路径逃逸/无提示覆盖；只生成选择的项目，不下载未声明程序。先补现有文档，再评估新增 hooks | M4 |
+| API-33 P/C | 项目生成器发现、参数、预览与生成；已有 projectGenerators 1，projectGenerators 2 增加通用工具字段 [S14] | 写目标目录需确认，禁止路径逃逸/无提示覆盖；只生成选择的项目，不下载未声明程序。工具字段只通过工具定义的通用解析列出候选，选择写入项目已有的工具 pin，生成器不能自带工具发现。版本 1 的 `runtime` 字段保持不变，待 Java 逻辑迁出后再移除。先补现有文档，再评估新增 hooks | M4；Java 拆分（C-PROJ）：projectGenerators 2 |
 | API-34 H/P | 受限 IDE/AI/MCP 能力；已有单独 IDE broker [S15] | 项目 opt-in 和 read/configure/execute 分权不变；不转交 broker token、全量 dispatcher 或 Agent 历史。是否开放、哪些调用方可用需独立威胁建模 | 后续 |
-| API-35 H/P/C | 插件依赖、显式导出服务；远程 Provider 适配的剩余部分（原生 Java 集成、Agent、SSH 调试）[S17/S20] | 跨插件调用需要新授权/版本/循环依赖规则。远程 authority 基线已移到 API-40（M0），本项只在其上扩展；未实现的环境继续明确拒绝，不静默本地执行 | 后续 |
+| API-35 H/P/C | 插件依赖、显式导出服务；远程 Provider 适配的剩余部分（原生 Java 集成、Agent、SSH 调试）[S17/S20] | 跨插件调用需要新授权/版本/循环依赖规则。远程 authority 基线已移到 API-40（M0），本项只在其上扩展；未实现的环境继续明确拒绝，不静默本地执行。第一阶段（Java 拆分，进行中）只做 Core 中转的插件函数调用：接收方在清单里显式导出函数 ID，未列出的函数仍然私有；调用方声明函数 ID（相当于接口名），安装和启用确认时显示会匹配到哪些插件；Core 校验双方都已声明且已启用，记录调用链并拒绝环路，限制深度、并发、参数与结果字节数和超时，取消沿调用链向下传；信任不传递，被调方用自己的权限执行，调用方不获得任何权限；远程工作区按 API-40 拒绝；旧的 `wrongPlugin` 与 `recursiveCall` 检查原样保留，`lithe/build/*` 仍然不对后端开放；它不是安装依赖，不参与安装闭包，也不做版本求解 | 第一阶段：Core 中转的插件函数调用（进行中）；后续：依赖闭包与导出服务 |
 | API-36 运行时 | 可选 WASM Component/WASI 宿主；当前能力表无 WASM [S1] | 复用相同公共 API/权限；独立验证 WIT 版本、fuel/内存/时间预算、取消、沙盒可达性、签名、工具链和分发。不得预挂载整个 HOME/工作区或绕过主进程隔离 | 后续，非 M0–M4 前置 |
 | API-42 H/E | 内置 Git 只读快照：`scm.getRepositories/getHead/getStatus/onDidChange` 一类候选。现状：Git 在 `LitheGitModule`（`GitFeatureModel`、`package` 级 `GitOperations`），不在统一 VCS 层；`VcsProvidersFeatureModel` 只用 Git 根判断归属，IDE broker 无 Git 工具 [S21] | 只读仓库元数据授权；经小型适配器返回仓库根 ID、当前分支/HEAD、ahead/behind 和有页大小上限的变更路径，不暴露 `GitOperations`/`GitChange` 等内部类型，不含 diff 内容、凭据或带令牌的远程 URL。暂存、提交、切分支等写操作不在本项，等统一 VCS 提案第 10 节的 Git 接入决策。事件合并限流；远程工作区按 API-40 的 authority 返回 | M3 |
 | API-44 C | Agent 侧贡献：插件提供 Skill、Hook、MCP 服务器的候选清单。现状：Skills、Hooks、MCP 是用户管理的 Codex/Claude 原生配置，宿主只读取并编辑用户选定的来源，没有插件来源 [S22] | 插件只能提供可审阅的候选，不自动写入或启用；用户确认后才写入明确来源并重读结果。Hook 与 MCP 会执行命令，需单独授权、标注来源并可撤销；卸载插件不静默改动用户已导入的配置。不转交 IDE broker token 或 Agent 历史，与 API-34 一并做威胁建模 | 后续，独立安全评审 |
@@ -255,7 +256,7 @@ Mac 当前声明的能力版本为：`backend:1`、`buildModelInputs:1`、`build
 
 | ID / 方向 | 候选能力与现状/所有者 | 权限、作用域与验收 | 阶段 |
 | --- | --- | --- | --- |
-| API-37 H/E | `environment.getInfo`、插件语言包/`l10n`、语言/主题变化；已有应用语言和主题 owner [S16/S19] | 只返回必要的产品/能力/界面语言信息，不导出进程环境、HOME 或账号；宿主文案走共享 i18n，插件文案用自己的包内语言资源并明确回退 | M1：最低能力信息；后续：完整语言包 |
+| API-37 H/E | `environment.getInfo`、插件语言包/`l10n`、语言/主题变化；已有应用语言和主题 owner [S16/S19] | 只返回必要的产品/能力/界面语言信息，不导出进程环境、HOME 或账号；宿主文案走共享 i18n，插件文案用自己的包内语言资源并明确回退 | M1：最低能力信息；已做：插件设置的包内语言文件；后续：其它插件文字的语言包与切语言事件；Java 拆分：沿用本项，不加 locale 字段 |
 | API-38 H | 可选受管 `network.fetch/download`；现有 HTTP adapter 服务具体业务，不是通用插件 API [S19] | 单独声明网络目标与授权；限制重定向、协议、内网目标、响应大小和超时，不转授宿主 cookie/代理凭据。下载只到平台可写临时目录，校验后显式交付，不能自动执行 | 后续 |
 | API-39 H/P/E | 可选 `authentication.getSession/registerProvider` 与登录变化；已有 GitHub/Agent 专属账号流程 [S19] | 凭据存储不是“读取 IDE 账号”权限；须按插件、服务、账号、scope 显式授权，撤销和注销可见，复用系统浏览器/Keychain，不向任意插件提供宿主 GitHub 或 Agent token | 后续，独立安全评审 |
 
@@ -301,11 +302,11 @@ Mac 当前声明的能力版本为：`backend:1`、`buildModelInputs:1`、`build
 
 ### 5.1 先消除“源码支持 = 已发版 = 宿主可用”的误解
 
-以下是固定 SDK commit 的源码盘点，不是本次运行 SDK 测试的结果。
+以下是固定 SDK commit 的源码盘点，不是本次运行 SDK 测试的结果。这个 commit 属于已退役的 lithe-plugin-docs；SDK 现在在 Core 仓库的 `shared/plugins/sdk/{node,java,rust}`，从 Core 仓库按标签发布（例如 `sdk-node-v0.5.0`）。
 
 | SDK | 源码已见能力 | 仍需核对/补齐 | 已核实发布物 |
 | --- | --- | --- | --- |
-| [Node 源码](https://github.com/Lithe-IDEA/lithe-plugin-docs/blob/be779d2000e38415ea047fc2e2b2b7973e7d8e07/sdk/node/src/backend.mjs) | Build、私有 Functions v1、VCS；开发中 Build 2–6 的执行、测试、发现、Run/Debug 准备、模型输入 | 通用 host API、Functions v2/credentials 等不能因 Rust SDK 有就宣称 Node 也有；宿主侧 Build 2–6 已随 #1517 合入 preview，但文档仓库的契约副本早于该合并，需先同步契约再对齐 SDK 与 fixtures | [sdk-node-v0.1.0](https://github.com/Lithe-IDEA/lithe-plugin-docs/releases/tag/sdk-node-v0.1.0)，2026-10-23；源码新功能不等于已在此包发布 |
+| [Node 源码](https://github.com/Lithe-IDEA/lithe-plugin-docs/blob/be779d2000e38415ea047fc2e2b2b7973e7d8e07/sdk/node/src/backend.mjs) | Build、私有 Functions v1、VCS；开发中 Build 2–6 的执行、测试、发现、Run/Debug 准备、模型输入 | 通用 host API、Functions v2/credentials 等不能因 Rust SDK 有就宣称 Node 也有；宿主侧 Build 2–6 已随 #1517 合入 preview，但该快照里的契约副本早于该合并；SDK 现与契约同在 Core 仓库，按当前契约对齐 SDK 与 fixtures | [sdk-node-v0.1.0](https://github.com/Lithe-IDEA/lithe-plugin-docs/releases/tag/sdk-node-v0.1.0)，2026-10-23；源码新功能不等于已在此包发布 |
 | [Java 源码](https://github.com/Lithe-IDEA/lithe-plugin-docs/blob/be779d2000e38415ea047fc2e2b2b7973e7d8e07/sdk/java/plugin-sdk/src/main/java/io/github/litheidea/plugin/sdk/Backend.java) | Build、私有 Functions v1；开发中 Build 2–6 | 本次源码未见 VCS/credentials 实现，不能写成与 Node/Rust 全量对等 | [历史 sdk-java-v0.1.0](https://github.com/1lck/Lithe-IDEA/releases/tag/sdk-java-v0.1.0)，2026-10-20，JAR 与 SHA-256 |
 | [Rust 说明](https://github.com/Lithe-IDEA/lithe-plugin-docs/blob/be779d2000e38415ea047fc2e2b2b7973e7d8e07/sdk/rust/README.md) | Functions v1/v2、credentials，独立后端示例 | 明确尚不实现 Build/VCS；文档描述 release 方案不等于该 tag 已发布 | 本次未核实到 Rust SDK 正式 release，不提供可用发布承诺 |
 
@@ -313,7 +314,7 @@ Mac 当前声明的能力版本为：`backend:1`、`buildModelInputs:1`、`build
 
 ### 5.2 需要编写或更新的文档
 
-路径均相对 **lithe-plugin-docs**，是后续交付目标，不是本 PR 新建文件。已有指南优先更新，不重复写第二份。每个 API 任务完成时同步补相应文档与可运行示例，不等全部 API 完成后才写教程。
+路径均相对 Core 仓库的 `shared/plugins/`，是后续交付目标，不是本 PR 新建文件。已有指南优先更新，不重复写第二份。每个 API 任务完成时同步补相应文档与可运行示例，不等全部 API 完成后才写教程。
 
 | 文档 ID | 拟交付页面/更新位置 | 必须讲清楚什么 | 对应任务/阶段 |
 | --- | --- | --- | --- |
@@ -339,13 +340,13 @@ Mac 当前声明的能力版本为：`backend:1`、`buildModelInputs:1`、`build
 
 每个正式 API 页统一包含：稳定 ID/方法签名，调用方向，参数/结果/示例，最低宿主能力与 SDK 发布版本，权限与授权方式，窗口/工作区/插件作用域，dirty/路径/编码/位置语义，取消与截止时间，事件/释放，限制/分页，稳定错误，安全注意事项，以及成功、拒绝、旧版本和失效结果的测试链接。没有实现与发布证据的候选名不得出现在“可用 API”导航中。
 
-### 5.3 两仓库交付顺序
+### 5.3 Core 仓库的交付顺序
 
-1. 主仓库同一实现 PR 修改 Core、`shared/contracts/plugins/v1/`、Mac adapter、fixtures 和真实能力表。API 计划文档不代替 schema/契约，也不先放开未实现字段。
-2. 涉及后端协议变更，合并前在 lithe-plugin-docs 运行 `node scripts/sdk-e2e.mjs --source <本仓库路径> --ref <实现分支>`；覆盖 Node/Java 既有示例，修改 Rust SDK 时也覆盖 Rust 后端场景。
-3. 主仓库合并后，在 lithe-plugin-docs 运行 `node scripts/contract.mjs sync --revision <合并后的 preview commit>`，提交逐字节副本与 lock；不手改 `contract/v1/`。
-4. SDK、指南、示例和兼容性矩阵在文档仓库配套提交，锁定实际已支持宿主；正式 release 与哈希校验成功后再把该能力标成“已发布”。不能把正在开发的 main 当稳定 SDK 下载入口。
-5. 主仓库不重新保存 SDK、不让 CI 隐式依赖文档仓库浮动 main。本次纯计划未改契约/协议，因此不触发契约副本同步或 SDK 发版。
+1. 同一个 Core PR 修改 Core、`Lithe-core-rust/shared/plugins/contract/v1/`、fixtures 和真实能力表；宿主适配器（Mac adapter）在本仓库另提 PR，固定到该 Core PR 合入后的 commit。API 计划文档不代替 schema/契约，也不先放开未实现字段。
+2. 涉及后端协议变更，合并前在 Core 仓库根运行 `node shared/plugins/scripts/sdk-e2e.mjs`（测试当前工作树的 Core）；覆盖 Node/Java 既有示例，修改 Rust SDK 时也覆盖 Rust 后端场景。
+3. 契约、`capabilities.rs`、`plugin_function.rs` 的改动，和[协议更新记录](https://github.com/Lithe-IDEA/Lithe-core-rust/blob/main/shared/plugins/reference/protocol-changelog.md)、[API 总表](https://github.com/Lithe-IDEA/Lithe-core-rust/blob/main/shared/plugins/reference/api-catalog.md)的登记，在同一个 Core PR 里完成；没有合并后的同步步骤。
+4. SDK、指南、示例和兼容性矩阵在同一个 Core PR 里配套提交，锁定实际已支持宿主；正式 release（Core 仓库的 `sdk-*` 标签）与哈希校验成功后再把该能力标成“已发布”。不能把正在开发的 main 当稳定 SDK 下载入口。
+5. 本仓库不保存 SDK；桌面端测试读取正在链接的那个 Core 检出里的契约（`desktop/internal/contractfixture`），CI 不隐式依赖浮动 main。本次纯计划未改契约/协议，因此不触发 Core PR 登记或 SDK 发版。
 
 ## 6. 分阶段 PR 与交付门槛
 
@@ -362,7 +363,7 @@ Mac 当前声明的能力版本为：`backend:1`、`buildModelInputs:1`、`build
 | M4 | 在 #1517 已合并的协议上，逐个完成 Build/Run/Test/Debug/VCS/语言/生成器文档与缺口 | 不重写已合并的 Provider 协议；真实项目完成 save → 同步模型 → build → run/test/debug → cancel/cleanup；远程工作区只承诺 #1515 已适配范围，其余按 API-40 明确拒绝 |
 | 后续 | 主题/自定义编辑器/Services/终端/跨插件/远程剩余适配/AI/Agent 侧贡献/WASM、完整语言包/网络/账号各自立项 | 有实际插件需求、资源预算、许可/分发与风险证据后再进入实施；不是 M1–M3 发布门槛 |
 
-#1517、#1515 已合并，M1–M3 与领域扩展可独立推进；若修改同一协议/入口，以 preview 当前代码为准协调，不能复制一份 Provider manager，也不能绕开 `RemoteWorkspaceRegistry` 的路由。领域迁移另由[Maven/Java 迁移提案](../../.agents/notes/proposed/architecture/2026-10-26-maven-java-domain-plugin-migration.md)跟踪，其特定版本匹配策略不能不加区分地变成整个公共 API 的兼容政策。
+#1517、#1515 已合并，M1–M3 与领域扩展可独立推进；若修改同一协议/入口，以 preview 当前代码为准协调，不能复制一份 Provider manager，也不能绕开 `RemoteWorkspaceRegistry` 的路由。Maven/Java 领域迁移已由 #1495 在插件仓库完成（[归档记录](../../.agents/notes/archived/architecture/2026-10-26-maven-java-domain-plugin-migration.md)），其特定版本匹配策略不能不加区分地变成整个公共 API 的兼容政策。Java 拆分是 M4 领域接续的一个用例：它用到的通用 API、API-35 第一阶段（Core 中转的插件函数调用）、PR 拆分和宿主语言闸门见[Java 拆分 Note](../../.agents/notes/proposed/architecture/2026-11-04-java-extraction-generic-apis-and-gate.md)，不新增 API 编号。
 
 ## 7. Mac 验收样例与发布检查
 
@@ -386,29 +387,29 @@ Mac 当前声明的能力版本为：`backend:1`、`buildModelInputs:1`、`build
 
 ## 8. 源码与决策索引
 
-这些入口供后续认领任务时定位 owner，不表示可直接导出内部 Swift 类型。外部比较来源见 2.2；SDK 源码均以第 1 节锁定 commit 为准。
+这些入口供后续认领任务时定位 owner。表中的 macOS 源文件已随旧 Swift 客户端删除，只保留名称作为历史线索，不再是可点击的路径；当前桌面端实现位于 `desktop/`。外部比较来源见 2.2；SDK 源码均以第 1 节锁定 commit 为准。
 
 | 索引 | 所有者与证据 |
 | --- | --- |
-| S1 | [插件契约](../../shared/contracts/plugins/v1/README.md)、[Core 能力](../../rust/lithe-core/src/plugins/capabilities.rs)、[清单校验与激活事件](../../rust/lithe-core/src/plugins/declarative.rs)、[清单 schema](../../shared/contracts/plugins/v1/plugin-manifest.schema.json)、[Mac 能力表](../../macos/Sources/LitheModuleAPI/Plugins/PluginTypes.swift) |
-| S2 | [backend 1](../../rust/lithe-core/src/plugins/backend.rs)、[函数协议](../../rust/lithe-core/src/lsp/interface/plugin_function.rs)、[Mac 后端会话](../../macos/Sources/Lithe/Platform/MacOS/Plugins/MacPluginBackendSessions.swift)、[宿主凭据服务](../../macos/Sources/Lithe/Application/Features/PluginHostServices.swift) |
-| S3 | [原生 UI 功能](../../macos/Sources/Lithe/Application/Features/PluginNativeUIFeature.swift)、[Core UI 校验](../../rust/lithe-core/src/plugins/native_ui.rs)、[已实现原生 UI Note](../../.agents/notes/implemented/feature/2026-10-21-declarative-native-plugin-ui.md) |
-| S4 | [Web bridge](../../macos/Sources/Lithe/Application/Features/PluginWebBridge.swift)、[包内内容](../../macos/Sources/Lithe/Platform/MacOS/Plugins/Web/MacPluginWebContent.swift)、[页面生命周期](../../macos/Sources/Lithe/Application/Features/PluginWebPageLifecycle.swift)、[状态存储](../../macos/Sources/Lithe/Platform/MacOS/Plugins/Web/MacPluginWebStateStore.swift) |
-| S5 | [文档功能](../../macos/Sources/Lithe/Application/Features/DocumentFeatureModel.swift)、[LSP 编辑入口](../../macos/Sources/Lithe/Application/Features/LanguageWorkspaceEditService.swift)、[Monaco model](../../frontend/editor/src/model-source.ts)、[diff review](../../frontend/editor/src/diff-review.ts) |
-| S6 | [文件端口](../../macos/Sources/LitheCoreContracts/Workspace/WorkspaceFileOperations.swift)、[Mac 文件适配](../../macos/Sources/Lithe/Platform/MacOS/FileSystem/MacWorkspaceFileOperations.swift)、[目录变更](../../macos/Sources/Lithe/Core/Ports/DirectoryChangeSource.swift)、[工程功能](../../macos/Sources/LitheWorkspaceModule/Application/WorkspaceFeatureModel.swift) |
-| S7 | [搜索端口](../../macos/Sources/LitheSearchModule/Ports/SearchOperations.swift)、[搜索功能](../../macos/Sources/LitheSearchModule/Application/SearchFeatureModel.swift) |
-| S8 | [命令目录](../../macos/Sources/Lithe/Models/Keymap/LitheCommandCatalog.swift)、[快捷键功能](../../macos/Sources/Lithe/Application/Features/KeyboardShortcutFeatureModel.swift) |
-| S9 | [HTML 浏览器](../../macos/Sources/Lithe/Platform/MacOS/HTMLPreviewBrowser.swift)、[HTML 视图](../../macos/Sources/Lithe/Views/Editor/HTMLPreviewView.swift)、[平台 UI](../../macos/Sources/Lithe/Core/Ports/PlatformUI.swift)、[Mac UI adapter](../../macos/Sources/Lithe/Platform/MacOS/UI/MacPlatformUI.swift) |
-| S10 | [插件设置注册](../../macos/Sources/Lithe/Application/Features/PluginSettingsRegistry.swift)、[源配置决策](../../.agents/notes/implemented/architecture/2026-10-25-settings-native-configuration-editing.md) |
-| S11 | [Build 服务](../../macos/Sources/LitheExecutionModule/Services/BuildSystemService.swift)、[Mac Provider 会话](../../macos/Sources/Lithe/Platform/MacOS/Build/MacBuildProviderSessions.swift)、[Run 服务](../../macos/Sources/LitheExecutionModule/Services/RunService.swift) |
-| S12 | [终端端口](../../macos/Sources/LitheTerminalModule/Ports/TerminalTransport.swift)、[终端功能](../../macos/Sources/LitheTerminalModule/Application/TerminalFeatureModel.swift) |
-| S13 | [语言 Provider 目录](../../macos/Sources/Lithe/Core/Language/PluginLanguageProviderCatalogSource.swift)、[LSP 资源归属](../../.agents/notes/implemented/architecture/2026-09-30-lsp-plugin-build-and-distribution.md)、[诊断功能](../../macos/Sources/Lithe/Application/Features/DiagnosticsFeatureModel.swift) |
-| S14 | [Debug 会话](../../macos/Sources/LitheDebugModule/Runtime/DebugAdapterSessionManager.swift)、[VCS 功能](../../macos/Sources/Lithe/Application/Features/VcsProvidersFeatureModel.swift)、[项目生成服务](../../macos/Sources/Lithe/Services/ProjectGeneration/ProjectGenerationService.swift) |
-| S15 | [独立 IDE API](../../shared/contracts/ide-api/v1.md)、[原生模块接口](../../macos/Sources/LitheModuleAPI/Plugins/IDECapabilities.swift)、[授权功能](../../macos/Sources/Lithe/Application/Features/IdeCapabilitiesFeatureModel.swift)、[工具目录](../../rust/lithe-ide-host/src/catalog.rs) |
-| S16 | [Mac 主题](../../macos/Sources/Lithe/Theme/LitheTheme.swift)、[图标入口](../../macos/Sources/Lithe/Theme/LitheIcons.swift) |
+| S1 | [插件契约](https://github.com/Lithe-IDEA/Lithe-core-rust/blob/main/shared/plugins/contract/v1/README.md)、[Core 能力](https://github.com/Lithe-IDEA/Lithe-core-rust/blob/main/rust/crates/plugin-model/src/capabilities.rs)、[清单校验与激活事件](https://github.com/Lithe-IDEA/Lithe-core-rust/tree/main/rust/crates/plugin-manifest/src)、[清单 schema](https://github.com/Lithe-IDEA/Lithe-core-rust/blob/main/shared/plugins/contract/v1/plugin-manifest.schema.json)、Mac 能力表 |
+| S2 | [backend 1](https://github.com/Lithe-IDEA/Lithe-core-rust/blob/main/rust/crates/plugin-backend/src/lib.rs)、[函数协议](https://github.com/Lithe-IDEA/Lithe-core-rust/tree/main/rust/crates/plugin-rpc/src)、Mac 后端会话、宿主凭据服务 |
+| S3 | 原生 UI 功能、[Core UI 校验](https://github.com/Lithe-IDEA/Lithe-core-rust/blob/main/rust/crates/plugin-native-ui/src/lib.rs)、[已实现原生 UI Note](../../.agents/notes/implemented/feature/2026-10-21-declarative-native-plugin-ui.md) |
+| S4 | Web bridge、包内内容、页面生命周期、状态存储 |
+| S5 | 文档功能、LSP 编辑入口、Monaco model、diff review |
+| S6 | 文件端口、Mac 文件适配、目录变更、工程功能 |
+| S7 | 搜索端口、搜索功能 |
+| S8 | 命令目录、快捷键功能 |
+| S9 | HTML 浏览器、HTML 视图、平台 UI、Mac UI adapter |
+| S10 | 插件设置注册、[源配置决策](../../.agents/notes/implemented/architecture/2026-10-25-settings-native-configuration-editing.md) |
+| S11 | Build 服务、Mac Provider 会话、Run 服务 |
+| S12 | 终端端口、终端功能 |
+| S13 | 语言 Provider 目录、[LSP 资源归属](../../.agents/notes/implemented/architecture/2026-09-30-lsp-plugin-build-and-distribution.md)、诊断功能 |
+| S14 | Debug 会话、VCS 功能、项目生成服务 |
+| S15 | [独立 IDE API](https://github.com/Lithe-IDEA/Lithe-core-rust/blob/main/rust/contracts/ide-api/v1.md)、原生模块接口、授权功能、[工具目录](https://github.com/Lithe-IDEA/Lithe-core-rust/blob/main/rust/crates/ide-host/src/catalog.rs) |
+| S16 | Mac 主题、图标入口 |
 | S17 | [Services/公共扩展提案](../../.agents/notes/proposed/architecture/2026-10-13-public-extension-contract-and-provider-api.md)、[数据库后端](../../.agents/notes/implemented/architecture/2026-10-24-database-provider-plugin.md)、[依赖与导出提案](../../.agents/notes/proposed/architecture/2026-10-25-plugin-dependencies-and-exports.md) |
 | S18 | [有限热激活范围](../../.agents/notes/implemented/architecture/2026-10-26-plugin-live-activation.md)、[既有函数调用方向](../../.agents/notes/implemented/architecture/2026-10-20-plugin-function-contract.md) |
-| S19 | [应用语言](../../macos/Sources/LitheModuleAPI/Localization/InterfaceLanguage.swift)、[GitHub HTTP adapter](../../macos/Sources/Lithe/Platform/MacOS/GitHub/MacGitHubHTTPTransport.swift)、[GitHub 服务](../../macos/Sources/Lithe/Services/GitHub/GitHubService.swift)、[Agent 登录端口](../../macos/Sources/Lithe/Core/Ports/AgentAccountSignIn.swift) |
-| S20 | [远程工作区路由 Note](../../.agents/notes/implemented/architecture/2026-10-24-remote-workspace-routing.md)、[占位根](../../macos/Sources/Lithe/Platform/MacOS/Remote/MacRemoteWorkspaceRoots.swift)、[绑定与路由](../../macos/Sources/Lithe/Services/Remote/RemoteWorkspaceRouting.swift)、[远程插件启动](../../macos/Sources/Lithe/Platform/MacOS/Remote/MacRemotePluginLaunchPreparer.swift)、[远程主机提案](../../.agents/notes/proposed/architecture/2026-10-24-remote-development-workspace-host.md)、[SSH 调试提案](../../.agents/notes/proposed/architecture/2026-10-27-remote-debug-adapter-over-ssh.md) |
-| S21 | [Git 功能](../../macos/Sources/LitheGitModule/Application/GitFeatureModel.swift)、[Git 服务端口](../../macos/Sources/LitheGitModule/Services/GitService.swift)、[统一 VCS 提案](../../.agents/notes/proposed/architecture/2026-10-22-unified-vcs-provider-model.md) |
-| S22 | [Skills](../../macos/Sources/Lithe/Application/Features/AgentSkillsFeatureModel.swift)、[Hooks](../../macos/Sources/Lithe/Application/Features/AgentHooksFeatureModel.swift)、[MCP 注册](../../macos/Sources/Lithe/Application/Features/McpRegistryFeatureModel.swift)、[MCP 服务器库](../../macos/Sources/Lithe/Application/Features/McpServerLibraryFeatureModel.swift)、[Skill 管理 Note](../../.agents/notes/implemented/feature/2026-10-20-agent-skill-management.md)、[Hooks Note](../../.agents/notes/implemented/feature/2026-10-24-agent-hooks.md)、[MCP 服务器库 Note](../../.agents/notes/implemented/feature/2026-10-17-mcp-server-library.md) |
+| S19 | 应用语言、GitHub HTTP adapter、GitHub 服务、Agent 登录端口 |
+| S20 | [远程工作区路由 Note](../../.agents/notes/implemented/architecture/2026-10-24-remote-workspace-routing.md)、占位根、绑定与路由、远程插件启动、[远程主机提案](../../.agents/notes/proposed/architecture/2026-10-24-remote-development-workspace-host.md)、[SSH 调试提案](../../.agents/notes/proposed/architecture/2026-10-27-remote-debug-adapter-over-ssh.md) |
+| S21 | Git 功能、Git 服务端口、[统一 VCS 提案](../../.agents/notes/proposed/architecture/2026-10-22-unified-vcs-provider-model.md) |
+| S22 | Skills、Hooks、MCP 注册、MCP 服务器库、[Skill 管理 Note](../../.agents/notes/archived/feature/2026-10-20-agent-skill-management.md)、[Hooks Note](../../.agents/notes/archived/feature/2026-10-24-agent-hooks.md)、[MCP 服务器库 Note](../../.agents/notes/archived/feature/2026-10-17-mcp-server-library.md) |

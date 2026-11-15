@@ -4,13 +4,13 @@
 
 ## 先说结论
 
-本 Note 是**暂缓实现的 SSH 子方案草案**：当前这轮只做普通 TCP 连接和生命周期，代理、隧道、端口转发与 SSH 远端执行另行评审，范围以[独立网络边界 Note](2026-10-27-debug-network-paths-and-tcp-lifecycle.md)为准。下文的声明、默认值和实施阶段均为候选，不是已批准的契约或本轮交付。
+本 Note 是**暂缓实现的 SSH 子方案草案**：代理、隧道、端口转发与 SSH 远端执行另行评审（范围见[独立网络边界 Note](2026-10-27-debug-network-paths-and-tcp-lifecycle.md)），下文的声明、默认值和实施阶段都只是候选，不是已批准的契约。
 
-候选形态是**适配器本身跑在远端**：例如 `ssh host gdb -i=dap`，DAP（Debug Adapter Protocol，编辑器和调试器之间的标准协议）照旧走标准输入输出，中间由 ssh 承载。认证、加密、主机指纹交给系统 `ssh`，命令复用已有传输链（`TransportChain`，见[远程开发 Note](2026-10-24-remote-development-workspace-host.md)）；目的地由用户确认，路径映射优先复用适配器原生能力，不强制 Core 重复翻译。
+候选形态是**适配器本身跑在远端**，例如 `ssh host gdb -i=dap`：DAP（Debug Adapter Protocol，编辑器和调试器之间的标准协议）仍走标准输入输出，中间由 ssh 承载；认证、加密和主机指纹交给系统 `ssh`，命令经远程开发提案中的传输链（`TransportChain`，见[远程开发 Note](2026-10-24-remote-development-workspace-host.md)，目前尚未在 `desktop/` 实现）构造，目的地由用户确认。
 
-[#1525 的远程 attach 契约](2026-10-25-unified-debug-engine-and-adapter-registry.md)目前只有契约和 Rust 校验，宿主尚未接入 attach，不能称为完整远程调试已经落地。普通 TCP 也不依赖 SSH；默认 debugpy `--listen` 的远端 DAP 直连与这里的 SSH 远端启动是不同场景。
+[#1525 的远程 attach 契约](2026-10-25-unified-debug-engine-and-adapter-registry.md)已有 Core 校验，桌面端也已接入通用 attach 表单，但经 SSH 启动远端适配器仍未实现，不能称为完整远程调试已经落地。
 
-本 Note 里出现的适配器命令行（`gdb -i=dap`、`lldb-dap` 等）和参数名只是设计举例，不是验收结论：兼容性审计里标了“已核对”的才读过上游文档，标“待核验”的来自记忆，插件落地时必须按文档重新核对。
+本 Note 里的适配器命令行和参数名只是设计举例，不是验收结论：兼容性审计里标“待核验”的来自记忆，插件落地时必须按上游文档重新核对。
 
 ## 问题
 
@@ -51,7 +51,7 @@
 | 声明“这个适配器可以在远端运行”，以及远端要执行的命令 | 插件（清单数据） | 只有一个命令名加固定参数，不含目的地，不含任何用户输入 |
 | 目的地 `[user@]host[:port]`（或 ssh 配置里的别名）、路径映射、远端程序路径 | 用户 | 在“在远程主机上调试”对话框里填；每次启动前确认 |
 | 校验目的地与映射、通过传输链拼命令、必要的路径翻译、ssh 失败分类、首帧前噪声丢弃 | Rust Core | 候选共享规则；原生映射优先，同一对路径空间不重复转换 |
-| 定位并拉起系统 `ssh`、显示确认弹窗、进程树清理、退出确认 | 平台 | 沿用现有 `MacProcessDebugAdapterTransport` 一类的进程所有权规则 |
+| 定位并拉起系统 `ssh`、显示确认弹窗、进程树清理、退出确认 | 平台（桌面端宿主） | 沿用桌面端调试传输的进程所有权规则（`desktop/internal/workbench/debug_transport.go`） |
 | 认证、加密、主机指纹、跳板（ProxyJump）、`~/.ssh/config` | 系统 `ssh` | 与用户在终端里手动 ssh 的行为一致 |
 
 ### 清单怎么声明（草图，实现时再对照 schema 定稿）
@@ -123,7 +123,7 @@
 | `Host key verification failed` | 未知主机或指纹变了 | 先在终端里 ssh 一次确认；指纹变了要小心 |
 | 远端退出码 127 / `command not found` | 非交互 shell 的 `PATH` 里没有适配器（`.bashrc` 里设置的 PATH 在非交互登录里不生效） | 把适配器路径放进 `~/.profile` 或 `~/.bash_profile`，或安装到系统 `PATH` |
 
-**首帧前的噪声**：远端 shell 的启动脚本可能在适配器开始前往 stdout 打印横幅，而 `protocol.rs::parse_messages` 遇到没有 `Content-Length` 的头会报错。第三方适配器我们没法像 `lithe-remote-server` 那样先输出一行标记（见远程开发 Note “流前标记”），所以改为：在**第一个** DAP 帧之前，丢弃最多 64 KiB 的字节，直到出现行首的 `Content-Length:`；超出上限仍没有，则结束会话，把丢弃的输出作为诊断返回。丢弃只发生在首帧之前，一旦进入正常帧流，任何格式错误仍照旧报错，不静默跳过。
+**首帧前的噪声**：远端 shell 的启动脚本可能在适配器开始前往 stdout 打印横幅，而 Core 的 DAP 分帧（`protocol.rs` 的 `parse_messages`）遇到没有 `Content-Length` 的头会报错。第三方适配器我们没法像 `lithe-remote-server` 那样先输出一行标记（见远程开发 Note “流前标记”），所以改为：在**第一个** DAP 帧之前，丢弃最多 64 KiB 的字节，直到出现行首的 `Content-Length:`；超出上限仍没有，则结束会话，把丢弃的输出作为诊断返回。丢弃只发生在首帧之前，一旦进入正常帧流，任何格式错误仍照旧报错，不静默跳过。
 
 ### 生命周期与清理
 
@@ -157,8 +157,8 @@
 仅在独立网络方案批准后细化，不是本轮的任务清单：
 
 1. Core：清单声明与 schema、declaration 校验与拒绝 fixture、`plan_descriptor.remoteRun`、目的地校验与命令构造、路径翻译函数与会话接入、首帧噪声丢弃、ssh 失败分类、测试。
-2. 契约与文档：`shared/contracts/plugins/v1/` 的 README、schema、fixture；合并后同步 lithe-plugin-docs。
-3. macOS 宿主：对话框、确认弹窗、进程所有权与清理、退出确认、`shared/i18n` 词条、假 ssh 集成测试。
+2. 契约与文档：Core 仓库 `shared/plugins/contract/v1/` 的 README、schema、fixture，和 `shared/plugins/reference/` 的协议更新记录、API 总表，在同一个 Core PR 里完成。
+3. 桌面端宿主：对话框、确认弹窗、进程所有权与清理、退出确认、`shared/i18n` 词条、假 ssh 集成测试。
 4. 真机验收：一台 Linux 主机上的 `gdb -i=dap`，覆盖设断点、命中、看栈帧、单步、结束、断线。
 5. Windows 宿主和模型 A 另议。
 
@@ -212,7 +212,7 @@
 - 首帧噪声：噪声后接正常帧能成功；超过 64 KiB 或没有 `Content-Length:` 时会话结束并返回被丢弃输出；进入帧流之后的格式错误仍然报错。
 - ssh 失败分类：每一类用固定 stderr 样本测试，原文被保留。
 - 平台集成测试使用**假 ssh 可执行文件**（有界等待），验证确认弹窗每次出现、结束后没有残留的 ssh 进程、断开时发送了正确的 `terminateDebuggee`。
-- 契约、README、schema、fixture 更新；`shared/i18n/` 补齐中英词条并通过 `node scripts/i18n/generate-i18n.mjs --check`；功能矩阵 `plugin-debug-adapters` 增补说明；合并后同步 lithe-plugin-docs。
+- 契约、README、schema、fixture 更新；`shared/i18n/` 补齐中英词条并通过 `node scripts/i18n/generate-i18n.mjs --check`；功能矩阵 `plugin-debug-adapters` 增补说明；协议更新记录和 API 总表的登记与契约在同一个 Core PR 里完成。
 - 真机验收：一台 Linux 主机上的 `gdb -i=dap`（设断点、命中、栈帧对应本地源码、单步、结束、断线）。
 
 ## 风险
@@ -230,8 +230,7 @@
 
 ## 适用范围
 
-- `rust/lithe-core/src/debug/`
-- `rust/lithe-remote/src/client/transport.rs`
-- `shared/contracts/plugins/v1/`
-- `macos/Sources/Lithe/Platform/MacOS/Debug/`
+- [Core 仓库的 Rust Core 调试模块](https://github.com/Lithe-IDEA/Lithe-core-rust/tree/main/rust/crates/debug)
+- [插件契约 v1](https://github.com/Lithe-IDEA/Lithe-core-rust/blob/main/shared/plugins/contract/v1/)
+- `desktop/internal/workbench/debug_transport.go`
 - `shared/i18n/`

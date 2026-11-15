@@ -1,0 +1,28 @@
+# Cargo manifest
+[package]
+name = "sample"
+version = "0.1.0"
+edition = '2021'
+authors = ["A <a@example.com>", "B"]
+description = """
+Multi-line
+string"""
+path = 'C:\Users\literal'
+
+[dependencies]
+serde = { version = "1.0", features = ["derive"] }
+tokio.version = "1"
+
+[[bin]]
+name = "tool"
+test = false
+bench = true
+
+[profile.release]
+opt-level = 3
+lto = 1e3
+debug = -0x0
+ratio = +1_000.5
+start = 1979-05-27T07:32:00Z
+local = 07:32:00
+"quoted key" = inf

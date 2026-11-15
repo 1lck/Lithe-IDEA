@@ -1,6 +1,6 @@
 ---
 name: write-stable-tests
-description: Write and review deterministic, bounded Lithe tests for macOS Swift, Windows TypeScript, and Rust. Use whenever creating, modifying, or reviewing test code or test infrastructure, especially concurrency, timers, polling, subprocess, watcher, lifecycle, or cancellation tests that could hang CI.
+description: Write and review deterministic, bounded Lithe tests and test infrastructure, including Viva desktop Go and shared Rust, and keep host tests free of any dependency on a concrete plugin. Use especially for concurrency, timers, polling, subprocess, watcher, lifecycle, or cancellation tests that could hang CI, and for any test that touches plugins.
 ---
 
 # Write Stable Tests
@@ -10,31 +10,31 @@ fail locally with a useful diagnostic instead of waiting for a CI job timeout.
 
 ## Toolchain boundaries
 
-- macOS uses Swift, `zsh`, and Node.js. It does not require Bun, `npm`, or a
-  JavaScript package installation for stability checks, timing, JUnit output,
-  or HTML report generation.
-- Windows Rust scopes use Node.js plus Cargo. Windows `Frontend` additionally
-  uses the repository's Bun toolchain because the product tests run under Bun;
-  this dependency is isolated to that scope.
-
-## Swift CI compatibility
-
-- Compile tests with the same Swift toolchain as CI before handing them off. A
-  local compiler that is newer or older can accept or reject syntax differently.
-- A `weak` reference is mutable storage because the runtime may clear it;
-  declare it as `weak var`.
-- When a CI compile fails before tests start, inspect the CI compiler diagnostic
-  first and reproduce the compile lane before diagnosing test timing or
-  concurrency behavior.
+- Viva desktop timing uses Go, Node.js and the existing Core build wrapper;
+  macOS also uses `zsh`, while Windows uses PowerShell and Git Bash. Reuse an
+  existing matching Core build instead of repeatedly performing cold builds.
+- The old Swift and Tauri clients are absent on this branch. Their legacy timing
+  scripts and historical reports do not prove Viva behavior or current CI coverage.
+- Local Windows verification uses the local VM under
+  [debug-windows-on-parallels](../debug-windows-on-parallels/SKILL.md). The former
+  standalone cloud server is retired; existing GitHub Actions Windows CI stays.
+- `DesktopGo` is the current Windows desktop timing scope. Legacy `Frontend`,
+  `WindowsRust`, `SharedRust*` and `All` paths can refer to removed client or
+  in-repository Core directories; do not use them as current validation.
+  Run Rust checks in the linked external Core checkout under its own rules.
 
 ## Read the platform guidance
 
-- For Swift or macOS tests, read [references/macos-swift.md](references/macos-swift.md).
-- For TypeScript, Tauri Rust, or shared Rust tests exercised by Windows, read
+- For current Windows desktop Go and Core Rust tests, read
   [references/windows-and-rust.md](references/windows-and-rust.md).
-- Read both references when a shared contract or cross-platform behavior changes.
+- Current macOS desktop Go uses the workflow below. Load
+  [references/macos-swift.md](references/macos-swift.md) only when explicitly
+  investigating the retired Swift client's history.
 - For HTML/JUnit output, performance budgets, or CI artifacts, read
   [references/test-reporting.md](references/test-reporting.md).
+- For UI changes, follow `develop-lithe` section 五: execute headless scenarios,
+  inspect the generated screenshots and attach them to the PR. Test timing
+  reports alone are not UI evidence.
 
 ## Preserve these invariants
 
@@ -57,6 +57,28 @@ fail locally with a useful diagnostic instead of waiting for a CI job timeout.
 - Assert observable behavior. Do not weaken production behavior, expose private
   state solely for a test, or delete a test to satisfy the stability gate.
 
+## Plugins in host tests
+
+Tests in this repository and in the Core repository have zero dependency on any
+concrete plugin. The definitions, the allowed inputs and the self-check command
+are in `develop-lithe`, section 三, “插件归属与宿主零依赖”; this section only
+states what that means for writing a test.
+
+- A host test never reads a concrete plugin's package, repository checkout,
+  build output or manifest, whether through an environment variable, a fixed
+  path, a download or a Git submodule. It never uses a real plugin ID and never
+  asserts what a concrete plugin does.
+- To exercise a generic extension point, write a synthetic manifest inline in
+  the test with an obviously fictional ID such as `dev.lithe.test.<name>`, and
+  back it with a test double you control. Core contract fixtures (through
+  `LITHE_PLUGIN_CONTRACT_DIR`) and the marketplace index snapshot are the only
+  other plugin inputs; assertions on the snapshot apply a rule to every entry,
+  never to one entry by ID.
+- A test that needs a real plugin is a plugin test. It lives in that plugin's
+  repository and runs in that repository's CI against a pinned host or Core
+  version. Skipping it when the plugin is absent does not make it acceptable in
+  the host: it keeps plugin knowledge in the host and never runs in CI.
+
 ## Required workflow
 
 1. Read the changed behavior, implementation, and nearby tests. Identify every
@@ -68,22 +90,48 @@ fail locally with a useful diagnostic instead of waiting for a CI job timeout.
 
    ```bash
    ./.agents/skills/write-stable-tests/scripts/verify-test-stability.sh
+   ./.agents/skills/write-stable-tests/scripts/verify-test-stability.sh --base origin/preview
    ```
 
    On Windows use:
 
    ```powershell
    ./.agents/skills/write-stable-tests/scripts/verify-test-stability.ps1
+   ./.agents/skills/write-stable-tests/scripts/verify-test-stability.ps1 -BaseRevision origin/preview
    ```
+
+   Without `--base` the gate compares the working tree with `HEAD`; with
+   `--base` it compares the committed `HEAD` (or `--head`) with that revision,
+   which is what CI runs with the pull request base. The gate is a ratchet on
+   blocking patterns in test code: a pattern is new when the base revision has
+   no line with the same rule, enclosing test declaration, and statement text.
+   Moving a test between files or re-indenting it is therefore not a violation,
+   while adding a second sleep to a test that already had one is. After
+   changing the gate scripts, run their self-test:
+
+   ```bash
+   node .agents/skills/write-stable-tests/scripts/test-verify-test-stability.mjs
+   ```
+
+   The current static scanner covers Swift, TypeScript and Rust, not Go.
+   Passing it does not establish Go test stability: manually inspect Go waits,
+   cancellation and cleanup, and run the Go timing and race checks below.
 
 4. Run the platform timing harness. A changed test is not verified until its
    individual duration appears in the generated HTML and JUnit reports:
 
    ```bash
-   ./.agents/skills/write-stable-tests/scripts/test-stability-macos.sh -- --filter '<focused-test>'
-   ./.agents/skills/write-stable-tests/scripts/test-stability-windows.ps1 -Scope Frontend
-   ./.agents/skills/write-stable-tests/scripts/test-stability-windows.ps1 -Scope WindowsRust
+   ./.agents/skills/write-stable-tests/scripts/test-stability-macos.sh --package ./internal/workbench -- --filter '<focused-test>'
+   ./.agents/skills/write-stable-tests/scripts/test-stability-windows.ps1 -Scope DesktopGo -GoPackages ./internal/workbench -GoTestPattern '<focused-test>'
    ```
+
+   Go runs serially with `-count=1` and records Go's own per-test elapsed time;
+   zero matching tests, unfinished tests, failures and budget overruns fail the
+   runner. A suite deadline stops the process tree; individual durations are
+   checked after Go reports them, rather than interrupting a buffered result.
+   Parent and subtest durations overlap, so totals are not wall time.
+   The former Swift/Frontend/WindowsRust scopes remain historical and cannot
+   verify the removed clients; do not report their absence as a passing lane.
 
 5. Run the broader affected validation required by `develop-lithe`. Report the
    HTML report path, slowest changed tests, exact commands, and any suite that

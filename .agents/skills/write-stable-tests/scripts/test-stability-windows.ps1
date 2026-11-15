@@ -1,7 +1,7 @@
 [CmdletBinding()]
 param(
-    [ValidateSet("All", "Frontend", "WindowsRust", "SharedRust", "SharedRustCore", "SharedRustHosts")]
-    [string]$Scope = "All",
+    [ValidateSet("All", "DesktopGo", "Frontend", "WindowsRust", "SharedRust", "SharedRustCore", "SharedRustHosts")]
+    [string]$Scope = "DesktopGo",
     [ValidateRange(1, 3600)]
     [int]$WarnSeconds = 1,
     [ValidateRange(1, 3600)]
@@ -9,6 +9,8 @@ param(
     [ValidateRange(1, 7200)]
     [int]$SuiteTimeoutSeconds = 1200,
     [string[]]$FrontendTestPath = @(),
+    [string]$GoTestPattern = ".",
+    [string[]]$GoPackages = @("./..."),
     [ValidateRange(1, 16)]
     [int]$CoreShardIndex = 1,
     [ValidateRange(1, 16)]
@@ -36,6 +38,34 @@ if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 $warnMilliseconds = $WarnSeconds * 1000
 $maxMilliseconds = $MaxSeconds * 1000
 $suiteTimeoutMilliseconds = $SuiteTimeoutSeconds * 1000
+
+if ($Scope -in @("All", "DesktopGo")) {
+    # The system's bash.exe can be the WSL launcher. Use the Bash installed
+    # with Git for Windows, as the desktop wrapper relies on MSYS and cygpath.
+    $git = Get-Command git.exe -ErrorAction Stop
+    . (Join-Path $PSScriptRoot "git-bash-path.ps1")
+    $gitTools = Resolve-GitForWindowsTools -GitPath $git.Source
+    $bash = $gitTools.Bash
+    $cygpath = $gitTools.Cygpath
+    $wrapper = Join-Path $root "scripts/desktop/desktop-go.sh"
+    # Calling cygpath directly avoids PowerShell 5 stripping the inner quotes
+    # of a bash -c command when the native path contains spaces.
+    $wrapperUnix = & $cygpath -u $wrapper
+    if ($LASTEXITCODE -ne 0 -or [string]::IsNullOrWhiteSpace($wrapperUnix)) {
+        throw "Could not convert the desktop wrapper path for Git Bash."
+    }
+    $arguments = @(
+        (Join-Path $PSScriptRoot "run-go-tests-with-timing.mjs"),
+        "--warn-ms", $warnMilliseconds,
+        "--max-ms", $maxMilliseconds,
+        "--suite-timeout-ms", $suiteTimeoutMilliseconds,
+        "--report", (Join-Path $reportRoot "windows-desktop-go.json"),
+        "--", $bash, $wrapperUnix.Trim(), "test", "-json", "-count=1", "-p=1", "-parallel=1",
+        "-timeout=${SuiteTimeoutSeconds}s", "-run", $GoTestPattern
+    ) + $GoPackages
+    & node @arguments
+    if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+}
 
 function Invoke-TimedRustTests {
     param(
@@ -78,6 +108,9 @@ function Invoke-TimedRustTests {
             # These cases start real Git and the production TypeScript module
             # in Node. One Node startup hit its old 10s local deadline on CI.
             $arguments += @("--test-budget", "git_paths_roundtrip_=60000")
+            # A real remote and repeated Git configuration/fetch subprocesses
+            # took 12.5s on Lithe-dev; retain a bounded allowance for CI jitter.
+            $arguments += @("--test-budget", "git::configuration::inherited_tag_tests::inspection_matches_git_when_tags_are_forced_or_configuration_is_invalid=30000")
             # Integration tests that create multiple real repositories or push
             # through Git subprocesses need a bounded allowance on Windows.
             foreach ($prefix in @(
@@ -113,6 +146,12 @@ function Invoke-TimedRustTests {
             # These retained-path Shelf cases also perform four preview/apply cycles.
             $arguments += @("--test-budget", "tests::git_patch_exchange::shelf_roundtrip_preserves_staged_deletions_with_retained_paths=60000")
             $arguments += @("--test-budget", "tests::git_patch_exchange::shelf_roundtrip_preserves_staged_rename_with_recreated_source=60000")
+            # This Shelf clean/restore and retry roundtrip exceeded 15s twice on
+            # hosted Windows; a complete cloud Windows run passed in 17.025s.
+            $arguments += @("--test-budget", "tests::git_patch_exchange::shelf_clean_and_retry_restore_preserve_staged_working_and_untracked=60000")
+            # The conflict/resolve roundtrip hit the hosted 15s deadline and
+            # passed on the Windows cloud host in 15.111s with a bounded budget.
+            $arguments += @("--test-budget", "tests::git_patch_exchange::shelf_restore_conflict_preserves_worktree_and_allows_retry_after_resolution=60000")
             # Two repositories, three confirmation previews and two pushes invoke
             # 287 Git processes; this integration case measured 49.9s on Windows.
             $arguments += @("--test-budget", "tests::git_workspace_commit::git_workspace_commit_push_confirms_each_repository_separately=60000")
@@ -192,6 +231,12 @@ if ($Scope -in @("All", "WindowsRust")) {
         -Package "lithe-terminal" `
         -TargetDirectory "windows/tauri/src-tauri/target" `
         -Report (Join-Path $reportRoot "windows-terminal-rust.json")
+
+    Invoke-TimedRustTests `
+        -Manifest "windows/tauri/src-tauri/Cargo.toml" `
+        -Package "lithe-legacy-tooling" `
+        -TargetDirectory "windows/tauri/src-tauri/target" `
+        -Report (Join-Path $reportRoot "windows-legacy-java-rust.json")
 
     Invoke-TimedRustTests `
         -Manifest "windows/tauri/src-tauri/Cargo.toml" `

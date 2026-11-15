@@ -1,9 +1,9 @@
 <div align="center">
-  <img src="./macos/Resources/AppIcon.png" width="112" alt="Lithe 应用图标">
+  <img src="./desktop/assets/icon.png" width="112" alt="Lithe 应用图标">
 
   <h1>Lithe</h1>
 
-  <p><strong>面向 Java 开发与 AI 协作的低内存占用 IntelliJ IDEA 替代品</strong></p>
+  <p><strong>轻量、通用、跨平台的插件化 IDE，按需灵活配置</strong></p>
 
   <p>
     <a href="./README.md"><strong>English</strong></a> ·
@@ -11,7 +11,7 @@
     <a href="#产品截图">产品截图</a> ·
     <a href="#下载与安装">下载</a> ·
     <a href="https://github.com/Lithe-IDEA/Lithe-store">插件市场</a> ·
-    <a href="https://github.com/Lithe-IDEA/lithe-plugin-docs">插件开发</a> ·
+    <a href="https://github.com/Lithe-IDEA/Lithe-core-rust/tree/main/shared/plugins">插件开发</a> ·
     <a href="https://1lck.github.io/Lithe-IDEA/">工程决策看板</a> ·
     <a href="#如何开发">如何开发</a>
   </p>
@@ -46,7 +46,7 @@ https://github.com/user-attachments/assets/17e2325b-afed-4bbb-9926-a962f777269b
   </tr>
   <tr>
     <td align="center"><a href="https://qm.qq.com/cgi-bin/qm/qr?k=&amp;group_code=163027877"><img src="./docs/assets/contact/qq-group-qr.png" width="280" alt="Lithe QQ 群二维码"></a></td>
-    <td align="center"><a href="https://gcnctzuuwe9u.feishu.cn/wiki/HJFbwZ0hZirAPnkWF3xcPWkCnid?from=from_copylink"><img src="./docs/assets/contact/wechat-group-qr.jpg" width="280" alt="Lithe 微信群二维码"></a></td>
+    <td align="center"><a href="https://gcnctzuuwe9u.feishu.cn/wiki/HJFbwZ0hZirAPnkWF3xcPWkCnid?from=from_copylink"><img src="./docs/assets/contact/wechat-group-qr.png" width="280" alt="Lithe 微信群二维码"></a></td>
   </tr>
 </table>
 </div>
@@ -55,15 +55,17 @@ https://github.com/user-attachments/assets/17e2325b-afed-4bbb-9926-a962f777269b
 
 ## 为什么做 Lithe
 
-Codex、Claude Code 等 AI 编程工具已经可以承担大量编码工作，但开发者仍然需要 IDE 来理解生成的代码、跳转符号、运行调试项目并审查每一次修改。只为完成这些工作而常驻一套占用数 GB 内存的开发环境，显得越来越沉重。
+AI 编程工具可以一次修改许多文件。审查这些修改时，开发者仍然需要理解项目、跳转符号、运行和调试代码，并检查每一处 Diff。Lithe 把这些工作流放进同一个工作台，再通过插件接入项目需要的工具。
 
 ## Lithe 是什么
 
-Lithe 是一款主要面向 Java 和 Spring Boot 开发者的轻量级 IDEA 替代品，保留项目浏览、代码编辑与导航、搜索、Maven、运行调试、Git Diff、本地历史和数据库等核心工作流。
+Lithe 是一款以低资源占用为目标、通过插件扩展的通用 IDE。它把项目浏览、代码编辑、搜索、Git 审查和终端放在同一个工作台中；语言智能、构建、运行和调试能力由安装的插件接入。
 
-打开普通项目后，Lithe 应用本身的基础内存占用通常约为 **300～400 MB**。语言服务器、终端、构建工具和调试器均按需启动；实际占用会随项目和启用的服务变化。
+当前 `preview` 分支正在开发基于 **Viva（Go）与 Rust Core** 的统一桌面客户端。macOS、Windows 和 Linux 共用工作台代码，系统集成由各平台适配器完成。功能迁移和平台验收仍在进行，完成度见[功能矩阵与决策看板](https://1lck.github.io/Lithe-IDEA/)，不能把旧版功能列表视为新版的完整支持承诺。
 
-> **AI 负责编写代码，Lithe 负责帮你看懂、跑通并审查修改。**
+语言服务器、插件后端、构建工具和调试器按需启动。内存占用取决于项目大小、打开的内容及启用的插件；旧客户端的测量数字不代表当前预览版。
+
+> **AI 负责编写代码，Lithe 帮你理解项目、运行程序并审查修改。**
 
 ## macOS 提示“无法打开 Lithe.app”
 
@@ -85,33 +87,20 @@ Lithe 是一款主要面向 Java 和 Spring Boot 开发者的轻量级 IDEA 替�
 
 ## 核心功能
 
-<details>
-<summary>展开核心功能</summary>
+| 工作流 | 职责与入口 |
+| --- | --- |
+| 项目与编辑 | 项目树、文件标签、原生编辑器，以及文件、符号和操作搜索。 |
+| Git 审查 | 变更、Diff、提交、分支、历史和工作树管理。 |
+| 语言智能 | 通过插件接入语言服务器，提供补全、诊断、导航等语言能力。 |
+| 构建、运行与调试 | 插件声明项目模型、任务和调试提供者，工作台提供统一入口、输出和调试视图。 |
+| 插件管理 | 从市场或本地安装插件，查看权限与程序声明，启用、停用和管理插件。 |
+| AI 与资源 | 在工作台中使用 Agent 对话与上下文工具，查看应用和相关进程的资源占用。 |
 
-1. 适配 Spring Boot 项目体系，适合 Java 开发。
-2. 支持 Maven 管理、断点调试和自定义启动配置。
-3. 支持 Git 管理和 Diff 审查。
-4. 支持双击 Shift 搜索，以及 `Command + Shift + F` 全局搜索。
-5. 支持无需 LSP 的轻量补全和当前文件导航，并可按需使用语言服务器增强补全、悬浮与语义导航。
-6. 支持本地快照保存。
-7. 支持在应用内打开多个项目。
-8. 支持在同一窗口打开多个文件，各文件相互独立。
-9. 支持使用 AI 自动生成 Commit Message，并可自定义格式。
-10. 支持多种 Markdown 语法渲染，与语雀一致。
-11. 支持查看应用的本地内存占用情况。
-12. 支持通过 Homebrew 一键安装和更新。
-13. 支持在应用内一键更新并安装。
-14. 自动识别 Spring Boot、Java、Maven、Gradle、npm、Cargo、Go、Python、Make、Docker Compose、Procfile 和 Shell 项目的可运行入口，并支持一键运行。
-15. 支持按语言独立开关语言服务，可根据电脑配置自由启用或停用。
-16. 支持类似 IDEA 的多行编辑器标签，同时展示更多打开的文件。
-17. 数据库连接改为社区插件（目前仅支持 macOS），从插件市场的 Lithe Store 安装，支持多种数据库类型、连接管理、SQL 历史、表浏览和数据库操作。
-18. 持续修复问题并优化用户体验。
-
-</details>
+以上是当前工作台的功能分工，具体可用性取决于平台、构建版本和安装的插件。插件自身的工具要求与功能范围以其仓库和市场说明为准。
 
 ## 产品截图
 
-以下为 macOS 版截图，保留了中文功能标注。点击图片可查看原图细节。
+以下截图与顶部演示来自旧版 macOS 客户端，保留作历史功能与交互参考，不代表当前 Viva 预览版的界面或验收结果。点击图片可查看原图。
 
 ### Git、Diff 与工作树
 
@@ -174,7 +163,11 @@ Lithe 是一款主要面向 Java 和 Spring Boot 开发者的轻量级 IDEA 替�
 
 </details>
 
+---
+
 ## 下载与安装
+
+当前分支的 Viva 客户端仍在迁移中；已发布的稳定版和 AutoBuild 可能来自旧客户端。请先查看 [Releases 中的版本说明](https://github.com/1lck/Lithe-IDEA/releases)，确认客户端架构、平台和插件兼容性。Homebrew 跟随已发布版本，不代表当前 `preview` 源码；需要运行当前源码时，使用下方开发入口。
 
 - **macOS 13+：**前往 [GitHub Releases](https://github.com/1lck/Lithe-IDEA/releases/latest) 下载 `.dmg`。M 系列芯片选择 `arm64`，Intel 芯片选择 `x86_64`。
 - **Windows x64：**前往 [GitHub Releases](https://github.com/1lck/Lithe-IDEA/releases/latest) 下载 Windows `.exe` 安装包。
@@ -189,74 +182,71 @@ brew upgrade --cask lithe
 
 ## 架构概览
 
-macOS 是当前参考产品，Windows 是独立的 React/Tauri 实现。两端通过 Rust Core 共享确定性命令与契约，同时保持原生界面和平台能力相互独立。
+当前源码使用一套 Viva 桌面工作台和原生编辑器，通过类型化 Go 桥接调用独立仓库中的 Rust Core。平台适配器负责窗口、文件、进程、终端和其他系统 I/O；共享规则与契约由 Core 持有，迁移状态以功能矩阵为准。旧的 SwiftUI、React/Tauri 和 Monaco 客户端不再是本分支的架构。
 
 ```mermaid
-flowchart LR
-    subgraph macOS["macOS"]
-        MacViews["SwiftUI / AppKit Views"] --> MacModel["AppModel 与界面模型"]
-        MacModel --> MacFeatures["Application 功能模型"]
-        MacFeatures --> MacServices["AppServices 与 Swift Services"]
-        MacServices --> MacRust["类型化 Rust 操作"]
-        MacServices --> MacPorts["平台无关端口"]
-        MacPorts --> MacAdapters["macOS 适配器"]
+flowchart TB
+    accTitle: Lithe 桌面架构与插件边界
+    accDescr: Viva 客户端通过 Go 桥接调用 Rust Core，并通过平台适配器接入独立分发的插件与上游工具。
+
+    subgraph desktop_client["Lithe 桌面客户端 · desktop/"]
+        workbench["Viva 工作台与原生编辑器"]
+        core_bridge["类型化 Go 桥接"]
+        native_adapters["平台与插件 I/O 适配器<br/>macOS · Windows · Linux"]
+        workbench --> core_bridge
+        workbench --> native_adapters
+        native_adapters --> core_bridge
     end
 
-    subgraph Shared["共享行为"]
-        Editor["共享 Monaco 编辑器"]
-        Contracts["JSON 契约与 Fixtures"] --> Core["Rust lithe-core"]
-    end
+    rust_core["Rust Core · 独立仓库<br/>共享规则、模型与契约"]
+    marketplace["Lithe Store<br/>插件市场索引"]
+    plugin_packages["插件包 · 独立仓库<br/>声明、资源与可选后端"]
+    upstream_tools["上游工具<br/>语言服务器、构建工具、调试器"]
 
-    subgraph Windows["Windows"]
-        WinUI["React 工作台与功能状态"] --> WinBoundary["src/platform/tauri-core.ts"]
-        WinBoundary --> Tauri["Tauri 组合根与 Windows 适配器"]
-    end
-
-    Editor -.-> MacViews
-    Editor -.-> WinUI
-    MacRust -->|"JSON C ABI"| Core
-    Tauri -->|"Rust crate"| Core
+    core_bridge -->|JSON C ABI| rust_core
+    marketplace -->|插件包| plugin_packages
+    native_adapters -->|声明与协议| plugin_packages
+    plugin_packages -->|接入或启动| upstream_tools
 ```
+
+插件源码、翻译、资源与测试由插件仓库维护；[插件契约、指南和 SDK](https://github.com/Lithe-IDEA/Lithe-core-rust/tree/main/shared/plugins)统一在 Rust Core 仓库维护。安装后的应用与插件包保持只读，缓存、日志和工作状态写入平台可写目录。职责边界见[仓库所有权与共享边界](./.agents/notes/implemented/architecture/2026-11-08-viva-repository-ownership-and-sharing-boundaries.md)。
+
+<a id="如何开发"></a>
 
 <details>
 <summary><strong>如何开发</strong></summary>
 
-开发环境和 CI 使用 `.swift-version` 固定的 Swift 6.3.3 与 Xcode 26.6。运行完整测试需要 Xcode；基础 SwiftPM 构建只需要匹配的 Command Line Tools。使用 Xcode 27 的开发者也可以在本地构建，构建脚本会自动识别 macOS 27 SDK 的兼容路径。`Package.swift` 仍保留 Swift 6.2 的 manifest API 下限，这不会选择编译器版本。
+使用 `desktop/go.mod` 固定的 Go 工具链、Rust/Cargo 和当前平台的原生构建依赖。macOS 需要 Xcode Command Line Tools；Windows、Linux 的环境配置可参考 [Desktop CI](./.github/workflows/desktop-ci.yml)。Viva 的固定版本与 fork 由 `desktop/go.mod` 的 `replace` 决定。
 
-在项目根目录运行开发版本：
-
-```bash
-./scripts/macos/build/preview.sh
-```
-
-该脚本会构建并链接 Rust Core，然后启动 macOS 应用。只验证 Swift 源码时可以运行：
+从仓库根目录启动开发版本：
 
 ```bash
-swift run --disable-sandbox Lithe
+./scripts/desktop/desktop-go.sh run ./cmd/lithe
 ```
 
-构建 App Bundle：
+这个入口会准备并链接构建脚本固定的 Rust Core。构建本机安装包：
 
 ```bash
-./scripts/macos/package/package-app.sh
-open dist/Lithe.app
+./scripts/desktop/package-desktop.sh
 ```
 
-提交改动前运行：
+输出默认位于 `dist/desktop/<os>-<arch>/`。平台格式与可选参数见[打包脚本](./scripts/desktop/package-desktop.sh)。
+
+验证桌面客户端：
 
 ```bash
-./scripts/macos/test/test-macos.sh
-./scripts/architecture/verify-core.sh
-./scripts/git-graph/verify-git-graph.sh
-./scripts/architecture/verify-service-boundaries.sh
-./scripts/architecture/verify-shared-contracts.sh
-./scripts/windows/verify/verify-windows-boundaries.sh
-./scripts/rust-core/verify-rust-core.sh
+./scripts/desktop/check.sh
+./scripts/desktop/verify/verify-runtime-bundle-immutability.sh
+node scripts/i18n/verify-app-language-localization.mjs
+node scripts/i18n/generate-i18n.mjs --check
+./scripts/platform-feature-matrix/verify-platform-feature-matrix.sh
 ```
 
-目录归属、跨平台边界、共享规则以及 Rust Core 必须遵守的注释规范见[仓库所有权与共享边界](./.agents/notes/implemented/architecture/2026-09-13-repository-ownership-and-sharing-boundaries.md)。提交功能改动时，请说明验证方式和已知限制。
+插件契约或 SDK 的改动在 Rust Core 仓库验证；插件自己的测试在插件仓库运行。贡献前阅读 [AGENTS.md](./AGENTS.md) 与其指向的开发规则，提交时说明验证范围和未完成的平台验收。
 
 </details>
+
+---
 
 ## 项目支持
 
@@ -299,16 +289,6 @@ open dist/Lithe.app
 <table>
   <tr>
     <td width="112" align="center">
-      <a href="https://www.packyapi.ai/register?aff=dWNN">
-        <img src="./docs/assets/sponsors/packycode.png" width="112" alt="PackyCode">
-      </a>
-    </td>
-    <td>
-      <a href="https://www.packyapi.ai/register?aff=dWNN"><strong>PackyCode</strong></a> 提供主流大模型 API 中转服务，支持统一密钥、智能容灾及 Codex、Claude Code 专属通道。人民币 1:1 充值，无手续费，新用户可享首充折扣和 $1 体验额度。
-    </td>
-  </tr>
-  <tr>
-    <td width="112" align="center">
       <a href="https://timicc.com">
         <img src="./docs/assets/sponsors/timicc.png" width="64" alt="TIMI CC">
       </a>
@@ -325,16 +305,6 @@ open dist/Lithe.app
     </td>
     <td>
       <a href="https://torchai.ai/sign-up?aff=FdkE"><strong>TorchAI</strong></a> 提供便捷的大模型中转服务，覆盖编程、内容生成和自动化等场景。感谢 TorchAI 对 Lithe 的支持！
-    </td>
-  </tr>
-  <tr>
-    <td width="112" align="center">
-      <a href="https://www.ccsub.net/register?ref=FKVAWH6E">
-        <img src="./docs/assets/sponsors/ccsub.svg" width="112" alt="CCSub">
-      </a>
-    </td>
-    <td>
-      <a href="https://www.ccsub.net/register?ref=FKVAWH6E"><strong>CCSub</strong></a> 提供统一 API 接入，一个密钥即可调用 Claude、GPT、Gemini 和 DeepSeek 等模型，兼容主流 AI 编程工具。新用户注册可获 $5 体验额度。
     </td>
   </tr>
   <tr>
@@ -387,36 +357,7 @@ open dist/Lithe.app
       <a href="https://codezsy.com/register?aff=fDyA"><strong>CodeZ</strong></a> 专注于 GPT 系列模型的稳定中转，为开发者集成模型 API 提供直接选择。感谢 CodeZ 对 Lithe 的支持！
     </td>
   </tr>
-  <tr>
-    <td width="112" align="center">
-      <a href="https://app.rainyun.com/apps/rcs/392785/detail?view=info">
-        <img src="./docs/assets/sponsors/rainyun.png" width="112" alt="雨云">
-      </a>
-    </td>
-    <td>
-      <a href="https://app.rainyun.com/apps/rcs/392785/detail?view=info"><strong>雨云</strong></a> 提供云服务器等云计算服务，支持应用部署、网站搭建和开发测试。感谢雨云对 Lithe 的支持！
-    </td>
-  </tr>
 </table>
-
-### ☕ 支持 Lithe
-
-如果 Lithe 对你有帮助，欢迎请项目喝一杯咖啡。收到的每一笔支持都会继续投入 Lithe 的开发与维护。
-
-<div align="center">
-<table>
-  <tr>
-    <td align="center">
-      <img src="./docs/assets/donation/wechat.png" width="280" alt="微信收款码"><br>
-      <strong>微信</strong>
-    </td>
-    <td align="center">
-      <img src="./docs/assets/donation/alipay.png" width="280" alt="支付宝收款码"><br>
-      <strong>支付宝</strong>
-    </td>
-  </tr>
-</table>
-</div>
 
 ### ⭐ 特别鸣谢
 

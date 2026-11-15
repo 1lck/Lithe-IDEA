@@ -68,6 +68,10 @@ test("validation needs no committed views and rejects invalid ID, status and evi
   failed(f.run("generate-platform-feature-matrix.mjs", ["--check"]), /invalid windows entry/);
   f.save({ ...f.feature, macos: { ...f.feature.macos, evidence: ["missing.txt"] } });
   failed(f.run("generate-platform-feature-matrix.mjs", ["--check"]), /missing evidence/);
+  f.save({ ...f.feature, macos: { ...f.feature.macos, implementationStatus: "unassessed", verificationStatus: "verified" } });
+  failed(f.run("generate-platform-feature-matrix.mjs", ["--check"]), /unassessed macos entry must remain pending/);
+  f.save({ ...f.feature, macos: { ...f.feature.macos, implementationStatus: "unassessed", verificationStatus: "pending" } });
+  succeeded(f.run("generate-platform-feature-matrix.mjs", ["--check"]));
 });
 
 test("gate rejects metadata, formatting and date-only edits, accepts capability changes and reviewed exemption", { timeout: 20_000 }, (t) => {
@@ -114,4 +118,19 @@ test("two branches changing different capabilities merge without generated-view 
   succeeded(f.run("generate-platform-feature-matrix.mjs"));
   const merged = JSON.parse(readFileSync(resolve(f.root, ".artifacts/platform-feature-matrix/platform-feature-matrix.json"), "utf8"));
   assert.deepEqual(merged.features.map(({ capability }) => capability), ["Updated original", "Independent feature"]);
+});
+
+test("desktop client changes require a capability update", { timeout: 15_000 }, (t) => {
+  const f = fixture(t);
+  f.git("init", "-q");
+  f.git("config", "user.name", "Matrix Fixture");
+  f.git("config", "user.email", "matrix@example.invalid");
+  const commit = () => { f.git("add", "."); f.git("-c", "commit.gpgsign=false", "commit", "-qm", "fixture"); return f.git("rev-parse", "HEAD").trim(); };
+  const base = commit();
+  mkdirSync(resolve(f.root, "desktop/internal"), { recursive: true });
+  writeFileSync(resolve(f.root, "desktop/internal/client.go"), "package client\n");
+  const changed = commit();
+  failed(f.run("verify-platform-feature-matrix-change.mjs", [base, changed]), /without a substantive capability update/);
+  f.save({ ...f.feature, capability: "Desktop behavior" });
+  succeeded(f.run("verify-platform-feature-matrix-change.mjs", [base, commit()]));
 });

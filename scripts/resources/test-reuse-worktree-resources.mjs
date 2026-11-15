@@ -59,34 +59,71 @@ function reuse(extraArguments = []) {
     reuseScript,
     "--source", sourceRoot,
     "--target", targetRoot,
-    "--resource", "jdtls",
+    "--resource", "cargo",
     ...extraArguments,
   ]);
 }
 
 try {
-  await test("offline Markdown preview assets come from Git, never another bundle", { timeout: 15000 }, async () => {
+  await test("desktop Go timing reports remain owned by their test run", { timeout: 15000 }, async () => {
     const registry = JSON.parse(await fs.readFile(path.join(scriptDirectory, "worktree-resources.json"), "utf8"));
-    const resource = registry.excludedResources.find(item => item.id === "markdown-preview-assets");
-    assert.equal(resource.reusable, false);
-    assert.ok(resource.locations.includes("macos/Sources/Lithe/Resources/MarkdownPreview/"));
-    assert.match(resource.identity, /SHA-256/);
-    const refused = reuse(["--resource", resource.id]);
+    const reports = registry.excludedResources.find(item => item.id === "desktop-go-timing-reports");
+    assert.ok(reports, "Go timing reports must be registered as nonreusable");
+    assert.equal(reports.reusable, false);
+    assert.ok(reports.locations.includes(".artifacts/test-stability/{macos,windows}-desktop-go.{json,html,junit.xml,log}"));
+    const refused = reuse(["--resource", reports.id]);
     assert.notEqual(refused.status, 0);
-    assert.match(diagnostics(refused), /markdown-preview-assets is isolated.*cannot be reused/);
+    assert.match(diagnostics(refused), /desktop-go-timing-reports is isolated.*cannot be reused/);
+    await assert.rejects(fs.access(targetRoot), { code: "ENOENT" });
   });
 
-  await test("offline PlantUML assets and live renderer state cannot cross worktrees", { timeout: 15000 }, async () => {
+  await test("editor performance reports remain owned by their benchmark run", { timeout: 15000 }, async () => {
     const registry = JSON.parse(await fs.readFile(path.join(scriptDirectory, "worktree-resources.json"), "utf8"));
-    const resource = registry.excludedResources.find(item => item.id === "markdown-plantuml-assets");
-    assert.equal(resource.reusable, false);
-    assert.match(resource.identity, /@plantuml\/core 1\.2026\.9/);
-    assert.match(resource.identity, /SHA-256/);
-    const engine = await fs.readFile(path.join(scriptDirectory, "../../macos/Sources/Lithe/Resources/MarkdownPreview/vendor/plantuml/plantuml.js"));
-    assert.equal(createHash("sha256").update(engine).digest("hex"), "21c049ce47d087eff61ae0836f9c62a2b0c0d2528a5f16c2247057544228fae7");
-    const refused = reuse(["--resource", resource.id]);
+    const reports = registry.excludedResources.find(item => item.id === "editor-perf-reports");
+    assert.ok(reports, "editor performance reports must be registered as nonreusable");
+    assert.equal(reports.reusable, false);
+    assert.ok(reports.locations.includes(".artifacts/editor-perf/*.txt"));
+    const refused = reuse(["--resource", reports.id]);
     assert.notEqual(refused.status, 0);
-    assert.match(diagnostics(refused), /markdown-plantuml-assets is isolated.*cannot be reused/);
+    assert.match(diagnostics(refused), /editor-perf-reports is isolated.*cannot be reused/);
+    await assert.rejects(fs.access(targetRoot), { code: "ENOENT" });
+  });
+
+  await test("Viva Core outputs and marketplace transfers are never reused", { timeout: 15000 }, async () => {
+    const registry = JSON.parse(await fs.readFile(path.join(scriptDirectory, "worktree-resources.json"), "utf8"));
+    const core = registry.excludedResources.find(item => item.id === "viva-core-build-state");
+    assert.ok(core.locations.includes(".artifacts/desktop/lithe-core-rust/source/.artifacts/rust-core-checks/"));
+    assert.ok(core.locations.includes("<system-temp>/lithe core-cache-*/"));
+    const preferences = registry.excludedResources.find(item => item.id === "viva-plugin-preference-sources");
+    assert.equal(preferences.reusable, false);
+    assert.ok(preferences.locations.includes("<configuration-parent>/.lithe-config-*.tmp"));
+    const transfer = registry.excludedResources.find(item => item.id === "plugin-marketplace-state");
+    const icons = registry.excludedResources.find(item => item.id === "viva-file-icons");
+    assert.equal(core.reusable, false);
+    assert.match(core.identity, /WINAPI_NO_BUNDLED_LIBRARIES=1/);
+    assert.match(core.identity, /winapi-import-libraries=mingw-system/);
+    assert.ok(core.locations.includes(".artifacts/desktop/lithe-core-rust/target/"));
+    assert.ok(core.locations.includes(".artifacts/desktop/lithe-core/"));
+    assert.equal(transfer.reusable, false);
+    assert.ok(transfer.locations.includes("<file-storage-temp>/lithe-plugin-transfer-<random>/archive.zip"));
+    assert.match(transfer.identity, /does not authenticate the publisher/);
+    assert.match(transfer.identity, /512 MiB/);
+    assert.match(transfer.reason, /closing Settings or application shutdown/);
+    assert.match(transfer.reason, /same open handle/);
+    assert.match(transfer.reason, /Reusing archive bytes does not grant install approval/);
+    assert.equal(icons.reusable, false);
+    assert.match(icons.identity, /Python 3\.9/);
+    assert.match(icons.identity, /3\.11/);
+    assert.match(icons.identity, /LITHE_ICON_PYTHON/);
+    assert.ok(icons.locations.includes("desktop/internal/fileicons/svg/"));
+    assert.ok(icons.locations.includes("desktop/internal/fileicons/icons.go"));
+    assert.ok(icons.locations.includes("desktop/internal/fileicons/icons_tree.go"));
+    for (const id of [core.id, transfer.id, icons.id]) {
+      const refused = reuse(["--resource", id]);
+      assert.notEqual(refused.status, 0);
+      assert.match(diagnostics(refused), new RegExp(`${id} is isolated.*cannot be reused`));
+    }
+    await assert.rejects(fs.access(targetRoot), { code: "ENOENT" });
   });
 
   await test("remote host resources and session snapshots cannot cross worktrees", { timeout: 15000 }, async () => {
@@ -105,9 +142,6 @@ try {
     const servers = registry.excludedResources.find(item => item.id === "remote-server-artifacts");
     assert.match(servers.identity, /lithe-remote's lithe-remote-server/);
     assert.match(servers.identity, /--no-default-features --features server/);
-    const buildServers = await fs.readFile(path.join(scriptDirectory, "../remote/build-remote-servers.sh"), "utf8");
-    assert.match(buildServers, /-p lithe-remote --no-default-features --features server/);
-    assert.ok(buildServers.includes("rust/lithe-remote/Cargo.toml"));
     assert.ok(state.locations.some(location => location.includes("session-and-binary-hash")));
     const snapshots = registry.excludedResources.find(item => item.id === "remote-workspace-session-state");
     assert.match(snapshots.reason, /fs\.createRunDirectory/);
@@ -164,35 +198,13 @@ try {
     const registry = JSON.parse(await fs.readFile(path.join(scriptDirectory, "worktree-resources.json"), "utf8"));
     const resource = registry.excludedResources.find(item => item.id === "shared-logging");
     assert.equal(resource.reusable, false);
-    assert.ok(resource.locations.includes("rust/lithe-core/src/diagnostics/catalog_generated.rs"));
+    assert.ok(resource.locations.includes("rust/crates/diagnostics/src/catalog_generated.rs"));
     const listed = run(process.execPath, [reuseScript, "--list"]);
     assertSucceeded(listed);
     assert.ok(!listed.stdout.includes(resource.id));
     const refused = reuse(["--resource", resource.id]);
     assert.notEqual(refused.status, 0);
     assert.match(diagnostics(refused), /shared-logging.*cannot be reused/);
-  });
-  await test("editor keymap provider build state cannot cross worktrees", { timeout: 15000 }, async () => {
-    const registry = JSON.parse(await fs.readFile(path.join(scriptDirectory, "worktree-resources.json"), "utf8"));
-    const resource = registry.excludedResources.find(item => item.id === "editor-keymap-provider-build");
-    assert.equal(resource.reusable, false);
-    assert.ok(resource.locations.includes(".artifacts/editor-keymap-provider-target/"));
-    assert.ok(resource.locations.includes("Plugins/mac/Official/EditorKeymapImport/target/"));
-    assert.ok(resource.locations.includes(".artifacts/cargo-home/git/"));
-    assert.match(resource.identity, /Cargo.lock.*SDK Git revision.*target architecture/);
-    assert.match(resource.reason, /read-only at runtime/);
-    const listed = run(process.execPath, [reuseScript, "--list"]);
-    assertSucceeded(listed);
-    assert.ok(!listed.stdout.includes(resource.id));
-    const refused = reuse(["--resource", resource.id]);
-    assert.notEqual(refused.status, 0);
-    assert.match(diagnostics(refused), /editor-keymap-provider-build.*cannot be reused/);
-    const isolated = path.join(testRoot, "keymap-lock-target");
-    const lock = path.join(isolated, "Plugins/mac/Official/EditorKeymapImport/Cargo.lock");
-    await fs.mkdir(path.dirname(lock), { recursive: true });
-    await fs.writeFile(lock, "version = 4\n");
-    assert.deepEqual(await validatorArguments({ validator: "cargo" }, "/cache", isolated),
-      ["--cargo-cache", "/cache", "--cargo-lock", lock]);
   });
   await test("shared translations are regenerated locally rather than reused", { timeout: 15000 }, async () => {
     const registry = JSON.parse(await fs.readFile(path.join(scriptDirectory, "worktree-resources.json"), "utf8"));
@@ -240,15 +252,6 @@ try {
     assert.notEqual(refused.status, 0);
     assert.match(diagnostics(refused), /plugin-ui-icons.*cannot be reused/);
   });
-  await test("test JFR recordings remain isolated to their worker and run", { timeout: 15000 }, async () => {
-    const registry = JSON.parse(await fs.readFile(path.join(scriptDirectory, "worktree-resources.json"), "utf8"));
-    const resource = registry.excludedResources.find(item => item.id === "test-jfr-recordings");
-    assert.equal(resource.reusable, false);
-    assert.match(resource.identity, /PID.*process start identity.*JDK/);
-    const rejected = reuse(["--resource", "test-jfr-recordings"]);
-    assert.notEqual(rejected.status, 0);
-    assert.match(diagnostics(rejected), /test-jfr-recordings.*cannot be reused/);
-  });
   await test("bundled UI fonts come from Git and cannot be copied from worktree artifacts", { timeout: 15000 }, async () => {
     const listed = run(process.execPath, [reuseScript, "--list"]);
     assertSucceeded(listed);
@@ -257,6 +260,7 @@ try {
     const fonts = registry.excludedResources.find(resource => resource.id === "bundled-ui-fonts");
     assert.match(fonts.identity, /Inter 4\.1.*18 static OTF.*JetBrains Mono 2\.304.*16 static TTF/);
     assert.match(fonts.identity, /Nerd Fonts v3\.5\.1.*four complete patched TTF/);
+    assert.ok(fonts.locations.includes("desktop/internal/bundledfont/fonts"));
     const rejected = run(process.execPath, [reuseScript, "--source", sourceRoot, "--resource", "bundled-ui-fonts"]);
     assert.notEqual(rejected.status, 0);
     assert.match(rejected.stderr, /bundled-ui-fonts is isolated/);
@@ -297,13 +301,13 @@ try {
     assert.notEqual(refused.status, 0);
     assert.match(diagnostics(refused), /frontend-install-state.*node_modules.*bun-tmp.*cannot be reused/);
   });
-  await test("Java launch files are never listed or copied between worktrees", { timeout: 15000 }, () => {
+  await test("run temporary files are never listed or copied between worktrees", { timeout: 15000 }, () => {
     const listed = run(process.execPath, [reuseScript, "--list"]);
     assertSucceeded(listed);
-    assert.ok(!listed.stdout.includes("java-launch-temporaries"));
-    const refused = reuse(["--resource", "java-launch-temporaries"]);
+    assert.ok(!listed.stdout.includes("run-temporary-files"));
+    const refused = reuse(["--resource", "run-temporary-files"]);
     assert.notEqual(refused.status, 0);
-    assert.match(diagnostics(refused), /java-launch-temporaries.*classpath\.jar.*cannot be reused/);
+    assert.match(diagnostics(refused), /run-temporary-files.*lithe-run-.*cannot be reused/);
   });
   await test("IDE MCP credentials and helpers cannot cross worktrees", { timeout: 15000 }, () => {
     const refused = reuse(["--resource", "ide-mcp"]);
@@ -357,16 +361,38 @@ try {
     assert.notEqual(refused.status, 0);
     assert.match(diagnostics(refused), /agent-edit-and-paste-state.*pasted-images.*recovery.*cannot be reused/);
   });
-  await test("JDT Maven settings snapshots cannot be copied between worktrees", { timeout: 15000 }, () => {
-    const refused = reuse(["--resource", "jdt-maven-settings"]);
+  await test("team and local Build preferences cannot be copied as worktree resources", { timeout: 15000 }, async () => {
+    const registry = JSON.parse(await fs.readFile(path.join(scriptDirectory, "worktree-resources.json"), "utf8"));
+    const resource = registry.excludedResources.find(item => item.id === "build-project-preferences");
+    assert.equal(resource.reusable, false);
+    assert.ok(resource.locations.includes(".lithe/build/options.json"));
+    assert.ok(resource.locations.includes("<windows-app-data>/<app-id>/build-options/<canonical-workspace-digest>.json"));
+    assert.ok(resource.locations.includes("<platform-preferences>/BuildSystems.Options.<build-system-id>.<workspace-digest>.InstanceDefaults"));
+    const refused = reuse(["--resource", resource.id]);
     assert.notEqual(refused.status, 0);
-    assert.match(diagnostics(refused), /jdt-maven-settings.*cannot be reused/);
+    assert.match(diagnostics(refused), /build-project-preferences.*cannot be reused/);
+  });
+  await test("native configuration probe and conditional replacement state cannot be reused", { timeout: 15000 }, async () => {
+    const registry = JSON.parse(await fs.readFile(path.join(scriptDirectory, "worktree-resources.json"), "utf8"));
+    const resource = registry.excludedResources.find(item => item.id === "build-native-configuration-state");
+    assert.equal(resource.reusable, false);
+    assert.ok(resource.locations.some(location => location.endsWith("configuration-*/configuration.json")));
+    assert.ok(resource.locations.some(location => location.includes(".<filename>.lithe-<uuid>")));
+    assert.ok(resource.locations.includes("<native-configuration-parent>/.lithe-document-<pid>-<sequence>.tmp"));
+    assert.ok(resource.locations.includes("<windows-native-host-memory>/native-configuration/<window>/<operation-id>"));
+    assert.ok(resource.locations.includes("<workspaceStateDir>/outputs/<operation-id>.json (private native configuration replacement)"));
+    const listed = run(process.execPath, [reuseScript, "--list"]);
+    assertSucceeded(listed);
+    assert.ok(!listed.stdout.includes(resource.id));
+    const refused = reuse(["--resource", resource.id]);
+    assert.notEqual(refused.status, 0);
+    assert.match(diagnostics(refused), /build-native-configuration-state.*cannot be reused/);
   });
   await test("plugin web state has no transferable build identity or copy stage", { timeout: 15000 }, async () => {
     const registry = JSON.parse(await fs.readFile(path.join(scriptDirectory, "worktree-resources.json"), "utf8"));
     const resource = registry.excludedResources.find(item => item.id === "plugin-web-state");
     assert.equal(resource.reusable, false);
-    assert.ok(resource.locations.some(location => location.includes("web-state/<window-id>/<workspace-digest>.json")));
+    assert.ok(resource.locations.some(location => location.includes(".state/<plugin-id>/pages/workspaces/<workspace-key>/<window-digest>.json")));
     const listed = run(process.execPath, [reuseScript, "--list"]);
     assertSucceeded(listed);
     assert.ok(!listed.stdout.includes(resource.id));
@@ -379,17 +405,24 @@ try {
     const packages = registry.excludedResources.find(item => item.id === "official-plugin-packages");
     assert.ok(packages.locations.includes("dist/packages/<arch>/<plugin-id>/"));
     assert.ok(packages.locations.includes("dist/verify/<arch>/<plugin-id>/"));
-    assert.ok(packages.locations.includes(".artifacts/java-plugin-distribution/"));
     assert.ok(packages.locations.includes("<test-temp>/lithe-package-verification.*/published-index.fixture.json"));
     assert.match(packages.reason, /LITHE_OFFICIAL_PLUGIN_INDEX/);
     const refused = reuse(["--resource", packages.id]);
     assert.notEqual(refused.status, 0);
     assert.match(diagnostics(refused), /official-plugin-packages is isolated.*cannot be reused/);
   });
-  await test("plugin packages and marketplace state stay isolated in each worktree", { timeout: 15000 }, () => {
+  await test("plugin packages and marketplace state stay isolated in each worktree", { timeout: 15000 }, async () => {
     const listed = run(process.execPath, [reuseScript, "--list"]);
     assertSucceeded(listed);
-    for (const id of ["official-plugin-packages", "plugin-marketplace-state", "plugin-host-runtime-state", "mcp-registry-metadata", "mcp-tool-probe-state", "agent-instruction-library-state", "agent-hook-library-state"]) {
+    const registry = JSON.parse(await fs.readFile(path.join(scriptDirectory, "worktree-resources.json"), "utf8"));
+    const pluginState = registry.excludedResources.find(resource => resource.id === "official-plugin-packages");
+    assert.ok(pluginState.locations.includes("<app-support>/Lithe/PluginState/<plugin-id>/build-systems/<build-system-id>/workspaces/<workspace-digest>/"));
+    assert.ok(pluginState.locations.includes("<windows-local-app-data>/<app-id>/plugin-state/<plugin-id>/build-systems/<build-system-id>/<workspace-digest>/"));
+    assert.ok(pluginState.locations.includes("<windows-local-app-data>/<app-id>/plugin-state/<plugin-id>/toolchain-queries/<operation-id>/<workspace-digest>/"));
+    assert.ok(pluginState.locations.includes("<windows-local-app-data>/<app-id>/plugin-state/<plugin-id>/debug-adapters/<adapter-id>/<workspace-digest>/"));
+    assert.ok(pluginState.locations.includes("<writable-plugin-root>/.state/<plugin-id>/<version>/desktop-debug-<session>/"));
+    assert.equal(pluginState.reusable, false);
+    for (const id of ["consumer-tool-preferences", "official-plugin-packages", "plugin-marketplace-state", "plugin-host-runtime-state", "mcp-tool-probe-state", "agent-instruction-library-state", "agent-hook-library-state"]) {
       assert.ok(!listed.stdout.includes(id));
       const refused = reuse(["--resource", id]);
       assert.notEqual(refused.status, 0);
@@ -407,15 +440,6 @@ try {
       assert.notEqual(refused.status, 0);
       assert.match(diagnostics(refused), new RegExp(`${resource.id}.*cannot be reused`));
     }
-  });
-  await test("featured catalog and bundled MCP marks follow Git source instead of resource reuse", { timeout: 15000 }, async () => {
-    const registry = JSON.parse(await fs.readFile(path.join(scriptDirectory, "worktree-resources.json"), "utf8"));
-    const row = registry.excludedResources.find(item => item.id === "mcp-registry-metadata");
-    assert.ok(row.locations.includes("macos/Sources/Lithe/Resources/McpIcons"));
-    assert.ok(row.locations.includes("rust/lithe-core/src/mcp/featured.json"));
-    const refused = reuse(["--resource", row.id]);
-    assert.notEqual(refused.status, 0);
-    assert.match(diagnostics(refused), /mcp-registry-metadata.*cannot be reused/);
   });
   await test("local disk snapshots and approvals are rejected before any worktree access", { timeout: 15000 }, async () => {
     const registry = JSON.parse(await fs.readFile(path.join(scriptDirectory, "worktree-resources.json"), "utf8"));
@@ -438,7 +462,7 @@ try {
     for (const id of [resource.id, "plugin-marketplace-state"]) {
       const refused = run(process.execPath, [
         reuseScript, "--source", missingSource, "--target", missingTarget,
-        "--resource", "jdtls", "--resource", id,
+        "--resource", "cargo", "--resource", id,
       ]);
       assert.notEqual(refused.status, 0);
       assert.match(diagnostics(refused), new RegExp(`${id} is isolated.*cannot be reused`));
@@ -447,43 +471,24 @@ try {
     }
   });
   await testFailedBackupPreservesDestination();
-  await fs.mkdir(path.join(sourceRoot, "third_party", "jdtls"), { recursive: true });
+  // Eight locked crates let one corrupted source archive leave the target with more
+  // verified files than the source, which must keep the target cache unchanged.
+  const crateNames = Array.from({ length: 8 }, (_, index) => `fixture-${index}`);
+  await fs.mkdir(path.join(sourceRoot, "rust"), { recursive: true });
   await fs.writeFile(
-    path.join(sourceRoot, "third_party", "jdtls", "manifest.json"),
-    `${JSON.stringify({
-      version: "1.0.0",
-      archiveSHA256: emptySha256,
-      licenseSHA256: emptySha256,
-      lombokVersion: "1.0.0",
-      lombokSHA256: emptySha256,
-      lombokLicenseSHA256: emptySha256,
-      javaDebugExtensionVersion: "1.0.0",
-      javaDebugServerVersion: "1.0.0",
-      javaDebugArchiveSHA256: emptySha256,
-      javaDebugLicenseSHA256: emptySha256,
-      javaTestExtensionVersion: "1.0.0",
-      javaTestArchiveSHA256: emptySha256,
-      javaTestLicenseSHA256: emptySha256,
-    })}\n`,
+    path.join(sourceRoot, "rust", "Cargo.lock"),
+    `version = 4\n${crateNames.map(name => `\n[[package]]\nname = "${name}"\nversion = "1.0.0"\nsource = "registry+https://github.com/rust-lang/crates.io-index"\nchecksum = "${emptySha256}"\n`).join("")}`,
   );
   assertSucceeded(run("git", ["init", "--quiet", "--initial-branch=main"], sourceRoot));
   assertSucceeded(run("git", ["config", "user.name", "Resource Reuse Test"], sourceRoot));
   assertSucceeded(run("git", ["config", "user.email", "resource-reuse@example.invalid"], sourceRoot));
-  assertSucceeded(run("git", ["add", "third_party/jdtls/manifest.json"], sourceRoot));
+  assertSucceeded(run("git", ["add", "rust/Cargo.lock"], sourceRoot));
   assertSucceeded(run("git", ["commit", "--quiet", "-m", "fixture"], sourceRoot));
   assertSucceeded(run("git", ["worktree", "add", "--quiet", "--detach", targetRoot], sourceRoot));
 
-  const cache = path.join(sourceRoot, ".artifacts", "jdtls-downloads");
-  const expectedFiles = [
-    `jdtls-1.0.0-${emptySha256}.tar.gz`,
-    `EPL-2.0-${emptySha256}.txt`,
-    `lombok-1.0.0-${emptySha256}.jar`,
-    `lombok-MIT-1.0.0-${emptySha256}.txt`,
-    `vscode-java-debug-1.0.0-${emptySha256}.vsix`,
-    `java-debug-EPL-1.0-1.0.0-${emptySha256}.txt`,
-    `vscode-java-test-1.0.0-${emptySha256}.vsix`,
-    `java-test-MIT-1.0.0-${emptySha256}.txt`,
-  ];
+  const cacheRelativePath = path.join(".artifacts", "cargo-home", "registry", "cache", "index.crates.io-fixture");
+  const cache = path.join(sourceRoot, cacheRelativePath);
+  const expectedFiles = crateNames.map(name => `${name}-1.0.0.crate`);
   await fs.mkdir(cache, { recursive: true });
   for (const fileName of expectedFiles) await fs.writeFile(path.join(cache, fileName), "");
 
@@ -501,15 +506,15 @@ try {
 
   let result = reuse();
   assertSucceeded(result);
-  assert.match(result.stdout, /Reused jdtls: published 8 verified file/);
-  const targetCache = path.join(targetRoot, ".artifacts", "jdtls-downloads");
+  assert.match(result.stdout, /Reused cargo: published 8 verified file/);
+  const targetCache = path.join(targetRoot, cacheRelativePath);
   for (const fileName of expectedFiles) await fs.access(path.join(targetCache, fileName));
 
   const archiveName = expectedFiles[0];
   await fs.writeFile(path.join(cache, archiveName), "corrupted");
   result = reuse();
   assertSucceeded(result);
-  assert.match(result.stdout, /Keeping jdtls: target already has 8 verified file/);
+  assert.match(result.stdout, /Keeping cargo: target already has 8 verified file/);
   assert.match(await fs.readFile(path.join(targetCache, archiveName), "utf8"), /^$/);
   assert.match(diagnostics(result), /SHA-256 mismatch/);
 
@@ -517,27 +522,27 @@ try {
   await fs.writeFile(path.join(cache, archiveName), "");
   result = reuse();
   assertSucceeded(result);
-  assert.match(result.stdout, /Reused jdtls: published 8 verified file/);
+  assert.match(result.stdout, /Reused cargo: published 8 verified file/);
   await fs.access(path.join(targetCache, archiveName));
 
   result = run(process.execPath, [reuseScript, "--source", sourceRoot, "--target", targetRoot, "--resource", "unknown"]);
   assert.notEqual(result.status, 0);
   assert.match(result.stderr, /Unknown resource: unknown/);
 
-  result = run(process.execPath, [reuseScript, "--source", sourceRoot, "--target", sourceRoot, "--resource", "jdtls"]);
+  result = run(process.execPath, [reuseScript, "--source", sourceRoot, "--target", sourceRoot, "--resource", "cargo"]);
   assert.notEqual(result.status, 0);
   assert.match(result.stderr, /must be different/);
 
   result = run(process.execPath, [reuseScript, "--list"]);
   assertSucceeded(result);
   assert.match(result.stdout, /^cargo\t\.artifacts\/cargo-home\/registry\/cache$/m);
-  assert.match(result.stdout, /^jdk\t\.artifacts\/jdk-downloads$/m);
+  assert.match(result.stdout, /^conpty\t\.artifacts\/conpty-downloads$/m);
 
   result = run(process.execPath, [reuseScript, "--source", sourceRoot, "--target", targetRoot, "--resource", "language-tools"]);
   assert.notEqual(result.status, 0);
   assert.match(result.stderr, /language-tools is isolated/);
 
-  for (const id of ["windows-worker-plugins", "installed-worker-plugins"]) {
+  for (const id of ["windows-worker-plugins", "installed-worker-plugins", "viva-editor-user-state"]) {
     const result = run(process.execPath, [reuseScript, "--source", sourceRoot, "--resource", id]);
     assert.notEqual(result.status, 0);
     assert.match(diagnostics(result), /isolated/);

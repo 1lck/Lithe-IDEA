@@ -1,0 +1,4 @@
+interface:
+  display_name: "创建 Lithe 插件"
+  short_description: "按当前契约与 SDK 创建 Lithe 插件，并完成必需的日志接线与验收"
+  default_prompt: "使用 $create-lithe-plugin，读取当前契约和 SDK 文档，创建插件并完成日志接线与验证。"

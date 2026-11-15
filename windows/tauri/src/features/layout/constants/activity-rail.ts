@@ -1,1 +1,0 @@
-export const COLLAPSED_ACTIVITY_RAIL_WIDTH = 38;

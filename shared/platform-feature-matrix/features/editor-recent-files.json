@@ -1,0 +1,27 @@
+{
+  "id": "editor-recent-files",
+  "area": "编辑器",
+  "group": "文档编辑",
+  "capability": "最近文件与最近编辑列表，保留光标位置，提供过滤和打开入口",
+  "owner": "Editor / Core",
+  "notes": "Viva 共享实现；匹配、顺序和恢复决策在外部 Rust Core。macOS 无头流程与截图已覆盖；macOS 原生窗口和 Windows 原生验收未执行。",
+  "verification": "依次打开和编辑两个文件，核对访问/编辑独立顺序；过滤、键盘与点击打开，重启后保留位置。 自动化：editor_essentials_test.go 与 editor_essentials_visual_test.go。",
+  "macos": {
+    "implementationStatus": "implemented",
+    "verificationStatus": "pending",
+    "evidence": [
+      "desktop/internal/workbench/recent_files.go",
+      "desktop/internal/workbench/editor_essentials_test.go",
+      "desktop/internal/workbench/editor_essentials_visual_test.go"
+    ]
+  },
+  "windows": {
+    "implementationStatus": "implemented",
+    "verificationStatus": "pending",
+    "evidence": [
+      "desktop/internal/workbench/recent_files.go",
+      "desktop/internal/workbench/editor_essentials_test.go",
+      "desktop/internal/workbench/editor_essentials_visual_test.go"
+    ]
+  }
+}

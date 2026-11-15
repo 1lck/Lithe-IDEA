@@ -56,7 +56,7 @@ description: 创建、迁移、更新或审查 Lithe 的 .agents/notes 决策笔
 文件名使用首次提出日期和英文 slug，例如：
 
 ```text
-2026-09-13-repository-ownership-and-sharing-boundaries.md
+2026-11-08-viva-repository-ownership-and-sharing-boundaries.md
 ```
 
 ## 写作格式
@@ -173,7 +173,7 @@ node scripts/agent-notes/build-agent-notes-board.mjs \
 只在架构承重墙或高风险入口加一行反向引用，不给普通函数加引用：
 
 ```swift
-// Note: 仓库所有权与共享边界见 .agents/notes/implemented/architecture/2026-09-13-repository-ownership-and-sharing-boundaries.md
+// Note: 仓库所有权与共享边界见 .agents/notes/implemented/architecture/2026-11-08-viva-repository-ownership-and-sharing-boundaries.md
 ```
 
 适合绑定的位置包括组合根、核心协议、dispatcher、状态机入口、平台边界、

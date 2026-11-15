@@ -5,23 +5,47 @@
   "id": "editor-file-encoding-save",
   "capability": "按指定编码保存文本文件",
   "macos": {
-    "evidence": [
-      "macos/Sources/Lithe/Views/Workbench/WorkbenchView.swift",
-      "macos/Sources/Lithe/Views/Editor/StandaloneEditorView.swift",
-      "macos/Sources/Lithe/Application/Features/DocumentFeatureModel.swift",
-      "macos/Sources/Lithe/Platform/MacOS/FileSystem/MacDocumentEncoding.swift"
-    ],
     "implementationStatus": "implemented",
-    "verificationStatus": "pending"
+    "verificationStatus": "pending",
+    "evidence": [
+      "desktop/internal/core/file_encoding.go",
+      "desktop/internal/core/file_encoding_test.go",
+      "desktop/internal/workbench/encoding.go",
+      "desktop/internal/workbench/documents_test.go"
+    ]
   },
   "windows": {
-    "evidence": [
-      "windows/tauri/src/features/command-palette/components/encoding-picker.tsx",
-      "windows/tauri/src/features/editor/stores/editor-app.store.ts",
-      "windows/tauri/crates/project/src/document_file.rs"
-    ],
     "implementationStatus": "implemented",
-    "verificationStatus": "pending"
+    "verificationStatus": "pending",
+    "evidence": [
+      "desktop/internal/core/file_encoding.go",
+      "desktop/internal/core/file_encoding_test.go",
+      "desktop/internal/workbench/encoding.go",
+      "desktop/internal/workbench/documents_test.go"
+    ]
   },
-  "verification": "在 macOS 和 Windows 实机验证 UTF-8、UTF-8 BOM、UTF-16 LE/BE BOM 与 GBK/GB18030 的自动识别，并分别验证 UTF-16 LE/BE（无 BOM）、Big5、Shift JIS、EUC-JP、EUC-KR、Windows-1250/1251/1252、KOI8-R 的指定编码重新打开、编码转换保存、脏文件选择和外部修改保护。"
+  "verification": "在 macOS 和 Windows 实机验证 UTF-8、UTF-8 BOM、UTF-16 LE/BE BOM 与 GBK/GB18030 的自动识别，并分别验证 UTF-16 LE/BE（无 BOM）、Big5、Shift JIS、EUC-JP、EUC-KR、Windows-1250/1251/1252、KOI8-R 的指定编码重新打开、编码转换保存、脏文件选择和外部修改保护。",
+  "legacy": {
+    "revision": "5a54c41aa37a4e6e6b68918a4b05765b9dd07a36",
+    "macos": {
+      "evidence": [
+        "macos/Sources/Lithe/Views/Workbench/WorkbenchView.swift",
+        "macos/Sources/Lithe/Views/Editor/StandaloneEditorView.swift",
+        "macos/Sources/Lithe/Application/Features/DocumentFeatureModel.swift",
+        "macos/Sources/Lithe/Platform/MacOS/FileSystem/MacDocumentEncoding.swift"
+      ],
+      "implementationStatus": "implemented",
+      "verificationStatus": "pending"
+    },
+    "windows": {
+      "evidence": [
+        "windows/tauri/src/features/command-palette/components/encoding-picker.tsx",
+        "windows/tauri/src/features/editor/stores/editor-app.store.ts",
+        "windows/tauri/crates/project/src/document_file.rs"
+      ],
+      "implementationStatus": "implemented",
+      "verificationStatus": "pending"
+    }
+  },
+  "notes": "Viva：保存按文档编码经 Core file.write 的编码转换（客户端保留 documentio 的原子写入、冲突检测与符号链接保护，Core 只做转换），状态栏菜单“按编码保存”可转换并保存；含目标编码无法表示的字符时 Core 返回 encoding_unmappable，不写入任何内容并恢复原编码、提示编码名。"
 }

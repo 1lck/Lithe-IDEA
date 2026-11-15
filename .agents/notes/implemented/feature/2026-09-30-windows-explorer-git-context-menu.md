@@ -1,4 +1,4 @@
-# Agent 笔记：Windows 文件树右键 Git 菜单
+# Agent 笔记：文件树右键的 Git 菜单
 
 状态：已实现
 
@@ -6,39 +6,39 @@
 
 ## 先说结论
 
-Issue #975 要右键直接比对和提交单个文件。Windows 端 Diff、暂存、提交的底层链路都已存在，本次只加文件树右键入口（文件：Git 子菜单 Show Diff / Add / Stage and Open Commit…；目录：Show Diff），不新增 Tauri command。issue 的搜索诉求由既有 Ctrl+Shift+F 满足，未扩展。
+文件树右键菜单为单个文件提供 Git 子菜单（Show Diff、Add、Stage and Open Commit…），目录只提供 Show Diff。菜单的显示由文件的真实 Git 状态决定：干净的文件不显示 Git 菜单，已完全暂存且没有剩余工作区修改的文件不显示 Add。所有动作只经过已有的 Git 操作入口，不为菜单新增单独的命令。
 
 ## 问题
 
-此前比对或提交单个文件只能打开源代码管理面板、在变更列表里找；文件树右键没有任何单文件 Git 动作。
+要比对或提交单个文件，只能打开源代码管理面板再在变更列表中查找。文件树右键没有任何单文件 Git 动作，而嵌套仓库中的文件也需要能找到它所属的仓库。
 
 ## 决策
 
-- 菜单纯逻辑放 `windows/tauri/src/features/file-explorer/lib/file-context-menu-git-file-items.ts`（能力判定 + 构建 + 虚拟路径契约），单测同目录。
-- 右键时异步解析所属仓库与状态（`resolveRepositoryForFile` + `getGitStatus`），支持嵌套仓库；干净文件不显示 Git 菜单，只有已全部暂存且无剩余工作区修改时隐藏 Add；MM/AM 部分暂存仍显示 Add。显式暂存整文件会包含剩余编辑，原有复选框保留部分暂存的语义不变。
-- Show Diff 以 `createSingleFileWorkingTreeDiff` 载荷打开 `diff://working-tree/all-files`，`workingTreeTargets` 显式携带所属仓库，首次打开与后续刷新都比较 HEAD 到完整工作区内容，并保留 hasStagedChanges 以限制不安全的块丢弃；后续刷新/切换按 target.repoPath 重读，不再拿工作区根猜仓库（多仓库安全，PR #989 review 意见③）。Stage and Open Commit…（暂存并打开提交）先暂存该文件再打开源代码管理提交面板，复用现有提交流程；面板提交的是当前暂存区全部内容而非仅该文件，动作按此语义命名（PR #989 review 意见①）。
-- 只准调 `@/features/git/api/*`；禁止为这些动作新增 Tauri command 或绕过 API 层直接 invoke。
+- **菜单可见性由文件所属仓库的真实状态决定。** 右键时解析文件所属仓库（支持嵌套仓库）并读取状态，再决定显示哪些项。
+- **部分暂存的文件仍显示 Add。** 整文件暂存会包含剩余的工作区修改，所以“Add”的语义是暂存整个文件，而非仅暂存已勾选的块。
+- **Show Diff 比对该文件的完整工作区内容。** 差异目标显式携带所属仓库，后续刷新按该仓库重读，不能用工作区根目录猜测仓库。
+- **Stage and Open Commit… 先暂存该文件，再打开提交面板。** 面板提交的是当前暂存区的全部内容，而不是仅该文件，因此动作名称按这一语义命名。
+- **不新增 Git 命令。** 菜单只调用既有 Git 操作入口。
 
 ## 考虑过的备选方案
 
-- 同步读 `workspaceGitStatus`：只覆盖工作区根仓库，嵌套仓库下菜单会静默消失，弃用。
-- 复用 `useGitDiffActions.viewFileDiff`：需要 Git 视图内部的大量输入，拖进文件树过重，弃用。
-- 新做单文件提交对话框：与既有提交面板重复，弃用。
+- **只读取工作区根仓库的状态。** 未采用。嵌套仓库下菜单会静默消失。
+- **复用 Git 视图内部的差异动作。** 未采用。需要 Git 视图内部的大量输入，拖进文件树过重。
+- **新做单文件提交对话框。** 未采用。与既有提交面板重复。
 
 ## 后果
 
-- 收益：单文件比对/暂存一次右键完成，并可直达提交流程，多仓库可用。
-- macOS 端已按 reviewer 邀请对齐（Git 子菜单装 Add 与 Stage and Open Commit…，Show Diff 复用既有独立菜单项不重复；可见性判定在 `GitFileContextMenuPlan`，多参考了既有 `canToggleStaging` 门禁）。
-- 代价：Git 子菜单在菜单弹出后约一次 IPC 往返才出现（Windows）。
+- 单文件的比对与暂存可以在文件树中一次完成，并能直接进入提交流程，嵌套仓库也能正常使用。
+- 代价是右键后需要一次状态读取，菜单的 Git 子项会比其它菜单项晚出现。
 
 ## 验证
 
-- `cd windows/tauri && bun test src/features/file-explorer/lib/file-context-menu-git-file-items.test.ts`
-- `cd windows/tauri && bun run typecheck`；`./scripts/windows/verify/verify-windows-boundaries.ps1`
-- `node scripts/platform-feature-matrix/generate-platform-feature-matrix.mjs && ./scripts/platform-feature-matrix/verify-platform-feature-matrix.sh`
-- 实机点检项见矩阵 `git-explorer-context-actions` 条目的 verification 字段。
+- `scripts/desktop/desktop-go.sh test ./internal/workbench/ -count=1`：覆盖文件树菜单与 Git 动作的构建。
+- 在真实仓库中验收：干净文件无 Git 菜单；部分暂存文件仍有 Add；嵌套仓库中的文件比对到正确仓库。
 
 ## 适用范围
 
-- `windows/tauri/src/features/file-explorer/hooks/use-file-explorer-context-menu.tsx`
-- `windows/tauri/src/features/file-explorer/lib/file-context-menu-git-file-items.ts`
+- `desktop/internal/workbench/filetree_git_menu.go`
+- `desktop/internal/workbench/filetree_menu.go`
+- `desktop/internal/workbench/gitexplorer_actions.go`
+- `shared/platform-feature-matrix/features/git-explorer-context-actions.json`

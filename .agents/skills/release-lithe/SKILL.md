@@ -1,12 +1,139 @@
 ---
 name: release-lithe
-description: Prepare and validate stable Lithe release notes and publishing workflows. Use when drafting docs/releases files, cutting a stable version, publishing a GitHub Release, or changing stable release automation.
+description: Check and sync the Viva fork before every desktop release, choose version numbers for the Lithe app and Lithe plugins, and prepare and validate stable Lithe release notes and publishing workflows. Use when preparing any desktop release (a desktop-v* prerelease or a stable release), deciding a version number, drafting docs/releases files, cutting a stable version, publishing a GitHub Release, or changing release automation.
 ---
 
 # Release Lithe
 
-Apply this Skill after `develop-lithe` for stable releases. Preview releases
-keep their existing workflow unless the task explicitly includes them.
+Apply this Skill after `develop-lithe`. Each section applies to these
+releases:
+
+- "Sync Viva before a desktop release" applies to every release of the
+  desktop app: `desktop-v*` prereleases and stable releases. Plugin releases
+  skip it.
+- "Choose the version number" applies to every release of the Lithe app and
+  of every Lithe plugin.
+- The remaining sections apply to stable app releases. Preview releases keep
+  their existing workflow unless the task explicitly includes them.
+
+## Sync Viva before a desktop release
+
+The desktop app links the Viva commit that the `replace` directive in
+`desktop/go.mod` pins: a commit on `main` of
+[Lithe-IDEA/Lithe-viva](https://github.com/Lithe-IDEA/Lithe-viva), the fork of
+[vivaui/viva](https://github.com/vivaui/viva). `desktop/go.mod` still writes
+the fork's former path `github.com/Lithe-IDEA/viva`, which GitHub redirects.
+The procedure, with the exact commands, is the section "发版前同步上游" of
+`.agents/notes/implemented/process/2026-11-11-viva-fork-maintenance-and-commit-pin.md`.
+
+Before choosing the version or writing release notes, check these four
+things:
+
+1. Upstream commits missing from fork `main`.
+2. Open pull requests in the fork. Each one is a patch of ours that fork
+   `main` does not contain yet.
+3. Whether the `replace` target in `desktop/go.mod` at the release target
+   commit is the head of fork `main`.
+4. Lithe workarounds for Viva: the open items of issue
+   [#1821](https://github.com/1lck/Lithe-IDEA/issues/1821), and comments or
+   skipped tests under `desktop/` that cite a Viva pull request or issue.
+
+Checks 1 to 3 decide whether the release waits. When any of them finds
+something, stop and remind the user before going further: give the count and
+the list for each check, add the list from check 4, and say that the release
+waits for the sync. Check 4 alone does not stop the release, because a
+workaround stays until upstream offers a replacement; the sync re-examines
+every item on it.
+
+Do not merge into or push to the fork, and do not change the pin, unless the
+user asks for the sync. When the user asks, follow the Note:
+
+- Merge upstream `main` into fork `main` with a merge commit, never a squash.
+- Merge every one of our patches into fork `main`. Where a patch conflicts
+  with upstream, or upstream solves the same problem differently, keep
+  upstream's approach and drop ours.
+- Bump the pin in one Lithe pull request that also replaces each Lithe
+  workaround upstream now covers with the new approach and deletes the old
+  logic.
+- Deliver the sync report the Note specifies, in that pull request's
+  description and to the user.
+
+Continue the release only when one of these holds:
+
+- Checks 1 to 3 find nothing.
+- The pin bump from the sync is merged into preview and the release target
+  commit contains it. Choose the version and write the notes from that
+  commit, because the sync changes what the release contains.
+- The user explicitly decides to release without the sync. Tell the user
+  what stays unsynced, and repeat it in the final release report.
+
+## Choose the version number
+
+Every release uses a `MAJOR.MINOR.PATCH` version. This covers stable app
+releases, `desktop-v*` desktop prereleases, and plugins, including the
+community plugins in the Lithe-IDEA organization. Compare the release with the
+previous published version of the same artifact, stable or prerelease. Then
+increment the part that matches the most significant change in the release:
+
+| Part | Increment when the release contains | Compatibility | From 1.2.3 |
+| --- | --- | --- | --- |
+| PATCH | Only backward-compatible bug fixes and small improvements | Fully compatible; users upgrade without doing anything | 1.2.4 |
+| MINOR | New features, with every existing feature unchanged | Backward compatible; nothing users rely on changes | 1.3.0 |
+| MAJOR | At least one breaking change | Not compatible with the previous version; users may need to change something | 2.0.0 |
+
+A change is breaking when a user of the previous version cannot upgrade
+without doing something, or loses something they relied on.
+
+For the app, these changes are breaking:
+
+- Removing or renaming a user-visible feature, command, setting, or keyboard
+  shortcut.
+- Dropping a plugin contract or plugin API version that installed plugins use,
+  so that those plugins stop loading.
+- Changing the format of settings, project state, or other stored data without
+  migrating the previous version's data automatically.
+- Raising the minimum supported operating system version, or dropping a
+  platform or CPU architecture.
+
+For a plugin, these changes are breaking:
+
+- Requiring a host or plugin contract version that hosts able to run the
+  previous version do not support, so that those users can no longer install
+  or update the plugin.
+- Removing or renaming a feature, command, task, run entry, setting, or build
+  option that the previous version declared.
+- Changing a setting key or value format, so that values users saved are lost
+  or read differently.
+- Requiring an external program the previous version did not need, or a newer
+  version of one it already ran.
+
+Apply these rules to every version number:
+
+- Versions below 1.0.0 follow the same table. Do not apply the semantic
+  versioning exception for initial development: a breaking change to 0.y.z
+  releases 1.0.0, not 0.(y+1).0.
+- Incrementing MAJOR resets MINOR and PATCH to 0. Incrementing MINOR resets
+  PATCH to 0.
+- The version number does not say whether a release is a prerelease. Publish
+  a release as a prerelease when no stable host can use it yet, whatever its
+  number. Keep the plain number and the plain tag (`v<version>`, or
+  `desktop-v<version>` for the desktop app), with no `-beta` or similar suffix.
+- The desktop app shows its version without the preview label only when the
+  Desktop Release built it for the commit of its `desktop-v<version>` tag:
+  `scripts/ci/desktop-release/package-release.sh` packages with
+  `package-desktop.sh --stable`, which adds the `lithe_stable` build tag, and
+  fails when a packaged program lacks it. Every other build, including the
+  daily `desktop-AutoBuild` and local packages, shows the version with the
+  preview label. This label is independent of the GitHub prerelease flag. Pass
+  `--stable` nowhere else.
+- Never reuse a published version or publish a lower one. A published package
+  is never modified; every change ships as a new version. The only exception
+  is a version reset that the user explicitly requests for one artifact:
+  delete all of its GitHub Releases and tags, remove all of its versions from
+  the Lithe Store index, and publish again from 0.0.1. Never reset a version
+  on your own initiative.
+- A MAJOR release lists every breaking change, together with what users must
+  do, in its upgrade or compatibility notes.
 
 ## Prepare the release notes first
 
@@ -119,8 +246,13 @@ before committing the notes.
 
 ## Validate before publishing
 
-- Confirm the version uses `MAJOR.MINOR.PATCH`, the filename is exactly
-  `docs/releases/v<version>.md`, and the file is non-empty.
+- For a desktop release, confirm that "Sync Viva before a desktop release"
+  allows continuing: the release target commit pins the head of fork `main`,
+  and fork `main` contains upstream `main`, or the user's decision to skip
+  the sync is recorded in the release report.
+- Confirm that the version follows “Choose the version number” when compared
+  with the previous published version, that the filename is exactly
+  `docs/releases/v<version>.md`, and that the file is non-empty.
 - Check that Chinese and English describe the same release and that download
   filenames match the artifacts produced by both platform workflows.
 - Check the comparison range, current platform requirements, bundled tools,

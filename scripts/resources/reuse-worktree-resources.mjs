@@ -62,7 +62,7 @@ async function readRegistry() {
     throw new Error(`Unsupported worktree resource registry: ${REGISTRY_PATH}`);
   }
   const identifiers = new Set();
-  const validators = new Set(["cargo", "swiftpm", "bun", "jdtls", "jdk", "conpty"]);
+  const validators = new Set(["cargo", "swiftpm", "bun", "conpty"]);
   for (const resource of registry.resources) {
     if (!resource?.id || identifiers.has(resource.id)) throw new Error(`Duplicate or missing resource id: ${resource?.id ?? "<missing>"}`);
     if (!validators.has(resource.validator)) throw new Error(`Unknown validator for ${resource.id}: ${resource.validator}`);
@@ -81,6 +81,25 @@ async function readRegistry() {
   // are mutable user state, never download artifacts. Runtime profile import is
   // owned by the platform startup adapters; this build reuse route always rejects
   // both original state and migration snapshots and must not gain a validator.
+  // Core comment-lexer/Rustdoc output uses that same excluded Cargo state.
+  // Plugin preference sources and adjacent configfile temporaries are user-owned,
+  // mutable native state, rejected by the registry before any copying.
+  // Native cgo cache fixtures own and remove temporary archives; the link digest
+  // invalidates Go actions only and does not make Core output reusable.
+  // Viva's Core checkout, Cargo target and staged static libraries have no sealed
+  // cross-worktree identity, including Windows GNU winapi-import-libraries=mingw-system.
+  // WINAPI_NO_BUNDLED_LIBRARIES selects installed MinGW inputs, not reusable downloads.
+  // Marketplace transfer directories and the settings session's last verified
+  // archive lease are runtime-owned; neither has a build reuse validator.
+  // Both remain excluded before any source access or copy operation.
+  // Build Provider snapshots remain under the excluded per-workspace PluginState owner.
+  // They and Viva per-session Debug scratch directories are mutable runtime state
+  // and must never gain a download validator.
+  // User-authored Build preferences, machine-local differences and source-identity migration receipts are never reusable.
+  // Private instance defaults, Windows app-data/build-options/<workspace-digest>.json
+  // and runtime-preference migration receipts follow that same refusal route; no validator or copy stage.
+  // Native configuration probes and secret-bearing
+  // conditional replacements and private provider-written outputs/<operation-id>.json use the same explicit rejection route.
   // Plugin grammar workers use checkout-built editor assets; decoded grammars,
   // document tokens and editor action leases are memory-only, never reusable.
   // Shared logging catalogs and generated API sources also use the refusal route:
@@ -94,6 +113,8 @@ async function readRegistry() {
   // Offline Markdown libraries, including PlantUML, are pinned Git inputs.
   // Rebuild the target checkout's template/vendor resources before signing.
   // Generated bundles and live render state are never reusable resources.
+  // viva-editor-user-state: recovery source, recent files and keymap schemes are
+  // private mutable user data. Reject them before every source/copy/validator stage.
   const excludedResources = registry.excludedResources ?? [];
   if (!Array.isArray(excludedResources)) throw new Error("Invalid excluded worktree resources");
   for (const resource of excludedResources) {
@@ -162,18 +183,12 @@ async function requiredFile(root, relativePath, resourceID) {
 async function validatorArguments(resource, cachePath, targetRoot) {
   if (resource.validator === "cargo") {
     const lockPaths = [];
-    for (const relativePath of ["rust/Cargo.lock", "windows/tauri/src-tauri/Cargo.lock", "Plugins/mac/Official/EditorKeymapImport/Cargo.lock"]) {
+    for (const relativePath of ["rust/Cargo.lock", "windows/tauri/src-tauri/Cargo.lock"]) {
       const candidate = path.join(targetRoot, relativePath);
       if (await pathExists(candidate)) lockPaths.push(candidate);
     }
     if (lockPaths.length === 0) throw new Error("cargo requires at least one Cargo.lock in the target worktree");
     return ["--cargo-cache", cachePath, ...lockPaths.flatMap((lockPath) => ["--cargo-lock", lockPath])];
-  }
-  if (resource.validator === "jdtls") {
-    return ["--skip-cargo", "--jdtls-cache", cachePath, "--jdtls-manifest", await requiredFile(targetRoot, "third_party/jdtls/manifest.json", resource.id)];
-  }
-  if (resource.validator === "jdk") {
-    return ["--skip-cargo", "--jdk-cache", cachePath, "--jdk-manifest", await requiredFile(targetRoot, "third_party/jdk/manifest.json", resource.id)];
   }
   if (resource.validator === "conpty") {
     return ["--skip-cargo", "--conpty-cache", cachePath, "--conpty-manifest", await requiredFile(targetRoot, "third_party/conpty/manifest.json", resource.id)];
@@ -388,7 +403,7 @@ async function main() {
 
   const selected = options.resources.length > 0
     ? options.resources.map((identifier) => {
-      // Generated matrix views, runtime snapshots, per-execution Java launch files, Sparkle baseline
+      // Generated Go timing reports and matrix views, runtime snapshots, per-execution run temporary files, Sparkle baseline
       // and AutoBuild staging (including per-tag baselines and local/downloaded publication checkpoints), per-launch
       // CI Rust compilation state, Codex relays and plugin packages take this rejection route, never a download validator.
       // Identical bytes do not establish transferable execution ownership.
@@ -397,23 +412,22 @@ async function main() {
       // Includes application-log-state: v2 sessions, plugin files (0700/no-follow),
       // confirmation snapshots and export ZIP
       // staging belong to one runtime session; no validator or copy stage applies.
-      // Includes test-jfr-recordings: worker-owned profiling output has no transferable build identity.
       // Localized logging probes also reject their temporary SwiftPM UI hosts;
       // the host belongs to one source/toolchain/localization verification run.
       // Includes agent-ui-test-evidence: fixture screenshots belong to one test
       // revision/theme/viewport, never to a reusable build or runtime resource.
       // Includes plugin-ui-icons: signed runtime packages are never build-cache inputs.
       // official-plugin-packages also rejects dist/packages, dist/verify, per-architecture
-      // release ZIPs, synthetic published-index.fixture.json and java-plugin-distribution probes;
+      // release ZIPs and synthetic published-index.fixture.json;
       // origin trust and build-index ownership are not transferable.
       // Includes agent-hook-library-state: user commands, native ownership journals and locks have no copy stage.
       // Includes agent-instruction-library-state: user text and sync locks have no build identity or copy stage.
       // Includes mcp-tool-probe-state: SDK sessions, native tool exclusions and
       // retained Codex tool lists and in-memory snapshots belong to one user
       // profile/page, never build reuse (including after server removal).
-      // Includes mcp-registry-metadata: responses have no copy stage; featured.json
-      // and McpIcons follow Git source, never a downloaded/generated resource validator.
       // Includes plugin-web-state: per-window/workspace user JSON has no build identity or copy stage.
+      // Includes build-native-configuration-state: Windows private prepare tokens
+      // and document-module temporary siblings are operation-owned, never reusable.
       // Includes remote-server-artifacts: packaging rebuilds lithe-remote's
       // server-only binary from this worktree; no validator or copy stage applies.
       // Includes remote-connection-state: SSH settings, keychain secrets and placeholder roots are user-owned.
@@ -432,8 +446,16 @@ async function main() {
       // Per-launch Codex helpers also own memory-only context replay tickets and
       // loopback capabilities; they stay on this exclusion route, never a copy stage.
       // Agent edit-and-paste state is user-owned runtime data, without a copy stage.
+      // editor-theme-assets rebuild palettes and license notices together; no build stamp permits reuse.
+      // official-plugin-packages also excludes Windows Build Provider workspace
+      // and Registry stdio debug-adapter state under platform app-data.
+      // Workspace hashes never admit a copy stage; shared language-server state
+      // is owned by the server, never copied or deleted by a Debug session.
+      // Operation-owned toolchain backends keep mutable workspace state beneath
+      // the same plugin owner; neither their state nor query facts may be reused.
+      // consumer-tool-preferences are user-owned Run data, including symbolic
+      // inheritance. No validator or copy phase can turn them into build input.
       // editor-theme-assets rebuild palettes, bundled Make/CMake/Groovy grammars and notices together.
-      // editor-keymap-provider-build is worktree-local Cargo state and a sealed plugin, never a reusable cache.
       // Git-owned grammar inputs and memory-only tokenizer workers never enter a copy validator.
       if (excludedResources.some((resource) => resource.id === identifier)) {
         // Per-launch relays also own their provider admission route; they stay

@@ -1,0 +1,14 @@
+{
+  "name": "sample",
+  "version": "1.0.0",
+  "private": true,
+  "count": 42,
+  "ratio": -1.5e3,
+  "nothing": null,
+  "escapes": "tab\t quote\" unicode\u00e9",
+  "list": [1, "two", false, { "nested": [] }],
+  "scripts": {
+    "build": "go build ./...",
+    "test": "go test ./..."
+  }
+}

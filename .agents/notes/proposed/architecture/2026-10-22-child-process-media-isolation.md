@@ -2,9 +2,11 @@
 
 状态：提议中
 
+> Viva 迁移状态：本文的网页拒绝门描述旧客户端的实现，不能视为 Viva 已实现。Viva 的网页预览位于 `desktop/internal/webpreview/`，摄像头 / 麦克风仍休眠；重新启用网页媒体采集前，必须重新审查 Go、Core 与插件的全部进程入口，保持下述默认拒绝和隔离验收要求。
+
 ## 先说结论
 
-一旦 Lithe 补上摄像头 / 麦克风的用途说明，使用者在网页弹窗里点一次“Allow”，系统记下的就是“Lithe 可以用摄像头”。Lithe 启动的子孙进程（插件后端、语言服务器、内置终端里的命令、Agent 的 shell 工具）会沿着责任进程规则继承这份授权，不经过任何弹窗，而网页那道默认拒绝门 `WebMediaCapture.decide` 管不到它们。提案是在所有启动子进程的入口统一套一份只禁摄像头 / 麦克风的沙盒 deny 策略，让用途说明和这层隔离在同一个 PR 里上线，并且隔离自检失败时网页门一律拒绝。
+一旦 Lithe 补上摄像头 / 麦克风的用途说明，使用者在网页弹窗里点一次“Allow”，系统记下的就是“Lithe 可以用摄像头”。Lithe 启动的子孙进程（插件后端、语言服务器、内置终端里的命令）会沿着责任进程规则继承这份授权，不经过任何弹窗，而网页的默认拒绝门（`decide`）管不到它们。提案是在所有启动子进程的入口统一套一份只禁摄像头 / 麦克风的沙盒 deny 策略，让用途说明和这层隔离在同一个 PR 里上线，并且隔离自检失败时网页门一律拒绝。
 
 2026-10-22 维护者决定暂不做：摄像头 / 麦克风功能继续休眠，不改 Info.plist，不做真机验证，也不做子进程隔离。这篇 Note 是以后重启这条线时的依据，不是待办；评估的实测依据写在 `2026-10-22-html-preview-embedded-browser.md` 的“补用途说明之前必须知道的事”。
 
@@ -28,14 +30,13 @@ HTML 预览和插件页已经有统一的默认拒绝门，但它只管网页。
 
 | 类别 | 启动入口 | 隔离方式 |
 | --- | --- | --- |
-| 运行、构建、测试、调试采样、插件包解压、调试适配器 | Swift `MacManagedProcess.spawn`（唯一的 `posix_spawn` 入口） | 在这一处包装，一处覆盖全部 |
-| 内置终端 | `MacTerminalTransport.startProcess`，经 SwiftTerm 启动 | SwiftTerm 自己创建伪终端并 `posix_spawn`，Lithe 拿不到 spawn 属性，只能改被启动的可执行文件 |
-| 插件后端、所有语言服务器 | Rust Core 的 `SystemProcessLauncher`（`rust/lithe-core/src/lsp/interface/process.rs`） | Rust 侧一个公共函数；Swift 的语言服务器会话只是调用 Core 并登记 pid，不是它启动的 |
-| Agent CLI 及其 shell 工具 | `rust/lithe-agent-host` | 同一个公共函数；模型自己决定跑什么命令，被提示注入时和“插件偷听”是同一类风险 |
-| 其它固定二进制 | `lithe-git-host`、`lithe-db-sidecar`、`lithe-db-mcp`、`lithe-ide-host` 等 | 实现时重新盘点（`lithe-ide-host` 这次评估没有查），覆盖或登记豁免 |
-| 必须豁免 | `MacProcessSupervisor`、`MacApplicationRelauncher`、`MacStableRollback` | 它们就是 Lithe 自己，要保持原来的责任进程 |
+| 运行、构建、测试、调试、项目生成、插件包解压、插件服务 | `desktop/internal/` 中各处 `os/exec` 启动点（例如 `buildprocess`、`projectgen`、`pluginservice`） | 目前没有统一的启动入口，实现时先盘点，再收敛到一个公共函数 |
+| 内置终端 | `desktop/internal/nativeterm/`、`desktop/internal/localshell/` 启动 shell 的入口 | 在启动被终端运行的程序时包装；登录 shell 的 `argv[0]`、shell integration、前台作业识别不得受影响 |
+| 插件后端、语言服务器 | Core 仓库的 `rust/crates/lsp-transport/src/process.rs` 中的进程启动器 | Core 侧一个公共函数，所有宿主共用 |
+| 其它固定二进制（Git 宿主、数据库 sidecar、IDE 宿主等） | 以 Core 与桌面端实际启动点为准 | 实现时重新盘点，覆盖或登记豁免 |
+| 必须豁免 | Lithe 自身的监护进程、重启与更新回滚辅助进程 | 它们就是 Lithe 自己，要保持原来的责任进程 |
 
-三套启动栈（Swift 的 `posix_spawn`、SwiftTerm、Rust 标准库）里任何一套漏掉，都是一个口子。
+Go 的 `os/exec`、终端的伪终端启动和 Core 的 Rust 标准库启动，三套启动栈里任何一套漏掉，都是一个口子。
 
 ## 提案
 
@@ -44,8 +45,8 @@ HTML 预览和插件页已经有统一的默认拒绝门，但它只管网页。
 只对 Lithe 启动的进程做隔离，调用方不用关心细节：
 
 - 引入“子进程启动策略”，默认值是“套摄像头 / 麦克风 deny 策略”。要豁免必须在启动点登记理由，例如“这是 Lithe 自己的监督进程”。
-- Swift 在 `MacManagedProcess.spawn` 里把要启动的程序换成包装后的命令（`sandbox-exec` 带策略再接原命令，或随包的小 shim）；终端在 `startProcess` 里换被启动的可执行文件，并确认登录 shell 的 `argv[0]`、shell integration、前台作业识别不受影响；Rust 侧用一个公共函数同时包住 `SystemProcessLauncher` 和 agent-host 的启动点。
-- 网页门联动：`WebMediaAccess.outcome` 增加“隔离自检通过”这个条件。自检用 `sandbox_check` 在一个受限子进程里确认 `device-camera` 和 `device-microphone` 都被拒；失败就像缺用途说明时一样返回 `.unavailable`，门直接拒绝，不触发系统授权框。`.unavailable(missing:)` 现在带的是缺用途说明的设备，自检失败时可以把被请求的设备全部放进去，也可以新增一种结果，实现时再定。
+- 在桌面端的公共启动函数里把要启动的程序换成包装后的命令（`sandbox-exec` 带策略再接原命令，或随包的小 shim）；终端在启动 shell 时换被启动的可执行文件，并确认登录 shell 的 `argv[0]`、shell integration、前台作业识别不受影响；Core 侧用一个公共函数包住所有进程启动点。
+- 网页门联动：网页授权判断（旧客户端中的 `WebMediaAccess.outcome`，Viva 中的对应函数待建）增加“隔离自检通过”这个条件。自检用 `sandbox_check` 在一个受限子进程里确认 `device-camera` 和 `device-microphone` 都被拒；失败就像缺用途说明时一样返回“不可用”结果，门直接拒绝，不触发系统授权框。自检失败时可以把被请求的设备全部列出，也可以新增一种结果，实现时再定。
 - 用途说明（`NSCameraUsageDescription`、`NSMicrophoneUsageDescription`）作为这个 PR 的最后一步补上；补之前仍要先告知维护者并等确认。
 
 ### 沙盒策略
@@ -118,12 +119,12 @@ HTML 预览和插件页已经有统一的默认拒绝门，但它只管网页。
 ## 验收标准
 
 - 真机验证通过（见上）：直接启动的子进程成功、套策略的失败；各类设备都覆盖。
-- 三套启动栈全覆盖：源码扫描测试（像 `WebMediaCaptureCoverageTests` 那样）要求每个启动点要么走隔离启动器，要么登记豁免理由，新增启动点不登记就失败。
-- 自检有测试：`WebMediaAccess.outcome` 在自检通过时才可能询问，失败时返回 `.unavailable`；`sandbox_check` 的自检在受限子进程里运行。
+- 所有启动栈全覆盖：源码扫描测试（用 Go 测试扫描 `desktop/` 与 Core 中的启动点）要求每个启动点要么走隔离启动器，要么登记豁免理由，新增启动点不登记就失败。
+- 自检有测试：网页授权判断在自检通过时才可能询问，失败时返回“不可用”；`sandbox_check` 的自检在受限子进程里运行。
 - 行为不回归：被包装进程的 pid 与登记的一致，进程组、会话、信号转发和退出码不变；终端里登录 shell 的 `argv[0]`、shell integration、前台作业识别不变；项目在 Documents 下时 `git`、`java`、`node`、`mvn` 仍能用 Lithe 已有的文件夹授权；终端里 `afplay` 仍能出声。
 - 终端里 `ffmpeg` 一类的采集命令失败（今天本来也失败，不算回归）。
-- 豁免的三个进程（`MacProcessSupervisor`、`MacApplicationRelauncher`、`MacStableRollback`）不套策略，并且在源码扫描里有登记。
-- 运行时只读边界：包装用到的任何随包文件都在构建阶段生成，`./scripts/macos/verify/verify-runtime-bundle-immutability.sh` 通过。
+- 豁免的 Lithe 自身进程（监护进程、重启与更新回滚辅助进程）不套策略，并且在源码扫描里有登记。
+- 运行时只读边界：包装用到的任何随包文件都在构建阶段生成，`./scripts/desktop/verify/verify-runtime-bundle-immutability.sh` 通过。
 - 用途说明和隔离在同一个 PR 里；补用途说明前先告知维护者并等确认；功能矩阵标明仅 macOS。
 
 ## 风险
@@ -137,13 +138,10 @@ HTML 预览和插件页已经有统一的默认拒绝门，但它只管网页。
 
 ## 适用范围
 
-- `macos/Sources/Lithe/Platform/MacOS/Process/MacManagedProcess.swift`（唯一的 `posix_spawn` 入口，Swift 侧的包装点）
-- `macos/Sources/Lithe/Platform/MacOS/Process/MacProcessLifecycle.swift`（`MacProcessSupervisor`，必须豁免）
-- `macos/Sources/Lithe/Platform/MacOS/MacApplicationRelauncher.swift`（必须豁免）
-- `macos/Sources/Lithe/Platform/MacOS/Updates/MacStableRollback.swift`（必须豁免）
-- `macos/Sources/Lithe/Platform/MacOS/Terminal/MacTerminalTransport.swift`（内置终端的启动入口）
-- `macos/Sources/Lithe/Platform/MacOS/WebMediaCapture.swift`（网页门，隔离自检的联动点）
-- `macos/Tests/LitheTests/WebMediaCaptureTests.swift`（源码扫描测试所在位置）
-- `macos/Resources/Info.plist`（用途说明，最后一步才补）
-- `rust/lithe-core/src/lsp/interface/process.rs`（插件后端和语言服务器的启动入口）
-- `rust/lithe-agent-host/`
+- `desktop/internal/term/`
+- `desktop/internal/nativeterm/`
+- `desktop/internal/localshell/`
+- `desktop/internal/webpreview/`
+- `desktop/internal/pluginbackend/`
+- `desktop/internal/core/plugin_session.go`
+- Core 仓库的进程启动入口：[rust/crates/](https://github.com/Lithe-IDEA/Lithe-core-rust/tree/main/rust/crates)

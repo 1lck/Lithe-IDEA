@@ -6,11 +6,10 @@ This product includes software derived from OpenIDEA
 licensed under the Apache License 2.0.
 Copyright 2026 OpenIDEA contributors
 
-The derived parts are the login shell environment reader
-(macos/Sources/Lithe/Platform/MacOS/Runtime/MacLoginShellEnvironment.swift, from
-crates/ide-host/src/shell_env.rs), the automatic JDK selection policy
-(rust/lithe-core/src/execution/java_selection.rs, from crates/ide-sdk/src/java.rs) and the
-version manager install locations used by JDK and Maven discovery. They were translated
-and modified for Lithe; each derived file names its origin.
+The derived part is the login shell environment reader
+(desktop/internal/loginenv/loginenv.go, from crates/ide-host/src/shell_env.rs). It was
+translated and modified for Lithe; the file names its origin. The automatic JDK selection
+policy that was also derived from OpenIDEA moved to the Java Support plugin
+(https://github.com/Lithe-IDEA/lithe-plugin-java), whose NOTICE names it.
 
 Lithe is not affiliated with OpenIDEA, JetBrains s.r.o. or their products.

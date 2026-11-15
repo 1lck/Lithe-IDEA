@@ -69,8 +69,8 @@ actionlint .github/workflows/sync-atomgit-release.yml .github/workflows/release-
 ## 适用范围
 
 - `.github/workflows/sync-atomgit-release.yml`
-- `.github/workflows/release-macos.yml`
-- `.github/workflows/release-windows.yml`
+- ~~`.github/workflows/release-macos.yml`~~（已随 #1794 移除）
+- ~~`.github/workflows/release-windows.yml`~~（已随 #1794 移除）
 - `scripts/sync-atomgit-release.mjs`
 - `scripts/test-sync-atomgit-release.mjs`
 - `docs/releases/atomgit-sync.md`

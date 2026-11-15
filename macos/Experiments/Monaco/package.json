@@ -1,8 +1,0 @@
-{
-  "name": "lithe-macos-monaco-experiment",
-  "private": true,
-  "type": "module",
-  "dependencies": {
-    "@lithe/editor": "file:../../../frontend/editor"
-  }
-}

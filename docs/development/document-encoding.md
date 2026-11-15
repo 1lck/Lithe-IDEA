@@ -1,41 +1,28 @@
 # 文本文件编码接入方案
 
-Lithe 把“如何解码当前编辑器文本”和“下一次写入磁盘使用什么编码”视为两个独立选择：
+Viva 桌面端的编码规则由共享内核 Lithe-core-rust 统一持有：有哪些编码、如何自动识别、字节如何解码和编码、不可表示的字符如何处理，都在 Core 中实现。桌面端只负责决定字节从哪里读、写到哪里，并把结果显示出来，不复制编码转换。
 
-- `readEncoding` 只影响读取、重新打开和外部文件重载；
-- `saveEncoding` 只影响保存产生的字节；
-- 原生文档模型还记录最近一次确认的磁盘编码，用于保存后的状态和并发保护。
+## 职责划分
 
-因此，用户可以用 GBK 重新打开一个 UTF-8 文件来查看实际解码结果，而不因此改变下一次保存编码；如果所选编码不匹配，编辑器会显示替换字符而不是保留旧文本。也可以只把保存编码切换为 GB18030，而不改变当前文本的解码方式。成功保存后，保存编码和磁盘快照编码才会更新。旧版会话只有一个 `encoding` 字段时，会同时作为两种角色的初始值读取。
-
-## 统一目录接口
-
-两端都实现同一组目录字段：
-
-| 字段 | 作用 |
+| 位置 | 职责 |
 | --- | --- |
-| `stableId` | 跨平台稳定持久化 ID，不能使用本地化显示文本替代 |
-| `id` | 兼容当前文件操作协议的编码标签 |
-| `displayName` | 菜单和状态栏显示名称 |
-| `aliases` | 兼容命令行、旧会话或文件关联中的名称 |
-| `supportsRead` | 是否允许以该编码读取 |
-| `supportsWrite` | 是否允许以该编码写入 |
-| `bom` | BOM 策略；当前支持 `none`、`utf8`、`utf16le` 和 `utf16be` |
+| Lithe-core-rust（[仓库](https://github.com/Lithe-IDEA/Lithe-core-rust)） | 编码目录（稳定 ID、显示规则、读写规则与 BOM 策略）、自动识别、解码与编码、不可表示字符的错误 |
+| `desktop/internal/workbench/encoding.go` | 编码显示名（`encodingLabels`）；编辑器文本始终是 UTF-8；非纯 UTF-8 文件保留最近一次读写的磁盘字节（`diskBytes`），因为保存防护和外部修改检测比较的是字节 |
+| `desktop/internal/documentio` | 读写文件字节，以及写入保护 |
 
-前端目录位于 `windows/tauri/src/platform/document-files.ts` 的 `DOCUMENT_ENCODING_CATALOG`，macOS 契约目录位于 `macos/Sources/LitheCoreContracts/Workspace/WorkspaceFileOperations.swift` 的 `DocumentEncoding.catalog`，Windows 原生目录位于 `windows/tauri/crates/project/src/document_file.rs` 的 `DocumentEncoding::CATALOG`。三个目录的 `stableId`、能力和 BOM 策略必须保持一致；真正的字节转换仍由平台适配器负责。
+纯 UTF-8 文件（没有 BOM）走无拷贝的快速路径，不调用 Core。
 
-当前目录共 16 种编码：UTF-8、UTF-8 with BOM、UTF-16 LE/BE with BOM、UTF-16 LE/BE（无 BOM）、GBK、GB18030、Big5、Shift JIS、EUC-JP、EUC-KR、Windows-1250、Windows-1251、Windows-1252 和 KOI8-R。`Windows-1252` 同时接受 `ISO-8859-1`/`latin1` 别名（与 WHATWG 一致）；`EUC-KR` 实际是 CP949 超集，macOS 对应 `dosKorean`，`Big5` 在两端都含 HKSCS 扩展。
+## 当前目录
 
-自动识别只覆盖 UTF-8、带 BOM 的编码和 GBK 系：其余单字节和多字节编码的字节互相重叠，无法可靠猜测，因此只能由用户显式选择编码重新打开，不会因为“看起来像”而被自动选中。无 BOM 的 UTF-16 同理；UTF-32 LE 的 BOM（`FF FE 00 00`）以 `FF FE` 开头，自动识别会明确排除它，避免被当成 UTF-16 LE 打开并改写。UTF-32 目前不在目录内。
+Core 的目录当前包含 16 种编码：`utf-8`、`utf-8-bom`、`utf-16le-bom`、`utf-16be-bom`、`utf-16le`、`utf-16be`、`gbk`、`gb18030`、`big5`、`shift-jis`、`euc-jp`、`euc-kr`、`windows-1250`、`windows-1251`、`windows-1252` 和 `koi8-r`。桌面端的 `encodingLabels` 必须覆盖同样的 ID。
+
+自动识别只覆盖 UTF-8、带 BOM 的编码和 GBK 系：其余单字节和多字节编码的字节互相重叠，无法可靠猜测，因此只能由用户显式选择编码重新打开，不会因为“看起来像”而被自动选中。无 BOM 的 UTF-16 同理。UTF-32 LE 的 BOM（`FF FE 00 00`）以 `FF FE` 开头，自动识别会明确排除它，避免被当成 UTF-16 LE 打开并改写。
 
 ## 新增一种编码
 
-1. 在三个目录中添加同一个 `stableId`、显示名、协议标签、别名、读写能力和 BOM 策略。
-2. 在 macOS `MacDocumentEncoding.codec(_:)` 中添加 Foundation/CoreFoundation 映射。
-3. 在 Windows `DocumentEncoding::codec` 和 `parse` 中添加 `encoding_rs` 映射及别名。
-4. 按能力过滤读取和保存菜单；只读或只写编码不能出现在不支持的操作中。
-5. 增加原始字节 fixture（见 `shared/fixtures/documents/encoding-explicit-reopen-v1.json`），覆盖显式错码读取、保存后字节、BOM 和不可表示字符错误。
-6. 增加 macOS、Windows 的目录一致性测试，并更新 `shared/platform-feature-matrix/features/` 中对应能力的验证场景。
-7. 如果编码会进入工作区会话，保持新旧字段的解码兼容；不要把读写状态重新合并成一个字段。
+1. 在 Lithe-core-rust 的编码目录中添加稳定 ID、显示规则、别名、读写能力和 BOM 策略，并补充原始字节 fixture，覆盖显式错误编码读取、保存后的字节、BOM 和不可表示字符的错误。fixture 的参考位置是 [`rust/fixtures/documents/encoding-explicit-reopen-v1.json`](https://github.com/Lithe-IDEA/Lithe-core-rust/blob/main/rust/fixtures/documents/encoding-explicit-reopen-v1.json)。
+2. 在 `desktop/internal/workbench/encoding.go` 的 `encodingLabels` 中添加显示名，并使用新的 Core 修订固定到 `scripts/desktop/build-desktop-core.sh` 的 `PINNED_CORE_REVISION`。
+3. 按读写能力过滤菜单：只读或只写的编码不能出现在不支持的操作中。
+4. 运行 `scripts/desktop/desktop-go.sh test ./internal/workbench/...` 验证编辑器的读写路径。
 
-平台适配器不得把编码转换复制到 SwiftUI、React 或 Monaco 层。编辑器只处理 Unicode 文本和编码目录描述，原生适配器负责字节边界、大小限制、身份指纹和原子写入。自动识别仍然严格拒绝无法验证的字节，避免把 GBK 误判成 UTF-8；文件监听先比较原始字节指纹，再使用当前读取编码解码；用户主动重新打开必须执行显式解码，并允许替换字符表达选错编码的结果。
+桌面端不得把编码转换复制到界面层。编辑器只处理 Unicode 文本和 Core 给出的编码描述；字节边界、大小限制和写入保护由 `desktop/internal/documentio` 负责。

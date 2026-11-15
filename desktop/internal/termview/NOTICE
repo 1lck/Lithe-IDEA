@@ -1,0 +1,19 @@
+The terminal of the Lithe desktop client is derived from Motty
+(https://github.com/t8y2/motty), used under the Apache License, Version 2.0.
+A copy of the license is in the LICENSE file at the root of this repository.
+
+Motty
+Copyright 2026 Motty contributors
+
+The following packages were ported from it:
+
+- desktop/internal/term        from internal/term (the screen and its encoders)
+- desktop/internal/localshell  from internal/localshell (the local shell on a pty)
+- desktop/internal/shellkind   from internal/shellkind (shell detection)
+- desktop/internal/termview    from internal/workbench (the terminal view: the row cache,
+                               output pump, painting, selection, input and scrollbar)
+
+Changes: import paths were moved into this module. The terminal view keeps only a local
+shell in one pane; Motty's SSH, AI, recording, prediction, links, find, toolbar and
+multi-pane parts were left out, and its state, session and terminal types were merged into
+one View.

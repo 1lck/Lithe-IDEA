@@ -81,7 +81,7 @@ Command Line Tools，链接 x86_64 时曾解析到不兼容的 SDK。
 ## 适用范围
 
 - `docs/ci-builds.md`
-- `.github/workflows/ci-macos.yml`
-- `.github/workflows/ci-plugins.yml`
-- `.github/actions/setup-macos-toolchain/action.yml`
+- ~~`.github/workflows/ci-macos.yml`~~（已随 #1794 移除）
+- ~~`.github/workflows/ci-plugins.yml`~~（已随 #1794 移除）
+- ~~`.github/actions/setup-macos-toolchain/action.yml`~~（已随 #1794 移除）
 - `.agents/notes/implemented/process/2026-09-13-ci-build-cache-and-artifact-strategy.md`

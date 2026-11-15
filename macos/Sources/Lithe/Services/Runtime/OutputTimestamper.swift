@@ -1,3 +1,0 @@
-import LitheCoreContracts
-
-typealias OutputTimestamper = LitheCoreContracts.OutputTimestamper

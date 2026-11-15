@@ -4,20 +4,38 @@
   "group": "WSL",
   "capability": "跨 WSL 边界移动与重命名",
   "macos": {
-    "evidence": [
-      "macos/Sources/Lithe"
-    ],
     "implementationStatus": "platform-specific",
-    "verificationStatus": "not-applicable"
+    "verificationStatus": "not-applicable",
+    "evidence": [
+      "docs/viva-migration.md"
+    ]
   },
   "windows": {
+    "implementationStatus": "missing",
+    "verificationStatus": "not-applicable",
     "evidence": [
-      "windows/tauri/src/features/wsl",
-      "windows/tauri/src/features/file-system"
-    ],
-    "implementationStatus": "implemented",
-    "verificationStatus": "pending"
+      "docs/viva-migration.md"
+    ]
   },
   "owner": "Windows Platform",
-  "verification": "Windows 验证本地、同发行版、跨发行版移动/重命名及明确错误提示。"
+  "verification": "Windows 验证本地、同发行版、跨发行版移动/重命名及明确错误提示。",
+  "legacy": {
+    "revision": "5a54c41aa37a4e6e6b68918a4b05765b9dd07a36",
+    "macos": {
+      "evidence": [
+        "macos/Sources/Lithe"
+      ],
+      "implementationStatus": "platform-specific",
+      "verificationStatus": "not-applicable"
+    },
+    "windows": {
+      "evidence": [
+        "windows/tauri/src/features/wsl",
+        "windows/tauri/src/features/file-system"
+      ],
+      "implementationStatus": "implemented",
+      "verificationStatus": "pending"
+    }
+  },
+  "notes": "Viva：未找到跨 WSL 边界移动与重命名的实现；filetree_menu.go 的重命名直接调用 os.Rename，没有识别 WSL 边界或同发行版判断。该能力为 Windows 专属，macOS 端为平台专属。"
 }

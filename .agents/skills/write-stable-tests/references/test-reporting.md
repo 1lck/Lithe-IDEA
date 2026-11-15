@@ -6,7 +6,9 @@ Every timing runner writes these artifacts below `.artifacts/test-stability/`:
 
 - `index.html` is the current runner dashboard. CI regenerates it as a combined
   dashboard after every selected lane in the job finishes.
-- `<lane>.html` is a self-contained report for one Swift, Bun, or Rust lane.
+- `<lane>.html` is a self-contained report for one Go or Rust lane. The Swift and
+  Bun runners still in this directory belong to deleted clients; their reports are
+  not verification evidence for Viva.
 - `<lane>.junit.xml` is the standard CI and IDE interchange report.
 - `<lane>.json` is the normalized machine-readable timing source.
 - `<lane>.log`, when available, contains the raw runner output.
@@ -27,9 +29,16 @@ The dashboard separates correctness from performance:
 - A duration at or above `warnMs` but below `maxMs` is a performance warning.
   It remains a passing JUnit case but appears in the optimization queue.
 - Faster passing cases are healthy. Skipped cases are reported separately.
+- Go records the elapsed time reported by `go test -json`, including both
+  parent tests and subtests. Parent time already includes its children; sums of
+  these rows are not wall-clock duration. Package names distinguish equal test
+  names. Empty matches, unfinished cases, package failures and invalid output
+  fail rather than producing an empty passing report. Output is capped at
+  64 MiB. A failed or unconfirmed process-tree cleanup is a failure and is
+  recorded explicitly; killing only the direct process is not proof the tree
+  was cleaned up.
 
-Module health is derived from Swift Testing suites, Bun JUnit classes, and Rust
-crate/module paths. Do not infer a production bottleneck from one slow test.
+Module health is derived from Go package names and Rust crate/module paths. Do not infer a production bottleneck from one slow test.
 First determine whether the cost is test setup, external I/O, subprocess work,
 or the behavior under test, then optimize the owning boundary.
 
@@ -44,6 +53,6 @@ node .agents/skills/write-stable-tests/scripts/generate-test-report.mjs
 ```
 
 For feature-gated Rust targets, pass `--no-default-features --features client,server`
-to `run-rust-tests-with-timing.mjs` (as in `scripts/remote/verify-remote-workspace.sh`).
+to `run-rust-tests-with-timing.mjs`.
 The runner forwards these flags to Cargo and records the selected features in
 JSON so a passing client-only run cannot be mistaken for server coverage.

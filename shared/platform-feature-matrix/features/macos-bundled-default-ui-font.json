@@ -7,23 +7,49 @@
     "implementationStatus": "implemented",
     "verificationStatus": "pending",
     "evidence": [
-      "macos/Sources/Lithe/Theme/LitheTheme.swift",
-      "macos/Sources/Lithe/Platform/MacOS/UI/MacBundledFontRegistry.swift",
-      "macos/Resources/Fonts",
-      "macos/Sources/Lithe/LitheApp.swift",
-      "macos/Sources/Lithe/Platform/MacOS/MonacoWorkbenchEditor.swift",
-      "macos/EditorFrontend/index.html",
-      "scripts/macos/verify/verify-macos-package.sh",
-      "macos/Tests/LitheTests/BundledUIFontTests.swift"
+      "docs/viva-migration.md",
+      "desktop/internal/bundledfont/bundledfont.go",
+      "desktop/internal/bundledfont/embedded.go",
+      "desktop/internal/bundledfont/fonts/NOTICE.txt",
+      "desktop/internal/bundledfont/bundledfont_test.go",
+      "desktop/internal/bundledfont/embedded_test.go",
+      "desktop/internal/workbench/fonts_bundled.go",
+      "desktop/internal/workbench/fonts.go",
+      "scripts/desktop/package-desktop.sh"
     ]
   },
   "windows": {
     "implementationStatus": "platform-specific",
     "verificationStatus": "not-applicable",
     "evidence": [
-      "windows/tauri/src"
+      "docs/viva-migration.md"
     ]
   },
   "owner": "macOS UI",
-  "verification": "在未安装 Inter 或 JetBrains Mono 的 macOS 上安装构建包，检查欢迎页、主工作区、设置、Search、Database、Git、Commit 及菜单使用 Inter；Project 树使用 13pt；编辑器和终端默认使用 JetBrains Mono（编辑器未改过字体设置时），显式等宽内容保留等宽字形；输入中文时系统回退字形正常，各控件原有字号、字重、输入/选中操作不变；安装包 Fonts 目录包含 Inter 4.1 的 18 个静态 OTF（内部版本 4.001）及许可、JetBrains Mono 2.304 的 16 个静态字型及许可/作者信息，CoreText 按 process 范围注册打包字体；UI 的 Regular、Medium、SemiBold、Bold 和 Black 请求分别匹配真实 Inter 字型，SwiftUI 不重复加权；WebKit 从同一只读 Fonts 目录加载，字体加载后重新度量 Monaco；比较字体文件清单及 SHA-256，确认启动和使用不会修改签名 bundle。编辑器字体族被用户改为其他系统字体后的行为由 editor-font-family 覆盖，本条只保证默认字体与打包资源身份。Windows 本次不变。 TextStyle 字体入口须保留显式 monospaced design，caption 与 headline 均验证等宽字型。"
+  "verification": "Viva：用 scripts/desktop/package-desktop.sh 打出 macOS 发行包，在未安装 Inter 与 JetBrains Mono 的机器上打开，确认欢迎页、工作台、设置与菜单用 Inter，编辑器与运行输出默认 JetBrains Mono，终端默认 Nerd Font（提示符图标不显示为方框），输入中文时系统回退字形正常；运行 cd desktop && bash ../scripts/desktop/desktop-go.sh test -tags lithe_bundled_fonts ./internal/bundledfont/，确认嵌入文件与仓库文件逐字节一致、三组字体族都注册成功；运行 zsh scripts/desktop/verify/verify-runtime-bundle-immutability.sh，确认启动和使用不修改签名 bundle。旧客户端基线：在未安装 Inter 或 JetBrains Mono 的 macOS 上安装构建包，检查欢迎页、主工作区、设置、Search、Database、Git、Commit 及菜单使用 Inter；Project 树使用 13pt；编辑器和终端默认使用 JetBrains Mono（编辑器未改过字体设置时），显式等宽内容保留等宽字形；输入中文时系统回退字形正常，各控件原有字号、字重、输入/选中操作不变；安装包 Fonts 目录包含 Inter 4.1 的 18 个静态 OTF（内部版本 4.001）及许可、JetBrains Mono 2.304 的 16 个静态字型及许可/作者信息，CoreText 按 process 范围注册打包字体；UI 的 Regular、Medium、SemiBold、Bold 和 Black 请求分别匹配真实 Inter 字型，SwiftUI 不重复加权；WebKit 从同一只读 Fonts 目录加载，字体加载后重新度量 Monaco；比较字体文件清单及 SHA-256，确认启动和使用不会修改签名 bundle。编辑器字体族被用户改为其他系统字体后的行为由 editor-font-family 覆盖，本条只保证默认字体与打包资源身份。Windows 本次不变。 TextStyle 字体入口须保留显式 monospaced design，caption 与 headline 均验证等宽字型。",
+  "legacy": {
+    "revision": "5a54c41aa37a4e6e6b68918a4b05765b9dd07a36",
+    "macos": {
+      "implementationStatus": "implemented",
+      "verificationStatus": "pending",
+      "evidence": [
+        "macos/Sources/Lithe/Theme/LitheTheme.swift",
+        "macos/Sources/Lithe/Platform/MacOS/UI/MacBundledFontRegistry.swift",
+        "macos/Resources/Fonts",
+        "macos/Sources/Lithe/LitheApp.swift",
+        "macos/Sources/Lithe/Platform/MacOS/MonacoWorkbenchEditor.swift",
+        "macos/EditorFrontend/index.html",
+        "scripts/macos/verify/verify-macos-package.sh",
+        "macos/Tests/LitheTests/BundledUIFontTests.swift"
+      ]
+    },
+    "windows": {
+      "implementationStatus": "platform-specific",
+      "verificationStatus": "not-applicable",
+      "evidence": [
+        "windows/tauri/src"
+      ]
+    }
+  },
+  "notes": "Viva：Inter 4.1 的 18 个静态 OTF、JetBrains Mono 2.304 的 16 个字型、JetBrainsMono Nerd Font Mono 的 4 个字型和许可文件放在 desktop/internal/bundledfont/fonts（NOTICE.txt 列出来源与每个字型的 SHA-256），macOS 发行构建用 lithe_bundled_fonts 构建标签经 go:embed 编进可执行文件（package-desktop.sh），不读写 app bundle 的 Resources。启动时 bundledfont.Register 经 Viva app.RegisterFont 按进程范围注册（暂存副本写在用户缓存目录 viva/fonts），界面字体在首次绘制前切换为 Inter（fonts_bundled.go），编辑器与终端在用户未选字体时默认 JetBrains Mono（fonts.go，终端先选 Nerd Font，见 terminal-interaction）。开发与测试构建不带字体，回退系统字体。代价是可执行文件增大约 25 MB，启动注册约 85–120 ms，其中约 75 ms 是 Viva 暂存时的 FNV 哈希，Lithe-IDEA/viva#8（上游 vivaui/viva#233）改用 SHA-256 后约 8 ms，等固定版本升级后生效。"
 }

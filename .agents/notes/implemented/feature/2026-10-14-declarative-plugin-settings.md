@@ -1,90 +1,64 @@
-# Agent 笔记：声明式插件设置
+# Agent 笔记：声明式插件设置 v1
 
 状态：已实现
 
 ## 先说结论
 
-声明式插件的 settings v1 可以在 `plugin.json` 里声明“用户可调的选项”，比如早期 Java Support 使用的 JDT LS 最大堆内存和日志级别。这个 Note 只保留 v1 的兼容规则；当前的页面注册、项目/全局分层、文本/路径类型和即时生效方式见 `.agents/notes/implemented/architecture/2026-10-21-plugin-settings-surfaces.md`。
-
-对日常开发的直接影响：维护 v1 清单时只使用这里列出的兼容字段；新增设置面或需要项目覆盖时，应遵循 v2 Note，不要在宿主里加某个语言服务器的专用设置页。
+声明式插件的 settings v1 允许插件在 `plugin.json` 中声明用户可调的选项（整数、枚举、布尔）。选项值由宿主保存，展开启动模板与回退到默认值都在 Rust Core 完成，宿主只传入存储的值。本文只保留 v1 的兼容规则；页面注册、项目与全局分层、文本与路径类型见 [插件设置的通用注册面与生效方式](../architecture/2026-10-21-plugin-settings-surfaces.md)。
 
 ## 问题
 
-JDT LS 这类语言服务器有很多启动参数，最常见的是堆内存上限。迁移成插件之前这些值写死在宿主的 Rust 适配层里（`-Xmx2048m`、`-Dlog.level=ALL`），迁移之后插件包是只读且签过名的，用户没有任何办法改它们：大型多模块项目遇到 OOM 只能改代码重新发版。
+语言服务器等插件有很多启动参数，最常见的是堆内存上限。插件包是只读且签过名的，如果这些值写死在宿主里，用户就无法调整，遇到内存不足只能等待发版。
 
 ## 决策
 
-### 1. 选项由插件声明，值由宿主保存
+### 选项由插件声明，值由宿主保存
 
-- v1 清单里的 `settings` 只允许三种类型：`integer`（必须给 `minimum` 和 `maximum`）、`enum`（给出固定的选项列表）、`boolean`。没有自由文本类型。
-- v1 的值是每个插件一份，对所有工作区生效，保存位置是宿主的偏好存储，键为 `lithe.plugins.<id>.settings`，只记录用户改过的值。v2 的项目层和作用域规则不适用于这里的兼容字段。
-- 用户选回默认值，或点“恢复默认值”，就删除这条 v1 记录；以后插件更新了默认值，没改过的用户会自动跟上。
+- v1 清单中的 `settings` 只允许三种类型：`integer`（必须给出 `minimum` 和 `maximum`）、`enum`（给出固定选项列表）和 `boolean`。没有自由文本类型。
+- v1 的值每个插件一份，对所有工作区生效，保存在宿主的偏好存储中，只记录用户改过的值。
+- 用户选回默认值时删除这条记录；插件更新了默认值后，没有改过的用户会自动跟上。
 
-### 2. 展开与回退都在 Rust Core
+### 展开与回退都在 Rust Core
 
-`plugins.declarative.languageServerLaunchPlan` 的请求多一个 `settings`（选项 ID 到值）。Core 对每个声明过的选项取“存储值若仍被声明接受，否则取默认值”，所以：
+启动计划请求携带选项的存储值。Core 对每个声明过的选项取“存储值若仍被声明接受，否则取默认值”，因此：
 
-- 插件更新收窄了范围，旧的存储值不再合法，启动不会失败，而是悄悄用默认值；
-- 存储里有未声明的 ID 会被忽略；
-- 宿主 Swift 和 Windows 不需要各写一份回退逻辑，只传存储值。
+- 插件更新收窄了取值范围时，旧的存储值不再合法，启动不会失败，而是使用默认值；
+- 存储中未声明的选项 ID 会被忽略；
+- 宿主不需要为回退另写一份逻辑。
 
-模板里整段恰好是 `${setting:<id>}` 时保留值的 JSON 类型（`initializationOptions` 能收到数字或布尔），出现在更长的文本里则按文本代入。
+模板中整段恰好是 `${setting:<id>}` 时保留值的 JSON 类型（数字或布尔可以原样进入初始化选项），出现在更长文本里时按文本代入。
 
-### 3. 为什么选项不会变成注入点
+### 选项不会成为注入点
 
-- 选项值只可能是整数、布尔或声明过的枚举值；枚举值只允许字母、数字和 `.`、`_`、`-`，所以不可能带进空格或 `--inspect` 之类的额外参数。
-- 选项不能出现在包内路径里（`${pluginDir}/…/${setting:x}`），所以用户设置改变不了“启动包里的哪个文件”。
-- 校验探测（`validationArguments`）在宿主读取设置之前运行，所以不允许引用选项。
-- 选项的存在不改变安装审查要显示的“会运行什么”，因为参数模板本来就在审查清单里，选项只能在模板划定的位置里变化。
+- 枚举值只允许字母、数字和 `.`、`_`、`-`，不可能带入空格或额外参数。
+- 选项不能出现在包内路径中，用户设置不会改变启动的是哪个文件。
+- 校验探测在读取设置之前运行，不能引用选项。
+- 参数模板在安装审查中本来就会展示，选项只能在模板划定的位置内变化。
 
-### 4. JDT 适配层让出两个参数
+### 页面交互
 
-直接启动 JDT 时，宿主以前会丢弃插件传来的 `-Xmx` 和 `-Dlog.level=`，再塞自己的默认值。现在这两个参数改为“插件的最后一个合法值优先，没有就用宿主默认值（`-Xmx2048m`、`-Dlog.level=ALL`，即以前的行为）”。合法性很窄：堆大小必须是数字加可选的 `k`/`m`/`g`，并且必须大于 1536 MiB（JDT LS 在不超过 1.5 GB 时会改走“分批导入”，模块坐标重复会让整个 Java 服务失败，见 `2026-10-09-jdtls-heap-ceiling-and-duplicate-maven-coordinates.md`）；日志级别必须是字母数字；不合法的值被丢弃而不是传给 JVM。Java Support 的清单因此把 `heapMaxMB` 的下限和默认值都设为 2048。`-Xms`、`--add-*`、Eclipse 产品属性、元数据位置和 Lombok 仍归宿主所有。宿主另外追加一组 GC 与日志默认值，插件参数里同键的值优先（见 `2026-10-09-jdtls-heap-ceiling-and-duplicate-maven-coordinates.md` 决策第 5 条）。
-
-这个读取是幂等的：宿主把自己产出的参数再喂回适配层，得到相同的结果，已有的稳定性测试继续成立。
-
-### 5. 页面怎么交互
-
-输入框在值合法时立即保存，不合法时标出提示并保留上一个合法值；保存后不自动重启，因为输入数字时每一位都会触发保存。页面显示“下次启动语言服务器时生效”和一个“重启语言服务器”按钮，由用户决定何时重启。
+输入合法时立即保存，不合法时提示并保留上一个合法值。保存后不会自动重启，而是提示“下次启动语言服务器时生效”，由用户决定何时重启。
 
 ## 考虑过的备选方案
 
-- **只给官方插件开放，或只在宿主里写 Java 设置页**：这是用户明确否决的。宿主里按语言加专用设置会重复 [Java 语言服务器是一个声明式插件](../architecture/2026-10-13-java-language-server-as-declarative-plugin.md) 想消除的特判，其他插件也得各自再造一套。
-- **自由文本类型（让用户直接填 JVM 参数）**：最灵活，但用户的文本会进入进程参数，能改变加载的代码（`-javaagent`、`-cp`），把“签名插件只运行自己的文件”的承诺整个打破。需要时应当把具体参数建模成新选项。
-- **按工作区保存**：对“这个大项目要更多内存”更精确，但需要工作区级的保存位置、覆盖规则和界面。当前选择全局一份，如果以后需要，可以在不改契约的情况下让宿主在 `settings` 里叠加工作区层。
-- **改选项后自动重启**：简单，但输入过程中会反复重启，并且会打断正在进行的 Java 导入。
+- **自由文本类型。** 未采用。用户文本会进入进程参数，可能加载额外代码（如 `-javaagent`），破坏签名插件只运行自己文件的承诺。需要时应把具体参数建模为新选项。
+- **改选项后自动重启。** 未采用。输入数字时每一位都会触发保存，会反复重启并打断正在进行的导入。
+- **按工作区保存。** 暂未采用。需要工作区级的保存位置和覆盖规则；以后可以在不改契约的情况下叠加工作区层。
 
-### 与 settings v2 的关系
-
-settings v2 仍复用 v1 的启动模板展开，但新增设置注册页、项目/全局两层存储、文本和路径值，以及 `immediate`、`reload`、`nextRun` 生效方式。v2 的完整所有权、校验和验证路径由 `2026-10-21-plugin-settings-surfaces.md` 维护；修改 v2 时不要把本 Note 的“只有三种类型”和“下一次启动生效”当成全局约束。
 ## 后果
 
-收益：任何声明式插件都能暴露有边界的选项；校验、回退和展开只有一份实现；Java 用户可以调大堆内存。
-
-代价：
-
-- 选项的显示文字来自插件清单，官方插件靠宿主的 `Localizable.strings` 以英文原文为键翻译，第三方插件的文字不会被翻译。
-- 当前只覆盖“语言服务器启动”这一处用法，运行和测试模板不能引用选项。
-- 选项值不会跟着卸载一起删除，重装后会找回；这是有意的，数据量很小。
+- 任何声明式插件都可以暴露有边界的选项，校验、回退和展开只有一份实现。
+- 选项的显示文字来自插件清单，插件可以在包内提供 `l10n/<语言>.json` 翻译，没有译文时显示清单原文。
+- 当前只覆盖语言服务器启动，运行与测试模板还不能引用选项。
+- 选项值不会随卸载删除，重装后会找回。
 
 ## 验证
 
-```bash
-cargo test --manifest-path rust/lithe-core/Cargo.toml declarative
-cargo test --manifest-path rust/lithe-core/Cargo.toml jdt
-./scripts/architecture/verify-shared-contracts.sh
-./scripts/macos/test/test-macos.sh --filter PluginSettingsTests
-./scripts/macos/test/test-macos.sh --filter PluginLanguageServerLaunchResolverTests
-```
-
-契约夹具：`shared/contracts/plugins/v1/fixtures/node-runtime.plugin.json` 声明了三种类型的选项；`command-plans.json` 覆盖默认值、存储值、不合法存储值的回退和布尔类型保持；`invalid-manifests.json` 覆盖选项声明与引用的拒绝情形。
+- `scripts/desktop/desktop-go.sh test ./internal/core -run 'PluginSettings' -count=1`：覆盖设置文档与工作区配置的共享夹具。
+- 契约夹具位于 Core 仓库的 `shared/plugins/contract/v1/fixtures/`，覆盖默认值、存储值、不合法存储值的回退和布尔类型保持。
 
 ## 适用范围
 
-- `rust/lithe-core/src/plugins/declarative.rs`：声明校验、`effective_settings`、模板代入。
-- `rust/lithe-core/src/lsp/languages/jdt.rs`：`-Xmx`、`-Dlog.level=` 的插件优先规则。
-- `macos/Sources/LitheCoreContracts/Plugins/DeclarativePluginContracts.swift`：`DeclarativePluginSetting`、`PluginSettingsStoring`。
-- `macos/Sources/Lithe/Platform/MacOS/Plugins/MacPluginSettingsStore.swift`：保存。
-- `macos/Sources/Lithe/Views/App/PluginSettingsSection.swift`：插件页上的控件。
-- `Plugins/mac/Official/JavaSupport/plugin.json`：首批选项 `heapMaxMB`、`logLevel`。
-- `shared/contracts/plugins/v1/README.md`：对外契约。
+- `desktop/internal/pluginsettings/store.go`
+- `desktop/internal/core/plugin_settings_test.go`
+- 声明校验与模板展开的权威实现：[Lithe-core-rust `rust/crates/plugin-manifest/src/`](https://github.com/Lithe-IDEA/Lithe-core-rust/tree/main/rust/crates/plugin-manifest/src)

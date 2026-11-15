@@ -1,0 +1,10 @@
+// Editor settings
+{
+  /* Fonts */
+  "editor.fontSize": 13,
+  "editor.fontFamily": "JetBrains Mono", // trailing comment
+  "files.exclude": {
+    "**/.git": true,
+  },
+  "list": [1, 2, 3,],
+}
