@@ -124,7 +124,7 @@ jobs:
             scripts/desktop/perf/editor-perf-report.test.mjs \
             scripts/ci/cancel-closed-pr-runs/cancel-closed-pr-runs.test.mjs \
             scripts/ci/desktop-ci/verify-ci-gate.test.mjs
-          node --test --test-concurrency=1 scripts/ci/desktop-autobuild/package-autobuild.test.mjs scripts/ci/common/desktop-packages.test.mjs scripts/ci/desktop-release/package-release.test.mjs
+          node --test --test-concurrency=1 scripts/ci/desktop-autobuild/package-autobuild.test.mjs scripts/ci/common/desktop-packages.test.mjs scripts/ci/desktop-release/package-release.test.mjs scripts/ci/desktop-release/resolve-release-version.test.mjs
 
   linux-test:
     name: Vet and test on Linux

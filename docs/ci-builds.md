@@ -29,7 +29,7 @@ CI 构建缓存、架构并行、测试产物和 artifact 保留策略见
 2. `build` 在 macOS arm64 与 x64（`macos-26`）、Windows x64（`windows-2022`）、Linux x64 和 arm64 上检出同一提交，运行 `scripts/ci/desktop-autobuild/package-autobuild.sh` 打包。macOS 有完整证书时使用 Developer ID 签名，否则使用 Viva 的临时签名（ad hoc）封装完整应用包，并在上传前校验签名。临时签名不等于 Apple 公证，首次打开仍可能被系统拦截；Windows 没有证书时保持未签名。每个平台只拿到自己的签名密钥。打包产物作为 artifact 保留 3 天。
 3. `publish` 等全部平台构建成功后，检出 `github.workflow_sha`（工作流自身所在提交）中的 `scripts/ci/desktop-autobuild/publish-autobuild.sh`，把安装包发布到滚动预发布 `desktop-AutoBuild`。该 Release 始终是 prerelease，不会标记为 latest。并发组保证同一时间只有一次发布。
 
-正式版由 `desktop-release.yml` 发布：推送 `desktop-v*.*.*` 标签，或手动运行并填写与 `desktop/viva.toml` 一致的版本。它打包并校验三个平台的产物后创建 prerelease，与 AutoBuild 的 Release 互不替换。
+正式版由 `desktop-release.yml` 发布：推送 `desktop-v*.*.*` 标签，或手动运行并填写与 `desktop/viva.toml` 一致的版本。它打包并校验三个平台的产物后创建 prerelease，与 AutoBuild 的 Release 互不替换。 发布前必须先提交并校验 `docs/releases/v<version>.md`；版本解析器和发布步骤读取同一个文件，不能把 `desktop-v` 标签前缀当成发布说明文件名。正式包显示纯版本号，GitHub prerelease 标记仍用于隔离旧客户端的更新渠道。
 
 合并修复后，可等待下一次定时任务，或由仓库所有者及 `LITHE_RELEASE_ACTOR` 中的授权发布者手动重新构建并发布：
 
