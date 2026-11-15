@@ -83,6 +83,12 @@ If macOS says that Apple cannot verify whether `Lithe.app` contains malware, the
    sudo xattr -dr com.apple.quarantine /Applications/Lithe.app
    ```
 
+The current [Desktop AutoBuild](https://github.com/1lck/Lithe-IDEA/releases/tag/desktop-AutoBuild) app is named `Lithe Desktop.app`. It uses an ad hoc signature without Apple notarization, so manual approval is still required. For that app, use its actual name:
+
+```bash
+xattr -dr com.apple.quarantine "/Applications/Lithe Desktop.app"
+```
+
 Only use these steps for an app whose source you trust. Homebrew installations usually do not require manual quarantine removal.
 
 ## Core features

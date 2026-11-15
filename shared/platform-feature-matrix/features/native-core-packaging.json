@@ -6,14 +6,25 @@
   "macos": {
     "implementationStatus": "implemented",
     "verificationStatus": "pending",
-    "evidence": ["scripts/desktop/package-desktop.sh", "scripts/desktop/package-desktop.test.mjs", "desktop/internal/core/bridge.go"]
+    "evidence": [
+      "scripts/desktop/package-desktop.sh",
+      "scripts/desktop/package-desktop.test.mjs",
+      "desktop/internal/core/bridge.go",
+      "scripts/ci/desktop-autobuild/package-autobuild.sh",
+      "scripts/ci/desktop-autobuild/package-autobuild.test.mjs",
+      "scripts/ci/common/desktop-packages.mjs"
+    ]
   },
   "windows": {
     "implementationStatus": "implemented",
     "verificationStatus": "pending",
-    "evidence": ["scripts/desktop/package-desktop.sh", "scripts/desktop/package-desktop.test.mjs", "desktop/internal/core/bridge.go"]
+    "evidence": [
+      "scripts/desktop/package-desktop.sh",
+      "scripts/desktop/package-desktop.test.mjs",
+      "desktop/internal/core/bridge.go"
+    ]
   },
   "owner": "Desktop",
-  "notes": "发布入口使用固定 Viva 的显式 --cgo 选项，保持 desktop-go.sh 提供的编译器、头文件和静态库；macOS 已产出既有 AutoBuild 包，Linux 与 Windows 的显式选项仍需实际打包及运行验收。脚本替身回归不能替代最终安装包的 Core 调用验证。",
-  "verification": "在 macOS、Windows 和 Linux 对各自架构执行发布打包，核对 go version -m 中 CGO_ENABLED=1；安装后执行需要 Rust Core 的工作区、文件或 Git 操作，确认 C ABI 调用成功，退出并核对安装目录清单和哈希不变。分别记录 Windows x64、Linux x64/arm64 和 macOS 的实际结果。"
+  "notes": "发布入口使用固定 Viva 的显式 --cgo 选项，保持 desktop-go.sh 提供的编译器、头文件和静态库；macOS 已产出既有 AutoBuild 包，Linux 与 Windows 的显式选项仍需实际打包及运行验收。脚本替身回归不能替代最终安装包的 Core 调用验证。 macOS 无 Developer ID 时也必须对完整 app bundle 作临时签名并校验资源封装；临时签名不等于通过 Gatekeeper 或 Apple 公证。 RPM 的文字与 XCB 运行依赖由固定 Viva 打包器使用共享库能力声明。正式发布与 AutoBuild 共用五个目标和12个下载包的清单，均覆盖 Intel/Apple 芯片 macOS、Windows x64、Linux x64/ARM64；Linux 格式统一为 DEB/RPM/tar.gz，发布前拒绝缺失或校验不一致的包。",
+  "verification": "在 macOS、Windows 和 Linux 对各自架构执行发布打包，核对 go version -m 中 CGO_ENABLED=1；安装后执行需要 Rust Core 的工作区、文件或 Git 操作，确认 C ABI 调用成功，退出并核对安装目录清单和哈希不变。分别记录 Windows x64、Linux x64/arm64 和 macOS 的实际结果。 macOS 的 ZIP 解压包与只读挂载的 DMG 内应用都必须通过 codesign --verify --deep --strict，且单独记录 Gatekeeper 与 Apple 公证结果。"
 }

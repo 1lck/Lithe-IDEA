@@ -12,7 +12,7 @@
 
 | 目录 | 放什么 |
 | --- | --- |
-| `scripts/ci/common/` | 被两个及以上工作流共用的 CI 脚本。目前没有这类脚本，所以目录不存在；出现第二个使用者时再把脚本移进来 |
+| `scripts/ci/common/` | 被两个及以上工作流共用的 CI 脚本，例如 Desktop Release 与 AutoBuild 共用的打包目标、格式和发布文件清单 |
 | `scripts/ci/<工作流名>/` | 只为某一个工作流存在的脚本，目录名与工作流名对应（例如 `desktop-release`、`desktop-autobuild`、`cancel-closed-pr-runs`） |
 | `scripts/release/notes/` | 发布说明的生成与校验 |
 | `scripts/macos/<作用子目录>/` | 只服务 macOS 上的 Lithe 产品的脚本，子目录按作用命名（现有 `package/`） |

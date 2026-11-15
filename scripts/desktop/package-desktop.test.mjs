@@ -34,6 +34,7 @@ case "$1" in
     build)
         printf '%s\\n' '#!/usr/bin/env bash' 'set -euo pipefail' \\
             '[[ " $* " == *" --cgo "* ]] || { echo "packaging must retain the native core bridge" >&2; exit 1; }' \\
+            'printf "%s\\n" "$@" > "$FIXTURE_ROOT/viva-args.txt"' \\
             'cp internal/idehelp/lithe-mcp.bin "$FIXTURE_ROOT/embedded-helper.txt"' > "$3"
         chmod +x "$3"
         ;;
@@ -74,6 +75,8 @@ async function withFixture(host, body) {
   try {
     const bin = path.join(root, 'fake-bin');
     await mkdir(path.join(root, 'scripts/desktop'), { recursive: true });
+    await mkdir(path.join(root, 'scripts/ci/common'), { recursive: true });
+    await copyFile(path.join(scripts, '../ci/common/desktop-packages.mjs'), path.join(root, 'scripts/ci/common/desktop-packages.mjs'));
     await mkdir(path.join(root, 'desktop'));
     await mkdir(path.join(root, 'viva-src'));
     await mkdir(bin);
@@ -135,6 +138,15 @@ test('Linux packaging retains cgo and embeds its native core helper', { timeout:
     await run('bash', ['scripts/desktop/package-desktop.sh', '--no-sign']);
     assert.deepEqual(new Set(await coreBuilds()), new Set(['aarch64-unknown-linux-gnu --release']));
     assert.equal(await readFile(path.join(root, 'embedded-helper.txt'), 'utf8'), 'lithe-mcp for aarch64-unknown-linux-gnu\n');
+  });
+});
+
+test('macOS ad hoc packaging uses Viva signing rather than skipping the resource seal', { timeout: 90000 }, async () => {
+  await withFixture({ goos: 'darwin', goarch: 'arm64', rustHost: 'aarch64-apple-darwin' }, async ({ root, run }) => {
+    await run('bash', ['scripts/desktop/package-desktop.sh', '--ad-hoc-sign']);
+    const args = (await readFile(path.join(root, 'viva-args.txt'), 'utf8')).trim().split('\n');
+    assert.equal(args[args.indexOf('--sign-identity') + 1], '-');
+    assert.equal(args.includes('--no-sign'), false);
   });
 });
 

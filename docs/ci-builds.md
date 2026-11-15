@@ -10,7 +10,7 @@ CI 构建缓存、架构并行、测试产物和 artifact 保留策略见
 | --- | --- | --- |
 | **Desktop CI**（`desktop-ci.yml`） | PR（Draft 只跑 Linux 作业，`ready_for_review` 时补跑完整矩阵）、推送到 `main`、手动运行 | `pins` 校验固定版本；`linux`（Format and script tests）运行 gofmt、ShellCheck、本地化校验、安装资源路径检查和脚本测试；`linux-test` 通过 `scripts/desktop/check.sh` 运行 Linux 的 vet 和测试；`macos`（`macos-26`）、`windows`（`windows-2022`）同样运行 vet 和测试，只在非 Draft 时执行 |
 | **Desktop Release**（`desktop-release.yml`） | 推送 `desktop-v*.*.*` 标签，或手动运行并填写版本 | 打包并校验 macOS、Windows、Linux 产物，核对校验和，然后创建或更新 GitHub prerelease。手动版本必须与 `desktop/viva.toml` 中的版本一致 |
-| **Desktop AutoBuild**（`desktop-autobuild.yml`） | 每天 UTC 10:00 定时，或手动运行 | 构建 macOS arm64、Windows x64、Linux x64 和 arm64，发布到滚动预发布 `desktop-AutoBuild`。同一提交已经发布时，定时运行不会重复构建 |
+| **Desktop AutoBuild**（`desktop-autobuild.yml`） | 每天 UTC 10:00 定时，或手动运行 | 构建 macOS arm64 与 x64、Windows x64、Linux x64 和 arm64，发布到滚动预发布 `desktop-AutoBuild`。同一提交已经发布时，定时运行不会重复构建 |
 
 - Draft PR 只运行 Linux 检查：macOS 和 Windows 作业带有 `draft == false` 条件。标记为 ready 后，才运行完整的 Desktop CI。
 - `Desktop CI gate` 汇总固定版本、Linux 格式与脚本、Linux 测试、macOS 测试和 Windows 测试；普通 PR 必须全部成功，Draft 只允许跳过 macOS 和 Windows。更换已有 PR 的目标分支后，保留 Draft 状态；需要评审时标记为 ready 以针对新基线重新运行完整检查。单纯修改标题或正文不触发平台 runner。
@@ -26,7 +26,7 @@ CI 构建缓存、架构并行、测试产物和 artifact 保留策略见
 流程分三步：
 
 1. `prepare` 固定源码提交并记录身份。版本取自 `desktop/viva.toml` 的 `[app] version`，build 号由同一时刻的 UTC 时间生成（`YYYYMMDD.HHMMSS`），并记录标准 ISO 时间。定时运行发现 `desktop-AutoBuild` 标签已指向该提交时直接跳过，不重复构建。
-2. `build` 在 macOS arm64（`macos-26`）、Windows x64（`windows-2022`）、Linux x64 和 arm64 上检出同一提交，运行 `scripts/ci/desktop-autobuild/package-autobuild.sh` 打包。签名只在对应平台的签名配置齐全时进行，每个平台只拿到自己的签名密钥。打包产物作为 artifact 保留 3 天。
+2. `build` 在 macOS arm64 与 x64（`macos-26`）、Windows x64（`windows-2022`）、Linux x64 和 arm64 上检出同一提交，运行 `scripts/ci/desktop-autobuild/package-autobuild.sh` 打包。macOS 有完整证书时使用 Developer ID 签名，否则使用 Viva 的临时签名（ad hoc）封装完整应用包，并在上传前校验签名。临时签名不等于 Apple 公证，首次打开仍可能被系统拦截；Windows 没有证书时保持未签名。每个平台只拿到自己的签名密钥。打包产物作为 artifact 保留 3 天。
 3. `publish` 等全部平台构建成功后，检出 `github.workflow_sha`（工作流自身所在提交）中的 `scripts/ci/desktop-autobuild/publish-autobuild.sh`，把安装包发布到滚动预发布 `desktop-AutoBuild`。该 Release 始终是 prerelease，不会标记为 latest。并发组保证同一时间只有一次发布。
 
 正式版由 `desktop-release.yml` 发布：推送 `desktop-v*.*.*` 标签，或手动运行并填写与 `desktop/viva.toml` 一致的版本。它打包并校验三个平台的产物后创建 prerelease，与 AutoBuild 的 Release 互不替换。
@@ -41,6 +41,20 @@ gh workflow run desktop-autobuild.yml \
 ```
 
 不要直接重跑旧的失败任务，它仍然使用旧的工作流文件。确认各平台 build job 与 publish job 均成功后，再检查 `desktop-AutoBuild` Release 的更新时间和资产。
+
+Desktop Release 与 AutoBuild 共同读取 `scripts/ci/common/desktop-packages.mjs`，系统、架构和下载格式必须相同：
+
+| 系统与架构 | 下载格式 |
+| --- | --- |
+| macOS Apple 芯片（ARM64） | DMG、ZIP |
+| macOS Intel（x64） | DMG、ZIP |
+| Windows x64 | 安装版 EXE、便携版 ZIP |
+| Linux x64 | DEB、RPM、tar.gz |
+| Linux ARM64 | DEB、RPM、tar.gz |
+
+总共 12 个包和 12 个 `.sha256` 校验文件。RPM 架构名分别是 `x86_64` 和 `aarch64`。两个流程发布前都按完整清单校验文件名、非空内容和 SHA-256；少包、多包、旧包或哈希不一致均停止发布。Desktop Release 额外检查 RPM 内的版本、发行号和架构，以及 RPM 内部摘要。RPM 使用固定 Viva 打包器声明必需的文字与 XCB 共享库依赖，包管理器按共享库能力选择当前发行版的提供者。
+
+macOS 的本地手动打包可用 `package-desktop.sh --ad-hoc-sign` 生成有完整资源签名的测试包；此选项不代替 Developer ID 或 Apple 公证，首次打开仍按 README 手动放行。所有签名只在构建阶段执行，应用运行时不修改安装目录。新增格式仍使用原有 `dist/desktop/` 和 `dist/autobuild/` 输出，没有新增可复用缓存或运行时资源。
 
 ### 独立工作树的本地编译
 

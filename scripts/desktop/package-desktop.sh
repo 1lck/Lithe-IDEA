@@ -1,11 +1,12 @@
 #!/usr/bin/env bash
 # Packages the Viva desktop client for the host OS:
 #
-# Usage: scripts/desktop/package-desktop.sh [--arch arm64|amd64] [--format LIST] [--out DIR] [--no-sign] [--stable]
+# Usage: scripts/desktop/package-desktop.sh [--arch arm64|amd64] [--format LIST] [--out DIR] [--no-sign|--ad-hoc-sign] [--stable]
 #
 # --stable packages the stable release, which shows the plain version; without it the client shows
 # the version as a preview. Only the Desktop Release passes it (scripts/ci/desktop-release).
 #
+# --ad-hoc-sign seals a macOS bundle without a Developer ID; it does not satisfy Gatekeeper.
 # Viva builds the program from desktop/viva.toml, embeds that manifest and applies Windows
 # resources and signing. It must receive desktop-go.sh's cgo environment so the packaged client
 # links the staged core. The output defaults to dist/desktop/<os>-<arch>/; only the exact package
@@ -69,9 +70,10 @@ while [[ $# -gt 0 ]]; do
             shift 2
             ;;
         --no-sign) SIGN_ARGS=(--no-sign); shift ;;
+        --ad-hoc-sign) SIGN_ARGS=(--sign-identity -); shift ;;
         --stable) STABLE=1; shift ;;
         *)
-            printf '%s\n' "Usage: $0 [--arch arm64|amd64] [--format LIST] [--out DIR] [--no-sign] [--stable]" >&2
+            printf '%s\n' "Usage: $0 [--arch arm64|amd64] [--format LIST] [--out DIR] [--no-sign|--ad-hoc-sign] [--stable]" >&2
             exit 2
             ;;
     esac
@@ -87,12 +89,7 @@ if [[ "$GOOS" == "windows" && "$ARCH" != "amd64" ]]; then
 fi
 
 if [[ -z "$FORMATS" ]]; then
-    case "$GOOS" in
-        darwin) FORMATS="app,zip,dmg" ;;
-        windows) FORMATS="nsis,zip" ;;
-        linux) FORMATS="tar.gz,deb" ;;
-        *) printf '%s\n' "Unsupported package host OS: $GOOS." >&2; exit 2 ;;
-    esac
+    FORMATS="$(node "$ROOT_DIR/scripts/ci/common/desktop-packages.mjs" formats "$GOOS" "$ARCH")"
 fi
 
 MANIFEST="$ROOT_DIR/desktop/viva.toml"
@@ -149,28 +146,15 @@ if [[ ! -f "$VIVA_BIN" ]]; then
     exit 1
 fi
 
-case "$GOOS" in
-    darwin)
-        STEM="lithe-$VERSION-darwin-$ARCH"
-        VIVA_OUT="$OUT_DIR/Lithe Desktop.app"
-        rm -rf -- "$VIVA_OUT"
-        rm -f -- "$OUT_DIR/$STEM.zip" "$OUT_DIR/$STEM.zip.sha256" \
-            "$OUT_DIR/$STEM.dmg" "$OUT_DIR/$STEM.dmg.sha256"
-        ;;
-    windows)
-        STEM="lithe-$VERSION-windows-$ARCH"
-        VIVA_OUT="$OUT_DIR"
-        rm -f -- "$OUT_DIR/$STEM-setup.exe" "$OUT_DIR/$STEM-setup.exe.sha256" \
-            "$OUT_DIR/$STEM.zip" "$OUT_DIR/$STEM.zip.sha256"
-        ;;
-    linux)
-        STEM="lithe-$VERSION-linux-$ARCH"
-        VIVA_OUT="$OUT_DIR"
-        rm -f -- "$OUT_DIR/$STEM.tar.gz" "$OUT_DIR/$STEM.tar.gz.sha256" \
-            "$OUT_DIR/lithe_${VERSION}_${ARCH}.deb" "$OUT_DIR/lithe_${VERSION}_${ARCH}.deb.sha256"
-        ;;
-    *) printf '%s\n' "Unsupported package host OS: $GOOS." >&2; exit 2 ;;
-esac
+PACKAGE_NAMES="$(node "$ROOT_DIR/scripts/ci/common/desktop-packages.mjs" names "$VERSION" "$GOOS" "$ARCH")"
+while IFS= read -r package; do
+    rm -f -- "$OUT_DIR/$package" "$OUT_DIR/$package.sha256"
+done <<< "$PACKAGE_NAMES"
+VIVA_OUT="$OUT_DIR"
+if [[ "$GOOS" == darwin ]]; then
+    VIVA_OUT="$OUT_DIR/Lithe Desktop.app"
+    rm -rf -- "$VIVA_OUT"
+fi
 
 # The IDE API helper is embedded into the packaged Go binary under the lithe_bundled_helper
 # build tag; the generated file is build input of this run only and never tracked. The client

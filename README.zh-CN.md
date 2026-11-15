@@ -61,7 +61,7 @@ AI 编程工具可以一次修改许多文件。审查这些修改时，开发�
 
 Lithe 是一款以低资源占用为目标、通过插件扩展的通用 IDE。它把项目浏览、代码编辑、搜索、Git 审查和终端放在同一个工作台中；语言智能、构建、运行和调试能力由安装的插件接入。
 
-当前 `preview` 分支正在开发基于 **Viva（Go）与 Rust Core** 的统一桌面客户端。macOS、Windows 和 Linux 共用工作台代码，系统集成由各平台适配器完成。功能迁移和平台验收仍在进行，完成度见[功能矩阵与决策看板](https://1lck.github.io/Lithe-IDEA/)，不能把旧版功能列表视为新版的完整支持承诺。
+当前 `main` 分支正在开发基于 **Viva（Go）与 Rust Core** 的统一桌面客户端。macOS、Windows 和 Linux 共用工作台代码，系统集成由各平台适配器完成。功能迁移和平台验收仍在进行，完成度见[功能矩阵与决策看板](https://1lck.github.io/Lithe-IDEA/)，不能把旧版功能列表视为新版的完整支持承诺。
 
 语言服务器、插件后端、构建工具和调试器按需启动。内存占用取决于项目大小、打开的内容及启用的插件；旧客户端的测量数字不代表当前预览版。
 
@@ -82,6 +82,12 @@ Lithe 是一款以低资源占用为目标、通过插件扩展的通用 IDE。�
    ```bash
    sudo xattr -dr com.apple.quarantine /Applications/Lithe.app
    ```
+
+当前 [Desktop AutoBuild](https://github.com/1lck/Lithe-IDEA/releases/tag/desktop-AutoBuild) 的应用名称是 `Lithe Desktop.app`。它使用临时签名（ad hoc），尚未经过 Apple 公证，首次打开仍需手动放行；对应命令应使用实际的应用名称：
+
+```bash
+xattr -dr com.apple.quarantine "/Applications/Lithe Desktop.app"
+```
 
 上述命令只应对你确认来源可靠的应用使用；通过 Homebrew 安装通常不需要手动执行这些步骤。
 
