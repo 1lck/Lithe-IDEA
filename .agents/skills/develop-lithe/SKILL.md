@@ -56,6 +56,7 @@ description: 在 Lithe 仓库进行实现、重构、缺陷修复、审查、调
 | 修复缺陷 | 本文件第八节，以及 `.agents/notes/implemented/bug-fix/` 中涉及同一模块的 Note |
 | 新增、迁移或审查日志事件、写入器和诊断采集；新增界面警告或错误；写会丢弃错误的代码 | [日志接入](references/logging.md)，声明规则以固定 Core 修订的 `rust/logging/README.md` 为准 |
 | 新增、移动或审查脚本 | [脚本放置与分类](references/scripts.md) |
+| 修改 Lithe-core-rust 的 Rust 代码或测试 | Core 仓库根目录的 [CONTRIBUTING.md](https://github.com/Lithe-IDEA/Lithe-core-rust/blob/main/CONTRIBUTING.md)，以及本文件第六节“Rust” |
 | 新增需要同步调用的共享纯规则（按键、选择、渲染路径） | 先核对外部 Lithe-core-rust 的现有接口，规则仍归 Rust Core；不能在 Viva 界面新增第二份 |
 | 创建、迁移、更新、归档或审查 Agent Note | `.agents/skills/agent-notes/SKILL.md` |
 | 创建、修改或审查测试及测试基础设施 | `.agents/skills/write-stable-tests/SKILL.md` |
@@ -365,9 +366,25 @@ Viva 在 macOS、Windows 和 Linux 使用 `desktop/internal/i18n/` 的接口及�
 
 ### Rust
 
+Rust Core 的平台代码写法、平台测试放置、CI 主机声明和本地检查命令，唯一来源是 Core 仓库根目录的 [CONTRIBUTING.md](https://github.com/Lithe-IDEA/Lithe-core-rust/blob/main/CONTRIBUTING.md)。修改 Core 前先读它。本节只保留判定原则，细节以该文件为准。
+
+#### 代码
+
 - 运行 `cargo fmt`，遵循所属 crate 和模块的约定。
 - 保持共享结果的确定性、JSON envelope 和 C ABI 兼容。跨边界返回结构化失败，不得把不稳定的 Rust 实现细节暴露成契约错误码。
-- 命令、解析、校验、排序、取消或序列化行为变化时，在所属 crate 增加测试。
+- 平台差异写成数据。路径比较、保留文件名、路径分隔符、权限位、参数转义这类规则放进 `lithe-platform`，以 `Platform` 参数表达，生产代码传入本机平台。`cfg` 只用于必须调用操作系统接口的代码。
+
+#### 测试放在哪里
+
+1. 命令、解析、校验、排序、取消或序列化行为变化时，在所属 crate 增加测试。接收 `Platform` 参数的规则，在同一个 crate 里对每个平台各测一次，不加 `cfg`，任何主机都会运行。
+2. 结果取决于真实操作系统行为的测试（进程树、job object、权限位、batch 启动、可执行文件查找等），放进 `lithe-platform-tests`。不得在其他 crate 写只在 Windows 或 macOS 上编译的测试，也不得在测试里按系统切换预期结果。
+3. 可以留在原 crate 的情况有三种：在 Linux 上也会运行、只借用 Unix 夹具的测试；只用 `cfg!` 把夹具改成本机格式的测试；必须启动本包可执行文件的集成测试。判定条件和现有例外以 CONTRIBUTING.md 为准。
+
+#### CI
+
+- Core 的 `Rust Core` 工作流只构建、检查和测试改动影响到的 crate，也就是改动所在的 crate 和所有直接或间接依赖它的 crate。macOS 和 Windows 只测试在 `Cargo.toml` 中声明了该主机的 crate；Draft PR 只运行 Linux。
+- 提交 Core 改动前，在 Core 仓库根运行 `node scripts/rust-core/affected-crates.mjs`，查看 CI 会测试哪些 crate，并在本地运行这些 crate 的测试；再运行 `node scripts/rust-core/verify-platform-tests.mjs`，检查有没有测试在所属 crate 的所有 CI 主机上都不会运行。
+- 改动涉及只在 Windows 上编译的代码，而手边没有 Windows 时，按 CONTRIBUTING.md 运行一次针对 Windows 目标的 clippy，并在 PR 中写明没有在 Windows 上运行测试。
 
 #### Rust Core 注释规范
 
@@ -380,7 +397,7 @@ Viva 在 macOS、Windows 和 Linux 使用 `desktop/internal/i18n/` 的接口及�
 - 实现内部用 `//` 解释不明显的兼容性、确定性、顺序、安全、性能或跨平台约束。
 - 测试名和断言不足以说明意图时，补充场景、回归风险或保护的边界。
 - 不得为凑覆盖率复述赋值、声明或名称，也不得给简单访问器和直接的控制流机械地加注释。
-- 注释检查脚本在 Rust Core 仓库：Core 改动先在 Core 仓库根运行 `scripts/rust-core/verify-rust-core-comments.sh`，通过后再运行较慢的 Core 检查。检查覆盖模块说明、导出项 Rustdoc、英文注释和 `unsafe` 安全说明，内部类型的语义仍须人工检查。
+- 注释检查脚本在 Rust Core 仓库：Core 改动先在 Core 仓库根运行 `scripts/rust-core/verify-rust-core-comments.sh`，通过后再运行较慢的 Core 检查。传入 crate 目录名时，Rustdoc 只构建这些 crate，文本检查仍覆盖全部 crate。检查覆盖模块说明、导出项 Rustdoc、英文注释和 `unsafe` 安全说明，内部类型的语义仍须人工检查。
 
 ### Windows 平台适配
 
@@ -388,7 +405,7 @@ Viva 在 macOS、Windows 和 Linux 使用 `desktop/internal/i18n/` 的接口及�
 
 - Windows 与其他平台共用 Viva 界面；文件监听、进程、ConPTY、路径、窗口和安装等系统差异由平台适配器处理。
 - 文件、目录、进程探测和其他可能阻塞的工作必须离开 UI 线程；高频事件应有界合并，避免每条事件触发一次全量界面更新。
-- 桌面行为补 Go 回归，Core 行为在所属 crate 中测试。Windows 原生窗口、ConPTY、安装、签名和更新行为必须在 Windows 上验证，不能以 macOS 无头测试代替。
+- 桌面行为补 Go 回归。Core 行为按上面“Rust”一节的“测试放在哪里”放置，结果取决于真实 Windows 行为的测试放进 `lithe-platform-tests`。Windows 原生窗口、ConPTY、安装、签名和更新行为必须在 Windows 上验证，不能以 macOS 无头测试代替。
 
 ## 七、安全、资源与失败处理
 
@@ -501,7 +518,7 @@ git diff --name-only origin/preview...HEAD
 | 任何改动（插件内容最常从测试、功能矩阵、i18n 词条和资源登记进入宿主） | 第三节“插件归属与宿主零依赖”的自查命令，结果为空，并按规则 2 检查命令覆盖不到的写法 |
 | Viva 桌面代码 | `./scripts/desktop/desktop-go.sh test ./...`、受影响包的竞态测试，以及目标平台相应原生验证 |
 | 共享应用行为或 JSON fixture | 在 Core 仓库运行受影响的测试；升级 `PINNED_CORE_REVISION`（或用 `LITHE_CORE_RUST_DIR` 指向本地 Core 检出）后，用 `./scripts/desktop/desktop-go.sh test` 运行读取该 fixture 的桌面测试；旧 `verify-shared-contracts.sh` 已移除，等价边界检查恢复前标记门禁未完成 |
-| Rust Core、JSON C ABI 或桌面桥接 | 先完成 Core 注释与契约检查，再运行受影响 crate、桥接和目标平台消费者测试；旧 Core 验证脚本移除后不得把缺失检查记为通过 |
+| Rust Core、JSON C ABI 或桌面桥接 | 先在 Core 仓库完成注释与契约检查，运行 `node scripts/rust-core/verify-platform-tests.mjs`，以及 `node scripts/rust-core/affected-crates.mjs` 列出的 crate 的测试；再运行桥接和目标平台消费者测试。旧 Core 验证脚本移除后不得把缺失检查记为通过 |
 | Core 功能或 Git graph 行为 | 运行所属 Core crate 和桌面消费者的相关测试；旧 `verify-core.sh`、`verify-git-graph.sh` 移除后，等价边界验证恢复前标记门禁未完成 |
 | 运行时资源或发行目录只读边界 | `./scripts/desktop/verify/verify-runtime-bundle-immutability.sh` |
 | Core 的公开 Rust 类型或函数签名 | 搜索 `desktop/` 中的调用方并检查 C ABI、共享契约及两个平台的桥接消费者；不能只在一个平台编译 |
