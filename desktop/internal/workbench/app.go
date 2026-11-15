@@ -85,6 +85,7 @@ type Kernel interface {
 	PlanDebugExecutable(context.Context, json.RawMessage, string, string, string, map[string]json.RawMessage, map[string]json.RawMessage) (*core.DebugExecutablePlan, error)
 	PlanDebugStart(context.Context, json.RawMessage, string, string, core.DebugStartFacts, map[string]any) (core.DebugStart, error)
 	DebugTransportPolicy(context.Context) (core.DebugTransportPolicy, error)
+	ReadDebugAnnouncement(ctx context.Context, endpoint json.RawMessage, stream, line string) (core.DebugAnnouncement, error)
 	debugTransportKernel
 	debugStateKernel
 	processExitKernel

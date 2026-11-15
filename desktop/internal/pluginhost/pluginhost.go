@@ -107,8 +107,9 @@ type Capabilities map[string][]int
 //     runs the plan in a staging directory.
 //   - settings: pages per language and build system, sections, every control
 //     type, the project layer, setting effects and page buttons.
-//   - debugAdapters: stdio adapters and adapters inside the plugin's language
-//     server over loopback TCP, launch and attach (a remote host after the user
+//   - debugAdapters: stdio adapters, adapter processes that print the loopback
+//     TCP endpoint they listen on (tcpAnnounced) and adapters inside the
+//     plugin's language server over loopback TCP, launch and attach (a remote host after the user
 //     confirms it), argument and environment bindings, features and defaults.
 //   - outputLinkMatchers: Build, Run and Test console lines become links at the
 //     ranges Core finds; a matcher with resolve asks the backend on click.

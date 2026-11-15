@@ -30,7 +30,8 @@ const (
 	// debugReadChunk is the size of one read from the adapter's TCP stream.
 	debugReadChunk = 32 << 10
 	// debugLoopback is where a tcpLanguageServer adapter listens: the contract
-	// allows loopback endpoints only for language-server-provided ports.
+	// allows loopback endpoints only for language-server-provided ports. A
+	// tcpAnnounced adapter's loopback host is the one Core read from its output.
 	debugLoopback = "127.0.0.1"
 )
 
@@ -92,11 +93,12 @@ type debugAttachFields struct {
 }
 
 // debugTransportServed reports whether this client can start the adapter: a
-// process it launches over stdio, or an adapter inside its plugin's language
-// server reached over loopback TCP.
+// process it launches over stdio, a process it launches that prints the
+// loopback TCP endpoint it listens on (tcpAnnounced), or an adapter inside its
+// plugin's language server reached over loopback TCP.
 func debugTransportServed(declaration pluginservice.DebugAdapterDeclaration) bool {
 	switch declaration.Transport {
-	case "stdio":
+	case "stdio", "tcpAnnounced":
 		switch declaration.LaunchKind {
 		case pluginhost.LaunchPackaged, pluginhost.LaunchSystemCommand, pluginhost.LaunchRuntime:
 			return true
@@ -399,6 +401,7 @@ func (a *App) beginDebug(p *project, start debugStart) {
 	pluginRoot := a.plugins.Root
 	targetUnavailable := i18n.Shared(a.language(), "desktop.debug.targetUnavailable")
 	hosted := adapter.Declaration.Transport == "tcpLanguageServer"
+	announced := adapter.Declaration.Transport == "tcpAnnounced"
 	// Background work reads this copy, never a.text, which the window thread owns.
 	messages := a.text.Debug
 	// A child shares its parent's generation, so the parent's replies stay current.
@@ -458,8 +461,10 @@ func (a *App) beginDebug(p *project, start debugStart) {
 		parentSessionID = start.parent.id
 	}
 	stateRoot := filepath.Join(pluginRoot, ".state", adapter.PluginID, adapter.Version)
+	// Only a stdio adapter is written through its standard input; the other
+	// transports are written through their TCP stream.
 	var stdinReader *os.File
-	if !hosted {
+	if !hosted && !announced {
 		reader, writer, err := os.Pipe()
 		if err != nil {
 			cancel()
@@ -536,7 +541,12 @@ func (a *App) beginDebug(p *project, start debugStart) {
 				a.recordDebugStart(ctx, session, core.StageLaunch, err)
 				return func(a *App) { a.finishDebugError(p, session, err) }
 			}
-		} else if err := a.startAdapterProcess(ctx, p, session, prepared, stdinReader); err != nil {
+		} else if announced {
+			if err := a.openAnnouncedTransport(ctx, p, session, prepared, messages); err != nil {
+				a.recordDebugStart(ctx, session, core.StageLaunch, err)
+				return func(a *App) { a.finishDebugError(p, session, err) }
+			}
+		} else if err := a.startAdapterProcess(ctx, p, session, prepared, stdinReader, a.stdioDebugOutput(p, session), nil); err != nil {
 			a.recordDebugStart(ctx, session, core.StageLaunch, err)
 			return func(a *App) { a.finishDebugError(p, session, err) }
 		}
@@ -562,6 +572,10 @@ func (a *App) beginDebug(p *project, start debugStart) {
 			// The session clock starts before discovery here, so it also covers
 			// the language-server start the discovery limit was raised for.
 			window += pluginServerStartTimeout
+		} else if announced {
+			// Likewise it covers the wait for the adapter to print its endpoint,
+			// which Core's default discovery limit bounds.
+			window += time.Duration(policy.Limits.DiscoveryMilliseconds) * time.Millisecond
 		}
 		if override := a.debugInitializeWindow; override > 0 {
 			window = override
@@ -649,38 +663,71 @@ func (a *App) watchDebugInitialize(p *project, session *debugSession, window tim
 	context.AfterFunc(session.ctx, func() { timer.Stop() })
 }
 
-// startAdapterProcess starts a stdio adapter and watches for its exit, so an
-// adapter that dies without a DAP terminated event still ends the session.
-func (a *App) startAdapterProcess(ctx context.Context, p *project, session *debugSession, prepared preparedDebugLaunch, stdin *os.File) error {
-	process, err := buildprocess.Start(ctx, buildprocess.Spec{
-		Kind:             processledger.KindDebug,
-		Executable:       prepared.Executable,
-		Arguments:        prepared.Arguments,
-		Environment:      prepared.Environment,
-		WorkingDirectory: p.root,
-		Stdin:            stdin,
-	}, func(stream buildprocess.Stream, text string) {
+// stdioDebugOutput routes a stdio adapter's output: standard output is its DAP
+// stream, standard error goes to the debug console.
+func (a *App) stdioDebugOutput(p *project, session *debugSession) func(buildprocess.Stream, string) {
+	return func(stream buildprocess.Stream, text string) {
 		if stream == buildprocess.Stderr {
 			a.post(func(a *App) { a.appendDebugOutput(p, session, text) })
 			return
 		}
 		a.receiveDebug(p, session, []byte(text))
-	})
-	_ = stdin.Close()
+	}
+}
+
+// startAdapterProcess starts an adapter process and watches for its exit, so
+// an adapter that dies without a DAP terminated event still ends the session.
+// A stdio adapter (stdin set) is reached once it runs. A tcpAnnounced adapter
+// (stdin nil) is reached once its socket connects, and it outlives the
+// session's context: a user stop first drains its DAP disconnect through the
+// stream, and the session's release stops the process after that. unreached is
+// what an exit before the stream connected reports when nothing failed first.
+func (a *App) startAdapterProcess(ctx context.Context, p *project, session *debugSession, prepared preparedDebugLaunch, stdin *os.File, observe func(buildprocess.Stream, string), unreached error) error {
+	spec := buildprocess.Spec{
+		Kind:             processledger.KindDebug,
+		Executable:       prepared.Executable,
+		Arguments:        prepared.Arguments,
+		Environment:      prepared.Environment,
+		WorkingDirectory: p.root,
+	}
+	processContext := context.WithoutCancel(ctx)
+	if stdin != nil {
+		// A nil *os.File would be a non-nil reader, so the field is set only here.
+		spec.Stdin = stdin
+		processContext = ctx
+	}
+	process, err := buildprocess.Start(processContext, spec, observe)
+	if stdin != nil {
+		_ = stdin.Close()
+	}
 	if err != nil {
 		return err
 	}
 	session.process.Store(process)
-	session.reached.Store(true)
+	if stdin != nil {
+		session.reached.Store(true)
+	}
 	// Observe native exit even when the adapter cannot send a DAP terminated event.
 	go func() {
 		defer close(session.exitObserved)
 		err := process.Wait()
 		// An exit before initialize was answered ends the start, whatever its status. It is
 		// read before the session's context ends, which would make it a stop by the user.
-		a.recordDebugStart(session.ctx, session, core.StageExit, errDebugAdapterExited)
+		stage := core.StageExit
+		if !session.reached.Load() {
+			stage = core.StageLaunch
+		}
+		a.recordDebugStart(session.ctx, session, stage, errDebugAdapterExited)
 		session.cancel()
 		session.closeTransport()
+		if err == nil && !session.reached.Load() {
+			// A tcpAnnounced adapter that ends before its stream connected never
+			// served the session, whatever its exit status.
+			err = session.recordedFailure()
+			if err == nil {
+				err = unreached
+			}
+		}
 		a.debugStreamEnded(p, session, err)
 	}()
 	return nil
@@ -733,8 +780,26 @@ func (a *App) openHostedTransport(p *project, session *debugSession, adapter deb
 		}
 		return debugLoopback, port, err
 	}
-	hooks := debugTransportHooks{
-		Discover:  discover,
+	hooks := a.debugStreamHooks(p, session, messages)
+	hooks.Discover = discover
+	transport := newDebugTransport(a.kernel, session.id+"-transport", hooks)
+	if !session.setTransport(transport) {
+		return context.Canceled
+	}
+	session.hosted = transport
+	// Core's default discovery budget is a cold-start allowance; the language
+	// server's own start budget is the one this host already owns, so it raises
+	// only the discovery limit (an override the contract allows).
+	discovery := int(pluginServerStartTimeout / time.Millisecond)
+	return transport.Start(&core.DebugTransportLimitOverrides{DiscoveryMilliseconds: &discovery})
+}
+
+// debugStreamHooks are a TCP-reached session's side of its stream, for every
+// transport but Discover, which the caller sets: the socket connecting reaches
+// the adapter, its bytes are DAP, and a failure or the peer closing ends the
+// session.
+func (a *App) debugStreamHooks(p *project, session *debugSession, messages i18n.DebugMessages) debugTransportHooks {
+	return debugTransportHooks{
 		Connected: func() { session.reached.Store(true) },
 		Deliver:   func(data []byte) { a.receiveDebug(p, session, data) },
 		Failure: func(reason, message string) {
@@ -764,16 +829,6 @@ func (a *App) openHostedTransport(p *project, session *debugSession, adapter deb
 			a.debugStreamEnded(p, session, failure)
 		},
 	}
-	transport := newDebugTransport(a.kernel, session.id+"-transport", hooks)
-	if !session.setTransport(transport) {
-		return context.Canceled
-	}
-	session.hosted = transport
-	// Core's default discovery budget is a cold-start allowance; the language
-	// server's own start budget is the one this host already owns, so it raises
-	// only the discovery limit (an override the contract allows).
-	discovery := int(pluginServerStartTimeout / time.Millisecond)
-	return transport.Start(&core.DebugTransportLimitOverrides{DiscoveryMilliseconds: &discovery})
 }
 
 // debugTransportFailureText turns Core's failure reason into the words shown.
