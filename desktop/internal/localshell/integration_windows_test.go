@@ -83,6 +83,17 @@ func TestWindowsIntegrationLeavesCommandsAndUnknownShellsUntouched(t *testing.T)
 	}
 }
 
+// PowerShell keeps its version banner: the integration runs after it, so hiding
+// it was never needed, and a tab starts as it does in Windows Terminal.
+func TestPowerShellIntegrationKeepsTheBanner(t *testing.T) {
+	for _, program := range []string{"pwsh.exe", "powershell.exe"} {
+		args := integrateWindowsShell(Config{DirectoryToken: "valid"}, program).Args
+		if len(args) != 3 || strings.Join(args[:2], " ") != "-NoExit -EncodedCommand" {
+			t.Fatalf("%s arguments = %q, want -NoExit -EncodedCommand and the script, without -NoLogo", program, args)
+		}
+	}
+}
+
 func TestPowerShellDirectoryIntegrationPreservesCustomPromptAndExitStatus(t *testing.T) {
 	for _, program := range []string{"powershell.exe", "pwsh.exe"} {
 		t.Run(program, func(t *testing.T) {

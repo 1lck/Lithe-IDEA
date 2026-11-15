@@ -213,6 +213,7 @@ func settingsPackageDirectoryInfo(ctx context.Context, path string) (info os.Fil
 type SettingsActionResult struct {
 	Plan      core.PluginSettingsActionPlan
 	Completed bool
+	Sources   *pluginsettings.SourceEditor
 }
 
 // SettingsOwner returns the private registration identity captured on load.

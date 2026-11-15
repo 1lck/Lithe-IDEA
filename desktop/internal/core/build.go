@@ -70,6 +70,7 @@ type BuildExecutableCandidate struct {
 // BuildRuntimeRequirement is a runtime the build tool needs, with the probe
 // Core expects the host to run when it must check the version.
 type BuildRuntimeRequirement struct {
+	PathVariable   string                     `json:"pathVariable,omitempty"`
 	ID             string                     `json:"id"`
 	DisplayName    string                     `json:"displayName"`
 	HostManaged    bool                       `json:"hostManaged"`

@@ -2,7 +2,7 @@ name: Desktop Release
 
 # Releases the Viva desktop client (desktop/) for macOS, Windows and Linux. Its tags are
 # desktop-vMAJOR.MINOR.PATCH, apart from the v* tags of the SwiftUI and Tauri clients, and each
-# release is a GitHub prerelease, so those clients' updaters continue to read their own latest release.
+# release is stable. Keep the legacy clients' latest release unchanged; desktop updates select desktop-v tags.
 on:
   push:
     tags:
@@ -187,7 +187,7 @@ jobs:
           if-no-files-found: error
 
   publish:
-    name: Publish the prerelease
+    name: Publish the release
     if: github.event_name != 'workflow_dispatch' || inputs.publish
     needs:
       - prepare
@@ -213,7 +213,7 @@ jobs:
           DESKTOP_VERSION: ${{ needs.prepare.outputs.version }}
         run: node scripts/ci/common/desktop-packages.mjs verify "$DESKTOP_VERSION" dist
 
-      - name: Create or update the GitHub prerelease
+      - name: Create or update the GitHub release
         env:
           GH_TOKEN: ${{ github.token }}
           RELEASE_TAG: ${{ needs.prepare.outputs.tag }}
@@ -223,7 +223,8 @@ jobs:
             --repo "$GITHUB_REPOSITORY"
             --title "Lithe Desktop $DESKTOP_VERSION"
             --notes-file "docs/releases/v$DESKTOP_VERSION.md"
-            --prerelease
+            --prerelease=false
+            --latest=false
           )
           if ! gh release view "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" > /dev/null 2>&1; then
             gh release create "$RELEASE_TAG" --target "$GITHUB_SHA" "${release_args[@]}" || \

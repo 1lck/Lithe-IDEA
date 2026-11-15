@@ -64,6 +64,29 @@ func cygwinRecordedRoots() []string {
 	return roots
 }
 
+// storePowerShellFamily is the package family name of PowerShell 7 from the
+// Microsoft Store: the package name and Microsoft's publisher ID, which are fixed
+// for the product. The preview is a different package and is not this one.
+const storePowerShellFamily = "Microsoft.PowerShell_8wekyb3d8bbwe"
+
+// storePowerShell is where a PowerShell 7 installed from the Microsoft Store
+// can be started from, best first. The package adds no PATH entry of its own:
+// Windows exposes it as an app execution alias under WindowsApps, at the root
+// and in the folder named for the package, and the package's own command
+// resolution reports the folder path. The paths are not probed; the callers
+// look each up as they do every other candidate. Nil without a LOCALAPPDATA.
+func storePowerShell() []string {
+	local := os.Getenv("LOCALAPPDATA")
+	if local == "" || !filepath.IsAbs(local) {
+		return nil
+	}
+	root := filepath.Join(local, "Microsoft", "WindowsApps")
+	return []string{
+		filepath.Join(root, "pwsh.exe"),
+		filepath.Join(root, storePowerShellFamily, "pwsh.exe"),
+	}
+}
+
 // InstalledShells is InstalledWindowsShells: on Windows each family is one entry,
 // because its candidates are versions or routes to one product (PowerShell 7 under
 // several version directories, Git Bash found beside the Git executable) rather than
@@ -93,6 +116,7 @@ func InstalledWindowsShells() []Choice {
 		versions, _ := filepath.Glob(filepath.Join(root, "Microsoft", "PowerShell", "*", "pwsh.exe"))
 		pwsh = append(pwsh, versions...)
 	}
+	pwsh = append(pwsh, storePowerShell()...)
 	if home := os.Getenv("USERPROFILE"); home != "" {
 		pwsh = append(pwsh, filepath.Join(home, "scoop", "apps", "pwsh", "current", "pwsh.exe"))
 		bash = append(bash, filepath.Join(home, "scoop", "apps", "git", "current", "bin", "bash.exe"))

@@ -578,6 +578,24 @@
       ],
       "identity": "Mutable user-authored source snapshots, caret/history and personal keymap settings. Owned by the preference installation and document, with no reusable version/platform/architecture/toolchain stamp.",
       "reason": "Native adapters read only when an editor or list needs them, and atomically replace private files after edits or explicit settings changes. Core owns limits and recovery conflict decisions; saved/discarded normal documents remove recovery copies, scratch files persist until Save As or discard. Never share, copy, package or run a build resource validator at any worktree reuse stage. These paths are outside installed resources and cannot affect code signatures or Sparkle delta baselines."
+    },
+    {
+      "id": "plugin-native-settings-staging",
+      "reusable": false,
+      "locations": [
+        "<system-temp>/lithe-source-settings-<random>/"
+      ],
+      "identity": "One confirmed editor operation and its native source/package/workspace identities. Private source snapshots are limited to 2 MiB per file and 8 MiB in aggregate; they have no reusable toolchain or build identity.",
+      "reason": "The native adapter creates a private 0700 transaction directory with existing 0600 staging files, verifies exact source revisions and staged SHA-256 receipts, then conditionally publishes to user-owned workspace files. Every terminal path removes staging. Never copy or share at any worktree reuse stage. Installation/package roots are protected and never used for mutable output, preserving signatures and Sparkle delta baselines."
+    },
+    {
+      "id": "global-toolchain-catalog",
+      "reusable": false,
+      "locations": [
+        "<platform-preferences>/toolchains/global.json"
+      ],
+      "identity": "Mutable machine-local SDK registrations and defaults, bounded to 256 KiB, 64 tool IDs and 32 homes per tool. No reusable build or toolchain identity.",
+      "reason": "Read only on demand without creating missing sources; explicit Save verifies native identity and bytes before atomic publication and fresh resolution. Owned by the user preference installation, not a workspace. Never copy at any worktree reuse stage, never package, and never write into SDKs or installed resources; signatures and Sparkle delta baselines are unchanged."
     }
   ]
 }

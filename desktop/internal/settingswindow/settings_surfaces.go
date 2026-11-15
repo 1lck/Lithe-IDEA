@@ -31,9 +31,10 @@ type surfacesKey struct {
 // surfacesJob is what one run works from. The window thread publishes a new one when the
 // key changes and the run takes it once, so nothing the run reads is written again.
 type surfacesJob struct {
-	key    rowsKey
-	pages  []core.SettingsPage
-	loaded bool
+	language i18n.Language
+	key      rowsKey
+	pages    []core.SettingsPage
+	loaded   bool
 }
 
 // One page Effect owns catalog I/O and Core search. Rendering retains only the immutable
@@ -82,7 +83,11 @@ func (s *settingsSurfaces) request(key rowsKey) {
 	s.want = want
 	s.requested = true
 	s.jobMu.Lock()
-	s.job = surfacesJob{key: key, pages: s.pages, loaded: s.loaded}
+	language := i18n.English
+	if s.opts.Language != nil {
+		language = s.opts.Language()
+	}
+	s.job = surfacesJob{key: key, pages: s.pages, loaded: s.loaded, language: language}
 	s.jobMu.Unlock()
 }
 
@@ -99,6 +104,12 @@ func (s *settingsSurfaces) run(parent context.Context) (surfacesResult, error) {
 	if !job.loaded && opts.SettingsPages != nil {
 		var err error
 		result.pages, err = opts.SettingsPages(ctx)
+		for index := range result.pages {
+			page := &result.pages[index]
+			if page.Kind == "compiler" {
+				page.Title = i18n.SharedFormat(job.language, "desktop.sourceSettings.compilerTitle", map[string]string{"compiler": page.Title})
+			}
+		}
 		if err != nil {
 			result.err = err
 			// log-exempt: 用户取消：快速搜索或关闭窗口取代旧请求。
@@ -135,7 +146,7 @@ func (s *settingsSurfaces) run(parent context.Context) (surfacesResult, error) {
 	}
 	for index, page := range result.pages {
 		parent := pageLanguages
-		if page.Kind == "buildSystem" {
+		if page.Kind == "buildSystem" || page.Kind == "compiler" {
 			parent = pageBuild
 		}
 		parentID := "static:" + strconv.Itoa(int(parent))

@@ -624,7 +624,7 @@ func (a *App) reloadBuildModel(p *project, index int) {
 // writable state and removed after decoding. No plugin process runs the command, so the
 // host records the load as the plugin's lithe/build/model operation, at the stage
 // buildCommandStage describes.
-func (a *App) commandModel(ctx context.Context, p *project, instance buildInstance, kernel Kernel, messages i18n.BuildMessages) (core.BuildModel, error) {
+func (a *App) commandModel(ctx context.Context, p *project, instance buildInstance, kernel Kernel, messages i18n.BuildMessages, resolved ...buildExecution) (core.BuildModel, error) {
 	attempt := core.StartPluginAttempt(instance.PluginID, core.OperationBuildModel, core.OriginOf(ctx).Operation)
 	fail := func(stage core.PluginStage, err error) (core.BuildModel, error) {
 		a.plugins.EndAttempt(ctx, attempt, stage, err)
@@ -659,7 +659,12 @@ func (a *App) commandModel(ctx context.Context, p *project, instance buildInstan
 	if plan.Provider != nil {
 		return fail(core.StagePlan, errors.New("the build system answered with a provider model"))
 	}
-	execution, err := a.resolveBuildExecutable(ctx, p, instance, messages)
+	var execution buildExecution
+	if len(resolved) > 0 {
+		execution = resolved[0]
+	} else {
+		execution, err = a.resolveBuildExecutable(ctx, p, instance, messages)
+	}
 	if err != nil {
 		return fail(core.StageResolve, err)
 	}
@@ -706,11 +711,17 @@ type buildLaunchError struct{ cause error }
 func (e *buildLaunchError) Error() string { return e.cause.Error() }
 func (e *buildLaunchError) Unwrap() error { return e.cause }
 
-func (a *App) providerModel(ctx context.Context, p *project, instance buildInstance, kernel Kernel, refresh bool) (core.BuildModel, error) {
+func (a *App) providerModel(ctx context.Context, p *project, instance buildInstance, kernel Kernel, refresh bool, resolved ...buildExecution) (core.BuildModel, error) {
 	// The host resolves the build tool the provider runs with, so the provider never searches
 	// for it; an explicit tool setting that does not exist fails here, as it does for commands.
 	var tool *core.BuildTool
-	execution, err := a.resolveBuildExecutable(ctx, p, instance, a.text.Build)
+	var execution buildExecution
+	var err error
+	if len(resolved) > 0 {
+		execution = resolved[0]
+	} else {
+		execution, err = a.resolveBuildExecutable(ctx, p, instance, a.text.Build)
+	}
 	if err != nil {
 		return core.BuildModel{}, err
 	}
@@ -1010,8 +1021,62 @@ func (a *App) resolveBuildExecutable(ctx context.Context, p *project, instance b
 	if err != nil {
 		return buildExecution{}, err
 	}
+	runtimes := make(map[string]buildExecution, len(invocation.RuntimeDependencies))
+	var runtimeEnvironment map[string]string
+	for _, requirement := range invocation.RuntimeDependencies {
+		resolved, err := a.resolveBuildCandidates(ctx, p, instance.Root, requirement.Executables, requirement.MinimumVersion, messages, runtimes)
+		if err != nil {
+			return buildExecution{}, err
+		}
+		resolved.Environment = applyToolchainSelection(resolved.Environment, core.ToolchainSelection{Environment: runtimeEnvironment})
+		if requirement.MinimumVersion != "" && requirement.Version != nil {
+			output, err := probeBuildTool(ctx, resolved.Executable, requirement.Version.Arguments, p.root, applyToolchainSelection(nil, resolved.selection()))
+			if err != nil {
+				return buildExecution{}, err
+			}
+			version, err := a.kernel.CheckBuildToolVersion(ctx, instance.Manifest, instance.BuildSystemID, requirement.ID, output)
+			if err != nil {
+				return buildExecution{}, err
+			}
+			if !version.Satisfied {
+				return buildExecution{}, errors.New(messages.VersionTooOld(requirement.MinimumVersion, version.Version))
+			}
+		}
+		if requirement.PathVariable != "" {
+			if resolved.Environment == nil {
+				resolved.Environment = make(map[string]string)
+			}
+			resolved.Environment[requirement.PathVariable] = resolved.Executable
+		}
+		runtimeEnvironment = applyToolchainSelection(runtimeEnvironment, resolved.selection())
+		runtimes[requirement.ID] = resolved
+	}
+	execution, err := a.resolveBuildCandidates(ctx, p, instance.Root, invocation.Executables, invocation.MinimumVersion, messages, runtimes)
+	if err != nil {
+		return buildExecution{}, err
+	}
+	execution.Environment = applyToolchainSelection(execution.Environment, core.ToolchainSelection{Environment: runtimeEnvironment})
+	if invocation.MinimumVersion != "" && invocation.Version != nil {
+		output, probeErr := probeBuildTool(ctx, execution.Executable, invocation.Version.Arguments, p.root, applyToolchainSelection(nil, execution.selection()))
+		if probeErr != nil {
+			return buildExecution{}, probeErr
+		}
+		version, checkErr := a.kernel.CheckBuildToolVersion(ctx, instance.Manifest, instance.BuildSystemID, "", output)
+		if checkErr != nil {
+			return buildExecution{}, checkErr
+		}
+		if !version.Satisfied {
+			return buildExecution{}, errors.New(messages.VersionTooOld(invocation.MinimumVersion, version.Version))
+		}
+	}
+	return execution, nil
+}
+
+// Native candidate lookup consumes Core's order and runtime bindings. Runtime
+// exports and version probes are applied before the build tool itself starts.
+func (a *App) resolveBuildCandidates(ctx context.Context, p *project, directory string, candidates []core.BuildExecutableCandidate, minimum string, messages i18n.BuildMessages, runtimes map[string]buildExecution) (buildExecution, error) {
 	execution := buildExecution{}
-	for _, candidate := range invocation.Executables {
+	for _, candidate := range candidates {
 		switch candidate.Kind {
 		case "projectFile":
 			path := filepath.Join(p.root, filepath.FromSlash(candidate.Path))
@@ -1047,14 +1112,27 @@ func (a *App) resolveBuildExecutable(ctx context.Context, p *project, instance b
 				execution.Executable = path
 			}
 		case "runtime":
+			if resolved, ok := runtimes[candidate.Runtime]; ok {
+				execution = resolved
+				break
+			}
+			selection, selectErr := a.resolveToolchainSelection(ctx, p.root, directory, candidate.Runtime, minimum)
+			if selectErr == nil {
+				execution = buildExecution{Executable: selection.Executable, Environment: selection.Environment, PathPrepend: selection.PathPrepend}
+				break
+			}
+			var unavailable *toolchain.UnavailableError
+			if !errors.As(selectErr, &unavailable) || unavailable.Code != "definitionUnavailable" {
+				return buildExecution{}, selectErr
+			}
 			if path, lookupErr := exec.LookPath(candidate.Runtime); lookupErr == nil {
 				execution.Executable = path
 			}
 		case "toolchain":
-			selection, selectErr := a.resolveToolchainSelection(ctx, p.root, instance.Root, candidate.ToolchainID, invocation.MinimumVersion)
+			selection, selectErr := a.resolveToolchainSelection(ctx, p.root, directory, candidate.ToolchainID, minimum)
 			if selectErr != nil {
 				var unavailable *toolchain.UnavailableError
-				if errors.As(selectErr, &unavailable) {
+				if errors.As(selectErr, &unavailable) && !unavailable.Terminal {
 					continue
 				}
 				return buildExecution{}, selectErr
@@ -1069,19 +1147,6 @@ func (a *App) resolveBuildExecutable(ctx context.Context, p *project, instance b
 	}
 	if execution.Executable == "" {
 		return buildExecution{}, errors.New(messages.ExecutableMissing)
-	}
-	if invocation.MinimumVersion != "" && invocation.Version != nil {
-		output, probeErr := probeBuildTool(ctx, execution.Executable, invocation.Version.Arguments, p.root, applyToolchainSelection(nil, execution.selection()))
-		if probeErr != nil {
-			return buildExecution{}, probeErr
-		}
-		version, checkErr := a.kernel.CheckBuildToolVersion(ctx, instance.Manifest, instance.BuildSystemID, "", output)
-		if checkErr != nil {
-			return buildExecution{}, checkErr
-		}
-		if !version.Satisfied {
-			return buildExecution{}, errors.New(messages.VersionTooOld(invocation.MinimumVersion, version.Version))
-		}
 	}
 	return execution, nil
 }

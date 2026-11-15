@@ -155,6 +155,7 @@ func Declared() Capabilities {
 		"pluginFunctions",
 		"projectGenerators",
 		"settings",
+		"sourceSettings",
 		"toolDefinitions",
 		"ui",
 		"vcsProviders",

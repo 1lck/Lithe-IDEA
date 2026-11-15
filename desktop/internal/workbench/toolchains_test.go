@@ -3,6 +3,7 @@ package workbench
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -137,4 +138,55 @@ func writeFakeExecutable(name string) error {
 		return err
 	}
 	return os.WriteFile(name, []byte("#!/bin/sh\n"), 0o755)
+}
+
+func TestBuildRuntimeDependenciesUseTheSelectedInstallation(t *testing.T) {
+	kernel := &invocationKernel{testKernel: &testKernel{Client: core.NewClient()}, invocation: core.BuildInvocation{
+		Executables:         []core.BuildExecutableCandidate{{Kind: "toolchain", ToolchainID: "builder"}},
+		RuntimeDependencies: []core.BuildRuntimeRequirement{{ID: "vm", MinimumVersion: "9", Executables: []core.BuildExecutableCandidate{{Kind: "toolchain", ToolchainID: "vm"}}}},
+	}}
+	h := newHarness(t, kernel)
+	h.open(t.TempDir())
+	executable, err := os.Executable()
+	if err != nil {
+		t.Fatal(err)
+	}
+	var calls []string
+	h.app.toolchainResolve = func(_ context.Context, _, directory, tool, minimum string) (core.ToolchainSelection, error) {
+		calls = append(calls, tool)
+		if tool == "vm" {
+			if directory != "." || minimum != "9" {
+				t.Fatalf("runtime selection retargeted: %s %s", directory, minimum)
+			}
+			return core.ToolchainSelection{Executable: executable, Environment: map[string]string{"FICTIONAL_VM_HOME": "/selected/vm"}, PathPrepend: []string{"/selected/vm/bin"}}, nil
+		}
+		return core.ToolchainSelection{Executable: executable}, nil
+	}
+	execution, err := h.app.resolveBuildExecutable(context.Background(), h.app.project, buildInstance{BuildInstance: core.BuildInstance{Root: "."}}, h.app.text.Build)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if execution.Environment["FICTIONAL_VM_HOME"] != "/selected/vm" {
+		t.Fatalf("selected runtime was ignored: %+v; resolutions %v", execution, calls)
+	}
+	if len(calls) != 2 || calls[0] != "vm" || calls[1] != "builder" {
+		t.Fatalf("runtime must be resolved before the build tool: %v", calls)
+	}
+}
+
+func TestBuildRuntimeRefusesAnInvalidPinBeforeFallback(t *testing.T) {
+	kernel := &invocationKernel{testKernel: &testKernel{Client: core.NewClient()}, invocation: core.BuildInvocation{
+		Executables:         []core.BuildExecutableCandidate{{Kind: "command", Command: "unused"}},
+		RuntimeDependencies: []core.BuildRuntimeRequirement{{ID: "vm", Executables: []core.BuildExecutableCandidate{{Kind: "toolchain", ToolchainID: "vm"}, {Kind: "command", Command: "go"}}}},
+	}}
+	h := newHarness(t, kernel)
+	h.open(t.TempDir())
+	refusal := &toolchain.UnavailableError{Tool: "vm", Code: "notFound", Terminal: true}
+	h.app.toolchainResolve = func(context.Context, string, string, string, string) (core.ToolchainSelection, error) {
+		return core.ToolchainSelection{}, refusal
+	}
+	_, err := h.app.resolveBuildExecutable(context.Background(), h.app.project, buildInstance{BuildInstance: core.BuildInstance{Root: "."}}, h.app.text.Build)
+	if !errors.Is(err, refusal) {
+		t.Fatalf("invalid pin fell through to another installation: %v", err)
+	}
 }

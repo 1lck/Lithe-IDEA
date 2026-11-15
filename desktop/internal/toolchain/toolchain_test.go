@@ -60,6 +60,31 @@ func fixtureOptions(home, vmHome string, outputs map[string]string) Options {
 	}
 }
 
+// An environment installation is an automatic choice even when no discovery
+// scan found it. The page must describe the same selection the runtime uses.
+func TestAutomaticHomeIncludesTheResolvedEnvironment(t *testing.T) {
+	root, home, vmHome := t.TempDir(), t.TempDir(), t.TempDir()
+	vm := filepath.Join(vmHome, "jre", "bin", "vm")
+	writeExecutable(t, vm)
+	vm = canonical(t, vm)
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	defer cancel()
+	snapshot, err := Load(ctx, core.NewClient(), root, ".", []json.RawMessage{readManifest(t, "runtime.plugin.json")},
+		fixtureOptions(home, vmHome, map[string]string{vm: "vm 7.1\n"}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(snapshot.Tools) != 1 || snapshot.Tools[0].Effective == nil {
+		t.Fatalf("no effective runtime: %+v", snapshot.Tools)
+	}
+	if snapshot.Tools[0].Effective.Home == nil {
+		t.Fatal("the resolved installation has no home")
+	}
+	if got, want := snapshot.Tools[0].AutomaticHome, *snapshot.Tools[0].Effective.Home; got != want {
+		t.Fatalf("automatic home = %q, runtime home = %q", got, want)
+	}
+}
+
 func TestLoadDiscoversTwoSemanticallyDifferentTools(t *testing.T) {
 	root := t.TempDir()
 	home := t.TempDir()

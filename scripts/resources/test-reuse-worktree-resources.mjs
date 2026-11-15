@@ -562,12 +562,20 @@ try {
   assert.notEqual(result.status, 0);
   assert.match(result.stderr, /language-tools is isolated/);
 
-  for (const id of ["windows-worker-plugins", "installed-worker-plugins", "viva-editor-user-state"]) {
+  for (const id of ["windows-worker-plugins", "installed-worker-plugins", "viva-editor-user-state", "global-toolchain-catalog"]) {
     const result = run(process.execPath, [reuseScript, "--source", sourceRoot, "--resource", id]);
     assert.notEqual(result.status, 0);
     assert.match(diagnostics(result), /isolated/);
   }
 
+  await test("native settings staging belongs to its confirmed operation", {timeout:15000}, async()=>{
+    const registry=JSON.parse(await fs.readFile(path.join(scriptDirectory,"worktree-resources.json"),"utf8"));
+    const entry=registry.excludedResources.find(item=>item.id==="plugin-native-settings-staging");
+    assert.equal(entry.reusable,false);assert.match(entry.identity,/2 MiB.*8 MiB/);
+    assert.match(entry.reason,/0700.*0600/);assert.match(entry.reason,/Every terminal path removes staging/);
+    const listed=run(process.execPath,[reuseScript,"--list"]);assertSucceeded(listed);assert.ok(!listed.stdout.includes(entry.id));
+    const refused=reuse(["--resource",entry.id]);assert.notEqual(refused.status,0);assert.match(diagnostics(refused),/plugin-native-settings-staging is isolated/);
+  });
   process.stdout.write("Worktree resource reuse tests passed.\n");
 } finally {
   await fs.rm(testRoot, { force: true, recursive: true });

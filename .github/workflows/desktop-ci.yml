@@ -222,6 +222,20 @@ jobs:
       - name: Vet and test
         run: ./scripts/desktop/check.sh
 
+      - name: Capture native settings and diagnostic screenshots
+        env:
+          LITHE_VISUAL_OUTPUT_DIR: ${{ github.workspace }}/.artifacts/native-settings-visual
+        run: ./scripts/desktop/desktop-go.sh test -tags 'vivahead lithevisual' ./internal/settingswindow ./internal/workbench -run '^(TestVisualNativeSettingsForm|TestVisualDiagnosticUnderline)$' -count=1 -timeout=120s
+
+      - name: Upload native settings visual evidence
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: native-settings-visual-${{ runner.os }}-${{ runner.arch }}
+          path: .artifacts/native-settings-visual/*.png
+          if-no-files-found: error
+          retention-days: 14
+
       - name: Upload native cache regression report
         if: always()
         uses: actions/upload-artifact@v7
@@ -291,6 +305,20 @@ jobs:
 
       - name: Vet and test
         run: ./scripts/desktop/check.sh
+
+      - name: Capture native settings and diagnostic screenshots
+        env:
+          LITHE_VISUAL_OUTPUT_DIR: ${{ github.workspace }}/.artifacts/native-settings-visual
+        run: ./scripts/desktop/desktop-go.sh test -tags 'vivahead lithevisual' ./internal/settingswindow ./internal/workbench -run '^(TestVisualNativeSettingsForm|TestVisualDiagnosticUnderline)$' -count=1 -timeout=120s
+
+      - name: Upload native settings visual evidence
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: native-settings-visual-${{ runner.os }}-${{ runner.arch }}
+          path: .artifacts/native-settings-visual/*.png
+          if-no-files-found: error
+          retention-days: 14
 
       - name: Upload native cache regression report
         if: always()

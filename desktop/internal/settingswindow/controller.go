@@ -186,6 +186,17 @@ type ToolchainLoader interface {
 	Save(context.Context, toolchain.Snapshot, []toolchain.Edit) (toolchain.Snapshot, error)
 }
 
+// ToolchainInspector validates an explicit installation with the runtime's
+// resolver. Inspection reads facts and probes a version without saving a pin.
+// ToolchainScopedLoader supplies machine registrations and optional project overrides.
+type ToolchainScopedLoader interface {
+	LoadScope(context.Context, string) (toolchain.Snapshot, error)
+}
+
+type ToolchainInspector interface {
+	Inspect(context.Context, toolchain.Snapshot, string, string) (core.ToolchainSelection, error)
+}
+
 // PluginSettingsLoader reads and publishes captured native sources off the UI thread.
 // Load translates the plugin's own text for the language; a save's readback keeps the
 // language its editor was loaded in.
@@ -197,6 +208,11 @@ type PluginSettingsLoader interface {
 // PluginSettingsActionLoader executes explicit declared actions without saving drafts.
 type PluginSettingsActionLoader interface {
 	Action(context.Context, pluginservice.SettingsEditor, string, bool) (pluginservice.SettingsActionResult, error)
+}
+
+// PluginSourceSettingsLoader publishes only explicitly saved native-source drafts.
+type PluginSourceSettingsLoader interface {
+	SaveSources(context.Context, pluginservice.SettingsEditor, string, pluginsettings.SourceEditor, []core.SourceSettingsEdits) (pluginsettings.SourceEditor, error)
 }
 
 // CommandInstaller finds the commands installed plugins run from the user's system and

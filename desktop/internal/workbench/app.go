@@ -51,6 +51,9 @@ import (
 // the calls that read the disk or run Git, so a screen can be checked against answers the
 // test chooses.
 type Kernel interface {
+	ReadSourceSettings(context.Context, json.RawMessage) (core.SourceSettingsState, error)
+	PlanSourceSettingsEdits(context.Context, core.SourceSettingsSnapshot, []core.SourceSettingsEdits, bool) ([]core.SourceSettingsWrite, error)
+	DecodeSourceSettingsReceipt(context.Context, core.SourceSettingsWrite, json.RawMessage) (core.SourceSettingsReceipt, error)
 	SelectPluginFunctionProvider(context.Context, string, string, string, string, []core.PluginFunctionProviderCandidate) (string, error)
 	ReduceRecentProjects(ctx context.Context, entries []core.RecentProject, action core.RecentAction, capacity int) (core.RecentProjectsResult, error)
 	GitCheckoutBranch(ctx context.Context, text string) (string, error)
@@ -128,6 +131,7 @@ type Kernel interface {
 	ToolchainCandidatesOf(ctx context.Context, request core.ToolchainCandidatesRequest) (core.ToolchainCandidates, error)
 	ResolveToolchain(ctx context.Context, request core.ToolchainResolveRequest) (core.ToolchainResolution, error)
 	ResolveToolchainPins(ctx context.Context, document json.RawMessage, directory, tool string) (core.ToolchainPinResolution, error)
+	EditToolchainPins(ctx context.Context, document json.RawMessage, directory string, edits []core.ToolchainPinEdit) (json.RawMessage, error)
 	ToolchainPinStorage(ctx context.Context) (core.ToolchainPinStoragePlan, error)
 	DecodeToolchainPinDocument(ctx context.Context, document *string) (json.RawMessage, error)
 	EditToolchainPinSources(ctx context.Context, request core.ToolchainPinSourcesRequest) (core.ToolchainPinSourcesEdit, error)

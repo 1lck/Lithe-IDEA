@@ -431,6 +431,7 @@ func (t *Terminal) enterAlt(clearScreen bool) {
 	}
 	t.top, t.bot = 0, t.rows-1
 	t.pend = false
+	t.generation++
 	t.version++
 }
 
@@ -451,6 +452,7 @@ func (t *Terminal) leaveAlt(clearScreen bool) {
 	t.onAlt, t.scr, t.modes.AltScreen = false, &t.main, false
 	t.top, t.bot = 0, t.rows-1
 	t.pend = false
+	t.generation++
 	t.version++
 }
 
