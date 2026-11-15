@@ -65,7 +65,7 @@ func (s settingsToolchains) LoadScope(ctx context.Context, scope string) (snapsh
 	}
 	defer func() { s.recordFailure(ctx, "toolchain_settings_load", err) }()
 	manifests, err := s.app.toolchainManifests(ctx)
-	if err != nil && len(manifests) == 0 {
+	if err != nil {
 		return snapshot, err
 	}
 	return toolchain.Load(ctx, s.app.kernel, "", ".", manifests, toolchain.Options{Global: true, GlobalRoot: s.app.store.Dir(), Platform: buildPlatform()})

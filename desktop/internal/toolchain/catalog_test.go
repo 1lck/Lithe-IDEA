@@ -46,7 +46,7 @@ func TestGlobalCatalogWithoutProjectPersistsSDKsAndAllowsProjectOverrides(t *tes
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(loaded.Tools) != 1 || len(loaded.Tools[0].CustomHomes) != 2 || loaded.Tools[0].Effective == nil || loaded.Tools[0].Effective.Home == nil || *loaded.Tools[0].Effective.Home != second {
+	if len(loaded.Tools) != 1 || len(loaded.Tools[0].CustomHomes) != 2 || loaded.Tools[0].Effective == nil || loaded.Tools[0].Effective.Home == nil || filepath.Clean(*loaded.Tools[0].Effective.Home) != filepath.Clean(second) {
 		t.Fatalf("global SDK readback = %+v", loaded.Tools)
 	}
 	if _, err := snapshot.SaveCatalog(ctx, kernel, edits); !errors.Is(err, ErrPinConflict) {
@@ -56,7 +56,7 @@ func TestGlobalCatalogWithoutProjectPersistsSDKsAndAllowsProjectOverrides(t *tes
 	for range 2 {
 		root := t.TempDir()
 		selected, err := Resolve(ctx, kernel, root, ".", tool, "", nil, manifests, options)
-		if err != nil || selected.Home == nil || *selected.Home != second {
+		if err != nil || selected.Home == nil || filepath.Clean(*selected.Home) != filepath.Clean(second) {
 			t.Fatalf("a different project did not inherit the global default: %+v, %v", selected, err)
 		}
 		if _, err := os.Stat(filepath.Join(root, ".lithe")); !errors.Is(err, os.ErrNotExist) {
@@ -70,7 +70,7 @@ func TestGlobalCatalogWithoutProjectPersistsSDKsAndAllowsProjectOverrides(t *tes
 			t.Fatal(err)
 		}
 		selected, err = Resolve(ctx, kernel, root, ".", tool, "", nil, manifests, options)
-		if err != nil || selected.Home == nil || *selected.Home != first || selected.Layer != "pinned" {
+		if err != nil || selected.Home == nil || filepath.Clean(*selected.Home) != filepath.Clean(first) || selected.Layer != "pinned" {
 			t.Fatalf("the explicit project SDK did not override the default: %+v, %v", selected, err)
 		}
 	}
