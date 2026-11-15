@@ -7,6 +7,8 @@ import (
 	"os"
 	"os/exec"
 	"os/signal"
+	"path/filepath"
+	"runtime"
 	"strings"
 	"sync"
 	"syscall"
@@ -69,6 +71,13 @@ func TestBuildProcessHelper(t *testing.T) {
 			os.Exit(5)
 		}
 		fmt.Fprintf(os.Stdout, "got:%s\n", data)
+		os.Exit(0)
+	case "pwd":
+		directory, err := os.Getwd()
+		if err != nil {
+			os.Exit(7)
+		}
+		fmt.Fprintf(os.Stdout, "PWD=%s\ngetwd=%s\n", os.Getenv("PWD"), directory)
 		os.Exit(0)
 	case "bulk":
 		chunk := strings.Repeat("x", 4096) + "\n"
@@ -280,5 +289,57 @@ func TestProcessReadsInjectedStdin(t *testing.T) {
 	}
 	if !strings.Contains(combined.String(), "got:frame") {
 		t.Fatalf("output = %q, want the bytes written to stdin", combined.String())
+	}
+}
+
+// TestProcessSeesItsDirectoryAsTheHostSpelledIt starts a process in a directory
+// reached through a symbolic link. The process must find that spelling, not the
+// link's target, or a tool it runs on a path under the directory would treat
+// the path as outside it.
+func TestProcessSeesItsDirectoryAsTheHostSpelledIt(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("Windows has no PWD")
+	}
+	target := t.TempDir()
+	link := filepath.Join(t.TempDir(), "project")
+	if err := os.Symlink(target, link); err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	output := make(chan string, 8)
+	spec := processSpec(t, "pwd")
+	spec.WorkingDirectory = link
+	process, err := Start(ctx, spec, func(_ Stream, text string) {
+		output <- text
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := process.Wait(); err != nil {
+		t.Fatalf("wait: %v", err)
+	}
+	close(output)
+	var combined strings.Builder
+	for text := range output {
+		combined.WriteString(text)
+	}
+	want := "PWD=" + link + "\ngetwd=" + link + "\n"
+	if combined.String() != want {
+		t.Fatalf("output = %q, want %q", combined.String(), want)
+	}
+}
+
+// TestSpecEnvironmentKeepsItsOwnPWD keeps a PWD the provider set on purpose.
+func TestSpecEnvironmentKeepsItsOwnPWD(t *testing.T) {
+	environment := mergedEnvironment(map[string]string{"PWD": "/chosen"}, t.TempDir())
+	var values []string
+	for _, entry := range environment {
+		if key, value, ok := splitEnvironment(entry); ok && key == "PWD" {
+			values = append(values, value)
+		}
+	}
+	if len(values) != 1 || values[0] != "/chosen" {
+		t.Fatalf("PWD = %q, want the spec's /chosen", values)
 	}
 }
