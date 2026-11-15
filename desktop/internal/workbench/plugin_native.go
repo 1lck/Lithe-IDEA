@@ -34,9 +34,6 @@ type nativePanelState struct {
 	rows    []nativeRow
 	busy    bool
 	message string
-	// menu is the context menu of the tree row right-clicked. A tree row is painted by the tree,
-	// so its menu is opened from the right-click on the row and declared after the tree.
-	menu nativeRowMenu
 	// revealed says the toolbar shows: the pointer is over the panel, or the keyboard or assistive focus is on
 	// one of its buttons. It is read from the previous paint, so the toolbar keeps its place either way.
 	revealed       bool
@@ -280,15 +277,8 @@ func (a *App) nativeMessage(c ui.C, state *nativePanelState) {
 func (a *App) nativeTree(c ui.C, p *project, tool *pluginservice.ToolWindow, state *nativePanelState) {
 	rows := state.rows
 	ui.Tree(c, &state.tree, len(rows), func(i int) string { return rows[i].node.Label }, func(i int) {
-		a.nativeRowPointer(c, tool, state, i, rows[i].node.ID)
-		a.nativeRowContent(c.KeyInt(i), rows[i])
+		a.nativeRowContent(c.KeyInt(i), p, tool, state, state.tree.RowID(i), rows[i])
 	}).Scrollbars().Label(tool.Title).Grow(1).FillWidth()
-	if state.menu.open {
-		id := state.menu.id
-		ui.MenuAt(c.Key("native-row-menu"), state.menu.at.X, state.menu.at.Y, &state.menu.open, func(menu *ui.MenuItems) {
-			a.nativeMenuItems(c, menu, p, tool, state, id)
-		})
-	}
 	toggled, didToggle := state.tree.Toggled()
 	if didToggle && toggled < len(rows) {
 		id := rows[toggled].node.ID
@@ -306,32 +296,12 @@ func (a *App) nativeTree(c ui.C, p *project, tool *pluginservice.ToolWindow, sta
 	}
 }
 
-// nativeRowMenu is the open context menu of one tree row: where it opened and the node it acts on.
-type nativeRowMenu struct {
-	open bool
-	at   ui.Rect
-	id   string
-}
-
-// nativeRowPointer opens the panel's context menu on tree row i, the node id, when the row is
-// right-clicked and the panel declares one.
-func (a *App) nativeRowPointer(c ui.C, tool *pluginservice.ToolWindow, state *nativePanelState, i int, id string) {
-	canvas := c.Canvas()
-	if len(tool.Native.ContextMenu) == 0 || canvas == nil {
-		return
-	}
-	event, ok := canvas.PointerOn(state.tree.RowID(i))
-	if !ok || event.Kind != gfx.PointerDown || event.Button != gfx.PointerButtonSecondary {
-		return
-	}
-	canvas.Consume()
-	state.menu = nativeRowMenu{open: true, at: ui.Rect{X: event.X, Y: event.Y}, id: id}
-}
-
-// nativeRowContent declares what a tree row shows after its chevron.
-func (a *App) nativeRowContent(c ui.C, row nativeRow) {
+// nativeRowContent declares what tree row shows after its chevron. The label names the row, so
+// the panel's context menu it carries opens from anywhere on the row.
+func (a *App) nativeRowContent(c ui.C, p *project, tool *pluginservice.ToolWindow, state *nativePanelState, row gfx.ID, item nativeRow) {
 	ui.Row(c).Grow(1).Shrink(1).Items(ui.Center).Gap(6).Children(func() {
-		ui.Text(c, row.node.Label).Grow(1).Shrink(1).FontSize(12.5).Color(a.colors.Text).Ellipsis()
+		label := ui.Text(c, item.node.Label).Grow(1).Shrink(1).FontSize(12.5).Color(a.colors.Text).Ellipsis().LabelFor(row)
+		a.nativeContextMenu(c, label, p, tool, state, item.node.ID)
 	})
 }
 
@@ -354,7 +324,7 @@ func (a *App) nativeList(c ui.C, p *project, tool *pluginservice.ToolWindow, sta
 	}).Scrollbars().Label(tool.Title).Grow(1).FillWidth()
 }
 
-// nativeContextMenu attaches the panel's context menu to a list row.
+// nativeContextMenu attaches the panel's context menu to a list row or to the label of a tree row.
 func (a *App) nativeContextMenu(c ui.C, target ui.Box, p *project, tool *pluginservice.ToolWindow, state *nativePanelState, id string) {
 	if len(tool.Native.ContextMenu) == 0 {
 		return

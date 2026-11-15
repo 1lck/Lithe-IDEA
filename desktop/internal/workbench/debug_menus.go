@@ -8,7 +8,6 @@ import (
 	"github.com/1lck/Lithe-IDEA/desktop/internal/core"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/i18n"
 	"github.com/vivaui/viva/app"
-	"github.com/vivaui/viva/gfx"
 	"github.com/vivaui/viva/ui"
 )
 
@@ -21,15 +20,6 @@ import (
 // breakpoint is edited, enabled or disabled, shown in its file or removed, alone or with the
 // others. Each item acts
 // through the action the panel's own controls run.
-
-// debugVarMenu is the open context menu of one row of the variables tree. A tree row is
-// painted by the tree, so its menu is opened from the right-click on the row and declared
-// after the tree.
-type debugVarMenu struct {
-	open bool
-	at   ui.Rect
-	node *debugVarNode
-}
 
 // copyDebugText puts one value the debugger shows on the clipboard.
 func (a *App) copyDebugText(action, text string) {
@@ -150,32 +140,13 @@ func (a *App) debugInstructionMenu(c ui.C, row ui.Box, p *project, instruction c
 	})
 }
 
-// debugVariablePointer opens the menu of variable row i when the row is right-clicked.
-func (a *App) debugVariablePointer(c ui.C, p *project, i int, node *debugVarNode) {
-	v := &p.debug.vars
-	canvas := c.Canvas()
-	if node.moreFor != nil || canvas == nil {
-		return
-	}
-	event, ok := canvas.PointerOn(v.tree.RowID(i))
-	if !ok || event.Kind != gfx.PointerDown || event.Button != gfx.PointerButtonSecondary {
-		return
-	}
-	canvas.Consume()
-	v.menu = debugVarMenu{open: true, at: ui.Rect{X: event.X, Y: event.Y}, node: node}
-}
-
-// debugVariableMenu declares the menu of the variable right-clicked while it is open: Set
-// Value selects the row, which shows the field that gives it a new value; Break on Field
+// debugVariableMenu is the menu of one variable, opened from its name or anywhere on its row:
+// Set Value selects the row, which shows the field that gives it a new value; Break on Field
 // Access watches it; Add to Watches evaluates its expression at each stop.
-func (a *App) debugVariableMenu(c ui.C, p *project) {
+func (a *App) debugVariableMenu(c ui.C, name ui.Box, p *project, node *debugVarNode) {
 	d := &p.debug
 	v := &d.vars
-	if !v.menu.open {
-		return
-	}
-	node := v.menu.node
-	ui.MenuAt(c.Key("debug-var-menu"), v.menu.at.X, v.menu.at.Y, &v.menu.open, func(menu *ui.MenuItems) {
+	ui.ContextMenu(c, name, func(menu *ui.MenuItems) {
 		lang := a.language()
 		menu.WidthRange(180, 260)
 		edits := canEditDebugVariable(d, node)

@@ -40,8 +40,8 @@ func (h *harness) logRefMenu(short string) {
 		h.t.Fatal(err)
 	}
 	h.settle()
-	if !v.refMenu || v.refMenuRef.ShortName != short {
-		h.t.Fatalf("the reference menu is open %v on %q, want it open on %q", v.refMenu, v.refMenuRef.ShortName, short)
+	if item := h.app.text.Branch.NewBranchFrom(short); !h.hasPopupItem(item) {
+		h.t.Fatalf("no menu item %q is shown after the right-click on %q", item, short)
 	}
 }
 
