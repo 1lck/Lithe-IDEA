@@ -28,6 +28,8 @@ Viva 桌面端要在 macOS、Windows 和 Linux 上构建，Rust Core 和 Go 桌�
 - Windows 的 Rust 静态库依赖 Cargo crate 提供的导入库，不能只传系统库名称给 Go 链接器。桌面构建入口读取对应 target/profile 的 Cargo 构建输出，把实际使用的导入库目录加入链接搜索路径；相同库名对应不同字节时拒绝构建，避免误用旧缓存。路径按 Go 的参数解析规则整体引用，包含空格的目录也可使用。
 - Windows 打包工具的版本检查通过 Git Bash 启动原生 NSIS 时，用单次命令的 `MSYS2_ARG_CONV_EXCL=/VERSION` 保留版本开关；否则 Git Bash 会把 `/VERSION` 转成 Git 安装目录下的路径，NSIS 误以为是安装脚本并终止。不要全局关闭路径转换，后续真实文件参数仍需要正常处理；共享工具准备 action 的 PATH、x86 与 x64 查找路径都适用这一约束。
 - Lithe 的发布包必须显式用 Viva 的 `--cgo` 构建选项：Linux 和 Windows 默认的纯 Go 打包会关闭 cgo，使 Rust Core 的 C ABI 桥接文件不参与编译。宿主打包入口继续由 `desktop-go.sh` 提供目标编译器、静态库和头文件，再将公开选项传给 Viva；不在宿主修改 Viva 源码或增加缺失桥接的空实现。这个选项不增加运行时资源路径，也不改变资源所有权；安装包仍然只读。Linux 的最低系统库要求由实际构建镜像及原生库决定，不能因为 Viva 默认纯 Go 就宣称 Lithe 安装包不依赖 glibc。
+- macOS 没有 Developer ID 证书时，AutoBuild 和 Desktop Release 显式调用 Viva 的临时签名（ad hoc）功能，并无条件校验完整 app bundle。只保留 Go 链接器生成的可执行文件签名，会漏掉 Info.plist 与资源封装，实际下载包报“code has no resources but signature indicates they must be present”；不能以“没有证书”为由跳过完整性校验。临时签名不提供 Apple 开发者身份或公证，Gatekeeper 仍可能拦截，下载说明必须如实说明；不能把临时签名包装成免提示分发。
+- Desktop Release 和 AutoBuild 必须共用 `scripts/ci/common/desktop-packages.mjs` 定义的构建矩阵、格式和下载文件名，不能各维护一套清单。macOS 两种芯片各提供 DMG/ZIP，Windows x64 提供 EXE/ZIP，Linux 两种架构各提供 DEB/RPM/tarball，共 12 个包和 12 个校验文件。两条流程在任何发布写操作前检查完整清单和 SHA-256，不能只检查“下载到的文件”而漏掉未生成的包。RPM 使用 Viva 已有的打包能力；正式发布另外用 rpm 工具检查内部摘要和版本/发行号/架构。它是 runner 上的验证工具，不进入安装包，不增加可复用资源路径。
 - 只有 Node 脚本、没有外部依赖的工作流不为了打开 `cache` 而引入不存在的 lockfile；Bun 的真实依赖缓存保留。
 
 ## 考虑过的备选方案
@@ -60,6 +62,10 @@ Release 编译和打包会把反馈推迟到最慢的任务结束。Draft PR 和
 - 工作流调整时必须同步检查缓存键、gate 依赖和平台矩阵。
 
 ## 验证
+
+- `node --test scripts/ci/common/desktop-packages.test.mjs scripts/ci/desktop-release/package-release.test.mjs`：验证两条流程共用五个目标、12 个下载包，缺 Intel/RPM 或校验错误时拒绝发布，并用离线夹具验证 Linux 两种架构的正式打包与 RPM 元数据拒绝。
+
+- `node --test scripts/ci/desktop-autobuild/package-autobuild.test.mjs`：离线验证 Linux 双架构 RPM 收集及校验和、macOS 临时签名选择和无效签名拒绝发布。
 
 - `node --test --test-timeout=60000 scripts/ci/desktop-ci/verify-ci-gate.test.mjs`：离线验证五项结果汇总、Draft 原生检查延期、失败/取消/缺失结果拒绝，以及命令入口的输入校验。
 - `actionlint`：核对当前工作流的事件、依赖和表达式；GitHub 上还要确认 main 的 `Desktop CI gate` 为必需检查，且只有两个指定账号拥有 PR 豁免。

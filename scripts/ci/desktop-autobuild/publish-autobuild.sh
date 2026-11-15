@@ -25,6 +25,9 @@ for name in GH_TOKEN GITHUB_REPOSITORY RELEASE_TAG SOURCE_SHA SOURCE_BRANCH DESK
     fi
 done
 
+ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd -P)"
+node "$ROOT_DIR/scripts/ci/common/desktop-packages.mjs" verify "$DESKTOP_VERSION" "$DIR"
+
 FILES=()
 NAMES=()
 for path in "$DIR"/*; do
@@ -44,8 +47,8 @@ if [[ "${MACOS_SIGNED:-false}" == true ]]; then
     MACOS_SIGNING_ZH='macOS 包已用 Developer ID 签名，但没有经过 Apple 公证。'
     MACOS_SIGNING_EN='The macOS package is signed with a Developer ID but is not notarized by Apple.'
 else
-    MACOS_SIGNING_ZH='macOS 包没有用 Developer ID 签名，也没有经过 Apple 公证。'
-    MACOS_SIGNING_EN='The macOS package is not signed with a Developer ID and is not notarized by Apple.'
+    MACOS_SIGNING_ZH='macOS 包使用临时签名（ad hoc），没有 Developer ID 签名，也没有经过 Apple 公证。'
+    MACOS_SIGNING_EN='The macOS package uses an ad hoc signature, without a Developer ID or Apple notarization.'
 fi
 if [[ "${WINDOWS_SIGNED:-false}" == true ]]; then
     WINDOWS_SIGNING_ZH='Windows 安装程序和程序已签名。'
@@ -56,6 +59,7 @@ else
 fi
 
 SERVER_URL="${GITHUB_SERVER_URL:-https://github.com}"
+DOWNLOAD_URL="$SERVER_URL/$GITHUB_REPOSITORY/releases/download/$RELEASE_TAG"
 COMMIT_URL="$SERVER_URL/$GITHUB_REPOSITORY/commit/$SOURCE_SHA"
 SHORT_SHA="${SOURCE_SHA:0:12}"
 BUILT_AT="${BUILD_TIMESTAMP/T/ }"
@@ -84,16 +88,17 @@ cat > "$NOTES" <<EOF
 
 ### 下载
 
+- macOS（Intel）：\`lithe-$V-darwin-amd64.dmg\`，或 \`lithe-$V-darwin-amd64.zip\`
 - macOS（Apple 芯片）：\`lithe-$V-darwin-arm64.dmg\`，或 \`lithe-$V-darwin-arm64.zip\`
 - Windows x64：安装程序 \`lithe-$V-windows-amd64-setup.exe\`，或免安装的 \`lithe-$V-windows-amd64.zip\`
-- Linux x64：\`lithe_${V}_amd64.deb\`，或 \`lithe-$V-linux-amd64.tar.gz\`
-- Linux ARM64：\`lithe_${V}_arm64.deb\`，或 \`lithe-$V-linux-arm64.tar.gz\`
+- Linux x64：[\`lithe_${V}_amd64.deb\`]($DOWNLOAD_URL/lithe_${V}_amd64.deb)、[\`lithe-$V-1.x86_64.rpm\`]($DOWNLOAD_URL/lithe-$V-1.x86_64.rpm)，或 [\`lithe-$V-linux-amd64.tar.gz\`]($DOWNLOAD_URL/lithe-$V-linux-amd64.tar.gz)
+- Linux ARM64：[\`lithe_${V}_arm64.deb\`]($DOWNLOAD_URL/lithe_${V}_arm64.deb)、[\`lithe-$V-1.aarch64.rpm\`]($DOWNLOAD_URL/lithe-$V-1.aarch64.rpm)，或 [\`lithe-$V-linux-arm64.tar.gz\`]($DOWNLOAD_URL/lithe-$V-linux-arm64.tar.gz)
 
 每个文件都有同名的 \`.sha256\` 校验文件。
 
 ### 注意事项
 
-- macOS 只提供 Apple 芯片版本，不提供 Intel 版本。
+- macOS 提供 Intel 和 Apple 芯片版本，请选择与设备匹配的架构。
 - 自动构建不会自动更新，需要新构建时请重新下载。
 - $MACOS_SIGNING_ZH如果 macOS 提示无法打开 Lithe Desktop.app，请在“应用程序”中按住 Control 点按应用并选择“打开”；如果仍被阻止，可在终端执行 \`xattr -dr com.apple.quarantine "/Applications/Lithe Desktop.app"\`。仅对可信来源的应用使用。
 - $WINDOWS_SIGNING_ZH显示 SmartScreen 提示时，确认来源可信后选择“更多信息”，再选择“仍要运行”。
@@ -110,16 +115,17 @@ This is the latest automatic build of Lithe Desktop. The release keeps only the 
 
 ### Downloads
 
+- macOS (Intel): \`lithe-$V-darwin-amd64.dmg\`, or \`lithe-$V-darwin-amd64.zip\`
 - macOS (Apple silicon): \`lithe-$V-darwin-arm64.dmg\`, or \`lithe-$V-darwin-arm64.zip\`
 - Windows x64: the installer \`lithe-$V-windows-amd64-setup.exe\`, or the portable \`lithe-$V-windows-amd64.zip\`
-- Linux x64: \`lithe_${V}_amd64.deb\`, or \`lithe-$V-linux-amd64.tar.gz\`
-- Linux ARM64: \`lithe_${V}_arm64.deb\`, or \`lithe-$V-linux-arm64.tar.gz\`
+- Linux x64: [\`lithe_${V}_amd64.deb\`]($DOWNLOAD_URL/lithe_${V}_amd64.deb), [\`lithe-$V-1.x86_64.rpm\`]($DOWNLOAD_URL/lithe-$V-1.x86_64.rpm), or [\`lithe-$V-linux-amd64.tar.gz\`]($DOWNLOAD_URL/lithe-$V-linux-amd64.tar.gz)
+- Linux ARM64: [\`lithe_${V}_arm64.deb\`]($DOWNLOAD_URL/lithe_${V}_arm64.deb), [\`lithe-$V-1.aarch64.rpm\`]($DOWNLOAD_URL/lithe-$V-1.aarch64.rpm), or [\`lithe-$V-linux-arm64.tar.gz\`]($DOWNLOAD_URL/lithe-$V-linux-arm64.tar.gz)
 
 Every file has a \`.sha256\` checksum file of the same name.
 
 ### Notes
 
-- macOS builds are for Apple silicon only; there is no Intel build.
+- macOS builds cover Intel and Apple silicon; choose the architecture matching your Mac.
 - AutoBuild does not update itself; download again to get a newer build.
 - $MACOS_SIGNING_EN If macOS says it cannot open Lithe Desktop.app, Control-click it in Applications and choose Open. If it is still blocked, run \`xattr -dr com.apple.quarantine "/Applications/Lithe Desktop.app"\` in Terminal. Use this only for an app from a source you trust.
 - $WINDOWS_SIGNING_EN If Windows shows a SmartScreen prompt, confirm that the source is trusted, choose More info, then choose Run anyway.

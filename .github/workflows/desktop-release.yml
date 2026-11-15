@@ -32,12 +32,19 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     outputs:
+      matrix: ${{ steps.packages.outputs.matrix }}
       version: ${{ steps.version.outputs.version }}
       tag: ${{ steps.version.outputs.tag }}
 
     steps:
       - name: Check out source
         uses: actions/checkout@v7
+
+      - name: Resolve the shared package matrix
+        id: packages
+        run: |
+          matrix="$(node scripts/ci/common/desktop-packages.mjs matrix)"
+          printf 'matrix=%s\n' "$matrix" >> "$GITHUB_OUTPUT"
 
       - name: Resolve the version and check the manifest and release notes
         id: version
@@ -55,28 +62,7 @@ jobs:
         shell: bash
     strategy:
       fail-fast: false
-      matrix:
-        include:
-          - os: darwin
-            arch: arm64
-            runner: macos-26
-            rust-target: aarch64-apple-darwin
-          - os: darwin
-            arch: amd64
-            runner: macos-26
-            rust-target: x86_64-apple-darwin
-          - os: windows
-            arch: amd64
-            runner: windows-2022
-            rust-target: x86_64-pc-windows-gnu
-          - os: linux
-            arch: amd64
-            runner: ubuntu-22.04
-            rust-target: x86_64-unknown-linux-gnu
-          - os: linux
-            arch: arm64
-            runner: ubuntu-22.04-arm
-            rust-target: aarch64-unknown-linux-gnu
+      matrix: ${{ fromJSON(needs.prepare.outputs.matrix) }}
 
     steps:
       - name: Check out source
@@ -97,6 +83,12 @@ jobs:
       - name: Ensure Windows build tools
         if: matrix.os == 'windows'
         uses: ./.github/actions/setup-desktop-windows-build-tools
+
+      - name: Ensure Linux package inspection tools
+        if: matrix.os == 'linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y rpm
 
       - name: Restore the core build
         uses: actions/cache@v6
@@ -177,6 +169,8 @@ jobs:
             dist/desktop/${{ matrix.os }}-${{ matrix.arch }}/lithe-${{ needs.prepare.outputs.version }}-linux-${{ matrix.arch }}.tar.gz.sha256
             dist/desktop/${{ matrix.os }}-${{ matrix.arch }}/lithe_${{ needs.prepare.outputs.version }}_${{ matrix.arch }}.deb
             dist/desktop/${{ matrix.os }}-${{ matrix.arch }}/lithe_${{ needs.prepare.outputs.version }}_${{ matrix.arch }}.deb.sha256
+            dist/desktop/${{ matrix.os }}-${{ matrix.arch }}/*.rpm
+            dist/desktop/${{ matrix.os }}-${{ matrix.arch }}/*.rpm.sha256
 
           if-no-files-found: error
 
@@ -202,16 +196,10 @@ jobs:
           path: dist
           merge-multiple: true
 
-      - name: Verify the checksums
-        working-directory: dist
-        run: |
-          shopt -s nullglob
-          checksums=( *.sha256 )
-          if [[ ${#checksums[@]} -eq 0 ]]; then
-            printf '%s\n' 'No desktop checksum files were downloaded.' >&2
-            exit 1
-          fi
-          sha256sum -c "${checksums[@]}"
+      - name: Verify the complete inventory and checksums
+        env:
+          DESKTOP_VERSION: ${{ needs.prepare.outputs.version }}
+        run: node scripts/ci/common/desktop-packages.mjs verify "$DESKTOP_VERSION" dist
 
       - name: Create or update the GitHub prerelease
         env:
@@ -231,7 +219,7 @@ jobs:
           fi
           gh release edit "$RELEASE_TAG" "${release_args[@]}"
           shopt -s nullglob
-          release_files=(dist/*.zip dist/*.dmg dist/*.exe dist/*.tar.gz dist/*.deb dist/*.sha256)
+          release_files=(dist/*.zip dist/*.dmg dist/*.exe dist/*.tar.gz dist/*.deb dist/*.rpm dist/*.sha256)
           if [[ ${#release_files[@]} -eq 0 ]]; then
             printf '%s\n' 'No desktop release artifacts were downloaded.' >&2
             exit 1
