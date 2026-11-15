@@ -11,6 +11,7 @@ import (
 	"github.com/1lck/Lithe-IDEA/desktop/internal/i18n"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/wslpath"
 	"github.com/vivaui/viva/app"
+	"github.com/vivaui/viva/gfx"
 	"github.com/vivaui/viva/ui"
 )
 
@@ -49,16 +50,17 @@ type treePrompt struct {
 	err  string
 }
 
-// projectTreeMenu declares the context menu of one row. A row of a folder or the root can make
-// files and folders; any row but the root can be renamed or deleted. The Git items appear only
-// for a file the last status lists as changed.
-func (a *App) projectTreeMenu(c ui.C, p *project, n *treeNode, target ui.Box) {
+// projectTreeMenu makes the name of row the label of that row and declares the row's context
+// menu on it, so the menu opens from anywhere on the row, and any row but the root is dragged
+// from anywhere on it too. A row of a folder or the root can make files and folders; any row
+// but the root can be renamed or deleted. The Git items appear only for a file the last status
+// lists as changed.
+func (a *App) projectTreeMenu(c ui.C, p *project, row gfx.ID, n *treeNode, target ui.Box) {
 	language := a.language()
 	root := n == p.tree.root
-	rowID := ui.ID(c.Key("treectx/" + n.path))
-	target.Hit(rowID, n.name)
+	target.LabelFor(row)
 	if !root {
-		p.tree.rememberRow(rowID, n)
+		p.tree.rememberRow(row, n)
 		target.DragSource(&a.dnd.tree)
 	}
 	if n.dir && !root {

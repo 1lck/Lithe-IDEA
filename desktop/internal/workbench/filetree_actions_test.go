@@ -346,10 +346,6 @@ func (h *harness) treeRowOwned(id gfx.ID) bool {
 // A click on a file would open it at once, so a click on an empty folder gives the tree the
 // keyboard and the arrows pick the file.
 func TestProjectTreeOpenSelectedFollowsTheKeymap(t *testing.T) {
-	// The pinned Viva leaves a Tree's focused rows outside the box Tree returns, so no
-	// Shortcut on the project tree acts while a row has the focus. Remove this skip with the
-	// pin that carries Lithe-IDEA/viva#9 (vivaui/viva#234).
-	t.Skip("needs Box.Shortcut to cover Tree rows: Lithe-IDEA/viva#9")
 	root := t.TempDir()
 	if err := os.Mkdir(filepath.Join(root, "empty"), 0o700); err != nil {
 		t.Fatal(err)

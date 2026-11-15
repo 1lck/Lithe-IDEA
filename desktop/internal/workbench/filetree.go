@@ -48,8 +48,9 @@ type fileTree struct {
 	// removal is the Delete dialog, open while the user chooses between the trash and deleting
 	// for good (filetree_batch.go).
 	removal treeRemoval
-	// rowRefs maps the hit identity of each row the last paint declared to its node, so a drag
-	// or drop finds the paths it names (filetree_dnd.go); clip is the cut or copied items.
+	// rowRefs maps the identity of each row the last paint declared (view.RowID, which the row's
+	// name labels) to its node, so a drag or drop finds the paths it names (filetree_dnd.go);
+	// clip is the cut or copied items.
 	rowRefs map[gfx.ID]treeRowRef
 	clip    treeClipboard
 	// failed is why the root could not be listed; empty otherwise.
