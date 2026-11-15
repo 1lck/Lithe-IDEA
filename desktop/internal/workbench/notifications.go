@@ -38,6 +38,10 @@ type notification struct {
 	// during one. The toast and the history offer View Logs for it, which opens the log window
 	// on that action's records.
 	op string
+	// act is what the notice's own button does, labeled actLabel, nil for a notice without
+	// one; it runs on the workbench the notice is on. A notice with act offers no View Logs.
+	act      func(*App)
+	actLabel string
 }
 
 // notificationCenter owns the history shared by the tool window and the status popover.
@@ -100,6 +104,12 @@ func (a *App) notificationColor(kind ui.ToastKind) gfx.Color {
 // and its toast shows the count, replacing the toast it had. A failure reported during a user
 // action refers to the action's records: its toast has a View Logs button.
 func (a *App) notifyKind(message string, kind ui.ToastKind) {
+	a.notifyAction(message, kind, "", nil)
+}
+
+// notifyAction is notifyKind with a button of the notice's own, label, which runs act. A
+// repeat of the notice keeps the latest button.
+func (a *App) notifyAction(message string, kind ui.ToastKind, label string, act func(*App)) {
 	a.notice = message
 	center := &a.notifications
 	var entry *notification
@@ -116,6 +126,7 @@ func (a *App) notifyKind(message string, kind ui.ToastKind) {
 	}
 	entry.count++
 	entry.at = a.now()
+	entry.act, entry.actLabel = act, label
 	entry.unread = !center.open
 	if kind == ui.ToastError && a.op.id != "" {
 		entry.op = a.op.id
@@ -125,7 +136,10 @@ func (a *App) notifyKind(message string, kind ui.ToastKind) {
 		center.list = center.list[:notificationHistoryLimit]
 	}
 	action := ""
-	if a.viewsLogs(entry) {
+	switch {
+	case entry.act != nil:
+		action = entry.actLabel
+	case a.viewsLogs(entry):
 		action = i18n.Shared(a.language(), "desktop.notifications.viewLogs")
 	}
 	entry.toast = a.overlay.toaster.ShowAction(a.notificationText(entry), "", kind, action)
@@ -138,17 +152,22 @@ func (a *App) notifyKind(message string, kind ui.ToastKind) {
 // viewsLogs says the notice offers View Logs: it refers to an action's records and there is a
 // log window to show them in.
 func (a *App) viewsLogs(entry *notification) bool {
-	return entry.op != "" && a.logs != nil
+	return entry.act == nil && entry.op != "" && a.logs != nil
 }
 
-// notificationActed opens the records of the notice whose toast's View Logs this paint
-// delivered a press on. Call it after ui.Toasts.
+// notificationActed runs the button of the notice whose toast this paint delivered a press on:
+// its own, or View Logs, which opens its records. Call it after ui.Toasts.
 func (a *App) notificationActed(c ui.C) {
 	id, ok := a.overlay.toaster.Acted()
 	if !ok {
 		return
 	}
 	for _, entry := range a.notifications.list {
+		if entry.toast == id && entry.act != nil {
+			act := entry.act
+			c.After(func() { a.notificationAct(act) })
+			return
+		}
 		if entry.toast == id && entry.op != "" {
 			op := entry.op
 			c.After(func() { a.viewNotificationLogs(op) })
@@ -162,6 +181,12 @@ func (a *App) notificationActed(c ui.C) {
 func (a *App) viewNotificationLogs(op string) {
 	a.performed("logs.openOperation", surfaceNotification)
 	a.showLogs(op)
+}
+
+// notificationAct runs a notice's own button, which closes the history it may be pressed in.
+func (a *App) notificationAct(act func(*App)) {
+	a.notifications.open = false
+	act(a)
 }
 
 // notificationText is a notice's words, with how often it came when that is more than once.
@@ -294,6 +319,10 @@ func (a *App) notificationEntry(k ui.C, entry *notification) {
 	}
 	ui.Row(k).FillWidth().Items(ui.Center).Gap(8).Children(func() {
 		ui.Text(k, meta).FontSize(a.theme.Metrics.FontSizeS).Color(a.colors.Subtle).Grow(1).Ellipsis()
+		if entry.act != nil && ui.Button(k.Part("act"), entry.actLabel).Ghost().Small().Clicked() {
+			act := entry.act
+			k.After(func() { a.notificationAct(act) })
+		}
 		if a.viewsLogs(entry) && ui.Button(k.Part("logs"), i18n.Shared(language, "desktop.notifications.viewLogs")).Ghost().Small().Clicked() {
 			op := entry.op
 			k.After(func() { a.viewNotificationLogs(op) })

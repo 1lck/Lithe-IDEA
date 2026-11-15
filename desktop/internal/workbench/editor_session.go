@@ -179,6 +179,12 @@ func (a *App) restoreEditorSession(p *project) {
 		}
 		return
 	}
+	if unread := a.store.Unread(editorSessionFile); unread != nil {
+		// A part a newer version stored in another shape restores as its default; the save in
+		// saveEditorSession writes it back until this version replaces it, so only this read
+		// logs it.
+		a.backgroundFailed("editor_session_load", documentLogError(unread))
+	}
 	session, ok := all[p.root]
 	if !ok || len(session.Groups) == 0 {
 		return

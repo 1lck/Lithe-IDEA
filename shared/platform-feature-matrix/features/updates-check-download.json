@@ -16,7 +16,21 @@
       "desktop/internal/buildinfo/update.go",
       "desktop/internal/workbench/updates_test.go",
       "desktop/internal/settingswindow/about_view.go",
-      "desktop/internal/settingswindow/about_view_test.go"
+      "desktop/internal/settingswindow/about_view_test.go",
+      "desktop/internal/workbench/update_channels.go",
+      "desktop/internal/workbench/update_channels_test.go",
+      "desktop/internal/workbench/update_dialog.go",
+      "desktop/internal/workbench/update_dialog_test.go",
+      "desktop/internal/workbench/update_dialog_visual_test.go",
+      "desktop/internal/workbench/update_notes.go",
+      "desktop/internal/workbench/update_snapshots.go",
+      "desktop/internal/settingswindow/updates_view_test.go",
+      "desktop/internal/settingswindow/updates_visual_test.go",
+      "scripts/desktop/package-desktop.sh",
+      "scripts/ci/desktop-release/publish-update-feed.sh",
+      "scripts/ci/desktop-release/publish-update-feed.test.mjs",
+      ".github/workflows/desktop-autobuild.yml",
+      ".agents/notes/implemented/feature/2026-11-15-desktop-update-channels-and-dialog.md"
     ]
   },
   "windows": {
@@ -32,13 +46,27 @@
       "desktop/internal/buildinfo/update.go",
       "desktop/internal/workbench/updates_test.go",
       "desktop/internal/settingswindow/about_view.go",
-      "desktop/internal/settingswindow/about_view_test.go"
+      "desktop/internal/settingswindow/about_view_test.go",
+      "desktop/internal/workbench/update_channels.go",
+      "desktop/internal/workbench/update_channels_test.go",
+      "desktop/internal/workbench/update_dialog.go",
+      "desktop/internal/workbench/update_dialog_test.go",
+      "desktop/internal/workbench/update_dialog_visual_test.go",
+      "desktop/internal/workbench/update_notes.go",
+      "desktop/internal/workbench/update_snapshots.go",
+      "desktop/internal/settingswindow/updates_view_test.go",
+      "desktop/internal/settingswindow/updates_visual_test.go",
+      "scripts/desktop/package-desktop.sh",
+      "scripts/ci/desktop-release/publish-update-feed.sh",
+      "scripts/ci/desktop-release/publish-update-feed.test.mjs",
+      ".github/workflows/desktop-autobuild.yml",
+      ".agents/notes/implemented/feature/2026-11-15-desktop-update-channels-and-dialog.md"
     ]
   },
   "owner": "Release",
-  "releaseSource": "Viva 桌面构建使用独立 desktop-v 标签和预发布包，另由 desktop-autobuild.yml 每天从 preview 滚动发布到 desktop-AutoBuild 预发布（不注入更新源，也没有独立的开发版身份）；应用内更新渠道和签名验证尚未接入。",
-  "verification": "Viva 需要分别在 macOS 和 Windows 验证更新渠道、签名、下载、安装、取消和数据保护；当前尚无对应实机验收。workbench 的 updates_test.go 用假的更新源覆盖：后台到点的检查推迟、回到前台后执行并只通知一次、保存检查时间并排下一次检查；自动检查失败不显示、手动检查显示原因；下载进度、下载目录在用户缓存、取消后恢复可更新且无失败；关闭自动检查后保存并撤销定时，重新打开后排上第一次检查。增量更新同样用假的更新源、补丁应用器和安装器覆盖：发布源列出从当前版本出发的补丁时，页面显示增量与完整包大小，只下载补丁、从 0.7.0 生成 0.8.0 并安装生成的副本，安装器取走后副本被删除；补丁下载、应用、安装任一步失败都记录 WARN 的 update.delta.fallback_selected（带步骤与原因），改为下载完整包安装，删除生成的副本，之后同一版本只提供完整包；安装被拒（只读位置、由包管理器管理）不改下完整包，只显示原因；下载补丁时取消不算失败、不下完整包；没有安装入口时生成的副本等待安装，检查到其他版本或窗口关闭时在后台删除、不阻塞窗口线程，删除失败记录 update.delta.cleanup_failed。settingswindow 的 about_view_test.go 覆盖更新行在增量可用、下载增量、生成新版本、改下完整包时的文案，以及生成新版本时不提供取消。运行 scripts/desktop/desktop-go.sh test -race ./internal/workbench -run 'TestAutomaticUpdateCheck|TestUpdateCheckFailure|TestCancelledUpdateDownload|TestTurningOffTheAutomaticCheck|TestDeltaUpdate|TestCancelledPatchDownload|TestRebuiltApplicationIsDeleted'，以及 scripts/desktop/desktop-go.sh test -race ./internal/settingswindow -run 'TestUpdateLineSaysTheStepUnderWay|TestApplyingADeltaUpdateOffersNoCancel'。",
-  "notes": "Viva：设置 › 更新页和关于页共用同一张更新卡片，可“立即检查”，有新版本时“更新”一键下载、校验、安装并重启；下载中可取消，取消后恢复为可更新且不报错。Viva 的更新包校验 latest.json 的 Ed25519 签名，按平台下载并校验大小与 SHA-256，下载放在用户缓存目录（Lithe/Updates/<版本>）。自动检查参照 Motty：启动 5 秒后第一次检查，之后每小时一次；窗口在后台时到点的检查推迟到窗口回到前台再补；同一版本只通知一次；自动检查失败不在页面显示，只有用户点“立即检查”才显示原因；自动检查开关与上次检查时间随设置保存，项目标签页共用一份状态。更新源、公钥和渠道在链接时注入（buildinfo/update.go），打包与发布流程尚未注入也未发布签名 feed，所以发行构建目前不检查更新。预览版与正式版按语义化版本比较，同号的预览版不会把正式版认作更新。增量更新参照旧 macOS 的 Sparkle 增量包，由 Viva update 包实现，所有平台共用一套流程：发布源为当前版本列出补丁时，“更新”只下载补丁（同样校验大小与 SHA-256），在临时目录里从已安装的应用生成新版本（只读取已安装应用、不写入），再按完整包的同样校验安装；页面显示增量大小和完整包大小，生成新版本期间不能取消。补丁下载、应用或安装任一步失败时记录原因并自动改下完整包，此后同一版本不再尝试补丁；只读位置或包管理器管理的安装被拒时不改下完整包，直接显示原因。生成的副本只用一次，安装器取走后、安装失败时、检查到其他版本时和窗口关闭时删除。Viva 目前只为 macOS 和 Linux 生成补丁，Windows 的发布源不列补丁，所以 Windows 始终下载完整安装包；发布流程尚未生成签名 feed 和补丁。",
+  "releaseSource": "正式版：Desktop Release 打包时传 package-desktop.sh --stable，把渠道、UTC 构建时间、commit 和仓库变量 LITHE_UPDATE_PUBLIC_KEYS 的公钥写进程序（package_info.go，lithe_package_info 构建标签，打包后删除）。安装包上传后，只有 update-feed 任务拿到 Actions secret VIVA_UPDATE_KEY：scripts/ci/desktop-release/publish-update-feed.sh 把签名的 stable.json、stable.json.sig 和 stable.notes.md（正文取自 docs/releases/v<版本>.md）发布到 1lck/Lithe-IDEA 的固定 release desktop-update-feed，并从当前 stable.json 提供的上一版生成 zip/tar.gz 增量补丁；并发组 desktop-update-feed-stable，没有私钥时跳过发布。AutoBuild：desktop-autobuild.yml 打包时传 --autobuild 并写入同一组公钥，客户端默认读同一 release 的 autobuild.json；该更新源要等 Viva 打包接受预发布版本号后才发布（提案见 .agents/notes/proposed/feature/2026-11-16-desktop-autobuild-update-feed.md），在此之前 AutoBuild 渠道检查更新会因找不到更新源（404）失败：自动检查只记 WARN，手动检查显示原因。本地打包和 go run 没有渠道，不检查更新。",
+  "verification": "尚无 macOS 或 Windows 实机验收：签名更新源要等维护者生成 VIVA_UPDATE_KEY 与 LITHE_UPDATE_PUBLIC_KEYS 并完成一次 Desktop Release 后，才能在真实安装上检查、下载（含增量补丁）和安装，verificationStatus 保持 pending。workbench 的 updates_test.go 用假的更新源覆盖：后台到点的检查推迟、回到前台后执行并只通知一次；自动检查失败不显示、手动检查显示原因；下载进度、下载目录在用户缓存、取消后恢复可更新且无失败；关闭自动检查后保存并撤销定时；增量更新只下载补丁、生成并安装副本，补丁任一步失败记录 WARN 的 update.delta.fallback_selected 并改下完整包，安装被拒不改下完整包，生成的副本按时删除；NSIS 安装版复用同平台 zip 的补丁。update_channels_test.go 覆盖 AutoBuild 版本去掉后缀再比较、切到 AutoBuild 读完整更新源、AutoBuild 回正式版等待或立即切换、检查中切换读新渠道、跳过的版本不出箭头和通知、日志首行版本校验、更新源保存与读取、下载中不能切换、切换安装保存并恢复设置快照、待恢复的快照只对目标构建生效、快照只留 5 份。update_dialog_test.go 覆盖点箭头先显示日志、不开始下载，项目标题栏上的箭头，对话框跟随下载状态，各状态提供的按钮，日志只打开网页链接；settingswindow 的 updates_view_test.go 覆盖切到 AutoBuild 要确认、回正式版的两个选择、更新源保存与恢复默认、“查看更新内容”。scripts/ci/desktop-release/publish-update-feed.test.mjs 用假的 gh 和 viva 覆盖：没有私钥不发布；第一次发布只列完整包并创建 desktop-update-feed；从当前更新源提供的上一版下载并校验旧归档后生成补丁；重发同一版本用同一基线；更新源已提供更高版本时不动；各类错误在发布任何文件前失败。TestVisualUpdateDialog 与 TestVisualUpdatesPage 在设置 LITHE_VISUAL_OUTPUT_DIR 时生成中英文、浅色和深色的对话框与设置页无头截图，不代替真实窗口验收。运行 scripts/desktop/desktop-go.sh test -race ./internal/workbench -run 'TestAutomaticUpdateCheck|TestUpdateCheckFailure|TestCancelledUpdateDownload|TestTurningOffTheAutomaticCheck|TestDeltaUpdate|TestCancelledPatchDownload|TestRebuiltApplicationIsDeleted|TestNSISInstallationUsesTheZipPatch|TestReleaseBase|TestSwitching|TestAutoBuildBackToStable|TestSwitchDuringACheck|TestSkippedVersion|TestUpdateNotes|TestUpdateSource|TestNoSwitchDuringADownload|TestSwitchInstall|TestPendingRestore|TestKeptSettings|TestUpdateArrow|TestUpdateDialog'，scripts/desktop/desktop-go.sh test -race ./internal/settingswindow -run 'TestUpdateLineSaysTheStepUnderWay|TestApplyingADeltaUpdateOffersNoCancel|TestSwitchingToAutoBuildAsksFirst|TestBackToStableWaitsOrSwitchesNow|TestUpdateSourceSavesAndResets|TestViewChangesOpensTheUpdateDialog'，以及 node --test scripts/ci/desktop-release/publish-update-feed.test.mjs。",
+  "notes": "Viva：更新分正式版（Stable）和 AutoBuild 两个渠道，共用应用 ID app.lithe.viva、同一份设置和同一安装位置，不再有单独的 Dev 应用。设置 › 更新：每个渠道一行更新源，默认官方仓库 1lck/Lithe-IDEA 的 desktop-update-feed，可改成自定义 HTTPS 地址或恢复默认，只有改过的渠道才保存；自定义源只换下载地址，仍用内置公钥验签。更新渠道可在正式版与 AutoBuild 之间切换：切到 AutoBuild 先确认；AutoBuild 改回正式版时可等下一个更高的正式版，也可“现在回到正式版”；跨渠道不比较两个渠道的版本号、不用增量补丁；下载或安装进行中不能切换渠道或更新源。检查时机参照 Motty：启动 5 秒后第一次检查，之后每小时一次；窗口在后台时到点的检查推迟到回到前台；同一版本只通知一次；自动检查失败不在页面显示，只有“立即检查”显示原因；自动检查开关与上次检查时间随设置保存。发现新版本时标题栏右上角出现绿色下载箭头（悬停写出版本号），通知带“查看更新内容”；不弹对话框、不自动下载。箭头、通知和设置页都打开更新对话框：先显示版本、当前版本、渠道、下载大小（有补丁时同时显示增量和完整大小）和 Markdown 更新日志，再选“跳过此版本 / 稍后 / 下载并安装”。跳过按渠道记住，之后不再出现箭头和通知，更新的版本照常提示；稍后保留箭头；下载时箭头外圈变成进度环，可取消，应用补丁阶段不能取消；完成后主按钮变为“重启并更新”；包管理器管理或安装目录不可写时改为“打开下载页面”并说明原因。更新日志放在更新源旁（stable.notes.md、autobuild.notes.md），不签名；首行版本标记与已验签的更新源一致才显示正文，最多读 16 KB；日志取不到只影响正文，不影响提示和安装。Viva 更新包校验更新源的 Ed25519 签名（公钥可多把，用于轮换），按平台下载并校验大小与 SHA-256，下载放在用户缓存目录（Lithe/Updates/<版本>）。增量更新参照 Motty：更新源列出从当前版本出发的补丁时只下载补丁，在临时目录从已安装应用生成新版本（只读取、不写入），再按完整包同样校验安装；补丁下载、应用或安装任一步失败记录原因并改下完整包，此后同一版本不再尝试补丁；只读位置或包管理器管理的安装被拒时不改下完整包。viva feed 只为 zip 和 tar.gz 挂补丁，Windows NSIS 安装版复用同平台 zip 的补丁，macOS 的 dmg 不进更新源。离开一个渠道前把 settings.json 原样存进偏好目录的 update-snapshots/（只留最近 5 份）；切回某渠道时可选保留当前设置或恢复上次离开时的设置，由新构建在下次启动、读设置前恢复。AutoBuild 更新源尚未发布，见 releaseSource。",
   "legacy": {
     "revision": "5a54c41aa37a4e6e6b68918a4b05765b9dd07a36",
     "macos": {

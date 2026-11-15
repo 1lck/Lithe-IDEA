@@ -35,6 +35,7 @@ jobs:
       matrix: ${{ steps.packages.outputs.matrix }}
       version: ${{ steps.version.outputs.version }}
       tag: ${{ steps.version.outputs.tag }}
+      timestamp: ${{ steps.time.outputs.timestamp }}
 
     steps:
       - name: Check out source
@@ -52,6 +53,11 @@ jobs:
           REQUESTED_VERSION: ${{ github.event_name == 'workflow_dispatch' && inputs.version || github.ref_name }}
         run: bash scripts/ci/desktop-release/resolve-release-version.sh "$REQUESTED_VERSION"
 
+      # Every platform records the same build time.
+      - name: Record the build time
+        id: time
+        run: printf 'timestamp=%s\n' "$(date -u '+%Y-%m-%dT%H:%M:%SZ')" >> "$GITHUB_OUTPUT"
+
   build:
     name: Package ${{ matrix.os }} ${{ matrix.arch }}
     needs: prepare
@@ -60,6 +66,12 @@ jobs:
     defaults:
       run:
         shell: bash
+    # What About and the updater show (package-desktop.sh). The feed keys are public; the
+    # private signing key never reaches a packaging runner.
+    env:
+      LITHE_BUILD_TIME: ${{ needs.prepare.outputs.timestamp }}
+      LITHE_BUILD_COMMIT: ${{ github.sha }}
+      LITHE_UPDATE_PUBLIC_KEYS: ${{ vars.LITHE_UPDATE_PUBLIC_KEYS }}
     strategy:
       fail-fast: false
       matrix: ${{ fromJSON(needs.prepare.outputs.matrix) }}
@@ -226,3 +238,46 @@ jobs:
             exit 1
           fi
           gh release upload "$RELEASE_TAG" "${release_files[@]}" --repo "$GITHUB_REPOSITORY" --clobber
+
+  # The stable feed is signed apart from the packaging and the release: this job alone is given
+  # the private key, and it runs once the release holds the packages the feed points to.
+  update-feed:
+    name: Publish the stable update feed
+    if: github.event_name != 'workflow_dispatch' || inputs.publish
+    needs:
+      - prepare
+      - publish
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: write
+    # Two releases never write the feed at once.
+    concurrency:
+      group: desktop-update-feed-stable
+      cancel-in-progress: false
+
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v7
+
+      # viva feed is built from the fork desktop/go.mod pins.
+      - name: Set up Go
+        uses: actions/setup-go@v7
+        with:
+          go-version-file: desktop/go.mod
+          cache-dependency-path: desktop/go.sum
+
+      - name: Download the packages
+        uses: actions/download-artifact@v8
+        with:
+          pattern: desktop-*
+          path: dist
+          merge-multiple: true
+
+      - name: Sign and publish the feed, its delta updates and notes
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ needs.prepare.outputs.tag }}
+          DESKTOP_VERSION: ${{ needs.prepare.outputs.version }}
+          VIVA_UPDATE_KEY: ${{ secrets.VIVA_UPDATE_KEY }}
+        run: bash scripts/ci/desktop-release/publish-update-feed.sh dist

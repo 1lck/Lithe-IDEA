@@ -202,8 +202,18 @@ func TestUpdateLineSaysTheStepUnderWay(t *testing.T) {
 			format("desktop.settings.updates.ready", map[string]string{"version": "0.7.1"})},
 		{"installing", UpdateStatus{Configured: true, Available: "0.7.1", Ready: true, Installing: true},
 			text("desktop.settings.updates.installing")},
+		{"manual", UpdateStatus{Configured: true, Available: "0.7.1", Ready: true, Manual: "Download it by hand"},
+			"Download it by hand"},
+		{"skipped", UpdateStatus{Configured: true, Available: "0.7.1", Skipped: true, Cross: true},
+			format("desktop.settings.updates.skipped", map[string]string{"version": "0.7.1"})},
+		{"other channel", UpdateStatus{Configured: true, Available: "0.8.0-autobuild.20261116", Cross: true, Channel: "autobuild"},
+			format("desktop.settings.updates.cross", map[string]string{
+				"version": "0.8.0-autobuild.20261116", "channel": text("desktop.updates.channel.autobuild"),
+			})},
+		{"waiting for stable", UpdateStatus{Configured: true, Waiting: "0.8.0", UpToDate: true},
+			format("desktop.settings.updates.waiting", map[string]string{"version": "0.8.0"})},
 	} {
-		if got := updateLine(i18n.English, tc.status, "0.7.0 Preview"); got != tc.want {
+		if got := UpdateLine(i18n.English, tc.status, "0.7.0 Preview"); got != tc.want {
 			t.Errorf("%s: line = %q, want %q", tc.name, got, tc.want)
 		}
 	}

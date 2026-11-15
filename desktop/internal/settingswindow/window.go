@@ -142,6 +142,8 @@ type window struct {
 	stopTimeEditing bool
 	// network is the Network page's unsaved edit.
 	network networkDraft
+	// updates is the Updates page's unsaved feed address and channel switch (updates_view.go).
+	updates updatesDraft
 	// localHistory is the General page's unsaved local history settings and the open
 	// project's history size (local_history_view.go).
 	localHistory localHistoryDraft
