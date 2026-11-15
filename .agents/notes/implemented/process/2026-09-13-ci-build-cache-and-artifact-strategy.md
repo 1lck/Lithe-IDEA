@@ -31,6 +31,7 @@ Viva 桌面端要在 macOS、Windows 和 Linux 上构建，Rust Core 和 Go 桌�
 - macOS 没有 Developer ID 证书时，AutoBuild 和 Desktop Release 显式调用 Viva 的临时签名（ad hoc）功能，并无条件校验完整 app bundle。只保留 Go 链接器生成的可执行文件签名，会漏掉 Info.plist 与资源封装，实际下载包报“code has no resources but signature indicates they must be present”；不能以“没有证书”为由跳过完整性校验。临时签名不提供 Apple 开发者身份或公证，Gatekeeper 仍可能拦截，下载说明必须如实说明；不能把临时签名包装成免提示分发。
 - RPM 的运行依赖必须包含 Viva 通过 `dlopen` 打开的 Pango、Fontconfig、GObject 和 XCB 扩展库。它们不会出现在普通 ELF 动态依赖扫描中；固定的 Viva 打包器使用 `lib…so…()(64bit)` 共享库能力声明，让 RPM 系统选择对应提供者。不能只列 Vulkan/XCB/Cairo 后假定文字库总已安装，也不能在宿主解包改写 RPM 元数据。GTK、输入法、WebKit 等可选集成不作为所有应用的强制依赖。
 - Desktop Release 和 AutoBuild 必须共用 `scripts/ci/common/desktop-packages.mjs` 定义的构建矩阵、格式和下载文件名，不能各维护一套清单。macOS 两种芯片各提供 DMG/ZIP，Windows x64 提供 EXE/ZIP，Linux 两种架构各提供 DEB/RPM/tarball，共 12 个包和 12 个校验文件。两条流程在任何发布写操作前检查完整清单和 SHA-256，不能只检查“下载到的文件”而漏掉未生成的包。RPM 使用 Viva 已有的打包能力；正式发布另外用 rpm 工具检查内部摘要和版本/发行号/架构。它是 runner 上的验证工具，不进入安装包，不增加可复用资源路径。
+- Desktop Release 的标签是 `desktop-v<version>`，发布说明的唯一文件却是 `docs/releases/v<version>.md`：两者用途不同，解析版本与上传 Release 必须按版本读取同一文件。不能另存一份带 `desktop-v` 前缀的副本来迁就读者，否则双语说明会漂移；离线解析回归只创建规范文件，缺失、空白或 manifest 版本不符时仍拒绝发布。
 - 菜单无头测试先按 `gfx.RoleMenuItem` 角色过滤，再从菜单项中选择最深层；Linux/Windows 的窗口按钮可能比所有菜单层更高，不能直接把最高层的全部控件当作菜单。用合成的高层窗口按钮回归这个选择边界，保留原有远程目录、顺序与分支动作断言，不通过跳过平台或放宽预期让 CI 变绿。
 - 只有 Node 脚本、没有外部依赖的工作流不为了打开 `cache` 而引入不存在的 lockfile；Bun 的真实依赖缓存保留。
 
@@ -64,6 +65,8 @@ Release 编译和打包会把反馈推迟到最慢的任务结束。Draft PR 和
 - 工作流调整时必须同步检查缓存键、gate 依赖和平台矩阵。
 
 ## 验证
+
+- `node --test scripts/ci/desktop-release/resolve-release-version.test.mjs`：纯版本与 desktop-v 标签都读取规范文件；缺失、无效说明及 manifest 不符均拒绝。
 
 - `node --test scripts/ci/common/desktop-packages.test.mjs scripts/ci/desktop-release/package-release.test.mjs`：验证两条流程共用五个目标、12 个下载包，缺 Intel/RPM 或校验错误时拒绝发布，并用离线夹具验证 Linux 两种架构的正式打包与 RPM 元数据拒绝。
 

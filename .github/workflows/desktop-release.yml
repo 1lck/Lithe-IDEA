@@ -210,7 +210,7 @@ jobs:
           release_args=(
             --repo "$GITHUB_REPOSITORY"
             --title "Lithe Desktop $DESKTOP_VERSION"
-            --notes-file "docs/releases/$RELEASE_TAG.md"
+            --notes-file "docs/releases/v$DESKTOP_VERSION.md"
             --prerelease
           )
           if ! gh release view "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" > /dev/null 2>&1; then
