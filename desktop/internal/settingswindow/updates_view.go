@@ -112,6 +112,18 @@ func ChannelName(language i18n.Language, channel string) string {
 	return i18n.Shared(language, "desktop.updates.channel.stable")
 }
 
+// channelEntry is how the channel list of a build packaged for installed names channel.
+// Picking the build's own channel saves no choice, updates follow the build, so its entry reads
+// Automatic (<channel>); the other channel, which only an explicit switch picks, shows its name.
+func channelEntry(language i18n.Language, channel, installed string) string {
+	if channel == installed {
+		return i18n.SharedFormat(language, "desktop.settings.updates.channelFollowsBuild", map[string]string{
+			"channel": ChannelName(language, channel),
+		})
+	}
+	return ChannelName(language, channel)
+}
+
 // feedRepository is how a feed is named to the user: owner/repository for a feed on GitHub,
 // as the default ones are, else its host.
 func feedRepository(address string) string {
@@ -268,7 +280,7 @@ func (w *window) updateChannelRows(c ui.C, language i18n.Language, status Update
 	channelLabel := i18n.Shared(language, "desktop.settings.updates.channel")
 	w.settingsRow(c, channelLabel, i18n.Shared(language, "desktop.settings.updates.channelHelp"), func() {
 		channel := status.Channel
-		name := func(channel string) string { return ChannelName(language, channel) }
+		name := func(channel string) string { return channelEntry(language, channel, status.Installed) }
 		if ui.Select(c.Part("channel"), &channel, buildinfo.Channels, name).Width(selectWidth).Label(channelLabel).
 			Disabled(busy).Changed() && channel != status.Channel {
 			w.pickUpdateChannel(channel, status)

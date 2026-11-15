@@ -66,12 +66,41 @@ func (d *windowDriver) showsWrapped(text string) bool {
 	return strings.Contains(strings.Join(lines, " "), text)
 }
 
-// pick chooses channel in the page's channel list.
+// pick chooses channel in the page's channel list, by the entry the list shows for it.
 func (d *windowDriver) pick(channel string) {
 	d.t.Helper()
 	d.click(i18n.Shared(i18n.English, "desktop.settings.updates.channel"))
-	d.click(ChannelName(i18n.English, channel))
+	d.click(channelEntry(i18n.English, channel, d.w.ctrl.opts.UpdateStatus().Installed))
 	d.pump()
+}
+
+// TestChannelListMarksTheBuildsOwnChannelAutomatic shows a stable build following its own
+// channel: the list reads Automatic (Stable) and offers AutoBuild by name. Once the user has
+// switched to AutoBuild, the list shows that explicit choice and no Automatic entry as the value.
+func TestChannelListMarksTheBuildsOwnChannelAutomatic(t *testing.T) {
+	_, d := newUpdatesPage(t, "0.7.0", UpdateStatus{Configured: true, Installed: buildinfo.ChannelStable, UpToDate: true})
+	automatic := i18n.SharedFormat(i18n.English, "desktop.settings.updates.channelFollowsBuild", map[string]string{
+		"channel": ChannelName(i18n.English, buildinfo.ChannelStable),
+	})
+	if automatic != "Automatic (Stable)" {
+		t.Fatalf("the build's own channel reads %q, want Automatic (Stable)", automatic)
+	}
+	if !d.showsWrapped(automatic) {
+		t.Fatalf("a build following its own channel shows no %q", automatic)
+	}
+
+	d.pick(buildinfo.ChannelAutoBuild)
+	d.click(i18n.Shared(i18n.English, "desktop.settings.updates.toAutoBuild.confirm"))
+	d.pump()
+	if d.showsWrapped(automatic) {
+		t.Fatalf("after switching to AutoBuild the list still shows %q as the value", automatic)
+	}
+	d.click(i18n.Shared(i18n.English, "desktop.settings.updates.channel"))
+	d.pump()
+	if !d.has(automatic) || !d.has(ChannelName(i18n.English, buildinfo.ChannelAutoBuild)) {
+		t.Fatalf("the open list has %q = %v and AutoBuild = %v, want both entries",
+			automatic, d.has(automatic), d.has(ChannelName(i18n.English, buildinfo.ChannelAutoBuild)))
+	}
 }
 
 // TestSwitchingToAutoBuildAsksFirst picks AutoBuild on a stable build: a dialog says what

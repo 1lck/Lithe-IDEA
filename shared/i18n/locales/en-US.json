@@ -10992,6 +10992,7 @@
     "desktop.settings.updates.local": "This is a local development build. It belongs to no update channel and does not check for updates.",
     "desktop.settings.updates.channel": "Update channel",
     "desktop.settings.updates.channelHelp": "Stable gets released versions only. AutoBuild is built from every merge to main: newer, but it may break. Both channels share settings.",
+    "desktop.settings.updates.channelFollowsBuild": "Automatic ({channel})",
     "desktop.settings.updates.channelBusy": "The channel and feeds can't change while an update downloads or installs.",
     "desktop.settings.updates.source": "{channel} feed",
     "desktop.settings.updates.sourceDefault": "Default ({repo})",

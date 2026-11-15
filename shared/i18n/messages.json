@@ -16311,6 +16311,16 @@
       ]
     },
     {
+      "id": "desktop.settings.updates.channelFollowsBuild",
+      "description": "Settings > Updates channel list: the entry for the channel the installed build was packaged for, which updates follow while the user has not switched to the other. {channel} is that channel's name (desktop.updates.channel.*).",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "channel": "string"
+      }
+    },
+    {
       "id": "desktop.settings.updates.channelBusy",
       "description": "Settings > Updates help while an update downloads or installs, during which the channel and feeds cannot change.",
       "platforms": [

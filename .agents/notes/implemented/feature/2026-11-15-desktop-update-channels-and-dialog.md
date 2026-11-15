@@ -29,6 +29,7 @@ Viva 桌面端原本能检查、下载和安装签名更新，但发行构建从
   - `scripts/desktop/package-desktop.sh` 生成 `desktop/internal/buildinfo/package_info.go`（`lithe_package_info` 构建标签，打包结束即删除，Git 忽略），写入渠道、UTC 构建时间、commit 和更新公钥。`viva package` 不接受 `-ldflags`，所以不用 `-X`。
   - `--stable` 只由 Desktop Release 传入，`--autobuild` 只由 AutoBuild 工作流传入。两者都不传的本地包没有渠道：不检查更新，渠道选项置灰。
 - **更新渠道**由用户在设置 → 更新里选，表示“以后从哪个渠道更新”，存进 `settings.json` 的 `updateChannel`；空值表示跟随安装渠道。新渠道的构建装好后，又跟随它自己的渠道。
+  - 列表里此构建自己的渠道显示为“自动（正式版）”或“自动（AutoBuild）”，选它就是不保存选择、跟随构建；另一个渠道只显示名称，选中即显式切换。这样继承值和显式选择能区分（`develop-lithe`“显示实际生效值”）。
 - **跨渠道从不比较两个渠道的版本号。** Viva 的 `update.Config.Current` 是“和谁比较”，不必是正在运行的版本（`desktop/internal/workbench/update_channels.go`）：
 
 | 情况 | 行为 |

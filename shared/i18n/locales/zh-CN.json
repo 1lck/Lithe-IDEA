@@ -10992,6 +10992,7 @@
     "desktop.settings.updates.local": "这是本地开发构建，不属于任何更新渠道，也不会检查更新。",
     "desktop.settings.updates.channel": "更新渠道",
     "desktop.settings.updates.channelHelp": "正式版只收到发布过的稳定版本；AutoBuild 由 main 上的每次合入自动构建，更新更快但可能不稳定。两个渠道共用设置。",
+    "desktop.settings.updates.channelFollowsBuild": "自动（{channel}）",
     "desktop.settings.updates.channelBusy": "下载或安装更新期间不能切换渠道或修改发布源。",
     "desktop.settings.updates.source": "{channel}发布源",
     "desktop.settings.updates.sourceDefault": "默认（{repo}）",
