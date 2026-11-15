@@ -69,7 +69,14 @@ func (s settingsCommandInstalls) manifest(ctx context.Context, pluginID string) 
 // Missing asks Core for the plugin's systemCommand launches and looks each one's commands up
 // as its launch does: the debug adapter's lookup for a debug adapter, the plugin runner's for
 // everything else, both of which add the directories recorded for the plugin to PATH.
-func (s settingsCommandInstalls) Missing(ctx context.Context, pluginID string) ([]settingswindow.MissingCommand, error) {
+func (s settingsCommandInstalls) Missing(ctx context.Context, pluginID string) (_ []settingswindow.MissingCommand, err error) {
+	// A failed check leaves the cards without install buttons, which the window falls back to.
+	defer func() {
+		// log-exempt: 用户取消：设置窗口关闭或换了插件，检测结果不再需要。
+		if err != nil && !errors.Is(err, context.Canceled) {
+			s.app.backgroundFailedIn(ctx, "plugin_command_check", err)
+		}
+	}()
 	manifest, err := s.manifest(ctx, pluginID)
 	if err != nil {
 		return nil, err
@@ -173,7 +180,11 @@ func toolName(names map[string]string, id string) string {
 
 // Offer resolves the installer's tool and expands each of its targets, running a toolDefault
 // target's directory probes to find where it would install.
-func (s settingsCommandInstalls) Offer(ctx context.Context, pluginID, installerID string) (settingswindow.CommandInstallOffer, error) {
+func (s settingsCommandInstalls) Offer(ctx context.Context, pluginID, installerID string) (_ settingswindow.CommandInstallOffer, err error) {
+	// The card's Install button is the action; its operation travels in ctx, since the settings
+	// worker must not touch the window thread's operation.
+	ctx = s.app.performedIn(ctx, "plugin.commandInstaller.offer", surfaceButton)
+	defer func() { (settingsToolchains{app: s.app}).recordFailure(ctx, "plugin_command_install_offer", err) }()
 	session, _, err := s.open(ctx, pluginID, installerID)
 	if err != nil {
 		return settingswindow.CommandInstallOffer{}, err
@@ -217,7 +228,11 @@ func environmentLines(environment map[string]string) []string {
 // Install runs the installer for target and records where its commands landed, so the
 // plugin's later launches find them. The attempt is recorded on the plugin's host channel; a
 // cancelled one is not.
-func (s settingsCommandInstalls) Install(ctx context.Context, pluginID, installerID, target string, output func(string)) (string, error) {
+func (s settingsCommandInstalls) Install(ctx context.Context, pluginID, installerID, target string, output func(string)) (_ string, err error) {
+	// The dialog's Install button is the action; the attempt and the installer's tool run under
+	// its operation.
+	ctx = s.app.performedIn(ctx, "plugin.commandInstaller.install", surfaceButton)
+	defer func() { (settingsToolchains{app: s.app}).recordFailure(ctx, "plugin_command_install", err) }()
 	attempt := core.StartPluginAttempt(pluginID, core.OperationCommandInstallerInstall, core.OriginOf(ctx).Operation)
 	defer attempt.Abandon()
 	directory, stage, err := s.install(ctx, pluginID, installerID, target, output)

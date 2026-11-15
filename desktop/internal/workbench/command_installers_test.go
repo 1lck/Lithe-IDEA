@@ -365,6 +365,8 @@ func TestCommandInstallReportsWhyTheCommandsDidNotLand(t *testing.T) {
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			h, _, _ := commandInstallerHarness(t, test.mode)
+			logger := &treeRecordingLog{}
+			h.app.logSink = logger
 			installs := settingsCommandInstalls{app: h.app}
 			directory, err := h.app.plugins.Commands.InstallDirectory(commandInstallerPluginID, test.installer)
 			if err != nil {
@@ -379,12 +381,21 @@ func TestCommandInstallReportsWhyTheCommandsDidNotLand(t *testing.T) {
 			if installations := h.app.plugins.Commands.Installations(commandInstallerPluginID); len(installations) != 0 {
 				t.Fatalf("a failed installation was recorded: %+v", installations)
 			}
+			// The click and the failure the dialog shows are each logged once.
+			if n := countPerformed(logger, "plugin.commandInstaller.install"); n != 1 {
+				t.Fatalf("the install action was logged %d times", n)
+			}
+			if failed := loggedEvents(logger, operationFailedEvent); len(failed) != 1 || failed[0].Fields["operation"] != "plugin_command_install" {
+				t.Fatalf("operation failures = %+v, want the one install failure", failed)
+			}
 		})
 	}
 }
 
 func TestCommandInstallStopsTheToolWhenCancelled(t *testing.T) {
 	h, _, _ := commandInstallerHarness(t, fixtureToolHangs)
+	logger := &treeRecordingLog{}
+	h.app.logSink = logger
 	installs := settingsCommandInstalls{app: h.app}
 	ctx, cancel := context.WithCancel(commandInstallContext(t))
 	defer cancel()
@@ -399,6 +410,10 @@ func TestCommandInstallStopsTheToolWhenCancelled(t *testing.T) {
 	}
 	if installations := h.app.plugins.Commands.Installations(commandInstallerPluginID); len(installations) != 0 {
 		t.Fatalf("a cancelled installation was recorded: %+v", installations)
+	}
+	// A cancel is not a failure.
+	if failed := loggedEvents(logger, operationFailedEvent); len(failed) != 0 {
+		t.Fatalf("the cancel was logged as a failure: %+v", failed)
 	}
 }
 
