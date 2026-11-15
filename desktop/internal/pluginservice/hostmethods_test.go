@@ -14,6 +14,7 @@ import (
 	"github.com/1lck/Lithe-IDEA/desktop/internal/credentials"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/pluginbackend"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/pluginhost"
+	"github.com/1lck/Lithe-IDEA/desktop/internal/pluginpkg"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/store"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/winpath"
 )
@@ -75,7 +76,7 @@ func TestWorkspaceContextsAreScopedToTheCallingPlugin(t *testing.T) {
 	if listed.Contexts[0].StateDirectory != "" {
 		t.Fatal("listing contexts created or revealed a state directory")
 	}
-	if entries, _ := os.ReadDir(filepath.Join(service.Root, pluginStateDirectory, "a")); len(entries) != 0 {
+	if entries, _ := os.ReadDir(pluginpkg.StateRoot(service.Root, "a")); len(entries) != 0 {
 		t.Fatalf("listing left directories behind: %v", entries)
 	}
 	rootA := listed.Contexts[0].Folders[0].RootID
@@ -94,7 +95,7 @@ func TestWorkspaceContextsAreScopedToTheCallingPlugin(t *testing.T) {
 		StateDirectory string `json:"stateDirectory"`
 	}
 	_ = json.Unmarshal(result, &detailed)
-	pluginRoot := filepath.Join(service.Root, pluginStateDirectory) + string(filepath.Separator)
+	pluginRoot := filepath.Join(service.Root, pluginpkg.StateDirectory) + string(filepath.Separator)
 	if !strings.HasPrefix(detailed.StateDirectory, pluginRoot) {
 		t.Fatalf("state directory %q is outside the plugin storage %q", detailed.StateDirectory, pluginRoot)
 	}

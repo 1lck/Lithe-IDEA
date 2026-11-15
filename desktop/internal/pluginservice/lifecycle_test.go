@@ -53,7 +53,7 @@ func runningBackend(service *Service, id string, stopped func()) *BackendSession
 // the backend cannot write the state again; another plugin's backend runs on.
 func TestUninstallStopsTheBackendBeforeRemovingThePlugin(t *testing.T) {
 	service, root := lifecycleService(t)
-	state := filepath.Join(root, pluginStateDirectory, "example", "1.0.0", "cache")
+	state := filepath.Join(pluginpkg.VersionStateRoot(root, "example", "1.0.0"), "cache")
 	if err := os.MkdirAll(state, 0o700); err != nil {
 		t.Fatal(err)
 	}
@@ -76,7 +76,7 @@ func TestUninstallStopsTheBackendBeforeRemovingThePlugin(t *testing.T) {
 	if service.Host.Running("other") == nil {
 		t.Fatal("the other plugin's backend stopped")
 	}
-	if _, err := os.Stat(filepath.Join(root, pluginStateDirectory, "example")); !errors.Is(err, os.ErrNotExist) {
+	if _, err := os.Stat(pluginpkg.StateRoot(root, "example")); !errors.Is(err, os.ErrNotExist) {
 		t.Fatalf("the state survived: %v", err)
 	}
 }
