@@ -125,7 +125,7 @@ jobs:
 
       - name: Set up Rust
         id: rust
-        uses: dtolnay/rust-toolchain@stable
+        uses: dtolnay/rust-toolchain@1.100.0
         with:
           targets: ${{ matrix.rust-target }}
 

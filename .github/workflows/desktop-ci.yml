@@ -126,7 +126,7 @@ jobs:
 
       - name: Set up Rust
         id: rust
-        uses: dtolnay/rust-toolchain@stable
+        uses: dtolnay/rust-toolchain@1.100.0
 
       - name: Restore the core build
         uses: actions/cache@v6
@@ -177,7 +177,7 @@ jobs:
 
       - name: Set up Rust
         id: rust
-        uses: dtolnay/rust-toolchain@stable
+        uses: dtolnay/rust-toolchain@1.100.0
 
       - name: Restore the core build
         uses: actions/cache@v6
@@ -231,7 +231,7 @@ jobs:
 
       - name: Set up Rust
         id: rust
-        uses: dtolnay/rust-toolchain@stable
+        uses: dtolnay/rust-toolchain@1.100.0
         with:
           targets: x86_64-pc-windows-gnu
 
