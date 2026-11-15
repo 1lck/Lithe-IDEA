@@ -568,6 +568,15 @@
       ],
       "identity": "One confirmed editor operation and its native source/package/workspace identities. Private source snapshots are limited to 2 MiB per file and 8 MiB in aggregate; they have no reusable toolchain or build identity.",
       "reason": "The native adapter creates a private 0700 transaction directory with existing 0600 staging files, verifies exact source revisions and staged SHA-256 receipts, then conditionally publishes to user-owned workspace files. Every terminal path removes staging. Never copy or share at any worktree reuse stage. Installation/package roots are protected and never used for mutable output, preserving signatures and Sparkle delta baselines."
+    },
+    {
+      "id": "global-toolchain-catalog",
+      "reusable": false,
+      "locations": [
+        "<platform-preferences>/toolchains/global.json"
+      ],
+      "identity": "Mutable machine-local SDK registrations and defaults, bounded to 256 KiB, 64 tool IDs and 32 homes per tool. No reusable build or toolchain identity.",
+      "reason": "Read only on demand without creating missing sources; explicit Save verifies native identity and bytes before atomic publication and fresh resolution. Owned by the user preference installation, not a workspace. Never copy at any worktree reuse stage, never package, and never write into SDKs or installed resources; signatures and Sparkle delta baselines are unchanged."
     }
   ]
 }

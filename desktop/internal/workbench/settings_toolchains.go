@@ -12,6 +12,13 @@ import (
 func (s settingsToolchains) Inspect(ctx context.Context, snapshot toolchain.Snapshot, tool, home string) (selection core.ToolchainSelection, err error) {
 	ctx = s.app.performedIn(ctx, "toolchain.inspectDirectory", surfaceButton)
 	defer func() { s.recordFailure(ctx, "toolchain_settings_inspect", err) }()
+	if snapshot.Global {
+		manifests, readErr := s.app.toolchainManifests(ctx)
+		if readErr != nil {
+			return selection, readErr
+		}
+		return toolchain.Resolve(ctx, s.app.kernel, "", ".", tool, "", &toolchain.Fixed{Home: home}, manifests, toolchain.Options{Global: true, GlobalRoot: s.app.store.Dir(), Platform: buildPlatform()})
+	}
 	root := s.app.toolchainRoot.Load()
 	if root == nil || snapshot.Root == "" {
 		return selection, toolchain.ErrPinConflict
@@ -23,7 +30,7 @@ func (s settingsToolchains) Inspect(ctx context.Context, snapshot toolchain.Snap
 	if err != nil {
 		return selection, err
 	}
-	selection, err = toolchain.Resolve(ctx, s.app.kernel, snapshot.Root, snapshot.Directory, tool, "", &toolchain.Fixed{Home: home}, manifests, toolchain.Options{Platform: buildPlatform()})
+	selection, err = toolchain.Resolve(ctx, s.app.kernel, snapshot.Root, snapshot.Directory, tool, "", &toolchain.Fixed{Home: home}, manifests, toolchain.Options{Platform: buildPlatform(), GlobalRoot: s.app.store.Dir()})
 	if err != nil {
 		return selection, err
 	}
@@ -51,18 +58,41 @@ func (s settingsToolchains) Load(ctx context.Context) (snapshot toolchain.Snapsh
 	return s.loadAt(ctx, *root)
 }
 
+// LoadScope keeps machine SDK management available before any project is open.
+func (s settingsToolchains) LoadScope(ctx context.Context, scope string) (snapshot toolchain.Snapshot, err error) {
+	if scope != "global" {
+		return s.Load(ctx)
+	}
+	defer func() { s.recordFailure(ctx, "toolchain_settings_load", err) }()
+	manifests, err := s.app.toolchainManifests(ctx)
+	if err != nil && len(manifests) == 0 {
+		return snapshot, err
+	}
+	return toolchain.Load(ctx, s.app.kernel, "", ".", manifests, toolchain.Options{Global: true, GlobalRoot: s.app.store.Dir(), Platform: buildPlatform()})
+}
+
 func (s settingsToolchains) loadAt(ctx context.Context, root string) (toolchain.Snapshot, error) {
 	manifests, err := s.app.toolchainManifests(ctx)
 	if err != nil && len(manifests) == 0 {
 		return toolchain.Snapshot{}, err
 	}
-	return toolchain.Load(ctx, s.app.kernel, root, ".", manifests, toolchain.Options{Platform: buildPlatform()})
+	return toolchain.Load(ctx, s.app.kernel, root, ".", manifests, toolchain.Options{Platform: buildPlatform(), GlobalRoot: s.app.store.Dir()})
 }
 
 // Save applies all draft changes in one Core edit, against the exact
 // bytes the snapshot was read from, then re-reads the effective values.
 func (s settingsToolchains) Save(ctx context.Context, snapshot toolchain.Snapshot, edits []toolchain.Edit) (updated toolchain.Snapshot, err error) {
 	defer func() { s.recordFailure(ctx, "toolchain_settings_save", err) }()
+	if snapshot.Global {
+		if _, err := snapshot.SaveCatalog(ctx, s.app.kernel, edits); err != nil {
+			return snapshot, err
+		}
+		updated, err = s.LoadScope(ctx, "global")
+		if err != nil {
+			return snapshot, errors.Join(toolchain.ErrPinCommitted, err)
+		}
+		return updated, nil
+	}
 	root := s.app.toolchainRoot.Load()
 	if root == nil || *root == "" || snapshot.Root == "" {
 		return snapshot, toolchain.ErrPinConflict

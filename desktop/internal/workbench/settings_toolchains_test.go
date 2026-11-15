@@ -59,7 +59,7 @@ func (k *settingsScopeKernel) EditToolchainPinSources(ctx context.Context, reque
 func TestToolchainSettingsSaveRereadsItsCapturedProject(t *testing.T) {
 	original, current := t.TempDir(), t.TempDir()
 	kernel := &settingsScopeKernel{testKernel: &testKernel{Client: core.NewClient()}}
-	app := &App{kernel: kernel}
+	app := &App{kernel: kernel, store: store.At(t.TempDir())}
 	app.toolchainRoot.Store(&original)
 	kernel.onEdit = func() { app.toolchainRoot.Store(&current) }
 	plugins, err := pluginservice.Open(core.NewClient(), store.At(t.TempDir()), t.TempDir())
@@ -107,7 +107,7 @@ func testToolchainSettingsWorkspaceReplacement(t *testing.T, duringEdit bool) {
 		t.Fatal(err)
 	}
 	kernel := &settingsScopeKernel{testKernel: &testKernel{Client: core.NewClient()}, onEdit: func() {}}
-	app := &App{kernel: kernel}
+	app := &App{kernel: kernel, store: store.At(t.TempDir())}
 	app.toolchainRoot.Store(&original)
 	plugins, err := pluginservice.Open(core.NewClient(), store.At(t.TempDir()), t.TempDir())
 	if err != nil {
@@ -168,7 +168,7 @@ func (k *pinReadbackFailureKernel) DecodeToolchainPinDocument(ctx context.Contex
 func TestToolchainSettingsReadbackFailureReportsCommittedSource(t *testing.T) {
 	root := t.TempDir()
 	kernel := &pinReadbackFailureKernel{testKernel: &testKernel{Client: core.NewClient()}}
-	app := &App{kernel: kernel}
+	app := &App{kernel: kernel, store: store.At(t.TempDir())}
 	app.toolchainRoot.Store(&root)
 	plugins, err := pluginservice.Open(core.NewClient(), store.At(t.TempDir()), t.TempDir())
 	if err != nil {

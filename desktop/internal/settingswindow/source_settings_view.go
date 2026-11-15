@@ -428,7 +428,11 @@ func (w *window) sourceSettingsControl(c ui.C, p *sourceSettingsForm, source cor
 		case "list":
 			value = i18n.SharedFormat(language, "desktop.sourceSettings.fileCount", map[string]string{"count": strconv.Itoa(display.Count)})
 		}
-		ui.Text(c, i18n.SharedFormat(language, "desktop.sourceSettings.effective", map[string]string{"value": value})).FontSize(11).Color(w.pal.muted).Ellipsis()
+		hint := i18n.SharedFormat(language, "desktop.sourceSettings.effective", map[string]string{"value": value})
+		if display.Inherited {
+			hint = i18n.SharedFormat(language, "desktop.sourceSettings.inherit", map[string]string{"value": value})
+		}
+		ui.Text(c, hint).FontSize(11).Color(w.pal.muted).Ellipsis()
 	}
 
 }

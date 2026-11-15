@@ -127,6 +127,8 @@ SDK 的构建输出，以及对当前工作树的 Core 运行的端到端测试
 （`node shared/plugins/scripts/sdk-e2e.mjs`）都属于 Core 仓库，
 本仓库不构建 SDK，也不把这些目录登记为可复用资源。
 
+全局 SDK 登记 `<platform-preferences>/toolchains/global.json` 登记为 `global-toolchain-catalog` 不可复用项。它属于本机用户设置，最多 256 KiB、64 个工具、每个工具 32 个目录；读取不创建来源，确认保存才条件原子写入并重新解析。没有可复用的构建身份，不允许跨工作树复制，不进入安装包，也不写入 SDK 或签名及增量更新基线。
+
 原生插件设置的暂存目录登记为 `plugin-native-settings-staging`：
 `<system-temp>/lithe-source-settings-<random>/` 只属于一次确认后的保存操作。
 目录权限为 0700，已有的暂存文件为 0600；原生适配器在写回前校验来源版本、

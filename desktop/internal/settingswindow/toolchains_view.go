@@ -29,6 +29,8 @@ type toolchainState struct {
 	inspecting               bool
 	inputs                   map[string]*string
 	custom                   map[string]core.ToolchainPin
+	scope, loadScope         string
+	registrations            map[string]bool
 	// loadKey and saveKey name the requests; zero means none was made. The save's inputs
 	// are written before its key changes and are read by that one run only.
 	loadKey, saveKey int
@@ -50,9 +52,15 @@ type toolchainState struct {
 }
 
 func newToolchainState(loader ToolchainLoader) *toolchainState {
-	t := &toolchainState{loader: loader, draft: make(map[string]string), picks: make(map[string]*string), inputs: make(map[string]*string), custom: make(map[string]core.ToolchainPin)}
+	t := &toolchainState{loader: loader, scope: "project", draft: make(map[string]string), picks: make(map[string]*string), inputs: make(map[string]*string), custom: make(map[string]core.ToolchainPin), registrations: make(map[string]bool)}
+	if _, ok := loader.(ToolchainScopedLoader); ok {
+		t.scope = "global"
+	}
 	if loader != nil {
 		t.loadEffect = ui.NewEffect[toolchain.Snapshot, int](func(ctx context.Context) (toolchain.Snapshot, error) {
+			if scoped, ok := loader.(ToolchainScopedLoader); ok {
+				return scoped.LoadScope(ctx, t.loadScope)
+			}
 			return loader.Load(ctx)
 		})
 		t.saveEffect = ui.NewEffect[toolchain.Snapshot, int](func(ctx context.Context) (toolchain.Snapshot, error) {
@@ -102,6 +110,7 @@ func (t *toolchainState) beginLoad() {
 	if t.loader == nil || t.loading || t.saving || t.inspecting {
 		return
 	}
+	t.loadScope = t.scope
 	t.loadKey++
 	t.loading = true
 	t.failed = nil
@@ -138,12 +147,42 @@ func (t *toolchainState) take() {
 		if selection, err, ok := t.inspectEffect.Take(); ok {
 			t.inspecting, t.failed = false, err
 			if err == nil && selection.Home != nil {
-				pin := core.ToolchainPin{Home: *selection.Home, Version: selection.Version, Provider: "host:manual"}
-				t.custom[t.inspectTool] = pin
-				t.choose(t.inspectTool, pin.Home)
+				t.acceptInspection(t.inspectTool, selection)
 			}
 		}
 	}
+}
+
+func (t *toolchainState) acceptInspection(id string, selection core.ToolchainSelection) {
+	if selection.Home == nil {
+		return
+	}
+	pin := core.ToolchainPin{Home: *selection.Home, Version: selection.Version, Provider: "host:manual"}
+	if t.snapshot.Global {
+		for index := range t.snapshot.Tools {
+			tool := &t.snapshot.Tools[index]
+			if tool.ID != id {
+				continue
+			}
+			registered, installed := false, false
+			for _, home := range tool.CustomHomes {
+				registered = registered || home == pin.Home
+			}
+			if !registered {
+				tool.CustomHomes = append(tool.CustomHomes, pin.Home)
+				t.registrations[id] = true
+			}
+			for _, installation := range tool.Installations {
+				installed = installed || installation.Home == pin.Home
+			}
+			if !installed {
+				tool.Installations = append(tool.Installations, core.ToolchainInstallation{Home: pin.Home, Version: pin.Version, Provider: pin.Provider})
+			}
+		}
+	} else {
+		t.custom[id] = pin
+	}
+	t.choose(id, pin.Home)
 }
 
 func (t *toolchainState) finish(snapshot toolchain.Snapshot, err error, saved bool) {
@@ -181,8 +220,9 @@ func (t *toolchainState) apply(snapshot toolchain.Snapshot, saved bool) {
 	t.loaded = true
 	t.saved = saved
 	t.failed = nil
-	if !saved {
+	{
 		t.custom = make(map[string]core.ToolchainPin)
+		t.registrations = make(map[string]bool)
 		t.inputs = make(map[string]*string)
 		t.draft = make(map[string]string, len(snapshot.Tools))
 		for _, tool := range snapshot.Tools {
@@ -212,6 +252,9 @@ func (t *toolchainState) resetDrafts() {
 }
 
 func (t *toolchainState) hasDraft() bool {
+	if len(t.registrations) != 0 {
+		return true
+	}
 	for _, tool := range t.snapshot.Tools {
 		current := ""
 		if tool.Pin != nil {
@@ -234,7 +277,7 @@ func (t *toolchainState) edits() []toolchain.Edit {
 			current = tool.Pin.Home
 		}
 		wanted := t.draft[tool.ID]
-		if wanted == current {
+		if wanted == current && !t.registrations[tool.ID] {
 			continue
 		}
 		if wanted == "" {
@@ -282,7 +325,22 @@ func (w *window) toolchainCards(c ui.C, language i18n.Language) {
 	}
 	w.card(c, i18n.Shared(language, "desktop.toolchains.title"), i18n.Shared(language, "desktop.toolchains.description"), func() {
 		ui.Column(c).FillWidth().Gap(8).Children(func() {
-			ui.Wrap(c, i18n.Shared(language, "desktop.toolchains.chooseHelp")).FontSize(12).Color(w.pal.muted)
+			if _, ok := t.loader.(ToolchainScopedLoader); ok {
+				previous := t.scope
+				ui.Row(c.Part("scope")).FillWidth().Gap(16).Children(func() {
+					disabled := t.loading || t.saving || t.inspecting || t.hasDraft()
+					w.radio(c.Part("global"), &t.scope, "global", i18n.Shared(language, "desktop.toolchains.global"), disabled)
+					w.radio(c.Part("project"), &t.scope, "project", i18n.Shared(language, "desktop.toolchains.project"), disabled)
+				})
+				if t.scope != previous {
+					t.beginLoad()
+				}
+			}
+			help := i18n.Shared(language, "desktop.toolchains.chooseHelp")
+			if t.scope == "global" {
+				help = i18n.Shared(language, "desktop.toolchains.globalHelp")
+			}
+			ui.Wrap(c, help).FontSize(12).Color(w.pal.muted)
 			ui.Row(c).FillWidth().Gap(8).Items(ui.Center).Children(func() {
 				if ui.Button(c, i18n.Shared(language, "desktop.toolchains.reload")).Outline().Disabled(t.loading || t.saving || t.inspecting).Clicked() {
 					t.beginLoad()
@@ -307,7 +365,7 @@ func (w *window) toolchainCards(c ui.C, language i18n.Language) {
 			}
 		})
 	})
-	if t.snapshot.Root == "" && t.loaded {
+	if t.snapshot.Root == "" && !t.snapshot.Global && t.loaded {
 		w.card(c.Part("no-project"), i18n.Shared(language, "desktop.toolchains.title"), "", func() {
 			ui.Text(c, i18n.Shared(language, "desktop.toolchains.noProject")).FontSize(12).Color(w.pal.muted)
 		})

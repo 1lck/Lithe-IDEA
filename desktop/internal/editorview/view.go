@@ -188,6 +188,9 @@ type View struct {
 	// markers are diagnostics projected into display cells and grouped by line. They are the view's only
 	// knowledge of a language server: the text and the caret never depend on them.
 	markers map[int][]Marker
+	// Diagnostic glyphs are view-local and bounded; Viva reuses their immutable meshes.
+	markerWaves        map[markerWaveKey]gfx.Icon
+	markerWaveCommands int
 	// links are the document links the view can underline on hover; hovered is the one the pointer is
 	// over while the link modifier is held, or nil.
 	links   []Link

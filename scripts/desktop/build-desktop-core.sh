@@ -27,6 +27,7 @@ native_path() {
     fi
 }
 
+# Core #57/#58 add sourceSettings 0 and native compiler/runtime plans; #59 adds the project-free SDK catalog.
 PINNED_CORE_REPOSITORY="https://github.com/Lithe-IDEA/Lithe-core-rust.git"
 # Lithe-core-rust #56, squash-merged into main as 9425469: targetBindings.cwd may read
 # target.directory, so a debugged program runs in its source file's directory rather than in the
@@ -117,7 +118,7 @@ PINNED_CORE_REPOSITORY="https://github.com/Lithe-IDEA/Lithe-core-rust.git"
 # the contract, plugin guides, reference and SDKs live only in shared/plugins; on top of #16 (reported Git queries folded in the console),
 # #15 (git.write cherryPick, revert and reset fields), #14 (word-level changed ranges of diff
 # rows), #13, #8, #7, #6 and #4.
-PINNED_CORE_REVISION="9425469bdaa5a8195d9cdf5e9f440165c9e79810"
+PINNED_CORE_REVISION="5802c42b5766df7375bd427c54203db415ff72d7"
 PROFILE="debug"
 while [[ $# -gt 0 ]]; do
     case "$1" in

@@ -194,6 +194,7 @@ type ToolchainFixed struct {
 
 // ToolchainCandidatesRequest is one toolchains.candidates input.
 type ToolchainCandidatesRequest struct {
+	Global                  bool                            `json:"global,omitempty"`
 	Registry                json.RawMessage                 `json:"registry"`
 	Tool                    string                          `json:"tool"`
 	Platform                string                          `json:"platform"`
@@ -262,6 +263,7 @@ type ToolchainQuery struct {
 
 // ToolchainResolveRequest is one toolchains.resolve input.
 type ToolchainResolveRequest struct {
+	Global                  bool                          `json:"global,omitempty"`
 	Registry                json.RawMessage               `json:"registry"`
 	Tool                    string                        `json:"tool"`
 	Directory               string                        `json:"directory"`

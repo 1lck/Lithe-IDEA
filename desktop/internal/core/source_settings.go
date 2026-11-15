@@ -59,10 +59,11 @@ type SourceSettingsLimits struct {
 }
 
 type SourceSettingsEffectiveDisplay struct {
-	Kind  string `json:"kind"`
-	Text  string `json:"text"`
-	On    bool   `json:"on"`
-	Count int    `json:"count"`
+	Inherited bool   `json:"inherited"`
+	Kind      string `json:"kind"`
+	Text      string `json:"text"`
+	On        bool   `json:"on"`
+	Count     int    `json:"count"`
 }
 
 type SourceSettingsState struct {

@@ -11253,7 +11253,10 @@
     "desktop.marketplace.failurePermission": "Lithe could not access the required files. Check folder permissions, then retry.",
     "desktop.marketplace.failureHelp": "The package could not be downloaded, verified or installed. Retry; if it fails again, open Diagnostics to view the error details.",
     "desktop.sourceSettings.effective": "Effective: {value}",
-    "desktop.sourceSettings.fileCount": "{count} files"
+    "desktop.sourceSettings.fileCount": "{count} entries",
+    "desktop.toolchains.global": "Global defaults",
+    "desktop.toolchains.globalHelp": "Manage detected and manually added SDKs for all projects. Save writes to the application’s user settings; projects can override the default. Existing processes use the new SDK after restarting.",
+    "desktop.toolchains.project": "Current project"
   },
   "overrides": {
     "windows": {

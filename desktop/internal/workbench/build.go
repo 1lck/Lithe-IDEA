@@ -1132,7 +1132,7 @@ func (a *App) resolveBuildCandidates(ctx context.Context, p *project, directory 
 			selection, selectErr := a.resolveToolchainSelection(ctx, p.root, directory, candidate.ToolchainID, minimum)
 			if selectErr != nil {
 				var unavailable *toolchain.UnavailableError
-				if errors.As(selectErr, &unavailable) {
+				if errors.As(selectErr, &unavailable) && !unavailable.Terminal {
 					continue
 				}
 				return buildExecution{}, selectErr

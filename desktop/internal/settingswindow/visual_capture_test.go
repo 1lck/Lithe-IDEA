@@ -8,9 +8,11 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/1lck/Lithe-IDEA/desktop/internal/core"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/i18n"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/localshell"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/marketplace"
+	"github.com/1lck/Lithe-IDEA/desktop/internal/toolchain"
 	"github.com/vivaui/viva/gfx"
 	"github.com/vivaui/viva/headless"
 )
@@ -71,7 +73,7 @@ func TestVisualSettings(t *testing.T) {
 					MonospaceFamilies: func() []string { return []string{"JetBrains Mono", "Menlo"} },
 					Marketplace:       func(context.Context) (marketplace.Snapshot, error) { return marketplace.Snapshot{}, nil },
 					UpdateStatus:      func() UpdateStatus { return UpdateStatus{Configured: true} },
-					Toolchains:        &fakeToolchainLoader{snapshot: fixtureSnapshot()},
+					Toolchains:        &scopedToolchainLoader{fakeToolchainLoader{snapshot: globalVisualToolchains()}},
 				}
 				w := newWindow(NewController(opts), Values{Theme: theme, Language: language.Code(), TerminalScrollback: 2000})
 				w.sess.page = scenario.page
@@ -133,4 +135,20 @@ func TestVisualSettings(t *testing.T) {
 			})
 		}
 	}
+}
+
+func globalVisualToolchains() toolchain.Snapshot {
+	snapshot := fixtureSnapshot()
+	snapshot.Root = ""
+	tool := &snapshot.Tools[0]
+	tool.AutomaticHome = "/fixture/compiler"
+	tool.CustomHomes = []string{"/fixture/sdk8", "/fixture/sdk21"}
+	for index, home := range tool.CustomHomes {
+		version := []string{"8.0.1", "21.0.4"}[index]
+		tool.Installations = append(tool.Installations, core.ToolchainInstallation{Home: home, Version: version, Provider: "host:manual"})
+	}
+	tool.Pin = &core.ToolchainPin{Home: "/fixture/sdk21", Provider: "host:default"}
+	selected := "/fixture/sdk21"
+	tool.Effective = &core.ToolchainSelection{Home: &selected, Executable: selected + "/bin/compiler", Version: "21.0.4", Layer: "global"}
+	return snapshot
 }

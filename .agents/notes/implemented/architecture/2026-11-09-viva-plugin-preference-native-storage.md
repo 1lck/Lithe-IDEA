@@ -144,3 +144,12 @@ Core 和 C ABI 共享同一份 `Lithe-core-rust/rust/fixtures/plugins/settings-d
 桌面桥接、界面和工作台回归分别在 `desktop/internal/core/settings_surfaces_test.go`、
 `desktop/internal/settingswindow/settings_surfaces_test.go` 和
 `desktop/internal/workbench/settings_publication_test.go`。
+
+
+### 全局 SDK 登记不依赖项目
+
+SDK 的安装目录和默认版本属于本机用户，不应要求先打开项目，更不应在每个项目复制一份安装列表。因此工具链页默认显示全局范围，允许自动识别与手动添加多个目录；项目范围只保留可选覆盖。两个范围共用同一解析器，项目覆盖优先于全局默认，清空全局默认只恢复自动选择，不删除手动登记。
+
+Core 负责有界登记文档、目录身份规则与合并；原生适配器在平台用户设置目录读取 `toolchains/global.json`，保存前核对原始字节和文件身份，保存后重新探测。打开页面不创建目录；版本号不作为持久化事实；运行中进程保留启动时环境，新启动的 Build、Run、语言服务读取最新默认值。不要用当前工作目录冒充全局操作的项目，也不要写入 SDK、插件安装目录或 app bundle；该资源随用户设置存续，不影响签名和增量更新。
+
+放弃把全局默认复制为每个项目 pin 的方案，因为这会阻断以后切换全局默认。验证覆盖无项目读取、多版本登记、保存冲突、两个项目的实时继承及显式项目覆盖；窗口测试覆盖多个添加草稿和确认保存。

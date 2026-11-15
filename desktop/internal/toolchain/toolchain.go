@@ -53,9 +53,10 @@ func PlatformName(goos string) string {
 
 // Tool is one definition the settings view presents.
 type Tool struct {
-	ID          string `json:"id"`
-	DisplayName string `json:"displayName"`
-	PluginID    string `json:"pluginID"`
+	CustomHomes []string `json:"customHomes,omitempty"`
+	ID          string   `json:"id"`
+	DisplayName string   `json:"displayName"`
+	PluginID    string   `json:"pluginID"`
 	// Providers are the qualified provider IDs that declared this tool. Their
 	// answers are not queried by this client yet, so the view states it.
 	Providers []string `json:"providers"`
@@ -79,6 +80,8 @@ type Tool struct {
 
 // Snapshot is everything one settings load read for one project directory.
 type Snapshot struct {
+	Global    bool `json:"global,omitempty"`
+	catalog   *catalogSource
 	Root      string                   `json:"root"`
 	Directory string                   `json:"directory"`
 	Tools     []Tool                   `json:"tools"`
@@ -94,6 +97,10 @@ type Snapshot struct {
 // Options configure one load. The zero value uses the host platform, the user's
 // home, the process environment and a bounded native probe.
 type Options struct {
+	// Global permits discovery without any project; GlobalRoot owns the native SDK registry.
+	Global      bool
+	GlobalRoot  string
+	catalog     *core.ToolchainCatalog
 	Platform    string
 	Home        string
 	Environment map[string]string

@@ -510,6 +510,52 @@ const replacementChar = "\uFFFD"
 // Diagnostic waves stay close to the text even when line spacing is enlarged.
 const markerWaveHeight = float32(3)
 
+// One period is immutable, so both geometry and paint reuse Viva's bounded
+// glyph cache. Its filled strip is a thin wave, with no per-document path cache.
+var markerWave = gfx.Icon{ViewBox: 4, ViewHeight: markerWaveHeight, Commands: []gfx.PathCommand{
+	gfx.MoveTo(0, 0), gfx.LineTo(2, 2), gfx.LineTo(4, 0), gfx.LineTo(4, 1), gfx.LineTo(2, 3), gfx.LineTo(0, 1), gfx.ClosePath(),
+}}
+
+type markerWaveKey struct{ width, phase float32 }
+
+// Cache only a small working set of short underlines. Unique or very long
+// diagnostics fall back to the one shared period, keeping retained geometry bounded.
+func (v *View) markerWaveGlyph(width, phase float32) (gfx.Icon, bool) {
+	key := markerWaveKey{width, phase}
+	if icon, ok := v.markerWaves[key]; ok {
+		return icon, true
+	}
+	count := int(width) + 8
+	if width > 512 || len(v.markerWaves) >= 32 || v.markerWaveCommands+count > 8192 {
+		return gfx.Icon{}, false
+	}
+	points := make([]gfx.PathCommand, 0, count)
+	height := func(x float32) float32 {
+		p := float32(math.Mod(float64(x+phase), 4))
+		if p > 2 {
+			p = 4 - p
+		}
+		return p
+	}
+	points = append(points, gfx.MoveTo(0, height(0)))
+	for x := 2 - float32(math.Mod(float64(phase), 2)); x < width; x += 2 {
+		points = append(points, gfx.LineTo(x, height(x)))
+	}
+	points = append(points, gfx.LineTo(width, height(width)), gfx.LineTo(width, height(width)+1))
+	for i := len(points) - 3; i >= 0; i-- {
+		point := points[i].Point
+		points = append(points, gfx.LineTo(point.X, point.Y+1))
+	}
+	points = append(points, gfx.ClosePath())
+	icon := gfx.Icon{ViewBox: width, ViewHeight: markerWaveHeight, Commands: points}
+	if v.markerWaves == nil {
+		v.markerWaves = make(map[markerWaveKey]gfx.Icon)
+	}
+	v.markerWaves[key] = icon
+	v.markerWaveCommands += len(points)
+	return icon, true
+}
+
 // Hovered document links retain their straight two-point underline.
 const markerThickness = 2
 
@@ -532,21 +578,21 @@ func (v *View) paintMarkers(canvas *gfx.Canvas, line, from, to, shift int, y flo
 		// Phase belongs to document cells, so sideways scrolling and wrapping
 		// clip the same wave instead of making it crawl under the characters.
 		phase := float32(math.Mod(float64(float32(start)*v.cellW), 4))
-		waveY := func(x float32) float32 {
-			p := float32(math.Mod(float64(x+phase), 4))
-			if p > 2 {
-				p = 4 - p
+		if glyph, ok := v.markerWaveGlyph(width, phase); ok {
+			canvas.DrawIcon(glyph, gfx.Rect{X: left, Y: top, Width: width, Height: markerWaveHeight}, markerColor(marker.Severity))
+			continue
+		}
+		for x := -phase; x < width; x += 4 {
+			bounds := gfx.Rect{X: left + x, Y: top, Width: 4, Height: markerWaveHeight}
+			if x >= 0 && x+4 <= width {
+				canvas.DrawIcon(markerWave, bounds, markerColor(marker.Severity))
+			} else {
+				// Only the two edge tiles need geometric clipping. Interior tiles
+				// reuse Viva's immutable glyph mesh instead of retessellating paths.
+				clip := gfx.IconClip{Bounds: gfx.Rect{X: max(-x, 0), Width: min(4, width-x) - max(-x, 0), Height: markerWaveHeight}}
+				canvas.DrawIconTransformed(markerWave, bounds, markerColor(marker.Severity), gfx.IconTransform{Clip: &clip})
 			}
-			return 0.5 + p
 		}
-		path := canvas.PathBuilder()
-		path.MoveTo(0, waveY(0))
-		for x := 2 - float32(math.Mod(float64(phase), 2)); x < width; x += 2 {
-			path.LineTo(x, waveY(x))
-		}
-		path.LineTo(width, waveY(width))
-		canvas.DrawPath(path.Path(width, markerWaveHeight), gfx.Rect{X: left, Y: top, Width: width, Height: markerWaveHeight},
-			gfx.PathStyle{Stroke: markerColor(marker.Severity), StrokeWidth: 1})
 	}
 }
 

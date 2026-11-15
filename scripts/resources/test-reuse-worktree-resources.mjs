@@ -542,7 +542,7 @@ try {
   assert.notEqual(result.status, 0);
   assert.match(result.stderr, /language-tools is isolated/);
 
-  for (const id of ["windows-worker-plugins", "installed-worker-plugins", "viva-editor-user-state"]) {
+  for (const id of ["windows-worker-plugins", "installed-worker-plugins", "viva-editor-user-state", "global-toolchain-catalog"]) {
     const result = run(process.execPath, [reuseScript, "--source", sourceRoot, "--resource", id]);
     assert.notEqual(result.status, 0);
     assert.match(diagnostics(result), /isolated/);

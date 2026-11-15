@@ -106824,6 +106824,27 @@
       "parameters": {
         "count": "string"
       }
+    },
+    {
+      "id": "desktop.toolchains.global",
+      "description": "Machine-wide toolchain scope selector.",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.toolchains.globalHelp",
+      "description": "Explains global SDK registrations, project overrides and process restart requirements.",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.toolchains.project",
+      "description": "Current-project toolchain scope selector.",
+      "platforms": [
+        "desktop"
+      ]
     }
   ]
 }

@@ -188,6 +188,11 @@ type ToolchainLoader interface {
 
 // ToolchainInspector validates an explicit installation with the runtime's
 // resolver. Inspection reads facts and probes a version without saving a pin.
+// ToolchainScopedLoader supplies machine registrations and optional project overrides.
+type ToolchainScopedLoader interface {
+	LoadScope(context.Context, string) (toolchain.Snapshot, error)
+}
+
 type ToolchainInspector interface {
 	Inspect(context.Context, toolchain.Snapshot, string, string) (core.ToolchainSelection, error)
 }

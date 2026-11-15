@@ -16,15 +16,17 @@ func TestDiagnosticUnderlineFollowsTextCells(t *testing.T) {
 	for _, test := range []struct {
 		name, text       string
 		start, end, cell int
+		cellWidth        float32
 	}{
-		{"tab", "\tMissing", 1, 8, tabSize},
-		{"wide", "中Missing", 1, 8, 2},
-		{"supplementary", "😀Missing", 2, 9, 2},
-		{"combined", "\t中😀Missing", 4, 11, tabSize + 4},
+		{"tab", "\tMissing", 1, 8, tabSize, 10},
+		{"wide", "中Missing", 1, 8, 2, 10},
+		{"supplementary", "😀Missing", 2, 9, 2, 10},
+		{"combined", "\t中😀Missing", 4, 11, tabSize + 4, 10},
+		{"fractional-phase", "\t中😀Missing", 4, 11, tabSize + 4, 7.3},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			v := newTestView(t, test.text)
-			v.cellW, v.cellH, v.lineH, v.textLeft = 10, 16, 24, 70
+			v.cellW, v.cellH, v.lineH, v.textLeft = test.cellWidth, 16, 24, 70
 			v.SetMarkers([]Marker{{Line: 0, Start: test.start, End: test.end, Severity: MarkerError}})
 			var canvas gfx.Canvas
 			v.paintMarkers(&canvas, 0, 0, 100, 0, 0)
@@ -39,8 +41,8 @@ func TestDiagnosticUnderlineFollowsTextCells(t *testing.T) {
 				}
 			}
 			want := v.textLeft + float32(test.cell)*v.cellW
-			if math.Abs(float64(left-want)) > 0.6 || math.Abs(float64(right-(want+70))) > 0.6 {
-				t.Fatalf("underline spans %v..%v, want %v..%v under Missing", left, right, want, want+70)
+			if math.Abs(float64(left-want)) > 0.6 || math.Abs(float64(right-(want+7*v.cellW))) > 0.6 {
+				t.Fatalf("underline spans %v..%v, want %v..%v under Missing", left, right, want, want+7*v.cellW)
 			}
 		})
 	}
