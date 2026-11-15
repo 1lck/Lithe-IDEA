@@ -16319,6 +16319,61 @@
       ]
     },
     {
+      "id": "desktop.sourceSettings.add",
+      "description": "Generic source-backed settings form controls and status.",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.sourceSettings.allEntriesShown",
+      "description": "Generic source-backed settings form controls and status.",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.sourceSettings.close",
+      "description": "Generic source-backed settings form controls and status.",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.sourceSettings.compilerTitle",
+      "description": "Generic source-backed settings form controls and status.",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "compiler": "string"
+      }
+    },
+    {
+      "id": "desktop.sourceSettings.inherit",
+      "description": "Generic source-backed settings form controls and status.",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "value": "string"
+      }
+    },
+    {
+      "id": "desktop.sourceSettings.noValue",
+      "description": "Generic source-backed settings form controls and status.",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.sourceSettings.remove",
+      "description": "Generic source-backed settings form controls and status.",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
       "id": "desktop.startupSweep.body",
       "description": "Start-up dialog text: {arg1} processes started by an earlier run of Lithe are still running",
       "platforms": [
@@ -17564,6 +17619,20 @@
       ]
     },
     {
+      "id": "desktop.toolchains.directory",
+      "description": "Desktop toolchain directory selection and validation.",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.toolchains.directoryHelp",
+      "description": "Desktop toolchain directory selection and validation.",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
       "id": "desktop.toolchains.effective",
       "description": "The value and layer the shared resolver selected. {value} is the formatted selection.",
       "platforms": [
@@ -17584,6 +17653,13 @@
         "version": "string",
         "provider": "string"
       }
+    },
+    {
+      "id": "desktop.toolchains.invalidDirectory",
+      "description": "Desktop toolchain directory selection and validation.",
+      "platforms": [
+        "desktop"
+      ]
     },
     {
       "id": "desktop.toolchains.loadFailed",
@@ -17715,6 +17791,13 @@
       "parameters": {
         "reason": "string"
       }
+    },
+    {
+      "id": "desktop.toolchains.useDirectory",
+      "description": "Desktop toolchain directory selection and validation.",
+      "platforms": [
+        "desktop"
+      ]
     },
     {
       "id": "desktop.tools.background",
@@ -106721,6 +106804,26 @@
       "platforms": [
         "desktop"
       ]
+    },
+    {
+      "id": "desktop.sourceSettings.effective",
+      "description": "Generic native settings effective value presentation.",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "value": "string"
+      }
+    },
+    {
+      "id": "desktop.sourceSettings.fileCount",
+      "description": "Generic native settings effective value presentation.",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "count": "string"
+      }
     }
   ]
 }

@@ -803,7 +803,7 @@ func (w *window) openContributedPage(key, pluginID string) {
 		return
 	}
 	parent := pageLanguages
-	if page.Kind == "buildSystem" {
+	if page.Kind == "buildSystem" || page.Kind == "compiler" {
 		parent = pageBuild
 	}
 	w.selectSettingsPage(parent, key)

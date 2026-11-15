@@ -8,6 +8,7 @@
 package editorview
 
 import (
+	"context"
 	"slices"
 	"strings"
 	"sync/atomic"
@@ -184,7 +185,7 @@ type View struct {
 	// caretLine is the cells of the line the last edit left the caret on, while that line has no
 	// tab; see lineCells.
 	caretLine lineCells
-	// markers are the diagnostics to underline, grouped by line. They are the view's only
+	// markers are diagnostics projected into display cells and grouped by line. They are the view's only
 	// knowledge of a language server: the text and the caret never depend on them.
 	markers map[int][]Marker
 	// links are the document links the view can underline on hover; hovered is the one the pointer is
@@ -372,18 +373,8 @@ func (v *View) SetMarkers(markers []Marker) {
 		v.markers = nil
 		return
 	}
-	grouped := make(map[int][]Marker, len(markers))
-	for _, marker := range markers {
-		if marker.Line < 0 || marker.Start < 0 || marker.End <= marker.Start {
-			continue
-		}
-		grouped[marker.Line] = append(grouped[marker.Line], marker)
-	}
-	if len(grouped) == 0 {
-		v.markers = nil
-		return
-	}
-	v.markers = grouped
+	projected, _ := ProjectMarkers(context.Background(), v.text, markers)
+	v.markers = projected.lines
 }
 
 // Close stops the view's background highlighter.

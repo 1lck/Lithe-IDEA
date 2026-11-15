@@ -12,10 +12,15 @@ import (
 )
 
 type fakeToolchainLoader struct {
-	snapshot toolchain.Snapshot
-	loaded   chan struct{}
-	saved    chan []toolchain.Edit
-	saveErr  error
+	snapshot   toolchain.Snapshot
+	loaded     chan struct{}
+	saved      chan []toolchain.Edit
+	saveErr    error
+	inspectErr error
+}
+
+func (f *fakeToolchainLoader) Inspect(_ context.Context, _ toolchain.Snapshot, _ string, home string) (core.ToolchainSelection, error) {
+	return core.ToolchainSelection{Home: &home, Executable: home + "/bin/compiler", Version: "9.1"}, f.inspectErr
 }
 
 func (f *fakeToolchainLoader) Load(context.Context) (toolchain.Snapshot, error) {
@@ -116,6 +121,30 @@ func TestToolchainDraftSavesOnlyExplicitChanges(t *testing.T) {
 	}
 	if state.snapshot.Tools[0].Pin == nil {
 		t.Fatalf("saved state = %+v", state)
+	}
+}
+
+func TestToolchainManualDirectoryIsValidatedBeforeAnExplicitSave(t *testing.T) {
+	loader := &fakeToolchainLoader{snapshot: fixtureSnapshot(), saved: make(chan []toolchain.Edit, 1)}
+	w, d := toolchainWindow(t, loader)
+	d.click("Installation directory")
+	d.typeText("/fixture/custom")
+	d.click("Use directory")
+	d.until("the checked directory", func() bool { return w.toolchains.draft["dev.example:compiler"] == "/fixture/custom" })
+	select {
+	case edits := <-loader.saved:
+		t.Fatalf("validating a directory wrote %+v", edits)
+	default:
+	}
+	d.click(i18n.Shared(i18n.English, "desktop.toolchains.save"))
+	d.until("the manual directory to save", func() bool { return w.toolchains.saved })
+	select {
+	case edits := <-loader.saved:
+		if len(edits) != 1 || edits[0].Pin == nil || edits[0].Pin.Home != "/fixture/custom" || edits[0].Pin.Version != "9.1" {
+			t.Fatalf("manual directory pin = %+v", edits)
+		}
+	default:
+		t.Fatal("manual directory was not saved")
 	}
 }
 

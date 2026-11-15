@@ -119,8 +119,25 @@ func Load(ctx context.Context, kernel Kernel, root, directory string, manifests 
 			tool.Pin = pin
 			tool.PinSource = source
 		}
-		if prepared.candidates.Selected != nil {
-			tool.AutomaticHome = *prepared.candidates.Selected
+		// Automatic uses the runtime resolver too: the discovery report's
+		// selected installation omits environment and command candidates.
+		automatic := resolution
+		if pin != nil {
+			document, err := kernel.EditToolchainPins(ctx, captured.document, directory, []core.ToolchainPinEdit{{Tool: planned.Tool}})
+			if err != nil {
+				return Snapshot{}, err
+			}
+			automatic, err = resolveTool(ctx, kernel, workspace, registryRequest, prepared, document, directory,
+				options.MinimumVersion, fmt.Sprintf("settings-auto-%d-%d", sequence, index))
+			if err != nil {
+				return Snapshot{}, err
+			}
+		}
+		if automatic.Outcome.Kind == "resolved" && automatic.Outcome.Selection != nil {
+			tool.AutomaticHome = automatic.Outcome.Selection.Executable
+			if automatic.Outcome.Selection.Home != nil {
+				tool.AutomaticHome = *automatic.Outcome.Selection.Home
+			}
 		}
 		if resolution.Outcome.Kind == "resolved" {
 			tool.Effective = resolution.Outcome.Selection

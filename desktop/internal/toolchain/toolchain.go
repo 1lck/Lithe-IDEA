@@ -22,6 +22,7 @@ type Kernel interface {
 	ToolchainCandidatesOf(ctx context.Context, request core.ToolchainCandidatesRequest) (core.ToolchainCandidates, error)
 	ResolveToolchain(ctx context.Context, request core.ToolchainResolveRequest) (core.ToolchainResolution, error)
 	ResolveToolchainPins(ctx context.Context, document json.RawMessage, directory, tool string) (core.ToolchainPinResolution, error)
+	EditToolchainPins(ctx context.Context, document json.RawMessage, directory string, edits []core.ToolchainPinEdit) (json.RawMessage, error)
 	ToolchainPinStorage(ctx context.Context) (core.ToolchainPinStoragePlan, error)
 	DecodeToolchainPinDocument(ctx context.Context, document *string) (json.RawMessage, error)
 	EditToolchainPinSources(ctx context.Context, request core.ToolchainPinSourcesRequest) (core.ToolchainPinSourcesEdit, error)

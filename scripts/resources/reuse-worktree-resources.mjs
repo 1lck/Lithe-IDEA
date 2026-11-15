@@ -409,7 +409,7 @@ async function main() {
       // Identical bytes do not establish transferable execution ownership.
       // SwiftPM scratch-local compiler stamps only invalidate local products;
       // swiftpm-build-state is not a sealed download cache and has no copy stage.
-      // Includes application-log-state: v2 sessions, plugin files (0700/no-follow),
+      // Includes plugin-native-settings-staging (private confirmed transactions) and application-log-state: v2 sessions, plugin files (0700/no-follow),
       // confirmation snapshots and export ZIP
       // staging belong to one runtime session; no validator or copy stage applies.
       // Localized logging probes also reject their temporary SwiftPM UI hosts;

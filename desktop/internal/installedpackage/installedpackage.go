@@ -12,10 +12,37 @@
 // package and fails if it ever writes to the file system.
 package installedpackage
 
-import "os"
+import (
+	"os"
+	"path/filepath"
+	"runtime"
+	"strings"
+)
 
 // Executable returns the path of the running client executable. Its only use is starting another
-// client of the same build; nothing is written beside it.
+// client of the same build or protecting its installation; nothing is written beside it.
 func Executable() (string, error) {
 	return os.Executable()
+}
+
+// Root returns the read-only installation boundary, including all macOS bundle
+// resources or the Windows executable's installation directory. Callers use it
+// only to refuse writes; mutable state never derives a destination from it.
+func Root() (string, error) {
+	executable, err := Executable()
+	if err != nil {
+		return "", err
+	}
+	return rootForExecutable(executable), nil
+}
+func rootForExecutable(executable string) string {
+	directory := filepath.Dir(executable)
+	if runtime.GOOS == "darwin" {
+		for parent := directory; filepath.Dir(parent) != parent; parent = filepath.Dir(parent) {
+			if strings.EqualFold(filepath.Ext(parent), ".app") {
+				return parent
+			}
+		}
+	}
+	return directory
 }

@@ -507,8 +507,10 @@ func (v *View) paintRow(canvas *gfx.Canvas, text string, base int, row wrapRow, 
 // replacementChar is what a byte that is not UTF-8 shows, as range over a string reads it.
 const replacementChar = "\uFFFD"
 
-// markerThickness is how tall an underline is, in pixels. Two is the thinnest line
-// that survives a device pixel ratio above one.
+// Diagnostic waves stay close to the text even when line spacing is enlarged.
+const markerWaveHeight = float32(3)
+
+// Hovered document links retain their straight two-point underline.
 const markerThickness = 2
 
 // paintMarkers underlines the diagnostics that fall inside one wrapped row.
@@ -525,12 +527,26 @@ func (v *View) paintMarkers(canvas *gfx.Canvas, line, from, to, shift int, y flo
 			continue
 		}
 		left := v.textLeft + float32(start-shift)*v.cellW - v.scrollX
-		canvas.Fill(gfx.Rect{
-			X:      left,
-			Y:      y + v.lineH - markerThickness,
-			Width:  float32(end-start) * v.cellW,
-			Height: markerThickness,
-		}, markerColor(marker.Severity))
+		width := float32(end-start) * v.cellW
+		top := y + min((v.lineH+v.cellH)/2-0.5, v.lineH-markerWaveHeight)
+		// Phase belongs to document cells, so sideways scrolling and wrapping
+		// clip the same wave instead of making it crawl under the characters.
+		phase := float32(math.Mod(float64(float32(start)*v.cellW), 4))
+		waveY := func(x float32) float32 {
+			p := float32(math.Mod(float64(x+phase), 4))
+			if p > 2 {
+				p = 4 - p
+			}
+			return 0.5 + p
+		}
+		path := canvas.PathBuilder()
+		path.MoveTo(0, waveY(0))
+		for x := 2 - float32(math.Mod(float64(phase), 2)); x < width; x += 2 {
+			path.LineTo(x, waveY(x))
+		}
+		path.LineTo(width, waveY(width))
+		canvas.DrawPath(path.Path(width, markerWaveHeight), gfx.Rect{X: left, Y: top, Width: width, Height: markerWaveHeight},
+			gfx.PathStyle{Stroke: markerColor(marker.Severity), StrokeWidth: 1})
 	}
 }
 

@@ -48,6 +48,9 @@ var (
 
 // document is a file open in a tab of the editor area.
 type document struct {
+	// Each replacement cancels diagnostic geometry still being prepared.
+	markerCancel      context.CancelFunc
+	markerGeneration  uint64
 	find              editorFind
 	scratch           bool
 	recoveredConflict bool
@@ -815,7 +818,7 @@ func (a *App) removeDocument(p *project, d *document) {
 		// A document without a tab is released with nothing to close, once it is saved.
 		if d.tabless && !d.dirty() {
 			a.semanticTokensDropped(d)
-			d.view.Close()
+			d.closeEditorView()
 			p.docs.list = slices.DeleteFunc(p.docs.list, func(x *document) bool { return x.id == d.id })
 		}
 		return
@@ -825,7 +828,7 @@ func (a *App) removeDocument(p *project, d *document) {
 		return
 	}
 	a.semanticTokensDropped(d)
-	d.view.Close()
+	d.closeEditorView()
 	p.docs.list = slices.DeleteFunc(p.docs.list, func(x *document) bool { return x.id == d.id })
 	a.unwatchDocument(p, d)
 	a.closeDocumentInSession(p, d)
@@ -912,7 +915,7 @@ func (a *App) closeDocuments(p *project) {
 		a.flushCheckpoint(p, d, false)
 		d.find.dispose()
 		d.cancelAutoSave()
-		d.view.Close()
+		d.closeEditorView()
 	}
 	p.docs = documentSet{}
 }
@@ -990,4 +993,12 @@ func (a *App) focusedDocument(id gfx.ID) *editorview.View {
 		}
 	}
 	return nil
+}
+
+func (d *document) closeEditorView() {
+	if d.markerCancel != nil {
+		d.markerCancel()
+		d.markerCancel = nil
+	}
+	d.view.Close()
 }

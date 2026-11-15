@@ -2,7 +2,7 @@
   "id": "plugin-injected-toolchains",
   "area": "扩展",
   "group": "插件与主题",
-  "capability": "Viva 从已启用插件的 toolDefinitions 声明发现工具链，将文件事实与有界版本探测交给原 Rust Core 的 candidates/resolve；Build 设置显示实际生效值与来源，草稿经显式 Save/Reset/Cancel 和受保护来源快照写入本机目录 pin，Core 统一提供读预算、严格来源解析与 Git 忽略编辑计划，无变化重置不创建文件，Build/Run/命令型 Tests 使用解析出的程序与环境。提供方 toolchains/query、完整配置来源编辑与原生 GUI 验收仍未完成。",
+  "capability": "Viva 从已启用插件的 toolDefinitions 声明发现工具链，将文件事实与有界版本探测交给原 Rust Core 的 candidates/resolve；Build 设置显示实际生效值与来源，草稿经显式 Save/Reset/Cancel 和受保护来源快照写入本机目录 pin，Core 统一提供读预算、严格来源解析与 Git 忽略编辑计划，无变化重置不创建文件，Build/Run/命令型 Tests 使用解析出的程序与环境。提供方 toolchains/query、完整配置来源编辑与原生 GUI 验收仍未完成。 支持手动目录验证、自动值回显及构建运行时依赖先解析再执行。",
   "macos": {
     "implementationStatus": "partial",
     "verificationStatus": "pending",
@@ -22,7 +22,8 @@
       "desktop/internal/core/toolchain_sources.go",
       "desktop/internal/toolchain/storage_test.go",
       "desktop/internal/configfile/",
-      "desktop/internal/settingswindow/toolchains_view_test.go"
+      "desktop/internal/settingswindow/toolchains_view_test.go",
+      "desktop/internal/workbench/toolchains_test.go"
     ]
   },
   "windows": {
@@ -38,7 +39,8 @@
       "desktop/internal/core/toolchain_sources.go",
       "desktop/internal/toolchain/storage_test.go",
       "desktop/internal/configfile/",
-      "desktop/internal/settingswindow/toolchains_view_test.go"
+      "desktop/internal/settingswindow/toolchains_view_test.go",
+      "desktop/internal/workbench/toolchains_test.go"
     ]
   },
   "owner": "Plugin Platform",

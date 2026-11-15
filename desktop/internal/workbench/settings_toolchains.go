@@ -4,8 +4,34 @@ import (
 	"context"
 	"errors"
 
+	"github.com/1lck/Lithe-IDEA/desktop/internal/core"
+
 	"github.com/1lck/Lithe-IDEA/desktop/internal/toolchain"
 )
+
+func (s settingsToolchains) Inspect(ctx context.Context, snapshot toolchain.Snapshot, tool, home string) (selection core.ToolchainSelection, err error) {
+	ctx = s.app.performedIn(ctx, "toolchain.inspectDirectory", surfaceButton)
+	defer func() { s.recordFailure(ctx, "toolchain_settings_inspect", err) }()
+	root := s.app.toolchainRoot.Load()
+	if root == nil || snapshot.Root == "" {
+		return selection, toolchain.ErrPinConflict
+	}
+	if err := snapshot.CheckWorkspace(ctx, *root); err != nil {
+		return selection, errors.Join(toolchain.ErrPinConflict, err)
+	}
+	manifests, err := s.app.toolchainManifests(ctx)
+	if err != nil {
+		return selection, err
+	}
+	selection, err = toolchain.Resolve(ctx, s.app.kernel, snapshot.Root, snapshot.Directory, tool, "", &toolchain.Fixed{Home: home}, manifests, toolchain.Options{Platform: buildPlatform()})
+	if err != nil {
+		return selection, err
+	}
+	if current := s.app.toolchainRoot.Load(); current != root {
+		return selection, toolchain.ErrPinConflict
+	}
+	return selection, snapshot.CheckWorkspace(ctx, *root)
+}
 
 // settingsToolchains is the settings window's adapter onto the workbench: it
 // reads the open project's enabled plugin manifests and writes explicit

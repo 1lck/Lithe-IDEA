@@ -2,7 +2,7 @@
   "id": "declarative-plugin-settings",
   "area": "插件",
   "group": "插件管理",
-  "capability": "声明式插件通过 Core 校验的设置声明提供整数、枚举、布尔、多选、文本、文件和目录设置，支持全局/项目继承、真实来源保存、通用界面、页面/动作注册及 restart/immediate/reload/nextRun 生效；实际启动与运行消费者必须读取同一来源。 声明动作经显式确认、安装/工作区身份复查与 Core 同工作区函数会话选择后调用；支持取消和完成状态，保留未保存草稿。 已启用插件动态贡献语言/构建系统页，同一应用内窗口按原生目录身份接收全局/项目保存通知，独立保留项目覆盖值与未保存草稿。 插件包可自带 l10n/<语言>.json 翻译设置文字，Core 按界面语言挑选文件并逐条回退到清单原文；切换界面语言后重读文字，但保留未保存草稿。",
+  "capability": "声明式插件通过 Core 校验的设置声明提供整数、枚举、布尔、多选、文本、文件和目录设置，支持全局/项目继承、真实来源保存、通用界面、页面/动作注册及 restart/immediate/reload/nextRun 生效；实际启动与运行消费者必须读取同一来源。 声明动作经显式确认、安装/工作区身份复查与 Core 同工作区函数会话选择后调用；支持取消和完成状态，保留未保存草稿。 已启用插件动态贡献语言/构建系统页，同一应用内窗口按原生目录身份接收全局/项目保存通知，独立保留项目覆盖值与未保存草稿。 插件包可自带 l10n/<语言>.json 翻译设置文字，Core 按界面语言挑选文件并逐条回退到清单原文；切换界面语言后重读文字，但保留未保存草稿。 支持 Core 来源表单、编译器页面、有效/继承值和显式条件原子保存；读取项目工具须点击读取按钮。",
   "macos": {
     "implementationStatus": "partial",
     "verificationStatus": "pending",
@@ -42,7 +42,13 @@
       "desktop/internal/settingswindow/plugin_settings_language_test.go",
       "desktop/internal/workbench/settings_plugins.go",
       "desktop/internal/workbench/startup_test.go",
-      ".agents/notes/implemented/architecture/2026-10-21-plugin-settings-surfaces.md"
+      ".agents/notes/implemented/architecture/2026-10-21-plugin-settings-surfaces.md",
+      "desktop/internal/core/source_settings.go",
+      "desktop/internal/pluginsettings/sources.go",
+      "desktop/internal/pluginsettings/sources_test.go",
+      "desktop/internal/settingswindow/source_settings_view.go",
+      "desktop/internal/settingswindow/source_settings_view_test.go",
+      "desktop/internal/workbench/settings_plugin_sources.go"
     ]
   },
   "windows": {
@@ -84,7 +90,13 @@
       "desktop/internal/settingswindow/plugin_settings_language_test.go",
       "desktop/internal/workbench/settings_plugins.go",
       "desktop/internal/workbench/startup_test.go",
-      ".agents/notes/implemented/architecture/2026-10-21-plugin-settings-surfaces.md"
+      ".agents/notes/implemented/architecture/2026-10-21-plugin-settings-surfaces.md",
+      "desktop/internal/core/source_settings.go",
+      "desktop/internal/pluginsettings/sources.go",
+      "desktop/internal/pluginsettings/sources_test.go",
+      "desktop/internal/settingswindow/source_settings_view.go",
+      "desktop/internal/settingswindow/source_settings_view_test.go",
+      "desktop/internal/workbench/settings_plugin_sources.go"
     ]
   },
   "owner": "Plugin Platform",

@@ -127,6 +127,14 @@ SDK 的构建输出，以及对当前工作树的 Core 运行的端到端测试
 （`node shared/plugins/scripts/sdk-e2e.mjs`）都属于 Core 仓库，
 本仓库不构建 SDK，也不把这些目录登记为可复用资源。
 
+原生插件设置的暂存目录登记为 `plugin-native-settings-staging`：
+`<system-temp>/lithe-source-settings-<random>/` 只属于一次确认后的保存操作。
+目录权限为 0700，已有的暂存文件为 0600；原生适配器在写回前校验来源版本、
+工作区与插件身份和 SHA-256，再按原文件元数据进行条件原子替换，并重新读取。
+私有来源快照每个文件最多 2 MiB、总计 8 MiB；所有结束路径均清理暂存。
+这些数据没有可复用的版本、平台、架构或工具链身份，资源复用入口在任何复制阶段均拒绝。
+来源只限用户工作区；应用安装目录和插件安装目录受只读边界保护，不影响代码签名或 Sparkle delta。
+
 模块日志和诊断包暂存目录登记为 `application-log-state`，不允许跨工作树复用。日志会话位于 `desktop/internal/logstore` 按平台选择的用户日志目录（`dir_darwin.go`、`dir_other.go`、`dir_windows.go`）下的 `sessions/<name>/`。没有可验证的版本、平台、架构或工具链 identity stamp，复用脚本在解析工作树与复制之前拒绝这些位置，不存在允许复制的阶段。测试必须注入各自的临时日志根目录，不要复用真实用户日志。这些数据不进入安装包或签名基线。
 
 #### 日志窗口的视觉截图检查
