@@ -16,6 +16,7 @@ CI 构建缓存、架构并行、测试产物和 artifact 保留策略见
 - `Desktop CI gate` 汇总固定版本、Linux 格式与脚本、Linux 测试、macOS 测试和 Windows 测试；普通 PR 必须全部成功，Draft 只允许跳过 macOS 和 Windows。更换已有 PR 的目标分支后，保留 Draft 状态；需要评审时标记为 ready 以针对新基线重新运行完整检查。单纯修改标题或正文不触发平台 runner。
 - Desktop CI 通过 `scripts/desktop/check.sh` 执行 Go 检查，Rust 内核由 `scripts/desktop/build-desktop-core.sh` 按 `PINNED_CORE_REVISION` 固定的 Lithe-core-rust 修订构建。
 - Desktop Release 的打包脚本是 `scripts/ci/desktop-release/package-release.sh`，AutoBuild 的打包和发布脚本位于 `scripts/ci/desktop-autobuild/`。
+- 两条发布入口共用 `scripts/desktop/package-desktop.sh`，通过 Viva 的 `--cgo` 选项保留 Rust Core 原生桥接；`desktop-go.sh` 提供目标编译器、静态库及头文件。Linux 发布包由 Ubuntu 22.04 构建，其系统库兼容性需要单独验证，不能按 Viva 的默认纯 Go 包假设没有 glibc 依赖。
 - 本地复现与 CI 相同的检查见 [`desktop-getting-started.md`](development/desktop-getting-started.md) 的“提交前检查”。
 
 ### AutoBuild 每日发布

@@ -33,6 +33,7 @@ case "$1" in
         ;;
     build)
         printf '%s\\n' '#!/usr/bin/env bash' 'set -euo pipefail' \\
+            '[[ " $* " == *" --cgo "* ]] || { echo "packaging must retain the native core bridge" >&2; exit 1; }' \\
             'cp internal/idehelp/lithe-mcp.bin "$FIXTURE_ROOT/embedded-helper.txt"' > "$3"
         chmod +x "$3"
         ;;
@@ -126,6 +127,14 @@ test('an amd64 macOS package on an arm64 host embeds the amd64 helper', async ()
     await run('bash', ['scripts/desktop/package-desktop.sh', '--arch', 'amd64', '--no-sign']);
     assert.deepEqual(new Set(await coreBuilds()), new Set(['x86_64-apple-darwin --release']));
     assert.equal(await readFile(path.join(root, 'embedded-helper.txt'), 'utf8'), 'lithe-mcp for x86_64-apple-darwin\n');
+  });
+});
+
+test('Linux packaging retains cgo and embeds its native core helper', { timeout: 90000 }, async () => {
+  await withFixture({ goos: 'linux', goarch: 'arm64', rustHost: 'aarch64-unknown-linux-gnu' }, async ({ root, run, coreBuilds }) => {
+    await run('bash', ['scripts/desktop/package-desktop.sh', '--no-sign']);
+    assert.deepEqual(new Set(await coreBuilds()), new Set(['aarch64-unknown-linux-gnu --release']));
+    assert.equal(await readFile(path.join(root, 'embedded-helper.txt'), 'utf8'), 'lithe-mcp for aarch64-unknown-linux-gnu\n');
   });
 });
 
