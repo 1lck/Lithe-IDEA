@@ -207,9 +207,11 @@ if [[ "$STABLE" == 1 ]]; then
 else
     printf '%s\n' "Packaging a preview of $VERSION."
 fi
+# Every target links Rust Core; Viva's pure-Go Linux/Windows default would omit its C ABI bridge.
 GOARCH="$ARCH" LITHE_DESKTOP_CORE_PROFILE=release \
     "$ROOT_DIR/scripts/desktop/desktop-go.sh" --exec "$VIVA_BIN" package \
     --target "$GOOS" --arch "$ARCH" --format "$FORMATS" -o "$VIVA_OUT" \
+    --cgo \
     -tags "$BUILD_TAGS" \
     "${SIGN_ARGS[@]+"${SIGN_ARGS[@]}"}"
 printf '%s\n' "$OUT_DIR"
