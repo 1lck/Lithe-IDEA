@@ -369,6 +369,53 @@ func TestVisualNewProjectFieldDescriptions(t *testing.T) {
 	}
 }
 
+// TestVisualNewProjectAdvancedSettings captures a generator form with its
+// "Advanced Settings" group closed and open, so the chevron of each state shows.
+// It needs only LITHE_VISUAL_OUTPUT_DIR.
+func TestVisualNewProjectAdvancedSettings(t *testing.T) {
+	out := os.Getenv("LITHE_VISUAL_OUTPUT_DIR")
+	if out == "" {
+		t.Skip("set LITHE_VISUAL_OUTPUT_DIR")
+	}
+	if err := os.MkdirAll(out, 0755); err != nil {
+		t.Fatal(err)
+	}
+	for _, theme := range []string{"dark", "light"} {
+		for _, language := range []string{"zh-Hans", "en-US"} {
+			t.Run(theme+"-"+language, func(t *testing.T) {
+				var session *headless.Session
+				prefs := store.At(t.TempDir())
+				if err := prefs.Save(settingsFile, map[string]string{"theme": theme}); err != nil {
+					t.Fatal(err)
+				}
+				h := newHarnessWithDriver(t, Options{Kernel: &testKernel{Client: core.NewClient()}, Store: prefs, Languages: []string{language}}, func(config app.Config) (*app.Driver, func(), error) {
+					config.Width, config.Height = 800, 682
+					config.MinWidth = 800
+					var err error
+					session, err = headless.Open(config, nil, headless.Options{})
+					if err != nil {
+						return nil, nil, err
+					}
+					return session.Driver(), session.Close, nil
+				})
+				h.offerGenerators(advancedGeneratorPlugin(t))
+				h.openNewProjectSheet()
+				h.chooseGenerator("Tuned", "dev.lithe.test.advanced/tuned")
+				advanced := i18n.Shared(h.app.language(), "desktop.newProject.advanced")
+				for _, state := range []string{"closed", "open"} {
+					if state == "open" {
+						h.clickNamed(advanced)
+						h.await("the advanced field", func() bool { return h.shows("Level") })
+					}
+					if err := session.Screenshot(filepath.Join(out, "new-project-advanced-"+state+"-"+theme+"-"+language+".png")); err != nil {
+						t.Fatal(err)
+					}
+				}
+			})
+		}
+	}
+}
+
 // TestVisualDebugAnnouncedAdapterExitedFirst captures the debug view after a synthetic
 // tcpAnnounced adapter exited before it announced its port: the session ends and the
 // view shows why. It needs only LITHE_VISUAL_OUTPUT_DIR.

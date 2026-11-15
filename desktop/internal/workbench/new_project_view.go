@@ -317,10 +317,11 @@ func (a *App) generatorFields(c ui.C, language i18n.Language, form *generatorFor
 		ui.Paragraph(c, i18n.Shared(language, "desktop.newProject.toolsFailed"), 3).Color(a.theme.Danger)
 	}
 	a.requirementNotices(c, language, form)
-	advanced := 0
+	advanced, problem := 0, false
 	for _, field := range form.fields {
 		if field.state.Visible && field.decl.Advanced {
 			advanced++
+			problem = problem || field.state.Problem != ""
 		}
 	}
 	for _, field := range form.fields {
@@ -328,9 +329,19 @@ func (a *App) generatorFields(c ui.C, language i18n.Language, form *generatorFor
 			a.generatorField(c, language, form, field, locked)
 		}
 	}
+	// A problem in a closed group would leave Create disabled with nothing
+	// saying why, so the group opens when one appears; it can be closed again.
+	if problem && !form.advancedProblem {
+		n.advancedOpen = true
+	}
+	form.advancedProblem = problem
 	if advanced > 0 {
 		title := i18n.Shared(language, "desktop.newProject.advanced")
-		if ui.Button(c, title).Ghost().Icon(icons.ChevronRight).Clicked() {
+		chevron := icons.ChevronRight
+		if n.advancedOpen {
+			chevron = icons.ChevronDown
+		}
+		if ui.Button(c, title).Ghost().Icon(chevron).Clicked() {
 			n.advancedOpen = !n.advancedOpen
 		}
 		if n.advancedOpen {
