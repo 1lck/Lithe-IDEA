@@ -177,7 +177,6 @@ func (s *Service) StopLanguageServer(ctx context.Context, session *LanguageSessi
 	return s.Backend.Stop(ctx, session.Session)
 }
 
-
 type languageServerDeclaration struct {
 	LanguageServers []struct {
 		LanguageID string `json:"languageID"`
