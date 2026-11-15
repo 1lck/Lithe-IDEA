@@ -123,6 +123,11 @@ func TestDebugAnnouncedAdapterRunner(t *testing.T) {
 	code := serveFixtureAdapter(io.TeeReader(conn, &requests), conn, workspace)
 	if bytes.Contains(requests.Bytes(), []byte(`"disconnect"`)) {
 		fmt.Fprintln(watch, "disconnected")
+		// Finish the successful report before exiting. An abrupt Windows
+		// process exit can reset even this separate observation socket.
+		if err := watch.Close(); err != nil {
+			os.Exit(8)
+		}
 	}
 	os.Exit(code)
 }
@@ -200,7 +205,11 @@ func (w *announcedWatch) ended(t *testing.T, limit time.Duration) string {
 }
 
 func TestDebugAnnouncedAdapterBreakpointPauseContinueStop(t *testing.T) {
+	previous := buildprocess.StopGrace()
+	t.Cleanup(func() { buildprocess.SetStopGrace(previous) })
 	h := debugPluginHarness(t, "dev.lithe.test.debug-announced", debugAnnouncedManifest, true)
+	// The harness does not run App.Run, which normally loads Core's stop time.
+	h.app.refreshStopGrace()
 	root, source, watch := announcedWorkspace(t, "")
 	p := openHostedPanel(t, h, root)
 	if declaration := p.debug.adapters[0].Declaration; declaration.Transport != "tcpAnnounced" || declaration.LaunchKind != "packaged" {
@@ -232,10 +241,22 @@ func TestDebugAnnouncedAdapterBreakpointPauseContinueStop(t *testing.T) {
 	awaitStateWithin(t, h, 20*time.Second, "the paused session", func() bool {
 		return p.debug.state == "paused" && len(p.debug.frames) == 2
 	})
+	awaitStateWithin(t, h, 20*time.Second, "Core's effective exit grace", func() bool {
+		return h.app.stopTime.Load() != nil && buildprocess.StopGrace() > 0
+	})
 
+	stoppedSession := p.debug.activeSession()
 	h.clickNamed(h.app.text.Debug.Stop)
 	awaitStateWithin(t, h, 20*time.Second, "the stopped session", func() bool {
-		return p.debug.activeSession() == nil && p.debug.state == "idle"
+		if p.debug.activeSession() != nil || p.debug.state != "idle" {
+			return false
+		}
+		select {
+		case <-stoppedSession.cleanupDone:
+			return true
+		default:
+			return false
+		}
 	})
 	// The process outlives the session's context, so the disconnect reaches it
 	// before it is stopped.
