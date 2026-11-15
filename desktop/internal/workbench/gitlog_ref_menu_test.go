@@ -46,20 +46,23 @@ func (h *harness) logRefMenu(short string) {
 	}
 }
 
-// topMenuItems lists, top to bottom, the labels of the controls on the topmost layer: the items
-// of the deepest open submenu, which Viva paints a layer over the menu it opens from.
+// topMenuItems lists the deepest open submenu, ordered top to bottom. Window controls may
+// occupy higher layers, so only menu-item hits participate in selecting that layer.
 func (h *harness) topMenuItems() []string {
 	h.t.Helper()
-	hits := h.driver.Snapshot().Hits
+	return topMenuItemLabels(h.driver.Snapshot().Hits)
+}
+
+func topMenuItemLabels(hits []gfx.Hit) []string {
 	var top uint16
 	for _, hit := range hits {
-		if hit.Label != "" && !hit.IsLabel {
+		if hit.Role == gfx.RoleMenuItem && hit.Label != "" && !hit.IsLabel {
 			top = max(top, hit.Layer)
 		}
 	}
 	var items []gfx.Hit
 	for _, hit := range hits {
-		if hit.Label != "" && !hit.IsLabel && hit.Layer == top {
+		if hit.Role == gfx.RoleMenuItem && hit.Label != "" && !hit.IsLabel && hit.Layer == top {
 			items = append(items, hit)
 		}
 	}
@@ -69,6 +72,20 @@ func (h *harness) topMenuItems() []string {
 		labels[i] = items[i].Label
 	}
 	return labels
+}
+
+// Window controls occupy a higher layer than popup menus on Linux and Windows.
+// Reading menu labels must ignore those controls and still choose the deepest submenu.
+func TestTopMenuItemLabelsIgnoreHigherWindowControls(t *testing.T) {
+	hits := []gfx.Hit{
+		{Label: "parent", Role: gfx.RoleMenuItem, Layer: 1},
+		{Label: "second", Role: gfx.RoleMenuItem, Layer: 2, Bounds: gfx.Rect{Y: 40}},
+		{Label: "first", Role: gfx.RoleMenuItem, Layer: 2, Bounds: gfx.Rect{Y: 20}},
+		{Label: "window close", Role: gfx.RoleButton, Layer: 100},
+	}
+	if got, want := topMenuItemLabels(hits), []string{"first", "second"}; !slices.Equal(got, want) {
+		t.Fatalf("menu labels = %q, want %q", got, want)
+	}
 }
 
 func TestLogReferenceMenuMergesTheBranchAfterItIsConfirmed(t *testing.T) {
