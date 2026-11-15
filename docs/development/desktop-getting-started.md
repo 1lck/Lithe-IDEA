@@ -48,7 +48,7 @@ Go 通过 cgo 静态链接 Rust 内核，所以**不能直接运行 `go build` �
 | --- | --- | --- |
 | Git | 任意较新版本 | 克隆本仓库和 Lithe-core-rust |
 | Go | **1.27.3**（`desktop/go.mod` 的 `toolchain` 行） | 编译桌面客户端 |
-| Rust | stable，通过 rustup 安装 | 编译 Rust 内核 |
+| Rust | **1.100.0**（仓库根目录 `rust-toolchain.toml` 固定），通过 rustup 安装 | 编译 Rust 内核 |
 | C 编译器 | 见各平台章节 | cgo 编译和链接 |
 | GNU make 和 Bash | — | 运行 `desktop/Makefile` 和 `scripts/desktop/*.sh` |
 | Node.js | 20.11 或更新，推荐当前 LTS | 只用于 i18n 和脚本检查，构建和运行客户端不需要 |
@@ -62,6 +62,12 @@ command -v go gofmt # 两者应在同一个目录
 ```
 
 本机装的是更旧的 Go 时，`go` 命令会按 `toolchain` 行自动下载 1.27.3，但 `make fmt` 直接调用的 `gofmt` 仍是旧版本；装的是更新的 Go 时，`go` 不会降级。这两种情况都会导致本地格式化结果和 CI 不一致。
+
+关于 Rust 版本：仓库根目录的 `rust-toolchain.toml` 固定 Rust 版本，与 CI 和 Lithe-core-rust 一致。
+
+- 只需要用 rustup 装好 Rust，不需要 `rustup default` 切换版本：在仓库目录里第一次运行 `cargo` 或 `make` 时，rustup 会自动下载固定的版本。Homebrew 或发行版包管理器安装的 Rust 不读这个文件，请改用 rustup。
+- 额外的编译目标（Windows 的 `x86_64-pc-windows-gnu`、在 Apple 芯片上打 Intel 包用的 `x86_64-apple-darwin`）要在仓库目录里运行 `rustup target add`，才会装到固定的版本上。
+- 固定的版本升级后，rustup 会自动下载新版本，但额外的编译目标要重新添加一次；第一次构建会完整重新编译 Rust 内核。
 
 ## 三、macOS
 
@@ -135,19 +141,11 @@ winget install --id OpenJS.NodeJS.LTS -e
 choco install mingw -y
 ```
 
-打开一个新的 Git Bash，添加 Rust 的 GNU 目标：
-
-```bash
-rustup default stable
-rustup target add x86_64-pc-windows-gnu
-```
-
-检查：
+打开一个新的 Git Bash 检查：
 
 ```bash
 go version                       # go1.27.3 windows/amd64
 rustc -vV | grep host            # host: x86_64-pc-windows-msvc
-rustup target list --installed   # 包含 x86_64-pc-windows-gnu
 gcc --version
 mingw32-make --version
 node --version
@@ -169,6 +167,11 @@ export PATH="/c/<上一步输出的目录>:$PATH"
 git clone -c core.autocrlf=false https://github.com/1lck/Lithe-IDEA.git
 cd Lithe-IDEA
 git switch preview
+
+# 在仓库目录里安装 rust-toolchain.toml 固定的 Rust 版本，并给它添加 GNU 目标
+rustup toolchain install
+rustup target add x86_64-pc-windows-gnu
+rustup target list --installed   # 包含 x86_64-pc-windows-gnu
 
 mingw32-make -C desktop run
 ```
@@ -286,7 +289,7 @@ LITHE_CORE_RUST_DIR=$HOME/Dev/Lithe-core-rust make -C desktop run
 打包说明：
 
 - `make package` 默认产出 macOS 的 `app,zip,dmg`、Windows 的 `nsis,zip`、Linux 的 `tar.gz,deb`；用 `FORMAT=zip` 等只生成指定格式。
-- 在 Apple 芯片的 Mac 上打 Intel 包：先 `rustup target add x86_64-apple-darwin`，再 `make package ARCH=amd64 NO_SIGN=1`。
+- 在 Apple 芯片的 Mac 上打 Intel 包：先在仓库目录里运行 `rustup target add x86_64-apple-darwin`，再 `make package ARCH=amd64 NO_SIGN=1`。
 - Windows 生成 NSIS 安装包需要 NSIS（`choco install nsis -y`）。
 
 退出开发版后，确认没有残留进程：
@@ -376,11 +379,11 @@ MinGW-w64 的 `bin` 目录不在 Git Bash 的 `PATH` 中，见第四节“如果
 
 **Windows：`linker 'link.exe' not found`**
 
-缺少 Visual Studio 生成工具的 C++ 工作负载，rustup 的 MSVC 主机工具链编译构建脚本时需要它。按第四节安装。也可以改用 GNU 主机工具链（`rustup default stable-x86_64-pc-windows-gnu`）免装 Visual Studio，但这种配置未经 CI 验证。
+缺少 Visual Studio 生成工具的 C++ 工作负载，rustup 的 MSVC 主机工具链编译构建脚本时需要它。按第四节安装。也可以改用 GNU 主机工具链免装 Visual Studio：在仓库目录里运行 `rustup override set <rust-toolchain.toml 中的版本>-x86_64-pc-windows-gnu`（例如 `1.100.0-x86_64-pc-windows-gnu`），固定的版本升级后要跟着重新设置；`rustup default` 会被 `rust-toolchain.toml` 覆盖，不起作用。这种配置未经 CI 验证。
 
 **Windows：``can't find crate for `std` `` 或 `the x86_64-pc-windows-gnu target may not be installed`**
 
-运行 `rustup target add x86_64-pc-windows-gnu`。
+在仓库目录里运行 `rustup target add x86_64-pc-windows-gnu`。固定的 Rust 版本升级后要重新添加一次。
 
 **Windows：`cgo cannot link the MSVC .lib archive`**
 

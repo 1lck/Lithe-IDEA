@@ -1,0 +1,9 @@
+# The Rust release Lithe-IDEA builds the Rust Core with, locally and in CI.
+# rustup picks the toolchain from the directory cargo runs in, and
+# scripts/desktop/build-desktop-core.sh runs cargo from this repository with
+# --manifest-path pointing into the Core checkout, so this file, not the one in
+# Lithe-core-rust, decides the compiler. Keep it on the release Lithe-core-rust
+# pins, and name the same version in every `dtolnay/rust-toolchain@<version>`
+# in .github/workflows: rustup treats `1.100` and `1.100.0` as two toolchains.
+[toolchain]
+channel = "1.100.0"
