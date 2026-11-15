@@ -10988,6 +10988,7 @@
     "desktop.settings.updates.check": "Check Now",
     "desktop.settings.updates.notes": "Release Notes",
     "desktop.updates.available": "Lithe {version} is available. Open Settings > About to update.",
+    "desktop.settings.unknownKept": "The settings file has {count} settings this version does not recognize ({keys}). This version ignores them but keeps them, so they still apply when you switch back to a version that knows them.",
     "desktop.memory.status": "{total} · Lithe {lithe}",
     "desktop.memory.tooltip": "Memory: {total} in total, {lithe} of it in the Lithe main process.",
     "desktop.memory.title": "Memory",

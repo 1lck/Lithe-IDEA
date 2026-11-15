@@ -354,6 +354,9 @@ type settings struct {
 	// WorkbenchBackground is the image chosen to show behind the workbench and how much of it
 	// shows; the image itself is a copy in the data folder (workbench_background.go).
 	WorkbenchBackground savedBackground `json:"workbenchBackground,omitzero"`
+	// UnknownSettingsNoticed names the set of settings this version could not read that the
+	// first window last told about, so the same set is told once (settings_kept.go).
+	UnknownSettingsNoticed string `json:"unknownSettingsNoticed,omitempty"`
 }
 
 const (
@@ -798,6 +801,11 @@ func New(options Options) *App {
 	a.loadChrome()
 	if options.first == nil && a.store != nil {
 		a.restoreBackground()
+		if settingsErr == nil {
+			// After the background is restored: the notice saves the settings, which would
+			// otherwise save no background.
+			a.noticeUnknownSettings()
+		}
 	}
 	return a
 }

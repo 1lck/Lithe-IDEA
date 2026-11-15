@@ -10988,6 +10988,7 @@
     "desktop.settings.updates.check": "立即检查",
     "desktop.settings.updates.notes": "发布说明",
     "desktop.updates.available": "Lithe {version} 已发布，可在“设置 > 关于”中一键更新。",
+    "desktop.settings.unknownKept": "设置文件中有 {count} 项此版本无法识别的设置（{keys}）。此版本不会使用它们，但会原样保留，换回能识别它们的版本时仍然有效。",
     "desktop.memory.status": "{total} · Lithe {lithe}",
     "desktop.memory.tooltip": "内存：共 {total}，其中 Lithe 主进程 {lithe}。",
     "desktop.memory.title": "内存",

@@ -17759,6 +17759,17 @@
       }
     },
     {
+      "id": "desktop.settings.unknownKept",
+      "description": "Notice at launch when settings.json holds settings this version does not recognize, such as ones a newer build or the other update channel wrote. They are ignored but kept in the file. {count} is how many, {keys} names up to five of them.",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "count": "string",
+        "keys": "string"
+      }
+    },
+    {
       "id": "desktop.vcs.commitDirectly",
       "description": "Hint under the commit button of a plugin version control window whose provider sends a commit to the repository right away, with no separate push.",
       "platforms": [
