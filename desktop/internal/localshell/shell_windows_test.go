@@ -5,7 +5,9 @@ package localshell
 import (
 	"fmt"
 	"os"
+	"os/exec"
 	"strings"
+	"syscall"
 	"testing"
 	"time"
 
@@ -137,6 +139,41 @@ func TestConPTYCloseEndsARunningProgram(t *testing.T) {
 	case <-time.After(15 * time.Second):
 		t.Fatal("closing did not end the shell")
 	}
+}
+
+// A process created with CREATE_NEW_PROCESS_GROUP, or by one that ignores
+// Ctrl+C, passes that state on to its children. A terminal started that way
+// must still let Ctrl+C reach the program on the pseudo console.
+func TestConPTYCtrlCInterruptsAProgramInAnInheritedCtrlCDisabledGroup(t *testing.T) {
+	executable, err := os.Executable()
+	if err != nil {
+		t.Fatal(err)
+	}
+	command := exec.Command(executable, "-test.run=^TestConPTYCtrlCChild$", "-test.timeout=60s")
+	command.Env = append(os.Environ(), "LITHE_TEST_CTRL_C_CHILD=1")
+	command.SysProcAttr = &syscall.SysProcAttr{CreationFlags: windows.CREATE_NEW_PROCESS_GROUP}
+	output, err := command.CombinedOutput()
+	if err != nil {
+		t.Fatalf("the child failed: %v\n%s", err, output)
+	}
+	if !strings.Contains(string(output), "CTRL-C-CHILD-OK") {
+		t.Fatalf("the child did not finish its check:\n%s", output)
+	}
+}
+
+func TestConPTYCtrlCChild(t *testing.T) {
+	if os.Getenv("LITHE_TEST_CTRL_C_CHILD") != "1" {
+		t.Skip("ConPTY child only")
+	}
+	shell, wakes := startWindows(t, Config{})
+	shell.Write([]byte("ping -n 60 127.0.0.1\r\n"))
+	untilWindows(t, shell, wakes, "TTL=")
+	// The child test only proves the point if the program keeps running until
+	// the interrupt arrives; 60 pings outlast the waits below.
+	shell.Write([]byte{3})
+	shell.Write([]byte("echo ctrlc-%OS%\r\n"))
+	untilWindows(t, shell, wakes, "ctrlc-Windows_NT")
+	fmt.Println("CTRL-C-CHILD-OK")
 }
 
 func TestConPTYStartsInTheRequestedDirectory(t *testing.T) {

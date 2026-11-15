@@ -120,7 +120,14 @@ func (v *View) paintGrid(canvas *gfx.Canvas, layout geometry) {
 			last := entry.runs[len(entry.runs)-1]
 			rowCols := min(int(last.Column+last.Cells)+1, cols)
 			rowWidth := min(float32(math.Ceil(float64(float32(rowCols)*cellWidth)))+1, labelWidth)
-			canvas.LabelRuns(entry.text, gfx.Rect{X: layout.left, Y: y + inset, Width: rowWidth, Height: glyphHeight}, style, cellWidth, entry.runs)
+			// The row's line ID names its text across frames, so a backend that keeps
+			// rasterized text (the Windows one) reuses a row's picture when scrolling moves
+			// it, and draws only the rows that enter the grid.
+			identity := gfx.TextIdentity{}
+			if line.ID != 0 {
+				identity = gfx.TextIdentity{Owner: v.owner, Item: line.ID}
+			}
+			canvas.LabelRunsWithIdentity(identity, entry.text, gfx.Rect{X: layout.left, Y: y + inset, Width: rowWidth, Height: glyphHeight}, style, cellWidth, entry.runs)
 		}
 	}
 	v.cache.end(rows)

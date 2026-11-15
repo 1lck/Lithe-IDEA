@@ -17,3 +17,15 @@ Changes: import paths were moved into this module. The terminal view keeps only 
 shell in one pane; Motty's SSH, AI, recording, prediction, links, find, toolbar and
 multi-pane parts were left out, and its state, session and terminal types were merged into
 one View.
+
+The port was taken from Motty at 8958a472. These later Motty changes were taken since,
+adapted to the merged View:
+
+- 3a2b91dc  output keeps the selection on its text; here the screen counts buffer
+            generations and the view clears or trims the selection when it sees one change
+- c3cc6f6c  rows are painted with a stable text identity, so their textures are reused
+            as the rows scroll
+- 546e40ae  Ctrl+C is turned back on for the shell when Lithe inherited it turned off
+- dbd2a6f2  Clear sends PowerShell a form feed; here only when the shell runs no program
+- 2f73c352  the Microsoft Store PowerShell 7 alias is found and preferred
+- 02916ed5  PowerShell keeps its version banner
