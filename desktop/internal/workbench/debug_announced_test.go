@@ -11,6 +11,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"syscall"
 	"testing"
 	"time"
 
@@ -146,11 +147,15 @@ func announcedWorkspace(t *testing.T, mode string) (root, source string, watch *
 		_ = listener.Close()
 		select {
 		case conn := <-watch.accepted:
-			_ = conn.Close()
-		default:
+			if conn != nil {
+				_ = conn.Close()
+			}
+		case <-time.After(5 * time.Second):
+			t.Error("the adapter watch listener did not stop after closing")
 		}
 	})
 	go func() {
+		defer close(watch.accepted)
 		conn, err := listener.Accept()
 		if err == nil {
 			watch.accepted <- conn
@@ -167,21 +172,28 @@ func announcedWorkspace(t *testing.T, mode string) (root, source string, watch *
 }
 
 // ended waits for the fixture process to end and returns what it reported
-// before it did. The connection goes back for the cleanup to close.
+// before it did.
 func (w *announcedWatch) ended(t *testing.T, limit time.Duration) string {
 	t.Helper()
+	deadline := time.Now().Add(limit)
 	var conn net.Conn
 	select {
 	case conn = <-w.accepted:
+		if conn == nil {
+			t.Fatal("the adapter watch listener stopped before accepting the connection")
+		}
 	case <-time.After(limit):
 		t.Fatal("the adapter process never connected to the watch")
 	}
-	defer func() { w.accepted <- conn }()
-	if err := conn.SetReadDeadline(time.Now().Add(limit)); err != nil {
+	defer conn.Close()
+	if err := conn.SetReadDeadline(deadline); err != nil {
 		t.Fatal(err)
 	}
 	reported, err := io.ReadAll(conn)
-	if err != nil {
+	// The fixture owns the peer socket until exit. Terminating it can reset
+	// the loopback connection instead of returning EOF. Winsock uses 10054.
+	const wsaConnectionReset = syscall.Errno(10054)
+	if err != nil && !errors.Is(err, syscall.ECONNRESET) && !errors.Is(err, wsaConnectionReset) {
 		t.Fatalf("the adapter process still runs after %v (read: %v)", limit, err)
 	}
 	return string(reported)
