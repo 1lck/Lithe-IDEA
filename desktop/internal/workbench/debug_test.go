@@ -568,13 +568,15 @@ func awaitCoreLaunch(t *testing.T, h *harness, p *project, session pluginservice
 }
 
 // A plugin run with a launch debug target hands its process to the adapter: Core binds
-// the run's program, arguments, directory and environment into the launch, and the run
-// learns when the session ends.
+// the run's program, arguments, directory and environment into the launch, fills the
+// adapter's own arguments from the program's path, adds a variable to the environment,
+// and the run learns when the session ends.
 func TestRunLaunchTargetBindsTheRunsProcessIntoTheLaunch(t *testing.T) {
 	manifest := debugFixtureManifest
 	manifest = strings.Replace(manifest, `"configurations": {"launch":{"arguments":{"stopOnEntry":true}}}`,
 		`"configurationTypes": ["fixture"], "configurations": {"launch":{"arguments":{"stopOnEntry":true},`+
-			`"targetBindings":{"program":"target.path","cwd":"target.workingDirectory","args":"target.arguments","env":"target.environment"}}}`, 1)
+			`"targetBindings":{"program":"target.path","cwd":"target.workingDirectory","args":"target.arguments","env":"target.environment",`+
+			`"adapterArguments":{"fixture.programDirectory":"target.directory","env.FIXTURE_DIRECTORY":"target.directory"}}}}`, 1)
 	h := debugHarnessWith(t, manifest)
 	root := t.TempDir()
 	// The fixture adapter only serves a workspace carrying its marker; without it the
@@ -608,7 +610,9 @@ func TestRunLaunchTargetBindsTheRunsProcessIntoTheLaunch(t *testing.T) {
 	arguments := awaitCoreLaunch(t, h, p, result.session, gate.configurations).Arguments
 	args, _ := arguments["args"].([]any)
 	env, _ := arguments["env"].(map[string]any)
-	if arguments["program"] != program || arguments["cwd"] != root || len(args) != 2 || args[0] != "--port" || env["APP_MODE"] != "dev" {
+	fixture, _ := arguments["fixture"].(map[string]any)
+	if arguments["program"] != program || arguments["cwd"] != root || len(args) != 2 || args[0] != "--port" ||
+		env["APP_MODE"] != "dev" || env["FIXTURE_DIRECTORY"] != root || fixture["programDirectory"] != root {
 		t.Fatalf("launch arguments = %+v", arguments)
 	}
 	// The release ends on a background goroutine that may post nothing, so the waiter

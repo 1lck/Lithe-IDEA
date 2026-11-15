@@ -28,6 +28,14 @@ native_path() {
 }
 
 PINNED_CORE_REPOSITORY="https://github.com/Lithe-IDEA/Lithe-core-rust.git"
+# Lithe-core-rust #55, the head of its branch until it is merged: a debug configuration's
+# targetBindings.adapterArguments fills arguments only that adapter defines from a path fact of
+# the target, dotted like a connection destination, with env.<variable> adding one variable to
+# the environment (Delve's dlvCwd and env.PWD, so go build runs in the package's directory), and
+# targetBindings.cwd may read target.directory so the program runs there too rather than in the
+# workspace root the debug engine gives a launch without cwd. It is
+# on top of #54, squash-merged into main as dce448d: workbench.notifications.reduceReadState keeps
+# the unread notifications and their count, which the desktop does not call yet. It is on top of
 # Lithe-core-rust #53, squash-merged into main as c550c2b: a plugin declares commandInstallers that
 # install the commands its systemCommand launches need with an injected tool, and Core expands
 # them (plugins.commandInstallers.requirements/plan/defaultDirectory). It is on top of
@@ -109,7 +117,7 @@ PINNED_CORE_REPOSITORY="https://github.com/Lithe-IDEA/Lithe-core-rust.git"
 # the contract, plugin guides, reference and SDKs live only in shared/plugins; on top of #16 (reported Git queries folded in the console),
 # #15 (git.write cherryPick, revert and reset fields), #14 (word-level changed ranges of diff
 # rows), #13, #8, #7, #6 and #4.
-PINNED_CORE_REVISION="c550c2bf10b4d82d2315e737bf83a007daafaa56"
+PINNED_CORE_REVISION="268d9a2937a6d49708a05ba36c98562c79e5119c"
 PROFILE="debug"
 while [[ $# -gt 0 ]]; do
     case "$1" in
