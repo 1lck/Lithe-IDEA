@@ -271,7 +271,8 @@ func TestDebugAnnouncedRemoteEndpointFailsAndStopsTheProcess(t *testing.T) {
 func TestDebugAnnouncedAdapterThatNeverAnnouncesTimesOut(t *testing.T) {
 	h := debugPluginHarness(t, "dev.lithe.test.debug-announced", debugAnnouncedManifest, true)
 	root, _, watch := announcedWorkspace(t, "silent")
-	h.app.debugInitializeWindow = 300 * time.Millisecond
+	// A race-instrumented child can take over a second to reach its watch.
+	h.app.debugInitializeWindow = 3 * time.Second
 	p := openHostedPanel(t, h, root)
 	h.clickNamed(h.app.text.Debug.Start)
 	awaitStateWithin(t, h, 20*time.Second, "the timeout", func() bool { return p.debug.failure != "" })
