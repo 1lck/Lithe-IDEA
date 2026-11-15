@@ -897,6 +897,7 @@
     "desktop.debug.noExceptionFilters": "This debug adapter offers no exception breakpoints.",
     "desktop.debug.noFrames": "No stack frames",
     "desktop.debug.noVariables": "Pause the debuggee to inspect its variables.",
+    "desktop.debug.notAnnounced": "The debug adapter exited before printing the port it listens on.",
     "desktop.debug.openFrame": "Open the frame's source location",
     "desktop.debug.pause": "Pause",
     "desktop.debug.paused": "Paused",

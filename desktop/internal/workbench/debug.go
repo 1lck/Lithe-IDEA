@@ -36,7 +36,8 @@ const (
 )
 
 // debugAdapter is one installed plugin's debug adapter declaration, reached over
-// stdio or through its plugin's language server (tcpLanguageServer).
+// stdio, over the loopback TCP endpoint its process prints (tcpAnnounced), or
+// through its plugin's language server (tcpLanguageServer).
 type debugAdapter struct {
 	PluginID    string
 	Directory   string
@@ -243,7 +244,8 @@ type debugSession struct {
 	project   *project
 	process   atomic.Pointer[buildprocess.Process]
 	// transport is the write side of the adapter's byte stream: the adapter
-	// process's stdin, or the TCP connection of a tcpLanguageServer adapter.
+	// process's stdin, or the TCP stream of a tcpLanguageServer or tcpAnnounced
+	// adapter.
 	// Closing it interrupts a blocked write, so Stop and shutdown use that.
 	transportMu sync.Mutex
 	transport   io.WriteCloser
@@ -276,8 +278,9 @@ type debugSession struct {
 	ended    chan *int
 	// stopRun reaps an attached process owned by Run after the adapter disconnects.
 	stopRun func()
-	// hosted is the lifecycle-driven stream of a tcpLanguageServer adapter; nil
-	// for a stdio adapter. It is also the session's transport.
+	// hosted is the lifecycle-driven stream of a tcpLanguageServer or
+	// tcpAnnounced adapter; nil for a stdio adapter. It is also the session's
+	// transport.
 	hosted *debugTransport
 	// drainOnStop marks a user stop: a live hosted session sends its disconnect
 	// and lets Core's drain flush it instead of closing the stream at once.
@@ -853,9 +856,11 @@ func (a *App) releaseDebugSession(p *project, session *debugSession) {
 		drain := session.drainOnStop.Load() && session.hosted != nil
 		if !drain {
 			session.closeTransport()
-		}
-		if process := session.process.Load(); process != nil {
-			process.Stop()
+			// A tcpAnnounced adapter's process outlives the session's context; a
+			// drained one is stopped once its disconnect was flushed.
+			if process := session.process.Load(); process != nil {
+				process.Stop()
+			}
 		}
 		// Cleanup belongs to the app, not the now-cancelled project.
 		a.background(nil, 0, func(_ context.Context) func(*App) {
@@ -876,6 +881,11 @@ func (a *App) releaseDebugSession(p *project, session *debugSession) {
 				// Stop is a no-op once the drain finished; it also covers a
 				// session that never got to send a disconnect.
 				_ = session.hosted.Close()
+			}
+			// The adapter had its disconnect; a process the startup stored after
+			// the stop began is also stopped here. A repeated Stop does nothing.
+			if process := session.process.Load(); process != nil {
+				process.Stop()
 			}
 			if session.created && !session.coreGone {
 				destroyed, cleanupErr = a.kernel.DestroyDebugSession(ctx, session.id)

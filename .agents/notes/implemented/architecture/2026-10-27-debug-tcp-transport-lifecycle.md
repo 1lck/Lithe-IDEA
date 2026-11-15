@@ -27,6 +27,7 @@
 - 停止、EOF、读写失败和超时先由 Core 递增代次，再由 `close` 效果取消解析任务、全部剩余计时器和 socket，清空回调与缓冲。旧连接回调以及旧写入完成不能影响新连接。显式停止由会话层投影结果，传输不重复发送终止通知。失败时 Core 先给出 `close`、`reportFailure`、`notifyTermination`；宿主执行每个效果前核对代次，观察者在错误输出回调里重新 `start` 会使剩余的旧终止通知作废。已处于停止状态的传输再收到 `stop` 则被 Core 忽略，所以观察者在错误输出回调里调用 `stop()` 时终止通知仍然送达，且只送达一次；旧实现把这种情况也当作“生命周期已被替换”而吞掉通知，这个差异是有意接受的。
 - 宿主若发现 Core 调用本身失败（桥接故障而不是生命周期结果，包含 `send`），在本地静默拆除 socket 与计时器、释放登记，并向所有者报告一次，不让资源在故障后残留。释放会重置 Core 内部的代次与计时器编号，重启前必须换用新的登记 ID，并在宿主回调入口同时核对登记 ID；不能只依赖重置后的代次。故障观察者重启后也不得再收到旧终止通知。
 - `DebugAdapterConnectionProviding` 是未来代理的替换点：返回尚未启动、可取消的连接，握手纳入已有启动期限；停止必须释放它自己拥有的资源。本次唯一实现为直连，不提前增加代理配置、密码或进程字段。
+- 插件声明 `tcpAnnounced` 的适配器复用同一条生命周期，只把端点发现换成“读进程公告”：宿主拉起插件声明的适配器进程（stdin 不接管），把 `launch.endpoint` 声明的输出流按行切开，每一整行（去掉行尾的 `\r\n`）交给 Core 的 `debug.adapters.readAnnouncement`。Core 判定这一行是 `none`（不是公告）、`announced`（回环主机和端口）还是 `invalid`（公告了非本机地址或非法端口），哪一行算公告、哪些地址允许连接都只由 Core 决定。公告行本身不进调试控制台，其余输出（含公告之前的和另一个流的）照常显示；单行超过 64 KiB 不再缓存，原样交给控制台。传输先于进程启动，所以 Core 默认的 10 秒端点发现期限同时覆盖进程启动和公告；进程在公告前退出时以“还没输出监听端口就退出”结束，公告无效时以端点无效结束，两者和超时都会停止进程。进程用不随启动请求取消的上下文启动，归会话所有：用户停止时先把 DAP disconnect 排空到网络栈，再停止进程树（`buildprocess.Stop`：Unix 先向进程组发 SIGTERM，宽限期后强制结束；Windows 直接结束 Job Object 里的整棵树）；其他结束方式直接关闭连接并停止进程。宿主实现在 `desktop/internal/workbench/debug_announced.go`。
 - `tcpLanguageServer` 仍只解析同插件语言服务器返回的回环端口。外部入口在 Debug 的更多操作中，由当前文件选择已安装的调试提供方（当前文件没有提供方时菜单项不可用），单独填写 DAP 地址、请求种类和适配器 JSON 参数；不猜测语言协议，不启动本地替代进程。连接对话框在连接启动前保持打开：被拒绝的地址、未获批准的确认、已有活动会话、连接失败或初始化超时都留在对话框里显示原因，已填的主机、端口和参数不丢失，表单通过 Application 层的 `ExternalDebugAdapterConnection` 等待会话越过初始化阶段，而不是把同步 `start` 返回视为网络连接成功。用户取消或关闭表单会停止本次尝试的会话 ID，即使此时已选中另一会话也不会误停它；已有初始化期限负责等待上界，表单不再添加第二套网络超时。Core 先校验地址，非回环端点每次连接前确认，明确警告裸 TCP 没有加密或认证；确认时间不计入网络建连期限。
 - 外部服务只归用户所有。关闭 socket 本身不停止共享语言服务器、外部适配器或用户隧道；目标程序的结束策略由 DAP 协议层负责，`attach` 断开使用 `terminateDebuggee=false`，`launch` 断开则可能结束该会话启动的程序。不要把字节流所有权等同于目标程序的 DAP 生命周期。配置不持久化，源码映射继续由适配器参数表达。
 
@@ -45,7 +46,7 @@
 
 ## 后果
 
-普通 TCP 连接可独立测试，stdio 原有路径不变，用户提供的外部地址与语言服务器端口遵守各自的信任边界。代价是外部连接需要用户了解其适配器参数，没有保存配置、通路自动建立或断线恢复；插件 `tcpPort`、`tcpAnnounced` 的托管进程模式也仍未实现。
+普通 TCP 连接可独立测试，stdio 原有路径不变，用户提供的外部地址与语言服务器端口遵守各自的信任边界。代价是外部连接需要用户了解其适配器参数，没有保存配置、通路自动建立或断线恢复。插件 `tcpAnnounced` 的托管进程已接入；`tcpPort`（宿主先分配端口再交给进程）仍未实现，声明它的适配器在启动进程前被拒绝。
 
 此处代码实现不等于所有语言适配器都已验收。真实 JVM、debugpy、GDB 的兼容性仍需对应插件和端到端场景证明；Windows 共享地址校验与这套生命周期状态机，但尚无宿主 TCP 实现，接入时只需实现 socket、解析和计时器这些 I/O 并执行 Core 返回的效果，状态机本身不需要再写一遍。
 
@@ -54,7 +55,8 @@
 ## 验证
 
 - `./scripts/desktop/desktop-go.sh test ./internal/workbench -run 'DebugTransport'`：可控时钟、队列预算、取消与晚到回调、外部表单初始化成功/失败/超时与按会话取消，以及回环监听器上的真实字节往返。
-- `./scripts/desktop/desktop-go.sh test ./internal/core -run 'Debug'`：调试会话的启动、停止与传输登记。
+- `./scripts/desktop/desktop-go.sh test ./internal/core -run 'Debug'`：调试会话的启动、停止与传输登记，以及逐条重放 Core 的 `rust/fixtures/debug/adapter-announcements-v1.json`。
+- `./scripts/desktop/desktop-go.sh test ./internal/workbench -run 'DebugAnnounce'`：真实子进程公告回环端口后命中断点、暂停、继续，停止时对端先收到 disconnect 再看到进程结束；公告前退出、公告远程地址、一直不公告三种失败都停止进程；按行切分、分流、超长行与等待取消的单元测试。
 - 在 Core 仓库运行 `cargo test -p lithe-core debug_adapter_endpoint` 和 `cargo test -p lithe-core dap_endpoint_contract`：共享 fixture 校验及 JSON dispatcher 边界。
 - 在 Core 仓库运行 `cargo test -p lithe-core transport_lifecycle`：状态机单元测试，并逐步回放 `Lithe-core-rust/rust/fixtures/debug/transport-lifecycle-v1.json` 中的场景。新平台实现同一份 fixture 即可证明规则一致。
 - `./scripts/desktop/verify/verify-runtime-bundle-immutability.sh`、`./scripts/agent-notes/verify-agent-notes.sh`。
@@ -63,6 +65,8 @@
 
 - `desktop/internal/core/debug_transport.go`
 - `desktop/internal/workbench/debug_transport_test.go`
+- `desktop/internal/workbench/debug_announced.go`
+- `desktop/internal/workbench/debug_announced_test.go`
 
 - Lithe-core-rust 锁定修订：[rust/lithe-core/src/debug/endpoint.rs](https://github.com/Lithe-IDEA/Lithe-core-rust/blob/0ffd327b4329261e393b08ed76fbd134b4dd17e9/rust/lithe-core/src/debug/endpoint.rs)
 - Lithe-core-rust 锁定修订：[rust/lithe-core/src/debug/transport_lifecycle.rs](https://github.com/Lithe-IDEA/Lithe-core-rust/blob/0ffd327b4329261e393b08ed76fbd134b4dd17e9/rust/lithe-core/src/debug/transport_lifecycle.rs)

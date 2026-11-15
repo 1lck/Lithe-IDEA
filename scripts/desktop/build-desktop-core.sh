@@ -28,6 +28,10 @@ native_path() {
 }
 
 PINNED_CORE_REPOSITORY="https://github.com/Lithe-IDEA/Lithe-core-rust.git"
+# Lithe-core-rust #47, squash-merged into main as a58e07e:
+# debug.adapters.readAnnouncement reads one line of a tcpAnnounced adapter's output against its
+# declared endpoint (none, announced with a loopback host and port, or invalid), and an adapter's
+# launch arguments may bind target.directory, the selected target's directory. It is on top of
 # Lithe-core-rust #46, squash-merged into main: the logging event catalog declares the events the
 # desktop records (terminal.session.start_failed, vcs.provider.skipped,
 # app.background.operation_failed, app.startup.leftovers_resolved, editor.recovery.applied and the
@@ -96,7 +100,7 @@ PINNED_CORE_REPOSITORY="https://github.com/Lithe-IDEA/Lithe-core-rust.git"
 # the contract, plugin guides, reference and SDKs live only in shared/plugins; on top of #16 (reported Git queries folded in the console),
 # #15 (git.write cherryPick, revert and reset fields), #14 (word-level changed ranges of diff
 # rows), #13, #8, #7, #6 and #4.
-PINNED_CORE_REVISION="f4f3e93568598c622819d8fda900eacdd7fe1c98"
+PINNED_CORE_REVISION="52c54e0c50c46ba7f2089f49a57b0c0462c846ee"
 PROFILE="debug"
 while [[ $# -gt 0 ]]; do
     case "$1" in

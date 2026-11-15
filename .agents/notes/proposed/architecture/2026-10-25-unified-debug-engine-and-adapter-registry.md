@@ -142,7 +142,7 @@ P3 的声明层已在 Rust Core 落地：`plugin.json.debugAdapters[]` 作为插
 - Core 提供 `languageServerLaunchPlan` 的 `debugAdapterID` 选择器和 `debug.adapters.startArguments` 命令；后者按 manifest、adapterID、request 与事实（注册代次、目标、运行时选择）返回启动参数，拒绝码为 `debug.provider.stale`、`debug.request.unsupported`、`debug.runtime.stale`、`debug.target.invalid`、`plugin.launch.unavailable`。
 - 宿主启用模块 `<pluginID>.debug-adapters`（只承载启用、隔离与安全模式状态）。宿主按语言 ID 建立插件适配器会话；Java 等内置语言优先，宿主不按插件名字分支。
 - 启动计划在会话启动时才解析，因为启动依赖工作区；被拒绝的计划就是启动错误。`adapterID` 声明时默认等于 `id`，会话创建时即需要（DAP `initialize.adapterId`），所以随描述符提前提供。
-- 适配器可执行文件只允许来自插件包或 `systemCommand`。桌面端目前只接入 `stdio` 和 `tcpLanguageServer` 两种传输（见 `desktop/internal/workbench/debug_start.go` 的 `debugTransportServed`）；`tcpPort`、`tcpAnnounced` 和 `runSelectedRuntime` 还没有接入宿主，之后再做。
+- 适配器可执行文件只允许来自插件包或 `systemCommand`。桌面端目前接入 `stdio`、`tcpAnnounced` 和 `tcpLanguageServer` 三种传输（见 `desktop/internal/workbench/debug_start.go` 的 `debugTransportServed`，`tcpAnnounced` 在 `debug_announced.go`）；`tcpPort` 和 `runSelectedRuntime` 还没有接入宿主。
 - 生命周期与所有权：适配器进程归会话，随会话停止。适配器状态目录由平台存储 adapter 提供，位于插件状态目录下的 `debug-adapters/<adapterID>`，不写入插件包或安装目录，不影响代码签名和 Sparkle 增量更新；`${workspaceStateDir}` 按工作区摘要隔离。被调试程序的启动配置由 `startArguments` 生成，宿主只在没有内置适配器处理时回落到它。
 
 P4 的纵向验收用 `lldb-dap` 推进：官方 LLDB 插件（`io.github.lithe-idea.lldb-debug`，仓库 [lithe-plugin-lldb](https://github.com/Lithe-IDEA/lithe-plugin-lldb)）已作为预发布收录在 Lithe Store，需要支持 API 4 的 Lithe 才能安装；必选层全流程的验收结果还没有记录，不算 P4 完成。这一轮在契约里补了三件事，全部在尚未发布的 API 4 / `debugAdapters` v1 内，没有已发布的契约被改动：

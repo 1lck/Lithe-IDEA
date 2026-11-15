@@ -66,13 +66,14 @@ func (a *App) debugWriteFailed(p *project, session *debugSession, err error) fun
 	if errors.Is(err, errDebugTransportNotRunning) {
 		return nil
 	}
-	stage := debugWriteFailureStage(session.process.Load() != nil, session.reached.Load())
+	stage := debugWriteFailureStage(session.hosted == nil, session.reached.Load())
 	a.recordDebugStart(session.ctx, session, stage, err)
 	return func(a *App) { a.finishDebugError(p, session, err) }
 }
 
 // debugWriteFailureStage is the stage a failed write ends the adapter start at, for a stdio
-// adapter whose process runs, or a hosted one whose socket connected or not.
+// adapter whose process runs, or one reached over TCP (tcpLanguageServer or tcpAnnounced)
+// whose socket connected or not.
 func debugWriteFailureStage(stdio, reached bool) core.PluginStage {
 	switch {
 	case stdio:
@@ -84,7 +85,7 @@ func debugWriteFailureStage(stdio, reached bool) core.PluginStage {
 	}
 }
 
-// hostedFailureStage is the stage at which Core's failure of a hosted adapter's stream ends
+// hostedFailureStage is the stage at which Core's failure of a TCP-reached adapter's stream ends
 // its start: its startup deadline is a timeout; any other failure is a launch until the socket
 // connected and an initialize failure after.
 func hostedFailureStage(reached bool, reason string) core.PluginStage {
