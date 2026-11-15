@@ -3,21 +3,66 @@ package workbench
 import (
 	"net/url"
 	"strconv"
+	"strings"
 
 	"github.com/1lck/Lithe-IDEA/desktop/internal/icons"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/termview"
 	"github.com/vivaui/viva/gfx"
+	"github.com/vivaui/viva/text"
 	"github.com/vivaui/viva/ui"
 )
+
+// terminalFindMaxQuery bounds, in characters, the query a selection fills Find with, so a
+// whole selected screen costs no more than a selected word.
+const terminalFindMaxQuery = 256
 
 // terminalFind is a terminal's Find bar: the query, what the last search found and
 // whether the bar is shown.
 type terminalFind struct {
-	open           bool
-	field          ui.Field
+	open  bool
+	field ui.Field
+	// editor is the field's text, bound once the bar first opens so that opening it can
+	// select the query.
+	editor         *text.Editor
 	query          string
 	count, current int
 	focus          bool
+}
+
+// show opens the bar with the keyboard on its field. A first open takes a selection of
+// one line as the query; either way the field's text ends up selected, so typing or
+// pasting a new query replaces it.
+func (f *terminalFind) show(selection string) {
+	if f.editor == nil {
+		f.editor = text.NewEditor("")
+		f.field.Bind(f.editor)
+	}
+	if !f.open {
+		if query := terminalFindQuery(selection); query != "" {
+			f.field.SetText(query)
+		}
+	}
+	f.editor.SetSelection(text.Range{Start: 0, End: f.editor.RuneCount()})
+	f.open, f.focus = true, true
+}
+
+// terminalFindQuery is a terminal selection as a Find query, or "" when it is not one
+// that can be searched: Find matches within a line, so a selection crossing a line
+// break finds nothing and is left out, as Windows Terminal leaves it out. The query is
+// cut to terminalFindMaxQuery characters, with trailing blanks dropped.
+func terminalFindQuery(selected string) string {
+	if strings.ContainsAny(selected, "\r\n") {
+		return ""
+	}
+	end, kept := len(selected), 0
+	for index := range selected {
+		if kept == terminalFindMaxQuery {
+			end = index
+			break
+		}
+		kept++
+	}
+	return strings.TrimRight(selected[:end], " \t")
 }
 
 // focusedTerminalTab is the terminal whose grid has the keyboard.
@@ -41,7 +86,11 @@ func (a *App) terminalFindShortcut(event gfx.KeyEvent) gfx.EventResult {
 	if t == nil {
 		return gfx.EventResult{}
 	}
-	t.find.open, t.find.focus = true, true
+	selection := ""
+	if !t.find.open && t.view.HasSelection() {
+		selection = t.view.SelectionText()
+	}
+	t.find.show(selection)
 	a.performed("terminal.find.open", surfaceShortcut)
 	return gfx.EventResult{Handled: true, Repaint: true}
 }

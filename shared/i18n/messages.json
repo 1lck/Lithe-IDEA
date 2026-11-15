@@ -16078,6 +16078,76 @@
       ]
     },
     {
+      "id": "desktop.settings.terminal.cursor",
+      "description": "Terminal settings page, cursor: the card title",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.settings.terminal.cursorHelp",
+      "description": "Terminal settings page, cursor: what the card sets",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.settings.terminal.cursorShape",
+      "description": "Terminal settings page, cursor: the label of the shape choice",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.settings.terminal.cursorShapeBlock",
+      "description": "Terminal settings page, cursor: the shape that fills the cell",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.settings.terminal.cursorShapeBar",
+      "description": "Terminal settings page, cursor: the thin vertical shape before the cell",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.settings.terminal.cursorShapeUnderline",
+      "description": "Terminal settings page, cursor: the shape under the cell",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.settings.terminal.cursorThickness",
+      "description": "Terminal settings page, cursor: the label of the thickness choice of the bar and underline",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.settings.terminal.cursorThin",
+      "description": "Terminal settings page, cursor: the thinnest bar and underline",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.settings.terminal.cursorNormal",
+      "description": "Terminal settings page, cursor: the default bar and underline thickness",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.settings.terminal.cursorThick",
+      "description": "Terminal settings page, cursor: the thickest bar and underline",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
       "id": "desktop.settings.terminal.scrollback",
       "description": "Terminal settings page, scrollback",
       "platforms": [
@@ -17518,6 +17588,23 @@
       "parameters": {
         "reason": "string"
       }
+    },
+    {
+      "id": "desktop.terminal.pasteImageFailed",
+      "description": "Warning when a picture pasted into the terminal could not be saved as a file for the program to read",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "reason": "string"
+      }
+    },
+    {
+      "id": "desktop.terminal.pasteImageTooLarge",
+      "description": "Warning when the picture on the clipboard is too large to paste into the terminal",
+      "platforms": [
+        "desktop"
+      ]
     },
     {
       "id": "desktop.terminal.restartHint",

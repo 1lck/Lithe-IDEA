@@ -74,6 +74,12 @@ type Values struct {
 	// TerminalScrollback is the history lines a new terminal keeps, within
 	// MinScrollback and MaxScrollback.
 	TerminalScrollback int
+	// TerminalCursorShape is the shape the terminal cursor takes until a program asks for
+	// its own (CursorShapeBlock, CursorShapeBar or CursorShapeUnderline), and
+	// TerminalCursorThickness how thick a bar or an underline draws (CursorThicknessThin,
+	// CursorThicknessNormal or CursorThicknessThick).
+	TerminalCursorShape     string
+	TerminalCursorThickness string
 	// Fonts are the fonts of the editor, the terminal and the run output, as
 	// fontprefs.Normalize returns them. Nil is fontprefs.Default, the system's fixed-pitch
 	// font for every place.
@@ -374,6 +380,9 @@ type Options struct {
 	// SetTerminalScrollback hands a change of Values.TerminalScrollback to the settings
 	// owner, like SetTabRows.
 	SetTerminalScrollback func(int)
+	// SetTerminalCursor hands a change of Values.TerminalCursorShape and
+	// Values.TerminalCursorThickness to the settings owner, like SetTabRows.
+	SetTerminalCursor func(shape, thickness string)
 	// SetFonts hands a change of Values.Fonts to the settings owner, like SetTabRows. The
 	// list it receives is normalized.
 	SetFonts func([]fontprefs.Font)

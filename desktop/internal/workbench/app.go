@@ -326,6 +326,11 @@ type settings struct {
 	// TerminalScrollback is the history lines a new terminal keeps; zero is
 	// settingswindow.DefaultScrollback.
 	TerminalScrollback int `json:"terminalScrollback,omitempty"`
+	// TerminalCursorShape and TerminalCursorThickness are the terminal cursor the
+	// Terminal page chose, as settingswindow.Values holds them; empty is the block of
+	// normal thickness. See terminalCursor.
+	TerminalCursorShape     string `json:"terminalCursorShape,omitempty"`
+	TerminalCursorThickness string `json:"terminalCursorThickness,omitempty"`
 	// ProcessTermination is the user's part of Core's process termination settings, as the
 	// Process Termination page edits it; the zero value keeps Core's defaults.
 	ProcessTermination settingswindow.ProcessTermination `json:"processTermination,omitzero"`
@@ -478,6 +483,11 @@ type App struct {
 	recentFiles           recentFileState
 	drafts                draftListState
 	editorPreferences     core.EditorPreferences
+	// clipboardImage and pasteDirectory replace, in tests, reading the clipboard's picture
+	// and the cache folder a picture pasted into a terminal is saved in
+	// (terminal_paste_image.go); nil is the system's.
+	clipboardImage func() ([]byte, error)
+	pasteDirectory func() (string, error)
 	// debugAttach are the host and port fields of the Debug panel's attach form.
 	debugAttach debugAttachFields
 	// root is the window's page; dnd are its drag and drop gestures and focus the control

@@ -169,6 +169,7 @@ func (w *window) terminalPage(c ui.C) {
 			})
 		})
 		w.scrollbackCard(c)
+		w.cursorCard(c)
 	})
 	if w.shellPick != stored && !(stored != "" && sameShell(w.shellPick, stored)) {
 		w.setTerminalShell(w.shellPick, false)
