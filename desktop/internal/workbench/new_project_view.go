@@ -24,20 +24,21 @@ type sidebarRow struct {
 // sidebarRows lists the entries the search shows, under their section headings.
 func (n *newProjectState) sidebarRows(language i18n.Language) []sidebarRow {
 	var rows []sidebarRow
-	for _, section := range []string{"project", "generator"} {
+	for sectionIndex, section := range []string{"project", "generator"} {
 		start := len(rows)
 		for index, choice := range n.choices {
 			if choice.section != section || (n.visible != nil && !n.visible[choice.key]) {
 				continue
 			}
-			rows = append(rows, sidebarRow{title: choice.name, key: choice.key, id: index + 1})
+			rows = append(rows, sidebarRow{title: choice.name, key: choice.key, id: index + 2})
 		}
 		if len(rows) > start {
 			title := i18n.Shared(language, "desktop.newProject.section")
 			if section == "generator" {
 				title = i18n.Shared(language, "desktop.newProject.generators")
 			}
-			rows = slices.Insert(rows, start, sidebarRow{header: true, title: title, id: -len(rows) - 1})
+			// The two headings keep identities 0 and 1 even when filtering hides a group.
+			rows = slices.Insert(rows, start, sidebarRow{header: true, title: title, id: sectionIndex})
 		}
 	}
 	return rows

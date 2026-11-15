@@ -981,3 +981,25 @@ func TestNewProjectToolFieldListsInstallationsAndPinsTheChoice(t *testing.T) {
 		t.Fatalf("the project's tool pin = %q, %v", pin, err)
 	}
 }
+
+func TestNewProjectSidebarKeysStayValidAcrossFiltering(t *testing.T) {
+	n := newProjectState{choices: []projectChoice{
+		{key: "empty", name: "Empty", section: "project"},
+		{key: "template", name: "Template", section: "generator"},
+	}}
+	before := map[string]int{}
+	seen := map[int]bool{}
+	for _, row := range n.sidebarRows(i18n.English) {
+		if row.id < 0 || uint64(row.id) >= 1<<31 || seen[row.id] {
+			t.Fatalf("invalid or duplicate sidebar identity %d", row.id)
+		}
+		seen[row.id] = true
+		before[row.title] = row.id
+	}
+	n.visible = map[string]bool{"template": true}
+	for _, row := range n.sidebarRows(i18n.English) {
+		if row.id != before[row.title] {
+			t.Fatalf("filtering changed %q identity", row.title)
+		}
+	}
+}
