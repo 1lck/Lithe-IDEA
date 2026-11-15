@@ -882,10 +882,15 @@ func (a *App) releaseDebugSession(p *project, session *debugSession) {
 				// session that never got to send a disconnect.
 				_ = session.hosted.Close()
 			}
-			// The adapter had its disconnect; a process the startup stored after
-			// the stop began is also stopped here. A repeated Stop does nothing.
+			// A locally flushed disconnect still needs time in the adapter. Give
+			// an owned process Core's exit grace without a platform signal that
+			// could kill it first. Startup failures still stop immediately.
 			if process := session.process.Load(); process != nil {
-				process.Stop()
+				if drain && session.created {
+					process.StopAfterRequest()
+				} else {
+					process.Stop()
+				}
 			}
 			if session.created && !session.coreGone {
 				destroyed, cleanupErr = a.kernel.DestroyDebugSession(ctx, session.id)

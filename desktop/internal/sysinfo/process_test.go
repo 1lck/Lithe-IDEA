@@ -22,8 +22,8 @@ func TestProcessHelper(t *testing.T) {
 }
 
 // TestProcessesListsThisProcessAndItsChild checks that the table has this process under its
-// parent, with a name, memory, compressed memory and processor time, and a child it started
-// under it, whose graphics use is not read because the options do not name it.
+// parent, with a name, memory and processor time, and a child it started under it,
+// whose graphics use is not read because the options do not name it.
 func TestProcessesListsThisProcessAndItsChild(t *testing.T) {
 	switch runtime.GOOS {
 	case "darwin", "linux", "windows":
@@ -70,8 +70,13 @@ func TestProcessesListsThisProcessAndItsChild(t *testing.T) {
 	if self.ParentPID != os.Getppid() || self.Name == "" || self.MemoryBytes == 0 {
 		t.Fatalf("this process = %+v, want parent %d, a name and memory", self, os.Getppid())
 	}
-	if self.CPUTime == nil || self.CompressedBytes == nil {
-		t.Fatalf("this process = %+v, want its processor time and compressed memory", self)
+	if self.CPUTime == nil {
+		t.Fatalf("this process = %+v, want its processor time", self)
+	}
+	// Windows can provide a working set while withholding the private counters
+	// needed to distinguish memory outside it.
+	if runtime.GOOS != "windows" && self.CompressedBytes == nil {
+		t.Fatalf("this process = %+v, want its compressed or swapped memory", self)
 	}
 	started, ok := rows[child.Process.Pid]
 	if !ok {

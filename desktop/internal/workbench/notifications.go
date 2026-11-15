@@ -12,7 +12,7 @@ import (
 )
 
 // The notification center keeps what the toasts said, so a notice that went by while the
-// user looked elsewhere can be read again from the bell in the status bar.
+// user looked elsewhere can be read again in the tool window or from the status bar.
 const (
 	// notificationHistoryLimit is how many notices the history keeps; the oldest go first.
 	notificationHistoryLimit = 100
@@ -24,6 +24,7 @@ const (
 // notification is one notice of the history. Notices with the same text and kind are one
 // entry that counts how often it came.
 type notification struct {
+	id    int
 	text  string
 	kind  ui.ToastKind
 	count int
@@ -39,21 +40,31 @@ type notification struct {
 	op string
 }
 
-// notificationCenter is the history, newest first, and whether its panel is open.
+// notificationCenter owns the history shared by the tool window and the status popover.
 type notificationCenter struct {
-	list []*notification
-	open bool
+	list     []*notification
+	open     bool // status-bar popover
+	toolList ui.ListState
 }
 
-// unread counts the notices that came since the history was last looked at.
+// Unread entries form a prefix: arrivals move to the front, and the open history
+// marks all its entries read.
 func (n *notificationCenter) unread() int {
-	count := 0
-	for _, entry := range n.list {
-		if entry.unread {
-			count++
+	for i, entry := range n.list {
+		if !entry.unread {
+			return i
 		}
 	}
-	return count
+	return len(n.list)
+}
+
+func (n *notificationCenter) markRead() {
+	for _, entry := range n.list {
+		if !entry.unread {
+			return
+		}
+		entry.unread = false
+	}
 }
 
 // notify shows message in a toast and keeps it in the notification history. It is the
@@ -118,6 +129,10 @@ func (a *App) notifyKind(message string, kind ui.ToastKind) {
 		action = i18n.Shared(a.language(), "desktop.notifications.viewLogs")
 	}
 	entry.toast = a.overlay.toaster.ShowAction(a.notificationText(entry), "", kind, action)
+	if entry.id == 0 {
+		// Keep the first toast's identity when a repeat replaces the current toast.
+		entry.id = int(entry.toast)
+	}
 }
 
 // viewsLogs says the notice offers View Logs: it refers to an action's records and there is a
@@ -167,6 +182,35 @@ func (a *App) clearNotifications() {
 	a.notifications.list = nil
 }
 
+func (a *App) notificationClearButton(c ui.C) {
+	if len(a.notifications.list) == 0 {
+		return
+	}
+	label := i18n.Shared(a.language(), "desktop.notifications.clear")
+	if ui.Button(c.Part("clear"), label).Ghost().Small().Shrink(0).Clicked() {
+		c.After(a.clearNotifications)
+	}
+}
+
+// notificationsToolBody declares the docked history in the available panel space.
+func (a *App) notificationsToolBody(c ui.C) {
+	center := &a.notifications
+	center.markRead()
+	if len(center.list) == 0 {
+		a.panelMessage(c, i18n.Shared(a.language(), "desktop.notifications.empty"), a.colors.Subtle)
+		return
+	}
+	list := &center.toolList
+	if list.Key == nil {
+		list.Key = func(i int) int { return center.list[i].id }
+		list.Label = func(i int) string { return center.list[i].text }
+	}
+	label := i18n.Shared(a.language(), "desktop.notifications.title")
+	ui.List(c, list, len(center.list), func(row ui.ListRow) {
+		a.notificationRow(row.C, row.Element.PadX(shellContentPad).PadY(4), center.list[row.Index])
+	}).Scrollbars().Label(label).FillWidth().Grow(1).MinHeight(0)
+}
+
 // notificationBell declares the status bar's bell: it names the unread notices, and a
 // press opens the history, which marks them read.
 func (a *App) notificationBell(c ui.C) {
@@ -196,10 +240,7 @@ func (a *App) notificationBell(c ui.C) {
 		center.open = !center.open
 	}
 	if center.open {
-		// Looking at the history reads it.
-		for _, entry := range center.list {
-			entry.unread = false
-		}
+		center.markRead()
 	}
 	a.notificationPanel(c, bell)
 }
@@ -209,7 +250,6 @@ func (a *App) notificationBell(c ui.C) {
 func (a *App) notificationPanel(c ui.C, anchor ui.Box) {
 	center := &a.notifications
 	language := a.language()
-	cleared := false
 	align := ui.End
 	if a.project == nil {
 		// On the welcome page the bell is at the left edge of the window.
@@ -219,9 +259,7 @@ func (a *App) notificationPanel(c ui.C, anchor ui.Box) {
 	ui.PopoverWith(c, anchor, spec, &center.open, func() {
 		ui.Row(c).FillWidth().Height(28).Items(ui.Center).Gap(8).Children(func() {
 			ui.Text(c, i18n.Shared(language, "desktop.notifications.title")).Weight(gfx.WeightSemibold).Grow(1).Ellipsis()
-			if len(center.list) > 0 && ui.Button(c.Part("clear"), i18n.Shared(language, "desktop.notifications.clear")).Ghost().Clicked() {
-				cleared = true
-			}
+			a.notificationClearButton(c)
 		})
 		if len(center.list) == 0 {
 			ui.Text(c, i18n.Shared(language, "desktop.notifications.empty")).Color(a.colors.Subtle)
@@ -230,18 +268,19 @@ func (a *App) notificationPanel(c ui.C, anchor ui.Box) {
 		ui.Scroll(c.Part("list")).Scrollbars().FillWidth().MaxHeight(notificationPanelHeight).Gap(8).Children(func() {
 			for i, entry := range center.list {
 				k := c.KeyInt(i)
-				ui.Row(k).FillWidth().Shrink(0).Gap(8).Items(ui.Start).Children(func() {
-					ui.Row(k).Size(8, 8).Shrink(0).MarginTop(5).Radius(4).Background(a.notificationColor(entry.kind))
-					ui.Column(k).Grow(1).MinWidth(0).Gap(2).Children(func() {
-						a.notificationEntry(k, entry)
-					})
-				})
+				a.notificationRow(k, ui.Row(k), entry)
 			}
 		})
 	})
-	if cleared {
-		c.After(a.clearNotifications)
-	}
+}
+
+func (a *App) notificationRow(c ui.C, row ui.Box, entry *notification) {
+	row.FillWidth().Shrink(0).Gap(8).Items(ui.Start).Children(func() {
+		ui.Row(c).Size(8, 8).Shrink(0).MarginTop(5).Radius(4).Background(a.notificationColor(entry.kind))
+		ui.Column(c).Grow(1).MinWidth(0).Gap(2).Children(func() {
+			a.notificationEntry(c, entry)
+		})
+	})
 }
 
 // notificationEntry declares a notice of the history: its words, when it came last and how

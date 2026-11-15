@@ -7,7 +7,8 @@ import (
 	"golang.org/x/sys/windows"
 )
 
-// processMemoryCountersEx2 is PROCESS_MEMORY_COUNTERS_EX2, which Windows 10 1809 and later fill.
+// processMemoryCountersEx2 is PROCESS_MEMORY_COUNTERS_EX2, available with the
+// September 2023 cumulative update for Windows 10/11 22H2 and on later clients.
 type processMemoryCountersEx2 struct {
 	processMemoryCounters
 	privateUsage          uintptr
@@ -94,22 +95,29 @@ func filetimeTicks(time windows.Filetime) uint64 {
 
 // privateMemory is what Task Manager's Memory column shows for the process of handle, its
 // private working set, and the private commit outside it, which holds what Windows compressed
-// or wrote to the page file. On a system older than Windows 10 1809 the memory is the whole
-// working set and the rest is not read.
+// or wrote to the page file. Systems without private working set counters
+// report the whole working set and leave the private commit outside it unknown.
 func privateMemory(handle windows.Handle) (uint64, *uint64) {
 	if getProcessMemoryInfo.Find() != nil {
 		return 0, nil
 	}
 	var counters processMemoryCountersEx2
-	counters.cb = uint32(unsafe.Sizeof(counters))
-	if ok, _, _ := getProcessMemoryInfo.Call(uintptr(handle), uintptr(unsafe.Pointer(&counters)), uintptr(counters.cb)); ok != 0 {
-		resident := uint64(counters.privateWorkingSetSize)
-		outside := uint64(counters.privateUsage) - min(uint64(counters.privateUsage), resident)
-		return resident, &outside
+	if ok, _, _ := getProcessMemoryInfo.Call(uintptr(handle), uintptr(unsafe.Pointer(&counters)), unsafe.Sizeof(counters)); ok != 0 {
+		return counters.memory()
 	}
-	counters.cb = uint32(unsafe.Sizeof(counters.processMemoryCounters))
-	if ok, _, _ := getProcessMemoryInfo.Call(uintptr(handle), uintptr(unsafe.Pointer(&counters)), uintptr(counters.cb)); ok != 0 {
-		return uint64(counters.workingSetSize), nil
+	var basic processMemoryCounters
+	if ok, _, _ := getProcessMemoryInfo.Call(uintptr(handle), uintptr(unsafe.Pointer(&basic)), unsafe.Sizeof(basic)); ok != 0 {
+		return uint64(basic.workingSetSize), nil
 	}
 	return 0, nil
+}
+
+func (c *processMemoryCountersEx2) memory() (uint64, *uint64) {
+	// Windows Server 2022 can succeed without filling the private working set.
+	if uintptr(c.cb) < unsafe.Sizeof(*c) || (c.privateWorkingSetSize == 0 && c.workingSetSize != 0) {
+		return uint64(c.workingSetSize), nil
+	}
+	resident := uint64(c.privateWorkingSetSize)
+	outside := uint64(c.privateUsage) - min(uint64(c.privateUsage), resident)
+	return resident, &outside
 }

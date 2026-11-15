@@ -79,7 +79,8 @@ func TestCheckSendsOneRequestThroughTheProxyWithItsAccount(t *testing.T) {
 	policy.Username, policy.Password = "ada", "secret"
 
 	status, elapsed, err := Check(checkContext(t), policy, "http://lithe-check.invalid/")
-	if err != nil || status != http.StatusFound || elapsed <= 0 {
+	// A loopback request can complete within a single Windows clock tick.
+	if err != nil || status != http.StatusFound || elapsed < 0 {
 		t.Fatalf("check = %d after %v, %v", status, elapsed, err)
 	}
 	hosts, auth := proxy.seen()

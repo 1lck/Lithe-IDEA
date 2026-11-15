@@ -129,6 +129,9 @@ func (a *App) shellPanel(c ui.C, s slot, index int, hidden *slot) ui.Box {
 			if tool.id == itemBuild && p != nil {
 				a.buildToolActions(c, p)
 			}
+			if tool.id == itemNotifications {
+				a.notificationClearButton(hk)
+			}
 			if tabbed && p != nil {
 				a.drawGitActions(c, p)
 			}
@@ -199,6 +202,8 @@ func (a *App) toolBody(c ui.C, tool item, p *project) {
 			a.testsView(c, p)
 		case itemDebug:
 			a.debugView(c, p)
+		case itemNotifications:
+			a.notificationsToolBody(c.Part("notificationHistory"))
 		default:
 			switch {
 			case tool.tool != nil && tool.tool.Native != nil:

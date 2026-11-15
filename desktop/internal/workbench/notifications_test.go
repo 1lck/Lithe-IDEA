@@ -8,6 +8,7 @@ import (
 	"github.com/1lck/Lithe-IDEA/desktop/internal/core"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/i18n"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/logwindow"
+	"github.com/vivaui/viva/gfx"
 	"github.com/vivaui/viva/ui"
 )
 
@@ -69,6 +70,99 @@ func TestNotificationBellOpensReadsAndClearsTheHistory(t *testing.T) {
 	if !h.shows("No notifications") {
 		t.Fatal("the emptied history does not say so")
 	}
+}
+
+func TestNotificationsToolWindowSharesTheHistory(t *testing.T) {
+	h := newHarnessWithLanguages(t, &testKernel{Client: core.NewClient()}, []string{"en-US"})
+	h.open(t.TempDir())
+	toggle := func() {
+		h.click(center(h.button(itemNotifications)))
+		h.settle()
+	}
+	notify := func() {
+		h.app.notifyInfo("Plugin updated")
+		h.app.invalidator.Invalidate()
+		h.settle()
+	}
+	hideToasts := func() {
+		for _, entry := range h.app.notifications.list {
+			h.app.overlay.toaster.Close(entry.toast)
+		}
+		h.app.invalidator.Invalidate()
+		h.settle()
+	}
+	toggle()
+	if !h.showsWrapped("No notifications") {
+		t.Fatal("opening the tool window with an empty history did not show its empty state")
+	}
+	toggle()
+	notify()
+	hideToasts()
+	if _, ok := h.findPageHit("Notifications, 1 unread"); !ok || h.showsWrapped("Plugin updated") {
+		t.Fatal("the closed tool window should leave the notice unread and out of view")
+	}
+
+	toggle()
+	if !h.showsWrapped("Plugin updated") {
+		t.Fatal("the tool window did not show the notice after its toast closed")
+	}
+	if _, ok := h.findPageHit("Notifications, 1 unread"); ok {
+		t.Fatal("opening the tool window did not clear the unread badge")
+	}
+	notify()
+	if !h.shows("2 times") {
+		t.Fatal("the tool window did not update the repetition count")
+	}
+	if _, ok := h.findPageHit("Notifications, 1 unread"); ok {
+		t.Fatal("a notice received while the tool window was open showed as unread")
+	}
+
+	h.clickNamed("Clear")
+	h.settle()
+	if !h.showsWrapped("No notifications") || h.app.overlay.toaster.Len() != 0 {
+		t.Fatal("clearing from the tool window did not empty it")
+	}
+	toggle()
+	h.clickNamed("Notifications")
+	h.settle()
+	if !h.shows("No notifications") {
+		t.Fatal("the status-bar history did not reflect the clear")
+	}
+}
+
+func TestNotificationsToolWindowScrollsToOlderNotices(t *testing.T) {
+	h := newHarnessWithLanguages(t, &testKernel{Client: core.NewClient()}, []string{"en-US"})
+	h.open(t.TempDir())
+	for i := range notificationHistoryLimit {
+		h.app.notifyInfo(fmt.Sprintf("Notification %03d", i))
+	}
+	for _, entry := range h.app.notifications.list {
+		h.app.overlay.toaster.Close(entry.toast)
+	}
+	h.app.invalidator.Invalidate()
+	h.settle()
+	h.click(center(h.button(itemNotifications)))
+	h.settle()
+	if !h.showsWrapped("Notification 099") || h.showsWrapped("Notification 000") {
+		t.Fatal("the history should start at its newest notifications")
+	}
+	row, ok := h.findPageHit("Notification 099")
+	if !ok {
+		t.Fatal("the notification row is missing its accessible name")
+	}
+	at := center(row.Bounds)
+	// Continue after the virtual list has measured newly revealed rows.
+	for range 4 {
+		if err := h.driver.Scroll(gfx.ScrollEvent{X: at.X, Y: at.Y, DeltaY: 20000, Precise: true}); err != nil {
+			t.Fatalf("scroll notification history: %v", err)
+		}
+		h.settle()
+		if h.showsWrapped("Notification 000") {
+			return
+		}
+	}
+	first, last := h.app.notifications.toolList.Visible()
+	t.Fatalf("scrolling from %v did not reveal the oldest notification (rows %d to %d)", row.Bounds, first, last)
 }
 
 // pageControls counts the controls named name that the pages declared.
@@ -143,6 +237,15 @@ func TestFailureNoticeOpensTheLogsOfTheActionThatFailed(t *testing.T) {
 	h.settle()
 	if len(opened) != 2 || opened[1] != failed {
 		t.Fatalf("the history opened the logs of %q, want %q", opened, failed)
+	}
+	h.clickNamed("Notifications")
+	h.settle()
+	h.click(center(h.button(itemNotifications)))
+	h.settle()
+	h.clickNamed(viewLogs)
+	h.settle()
+	if len(opened) != 3 || opened[2] != failed {
+		t.Fatalf("the tool window opened the logs of %q, want %q", opened, failed)
 	}
 }
 
