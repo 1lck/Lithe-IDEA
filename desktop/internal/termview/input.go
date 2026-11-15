@@ -247,6 +247,9 @@ func (v *View) terminalText(event app.TextEvent) app.TextState {
 	case app.TextPaste:
 		redraw = v.sendInput(term.EncodePaste(event.Text, v.screen.Modes().BracketedPaste)) && moved
 	case app.TextPasteNoText:
+		if v.pasteImage() {
+			break
+		}
 		// A clipboard with no words in it is not an empty one: a program that reads
 		// pictures from the clipboard itself waits for a paste with no content to do so, as
 		// it gets from other terminals. Without bracketed paste an empty paste is no event
@@ -283,12 +286,24 @@ func (v *View) paste() {
 		return
 	}
 	value, err := v.cfg.Clipboard()
+	// Some systems answer a text request on a clipboard holding only a picture with an
+	// error rather than with nothing, so the picture is looked for either way.
+	if (err != nil || value == "") && v.pasteImage() {
+		return
+	}
 	if err != nil {
 		return
 	}
 	// An empty clipboard sends an empty paste under bracketed paste and nothing otherwise,
 	// for the reason given at TextPasteNoText.
 	v.sendInput(term.EncodePaste(value, v.screen.Modes().BracketedPaste))
+}
+
+// pasteImage offers a paste that found no text to Config.PasteImage and reports whether
+// it was taken. A view without a live shell has nowhere to type a path, so it offers
+// nothing.
+func (v *View) pasteImage() bool {
+	return v.shell != nil && v.cfg.PasteImage != nil && v.cfg.PasteImage()
 }
 
 // scrollView moves the view by lines, positive going back into history. It is handled even

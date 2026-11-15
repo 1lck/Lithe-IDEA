@@ -304,11 +304,15 @@ var chinese = Messages{
 		FindPrevious:       Shared(Chinese, "desktop.terminal.findPrevious"),
 		FindNext:           Shared(Chinese, "desktop.terminal.findNext"),
 		FindClose:          Shared(Chinese, "desktop.terminal.findClose"),
+		PasteImageTooLarge: Shared(Chinese, "desktop.terminal.pasteImageTooLarge"),
 		FindCount: func(current, total string) string {
 			return SharedFormat(Chinese, "desktop.terminal.findCount", map[string]string{"current": current, "total": total})
 		},
 		OpenLinkFailed: func(reason string) string {
 			return SharedFormat(Chinese, "desktop.terminal.openLinkFailed", map[string]string{"reason": reason})
+		},
+		PasteImageFailed: func(reason string) string {
+			return SharedFormat(Chinese, "desktop.terminal.pasteImageFailed", map[string]string{"reason": reason})
 		},
 		ShellMenu:       Shared(Chinese, "native.newTerminalWithShell"),
 		DetectingShells: Shared(Chinese, "terminal.detectingShells"),

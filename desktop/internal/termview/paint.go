@@ -143,10 +143,12 @@ func (v *View) paintGrid(canvas *gfx.Canvas, layout geometry) {
 			// The input method draws over these cells, which the rows left empty.
 		case cursor.Style == term.CursorUnderline:
 			// The thin cursors keep their shape against the row, like the block that fills it:
-			// the underline is its bottom edge and the bar runs its whole height.
-			canvas.Fill(gfx.Rect{X: x, Y: y + rowHeight - cursorUnderlineHeight, Width: cellWidth, Height: cursorUnderlineHeight}, cursorColor)
+			// the underline is its bottom edge and the bar runs its whole height. Neither is
+			// thicker than the cell, however small the font.
+			height := min(v.cursorThickness.underline(), rowHeight)
+			canvas.Fill(gfx.Rect{X: x, Y: y + rowHeight - height, Width: cellWidth, Height: height}, cursorColor)
 		case cursor.Style == term.CursorBar:
-			canvas.Fill(gfx.Rect{X: x, Y: y, Width: cursorBarWidth, Height: rowHeight}, cursorColor)
+			canvas.Fill(gfx.Rect{X: x, Y: y, Width: min(v.cursorThickness.bar(), cellWidth), Height: rowHeight}, cursorColor)
 		case !focused:
 			// A block cursor outlines its cell while the terminal does not have the keyboard.
 			canvas.Fill(gfx.Rect{X: x, Y: y, Width: cellWidth, Height: 1}, cursorColor)

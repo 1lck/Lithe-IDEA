@@ -29,3 +29,15 @@ adapted to the merged View:
 - dbd2a6f2  Clear sends PowerShell a form feed; here only when the shell runs no program
 - 2f73c352  the Microsoft Store PowerShell 7 alias is found and preferred
 - 02916ed5  PowerShell keeps its version banner
+- d0759bb3  a drag with Alt (Ctrl+Alt on Linux) selects a block of columns, copied
+            line by line
+- 4116260e  Find opens with the selected text of one line as its query
+
+These Motty changes, older than the port, were in the parts left out at the port and are
+taken now:
+
+- fe2570d9  a paste that finds a picture and no text saves it and types its path;
+- ed6db385  here the workbench saves it in the user's cache folder, for local terminals
+- 3f7979e4  the cursor shape and thickness are chosen in the settings; here DECSCUSR 0
+- 8a7476b6  also gives the chosen shape back, and the thickness applies to a shape a
+            program asks for

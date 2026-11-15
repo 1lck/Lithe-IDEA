@@ -159,6 +159,12 @@ type Config struct {
 	Exited func(status *int)
 	// Clipboard reads the system clipboard for a paste. Nil uses app.ClipboardText.
 	Clipboard func() (string, error)
+	// PasteImage is asked first when a paste into a live shell finds no text on the
+	// clipboard, and reports whether it took the paste over, as the workbench does
+	// for a picture it saves and types the path of. Nil, or a false answer, sends the
+	// empty paste a program that reads the clipboard itself waits for. It runs on the
+	// window thread and must not block.
+	PasteImage func() bool
 	// OpenLink opens a link the user Command- (Control- off macOS) clicked. Nil leaves
 	// links inert.
 	OpenLink func(target string)
@@ -245,6 +251,8 @@ type View struct {
 	// scrollbar) uses rowH; only the text itself is drawn glyphH tall.
 	cellW, glyphH, rowH float32
 	layout              geometry // the grid of the last paint
+	// cursorThickness is how thick a bar or an underline cursor draws; SetCursor sets it.
+	cursorThickness CursorThickness
 
 	look    Look
 	hasLook bool

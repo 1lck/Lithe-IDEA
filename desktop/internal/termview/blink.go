@@ -14,13 +14,6 @@ const (
 	cursorBlinkSpan = 20 * time.Second
 )
 
-// How thick the thin cursors draw: the bar's width and the underline's height in
-// logical pixels. The block cursor fills its cell and does not follow them.
-const (
-	cursorBarWidth        = float32(3)
-	cursorUnderlineHeight = float32(2)
-)
-
 // cursorBlink is the phase of the terminal's cursor.
 type cursorBlink struct {
 	since time.Duration // when the cursor last moved or the pane was entered
