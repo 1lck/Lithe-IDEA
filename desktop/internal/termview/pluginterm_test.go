@@ -6,12 +6,18 @@ import (
 	"testing"
 
 	"github.com/1lck/Lithe-IDEA/desktop/internal/localshell"
+	"github.com/1lck/Lithe-IDEA/desktop/internal/shellkind"
 )
 
+// fakeShell is a shell the test drives: output is what the next Drain returns, input
+// keeps what the view wrote, and kind and busy are what the shell reports.
 type fakeShell struct {
 	output []byte
+	input  []byte
 	done   chan struct{}
 	err    error
+	kind   shellkind.Kind
+	busy   bool
 }
 
 func (s *fakeShell) Drain(dst []byte) []byte {
@@ -19,12 +25,16 @@ func (s *fakeShell) Drain(dst []byte) []byte {
 	s.output = nil
 	return dst
 }
-func (s *fakeShell) Write([]byte) bool     { return true }
+func (s *fakeShell) Write(p []byte) bool {
+	s.input = append(s.input, p...)
+	return true
+}
 func (s *fakeShell) Resize(int, int)       {}
 func (s *fakeShell) Done() <-chan struct{} { return s.done }
 func (s *fakeShell) Err() error            { return s.err }
 func (s *fakeShell) Close()                {}
-func (s *fakeShell) Busy() bool            { return false }
+func (s *fakeShell) Busy() bool            { return s.busy }
+func (s *fakeShell) Kind() shellkind.Kind  { return s.kind }
 
 type exitStatus int
 

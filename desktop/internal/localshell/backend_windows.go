@@ -14,10 +14,32 @@ import (
 	"golang.org/x/sys/windows"
 )
 
+// setConsoleCtrlHandler is kernel32!SetConsoleCtrlHandler. x/sys does not wrap
+// it, and only the HandlerRoutine == NULL form is needed here.
+var setConsoleCtrlHandler = windows.NewLazySystemDLL("kernel32.dll").NewProc("SetConsoleCtrlHandler")
+
+// restoreCtrlC clears a Ctrl+C-ignored state inherited from whatever started the
+// program. A process created with CREATE_NEW_PROCESS_GROUP, or by one that
+// ignores Ctrl+C, carries that state into every child, and a console program
+// hosted by a pseudo console then never receives the user's interrupt. This
+// program has no console of its own where the state could mean anything, so
+// clearing it before the console host starts keeps local shells behaving as
+// they do in a terminal started from the desktop, whichever launcher, script or
+// updater started the IDE.
+func restoreCtrlC() error {
+	if r, _, err := setConsoleCtrlHandler.Call(0, 0); r == 0 { // NULL, FALSE
+		return fmt.Errorf("localshell: restoring Ctrl+C: %w", err)
+	}
+	return nil
+}
+
 // startBackend runs the shell on a ConPTY: Windows' pseudo-console, which turns
 // a console program's screen into the same escape-sequence stream a Unix pty
 // carries, so the terminal view needs no Windows special case.
 func startBackend(config Config) (backend, error) {
+	if err := restoreCtrlC(); err != nil {
+		return backend{}, err
+	}
 	program := config.Shell
 	if program == "" {
 		program = defaultShell()
@@ -217,8 +239,12 @@ func (stream *consoleIO) Close() error {
 }
 
 // defaultShell is PowerShell when it is installed, else the command interpreter.
+// A PowerShell 7 from the Microsoft Store is not on the PATH of a process that
+// was not given its alias directory, so it is looked for where the Store puts
+// it, before Windows PowerShell is.
 func defaultShell() string {
-	for _, name := range []string{"pwsh.exe", "powershell.exe"} {
+	candidates := append(append([]string{"pwsh.exe"}, storePowerShell()...), "powershell.exe")
+	for _, name := range candidates {
 		if path, err := exec.LookPath(name); err == nil {
 			return path
 		}

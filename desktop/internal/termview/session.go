@@ -45,6 +45,9 @@ func (v *View) start() {
 	// started is a process that asked for none of them, so the screen is handed over
 	// clean; this matters on a restart, where the old screen is kept.
 	v.screen.ReclaimApplicationModes()
+	// Leaving the alternate screen the old program left behind moves the buffer under a
+	// selection made on it.
+	v.reconcileSelection()
 	// The answers to the program's queries (device attributes, cursor position) go
 	// straight to the shell. They are not typing, so they neither return the view to the
 	// live screen nor drop the selection, and a refused answer is not worth a log line
@@ -127,8 +130,8 @@ func (v *View) Pump() bool {
 	if finished {
 		v.shellEnded()
 	}
-	// Writing output drops the selection even when the screen looks the same, and that
-	// is a change to paint too.
+	// Output that drops the selection is a change to paint even if the screen's version
+	// were to hold.
 	return v.screen.Version() != version || (selected && !v.selection.selected)
 }
 
@@ -175,12 +178,26 @@ func (v *View) say(style, line string) {
 	v.write([]byte(style + line + sgrReset + "\r\n"))
 }
 
-// write puts output into the screen. A selection points at rows that the output moves,
-// so it is dropped first: a highlight over text that is no longer there would copy the
-// wrong thing.
+// write puts output into the screen. Output is text arriving, not an edit, so the
+// selection stays on the text it was made on and scrolls up with it, as terminals keep
+// it; it is only dropped or cut where the buffer stops holding the lines it points at.
 func (v *View) write(p []byte) {
-	v.selection.clear()
 	v.screen.Write(p)
+	v.reconcileSelection()
+}
+
+// reconcileSelection follows the buffer under the selection after the screen changed. A
+// new buffer generation (a reset, the alternate screen, a cleared screen) means its line
+// numbers name other text, so it is dropped; otherwise it is trimmed to the lines the
+// scrollback still keeps. Every change to the screen outside write calls it too, so a
+// generation is never left for a later write to mistake for its own.
+func (v *View) reconcileSelection() {
+	if generation := v.screen.BufferGeneration(); generation != v.generation {
+		v.generation = generation
+		v.selection.clear()
+		return
+	}
+	v.selection.trim(v.screen)
 }
 
 // sendInput writes what the user typed, pasted or reported with the mouse to the shell and

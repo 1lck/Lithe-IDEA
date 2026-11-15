@@ -24,7 +24,9 @@ func integrateWindowsShell(config Config, program string) Config {
 	switch strings.ToLower(filepath.Base(program)) {
 	case "pwsh.exe", "powershell.exe":
 		script := strings.ReplaceAll(powerShellDirectoryIntegration, "__MOTTY_TOKEN__", token)
-		config.Args = []string{"-NoLogo", "-NoExit", "-EncodedCommand", encodePowerShellCommand(script)}
+		// No -NoLogo: the shell's own version banner is part of starting it, as
+		// in Windows Terminal, and the integration runs after it.
+		config.Args = []string{"-NoExit", "-EncodedCommand", encodePowerShellCommand(script)}
 	case "cmd.exe":
 		prompt := os.Getenv("PROMPT")
 		for _, entry := range config.Env {

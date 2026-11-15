@@ -1017,3 +1017,83 @@ func TestALongPlainASCIITextRunKeepsItsCellsAndColor(t *testing.T) {
 		t.Fatalf("cursor = %+v", cursor)
 	}
 }
+
+func TestBufferGenerationChangesOnlyWhenLineNumbersNameOtherText(t *testing.T) {
+	terminal := New(20, 3, 10)
+	generation := terminal.BufferGeneration()
+	kept := func(step string) {
+		t.Helper()
+		if got := terminal.BufferGeneration(); got != generation {
+			t.Fatalf("%s changed the buffer generation", step)
+		}
+	}
+	changed := func(step string) {
+		t.Helper()
+		got := terminal.BufferGeneration()
+		if got == generation {
+			t.Fatalf("%s kept the buffer generation", step)
+		}
+		generation = got
+	}
+	feed(terminal, "one\r\ntwo\r\nthree\r\nfour\r\n")
+	kept("output that scrolls into the history")
+	feed(terminal, "\x1b[2J\x1b[3J")
+	kept("erasing the screen and the history in place")
+	terminal.ClearScrollback()
+	kept("clearing the history")
+	feed(terminal, "\x1b[?1049h")
+	changed("entering the alternate screen")
+	feed(terminal, "\x1b[?1049h")
+	kept("entering the alternate screen it is on")
+	if terminal.ClearScreen() {
+		t.Fatal("ClearScreen cleared the alternate screen")
+	}
+	kept("a clear the alternate screen refused")
+	feed(terminal, "\x1b[?1049l")
+	changed("leaving the alternate screen")
+	if !terminal.ClearScreen() {
+		t.Fatal("ClearScreen refused the main screen")
+	}
+	changed("ClearScreen")
+	feed(terminal, "\x1bc")
+	changed("a reset")
+}
+
+func TestRetainedFromFollowsTheOldestLineTheBufferKeeps(t *testing.T) {
+	terminal := New(20, 3, 2)
+	oldest := func() uint64 {
+		t.Helper()
+		line, ok := terminal.RetainedFrom()
+		if !ok {
+			t.Fatal("RetainedFrom found no lines in a buffer with a screen")
+		}
+		// The alternate screen keeps no history, so its oldest line is its top row;
+		// BufferPoint numbers the main screen's buffer only.
+		want := terminal.BufferPoint(BufferPosition{}).Line
+		if terminal.Modes().AltScreen {
+			want = terminal.PointAt(Position{}).Line
+		}
+		if line != want {
+			t.Fatalf("RetainedFrom = %d, want the first buffer line %d", line, want)
+		}
+		return line
+	}
+	start := oldest()
+	// Four line feeds on three rows push two lines into a history that holds two.
+	feed(terminal, "a\r\nb\r\nc\r\nd\r\n")
+	if got := oldest(); got != start {
+		t.Fatalf("RetainedFrom moved to %d while the history still held every line from %d", got, start)
+	}
+	feed(terminal, "e\r\n")
+	if got := oldest(); got != start+1 {
+		t.Fatalf("RetainedFrom = %d after the history dropped one line, want %d", got, start+1)
+	}
+	first := Point{Line: start + 1}
+	if got := terminal.SelectedRange(first, Point{Line: start + 1, Column: 19}); got != "b" {
+		t.Fatalf("oldest kept line = %q, want %q", got, "b")
+	}
+	feed(terminal, "\x1b[?1049h")
+	if got := oldest(); got <= start+1 {
+		t.Fatalf("RetainedFrom = %d on the alternate screen, want it past the main screen's history", got)
+	}
+}
