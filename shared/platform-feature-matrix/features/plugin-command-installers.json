@@ -1,0 +1,40 @@
+{
+  "id": "plugin-command-installers",
+  "area": "插件",
+  "group": "插件管理",
+  "capability": "插件声明的命令缺失时由宿主安装：插件详情“功能”页的能力卡片检测语言服务器、构建、版本控制和调试适配器用到的本机命令，缺失时显示“未找到”和安装按钮；没有卡片的后端命令显示在横幅里。插件用 commandInstallers 声明由哪个已注入的工具安装哪些命令；宿主经 Core 校验并展开为安装计划，用户在对话框里选择 Lithe 管理的目录或工具的默认位置，看清将要运行的命令、环境变量和是否联网后确认，安装输出实时显示，可取消，超时停止；装好后后续启动在记录的目录里找到命令。命令缺失、安装失败、超时和命令没有落到目录都显示本地化原因",
+  "macos": {
+    "implementationStatus": "implemented",
+    "verificationStatus": "pending",
+    "evidence": [
+      "desktop/internal/core/command_installers.go",
+      "desktop/internal/core/command_installers_test.go",
+      "desktop/internal/pluginhost/commands.go",
+      "desktop/internal/pluginhost/commands_test.go",
+      "desktop/internal/pluginhost/launch.go",
+      "desktop/internal/workbench/command_installers.go",
+      "desktop/internal/workbench/command_installers_test.go",
+      "desktop/internal/settingswindow/command_install.go",
+      "desktop/internal/settingswindow/command_install_test.go",
+      "desktop/internal/settingswindow/command_install_visual_test.go",
+      ".agents/notes/implemented/architecture/2026-11-15-plugin-command-installers.md"
+    ]
+  },
+  "windows": {
+    "implementationStatus": "implemented",
+    "verificationStatus": "pending",
+    "evidence": [
+      "desktop/internal/core/command_installers.go",
+      "desktop/internal/pluginhost/commands.go",
+      "desktop/internal/pluginhost/launch.go",
+      "desktop/internal/workbench/command_installers.go",
+      "desktop/internal/workbench/command_installers_test.go",
+      "desktop/internal/settingswindow/command_install.go",
+      "desktop/internal/settingswindow/command_install_test.go",
+      ".agents/notes/implemented/architecture/2026-11-15-plugin-command-installers.md"
+    ]
+  },
+  "owner": "Plugins",
+  "verification": "宿主测试只用合成插件 dev.lithe.test.command-installers（安装工具是复制出来的测试二进制，不联网）：缺失检测按语言服务器、调试适配器和后端分别报告；安装计划展开两个目标，打开对话框不创建目录；managed 目标装进插件根目录 .state 下的受管目录并记录，之后 Backend.ResolveCommand 找到命令；toolDefault 目标按工具默认位置探测并记录该目录；非零退出、命令没写出来、超过超时各报对应原因；取消会停止工具且不留记录；插件没有声明的目标被拒绝。设置窗口测试覆盖卡片状态、横幅、对话框内容、安装输出、完成后卡片清除和取消。可视化证据：-tags 'vivahead lithevisual' 运行 TestVisualCommandInstall 生成深浅主题的卡片与对话框截图。macOS 真机：安装一个声明 commandInstallers 的插件，在缺少命令的机器上打开设置 → 插件 → 已安装 → 功能，确认卡片显示“未找到”与安装按钮；分别选择两个安装位置完成安装，确认之后启动语言服务器或调试不再报命令缺失；安装中取消、断网失败都显示原因；启动后 app bundle 文件清单不变（scripts/desktop/verify/verify-runtime-bundle-immutability.sh）。Windows 真机：同样流程，命令文件带 .exe 后缀，PATH 类变量用分号分隔。",
+  "notes": "对应计划 API-23（工具链与受管进程）。宿主声明 commandInstallers 0；契约与计划展开在 Core（plugins.commandInstallers.requirements/plan/defaultDirectory）。受管目录随插件卸载删除；toolDefault 只记录目录，不删除工具装进默认位置的文件。安装进程不经 shell，参数与环境来自 Core 展开的计划。"
+}

@@ -840,6 +840,11 @@ func (w *window) installedFeatures(c ui.C, language i18n.Language, fact PluginFa
 		return
 	}
 	enabled := w.pluginState(fact.ID).Enabled
+	var missing []MissingCommand
+	if enabled {
+		missing = w.commands.want(fact.ID)
+		w.commandMissingBanner(c.Part("command-missing"), language, fact, unmatchedMissing(missing, fact.Capabilities))
+	}
 	ui.Grid(c, 220).FillWidth().Gap(10).Children(func() {
 		for index, capability := range fact.Capabilities {
 			k := c.KeyInt(index)
@@ -854,7 +859,9 @@ func (w *window) installedFeatures(c ui.C, language i18n.Language, fact PluginFa
 					ui.Wrap(k, detail).FontSize(11).Color(w.pal.muted)
 				}
 				ui.Row(k).FillWidth().Gap(8).Items(ui.Center).Children(func() {
-					if enabled {
+					if entry, ok := missingFor(missing, capability); enabled && ok {
+						w.commandMissingStatus(k, language, fact, entry)
+					} else if enabled {
 						ui.Text(k, i18n.Shared(language, "native.available")).FontSize(11).Color(w.pal.success)
 					} else {
 						ui.Text(k, i18n.Shared(language, "native.pluginDisabled")).FontSize(11).Color(w.pal.muted)
@@ -926,6 +933,8 @@ func permissionDescription(language i18n.Language, permission string) string {
 		return i18n.Shared(language, "native.showItsOwnPageInAToolWindow")
 	case "process.test":
 		return i18n.Shared(language, "native.runYourTests")
+	case "commands.install":
+		return i18n.Shared(language, "desktop.marketplace.permissionCommandsInstall")
 	}
 	return ""
 }

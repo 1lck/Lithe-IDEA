@@ -117,6 +117,13 @@ type Kernel interface {
 	DecodeBuildModel(ctx context.Context, manifest json.RawMessage, buildSystemID string, request core.BuildDecodeModelRequest) (core.BuildModel, error)
 	DecodeBuildRun(ctx context.Context, manifest json.RawMessage, buildSystemID string, request core.BuildDecodeRunRequest) (core.BuildLaunch, error)
 	ToolchainRegistryOf(ctx context.Context, manifests []json.RawMessage) (core.ToolchainRegistry, error)
+	// CommandInstallerRequirements, PlanCommandInstaller and CommandInstallerDefaultDirectory
+	// read a plugin's commandInstallers[]: which systemCommand launches name which commands,
+	// one installer expanded for the target the user chose, and the directory a toolDefault
+	// installation lands in from its probes' output (command_installers.go).
+	CommandInstallerRequirements(ctx context.Context, manifest json.RawMessage) (core.CommandRequirements, error)
+	PlanCommandInstaller(ctx context.Context, manifest json.RawMessage, installerID, target, installDirectory string) (core.CommandInstallPlan, error)
+	CommandInstallerDefaultDirectory(ctx context.Context, manifest json.RawMessage, installerID string, outputs []*string) (string, bool, error)
 	ToolchainDiscoveryPlanOf(ctx context.Context, registry json.RawMessage, platform string) (core.ToolchainDiscoveryPlan, error)
 	ToolchainCandidatesOf(ctx context.Context, request core.ToolchainCandidatesRequest) (core.ToolchainCandidates, error)
 	ResolveToolchain(ctx context.Context, request core.ToolchainResolveRequest) (core.ToolchainResolution, error)

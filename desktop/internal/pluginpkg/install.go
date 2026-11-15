@@ -88,10 +88,10 @@ func Install(root, id, version, staging string) (Installed, error) {
 	if err := checkRoot(root); err != nil {
 		return Installed{}, err
 	}
-	if err := checkIdentity("plugin ID", id); err != nil {
+	if err := CheckIdentity("plugin ID", id); err != nil {
 		return Installed{}, err
 	}
-	if err := checkIdentity("plugin version", version); err != nil {
+	if err := CheckIdentity("plugin version", version); err != nil {
 		return Installed{}, err
 	}
 	if staging == "" || !filepath.IsAbs(staging) {
@@ -122,10 +122,10 @@ func Uninstall(root, id, version string) error {
 	if err := checkRoot(root); err != nil {
 		return err
 	}
-	if err := checkIdentity("plugin ID", id); err != nil {
+	if err := CheckIdentity("plugin ID", id); err != nil {
 		return err
 	}
-	if err := checkIdentity("plugin version", version); err != nil {
+	if err := CheckIdentity("plugin version", version); err != nil {
 		return err
 	}
 	target := filepath.Join(root, id, version)
@@ -169,7 +169,7 @@ func RemoveState(root, id string) error {
 	if err := checkRoot(root); err != nil {
 		return err
 	}
-	if err := checkIdentity("plugin ID", id); err != nil {
+	if err := CheckIdentity("plugin ID", id); err != nil {
 		return err
 	}
 	target := filepath.Join(root, StateDirectory, id)
@@ -250,8 +250,9 @@ func checkRoot(root string) error {
 	return nil
 }
 
-// checkIdentity refuses a plugin ID or version that cannot be a directory name.
-func checkIdentity(what, value string) error {
+// CheckIdentity refuses a plugin ID or version that cannot be a directory name.
+// what names the value in the error, such as "plugin ID".
+func CheckIdentity(what, value string) error {
 	if value == "" {
 		return fmt.Errorf("%w: empty %s", ErrInvalidIdentity, what)
 	}

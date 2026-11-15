@@ -13598,12 +13598,207 @@
     },
     {
       "id": "desktop.plugins.installedOnThisComputer",
-      "description": "Feature card of a plugin language server that runs a program already installed on this computer; arg1 lists the commands it tries",
+      "description": "Feature card of a plugin language server that runs a program on this computer rather than one inside the plugin; arg1 lists the commands it tries. It must not claim the program is installed: the card shows separately when it is missing",
       "platforms": [
         "desktop"
       ],
       "parameters": {
         "arg1": "string"
+      }
+    },
+    {
+      "id": "desktop.plugins.commandMissing",
+      "description": "Status of a plugin feature card whose program was not found; commands lists the commands it looks for",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "commands": "string"
+      }
+    },
+    {
+      "id": "desktop.plugins.commandMissingManual",
+      "description": "Help beside a missing program whose plugin declares no way to install it",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.plugins.commandMissingBanner",
+      "description": "Notice in plugin details when a program the plugin itself runs was not found; commands lists the commands",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "commands": "string"
+      }
+    },
+    {
+      "id": "desktop.plugins.commandMissingHelp",
+      "description": "Error when a plugin feature could not start because none of its commands was found; commands lists them",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "commands": "string"
+      }
+    },
+    {
+      "id": "desktop.plugins.commandInstallTitle",
+      "description": "Title of the dialog that installs a program a plugin needs; commands lists the commands",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "commands": "string"
+      }
+    },
+    {
+      "id": "desktop.plugins.commandInstallPrompt",
+      "description": "First line of the install dialog; tool is the tool that runs the installation, commands the commands it provides",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "tool": "string",
+        "commands": "string"
+      }
+    },
+    {
+      "id": "desktop.plugins.commandInstallNetwork",
+      "description": "Warning in the install dialog when the installation may download",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.plugins.commandInstallLocation",
+      "description": "Heading of the install locations in the install dialog",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.plugins.commandInstallManaged",
+      "description": "Install location owned by Lithe for the plugin",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.plugins.commandInstallManagedHelp",
+      "description": "Explains the Lithe-managed install location",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.plugins.commandInstallToolDefault",
+      "description": "Install location the tool uses by default; tool is the tool's name",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "tool": "string"
+      }
+    },
+    {
+      "id": "desktop.plugins.commandInstallToolDefaultHelp",
+      "description": "Explains the tool's default install location",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.plugins.commandInstallNoDirectory",
+      "description": "Shown under the default install location when it could not be found; tool is the tool's name",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "tool": "string"
+      }
+    },
+    {
+      "id": "desktop.plugins.commandInstallCommand",
+      "description": "Heading of the command line the install dialog will run",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.plugins.commandInstallOutput",
+      "description": "Heading of what the installation prints, in the install dialog",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.plugins.commandInstalled",
+      "description": "Install dialog after a successful installation; directory is where the commands are",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "directory": "string"
+      }
+    },
+    {
+      "id": "desktop.plugins.commandInstallFailed",
+      "description": "Install dialog when the installation exited with an error; code is the exit code",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "code": "string"
+      }
+    },
+    {
+      "id": "desktop.plugins.commandInstallStopped",
+      "description": "Install dialog when the installation ended without an exit code, such as on a signal",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.plugins.commandInstallTimedOut",
+      "description": "Install dialog when the installation ran past its time limit; seconds is the limit",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "seconds": "string"
+      }
+    },
+    {
+      "id": "desktop.plugins.commandInstallCommandsMissing",
+      "description": "Install dialog when the installation finished but the commands are not where expected",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "commands": "string",
+        "directory": "string"
+      }
+    },
+    {
+      "id": "desktop.plugins.commandInstallToolMissing",
+      "description": "Install dialog when the tool that installs was not found; tool is its name",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "tool": "string"
+      }
+    },
+    {
+      "id": "desktop.plugins.commandInstallError",
+      "description": "Install dialog for any other failure; reason is the underlying error, not translated",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "reason": "string"
       }
     },
     {
@@ -106438,6 +106633,13 @@
     },
     {
       "id": "desktop.marketplace.permissionBackend",
+      "description": "Plugin installation progress or review presentation.",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.marketplace.permissionCommandsInstall",
       "description": "Plugin installation progress or review presentation.",
       "platforms": [
         "desktop"

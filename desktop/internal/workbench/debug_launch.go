@@ -118,7 +118,8 @@ func (a *App) resolveAdapterProcess(ctx context.Context, adapter debugAdapter, p
 		}
 		executable = resolved.Executable
 		if plan.Launch.Kind == pluginhost.LaunchSystemCommand {
-			executable, err = pluginhost.ResolveCommand(plan.Launch.Commands, func(name string) (string, error) { return debugLookupCommand(ctx, name) })
+			lookup := a.installedCommands().Lookup(adapter.PluginID, func(name string) (string, error) { return debugLookupCommand(ctx, name) })
+			executable, err = pluginhost.ResolveCommand(plan.Launch.Commands, lookup)
 			if err != nil {
 				return "", nil, nil, err
 			}
@@ -254,4 +255,13 @@ func (a *App) prepareDebugLaunch(ctx context.Context, start debugStart, stateDir
 		prepared.Endpoint = descriptor.Endpoint
 	}
 	return prepared, ctx.Err()
+}
+
+// installedCommands is the record of the commands the host installed for plugins;
+// nil, which looks up PATH only, before the plugin service opens.
+func (a *App) installedCommands() *pluginhost.CommandStore {
+	if a.plugins == nil {
+		return nil
+	}
+	return a.plugins.Commands
 }

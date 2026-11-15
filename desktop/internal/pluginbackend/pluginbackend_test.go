@@ -442,7 +442,8 @@ func TestStartRefusesAnUnavailableSystemCommand(t *testing.T) {
 	kernel := &fakeKernel{plan: plan, started: core.PluginBackendStarted{SessionID: "session-1"}}
 	runner := New(kernel, echoServices(t))
 	runner.lookup = func(string) (string, error) { return "", errors.New("not found") }
-	if _, err := runner.Start(context.Background(), startRequest(root)); !errors.Is(err, pluginhost.ErrPackagePath) {
+	var missing *pluginhost.CommandMissingError
+	if _, err := runner.Start(context.Background(), startRequest(root)); !errors.As(err, &missing) || len(missing.Commands) != 1 || missing.Commands[0] != "missing" {
 		t.Fatalf("err = %v", err)
 	}
 	if kernel.started_.ExecutablePath != "" {

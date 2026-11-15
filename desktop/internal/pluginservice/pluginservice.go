@@ -80,6 +80,10 @@ type Service struct {
 	Installer *plugininstall.Service
 	// Backend starts and stops plugin backends and answers their host requests.
 	Backend *pluginbackend.Runner
+	// Commands records the commands the host installed through plugins' command
+	// installers, below the plugin root's state directory; Backend's
+	// system-command launches look there after PATH.
+	Commands *pluginhost.CommandStore
 	// Settings reads actual plugin-owned preference layers from native storage.
 	Settings *pluginsettings.Store
 	// HostServices is the registry a backend's grants are narrowed against.
@@ -171,6 +175,7 @@ func open(kernel Kernel, preferences *store.Store, root string, first bool) (*Se
 		Manager:          pluginmanager.New(kernel, root, approvals, state),
 		Installer:        plugininstall.New(kernel, NewReviewer(kernel), approvals, pluginhost.Declared()),
 		Backend:          pluginbackend.New(kernel, hostServices),
+		Commands:         &pluginhost.CommandStore{State: filepath.Join(root, pluginStateDirectory)},
 		Settings:         pluginsettings.New(kernel, preferences.Dir()),
 		HostServices:     hostServices,
 		Credentials:      credentials.Default(),
@@ -179,6 +184,7 @@ func open(kernel Kernel, preferences *store.Store, root string, first bool) (*Se
 		ledger:           ledger,
 		messages:         newMessageLimiter(),
 	}
+	service.Backend.SetCommandStore(service.Commands)
 	service.Host = newBackendHost(service)
 	service.Runs = newRuns(service)
 	service.Contexts = newWorkspaceContexts(filepath.Join(root, pluginStateDirectory))

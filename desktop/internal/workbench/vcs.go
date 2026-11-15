@@ -661,7 +661,7 @@ func (a *App) runVcs(ctx context.Context, p *project, sessions *vcsRuntime, call
 	_, capabilities, _ := client.VcsProvider()
 	var tool *string
 	if len(call.tool) > 0 {
-		executable, err := a.plugins.Backend.ResolveCommand(call.tool)
+		executable, err := a.plugins.Backend.ResolveCommand(call.window.PluginID, call.tool)
 		if err != nil {
 			return nil, capabilities, errors.Join(errVcsToolMissing, err)
 		}
@@ -720,6 +720,9 @@ func (a *App) vcsFailureText(err error) string {
 	var rejection *core.MarketplaceRejection
 	if errors.As(err, &rejection) && rejection.Code == "plugin.vcs.invalidOutput" {
 		return i18n.SharedFormat(language, "native.litheCouldNotEvaluateTheVersionControlDataArg1", map[string]string{"arg1": rejection.Message})
+	}
+	if message, ok := commandMissingMessage(language, err); ok {
+		return message
 	}
 	switch {
 	case errors.Is(err, errVcsToolMissing):

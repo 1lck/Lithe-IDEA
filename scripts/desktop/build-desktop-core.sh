@@ -28,6 +28,9 @@ native_path() {
 }
 
 PINNED_CORE_REPOSITORY="https://github.com/Lithe-IDEA/Lithe-core-rust.git"
+# Lithe-core-rust #53, squash-merged into main as c550c2b: a plugin declares commandInstallers that
+# install the commands its systemCommand launches need with an injected tool, and Core expands
+# them (plugins.commandInstallers.requirements/plan/defaultDirectory). It is on top of
 # Lithe-core-rust #52, squash-merged into main as 6477e9a: a tool definition's version probe may
 # lead with a subcommand (go version) followed only by flags. It is on top of #51 (Rust 1.100
 # clippy lints fixed and the Rust 1.100.0 toolchain pinned), #50 (Core CI runs the affected crates
@@ -106,7 +109,7 @@ PINNED_CORE_REPOSITORY="https://github.com/Lithe-IDEA/Lithe-core-rust.git"
 # the contract, plugin guides, reference and SDKs live only in shared/plugins; on top of #16 (reported Git queries folded in the console),
 # #15 (git.write cherryPick, revert and reset fields), #14 (word-level changed ranges of diff
 # rows), #13, #8, #7, #6 and #4.
-PINNED_CORE_REVISION="6477e9a45085485d77bb77523d98e6d65ab0b27b"
+PINNED_CORE_REVISION="c550c2bf10b4d82d2315e737bf83a007daafaa56"
 PROFILE="debug"
 while [[ $# -gt 0 ]]; do
     case "$1" in
