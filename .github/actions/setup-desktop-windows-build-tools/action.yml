@@ -38,11 +38,12 @@ runs:
           done
         fi
         if command -v makensis >/dev/null 2>&1; then
-          makensis /VERSION
+          # Git Bash otherwise rewrites /VERSION into a path below its installation.
+          MSYS2_ARG_CONV_EXCL=/VERSION makensis /VERSION
         elif [[ -f "$nsis_x86/makensis.exe" ]]; then
-          "$nsis_x86/makensis.exe" /VERSION
+          MSYS2_ARG_CONV_EXCL=/VERSION "$nsis_x86/makensis.exe" /VERSION
         elif [[ -f "$nsis_x64/makensis.exe" ]]; then
-          "$nsis_x64/makensis.exe" /VERSION
+          MSYS2_ARG_CONV_EXCL=/VERSION "$nsis_x64/makensis.exe" /VERSION
         else
           printf '%s\n' 'NSIS installation did not provide makensis.' >&2
           exit 1

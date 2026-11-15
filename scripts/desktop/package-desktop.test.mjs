@@ -136,3 +136,45 @@ test('make core stages the GNU core on Windows', async () => {
     assert.equal(output, path.join(root, 'stage/x86_64-pc-windows-gnu'));
   });
 });
+
+test('Windows tool setup preserves the NSIS version switch in Git Bash', { timeout: 20000 }, async () => {
+  const action = await readFile(path.join(scripts, '../../.github/actions/setup-desktop-windows-build-tools/action.yml'), 'utf8');
+  const body = action.split('      run: |\n')[1].split('\n').map(line => line.slice(8)).join('\n');
+  for (const location of ['path', 'x86', 'x64']) {
+    const root = await mkdtemp(path.join(os.tmpdir(), 'lithe nsis-check-'));
+    try {
+      const bin = path.join(root, 'bin');
+      const x86 = path.join(root, 'Program Files (x86)/NSIS');
+      const x64 = path.join(root, 'Program Files/NSIS');
+      await mkdir(bin);
+      await mkdir(x86, { recursive: true });
+      await mkdir(x64, { recursive: true });
+      const nsis = location === 'path' ? path.join(bin, 'makensis') : path.join(location === 'x86' ? x86 : x64, 'makensis.exe');
+      // Model the MSYS boundary: the native compiler must receive /VERSION as an option,
+      // not a translated Git-installation path. The real native check runs in Windows.
+      const commands = {
+        gcc: 'exit 0',
+        choco: 'echo "unexpected install" >&2; exit 1',
+        cygpath: 'printf "%s\\n" "$2"',
+      };
+      for (const [name, content] of Object.entries(commands)) {
+        await writeFile(path.join(bin, name), `#!/usr/bin/env bash\n${content}\n`, { mode: 0o755 });
+      }
+      await writeFile(nsis, '#!/usr/bin/env bash\nset -eu\n[[ "${MSYS2_ARG_CONV_EXCL:-}" == /VERSION && "$#" == 1 && "$1" == /VERSION ]] || { echo "NSIS version switch was not protected from path conversion" >&2; exit 1; }\nprintf "v3.11\\n"\n', { mode: 0o755 });
+      // Force the fallback layouts even if the machine has another NSIS installation.
+      const commandLookup = location === 'path' ? '' : 'command() { if [[ "$1" == -v && "$2" == makensis ]]; then return 1; fi; builtin command "$@"; }\n';
+      const script = commandLookup + body.replaceAll('/c/Program Files (x86)/NSIS', x86).replaceAll('/c/Program Files/NSIS', x64);
+      const result = await runProcess({
+        command: 'bash', args: ['-e', '-o', 'pipefail', '-c', script], cwd: root,
+        env: { ...process.env, PATH: `${bin}${path.delimiter}${process.env.PATH}`, GITHUB_PATH: path.join(root, 'github-path'), MSYS2_ARG_CONV_EXCL: '' },
+        timeoutMs: 4000, maxCapturedBytes: 65536,
+      });
+      assert.equal(result.timedOut, false);
+      assert.equal(result.terminationConfirmed, true);
+      assert.equal(result.code, 0, `${location}: ${result.stderr}`);
+      assert.match(result.stdout, /v3\.11/);
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  }
+});

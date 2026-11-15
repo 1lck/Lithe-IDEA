@@ -26,6 +26,7 @@ Viva 桌面端要在 macOS、Windows 和 Linux 上构建，Rust Core 和 Go 桌�
 - 取消不算验证通过。当前工作流未被取消时，即使测试失败，汇总检查也必须执行并失败；不能在 shell 中把取消结果转换为成功。
 - Windows 的 Core 克隆使用 `--no-checkout`。即使克隆的 HEAD 已经等于固定修订，也必须在没有 Git 索引时检出工作树；否则 Cargo 清单不存在。这个恢复不使用 `--force`，冲突的未跟踪文件会阻止检出。已有索引的工作树如果缺少清单则报错，不静默恢复用户删除的文件。
 - Windows 的 Rust 静态库依赖 Cargo crate 提供的导入库，不能只传系统库名称给 Go 链接器。桌面构建入口读取对应 target/profile 的 Cargo 构建输出，把实际使用的导入库目录加入链接搜索路径；相同库名对应不同字节时拒绝构建，避免误用旧缓存。路径按 Go 的参数解析规则整体引用，包含空格的目录也可使用。
+- Windows 打包工具的版本检查通过 Git Bash 启动原生 NSIS 时，用单次命令的 `MSYS2_ARG_CONV_EXCL=/VERSION` 保留版本开关；否则 Git Bash 会把 `/VERSION` 转成 Git 安装目录下的路径，NSIS 误以为是安装脚本并终止。不要全局关闭路径转换，后续真实文件参数仍需要正常处理；共享工具准备 action 的 PATH、x86 与 x64 查找路径都适用这一约束。
 - 只有 Node 脚本、没有外部依赖的工作流不为了打开 `cache` 而引入不存在的 lockfile；Bun 的真实依赖缓存保留。
 
 ## 考虑过的备选方案
