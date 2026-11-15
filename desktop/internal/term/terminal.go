@@ -218,7 +218,10 @@ type Terminal struct {
 	runBuf   []rune // text decoded for the run path, reused across writes
 	nextID   uint64
 	version  uint64
-	reflow   reflow
+	// generation counts the structural changes that make line numbers name
+	// other text; see BufferGeneration.
+	generation uint64
+	reflow     reflow
 
 	parser
 }
@@ -244,6 +247,22 @@ func (t *Terminal) Size() (cols, rows int) { return t.cols, t.rows }
 // Version changes whenever anything visible may have changed: written bytes,
 // resizes and scrolling the view. The owner can skip repainting while it holds.
 func (t *Terminal) Version() uint64 { return t.version }
+
+// BufferGeneration changes when the retained line numbers stop naming the text
+// they named before: a reset, entering or leaving the alternate screen, and
+// ClearScreen. Ordinary output, which appends and scrolls, leaves it alone. An
+// owner's selection watches it to know when its points have become meaningless.
+func (t *Terminal) BufferGeneration() uint64 { return t.generation }
+
+// RetainedFrom is the oldest line the retained buffer still holds, for owners
+// that anchor to line numbers: it is where a point at or before it has to
+// start. ok is false when the buffer holds no lines at all.
+func (t *Terminal) RetainedFrom() (line uint64, ok bool) {
+	if t.bufferLineCount() == 0 {
+		return 0, false
+	}
+	return t.lineBase(), true
+}
 
 // Title is the window title the application set with OSC 0 or 2.
 func (t *Terminal) Title() string { return t.title }
@@ -348,6 +367,7 @@ func (t *Terminal) ClearScreen() bool {
 	lines[0].wrapped = false
 	t.clearHistory()
 	t.cy = 0
+	t.generation++
 	t.version++
 	return true
 }
@@ -544,6 +564,7 @@ func (t *Terminal) Reset() {
 	}
 	t.view = 0
 	t.title = ""
+	t.generation++
 	t.resetState()
 }
 

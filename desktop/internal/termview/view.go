@@ -16,10 +16,12 @@ package termview
 import (
 	"cmp"
 	"strings"
+	"sync/atomic"
 	"time"
 	"unicode/utf8"
 
 	"github.com/1lck/Lithe-IDEA/desktop/internal/localshell"
+	"github.com/1lck/Lithe-IDEA/desktop/internal/shellkind"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/term"
 	"github.com/vivaui/viva/app"
 	"github.com/vivaui/viva/gfx"
@@ -179,6 +181,8 @@ type shell interface {
 	Err() error
 	// Busy reports that the shell runs a program; it may be called from any goroutine.
 	Busy() bool
+	// Kind names the family of the program the shell runs, from its name alone.
+	Kind() shellkind.Kind
 	Close()
 }
 
@@ -218,8 +222,12 @@ type View struct {
 	cfg Config
 
 	screen *term.Terminal
-	shell  shell
-	rx     []byte // scratch the shell's output is drained into
+	// owner is the view's number in the text identities its rows are painted with (see
+	// paintGrid). Line IDs are only unique within one screen, so two terminals painted
+	// in one frame need different owners.
+	owner uint32
+	shell shell
+	rx    []byte // scratch the shell's output is drained into
 	// ended is true once a shell finished or failed to start. Enter starts a new one.
 	ended bool
 	// closed is true after Close: the view starts no shell again.
@@ -244,9 +252,12 @@ type View struct {
 	cache   rowCache
 
 	selection terminalSelection
-	find      findState
-	blink     cursorBlink
-	bar       barState
+	// generation is the screen's buffer generation the selection was last reconciled
+	// with (see reconcileSelection).
+	generation uint64
+	find       findState
+	blink      cursorBlink
+	bar        barState
 
 	// preedit is the input method's composition, drawn over the cursor's cells.
 	preedit app.TextState
@@ -268,6 +279,19 @@ type View struct {
 	clock time.Duration
 }
 
+// owners numbers the views for their text identities.
+var owners atomic.Uint32
+
+// nextOwner is a new view's owner number. Zero means no identity to Viva, so it is never
+// handed out, even after the count wraps.
+func nextOwner() uint32 {
+	for {
+		if owner := owners.Add(1); owner != 0 {
+			return owner
+		}
+	}
+}
+
 // New makes a terminal view. Its shell starts at the first paint, once the grid's size is
 // known.
 func New(cfg Config) *View {
@@ -286,11 +310,13 @@ func New(cfg Config) *View {
 	v := &View{
 		cfg:    cfg,
 		screen: term.New(80, 24, cmp.Or(cfg.Scrollback, scrollbackLines)),
+		owner:  nextOwner(),
 		layout: geometry{cols: 80, rows: 24},
 		font:   DefaultFont(),
 	}
 	if cfg.Prefill != "" {
 		v.screen.Write([]byte(strings.ReplaceAll(strings.ReplaceAll(cfg.Prefill, "\r\n", "\n"), "\n", "\r\n") + "\r\n"))
+		v.generation = v.screen.BufferGeneration()
 	}
 	return v
 }
