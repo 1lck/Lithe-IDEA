@@ -181,10 +181,8 @@ func (a *App) drawLogReferences(c ui.C, p *project) ui.Box {
 		})
 		ui.Divider(c)
 		ui.Tree(c, &v.refs, len(v.refItems), v.refLabel, func(i int) {
-			a.logRefPointer(c, p, i)
-			a.drawLogRefContent(c, v.refItems[i])
+			a.drawLogRefContent(c, p, v.refs.RowID(i), v.refItems[i])
 		}).Scrollbars().Grow(1).PadY(4)
-		a.drawLogRefMenu(c, p)
 		if i, ok := v.refs.Toggled(); ok {
 			c.After(func() { a.toggleLogRef(p, v.refItems[i], query) })
 		}
@@ -279,8 +277,9 @@ func (v *logView) refNode(i int) ui.TreeNode {
 // refRowLabel is the accessible name of row i of the reference pane.
 func (v *logView) refRowLabel(i int) string { return v.refItems[i].label }
 
-// drawLogRefContent declares what a row of the reference pane shows after its arrow.
-func (a *App) drawLogRefContent(c ui.C, r logRefRow) {
+// drawLogRefContent declares what row of the reference pane shows after its arrow. The name of
+// a reference of the repository the log walks labels the row and carries the reference's menu.
+func (a *App) drawLogRefContent(c ui.C, p *project, row gfx.ID, r logRefRow) {
 	switch r.kind {
 	case logRefSection:
 		ui.Text(c, r.label).Weight(gfx.WeightMedium).Ellipsis().Grow(1)
@@ -311,7 +310,10 @@ func (a *App) drawLogRefContent(c ui.C, r logRefRow) {
 			trailing = strings.TrimSpace(trailing + " ↓" + strconv.Itoa(ref.Behind))
 		}
 		ui.Icon(c, icon).Size(14, 14).Color(referenceColor(kind, a.colors.Dark))
-		ui.Text(c, r.label).Ellipsis().Grow(1)
+		name := ui.Text(c, r.label).Ellipsis().Grow(1)
+		if r.kind == logRefReference {
+			a.drawLogRefMenu(c, name.LabelFor(row), p, *ref)
+		}
 		if trailing != "" {
 			ui.Text(c, trailing).Muted().FontSize(a.theme.Metrics.FontSizeS).Shrink(0)
 		}

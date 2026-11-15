@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"github.com/1lck/Lithe-IDEA/desktop/internal/core"
+	"github.com/vivaui/viva/gfx"
 )
 
 // stubTreeTrash replaces the system trash for one test and returns the paths moved to it, so a
@@ -72,6 +73,29 @@ func TestProjectTreeCopyPathSubmenu(t *testing.T) {
 	h.clickNamed(h.shared("native.copyRelativePath"))
 	if got := h.driver.Clipboard(); got != "a" {
 		t.Fatalf("copied relative path %q, want a", got)
+	}
+}
+
+// The name of a tree row labels its row: it is no stop of its own for Tab, and the row's menu
+// opens from the empty part of the row past the name, acting on that row.
+func TestProjectTreeRowMenuOpensPastTheName(t *testing.T) {
+	root := t.TempDir()
+	writeTreeFiles(t, root, "a.txt", "b.txt")
+	h := newHarness(t, &testKernel{Client: core.NewClient()})
+	p := h.openTree(t, root)
+
+	row, name := h.treeRowHit("b.txt"), h.treeNameHit("b.txt")
+	if !name.IsLabel || name.ID != row.ID || name.Focusable {
+		t.Fatalf("the name hit is %+v, want a label of row %v that takes no focus", name, row.ID)
+	}
+	if err := h.driver.ClickButton(row.Bounds.X+row.Bounds.Width-20, row.Bounds.Y+row.Bounds.Height/2, gfx.PointerButtonSecondary); err != nil {
+		t.Fatal(err)
+	}
+	h.settle()
+	h.click(center(h.popupHit(h.shared("desktop.files.delete"))))
+	h.settle()
+	if !p.tree.removal.open || !slices.Equal(p.tree.removal.paths, []string{"b.txt"}) {
+		t.Fatalf("Delete from the right-click past the name opened %+v, want the dialog for b.txt", p.tree.removal)
 	}
 }
 

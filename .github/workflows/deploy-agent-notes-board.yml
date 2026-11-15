@@ -3,7 +3,7 @@ name: Deploy Agent Notes Board
 on:
   push:
     branches:
-      - preview
+      - main
   workflow_dispatch:
 
 permissions:
@@ -33,6 +33,9 @@ jobs:
       - name: Verify Agent Notes
         run: node scripts/agent-notes/verify-agent-notes.mjs
 
+      - name: Generate platform feature matrix
+        run: node scripts/platform-feature-matrix/generate-platform-feature-matrix.mjs
+
       - name: Build complete public board
         run: |
           set -euo pipefail
@@ -42,6 +45,7 @@ jobs:
             .agents/notes \
             "$RUNNER_TEMP/lithe-agent-notes-site/index.html" \
             "Lithe 工程决策看板"
+          cp -R .artifacts/platform-feature-matrix "$RUNNER_TEMP/lithe-agent-notes-site/platform-feature-matrix"
           touch "$RUNNER_TEMP/lithe-agent-notes-site/.nojekyll"
 
       - name: Configure GitHub Pages

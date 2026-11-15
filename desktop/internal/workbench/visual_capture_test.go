@@ -6,6 +6,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -15,6 +16,7 @@ import (
 	"github.com/1lck/Lithe-IDEA/desktop/internal/localshell"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/store"
 	"github.com/vivaui/viva/app"
+	"github.com/vivaui/viva/gfx"
 	"github.com/vivaui/viva/headless"
 )
 
@@ -369,6 +371,53 @@ func TestVisualNewProjectFieldDescriptions(t *testing.T) {
 	}
 }
 
+// TestVisualNewProjectAdvancedSettings captures a generator form with its
+// "Advanced Settings" group closed and open, so the chevron of each state shows.
+// It needs only LITHE_VISUAL_OUTPUT_DIR.
+func TestVisualNewProjectAdvancedSettings(t *testing.T) {
+	out := os.Getenv("LITHE_VISUAL_OUTPUT_DIR")
+	if out == "" {
+		t.Skip("set LITHE_VISUAL_OUTPUT_DIR")
+	}
+	if err := os.MkdirAll(out, 0755); err != nil {
+		t.Fatal(err)
+	}
+	for _, theme := range []string{"dark", "light"} {
+		for _, language := range []string{"zh-Hans", "en-US"} {
+			t.Run(theme+"-"+language, func(t *testing.T) {
+				var session *headless.Session
+				prefs := store.At(t.TempDir())
+				if err := prefs.Save(settingsFile, map[string]string{"theme": theme}); err != nil {
+					t.Fatal(err)
+				}
+				h := newHarnessWithDriver(t, Options{Kernel: &testKernel{Client: core.NewClient()}, Store: prefs, Languages: []string{language}}, func(config app.Config) (*app.Driver, func(), error) {
+					config.Width, config.Height = 800, 682
+					config.MinWidth = 800
+					var err error
+					session, err = headless.Open(config, nil, headless.Options{})
+					if err != nil {
+						return nil, nil, err
+					}
+					return session.Driver(), session.Close, nil
+				})
+				h.offerGenerators(advancedGeneratorPlugin(t))
+				h.openNewProjectSheet()
+				h.chooseGenerator("Tuned", "dev.lithe.test.advanced/tuned")
+				advanced := i18n.Shared(h.app.language(), "desktop.newProject.advanced")
+				for _, state := range []string{"closed", "open"} {
+					if state == "open" {
+						h.clickNamed(advanced)
+						h.await("the advanced field", func() bool { return h.shows("Level") })
+					}
+					if err := session.Screenshot(filepath.Join(out, "new-project-advanced-"+state+"-"+theme+"-"+language+".png")); err != nil {
+						t.Fatal(err)
+					}
+				}
+			})
+		}
+	}
+}
+
 // TestVisualDebugAnnouncedAdapterExitedFirst captures the debug view after a synthetic
 // tcpAnnounced adapter exited before it announced its port: the session ends and the
 // view shows why. It needs only LITHE_VISUAL_OUTPUT_DIR.
@@ -412,6 +461,80 @@ func TestVisualDebugAnnouncedAdapterExitedFirst(t *testing.T) {
 					t.Fatalf("tips still shown: %+v", tips)
 				}
 				if err := session.Screenshot(filepath.Join(out, "debug-announced-exited-"+theme+"-"+language+".png")); err != nil {
+					t.Fatal(err)
+				}
+			})
+		}
+	}
+}
+
+// TestVisualRowMenuPastTheName captures the context menu of a project tree row and of a Git
+// reference row, each opened by a right-click on the empty part of the row past its name: the
+// name labels its row, so the whole row carries the menu. It needs only LITHE_VISUAL_OUTPUT_DIR.
+func TestVisualRowMenuPastTheName(t *testing.T) {
+	out := os.Getenv("LITHE_VISUAL_OUTPUT_DIR")
+	if out == "" {
+		t.Skip("set LITHE_VISUAL_OUTPUT_DIR")
+	}
+	if err := os.MkdirAll(out, 0755); err != nil {
+		t.Fatal(err)
+	}
+	// rightClickPastTheName right-clicks row near its right end, well past the name it starts
+	// with.
+	rightClickPastTheName := func(h *harness, row gfx.Rect) {
+		t.Helper()
+		if err := h.driver.ClickButton(row.X+row.Width-24, row.Y+row.Height/2, gfx.PointerButtonSecondary); err != nil {
+			t.Fatal(err)
+		}
+		h.settle()
+	}
+	for _, theme := range []string{"dark", "light"} {
+		for _, language := range []string{"zh-Hans", "en-US"} {
+			open := func(t *testing.T, kernel Kernel) (*harness, *headless.Session) {
+				var session *headless.Session
+				prefs := store.At(t.TempDir())
+				if err := prefs.Save(settingsFile, map[string]string{"theme": theme}); err != nil {
+					t.Fatal(err)
+				}
+				h := newHarnessWithDriver(t, Options{Kernel: kernel, Store: prefs, Languages: []string{language}}, func(config app.Config) (*app.Driver, func(), error) {
+					config.Width, config.Height = 1000, 640
+					var err error
+					session, err = headless.Open(config, nil, headless.Options{})
+					if err != nil {
+						return nil, nil, err
+					}
+					return session.Driver(), session.Close, nil
+				})
+				return h, session
+			}
+			t.Run("tree-"+theme+"-"+language, func(t *testing.T) {
+				root := t.TempDir()
+				writeTreeFiles(t, root, "src/main.txt", "notes.txt", "readme.txt")
+				h, session := open(t, &testKernel{Client: core.NewClient()})
+				h.openTree(t, root)
+				rightClickPastTheName(h, h.treeRowHit("notes.txt").Bounds)
+				if !h.hasPopupItem(h.shared("desktop.files.delete")) {
+					t.Fatal("the right-click past the name of notes.txt opened no menu")
+				}
+				if err := session.Screenshot(filepath.Join(out, "tree-row-menu-past-name-"+theme+"-"+language+".png")); err != nil {
+					t.Fatal(err)
+				}
+			})
+			t.Run("gitlog-"+theme+"-"+language, func(t *testing.T) {
+				dir := newTestRepository(t)
+				gitRun(t, dir, "branch", "topic")
+				h, session := open(t, gitKernel{core.NewClient()})
+				h.openLog(t, dir)
+				v := &h.app.logView
+				i := slices.IndexFunc(v.refItems, func(r logRefRow) bool { return r.kind == logRefReference && r.short == "topic" })
+				if i < 0 {
+					t.Fatal("the reference pane shows no row of topic")
+				}
+				rightClickPastTheName(h, h.topHit(v.refs.RowID(i)))
+				if item := h.app.text.Branch.NewBranchFrom("topic"); !h.hasPopupItem(item) {
+					t.Fatal("the right-click past the name of topic opened no menu")
+				}
+				if err := session.Screenshot(filepath.Join(out, "gitlog-ref-menu-past-name-"+theme+"-"+language+".png")); err != nil {
 					t.Fatal(err)
 				}
 			})

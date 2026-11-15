@@ -2,11 +2,11 @@ name: Desktop CI
 
 on:
   pull_request:
+    branches: [main]
     # ready_for_review runs the macOS lane that drafts defer.
     types: [opened, synchronize, reopened, ready_for_review]
   push:
     branches:
-      - preview
       - main
   workflow_dispatch:
 
@@ -47,6 +47,8 @@ jobs:
     steps:
       - name: Check out source
         uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
 
       - name: Set up Go
         uses: actions/setup-go@v7
@@ -96,6 +98,19 @@ jobs:
           node scripts/i18n/generate-i18n.mjs --check
           node --test --test-timeout=60000 scripts/i18n/test-i18n.mjs
 
+      - name: Verify repository metadata
+        run: |
+          ./scripts/platform-feature-matrix/verify-platform-feature-matrix.sh
+          ./scripts/agent-notes/verify-agent-notes.sh
+
+      - name: Require capability records for platform changes
+        if: github.event_name == 'pull_request'
+        env:
+          MATRIX_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          MATRIX_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          MATRIX_UPDATE_EXEMPT: ${{ contains(github.event.pull_request.labels.*.name, 'matrix-exempt') }}
+        run: ./scripts/platform-feature-matrix/verify-platform-feature-matrix-change.sh
+
       - name: Check installed resource paths
         run: |
           ./scripts/desktop/verify/verify-runtime-bundle-immutability.sh
@@ -107,7 +122,8 @@ jobs:
             scripts/release/notes/test-validate-stable-release-notes.mjs \
             scripts/desktop/package-desktop.test.mjs \
             scripts/desktop/perf/editor-perf-report.test.mjs \
-            scripts/ci/cancel-closed-pr-runs/cancel-closed-pr-runs.test.mjs
+            scripts/ci/cancel-closed-pr-runs/cancel-closed-pr-runs.test.mjs \
+            scripts/ci/desktop-ci/verify-ci-gate.test.mjs
 
   linux-test:
     name: Vet and test on Linux
@@ -126,7 +142,7 @@ jobs:
 
       - name: Set up Rust
         id: rust
-        uses: dtolnay/rust-toolchain@stable
+        uses: dtolnay/rust-toolchain@1.100.0
 
       - name: Restore the core build
         uses: actions/cache@v6
@@ -177,7 +193,7 @@ jobs:
 
       - name: Set up Rust
         id: rust
-        uses: dtolnay/rust-toolchain@stable
+        uses: dtolnay/rust-toolchain@1.100.0
 
       - name: Restore the core build
         uses: actions/cache@v6
@@ -231,7 +247,7 @@ jobs:
 
       - name: Set up Rust
         id: rust
-        uses: dtolnay/rust-toolchain@stable
+        uses: dtolnay/rust-toolchain@1.100.0
         with:
           targets: x86_64-pc-windows-gnu
 
@@ -279,3 +295,21 @@ jobs:
           path: .artifacts/test-stability/core-cache.junit.xml
           if-no-files-found: warn
           retention-days: 14
+
+  gate:
+    name: Desktop CI gate
+    needs: [pins, linux, linux-test, macos, windows]
+    # Aggregate failures as well as successes; missing dependencies fail closed.
+    if: always()
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 20
+      - name: Require every selected lane to pass
+        env:
+          CI_NEEDS: ${{ toJSON(needs) }}
+          CI_DRAFT: ${{ github.event_name == 'pull_request' && github.event.pull_request.draft == true }}
+        run: node scripts/ci/desktop-ci/verify-ci-gate.mjs

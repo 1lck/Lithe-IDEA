@@ -61,7 +61,7 @@ AI coding tools can change many files at once. Reviewing that work still means r
 
 Lithe is a general-purpose IDE designed to keep resource use low and add capabilities through plugins. Its workbench brings together project browsing, editing, search, Git review, and terminals. Installed plugins connect language intelligence, build tools, run targets, and debuggers.
 
-The current `preview` branch is developing a unified desktop client built with **Viva (Go) and Rust Core**. macOS, Windows, and Linux share the workbench code, with adapters for system integration. Feature migration and platform validation are still in progress; check the [feature matrix and decision board](https://1lck.github.io/Lithe-IDEA/) for status. The old client's feature list is not a promise of complete support in the new client.
+The current `main` branch is developing a unified desktop client built with **Viva (Go) and Rust Core**. macOS, Windows, and Linux share the workbench code, with adapters for system integration. Feature migration and platform validation are still in progress; check the [feature matrix and decision board](https://1lck.github.io/Lithe-IDEA/) for status. The old client's feature list is not a promise of complete support in the new client.
 
 Language servers, plugin backends, build tools, and debuggers start when needed. Memory use depends on the project, open content, and enabled plugins; measurements from the old client do not describe the current preview.
 
@@ -167,7 +167,7 @@ Manage agent instructions, skills, hooks, and MCP configuration, and inspect run
 
 ## Download and install
 
-The Viva client on this branch is still being migrated. Published stable and AutoBuild releases may use the earlier client. Read the [release notes](https://github.com/1lck/Lithe-IDEA/releases) for the client architecture, platforms, and plugin compatibility. Homebrew follows published versions, not the current `preview` source; use the development instructions below to run this branch.
+The Viva client on this branch is still being migrated. Published stable and AutoBuild releases may use the earlier client. Read the [release notes](https://github.com/1lck/Lithe-IDEA/releases) for the client architecture, platforms, and plugin compatibility. Homebrew follows published versions, not the current `main` source; use the development instructions below to run this branch.
 
 - **macOS 13+:** Download the `arm64` DMG for Apple silicon or the `x86_64` DMG for Intel Macs from [GitHub Releases](https://github.com/1lck/Lithe-IDEA/releases/latest).
 - **Windows x64:** Download the Windows `.exe` installer from [GitHub Releases](https://github.com/1lck/Lithe-IDEA/releases/latest).

@@ -8,18 +8,19 @@ CI 构建缓存、架构并行、测试产物和 artifact 保留策略见
 
 | 工作流 | 触发 | 内容 |
 | --- | --- | --- |
-| **Desktop CI**（`desktop-ci.yml`） | PR（Draft 只跑 Linux 作业，`ready_for_review` 时补跑完整矩阵）、推送到 `preview`、手动运行 | `pins` 校验固定版本；`linux`（Format and script tests）运行 gofmt、ShellCheck、本地化校验、安装资源路径检查和脚本测试；`linux-test` 通过 `scripts/desktop/check.sh` 运行 Linux 的 vet 和测试；`macos`（`macos-26`）、`windows`（`windows-2022`）同样运行 vet 和测试，只在非 Draft 时执行 |
+| **Desktop CI**（`desktop-ci.yml`） | PR（Draft 只跑 Linux 作业，`ready_for_review` 时补跑完整矩阵）、推送到 `main`、手动运行 | `pins` 校验固定版本；`linux`（Format and script tests）运行 gofmt、ShellCheck、本地化校验、安装资源路径检查和脚本测试；`linux-test` 通过 `scripts/desktop/check.sh` 运行 Linux 的 vet 和测试；`macos`（`macos-26`）、`windows`（`windows-2022`）同样运行 vet 和测试，只在非 Draft 时执行 |
 | **Desktop Release**（`desktop-release.yml`） | 推送 `desktop-v*.*.*` 标签，或手动运行并填写版本 | 打包并校验 macOS、Windows、Linux 产物，核对校验和，然后创建或更新 GitHub prerelease。手动版本必须与 `desktop/viva.toml` 中的版本一致 |
 | **Desktop AutoBuild**（`desktop-autobuild.yml`） | 每天 UTC 10:00 定时，或手动运行 | 构建 macOS arm64、Windows x64、Linux x64 和 arm64，发布到滚动预发布 `desktop-AutoBuild`。同一提交已经发布时，定时运行不会重复构建 |
 
 - Draft PR 只运行 Linux 检查：macOS 和 Windows 作业带有 `draft == false` 条件。标记为 ready 后，才运行完整的 Desktop CI。
+- `Desktop CI gate` 汇总固定版本、Linux 格式与脚本、Linux 测试、macOS 测试和 Windows 测试；普通 PR 必须全部成功，Draft 只允许跳过 macOS 和 Windows。更换已有 PR 的目标分支后，保留 Draft 状态；需要评审时标记为 ready 以针对新基线重新运行完整检查。单纯修改标题或正文不触发平台 runner。
 - Desktop CI 通过 `scripts/desktop/check.sh` 执行 Go 检查，Rust 内核由 `scripts/desktop/build-desktop-core.sh` 按 `PINNED_CORE_REVISION` 固定的 Lithe-core-rust 修订构建。
 - Desktop Release 的打包脚本是 `scripts/ci/desktop-release/package-release.sh`，AutoBuild 的打包和发布脚本位于 `scripts/ci/desktop-autobuild/`。
 - 本地复现与 CI 相同的检查见 [`desktop-getting-started.md`](development/desktop-getting-started.md) 的“提交前检查”。
 
 ### AutoBuild 每日发布
 
-`desktop-autobuild.yml` 每天 UTC 10:00（北京时间 18:00）定时运行，也可以在 Actions 页手动运行，并通过 `source_branch` 选择要构建的分支（默认 `preview`）。定时任务使用默认分支 `main` 上的工作流文件，构建的源码由 `source_branch` 决定。因此修复发布工作流必须合入 `main`；只改 `preview` 不会更新每天执行的流程。
+`desktop-autobuild.yml` 每天 UTC 10:00（北京时间 18:00）定时运行，也可以在 Actions 页手动运行，并通过 `source_branch` 选择要构建的分支（默认 `main`）。定时任务使用默认分支 `main` 上的工作流文件，并构建 `main` 的源码；手动运行可以通过 `source_branch` 覆盖源码分支。工作流修复通过 PR 直接合入 `main`。
 
 流程分三步：
 
@@ -29,13 +30,13 @@ CI 构建缓存、架构并行、测试产物和 artifact 保留策略见
 
 正式版由 `desktop-release.yml` 发布：推送 `desktop-v*.*.*` 标签，或手动运行并填写与 `desktop/viva.toml` 一致的版本。它打包并校验三个平台的产物后创建 prerelease，与 AutoBuild 的 Release 互不替换。
 
-合并修复后，可等待下一次定时任务，或由仓库所有者手动重新构建并发布：
+合并修复后，可等待下一次定时任务，或由仓库所有者及 `LITHE_RELEASE_ACTOR` 中的授权发布者手动重新构建并发布：
 
 ```bash
 gh workflow run desktop-autobuild.yml \
   --repo 1lck/Lithe-IDEA \
   --ref main \
-  -f source_branch=preview
+  -f source_branch=main
 ```
 
 不要直接重跑旧的失败任务，它仍然使用旧的工作流文件。确认各平台 build job 与 publish job 均成功后，再检查 `desktop-AutoBuild` Release 的更新时间和资产。

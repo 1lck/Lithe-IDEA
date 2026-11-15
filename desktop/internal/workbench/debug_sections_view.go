@@ -158,14 +158,12 @@ func (a *App) debugVariablesTree(c ui.C, p *project) {
 	rows := v.flatten()
 	ui.Tree(c, &v.tree, len(rows), v.label, func(i int) {
 		node := rows[i]
-		a.debugVariablePointer(c, p, i, node)
 		if node.moreFor != nil {
 			a.debugVariableStatusRow(c, node, t.LoadingVariables, t.LoadMore)
 			return
 		}
-		a.debugVariableRow(c, node)
+		a.debugVariableRow(c, p, v.tree.RowID(i), node)
 	}).Scrollbars().Grow(1).FillWidth()
-	a.debugVariableMenu(c, p)
 	if i, ok := v.tree.Toggled(); ok && i < len(rows) {
 		node := rows[i]
 		c.After(func() {
@@ -184,7 +182,7 @@ func (a *App) debugVariablesTree(c ui.C, p *project) {
 
 // debugVariableRow declares one variable as IntelliJ IDEA writes it, "name = {type} value", after
 // an icon that tells a value with children from a plain one. A scope is its name alone.
-func (a *App) debugVariableRow(c ui.C, node *debugVarNode) {
+func (a *App) debugVariableRow(c ui.C, p *project, row gfx.ID, node *debugVarNode) {
 	icon := icons.Variable
 	switch {
 	case node.scope:
@@ -193,7 +191,8 @@ func (a *App) debugVariableRow(c ui.C, node *debugVarNode) {
 		icon = icons.Braces
 	}
 	ui.Icon(c, icon).Size(treelist.Icon, treelist.Icon).Shrink(0).Color(a.colors.Subtle)
-	ui.Text(c, node.name).Shrink(0).FontSize(12.5).Color(treelist.Text(a.colors.Dark)).Weight(gfx.WeightMedium)
+	name := ui.Text(c, node.name).Shrink(0).FontSize(12.5).Color(treelist.Text(a.colors.Dark)).Weight(gfx.WeightMedium).LabelFor(row)
+	a.debugVariableMenu(c, name, p, node)
 	if node.scope || (node.value == "" && node.typeName == "") {
 		return
 	}

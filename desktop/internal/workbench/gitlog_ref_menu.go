@@ -6,7 +6,6 @@ import (
 	"github.com/1lck/Lithe-IDEA/desktop/internal/core"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/i18n"
 	"github.com/vivaui/viva/app"
-	"github.com/vivaui/viva/gfx"
 	"github.com/vivaui/viva/ui"
 )
 
@@ -49,37 +48,11 @@ type historyIntegrateState struct {
 	root string
 }
 
-// logRefPointer opens the reference menu of row i of the reference pane when it is pressed with
-// the secondary button. A Tree has no menu of its own rows, so the press is read on the row.
-func (a *App) logRefPointer(c ui.C, p *project, i int) {
-	v := &a.logView
-	row := v.refItems[i]
-	canvas := c.Canvas()
-	if row.kind != logRefReference || row.ref == nil || canvas == nil {
-		return
-	}
-	event, ok := canvas.PointerOn(v.refs.RowID(i))
-	if !ok || event.Kind != gfx.PointerDown || event.Button != gfx.PointerButtonSecondary {
-		return
-	}
-	canvas.Consume()
-	v.refMenu, v.refMenuAt, v.refMenuRef = true, ui.Rect{X: event.X, Y: event.Y}, *row.ref
-	v.refMenuRoot = p.logRepositoryRoot()
-}
-
-// drawLogRefMenu declares the reference menu while it is open.
-func (a *App) drawLogRefMenu(c ui.C, p *project) {
-	v := &a.logView
-	if !v.refMenu {
-		return
-	}
-	if v.refMenuRoot != p.logRepositoryRoot() {
-		// The log walks another repository now; the reference is not one of it.
-		v.refMenu = false
-		return
-	}
-	ui.MenuAt(c.Key("log-ref-menu"), v.refMenuAt.X, v.refMenuAt.Y, &v.refMenu, func(menu *ui.MenuItems) {
-		a.drawLogRefMenuItems(c, menu, p, v.refMenuRef)
+// drawLogRefMenu gives the name of a reference row the menu of reference r, which opens from
+// the name or anywhere on its row, with Shift+F10 too while the row has the focus.
+func (a *App) drawLogRefMenu(c ui.C, name ui.Box, p *project, r core.GitReference) {
+	ui.ContextMenu(c, name, func(menu *ui.MenuItems) {
+		a.drawLogRefMenuItems(c, menu, p, r)
 	})
 }
 
