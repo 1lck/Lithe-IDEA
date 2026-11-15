@@ -35,6 +35,9 @@ func (a *App) terminalFailed(f termview.Failure) {
 	if f.Stage != "" {
 		fields["stage"] = f.Stage
 	}
+	if f.Operation != "" {
+		fields["operation"] = f.Operation
+	}
 	a.emit(level, f.Event, fields)
 }
 

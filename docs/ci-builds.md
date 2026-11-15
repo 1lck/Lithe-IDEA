@@ -209,6 +209,18 @@ Viva 的 `app.RegisterFont` 把字型按内容摘要暂存到用户缓存目录�
 不安装到用户字体库，不修改 bundle，不影响增量更新的发布基线。带标签运行
 `desktop-go.sh test -tags lithe_bundled_fonts ./internal/bundledfont/` 核对嵌入内容与真实注册的字体族。
 
+Windows 本地终端使用的 ConPTY 二进制位于 Git 跟踪的 `desktop/internal/localshell/conpty`：
+Microsoft.Windows.Console.ConPTY 1.25.260930003（microsoft/terminal v1.25.2733.0，MIT）中未修改的
+`conpty.dll`（win-x64、win-arm64）和 `OpenConsole.exe`（x64、arm64），连同许可 `LICENSE.txt`。
+每个文件和 nupkg 的 SHA-256 记录于 `NOTICE.md`，`TestTheConPTYFolderMatchesItsNotice` 核对哈希和 PE 机器类型。
+`conpty.dll` 跟随程序架构，`OpenConsole.exe` 跟随系统内核架构，所以 x64 构建同时嵌入 arm64 的控制台宿主。
+Go 构建在 windows/amd64 和 windows/arm64 上用 `go:embed` 把它们编译进可执行文件，安装目录里没有 ConPTY 文件，
+签名基线和增量更新不受影响。进程第一次打开终端时，客户端把本架构的文件写到
+`<user cache>/Lithe/conpty/<digest>/`（`%LocalAppData%\Lithe\conpty\`），目录按文件集摘要命名，已有相同字节就不再写；
+写入或加载失败时回退系统自带 ConPTY，并记录 `app.background.operation_failed`（operation `terminal_conpty`）。
+旧摘要目录不删除，因为另一个版本的运行中客户端可能已加载它。它们随工作树检出，不从另一个工作树的产物、
+已安装客户端或该缓存复用；注册表将 `windows-conpty-binaries` 排除，复用脚本拒绝复制。
+
 以下目录不应直接复制或跨工作树共享：
 
 - 插件运行的临时文件：`<system-temp>/lithe-run-<random>/`。插件在 `run/start` 的

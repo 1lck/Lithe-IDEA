@@ -67,6 +67,11 @@ type Config struct {
 	// Notify is called after output arrives and when the shell ends, from any
 	// goroutine; it must not block.
 	Notify func()
+	// Degraded, when not nil, is told why the shell runs on a fallback, during
+	// Start and on its goroutine. On Windows it is the bundled ConPTY that could
+	// not be installed, loaded or create the console; the inbox ConPTY then hosts
+	// the shell, which re-renders the program's output.
+	Degraded func(error)
 }
 
 // backend is one platform's pseudo-terminal and the process on it.

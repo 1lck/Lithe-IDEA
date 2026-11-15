@@ -285,6 +285,20 @@ try {
     assert.notEqual(rejected.status, 0);
     assert.match(rejected.stderr, /bundled-ui-fonts is isolated/);
   });
+  await test("Windows ConPTY binaries come from Git and cannot be copied from worktree artifacts", { timeout: 15000 }, async () => {
+    const listed = run(process.execPath, [reuseScript, "--list"]);
+    assertSucceeded(listed);
+    assert.ok(!listed.stdout.includes("windows-conpty-binaries"));
+    const registry = JSON.parse(await fs.readFile(path.join(scriptDirectory, "worktree-resources.json"), "utf8"));
+    const conpty = registry.excludedResources.find(resource => resource.id === "windows-conpty-binaries");
+    assert.equal(conpty.reusable, false);
+    assert.match(conpty.identity, /Microsoft\.Windows\.Console\.ConPTY 1\.25\.260930003/);
+    assert.ok(conpty.locations.includes("desktop/internal/localshell/conpty"));
+    assert.ok(conpty.locations.some(location => location.startsWith("<user cache>/Lithe/conpty/<digest>")));
+    const rejected = run(process.execPath, [reuseScript, "--source", sourceRoot, "--resource", "windows-conpty-binaries"]);
+    assert.notEqual(rejected.status, 0);
+    assert.match(rejected.stderr, /windows-conpty-binaries is isolated/);
+  });
   await test("AutoBuild application publication staging is validated and never reused", { timeout: 15000 }, async () => {
     const registry = JSON.parse(await fs.readFile(path.join(scriptDirectory, "worktree-resources.json"), "utf8"));
     const resource = registry.excludedResources.find(item => item.id === "autobuild-publication-staging");

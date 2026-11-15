@@ -29,6 +29,10 @@ func (v *View) start() {
 		Cols: cols, Rows: rows,
 		Shell: v.cfg.Shell, Args: args,
 		Dir: v.cfg.Dir, Env: v.cfg.Env, Unset: v.cfg.Unset, Notify: v.cfg.Notify,
+		// The shell still runs; the log is the only place that says it runs degraded.
+		Degraded: func(err error) {
+			v.failed(Failure{Event: eventBackgroundFailed, Operation: operationConPTY, Warn: true, Err: err})
+		},
 	})
 	if err != nil {
 		v.ended = true
