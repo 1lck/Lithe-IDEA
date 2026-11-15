@@ -8144,7 +8144,7 @@
     },
     {
       "id": "desktop.debug.invalidEndpoint",
-      "description": "The debug adapter endpoint was outside the valid port range",
+      "description": "The debug adapter endpoint was outside the valid port range, or the address the adapter printed is malformed or not on this computer",
       "platforms": [
         "desktop"
       ]
@@ -8319,6 +8319,13 @@
     {
       "id": "desktop.debug.noVariables",
       "description": "Variables section when the debuggee is not paused or the frame has no variables",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.debug.notAnnounced",
+      "description": "A debug adapter that should print the port it listens on exited before printing it",
       "platforms": [
         "desktop"
       ]

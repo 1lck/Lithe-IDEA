@@ -44,9 +44,13 @@ type preparedDebugLaunch struct {
 	DisabledCapabilities []string
 	Features             json.RawMessage
 	Defaults             json.RawMessage
+	// Endpoint is the plan's endpoint descriptor, passed unchanged to Core when
+	// it reads the output of a tcpAnnounced adapter for its announcement.
+	Endpoint json.RawMessage
 }
 
-// resolveAdapterProcess resolves the program of a stdio adapter from Core's plan:
+// resolveAdapterProcess resolves the program of a stdio or tcpAnnounced adapter
+// from Core's plan:
 // a packaged file, a system command, or a tool the toolchain registry resolves.
 // Packaged paths are verified against the installed package, never the workspace.
 func (a *App) resolveAdapterProcess(ctx context.Context, adapter debugAdapter, plan core.PluginBackendPlan, root, stateDirectory string) (string, []string, map[string]string, error) {
@@ -247,6 +251,7 @@ func (a *App) prepareDebugLaunch(ctx context.Context, start debugStart, stateDir
 		prepared.DisabledCapabilities = descriptor.DisabledCapabilities
 		prepared.Features = descriptor.Features
 		prepared.Defaults = descriptor.Defaults
+		prepared.Endpoint = descriptor.Endpoint
 	}
 	return prepared, ctx.Err()
 }
