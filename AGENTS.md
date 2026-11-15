@@ -8,7 +8,7 @@
 
 如果任务会创建新插件，或为已有插件新增语言服务器、后端、构建、VCS、调试等提供者，开始前还要加载 `.agents/skills/create-lithe-plugin/SKILL.md`。该 Skill 给出当前契约、SDK 和示例的参考地址，规定插件必须完成的日志接线和验收要求。
 
-如果任务会为 Lithe 应用或插件确定版本号，或者准备、验证、发布 Lithe 稳定版，修改发布说明、版本元数据、标签或发布工作流前，还要加载 `.agents/skills/release-lithe/SKILL.md`。
+如果任务会为 Lithe 应用或插件确定版本号，准备任何桌面端发布（`desktop-v*` 预发布版或稳定版），或者准备、验证、发布 Lithe 稳定版，修改发布说明、版本元数据、标签或发布工作流前，还要加载 `.agents/skills/release-lithe/SKILL.md`。
 
 如果任务会整理问题报告、提出功能建议、准备 Issue 草稿或提交 GitHub Issue，开始前还要加载 `.agents/skills/submit-lithe-issue/SKILL.md`。该 Skill 规定信息追问、诊断采集与脱敏、查重，以及严格遵循仓库 Issue 模板的提交流程；gh 不支持 YAML 表单时按表单字段逐项生成正文提交，不得提交空白或缺字段的正文，不得伪造表单来源标记。
 
@@ -75,10 +75,11 @@ Windows 本地构建、测试、调试和交互验收默认使用本机虚拟机
 Viva 由 `desktop/go.mod` 的 `replace` 固定到 [Lithe-IDEA/viva](https://github.com/Lithe-IDEA/viva) `main` 上的一个 commit，发版只认这个 commit。
 
 - Viva 的问题在 fork 修复，合进 fork `main` 后更新 `replace`；同一修复分支必须向上游 [vivaui/viva](https://github.com/vivaui/viva) 提 PR。不要在 Lithe 应用层为 Viva 缺陷写绕过代码。
-- fork `main` 同步上游只用 merge，不 rebase、不 force push，保证已发布版本固定的 commit 始终可取。
+- fork `main` 同步上游只用 merge，同步 PR 用 merge commit 合入、不 squash；不 rebase、不 force push，保证已发布版本固定的 commit 始终可取。
+- 每次发布桌面端（含 `desktop-v*` 预发布版）之前，先把上游同步进 fork `main`，把我们自己的补丁全部合入；和上游方案冲突时以上游为准。然后升级固定版本，把 Lithe 里上游已经有新写法的绕过代码换掉、删掉旧逻辑，并写同步报告。`release-lithe` Skill 发版时会检查差距并提醒，由用户授权后才做。
 - 脚本不得用 `go run` 或 `go install` 的 `github.com/vivaui/viva/cmd/viva@<版本>`，它会忽略 `replace`。
 
-入口文件只保留这条提醒；分支规则、升级步骤和原因见
+入口文件只保留这条提醒；分支规则、升级步骤、发版前同步上游的做法和原因见
 `.agents/notes/implemented/process/2026-11-11-viva-fork-maintenance-and-commit-pin.md`。
 
 ## 设置页分类

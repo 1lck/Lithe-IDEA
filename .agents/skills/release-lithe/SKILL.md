@@ -1,14 +1,71 @@
 ---
 name: release-lithe
-description: Choose version numbers for the Lithe app and Lithe plugins, and prepare and validate stable Lithe release notes and publishing workflows. Use when deciding a version number, drafting docs/releases files, cutting a stable version, publishing a GitHub Release, or changing release automation.
+description: Check and sync the Viva fork before every desktop release, choose version numbers for the Lithe app and Lithe plugins, and prepare and validate stable Lithe release notes and publishing workflows. Use when preparing any desktop release (a desktop-v* prerelease or a stable release), deciding a version number, drafting docs/releases files, cutting a stable version, publishing a GitHub Release, or changing release automation.
 ---
 
 # Release Lithe
 
-Apply this Skill after `develop-lithe`. The version rules in the first section
-apply to every release of the Lithe app and of every Lithe plugin. The other
-sections apply to stable app releases; preview releases keep their existing
-workflow unless the task explicitly includes them.
+Apply this Skill after `develop-lithe`. Each section applies to these
+releases:
+
+- "Sync Viva before a desktop release" applies to every release of the
+  desktop app: `desktop-v*` prereleases and stable releases. Plugin releases
+  skip it.
+- "Choose the version number" applies to every release of the Lithe app and
+  of every Lithe plugin.
+- The remaining sections apply to stable app releases. Preview releases keep
+  their existing workflow unless the task explicitly includes them.
+
+## Sync Viva before a desktop release
+
+The desktop app links the Viva commit that the `replace` directive in
+`desktop/go.mod` pins: a commit on `main` of
+[Lithe-IDEA/Lithe-viva](https://github.com/Lithe-IDEA/Lithe-viva), the fork of
+[vivaui/viva](https://github.com/vivaui/viva). `desktop/go.mod` still writes
+the fork's former path `github.com/Lithe-IDEA/viva`, which GitHub redirects.
+The procedure, with the exact commands, is the section "发版前同步上游" of
+`.agents/notes/implemented/process/2026-11-11-viva-fork-maintenance-and-commit-pin.md`.
+
+Before choosing the version or writing release notes, check these four
+things:
+
+1. Upstream commits missing from fork `main`.
+2. Open pull requests in the fork. Each one is a patch of ours that fork
+   `main` does not contain yet.
+3. Whether the `replace` target in `desktop/go.mod` at the release target
+   commit is the head of fork `main`.
+4. Lithe workarounds for Viva: the open items of issue
+   [#1821](https://github.com/1lck/Lithe-IDEA/issues/1821), and comments or
+   skipped tests under `desktop/` that cite a Viva pull request or issue.
+
+Checks 1 to 3 decide whether the release waits. When any of them finds
+something, stop and remind the user before going further: give the count and
+the list for each check, add the list from check 4, and say that the release
+waits for the sync. Check 4 alone does not stop the release, because a
+workaround stays until upstream offers a replacement; the sync re-examines
+every item on it.
+
+Do not merge into or push to the fork, and do not change the pin, unless the
+user asks for the sync. When the user asks, follow the Note:
+
+- Merge upstream `main` into fork `main` with a merge commit, never a squash.
+- Merge every one of our patches into fork `main`. Where a patch conflicts
+  with upstream, or upstream solves the same problem differently, keep
+  upstream's approach and drop ours.
+- Bump the pin in one Lithe pull request that also replaces each Lithe
+  workaround upstream now covers with the new approach and deletes the old
+  logic.
+- Deliver the sync report the Note specifies, in that pull request's
+  description and to the user.
+
+Continue the release only when one of these holds:
+
+- Checks 1 to 3 find nothing.
+- The pin bump from the sync is merged into preview and the release target
+  commit contains it. Choose the version and write the notes from that
+  commit, because the sync changes what the release contains.
+- The user explicitly decides to release without the sync. Tell the user
+  what stays unsynced, and repeat it in the final release report.
 
 ## Choose the version number
 
@@ -189,6 +246,10 @@ before committing the notes.
 
 ## Validate before publishing
 
+- For a desktop release, confirm that "Sync Viva before a desktop release"
+  allows continuing: the release target commit pins the head of fork `main`,
+  and fork `main` contains upstream `main`, or the user's decision to skip
+  the sync is recorded in the release report.
 - Confirm that the version follows “Choose the version number” when compared
   with the previous published version, that the filename is exactly
   `docs/releases/v<version>.md`, and that the file is non-empty.
