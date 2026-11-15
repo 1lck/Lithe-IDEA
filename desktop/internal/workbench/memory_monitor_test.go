@@ -154,10 +154,12 @@ func TestMemoryDetailsShowTheSummaryOfTheWholeInstance(t *testing.T) {
 	if h.shows("插件服务") {
 		t.Error("the details show the plugin services, which hold nothing")
 	}
-	request, after := kernel.last()
-	if after <= sent {
-		t.Fatalf("opening the details sent %d requests in all, want a reading beyond the first %d", after, sent)
-	}
+	// The popover can display the previous summary while the fresh sample runs.
+	h.await("the memory reading requested by the details", func() bool {
+		_, after := kernel.last()
+		return after > sent
+	})
+	request, _ = kernel.last()
 	if !reflect.DeepEqual(request.Previous, fixture.Baseline) {
 		t.Fatalf("the request after a reading sends baseline %+v, want the one Core returned %+v", request.Previous, fixture.Baseline)
 	}
