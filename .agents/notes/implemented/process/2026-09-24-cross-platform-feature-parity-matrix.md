@@ -18,7 +18,7 @@ Viva 桌面端在 macOS、Windows 和 Linux 上共用同一套界面，但 Rust 
 - `scripts/platform-feature-matrix/generate-platform-feature-matrix.mjs` 校验两套状态定义、ID 和证据路径，并在 `.artifacts/platform-feature-matrix/` 生成 HTML、Markdown、CSV 和汇总 JSON，生成物不提交到 Git。
 - `scripts/platform-feature-matrix/verify-platform-feature-matrix.sh` 只校验源数据及证据路径，适合作为本地和 PR gate。
 - `docs/development/platform-parity.md` 说明矩阵的使用规则；仓库根目录 `AGENTS.md` 只负责把贡献者引到 `develop-lithe` Skill，避免规则正文出现第二份副本。功能 PR 必须更新源数据，不得直接手改生成视图。
-- `.github/workflows/verify-platform-feature-matrix.yml` 在每个 PR、`preview` / `main` 推送和手动运行时执行校验，并上传 JSON、Markdown、CSV 视图，方便在线查看和下载。
+- `.github/workflows/verify-platform-feature-matrix.yml` 在每个 PR、`main` 推送和手动运行时执行校验，并上传 JSON、Markdown、CSV 视图，方便在线查看和下载。
 - `scripts/platform-feature-matrix/verify-platform-feature-matrix-change.sh` 检查平台实现路径（包括 Viva 的 `desktop/`）变更是否同时更新矩阵；纯重构可通过 reviewer 添加 `matrix-exempt` label 显式豁免。
 - 当前矩阵先按两端代码入口和共享契约完成初版静态盘点；实现状态不是实机验收结论，能力点的 `verificationStatus` 仍需后续跨平台验证推进。
 
@@ -67,7 +67,7 @@ CSV 方便筛选，Excel 对非开发者更友好，但二进制 Excel 不利于
 
 ## 后果
 
-迁移已有 PR 时，需要把相对原基线的条目改动移到新文件，不能恢复旧总表。在线页面展示 preview 最新发布状态，PR 附件有保留期限；历史版本可在对应 checkout 重新生成。
+迁移已有 PR 时，需要把相对原基线的条目改动移到新文件，不能恢复旧总表。在线页面展示 main 最新发布状态，PR 附件有保留期限；历史版本可在对应 checkout 重新生成。
 
 后续 macOS 功能不会只出现在 macOS 代码和发布说明里，Windows 的缺口会在同一个 PR 中显式出现。矩阵不会阻止平台差异，也不会把平台专属能力强行抽成共享实现；它只要求差异有名称、有证据、有负责人和验证动作。
 

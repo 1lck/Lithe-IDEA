@@ -1,6 +1,6 @@
 # macOS / Windows 功能矩阵
 
-[在线查看 preview 分支矩阵](https://1lck.github.io/Lithe-IDEA/platform-feature-matrix/)（合并后由 Pages 工作流更新）。页面提供 Markdown、CSV、JSON 下载，并显示对应提交。
+[在线查看 main 分支矩阵](https://1lck.github.io/Lithe-IDEA/platform-feature-matrix/)（合并后由 Pages 工作流更新）。页面提供 Markdown、CSV、JSON 下载，并显示对应提交。
 
 PR 对应的矩阵请在 **Verify Platform Feature Matrix** 工作流摘要中下载 artifact；在线页面不代表尚未合并的 PR。
 

@@ -137,7 +137,7 @@ feat 和 fix 必填，docs 和 release 只处理确实涉及的组。每组的�
 <!-- 触发：新增宿主的用户可见能力，或改变了宿主的跨平台行为（见 `develop-lithe` 第十节）。具体插件提供的能力不在宿主矩阵建条目，由插件仓库维护。 -->
 
 - [ ] 已更新 `shared/platform-feature-matrix/features/<id>.json`：两端的实现状态和验证状态、证据路径、owner、验证动作都如实填写；没有运行验证的保持 `pending`
-- [ ] 已运行 `./scripts/platform-feature-matrix/verify-platform-feature-matrix.sh`；改了平台实现路径的，还运行了 `./scripts/platform-feature-matrix/verify-platform-feature-matrix-change.sh origin/preview HEAD`
+- [ ] 已运行 `./scripts/platform-feature-matrix/verify-platform-feature-matrix.sh`；改了平台实现路径的，还运行了 `./scripts/platform-feature-matrix/verify-platform-feature-matrix-change.sh origin/main HEAD`
 - [ ] 没有提交 `.artifacts/` 下生成的矩阵视图
 - [ ] 没有更新矩阵的，理由（`matrix-exempt` 标签只能由 reviewer 给已审查、且没有用户可观察变化的重构添加，作者不要自行声明）：
 
@@ -255,7 +255,7 @@ Windows 目前仍使用 v1 日志，Windows 改动沿用现有写法，并在此
 
 ## 提交前确认 / Final checks
 
-- [ ] 分支从最新的 `preview` 创建；目标分支：feat、fix、docs 为 `preview`，release 以发布流程要求为准
+- [ ] 分支从最新的 `main` 创建；目标分支：feat、fix、docs 为 `main`，release 以发布流程要求为准
 - [ ] 以 Draft 提交，本地验证通过后才标记 ready
 - [ ] 没有无关改动，没有提交 `.build/`、`target/`、`dist/`、`.artifacts/` 等产物，没有凭据、个人路径和未脱敏的日志或截图
 - [ ] 本次构建、测试或预览启动的 Lithe 应用和子进程已全部关闭，没有进程残留

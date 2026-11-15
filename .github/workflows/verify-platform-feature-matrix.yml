@@ -2,18 +2,19 @@ name: Verify Platform Feature Matrix
 
 on:
   pull_request:
+    branches: [main]
     paths-ignore:
       - "docs/**"
       - "**/*.md"
       - "LICENSE*"
-    types: [opened, synchronize, reopened, labeled, unlabeled]
+    types: [opened, synchronize, reopened, labeled, unlabeled, ready_for_review]
   push:
     paths-ignore:
       - "docs/**"
       - "**/*.md"
       - "LICENSE*"
     branches:
-      - preview
+      - main
   workflow_dispatch:
 
 permissions:

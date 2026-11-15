@@ -61,7 +61,7 @@ user asks for the sync. When the user asks, follow the Note:
 Continue the release only when one of these holds:
 
 - Checks 1 to 3 find nothing.
-- The pin bump from the sync is merged into preview and the release target
+- The pin bump from the sync is merged into main and the release target
   commit contains it. Choose the version and write the notes from that
   commit, because the sync changes what the release contains.
 - The user explicitly decides to release without the sync. Tell the user

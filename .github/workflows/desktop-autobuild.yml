@@ -1,6 +1,6 @@
 name: Desktop AutoBuild
 
-# Builds the Viva desktop client (desktop/) from the preview branch every day and publishes it to
+# Builds the Viva desktop client (desktop/) from the main branch every day and publishes it to
 # the rolling prerelease desktop-AutoBuild: macOS arm64, Windows x64, and Linux x64 and arm64.
 # AutoBuild only builds and publishes. It runs no tests and does not inspect the packages, unlike
 # Desktop Release. Its tag is separate from the AutoBuild tag that the SwiftUI and Tauri clients'
@@ -15,7 +15,7 @@ on:
         description: "Branch to build"
         required: true
         type: string
-        default: preview
+        default: main
 
 permissions:
   contents: read
@@ -27,7 +27,7 @@ concurrency:
 
 env:
   RELEASE_TAG: desktop-AutoBuild
-  SOURCE_BRANCH: ${{ github.event_name == 'workflow_dispatch' && inputs.source_branch || 'preview' }}
+  SOURCE_BRANCH: ${{ github.event_name == 'workflow_dispatch' && inputs.source_branch || 'main' }}
 
 jobs:
   prepare:

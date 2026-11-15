@@ -1,4 +1,3 @@
-# Registered by the standalone preview repository.
 # A pull request merged or closed while its CI is still running keeps those
 # runs going to completion, including admin merges that skip the checks. They
 # can no longer affect anything, so stop them. Post-merge push runs are not

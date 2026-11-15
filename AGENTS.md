@@ -95,7 +95,7 @@ Viva 由 `desktop/go.mod` 的 `replace` 固定到 [Lithe-IDEA/viva](https://gith
 对非敏感配置，默认发现并读取工具的实际来源，回显可编辑的当前值；用户修改并确认后才写回明确的来源，再重新读取显示结果。不要只放默认值占位符、维护不生效的影子配置，或在打开页面时写文件；敏感字段不得明文回显。具体优先级、冲突保护、恢复默认值和验证要求以 Skill 与 Note 为准。
 
 ## 开发与协作
-1. 每次进行功能开发或者 bug 修复都单独从最新的 preview 分支创建新分支，如果有对应的 issue 分支名最好与 issue 编号相关
+1. 每次进行功能开发或者 bug 修复都单独从最新的 main 分支创建新分支，如果有对应的 issue 分支名最好与 issue 编号相关
 2. 开发的时候如果涉及到 github 相关的操作麻烦使用 gh CLI 来进行操作而不是使用 Compute rUse 的 Skill。由于沙盒影响可能导致需要反复的 gh 授权，每次需要授权的时候麻烦先申请更高的权限去主环境中查看对应是否有 gh 的Token，如果有就直接复用，这个时候找不到才要求登录 gh
 3. 开发完成提交 PR 的时候需要说清楚对应改动的功能点，哪怕是一些细小的改动也是需要包含在内的，需要确保 code reviewer 马上就可以理解这个改动是什么。PR 描述必须以 `.github/pull_request_template.md` 为骨架：最前面是关联 Issue，再选 feat / fix / docs / release 类型；只实现单一平台的 feat 必须为另一平台提交跟进 Issue；功能矩阵、统一日志系统等检查项逐项回答。`gh pr create` 带 `--body` 或 `--body-file` 时不会自动套用模板，必须先读取模板再按它填写
 4. 如果让你修复有关 CI 的流程，记得使用 gh 或者 curl 之类的去查看(优先 gh)而不是使用 Computer Use
