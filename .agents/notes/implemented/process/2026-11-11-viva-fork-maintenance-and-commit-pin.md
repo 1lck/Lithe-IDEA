@@ -73,6 +73,10 @@ replace github.com/vivaui/viva => github.com/Lithe-IDEA/viva <fork commit 的伪
    - 删掉的绕过代码，以及改用的新写法；还留着的绕过代码，以及原因。
    - 验证：运行了哪些命令、在哪些平台上、结果如何。没有跑的检查也要写明原因。
 
+### 列表身份兼容检查
+
+升级含行标识检查的 Viva 时，检查所有 `ListState.Key` 和 `TreeState.Key`：包括不可选择的加载页脚也必须返回 0 至 2^31−1 的唯一标识。不能用负数表达“不能选择”，也不能对摘要做截断来代替唯一编号。Git 历史视图保留 0 给加载页脚、提交从 1 编号，提交重排时复用原编号；是否允许选择仍由原来的交互逻辑决定。新建项目侧栏为两个标题固定保留 0/1，条目从 2 开始，过滤隐藏分组不改编号；Git 控制台也为刷新时暂缺的行保留 0，真实行从 1 编号。此处是 Viva 呈现身份，留在视图，不改变 Core 的提交模型。回归 `TestLogCommitKeysKeepFooterInRangeAndSeparate` 覆盖范围、唯一性和重排稳定性。
+
 ### 需要 Viva 命令行工具的脚本
 
 - 从 `desktop/go.mod` 解析出的源码目录构建：先 `go -C desktop mod download github.com/vivaui/viva`，再用 `go -C desktop list -m -f '{{.Dir}}' github.com/vivaui/viva` 得到目录，然后 `go -C <目录> build ./cmd/viva`。这样会遵守 `replace`，并用 Viva 自己的 `go.mod` 和 `go.sum`，不依赖桌面模块的 `go.sum`。

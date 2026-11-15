@@ -605,10 +605,11 @@ func (a *App) drawLogFooter(c ui.C, p *project, row ui.ListRow) {
 }
 
 // logCommitKey is the key of row i of the commit list in its selection: the key of the commit's
-// hash, so a choice survives a reload that moves the rows. The row past the commits has none.
+// hash, so a choice survives a reload that moves the rows. Zero identifies the
+// loading footer, which still needs a valid identity even though it is not selectable.
 func (v *logView) logCommitKey(i int) int {
 	if i < 0 || i >= len(v.keyRows) {
-		return -1
+		return 0
 	}
 	return v.hashKey(v.keyRows[i].CommitHash)
 }
@@ -623,7 +624,7 @@ func (v *logView) hashKey(hash string) int {
 	if v.keys == nil {
 		v.keys = map[string]int{}
 	}
-	k := len(v.keys)
+	k := len(v.keys) + 1 // Zero belongs to the loading footer.
 	v.keys[hash] = k
 	return k
 }
