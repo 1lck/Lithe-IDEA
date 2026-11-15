@@ -30,7 +30,7 @@ Viva 迁移相对旧基线删除了大量客户端和内核源文件。此前门
 
 ## 验证
 
-- `./.agents/skills/write-stable-tests/scripts/verify-test-stability.sh --base origin/preview`：只读取 Rust、Swift 与 TypeScript 测试文件的差异；相对基线的相关差异仍在原有有界缓冲内。
+- `./.agents/skills/write-stable-tests/scripts/verify-test-stability.sh --base origin/main`：只读取 Rust、Swift 与 TypeScript 测试文件的差异；相对基线的相关差异仍在原有有界缓冲内。
 - 工具自检覆盖超过 64 MiB 的无关差异和 Rust 测试移动夹具，用真实 Git 仓库验证过滤。自检不依赖任何具体 CI 工作流文件。
 
 ## 适用范围

@@ -165,7 +165,7 @@ node scripts/agent-notes/build-agent-notes-board.mjs \
   --bundle .agents/notes .artifacts/agent-notes-board/index.html "Lithe 工程决策看板"
 ```
 
-`.github/workflows/deploy-agent-notes-board.yml` 会在 `preview` 分支提交时
+`.github/workflows/deploy-agent-notes-board.yml` 会在 `main` 分支提交时
 先校验 Note，再重新生成 Pages artifact；不要提交生成的 `index.html`。
 
 ## 代码入口绑定

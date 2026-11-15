@@ -14,6 +14,10 @@ Viva 桌面端要在 macOS、Windows 和 Linux 上构建，Rust Core 和 Go 桌�
 
 ## 决策
 
+- 日常开发只使用 `main` 作为基线：新分支从最新 `origin/main` 创建，PR 直接合入 `main`。每日 AutoBuild 默认构建 `main`，Agent Notes 和功能矩阵网页也跟随 `main`；`preview` 不再承担集成或发布源码入口。预发布渠道、标签和 appcast 名称是产品更新协议，不随源码分支改名。
+- main 的合并保护统一放在一个规则集中，默认需要 CODEOWNER 审批、最后一次推送后批准以及 `Desktop CI gate`。只有 `1lck` 和 `xiaoyumuxi` 能在 PR 页面选择绕过审批和 CI；豁免只用于 PR，不允许直接推送、强推或删除 main。授权发布者由仓库所有者和 `LITHE_RELEASE_ACTOR` 决定，定时 AutoBuild 仍自动执行。其他 Write 协作者的 GitHub 手工 Release 权限不是工作流名单能限制的，不能宣称该名单覆盖手工发布。
+- `Desktop CI gate` 必须读取五个明确依赖的结果；普通 PR 和 main 推送要求五项全部成功，缺失、失败、取消或意外跳过均失败。Draft 只允许 macOS 和 Windows 两项被跳过，Linux 格式、脚本、测试及固定版本检查仍必须成功。Linux 作业同时检查 Agent Notes、功能矩阵源数据及平台变更对应的能力记录，使文档路径过滤不会绕过必需门禁。
+- 例如功能分支应从 `origin/main` 创建并向 main 提 PR；不要继续向 preview 合并后再提升到 main，也不要把旧 `macOS CI gate` 设为必需检查，它属于已移除客户端。切换已有 PR 的目标分支后先保留 Draft，需要评审时再标记为 ready，针对新基线重跑完整 CI。标题和正文编辑不触发 CI，避免同一提交的跳过结果覆盖先前失败的门禁。
 - Core 的缓存键必须包含运行器的系统与架构、工具链身份、构建目标、发布或调试配置，以及构建脚本的哈希。发布工作流与自动构建使用同一个 release 档 Core 缓存键，因此自动构建通常能复用前一晚的 Core 编译结果。
 - 只缓存 Cargo 的依赖、编译中间产物和构建脚本输出，不缓存最终可执行文件，也不缓存整个增量编译目录。最终打包仍然重新运行必要的构建步骤，保证产物来自当前源码。
 - Draft PR 关闭所有 macOS 和 Windows 测试，只保留 Linux 上的分类、格式、脚本和桌面测试；PR 标记为 ready for review 时重新触发完整检查。
@@ -34,9 +38,9 @@ Viva 桌面端要在 macOS、Windows 和 Linux 上构建，Rust Core 和 Go 桌�
 
 能减少网络等待，但无法覆盖 Rust Core 的主要编译成本，因此扩展为缓存 Cargo 的中间输出和构建脚本结果。
 
-### 对 preview 推送关闭 cancel-in-progress
+### 保留 preview 作为长期集成分支
 
-能让每次推送都跑完并保存缓存，但连续合并时 runner 分钟数成倍增加，后续推送要排队等待前一次完成，因此保留取消旧运行。
+会让审核、必需检查、定时构建和文档基线分成两套，并且需要额外的 preview 到 main 提升 PR。两条分支完成历史整合后改为 main 单一基线，减少权限和源码来源漂移；代价是 main 同时承载日常集成，稳定发布仍通过版本标签区分。
 
 ### 所有 PR 都强制生成完整安装包
 
@@ -55,6 +59,8 @@ Release 编译和打包会把反馈推迟到最慢的任务结束。Draft PR 和
 
 ## 验证
 
+- `node --test --test-timeout=60000 scripts/ci/desktop-ci/verify-ci-gate.test.mjs`：离线验证五项结果汇总、Draft 原生检查延期、失败/取消/缺失结果拒绝，以及命令入口的输入校验。
+- `actionlint`：核对当前工作流的事件、依赖和表达式；GitHub 上还要确认 main 的 `Desktop CI gate` 为必需检查，且只有两个指定账号拥有 PR 豁免。
 - `make -C desktop check`：当前 macOS 本机的格式、vet 和 Go 测试；它不证明 GitHub Actions 或 Windows 已通过。
 - `scripts/desktop/desktop-go.sh test ./internal/core -run '^TestDesktopGoFindsWindowsCargoImportLibraries$'`：受控 Cargo 输出夹具验证导入库发现、带空格路径和冲突拒绝；Windows 实机仍须编译与链接实际 Core。
 - `scripts/desktop/desktop-go.sh test ./internal/core -run '^TestBuildDesktopCoreChecksOutFreshPinnedRevision$'`：使用本地 Git 仓库和编译器替身验证空工作树检出，并确认不会恢复已有工作树中主动删除的文件。

@@ -90,14 +90,14 @@ states what that means for writing a test.
 
    ```bash
    ./.agents/skills/write-stable-tests/scripts/verify-test-stability.sh
-   ./.agents/skills/write-stable-tests/scripts/verify-test-stability.sh --base origin/preview
+   ./.agents/skills/write-stable-tests/scripts/verify-test-stability.sh --base origin/main
    ```
 
    On Windows use:
 
    ```powershell
    ./.agents/skills/write-stable-tests/scripts/verify-test-stability.ps1
-   ./.agents/skills/write-stable-tests/scripts/verify-test-stability.ps1 -BaseRevision origin/preview
+   ./.agents/skills/write-stable-tests/scripts/verify-test-stability.ps1 -BaseRevision origin/main
    ```
 
    Without `--base` the gate compares the working tree with `HEAD`; with

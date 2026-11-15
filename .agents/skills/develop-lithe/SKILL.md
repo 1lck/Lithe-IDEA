@@ -485,13 +485,13 @@ macOS app bundle 和 Windows 安装目录是发行基线。Sparkle 增量更新�
 平台实现改动没有通过本地门禁之前，不得声称完成，不得标记为可评审，不得推送或创建、更新 PR。先列出相对 PR 基线的改动：
 
 ```bash
-git diff --name-only origin/preview...HEAD
+git diff --name-only origin/main...HEAD
 ```
 
 第三节“目录归属”中的平台实现路径有变化时，运行：
 
 ```bash
-./scripts/platform-feature-matrix/verify-platform-feature-matrix-change.sh origin/preview HEAD
+./scripts/platform-feature-matrix/verify-platform-feature-matrix-change.sh origin/main HEAD
 ./scripts/platform-feature-matrix/verify-platform-feature-matrix.sh
 ```
 
