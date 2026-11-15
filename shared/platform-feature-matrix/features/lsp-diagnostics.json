@@ -2,7 +2,7 @@
   "id": "lsp-diagnostics",
   "area": "编辑器",
   "group": "语言服务",
-  "capability": "诊断与编译错误定位",
+  "capability": "诊断与编译错误定位 UTF-16 诊断位置在后台按制表符、宽字符和补充平面字符转换为显示列，版本变化拒绝旧结果；以细波浪线呈现。",
   "macos": {
     "implementationStatus": "partial",
     "verificationStatus": "pending",
@@ -22,7 +22,10 @@
       "desktop/internal/core/plugin_documents.go",
       "desktop/internal/editorview/view.go",
       "desktop/internal/pluginbackend/pluginbackend.go",
-      "desktop/internal/workbench/pluginsync_test.go"
+      "desktop/internal/workbench/pluginsync_test.go",
+      "desktop/internal/editorview/markers.go",
+      "desktop/internal/editorview/markers_test.go",
+      "desktop/internal/workbench/diagnostic_visual_test.go"
     ]
   },
   "windows": {
@@ -44,7 +47,10 @@
       "desktop/internal/core/plugin_documents.go",
       "desktop/internal/editorview/view.go",
       "desktop/internal/pluginbackend/pluginbackend.go",
-      "desktop/internal/workbench/pluginsync_test.go"
+      "desktop/internal/workbench/pluginsync_test.go",
+      "desktop/internal/editorview/markers.go",
+      "desktop/internal/editorview/markers_test.go",
+      "desktop/internal/workbench/diagnostic_visual_test.go"
     ]
   },
   "owner": "Language Tooling",

@@ -25,14 +25,18 @@ type PluginSettingsActionRequest struct {
 // Only an invoke plan contains Function and Params; runtime ownership is checked
 // again when the existing provider session receives that invocation.
 type PluginSettingsActionPlan struct {
-	Version  string          `json:"version"`
-	Kind     string          `json:"kind"`
-	PluginID string          `json:"pluginID"`
-	ActionID string          `json:"actionID"`
-	Title    string          `json:"title"`
-	Reason   string          `json:"reason,omitempty"`
-	Function string          `json:"function,omitempty"`
-	Params   json.RawMessage `json:"params,omitempty"`
+	Version       string          `json:"version"`
+	Kind          string          `json:"kind"`
+	PluginID      string          `json:"pluginID"`
+	ActionID      string          `json:"actionID"`
+	Title         string          `json:"title"`
+	Reason        string          `json:"reason,omitempty"`
+	Function      string          `json:"function,omitempty"`
+	Params        json.RawMessage `json:"params,omitempty"`
+	SourceEditor  bool            `json:"sourceEditor,omitempty"`
+	BuildSystemID string          `json:"buildSystemID,omitempty"`
+	LanguageID    string          `json:"languageID,omitempty"`
+	EditFunction  string          `json:"editFunction,omitempty"`
 }
 
 // PlanPluginSettingsAction resolves a manifest action without opening a backend

@@ -57,22 +57,30 @@ func (w *window) pluginSettingsPanel(c ui.C, id string) {
 		p.load(id)
 	}
 	p.follow(language)
+	if p.sources != nil {
+		w.sourceSettingsPanel(c, p.sources)
+		return
+	}
+	page := w.dynamic.selected(w.dynamicPage)
+	compiler := page != nil && page.Kind == "compiler"
 	ui.Column(c).FillWidth().Grow(1).Gap(10).Children(func() {
-		ui.Row(c).FillWidth().Height(1).Background(w.pal.line)
-		ui.Row(c).FillWidth().Gap(8).Items(ui.Center).Children(func() {
-			ui.Text(c, i18n.Shared(language, "desktop.pluginSettings.title")).FontSize(14).Weight(gfx.WeightSemibold).Color(w.pal.text)
-			ui.Spacer(c)
-			reloadLabel := i18n.Shared(language, "desktop.pluginSettings.reload")
-			if p.hasDraft() {
-				reloadLabel = i18n.Shared(language, "desktop.pluginSettings.discardReload")
-			}
-			if ui.Button(c, reloadLabel).Outline().Disabled(p.running).Clicked() {
-				p.load(id)
-			}
-			if ui.Button(c, i18n.Shared(language, "desktop.pluginSettings.save")).Disabled(p.running || p.stale || !p.loaded || !p.hasDraft()).Clicked() {
-				p.save()
-			}
-		})
+		if !compiler {
+			ui.Row(c).FillWidth().Height(1).Background(w.pal.line)
+			ui.Row(c).FillWidth().Gap(8).Items(ui.Center).Children(func() {
+				ui.Text(c, i18n.Shared(language, "desktop.pluginSettings.title")).FontSize(14).Weight(gfx.WeightSemibold).Color(w.pal.text)
+				ui.Spacer(c)
+				reloadLabel := i18n.Shared(language, "desktop.pluginSettings.reload")
+				if p.hasDraft() {
+					reloadLabel = i18n.Shared(language, "desktop.pluginSettings.discardReload")
+				}
+				if ui.Button(c, reloadLabel).Outline().Disabled(p.running).Clicked() {
+					p.load(id)
+				}
+				if ui.Button(c, i18n.Shared(language, "desktop.pluginSettings.save")).Disabled(p.running || p.stale || !p.loaded || !p.hasDraft()).Clicked() {
+					p.save()
+				}
+			})
+		}
 		if p.stale {
 			ui.Wrap(c, i18n.Shared(language, "desktop.pluginSettings.sourceChanged")).Color(w.pal.danger)
 		}
@@ -117,6 +125,15 @@ func (w *window) pluginSettingsPanel(c ui.C, id string) {
 			ui.Text(c, i18n.Shared(language, "desktop.pluginSettings.saved")).FontSize(12).Color(w.pal.muted)
 		}
 		if p.editor.Snapshot.State.PluginID != id || (!p.loaded && len(p.controls[p.scope]) == 0) {
+			return
+		}
+		if compiler {
+			w.pluginSettingActions(c)
+			for _, item := range p.layout {
+				if item.action {
+					w.pluginSettingActionRow(c, item.row)
+				}
+			}
 			return
 		}
 		ui.Row(c).FillWidth().Gap(8).Items(ui.Center).Children(func() {

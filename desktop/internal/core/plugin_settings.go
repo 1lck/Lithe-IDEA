@@ -9,6 +9,7 @@ import (
 type PluginSettingPage struct {
 	LanguageID    string `json:"languageID,omitempty"`
 	BuildSystemID string `json:"buildSystemID,omitempty"`
+	CompilerID    string `json:"compilerID,omitempty"`
 }
 
 // PluginSettingOption is one value and its plugin-provided display title.
@@ -56,13 +57,20 @@ type PluginSettingRow struct {
 
 // PluginSettingAction invokes a declared function only after a user action.
 type PluginSettingAction struct {
-	ID          string             `json:"id"`
-	Title       string             `json:"title"`
-	Description string             `json:"description,omitempty"`
-	Page        *PluginSettingPage `json:"page,omitempty"`
-	Section     string             `json:"section,omitempty"`
-	Function    string             `json:"function"`
-	Confirm     bool               `json:"confirm"`
+	ID           string                         `json:"id"`
+	Title        string                         `json:"title"`
+	Description  string                         `json:"description,omitempty"`
+	Page         *PluginSettingPage             `json:"page,omitempty"`
+	Section      string                         `json:"section,omitempty"`
+	Function     string                         `json:"function"`
+	Confirm      bool                           `json:"confirm"`
+	SourceEditor *PluginSourceEditorDeclaration `json:"sourceEditor,omitempty"`
+}
+
+type PluginSourceEditorDeclaration struct {
+	BuildSystemID string `json:"buildSystemID,omitempty"`
+	LanguageID    string `json:"languageID,omitempty"`
+	EditFunction  string `json:"editFunction"`
 }
 
 // PluginSettingsStorage is Core's bounded read plan under native-owned roots.

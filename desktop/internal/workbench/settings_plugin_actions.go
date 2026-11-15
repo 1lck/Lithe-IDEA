@@ -63,6 +63,14 @@ func (s pluginSettingsSources) Action(ctx context.Context, editor pluginservice.
 		}
 		return result, nil
 	}
+	if result.Plan.SourceEditor {
+		editor, readErr := s.readSourceSettings(ctx, editor, id, nil)
+		if readErr != nil {
+			return result, readErr
+		}
+		result.Sources = &editor
+		return result, nil
+	}
 	// Capture the project on its owning window thread. The buffered reply lets a
 	// cancelled settings page leave without blocking a later window callback.
 	projectReply := make(chan *project, 1)

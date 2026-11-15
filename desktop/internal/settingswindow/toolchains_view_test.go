@@ -12,10 +12,15 @@ import (
 )
 
 type fakeToolchainLoader struct {
-	snapshot toolchain.Snapshot
-	loaded   chan struct{}
-	saved    chan []toolchain.Edit
-	saveErr  error
+	snapshot   toolchain.Snapshot
+	loaded     chan struct{}
+	saved      chan []toolchain.Edit
+	saveErr    error
+	inspectErr error
+}
+
+func (f *fakeToolchainLoader) Inspect(_ context.Context, _ toolchain.Snapshot, _ string, home string) (core.ToolchainSelection, error) {
+	return core.ToolchainSelection{Home: &home, Executable: home + "/bin/compiler", Version: "9.1"}, f.inspectErr
 }
 
 func (f *fakeToolchainLoader) Load(context.Context) (toolchain.Snapshot, error) {
@@ -116,6 +121,78 @@ func TestToolchainDraftSavesOnlyExplicitChanges(t *testing.T) {
 	}
 	if state.snapshot.Tools[0].Pin == nil {
 		t.Fatalf("saved state = %+v", state)
+	}
+}
+
+func TestToolchainManualDirectoryIsValidatedBeforeAnExplicitSave(t *testing.T) {
+	loader := &fakeToolchainLoader{snapshot: fixtureSnapshot(), saved: make(chan []toolchain.Edit, 1)}
+	w, d := toolchainWindow(t, loader)
+	d.click("Installation directory")
+	d.typeText("/fixture/custom")
+	d.click("Use directory")
+	d.until("the checked directory", func() bool { return w.toolchains.draft["dev.example:compiler"] == "/fixture/custom" })
+	select {
+	case edits := <-loader.saved:
+		t.Fatalf("validating a directory wrote %+v", edits)
+	default:
+	}
+	d.click(i18n.Shared(i18n.English, "desktop.toolchains.save"))
+	d.until("the manual directory to save", func() bool { return w.toolchains.saved })
+	select {
+	case edits := <-loader.saved:
+		if len(edits) != 1 || edits[0].Pin == nil || edits[0].Pin.Home != "/fixture/custom" || edits[0].Pin.Version != "9.1" {
+			t.Fatalf("manual directory pin = %+v", edits)
+		}
+	default:
+		t.Fatal("manual directory was not saved")
+	}
+}
+
+type scopedToolchainLoader struct{ fakeToolchainLoader }
+
+func (f *scopedToolchainLoader) LoadScope(ctx context.Context, scope string) (toolchain.Snapshot, error) {
+	result, err := f.Load(ctx)
+	result.Global = scope == "global"
+	return result, err
+}
+
+func TestGlobalToolchainsKeepMultipleManualSDKsWithoutAProject(t *testing.T) {
+	fixture := fixtureSnapshot()
+	fixture.Root = ""
+	loader := &scopedToolchainLoader{fakeToolchainLoader{snapshot: fixture, saved: make(chan []toolchain.Edit, 1)}}
+	w := newWindow(NewController(Options{Toolchains: loader}), Values{})
+	w.sess.page = pageBuild
+	d := openWindow(t, w)
+	d.until("global toolchains without a project", func() bool { return w.toolchains.loaded })
+	if !w.toolchains.snapshot.Global || !d.text("Global defaults") || !d.text("Compiler") {
+		t.Fatal("the toolchain page requires a project or does not default to global")
+	}
+	for _, home := range []string{"/fixture/sdk8", "/fixture/sdk21"} {
+		d.click("Installation directory")
+		d.typeText(home)
+		d.click("Use directory")
+		d.until("the checked SDK", func() bool { return w.toolchains.draft["dev.example:compiler"] == home })
+		// Clear the input for the next native text entry without changing its draft.
+		*w.toolchains.inputs["dev.example:compiler"] = ""
+	}
+	if got := w.toolchains.snapshot.Tools[0].CustomHomes; !slices.Equal(got, []string{"/fixture/sdk8", "/fixture/sdk21"}) {
+		t.Fatalf("manual SDK registrations = %v", got)
+	}
+	if !d.hit("Current project").Disabled {
+		t.Fatal("switching scopes could discard an unsaved registration")
+	}
+	select {
+	case <-loader.saved:
+		t.Fatal("directory validation published settings")
+	default:
+	}
+	d.click(i18n.Shared(i18n.English, "desktop.toolchains.save"))
+	d.until("global SDKs saved", func() bool { return w.toolchains.saved })
+	if w.toolchains.hasDraft() {
+		t.Fatal("saved registrations remain dirty")
+	}
+	if len(w.toolchains.snapshot.Tools[0].CustomHomes) != 2 {
+		t.Fatal("saving lost a registered SDK")
 	}
 }
 
