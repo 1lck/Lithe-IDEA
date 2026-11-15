@@ -984,7 +984,7 @@ func (a *App) finishDebugError(p *project, session *debugSession, err error) {
 		a.endDebugSession(p, session)
 		return
 	}
-	message := err.Error()
+	message := a.launchFailureText(err)
 	var settingsError *debugSettingsError
 	if errors.As(err, &settingsError) {
 		message = i18n.Shared(a.language(), "desktop.debug.settingsUnreadable")

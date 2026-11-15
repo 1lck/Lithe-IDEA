@@ -135,6 +135,7 @@ func (a *App) newSettingsWindow() *settingswindow.Controller {
 		UninstallPlugin: func(id string) {
 			a.post(func(a *App) { a.uninstallPlugin(id) })
 		},
+		CommandInstalls: settingsCommandInstalls{app: a},
 		Language: func() i18n.Language {
 			if a.shared.text.Load() == i18n.For(i18n.Chinese) {
 				return i18n.Chinese

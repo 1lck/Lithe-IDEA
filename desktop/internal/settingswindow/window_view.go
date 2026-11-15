@@ -33,6 +33,7 @@ func (w *window) view(c ui.C) {
 	})
 	w.keymapImportDialog(c)
 	w.pluginInstallModal(c.Part("plugin-install"))
+	w.commandInstallModal(c.Part("command-install"))
 	w.declareWork(c)
 }
 

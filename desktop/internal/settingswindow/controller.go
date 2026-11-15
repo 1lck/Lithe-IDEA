@@ -11,6 +11,7 @@ import (
 	"context"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/shortcuts"
 	"sync"
+	"time"
 
 	"github.com/1lck/Lithe-IDEA/desktop/internal/core"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/fontprefs"
@@ -198,6 +199,67 @@ type PluginSettingsActionLoader interface {
 	Action(context.Context, pluginservice.SettingsEditor, string, bool) (pluginservice.SettingsActionResult, error)
 }
 
+// CommandInstaller finds the commands installed plugins run from the user's system and
+// installs a missing one through the installer its plugin declares (commandInstallers[],
+// API-23). Every call runs off the window thread and returns once ctx ends.
+type CommandInstaller interface {
+	// Missing lists the plugin's launches none of whose commands the host finds, looked up as
+	// the launches look them up. A plugin whose commands are all found has none.
+	Missing(ctx context.Context, pluginID string) ([]MissingCommand, error)
+	// Offer prepares what the install dialog shows for one installer: the tool that runs, and
+	// each target's command line and directory. It installs nothing; it may run the tool's
+	// directory probes, which only print where the tool installs.
+	Offer(ctx context.Context, pluginID, installerID string) (CommandInstallOffer, error)
+	// Install runs the installer for the target the user chose, handing each line the tool
+	// prints to output as it arrives, and returns the directory its commands are in once they
+	// are found there. Cancelling ctx stops the tool. A failed installation is a
+	// *pluginhost.CommandInstallError when the tool ran, and a *toolchain.UnavailableError
+	// from Offer or Install when the tool is not found.
+	Install(ctx context.Context, pluginID, installerID, target string, output func(string)) (string, error)
+}
+
+// MissingCommand is one launch of a plugin none of whose commands the host finds.
+type MissingCommand struct {
+	// Kind and ID name the capability the launch belongs to: one of the Capability constants
+	// and the capability's ID. Kind is empty for the plugin's backend, which has no card.
+	Kind, ID string
+	// Commands are the commands the launch looks for, in its order.
+	Commands []string
+	// Installer is the ID of the installer that provides them, or "" when the plugin declares
+	// none and the user has to install them another way.
+	Installer string
+	// Tool is the display name of the tool the installer runs; empty without an installer.
+	Tool string
+}
+
+// CommandInstallOffer is what the install dialog shows before the user confirms.
+type CommandInstallOffer struct {
+	Installer string
+	// Commands are the commands the installation provides.
+	Commands []string
+	// Tool is the tool definition that runs it, and Executable the program resolved for it.
+	Tool, Executable string
+	// MayUseNetwork says the installation may download.
+	MayUseNetwork bool
+	// Timeout is how long the installation may run.
+	Timeout time.Duration
+	// Targets are the places the user may install into, managed first.
+	Targets []CommandInstallTarget
+}
+
+// CommandInstallTarget is one place an installation can put its commands.
+type CommandInstallTarget struct {
+	// Target is core.CommandInstallManaged or core.CommandInstallToolDefault.
+	Target string
+	// CommandLine is the program and its arguments as they will run, and Environment the
+	// variables set for it, each NAME=value.
+	CommandLine string
+	Environment []string
+	// Directory is where the commands will land; empty when the tool's probes named no
+	// directory, which leaves the target unusable since the host could not find the commands.
+	Directory string
+}
+
 // Options configure the settings window.
 type Options struct {
 	// PluginInstallsClosed releases downloads retained by the settings session.
@@ -247,6 +309,9 @@ type Options struct {
 	// LanguageServerState reports the state of a plugin's running language server: its state
 	// name, or "" when none runs. It is read while painting on the window's thread.
 	LanguageServerState func(pluginID string) string
+	// CommandInstalls finds the commands the Installed tab's plugins are missing and installs
+	// them; nil shows no command status.
+	CommandInstalls CommandInstaller
 	// UninstallPlugin removes the installed version of a plugin.
 	UninstallPlugin func(id string)
 	// InstallPluginFromFile installs a plugin package the user picked on disk. The

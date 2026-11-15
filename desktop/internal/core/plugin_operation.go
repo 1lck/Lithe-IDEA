@@ -24,6 +24,9 @@ const (
 	OperationBuildModel PluginOperationName = "lithe/build/model"
 	// OperationBuildDependencies is one dependency tree load of a command source.
 	OperationBuildDependencies PluginOperationName = "lithe/build/dependencies"
+	// OperationCommandInstallerInstall is one commandInstallers[] installation the user
+	// confirmed, from planning it to finding its commands. A cancelled one is not recorded.
+	OperationCommandInstallerInstall PluginOperationName = "commandInstaller/install"
 )
 
 // PluginStage is where an attempt failed. Core turns it into a code through the contribution's

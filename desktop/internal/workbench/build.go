@@ -553,9 +553,9 @@ func (a *App) finishBuildDetection(p *project, generation uint64, instances []bu
 		p.build.selected = 0
 	}
 	if err != nil && len(instances) == 0 {
-		p.build.failed = err.Error()
+		p.build.failed = a.launchFailureText(err)
 	} else if err != nil {
-		p.build.status = err.Error()
+		p.build.status = a.launchFailureText(err)
 	}
 	if len(instances) == 0 {
 		p.build.status = a.text.Build.NoBuildSystems
@@ -774,8 +774,8 @@ func (a *App) finishBuildModel(p *project, id string, model core.BuildModel, err
 			return
 		}
 		if err != nil {
-			p.build.instances[index].modelError = err.Error()
-			p.build.status = err.Error()
+			p.build.instances[index].modelError = a.launchFailureText(err)
+			p.build.status = p.build.instances[index].modelError
 			a.settleTitleAction(p)
 			return
 		}
