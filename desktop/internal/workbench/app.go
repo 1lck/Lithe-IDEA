@@ -257,6 +257,13 @@ type diagnosticsWatchSink interface {
 	WatchDiagnostics(watch func(on bool)) (stop func())
 }
 
+// panicSink is the part of the client's log that records a panic recovered on any thread,
+// without taking a lock. *logstore.Store implements it; with a sink without it the panics Viva
+// recovers in its callbacks are not logged.
+type panicSink interface {
+	RecordPanic(boundary, value string, stack []byte)
+}
+
 // logsShortcut opens the log window, as on macOS.
 const logsShortcut = "⇧⌘L"
 
@@ -836,6 +843,8 @@ func (a *App) Run() error {
 	app.SetNativeAppearance(nativeAppearance(a.settings.Theme))
 	stop := app.WatchSystemAppearance(a.systemAppearanceChanged)
 	defer stop()
+	faulted := a.watchFaults()
+	defer app.SetFaultHandler(nil)
 	// app.Run opens a bare window that never paints; the window with the frame callbacks
 	// is opened by the application.
 	err := app.RunApplication(func(application *app.Application) error {
@@ -866,6 +875,7 @@ func (a *App) Run() error {
 		}
 		return nil
 	})
+	a.windowLoopEnded(err, faulted.Load())
 	for _, session := range a.sessions.everyOne() {
 		session.unsubscribeSettings()
 		session.stopWatchingDiagnostics()
@@ -884,6 +894,46 @@ func (a *App) Run() error {
 		a.logs.Wait()
 	}
 	return err
+}
+
+// watchFaults has Viva hand each panic it recovers in a callback to the client's log, as
+// app.runtime.panic_interrupted under the boundary viva:<where>. Viva calls the handler on the
+// panicking thread, which may hold the framework's locks, so it only records and sets the
+// returned flag; Run removes the handler when the window loop ends. Without a log that records
+// panics the flag stays false.
+func (a *App) watchFaults() *atomic.Bool {
+	faulted := new(atomic.Bool)
+	if record := a.faultRecorder(faulted); record != nil {
+		app.SetFaultHandler(record)
+	}
+	return faulted
+}
+
+// faultRecorder is the fault handler watchFaults installs: it records the fault in the client's
+// log and sets faulted. It is nil without a log that records panics.
+func (a *App) faultRecorder(faulted *atomic.Bool) func(app.Fault) {
+	sink, ok := a.logSink.(panicSink)
+	if !ok {
+		return nil
+	}
+	return func(fault app.Fault) {
+		faulted.Store(true)
+		sink.RecordPanic("viva:"+fault.Where, fault.Message, fault.Stack)
+	}
+}
+
+// windowLoopEnded logs the error the window loop ended with, as app.window.loop_failed. When
+// Viva recovered a panic during the loop the error is the one that panic caused, which is
+// already logged.
+func (a *App) windowLoopEnded(err error, faulted bool) {
+	if err == nil {
+		return
+	}
+	if faulted {
+		// log-exempt: 同一次失败已经记录过：Viva 恢复的 panic 已经记成 app.runtime.panic_interrupted，窗口循环返回的就是它造成的错误。
+		return
+	}
+	a.emitAs("", core.LevelError, "app.window.loop_failed", core.LogErrorFields(err))
 }
 
 // systemAppearanceChanged hands the system event to the workbench thread before

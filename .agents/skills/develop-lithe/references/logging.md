@@ -108,7 +108,7 @@ if errors.Is(err, app.ErrCanceled) {
 
 ## 五、写入器与记录入口
 
-每个进程只有一个日志写入器 `desktop/internal/logstore.Store`。`cmd/lithe/main.go` 用 `logstore.Open` 创建它，调用 `ObserveCoreFacts` 安装 Core 唤醒回调，再经 `workbench.DesktopOptions.Logs` 交给窗口；退出时 `Close` 排空并写完队列。写入器打不开时客户端照常启动，没有日志窗口，“查看日志”只提示日志不可用。
+每个进程只有一个日志写入器 `desktop/internal/logstore.Store`。`cmd/lithe/main.go` 用 `logstore.Open` 创建它，调用 `ObserveCoreFacts` 安装 Core 唤醒回调、`CaptureCrashes` 接住致命崩溃，再经 `workbench.DesktopOptions.Logs` 交给窗口；退出时 `Close` 删除本会话的崩溃文件，排空并写完队列。写入器打不开时客户端照常启动，没有日志窗口，“查看日志”只提示日志不可用。
 
 | 位置 | 记录方式 |
 | --- | --- |
@@ -121,9 +121,12 @@ if errors.Is(err, app.ErrCanceled) {
 | Core 引擎随插件会话事件带来的目录事实 | `recordEngineFact`（7.8） |
 | Core 请求处理、执行轨迹和没有请求上下文的 Core 代码 | Core 的进程级有界事件队列；写入器在每次写入批次、flush 和关闭时排空，唤醒回调再安排一次排空（7.7） |
 | 链接进 Core 的辅助 crate | 本 crate 的 `failure_log` 模块，sink 由 Core 的 `runtime::helper_failures::install()` 注入；规则见 Core README |
+| 被恢复的 panic：Viva 回调、Core 调进 Go 的回调（唤醒、请求的事件观察者） | `Store.RecordPanic` 记 `app.runtime.panic_interrupted`，边界写成 `viva:<位置>` 或 `core:<回调>`。它不加锁，可在任何线程、关闭途中调用：Viva 经工作台安装的 `app.SetFaultHandler`，Core 回调经 `WatchCoreEvents` 的 `recovered` |
+| 没有被恢复的致命崩溃、被强制退出的会话 | `CaptureCrashes` 让 Go runtime 把崩溃报告写进本会话的崩溃文件；下次启动记 `app.session.previous_interrupted` 或 `app.session.close_missing` |
 
 规则：
 
+- 新增 `recover()` 边界时，把恢复的值和栈交给上表的 panic 入口，不得只恢复不记录；记录路径自身的 panic 属于写入器自身的失败，只能丢弃。
 - 不得新增全局可变日志单例，不得在下层自行创建写入器，不得用 `log`、`slog`、`fmt.Fprint(os.Stderr, …)` 或 `println` 输出诊断。
 - 新增构造参数、回调或接口字段用于记录失败时，同一次改动把真实实现接到每个生产构造处。`nil` 只能出现在测试里；生产路径留空等于没有记录。
 - 写入器同时实现 `logwindow.Source`：日志窗口和诊断包只读取 v2 会话文件，没有 v1 缓冲。

@@ -115,8 +115,9 @@ type Kernel interface {
 	PlanLogRetention(ctx context.Context, request core.LogRetentionRequest) (core.LogRetentionPlan, error)
 	DrainCoreEvents(ctx context.Context) (core.CoreEvents, error)
 	ConfigureCoreEvents(ctx context.Context, debug bool, roots []string) error
-	// WatchCoreEvents installs the kernel's single, process-wide waker; see ObserveCoreFacts.
-	WatchCoreEvents(wake func()) (stop func())
+	// WatchCoreEvents installs the kernel's single, process-wide waker, and the receiver of the
+	// panics the client recovers in callbacks the kernel makes; see ObserveCoreFacts.
+	WatchCoreEvents(wake func(), recovered func(core.RecoveredPanic)) (stop func())
 }
 
 // Rejection counts the events the kernel refused to encode for one reason. A rejected event is
@@ -232,6 +233,13 @@ type Store struct {
 	sessionPath       string
 	// unwatch removes the kernel's waker; nil while the store does not observe the kernel.
 	unwatch func()
+
+	// panics holds recovered panics until the next drain; it takes no lock (see RecordPanic).
+	panics panicQueue
+	// crash is the file the Go runtime writes a fatal crash report to; nil without one (see
+	// CaptureCrashes). crashMu guards it, and is held across the file operations.
+	crashMu sync.Mutex
+	crash   *crashFile
 
 	wake      chan struct{} // work was queued; arm the coalescing timer
 	full      chan struct{} // a whole batch is waiting; drain now
@@ -349,6 +357,7 @@ func Open(opts Options) (*Store, error) {
 		headers:     make(map[string]string),
 		handles:     make(map[string]*openLog),
 	}
+	s.panics.now = now
 	redirectErr := s.switchDirectory(chosen)
 	if redirectErr != nil {
 		if defaultDir == "" || chosen == defaultDir {
@@ -397,8 +406,11 @@ func (s *Store) ObserveCoreFacts() {
 		return
 	}
 	// The kernel calls wake while holding its waker lock: it may only signal the writer, and
-	// signal neither blocks nor takes s.mu.
-	s.unwatch = s.kernel.WatchCoreEvents(func() { signal(s.wake) })
+	// signal neither blocks nor takes s.mu. The client may report a panic at once, while s.mu is
+	// held here, so RecordPanic takes no lock either.
+	s.unwatch = s.kernel.WatchCoreEvents(func() { signal(s.wake) }, func(p core.RecoveredPanic) {
+		s.RecordPanic(p.Boundary, p.Value, p.Stack)
+	})
 }
 
 // newSessionID returns a random version 4 UUID in lowercase, the form the kernel's session
@@ -541,8 +553,10 @@ func (s *Store) Emit(level core.LogLevel, event, op string, fields map[string]an
 }
 
 // Close drains the queue one last time, closes every file and ends the writer. It is safe to
-// call more than once. It must not be called from a Subscribe callback.
+// call more than once. It must not be called from a Subscribe callback. The crash capture ends
+// first, while a failure to remove the session's crash file can still be logged.
 func (s *Store) Close() {
+	s.releaseCrashFile()
 	s.mu.Lock()
 	s.stopped = true
 	s.mu.Unlock()
@@ -1007,9 +1021,20 @@ func (s *Store) drain(ctx context.Context) error {
 	}
 	ctx = context.WithoutCancel(ctx)
 
+	// Recovered panics are taken even while the store is stopping, so the final drain writes
+	// the panic that made the application quit.
+	recovered, lostPanics := s.panics.take()
 	s.mu.Lock()
 	work := s.pending
 	s.pending = nil
+	if len(recovered) > 0 {
+		work = append(work, recovered...)
+		slices.SortStableFunc(work, func(a, b queued) int { return a.ts.Compare(b.ts) })
+	}
+	if lostPanics > 0 {
+		s.dropped = saturatingAdd(s.dropped, lostPanics)
+		s.unreportedDropped = saturatingAdd(s.unreportedDropped, lostPanics)
+	}
 	unreported := s.unreportedDropped
 	s.unreportedDropped = 0
 	s.scheduled, s.urgent = false, false
