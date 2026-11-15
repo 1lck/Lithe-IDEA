@@ -83,9 +83,12 @@ func goLitheRequestEvent(event *C.char, identity C.uintptr_t) {
 	}
 	// A Go panic must never unwind through Rust. The final request result is
 	// still returned separately because Core may already have changed state.
+	// The panic is recorded here, where it is recovered; callers that see
+	// ErrCoreEventsLost do not record it again.
 	defer func() {
-		if recover() != nil {
+		if recovered := recover(); recovered != nil {
 			observer.failed.Store(true)
+			currentLogWatch.Load().report("core:events-observer", recovered)
 		}
 	}()
 	if event == nil {

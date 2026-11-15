@@ -21,23 +21,35 @@ import (
 // the store installed, the way the kernel does when one of its own facts is recorded.
 type wakingKernel struct {
 	Kernel
-	mu       sync.Mutex
-	wake     func()
-	installs int
-	removals int
-	facts    []core.CoreEvent
+	mu        sync.Mutex
+	wake      func()
+	recovered func(core.RecoveredPanic)
+	installs  int
+	removals  int
+	facts     []core.CoreEvent
 }
 
-func (k *wakingKernel) WatchCoreEvents(wake func()) func() {
+func (k *wakingKernel) WatchCoreEvents(wake func(), recovered func(core.RecoveredPanic)) func() {
 	k.mu.Lock()
 	defer k.mu.Unlock()
-	k.wake = wake
+	k.wake, k.recovered = wake, recovered
 	k.installs++
 	return func() {
 		k.mu.Lock()
 		defer k.mu.Unlock()
-		k.wake = nil
+		k.wake, k.recovered = nil, nil
 		k.removals++
+	}
+}
+
+// reportPanic hands a panic to the receiver the store installed, the way the client does when it
+// recovers one in a callback of the kernel.
+func (k *wakingKernel) reportPanic(p core.RecoveredPanic) {
+	k.mu.Lock()
+	recovered := k.recovered
+	k.mu.Unlock()
+	if recovered != nil {
+		recovered(p)
 	}
 }
 
