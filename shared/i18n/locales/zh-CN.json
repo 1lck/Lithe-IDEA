@@ -1592,6 +1592,7 @@
     "desktop.toolchains.automatic": "自动（{value}）",
     "desktop.toolchains.chooseHelp": "选择一行只修改草稿。保存会写入本项目的 .lithe/toolchains/local.json；取消不会改动文件。",
     "desktop.toolchains.conflict": "{tool} 同时由 {plugins} 定义；请只保留其中一个插件。",
+    "desktop.toolchains.custom": "自定义…",
     "desktop.toolchains.description": "已启用插件声明的工具。生效值与来源由共享 Core 解析得出；点击保存前不会写入任何文件。",
     "desktop.toolchains.directory": "安装目录",
     "desktop.toolchains.directoryHelp": "选择包含工具程序的安装根目录，例如 JDK 目录，而不是 bin 目录。验证版本只修改草稿；点击保存后才写入项目选择。",

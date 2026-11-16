@@ -17911,6 +17911,13 @@
       }
     },
     {
+      "id": "desktop.toolchains.custom",
+      "description": "Entry of a tool's directory list that shows a field for a directory discovery did not find.",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
       "id": "desktop.toolchains.description",
       "description": "Explains what the toolchain page shows and that Core decides the effective source.",
       "platforms": [

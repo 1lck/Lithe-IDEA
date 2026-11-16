@@ -45,7 +45,8 @@ func TestVisualSettings(t *testing.T) {
 		{"25-settings-process", pageProcessTermination}, {"26-settings-git", pageVersionControl},
 		{"27-settings-terminal", pageTerminal}, {"28-plugins-installed", pagePlugins},
 		{"29-marketplace-empty", pagePlugins}, {"31-settings-updates", pageUpdates},
-		{"33-settings-toolchains", pageBuild}, {"fonts", pageFonts},
+		{"33-settings-toolchains", pageBuild}, {"m44-toolchain-directory-menu", pageBuild}, {"m45-toolchain-custom-directory", pageBuild},
+		{"fonts", pageFonts},
 		{"21-settings-language-popup", pageGeneral}, {"30-settings-history", pageGeneral}, {"35-settings-search", pageEditor},
 		{"m35-editor-tab-layout", pageEditor}, {"m25-project-open-mode", pageGeneral}, {"m29-editor-font-menu", pageFonts}, {"m38-plugin-management-menu", pagePlugins},
 		{"m39-proxy-mode-menu", pageNetwork}, {"m40-process-run-policy", pageProcessTermination},
@@ -128,6 +129,12 @@ func TestVisualSettings(t *testing.T) {
 					d.click(text("desktop.settings.processTermination.onQuit"))
 				case "m43-process-orphan-policy":
 					d.click(text("desktop.settings.processTermination.leftoverTerminals"))
+				case "m44-toolchain-directory-menu":
+					d.click("Compiler")
+				case "m45-toolchain-custom-directory":
+					d.click("Compiler")
+					d.click(text("desktop.toolchains.custom"))
+					d.pump()
 				}
 				if err := session.Screenshot(filepath.Join(out, scenario.id+"-"+theme+".png")); err != nil {
 					t.Fatal(err)

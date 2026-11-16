@@ -5,6 +5,7 @@ package settingswindow
 import (
 	"github.com/1lck/Lithe-IDEA/desktop/internal/core"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/i18n"
+	"github.com/1lck/Lithe-IDEA/desktop/internal/shortcuts"
 	"github.com/vivaui/viva/headless"
 	"os"
 	"path/filepath"
@@ -33,6 +34,14 @@ func TestVisualEditorEssentialsSettings(t *testing.T) {
 					if !w.reduceScheme(core.KeymapSchemeRequest{Operation: "saveAs", ID: "my-keys", Name: "My workspace"}) {
 						t.Fatal(w.scheme.failure)
 					}
+					// One action with its keys changed shows Reset pressable beside ones that
+					// are not, and another shows the recorder waiting for a chord.
+					actions := shortcuts.All()
+					w.setKeymap(shortcuts.Overrides(nil).With(actions[0].ID, nil))
+					// The schemes are loaded; loading them again in the first paint would end
+					// the recording.
+					w.scheme.ready = true
+					w.beginRecording(actions[1])
 				}
 				session, err := headless.Open(w.config(), nil, headless.Options{})
 				if err != nil {

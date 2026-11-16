@@ -39,21 +39,7 @@ func TestVisualPluginSettingsForm(t *testing.T) {
 	if err := os.MkdirAll(out, 0755); err != nil {
 		t.Fatal(err)
 	}
-	data, err := os.ReadFile(contractfixture.CoreFixture("plugins/settings-documents.json"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	var fixture struct {
-		Manifest map[string]json.RawMessage `json:"manifest"`
-	}
-	if err := json.Unmarshal(data, &fixture); err != nil {
-		t.Fatal(err)
-	}
-	fixture.Manifest["settings"] = json.RawMessage(pluginSettingsVisualDeclarations)
-	manifest, err := json.Marshal(fixture.Manifest)
-	if err != nil {
-		t.Fatal(err)
-	}
+	manifest := pluginSettingsVisualManifest(t)
 	for _, look := range []struct {
 		theme    string
 		language i18n.Language
@@ -91,6 +77,82 @@ func TestVisualPluginSettingsForm(t *testing.T) {
 			})
 			d.pump()
 			if err := session.Screenshot(filepath.Join(out, "plugin-settings-form-"+look.theme+".png")); err != nil {
+				t.Fatal(err)
+			}
+		})
+	}
+}
+
+// pluginSettingsVisualManifest is the Core fixture's plugin manifest with the settings above.
+func pluginSettingsVisualManifest(t *testing.T) []byte {
+	t.Helper()
+	data, err := os.ReadFile(contractfixture.CoreFixture("plugins/settings-documents.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var fixture struct {
+		Manifest map[string]json.RawMessage `json:"manifest"`
+	}
+	if err := json.Unmarshal(data, &fixture); err != nil {
+		t.Fatal(err)
+	}
+	fixture.Manifest["settings"] = json.RawMessage(pluginSettingsVisualDeclarations)
+	manifest, err := json.Marshal(fixture.Manifest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return manifest
+}
+
+// TestVisualPluginSettingsPage renders the language page the plugin above contributes,
+// opened from the sidebar: Languages & Frameworks expanded to show it, and Build,
+// Execution, Deployment folding the plugin's build page away. Opt in as above.
+func TestVisualPluginSettingsPage(t *testing.T) {
+	out := os.Getenv("LITHE_VISUAL_OUTPUT_DIR")
+	if out == "" {
+		t.Skip("set LITHE_VISUAL_OUTPUT_DIR to capture the plugin settings page")
+	}
+	if err := os.MkdirAll(out, 0755); err != nil {
+		t.Fatal(err)
+	}
+	manifest := pluginSettingsVisualManifest(t)
+	client := core.NewClient()
+	for _, look := range []struct {
+		theme    string
+		language i18n.Language
+	}{{"dark", i18n.Chinese}, {"light", i18n.English}} {
+		t.Run(look.theme, func(t *testing.T) {
+			source := settingsFormSource{store: pluginsettings.New(client, t.TempDir()), manifest: manifest, workspace: t.TempDir()}
+			w := newWindow(NewController(Options{
+				Text: func() *i18n.Messages { return i18n.For(look.language) }, Language: func() i18n.Language { return look.language },
+				SystemLanguage: look.language, SystemDark: func() bool { return look.theme == "dark" },
+				PluginSettings: source, SettingsNavigation: client.SettingsNavigation,
+				SettingsPages: func(ctx context.Context) ([]core.SettingsPage, error) {
+					return client.SettingsPages(ctx, []core.SettingsContribution{{Manifest: manifest, Owner: core.PluginSettingsOwner{PluginID: "dev.example.settings", Version: "1.0.0"}, Enabled: true}})
+				},
+			}), Values{Theme: look.theme, Language: look.language.Code()})
+			config := w.config()
+			config.Height = 760
+			session, err := headless.Open(config, nil, headless.Options{})
+			if err != nil {
+				t.Fatal(err)
+			}
+			t.Cleanup(session.Close)
+			d := &windowDriver{t: t, w: w, driver: session.Driver()}
+			d.until("the plugin's pages", func() bool { return len(w.dynamic.pages) == 2 })
+			for _, page := range w.dynamic.pages {
+				if contributedParent(page.Kind) == pageLanguages {
+					w.selectSettingsPage(pageLanguages, page.Key)
+				}
+			}
+			d.until("the settings form", func() bool {
+				if w.pluginSettings.failed != nil && !w.pluginSettings.running {
+					t.Fatalf("the settings form failed: %v", w.pluginSettings.failed)
+				}
+				return w.pluginSettings.loaded
+			})
+			d.pump()
+			if err := session.Screenshot(filepath.Join(out, "plugin-settings-page-"+look.theme+".png")); err != nil {
 				t.Fatal(err)
 			}
 		})

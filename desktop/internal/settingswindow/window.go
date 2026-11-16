@@ -270,6 +270,9 @@ func (w *window) config() app.Config {
 		Invalidator:    &w.inv,
 		OnWake:         w.wake,
 		OnClosed:       w.closed,
+		// Chords of printable keys reach the window as shortcuts, not as keys of the
+		// control that has the focus; the one the Keymap page records arrives here.
+		OnShortcut: w.recordShortcut,
 	})
 	paint := config.Paint
 	config.Paint = func(canvas *gfx.Canvas, size gfx.Size) {
