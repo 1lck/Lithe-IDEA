@@ -6,10 +6,11 @@ package workbench
 type editorFeatures struct {
 	nav navigationHistoryState
 	// requests counts the editor's own language requests, which name them (editor_requests.go).
-	requests uint64
-	outline  outlineState
-	refs     referencesState
-	encoding encodingState
-	lsp      lspLogState
-	tokens   semanticTokensState
+	requests      uint64
+	outline       outlineState
+	copyReference copyReferenceState
+	refs          referencesState
+	encoding      encodingState
+	lsp           lspLogState
+	tokens        semanticTokensState
 }

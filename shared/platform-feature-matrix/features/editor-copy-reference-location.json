@@ -1,0 +1,31 @@
+{
+  "id": "editor-copy-reference-location",
+  "area": "编辑器",
+  "group": "导航",
+  "capability": "从编辑器右键菜单复制符号与代码行引用",
+  "macos": {
+    "implementationStatus": "implemented",
+    "verificationStatus": "pending",
+    "evidence": [
+      "desktop/internal/workbench/copy_reference.go",
+      "desktop/internal/workbench/editor_menu.go",
+      "desktop/internal/workbench/copy_reference_test.go",
+      "desktop/internal/core/reference_location.go",
+      "desktop/internal/workbench/copy_reference_visual_test.go"
+    ]
+  },
+  "windows": {
+    "implementationStatus": "implemented",
+    "verificationStatus": "pending",
+    "evidence": [
+      "desktop/internal/workbench/copy_reference.go",
+      "desktop/internal/workbench/editor_menu.go",
+      "desktop/internal/workbench/copy_reference_test.go",
+      "desktop/internal/core/reference_location.go",
+      "desktop/internal/workbench/copy_reference_visual_test.go"
+    ]
+  },
+  "owner": "Editor",
+  "notes": "通过 Viva 共用菜单复制右键所在行的引用；Rust Core 负责从同步的 documentSymbols 生成包/类/方法签名引用，没有可靠符号时回退为文件路径与行号。菜单复用现有“复制源码位置”中英文词条；Core 与桌面修复 PR 需配套合入。",
+  "verification": "Core 共享 fixture 和 Rust 单测；Viva Go 测试覆盖菜单、剪贴板、语言服务器回复、无服务器回退和过期结果。双端原生验收、视觉截图待运行。 Viva Headless 测试定义在 copy_reference_visual_test.go，执行后输出四组菜单与真实粘贴截图。"
+}
