@@ -27,17 +27,20 @@ native_path() {
     fi
 }
 
-# Lithe-core-rust refactor/1856-line-comment-table at 12d3739, on top of main 957a349:
-# editor.lineCommentToken and Core's table of comment tokens are gone; the desktop takes the
-# token from its language registry and editor.lineEdit is unchanged (#1856). Replace it with the
-# squash-merge commit on main once the Core PR is merged.
-# Main at 957a349 is #64 squash-merged: gitExecution.consoleQueries names the query
-# categories the Git console records and queryCategory names a read the command does not tell
-# apart; git.consolePresentation takes display options, all false by default as in IDEA; output
-# folds only past ten lines and a deletion never folds; a failed unrecorded query still reports its
-# command, stderr and exit; a reported query's started event carries its queryCategory (#2025). It
-# is on top of #65, squash-merged into main as db54ba0: every workspace.repositories entry has an
-# id relative to the opened folder, a display name and a role (workspace or nested);
+# Lithe-core-rust main at 5a8d786, #67 squash-merged: toolchain candidates list the installations
+# JAVA_HOME and PATH point at. It is on top of #68, squash-merged into main: Core no longer
+# recognizes rust-analyzer or gopls; a language server declares indexingExclusions, and the launch
+# plan's sessionPolicy, which the desktop sends to lsp.startServer unchanged, carries it. It is on
+# top of #66, squash-merged into main: editor.lineCommentToken and Core's table of comment tokens
+# are gone; the desktop takes the token from its language registry and editor.lineEdit is
+# unchanged (#1856). It is on top of #64, squash-merged into main: gitExecution.consoleQueries
+# names the query categories the Git console records and queryCategory names a read the command
+# does not tell apart; git.consolePresentation takes display options, all false by default as in
+# IDEA; output folds only past ten lines and a deletion never folds; a failed unrecorded query
+# still reports its command, stderr and exit; a reported query's started event carries its
+# queryCategory (#2025). It is on top of #65, squash-merged into main as db54ba0: every
+# workspace.repositories entry has an id relative to the opened folder, a display name and a role
+# (workspace or nested);
 # git.workspaceRepositorySelection keeps the repository a view picked while discovery still lists
 # it and otherwise falls back to the workspace repository, then the first one;
 # git.workspaceChangeGroups groups status changes per repository with their staged counts, the
@@ -145,7 +148,7 @@ PINNED_CORE_REPOSITORY="https://github.com/Lithe-IDEA/Lithe-core-rust.git"
 # the contract, plugin guides, reference and SDKs live only in shared/plugins; on top of #16 (reported Git queries folded in the console),
 # #15 (git.write cherryPick, revert and reset fields), #14 (word-level changed ranges of diff
 # rows), #13, #8, #7, #6 and #4.
-PINNED_CORE_REVISION="12d3739b05f8854ff9bfa5dcd33cc1b6d62e7eb2"
+PINNED_CORE_REVISION="5a8d786e9b44a5a8c7a977a8b376264fa941dcd9"
 PROFILE="debug"
 while [[ $# -gt 0 ]]; do
     case "$1" in
