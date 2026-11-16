@@ -26,9 +26,10 @@ func TestWorkspaceRepositoryDiscoveryUsesCoreRules(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	serviceA := filepath.ToSlash(filepath.Join(root, "service-a"))
 	want := []WorkspaceRepository{
-		{Path: filepath.ToSlash(filepath.Join(root, "service-a"))},
-		{Path: filepath.ToSlash(filepath.Join(root, "service-b"))},
+		{Path: serviceA, ID: "service-a", Name: "service-a", Role: RepositoryNested},
+		{Path: filepath.ToSlash(filepath.Join(root, "service-b")), ID: "service-b", Name: "service-b", Role: RepositoryNested},
 	}
 	if !reflect.DeepEqual(repositories, want) {
 		t.Fatalf("repositories = %#v, want %#v", repositories, want)
@@ -38,8 +39,88 @@ func TestWorkspaceRepositoryDiscoveryUsesCoreRules(t *testing.T) {
 		t.Fatal(err)
 	}
 	repositories, err = NewClient().DiscoverWorkspaceRepositories(testContext(t), nested)
-	if err != nil || !reflect.DeepEqual(repositories, want[:1]) {
-		t.Fatalf("nested workspace repositories = %#v, error = %v; want %#v", repositories, err, want[:1])
+	containing := []WorkspaceRepository{{Path: serviceA, ID: "..", Name: "service-a", Role: RepositoryWorkspace}}
+	if err != nil || !reflect.DeepEqual(repositories, containing) {
+		t.Fatalf("nested workspace repositories = %#v, error = %v; want %#v", repositories, err, containing)
+	}
+}
+
+// The bridge passes discovery entries through and decodes Core's answer; the rules are the
+// fixtures' and Core's.
+func TestWorkspaceRepositorySelectionUsesCoreFixtures(t *testing.T) {
+	data, err := os.ReadFile(contractfixture.CoreFixture("git/workspace-repository-selection-v1.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var fixture struct {
+		Cases []struct {
+			Name    string `json:"name"`
+			Request struct {
+				Repositories []WorkspaceRepository `json:"repositories"`
+				Selected     string                `json:"selected"`
+			} `json:"request"`
+			Response struct {
+				Active   *string  `json:"active"`
+				FellBack bool     `json:"fellBack"`
+				Others   []string `json:"others"`
+			} `json:"response"`
+		} `json:"cases"`
+	}
+	if err := json.Unmarshal(data, &fixture); err != nil {
+		t.Fatal(err)
+	}
+	if len(fixture.Cases) == 0 {
+		t.Fatal("the selection fixture has no cases")
+	}
+	client := NewClient()
+	for _, item := range fixture.Cases {
+		t.Run(item.Name, func(t *testing.T) {
+			want := WorkspaceRepositorySelection{FellBack: item.Response.FellBack, Others: item.Response.Others}
+			if item.Response.Active != nil {
+				want.Active = *item.Response.Active
+			}
+			got, err := client.SelectWorkspaceRepository(testContext(t), item.Request.Repositories, item.Request.Selected)
+			if err != nil || !reflect.DeepEqual(got, want) {
+				t.Fatalf("selection = %#v, error = %v; want %#v", got, err, want)
+			}
+		})
+	}
+	duplicate := []WorkspaceRepository{
+		{Path: "/w/a", ID: "a", Name: "a", Role: RepositoryNested},
+		{Path: "/w/b", ID: "a", Name: "a", Role: RepositoryNested},
+	}
+	_, err = client.SelectWorkspaceRepository(testContext(t), duplicate, "")
+	requireCode(t, err, CodeInvalidRequest)
+}
+
+func TestWorkspaceChangeGroupsUseCoreFixtures(t *testing.T) {
+	data, err := os.ReadFile(contractfixture.CoreFixture("git/workspace-change-groups-v1.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var fixture struct {
+		Cases []struct {
+			Name    string `json:"name"`
+			Request struct {
+				Repositories []WorkspaceRepositoryChanges `json:"repositories"`
+			} `json:"request"`
+			Response WorkspaceChangeGroups `json:"response"`
+		} `json:"cases"`
+	}
+	if err := json.Unmarshal(data, &fixture); err != nil {
+		t.Fatal(err)
+	}
+	if len(fixture.Cases) == 0 {
+		t.Fatal("the change group fixture has no cases")
+	}
+	client := NewClient()
+	for _, item := range fixture.Cases {
+		t.Run(item.Name, func(t *testing.T) {
+			got, err := client.GroupWorkspaceChanges(testContext(t), item.Request.Repositories)
+			if err != nil || !reflect.DeepEqual(got, item.Response) {
+				t.Fatalf("groups = %#v, error = %v; want %#v", got, err, item.Response)
+			}
+		})
 	}
 }
 

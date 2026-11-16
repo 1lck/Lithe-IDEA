@@ -8,7 +8,9 @@
     "verificationStatus": "pending",
     "evidence": [
       "desktop/internal/core/gitcommit.go",
-      "desktop/internal/workbench/commit.go"
+      "desktop/internal/workbench/commit.go",
+      "desktop/internal/workbench/commit_nested.go",
+      "desktop/internal/workbench/workspace_repositories_test.go"
     ]
   },
   "windows": {
@@ -16,12 +18,14 @@
     "verificationStatus": "pending",
     "evidence": [
       "desktop/internal/core/gitcommit.go",
-      "desktop/internal/workbench/commit.go"
+      "desktop/internal/workbench/commit.go",
+      "desktop/internal/workbench/commit_nested.go",
+      "desktop/internal/workbench/workspace_repositories_test.go"
     ]
   },
   "owner": "Git",
   "verification": "勾选两个独立仓库文件，一次提交并推送，验证各自 HEAD 和远程；停止一个操作后其余独立仓库继续，已成功仓库不会回滚。",
-  "notes": "Viva：Core 的 WorkspaceCommitRequest 支持多个仓库并为每个仓库保留 WorkspaceCommitResult，失败不回滚。workbench 的 commitTarget.request 只提交项目仓库，未按文件所属仓库分组，因此多仓库批量提交与每仓库结果在界面中未接入。",
+  "notes": "Viva：提交窗口把 Core 发现的仓库列表随请求交回，由 Core 的 WorkspaceCommitRequest.WorkspaceRepositories 绑定嵌套仓库：首次计划带上全部仓库，ChangeList 范围只提交项目仓库，重试只带失败那次计划过的仓库；文件夹本身不是 Git 仓库时只提交嵌套仓库。每个仓库保留自己的 WorkspaceCommitResult，失败不回滚。提交并推送沿用同一计划；推送和中途停止的实机验证还没做。",
   "legacy": {
     "revision": "5a54c41aa37a4e6e6b68918a4b05765b9dd07a36",
     "macos": {

@@ -301,15 +301,15 @@
 | `git-line-history` | 行级修改历史 | 必须迁移 | 缺/实现 | 部分 | `core/git_blame.go` |
 | `git-local-changelists` | 本地 ChangeList | 必须迁移 | 实现/实现 | 部分 | changelists.go、changelists_view.go、core/changelists.go；多选/目录批量移动未做 |
 | `git-metadata-observation` | Git 元数据变化观察与刷新 | 必须迁移 | 实现/实现 | 部分 | `workbench/git_observation.go` |
-| `git-multi-repository-change-groups` | 多仓库变更折叠分组 | 必须迁移 | 实现/实现 | 部分 | `core/changelists.go` |
-| `git-multi-repository-references` | 多仓库引用面板 | 必须迁移 | 实现/实现 | 部分 | — |
+| `git-multi-repository-change-groups` | 多仓库变更折叠分组 | 必须迁移 | 实现/实现 | 部分 | core/workspace.go、nested_repos.go、nested_repos_view.go：提交窗口按 Core 的 GroupWorkspaceChanges 按仓库折叠分组，顶部复选框按 Core 的 StageAll 计划暂存全部仓库，状态栏统计所有仓库的更改数；文件夹本身不是 Git 仓库时同样分组 |
+| `git-multi-repository-references` | 多仓库引用面板 | 必须迁移 | 实现/实现 | 部分 | branch_view.go、gitlog_popover_view.go、gitgraph.go：分支入口按 IDEA 样式逐行列出仓库，点一行在旁边展开该仓库的分支面板，写操作只作用于该仓库；Git Log 行左侧是仓库颜色条，路径筛选器下方“仓库根目录”切换日志的仓库（截图见 `docs/assets/workspace-repositories/`）；Common Local / Remote Branches、聚合日志、跨仓库 Update / Push 未做 |
 | `git-rebase-stash` | Rebase 与 Stash | 必须迁移 | 实现/实现 | 部分 | stash.go、stash_view.go：Commit 工具窗口暂存页可查看、应用、弹出、删除与新建 stash；拉取分叉时可选变基（gitsync.go）；独立 Rebase（含交互式）未找到 |
 | `git-repository-discovery` | 仓库自动发现排除隐藏目录与构建缓存 | 必须迁移 | 实现/实现 | 部分 | core/repository_colors.go、gitmetadata/ |
 | `git-status-colors-idea-alignment` | Windows 默认主题 Git 状态配色与 IDEA 对齐（修改/… | 必须迁移 | 专属/实现 | 部分 | theme.go 新增 GitModified/GitModifiedStaged/GitRenamed/GitAdded/GitFileDeleted/GitUntracked 与 Gutter* 令牌（IDEA expUI 明暗值）；commit_view.go、gitlog_details_view.go 统一走 palette.gitStatusColor，删除文件改灰、未跟踪改暖红、暂存修改用浅蓝；documents.go 的 gutter 改用浅色令牌。未做：项目文件树与 Git Log 文件树尚未按状态着色（filetree 缺少状态字段） |
 | `git-status-commit` | 状态、暂存与提交 | 必须迁移 | 实现/实现 | 完成 | commit.go、commit_view.go、core/gitcommit.go；“提交选项”可加 Sign-off、指定作者（必须是 `Name <email>`，否则 Core 以 `git_commit_author_invalid` 拒绝，作者在提交成功后清空）；Git 控制台（gitconsole.go、core/gitconsole.go）除自动刷新、监听这类后台命令外记录全部 Git 命令，含读取状态的内部查询，查询的答案型非零退出显示为预期；Commit 工具窗口、Diff 标签和分支弹窗发起的写操作会切到控制台页，Log 与工作树页的不切换 |
 | `git-submodule-commit-plan` | 子模块先提交与推送、自动更新父引用、计划变化再次确认 | 必须迁移 | 实现/实现 | 部分 | `core/gitcommit.go` |
-| `git-workspace-commit-retry` | 失败后只重试未完成的提交或推送步骤 | 必须迁移 | 实现/实现 | 部分 | commit.go `retryCommit`：本项目仓库的提交失败后可重试剩余步骤，先显示复核；多仓库批量提交未接（见 `git-workspace-staged-commit`） |
-| `git-workspace-staged-commit` | 按文件所属仓库批量提交及推送，保留每仓库结果 | 必须迁移 | 实现/实现 | 部分 | `core/gitcommit.go` |
+| `git-workspace-commit-retry` | 失败后只重试未完成的提交或推送步骤 | 必须迁移 | 实现/实现 | 部分 | commit.go `retryCommit`：提交失败后可重试剩余步骤，先显示复核；多仓库批量提交的重试只带失败那次计划过的仓库，由 Core 绑定（见 `git-workspace-staged-commit`） |
+| `git-workspace-staged-commit` | 按文件所属仓库批量提交及推送，保留每仓库结果 | 必须迁移 | 实现/实现 | 部分 | core/gitcommit.go、commit_nested.go：提交窗口把 Core 发现的仓库列表随请求交回，由 Core 绑定嵌套仓库，文件夹本身不是 Git 仓库时只提交嵌套仓库，每仓库保留结果；推送与中途停止待实机验证 |
 | `git-worktrees` | Worktree 管理 | 必须迁移 | 实现/实现 | 部分 | gitworktree.go、gitworktree_view.go、core/gitworktree.go；在新窗口打开、悬停信息、设置页未做 |
 | `vcs-subversion-and-plugin-providers` | 统一 VCS 模型与插件 VCS Provider | 插件提供 | 部分/缺 | 部分 | C06 扩展点：vcsProviders；vcs.go、vcs_view.go、core/vcs.go：每个 Provider 一个工具窗口，状态、提交、回滚、更新、标记解决、清理、历史、只读 Diff；Annotate、单文件历史、gutter、元数据监听、fileOperations、项目树状态未做 |
 
