@@ -500,14 +500,19 @@ func (w *window) toolchainTool(c ui.C, language i18n.Language, tool toolchain.To
 			})
 		}
 		for _, shell := range tool.Shell {
-			version := shell.Variable
+			// A variable's name, or the command found on the PATH: both are the user's own words.
+			source := shell.Variable
+			if source == "" {
+				source = shell.Command
+			}
+			version := source
 			if shell.Version != nil {
 				version += " " + *shell.Version
 			} else if shell.Reason != "" {
 				version += " " + shell.Reason
 			}
 			ui.Text(c, i18n.SharedFormat(language, "desktop.toolchains.installation", map[string]string{
-				"home": shell.Home, "version": version, "provider": shell.Variable,
+				"home": shell.Home, "version": version, "provider": source,
 			})).FontSize(11).Color(w.pal.muted)
 		}
 		if tool.ProviderQueriesUnsupported {

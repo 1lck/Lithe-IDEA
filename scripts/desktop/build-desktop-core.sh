@@ -27,8 +27,10 @@ native_path() {
     fi
 }
 
-# Lithe-core-rust main at 5a8d786, #67 squash-merged: toolchain candidates list the installations
-# JAVA_HOME and PATH point at. It is on top of #68, squash-merged into main: Core no longer
+# Lithe-core-rust main at 5a8d786, #67 squash-merged: toolchains.candidates takes the optional
+# commandHomes, lists the commands found on the PATH as shell rows, and offers each shell home that
+# checks out as an installations entry with provider host:shell, once per canonical home (#2032).
+# It is on top of #68, squash-merged into main: Core no longer
 # recognizes rust-analyzer or gopls; a language server declares indexingExclusions, and the launch
 # plan's sessionPolicy, which the desktop sends to lsp.startServer unchanged, carries it. It is on
 # top of #66, squash-merged into main: editor.lineCommentToken and Core's table of comment tokens
