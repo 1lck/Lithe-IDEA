@@ -8,6 +8,10 @@ import (
 	"github.com/vivaui/viva/ui"
 )
 
+// repositoryGroupGap is the space between the parts of a repository group's line; the rows of the
+// group's changes are indented after it (repositoryChangeIndent).
+const repositoryGroupGap = 6
+
 // drawRepositoryChanges declares the change list of a workspace with nested repositories as Core
 // groups it: one line for all the changes, then a foldable group per repository with changes, in
 // Core's order. A group is named after its repository, so a workspace where only one repository has
@@ -58,7 +62,7 @@ func (a *App) drawRepositoryGroup(c ui.C, p *project, group core.WorkspaceChange
 		color = a.colors.Accent
 	}
 	folded := p.nested.folded[id]
-	ui.Row(rc).Height(logItemHeight).FillWidth().Shrink(0).Items(ui.Center).Gap(6).PadX(8).Children(func() {
+	ui.Row(rc).Height(logItemHeight).FillWidth().Shrink(0).Items(ui.Center).Gap(repositoryGroupGap).PadX(8).Children(func() {
 		chevron, foldLabel := icons.ChevronDown, i18n.Shared(lang, "desktop.nested.collapse")
 		if folded {
 			chevron, foldLabel = icons.ChevronRight, i18n.Shared(lang, "desktop.nested.expand")
@@ -94,15 +98,16 @@ func (a *App) drawRepositoryGroup(c ui.C, p *project, group core.WorkspaceChange
 		return
 	}
 	if group.ParentReference == core.ParentReferenceUnchanged {
-		ui.Paragraph(rc, i18n.Shared(lang, "desktop.nested.refUnchanged"), 2).FontSize(a.theme.Metrics.FontSizeS).Color(a.colors.Subtle).PadX(8)
+		ui.Paragraph(rc, i18n.Shared(lang, "desktop.nested.refUnchanged"), 2).FontSize(a.theme.Metrics.FontSizeS).Color(a.colors.Subtle).
+			PadSides(0, 8, 0, repositoryChangeIndent)
 	}
 	repo, _ := p.nested.repo(id)
 	for _, change := range changes {
 		if own {
-			a.drawCommitChange(rc, p, change)
+			a.drawCommitChange(rc, p, change, repositoryChangeIndent)
 			continue
 		}
-		toggled, _, _, _ := a.drawChangeRow(rc, change, busy, false, func(ui.C) func(*ui.MenuItems) {
+		toggled, _, _, _ := a.drawChangeRow(rc, change, busy, false, repositoryChangeIndent, func(ui.C) func(*ui.MenuItems) {
 			return func(*ui.MenuItems) {}
 		})
 		if toggled && repo != nil {

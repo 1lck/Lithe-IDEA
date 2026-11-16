@@ -27,7 +27,7 @@ func TestVisualWorkspaceRepositories(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, look := range []struct{ theme, language string }{{"dark", "zh-Hans"}, {"light", "en"}} {
-		for _, scene := range []string{"branch-popup", "git-log", "log-roots", "commit-groups"} {
+		for _, scene := range []string{"branch-popup", "git-log", "log-roots", "log-more", "commit-groups"} {
 			t.Run(scene+"-"+look.theme, func(t *testing.T) {
 				parent := newWorkspaceFolder(t, "backend", "frontend", "shared")
 				frontend, backend := filepath.Join(parent, "frontend"), filepath.Join(parent, "backend")
@@ -58,15 +58,19 @@ func TestVisualWorkspaceRepositories(t *testing.T) {
 					h.click(center(h.hitLabeled(h.app.text.Title.BranchMenu)))
 					label := i18n.SharedFormat(h.app.language(), "desktop.branch.repositoryPanel", map[string]string{"repository": "frontend", "branch": "develop"})
 					h.click(center(h.popupHit(label)))
-				case "git-log", "log-roots":
+				case "git-log", "log-roots", "log-more":
 					h.app.layout.gitTab = gitTabLog
 					if !h.app.chrome.isOpen(catalogIndex[itemGit]) {
 						h.click(center(h.button(itemGit)))
 					}
 					backendID := repositoryID(t, p, "backend")
 					h.settleUntil("backend's history", func() bool { return p.logRepoID() == backendID && !p.log.loading && len(p.log.graph.Rows) == 4 })
-					if scene == "log-roots" {
+					h.relayLogBar()
+					switch scene {
+					case "log-roots":
 						h.click(center(h.hitLabeled(h.app.text.Git.FilterPaths)))
+					case "log-more":
+						h.click(center(h.hitLabeled(i18n.Shared(h.app.language(), "git.log.toolbar.moreActions"))))
 					}
 				case "commit-groups":
 					h.click(center(h.button(itemCommit)))

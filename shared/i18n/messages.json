@@ -28007,9 +28007,10 @@
     },
     {
       "id": "git.log.toolbar.moreActions",
-      "description": "Windows UI: git.log.toolbar.moreActions",
+      "description": "Windows UI: git.log.toolbar.moreActions; Viva desktop: the overflow menu button of the Git Log filter bar, holding the view buttons it has no room for",
       "platforms": [
-        "windows"
+        "windows",
+        "desktop"
       ]
     },
     {

@@ -211,7 +211,9 @@ func (a *App) drawLogDateFilter(c ui.C, p *project) {
 	}
 }
 
-// drawLogPathFilter declares the path filter: a field and the buttons that apply it.
+// drawLogPathFilter declares the path filter: a field and the buttons that apply it. The popover
+// already keeps its content off its edges, so the field and the roots take no padding of their
+// own, as the other filters' rows do not.
 func (a *App) drawLogPathFilter(c ui.C, p *project) {
 	l, v, g := &p.log, &a.logView, a.text.Git
 	apply := func(value string) {
@@ -225,7 +227,7 @@ func (a *App) drawLogPathFilter(c ui.C, p *project) {
 			a.reproject(p, 0)
 		}
 	}
-	ui.Column(c).FillWidth().Pad(8).Gap(8).Children(func() {
+	ui.Column(c).FillWidth().Gap(8).Children(func() {
 		ui.Text(c, g.PathTitle).Weight(gfx.WeightMedium)
 		if ui.TextFieldID(c, logPathID, &v.pathField, g.PathTitle, g.PathPlaceholder).FillWidth().Submitted() {
 			c.After(func() { apply(v.pathField.Text()) })
@@ -258,7 +260,7 @@ func (a *App) drawLogRoots(c ui.C, p *project) {
 	l := &p.log
 	walked := p.logRepoID()
 	ui.Divider(c)
-	ui.Column(c).FillWidth().Pad(8).Gap(2).Children(func() {
+	ui.Column(c).FillWidth().Gap(2).Children(func() {
 		ui.Text(c, i18n.Shared(a.language(), "desktop.nested.roots")).FontSize(a.theme.Metrics.FontSizeS).Color(a.colors.Subtle)
 		for _, repo := range p.workspaceRepositories() {
 			checked := repo.id == walked

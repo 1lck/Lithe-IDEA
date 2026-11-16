@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"github.com/1lck/Lithe-IDEA/desktop/internal/core"
+	"github.com/1lck/Lithe-IDEA/desktop/internal/i18n"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/icons"
 	"github.com/vivaui/viva/gfx"
 	"github.com/vivaui/viva/ui"
@@ -22,6 +23,8 @@ func (a *App) logPageView(c ui.C) {
 	v := &a.logView
 	if v.bodyDraw == nil {
 		v.bodyDraw = func(d *ui.DrawContext) { v.bodyRect = d.Rect }
+		v.barDraw = func(d *ui.DrawContext) { measureLogBar(&v.barWidth, d) }
+		v.filtersDraw = func(d *ui.DrawContext) { measureLogBar(&v.filtersWidth, d) }
 		v.refs.Node, v.refLabel = v.refNode, v.refRowLabel
 		v.commits.Label = a.logCommitLabel
 	}
@@ -349,7 +352,6 @@ func (a *App) chooseLogRef(p *project, r logRefRow, query string) {
 // drawLogCommits declares the commit pane: the filter bar over the list.
 func (a *App) drawLogCommits(c ui.C, p *project) ui.Box {
 	return ui.Column(c).FillHeight().MinWidth(logCommitsMin).Clip().Children(func() {
-		a.drawLogRepoBar(c, p)
 		a.drawLogToolbar(c, p)
 		ui.Divider(c)
 		a.drawSyncStatus(c, p)
@@ -371,97 +373,244 @@ func (a *App) drawGitActions(c ui.C, p *project) {
 	a.drawLogMenu(c, p, menu)
 }
 
-// drawLogToolbar declares the filter bar: the text filter, the filter chips and the
-// view buttons. The menu of the Git actions is in the tool window's header (drawGitActions).
+// drawLogToolbar declares the filter bar: the text filter, the filters (the filter chips, the
+// repository the log walks and the button that shows every reference again), and the view
+// buttons, as IDEA's log toolbar lays them out. The filters keep their width; a bar short of room
+// moves the view buttons, the last first, into its overflow menu, then narrows the text filter to
+// logSearchFloor, and only a bar too narrow for that cuts the filters' end. The menu of the Git
+// actions is in the tool window's header (drawGitActions).
 func (a *App) drawLogToolbar(c ui.C, p *project) {
 	l, v, g := &p.log, &a.logView, a.text.Git
-	ui.Row(c).Height(logToolbarHeight).Shrink(0).Items(ui.Center).Gap(4).PadX(6).Children(func() {
-		ui.TextFieldID(c, logSearchID, &v.search, g.TextOrHash, g.TextOrHash).MinWidth(150).Grow(1).MaxWidth(320)
-		dates := [logDateCount]string{g.AnyTime, g.Today, g.Yesterday, g.Last7Days, g.Last30Days}
-		chips := [logChipCount]struct {
-			label, value string
-			popover      logPopover
-		}{
-			{g.FilterBranch, l.referenceLabel, logPopoverBranch},
-			{g.FilterUser, l.user, logPopoverUser},
-			{g.FilterDate, "", logPopoverDate},
-			{g.FilterPaths, l.path, logPopoverPath},
-		}
-		if l.date != logAnyTime {
-			chips[logChipDate].value = dates[l.date]
-		}
-		for i, chip := range chips {
-			box := a.drawLogChip(c, i, chip.label, chip.value, l.popover == chip.popover)
-			if box.Clicked() {
-				c.After(func() { a.toggleLogPopover(p, chip.popover) })
-			}
-			a.drawLogPopover(c, p, chip.popover, box)
-		}
-		if l.reference != "" {
-			// The log walks one reference: this shows every reference again.
-			if a.gitIconButton(c, g.ShowAll, icons.Plus, false, false) {
-				c.After(func() {
-					l.refSelected = ""
-					a.setLogReference(p, "", "")
-				})
-			}
-		}
-		ui.Spacer(c)
-		if a.gitIconButton(c, g.CompareBranch, icons.ArrowLeftRight, false, l.comparing) {
-			c.After(func() { a.compareReferences(p, l.currentReference(), nil) })
-		}
-		if a.gitIconButton(c, g.ShowDetails, icons.PanelRight, l.showDetails, false) {
-			c.After(func() { l.showDetails = !l.showDetails })
-		}
-		if a.gitIconButton(c, g.RefreshLog, icons.RefreshCw, false, false) {
-			c.After(func() { a.loadLog(p) })
-		}
-		decorations := icons.EyeOff
-		if l.decorations {
-			decorations = icons.Eye
-		}
-		if a.gitIconButton(c, g.Decorations, decorations, false, false) {
-			c.After(func() { l.decorations = !l.decorations })
-		}
-		if a.gitIconButton(c, g.FindInLog, icons.Search, false, false) {
-			v.focus = logSearchID
-		}
-		edges := icons.ArrowDownToLine
-		if l.expanded {
-			edges = icons.ArrowUpDown
-		}
-		if a.gitIconButton(c, g.LongEdges, edges, l.expanded, false) {
-			c.After(func() {
-				l.expanded = !l.expanded
-				if !l.loading {
-					a.reproject(p, 0)
-				}
+	shown := logViewFit(v.barWidth, v.filtersWidth, logViewCount)
+	if shown == logViewCount && l.popover == logPopoverViewMore {
+		l.popover = logPopoverNone // the bar has room for every button again
+	}
+	searchMin := float32(logSearchMin)
+	if shown == 0 {
+		searchMin = logSearchWidth(v.barWidth, v.filtersWidth)
+	}
+	ui.Row(c).Height(logToolbarHeight).FillWidth().Shrink(0).Items(ui.Center).Gap(logBarGap).PadX(logBarPad).Draw(v.barDraw).Children(func() {
+		ui.TextFieldID(c, logSearchID, &v.search, g.TextOrHash, g.TextOrHash).MinWidth(searchMin).Grow(1).MaxWidth(320)
+		ui.Row(c).Shrink(1).MinWidth(0).Clip().Items(ui.Center).Children(func() {
+			ui.Row(c).Shrink(0).Items(ui.Center).Gap(logBarGap).Draw(v.filtersDraw).Children(func() {
+				a.drawLogFilters(c, p)
 			})
-		}
+		})
+		ui.Spacer(c)
+		ui.Row(c).Shrink(0).Items(ui.Center).Gap(logBarGap).Children(func() {
+			for i := range shown {
+				b := a.logViewButton(p, i)
+				if a.gitIconButton(c, b.label, b.icon, b.lit, b.disabled) {
+					c.After(func() { a.runLogView(p, i) })
+				}
+			}
+			if shown < logViewCount {
+				a.drawLogViewMore(c, p, shown)
+			}
+		})
 	})
 }
 
-// drawLogRepoBar declares the header of the commit list that names the repository the log walks,
+// drawLogFilters declares the filters of the filter bar: the filter chips with their popovers, the
+// repository the log walks, and, while the log walks one reference, the button that shows every
+// reference again.
+func (a *App) drawLogFilters(c ui.C, p *project) {
+	l, g := &p.log, a.text.Git
+	dates := [logDateCount]string{g.AnyTime, g.Today, g.Yesterday, g.Last7Days, g.Last30Days}
+	chips := [logChipCount]struct {
+		label, value string
+		popover      logPopover
+	}{
+		{g.FilterBranch, l.referenceLabel, logPopoverBranch},
+		{g.FilterUser, l.user, logPopoverUser},
+		{g.FilterDate, "", logPopoverDate},
+		{g.FilterPaths, l.path, logPopoverPath},
+	}
+	if l.date != logAnyTime {
+		chips[logChipDate].value = dates[l.date]
+	}
+	for i, chip := range chips {
+		box := a.drawLogChip(c, i, chip.label, chip.value, l.popover == chip.popover)
+		if box.Clicked() {
+			c.After(func() { a.toggleLogPopover(p, chip.popover) })
+		}
+		a.drawLogPopover(c, p, chip.popover, box)
+	}
+	a.drawLogRepoLabel(c, p)
+	if l.reference != "" {
+		if a.gitIconButton(c, g.ShowAll, icons.Plus, false, false) {
+			c.After(func() {
+				l.refSelected = ""
+				a.setLogReference(p, "", "")
+			})
+		}
+	}
+}
+
+// The view buttons at the end of the filter bar, in the order the bar shows them. A bar short of
+// room moves the last ones into its overflow menu first.
+const (
+	logViewCompare = iota
+	logViewDetails
+	logViewRefresh
+	logViewDecorations
+	logViewFind
+	logViewEdges
+	logViewCount
+)
+
+// logViewButtonSpec is what a view button of the filter bar shows: its label and icon, whether it
+// is drawn pressed (lit) and whether it is disabled. toggle says it switches a setting, on or off
+// as state says, which the overflow menu shows as a check mark.
+type logViewButtonSpec struct {
+	label         string
+	icon          gfx.Icon
+	lit, disabled bool
+	toggle, state bool
+}
+
+// logViewButton is what view button i of the filter bar shows.
+func (a *App) logViewButton(p *project, i int) logViewButtonSpec {
+	l, g := &p.log, a.text.Git
+	switch i {
+	case logViewCompare:
+		return logViewButtonSpec{label: g.CompareBranch, icon: icons.ArrowLeftRight, disabled: l.comparing}
+	case logViewDetails:
+		return logViewButtonSpec{label: g.ShowDetails, icon: icons.PanelRight, lit: l.showDetails, toggle: true, state: l.showDetails}
+	case logViewRefresh:
+		return logViewButtonSpec{label: g.RefreshLog, icon: icons.RefreshCw}
+	case logViewDecorations:
+		icon := icons.EyeOff
+		if l.decorations {
+			icon = icons.Eye
+		}
+		return logViewButtonSpec{label: g.Decorations, icon: icon, toggle: true, state: l.decorations}
+	case logViewFind:
+		return logViewButtonSpec{label: g.FindInLog, icon: icons.Search}
+	default:
+		icon := icons.ArrowDownToLine
+		if l.expanded {
+			icon = icons.ArrowUpDown
+		}
+		return logViewButtonSpec{label: g.LongEdges, icon: icon, lit: l.expanded, toggle: true, state: l.expanded}
+	}
+}
+
+// runLogView does what view button i of the filter bar does, pressed in the bar or chosen in its
+// overflow menu.
+func (a *App) runLogView(p *project, i int) {
+	l := &p.log
+	switch i {
+	case logViewCompare:
+		a.compareReferences(p, l.currentReference(), nil)
+	case logViewDetails:
+		l.showDetails = !l.showDetails
+	case logViewRefresh:
+		a.loadLog(p)
+	case logViewDecorations:
+		l.decorations = !l.decorations
+	case logViewFind:
+		a.logView.focus = logSearchID
+	case logViewEdges:
+		l.expanded = !l.expanded
+		if !l.loading {
+			a.reproject(p, 0)
+		}
+	}
+}
+
+// logViewFit is how many of count view buttons the filter bar shows: all of them when they fit in
+// a bar barWidth wide beside the text filter at its least width and filters filtersWidth wide,
+// otherwise as many as fit with the button of the overflow menu after them. A bar not laid out
+// yet shows them all.
+func logViewFit(barWidth, filtersWidth float32, count int) int {
+	if barWidth <= 0 {
+		return count
+	}
+	// The text filter, the filters, the spacer and the buttons stand logBarGap apart.
+	room := barWidth - 2*logBarPad - logSearchMin - filtersWidth - 3*logBarGap
+	fits := int((room + logBarGap) / (shellHideSize + logBarGap))
+	if fits >= count {
+		return count
+	}
+	return max(fits-1, 0)
+}
+
+// logSearchWidth is the least width of the text filter of a bar barWidth wide that has moved every
+// view button into its overflow menu: the room the filters filtersWidth wide and the menu's button
+// leave it, no more than logSearchMin and no less than logSearchFloor.
+func logSearchWidth(barWidth, filtersWidth float32) float32 {
+	room := barWidth - 2*logBarPad - filtersWidth - shellHideSize - 3*logBarGap
+	return min(max(room, logSearchFloor), logSearchMin)
+}
+
+// measureLogBar records in width the width d laid its box out at and, when it changed, asks for
+// one more paint: which view buttons the filter bar shows is worked out from it.
+func measureLogBar(width *float32, d *ui.DrawContext) {
+	if d.Rect.Width != *width {
+		*width = d.Rect.Width
+		d.Canvas.RequestFrame()
+	}
+}
+
+// drawLogViewMore declares the button of the filter bar's overflow menu and, while it is open, the
+// menu: the view buttons from first on, which the bar has no room for, each with its icon, and a
+// setting one switches checked when it is on.
+func (a *App) drawLogViewMore(c ui.C, p *project, first int) {
+	l := &p.log
+	label := i18n.Shared(a.language(), "git.log.toolbar.moreActions")
+	button, clicked := a.gitToolButton(c, label, icons.Ellipsis, l.popover == logPopoverViewMore, false)
+	if clicked {
+		c.After(func() { a.toggleLogPopover(p, logPopoverViewMore) })
+	}
+	if l.popover != logPopoverViewMore {
+		return
+	}
+	open := true
+	ui.Menu(c, button, &open, func(menu *ui.MenuItems) {
+		for i := first; i < logViewCount; i++ {
+			b := a.logViewButton(p, i)
+			item := menu.Item(b.label).Icon(b.icon).Disabled(b.disabled)
+			if b.toggle {
+				item = item.Checked(b.state)
+			}
+			if item.Clicked() {
+				c.After(func() { a.runLogView(p, i) })
+			}
+		}
+	})
+	if !open {
+		l.popover = logPopoverNone
+	}
+}
+
+// drawLogRepoLabel declares, in the filter bar after the Paths chip, the repository the log walks,
 // and, while a nested repository is walked in a folder that is a repository itself, the way back to
-// the project's own. It shows only in a workspace with nested repositories.
-func (a *App) drawLogRepoBar(c ui.C, p *project) {
+// the project's own. It shows only in a workspace with nested repositories; the Paths filter lists
+// the roots to walk another one (drawLogRoots). The bar is short of room, so the label shows the
+// repository's folder in its color and its name, keeps that width, and says it is the repository
+// the log walks in its tip.
+func (a *App) drawLogRepoLabel(c ui.C, p *project) {
 	if !p.workspaceMode() && p.nested.logRepo == "" {
 		return
 	}
 	g := a.text.Git.Repositories
 	id := p.logRepoID()
+	name := p.repositoryName(id)
 	tint := a.repositoryTint(p, id)
-	ui.Row(c).Height(logToolbarHeight).Shrink(0).Items(ui.Center).Gap(6).PadX(6).Children(func() {
-		ui.Icon(c, icons.Folder).Size(14, 14).Shrink(0).Color(tint)
-		ui.Text(c, g.Current(p.repositoryName(id))).Weight(gfx.WeightMedium).Color(tint).Ellipsis().Grow(1)
-		if p.nested.logRepo != "" && p.git.isRepository() {
-			own := p.ownID()
-			if ui.Button(c.Part("repo-back"), g.Back(p.repositoryName(own))).Ghost().Clicked() {
-				c.After(func() { a.setLogRepo(p, own, "", "") })
-			}
+	rc := c.Part("repo")
+	ui.Row(rc).Shrink(0).Items(ui.Center).Gap(4).PadX(4).
+		HitWith(ui.ID(rc), g.Current(name), gfx.HitOptions{Role: gfx.RoleStatus}).Tooltip(g.Current(name)).
+		Children(func() {
+			ui.Icon(rc, icons.Folder).Size(14, 14).Shrink(0).Color(tint)
+			ui.Text(rc, name).Weight(gfx.WeightMedium).Color(tint).Ellipsis().MaxWidth(160)
+		})
+	if p.nested.logRepo != "" && p.git.isRepository() {
+		own := p.ownID()
+		if ui.Button(c.Part("repo-back"), g.Back(p.repositoryName(own))).Ghost().Shrink(0).Clicked() {
+			c.After(func() { a.setLogRepo(p, own, "", "") })
 		}
-	})
-	ui.Divider(c)
+	}
 }
 
 // drawLogChip declares a filter chip: its name, or the filter it applies, and a chevron.

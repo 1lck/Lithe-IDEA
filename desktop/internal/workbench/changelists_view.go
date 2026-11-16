@@ -102,7 +102,7 @@ func (a *App) drawChangeListSections(c ui.C, p *project) {
 				ui.Text(sc, t.Files(fileCount(changes))).Muted().Shrink(0)
 			})
 			for _, change := range changes {
-				a.drawCommitChange(c, p, change)
+				a.drawCommitChange(c, p, change, changeRowIndent)
 			}
 		}
 	})
