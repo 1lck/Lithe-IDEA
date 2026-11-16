@@ -80,7 +80,6 @@ macOS 通过 FFI 同步调用 Core，没有这个限制。结果是这几条规�
 - Core 仓库：`git grep -n -i wasm -- rust/crates/core-rules` 没有结果。
 - Core 仓库：`cargo tree --manifest-path rust/Cargo.toml -p lithe-core-rules --edges normal --depth 1` 只列出 serde、serde_json 和 unicode-normalization。
 - 桌面端：`scripts/desktop/desktop-go.sh test ./internal/core/...` 通过真实的 Core 调用 `workbench.chromeLayout.reduce` 等规则命令。
-- 本仓库：`node scripts/resources/test-reuse-worktree-resources.mjs` 通过，资源登记里没有 `core-rules-wasm`。
 
 ## 适用范围
 

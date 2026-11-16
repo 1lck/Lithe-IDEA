@@ -2,7 +2,7 @@
 
 状态：已实现
 
-> 2026-11-08 Viva 迁移：下文的 CI 门禁以当前工作流为准。`desktop-ci.yml` 对 Draft PR 只运行 Linux 格式、脚本和桌面测试，非 Draft 另运行 macOS 与 Windows 测试；旧的 Swift/Tauri 工作流、分片、lane 复用和资源复用脚本的 CI 接线尚未迁移，不能当作当前门禁。
+> 2026-11-08 Viva 迁移：下文的 CI 门禁以当前工作流为准。`desktop-ci.yml` 对 Draft PR 只运行 Linux 格式、脚本和桌面测试，非 Draft 另运行 macOS 与 Windows 测试；旧的 Swift/Tauri 工作流、分片和 lane 复用的 CI 接线尚未迁移，不能当作当前门禁；资源复用脚本已在 #2002 删除。
 
 ## 先说结论
 

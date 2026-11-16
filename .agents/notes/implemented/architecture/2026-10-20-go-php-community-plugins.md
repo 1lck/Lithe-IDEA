@@ -86,7 +86,6 @@ Go/PHP 插件可以独立迭代和发布，不占用主仓库 CI，也不需要 
 ## 验证
 
 - `./scripts/desktop/desktop-go.sh test ./internal/marketplace -run 'TestPublishedOfficialIndexExistsInRepository|TestFetchCurrentOfficialEmptyIndex'`：官方来源对应的仓库文件仍存在且是合法索引；社区索引、安装信任和插件运行仍需独立验证。
-- `node scripts/resources/test-reuse-worktree-resources.mjs`：已删除的 PHP 下载资源不再出现在复用清单里。
 - `./scripts/agent-notes/verify-agent-notes.sh`。
 
 ## 适用范围

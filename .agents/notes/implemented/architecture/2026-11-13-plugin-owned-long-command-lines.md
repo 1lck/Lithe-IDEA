@@ -62,16 +62,14 @@ Core 不能认识 Java，所以这条路径整个删掉了：Core 删除 `execut
 - `temporaryFiles` 成为所有插件都能用的通用能力：任何需要写临时文件的启动都可以用，内容可以是任意字节。
 - 代价：在 Java 插件接上缩短逻辑之前，Windows 上依赖很多的 Java 项目会因命令行超长无法启动。macOS 的 `ARG_MAX` 远大于 Windows 上限，实际不受影响。
 - 代价：每个需要缩短命令行的插件都要自己实现，不能复用 Core 的规划器。Java 插件已经有从 Core 移植的规划代码（`crates/java-domain/src/execution/`），只缺接线和 Windows 编码。
-- 运行临时目录 `<system-temp>/lithe-run-<random>/` 在 `scripts/resources/worktree-resources.json` 的 `run-temporary-files` 中登记为不可复用资源，任何阶段都不得跨工作树复制，也不写发行目录。
+- 运行临时目录 `<system-temp>/lithe-run-<random>/` 任何阶段都不得跨工作树复制，也不写发行目录。
 
 ## 验证
 
 - `./scripts/desktop/desktop-go.sh test ./internal/pluginservice/ -run TestRunStartWritesTemporaryFilesAsGiven`：进程读到的文件与插件给出的内容逐字节一致，包括非 UTF-8 字节和空文件。
 - `./scripts/desktop/desktop-go.sh test ./internal/core/ -run TestDecodeRunStartFollowsTheContractFixture`：回放 Core 的 `run-start.json`，覆盖 `contents` 和 `base64` 同时给出、都不给、base64 不合法的拒绝。
-- `node scripts/resources/test-reuse-worktree-resources.mjs`：`run-temporary-files` 不能跨工作树复用。
 
 ## 适用范围
 
 - 宿主：`desktop/internal/pluginservice/runs.go`、`desktop/internal/core/run_start.go`
-- 资源登记：`scripts/resources/worktree-resources.json`
 - 取代的笔记：`.agents/notes/archived/bug-fix/2026-09-20-oversized-java-launch-command.md`

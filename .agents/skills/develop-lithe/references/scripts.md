@@ -18,7 +18,7 @@
 | `scripts/macos/<作用子目录>/` | 只服务 macOS 上的 Lithe 产品的脚本，子目录按作用命名（现有 `package/`） |
 | `scripts/desktop/perf/` | Viva 桌面端的性能基线：编辑器基准的运行、记录、对比和报告 |
 | `scripts/desktop/` | 只服务 Viva 桌面端（`desktop/`，Go）的构建、打包、验证和运行入口：构建它链接的 Lithe-core-rust 静态库，以及带 cgo 参数运行 `desktop/` 里的 go 命令 |
-| `scripts/agent-notes/`、`i18n/`、`platform-feature-matrix/`、`resources/` | 跨平台领域的脚本，目录名就是领域名 |
+| `scripts/agent-notes/`、`i18n/`、`platform-feature-matrix/` | 跨平台领域的脚本，目录名就是领域名 |
 
 - 没有合适的目录时，新建一个以领域或作用命名的目录，并在同一次改动中更新上表。不得新建 `misc/`、`utils/`、`tools/` 这类不表达作用的目录。
 - 例外：属于某个跨平台领域、但只在一个平台上运行的脚本，留在领域目录，文件名中带平台名，不放进 `scripts/macos/`。这类脚本必须在 `.github/workflows/` 的路径过滤器中按完整路径登记，不得依靠文件名中的平台子串匹配。
@@ -36,5 +36,4 @@
 1. `.github/workflows/` 中的 `run:` 路径、`paths` 过滤器和循环。GitHub 的 `*` 不跨 `/`，需要递归时用 `**`。
 2. 会把脚本复制到临时目录的测试夹具：保持相同的目录深度，被复制脚本通过相对路径依赖的文件也要一起复制。
 3. 非脚本文件中写死的脚本路径，例如 `desktop/Makefile`、各工作流文件和 `package.json`。没有任何检查会发现这里的遗漏，必须逐个搜索确认。
-4. 工作树资源注册表 `scripts/resources/worktree-resources.json` 和 `scripts/resources/reuse-worktree-resources.mjs` 中的脚本路径。改完运行 `node --test scripts/resources/test-reuse-worktree-resources.mjs`。
-5. 文档、Skill、Agent Note 和 `shared/platform-feature-matrix/` 中写明的路径。
+4. 文档、Skill、Agent Note 和 `shared/platform-feature-matrix/` 中写明的路径。

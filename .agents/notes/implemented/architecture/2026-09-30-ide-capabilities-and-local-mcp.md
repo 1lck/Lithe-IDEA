@@ -57,4 +57,3 @@ Lithe 对外开放项目环境、Maven、运行配置和执行输出，复用界
 - `desktop/internal/core/ide_host.go`
 - `desktop/internal/core/ide_host_helper.go`
 - `desktop/internal/workbench/ide_api_dispatch.go`
-- `scripts/resources/worktree-resources.json`

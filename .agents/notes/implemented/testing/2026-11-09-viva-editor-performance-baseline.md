@@ -167,7 +167,6 @@
 - `scripts/desktop/perf/editor-bench.sh run`：运行全部基准并生成报告；报告里每一项都能给出判定状态，超预算项只报告。
 - `node --test scripts/desktop/perf/editor-perf-report.test.mjs`：校验报告生成器和 `editor-budgets.json`（格式、模式不互相遮蔽、判定逻辑）。
 - `go -C desktop test ./internal/editor/editorperf`：校验文档生成器的确定性和小文档是大文档前缀。
-- `node --test --test-name-pattern='editor performance reports' scripts/resources/test-reuse-worktree-resources.mjs`：校验 `.artifacts/editor-perf/` 下的输出登记为不可复用，复制入口拒绝它。
 - `./scripts/agent-notes/verify-agent-notes.sh`：校验本 Note 的格式、链接和路径。
 - 第一次记录的完整结果在 `desktop/benchmarks/history/m4-mbp.jsonl`；六处缺陷各自修复前后的数字在对应的提交和 #1799 的 PR 描述中。
 
