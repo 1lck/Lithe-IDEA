@@ -27,6 +27,9 @@ native_path() {
     fi
 }
 
+# Lithe-core-rust #62, not merged yet: commit c0dd2a4 of branch fix/2009-unix-backslash-file-names,
+# on top of main 6a14126. A backslash or colon in a Unix file name stays part of the name, so a
+# folder named D:\logs is one level below the project root and the project tree rows accept it (#2009).
 # Lithe-core-rust #61, squash-merged into main as 6a14126: the LSP engine keeps a session's hover
 # answers, so resting on a symbol again answers without asking the server (#1995). It is on top of
 # #60, squash-merged into main as ca80599: language-server indexing exclusions ask Git once per
@@ -122,7 +125,7 @@ PINNED_CORE_REPOSITORY="https://github.com/Lithe-IDEA/Lithe-core-rust.git"
 # the contract, plugin guides, reference and SDKs live only in shared/plugins; on top of #16 (reported Git queries folded in the console),
 # #15 (git.write cherryPick, revert and reset fields), #14 (word-level changed ranges of diff
 # rows), #13, #8, #7, #6 and #4.
-PINNED_CORE_REVISION="6a1412635557fcd37766faafbf2fccd4a68dc7db"
+PINNED_CORE_REVISION="c0dd2a42ff1baf9d6619d511465f52ac768acbd6"
 PROFILE="debug"
 while [[ $# -gt 0 ]]; do
     case "$1" in
