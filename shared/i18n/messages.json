@@ -15837,7 +15837,7 @@
     },
     {
       "id": "desktop.settings.localHistory.builtInsHelp",
-      "description": "Settings > General > Local History: the built-in ignore rules are lines of the wildcard list; deleting one keeps its folder out of history, and deleting its \"!\" line turns it back on",
+      "description": "Settings > General > Local History: the default ignore rules, the folders hidden from the project tree (Lithe's own and those enabled plugins declare), are lines of the wildcard list; their files are never recorded even when a line is deleted, a deleted line shows as a \"!\" line, and deleting that line restores it",
       "platforms": [
         "desktop"
       ]

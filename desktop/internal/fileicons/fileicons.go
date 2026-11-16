@@ -5,7 +5,9 @@
 package fileicons
 
 import (
+	"slices"
 	"strings"
+	"sync/atomic"
 	"unicode"
 
 	"github.com/vivaui/viva/gfx"
@@ -392,10 +394,50 @@ func directoryKind(name string) kind {
 	return directoryKindInSourceRoot(name, false)
 }
 
+// hiddenDirectoryNames are the names SetHiddenDirectoryNames last set, ASCII lower case, sorted.
+var hiddenDirectoryNames atomic.Pointer[[]string]
+
+// SetHiddenDirectoryNames sets the folder names whose folders take the excluded-folder icon at
+// any depth: the names Core hides by default because an enabled plugin declares them, which a
+// tree lists only where the user turned the default off. Names match ignoring ASCII case, as
+// Core compares them. It reports whether the names differ from the ones set before.
+func SetHiddenDirectoryNames(names []string) bool {
+	lowered := make([]string, 0, len(names))
+	for _, name := range names {
+		lowered = append(lowered, lowerASCII(name))
+	}
+	slices.Sort(lowered)
+	lowered = slices.Compact(lowered)
+	var before []string
+	if previous := hiddenDirectoryNames.Swap(&lowered); previous != nil {
+		before = *previous
+	}
+	return !slices.Equal(before, lowered)
+}
+
+// isHiddenDirectoryName reports whether name is one of the names SetHiddenDirectoryNames set.
+func isHiddenDirectoryName(name string) bool {
+	names := hiddenDirectoryNames.Load()
+	if names == nil {
+		return false
+	}
+	_, found := slices.BinarySearch(*names, lowerASCII(name))
+	return found
+}
+
+// lowerASCII lowers the ASCII letters of name only, leaving other runes as they are.
+func lowerASCII(name string) string {
+	return strings.Map(func(r rune) rune {
+		if 'A' <= r && r <= 'Z' {
+			return r + 'a' - 'A'
+		}
+		return r
+	}, name)
+}
+
 // directoryKindInSourceRoot checks exclusions before considering package names inside source roots.
 func directoryKindInSourceRoot(name string, insideSourceRoot bool) kind {
-	switch strings.ToLower(name) {
-	case "target", "build", "out", "bin", "dist", "node_modules", ".idea":
+	if isHiddenDirectoryName(name) {
 		return kindExcludedFolder
 	}
 	if insideSourceRoot && IsPackageSegmentName(name) {

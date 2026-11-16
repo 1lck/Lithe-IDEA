@@ -32,7 +32,7 @@ func TestWorkspaceSearchUsesCoreOptionsAndRefreshesChanges(t *testing.T) {
 	if err := os.WriteFile(path, []byte("new external value\n"), 0600); err != nil {
 		t.Fatal(err)
 	}
-	filtered, err := client.FilterWorkspaceChanges(ctx, []string{"node_modules/ignored.js", "example.go"})
+	filtered, err := client.FilterWorkspaceChanges(ctx, []string{".worktrees/copy/ignored.js", "example.go"})
 	if err != nil || len(filtered) != 1 || filtered[0] != "example.go" {
 		t.Fatalf("filtered changes = %v, %v", filtered, err)
 	}
