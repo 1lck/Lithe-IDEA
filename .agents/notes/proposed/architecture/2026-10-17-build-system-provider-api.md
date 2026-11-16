@@ -4,6 +4,8 @@
 
 > Viva 迁移状态：桌面端目前只有通用 Core 后端通信基础，尚未接入构建 Provider、构建工具窗口与运行配置。Maven 与 Java 专属逻辑已移入插件仓库（[lithe-plugin-maven](https://github.com/Lithe-IDEA/lithe-plugin-maven)、[lithe-plugin-java](https://github.com/Lithe-IDEA/lithe-plugin-java)，#1495），宿主不再保留对应实现。原有信任、生命周期、取消和诊断验收要求仍适用。
 
+> 2026-11-16 更新：Core 的 `execution/detectors/` 已整体删除，没有改写成内置声明（[Lithe-core-rust #77](https://github.com/Lithe-IDEA/Lithe-core-rust/pull/77)，#1856 第 4 项）。运行配置已接入构建模型，Run 列表的自动条目只来自插件的 `buildSystems[].run`；没有插件声明 `run` 的生态暂时没有自动条目。下文“迁移现有探测器”“把探测器改写成内置声明”“内置声明和旧探测器只启用一个”等计划作废，保留作历史；当前做法见[运行配置的生成层只来自插件声明，只存在内存里](../../implemented/architecture/2026-10-29-run-configuration-detection-in-memory.md)。
+
 ## 先说结论
 
 Lithe 对构建工具的支持原本分散在三处：Rust Core 里写死的运行入口探测器、一整套 Maven 专用类型和工具窗口，以及只认“语言”的声明式插件契约。新增一个构建工具或构建插件（例如 Issue #10 里 Gradle 的 Loom/NeoForge 任务）都要改 Core 代码。
@@ -262,4 +264,4 @@ Core 契约部分的验收已在已实现的 Note 里完成。剩下的工作按
 - [Go 提案：`go build -json`](https://github.com/golang/go/issues/62067)
 - [uv 工作区元数据](https://docs.astral.sh/uv/reference/internals/metadata/)
 - [SourceKit-LSP 与 BSP](https://forums.swift.org/t/extending-functionality-of-build-server-protocol-with-sourcekit-lsp/74400)
-- 相关 Note：[构建系统插件契约](../../implemented/architecture/2026-10-17-build-system-plugin-contract.md)、[声明式语言插件](../../implemented/architecture/2026-10-12-declarative-language-plugins.md)、Java 语言服务器是声明式插件、Java 构建与启动边界、[运行配置发现质量](../../implemented/feature/2026-09-20-run-configuration-discovery-quality.md)、[工作区依赖浏览器](../../implemented/architecture/2026-09-18-workspace-dependency-browser.md)
+- 相关 Note：[构建系统插件契约](../../implemented/architecture/2026-10-17-build-system-plugin-contract.md)、[声明式语言插件](../../implemented/architecture/2026-10-12-declarative-language-plugins.md)、Java 语言服务器是声明式插件、Java 构建与启动边界、[运行配置的生成层只来自插件声明，只存在内存里](../../implemented/architecture/2026-10-29-run-configuration-detection-in-memory.md)、[工作区依赖浏览器](../../implemented/architecture/2026-09-18-workspace-dependency-browser.md)

@@ -98,7 +98,7 @@ type Kernel interface {
 	CreateDebugSession(ctx context.Context, request core.DebugCreateSessionRequest) (core.DebugUpdate, error)
 	LaunchDebug(ctx context.Context, sessionID, operationID string, configuration core.DebugLaunchConfiguration) (core.DebugUpdate, error)
 	NormalizeSteppingFilters(ctx context.Context, adapterID string, filters core.DebugSteppingFilters) (core.DebugSteppingFilters, error)
-	GenerateRunConfigurations(ctx context.Context, root, cacheDirectory string, providerRuns json.RawMessage) (core.RunConfigGeneration, error)
+	GenerateRunConfigurations(ctx context.Context, root string, providerRuns json.RawMessage) (core.RunConfigGeneration, error)
 	ResolveRunConfigurations(ctx context.Context, root string) (core.RunConfigResolution, error)
 	DecideTitleAction(ctx context.Context, facts core.TitleActionFacts) (string, error)
 	ProviderLaunchInputs(ctx context.Context, root, configurationID, providerRoot string) (core.RunProviderLaunchInputs, error)
