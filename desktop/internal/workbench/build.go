@@ -87,7 +87,10 @@ type buildInstance struct {
 	modelLoaded        bool
 	modelLoading       bool
 	modelReloadPending bool
-	modelError         string
+	// modelError says why the last load did not bring a model; modelStopped says the user stopped
+	// it, which shows without the warning of a failure.
+	modelError   string
+	modelStopped bool
 	// modelVersion counts the models the instance loaded, so a tree laid out from an earlier
 	// one is known stale; trees are the Build window's trees of the model (build_tree.go).
 	modelVersion uint64
@@ -155,10 +158,15 @@ func restartWithInstance(instanceID string, start func(a *App, p *project)) func
 // that prepare the execution end at once. A host process is not started with it: Stop ends a
 // process through its own termination. The preparing goroutine calls cancel when it is done.
 func (o *buildOperation) bind(ctx context.Context) (context.Context, context.CancelFunc) {
+	return bindStopped(ctx, o.stopped)
+}
+
+// bindStopped returns ctx ending also when stopped closes; cancel ends it and its watcher.
+func bindStopped(ctx context.Context, stopped <-chan struct{}) (context.Context, context.CancelFunc) {
 	ctx, cancel := context.WithCancel(ctx)
 	go func() {
 		select {
-		case <-o.stopped:
+		case <-stopped:
 			cancel()
 		case <-ctx.Done():
 		}
@@ -594,19 +602,29 @@ func (a *App) loadBuildModelWith(p *project, index int, refresh bool) {
 		return
 	}
 	instance.modelLoading = true
-	instance.modelError = ""
+	instance.modelError, instance.modelStopped = "", false
 	captured := *instance
 	kernel := a.kernel
+	// The load is a session of the Run window, which shows what the tool prints meanwhile.
+	feed := a.beginBuildSync(p, instance)
 	a.background(p, buildRequestTimeout, func(ctx context.Context) func(*App) {
+		ctx, cancel := feed.bind(ctx)
+		defer cancel()
 		var model core.BuildModel
 		var err error
 		// Core names where the model comes from; a static model arrived with detection.
 		if captured.ModelSource == "command" {
-			model, err = a.commandModel(ctx, p, captured, kernel, a.text.Build)
+			model, err = a.commandModel(ctx, p, captured, kernel, feed, a.text.Build)
 		} else {
-			model, err = a.providerModel(ctx, p, captured, kernel, refresh)
+			model, err = a.providerModel(ctx, p, captured, kernel, feed, refresh)
 		}
-		return func(a *App) { a.finishBuildModel(p, captured.ID, model, err) }
+		if err != nil && feed.stopRequested() {
+			err = errBuildModelStopped
+		}
+		return func(a *App) {
+			a.endBuildSync(feed.session, err)
+			a.finishBuildModel(p, captured.ID, model, err)
+		}
 	})
 }
 
@@ -618,7 +636,7 @@ func (a *App) reloadBuildModel(p *project, index int) {
 		return
 	}
 	instance := &p.build.instances[index]
-	instance.modelLoaded, instance.modelError = false, ""
+	instance.modelLoaded, instance.modelError, instance.modelStopped = false, "", false
 	p.reloadBuildDependencies()
 	p.revokeBuildTests(instance.ID)
 	a.loadBuildModelWith(p, index, true)
@@ -628,8 +646,9 @@ func (a *App) reloadBuildModel(p *project, index int) {
 // output file, when the plan uses one, is host-allocated under the plugin's
 // writable state and removed after decoding. No plugin process runs the command, so the
 // host records the load as the plugin's lithe/build/model operation, at the stage
-// buildCommandStage describes.
-func (a *App) commandModel(ctx context.Context, p *project, instance buildInstance, kernel Kernel, messages i18n.BuildMessages, resolved ...buildExecution) (core.BuildModel, error) {
+// buildCommandStage describes. feed, when set, is the load's Run window session, which shows the
+// command's log as it prints it.
+func (a *App) commandModel(ctx context.Context, p *project, instance buildInstance, kernel Kernel, feed *buildSyncFeed, messages i18n.BuildMessages, resolved ...buildExecution) (core.BuildModel, error) {
 	attempt := core.StartPluginAttempt(instance.PluginID, core.OperationBuildModel, core.OriginOf(ctx).Operation)
 	fail := func(stage core.PluginStage, err error) (core.BuildModel, error) {
 		a.plugins.EndAttempt(ctx, attempt, stage, err)
@@ -674,13 +693,14 @@ func (a *App) commandModel(ctx context.Context, p *project, instance buildInstan
 		return fail(core.StageResolve, err)
 	}
 	workingDirectory := filepath.Join(p.root, filepath.FromSlash(plan.WorkingDirectory))
-	output, runErr := captureBuildProcess(ctx, execution.Executable, plan.Arguments, workingDirectory, applyToolchainSelection(plan.Environment, execution.selection()))
-	runErr = withBuildOutput(runErr, output)
+	toFile := plan.Output == "outputFile"
+	output, runErr := captureBuildProcess(ctx, execution.Executable, plan.Arguments, workingDirectory, applyToolchainSelection(plan.Environment, execution.selection()), !toFile, feed.logger())
+	runErr = withBuildOutput(runErr, output.combined)
 	request := core.BuildDecodeModelRequest{WorkspaceRoot: p.root, Root: instance.Root, Options: instance.Options}
-	if plan.Output == "outputFile" {
+	if toFile {
 		request.OutputFile = outputFile
 	} else {
-		request.Output = output
+		request.Output = output.stdout
 	}
 	model, decodeErr := kernel.DecodeBuildModel(ctx, instance.Manifest, instance.BuildSystemID, request)
 	if decodeErr != nil {
@@ -771,7 +791,9 @@ type buildLaunchError struct{ cause error }
 func (e *buildLaunchError) Error() string { return e.cause.Error() }
 func (e *buildLaunchError) Unwrap() error { return e.cause }
 
-func (a *App) providerModel(ctx context.Context, p *project, instance buildInstance, kernel Kernel, refresh bool, resolved ...buildExecution) (core.BuildModel, error) {
+// providerModel asks the build system's provider for the model. feed, when set, is the load's Run
+// window session, which shows the output and status the provider reports while it works.
+func (a *App) providerModel(ctx context.Context, p *project, instance buildInstance, kernel Kernel, feed *buildSyncFeed, refresh bool, resolved ...buildExecution) (core.BuildModel, error) {
 	// The host resolves the build tool the provider runs with, so the provider never searches
 	// for it; an explicit tool setting that does not exist fails here, as it does for commands.
 	var tool *core.BuildTool
@@ -810,6 +832,26 @@ func (a *App) providerModel(ctx context.Context, p *project, instance buildInsta
 	if err != nil {
 		return core.BuildModel{}, err
 	}
+	// The progress channel closes when the provider answered; Wait then returns at once.
+	for done := false; !done; {
+		select {
+		case progress, ok := <-operation.Progress():
+			if !ok {
+				done = true
+				break
+			}
+			feed.output(progress.Output)
+			feed.status(progress.Message)
+		case <-ctx.Done():
+			done = true
+		}
+	}
+	if feed.stopRequested() {
+		// The user stopped the load, so the provider is asked to stop its work too.
+		stop, cancel := context.WithTimeout(context.WithoutCancel(ctx), buildStopTimeout)
+		_ = client.Cancel(stop, operation)
+		cancel()
+	}
 	result, err := operation.Wait(ctx)
 	if err != nil {
 		return core.BuildModel{}, err
@@ -832,6 +874,15 @@ func (a *App) finishBuildModel(p *project, id string, model core.BuildModel, err
 		}
 		instance := &p.build.instances[index]
 		instance.modelLoading = false
+		if errors.Is(err, errBuildModelStopped) {
+			// A load the user stopped stays stopped, even when the files changed meanwhile: it
+			// ends as a failed one does, so nothing loads it again until the user reloads it.
+			instance.modelReloadPending = false
+			instance.modelError, instance.modelStopped = i18n.Shared(a.language(), "desktop.build.modelStopped"), true
+			p.build.status = instance.modelError
+			a.settleTitleAction(p)
+			return
+		}
 		if instance.modelReloadPending {
 			instance.modelReloadPending = false
 			instance.modelLoaded = false
@@ -1214,15 +1265,30 @@ func buildRequiresPresent(path string, required []string, root string) bool {
 }
 
 func probeBuildTool(ctx context.Context, executable string, arguments []string, workingDirectory string, environment map[string]string) (string, error) {
-	output, waitErr := captureBuildProcess(ctx, executable, arguments, workingDirectory, environment)
-	if output == "" {
+	output, waitErr := captureBuildProcess(ctx, executable, arguments, workingDirectory, environment, false, nil)
+	if output.combined == "" {
 		return "", waitErr
 	}
-	return output, nil
+	return output.combined, nil
 }
 
-func captureBuildProcess(ctx context.Context, executable string, arguments []string, workingDirectory string, environment map[string]string) (string, error) {
-	var output strings.Builder
+// buildCaptureBytes bounds each text captureBuildProcess keeps of a build command's output.
+const buildCaptureBytes = 4 << 20
+
+// buildCommandOutput is what a build command printed: stdout, which holds the document of a plan
+// that reads its result from stdout, and both streams in the order they arrived, whose last lines
+// explain a failure.
+type buildCommandOutput struct {
+	stdout, combined string
+}
+
+// captureBuildProcess runs a build command to its end and keeps what it printed. log, when set,
+// receives the command's log as it prints it, on the goroutines that read it: both streams, or
+// stderr alone when documentOnStdout says stdout is the document the host decodes, which is no
+// one's log. What a tool reports on stderr while it works, as go does while it downloads
+// modules, then never lands in the document.
+func captureBuildProcess(ctx context.Context, executable string, arguments []string, workingDirectory string, environment map[string]string, documentOnStdout bool, log func(string)) (buildCommandOutput, error) {
+	var stdout, combined strings.Builder
 	var outputMu sync.Mutex
 	process, err := buildprocess.Start(ctx, buildprocess.Spec{
 		Kind:             processledger.KindBuild,
@@ -1230,20 +1296,26 @@ func captureBuildProcess(ctx context.Context, executable string, arguments []str
 		Arguments:        arguments,
 		WorkingDirectory: workingDirectory,
 		Environment:      environment,
-	}, func(_ buildprocess.Stream, text string) {
+	}, func(stream buildprocess.Stream, text string) {
 		outputMu.Lock()
-		if output.Len() < 4<<20 {
-			output.WriteString(text)
+		if stream == buildprocess.Stdout && stdout.Len() < buildCaptureBytes {
+			stdout.WriteString(text)
+		}
+		if combined.Len() < buildCaptureBytes {
+			combined.WriteString(text)
 		}
 		outputMu.Unlock()
+		if log != nil && (stream == buildprocess.Stderr || !documentOnStdout) {
+			log(text)
+		}
 	})
 	if err != nil {
-		return "", &buildLaunchError{cause: err}
+		return buildCommandOutput{}, &buildLaunchError{cause: err}
 	}
 	waitErr := process.Wait()
 	outputMu.Lock()
 	defer outputMu.Unlock()
-	return output.String(), waitErr
+	return buildCommandOutput{stdout: stdout.String(), combined: combined.String()}, waitErr
 }
 
 func buildPlatform() string {
