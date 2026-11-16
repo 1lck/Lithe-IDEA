@@ -167,10 +167,12 @@ type consolePresented struct {
 	entry core.GitConsoleEntry
 	hits  []core.GitConsoleHit
 	// revision and lines are the record's revision and number of lines the presentation
-	// was made for; search is the search it matched.
+	// was made for; search is the search it matched and display the display choices it
+	// followed.
 	revision uint64
 	lines    int
 	search   string
+	display  core.GitConsoleDisplay
 	// raw says Core gave no entry for the record, which is then drawn from its lines; it
 	// keeps the record from being asked for again until it changes.
 	raw bool
@@ -188,23 +190,25 @@ type consoleView struct {
 	presented map[string]*consolePresented
 	// presenting says a presentation request is in flight; only one ever is.
 	presenting bool
-	// failed says the last request failed, for the snapshot revision and search it names,
-	// which are not asked for again; the records are drawn from their lines meanwhile.
+	// failed says the last request failed, for the snapshot revision, search and display
+	// choices it names, which are not asked for again; the records are drawn from their
+	// lines meanwhile.
 	failed         bool
 	failedRevision uint64
 	failedSearch   string
+	failedDisplay  core.GitConsoleDisplay
 	search         ui.Field
 	// searchFor is the search the rows were flattened for: the field's text, cut to what
 	// Core accepts.
 	searchFor string
+	// display is the display choices of the Version Control settings the rows were
+	// flattened for, which Core presents the records with.
+	display core.GitConsoleDisplay
 	// open holds the folds the user opened.
 	open map[consoleFold]bool
 	// wrap says long lines break into several instead of ending in an ellipsis.
 	wrap bool
-	// hideQueries says the internal read-only queries Core reported are left out, except
-	// those that failed, so only the commands the workflows ran visibly are shown.
-	hideQueries bool
-	list        ui.ListState
+	list ui.ListState
 	// drawRow is drawConsoleRow, made once because a method value made in each paint
 	// allocates.
 	drawRow func(ui.ListRow)
@@ -254,8 +258,8 @@ func (a *App) gitConsoleChanged() {
 }
 
 // syncConsole brings the rows up to date before a paint draws them: it takes a snapshot when
-// the journal changed, takes in a new search, asks Core to present what changed and flattens
-// the rows again when anything they show did.
+// the journal changed, takes in a new search and new display choices, asks Core to present
+// what changed and flattens the rows again when anything they show did.
 func (a *App) syncConsole() {
 	v := &a.consoleView
 	if v.stale.Swap(false) || !v.read {
@@ -268,6 +272,9 @@ func (a *App) syncConsole() {
 	if search := consoleSearchText(v.search.Text()); search != v.searchFor {
 		v.searchFor, v.dirty, v.hasCurrent = search, true, false
 	}
+	if display := a.settings.GitConsole.Display(); display != v.display {
+		v.display, v.dirty, v.hasCurrent = display, true, false
+	}
 	a.presentConsole()
 	if v.dirty {
 		v.flatten(&a.text.Console, time.Local)
@@ -275,39 +282,40 @@ func (a *App) syncConsole() {
 }
 
 // presentConsole asks Core, in the background, to present the records whose presentation is
-// missing or was made for another revision or search. One request is in flight at a time:
-// when it lands, the paint that follows asks for what changed meanwhile. A request that
-// failed is not repeated until the journal or the search changes.
+// missing or was made for another revision, search or display choices. One request is in
+// flight at a time: when it lands, the paint that follows asks for what changed meanwhile. A
+// request that failed is not repeated until the journal, the search or the display choices
+// change.
 func (a *App) presentConsole() {
 	v := &a.consoleView
-	if v.presenting || v.failed && v.failedRevision == v.snapshot.Revision && v.failedSearch == v.searchFor {
+	if v.presenting || v.failed && v.failedRevision == v.snapshot.Revision && v.failedSearch == v.searchFor && v.failedDisplay == v.display {
 		return
 	}
 	var records []core.GitConsoleRecord
 	for i := range v.snapshot.Records {
 		r := &v.snapshot.Records[i]
-		if p := v.presented[r.ID]; p == nil || p.revision != r.Revision || p.search != v.searchFor {
+		if p := v.presented[r.ID]; p == nil || p.revision != r.Revision || p.search != v.searchFor || p.display != v.display {
 			records = append(records, *r)
 		}
 	}
 	if len(records) == 0 {
 		return
 	}
-	kernel, search, revision := a.kernel, v.searchFor, v.snapshot.Revision
+	kernel, search, display, revision := a.kernel, v.searchFor, v.display, v.snapshot.Revision
 	v.presenting = true
 	a.background(nil, kernelCallTimeout, func(ctx context.Context) func(*App) {
-		presentation, err := kernel.GitConsolePresentation(ctx, records, search)
-		return func(a *App) { a.landConsolePresentation(records, search, revision, presentation, err) }
+		presentation, err := kernel.GitConsolePresentation(ctx, records, search, display)
+		return func(a *App) { a.landConsolePresentation(records, search, display, revision, presentation, err) }
 	})
 }
 
 // landConsolePresentation keeps what a presentation request answered for records, which it
-// made for search when the snapshot had revision.
-func (a *App) landConsolePresentation(records []core.GitConsoleRecord, search string, revision uint64, presentation core.GitConsolePresentation, err error) {
+// made for search and display when the snapshot had revision.
+func (a *App) landConsolePresentation(records []core.GitConsoleRecord, search string, display core.GitConsoleDisplay, revision uint64, presentation core.GitConsolePresentation, err error) {
 	v := &a.consoleView
 	v.presenting, v.dirty = false, true
 	if err != nil {
-		v.failed, v.failedRevision, v.failedSearch = true, revision, search
+		v.failed, v.failedRevision, v.failedSearch, v.failedDisplay = true, revision, search, display
 		return
 	}
 	v.failed = false
@@ -324,7 +332,7 @@ func (a *App) landConsolePresentation(records []core.GitConsoleRecord, search st
 	}
 	for i := range records {
 		r := &records[i]
-		p := &consolePresented{hits: hits[r.ID], revision: r.Revision, lines: len(r.Lines), search: search}
+		p := &consolePresented{hits: hits[r.ID], revision: r.Revision, lines: len(r.Lines), search: search, display: display}
 		if at, ok := entries[r.ID]; ok {
 			p.entry = presentation.Entries[at]
 		} else {
@@ -447,13 +455,15 @@ func (v *consoleView) rowSpans(start int) []consoleSpan {
 }
 
 // prefixSpans adds the spans of a header that starts with consoleHeaderParts' stamp and
-// repository, joined by a space, and is n bytes long, the rest of it the command, and returns
-// them.
+// repository, joined by a space unless the repository is left out, and is n bytes long, the
+// rest of it the command, and returns them.
 func (v *consoleView) prefixSpans(stamp, repository string, n int) []consoleSpan {
 	start := len(v.spans)
 	v.endSpan(start, len(stamp), consoleSpanStamp)
-	v.endSpan(start, len(stamp)+1, consoleSpanText)
-	v.endSpan(start, len(stamp)+1+len(repository), consoleSpanRepository)
+	if repository != "" {
+		v.endSpan(start, len(stamp)+1, consoleSpanText)
+		v.endSpan(start, len(stamp)+1+len(repository), consoleSpanRepository)
+	}
 	v.endSpan(start, n, consoleSpanCommand)
 	return v.rowSpans(start)
 }
@@ -526,15 +536,17 @@ func (v *consoleView) flattenRecord(old map[consoleRowID]int, index int, r *core
 	use := p != nil && !p.raw && !v.failed && (p.revision == r.Revision || !r.Truncated && p.lines <= len(r.Lines))
 	exact := use && p.revision == r.Revision
 	failed := consoleFailed(r, p, exact)
-	if v.hideQueries && r.Query && !failed {
-		return
-	}
 	// A query that answered the workflow is drawn subtle, so the commands the workflows ran
 	// stand out among the reads around them.
 	quiet := r.Query && !failed
 	searching := v.searchFor != ""
+	// The matches and hits of a presentation made under other display choices may name text
+	// the record no longer draws, such as a hidden repository, so the search waits for Core to
+	// present it again. Its fragments are still drawn meanwhile, so a long folded output does
+	// not open for one paint.
+	searched := p != nil && p.search == v.searchFor && p.display == v.display
 	if searching {
-		if p != nil && p.search == v.searchFor {
+		if searched {
 			v.total += p.entry.Matches
 		} else {
 			v.counted = false
@@ -544,6 +556,8 @@ func (v *consoleView) flattenRecord(old map[consoleRowID]int, index int, r *core
 	header := consoleRow{id: consoleRowID{record: r.ID, part: consolePartHeader}, record: index}
 	if use {
 		entry := &p.entry
+		// Core leaves the label out when the display choices hide the repository; a
+		// presentation made before they changed may still have one, or lack it.
 		label := entry.RepositoryLabel
 		if label == "" {
 			label = r.Root
@@ -560,14 +574,16 @@ func (v *consoleView) flattenRecord(old map[consoleRowID]int, index int, r *core
 		}
 		folded := fold.fragment != "" && !v.open[fold]
 		start := len(v.spans)
-		stamp, repository := consoleHeaderParts(r.Started, label, loc)
+		stamp, repository := consoleHeaderParts(r.Started, label, v.display.HideRepository, loc)
 		var b strings.Builder
 		b.WriteString(stamp)
 		v.endSpan(start, b.Len(), consoleSpanStamp)
-		b.WriteByte(' ')
-		v.endSpan(start, b.Len(), consoleSpanText)
-		b.WriteString(repository)
-		v.endSpan(start, b.Len(), consoleSpanRepository)
+		if repository != "" {
+			b.WriteByte(' ')
+			v.endSpan(start, b.Len(), consoleSpanText)
+			b.WriteString(repository)
+			v.endSpan(start, b.Len(), consoleSpanRepository)
+		}
 		if len(entry.Command) > 0 {
 			b.WriteString(" git")
 		}
@@ -599,8 +615,8 @@ func (v *consoleView) flattenRecord(old map[consoleRowID]int, index int, r *core
 			}
 		}
 	} else {
-		header.text = consoleDrawnHeader(r, loc)
-		stamp, repository := consoleHeaderParts(r.Started, r.Root, loc)
+		header.text = consoleDrawnHeader(r, v.display.HideRepository, loc)
+		stamp, repository := consoleHeaderParts(r.Started, r.Root, v.display.HideRepository, loc)
 		header.spans = v.prefixSpans(stamp, repository, len(header.text))
 	}
 	if r.State == core.GitConsoleRunning {
@@ -626,7 +642,9 @@ func (v *consoleView) flattenRecord(old map[consoleRowID]int, index int, r *core
 			}
 			v.addLines(old, index, r, next, start)
 			next = end
-			if fragment.Kind == consoleFragmentQuery && end-start > 1 {
+			// Core folds a successful query's output longer than ten lines whole, and shorter
+			// output too when the display choices ask for it; it never folds a deletion's.
+			if fragment.Kind == consoleFragmentQuery {
 				v.addQueryFold(old, index, r, fragment, start, end, text)
 				continue
 			}
@@ -656,7 +674,9 @@ func (v *consoleView) flattenRecord(old map[consoleRowID]int, index int, r *core
 	if r.State == core.GitConsoleRunning && r.Progress != "" {
 		progressRow = v.add(old, consoleRow{id: consoleRowID{record: r.ID, part: consolePartProgress}, record: index, text: r.Progress, tone: consoleToneSubtle})
 	}
-	if exact {
+	// A notice the display choices no longer show is left out before Core presents the
+	// record again.
+	if exact && p.display == v.display {
 		if notice := consoleNoticeText(text, p.entry.Notice); notice != "" {
 			v.add(old, consoleRow{id: consoleRowID{record: r.ID, part: consolePartNotice}, record: index, text: notice, tone: consoleToneSubtle})
 		}
@@ -677,7 +697,7 @@ func (v *consoleView) flattenRecord(old map[consoleRowID]int, index int, r *core
 		}
 	}
 
-	if !use || !searching || p.search != v.searchFor {
+	if !use || !searching || !searched {
 		return
 	}
 	var previous consoleHitKey
@@ -817,13 +837,6 @@ func (a *App) closeConsoleSearch() {
 	a.consoleView.search.SetText("")
 }
 
-// toggleConsoleQueries shows or hides the internal read-only queries that did not fail.
-func (a *App) toggleConsoleQueries() {
-	a.performed("git.console.hideQueries", surfaceButton)
-	v := &a.consoleView
-	v.hideQueries, v.dirty, v.hasCurrent = !v.hideQueries, true, false
-}
-
 // toggleConsoleWrap switches between breaking long lines and ending them in an ellipsis.
 func (a *App) toggleConsoleWrap() {
 	a.performed("git.console.wrap", surfaceButton)
@@ -938,34 +951,42 @@ func consoleOutput(r *core.GitConsoleRecord) string {
 }
 
 // consoleHeaderPrefix is the start of a header: when the command started, in loc to the
-// millisecond, and the name of the repository it ran in, as consoleHeaderParts gives them,
-// joined by a space.
-func consoleHeaderPrefix(started time.Time, root string, loc *time.Location) string {
-	stamp, repository := consoleHeaderParts(started, root, loc)
+// millisecond, and the name of the repository it ran in unless hide leaves it out, as
+// consoleHeaderParts gives them, joined by a space.
+func consoleHeaderPrefix(started time.Time, root string, hide bool, loc *time.Location) string {
+	stamp, repository := consoleHeaderParts(started, root, hide, loc)
+	if repository == "" {
+		return stamp
+	}
 	return stamp + " " + repository
 }
 
 // consoleHeaderParts is the two parts of the start of a header, drawn in colors of their
 // own: the stamp, when the command started in loc to the millisecond with a colon after it,
-// and the name of the repository it ran in, in brackets.
-func consoleHeaderParts(started time.Time, root string, loc *time.Location) (stamp, repository string) {
+// and the name of the repository it ran in, in brackets. hide, the display choice that leaves
+// the repository out, makes the repository empty.
+func consoleHeaderParts(started time.Time, root string, hide bool, loc *time.Location) (stamp, repository string) {
+	stamp = started.In(loc).Format("15:04:05.000") + ":"
+	if hide {
+		return stamp, ""
+	}
 	base := ""
 	if root != "" {
 		base = filepath.Base(root)
 	}
-	return started.In(loc).Format("15:04:05.000") + ":", "[" + base + "]"
+	return stamp, "[" + base + "]"
 }
 
-// consoleDrawnHeader is the header of r drawn before Core presented it: the prefix and the
-// command from its subcommand on, as Core projects it for consoles, so that the temporary
-// configuration Core folds is not spelled out meanwhile. Without that projection it is the
-// raw header.
-func consoleDrawnHeader(r *core.GitConsoleRecord, loc *time.Location) string {
+// consoleDrawnHeader is the header of r drawn before Core presented it: the prefix, without
+// the repository when hide leaves it out, and the command from its subcommand on, as Core
+// projects it for consoles, so that the temporary configuration Core folds is not spelled out
+// meanwhile. Without that projection it is the raw header.
+func consoleDrawnHeader(r *core.GitConsoleRecord, hide bool, loc *time.Location) string {
 	if len(r.DisplayArguments) == 0 {
-		return consoleRawHeader(r, loc)
+		return consoleHeader(r, hide, loc)
 	}
 	var b strings.Builder
-	b.WriteString(consoleHeaderPrefix(r.Started, r.Root, loc))
+	b.WriteString(consoleHeaderPrefix(r.Started, r.Root, hide, loc))
 	b.WriteString(" git")
 	for _, argument := range r.DisplayArguments {
 		b.WriteByte(' ')
@@ -978,7 +999,12 @@ func consoleDrawnHeader(r *core.GitConsoleRecord, loc *time.Location) string {
 // copy of the whole console has: the prefix and the whole command. A failed request that ran
 // no command has none.
 func consoleRawHeader(r *core.GitConsoleRecord, loc *time.Location) string {
-	header := consoleHeaderPrefix(r.Started, r.Root, loc)
+	return consoleHeader(r, false, loc)
+}
+
+// consoleHeader is the raw header of r, without the repository when hide leaves it out.
+func consoleHeader(r *core.GitConsoleRecord, hide bool, loc *time.Location) string {
+	header := consoleHeaderPrefix(r.Started, r.Root, hide, loc)
 	if len(r.Arguments) > 0 || len(r.TemporaryConfig) > 0 {
 		header += " " + consoleCommand(r)
 	}

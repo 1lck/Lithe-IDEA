@@ -50,6 +50,9 @@ func (a *App) loadNestedReferences(p *project) {
 	}
 	ids := p.workspaceRepositoryIDs()
 	a.background(p, gitTimeout, func(ctx context.Context) func(*App) {
+		// The references are read again whenever a repository changes, so the console records
+		// these reads only when it shows background branch reads.
+		ctx = core.WithQueryCategory(ctx, core.GitQueryReferences)
 		out := make(map[string]nestedReferences, len(reads))
 		for _, repo := range reads {
 			refs, err := kernel.GitReferences(ctx, repo.root)

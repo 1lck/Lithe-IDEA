@@ -202,7 +202,7 @@ func (a *App) runBranchWrite(p *project, operation string, failed func(reason st
 		err := write(ctx, kernel, root)
 		var status core.GitStatus
 		if err == nil {
-			status, err = kernel.GitStatus(core.AutomaticRefresh(ctx), root)
+			status, err = kernel.GitStatus(core.WithQueryCategory(core.AutomaticRefresh(ctx), core.GitQueryReload), root)
 		}
 		return func(a *App) {
 			b := &a.branch

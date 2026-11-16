@@ -94,6 +94,9 @@ type Values struct {
 	// updates the parent repositories' references in the Commit window; both show by default.
 	HideChangeLists      bool
 	HideParentReferences bool
+	// GitConsole says which internal Git queries the Git console records and how it draws its
+	// records; the zero value is IntelliJ IDEA's console.
+	GitConsole core.GitConsolePreferences
 	// HideProjectColors leaves the open project's color out of the workbench's chrome,
 	// which shows it by default.
 	HideProjectColors bool
@@ -403,6 +406,9 @@ type Options struct {
 	// Values.HideParentReferences to the settings owner, like SetHideGitGutter.
 	SetHideChangeLists      func(bool)
 	SetHideParentReferences func(bool)
+	// SetGitConsole hands a change of Values.GitConsole to the settings owner, like
+	// SetHideGitGutter.
+	SetGitConsole func(core.GitConsolePreferences)
 	// SetProcessTermination hands a change of Values.ProcessTermination to the settings
 	// owner, like SetTabRows.
 	SetProcessTermination func(ProcessTermination)
@@ -571,6 +577,12 @@ func (c *Controller) OpenTerminal(application *app.Application, current Values) 
 // OpenKeymap shows the window on the Keymap page, where the gear menu's Keymap item leads.
 func (c *Controller) OpenKeymap(application *app.Application, current Values) error {
 	return c.open(application, current, pageKeymap)
+}
+
+// OpenVersionControl shows the window on the Version Control page, where the Git console's
+// settings button leads.
+func (c *Controller) OpenVersionControl(application *app.Application, current Values) error {
+	return c.open(application, current, pageVersionControl)
 }
 
 // OpenAI shows the window on the Generation page, where the commit area's settings button leads.

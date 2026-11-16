@@ -1,6 +1,7 @@
 package settingswindow
 
 import (
+	"github.com/1lck/Lithe-IDEA/desktop/internal/core"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/fontprefs"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/i18n"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/icons"
@@ -533,6 +534,7 @@ func (w *window) footer(c ui.C) {
 			w.setTerminalShell("", true)
 			w.setTerminalBehavior(TerminalBehavior{}, true)
 			w.setFonts(fontprefs.Default(), true)
+			w.setGitConsole(core.GitConsolePreferences{}, true)
 		}
 		ui.Spacer(c)
 		if ui.Button(c, settings.Cancel).Outline().Clicked() {

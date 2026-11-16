@@ -196,7 +196,7 @@ func (a *App) stashWrite(p *project, operation string, write func(ctx context.Co
 		return func(a *App) {
 			s := &p.stash
 			s.busy = false
-			a.loadGit(p)
+			a.reloadGit(p)
 			a.loadStashes(p)
 			a.reloadDiffs(p, root)
 			if err != nil {

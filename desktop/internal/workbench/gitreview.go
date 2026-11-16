@@ -228,7 +228,7 @@ func (a *App) stageUntracked(p *project, change core.GitChange) {
 	a.background(p, reviewTimeout, func(ctx context.Context) func(*App) {
 		err := kernel.GitStage(ctx, root, change.StagingPaths())
 		return func(a *App) {
-			a.loadGit(p)
+			a.reloadGit(p)
 			if err != nil {
 				a.reviewFailed("git_stage", err)
 				return

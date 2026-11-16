@@ -215,6 +215,8 @@ func TestGitWorktreesAreManagedAndRecordedInTheConsole(t *testing.T) {
 	repo := committedRepository(t)
 	client := NewClient()
 	console := NewGitConsole(nil)
+	// The worktree list queries of the operations and of the panel show only when asked for.
+	console.RecordQueries([]GitQueryCategory{GitQueryChecks, GitQueryPanels})
 	ctx := WithGitConsole(testContext(t), console, repo)
 	destination := filepath.Join(t.TempDir(), "linked")
 
@@ -280,7 +282,7 @@ func TestGitWorktreesAreManagedAndRecordedInTheConsole(t *testing.T) {
 		t.Fatalf("removal refused before Git ran = %+v, want an unconfirmed failure of %s", locked, repo)
 	}
 
-	presentation, err := client.GitConsolePresentation(testContext(t), snapshot.Records, "worktree")
+	presentation, err := client.GitConsolePresentation(testContext(t), snapshot.Records, "worktree", GitConsoleDisplay{})
 	if err != nil {
 		t.Fatalf("GitConsolePresentation() error: %v", err)
 	}
@@ -319,7 +321,7 @@ func TestGitConsoleRecordsNothingForADetachedContext(t *testing.T) {
 		t.Fatalf("detached request recorded %+v", records)
 	}
 	// An unrecorded command leaves the console alone even when it fails.
-	if _, err := client.GitConsolePresentation(attached, []GitConsoleRecord{{ID: "x", State: "running"}}, strings.Repeat("x", GitConsoleSearchLimit+1)); err == nil {
+	if _, err := client.GitConsolePresentation(attached, []GitConsoleRecord{{ID: "x", State: "running"}}, strings.Repeat("x", GitConsoleSearchLimit+1), GitConsoleDisplay{}); err == nil {
 		t.Fatal("GitConsolePresentation() accepted a search over the limit")
 	}
 	if records := console.Snapshot().Records; len(records) != 0 {
@@ -346,50 +348,75 @@ func consoleCommands(console *GitConsole) []string {
 	return commands
 }
 
-// The console records the queries a request runs, as it records the commands the user
-// started, except those of an automatic refresh, which runs on every change.
-func TestGitConsoleRecordsQueriesButNotAutomaticRefreshes(t *testing.T) {
+// The console records no internal query by default, as IDEA's console does, and records the
+// queries of the categories its preferences show; an automatic refresh, which runs on every
+// change, records its queries only under a category the host names.
+func TestGitConsoleRecordsTheQueriesOfTheCategoriesItShows(t *testing.T) {
 	repo := committedRepository(t)
 	client := NewClient()
 	console := NewGitConsole(nil)
 	ctx := WithGitConsole(testContext(t), console, repo)
 
-	if _, err := client.GitStatus(AutomaticRefresh(ctx), repo); err != nil {
-		t.Fatalf("GitStatus(refresh) error: %v", err)
-	}
-	if records := console.Snapshot().Records; len(records) != 0 {
-		t.Fatalf("an automatic refresh recorded %+v", records)
-	}
 	if _, err := client.GitStatus(ctx, repo); err != nil {
 		t.Fatalf("GitStatus() error: %v", err)
 	}
 	if _, err := client.GitReferences(ctx, repo); err != nil {
 		t.Fatalf("GitReferences() error: %v", err)
 	}
+	if records := console.Snapshot().Records; len(records) != 0 {
+		t.Fatalf("the default preferences recorded %+v", records)
+	}
+
+	console.RecordQueries([]GitQueryCategory{GitQueryReferences, GitQueryChecks})
+	if _, err := client.GitStatus(AutomaticRefresh(ctx), repo); err != nil {
+		t.Fatalf("GitStatus(refresh) error: %v", err)
+	}
+	if records := console.Snapshot().Records; len(records) != 0 {
+		t.Fatalf("an automatic refresh without a category recorded %+v", records)
+	}
+	if _, err := client.GitReferences(ctx, repo); err != nil {
+		t.Fatalf("GitReferences() error: %v", err)
+	}
+	if records := console.Snapshot().Records; len(records) != 0 {
+		t.Fatalf("log queries the console does not show were recorded: %+v", records)
+	}
+	if _, err := client.GitStatus(ctx, repo); err != nil {
+		t.Fatalf("GitStatus() error: %v", err)
+	}
+	if _, err := client.GitReferences(WithQueryCategory(AutomaticRefresh(ctx), GitQueryReferences), repo); err != nil {
+		t.Fatalf("GitReferences(references) error: %v", err)
+	}
 	commands := consoleCommands(console)
 	if !slices.Contains(commands, "status") || !slices.Contains(commands, "for-each-ref") {
 		t.Fatalf("console commands = %q, want the status and reference queries", commands)
 	}
 	for _, record := range console.Snapshot().Records {
-		if record.State != GitConsoleCompleted || (record.ExitCode != 0 && !record.ExpectedExit) {
-			t.Fatalf("query record %+v did not complete normally", record)
+		if !record.Query || record.State != GitConsoleCompleted || (record.ExitCode != 0 && !record.ExpectedExit) {
+			t.Fatalf("query record %+v did not complete normally as a query", record)
 		}
 	}
 }
 
-// Only a Git request with a console asks Core to report its queries, and an automatic
-// refresh names its provenance instead.
-func TestGitExecutionOfAsksForQueriesOnlyWithAConsole(t *testing.T) {
-	console := NewGitConsole(nil)
-	ctx := WithGitConsole(context.Background(), console, "/repo")
+// Only a Git request with a console asks Core to report queries, of the categories the
+// console records and under the category the context names; an automatic refresh names its
+// provenance.
+func TestGitExecutionOfAsksForTheCategoriesTheConsoleShows(t *testing.T) {
+	idea := WithGitConsole(context.Background(), NewGitConsole(nil), "/repo")
+	shown := NewGitConsole(nil)
+	shown.RecordQueries(GitConsolePreferences{ShowDiffQueries: true, ShowCheckQueries: true}.QueryCategories())
+	ctx := WithGitConsole(context.Background(), shown, "/repo")
 	cases := []struct {
 		name    string
 		ctx     context.Context
 		command string
 		want    string
 	}{
-		{"console", ctx, "git.status", `{"reportQueries":true}`},
-		{"refresh", AutomaticRefresh(ctx), "git.status", `{"source":"background"}`},
+		{"default console", idea, "git.status", `null`},
+		{"default refresh", AutomaticRefresh(idea), "git.status", `{"source":"background"}`},
+		{"default category", WithQueryCategory(idea, GitQueryReload), "git.status", `null`},
+		{"shown", ctx, "git.status", `{"consoleQueries":["diff","checks"]}`},
+		{"named", WithQueryCategory(ctx, GitQueryReload), "git.status", `{"consoleQueries":["diff","checks"],"queryCategory":"reload"}`},
+		{"named refresh", WithQueryCategory(AutomaticRefresh(ctx), GitQueryReferences), "git.references", `{"consoleQueries":["diff","checks"],"queryCategory":"references","source":"background"}`},
 		{"no console", context.Background(), "git.status", `null`},
 		{"detached", WithGitConsole(ctx, nil, ""), "git.status", `null`},
 		{"never runs Git", ctx, "git.consolePresentation", `null`},
@@ -403,13 +430,110 @@ func TestGitExecutionOfAsksForQueriesOnlyWithAConsole(t *testing.T) {
 	}
 }
 
+// Every preference starts as IDEA's console, and each one turns on the category or display
+// option it names.
+func TestGitConsolePreferencesMapToCategoriesAndDisplay(t *testing.T) {
+	var idea GitConsolePreferences
+	if got := idea.QueryCategories(); len(got) != 0 {
+		t.Fatalf("default categories = %q, want none", got)
+	}
+	if got := idea.Display(); got != (GitConsoleDisplay{}) {
+		t.Fatalf("default display = %+v, want IDEA's", got)
+	}
+	if encoded, err := json.Marshal(idea); err != nil || string(encoded) != `{}` {
+		t.Fatalf("default preferences encode as %s (%v), want {}", encoded, err)
+	}
+	all := GitConsolePreferences{
+		ShowReferenceQueries: true, ShowReloadQueries: true, ShowDiffRefreshQueries: true,
+		ShowDiffQueries: true, ShowLogQueries: true, ShowLogPathFilterQueries: true,
+		ShowAnnotateQueries: true, ShowPanelQueries: true, ShowCheckQueries: true,
+		FoldShortQueries: true, ShowCompletedWithoutOutput: true,
+		HideTemporaryConfig: true, HideRepository: true,
+	}
+	want := []GitQueryCategory{GitQueryReferences, GitQueryReload, GitQueryDiffRefresh, GitQueryDiff, GitQueryLog,
+		GitQueryLogPathFilter, GitQueryAnnotate, GitQueryPanels, GitQueryChecks}
+	if got := all.QueryCategories(); !slices.Equal(got, want) {
+		t.Fatalf("categories = %q, want %q", got, want)
+	}
+	display, err := json.Marshal(all.Display())
+	if err != nil || string(display) != `{"foldShortQueries":true,"showCompletedWithoutOutput":true,"hideTemporaryConfig":true,"hideRepository":true}` {
+		t.Fatalf("display = %s (%v)", display, err)
+	}
+}
+
+// The categories the console can ask for are exactly the ones Core lists, in its order, so a
+// request never names one Core rejects.
+func TestGitQueryCategoriesAreTheOnesCoreLists(t *testing.T) {
+	data, err := os.ReadFile(contractfixture.CoreFixture("git/console-queries-v1.json"))
+	if err != nil {
+		t.Fatalf("read fixture: %v", err)
+	}
+	var fixture struct {
+		QueryCategories []GitQueryCategory `json:"queryCategories"`
+	}
+	if err := json.Unmarshal(data, &fixture); err != nil {
+		t.Fatalf("decode fixture: %v", err)
+	}
+	all := GitConsolePreferences{
+		ShowReferenceQueries: true, ShowReloadQueries: true, ShowDiffRefreshQueries: true,
+		ShowDiffQueries: true, ShowLogQueries: true, ShowLogPathFilterQueries: true,
+		ShowAnnotateQueries: true, ShowPanelQueries: true, ShowCheckQueries: true,
+	}
+	if got := all.QueryCategories(); len(fixture.QueryCategories) == 0 || !slices.Equal(got, fixture.QueryCategories) {
+		t.Fatalf("categories = %q, Core lists %q", got, fixture.QueryCategories)
+	}
+}
+
+// Turning a category off frees the records its successful queries took, once their request
+// finished; a failed query, a visible command, a query of another category and the queries of
+// a request still running stay.
+func TestGitConsoleDropsTheSuccessfulQueriesOfACategoryTurnedOff(t *testing.T) {
+	console := newTestConsole()
+	changes := 0
+	console.changed = func() { changes++ }
+	console.RecordQueries([]GitQueryCategory{GitQueryLog, GitQueryDiff})
+	consoleEvents(t, console, "/repo",
+		`{"operationId":"a","type":"requestStarted"}`,
+		`{"operationId":"a","type":"started","invocationId":1,"arguments":["log"],"query":true,"queryCategory":"log"}`,
+		`{"operationId":"a","type":"output","invocationId":1,"stream":"stdout","text":"commit"}`,
+		`{"operationId":"a","type":"finished","invocationId":1,"state":"completed","exitCode":0}`,
+		`{"operationId":"a","type":"started","invocationId":2,"arguments":["show"],"query":true,"queryCategory":"log"}`,
+		`{"operationId":"a","type":"finished","invocationId":2,"state":"completed","exitCode":128}`,
+		`{"operationId":"a","type":"started","invocationId":3,"arguments":["diff"],"query":true,"queryCategory":"diff"}`,
+		`{"operationId":"a","type":"finished","invocationId":3,"state":"completed","exitCode":0}`,
+		`{"operationId":"a","type":"started","invocationId":4,"arguments":["fetch"]}`,
+		`{"operationId":"a","type":"finished","invocationId":4,"state":"completed","exitCode":0}`,
+		`{"operationId":"a","type":"requestFinished"}`,
+		`{"operationId":"b","type":"requestStarted"}`,
+		`{"operationId":"b","type":"started","invocationId":1,"arguments":["rev-list"],"query":true,"queryCategory":"log"}`,
+	)
+	revision, before := console.Revision(), changes
+	console.RecordQueries([]GitQueryCategory{GitQueryDiff})
+	if got := consoleCommands(console); !slices.Equal(got, []string{"show", "diff", "fetch", "rev-list"}) {
+		t.Fatalf("console commands = %q, want the failed log query, the diff, the fetch and the running query", got)
+	}
+	if console.Revision() == revision || changes != before+1 {
+		t.Fatalf("revision %d -> %d, %d changes: dropping records did not change the console", revision, console.Revision(), changes-before)
+	}
+	if console.outputBytes != 0 {
+		t.Fatalf("output bytes = %d, want the dropped query's output freed", console.outputBytes)
+	}
+	if !slices.Equal(console.recordedQueries(), []GitQueryCategory{GitQueryDiff}) {
+		t.Fatalf("recorded categories = %q", console.recordedQueries())
+	}
+	console.RecordQueries([]GitQueryCategory{GitQueryDiff})
+	if changes != before+1 {
+		t.Fatal("keeping the same categories changed the console")
+	}
+}
+
 // A started event says which command is a query and how Core projects it for consoles, and
 // the record carries both, the query also to Core's presentation of it.
 func TestGitConsoleRecordsTheQueryAndTheProjectionOfAStartedCommand(t *testing.T) {
 	console := newTestConsole()
 	consoleEvents(t, console, "/repo",
 		`{"operationId":"a","type":"requestStarted"}`,
-		`{"operationId":"a","type":"started","invocationId":1,"arguments":["-c","core.quotepath=false","log"],"displayArguments":["log"],"query":true}`,
+		`{"operationId":"a","type":"started","invocationId":1,"arguments":["-c","core.quotepath=false","log"],"displayArguments":["log"],"query":true,"queryCategory":"log"}`,
 		`{"operationId":"a","type":"started","invocationId":2,"arguments":["fetch"]}`,
 	)
 	records := console.Snapshot().Records
@@ -417,10 +541,10 @@ func TestGitConsoleRecordsTheQueryAndTheProjectionOfAStartedCommand(t *testing.T
 		t.Fatalf("records = %+v, want two", records)
 	}
 	query, fetch := records[0], records[1]
-	if !query.Query || !slices.Equal(query.DisplayArguments, []string{"log"}) {
+	if !query.Query || query.QueryCategory != GitQueryLog || !slices.Equal(query.DisplayArguments, []string{"log"}) {
 		t.Fatalf("the query's record is %+v", query)
 	}
-	if fetch.Query || fetch.DisplayArguments != nil {
+	if fetch.Query || fetch.QueryCategory != "" || fetch.DisplayArguments != nil {
 		t.Fatalf("the fetch's record is %+v, want no query and no projection", fetch)
 	}
 	if wire, _ := query.wire(); !wire.Query {

@@ -42,7 +42,7 @@ func TestVisualSettings(t *testing.T) {
 	}{
 		{"20-settings-general", pageGeneral}, {"22-settings-editor", pageEditor},
 		{"23-settings-keymap", pageKeymap}, {"24-settings-network", pageNetwork},
-		{"25-settings-process", pageProcessTermination}, {"26-settings-git", pageVersionControl},
+		{"25-settings-process", pageProcessTermination}, {"26-settings-git", pageVersionControl}, {"26-settings-git-console", pageVersionControl},
 		{"27-settings-terminal", pageTerminal}, {"28-plugins-installed", pagePlugins},
 		{"29-marketplace-empty", pagePlugins}, {"31-settings-updates", pageUpdates},
 		{"33-settings-toolchains", pageBuild}, {"m44-toolchain-directory-menu", pageBuild}, {"m45-toolchain-custom-directory", pageBuild},
@@ -103,6 +103,10 @@ func TestVisualSettings(t *testing.T) {
 					d.click(w.text.Settings.TabsShowIn)
 				case "21-settings-language-popup":
 					d.click(w.text.Settings.Language)
+				case "26-settings-git-console":
+					if err := d.driver.Scroll(gfx.ScrollEvent{X: 700, Y: 500, DeltaY: 900, Viewport: gfx.Size{Width: 900, Height: 700}}); err != nil {
+						t.Fatal(err)
+					}
 				case "30-settings-history":
 					if err := d.driver.Scroll(gfx.ScrollEvent{X: 700, Y: 500, DeltaY: 500, Viewport: gfx.Size{Width: 900, Height: 700}}); err != nil {
 						t.Fatal(err)

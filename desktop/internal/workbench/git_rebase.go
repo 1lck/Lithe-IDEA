@@ -234,7 +234,7 @@ func (a *App) loadRebaseSession(p *project) {
 
 // afterRebaseWrite reads the status, the log and the session again after a rebase moved HEAD.
 func (a *App) afterRebaseWrite(p *project) {
-	a.loadGit(p)
+	a.reloadGit(p)
 	if p.log.started {
 		a.loadLog(p)
 	}
