@@ -52,13 +52,15 @@ func New(evaluator Evaluator, client *http.Client) *Service {
 }
 
 // marketplaceHTTPClient preserves the supplied transport and redirect policy,
-// while refusing redirects that would downgrade or embed credentials.
+// while refusing redirects that would downgrade or embed credentials. A
+// positive timeout bounds each request as a whole, keeping a shorter one the
+// client sets; zero leaves the client's own.
 func marketplaceHTTPClient(client *http.Client, timeout time.Duration) *http.Client {
 	if client == nil {
 		client = &http.Client{}
 	}
 	copy := *client
-	if copy.Timeout == 0 || copy.Timeout > timeout {
+	if timeout > 0 && (copy.Timeout == 0 || copy.Timeout > timeout) {
 		copy.Timeout = timeout
 	}
 	previous := copy.CheckRedirect

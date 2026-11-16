@@ -32,6 +32,9 @@ const (
 	logDatePad     = 8
 	logDateFormat  = "2006/1/2 15:04"
 	logDateSample  = "0000/00/00 00:00"
+	// logRootStripWidth is the strip at a row's left edge in the color of its repository, in a
+	// folder with several; the first lane's node starts past it.
+	logRootStripWidth = 3
 )
 
 // The logical grid of the graph, scaled from the 22 point rows of IntelliJ's log.
@@ -395,6 +398,11 @@ func (a *App) paintLogRow(canvas *gfx.Canvas, rect gfx.Rect, index int) {
 	commit, _ := l.commit(row.CommitHash)
 	selected := row.CommitHash == l.selected
 	a.paintGraphRow(canvas, m, rect, row, color)
+	if slot, ok := a.project.repositorySlot(a.project.logRepoID()); ok && a.project.workspaceMode() {
+		// As IDEA marks each commit with the color of its root, the strip at the left edge says which
+		// repository of the folder the log walks.
+		canvas.Fill(gfx.Rect{X: rect.X, Y: rect.Y, Width: logRootStripWidth, Height: rect.Height}, repositoryColor(slot, dark))
+	}
 
 	foreground := a.colors.Text
 	if len(commit.ParentHashes) > 1 && !selected {

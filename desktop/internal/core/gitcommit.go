@@ -232,6 +232,10 @@ type WorkspaceCommitRequest struct {
 	// Reviewed is the session whose plan the user confirmed; the kernel reports
 	// ReviewChanged when the repositories no longer match it. Nil asks for a first plan.
 	Reviewed *WorkspaceCommitSession
+	// WorkspaceRepositories are the discovery entries of the workspace. Core binds every
+	// nested one that Repositories does not already bind, under its discovery ID, unless the
+	// commit is scoped to a ChangeList; it never adds the workspace repository.
+	WorkspaceRepositories []WorkspaceRepository
 }
 
 // workspaceCommitPrepareRequest is the payload of git.workspaceCommitPrepare.
@@ -247,6 +251,7 @@ type workspaceCommitPrepareRequest struct {
 	PathScope               *ChangeListScope                     `json:"pathScope,omitempty"`
 	Previous                *WorkspaceCommitSession              `json:"previous,omitempty"`
 	Reviewed                json.RawMessage                      `json:"reviewed,omitempty"`
+	WorkspaceRepositories   []WorkspaceRepository                `json:"workspaceRepositories,omitempty"`
 }
 
 // WorkspaceCommitStatus is the kernel's stable key for where one repository of a workspace
@@ -415,6 +420,7 @@ func (c *Client) WorkspaceCommitPrepare(ctx context.Context, request WorkspaceCo
 		IncludeParentReferences: request.IncludeParentReferences,
 		PathScope:               request.PathScope,
 		Previous:                request.Previous,
+		WorkspaceRepositories:   request.WorkspaceRepositories,
 	}
 	if request.Reviewed != nil {
 		payload.Reviewed = request.Reviewed.plan

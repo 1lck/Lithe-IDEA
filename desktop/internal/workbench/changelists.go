@@ -268,8 +268,10 @@ func (a *App) nextChangeListJob(p *project) {
 	kernel, ok := a.kernel.(changeListKernel)
 	if !ok || !p.git.isRepository() {
 		l.members, l.scope, l.projected = nil, nil, l.statusGen
-		if !ok {
-			l.read, l.state = true, defaultChangeLists()
+		if !ok || p.git.loaded && p.git.err == nil {
+			// A folder that is no repository has only the default list; its nested repositories
+			// commit without one.
+			l.read, l.failed, l.state = true, nil, defaultChangeLists()
 		}
 		if job.then != nil {
 			job.then(a, nil)

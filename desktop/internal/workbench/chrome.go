@@ -164,7 +164,7 @@ func (a *App) chromeStatusText(i int) string {
 		return strconv.Itoa(a.sessions.frameRate())
 	case itemChanges:
 		if a.project != nil {
-			if count, ok := a.project.git.changeCount(); ok && count > 0 {
+			if count := a.project.changedFiles(); count > 0 {
 				return a.text.Status.Changes(count)
 			}
 		}

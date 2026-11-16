@@ -20,9 +20,20 @@ type GitChange struct {
 	// CanToggleStaging is false for a parent gitlink whose only change is uncommitted content
 	// inside the submodule, which cannot be staged from the parent.
 	CanToggleStaging bool `json:"canToggleStaging"`
+	// Submodule is set on a gitlink and tells a new recorded commit from content changes
+	// inside the submodule.
+	Submodule *GitSubmoduleStatus `json:"submodule,omitempty"`
 	// UntrackedFileCount is the number of non-ignored files below a summarized untracked
 	// directory, and 0 for every other change.
 	UntrackedFileCount int `json:"untrackedFileCount,omitempty"`
+}
+
+// GitSubmoduleStatus is what Git porcelain v2 reports about a gitlink.
+type GitSubmoduleStatus struct {
+	// CommitChanged reports that the submodule's HEAD is not the commit the parent records.
+	CommitChanged    bool `json:"commitChanged"`
+	TrackedChanges   bool `json:"trackedChanges"`
+	UntrackedChanges bool `json:"untrackedChanges"`
 }
 
 // GitStatus is the repository identity, branch divergence and file changes of a directory.

@@ -1,13 +1,19 @@
 package workbench
 
-import "path/filepath"
+import (
+	"context"
+	"path/filepath"
+
+	"github.com/1lck/Lithe-IDEA/desktop/internal/core"
+)
 
 // This file keeps which repository the Git log walks (matrix id git-multi-repository-references).
-// The log starts on the project's own repository. A click on a group or a reference of a nested
-// repository in the reference pane makes that repository the one the log walks: its history,
-// commit details, comparisons, fetches and branch writes then act on it, and the log's header
-// names it and offers the way back. A nested repository that leaves the workspace falls back to the
-// project's own (nested_repos.go). The nested repositories' references are read in nested_refs.go.
+// Core picks it from the repositories of the folder: the one the user picked while it is listed,
+// otherwise the project's own, otherwise the first nested one, so a folder that is no repository
+// itself walks its first nested repository. A click on a root of the Paths filter, or on a group or
+// a reference of another repository in the reference pane, picks that repository: its history,
+// commit details, comparisons, fetches and branch writes then act on it, and the log's header names
+// it. The other repositories' references are read in nested_refs.go.
 
 // logRepo is the nested repository the log walks, nil while it walks the project's own.
 func (p *project) logRepo() *nestedRepo {
@@ -16,6 +22,14 @@ func (p *project) logRepo() *nestedRepo {
 		return nil
 	}
 	return repo
+}
+
+// logRepoID is Core's ID of the repository the log walks.
+func (p *project) logRepoID() string {
+	if repo := p.logRepo(); repo != nil {
+		return repo.id
+	}
+	return p.ownID()
 }
 
 // logRoot is the root the log reads the repository it walks from: the project folder for the
@@ -44,37 +58,57 @@ func (p *project) logBranchRepo() string {
 	return ""
 }
 
-// repositoryName is the name a repository's group shows: the folder name of the project's own
-// repository, or the nested repository's path in the project folder. The empty ID is the own one.
+// repositoryName is the name a repository shows, Core's name for it: the folder name of the
+// project's own repository and the path in the project folder of a nested one. The empty ID and
+// commitRepositoryID are the own one.
 func (p *project) repositoryName(id string) string {
-	if id == "" || id == commitRepositoryID {
+	if p.isOwnID(id) {
+		if own, ok := p.nested.own(); ok {
+			return own.Name
+		}
 		return filepath.Base(p.git.repositoryRoot(p.root))
+	}
+	if repo, ok := p.nested.repo(id); ok && repo.name != "" {
+		return repo.name
 	}
 	return id
 }
 
-// referenceGroups are the repositories the reference pane lists below its own sections: every
-// nested repository but the one the log walks. While a nested repository is walked, the project's
-// own repository is listed too, read-only, so the user can walk back to it by a click.
-func (p *project) referenceGroups() []nestedRepo {
-	active := p.nested.logRepo
-	var groups []nestedRepo
-	if active != "" {
-		groups = append(groups, nestedRepo{id: commitRepositoryID, root: p.root})
+// selectLogRepo asks Core which repository the log walks now that the repositories were read
+// again, and the ones its reference pane lists besides. When Core falls back from the one walked,
+// or picks a nested one because the folder is no repository, the log walks that one from its start.
+func (a *App) selectLogRepo(p *project) {
+	n := &p.nested
+	selection, ok := a.workspaceSelection(p, n.logRepo)
+	if !ok {
+		return
 	}
-	for _, repo := range p.nested.repos {
-		if repo.id != active {
-			groups = append(groups, repo)
+	n.others = selection.Others
+	active := selection.Active
+	if _, nested := n.repo(active); !nested {
+		active = ""
+	}
+	if active != n.logRepo {
+		a.releaseLogCursor(p)
+		n.logRepo = active
+		p.log.reference, p.log.referenceLabel, p.log.refSelected = "", "", ""
+		if p.log.started {
+			a.loadLog(p)
+			return
 		}
 	}
-	return groups
+	// The reference pane lists the other repositories' references, so they are read again once the
+	// repositories are.
+	if p.log.started {
+		a.loadNestedReferences(p)
+	}
 }
 
 // setLogRepo makes the repository with ID the one the log walks, "" or the project's own ID for the
 // project's own repository, and reads its log once. full, when given, is the reference the log then
 // walks in it, short its name.
 func (a *App) setLogRepo(p *project, id, full, short string) {
-	if id == commitRepositoryID {
+	if p.isOwnID(id) {
 		id = ""
 	}
 	if p.nested.logRepo == id && full == "" {
@@ -83,9 +117,35 @@ func (a *App) setLogRepo(p *project, id, full, short string) {
 	// The history walk belongs to the repository it was opened in, so it is closed before the switch.
 	a.releaseLogCursor(p)
 	p.nested.logRepo = id
+	if selection, ok := a.workspaceSelection(p, id); ok {
+		p.nested.others = selection.Others
+	}
 	l := &p.log
 	l.reference, l.referenceLabel, l.refSelected = full, short, full
 	a.loadLog(p)
+}
+
+// workspaceSelection asks Core which repository a view acts on, given the ID of the one the log
+// walks, "" for the project's own. It reports false, after logging why, when Core cannot answer.
+func (a *App) workspaceSelection(p *project, picked string) (core.WorkspaceRepositorySelection, bool) {
+	discoverer, ok := a.kernel.(repositoryDiscoverer)
+	if !ok {
+		return core.WorkspaceRepositorySelection{}, false
+	}
+	n := &p.nested
+	if picked == "" {
+		if own, ok := n.own(); ok {
+			picked = own.ID
+		}
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), kernelCallTimeout)
+	defer cancel()
+	selection, err := discoverer.SelectWorkspaceRepository(ctx, n.discovered, picked)
+	if err != nil {
+		a.backgroundFailed("workspace_repository_selection", err)
+		return core.WorkspaceRepositorySelection{}, false
+	}
+	return selection, true
 }
 
 // releaseLogCursor closes the history walk of the log, when one is open, in the repository it
@@ -95,28 +155,4 @@ func (a *App) releaseLogCursor(p *project) {
 		a.closeLogCursor(p, p.log.cursor)
 		p.log.cursor = ""
 	}
-}
-
-// logFallsBack reports that the log walked a nested repository that is no longer in the workspace,
-// and makes the project's own repository the one it walks again. It reports whether it did.
-func (a *App) logFallsBack(p *project) bool {
-	if p.nested.logRepo == "" || p.logRepo() != nil {
-		return false
-	}
-	a.releaseLogCursor(p)
-	p.nested.logRepo = ""
-	p.log.reference, p.log.referenceLabel, p.log.refSelected = "", "", ""
-	return true
-}
-
-// workspaceRepositoryIDs are the IDs of every repository of the workspace, the project's own first
-// and the nested ones in discovery order, for the color assignments. Core's list is unfiltered, so
-// worktrees stay in it; the views drop the hidden ones.
-func (p *project) workspaceRepositoryIDs() []string {
-	ids := make([]string, 0, len(p.nested.repos)+1)
-	ids = append(ids, commitRepositoryID)
-	for _, repo := range p.nested.repos {
-		ids = append(ids, repo.id)
-	}
-	return ids
 }

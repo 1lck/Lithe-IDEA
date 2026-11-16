@@ -26,6 +26,15 @@ const (
 // commitReviewHeight is the most the steps of a review take before they scroll.
 const commitReviewHeight = 320
 
+// The left padding of a change row, so its checkbox sits one logIndent right of its parent's, as
+// the levels of IDEA's change tree do. changeRowIndent is for a change right under the change
+// list, whose checkbox is at 8; repositoryChangeIndent for a change under a repository's group,
+// whose checkbox follows the group's fold button (drawRepositoryGroup).
+const (
+	changeRowIndent        = 8 + logIndent
+	repositoryChangeIndent = 8 + shellHideSize + repositoryGroupGap + logIndent
+)
+
 // commitPageView declares the body of the Commit tool window.
 func (a *App) commitPageView(c ui.C) {
 	v := &a.commitView
@@ -94,7 +103,7 @@ func (a *App) drawCommitStatus(c ui.C, p *project) bool {
 				c.After(func() { a.refreshChanges(p) })
 			}
 		})
-	case !p.git.isRepository():
+	case !p.hasRepository():
 		a.gitEmpty(c, g.NotRepository)
 	default:
 		return true
@@ -114,7 +123,7 @@ func (a *App) drawCommitChanges(c ui.C, p *project) ui.Box {
 			a.drawChangeListSections(c, p)
 			return
 		}
-		if len(p.nested.repos) > 0 {
+		if p.workspaceMode() {
 			a.drawRepositoryChanges(c, p)
 			return
 		}
@@ -126,14 +135,15 @@ func (a *App) drawCommitChanges(c ui.C, p *project) ui.Box {
 			return
 		}
 		a.drawChangeRows(c, t.ChangeList, t.Files(fileCount(changes)), changes, cs.busy,
-			func() { a.stageAllAcrossRepositories(p) },
-			func(change core.GitChange) { a.drawCommitChange(c, p, change) })
+			func() { a.stageAll(p, surfaceButton) },
+			func(change core.GitChange) { a.drawCommitChange(c, p, change, changeRowIndent) })
 	})
 }
 
-// drawCommitChange declares the row of one change of the project's repository.
-func (a *App) drawCommitChange(c ui.C, p *project, change core.GitChange) {
-	toggled, opened, clicked, mods := a.drawChangeRow(c, change, p.commit.busy, p.lists.selected[change.Path], func(rowC ui.C) func(*ui.MenuItems) {
+// drawCommitChange declares the row of one change of the project's repository, indent from the
+// left.
+func (a *App) drawCommitChange(c ui.C, p *project, change core.GitChange, indent float32) {
+	toggled, opened, clicked, mods := a.drawChangeRow(c, change, p.commit.busy, p.lists.selected[change.Path], indent, func(rowC ui.C) func(*ui.MenuItems) {
 		return a.changeMenuItems(rowC, p, change)
 	})
 	if clicked && !toggled {
@@ -151,7 +161,7 @@ func (a *App) drawCommitChange(c ui.C, p *project, change core.GitChange) {
 // unstages them all, with the list's title and size, over a row per change.
 func (a *App) drawChangeRows(c ui.C, title, size string, changes []core.GitChange, busy bool, toggleAll func(), row func(core.GitChange)) {
 	ui.Scroll(c).Scrollbars().Grow(1).FillWidth().PadY(4).Children(func() {
-		a.drawChangeListHeader(c, title, size, changes, busy, toggleAll)
+		a.drawChangeListHeader(c, title, size, allStaged(changes), hasToggleable(changes), busy, toggleAll)
 		for _, change := range changes {
 			row(change)
 		}
@@ -159,11 +169,11 @@ func (a *App) drawChangeRows(c ui.C, title, size string, changes []core.GitChang
 }
 
 // drawChangeListHeader declares the line over a change list: the checkbox that stages or unstages
-// all of its changes, with the list's title and size.
-func (a *App) drawChangeListHeader(c ui.C, title, size string, changes []core.GitChange, busy bool, toggleAll func()) {
+// all of its changes, checked when all is set and enabled when toggleable is, with the list's title
+// and size.
+func (a *App) drawChangeListHeader(c ui.C, title, size string, all, toggleable, busy bool, toggleAll func()) {
 	ui.Row(c).Height(logItemHeight).FillWidth().Shrink(0).Items(ui.Center).Gap(6).PadX(8).Children(func() {
-		all := allStaged(changes)
-		if ui.Checkbox(c, &all, "").Label(title).Disabled(busy || !hasToggleable(changes)).Clicked() {
+		if ui.Checkbox(c, &all, "").Label(title).Disabled(busy || !toggleable).Clicked() {
 			c.After(toggleAll)
 		}
 		ui.Text(c, title).Weight(gfx.WeightMedium).Ellipsis().Shrink(1)
@@ -172,9 +182,9 @@ func (a *App) drawChangeListHeader(c ui.C, title, size string, changes []core.Gi
 }
 
 // drawChangeRow declares the row of one change: its checkbox, its icon, its name and folder,
-// and whether it is staged, with the context menu menu builds. It reports a click on the
-// checkbox and a double click on the row.
-func (a *App) drawChangeRow(c ui.C, change core.GitChange, busy, selected bool, menu func(ui.C) func(*ui.MenuItems)) (toggled, opened, clicked bool, mods gfx.Modifiers) {
+// and whether it is staged, indent from the left, with the context menu menu builds. It reports a
+// click on the checkbox and a double click on the row.
+func (a *App) drawChangeRow(c ui.C, change core.GitChange, busy, selected bool, indent float32, menu func(ui.C) func(*ui.MenuItems)) (toggled, opened, clicked bool, mods gfx.Modifiers) {
 	t := a.text.Commit
 	state, label := t.UnstagedState, t.StageFile(change.Path)
 	switch {
@@ -191,7 +201,7 @@ func (a *App) drawChangeRow(c ui.C, change core.GitChange, busy, selected bool, 
 	}
 	rowC := c.Key(change.Path)
 	row := ui.Row(rowC).Height(logItemHeight).FillWidth().Shrink(0).Items(ui.Center).Gap(6).
-		PadSides(0, 8, 0, float32(8+logIndent)).Hover(ui.Look{}.Background(a.colors.Hover)).
+		PadSides(0, 8, 0, indent).Hover(ui.Look{}.Background(a.colors.Hover)).
 		HitWith(ui.ID(rowC), change.Path, gfx.HitOptions{Cursor: gfx.PointerCursorHand})
 	if selected {
 		row = row.Background(a.colors.Selection)
