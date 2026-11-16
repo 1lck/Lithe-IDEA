@@ -18,7 +18,8 @@ import (
 // holds three: the branch popup listing them with one's panel open beside its row, the Git log
 // with the color strip of the repository it walks and each repository's own sections in the
 // reference pane, the Paths filter's Roots, the repository list behind the name after the filter
-// chips, the log of two repositories merged by date, and the Commit window's groups.
+// chips, the log of two repositories merged by date, the Commit window's groups, and the Push
+// Commits dialog Commit and Push opens on the three repositories.
 func TestVisualWorkspaceRepositories(t *testing.T) {
 	out := os.Getenv("LITHE_VISUAL_OUTPUT_DIR")
 	if out == "" {
@@ -28,7 +29,7 @@ func TestVisualWorkspaceRepositories(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, look := range []struct{ theme, language string }{{"dark", "zh-Hans"}, {"light", "en"}} {
-		for _, scene := range []string{"branch-popup", "git-log", "log-roots", "log-choose", "log-merged", "log-more", "commit-groups"} {
+		for _, scene := range []string{"branch-popup", "git-log", "log-roots", "log-choose", "log-merged", "log-more", "commit-groups", "push-commits"} {
 			t.Run(scene+"-"+look.theme, func(t *testing.T) {
 				// Fixed dates, so the merged log interleaves the two repositories the same way
 				// on every run.
@@ -103,6 +104,37 @@ func TestVisualWorkspaceRepositories(t *testing.T) {
 					}
 				case "commit-groups":
 					h.click(center(h.button(itemCommit)))
+				case "push-commits":
+					// backend's remote lacks its last commits, frontend publishes a new branch,
+					// and shared has no remote.
+					remotes := t.TempDir()
+					for _, name := range []string{"backend", "frontend"} {
+						gitRun(t, remotes, "init", "--bare", filepath.Join(remotes, name+".git"))
+						gitRun(t, filepath.Join(parent, name), "remote", "add", "origin", filepath.Join(remotes, name+".git"))
+					}
+					at("2026-11-13T09:10:00")
+					if err := os.MkdirAll(filepath.Join(backend, "api"), 0o755); err != nil {
+						t.Fatal(err)
+					}
+					for _, name := range []string{"session.go", "session_test.go", "routes.go"} {
+						if err := os.WriteFile(filepath.Join(backend, "api", name), []byte("package api\n"), 0o600); err != nil {
+							t.Fatal(err)
+						}
+					}
+					gitRun(t, backend, "add", "api")
+					gitRun(t, backend, "commit", "-m", "Wire the session API")
+					gitRun(t, backend, "push", "-q", "origin", "HEAD~3:refs/heads/main")
+					gitRun(t, backend, "fetch", "-q", "origin")
+					gitRun(t, backend, "branch", "-q", "--set-upstream-to", "origin/main", "main")
+					gitRun(t, frontend, "push", "-q", "origin", "main")
+					bindings := []core.WorkspaceCommitRepository{
+						{ID: "backend", Root: backend}, {ID: "frontend", Root: frontend}, {ID: "shared", Root: filepath.Join(parent, "shared")},
+					}
+					h.app.openWorkspacePush(p, bindings, nil, nil, surfaceButton)
+					s := &p.review.workspacePush
+					h.settleUntil("the push review and the selected commit's files", func() bool {
+						return s.reviewed && !s.loading && s.fileState == logFilesReady
+					})
 				}
 				h.settleChain()
 				if err := session.Screenshot(filepath.Join(out, "workspace-"+scene+"-"+look.theme+".png")); err != nil {

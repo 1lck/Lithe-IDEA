@@ -10074,6 +10074,158 @@
       ]
     },
     {
+      "id": "desktop.git.pushAll.title",
+      "description": "Push Commits dialog: the title",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.git.pushAll.description",
+      "description": "Push Commits dialog: the description read by assistive technology",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.git.pushAll.defineRemote",
+      "description": "Push Commits dialog: shown instead of the destination of a repository without a remote",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.git.pushAll.emptyRepository",
+      "description": "Push Commits dialog: shown for a repository whose branch has no commit yet",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.git.pushAll.detachedHead",
+      "description": "Push Commits dialog: shown for a repository whose HEAD is detached",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.git.pushAll.upToDate",
+      "description": "Push Commits dialog: shown for a branch its remote already has",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.git.pushAll.readFailed",
+      "description": "Push Commits dialog: a repository Git could not read",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "reason": "string"
+      }
+    },
+    {
+      "id": "desktop.git.pushAll.pushTags",
+      "description": "Push Commits dialog: the checkbox that sends tags with the pushes",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.git.pushAll.tagsCurrentBranch",
+      "description": "Push Commits dialog: the tag choice that sends the tags of the pushed branch",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.git.pushAll.tagsAll",
+      "description": "Push Commits dialog: the tag choice that sends every tag",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.git.pushAll.skipped",
+      "description": "Push Commits dialog: a repository not pushed because a submodule it records failed to push",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "repository": "string"
+      }
+    },
+    {
+      "id": "desktop.git.pushAll.pushed",
+      "description": "Push Commits dialog: a repository the last push sent",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.git.pushAll.failed",
+      "description": "Push Commits dialog: a repository whose push failed",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "reason": "string"
+      }
+    },
+    {
+      "id": "desktop.git.pushAll.someFailed",
+      "description": "Push Commits dialog: the notification when some repositories were not pushed",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.git.pushAll.push",
+      "description": "Push Commits dialog: the button that pushes the checked repositories",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.git.pushAll.noCommitSelected",
+      "description": "Push Commits dialog: the file side before a commit is selected",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.git.pushAll.loadingFiles",
+      "description": "Push Commits dialog: the file side while the files of the selected commit load",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.git.pushAll.filesFailed",
+      "description": "Push Commits dialog: the file side when the files of the selected commit failed to load",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "reason": "string"
+      }
+    },
+    {
+      "id": "desktop.git.pushAll.noChangedFiles",
+      "description": "Push Commits dialog: the file side of a commit without changed files",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.git.pushAll.noRepositories",
+      "description": "Push Commits dialog: shown when no repository can be listed",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
       "id": "desktop.git.loading",
       "description": "Desktop Git: Loading",
       "platforms": [

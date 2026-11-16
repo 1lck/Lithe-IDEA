@@ -583,12 +583,19 @@ func TestWorktreeChangesShareTheProjectsCommit(t *testing.T) {
 	target.state.editor.Insert("Publish linked work")
 	h.settle()
 	h.clickNamed(commit.CommitAndPush)
-	h.await("the review", func() bool { return !target.state.busy && target.state.review != nil })
-	if got := gitRun(t, linked, "log", "-1", "--format=%s"); got != "initial" {
-		t.Fatalf("the commit ran before its review was confirmed: %q", got)
+	push := &p.review.workspacePush
+	h.await("the Push Commits dialog", func() bool { return !target.state.busy && push.open && push.reviewed })
+	if got := gitRun(t, linked, "log", "-1", "--format=%s"); got != "Publish linked work" {
+		t.Fatalf("last commit of the linked checkout = %q, want the one Commit and Push made", got)
 	}
-	h.clickNamed(commit.Cancel)
-	if target.state.review != nil {
-		t.Fatal("cancel left the linked checkout's review open")
+	if got := gitRun(t, primary, "log", "-1", "--format=%s"); got == "Publish linked work" {
+		t.Fatal("the linked checkout's commit landed in the project's checkout")
+	}
+	if len(push.bindings) != 1 || push.rootOf(commitRepositoryID) != linked {
+		t.Fatalf("the Push Commits dialog reviews %+v, want the linked checkout", push.bindings)
+	}
+	h.clickNamed(i18n.Shared(h.app.language(), "desktop.gitReview.cancel"))
+	if push.open {
+		t.Fatal("cancel left the Push Commits dialog open")
 	}
 }

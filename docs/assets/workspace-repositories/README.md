@@ -12,7 +12,8 @@
 | 点击筛选栏里的仓库名：弹出同一份仓库列表，可多选 | [截图](workspace-log-choose-dark.png) | [截图](workspace-log-choose-light.png) |
 | 勾选 backend 和 frontend：Core 把两个仓库的历史按提交时间混排成一个列表，各仓库内部保持 Git 顺序；每行左侧是所属仓库的颜色条，两个仓库的图互不相连；筛选栏的仓库名变成两个颜色方块和“2 个仓库” | [截图](workspace-log-merged-dark.png) | [截图](workspace-log-merged-light.png) |
 | Git 日志筛选栏放不下全部视图按钮时：筛选项和仓库名完整保留，放不下的按钮收进末尾的“更多操作”（…）菜单，每项带图标，“显示提交详情”等开关项开启时打勾；全部收进菜单后文本筛选框再缩窄，最后才裁掉筛选项 | [截图](workspace-log-more-dark.png) | [截图](workspace-log-more-light.png) |
-| 提交窗口：按仓库分组，每组有暂存复选框、颜色、文件数和“提交此仓库”；顶部复选框按 Core 的计划暂存全部仓库；状态栏统计所有仓库的更改数 | [截图](workspace-commit-groups-dark.png) | [截图](workspace-commit-groups-light.png) |
+| 提交窗口：按仓库分组，每组有暂存复选框、颜色、文件数和该仓库当前分支的标签，组内没有单独的提交按钮；顶部复选框按 Core 的计划暂存全部仓库；状态栏统计所有仓库的更改数 | [截图](workspace-commit-groups-dark.png) | [截图](workspace-commit-groups-light.png) |
+| “提交并推送”提交完成后打开的“推送提交”对话框：左侧每个仓库一行，有勾选框、仓库名和“分支 → origin : 分支”，下面列出待推送的提交；backend 的远程缺最后几次提交，frontend 推送时新建远程分支，shared 没有远程，显示“定义远程”且不能勾选；右侧是选中提交的变更文件；底部是“推送标记(T)”和“当前分支 / 所有”；推送按 Core 的顺序进行，子模块先于记录它的父仓库 | [截图](workspace-push-commits-dark.png) | [截图](workspace-push-commits-light.png) |
 
 复验：设置 `LITHE_VISUAL_OUTPUT_DIR`，通过 `scripts/desktop/desktop-go.sh test
 -tags vivahead,lithevisual ./internal/workbench -run '^TestVisualWorkspaceRepositories$'
