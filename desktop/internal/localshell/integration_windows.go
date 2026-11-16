@@ -13,10 +13,12 @@ import (
 
 // integrateWindowsShell marks the prompt of PowerShell and cmd.exe with OSC 133
 // A and B under the session's token, wrapping the existing prompt, only for
-// recognized interactive shells. It never writes a startup command into a
-// running terminal or modifies a profile on disk. Neither shell reports its
-// command starts (#2008), and neither reports its folder: Lithe has no reader
-// for OSC 9;9 (#1984).
+// recognized interactive shells. PowerShell with PSReadLine also marks each
+// command's start (C) once the user accepts the line (#2008). cmd.exe has no
+// point between reading a line and running it, so it never does, and the screen
+// leaves the features that need the mark off there. It never writes a startup
+// command into a running terminal or modifies a profile on disk. Neither shell
+// reports its folder: Lithe has no reader for OSC 9;9 (#1984).
 func integrateWindowsShell(config Config, program string) Config {
 	token := config.PromptToken
 	if token == "" || len(token) > 128 || len(config.Args) != 0 || strings.IndexFunc(token, func(r rune) bool {
@@ -68,6 +70,24 @@ if ($ExecutionContext.SessionState.LanguageMode -eq 'FullLanguage') {
         $original = $global:__MottyOriginalPrompt.Invoke()
         $esc = [char]27
         return "$esc]133;A;motty=__MOTTY_TOKEN__$([char]7)$original$esc]133;B;motty=__MOTTY_TOKEN__$([char]7)"
+    }
+    # PSReadLine hands the host each line through PSConsoleHostReadLine once the
+    # user accepts it, so the command runs right after it returns: that is where
+    # its start is marked. Without PSReadLine the host reads the line itself and
+    # nothing is marked.
+    if (Test-Path Function:\PSConsoleHostReadLine) {
+        $global:__MottyOriginalReadLine = $function:PSConsoleHostReadLine
+        function global:PSConsoleHostReadLine {
+            # PSReadLine reads the last command's status first, to color its error
+            # prompt: keep it as the prompt does.
+            $failed = -not $global:?
+            if ($failed) { Write-Error 'motty-readline-status' -ErrorAction Ignore }
+            $line = $global:__MottyOriginalReadLine.Invoke()
+            # Straight to the console, after the line PSReadLine has drawn and
+            # before the command writes anything.
+            [Console]::Write("$([char]27)]133;C;motty=__MOTTY_TOKEN__$([char]7)")
+            $line
+        }
     }
 }
 `
