@@ -221,9 +221,9 @@ func (s pluginSettingsSources) sourceSettingsContext(ctx context.Context, editor
 		}
 		var model core.BuildModel
 		if instance.System.Provider {
-			model, err = s.app.providerModel(ctx, current.project, instance, s.app.kernel, refresh, execution)
+			model, err = s.app.providerModel(ctx, current.project, instance, s.app.kernel, nil, refresh, execution)
 		} else {
-			model, err = s.app.commandModel(ctx, current.project, instance, s.app.kernel, current.messages, execution)
+			model, err = s.app.commandModel(ctx, current.project, instance, s.app.kernel, nil, current.messages, execution)
 		}
 		if err != nil {
 			return result, err
