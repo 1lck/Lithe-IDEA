@@ -211,6 +211,7 @@ func (a *App) buildDependencyTree(ctx context.Context, p *project, instance buil
 func (a *App) commandDependencies(ctx context.Context, p *project, instance buildInstance, kernel buildDependencyKernel, attempt *core.PluginAttempt, plan core.BuildPlan, execution buildExecution, decode core.BuildDecodeDependenciesRequest, outputFile string) (core.BuildDependencyTree, error) {
 	workingDirectory := filepath.Join(p.root, filepath.FromSlash(plan.WorkingDirectory))
 	output, runErr := captureBuildProcess(ctx, execution.Executable, plan.Arguments, workingDirectory, applyToolchainSelection(plan.Environment, execution.selection()))
+	runErr = withBuildOutput(runErr, output)
 	if plan.Output == "outputFile" && outputFile != "" {
 		decode.OutputFile = outputFile
 	} else {

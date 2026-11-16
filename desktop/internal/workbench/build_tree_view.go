@@ -394,6 +394,9 @@ func (a *App) buildNoteRow(row ui.ListRow, p *project, instance *buildInstance, 
 		ui.Icon(c, icons.CircleAlert).Size(14, 14).Shrink(0).Color(color)
 	}
 	ui.Text(c, spec.label).FontSize(treeFontSize - 1).Color(color).Ellipsis().Shrink(1).MinWidth(0)
+	if spec.tooltip != "" {
+		element = element.Tooltip(spec.tooltip)
+	}
 	if spec.dependencies {
 		a.buildDependencyMenu(c, element, p, instance, spec.project)
 		return
