@@ -211,7 +211,7 @@ func (w *window) scrollbackCard(c ui.C) {
 		ui.Row(c).FillWidth().Height(28).Items(ui.Center).Gap(6).Children(func() {
 			ui.Text(c, i18n.Shared(language, "desktop.settings.terminal.scrollbackLines")).FontSize(12).Color(w.pal.text).Grow(1).MinWidth(0).Ellipsis()
 			if ui.Button(c.Part("less"), i18n.Shared(language, "desktop.settings.terminal.scrollbackLess")).Icon(icons.Minus).IconOnly().Ghost().Small().Disabled(value <= MinScrollback).Clicked() {
-				w.setTerminalScrollback(value - scrollbackStep)
+				w.setTerminalScrollback(value-scrollbackStep, false)
 			}
 			box := ui.TextFieldID(c, scrollbackFieldID, field, title, "").Width(90)
 			box.OnKey(func(event gfx.KeyEvent) gfx.EventResult {
@@ -229,10 +229,10 @@ func (w *window) scrollbackCard(c ui.C) {
 				w.commitScrollback()
 			}
 			if ui.Button(c.Part("more"), i18n.Shared(language, "desktop.settings.terminal.scrollbackMore")).Icon(icons.Plus).IconOnly().Ghost().Small().Disabled(value >= MaxScrollback).Clicked() {
-				w.setTerminalScrollback(value + scrollbackStep)
+				w.setTerminalScrollback(value+scrollbackStep, false)
 			}
 			if ui.Button(c.Part("default"), i18n.Shared(language, "desktop.settings.terminal.scrollbackDefault")).Ghost().Small().Disabled(value == DefaultScrollback).Clicked() {
-				w.setTerminalScrollback(DefaultScrollback)
+				w.setTerminalScrollback(DefaultScrollback, false)
 			}
 		})
 	})
@@ -243,18 +243,24 @@ func (w *window) scrollbackCard(c ui.C) {
 func (w *window) commitScrollback() {
 	w.scrollbackEditing = false
 	if lines, err := strconv.Atoi(strings.TrimSpace(w.scrollbackField.Text())); err == nil {
-		w.setTerminalScrollback(lines)
+		w.setTerminalScrollback(lines, false)
 	}
 }
 
 // setTerminalScrollback stores the clamped history limit and hands it to the settings owner.
-func (w *window) setTerminalScrollback(lines int) {
+// An explicit reset forces the callback even when the displayed value already is the default.
+func (w *window) setTerminalScrollback(lines int, force bool) {
 	if w.sess.finished.Load() {
 		return
 	}
 	lines = ClampScrollback(lines)
-	if lines == ClampScrollback(w.sess.values.TerminalScrollback) {
+	if !force && lines == ClampScrollback(w.sess.values.TerminalScrollback) {
 		return
+	}
+	if force {
+		// An explicit reset discards any unfinished field edit as well as the stored value.
+		w.scrollbackEditing = false
+		w.scrollbackField.SetText(strconv.Itoa(lines))
 	}
 	w.sess.values.TerminalScrollback = lines
 	if w.ctrl.opts.SetTerminalScrollback != nil {
