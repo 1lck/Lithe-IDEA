@@ -11,18 +11,17 @@ import (
 	"github.com/vivaui/viva/ui"
 )
 
-// keymapRecordID is the field that takes the keys of a chord being recorded.
-var keymapRecordID = gfx.Item(2)
-
 // keymapState is the Keymap page's filter and the chord being recorded. Only the window
 // thread reads or writes it.
 type keymapState struct {
 	query ui.Field
 	// recording is the action a chord is being recorded for; empty when none is.
 	recording string
-	// record is the field that has the keyboard while recording; it never keeps text.
-	record ui.Field
-	// focus asks the record field to take the keyboard in the next paint.
+	// input is how the recorder takes the keys pressed while it has the focus: Escape and
+	// the named keys, alone or with modifiers. A chord of a printable key reaches the
+	// window as a shortcut instead, and recordShortcut gives it to the recording.
+	input ui.Handlers
+	// focus asks the recorder to take the keyboard in the next paint.
 	focus bool
 	// message is why the last recorded chord was refused, under its action.
 	message, messageFor string
@@ -86,7 +85,7 @@ func (w *window) keymapPage(c ui.C) {
 
 // keymapMatches reports whether the filter finds action by its title, group or keys.
 func (w *window) keymapMatches(action shortcuts.Action, keys shortcuts.Overrides, query string) bool {
-	text := strings.ToLower(action.Title(w.text) + " " + action.Group.Title(w.text) + " " + keys.Label(action.ID) + " " + action.ID)
+	text := strings.ToLower(action.Title(w.text) + " " + action.Group.Title(w.text) + " " + keys.Label(action.ID) + " " + action.Gesture + " " + action.ID)
 	for _, word := range strings.Fields(query) {
 		if !strings.Contains(text, word) {
 			return false
@@ -95,8 +94,9 @@ func (w *window) keymapMatches(action shortcuts.Action, keys shortcuts.Overrides
 	return true
 }
 
-// keymapRow is one action: its title, a chip for each chord with a remove button, and the
-// add and reset buttons; while recording, the field that takes the next chord.
+// keymapRow is one action: its title, a chip for its fixed gesture if it has one, a chip for
+// each chord with a remove button, and the add and reset buttons; while recording, the box
+// that takes the next chord.
 func (w *window) keymapRow(c ui.C, action shortcuts.Action, keys shortcuts.Overrides) {
 	t := &w.text.Keymap
 	k := &w.keymap
@@ -112,8 +112,15 @@ func (w *window) keymapRow(c ui.C, action shortcuts.Action, keys shortcuts.Overr
 			if keys.Changed(action.ID) {
 				ui.Text(c, t.Modified).FontSize(11).Color(p.muted).Shrink(0)
 			}
-			if len(list) == 0 && k.recording != action.ID {
+			if len(list) == 0 && action.Gesture == "" && k.recording != action.ID {
 				ui.Text(c, t.None).FontSize(12).Color(p.muted).Shrink(0)
+			}
+			// The gesture is a chip like a chord's, without the remove button: the keymap does not
+			// bind it, so it cannot be removed or reset.
+			if action.Gesture != "" {
+				ui.Row(c.Part("gesture")).Shrink(0).Height(22).PadX(6).Items(ui.Center).Radius(4).Background(p.sidebar).Stroke(1, p.line).Children(func() {
+					ui.Text(c, action.Gesture).FontSize(12).Color(p.text)
+				})
 			}
 			for i, chord := range list {
 				ui.Row(c.KeyInt(i)).Shrink(0).Height(22).PadX(6).Gap(2).Items(ui.Center).Radius(4).Background(p.sidebar).Stroke(1, p.line).Children(func() {
@@ -126,11 +133,17 @@ func (w *window) keymapRow(c ui.C, action shortcuts.Action, keys shortcuts.Overr
 				})
 			}
 			if k.recording == action.ID {
-				w.keymapRecorder(c, action, list)
+				w.keymapRecorder(c)
 			} else if ui.Button(c.Part("add"), t.Add).Icon(icons.Plus).IconOnly().Ghost().Small().Clicked() {
 				w.beginRecording(action)
 			}
-			if ui.Button(c.Part("reset"), t.Reset).Ghost().Small().Disabled(!keys.Changed(action.ID)).Clicked() {
+			// Reset is a filled button while the action's keys differ from its defaults, and a
+			// gray outline that cannot be pressed while they do not.
+			reset := ui.Button(c.Part("reset"), t.Reset).Small()
+			if !keys.Changed(action.ID) {
+				reset = reset.Outline().Disabled(true)
+			}
+			if reset.Clicked() {
 				c.After(func() { w.setKeymap(w.sess.values.Keymap.Without(action.ID)) })
 			}
 		})
@@ -159,47 +172,75 @@ func (w *window) keymapRowMenu(c ui.C, row ui.Box, action shortcuts.Action, keys
 	})
 }
 
-// beginRecording shows the field that takes the next chord for action.
+// beginRecording shows the recorder that takes the next chord for action.
 func (w *window) beginRecording(action shortcuts.Action) {
 	k := &w.keymap
 	k.recording, k.focus, k.message = action.ID, true, ""
-	k.record.SetText("")
 }
 
-// keymapRecorder is the field that takes the next chord for action: Escape alone cancels,
-// a chord that would take plain typing or that another action holds is refused with the
-// reason, and any other chord is added to the action's keys.
-func (w *window) keymapRecorder(c ui.C, action shortcuts.Action, list []keymap.Chord) {
+// keymapRecorder is the box that takes the next chord for the action being recorded. It
+// is a control of its own, not a text field: the platform's text system keeps the
+// editing chords (Cmd+C, Cmd+Z) of a field, and gives a field none of the others.
+func (w *window) keymapRecorder(c ui.C) {
 	t := &w.text.Keymap
 	k := &w.keymap
-	if k.record.Text() != "" {
-		// Plain typing reaches the field as text; it never binds, so it is dropped.
-		k.record.SetText("")
+	p := &w.pal
+	if k.input.Key == nil {
+		k.input.Key = w.recorderKey
 	}
-	field := ui.TextFieldID(c, keymapRecordID, &k.record, t.Recording, t.RecordingHint).Width(180).Shrink(0)
-	field.OnKey(func(event gfx.KeyEvent) gfx.EventResult {
-		if event.Release {
-			return gfx.EventResult{}
+	ui.Stack(c.Part("record")).Width(180).Height(24).Shrink(0).Radius(5).Background(p.card).Stroke(1, p.accent).Children(func() {
+		ui.Row(c).Fill().PadX(8).Items(ui.Center).Children(func() {
+			ui.Text(c, t.RecordingHint).FontSize(12).Color(p.muted).Ellipsis()
+		})
+		recorder := ui.Control(c, t.Recording, &k.input).Fill()
+		if k.focus {
+			k.focus = false
+			recorder.AutoFocus()
 		}
-		if event.Key == gfx.KeyEscape && event.Modifiers == 0 {
-			k.recording, k.message = "", ""
-			return gfx.EventResult{Handled: true, Repaint: true}
-		}
-		chord, ok := keymap.FromEvent(event)
-		if !ok {
-			// A modifier on its own: wait for the key it goes with.
-			return gfx.EventResult{Handled: true}
-		}
-		w.recordChord(action, list, chord)
-		return gfx.EventResult{Handled: true, Repaint: true}
 	})
-	if k.focus {
-		k.focus = false
-		field.AutoFocus()
-	}
 	if ui.Button(c.Part("cancel"), t.Cancel).Ghost().Small().Clicked() {
 		k.recording, k.message = "", ""
 	}
+}
+
+// recorderKey is a key pressed while the recorder has the focus: Escape alone stops
+// recording, a modifier alone waits for the key it goes with, and any other key is the
+// chord recorded.
+func (w *window) recorderKey(event gfx.KeyEvent) gfx.EventResult {
+	k := &w.keymap
+	if k.recording == "" || event.Release {
+		return gfx.EventResult{}
+	}
+	if event.Key == gfx.KeyEscape && event.Modifiers == 0 {
+		k.recording, k.message = "", ""
+		return gfx.EventResult{Handled: true, Repaint: true}
+	}
+	return w.recordEvent(event)
+}
+
+// recordShortcut is the window's shortcut handler: while the Keymap page records, the
+// chord pressed is the one recorded, whatever has the focus.
+func (w *window) recordShortcut(event gfx.KeyEvent) gfx.EventResult {
+	if w.keymap.recording == "" || event.Release {
+		return gfx.EventResult{}
+	}
+	return w.recordEvent(event)
+}
+
+// recordEvent records the chord event presses for the action being recorded.
+func (w *window) recordEvent(event gfx.KeyEvent) gfx.EventResult {
+	chord, ok := keymap.FromEvent(event)
+	if !ok {
+		// A modifier on its own: wait for the key it goes with.
+		return gfx.EventResult{Handled: true}
+	}
+	for _, action := range shortcuts.All() {
+		if action.ID == w.keymap.recording {
+			w.recordChord(action, w.sess.values.Keymap.Effective(action), chord)
+			break
+		}
+	}
+	return gfx.EventResult{Handled: true, Repaint: true}
 }
 
 // recordChord adds chord to action's keys, or says why it cannot.

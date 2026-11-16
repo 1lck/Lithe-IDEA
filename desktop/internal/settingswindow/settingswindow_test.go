@@ -312,33 +312,46 @@ func TestBreadcrumb(t *testing.T) {
 
 func TestToggleGroup(t *testing.T) {
 	open := initialOpen()
-	toggleGroup(&open, pageAppearance, false)
+	toggleGroup(&open, pageAppearance, true, false)
 	if open[pageAppearance] {
 		t.Fatal("toggling an expanded group did not collapse it")
 	}
-	toggleGroup(&open, pageAppearance, false)
+	toggleGroup(&open, pageAppearance, true, false)
 	if !open[pageAppearance] {
 		t.Fatal("toggling a collapsed group did not expand it")
 	}
-	toggleGroup(&open, pageTools, false)
+	toggleGroup(&open, pageTools, true, false)
 	if !open[pageTools] {
 		t.Fatal("toggling the collapsed Tools group did not expand it")
 	}
-	toggleGroup(&open, pageTerminal, false)
+	toggleGroup(&open, pageTerminal, false, false)
 	if open[pageTerminal] {
 		t.Fatal("toggling the Terminal page, which is no group, changed the open groups")
+	}
+	// Plugins' pages make Build, Execution, Deployment a group, which folds like the others.
+	toggleGroup(&open, pageBuild, true, false)
+	if !open[pageBuild] {
+		t.Fatal("toggling Build, Execution, Deployment with plugins' pages under it did not expand it")
 	}
 }
 
 func TestToggleGroupDoesNothingWhileSearchingOrOffAGroup(t *testing.T) {
 	open := initialOpen()
 	before := open
-	toggleGroup(&open, pageAppearance, true)
-	toggleGroup(&open, pageGeneral, false)
-	toggleGroup(&open, pagePlugins, false)
-	toggleGroup(&open, noPage, false)
+	toggleGroup(&open, pageAppearance, true, true)
+	toggleGroup(&open, pageGeneral, false, false)
+	toggleGroup(&open, pagePlugins, false, false)
+	toggleGroup(&open, noPage, true, false)
 	if open != before {
 		t.Fatalf("open = %v, want it unchanged %v", open, before)
+	}
+}
+
+func TestContributedPagesGoUnderBuildOrLanguages(t *testing.T) {
+	for kind, want := range map[string]pageID{"buildSystem": pageBuild, "compiler": pageBuild, "languageServer": pageLanguages, "": pageLanguages} {
+		if got := contributedParent(kind); got != want {
+			t.Errorf("contributedParent(%q) = %d, want %d", kind, got, want)
+		}
 	}
 }
 
@@ -564,6 +577,9 @@ func TestDecideKey(t *testing.T) {
 		{"escape in an empty search field", keyEscape, keyContext{searching: true, queryEmpty: true}, actionCancel},
 		{"escape with a list open", keyEscape, keyContext{selectOpen: true}, actionNone},
 		{"escape with a list open over the search text", keyEscape, keyContext{selectOpen: true, searching: true}, actionNone},
+		{"enter while recording a shortcut", keyEnter, keyContext{recording: true}, actionNone},
+		{"escape while recording a shortcut", keyEscape, keyContext{recording: true}, actionEndRecording},
+		{"escape while recording over the search text", keyEscape, keyContext{recording: true, searching: true}, actionEndRecording},
 		{"another key", keyOther, keyContext{}, actionNone},
 		{"another key in the search field", keyOther, keyContext{searching: true}, actionNone},
 	}

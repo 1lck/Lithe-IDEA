@@ -1592,6 +1592,7 @@
     "desktop.toolchains.automatic": "Automatic ({value})",
     "desktop.toolchains.chooseHelp": "Selecting a row only changes the draft. Save writes the choice to this project's .lithe/toolchains/local.json; Cancel leaves the file unchanged.",
     "desktop.toolchains.conflict": "{tool} is defined by {plugins}; disable all but one of those plugins.",
+    "desktop.toolchains.custom": "Custom…",
     "desktop.toolchains.description": "Tools declared by enabled plugins. The effective value and its source come from the shared Core resolver; nothing is written until Save.",
     "desktop.toolchains.directory": "Installation directory",
     "desktop.toolchains.directoryHelp": "Choose the installation root containing the tool executable, such as a JDK directory rather than its bin folder. Checking the version only updates the draft; Save writes the project selection.",

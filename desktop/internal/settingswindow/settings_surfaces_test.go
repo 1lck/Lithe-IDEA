@@ -64,19 +64,37 @@ func TestSettingsDynamicPagesShareDraftsFilterActionsAndRefreshCleanForms(t *tes
 	}
 	wait(func() bool { return len(w.dynamic.pages) == 1 })
 	key := w.dynamic.pages[0].Key
-	found := false
-	for _, row := range w.rows {
-		if row.dynamic == key {
-			found = true
-			if row.page != pageLanguages || row.level != 1 {
-				t.Fatalf("dynamic row=%+v", row)
+	findRow := func(dynamic string) (row, bool) {
+		for _, r := range w.rows {
+			if r.page == pageLanguages && r.dynamic == dynamic {
+				return r, true
+			}
+		}
+		return row{}, false
+	}
+	// The plugin's page makes Languages & Frameworks a group, collapsed until it is opened.
+	wait(func() bool { r, ok := findRow(""); return ok && r.group })
+	if languages, _ := findRow(""); languages.expanded {
+		t.Fatalf("Languages & Frameworks starts expanded: %+v", languages)
+	}
+	if r, ok := findRow(key); ok {
+		t.Fatalf("collapsed Languages & Frameworks lists the plugin's page: %+v", r)
+	}
+	// The group keeps a page of its own, which its row opens and shows selected.
+	w.selectSettingsPage(pageLanguages, "")
+	for i, r := range w.rows {
+		if r.page == pageLanguages && r.dynamic == "" {
+			if node := w.navNode(i); !node.Branch || !node.Selected {
+				t.Fatalf("Languages & Frameworks row with its page open = %+v, want a selected branch", node)
 			}
 		}
 	}
-	if !found {
-		t.Fatal("Core page absent from sidebar")
-	}
+	// Opening the plugin's page expands the group it is in, so its row is on the screen.
 	w.selectSettingsPage(pageLanguages, key)
+	wait(func() bool { _, ok := findRow(key); return ok })
+	if r, _ := findRow(key); r.level != 1 {
+		t.Fatalf("dynamic row=%+v", r)
+	}
 	wait(func() bool { return w.pluginSettings.loaded })
 	form := w.pluginSettings
 	actions, rows := 0, 0
