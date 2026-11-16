@@ -27,7 +27,10 @@ native_path() {
     fi
 }
 
-# Lithe-core-rust main at 5a8d786, #67 squash-merged: toolchains.candidates takes the optional
+# Core at bad1694 batches tracked-directory Git queries during lazy project-tree reads.
+# It preserves bounded pathspecs, per-directory fallback, nested repositories and cancellation,
+# avoiding one Git process for every ignored sibling without changing the desktop I/O budget.
+# Based on Lithe-core-rust main at 5a8d786, #67 squash-merged: toolchains.candidates takes the optional
 # commandHomes, lists the commands found on the PATH as shell rows, and offers each shell home that
 # checks out as an installations entry with provider host:shell, once per canonical home (#2032).
 # It is on top of #68, squash-merged into main: Core no longer
@@ -150,7 +153,7 @@ PINNED_CORE_REPOSITORY="https://github.com/Lithe-IDEA/Lithe-core-rust.git"
 # the contract, plugin guides, reference and SDKs live only in shared/plugins; on top of #16 (reported Git queries folded in the console),
 # #15 (git.write cherryPick, revert and reset fields), #14 (word-level changed ranges of diff
 # rows), #13, #8, #7, #6 and #4.
-PINNED_CORE_REVISION="5a8d786e9b44a5a8c7a977a8b376264fa941dcd9"
+PINNED_CORE_REVISION="bad169425069788b0b81c6823f87c393b3731376"
 PROFILE="debug"
 while [[ $# -gt 0 ]]; do
     case "$1" in
