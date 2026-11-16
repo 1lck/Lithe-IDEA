@@ -16,6 +16,7 @@ const (
 	// pluginSemanticDocumentSymbols and pluginSemanticTokens are the operations of the
 	// outline and the semantic colors; their methods are what Core reports on completion.
 	pluginSemanticDocumentSymbols = "documentSymbols"
+	pluginSemanticCopyReference = "copyReferenceSymbols"
 	pluginSemanticTokens          = "semanticTokens"
 	pluginMethodDocumentSymbols   = "textDocument/documentSymbol"
 	pluginMethodSemanticTokens    = "textDocument/semanticTokens/full"
@@ -56,6 +57,9 @@ func (a *App) submitEditorRequest(kind semanticKind, p *project, d *document, se
 	}
 	a.semantics.pending = append(a.semantics.pending, pending)
 	request.Operation, request.URI = string(kind), d.sync.uri
+	if kind == pluginSemanticCopyReference {
+		request.Operation = pluginSemanticDocumentSymbols
+	}
 	a.background(p, semanticStartTimeout, func(ctx context.Context) func(*App) {
 		operation, err := a.plugins.RequestLanguageSession(ctx, server.session, request)
 		return func(a *App) { a.semanticRequestStarted(pending, operation, err, ctx.Err()) }
@@ -74,6 +78,8 @@ func (a *App) applyEditorEvent(pending *semanticPending, event core.BackendEvent
 	switch pending.kind {
 	case pluginSemanticDocumentSymbols:
 		a.applyOutline(pending, event, failed)
+	case pluginSemanticCopyReference:
+		a.applyReferenceSymbols(pending, event, failed)
 	case pluginSemanticTokens:
 		a.applySemanticTokens(pending, event, failed)
 	case pluginSemanticFoldingRanges:

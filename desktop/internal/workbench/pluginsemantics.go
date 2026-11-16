@@ -110,7 +110,7 @@ func (k semanticKind) method() string {
 		return pluginMethodRangeFormatting
 	case pluginSemanticRename:
 		return pluginMethodRename
-	case pluginSemanticDocumentSymbols:
+	case pluginSemanticDocumentSymbols, pluginSemanticCopyReference:
 		return pluginMethodDocumentSymbols
 	case pluginSemanticTokens:
 		return pluginMethodSemanticTokens
@@ -882,6 +882,9 @@ func (a *App) semanticRequestStarted(pending *semanticPending, operation string,
 	if err != nil {
 		a.removePending(pending)
 		a.settleMergeSide(pending.join, true, nil, false)
+		if pending.kind == pluginSemanticCopyReference {
+			a.applyReferenceSymbols(pending, core.BackendEvent{}, true)
+		}
 		if errors.Is(err, context.Canceled) || errors.Is(ctxErr, context.Canceled) {
 			return
 		}
