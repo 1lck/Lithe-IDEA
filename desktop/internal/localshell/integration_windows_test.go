@@ -15,7 +15,9 @@ import (
 
 // PowerShell and cmd.exe mark their prompt under the session's token when they
 // start and after every command, a folder change included: the folder's name is
-// part of the prompt the marks wrap.
+// part of the prompt the marks wrap. PowerShell, through PSReadLine, also marks
+// the command's start before it runs, which is what turns on the features that
+// need it (#2008); cmd.exe never does.
 func TestWindowsShellsMarkTheirPromptsUnderTheToken(t *testing.T) {
 	for _, program := range []string{"cmd.exe", "powershell.exe", "pwsh.exe"} {
 		t.Run(program, func(t *testing.T) {
@@ -31,8 +33,12 @@ func TestWindowsShellsMarkTheirPromptsUnderTheToken(t *testing.T) {
 			config := Config{Shell: program, Dir: home, PromptToken: "test-token"}
 			if strings.EqualFold(filepath.Base(program), "powershell.exe") {
 				// The agent host injects PowerShell 7 modules into PSModulePath.
-				// Windows PowerShell 5.1 must use its own signed inbox modules.
-				config.Env = []string{"PSModulePath=" + filepath.Join(os.Getenv("SystemRoot"), "System32", "WindowsPowerShell", "v1.0", "Modules")}
+				// Windows PowerShell 5.1 must use its own signed inbox modules: the
+				// system ones, and the PSReadLine it ships under Program Files.
+				config.Env = []string{"PSModulePath=" + strings.Join([]string{
+					filepath.Join(os.Getenv("SystemRoot"), "System32", "WindowsPowerShell", "v1.0", "Modules"),
+					filepath.Join(os.Getenv("ProgramFiles"), "WindowsPowerShell", "Modules"),
+				}, string(os.PathListSeparator))}
 			}
 			shell, wakes := startWindows(t, config)
 			screen := term.New(120, 30, 0)
@@ -58,7 +64,7 @@ func TestWindowsShellsMarkTheirPromptsUnderTheToken(t *testing.T) {
 					select {
 					case <-wakes:
 					case <-deadline.C:
-						t.Fatalf("waiting for %s (A=%d B=%d); screen: %q", what, marks("A"), marks("B"), screen.Text())
+						t.Fatalf("waiting for %s (A=%d B=%d C=%d); screen: %q", what, marks("A"), marks("B"), marks("C"), screen.Text())
 					}
 				}
 			}
@@ -72,6 +78,20 @@ func TestWindowsShellsMarkTheirPromptsUnderTheToken(t *testing.T) {
 				t.Fatal("shell refused input")
 			}
 			wait("the prompt after the folder change", promptDeadline, func() bool { return marks("A") > started && marks("B") > ready })
+			text := output.String()
+			if strings.EqualFold(filepath.Base(program), "cmd.exe") {
+				if marks("C") != 0 || screen.CommandReporting() {
+					t.Fatalf("cmd.exe marked %d command starts", marks("C"))
+				}
+				return
+			}
+			// The start of the command comes before the prompt drawn after it.
+			if start, prompt := strings.LastIndex(text, "\x1b]133;C;motty=test-token"), strings.LastIndex(text, "\x1b]133;A;motty=test-token"); start < 0 || start > prompt {
+				t.Fatalf("the command's start is at %d, the prompt after it at %d", start, prompt)
+			}
+			if !screen.CommandReporting() || !screen.AtPrompt() {
+				t.Fatalf("the screen does not trust the prompt: reporting %v, at prompt %v", screen.CommandReporting(), screen.AtPrompt())
+			}
 		})
 	}
 }
@@ -96,6 +116,45 @@ func TestPowerShellIntegrationKeepsTheBanner(t *testing.T) {
 		if len(args) != 3 || strings.Join(args[:2], " ") != "-NoExit -EncodedCommand" {
 			t.Fatalf("%s arguments = %q, want -NoExit -EncodedCommand and the script, without -NoLogo", program, args)
 		}
+	}
+}
+
+// PSReadLine's reader is wrapped to mark the command's start: the line it returns
+// is unchanged, it still sees whether the last command failed (it colors its error
+// prompt by it), and without PSReadLine no reader is defined.
+func TestPowerShellReadLineIntegrationMarksTheCommandStart(t *testing.T) {
+	for _, program := range []string{"powershell.exe", "pwsh.exe"} {
+		t.Run(program, func(t *testing.T) {
+			program, err := exec.LookPath(program)
+			if err != nil {
+				t.Skip("shell not installed")
+			}
+			integration := strings.ReplaceAll(powerShellPromptIntegration, "__MOTTY_TOKEN__", "test-token")
+			script := `function global:PSConsoleHostReadLine {
+    if ($?) { 'line after success' } else { 'line after failure' }
+}
+` + integration + `
+Write-Error 'original failure' -ErrorAction Ignore
+$line = PSConsoleHostReadLine
+if ($line -ne 'line after failure') { throw "failure status lost: $line" }
+Write-Output 'success' | Out-Null
+$line = PSConsoleHostReadLine
+if ($line -ne 'line after success' -or $line -isnot [string]) { throw "line changed: $line" }
+`
+			output, err := exec.Command(program, "-NoLogo", "-NoProfile", "-NonInteractive", "-EncodedCommand", encodePowerShellCommand(script)).CombinedOutput()
+			if err != nil {
+				t.Fatalf("reader status: %v: %s", err, output)
+			}
+			if n := strings.Count(string(output), "\x1b]133;C;motty=test-token\a"); n != 2 {
+				t.Fatalf("marked %d command starts for 2 lines: %q", n, output)
+			}
+			bare := integration + `
+if (Test-Path Function:\PSConsoleHostReadLine) { throw 'a reader was defined without PSReadLine' }
+`
+			if output, err := exec.Command(program, "-NoLogo", "-NoProfile", "-NonInteractive", "-EncodedCommand", encodePowerShellCommand(bare)).CombinedOutput(); err != nil {
+				t.Fatalf("without PSReadLine: %v: %s", err, output)
+			}
+		})
 	}
 }
 
