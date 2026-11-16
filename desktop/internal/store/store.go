@@ -36,6 +36,8 @@ type Store struct {
 	kept map[string]*keptObject
 	// unread is, per file, why its last load could not read a stored value it kept (Unread).
 	unread map[string]error
+	// failedLoad blocks Save after a file could not be read or decoded.
+	failedLoad map[string]error
 }
 
 // Open returns the store in the user's configuration directory. The directory is created
@@ -68,17 +70,19 @@ func (store *Store) Dir() string {
 func (store *Store) Load(name string, value any) (found bool, err error) {
 	data, err := os.ReadFile(filepath.Join(store.dir, name))
 	if errors.Is(err, fs.ErrNotExist) {
-		store.keep(name, nil, nil)
+		store.keep(name, nil, nil, nil)
 		return false, nil
 	}
 	if err != nil {
+		store.keep(name, nil, nil, fmt.Errorf("read %s: %w", name, err))
 		return false, err
 	}
 	decodeErr := json.Unmarshal(data, value)
 	kept := walk(data, reflect.TypeOf(value))
 	if decodeErr != nil && (kept == nil || !foreignAnywhere(kept)) {
-		store.keep(name, nil, nil)
-		return true, fmt.Errorf("decode %s: %w", name, decodeErr)
+		loadErr := fmt.Errorf("decode %s: %w", name, decodeErr)
+		store.keep(name, nil, nil, loadErr)
+		return true, loadErr
 	}
 	var unread error
 	if decodeErr != nil {
@@ -94,7 +98,7 @@ func (store *Store) Load(name string, value any) (found bool, err error) {
 			kept.noteLoaded(encoded)
 		}
 	}
-	store.keep(name, kept, unread)
+	store.keep(name, kept, unread, nil)
 	return true, nil
 }
 
@@ -112,9 +116,17 @@ func foreignAnywhere(object *keptObject) bool {
 	return false
 }
 
-func (store *Store) keep(name string, kept *keptObject, unread error) {
+func (store *Store) keep(name string, kept *keptObject, unread, failed error) {
 	store.mu.Lock()
 	defer store.mu.Unlock()
+	if failed == nil {
+		delete(store.failedLoad, name)
+	} else {
+		if store.failedLoad == nil {
+			store.failedLoad = map[string]error{}
+		}
+		store.failedLoad[name] = failed
+	}
 	if unread == nil {
 		delete(store.unread, name)
 	} else {
@@ -158,11 +170,16 @@ func (store *Store) Unknown(name string) []string {
 }
 
 // Save encodes value and replaces the file name with it atomically, with what the last load of
-// name could not read written back beside it.
+// name could not read written back beside it. A failed Load protects the original until a
+// successful Load, a missing-file Load or an explicit Remove.
 func (store *Store) Save(name string, value any) error {
 	store.mu.Lock()
 	kept := store.kept[name]
+	failed := store.failedLoad[name]
 	store.mu.Unlock()
+	if failed != nil {
+		return fmt.Errorf("refusing to overwrite %s after failed load: %w", name, failed)
+	}
 	if kept == nil {
 		data, err := json.MarshalIndent(value, "", "  ")
 		if err != nil {
@@ -193,10 +210,10 @@ func (store *Store) Path(name string) string {
 
 // Remove deletes the file name. A file that does not exist is already removed.
 func (store *Store) Remove(name string) error {
-	store.keep(name, nil, nil)
 	if err := os.Remove(filepath.Join(store.dir, name)); err != nil && !errors.Is(err, fs.ErrNotExist) {
 		return err
 	}
+	store.keep(name, nil, nil, nil)
 	return nil
 }
 

@@ -1,6 +1,7 @@
 package store
 
 import (
+	"bytes"
 	"os"
 	"path/filepath"
 	"testing"
@@ -91,5 +92,79 @@ func TestWriteFileReplacesBytesAndRemoveDeletes(t *testing.T) {
 	}
 	if err := store.Remove("image.img"); err != nil {
 		t.Fatalf("Remove of a missing file = %v, want nil", err)
+	}
+}
+
+
+func TestFailedLoadPreservesOriginalSettingsAcrossSave(t *testing.T) {
+	dir := t.TempDir()
+	filename := filepath.Join(dir, "settings.json")
+	original := []byte("{\"name\":\"keep me\",\"count\":12,}")
+	if err := os.WriteFile(filename, original, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	store := At(dir)
+	value := sample{Name: "default"}
+	if found, err := store.Load("settings.json", &value); !found || err == nil {
+		t.Fatalf("Load = %v, %v; want existing but undecodable", found, err)
+	}
+	if err := store.Save("settings.json", sample{Name: "changed"}); err == nil {
+		t.Fatal("Save overwrote a file that Load could not decode")
+	}
+	after, err := os.ReadFile(filename)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(after, original) {
+		t.Fatalf("failed Load lost original settings: %q", after)
+	}
+	if err := store.Save("recent-projects.json", []string{"a"}); err != nil {
+		t.Fatalf("Save of an unrelated file: %v", err)
+	}
+	if err := os.WriteFile(filename, []byte("{\"name\":\"restored\",\"count\":12}"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if found, err := store.Load("settings.json", &value); !found || err != nil {
+		t.Fatalf("Load after repair = %v, %v", found, err)
+	}
+	if value.Name != "restored" || value.Count != 12 {
+		t.Fatalf("Load after repair = %+v", value)
+	}
+	if err := store.Save("settings.json", sample{Name: "updated", Count: 12}); err != nil {
+		t.Fatalf("Save after repair: %v", err)
+	}
+}
+
+func TestFailedLoadProtectionClearsWhenOriginalIsRemoved(t *testing.T) {
+	dir := t.TempDir()
+	filename := filepath.Join(dir, "settings.json")
+	if err := os.WriteFile(filename, []byte("{"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	store := At(dir)
+	var value sample
+	if _, err := store.Load("settings.json", &value); err == nil {
+		t.Fatal("want a failed Load")
+	}
+	if err := store.Remove("settings.json"); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.Save("settings.json", sample{Name: "new"}); err != nil {
+		t.Fatalf("Save after explicit removal: %v", err)
+	}
+	if err := os.WriteFile(filename, []byte("{"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.Load("settings.json", &value); err == nil {
+		t.Fatal("want a failed Load again")
+	}
+	if err := os.Remove(filename); err != nil {
+		t.Fatal(err)
+	}
+	if found, err := store.Load("settings.json", &value); found || err != nil {
+		t.Fatalf("Load of missing file = %v, %v", found, err)
+	}
+	if err := store.Save("settings.json", sample{Name: "recreated"}); err != nil {
+		t.Fatalf("Save after external removal: %v", err)
 	}
 }
