@@ -72,14 +72,24 @@ Continue the release only when one of these holds:
 Every release uses a `MAJOR.MINOR.PATCH` version. This covers stable app
 releases, `desktop-v*` desktop prereleases, and plugins, including the
 community plugins in the Lithe-IDEA organization. Compare the release with the
-previous published version of the same artifact, stable or prerelease. Then
-increment the part that matches the most significant change in the release:
+previous published version of the same artifact, stable or prerelease.
 
-| Part | Increment when the release contains | Compatibility | From 1.2.3 |
+Release in small steps. A backward-compatible release increments PATCH, even
+when it adds features:
+
+| Part | Increment when | Compatibility | From 1.2.3 |
 | --- | --- | --- | --- |
-| PATCH | Only backward-compatible bug fixes and small improvements | Fully compatible; users upgrade without doing anything | 1.2.4 |
-| MINOR | New features, with every existing feature unchanged | Backward compatible; nothing users rely on changes | 1.3.0 |
-| MAJOR | At least one breaking change | Not compatible with the previous version; users may need to change something | 2.0.0 |
+| PATCH | The release is backward compatible: bug fixes, improvements, and new features | Fully compatible; users upgrade without doing anything | 1.2.4 |
+| MINOR | The user explicitly asks for a MINOR release for this version | Backward compatible; nothing users rely on changes | 1.3.0 |
+| MAJOR | The release contains at least one breaking change | Not compatible with the previous version; users may need to change something | 2.0.0 |
+
+- Do not increment MINOR because a release contains new features. List the
+  features in the release notes instead.
+- Increment MINOR only when the user asks for it for the release being
+  prepared. A request applies to that one release and does not carry over to
+  later releases. Do not propose a MINOR increment yourself.
+- PATCH keeps counting past 9: 0.8.9 is followed by 0.8.10, not 0.9.0. The
+  desktop update check and the Lithe Store compare each part as a number.
 
 A change is breaking when a user of the previous version cannot upgrade
 without doing something, or loses something they relied on.
