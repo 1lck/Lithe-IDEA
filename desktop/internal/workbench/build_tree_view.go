@@ -343,12 +343,13 @@ func (a *App) buildGroupRow(row ui.ListRow, p *project, instance *buildInstance,
 	})
 }
 
-// buildFolderIcons are the icons of the rows that head other nodes, by the kind of node.
-var buildFolderIcons = map[string]*gfx.Icon{
-	core.BuildTreeFolder:       &icons.ListTree,
-	core.BuildTreeTargets:      &icons.CircleDot,
-	core.BuildTreeDependencies: &icons.Archive,
-	core.BuildTreeTests:        &icons.CircleCheck,
+// buildFolderIcons are the icons of the rows that head other nodes, by the kind of node: the
+// IntelliJ New UI icons of the same folders in IntelliJ's Maven and Gradle tool windows.
+var buildFolderIcons = map[string]fileicons.BuildNode{
+	core.BuildTreeFolder:       fileicons.BuildTaskFolder,
+	core.BuildTreeTargets:      fileicons.BuildTargets,
+	core.BuildTreeDependencies: fileicons.BuildDependencies,
+	core.BuildTreeTests:        fileicons.BuildTests,
 }
 
 // buildFolderRow declares a row that heads other nodes: a task folder (a Maven project's
@@ -363,8 +364,8 @@ func (a *App) buildFolderRow(row ui.ListRow, p *project, instance *buildInstance
 		element = element.Tooltip(spec.tooltip)
 	}
 	toggled := a.buildArrow(c, spec.label, spec.branch && !spec.fixed, spec.open)
-	if icon := buildFolderIcons[node.Kind]; icon != nil {
-		ui.Icon(c, *icon).Size(14, 14).Shrink(0).Color(a.colors.Subtle)
+	if icon, ok := buildFolderIcons[node.Kind]; ok {
+		ui.Icon(c, fileicons.ForBuildNode(icon, a.colors.Dark)).Size(treelist.Icon, treelist.Icon).Shrink(0)
 	}
 	ui.Text(c, spec.label).FontSize(treeFontSize).Color(treelist.Text(a.colors.Dark)).Ellipsis().Shrink(1).MinWidth(0)
 	if spec.detail != "" {
@@ -432,10 +433,10 @@ func (a *App) buildNoteRow(row ui.ListRow, p *project, instance *buildInstance, 
 }
 
 // buildItemIcons are the icons of the rows a user chooses or runs that have nothing to run.
-var buildItemIcons = map[buildRowKind]*gfx.Icon{
-	buildRowProject: &icons.Folder,
-	buildRowTarget:  &icons.CircleDot,
-	buildRowTask:    &icons.SquareTerminal,
+var buildItemIcons = map[buildRowKind]fileicons.BuildNode{
+	buildRowProject: fileicons.BuildProject,
+	buildRowTarget:  fileicons.BuildTarget,
+	buildRowTask:    fileicons.BuildTask,
 }
 
 // buildDetailShrink is how much faster than its name a row's detail gives way when the row is
@@ -450,7 +451,7 @@ const buildDetailShrink = 1000
 func (a *App) buildRunMark(c ui.C, label string, disabled bool) bool {
 	k := c.Part("run")
 	// As wide as the icons of the rows beside it, so the names line up.
-	slot := ui.Row(k).Size(14, treelist.Icon).Shrink(0).Center()
+	slot := ui.Row(k).Size(treelist.Icon, treelist.Icon).Shrink(0).Center()
 	if disabled {
 		slot.Children(func() {
 			ui.Icon(k, icons.Play).Size(14, 14).Color(a.colors.Subtle).Opacity(0.5)
@@ -533,8 +534,8 @@ func (a *App) buildItemRow(row ui.ListRow, p *project, instance *buildInstance, 
 				a.showBuildConsole(p)
 			})
 		}
-	} else if icon := buildItemIcons[spec.kind]; icon != nil {
-		ui.Icon(c, *icon).Size(14, 14).Shrink(0).Color(a.colors.Subtle)
+	} else if icon, ok := buildItemIcons[spec.kind]; ok {
+		ui.Icon(c, fileicons.ForBuildNode(icon, a.colors.Dark)).Size(treelist.Icon, treelist.Icon).Shrink(0)
 	}
 	ui.Text(c, spec.label).FontSize(treeFontSize).Color(treelist.Text(a.colors.Dark)).Ellipsis().Shrink(1).MinWidth(0)
 	if spec.detail != "" {

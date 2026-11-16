@@ -11,8 +11,8 @@ import (
 	"time"
 
 	"github.com/1lck/Lithe-IDEA/desktop/internal/core"
+	"github.com/1lck/Lithe-IDEA/desktop/internal/fileicons"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/i18n"
-	"github.com/1lck/Lithe-IDEA/desktop/internal/icons"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/treelist"
 	"github.com/vivaui/viva/ui"
 )
@@ -328,7 +328,7 @@ func (a *App) buildDependencyRow(row ui.ListRow, p *project, instance *buildInst
 	deps := a.dependenciesOf(p, instance, spec.project)
 	element := a.buildTreeRowElement(row, spec)
 	toggled := a.buildArrow(c, spec.label, !spec.leaf, deps.open[spec.path])
-	ui.Icon(c, icons.Archive).Size(14, 14).Shrink(0).Color(a.colors.Subtle)
+	ui.Icon(c, fileicons.ForBuildNode(fileicons.BuildDependency, a.colors.Dark)).Size(treelist.Icon, treelist.Icon).Shrink(0)
 	ui.Text(c, spec.label).FontSize(treeFontSize).Color(treelist.Text(a.colors.Dark)).Ellipsis().Shrink(1).MinWidth(0)
 	if spec.detail != "" {
 		ui.Text(c, spec.detail).FontSize(treeFontSize - 1).Color(a.colors.Subtle).Shrink(0)
