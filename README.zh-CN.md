@@ -7,6 +7,7 @@
 
   <p>
     <a href="./README.md"><strong>English</strong></a> ·
+    <a href="#performance-benchmarks">性能实测</a> ·
     <a href="#核心功能">核心功能</a> ·
     <a href="#产品截图">产品截图</a> ·
     <a href="#下载与安装">下载</a> ·
@@ -32,27 +33,6 @@
   </p>
 </div>
 
-https://github.com/user-attachments/assets/17e2325b-afed-4bbb-9926-a962f777269b
-
-## 欢迎加入群聊
-
-欢迎加入 Lithe 社区，分享使用体验、交流问题，并获取项目最新动态。
-
-<div align="center">
-<table>
-  <tr>
-    <th>QQ群</th>
-    <th>微信群</th>
-  </tr>
-  <tr>
-    <td align="center"><a href="https://qm.qq.com/cgi-bin/qm/qr?k=&amp;group_code=163027877"><img src="./docs/assets/contact/qq-group-qr.png" width="280" alt="Lithe QQ 群二维码"></a></td>
-    <td align="center"><a href="https://gcnctzuuwe9u.feishu.cn/wiki/HJFbwZ0hZirAPnkWF3xcPWkCnid?from=from_copylink"><img src="./docs/assets/contact/wechat-group-qr.png" width="280" alt="Lithe 微信群二维码"></a></td>
-  </tr>
-</table>
-</div>
-
-如果无法扫描微信群二维码，[点击这里通过飞书加入群聊](https://gcnctzuuwe9u.feishu.cn/wiki/HJFbwZ0hZirAPnkWF3xcPWkCnid?from=from_copylink)。
-
 ## 为什么做 Lithe
 
 AI 编程工具可以一次修改许多文件。审查这些修改时，开发者仍然需要理解项目、跳转符号、运行和调试代码，并检查每一处 Diff。Lithe 把这些工作流放进同一个工作台，再通过插件接入项目需要的工具。
@@ -67,7 +47,79 @@ Lithe 是一款以低资源占用为目标、通过插件扩展的通用 IDE。�
 
 > **AI 负责编写代码，Lithe 帮你理解项目、运行程序并审查修改。**
 
-## macOS 提示“无法打开 Lithe.app”
+<a id="performance-benchmarks"></a>
+
+## 性能实测
+
+**关键数据：**启动到空闲 **0.97 秒**、稳定内存 **171 MB**（Lithe 0.7.0 启动测试）；跳转定义画面稳定 **78 毫秒**、查找引用画面稳定 **94 毫秒**（另一组交互测试）。
+
+### 启动与资源占用
+
+| 编辑器（测试版本） | 项目窗口出现 | 启动到空闲 | 稳定内存 | 峰值内存 |
+| --- | ---: | ---: | ---: | ---: |
+| **Lithe 0.7.0** | **0.67 s** | **0.97 s** | **171 MB** | **246 MB** |
+| GoLand 2026.2.4 | 2.27 s | 9.77 s | 2658 MB | 2954 MB |
+| VS Code 1.146.0 | 1.27 s | 4.58 s | 697 MB | 1383 MB |
+| Zed 1.28.1 | 0.51 s | 1.43 s | 188 MB | 274 MB |
+
+<details>
+<summary>展开其他资源指标：空闲 CPU、累计 CPU 时间、进程与线程</summary>
+
+| 编辑器 | 空闲 CPU | 累计 CPU 时间 | 进程 / 线程 |
+| --- | ---: | ---: | ---: |
+| **Lithe** | **0.01%** | **1.9 s** | **4 / 31** |
+| GoLand | 7.11% | 56.4 s | 9 / 259 |
+| VS Code | 0.86% | 10.1 s | 12 / 232 |
+| Zed | 0.58% | 2.3 s | 3 / 30 |
+
+</details>
+
+### 交互延迟
+
+测试项目为 **Lithe-IDEA 仓库**，操作文件为 `app.go`；**每项测量 5 轮，取中位数**。两段时间分别表示**首次响应 / 画面稳定**。
+
+| 项目 | Lithe | Zed | GoLand |
+| --- | ---: | ---: | ---: |
+| 打开项目到就绪 | 8.31 s | 6.59 s | 26.0 s |
+| 跳转定义（首次响应 / 画面稳定） | **61 / 78 ms** | 62 / 149 ms | 79 / 165 ms |
+| 悬停 | 552 ms | **382 ms** | 569 ms |
+| 悬停，扣除编辑器自带等待 | **52 ms**（等 500 ms） | 82 ms（等 300 ms） | 69 ms（等约 500 ms） |
+| 查找引用（首次响应 / 画面稳定） | 78 / **94 ms** | **63** / 113 ms | 82 / 1365 ms |
+| 打字（输入 / 退格） | **32 / 46 ms** | 64 / 64 ms | 62 / 64 ms |
+| 测试期间峰值内存 / 累计 CPU | 2163 MB / 62.5 s | 2119 MB / 71.5 s | 4540 MB / 524.3 s |
+
+*数据来自维护者提供的测试截图。启动与交互使用不同负载，峰值内存不可混用；交互截图没有注明各编辑器版本。各编辑器悬停等待时间也不相同。原截图未注明硬件、操作系统、采集工具和测试日期，因此这些数字是测试快照，不代表跨设备的标准化结论。已发布安装包也可能与本 `preview` 分支使用不同客户端。*
+
+## 核心功能
+
+| 工作流 | 职责与入口 |
+| --- | --- |
+| 项目与编辑 | 项目树、文件标签、原生编辑器，以及文件、符号和操作搜索。 |
+| Git 审查 | 变更、Diff、提交、分支、历史和工作树管理。 |
+| 语言智能 | 通过插件接入语言服务器，提供补全、诊断、导航等语言能力。 |
+| 构建、运行与调试 | 插件声明项目模型、任务和调试提供者，工作台提供统一入口、输出和调试视图。 |
+| 插件管理 | 从市场或本地安装插件，查看权限与程序声明，启用、停用和管理插件。 |
+| AI 与资源 | 在工作台中使用 Agent 对话与上下文工具，查看应用和相关进程的资源占用。 |
+
+以上是当前工作台的功能分工，具体可用性取决于平台、构建版本和安装的插件。插件自身的工具要求与功能范围以其仓库和市场说明为准。
+
+## 下载与安装
+
+当前分支的 Viva 客户端仍在迁移中；已发布的稳定版和 AutoBuild 可能来自旧客户端。请先查看 [Releases 中的版本说明](https://github.com/1lck/Lithe-IDEA/releases)，确认客户端架构、平台和插件兼容性。Homebrew 跟随已发布版本，不代表当前 `preview` 源码；需要运行当前源码时，使用下方开发入口。
+
+- **macOS 13+：**前往 [GitHub Releases](https://github.com/1lck/Lithe-IDEA/releases/latest) 下载 `.dmg`。M 系列芯片选择 `arm64`，Intel 芯片选择 `x86_64`。
+- **Windows x64：**前往 [GitHub Releases](https://github.com/1lck/Lithe-IDEA/releases/latest) 下载 Windows `.exe` 安装包。
+
+macOS 推荐使用 Homebrew 安装和更新：
+
+```bash
+brew tap lithe-idea/lithe https://github.com/Lithe-IDEA/Lithe-IDEA.git
+brew install --cask lithe-idea/lithe/lithe
+brew upgrade --cask lithe
+```
+
+<details>
+<summary>macOS 安装排障：提示无法打开 Lithe.app</summary>
 
 如果 macOS 提示“Apple 无法验证 Lithe.app 是否包含可能危害 Mac 安全或泄漏隐私的恶意软件”，通常是因为手动下载的安装包尚未经过 Apple 公证。请先确认应用来自可信的 [GitHub Releases](https://github.com/1lck/Lithe-IDEA/releases/latest)，然后选择以下任一方式：
 
@@ -85,100 +137,7 @@ Lithe 是一款以低资源占用为目标、通过插件扩展的通用 IDE。�
 
 上述命令只应对你确认来源可靠的应用使用；通过 Homebrew 安装通常不需要手动执行这些步骤。
 
-## 核心功能
-
-| 工作流 | 职责与入口 |
-| --- | --- |
-| 项目与编辑 | 项目树、文件标签、原生编辑器，以及文件、符号和操作搜索。 |
-| Git 审查 | 变更、Diff、提交、分支、历史和工作树管理。 |
-| 语言智能 | 通过插件接入语言服务器，提供补全、诊断、导航等语言能力。 |
-| 构建、运行与调试 | 插件声明项目模型、任务和调试提供者，工作台提供统一入口、输出和调试视图。 |
-| 插件管理 | 从市场或本地安装插件，查看权限与程序声明，启用、停用和管理插件。 |
-| AI 与资源 | 在工作台中使用 Agent 对话与上下文工具，查看应用和相关进程的资源占用。 |
-
-以上是当前工作台的功能分工，具体可用性取决于平台、构建版本和安装的插件。插件自身的工具要求与功能范围以其仓库和市场说明为准。
-
-## 产品截图
-
-以下截图与顶部演示来自旧版 macOS 客户端，保留作历史功能与交互参考，不代表当前 Viva 预览版的界面或验收结果。点击图片可查看原图。
-
-### Git、Diff 与工作树
-
-在同一窗口切换项目、审查 Diff、编写提交信息，并查看和管理 Git 工作树。
-
-<p align="center">
-  <a href="./docs/assets/screenshots/git-diff-worktrees.png"><img src="./docs/assets/screenshots/git-diff-worktrees.png" width="100%" alt="Git、Diff 与工作树"></a>
-</p>
-
-### 全局搜索与 Markdown 预览
-
-双击 Shift 搜索文件、符号和操作；Markdown 支持双栏编辑、预览和目录导航。
-
-<p align="center">
-  <a href="./docs/assets/screenshots/search-everywhere-markdown.png"><img src="./docs/assets/screenshots/search-everywhere-markdown.png" width="100%" alt="全局搜索与 Markdown 预览"></a>
-</p>
-
-<details>
-<summary>更多截图</summary>
-
-### Git 历史与分支浏览
-
-结合分支列表、提交图、筛选器和变更文件浏览 Git 历史。
-
-<p align="center">
-  <a href="./docs/assets/screenshots/git-history-markdown.png"><img src="./docs/assets/screenshots/git-history-markdown.png" width="100%" alt="Git 历史与分支浏览"></a>
-</p>
-
-### HTML 预览与运行服务
-
-并排编辑和预览 HTML，在运行面板中查看项目入口与服务配置。
-
-<p align="center">
-  <a href="./docs/assets/screenshots/html-preview-run-services.png"><img src="./docs/assets/screenshots/html-preview-run-services.png" width="100%" alt="HTML 预览与运行服务"></a>
-</p>
-
-### 插件管理与原生调试
-
-管理语言服务、构建和调试插件；图中同时展示 LLDB 反汇编与寄存器视图。
-
-<p align="center">
-  <a href="./docs/assets/screenshots/plugins-native-debugging.png"><img src="./docs/assets/screenshots/plugins-native-debugging.png" width="100%" alt="插件管理与原生调试"></a>
-</p>
-
-### AI 对话与上下文
-
-在编辑区中与 Agent 对话，展开命令执行记录，查看上下文用量、文件更改和会话统计。
-
-<p align="center">
-  <a href="./docs/assets/screenshots/agent-chat-context.png"><img src="./docs/assets/screenshots/agent-chat-context.png" width="100%" alt="AI 对话与上下文"></a>
-</p>
-
-### Agent 资源与 MCP 配置
-
-集中管理 Agent 的指令、技能、Hooks 和 MCP 配置，在对话中查看运行耗时与 Token 用量。
-
-<p align="center">
-  <a href="./docs/assets/screenshots/agent-mcp-settings.png"><img src="./docs/assets/screenshots/agent-mcp-settings.png" width="100%" alt="Agent 资源与 MCP 配置"></a>
-</p>
-
 </details>
-
----
-
-## 下载与安装
-
-当前分支的 Viva 客户端仍在迁移中；已发布的稳定版和 AutoBuild 可能来自旧客户端。请先查看 [Releases 中的版本说明](https://github.com/1lck/Lithe-IDEA/releases)，确认客户端架构、平台和插件兼容性。Homebrew 跟随已发布版本，不代表当前 `preview` 源码；需要运行当前源码时，使用下方开发入口。
-
-- **macOS 13+：**前往 [GitHub Releases](https://github.com/1lck/Lithe-IDEA/releases/latest) 下载 `.dmg`。M 系列芯片选择 `arm64`，Intel 芯片选择 `x86_64`。
-- **Windows x64：**前往 [GitHub Releases](https://github.com/1lck/Lithe-IDEA/releases/latest) 下载 Windows `.exe` 安装包。
-
-macOS 推荐使用 Homebrew 安装和更新：
-
-```bash
-brew tap lithe-idea/lithe https://github.com/Lithe-IDEA/Lithe-IDEA.git
-brew install --cask lithe-idea/lithe/lithe
-brew upgrade --cask lithe
-```
 
 ## 架构概览
 
@@ -245,6 +204,95 @@ node scripts/i18n/generate-i18n.mjs --check
 插件契约或 SDK 的改动在 Rust Core 仓库验证；插件自己的测试在插件仓库运行。贡献前阅读 [AGENTS.md](./AGENTS.md) 与其指向的开发规则，提交时说明验证范围和未完成的平台验收。
 
 </details>
+
+
+<a id="product-tour"></a>
+
+## 旧版客户端截图（历史参考）
+
+<details>
+<summary>展开旧版 macOS 客户端截图与演示</summary>
+
+以下是重构前的 macOS 客户端资料，不代表当前 Viva 预览版的界面或功能完成度。
+
+[旧版演示视频](https://github.com/user-attachments/assets/17e2325b-afed-4bbb-9926-a962f777269b)
+
+### Git、Diff 与工作树
+
+在同一窗口切换项目、审查 Diff、编写提交信息，并查看和管理 Git 工作树。
+
+<p align="center">
+  <a href="./docs/assets/screenshots/git-diff-worktrees.png"><img src="./docs/assets/screenshots/git-diff-worktrees.png" width="100%" alt="Git、Diff 与工作树"></a>
+</p>
+
+### 全局搜索与 Markdown 预览
+
+双击 Shift 搜索文件、符号和操作；Markdown 支持双栏编辑、预览和目录导航。
+
+<p align="center">
+  <a href="./docs/assets/screenshots/search-everywhere-markdown.png"><img src="./docs/assets/screenshots/search-everywhere-markdown.png" width="100%" alt="全局搜索与 Markdown 预览"></a>
+</p>
+
+### Git 历史与分支浏览
+
+结合分支列表、提交图、筛选器和变更文件浏览 Git 历史。
+
+<p align="center">
+  <a href="./docs/assets/screenshots/git-history-markdown.png"><img src="./docs/assets/screenshots/git-history-markdown.png" width="100%" alt="Git 历史与分支浏览"></a>
+</p>
+
+### HTML 预览与运行服务
+
+并排编辑和预览 HTML，在运行面板中查看项目入口与服务配置。
+
+<p align="center">
+  <a href="./docs/assets/screenshots/html-preview-run-services.png"><img src="./docs/assets/screenshots/html-preview-run-services.png" width="100%" alt="HTML 预览与运行服务"></a>
+</p>
+
+### 插件管理与原生调试
+
+管理语言服务、构建和调试插件；图中同时展示 LLDB 反汇编与寄存器视图。
+
+<p align="center">
+  <a href="./docs/assets/screenshots/plugins-native-debugging.png"><img src="./docs/assets/screenshots/plugins-native-debugging.png" width="100%" alt="插件管理与原生调试"></a>
+</p>
+
+### AI 对话与上下文
+
+在编辑区中与 Agent 对话，展开命令执行记录，查看上下文用量、文件更改和会话统计。
+
+<p align="center">
+  <a href="./docs/assets/screenshots/agent-chat-context.png"><img src="./docs/assets/screenshots/agent-chat-context.png" width="100%" alt="AI 对话与上下文"></a>
+</p>
+
+### Agent 资源与 MCP 配置
+
+集中管理 Agent 的指令、技能、Hooks 和 MCP 配置，在对话中查看运行耗时与 Token 用量。
+
+<p align="center">
+  <a href="./docs/assets/screenshots/agent-mcp-settings.png"><img src="./docs/assets/screenshots/agent-mcp-settings.png" width="100%" alt="Agent 资源与 MCP 配置"></a>
+</p>
+
+</details>
+
+## 欢迎加入群聊
+
+欢迎加入 Lithe 社区，分享使用体验、交流问题，并获取项目最新动态。
+
+<div align="center">
+<table>
+  <tr>
+    <th>QQ群</th>
+    <th>微信群</th>
+  </tr>
+  <tr>
+    <td align="center"><a href="https://qm.qq.com/cgi-bin/qm/qr?k=&amp;group_code=163027877"><img src="./docs/assets/contact/qq-group-qr.png" width="280" alt="Lithe QQ 群二维码"></a></td>
+    <td align="center"><a href="https://gcnctzuuwe9u.feishu.cn/wiki/HJFbwZ0hZirAPnkWF3xcPWkCnid?from=from_copylink"><img src="./docs/assets/contact/wechat-group-qr.png" width="280" alt="Lithe 微信群二维码"></a></td>
+  </tr>
+</table>
+</div>
+
+如果无法扫描微信群二维码，[点击这里通过飞书加入群聊](https://gcnctzuuwe9u.feishu.cn/wiki/HJFbwZ0hZirAPnkWF3xcPWkCnid?from=from_copylink)。
 
 ---
 

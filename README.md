@@ -7,6 +7,7 @@
 
   <p>
     <a href="./README.zh-CN.md"><strong>简体中文</strong></a> ·
+    <a href="#performance-benchmarks">Benchmarks</a> ·
     <a href="#core-features">Core features</a> ·
     <a href="#product-tour">Product tour</a> ·
     <a href="#download-and-install">Download</a> ·
@@ -32,27 +33,6 @@
   </p>
 </div>
 
-https://github.com/user-attachments/assets/17e2325b-afed-4bbb-9926-a962f777269b
-
-## Join the community
-
-Welcome to join the Lithe community, share your experience, ask questions, and follow the latest updates.
-
-<div align="center">
-<table>
-  <tr>
-    <th>QQ group</th>
-    <th>WeChat group</th>
-  </tr>
-  <tr>
-    <td align="center"><a href="https://qm.qq.com/cgi-bin/qm/qr?k=&amp;group_code=163027877"><img src="./docs/assets/contact/qq-group-qr.png" width="280" alt="QR code for the Lithe QQ group"></a></td>
-    <td align="center"><a href="https://gcnctzuuwe9u.feishu.cn/wiki/HJFbwZ0hZirAPnkWF3xcPWkCnid?from=from_copylink"><img src="./docs/assets/contact/wechat-group-qr.png" width="280" alt="QR code for the Lithe WeChat group"></a></td>
-  </tr>
-</table>
-</div>
-
-If you cannot scan the WeChat QR code, [click here to join through Feishu](https://gcnctzuuwe9u.feishu.cn/wiki/HJFbwZ0hZirAPnkWF3xcPWkCnid?from=from_copylink).
-
 ## Why Lithe
 
 AI coding tools can change many files at once. Reviewing that work still means reading the project, following symbols, running and debugging code, and checking each diff. Lithe brings those workflows into a workbench that can be extended with the tools a project needs.
@@ -67,7 +47,79 @@ Language servers, plugin backends, build tools, and debuggers start when needed.
 
 > **AI writes the code. Lithe helps you understand the project, run it, and review the changes.**
 
-## If macOS says it cannot open `Lithe.app`
+<a id="performance-benchmarks"></a>
+
+## Performance benchmarks
+
+**Snapshot highlights:** **0.97 s** launch to idle and **171 MB** stable memory (Lithe 0.7.0 startup test); **78 ms** to a stable definition view and **94 ms** to a stable references view (separate interaction test).
+
+### Startup and resource use
+
+| Editor (tested version) | Project window visible | Launch to idle | Stable memory | Peak memory |
+| --- | ---: | ---: | ---: | ---: |
+| **Lithe 0.7.0** | **0.67 s** | **0.97 s** | **171 MB** | **246 MB** |
+| GoLand 2026.2.4 | 2.27 s | 9.77 s | 2658 MB | 2954 MB |
+| VS Code 1.146.0 | 1.27 s | 4.58 s | 697 MB | 1383 MB |
+| Zed 1.28.1 | 0.51 s | 1.43 s | 188 MB | 274 MB |
+
+<details>
+<summary>Additional resource metrics: idle CPU, total CPU time, processes and threads</summary>
+
+| Editor | Idle CPU | Total CPU time | Processes / threads |
+| --- | ---: | ---: | ---: |
+| **Lithe** | **0.01%** | **1.9 s** | **4 / 31** |
+| GoLand | 7.11% | 56.4 s | 9 / 259 |
+| VS Code | 0.86% | 10.1 s | 12 / 232 |
+| Zed | 0.58% | 2.3 s | 3 / 30 |
+
+</details>
+
+### Interaction latency
+
+Measured on the **Lithe-IDEA repository**, using `app.go`: **five runs per action; median reported**. For two-stage operations, values represent **first response / stable frame**.
+
+| Action | Lithe | Zed | GoLand |
+| --- | ---: | ---: | ---: |
+| Open project to ready | 8.31 s | 6.59 s | 26.0 s |
+| Go to definition (response / stable) | **61 / 78 ms** | 62 / 149 ms | 79 / 165 ms |
+| Hover | 552 ms | **382 ms** | 569 ms |
+| Hover excluding built-in editor wait | **52 ms** (500 ms wait) | 82 ms (300 ms wait) | 69 ms (~500 ms wait) |
+| Find references (response / stable) | 78 / **94 ms** | **63** / 113 ms | 82 / 1365 ms |
+| Typing (insert / backspace) | **32 / 46 ms** | 64 / 64 ms | 62 / 64 ms |
+| Test peak memory / total CPU time | 2163 MB / 62.5 s | 2119 MB / 71.5 s | 4540 MB / 524.3 s |
+
+*Source: maintainer-provided benchmark screenshots. Startup and interaction reflect different workloads, so their peak-memory figures are not interchangeable; the interaction screenshot does not identify tested app versions. Hover waits differ between editors. Hardware, OS, measurement tooling, and test date were not specified, so results are a snapshot rather than a standardized cross-machine claim. Published releases may use a different client from this `preview` branch.*
+
+## Core features
+
+| Workflow | Responsibility and entry point |
+| --- | --- |
+| Projects and editing | Project trees, file tabs, a native editor, and search for files, symbols, and actions. |
+| Git review | Changes, diffs, commits, branches, history, and worktree management. |
+| Language intelligence | Plugins connect language servers for completion, diagnostics, navigation, and other language features. |
+| Build, run, and debug | Plugins declare project models, tasks, and debug providers; the workbench supplies shared controls, output, and debug views. |
+| Plugin management | Install from the marketplace or disk, review permissions and program declarations, and enable, disable, or manage plugins. |
+| AI and resources | Use agent chat and context tools in the workbench, and inspect resource use by the app and related processes. |
+
+These describe the workbench's responsibilities. Availability depends on the platform, build, and installed plugins. Each plugin's repository and marketplace listing describe its tool requirements and supported features.
+
+## Download and install
+
+The Viva client on this branch is still being migrated. Published stable and AutoBuild releases may use the earlier client. Read the [release notes](https://github.com/1lck/Lithe-IDEA/releases) for the client architecture, platforms, and plugin compatibility. Homebrew follows published versions, not the current `preview` source; use the development instructions below to run this branch.
+
+- **macOS 13+:** Download the `arm64` DMG for Apple silicon or the `x86_64` DMG for Intel Macs from [GitHub Releases](https://github.com/1lck/Lithe-IDEA/releases/latest).
+- **Windows x64:** Download the Windows `.exe` installer from [GitHub Releases](https://github.com/1lck/Lithe-IDEA/releases/latest).
+
+Homebrew is the recommended installation and update method on macOS:
+
+```bash
+brew tap lithe-idea/lithe https://github.com/Lithe-IDEA/Lithe-IDEA.git
+brew install --cask lithe-idea/lithe/lithe
+brew upgrade --cask lithe
+```
+
+<details>
+<summary>macOS troubleshooting: cannot open Lithe.app</summary>
 
 If macOS says that Apple cannot verify whether `Lithe.app` contains malware, the manually downloaded package may not yet be notarized by Apple. First confirm that the app came from the trusted [GitHub Releases](https://github.com/1lck/Lithe-IDEA/releases/latest), then use one of these methods:
 
@@ -85,100 +137,7 @@ If macOS says that Apple cannot verify whether `Lithe.app` contains malware, the
 
 Only use these steps for an app whose source you trust. Homebrew installations usually do not require manual quarantine removal.
 
-## Core features
-
-| Workflow | Responsibility and entry point |
-| --- | --- |
-| Projects and editing | Project trees, file tabs, a native editor, and search for files, symbols, and actions. |
-| Git review | Changes, diffs, commits, branches, history, and worktree management. |
-| Language intelligence | Plugins connect language servers for completion, diagnostics, navigation, and other language features. |
-| Build, run, and debug | Plugins declare project models, tasks, and debug providers; the workbench supplies shared controls, output, and debug views. |
-| Plugin management | Install from the marketplace or disk, review permissions and program declarations, and enable, disable, or manage plugins. |
-| AI and resources | Use agent chat and context tools in the workbench, and inspect resource use by the app and related processes. |
-
-These describe the workbench's responsibilities. Availability depends on the platform, build, and installed plugins. Each plugin's repository and marketplace listing describe its tool requirements and supported features.
-
-## Product tour
-
-The screenshots below and the demo above show the previous macOS client. They remain as references for earlier workflows and interactions, not as screenshots or validation of the current Viva preview. Click an image to view it at full resolution.
-
-### Git, diffs, and worktrees
-
-Switch projects in one window, review diffs, prepare commits, and inspect and manage Git worktrees.
-
-<p align="center">
-  <a href="./docs/assets/screenshots/git-diff-worktrees.png"><img src="./docs/assets/screenshots/git-diff-worktrees.png" width="100%" alt="Git, diffs, and worktrees"></a>
-</p>
-
-### Search Everywhere and Markdown preview
-
-Double-Shift searches files, symbols, and actions. Edit Markdown alongside its preview and navigate with the table of contents.
-
-<p align="center">
-  <a href="./docs/assets/screenshots/search-everywhere-markdown.png"><img src="./docs/assets/screenshots/search-everywhere-markdown.png" width="100%" alt="Search Everywhere and Markdown preview"></a>
-</p>
-
-<details>
-<summary>More screenshots</summary>
-
-### Git history and branches
-
-Browse Git history with a branch list, commit graph, filters, and changed files.
-
-<p align="center">
-  <a href="./docs/assets/screenshots/git-history-markdown.png"><img src="./docs/assets/screenshots/git-history-markdown.png" width="100%" alt="Git history and branches"></a>
-</p>
-
-### HTML preview and run services
-
-Edit HTML alongside its preview and browse project entry points and service configurations in the Run panel.
-
-<p align="center">
-  <a href="./docs/assets/screenshots/html-preview-run-services.png"><img src="./docs/assets/screenshots/html-preview-run-services.png" width="100%" alt="HTML preview and run services"></a>
-</p>
-
-### Plugin management and native debugging
-
-Manage language, build, and debugger plugins. The screenshot also shows LLDB disassembly and registers.
-
-<p align="center">
-  <a href="./docs/assets/screenshots/plugins-native-debugging.png"><img src="./docs/assets/screenshots/plugins-native-debugging.png" width="100%" alt="Plugin management and native debugging"></a>
-</p>
-
-### AI chat and context
-
-Chat with an agent in the editor area, expand command output, and inspect context usage, file changes, and session statistics.
-
-<p align="center">
-  <a href="./docs/assets/screenshots/agent-chat-context.png"><img src="./docs/assets/screenshots/agent-chat-context.png" width="100%" alt="AI chat and context"></a>
-</p>
-
-### Agent resources and MCP configuration
-
-Manage agent instructions, skills, hooks, and MCP configuration, and inspect runtime and token usage in chat.
-
-<p align="center">
-  <a href="./docs/assets/screenshots/agent-mcp-settings.png"><img src="./docs/assets/screenshots/agent-mcp-settings.png" width="100%" alt="Agent resources and MCP configuration"></a>
-</p>
-
 </details>
-
----
-
-## Download and install
-
-The Viva client on this branch is still being migrated. Published stable and AutoBuild releases may use the earlier client. Read the [release notes](https://github.com/1lck/Lithe-IDEA/releases) for the client architecture, platforms, and plugin compatibility. Homebrew follows published versions, not the current `preview` source; use the development instructions below to run this branch.
-
-- **macOS 13+:** Download the `arm64` DMG for Apple silicon or the `x86_64` DMG for Intel Macs from [GitHub Releases](https://github.com/1lck/Lithe-IDEA/releases/latest).
-- **Windows x64:** Download the Windows `.exe` installer from [GitHub Releases](https://github.com/1lck/Lithe-IDEA/releases/latest).
-
-Homebrew is the recommended installation and update method on macOS:
-
-```bash
-brew tap lithe-idea/lithe https://github.com/Lithe-IDEA/Lithe-IDEA.git
-brew install --cask lithe-idea/lithe/lithe
-brew upgrade --cask lithe
-```
 
 ## Architecture Overview
 
@@ -245,6 +204,95 @@ node scripts/i18n/generate-i18n.mjs --check
 Validate plugin contract and SDK changes in the Rust Core repository, and plugin tests in their own repositories. Read [AGENTS.md](./AGENTS.md) and its development rules before contributing. Include your verification scope and unverified platforms with the change.
 
 </details>
+
+
+<a id="product-tour"></a>
+
+## Previous client screenshots (archive)
+
+<details>
+<summary>View screenshots and demo from the previous macOS client</summary>
+
+These materials show the pre-refactor macOS client, not the current Viva preview or a guarantee of migrated features.
+
+[Previous client demo](https://github.com/user-attachments/assets/17e2325b-afed-4bbb-9926-a962f777269b)
+
+### Git, diffs, and worktrees
+
+Switch projects in one window, review diffs, prepare commits, and inspect and manage Git worktrees.
+
+<p align="center">
+  <a href="./docs/assets/screenshots/git-diff-worktrees.png"><img src="./docs/assets/screenshots/git-diff-worktrees.png" width="100%" alt="Git, diffs, and worktrees"></a>
+</p>
+
+### Search Everywhere and Markdown preview
+
+Double-Shift searches files, symbols, and actions. Edit Markdown alongside its preview and navigate with the table of contents.
+
+<p align="center">
+  <a href="./docs/assets/screenshots/search-everywhere-markdown.png"><img src="./docs/assets/screenshots/search-everywhere-markdown.png" width="100%" alt="Search Everywhere and Markdown preview"></a>
+</p>
+
+### Git history and branches
+
+Browse Git history with a branch list, commit graph, filters, and changed files.
+
+<p align="center">
+  <a href="./docs/assets/screenshots/git-history-markdown.png"><img src="./docs/assets/screenshots/git-history-markdown.png" width="100%" alt="Git history and branches"></a>
+</p>
+
+### HTML preview and run services
+
+Edit HTML alongside its preview and browse project entry points and service configurations in the Run panel.
+
+<p align="center">
+  <a href="./docs/assets/screenshots/html-preview-run-services.png"><img src="./docs/assets/screenshots/html-preview-run-services.png" width="100%" alt="HTML preview and run services"></a>
+</p>
+
+### Plugin management and native debugging
+
+Manage language, build, and debugger plugins. The screenshot also shows LLDB disassembly and registers.
+
+<p align="center">
+  <a href="./docs/assets/screenshots/plugins-native-debugging.png"><img src="./docs/assets/screenshots/plugins-native-debugging.png" width="100%" alt="Plugin management and native debugging"></a>
+</p>
+
+### AI chat and context
+
+Chat with an agent in the editor area, expand command output, and inspect context usage, file changes, and session statistics.
+
+<p align="center">
+  <a href="./docs/assets/screenshots/agent-chat-context.png"><img src="./docs/assets/screenshots/agent-chat-context.png" width="100%" alt="AI chat and context"></a>
+</p>
+
+### Agent resources and MCP configuration
+
+Manage agent instructions, skills, hooks, and MCP configuration, and inspect runtime and token usage in chat.
+
+<p align="center">
+  <a href="./docs/assets/screenshots/agent-mcp-settings.png"><img src="./docs/assets/screenshots/agent-mcp-settings.png" width="100%" alt="Agent resources and MCP configuration"></a>
+</p>
+
+</details>
+
+## Join the community
+
+Welcome to join the Lithe community, share your experience, ask questions, and follow the latest updates.
+
+<div align="center">
+<table>
+  <tr>
+    <th>QQ group</th>
+    <th>WeChat group</th>
+  </tr>
+  <tr>
+    <td align="center"><a href="https://qm.qq.com/cgi-bin/qm/qr?k=&amp;group_code=163027877"><img src="./docs/assets/contact/qq-group-qr.png" width="280" alt="QR code for the Lithe QQ group"></a></td>
+    <td align="center"><a href="https://gcnctzuuwe9u.feishu.cn/wiki/HJFbwZ0hZirAPnkWF3xcPWkCnid?from=from_copylink"><img src="./docs/assets/contact/wechat-group-qr.png" width="280" alt="QR code for the Lithe WeChat group"></a></td>
+  </tr>
+</table>
+</div>
+
+If you cannot scan the WeChat QR code, [click here to join through Feishu](https://gcnctzuuwe9u.feishu.cn/wiki/HJFbwZ0hZirAPnkWF3xcPWkCnid?from=from_copylink).
 
 ---
 
