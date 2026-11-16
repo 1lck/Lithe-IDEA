@@ -198,10 +198,16 @@ func (a *App) runBranchWrite(p *project, operation string, failed func(reason st
 		a.showGitConsole("")
 	}
 	kernel, root := a.kernel, a.branchRoot(p)
+	updatesProject := root == p.git.repositoryRoot(p.root)
 	a.background(p, branchOperationTimeout, func(ctx context.Context) func(*App) {
 		err := write(ctx, kernel, root)
 		var status core.GitStatus
+		var generation uint64
 		if err == nil {
+			// Order the observation after the write, not when the operation was launched.
+			if updatesProject {
+				generation = p.gitStatusGeneration.Add(1)
+			}
 			status, err = kernel.GitStatus(core.AutomaticRefresh(ctx), root)
 		}
 		return func(a *App) {
@@ -214,7 +220,7 @@ func (a *App) runBranchWrite(p *project, operation string, failed func(reason st
 			}
 			// The project's status describes its own repository only.
 			if root == p.git.repositoryRoot(p.root) {
-				a.setGit(p, gitState{loaded: true, status: status})
+				a.setGit(p, gitState{loaded: true, status: status}, generation)
 			}
 			if p.log.started {
 				a.loadLog(p)

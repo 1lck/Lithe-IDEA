@@ -234,12 +234,21 @@ func reduceStoredChangeLists(ctx context.Context, s *store.Store, kernel changeL
 }
 
 // setGit shows a status the project read and works out again where its changes belong.
-func (a *App) setGit(p *project, g gitState) {
+func (a *App) setGit(p *project, g gitState, generation uint64) bool {
+	if generation != p.gitStatusGeneration.Load() {
+		// A stale failure still belongs in diagnostics, never in the current UI.
+		// log-exempt: 用户取消：被新输入或项目关闭取消的旧请求不是失败。
+		if g.err != nil && !errors.Is(g.err, context.Canceled) {
+			a.backgroundFailed("git_status", g.err)
+		}
+		return false
+	}
 	g.tree = newTreeStatus(p.root, g.status)
 	p.git = g
 	a.syncChangeListSettings(p)
 	p.lists.statusGen++
 	a.queueChangeLists(p, changeListJob{})
+	return true
 }
 
 // queueChangeLists runs job after the jobs already waiting. A placement waiting already

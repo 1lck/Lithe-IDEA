@@ -24,14 +24,17 @@ type gitState struct {
 }
 
 // loadGit asks the kernel for the Git status of p and keeps the answer in p.git. The
-// answer is dropped when p is no longer the open project by the time it arrives.
+// answer is dropped when the project closes or a newer status read starts.
 func (a *App) loadGit(p *project) {
+	generation := p.gitStatusGeneration.Add(1)
 	kernel, root := a.kernel, p.root
 	a.background(p, gitTimeout, func(ctx context.Context) func(*App) {
 		// The status is read again on every repository change, too often for the console.
 		status, err := kernel.GitStatus(core.AutomaticRefresh(ctx), root)
 		return func(a *App) {
-			a.setGit(p, gitState{loaded: true, status: status, err: err})
+			if !a.setGit(p, gitState{loaded: true, status: status, err: err}, generation) {
+				return
+			}
 			if err != nil {
 				a.operationFailed("git_status", err)
 				a.notifyError(a.text.Git.Failed(err.Error()))
