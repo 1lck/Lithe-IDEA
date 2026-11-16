@@ -11016,7 +11016,7 @@
     "desktop.settings.network.ignoredExclusions": "These exclusions have none of the supported forms and are ignored: {entries}",
     "desktop.settings.localHistory.help": "Local history keeps versions of a project's files as you save and edit them, in Lithe's own data folder. Ignore rules only keep files out of local history; the project tree still shows them.",
     "desktop.settings.localHistory.wildcardHelp": "One pattern per line, matched against the path inside the project, for example `*.log` or `**/generated/`.",
-    "desktop.settings.localHistory.builtInsHelp": "Built-in rules are listed here too. Delete one to keep that folder out of local history after Apply; it then shows as a \"!\" line, and deleting that line turns the rule back on.",
+    "desktop.settings.localHistory.builtInsHelp": "Folders hidden from the project tree are listed here too: Lithe's own, such as `**/.git/`, and those enabled plugins declare, such as a build's output folder. Files in a hidden folder are never recorded, even after you delete its line. A deleted line shows as a \"!\" line after Apply; delete that line to restore the rule.",
     "desktop.settings.localHistory.regexHelp": "One per line, case-insensitive, matched anywhere in the project-relative path with `/` separators, for example `^build/` or `(test|spec)/`.",
     "desktop.settings.localHistory.invalidLimit": "Enter the limit as a whole number of megabytes, 1 or more, or leave it empty for the default.",
     "desktop.settings.editor.tabLimit": "Tab limit",

@@ -58,6 +58,7 @@ func TestWorkspaceRepositorySelectionUsesCoreFixtures(t *testing.T) {
 			Request struct {
 				Repositories []WorkspaceRepository `json:"repositories"`
 				Selected     string                `json:"selected"`
+				Chosen       []string              `json:"chosen"`
 			} `json:"request"`
 			Response struct {
 				Active   *string  `json:"active"`
@@ -73,7 +74,14 @@ func TestWorkspaceRepositorySelectionUsesCoreFixtures(t *testing.T) {
 		t.Fatal("the selection fixture has no cases")
 	}
 	client := NewClient()
+	checked := 0
 	for _, item := range fixture.Cases {
+		if item.Request.Chosen != nil {
+			// A view acting on several repositories at once sends chosen instead of selected;
+			// the bridge does not, until the Git Log takes several repositories (#2013).
+			continue
+		}
+		checked++
 		t.Run(item.Name, func(t *testing.T) {
 			want := WorkspaceRepositorySelection{FellBack: item.Response.FellBack, Others: item.Response.Others}
 			if item.Response.Active != nil {
@@ -84,6 +92,9 @@ func TestWorkspaceRepositorySelectionUsesCoreFixtures(t *testing.T) {
 				t.Fatalf("selection = %#v, error = %v; want %#v", got, err, want)
 			}
 		})
+	}
+	if checked == 0 {
+		t.Fatal("the selection fixture has no case with selected")
 	}
 	duplicate := []WorkspaceRepository{
 		{Path: "/w/a", ID: "a", Name: "a", Role: RepositoryNested},

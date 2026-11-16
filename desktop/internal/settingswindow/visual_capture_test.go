@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/1lck/Lithe-IDEA/desktop/internal/core"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/i18n"
@@ -47,7 +48,7 @@ func TestVisualSettings(t *testing.T) {
 		{"29-marketplace-empty", pagePlugins}, {"31-settings-updates", pageUpdates},
 		{"33-settings-toolchains", pageBuild}, {"m44-toolchain-directory-menu", pageBuild}, {"m45-toolchain-custom-directory", pageBuild},
 		{"fonts", pageFonts},
-		{"21-settings-language-popup", pageGeneral}, {"30-settings-history", pageGeneral}, {"35-settings-search", pageEditor},
+		{"21-settings-language-popup", pageGeneral}, {"30-settings-history", pageGeneral}, {"m46-history-default-rules-help", pageGeneral}, {"35-settings-search", pageEditor},
 		{"m35-editor-tab-layout", pageEditor}, {"m25-project-open-mode", pageGeneral}, {"m29-editor-font-menu", pageFonts}, {"m38-plugin-management-menu", pagePlugins},
 		{"m39-proxy-mode-menu", pageNetwork}, {"m40-process-run-policy", pageProcessTermination},
 		{"m41-process-terminal-policy", pageProcessTermination}, {"m43-process-orphan-policy", pageProcessTermination},
@@ -111,6 +112,30 @@ func TestVisualSettings(t *testing.T) {
 					}
 				case "30-settings-history":
 					if err := d.driver.Scroll(gfx.ScrollEvent{X: 700, Y: 500, DeltaY: 500, Viewport: gfx.Size{Width: 900, Height: 700}}); err != nil {
+						t.Fatal(err)
+					}
+				case "m46-history-default-rules-help":
+					// The ⓘ on the wildcard list's row explains the default rules: the folders
+					// hidden from the tree, which deleting a line does not record.
+					if err := d.driver.Scroll(gfx.ScrollEvent{X: 700, Y: 500, DeltaY: 500, Viewport: gfx.Size{Width: 900, Height: 700}}); err != nil {
+						t.Fatal(err)
+					}
+					d.pump()
+					help := text("desktop.settings.localHistory.wildcardHelp") + " " + text("desktop.settings.localHistory.builtInsHelp")
+					info := d.hintHit(help).Bounds
+					x, y := info.X+info.Width/2, info.Y+info.Height/2
+					if err := d.driver.Move(x, y); err != nil {
+						t.Fatal(err)
+					}
+					if err := d.driver.Click(x, y); err != nil {
+						t.Fatal(err)
+					}
+					d.pump()
+					if !d.showsHelp(help) {
+						t.Fatal("the ⓘ did not pin its help open")
+					}
+					// The popover fades in; move the frame clock past it.
+					if err := session.Advance(time.Second); err != nil {
 						t.Fatal(err)
 					}
 				case "35-settings-search":

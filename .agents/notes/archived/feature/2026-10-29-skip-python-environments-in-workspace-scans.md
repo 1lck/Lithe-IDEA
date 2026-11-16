@@ -2,6 +2,10 @@
 
 状态：已实现
 
+归档日期：2026-11-16
+
+> 2026-11-16 起（#1856，Lithe-core-rust #72）Core 不再内置 `.venv`、`venv`、`__pycache__`、`*.pyc` 等工具目录名，改由插件在清单里声明；当前决策见 [工具和生态的隐藏目录由插件声明](../../implemented/architecture/2026-11-16-plugin-declared-hidden-directories.md)。本文只保留历史取舍，文中的 `TestWorkspaceDirectoryAndSearchHidePythonEnvironments` 已删除。
+
 ## 先说结论
 
 Rust Core 的默认工作区规则排除 `.venv`、`venv`、`__pycache__` 和 `*.pyc`。Viva 桌面端的项目树、工作区搜索和快照都经由 Core，所以这套默认规则对所有平台生效。规则按名字匹配，其他名称的虚拟环境不会因此自动识别。

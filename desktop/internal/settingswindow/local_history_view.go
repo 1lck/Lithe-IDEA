@@ -111,7 +111,8 @@ type localHistoryDraft struct {
 	confirmClear, wantedUsage bool
 	// regexMode shows the regular expression list instead of the wildcard list.
 	regexMode bool
-	// builtIns are Core's built-in wildcard rules as the last preview reported them. shown are
+	// builtIns are Core's default wildcard rules as the last preview reported them: a rule for
+	// each folder hidden from the tree, Core's own and those the enabled plugins declare. shown are
 	// the ones the wildcard list displays, and loadedPatterns the text it was loaded with: a
 	// list nobody has edited yet picks up the built-in rules when they first arrive.
 	builtIns, shown []string

@@ -60,15 +60,26 @@ func TestFileKind(t *testing.T) {
 	}
 }
 
-// TestDirectoryKind covers excluded directory names and regular directories.
+// useHiddenDirectoryNames sets names for one test and clears them after it.
+func useHiddenDirectoryNames(t *testing.T, names ...string) {
+	t.Helper()
+	SetHiddenDirectoryNames(names)
+	t.Cleanup(func() { SetHiddenDirectoryNames(nil) })
+}
+
+// TestDirectoryKind covers the configured hidden folder names, matched ignoring ASCII case,
+// and regular directories, which no built-in name list turns into excluded folders.
 func TestDirectoryKind(t *testing.T) {
+	useHiddenDirectoryNames(t, "fixture-out", ".Fixture-Cache")
 	tests := []struct {
 		name string
 		want kind
 	}{
-		{"node_modules", kindExcludedFolder},
-		{"Target", kindExcludedFolder},
-		{".idea", kindExcludedFolder},
+		{"fixture-out", kindExcludedFolder},
+		{"Fixture-Out", kindExcludedFolder},
+		{".fixture-cache", kindExcludedFolder},
+		{"target", kindFolder},
+		{"node_modules", kindFolder},
 		{"src", kindFolder},
 		{"META-INF", kindFolder},
 	}
@@ -79,6 +90,30 @@ func TestDirectoryKind(t *testing.T) {
 				t.Errorf("directoryKind(%q) = %d, want %d", test.name, got, test.want)
 			}
 		})
+	}
+}
+
+// TestSetHiddenDirectoryNamesReportsChanges covers the change report the workbench re-lists its
+// trees on: the same names in another order, case or with repeats are no change, while new names
+// and clearing them are.
+func TestSetHiddenDirectoryNamesReportsChanges(t *testing.T) {
+	SetHiddenDirectoryNames(nil)
+	t.Cleanup(func() { SetHiddenDirectoryNames(nil) })
+	steps := []struct {
+		names   []string
+		changed bool
+	}{
+		{nil, false},
+		{[]string{}, false},
+		{[]string{"fixture-out", ".fixture-cache"}, true},
+		{[]string{".Fixture-Cache", "FIXTURE-OUT", "fixture-out"}, false},
+		{[]string{"fixture-out"}, true},
+		{nil, true},
+	}
+	for index, step := range steps {
+		if got := SetHiddenDirectoryNames(step.names); got != step.changed {
+			t.Fatalf("step %d: SetHiddenDirectoryNames(%q) = %v, want %v", index, step.names, got, step.changed)
+		}
 	}
 }
 
@@ -179,6 +214,7 @@ func TestForDirectoryMark(t *testing.T) {
 }
 
 func TestForSourceDirectory(t *testing.T) {
+	useHiddenDirectoryNames(t, "fixture-out")
 	cases := []struct {
 		label     string
 		directory string
@@ -194,8 +230,8 @@ func TestForSourceDirectory(t *testing.T) {
 		{"my-lib", "my-lib", &Folder, &FolderDark},
 		{"a.b", "a.b", &Folder, &FolderDark},
 		{"empty", "", &Folder, &FolderDark},
-		{"build", "build", &ExcludeRoot, &ExcludeRootDark},
-		{"target", "target", &ExcludeRoot, &ExcludeRootDark},
+		{"hidden", "fixture-out", &ExcludeRoot, &ExcludeRootDark},
+		{"target", "target", &Package, &PackageDark},
 	}
 	for _, test := range cases {
 		t.Run(test.label, func(t *testing.T) {

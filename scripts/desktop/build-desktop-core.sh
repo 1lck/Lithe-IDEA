@@ -27,6 +27,16 @@ native_path() {
     fi
 }
 
+# Lithe-core-rust #72 at a88fe73, its branch before the squash merge: Core hides only .git,
+# .worktree, .worktrees, .DS_Store and .lithe by itself; workspace.configureVisibility takes the
+# manifests of the enabled plugins and hides the folders their build systems name in
+# layout.hiddenDirectoryNames and their VCS providers name as directory markers, in every
+# workspace, until the next call replaces them (#1856). It is on top of main at 01c5336:
+# #69 squash-merged, so Core knows no runtime by name and go and node resolve through their
+# tool definitions like any other runtime without executables, with no hostManaged field
+# (#1856); and #71 squash-merged, which adds git.workspaceHistoryMerge, the optional chosen of
+# git.workspaceRepositorySelection and the optional maxCommits and limitReached of
+# git.historyPage, none of which the desktop sends or reads yet (#2013).
 # Lithe-core-rust main at 5a8d786, #67 squash-merged: toolchains.candidates takes the optional
 # commandHomes, lists the commands found on the PATH as shell rows, and offers each shell home that
 # checks out as an installations entry with provider host:shell, once per canonical home (#2032).
@@ -150,7 +160,7 @@ PINNED_CORE_REPOSITORY="https://github.com/Lithe-IDEA/Lithe-core-rust.git"
 # the contract, plugin guides, reference and SDKs live only in shared/plugins; on top of #16 (reported Git queries folded in the console),
 # #15 (git.write cherryPick, revert and reset fields), #14 (word-level changed ranges of diff
 # rows), #13, #8, #7, #6 and #4.
-PINNED_CORE_REVISION="5a8d786e9b44a5a8c7a977a8b376264fa941dcd9"
+PINNED_CORE_REVISION="a88fe734c12096cd40f8385d1d7dc5090ab2944f"
 PROFILE="debug"
 while [[ $# -gt 0 ]]; do
     case "$1" in

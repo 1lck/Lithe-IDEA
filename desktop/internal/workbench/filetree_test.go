@@ -177,7 +177,7 @@ func TestProjectTreeUsesCoreToFilterHiddenEvents(t *testing.T) {
 	p.tree.recursiveWatch = true
 	p.search.watch = &documentWatch{}
 	before := k.listings.Load()
-	h.app.applyTreeRecursiveWatch(p, false, true, nil, app.DirectoryChanges{Names: []string{"node_modules/tool/generated.js"}})
+	h.app.applyTreeRecursiveWatch(p, false, true, nil, app.DirectoryChanges{Names: []string{".worktrees/copy/generated.js"}})
 	select {
 	case <-k.filtered:
 	case <-time.After(8 * time.Second):
