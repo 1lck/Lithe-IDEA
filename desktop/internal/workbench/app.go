@@ -118,6 +118,8 @@ type Kernel interface {
 	PlanBuildDebug(ctx context.Context, manifest json.RawMessage, buildSystemID string, request core.BuildPlanRequest) (core.BuildPlan, error)
 	DecodeBuildDebug(ctx context.Context, manifest json.RawMessage, buildSystemID string, request core.BuildDecodeDebugRequest) (core.BuildDebugPreparation, error)
 	DecodeBuildModel(ctx context.Context, manifest json.RawMessage, buildSystemID string, request core.BuildDecodeModelRequest) (core.BuildModel, error)
+	// BuildModelTree lays out a loaded model as the Build tool window's tree (build_tree.go).
+	BuildModelTree(ctx context.Context, manifest json.RawMessage, buildSystemID string, request core.BuildModelTreeRequest) (core.BuildModelTree, error)
 	DecodeBuildRun(ctx context.Context, manifest json.RawMessage, buildSystemID string, request core.BuildDecodeRunRequest) (core.BuildLaunch, error)
 	ToolchainRegistryOf(ctx context.Context, manifests []json.RawMessage) (core.ToolchainRegistry, error)
 	// CommandInstallerRequirements, PlanCommandInstaller and CommandInstallerDefaultDirectory

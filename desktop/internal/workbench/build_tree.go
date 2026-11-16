@@ -1,8 +1,10 @@
 package workbench
 
 import (
+	"context"
 	"hash/fnv"
 	"strings"
+	"time"
 
 	"github.com/1lck/Lithe-IDEA/desktop/internal/core"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/i18n"
@@ -10,71 +12,129 @@ import (
 
 // The Build tool window on the right stripe: every build system the workspace uses, as one
 // tree. A workspace can hold many of them (a nested checkout per module, one build tool beside
-// another), so they are not tabs to switch between but groups the user opens and closes, each
-// with its projects, dependencies, targets, tasks and discovered tests as sections.
+// another), so they are not tabs to switch between but groups the user opens and closes.
+//
+// Inside a group the tree is the build tool's own: Core lays it out from the loaded model
+// (build.modelTree), with child projects nested under their parent and every project holding
+// its task folders (a Maven project's lifecycle and plugins), its dependencies and its targets.
+// A model with one root project shows that project's contents straight under the group, so
+// the group row stands for it. The layout runs off the window thread, once per model and
+// filter; the window thread only walks the nodes that are open.
 //
 // The window's actions act on one instance, the selected one (build.go): a click on a row of
 // another group selects that group's instance first. The selected instance's group is open
-// until the user closes it, and only its rows show a selection and the project scope; the
-// other groups show what their model holds.
+// until the user closes it, and only its rows show a selection.
 //
 // A group's model is loaded when the group is open, a few at a time, so a workspace of many
-// build systems does not start every build tool at once. The dependencies section starts
-// closed: its tree is a command of the build tool, run only once the user asks to see it.
-
-// The sections of one build system's group, by the key their open state is stored under.
-const (
-	buildSectionProjects     = "projects"
-	buildSectionDependencies = "dependencies"
-	buildSectionTargets      = "targets"
-	buildSectionTasks        = "tasks"
-	buildSectionTests        = "tests"
-)
+// build systems does not start every build tool at once. A dependencies node starts closed:
+// its tree is a command of the build tool, run only once the user opens it.
 
 // buildModelLoadsAtOnce bounds the models loaded together for the open groups; the next one
 // starts when one of them ends.
 const buildModelLoadsAtOnce = 4
 
-// buildOpenKey names the open state of a group (section "") or of one of its sections.
-func buildOpenKey(instanceID, section string) string { return instanceID + "\x00" + section }
+// buildTreeTimeout bounds one layout of a tree by Core, which reads only the model it is sent.
+const buildTreeTimeout = 30 * time.Second
 
-// buildGroupOpen says whether the group of the instance at index shows its sections: as the
-// user left it, else open for the selected instance only.
+// buildGroupHeadings name every task group a build system files its tasks under; Core heads the
+// folder of a task without a category with its group's name.
+func buildGroupHeadings(language i18n.Language) map[string]string {
+	return map[string]string{
+		"lifecycle":     i18n.Shared(language, "desktop.build.group.lifecycle"),
+		"build":         i18n.Shared(language, "desktop.build.group.build"),
+		"test":          i18n.Shared(language, "desktop.build.group.test"),
+		"run":           i18n.Shared(language, "desktop.build.group.run"),
+		"verification":  i18n.Shared(language, "desktop.build.group.verification"),
+		"documentation": i18n.Shared(language, "desktop.build.group.documentation"),
+		"other":         i18n.Shared(language, "desktop.build.group.other"),
+	}
+}
+
+// buildTree is one instance's tree as Core laid it out for one filter. version is the model
+// version it came from (buildInstance.modelVersion), query and language the filter and the
+// language of its folder headings. targets finds a target node's target in that model by ID.
+type buildTree struct {
+	version  uint64
+	query    string
+	language i18n.Language
+	tree     core.BuildModelTree
+	failed   string
+	targets  map[string]int
+}
+
+// buildTrees are the trees of one instance: the whole tree and the latest filtered one, each
+// with whether a layout of it is out. A filtered tree for an older query keeps showing until
+// the layout for the current one arrives, so typing does not empty the window.
+type buildTrees struct {
+	whole, filtered       *buildTree
+	wholeOut, filteredOut bool
+}
+
+// buildOpenState is what the user left a node of the tree as; dependencies marks a
+// dependencies node, which opening every node leaves as it was.
+type buildOpenState struct {
+	open, dependencies bool
+}
+
+// buildOpenKey names the open state of a group (key "") or of one of its nodes by the node's
+// key, which Core keeps across reloads and filters.
+func buildOpenKey(instanceID, key string) string { return instanceID + "\x00" + key }
+
+// buildGroupOpen says whether the group of the instance at index shows its tree: as the user
+// left it, else open for the selected instance only.
 func (p *project) buildGroupOpen(index int) bool {
-	if open, ok := p.panels.buildOpen[buildOpenKey(p.build.instances[index].ID, "")]; ok {
-		return open
+	if state, ok := p.panels.buildOpen[buildOpenKey(p.build.instances[index].ID, "")]; ok {
+		return state.open
 	}
 	return index == p.build.selected
 }
 
-// buildSectionOpen says whether a section of a group shows its rows: as the user left it, else
-// open, except the dependencies, whose tree costs a run of the build tool.
-func (p *project) buildSectionOpen(instanceID, section string) bool {
-	if open, ok := p.panels.buildOpen[buildOpenKey(instanceID, section)]; ok {
+// buildNodeOpen says whether a node of an instance's tree shows its children: as the user left
+// it; else, after the user opened or closed every node, as that left them, but a dependencies
+// node stays closed; else open for a project and closed for anything else, as IntelliJ shows a
+// build tool's projects with their lifecycle and plugins closed.
+func (p *project) buildNodeOpen(instanceID string, node *core.BuildTreeNode) bool {
+	if state, ok := p.panels.buildOpen[buildOpenKey(instanceID, node.Key)]; ok {
+		return state.open
+	}
+	if node.Kind == core.BuildTreeDependencies {
+		return false
+	}
+	if open, ok := p.panels.buildFold[instanceID]; ok {
 		return open
 	}
-	return section != buildSectionDependencies
+	return node.Kind == core.BuildTreeProject
 }
 
-// setBuildOpen stores the open state of a group or a section.
-func (p *project) setBuildOpen(key string, open bool) {
+// setBuildOpen stores the open state of a group or a node.
+func (p *project) setBuildOpen(key string, state buildOpenState) {
 	if p.panels.buildOpen == nil {
-		p.panels.buildOpen = map[string]bool{}
+		p.panels.buildOpen = map[string]buildOpenState{}
 	}
-	p.panels.buildOpen[key] = open
+	p.panels.buildOpen[key] = state
 }
 
-// setAllBuildGroups opens or closes every group. Opening also opens the sections that cost
-// nothing to show; the dependencies stay as they were.
+// setBuildGroupOpen stores whether the group of the instance at index shows its tree.
+func (p *project) setBuildGroupOpen(index int, open bool) {
+	p.setBuildOpen(buildOpenKey(p.build.instances[index].ID, ""), buildOpenState{open: open})
+}
+
+// setAllBuildGroups opens or closes every group and every node in them. It forgets what the
+// user opened and closed inside the groups and stores the fold for each instance instead, so
+// it costs as many steps as the user made, not as many as the trees hold. Opening keeps the
+// dependencies nodes as they were, since each opened one runs the build tool.
 func (p *project) setAllBuildGroups(open bool) {
-	for index := range p.build.instances {
-		id := p.build.instances[index].ID
-		p.setBuildOpen(buildOpenKey(id, ""), open)
-		if open {
-			for _, section := range []string{buildSectionProjects, buildSectionTargets, buildSectionTasks, buildSectionTests} {
-				p.setBuildOpen(buildOpenKey(id, section), true)
-			}
+	if p.panels.buildFold == nil {
+		p.panels.buildFold = map[string]bool{}
+	}
+	for key, state := range p.panels.buildOpen {
+		if _, node, _ := strings.Cut(key, "\x00"); node != "" && !(open && state.dependencies) {
+			delete(p.panels.buildOpen, key)
 		}
+	}
+	for index := range p.build.instances {
+		p.panels.buildFold[p.build.instances[index].ID] = open
+		p.setBuildGroupOpen(index, open)
 	}
 }
 
@@ -87,9 +147,9 @@ func (a *App) chooseBuildInstance(p *project, index int) {
 		return
 	}
 	if previous := b.selected; previous >= 0 && previous < len(b.instances) {
-		p.setBuildOpen(buildOpenKey(b.instances[previous].ID, ""), p.buildGroupOpen(previous))
+		p.setBuildGroupOpen(previous, p.buildGroupOpen(previous))
 	}
-	p.setBuildOpen(buildOpenKey(b.instances[index].ID, ""), true)
+	p.setBuildGroupOpen(index, true)
 	a.selectBuildInstance(p, index)
 }
 
@@ -120,6 +180,95 @@ func (a *App) loadOpenBuildModels(p *project) {
 	}
 }
 
+// buildTreeOf is the tree of the instance at index for query, already trimmed and lower case,
+// and starts its layout when the model, the filter or the language changed since the tree
+// shown was laid out. Only one layout of each kind is out at a time: the one that ends starts
+// the next when the tree it brought is already stale, so fast typing lays out only the
+// queries the window still shows. The result is nil while the first layout is out and the
+// model is not loaded; a filtered tree for an older query stands in for the current one.
+func (a *App) buildTreeOf(p *project, index int, query string) *buildTree {
+	instance := &p.build.instances[index]
+	if !instance.modelLoaded {
+		return nil
+	}
+	shown, out := instance.trees.whole, &instance.trees.wholeOut
+	if query != "" {
+		shown, out = instance.trees.filtered, &instance.trees.filteredOut
+	}
+	language := a.language()
+	current := shown != nil && shown.version == instance.modelVersion && shown.query == query && shown.language == language
+	if !current && !*out {
+		*out = true
+		a.layOutBuildTree(p, instance, query, language)
+	}
+	return shown
+}
+
+// layOutBuildTree asks Core for the tree of instance's model for query off the window thread.
+// The model's slices are never changed in place, only replaced, so the goroutine reads them as
+// they were when the layout started.
+func (a *App) layOutBuildTree(p *project, instance *buildInstance, query string, language i18n.Language) {
+	kernel := a.kernel
+	id, generation := instance.ID, p.build.generation
+	manifest, buildSystemID, version := instance.Manifest, instance.BuildSystemID, instance.modelVersion
+	model := core.BuildModelTreeInput{Projects: instance.Model.Projects, Targets: instance.Model.Targets, Tasks: instance.Model.Tasks}
+	headings := buildGroupHeadings(language)
+	a.background(p, buildTreeTimeout, func(ctx context.Context) func(*App) {
+		tree := &buildTree{version: version, query: query, language: language}
+		laid, err := kernel.BuildModelTree(ctx, manifest, buildSystemID, core.BuildModelTreeRequest{Model: model, Query: query, GroupHeadings: headings})
+		if err != nil {
+			a.backgroundFailedIn(ctx, "build_tree", err)
+			tree.failed = err.Error()
+		} else {
+			tree.tree = laid
+			tree.targets = make(map[string]int, len(model.Targets))
+			for at := range model.Targets {
+				if _, seen := tree.targets[model.Targets[at].ID]; !seen {
+					tree.targets[model.Targets[at].ID] = at
+				}
+			}
+		}
+		return func(a *App) { a.finishBuildTree(p, id, generation, tree) }
+	})
+}
+
+// finishBuildTree stores a laid out tree in its instance, unless the instances were detected
+// again since the layout started or the model changed under it. A stale tree is dropped and
+// the next frame lays out the current one.
+func (a *App) finishBuildTree(p *project, id string, generation uint64, tree *buildTree) {
+	if a.project != p || p.build.generation != generation {
+		return
+	}
+	instance := p.buildInstanceByID(id)
+	if instance == nil {
+		return
+	}
+	trees := &instance.trees
+	if tree.query == "" {
+		trees.wholeOut = false
+	} else {
+		trees.filteredOut = false
+	}
+	if tree.version != instance.modelVersion {
+		return
+	}
+	if tree.query == "" {
+		trees.whole = tree
+	} else {
+		trees.filtered = tree
+	}
+}
+
+// targetOf is the model target a target node of tree stands for, nil when the model no longer
+// has it.
+func (instance *buildInstance) targetOf(tree *buildTree, id string) *core.BuildTarget {
+	at, ok := tree.targets[id]
+	if !ok || at >= len(instance.Model.Targets) || instance.Model.Targets[at].ID != id {
+		return nil
+	}
+	return &instance.Model.Targets[at]
+}
+
 // buildSystemName is the name of an instance's build system, without its root.
 func buildSystemName(instance *buildInstance) string {
 	if name := instance.System.DisplayName; name != "" {
@@ -146,15 +295,18 @@ func (p *project) buildFilterQuery() string {
 	return strings.ToLower(strings.TrimSpace(p.panels.buildFilter))
 }
 
-// buildTreeRows lists the rows of the tree in the order it shows them. Without a filter every
-// group shows as the user left it. With one, a group whose name or root matches shows as
-// without a filter; another shows only its projects, targets, tasks and tests that match, all
-// open, and is left out when none does. The filter reads the models already loaded and never
-// starts a load: it narrows what the tree holds, it does not ask the build tools.
-func (a *App) buildTreeRows(p *project) []buildRow {
+// buildTreeRows lists the rows of the tree in the order it shows them, into a buffer the
+// window reuses. Without a filter every group shows as the user left it. With one, a group
+// whose name or root matches shows as without a filter; another shows what Core kept of its
+// tree, every node on the way to a match open and each match as the user left it, and is
+// left out when nothing in it matches. The filter reads the models already loaded and never
+// starts a load: it narrows what the tree holds, it does not ask the build tools. pending says
+// a group was left out only because its first filtered tree is still being laid out, so an
+// empty tree is not yet known to match nothing.
+func (a *App) buildTreeRows(p *project) (rows []buildRow, pending bool) {
 	b := &p.build
 	query := p.buildFilterQuery()
-	var rows []buildRow
+	rows = p.panels.buildRows[:0]
 	for index := range b.instances {
 		instance := &b.instances[index]
 		group := buildRow{
@@ -163,159 +315,159 @@ func (a *App) buildTreeRows(p *project) []buildRow {
 		}
 		if query == "" || buildMatches(query, group.label, group.detail) {
 			group.open = p.buildGroupOpen(index)
+			// A closed group is laid out too once its model is loaded, so its row names the
+			// project it stands for whether it is open or not. The layout only reads the model.
+			tree := a.buildTreeOf(p, index, "")
+			group.node = rootProjectOf(tree)
 			rows = append(rows, group)
 			if group.open {
-				rows = a.appendBuildGroup(rows, p, index, "")
+				rows = a.appendBuildTree(rows, p, index, tree, false)
 			}
 			continue
 		}
-		matched := a.appendBuildGroup(nil, p, index, query)
-		if len(matched) == 0 {
+		tree := a.buildTreeOf(p, index, query)
+		if tree == nil || tree.failed != "" {
+			pending = pending || tree == nil && instance.trees.filteredOut
 			continue
 		}
+		group.node = rootProjectOf(tree)
+		// A match on the project the group stands for keeps the whole tree, as the user left it.
+		filtering := group.node == nil || !group.node.Matched
 		group.open, group.fixed = true, true
 		rows = append(rows, group)
-		rows = append(rows, matched...)
+		start := len(rows)
+		rows = a.appendBuildTree(rows, p, index, tree, filtering)
+		if len(rows) == start && filtering {
+			rows = rows[:start-1]
+		}
+	}
+	p.panels.buildRows = rows
+	return rows, pending
+}
+
+// rootProjectOf is the project a group stands for, the only root project of its model.
+func rootProjectOf(tree *buildTree) *core.BuildTreeNode {
+	if tree == nil {
+		return nil
+	}
+	return tree.tree.Project
+}
+
+// appendBuildTree appends the rows of the tree of the instance at index under its group:
+// what the model or the tree's layout are doing when they are not ready, else the open nodes.
+// filtering says the tree is what a filter kept; it then shows no line for what is missing.
+func (a *App) appendBuildTree(rows []buildRow, p *project, index int, tree *buildTree, filtering bool) []buildRow {
+	t := a.text.Build
+	instance := &p.build.instances[index]
+	note := func(label string) buildRow {
+		return buildRow{kind: buildRowEmpty, instance: index, level: 1, label: label}
+	}
+	switch {
+	case filtering:
+	case instance.modelError != "":
+		// The row has one line; the tool's own explanation that follows is its tooltip.
+		first, _, more := strings.Cut(instance.modelError, "\n")
+		row := note(t.ModelFailed(first))
+		row.warning, row.model = true, true
+		if more {
+			row.tooltip = t.ModelFailed(instance.modelError)
+		}
+		return append(rows, row)
+	case !instance.modelLoaded || tree == nil:
+		row := note(t.LoadingModel)
+		row.loading = true
+		return append(rows, row)
+	case tree.failed != "":
+		first, _, _ := strings.Cut(tree.failed, "\n")
+		row := note(i18n.SharedFormat(a.language(), "desktop.build.treeFailed", map[string]string{"error": first}))
+		row.warning, row.tooltip = true, tree.failed
+		return append(rows, row)
+	case len(tree.tree.Nodes) == 0:
+		return append(rows, note(t.NoTasks))
+	}
+	if tree == nil {
+		return rows
+	}
+	rows = a.appendBuildNodes(rows, p, index, tree, tree.tree.Nodes, 1, filtering)
+	if tree.tree.Truncated && !filtering {
+		row := note(i18n.Shared(a.language(), "desktop.build.treeTruncated"))
+		row.warning = true
+		rows = append(rows, row)
 	}
 	return rows
 }
 
-// appendBuildGroup appends the sections of the instance at index; with a query, only the rows
-// that match it, under the sections that hold any.
-func (a *App) appendBuildGroup(rows []buildRow, p *project, index int, query string) []buildRow {
-	b, t := &p.build, a.text.Build
+// appendBuildNodes appends nodes at level and, under each open one, its children: the nodes
+// Core nested in it, or the dependencies or discovered tests the host loads for it. While
+// filtering, a node Core kept for a match below it is open and stays so, and a match shows as
+// the user left it with all it holds; the discovered tests node shows only the tests that
+// match, and is left out when none does.
+func (a *App) appendBuildNodes(rows []buildRow, p *project, index int, tree *buildTree, nodes []core.BuildTreeNode, level int, filtering bool) []buildRow {
+	b, t, language := &p.build, a.text.Build, a.language()
 	instance := &b.instances[index]
-	filtering := query != ""
-	if !instance.modelLoaded {
-		switch {
-		case filtering:
-		case instance.modelError != "":
-			// The row has one line; the tool's own explanation that follows is its tooltip.
-			first, _, more := strings.Cut(instance.modelError, "\n")
-			row := buildRow{kind: buildRowEmpty, instance: index, level: 1, label: t.ModelFailed(first), warning: true}
-			if more {
-				row.tooltip = t.ModelFailed(instance.modelError)
-			}
-			rows = append(rows, row)
-		default:
-			rows = append(rows, buildRow{kind: buildRowEmpty, instance: index, level: 1, label: t.LoadingModel, loading: true})
-		}
-		return rows
-	}
 	selected := index == b.selected
-	// The project scope is the selected instance's, and a search looks past it.
-	scope := ""
-	if selected && !filtering {
-		scope = b.projectID
+	query := ""
+	if filtering {
+		query = p.buildFilterQuery()
 	}
-	keep := func(label, detail string) bool { return !filtering || buildMatches(query, label, detail) }
-	// add appends one section and, when it is open, its rows. Without a filter count is what
-	// the heading shows, -1 for not known yet, and items is asked for only when the section is
-	// open, so a closed section loads nothing; with one, the section shows only its matches.
-	add := func(section, label string, count int, items func() []buildRow) {
-		if filtering {
-			list := items()
-			if len(list) == 0 {
-				return
+	for at := range nodes {
+		node := &nodes[at]
+		row := buildRow{instance: index, level: level, node: node, label: node.Label, detail: node.Detail, tooltip: node.Tooltip}
+		fixed := filtering && !node.Matched
+		var tests []buildRow
+		switch node.Kind {
+		case core.BuildTreeProject:
+			row.kind = buildRowProject
+			row.selected = selected && b.projectID == node.ProjectID && b.targetID == "" && b.taskID == ""
+		case core.BuildTreeTarget:
+			row.kind, row.target = buildRowTarget, instance.targetOf(tree, node.TargetID)
+			row.selected = selected && b.targetID == node.TargetID && b.taskID == ""
+		case core.BuildTreeTask:
+			row.kind = buildRowTask
+			row.selected = selected && b.taskID == node.TaskID && b.projectID == node.ProjectID && b.targetID == node.TargetID
+		case core.BuildTreeFolder:
+			// Core names the folder: by its category heading, else by the group heading it was sent.
+			row.kind = buildRowFolder
+		case core.BuildTreeTargets:
+			row.kind, row.label = buildRowFolder, t.Targets
+		case core.BuildTreeDependencies:
+			row.kind, row.label = buildRowFolder, i18n.Shared(language, "native.dependencies")
+		case core.BuildTreeTests:
+			row.kind, row.label = buildRowFolder, i18n.Shared(language, "native.discoveredTests")
+			if fixed {
+				// Core keeps the tests node for the host to filter, as it alone has the tests.
+				if tests = a.buildTestRows(p, index, "", query, level+1); len(tests) == 0 {
+					continue
+				}
 			}
-			rows = append(rows, buildRow{kind: buildRowSection, instance: index, level: 1, section: section, label: label, count: len(list), open: true, fixed: true})
-			rows = append(rows, list...)
-			return
-		}
-		open := p.buildSectionOpen(instance.ID, section)
-		rows = append(rows, buildRow{kind: buildRowSection, instance: index, level: 1, section: section, label: label, count: count, open: open})
-		if open {
-			rows = append(rows, items()...)
-		}
-	}
-	model := &instance.Model
-
-	projects := make([]buildRow, 0, len(model.Projects))
-	for _, project := range model.Projects {
-		name := project.DisplayName
-		if name == "" {
-			name = project.Name
-		}
-		if keep(name, project.Path) {
-			// The project at the build root says nothing more with a path of ".".
-			detail := project.Path
-			if detail == "." {
-				detail = ""
-			}
-			projects = append(projects, buildRow{kind: buildRowProject, instance: index, level: 2, label: name, detail: detail, id: project.ID, selected: selected && b.projectID == project.ID})
-		}
-	}
-	if len(model.Projects) != 0 {
-		add(buildSectionProjects, t.Projects, len(projects), func() []buildRow { return projects })
-	}
-
-	if projectID, ok := buildDependencyProject(instance, scope); ok && !filtering {
-		count := -1
-		if deps := b.dependencies[buildDependencyKey(instance.ID, projectID)]; deps != nil && !deps.loading && deps.failed == "" {
-			count = len(deps.tree.Dependencies)
-		}
-		add(buildSectionDependencies, i18n.Shared(a.language(), "native.dependencies"), count, func() []buildRow {
-			return a.buildDependencyRows(p, index, projectID, 2)
-		})
-	}
-
-	var targets []buildRow
-	for at := range model.Targets {
-		target := &model.Targets[at]
-		if scope != "" && target.ProjectID != scope || !keep(target.Name, target.Path) {
+		default:
 			continue
 		}
-		label, detail, tooltip := buildTargetLabel(target)
-		targets = append(targets, buildRow{
-			kind: buildRowTarget, instance: index, level: 2, label: label, detail: detail, tooltip: tooltip,
-			id: target.ID, project: target.ProjectID, selected: selected && b.targetID == target.ID, target: target,
-		})
-	}
-	if len(targets) != 0 {
-		add(buildSectionTargets, t.Targets, len(targets), func() []buildRow { return targets })
-	}
-
-	var tasks []buildRow
-	for _, task := range declaredTasks(instance) {
-		if name, detail := buildTaskName(&task), buildTaskDetail(&task); keep(name, detail) {
-			tasks = append(tasks, buildRow{kind: buildRowTask, instance: index, level: 2, label: name, detail: detail, id: task.ID, selected: selected && b.taskID == task.ID})
-		}
-	}
-	for _, task := range model.Tasks {
-		// A model task belongs to its project, so the project scope narrows tasks as it does targets.
-		if scope != "" && task.ProjectID != scope {
+		row.branch = len(node.Children) != 0 || node.Kind == core.BuildTreeDependencies || node.Kind == core.BuildTreeTests
+		row.fixed = fixed && row.branch
+		row.open = row.branch && (row.fixed || p.buildNodeOpen(instance.ID, node))
+		rows = append(rows, row)
+		if !row.open {
 			continue
 		}
-		name := task.DisplayName
-		if name == "" {
-			name = task.Name
+		switch node.Kind {
+		case core.BuildTreeDependencies:
+			rows = append(rows, a.buildDependencyRows(p, index, node.ProjectID, level+1)...)
+		case core.BuildTreeTests:
+			if tests == nil {
+				tests = a.buildTestRows(p, index, "", "", level+1)
+			}
+			rows = append(rows, tests...)
+		default:
+			rows = a.appendBuildNodes(rows, p, index, tree, node.Children, level+1, fixed)
 		}
-		if detail := strings.Join(task.Category, " / "); keep(name, detail) {
-			tasks = append(tasks, buildRow{kind: buildRowTask, instance: index, level: 2, label: name, detail: detail, id: task.ID, selected: selected && b.taskID == task.ID})
-		}
-	}
-	add(buildSectionTasks, t.Tasks, len(tasks), func() []buildRow {
-		if len(tasks) == 0 && !filtering {
-			return []buildRow{{kind: buildRowEmpty, instance: index, level: 2, label: t.NoTasks}}
-		}
-		return tasks
-	})
-
-	if instance.System.Test != nil && instance.System.Test.Discovery {
-		count := -1
-		if view := p.discoveredTestsView(instance); view.loaded && !view.loading {
-			count = len(buildScopedTests(instance, view.tests, scope, ""))
-		}
-		add(buildSectionTests, i18n.Shared(a.language(), "native.discoveredTests"), count, func() []buildRow {
-			return a.buildTestRows(p, index, scope, query, 2)
-		})
 	}
 	return rows
 }
 
 // reloadBuildSystems detects the workspace's build systems again: the instances, their models,
-// dependency trees and discovered tests are dropped and found anew. What the user opened and
-// closed is kept by instance, so an instance found again shows as before.
+// trees, dependency trees and discovered tests are dropped and found anew. What the user
+// opened and closed is kept by instance and node, so an instance found again shows as before.
 func (a *App) reloadBuildSystems(p *project) {
 	b := &p.build
 	p.reloadBuildDependencies()
@@ -339,6 +491,9 @@ type buildTargetAction struct {
 // buildPrimaryAction is the first of a target's runs, as its context menu lists them: the
 // provider's runs that apply to it, then the command entries. ok is false when it has none.
 func buildPrimaryAction(instance *buildInstance, target *core.BuildTarget) (buildTargetAction, bool) {
+	if target == nil {
+		return buildTargetAction{}, false
+	}
 	for _, run := range instance.System.Runs {
 		if buildRunApplies(run, *target) {
 			return buildTargetAction{runID: run.ID, name: run.Name, debug: run.DebugAdapter != ""}, true
@@ -393,20 +548,4 @@ func buildSystemFamily(buildSystemID string) symbolFamily {
 	h := fnv.New32a()
 	_, _ = h.Write([]byte(buildSystemID))
 	return symbolFamily(1 + h.Sum32()%uint32(familyModule))
-}
-
-// buildTargetLabel is what the row of target shows: its name with its path beside it, or the
-// path alone when the name already ends with it, as a Go import path ends with the folder of
-// its package; the full name then shows while the pointer rests on the row. The filter still
-// matches the name and the path.
-func buildTargetLabel(target *core.BuildTarget) (label, detail, tooltip string) {
-	name, at := target.Name, strings.Trim(target.Path, "/")
-	switch {
-	case at == "" || at == ".":
-	case name == at:
-		return at, "", ""
-	case strings.HasSuffix(name, "/"+at):
-		return at, "", name
-	}
-	return name, target.Path, ""
 }

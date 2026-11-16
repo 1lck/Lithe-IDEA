@@ -6666,6 +6666,72 @@
       ]
     },
     {
+      "id": "desktop.build.group.lifecycle",
+      "description": "Build tool window: heading of the folder that holds a project's lifecycle tasks (clean, compile, package and the like)",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.build.group.build",
+      "description": "Build tool window: heading of the folder that holds a project's build tasks",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.build.group.test",
+      "description": "Build tool window: heading of the folder that holds a project's test tasks",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.build.group.run",
+      "description": "Build tool window: heading of the folder that holds a project's tasks that run the application",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.build.group.verification",
+      "description": "Build tool window: heading of the folder that holds a project's checks (lint, verify and the like)",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.build.group.documentation",
+      "description": "Build tool window: heading of the folder that holds a project's documentation tasks",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.build.group.other",
+      "description": "Build tool window: heading of the folder that holds the tasks of no other group",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.build.treeTruncated",
+      "description": "Build tool window line under a build system whose tree holds too many items to list them all",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.build.treeFailed",
+      "description": "Build tool window line when a loaded build model could not be laid out as a tree: {error}",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "error": "string"
+      }
+    },
+    {
       "id": "desktop.build.emptyOutput",
       "description": "Run a build task to see output.",
       "platforms": [
@@ -6723,13 +6789,6 @@
     {
       "id": "desktop.build.noOptions",
       "description": "Build options dialog message when the build system declares no options",
-      "platforms": [
-        "desktop"
-      ]
-    },
-    {
-      "id": "desktop.build.noProjects",
-      "description": "No projects in the build model",
       "platforms": [
         "desktop"
       ]
@@ -6856,13 +6915,6 @@
       ]
     },
     {
-      "id": "desktop.build.projects",
-      "description": "Projects",
-      "platforms": [
-        "desktop"
-      ]
-    },
-    {
       "id": "desktop.build.refresh",
       "description": "Detect build systems again",
       "platforms": [
@@ -6931,13 +6983,6 @@
     {
       "id": "desktop.build.targets",
       "description": "Targets",
-      "platforms": [
-        "desktop"
-      ]
-    },
-    {
-      "id": "desktop.build.tasks",
-      "description": "Tasks",
       "platforms": [
         "desktop"
       ]

@@ -17,8 +17,9 @@ import (
 	"github.com/vivaui/viva/ui"
 )
 
-// The Build tool window lists the dependencies of the chosen project (of the whole build when
-// none is chosen) under its projects. The build plugin says how to get them: Core plans the
+// The Build tool window lists each project's dependencies under its node, and the whole
+// build's under the group, for the scopes the build system declares (Core places the nodes,
+// build.modelTree). The build plugin says how to get them: Core plans the
 // command or the provider request (build.dependencyPlan) and decodes the answer into a
 // bounded tree (build.decodeDependencies); the window only runs, shows and navigates. A
 // dependency row opens and closes its children; a double click opens the project's build file.
@@ -57,34 +58,6 @@ func (a *App) dependenciesOf(p *project, instance *buildInstance, projectID stri
 		a.loadBuildDependencies(p, instance, projectID, deps, false)
 	}
 	return deps
-}
-
-// buildDependencyProject is the project whose dependencies the window lists, and whether it lists
-// any: the chosen project, or the whole build when none is chosen. Core refuses a scope the build
-// system does not declare (plugin.build.invalidSelection), so an undeclared scope lists nothing;
-// with no project chosen and only the project scope declared, a model of one project lists its own.
-func buildDependencyProject(instance *buildInstance, chosen string) (string, bool) {
-	declared := instance.System.Dependencies
-	if declared == nil {
-		return "", false
-	}
-	declares := func(scope string) bool {
-		for _, s := range declared.Scopes {
-			if s == scope {
-				return true
-			}
-		}
-		return false
-	}
-	switch {
-	case chosen != "" && declares("project"):
-		return chosen, true
-	case chosen == "" && declares("workspace"):
-		return "", true
-	case chosen == "" && declares("project") && len(instance.Model.Projects) == 1:
-		return instance.Model.Projects[0].ID, true
-	}
-	return "", false
 }
 
 // reloadBuildDependencies forgets every loaded tree, for a reloaded model.
