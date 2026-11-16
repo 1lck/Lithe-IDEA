@@ -88,6 +88,10 @@ type buildInstance struct {
 	modelLoading       bool
 	modelReloadPending bool
 	modelError         string
+	// modelVersion counts the models the instance loaded, so a tree laid out from an earlier
+	// one is known stale; trees are the Build window's trees of the model (build_tree.go).
+	modelVersion uint64
+	trees        buildTrees
 }
 
 // buildOperation is the one Build execution the window runs: a task or a run, from the
@@ -849,6 +853,7 @@ func (a *App) finishBuildModel(p *project, id string, model core.BuildModel, err
 		}
 		p.build.instances[index].Model = model
 		p.build.instances[index].modelLoaded = true
+		p.build.instances[index].modelVersion++
 		p.build.status = ""
 		// The runs the model offers become run configurations.
 		a.refreshRunConfigurations(p)
@@ -874,10 +879,10 @@ func (p *project) selectedBuildInstance() *buildInstance {
 	return &p.build.instances[p.build.selected]
 }
 
-// runSelectedBuildTask runs the selected declared or model task. The tree lists tasks under
-// their build system, not under a project, so the window's project and target are only a hint:
-// a model task runs on the project it belongs to, and a declared task on what
-// buildTaskSelection makes of the selection for the scopes it declares.
+// runSelectedBuildTask runs the selected declared or model task. A model task runs on the
+// project it belongs to, and a declared task on what buildTaskSelection makes of the selection
+// for the scopes it declares: a task row of the tree selects the project and target Core
+// placed it under, a run configuration or the header button may leave them to be fitted.
 func (a *App) runSelectedBuildTask(p *project) {
 	projectID, targetID := p.build.projectID, p.build.targetID
 	if instance := p.selectedBuildInstance(); instance != nil && p.build.operation == nil {

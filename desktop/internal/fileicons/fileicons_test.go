@@ -304,6 +304,33 @@ func TestForBreakpoint(t *testing.T) {
 	}
 }
 
+// TestForBuildNode checks that every Build tool window row kind gets its own layered IntelliJ
+// icon in both looks, and that an unknown kind falls back to the task folder's.
+func TestForBuildNode(t *testing.T) {
+	cases := []struct {
+		node      BuildNode
+		lightIcon *gfx.Icon
+		darkIcon  *gfx.Icon
+	}{
+		{BuildProject, &Module, &ModuleDark},
+		{BuildTaskFolder, &TaskGroup, &TaskGroupDark},
+		{BuildTask, &Task, &TaskDark},
+		{BuildTargets, &Folder, &FolderDark},
+		{BuildTarget, &Artifact, &ArtifactDark},
+		{BuildDependencies, &LibraryFolder, &LibraryFolderDark},
+		{BuildDependency, &Library, &LibraryDark},
+		{BuildTests, &TestGroup, &TestGroupDark},
+		{buildNodeCount, &TaskGroup, &TaskGroupDark},
+	}
+	if len(cases) != int(buildNodeCount)+1 {
+		t.Fatalf("cases cover %d kinds; want all %d and an unknown one", len(cases), buildNodeCount)
+	}
+	for _, test := range cases {
+		requireGeneratedIcon(t, ForBuildNode(test.node, false), test.lightIcon)
+		requireGeneratedIcon(t, ForBuildNode(test.node, true), test.darkIcon)
+	}
+}
+
 func requireGeneratedIcon(t *testing.T, got gfx.Icon, want *gfx.Icon) {
 	t.Helper()
 	if len(got.Layers) == 0 || len(want.Layers) == 0 || &got.Layers[0] != &want.Layers[0] {
