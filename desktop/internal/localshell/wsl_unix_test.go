@@ -14,12 +14,10 @@ import (
 // The WSL start script is plain sh, so it runs here against stand-ins for what
 // a distribution has and this machine does not.
 
-// fakeWSLPath stands in for the wslpath of a distribution called Fake: the
-// Linux path /a/b is \\wsl.localhost\Fake\a\b, and a Windows path is given back
-// as the Linux one without its drive, so the test's own folders can be named.
+// fakeWSLPath stands in for a distribution's wslpath -u: a Windows path is given
+// back as the Linux one without its drive, so the test's own folders can be named.
 const fakeWSLPath = `#!/bin/sh
 case $1 in
--w) printf '%s' '\\wsl.localhost\Fake'"$(printf '%s' "$2" | tr / '\\')" ;;
 -u) printf '%s\n' "$(printf '%s' "${2#?:}" | tr '\\' /)" ;;
 *) exit 2 ;;
 esac
@@ -30,10 +28,6 @@ esac
 const fakeGetent = `#!/bin/sh
 printf 'user:x:1000:1000::%s:%s\n' "$HOME" "$LITHE_TEST_LOGIN_SHELL"
 `
-
-func fakeWindowsPath(linux string) string {
-	return `\\wsl.localhost\Fake` + strings.ReplaceAll(linux, "/", `\`)
-}
 
 // fakeWindowsDrivePath spells a folder as a path on a Windows drive, which the
 // script turns into a Linux path with wslpath.
@@ -52,7 +46,7 @@ func writeFakeWSLTools(t *testing.T) string {
 	return tools
 }
 
-func TestWSLScriptStartsTheLoginShellAndReportsWindowsFolders(t *testing.T) {
+func TestWSLScriptStartsTheLoginShellInTheStartFolder(t *testing.T) {
 	for _, name := range []string{"bash", "zsh"} {
 		t.Run(name, func(t *testing.T) {
 			program, err := exec.LookPath(name)
@@ -60,13 +54,9 @@ func TestWSLScriptStartsTheLoginShellAndReportsWindowsFolders(t *testing.T) {
 				t.Skipf("%s unavailable: %v", name, err)
 			}
 			home, runtimeDir, tools := t.TempDir(), t.TempDir(), writeFakeWSLTools(t)
-			startDir := filepath.Join(home, "start here")
-			target := filepath.Join(home, "a b%'#;$()", "café")
-			control := filepath.Join(home, "bell\athere")
-			for _, dir := range []string{startDir, target, control} {
-				if err := os.MkdirAll(dir, 0o700); err != nil {
-					t.Fatal(err)
-				}
+			startDir := filepath.Join(home, "start here", "a b%'#;$()", "café")
+			if err := os.MkdirAll(startDir, 0o700); err != nil {
+				t.Fatal(err)
 			}
 			// /etc/profile may reset PATH, so the stand-in is put on it by the user's
 			// own startup file, the way a distribution has wslpath in /usr/bin.
@@ -92,34 +82,18 @@ func TestWSLScriptStartsTheLoginShellAndReportsWindowsFolders(t *testing.T) {
 					WSLDirectoryVariable + "=" + fakeWindowsDrivePath(startDir),
 				},
 			}, "wsl-test-token")
-			reported := func(linux string) func() bool {
-				return func() bool {
-					cwd, ok := s.screen.WorkingDirectory()
-					return ok && cwd.Path == fakeWindowsPath(linux)
-				}
-			}
 			// The shell starts in the folder the environment named, not the home
 			// folder, and the user's own startup file ran.
-			s.await("the first prompt in the start folder", func() bool { return s.ready > 0 && reported(startDir)() })
+			s.await("the first prompt", func() bool { return s.ready() > 0 })
+			s.run("printf 'in=%s\\n' \"$PWD\"\r", 1, "in="+startDir+"\r\n")
 			if !strings.Contains(s.output, "user-profile-loaded") {
 				t.Fatalf("the user's startup file did not run: %q", s.output)
 			}
 			if strings.Contains(s.output, WSLDirectoryVariable) {
 				t.Fatalf("the start folder variable reached the shell: %q", s.output)
 			}
-			if !s.screen.CommandReporting() {
-				t.Fatal("the shell did not announce command-start reporting")
-			}
-
-			before := s.ready
-			s.shell.Write([]byte("cd -- '" + strings.ReplaceAll(target, "'", "'\\''") + "'\r"))
-			s.await("the report after cd", func() bool { return s.ready > before && reported(target)() })
-
-			// A folder whose name could end the report early is not reported at
-			// all, and the old report stays.
-			s.run("cd -- \"$HOME/\"bell* && case $PWD in *bell*) echo in-bell-folder-$((6*7)) ;; esac\r", 1, "in-bell-folder-42")
-			if cwd, _ := s.screen.WorkingDirectory(); cwd.Path != fakeWindowsPath(target) {
-				t.Fatalf("a folder with a control character was reported as %q", cwd.Path)
+			if !s.screen.CommandReporting() || s.starts() == 0 || s.lastExit() != 0 {
+				t.Fatalf("the shell did not report its commands: %q", s.output)
 			}
 
 			s.exit("exit 7\r", 7)

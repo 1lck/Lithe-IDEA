@@ -17,29 +17,51 @@ import (
 	"github.com/1lck/Lithe-IDEA/desktop/internal/term"
 )
 
-// integrated is a shell and the terminal reading its reports, paired the way
-// the terminal view pairs them.
+// integrated is a shell and the terminal reading its output, paired the way the
+// terminal view pairs them. What the shell reported is read from its output as
+// it came: the OSC 133 markers that carry this start's token, ended with BEL as
+// the scripts end them.
 type integrated struct {
-	t        *testing.T
-	shell    *Shell
-	wakes    chan struct{}
-	screen   *term.Terminal
-	output   string
-	ready    int
-	starts   int
-	lastExit int
+	t      *testing.T
+	shell  *Shell
+	wakes  chan struct{}
+	screen *term.Terminal
+	token  string
+	output string
 }
 
 func startIntegrated(t *testing.T, config Config, token string) *integrated {
 	t.Helper()
 	config.Cols, config.Rows = 120, 24
 	shell, wakes := start(t, config)
-	s := &integrated{t: t, shell: shell, wakes: wakes, screen: term.New(120, 24, 0), lastExit: -1}
+	s := &integrated{t: t, shell: shell, wakes: wakes, screen: term.New(120, 24, 0), token: token}
 	s.screen.SetPromptToken(token)
-	s.screen.SetPromptReady(func() { s.ready++ })
-	s.screen.SetCommandStart(func() { s.starts++ })
-	s.screen.SetCommandFinished(func(code int) { s.lastExit = code })
 	return s
+}
+
+// marks counts the shell's OSC 133 markers of kind ("A", "B" or "C") so far.
+func (s *integrated) marks(kind string) int {
+	return strings.Count(s.output, "\x1b]133;"+kind+";motty="+s.token+"\a")
+}
+
+// ready counts the prompts the shell has finished drawing (OSC 133 B).
+func (s *integrated) ready() int { return s.marks("B") }
+
+// starts counts the commands the shell has reported starting (OSC 133 C).
+func (s *integrated) starts() int { return s.marks("C") }
+
+// lastExit is the status of the last command end the shell reported (OSC 133
+// D), or -1 before the first.
+func (s *integrated) lastExit() int {
+	ends := regexp.MustCompile("\x1b\\]133;D;([0-9]+);motty="+regexp.QuoteMeta(s.token)+"\a").FindAllStringSubmatch(s.output, -1)
+	if len(ends) == 0 {
+		return -1
+	}
+	status, err := strconv.Atoi(ends[len(ends)-1][1])
+	if err != nil {
+		s.t.Fatalf("command end status %q: %v", ends[len(ends)-1][1], err)
+	}
+	return status
 }
 
 // await feeds the shell's output to the terminal until done holds. The
@@ -57,7 +79,7 @@ func (s *integrated) await(what string, done func() bool) {
 		select {
 		case <-s.wakes:
 		case <-deadline:
-			s.t.Fatalf("waiting for %s (ready=%d starts=%d): %q", what, s.ready, s.starts, s.output)
+			s.t.Fatalf("waiting for %s (ready=%d starts=%d): %q", what, s.ready(), s.starts(), s.output)
 		}
 	}
 }
@@ -65,9 +87,9 @@ func (s *integrated) await(what string, done func() bool) {
 // run types input and waits for the prompts that follow it and for text.
 func (s *integrated) run(input string, prompts int, text string) {
 	s.t.Helper()
-	before := s.ready
+	before := s.ready()
 	s.shell.Write([]byte(input))
-	s.await(strconv.Quote(input), func() bool { return s.ready >= before+prompts && strings.Contains(s.output, text) })
+	s.await(strconv.Quote(input), func() bool { return s.ready() >= before+prompts && strings.Contains(s.output, text) })
 }
 
 // exit types command and waits for the shell to end with status.
@@ -128,10 +150,10 @@ func TestIntegrationStartsOnlyBashAndZshWithATokenTheScriptCanCarry(t *testing.T
 	}
 }
 
-// A shell started without Args and with a token reports its prompt, the start
-// and status of every command and its folder, runs the user's own startup and
-// prompt hooks, and is still idle at its prompt and busy while a command runs.
-func TestIntegratedShellReportsPromptsCommandsAndFolders(t *testing.T) {
+// A shell started without Args and with a token reports its prompt and the start
+// and status of every command, runs the user's own startup and prompt hooks, and
+// is still idle at its prompt and busy while a command runs.
+func TestIntegratedShellReportsPromptsAndCommands(t *testing.T) {
 	for _, name := range []string{"bash", "zsh"} {
 		t.Run(name, func(t *testing.T) {
 			program, err := exec.LookPath(name)
@@ -156,26 +178,26 @@ func TestIntegratedShellReportsPromptsCommandsAndFolders(t *testing.T) {
 				t.Fatal(err)
 			}
 			s := startIntegrated(t, Config{
-				Shell: program, DirectoryToken: "pty-test-token", Dir: home, Unset: []string{"TERM_PROGRAM"},
+				Shell: program, PromptToken: "pty-test-token", Dir: home, Unset: []string{"TERM_PROGRAM"},
 				Env: []string{"HOME=" + home, "ZDOTDIR=" + home, "SHELL=" + program, "TMPDIR=" + runtimeDir, "LANG=en_US.UTF-8"},
 			}, "pty-test-token")
-			s.await("the first prompt", func() bool { return s.ready > 0 })
+			s.await("the first prompt", func() bool { return s.ready() > 0 })
 			// The shell removes its private startup files once it has read them.
 			emptyDirectory(t, runtimeDir)
 			// Every Bash and Zsh reports command starts: PS0 or preexec, or a
 			// DEBUG trap before Bash 4.4, announced once at start-up.
-			if s.starts == 0 || !s.screen.CommandReporting() {
+			if s.starts() == 0 || !s.screen.CommandReporting() {
 				t.Fatalf("the shell did not announce command-start reporting: %q", s.output)
 			}
 			busyWithin(t, s.shell, false)
 
 			s.run("false\r", 1, "")
-			if s.lastExit != 1 {
-				t.Fatalf("false exit status = %d; output %q", s.lastExit, s.output)
+			if s.lastExit() != 1 {
+				t.Fatalf("false exit status = %d; output %q", s.lastExit(), s.output)
 			}
 			s.run("true\r", 1, "")
-			if s.lastExit != 0 {
-				t.Fatalf("true exit status = %d", s.lastExit)
+			if s.lastExit() != 0 {
+				t.Fatalf("true exit status = %d", s.lastExit())
 			}
 			if !strings.Contains(s.output, "user-profile-loaded") || !strings.Contains(s.output, "user-hook") {
 				t.Fatalf("the user's profile or prompt hook was lost: %q", s.output)
@@ -191,13 +213,9 @@ func TestIntegratedShellReportsPromptsCommandsAndFolders(t *testing.T) {
 				}
 			}
 
-			before, startsBefore := s.ready, s.starts
-			s.shell.Write([]byte("cd -- '" + strings.ReplaceAll(target, "'", "'\\''") + "'\r"))
-			s.await("the folder report after cd", func() bool {
-				cwd, ok := s.screen.WorkingDirectory()
-				return ok && cwd.Path == target && s.ready > before
-			})
-			if s.starts <= startsBefore {
+			startsBefore := s.starts()
+			s.run("cd -- '"+strings.ReplaceAll(target, "'", "'\\''")+"' && printf 'in=%s\\n' \"$PWD\"\r", 1, "in="+target+"\r\n")
+			if s.starts() <= startsBefore {
 				t.Fatal("cd was not preceded by a command-start report")
 			}
 			if strings.Count(s.output, "user-hook\r\n") < 2 {
@@ -211,9 +229,9 @@ func TestIntegratedShellReportsPromptsCommandsAndFolders(t *testing.T) {
 			// foreground is busy.
 			s.shell.Write([]byte("sleep 30\r"))
 			busyWithin(t, s.shell, true)
-			before = s.ready
+			before := s.ready()
 			s.shell.Write([]byte{0x03})
-			s.await("the prompt after Ctrl+C", func() bool { return s.ready > before })
+			s.await("the prompt after Ctrl+C", func() bool { return s.ready() > before })
 			busyWithin(t, s.shell, false)
 
 			s.exit("exit 7\r", 7)
@@ -272,9 +290,9 @@ func TestClosingAnIntegratedShellThatNeverPromptsStillEndsIt(t *testing.T) {
 	for _, name := range []string{"bash", "zsh"} {
 		t.Run(name, func(t *testing.T) {
 			s := startHangupShell(t, name, nil)
-			starts := s.starts
+			starts := s.starts()
 			s.shell.Write([]byte("while :; do :; done\r"))
-			s.await("the loop's start", func() bool { return s.starts > starts })
+			s.await("the loop's start", func() bool { return s.starts() > starts })
 			closeAndAwaitEnd(t, s.shell)
 		})
 	}
@@ -290,10 +308,10 @@ func startHangupShell(t *testing.T, name string, env []string) *integrated {
 	}
 	home, runtimeDir := t.TempDir(), t.TempDir()
 	s := startIntegrated(t, Config{
-		Shell: program, DirectoryToken: "hangup-token", Dir: home, Unset: []string{"TERM_PROGRAM"},
+		Shell: program, PromptToken: "hangup-token", Dir: home, Unset: []string{"TERM_PROGRAM"},
 		Env: append([]string{"HOME=" + home, "ZDOTDIR=" + home, "SHELL=" + program, "TMPDIR=" + runtimeDir, "LANG=en_US.UTF-8"}, env...),
 	}, "hangup-token")
-	s.await("the first prompt", func() bool { return s.ready > 0 })
+	s.await("the first prompt", func() bool { return s.ready() > 0 })
 	return s
 }
 
@@ -354,7 +372,7 @@ func TestClosingAShellDuringItsStartupRemovesItsPrivateDirectory(t *testing.T) {
 				t.Fatal(err)
 			}
 			s := startIntegrated(t, Config{
-				Shell: program, DirectoryToken: "startup-close-token", Dir: home, Unset: []string{"TERM_PROGRAM"},
+				Shell: program, PromptToken: "startup-close-token", Dir: home, Unset: []string{"TERM_PROGRAM"},
 				Env: []string{"HOME=" + home, "ZDOTDIR=" + home, "SHELL=" + program, "TMPDIR=" + runtimeDir, "LANG=en_US.UTF-8"},
 			}, "startup-close-token")
 			pid := regexp.MustCompile(`startup-pid=(\d+)\.`)
@@ -405,7 +423,7 @@ func TestIntegratedSystemBashReportsEachCommandLineOnce(t *testing.T) {
 		t.Skip("no /bin/bash")
 	}
 	checkCommandStartReports(t, func(env []string, _ string) Config {
-		return Config{Shell: "/bin/bash", DirectoryToken: "debug-trap-token", Env: env}
+		return Config{Shell: "/bin/bash", PromptToken: "debug-trap-token", Env: env}
 	}, "/bin/bash")
 }
 
@@ -419,9 +437,9 @@ func checkCommandStartReports(t *testing.T, config func(env []string, runtimeDir
 	cfg := config([]string{"HOME=" + home, "SHELL=" + program, "TMPDIR=" + runtimeDir, "LANG=en_US.UTF-8"}, runtimeDir)
 	cfg.Dir, cfg.Unset = home, []string{"TERM_PROGRAM"}
 	s := startIntegrated(t, cfg, "debug-trap-token")
-	s.await("the first prompt", func() bool { return s.ready > 0 })
-	if s.starts != 1 {
-		t.Fatalf("the shell did not announce command-start reporting once: %d", s.starts)
+	s.await("the first prompt", func() bool { return s.ready() > 0 })
+	if s.starts() != 1 {
+		t.Fatalf("the shell did not announce command-start reporting once: %d", s.starts())
 	}
 	// A stray report after a step is counted in the next one, so every step,
 	// the last included, is followed by another.
@@ -438,10 +456,10 @@ func checkCommandStartReports(t *testing.T, config func(env []string, runtimeDir
 		{"the status it left", "echo status=$?\r", "status=1\r\n", 1, 1},
 		{"one more", "echo marker-four\r", "marker-four\r\n", 1, 1},
 	} {
-		before := s.starts
+		before := s.starts()
 		s.run(step.input, step.prompts, step.text)
-		if s.starts-before != step.starts {
-			t.Fatalf("%s: %d command starts reported, want %d; output %q", step.name, s.starts-before, step.starts, s.output)
+		if s.starts()-before != step.starts {
+			t.Fatalf("%s: %d command starts reported, want %d; output %q", step.name, s.starts()-before, step.starts, s.output)
 		}
 	}
 	if !strings.Contains(s.output, "user-debug:echo marker-one\r\n") {
@@ -494,7 +512,7 @@ func TestIntegratedBashStartupMatchesALoginShell(t *testing.T) {
 				return s.output
 			}
 			login := read(Config{Shell: program, Args: []string{"-l", "-i"}, Dir: home, Env: env, Unset: []string{"TERM_PROGRAM"}})
-			shim := read(Config{Shell: program, DirectoryToken: "startup-token", Dir: home, Env: env, Unset: []string{"TERM_PROGRAM"}})
+			shim := read(Config{Shell: program, PromptToken: "startup-token", Dir: home, Env: env, Unset: []string{"TERM_PROGRAM"}})
 			if runs := strings.Count(login, "user-bashrc"); runs != test.want {
 				t.Fatalf("the fixture's login shell ran ~/.bashrc %d time(s), want %d: %q", runs, test.want, login)
 			}
@@ -567,15 +585,15 @@ func TestIntegratedZshHistorySurvivesSessions(t *testing.T) {
 			}
 			histfile, _, _ := strings.Cut(expected, "\x1frc=")
 			for session := 0; session < 2; session++ {
-				s := startIntegrated(t, Config{Shell: program, DirectoryToken: "history-token", Dir: home, Env: env, Unset: unset}, "history-token")
+				s := startIntegrated(t, Config{Shell: program, PromptToken: "history-token", Dir: home, Env: env, Unset: unset}, "history-token")
 				run := func(input, want string) {
 					t.Helper()
-					before := s.ready
+					// Only what follows the input counts: the prompt after it and want.
 					s.output = ""
 					s.shell.Write([]byte(input + "\r"))
-					s.await("session "+strconv.Itoa(session)+": "+strconv.Quote(input), func() bool { return s.ready > before && strings.Contains(s.output, want) })
+					s.await("session "+strconv.Itoa(session)+": "+strconv.Quote(input), func() bool { return s.ready() > 0 && strings.Contains(s.output, want) })
 				}
-				s.await("the first prompt", func() bool { return s.ready > 0 })
+				s.await("the first prompt", func() bool { return s.ready() > 0 })
 				if session == 1 && histfile != "" {
 					run("\x1b[A", "\x1elithe-history-marker\x1f")
 				}
@@ -608,15 +626,15 @@ func TestIntegratedZshHistorySurvivesSessions(t *testing.T) {
 // command all start the shell as itself, with no report.
 func TestShellsTheIntegrationDoesNotCoverStartAsThemselves(t *testing.T) {
 	for name, config := range map[string]Config{
-		"sh":           {Shell: "/bin/sh", DirectoryToken: "plain-token"},
-		"a bad token":  {Shell: "/bin/sh", DirectoryToken: "a;b"},
-		"command args": {Shell: "/bin/sh", Args: []string{"-i"}, DirectoryToken: "plain-token"},
+		"sh":           {Shell: "/bin/sh", PromptToken: "plain-token"},
+		"a bad token":  {Shell: "/bin/sh", PromptToken: "a;b"},
+		"command args": {Shell: "/bin/sh", Args: []string{"-i"}, PromptToken: "plain-token"},
 	} {
 		t.Run(name, func(t *testing.T) {
 			s := startIntegrated(t, config, "plain-token")
 			s.run("echo plain-$((6*7))\n", 0, "plain-42")
-			if s.ready != 0 || s.starts != 0 || s.screen.CommandReporting() {
-				t.Fatalf("a shell outside the integration reported: ready=%d starts=%d: %q", s.ready, s.starts, s.output)
+			if s.ready() != 0 || s.starts() != 0 || s.screen.CommandReporting() {
+				t.Fatalf("a shell outside the integration reported: ready=%d starts=%d: %q", s.ready(), s.starts(), s.output)
 			}
 		})
 	}

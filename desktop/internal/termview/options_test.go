@@ -17,8 +17,8 @@ func TestPlainShellStartsTheUsersShellWithoutIntegration(t *testing.T) {
 	t.Cleanup(func() { view.Close() })
 	view.SetOptions(Options{PlainShell: true})
 	view.ensureStarted()
-	if started.DirectoryToken != "" {
-		t.Fatalf("the plain shell started with token %q", started.DirectoryToken)
+	if started.PromptToken != "" {
+		t.Fatalf("the plain shell started with token %q", started.PromptToken)
 	}
 	output(view, shell, "\x1b]133;C;motty=\a\x1b]133;C\a")
 	if view.screen.CommandReporting() {
@@ -32,7 +32,7 @@ func TestPlainShellStartsTheUsersShellWithoutIntegration(t *testing.T) {
 	if !view.restart() {
 		t.Fatal("the ended shell did not restart")
 	}
-	if started.DirectoryToken == "" {
+	if started.PromptToken == "" {
 		t.Fatal("the shell started after the integration came back on has no token")
 	}
 }

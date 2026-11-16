@@ -106,7 +106,7 @@ func TestSharedEnvironmentKeepsWhatTheUserShares(t *testing.T) {
 
 func TestWSLLaunchGivesWslExeOnlyArgumentsItCannotMisread(t *testing.T) {
 	const exe = `C:\Windows\System32\wsl.exe`
-	program, args, env := wslLaunch(exe, Config{Dir: `\\wsl.localhost\Ubuntu\home\me\my project`, DirectoryToken: "wsl-token"}, "Ubuntu", "KEEP/p")
+	program, args, env := wslLaunch(exe, Config{Dir: `\\wsl.localhost\Ubuntu\home\me\my project`, PromptToken: "wsl-token"}, "Ubuntu", "KEEP/p")
 	if program != exe {
 		t.Fatalf("program = %q", program)
 	}
@@ -148,12 +148,12 @@ func TestWSLLaunchWithoutAScriptStartsTheDistributionsOwnShell(t *testing.T) {
 	if !slices.Equal(args, []string{"-d", "Debian", "--cd", "~"}) {
 		t.Fatalf("args = %q", args)
 	}
-	_, args, _ = wslLaunch("wsl.exe", Config{Args: []string{"ls", "-l"}, DirectoryToken: "ignored"}, "Debian", "")
+	_, args, _ = wslLaunch("wsl.exe", Config{Args: []string{"ls", "-l"}, PromptToken: "ignored"}, "Debian", "")
 	if !slices.Equal(args, []string{"-d", "Debian", "--cd", "~", "-e", "ls", "-l"}) {
 		t.Fatalf("args = %q", args)
 	}
 	// A token the script could not carry unquoted starts the shell untouched.
-	_, args, _ = wslLaunch("wsl.exe", Config{DirectoryToken: "a;b"}, "Debian", "")
+	_, args, _ = wslLaunch("wsl.exe", Config{PromptToken: "a;b"}, "Debian", "")
 	if !slices.Equal(args, []string{"-d", "Debian", "--cd", "~"}) {
 		t.Fatalf("args = %q", args)
 	}
