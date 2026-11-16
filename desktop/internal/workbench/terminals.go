@@ -414,6 +414,9 @@ func (a *App) newTerminalWith(p *project, options terminalOptions) *terminal {
 		config.Exited = func(status *int) { a.pluginTerminalExited(p, t, status) }
 	}
 	t.view = termview.New(config)
+	// A terminal can start before its first paint (Start below), and the switches decide how
+	// its shell starts.
+	t.view.SetOptions(a.terminalOptions())
 	a.terminalInput(t)
 	set.list = append(set.list, t)
 	if options.plugin != nil {

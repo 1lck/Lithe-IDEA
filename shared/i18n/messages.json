@@ -16078,6 +16078,27 @@
       ]
     },
     {
+      "id": "desktop.settings.terminal.behavior",
+      "description": "Terminal settings page, behavior card title",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.settings.terminal.clickMove",
+      "description": "Terminal settings page, behavior: click to move the cursor switch",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.settings.terminal.clickMoveHelp",
+      "description": "Terminal settings page, behavior: what click to move does",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
       "id": "desktop.settings.terminal.cursor",
       "description": "Terminal settings page, cursor: the card title",
       "platforms": [
@@ -16148,6 +16169,20 @@
       ]
     },
     {
+      "id": "desktop.settings.terminal.optionAsMeta",
+      "description": "Terminal settings page, behavior: macOS Option as Meta switch",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.settings.terminal.optionAsMetaHelp",
+      "description": "Terminal settings page, behavior: what Option as Meta does",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
       "id": "desktop.settings.terminal.scrollback",
       "description": "Terminal settings page, scrollback",
       "platforms": [
@@ -16185,6 +16220,20 @@
     {
       "id": "desktop.settings.terminal.scrollbackMore",
       "description": "Terminal settings page, scrollback",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.settings.terminal.shellIntegration",
+      "description": "Terminal settings page, behavior: shell integration switch",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.settings.terminal.shellIntegrationHelp",
+      "description": "Terminal settings page, behavior: what shell integration does",
       "platforms": [
         "desktop"
       ]

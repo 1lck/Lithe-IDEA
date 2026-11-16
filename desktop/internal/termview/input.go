@@ -217,9 +217,12 @@ func (v *View) TextInput(ctx app.TextInputContext) *app.TextInput {
 	v.input.MonoFace = v.font.Face
 	v.input.Color = v.pal.termFG
 	v.input.State = v.preedit
-	// Option stays a composing key (it types accents and symbols on a Mac keyboard), so the
-	// text system keeps it and the shell does not get Escape-prefixed Meta sequences.
-	v.input.AltSendsEscape = false
+	// Option is a composing key by default (it types accents and symbols on a Mac keyboard), so
+	// the text system keeps it and the shell does not get Escape-prefixed Meta sequences. With
+	// the Option-as-Meta switch on, Viva hands a printable Option chord over as a raw key, which
+	// the encoder sends as Escape and the key. Option+arrow keeps the word moves Key gives it
+	// either way.
+	v.input.AltSendsEscape = v.options.OptionAsMeta
 	// A program that asked for kitty keyboard enhancements needs presses, releases and raw
 	// printable keys, which Viva only delivers when the terminal asks for key releases.
 	// win32-input-mode is the same on Windows.

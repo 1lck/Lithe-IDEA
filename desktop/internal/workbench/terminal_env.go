@@ -75,3 +75,24 @@ func (a *App) setTerminalCursor(shape, thickness string) {
 	a.settings.TerminalCursorShape, a.settings.TerminalCursorThickness = shape, thickness
 	a.saveSettings()
 }
+
+// terminalOptions are the Terminal page's switches as every terminal takes them at each paint
+// (matrix ids terminal-shell-integration and terminal-interaction).
+func (a *App) terminalOptions() termview.Options {
+	behavior := a.settings.TerminalBehavior
+	return termview.Options{
+		PlainShell:   behavior.DisableShellIntegration,
+		NoClickMove:  behavior.DisableClickMove,
+		OptionAsMeta: behavior.OptionAsMeta,
+	}
+}
+
+// setTerminalBehavior stores the Terminal page's switches. Open terminals take the input
+// switches at their next paint, and the shell integration with the next shell they start.
+func (a *App) setTerminalBehavior(behavior settingswindow.TerminalBehavior) {
+	if a.settings.TerminalBehavior == behavior {
+		return
+	}
+	a.settings.TerminalBehavior = behavior
+	a.saveSettings()
+}

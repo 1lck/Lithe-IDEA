@@ -320,6 +320,7 @@ func (a *App) terminalInput(t *terminal) {
 		t.view.SetMessages(a.terminalMessages())
 		t.view.SetFont(a.terminalFont())
 		t.view.SetCursor(a.terminalCursor())
+		t.view.SetOptions(a.terminalOptions())
 		t.view.Paint(dc.Canvas, dc.Rect, a.terminalLook())
 	}
 }
