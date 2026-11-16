@@ -366,6 +366,7 @@ func prepareTool(ctx context.Context, kernel Kernel, workspace *workspace, regis
 		MinimumVersion:      options.MinimumVersion,
 		SystemInstallations: prepared.installations,
 		Environment:         prepared.environment,
+		CommandHomes:        prepared.commandHomes,
 		Fixed:               prepared.fixed,
 	}
 	candidates, err := kernel.ToolchainCandidatesOf(ctx, request)

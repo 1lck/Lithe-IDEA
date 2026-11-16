@@ -85,6 +85,62 @@ func TestAutomaticHomeIncludesTheResolvedEnvironment(t *testing.T) {
 	}
 }
 
+// A home reached only through the PATH or a declared variable is one the runtime
+// runs, so it must be an installation a picker can offer even when no discovery
+// scan covers it (#2032: a JDK on the Windows PATH, where the plugin declares no scan).
+func TestShellHomesAreInstallationsWithoutADiscoveryScan(t *testing.T) {
+	root, home := t.TempDir(), t.TempDir()
+	pathHome, variableHome := t.TempDir(), t.TempDir()
+	onPath := filepath.Join(pathHome, "jre", "bin", "vm")
+	writeExecutable(t, onPath)
+	onPath = canonical(t, onPath)
+	byVariable := filepath.Join(variableHome, "jre", "bin", "vm")
+	writeExecutable(t, byVariable)
+	byVariable = canonical(t, byVariable)
+	options := fixtureOptions(home, variableHome, map[string]string{onPath: "vm 8.0\n", byVariable: "vm 7.1\n"})
+	options.Lookup = func(command string) (string, error) {
+		if command != "fictional-vm" {
+			return "", errors.New("no command")
+		}
+		return onPath, nil
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	defer cancel()
+	snapshot, err := Load(ctx, core.NewClient(), root, ".", []json.RawMessage{readManifest(t, "runtime.plugin.json")}, options)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(snapshot.Tools) != 1 {
+		t.Fatalf("tools = %+v", snapshot.Tools)
+	}
+	tool := snapshot.Tools[0]
+	got := map[string]string{}
+	for _, installation := range tool.Installations {
+		got[filepath.Clean(installation.Home)] = installation.Version + " " + installation.Provider
+	}
+	want := map[string]string{
+		filepath.Dir(filepath.Dir(filepath.Dir(onPath))):     "8.0 host:shell",
+		filepath.Dir(filepath.Dir(filepath.Dir(byVariable))): "7.1 host:shell",
+	}
+	if len(got) != len(want) {
+		t.Fatalf("installations = %+v, want %v", tool.Installations, want)
+	}
+	for home, entry := range want {
+		if got[home] != entry {
+			t.Fatalf("installation %s = %q, want %q (all: %+v)", home, got[home], entry, tool.Installations)
+		}
+	}
+	commands := 0
+	for _, shell := range tool.Shell {
+		if shell.Command == "fictional-vm" {
+			commands++
+		}
+	}
+	if commands != 1 {
+		t.Fatalf("shell rows = %+v, want one for the PATH command", tool.Shell)
+	}
+}
+
 func TestLoadDiscoversTwoSemanticallyDifferentTools(t *testing.T) {
 	root := t.TempDir()
 	home := t.TempDir()

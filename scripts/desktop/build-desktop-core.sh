@@ -27,7 +27,11 @@ native_path() {
     fi
 }
 
-# Lithe-core-rust main at 957a349, #64 squash-merged: gitExecution.consoleQueries names the query
+# Lithe-core-rust #67 (branch fix/toolchain-candidates-command-homes at 16d17b1), on top of main
+# at 957a349: toolchains.candidates takes the optional commandHomes, lists the commands found on
+# the PATH as shell rows, and offers each shell home that checks out as an installations entry
+# with provider host:shell, once per canonical home (#2032). That main is
+# #64 squash-merged: gitExecution.consoleQueries names the query
 # categories the Git console records and queryCategory names a read the command does not tell
 # apart; git.consolePresentation takes display options, all false by default as in IDEA; output
 # folds only past ten lines and a deletion never folds; a failed unrecorded query still reports its
@@ -135,7 +139,7 @@ PINNED_CORE_REPOSITORY="https://github.com/Lithe-IDEA/Lithe-core-rust.git"
 # the contract, plugin guides, reference and SDKs live only in shared/plugins; on top of #16 (reported Git queries folded in the console),
 # #15 (git.write cherryPick, revert and reset fields), #14 (word-level changed ranges of diff
 # rows), #13, #8, #7, #6 and #4.
-PINNED_CORE_REVISION="957a349a5d8b571d416925c8231509572c2053f5"
+PINNED_CORE_REVISION="16d17b19922ba636db506d28bdedd13ed88bed47"
 PROFILE="debug"
 while [[ $# -gt 0 ]]; do
     case "$1" in
