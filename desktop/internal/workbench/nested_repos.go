@@ -57,6 +57,9 @@ type nestedState struct {
 	// logRepo is the ID of the nested repository the Git log walks; empty for the project's own
 	// repository (git_log_repo.go).
 	logRepo string
+	// chosen are the Core IDs of the repositories the Git log walks together, in Core's order,
+	// the first of them logRepo's; nil while it walks one (gitlog_multi.go).
+	chosen []string
 	// refGen counts the reference readings; references are the last ones by repository ID
 	// (nested_refs.go).
 	refGen     int

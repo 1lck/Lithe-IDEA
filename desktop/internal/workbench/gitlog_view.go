@@ -152,13 +152,24 @@ func (a *App) drawLogStripe(c ui.C, p *project) {
 			c.After(func() { clear(l.collapsed) })
 		}
 		if a.gitIconButton(c, g.CollapseAll, icons.ChevronsDownUp, false, false) {
-			c.After(func() {
-				for _, s := range l.sections {
-					l.collapsed["s"+s.kind] = true
-				}
-			})
+			c.After(func() { a.collapseLogRefs(p) })
 		}
 	})
+}
+
+// collapseLogRefs closes every section of the reference pane, and every repository's node in a
+// folder with several.
+func (a *App) collapseLogRefs(p *project) {
+	l := &p.log
+	if p.workspaceMode() {
+		for _, repo := range p.workspaceRepositories() {
+			l.collapsed[logRepoRefKey(repo.id)] = true
+		}
+		return
+	}
+	for _, s := range l.sections {
+		l.collapsed["s"+s.kind] = true
+	}
 }
 
 // drawLogHiddenStripe is the stripe that stands for the reference pane while it is hidden.
@@ -200,20 +211,40 @@ func (a *App) drawLogReferences(c ui.C, p *project) ui.Box {
 
 // buildLogRefRows lists the rows the reference pane shows for query: HEAD, then each section
 // with the folders and references of its tree, or only the matching references while the
-// filter has text. It returns how many references the sections list.
+// filter has text. A folder with several repositories lists a node per repository instead, each
+// with its own sections (appendRepositoryLogRows). It returns how many references the pane lists.
 func (a *App) buildLogRefRows(p *project, query string) (shown int) {
 	l, v := &p.log, &a.logView
 	rows := v.refItems[:0]
-	labels := [3]string{a.text.Git.LocalGroup, a.text.Git.RemoteGroup, a.text.Git.TagGroup}
 	if query == "" {
 		rows = append(rows, logRefRow{kind: logRefHead, label: a.text.Git.HeadRow, key: "HEAD", short: "HEAD"})
 	}
-	for i := range l.sections {
-		s := &l.sections[i]
+	if p.workspaceMode() {
+		rows, shown = a.appendRepositoryLogRows(rows, p, query)
+	} else {
+		rows, shown = a.appendLogSections(rows, p, "", "", &l.sections, 0, query)
+	}
+	v.refItems = rows
+	return shown
+}
+
+// appendLogSections appends the sections of one repository's references at depth, keyed under
+// prefix. foreign is the Core ID of a repository other than the one whose references the log reads
+// with its history, whose references then walk it on a click; empty for that one. It returns how
+// many references the sections list.
+func (a *App) appendLogSections(rows []logRefRow, p *project, prefix, foreign string, sections *[3]logSection, depth int, query string) ([]logRefRow, int) {
+	labels := [3]string{a.text.Git.LocalGroup, a.text.Git.RemoteGroup, a.text.Git.TagGroup}
+	kind := logRefReference
+	if foreign != "" {
+		kind = logRefForeign
+	}
+	shown := 0
+	for i := range sections {
+		s := &sections[i]
 		if len(s.refs) == 0 {
 			continue
 		}
-		section := logRefRow{kind: logRefSection, label: labels[i], key: "s" + s.kind, open: true}
+		section := logRefRow{kind: logRefSection, depth: depth, label: labels[i], key: prefix + "s" + s.kind, repo: foreign, open: true}
 		if query != "" {
 			matches := slices.DeleteFunc(slices.Clone(s.refs), func(r core.GitReference) bool {
 				return !strings.Contains(strings.ToLower(r.ShortName), query)
@@ -224,41 +255,41 @@ func (a *App) buildLogRefRows(p *project, query string) (shown int) {
 			shown += len(matches)
 			rows = append(rows, section)
 			for j := range matches {
-				rows = append(rows, logRefRow{kind: logRefReference, depth: 1, label: matches[j].ShortName, key: matches[j].FullName, short: matches[j].ShortName, ref: &matches[j]})
+				rows = append(rows, logRefRow{kind: kind, depth: depth + 1, label: matches[j].ShortName, key: matches[j].FullName, short: matches[j].ShortName, ref: &matches[j], repo: foreign})
 			}
 			continue
 		}
 		shown += len(s.refs)
-		section.open = !l.collapsed[section.key]
+		section.open = !p.log.collapsed[section.key]
 		rows = append(rows, section)
 		if section.open {
-			rows = a.appendLogNodes(rows, p, s, s.nodes, 1)
+			rows = a.appendLogNodes(rows, p, prefix, foreign, s, s.nodes, depth+1)
 		}
 	}
-	var nested int
-	rows, nested = a.appendNestedLogRows(rows, p, query)
-	shown += nested
-	v.refItems = rows
-	return shown
+	return rows, shown
 }
 
 // appendLogNodes appends the folders and references of a section's tree, the folders that are
 // open with what is in them.
-func (a *App) appendLogNodes(rows []logRefRow, p *project, s *logSection, nodes []core.ReferenceTreeNode, depth int) []logRefRow {
+func (a *App) appendLogNodes(rows []logRefRow, p *project, prefix, foreign string, s *logSection, nodes []core.ReferenceTreeNode, depth int) []logRefRow {
+	kind := logRefReference
+	if foreign != "" {
+		kind = logRefForeign
+	}
 	for i := range nodes {
 		node := &nodes[i]
 		if node.Reference != nil {
 			if r := *node.Reference; r >= 0 && r < len(s.refs) {
 				ref := &s.refs[r]
-				rows = append(rows, logRefRow{kind: logRefReference, depth: depth, label: node.Name, key: ref.FullName, short: ref.ShortName, ref: ref})
+				rows = append(rows, logRefRow{kind: kind, depth: depth, label: node.Name, key: ref.FullName, short: ref.ShortName, ref: ref, repo: foreign})
 			}
 			continue
 		}
-		key := "f" + s.kind + "/" + node.Path
+		key := prefix + "f" + s.kind + "/" + node.Path
 		open := !p.log.collapsed[key]
 		rows = append(rows, logRefRow{kind: logRefFolder, depth: depth, label: node.Name, key: key, open: open})
 		if open {
-			rows = a.appendLogNodes(rows, p, s, node.Children, depth+1)
+			rows = a.appendLogNodes(rows, p, prefix, foreign, s, node.Children, depth+1)
 		}
 	}
 	return rows
@@ -289,6 +320,10 @@ func (a *App) drawLogRefContent(c ui.C, p *project, row gfx.ID, r logRefRow) {
 	case logRefRepository:
 		ui.Icon(c, icons.Folder).Size(14, 14).Color(r.tint)
 		ui.Text(c, r.label).Weight(gfx.WeightMedium).Color(r.tint).Ellipsis().Grow(1)
+		if p.logChosen(r.repo) {
+			// The repositories the log walks are checked, as the roots list checks them.
+			ui.Icon(c, icons.Check).Size(12, 12).Shrink(0).Color(a.colors.Subtle)
+		}
 	case logRefFolder:
 		ui.Icon(c, icons.Folder).Size(14, 14).Color(a.colors.Subtle)
 		ui.Text(c, r.label).Ellipsis().Grow(1)
@@ -331,16 +366,14 @@ func (a *App) toggleLogRef(p *project, r logRefRow, query string) {
 	}
 }
 
-// chooseLogRef acts on a click on a row of the reference pane: a section or folder folds, a
-// repository's group or one of its references makes that repository the one the log walks, and a
+// chooseLogRef acts on a click on a row of the reference pane: a repository's node, a section or a
+// folder folds, a reference of another repository walks that reference in its repository, and a
 // reference of the walked repository becomes the one the log walks.
 func (a *App) chooseLogRef(p *project, r logRefRow, query string) {
 	l := &p.log
 	switch r.kind {
-	case logRefSection, logRefFolder:
+	case logRefSection, logRefFolder, logRefRepository:
 		a.toggleLogRef(p, r, query)
-	case logRefRepository:
-		a.setLogRepo(p, r.repo, "", "")
 	case logRefForeign:
 		a.setLogRepo(p, r.repo, r.ref.FullName, r.ref.ShortName)
 	default:
@@ -584,28 +617,61 @@ func (a *App) drawLogViewMore(c ui.C, p *project, first int) {
 	}
 }
 
-// drawLogRepoLabel declares, in the filter bar after the Paths chip, the repository the log walks,
-// and, while a nested repository is walked in a folder that is a repository itself, the way back to
-// the project's own. It shows only in a workspace with nested repositories; the Paths filter lists
-// the roots to walk another one (drawLogRoots). The bar is short of room, so the label shows the
-// repository's folder in its color and its name, keeps that width, and says it is the repository
-// the log walks in its tip.
+// drawLogRepoLabel declares, after the filter chips, the name of the repository the log walks in
+// its color, or the colors and the count of the repositories it walks together. A click lists the
+// repositories of the folder to walk (drawLogRoots). While the log walks a nested repository alone
+// a button leads back to the project's own.
 func (a *App) drawLogRepoLabel(c ui.C, p *project) {
+	l := &p.log
 	if !p.workspaceMode() && p.nested.logRepo == "" {
 		return
 	}
 	g := a.text.Git.Repositories
 	id := p.logRepoID()
-	name := p.repositoryName(id)
-	tint := a.repositoryTint(p, id)
+	name, tint := p.repositoryName(id), a.repositoryTint(p, id)
+	several := p.walksSeveral()
+	if several {
+		name, tint = g.Several(len(p.nested.chosen)), a.colors.Text
+	}
+	tip := g.Current(name)
+	if p.workspaceMode() {
+		tip = g.Choose
+	}
 	rc := c.Part("repo")
-	ui.Row(rc).Shrink(0).Items(ui.Center).Gap(4).PadX(4).
-		HitWith(ui.ID(rc), g.Current(name), gfx.HitOptions{Role: gfx.RoleStatus}).Tooltip(g.Current(name)).
-		Children(func() {
+	open := l.popover == logPopoverRoots
+	label := ui.Row(rc).Height(logButtonSize).Shrink(0).Items(ui.Center).Gap(4).PadX(6).
+		Radius(a.theme.Metrics.RadiusItem())
+	if p.workspaceMode() {
+		label = label.HitWith(ui.ID(rc), tip, gfx.HitOptions{Role: gfx.RoleButton, Cursor: gfx.PointerCursorHand})
+		if open {
+			label = label.Background(a.colors.Active)
+		} else {
+			label = label.Hover(ui.Look{}.Background(a.colors.Hover))
+		}
+	} else {
+		label = label.HitWith(ui.ID(rc), tip, gfx.HitOptions{Role: gfx.RoleStatus})
+	}
+	label = label.Tooltip(tip)
+	label.Children(func() {
+		if several {
+			for _, chosen := range p.nested.chosen {
+				a.drawRepositorySwatch(rc, p, chosen)
+			}
+		} else {
 			ui.Icon(rc, icons.Folder).Size(14, 14).Shrink(0).Color(tint)
-			ui.Text(rc, name).Weight(gfx.WeightMedium).Color(tint).Ellipsis().MaxWidth(160)
-		})
-	if p.nested.logRepo != "" && p.git.isRepository() {
+		}
+		ui.Text(rc, name).Weight(gfx.WeightMedium).Color(tint).Ellipsis().MaxWidth(160)
+		if p.workspaceMode() {
+			ui.Icon(rc, icons.ChevronDown).Size(12, 12).Shrink(0).Color(a.colors.Subtle)
+		}
+	})
+	if p.workspaceMode() {
+		if label.Clicked() {
+			c.After(func() { a.toggleLogPopover(p, logPopoverRoots) })
+		}
+		a.drawLogPopover(c, p, logPopoverRoots, label)
+	}
+	if !several && p.nested.logRepo != "" && p.git.isRepository() {
 		own := p.ownID()
 		if ui.Button(c.Part("repo-back"), g.Back(p.repositoryName(own))).Ghost().Shrink(0).Clicked() {
 			c.After(func() { a.setLogRepo(p, own, "", "") })

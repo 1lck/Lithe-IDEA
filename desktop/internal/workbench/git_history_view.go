@@ -29,19 +29,20 @@ func historyRewriteMenuText(lang i18n.Language, operation string) string {
 	}
 }
 
-// logCommitMenu declares the commit menu of log row: copying the hashes of the commits it acts
-// on, a tag, a cherry-pick, a revert or a reset at one commit, the reviewed rewrites, and Rebase
+// logCommitMenu declares the commit menu of log row, in the repository of the row's commit
+// (logMenuTarget): copying the hashes of the commits it acts on, a tag, a cherry-pick, a revert or a reset at one commit, the reviewed rewrites, and Rebase
 // from Here. Core's hints only grey out what cannot fit the selection; the dialogs decide.
 func (a *App) logCommitMenu(p *project, row int) func(*ui.MenuItems) {
 	return func(menu *ui.MenuItems) {
-		revisions := a.logMenuRevisions(p, row)
+		root, keys, revisions := a.logMenuTarget(p, row)
 		if len(revisions) == 0 {
 			return
 		}
 		lang := a.language()
 		single, revision := len(revisions) == 1, revisions[0]
+		commit, _ := p.log.commit(keys[0])
 		busy := p.historyBusy()
-		hints, ready := a.historyHints(p, revisions)
+		hints, ready := a.historyHints(p, root, revisions)
 		for _, short := range []bool{false, true} {
 			label := i18n.Shared(lang, "git.log.copyCommitHash")
 			if short {
@@ -53,17 +54,17 @@ func (a *App) logCommitMenu(p *project, row int) func(*ui.MenuItems) {
 		}
 		menu.Separator()
 		if menu.Item(i18n.Shared(lang, "git.log.newTag")).Disabled(!single).Clicked() {
-			a.beginTagAt(p, revision)
+			a.beginTagAt(p, root, revision)
 		}
 		// Until the hints arrive a cherry-pick stays offered, as its preflight still decides.
 		if menu.Item(i18n.Shared(lang, "native.cherryPickCommit")).Disabled(!single || busy || ready && !hints.CanCherryPick).Clicked() {
-			a.beginCherryPick(p, gitOperationCherryPick, revision)
+			a.beginCherryPick(p, gitOperationCherryPick, root, revision, commit.Subject)
 		}
 		if menu.Item(i18n.Shared(lang, "native.revertCommit")).Disabled(!single || busy).Clicked() {
-			a.beginCherryPick(p, gitOperationRevert, revision)
+			a.beginCherryPick(p, gitOperationRevert, root, revision, commit.Subject)
 		}
 		if menu.Item(i18n.Shared(lang, "native.resetCurrentBranchToHere")).Disabled(!single || busy).Clicked() {
-			a.beginHistoryReset(p, revision)
+			a.beginHistoryReset(p, root, revision)
 		}
 		menu.Separator()
 		for _, operation := range historyRewriteMenuOperations {
@@ -72,12 +73,12 @@ func (a *App) logCommitMenu(p *project, row int) func(*ui.MenuItems) {
 				item = item.Destructive()
 			}
 			if item.Disabled(busy || !historyRewriteFits(operation, single, ready, hints)).Clicked() {
-				a.beginHistoryRewrite(p, operation, revisions)
+				a.beginHistoryRewrite(p, operation, root, revisions)
 			}
 		}
 		if menu.Item(i18n.Shared(lang, "desktop.rebase.fromHere")).Disabled(!single || busy).Clicked() {
-			// The rebase works in the repository the log walks, nested or the project's own.
-			a.beginRebaseFromHere(p, revision, "")
+			// The rebase works in the repository of the commit, nested or the project's own.
+			a.beginRebaseFromHere(p, root, revision, "")
 		}
 	}
 }

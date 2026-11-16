@@ -10171,6 +10171,13 @@
       }
     },
     {
+      "id": "desktop.git.repo.choose",
+      "description": "Tooltip of the repository name after the Git Log's filter chips in a folder with several repositories: a click lists the repositories to walk",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
       "id": "desktop.git.repo.current",
       "description": "Header of the Git log's commit list: the repository the log walks",
       "platforms": [
@@ -10178,6 +10185,16 @@
       ],
       "parameters": {
         "name": "string"
+      }
+    },
+    {
+      "id": "desktop.git.repo.several",
+      "description": "Name after the Git Log's filter chips while the log walks several repositories of the folder together in one list",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "count": "string"
       }
     },
     {
@@ -12970,10 +12987,27 @@
     },
     {
       "id": "desktop.nested.roots",
-      "description": "Head of the repositories of the project folder in the Git Log's Paths filter; a click picks the one the log walks",
+      "description": "Head of the repositories of the project folder in the Git Log's Paths filter and repository list; a box adds a repository to the log, a click on a name walks it alone",
       "platforms": [
         "desktop"
       ]
+    },
+    {
+      "id": "desktop.nested.rootsAll",
+      "description": "Button in the Git Log's repository list: walk every repository of the folder together in one list",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.nested.rootToggle",
+      "description": "Accessible label of a repository's box in the Git Log's repository list: add the repository to the log or take it out",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "name": "string"
+      }
     },
     {
       "id": "desktop.newProject.advanced",
