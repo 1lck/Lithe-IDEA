@@ -123,6 +123,9 @@ type gitLogState struct {
 	// loadingMore and moreFailed are the state of the next page.
 	loadingMore bool
 	moreFailed  bool
+	// limitReached says the log read as many commits as the Git Log settings let it while the
+	// history goes on; the list ends there with a note offering the settings (gitlog_limits.go).
+	limitReached bool
 	// window is the wider history the graph's lanes and colors stay stable against.
 	window []core.GraphCommit
 
@@ -235,7 +238,7 @@ func (a *App) loadLog(p *project) {
 	l.loading, l.err = true, nil
 	l.commits, l.byHash, l.cursor, l.hasMore = nil, nil, "", false
 	l.walks, l.origins, l.pending = nil, nil, nil
-	l.loadingMore, l.moreFailed, l.window = false, false, nil
+	l.loadingMore, l.moreFailed, l.limitReached, l.window = false, false, false, nil
 	l.graph, l.currentRows = core.Graph{}, nil
 	l.pathFiles = nil
 	// The upstreams the graph paints were read for the repository before this one.
@@ -248,13 +251,13 @@ func (a *App) loadLog(p *project) {
 		return
 	}
 	kernel, root, reference := a.kernel, p.logRoot(), l.reference
-	expanded := l.expanded
+	expanded, limit := l.expanded, a.gitLogLimit()
 	a.background(p, gitTimeout, func(ctx context.Context) func(*App) {
 		refs, sections, current, err := readReferences(ctx, kernel, root)
 		var page core.GitHistoryPage
 		var graph core.Graph
 		if err == nil {
-			page, err = kernel.GitHistoryPage(ctx, root, reference, "", logPageSize)
+			page, err = kernel.GitHistoryPage(ctx, root, reference, "", min(logPageSize, limit), limit)
 		}
 		if err == nil {
 			commits := graphCommits(page.Commits)
@@ -280,7 +283,7 @@ func (a *App) loadLog(p *project) {
 			l.refs, l.sections, l.current = refs, sections, current
 			l.commits = page.Commits
 			l.byHash = indexCommits(page.Commits)
-			l.cursor, l.hasMore = page.NextCursor, page.HasMore
+			l.cursor, l.hasMore, l.limitReached = page.NextCursor, page.HasMore, page.LimitReached
 			l.setGraph(graph)
 			if l.filtered() {
 				a.reproject(p, 0)
@@ -334,11 +337,13 @@ func readReferences(ctx context.Context, kernel Kernel, root string) (core.GitRe
 	return refs, sections, current, nil
 }
 
-// loadLogWindow reads the wider history window and lays the graph out again against it.
+// loadLogWindow reads the wider history window, no wider than the log reads, and lays the
+// graph out again against it.
 func (a *App) loadLogWindow(p *project, gen int) {
 	kernel, root, reference := a.kernel, p.logRoot(), p.log.reference
+	size := min(logWindowSize, a.gitLogLimit())
 	a.background(p, gitTimeout, func(ctx context.Context) func(*App) {
-		page, err := kernel.GitHistoryPage(ctx, root, reference, "", logWindowSize)
+		page, err := kernel.GitHistoryPage(ctx, root, reference, "", size, size)
 		if err == nil && page.NextCursor != "" {
 			_, _ = kernel.CloseGitHistoryCursor(ctx, root, page.NextCursor)
 		}
@@ -370,7 +375,7 @@ func (a *App) loadMoreLog(p *project) {
 	gen := l.gen
 	kernel, root, reference, cursor := a.kernel, p.logRoot(), l.reference, l.cursor
 	a.background(p, gitTimeout, func(ctx context.Context) func(*App) {
-		page, err := kernel.GitHistoryPage(ctx, root, reference, cursor, logPageSize)
+		page, err := kernel.GitHistoryPage(ctx, root, reference, cursor, logPageSize, 0)
 		return func(a *App) {
 			if l.gen != gen {
 				return
@@ -382,7 +387,7 @@ func (a *App) loadMoreLog(p *project) {
 			}
 			l.commits = slices.Concat(l.commits, page.Commits)
 			l.byHash = indexCommits(l.commits)
-			l.cursor, l.hasMore = page.NextCursor, page.HasMore
+			l.cursor, l.hasMore, l.limitReached = page.NextCursor, page.HasMore, page.LimitReached
 			a.reproject(p, 0)
 		}
 	})

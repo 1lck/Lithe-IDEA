@@ -758,7 +758,7 @@ func (a *App) drawLogList(c ui.C, p *project) {
 		}
 	}
 	total := n
-	if l.hasMore || l.loadingMore {
+	if l.hasMore || l.loadingMore || l.limitReached {
 		total++
 	}
 	area := ui.List(c, &v.commits, total, func(row ui.ListRow) { a.drawLogRow(c, p, rows, row) }).Scrollbars().Grow(1).FillWidth()
@@ -796,7 +796,8 @@ func (a *App) drawLogRow(c ui.C, p *project, rows []core.GraphRow, row ui.ListRo
 	box.Draw(v.rowPainter(a, i))
 }
 
-// drawLogFooter declares the row under the list that loads the next page.
+// drawLogFooter declares the row under the list that loads the next page, or that says the log
+// read as many commits as its settings let it and offers them.
 func (a *App) drawLogFooter(c ui.C, p *project, row ui.ListRow) {
 	l, g := &p.log, a.text.Git
 	row.Element.Height(logRowHeight * 1.5).FillWidth().Items(ui.Center).Gap(8).PadX(12).Children(func() {
@@ -811,6 +812,11 @@ func (a *App) drawLogFooter(c ui.C, p *project, row ui.ListRow) {
 					l.moreFailed = false
 					a.loadMoreLog(p)
 				})
+			}
+		case l.limitReached && !l.hasMore:
+			ui.Text(c, g.LimitReached(len(l.commits))).Muted()
+			if ui.Button(c.Part("adjust-limit"), g.AdjustLimit).Ghost().Clicked() {
+				c.After(a.openGitLogLimitSettings)
 			}
 		default:
 			if ui.Button(c.Part("load-more"), g.LoadMore).Ghost().Clicked() {

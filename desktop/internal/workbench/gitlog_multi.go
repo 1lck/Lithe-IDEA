@@ -28,34 +28,37 @@ type historyMerger interface {
 // merge their histories.
 var errNoHistoryMerge = errors.New("the kernel cannot merge repository histories")
 
-// mergedLogLimit is how many commits a log of several repositories reads in all: Core's
-// git.workspaceHistoryMerge and git.graphProjection take at most 20,000 (rust-core-api.md). Once
-// the walks hold that many, each ends where it is, so the merged list ends there the way one
-// repository's log ends after the 5,000 commits git.historyPage returns.
-const mergedLogLimit = 20000
-
 // historyPager is the part of the kernel that reads a walk's pages.
 type historyPager interface {
-	GitHistoryPage(ctx context.Context, root, reference, cursor string, limit int) (core.GitHistoryPage, error)
+	GitHistoryPage(ctx context.Context, root, reference, cursor string, limit, maxCommits int) (core.GitHistoryPage, error)
 	CloseGitHistoryCursor(ctx context.Context, root, cursor string) (bool, error)
 }
 
-// readWalkPage reads the next page of w, at most room commits of it. With no room left, w ends
-// where it is: its cursor is closed, and the merged list places everything it holds.
-func readWalkPage(ctx context.Context, pager historyPager, w *logWalk, room int) error {
+// readWalkPage reads the next page of w, at most room of the limit commits the log reads in all
+// (the Git Log settings' limit for several repositories, which Core's git.workspaceHistoryMerge
+// and git.graphProjection take). A first page asks Core to read the walk as far as that limit,
+// so no walk stops at Core's own bound first. With no room left, a walk that was not complete
+// ends where it is, its cursor closed and marked capped, and the merged list places everything
+// it holds and says the log reached its limit.
+func readWalkPage(ctx context.Context, pager historyPager, w *logWalk, room, limit int) error {
 	if room <= 0 {
 		if w.cursor != "" {
 			_, _ = pager.CloseGitHistoryCursor(ctx, w.root, w.cursor)
 		}
+		w.capped = w.capped || !w.complete
 		w.cursor, w.complete = "", true
 		return nil
 	}
-	page, err := pager.GitHistoryPage(ctx, w.root, "", w.cursor, min(logPageSize, room))
+	maxCommits := 0
+	if w.cursor == "" {
+		maxCommits = limit
+	}
+	page, err := pager.GitHistoryPage(ctx, w.root, "", w.cursor, min(logPageSize, room), maxCommits)
 	if err != nil {
 		return err
 	}
 	w.commits = slices.Concat(w.commits, page.Commits)
-	w.cursor, w.complete = page.NextCursor, !page.HasMore
+	w.cursor, w.complete, w.capped = page.NextCursor, !page.HasMore, page.LimitReached
 	return nil
 }
 
@@ -74,6 +77,8 @@ type logWalk struct {
 	commits  []core.GitCommit
 	cursor   string
 	complete bool
+	// capped says the walk ended at the log's limit while its history goes on.
+	capped bool
 	// remotes are the names of the repository's remote branches, which the graph tells from its
 	// local ones.
 	remotes []string
@@ -156,7 +161,7 @@ func (a *App) loadLogRepos(p *project, gen int) {
 		l.loading, l.err = false, errNoHistoryMerge
 		return
 	}
-	kernel, active, expanded := a.kernel, p.logRoot(), l.expanded
+	kernel, active, expanded, limit := a.kernel, p.logRoot(), l.expanded, a.gitLogMergedLimit()
 	walks := make([]logWalk, 0, len(p.nested.chosen))
 	for _, id := range p.nested.chosen {
 		if root := p.rootOf(id); root != "" {
@@ -170,7 +175,7 @@ func (a *App) loadLogRepos(p *project, gen int) {
 				break
 			}
 			w := &walks[i]
-			if err = readWalkPage(ctx, kernel, w, mergedLogLimit-walkCommits(walks)); err != nil {
+			if err = readWalkPage(ctx, kernel, w, limit-walkCommits(walks), limit); err != nil {
 				break
 			}
 			if i == 0 {
@@ -224,7 +229,7 @@ func (a *App) loadMoreLogRepos(p *project) {
 		return
 	}
 	l.loadingMore = true
-	gen, kernel := l.gen, a.kernel
+	gen, kernel, limit := l.gen, a.kernel, a.gitLogMergedLimit()
 	walks := slices.Clone(l.walks)
 	pending := slices.Clone(l.pending)
 	a.background(p, gitTimeout, func(ctx context.Context) func(*App) {
@@ -234,7 +239,7 @@ func (a *App) loadMoreLogRepos(p *project) {
 			if w.complete || w.cursor == "" {
 				continue
 			}
-			if err = readWalkPage(ctx, kernel, w, mergedLogLimit-walkCommits(walks)); err != nil {
+			if err = readWalkPage(ctx, kernel, w, limit-walkCommits(walks), limit); err != nil {
 				break
 			}
 		}
@@ -260,7 +265,8 @@ func (a *App) loadMoreLogRepos(p *project) {
 	})
 }
 
-// setMerged keeps the merged list of the walks and what it waits on.
+// setMerged keeps the merged list of the walks and what it waits on, and whether a walk ended at
+// the log's limit.
 func (l *gitLogState) setMerged(commits []core.GitCommit, origins []logOrigin, pending []int) {
 	l.commits, l.origins, l.pending = commits, origins, pending
 	l.byHash = make(map[string]int, len(origins))
@@ -268,6 +274,7 @@ func (l *gitLogState) setMerged(commits []core.GitCommit, origins []logOrigin, p
 		l.byHash[origins[i].key] = i
 	}
 	l.cursor, l.hasMore = "", len(pending) > 0
+	l.limitReached = slices.ContainsFunc(l.walks, func(w logWalk) bool { return w.capped })
 }
 
 // mergeLogWalks has Core merge the loaded commits of walks and returns the merged list, where

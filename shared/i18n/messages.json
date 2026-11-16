@@ -10057,6 +10057,23 @@
       ]
     },
     {
+      "id": "desktop.git.log.limitReached",
+      "description": "Git Log: the end of a log that read as many commits as its limit while the history goes on",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "count": "integer"
+      }
+    },
+    {
+      "id": "desktop.git.log.adjustLimit",
+      "description": "Git Log: the button at the end of a log that reached its limit and opens the Git Log limits settings",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
       "id": "desktop.git.loading",
       "description": "Desktop Git: Loading",
       "platforms": [
@@ -10259,6 +10276,58 @@
       "platforms": [
         "desktop"
       ]
+    },
+    {
+      "id": "desktop.git.settings.logLimits",
+      "description": "Version Control settings: title of the card that sets the most commits the Git Log reads",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.git.settings.logLimitsHelp",
+      "description": "Help of the Git Log limits card in the Version Control settings",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.git.settings.logLimitSingle",
+      "description": "Git Log limits card: the row that sets the most commits read of one repository",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.git.settings.logLimitSingleHelp",
+      "description": "Help of the one-repository row of the Git Log limits card",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.git.settings.logLimitMerged",
+      "description": "Git Log limits card: the row that sets the most commits read of several repositories merged by date",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.git.settings.logLimitMergedHelp",
+      "description": "Help of the several-repositories row of the Git Log limits card",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.git.settings.logLimitDefault",
+      "description": "Git Log limits card: a choice of the limit that is the default",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "count": "integer"
+      }
     },
     {
       "id": "desktop.git.settings.console.omitted",
@@ -12960,13 +13029,6 @@
     {
       "id": "desktop.nested.collapse",
       "description": "Button on a nested repository's header in the Commit window: hide its changes",
-      "platforms": [
-        "desktop"
-      ]
-    },
-    {
-      "id": "desktop.nested.commit",
-      "description": "Button on a nested repository's group: commit its staged changes with the message of the Commit tool window",
       "platforms": [
         "desktop"
       ]

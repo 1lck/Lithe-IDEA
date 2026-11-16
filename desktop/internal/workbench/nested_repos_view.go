@@ -45,9 +45,10 @@ func (a *App) drawRepositoryChanges(c ui.C, p *project) {
 }
 
 // drawRepositoryGroup declares the group of one repository of the change list: its fold, its
-// checkbox, its color, name and count, its commit button, and then its changes unless it is folded.
-// A nested repository's changes are read-only apart from staging; the project's own are the ones the
-// Commit tool window's rows act on.
+// checkbox, its color, name and count, the branch its repository has checked out, and then its
+// changes unless it is folded. The Commit button commits every repository with staged changes, as
+// IDEA's does, so a group has no button of its own. A nested repository's changes are read-only
+// apart from staging; the project's own are the ones the Commit tool window's rows act on.
 func (a *App) drawRepositoryGroup(c ui.C, p *project, group core.WorkspaceChangeGroup) {
 	t := a.text.Commit
 	lang := a.language()
@@ -75,24 +76,14 @@ func (a *App) drawRepositoryGroup(c ui.C, p *project, group core.WorkspaceChange
 				p.nested.folded[id] = !folded
 			})
 		}
-		if ui.Checkbox(rc, &all, "").Label(group.Name).Disabled(busy || group.Staging == nil).Clicked() && group.Staging != nil {
+		if a.treeCheckbox(rc, &all, group.Name).Disabled(busy || group.Staging == nil).Clicked() && group.Staging != nil {
 			plan := *group.Staging
 			rc.After(func() { a.applyStaging(p, id, plan) })
 		}
 		a.drawRepositorySwatch(rc, p, id)
 		ui.Text(rc, group.Name).Color(color).Weight(gfx.WeightMedium).Ellipsis().Shrink(1)
 		ui.Text(rc, t.Files(group.FileCount)).Muted().Shrink(0)
-		if own {
-			if ui.Button(rc, i18n.Shared(lang, "desktop.nested.commit")).Outline().Disabled(!p.canCommit()).Clicked() {
-				rc.After(func() { a.startCommitIn(p, p.projectCommit(), false, surfaceButton) })
-			}
-			return
-		}
-		repo, ok := p.nested.repo(id)
-		if ui.Button(rc, i18n.Shared(lang, "desktop.nested.commit")).Outline().Disabled(!ok || !p.canCommitNested(*repo)).Clicked() && ok {
-			target := a.nestedCommitTarget(p, *repo)
-			rc.After(func() { a.startCommitIn(p, target, false, surfaceButton) })
-		}
+		a.drawRepositoryBranch(rc, p, id)
 	})
 	if folded {
 		return
@@ -115,4 +106,22 @@ func (a *App) drawRepositoryGroup(c ui.C, p *project, group core.WorkspaceChange
 			rc.After(func() { a.stageNestedChange(p, r, change) })
 		}
 	}
+}
+
+// drawRepositoryBranch declares the tag of the branch the repository of a group has checked out,
+// the way IDEA's change tree names it after the group's count; there is none until its status is
+// read.
+func (a *App) drawRepositoryBranch(c ui.C, p *project, id string) {
+	branch := p.branchOf(id)
+	switch branch {
+	case "":
+		return
+	case "detached":
+		branch = i18n.Shared(a.language(), "git.detachedHead")
+	}
+	ui.Row(c.Part("branch")).Height(logRefChipHeight).Shrink(1).Items(ui.Center).Gap(logRefChipGap).PadX(logRefChipPad).
+		Radius(a.theme.Metrics.RadiusItem()).Background(a.colors.Hover).Children(func() {
+		ui.Icon(c, icons.GitBranch).Size(logRefIconSize, logRefIconSize).Color(a.colors.Subtle)
+		ui.Text(c, branch).FontSize(a.theme.Metrics.FontSizeS).Ellipsis()
+	})
 }

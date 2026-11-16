@@ -402,22 +402,3 @@ func (a *App) stageWorkspace(p *project, plan core.WorkspaceStageAll) {
 		return func(a *App) { a.stagingDone(p, stage, err) }
 	})
 }
-
-// nestedCommitTarget is the commit of one nested repository: it commits the staged changes of
-// that repository alone, with the message the Commit tool window holds.
-func (a *App) nestedCommitTarget(p *project, repo nestedRepo) commitTarget {
-	return commitTarget{
-		state:  &p.commit,
-		root:   repo.root,
-		repoID: repo.id,
-		written: func(a *App) {
-			a.reloadGit(p)
-		},
-	}
-}
-
-// canCommitNested reports that the commit button of repo may start a commit of its staged changes.
-func (p *project) canCommitNested(repo nestedRepo) bool {
-	return !p.lists.inUse() && p.listsReady() && p.commit.idle() && !p.commit.busy &&
-		countStaged(repo.changes) > 0 && p.commit.message() != ""
-}

@@ -173,12 +173,21 @@ func (a *App) drawChangeRows(c ui.C, title, size string, changes []core.GitChang
 // and size.
 func (a *App) drawChangeListHeader(c ui.C, title, size string, all, toggleable, busy bool, toggleAll func()) {
 	ui.Row(c).Height(logItemHeight).FillWidth().Shrink(0).Items(ui.Center).Gap(6).PadX(8).Children(func() {
-		if ui.Checkbox(c, &all, "").Label(title).Disabled(busy || !toggleable).Clicked() {
+		if a.treeCheckbox(c, &all, title).Disabled(busy || !toggleable).Clicked() {
 			c.After(toggleAll)
 		}
 		ui.Text(c, title).Weight(gfx.WeightMedium).Ellipsis().Shrink(1)
 		ui.Text(c, size).Muted().Shrink(0)
 	})
+}
+
+// treeCheckbox is the checkbox of a line of the change tree, named label for assistive
+// technology. It is laid out no wider than its square, so it sits as close to the fold before it
+// and to the name after it as the checkboxes of IDEA's change tree do; Viva still declares the
+// enlarged region around the square that a click hits.
+func (a *App) treeCheckbox(c ui.C, value *bool, label string) ui.Box {
+	side := components.CheckboxExtent(a.theme)
+	return ui.Checkbox(c, value, "").Label(label).Size(side, side).Shrink(0)
 }
 
 // drawChangeRow declares the row of one change: its checkbox, its icon, its name and folder,
@@ -209,7 +218,7 @@ func (a *App) drawChangeRow(c ui.C, change core.GitChange, busy, selected bool, 
 	ui.ContextMenu(rowC, row, menu(rowC))
 	row.Children(func() {
 		staged := change.Staged
-		toggled = ui.Checkbox(c, &staged, "").Label(label).Disabled(busy || !change.CanToggleStaging).Clicked()
+		toggled = a.treeCheckbox(c, &staged, label).Disabled(busy || !change.CanToggleStaging).Clicked()
 		icon := fileicons.ForFile(path.Base(change.Path), a.colors.Dark)
 		if folder {
 			icon = fileicons.ForDirectory(path.Base(strings.TrimSuffix(change.Path, "/")), a.colors.Dark)
