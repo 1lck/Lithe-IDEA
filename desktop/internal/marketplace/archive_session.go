@@ -36,6 +36,8 @@ func NewArchiveSession(client *ArchiveDownloader) *ArchiveSession {
 // to the calling window; closing a session cannot remove a borrower's file.
 // A transfer that is cut off or cancelled keeps what arrived for the next
 // download of the same archive; downloading another archive removes it.
+// progress, when not nil, is called on the transfer worker without a polling
+// task; it must not block, and may publish a UI snapshot.
 func (s *ArchiveSession) Download(ctx context.Context, selection core.MarketplaceAvailability, progress func(ArchiveProgress)) (*DownloadedArchive, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()

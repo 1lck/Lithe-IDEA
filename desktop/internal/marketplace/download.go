@@ -142,20 +142,10 @@ func (p *partialArchive) remove() error { return os.RemoveAll(p.directory) }
 
 // Download streams the Core-selected archive into a private temporary folder,
 // refuses oversized responses while reading, and checks the index digest before
-// returning the file. No archive contents are opened or executed here.
-func (d *ArchiveDownloader) Download(ctx context.Context, selection core.MarketplaceAvailability) (archive *DownloadedArchive, err error) {
-	return d.DownloadWithProgress(ctx, selection, nil)
-}
-
-// ArchiveProgress reports transport bytes, not installation completion.
-// Total is negative when the server does not provide a content length.
-type ArchiveProgress struct{ Received, Total int64 }
-
-// DownloadWithProgress coalesces notifications on the transfer worker, with no
-// polling task. The callback must not block; it may publish a UI snapshot.
-// A transfer that is cut off is removed: only an ArchiveSession continues one.
-func (d *ArchiveDownloader) DownloadWithProgress(ctx context.Context, selection core.MarketplaceAvailability, progress func(ArchiveProgress)) (*DownloadedArchive, error) {
-	archive, kept, err := d.download(ctx, selection, nil, progress)
+// returning the file. No archive contents are opened or executed here. A
+// transfer that is cut off is removed: only an ArchiveSession continues one.
+func (d *ArchiveDownloader) Download(ctx context.Context, selection core.MarketplaceAvailability) (*DownloadedArchive, error) {
+	archive, kept, err := d.download(ctx, selection, nil, nil)
 	if kept != nil {
 		if removeErr := kept.remove(); removeErr != nil {
 			err = errors.Join(err, removeErr)
@@ -163,6 +153,10 @@ func (d *ArchiveDownloader) DownloadWithProgress(ctx context.Context, selection 
 	}
 	return archive, err
 }
+
+// ArchiveProgress reports transport bytes, not installation completion.
+// Total is negative when the server does not provide a content length.
+type ArchiveProgress struct{ Received, Total int64 }
 
 // download fetches selection's archive, continuing from the bytes in from when
 // it holds the start of the same archive. It owns from, which it continues or
