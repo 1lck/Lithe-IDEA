@@ -565,6 +565,113 @@ func TestCancelledPatchDownloadIsNotAFallback(t *testing.T) {
 	}
 }
 
+// TestInterruptedPatchDownloadIsResumedNotReplaced cuts the patch download off part way, as a
+// dropped connection does. Viva keeps the bytes that arrived, so Update says it failed and logs
+// that once, without fetching the full archive or skipping the patch for the version. The next
+// Update downloads the patch again, which continues it, and installs the copy it rebuilds.
+func TestInterruptedPatchDownloadIsResumedNotReplaced(t *testing.T) {
+	fakes := installFakes(t)
+	source := &fakeUpdateSource{
+		feed:     deltaFeed("0.8.0", "0.7.0"),
+		archive:  updateFile(t, "lithe.zip"),
+		patchErr: fmt.Errorf("%w: connection reset by peer", appupdate.ErrInterrupted),
+	}
+	h, logger := newDeltaHarness(t, source)
+	a := h.app
+
+	a.checkForUpdates(true)
+	h.await("the available version", func() bool { return a.updateStatus().Available == "0.8.0" })
+	a.updateNow()
+	h.await("the interrupted patch", func() bool { return a.updateStatus().Failure != "" })
+	a.wait()
+	if full, patch := source.downloadCounts(); full != 0 || patch != 1 {
+		t.Fatalf("downloaded the archive %d times and the patch %d times, want the patch alone", full, patch)
+	}
+	if events := loggedEvents(logger, deltaFallbackEvent); len(events) != 0 {
+		t.Fatalf("logged a fallback %v for a patch the next try continues", events)
+	}
+	if events := loggedEvents(logger, operationFailedEvent); len(events) != 1 {
+		t.Fatalf("logged the failure %d times, want once", len(events))
+	}
+	if status := a.updateStatus(); !status.Delta || status.FellBack || status.Downloading {
+		t.Fatalf("after the interruption the status is %+v, want the delta update offered again", status)
+	}
+
+	source.mu.Lock()
+	source.patchErr, source.patch = nil, updateFile(t, "lithe.patch")
+	source.mu.Unlock()
+	a.updateNow()
+	h.await("the install", func() bool { _, _, _, _, quits := fakes.state(); return quits == 1 })
+	a.wait()
+	if full, patch := source.downloadCounts(); full != 0 || patch != 2 {
+		t.Fatalf("downloaded the archive %d times and the patch %d times, want the patch twice", full, patch)
+	}
+	if _, _, installs, _, _ := fakes.state(); len(installs) != 1 || installs[0].Payload == "" || installs[0].Artifact != "" {
+		t.Fatalf("installed %+v, want the copy the continued patch rebuilt", installs)
+	}
+}
+
+// TestUpdateDownloadClearsOtherVersions starts Update for 0.8.0 while the cache holds what an
+// earlier version's update left behind: that version's directory is deleted before the
+// download, and the bytes 0.8.0's own interrupted try kept stay for it to continue. A deletion
+// that fails is logged once and the download goes ahead.
+func TestUpdateDownloadClearsOtherVersions(t *testing.T) {
+	for _, failing := range []bool{false, true} {
+		t.Run(fmt.Sprintf("failing=%v", failing), func(t *testing.T) {
+			fakes := installFakes(t)
+			cache, err := updateCacheDir()
+			if err != nil {
+				t.Fatal(err)
+			}
+			updates := filepath.Join(cache, "Lithe", "Updates")
+			old := filepath.Join(updates, "0.7.5", "lithe.zip")
+			kept := filepath.Join(updates, "0.8.0", ".viva-update-kept.part")
+			for _, path := range []string{old, kept} {
+				if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+					t.Fatal(err)
+				}
+				if err := os.WriteFile(path, []byte("left behind"), 0o600); err != nil {
+					t.Fatal(err)
+				}
+			}
+			if failing {
+				removeUpdateDir = func(string) error { return errors.New("directory is in use") }
+			}
+			source := &fakeUpdateSource{feed: updateFeed("0.8.0"), archive: updateFile(t, "lithe.zip")}
+			h, logger := newDeltaHarness(t, source)
+			a := h.app
+
+			a.checkForUpdates(true)
+			h.await("the available version", func() bool { return a.updateStatus().Available == "0.8.0" })
+			a.updateNow()
+			h.await("the install", func() bool { _, _, _, _, quits := fakes.state(); return quits == 1 })
+			a.wait()
+			if gone(kept) {
+				t.Fatal("the bytes 0.8.0 kept were deleted before its download")
+			}
+			// The harness serves no release notes, which logs a background failure of its own.
+			var events []core.LogEvent
+			for _, event := range loggedEvents(logger, backgroundFailedEvent) {
+				if event.Fields["operation"] == updateCleanupOperation {
+					events = append(events, event)
+				}
+			}
+			if failing {
+				if gone(old) || len(events) != 1 || events[0].Level != core.LevelWarn || events[0].Fields["error"] == nil {
+					t.Fatalf("a deletion that failed logged %+v, want one warn naming the cleanup and its error", events)
+				}
+				return
+			}
+			if !gone(filepath.Dir(old)) {
+				t.Fatalf("0.7.5's download is still in %s", filepath.Dir(old))
+			}
+			if len(events) != 0 {
+				t.Fatalf("a cleanup that worked logged %+v", events)
+			}
+		})
+	}
+}
+
 // TestRebuiltApplicationIsDeletedWhenNothingWillInstallIt rebuilds 0.8.0 and leaves it
 // waiting, as when a window has no Quit to install with: a check finding another version
 // deletes it and no longer says it is ready, the window closing deletes it, and a deletion

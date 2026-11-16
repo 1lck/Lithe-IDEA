@@ -90,6 +90,7 @@ func TestLogEventsMatchCatalog(t *testing.T) {
 		{backgroundFailedLevel, backgroundFailedEvent, operationFailedFields("update_check", failure)},
 		{backgroundFailedLevel, backgroundFailedEvent, operationFailedFields("update_notes", failure)},
 		{backgroundFailedLevel, backgroundFailedEvent, operationFailedFields("update_snapshot", failure)},
+		{backgroundFailedLevel, backgroundFailedEvent, operationFailedFields(updateCleanupOperation, failure)},
 		{backgroundFailedLevel, backgroundFailedEvent, operationFailedFields("editor_session_load", documentLogError(failure))},
 		{core.LevelWarn, "app.settings.decode_failed", storedStateFields("chrome_layout", failure)},
 		{operationFailedLevel, operationFailedEvent, operationFailedFields("settings_about_copy", failure)},
