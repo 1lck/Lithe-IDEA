@@ -70,18 +70,16 @@
 
 用户只为安装的语言承担下载和索引成本，插件包可以独立发布、验证、重装和卸载。代价是构建过程需要访问固定的上游归档，发布环境必须准备对应架构和签名身份；Node.js 等外部运行时仍由平台能力检查，插件不会偷偷写入安装目录。
 
-插件包、解压结果、语言服务器下载缓存和运行时语言工具没有可靠的跨工作树身份标记，继续在 `scripts/resources/worktree-resources.json` 中作为隔离资源处理，不能通过工作树复用脚本复制。
+插件包、解压结果、语言服务器下载缓存和运行时语言工具没有可靠的跨工作树身份标记，不跨工作树复制。
 
 ## 验证
 
 - 构建与校验：各插件仓库的 CI 负责组装、签名和包内容校验；本仓库不再保存官方插件的组装脚本（#1495）。
 - 运行时不变量：`scripts/desktop/verify/verify-runtime-bundle-immutability.sh` 确认典型启动和插件工作流不会改写已安装的发行包。
-- 工作树隔离：`node scripts/resources/test-reuse-worktree-resources.mjs` 确认语言服务器下载和插件包不能跨工作树复用。
 - 新增插件还必须验证下载失败、校验失败、取消、等待重启、重装、回滚、禁用和卸载后的进程与文件清理。
 - `./scripts/agent-notes/verify-agent-notes.sh`
 
 ## 适用范围
 
-- `scripts/resources/worktree-resources.json`
 - `docs/ci-builds.md`
 - 官方插件的源码、组装与发布已移出本仓库（#1495），由各插件仓库维护，例如 [lithe-plugin-java](https://github.com/Lithe-IDEA/lithe-plugin-java)。

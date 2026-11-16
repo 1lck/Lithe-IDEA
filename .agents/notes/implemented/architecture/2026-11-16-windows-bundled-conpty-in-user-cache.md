@@ -68,7 +68,6 @@ Motty d61d1910 把这组文件放在程序旁边，再由安装器、便携 zip 
 
 - `./scripts/desktop/desktop-go.sh test ./internal/localshell/... ./internal/termview/ ./internal/workbench/ -count=1`：核对文件组清单、安装与修复、降级日志的转发。
 - `scripts/desktop/verify/verify-runtime-bundle-immutability.sh`：确认运行时没有写入发行目录。
-- `node scripts/resources/test-reuse-worktree-resources.mjs`：确认 ConPTY 二进制登记为不可跨工作树复用的 Git 内资源。
 - 在 Windows 上运行 `TestBundledConPTYDeliversColorQueriesAndKeepsSyncBlocksAtomic`、`TestBundledConPTYForwardsMouseReporting` 和 `TestAShellStartsOnTheInboxConPTYWhenTheBundledOneCannotBeInstalled`，它们只在 Windows 编译。
 
 ## 适用范围

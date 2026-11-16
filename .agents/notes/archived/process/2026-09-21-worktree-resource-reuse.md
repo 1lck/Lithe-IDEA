@@ -2,6 +2,10 @@
 
 状态：已实现
 
+归档日期：2026-11-16
+
+> 已被 [工作树缓存复用改由 Agent 按 Skill 提醒判断](../../implemented/process/2026-11-16-worktree-cache-reuse-without-script.md) 取代：复用脚本、资源清单和下载缓存校验器已在 #2002 删除。
+
 ## 先说结论
 
 Git linked worktree 之间只复用校验过的下载缓存，不共享 `.build`、解压后的工具目录或旧的应用包。目标工作树仍须自己编译和打包；桌面端的构建资源（例如 Core 静态库）只从本工作树的构建输出生成。
