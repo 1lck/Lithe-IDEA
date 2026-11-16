@@ -184,7 +184,7 @@ type Kernel interface {
 	GitUnlockWorktree(ctx context.Context, root, path string) error
 	GitPruneWorktrees(ctx context.Context, root string) error
 	GitRepairWorktrees(ctx context.Context, root string) error
-	GitConsolePresentation(ctx context.Context, records []core.GitConsoleRecord, search string) (core.GitConsolePresentation, error)
+	GitConsolePresentation(ctx context.Context, records []core.GitConsoleRecord, search string, display core.GitConsoleDisplay) (core.GitConsolePresentation, error)
 	ListDirectories(ctx context.Context, root string, paths []string) ([]core.DirectoryListing, error)
 	PlanDocumentSaveBatch(ctx context.Context, documents []core.SaveBatchDocument) (core.SaveBatchPlan, error)
 	ReduceDocumentSaveBatch(ctx context.Context, members []string, results []core.SaveBatchResult, documents []core.SaveBatchDocument) (core.SaveBatchDecision, error)
@@ -304,6 +304,9 @@ type settings struct {
 	// HideParentReferences hides the option that records submodule commits in the parent
 	// repositories; while it is hidden every commit updates them. The option shows by default.
 	HideParentReferences bool `json:"hideParentReferences,omitempty"`
+	// GitConsole says which internal Git queries the Git console records and how it draws its
+	// records; the zero value is IntelliJ IDEA's console (gitconsole_settings.go).
+	GitConsole core.GitConsolePreferences `json:"gitConsole,omitzero"`
 	// DisableSemanticHighlight keeps the syntax colors alone; semantic coloring is on by default.
 	DisableSemanticHighlight bool `json:"disableSemanticHighlight,omitempty"`
 	// VimMode turns on the Vim keys of every editor; off by default (vim_mode.go).
@@ -777,6 +780,7 @@ func New(options Options) *App {
 	// the rest loaded. It is logged below with the failures, and the notice tells it is kept.
 	settingsUnread := a.store.Unread(settingsFile)
 	a.settings.Keymap = shortcuts.Normalize(a.settings.Keymap)
+	a.gitConsole.SetPreferences(a.settings.GitConsole)
 	a.loadEditorEssentials()
 	a.initRecovery()
 	a.applyNetwork()

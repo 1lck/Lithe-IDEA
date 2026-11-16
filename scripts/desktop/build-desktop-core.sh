@@ -27,8 +27,12 @@ native_path() {
     fi
 }
 
-# Lithe-core-rust #63, squash-merged into main as ad148ec: a Unix process group whose members have
-# all exited but are not reaped yet is killed without error, so disposing a language server or
+# Lithe-core-rust feat/console-filters at 9fc6468, a merge of main ad148ec into the branch:
+# gitExecution.consoleQueries names the query categories the Git console records and queryCategory
+# names a read the command does not tell apart; git.consolePresentation takes display options, all
+# false by default as in IDEA (#2025). Its main side is #63, squash-merged into main as ad148ec:
+# a Unix process group whose members have all exited but are not reaped yet is killed without
+# error, so disposing a language server or
 # closing an SSH session on macOS no longer reports EPERM (#2017). It is on top of #62,
 # squash-merged into main as b401949: a backslash or colon in a Unix file name stays part of the
 # name, so a folder named D:\logs is one level below the project root and the project tree rows
@@ -128,7 +132,7 @@ PINNED_CORE_REPOSITORY="https://github.com/Lithe-IDEA/Lithe-core-rust.git"
 # the contract, plugin guides, reference and SDKs live only in shared/plugins; on top of #16 (reported Git queries folded in the console),
 # #15 (git.write cherryPick, revert and reset fields), #14 (word-level changed ranges of diff
 # rows), #13, #8, #7, #6 and #4.
-PINNED_CORE_REVISION="ad148ecd0c2ae1159c39b721e38ce7afe50f7de2"
+PINNED_CORE_REVISION="9fc64687c1b3acc76bc6bdfb2e5b5f209d77d431"
 PROFILE="debug"
 while [[ $# -gt 0 ]]; do
     case "$1" in

@@ -187,6 +187,9 @@ func (a *App) newSettingsWindow() *settingswindow.Controller {
 		SetHideParentReferences: func(value bool) {
 			a.post(func(a *App) { a.setHideParentReferences(value) })
 		},
+		SetGitConsole: func(value core.GitConsolePreferences) {
+			a.post(func(a *App) { a.setGitConsolePreferences(value) })
+		},
 		SetDisableSemanticHighlight: func(value bool) {
 			a.post(func(a *App) { a.setDisableSemanticHighlight(value) })
 		},
@@ -383,6 +386,9 @@ const (
 	settingsAI
 	// settingsKeymap is the Keymap page, which the gear menu's Keymap item opens.
 	settingsKeymap
+	// settingsVersionControl is the Version Control page, which the Git console's settings
+	// button opens.
+	settingsVersionControl
 )
 
 func (a *App) openSettingsPage(surface actionSurface, page settingsPage) {
@@ -415,6 +421,7 @@ func (a *App) openSettingsPageWith(surface actionSurface, page settingsPage, que
 			HideProjectColors: a.settings.HideProjectColors, ProjectOpenDestination: a.settings.ProjectOpenDestination,
 			HideGitGutter: a.settings.HideGitGutter, InlineGitBlame: a.settings.InlineGitBlame,
 			HideChangeLists: a.settings.HideChangeLists, HideParentReferences: a.settings.HideParentReferences,
+			GitConsole:               a.settings.GitConsole,
 			DisableSemanticHighlight: a.settings.DisableSemanticHighlight,
 			VimMode:                  a.settings.VimMode,
 			DisableAutoSave:          a.settings.DisableAutoSave,
@@ -441,6 +448,8 @@ func (a *App) openSettingsPageWith(surface actionSurface, page settingsPage, que
 			err = a.settingsWindow.OpenKeymap(a.application, current)
 		case settingsAI:
 			err = a.settingsWindow.OpenAI(a.application, current)
+		case settingsVersionControl:
+			err = a.settingsWindow.OpenVersionControl(a.application, current)
 		default:
 			err = a.settingsWindow.Open(a.application, current)
 		}

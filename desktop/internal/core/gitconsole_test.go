@@ -215,6 +215,8 @@ func TestGitWorktreesAreManagedAndRecordedInTheConsole(t *testing.T) {
 	repo := committedRepository(t)
 	client := NewClient()
 	console := NewGitConsole(nil)
+	// The worktree list queries of the operations and of the panel show only when asked for.
+	console.SetPreferences(GitConsolePreferences{ShowCheckQueries: true, ShowPanelQueries: true})
 	ctx := WithGitConsole(testContext(t), console, repo)
 	destination := filepath.Join(t.TempDir(), "linked")
 
@@ -280,7 +282,7 @@ func TestGitWorktreesAreManagedAndRecordedInTheConsole(t *testing.T) {
 		t.Fatalf("removal refused before Git ran = %+v, want an unconfirmed failure of %s", locked, repo)
 	}
 
-	presentation, err := client.GitConsolePresentation(testContext(t), snapshot.Records, "worktree")
+	presentation, err := client.GitConsolePresentation(testContext(t), snapshot.Records, "worktree", GitConsoleDisplay{})
 	if err != nil {
 		t.Fatalf("GitConsolePresentation() error: %v", err)
 	}
@@ -319,7 +321,7 @@ func TestGitConsoleRecordsNothingForADetachedContext(t *testing.T) {
 		t.Fatalf("detached request recorded %+v", records)
 	}
 	// An unrecorded command leaves the console alone even when it fails.
-	if _, err := client.GitConsolePresentation(attached, []GitConsoleRecord{{ID: "x", State: "running"}}, strings.Repeat("x", GitConsoleSearchLimit+1)); err == nil {
+	if _, err := client.GitConsolePresentation(attached, []GitConsoleRecord{{ID: "x", State: "running"}}, strings.Repeat("x", GitConsoleSearchLimit+1), GitConsoleDisplay{}); err == nil {
 		t.Fatal("GitConsolePresentation() accepted a search over the limit")
 	}
 	if records := console.Snapshot().Records; len(records) != 0 {
@@ -346,50 +348,75 @@ func consoleCommands(console *GitConsole) []string {
 	return commands
 }
 
-// The console records the queries a request runs, as it records the commands the user
-// started, except those of an automatic refresh, which runs on every change.
-func TestGitConsoleRecordsQueriesButNotAutomaticRefreshes(t *testing.T) {
+// The console records no internal query by default, as IDEA's console does, and records the
+// queries of the categories its preferences show; an automatic refresh, which runs on every
+// change, records its queries only under a category the host names.
+func TestGitConsoleRecordsTheQueriesOfTheCategoriesItShows(t *testing.T) {
 	repo := committedRepository(t)
 	client := NewClient()
 	console := NewGitConsole(nil)
 	ctx := WithGitConsole(testContext(t), console, repo)
 
-	if _, err := client.GitStatus(AutomaticRefresh(ctx), repo); err != nil {
-		t.Fatalf("GitStatus(refresh) error: %v", err)
-	}
-	if records := console.Snapshot().Records; len(records) != 0 {
-		t.Fatalf("an automatic refresh recorded %+v", records)
-	}
 	if _, err := client.GitStatus(ctx, repo); err != nil {
 		t.Fatalf("GitStatus() error: %v", err)
 	}
 	if _, err := client.GitReferences(ctx, repo); err != nil {
 		t.Fatalf("GitReferences() error: %v", err)
 	}
+	if records := console.Snapshot().Records; len(records) != 0 {
+		t.Fatalf("the default preferences recorded %+v", records)
+	}
+
+	console.SetPreferences(GitConsolePreferences{ShowCheckQueries: true, ShowReferenceQueries: true})
+	if _, err := client.GitStatus(AutomaticRefresh(ctx), repo); err != nil {
+		t.Fatalf("GitStatus(refresh) error: %v", err)
+	}
+	if records := console.Snapshot().Records; len(records) != 0 {
+		t.Fatalf("an automatic refresh without a category recorded %+v", records)
+	}
+	if _, err := client.GitReferences(ctx, repo); err != nil {
+		t.Fatalf("GitReferences() error: %v", err)
+	}
+	if records := console.Snapshot().Records; len(records) != 0 {
+		t.Fatalf("log queries the console does not show were recorded: %+v", records)
+	}
+	if _, err := client.GitStatus(ctx, repo); err != nil {
+		t.Fatalf("GitStatus() error: %v", err)
+	}
+	if _, err := client.GitReferences(WithQueryCategory(AutomaticRefresh(ctx), GitQueryReferences), repo); err != nil {
+		t.Fatalf("GitReferences(references) error: %v", err)
+	}
 	commands := consoleCommands(console)
 	if !slices.Contains(commands, "status") || !slices.Contains(commands, "for-each-ref") {
 		t.Fatalf("console commands = %q, want the status and reference queries", commands)
 	}
 	for _, record := range console.Snapshot().Records {
-		if record.State != GitConsoleCompleted || (record.ExitCode != 0 && !record.ExpectedExit) {
-			t.Fatalf("query record %+v did not complete normally", record)
+		if !record.Query || record.State != GitConsoleCompleted || (record.ExitCode != 0 && !record.ExpectedExit) {
+			t.Fatalf("query record %+v did not complete normally as a query", record)
 		}
 	}
 }
 
-// Only a Git request with a console asks Core to report its queries, and an automatic
-// refresh names its provenance instead.
-func TestGitExecutionOfAsksForQueriesOnlyWithAConsole(t *testing.T) {
-	console := NewGitConsole(nil)
-	ctx := WithGitConsole(context.Background(), console, "/repo")
+// Only a Git request with a console asks Core to report queries, of the categories the
+// console's preferences show and under the category the context names; an automatic refresh
+// names its provenance.
+func TestGitExecutionOfAsksForTheCategoriesTheConsoleShows(t *testing.T) {
+	idea := WithGitConsole(context.Background(), NewGitConsole(nil), "/repo")
+	shown := NewGitConsole(nil)
+	shown.SetPreferences(GitConsolePreferences{ShowDiffQueries: true, ShowCheckQueries: true})
+	ctx := WithGitConsole(context.Background(), shown, "/repo")
 	cases := []struct {
 		name    string
 		ctx     context.Context
 		command string
 		want    string
 	}{
-		{"console", ctx, "git.status", `{"reportQueries":true}`},
-		{"refresh", AutomaticRefresh(ctx), "git.status", `{"source":"background"}`},
+		{"default console", idea, "git.status", `null`},
+		{"default refresh", AutomaticRefresh(idea), "git.status", `{"source":"background"}`},
+		{"default category", WithQueryCategory(idea, GitQueryReload), "git.status", `null`},
+		{"shown", ctx, "git.status", `{"consoleQueries":["diff","checks"]}`},
+		{"named", WithQueryCategory(ctx, GitQueryReload), "git.status", `{"consoleQueries":["diff","checks"],"queryCategory":"reload"}`},
+		{"named refresh", WithQueryCategory(AutomaticRefresh(ctx), GitQueryReferences), "git.references", `{"consoleQueries":["diff","checks"],"queryCategory":"references","source":"background"}`},
 		{"no console", context.Background(), "git.status", `null`},
 		{"detached", WithGitConsole(ctx, nil, ""), "git.status", `null`},
 		{"never runs Git", ctx, "git.consolePresentation", `null`},
@@ -400,6 +427,37 @@ func TestGitExecutionOfAsksForQueriesOnlyWithAConsole(t *testing.T) {
 		if err != nil || string(got) != c.want {
 			t.Fatalf("%s: gitExecution = %s (%v), want %s", c.name, got, err, c.want)
 		}
+	}
+}
+
+// Every preference starts as IDEA's console, and each one turns on the category or display
+// option it names.
+func TestGitConsolePreferencesMapToCategoriesAndDisplay(t *testing.T) {
+	var idea GitConsolePreferences
+	if got := idea.QueryCategories(); len(got) != 0 {
+		t.Fatalf("default categories = %q, want none", got)
+	}
+	if got := idea.Display(); got != (GitConsoleDisplay{}) {
+		t.Fatalf("default display = %+v, want IDEA's", got)
+	}
+	if encoded, err := json.Marshal(idea); err != nil || string(encoded) != `{}` {
+		t.Fatalf("default preferences encode as %s (%v), want {}", encoded, err)
+	}
+	all := GitConsolePreferences{
+		ShowReferenceQueries: true, ShowReloadQueries: true, ShowDiffRefreshQueries: true,
+		ShowDiffQueries: true, ShowLogQueries: true, ShowLogPathFilterQueries: true,
+		ShowAnnotateQueries: true, ShowPanelQueries: true, ShowCheckQueries: true,
+		FoldSingleLineQueries: true, ShowCompletedWithoutOutput: true,
+		HideTemporaryConfig: true, HideRepository: true,
+	}
+	want := []string{GitQueryReferences, GitQueryReload, GitQueryDiffRefresh, GitQueryDiff, GitQueryLog,
+		GitQueryLogPathFilter, GitQueryAnnotate, GitQueryPanels, GitQueryChecks}
+	if got := all.QueryCategories(); !slices.Equal(got, want) {
+		t.Fatalf("categories = %q, want %q", got, want)
+	}
+	display, err := json.Marshal(all.Display())
+	if err != nil || string(display) != `{"foldSingleLineQueries":true,"showCompletedWithoutOutput":true,"hideTemporaryConfig":true,"hideRepository":true}` {
+		t.Fatalf("display = %s (%v)", display, err)
 	}
 }
 

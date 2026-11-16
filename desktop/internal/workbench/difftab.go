@@ -438,6 +438,12 @@ func (p *project) live(t *diffTab, gen int) bool {
 // change, for a comparison's file and for a file the plan has no section for. A stash's or a
 // shelf's file was read with it, so it shows at once.
 func (a *App) loadDiff(p *project, t *diffTab) {
+	a.loadDiffAs(p, t, "")
+}
+
+// loadDiffAs is loadDiff with the console query category its reads are recorded under, one of
+// core's GitQuery categories, or empty for the diff reads Core recognizes by their commands.
+func (a *App) loadDiffAs(p *project, t *diffTab, category string) {
 	kernel, ok := a.reviewKernel()
 	if !ok {
 		return
@@ -460,6 +466,9 @@ func (a *App) loadDiff(p *project, t *diffTab) {
 	// ignores whitespace reads its file instead; its blocks cannot be staged meanwhile.
 	ignore := t.ignoreSpace
 	a.background(p, reviewTimeout, func(ctx context.Context) func(*App) {
+		if category != "" {
+			ctx = core.WithQueryCategory(ctx, category)
+		}
 		var (
 			file *core.GitDiffFile
 			plan *core.DiffBlockPlan
@@ -544,10 +553,11 @@ func (a *App) readDiff(t *diffTab, file *core.GitDiffFile, plan *core.DiffBlockP
 
 // reloadDiffs reads again every tab that shows a change of the working tree or the index of the
 // checkout at root, a comparison with the working tree among them, after something wrote to it.
+// The console records these reads with the reloads that follow operations.
 func (a *App) reloadDiffs(p *project, root string) {
 	for _, t := range p.diffs.list {
 		if t.root == root && (t.commit == "" || (t.compare != nil && t.compare.target == nil)) {
-			a.loadDiff(p, t)
+			a.loadDiffAs(p, t, core.GitQueryReload)
 		}
 	}
 }

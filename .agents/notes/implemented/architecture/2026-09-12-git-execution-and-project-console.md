@@ -2,11 +2,11 @@
 
 状态：已实现
 
-> Viva 迁移状态：Viva 已提供 Core 请求事件桥（`desktop/internal/core/events_bridge.go`），但 Git 操作还没有接入事件消费与项目控制台；不能据此宣称命令输出、认证交互或平台验收已经迁移。
+> Viva 迁移状态：Viva 的 Git 工具窗口已有“控制台”页，命令、输出、退出码和查询开关都接入了 Core 事件（`desktop/internal/core/gitconsole.go`、`desktop/internal/workbench/gitconsole.go`）；认证交互和双平台原生验收仍未完成，不能据此宣称已经迁移。
 
 ## 先说结论
 
-用户从更改、分支、工作树或远程入口执行 Git 时，项目控制台保留实际命令、完整工作目录和连续输出。记录由 Core 的共享执行入口产生，界面只负责展示；内部查询保持静默，启动前失败保留原因，不能伪造已经执行的命令。参数策略、事件解码和展示规则在 Core，原生进程与认证生命周期由平台适配器负责。
+用户从更改、分支、工作树或远程入口执行 Git 时，项目控制台保留实际命令、完整工作目录和连续输出。记录由 Core 的共享执行入口产生，界面只负责展示；内部查询默认不记录（与 IntelliJ IDEA 一致），用户可以在设置里按类别打开，启动前失败保留原因，不能伪造已经执行的命令。参数策略、事件解码和展示规则在 Core，原生进程与认证生命周期由平台适配器负责。
 
 ## 问题
 
@@ -76,6 +76,18 @@ Core 的引用读取保留正常 Git 查询结果；对缺失的上游元数据�
 
 按稳定标识保留手动展开状态，丢弃过期展示回复。复制使用完整保留内容；真正因内存上限丢弃的内容标为截断，不能假装可以展开恢复。控制台历史只存在于有界内存，不定义磁盘保存和长期保留策略。字段和容量的正式契约见 Core 仓库的 `rust/contracts/rust-core-api.md`。
 
+### 记录哪些查询由用户设置决定，在记录前过滤
+
+内部查询指 Lithe 为了显示状态、日志、差异等自己发起的读命令。它们默认不进控制台，和 IntelliJ IDEA 一致；用户排查问题时，可以在“设置 → 版本控制”的“Git 控制台：省略的查询”里按类别关掉省略。九个类别是：后台分支读取、操作后的自动重新加载、保存后的差异刷新、差异读取、日志浏览、日志路径筛选、注解与行历史、列表与面板、操作前检查。开关写成“省略……”，初始全部打开。
+
+过滤发生在 Core 记录之前。桌面端把要记录的类别放进 `gitExecution.consoleQueries` 交给 Core，没选的类别 Core 直接不记，因此不占控制台保留的 200 条记录。类别默认由 Core 按命令判断，例如 `git.diff` 归差异读取，`git.history*` 归日志浏览，没有归入其他类的 `git.*` 查询归操作前检查。同一条命令在不同场景下需要不同开关时，宿主才在请求上用 `queryCategory` 显式标注；目前标注的是后台分支读取、操作后重新加载、保存后差异刷新和日志路径筛选。后台请求没有标注就永远不记，所以随仓库变化自动刷新的状态、行号区标记、行尾 Blame 不会把控制台刷满。
+
+用户执行的命令、失败的 Git 请求、意外的退出码和未确认的命令不受这些开关影响，始终记录。
+
+“Git 控制台：显示”里的四个开关（查询只显示命令行、省略无输出提示、完全隐藏临时 `-c` 配置、省略仓库名）只改变已记录内容的画法。它们作为 `git.consolePresentation` 的 `display` 参数在 Core 里生效；切换后，控制台用新参数重新请求展示，旧参数下的展示结果不再使用。复制全部内容仍用完整原文，带仓库名和临时配置。
+
+正确做法：新增一种需要单独开关的读取，而它和已有命令同名时，在调用处用 `core.WithQueryCategory` 标注类别，并在 Core 的类别表登记。不要这样做：桌面端拿到记录后再按命令名隐藏，被藏起来的查询仍占 200 条名额，会把用户真正执行的命令挤出去。
+
 ## 考虑过的备选方案
 
 - 由每个功能界面记录计划命令：实现直接，但会重复或漏记其他入口，而且无法区分启动前失败，因此记录放在执行边界。
@@ -85,24 +97,28 @@ Core 的引用读取保留正常 Git 查询结果；对缺失的上游元数据�
 - 为远程另建更细粒度的并发队列：Lithe 已有共享仓库与工作树写入许可，本次保留既有互斥边界，不在执行层改写并发策略。
 - 把控制台做成持久历史库：需要另外定义存储、清理和隐私契约，本能力只保留内存诊断历史。
 - 所有 mutation 后的读取都使用独立清理期限：会截短正常请求的剩余预算并屏蔽其取消，因此只为已经结束的请求使用。
+- 只在显示时隐藏查询（原控制台工具栏的“隐藏读取命令”开关）：实现简单，但被隐藏的查询照样占用 200 条记录，频繁的后台读取会挤掉用户执行的命令，因此改为记录前过滤，工具栏开关换成打开版本控制设置的按钮。
+- 每条命令一个开关：最精细，但 Core 的 `git.*` 查询有上百个，用户无法判断该关哪个，因此按用户能感知的九个场景分类。
+- 由桌面端逐条决定是否记录：归类规则会留在平台层，将来换界面实现时要重写，因此归类在 Core，平台只为场景不同的请求标注类别。
 
 ## 后果
 
-用户可以跨功能和工作树查到真实执行过程，取消、认证和部分失败也有一致的归属。代价是必须维护请求与子进程两层生命周期，并同时验证 Core 与平台展示。共享展示减少两端规则偏差，但异步回复仍要求界面正确配对快照并丢弃过期结果。内存上限保证长时间使用可控，也意味着控制台不能承担完整审计存档。
+用户可以跨功能和工作树查到真实执行过程，取消、认证和部分失败也有一致的归属。代价是必须维护请求与子进程两层生命周期，并同时验证 Core 与平台展示。共享展示减少两端规则偏差，但异步回复仍要求界面正确配对快照并丢弃过期结果。内存上限保证长时间使用可控，也意味着控制台不能承担完整审计存档。查询在记录前过滤，打开开关之前发生的查询找不回来；用户要先打开对应开关再重现问题。
 
 ## 验证
 
 - 共享 fixture 覆盖命令、事件、生命周期、Fetch、远程查询和完整展示结果；Core 的真实 Git 测试对照标签 refspec、无效布尔值与实际 Fetch。
 - 认证和重试回归需要包含：本机 HTTP 认证测试服务器直接绑定数字回环地址，不做反向 DNS 查询；认证、重试与取消场景保留 15 秒预算。
-- Viva 侧验证：`scripts/desktop/desktop-go.sh test ./internal/core/...` 覆盖事件桥；控制台接入后需补充对应的 `./internal/workbench/...` 测试。
+- Viva 侧验证：`scripts/desktop/desktop-go.sh test ./internal/core/...` 覆盖事件桥；`scripts/desktop/desktop-go.sh test ./internal/core ./internal/workbench -run 'TestGitConsole|TestConsole' -count=1` 覆盖查询类别的记录、偏好到类别与显示参数的映射，以及显示开关切换后的重绘。
 - 进程清理和管道排空必须在真实 Windows 与 macOS 产品中验收；静态检查不能替代运行时清理证据。
 - `./scripts/agent-notes/verify-agent-notes.sh`
 
 ## 适用范围
 
-- Core 仓库的 [`rust/crates/git-host/`](https://github.com/Lithe-IDEA/Lithe-core-rust/tree/main/rust/crates/git-host) 与 [Git 相关模块](https://github.com/Lithe-IDEA/Lithe-core-rust/tree/main/rust/crates/git-host)
+- Core 仓库的 [`rust/crates/git-host/`](https://github.com/Lithe-IDEA/Lithe-core-rust/tree/main/rust/crates/git-host) 与 [Git 相关模块](https://github.com/Lithe-IDEA/Lithe-core-rust/tree/main/rust/crates/git)
 - [Rust Core API 契约](https://github.com/Lithe-IDEA/Lithe-core-rust/blob/main/rust/contracts/rust-core-api.md)
 - `desktop/internal/core/client.go`
 - `desktop/internal/core/events_bridge.go`
 - `desktop/internal/core/gitconsole.go`
+- `desktop/internal/settingswindow/git_console_view.go`
 - `desktop/internal/workbench/`

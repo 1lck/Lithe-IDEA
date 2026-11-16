@@ -9780,8 +9780,8 @@
       }
     },
     {
-      "id": "desktop.git.console.hideQueries",
-      "description": "Desktop Git console: toolbar toggle that hides the read-only Git queries that succeeded, leaving the commands workflows ran.",
+      "id": "desktop.git.console.settings",
+      "description": "Desktop Git console: toolbar button that opens the Version Control settings, which choose the queries the console records and how it draws them.",
       "platforms": [
         "desktop"
       ]
@@ -10178,6 +10178,216 @@
     {
       "id": "desktop.git.settings.parentReferencesHelp",
       "description": "Help under the Show Update Parent Repository References switch",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.git.settings.console.omitted",
+      "description": "Version Control settings: title of the card that chooses which internal Git queries the Git console leaves out",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.git.settings.console.omittedHelp",
+      "description": "Help of the Git console omitted-queries card: what an omitted kind means and what always shows",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.git.settings.console.references",
+      "description": "Git console switch: leave out the branch and reference reads that run in the background",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.git.settings.console.referencesHelp",
+      "description": "Help of the Git console switch that leaves out background branch reads",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.git.settings.console.reload",
+      "description": "Git console switch: leave out the reads that reload state after an operation",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.git.settings.console.reloadHelp",
+      "description": "Help of the Git console switch that leaves out reloads after operations",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.git.settings.console.diffRefresh",
+      "description": "Git console switch: leave out the diff reads that follow saving a file",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.git.settings.console.diffRefreshHelp",
+      "description": "Help of the Git console switch that leaves out diff refreshes after saving",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.git.settings.console.diff",
+      "description": "Git console switch: leave out diff reads",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.git.settings.console.diffHelp",
+      "description": "Help of the Git console switch that leaves out diff reads",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.git.settings.console.log",
+      "description": "Git console switch: leave out the reads of the Git log",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.git.settings.console.logHelp",
+      "description": "Help of the Git console switch that leaves out the reads of the Git log",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.git.settings.console.logPathFilter",
+      "description": "Git console switch: leave out the reads the log's path filter runs",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.git.settings.console.logPathFilterHelp",
+      "description": "Help of the Git console switch that leaves out the log's path filter reads",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.git.settings.console.annotate",
+      "description": "Git console switch: leave out annotate (blame) and line history reads",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.git.settings.console.annotateHelp",
+      "description": "Help of the Git console switch that leaves out annotate and line history reads",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.git.settings.console.panels",
+      "description": "Git console switch: leave out the reads of Git lists and panels",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.git.settings.console.panelsHelp",
+      "description": "Help of the Git console switch that leaves out the reads of Git lists and panels",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.git.settings.console.checks",
+      "description": "Git console switch: leave out the queries an operation runs before and while it writes",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.git.settings.console.checksHelp",
+      "description": "Help of the Git console switch that leaves out the checks of operations",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.git.settings.console.display",
+      "description": "Version Control settings: title of the card that chooses how the Git console draws its records",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.git.settings.console.displayHelp",
+      "description": "Help of the Git console display card",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.git.settings.console.foldSingleLine",
+      "description": "Git console switch: show only the command line of a recorded query, folding even single-line output",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.git.settings.console.foldSingleLineHelp",
+      "description": "Help of the Git console switch that folds single-line query output",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.git.settings.console.completedNotice",
+      "description": "Git console switch: leave out the notice under a command that completed without output",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.git.settings.console.completedNoticeHelp",
+      "description": "Help of the Git console switch that leaves out the no-output notice",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.git.settings.console.temporaryConfig",
+      "description": "Git console switch: hide the temporary -c configuration Lithe passes to a command entirely",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.git.settings.console.temporaryConfigHelp",
+      "description": "Help of the Git console switch that hides the temporary -c configuration",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.git.settings.console.repository",
+      "description": "Git console switch: leave the repository name out of each command line",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.git.settings.console.repositoryHelp",
+      "description": "Help of the Git console switch that leaves the repository name out",
       "platforms": [
         "desktop"
       ]

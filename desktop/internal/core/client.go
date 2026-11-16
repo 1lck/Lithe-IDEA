@@ -39,11 +39,15 @@ type requestEnvelope struct {
 // gitExecution is the part of a request's Git policy the client sets (GitExecutionOptions in
 // the Rust protocol); fields left empty keep Core's defaults.
 type gitExecution struct {
-	// ReportQueries asks Core to report the request's internal read-only queries to the
-	// console, as it reports the commands the user started.
-	ReportQueries bool `json:"reportQueries,omitempty"`
+	// ConsoleQueries are the query categories (GitQueryReferences and the rest) whose internal
+	// read-only queries Core reports to the console, as it reports the commands the user
+	// started. Empty reports none, as IntelliJ IDEA's console does.
+	ConsoleQueries []string `json:"consoleQueries,omitempty"`
+	// QueryCategory names what the request reads when its command alone does not tell, such
+	// as a reload after an operation; empty leaves it to the command.
+	QueryCategory string `json:"queryCategory,omitempty"`
 	// Source is the request's provenance: "background" for an automatic refresh, whose
-	// queries Core keeps silent; empty for unknown.
+	// queries Core keeps silent unless QueryCategory names them; empty for unknown.
 	Source string `json:"source,omitempty"`
 }
 
