@@ -124,7 +124,8 @@ func visualGoModule() buildInstance {
 
 // TestVisualBuildPanels captures the Build window on the right, with the run configurations
 // above the aggregated build tree, beside the Run window at the bottom showing only the build
-// console; the Build window filtered; and a Go module, whose runnable rows lead with the green
+// console; a Go module whose model loads, its sync session in the Run window showing what go
+// downloads; the Build window filtered; and a Go module, whose runnable rows lead with the green
 // triangle.
 func TestVisualBuildPanels(t *testing.T) {
 	out := os.Getenv("LITHE_VISUAL_OUTPUT_DIR")
@@ -135,7 +136,7 @@ func TestVisualBuildPanels(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, look := range []struct{ theme, language string }{{"dark", "zh-Hans"}, {"light", "en"}} {
-		for _, scene := range []string{"build-and-run", "build-filter", "build-go-targets"} {
+		for _, scene := range []string{"build-and-run", "build-sync", "build-filter", "build-go-targets"} {
 			t.Run(scene+"-"+look.theme, func(t *testing.T) {
 				prefs := store.At(t.TempDir())
 				if err := prefs.Save(settingsFile, settings{Theme: themeChoice(look.theme), Language: look.language, DisableAutoSave: true}); err != nil {
@@ -201,6 +202,29 @@ func TestVisualBuildPanels(t *testing.T) {
 						}, ""))
 						a.finishBuildTask(p, op, json.RawMessage(`{"exitCode":0}`))
 						a.showBuildConsole(p)
+					})
+				case "build-sync":
+					h.app.post(func(a *App) {
+						// The Go module's model still loads, as go downloads the modules it needs.
+						instance := visualGoModule()
+						instance.Model, instance.modelLoaded, instance.modelLoading = core.BuildModel{}, false, true
+						p.build.instances, p.build.selected = []buildInstance{instance}, 0
+						p.build.projectID, p.build.targetID, p.build.taskID = "", "", ""
+						p.setBuildGroupOpen(0, true)
+						a.refreshRunConfigurations(p)
+						feed := a.beginBuildSync(p, &p.build.instances[0])
+						var log strings.Builder
+						for _, module := range []string{
+							"golang.org/x/sync v0.10.0", "golang.org/x/sys v0.28.0", "golang.org/x/text v0.21.0",
+							"github.com/google/uuid v1.6.0", "google.golang.org/protobuf v1.36.1", "google.golang.org/grpc v1.69.2",
+						} {
+							log.WriteString("go: downloading " + module + "\n")
+						}
+						feed.decoder.deliver(log.String(), func(chunk outputChunk, failure error) {
+							a.reportOutputStyleFailure(failure)
+							a.applyBuildSyncOutput(p, feed.session, chunk)
+						})
+						a.showBuildSync(p, feed.session.id)
 					})
 				case "build-filter":
 					h.app.post(func(*App) { p.panels.buildFilter = "app" })

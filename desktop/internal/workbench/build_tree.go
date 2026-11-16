@@ -154,8 +154,8 @@ func (a *App) chooseBuildInstance(p *project, index int) {
 }
 
 // loadOpenBuildModels starts the model loads of the open groups, at most buildModelLoadsAtOnce
-// together. A model that failed is not tried again by itself: the group shows the error and
-// the user reloads it. The view calls it on every frame; a model that loads or is loaded asks
+// together. A model that failed or whose load the user stopped is not tried again by itself:
+// the group shows the error and the user reloads it. The view calls it on every frame; a model that loads or is loaded asks
 // for nothing.
 func (a *App) loadOpenBuildModels(p *project) {
 	b := &p.build
@@ -311,7 +311,7 @@ func (a *App) buildTreeRows(p *project) (rows []buildRow, pending bool) {
 		instance := &b.instances[index]
 		group := buildRow{
 			kind: buildRowGroup, instance: index, label: buildSystemName(instance), detail: buildRootDetail(instance),
-			selected: index == b.selected, loading: instance.modelLoading, warning: instance.modelError != "",
+			selected: index == b.selected, loading: instance.modelLoading, warning: instance.modelError != "" && !instance.modelStopped,
 		}
 		if query == "" || buildMatches(query, group.label, group.detail) {
 			group.open = p.buildGroupOpen(index)
@@ -362,8 +362,20 @@ func (a *App) appendBuildTree(rows []buildRow, p *project, index int, tree *buil
 	note := func(label string) buildRow {
 		return buildRow{kind: buildRowEmpty, instance: index, level: 1, label: label}
 	}
+	// A click on a line about the model shows its load's log in the Run window.
+	var session *runEntry
+	if !filtering && !instance.modelLoaded {
+		session = p.buildSyncSession(instance.ID)
+	}
 	switch {
 	case filtering:
+	case instance.modelStopped:
+		row := note(instance.modelError)
+		row.model = true
+		if session != nil {
+			row.sync = session.id
+		}
+		return append(rows, row)
 	case instance.modelError != "":
 		// The row has one line; the tool's own explanation that follows is its tooltip.
 		first, _, more := strings.Cut(instance.modelError, "\n")
@@ -372,10 +384,18 @@ func (a *App) appendBuildTree(rows []buildRow, p *project, index int, tree *buil
 		if more {
 			row.tooltip = t.ModelFailed(instance.modelError)
 		}
+		if session != nil {
+			row.sync = session.id
+		}
 		return append(rows, row)
 	case !instance.modelLoaded || tree == nil:
 		row := note(t.LoadingModel)
 		row.loading = true
+		// While the model loads, the row tells what the load does now, as its last line says.
+		if session != nil && session.running {
+			row.detail, row.sync = session.sync.latest, session.id
+			row.tooltip = i18n.Shared(a.language(), "desktop.build.showSyncOutput")
+		}
 		return append(rows, row)
 	case tree.failed != "":
 		first, _, _ := strings.Cut(tree.failed, "\n")

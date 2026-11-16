@@ -49,6 +49,9 @@ type buildRow struct {
 	// warning marks a row that tells of a failure, loading one of a model still loading, and
 	// model the line that tells the model failed, whose menu loads it again.
 	warning, loading, model bool
+	// sync is the Run window session of the model load a model line tells of, which a click on
+	// the line shows (build_sync.go); empty for none.
+	sync string
 	// id is the discovered test a test row runs; project is the project whose dependency
 	// tree a dependency row belongs to.
 	id, project string
