@@ -110,7 +110,9 @@ func (a *App) runLineOperation(p *project, d *document, op core.LineEditOperatio
 		SelectionStart: in.SelectionStart, SelectionLength: in.SelectionLength,
 	}
 	if op == core.ToggleLineComment {
-		token := a.syntaxRegistry().CommentsForPath(d.path).Line
+		// By the name, as the document's language was chosen when it opened: a plugin's content
+		// document has a URI for a path and its file name only in the name.
+		token := a.syntaxRegistry().CommentsForPath(d.name).Line
 		if token == "" {
 			a.notifyInfo(i18n.Shared(a.language(), "desktop.editor.noLineComment"))
 			return
