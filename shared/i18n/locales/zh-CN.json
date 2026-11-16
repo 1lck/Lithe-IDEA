@@ -10636,7 +10636,6 @@
     "desktop.github.enterCode": "在 GitHub 上输入此代码：",
     "desktop.github.cancelSignIn": "取消",
     "desktop.github.working": "正在连接 GitHub…",
-    "desktop.github.notConfigured": "此构建未配置 GitHub 登录。",
     "desktop.github.expired": "代码在 GitHub 上输入前已过期，请重试。",
     "desktop.github.denied": "GitHub 上的授权被拒绝。",
     "desktop.github.failed": "GitHub 登录失败：{reason}",

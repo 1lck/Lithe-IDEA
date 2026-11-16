@@ -10636,7 +10636,6 @@
     "desktop.github.enterCode": "Enter this code on GitHub:",
     "desktop.github.cancelSignIn": "Cancel",
     "desktop.github.working": "Connecting to GitHub…",
-    "desktop.github.notConfigured": "GitHub sign-in is not configured for this build.",
     "desktop.github.expired": "The code expired before it was entered on GitHub. Try again.",
     "desktop.github.denied": "The authorization was denied on GitHub.",
     "desktop.github.failed": "GitHub sign-in failed: {reason}",
