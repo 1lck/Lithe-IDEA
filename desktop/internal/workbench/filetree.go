@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"path/filepath"
+	"time"
 
 	"github.com/1lck/Lithe-IDEA/desktop/internal/core"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/i18n"
@@ -208,6 +209,10 @@ func (a *App) listTree(p *project, paths ...string) {
 
 const treeListingBatch = 64
 
+// Directory reads include native I/O and Git ignore queries, unlike the pure Core
+// computations guarded by kernelCallTimeout. Project closure still cancels each read.
+const treeListingTimeout = 30 * time.Second
+
 // pumpTreeListings keeps only one bounded request in flight. A notification
 // during a read advances its node's revision, so that read cannot publish stale
 // children; the queued replacement will use the latest disk state.
@@ -237,7 +242,7 @@ func (a *App) pumpTreeListings(p *project) {
 		return
 	}
 	t.reading = true
-	a.background(p, kernelCallTimeout, func(ctx context.Context) func(*App) {
+	a.background(p, treeListingTimeout, func(ctx context.Context) func(*App) {
 		listings, err := a.kernel.ListDirectories(ctx, p.root, paths)
 		return func(a *App) {
 			t.reading = false
