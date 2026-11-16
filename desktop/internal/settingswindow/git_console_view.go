@@ -7,9 +7,10 @@ import (
 )
 
 // This file is the Git console cards of the Version Control page (matrix id git-history). The
-// first card chooses which kinds of internal Git queries the console leaves out: an omitted
-// kind is never recorded, so it takes none of the journal's records. The second chooses how
-// the console draws the records it keeps. Every switch starts as IntelliJ IDEA's console,
+// first card chooses which kinds of internal Git queries the console leaves out: the
+// successful queries of an omitted kind are never recorded, so they take none of the journal's
+// records, and omitting a kind removes those it kept. The second chooses how the console
+// draws the records it keeps. Every switch starts as IntelliJ IDEA's console,
 // which records none of these queries and draws everything else, so the stored preferences of
 // a user who never touched them are empty.
 
@@ -37,7 +38,7 @@ func (w *window) gitConsoleCards(c ui.C, language i18n.Language) {
 		{"checks", i18n.Shared(language, "desktop.git.settings.console.checks"), i18n.Shared(language, "desktop.git.settings.console.checksHelp"), &value.ShowCheckQueries, true},
 	}
 	display := [...]gitConsoleOption{
-		{"foldSingleLine", i18n.Shared(language, "desktop.git.settings.console.foldSingleLine"), i18n.Shared(language, "desktop.git.settings.console.foldSingleLineHelp"), &value.FoldSingleLineQueries, false},
+		{"foldShortQueries", i18n.Shared(language, "desktop.git.settings.console.foldShortQueries"), i18n.Shared(language, "desktop.git.settings.console.foldShortQueriesHelp"), &value.FoldShortQueries, false},
 		{"completedNotice", i18n.Shared(language, "desktop.git.settings.console.completedNotice"), i18n.Shared(language, "desktop.git.settings.console.completedNoticeHelp"), &value.ShowCompletedWithoutOutput, true},
 		{"temporaryConfig", i18n.Shared(language, "desktop.git.settings.console.temporaryConfig"), i18n.Shared(language, "desktop.git.settings.console.temporaryConfigHelp"), &value.HideTemporaryConfig, false},
 		{"repository", i18n.Shared(language, "desktop.git.settings.console.repository"), i18n.Shared(language, "desktop.git.settings.console.repositoryHelp"), &value.HideRepository, false},

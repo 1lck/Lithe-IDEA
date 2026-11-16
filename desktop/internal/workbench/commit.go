@@ -642,7 +642,7 @@ func (a *App) writeStaging(p *project, stage bool, paths []string) {
 // stagingDone reports a staging change that failed and reads the status again either way.
 func (a *App) stagingDone(p *project, stage bool, err error) {
 	p.commit.busy = false
-	a.loadGit(p)
+	a.reloadGit(p)
 	if err != nil {
 		a.stagingFailed(stage, err)
 	}
@@ -662,5 +662,5 @@ func (a *App) stagingFailed(stage bool, err error) {
 // refreshChanges reads the project's status again.
 func (a *App) refreshChanges(p *project) {
 	a.performed("git.refreshChanges", surfaceButton)
-	a.loadGit(p)
+	a.reloadGit(p)
 }

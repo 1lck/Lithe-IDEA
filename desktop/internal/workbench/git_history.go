@@ -553,7 +553,7 @@ func (a *App) afterHistoryWrite(p *project, root string) {
 	if root != p.git.repositoryRoot(p.root) {
 		p.gitHistory.operationRoot = root
 	}
-	a.loadGit(p)
+	a.reloadGit(p)
 	if p.log.started {
 		a.loadLog(p)
 	}

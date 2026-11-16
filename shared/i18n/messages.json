@@ -9788,7 +9788,17 @@
     },
     {
       "id": "desktop.git.console.queryOutput",
-      "description": "Desktop Git console: stands for the folded output of a read-only Git query.",
+      "description": "Desktop Git console: stands for the folded output of a read-only Git query, count lines, count other than one.",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "count": "string"
+      }
+    },
+    {
+      "id": "desktop.git.console.queryOutputOne",
+      "description": "Desktop Git console: stands for the folded output of a read-only Git query of a single line.",
       "platforms": [
         "desktop"
       ],
@@ -10191,7 +10201,7 @@
     },
     {
       "id": "desktop.git.settings.console.omittedHelp",
-      "description": "Help of the Git console omitted-queries card: what an omitted kind means and what always shows",
+      "description": "Help of the Git console omitted-queries card: what an omitted kind means, that omitting one removes its recorded successful queries, and what always shows",
       "platforms": [
         "desktop"
       ]
@@ -10337,15 +10347,15 @@
       ]
     },
     {
-      "id": "desktop.git.settings.console.foldSingleLine",
-      "description": "Git console switch: show only the command line of a recorded query, folding even single-line output",
+      "id": "desktop.git.settings.console.foldShortQueries",
+      "description": "Git console switch: fold a successful query's output of ten lines or fewer too, not only longer output",
       "platforms": [
         "desktop"
       ]
     },
     {
-      "id": "desktop.git.settings.console.foldSingleLineHelp",
-      "description": "Help of the Git console switch that folds single-line query output",
+      "id": "desktop.git.settings.console.foldShortQueriesHelp",
+      "description": "Help of the Git console switch that folds short query output: when output folds, and that a deletion never folds",
       "platforms": [
         "desktop"
       ]

@@ -443,7 +443,7 @@ func (a *App) loadDiff(p *project, t *diffTab) {
 
 // loadDiffAs is loadDiff with the console query category its reads are recorded under, one of
 // core's GitQuery categories, or empty for the diff reads Core recognizes by their commands.
-func (a *App) loadDiffAs(p *project, t *diffTab, category string) {
+func (a *App) loadDiffAs(p *project, t *diffTab, category core.GitQueryCategory) {
 	kernel, ok := a.reviewKernel()
 	if !ok {
 		return

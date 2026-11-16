@@ -216,7 +216,7 @@ func TestGitWorktreesAreManagedAndRecordedInTheConsole(t *testing.T) {
 	client := NewClient()
 	console := NewGitConsole(nil)
 	// The worktree list queries of the operations and of the panel show only when asked for.
-	console.SetPreferences(GitConsolePreferences{ShowCheckQueries: true, ShowPanelQueries: true})
+	console.RecordQueries([]GitQueryCategory{GitQueryChecks, GitQueryPanels})
 	ctx := WithGitConsole(testContext(t), console, repo)
 	destination := filepath.Join(t.TempDir(), "linked")
 
@@ -367,7 +367,7 @@ func TestGitConsoleRecordsTheQueriesOfTheCategoriesItShows(t *testing.T) {
 		t.Fatalf("the default preferences recorded %+v", records)
 	}
 
-	console.SetPreferences(GitConsolePreferences{ShowCheckQueries: true, ShowReferenceQueries: true})
+	console.RecordQueries([]GitQueryCategory{GitQueryReferences, GitQueryChecks})
 	if _, err := client.GitStatus(AutomaticRefresh(ctx), repo); err != nil {
 		t.Fatalf("GitStatus(refresh) error: %v", err)
 	}
@@ -398,12 +398,12 @@ func TestGitConsoleRecordsTheQueriesOfTheCategoriesItShows(t *testing.T) {
 }
 
 // Only a Git request with a console asks Core to report queries, of the categories the
-// console's preferences show and under the category the context names; an automatic refresh
-// names its provenance.
+// console records and under the category the context names; an automatic refresh names its
+// provenance.
 func TestGitExecutionOfAsksForTheCategoriesTheConsoleShows(t *testing.T) {
 	idea := WithGitConsole(context.Background(), NewGitConsole(nil), "/repo")
 	shown := NewGitConsole(nil)
-	shown.SetPreferences(GitConsolePreferences{ShowDiffQueries: true, ShowCheckQueries: true})
+	shown.RecordQueries(GitConsolePreferences{ShowDiffQueries: true, ShowCheckQueries: true}.QueryCategories())
 	ctx := WithGitConsole(context.Background(), shown, "/repo")
 	cases := []struct {
 		name    string
@@ -447,17 +447,83 @@ func TestGitConsolePreferencesMapToCategoriesAndDisplay(t *testing.T) {
 		ShowReferenceQueries: true, ShowReloadQueries: true, ShowDiffRefreshQueries: true,
 		ShowDiffQueries: true, ShowLogQueries: true, ShowLogPathFilterQueries: true,
 		ShowAnnotateQueries: true, ShowPanelQueries: true, ShowCheckQueries: true,
-		FoldSingleLineQueries: true, ShowCompletedWithoutOutput: true,
+		FoldShortQueries: true, ShowCompletedWithoutOutput: true,
 		HideTemporaryConfig: true, HideRepository: true,
 	}
-	want := []string{GitQueryReferences, GitQueryReload, GitQueryDiffRefresh, GitQueryDiff, GitQueryLog,
+	want := []GitQueryCategory{GitQueryReferences, GitQueryReload, GitQueryDiffRefresh, GitQueryDiff, GitQueryLog,
 		GitQueryLogPathFilter, GitQueryAnnotate, GitQueryPanels, GitQueryChecks}
 	if got := all.QueryCategories(); !slices.Equal(got, want) {
 		t.Fatalf("categories = %q, want %q", got, want)
 	}
 	display, err := json.Marshal(all.Display())
-	if err != nil || string(display) != `{"foldSingleLineQueries":true,"showCompletedWithoutOutput":true,"hideTemporaryConfig":true,"hideRepository":true}` {
+	if err != nil || string(display) != `{"foldShortQueries":true,"showCompletedWithoutOutput":true,"hideTemporaryConfig":true,"hideRepository":true}` {
 		t.Fatalf("display = %s (%v)", display, err)
+	}
+}
+
+// The categories the console can ask for are exactly the ones Core lists, in its order, so a
+// request never names one Core rejects.
+func TestGitQueryCategoriesAreTheOnesCoreLists(t *testing.T) {
+	data, err := os.ReadFile(contractfixture.CoreFixture("git/console-queries-v1.json"))
+	if err != nil {
+		t.Fatalf("read fixture: %v", err)
+	}
+	var fixture struct {
+		QueryCategories []GitQueryCategory `json:"queryCategories"`
+	}
+	if err := json.Unmarshal(data, &fixture); err != nil {
+		t.Fatalf("decode fixture: %v", err)
+	}
+	all := GitConsolePreferences{
+		ShowReferenceQueries: true, ShowReloadQueries: true, ShowDiffRefreshQueries: true,
+		ShowDiffQueries: true, ShowLogQueries: true, ShowLogPathFilterQueries: true,
+		ShowAnnotateQueries: true, ShowPanelQueries: true, ShowCheckQueries: true,
+	}
+	if got := all.QueryCategories(); len(fixture.QueryCategories) == 0 || !slices.Equal(got, fixture.QueryCategories) {
+		t.Fatalf("categories = %q, Core lists %q", got, fixture.QueryCategories)
+	}
+}
+
+// Turning a category off frees the records its successful queries took, once their request
+// finished; a failed query, a visible command, a query of another category and the queries of
+// a request still running stay.
+func TestGitConsoleDropsTheSuccessfulQueriesOfACategoryTurnedOff(t *testing.T) {
+	console := newTestConsole()
+	changes := 0
+	console.changed = func() { changes++ }
+	console.RecordQueries([]GitQueryCategory{GitQueryLog, GitQueryDiff})
+	consoleEvents(t, console, "/repo",
+		`{"operationId":"a","type":"requestStarted"}`,
+		`{"operationId":"a","type":"started","invocationId":1,"arguments":["log"],"query":true,"queryCategory":"log"}`,
+		`{"operationId":"a","type":"output","invocationId":1,"stream":"stdout","text":"commit"}`,
+		`{"operationId":"a","type":"finished","invocationId":1,"state":"completed","exitCode":0}`,
+		`{"operationId":"a","type":"started","invocationId":2,"arguments":["show"],"query":true,"queryCategory":"log"}`,
+		`{"operationId":"a","type":"finished","invocationId":2,"state":"completed","exitCode":128}`,
+		`{"operationId":"a","type":"started","invocationId":3,"arguments":["diff"],"query":true,"queryCategory":"diff"}`,
+		`{"operationId":"a","type":"finished","invocationId":3,"state":"completed","exitCode":0}`,
+		`{"operationId":"a","type":"started","invocationId":4,"arguments":["fetch"]}`,
+		`{"operationId":"a","type":"finished","invocationId":4,"state":"completed","exitCode":0}`,
+		`{"operationId":"a","type":"requestFinished"}`,
+		`{"operationId":"b","type":"requestStarted"}`,
+		`{"operationId":"b","type":"started","invocationId":1,"arguments":["rev-list"],"query":true,"queryCategory":"log"}`,
+	)
+	revision, before := console.Revision(), changes
+	console.RecordQueries([]GitQueryCategory{GitQueryDiff})
+	if got := consoleCommands(console); !slices.Equal(got, []string{"show", "diff", "fetch", "rev-list"}) {
+		t.Fatalf("console commands = %q, want the failed log query, the diff, the fetch and the running query", got)
+	}
+	if console.Revision() == revision || changes != before+1 {
+		t.Fatalf("revision %d -> %d, %d changes: dropping records did not change the console", revision, console.Revision(), changes-before)
+	}
+	if console.outputBytes != 0 {
+		t.Fatalf("output bytes = %d, want the dropped query's output freed", console.outputBytes)
+	}
+	if !slices.Equal(console.recordedQueries(), []GitQueryCategory{GitQueryDiff}) {
+		t.Fatalf("recorded categories = %q", console.recordedQueries())
+	}
+	console.RecordQueries([]GitQueryCategory{GitQueryDiff})
+	if changes != before+1 {
+		t.Fatal("keeping the same categories changed the console")
 	}
 }
 
@@ -467,7 +533,7 @@ func TestGitConsoleRecordsTheQueryAndTheProjectionOfAStartedCommand(t *testing.T
 	console := newTestConsole()
 	consoleEvents(t, console, "/repo",
 		`{"operationId":"a","type":"requestStarted"}`,
-		`{"operationId":"a","type":"started","invocationId":1,"arguments":["-c","core.quotepath=false","log"],"displayArguments":["log"],"query":true}`,
+		`{"operationId":"a","type":"started","invocationId":1,"arguments":["-c","core.quotepath=false","log"],"displayArguments":["log"],"query":true,"queryCategory":"log"}`,
 		`{"operationId":"a","type":"started","invocationId":2,"arguments":["fetch"]}`,
 	)
 	records := console.Snapshot().Records
@@ -475,10 +541,10 @@ func TestGitConsoleRecordsTheQueryAndTheProjectionOfAStartedCommand(t *testing.T
 		t.Fatalf("records = %+v, want two", records)
 	}
 	query, fetch := records[0], records[1]
-	if !query.Query || !slices.Equal(query.DisplayArguments, []string{"log"}) {
+	if !query.Query || query.QueryCategory != GitQueryLog || !slices.Equal(query.DisplayArguments, []string{"log"}) {
 		t.Fatalf("the query's record is %+v", query)
 	}
-	if fetch.Query || fetch.DisplayArguments != nil {
+	if fetch.Query || fetch.QueryCategory != "" || fetch.DisplayArguments != nil {
 		t.Fatalf("the fetch's record is %+v, want no query and no projection", fetch)
 	}
 	if wire, _ := query.wire(); !wire.Query {

@@ -102,6 +102,9 @@ func consoleMessages(language Language) ConsoleMessages {
 			return SharedFormat(language, "desktop.git.console.expandConfiguration", map[string]string{"count": strconv.Itoa(n)})
 		},
 		QueryOutput: func(n int) string {
+			if n == 1 {
+				return SharedFormat(language, "desktop.git.console.queryOutputOne", map[string]string{"count": strconv.Itoa(n)})
+			}
 			return SharedFormat(language, "desktop.git.console.queryOutput", map[string]string{"count": strconv.Itoa(n)})
 		},
 		Expand:      Shared(language, "desktop.git.console.expand"),

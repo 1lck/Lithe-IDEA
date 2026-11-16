@@ -780,7 +780,7 @@ func New(options Options) *App {
 	// the rest loaded. It is logged below with the failures, and the notice tells it is kept.
 	settingsUnread := a.store.Unread(settingsFile)
 	a.settings.Keymap = shortcuts.Normalize(a.settings.Keymap)
-	a.gitConsole.SetPreferences(a.settings.GitConsole)
+	a.gitConsole.RecordQueries(a.settings.GitConsole.QueryCategories())
 	a.loadEditorEssentials()
 	a.initRecovery()
 	a.applyNetwork()

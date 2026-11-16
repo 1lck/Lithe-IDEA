@@ -27,10 +27,12 @@ native_path() {
     fi
 }
 
-# Lithe-core-rust feat/console-filters at 9fc6468, a merge of main ad148ec into the branch:
-# gitExecution.consoleQueries names the query categories the Git console records and queryCategory
-# names a read the command does not tell apart; git.consolePresentation takes display options, all
-# false by default as in IDEA (#2025). Its main side is #63, squash-merged into main as ad148ec:
+# Lithe-core-rust feat/console-filters at 5aae479 (#64, on top of a merge of main ad148ec into the
+# branch): gitExecution.consoleQueries names the query categories the Git console records and
+# queryCategory names a read the command does not tell apart; git.consolePresentation takes display
+# options, all false by default as in IDEA; output folds only past ten lines and a deletion never
+# folds; a failed unrecorded query still reports its command, stderr and exit; a reported query's
+# started event carries its queryCategory (#2025). Its main side is #63, squash-merged into main as ad148ec:
 # a Unix process group whose members have all exited but are not reaped yet is killed without
 # error, so disposing a language server or
 # closing an SSH session on macOS no longer reports EPERM (#2017). It is on top of #62,
@@ -132,7 +134,7 @@ PINNED_CORE_REPOSITORY="https://github.com/Lithe-IDEA/Lithe-core-rust.git"
 # the contract, plugin guides, reference and SDKs live only in shared/plugins; on top of #16 (reported Git queries folded in the console),
 # #15 (git.write cherryPick, revert and reset fields), #14 (word-level changed ranges of diff
 # rows), #13, #8, #7, #6 and #4.
-PINNED_CORE_REVISION="9fc64687c1b3acc76bc6bdfb2e5b5f209d77d431"
+PINNED_CORE_REVISION="5aae479ee5ff629248585349efaf4c29541c2d45"
 PROFILE="debug"
 while [[ $# -gt 0 ]]; do
     case "$1" in

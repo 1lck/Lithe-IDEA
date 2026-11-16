@@ -30,8 +30,8 @@ func TestGitConsoleCardsStartAsIDEAAndHandOnTheirChanges(t *testing.T) {
 	}
 	expect := func(when string, on map[string]bool) {
 		t.Helper()
-		for _, key := range []string{"references", "reload", "diffRefresh", "diff", "log", "logPathFilter", "annotate", "panels", "checks", "foldSingleLine", "completedNotice", "temporaryConfig", "repository"} {
-			want := key != "foldSingleLine" && key != "temporaryConfig" && key != "repository"
+		for _, key := range []string{"references", "reload", "diffRefresh", "diff", "log", "logPathFilter", "annotate", "panels", "checks", "foldShortQueries", "completedNotice", "temporaryConfig", "repository"} {
+			want := key != "foldShortQueries" && key != "temporaryConfig" && key != "repository"
 			if flipped, ok := on[key]; ok {
 				want = flipped
 			}

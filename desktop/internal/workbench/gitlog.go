@@ -478,6 +478,9 @@ func (in logProjection) run(ctx context.Context, kernel Kernel, root string, dat
 			}
 		}
 		if in.path != "" {
+			// The path filter reads the files of commit after commit, which the console
+			// records only when it records these reads.
+			filtering := core.WithQueryCategory(ctx, core.GitQueryLogPathFilter)
 			for i, c := range in.commits {
 				if !keep[i] {
 					continue
@@ -485,9 +488,7 @@ func (in logProjection) run(ctx context.Context, kernel Kernel, root string, dat
 				files, ok := in.pathFiles[c.Hash]
 				if !ok {
 					var err error
-					// The path filter reads the files of commit after commit, which the
-					// console records only when it shows these reads.
-					if files, err = kernel.GitCommitFiles(core.WithQueryCategory(ctx, core.GitQueryLogPathFilter), root, c.Hash); err != nil {
+					if files, err = kernel.GitCommitFiles(filtering, root, c.Hash); err != nil {
 						return core.Graph{}, in.pathFiles, err
 					}
 					in.pathFiles[c.Hash] = files

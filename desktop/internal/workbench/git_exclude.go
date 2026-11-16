@@ -59,7 +59,7 @@ func (a *App) excludeLocally(p *project, change core.GitChange) {
 				a.notifyError(i18n.SharedFormat(a.language(), "desktop.git.excludeFailed", map[string]string{"reason": reviewReason(err)}))
 				a.operationFailed("git_exclude", err)
 			}
-			a.loadGit(p)
+			a.reloadGit(p)
 		}
 	})
 }

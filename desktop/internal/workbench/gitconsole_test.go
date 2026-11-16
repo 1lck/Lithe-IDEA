@@ -114,8 +114,8 @@ func TestConsoleRedrawsWithTheDisplayChoices(t *testing.T) {
 			t.Fatalf("header %q still names the repository", row.text)
 		}
 	}
-	if !h.app.settings.GitConsole.HideRepository || !h.app.gitConsole.Preferences().HideRepository {
-		t.Fatalf("the preferences were not kept: settings %+v, console %+v", h.app.settings.GitConsole, h.app.gitConsole.Preferences())
+	if !h.app.settings.GitConsole.HideRepository {
+		t.Fatalf("the preferences were not kept: settings %+v", h.app.settings.GitConsole)
 	}
 }
 
@@ -591,9 +591,9 @@ func TestConsoleDrawsAFailedQueryOpen(t *testing.T) {
 	}
 }
 
-// When the display choices fold single-line queries, Core gives the one line a query fold,
+// When the display choices fold short queries, Core gives even a one-line output a query fold,
 // which the console draws closed like any other.
-func TestConsoleFoldsASingleLineQueryCoreFolds(t *testing.T) {
+func TestConsoleFoldsAShortQueryCoreFolds(t *testing.T) {
 	text := &i18n.For(i18n.English).Console
 	record, presented := consoleQuery()
 	record.Lines = record.Lines[:1]

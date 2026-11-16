@@ -540,8 +540,13 @@ func (v *consoleView) flattenRecord(old map[consoleRowID]int, index int, r *core
 	// stand out among the reads around them.
 	quiet := r.Query && !failed
 	searching := v.searchFor != ""
+	// The matches and hits of a presentation made under other display choices may name text
+	// the record no longer draws, such as a hidden repository, so the search waits for Core to
+	// present it again. Its fragments are still drawn meanwhile, so a long folded output does
+	// not open for one paint.
+	searched := p != nil && p.search == v.searchFor && p.display == v.display
 	if searching {
-		if p != nil && p.search == v.searchFor {
+		if searched {
 			v.total += p.entry.Matches
 		} else {
 			v.counted = false
@@ -637,8 +642,8 @@ func (v *consoleView) flattenRecord(old map[consoleRowID]int, index int, r *core
 			}
 			v.addLines(old, index, r, next, start)
 			next = end
-			// Core folds a query's output whole, a single line too when the display choices
-			// ask for the command line alone.
+			// Core folds a successful query's output longer than ten lines whole, and shorter
+			// output too when the display choices ask for it; it never folds a deletion's.
 			if fragment.Kind == consoleFragmentQuery {
 				v.addQueryFold(old, index, r, fragment, start, end, text)
 				continue
@@ -692,7 +697,7 @@ func (v *consoleView) flattenRecord(old map[consoleRowID]int, index int, r *core
 		}
 	}
 
-	if !use || !searching || p.search != v.searchFor {
+	if !use || !searching || !searched {
 		return
 	}
 	var previous consoleHitKey
