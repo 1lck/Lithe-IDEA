@@ -227,48 +227,112 @@ func TestIntegratedShellReportsPromptsCommandsAndFolders(t *testing.T) {
 
 // sh becomes the user's shell, so closing the terminal hangs up the shell
 // itself, which passes the hangup on to its jobs, as it does unintegrated.
-//
-// The test closes once the shell is back in its line editor. Bash passes a
-// hangup on to its jobs only while it counts as interactive, and it does not
-// while it runs PROMPT_COMMAND, which the integration also uses: a hangup that
-// lands there ends Bash and leaves its jobs, integrated or not, as it does for
-// any user with a prompt command of their own.
 func TestClosingAnIntegratedShellHangsUpTheShellAndItsJobs(t *testing.T) {
 	for _, name := range []string{"bash", "zsh", "/bin/bash"} {
 		t.Run(name, func(t *testing.T) {
-			program, err := exec.LookPath(name)
-			if err != nil {
-				t.Skipf("%s unavailable: %v", name, err)
-			}
-			home, runtimeDir := t.TempDir(), t.TempDir()
-			s := startIntegrated(t, Config{
-				Shell: program, DirectoryToken: "hangup-token", Dir: home, Unset: []string{"TERM_PROGRAM"},
-				Env: []string{"HOME=" + home, "ZDOTDIR=" + home, "SHELL=" + program, "TMPDIR=" + runtimeDir, "LANG=en_US.UTF-8"},
-			}, "hangup-token")
-			s.await("the first prompt", func() bool { return s.ready > 0 })
+			s := startHangupShell(t, name, nil)
 			s.run("sleep 300 & echo job=$!\r", 1, "\r\njob=")
-			match := regexp.MustCompile(`\r\njob=(\d+)\r\n`).FindStringSubmatch(s.output)
-			if match == nil {
-				t.Fatalf("no job pid in %q", s.output)
-			}
-			job, _ := strconv.Atoi(match[1])
-			t.Cleanup(func() { _ = syscall.Kill(job, syscall.SIGKILL) })
-
-			s.shell.Close()
-			select {
-			case <-s.shell.Done():
-			case <-time.After(5 * time.Second):
-				t.Fatal("closing did not end the shell")
-			}
-			deadline := time.Now().Add(5 * time.Second)
-			for !errors.Is(syscall.Kill(job, 0), syscall.ESRCH) {
-				if time.Now().After(deadline) {
-					t.Fatalf("the shell's job %d outlived the closed terminal by 5s", job)
-				}
-				// test-stability: allow(go-real-sleep) reason: the end of a process that is not this test's child has no event to wait on.
-				time.Sleep(10 * time.Millisecond)
-			}
+			job := jobOf(t, s)
+			closeAndAwaitEnd(t, s.shell)
+			awaitProcessEnd(t, job)
 		})
+	}
+}
+
+// Bash passes a hangup on to its jobs only while it counts as interactive, and
+// it does not while it runs PROMPT_COMMAND, which the integration uses; Zsh
+// misses a job it is still starting. A shell closed between a command and its
+// next prompt is therefore hung up once it shows the prompt. The test closes as
+// soon as the command has printed, before the prompt; the slow prompt command
+// keeps Bash in PROMPT_COMMAND for long after.
+func TestClosingAnIntegratedShellRightAfterACommandHangsUpItsJobs(t *testing.T) {
+	for _, test := range []struct {
+		name, shell string
+		env         []string
+	}{
+		{"bash", "bash", nil},
+		{"zsh", "zsh", nil},
+		{"/bin/bash", "/bin/bash", nil},
+		{"bash with a slow prompt command", "bash", []string{"PROMPT_COMMAND=sleep 0.3"}},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			s := startHangupShell(t, test.shell, test.env)
+			s.shell.Write([]byte("sleep 300 & echo job=$!\r"))
+			s.await("the job's pid", func() bool { return jobPattern.MatchString(s.output) })
+			job := jobOf(t, s)
+			closeAndAwaitEnd(t, s.shell)
+			awaitProcessEnd(t, job)
+		})
+	}
+}
+
+// A closed shell that does not get back to its prompt, here one busy in a loop
+// of builtins, is still hung up, after promptGrace.
+func TestClosingAnIntegratedShellThatNeverPromptsStillEndsIt(t *testing.T) {
+	for _, name := range []string{"bash", "zsh"} {
+		t.Run(name, func(t *testing.T) {
+			s := startHangupShell(t, name, nil)
+			starts := s.starts
+			s.shell.Write([]byte("while :; do :; done\r"))
+			s.await("the loop's start", func() bool { return s.starts > starts })
+			closeAndAwaitEnd(t, s.shell)
+		})
+	}
+}
+
+// startHangupShell starts the integrated shell name in an empty home, with env
+// added, and waits for its first prompt.
+func startHangupShell(t *testing.T, name string, env []string) *integrated {
+	t.Helper()
+	program, err := exec.LookPath(name)
+	if err != nil {
+		t.Skipf("%s unavailable: %v", name, err)
+	}
+	home, runtimeDir := t.TempDir(), t.TempDir()
+	s := startIntegrated(t, Config{
+		Shell: program, DirectoryToken: "hangup-token", Dir: home, Unset: []string{"TERM_PROGRAM"},
+		Env: append([]string{"HOME=" + home, "ZDOTDIR=" + home, "SHELL=" + program, "TMPDIR=" + runtimeDir, "LANG=en_US.UTF-8"}, env...),
+	}, "hangup-token")
+	s.await("the first prompt", func() bool { return s.ready > 0 })
+	return s
+}
+
+var jobPattern = regexp.MustCompile(`\r\njob=(\d+)\r\n`)
+
+// jobOf is the pid the shell printed as job=<pid>; the job is killed when the test ends.
+func jobOf(t *testing.T, s *integrated) int {
+	t.Helper()
+	match := jobPattern.FindStringSubmatch(s.output)
+	if match == nil {
+		t.Fatalf("no job pid in %q", s.output)
+	}
+	job, _ := strconv.Atoi(match[1])
+	t.Cleanup(func() { _ = syscall.Kill(job, syscall.SIGKILL) })
+	return job
+}
+
+// closeAndAwaitEnd closes shell and waits for it to end. Close hangs a settling
+// shell up within promptGrace and kills one that outlives killGrace after that.
+func closeAndAwaitEnd(t *testing.T, shell *Shell) {
+	t.Helper()
+	shell.Close()
+	select {
+	case <-shell.Done():
+	case <-time.After(5 * time.Second):
+		t.Fatal("closing did not end the shell")
+	}
+}
+
+// awaitProcessEnd waits for the process pid, which is not this test's child, to end.
+func awaitProcessEnd(t *testing.T, pid int) {
+	t.Helper()
+	deadline := time.Now().Add(5 * time.Second)
+	for !errors.Is(syscall.Kill(pid, 0), syscall.ESRCH) {
+		if time.Now().After(deadline) {
+			t.Fatalf("the shell's job %d outlived the closed terminal by 5s", pid)
+		}
+		// test-stability: allow(go-real-sleep) reason: the end of a process that is not this test's child has no event to wait on.
+		time.Sleep(10 * time.Millisecond)
 	}
 }
 
