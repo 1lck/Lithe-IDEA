@@ -45,16 +45,17 @@ func startBackend(config Config) (backend, error) {
 	// runtime is the private directory of an integrated shell's startup files:
 	// it is made here and removed once the shell has ended, however it ended,
 	// as the shell removes it itself only when its startup gets that far.
-	runtime := ""
+	runtime, promptToken := "", ""
 	if args == nil {
 		args = []string{"-l"}
-		// Bash and Zsh report their prompt, commands and folder when sh writes
+		// Bash and Zsh report their prompts and commands when sh writes
 		// their startup files and then becomes them (see integration_scripts.go),
 		// so the shell is still the process started here. Without a private
 		// directory the shell starts as itself.
-		if integrationScriptWith(program, false, config.DirectoryToken) != "" {
+		if integrationScriptWith(program, false, config.PromptToken) != "" {
 			if made, err := os.MkdirTemp(temporaryDirectory(env), "motty-shell."); err == nil {
-				program, args, runtime = "/bin/sh", integrationArgs(program, config.DirectoryToken, made), made
+				program, args, runtime = "/bin/sh", integrationArgs(program, config.PromptToken, made), made
+				promptToken = config.PromptToken
 			}
 		}
 	}
@@ -116,6 +117,7 @@ func startBackend(config Config) (backend, error) {
 			})
 			return readErr == nil && err == nil && group > 0 && group != cmd.Process.Pid
 		},
+		promptToken: promptToken,
 	}, nil
 }
 

@@ -11,11 +11,14 @@ import (
 	"unicode/utf16"
 )
 
-// Windows Terminal's OSC 9;9 carries a native path without URI escaping. Wrap
-// the existing prompt, only for recognized interactive shells. Never write a
-// startup command into a running terminal or modify a profile on disk.
+// integrateWindowsShell marks the prompt of PowerShell and cmd.exe with OSC 133
+// A and B under the session's token, wrapping the existing prompt, only for
+// recognized interactive shells. It never writes a startup command into a
+// running terminal or modifies a profile on disk. Neither shell reports its
+// command starts (#2008), and neither reports its folder: Lithe has no reader
+// for OSC 9;9 (#1984).
 func integrateWindowsShell(config Config, program string) Config {
-	token := config.DirectoryToken
+	token := config.PromptToken
 	if token == "" || len(token) > 128 || len(config.Args) != 0 || strings.IndexFunc(token, func(r rune) bool {
 		return !(r >= 'a' && r <= 'z' || r >= 'A' && r <= 'Z' || r >= '0' && r <= '9' || r == '-' || r == '_')
 	}) >= 0 {
@@ -23,7 +26,7 @@ func integrateWindowsShell(config Config, program string) Config {
 	}
 	switch strings.ToLower(filepath.Base(program)) {
 	case "pwsh.exe", "powershell.exe":
-		script := strings.ReplaceAll(powerShellDirectoryIntegration, "__MOTTY_TOKEN__", token)
+		script := strings.ReplaceAll(powerShellPromptIntegration, "__MOTTY_TOKEN__", token)
 		// No -NoLogo: the shell's own version banner is part of starting it, as
 		// in Windows Terminal, and the integration runs after it.
 		config.Args = []string{"-NoExit", "-EncodedCommand", encodePowerShellCommand(script)}
@@ -39,7 +42,7 @@ func integrateWindowsShell(config Config, program string) Config {
 		}
 		// Pass an environment value, never a /K command: special path/prompt
 		// characters must not become executable CMD syntax.
-		prefix := "$e]133;A;motty=" + token + "$e\\$e]9;9;$P$e\\"
+		prefix := "$e]133;A;motty=" + token + "$e\\"
 		config.Env = append(append([]string(nil), config.Env...), "PROMPT="+prefix+prompt+"$e]133;B;motty="+token+"$e\\")
 	}
 	return config
@@ -54,7 +57,7 @@ func encodePowerShellCommand(script string) string {
 	return base64.StdEncoding.EncodeToString(encoded)
 }
 
-const powerShellDirectoryIntegration = `
+const powerShellPromptIntegration = `
 if ($ExecutionContext.SessionState.LanguageMode -eq 'FullLanguage') {
     $global:__MottyOriginalPrompt = $function:prompt
     function global:prompt {
@@ -64,11 +67,7 @@ if ($ExecutionContext.SessionState.LanguageMode -eq 'FullLanguage') {
         if ($failed) { Write-Error 'motty-prompt-status' -ErrorAction Ignore }
         $original = $global:__MottyOriginalPrompt.Invoke()
         $esc = [char]27
-        $report = "$esc]133;A;motty=__MOTTY_TOKEN__$([char]7)"
-        if ($pwd.Provider.Name -eq 'FileSystem') {
-            $report += "$esc]9;9;$($pwd.ProviderPath)$([char]7)"
-        }
-        return "$report$original$esc]133;B;motty=__MOTTY_TOKEN__$([char]7)"
+        return "$esc]133;A;motty=__MOTTY_TOKEN__$([char]7)$original$esc]133;B;motty=__MOTTY_TOKEN__$([char]7)"
     }
 }
 `

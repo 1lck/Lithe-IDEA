@@ -48,7 +48,8 @@ The Bash and Zsh shell integration these two rely on
 (desktop/internal/localshell/integration_scripts.go) is Motty's
 internal/sshconn/integration.go as of 0ae3ba59, which Motty runs over SSH. Here it runs
 for the user's local shell and in a WSL distribution, started through a short sh program,
-under a token new to each start, and without the output-encoding and home-folder reports.
+under a token new to each start, and without the output-encoding, home-folder and folder
+(OSC 7) reports.
 For a local shell the client makes the private folder of the startup files and removes it
 once the shell has ended, and sh becomes the shell instead of waiting for it.
 

@@ -354,7 +354,7 @@ func (v *View) terminalPointer(event gfx.PointerEvent) gfx.EventResult {
 			// A program that asked for the mouse already had this press; what reaches
 			// here is the terminal's own. Nothing can take the text once the shell
 			// has ended.
-			if v.shell != nil {
+			if v.live() {
 				v.paste()
 			}
 			return gfx.EventResult{Handled: true, Repaint: true}

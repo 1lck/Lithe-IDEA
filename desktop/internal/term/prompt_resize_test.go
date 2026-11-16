@@ -134,3 +134,29 @@ func TestNewPromptTokenForgetsCommandMarks(t *testing.T) {
 		t.Fatal("a command mark under the old token was taken for the new shell's")
 	}
 }
+
+// The owning shell's markers count however its output is split, whether they end
+// with BEL or with ST; the same markers without the token, or with another one,
+// do not.
+func TestPromptMarksAcrossEverySplit(t *testing.T) {
+	stream := []byte(shellStarted + "\x1b]133;A;motty=t\x1b\\$ \x1b]133;B;motty=t\x07ls")
+	for cut := 0; cut <= len(stream); cut++ {
+		terminal := New(40, 8, 100)
+		terminal.SetPromptToken("t")
+		terminal.Write(stream[:cut])
+		terminal.Write(stream[cut:])
+		moves, ok := terminal.InputMove(Position{Row: 0, Column: 2})
+		if !terminal.CommandReporting() || !terminal.AtPrompt() || !ok || moves != -2 {
+			t.Fatalf("split %d: command marks %v, at prompt %v, input move %d %v",
+				cut, terminal.CommandReporting(), terminal.AtPrompt(), moves, ok)
+		}
+	}
+	for _, suffix := range []string{"", ";motty=u"} {
+		terminal := New(40, 8, 100)
+		terminal.SetPromptToken("t")
+		feed(terminal, "\x1b]133;C"+suffix+"\x07\x1b]133;A"+suffix+"\x07$ \x1b]133;B"+suffix+"\x07ls")
+		if _, ok := terminal.InputMove(Position{Row: 0, Column: 2}); terminal.CommandReporting() || terminal.AtPrompt() || ok {
+			t.Fatalf("markers ending %q were taken for the owning shell's", suffix)
+		}
+	}
+}

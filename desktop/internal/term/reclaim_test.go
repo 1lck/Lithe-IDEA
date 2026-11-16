@@ -66,3 +66,30 @@ func TestAForeignPromptMarkerLeavesTheModesAlone(t *testing.T) {
 		t.Fatalf("a foreign marker reclaimed the modes a live program may own: %+v", modes)
 	}
 }
+
+// A command's end reclaims the modes only with an exit status, 0 to 255 in plain
+// digits, however the marker is split.
+func TestACommandEndReclaimsOnlyWithAValidStatus(t *testing.T) {
+	armed := func() *Terminal {
+		term := newTerm(40, 10)
+		term.SetPromptToken("tok")
+		term.Write([]byte("\x1b]133;C;motty=tok\a\x1b[?1049h"))
+		return term
+	}
+	for _, status := range []string{"-1", "256", "bad", "07", ""} {
+		term := armed()
+		term.Write([]byte("\x1b]133;D;" + status + ";motty=tok\a"))
+		if !term.Modes().AltScreen {
+			t.Errorf("a command end with status %q reclaimed the modes", status)
+		}
+	}
+	stream := []byte("\x1b]133;D;17;motty=tok\a")
+	for cut := 0; cut <= len(stream); cut++ {
+		term := armed()
+		term.Write(stream[:cut])
+		term.Write(stream[cut:])
+		if term.Modes().AltScreen {
+			t.Fatalf("split %d: the command end did not reclaim the modes", cut)
+		}
+	}
+}

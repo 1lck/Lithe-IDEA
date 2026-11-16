@@ -52,11 +52,12 @@ type Config struct {
 	Args []string
 	// Dir is the working directory. Empty means the user's home directory.
 	Dir string
-	// DirectoryToken enables prompt, command and directory reports, bound to the
+	// PromptToken enables prompt and command reports (OSC 133), bound to the
 	// token, for the shells that support them: Bash and Zsh on Unix and in a WSL
-	// distribution, PowerShell and cmd.exe on Windows. It applies only when Args
-	// is nil. Empty leaves the shell's startup and prompt untouched.
-	DirectoryToken string
+	// distribution, and the prompts alone of PowerShell and cmd.exe on Windows.
+	// It applies only when Args is nil. Empty leaves the shell's startup and
+	// prompt untouched.
+	PromptToken string
 	// Env is added to the environment the shell inherits.
 	Env []string
 	// Unset names variables removed from the inherited environment, before Env is
@@ -87,6 +88,9 @@ type backend struct {
 	// called from any goroutine, also after the shell ended, and answers false when
 	// it cannot tell.
 	busy func() bool
+	// promptToken is the token of the prompt marks the shell prints when it was
+	// started with integration (see integration_scripts.go), else empty.
+	promptToken string
 }
 
 // ExitError is why a shell ended with a nonzero status. It has the same
@@ -120,6 +124,16 @@ type Shell struct {
 	curCols, curRows   int
 
 	kind shellkind.Kind
+
+	// marks follows the prompt marks of an integrated shell; nil without
+	// integration. Only the reader uses it.
+	marks *promptMarks
+	// lastMark is the letter of the latest prompt mark, zero before the first, and
+	// prompted says the shell has shown a prompt. promptShown, made by a Close that
+	// waits for the prompt, is closed when the shell shows it. All are guarded by mu.
+	lastMark    byte
+	prompted    bool
+	promptShown chan struct{}
 }
 
 // Kind is the family of the shell this session runs, Unknown when the program is
@@ -143,6 +157,7 @@ func Start(config Config) (*Shell, error) {
 		input: make(chan []byte, 256), kind: kindOf(config),
 		resizeWake: make(chan struct{}, 1),
 		wantCols:   cols, wantRows: rows, curCols: cols, curRows: rows,
+		marks: newPromptMarks(b.promptToken),
 	}
 	shell.space = sync.NewCond(&shell.mu)
 	go shell.readLoop()
@@ -170,19 +185,28 @@ func kindOf(config Config) shellkind.Kind {
 }
 
 // readLoop moves the program's output into the buffer. It blocks while the
-// buffer is full, which stops reading the pty and so slows the program.
+// buffer is full, which stops reading the pty and so slows the program. Once the
+// shell is closed nobody drains it: the reader keeps reading, so that a shell
+// that settles before its hangup (see Close) can print its prompt, and drops
+// what it reads.
 func (shell *Shell) readLoop() {
 	defer close(shell.readDone)
 	buffer := make([]byte, 32<<10)
 	for {
 		n, err := shell.b.io.Read(buffer)
 		if n > 0 {
+			if shell.marks != nil {
+				shell.marks.feed(buffer[:n], shell.sawMark)
+			}
 			shell.mu.Lock()
-			for len(shell.data) >= maxPendingOutput && !shell.finished {
+			for len(shell.data) >= maxPendingOutput && !shell.finished && !shell.closed {
 				shell.space.Wait()
 			}
-			first := len(shell.data) == 0
-			shell.data = append(shell.data, buffer[:n]...)
+			first := false
+			if !shell.closed {
+				first = len(shell.data) == 0
+				shell.data = append(shell.data, buffer[:n]...)
+			}
 			shell.mu.Unlock()
 			if first {
 				shell.wake() // only the first chunk after a drain needs to wake the owner
@@ -370,6 +394,14 @@ func (shell *Shell) ExitStatus() int {
 }
 
 // Close hangs the shell up and releases its goroutines. It does not wait.
+//
+// The shell passes the hangup on to the jobs it would end, and leaves those the user
+// disowned. Bash does so only while it is interactive, and running PROMPT_COMMAND,
+// which the integration uses, it is not; a job Zsh is still starting misses it too.
+// So an integrated shell that has shown a prompt but is not at one now and runs no
+// program in the foreground, that is one between a command and its next prompt, is
+// hung up when it shows the prompt, or after promptGrace. Without integration the
+// shell is hung up at once.
 func (shell *Shell) Close() {
 	shell.mu.Lock()
 	if shell.closed {
@@ -382,7 +414,53 @@ func (shell *Shell) Close() {
 	if shell.resizeWake != nil {
 		close(shell.resizeWake)
 	}
+	settling := shell.prompted && shell.lastMark != 'B' && !shell.finished
+	mark := shell.lastMark
 	shell.mu.Unlock()
+	// A reader waiting for room drops what it holds and reads on.
+	shell.space.Broadcast()
+	// A command in the foreground keeps the shell waiting for it, interactive.
+	if settling && mark == 'C' && shell.b.busy != nil && shell.b.busy() {
+		settling = false
+	}
+	var shown chan struct{}
+	if settling {
+		shell.mu.Lock()
+		if shell.lastMark == 'B' {
+			settling = false
+		} else {
+			shown = make(chan struct{})
+			shell.promptShown = shown
+		}
+		shell.mu.Unlock()
+	}
+	if settling {
+		go shell.hangUpAtPrompt(shown)
+	} else {
+		shell.hangUp()
+	}
+	shell.mu.Lock()
+	shell.finished = true
+	shell.mu.Unlock()
+	shell.space.Broadcast()
+}
+
+// hangUpAtPrompt hangs up a closed shell once it shows its prompt, ends, or has had
+// promptGrace to get there.
+func (shell *Shell) hangUpAtPrompt(shown <-chan struct{}) {
+	timer := time.NewTimer(promptGrace)
+	defer timer.Stop()
+	select {
+	case <-shown:
+	case <-shell.done:
+	case <-timer.C:
+	}
+	shell.hangUp()
+}
+
+// hangUp asks the shell to end, kills it when it outlives killGrace and lets go of
+// the terminal.
+func (shell *Shell) hangUp() {
 	shell.b.hangup()
 	timer := time.AfterFunc(killGrace, shell.b.kill)
 	go func() {
@@ -390,14 +468,29 @@ func (shell *Shell) Close() {
 		timer.Stop()
 	}()
 	_ = shell.b.io.Close()
+}
+
+// sawMark records a prompt mark the reader found in the output.
+func (shell *Shell) sawMark(kind byte) {
 	shell.mu.Lock()
-	shell.finished = true
-	shell.mu.Unlock()
-	shell.space.Broadcast()
+	defer shell.mu.Unlock()
+	shell.lastMark = kind
+	if kind != 'B' {
+		return
+	}
+	shell.prompted = true
+	if shell.promptShown != nil {
+		close(shell.promptShown)
+		shell.promptShown = nil
+	}
 }
 
 // killGrace is how long a shell gets to leave after a hangup before it is killed.
 const killGrace = 500 * time.Millisecond
+
+// promptGrace is how long a closed shell between a command and its next prompt may
+// take to show the prompt before it is hung up.
+const promptGrace = time.Second
 
 // readDrainGrace is the longest the end of a shell waits for its last output.
 const readDrainGrace = 300 * time.Millisecond

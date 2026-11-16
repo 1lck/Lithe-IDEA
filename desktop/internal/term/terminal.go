@@ -198,10 +198,6 @@ type Terminal struct {
 	clipboardFn   func(ClipboardWrite)
 	notifyFn      func(Notification)
 	bellFn        func()
-	cwdFn         func(Cwd)
-	cwdReportFn   func(Cwd)
-	promptReadyFn func()
-	promptStartFn func()
 	promptToken   string
 	inputStart    Point // where the shell's editable line begins; see InputMove
 	inputStartSet bool
@@ -223,14 +219,10 @@ type Terminal struct {
 	// taken for the prompt. See markPromptStart and CommandReporting.
 	commandMarks bool
 
-	inputEnvironmentFn func(InputEnvironment)
-	commandStartFn     func()
-	commandFinishedFn  func(int)
-	syncFn             func(bool)
-	cwd                Cwd
-	kittyNotes         []kittyPending // OSC 99 notifications still waiting for chunks
-	defFG, defBG       [3]uint8
-	haveDefaults       bool
+	syncFn       func(bool)
+	kittyNotes   []kittyPending // OSC 99 notifications still waiting for chunks
+	defFG, defBG [3]uint8
+	haveDefaults bool
 
 	lastRune rune   // for REP
 	runBuf   []rune // text decoded for the run path, reused across writes
@@ -266,6 +258,20 @@ func (t *Terminal) Size() (cols, rows int) { return t.cols, t.rows }
 // reported with OSC 133 A and has not left, which is the state in which the
 // shell redraws the prompt itself after a resize.
 func (t *Terminal) AtPrompt() bool { return t.promptActive && !t.onAlt }
+
+// SetPromptToken names the owning shell's integration: only OSC 133 markers that
+// carry ";motty=" and the token are its own, not those of a nested SSH login or
+// of a program that also implements the standard markers. A new token is a new
+// shell: what the old one reported about its prompt, its input and its command
+// marks no longer holds. Empty trusts no marker.
+func (t *Terminal) SetPromptToken(token string) {
+	if token != t.promptToken {
+		t.inputStartSet, t.commandMarks = false, false
+		t.promptActive, t.promptStale = false, false
+		t.dropPromptRows()
+	}
+	t.promptToken = token
+}
 
 // CommandReporting reports whether the owning shell marks the start of every
 // command (OSC 133 C), so that the prompt and input it reports end before a

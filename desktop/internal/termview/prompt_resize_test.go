@@ -17,7 +17,7 @@ func TestTheUsersShellReportsItsPromptsUnderATokenNewToEachStart(t *testing.T) {
 	view := newFakeView(shell, Config{Shell: "/bin/zsh"}, &started)
 	t.Cleanup(func() { view.Close() })
 	view.ensureStarted()
-	first := started.DirectoryToken
+	first := started.PromptToken
 	// The shell integration takes letters, digits, '-' and '_', at most 128 of them.
 	valid := func(token string) bool {
 		return token != "" && len(token) <= 128 && strings.Trim(token, "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_") == ""
@@ -36,7 +36,7 @@ func TestTheUsersShellReportsItsPromptsUnderATokenNewToEachStart(t *testing.T) {
 	if !view.restart() {
 		t.Fatal("the ended shell did not restart")
 	}
-	second := started.DirectoryToken
+	second := started.PromptToken
 	if !valid(second) || second == first {
 		t.Fatalf("the restarted shell has token %q after %q", second, first)
 	}
@@ -61,8 +61,8 @@ func TestAProgramWithArgumentsOfItsOwnGetsNoToken(t *testing.T) {
 		view := newFakeView(&fakeShell{done: make(chan struct{})}, config, &started)
 		view.ensureStarted()
 		view.Close()
-		if started.DirectoryToken != "" {
-			t.Errorf("%s %q started with token %q", config.Shell, started.Args, started.DirectoryToken)
+		if started.PromptToken != "" {
+			t.Errorf("%s %q started with token %q", config.Shell, started.Args, started.PromptToken)
 		}
 	}
 }
