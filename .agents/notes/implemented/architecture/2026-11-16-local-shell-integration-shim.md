@@ -1,0 +1,102 @@
+# Agent 笔记：本地 bash/zsh 经 sh 小脚本启用 Shell 集成
+
+状态：已实现
+
+## 先说结论
+
+本地终端里的默认 bash、zsh（以及 WSL 发行版里的 bash、zsh）现在都经一段 `/bin/sh` 小脚本（下称“垫片”，shim）启动。垫片先让 Shell 正常读完用户自己的启动文件，再挂上提示符钩子。Shell 因此会上报提示符、命令开始与结束、退出码和当前目录，每条上报都带一个每次启动新生成的令牌（token）。终端只认这个令牌，并用这些上报做两件用户看得到的事：在提示符处调整大小时只留下一份提示符；单击正在输入的命令行时，把光标移到点击处。日常开发要注意三点：一是本地垫片写完启动文件后用 `exec` 变成用户 Shell，存放启动文件的临时目录由 Lithe 创建、在 Shell 结束后由 Lithe 删除，不要改回“sh 等待 Shell”；二是令牌只发给“用户自己的 Shell、没带参数”的启动；三是 PowerShell 和 cmd 没有“命令开始”标记，这两项功能对它们不生效。
+
+## 问题
+
+#1984 留下了一条没接通的链路：`localshell.Config.DirectoryToken`、`term.Terminal.SetPromptToken`、Windows 的 PowerShell/cmd 提示符脚本都有代码和测试，但生产代码没有任何调用方。
+
+Motty 的两项终端改进依赖这条链路：
+
+- **203857c9：调整大小只保留一份提示符。** Shell 的行编辑器（line editor，负责画提示符和正在输入的命令的那部分）收到窗口尺寸变化（SIGWINCH）后，会从它上次画的位置重画提示符。如果终端同时把提示符那几行按新宽度重新折行，重画就落在错位的文字旁边，留下重复或被截断的提示符。拖动窗口或分隔条时宽度变化比 Shell 重画快，问题更明显。
+- **b2357d69：点击命令行移动光标。** 终端不能直接放置别的程序的光标，只能发送方向键。只有确定“现在读按键的是 Shell 的行编辑器、不是它运行的程序”时，这样做才安全。
+
+两项都需要终端知道“提示符从哪里开始、输入从哪里开始、命令什么时候开始运行”，也就是 OSC 133（提示符/命令标记）和 OSC 7（当前目录）。Motty 只在 SSH 会话里注入这些钩子（`internal/sshconn/integration.go`），本地 Shell 没有。
+
+## 决策
+
+### 谁拿到令牌
+
+`termview.View.start` 只在 `args == nil` 时生成令牌（`crypto/rand` 的 `rand.Text()`，只含 A–Z 和 2–7，满足集成脚本对令牌字符的要求），然后同时交给屏幕（`SetPromptToken`）和 `localshell.Config.DirectoryToken`。`args` 先经过 `localshell.ArgsFor`：Windows 的 Git Bash 会得到 `--login -i`，所以拿不到令牌。插件终端总是传非 nil 的参数，也拿不到。每次重启 Shell 都换新令牌；屏幕换令牌时清掉旧 Shell 留下的目录、提示符位置和命令标记，所以重启前旧 Shell 写了一半的序列不会被当成新 Shell 的提示符。
+
+正确做法：新增一种“启动用户自己的 Shell”的入口时，保持 `Args` 为 nil，让 termview 决定是否集成。
+不要这样做：给命令行工具或插件进程手动塞一个令牌。它打印的同样序列会被当成 Shell 的提示符，点击就会把方向键发给这个程序。
+
+### 垫片怎么启动 Shell
+
+Unix 后端（`localshell/backend_unix.go`）在 `args == nil`、令牌有效、Shell 是能识别的 bash/zsh 绝对路径时，先在 Shell 环境的 `TMPDIR`（没有时用 `/tmp`）下用 `os.MkdirTemp` 建一个只有本人可读的私有目录，再启动 `/bin/sh -c <脚本> sh <shell> "" <目录>`。脚本把启动文件写进这个目录（写入时 `umask 077`），然后 `exec` 用户 Shell。Shell 读完启动文件就删除目录（zsh 在 `.zlogin` 末尾，bash 在 rcfile 末尾）。建目录失败，或任一条件不满足时，Shell 照原样以 `-l` 启动，不集成也不报错。
+
+脚本内容是 Motty 的 `integration.go`（0ae3ba59），去掉了 Lithe 不读的输出编码和主目录上报，保留 `;motty=` 后缀和 `MOTTY_*` 变量名，方便以后同步时直接对比差异。本地启动与 Motty 的差别只在开头和结尾：目录由调用方给出（`$3`），不用 `mktemp` 和 `trap`；最后一行用 `exec` 变成 Shell，不等待它（`startScript` 的 `owned` 参数）。
+
+### 临时目录归 Lithe 所有，sh 变成 Shell
+
+- Lithe 在 `wait` 里、`cmd.Wait()` 返回后删除目录（`removeRuntime`），启动失败时也删除。无论 Shell 怎么结束，包括启动文件还没跑完就被关闭、忽略挂断后被强制结束，目录都不会留下。`Done()` 关闭前目录已经删除。
+- 因为 `sh` 用 `exec` 变成了用户 Shell，终端启动的进程就是用户 Shell，进程层级和不集成时一样：关闭确认的忙碌判断（前台进程组是不是 Shell 自己）、挂断（只给 Shell 发 SIGHUP，由 Shell 转给它的任务）、0.5 秒后的强制结束、退出码和进程台账（`processledger`）都不需要为集成另写逻辑。
+- 不写应用包、安装目录或工作区，所以不影响代码签名和 Sparkle 增量更新基线（见仓库根 `AGENTS.md`“已发布程序包的运行时只读边界”）。如果 Lithe 自己崩溃，最多在 `TMPDIR` 留下一个本人可读的小目录，由系统的临时目录清理回收。
+
+WSL 发行版里的 Shell 由 `wsl.exe` 启动，Windows 一侧删不到发行版里的目录，所以 `wslIntegrationScript` 保留 Motty 的做法：`sh` 用 `mktemp` 建目录，等待 Shell，退出、收到 HUP 或 TERM 时删除。
+
+### 只认“命令开始”之后的提示符
+
+屏幕只有在 Shell 至少上报过一次命令开始（OSC 133 C）之后，才把 OSC 133 A 当成提示符开始（`commandMarks`）。`AtPrompt()` 等于“提示符有效且不在备用屏”，`CommandReporting()` 就是 `commandMarks`。原因是：PowerShell 和 cmd 只上报 A 和 B，不上报 C，终端无从知道它们什么时候开始运行程序。如果对它们也启用这两项功能，运行中的程序会收到本该给行编辑器的方向键，或者在全屏程序运行时延迟告诉它尺寸。
+
+这和 Motty 一致，代价是 bash/zsh 刚打开、还没执行过任何命令时，第一个提示符上点击不会移动光标，调整大小也和以前一样立即发送。
+
+### 调整大小：屏幕跟随每一步，Shell 只收到停下来的尺寸
+
+- 屏幕（`term/resize.go`）在提示符有效时，只重新折行提示符之前的内容，提示符那几行保持原样并另存一份；Shell 重画开始写入时（`clearStalePrompt`）再清掉旧行。
+- termview（`session.go` 的 `resizeShell`/`settleShellResize`）在 Shell 停在提示符时，先不告诉它新尺寸，而是等尺寸在画布时钟上保持 100 毫秒（`shellResizeDelay`）再发一次；回到 Shell 已知的尺寸就不发。其余情况（命令运行中、全屏程序、没有标记的 Shell）立即发送。
+- 画布没有时钟（`canvas.HasClock()` 为 false）时时间不会流逝，因此永远不等待，直接发送。
+
+与 Motty 的差异：Motty 在鼠标按下期间也一直不发送尺寸。termview 看不到窗口和外层分隔条的拖动事件，所以只按“尺寸保持多久”判断。
+
+### 点击移动光标
+
+`termview/input_click.go`：主键单击（不带修饰键，或只带 Option/Alt），松开时没有形成拖选，Shell 正在运行、已上报过命令开始、不在备用屏，才计算位移。计算前先 `Pump()` 一次，把还没解析的输出（例如上一次方向键的回显）算进去，再按程序要求的光标键编码（普通或应用光标键模式）重复发送左右方向键。位移由 `term.Terminal.InputMove` 计算，宽字符和软换行按显示位置处理。点在提示符上、输入行以外时不发送。与 Motty 的差异：没有设置开关，始终启用。
+
+## 考虑过的备选方案
+
+### 沿用 Motty 的做法：sh 用 mktemp 建目录并等待 Shell
+
+脚本可以和 Motty 完全一致。没有采用：`sh` 成了终端启动的进程，用户 Shell 是它的子进程，带来三个问题。一是关闭终端时的强制结束只杀掉 `sh`，`sh` 的清理来不及运行；用户 Shell 的启动文件超过 0.5 秒（本机常见的 zsh 配置约 0.6 秒）时，刚打开就关闭的终端会留下临时目录，Shell 还会多活一阵。工作台测试实际复现过这种残留。二是 `sh` 在等待前台子进程时会把挂断推迟到子进程结束，需要额外给前台进程组发挂断。三是忙碌判断要越过 `sh`，必须读进程的父进程（macOS 用 sysctl、Linux 读 `/proc`），读不到时只能放弃集成；关闭时的退出码也会变成 129。Motty 在 SSH 远端没有别人能清理目录，所以需要等待；本地由 Lithe 清理，就不需要。
+
+### 直接改用户的 `.zshrc`、`.bashrc`，或用 `ZDOTDIR`/`--rcfile` 指向 Lithe 的文件
+
+不用 `sh` 这一层。没有采用：改用户文件会留下痕迹，还可能和用户自己的配置冲突；只用 `--rcfile` 会让 bash 不再按登录 Shell 读 `.bash_profile`，和用户平时的启动结果不一致。垫片先按用户平时的方式读完启动文件，再追加钩子（`TestIntegratedBashStartupMatchesALoginShell`、`TestIntegratedZshHistorySurvivesSessions` 核对）。
+
+### 不等命令开始标记，对 PowerShell/cmd 也启用
+
+可以让 Windows 默认 Shell 也有这两项功能。没有采用：没有 C 标记就无法知道什么时候轮到程序读按键，误把方向键发给程序比功能缺失更糟。要支持它们，需要先让 PowerShell/cmd 的集成脚本上报命令开始，见 #2008。
+
+### 给点击移动加设置开关
+
+Motty 有开关。没有采用：只在命令行输入区、单击且未拖动时生效，不影响选择和链接，暂不需要让用户关闭。
+
+## 后果
+
+- 收益：本地 bash/zsh 和 WSL 里，提示符处调整大小不再留下重复提示符；单击命令行可以移动光标。Windows PowerShell/cmd 的目录与提示符上报首次真正启用。
+- 代价：每次启动本地 bash/zsh 多运行一次 `sh`（随即变成 Shell，不常驻）；`TMPDIR` 下会短暂出现一个私有目录；第一个提示符上点击不生效。
+- 已知限制：bash 只在“算作交互状态”时把挂断转给后台任务，它运行 `PROMPT_COMMAND`（集成也用它）期间不算。挂断恰好落在这几毫秒里时，bash 会退出但留下后台任务。没有集成、但用户自己配了 `PROMPT_COMMAND` 时也一样。没有集成的 zsh 在命令刚结束、还没回到提示符时被关闭，也会留下后台任务，见 #2005。
+- 未接通部分：`term` 的 `SetPromptReady`、`SetPromptStart`、`SetCwdChange` 和命令结束回调仍然没有生产调用方，Shell 上报的目录目前没有界面使用，继续由 #1984 跟踪。
+- Windows：PowerShell 的 `-NoExit -EncodedCommand` 启动和 cmd 的 `PROMPT` 环境变量由 termview 首次启用，实机运行验收还没做，见 #2008。
+- 重新评估的触发条件：PowerShell/cmd 集成能上报命令开始；termview 能拿到外层拖动的按下/松开事件；或者用户反馈需要关闭点击移动。
+
+## 验证
+
+- `./scripts/desktop/desktop-go.sh test ./internal/localshell/... ./internal/term/... ./internal/termview/... -count=1`：真实 bash/zsh 经垫片启动并上报提示符、命令、目录，第一个提示符出现时启动目录已删除；挂断能结束 Shell 和后台任务；启动文件还在运行时关闭，Shell 被结束、目录被删除（`TestClosingAShellDuringItsStartupRemovesItsPrivateDirectory`）；令牌每次启动更换；提示符处尺寸保持后只发一次；点击按条件发送方向键。
+- 运行 `./internal/workbench/` 测试前后统计 `TMPDIR` 下的 `motty-shell.*` 目录，数量不变。
+- `scripts/desktop/verify/verify-runtime-bundle-immutability.sh`：确认运行时没有写入发行目录。
+- 在 Windows 上运行 `TestWindowsShellReportsDirectoryAfterChangingIt`、`TestPowerShellDirectoryIntegrationPreservesCustomPromptAndExitStatus`，它们只在 Windows 编译。
+
+## 适用范围
+
+- `desktop/internal/localshell/integration_scripts.go`
+- `desktop/internal/localshell/backend_unix.go`
+- `desktop/internal/localshell/wsl.go`
+- `desktop/internal/term/resize.go`
+- `desktop/internal/termview/session.go`
+- `desktop/internal/termview/input_click.go`

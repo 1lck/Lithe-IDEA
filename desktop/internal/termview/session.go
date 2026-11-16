@@ -1,11 +1,13 @@
 package termview
 
 import (
+	"crypto/rand"
 	"errors"
 	"time"
 
 	"github.com/1lck/Lithe-IDEA/desktop/internal/localshell"
 	"github.com/vivaui/viva/app"
+	"github.com/vivaui/viva/gfx"
 )
 
 // errInputBacklog is what the log records when the shell refuses input: its backlog is
@@ -25,10 +27,22 @@ func (v *View) start() {
 	if args == nil {
 		args = localshell.ArgsFor(v.cfg.Shell)
 	}
+	// The user's own shell, started without arguments of its own, reports its prompts, its
+	// commands and its folder, bound to a token new to this start (see
+	// localshell.Config.DirectoryToken). The screen trusts only the markers that carry it:
+	// a program that prints the same sequences, a shell nested in this one, or what the
+	// shell before a restart left half written cannot pass for this shell's prompt. A
+	// program started with arguments is left as it is.
+	token := ""
+	if args == nil {
+		token = rand.Text()
+	}
+	v.screen.SetPromptToken(token)
 	opened, err := v.cfg.start(localshell.Config{
 		Cols: cols, Rows: rows,
 		Shell: v.cfg.Shell, Args: args,
 		Dir: v.cfg.Dir, Env: v.cfg.Env, Unset: v.cfg.Unset, Notify: v.cfg.Notify,
+		DirectoryToken: token,
 		// The shell still runs; the log is the only place that says it runs degraded.
 		Degraded: func(err error) {
 			v.failed(Failure{Event: eventBackgroundFailed, Operation: operationConPTY, Warn: true, Err: err})
@@ -44,6 +58,8 @@ func (v *View) start() {
 	}
 	v.shell = opened
 	v.ended = false
+	// The shell starts in the screen's size, so that is the size it has been told.
+	v.shellCols, v.shellRows, v.shellWaiting = cols, rows, false
 	// A program that never got to run its teardown leaves its modes armed on the screen
 	// (the alternate screen, mouse reports, the kitty keyboard flags). The shell just
 	// started is a process that asked for none of them, so the screen is handed over
@@ -233,8 +249,59 @@ func (v *View) fit(layout geometry) {
 	if v.shell != nil {
 		// The screen's size, since it clamps the layout and the pty must match it.
 		cols, rows = v.screen.Size()
-		v.shell.Resize(cols, rows)
+		v.resizeShell(cols, rows)
 	}
+}
+
+// shellResizeDelay is how long a size has to hold before a shell at its prompt is told
+// it. That shell redraws its prompt after every resize, from the rows it last drew it on,
+// and dragging the window or a splitter changes the width faster than it redraws: each
+// redraw then answers a width the screen has already left and lands beside the prompt it
+// was going to replace. The screen follows every step; the shell is told the size the
+// steps settle on.
+//
+// Motty also holds the size for as long as the pointer is down; the view does not see
+// the drags of the window and the splitters around it, so here the size only has to
+// hold.
+const shellResizeDelay = 100 * time.Millisecond
+
+// resizeShell gives the shell the size of the grid. A program that draws its own screen,
+// and a shell that has not reported a prompt of its own (see term.Terminal.AtPrompt), is
+// told at once; a shell at its prompt is told once the size holds (see
+// settleShellResize). A canvas without a clock has no time that could pass, so it never
+// waits.
+func (v *View) resizeShell(cols, rows int) {
+	v.shellWaiting = false
+	if !v.paced || !v.screen.AtPrompt() {
+		v.tellShellSize(cols, rows)
+		return
+	}
+	if v.shellCols == cols && v.shellRows == rows {
+		return
+	}
+	v.wantCols, v.wantRows, v.shellWaiting, v.shellWaitAt = cols, rows, true, v.clock
+}
+
+// settleShellResize tells a shell waiting at its prompt the size it waits for, once that
+// size has held for shellResizeDelay, and until then asks for the frame that will.
+func (v *View) settleShellResize(canvas *gfx.Canvas) {
+	if !v.shellWaiting || v.shell == nil {
+		return
+	}
+	if wait := shellResizeDelay - (v.clock - v.shellWaitAt); wait > 0 {
+		canvas.RequestFrameIn(wait)
+		return
+	}
+	v.shellWaiting = false
+	if v.shellCols != v.wantCols || v.shellRows != v.wantRows {
+		v.tellShellSize(v.wantCols, v.wantRows)
+	}
+}
+
+// tellShellSize resizes the shell's terminal and remembers the size it was told.
+func (v *View) tellShellSize(cols, rows int) {
+	v.shellCols, v.shellRows = cols, rows
+	v.shell.Resize(cols, rows)
 }
 
 // restart starts a new shell in a view whose shell ended or never started, and reports
