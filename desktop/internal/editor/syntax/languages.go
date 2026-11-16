@@ -316,7 +316,9 @@ var bundledLanguages = []Language{
 	{ID: "go", Scope: "source.go", Rules: CodeRules, Extensions: []string{".go"}, Comments: cComments, Brackets: cBrackets,
 		AutoClosing: scriptClosing},
 	{ID: "graphql", Extensions: []string{".graphql", ".gql"}, Comments: hashComments, Brackets: cBrackets, AutoClosing: cAutoClosing},
-	{ID: "haskell", Extensions: []string{".hs"}, Comments: Comments{Line: "--", Block: Pair{"{-", "-}"}}, Brackets: cBrackets, AutoClosing: cAutoClosing},
+	// ' is not paired: it marks primes in names, as foldl'.
+	{ID: "haskell", Extensions: []string{".hs"}, Comments: Comments{Line: "--", Block: Pair{"{-", "-}"}}, Brackets: cBrackets,
+		AutoClosing: []Pair{{"{", "}"}, {"[", "]"}, {"(", ")"}, {`"`, `"`}}},
 	{ID: "hcl", Extensions: []string{".tf", ".tfvars", ".hcl"},
 		Comments: Comments{Line: "#", Block: Pair{"/*", "*/"}}, Brackets: cBrackets, AutoClosing: cAutoClosing},
 	{ID: "html", Scope: "text.html.basic", Rules: HTMLRules, Extensions: []string{".html", ".htm", ".shtml", ".xhtml", ".mdoc", ".jsp", ".asp", ".aspx", ".jshtm"},
