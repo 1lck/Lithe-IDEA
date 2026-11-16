@@ -27,18 +27,19 @@ native_path() {
     fi
 }
 
-# Lithe-core-rust main at 957a349: #64, squash-merged on top of #65 (db54ba0). #65 gives every
-# workspace.repositories entry an id relative to the opened folder, a display name and a role
-# (workspace or nested); git.workspaceRepositorySelection keeps the repository a view picked while
-# discovery still lists it and otherwise falls back to the workspace repository, then the first
-# one; git.workspaceChangeGroups groups status changes per repository with their staged counts,
-# the paths a checkbox stages or unstages and whether the parent's gitlink moved; and
-# git.workspaceCommitPrepare binds the nested repositories it is given (#2013). #64:
-# gitExecution.consoleQueries names the query categories the Git console records and
-# queryCategory names a read the command does not tell apart; git.consolePresentation takes display
-# options, all false by default as in IDEA; output folds only past ten lines and a deletion never
-# folds; a failed unrecorded query still reports its command, stderr and exit; a reported query's
-# started event carries its queryCategory (#2025). #65 is on top of #63, squash-merged into main as ad148ec:
+# Lithe-core-rust main at 957a349, #64 squash-merged: gitExecution.consoleQueries names the query
+# categories the Git console records and queryCategory names a read the command does not tell
+# apart; git.consolePresentation takes display options, all false by default as in IDEA; output
+# folds only past ten lines and a deletion never folds; a failed unrecorded query still reports its
+# command, stderr and exit; a reported query's started event carries its queryCategory (#2025). It
+# is on top of #65, squash-merged into main as db54ba0: every workspace.repositories entry has an
+# id relative to the opened folder, a display name and a role (workspace or nested);
+# git.workspaceRepositorySelection keeps the repository a view picked while discovery still lists
+# it and otherwise falls back to the workspace repository, then the first one;
+# git.workspaceChangeGroups groups status changes per repository with their staged counts, the
+# paths a checkbox stages or unstages and whether the parent's gitlink moved; and
+# git.workspaceCommitPrepare binds the nested repositories it is given (#2013). That is on top of
+# #63, squash-merged into main as ad148ec:
 # a Unix process group whose members have all exited but are not reaped yet is killed without
 # error, so disposing a language server or
 # closing an SSH session on macOS no longer reports EPERM (#2017). It is on top of #62,

@@ -20,8 +20,8 @@ import (
 // github-device-authorization): it shows the user code, opens GitHub's verification page, polls
 // until the user answers, stores the token in the platform's credential store and validates it
 // with currentUser. The token never leaves this file's state and the store; the settings page
-// shows the login and the phase only. The client ID is the product's public OAuth client, read
-// from LITHE_GITHUB_CLIENT_ID; without one sign-in is unavailable.
+// shows the login and the phase only. The client ID is the product's public OAuth client,
+// built in; LITHE_GITHUB_CLIENT_ID replaces it for a fork's or a development OAuth app.
 
 const (
 	// githubCredentialPlugin and githubCredentialKey name the stored token in the credential store.
@@ -29,6 +29,10 @@ const (
 	githubCredentialKey    = "access-token"
 	// githubAccountTimeout bounds one validation or one start request.
 	githubAccountTimeout = 30 * time.Second
+	// githubProductClientID is Lithe's OAuth app on GitHub, the one the macOS client shipped in its
+	// Info.plist. The device flow is a public-client flow with no client secret, so the ID is not
+	// a credential and every build carries it.
+	githubProductClientID = "Ov23li60nlOOHwDY3MO6"
 )
 
 // githubPhase is where the sign-in stands.
@@ -62,9 +66,13 @@ type githubAccount struct {
 // errGitHubUnavailable reports that the kernel cannot plan GitHub requests.
 var errGitHubUnavailable = errors.New("GitHub is unavailable")
 
-// githubClientID is the OAuth client of the product, or empty when none is configured.
+// githubClientID is the OAuth client sign-in uses: LITHE_GITHUB_CLIENT_ID when it is set, else the
+// product's.
 func githubClientID() string {
-	return strings.TrimSpace(os.Getenv("LITHE_GITHUB_CLIENT_ID"))
+	if id := strings.TrimSpace(os.Getenv("LITHE_GITHUB_CLIENT_ID")); id != "" {
+		return id
+	}
+	return githubProductClientID
 }
 
 // githubAPI is the client that plans and sends GitHub requests, made once with the kernel.
@@ -124,10 +132,7 @@ func (a *App) startGitHubSignIn() {
 	clientID := githubClientID()
 	g := &a.github
 	g.mu.Lock()
-	if client == nil || clientID == "" || g.phase != githubIdle {
-		if clientID == "" {
-			g.err = i18n.Shared(a.language(), "desktop.github.notConfigured")
-		}
+	if client == nil || g.phase != githubIdle {
 		g.mu.Unlock()
 		return
 	}
@@ -252,13 +257,15 @@ type githubSnapshot struct {
 	err             string
 }
 
-// githubAccountSnapshot copies the account for a paint.
+// githubAccountSnapshot copies the account for a paint. Sign-in is available when the kernel plans
+// GitHub requests; githubAPI takes the account's lock itself, so it is asked first.
 func (a *App) githubAccountSnapshot() githubSnapshot {
+	available := a.githubAPI() != nil
 	g := &a.github
 	g.mu.Lock()
 	defer g.mu.Unlock()
 	return githubSnapshot{
-		available:       githubClientID() != "",
+		available:       available,
 		connected:       g.connected,
 		login:           g.login,
 		phase:           g.phase,

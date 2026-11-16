@@ -75,6 +75,8 @@ func TestVisualSettings(t *testing.T) {
 					Marketplace:       func(context.Context) (marketplace.Snapshot, error) { return marketplace.Snapshot{}, nil },
 					UpdateStatus:      func() UpdateStatus { return UpdateStatus{Configured: true} },
 					Toolchains:        &scopedToolchainLoader{fakeToolchainLoader{snapshot: globalVisualToolchains()}},
+					// Every build can sign in to GitHub; no account is connected yet.
+					GitHub: &GitHubAccount{Snapshot: func() GitHubState { return GitHubState{Available: true} }},
 				}
 				w := newWindow(NewController(opts), Values{Theme: theme, Language: language.Code(), TerminalScrollback: 2000})
 				w.sess.page = scenario.page

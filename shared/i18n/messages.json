@@ -11059,13 +11059,6 @@
       ]
     },
     {
-      "id": "desktop.github.notConfigured",
-      "description": "Shown when this build has no GitHub OAuth client",
-      "platforms": [
-        "desktop"
-      ]
-    },
-    {
       "id": "desktop.github.openFailed",
       "description": "Notice when the pull request page could not be opened in the browser",
       "platforms": [

@@ -9,6 +9,7 @@
     "evidence": [
       "docs/viva-migration.md",
       "desktop/internal/workbench/github_account.go",
+      "desktop/internal/workbench/github_account_test.go",
       "desktop/internal/githubapi/device.go",
       "desktop/internal/core/github.go",
       "desktop/internal/settingswindow/github_account_view.go"
@@ -20,6 +21,7 @@
     "evidence": [
       "docs/viva-migration.md",
       "desktop/internal/workbench/github_account.go",
+      "desktop/internal/workbench/github_account_test.go",
       "desktop/internal/githubapi/device.go",
       "desktop/internal/core/github.go",
       "desktop/internal/settingswindow/github_account_view.go"
@@ -27,7 +29,7 @@
   },
   "owner": "GitHub",
   "verification": "使用可控时钟验证待授权、退避、过期和成功授权；实际 GitHub OAuth 与钥匙串流程仍需在 macOS 上验收。",
-  "notes": "Viva：GitHub 设备码登录：显示用户码并打开验证页，按服务器给的间隔轮询，处理 slow_down 退避与过期（githubapi/device.go），令牌存平台凭据库并用 currentUser 校验，设置页只显示登录名和阶段。OAuth client ID 从 LITHE_GITHUB_CLIENT_ID 读取，未配置时登录不可用。没有专门的自动化测试。",
+  "notes": "Viva：GitHub 设备码登录：显示用户码并打开验证页，按服务器给的间隔轮询，处理 slow_down 退避与过期（githubapi/device.go），令牌存平台凭据库并用 currentUser 校验，设置页只显示登录名和阶段。OAuth client ID 内置为产品的 OAuth App（与旧 macOS 客户端 Info.plist 相同），LITHE_GITHUB_CLIENT_ID 只用于换成 fork 或开发用的 OAuth App；设置页是否可登录只取决于内核能否规划 GitHub 请求，github_account_test.go 覆盖未设该变量时仍可登录。设备码流程本身没有专门的自动化测试。",
   "legacy": {
     "revision": "5a54c41aa37a4e6e6b68918a4b05765b9dd07a36",
     "macos": {
