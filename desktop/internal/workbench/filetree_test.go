@@ -47,6 +47,89 @@ type failingTreeListingKernel struct {
 	armed atomic.Bool
 }
 
+// nativeIOBudgetTreeKernel models an adapter that needs more than a pure computation's
+// budget, without making the test wait for disk or a real timeout.
+type nativeIOBudgetTreeKernel struct {
+	*testKernel
+}
+
+func (k *nativeIOBudgetTreeKernel) ListDirectories(ctx context.Context, root string, paths []string) ([]core.DirectoryListing, error) {
+	deadline, bounded := ctx.Deadline()
+	if !bounded || time.Until(deadline) < 3*time.Second || time.Until(deadline) > time.Minute {
+		return nil, context.DeadlineExceeded
+	}
+	return k.Client.ListDirectories(ctx, root, paths)
+}
+
+func TestProjectTreeDirectoryReadsAllowNativeIO(t *testing.T) {
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "visible.txt"), nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	h := newHarness(t, &nativeIOBudgetTreeKernel{testKernel: &testKernel{Client: core.NewClient()}})
+	h.open(root)
+	p := h.app.project
+	awaitDocumentState(t, h, func() bool { return !p.tree.reading })
+	if p.tree.failed != "" || p.tree.find("visible.txt") == nil {
+		t.Fatalf("directory I/O did not populate the project tree: %q", p.tree.failed)
+	}
+}
+
+type cancelledTreeListingKernel struct {
+	*testKernel
+	armed   atomic.Bool
+	started chan struct{}
+	stopped chan struct{}
+	release chan struct{}
+}
+
+func (k *cancelledTreeListingKernel) ListDirectories(ctx context.Context, root string, paths []string) ([]core.DirectoryListing, error) {
+	if !k.armed.Load() {
+		return k.Client.ListDirectories(ctx, root, paths)
+	}
+	close(k.started)
+	defer close(k.stopped)
+	select {
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	case <-k.release:
+		return nil, context.Canceled
+	}
+}
+
+func TestProjectTreeDirectoryReadCancelsWhenProjectCloses(t *testing.T) {
+	kernel := &cancelledTreeListingKernel{
+		testKernel: &testKernel{Client: core.NewClient()},
+		started:    make(chan struct{}),
+		stopped:    make(chan struct{}),
+		release:    make(chan struct{}),
+	}
+	h := newHarness(t, kernel)
+	t.Cleanup(func() { close(kernel.release) })
+	p := h.openTree(t, t.TempDir())
+	h.app.closeTree(p)
+	kernel.armed.Store(true)
+	h.app.listTree(p, "")
+	deadline := time.NewTimer(8 * time.Second)
+	defer deadline.Stop()
+	select {
+	case <-kernel.started:
+	case <-deadline.C:
+		t.Fatal("directory read did not start")
+	}
+	h.app.closeProject()
+	h.await("project close", func() bool { return h.app.project == nil })
+	select {
+	case <-kernel.stopped:
+	case <-deadline.C:
+		t.Fatal("closing the project did not cancel the directory read")
+	}
+	h.settle()
+	if h.app.project != nil {
+		t.Fatal("a closed project's listing restored the project")
+	}
+}
+
 func (k *failingTreeListingKernel) ListDirectories(ctx context.Context, root string, paths []string) ([]core.DirectoryListing, error) {
 	if k.armed.Load() {
 		return nil, errors.New("directory listing failed")

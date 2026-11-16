@@ -2,7 +2,9 @@ name: Desktop Release
 
 # Releases the Viva desktop client (desktop/) for macOS, Windows and Linux. Its tags are
 # desktop-vMAJOR.MINOR.PATCH, apart from the v* tags of the SwiftUI and Tauri clients, and each
-# release is stable. Keep the legacy clients' latest release unchanged; desktop updates select desktop-v tags.
+# release is stable. The release of the highest desktop version is marked Latest, so the
+# releases/latest link and the README download links lead to it; desktop updates select
+# desktop-v tags and do not read Latest.
 on:
   push:
     tags:
@@ -219,12 +221,20 @@ jobs:
           RELEASE_TAG: ${{ needs.prepare.outputs.tag }}
           DESKTOP_VERSION: ${{ needs.prepare.outputs.version }}
         run: |
+          # Mark this release Latest unless a published desktop release has a higher version,
+          # so re-running the workflow for an older tag does not take Latest from a newer one.
+          newest=$(gh release list --repo "$GITHUB_REPOSITORY" --exclude-drafts --exclude-pre-releases \
+            --limit 1000 --json tagName --jq '.[].tagName' | sed -n 's/^desktop-v//p' | sort -V | tail -n 1)
+          latest=true
+          if [[ -n "$newest" && "$(printf '%s\n%s\n' "$newest" "$DESKTOP_VERSION" | sort -V | tail -n 1)" != "$DESKTOP_VERSION" ]]; then
+            latest=false
+          fi
           release_args=(
             --repo "$GITHUB_REPOSITORY"
             --title "Lithe Desktop $DESKTOP_VERSION"
             --notes-file "docs/releases/v$DESKTOP_VERSION.md"
             --prerelease=false
-            --latest=false
+            --latest="$latest"
           )
           if ! gh release view "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" > /dev/null 2>&1; then
             gh release create "$RELEASE_TAG" --target "$GITHUB_SHA" "${release_args[@]}" || \
