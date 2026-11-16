@@ -295,6 +295,27 @@ func (r *Registry) SyntaxForPath(path string) *Syntax {
 	return nil
 }
 
+// CommentsForPath returns the comment delimiters of a file by its name: those of the language
+// ForPath gives the file, zero when no language takes it. The registry is the only source of
+// comment delimiters; a plugin declares its language's through configuration.lineComment and
+// blockComment.
+//
+// A plugin language that names files for its servers and debuggers and brings neither a
+// grammar nor comments of its own keeps the comments of the bundled language its name
+// selects, as SyntaxForPath keeps that language's colors.
+func (r *Registry) CommentsForPath(path string) Comments {
+	language, ok := r.ForPath(path)
+	if !ok {
+		return Comments{}
+	}
+	if language.Comments == (Comments{}) && language.Scope == "" {
+		if bundled := bundledForName(fileName(path)); bundled != nil {
+			return bundled.Comments
+		}
+	}
+	return language.Comments
+}
+
 // fileName returns the lowercased last element of a path with "/" or "\" as separators.
 func fileName(path string) string {
 	return strings.ToLower(path[strings.LastIndexAny(path, `/\`)+1:])

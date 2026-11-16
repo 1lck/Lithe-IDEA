@@ -27,7 +27,11 @@ native_path() {
     fi
 }
 
-# Lithe-core-rust main at 957a349, #64 squash-merged: gitExecution.consoleQueries names the query
+# Lithe-core-rust refactor/1856-line-comment-table at 12d3739, on top of main 957a349:
+# editor.lineCommentToken and Core's table of comment tokens are gone; the desktop takes the
+# token from its language registry and editor.lineEdit is unchanged (#1856). Replace it with the
+# squash-merge commit on main once the Core PR is merged.
+# Main at 957a349 is #64 squash-merged: gitExecution.consoleQueries names the query
 # categories the Git console records and queryCategory names a read the command does not tell
 # apart; git.consolePresentation takes display options, all false by default as in IDEA; output
 # folds only past ten lines and a deletion never folds; a failed unrecorded query still reports its
@@ -135,7 +139,7 @@ PINNED_CORE_REPOSITORY="https://github.com/Lithe-IDEA/Lithe-core-rust.git"
 # the contract, plugin guides, reference and SDKs live only in shared/plugins; on top of #16 (reported Git queries folded in the console),
 # #15 (git.write cherryPick, revert and reset fields), #14 (word-level changed ranges of diff
 # rows), #13, #8, #7, #6 and #4.
-PINNED_CORE_REVISION="957a349a5d8b571d416925c8231509572c2053f5"
+PINNED_CORE_REVISION="12d3739b05f8854ff9bfa5dcd33cc1b6d62e7eb2"
 PROFILE="debug"
 while [[ $# -gt 0 ]]; do
     case "$1" in
