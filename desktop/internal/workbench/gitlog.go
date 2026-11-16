@@ -70,6 +70,9 @@ const (
 	logPopoverPath
 	// logPopoverBranchSettings is the menu of the reference pane's settings.
 	logPopoverBranchSettings
+	// logPopoverViewMore is the overflow menu of the filter bar: the view buttons it has no room
+	// for.
+	logPopoverViewMore
 )
 
 // logSection is one section of the reference pane: the local branches, the remote ones

@@ -29,25 +29,6 @@ func TestLineEditsUseCoreFixtures(t *testing.T) {
 	client := NewClient()
 	for _, item := range fixture.Cases {
 		t.Run(item.Name, func(t *testing.T) {
-			var kind struct {
-				Identifier *string `json:"identifier"`
-			}
-			if err := json.Unmarshal(item.Request, &kind); err != nil {
-				t.Fatal(err)
-			}
-			if kind.Identifier != nil {
-				var expected struct {
-					Token *string `json:"token"`
-				}
-				if err := json.Unmarshal(item.Expected, &expected); err != nil {
-					t.Fatal(err)
-				}
-				result, err := client.LineCommentToken(testContext(t), *kind.Identifier)
-				if err != nil || !reflect.DeepEqual(result, expected.Token) {
-					t.Fatalf("token = %v, error = %v; want %v", result, err, expected.Token)
-				}
-				return
-			}
 			var request LineEditRequest
 			var expected LineEditOutcome
 			if err := json.Unmarshal(item.Request, &request); err != nil {
@@ -61,18 +42,6 @@ func TestLineEditsUseCoreFixtures(t *testing.T) {
 				t.Fatalf("result = %#v, error = %v; want %#v", result, err, expected)
 			}
 		})
-	}
-}
-
-func TestLineCommentTokenUsesCoreLanguageTable(t *testing.T) {
-	client, ctx := NewClient(), testContext(t)
-	token, err := client.LineCommentToken(ctx, "example.go")
-	if err != nil || token == nil || *token != "//" {
-		t.Fatalf("Go token = %v, error = %v", token, err)
-	}
-	token, err = client.LineCommentToken(ctx, "unknown.fixture-extension")
-	if err != nil || token != nil {
-		t.Fatalf("unknown token = %v, error = %v", token, err)
 	}
 }
 

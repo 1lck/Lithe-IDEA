@@ -190,7 +190,13 @@ func (a *App) appendBuildGroup(rows []buildRow, p *project, index int, query str
 		switch {
 		case filtering:
 		case instance.modelError != "":
-			rows = append(rows, buildRow{kind: buildRowEmpty, instance: index, level: 1, label: t.ModelFailed(instance.modelError), warning: true})
+			// The row has one line; the tool's own explanation that follows is its tooltip.
+			first, _, more := strings.Cut(instance.modelError, "\n")
+			row := buildRow{kind: buildRowEmpty, instance: index, level: 1, label: t.ModelFailed(first), warning: true}
+			if more {
+				row.tooltip = t.ModelFailed(instance.modelError)
+			}
+			rows = append(rows, row)
 		default:
 			rows = append(rows, buildRow{kind: buildRowEmpty, instance: index, level: 1, label: t.LoadingModel, loading: true})
 		}

@@ -42,6 +42,15 @@ const (
 	logPopoverWidth  = 240
 	logPathWidth     = 320
 	logListMaxHeight = 320
+	// logBarPad is the padding at the ends of the commit list's filter bar and logBarGap the gap
+	// between its parts. logSearchMin is the least width of its text filter while view buttons are
+	// left in the bar: they go into the bar's overflow menu before the field gets narrower
+	// (logViewFit). Once they are all there, the field gives up room down to logSearchFloor before
+	// the filters' end is cut (logSearchWidth).
+	logBarPad      = 6
+	logBarGap      = 4
+	logSearchMin   = 120
+	logSearchFloor = 72
 	// logRowSlots is how many rows of the commit list can be on screen at once, and so how
 	// many draw callbacks the list keeps: a row uses the one of its index modulo the slots.
 	logRowSlots = 256
@@ -104,6 +113,13 @@ type logView struct {
 	bodyDraw func(*ui.DrawContext)
 	hasBody  bool
 	details  bool
+
+	// barWidth is the width of the commit list's filter bar and filtersWidth that of its filters
+	// at their own width, as the last paint laid them out, read from the draw callbacks barDraw
+	// and filtersDraw gave their boxes. The view buttons that do not fit beside them go into the
+	// bar's overflow menu (logViewFit).
+	barWidth, filtersWidth float32
+	barDraw, filtersDraw   func(*ui.DrawContext)
 
 	// refs is the tree of the reference pane, refItems what its visible rows are and refSel
 	// the reference selected in it, as the paint being drawn has it.

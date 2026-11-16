@@ -27,13 +27,28 @@ native_path() {
     fi
 }
 
-# Lithe-core-rust main at 957a349, #64 squash-merged: gitExecution.consoleQueries names the query
-# categories the Git console records and queryCategory names a read the command does not tell
-# apart; git.consolePresentation takes display options, all false by default as in IDEA; output
-# folds only past ten lines and a deletion never folds; a failed unrecorded query still reports its
-# command, stderr and exit; a reported query's started event carries its queryCategory (#2025). It
-# is on top of #65, squash-merged into main as db54ba0: workspace repository identities, selection
-# and change groups in Core. That is on top of #63, squash-merged into main as ad148ec:
+# Lithe-core-rust main at 5a8d786, #67 squash-merged: toolchains.candidates takes the optional
+# commandHomes, lists the commands found on the PATH as shell rows, and offers each shell home that
+# checks out as an installations entry with provider host:shell, once per canonical home (#2032).
+# It is on top of #68, squash-merged into main: Core no longer
+# recognizes rust-analyzer or gopls; a language server declares indexingExclusions, and the launch
+# plan's sessionPolicy, which the desktop sends to lsp.startServer unchanged, carries it. It is on
+# top of #66, squash-merged into main: editor.lineCommentToken and Core's table of comment tokens
+# are gone; the desktop takes the token from its language registry and editor.lineEdit is
+# unchanged (#1856). It is on top of #64, squash-merged into main: gitExecution.consoleQueries
+# names the query categories the Git console records and queryCategory names a read the command
+# does not tell apart; git.consolePresentation takes display options, all false by default as in
+# IDEA; output folds only past ten lines and a deletion never folds; a failed unrecorded query
+# still reports its command, stderr and exit; a reported query's started event carries its
+# queryCategory (#2025). It is on top of #65, squash-merged into main as db54ba0: every
+# workspace.repositories entry has an id relative to the opened folder, a display name and a role
+# (workspace or nested);
+# git.workspaceRepositorySelection keeps the repository a view picked while discovery still lists
+# it and otherwise falls back to the workspace repository, then the first one;
+# git.workspaceChangeGroups groups status changes per repository with their staged counts, the
+# paths a checkbox stages or unstages and whether the parent's gitlink moved; and
+# git.workspaceCommitPrepare binds the nested repositories it is given (#2013). That is on top of
+# #63, squash-merged into main as ad148ec:
 # a Unix process group whose members have all exited but are not reaped yet is killed without
 # error, so disposing a language server or
 # closing an SSH session on macOS no longer reports EPERM (#2017). It is on top of #62,
@@ -135,7 +150,7 @@ PINNED_CORE_REPOSITORY="https://github.com/Lithe-IDEA/Lithe-core-rust.git"
 # the contract, plugin guides, reference and SDKs live only in shared/plugins; on top of #16 (reported Git queries folded in the console),
 # #15 (git.write cherryPick, revert and reset fields), #14 (word-level changed ranges of diff
 # rows), #13, #8, #7, #6 and #4.
-PINNED_CORE_REVISION="957a349a5d8b571d416925c8231509572c2053f5"
+PINNED_CORE_REVISION="5a8d786e9b44a5a8c7a977a8b376264fa941dcd9"
 PROFILE="debug"
 while [[ $# -gt 0 ]]; do
     case "$1" in

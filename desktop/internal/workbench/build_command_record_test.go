@@ -72,6 +72,11 @@ func TestBuildCommandRunner(t *testing.T) {
 		fmt.Print(`{"format":"litheDependencies","version":0,"dependencies":[{"name":"fixture-dependency","children":[]}]}`)
 	case "fail":
 		os.Exit(3)
+	case "explain":
+		// A tool that says why it failed, in color, as Maven does with -Dstyle.color=always.
+		fmt.Print("\x1b[1mScanning\x1b[m\r\n\r\n")
+		fmt.Fprint(os.Stderr, "\x1b[1;31m[ERROR]\x1b[m The JAVA_HOME environment variable is not defined correctly\r\n")
+		os.Exit(1)
 	case "hang":
 		// The host kills the tool when the load's deadline passes; this only outlives it.
 		time.Sleep(pluginOperationWait)

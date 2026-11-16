@@ -175,16 +175,25 @@ Manage agent instructions, skills, hooks, and MCP configuration, and inspect run
 
 The Viva client on this branch is still being migrated. Published stable and AutoBuild releases may use the earlier client. Read the [release notes](https://github.com/1lck/Lithe-IDEA/releases) for the client architecture, platforms, and plugin compatibility. Homebrew follows published versions, not the current `main` source; use the development instructions below to run this branch.
 
-- **macOS 13+:** Download the `arm64` DMG for Apple silicon or the `x86_64` DMG for Intel Macs from [GitHub Releases](https://github.com/1lck/Lithe-IDEA/releases/latest).
+- **macOS 13+:** Download the `arm64` DMG for Apple silicon or the `amd64` DMG for Intel Macs from [GitHub Releases](https://github.com/1lck/Lithe-IDEA/releases/latest).
 - **Windows x64:** Download the Windows `.exe` installer from [GitHub Releases](https://github.com/1lck/Lithe-IDEA/releases/latest).
 
 Homebrew is the recommended installation and update method on macOS:
 
 ```bash
-brew tap lithe-idea/lithe https://github.com/Lithe-IDEA/Lithe-IDEA.git
+brew tap lithe-idea/lithe https://github.com/1lck/Lithe-IDEA.git
 brew install --cask lithe-idea/lithe/lithe
 brew upgrade --cask lithe
 ```
+
+The tap used to point at `https://github.com/Lithe-IDEA/Lithe-IDEA.git`, which is now archived and stops at 0.6.1. If you added the tap from that address, switch it to this repository before upgrading:
+
+```bash
+brew tap --custom-remote lithe-idea/lithe https://github.com/1lck/Lithe-IDEA.git
+brew upgrade --cask lithe
+```
+
+From 0.8.1 the cask installs the Viva client as `Lithe Desktop.app`, which updates itself in the app; upgrading from 0.6.x replaces the earlier `Lithe.app`.
 
 ## Architecture Overview
 

@@ -3,7 +3,9 @@
 package localshell
 
 import (
+	"context"
 	"errors"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -406,13 +408,39 @@ func TestIntegratedBashDebugTrapReportsEachCommandLineOnce(t *testing.T) {
 	if err != nil {
 		t.Skip("bash unavailable")
 	}
-	checkCommandStartReports(t, func(env []string, runtimeDir string) Config {
-		dir, err := os.MkdirTemp(runtimeDir, "motty-shell.")
-		if err != nil {
-			t.Fatal(err)
-		}
-		return Config{Shell: "/bin/sh", Args: integrationArgsWith(program, true, "debug-trap-token", dir), Env: env}
-	}, program)
+	for _, profile := range commandStartProfiles {
+		t.Run(profile.name, func(t *testing.T) {
+			profile.require(t, program)
+			checkCommandStartReports(t, func(env []string, runtimeDir string) Config {
+				dir, err := os.MkdirTemp(runtimeDir, "motty-shell.")
+				if err != nil {
+					t.Fatal(err)
+				}
+				return Config{Shell: "/bin/sh", Args: integrationArgsWith(program, true, "debug-trap-token", dir), Env: env}
+			}, program, profile.text)
+		})
+	}
+}
+
+// Bash 4.4 and later report the start of a command line from PS0. The user's
+// DEBUG trap prints BASH_COMMAND, so a marker spelled out in the text of a
+// startup command would be counted as a report.
+func TestIntegratedBashReportsEachCommandLineOnce(t *testing.T) {
+	program, err := exec.LookPath("bash")
+	if err != nil {
+		t.Skip("bash unavailable")
+	}
+	if !bashAtLeast(t, program, 4, 4) {
+		t.Skipf("%s has no PS0", program)
+	}
+	for _, profile := range commandStartProfiles {
+		t.Run(profile.name, func(t *testing.T) {
+			profile.require(t, program)
+			checkCommandStartReports(t, func(env []string, _ string) Config {
+				return Config{Shell: program, PromptToken: "debug-trap-token", Env: env}
+			}, program, profile.text)
+		})
+	}
 }
 
 // The Bash at /bin/bash is the one a user who chose Bash most often gets: 3.2
@@ -424,13 +452,53 @@ func TestIntegratedSystemBashReportsEachCommandLineOnce(t *testing.T) {
 	}
 	checkCommandStartReports(t, func(env []string, _ string) Config {
 		return Config{Shell: "/bin/bash", PromptToken: "debug-trap-token", Env: env}
-	}, "/bin/bash")
+	}, "/bin/bash", commandStartProfiles[0].text)
 }
 
-func checkCommandStartReports(t *testing.T, config func(env []string, runtimeDir string) Config, program string) {
+// commandStartProfiles are the user's login profiles the command-start tests
+// run under. Each sets a prompt, a prompt command and a DEBUG trap of the
+// user's own.
+var commandStartProfiles = []struct {
+	name, text string
+	// require skips a profile the Bash at program cannot run as written.
+	require func(t *testing.T, program string)
+}{
+	{"string prompt command", commandStartProfile, func(*testing.T, string) {}},
+	// systemd's /etc/profile.d/80-systemd-osc-context.sh (systemd 257 and
+	// later, as on Ubuntu 26.04) turns PROMPT_COMMAND into an array, leaving
+	// element 0 for a profile that assigns a string, and puts a command
+	// substitution in front of PS0. Bash runs an array PROMPT_COMMAND from 5.1.
+	{"array prompt command", "[ -n \"$(declare -p PROMPT_COMMAND 2>/dev/null)\" ] || PROMPT_COMMAND+=('')\n" +
+		"__system_hook() { printf 'system-%s\\n' hook; }\nPROMPT_COMMAND+=(__system_hook)\n" +
+		"__system_ps0() { printf 'system-%s' ps0; }\nPS0='$(__system_ps0)'\"${PS0:-}\"\n" + commandStartProfile,
+		func(t *testing.T, program string) {
+			if !bashAtLeast(t, program, 5, 1) {
+				t.Skipf("%s runs only the first element of an array PROMPT_COMMAND", program)
+			}
+		}},
+}
+
+const commandStartProfile = "PS1='user-prompt> '\nPROMPT_COMMAND='printf \"user-hook\\n\"'\ntrap 'printf \"user-debug:%s\\n\" \"$BASH_COMMAND\"' DEBUG\n"
+
+// bashAtLeast reports whether the Bash at program is at least major.minor.
+func bashAtLeast(t *testing.T, program string, major, minor int) bool {
+	t.Helper()
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	out, err := exec.CommandContext(ctx, program, "-c", `echo "${BASH_VERSINFO[0]} ${BASH_VERSINFO[1]}"`).Output()
+	if err != nil {
+		t.Fatalf("read the version of %s: %v", program, err)
+	}
+	var gotMajor, gotMinor int
+	if _, err := fmt.Sscan(string(out), &gotMajor, &gotMinor); err != nil {
+		t.Fatalf("the version of %s, %q: %v", program, out, err)
+	}
+	return gotMajor > major || gotMajor == major && gotMinor >= minor
+}
+
+func checkCommandStartReports(t *testing.T, config func(env []string, runtimeDir string) Config, program, profile string) {
 	t.Helper()
 	home, runtimeDir := t.TempDir(), t.TempDir()
-	profile := "PS1='user-prompt> '\nPROMPT_COMMAND='printf \"user-hook\\n\"'\ntrap 'printf \"user-debug:%s\\n\" \"$BASH_COMMAND\"' DEBUG\n"
 	if err := os.WriteFile(filepath.Join(home, ".bash_profile"), []byte(profile), 0o600); err != nil {
 		t.Fatal(err)
 	}
@@ -467,6 +535,13 @@ func checkCommandStartReports(t *testing.T, config func(env []string, runtimeDir
 	}
 	if !strings.Contains(s.output, "user-hook\r\n") {
 		t.Fatalf("the user's PROMPT_COMMAND was lost: %q", s.output)
+	}
+	// The profile prints these through a format, so that its own text, which
+	// the user's DEBUG trap echoes, does not contain them.
+	for _, hook := range []string{"system-hook\r\n", "system-ps0"} {
+		if strings.Contains(profile, "__system_") && !strings.Contains(s.output, hook) {
+			t.Fatalf("the profile's %q did not run: %q", hook, s.output)
+		}
 	}
 	s.exit("exit 5\r", 5)
 	emptyDirectory(t, runtimeDir)

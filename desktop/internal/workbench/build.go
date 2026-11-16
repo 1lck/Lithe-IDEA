@@ -9,6 +9,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"runtime"
 	"slices"
 	"strconv"
@@ -670,6 +671,7 @@ func (a *App) commandModel(ctx context.Context, p *project, instance buildInstan
 	}
 	workingDirectory := filepath.Join(p.root, filepath.FromSlash(plan.WorkingDirectory))
 	output, runErr := captureBuildProcess(ctx, execution.Executable, plan.Arguments, workingDirectory, applyToolchainSelection(plan.Environment, execution.selection()))
+	runErr = withBuildOutput(runErr, output)
 	request := core.BuildDecodeModelRequest{WorkspaceRoot: p.root, Root: instance.Root, Options: instance.Options}
 	if plan.Output == "outputFile" {
 		request.OutputFile = outputFile
@@ -702,6 +704,60 @@ func buildCommandStage(runErr error) core.PluginStage {
 	default:
 		return core.StageDecode
 	}
+}
+
+// A failed build command's error ends with the last lines the tool printed, which say why it
+// failed (a JAVA_HOME that is no JDK, a network error, a plugin it could not resolve); the exit
+// status alone does not. The tool's words are shown as written, not translated.
+const (
+	buildFailureOutputLines     = 12
+	buildFailureOutputLineBytes = 400
+)
+
+// terminalEscape matches a terminal control sequence, such as the colors a build tool prints.
+var terminalEscape = regexp.MustCompile("\x1b\\[[0-?]*[ -/]*[@-~]")
+
+// buildCommandFailure is a build command that ran and failed, with the end of its output.
+type buildCommandFailure struct {
+	cause  error
+	output string
+}
+
+func (e *buildCommandFailure) Error() string { return e.cause.Error() + "\n" + e.output }
+func (e *buildCommandFailure) Unwrap() error { return e.cause }
+
+// withBuildOutput gives err, a build command's end, the last lines the command printed. A
+// command that did not start printed nothing, and one that succeeded needs no explanation.
+func withBuildOutput(err error, output string) error {
+	var launch *buildLaunchError
+	if err == nil || errors.As(err, &launch) {
+		return err
+	}
+	tail := buildOutputTail(output)
+	if tail == "" {
+		return err
+	}
+	return &buildCommandFailure{cause: err, output: tail}
+}
+
+// buildOutputTail is the last non-empty lines of output, without terminal control sequences
+// and each bounded in length.
+func buildOutputTail(output string) string {
+	output = strings.ToValidUTF8(terminalEscape.ReplaceAllString(output, ""), "\uFFFD")
+	lines := strings.Split(output, "\n")
+	kept := make([]string, 0, buildFailureOutputLines)
+	for index := len(lines) - 1; index >= 0 && len(kept) < buildFailureOutputLines; index-- {
+		line := strings.TrimRight(strings.ReplaceAll(lines[index], "\r", ""), " \t")
+		if strings.TrimSpace(line) == "" {
+			continue
+		}
+		if len(line) > buildFailureOutputLineBytes {
+			line = strings.ToValidUTF8(line[:buildFailureOutputLineBytes], "") + "…"
+		}
+		kept = append(kept, line)
+	}
+	slices.Reverse(kept)
+	return strings.Join(kept, "\n")
 }
 
 // buildLaunchError is a build command whose process did not start, as opposed to one that ran
@@ -786,7 +842,8 @@ func (a *App) finishBuildModel(p *project, id string, model core.BuildModel, err
 		}
 		if err != nil {
 			p.build.instances[index].modelError = a.launchFailureText(err)
-			p.build.status = p.build.instances[index].modelError
+			// The status line has room for one line; the tree row shows the rest on hover.
+			p.build.status, _, _ = strings.Cut(p.build.instances[index].modelError, "\n")
 			a.settleTitleAction(p)
 			return
 		}

@@ -209,7 +209,7 @@ func countStaged(changes []core.GitChange) int {
 // under way or waiting for the user.
 func (p *project) canCommit() bool {
 	c := &p.commit
-	return p.git.isRepository() && p.listsReady() && c.idle() &&
+	return p.hasRepository() && p.listsReady() && c.idle() &&
 		(p.activeStagedCount() > 0 || p.nestedStagedCount() > 0) && !p.otherStaged() && c.message() != ""
 }
 
@@ -269,8 +269,9 @@ func (a *App) prepareCommit(p *project, t commitTarget, request core.WorkspaceCo
 	c := t.state
 	c.busy = true
 	kernel := a.kernel
+	request = p.withWorkspaceRepositories(t, request)
 	a.background(p, gitTimeout, func(ctx context.Context) func(*App) {
-		prep, err := kernel.WorkspaceCommitPrepare(ctx, includeNestedRepositories(ctx, kernel, p, t, request))
+		prep, err := kernel.WorkspaceCommitPrepare(ctx, request)
 		return func(a *App) {
 			c.busy = false
 			if err != nil {
@@ -316,8 +317,9 @@ func (a *App) confirmReview(p *project, t commitTarget) {
 	}
 	c.busy = true
 	kernel := a.kernel
+	request = p.withWorkspaceRepositories(t, request)
 	a.background(p, gitTimeout, func(ctx context.Context) func(*App) {
-		prep, err := kernel.WorkspaceCommitPrepare(ctx, includeNestedRepositories(ctx, kernel, p, t, request))
+		prep, err := kernel.WorkspaceCommitPrepare(ctx, request)
 		return func(a *App) {
 			c.busy = false
 			switch {
