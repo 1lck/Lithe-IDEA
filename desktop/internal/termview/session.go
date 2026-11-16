@@ -32,9 +32,10 @@ func (v *View) start() {
 	// localshell.Config.DirectoryToken). The screen trusts only the markers that carry it:
 	// a program that prints the same sequences, a shell nested in this one, or what the
 	// shell before a restart left half written cannot pass for this shell's prompt. A
-	// program started with arguments is left as it is.
+	// program started with arguments is left as it is, and so is the user's shell when the
+	// settings turned the integration off: without a token it starts plain.
 	token := ""
-	if args == nil {
+	if args == nil && !v.options.PlainShell {
 		token = rand.Text()
 	}
 	v.screen.SetPromptToken(token)

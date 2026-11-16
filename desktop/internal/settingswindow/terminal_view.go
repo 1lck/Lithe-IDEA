@@ -168,6 +168,7 @@ func (w *window) terminalPage(c ui.C) {
 				ui.Select(c.Part("shell"), &w.shellPick, choices, label).Width(selectWidth).Label(settings.TerminalShell).Disabled(!state.loaded)
 			})
 		})
+		w.behaviorCard(c)
 		w.scrollbackCard(c)
 		w.cursorCard(c)
 	})

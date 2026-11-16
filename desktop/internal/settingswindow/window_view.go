@@ -521,6 +521,7 @@ func (w *window) footer(c ui.C) {
 			w.setProcessTermination(ProcessTermination{}, true)
 			w.resetSteppingFilters()
 			w.setTerminalShell("", true)
+			w.setTerminalBehavior(TerminalBehavior{}, true)
 			w.setFonts(fontprefs.Default(), true)
 		}
 		ui.Spacer(c)
