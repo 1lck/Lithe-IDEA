@@ -5,14 +5,11 @@ import (
 	"github.com/vivaui/viva/ui"
 )
 
-// versionControlPage is the Version Control page: the Git switches of the editor, the Commit
-// window and the Git console. Opening the page writes nothing; a switch hands its change to
+// versionControlPage is the Version Control page: the GitHub account, then the Git switches of
+// the editor, the Commit window and the Git console. Opening the page writes nothing; a switch hands its change to
 // the settings owner at once.
 func (w *window) versionControlPage(c ui.C) {
 	language := w.marketLanguage()
-	if w.ctrl.opts.GitHub != nil {
-		w.gitHubCard(c, language, w.ctrl.opts.GitHub)
-	}
 	gutterTitle := i18n.Shared(language, "desktop.git.settings.gutter")
 	blameTitle := i18n.Shared(language, "desktop.git.settings.blame")
 	gutter := !w.sess.values.HideGitGutter
@@ -22,6 +19,11 @@ func (w *window) versionControlPage(c ui.C) {
 	changeListsTitle := i18n.Shared(language, "desktop.git.settings.changeLists")
 	parentsTitle := i18n.Shared(language, "desktop.git.settings.parentReferences")
 	w.pageScroll(c, pageVersionControl, func() {
+		// The account card is the page's first card, inside the scroll so it lines up and scrolls
+		// with the others.
+		if w.ctrl.opts.GitHub != nil {
+			w.gitHubCard(c, language, w.ctrl.opts.GitHub)
+		}
 		w.card(c, gutterTitle, i18n.Shared(language, "desktop.git.settings.gutterHelp"), func() {
 			if ui.Switch(c.Part("gutter"), &gutter, gutterTitle).Changed() {
 				w.setHideGitGutter(!gutter, false)
