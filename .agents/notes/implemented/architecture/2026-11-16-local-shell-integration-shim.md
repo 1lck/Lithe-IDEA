@@ -80,14 +80,16 @@ Motty 有开关。没有采用：只在命令行输入区、单击且未拖动�
 
 - 收益：本地 bash/zsh 和 WSL 里，提示符处调整大小不再留下重复提示符；单击命令行可以移动光标。Windows PowerShell/cmd 的目录与提示符上报首次真正启用。
 - 代价：每次启动本地 bash/zsh 多运行一次 `sh`（随即变成 Shell，不常驻）；`TMPDIR` 下会短暂出现一个私有目录；第一个提示符上点击不生效。
-- 已知限制：bash 只在“算作交互状态”时把挂断转给后台任务，它运行 `PROMPT_COMMAND`（集成也用它）期间不算。挂断恰好落在这几毫秒里时，bash 会退出但留下后台任务。没有集成、但用户自己配了 `PROMPT_COMMAND` 时也一样。没有集成的 zsh 在命令刚结束、还没回到提示符时被关闭，也会留下后台任务，见 #2005。
+- 关闭时等 Shell 回到提示符再挂断（#2005）：bash 只在“算作交互状态”时把挂断转给后台任务，它运行 `PROMPT_COMMAND`（集成也用它）期间不算。挂断如果落在这段时间里，bash 会退出，但后台任务留了下来。因此 `localshell.Shell` 在读输出时跟踪本会话带令牌的 A–D 标记（`prompt_marks.go`）。Shell 显示过提示符后，如果关闭时它正处在“命令结束到下一个提示符出现”之间（上一个标记不是 B，也不是“C 之后前台还有程序在跑”），挂断就推迟到它打出 B 标记、自己结束，或者最多等 1 秒（`promptGrace`），然后照常挂断，0.5 秒后强制结束。到 B 时 bash 已经回到交互状态，会把挂断转给后台任务。还没出过第一个提示符、或者没有集成的 Shell，照旧立即挂断。关闭后读端继续读输出但直接丢弃，这样内存不会增长，也能看到 B 标记。窗口退出要等每个 Shell 结束，所以最多多等约 1 秒。
+- 不要这样做：给会话里所有进程组都发挂断。用户 `disown` 掉的任务会被一起结束；挂断交给 Shell 转发，`disown`/`disown -h` 的语义才能保留。其他终端（如 Ghostty）也只挂断 Shell 自己的进程组。
+- 仍然存在的限制：没有集成、但用户自己配了 `PROMPT_COMMAND` 的 bash 不变。zsh 只有在后台任务刚 fork、还没 exec 的约 1 毫秒里被挂断时才会留下任务，这个窗口没有标记可以等，不处理。一直不回提示符的 Shell（例如在 `PROMPT_COMMAND` 里死循环）在 1 秒后照常挂断。
 - 未接通部分：`term` 的 `SetPromptReady`、`SetPromptStart`、`SetCwdChange` 和命令结束回调仍然没有生产调用方，Shell 上报的目录目前没有界面使用，继续由 #1984 跟踪。
 - Windows：PowerShell 的 `-NoExit -EncodedCommand` 启动和 cmd 的 `PROMPT` 环境变量由 termview 首次启用，实机运行验收还没做，见 #2008。
 - 重新评估的触发条件：PowerShell/cmd 集成能上报命令开始；termview 能拿到外层拖动的按下/松开事件；或者用户反馈需要关闭点击移动。
 
 ## 验证
 
-- `./scripts/desktop/desktop-go.sh test ./internal/localshell/... ./internal/term/... ./internal/termview/... -count=1`：真实 bash/zsh 经垫片启动并上报提示符、命令、目录，第一个提示符出现时启动目录已删除；挂断能结束 Shell 和后台任务；启动文件还在运行时关闭，Shell 被结束、目录被删除（`TestClosingAShellDuringItsStartupRemovesItsPrivateDirectory`）；令牌每次启动更换；提示符处尺寸保持后只发一次；点击按条件发送方向键。
+- `./scripts/desktop/desktop-go.sh test ./internal/localshell/... ./internal/term/... ./internal/termview/... -count=1`：真实 bash/zsh 经垫片启动并上报提示符、命令、目录，第一个提示符出现时启动目录已删除；挂断能结束 Shell 和后台任务；命令刚结束、bash 还在运行 `PROMPT_COMMAND`（包括慢的 `PROMPT_COMMAND`）时关闭，后台任务也会结束（`TestClosingAnIntegratedShellRightAfterACommandHangsUpItsJobs`，关掉推迟后 bash 的三个用例都会失败）；一直不回提示符的 Shell 在宽限期后结束（`TestClosingAnIntegratedShellThatNeverPromptsStillEndsIt`）；标记识别跨分片、只认本会话令牌（`TestPromptMarks*`）；启动文件还在运行时关闭，Shell 被结束、目录被删除（`TestClosingAShellDuringItsStartupRemovesItsPrivateDirectory`）；令牌每次启动更换；提示符处尺寸保持后只发一次；点击按条件发送方向键。
 - 运行 `./internal/workbench/` 测试前后统计 `TMPDIR` 下的 `motty-shell.*` 目录，数量不变。
 - `scripts/desktop/verify/verify-runtime-bundle-immutability.sh`：确认运行时没有写入发行目录。
 - 在 Windows 上运行 `TestWindowsShellReportsDirectoryAfterChangingIt`、`TestPowerShellDirectoryIntegrationPreservesCustomPromptAndExitStatus`，它们只在 Windows 编译。
@@ -96,6 +98,8 @@ Motty 有开关。没有采用：只在命令行输入区、单击且未拖动�
 
 - `desktop/internal/localshell/integration_scripts.go`
 - `desktop/internal/localshell/backend_unix.go`
+- `desktop/internal/localshell/shell.go`
+- `desktop/internal/localshell/prompt_marks.go`
 - `desktop/internal/localshell/wsl.go`
 - `desktop/internal/term/resize.go`
 - `desktop/internal/termview/session.go`
