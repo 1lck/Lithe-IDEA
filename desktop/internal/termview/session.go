@@ -15,9 +15,34 @@ import (
 // lost, and the log is the only place that says so.
 var errInputBacklog = errors.New("termview: the shell did not accept the input")
 
-// start opens a shell in the size of the grid. A shell that cannot be started is written
-// into the grid and logged; the view is then ended, so Enter tries again instead of the
-// view retrying on every paint.
+// maxQueuedInput is how much typed or pasted input may wait for a shell that is still
+// starting: as much as the shell itself lets wait to be written (localshell's
+// maxPendingInput), so a paste the shell would take is not refused for arriving early.
+const maxQueuedInput = 4 << 20
+
+// launch is a shell being started off the window thread. The goroutine that starts it
+// sets shell, err and degraded and then closes done; the window thread reads them only
+// after done is closed.
+type launch struct {
+	done  chan struct{}
+	shell shell
+	err   error
+	// degraded is what Config.Degraded was told during the start, reported to the log
+	// from the window thread.
+	degraded []error
+	// cols and rows are the size the shell is started in.
+	cols, rows int
+}
+
+// start opens a shell in the size of the grid. Finding and starting the program is file
+// and process work the window thread must not wait on (on Windows it searches the PATH
+// for PowerShell and creates a console), so it runs on a goroutine of its own, and the
+// view takes the shell over at the next Pump once Config.Notify has woken the window.
+// Until then the grid shows what it holds and what is typed waits (see sendInput). A
+// view without a Notify could never be woken for it, so it starts the shell in place.
+//
+// A shell that cannot be started is written into the grid and logged; the view is then
+// ended, so Enter tries again instead of the view retrying on every paint.
 func (v *View) start() {
 	// The screen's size, not the layout's, is what the pty is given: the screen clamps
 	// the layout, and a pty larger than the screen would wrap lines the screen cannot
@@ -39,36 +64,69 @@ func (v *View) start() {
 		token = rand.Text()
 	}
 	v.screen.SetPromptToken(token)
-	opened, err := v.cfg.start(localshell.Config{
-		Cols: cols, Rows: rows,
-		Shell: v.cfg.Shell, Args: args,
-		Dir: v.cfg.Dir, Env: v.cfg.Env, Unset: v.cfg.Unset, Notify: v.cfg.Notify,
-		DirectoryToken: token,
-		// The shell still runs; the log is the only place that says it runs degraded.
-		Degraded: func(err error) {
-			v.failed(Failure{Event: eventBackgroundFailed, Operation: operationConPTY, Warn: true, Err: err})
-		},
-	})
-	if err != nil {
-		v.ended = true
-		v.say(sgrFail, v.cfg.Messages.StartFailed(err.Error()))
-		v.say(sgrMuted, v.cfg.Messages.RestartHint)
-		v.failed(Failure{Event: eventStartFailed, Stage: stageSpawn, Warn: true, Err: err})
-		v.exited(nil)
-		return
-	}
-	v.shell = opened
-	v.ended = false
-	// The shell starts in the screen's size, so that is the size it has been told.
-	v.shellCols, v.shellRows, v.shellWaiting = cols, rows, false
 	// A program that never got to run its teardown leaves its modes armed on the screen
-	// (the alternate screen, mouse reports, the kitty keyboard flags). The shell just
-	// started is a process that asked for none of them, so the screen is handed over
-	// clean; this matters on a restart, where the old screen is kept.
+	// (the alternate screen, mouse reports, the kitty keyboard flags). The shell about to
+	// start is a process that asked for none of them, so the screen is handed over clean
+	// before anything is typed for it; this matters on a restart, where the old screen is
+	// kept.
 	v.screen.ReclaimApplicationModes()
 	// Leaving the alternate screen the old program left behind moves the buffer under a
 	// selection made on it.
 	v.reconcileSelection()
+	l := &launch{done: make(chan struct{}), cols: cols, rows: rows}
+	config := localshell.Config{
+		Cols: cols, Rows: rows,
+		Shell: v.cfg.Shell, Args: args,
+		Dir: v.cfg.Dir, Env: v.cfg.Env, Unset: v.cfg.Unset, Notify: v.cfg.Notify,
+		DirectoryToken: token,
+		// Called during the start, on the goroutine that starts the shell.
+		Degraded: func(err error) { l.degraded = append(l.degraded, err) },
+	}
+	open, notify := v.cfg.start, v.cfg.Notify
+	run := func() {
+		l.shell, l.err = open(config)
+		close(l.done)
+	}
+	v.launching = l
+	if notify == nil {
+		run()
+		v.launched()
+		return
+	}
+	go func() {
+		run()
+		notify()
+	}()
+}
+
+// launched takes over the shell the last start opened, or reports why it could not.
+// It runs on the window thread once the start has finished.
+func (v *View) launched() {
+	l := v.launching
+	v.launching = nil
+	// The shell still runs; the log is the only place that says it runs degraded.
+	for _, err := range l.degraded {
+		v.failed(Failure{Event: eventBackgroundFailed, Operation: operationConPTY, Warn: true, Err: err})
+	}
+	queued := v.queued
+	v.queued = nil
+	if l.err != nil {
+		v.ended = true
+		v.say(sgrFail, v.cfg.Messages.StartFailed(l.err.Error()))
+		v.say(sgrMuted, v.cfg.Messages.RestartHint)
+		v.failed(Failure{Event: eventStartFailed, Stage: stageSpawn, Warn: true, Err: l.err})
+		v.exited(nil)
+		return
+	}
+	v.shell = l.shell
+	v.ended = false
+	// The shell starts in the size the screen had then, so that is the size it has been
+	// told. The grid may have been laid out anew while it started; the shell is then told
+	// the screen's size at once, as it has not printed a prompt to hold the size for.
+	v.shellCols, v.shellRows, v.shellWaiting = l.cols, l.rows, false
+	if cols, rows := v.screen.Size(); cols != l.cols || rows != l.rows {
+		v.tellShellSize(cols, rows)
+	}
 	// The answers to the program's queries (device attributes, cursor position) go
 	// straight to the shell. They are not typing, so they neither return the view to the
 	// live screen nor drop the selection, and a refused answer is not worth a log line
@@ -78,6 +136,26 @@ func (v *View) start() {
 			v.shell.Write(reply)
 		}
 	})
+	// What was typed while the shell started reaches it now, in the order it was typed,
+	// as a pty holds what is typed before the shell gets to read it.
+	if len(queued) > 0 && !v.shell.Write(queued) {
+		v.failed(Failure{Event: eventInputFailed, Stage: stageSend, Err: errInputBacklog})
+	}
+}
+
+// settleLaunch takes over a shell whose start has finished, and reports whether the view
+// is past its start: false while the shell is still starting.
+func (v *View) settleLaunch() bool {
+	if v.launching == nil {
+		return true
+	}
+	select {
+	case <-v.launching.done:
+		v.launched()
+		return true
+	default:
+		return false
+	}
 }
 
 // Start runs the program now, at the default grid size, instead of at the first paint. A
@@ -86,12 +164,17 @@ func (v *View) start() {
 func (v *View) Start() { v.ensureStarted() }
 
 // ensureStarted starts the shell on the first paint, once the grid's size is known. A
-// shell that ended or failed waits for Enter, and a closed view never starts one again.
+// shell that is starting is not started again, a shell that ended or failed waits for
+// Enter, and a closed view never starts one again.
 func (v *View) ensureStarted() {
-	if v.shell == nil && !v.ended && !v.closed {
+	if v.shell == nil && v.launching == nil && !v.ended && !v.closed {
 		v.start()
 	}
 }
+
+// live reports that the view has a shell to type into: one that runs, or one that is
+// starting and takes what is typed once it runs.
+func (v *View) live() bool { return v.shell != nil || v.launching != nil }
 
 // Pump moves the shell's output into the screen and notices the shell's end. The window
 // calls it from its wake handler, and it reports whether the picture changed and needs a
@@ -106,10 +189,12 @@ func (v *View) ensureStarted() {
 // frame, parse everything at once: the first must not lose the end of the output, and the
 // second would never see the rest.
 func (v *View) Pump() bool {
-	if v.shell == nil {
-		return false
-	}
 	version, selected := v.screen.Version(), v.selection.selected
+	// A shell whose start has finished is taken over first, so the output it has already
+	// printed is parsed in this pass.
+	if !v.settleLaunch() || v.shell == nil {
+		return v.screen.Version() != version
+	}
 	v.rx = v.shell.Drain(v.rx) // keep what an earlier frame could not parse
 	finished := false
 	select {
@@ -223,14 +308,20 @@ func (v *View) reconcileSelection() {
 
 // sendInput writes what the user typed, pasted or reported with the mouse to the shell and
 // reports whether it was accepted. Typing returns the view to the live screen and drops the
-// selection, as every terminal does, so the user sees what they are typing into.
+// selection, as every terminal does, so the user sees what they are typing into. Input for
+// a shell that is still starting waits for it, up to maxQueuedInput (see launched).
 func (v *View) sendInput(p []byte) bool {
-	if v.shell == nil || len(p) == 0 {
+	if !v.live() || len(p) == 0 {
 		return false
 	}
 	v.selection.clear()
 	v.screen.ScrollToBottom()
-	if v.shell.Write(p) {
+	if v.shell == nil {
+		if len(v.queued)+len(p) <= maxQueuedInput {
+			v.queued = append(v.queued, p...)
+			return true
+		}
+	} else if v.shell.Write(p) {
 		return true
 	}
 	v.failed(Failure{Event: eventInputFailed, Stage: stageSend, Err: errInputBacklog})

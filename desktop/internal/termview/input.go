@@ -117,7 +117,7 @@ func (v *View) Key(event gfx.KeyEvent) (gfx.EventResult, bool) {
 			return handled, true
 		}
 	}
-	if v.shell == nil {
+	if !v.live() {
 		// Nothing is listening: Enter starts the session again. Every other key is
 		// swallowed, and the ended session has already said why on the screen.
 		if event.Key == gfx.KeyEnter && !event.Repeat && !event.Release && v.restart() {
@@ -285,7 +285,7 @@ func (v *View) copySelection() gfx.EventResult {
 // read is skipped without a word: there is nothing to paste, and the keyboard shortcut is
 // no place for a dialog.
 func (v *View) paste() {
-	if v.shell == nil {
+	if !v.live() {
 		return
 	}
 	value, err := v.cfg.Clipboard()
@@ -306,7 +306,7 @@ func (v *View) paste() {
 // it was taken. A view without a live shell has nowhere to type a path, so it offers
 // nothing.
 func (v *View) pasteImage() bool {
-	return v.shell != nil && v.cfg.PasteImage != nil && v.cfg.PasteImage()
+	return v.live() && v.cfg.PasteImage != nil && v.cfg.PasteImage()
 }
 
 // scrollView moves the view by lines, positive going back into history. It is handled even

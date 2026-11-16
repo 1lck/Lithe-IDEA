@@ -6,7 +6,7 @@ import "github.com/1lck/Lithe-IDEA/desktop/internal/term"
 // bracketed when the program asked for bracketed paste, so a shell inserts it at the
 // prompt without running it. It reports whether the shell took it.
 func (v *View) Paste(text string) bool {
-	if v.shell == nil || text == "" {
+	if !v.live() || text == "" {
 		return false
 	}
 	return v.sendInput(term.EncodePaste(text, v.screen.Modes().BracketedPaste))
