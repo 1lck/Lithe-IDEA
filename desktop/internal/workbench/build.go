@@ -1169,21 +1169,10 @@ func (a *App) resolveBuildCandidates(ctx context.Context, p *project, directory 
 				execution.Executable = path
 			}
 		case "runtime":
+			// The tool runs on one of its declared runtimes, all resolved before the tool's
+			// own candidates; Core rejects a runtime that names another runtime.
 			if resolved, ok := runtimes[candidate.Runtime]; ok {
 				execution = resolved
-				break
-			}
-			selection, selectErr := a.resolveToolchainSelection(ctx, p.root, directory, candidate.Runtime, minimum)
-			if selectErr == nil {
-				execution = buildExecution{Executable: selection.Executable, Environment: selection.Environment, PathPrepend: selection.PathPrepend}
-				break
-			}
-			var unavailable *toolchain.UnavailableError
-			if !errors.As(selectErr, &unavailable) || unavailable.Code != "definitionUnavailable" {
-				return buildExecution{}, selectErr
-			}
-			if path, lookupErr := exec.LookPath(candidate.Runtime); lookupErr == nil {
-				execution.Executable = path
 			}
 		case "toolchain":
 			selection, selectErr := a.resolveToolchainSelection(ctx, p.root, directory, candidate.ToolchainID, minimum)

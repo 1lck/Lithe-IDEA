@@ -73,7 +73,6 @@ type BuildRuntimeRequirement struct {
 	PathVariable   string                     `json:"pathVariable,omitempty"`
 	ID             string                     `json:"id"`
 	DisplayName    string                     `json:"displayName"`
-	HostManaged    bool                       `json:"hostManaged"`
 	MinimumVersion string                     `json:"minimumVersion,omitempty"`
 	Executables    []BuildExecutableCandidate `json:"executables"`
 	Version        *BuildVersionProbe         `json:"version,omitempty"`

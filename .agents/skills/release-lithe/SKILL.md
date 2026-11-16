@@ -286,6 +286,11 @@ before committing the notes.
   read well there too. A feed that already offers a later version is left as
   it is. See
   `.agents/notes/implemented/feature/2026-11-15-desktop-update-channels-and-dialog.md`.
+- For a desktop release, confirm that the published release is marked Latest
+  on GitHub. The `release` job of `desktop-release.yml` marks it Latest
+  unless a published desktop release has a higher version, so that
+  `releases/latest` and the README download links lead to it. Never pass
+  `--latest=false` for the release of the highest desktop version.
 - Run `actionlint` after changing a GitHub Actions workflow. Run any focused
   packaging or manifest checks required by `develop-lithe` for other release
   changes.

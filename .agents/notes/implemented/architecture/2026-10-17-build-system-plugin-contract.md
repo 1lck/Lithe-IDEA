@@ -4,6 +4,8 @@
 
 > 2026-11-14 更新：下文第 8 节的 `hostIntegration: maven` 已不存在。Core #23 删除了 Maven 集成，`hostIntegration` 只剩保留字段，写任何值都以 `plugin.integration.unsupported` 拒绝；Core #28 起清单 schema 也删掉了 `model`、`test.results`、`dependencies` 里的 `source: "hostIntegration"`，这样写按未知来源以 `plugin.manifest.invalid` 拒绝。Maven 改由 [lithe-plugin-maven](https://github.com/Lithe-IDEA/lithe-plugin-maven) 用声明和 Provider 提供。下文保留当时的决策与理由。
 
+> 2026-11-16 更新：Core 不再按名字认识任何运行时（Lithe-core-rust #69，#1856 第 3 项）。`go`、`node` 和其他 ID 一样：没写 `executables` 的运行时按同 ID 的工具定义解析，Core 不再提供版本探测参数，也没有 `hostManaged` 字段；Java 早在 Core 去除 Java 依赖时就交给了插件。下文“运行时”一条和“只允许宿主管理的运行时”一节已按此改写。
+
 ## 先说结论
 
 Lithe 现在用一套统一的构建模型描述所有项目级构建工具（Build Tool，例如 Maven、Gradle、Cargo、Go）。插件在 `plugin.json` 的 `buildSystems`（插件 API 级别 3）里用纯 JSON 声明：怎样认出工程、用哪个可执行文件、有哪些选项、任务、运行入口和测试，以及怎样读工具的输出。思路与 LSP 插件化相同：插件只提供数据，通用逻辑只在 Rust Core 实现一次。
@@ -107,7 +109,7 @@ Rust Core 负责校验声明、识别工程、展开每一条命令行，并把�
   - `environment`：某个环境变量下的相对路径，例如 `MAVEN_HOME` 下的 `bin/mvn`。变量必须列在 `environmentInputs` 里，宿主只传这些变量。
   - `command`：在 `PATH` 上查找的裸命令名。
   - `runtime`：直接使用一个声明的运行时，例如 Go fixture 直接用 `go`。
-- **运行时**：`java`、`node`、`go` 由宿主管理，只写 ID 和最低版本，按用户的运行时设置发现。Core 提供 Java 的 `-version`、Node 的 `--version`、Go 的 `version` 探测参数，宿主合并标准输出与错误输出再交回 Core 校验；Java 8 不支持 `--version`，且版本信息通常写到错误输出，不能据此误判为不可用。其他任何 ID 都由插件自己写可执行文件候选和版本探测，所以运行时列表是开放的。
+- **运行时**：Core 不按名字认识任何运行时。没写 `executables` 的运行时只写 ID 和最低版本，按同 ID 的工具定义解析（候选为 `{ "kind": "toolchain" }`），版本由工具定义检查；其余运行时由插件自己写可执行文件候选和版本探测，宿主合并标准输出与错误输出再交回 Core 校验。所以运行时列表是开放的。
 - **自带逻辑**：插件附带的脚本（例如 Gradle 的 init script，即初始化脚本）可以直接输出规范格式，不必写选择器映射。规范格式有 `litheBuildModel`、`litheTestResults`、`litheDependencies`、`litheDiagnostics`。规范文档里的未知字段会被忽略，所以新脚本配旧宿主也能用。插件自带的常驻 Provider 进程也用这几种格式回复（第 9 节）。
 
 固定词汇（要扩展就给对应能力加一个新版本，见[插件契约从统一基线 0 开始](2026-11-11-plugin-contract-single-baseline.md)）：
@@ -260,7 +262,7 @@ Gradle 的 `offline` 和 `userHome` 是用户自己选的值，不是猜测，�
 
 ### 只允许宿主管理的运行时
 
-最有吸引力的地方：运行时发现全部由宿主掌控。不采用，因为这会把 .NET、Erlang、Dart 这类工具挡在外面。现在 `java`、`node`、`go` 由宿主管理，其余运行时由插件自己描述可执行文件和版本探测。
+最有吸引力的地方：运行时发现全部由宿主掌控。不采用，因为这会把 .NET、Erlang、Dart 这类工具挡在外面。现在没有宿主管理的运行时：运行时要么由插件描述可执行文件和版本探测，要么交给同 ID 的工具定义（2026-11-16 起 `go`、`node` 也一样）。
 
 ## 后果
 
