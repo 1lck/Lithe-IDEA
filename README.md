@@ -48,46 +48,11 @@ Language servers, plugin backends, build tools, and debuggers start when needed.
 
 <a id="performance-benchmarks"></a>
 
-## Performance benchmarks
+## Performance comparison
 
-**Snapshot highlights:** **0.97 s** launch to idle and **171 MB** stable memory (Lithe 0.7.0 startup test); **78 ms** to a stable definition view and **94 ms** to a stable references view (separate interaction test).
+![Startup and memory comparison](https://mcp.lithe.top/media/82bc9b29b4cef8673b230f67aa447fe9bfe737bcef8f56e52334c7d70d93884e.jpg)
 
-### Startup and resource use
-
-| Editor (tested version) | Project window visible | Launch to idle | Stable memory | Peak memory |
-| --- | ---: | ---: | ---: | ---: |
-| **Lithe 0.7.0** | **0.67 s** | **0.97 s** | **171 MB** | **246 MB** |
-| GoLand 2026.2.4 | 2.27 s | 9.77 s | 2658 MB | 2954 MB |
-| VS Code 1.146.0 | 1.27 s | 4.58 s | 697 MB | 1383 MB |
-| Zed 1.28.1 | 0.51 s | 1.43 s | 188 MB | 274 MB |
-
-<details>
-<summary>Additional resource metrics: idle CPU, total CPU time, processes and threads</summary>
-
-| Editor | Idle CPU | Total CPU time | Processes / threads |
-| --- | ---: | ---: | ---: |
-| **Lithe** | **0.01%** | **1.9 s** | **4 / 31** |
-| GoLand | 7.11% | 56.4 s | 9 / 259 |
-| VS Code | 0.86% | 10.1 s | 12 / 232 |
-| Zed | 0.58% | 2.3 s | 3 / 30 |
-
-</details>
-
-### Interaction latency
-
-Measured on the **Lithe-IDEA repository**, using `app.go`: **five runs per action; median reported**. For two-stage operations, values represent **first response / stable frame**.
-
-| Action | Lithe | Zed | GoLand |
-| --- | ---: | ---: | ---: |
-| Open project to ready | 8.31 s | 6.59 s | 26.0 s |
-| Go to definition (response / stable) | **61 / 78 ms** | 62 / 149 ms | 79 / 165 ms |
-| Hover | 552 ms | **382 ms** | 569 ms |
-| Hover excluding built-in editor wait | **52 ms** (500 ms wait) | 82 ms (300 ms wait) | 69 ms (~500 ms wait) |
-| Find references (response / stable) | 78 / **94 ms** | **63** / 113 ms | 82 / 1365 ms |
-| Typing (insert / backspace) | **32 / 46 ms** | 64 / 64 ms | 62 / 64 ms |
-| Test peak memory / total CPU time | 2163 MB / 62.5 s | 2119 MB / 71.5 s | 4540 MB / 524.3 s |
-
-*Source: maintainer-provided benchmark screenshots. Startup and interaction reflect different workloads, so their peak-memory figures are not interchangeable; the interaction screenshot does not identify tested app versions. Hover waits differ between editors. Hardware, OS, measurement tooling, and test date were not specified, so results are a snapshot rather than a standardized cross-machine claim. Published releases may use a different client from this `preview` branch.*
+![Interaction latency comparison](https://mcp.lithe.top/media/bb0601163b28a655a097723357a83751c007082ad2d5364474b21ef50979683a.jpg)
 
 ## Core features
 
