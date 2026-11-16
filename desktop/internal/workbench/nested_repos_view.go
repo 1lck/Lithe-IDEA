@@ -8,15 +8,11 @@ import (
 	"github.com/vivaui/viva/ui"
 )
 
-// repositoryGroupGap is the space between the parts of a repository group's line; the rows of the
-// group's changes are indented after it (repositoryChangeIndent).
-const repositoryGroupGap = 6
-
 // drawRepositoryChanges declares the change list of a workspace with nested repositories as Core
-// groups it: one line for all the changes, then a foldable group per repository with changes, in
-// Core's order. A group is named after its repository, so a workspace where only one repository has
-// changes still shows its name. What each checkbox writes is Core's plan; state and staging are in
-// nested_repos.go.
+// groups it: one foldable line for all the changes, then a foldable group per repository with
+// changes, in Core's order, on the grid of the change tree (commit_view.go). A group is named
+// after its repository, so a workspace where only one repository has changes still shows its
+// name. What each checkbox writes is Core's plan; state and staging are in nested_repos.go.
 func (a *App) drawRepositoryChanges(c ui.C, p *project) {
 	t := a.text.Commit
 	n := &p.nested
@@ -33,11 +29,14 @@ func (a *App) drawRepositoryChanges(c ui.C, p *project) {
 		return
 	}
 	ui.Scroll(c).Scrollbars().Grow(1).FillWidth().PadY(4).Children(func() {
-		a.drawChangeListHeader(c, t.ChangeList, t.Files(g.FileCount), g.AllStaged, g.StageAll != nil, p.commit.busy, func() {
+		a.drawChangeListHeader(c, t.ChangeList, t.Files(g.FileCount), g.AllStaged, g.StageAll != nil, p.commit.busy, &n.listFolded, func() {
 			if g.StageAll != nil {
 				a.stageWorkspace(p, *g.StageAll)
 			}
 		})
+		if n.listFolded {
+			return
+		}
 		for _, group := range g.Groups {
 			a.drawRepositoryGroup(c, p, group)
 		}
@@ -63,12 +62,11 @@ func (a *App) drawRepositoryGroup(c ui.C, p *project, group core.WorkspaceChange
 		color = a.colors.Accent
 	}
 	folded := p.nested.folded[id]
-	ui.Row(rc).Height(logItemHeight).FillWidth().Shrink(0).Items(ui.Center).Gap(repositoryGroupGap).PadX(8).Children(func() {
-		chevron, foldLabel := icons.ChevronDown, i18n.Shared(lang, "desktop.nested.collapse")
-		if folded {
-			chevron, foldLabel = icons.ChevronRight, i18n.Shared(lang, "desktop.nested.expand")
-		}
-		if a.gitIconButton(rc, foldLabel, chevron, false, false) {
+	indent := a.repositoryChangeIndent()
+	// The group is one level under the line of the change list: its fold under the list's
+	// checkbox, its checkbox under the list's title.
+	ui.Row(rc).Height(logItemHeight).FillWidth().Shrink(0).Items(ui.Center).PadSides(0, 8, 0, 8+a.changeTreeLevel()).Children(func() {
+		if a.drawChangeTreeFold(rc, folded, i18n.Shared(lang, "desktop.nested.collapse"), i18n.Shared(lang, "desktop.nested.expand")) {
 			rc.After(func() {
 				if p.nested.folded == nil {
 					p.nested.folded = map[string]bool{}
@@ -76,29 +74,31 @@ func (a *App) drawRepositoryGroup(c ui.C, p *project, group core.WorkspaceChange
 				p.nested.folded[id] = !folded
 			})
 		}
-		if a.treeCheckbox(rc, &all, group.Name).Disabled(busy || group.Staging == nil).Clicked() && group.Staging != nil {
-			plan := *group.Staging
-			rc.After(func() { a.applyStaging(p, id, plan) })
-		}
-		a.drawRepositorySwatch(rc, p, id)
-		ui.Text(rc, group.Name).Color(color).Weight(gfx.WeightMedium).Ellipsis().Shrink(1)
-		ui.Text(rc, t.Files(group.FileCount)).Muted().Shrink(0)
-		a.drawRepositoryBranch(rc, p, id)
+		ui.Row(rc).Grow(1).Shrink(1).Items(ui.Center).Gap(changeTreeGap).Children(func() {
+			if a.treeCheckbox(rc, &all, group.Name).Disabled(busy || group.Staging == nil).Clicked() && group.Staging != nil {
+				plan := *group.Staging
+				rc.After(func() { a.applyStaging(p, id, plan) })
+			}
+			a.drawRepositorySwatch(rc, p, id)
+			ui.Text(rc, group.Name).Color(color).Weight(gfx.WeightMedium).Ellipsis().Shrink(1)
+			ui.Text(rc, t.Files(group.FileCount)).Muted().Shrink(0)
+			a.drawRepositoryBranch(rc, p, id)
+		})
 	})
 	if folded {
 		return
 	}
 	if group.ParentReference == core.ParentReferenceUnchanged {
 		ui.Paragraph(rc, i18n.Shared(lang, "desktop.nested.refUnchanged"), 2).FontSize(a.theme.Metrics.FontSizeS).Color(a.colors.Subtle).
-			PadSides(0, 8, 0, repositoryChangeIndent)
+			PadSides(0, 8, 0, indent)
 	}
 	repo, _ := p.nested.repo(id)
 	for _, change := range changes {
 		if own {
-			a.drawCommitChange(rc, p, change, repositoryChangeIndent)
+			a.drawCommitChange(rc, p, change, indent)
 			continue
 		}
-		toggled, _, _, _ := a.drawChangeRow(rc, change, busy, false, repositoryChangeIndent, func(ui.C) func(*ui.MenuItems) {
+		toggled, _, _, _ := a.drawChangeRow(rc, change, busy, false, indent, func(ui.C) func(*ui.MenuItems) {
 			return func(*ui.MenuItems) {}
 		})
 		if toggled && repo != nil {

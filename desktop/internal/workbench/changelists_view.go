@@ -93,7 +93,7 @@ func (a *App) drawChangeListSections(c ui.C, p *project) {
 				title += suffix
 			}
 			sc := c.Key("changelist/" + list.ID)
-			ui.Row(sc).Height(logItemHeight).FillWidth().Shrink(0).Items(ui.Center).Gap(6).PadX(8).Children(func() {
+			ui.Row(sc).Height(logItemHeight).FillWidth().Shrink(0).Items(ui.Center).Gap(changeTreeGap).PadX(8).Children(func() {
 				all := allStaged(changes)
 				if a.treeCheckbox(sc, &all, title).Disabled(busy || !hasToggleable(changes)).Clicked() {
 					sc.After(func() { a.stageChanges(p, changes, surfaceButton) })
@@ -102,7 +102,7 @@ func (a *App) drawChangeListSections(c ui.C, p *project) {
 				ui.Text(sc, t.Files(fileCount(changes))).Muted().Shrink(0)
 			})
 			for _, change := range changes {
-				a.drawCommitChange(c, p, change, changeRowIndent)
+				a.drawCommitChange(c, p, change, a.changeRowIndent())
 			}
 		}
 	})

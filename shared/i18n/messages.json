@@ -27406,6 +27406,7 @@
       "id": "git.log.collapse",
       "description": "Windows UI: git.log.collapse",
       "platforms": [
+        "desktop",
         "windows"
       ],
       "parameters": {
@@ -27634,6 +27635,7 @@
       "id": "git.log.expand",
       "description": "Windows UI: git.log.expand",
       "platforms": [
+        "desktop",
         "windows"
       ],
       "parameters": {

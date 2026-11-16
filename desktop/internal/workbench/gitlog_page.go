@@ -183,7 +183,7 @@ func newLogView() logView {
 	v := logView{detailWidth: logDetailsWidth}
 	v.refSplit.Pos = logRefsWidth
 	v.filesSplit.Pos = logFilesHeight
-	v.refs.RowHeight, v.refs.Indent = logItemHeight, logIndent
+	v.refs.RowHeight = logItemHeight
 	return v
 }
 

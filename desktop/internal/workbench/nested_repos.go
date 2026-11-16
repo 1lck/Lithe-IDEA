@@ -69,8 +69,10 @@ type nestedState struct {
 	slots      map[string]int
 	showColors bool
 	// folded are the repositories whose changes the Commit window hides under their header; a
-	// group shows unfolded until it is folded (nested_repos_view.go).
-	folded map[string]bool
+	// group shows unfolded until it is folded (nested_repos_view.go). listFolded hides every
+	// group under the line of the change list.
+	folded     map[string]bool
+	listFolded bool
 }
 
 // loadNestedRepos reads the repositories of the project folder, the status of each nested one and

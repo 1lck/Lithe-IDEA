@@ -194,6 +194,9 @@ func (a *App) drawLogReferences(c ui.C, p *project) ui.Box {
 			ui.TextFieldID(c, logRefSearchID, &v.refSearch, g.BranchSearch, g.BranchSearch).Grow(1)
 		})
 		ui.Divider(c)
+		// A level starts an icon and a gap right of its parent, so a row's arrow or icon is under
+		// its parent's name, as in IDEA's branch tree.
+		v.refs.Indent = logRefRowIcon + c.Theme().Metrics.GapItem
 		ui.Tree(c, &v.refs, len(v.refItems), v.refLabel, func(i int) {
 			a.drawLogRefContent(c, p, v.refs.RowID(i), v.refItems[i])
 		}).Scrollbars().Grow(1).PadY(4)
@@ -311,24 +314,44 @@ func (v *logView) refNode(i int) ui.TreeNode {
 // refRowLabel is the accessible name of row i of the reference pane.
 func (v *logView) refRowLabel(i int) string { return v.refItems[i].label }
 
-// drawLogRefContent declares what row of the reference pane shows after its arrow. The name of
-// a reference of the repository the log walks labels the row and carries the reference's menu.
+// logRefRowIcon is the size of the icon of a row of the reference pane.
+const logRefRowIcon = 14
+
+// drawLogRefContent declares what row of the reference pane shows after its arrow. Viva's Tree
+// starts a row without an arrow (HEAD, a reference) where the arrow of a row with one is, so such
+// a row keeps the arrow's room empty, and its icon lines up with the name of a section or the
+// icon of a folder beside it.
 func (a *App) drawLogRefContent(c ui.C, p *project, row gfx.ID, r logRefRow) {
+	switch r.kind {
+	case logRefHead, logRefReference, logRefForeign:
+		ui.Row(c).Grow(1).Shrink(1).Items(ui.Center).Gap(c.Theme().Metrics.GapItem).PadLeft(treeChevron).Children(func() {
+			a.drawLogRefLeaf(c, p, row, r)
+		})
+		return
+	}
 	switch r.kind {
 	case logRefSection:
 		ui.Text(c, r.label).Weight(gfx.WeightMedium).Ellipsis().Grow(1)
 	case logRefRepository:
-		ui.Icon(c, icons.Folder).Size(14, 14).Color(r.tint)
+		ui.Icon(c, icons.Folder).Size(logRefRowIcon, logRefRowIcon).Color(r.tint)
 		ui.Text(c, r.label).Weight(gfx.WeightMedium).Color(r.tint).Ellipsis().Grow(1)
 		if p.logChosen(r.repo) {
 			// The repositories the log walks are checked, as the roots list checks them.
 			ui.Icon(c, icons.Check).Size(12, 12).Shrink(0).Color(a.colors.Subtle)
 		}
 	case logRefFolder:
-		ui.Icon(c, icons.Folder).Size(14, 14).Color(a.colors.Subtle)
+		ui.Icon(c, icons.Folder).Size(logRefRowIcon, logRefRowIcon).Color(a.colors.Subtle)
 		ui.Text(c, r.label).Ellipsis().Grow(1)
+	}
+}
+
+// drawLogRefLeaf declares the icon, name and distance from its upstream of HEAD or a reference
+// in the reference pane. The name of a reference of the repository the log walks labels the row
+// and carries the reference's menu.
+func (a *App) drawLogRefLeaf(c ui.C, p *project, row gfx.ID, r logRefRow) {
+	switch r.kind {
 	case logRefHead:
-		ui.Icon(c, icons.Tag).Size(14, 14).Color(referenceColor("head", a.colors.Dark))
+		ui.Icon(c, icons.Tag).Size(logRefRowIcon, logRefRowIcon).Color(referenceColor("head", a.colors.Dark))
 		ui.Text(c, r.label).Ellipsis().Grow(1)
 	case logRefReference, logRefForeign:
 		ref := r.ref
@@ -347,7 +370,7 @@ func (a *App) drawLogRefContent(c ui.C, p *project, row gfx.ID, r logRefRow) {
 		if ref.Behind > 0 {
 			trailing = strings.TrimSpace(trailing + " ↓" + strconv.Itoa(ref.Behind))
 		}
-		ui.Icon(c, icon).Size(14, 14).Color(referenceColor(kind, a.colors.Dark))
+		ui.Icon(c, icon).Size(logRefRowIcon, logRefRowIcon).Color(referenceColor(kind, a.colors.Dark))
 		name := ui.Text(c, r.label).Ellipsis().Grow(1)
 		if r.kind == logRefReference {
 			a.drawLogRefMenu(c, name.LabelFor(row), p, *ref)
