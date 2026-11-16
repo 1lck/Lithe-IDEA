@@ -40,6 +40,85 @@ type WorkspaceRepositorySelection struct {
 	// Others are every other ID in discovery order: the repositories the view lists to
 	// switch to.
 	Others []string
+	// Chosen are the repositories a view that walks several acts on, in discovery order, the
+	// first of them Active; set only by SelectWorkspaceRepositories.
+	Chosen []string
+}
+
+// SelectWorkspaceRepositories asks Core which repositories a view that walks several acts on,
+// given the discovery list and the IDs the view chose before. Core keeps the chosen ones still
+// listed and falls back to one repository when none is.
+func (c *Client) SelectWorkspaceRepositories(ctx context.Context, repositories []WorkspaceRepository, chosen []string) (WorkspaceRepositorySelection, error) {
+	request := struct {
+		Repositories []WorkspaceRepository `json:"repositories"`
+		Chosen       []string              `json:"chosen"`
+	}{nonNil(repositories), nonNil(chosen)}
+	var response struct {
+		Active   *string  `json:"active"`
+		FellBack bool     `json:"fellBack"`
+		Others   []string `json:"others"`
+		Chosen   []string `json:"chosen"`
+	}
+	if err := c.Execute(ctx, "git.workspaceRepositorySelection", request, &response); err != nil {
+		return WorkspaceRepositorySelection{}, err
+	}
+	selection := WorkspaceRepositorySelection{FellBack: response.FellBack, Others: response.Others, Chosen: response.Chosen}
+	if response.Active != nil {
+		selection.Active = *response.Active
+	}
+	return selection, nil
+}
+
+// WorkspaceHistory is the history of one repository a log walks with others, as far as it is
+// loaded.
+type WorkspaceHistory struct {
+	ID      string                   `json:"id"`
+	Commits []WorkspaceHistoryCommit `json:"commits"`
+	// Complete says Commits hold the whole walk, so no page is left to load.
+	Complete bool `json:"complete"`
+}
+
+// WorkspaceHistoryCommit is one loaded commit as the merge places it.
+type WorkspaceHistoryCommit struct {
+	Hash         string   `json:"hash"`
+	ParentHashes []string `json:"parentHashes"`
+	// Timestamp is the commit's Unix seconds, nil when Git reported no valid date.
+	Timestamp *int64 `json:"timestamp,omitempty"`
+}
+
+// WorkspaceHistoryEntry is one row of the merged list: the commit at Index of the history at
+// Repository in the request, and its key and its parents' keys in the merged graph.
+type WorkspaceHistoryEntry struct {
+	Repository int      `json:"repository"`
+	Index      int      `json:"index"`
+	Key        string   `json:"key"`
+	ParentKeys []string `json:"parentKeys"`
+}
+
+// WorkspaceHistoryMerge is Core's merged list, newest first, and the indices of the histories
+// whose next page it waits on before it places more.
+type WorkspaceHistoryMerge struct {
+	Entries []WorkspaceHistoryEntry `json:"entries"`
+	Pending []int                   `json:"pending"`
+}
+
+// MergeWorkspaceHistories asks Core to interleave the loaded histories of several repositories
+// by date, each in its own order (git.workspaceHistoryMerge).
+func (c *Client) MergeWorkspaceHistories(ctx context.Context, histories []WorkspaceHistory) (WorkspaceHistoryMerge, error) {
+	for i := range histories {
+		histories[i].Commits = nonNil(histories[i].Commits)
+		for j := range histories[i].Commits {
+			histories[i].Commits[j].ParentHashes = nonNil(histories[i].Commits[j].ParentHashes)
+		}
+	}
+	request := struct {
+		Repositories []WorkspaceHistory `json:"repositories"`
+	}{nonNil(histories)}
+	var merged WorkspaceHistoryMerge
+	if err := c.Execute(ctx, "git.workspaceHistoryMerge", request, &merged); err != nil {
+		return WorkspaceHistoryMerge{}, err
+	}
+	return merged, nil
 }
 
 // SelectWorkspaceRepository asks Core which repository a view acts on, given the discovery

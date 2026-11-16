@@ -28,6 +28,9 @@ func (a *App) reviewOverlays(c ui.C, p *project) {
 	if r.push.open {
 		a.drawPushDialog(c, p)
 	}
+	if r.workspacePush.open {
+		a.drawWorkspacePushDialog(c, p)
+	}
 	if r.tools.open {
 		a.drawToolsDialog(c, p)
 	}

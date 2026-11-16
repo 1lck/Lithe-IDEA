@@ -38,7 +38,7 @@ func (a *App) drawLogPopover(c ui.C, p *project, which logPopover, anchor ui.Box
 		return
 	}
 	width := float32(logPopoverWidth)
-	if which == logPopoverPath {
+	if which == logPopoverPath || which == logPopoverRoots {
 		width = logPathWidth
 	}
 	open := true
@@ -53,6 +53,8 @@ func (a *App) drawLogPopover(c ui.C, p *project, which logPopover, anchor ui.Box
 			a.drawLogDateFilter(c, p)
 		case logPopoverPath:
 			a.drawLogPathFilter(c, p)
+		case logPopoverRoots:
+			a.drawLogRoots(c, p)
 		}
 	})
 	if !open {
@@ -249,39 +251,58 @@ func (a *App) drawLogPathFilter(c ui.C, p *project) {
 		})
 	})
 	if p.workspaceMode() {
+		ui.Divider(c)
 		a.drawLogRoots(c, p)
 	}
 }
 
-// drawLogRoots declares the repositories of the project folder under the Paths filter, as IDEA's
-// filter lists the roots of a project with several: each in its color, the one the log walks
-// checked. A click walks that repository's history.
+// drawLogRoots declares the repositories of the project folder, as IDEA's root filter lists the
+// roots of a project with several: each in its color, with its box checked while the log walks it.
+// A box adds its repository to the ones the log walks, or takes it out, and the log lists the
+// commits of every checked repository in one list by date; a click on a name walks that repository
+// alone. Select All checks every box.
 func (a *App) drawLogRoots(c ui.C, p *project) {
 	l := &p.log
-	walked := p.logRepoID()
-	ui.Divider(c)
+	lang := a.language()
+	repos := p.workspaceRepositories()
+	all := true
+	for _, repo := range repos {
+		all = all && p.logChosen(repo.id)
+	}
 	ui.Column(c).FillWidth().Gap(2).Children(func() {
-		ui.Text(c, i18n.Shared(a.language(), "desktop.nested.roots")).FontSize(a.theme.Metrics.FontSizeS).Color(a.colors.Subtle)
-		for _, repo := range p.workspaceRepositories() {
-			checked := repo.id == walked
-			item := ui.Row(c.Key("root/"+repo.id)).Height(logItemHeight+2).FillWidth().Shrink(0).Items(ui.Center).Gap(8).PadX(8).
-				Radius(a.theme.Metrics.RadiusItem()).
-				HitWith(ui.ID(c), repo.name, gfx.HitOptions{Role: gfx.RoleMenuItem, Selected: checked}).
-				Hover(ui.Look{}.Background(a.colors.Hover)).Pressed(ui.Look{}.Background(a.colors.Active))
-			item.Children(func() {
-				if checked {
-					ui.Icon(c, icons.Check).Size(14, 14).Color(a.colors.Accent)
-				} else {
-					ui.Row(c).Size(14, 14).Shrink(0)
+		ui.Row(c).FillWidth().Items(ui.Center).Gap(8).PadX(8).Children(func() {
+			ui.Text(c, i18n.Shared(lang, "desktop.nested.roots")).FontSize(a.theme.Metrics.FontSizeS).Color(a.colors.Subtle).Grow(1)
+			if ui.Button(c.Part("roots-all"), i18n.Shared(lang, "desktop.nested.rootsAll")).Ghost().Disabled(all).Clicked() {
+				ids := make([]string, len(repos))
+				for i, repo := range repos {
+					ids[i] = repo.id
 				}
-				a.drawRepositorySwatch(c, p, repo.id)
-				ui.Text(c, repo.name).Color(a.colors.Text).Ellipsis().Grow(1)
+				c.After(func() { a.chooseLogRepos(p, ids) })
+			}
+		})
+		for _, repo := range repos {
+			rc := c.Key("root/" + repo.id)
+			checked := p.logChosen(repo.id)
+			item := ui.Row(rc).Height(logItemHeight+2).FillWidth().Shrink(0).Items(ui.Center).Gap(8).PadX(8).
+				Radius(a.theme.Metrics.RadiusItem()).
+				HitWith(ui.ID(rc), repo.name, gfx.HitOptions{Role: gfx.RoleMenuItem, Selected: checked}).
+				Hover(ui.Look{}.Background(a.colors.Hover)).Pressed(ui.Look{}.Background(a.colors.Active))
+			toggled := false
+			item.Children(func() {
+				on := checked
+				label := i18n.SharedFormat(lang, "desktop.nested.rootToggle", map[string]string{"name": repo.name})
+				toggled = ui.Checkbox(rc, &on, "").Label(label).Clicked()
+				a.drawRepositorySwatch(rc, p, repo.id)
+				ui.Text(rc, repo.name).Color(a.colors.Text).Ellipsis().Grow(1)
 			})
-			if item.Clicked() {
-				id := repo.id
+			id := repo.id
+			switch {
+			case toggled:
+				c.After(func() { a.toggleLogRoot(p, id) })
+			case item.Clicked():
 				c.After(func() {
 					l.popover = logPopoverNone
-					a.setLogRepo(p, id, "", "")
+					a.chooseLogRepos(p, []string{id})
 				})
 			}
 		}

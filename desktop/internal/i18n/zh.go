@@ -81,6 +81,10 @@ var chinese = Messages{
 		LoadMore:       Shared(Chinese, "git.log.loadMore"),
 		LoadingCommits: Shared(Chinese, "git.log.loadingCommits"),
 		LoadMoreFailed: Shared(Chinese, "desktop.git.loadMoreFailed"),
+		LimitReached: func(count int) string {
+			return SharedFormat(Chinese, "desktop.git.log.limitReached", map[string]string{"count": strconv.Itoa(count)})
+		},
+		AdjustLimit:    Shared(Chinese, "desktop.git.log.adjustLimit"),
 		SelectCommit:   Shared(Chinese, "git.log.selectCommit"),
 		LoadingFiles:   Shared(Chinese, "git.log.loadingChangedFiles"),
 		FilesFailed:    Shared(Chinese, "desktop.git.filesFailed"),
