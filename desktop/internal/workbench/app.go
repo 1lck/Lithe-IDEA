@@ -331,6 +331,9 @@ type settings struct {
 	// normal thickness. See terminalCursor.
 	TerminalCursorShape     string `json:"terminalCursorShape,omitempty"`
 	TerminalCursorThickness string `json:"terminalCursorThickness,omitempty"`
+	// TerminalBehavior is the Terminal page's switches; the zero value is the default of each.
+	// See terminalOptions.
+	TerminalBehavior settingswindow.TerminalBehavior `json:"terminalBehavior,omitzero"`
 	// ProcessTermination is the user's part of Core's process termination settings, as the
 	// Process Termination page edits it; the zero value keeps Core's defaults.
 	ProcessTermination settingswindow.ProcessTermination `json:"processTermination,omitzero"`

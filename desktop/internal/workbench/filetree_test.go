@@ -495,6 +495,38 @@ func TestProjectTreeBatchSelectionFollowsCore(t *testing.T) {
 	}
 }
 
+// TestProjectTreeShowsUnixNamesWithBackslashes is #2009: on macOS and Linux a backslash is part
+// of a file name, as in the folder `D:\logs` that Spring Boot creates for a Windows-style
+// `logging.file.path`. Core used to report it as `D:/logs`, two levels deep, so the rows of the
+// tree failed with "A project tree node is not in the folder above it" and the tree stayed empty.
+func TestProjectTreeShowsUnixNamesWithBackslashes(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("a backslash separates the folders of a path on Windows")
+	}
+	root := t.TempDir()
+	writeTreeFiles(t, root, `D:\logs/spring.log`, `D:\logs\app.log`)
+	h := newHarness(t, &testKernel{Client: core.NewClient()})
+	p := h.openTree(t, root)
+	folder := p.tree.find(`D:\logs`)
+	if folder == nil {
+		t.Fatalf("the root lists no folder named D:\\logs; notifications %q", noticeTexts(h.app))
+	}
+	h.app.toggleFolder(p, folder)
+	awaitDocumentState(t, h, func() bool { return folder.listed && p.tree.find(`D:\logs/spring.log`) != nil })
+	h.settle()
+
+	var rows []string
+	for _, row := range p.tree.rows {
+		rows = append(rows, row.path)
+	}
+	if want := []string{"", `D:\logs`, `D:\logs/spring.log`, `D:\logs\app.log`}; !slices.Equal(rows, want) {
+		t.Fatalf("rows = %q, want %q", rows, want)
+	}
+	if notices := noticeTexts(h.app); len(notices) != 0 {
+		t.Fatalf("the tree reported %q", notices)
+	}
+}
+
 func TestChangeListRowSelectionFollowsCore(t *testing.T) {
 	h := newHarness(t, &testKernel{Client: core.NewClient()})
 	p := &project{}

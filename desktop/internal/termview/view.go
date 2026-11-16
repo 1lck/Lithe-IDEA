@@ -267,6 +267,8 @@ type View struct {
 	layout              geometry // the grid of the last paint
 	// cursorThickness is how thick a bar or an underline cursor draws; SetCursor sets it.
 	cursorThickness CursorThickness
+	// options are the Terminal settings page's switches; SetOptions sets them.
+	options Options
 
 	look    Look
 	hasLook bool

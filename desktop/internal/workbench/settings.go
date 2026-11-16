@@ -231,6 +231,9 @@ func (a *App) newSettingsWindow() *settingswindow.Controller {
 		SetTerminalCursor: func(shape, thickness string) {
 			a.post(func(a *App) { a.setTerminalCursor(shape, thickness) })
 		},
+		SetTerminalBehavior: func(behavior settingswindow.TerminalBehavior) {
+			a.post(func(a *App) { a.setTerminalBehavior(behavior) })
+		},
 		ResetLayout: func() {
 			a.post(func(a *App) { a.resetLayout() })
 		},
@@ -408,6 +411,7 @@ func (a *App) openSettingsPageWith(surface actionSurface, page settingsPage, que
 			EditorTabLimit: settingswindow.TabLimitOf(a.settings.EditorTabLimit), EditorTabPolicy: a.settings.EditorTabPolicy,
 			TerminalShell: a.settings.TerminalShell, TerminalScrollback: a.terminalScrollback(),
 			TerminalCursorShape: settingswindow.NormalCursorShape(a.settings.TerminalCursorShape), TerminalCursorThickness: settingswindow.NormalCursorThickness(a.settings.TerminalCursorThickness),
+			TerminalBehavior:  a.settings.TerminalBehavior,
 			HideProjectColors: a.settings.HideProjectColors, ProjectOpenDestination: a.settings.ProjectOpenDestination,
 			HideGitGutter: a.settings.HideGitGutter, InlineGitBlame: a.settings.InlineGitBlame,
 			HideChangeLists: a.settings.HideChangeLists, HideParentReferences: a.settings.HideParentReferences,

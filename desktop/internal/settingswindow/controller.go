@@ -80,6 +80,8 @@ type Values struct {
 	// CursorThicknessNormal or CursorThicknessThick).
 	TerminalCursorShape     string
 	TerminalCursorThickness string
+	// TerminalBehavior is the Terminal page's switches; the zero value is the default of each.
+	TerminalBehavior TerminalBehavior
 	// Fonts are the fonts of the editor, the terminal and the run output, as
 	// fontprefs.Normalize returns them. Nil is fontprefs.Default, the system's fixed-pitch
 	// font for every place.
@@ -383,6 +385,9 @@ type Options struct {
 	// SetTerminalCursor hands a change of Values.TerminalCursorShape and
 	// Values.TerminalCursorThickness to the settings owner, like SetTabRows.
 	SetTerminalCursor func(shape, thickness string)
+	// SetTerminalBehavior hands a change of Values.TerminalBehavior to the settings owner, like
+	// SetTabRows.
+	SetTerminalBehavior func(TerminalBehavior)
 	// SetFonts hands a change of Values.Fonts to the settings owner, like SetTabRows. The
 	// list it receives is normalized.
 	SetFonts func([]fontprefs.Font)

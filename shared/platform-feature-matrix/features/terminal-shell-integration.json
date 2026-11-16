@@ -2,7 +2,7 @@
   "id": "terminal-shell-integration",
   "area": "工作台",
   "group": "终端",
-  "capability": "本地 Shell 集成：提示符、命令与目录上报，提示符处调整大小不重复提示符，点击命令行移动光标",
+  "capability": "本地 Shell 集成：提示符、命令与目录上报，提示符处调整大小不重复提示符，点击命令行移动光标；设置中可关闭 Shell 集成与点击移动",
   "macos": {
     "implementationStatus": "implemented",
     "verificationStatus": "pending",
@@ -23,7 +23,13 @@
       "desktop/internal/termview/input_click.go",
       "desktop/internal/termview/prompt_resize_test.go",
       "desktop/internal/termview/input_click_test.go",
-      "desktop/internal/termview/NOTICE"
+      "desktop/internal/termview/NOTICE",
+      "desktop/internal/termview/options.go",
+      "desktop/internal/termview/options_test.go",
+      "desktop/internal/settingswindow/terminal_behavior_view.go",
+      "desktop/internal/settingswindow/terminal_behavior_view_test.go",
+      "desktop/internal/workbench/terminal_env.go",
+      "desktop/internal/workbench/terminal_behavior_test.go"
     ]
   },
   "windows": {
@@ -46,7 +52,13 @@
       "desktop/internal/termview/input_click.go",
       "desktop/internal/termview/prompt_resize_test.go",
       "desktop/internal/termview/input_click_test.go",
-      "desktop/internal/termview/NOTICE"
+      "desktop/internal/termview/NOTICE",
+      "desktop/internal/termview/options.go",
+      "desktop/internal/termview/options_test.go",
+      "desktop/internal/settingswindow/terminal_behavior_view.go",
+      "desktop/internal/settingswindow/terminal_behavior_view_test.go",
+      "desktop/internal/workbench/terminal_env.go",
+      "desktop/internal/workbench/terminal_behavior_test.go"
     ]
   },
   "owner": "Terminal",
