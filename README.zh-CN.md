@@ -9,7 +9,6 @@
     <a href="./README.md"><strong>English</strong></a> ·
     <a href="#performance-benchmarks">性能实测</a> ·
     <a href="#核心功能">核心功能</a> ·
-    <a href="#产品截图">产品截图</a> ·
     <a href="#下载与安装">下载</a> ·
     <a href="https://github.com/Lithe-IDEA/Lithe-store">插件市场</a> ·
     <a href="https://github.com/Lithe-IDEA/Lithe-core-rust/tree/main/shared/plugins">插件开发</a> ·

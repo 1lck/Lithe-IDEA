@@ -9,7 +9,6 @@
     <a href="./README.zh-CN.md"><strong>简体中文</strong></a> ·
     <a href="#performance-benchmarks">Benchmarks</a> ·
     <a href="#core-features">Core features</a> ·
-    <a href="#product-tour">Product tour</a> ·
     <a href="#download-and-install">Download</a> ·
     <a href="https://github.com/Lithe-IDEA/Lithe-store">Plugin marketplace</a> ·
     <a href="https://github.com/Lithe-IDEA/Lithe-core-rust/tree/main/shared/plugins">Plugin development</a> ·
