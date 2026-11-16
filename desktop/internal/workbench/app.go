@@ -61,7 +61,7 @@ type Kernel interface {
 	ReduceChromeLayout(ctx context.Context, catalog []core.ChromeItem, state core.ChromeLayout, action core.ChromeAction) (core.ChromeLayout, bool, error)
 	GitStatus(ctx context.Context, root string) (core.GitStatus, error)
 	GitReferences(ctx context.Context, root string) (core.GitReferences, error)
-	GitHistoryPage(ctx context.Context, root, reference, cursor string, limit int) (core.GitHistoryPage, error)
+	GitHistoryPage(ctx context.Context, root, reference, cursor string, limit, maxCommits int) (core.GitHistoryPage, error)
 	DetectBuildSystems(ctx context.Context, workspaceRoot string, manifests []json.RawMessage) (core.BuildDetection, error)
 	DetectBuildSystemsWithOptions(ctx context.Context, workspaceRoot string, manifests []json.RawMessage, options core.BuildDetectOptions) (core.BuildDetection, error)
 	ResolveStoredBuildOptions(ctx context.Context, document, local json.RawMessage) (core.BuildStoredOptions, error)
@@ -304,6 +304,11 @@ type settings struct {
 	// HideParentReferences hides the option that records submodule commits in the parent
 	// repositories; while it is hidden every commit updates them. The option shows by default.
 	HideParentReferences bool `json:"hideParentReferences,omitempty"`
+	// GitLogLimit and GitLogMergedLimit are the most commits the Git Log reads of one repository
+	// and of several at once; zero is settingswindow.DefaultGitLogLimit and
+	// DefaultGitLogMergedLimit (gitlog_limits.go).
+	GitLogLimit       int `json:"gitLogLimit,omitempty"`
+	GitLogMergedLimit int `json:"gitLogMergedLimit,omitempty"`
 	// GitConsole says which internal Git queries the Git console records and how it draws its
 	// records; the zero value is IntelliJ IDEA's console (gitconsole_settings.go).
 	GitConsole core.GitConsolePreferences `json:"gitConsole,omitzero"`

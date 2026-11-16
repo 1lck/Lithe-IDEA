@@ -398,9 +398,9 @@ func (a *App) paintLogRow(canvas *gfx.Canvas, rect gfx.Rect, index int) {
 	commit, _ := l.commit(row.CommitHash)
 	selected := row.CommitHash == l.selected
 	a.paintGraphRow(canvas, m, rect, row, color)
-	if slot, ok := a.project.repositorySlot(a.project.logRepoID()); ok && a.project.workspaceMode() {
+	if slot, ok := a.project.repositorySlot(a.project.logCommitRepo(row.CommitHash)); ok && a.project.workspaceMode() {
 		// As IDEA marks each commit with the color of its root, the strip at the left edge says which
-		// repository of the folder the log walks.
+		// repository of the folder the commit belongs to, also while the log walks several at once.
 		canvas.Fill(gfx.Rect{X: rect.X, Y: rect.Y, Width: logRootStripWidth, Height: rect.Height}, repositoryColor(slot, dark))
 	}
 

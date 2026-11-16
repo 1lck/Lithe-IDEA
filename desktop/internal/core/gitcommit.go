@@ -44,6 +44,8 @@ type gitWriteRequest struct {
 	PushTags     string          `json:"pushTags,omitempty"`
 	PushTarget   string          `json:"pushTarget,omitempty"`
 	ExpectedPush json.RawMessage `json:"expectedPush,omitempty"`
+	// CheckSubmodules has Git refuse a push while a submodule commit it records is on no remote.
+	CheckSubmodules bool `json:"checkSubmodules,omitempty"`
 	// NoCheckout registers a created worktree without filling its directory.
 	NoCheckout bool `json:"noCheckout,omitempty"`
 	// Lightweight makes createTag a lightweight tag, which takes no message.
@@ -303,9 +305,11 @@ type WorkspaceCommitSession struct {
 	// OrderedIDs are the repositories of the plan in the order they commit: a child before the
 	// parent that records it.
 	OrderedIDs []string
-	Message    string
-	Amend      bool
-	Push       bool
+	// Repositories are the repositories the plan binds, as the request and Core listed them.
+	Repositories []WorkspaceCommitRepository
+	Message      string
+	Amend        bool
+	Push         bool
 	// Author is the "Name <email>" the plan records its commits under, empty for the
 	// configured identity.
 	Author  string
@@ -352,14 +356,15 @@ func (s *WorkspaceCommitSession) UnmarshalJSON(data []byte) error {
 		return err
 	}
 	var plan struct {
-		Message    string                          `json:"message"`
-		Amend      bool                            `json:"amend"`
-		Push       bool                            `json:"push"`
-		Author     string                          `json:"author"`
-		SignOff    bool                            `json:"signOff"`
-		IsRetry    bool                            `json:"isRetry"`
-		OrderedIDs []string                        `json:"orderedIds"`
-		States     map[string]WorkspaceCommitState `json:"states"`
+		Message      string                          `json:"message"`
+		Amend        bool                            `json:"amend"`
+		Push         bool                            `json:"push"`
+		Author       string                          `json:"author"`
+		SignOff      bool                            `json:"signOff"`
+		IsRetry      bool                            `json:"isRetry"`
+		OrderedIDs   []string                        `json:"orderedIds"`
+		Repositories []WorkspaceCommitRepository     `json:"repositories"`
+		States       map[string]WorkspaceCommitState `json:"states"`
 	}
 	if len(wire.Plan) == 0 {
 		return errors.New("workspace commit session has no plan")
@@ -371,6 +376,7 @@ func (s *WorkspaceCommitSession) UnmarshalJSON(data []byte) error {
 		raw:           append(json.RawMessage(nil), data...),
 		plan:          append(json.RawMessage(nil), wire.Plan...),
 		OrderedIDs:    plan.OrderedIDs,
+		Repositories:  plan.Repositories,
 		Message:       plan.Message,
 		Amend:         plan.Amend,
 		Push:          plan.Push,

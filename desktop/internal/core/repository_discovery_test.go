@@ -58,12 +58,14 @@ func TestWorkspaceRepositorySelectionUsesCoreFixtures(t *testing.T) {
 			Request struct {
 				Repositories []WorkspaceRepository `json:"repositories"`
 				Selected     string                `json:"selected"`
-				Chosen       []string              `json:"chosen"`
+				// Chosen is nil when the case picks one repository, not several.
+				Chosen *[]string `json:"chosen"`
 			} `json:"request"`
 			Response struct {
 				Active   *string  `json:"active"`
 				FellBack bool     `json:"fellBack"`
 				Others   []string `json:"others"`
+				Chosen   []string `json:"chosen"`
 			} `json:"response"`
 		} `json:"cases"`
 	}
@@ -74,33 +76,65 @@ func TestWorkspaceRepositorySelectionUsesCoreFixtures(t *testing.T) {
 		t.Fatal("the selection fixture has no cases")
 	}
 	client := NewClient()
-	checked := 0
 	for _, item := range fixture.Cases {
-		if item.Request.Chosen != nil {
-			// A view acting on several repositories at once sends chosen instead of selected;
-			// the bridge does not, until the Git Log takes several repositories (#2013).
-			continue
-		}
-		checked++
 		t.Run(item.Name, func(t *testing.T) {
-			want := WorkspaceRepositorySelection{FellBack: item.Response.FellBack, Others: item.Response.Others}
+			want := WorkspaceRepositorySelection{FellBack: item.Response.FellBack, Others: item.Response.Others, Chosen: item.Response.Chosen}
 			if item.Response.Active != nil {
 				want.Active = *item.Response.Active
 			}
-			got, err := client.SelectWorkspaceRepository(testContext(t), item.Request.Repositories, item.Request.Selected)
+			var got WorkspaceRepositorySelection
+			var err error
+			if item.Request.Chosen != nil {
+				got, err = client.SelectWorkspaceRepositories(testContext(t), item.Request.Repositories, *item.Request.Chosen)
+			} else {
+				got, err = client.SelectWorkspaceRepository(testContext(t), item.Request.Repositories, item.Request.Selected)
+			}
 			if err != nil || !reflect.DeepEqual(got, want) {
 				t.Fatalf("selection = %#v, error = %v; want %#v", got, err, want)
 			}
 		})
-	}
-	if checked == 0 {
-		t.Fatal("the selection fixture has no case with selected")
 	}
 	duplicate := []WorkspaceRepository{
 		{Path: "/w/a", ID: "a", Name: "a", Role: RepositoryNested},
 		{Path: "/w/b", ID: "a", Name: "a", Role: RepositoryNested},
 	}
 	_, err = client.SelectWorkspaceRepository(testContext(t), duplicate, "")
+	requireCode(t, err, CodeInvalidRequest)
+}
+
+// The bridge sends each repository's loaded history and decodes Core's merged rows; the order and
+// the keys are the fixtures' and Core's.
+func TestWorkspaceHistoryMergeUsesCoreFixtures(t *testing.T) {
+	data, err := os.ReadFile(contractfixture.CoreFixture("git/workspace-history-merge-v1.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var fixture struct {
+		Cases []struct {
+			Name    string `json:"name"`
+			Request struct {
+				Repositories []WorkspaceHistory `json:"repositories"`
+			} `json:"request"`
+			Response WorkspaceHistoryMerge `json:"response"`
+		} `json:"cases"`
+	}
+	if err := json.Unmarshal(data, &fixture); err != nil {
+		t.Fatal(err)
+	}
+	if len(fixture.Cases) == 0 {
+		t.Fatal("the merge fixture has no cases")
+	}
+	client := NewClient()
+	for _, item := range fixture.Cases {
+		t.Run(item.Name, func(t *testing.T) {
+			got, err := client.MergeWorkspaceHistories(testContext(t), item.Request.Repositories)
+			if err != nil || !reflect.DeepEqual(got, item.Response) {
+				t.Fatalf("merge = %#v, error = %v; want %#v", got, err, item.Response)
+			}
+		})
+	}
+	repeated := []WorkspaceHistory{{ID: "a", Complete: true}, {ID: "a", Complete: true}}
+	_, err = client.MergeWorkspaceHistories(testContext(t), repeated)
 	requireCode(t, err, CodeInvalidRequest)
 }
 

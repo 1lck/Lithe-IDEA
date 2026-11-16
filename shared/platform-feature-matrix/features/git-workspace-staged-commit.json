@@ -10,7 +10,12 @@
       "desktop/internal/core/gitcommit.go",
       "desktop/internal/workbench/commit.go",
       "desktop/internal/workbench/commit_nested.go",
-      "desktop/internal/workbench/workspace_repositories_test.go"
+      "desktop/internal/workbench/workspace_repositories_test.go",
+      "desktop/internal/core/git_workspace_push.go",
+      "desktop/internal/workbench/gitpush_workspace.go",
+      "desktop/internal/workbench/gitpush_workspace_view.go",
+      "desktop/internal/workbench/gitpush_workspace_test.go",
+      "docs/assets/workspace-repositories/README.md"
     ]
   },
   "windows": {
@@ -20,12 +25,17 @@
       "desktop/internal/core/gitcommit.go",
       "desktop/internal/workbench/commit.go",
       "desktop/internal/workbench/commit_nested.go",
-      "desktop/internal/workbench/workspace_repositories_test.go"
+      "desktop/internal/workbench/workspace_repositories_test.go",
+      "desktop/internal/core/git_workspace_push.go",
+      "desktop/internal/workbench/gitpush_workspace.go",
+      "desktop/internal/workbench/gitpush_workspace_view.go",
+      "desktop/internal/workbench/gitpush_workspace_test.go",
+      "docs/assets/workspace-repositories/README.md"
     ]
   },
   "owner": "Git",
-  "verification": "勾选两个独立仓库文件，一次提交并推送，验证各自 HEAD 和远程；停止一个操作后其余独立仓库继续，已成功仓库不会回滚。",
-  "notes": "Viva：提交窗口把 Core 发现的仓库列表随请求交回，由 Core 的 WorkspaceCommitRequest.WorkspaceRepositories 绑定嵌套仓库：首次计划带上全部仓库，ChangeList 范围只提交项目仓库，重试只带失败那次计划过的仓库；文件夹本身不是 Git 仓库时只提交嵌套仓库。每个仓库保留自己的 WorkspaceCommitResult，失败不回滚。提交并推送沿用同一计划；推送和中途停止的实机验证还没做。",
+  "verification": "勾选两个独立仓库文件，一次提交并推送，验证各自 HEAD 和远程；停止一个操作后其余独立仓库继续，已成功仓库不会回滚。 提交并推送先完成提交，再打开“推送提交”对话框：每个仓库一行（勾选框、`分支 → 远程 : 分支`、待推送提交），没有远程的仓库显示“定义远程”且不能勾选，空仓库和分离 HEAD 不能勾选；选中提交后右侧列出它的变更文件；“推送标记”可选当前分支或所有。确认前远程不变；点“推送”后按 Core 的顺序推送，子模块先于记录它的父仓库，子模块推送失败时父仓库跳过并保留对话框，其余仓库继续。",
+  "notes": "Viva：提交窗口把 Core 发现的仓库列表随请求交回，由 Core 的 WorkspaceCommitRequest.WorkspaceRepositories 绑定嵌套仓库：首次计划带上全部仓库，ChangeList 范围只提交项目仓库，重试只带失败那次计划过的仓库；文件夹本身不是 Git 仓库时只提交嵌套仓库。每个仓库保留自己的 WorkspaceCommitResult，失败不回滚。提交并推送按 IDEA 的流程先提交、再打开“推送提交”对话框（gitpush_workspace.go），本次提交过的仓库默认勾选；每个仓库的状态、待推送提交、推送目标和推送顺序由 Core `git.workspacePushPreview` 给出，推送逐个调用 `git.push` 并开启子模块发布检查；内核不支持该方法时沿用原来的推送确认。截图见 docs/assets/workspace-repositories/README.md。推送和中途停止的实机验证还没做；“定义远程”只是提示，还不能在对话框里添加远程。",
   "legacy": {
     "revision": "5a54c41aa37a4e6e6b68918a4b05765b9dd07a36",
     "macos": {

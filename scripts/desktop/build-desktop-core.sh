@@ -31,14 +31,18 @@ native_path() {
 # .worktrees, .DS_Store and .lithe by itself; workspace.configureVisibility takes the
 # manifests of the enabled plugins and hides the folders their build systems name in
 # layout.hiddenDirectoryNames and their VCS providers name as directory markers, in every
-# workspace, until the next call replaces them (#1856). On top of #74 squash-merged, which
-# adds git.workspacePushPreview, the multi-repository push preview ordering submodules before
-# their parents, which the desktop does not send yet; #69 squash-merged, so Core knows no
-# runtime by name and go and node resolve through their tool definitions like any other
-# runtime without executables, with no hostManaged field (#1856); and #71 squash-merged, which
-# adds git.workspaceHistoryMerge, the optional chosen of git.workspaceRepositorySelection and
-# the optional maxCommits and limitReached of git.historyPage, none of which the desktop sends
-# or reads yet (#2013).
+# workspace, until the next call replaces them (#1856). On top of #74 squash-merged:
+# git.workspacePushPreview reads for each workspace repository whether it can push (ready, up to
+# date, no remote, empty, detached HEAD or failed), its push preview and target, and the order to
+# push them in, a submodule before the repository that records it, which the desktop's Push
+# Commits dialog reads (#2013); #69 squash-merged, so Core knows no runtime by name and go and
+# node resolve through their tool definitions like any other runtime without executables, with no
+# hostManaged field (#1856); and #71 squash-merged: git.workspaceHistoryMerge interleaves the
+# loaded history pages of several workspace repositories newest first, each in Git's own order,
+# stops where a repository with pages left runs out and names it pending, and keys a hash several
+# repositories hold <hash>@<id>; git.historyPage takes maxCommits and answers limitReached;
+# git.workspaceRepositorySelection takes chosen, the set a view walks together, and answers the
+# picks still listed in discovery order; the desktop's Git Log sends and reads all of them (#2013).
 # Lithe-core-rust main at 5a8d786, #67 squash-merged: toolchains.candidates takes the optional
 # commandHomes, lists the commands found on the PATH as shell rows, and offers each shell home that
 # checks out as an installations entry with provider host:shell, once per canonical home (#2032).

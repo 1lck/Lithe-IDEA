@@ -142,13 +142,32 @@ func (a *App) logMenuRevisions(p *project, row int) []string {
 	return revisions
 }
 
-// historyHints are Core's hints for the commit menu of revisions in the repository the log walks.
-// The first call for a selection asks for them and reports nothing ready; the menu is painted
-// again when they arrive. A failed request offers every action, and the action's own preview or
-// write decides.
-func (a *App) historyHints(p *project, revisions []string) (core.HistoryActionCapabilities, bool) {
+// logMenuTarget is the repository root the commit menu of log row acts in and the commits it acts
+// on, as their keys in the list and their hashes. While the log walks several repositories it acts
+// in the repository of the row's commit, on the chosen commits of that repository only, since a
+// Git operation runs in one repository.
+func (a *App) logMenuTarget(p *project, row int) (root string, keys, hashes []string) {
+	keys = a.logMenuRevisions(p, row)
+	l := &p.log
+	if len(keys) == 0 || l.origins == nil {
+		return p.logRepositoryRoot(), keys, keys
+	}
+	root, _ = p.logCommitAt(l.graph.Rows[row].CommitHash)
+	mine := keys[:0:0]
+	for _, key := range keys {
+		if at, hash := p.logCommitAt(key); at == root {
+			mine, hashes = append(mine, key), append(hashes, hash)
+		}
+	}
+	return root, mine, hashes
+}
+
+// historyHints are Core's hints for the commit menu of revisions in the repository at root. The
+// first call for a selection asks for them and reports nothing ready; the menu is painted again
+// when they arrive. A failed request offers every action, and the action's own preview or write
+// decides.
+func (a *App) historyHints(p *project, root string, revisions []string) (core.HistoryActionCapabilities, bool) {
 	h := &p.gitHistory
-	root := p.logRepositoryRoot()
 	key := root + "\x00" + strconv.Itoa(p.log.gen) + "\x00" + strings.Join(revisions, ",")
 	if h.hintsKey == key {
 		return h.hints, h.hintsReady
@@ -198,16 +217,21 @@ func (a *App) copyRevisions(revisions []string, short bool, label string) {
 	}
 }
 
-// beginTagAt opens the New Tag dialog on the commit revision of the repository the log walks.
-func (a *App) beginTagAt(p *project, revision string) {
+// beginTagAt opens the New Tag dialog on the commit revision of the repository at root.
+func (a *App) beginTagAt(p *project, root, revision string) {
 	a.adoptLogBranches(p)
+	if root != p.logRepositoryRoot() {
+		// A commit of another repository the log walks with it: the dialog writes the tag there.
+		a.branch.repo, a.branch.refs = p.logBranchRepoAt(root), p.referencesAt(root)
+	}
 	a.beginCreateTag(p)
 	a.branch.target = core.GitReference{FullName: revision, ShortName: shortHash(revision)}
 }
 
-// beginHistoryRewrite opens the dialog of the rewrite operation of revisions and reads its preview.
-func (a *App) beginHistoryRewrite(p *project, operation string, revisions []string) {
-	a.reviewHistoryRewrite(p, operation, revisions, p.logRepositoryRoot())
+// beginHistoryRewrite opens the dialog of the rewrite operation of revisions in the repository at
+// root and reads its preview.
+func (a *App) beginHistoryRewrite(p *project, operation, root string, revisions []string) {
+	a.reviewHistoryRewrite(p, operation, revisions, root)
 	a.performed("git.history."+operation, surfaceContextMenu)
 }
 
@@ -382,13 +406,12 @@ func (a *App) copyRecoveryReference(p *project) {
 }
 
 // beginCherryPick opens the dialog that confirms the cherry-pick or the revert, as operation
-// says, of the commit revision in the repository the log walks.
-func (a *App) beginCherryPick(p *project, operation, revision string) {
+// says, of the commit revision with subject in the repository at root.
+func (a *App) beginCherryPick(p *project, operation, root, revision, subject string) {
 	if _, ok := a.kernel.(historyKernel); !ok {
 		return
 	}
-	commit, _ := p.log.commit(revision)
-	p.gitHistory.confirm = historyConfirmState{open: true, operation: operation, revision: revision, subject: commit.Subject, root: p.logRepositoryRoot()}
+	p.gitHistory.confirm = historyConfirmState{open: true, operation: operation, revision: revision, subject: subject, root: root}
 }
 
 // runCherryPick applies the change of the confirmed commit on the current branch, or reverts it,
@@ -444,12 +467,13 @@ func historyPathList(paths []string) string {
 	return strings.Join(paths[:shown], ", ") + ", …"
 }
 
-// beginHistoryReset opens the reset dialog on revision, with the mixed mode Git takes by default.
-func (a *App) beginHistoryReset(p *project, revision string) {
+// beginHistoryReset opens the reset dialog on revision in the repository at root, with the mixed
+// mode Git takes by default.
+func (a *App) beginHistoryReset(p *project, root, revision string) {
 	if _, ok := a.kernel.(historyKernel); !ok {
 		return
 	}
-	p.gitHistory.reset = historyResetState{open: true, revision: revision, root: p.logRepositoryRoot(), mode: core.GitResetMixed}
+	p.gitHistory.reset = historyResetState{open: true, revision: revision, root: root, mode: core.GitResetMixed}
 }
 
 // runHistoryReset moves the current branch to the commit of the reset dialog in its mode.

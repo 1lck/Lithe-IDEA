@@ -81,6 +81,10 @@ var english = Messages{
 		LoadMore:       Shared(English, "git.log.loadMore"),
 		LoadingCommits: Shared(English, "git.log.loadingCommits"),
 		LoadMoreFailed: Shared(English, "desktop.git.loadMoreFailed"),
+		LimitReached: func(count int) string {
+			return SharedFormat(English, "desktop.git.log.limitReached", map[string]string{"count": strconv.Itoa(count)})
+		},
+		AdjustLimit:    Shared(English, "desktop.git.log.adjustLimit"),
 		SelectCommit:   Shared(English, "git.log.selectCommit"),
 		LoadingFiles:   Shared(English, "git.log.loadingChangedFiles"),
 		FilesFailed:    Shared(English, "desktop.git.filesFailed"),
