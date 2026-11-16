@@ -409,6 +409,10 @@ func (v *View) terminalPointer(event gfx.PointerEvent) gfx.EventResult {
 		if !selection.selected {
 			// A click selects nothing; it only leaves the mark a Shift-click starts from.
 			changed = selection.dismiss() || changed
+			// On the line being typed it also takes the shell's cursor there.
+			if inputClick(event) && v.moveInputCursor(position) {
+				changed = true
+			}
 		}
 		return gfx.EventResult{Handled: true, Repaint: changed}
 	}

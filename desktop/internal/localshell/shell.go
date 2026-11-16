@@ -52,13 +52,11 @@ type Config struct {
 	Args []string
 	// Dir is the working directory. Empty means the user's home directory.
 	Dir string
-	// DirectoryToken enables prompt directory reports for supported local shells.
-	// Empty leaves the shell's startup and prompt untouched.
+	// DirectoryToken enables prompt, command and directory reports, bound to the
+	// token, for the shells that support them: Bash and Zsh on Unix and in a WSL
+	// distribution, PowerShell and cmd.exe on Windows. It applies only when Args
+	// is nil. Empty leaves the shell's startup and prompt untouched.
 	DirectoryToken string
-	// WSLScript is the sh program a WSL distribution runs to start its user's
-	// login shell with directory reports (Shell "wsl:<distribution>"). Empty
-	// starts the distribution's own login shell untouched.
-	WSLScript string
 	// Env is added to the environment the shell inherits.
 	Env []string
 	// Unset names variables removed from the inherited environment, before Env is

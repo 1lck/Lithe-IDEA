@@ -194,17 +194,35 @@ type Terminal struct {
 	imageBytes int
 	imageWake  func()
 
-	replyFn            func([]byte)
-	clipboardFn        func(ClipboardWrite)
-	notifyFn           func(Notification)
-	bellFn             func()
-	cwdFn              func(Cwd)
-	cwdReportFn        func(Cwd)
-	promptReadyFn      func()
-	promptStartFn      func()
-	promptToken        string
-	inputStart         Point // where the shell's editable line begins; see InputMove
-	inputStartSet      bool
+	replyFn       func([]byte)
+	clipboardFn   func(ClipboardWrite)
+	notifyFn      func(Notification)
+	bellFn        func()
+	cwdFn         func(Cwd)
+	cwdReportFn   func(Cwd)
+	promptReadyFn func()
+	promptStartFn func()
+	promptToken   string
+	inputStart    Point // where the shell's editable line begins; see InputMove
+	inputStartSet bool
+
+	// promptLine is the buffer line the shell's prompt began on (OSC 133 A), and
+	// promptActive whether the cursor is still on that prompt; see
+	// markPromptStart. promptStale is whether a resize left the rows it drew on
+	// waiting for the shell's own redraw; promptSaved holds those rows and the
+	// cursor column as the shell drew them until it does.
+	promptLine   uint64
+	promptActive bool
+	promptStale  bool
+	promptSaved  []*line
+	promptCol    int
+	// commandMarks is whether the owning shell has reported a command start (OSC
+	// 133 C) since its token was set. Only a shell that does is known to end
+	// every prompt before a command writes; one that marks prompts alone (the
+	// PowerShell and cmd.exe prompts on Windows) would leave its command's output
+	// taken for the prompt. See markPromptStart and CommandReporting.
+	commandMarks bool
+
 	inputEnvironmentFn func(InputEnvironment)
 	commandStartFn     func()
 	commandFinishedFn  func(int)
@@ -243,6 +261,17 @@ func clampInt(value, low, high int) int { return min(max(value, low), high) }
 
 // Size is the grid size in cells.
 func (t *Terminal) Size() (cols, rows int) { return t.cols, t.rows }
+
+// AtPrompt reports whether the cursor is on a shell prompt the owning shell
+// reported with OSC 133 A and has not left, which is the state in which the
+// shell redraws the prompt itself after a resize.
+func (t *Terminal) AtPrompt() bool { return t.promptActive && !t.onAlt }
+
+// CommandReporting reports whether the owning shell marks the start of every
+// command (OSC 133 C), so that the prompt and input it reports end before a
+// command's output. Until it does, the prompt marks alone are not trusted to
+// say where the shell's line editor is.
+func (t *Terminal) CommandReporting() bool { return t.commandMarks }
 
 // Version changes whenever anything visible may have changed: written bytes,
 // resizes and scrolling the view. The owner can skip repainting while it holds.
@@ -571,6 +600,8 @@ func (t *Terminal) Reset() {
 // resetState sets modes, cursor, margins and tabs to their defaults.
 func (t *Terminal) resetState() {
 	t.inputStartSet = false
+	t.promptActive, t.promptStale = false, false
+	t.dropPromptRows()
 	t.setSync(false)
 	t.cx, t.cy, t.pend = 0, 0, false
 	t.top, t.bot = 0, t.rows-1

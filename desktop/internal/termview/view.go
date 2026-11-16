@@ -241,6 +241,13 @@ type View struct {
 	owner uint32
 	shell shell
 	rx    []byte // scratch the shell's output is drained into
+	// shellCols and shellRows are the size the shell was last told; wantCols and wantRows
+	// are the size a shell at its prompt is waiting to be told, once it has held since
+	// shellWaitAt. See resizeShell.
+	shellCols, shellRows int
+	wantCols, wantRows   int
+	shellWaiting         bool
+	shellWaitAt          time.Duration
 	// ended is true once a shell finished or failed to start. Enter starts a new one.
 	ended bool
 	// closed is true after Close: the view starts no shell again.
@@ -290,8 +297,10 @@ type View struct {
 	mousePositionValid bool
 
 	// clock is the time the selection's edge scroll steps by; it is the canvas time of the
-	// last paint or event.
+	// last paint or event. paced is whether that canvas has a clock at all: without one the
+	// time stands still, and nothing may wait for it to pass.
 	clock time.Duration
+	paced bool
 }
 
 // owners numbers the views for their text identities.

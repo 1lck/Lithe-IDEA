@@ -12,7 +12,7 @@ import (
 // and the shell always have the size of the area they are painted in, and it starts the
 // shell on the first paint, once that size is known.
 func (v *View) Paint(canvas *gfx.Canvas, area gfx.Rect, look Look) {
-	v.clock = canvas.Now()
+	v.clock, v.paced = canvas.Now(), canvas.HasClock()
 	// The cell is measured on this canvas, since the display scale decides the width, and
 	// from the font in use on this frame, so a font changed by SetFont lays the grid out anew
 	// here and fit hands the new size to the screen and the shell. A row is as tall as the
@@ -32,6 +32,7 @@ func (v *View) Paint(canvas *gfx.Canvas, area gfx.Rect, look Look) {
 	})
 	v.applyLook(look)
 	v.ensureStarted()
+	v.settleShellResize(canvas)
 	// A selection dragged past the top or bottom edge scrolls on the frames paintGrid asks
 	// for, before the rows of this frame are prepared.
 	v.stepSelectionScroll(v.clock)

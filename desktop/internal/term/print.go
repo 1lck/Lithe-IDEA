@@ -4,6 +4,7 @@ package term
 // the hot path for ordinary output and does the same as print without the
 // per-character width and charset work.
 func (t *Terminal) printASCII(run []byte) {
+	t.clearStalePrompt()
 	l := t.scr.lines[t.cy]
 	t.stamp(l)
 	if t.fillASCII(l, run) {
@@ -68,6 +69,7 @@ func (t *Terminal) fillASCII(l *line, run []byte) bool {
 // one width class is written in one pass; anything else goes to print, which
 // handles width, wrapping, marks and the character set.
 func (t *Terminal) printRunes(runes []rune) {
+	t.clearStalePrompt()
 	for len(runes) > 0 {
 		n := t.fillRun(runes)
 		if n == 0 {
@@ -163,6 +165,7 @@ func (t *Terminal) advance(l *line, to int, last rune) {
 // print writes one character at the cursor, handling width, wrapping,
 // combining marks and the active character set.
 func (t *Terminal) print(r rune) {
+	t.clearStalePrompt()
 	if t.charsets[t.gl] == charsetGraphics {
 		r = graphicsRune(r)
 	}

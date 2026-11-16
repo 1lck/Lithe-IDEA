@@ -37,7 +37,27 @@ type reflow struct {
 func (t *Terminal) reflowMain() {
 	s := &t.main
 	total := t.histCount + len(s.lines)
-	if !t.mainNeedsReflow(total) && (t.onAlt || t.cx < t.cols) && (!s.saved.valid || s.saved.x < t.cols) {
+	// The shell redraws its prompt itself after a resize, from the rows it has
+	// already drawn, so the prompt and the input after it keep their layout. The
+	// rows are dropped when that redraw starts writing, see clearStalePrompt:
+	// what the redraw does not cover would otherwise stay beside it as a copy.
+	// The rows the shell drew are kept aside, so narrowing and widening again
+	// before it answers cannot cut the prompt away.
+	split, prompt := t.promptSplit()
+	if prompt {
+		row := split - t.histCount
+		if !t.promptStale || len(t.promptSaved) == 0 {
+			t.capturePromptRows(row)
+		} else {
+			t.fitPromptRows(row)
+		}
+		t.promptStale = true
+	}
+	limit := total
+	if prompt {
+		limit = split
+	}
+	if !t.mainNeedsReflow(limit) && (t.onAlt || t.cx < t.cols) && (!s.saved.valid || s.saved.x < t.cols) {
 		return
 	}
 	rows := len(s.lines)
@@ -63,9 +83,9 @@ func (t *Terminal) reflowMain() {
 
 	r := &t.reflow
 	r.lines = r.lines[:0]
-	for first := 0; first < total; {
+	for first := 0; first < limit; {
 		last := first
-		for last < total-1 && t.mainLine(last).wrapped {
+		for last < limit-1 && t.mainLine(last).wrapped {
 			last++
 		}
 		l := t.mainLine(first)
@@ -87,6 +107,20 @@ func (t *Terminal) reflowMain() {
 			t.rewrap(first, last, &anchors)
 		}
 		first = last + 1
+	}
+	prefix := len(r.lines)
+	if prompt {
+		// The prompt's rows keep their count and place: the cursor and the screen
+		// top stay on the rows the shell's redraw expects, and the text in them
+		// comes from the rows the shell drew rather than from a rewrap.
+		for index := split; index < total; index++ {
+			r.lines = append(r.lines, t.mainLine(index))
+		}
+		for i := range anchors {
+			if a := &anchors[i]; !a.moved && a.index >= split {
+				a.index, a.col, a.moved = prefix+(a.index-split), min(a.col, t.cols-1), true
+			}
+		}
 	}
 
 	// The screen keeps its top line, unless that would push the cursor off the
@@ -128,6 +162,119 @@ func (t *Terminal) reflowMain() {
 	if saved != nil {
 		s.saved.y, s.saved.x = clampInt(saved.index-start, 0, rows-1), saved.col
 	}
+	if prompt {
+		row := clampInt(prefix-start, 0, rows-1)
+		t.promptLine = t.scrolled + uint64(row) + 1
+	}
+}
+
+// promptSplit is the main-buffer index of the line the shell's prompt starts
+// on, while the cursor is still on that prompt. A resize then reflows what came
+// before it and leaves the prompt and the input after it alone: the line editor
+// redraws them itself on SIGWINCH, from the rows it last drew, so reflowing them
+// would move the text its redraw is based on and duplicate it. The cursor must
+// not be above the prompt, and a prompt that is no longer on screen keeps the
+// whole visible screen in place.
+func (t *Terminal) promptSplit() (int, bool) {
+	if !t.promptActive || t.onAlt {
+		return 0, false
+	}
+	row := int(t.promptLine) - 1 - int(t.scrolled)
+	if row > t.cy || row >= len(t.main.lines) {
+		return 0, false
+	}
+	return t.histCount + max(row, 0), true
+}
+
+// clearStalePrompt drops the rows a shell prompt was drawn on before a resize.
+// The shell redraws the prompt itself, and the first text it writes after the
+// resize is that redraw: clearing right then keeps the prompt and the input
+// visible while the redraw is on its way, and leaves nothing beside the new
+// prompt when it arrives. Text from a command is not affected: OSC 133 C ends
+// the prompt before the command writes.
+func (t *Terminal) clearStalePrompt() {
+	if !t.promptStale {
+		return
+	}
+	t.promptStale = false
+	t.dropPromptRows()
+	if t.onAlt {
+		return
+	}
+	row := int(t.promptLine) - 1 - int(t.scrolled)
+	if row < 0 || row >= len(t.main.lines) {
+		return
+	}
+	last := min(t.cy, len(t.main.lines)-1)
+	for y := row; y <= last; y++ {
+		if t.images != nil {
+			t.images.dropLine(t.main.lines[y].id)
+		}
+		t.main.lines[y] = t.recycle(t.main.lines[y])
+	}
+}
+
+// capturePromptRows keeps the rows from the prompt at row as the shell drew
+// them and puts display copies in their place. A resize then rebuilds those
+// copies at the new width from the saved rows, so a drag that narrows and
+// widens again before the shell redraws cannot cut the prompt away.
+func (t *Terminal) capturePromptRows(row int) {
+	if row < 0 || row >= len(t.main.lines) {
+		return
+	}
+	saved := t.promptSaved[:0]
+	for index := row; index <= t.cy && index < len(t.main.lines); index++ {
+		saved = append(saved, t.main.lines[index])
+	}
+	t.promptSaved = saved
+	t.promptCol = t.cx
+	t.cx = min(t.promptCol, t.cols-1)
+	for i := range saved {
+		t.main.lines[row+i] = t.allocLine()
+		t.paintPromptLine(t.main.lines[row+i], saved[i])
+	}
+}
+
+// fitPromptRows rebuilds the display copies of the saved prompt rows at the
+// terminal's width.
+func (t *Terminal) fitPromptRows(row int) {
+	t.cx = min(t.promptCol, t.cols-1)
+	for i, saved := range t.promptSaved {
+		at := row + i
+		if at >= len(t.main.lines) {
+			break
+		}
+		t.main.lines[at] = t.recycle(t.main.lines[at])
+		t.paintPromptLine(t.main.lines[at], saved)
+	}
+}
+
+// paintPromptLine shows the part of src that fits at the terminal's width.
+func (t *Terminal) paintPromptLine(dst, src *line) {
+	cols := min(t.cols, len(src.cells))
+	copy(dst.cells[:cols], src.cells[:cols])
+	dst.used = min(src.used, cols)
+	for _, mark := range src.marks {
+		if int(mark.Col) < cols {
+			dst.marks = append(dst.marks, mark)
+		}
+	}
+	if src.hyperlinks != nil {
+		links := append([]uint32(nil), (*src.hyperlinks)[:min(cols, len(*src.hyperlinks))]...)
+		dst.hyperlinks = &links
+	}
+	dst.wrapped = src.wrapped
+}
+
+// dropPromptRows releases the saved prompt rows.
+func (t *Terminal) dropPromptRows() {
+	for i, l := range t.promptSaved {
+		if t.images != nil {
+			t.images.dropLine(l.id)
+		}
+		t.promptSaved[i] = nil
+	}
+	t.promptSaved = t.promptSaved[:0]
 }
 
 // mainNeedsReflow reports whether any line is wrapped or no longer fits.

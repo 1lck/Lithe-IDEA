@@ -40,10 +40,15 @@ func (t *Terminal) SetPromptReady(fn func()) { t.promptReadyFn = fn }
 func (t *Terminal) SetPromptStart(fn func()) { t.promptStartFn = fn }
 
 // SetPromptToken confines readiness to this shell's integration, not a nested
-// SSH login or a program that also implements the standard OSC 133 markers.
+// SSH login or a program that also implements the standard OSC 133 markers. A
+// new token is a new shell: what the old one reported about its directory, its
+// prompt, its input and its command marks no longer holds.
 func (t *Terminal) SetPromptToken(token string) {
 	if token != t.promptToken {
 		t.cwd = Cwd{}
+		t.inputStartSet, t.commandMarks = false, false
+		t.promptActive, t.promptStale = false, false
+		t.dropPromptRows()
 	}
 	t.promptToken = token
 }

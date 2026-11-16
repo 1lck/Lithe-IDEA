@@ -36,6 +36,21 @@ adapted to the merged View:
             inbox one; here the binaries are compiled into the client and installed in
             the user's cache folder (desktop/internal/localshell/conpty), not beside the
             executable, and a shell the inbox ConPTY hosts instead is logged
+- 203857c9  a resize keeps one copy of the prompt: the screen sets the prompt aside
+            while it reflows, and a shell at its prompt is told the new size once it
+            has held for 100 ms on the canvas clock; Motty's hold while the pointer is
+            down is left out, since the view does not see the drags around it
+- b2357d69  a click on the line being typed, plain or with Option, moves the shell's
+            cursor there; here without a setting, and only once the shell has marked a
+            command, which PowerShell and cmd never do
+
+The Bash and Zsh shell integration these two rely on
+(desktop/internal/localshell/integration_scripts.go) is Motty's
+internal/sshconn/integration.go as of 0ae3ba59, which Motty runs over SSH. Here it runs
+for the user's local shell and in a WSL distribution, started through a short sh program,
+under a token new to each start, and without the output-encoding and home-folder reports.
+For a local shell the client makes the private folder of the startup files and removes it
+once the shell has ended, and sh becomes the shell instead of waiting for it.
 
 These Motty changes, older than the port, were in the parts left out at the port and are
 taken now:
