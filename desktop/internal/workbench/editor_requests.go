@@ -16,7 +16,7 @@ const (
 	// pluginSemanticDocumentSymbols and pluginSemanticTokens are the operations of the
 	// outline and the semantic colors; their methods are what Core reports on completion.
 	pluginSemanticDocumentSymbols = "documentSymbols"
-	pluginSemanticCopyReference = "copyReferenceSymbols"
+	pluginSemanticCopyReference   = "copyReferenceSymbols"
 	pluginSemanticTokens          = "semanticTokens"
 	pluginMethodDocumentSymbols   = "textDocument/documentSymbol"
 	pluginMethodSemanticTokens    = "textDocument/semanticTokens/full"

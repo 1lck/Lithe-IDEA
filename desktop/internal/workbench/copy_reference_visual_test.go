@@ -48,7 +48,7 @@ func TestVisualCopyReferenceLocation(t *testing.T) {
 			var session *headless.Session
 			h := newHarnessWithDriver(t, Options{
 				Kernel: &testKernel{Client: core.NewClient()},
-				Store: prefs, Languages: []string{look.language},
+				Store:  prefs, Languages: []string{look.language},
 			}, func(config app.Config) (*app.Driver, func(), error) {
 				config.Width, config.Height = 1440, 900
 				var err error

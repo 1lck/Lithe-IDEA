@@ -12,20 +12,20 @@ import (
 // keyboard caret. The context-menu item consumes the coordinate after the
 // popup closes; each operation owns a revision and an identity token.
 type referenceClick struct {
-	documentID int
+	documentID   int
 	line, column int
 }
 
 type referenceRequest struct {
-	project *project
+	project              *project
 	documentID, revision int
-	line, column int
-	path string
-	pending *semanticPending
+	line, column         int
+	path                 string
+	pending              *semanticPending
 }
 
 type copyReferenceState struct {
-	click *referenceClick
+	click   *referenceClick
 	request *referenceRequest
 }
 
