@@ -9169,8 +9169,6 @@
     "run.identifyAgain": "Identify Again",
     "run.identifyAndGenerate": "Identify and Generate",
     "run.identifying": "Identifying project…",
-    "run.incompleteProjectScanMessage": "Some project folders could not be read. Existing run configurations were retained. Restore access, then regenerate configurations.",
-    "run.incompleteProjectScanTitle": "Project scan is incomplete",
     "run.infrastructure": "Docker services",
     "run.invalidTitle": "Project run configuration is invalid",
     "run.javaBuildAlwaysContinue": "Always Continue in This Workspace",
