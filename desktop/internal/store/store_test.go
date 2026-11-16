@@ -95,7 +95,6 @@ func TestWriteFileReplacesBytesAndRemoveDeletes(t *testing.T) {
 	}
 }
 
-
 func TestFailedLoadPreservesOriginalSettingsAcrossSave(t *testing.T) {
 	dir := t.TempDir()
 	filename := filepath.Join(dir, "settings.json")
