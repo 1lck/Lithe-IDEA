@@ -27,6 +27,10 @@ native_path() {
     fi
 }
 
+# Lithe-core-rust #61, squash-merged into main as 6a14126: the LSP engine keeps a session's hover
+# answers, so resting on a symbol again answers without asking the server (#1995). It is on top of
+# #60, squash-merged into main as ca80599: language-server indexing exclusions ask Git once per
+# directory level instead of once per parent, so gopls starts at once in large repositories (#1994).
 # Core #57/#58 add sourceSettings 0 and native compiler/runtime plans; #59 adds the project-free SDK catalog.
 PINNED_CORE_REPOSITORY="https://github.com/Lithe-IDEA/Lithe-core-rust.git"
 # Lithe-core-rust #56, squash-merged into main as 9425469: targetBindings.cwd may read
@@ -118,7 +122,7 @@ PINNED_CORE_REPOSITORY="https://github.com/Lithe-IDEA/Lithe-core-rust.git"
 # the contract, plugin guides, reference and SDKs live only in shared/plugins; on top of #16 (reported Git queries folded in the console),
 # #15 (git.write cherryPick, revert and reset fields), #14 (word-level changed ranges of diff
 # rows), #13, #8, #7, #6 and #4.
-PINNED_CORE_REVISION="5802c42b5766df7375bd427c54203db415ff72d7"
+PINNED_CORE_REVISION="6a1412635557fcd37766faafbf2fccd4a68dc7db"
 PROFILE="debug"
 while [[ $# -gt 0 ]]; do
     case "$1" in
