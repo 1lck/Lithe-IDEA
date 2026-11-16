@@ -52,11 +52,12 @@ type Config struct {
 	Args []string
 	// Dir is the working directory. Empty means the user's home directory.
 	Dir string
-	// DirectoryToken enables prompt, command and directory reports, bound to the
+	// PromptToken enables prompt and command reports (OSC 133), bound to the
 	// token, for the shells that support them: Bash and Zsh on Unix and in a WSL
-	// distribution, PowerShell and cmd.exe on Windows. It applies only when Args
-	// is nil. Empty leaves the shell's startup and prompt untouched.
-	DirectoryToken string
+	// distribution, and the prompts alone of PowerShell and cmd.exe on Windows.
+	// It applies only when Args is nil. Empty leaves the shell's startup and
+	// prompt untouched.
+	PromptToken string
 	// Env is added to the environment the shell inherits.
 	Env []string
 	// Unset names variables removed from the inherited environment, before Env is

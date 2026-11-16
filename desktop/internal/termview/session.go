@@ -52,9 +52,9 @@ func (v *View) start() {
 	if args == nil {
 		args = localshell.ArgsFor(v.cfg.Shell)
 	}
-	// The user's own shell, started without arguments of its own, reports its prompts, its
-	// commands and its folder, bound to a token new to this start (see
-	// localshell.Config.DirectoryToken). The screen trusts only the markers that carry it:
+	// The user's own shell, started without arguments of its own, reports its prompts and its
+	// commands, bound to a token new to this start (see
+	// localshell.Config.PromptToken). The screen trusts only the markers that carry it:
 	// a program that prints the same sequences, a shell nested in this one, or what the
 	// shell before a restart left half written cannot pass for this shell's prompt. A
 	// program started with arguments is left as it is, and so is the user's shell when the
@@ -78,7 +78,7 @@ func (v *View) start() {
 		Cols: cols, Rows: rows,
 		Shell: v.cfg.Shell, Args: args,
 		Dir: v.cfg.Dir, Env: v.cfg.Env, Unset: v.cfg.Unset, Notify: v.cfg.Notify,
-		DirectoryToken: token,
+		PromptToken: token,
 		// Called during the start, on the goroutine that starts the shell.
 		Degraded: func(err error) { l.degraded = append(l.degraded, err) },
 	}

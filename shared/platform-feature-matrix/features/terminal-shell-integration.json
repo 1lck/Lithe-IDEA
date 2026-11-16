@@ -2,7 +2,7 @@
   "id": "terminal-shell-integration",
   "area": "工作台",
   "group": "终端",
-  "capability": "本地 Shell 集成：提示符、命令与目录上报，提示符处调整大小不重复提示符，点击命令行移动光标；设置中可关闭 Shell 集成与点击移动",
+  "capability": "本地 Shell 集成：提示符与命令上报，提示符处调整大小不重复提示符，点击命令行移动光标；设置中可关闭 Shell 集成与点击移动",
   "macos": {
     "implementationStatus": "implemented",
     "verificationStatus": "pending",
@@ -13,7 +13,7 @@
       "desktop/internal/localshell/shell.go",
       "desktop/internal/localshell/prompt_marks.go",
       "desktop/internal/localshell/prompt_marks_test.go",
-      "desktop/internal/term/cwd.go",
+      "desktop/internal/term/terminal.go",
       "desktop/internal/term/parser.go",
       "desktop/internal/term/resize.go",
       "desktop/internal/term/prompt_resize_test.go",
@@ -42,7 +42,7 @@
       "desktop/internal/localshell/integration_scripts.go",
       "desktop/internal/localshell/wsl.go",
       "desktop/internal/localshell/wsl_unix_test.go",
-      "desktop/internal/term/cwd.go",
+      "desktop/internal/term/terminal.go",
       "desktop/internal/term/parser.go",
       "desktop/internal/term/resize.go",
       "desktop/internal/term/prompt_resize_test.go",
@@ -62,6 +62,6 @@
     ]
   },
   "owner": "Terminal",
-  "verification": "macOS/Linux 打开默认的 zsh 或 bash 终端：Lithe 经 /bin/sh 小脚本启动用户 Shell，用户自己的启动文件、历史记录和提示符照常生效（TestIntegratedBashStartupMatchesALoginShell、TestIntegratedZshHistorySurvivesSessions）。执行一条命令后，Shell 带着本次启动新生成的令牌上报提示符、命令开始与结束、退出码和当前目录（OSC 133 A/B/C/D、OSC 7）；其他程序打印的同样序列、嵌套 Shell 和重启前旧 Shell 的令牌都不被采信（TestIntegratedShellReportsPromptsCommandsAndFolders、TestTheUsersShellReportsItsPromptsUnderATokenNewToEachStart）。带参数启动的程序、插件终端、Git Bash 和未识别的 Shell 不带令牌，照原样启动（TestAProgramWithArgumentsOfItsOwnGetsNoToken、TestShellsTheIntegrationDoesNotCoverStartAsThemselves）。启动文件写在 Lithe 于 TMPDIR 下新建、仅本人可读的临时目录，sh 写完后直接变成用户 Shell（exec），Shell 读完启动文件即删除目录；Shell 结束后 Lithe 再删一次，所以启动中途被关闭、挂断被忽略而被强制结束时也不留目录、不留 Shell 进程（TestClosingAShellDuringItsStartupRemovesItsPrivateDirectory），应用包字节不变（verify-runtime-bundle-immutability.sh）。终端启动的进程仍是用户 Shell，关闭确认的忙碌判断、挂断与退出码都和不集成时一样；关闭终端时 Shell 与它的后台任务都收到挂断（TestClosingAnIntegratedShellHangsUpTheShellAndItsJobs）。命令刚结束、Shell 还没回到提示符（bash 正在运行 PROMPT_COMMAND）时关闭终端，Lithe 等 Shell 打出提示符标记再挂断，最多等 1 秒，后台任务同样结束；一直不回提示符的 Shell 在 1 秒后照常挂断（TestClosingAnIntegratedShellRightAfterACommandHangsUpItsJobs、TestClosingAnIntegratedShellThatNeverPromptsStillEndsIt、TestPromptMarksFindTheSessionsMarksInPiecesOfOutput）。 在提示符处拖动窗口或分隔条改变终端宽度：屏幕跟随每一步，提示符行留给 Shell 自己重绘，Shell 在尺寸保持 100 毫秒后只收到一次新尺寸，回到原尺寸则不发送；结束后只有一份提示符，没有重复或被截断的提示符行（TestAShellAtItsPromptIsToldItsSizeOnceItHolds、TestASizeThatComesBackIsNotSentToAShellAtItsPrompt、TestResizeLeavesTheShellPromptForTheShellToRedraw、TestResizeBackToItsWidthRestoresThePrompt）。运行命令或全屏程序时尺寸立即发送（TestAProgramIsToldItsSizeAtOnce）。 在正在输入的命令行上单击或 Option+单击：Shell 光标移到点击处（按程序要求的光标键编码发送左右方向键，宽字符、软换行按显示计算）；拖动仍是选择，点在提示符上、输入行以外、命令运行中或备用屏时不发送按键（TestOptionClickMovesTheShellCursorWithinTheInputLine、TestPlainClickMovesTheCursorButADragDoesNot、TestAClickLeavesTheKeyboardAloneWhereItCannotPlaceTheCursor、TestInputMoveAcrossSoftWrap）。与 Motty 一致，Shell 至少执行过一条命令后点击移动才生效。 Windows：PowerShell 与 cmd 只上报提示符和目录、不上报命令开始，所以提示符处延迟调整大小和点击移动光标对它们不生效，尺寸立即发送、点击只是点击；WSL 发行版里的 bash/zsh 走同一脚本，三项都生效。Windows 运行时测试与 PowerShell、cmd、WSL 实机验收 pending；macOS 真实产品交互验收 pending。",
-  "notes": "2026-11-16：同步 Motty 203857c9（调整大小只保留一份提示符）与 b2357d69（点击命令行移动光标），并把 Motty internal/sshconn/integration.go（0ae3ba59）的 bash/zsh 集成脚本用于本地 Shell 与 WSL，见 termview/NOTICE。#1984 留下的令牌链路（localshell.Config.DirectoryToken、term.SetPromptToken）由 termview 接通，每次启动生成新令牌；Windows 的 PowerShell/cmd 集成因此首次真正启用。目录上报（SetCwdChange）目前还没有界面消费方。与 Motty 的差异：不提供点击移动的设置开关；调整大小不等待鼠标松开，只等尺寸保持 100 毫秒；见 .agents/notes/implemented/architecture/2026-11-16-local-shell-integration-shim.md。Windows 为 partial：PowerShell/cmd 不上报命令开始，后两项只在 WSL 中生效，跟进见 #2008。 2026-11-16：#2005 关闭时把挂断推迟到 Shell 回到提示符（最多 1 秒），修复 bash 在 PROMPT_COMMAND 期间被关闭时留下后台任务；Windows 后端不跟踪提示符标记，行为不变。"
+  "verification": "macOS/Linux 打开默认的 zsh 或 bash 终端：Lithe 经 /bin/sh 小脚本启动用户 Shell，用户自己的启动文件、历史记录和提示符照常生效（TestIntegratedBashStartupMatchesALoginShell、TestIntegratedZshHistorySurvivesSessions）。执行一条命令后，Shell 带着本次启动新生成的令牌上报提示符、命令开始与结束和退出码（OSC 133 A/B/C/D）；其他程序打印的同样序列、嵌套 Shell 和重启前旧 Shell 的令牌都不被采信（TestIntegratedShellReportsPromptsAndCommands、TestTheUsersShellReportsItsPromptsUnderATokenNewToEachStart）。带参数启动的程序、插件终端、Git Bash 和未识别的 Shell 不带令牌，照原样启动（TestAProgramWithArgumentsOfItsOwnGetsNoToken、TestShellsTheIntegrationDoesNotCoverStartAsThemselves）。启动文件写在 Lithe 于 TMPDIR 下新建、仅本人可读的临时目录，sh 写完后直接变成用户 Shell（exec），Shell 读完启动文件即删除目录；Shell 结束后 Lithe 再删一次，所以启动中途被关闭、挂断被忽略而被强制结束时也不留目录、不留 Shell 进程（TestClosingAShellDuringItsStartupRemovesItsPrivateDirectory），应用包字节不变（verify-runtime-bundle-immutability.sh）。终端启动的进程仍是用户 Shell，关闭确认的忙碌判断、挂断与退出码都和不集成时一样；关闭终端时 Shell 与它的后台任务都收到挂断（TestClosingAnIntegratedShellHangsUpTheShellAndItsJobs）。命令刚结束、Shell 还没回到提示符（bash 正在运行 PROMPT_COMMAND）时关闭终端，Lithe 等 Shell 打出提示符标记再挂断，最多等 1 秒，后台任务同样结束；一直不回提示符的 Shell 在 1 秒后照常挂断（TestClosingAnIntegratedShellRightAfterACommandHangsUpItsJobs、TestClosingAnIntegratedShellThatNeverPromptsStillEndsIt、TestPromptMarksFindTheSessionsMarksInPiecesOfOutput）。 在提示符处拖动窗口或分隔条改变终端宽度：屏幕跟随每一步，提示符行留给 Shell 自己重绘，Shell 在尺寸保持 100 毫秒后只收到一次新尺寸，回到原尺寸则不发送；结束后只有一份提示符，没有重复或被截断的提示符行（TestAShellAtItsPromptIsToldItsSizeOnceItHolds、TestASizeThatComesBackIsNotSentToAShellAtItsPrompt、TestResizeLeavesTheShellPromptForTheShellToRedraw、TestResizeBackToItsWidthRestoresThePrompt）。运行命令或全屏程序时尺寸立即发送（TestAProgramIsToldItsSizeAtOnce）。 在正在输入的命令行上单击或 Option+单击：Shell 光标移到点击处（按程序要求的光标键编码发送左右方向键，宽字符、软换行按显示计算）；拖动仍是选择，点在提示符上、输入行以外、命令运行中或备用屏时不发送按键（TestOptionClickMovesTheShellCursorWithinTheInputLine、TestPlainClickMovesTheCursorButADragDoesNot、TestAClickLeavesTheKeyboardAloneWhereItCannotPlaceTheCursor、TestInputMoveAcrossSoftWrap）。与 Motty 一致，Shell 至少执行过一条命令后点击移动才生效。 Windows：PowerShell 与 cmd 只上报提示符、不上报命令开始，所以提示符处延迟调整大小和点击移动光标对它们不生效，尺寸立即发送、点击只是点击；WSL 发行版里的 bash/zsh 走同一脚本，三项都生效。Windows 运行时测试与 PowerShell、cmd、WSL 实机验收 pending；macOS 真实产品交互验收 pending。",
+  "notes": "2026-11-16：同步 Motty 203857c9（调整大小只保留一份提示符）与 b2357d69（点击命令行移动光标），并把 Motty internal/sshconn/integration.go（0ae3ba59）的 bash/zsh 集成脚本用于本地 Shell 与 WSL，见 termview/NOTICE。#1984 留下的令牌链路（localshell.Config.PromptToken，原名 DirectoryToken；term.SetPromptToken）由 termview 接通，每次启动生成新令牌；Windows 的 PowerShell/cmd 集成因此首次真正启用。#1984 随后删除了没有消费方的部分：term 的目录、提示符、命令与输入环境回调和 OSC 7、OSC 9;9 目录解析，以及集成脚本里的目录上报（Unix OSC 7，WSL、PowerShell、cmd 的 OSC 9;9）；OSC 133 标记照常上报并被使用（TestPromptMarksAcrossEverySplit、TestACommandEndReclaimsOnlyWithAValidStatus），WSL 起始目录（MOTTY_WSL_CD）保留（TestWSLScriptStartsTheLoginShellInTheStartFolder）。与 Motty 的差异：不提供点击移动的设置开关；调整大小不等待鼠标松开，只等尺寸保持 100 毫秒；见 .agents/notes/implemented/architecture/2026-11-16-local-shell-integration-shim.md。Windows 为 partial：PowerShell/cmd 不上报命令开始，后两项只在 WSL 中生效，跟进见 #2008。 2026-11-16：#2005 关闭时把挂断推迟到 Shell 回到提示符（最多 1 秒），修复 bash 在 PROMPT_COMMAND 期间被关闭时留下后台任务；Windows 后端不跟踪提示符标记，行为不变。"
 }
