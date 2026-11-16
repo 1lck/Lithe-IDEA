@@ -6439,6 +6439,16 @@
       ]
     },
     {
+      "id": "desktop.branch.localIn",
+      "description": "Branch popup of a folder with several repositories: head of the local branches of one repository, in its panel",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "repository": "string"
+      }
+    },
+    {
       "id": "desktop.branch.newBranchFrom",
       "description": "Desktop branch: NewBranchFrom",
       "platforms": [
@@ -6454,6 +6464,26 @@
       "platforms": [
         "desktop"
       ]
+    },
+    {
+      "id": "desktop.branch.recentIn",
+      "description": "Branch popup of a folder with several repositories: head of the recently checked-out branches of one repository, in its panel",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "repository": "string"
+      }
+    },
+    {
+      "id": "desktop.branch.remoteIn",
+      "description": "Branch popup of a folder with several repositories: head of the remote branches of one repository, in its panel",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "repository": "string"
+      }
     },
     {
       "id": "desktop.branch.rename",
@@ -6507,6 +6537,17 @@
       }
     },
     {
+      "id": "desktop.branch.repositoryPanel",
+      "description": "Accessible label of a repository row in the branch popup that opens its branches beside it",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "repository": "string",
+        "branch": "string"
+      }
+    },
+    {
       "id": "desktop.branch.revision",
       "description": "Desktop branch: Revision",
       "platforms": [
@@ -6550,6 +6591,16 @@
       "platforms": [
         "desktop"
       ]
+    },
+    {
+      "id": "desktop.branch.tagsIn",
+      "description": "Branch popup of a folder with several repositories: head of the tags of one repository, in its panel",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "repository": "string"
+      }
     },
     {
       "id": "desktop.build.argumentsRequired",
@@ -12920,6 +12971,13 @@
     {
       "id": "desktop.nested.refUnchanged",
       "description": "Hint under a nested repository whose reference the parent does not show as changed",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.nested.roots",
+      "description": "Head of the repositories of the project folder in the Git Log's Paths filter; a click picks the one the log walks",
       "platforms": [
         "desktop"
       ]

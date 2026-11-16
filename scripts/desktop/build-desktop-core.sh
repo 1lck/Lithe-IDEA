@@ -27,12 +27,18 @@ native_path() {
     fi
 }
 
-# Lithe-core-rust feat/console-filters at 5aae479 (#64, on top of a merge of main ad148ec into the
-# branch): gitExecution.consoleQueries names the query categories the Git console records and
+# Lithe-core-rust main at 957a349: #64, squash-merged on top of #65 (db54ba0). #65 gives every
+# workspace.repositories entry an id relative to the opened folder, a display name and a role
+# (workspace or nested); git.workspaceRepositorySelection keeps the repository a view picked while
+# discovery still lists it and otherwise falls back to the workspace repository, then the first
+# one; git.workspaceChangeGroups groups status changes per repository with their staged counts,
+# the paths a checkbox stages or unstages and whether the parent's gitlink moved; and
+# git.workspaceCommitPrepare binds the nested repositories it is given (#2013). #64:
+# gitExecution.consoleQueries names the query categories the Git console records and
 # queryCategory names a read the command does not tell apart; git.consolePresentation takes display
 # options, all false by default as in IDEA; output folds only past ten lines and a deletion never
 # folds; a failed unrecorded query still reports its command, stderr and exit; a reported query's
-# started event carries its queryCategory (#2025). Its main side is #63, squash-merged into main as ad148ec:
+# started event carries its queryCategory (#2025). #65 is on top of #63, squash-merged into main as ad148ec:
 # a Unix process group whose members have all exited but are not reaped yet is killed without
 # error, so disposing a language server or
 # closing an SSH session on macOS no longer reports EPERM (#2017). It is on top of #62,
@@ -134,7 +140,7 @@ PINNED_CORE_REPOSITORY="https://github.com/Lithe-IDEA/Lithe-core-rust.git"
 # the contract, plugin guides, reference and SDKs live only in shared/plugins; on top of #16 (reported Git queries folded in the console),
 # #15 (git.write cherryPick, revert and reset fields), #14 (word-level changed ranges of diff
 # rows), #13, #8, #7, #6 and #4.
-PINNED_CORE_REVISION="5aae479ee5ff629248585349efaf4c29541c2d45"
+PINNED_CORE_REVISION="957a349a5d8b571d416925c8231509572c2053f5"
 PROFILE="debug"
 while [[ $# -gt 0 ]]; do
     case "$1" in

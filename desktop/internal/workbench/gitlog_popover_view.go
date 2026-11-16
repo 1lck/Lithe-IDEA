@@ -246,6 +246,44 @@ func (a *App) drawLogPathFilter(c ui.C, p *project) {
 			}
 		})
 	})
+	if p.workspaceMode() {
+		a.drawLogRoots(c, p)
+	}
+}
+
+// drawLogRoots declares the repositories of the project folder under the Paths filter, as IDEA's
+// filter lists the roots of a project with several: each in its color, the one the log walks
+// checked. A click walks that repository's history.
+func (a *App) drawLogRoots(c ui.C, p *project) {
+	l := &p.log
+	walked := p.logRepoID()
+	ui.Divider(c)
+	ui.Column(c).FillWidth().Pad(8).Gap(2).Children(func() {
+		ui.Text(c, i18n.Shared(a.language(), "desktop.nested.roots")).FontSize(a.theme.Metrics.FontSizeS).Color(a.colors.Subtle)
+		for _, repo := range p.workspaceRepositories() {
+			checked := repo.id == walked
+			item := ui.Row(c.Key("root/"+repo.id)).Height(logItemHeight+2).FillWidth().Shrink(0).Items(ui.Center).Gap(8).PadX(8).
+				Radius(a.theme.Metrics.RadiusItem()).
+				HitWith(ui.ID(c), repo.name, gfx.HitOptions{Role: gfx.RoleMenuItem, Selected: checked}).
+				Hover(ui.Look{}.Background(a.colors.Hover)).Pressed(ui.Look{}.Background(a.colors.Active))
+			item.Children(func() {
+				if checked {
+					ui.Icon(c, icons.Check).Size(14, 14).Color(a.colors.Accent)
+				} else {
+					ui.Row(c).Size(14, 14).Shrink(0)
+				}
+				a.drawRepositorySwatch(c, p, repo.id)
+				ui.Text(c, repo.name).Color(a.colors.Text).Ellipsis().Grow(1)
+			})
+			if item.Clicked() {
+				id := repo.id
+				c.After(func() {
+					l.popover = logPopoverNone
+					a.setLogRepo(p, id, "", "")
+				})
+			}
+		}
+	})
 }
 
 // logMenuItem declares one item of a popover, named key among its siblings, with a check mark

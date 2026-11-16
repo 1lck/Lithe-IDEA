@@ -442,24 +442,22 @@ func (a *App) drawLogToolbar(c ui.C, p *project) {
 }
 
 // drawLogRepoBar declares the header of the commit list that names the repository the log walks,
-// and, while a nested repository is walked, the way back to the project's own. It shows only in a
-// workspace with nested repositories.
+// and, while a nested repository is walked in a folder that is a repository itself, the way back to
+// the project's own. It shows only in a workspace with nested repositories.
 func (a *App) drawLogRepoBar(c ui.C, p *project) {
-	if len(p.nested.repos) == 0 && p.nested.logRepo == "" {
+	if !p.workspaceMode() && p.nested.logRepo == "" {
 		return
 	}
 	g := a.text.Git.Repositories
-	id := commitRepositoryID
-	if repo := p.logRepo(); repo != nil {
-		id = repo.id
-	}
+	id := p.logRepoID()
 	tint := a.repositoryTint(p, id)
 	ui.Row(c).Height(logToolbarHeight).Shrink(0).Items(ui.Center).Gap(6).PadX(6).Children(func() {
 		ui.Icon(c, icons.Folder).Size(14, 14).Shrink(0).Color(tint)
 		ui.Text(c, g.Current(p.repositoryName(id))).Weight(gfx.WeightMedium).Color(tint).Ellipsis().Grow(1)
-		if p.nested.logRepo != "" {
-			if ui.Button(c.Part("repo-back"), g.Back(p.repositoryName(commitRepositoryID))).Ghost().Clicked() {
-				c.After(func() { a.setLogRepo(p, commitRepositoryID, "", "") })
+		if p.nested.logRepo != "" && p.git.isRepository() {
+			own := p.ownID()
+			if ui.Button(c.Part("repo-back"), g.Back(p.repositoryName(own))).Ghost().Clicked() {
+				c.After(func() { a.setLogRepo(p, own, "", "") })
 			}
 		}
 	})
@@ -503,8 +501,12 @@ func (a *App) drawLogList(c ui.C, p *project) {
 	case !p.git.loaded || l.loading && len(l.commits) == 0:
 		a.gitEmpty(c, g.Loading)
 		return
-	case !p.git.isRepository():
+	case !p.hasRepository():
 		a.gitEmpty(c, g.NotRepository)
+		return
+	case !p.git.isRepository() && p.logRepo() == nil:
+		// The folder is no repository; the log walks a nested one once Core picked it.
+		a.gitEmpty(c, g.Loading)
 		return
 	case l.err != nil:
 		a.gitEmpty(c, g.Failed(l.err.Error()))

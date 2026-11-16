@@ -94,7 +94,7 @@ func (a *App) drawCommitStatus(c ui.C, p *project) bool {
 				c.After(func() { a.refreshChanges(p) })
 			}
 		})
-	case !p.git.isRepository():
+	case !p.hasRepository():
 		a.gitEmpty(c, g.NotRepository)
 	default:
 		return true
@@ -114,7 +114,7 @@ func (a *App) drawCommitChanges(c ui.C, p *project) ui.Box {
 			a.drawChangeListSections(c, p)
 			return
 		}
-		if len(p.nested.repos) > 0 {
+		if p.workspaceMode() {
 			a.drawRepositoryChanges(c, p)
 			return
 		}
@@ -126,7 +126,7 @@ func (a *App) drawCommitChanges(c ui.C, p *project) ui.Box {
 			return
 		}
 		a.drawChangeRows(c, t.ChangeList, t.Files(fileCount(changes)), changes, cs.busy,
-			func() { a.stageAllAcrossRepositories(p) },
+			func() { a.stageAll(p, surfaceButton) },
 			func(change core.GitChange) { a.drawCommitChange(c, p, change) })
 	})
 }
@@ -151,7 +151,7 @@ func (a *App) drawCommitChange(c ui.C, p *project, change core.GitChange) {
 // unstages them all, with the list's title and size, over a row per change.
 func (a *App) drawChangeRows(c ui.C, title, size string, changes []core.GitChange, busy bool, toggleAll func(), row func(core.GitChange)) {
 	ui.Scroll(c).Scrollbars().Grow(1).FillWidth().PadY(4).Children(func() {
-		a.drawChangeListHeader(c, title, size, changes, busy, toggleAll)
+		a.drawChangeListHeader(c, title, size, allStaged(changes), hasToggleable(changes), busy, toggleAll)
 		for _, change := range changes {
 			row(change)
 		}
@@ -159,11 +159,11 @@ func (a *App) drawChangeRows(c ui.C, title, size string, changes []core.GitChang
 }
 
 // drawChangeListHeader declares the line over a change list: the checkbox that stages or unstages
-// all of its changes, with the list's title and size.
-func (a *App) drawChangeListHeader(c ui.C, title, size string, changes []core.GitChange, busy bool, toggleAll func()) {
+// all of its changes, checked when all is set and enabled when toggleable is, with the list's title
+// and size.
+func (a *App) drawChangeListHeader(c ui.C, title, size string, all, toggleable, busy bool, toggleAll func()) {
 	ui.Row(c).Height(logItemHeight).FillWidth().Shrink(0).Items(ui.Center).Gap(6).PadX(8).Children(func() {
-		all := allStaged(changes)
-		if ui.Checkbox(c, &all, "").Label(title).Disabled(busy || !hasToggleable(changes)).Clicked() {
+		if ui.Checkbox(c, &all, "").Label(title).Disabled(busy || !toggleable).Clicked() {
 			c.After(toggleAll)
 		}
 		ui.Text(c, title).Weight(gfx.WeightMedium).Ellipsis().Shrink(1)
