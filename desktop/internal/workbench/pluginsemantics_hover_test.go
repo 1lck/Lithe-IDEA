@@ -150,6 +150,105 @@ func TestPointerHoverWaitsBeforeClosingAndThePointerComingBackKeepsIt(t *testing
 	}
 }
 
+// documentBounds is where the fixture's document control is in the window.
+func (f *semanticFixture) documentBounds(t *testing.T) gfx.Rect {
+	t.Helper()
+	for _, hit := range f.h.driver.Snapshot().Hits {
+		if hit.ID == f.d.hit && !hit.IsLabel {
+			return hit.Bounds
+		}
+	}
+	t.Fatal("the document control is not in the frame")
+	return gfx.Rect{}
+}
+
+// Leaving the text forgets the character the pointer rested on, so resting on it again asks for
+// the hover again instead of waiting for an answer that was already shown or dropped (#1995).
+func TestPointerHoverAsksAgainOnTheSameCharacterAfterLeavingTheText(t *testing.T) {
+	cases := []struct {
+		name  string
+		leave func(t *testing.T, f *semanticFixture, x, y float32)
+	}{
+		{"escape", func(t *testing.T, f *semanticFixture, _, _ float32) {
+			if err := f.h.driver.Key(gfx.KeyEscape, 0); err != nil {
+				t.Fatal(err)
+			}
+			f.h.settle()
+		}},
+		{"out of the window", func(t *testing.T, f *semanticFixture, _, _ float32) {
+			if err := f.h.driver.Leave(); err != nil {
+				t.Fatal(err)
+			}
+			f.h.settle()
+		}},
+		{"over the tab bar", func(t *testing.T, f *semanticFixture, x, _ float32) {
+			f.move(t, x, f.documentBounds(t).Y-4)
+		}},
+		{"scroll", func(t *testing.T, f *semanticFixture, x, y float32) {
+			if err := f.h.driver.Scroll(gfx.ScrollEvent{X: x, Y: y, DeltaY: 1}); err != nil {
+				t.Fatal(err)
+			}
+			f.h.settle()
+		}},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			f := newSemanticFixture(t)
+			f.h.app.semantics.hoverDelay = -1
+			f.h.app.semantics.hoverHideDelay = -1
+			x, y := f.openPointerHover(t, hoverResult(t, "int one()"))
+			c.leave(t, f, x, y)
+			if f.h.app.semantics.hover.open {
+				t.Fatal("leaving the text kept the hover")
+			}
+			f.move(t, x+1, y)
+			f.waitForRequests(t, 2)
+			f.deliver(t, "op-2", pluginMethodHover, hoverResult(t, "int one()"))
+			if !f.h.app.semantics.hover.open {
+				t.Fatal("the hover asked again did not open")
+			}
+		})
+	}
+}
+
+// The pointer leaving the text before the wait for its hover ends drops the wait, so no popup
+// opens where the pointer no longer is.
+func TestPointerHoverLeavingTheTextDropsTheWait(t *testing.T) {
+	f := newSemanticFixture(t)
+	// The wait outlasts the test, so only leaving the text ends it.
+	f.h.app.semantics.hoverDelay = time.Hour
+	rect := f.caretRectAt(t, 0, 1)
+	x, y := rect.X+2, rect.Y+2
+	f.moveOnly(t, x, y)
+	if candidate := f.h.app.semantics.candidate; !candidate.active || candidate.cancel == nil {
+		t.Fatalf("resting on the text armed no hover: %+v", candidate)
+	}
+	f.moveOnly(t, x, f.documentBounds(t).Y-4)
+	if candidate := f.h.app.semantics.candidate; candidate.active || candidate.cancel != nil {
+		t.Fatalf("leaving the text kept the wait: %+v", candidate)
+	}
+	// settle returns only once the dropped wait has ended.
+	f.h.settle()
+	if f.kernel.requestCount() != 0 {
+		t.Fatalf("requests = %d, want none", f.kernel.requestCount())
+	}
+}
+
+// The pointer moving within a character the server had nothing to say about does not ask again.
+func TestPointerHoverDoesNotAskAgainWithinACharacterWithoutHover(t *testing.T) {
+	f := newSemanticFixture(t)
+	f.h.app.semantics.hoverDelay = -1
+	rect := f.caretRectAt(t, 0, 1)
+	x, y := rect.X+2, rect.Y+2
+	f.move(t, x, y)
+	f.waitForRequests(t, 1)
+	f.deliver(t, "op-1", pluginMethodHover, json.RawMessage(`{"hover":null}`))
+	f.move(t, x+1, y)
+	if f.h.app.semantics.hover.open || f.kernel.requestCount() != 1 {
+		t.Fatalf("moving within the character: open %v, requests %d", f.h.app.semantics.hover.open, f.kernel.requestCount())
+	}
+}
+
 func TestHoverColorsItsCodeWithTheEditorGrammar(t *testing.T) {
 	f := newSemanticFixture(t)
 	f.h.app.semantics.hoverDelay = -1

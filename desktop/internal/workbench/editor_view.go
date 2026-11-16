@@ -513,8 +513,7 @@ func verticalWheel(event *gfx.ScrollEvent) {
 // closes the hover popup of the editor, which no control sees leave.
 func (a *App) onPointer(event gfx.PointerEvent) gfx.EventResult {
 	if event.Kind == gfx.PointerExit {
-		a.closeSemanticHover()
-		a.cancelSemanticKind(pluginSemanticHover)
+		a.leaveSemanticHover()
 	}
 	return gfx.EventResult{}
 }
