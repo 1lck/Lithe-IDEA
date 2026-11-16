@@ -277,6 +277,53 @@ func ForBreakpoint(enabled, verified, muted, dark bool) gfx.Icon {
 	return iconForVariant(&DbSetBreakpoint, &DbSetBreakpointDark, dark)
 }
 
+// BuildNode identifies a kind of row in the Build tool window's tree. Each kind draws the
+// IntelliJ New UI icon of the same node in IntelliJ's Maven and Gradle tool windows.
+type BuildNode uint8
+
+const (
+	// BuildProject is a project or module of a build system and is the zero value.
+	BuildProject BuildNode = iota
+	// BuildTaskFolder is a folder of tasks, such as a Maven project's Lifecycle or Plugins.
+	BuildTaskFolder
+	// BuildTask is a task.
+	BuildTask
+	// BuildTargets is the folder of a project's targets.
+	BuildTargets
+	// BuildTarget is a target that a build system builds.
+	BuildTarget
+	// BuildDependencies is the folder of a project's or a workspace's dependencies.
+	BuildDependencies
+	// BuildDependency is one dependency.
+	BuildDependency
+	// BuildTests is the folder of the tests a build system discovered.
+	BuildTests
+	// buildNodeCount is the number of build node kinds.
+	buildNodeCount
+)
+
+// buildNodeIcons stores the light and dark icon of each build node kind.
+var buildNodeIcons = [buildNodeCount][2]*gfx.Icon{
+	BuildProject:      {&Module, &ModuleDark},
+	BuildTaskFolder:   {&TaskGroup, &TaskGroupDark},
+	BuildTask:         {&Task, &TaskDark},
+	BuildTargets:      {&Folder, &FolderDark},
+	BuildTarget:       {&Artifact, &ArtifactDark},
+	BuildDependencies: {&LibraryFolder, &LibraryFolderDark},
+	BuildDependency:   {&Library, &LibraryDark},
+	BuildTests:        {&TestGroup, &TestGroupDark},
+}
+
+// ForBuildNode returns the icon of a Build tool window row of the given kind, using its dark
+// variant when dark is set. An unknown kind gets the icon of a task folder.
+func ForBuildNode(node BuildNode, dark bool) gfx.Icon {
+	if node >= buildNodeCount {
+		node = BuildTaskFolder
+	}
+	variants := buildNodeIcons[node]
+	return iconForVariant(variants[0], variants[1], dark)
+}
+
 // fileKind selects the icon family for a file basename.
 func fileKind(name string) kind {
 	lowerName := strings.ToLower(name)
