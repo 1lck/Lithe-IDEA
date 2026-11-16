@@ -1,6 +1,7 @@
 package workbench
 
 import (
+	"context"
 	"path/filepath"
 	"slices"
 	"testing"
@@ -104,5 +105,62 @@ func TestWorkspaceLogWalksSeveralRepositoriesTogether(t *testing.T) {
 	})
 	if !h.shows("initial beta") || h.shows("initial alpha") {
 		t.Fatal("after unchecking alpha the log does not show beta's history alone")
+	}
+}
+
+// endlessPager reads pages of a history that never ends and records the limits it is asked for
+// and the cursors it closes.
+type endlessPager struct {
+	limits []int
+	closed []string
+}
+
+func (f *endlessPager) GitHistoryPage(_ context.Context, _, _, _ string, limit int) (core.GitHistoryPage, error) {
+	f.limits = append(f.limits, limit)
+	return core.GitHistoryPage{Commits: make([]core.GitCommit, limit), NextCursor: "next", HasMore: true}, nil
+}
+
+func (f *endlessPager) CloseGitHistoryCursor(_ context.Context, _, cursor string) (bool, error) {
+	f.closed = append(f.closed, cursor)
+	return true, nil
+}
+
+// A log of several repositories reads no more commits than Core merges at once: the last page
+// takes the room that is left, and a walk with none left ends where it is, its cursor closed, so
+// the merged list ends instead of failing the next merge.
+func TestMergedLogReadsNoMoreThanCoreMerges(t *testing.T) {
+	ctx, pager := context.Background(), &endlessPager{}
+	walks := []logWalk{
+		{id: "a", root: "/a", commits: make([]core.GitCommit, mergedLogLimit-30), cursor: "a1"},
+		{id: "b", root: "/b", cursor: "b1"},
+		{id: "c", root: "/c"},
+	}
+	read := func(i int) {
+		t.Helper()
+		if err := readWalkPage(ctx, pager, &walks[i], mergedLogLimit-walkCommits(walks)); err != nil {
+			t.Fatalf("walk %q: %v", walks[i].id, err)
+		}
+	}
+	read(1)
+	if len(walks[1].commits) != 30 || walks[1].complete || walks[1].cursor != "next" {
+		t.Fatalf("the last page is %d commits, complete %v, cursor %q; want the 30 left and more to come",
+			len(walks[1].commits), walks[1].complete, walks[1].cursor)
+	}
+	read(0)
+	read(1)
+	read(2)
+	if !slices.Equal(pager.limits, []int{30}) {
+		t.Fatalf("pages asked for %v, want one of the 30 left", pager.limits)
+	}
+	if !slices.Equal(pager.closed, []string{"a1", "next"}) {
+		t.Fatalf("closed cursors %v, want a's and b's and none for c, which read no page", pager.closed)
+	}
+	for _, w := range walks {
+		if !w.complete || w.cursor != "" {
+			t.Fatalf("walk %q is complete %v with cursor %q after the room ran out", w.id, w.complete, w.cursor)
+		}
+	}
+	if n := walkCommits(walks); n != mergedLogLimit {
+		t.Fatalf("the walks hold %d commits, want %d", n, mergedLogLimit)
 	}
 }

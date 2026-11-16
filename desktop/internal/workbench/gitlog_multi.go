@@ -10,7 +10,8 @@ import (
 
 // This file is the Git log that walks several repositories of the project folder at once (matrix
 // id git-multi-repository-references), as IntelliJ IDEA's log shows the roots of a project with
-// several. The roots list of the Paths filter chooses them (git_log_repo.go). Each repository's
+// several. The roots list, under the Paths filter and behind the repository name after the filter
+// chips, chooses them (gitlog_popover_view.go, git_log_repo.go). Each repository's
 // history is read a page at a time; Core interleaves what is loaded by date, each repository in its
 // own order (git.workspaceHistoryMerge), and lays the merged list out as one graph whose keys keep
 // the repositories apart. Each row is marked in its repository's color, and what a row does, its
@@ -26,6 +27,46 @@ type historyMerger interface {
 // errNoHistoryMerge is the failure of a log of several repositories with a kernel that cannot
 // merge their histories.
 var errNoHistoryMerge = errors.New("the kernel cannot merge repository histories")
+
+// mergedLogLimit is how many commits a log of several repositories reads in all: Core's
+// git.workspaceHistoryMerge and git.graphProjection take at most 20,000 (rust-core-api.md). Once
+// the walks hold that many, each ends where it is, so the merged list ends there the way one
+// repository's log ends after the 5,000 commits git.historyPage returns.
+const mergedLogLimit = 20000
+
+// historyPager is the part of the kernel that reads a walk's pages.
+type historyPager interface {
+	GitHistoryPage(ctx context.Context, root, reference, cursor string, limit int) (core.GitHistoryPage, error)
+	CloseGitHistoryCursor(ctx context.Context, root, cursor string) (bool, error)
+}
+
+// readWalkPage reads the next page of w, at most room commits of it. With no room left, w ends
+// where it is: its cursor is closed, and the merged list places everything it holds.
+func readWalkPage(ctx context.Context, pager historyPager, w *logWalk, room int) error {
+	if room <= 0 {
+		if w.cursor != "" {
+			_, _ = pager.CloseGitHistoryCursor(ctx, w.root, w.cursor)
+		}
+		w.cursor, w.complete = "", true
+		return nil
+	}
+	page, err := pager.GitHistoryPage(ctx, w.root, "", w.cursor, min(logPageSize, room))
+	if err != nil {
+		return err
+	}
+	w.commits = slices.Concat(w.commits, page.Commits)
+	w.cursor, w.complete = page.NextCursor, !page.HasMore
+	return nil
+}
+
+// walkCommits is how many commits walks hold in all.
+func walkCommits(walks []logWalk) int {
+	n := 0
+	for _, w := range walks {
+		n += len(w.commits)
+	}
+	return n
+}
 
 // logWalk is the history of one repository the log walks with others, as far as it is loaded.
 type logWalk struct {
@@ -129,11 +170,9 @@ func (a *App) loadLogRepos(p *project, gen int) {
 				break
 			}
 			w := &walks[i]
-			var page core.GitHistoryPage
-			if page, err = kernel.GitHistoryPage(ctx, w.root, "", "", logPageSize); err != nil {
+			if err = readWalkPage(ctx, kernel, w, mergedLogLimit-walkCommits(walks)); err != nil {
 				break
 			}
-			w.commits, w.cursor, w.complete = page.Commits, page.NextCursor, !page.HasMore
 			if i == 0 {
 				w.remotes = remoteNames(sections)
 			} else if theirs, rerr := kernel.GitReferences(ctx, w.root); rerr == nil {
@@ -195,12 +234,9 @@ func (a *App) loadMoreLogRepos(p *project) {
 			if w.complete || w.cursor == "" {
 				continue
 			}
-			var page core.GitHistoryPage
-			if page, err = kernel.GitHistoryPage(ctx, w.root, "", w.cursor, logPageSize); err != nil {
+			if err = readWalkPage(ctx, kernel, w, mergedLogLimit-walkCommits(walks)); err != nil {
 				break
 			}
-			w.commits = slices.Concat(w.commits, page.Commits)
-			w.cursor, w.complete = page.NextCursor, !page.HasMore
 		}
 		var commits []core.GitCommit
 		var origins []logOrigin

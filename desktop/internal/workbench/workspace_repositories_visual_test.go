@@ -16,8 +16,9 @@ import (
 
 // TestVisualWorkspaceRepositories captures the views of a folder that is no repository itself and
 // holds three: the branch popup listing them with one's panel open beside its row, the Git log
-// with the color strip of the repository it walks, the Paths filter's Roots, and the Commit
-// window's groups.
+// with the color strip of the repository it walks and each repository's own sections in the
+// reference pane, the Paths filter's Roots, the repository list behind the name after the filter
+// chips, the log of two repositories merged by date, and the Commit window's groups.
 func TestVisualWorkspaceRepositories(t *testing.T) {
 	out := os.Getenv("LITHE_VISUAL_OUTPUT_DIR")
 	if out == "" {
@@ -27,17 +28,30 @@ func TestVisualWorkspaceRepositories(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, look := range []struct{ theme, language string }{{"dark", "zh-Hans"}, {"light", "en"}} {
-		for _, scene := range []string{"branch-popup", "git-log", "log-roots", "log-more", "commit-groups"} {
+		for _, scene := range []string{"branch-popup", "git-log", "log-roots", "log-choose", "log-merged", "log-more", "commit-groups"} {
 			t.Run(scene+"-"+look.theme, func(t *testing.T) {
+				// Fixed dates, so the merged log interleaves the two repositories the same way
+				// on every run.
+				at := func(date string) {
+					t.Setenv("GIT_AUTHOR_DATE", date)
+					t.Setenv("GIT_COMMITTER_DATE", date)
+				}
+				at("2026-11-09T09:00:00")
 				parent := newWorkspaceFolder(t, "backend", "frontend", "shared")
 				frontend, backend := filepath.Join(parent, "frontend"), filepath.Join(parent, "backend")
-				for _, message := range []string{"Add the sign-in form", "Validate the email field", "Show the session banner"} {
-					gitRun(t, backend, "commit", "--allow-empty", "-m", message)
+				commit := func(dir, message, date string) {
+					at(date)
+					gitRun(t, dir, "commit", "--allow-empty", "-m", message)
 				}
+				commit(backend, "Add the sign-in form", "2026-11-10T09:30:00")
+				commit(backend, "Validate the email field", "2026-11-11T10:15:00")
+				commit(backend, "Show the session banner", "2026-11-12T16:40:00")
 				gitRun(t, backend, "branch", "feature/login")
 				gitRun(t, backend, "branch", "release/1.0")
 				gitRun(t, frontend, "branch", "feature/theme")
 				gitRun(t, frontend, "switch", "-c", "develop")
+				commit(frontend, "Lay out the dashboard", "2026-11-10T14:00:00")
+				commit(frontend, "Tune the dark palette", "2026-11-12T11:20:00")
 				prefs := store.At(t.TempDir())
 				if err := prefs.Save(settingsFile, settings{Theme: themeChoice(look.theme), Language: look.language, DisableAutoSave: true}); err != nil {
 					t.Fatal(err)
@@ -58,7 +72,7 @@ func TestVisualWorkspaceRepositories(t *testing.T) {
 					h.click(center(h.hitLabeled(h.app.text.Title.BranchMenu)))
 					label := i18n.SharedFormat(h.app.language(), "desktop.branch.repositoryPanel", map[string]string{"repository": "frontend", "branch": "develop"})
 					h.click(center(h.popupHit(label)))
-				case "git-log", "log-roots", "log-more":
+				case "git-log", "log-roots", "log-choose", "log-merged", "log-more":
 					h.app.layout.gitTab = gitTabLog
 					if !h.app.chrome.isOpen(catalogIndex[itemGit]) {
 						h.click(center(h.button(itemGit)))
@@ -69,6 +83,21 @@ func TestVisualWorkspaceRepositories(t *testing.T) {
 					switch scene {
 					case "log-roots":
 						h.click(center(h.hitLabeled(h.app.text.Git.FilterPaths)))
+					case "log-choose":
+						h.click(center(h.hitLabeled(h.app.text.Git.Repositories.Choose)))
+					case "log-merged":
+						choose := h.app.text.Git.Repositories.Choose
+						h.click(center(h.hitLabeled(choose)))
+						label := i18n.SharedFormat(h.app.language(), "desktop.nested.rootToggle", map[string]string{"name": "frontend"})
+						h.click(center(h.hitLabeled(label)))
+						h.settleUntil("backend's and frontend's histories in one list", func() bool {
+							return p.walksSeveral() && !p.log.loading && len(p.log.graph.Rows) == 7
+						})
+						h.click(center(h.hitLabeled(choose)))
+						if p.log.popover != logPopoverNone {
+							t.Fatalf("popover %v after clicking the repository name again", p.log.popover)
+						}
+						h.relayLogBar()
 					case "log-more":
 						h.click(center(h.hitLabeled(i18n.Shared(h.app.language(), "git.log.toolbar.moreActions"))))
 					}
