@@ -127,6 +127,16 @@ func newHarnessWithDriver(t testing.TB, options Options, open func(app.Config) (
 		// the serve loops; cancel them before waiting for every task.
 		h.app.stopAllPluginServers()
 		if p := h.app.project; p != nil {
+			// A running test, debug session or run makes closeProject ask for the
+			// exit confirmation, so finishCloseProject never stopped them. Release
+			// them the same way here: their cleanup tasks wait for each process to
+			// exit and leave the process ledger in the preference directory, and
+			// h.app.wait() below then waits for those tasks before TempDir removal.
+			h.app.stopTestsForProject(p)
+			h.app.stopDebugForProject(p)
+			h.app.stopRunsForProject(p)
+			h.app.stopBuild(p)
+			h.app.stopVcs(p)
 			p.cancel()
 			h.app.closeTree(p)
 			h.app.releaseProjectSearch(p)

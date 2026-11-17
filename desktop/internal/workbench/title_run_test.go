@@ -156,29 +156,6 @@ func TestProviderDebugStartsTheNamedAdapter(t *testing.T) {
 	if session == nil {
 		t.Fatal("the provider did not start a debug session")
 	}
-	// Stop the session before the harness deletes its preference and plugin
-	// directories. Waiting for cleanupDone also covers a late startup or an
-	// assertion failure, when the normal project teardown could race TempDir.
-	t.Cleanup(func() {
-		if p.debug.hasSession(session) {
-			h.app.endDebugSession(p, session)
-		}
-		awaitStateWithin(t, h, debugAdapterExitWait, "the provider debug session cleanup", func() bool {
-			if session.cleanupDone == nil {
-				return false
-			}
-			select {
-			case <-session.cleanupDone:
-				return true
-			default:
-				return false
-			}
-		})
-		if session.cleanupErr != nil {
-			t.Errorf("provider debug cleanup: %v", session.cleanupErr)
-		}
-		h.settle()
-	})
 	if session.adapter.Declaration.ID != named.Declaration.ID {
 		t.Fatalf("session = %+v, want adapter %q", session, named.Declaration.ID)
 	}
