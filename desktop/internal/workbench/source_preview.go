@@ -11,8 +11,9 @@ import (
 )
 
 // sourcePreview is a read-only view of one file that follows a selection in a list
-// (Search Everywhere). It never takes the window's keyboard focus or writes the file,
-// and an open document lends it its current text, so unsaved edits show.
+// (Search Everywhere, Problems, References). It never takes the window's keyboard focus
+// or writes the file, and an open document lends it its current text, so unsaved edits
+// show.
 type sourcePreview struct {
 	// path is the file shown and line the one-based line revealed. A load replaces
 	// view when its answer arrives for the same generation.

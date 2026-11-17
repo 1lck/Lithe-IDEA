@@ -246,6 +246,42 @@ func TestProblemsCacheIsDroppedWhenThePanelCloses(t *testing.T) {
 	}
 }
 
+// With the preview on, a click on a diagnostic only selects it: the shared source preview shows its
+// file at its line without opening an editor, and a file that cannot be read shows why.
+func TestProblemsPreviewFollowsTheSelectedDiagnostic(t *testing.T) {
+	h := newHarness(t, &testKernel{Client: core.NewClient()})
+	root := t.TempDir()
+	present := filepath.Join(root, "present.txt")
+	if err := os.WriteFile(present, []byte("zero\none\ntwo\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	missing := filepath.Join(root, "missing.txt")
+	h.open(root)
+	h.app.pluginDiagnostics = map[string]*plugindiag.Set{"demo": problemSet(t,
+		plugindiag.Diagnostic{FileKey: present, DisplayPath: "present.txt", Line: 2, Column: 0, Severity: plugindiag.SeverityError, Message: "on two"},
+		plugindiag.Diagnostic{FileKey: missing, DisplayPath: "missing.txt", Line: 0, Column: 0, Severity: plugindiag.SeverityWarning, Message: "gone"},
+	)}
+	h.app.markProblemsChanged()
+	h.app.problems.show = true
+	openProblemsPanel(t, h)
+
+	preview := &h.app.problems.preview
+	h.clickNamed("on two")
+	awaitDocumentState(t, h, func() bool { return preview.view != nil && preview.path == present })
+	if line, _ := preview.view.Caret(); line != 2 || preview.line != 3 {
+		t.Fatalf("preview at line %d (asked %d), want the diagnostic's zero-based 2", line, preview.line)
+	}
+	if h.app.project.docs.byPath(present) != nil {
+		t.Fatal("selecting a diagnostic with the preview on opened its file")
+	}
+
+	h.clickNamed("gone")
+	awaitDocumentState(t, h, func() bool { return preview.failure != nil })
+	if preview.path != missing || preview.view != nil {
+		t.Fatalf("preview of an unreadable file = %q, view %v", preview.path, preview.view != nil)
+	}
+}
+
 // A serve loop that ends without an explicit stop (a crash or self-exit) still
 // withdraws the diagnostics its process published.
 func TestExitedServerWithdrawsDiagnostics(t *testing.T) {
