@@ -27,6 +27,10 @@ native_path() {
     fi
 }
 
+# Lithe-core-rust #73 branch at 10fd6f8 (Core main 0d6e16c merged in, #77 squash-merged): lazy
+# project-tree reads ask Git for the tracked directories of all ignored siblings in bounded
+# batches instead of one ls-files per directory, keeping the per-directory fallback, nested
+# repositories and cancellation. Switch to the Core main commit once #73 is merged.
 # Lithe-core-rust main at 84735ea, #76 squash-merged on top of ac8825b: build.modelTree lays out
 # the Build tool window's tree of a decoded model for every build tool, projects nested by
 # parentID, each with its task folders (by category, else by group), dependencies, targets and
@@ -171,7 +175,7 @@ PINNED_CORE_REPOSITORY="https://github.com/Lithe-IDEA/Lithe-core-rust.git"
 # the contract, plugin guides, reference and SDKs live only in shared/plugins; on top of #16 (reported Git queries folded in the console),
 # #15 (git.write cherryPick, revert and reset fields), #14 (word-level changed ranges of diff
 # rows), #13, #8, #7, #6 and #4.
-PINNED_CORE_REVISION="66e98ecaf6bac483e2de1ac0f9f19fe8367a45cf"
+PINNED_CORE_REVISION="10fd6f8ae847868a7d5255195bf1a5b9ef84844f"
 PROFILE="debug"
 while [[ $# -gt 0 ]]; do
     case "$1" in
