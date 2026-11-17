@@ -8,6 +8,7 @@
     "verificationStatus": "pending",
     "evidence": [
       "desktop/internal/workbench/window_title.go",
+      "desktop/internal/workbench/window_title_test.go",
       "desktop/internal/workbench/root.go"
     ]
   },
@@ -16,11 +17,12 @@
     "verificationStatus": "pending",
     "evidence": [
       "desktop/internal/workbench/window_title.go",
+      "desktop/internal/workbench/window_title_test.go",
       "desktop/internal/workbench/root.go"
     ]
   },
   "owner": "Workbench",
-  "notes": "Viva：root.go 的 Config.Title 固定为应用名，desktop/ 中未找到随当前编辑文件更新窗口标题的逻辑。 2026-11-12：窗口标题由 window_title.go 实现并每帧经 syncWindowTitle 接到 Window.SetTitle：无项目显示应用名，macOS 只显示项目名，Windows/Linux 显示“项目 – 活动文档”。原生任务栏/Alt-Tab 验收保持 pending。",
+  "notes": "Viva：root.go 的 Config.Title 固定为应用名，desktop/ 中未找到随当前编辑文件更新窗口标题的逻辑。 2026-11-12：窗口标题由 window_title.go 实现并每帧经 syncWindowTitle 接到 Window.SetTitle：无项目显示应用名，macOS 只显示项目名，Windows/Linux 显示“项目 – 活动文档”。原生任务栏/Alt-Tab 验收保持 pending。 2026-11-17：Viva 82a3318 起 Window.SetTitle 拒绝非 UTF-8 或含 NUL 的标题并保留旧标题；systemTitle 先把非法字节和 NUL 换成 U+FFFD，Linux 上文件名不是合法 UTF-8 时标题仍随活动文件更新（TestSystemTitleIsValidUTF8WithoutNUL）。",
   "verification": "在 Windows 运行应用并打开项目：任务栏图标悬停预览标题显示「项目名 – 文件名」，切换编辑区文件后标题随之更新；关闭全部编辑标签或聚焦终端/欢迎页后标题回落为项目名；无项目时显示 Lithe；打开超长文件名的文件确认预览卡片由系统折叠显示，悬停任务栏图标可看到完整标题。",
   "legacy": {
     "revision": "5a54c41aa37a4e6e6b68918a4b05765b9dd07a36",
