@@ -86,7 +86,7 @@ func (a *App) shellPanel(c ui.C, s slot, index int, hidden *slot) ui.Box {
 	p := a.project
 	tabbed := tool.id == itemGit
 	header := float32(toolTitleHeight)
-	if tabbed || tool.id == itemTerminal || tool.id == itemCommit || tool.id == itemRun || tool.id == itemReferences {
+	if tabbed || tool.id == itemTerminal || tool.id == itemCommit || tool.id == itemRun || tool.id == itemReferences || tool.id == itemProblems {
 		header = panelHeaderHeight
 	}
 	if tool.id == itemFind && p != nil {
@@ -120,6 +120,10 @@ func (a *App) shellPanel(c ui.C, s slot, index int, hidden *slot) ui.Box {
 			case tool.id == itemReferences && p != nil:
 				// And the tab of the usages the References window shows.
 				a.referencesSearchTab(c, p)
+			case tool.id == itemProblems && p != nil:
+				// The Problems window's File and Project tabs come before the spacer.
+				a.problemsScopeTabs(c)
+				ui.Spacer(c)
 			default:
 				ui.Spacer(c)
 			}

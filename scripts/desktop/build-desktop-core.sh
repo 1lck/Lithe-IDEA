@@ -185,7 +185,7 @@ PINNED_CORE_REPOSITORY="https://github.com/Lithe-IDEA/Lithe-core-rust.git"
 # the contract, plugin guides, reference and SDKs live only in shared/plugins; on top of #16 (reported Git queries folded in the console),
 # #15 (git.write cherryPick, revert and reset fields), #14 (word-level changed ranges of diff
 # rows), #13, #8, #7, #6 and #4.
-PINNED_CORE_REVISION="81a6ecf947ccde35d4abc9a56111acce892470ed"
+PINNED_CORE_REVISION="e270b7bd363c8c9ece32e1968ce0742b7ec3aae5"
 PROFILE="debug"
 while [[ $# -gt 0 ]]; do
     case "$1" in
