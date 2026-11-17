@@ -194,29 +194,6 @@ func TestCommitButtonCommitsTheStagedChanges(t *testing.T) {
 	}
 }
 
-func TestCommitAndPushShowsTheReviewFirst(t *testing.T) {
-	dir := newTestRepository(t)
-	h := newHarness(t, &gitKernel{Client: core.NewClient()})
-	p := h.openCommit(dir)
-	h.stageAll(p)
-	p.commit.editor.Insert("Publish the change")
-	h.settle()
-
-	h.clickNamed(h.app.text.Commit.CommitAndPush)
-	h.settle()
-	if p.commit.review == nil {
-		t.Fatal("commit and push ran without showing the review")
-	}
-	if got := gitRun(t, dir, "log", "-1", "--format=%s"); got != "initial" {
-		t.Fatalf("last commit before the review was confirmed = %q, want initial", got)
-	}
-
-	h.clickNamed(h.app.text.Commit.Cancel)
-	if p.commit.review != nil {
-		t.Fatal("cancel left the review open")
-	}
-}
-
 func TestCommitWithoutAMessageAsksForOne(t *testing.T) {
 	dir := newTestRepository(t)
 	h := newHarness(t, &gitKernel{Client: core.NewClient()})
@@ -315,10 +292,11 @@ func TestCommitReviewNamesTheAuthorAndTheSignOff(t *testing.T) {
 	p.commit.signOff = true
 	h.settle()
 
-	h.clickNamed(h.app.text.Commit.CommitAndPush)
-	if p.commit.review == nil {
-		t.Fatal("commit and push ran without showing the review")
-	}
+	// Commit and Push asks in the Push Commits dialog afterwards; a retry is what always shows
+	// the review first.
+	target := p.projectCommit()
+	h.app.prepareCommit(p, target, h.app.commitRequest(target, false), true)
+	h.await("the review", func() bool { return !p.commit.busy && p.commit.review != nil })
 	text := h.app.text.Commit
 	if !h.shows(text.AuthorLine("Pair Author <pair@example.invalid>")) || !h.shows(text.SignOffNote) {
 		t.Fatal("the review does not name the author and the sign-off")

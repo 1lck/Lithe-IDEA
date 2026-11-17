@@ -246,44 +246,45 @@ case $(declare -p PROMPT_COMMAND 2>/dev/null) in
     *) PROMPT_COMMAND=__motty_command_finished$'\n'${PROMPT_COMMAND:+$PROMPT_COMMAND$'\n'}__motty_report ;;
 esac
 if (( __MOTTY_FORCE__ == 0 && (BASH_VERSINFO[0] > 4 || (BASH_VERSINFO[0] == 4 && BASH_VERSINFO[1] >= 4)) )); then
-    PS0=$'\e]133;C__MOTTY_SUFFIX__\a'${PS0-}
+    # Prompt escapes, not $'...': the assignment's own text, which a user's
+    # DEBUG trap sees in BASH_COMMAND, must not carry the marker itself.
+    PS0='\e]133;C__MOTTY_SUFFIX__\a'${PS0-}
     printf '\033]133;C__MOTTY_SUFFIX__\007'
 else
     # No PS0 before Bash 4.4: report the start of a command line from a DEBUG
     # trap, which runs before every simple command. PROMPT_COMMAND ends by
     # arming it, and the first command after that reports once and disarms.
     # An empty Enter reruns PROMPT_COMMAND, whose first entry disarms again so
-    # that its own commands never count. An array PROMPT_COMMAND (Bash 5.1+) is
-    # not taken here; those versions have PS0.
+    # that its own commands never count. An array PROMPT_COMMAND, which a
+    # profile such as systemd's 80-systemd-osc-context.sh makes, gets the same
+    # first and last entries.
+    __motty_disarm() { local _motty_status=$?; _motty_armed=0; return "$_motty_status"; }
+    __motty_arm() { _motty_armed=1; }
+    __motty_debug() {
+        [[ ${_motty_armed-} == 1 && $BASH_COMMAND != __motty_disarm && -z ${COMP_POINT-} ]] || return 0
+        _motty_armed=0
+        printf '\033]133;C__MOTTY_SUFFIX__\007'
+    }
+    _motty_armed=0
     case $(declare -p PROMPT_COMMAND 2>/dev/null) in
-        'declare -a '*) ;;
-        *)
-            __motty_disarm() { local _motty_status=$?; _motty_armed=0; return "$_motty_status"; }
-            __motty_arm() { _motty_armed=1; }
-            __motty_debug() {
-                [[ ${_motty_armed-} == 1 && $BASH_COMMAND != __motty_disarm && -z ${COMP_POINT-} ]] || return 0
-                _motty_armed=0
-                printf '\033]133;C__MOTTY_SUFFIX__\007'
-            }
-            _motty_armed=0
-            PROMPT_COMMAND=__motty_disarm$'\n'${PROMPT_COMMAND:+$PROMPT_COMMAND$'\n'}__motty_arm
-            # Keep the user's own DEBUG trap and run it first, so that it sees
-            # the same $?, $_ and BASH_COMMAND as without us. trap -p is read
-            # through a file because a command substitution is a subshell.
-            trap -p DEBUG > "$_motty_runtime/debug-trap"
-            _motty_trap=$(<"$_motty_runtime/debug-trap")
-            __motty_unquote() { eval "set -- ${1#trap -- }"; _motty_trap=$1; }
-            if [[ -n $_motty_trap ]]; then
-                __motty_unquote "$_motty_trap"
-                trap -- "$_motty_trap"$'\n''__motty_debug' DEBUG
-            else
-                trap -- '__motty_debug' DEBUG
-            fi
-            unset -f __motty_unquote
-            unset _motty_trap
-            printf '\033]133;C__MOTTY_SUFFIX__\007'
-            ;;
+        'declare -a '*) PROMPT_COMMAND=(__motty_disarm "${PROMPT_COMMAND[@]}" __motty_arm) ;;
+        *) PROMPT_COMMAND=__motty_disarm$'\n'${PROMPT_COMMAND:+$PROMPT_COMMAND$'\n'}__motty_arm ;;
     esac
+    # Keep the user's own DEBUG trap and run it first, so that it sees
+    # the same $?, $_ and BASH_COMMAND as without us. trap -p is read
+    # through a file because a command substitution is a subshell.
+    trap -p DEBUG > "$_motty_runtime/debug-trap"
+    _motty_trap=$(<"$_motty_runtime/debug-trap")
+    __motty_unquote() { eval "set -- ${1#trap -- }"; _motty_trap=$1; }
+    if [[ -n $_motty_trap ]]; then
+        __motty_unquote "$_motty_trap"
+        trap -- "$_motty_trap"$'\n''__motty_debug' DEBUG
+    else
+        trap -- '__motty_debug' DEBUG
+    fi
+    unset -f __motty_unquote
+    unset _motty_trap
+    printf '\033]133;C__MOTTY_SUFFIX__\007'
 fi
 rm -rf -- "$_motty_runtime"
 unset _motty_runtime _motty_profile`

@@ -27,10 +27,32 @@ native_path() {
     fi
 }
 
-# Core at bad1694 batches tracked-directory Git queries during lazy project-tree reads.
-# It preserves bounded pathspecs, per-directory fallback, nested repositories and cancellation,
-# avoiding one Git process for every ignored sibling without changing the desktop I/O budget.
-# Based on Lithe-core-rust main at 5a8d786, #67 squash-merged: toolchains.candidates takes the optional
+# Lithe-core-rust #73 branch at 10fd6f8 (Core main 0d6e16c merged in, #77 squash-merged): lazy
+# project-tree reads ask Git for the tracked directories of all ignored siblings in bounded
+# batches instead of one ls-files per directory, keeping the per-directory fallback, nested
+# repositories and cancellation. Switch to the Core main commit once #73 is merged.
+# Lithe-core-rust main at 84735ea, #76 squash-merged on top of ac8825b: build.modelTree lays out
+# the Build tool window's tree of a decoded model for every build tool, projects nested by
+# parentID, each with its task folders (by category, else by group), dependencies, targets and
+# child projects; a filter marks the matched nodes and keeps the nodes on the way to them
+# (#1866).
+# Lithe-core-rust main at ac8825b, #72 squash-merged: Core hides only .git, .worktree,
+# .worktrees, .DS_Store and .lithe by itself; workspace.configureVisibility takes the
+# manifests of the enabled plugins and hides the folders their build systems name in
+# layout.hiddenDirectoryNames and their VCS providers name as directory markers, in every
+# workspace, until the next call replaces them (#1856). On top of #74 squash-merged:
+# git.workspacePushPreview reads for each workspace repository whether it can push (ready, up to
+# date, no remote, empty, detached HEAD or failed), its push preview and target, and the order to
+# push them in, a submodule before the repository that records it, which the desktop's Push
+# Commits dialog reads (#2013); #69 squash-merged, so Core knows no runtime by name and go and
+# node resolve through their tool definitions like any other runtime without executables, with no
+# hostManaged field (#1856); and #71 squash-merged: git.workspaceHistoryMerge interleaves the
+# loaded history pages of several workspace repositories newest first, each in Git's own order,
+# stops where a repository with pages left runs out and names it pending, and keys a hash several
+# repositories hold <hash>@<id>; git.historyPage takes maxCommits and answers limitReached;
+# git.workspaceRepositorySelection takes chosen, the set a view walks together, and answers the
+# picks still listed in discovery order; the desktop's Git Log sends and reads all of them (#2013).
+# Lithe-core-rust main at 5a8d786, #67 squash-merged: toolchains.candidates takes the optional
 # commandHomes, lists the commands found on the PATH as shell rows, and offers each shell home that
 # checks out as an installations entry with provider host:shell, once per canonical home (#2032).
 # It is on top of #68, squash-merged into main: Core no longer
@@ -153,7 +175,7 @@ PINNED_CORE_REPOSITORY="https://github.com/Lithe-IDEA/Lithe-core-rust.git"
 # the contract, plugin guides, reference and SDKs live only in shared/plugins; on top of #16 (reported Git queries folded in the console),
 # #15 (git.write cherryPick, revert and reset fields), #14 (word-level changed ranges of diff
 # rows), #13, #8, #7, #6 and #4.
-PINNED_CORE_REVISION="bad169425069788b0b81c6823f87c393b3731376"
+PINNED_CORE_REVISION="10fd6f8ae847868a7d5255195bf1a5b9ef84844f"
 PROFILE="debug"
 while [[ $# -gt 0 ]]; do
     case "$1" in

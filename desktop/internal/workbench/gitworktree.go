@@ -621,7 +621,7 @@ func (a *App) readWorktreeHistory(p *project, cursor string) {
 				remotes, current = remoteNames(sections), branch
 			}
 		}
-		page, err := kernel.GitHistoryPage(ctx, path, "HEAD", cursor, worktreeHistoryPage)
+		page, err := kernel.GitHistoryPage(ctx, path, "HEAD", cursor, worktreeHistoryPage, 0)
 		var graph core.Graph
 		var graphErr error
 		if err == nil {

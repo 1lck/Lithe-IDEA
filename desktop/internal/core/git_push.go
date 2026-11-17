@@ -1,9 +1,6 @@
 package core
 
-import (
-	"context"
-	"encoding/json"
-)
+import "context"
 
 // GitPushTags says which tags a push sends along with the branch.
 type GitPushTags string
@@ -88,18 +85,9 @@ type expectedPush struct {
 // GitPush starts git and blocks; call it from a background goroutine and observe its progress
 // with WithGitProgress.
 func (c *Client) GitPush(ctx context.Context, root string, preview GitPushPreview, tags GitPushTags, target PushTargetChoice, force bool) error {
-	reviewed := expectedPush{
-		LocalBranch: preview.LocalBranch, LocalHead: preview.LocalHead, Remote: preview.Remote,
-		RemoteBranch: preview.RemoteBranch, TargetKind: preview.TargetKind,
-		RemoteTrackingOID: preview.RemoteTrackingOID, Tags: nonNil(preview.Tags),
-	}
-	raw, err := json.Marshal(reviewed)
+	request, err := pushRequest(root, preview, tags, target, force)
 	if err != nil {
 		return err
 	}
-	return c.gitWrite(ctx, gitWriteRequest{
-		Root: root, Operation: "push", Force: force, PushTags: string(tags), PushTarget: string(target),
-		ExpectedPush: raw,
-		GitReference: &gitReferenceRequest{FullName: "refs/heads/" + preview.LocalBranch, ShortName: preview.LocalBranch, Kind: "local"},
-	})
+	return c.gitWrite(ctx, request)
 }

@@ -268,7 +268,7 @@ func (a *App) openCommitDiff(p *project, root, commit string, file core.GitCommi
 		return nil
 	}
 	var files []core.GitChange
-	if p.log.selected == commit {
+	if _, selected := p.logCommitAt(p.log.selected); p.log.selected != "" && selected == commit {
 		for _, f := range p.log.files {
 			files = append(files, core.GitChange{Path: f.Path, Status: f.Status})
 		}

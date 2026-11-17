@@ -1,6 +1,7 @@
 package workbench
 
 import (
+	"cmp"
 	"context"
 	"encoding/json"
 	"errors"
@@ -16,41 +17,214 @@ import (
 	"github.com/vivaui/viva/gfx"
 )
 
-// buildTreeShape names each row of the build tree by its kind, label and, for a group, its
-// root, so a test compares the whole tree at once.
+// buildTestManifest is a plugin manifest declaring the build system of instance as the window
+// knows it, for the Core requests the window sends with an instance's manifest: the layout of
+// its tree and the build file a project opens. Every task runs through the provider, so the
+// declaration needs no command lines; a task without a name or a group shows its ID and files
+// under "other".
+func buildTestManifest(instance *buildInstance) json.RawMessage {
+	type task struct {
+		ID                    string   `json:"id"`
+		DisplayName           string   `json:"displayName"`
+		Description           string   `json:"description,omitempty"`
+		Group                 string   `json:"group"`
+		Scopes                []string `json:"scopes,omitempty"`
+		TargetTags            []string `json:"targetTags,omitempty"`
+		RequiresUserArguments bool     `json:"requiresUserArguments,omitempty"`
+		FromModel             bool     `json:"fromModel,omitempty"`
+		Category              []string `json:"category,omitempty"`
+		Source                string   `json:"source"`
+		Arguments             []string `json:"arguments"`
+	}
+	system, id := instance.System, instance.BuildSystemID
+	tasks := make([]task, 0, len(system.Tasks))
+	for _, declared := range system.Tasks {
+		tasks = append(tasks, task{
+			ID: declared.ID, DisplayName: cmp.Or(declared.DisplayName, declared.ID), Description: declared.Description,
+			Group: cmp.Or(declared.Group, "other"), Scopes: declared.Scopes, TargetTags: declared.TargetTags,
+			RequiresUserArguments: declared.RequiresUserArguments, FromModel: declared.FromModel, Category: declared.Category,
+			Source: "provider", Arguments: []string{},
+		})
+	}
+	declaration := map[string]any{
+		"id": id, "displayName": buildSystemName(instance),
+		"detection":  map[string]any{"markers": []string{id + ".build"}},
+		"invocation": map[string]any{"executables": []any{map[string]string{"kind": "command", "command": id}}},
+		"provider": map[string]any{
+			"launch": map[string]string{"kind": "packaged", "path": "provider"}, "arguments": []string{},
+			"executesProjectCode": false, "mayUseNetwork": false,
+		},
+		"model": map[string]string{"source": "provider"},
+		"tasks": tasks,
+	}
+	if system.Dependencies != nil {
+		declaration["dependencies"] = map[string]any{"source": "provider", "scopes": system.Dependencies.Scopes}
+	}
+	if test := system.Test; test != nil {
+		entry := map[string]any{"source": "provider", "scopes": test.Scopes, "arguments": []string{}}
+		if len(test.TargetTags) != 0 {
+			entry["targetTags"] = test.TargetTags
+		}
+		if test.Discovery {
+			entry["discovery"], entry["filters"] = true, []string{"suite", "case"}
+		}
+		declaration["test"] = entry
+	}
+	body, err := json.Marshal(map[string]any{
+		"schemaVersion": 0, "id": cmp.Or(instance.PluginID, "dev.example."+id), "displayName": buildSystemName(instance),
+		"version": "1.0.0", "pluginAPIVersion": 0, "requires": map[string]int{"buildProviders": 0, "buildSystems": 0},
+		"vendor":      map[string]string{"id": "dev.example", "displayName": "Example", "signatureRequirement": "publisherPackage"},
+		"permissions": []string{"languageServer.launch", "process.build"}, "activationEvents": []string{"onBuildSystem:" + id},
+		"languages": []string{}, "buildSystems": []any{declaration},
+	})
+	if err != nil {
+		panic(err)
+	}
+	return body
+}
+
+// buildRowName is the name a row shows: a group standing for its only root project shows that
+// project's name.
+func buildRowName(row buildRow) string {
+	if row.kind == buildRowGroup && row.node != nil {
+		return row.node.Label
+	}
+	return row.label
+}
+
+// buildTreeShape names each row of the build tree by its depth, kind, label and detail, and a
+// group standing for a project by both names, so a test compares the whole tree at once.
 func buildTreeShape(rows []buildRow) []string {
 	kinds := map[buildRowKind]string{
-		buildRowGroup: "group", buildRowSection: "section", buildRowEmpty: "note", buildRowProject: "project",
+		buildRowGroup: "group", buildRowFolder: "folder", buildRowEmpty: "note", buildRowProject: "project",
 		buildRowTarget: "target", buildRowTask: "task", buildRowDependency: "dependency", buildRowTest: "test",
 	}
 	shape := make([]string, 0, len(rows))
 	for _, row := range rows {
-		entry := kinds[row.kind] + " " + row.label
-		if row.kind == buildRowGroup && row.detail != "" {
-			entry += " @" + row.detail
+		entry := strings.Repeat("  ", row.level) + kinds[row.kind] + " " + row.label
+		if row.kind == buildRowGroup && row.node != nil {
+			entry += ": " + row.node.Label
+		}
+		if row.detail != "" {
+			entry += " (" + row.detail + ")"
 		}
 		shape = append(shape, entry)
 	}
 	return shape
 }
 
-// twoEngines is one build system used at two roots of the workspace, its second checkout's
-// targets named apart from the first's.
-func twoEngines() []buildInstance {
-	alpha := runConfigInstance("alpha")
-	alpha.System.DisplayName = "Engine"
-	beta := runConfigInstance("beta")
-	beta.System.DisplayName = "Engine"
-	beta.Model.Targets = []core.BuildTarget{
-		{ID: "main", ProjectID: "server", Name: "Beta Main", Tags: []string{"app"}},
-		{ID: "lib", ProjectID: "server", Name: "Beta Lib", Tags: []string{"library"}},
+// buildRowAt is the row a path down the tree names: the first row named by the last name that
+// follows the rows named by the names before it, in order.
+func buildRowAt(t *testing.T, rows []buildRow, names ...string) buildRow {
+	t.Helper()
+	at := 0
+	for step, name := range names {
+		for at < len(rows) && buildRowName(rows[at]) != name {
+			at++
+		}
+		if at == len(rows) {
+			t.Fatalf("no row %q in\n%s", names[:step+1], strings.Join(buildTreeShape(rows), "\n"))
+		}
+		if step < len(names)-1 {
+			at++
+		}
 	}
-	return []buildInstance{alpha, beta}
+	return rows[at]
 }
 
-// openBuildTree opens a workspace whose detected build systems are instances.
+// setBuildNodeOpen opens or closes the node of the row at the path names, as its arrow does.
+func setBuildNodeOpen(t *testing.T, p *project, rows []buildRow, open bool, names ...string) {
+	t.Helper()
+	row := buildRowAt(t, rows, names...)
+	p.setBuildOpen(buildOpenKey(p.build.instances[row.instance].ID, row.node.Key),
+		buildOpenState{open: open, dependencies: row.node.Kind == core.BuildTreeDependencies})
+}
+
+// laidOutBuildRows lists the tree's rows once Core has laid out every tree they show. A listing
+// starts the layouts it lacks and shows what it already has, so the listing after them is the
+// one the window settles on.
+func laidOutBuildRows(t *testing.T, h *harness, p *project) []buildRow {
+	t.Helper()
+	for range 5 {
+		rows, out := h.app.buildTreeRows(p)
+		for index := range p.build.instances {
+			trees := &p.build.instances[index].trees
+			out = out || trees.wholeOut || trees.filteredOut
+		}
+		if !out {
+			return slices.Clone(rows)
+		}
+		h.settle()
+	}
+	t.Fatal("the build trees were still being laid out")
+	return nil
+}
+
+// expectBuildTree fails unless the tree's rows, once laid out, are want.
+func expectBuildTree(t *testing.T, h *harness, p *project, what string, want []string) []buildRow {
+	t.Helper()
+	rows := laidOutBuildRows(t, h, p)
+	if got := buildTreeShape(rows); !slices.Equal(got, want) {
+		t.Fatalf("%s =\n%s\nwant\n%s", what, strings.Join(got, "\n"), strings.Join(want, "\n"))
+	}
+	return rows
+}
+
+// nestedEngine is a build of several modules at root, as a Maven reactor is: the root project
+// shop holds shop-core and shop-web, and shop-web holds shop-web-api. Every project cleans and
+// packages, the build runs a goal the user types once for the whole build, shop-web has an
+// application that starts, and shop-core lists a plugin goal its model reports.
+func nestedEngine(root string) buildInstance {
+	instance := buildInstance{
+		BuildInstance: core.BuildInstance{ID: "engine@" + root, PluginID: "dev.example.engine", BuildSystemID: "engine", Root: root},
+		PluginID:      "dev.example.engine",
+		System: pluginservice.BuildSystemDeclaration{
+			DisplayName: "Engine",
+			Runs:        []pluginservice.BuildRunDeclaration{{ID: "application", Name: "Run", Tags: []string{"app"}}},
+			Tasks: []pluginservice.BuildTaskDeclaration{
+				{ID: "clean", DisplayName: "clean", Group: "lifecycle", Category: []string{"Lifecycle"}, Scopes: []string{"workspace", "project"}, Source: "provider"},
+				{ID: "package", DisplayName: "package", Group: "lifecycle", Category: []string{"Lifecycle"}, Scopes: []string{"workspace", "project"}, Source: "provider"},
+				{ID: "goal", DisplayName: "Run Goal…", Group: "other", Scopes: []string{"workspace", "project"}, RequiresUserArguments: true, Source: "provider"},
+				{ID: "start", DisplayName: "Start", Group: "run", Scopes: []string{"target"}, TargetTags: []string{"app"}, Source: "provider"},
+				{ID: "plugin", DisplayName: "Plugin Goal", Group: "build", Category: []string{"Plugins"}, FromModel: true, Source: "provider"},
+			},
+			Dependencies: &pluginservice.BuildDependenciesDeclaration{Scopes: []string{"project"}},
+		},
+		Model: core.BuildModel{
+			Projects: []core.BuildProject{
+				{ID: "shop", Path: ".", Name: "shop"},
+				{ID: "core", Path: "core", Name: "shop-core", ParentID: "shop"},
+				{ID: "web", Path: "web", Name: "shop-web", ParentID: "shop"},
+				{ID: "api", Path: "web/api", Name: "shop-web-api", ParentID: "web"},
+			},
+			Targets: []core.BuildTarget{{ID: "app", ProjectID: "web", Name: "ShopApplication", Path: "web", Tags: []string{"app"}}},
+			Tasks: []core.BuildTask{{
+				ID: "core:compile", ProjectID: "core", Name: "compiler:compile", Template: "plugin", Group: "build",
+				Category: []string{"Plugins"}, Execution: "task",
+			}},
+		},
+		modelLoaded: true,
+	}
+	return instance
+}
+
+// twoEngines is one build system used at two roots of the workspace: the nested build at alpha,
+// and at beta two projects side by side with no root project above them.
+func twoEngines() []buildInstance {
+	beta := nestedEngine("beta")
+	beta.Model = core.BuildModel{Projects: []core.BuildProject{{ID: "a", Path: "a", Name: "tool-a"}, {ID: "b", Path: "b", Name: "tool-b"}}}
+	return []buildInstance{nestedEngine("alpha"), beta}
+}
+
+// openBuildTree opens a workspace whose detected build systems are instances, each declared by
+// a manifest of its own unless it has one.
 func openBuildTree(t *testing.T, kernel Kernel, instances []buildInstance) (*harness, *project) {
 	t.Helper()
+	for index := range instances {
+		if instances[index].Manifest == nil {
+			instances[index].Manifest = buildTestManifest(&instances[index])
+		}
+	}
 	h := newHarness(t, kernel)
 	h.open(t.TempDir())
 	p := h.app.project
@@ -61,99 +235,227 @@ func openBuildTree(t *testing.T, kernel Kernel, instances []buildInstance) (*har
 	return h, p
 }
 
-// Every build system is a group of one tree, named once with its root beside it. The selected
-// one is open by default and the others closed; a group the user opens or closes stays so, and
-// opening every group opens their sections but the dependencies.
-func TestBuildTreeGroupsEveryBuildSystemAndOpensTheSelectedOne(t *testing.T) {
-	h, p := openBuildTree(t, &testKernel{Client: core.NewClient()}, twoEngines())
-	tb := h.app.text.Build
-	alpha := []string{
-		"section " + tb.Projects, "project server",
-		"section " + tb.Targets, "target Main", "target Lib",
-		"section " + tb.Tasks, "note " + tb.NoTasks,
-	}
-	beta := []string{
-		"section " + tb.Projects, "project server",
-		"section " + tb.Targets, "target Beta Main", "target Beta Lib",
-		"section " + tb.Tasks, "note " + tb.NoTasks,
-	}
-	want := slices.Concat([]string{"group Engine @alpha"}, alpha, []string{"group Engine @beta"})
-	if got := buildTreeShape(h.app.buildTreeRows(p)); !slices.Equal(got, want) {
-		t.Fatalf("default tree =\n%s\nwant\n%s", strings.Join(got, "\n"), strings.Join(want, "\n"))
-	}
+// buildTreeWords are the headings the host gives the nodes Core leaves unnamed, and the
+// heading of the "other" task group.
+func buildTreeWords(h *harness) (dependencies, targets, other string) {
+	language := h.app.language()
+	return i18n.Shared(language, "native.dependencies"), h.app.text.Build.Targets, i18n.Shared(language, "desktop.build.group.other")
+}
 
-	p.setBuildOpen(buildOpenKey(p.build.instances[1].ID, ""), true)
-	p.setBuildOpen(buildOpenKey(p.build.instances[0].ID, buildSectionTargets), false)
-	rows := h.app.buildTreeRows(p)
-	want = slices.Concat([]string{"group Engine @alpha", "section " + tb.Projects, "project server", "section " + tb.Targets,
-		"section " + tb.Tasks, "note " + tb.NoTasks, "group Engine @beta"}, beta)
-	if got := buildTreeShape(rows); !slices.Equal(got, want) {
-		t.Fatalf("tree after opening the second group =\n%s\nwant\n%s", strings.Join(got, "\n"), strings.Join(want, "\n"))
+// Every build system is a group of one tree, as IntelliJ's Maven window shows a build: child
+// projects nest under their parent, and every project holds its tasks in folders, its
+// dependencies and its targets. A group whose build has one root project stands for it; one
+// with several lists them. The selected group is open by default and the others closed, the
+// projects open and everything else closed. What the user opens and closes stays so, across a
+// reload of the model too; opening every node leaves the dependencies closed, since each one
+// opened runs the build tool. A task every project lists shows chosen under its own project
+// only.
+func TestBuildTreeNestsProjectsWithTheirFolders(t *testing.T) {
+	h, p := openBuildTree(t, &testKernel{Client: core.NewClient()}, twoEngines())
+	dependencies, targets, other := buildTreeWords(h)
+	alpha := []string{
+		"group Engine: shop (alpha)",
+		"  folder Lifecycle",
+		"  folder " + other,
+		"  folder " + dependencies,
+		"  project shop-core (core)",
+		"    folder Lifecycle",
+		"    folder Plugins",
+		"    folder " + dependencies,
+		"  project shop-web (web)",
+		"    folder Lifecycle",
+		"    folder " + dependencies,
+		"    folder " + targets,
+		"    project shop-web-api (web/api)",
+		"      folder Lifecycle",
+		"      folder " + dependencies,
 	}
-	if section := rows[3]; section.open || section.count != 2 {
-		t.Fatalf("a closed section shows open %v with count %d, want closed with its 2 targets", section.open, section.count)
+	rows := expectBuildTree(t, h, p, "default tree", append(slices.Clone(alpha), "group Engine (beta)"))
+
+	p.setBuildGroupOpen(1, true)
+	setBuildNodeOpen(t, p, rows, true, "shop-core", "Lifecycle")
+	setBuildNodeOpen(t, p, rows, false, "shop-web")
+	beta := []string{
+		"group Engine (beta)",
+		"  folder " + other,
+		"  project tool-a (a)",
+		"    folder Lifecycle",
+		"    folder " + dependencies,
+		"  project tool-b (b)",
+		"    folder Lifecycle",
+		"    folder " + dependencies,
 	}
+	changed := slices.Concat(alpha[:5], []string{"    folder Lifecycle", "      task clean", "      task package"}, alpha[6:9], beta)
+	expectBuildTree(t, h, p, "tree after opening and closing nodes", changed)
+
+	// A reload keeps every node as the user left it: Core keys a node by what it stands for.
+	instance := &p.build.instances[0]
+	instance.Model.Projects = append(slices.Clone(instance.Model.Projects), core.BuildProject{ID: "docs", Path: "docs", Name: "shop-docs", ParentID: "shop"})
+	instance.modelVersion++
+	reloaded := slices.Concat(changed[:len(changed)-len(beta)], []string{"  project shop-docs (docs)", "    folder Lifecycle", "    folder " + dependencies}, beta)
+	expectBuildTree(t, h, p, "tree after a reload", reloaded)
 
 	p.setAllBuildGroups(false)
-	if got := buildTreeShape(h.app.buildTreeRows(p)); !slices.Equal(got, []string{"group Engine @alpha", "group Engine @beta"}) {
-		t.Fatalf("collapsed tree = %q", got)
-	}
+	expectBuildTree(t, h, p, "collapsed tree", []string{"group Engine: shop (alpha)", "group Engine (beta)"})
 	p.setAllBuildGroups(true)
-	want = slices.Concat([]string{"group Engine @alpha"}, alpha, []string{"group Engine @beta"}, beta)
-	if got := buildTreeShape(h.app.buildTreeRows(p)); !slices.Equal(got, want) {
-		t.Fatalf("expanded tree =\n%s\nwant\n%s", strings.Join(got, "\n"), strings.Join(want, "\n"))
+	expanded := []string{
+		"group Engine: shop (alpha)",
+		"  folder Lifecycle",
+		"    task clean",
+		"    task package",
+		"  folder " + other,
+		"    task Run Goal…",
+		"  folder " + dependencies,
+		"  project shop-core (core)",
+		"    folder Lifecycle",
+		"      task clean",
+		"      task package",
+		"    folder Plugins",
+		"      task compiler:compile",
+		"    folder " + dependencies,
+		"  project shop-web (web)",
+		"    folder Lifecycle",
+		"      task clean",
+		"      task package",
+		"    folder " + dependencies,
+		"    folder " + targets,
+		"      target ShopApplication (web)",
+		"        task Start",
+		"    project shop-web-api (web/api)",
+		"      folder Lifecycle",
+		"        task clean",
+		"        task package",
+		"      folder " + dependencies,
+		"  project shop-docs (docs)",
+		"    folder Lifecycle",
+		"      task clean",
+		"      task package",
+		"    folder " + dependencies,
+		"group Engine (beta)",
+		"  folder " + other,
+		"    task Run Goal…",
+		"  project tool-a (a)",
+		"    folder Lifecycle",
+		"      task clean",
+		"      task package",
+		"    folder " + dependencies,
+		"  project tool-b (b)",
+		"    folder Lifecycle",
+		"      task clean",
+		"      task package",
+		"    folder " + dependencies,
 	}
-	if p.buildSectionOpen(p.build.instances[0].ID, buildSectionDependencies) {
-		t.Fatal("opening every group opened the dependencies, which run the build tool")
+	rows = expectBuildTree(t, h, p, "expanded tree", expanded)
+
+	p.build.projectID, p.build.taskID = "core", "clean"
+	want := buildRowAt(t, rows, "shop-core", "clean").node.Key
+	// A group row's flag says its build system is selected; the rows below it say what is chosen.
+	var chosen []string
+	for _, row := range laidOutBuildRows(t, h, p) {
+		if row.selected && row.kind != buildRowGroup {
+			chosen = append(chosen, row.node.Key)
+		}
+	}
+	if !slices.Equal(chosen, []string{want}) {
+		t.Fatalf("the chosen rows are %q, want only shop-core's clean %q", chosen, want)
 	}
 }
 
-// The filter keeps a group whose name or root matches as it shows without one, and of another
-// only the rows that match, open under their sections. It reads the models already loaded and
-// never starts a load.
-func TestBuildTreeFilterKeepsMatchesUnderTheirGroups(t *testing.T) {
+// The filter keeps of every group the nodes that match and the nodes on the way to them, open
+// and fixed so, and leaves out a group where nothing matches. A match shows as the user left it,
+// with all it holds; so does a whole group whose name, root or project matches. The folder
+// headings the host names match too. While the first filtered layout is out the window does
+// not yet say nothing matches, and a later query shows the tree of the one before until its
+// own is laid out. The filter reads the models already loaded and never starts a load.
+func TestBuildTreeFilterKeepsMatchesUnderTheirProjects(t *testing.T) {
 	h, p := openBuildTree(t, &testKernel{Client: core.NewClient()}, twoEngines())
-	tb := h.app.text.Build
+	dependencies, targets, other := buildTreeWords(h)
 
-	p.panels.buildFilter = "  MAIN "
-	rows := h.app.buildTreeRows(p)
-	want := []string{
-		"group Engine @alpha", "section " + tb.Targets, "target Main",
-		"group Engine @beta", "section " + tb.Targets, "target Beta Main",
+	p.panels.buildFilter = "  START "
+	if rows, pending := h.app.buildTreeRows(p); len(rows) != 0 || !pending {
+		t.Fatalf("before its layout the filtered tree shows %q, pending %v", buildTreeShape(rows), pending)
 	}
-	if got := buildTreeShape(rows); !slices.Equal(got, want) {
-		t.Fatalf("filtered tree =\n%s\nwant\n%s", strings.Join(got, "\n"), strings.Join(want, "\n"))
+	started := []string{
+		"group Engine: shop (alpha)",
+		"  project shop-web (web)",
+		"    folder " + targets,
+		"      target ShopApplication (web)",
+		"        task Start",
 	}
-	for _, row := range rows {
-		if (row.kind == buildRowGroup || row.kind == buildRowSection) && (!row.open || !row.fixed) {
-			t.Fatalf("row %q of a filtered group is open %v, fixed %v; want open and fixed", row.label, row.open, row.fixed)
+	rows := expectBuildTree(t, h, p, "filtered tree", started)
+	for _, row := range rows[:4] {
+		if !row.open || !row.fixed {
+			t.Fatalf("row %q on the way to a match is open %v, fixed %v; want open and fixed", row.label, row.open, row.fixed)
 		}
 	}
-	if rows[1].count != 1 {
-		t.Fatalf("a filtered section counts %d rows, want its 1 match", rows[1].count)
+	p.panels.buildFilter = "star"
+	if rows, _ := h.app.buildTreeRows(p); !slices.Equal(buildTreeShape(rows), started) {
+		t.Fatalf("while the next query is laid out the tree shows %q", buildTreeShape(rows))
+	}
+	expectBuildTree(t, h, p, "tree filtered by the next query", started)
+
+	p.panels.buildFilter = "shop-web"
+	rows = expectBuildTree(t, h, p, "tree filtered by a project", []string{
+		"group Engine: shop (alpha)",
+		"  project shop-web (web)",
+		"    folder Lifecycle",
+		"    folder " + dependencies,
+		"    folder " + targets,
+		"    project shop-web-api (web/api)",
+		"      folder Lifecycle",
+		"      folder " + dependencies,
+	})
+	if row := rows[1]; row.fixed || !row.open {
+		t.Fatalf("a matching project shows open %v, fixed %v; want as the user left it", row.open, row.fixed)
+	}
+
+	p.panels.buildFilter = "shop"
+	rows = expectBuildTree(t, h, p, "tree filtered by the project a group stands for", []string{
+		"group Engine: shop (alpha)",
+		"  folder Lifecycle",
+		"  folder " + other,
+		"  folder " + dependencies,
+		"  project shop-core (core)",
+		"    folder Lifecycle",
+		"    folder Plugins",
+		"    folder " + dependencies,
+		"  project shop-web (web)",
+		"    folder Lifecycle",
+		"    folder " + dependencies,
+		"    folder " + targets,
+		"    project shop-web-api (web/api)",
+		"      folder Lifecycle",
+		"      folder " + dependencies,
+	})
+	if !rows[0].fixed || rows[4].fixed {
+		t.Fatalf("the group is fixed %v and its projects %v; want the group fixed open and the rest as without a filter", rows[0].fixed, rows[4].fixed)
 	}
 
 	p.panels.buildFilter = "beta"
-	rows = h.app.buildTreeRows(p)
-	if got := buildTreeShape(rows); !slices.Equal(got, []string{"group Engine @beta"}) {
-		t.Fatalf("tree filtered by a root = %q", got)
-	}
+	rows = expectBuildTree(t, h, p, "tree filtered by a root", []string{"group Engine (beta)"})
 	if rows[0].fixed || rows[0].open {
 		t.Fatalf("a group matching by its root shows open %v, fixed %v; want it as without a filter", rows[0].open, rows[0].fixed)
 	}
 
+	p.panels.buildFilter = other
+	expectBuildTree(t, h, p, "tree filtered by a folder heading", []string{
+		"group Engine: shop (alpha)", "  folder " + other, "group Engine (beta)", "  folder " + other,
+	})
+
 	p.panels.buildFilter = "nothing matches this"
-	if rows = h.app.buildTreeRows(p); len(rows) != 0 {
-		t.Fatalf("tree filtered by an unmatched query = %q", buildTreeShape(rows))
+	laidOutBuildRows(t, h, p)
+	if rows, pending := h.app.buildTreeRows(p); len(rows) != 0 || pending {
+		t.Fatalf("tree filtered by an unmatched query = %q, pending %v", buildTreeShape(rows), pending)
 	}
 
-	p.build.instances[1].modelLoaded = false
-	p.setBuildOpen(buildOpenKey(p.build.instances[1].ID, ""), true)
-	p.panels.buildFilter = "main"
-	if got := buildTreeShape(h.app.buildTreeRows(p)); !slices.Equal(got, want[:3]) {
-		t.Fatalf("tree filtered with an unloaded model = %q", got)
-	}
-	if p.build.instances[1].modelLoading {
+	p.build.instances[0].modelLoaded = false
+	p.setBuildGroupOpen(0, true)
+	p.panels.buildFilter = "tool-a"
+	expectBuildTree(t, h, p, "tree filtered with an unloaded model", []string{
+		"group Engine (beta)", "  project tool-a (a)",
+		"    folder Lifecycle", "    folder " + dependencies,
+	})
+	if p.build.instances[0].modelLoading {
 		t.Fatal("the filter started a model load")
 	}
 }
@@ -171,9 +473,11 @@ func TestBuildTargetRowShowsThePathAndTheFullNameOnHover(t *testing.T) {
 		{ID: "shop", ProjectID: "server", Name: "shop", Path: "shop/", Tags: []string{"library"}},
 	}
 	h, p := openBuildTree(t, &testKernel{Client: core.NewClient()}, []buildInstance{instance})
+	p.setAllBuildGroups(true)
 	targets := func() [][3]string {
+		t.Helper()
 		var out [][3]string
-		for _, row := range h.app.buildTreeRows(p) {
+		for _, row := range laidOutBuildRows(t, h, p) {
 			if row.kind == buildRowTarget {
 				out = append(out, [3]string{row.label, row.detail, row.tooltip})
 			}
@@ -185,9 +489,7 @@ func TestBuildTargetRowShowsThePathAndTheFullNameOnHover(t *testing.T) {
 		t.Fatalf("target rows (label, detail, tooltip) = %q, want %q", got, want)
 	}
 
-	h.app.reduceChrome(core.SetChromeOpen(itemBuild, true))
-	h.settle()
-	h.settle()
+	openBuildWindow(t, h, p)
 	if h.labelBounds("shop/cmd/api") == (gfx.Rect{}) || h.labelBounds("example.com/shop/cmd/api") != (gfx.Rect{}) {
 		t.Fatal("the row of a target named after its path did not show the path alone")
 	}
@@ -255,7 +557,7 @@ func TestBuildTreeLoadsOpenModelsAFewAtATime(t *testing.T) {
 		t.Fatal("the Build window is open by default, so its view would start loads of its own")
 	}
 	p.setAllBuildGroups(true)
-	p.setBuildOpen(buildOpenKey(p.build.instances[5].ID, ""), false)
+	p.setBuildGroupOpen(5, false)
 
 	loading := func() []int {
 		var indexes []int
@@ -311,28 +613,39 @@ func TestBuildTreeLoadsOpenModelsAFewAtATime(t *testing.T) {
 }
 
 // A click on a row of another group selects that group's build system and the row, so the
-// window's Run button runs it; a click on a group selects it and leaves it open or closed, and
-// its arrow opens and closes it.
+// window's Run button runs it; a click on a group, which shows the name of the project it
+// stands for, selects it and leaves it open or closed, and its arrow opens and closes it.
 func TestBuildTreeRowsChooseTheirBuildSystem(t *testing.T) {
-	instances := twoEngines()
-	instances[1].BuildSystemID, instances[1].System.DisplayName = "forge", "Forge"
-	h, p := openBuildTree(t, &testKernel{Client: core.NewClient()}, instances)
+	alpha := runConfigInstance("alpha")
+	alpha.System.DisplayName = "Engine"
+	beta := runConfigInstance("beta")
+	beta.BuildSystemID, beta.System.DisplayName = "forge", "Forge"
+	beta.Model.Projects = []core.BuildProject{{ID: "server", Path: "server", Name: "tools"}}
+	beta.Model.Targets = []core.BuildTarget{
+		{ID: "main", ProjectID: "server", Name: "Beta Main", Tags: []string{"app"}},
+		{ID: "lib", ProjectID: "server", Name: "Beta Lib", Tags: []string{"library"}},
+	}
+	h, p := openBuildTree(t, &testKernel{Client: core.NewClient()}, []buildInstance{alpha, beta})
+	// Every node opens, so a group shows its targets once it opens; the second group closes.
+	p.setAllBuildGroups(true)
+	p.setBuildGroupOpen(1, false)
 	h.app.reduceChrome(core.SetChromeOpen(itemBuild, true))
 	if err := h.driver.Resize(1280, 1400); err != nil {
 		t.Fatal(err)
 	}
+	laidOutBuildRows(t, h, p)
 	h.settle()
 	h.settle()
 	absent := func(value string) bool { return h.labelBounds(value) == (gfx.Rect{}) }
-	if absent("Main") || !absent("Beta Main") {
-		t.Fatal("the tree did not open the selected build system alone")
+	if absent("Main") || !absent("Beta Main") || absent("tools") {
+		t.Fatal("the tree did not show the first group open and the second closed by the name of its project")
 	}
 	language := h.app.language()
 	expand := i18n.Shared(language, "native.expandSection")
 	collapse := i18n.Shared(language, "native.collapseSection")
 
 	// The group row selects its build system and leaves it closed.
-	h.click(center(h.labelBounds("beta")))
+	h.click(center(h.labelBounds("tools")))
 	if p.build.selected != 1 || p.buildGroupOpen(1) || !p.buildGroupOpen(0) {
 		t.Fatalf("selected %d, open %v and %v after a click on the closed group", p.build.selected, p.buildGroupOpen(0), p.buildGroupOpen(1))
 	}
@@ -341,7 +654,7 @@ func TestBuildTreeRowsChooseTheirBuildSystem(t *testing.T) {
 	}
 
 	// Its arrow opens it.
-	h.click(center(h.pageHit(expand + " Forge").Bounds))
+	h.click(center(h.pageHit(expand + " tools").Bounds))
 	if !p.buildGroupOpen(1) || absent("Beta Main") {
 		t.Fatal("the arrow did not open the group")
 	}
@@ -359,7 +672,7 @@ func TestBuildTreeRowsChooseTheirBuildSystem(t *testing.T) {
 	}
 
 	// The arrow closes a group and hides its rows.
-	h.click(center(h.pageHit(collapse + " Engine").Bounds))
+	h.click(center(h.pageHit(collapse + " server").Bounds))
 	if p.buildGroupOpen(0) || !absent("Main") || absent("Beta Main") {
 		t.Fatal("the arrow did not close the group alone")
 	}
@@ -425,11 +738,25 @@ func (k *captureBuildTask) PlanBuildTask(_ context.Context, _ json.RawMessage, _
 	return core.BuildPlan{}, errors.New("captured")
 }
 
+// openBuildWindow opens every node of the tree and the Build window, tall enough for all of it.
+// The window opens through a post, which wakes the driver to paint it.
+func openBuildWindow(t *testing.T, h *harness, p *project) {
+	t.Helper()
+	p.setAllBuildGroups(true)
+	h.app.post(func(a *App) { a.reduceChrome(core.SetChromeOpen(itemBuild, true)) })
+	if err := h.driver.Resize(1280, 1400); err != nil {
+		t.Fatal(err)
+	}
+	laidOutBuildRows(t, h, p)
+	h.settle()
+	h.settle()
+}
+
 // A task, and a target that has a run, lead with the green triangle that runs them whether
 // they are chosen or not, as IntelliJ's Make window marks its targets: one click on it chooses
 // the row and runs it. A target with nothing to run keeps the icon of its kind, a build
 // operation in flight leaves no triangle to click, a row's hover hint holds its whole name and
-// path, and the Dependencies heading has the ⓘ that says when its tree is read.
+// path, and the Dependencies node has the ⓘ that says when its tree is read.
 func TestBuildTreeRunMarksRunTheirRowsAtOnce(t *testing.T) {
 	instance := runConfigInstance("app")
 	instance.System.Tasks = []pluginservice.BuildTaskDeclaration{{ID: "vet", DisplayName: "Vet verification", Scopes: []string{"project"}, Source: "provider"}}
@@ -437,12 +764,7 @@ func TestBuildTreeRunMarksRunTheirRowsAtOnce(t *testing.T) {
 	instance.Model.Targets[0].Path = "server/cmd/main"
 	kernel := &captureBuildTask{Kernel: &testKernel{Client: core.NewClient()}, requests: make(chan core.BuildPlanRequest, 1)}
 	h, p := openBuildTree(t, kernel, []buildInstance{instance})
-	h.app.reduceChrome(core.SetChromeOpen(itemBuild, true))
-	if err := h.driver.Resize(1280, 1400); err != nil {
-		t.Fatal(err)
-	}
-	h.settle()
-	h.settle()
+	openBuildWindow(t, h, p)
 	text, language := h.app.text.Build, h.app.language()
 	controls := func(label string) []gfx.Hit {
 		var found []gfx.Hit
@@ -465,7 +787,7 @@ func TestBuildTreeRunMarksRunTheirRowsAtOnce(t *testing.T) {
 	}
 	help := controls(i18n.Shared(language, "native.moreInformation"))
 	if len(help) != 1 || help[0].Hint != i18n.Shared(language, "desktop.build.dependenciesHelp") {
-		t.Fatalf("the Dependencies heading's ⓘ is %+v", help)
+		t.Fatalf("the Dependencies node's ⓘ is %+v", help)
 	}
 
 	// One click on the triangle of a task nothing chose chooses it and runs it.
@@ -490,21 +812,19 @@ func TestBuildTreeRunMarksRunTheirRowsAtOnce(t *testing.T) {
 	h.settle()
 }
 
-// A task row of the tree carries no project, so the run fits the selection to the task: a
-// project task runs on the build system's only project instead of the workspace, a model task
-// on its own project, and a project task with no project to infer asks for one.
+// A task row runs on the project and target Core filed it under: a declared project task on
+// the project it shows under, a model task on its own project. A project task chosen with no
+// project, which nothing in the tree offers, asks for one when the build has several.
 func TestBuildTreeTasksRunOnTheScopeTheyDeclare(t *testing.T) {
 	instance := runConfigInstance("app")
-	instance.System.Tasks = []pluginservice.BuildTaskDeclaration{{ID: "vet", DisplayName: "Vet verification", Scopes: []string{"project"}, Source: "provider"}}
-	instance.Model.Tasks = []core.BuildTask{{ID: "server:check", ProjectID: "server", Name: "check", Template: "check", Execution: "task"}}
+	instance.System.Tasks = []pluginservice.BuildTaskDeclaration{
+		{ID: "vet", DisplayName: "Vet verification", Scopes: []string{"project"}, Source: "provider"},
+		{ID: "check", DisplayName: "Check", Group: "verification", FromModel: true, Source: "provider"},
+	}
+	instance.Model.Tasks = []core.BuildTask{{ID: "server:check", ProjectID: "server", Name: "check", Template: "check", Group: "verification", Execution: "task"}}
 	kernel := &captureBuildTask{Kernel: &testKernel{Client: core.NewClient()}, requests: make(chan core.BuildPlanRequest, 1)}
 	h, p := openBuildTree(t, kernel, []buildInstance{instance})
-	h.app.reduceChrome(core.SetChromeOpen(itemBuild, true))
-	if err := h.driver.Resize(1280, 1400); err != nil {
-		t.Fatal(err)
-	}
-	h.settle()
-	h.settle()
+	openBuildWindow(t, h, p)
 	run := func(row string) core.BuildPlanRequest {
 		t.Helper()
 		h.click(center(h.labelBounds(row)))
@@ -536,13 +856,5 @@ func TestBuildTreeTasksRunOnTheScopeTheyDeclare(t *testing.T) {
 	h.settle()
 	if h.app.notice != h.app.text.Build.ChooseTaskScope || len(kernel.requests) != 0 || p.build.operation != nil {
 		t.Fatalf("notice %q, %d requests, operation %v", h.app.notice, len(kernel.requests), p.build.operation)
-	}
-
-	// The chosen project narrows the model tasks to its own.
-	h.app.post(func(*App) { p.build.projectID, p.build.taskID = "web", "" })
-	h.settle()
-	h.settle()
-	if h.labelBounds("check") != (gfx.Rect{}) || h.labelBounds("Vet verification") == (gfx.Rect{}) {
-		t.Fatal("another project's model task stayed in the tree")
 	}
 }

@@ -6,7 +6,7 @@ import (
 )
 
 // versionControlPage is the Version Control page: the GitHub account, then the Git switches of
-// the editor, the Commit window and the Git console. Opening the page writes nothing; a switch hands its change to
+// the editor, the Commit window, the Git Log's limits and the Git console. Opening the page writes nothing; a switch hands its change to
 // the settings owner at once.
 func (w *window) versionControlPage(c ui.C) {
 	language := w.marketLanguage()
@@ -44,6 +44,7 @@ func (w *window) versionControlPage(c ui.C) {
 				w.setHideParentReferences(!parents, false)
 			}
 		})
+		w.gitLogLimitsCard(c, language)
 		w.gitConsoleCards(c, language)
 	})
 }

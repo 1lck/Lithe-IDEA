@@ -19,6 +19,10 @@ on:
         description: "Publish the release after the packages are verified (off for a preflight)"
         type: boolean
         default: true
+      feed_only:
+        description: "Only sign the stable update feed again for the published release, with this commit's feed script; nothing is built or uploaded but the feed and its patches"
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -62,6 +66,7 @@ jobs:
 
   build:
     name: Package ${{ matrix.os }} ${{ matrix.arch }}
+    if: ${{ !inputs.feed_only }}
     needs: prepare
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 60
@@ -190,7 +195,7 @@ jobs:
 
   publish:
     name: Publish the release
-    if: github.event_name != 'workflow_dispatch' || inputs.publish
+    if: ${{ (github.event_name != 'workflow_dispatch' || inputs.publish) && !inputs.feed_only }}
     needs:
       - prepare
       - build
@@ -250,10 +255,15 @@ jobs:
           gh release upload "$RELEASE_TAG" "${release_files[@]}" --repo "$GITHUB_REPOSITORY" --clobber
 
   # The stable feed is signed apart from the packaging and the release: this job alone is given
-  # the private key, and it runs once the release holds the packages the feed points to.
+  # the private key, and it runs once the release holds the packages the feed points to. With
+  # feed_only it signs the feed of a release published earlier again, from that release's own
+  # packages, so a change to the feed rules reaches clients without rebuilding the release.
   update-feed:
     name: Publish the stable update feed
-    if: github.event_name != 'workflow_dispatch' || inputs.publish
+    if: >-
+      ${{ !cancelled() && needs.prepare.result == 'success'
+      && (github.event_name != 'workflow_dispatch' || inputs.publish)
+      && (needs.publish.result == 'success' || (inputs.feed_only && needs.publish.result == 'skipped')) }}
     needs:
       - prepare
       - publish
@@ -278,11 +288,25 @@ jobs:
           cache-dependency-path: desktop/go.sum
 
       - name: Download the packages
+        if: ${{ !inputs.feed_only }}
         uses: actions/download-artifact@v8
         with:
           pattern: desktop-*
           path: dist
           merge-multiple: true
+
+      - name: Download the published packages
+        if: ${{ inputs.feed_only }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ needs.prepare.outputs.tag }}
+          DESKTOP_VERSION: ${{ needs.prepare.outputs.version }}
+        run: |
+          patterns=()
+          while IFS= read -r name; do
+            patterns+=(--pattern "$name" --pattern "$name.sha256")
+          done < <(node scripts/ci/common/desktop-packages.mjs names "$DESKTOP_VERSION")
+          gh release download "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" --dir dist "${patterns[@]}"
 
       - name: Sign and publish the feed, its delta updates and notes
         env:

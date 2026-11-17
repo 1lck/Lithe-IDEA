@@ -73,7 +73,6 @@ type BuildRuntimeRequirement struct {
 	PathVariable   string                     `json:"pathVariable,omitempty"`
 	ID             string                     `json:"id"`
 	DisplayName    string                     `json:"displayName"`
-	HostManaged    bool                       `json:"hostManaged"`
 	MinimumVersion string                     `json:"minimumVersion,omitempty"`
 	Executables    []BuildExecutableCandidate `json:"executables"`
 	Version        *BuildVersionProbe         `json:"version,omitempty"`
@@ -276,6 +275,8 @@ type buildOutcome struct {
 	Edit    *BuildOptionEdit    `json:"edit"`
 	// Discovery answers build.decodeTestDiscovery.
 	Discovery *BuildTestDiscovery `json:"discovery"`
+	// Tree answers build.modelTree.
+	Tree *BuildModelTree `json:"tree"`
 }
 
 func (o buildOutcome) failure(command string) error {
@@ -446,6 +447,83 @@ func (c *Client) DecodeBuildModel(ctx context.Context, manifest json.RawMessage,
 		return BuildModel{}, newParseError(command, "build model returned no model", "")
 	}
 	return *result.Model, nil
+}
+
+// BuildModelTreeRequest asks for the tree of one loaded model (build.modelTree): its projects
+// nested by parent, each with its tasks in folders, its dependencies and its targets. Query
+// narrows the tree to the nodes it matches; GroupHeadings labels the folder of each task group
+// in the user's language, and the query matches those labels too.
+type BuildModelTreeRequest struct {
+	Model         BuildModelTreeInput `json:"model"`
+	Query         string              `json:"query,omitempty"`
+	GroupHeadings map[string]string   `json:"groupHeadings,omitempty"`
+}
+
+// BuildModelTreeInput is the part of a decoded model the tree reads.
+type BuildModelTreeInput struct {
+	Projects []BuildProject `json:"projects"`
+	Targets  []BuildTarget  `json:"targets"`
+	Tasks    []BuildTask    `json:"tasks"`
+}
+
+// BuildModelTree is the Build tool window's tree of one instance. Project is the instance's
+// only root project, whose contents Nodes holds beside the instance's own; with several root
+// projects or none it is nil and Nodes holds the instance's nodes, then the root projects.
+// Truncated says Core cut a tree too large to show whole.
+type BuildModelTree struct {
+	Project   *BuildTreeNode  `json:"project"`
+	Nodes     []BuildTreeNode `json:"nodes"`
+	Truncated bool            `json:"truncated"`
+}
+
+// The kinds of a BuildTreeNode.
+const (
+	BuildTreeProject      = "project"
+	BuildTreeFolder       = "folder"
+	BuildTreeTask         = "task"
+	BuildTreeTargets      = "targets"
+	BuildTreeTarget       = "target"
+	BuildTreeDependencies = "dependencies"
+	BuildTreeTests        = "tests"
+)
+
+// BuildTreeNode is one node of a BuildModelTree. Key is unique in the instance and stable
+// across reloads and filters. ProjectID and TargetID are what a task runs on, empty for the
+// whole instance; TaskID is a declared or a model task. Group names the task group a folder
+// stands for, empty for a category folder. Matched marks a node the query matches itself.
+// Targets, dependencies and tests nodes have no label: the host names them.
+type BuildTreeNode struct {
+	Kind      string          `json:"kind"`
+	Key       string          `json:"key"`
+	Label     string          `json:"label"`
+	Detail    string          `json:"detail"`
+	Tooltip   string          `json:"tooltip"`
+	Group     string          `json:"group"`
+	ProjectID string          `json:"projectID"`
+	TargetID  string          `json:"targetID"`
+	TaskID    string          `json:"taskID"`
+	Matched   bool            `json:"matched"`
+	Children  []BuildTreeNode `json:"children"`
+}
+
+// BuildModelTree lays out the tree of one loaded model for the Build tool window.
+func (c *Client) BuildModelTree(ctx context.Context, manifest json.RawMessage, buildSystemID string, request BuildModelTreeRequest) (BuildModelTree, error) {
+	const command = "build.modelTree"
+	var result buildOutcome
+	if err := c.Execute(ctx, command, struct {
+		Manifest      json.RawMessage       `json:"manifest"`
+		BuildSystemID string                `json:"buildSystemID"`
+		Request       BuildModelTreeRequest `json:"request"`
+	}{manifest, buildSystemID, request}, &result); err != nil {
+		return BuildModelTree{}, err
+	}
+	if err := result.failure(command); err != nil {
+		return BuildModelTree{}, err
+	}
+	if result.Tree == nil {
+		return BuildModelTree{}, newParseError(command, "build model tree returned no tree", "")
+	}
+	return *result.Tree, nil
 }
 
 // BuildDecodeDebugRequest validates the raw result of a provider's debug preparation. Run is
