@@ -66,7 +66,7 @@ func (w *window) cursorCard(c ui.C) {
 				}
 				return i18n.Shared(language, "desktop.settings.terminal.cursorShapeBlock")
 			}).Width(selectWidth).Label(shapeTitle).Changed() {
-				w.setTerminalCursor(shape, thickness)
+				w.setTerminalCursor(shape, thickness, false)
 			}
 		})
 		w.settingsRow(c, thicknessTitle, "", func() {
@@ -79,19 +79,20 @@ func (w *window) cursorCard(c ui.C) {
 				}
 				return i18n.Shared(language, "desktop.settings.terminal.cursorNormal")
 			}).Width(selectWidth).Label(thicknessTitle).Changed() {
-				w.setTerminalCursor(shape, thickness)
+				w.setTerminalCursor(shape, thickness, false)
 			}
 		})
 	})
 }
 
 // setTerminalCursor stores the cursor chosen and hands it to the settings owner.
-func (w *window) setTerminalCursor(shape, thickness string) {
+// A forced reset clears unknown stored values that already display as the default.
+func (w *window) setTerminalCursor(shape, thickness string, force bool) {
 	if w.sess.finished.Load() {
 		return
 	}
 	shape, thickness = NormalCursorShape(shape), NormalCursorThickness(thickness)
-	if shape == NormalCursorShape(w.sess.values.TerminalCursorShape) && thickness == NormalCursorThickness(w.sess.values.TerminalCursorThickness) {
+	if !force && shape == NormalCursorShape(w.sess.values.TerminalCursorShape) && thickness == NormalCursorThickness(w.sess.values.TerminalCursorThickness) {
 		return
 	}
 	w.sess.values.TerminalCursorShape, w.sess.values.TerminalCursorThickness = shape, thickness

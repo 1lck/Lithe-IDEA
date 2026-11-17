@@ -533,6 +533,8 @@ func (w *window) footer(c ui.C) {
 			w.resetSteppingFilters()
 			w.setTerminalShell("", true)
 			w.setTerminalBehavior(TerminalBehavior{}, true)
+			w.setTerminalScrollback(DefaultScrollback, true)
+			w.setTerminalCursor(CursorShapeBlock, CursorThicknessNormal, true)
 			w.setFonts(fontprefs.Default(), true)
 			w.setGitConsole(core.GitConsolePreferences{}, true)
 			w.setGitLogLimits(DefaultGitLogLimit, DefaultGitLogMergedLimit)
