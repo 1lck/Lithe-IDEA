@@ -3,6 +3,7 @@ package workbench
 import (
 	"path/filepath"
 	"runtime"
+	"strings"
 )
 
 // The system title of the window names what it shows, so the task switcher, the taskbar
@@ -68,10 +69,18 @@ func (a *App) syncWindowTitle() {
 	if a.window == nil {
 		return
 	}
-	title := a.windowTitle()
+	title := systemTitle(a.windowTitle())
 	if title == a.shownTitle {
 		return
 	}
 	a.shownTitle = title
 	_ = a.window.SetTitle(title)
+}
+
+// systemTitle is title in the form Window.SetTitle accepts. Viva refuses a title that is not
+// valid UTF-8 or holds a NUL byte and keeps the old one, and a Linux file or folder name need
+// not be valid UTF-8, so each invalid sequence and each NUL becomes U+FFFD.
+func systemTitle(title string) string {
+	title = strings.ToValidUTF8(title, "\uFFFD")
+	return strings.ReplaceAll(title, "\x00", "\uFFFD")
 }
