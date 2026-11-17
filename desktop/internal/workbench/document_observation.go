@@ -106,7 +106,7 @@ func (a *App) unwatchDocument(p *project, removed *document) {
 	}
 	dir := filepath.Dir(removed.path)
 	for _, d := range p.docs.list {
-		if filepath.Dir(d.path) == dir {
+		if !d.virtual && filepath.Dir(d.path) == dir {
 			return
 		}
 	}
@@ -123,7 +123,7 @@ func (a *App) drainDocumentWatch(p *project, dir string, slot *documentWatch) {
 	watch, ready, err := slot.state()
 	markDirectory := func() {
 		for _, d := range p.docs.list {
-			if filepath.Dir(d.path) == dir {
+			if !d.virtual && filepath.Dir(d.path) == dir {
 				d.checkPending = true
 			}
 		}
@@ -154,7 +154,7 @@ func (a *App) drainDocumentWatch(p *project, dir string, slot *documentWatch) {
 				names[name] = struct{}{}
 			}
 			for _, d := range p.docs.list {
-				if filepath.Dir(d.path) != dir {
+				if d.virtual || filepath.Dir(d.path) != dir {
 					continue
 				}
 				name := filepath.Base(d.path)
@@ -174,7 +174,16 @@ func (a *App) scheduleDocumentChecks(p *project) {
 	if a.project != p {
 		return
 	}
+	var virtualWaiters []func(bool)
 	for _, d := range p.docs.list {
+		if d.virtual {
+			d.checkPending = false
+			if len(d.checkWaiters) > 0 {
+				virtualWaiters = append(virtualWaiters, d.checkWaiters...)
+				d.checkWaiters = nil
+			}
+			continue
+		}
 		if p.docs.checking >= documentChecksInFlight {
 			break
 		}
@@ -225,10 +234,14 @@ func (a *App) scheduleDocumentChecks(p *project) {
 						waiters := d.checkWaiters
 						d.checkWaiters = nil
 						for _, done := range waiters {
-							if d.checkFailed || d.conflicted {
+							if d.conflicted {
 								done(false)
 							} else if d.dirty() || d.view.IsComposing() {
-								a.saveBeforeClose(p, d, done)
+								if d.checkFailed {
+									done(false)
+								} else {
+									a.saveBeforeClose(p, d, done)
+								}
 							} else {
 								done(true)
 							}
@@ -238,6 +251,9 @@ func (a *App) scheduleDocumentChecks(p *project) {
 				a.scheduleDocumentChecks(p)
 			}
 		})
+	}
+	for _, done := range virtualWaiters {
+		done(true)
 	}
 }
 

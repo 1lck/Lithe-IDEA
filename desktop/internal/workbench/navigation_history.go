@@ -3,6 +3,7 @@ package workbench
 import (
 	"context"
 	"os"
+	"path/filepath"
 
 	"github.com/1lck/Lithe-IDEA/desktop/internal/core"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/i18n"
@@ -104,7 +105,8 @@ func (a *App) stepNavigation(p *project, forward bool) {
 
 // openStepDestination opens a history destination without recording it as a jump.
 func (a *App) openStepDestination(p *project, destination core.NavigationLocation) {
-	if d := p.docs.byPath(destination.Document); d != nil {
+	path := filepath.Clean(destination.Document)
+	if d := p.docs.byPath(path); d != nil {
 		a.selectDocument(p, d.id)
 		d.view.GoToNavigation(destination.Line, destination.Column, false)
 		return
@@ -112,8 +114,8 @@ func (a *App) openStepDestination(p *project, destination core.NavigationLocatio
 	if p.docs.locations == nil {
 		p.docs.locations = make(map[string]documentLocation)
 	}
-	p.docs.locations[destination.Document] = documentLocation{line: destination.Line + 1, column: destination.Column, columnSet: true}
-	a.openFile(p, destination.Document)
+	p.docs.locations[path] = documentLocation{line: destination.Line + 1, column: destination.Column, columnSet: true}
+	a.openFile(p, path)
 }
 
 // navigationHistoryShortcut handles Control-Alt-Left and Control-Alt-Right, the chords of the

@@ -4,11 +4,13 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/1lck/Lithe-IDEA/desktop/internal/core"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/draftstore"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/editorview"
+	"github.com/1lck/Lithe-IDEA/desktop/internal/i18n"
 	"github.com/vivaui/viva/keymap"
 )
 
@@ -307,4 +309,32 @@ func TestEditorEssentialsDiscardFromListWaitsForStorageAndClosesOpenScratch(t *t
 		t.Fatalf("discard checkpoint remains: %+v %v", entries, err)
 	}
 	h.app.drafts.open = false
+}
+
+func TestEditorEssentialsOutsideProjectFileDoesNotFailRecentFiles(t *testing.T) {
+	h, p, _ := essentialsDocument(t, "inside")
+	outsideDir := t.TempDir()
+	outsidePath := filepath.Join(outsideDir, "SpringApplication.java")
+	if err := os.WriteFile(outsidePath, []byte("public class SpringApplication {}\n"), 0o444); err != nil {
+		t.Fatal(err)
+	}
+	h.app.openFile(p, outsidePath)
+	h.settleChain()
+	if p.docs.byPath(outsidePath) == nil {
+		t.Fatal("outside dependency file did not open")
+	}
+	if strings.Contains(h.app.notice, i18n.Shared(h.app.language(), "desktop.recentFiles.failed")) {
+		t.Fatalf("outside file triggered recent files failure notice: %q", h.app.notice)
+	}
+	h.app.openRecentFiles(false)
+	h.settleChain()
+	for _, entry := range h.app.recentFiles.list {
+		if entry.Name == "SpringApplication.java" || strings.Contains(entry.Path, "..") {
+			t.Fatalf("outside file leaked into recent files: %+v", h.app.recentFiles.list)
+		}
+	}
+	if len(h.app.recentFiles.list) != 1 || h.app.recentFiles.list[0].Name != "notes.txt" {
+		t.Fatalf("unexpected recent files list: %+v", h.app.recentFiles.list)
+	}
+	h.app.recentFiles.open = false
 }
