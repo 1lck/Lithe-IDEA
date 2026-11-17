@@ -1,0 +1,31 @@
+{
+  "id": "workbench-status-bar-navigation-path",
+  "area": "工作台",
+  "group": "工作台布局",
+  "capability": "状态栏左侧显示当前项的导航路径，跟随编辑器、项目树和问题窗口",
+  "macos": {
+    "implementationStatus": "implemented",
+    "verificationStatus": "pending",
+    "evidence": [
+      "desktop/internal/workbench/status_path.go",
+      "desktop/internal/workbench/status_path_view.go",
+      "desktop/internal/workbench/chrome_view.go",
+      "desktop/internal/workbench/status_path_test.go",
+      "desktop/internal/workbench/status_path_visual_test.go"
+    ]
+  },
+  "windows": {
+    "implementationStatus": "implemented",
+    "verificationStatus": "pending",
+    "evidence": [
+      "desktop/internal/workbench/status_path.go",
+      "desktop/internal/workbench/status_path_view.go",
+      "desktop/internal/workbench/chrome_view.go",
+      "desktop/internal/workbench/status_path_test.go",
+      "desktop/internal/workbench/status_path_visual_test.go"
+    ]
+  },
+  "owner": "Workbench",
+  "verification": "打开项目，确认没有打开文件时状态栏左侧只显示项目名。点击编辑器后显示“项目 › 目录 › … › 文件”，项目带模块图标、末项带文件图标；在项目树点选文件夹或文件，路径改为该行；点项目根行只显示项目名；在问题窗口选中某条问题或某个文件节点，路径改为该问题所在的文件，选中严重级别分组时只显示项目名。焦点移到终端、按钮等没有当前项的区域时路径保持不变；项目外的文件只显示文件名。窗口变窄时末尾名称以省略号截断，不挤压右侧的状态项。读屏软件读到的状态栏路径值为“项目/目录/文件”。自动化：status_path_test.go 的 TestStatusPathFollowsTheEditorAndTheProjectTree、TestStatusPathKeepsItsItemAndNamesAFileOutsideTheProject、TestStatusPathFollowsTheProblemsSelection、TestStatusPathReusesItsStringsWhileThePathStays；Viva 无头截图由 status_path_visual_test.go 的 TestVisualStatusPath 生成（明暗主题 × 中英文 × 编辑器/项目树/问题窗口三个场景）。",
+  "notes": "对齐 IntelliJ IDEA 状态栏的导航路径：来源按用户最后聚焦的区域决定（编辑器、项目树、问题窗口），焦点落在没有当前项的区域时沿用上一个来源；来源没有当前项时回退到编辑器的文件。项目树选中和问题窗口的选中与分组都来自 Core，路径只做呈现，用现有 projectRelative 换成项目相对路径。每帧不分配：相对路径和读屏值按输入记忆，目录名用 strings.Cut 取子串。点击某一段弹出同级列表、显示文件内符号（类、方法）、以及引用/查找等其他工具窗口作为来源暂未实现。"
+}
