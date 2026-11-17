@@ -22,14 +22,59 @@ import (
 // entry of the editor's menu for that line; choosing it calls the plugin again.
 const editorActionDelay = 600 * time.Millisecond
 
+// A collection that times out is retried: a language server reports ready when its handshake
+// ends, but a large project keeps it busy importing for minutes, and the actions it would answer
+// (a main method's run and debug icons) must not stay missing until the user edits the file. The
+// delays double from editorActionRetryFirst up to editorActionRetryMax, for at most
+// editorActionRetryLimit attempts after the first, about four minutes in all.
+const (
+	editorActionRetryFirst = 2 * time.Second
+	editorActionRetryMax   = 30 * time.Second
+	editorActionRetryLimit = 10
+)
+
+// editorActionRetryDelay is the wait before retry number attempt (1-based).
+func editorActionRetryDelay(attempt int) time.Duration {
+	delay := editorActionRetryFirst
+	for i := 1; i < attempt && delay < editorActionRetryMax; i++ {
+		delay *= 2
+	}
+	return min(delay, editorActionRetryMax)
+}
+
 // scheduleEditorActions drops the document's actions and collects them again once typing pauses.
+// It starts a fresh retry budget: every trigger (an edit, a server becoming ready, a plugin
+// registering actions) deserves its own retries.
 func (a *App) scheduleEditorActions(p *project, d *document) {
+	d.actionRetries = 0
+	a.scheduleEditorActionsAfter(p, d, editorActionDelay)
+}
+
+// scheduleEditorActionsAfter drops the document's actions and collects them after delay.
+func (a *App) scheduleEditorActionsAfter(p *project, d *document, delay time.Duration) {
 	a.clearEditorActions(d)
 	if d.actionTimer != nil {
 		d.actionTimer.Stop()
 	}
 	id := d.id
-	d.actionTimer = time.AfterFunc(editorActionDelay, func() {
+	d.actionTimer = time.AfterFunc(delay, func() {
+		a.post(func(a *App) {
+			if a.project == p && p.docs.find(id) == d {
+				a.collectEditorActions(p, d)
+			}
+		})
+	})
+}
+
+// retryEditorActions collects the document's actions again after delay, keeping what the last
+// collection showed until the new answer replaces it. An edit meanwhile stops this timer and
+// schedules its own collection.
+func (a *App) retryEditorActions(p *project, d *document, delay time.Duration) {
+	if d.actionTimer != nil {
+		d.actionTimer.Stop()
+	}
+	id := d.id
+	d.actionTimer = time.AfterFunc(delay, func() {
 		a.post(func(a *App) {
 			if a.project == p && p.docs.find(id) == d {
 				a.collectEditorActions(p, d)
@@ -96,6 +141,14 @@ func (a *App) presentEditorActions(p *project, snapshot editorActionSnapshot, ac
 	}
 	if err != nil {
 		a.backgroundFailed("editor_actions", err)
+		// A busy server answers late, not never. Keep what did answer and ask again later; other
+		// failures (a refused registration, a malformed answer) would fail the same way again.
+		if errors.Is(err, context.DeadlineExceeded) && d.actionRetries < editorActionRetryLimit {
+			d.actionRetries++
+			a.retryEditorActions(p, d, editorActionRetryDelay(d.actionRetries))
+		}
+	} else {
+		d.actionRetries = 0
 	}
 	d.actions = actions
 	a.annotateEditorActions(d)

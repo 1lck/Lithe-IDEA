@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/core"
 	"path/filepath"
 	"strings"
@@ -254,7 +255,15 @@ func (s *Service) CollectEditorActions(ctx context.Context, root, path string, d
 	var failures []error
 	for _, binding := range bindings {
 		session := s.Host.Running(binding.pluginID)
-		if session == nil || session.Session.ID != binding.sessionID {
+		if session == nil {
+			// The plugin's backend is not running; releasing its session withdraws these bindings.
+			continue
+		}
+		if session.Session.ID != binding.sessionID {
+			// A restarted backend runs under a new session while this binding still names the old
+			// one. Report it instead of answering with no actions, which looks like a file
+			// without run or debug entries.
+			failures = append(failures, fmt.Errorf("%w: editor actions %q of %s belong to an ended backend session", ErrBackendUnavailable, binding.id, binding.pluginID))
 			continue
 		}
 		argument := mustMarshal(map[string]any{

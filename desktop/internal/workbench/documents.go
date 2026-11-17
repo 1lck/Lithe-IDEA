@@ -146,6 +146,9 @@ type document struct {
 	// the ID the view reports them with.
 	links       []pluginservice.EditorLink
 	actionTimer *time.Timer
+	// actionRetries counts the collections retried after a timeout since the last trigger
+	// (editor_actions.go); it bounds how long a busy server is asked again.
+	actionRetries int
 	// actionAnnotated says the line annotations show code lens titles, so clearing them is needed.
 	actionAnnotated bool
 	// actionPanel holds the lanes of the action icons and the lane menu a press opened.
