@@ -107954,6 +107954,82 @@
       }
     },
     {
+      "id": "desktop.sourceSettings.entryAdd",
+      "description": "Generic source-backed settings module list and entry list editor.",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.sourceSettings.entryKind",
+      "description": "Generic source-backed settings module list and entry list editor.",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "title": "string"
+      }
+    },
+    {
+      "id": "desktop.sourceSettings.entryRemove",
+      "description": "Generic source-backed settings module list and entry list editor.",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.sourceSettings.entryUp",
+      "description": "Generic source-backed settings module list and entry list editor.",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.sourceSettings.entryDown",
+      "description": "Generic source-backed settings module list and entry list editor.",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.sourceSettings.entryEmpty",
+      "description": "Generic source-backed settings module list and entry list editor.",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.sourceSettings.chooseTitle",
+      "description": "Generic source-backed settings module list and entry list editor.",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "title": "string"
+      }
+    },
+    {
+      "id": "desktop.sourceSettings.chooseNone",
+      "description": "Generic source-backed settings module list and entry list editor.",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.sourceSettings.cancel",
+      "description": "Generic source-backed settings module list and entry list editor.",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.sourceSettings.modules",
+      "description": "Generic source-backed settings module list and entry list editor.",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
       "id": "desktop.toolchains.global",
       "description": "Machine-wide toolchain scope selector.",
       "platforms": [

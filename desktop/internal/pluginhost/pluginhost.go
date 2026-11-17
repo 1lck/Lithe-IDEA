@@ -164,6 +164,9 @@ func Declared() Capabilities {
 	for _, name := range baseline {
 		declared[name] = []int{0}
 	}
+	// Version 1 adds module sidebars, field sections and entry lists, which the
+	// settings window's source forms render.
+	declared["sourceSettings"] = []int{0, 1}
 	return declared
 }
 

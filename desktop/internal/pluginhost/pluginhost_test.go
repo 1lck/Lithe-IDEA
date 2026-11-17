@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"slices"
 	"testing"
 )
 
@@ -66,8 +67,14 @@ func TestDeclaredServesTheBaselineOfEveryWiredCapability(t *testing.T) {
 		t.Fatalf("declared = %v", declared)
 	}
 	for _, name := range want {
-		if versions := declared[name]; len(versions) != 1 || versions[0] != 0 {
-			t.Fatalf("%s = %v, want [0]", name, versions)
+		wanted := []int{0}
+		// The settings window renders the module sidebars, sections and entry
+		// lists that version 1 adds.
+		if name == "sourceSettings" {
+			wanted = []int{0, 1}
+		}
+		if versions := declared[name]; !slices.Equal(versions, wanted) {
+			t.Fatalf("%s = %v, want %v", name, versions, wanted)
 		}
 	}
 	// Capabilities nothing here serves stay absent so their plugins are not
