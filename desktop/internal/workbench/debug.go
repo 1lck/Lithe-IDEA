@@ -54,6 +54,9 @@ type debugState struct {
 	loading         bool
 	adapters        []debugAdapter
 	selectedAdapter int
+	// adaptersStale is set when the plugins change while the adapters are read: that answer
+	// may predate the change, so they are read again before anyone uses them.
+	adaptersStale bool
 	// afterLoad are the starts waiting for the installed adapters, run once they are read.
 	afterLoad []func()
 	// preparing is set while a build provider prepares a program for debugging.
@@ -463,12 +466,43 @@ func (a *App) finishDebugAdapters(p *project, adapters []debugAdapter, err error
 		return
 	}
 	p.debug.loading = false
+	if p.debug.adaptersStale {
+		// The plugins changed during the read: read again, and keep the waiting starts for the
+		// answer that follows the change.
+		p.debug.adaptersStale = false
+		a.loadDebugAdapters(p)
+		return
+	}
 	p.debug.loaded = true
-	p.debug.adapters = adapters
+	// The selection stays on the same adapter when it is still installed.
+	selected := 0
+	if previous := p.debug.selectedAdapter; previous < len(p.debug.adapters) {
+		if index := slices.IndexFunc(adapters, func(adapter debugAdapter) bool { return sameDebugAdapter(adapter, p.debug.adapters[previous]) }); index >= 0 {
+			selected = index
+		}
+	}
+	p.debug.adapters, p.debug.selectedAdapter = adapters, selected
 	if err != nil && len(adapters) == 0 {
 		p.debug.failure = err.Error()
 	}
 	a.flushDebugAdapterWaiters(p)
+}
+
+// invalidateDebugAdapters reads the installed adapters again after the plugins changed:
+// installed, updated, enabled, disabled or removed. A list read before keeps adapters of
+// plugins that are disabled or gone and misses the ones just installed, so Debug would refuse
+// an adapter the user just enabled. A list never read is read when first needed.
+func (a *App) invalidateDebugAdapters(p *project) {
+	if p == nil {
+		return
+	}
+	switch {
+	case p.debug.loading:
+		p.debug.adaptersStale = true
+	case p.debug.loaded:
+		p.debug.loaded = false
+		a.loadDebugAdapters(p)
+	}
 }
 
 // whenDebugAdaptersLoaded runs start on the window thread once the installed adapters are

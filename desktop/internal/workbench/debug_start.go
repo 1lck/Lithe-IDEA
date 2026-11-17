@@ -870,6 +870,11 @@ func (a *App) discoverHostedPort(ctx context.Context, p *project, adapter debugA
 	if err != nil {
 		return 0, err
 	}
+	// A server may offer its commands only after it is ready, by registering them (JDT LS
+	// does): Core refuses the command until then.
+	if err := a.waitPluginServerFeature(ctx, server, featureExecuteCommand, pluginServerStartTimeout); err != nil {
+		return 0, err
+	}
 	// Core's discovery timer bounds the whole wait; the command itself only
 	// needs a ceiling so a stuck server cannot outlive the stream.
 	answer, err := a.plugins.ExecuteLanguageCommand(ctx, server.session, endpoint.Command, nil, pluginServerStartTimeout)
@@ -922,6 +927,41 @@ func (a *App) waitReadyPluginServer(ctx context.Context, p *project, pluginID, l
 			return nil, ctx.Err()
 		case <-deadline.C:
 			return nil, errors.New("the language server did not become ready in time")
+		case <-ticker.C:
+		}
+	}
+}
+
+// errPluginServerFeatureMissing is a ready language server that did not offer a feature the
+// host needs within the wait.
+var errPluginServerFeatureMissing = errors.New("the language server does not offer the feature")
+
+// waitPluginServerFeature waits until the ready server offers feature, as Core's
+// featuresChanged event reports it, or at most timeout. The features belong to the window
+// thread, so each look is posted there.
+func (a *App) waitPluginServerFeature(ctx context.Context, server *pluginServer, feature string, timeout time.Duration) error {
+	deadline := time.NewTimer(timeout)
+	defer deadline.Stop()
+	ticker := time.NewTicker(debugHostedPollInterval)
+	defer ticker.Stop()
+	for {
+		offered := make(chan bool, 1)
+		a.post(func(a *App) { offered <- server.features[feature] })
+		select {
+		case ok := <-offered:
+			if ok {
+				return nil
+			}
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-deadline.C:
+			return fmt.Errorf("%w: %s", errPluginServerFeatureMissing, feature)
+		}
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-deadline.C:
+			return fmt.Errorf("%w: %s", errPluginServerFeatureMissing, feature)
 		case <-ticker.C:
 		}
 	}

@@ -28,9 +28,9 @@ const (
 	methodRunStop    = pluginhost.MethodPrefix + "run/stop"
 	notifyRunDidExit = pluginhost.MethodPrefix + "run/didExit"
 
-	// runDebugConnectTimeout bounds waiting for a debuggee to open the port the
-	// backend named. A runtime that never listens must not hold the run forever.
-	runDebugConnectTimeout = 30 * time.Second
+	// RunDebugConnectTimeout bounds waiting for a debuggee to open the port its
+	// run listens on. A runtime that never listens must not hold the run forever.
+	RunDebugConnectTimeout = 30 * time.Second
 	// runDebugPollInterval is how often the port is probed while waiting.
 	runDebugPollInterval = 100 * time.Millisecond
 	// runStopTimeout bounds waiting, beyond the stop time, for a stopped run's process tree to be reaped.
@@ -578,7 +578,7 @@ func (r *Runs) attachDebugger(ctx context.Context, run *hostRun) {
 			r.stopRun(run, false)
 		}
 	}
-	if err := waitForPort(ctx, port, run.done, runDebugConnectTimeout); err != nil {
+	if err := WaitForDebugPort(ctx, port, run.done, RunDebugConnectTimeout); err != nil {
 		fail(err)
 		return
 	}
@@ -598,9 +598,17 @@ func (r *Runs) attachDebugger(ctx context.Context, run *hostRun) {
 	run.debug.Store(&session)
 }
 
-// waitForPort polls a loopback port until something accepts, the run ends, or the
-// timeout passes.
-func waitForPort(ctx context.Context, port int, ended <-chan struct{}, timeout time.Duration) error {
+// ErrDebuggeeEnded and ErrDebugPortTimeout are why WaitForDebugPort gave up: the
+// debuggee's process ended, or its port did not open within the timeout.
+var (
+	ErrDebuggeeEnded    = errors.New("the process ended before its debug port opened")
+	ErrDebugPortTimeout = errors.New("the debug port did not open in time")
+)
+
+// WaitForDebugPort polls a debuggee's loopback port until something accepts, ended
+// is closed, or the timeout passes. The probe connects and closes without a
+// handshake; a runtime suspended for a debugger keeps listening after it.
+func WaitForDebugPort(ctx context.Context, port int, ended <-chan struct{}, timeout time.Duration) error {
 	deadline := time.NewTimer(timeout)
 	defer deadline.Stop()
 	ticker := time.NewTicker(runDebugPollInterval)
@@ -617,9 +625,9 @@ func waitForPort(ctx context.Context, port int, ended <-chan struct{}, timeout t
 		case <-ctx.Done():
 			return ctx.Err()
 		case <-ended:
-			return errors.New("the process ended before its debug port opened")
+			return ErrDebuggeeEnded
 		case <-deadline.C:
-			return fmt.Errorf("the debug port %d did not open in time", port)
+			return fmt.Errorf("%w (port %d)", ErrDebugPortTimeout, port)
 		case <-ticker.C:
 		}
 	}

@@ -27,6 +27,7 @@ const (
 	// The features a server is offered with, as Core's featuresChanged event names them.
 	featureDocumentSymbols = "documentSymbols"
 	featureSemanticTokens  = "semanticTokens"
+	featureExecuteCommand  = "executeCommand"
 )
 
 // editorServer is the ready language server of d that offers feature, and false when there

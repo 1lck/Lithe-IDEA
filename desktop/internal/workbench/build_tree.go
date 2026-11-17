@@ -516,7 +516,7 @@ func buildPrimaryAction(instance *buildInstance, target *core.BuildTarget) (buil
 	}
 	for _, run := range instance.System.Runs {
 		if buildRunApplies(run, *target) {
-			return buildTargetAction{runID: run.ID, name: run.ActionName(target.Name), debug: run.DebugAdapter != ""}, true
+			return buildTargetAction{runID: run.ID, name: run.ActionName(target.Name), debug: run.Debuggable()}, true
 		}
 	}
 	if entries := buildTargetRunEntries(instance, target.ID); len(entries) != 0 {

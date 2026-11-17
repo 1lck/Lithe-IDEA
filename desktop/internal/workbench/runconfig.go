@@ -169,6 +169,12 @@ func (a *App) runConfiguration(p *project, id string) {
 // refused start returns a *buildRefusal and reserves nothing; a reserved run that cannot launch
 // ends as failed with the reason, which the returned operation's IDE record keeps.
 func (a *App) startRunConfiguration(p *project, id string) (*buildOperation, error) {
+	return a.startRunConfigurationWith(p, id, nil)
+}
+
+// startRunConfigurationWith is startRunConfiguration; debug, when set, prepares the service
+// suspended for the adapter the host selected (debugRunConfiguration), and Rerun debugs again.
+func (a *App) startRunConfigurationWith(p *project, id string, debug *connectionDebug) (*buildOperation, error) {
 	configuration := p.runConfigs.configuration(id)
 	if configuration == nil {
 		return nil, refuseBuild(refusalNotFound, "unknown run configuration")
@@ -186,9 +192,18 @@ func (a *App) startRunConfiguration(p *project, id string) (*buildOperation, err
 		a.notifyError(a.text.Build.TargetMissing)
 		return nil, refuseBuild(refusalNotReady, a.text.Build.TargetMissing)
 	}
+	configurationType := ""
+	if debug != nil {
+		configurationType = debug.launch.ConfigurationType
+	}
 	op := a.beginBuildOperation(p, "run", configuration.Name, id, func(a *App, p *project) {
+		if debug != nil {
+			a.debugRunConfiguration(p, id, configurationType)
+			return
+		}
 		a.runConfiguration(p, id)
 	})
+	op.debug = debug
 	// The run starts a process on the files on disk, so unsaved documents are saved first,
 	// as a rerun does; a failed save keeps the run from starting. The save reports its own
 	// failure, so the window's status only drops the preparation.
@@ -220,9 +235,13 @@ func (a *App) startRunConfiguration(p *project, id string) (*buildOperation, err
 					return
 				}
 				var options *core.RunLaunchOptions
+				launch := inputs.LaunchOptions
+				if debug != nil {
+					launch.Debug = &debug.launch
+				}
 				// An application run without choices keeps the request older providers serve.
-				if inputs.LaunchOptions.Customized() {
-					options = &inputs.LaunchOptions
+				if launch.Customized() {
+					options = &launch
 				}
 				a.runBuildTargetWith(p, op, &p.build.instances[index], inputs.Reference.ProjectID, inputs.Reference.TargetID, inputs.Reference.Run, options)
 			}

@@ -497,16 +497,16 @@ func TestWaitForPortGivesUpWhenTheProcessEnds(t *testing.T) {
 	_ = listener.Close()
 	ended := make(chan struct{})
 	close(ended)
-	err = waitForPort(context.Background(), port, ended, time.Minute)
+	err = WaitForDebugPort(context.Background(), port, ended, time.Minute)
 	if err == nil || !strings.Contains(err.Error(), "ended") {
 		t.Fatalf("err = %v, want the process-ended failure", err)
 	}
-	if err := waitForPort(context.Background(), port, make(chan struct{}), 150*time.Millisecond); err == nil || !strings.Contains(err.Error(), "did not open") {
+	if err := WaitForDebugPort(context.Background(), port, make(chan struct{}), 150*time.Millisecond); err == nil || !strings.Contains(err.Error(), "did not open") {
 		t.Fatalf("err = %v, want the timeout", err)
 	}
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
-	if err := waitForPort(ctx, port, make(chan struct{}), time.Minute); err == nil {
+	if err := WaitForDebugPort(ctx, port, make(chan struct{}), time.Minute); err == nil {
 		t.Fatal("a cancelled wait succeeded")
 	}
 }

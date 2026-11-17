@@ -111,8 +111,18 @@ type BuildRunDeclaration struct {
 	Execution string
 	Tags      []string
 	// DebugAdapter is the local ID of the plugin's own adapter the run declares for native
-	// debug preparation (`debug.adapter`), empty when the run cannot be debugged.
+	// debug preparation (`debug.adapter`), empty when the run does not debug that way.
 	DebugAdapter string
+	// DebugConfigurationType is the public debug adapter type a service run declares for
+	// registry connection debugging (`debug.configurationType`): the run listens on a port the
+	// host chooses, and the one enabled adapter of that type attaches to it. Empty when the
+	// run does not debug that way.
+	DebugConfigurationType string
+}
+
+// Debuggable reports whether the run declares a way to debug it.
+func (r BuildRunDeclaration) Debuggable() bool {
+	return r.DebugAdapter != "" || r.DebugConfigurationType != ""
 }
 
 // BuildPlugins reads the newest enabled version of every plugin that declares
@@ -175,7 +185,8 @@ type rawBuildManifest struct {
 				Tags []string `json:"tags"`
 			} `json:"fromTargets"`
 			Debug *struct {
-				Adapter string `json:"adapter"`
+				Adapter           string `json:"adapter"`
+				ConfigurationType string `json:"configurationType"`
 			} `json:"debug"`
 		} `json:"run"`
 		Test *struct {
@@ -235,6 +246,7 @@ func parseBuildSystems(manifest json.RawMessage) (map[string]BuildSystemDeclarat
 			}
 			if run.Debug != nil {
 				declaration.DebugAdapter = run.Debug.Adapter
+				declaration.DebugConfigurationType = run.Debug.ConfigurationType
 			}
 			system.Runs = append(system.Runs, declaration)
 		}
