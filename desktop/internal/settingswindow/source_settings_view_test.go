@@ -39,19 +39,26 @@ func (s *nativeFormFixture) SaveSources(ctx context.Context, _ pluginservice.Set
 }
 func nativeFormSource(t *testing.T, adjust ...func(*core.SourceSettingsSnapshot)) *nativeFormFixture {
 	t.Helper()
+	return sourceFormFixture(t, "plugins/settings-sources.json", map[string]string{"child/tool.json": `{"target":"two"}`}, adjust...)
+}
+
+// moduleFormSource is the module structure fixture: a sidebar of nested modules
+// with tabs, entry lists and a read-only module.
+func moduleFormSource(t *testing.T, adjust ...func(*core.SourceSettingsSnapshot)) *nativeFormFixture {
+	t.Helper()
+	return sourceFormFixture(t, "plugins/settings-sources-modules.json", map[string]string{"app/tool.xml": "<app/>", "core/build.file": "core"}, adjust...)
+}
+
+// sourceFormFixture captures a Core fixture snapshot over a workspace holding
+// files, each source's revision set to the bytes written for it.
+func sourceFormFixture(t *testing.T, name string, files map[string]string, adjust ...func(*core.SourceSettingsSnapshot)) *nativeFormFixture {
+	t.Helper()
 	manifest, err := os.ReadFile(contractfixture.Path("fixtures/settings/source-editor.plugin.json"))
 	if err != nil {
 		t.Fatal(err)
 	}
 	root := t.TempDir()
-	if err := os.Mkdir(filepath.Join(root, "child"), 0700); err != nil {
-		t.Fatal(err)
-	}
-	contents := []byte(`{"target":"two"}`)
-	if err := os.WriteFile(filepath.Join(root, "child/tool.json"), contents, 0600); err != nil {
-		t.Fatal(err)
-	}
-	data, err := os.ReadFile(contractfixture.CoreFixture("plugins/settings-sources.json"))
+	data, err := os.ReadFile(contractfixture.CoreFixture(name))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -61,7 +68,19 @@ func nativeFormSource(t *testing.T, adjust ...func(*core.SourceSettingsSnapshot)
 	if err := json.Unmarshal(data, &fixture); err != nil {
 		t.Fatal(err)
 	}
-	fixture.Snapshot.Sources[1].Revision = fmt.Sprintf("sha256:%x", sha256.Sum256(contents))
+	for path, contents := range files {
+		if err := os.MkdirAll(filepath.Join(root, filepath.Dir(path)), 0700); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(root, path), []byte(contents), 0600); err != nil {
+			t.Fatal(err)
+		}
+		for index := range fixture.Snapshot.Sources {
+			if fixture.Snapshot.Sources[index].Path == path {
+				fixture.Snapshot.Sources[index].Revision = fmt.Sprintf("sha256:%x", sha256.Sum256([]byte(contents)))
+			}
+		}
+	}
 	for _, fn := range adjust {
 		fn(&fixture.Snapshot)
 	}

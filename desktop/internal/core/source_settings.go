@@ -30,18 +30,61 @@ type SettingsSource struct {
 	Revision string               `json:"revision"`
 	Writable bool                 `json:"writable"`
 	Fields   []SourceSettingField `json:"fields"`
+	// Parent names an earlier source of the same sidebar group under which
+	// the module list nests this one.
+	Parent string `json:"parent,omitempty"`
 }
 
 type SourceSettingField struct {
-	ID              string                `json:"id"`
-	Title           string                `json:"title"`
-	Description     string                `json:"description,omitempty"`
+	ID          string `json:"id"`
+	Title       string `json:"title"`
+	Description string `json:"description,omitempty"`
+	// Section is the tab (sidebar) or subheading (form) holding the field.
+	Section         string                `json:"section,omitempty"`
 	Kind            string                `json:"kind"`
 	Value           json.RawMessage       `json:"value"`
 	InheritedValue  json.RawMessage       `json:"inheritedValue,omitempty"`
 	EffectiveValue  json.RawMessage       `json:"effectiveValue"`
 	EffectiveSource string                `json:"effectiveSource"`
 	Options         []PluginSettingOption `json:"options,omitempty"`
+	// EntryKinds and Attributes describe an entryList's add menu and columns.
+	EntryKinds []SourceEntryKind      `json:"entryKinds,omitempty"`
+	Attributes []SourceEntryAttribute `json:"attributes,omitempty"`
+}
+
+// SourceEntryKind is one item of an entryList's add menu: a native file or
+// directory picker, or a choice among values the plugin offers now.
+type SourceEntryKind struct {
+	ID         string              `json:"id"`
+	Title      string              `json:"title"`
+	Input      string              `json:"input"`
+	Extensions []string            `json:"extensions,omitempty"`
+	Choices    []SourceEntryChoice `json:"choices,omitempty"`
+}
+
+type SourceEntryChoice struct {
+	Value  string `json:"value"`
+	Title  string `json:"title"`
+	Detail string `json:"detail,omitempty"`
+}
+
+// SourceEntryAttribute is a per-entry boolean or enum column.
+type SourceEntryAttribute struct {
+	ID      string                `json:"id"`
+	Title   string                `json:"title"`
+	Kind    string                `json:"kind"`
+	Options []PluginSettingOption `json:"options,omitempty"`
+}
+
+// SourceEntry is one ordered entryList item. Title and Detail are display text
+// Core ignores when it compares and plans edits.
+type SourceEntry struct {
+	Kind   string `json:"kind"`
+	Value  string `json:"value"`
+	Title  string `json:"title,omitempty"`
+	Detail string `json:"detail,omitempty"`
+	// Attributes holds a bool or an option value per declared attribute ID.
+	Attributes map[string]any `json:"attributes,omitempty"`
 }
 
 // SourceSettingInput is the unparsed view draft projected by Core. Inherit
@@ -51,6 +94,8 @@ type SourceSettingInput struct {
 	Choice  string `json:"choice"`
 	On      bool   `json:"on"`
 	Inherit bool   `json:"inherit"`
+	// Entries is the ordered entryList draft; other kinds leave it empty.
+	Entries []SourceEntry `json:"entries"`
 }
 
 type SourceSettingsLimits struct {

@@ -3,6 +3,7 @@ package settingswindow
 import (
 	"context"
 	"errors"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -10,6 +11,7 @@ import (
 	"github.com/1lck/Lithe-IDEA/desktop/internal/configfile"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/core"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/i18n"
+	"github.com/1lck/Lithe-IDEA/desktop/internal/icons"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/pluginservice"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/pluginsettings"
 	"github.com/vivaui/viva/app"
@@ -23,12 +25,12 @@ type sourceSettingControl struct {
 	inherited core.SourceSettingInput
 	choices   []int
 	selected  int
-}
-
-type sourceSettingsRow struct {
-	group  int
-	source int
-	field  int
+	// entry is the selected entry of an entryList, -1 for none; menu whether its
+	// add menu is open; attributes the option index of each entry's enum columns,
+	// which its drop-downs bind to.
+	entry      int
+	menu       bool
+	attributes [][]int
 }
 
 // A source form owns only presentation drafts. The worker receives a captured
@@ -53,10 +55,19 @@ type sourceSettingsForm struct {
 	reload             bool
 	busy, stale, saved bool
 	failed             error
+	// The module list of a form with a sidebar group, the item it shows (by
+	// group and source ID, so a reload keeps it) and each source's open tab.
+	nav            []sourceNavItem
+	navTree        ui.TreeState
+	selectedGroup  string
+	selectedSource string
+	tabs           map[string]*string
+	chooser        sourceEntryChooser
 }
 
 func newSourceSettingsForm(loader PluginSettingsLoader, owner pluginservice.SettingsEditor, action string, editor pluginsettings.SourceEditor) *sourceSettingsForm {
-	p := &sourceSettingsForm{loader: loader, owner: owner, action: action}
+	p := &sourceSettingsForm{loader: loader, owner: owner, action: action, tabs: make(map[string]*string)}
+	p.navTree.Node, p.navTree.RowHeight, p.navTree.Indent = p.navNode, 28, 14
 	p.effect = ui.NewEffect[pluginsettings.SourceEditor, int](func(parent context.Context) (pluginsettings.SourceEditor, error) {
 		ctx, cancel := context.WithTimeout(parent, 120*time.Second)
 		defer cancel()
@@ -82,6 +93,7 @@ func (p *sourceSettingsForm) apply(editor pluginsettings.SourceEditor) {
 	p.add = make(map[string]*int)
 	p.pending = make(map[string]map[string]core.SourceSettingInput)
 	p.tableSources = make(map[string]bool)
+	p.chooser.open = false
 	for _, section := range editor.State.Layout {
 		if editor.State.Snapshot.Groups[section.Group].Layout == "table" {
 			for _, index := range section.Sources {
@@ -93,7 +105,7 @@ func (p *sourceSettingsForm) apply(editor pluginsettings.SourceEditor) {
 		fields := make(map[string]*sourceSettingControl)
 		for _, field := range source.Fields {
 			input := editor.State.Inputs[source.ID][field.ID]
-			control := &sourceSettingControl{input: input, base: input, inherited: editor.State.InheritedInputs[source.ID][field.ID]}
+			control := &sourceSettingControl{input: cloneSourceInput(input), base: cloneSourceInput(input), inherited: editor.State.InheritedInputs[source.ID][field.ID], entry: -1}
 			control.choices = make([]int, len(field.Options)+1)
 			for index := range control.choices {
 				control.choices[index] = index
@@ -101,6 +113,7 @@ func (p *sourceSettingsForm) apply(editor pluginsettings.SourceEditor) {
 					control.selected = index
 				}
 			}
+			control.syncAttributes(field)
 			fields[field.ID] = control
 		}
 		p.controls[source.ID] = fields
@@ -109,34 +122,86 @@ func (p *sourceSettingsForm) apply(editor pluginsettings.SourceEditor) {
 	p.layout()
 }
 
+// syncAttributes points each enum column's drop-down at its entry's value.
+func (control *sourceSettingControl) syncAttributes(field core.SourceSettingField) {
+	control.attributes = control.attributes[:0]
+	for _, entry := range control.input.Entries {
+		row := make([]int, len(field.Attributes))
+		for column, attribute := range field.Attributes {
+			value := entryChoice(entry, attribute)
+			for index, option := range attribute.Options {
+				if option.Value == value {
+					row[column] = index
+				}
+			}
+		}
+		control.attributes = append(control.attributes, row)
+	}
+}
+
 func (p *sourceSettingsForm) layout() {
 	p.rows = p.rows[:0]
 	p.available = make(map[string][]int)
 	p.layoutDirty = false
+	p.navigation()
+	snapshot := &p.editor.State.Snapshot
+	all := func(core.SourceSettingField) bool { return true }
 	for _, section := range p.editor.State.Layout {
 		groupIndex := section.Group
-		group := p.editor.State.Snapshot.Groups[groupIndex]
-		p.rows = append(p.rows, sourceSettingsRow{group: groupIndex, source: -1, field: -1})
+		group := snapshot.Groups[groupIndex]
+		// With a module list only the selected item is shown beside it.
+		if len(p.nav) > 0 && group.ID != p.selectedGroup {
+			continue
+		}
+		if group.Layout == "sidebar" {
+			for _, sourceIndex := range section.Sources {
+				source := snapshot.Sources[sourceIndex]
+				if source.ID != p.selectedSource {
+					continue
+				}
+				p.rows = append(p.rows, sourceSettingsRow{kind: sourceRowModule, group: groupIndex, source: sourceIndex, field: -1, entry: -1})
+				sections := sourceSections(source)
+				tab := p.tabs[source.ID]
+				if tab == nil {
+					tab = new(string)
+					p.tabs[source.ID] = tab
+				}
+				if !slices.Contains(sections, *tab) {
+					*tab = ""
+					if len(sections) > 0 {
+						*tab = sections[0]
+					}
+				}
+				// One section needs no tab to choose it.
+				if len(sections) > 1 {
+					p.rows = append(p.rows, sourceSettingsRow{kind: sourceRowTabs, group: groupIndex, source: sourceIndex, field: -1, entry: -1})
+				}
+				current := *tab
+				p.fieldRows(groupIndex, sourceIndex, func(field core.SourceSettingField) bool {
+					return field.Section == "" || field.Section == current
+				}, false)
+			}
+			continue
+		}
+		p.rows = append(p.rows, sourceSettingsRow{kind: sourceRowGroup, group: groupIndex, source: -1, field: -1, entry: -1})
 		if p.add[group.ID] == nil {
 			p.add[group.ID] = new(int)
 		}
 		for _, sourceIndex := range section.Sources {
-			source := p.editor.State.Snapshot.Sources[sourceIndex]
+			source := snapshot.Sources[sourceIndex]
 			if group.Layout == "table" {
 				visible := false
 				for _, control := range p.controls[source.ID] {
 					visible = visible || !control.input.Inherit
 				}
 				if visible {
-					p.rows = append(p.rows, sourceSettingsRow{group: groupIndex, source: sourceIndex, field: -1})
+					p.rows = append(p.rows, sourceSettingsRow{kind: sourceRowTable, group: groupIndex, source: sourceIndex, field: -1, entry: -1})
 				}
 				if !visible && source.Writable {
 					p.available[group.ID] = append(p.available[group.ID], sourceIndex)
 				}
 			} else {
-				for fieldIndex := range source.Fields {
-					p.rows = append(p.rows, sourceSettingsRow{group: groupIndex, source: sourceIndex, field: fieldIndex})
-				}
+				p.fieldRows(groupIndex, sourceIndex, all, true)
 			}
 		}
 		if available := p.available[group.ID]; len(available) > 0 {
@@ -166,7 +231,7 @@ func (p *sourceSettingsForm) edits() []core.SourceSettingsEdits {
 
 func (p *sourceSettingsForm) changed(source, field string) {
 	control := p.controls[source][field]
-	if control.input == control.base {
+	if sameSourceInput(control.input, control.base) {
 		delete(p.pending[source], field)
 		if len(p.pending[source]) == 0 {
 			delete(p.pending, source)
@@ -236,63 +301,166 @@ func (w *window) sourceSettingsPanel(c ui.C, p *sourceSettingsForm) {
 		if p.saved {
 			ui.Text(c, i18n.Shared(language, "desktop.pluginSettings.saved")).FontSize(12).Color(w.pal.muted)
 		}
-		ui.List(c, &p.list, len(p.rows), func(row ui.ListRow) {
-			item := p.rows[row.Index]
-			group := p.editor.State.Snapshot.Groups[item.group]
-			row.Element.FillWidth().Children(func() {
-				if item.source < 0 {
-					w.sourceSettingsGroup(row.C, p, group)
-					return
+		rows := func() {
+			ui.List(c, &p.list, len(p.rows), func(row ui.ListRow) {
+				row.Element.FillWidth().Children(func() { w.sourceSettingsRow(row.C, p, p.rows[row.Index]) })
+			}).Scrollbars().FillWidth().Grow(1).MinHeight(settingsListMinHeight).Label(p.editor.State.Snapshot.Title)
+		}
+		if len(p.nav) == 0 {
+			rows()
+			return
+		}
+		ui.Row(c).FillWidth().Grow(1).MinHeight(settingsListMinHeight).Children(func() {
+			ui.Tree(c, &p.navTree, len(p.nav), p.navLabel, func(i int) { w.sourceNavContent(c, p, i) }).
+				Scrollbars().Width(sourceNavWidth).FillHeight().Shrink(0).Label(i18n.Shared(language, "desktop.sourceSettings.modules"))
+			if i, ok := p.navTree.Chosen(); ok && i < len(p.nav) && !p.nav[i].heading {
+				p.selectNav(p.nav[i])
+			}
+			ui.Column(c).Width(1).FillHeight().Shrink(0).Background(w.pal.line)
+			ui.Column(c).Grow(1).MinWidth(0).FillHeight().PadLeft(14).Children(rows)
+		})
+	})
+	w.sourceEntryChooser(c, p)
+	// A click that selected a module or tab or changed an entry list changed the
+	// rows being declared; lay them out again before the next paint.
+	if p.layoutDirty {
+		c.After(func() {
+			if p.layoutDirty {
+				p.layout()
+			}
+		})
+	}
+}
+
+// sourceNavWidth is the width of the module list beside a sidebar form.
+const sourceNavWidth = 168
+
+func (p *sourceSettingsForm) navNode(i int) ui.TreeNode {
+	if i < 0 || i >= len(p.nav) {
+		return ui.TreeNode{}
+	}
+	item := p.nav[i]
+	return ui.TreeNode{Depth: item.depth, Selected: !item.heading && p.navSelected(item)}
+}
+
+func (p *sourceSettingsForm) navLabel(i int) string {
+	if i < 0 || i >= len(p.nav) {
+		return ""
+	}
+	if item := p.nav[i]; item.source >= 0 {
+		return p.editor.State.Snapshot.Sources[item.source].Title
+	}
+	return p.editor.State.Snapshot.Groups[p.nav[i].group].Title
+}
+
+func (w *window) sourceNavContent(c ui.C, p *sourceSettingsForm, i int) {
+	if i < 0 || i >= len(p.nav) {
+		return
+	}
+	item := p.nav[i]
+	if item.heading {
+		ui.Text(c, p.navLabel(i)).FontSize(11).Weight(gfx.WeightSemibold).Color(w.pal.muted).Grow(1).MinWidth(0).Ellipsis()
+		return
+	}
+	icon := icons.LayoutGrid
+	if item.source >= 0 {
+		icon = icons.Folder
+	}
+	ui.Row(c).Grow(1).MinWidth(0).Gap(6).Items(ui.Center).Children(func() {
+		ui.Icon(c, icon).Size(14, 14).Color(w.pal.muted)
+		ui.Text(c, p.navLabel(i)).FontSize(13).Color(w.pal.text).Grow(1).MinWidth(0).Ellipsis()
+	})
+}
+
+// sourceSettingsRow declares one row of a source form's list.
+func (w *window) sourceSettingsRow(c ui.C, p *sourceSettingsForm, item sourceSettingsRow) {
+	language := w.marketLanguage()
+	snapshot := &p.editor.State.Snapshot
+	group := snapshot.Groups[item.group]
+	switch item.kind {
+	case sourceRowGroup:
+		w.sourceSettingsGroup(c, p, group)
+		return
+	case sourceRowModule:
+		source := snapshot.Sources[item.source]
+		ui.Row(c).FillWidth().Items(ui.Center).Gap(8).PadY(6).Children(func() {
+			ui.Text(c, source.Title).FontSize(15).Weight(gfx.WeightSemibold).Color(w.pal.text).Shrink(0)
+			ui.Spacer(c)
+			ui.Text(c, source.Path).FontSize(11).Color(w.pal.muted).Shrink(1).MinWidth(0).Ellipsis()
+		})
+		return
+	case sourceRowTabs:
+		source := snapshot.Sources[item.source]
+		tab := p.tabs[source.ID]
+		before := *tab
+		ui.Tabs(c, tab, sourceSections(source), func(section string) string { return section })
+		if *tab != before {
+			p.layoutDirty = true
+		}
+		return
+	case sourceRowEntry:
+		w.sourceEntryRow(c, p, snapshot.Sources[item.source], snapshot.Sources[item.source].Fields[item.field], item.entry)
+		return
+	}
+	source := snapshot.Sources[item.source]
+	if item.kind == sourceRowTable {
+		ui.Row(c).FillWidth().MinHeight(36).Items(ui.Center).Gap(8).Children(func() {
+			ui.Text(c, source.Title).FontSize(12).Color(w.pal.text).Grow(1).Ellipsis()
+			w.infoButton(c, source.Path)
+			for _, field := range source.Fields {
+				w.sourceSettingsControl(c.Key(field.ID), p, source, field)
+			}
+			if ui.Button(c, i18n.Shared(language, "desktop.sourceSettings.remove")).Outline().Disabled(p.busy || !source.Writable).Clicked() {
+				for id, control := range p.controls[source.ID] {
+					control.input = cloneSourceInput(control.inherited)
+					control.selected = 0
+					p.changed(source.ID, id)
 				}
-				source := p.editor.State.Snapshot.Sources[item.source]
-				if item.field >= 0 {
-					field := source.Fields[item.field]
-					ui.Column(row.C).FillWidth().Gap(5).PadY(6).Children(func() {
-						ui.Row(row.C).FillWidth().Items(ui.Center).Gap(8).Children(func() {
-							if field.Kind == "boolean" {
-								w.sourceSettingsControl(row.C, p, source, field)
-							} else {
-								ui.Text(row.C, field.Title).FontSize(12).Weight(gfx.WeightSemibold).Color(w.pal.text)
-							}
-							if field.Description != "" {
-								w.infoButton(row.C, field.Description)
-							}
-							ui.Spacer(row.C)
-							if item.field == 0 {
-								ui.Text(row.C, source.Path).FontSize(11).Color(w.pal.muted).Ellipsis()
-							}
-						})
-						if field.Kind != "boolean" {
-							w.sourceSettingsControl(row.C, p, source, field)
-						}
-						if field.EffectiveSource != "" {
-							ui.Text(row.C, field.EffectiveSource).FontSize(11).Color(w.pal.muted)
-						}
-						// A source the plugin projects read-only has nothing to reset.
-						if source.Writable && field.Kind != "enum" && !controlInherits(p, source.ID, field.ID) && ui.Button(row.C, i18n.Shared(language, "desktop.pluginSettings.reset")).Link().Disabled(p.busy || p.stale || !source.Writable || controlInherits(p, source.ID, field.ID)).Clicked() {
-							control := p.controls[source.ID][field.ID]
-							control.input = control.inherited
-							p.changed(source.ID, field.ID)
-						}
-					})
-				} else {
-					ui.Row(row.C).FillWidth().MinHeight(36).Items(ui.Center).Gap(8).Children(func() {
-						ui.Text(row.C, source.Title).FontSize(12).Color(w.pal.text).Grow(1).Ellipsis()
-						w.infoButton(row.C, source.Path)
-						for _, field := range source.Fields {
-							w.sourceSettingsControl(row.C.Key(field.ID), p, source, field)
-						}
-						if ui.Button(row.C, i18n.Shared(language, "desktop.sourceSettings.remove")).Outline().Disabled(p.busy || !source.Writable).Clicked() {
-							for id, control := range p.controls[source.ID] {
-								control.input = control.inherited
-								control.selected = 0
-								p.changed(source.ID, id)
-							}
-						}
-					})
-				}
-			})
-		}).Scrollbars().FillWidth().Grow(1).MinHeight(settingsListMinHeight).Label(p.editor.State.Snapshot.Title)
+			}
+		})
+		return
+	}
+	field := source.Fields[item.field]
+	ui.Column(c).FillWidth().Gap(5).PadY(6).Children(func() {
+		if item.heading != "" {
+			ui.Text(c, item.heading).FontSize(13).Weight(gfx.WeightSemibold).Color(w.pal.text).PadTop(6)
+		}
+		ui.Row(c).FillWidth().Items(ui.Center).Gap(8).Children(func() {
+			if field.Kind == "boolean" {
+				w.sourceSettingsControl(c, p, source, field)
+			} else {
+				ui.Text(c, field.Title).FontSize(12).Weight(gfx.WeightSemibold).Color(w.pal.text)
+			}
+			if field.Description != "" {
+				w.infoButton(c, field.Description)
+			}
+			ui.Spacer(c)
+			// An entry list's rows follow it, so its origin goes beside its title.
+			if field.Kind == "entryList" && field.EffectiveSource != "" {
+				ui.Text(c, field.EffectiveSource).FontSize(11).Color(w.pal.muted).Shrink(1).MinWidth(0).Ellipsis()
+			} else if item.field == 0 && group.Layout != "sidebar" {
+				ui.Text(c, source.Path).FontSize(11).Color(w.pal.muted).Ellipsis()
+			}
+		})
+		if field.Kind == "entryList" {
+			w.sourceEffectiveHint(c, p, source, field)
+			w.sourceEntryToolbar(c, p, source, field)
+		} else if field.Kind != "boolean" {
+			w.sourceSettingsControl(c, p, source, field)
+		}
+		if field.EffectiveSource != "" && field.Kind != "entryList" {
+			ui.Text(c, field.EffectiveSource).FontSize(11).Color(w.pal.muted)
+		}
+		// A source the plugin projects read-only has nothing to reset, and an entry
+		// list only resets to an inherited list the plugin knows.
+		if source.Writable && field.Kind != "enum" && (field.Kind != "entryList" || inheritedKnown(field)) && !controlInherits(p, source.ID, field.ID) && ui.Button(c, i18n.Shared(language, "desktop.pluginSettings.reset")).Link().Disabled(p.busy || p.stale).Clicked() {
+			control := p.controls[source.ID][field.ID]
+			control.input = cloneSourceInput(control.inherited)
+			control.entry = -1
+			control.syncAttributes(field)
+			p.changed(source.ID, field.ID)
+			p.layoutDirty = true
+		}
 	})
 }
 
@@ -419,6 +587,12 @@ func (w *window) sourceSettingsControl(c ui.C, p *sourceSettingsForm, source cor
 			})
 		}
 	}
+	w.sourceEffectiveHint(c, p, source, field)
+}
+
+// sourceEffectiveHint shows the value the tool uses when it differs from the draft or is inherited.
+func (w *window) sourceEffectiveHint(c ui.C, p *sourceSettingsForm, source core.SettingsSource, field core.SourceSettingField) {
+	language := w.marketLanguage()
 	if display, ok := p.editor.State.EffectiveDisplays[source.ID][field.ID]; ok {
 		value := display.Text
 		switch display.Kind {
@@ -438,7 +612,12 @@ func (w *window) sourceSettingsControl(c ui.C, p *sourceSettingsForm, source cor
 		}
 		ui.Text(c, hint).FontSize(11).Color(w.pal.muted).Ellipsis()
 	}
+}
 
+// inheritedKnown reports whether the plugin projected the value a field takes
+// without its override.
+func inheritedKnown(field core.SourceSettingField) bool {
+	return len(field.InheritedValue) > 0 && string(field.InheritedValue) != "null"
 }
 
 func controlInherits(p *sourceSettingsForm, source, field string) bool {
