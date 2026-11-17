@@ -112,7 +112,9 @@ func (a *App) confirmDeleteTag(p *project) {
 	if b.busy {
 		return
 	}
-	name := b.target.ShortName
+	tag := b.target
+	name := tag.ShortName
+	root := a.branchRoot(p)
 	a.performed("git.tag.delete", surfaceButton)
 	a.runBranchWrite(p, "git_tag_delete", func(reason string) string {
 		return i18n.SharedFormat(a.language(), "desktop.tags.deleteFailed", map[string]string{"reason": reason})
@@ -121,6 +123,7 @@ func (a *App) confirmDeleteTag(p *project) {
 			return kernel.GitDeleteTag(ctx, root, name)
 		},
 		func(a *App, status core.GitStatus) {
+			a.dropLogReference(p, root, tag.FullName)
 			a.notifySuccess(i18n.SharedFormat(a.language(), "desktop.tags.deleted", map[string]string{"name": name}))
 		})
 }

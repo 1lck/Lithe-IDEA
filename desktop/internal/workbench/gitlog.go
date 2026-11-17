@@ -254,6 +254,9 @@ func (a *App) loadLog(p *project) {
 	expanded, limit := l.expanded, a.gitLogLimit()
 	a.background(p, gitTimeout, func(ctx context.Context) func(*App) {
 		refs, sections, current, err := readReferences(ctx, kernel, root)
+		if err == nil && reference != "" && reference != headReference.FullName && !hasReference(refs.References, reference) {
+			reference = ""
+		}
 		var page core.GitHistoryPage
 		var graph core.Graph
 		if err == nil {
@@ -281,6 +284,15 @@ func (a *App) loadLog(p *project) {
 				return
 			}
 			l.refs, l.sections, l.current = refs, sections, current
+			if reference == "" && l.reference != "" {
+				l.reference, l.referenceLabel = "", ""
+			}
+			if l.refSelected != "" && l.refSelected != headReference.FullName && !hasReference(refs.References, l.refSelected) {
+				l.refSelected = ""
+			}
+			if s := a.logView.compareSource; s != nil && a.logView.compareRoot == p.logRepositoryRoot() && !hasReference(refs.References, s.FullName) {
+				a.logView.compareSource = nil
+			}
 			l.commits = page.Commits
 			l.byHash = indexCommits(page.Commits)
 			l.cursor, l.hasMore, l.limitReached = page.NextCursor, page.HasMore, page.LimitReached
@@ -417,6 +429,47 @@ func (a *App) setLogReference(p *project, full, short string) {
 	}
 	l.reference, l.referenceLabel = full, short
 	a.loadLog(p)
+}
+
+// hasReference reports that refs lists a reference with full name.
+func hasReference(refs []core.GitReference, full string) bool {
+	return slices.ContainsFunc(refs, func(r core.GitReference) bool {
+		return r.FullName == full
+	})
+}
+
+// dropLogReference clears the log's walked, selected, or compared reference when it was deleted in root.
+func (a *App) dropLogReference(p *project, root, full string) {
+	if full == "" || root != p.logRepositoryRoot() {
+		return
+	}
+	l := &p.log
+	if l.reference == full {
+		l.reference, l.referenceLabel = "", ""
+	}
+	if l.refSelected == full {
+		l.refSelected = ""
+	}
+	if s := a.logView.compareSource; s != nil && a.logView.compareRoot == root && s.FullName == full {
+		a.logView.compareSource = nil
+	}
+}
+
+// renameLogReference moves the log's walked, selected, or compared reference to its new name in root.
+func (a *App) renameLogReference(p *project, root, oldFull, newFull, newShort string) {
+	if oldFull == "" || root != p.logRepositoryRoot() {
+		return
+	}
+	l := &p.log
+	if l.reference == oldFull {
+		l.reference, l.referenceLabel = newFull, newShort
+	}
+	if l.refSelected == oldFull {
+		l.refSelected = newFull
+	}
+	if s := a.logView.compareSource; s != nil && a.logView.compareRoot == root && s.FullName == oldFull {
+		s.FullName, s.ShortName = newFull, newShort
+	}
 }
 
 // logProjection is what one graph layout is made from, copied so the background work
