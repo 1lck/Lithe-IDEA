@@ -9,6 +9,8 @@ import (
 	"os/exec"
 	"path/filepath"
 	"syscall"
+
+	"golang.org/x/sys/windows"
 )
 
 // wslExecutable is the wsl.exe that runs distributions, or empty when this
@@ -37,7 +39,7 @@ func InstalledWSL(ctx context.Context) []Choice {
 	command := exec.CommandContext(ctx, exe, "--list", "--quiet")
 	// Ask for UTF-8, which newer WSL honors; older output is UTF-16 and decoded.
 	command.Env = append(os.Environ(), "WSL_UTF8=1")
-	command.SysProcAttr = &syscall.SysProcAttr{HideWindow: true, CreationFlags: 0x08000000} // CREATE_NO_WINDOW
+	command.SysProcAttr = &syscall.SysProcAttr{HideWindow: true, CreationFlags: windows.CREATE_NO_WINDOW}
 	output, err := command.Output()
 	if err != nil {
 		return nil

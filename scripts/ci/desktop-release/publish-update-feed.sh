@@ -153,7 +153,9 @@ fi
 # The first version whose Windows client installs a patch. Lithe 0.8.0 and 0.8.1 delete the
 # application a patch rebuilt once they quit, before Viva's helper has read it, so a patch quits
 # them without updating them (vivaui/viva#334); a client of those versions gets the full
-# installer instead, which they install correctly. The version is the one the client runs, the
+# installer instead. 0.8.1 installs it; 0.8.0 cannot update itself on Windows at all, because its
+# helper is started detached and exits before it runs (fixed by vivaui/viva 10c5b92 in 0.8.1),
+# so its users install a later version by hand. The version is the one the client runs, the
 # version the published feed offers, so the rule applies for as long as anyone still runs them.
 WINDOWS_PATCH_FROM="0.8.2"
 

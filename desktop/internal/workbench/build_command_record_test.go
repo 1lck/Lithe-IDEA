@@ -103,6 +103,12 @@ func TestBuildCommandRunner(t *testing.T) {
 // every recorded result, with a private plugin root for the build state.
 func buildCommandHarness(t *testing.T) (*harness, *recordingPluginKernel, *project) {
 	t.Helper()
+	return buildCommandHarnessAt(t, t.TempDir())
+}
+
+// buildCommandHarnessAt also lets native path tests control the project's parent directories.
+func buildCommandHarnessAt(t *testing.T, workspace string) (*harness, *recordingPluginKernel, *project) {
+	t.Helper()
 	dir := t.TempDir()
 	if err := os.WriteFile(filepath.Join(dir, settingsFile), []byte(`{"theme":"dark"}`), 0o600); err != nil {
 		t.Fatal(err)
@@ -115,7 +121,7 @@ func buildCommandHarness(t *testing.T) (*harness, *recordingPluginKernel, *proje
 		Store:        store.At(dir),
 		Languages:    []string{"zh-Hans"},
 	})
-	h.open(t.TempDir())
+	h.open(workspace)
 	return h, plugins, h.app.project
 }
 
