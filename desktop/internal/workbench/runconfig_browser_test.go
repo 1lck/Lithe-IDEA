@@ -154,6 +154,13 @@ func TestRunConfigurationListScopesGroupsPinsAndRuns(t *testing.T) {
 		t.Fatalf("run request %+v, want the service run of the main target", request)
 	}
 	h.settle()
+	// The run's console comes forward in the Run window. Its tab is named as the
+	// configuration is, so the window is closed again before the row is pressed by name.
+	if !h.app.chrome.isOpen(catalogIndex[itemRun]) {
+		t.Fatal("the run did not bring the Run window forward")
+	}
+	h.app.post(func(a *App) { a.reduceChrome(core.ToggleChrome(itemRun)) })
+	h.settle()
 
 	// The row of the configuration that runs shows it running, and its button stops it.
 	operation := &buildOperation{configuration: serve}

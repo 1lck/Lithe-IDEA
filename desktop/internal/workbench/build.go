@@ -501,6 +501,8 @@ func (a *App) loadBuildSystems(p *project) {
 	if a.plugins == nil || a.plugins.Backend == nil {
 		p.build.loaded = true
 		p.build.failed = a.text.Build.PluginsUnavailable
+		// Built-in process runs start without any plugin.
+		a.refreshRunConfigurations(p)
 		return
 	}
 	p.build.loading = true
@@ -580,6 +582,10 @@ func (a *App) finishBuildDetection(p *project, generation uint64, instances []bu
 	} else if err != nil {
 		p.build.status = a.launchFailureText(err)
 	}
+	// The configurations are resolved after every detection: a model that came with detection
+	// is loaded already, so no model answer turns its runs into configurations, and built-in
+	// process runs need no build system at all, so a failed or empty detection lists them too.
+	a.refreshRunConfigurations(p)
 	if len(instances) == 0 {
 		p.build.status = a.text.Build.NoBuildSystems
 		return
@@ -587,11 +593,6 @@ func (a *App) finishBuildDetection(p *project, generation uint64, instances []bu
 	a.loadBuildModel(p, p.build.selected)
 	if p.runConfigs.wanted {
 		a.loadTitleRunConfigs(p)
-	}
-	// A model that came with detection is loaded already, so no model answer turns its runs
-	// into configurations; they are resolved here instead.
-	if _, loaded := providerRuns(p.build.instances); loaded {
-		a.refreshRunConfigurations(p)
 	}
 }
 
@@ -1870,7 +1871,8 @@ func (a *App) finishBuildTask(p *project, op *buildOperation, result json.RawMes
 }
 
 // finishBuildRun ends a host process with how it exited: a non-zero exit fails with its code,
-// and a process that could not be waited for or ended on a signal fails without one.
+// and a process that could not be waited for or ended on a signal fails without one. A process
+// that exited is summarized with its exit code, as a run a plugin reports is, not as a build.
 func (a *App) finishBuildRun(p *project, op *buildOperation, err error) {
 	a.endServiceDebugSession(p, op)
 	var exit *exec.ExitError
@@ -1879,12 +1881,12 @@ func (a *App) finishBuildRun(p *project, op *buildOperation, err error) {
 		a.endBuildOperation(p, op, "cancelled", nil, "", a.text.Build.Cancelled)
 	case errors.As(err, &exit) && exit.ExitCode() > 0:
 		code := exit.ExitCode()
-		a.endBuildOperation(p, op, "failed", &code, "", a.text.Build.Exited(code))
+		a.endBuildOperation(p, op, "failed", &code, "", a.text.Run.Exited(code))
 	case err != nil:
 		a.endBuildOperation(p, op, "failed", nil, "", a.text.Build.ProcessFailed(err.Error()))
 	default:
 		code := 0
-		a.endBuildOperation(p, op, "completed", &code, "", a.text.Build.Succeeded)
+		a.endBuildOperation(p, op, "completed", &code, "", a.text.Run.Exited(code))
 	}
 }
 

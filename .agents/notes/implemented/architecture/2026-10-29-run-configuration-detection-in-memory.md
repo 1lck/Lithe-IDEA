@@ -2,6 +2,8 @@
 
 状态：已实现
 
+> 2026-11-18 更新：用户层改存 `.lithe/run/configurations.yaml`、`local.yaml` 和按插件拆分的 `.lithe/run/plugin/<插件 ID>.toml`、`<插件 ID>.local.toml`；Core 不再写这些文件，编辑命令返回文件改动，由宿主按哈希检查后应用。内置的脚本与程序运行不经过生成层。决策见[脚本与程序运行由 Core 内置，运行配置存 YAML 和 TOML](2026-11-18-builtin-process-runs-and-run-file-formats.md)。
+>
 > 2026-11-16 更新：Core 删除了内置的运行发现探测器、项目内容指纹和工具链需求（[Lithe-core-rust #77](https://github.com/Lithe-IDEA/Lithe-core-rust/pull/77)，#1856 第 4 项）。生成层现在只由构建插件声明的 `buildSystems[].run` 组成。原来的“跨会话缓存语言服务入口”和“识别前也能选 JDK”两节随之删除；分类与重名规则从已归档的 `.agents/notes/archived/feature/2026-09-20-run-configuration-discovery-quality.md` 并入本文，指纹相关的旧做法见已归档的 `.agents/notes/archived/bug-fix/2026-09-22-run-panel-fingerprint-loading.md`。
 
 ## 先说结论
@@ -63,7 +65,7 @@ Core 按规范化后的工作区路径保存最近一次 `runConfig.generate` �
 
 ### 发布用户文档的保护
 
-宿主先构造两层文档，用 Core 预检，然后比较所有输入（包括未改写的一层）和偏好状态，才使用带源版本检查的原子替换。写入、回读、取消或冲突失败时，只回滚自身仍未被改动的输出；不覆盖用户或另一进程的新数据。生成任务的租约（可撤销的写入资格）在取消、工作区切换、模型变化或后续生成时失效。
+Core 的编辑命令只返回文件改动（路径、改动前的哈希和新内容），宿主在 `applyRunConfigChanges` 里确认每个文件仍是 Core 读到的字节后才一次性应用；任何一个不符就整体放弃并报冲突。写入或回读失败时，只回滚自身仍未被改动的输出，不覆盖用户或另一进程的新数据。生成任务的租约（可撤销的写入资格）在取消、工作区切换、模型变化或后续生成时失效。
 
 生成层不是持久配置，不参与这套发布。
 
@@ -97,9 +99,11 @@ Core 按规范化后的工作区路径保存最近一次 `runConfig.generate` �
 
 这是[构建系统 Provider 提案](../../proposed/architecture/2026-10-17-build-system-provider-api.md)原来的迁移计划。没有采用：Core 仍然维护生态知识，只是换了格式；插件已经能声明同样的内容。
 
-### 没有生成层时 `resolve` 按空生成层处理
+### 没有生成层时 `resolve` 按空生成层处理，并照常报孤立覆盖
 
-对只有稀疏覆盖的文档，这可以少一次“未生成”的判断。但团队层里覆盖自动条目的配置会全部变成“孤立覆盖”，用户会看到一批误导性的诊断。保留 `missing` 并让宿主自动生成更直接。
+对只有稀疏覆盖的文档，这可以少一次“未生成”的判断。但团队层里覆盖自动条目的配置会全部变成“孤立覆盖”，用户会看到一批误导性的诊断。
+
+2026-11-18 起采用了折中做法：没有生成层时，`resolve` 返回已保存的配置（一个都没有时返回空列表），让内置的脚本与程序运行不必等构建模型；这时不报孤立覆盖。生成仍由 `inspect` 的 `requiresGeneration` 触发。
 
 ## 后果
 

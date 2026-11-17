@@ -8,12 +8,14 @@ import (
 	"slices"
 
 	"github.com/1lck/Lithe-IDEA/desktop/internal/core"
+	"github.com/1lck/Lithe-IDEA/desktop/internal/i18n"
 )
 
-// runConfigState is the Run tool window's run configurations: the build provider
-// runs Core resolved from the detected, team (`.lithe/run/configurations.json`) and
-// local (`.lithe/run/local.json`) layers, and the one the user picked. Only the
-// window thread reads or writes it.
+// runConfigState is the Run tool window's run configurations: the built-in process runs
+// and the build provider runs Core resolved from the detected, project
+// (`.lithe/run/configurations.yaml`), local (`.lithe/run/local.yaml`) and plugin
+// (`.lithe/run/plugin/*.toml`) layers, and the one the user picked. Only the window
+// thread reads or writes it.
 type runConfigState struct {
 	// generation rejects the answer of a refresh another one replaced.
 	generation uint64
@@ -21,13 +23,33 @@ type runConfigState struct {
 	list       []core.RunConfiguration
 	selected   string
 	failure    string
-	// hidden counts the saved configurations left out of list because no build plugin starts
+	// hidden counts the saved configurations left out of list because nothing here starts
 	// them, so an empty list can say so: user entries of another provider, and saved entries
 	// Core reports as orphaned because they no longer match a generated configuration, such as
 	// the java.main entries an earlier version generated.
 	hidden int
-	// editor is the dialog that edits one configuration's saved options.
+	// ignored are the saved documents Core left out, workspace-relative, each once: a plugin
+	// document that cannot be read or holds a configuration saved twice, and an earlier
+	// release's JSON document its YAML replacement wins over. The built-in configurations
+	// still list; the run menu names each file so its configurations do not vanish silently.
+	ignored []string
+	// types are the built-in kinds a user can create on this platform, in display order,
+	// read once per project; typesLoading is set while they are asked for.
+	types        []core.RunConfigurationType
+	typesLoading bool
+	// editor is the dialog that edits one build provider run's saved options.
 	editor runConfigEditor
+	// form is the dialog that creates or edits a built-in process run (runconfig_form.go).
+	form runConfigForm
+	// reveal is the configuration a save just wrote, selected once the next refresh lists it.
+	reveal string
+	// newMenu says the list header's menu of new configuration kinds is open.
+	newMenu bool
+	// deleting is the user configuration whose delete waits for confirmation.
+	deleting *runConfigDeletion
+	// start is the configuration a save asked to run, started once the next refresh lists it
+	// so the run reads what was saved.
+	start string
 	// browser is the list that shows the configurations by scope and build system.
 	browser runConfigBrowser
 	// currentFile says the user chose Current File in the title bar, so its Run and Debug act
@@ -87,7 +109,9 @@ func providerRuns(instances []buildInstance) ([]core.RunProviderRun, bool) {
 }
 
 // refreshRunConfigurations has Core generate the runs the loaded models declare and
-// resolve the configurations again. Nothing is written into the workspace.
+// resolve the configurations again. Nothing is written into the workspace. It runs
+// without any loaded model too, so built-in process runs list and start while no
+// build plugin works.
 func (a *App) refreshRunConfigurations(p *project) {
 	if p == nil {
 		return
@@ -113,7 +137,7 @@ func (a *App) refreshRunConfigurations(p *project) {
 				return func(a *App) { a.finishRunConfigurations(p, generation, core.RunConfigResolution{}, err) }
 			}
 		}
-		resolved, err := kernel.ResolveRunConfigurations(ctx, root)
+		resolved, err := kernel.ResolveRunConfigurations(ctx, root, a.runConfigPlugins(ctx))
 		return func(a *App) { a.finishRunConfigurations(p, generation, resolved, err) }
 	})
 }
@@ -126,26 +150,49 @@ func (a *App) finishRunConfigurations(p *project, generation uint64, resolved co
 	s.loading = false
 	defer a.settleTitleAction(p)
 	a.loadRunConfigPins(p)
+	a.loadRunConfigTypes(p)
 	if err != nil {
 		s.failure = err.Error()
+		s.reveal, s.start = "", ""
 		return
 	}
 	s.failure = ""
-	// Only build provider runs can start here; the host has no launcher for the other
-	// providers Core detects.
+	// Built-in process runs and build provider runs start here; the host has no launcher
+	// for the other providers Core detects. An unavailable entry stays listed with its
+	// reason, so the user can fix or delete it.
 	s.hidden = 0
+	var ignored []string
 	for _, diagnostic := range resolved.Diagnostics {
 		if diagnostic.Code == "orphanedOverride" {
 			s.hidden++
 		}
+		if diagnostic.Path != "" && !slices.Contains(ignored, diagnostic.Path) {
+			ignored = append(ignored, diagnostic.Path)
+			if !slices.Contains(s.ignored, diagnostic.Path) {
+				a.operationRejected("run_configuration_document", diagnostic.Code)
+			}
+		}
 	}
+	s.ignored = ignored
 	s.list = slices.DeleteFunc(resolved.Configurations, func(c core.RunConfiguration) bool {
 		_, ok := c.BuildReference()
+		ok = ok || c.IsProcess() || c.Unavailable()
 		if !ok && !c.Disabled {
 			s.hidden++
 		}
 		return !ok || c.Disabled
 	})
+	if s.reveal != "" && s.configuration(s.reveal) != nil {
+		s.selected = s.reveal
+	}
+	s.reveal = ""
+	if start := s.start; start != "" {
+		s.start = ""
+		if s.configuration(start) != nil && p.build.operation == nil {
+			s.selected = start
+			a.runConfiguration(p, start)
+		}
+	}
 	if s.configuration(s.selected) == nil {
 		s.selected = ""
 		if resolved.DefaultRunConfiguration != nil && s.configuration(*resolved.DefaultRunConfiguration) != nil {
@@ -156,11 +203,16 @@ func (a *App) finishRunConfigurations(p *project, generation uint64, resolved co
 	}
 }
 
-// runConfiguration starts configuration id through its build provider with the launch
-// options Core resolves from the saved layers. The Run window ignores the refusal; the IDE
-// API reports it through startRunConfiguration.
+// runConfiguration is a press that runs configuration id, from the editor, the list of run
+// configurations or a session's Rerun: it starts the run with the launch options Core
+// resolves from the saved layers and brings the Run window forward on its console, since
+// that is where the run prints. A refusal was already told the user or is a press on a
+// button that is disabled; the IDE API reports it through startRunConfiguration, which
+// leaves the windows as they are.
 func (a *App) runConfiguration(p *project, id string) {
-	_, _ = a.startRunConfiguration(p, id)
+	if _, err := a.startRunConfiguration(p, id); err == nil {
+		a.showBuildConsole(p)
+	}
 }
 
 // startRunConfiguration checks the request on the window thread, reserves the run as the
@@ -181,6 +233,18 @@ func (a *App) startRunConfigurationWith(p *project, id string, debug *connection
 	}
 	if p.build.operation != nil {
 		return nil, errBuildBusy
+	}
+	if configuration.Unavailable() {
+		message := a.runConfigUnavailableText(*configuration)
+		a.operationRejected("run_configuration", "unavailable")
+		a.notifyError(message)
+		return nil, refuseBuild(refusalNotReady, message)
+	}
+	if configuration.IsProcess() {
+		if debug != nil {
+			return nil, refuseBuild(refusalNotSupported, "a built-in process run has no debugger")
+		}
+		return a.startProcessRun(p, *configuration), nil
 	}
 	reference, ok := configuration.BuildReference()
 	if !ok {
@@ -257,13 +321,50 @@ func (p *project) buildInstanceIndex(reference core.RunProviderReference) int {
 	})
 }
 
-// runConfigurationReady reports whether a configuration can start now: its build instance
-// has a loaded model.
+// runConfigurationReady reports whether a configuration can start now: a built-in process
+// run always can unless it is unavailable; a build provider run once its build instance has
+// a loaded model.
 func (p *project) runConfigurationReady(configuration core.RunConfiguration) bool {
+	if configuration.Unavailable() {
+		return false
+	}
+	if configuration.IsProcess() {
+		return true
+	}
 	reference, ok := configuration.BuildReference()
 	if !ok {
 		return false
 	}
 	index := p.buildInstanceIndex(reference)
 	return index >= 0 && p.build.instances[index].modelLoaded
+}
+
+// runConfigUnavailableText words why a listed configuration cannot run, from Core's
+// availability code. An unknown code shows Core's own message as the reason.
+func (a *App) runConfigUnavailableText(configuration core.RunConfiguration) string {
+	language := a.language()
+	availability := configuration.Availability
+	if availability == nil {
+		return ""
+	}
+	plugin, repository, requirement := "", "", ""
+	if configuration.Plugin != nil {
+		plugin, repository, requirement = configuration.Plugin.Name, configuration.Plugin.Repository, configuration.Plugin.VersionRequirement
+		if plugin == "" {
+			plugin = configuration.Plugin.ID
+		}
+	}
+	switch availability.Code {
+	case "pluginMissing":
+		return i18n.SharedFormat(language, "desktop.runConfig.unavailablePluginMissing", map[string]string{"plugin": plugin})
+	case "pluginRepositoryMismatch":
+		return i18n.SharedFormat(language, "desktop.runConfig.unavailableRepositoryMismatch", map[string]string{"plugin": plugin, "repository": repository})
+	case "pluginVersionUnsupported":
+		return i18n.SharedFormat(language, "desktop.runConfig.unavailableVersionUnsupported", map[string]string{"plugin": plugin, "requirement": requirement})
+	case "missingWorkingDirectory":
+		return i18n.SharedFormat(language, "desktop.runConfig.unavailableMissingDirectory", map[string]string{"directory": configuration.Cwd})
+	case "invalidConfiguration":
+		return i18n.SharedFormat(language, "desktop.runConfig.unavailableInvalid", map[string]string{"reason": availability.Message})
+	}
+	return i18n.SharedFormat(language, "desktop.runConfig.unavailableOther", map[string]string{"reason": availability.Message})
 }
