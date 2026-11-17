@@ -27,13 +27,19 @@ native_path() {
     fi
 }
 
-# Lithe-core-rust #80 at 81a6ecf, the branch of the draft on top of main 788e61e (#79, #78):
+# Lithe-core-rust fix/process-memory-min-interval at 8dd6c70, the branch of the draft on top of
+# main 5202d3b: processMemory.summarize never compares two tables less than a second apart, so
+# the memory details no longer show the burst of their own opening as CPU and GPU use; a table
+# read sooner is measured from the counters the baseline was itself measured from, which the
+# baseline now carries as earlier, and the baseline comes back unchanged. The pin moves to the
+# squash merge once the draft is in main.
+# Lithe-core-rust main at 5202d3b, #80 squash-merged (the same tree as its branch at 81a6ecf, on
+# top of 788e61e, #79 and #78):
 # lsp.references.query lays out the References tool window (usages grouped in natural file
 # order, the rows visible under the folds the desktop sends, the usage each row previews and the
 # usages before and after it, a selection behind a closed node moved to that node);
 # lsp.references.lines cuts each usage's line by the rule search results use, and
-# workspace.search answers previewRanges with that preview (#2096). The pin moves to the squash
-# merge once #80 is in main.
+# workspace.search answers previewRanges with that preview (#2096).
 # Lithe-core-rust main at 6a29169, #70 squash-merged on top of c928514 (#73):
 # editor.copyReferenceLocation formats the innermost document symbol a language server reports
 # around the caret, with a one-based line, and falls back to the file path when none contains it;
@@ -185,7 +191,7 @@ PINNED_CORE_REPOSITORY="https://github.com/Lithe-IDEA/Lithe-core-rust.git"
 # the contract, plugin guides, reference and SDKs live only in shared/plugins; on top of #16 (reported Git queries folded in the console),
 # #15 (git.write cherryPick, revert and reset fields), #14 (word-level changed ranges of diff
 # rows), #13, #8, #7, #6 and #4.
-PINNED_CORE_REVISION="81a6ecf947ccde35d4abc9a56111acce892470ed"
+PINNED_CORE_REVISION="8dd6c70c87ce948f606d579957478bf19e8979b0"
 PROFILE="debug"
 while [[ $# -gt 0 ]]; do
     case "$1" in
