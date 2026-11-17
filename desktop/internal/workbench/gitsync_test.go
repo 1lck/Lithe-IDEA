@@ -3,6 +3,7 @@ package workbench
 import (
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
@@ -251,11 +252,79 @@ func TestLogNewAndDeleteBranchFromTheBranchesPane(t *testing.T) {
 	if !ok {
 		t.Fatal("the log did not list the new branch")
 	}
-	p.log.refSelected = topic.FullName
-	h.settle()
+	v := &h.app.logView
+	i := slices.IndexFunc(v.refItems, func(r logRefRow) bool { return r.kind == logRefReference && r.short == "topic" })
+	if i < 0 {
+		t.Fatal("the reference pane does not show topic")
+	}
+	h.click(center(h.topHit(v.refs.RowID(i))))
+	h.settleChain()
+	if p.log.reference != topic.FullName || p.log.referenceLabel != "topic" || p.log.refSelected != topic.FullName {
+		t.Fatalf("after clicking topic: ref=%q label=%q selected=%q", p.log.reference, p.log.referenceLabel, p.log.refSelected)
+	}
+
 	h.clickNamed(h.app.text.Git.DeleteBranch)
 	h.settle()
 	if b.dialog != branchDialogDelete || b.target.FullName != topic.FullName {
 		t.Fatalf("dialog %v for %+v, want the delete confirmation of topic", b.dialog, b.target)
+	}
+	h.click(center(h.popupHit(h.app.text.Branch.DeleteButton)))
+	h.settleChain()
+	if p.log.err != nil {
+		t.Fatalf("log err after deleting filtered branch: %v", p.log.err)
+	}
+	if p.log.reference != "" || p.log.referenceLabel != "" || p.log.refSelected != "" {
+		t.Fatalf("after deleting topic: ref=%q label=%q selected=%q, want all cleared", p.log.reference, p.log.referenceLabel, p.log.refSelected)
+	}
+	if len(p.log.commits) == 0 {
+		t.Fatal("the log cleared commits after deleting the filtered branch")
+	}
+	if _, ok := p.log.findReference("refs/heads/main"); !ok {
+		t.Fatal("the reference pane lost main after deleting the filtered branch")
+	}
+
+	// Renaming the filtered current branch keeps the log on the renamed reference.
+	mainIdx := slices.IndexFunc(v.refItems, func(r logRefRow) bool { return r.kind == logRefReference && r.short == "main" })
+	if mainIdx < 0 {
+		t.Fatal("the reference pane does not show main")
+	}
+	h.click(center(h.topHit(v.refs.RowID(mainIdx))))
+	h.settleChain()
+	if p.log.reference != "refs/heads/main" {
+		t.Fatalf("after clicking main: ref=%q, want refs/heads/main", p.log.reference)
+	}
+	h.logRefMenu("main")
+	h.click(center(h.popupHit(h.app.text.Branch.Rename)))
+	h.settle()
+	if b.dialog != branchDialogRename || b.target.FullName != "refs/heads/main" {
+		t.Fatalf("dialog %v for %+v, want the rename dialog of main", b.dialog, b.target)
+	}
+	b.name.SetText("trunk")
+	h.settle()
+	h.app.submitRename(p)
+	h.settleChain()
+	if p.log.err != nil {
+		t.Fatalf("log err after renaming filtered branch: %v", p.log.err)
+	}
+	if p.log.reference != "refs/heads/trunk" || p.log.referenceLabel != "trunk" || p.log.refSelected != "refs/heads/trunk" {
+		t.Fatalf("after renaming main: ref=%q label=%q selected=%q", p.log.reference, p.log.referenceLabel, p.log.refSelected)
+	}
+
+	// If a filtered reference disappears outside the UI, reloading the log falls back to all
+	// references instead of failing git.historyPage and wiping the reference pane.
+	gitRun(t, dir, "branch", "ext")
+	h.app.setLogReference(p, "refs/heads/ext", "ext")
+	h.settleChain()
+	gitRun(t, dir, "branch", "-D", "ext")
+	h.app.loadLog(p)
+	h.settleChain()
+	if p.log.err != nil {
+		t.Fatalf("log err after external branch deletion: %v", p.log.err)
+	}
+	if p.log.reference != "" || p.log.referenceLabel != "" {
+		t.Fatalf("after external deletion: ref=%q label=%q, want cleared", p.log.reference, p.log.referenceLabel)
+	}
+	if len(p.log.commits) == 0 {
+		t.Fatal("the log has no commits after external deletion fallback")
 	}
 }

@@ -239,11 +239,11 @@ func (a *App) runBranchWrite(p *project, operation string, failed func(reason st
 			} else {
 				a.loadNestedRepos(p)
 			}
+			b.dialog = branchDialogNone
+			done(a, status)
 			if p.log.started {
 				a.loadLog(p)
 			}
-			b.dialog = branchDialogNone
-			done(a, status)
 		}
 	})
 }
@@ -451,12 +451,16 @@ func (a *App) submitRename(p *project) {
 		return
 	}
 	branch := b.target
+	root := a.branchRoot(p)
 	a.performed("git.branch.rename", surfaceButton)
 	a.runBranchWrite(p, "git_branch_rename", a.text.Branch.RenameFailed,
 		func(ctx context.Context, kernel Kernel, root string) error {
 			return kernel.GitRenameBranch(ctx, root, branch, name)
 		},
-		func(a *App, status core.GitStatus) { a.notifySuccess(a.text.Branch.Renamed(name)) })
+		func(a *App, status core.GitStatus) {
+			a.renameLogReference(p, root, branch.FullName, "refs/heads/"+name, name)
+			a.notifySuccess(a.text.Branch.Renamed(name))
+		})
 }
 
 // submitRevision checks out the typed revision detached.
@@ -490,6 +494,7 @@ func (a *App) confirmDelete(p *project) {
 		return
 	}
 	branch := b.target
+	root := a.branchRoot(p)
 	var deleted core.GitBranchDeletion
 	a.performed("git.branch.delete", surfaceButton)
 	a.runBranchWrite(p, "git_branch_delete", a.text.Branch.DeleteFailed,
@@ -498,6 +503,7 @@ func (a *App) confirmDelete(p *project) {
 			return err
 		},
 		func(a *App, status core.GitStatus) {
+			a.dropLogReference(p, root, branch.FullName)
 			target := deleted.DeletedTarget
 			if len(target) > 10 {
 				target = target[:10]
