@@ -49,7 +49,7 @@ func (a *App) buildRowMenu(c ui.C, row ui.Box, p *project, instance *buildInstan
 					continue
 				}
 				runID := run.ID
-				if menu.Item(a.text.Build.RunTarget(run.Name)).Disabled(b.operation != nil || instance.modelLoading).Clicked() {
+				if menu.Item(a.text.Build.RunTarget(run.ActionName(spec.target.Name))).Disabled(b.operation != nil || instance.modelLoading).Clicked() {
 					c.After(func() {
 						a.performed("build.target.run", surfaceContextMenu)
 						choose()

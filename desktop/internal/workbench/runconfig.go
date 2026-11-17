@@ -72,13 +72,9 @@ func providerRuns(instances []buildInstance) ([]core.RunProviderRun, bool) {
 				if !buildRunApplies(run, target) {
 					continue
 				}
-				name := target.Name
-				if run.Name != "" {
-					name = run.Name + " " + target.Name
-				}
 				runs = append(runs, core.RunProviderRun{
 					ProjectPath: path.Clean(path.Join(instance.Root, project.Path)),
-					Name:        name,
+					Name:        run.EntryName(target.Name),
 					Reference: core.RunProviderReference{
 						PluginID: instance.PluginID, BuildSystemID: instance.BuildSystemID, Root: instance.Root,
 						Run: run.ID, ProjectID: project.ID, TargetID: target.ID, Execution: run.Execution, UserArguments: []string{},

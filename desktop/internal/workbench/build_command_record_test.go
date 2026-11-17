@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"flag"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -55,6 +56,49 @@ const buildCommandManifest = `{
   }]
 }`
 
+// buildCommandProviderManifest is a build system that declares a provider process and still
+// reads its model and its dependency tree with commands: its provider only prepares runs. The dependency command writes its tree to the file the host allocates.
+const buildCommandProviderManifest = `{
+  "schemaVersion": 0,
+  "id": "dev.lithe.test.build-command",
+  "displayName": "Build Command Fixture",
+  "version": "1.0.0",
+  "pluginAPIVersion": 0,
+  "requires": {"buildSystems": 0, "buildProviders": 0},
+  "vendor": {"id": "dev.lithe.test", "displayName": "Test", "signatureRequirement": "publisherPackage"},
+  "permissions": ["languageServer.launch", "process.build"],
+  "activationEvents": ["onBuildSystem:fixture"],
+  "languages": [],
+  "buildSystems": [{
+    "id": "fixture",
+    "displayName": "Fixture",
+    "detection": {"markers": ["build.fixture"]},
+    "invocation": {"executables": [{"kind": "command", "command": "fixture-build"}]},
+    "provider": {
+      "launch": {"kind": "packaged", "path": "provider"},
+      "executesProjectCode": false,
+      "mayUseNetwork": false
+    },
+    "model": {
+      "source": "command",
+      "arguments": ["-test.run=^TestBuildCommandRunner$"],
+      "decoder": "litheBuildModel",
+      "executesProjectCode": false,
+      "mayUseNetwork": false
+    },
+    "dependencies": {
+      "source": "command",
+      "scopes": ["workspace"],
+      "arguments": ["-test.run=^TestBuildCommandRunner$", "--", "${outputFile}"],
+      "output": "outputFile",
+      "decoder": "litheDependencies",
+      "executesProjectCode": false,
+      "mayUseNetwork": false
+    },
+    "run": [{"id": "application", "source": "provider", "fromTargets": {"tags": ["app"]}, "execution": "application"}]
+  }]
+}`
+
 // buildCommandMarker names the file in the command's working directory that tells the runner
 // what to do: print a model or a tree, exit with a failure, print what is no document, log a
 // download before the model or before it hangs, or hang.
@@ -75,6 +119,17 @@ func TestBuildCommandRunner(t *testing.T) {
 		fmt.Print(`{"format":"litheBuildModel","version":0,"projects":[{"name":"fixture"}]}`)
 	case "dependencies":
 		fmt.Print(`{"format":"litheDependencies","version":0,"dependencies":[{"name":"fixture-dependency","children":[]}]}`)
+	case "dependencies-file":
+		// The tree goes to the output file named after "--", and stdout stays free for the log.
+		arguments := flag.Args()
+		if len(arguments) == 0 {
+			os.Exit(4)
+		}
+		fmt.Print("[INFO] writing the dependency tree\n")
+		tree := `{"format":"litheDependencies","version":0,"dependencies":[{"name":"fixture-dependency","children":[]}]}`
+		if err := os.WriteFile(arguments[len(arguments)-1], []byte(tree), 0o600); err != nil {
+			os.Exit(5)
+		}
 	case "fail":
 		os.Exit(3)
 	case "explain":
@@ -155,7 +210,10 @@ func buildCommandInstance(root string, provider bool) buildInstance {
 		PluginID:      buildCommandPluginID,
 		Version:       "1.0.0",
 		Manifest:      json.RawMessage(buildCommandManifest),
-		System:        pluginservice.BuildSystemDeclaration{Provider: provider},
+		System: pluginservice.BuildSystemDeclaration{
+			Provider:     provider,
+			Dependencies: &pluginservice.BuildDependenciesDeclaration{Scopes: []string{"workspace"}, Source: "command"},
+		},
 	}
 }
 
@@ -271,15 +329,60 @@ func TestBuildCommandDependencyLoadIsRecordedAtTheStageItEnded(t *testing.T) {
 	}
 }
 
-// A provider system that fails before its plan names a command never ran a command, and what
-// its provider does is the plugin's own to log.
+// A provider-sourced dependency request that fails before its plan never ran a command, and
+// what its provider does is the plugin's own to log.
 func TestBuildProviderSystemFailingBeforeItsPlanIsNotRecorded(t *testing.T) {
 	h, plugins, p := buildCommandHarness(t)
 	kernel := h.app.kernel.(buildDependencyKernel)
 	ctx := buildLoadContext(t, "action-52", pluginOperationWait)
-	if _, err := h.app.buildDependencyTree(ctx, p, buildCommandInstance(".", true), kernel, nil, false); err == nil {
+	instance := buildCommandInstance(".", true)
+	instance.System.Dependencies.Source = "provider"
+	if _, err := h.app.buildDependencyTree(ctx, p, instance, kernel, nil, false); err == nil {
 		t.Fatal("a provider system without its build tool loaded a tree")
 	}
+	plugins.none(t)
+}
+
+// A system with a provider process may still read its tree with a command that writes to a
+// file. The declaration's source, not the provider process, decides:
+// the host allocates the output file and runs the command itself, where it used to send the
+// plan request without the file, which Core refused with "pass outputFile".
+func TestBuildProviderSystemReadsItsTreeWithAFileCommand(t *testing.T) {
+	h, plugins, p := buildCommandHarness(t)
+	installBuildTool(t)
+	kernel := h.app.kernel.(buildDependencyKernel)
+	writeBuildCommandMarker(t, p.root, "dependencies-file")
+	instance := buildCommandInstance(".", true)
+	instance.Manifest = json.RawMessage(buildCommandProviderManifest)
+	tree, err := h.app.buildDependencyTree(buildLoadContext(t, "action-53", pluginOperationWait), p, instance, kernel, nil, false)
+	if err != nil {
+		t.Fatalf("the provider system's file command failed: %v", err)
+	}
+	if len(tree.Dependencies) != 1 || tree.Dependencies[0].Name != "fixture-dependency" {
+		t.Fatalf("tree = %+v, want the fixture dependency from the output file", tree)
+	}
+	wantPluginOperation(t, plugins.next(t, "file command"), core.PluginOperation{PluginID: buildCommandPluginID, Operation: core.OperationBuildDependencies, Outcome: "finished", OperationID: "action-53"})
+	plugins.none(t)
+}
+
+// The model of a system that declares a provider process but reads its model with a command
+// comes from the command: the Build window and the settings source editor both load it through
+// buildModel, which follows the model's source. The settings editor used to ask the provider
+// process, which serves no model, so a source settings page could not read the plugin's modules.
+func TestBuildProviderSystemReadsItsModelWithItsCommand(t *testing.T) {
+	h, plugins, p := buildCommandHarness(t)
+	installBuildTool(t)
+	writeBuildCommandMarker(t, p.root, "model")
+	instance := buildCommandInstance(".", true)
+	instance.Manifest = json.RawMessage(buildCommandProviderManifest)
+	model, err := h.app.buildModel(buildLoadContext(t, "action-54", pluginOperationWait), p, instance, h.app.kernel, nil, h.app.text.Build, false)
+	if err != nil {
+		t.Fatalf("the provider system's model command failed: %v", err)
+	}
+	if len(model.Projects) != 1 || model.Projects[0].Name != "fixture" {
+		t.Fatalf("model = %+v, want the command's project", model)
+	}
+	wantPluginOperation(t, plugins.next(t, "model command"), core.PluginOperation{PluginID: buildCommandPluginID, Operation: core.OperationBuildModel, Outcome: "finished", OperationID: "action-54"})
 	plugins.none(t)
 }
 

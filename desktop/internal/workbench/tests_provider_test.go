@@ -7,6 +7,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strconv"
 	"strings"
 	"testing"
@@ -217,6 +218,15 @@ func TestProviderTestRunner(t *testing.T) {
 					},
 				},
 			})
+		case "lithe/build/prepareRun":
+			// A provider builds before it answers: it streams the build's output, here the
+			// compile error that makes the preparation fail.
+			notify("lithe/build/progress", map[string]any{
+				"operationID": request.ID,
+				"message":     "compiling libapp",
+				"output":      "[ERROR] lib/App.java:[3,1] class, interface, enum, or record expected\n",
+			})
+			fail(request.ID, -32603, "The build failed.")
 		case "shutdown":
 			reply(request.ID, nil)
 		case "exit":
@@ -388,5 +398,70 @@ func TestTestsPanelProviderCloseProjectStops(t *testing.T) {
 	h.settle()
 	if p.tests.running {
 		t.Fatal("closing the project left the provider run marked running")
+	}
+}
+
+// providerRunManifest is the provider fixture with an application run of the targets tagged app.
+var providerRunManifest = strings.Replace(providerTestsManifest, `"model": {"source": "provider"},`,
+	`"model": {"source": "provider"},
+    "run": [{"id": "application", "source": "provider", "fromTargets": {"tags": ["app"]}, "execution": "application"}],`, 1)
+
+// What a provider prints while it prepares a run, such as the compile error that ends the
+// preparation, is the run's console output: the user reads it there when the run fails. The
+// host used to wait for the answer without reading the progress, so the console stayed empty.
+func TestProviderRunPreparationShowsItsBuildOutput(t *testing.T) {
+	h := providerTestsHarnessWith(t, providerRunManifest)
+	root := t.TempDir()
+	for _, marker := range []string{"fixture.marker", "discovery.marker"} {
+		if err := os.WriteFile(filepath.Join(root, marker), []byte("fixture\n"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := os.MkdirAll(filepath.Join(root, "lib"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	// The host resolves the provider's build tool before it starts the provider; the fixture
+	// provider never runs it.
+	bin := t.TempDir()
+	tool := filepath.Join(bin, "fixture-tool")
+	if runtime.GOOS == "windows" {
+		tool += ".exe"
+		t.Setenv("PATHEXT", ".EXE")
+	}
+	if err := writeFakeExecutable(tool); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", bin+string(filepath.ListSeparator)+os.Getenv("PATH"))
+	h.open(root)
+	p := h.app.project
+	h.app.post(func(a *App) { a.loadBuildSystems(p) })
+	awaitStateWithin(t, h, time.Minute, "the provider model", func() bool {
+		return len(p.build.instances) == 1 && (p.build.instances[0].modelLoaded || p.build.instances[0].modelError != "")
+	})
+	instance := &p.build.instances[0]
+	if instance.modelError != "" {
+		t.Fatalf("the provider model failed: %s", instance.modelError)
+	}
+	targetID := ""
+	for _, target := range instance.Model.Targets {
+		if target.Name == "libapp" {
+			targetID = target.ID
+		}
+	}
+	if targetID == "" {
+		t.Fatalf("no libapp target in %+v", instance.Model.Targets)
+	}
+	var op *buildOperation
+	h.app.post(func(a *App) {
+		a.runBuildTarget(p, targetID, "application")
+		op = p.build.operation
+	})
+	awaitStateWithin(t, h, time.Minute, "the run operation", func() bool { return op != nil })
+	awaitStateWithin(t, h, time.Minute, "the failed preparation", func() bool { return p.build.operation == nil })
+	if console := op.session.output.all(); !strings.Contains(console, "class, interface, enum, or record expected") {
+		t.Fatalf("the run console = %q, want the provider's build output", console)
+	}
+	if op.session.outcome != runFailed {
+		t.Fatalf("a failed preparation ended as %d, want failed", op.session.outcome)
 	}
 }
