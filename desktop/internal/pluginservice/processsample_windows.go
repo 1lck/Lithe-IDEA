@@ -4,17 +4,18 @@ package pluginservice
 
 import (
 	"context"
-	"os/exec"
 	"sync"
-	"syscall"
 	"time"
 
-	"golang.org/x/sys/windows"
+	"github.com/1lck/Lithe-IDEA/desktop/internal/sysinfo"
 )
 
-// Windows has no ps. One PowerShell query reads the whole Win32_Process table, from which the tree under
-// the root is summed the same way the unix table is. The CPU share is the change in the tree's CPU time
-// between two samples of the same root, over the wall time between them.
+// Windows has no ps. The process table is read in this process through the Win32 API (sysinfo, the
+// same table the status bar's memory readout uses), so a sample starts no PowerShell: the client is a
+// GUI program with no console, and every console program it started would get a console window of its
+// own, a new terminal window per sampling interval with Windows Terminal as the default terminal. The
+// CPU share is the change in the tree's CPU time between two samples of the same root, over the wall
+// time between them.
 var windowsCPU struct {
 	sync.Mutex
 	last map[int]windowsReading
@@ -25,19 +26,15 @@ type windowsReading struct {
 	at         time.Time
 }
 
-const windowsTableCommand = "Get-CimInstance Win32_Process | Select-Object ProcessId,ParentProcessId,WorkingSetSize,KernelModeTime,UserModeTime | ConvertTo-Csv -NoTypeInformation"
-
 func sampleProcessTree(ctx context.Context, pid int) (ProcessSample, bool) {
-	command := exec.CommandContext(ctx, "powershell", "-NoProfile", "-NonInteractive", "-Command", windowsTableCommand)
-	// The client is a GUI program with no console, so Windows would give each sample's console
-	// program a console of its own: with Windows Terminal as the default terminal that is a new
-	// terminal window every sampling interval while a run is shown. The query needs no window.
-	command.SysProcAttr = &syscall.SysProcAttr{HideWindow: true, CreationFlags: windows.CREATE_NO_WINDOW}
-	output, err := command.Output()
+	if ctx.Err() != nil {
+		return ProcessSample{}, false
+	}
+	table, err := sysinfo.Processes(sysinfo.Options{})
 	if err != nil {
 		return ProcessSample{}, false
 	}
-	memory, cpuSeconds, ok := parseWindowsTable(output, pid)
+	memory, cpuSeconds, ok := sumProcessTree(table, pid)
 	if !ok {
 		return ProcessSample{}, false
 	}

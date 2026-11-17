@@ -106,27 +106,8 @@ func copyTreeFile(source, dest string, perm fs.FileMode) error {
 
 // moveToTrash sends the file or folder at full to the system trash with the platform's own
 // command: Finder on macOS, the shell's recycle bin on Windows, and gio where it is available.
-// The path is passed as an argument or an environment variable, never spliced into a script.
 func moveToTrash(full string) error {
-	ctx := context.Background()
-	var cmd *exec.Cmd
-	switch runtime.GOOS {
-	case "darwin":
-		cmd = exec.CommandContext(ctx, "osascript",
-			"-e", "on run argv",
-			"-e", "tell application \"Finder\" to delete POSIX file (item 1 of argv)",
-			"-e", "end run", "--", full)
-	case "windows":
-		script := "Add-Type -AssemblyName Microsoft.VisualBasic; $p = $env:LITHE_TRASH_PATH; " +
-			"if (Test-Path -LiteralPath $p -PathType Container) { [Microsoft.VisualBasic.FileIO.FileSystem]::DeleteDirectory($p, 'OnlyErrorDialogs', 'SendToRecycleBin') } " +
-			"else { [Microsoft.VisualBasic.FileIO.FileSystem]::DeleteFile($p, 'OnlyErrorDialogs', 'SendToRecycleBin') }"
-		cmd = exec.CommandContext(ctx, "powershell", "-NoProfile", "-NonInteractive", "-Command", script)
-		cmd.Env = append(os.Environ(), "LITHE_TRASH_PATH="+full)
-		hideConsole(cmd)
-	default:
-		cmd = exec.CommandContext(ctx, "gio", "trash", "--", full)
-	}
-	output, err := cmd.CombinedOutput()
+	output, err := trashCommand(context.Background(), full).CombinedOutput()
 	if err != nil {
 		if message := strings.TrimSpace(string(output)); message != "" {
 			return &trashError{message: message}
@@ -134,6 +115,28 @@ func moveToTrash(full string) error {
 		return err
 	}
 	return nil
+}
+
+// trashCommand is the command that sends full to the trash. The path is passed as an argument or
+// an environment variable, never spliced into a script.
+func trashCommand(ctx context.Context, full string) *exec.Cmd {
+	switch runtime.GOOS {
+	case "darwin":
+		return exec.CommandContext(ctx, "osascript",
+			"-e", "on run argv",
+			"-e", "tell application \"Finder\" to delete POSIX file (item 1 of argv)",
+			"-e", "end run", "--", full)
+	case "windows":
+		script := "Add-Type -AssemblyName Microsoft.VisualBasic; $p = $env:LITHE_TRASH_PATH; " +
+			"if (Test-Path -LiteralPath $p -PathType Container) { [Microsoft.VisualBasic.FileIO.FileSystem]::DeleteDirectory($p, 'OnlyErrorDialogs', 'SendToRecycleBin') } " +
+			"else { [Microsoft.VisualBasic.FileIO.FileSystem]::DeleteFile($p, 'OnlyErrorDialogs', 'SendToRecycleBin') }"
+		cmd := exec.CommandContext(ctx, "powershell", "-NoProfile", "-NonInteractive", "-Command", script)
+		cmd.Env = append(os.Environ(), "LITHE_TRASH_PATH="+full)
+		hideConsole(cmd)
+		return cmd
+	default:
+		return exec.CommandContext(ctx, "gio", "trash", "--", full)
+	}
 }
 
 // trashError is a trash command's own message, shown as the reason.
