@@ -19,21 +19,31 @@ import (
 
 // buildRowMenu is the menu of one project, target or task row of the build tree.
 func (a *App) buildRowMenu(c ui.C, row ui.Box, p *project, instance *buildInstance, spec buildRow) {
+	node := spec.node
 	ui.ContextMenu(c, row, func(menu *ui.MenuItems) {
 		b, lang := &p.build, a.language()
 		menu.WidthRange(180, 280)
+		index := spec.instance
+		// choose selects what the row stands for, as a click on it does.
+		choose := func() {
+			a.chooseBuildInstance(p, index)
+			b.projectID, b.targetID, b.taskID = node.ProjectID, node.TargetID, node.TaskID
+		}
 		switch spec.kind {
 		case buildRowTask:
 			if menu.Item(i18n.Shared(lang, "desktop.runConfig.run")).Disabled(b.operation != nil).Clicked() {
 				c.After(func() {
 					a.performed("build.task.run", surfaceContextMenu)
-					a.chooseBuildInstance(p, spec.instance)
-					b.taskID = spec.id
+					choose()
 					a.runSelectedBuildTask(p)
 					a.showBuildConsole(p)
 				})
 			}
 		case buildRowTarget:
+			if spec.target == nil {
+				return
+			}
+			targetID := node.TargetID
 			for _, run := range instance.System.Runs {
 				if !buildRunApplies(run, *spec.target) {
 					continue
@@ -42,9 +52,8 @@ func (a *App) buildRowMenu(c ui.C, row ui.Box, p *project, instance *buildInstan
 				if menu.Item(a.text.Build.RunTarget(run.Name)).Disabled(b.operation != nil || instance.modelLoading).Clicked() {
 					c.After(func() {
 						a.performed("build.target.run", surfaceContextMenu)
-						a.chooseBuildInstance(p, spec.instance)
-						b.projectID, b.targetID = spec.project, spec.id
-						a.runBuildTarget(p, spec.id, runID)
+						choose()
+						a.runBuildTarget(p, targetID, runID)
 						a.showBuildConsole(p)
 					})
 				}
@@ -53,19 +62,17 @@ func (a *App) buildRowMenu(c ui.C, row ui.Box, p *project, instance *buildInstan
 				if run.DebugAdapter != "" && menu.Item(i18n.Shared(lang, "desktop.build.debugTarget")).Disabled(b.operation != nil || instance.modelLoading || p.debug.preparing).Clicked() {
 					c.After(func() {
 						a.performed("build.target.debug", surfaceContextMenu)
-						a.chooseBuildInstance(p, spec.instance)
-						b.projectID, b.targetID = spec.project, spec.id
-						a.debugBuildTarget(p, spec.id, runID)
+						choose()
+						a.debugBuildTarget(p, targetID, runID)
 					})
 				}
 			}
-			for _, entry := range buildTargetRunEntries(instance, spec.id) {
+			for _, entry := range buildTargetRunEntries(instance, targetID) {
 				entryID := entry.ID
 				if menu.Item(a.text.Build.RunTarget(entry.Name)).Disabled(b.operation != nil || instance.modelLoading).Clicked() {
 					c.After(func() {
 						a.performed("build.target.run", surfaceContextMenu)
-						a.chooseBuildInstance(p, spec.instance)
-						b.projectID, b.targetID = spec.project, spec.id
+						choose()
 						a.runBuildEntry(p, entryID)
 						a.showBuildConsole(p)
 					})
@@ -75,32 +82,13 @@ func (a *App) buildRowMenu(c ui.C, row ui.Box, p *project, instance *buildInstan
 				if menu.Item(i18n.Shared(lang, "native.runTests")).Disabled(p.tests.running || instance.modelLoading).Clicked() {
 					c.After(func() {
 						a.performed("build.target.test", surfaceContextMenu)
-						a.chooseBuildInstance(p, spec.instance)
-						b.projectID, b.targetID = spec.project, spec.id
-						a.runBuildTargetTests(p, instance, spec.id)
+						choose()
+						a.runBuildTargetTests(p, instance, targetID)
 					})
 				}
 			}
 		case buildRowProject:
-			if buildTestDeclares(instance, "project") {
-				if menu.Item(i18n.Shared(lang, "native.runTests")).Disabled(p.tests.running || instance.modelLoading).Clicked() {
-					c.After(func() {
-						a.performed("build.project.test", surfaceContextMenu)
-						a.chooseBuildInstance(p, spec.instance)
-						a.runBuildProjectTests(p, instance, spec.id)
-					})
-				}
-			}
-			if path := buildFileOf(p, instance, spec.id); path != "" {
-				label := i18n.SharedFormat(lang, "native.open", map[string]string{"arg1": filepath.Base(path)})
-				if menu.Item(label).Clicked() {
-					c.After(func() {
-						a.performed("build.project.openBuildFile", surfaceContextMenu)
-						a.openFile(p, path)
-					})
-				}
-			}
-			index := spec.instance
+			a.buildProjectMenuItems(c, menu, p, instance, index, node.ProjectID)
 			if menu.Item(i18n.Shared(lang, "native.reload")).Disabled(instance.modelLoading || b.operation != nil).Clicked() {
 				c.After(func() {
 					a.performed("build.model.reload", surfaceContextMenu)
@@ -109,6 +97,31 @@ func (a *App) buildRowMenu(c ui.C, row ui.Box, p *project, instance *buildInstan
 			}
 		}
 	})
+}
+
+// buildProjectMenuItems are the items of a project's menu, on its row or on the group row that
+// stands for it: run its tests, when its build system declares the project test scope, and open
+// its build file.
+func (a *App) buildProjectMenuItems(c ui.C, menu *ui.MenuItems, p *project, instance *buildInstance, index int, projectID string) {
+	lang := a.language()
+	if buildTestDeclares(instance, "project") {
+		if menu.Item(i18n.Shared(lang, "native.runTests")).Disabled(p.tests.running || instance.modelLoading).Clicked() {
+			c.After(func() {
+				a.performed("build.project.test", surfaceContextMenu)
+				a.chooseBuildInstance(p, index)
+				a.runBuildProjectTests(p, instance, projectID)
+			})
+		}
+	}
+	if path := buildFileOf(p, instance, projectID); path != "" {
+		label := i18n.SharedFormat(lang, "native.open", map[string]string{"arg1": filepath.Base(path)})
+		if menu.Item(label).Clicked() {
+			c.After(func() {
+				a.performed("build.project.openBuildFile", surfaceContextMenu)
+				a.openFile(p, path)
+			})
+		}
+	}
 }
 
 // buildDependencyMenu is the menu of the dependency tree of the chosen project: of one of its

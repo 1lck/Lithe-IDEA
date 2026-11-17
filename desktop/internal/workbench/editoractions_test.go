@@ -1,10 +1,13 @@
 package workbench
 
 import (
+	"context"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/1lck/Lithe-IDEA/desktop/internal/core"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/pluginservice"
@@ -58,5 +61,90 @@ func writeFixture(t *testing.T, root string, files map[string]string) {
 		if err := os.WriteFile(path, []byte(content), 0o600); err != nil {
 			t.Fatal(err)
 		}
+	}
+}
+
+func TestEditorActionRetryDelayDoublesUpToTheCap(t *testing.T) {
+	want := []time.Duration{2 * time.Second, 4 * time.Second, 8 * time.Second, 16 * time.Second, 30 * time.Second, 30 * time.Second}
+	for i, delay := range want {
+		if got := editorActionRetryDelay(i + 1); got != delay {
+			t.Fatalf("retry %d waits %v, want %v", i+1, got, delay)
+		}
+	}
+}
+
+func TestEditorActionCollectionTimeoutIsRetriedWithinItsBudget(t *testing.T) {
+	h := newHarness(t, &testKernel{Client: core.NewClient()})
+	root := t.TempDir()
+	writeFixture(t, root, map[string]string{"Main.java": "class Main {}\n"})
+	h.open(root)
+	p := h.app.project
+	h.app.openFile(p, filepath.Join(root, "Main.java"))
+	h.settle()
+	d := documentNamed(p, "Main.java")
+	if d == nil {
+		t.Fatal("source document unavailable")
+	}
+	t.Cleanup(func() {
+		if d.actionTimer != nil {
+			d.actionTimer.Stop()
+		}
+	})
+	present := func(actions []pluginservice.EditorAction, err error) {
+		h.app.clearEditorActions(d)
+		snapshot := editorActionSnapshot{documentID: d.id, version: d.view.Revision(), collection: d.actionCollection}
+		h.app.presentEditorActions(p, snapshot, actions, nil, err)
+	}
+	busy := fmt.Errorf("collect: %w", context.DeadlineExceeded)
+
+	// A server still importing answers late: every timeout schedules one more attempt, until the
+	// budget is spent.
+	for attempt := 1; attempt <= editorActionRetryLimit; attempt++ {
+		present(nil, busy)
+		if d.actionRetries != attempt || d.actionTimer == nil {
+			t.Fatalf("timeout %d: retries=%d timer=%v", attempt, d.actionRetries, d.actionTimer != nil)
+		}
+	}
+	d.actionTimer.Stop()
+	d.actionTimer = nil
+	present(nil, busy)
+	if d.actionRetries != editorActionRetryLimit || d.actionTimer != nil {
+		t.Fatalf("a spent budget must not retry: retries=%d timer=%v", d.actionRetries, d.actionTimer != nil)
+	}
+
+	// An answer resets the budget and is shown.
+	found := []pluginservice.EditorAction{{ID: "run-main", Title: "Run", Range: pluginservice.EditorActionRange{StartLine: 1, StartColumn: 1, EndLine: 1, EndColumn: 1}}}
+	present(found, nil)
+	if d.actionRetries != 0 || len(d.actions) != 1 {
+		t.Fatalf("success must reset retries and show actions: retries=%d actions=%+v", d.actionRetries, d.actions)
+	}
+
+	// A failure that is not a timeout would fail the same way again, so it is not retried.
+	present(nil, errors.New("malformed answer"))
+	if d.actionRetries != 0 || d.actionTimer != nil {
+		t.Fatalf("a non-timeout failure must not retry: retries=%d timer=%v", d.actionRetries, d.actionTimer != nil)
+	}
+
+	// A document behind another tab is not retried, so a busy server is not asked once per open
+	// file; selecting it collects it again with a fresh budget.
+	writeFixture(t, root, map[string]string{"Other.java": "class Other {}\n"})
+	h.app.openFile(p, filepath.Join(root, "Other.java"))
+	h.settle()
+	if other := documentNamed(p, "Other.java"); other == nil || p.documentShown(d) {
+		t.Fatal("the second file must hide the first behind its tab")
+	} else {
+		t.Cleanup(func() {
+			if other.actionTimer != nil {
+				other.actionTimer.Stop()
+			}
+		})
+	}
+	present(nil, busy)
+	if d.actionRetries != 0 || d.actionTimer != nil || !d.actionsTimedOut {
+		t.Fatalf("a hidden document must wait for selection: retries=%d timer=%v timedOut=%v", d.actionRetries, d.actionTimer != nil, d.actionsTimedOut)
+	}
+	h.app.selectDocument(p, d.id)
+	if !p.documentShown(d) || d.actionsTimedOut || d.actionTimer == nil {
+		t.Fatalf("selecting a timed-out document must collect it again: shown=%v timedOut=%v timer=%v", p.documentShown(d), d.actionsTimedOut, d.actionTimer != nil)
 	}
 }

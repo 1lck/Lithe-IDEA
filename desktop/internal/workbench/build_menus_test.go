@@ -29,16 +29,17 @@ func TestBuildRowMenusRunTargetsAndOpenTheBuildFile(t *testing.T) {
 	// The build root is a directory of the workspace and the project's path is relative to it,
 	// so the build file is found under both.
 	instance := runConfigInstance("app")
-	instance.Manifest = []byte(`{"buildSystems":[{"id":"engine","detection":{"markers":["engine.build"]}}]}`)
+	instance.Manifest = buildTestManifest(&instance)
 	h.app.post(func(a *App) {
 		p.build.instances, p.build.loaded = []buildInstance{instance}, true
+		// Every node opens, so the target shows in its project's Targets folder.
+		p.setAllBuildGroups(true)
 		a.reduceChrome(core.ToggleChrome(itemBuild))
 	})
-	// The choices list holds the projects, dependencies, targets and tasks; a tall window
-	// shows every section.
 	if err := h.driver.Resize(1280, 1400); err != nil {
 		t.Fatal(err)
 	}
+	laidOutBuildRows(t, h, p)
 	h.settle()
 	h.settle()
 
@@ -59,7 +60,8 @@ func TestBuildRowMenusRunTargetsAndOpenTheBuildFile(t *testing.T) {
 	}
 	awaitStateWithin(t, h, 10*time.Second, "the refused run to end", func() bool { return p.build.operation == nil })
 
-	// A project opens the build file its build system detects in its directory.
+	// A project opens the build file its build system detects in its directory; the only
+	// project's menu is the menu of the group that stands for it.
 	h.settle()
 	h.rightClickAt(h.labelBounds("server"))
 	h.click(center(h.popupHit(i18n.SharedFormat(h.app.language(), "native.open", map[string]string{"arg1": "engine.build"}))))

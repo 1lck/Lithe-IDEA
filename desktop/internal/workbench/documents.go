@@ -146,6 +146,12 @@ type document struct {
 	// the ID the view reports them with.
 	links       []pluginservice.EditorLink
 	actionTimer *time.Timer
+	// actionRetries counts the collections retried after a timeout since the last trigger
+	// (editor_actions.go); it bounds how long a busy server is asked again.
+	actionRetries int
+	// actionsTimedOut says the last collection timed out while no editor group showed the
+	// document, so it was not retried; selecting the document collects it again.
+	actionsTimedOut bool
 	// actionAnnotated says the line annotations show code lens titles, so clearing them is needed.
 	actionAnnotated bool
 	// actionPanel holds the lanes of the action icons and the lane menu a press opened.
@@ -565,6 +571,9 @@ func (a *App) selectDocument(p *project, id int) {
 	p.touchDocument(id)
 	if d := p.docs.find(id); d != nil {
 		a.noteRecentFile(p, d, "opened")
+		if d.actionsTimedOut {
+			a.scheduleEditorActions(p, d)
+		}
 	}
 }
 

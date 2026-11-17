@@ -306,6 +306,15 @@ func (a *App) everyTab() []*App {
 	return []*App{a}
 }
 
+// openTabs is every workbench whose tab is open, or a alone without one; a retired workbench
+// is left out, as nothing it shows is seen again.
+func (a *App) openTabs() []*App {
+	if s := a.sessions; s != nil && len(s.list) > 0 {
+		return s.list
+	}
+	return []*App{a}
+}
+
 // shownTab is the workbench the window shows, which a notice has to land on to be seen.
 func (a *App) shownTab() *App {
 	if s := a.sessions; s != nil && s.active != nil {

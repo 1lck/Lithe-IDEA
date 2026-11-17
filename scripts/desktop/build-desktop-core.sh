@@ -27,6 +27,27 @@ native_path() {
     fi
 }
 
+# Lithe-core-rust main at 84735ea, #76 squash-merged on top of ac8825b: build.modelTree lays out
+# the Build tool window's tree of a decoded model for every build tool, projects nested by
+# parentID, each with its task folders (by category, else by group), dependencies, targets and
+# child projects; a filter marks the matched nodes and keeps the nodes on the way to them
+# (#1866).
+# Lithe-core-rust main at ac8825b, #72 squash-merged: Core hides only .git, .worktree,
+# .worktrees, .DS_Store and .lithe by itself; workspace.configureVisibility takes the
+# manifests of the enabled plugins and hides the folders their build systems name in
+# layout.hiddenDirectoryNames and their VCS providers name as directory markers, in every
+# workspace, until the next call replaces them (#1856). On top of #74 squash-merged:
+# git.workspacePushPreview reads for each workspace repository whether it can push (ready, up to
+# date, no remote, empty, detached HEAD or failed), its push preview and target, and the order to
+# push them in, a submodule before the repository that records it, which the desktop's Push
+# Commits dialog reads (#2013); #69 squash-merged, so Core knows no runtime by name and go and
+# node resolve through their tool definitions like any other runtime without executables, with no
+# hostManaged field (#1856); and #71 squash-merged: git.workspaceHistoryMerge interleaves the
+# loaded history pages of several workspace repositories newest first, each in Git's own order,
+# stops where a repository with pages left runs out and names it pending, and keys a hash several
+# repositories hold <hash>@<id>; git.historyPage takes maxCommits and answers limitReached;
+# git.workspaceRepositorySelection takes chosen, the set a view walks together, and answers the
+# picks still listed in discovery order; the desktop's Git Log sends and reads all of them (#2013).
 # Lithe-core-rust main at 5a8d786, #67 squash-merged: toolchains.candidates takes the optional
 # commandHomes, lists the commands found on the PATH as shell rows, and offers each shell home that
 # checks out as an installations entry with provider host:shell, once per canonical home (#2032).
@@ -150,7 +171,7 @@ PINNED_CORE_REPOSITORY="https://github.com/Lithe-IDEA/Lithe-core-rust.git"
 # the contract, plugin guides, reference and SDKs live only in shared/plugins; on top of #16 (reported Git queries folded in the console),
 # #15 (git.write cherryPick, revert and reset fields), #14 (word-level changed ranges of diff
 # rows), #13, #8, #7, #6 and #4.
-PINNED_CORE_REVISION="5a8d786e9b44a5a8c7a977a8b376264fa941dcd9"
+PINNED_CORE_REVISION="66e98ecaf6bac483e2de1ac0f9f19fe8367a45cf"
 PROFILE="debug"
 while [[ $# -gt 0 ]]; do
     case "$1" in

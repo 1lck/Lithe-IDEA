@@ -17,7 +17,7 @@ import (
 	"github.com/vivaui/viva/gfx"
 )
 
-// loadedRunConfigs opens root with one detected run and waits until Core resolved it.
+// loadedRunConfigs opens root with one provider run and waits until Core resolved it.
 func loadedRunConfigs(t *testing.T, kernel Kernel, root string) (*harness, *project) {
 	t.Helper()
 	if err := os.MkdirAll(filepath.Join(root, "app", "server"), 0o755); err != nil {
