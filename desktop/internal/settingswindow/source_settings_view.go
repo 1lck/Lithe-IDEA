@@ -268,7 +268,8 @@ func (w *window) sourceSettingsPanel(c ui.C, p *sourceSettingsForm) {
 						if field.EffectiveSource != "" {
 							ui.Text(row.C, field.EffectiveSource).FontSize(11).Color(w.pal.muted)
 						}
-						if field.Kind != "enum" && !controlInherits(p, source.ID, field.ID) && ui.Button(row.C, i18n.Shared(language, "desktop.pluginSettings.reset")).Link().Disabled(p.busy || p.stale || !source.Writable || controlInherits(p, source.ID, field.ID)).Clicked() {
+						// A source the plugin projects read-only has nothing to reset.
+						if source.Writable && field.Kind != "enum" && !controlInherits(p, source.ID, field.ID) && ui.Button(row.C, i18n.Shared(language, "desktop.pluginSettings.reset")).Link().Disabled(p.busy || p.stale || !source.Writable || controlInherits(p, source.ID, field.ID)).Clicked() {
 							control := p.controls[source.ID][field.ID]
 							control.input = control.inherited
 							p.changed(source.ID, field.ID)
@@ -374,9 +375,12 @@ func (w *window) sourceSettingsControl(c ui.C, p *sourceSettingsForm, source cor
 			p.changed(source.ID, field.ID)
 		}
 	default:
-		if disabled {
+		list := field.Kind == "stringList" || field.Kind == "fileList"
+		if disabled && list {
+			w.readOnlyList(c, field.Title, control.input.Text)
+		} else if disabled {
 			w.readOnlyField(c, field.Title, control.input.Text)
-		} else if field.Kind == "stringList" || field.Kind == "fileList" {
+		} else if list {
 			if ui.TextArea(c, &control.input.Text, field.Title, "").FillWidth().Height(100).Changed() {
 				control.input.Inherit = false
 				p.changed(source.ID, field.ID)
@@ -387,7 +391,7 @@ func (w *window) sourceSettingsControl(c ui.C, p *sourceSettingsForm, source cor
 				p.changed(source.ID, field.ID)
 			}
 		}
-		if field.Kind == "fileList" && ui.Button(c, i18n.Shared(language, "desktop.pluginSettings.browse")).Outline().Disabled(disabled).Clicked() {
+		if field.Kind == "fileList" && source.Writable && ui.Button(c, i18n.Shared(language, "desktop.pluginSettings.browse")).Outline().Disabled(disabled).Clicked() {
 			c.After(func() {
 				paths, err := app.OpenFiles(app.OpenFileOptions{Title: field.Title})
 				// log-exempt: 用户取消：文件选择器取消不修改依赖草稿。

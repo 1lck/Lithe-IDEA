@@ -3,6 +3,7 @@ package settingswindow
 import (
 	"errors"
 	"strconv"
+	"strings"
 
 	"github.com/1lck/Lithe-IDEA/desktop/internal/configfile"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/core"
@@ -196,6 +197,18 @@ func (w *window) readOnlyField(c ui.C, label, value string) {
 		HitWith(ui.ID(c), label, gfx.HitOptions{Role: gfx.RoleTextField, Value: value, ReadOnly: true, Disabled: true}).
 		Children(func() {
 			ui.Text(c, value).FontSize(13).Color(w.pal.muted).Ellipsis()
+		})
+}
+
+// readOnlyList shows a list value that cannot be edited one item per line, as the TextArea
+// shows it while it can be, so a read-only list is not cut down to its first item.
+func (w *window) readOnlyList(c ui.C, label, value string) {
+	ui.Column(c).FillWidth().MinWidth(0).PadX(10).PadY(6).Gap(2).Border(1, w.pal.line).Radius(6).
+		HitWith(ui.ID(c), label, gfx.HitOptions{Role: gfx.RoleTextField, Value: value, ReadOnly: true, Disabled: true}).
+		Children(func() {
+			for index, line := range strings.Split(value, "\n") {
+				ui.Text(c.Key(strconv.Itoa(index)), line).FontSize(13).Color(w.pal.muted).FillWidth().Ellipsis()
+			}
 		})
 }
 
