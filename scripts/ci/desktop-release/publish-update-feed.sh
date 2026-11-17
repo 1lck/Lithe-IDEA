@@ -21,8 +21,9 @@
 # feed lists and the release's .sha256, and handed to viva feed --patch-from, which writes the
 # patches beside this version's archives; they are uploaded to RELEASE_TAG. Running again for the
 # version the feed already offers rebuilds the same patches. A platform whose previous archive
-# cannot be fetched or does not match gets no patch, and with no feed published yet there are no
-# patches: users download the full package then. A feed that already offers a newer version is
+# cannot be fetched or does not match gets no patch, nor does Windows from a version whose client
+# cannot install one (WINDOWS_PATCH_FROM), and with no feed published yet there are no patches:
+# users download the full package then. A feed that already offers a newer version is
 # left as it is.
 set -euo pipefail
 
@@ -149,6 +150,28 @@ if [[ -n "$CURRENT" ]]; then
     sed -n 's/^digest //p' "$WORK/feed-read" > "$FEED_DIGESTS"
 fi
 
+# The first version whose Windows client installs a patch. Lithe 0.8.0 and 0.8.1 delete the
+# application a patch rebuilt once they quit, before Viva's helper has read it, so a patch quits
+# them without updating them (vivaui/viva#334); a client of those versions gets the full
+# installer instead, which they install correctly. The version is the one the client runs, the
+# version the published feed offers, so the rule applies for as long as anyone still runs them.
+WINDOWS_PATCH_FROM="0.8.2"
+
+# Succeeds when MAJOR.MINOR.PATCH $1 is earlier than $2.
+version_before() {
+    local -a a b
+    local i
+    IFS=. read -ra a <<< "$1"
+    IFS=. read -ra b <<< "$2"
+    for i in 0 1 2; do
+        if ((a[i] != b[i])); then
+            ((a[i] < b[i]))
+            return
+        fi
+    done
+    return 1
+}
+
 PATCH_ARGS=()
 PATCHED=()
 if [[ -n "$PREVIOUS" ]]; then
@@ -157,6 +180,10 @@ if [[ -n "$PREVIOUS" ]]; then
             continue
         fi
         os="${BASH_REMATCH[1]}" arch="${BASH_REMATCH[2]}" ext="${BASH_REMATCH[3]}"
+        if [[ "$os" == windows ]] && version_before "$PREVIOUS" "$WINDOWS_PATCH_FROM"; then
+            printf '%s\n' "::notice::No delta update for $os/$arch from $PREVIOUS: its client cannot install a Windows patch, so it downloads the full installer."
+            continue
+        fi
         old="lithe-$PREVIOUS-$os-$arch.$ext"
         mkdir -p "$WORK/previous/$os-$arch"
         if ! gh release download "desktop-v$PREVIOUS" --repo "$GITHUB_REPOSITORY" --pattern "$old" \
