@@ -61,7 +61,7 @@ func (a *App) definitionPopup(c ui.C) {
 		a.closeSemanticDefinition()
 		return
 	}
-	anchor, ok := d.view.CaretRect()
+	anchor, ok := d.caretView().CaretRect()
 	if !ok {
 		a.closeSemanticDefinition()
 		return
@@ -94,7 +94,7 @@ func (a *App) completionPopup(c ui.C) {
 		a.closeSemanticCompletion()
 		return
 	}
-	anchor, ok := d.view.CaretRect()
+	anchor, ok := d.caretView().CaretRect()
 	if !ok {
 		a.closeSemanticCompletion()
 		return

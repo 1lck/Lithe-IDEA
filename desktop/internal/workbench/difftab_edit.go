@@ -3,6 +3,7 @@ package workbench
 import (
 	"path/filepath"
 	"runtime"
+	"strings"
 
 	"github.com/1lck/Lithe-IDEA/desktop/internal/core"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/editorview"
@@ -52,23 +53,31 @@ func (a *App) diffEdited(t *diffTab, edit editorview.Edit) {
 	if d == nil {
 		return
 	}
-	p.diffs.mirroring++
-	ok := d.view.ApplyEdit(edit, true)
-	p.diffs.mirroring--
-	if !ok {
+	if !a.editDocumentFrom(p, d, t.after.view, edit) {
 		// The document and the side disagree on the text; the side shows the document again.
 		a.rebuildDiff(t)
 	}
 }
 
-// mirrorDocumentEdit mirrors an edit of document d into the right side of every Diff tab that
-// shows its file. The document's own undo already holds the edit, so the side does not record it.
+// editDocumentFrom applies an edit the user made in from, a second view of document d (a Diff
+// tab's side or the Problems preview), to the document as one undo step of its own. The
+// document then mirrors it into its other second views, but not back into from. It reports
+// false when the two disagree on the text, and the caller shows the document again.
+func (a *App) editDocumentFrom(p *project, d *document, from *editorview.View, edit editorview.Edit) bool {
+	origin := p.diffs.origin
+	p.diffs.origin = from
+	ok := d.view.ApplyEdit(edit, true)
+	p.diffs.origin = origin
+	return ok
+}
+
+// mirrorDocumentEdit mirrors an edit of document d into its second views: the right side of every
+// Diff tab that shows its file and the editable preview that shows it, except the view the edit
+// came from. The document's own undo already holds the edit, so a second view does not record it,
+// and the report each view makes of the mirrored edit is not mirrored back.
 func (a *App) mirrorDocumentEdit(p *project, d *document, edit editorview.Edit) {
-	if p.diffs.mirroring > 0 {
-		return
-	}
 	for _, t := range p.diffs.list {
-		if t.after == nil || !diffWritable(t) || diffTabPath(t) != d.path {
+		if t.after == nil || t.after.view == p.diffs.origin || !diffWritable(t) || diffTabPath(t) != d.path {
 			continue
 		}
 		p.diffs.mirroring++
@@ -78,6 +87,7 @@ func (a *App) mirrorDocumentEdit(p *project, d *document, edit editorview.Edit) 
 			a.rebuildDiff(t)
 		}
 	}
+	a.mirrorPreviewEdit(p, d, edit)
 }
 
 // diffUndoChord takes the undo and redo chords of an editable side for its document, which owns
@@ -87,21 +97,27 @@ func (a *App) diffUndoChord(t *diffTab, event gfx.KeyEvent) bool {
 	if event.Release || event.Key != gfx.KeyUnknown {
 		return false
 	}
-	d := a.diffDocument(t)
-	if d == nil {
+	return documentUndoChord(a.diffDocument(t), event)
+}
+
+// documentUndoChord takes back or does again in document d the edit an undo or redo chord pressed
+// in a second view of it asks for, as the document holds the undo of every edit made in its views:
+// Command+Z and Shift+Command+Z on macOS, Control+Z, Shift+Control+Z and Control+Y elsewhere. It
+// reports false for any other key.
+func documentUndoChord(d *document, event gfx.KeyEvent) bool {
+	if d == nil || event.Release || event.Key != gfx.KeyUnknown || event.Modifiers&^gfx.ModifierShift != primaryModifier() {
 		return false
 	}
-	modifier := gfx.ModifierControl
-	if runtime.GOOS == "darwin" {
-		modifier = gfx.ModifierMeta
-	}
-	if event.Modifiers&^gfx.ModifierShift != modifier || event.Text != "z" && event.Text != "Z" {
-		return false
-	}
-	if event.Modifiers&gfx.ModifierShift != 0 {
+	shift := event.Modifiers&gfx.ModifierShift != 0
+	switch {
+	case strings.EqualFold(event.Text, "z") && shift:
 		d.view.Redo()
-	} else {
+	case strings.EqualFold(event.Text, "z"):
 		d.view.Undo()
+	case runtime.GOOS != "darwin" && strings.EqualFold(event.Text, "y") && !shift:
+		d.view.Redo()
+	default:
+		return false
 	}
 	return true
 }

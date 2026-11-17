@@ -43,7 +43,7 @@ func (a *App) pluginEditShortcut(event gfx.KeyEvent) gfx.EventResult {
 		return gfx.EventResult{}
 	}
 	p, d := a.pluginSemanticHit(event.Target)
-	if d == nil || d.view.IsComposing() {
+	if d == nil || d.caretView().IsComposing() {
 		return gfx.EventResult{}
 	}
 	a.startPluginFormattingAtSelection(p, d)
@@ -60,7 +60,7 @@ func (a *App) startPluginEdit(kind semanticKind, p *project, d *document, positi
 // startPluginEditRequest is startPluginEdit with the request body prepared by the caller
 // except for the operation and URI, which are filled in here.
 func (a *App) startPluginEditRequest(kind semanticKind, p *project, d *document, body core.PluginSemanticRequest) {
-	if a.plugins == nil || p == nil || d == nil || a.project != p || d.view.IsComposing() {
+	if a.plugins == nil || p == nil || d == nil || a.project != p || d.caretView().IsComposing() {
 		return
 	}
 	a.closeSemanticHover()
@@ -117,7 +117,7 @@ func (a *App) startPluginFormatting(p *project, d *document) {
 // startPluginFormattingAtSelection formats the selected range, or the whole document
 // when nothing is selected.
 func (a *App) startPluginFormattingAtSelection(p *project, d *document) {
-	startLine, startColumn, endLine, endColumn, ok := d.view.SelectionUTF16()
+	startLine, startColumn, endLine, endColumn, ok := d.caretView().SelectionUTF16()
 	if !ok {
 		a.startPluginFormatting(p, d)
 		return
@@ -168,7 +168,7 @@ func (a *App) applySemanticFormatting(pending *semanticPending, event core.Backe
 func (a *App) applyEditsToDocument(p *project, d *document, edits []core.PluginTextEdit, operation string) {
 	documentID, revision := d.id, d.view.Revision()
 	snapshot := d.view.TextSnapshot()
-	line, column := d.view.CaretUTF16()
+	line, column := d.caretView().CaretUTF16()
 	caret, _ := d.view.ByteOffset(line, column)
 	a.background(p, semanticApplyTimeout, func(ctx context.Context) func(*App) {
 		applied, err := a.kernel.ApplyPluginTextEdits(ctx, snapshot.String(), edits)
@@ -186,7 +186,7 @@ func (a *App) applyEditsToDocument(p *project, d *document, edits []core.PluginT
 			if current != p || document == nil || a.project != p || document.view.Revision() != revision {
 				return
 			}
-			document.view.ApplyTextChange(change)
+			document.caretView().ApplyTextChange(change)
 		}
 	})
 }

@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/1lck/Lithe-IDEA/desktop/internal/core"
+	"github.com/1lck/Lithe-IDEA/desktop/internal/editorview"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/i18n"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/plugindiag"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/pluginservice"
@@ -288,8 +289,8 @@ func TestClosingAProblemsNodeHandsItTheSelectionOfADiagnosticUnderIt(t *testing.
 	if v.selected != unused || v.selectedRow != 2 {
 		t.Fatalf("selected %q at %d after a click", v.selected, v.selectedRow)
 	}
-	if h.app.project.docs.byPath(v.diagnostics[v.result.Rows[2].Shows].FileKey) != nil {
-		t.Fatal("a click with the preview on opened the file")
+	if d := h.app.project.docs.byPath(v.diagnostics[v.result.Rows[2].Shows].FileKey); d != nil && !d.tabless {
+		t.Fatal("a click with the preview on opened the file in a tab")
 	}
 
 	h.app.toggleProblemsNode(a)
@@ -298,8 +299,8 @@ func TestClosingAProblemsNodeHandsItTheSelectionOfADiagnosticUnderIt(t *testing.
 		t.Fatalf("rows %v, selected %q at %d after closing a.txt", keys, v.selected, v.selectedRow)
 	}
 	// A node's row previews its first diagnostic.
-	if path, line, ok := v.selectedProblemLocation(); !ok || path != v.result.Groups[0].FileKey || line != 0 {
-		t.Fatalf("node shows %q:%d (%v)", path, line, ok)
+	if item, ok := v.selectedProblem(); !ok || item.FileKey != v.result.Groups[0].FileKey || item.Line != 0 {
+		t.Fatalf("node shows %q:%d (%v)", item.FileKey, item.Line, ok)
 	}
 
 	h.app.expandProblems(false)
@@ -414,7 +415,8 @@ func TestProblemsCacheIsDroppedWhenThePanelCloses(t *testing.T) {
 }
 
 // With the preview on, a click on a diagnostic only selects it: the shared source preview shows its
-// file at its line without opening an editor, and a file that cannot be read shows why.
+// file at its line as a document without a tab, released when the preview moves on, and a file that
+// cannot be read shows why.
 func TestProblemsPreviewFollowsTheSelectedDiagnostic(t *testing.T) {
 	h := newHarness(t, &testKernel{Client: core.NewClient()})
 	root := t.TempDir()
@@ -426,6 +428,8 @@ func TestProblemsPreviewFollowsTheSelectedDiagnostic(t *testing.T) {
 	h.open(root)
 	h.app.pluginDiagnostics = map[string]*plugindiag.Set{"demo": problemSet(t,
 		plugindiag.Diagnostic{FileKey: present, DisplayPath: "present.txt", Line: 2, Column: 0, Severity: plugindiag.SeverityError, Message: "on two"},
+		plugindiag.Diagnostic{FileKey: present, DisplayPath: "present.txt", Line: 2, Column: 2, Severity: plugindiag.SeverityWarning, Message: "also on two"},
+		plugindiag.Diagnostic{FileKey: present, DisplayPath: "present.txt", Line: 0, Column: 0, Severity: plugindiag.SeverityInformation, Message: "on zero"},
 		plugindiag.Diagnostic{FileKey: missing, DisplayPath: "missing.txt", Line: 0, Column: 0, Severity: plugindiag.SeverityWarning, Message: "gone"},
 	)}
 	h.app.markProblemsChanged()
@@ -439,14 +443,125 @@ func TestProblemsPreviewFollowsTheSelectedDiagnostic(t *testing.T) {
 	if line, _ := preview.view.Caret(); line != 2 || preview.line != 3 {
 		t.Fatalf("preview at line %d (asked %d), want the diagnostic's zero-based 2", line, preview.line)
 	}
-	if h.app.project.docs.byPath(present) != nil {
-		t.Fatal("selecting a diagnostic with the preview on opened its file")
+	if d := h.app.project.docs.byPath(present); d == nil || !d.tabless || preview.doc != d {
+		t.Fatal("the preview does not edit the file's document without a tab")
+	}
+	// The line is colored by the severity of the selected diagnostic: red for the error, yellow
+	// for a warning on the same line, blue for information on another.
+	for _, step := range []struct {
+		message  string
+		line     int
+		severity int
+	}{{"on two", 3, 1}, {"also on two", 3, 2}, {"on zero", 1, 3}} {
+		if step.message != "on two" {
+			h.clickNamed(problemsRowNamed(t, h, problemsDiagnosticRow(t, h, step.message)))
+			h.settleChain()
+		}
+		want := lineTint{line: step.line, color: h.app.problemLineColor(step.severity)}
+		if preview.tinted != want {
+			t.Fatalf("%s: preview marks %+v, want %+v", step.message, preview.tinted, want)
+		}
+	}
+	if failure, warning, information := h.app.problemLineColor(1), h.app.problemLineColor(2), h.app.problemLineColor(3); failure == warning || warning == information || failure == information {
+		t.Fatalf("severities share a line color: %v %v %v", failure, warning, information)
 	}
 
 	h.clickNamed(problemsRowNamed(t, h, gone))
 	awaitDocumentState(t, h, func() bool { return preview.failure != nil })
 	if preview.path != missing || preview.view != nil {
 		t.Fatalf("preview of an unreadable file = %q, view %v", preview.path, preview.view != nil)
+	}
+	if h.app.project.docs.byPath(present) != nil {
+		t.Fatal("the clean document without a tab outlived its preview")
+	}
+}
+
+// The preview edits the file's document as a second editor of it: typing there reaches the file's
+// tab and points the language features at the preview's caret, an edit in the tab reaches the
+// preview, an undo chord in the preview takes back the document's edit, and while the preview has
+// the keyboard a new list of diagnostics recolors the line without moving the caret.
+func TestProblemsPreviewEditsTheDocument(t *testing.T) {
+	h := newHarness(t, &testKernel{Client: core.NewClient()})
+	root := t.TempDir()
+	path := filepath.Join(root, "a.txt")
+	if err := os.WriteFile(path, []byte("zero\none\ntwo\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	h.open(root)
+	p := h.app.project
+	h.app.openFile(p, path)
+	h.settle()
+	d := p.docs.byPath(path)
+	if d == nil || d.tabless {
+		t.Fatal("the file did not open in a tab")
+	}
+	publish := func(line int) {
+		h.app.pluginDiagnostics = map[string]*plugindiag.Set{"demo": problemSet(t,
+			plugindiag.Diagnostic{FileKey: path, DisplayPath: "a.txt", Line: line, Column: 0, Severity: plugindiag.SeverityError, Message: "broken"},
+		)}
+		h.app.markProblemsChanged()
+	}
+	publish(1)
+	h.app.problems.show, h.app.problems.project = true, true
+	openProblemsPanel(t, h)
+	preview := &h.app.problems.preview
+	h.clickNamed(problemsRowNamed(t, h, problemsDiagnosticRow(t, h, "broken")))
+	awaitDocumentState(t, h, func() bool { return preview.view != nil && preview.path == path })
+	if preview.doc != d {
+		t.Fatal("the preview does not edit the open document")
+	}
+	text := func(v *editorview.View) string {
+		data, _ := v.Text()
+		return string(data)
+	}
+
+	h.click(center(h.hit(preview.hit)))
+	preview.view.GoToLine(2)
+	if err := h.driver.Type("X"); err != nil {
+		t.Fatal(err)
+	}
+	h.settle()
+	if got := text(d.view); got != "zero\nXone\ntwo\n" || !d.dirty() {
+		t.Fatalf("the document after typing in the preview = %q (unsaved %v)", got, d.dirty())
+	}
+	if d.caretView() != preview.view {
+		t.Fatal("the language features do not follow the preview's caret")
+	}
+	if hp, hd := h.app.pluginSemanticHit(preview.hit); hp != p || hd != d {
+		t.Fatal("the preview's text is not a semantic target of its document")
+	}
+
+	d.view.ApplyEdit(editorview.Edit{Text: "// "}, true)
+	if got := text(preview.view); got != "// zero\nXone\ntwo\n" {
+		t.Fatalf("the preview after an edit in the tab = %q", got)
+	}
+	if handled, err := h.driver.ShortcutChord(primaryModifier(), 'z'); err != nil || !handled {
+		t.Fatalf("the undo chord in the preview: handled %v, %v", handled, err)
+	}
+	h.settle()
+	if got, shown := text(d.view), text(preview.view); got != "zero\nXone\ntwo\n" || shown != got {
+		t.Fatalf("undo in the preview left the document %q and the preview %q", got, shown)
+	}
+
+	// A list in which the diagnostic moved down recolors its new line; the caret stays.
+	line, column := preview.view.Caret()
+	publish(2)
+	awaitProblems(t, h)
+	h.settle()
+	if item, ok := h.app.problems.selectedProblem(); !ok || item.Line != 2 {
+		t.Fatalf("the selection after the new list = %+v (%v)", item, ok)
+	}
+	if l, c := preview.view.Caret(); l != line || c != column {
+		t.Fatalf("the caret moved from %d:%d to %d:%d while the preview had the keyboard", line, column, l, c)
+	}
+	if want := (lineTint{line: 3, color: h.app.problemLineColor(int(plugindiag.SeverityError))}); preview.tinted != want {
+		t.Fatalf("the preview marks %+v, want %+v", preview.tinted, want)
+	}
+
+	// A press in the tab points the language features back at it.
+	h.click(center(h.hit(d.hit)))
+	if d.caretView() != d.view {
+		t.Fatal("the language features stay on the preview after a press in the tab")
 	}
 }
 

@@ -476,16 +476,14 @@ func (a *App) hiddenToolWindowRow(c ui.C, i int) (ui.Box, bool) {
 	return row, row.Clicked()
 }
 
-// statusBar is the strip across the bottom of the workbench: the project on the left, and at
-// the trailing end the readouts the user can arrange.
+// statusBar is the strip across the bottom of the workbench: the navigation path of the item the
+// user is on at the leading end (status_path_view.go), and at the trailing end the readouts the
+// user can arrange.
 func (a *App) statusBar(c ui.C) {
 	clicked := -1
 	ui.Row(c).FillWidth().Height(statusBarHeight).Shrink(0).Background(a.chromeFill()).
 		Items(ui.Center).PadX(chromeEdge).Children(func() {
-		k := c.Part("path")
-		ui.Text(k, a.project.name).Grow(1).Ellipsis().FontSize(a.theme.Metrics.FontSizeS).LineHeight(chromeLineHeight).
-			Color(a.colors.Subtle).
-			HitWith(ui.ID(k), a.text.Status.Path, gfx.HitOptions{Role: gfx.RoleStatus, Value: a.project.name, SkipFocus: true})
+		a.statusPathView(c)
 		zone := ui.Row(c).Items(ui.Center).Gap(chromeStatusGap).Children(func() {
 			for _, i := range a.chrome.items[zoneStatus] {
 				if !a.vimStatusShown(i) {

@@ -102,12 +102,16 @@ func (a *App) applyLook(choice themeChoice) {
 
 // applySelectionFocus greys the selection of every list while another window has the
 // keyboard and restores it when this one comes back, the way IDEA dims an unfocused tree.
+// Viva fills a selected tree row, and the row under the pointer in a menu or a sidebar, with
+// the theme's Accent, so Accent takes the same color as Selection: the selected row shows in
+// IDEA's selection blue instead of the faint grey Viva defaults to.
 func (a *App) applySelectionFocus() {
+	selection := a.colors.Selection
 	if a.windowInactive {
-		a.theme.Selection = a.colors.SelectionIdle
-		return
+		selection = a.colors.SelectionIdle
 	}
-	a.theme.Selection = a.colors.Selection
+	a.theme.Selection = selection
+	a.theme.Accent = selection
 }
 
 func lightLook() (gfx.Theme, palette) {
@@ -153,6 +157,7 @@ func lightLook() (gfx.Theme, palette) {
 	theme.Primary = accent
 	theme.PrimaryForeground = gfx.RGB24(0xFFFFFF)
 	theme.Selection = p.Selection
+	theme.Accent = p.Selection
 	theme.Ring = accent
 	theme.Success = p.Success
 	theme.Metrics = theme.Metrics.WithDensity(gfx.DensityCompact)
@@ -213,6 +218,7 @@ func darkLook() (gfx.Theme, palette) {
 	theme.Primary = accent
 	theme.PrimaryForeground = gfx.RGB24(0xFFFFFF)
 	theme.Selection = p.Selection
+	theme.Accent = p.Selection
 	theme.Ring = p.Accent
 	theme.Success = p.Success
 	theme.Metrics = theme.Metrics.WithDensity(gfx.DensityCompact)

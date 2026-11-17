@@ -5,6 +5,7 @@ import (
 
 	"github.com/1lck/Lithe-IDEA/desktop/internal/editorview"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/icons"
+	"github.com/vivaui/viva/app"
 	"github.com/vivaui/viva/gfx"
 	"github.com/vivaui/viva/ui"
 )
@@ -203,7 +204,11 @@ func (a *App) documentInput(p *project, d *document) {
 			result, _ := d.view.Scroll(event)
 			return result
 		},
-		Text: d.view.TextInput,
+		// Typing in the document's own editor points the language features back at it.
+		Text: func(ctx app.TextInputContext) *app.TextInput {
+			d.lens = nil
+			return d.view.TextInput(ctx)
+		},
 	}
 	d.draw = func(dc *ui.DrawContext) {
 		v := d.view
@@ -240,6 +245,13 @@ func (a *App) documentInput(p *project, d *document) {
 // documentKey gives a key pressed while the file's control has the keyboard to the language
 // popups, the language shortcuts and the editor.
 func (a *App) documentKey(p *project, d *document, event gfx.KeyEvent) gfx.EventResult {
+	d.lens = nil
+	return a.documentViewKey(p, d, d.view, event)
+}
+
+// documentViewKey gives a key pressed in view, the document's own editor or its editable
+// preview, to the language popups, the language shortcuts and view.
+func (a *App) documentViewKey(p *project, d *document, view *editorview.View, event gfx.KeyEvent) gfx.EventResult {
 	// A semantic request belongs to the caret it was placed at. Every key path ends here, so
 	// one sync covers arrows, edits and commands.
 	defer a.pluginSemanticsCaretSync()
@@ -252,7 +264,7 @@ func (a *App) documentKey(p *project, d *document, event gfx.KeyEvent) gfx.Event
 	if result, handled := a.lineEditKey(p, d, event); handled {
 		return result
 	}
-	if result, handled := d.view.Key(event); handled {
+	if result, handled := view.Key(event); handled {
 		return result
 	}
 	return gfx.EventResult{}
@@ -262,6 +274,11 @@ func (a *App) documentKey(p *project, d *document, event gfx.KeyEvent) gfx.Event
 // editor: the press on a text and the moves and the release of the selection it starts,
 // wherever they go.
 func (a *App) documentPointer(p *project, d *document, event gfx.PointerEvent) gfx.EventResult {
+	// A press puts the caret in the document's own editor; a move over it leaves the language
+	// features where the user works, so a list opened in the preview stays open.
+	if event.Kind == gfx.PointerDown {
+		d.lens = nil
+	}
 	if event.Kind == gfx.PointerDown && event.Button == gfx.PointerButtonSecondary {
 		if line, column, ok := d.view.PositionAt(event.X, event.Y); ok {
 			a.editor.copyReference.click = &referenceClick{documentID: d.id, line: line, column: column}
@@ -273,7 +290,7 @@ func (a *App) documentPointer(p *project, d *document, event gfx.PointerEvent) g
 	if result, handled := a.documentLinkPointer(event, d); handled {
 		return result
 	}
-	if result, handled := a.pluginSemanticsPointer(event, p, d); handled {
+	if result, handled := a.pluginSemanticsPointer(event, p, d, d.view); handled {
 		return result
 	}
 	result, _ := d.view.Pointer(event)
@@ -396,6 +413,7 @@ func (a *App) terminalToolBody(c ui.C, p *project) {
 // (see windowShortcuts).
 func (a *App) onShortcut(event gfx.KeyEvent) gfx.EventResult {
 	if !event.Release {
+		a.followKeyboardView(event.Target)
 		if result := a.pluginSemanticsShortcut(event); result.Handled {
 			return result
 		}
@@ -409,6 +427,9 @@ func (a *App) onShortcut(event gfx.KeyEvent) gfx.EventResult {
 		}
 	}
 	if result := a.lineEditShortcut(event); result.Handled {
+		return result
+	}
+	if result, handled := a.sourcePreviewShortcut(event); handled {
 		return result
 	}
 	if v := a.focusedDocument(event.Target); v != nil {
