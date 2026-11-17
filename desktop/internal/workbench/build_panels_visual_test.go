@@ -17,44 +17,72 @@ import (
 )
 
 // visualBuildSystems is a workspace with several build systems a plugin could detect, each at
-// its own root, with the projects, targets and tasks their models list.
+// its own root, with the projects, targets and tasks their models list. Maven's is a reactor,
+// as IntelliJ's Maven window shows one: the root project shop holds shop-core and shop-web, and
+// each project lists the lifecycle phases, the plugin goals its model reports by plugin, and
+// its dependencies.
 func visualBuildSystems() []buildInstance {
 	system := func(id, name, root string, runs []pluginservice.BuildRunDeclaration, tasks []pluginservice.BuildTaskDeclaration, model core.BuildModel) buildInstance {
-		return buildInstance{
+		instance := buildInstance{
 			BuildInstance: core.BuildInstance{ID: id + "@" + root, PluginID: "dev.example." + id, BuildSystemID: id, Root: root},
 			PluginID:      "dev.example." + id,
-			System:        pluginservice.BuildSystemDeclaration{DisplayName: name, Runs: runs, Tasks: tasks},
-			Model:         model,
-			modelLoaded:   true,
+			System: pluginservice.BuildSystemDeclaration{
+				DisplayName: name, Runs: runs, Tasks: tasks,
+				Dependencies: &pluginservice.BuildDependenciesDeclaration{Scopes: []string{"project"}},
+			},
+			Model:       model,
+			modelLoaded: true,
+		}
+		instance.Manifest = buildTestManifest(&instance)
+		return instance
+	}
+	// task runs on the whole build or on one of its projects.
+	task := func(id, name, group string, category ...string) pluginservice.BuildTaskDeclaration {
+		return pluginservice.BuildTaskDeclaration{
+			ID: id, DisplayName: name, Group: group, Category: category, Scopes: []string{"workspace", "project"}, Source: "provider",
 		}
 	}
-	task := func(id, name string, category ...string) pluginservice.BuildTaskDeclaration {
-		return pluginservice.BuildTaskDeclaration{ID: id, DisplayName: name, Source: "provider", Category: category}
+	goal := func(project, plugin, name string) core.BuildTask {
+		return core.BuildTask{
+			ID: project + ":" + plugin + ":" + name, ProjectID: project, Name: plugin + ":" + name, Template: "goal",
+			Group: "build", Category: []string{"Plugins", plugin}, Execution: "task",
+		}
 	}
 	run := []pluginservice.BuildRunDeclaration{{ID: "application", Name: "Run", Tags: []string{"app"}}}
+	lifecycle := []pluginservice.BuildTaskDeclaration{}
+	for _, phase := range []string{"clean", "validate", "compile", "test", "package", "verify", "install", "deploy"} {
+		lifecycle = append(lifecycle, task(phase, phase, "lifecycle", "Lifecycle"))
+	}
+	lifecycle = append(lifecycle, pluginservice.BuildTaskDeclaration{ID: "goal", DisplayName: "Plugin goal", Group: "build", FromModel: true, Source: "provider"})
 	return []buildInstance{
-		system("maven", "Maven", ".", run, []pluginservice.BuildTaskDeclaration{
-			task("clean", "clean", "Lifecycle"), task("compile", "compile", "Lifecycle"),
-			task("test", "test", "Lifecycle"), task("package", "package", "Lifecycle"), task("install", "install", "Lifecycle"),
-		}, core.BuildModel{
-			Projects: []core.BuildProject{{ID: "shop", Path: ".", Name: "shop"}, {ID: "core", Path: "core", Name: "shop-core"}, {ID: "web", Path: "web", Name: "shop-web"}},
-			Targets:  []core.BuildTarget{{ID: "web-app", ProjectID: "web", Name: "ShopApplication", Path: "web", Tags: []string{"app"}}},
+		system("maven", "Maven", ".", run, lifecycle, core.BuildModel{
+			Projects: []core.BuildProject{
+				{ID: "shop", Path: ".", Name: "shop"},
+				{ID: "core", Path: "core", Name: "shop-core", ParentID: "shop"},
+				{ID: "web", Path: "web", Name: "shop-web", ParentID: "shop"},
+			},
+			Targets: []core.BuildTarget{{ID: "web-app", ProjectID: "web", Name: "ShopApplication", Path: "web", Tags: []string{"app"}}},
+			Tasks: []core.BuildTask{
+				goal("shop", "clean", "clean"), goal("shop", "install", "install"),
+				goal("core", "compiler", "compile"), goal("core", "compiler", "testCompile"), goal("core", "surefire", "test"), goal("core", "jar", "jar"),
+				goal("web", "compiler", "compile"), goal("web", "spring-boot", "run"), goal("web", "spring-boot", "repackage"),
+			},
 		}),
 		system("gradle", "Gradle", "android", run, []pluginservice.BuildTaskDeclaration{
-			task("assemble", "assemble", "Build"), task("build", "build", "Build"), task("check", "check", "Verification"),
+			task("assemble", "assemble", "build", "Build"), task("build", "build", "build", "Build"), task("check", "check", "verification", "Verification"),
 		}, core.BuildModel{
 			Projects: []core.BuildProject{{ID: "app", Path: "app", Name: "app"}},
 			Targets:  []core.BuildTarget{{ID: "debug", ProjectID: "app", Name: "debug", Tags: []string{"app"}}, {ID: "release", ProjectID: "app", Name: "release", Tags: []string{"app"}}},
 		}),
-		system("cargo", "Cargo", "tools/cli", run, []pluginservice.BuildTaskDeclaration{task("build", "build"), task("test", "test")}, core.BuildModel{
+		system("cargo", "Cargo", "tools/cli", run, []pluginservice.BuildTaskDeclaration{task("build", "build", "build"), task("test", "test", "test")}, core.BuildModel{
 			Projects: []core.BuildProject{{ID: "cli", Path: ".", Name: "shop-cli"}},
 			Targets:  []core.BuildTarget{{ID: "bin", ProjectID: "cli", Name: "shop-cli", Tags: []string{"app"}}, {ID: "lib", ProjectID: "cli", Name: "parser", Tags: []string{"library"}}},
 		}),
-		system("go", "Go Modules", "services/api", run, []pluginservice.BuildTaskDeclaration{task("build", "go build"), task("test", "go test")}, core.BuildModel{
+		system("go", "Go Modules", "services/api", run, []pluginservice.BuildTaskDeclaration{task("build", "go build", "build"), task("test", "go test", "test")}, core.BuildModel{
 			Projects: []core.BuildProject{{ID: "api", Path: ".", Name: "api"}},
 			Targets:  []core.BuildTarget{{ID: "server", ProjectID: "api", Name: "cmd/server", Tags: []string{"app"}}},
 		}),
-		system("npm", "npm", "web/frontend", nil, []pluginservice.BuildTaskDeclaration{task("dev", "dev"), task("build", "build"), task("lint", "lint")}, core.BuildModel{
+		system("npm", "npm", "web/frontend", nil, []pluginservice.BuildTaskDeclaration{task("dev", "dev", "run"), task("build", "build", "build"), task("lint", "lint", "verification")}, core.BuildModel{
 			Projects: []core.BuildProject{{ID: "frontend", Path: ".", Name: "frontend"}},
 		}),
 	}
@@ -68,13 +96,16 @@ func visualGoModule() buildInstance {
 	pkg := func(dir, tag string) core.BuildTarget {
 		return core.BuildTarget{ID: dir, ProjectID: "desktop", Name: module + "/" + dir, Path: dir, Tags: []string{tag}}
 	}
-	return buildInstance{
+	instance := buildInstance{
 		BuildInstance: core.BuildInstance{ID: "go@desktop", PluginID: "dev.example.go", BuildSystemID: "go", Root: "desktop"},
 		PluginID:      "dev.example.go",
 		System: pluginservice.BuildSystemDeclaration{
-			DisplayName:  "Go Modules",
-			Runs:         []pluginservice.BuildRunDeclaration{{ID: "main", Name: "Run", Tags: []string{"application"}}},
-			Tasks:        []pluginservice.BuildTaskDeclaration{{ID: "build", DisplayName: "Build", Source: "provider"}, {ID: "vet", DisplayName: "Vet", Source: "provider"}},
+			DisplayName: "Go Modules",
+			Runs:        []pluginservice.BuildRunDeclaration{{ID: "main", Name: "Run", Tags: []string{"application"}}},
+			Tasks: []pluginservice.BuildTaskDeclaration{
+				{ID: "build", DisplayName: "Build", Group: "build", Scopes: []string{"project"}, Source: "provider"},
+				{ID: "vet", DisplayName: "Vet", Group: "verification", Scopes: []string{"project"}, Source: "provider"},
+			},
 			Dependencies: &pluginservice.BuildDependenciesDeclaration{Scopes: []string{"project"}},
 		},
 		Model: core.BuildModel{
@@ -87,11 +118,14 @@ func visualGoModule() buildInstance {
 		},
 		modelLoaded: true,
 	}
+	instance.Manifest = buildTestManifest(&instance)
+	return instance
 }
 
 // TestVisualBuildPanels captures the Build window on the right, with the run configurations
 // above the aggregated build tree, beside the Run window at the bottom showing only the build
-// console; the Build window filtered; and a Go module, whose runnable rows lead with the green
+// console; a Go module whose model loads, its sync session in the Run window showing what go
+// downloads; the Build window filtered; and a Go module, whose runnable rows lead with the green
 // triangle.
 func TestVisualBuildPanels(t *testing.T) {
 	out := os.Getenv("LITHE_VISUAL_OUTPUT_DIR")
@@ -102,7 +136,7 @@ func TestVisualBuildPanels(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, look := range []struct{ theme, language string }{{"dark", "zh-Hans"}, {"light", "en"}} {
-		for _, scene := range []string{"build-and-run", "build-filter", "build-go-targets"} {
+		for _, scene := range []string{"build-and-run", "build-sync", "build-filter", "build-go-targets"} {
 			t.Run(scene+"-"+look.theme, func(t *testing.T) {
 				prefs := store.At(t.TempDir())
 				if err := prefs.Save(settingsFile, settings{Theme: themeChoice(look.theme), Language: look.language, DisableAutoSave: true}); err != nil {
@@ -129,12 +163,17 @@ func TestVisualBuildPanels(t *testing.T) {
 				p := h.app.project
 				h.app.post(func(a *App) {
 					p.build.instances, p.build.loaded, p.build.selected = visualBuildSystems(), true, 0
-					p.build.taskID = "package"
-					p.setBuildOpen(buildOpenKey(p.build.instances[1].ID, ""), true)
+					p.build.projectID, p.build.taskID = "web", "package"
+					p.setBuildGroupOpen(1, true)
 					a.reduceChrome(core.SetChromeOpen(itemBuild, true))
 					a.refreshRunConfigurations(p)
 				})
 				h.settleChain()
+				// The folders a user opens to reach shop-core's compiler goals and shop-web's
+				// lifecycle; the rest stay closed, as they start.
+				for _, path := range [][]string{{"shop-core", "Plugins"}, {"shop-core", "Plugins", "compiler"}, {"shop-web", "Lifecycle"}} {
+					setBuildNodeOpen(t, p, laidOutBuildRows(t, h, p), true, path...)
+				}
 				switch scene {
 				case "build-and-run":
 					h.app.post(func(a *App) {
@@ -164,6 +203,29 @@ func TestVisualBuildPanels(t *testing.T) {
 						a.finishBuildTask(p, op, json.RawMessage(`{"exitCode":0}`))
 						a.showBuildConsole(p)
 					})
+				case "build-sync":
+					h.app.post(func(a *App) {
+						// The Go module's model still loads, as go downloads the modules it needs.
+						instance := visualGoModule()
+						instance.Model, instance.modelLoaded, instance.modelLoading = core.BuildModel{}, false, true
+						p.build.instances, p.build.selected = []buildInstance{instance}, 0
+						p.build.projectID, p.build.targetID, p.build.taskID = "", "", ""
+						p.setBuildGroupOpen(0, true)
+						a.refreshRunConfigurations(p)
+						feed := a.beginBuildSync(p, &p.build.instances[0])
+						var log strings.Builder
+						for _, module := range []string{
+							"golang.org/x/sync v0.10.0", "golang.org/x/sys v0.28.0", "golang.org/x/text v0.21.0",
+							"github.com/google/uuid v1.6.0", "google.golang.org/protobuf v1.36.1", "google.golang.org/grpc v1.69.2",
+						} {
+							log.WriteString("go: downloading " + module + "\n")
+						}
+						feed.decoder.deliver(log.String(), func(chunk outputChunk, failure error) {
+							a.reportOutputStyleFailure(failure)
+							a.applyBuildSyncOutput(p, feed.session, chunk)
+						})
+						a.showBuildSync(p, feed.session.id)
+					})
 				case "build-filter":
 					h.app.post(func(*App) { p.panels.buildFilter = "app" })
 				case "build-go-targets":
@@ -172,6 +234,8 @@ func TestVisualBuildPanels(t *testing.T) {
 						p.build.projectID, p.build.targetID, p.build.taskID = "desktop", "internal/catalog", ""
 						a.refreshRunConfigurations(p)
 					})
+					h.settleChain()
+					setBuildNodeOpen(t, p, laidOutBuildRows(t, h, p), true, h.app.text.Build.Targets)
 				}
 				h.settleChain()
 				h.app.invalidator.Invalidate()

@@ -7,6 +7,7 @@ import (
 	"github.com/1lck/Lithe-IDEA/desktop/internal/core"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/i18n"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/icons"
+	"github.com/vivaui/viva/components"
 	"github.com/vivaui/viva/gfx"
 	"github.com/vivaui/viva/ui"
 )
@@ -56,82 +57,182 @@ func (a *App) drawBranchPopup(c ui.C, p *project, anchor ui.Box) {
 		})
 	})
 	if !b.open {
-		// The press outside or Escape closed it; a closed popup has no row menu.
-		b.menu = ""
+		// The press outside or Escape closed it; a closed popup has no repository panel or row menu.
+		b.repoOpen, b.menu = false, ""
 	}
 }
 
-// drawBranchPanel declares the popup's contents: the search field, the repository picker of a
-// project with nested repositories, the actions, and the references. Without a search the
-// sections show Core's folder trees; a search lists every match by its full name.
+// drawBranchPanel declares the popup's contents: the search field, the actions, and the
+// references. Without a search the sections show Core's folder trees; a search lists every match
+// by its full name. A project folder with several repositories lists them instead, as IDEA does
+// (drawWorkspaceBranchPanel).
 func (a *App) drawBranchPanel(c ui.C, p *project, t i18n.BranchMessages) {
+	if p.workspaceMode() {
+		a.drawWorkspaceBranchPanel(c, p, t)
+		return
+	}
 	b := &a.branch
 	current := b.currentReference()
-	query := strings.ToLower(strings.TrimSpace(b.search.Text()))
+	query := branchQuery(b)
 	ui.TextField(c, &b.search, t.Search, t.Search).FillWidth().AutoFocus()
-	if len(p.nested.repos) > 0 {
-		a.drawBranchRepoPicker(c, p)
-	}
-	if a.drawBranchActions(c, p, current, query) {
+	if a.drawBranchActions(c, p, current, query, true) {
 		ui.Divider(c)
 	}
 	ui.Scroll(c).Scrollbars().FillWidth().MaxHeight(branchPopupMaxHeight).Children(func() {
+		a.drawBranchReferences(c, p, t, query, [4]string{t.Recent, t.Local, t.Remote, t.Tags})
+	})
+}
+
+// branchQuery is the search of the popup, trimmed and in lower case.
+func branchQuery(b *branchState) string {
+	return strings.ToLower(strings.TrimSpace(b.search.Text()))
+}
+
+// drawBranchReferences declares the sections of the references the popup read, under labels in
+// the order of branchSectionKeys, filtered by query.
+func (a *App) drawBranchReferences(c ui.C, p *project, t i18n.BranchMessages, query string, labels [4]string) {
+	b := &a.branch
+	switch {
+	case b.err != nil && !b.loading:
+		ui.Paragraph(c, t.LoadFailed(b.err.Error()), 4).Color(a.colors.Subtle).PadX(chromeEdge)
+		return
+	case !b.loaded:
+		a.drawBranchNote(c, t.Loading)
+		return
+	}
+	current := b.currentReference()
+	listed := 0
+	for i, key := range branchSectionKeys {
+		refs := b.refs.RecentReferences
+		if i > 0 {
+			refs = b.sections[i-1].refs
+		}
+		if query != "" {
+			refs = matchingReferences(refs, query)
+			if i == 0 {
+				// The recent branches are in Local as well; a search lists each once.
+				refs = nil
+			}
+		}
+		if len(refs) == 0 {
+			continue
+		}
+		listed += len(refs)
+		collapsed := query == "" && b.collapsed[key]
+		if a.drawBranchSection(c, key, labels[i], collapsed, query == "") {
+			c.After(func() { b.collapsed[key] = !b.collapsed[key] })
+		}
 		switch {
-		case b.err != nil && !b.loading:
-			ui.Paragraph(c, t.LoadFailed(b.err.Error()), 4).Color(a.colors.Subtle).PadX(chromeEdge)
-			return
-		case !b.loaded:
-			a.drawBranchNote(c, t.Loading)
-			return
+		case collapsed:
+		case i == 0 || query != "":
+			for _, r := range refs {
+				a.drawBranchRow(c, p, key, r, r.ShortName, 1, r.FullName == current.FullName)
+			}
+		default:
+			s := &b.sections[i-1]
+			a.drawBranchNodes(c, p, s, key, s.nodes, 1, current)
 		}
-		labels := [4]string{t.Recent, t.Local, t.Remote, t.Tags}
-		listed := 0
-		for i, key := range branchSectionKeys {
-			refs := b.refs.RecentReferences
-			if i > 0 {
-				refs = b.sections[i-1].refs
-			}
-			if query != "" {
-				refs = matchingReferences(refs, query)
-				if i == 0 {
-					// The recent branches are in Local as well; a search lists each once.
-					refs = nil
-				}
-			}
-			if len(refs) == 0 {
-				continue
-			}
-			listed += len(refs)
-			collapsed := query == "" && b.collapsed[key]
-			if a.drawBranchSection(c, key, labels[i], collapsed, query == "") {
-				c.After(func() { b.collapsed[key] = !b.collapsed[key] })
-			}
-			switch {
-			case collapsed:
-			case i == 0 || query != "":
-				for _, r := range refs {
-					a.drawBranchRow(c, p, key, r, r.ShortName, 1, r.FullName == current.FullName)
-				}
-			default:
-				s := &b.sections[i-1]
-				a.drawBranchNodes(c, p, s, key, s.nodes, 1, current)
-			}
+	}
+	if listed == 0 {
+		a.drawBranchNote(c, t.NoMatches)
+	}
+}
+
+// drawWorkspaceBranchPanel declares the popup of a project folder with several repositories, as
+// IDEA's: the search field, the commit of the Commit tool window, which spans every repository, and
+// a row per repository in Core's order with its color, its name and the branch it is on. A click on
+// a row opens the repository's panel beside it with its actions and references; every write there
+// acts in that repository alone.
+func (a *App) drawWorkspaceBranchPanel(c ui.C, p *project, t i18n.BranchMessages) {
+	b := &a.branch
+	query := branchQuery(b)
+	ui.TextField(c, &b.search, t.Search, t.Search).FillWidth().AutoFocus()
+	if commit := i18n.Shared(a.language(), "desktop.command.commit"); query == "" || strings.Contains(strings.ToLower(commit), query) {
+		if a.drawBranchAction(c, "commit", icons.GitCommitHorizontal, commit, false) {
+			c.After(a.commitFromBranches)
 		}
-		if listed == 0 {
-			a.drawBranchNote(c, t.NoMatches)
-		}
-		if query == "" {
-			a.drawNestedReferences(c, p, t)
+		ui.Divider(c)
+	}
+	ui.Scroll(c).Scrollbars().FillWidth().MaxHeight(branchPopupMaxHeight).Children(func() {
+		for _, repo := range p.workspaceRepositories() {
+			a.drawWorkspaceBranchRepo(c, p, t, repo, query)
 		}
 	})
 }
 
+// drawWorkspaceBranchRepo declares the row of one repository of the folder's popup and, while it is
+// open, its panel beside it: the actions of drawBranchActions and the sections of its references,
+// each named after the repository.
+func (a *App) drawWorkspaceBranchRepo(c ui.C, p *project, t i18n.BranchMessages, repo workspaceRepository, query string) {
+	b := &a.branch
+	open := b.repoOpen && a.branchRoot(p) == repo.root
+	branch := p.branchOf(repo.id)
+	label := repo.name
+	if branch != "" {
+		label = i18n.SharedFormat(a.language(), "desktop.branch.repositoryPanel", map[string]string{"repository": repo.name, "branch": branch})
+	}
+	row := ui.Row(c.Key("repo/"+repo.id)).Height(branchRowHeight).Shrink(0).FillWidth().Items(ui.Center).Gap(chromeMenuGap).PadX(chromeEdge).
+		Radius(a.theme.Metrics.RadiusItem()).HitWith(ui.ID(c), label, gfx.HitOptions{Role: gfx.RoleMenuItem, Cursor: gfx.PointerCursorHand, Expandable: true, Expanded: open})
+	if open {
+		row = row.Background(a.colors.Selection)
+	} else {
+		row = a.chromeHover(row)
+	}
+	row.Children(func() {
+		a.drawRepositorySwatch(c, p, repo.id)
+		ui.Text(c, repo.name).Color(a.colors.Text).LineHeight(chromeLineHeight).Ellipsis().Shrink(1)
+		ui.Spacer(c)
+		if branch != "" {
+			ui.Text(c, branch).FontSize(a.theme.Metrics.FontSizeS).Color(a.colors.Subtle).LineHeight(chromeLineHeight).
+				Ellipsis().MaxWidth(branchPopupWidth / 2)
+		}
+		ui.Icon(c, icons.ChevronRight).Size(chromeMarkSize, chromeMarkSize).Shrink(0).Color(a.colors.Subtle)
+	})
+	if row.Clicked() {
+		c.After(func() { a.toggleBranchRepo(p, repo.root) })
+	}
+	if !open {
+		return
+	}
+	// The press that closes the panel goes on to the popup, so a click on another repository opens
+	// that one's panel at once.
+	spec := ui.PopoverSpec{Side: components.PopoverRight, Align: ui.Start, Offset: chromeMenuOffset, Width: branchPopupWidth}
+	ui.PopoverWith(c, row, spec, &b.repoOpen, func() {
+		ui.Column(c).FillWidth().MaxHeight(branchPopupMaxHeight).Gap(chromeMenuItems).Children(func() {
+			if a.drawBranchActions(c, p, b.currentReference(), query, false) {
+				ui.Divider(c)
+			}
+			ui.Scroll(c).Scrollbars().FillWidth().MaxHeight(branchPopupMaxHeight).Children(func() {
+				lang := a.language()
+				a.drawBranchReferences(c, p, t, query, [4]string{
+					i18n.SharedFormat(lang, "desktop.branch.recentIn", map[string]string{"repository": repo.name}),
+					i18n.SharedFormat(lang, "desktop.branch.localIn", map[string]string{"repository": repo.name}),
+					i18n.SharedFormat(lang, "desktop.branch.remoteIn", map[string]string{"repository": repo.name}),
+					i18n.SharedFormat(lang, "desktop.branch.tagsIn", map[string]string{"repository": repo.name}),
+				})
+			})
+		})
+	})
+	if !b.repoOpen {
+		// A closed panel has no row menu.
+		b.menu = ""
+	}
+}
+
+// commitFromBranches opens the Commit tool window's changes from the branch popup.
+func (a *App) commitFromBranches() {
+	a.performed("git.showChanges", surfaceButton)
+	a.closeBranches()
+	a.layout.commitTab = commitTabChanges
+	a.showChanges()
+}
+
 // drawBranchActions declares the actions at the top of the popup in IDEA's order and reports
 // whether it showed any: Fetch, which shows only while the search names it, then updating,
-// committing and pushing the current branch, then creating a branch, checking out a revision
-// and creating a tag. A search keeps the actions whose names contain it. Every action works
-// in the repository the popup lists.
-func (a *App) drawBranchActions(c ui.C, p *project, current core.GitReference, query string) bool {
+// committing, unless commit is false, and pushing the current branch, then creating a branch,
+// checking out a revision and creating a tag. A search keeps the actions whose names contain it.
+// Every action works in the repository the popup lists.
+func (a *App) drawBranchActions(c ui.C, p *project, current core.GitReference, query string, commit bool) bool {
 	b, t, g := &a.branch, a.text.Branch, a.text.Git
 	lang := a.language()
 	root := a.branchRoot(p)
@@ -157,15 +258,10 @@ func (a *App) drawBranchActions(c ui.C, p *project, current core.GitReference, q
 			})
 		}
 	}
-	if commit := i18n.Shared(lang, "desktop.command.commit"); named(commit) {
+	if label := i18n.Shared(lang, "desktop.command.commit"); commit && named(label) {
 		shown++
-		if a.drawBranchAction(c, "commit", icons.GitCommitHorizontal, commit, false) {
-			c.After(func() {
-				a.performed("git.showChanges", surfaceButton)
-				a.closeBranches()
-				a.layout.commitTab = commitTabChanges
-				a.showChanges()
-			})
+		if a.drawBranchAction(c, "commit", icons.GitCommitHorizontal, label, false) {
+			c.After(a.commitFromBranches)
 		}
 	}
 	if push := i18n.Shared(lang, "git.contextMenu.push"); named(push) {
@@ -200,42 +296,6 @@ func (a *App) drawBranchActions(c ui.C, p *project, current core.GitReference, q
 		}
 	}
 	return shown > 0
-}
-
-// drawBranchRepoPicker declares the repository the popup lists, when the project has nested
-// repositories: a row that names the picked one, which opens the list of every repository.
-func (a *App) drawBranchRepoPicker(c ui.C, p *project) {
-	b, pull := &a.branch, a.text.Sync.Pull
-	picked := a.branchRoot(p)
-	repos := a.pullRepos(p)
-	name := ""
-	for _, r := range repos {
-		if r.root == picked {
-			name = r.name
-		}
-	}
-	chevron := icons.ChevronRight
-	if b.repoOpen {
-		chevron = icons.ChevronDown
-	}
-	row := ui.Row(c.Part("repo")).Height(branchRowHeight).Shrink(0).FillWidth().Items(ui.Center).Gap(chromeGap).PadX(chromeEdge).
-		Radius(a.theme.Metrics.RadiusItem()).HitWith(ui.ID(c), pull.Repository, gfx.HitOptions{Role: gfx.RoleButton, Cursor: gfx.PointerCursorHand, Expandable: true, Expanded: b.repoOpen})
-	a.chromeHover(row).Children(func() {
-		ui.Text(c, pull.Repository).FontSize(a.theme.Metrics.FontSizeS).Color(a.colors.Subtle).LineHeight(chromeLineHeight)
-		ui.Text(c, name).Color(a.colors.Text).LineHeight(chromeLineHeight).Ellipsis().Grow(1)
-		ui.Icon(c, chevron).Size(chromeMarkSize, chromeMarkSize).Shrink(0).Color(a.colors.Subtle)
-	})
-	if row.Clicked() {
-		c.After(func() { b.repoOpen = !b.repoOpen })
-	}
-	if !b.repoOpen {
-		return
-	}
-	for _, r := range repos {
-		if a.logMenuItem(c, "repo/"+r.root, r.name, r.root == picked, false) {
-			c.After(func() { a.selectBranchRepo(p, r.root) })
-		}
-	}
 }
 
 // matchingReferences returns the references of refs whose short name contains query, which

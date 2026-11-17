@@ -547,7 +547,7 @@ func (a *App) chromeStatusLabel(c ui.C, text string) {
 // chromeBranch declares the checked-out branch as the button that opens the branch popup, and
 // shows nothing when the project is not a repository. The popup hangs off the button.
 func (a *App) chromeBranch(c ui.C) {
-	name := a.project.git.branch()
+	name := a.project.titleBranch()
 	if name == "" {
 		if a.branch.open {
 			// The project stopped being a repository, so the popup has no branch to hang off.

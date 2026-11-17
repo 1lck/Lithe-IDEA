@@ -9,6 +9,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"runtime"
 	"slices"
 	"strconv"
@@ -86,7 +87,14 @@ type buildInstance struct {
 	modelLoaded        bool
 	modelLoading       bool
 	modelReloadPending bool
-	modelError         string
+	// modelError says why the last load did not bring a model; modelStopped says the user stopped
+	// it, which shows without the warning of a failure.
+	modelError   string
+	modelStopped bool
+	// modelVersion counts the models the instance loaded, so a tree laid out from an earlier
+	// one is known stale; trees are the Build window's trees of the model (build_tree.go).
+	modelVersion uint64
+	trees        buildTrees
 }
 
 // buildOperation is the one Build execution the window runs: a task or a run, from the
@@ -150,10 +158,15 @@ func restartWithInstance(instanceID string, start func(a *App, p *project)) func
 // that prepare the execution end at once. A host process is not started with it: Stop ends a
 // process through its own termination. The preparing goroutine calls cancel when it is done.
 func (o *buildOperation) bind(ctx context.Context) (context.Context, context.CancelFunc) {
+	return bindStopped(ctx, o.stopped)
+}
+
+// bindStopped returns ctx ending also when stopped closes; cancel ends it and its watcher.
+func bindStopped(ctx context.Context, stopped <-chan struct{}) (context.Context, context.CancelFunc) {
 	ctx, cancel := context.WithCancel(ctx)
 	go func() {
 		select {
-		case <-o.stopped:
+		case <-stopped:
 			cancel()
 		case <-ctx.Done():
 		}
@@ -589,19 +602,29 @@ func (a *App) loadBuildModelWith(p *project, index int, refresh bool) {
 		return
 	}
 	instance.modelLoading = true
-	instance.modelError = ""
+	instance.modelError, instance.modelStopped = "", false
 	captured := *instance
 	kernel := a.kernel
+	// The load is a session of the Run window, which shows what the tool prints meanwhile.
+	feed := a.beginBuildSync(p, instance)
 	a.background(p, buildRequestTimeout, func(ctx context.Context) func(*App) {
+		ctx, cancel := feed.bind(ctx)
+		defer cancel()
 		var model core.BuildModel
 		var err error
 		// Core names where the model comes from; a static model arrived with detection.
 		if captured.ModelSource == "command" {
-			model, err = a.commandModel(ctx, p, captured, kernel, a.text.Build)
+			model, err = a.commandModel(ctx, p, captured, kernel, feed, a.text.Build)
 		} else {
-			model, err = a.providerModel(ctx, p, captured, kernel, refresh)
+			model, err = a.providerModel(ctx, p, captured, kernel, feed, refresh)
 		}
-		return func(a *App) { a.finishBuildModel(p, captured.ID, model, err) }
+		if err != nil && feed.stopRequested() {
+			err = errBuildModelStopped
+		}
+		return func(a *App) {
+			a.endBuildSync(feed.session, err)
+			a.finishBuildModel(p, captured.ID, model, err)
+		}
 	})
 }
 
@@ -613,7 +636,7 @@ func (a *App) reloadBuildModel(p *project, index int) {
 		return
 	}
 	instance := &p.build.instances[index]
-	instance.modelLoaded, instance.modelError = false, ""
+	instance.modelLoaded, instance.modelError, instance.modelStopped = false, "", false
 	p.reloadBuildDependencies()
 	p.revokeBuildTests(instance.ID)
 	a.loadBuildModelWith(p, index, true)
@@ -623,8 +646,9 @@ func (a *App) reloadBuildModel(p *project, index int) {
 // output file, when the plan uses one, is host-allocated under the plugin's
 // writable state and removed after decoding. No plugin process runs the command, so the
 // host records the load as the plugin's lithe/build/model operation, at the stage
-// buildCommandStage describes.
-func (a *App) commandModel(ctx context.Context, p *project, instance buildInstance, kernel Kernel, messages i18n.BuildMessages, resolved ...buildExecution) (core.BuildModel, error) {
+// buildCommandStage describes. feed, when set, is the load's Run window session, which shows the
+// command's log as it prints it.
+func (a *App) commandModel(ctx context.Context, p *project, instance buildInstance, kernel Kernel, feed *buildSyncFeed, messages i18n.BuildMessages, resolved ...buildExecution) (core.BuildModel, error) {
 	attempt := core.StartPluginAttempt(instance.PluginID, core.OperationBuildModel, core.OriginOf(ctx).Operation)
 	fail := func(stage core.PluginStage, err error) (core.BuildModel, error) {
 		a.plugins.EndAttempt(ctx, attempt, stage, err)
@@ -669,12 +693,14 @@ func (a *App) commandModel(ctx context.Context, p *project, instance buildInstan
 		return fail(core.StageResolve, err)
 	}
 	workingDirectory := filepath.Join(p.root, filepath.FromSlash(plan.WorkingDirectory))
-	output, runErr := captureBuildProcess(ctx, execution.Executable, plan.Arguments, workingDirectory, applyToolchainSelection(plan.Environment, execution.selection()))
+	toFile := plan.Output == "outputFile"
+	output, runErr := captureBuildProcess(ctx, execution.Executable, plan.Arguments, workingDirectory, applyToolchainSelection(plan.Environment, execution.selection()), !toFile, feed.logger())
+	runErr = withBuildOutput(runErr, output.combined)
 	request := core.BuildDecodeModelRequest{WorkspaceRoot: p.root, Root: instance.Root, Options: instance.Options}
-	if plan.Output == "outputFile" {
+	if toFile {
 		request.OutputFile = outputFile
 	} else {
-		request.Output = output
+		request.Output = output.stdout
 	}
 	model, decodeErr := kernel.DecodeBuildModel(ctx, instance.Manifest, instance.BuildSystemID, request)
 	if decodeErr != nil {
@@ -704,6 +730,60 @@ func buildCommandStage(runErr error) core.PluginStage {
 	}
 }
 
+// A failed build command's error ends with the last lines the tool printed, which say why it
+// failed (a JAVA_HOME that is no JDK, a network error, a plugin it could not resolve); the exit
+// status alone does not. The tool's words are shown as written, not translated.
+const (
+	buildFailureOutputLines     = 12
+	buildFailureOutputLineBytes = 400
+)
+
+// terminalEscape matches a terminal control sequence, such as the colors a build tool prints.
+var terminalEscape = regexp.MustCompile("\x1b\\[[0-?]*[ -/]*[@-~]")
+
+// buildCommandFailure is a build command that ran and failed, with the end of its output.
+type buildCommandFailure struct {
+	cause  error
+	output string
+}
+
+func (e *buildCommandFailure) Error() string { return e.cause.Error() + "\n" + e.output }
+func (e *buildCommandFailure) Unwrap() error { return e.cause }
+
+// withBuildOutput gives err, a build command's end, the last lines the command printed. A
+// command that did not start printed nothing, and one that succeeded needs no explanation.
+func withBuildOutput(err error, output string) error {
+	var launch *buildLaunchError
+	if err == nil || errors.As(err, &launch) {
+		return err
+	}
+	tail := buildOutputTail(output)
+	if tail == "" {
+		return err
+	}
+	return &buildCommandFailure{cause: err, output: tail}
+}
+
+// buildOutputTail is the last non-empty lines of output, without terminal control sequences
+// and each bounded in length.
+func buildOutputTail(output string) string {
+	output = strings.ToValidUTF8(terminalEscape.ReplaceAllString(output, ""), "\uFFFD")
+	lines := strings.Split(output, "\n")
+	kept := make([]string, 0, buildFailureOutputLines)
+	for index := len(lines) - 1; index >= 0 && len(kept) < buildFailureOutputLines; index-- {
+		line := strings.TrimRight(strings.ReplaceAll(lines[index], "\r", ""), " \t")
+		if strings.TrimSpace(line) == "" {
+			continue
+		}
+		if len(line) > buildFailureOutputLineBytes {
+			line = strings.ToValidUTF8(line[:buildFailureOutputLineBytes], "") + "…"
+		}
+		kept = append(kept, line)
+	}
+	slices.Reverse(kept)
+	return strings.Join(kept, "\n")
+}
+
 // buildLaunchError is a build command whose process did not start, as opposed to one that ran
 // and failed. Its text is the start's own.
 type buildLaunchError struct{ cause error }
@@ -711,7 +791,9 @@ type buildLaunchError struct{ cause error }
 func (e *buildLaunchError) Error() string { return e.cause.Error() }
 func (e *buildLaunchError) Unwrap() error { return e.cause }
 
-func (a *App) providerModel(ctx context.Context, p *project, instance buildInstance, kernel Kernel, refresh bool, resolved ...buildExecution) (core.BuildModel, error) {
+// providerModel asks the build system's provider for the model. feed, when set, is the load's Run
+// window session, which shows the output and status the provider reports while it works.
+func (a *App) providerModel(ctx context.Context, p *project, instance buildInstance, kernel Kernel, feed *buildSyncFeed, refresh bool, resolved ...buildExecution) (core.BuildModel, error) {
 	// The host resolves the build tool the provider runs with, so the provider never searches
 	// for it; an explicit tool setting that does not exist fails here, as it does for commands.
 	var tool *core.BuildTool
@@ -750,6 +832,26 @@ func (a *App) providerModel(ctx context.Context, p *project, instance buildInsta
 	if err != nil {
 		return core.BuildModel{}, err
 	}
+	// The progress channel closes when the provider answered; Wait then returns at once.
+	for done := false; !done; {
+		select {
+		case progress, ok := <-operation.Progress():
+			if !ok {
+				done = true
+				break
+			}
+			feed.output(progress.Output)
+			feed.status(progress.Message)
+		case <-ctx.Done():
+			done = true
+		}
+	}
+	if feed.stopRequested() {
+		// The user stopped the load, so the provider is asked to stop its work too.
+		stop, cancel := context.WithTimeout(context.WithoutCancel(ctx), buildStopTimeout)
+		_ = client.Cancel(stop, operation)
+		cancel()
+	}
 	result, err := operation.Wait(ctx)
 	if err != nil {
 		return core.BuildModel{}, err
@@ -772,6 +874,15 @@ func (a *App) finishBuildModel(p *project, id string, model core.BuildModel, err
 		}
 		instance := &p.build.instances[index]
 		instance.modelLoading = false
+		if errors.Is(err, errBuildModelStopped) {
+			// A load the user stopped stays stopped, even when the files changed meanwhile: it
+			// ends as a failed one does, so nothing loads it again until the user reloads it.
+			instance.modelReloadPending = false
+			instance.modelError, instance.modelStopped = i18n.Shared(a.language(), "desktop.build.modelStopped"), true
+			p.build.status = instance.modelError
+			a.settleTitleAction(p)
+			return
+		}
 		if instance.modelReloadPending {
 			instance.modelReloadPending = false
 			instance.modelLoaded = false
@@ -786,12 +897,14 @@ func (a *App) finishBuildModel(p *project, id string, model core.BuildModel, err
 		}
 		if err != nil {
 			p.build.instances[index].modelError = a.launchFailureText(err)
-			p.build.status = p.build.instances[index].modelError
+			// The status line has room for one line; the tree row shows the rest on hover.
+			p.build.status, _, _ = strings.Cut(p.build.instances[index].modelError, "\n")
 			a.settleTitleAction(p)
 			return
 		}
 		p.build.instances[index].Model = model
 		p.build.instances[index].modelLoaded = true
+		p.build.instances[index].modelVersion++
 		p.build.status = ""
 		// The runs the model offers become run configurations.
 		a.refreshRunConfigurations(p)
@@ -817,10 +930,10 @@ func (p *project) selectedBuildInstance() *buildInstance {
 	return &p.build.instances[p.build.selected]
 }
 
-// runSelectedBuildTask runs the selected declared or model task. The tree lists tasks under
-// their build system, not under a project, so the window's project and target are only a hint:
-// a model task runs on the project it belongs to, and a declared task on what
-// buildTaskSelection makes of the selection for the scopes it declares.
+// runSelectedBuildTask runs the selected declared or model task. A model task runs on the
+// project it belongs to, and a declared task on what buildTaskSelection makes of the selection
+// for the scopes it declares: a task row of the tree selects the project and target Core
+// placed it under, a run configuration or the header button may leave them to be fitted.
 func (a *App) runSelectedBuildTask(p *project) {
 	projectID, targetID := p.build.projectID, p.build.targetID
 	if instance := p.selectedBuildInstance(); instance != nil && p.build.operation == nil {
@@ -1112,21 +1225,10 @@ func (a *App) resolveBuildCandidates(ctx context.Context, p *project, directory 
 				execution.Executable = path
 			}
 		case "runtime":
+			// The tool runs on one of its declared runtimes, all resolved before the tool's
+			// own candidates; Core rejects a runtime that names another runtime.
 			if resolved, ok := runtimes[candidate.Runtime]; ok {
 				execution = resolved
-				break
-			}
-			selection, selectErr := a.resolveToolchainSelection(ctx, p.root, directory, candidate.Runtime, minimum)
-			if selectErr == nil {
-				execution = buildExecution{Executable: selection.Executable, Environment: selection.Environment, PathPrepend: selection.PathPrepend}
-				break
-			}
-			var unavailable *toolchain.UnavailableError
-			if !errors.As(selectErr, &unavailable) || unavailable.Code != "definitionUnavailable" {
-				return buildExecution{}, selectErr
-			}
-			if path, lookupErr := exec.LookPath(candidate.Runtime); lookupErr == nil {
-				execution.Executable = path
 			}
 		case "toolchain":
 			selection, selectErr := a.resolveToolchainSelection(ctx, p.root, directory, candidate.ToolchainID, minimum)
@@ -1163,15 +1265,30 @@ func buildRequiresPresent(path string, required []string, root string) bool {
 }
 
 func probeBuildTool(ctx context.Context, executable string, arguments []string, workingDirectory string, environment map[string]string) (string, error) {
-	output, waitErr := captureBuildProcess(ctx, executable, arguments, workingDirectory, environment)
-	if output == "" {
+	output, waitErr := captureBuildProcess(ctx, executable, arguments, workingDirectory, environment, false, nil)
+	if output.combined == "" {
 		return "", waitErr
 	}
-	return output, nil
+	return output.combined, nil
 }
 
-func captureBuildProcess(ctx context.Context, executable string, arguments []string, workingDirectory string, environment map[string]string) (string, error) {
-	var output strings.Builder
+// buildCaptureBytes bounds each text captureBuildProcess keeps of a build command's output.
+const buildCaptureBytes = 4 << 20
+
+// buildCommandOutput is what a build command printed: stdout, which holds the document of a plan
+// that reads its result from stdout, and both streams in the order they arrived, whose last lines
+// explain a failure.
+type buildCommandOutput struct {
+	stdout, combined string
+}
+
+// captureBuildProcess runs a build command to its end and keeps what it printed. log, when set,
+// receives the command's log as it prints it, on the goroutines that read it: both streams, or
+// stderr alone when documentOnStdout says stdout is the document the host decodes, which is no
+// one's log. What a tool reports on stderr while it works, as go does while it downloads
+// modules, then never lands in the document.
+func captureBuildProcess(ctx context.Context, executable string, arguments []string, workingDirectory string, environment map[string]string, documentOnStdout bool, log func(string)) (buildCommandOutput, error) {
+	var stdout, combined strings.Builder
 	var outputMu sync.Mutex
 	process, err := buildprocess.Start(ctx, buildprocess.Spec{
 		Kind:             processledger.KindBuild,
@@ -1179,20 +1296,26 @@ func captureBuildProcess(ctx context.Context, executable string, arguments []str
 		Arguments:        arguments,
 		WorkingDirectory: workingDirectory,
 		Environment:      environment,
-	}, func(_ buildprocess.Stream, text string) {
+	}, func(stream buildprocess.Stream, text string) {
 		outputMu.Lock()
-		if output.Len() < 4<<20 {
-			output.WriteString(text)
+		if stream == buildprocess.Stdout && stdout.Len() < buildCaptureBytes {
+			stdout.WriteString(text)
+		}
+		if combined.Len() < buildCaptureBytes {
+			combined.WriteString(text)
 		}
 		outputMu.Unlock()
+		if log != nil && (stream == buildprocess.Stderr || !documentOnStdout) {
+			log(text)
+		}
 	})
 	if err != nil {
-		return "", &buildLaunchError{cause: err}
+		return buildCommandOutput{}, &buildLaunchError{cause: err}
 	}
 	waitErr := process.Wait()
 	outputMu.Lock()
 	defer outputMu.Unlock()
-	return output.String(), waitErr
+	return buildCommandOutput{stdout: stdout.String(), combined: combined.String()}, waitErr
 }
 
 func buildPlatform() string {

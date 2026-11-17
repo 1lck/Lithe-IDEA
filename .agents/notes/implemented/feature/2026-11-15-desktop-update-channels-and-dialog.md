@@ -63,6 +63,11 @@ Viva 桌面端原本能检查、下载和安装签名更新，但发行构建从
    - **稍后**：关闭对话框，绿箭头保留。
    - **下载并安装**：开始下载。对话框可以关闭，绿箭头外圈变成进度环，再点可以看进度或取消。应用补丁的阶段不能取消。
 4. 下载并校验完成后，主按钮变为“重启并更新”。补丁失败时改下完整包。
+5. **下载断开后接着下。** 续传由 Viva fork 的 `update` 包实现，更新器只决定断开后怎么办（`desktop/internal/workbench/updates.go`）：
+   - 下载存在 `Updates/<版本>/` 下，断开时保留已收到的字节。下次“下载并安装”只请求剩下的部分；服务器不支持范围请求时从头下载。已经下完并校验过的文件不再下载。
+   - 连续一分钟没有收到数据就结束下载并提示失败（`appupdate.ErrInterrupted`），下载整体不限时长。
+   - 只是断开的补丁下载不算补丁失败：不改下完整包，也不记“补丁不可用”，下次接着下补丁。补丁只有完整包的一小部分，改下完整包反而要下更多。
+   - 开始下载一个版本时，删掉其他版本留下的下载，缓存里最多一个版本。删不掉时记 `app.background.operation_failed`（`operation: update_download_cleanup`），下载照常进行。
 
 ### 4. 更新日志放在更新源旁边（照 Motty 的顺序）
 
@@ -196,7 +201,8 @@ Sparkle 等更新器常这样做，用户点“重启”就能立刻更新。
 
 ## 验证
 
-- `cd desktop && ../scripts/desktop/desktop-go.sh test ./internal/store/... ./internal/workbench/... ./internal/logstore/... ./internal/plugintrust/... ./internal/buildinfo/...`：渠道比较、跳过、对话框、快照恢复、NSIS 复用 zip 补丁、未知配置保留与 `Unread` 日志。
+- `cd desktop && ../scripts/desktop/desktop-go.sh test ./internal/store/... ./internal/workbench/... ./internal/logstore/... ./internal/plugintrust/... ./internal/buildinfo/...`：渠道比较、跳过、对话框、快照恢复、NSIS 复用 zip 补丁、断开的补丁下载不改下完整包、缓存只留一个版本、未知配置保留与 `Unread` 日志。
+- Viva fork 的 `go test ./update/...`：断开后续传、服务器不支持范围时从头下载、无数据超时、复用已校验的文件。
 - `node --test scripts/ci/desktop-release/publish-update-feed.test.mjs`：没有私钥跳过、补丁基线校验、更新源已提供更新版本时不动它、日志首行版本。
 - `node --test scripts/desktop/package-desktop.test.mjs`：`--stable` / `--autobuild` 写入渠道、构建时间、commit 和公钥，打包后删除生成文件。
 - `./scripts/desktop/verify/verify-runtime-bundle-immutability.sh`

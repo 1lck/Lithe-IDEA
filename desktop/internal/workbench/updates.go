@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/ed25519"
 	"errors"
+	"io/fs"
 	"maps"
 	"os"
 	"path/filepath"
@@ -23,7 +24,10 @@ import (
 // Updates come from a signed feed of one of two channels (buildinfo.Channels): Viva's update
 // package checks the Ed25519 signature, downloads the archive for this platform with its size
 // and SHA-256 checked, and installs it, keeping the old application until the new one starts.
-// The download lands in the user's cache directory, never in the installed application. A
+// The download lands in the user's cache directory, never in the installed application, in a
+// directory of its version. A download that is cut off, goes silent or is cancelled keeps the
+// bytes that arrived there, and the next Update asks the server only for the rest. A download
+// for one version deletes what the others left, so the cache holds one version at most. A
 // build updates from the channel it was packaged for unless the user switched to the other
 // (update_channels.go), and from the channel's default feed on the official repository unless
 // the user set another address; every address is checked against the keys built in.
@@ -37,7 +41,9 @@ import (
 // full installer. A release of the other channel is never patched: a patch rebuilds the exact
 // bytes of the channel's previous release. If the patch cannot be downloaded, applied or
 // installed, Update logs why (update.delta.fallback_selected) and downloads the full archive.
-// It skips the patch for that version from then on. A refusal the full archive would meet too
+// It skips the patch for that version from then on. A patch download that was only cut off is
+// not a reason to: Update says it failed, and the next one continues the patch, which is a
+// fraction of the archive. A refusal the full archive would meet too
 // is not retried: an application its package manager updates, or one that cannot be replaced;
 // the update dialog offers the downloads page for it instead.
 //
@@ -78,6 +84,10 @@ const (
 	deltaStageInstall  = "install"
 )
 
+// updateCleanupOperation names, in app.background.operation_failed, the deletion of what
+// downloads for other versions left in the update cache.
+const updateCleanupOperation = "update_download_cleanup"
+
 // updateSource reads the feed and downloads a release or a patch to it: *appupdate.Client,
 // or a test's.
 type updateSource interface {
@@ -106,7 +116,8 @@ var updateQuit = func(a *App) func() {
 // updateCacheDir is the user's cache directory, which downloads go under; a test replaces it.
 var updateCacheDir = os.UserCacheDir
 
-// removeUpdateDir deletes the application a patch rebuilt; a test makes it fail.
+// removeUpdateDir deletes the application a patch rebuilt, or what another version's download
+// left in the cache; a test makes it fail.
 var removeUpdateDir = os.RemoveAll
 
 // updater is the update state of the window, which every project tab of it shares: the
@@ -291,6 +302,15 @@ func (a *App) changeUpdate(change func(*settingswindow.UpdateStatus)) {
 func (a *App) everyTab() []*App {
 	if tabs := a.sessions.everyOne(); len(tabs) > 0 {
 		return tabs
+	}
+	return []*App{a}
+}
+
+// openTabs is every workbench whose tab is open, or a alone without one; a retired workbench
+// is left out, as nothing it shows is seen again.
+func (a *App) openTabs() []*App {
+	if s := a.sessions; s != nil && len(s.list) > 0 {
+		return s.list
 	}
 	return []*App{a}
 }
@@ -628,6 +648,30 @@ func (a *App) deltaFellBack(ctx context.Context, stage, version string, err erro
 	a.updates.mu.Unlock()
 }
 
+// clearOtherUpdates deletes every directory in updates, the cache directory each version
+// downloads into a directory of, but keep's. Viva keeps the bytes of an interrupted download
+// for Update to continue, and a verified archive until it is installed; neither is any use
+// once the feed names another version, and a version is never installed twice. It runs on the
+// download goroutine; ctx carries the action the record belongs to. A deletion that fails
+// leaves the files for the next download to delete and is logged once, and the download goes
+// ahead.
+func (a *App) clearOtherUpdates(ctx context.Context, updates, keep string) {
+	entries, err := os.ReadDir(updates)
+	if errors.Is(err, fs.ErrNotExist) {
+		// log-exempt: 预期的缺失：还没有下载过更新时缓存里没有这个目录。
+		return
+	}
+	failed := []error{err}
+	for _, entry := range entries {
+		if entry.Name() != keep {
+			failed = append(failed, removeUpdateDir(filepath.Join(updates, entry.Name())))
+		}
+	}
+	if err := errors.Join(failed...); err != nil {
+		a.backgroundFailedIn(ctx, updateCleanupOperation, err)
+	}
+}
+
 // downloadUpdate fetches the available version into the user's cache directory and installs
 // it once verified: the patch from the running version when the feed lists one, else the
 // full archive.
@@ -662,12 +706,14 @@ func (a *App) downloadUpdate() {
 	go func() {
 		defer cancel()
 		var artifact, payload string
+		a.clearOtherUpdates(ctx, filepath.Dir(dir), feed.Latest.Version)
 		err := os.MkdirAll(dir, 0o700)
 		if err == nil && delta {
 			payload, err = a.fetchDelta(ctx, source, feed.Latest.Version, asset, patch, dir)
-			if err != nil && ctx.Err() == nil {
+			if err != nil && ctx.Err() == nil && !errors.Is(err, appupdate.ErrInterrupted) {
 				// A patch that cannot be used is replaced by the full archive, which the
-				// page says it is downloading now.
+				// page says it is downloading now. One that was cut off is not: the next
+				// Update continues it.
 				a.post(func(a *App) {
 					a.changeUpdate(func(s *settingswindow.UpdateStatus) {
 						s.Delta, s.Applying, s.FellBack, s.Progress = false, false, true, 0
@@ -686,11 +732,15 @@ func (a *App) downloadUpdate() {
 // fetchDelta downloads the patch to version and rebuilds the new application from the
 // installed one with it, returning the rebuilt copy. It runs on the download goroutine. A
 // step that fails is logged, with what made it fail, before the caller falls back to the full
-// archive; a cancel is not a failure.
+// archive; a cancel is not a failure. Neither is a download that was cut off: Viva kept its
+// bytes in dir, so the error goes to the user, who logs it, and the next Update resumes it.
 func (a *App) fetchDelta(ctx context.Context, source updateSource, version string, asset appupdate.Asset, patch appupdate.Patch, dir string) (string, error) {
 	path, err := source.DownloadPatch(ctx, asset, patch, dir, a.updateProgress())
 	if ctxErr := ctx.Err(); ctxErr != nil {
 		return "", ctxErr
+	}
+	if errors.Is(err, appupdate.ErrInterrupted) {
+		return "", err
 	}
 	if err != nil {
 		a.deltaFellBack(ctx, deltaStageDownload, version, err)

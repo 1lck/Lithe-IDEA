@@ -38,7 +38,7 @@ func (a *App) drawLogPopover(c ui.C, p *project, which logPopover, anchor ui.Box
 		return
 	}
 	width := float32(logPopoverWidth)
-	if which == logPopoverPath {
+	if which == logPopoverPath || which == logPopoverRoots {
 		width = logPathWidth
 	}
 	open := true
@@ -53,6 +53,8 @@ func (a *App) drawLogPopover(c ui.C, p *project, which logPopover, anchor ui.Box
 			a.drawLogDateFilter(c, p)
 		case logPopoverPath:
 			a.drawLogPathFilter(c, p)
+		case logPopoverRoots:
+			a.drawLogRoots(c, p)
 		}
 	})
 	if !open {
@@ -211,7 +213,9 @@ func (a *App) drawLogDateFilter(c ui.C, p *project) {
 	}
 }
 
-// drawLogPathFilter declares the path filter: a field and the buttons that apply it.
+// drawLogPathFilter declares the path filter: a field and the buttons that apply it. The popover
+// already keeps its content off its edges, so the field and the roots take no padding of their
+// own, as the other filters' rows do not.
 func (a *App) drawLogPathFilter(c ui.C, p *project) {
 	l, v, g := &p.log, &a.logView, a.text.Git
 	apply := func(value string) {
@@ -225,7 +229,7 @@ func (a *App) drawLogPathFilter(c ui.C, p *project) {
 			a.reproject(p, 0)
 		}
 	}
-	ui.Column(c).FillWidth().Pad(8).Gap(8).Children(func() {
+	ui.Column(c).FillWidth().Gap(8).Children(func() {
 		ui.Text(c, g.PathTitle).Weight(gfx.WeightMedium)
 		if ui.TextFieldID(c, logPathID, &v.pathField, g.PathTitle, g.PathPlaceholder).FillWidth().Submitted() {
 			c.After(func() { apply(v.pathField.Text()) })
@@ -245,6 +249,63 @@ func (a *App) drawLogPathFilter(c ui.C, p *project) {
 				c.After(func() { apply(v.pathField.Text()) })
 			}
 		})
+	})
+	if p.workspaceMode() {
+		ui.Divider(c)
+		a.drawLogRoots(c, p)
+	}
+}
+
+// drawLogRoots declares the repositories of the project folder, as IDEA's root filter lists the
+// roots of a project with several: each in its color, with its box checked while the log walks it.
+// A box adds its repository to the ones the log walks, or takes it out, and the log lists the
+// commits of every checked repository in one list by date; a click on a name walks that repository
+// alone. Select All checks every box.
+func (a *App) drawLogRoots(c ui.C, p *project) {
+	l := &p.log
+	lang := a.language()
+	repos := p.workspaceRepositories()
+	all := true
+	for _, repo := range repos {
+		all = all && p.logChosen(repo.id)
+	}
+	ui.Column(c).FillWidth().Gap(2).Children(func() {
+		ui.Row(c).FillWidth().Items(ui.Center).Gap(8).PadX(8).Children(func() {
+			ui.Text(c, i18n.Shared(lang, "desktop.nested.roots")).FontSize(a.theme.Metrics.FontSizeS).Color(a.colors.Subtle).Grow(1)
+			if ui.Button(c.Part("roots-all"), i18n.Shared(lang, "desktop.nested.rootsAll")).Ghost().Disabled(all).Clicked() {
+				ids := make([]string, len(repos))
+				for i, repo := range repos {
+					ids[i] = repo.id
+				}
+				c.After(func() { a.chooseLogRepos(p, ids) })
+			}
+		})
+		for _, repo := range repos {
+			rc := c.Key("root/" + repo.id)
+			checked := p.logChosen(repo.id)
+			item := ui.Row(rc).Height(logItemHeight+2).FillWidth().Shrink(0).Items(ui.Center).Gap(8).PadX(8).
+				Radius(a.theme.Metrics.RadiusItem()).
+				HitWith(ui.ID(rc), repo.name, gfx.HitOptions{Role: gfx.RoleMenuItem, Selected: checked}).
+				Hover(ui.Look{}.Background(a.colors.Hover)).Pressed(ui.Look{}.Background(a.colors.Active))
+			toggled := false
+			item.Children(func() {
+				on := checked
+				label := i18n.SharedFormat(lang, "desktop.nested.rootToggle", map[string]string{"name": repo.name})
+				toggled = ui.Checkbox(rc, &on, "").Label(label).Clicked()
+				a.drawRepositorySwatch(rc, p, repo.id)
+				ui.Text(rc, repo.name).Color(a.colors.Text).Ellipsis().Grow(1)
+			})
+			id := repo.id
+			switch {
+			case toggled:
+				c.After(func() { a.toggleLogRoot(p, id) })
+			case item.Clicked():
+				c.After(func() {
+					l.popover = logPopoverNone
+					a.chooseLogRepos(p, []string{id})
+				})
+			}
+		}
 	})
 }
 

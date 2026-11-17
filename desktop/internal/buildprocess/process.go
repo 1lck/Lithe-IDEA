@@ -108,8 +108,11 @@ func Start(ctx context.Context, spec Spec, observe func(Stream, string)) (*Proce
 	command.Stdout = stdoutWrite
 	command.Stderr = stderrWrite
 	platform := &processPlatform{}
-	platform.configure(command)
-	if err := command.Start(); err != nil {
+	err = platform.configure(command)
+	if err == nil {
+		err = command.Start()
+	}
+	if err != nil {
 		for _, file := range []*os.File{stdoutRead, stdoutWrite, stderrRead, stderrWrite} {
 			_ = file.Close()
 		}

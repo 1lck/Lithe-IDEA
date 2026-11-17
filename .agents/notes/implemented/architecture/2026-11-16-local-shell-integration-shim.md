@@ -32,6 +32,12 @@ Unix 后端（`localshell/backend_unix.go`）在 `args == nil`、令牌有效、
 
 脚本内容是 Motty 的 `integration.go`（0ae3ba59），去掉了 Lithe 不读的输出编码、主目录和当前目录（OSC 7）上报，保留 `;motty=` 后缀和 `MOTTY_*` 变量名，方便以后同步时直接对比差异。本地启动与 Motty 的差别只在开头和结尾：目录由调用方给出（`$3`），不用 `mktemp` 和 `trap`；最后一行用 `exec` 变成 Shell，不等待它（`startScript` 的 `owned` 参数）。
 
+bash 部分另有两处与 Motty 不同，同步时不要改回：
+
+- PS0 用提示符转义写命令开始标记（`PS0='\e]133;C…\a'${PS0-}`），不用 `$'…'`。`$'…'` 在赋值语句的文本里就展开成 ESC 和 BEL，用户的 DEBUG trap 回显 `BASH_COMMAND` 时会把一个带本会话令牌的 C 标记原样打到终端，终端把它当成一次命令开始。PS0 显示时和 PS1 一样解码 `\e`、`\a`。
+- DEBUG trap 路径（Bash 4.4 之前没有 PS0）遇到数组形式的 `PROMPT_COMMAND`，同样在首尾加入 `__motty_disarm` 和 `__motty_arm`，和 PS0 路径对数组的处理一致。原来遇到数组就整段跳过，一次命令开始都不报。systemd 257 起的 `/etc/profile.d/80-systemd-osc-context.sh`（Ubuntu 26.04 默认带）会把 `PROMPT_COMMAND` 改成数组，并在 PS0 前放命令替换；集成先读 `/etc/profile`，所以用户和 CI 都会遇到。Bash 5.1 之前只执行数组的第 0 项，这种组合下仍不上报，和原来一样。
+- 回归测试：`TestIntegratedBashReportsEachCommandLineOnce`、`TestIntegratedBashDebugTrapReportsEachCommandLineOnce` 的 `array prompt command` 用例在测试自己的 `.bash_profile` 里照 systemd 的写法设置，不依赖宿主的 `/etc/profile`。
+
 ### 临时目录归 Lithe 所有，sh 变成 Shell
 
 - Lithe 在 `wait` 里、`cmd.Wait()` 返回后删除目录（`removeRuntime`），启动失败时也删除。无论 Shell 怎么结束，包括启动文件还没跑完就被关闭、忽略挂断后被强制结束，目录都不会留下。`Done()` 关闭前目录已经删除。

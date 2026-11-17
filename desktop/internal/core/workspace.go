@@ -2,12 +2,235 @@ package core
 
 import "context"
 
+// WorkspaceRepositoryRole is how a discovered repository relates to the opened folder.
+type WorkspaceRepositoryRole string
+
+const (
+	// RepositoryWorkspace is the repository that contains the opened folder. Discovery lists
+	// at most one, first.
+	RepositoryWorkspace WorkspaceRepositoryRole = "workspace"
+	// RepositoryNested is a repository below the opened folder.
+	RepositoryNested WorkspaceRepositoryRole = "nested"
+)
+
 // WorkspaceRepository is a Git root discovered by Core. Path is an absolute
 // path and can be outside the opened folder when the folder is inside a
 // containing repository. Core uses forward slashes on Windows too; callers
 // that compare native paths must normalize separators. Ordering belongs to Core.
+// The window hands entries back to Core unchanged, so every field is Core's.
 type WorkspaceRepository struct {
 	Path string `json:"path"`
+	// ID is the root relative to the opened folder with "/" separators: "." for the folder
+	// itself, "a/b" below it and ".." segments for a containing repository. It names the
+	// repository in commit plans, color assignments and selections.
+	ID string `json:"id"`
+	// Name is what views show: the folder name of the workspace repository, the ID of a
+	// nested one.
+	Name string                  `json:"name"`
+	Role WorkspaceRepositoryRole `json:"role"`
+}
+
+// WorkspaceRepositorySelection is the repository a multi-repository view acts on.
+type WorkspaceRepositorySelection struct {
+	// Active is the ID the view acts on, empty when the workspace has no repository.
+	Active string
+	// FellBack reports that the repository the view picked is no longer listed, so the view
+	// drops what belonged to it.
+	FellBack bool
+	// Others are every other ID in discovery order: the repositories the view lists to
+	// switch to.
+	Others []string
+	// Chosen are the repositories a view that walks several acts on, in discovery order, the
+	// first of them Active; set only by SelectWorkspaceRepositories.
+	Chosen []string
+}
+
+// SelectWorkspaceRepositories asks Core which repositories a view that walks several acts on,
+// given the discovery list and the IDs the view chose before. Core keeps the chosen ones still
+// listed and falls back to one repository when none is.
+func (c *Client) SelectWorkspaceRepositories(ctx context.Context, repositories []WorkspaceRepository, chosen []string) (WorkspaceRepositorySelection, error) {
+	request := struct {
+		Repositories []WorkspaceRepository `json:"repositories"`
+		Chosen       []string              `json:"chosen"`
+	}{nonNil(repositories), nonNil(chosen)}
+	var response struct {
+		Active   *string  `json:"active"`
+		FellBack bool     `json:"fellBack"`
+		Others   []string `json:"others"`
+		Chosen   []string `json:"chosen"`
+	}
+	if err := c.Execute(ctx, "git.workspaceRepositorySelection", request, &response); err != nil {
+		return WorkspaceRepositorySelection{}, err
+	}
+	selection := WorkspaceRepositorySelection{FellBack: response.FellBack, Others: response.Others, Chosen: response.Chosen}
+	if response.Active != nil {
+		selection.Active = *response.Active
+	}
+	return selection, nil
+}
+
+// WorkspaceHistory is the history of one repository a log walks with others, as far as it is
+// loaded.
+type WorkspaceHistory struct {
+	ID      string                   `json:"id"`
+	Commits []WorkspaceHistoryCommit `json:"commits"`
+	// Complete says Commits hold the whole walk, so no page is left to load.
+	Complete bool `json:"complete"`
+}
+
+// WorkspaceHistoryCommit is one loaded commit as the merge places it.
+type WorkspaceHistoryCommit struct {
+	Hash         string   `json:"hash"`
+	ParentHashes []string `json:"parentHashes"`
+	// Timestamp is the commit's Unix seconds, nil when Git reported no valid date.
+	Timestamp *int64 `json:"timestamp,omitempty"`
+}
+
+// WorkspaceHistoryEntry is one row of the merged list: the commit at Index of the history at
+// Repository in the request, and its key and its parents' keys in the merged graph.
+type WorkspaceHistoryEntry struct {
+	Repository int      `json:"repository"`
+	Index      int      `json:"index"`
+	Key        string   `json:"key"`
+	ParentKeys []string `json:"parentKeys"`
+}
+
+// WorkspaceHistoryMerge is Core's merged list, newest first, and the indices of the histories
+// whose next page it waits on before it places more.
+type WorkspaceHistoryMerge struct {
+	Entries []WorkspaceHistoryEntry `json:"entries"`
+	Pending []int                   `json:"pending"`
+}
+
+// MergeWorkspaceHistories asks Core to interleave the loaded histories of several repositories
+// by date, each in its own order (git.workspaceHistoryMerge).
+func (c *Client) MergeWorkspaceHistories(ctx context.Context, histories []WorkspaceHistory) (WorkspaceHistoryMerge, error) {
+	for i := range histories {
+		histories[i].Commits = nonNil(histories[i].Commits)
+		for j := range histories[i].Commits {
+			histories[i].Commits[j].ParentHashes = nonNil(histories[i].Commits[j].ParentHashes)
+		}
+	}
+	request := struct {
+		Repositories []WorkspaceHistory `json:"repositories"`
+	}{nonNil(histories)}
+	var merged WorkspaceHistoryMerge
+	if err := c.Execute(ctx, "git.workspaceHistoryMerge", request, &merged); err != nil {
+		return WorkspaceHistoryMerge{}, err
+	}
+	return merged, nil
+}
+
+// SelectWorkspaceRepository asks Core which repository a view acts on, given the discovery
+// list and the ID the view picked before, empty when it has not picked one.
+func (c *Client) SelectWorkspaceRepository(ctx context.Context, repositories []WorkspaceRepository, selected string) (WorkspaceRepositorySelection, error) {
+	request := struct {
+		Repositories []WorkspaceRepository `json:"repositories"`
+		Selected     string                `json:"selected,omitempty"`
+	}{nonNil(repositories), selected}
+	var response struct {
+		Active   *string  `json:"active"`
+		FellBack bool     `json:"fellBack"`
+		Others   []string `json:"others"`
+	}
+	if err := c.Execute(ctx, "git.workspaceRepositorySelection", request, &response); err != nil {
+		return WorkspaceRepositorySelection{}, err
+	}
+	selection := WorkspaceRepositorySelection{FellBack: response.FellBack, Others: response.Others}
+	if response.Active != nil {
+		selection.Active = *response.Active
+	}
+	return selection, nil
+}
+
+// WorkspaceRepositoryChanges is a discovery entry with the changes git.status read for it.
+type WorkspaceRepositoryChanges struct {
+	WorkspaceRepository
+	Changes []GitChange `json:"changes"`
+}
+
+// StagingOperation is what a checkbox of the Commit tool window writes.
+type StagingOperation string
+
+const (
+	StageChanges   StagingOperation = "stage"
+	UnstageChanges StagingOperation = "unstage"
+)
+
+// StagingPlan is the operation one checkbox applies to one repository.
+type StagingPlan struct {
+	Operation StagingOperation `json:"operation"`
+	// Paths are repository-relative, both sides of a rename, in change order.
+	Paths []string `json:"paths"`
+}
+
+// ParentReference says whether the listed ancestor that records a nested repository as a
+// submodule moved its recorded commit.
+type ParentReference string
+
+const (
+	// ParentReferenceMoved is a gitlink the ancestor lists with a new commit.
+	ParentReferenceMoved ParentReference = "moved"
+	// ParentReferenceUnchanged is a gitlink the ancestor lists with only content changes: a
+	// commit here still has to be recorded in the parent.
+	ParentReferenceUnchanged ParentReference = "unchanged"
+)
+
+// WorkspaceChangeGroup is one repository with changes in the Commit tool window.
+type WorkspaceChangeGroup struct {
+	ID   string                  `json:"id"`
+	Name string                  `json:"name"`
+	Role WorkspaceRepositoryRole `json:"role"`
+	// FileCount counts each file below a summarized untracked directory.
+	FileCount   int `json:"fileCount"`
+	StagedCount int `json:"stagedCount"`
+	// AllStaged reports that every change that can toggle is staged in full.
+	AllStaged bool `json:"allStaged"`
+	// Toggleable reports that some change can be staged or unstaged.
+	Toggleable bool `json:"toggleable"`
+	// Staging is what the group's checkbox writes, nil when it writes nothing.
+	Staging *StagingPlan `json:"staging,omitempty"`
+	// ParentReference is empty when no listed ancestor records the repository as a submodule.
+	ParentReference ParentReference `json:"parentReference,omitempty"`
+}
+
+// RepositoryStaging is the paths one repository stages or unstages.
+type RepositoryStaging struct {
+	ID    string   `json:"id"`
+	Paths []string `json:"paths"`
+}
+
+// WorkspaceStageAll is what the workspace line's checkbox writes: one operation for every
+// repository with something to write.
+type WorkspaceStageAll struct {
+	Operation    StagingOperation    `json:"operation"`
+	Repositories []RepositoryStaging `json:"repositories"`
+}
+
+// WorkspaceChangeGroups is the Commit tool window of a workspace with several repositories:
+// one line for all changes and a group per repository that has changes, in discovery order.
+type WorkspaceChangeGroups struct {
+	Groups      []WorkspaceChangeGroup `json:"groups"`
+	FileCount   int                    `json:"fileCount"`
+	StagedCount int                    `json:"stagedCount"`
+	AllStaged   bool                   `json:"allStaged"`
+	// StageAll is nil when the workspace line writes nothing.
+	StageAll *WorkspaceStageAll `json:"stageAll,omitempty"`
+}
+
+// GroupWorkspaceChanges asks Core to group the changes of every repository and plan what
+// each checkbox writes. It reads nothing from disk.
+func (c *Client) GroupWorkspaceChanges(ctx context.Context, repositories []WorkspaceRepositoryChanges) (WorkspaceChangeGroups, error) {
+	request := make([]WorkspaceRepositoryChanges, len(repositories))
+	for i, repository := range repositories {
+		repository.Changes = nonNil(repository.Changes)
+		request[i] = repository
+	}
+	var groups WorkspaceChangeGroups
+	err := c.Execute(ctx, "git.workspaceChangeGroups", struct {
+		Repositories []WorkspaceRepositoryChanges `json:"repositories"`
+	}{request}, &groups)
+	return groups, err
 }
 
 // DiscoverWorkspaceRepositories returns Core's ordered repository roots. Core

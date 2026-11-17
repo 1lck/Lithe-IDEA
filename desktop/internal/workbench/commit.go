@@ -54,6 +54,9 @@ type commitState struct {
 	// attempt is the session of the last run, kept while its results are shown; nil when
 	// there are none.
 	attempt *core.WorkspaceCommitSession
+	// pushAfter is set by Commit and Push while its commit runs or waits for a retry: once the
+	// commit succeeds, the Push Commits dialog opens on the repositories it committed.
+	pushAfter bool
 	// ai is the AI message generation of the commit area (aicommit.go).
 	ai aiCommitState
 }
@@ -123,8 +126,6 @@ type commitTarget struct {
 	// console says a run shows the Console tab of the Git tool window: the commit is the
 	// Commit tool window's, outside the Git tool window.
 	console bool
-	// repoID is the workspace ID of the repository the commit plans; empty for the project's own.
-	repoID string
 }
 
 // projectCommit is the commit of the project's repository, held to the active ChangeList.
@@ -151,21 +152,13 @@ func (t commitTarget) repositoryName(id string) string {
 	return id
 }
 
-// workspaceID is the ID the target's repository has in a workspace commit.
-func (t commitTarget) workspaceID() string {
-	if t.repoID != "" {
-		return t.repoID
-	}
-	return commitRepositoryID
-}
-
 // request is the request that plans a commit of the staged changes of the target with the
 // message typed, pushed afterwards when push is set. A retry leaves the scope out: Core keeps
 // the scope of the run it continues.
 func (t commitTarget) request(push bool) core.WorkspaceCommitRequest {
 	c := t.state
 	return core.WorkspaceCommitRequest{
-		Repositories:            []core.WorkspaceCommitRepository{{ID: t.workspaceID(), Root: t.root}},
+		Repositories:            []core.WorkspaceCommitRepository{{ID: commitRepositoryID, Root: t.root}},
 		Message:                 c.message(),
 		Amend:                   c.amend,
 		Author:                  c.authorText(),
@@ -209,7 +202,7 @@ func countStaged(changes []core.GitChange) int {
 // under way or waiting for the user.
 func (p *project) canCommit() bool {
 	c := &p.commit
-	return p.git.isRepository() && p.listsReady() && c.idle() &&
+	return p.hasRepository() && p.listsReady() && c.idle() &&
 		(p.activeStagedCount() > 0 || p.nestedStagedCount() > 0) && !p.otherStaged() && c.message() != ""
 }
 
@@ -239,13 +232,18 @@ func (a *App) startCommitIn(p *project, t commitTarget, push bool, surface actio
 		action = "git.commitAndPush"
 	}
 	a.performed(action, surface)
-	request := a.commitRequest(t, push)
+	// As in IDEA, Commit and Push commits first and then asks which repositories to push in
+	// the Push Commits dialog. A kernel without that dialog pushes through the commit session,
+	// whose plan the macOS client always shows before anything runs.
+	_, dialog := a.workspacePusher()
+	c.pushAfter = push && dialog
+	request := a.commitRequest(t, push && !dialog)
 	if request.Message == "" {
+		c.pushAfter = false
 		a.notify(a.text.Commit.EnterMessage)
 		return
 	}
-	// The macOS client always shows the plan of a push before anything runs.
-	a.prepareCommit(p, t, request, push)
+	a.prepareCommit(p, t, request, push && !dialog)
 }
 
 // retryCommit plans the rest of the last run in the checkout of t and shows it for review.
@@ -269,11 +267,13 @@ func (a *App) prepareCommit(p *project, t commitTarget, request core.WorkspaceCo
 	c := t.state
 	c.busy = true
 	kernel := a.kernel
+	request = p.withWorkspaceRepositories(t, request)
 	a.background(p, gitTimeout, func(ctx context.Context) func(*App) {
-		prep, err := kernel.WorkspaceCommitPrepare(ctx, includeNestedRepositories(ctx, kernel, p, t, request))
+		prep, err := kernel.WorkspaceCommitPrepare(ctx, request)
 		return func(a *App) {
 			c.busy = false
 			if err != nil {
+				c.pushAfter = false
 				a.commitFailed(err)
 				return
 			}
@@ -316,8 +316,9 @@ func (a *App) confirmReview(p *project, t commitTarget) {
 	}
 	c.busy = true
 	kernel := a.kernel
+	request = p.withWorkspaceRepositories(t, request)
 	a.background(p, gitTimeout, func(ctx context.Context) func(*App) {
-		prep, err := kernel.WorkspaceCommitPrepare(ctx, includeNestedRepositories(ctx, kernel, p, t, request))
+		prep, err := kernel.WorkspaceCommitPrepare(ctx, request)
 		return func(a *App) {
 			c.busy = false
 			switch {
@@ -338,7 +339,7 @@ func (a *App) confirmReview(p *project, t commitTarget) {
 }
 
 // cancelReview closes the review of c without running anything.
-func (a *App) cancelReview(c *commitState) { c.review = nil }
+func (a *App) cancelReview(c *commitState) { c.review, c.pushAfter = nil, false }
 
 // runCommit steps session until it finishes, then reads the checkout again and reports how
 // the run ended. The steps run one after another in one background task: each is a commit or
@@ -364,12 +365,37 @@ func (a *App) runCommit(p *project, t commitTarget, session core.WorkspaceCommit
 			c.busy = false
 			t.written(a)
 			if err != nil {
+				c.pushAfter = false
 				a.commitFailed(err)
 				return
 			}
 			a.commitFinished(c, session)
+			if session.Succeeded && c.pushAfter {
+				c.pushAfter = false
+				a.pushCommitted(p, t, session)
+			}
 		}
 	})
+}
+
+// pushCommitted opens the Push Commits dialog after Commit and Push on every repository the
+// commit bound, with the ones it committed checked.
+func (a *App) pushCommitted(p *project, t commitTarget, session core.WorkspaceCommitSession) {
+	bindings := session.Repositories
+	if len(bindings) == 0 {
+		bindings = []core.WorkspaceCommitRepository{{ID: commitRepositoryID, Root: t.root}}
+	}
+	names := make(map[string]string, len(bindings))
+	for _, binding := range bindings {
+		names[binding.ID] = t.repositoryName(binding.ID)
+	}
+	committed := map[string]bool{}
+	for id, result := range session.Results {
+		if result.Committed {
+			committed[id] = true
+		}
+	}
+	a.openWorkspacePush(p, bindings, names, committed, surfaceButton)
 }
 
 // commitFinished reports the end of a run. A run that succeeded clears the message, amend and
@@ -412,7 +438,7 @@ func incompleteRun(session core.WorkspaceCommitSession) error {
 }
 
 // dismissResults forgets the results of the last run of c.
-func (a *App) dismissResults(c *commitState) { c.attempt = nil }
+func (a *App) dismissResults(c *commitState) { c.attempt, c.pushAfter = nil, false }
 
 // commitFailed reports a commit the kernel refused or could not run.
 func (a *App) commitFailed(err error) {

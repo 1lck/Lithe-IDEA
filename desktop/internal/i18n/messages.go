@@ -280,6 +280,10 @@ type GitMessages struct {
 	LoadMore       string
 	LoadingCommits string
 	LoadMoreFailed string
+	// LimitReached ends a log that read count commits, as many as the Git Log settings let it,
+	// while the history goes on; AdjustLimit opens those settings.
+	LimitReached func(count int) string
+	AdjustLimit  string
 
 	// The changed files and the commit details.
 	SelectCommit   string

@@ -149,12 +149,16 @@ func TestArchiveDownloadReportsBytesWithoutKnowingTheSize(t *testing.T) {
 	for _, size := range []int64{-1, 4} {
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		var events []ArchiveProgress
-		archive, err := newArchiveDownloader(archiveClient("body", size), t.TempDir()).DownloadWithProgress(ctx, archiveSelection("body"), func(p ArchiveProgress) { events = append(events, p) })
+		session := NewArchiveSession(newArchiveDownloader(archiveClient("body", size), t.TempDir()))
+		archive, err := session.Download(ctx, archiveSelection("body"), func(p ArchiveProgress) { events = append(events, p) })
 		cancel()
 		if err != nil {
 			t.Fatal(err)
 		}
 		if err := archive.Discard(); err != nil {
+			t.Fatal(err)
+		}
+		if err := session.Close(); err != nil {
 			t.Fatal(err)
 		}
 		if len(events) < 2 || events[0] != (ArchiveProgress{0, size}) || events[len(events)-1] != (ArchiveProgress{4, size}) {

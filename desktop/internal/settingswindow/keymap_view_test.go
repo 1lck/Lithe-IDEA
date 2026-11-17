@@ -10,12 +10,19 @@ import (
 )
 
 // unboundAction is the first action of the catalog without default keys, and a chord that no
-// action holds by default, so a test can record one for the other.
+// action holds by default, so a test can record one for the other. The defaults differ by
+// platform (Control-Alt-Shift-J selects all occurrences outside macOS), so the chord is the
+// first free Control-Alt-Shift letter of the running platform's catalog.
 func unboundAction(t *testing.T) (shortcuts.Action, keymap.Chord) {
 	t.Helper()
-	chord := keymap.Chord{Modifiers: gfx.ModifierControl | gfx.ModifierAlt | gfx.ModifierShift, Char: 'j'}
-	if owner, taken := shortcuts.Overrides(nil).Owner(chord, ""); taken {
-		t.Fatalf("%s already holds %s", owner.ID, chord.Label())
+	chord, found := keymap.Chord{}, false
+	for char := byte('a'); char <= 'z' && !found; char++ {
+		chord = keymap.Chord{Modifiers: gfx.ModifierControl | gfx.ModifierAlt | gfx.ModifierShift, Char: char}
+		_, taken := shortcuts.Overrides(nil).Owner(chord, "")
+		found = !taken && shortcuts.Bindable(chord)
+	}
+	if !found {
+		t.Fatal("every Control-Alt-Shift letter is held by a default shortcut")
 	}
 	for _, action := range shortcuts.All() {
 		if len(shortcuts.Overrides(nil).Effective(action)) == 0 {

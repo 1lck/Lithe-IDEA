@@ -537,6 +537,7 @@ func (w *window) footer(c ui.C) {
 			w.setTerminalCursor(CursorShapeBlock, CursorThicknessNormal, true)
 			w.setFonts(fontprefs.Default(), true)
 			w.setGitConsole(core.GitConsolePreferences{}, true)
+			w.setGitLogLimits(DefaultGitLogLimit, DefaultGitLogMergedLimit)
 		}
 		ui.Spacer(c)
 		if ui.Button(c, settings.Cancel).Outline().Clicked() {

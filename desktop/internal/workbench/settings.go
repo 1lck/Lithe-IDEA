@@ -187,6 +187,9 @@ func (a *App) newSettingsWindow() *settingswindow.Controller {
 		SetHideParentReferences: func(value bool) {
 			a.post(func(a *App) { a.setHideParentReferences(value) })
 		},
+		SetGitLogLimits: func(single, merged int) {
+			a.post(func(a *App) { a.setGitLogLimits(single, merged) })
+		},
 		SetGitConsole: func(value core.GitConsolePreferences) {
 			a.post(func(a *App) { a.setGitConsolePreferences(value) })
 		},
@@ -421,6 +424,7 @@ func (a *App) openSettingsPageWith(surface actionSurface, page settingsPage, que
 			HideProjectColors: a.settings.HideProjectColors, ProjectOpenDestination: a.settings.ProjectOpenDestination,
 			HideGitGutter: a.settings.HideGitGutter, InlineGitBlame: a.settings.InlineGitBlame,
 			HideChangeLists: a.settings.HideChangeLists, HideParentReferences: a.settings.HideParentReferences,
+			GitLogLimit: a.gitLogLimit(), GitLogMergedLimit: a.gitLogMergedLimit(),
 			GitConsole:               a.settings.GitConsole,
 			DisableSemanticHighlight: a.settings.DisableSemanticHighlight,
 			VimMode:                  a.settings.VimMode,
