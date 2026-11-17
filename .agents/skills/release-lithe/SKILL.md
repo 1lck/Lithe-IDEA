@@ -284,7 +284,11 @@ before committing the notes.
   the variable the packages cannot check for updates at all. The update dialog shows
   `docs/releases/v<version>.md` as what the update changes, so the notes must
   read well there too. A feed that already offers a later version is left as
-  it is. See
+  it is. When the feed rules change after a release (for example which clients
+  get a patch), dispatch `desktop-release.yml` with that release's `version` and
+  `feed_only` on: it builds and uploads nothing but signs the feed again from
+  the published packages with the current script. It is a publication like any
+  other and needs the user's explicit request. See
   `.agents/notes/implemented/feature/2026-11-15-desktop-update-channels-and-dialog.md`.
 - For a desktop release, confirm that the published release is marked Latest
   on GitHub. The `release` job of `desktop-release.yml` marks it Latest
