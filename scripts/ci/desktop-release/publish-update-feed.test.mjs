@@ -208,7 +208,7 @@ test('a feed offering the previous version makes delta updates from its verified
 
 // Lithe 0.8.0 and 0.8.1 delete a rebuilt Windows application before the updater's helper copies
 // it, so a Windows patch from either quits Lithe without updating it (vivaui/viva#334). Their
-// users get the full installer, which those versions install correctly.
+// users get the full installer, which 0.8.1 installs (0.8.0 cannot update itself on Windows).
 for (const previous of ['0.8.0', '0.8.1']) {
   test(`a Windows client of ${previous} gets the full installer, not a patch`, { timeout: 30000 },
     () => check({ feed: stableFeed(previous), previous }, async (run) => {
