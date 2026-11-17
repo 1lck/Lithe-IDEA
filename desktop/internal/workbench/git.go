@@ -24,7 +24,7 @@ type gitState struct {
 }
 
 // loadGit asks the kernel for the Git status of p and keeps the answer in p.git. The
-// answer is dropped when p is no longer the open project by the time it arrives. The status
+// answer is dropped when the project closes or a newer status read starts. The status
 // is read again on every repository change, too often for the console, so its queries belong
 // to no category.
 func (a *App) loadGit(p *project) {
@@ -41,25 +41,34 @@ func (a *App) reloadGit(p *project) {
 
 // readGit reads the status of p under the context policy gives its request.
 func (a *App) readGit(p *project, policy func(context.Context) context.Context) {
+	generation := p.gitStatusGeneration.Add(1)
 	kernel, root := a.kernel, p.root
 	a.background(p, gitTimeout, func(ctx context.Context) func(*App) {
 		status, err := kernel.GitStatus(policy(ctx), root)
 		return func(a *App) {
-			a.setGit(p, gitState{loaded: true, status: status, err: err})
+			if !a.setGit(p, gitState{loaded: true, status: status, err: err}, generation) {
+				return
+			}
 			if err != nil {
 				a.operationFailed("git_status", err)
 				a.notifyError(a.text.Git.Failed(err.Error()))
 				return
 			}
-			// The markers and the inline blame describe the file against the index and
-			// HEAD, so a new status can change both.
-			a.refreshGitGutters(p)
-			a.refreshInlineBlames(p)
-			a.loadNestedRepos(p)
-			a.loadRebaseSession(p)
-			a.loadGitOperation(p)
+			a.gitStatusPublished(p)
 		}
 	})
+}
+
+// gitStatusPublished reads again what a new status of p can change. Whoever publishes the status
+// runs it: a read the status of a branch write or a sync superseded is dropped with these reads.
+func (a *App) gitStatusPublished(p *project) {
+	// The markers and the inline blame describe the file against the index and HEAD, so a new
+	// status can change both.
+	a.refreshGitGutters(p)
+	a.refreshInlineBlames(p)
+	a.loadNestedRepos(p)
+	a.loadRebaseSession(p)
+	a.loadGitOperation(p)
 }
 
 // isRepository reports that the kernel answered and found a repository around the project.

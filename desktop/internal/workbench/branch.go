@@ -210,10 +210,16 @@ func (a *App) runBranchWrite(p *project, operation string, failed func(reason st
 		a.showGitConsole("")
 	}
 	kernel, root := a.kernel, a.branchRoot(p)
+	updatesProject := root == p.git.repositoryRoot(p.root)
 	a.background(p, branchOperationTimeout, func(ctx context.Context) func(*App) {
 		err := write(ctx, kernel, root)
 		var status core.GitStatus
+		var generation uint64
 		if err == nil {
+			// Order the observation after the write, not when the operation was launched.
+			if updatesProject {
+				generation = p.gitStatusGeneration.Add(1)
+			}
 			status, err = kernel.GitStatus(core.WithQueryCategory(core.AutomaticRefresh(ctx), core.GitQueryReload), root)
 		}
 		return func(a *App) {
@@ -227,7 +233,9 @@ func (a *App) runBranchWrite(p *project, operation string, failed func(reason st
 			// The project's status describes its own repository only; a nested one's branch is read
 			// again with the repositories of the folder.
 			if p.git.isRepository() && root == p.git.repositoryRoot(p.root) {
-				a.setGit(p, gitState{loaded: true, status: status})
+				if a.setGit(p, gitState{loaded: true, status: status}, generation) {
+					a.gitStatusPublished(p)
+				}
 			} else {
 				a.loadNestedRepos(p)
 			}
