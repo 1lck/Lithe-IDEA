@@ -397,7 +397,9 @@ func (a *App) buildFolderRow(row ui.ListRow, p *project, instance *buildInstance
 
 // buildNoteRow declares a line that stands for rows not there: a model, its tree or a
 // dependency tree that loads, failed or is empty, or a tree cut short. The dependency lines
-// have the menu of the tree, and a model that failed has the item that loads it again.
+// have the menu of the tree, and a model that failed has the item that loads it again. A line
+// about a model load shows, while the load runs, the last line of the build tool's output, and
+// a click on it shows the load's whole output in the Run window.
 func (a *App) buildNoteRow(row ui.ListRow, p *project, instance *buildInstance, spec buildRow) {
 	c := row.C
 	element := a.buildTreeRowElement(row, spec)
@@ -411,8 +413,18 @@ func (a *App) buildNoteRow(row ui.ListRow, p *project, instance *buildInstance, 
 		ui.Icon(c, icons.CircleAlert).Size(14, 14).Shrink(0).Color(color)
 	}
 	ui.Text(c, spec.label).FontSize(treeFontSize - 1).Color(color).Ellipsis().Shrink(1).MinWidth(0)
+	if spec.detail != "" {
+		ui.Text(c, spec.detail).FontSize(treeFontSize - 1).Color(a.colors.Subtle).Ellipsis().Shrink(buildDetailShrink).MinWidth(0)
+	}
 	if spec.tooltip != "" {
 		element = element.Tooltip(spec.tooltip)
+	}
+	if spec.sync != "" && element.Clicked() {
+		id := spec.sync
+		c.After(func() {
+			a.performed("build.sync.show", surfaceButton)
+			a.showBuildSync(p, id)
+		})
 	}
 	if spec.dependencies {
 		a.buildDependencyMenu(c, element, p, instance, spec.project)

@@ -2,6 +2,10 @@
 
 状态：已实现
 
+归档日期：2026-11-16
+
+> Core 不再计算项目内容指纹（[Lithe-core-rust #77](https://github.com/Lithe-IDEA/Lithe-core-rust/pull/77)，#1856 第 4 项）：`checkFingerprint`、`staleFingerprint`、`incompleteProjectScan` 和桌面端的 `InspectRunConfigurations` 都已删除，生成层只来自插件声明的运行入口，过期只比较 provider run 快照。当前做法见[运行配置的生成层只来自插件声明，只存在内存里](../../implemented/architecture/2026-10-29-run-configuration-detection-in-memory.md)；本文只保留历史取舍。
+
 ## 先说结论
 
 运行面板先读取并解析配置文档，展示已有配置后再检查项目输入是否变化。内容指纹（按文件字节计算的摘要）校验仍然完整执行；校验超时会显示诊断，但不再清空已加载的配置。开发者不能用文件大小和修改时间相同来代替内容校验。

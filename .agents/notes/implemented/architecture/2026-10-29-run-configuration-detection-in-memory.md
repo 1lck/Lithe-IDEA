@@ -1,48 +1,55 @@
-# Agent 笔记：自动识别的运行配置只存在内存里
+# Agent 笔记：运行配置的生成层只来自插件声明，只存在内存里
 
 状态：已实现
 
+> 2026-11-16 更新：Core 删除了内置的运行发现探测器、项目内容指纹和工具链需求（[Lithe-core-rust #77](https://github.com/Lithe-IDEA/Lithe-core-rust/pull/77)，#1856 第 4 项）。生成层现在只由构建插件声明的 `buildSystems[].run` 组成。原来的“跨会话缓存语言服务入口”和“识别前也能选 JDK”两节随之删除；分类与重名规则从已归档的 `.agents/notes/archived/feature/2026-09-20-run-configuration-discovery-quality.md` 并入本文，指纹相关的旧做法见已归档的 `.agents/notes/archived/bug-fix/2026-09-22-run-panel-fingerprint-loading.md`。
+
 ## 先说结论
 
-Lithe 识别出项目能运行的入口后，识别结果（检测层，即 Lithe 自动找到的运行入口和工具链需求）只保存在 Rust Core 的进程内存里，并把上次的结果缓存到应用自己的缓存目录。打开项目时，宿主发现还没识别就直接识别，工程里只剩用户自己保存的配置。以前写进工程的 `.lithe/run/generated.json` 等检测文件已经不再写入。
+Run 列表里自动出现的条目（生成层）只来自已启用构建插件声明的运行入口（`buildSystems[].run`）。宿主在构建模型加载后，把匹配的目标作为 `providerRuns` 交给 Core 的 `runConfig.generate`；Core 把结果保存在进程内存里，不写工作区，也不写缓存。Core 自己不识别任何生态的入口，也不扫描工作区计算指纹；模型何时过期由插件的 `sync.watch` 决定。工程里只有用户自己保存的配置。
 
 ## 问题
 
-- 打开项目就要往用户工程写文件：只读检出会失败，版本控制里多出用户没要的文件，文件监听还会把这些写入当成“工程变化”。
-- 检测结果写成文件后就有了“文件坏了怎么办”“文件过期怎么办”两类状态，两端各自做了“重新生成损坏文件”的入口和提示。
-- Run 和 Debug 依赖一次显式的“识别项目”，新用户第一次打开工程时看到的是空状态而不是运行列表。
+- 打开项目就往用户工程写文件：只读检出会失败，版本控制里多出用户没要的文件，文件监听还会把这些写入当成“工程变化”。写成文件后又多出“文件坏了”“文件过期”两类状态和对应的修复入口。
+- Core 曾内置 Cargo、Go、npm/pnpm/yarn/bun、Python、Make、just、Procfile、Compose 探测器，生态知识写死在 Core：新增或修正一个生态都要改 Core 并发版；插件已经声明的运行入口和探测结果还会各出一条。
+- 为了判断探测结果是否过期，Core 要遍历整个工作区计算内容指纹。大项目或文件访问被杀毒软件拖慢时会超时，还要为“扫描不完整”维护专门的诊断和界面提示。
+- Run 和 Debug 曾依赖一次显式的“识别项目”，新用户第一次打开工程时看到的是空状态而不是运行列表。
 
 ## 决策
 
-### 检测层归 Core 内存所有
+### 生成层只来自插件声明的运行入口
 
-Core 按规范化后的工作区路径保存最近一次 `runConfig.generate` 的结果（运行配置文档和工具链需求）。`inspect`、`resolve`、创建用户配置时的 id 冲突检查、工具链诊断都从这里读。宿主不再写任何检测文件。
+`runConfig.generate` 只把 `providerRuns` 生成为 `build.provider` 条目；省略 `providerRuns` 等于传 `[]`，生成层为空。宿主只把插件公开的运行声明与当前模型中匹配的目标（例如“`serve` 适用于 `endpoint` 标签”）交给生成器。Core 只保存完整选择器和上游名称，不把某个目标 ID 翻译成框架、工具或调试器。
 
-桌面端与 Core 在同一进程里（经 C ABI 调用），同一进程内的多个窗口共享同一份检测层。
+没有声明 `run` 的生态在 Run 列表里没有自动条目，用户仍可以保存自己的配置。要让一个生态出现自动条目，就在它的插件里声明 `run`，不在 Core 或宿主里加识别规则。
 
-### 跨会话只缓存语言服务的上次入口
+### 生成层归 Core 内存所有
 
-语言服务冷启动可能要几十秒。宿主在 `runConfig.generate` 里传入应用缓存目录，Core 把结果写到 `<cacheDirectory>/run-configurations/<sha256(工作区路径)>.json`。下次启动时语言服务还没回答，生成器从这里取上次的入口，运行列表不会变空。
+Core 按规范化后的工作区路径保存最近一次 `runConfig.generate` 的结果。`inspect`、`resolve` 和创建用户配置时的 ID 冲突检查都从这里读。宿主不写任何生成文件；旧版本写进工程的 `.lithe/run/generated.json` 不再读取。
 
-- 生命周期：每次生成都覆盖；读不到、内容不对或写失败都只是少一份加速，不影响其他行为。
-- 所有权：Core 写、Core 读；宿主只提供目录。目录在应用缓存里，不在应用包或安装目录里，不影响代码签名和 Sparkle 增量更新。
-- 旧版本写进工程的检测文件只在缓存也没有时读取一次，从不改写，也不再当作当前检测层。
+桌面端与 Core 在同一进程里（经 C ABI 调用），同一进程内的多个窗口共享同一份生成层。
 
-### 打开项目时自动识别
+### 过期只比较快照
 
-`inspect` 在本进程还没识别过这个工作区时返回 `requiresGeneration: true`。保存过构建任务的工作区即使没有检测层也可以返回 `ready`，因此宿主不能只检查 `missing`：否则重启后只剩用户任务，自动入口不会恢复。宿主收到该标记或 `missing` 就直接识别，不停在“请生成”的空状态。
+`generator.providerRunFingerprint` 覆盖完整排序后的快照，顺序变化不算过期。`inspect` 收到 `providerRuns` 且与生成层的快照不同时，报告 `staleProviderModel`。哪些文件变化会让模型过期，由插件在 `sync.watch` 里声明，Core 不扫描工作区。
 
-自动识别只报告问题（没有入口、识别失败），不弹“识别到 N 个入口”的提示；用户手动点“重新识别”时仍然显示数量。
+选择器决定稳定 ID，名称和执行类型变化只更新内容，不丢失参数、环境与目录覆盖。目标撤回时移除自动配置，并保留用户层以提示孤立覆盖；已撤回的目标不能从更早的生成结果补回。
+
+### 模型加载后自动生成
+
+`inspect` 在本进程还没生成过这个工作区时返回 `requiresGeneration: true`。保存过构建任务的工作区即使没有生成层也可以返回 `ready`，因此宿主不能只检查 `missing`：否则重启后只剩用户任务，自动入口不会恢复。桌面端在构建模型加载后生成（`desktop/internal/workbench/runconfig.go` 的 `refreshRunConfigurations`），不停在“请生成”的空状态。
 
 ### 默认配置由 Core 选
 
-`.lithe/project.json` 仍是用户可以编辑的团队文档，里面的默认运行配置依旧优先。没有写默认值时，`resolve` 优先选择声明为 service 的检测入口，否则选择第一个不是 Current File 的检测入口。宿主不再实现这套挑选规则。
+`.lithe/project.json` 仍是用户可以编辑的团队文档，里面的默认运行配置优先。没有写默认值时，`resolve` 依次选择第一个声明为 service 的生成条目、第一个不是 Current File 的生成条目。宿主不实现这套挑选规则。
 
-### 插件运行目标由插件声明
+### 分类与重名由 Core 决定
 
-插件声明自己的运行目标（例如“`serve` 适用于 `endpoint` 标签”），宿主只把插件公开的运行声明与当前模型中的匹配目标交给生成器。Core 只保存完整选择器和上游名称，不把某个目标 ID 翻译成框架、工具或调试器。没有 Java 导入的插件也能生成运行配置。
+每个配置的 `category` 是 `project` 或 `infrastructure`，默认 `project` 且序列化时省略。`infrastructure` 表示项目依赖的外部服务（数据库、消息队列）。生成的条目都是 `project`；用户保存的配置可以声明 `infrastructure`。宿主只按 `category` 分组展示，把基础设施放进单独分组，不算进“运行全部服务”或默认选择，也不按 provider 前缀或工具名自己判断。
 
-选择器决定稳定 ID，名称和执行类型变化只更新内容，不丢失参数、环境与目录覆盖。模型指纹覆盖完整快照，顺序变化不算过期；目标撤回时移除自动配置，并保留用户层以提示孤立覆盖。不要从旧缓存重新补回插件已经撤回的目标。
+界面只显示名字，多个模块各声明一个 `serve` 时用户无法区分。Core 在生成时处理重名：同名条目的工作目录互不相同、且都不是工作区根目录时，每个名字加上目录，例如 `serve (services/api)`；否则名字不变。只出现一次的名字不加后缀，ID 也不受影响。
+
+### 用户选项
 
 用户的运行时参数、入口和按次构建选项保存在独立的 `extensions.build-run` 段。参数不先拼成字符串，空参数、空格与 Unicode 都保留。Core 只检查通用大小和字段，准备时由当前声明校验选项，不能在 Core 里解释 Profile 或框架名称。显式空值表示清空，不把 `false` 和空数组当作“没有覆盖”。
 
@@ -50,7 +57,7 @@ Core 按规范化后的工作区路径保存最近一次 `runConfig.generate` �
 
 配置 ID 是用户文档中的稳定身份，选择器是插件当前目标的身份，两者不能混为一谈。完整的保存记录可以沿用旧 ID，Core 不要求它必须以 `user:` 开头。没有完整记录的孤立覆盖仍然提示孤立；实际启动仍重新验证启用插件、声明与目标，ID 不授予权限。
 
-团队层和本机层先合并成有效选择器，再隐藏检测层中相同目标的重复项；用户明确保存的多个配置仍然保留。这样迁移可以保留默认项、选择、层级覆盖和操作身份，而无需改写 ID。不要只换一个新 ID 再删除旧记录，那会把用户默认项和本机覆盖变成孤立记录。Core 也不按历史前缀识别框架，它只比较选择器。
+团队层和本机层先合并成有效选择器，再隐藏生成层中相同目标的重复项；用户明确保存的多个配置仍然保留。这样迁移可以保留默认项、选择、层级覆盖和操作身份，而无需改写 ID。不要只换一个新 ID 再删除旧记录，那会把用户默认项和本机覆盖变成孤立记录。Core 也不按历史前缀识别框架，它只比较选择器。
 
 `resolve` 可接收内存中的团队或本机文档，宿主在发布两个文件前先验证完整合并结果。这是通用的事务预检，不写文件、不授予操作权限；实际发布仍检查快照和当前工作区。
 
@@ -58,22 +65,19 @@ Core 按规范化后的工作区路径保存最近一次 `runConfig.generate` �
 
 宿主先构造两层文档，用 Core 预检，然后比较所有输入（包括未改写的一层）和偏好状态，才使用带源版本检查的原子替换。写入、回读、取消或冲突失败时，只回滚自身仍未被改动的输出；不覆盖用户或另一进程的新数据。生成任务的租约（可撤销的写入资格）在取消、工作区切换、模型变化或后续生成时失效。
 
-这只约束用户文档与原生状态发布，不把检测缓存当作持久配置。
-
-### 识别前也能选 JDK
-
-运行时服务在语言服务启动前就要按项目最低 Java 版本选 JDK。检测层还不存在时，需求直接从工程自己的声明（`pom.xml`、`.java-version`、Maven Wrapper）推导，而不是读一份可能过期的需求文件。
+生成层不是持久配置，不参与这套发布。
 
 ### 正确做法
 
-- 新增检测结果字段：放进运行配置文档或工具链需求文档，经检测层保存，读取方从检测层读取。
-- 测试需要检测层夹具：用测试支持包里的种子函数写入，需要模拟新进程时使用清空函数。
+- 让某个生态出现在 Run 列表：在它的插件里声明 `buildSystems[].run` 和 `sync.watch`，Core 和宿主都不改。
+- 新增生成结果字段：放进运行配置文档，经生成层保存，读取方从生成层读取。
+- 测试需要生成层夹具：Core 测试用 `generated_layer::seed`；宿主测试用合成的 provider run（`dev.example.*` 插件 ID），不依赖具体插件。
 
 ### 不要这样做
 
-- 不要在宿主里重新把检测结果写回工作区，哪怕“只为了下次启动快一点”：跨会话加速已经由应用缓存承担。
-- 不要把缓存当成必须存在的状态。缓存读失败时，正确行为是重新识别，而不是报错或显示空状态。
-- 不要在宿主里重新实现默认配置的挑选规则。
+- 不要在 Core 或宿主里按文件名（`package.json`、`Cargo.toml`、`compose.yaml` 等）识别入口，也不要按工具名或 provider 前缀分组、选默认项。
+- 不要把生成层写回工作区或缓存，哪怕“只为了下次启动快一点”。
+- 不要在宿主里重新实现默认配置、分类或重名规则。
 
 ## 考虑过的备选方案
 
@@ -81,29 +85,38 @@ Core 按规范化后的工作区路径保存最近一次 `runConfig.generate` �
 
 改动最小，冷启动时也能直接读到上次结果。但写工程文件本身就是问题：只读检出、版本控制噪音、文件监听误报都还在，“文件损坏”这类状态也还要维护。
 
-### 把检测层写到应用缓存，inspect/resolve 直接读缓存
+### 把上次的生成结果缓存到应用缓存目录
 
-跨会话最快。代价是 `inspect`、`resolve` 和 JDK 选择都要知道缓存目录，缓存过期还要再做一套新鲜度判断；而且缓存一旦成为“当前状态”，读失败就变成了错误路径。现在只让缓存服务生成器的“上次语言服务入口”，其余读取都以本进程的识别结果为准。
+以前为语言服务冷启动缓存过上次的入口（`<cacheDirectory>/run-configurations/`）。现在入口来自构建模型，模型加载后才生成；缓存旧入口会让已撤回的目标在模型加载前短暂复活，还要另做一套新鲜度判断。删除后的代价是模型加载前 Run 列表只有用户配置。
 
-### 没有检测层时 `resolve` 按空检测层处理
+### 保留内置探测器，作为没有插件的生态的兜底
 
-对只有稀疏覆盖的文档，这可以少一次“未识别”的判断。但团队层里覆盖检测入口的条目会全部变成“孤立覆盖”，用户会看到一批误导性的诊断。保留 `missing` 并让宿主自动识别更直接。
+能让 npm、Python、Make 等项目继续自动出现入口。没有采用：生态知识仍写死在 Core，和插件声明的入口重复，还需要全量指纹扫描。用户决定入口一律由插件声明，接受没有插件的生态暂时没有自动条目。
+
+### 把探测器改写成 Core 内置的声明
+
+这是[构建系统 Provider 提案](../../proposed/architecture/2026-10-17-build-system-provider-api.md)原来的迁移计划。没有采用：Core 仍然维护生态知识，只是换了格式；插件已经能声明同样的内容。
+
+### 没有生成层时 `resolve` 按空生成层处理
+
+对只有稀疏覆盖的文档，这可以少一次“未生成”的判断。但团队层里覆盖自动条目的配置会全部变成“孤立覆盖”，用户会看到一批误导性的诊断。保留 `missing` 并让宿主自动生成更直接。
 
 ## 后果
 
-- 收益：常规检测不再写用户工程。Run 和 Debug 不再需要先手动识别；重复的写文件、默认项挑选和“重新生成损坏文件”入口都已删除。
-- 代价：每个新进程打开工程都要重新识别一次（只读扫描，不启动进程）。语言服务入口在语言服务回答前依赖缓存；缓存也没有时，入口要等语言服务就绪后才出现。
-- 需要重新评估：如果 Core 改为独立进程或多进程共享，检测层需要随 Core 会话迁移；如果识别本身变得很慢，再考虑让缓存直接作为启动时的检测层。
+- 收益：Core 不含任何生态的入口规则，也不再遍历工作区计算指纹；常规生成不写用户工程；默认项、分类和重名只在 Core 实现一次。
+- 代价：没有插件声明 `run` 的生态在 Run 列表里没有自动条目。2026-11-16 时，Cargo 插件 0.1.3 还没有声明 `run`，Docker 插件没有 `buildSystems`，npm/pnpm/yarn/bun、Python、Make、just、Procfile 没有插件。provider run 只能生成 `project` 类别，Compose 这类基础设施要等契约支持声明类别。模型加载前 Run 列表只有用户配置，每个新进程都在模型加载后重新生成。
+- 需要重新评估：如果 Core 改为独立进程或多进程共享，生成层需要随 Core 会话迁移；如果插件需要声明基础设施，扩展 `run` 声明而不是在 Core 里识别。
 
 ## 验证
 
-- `scripts/desktop/desktop-go.sh test ./internal/core/...`：桌面端经 C ABI 调用运行配置命令的桥接测试。
-- `./scripts/desktop/verify/verify-runtime-bundle-immutability.sh`：确认检测与缓存不写入发行目录。
+- `scripts/desktop/desktop-go.sh test ./internal/core/... ./internal/workbench/...`：`run_discovery_test.go` 证明生成不写工作区；`run_config_test.go` 和 `runconfig_edit_test.go` 覆盖生成、解析、默认项和选项往返。
+- Core 仓库的 `cargo test -p lithe-execution`：覆盖 provider run 生成、重名限定、过期快照和默认项。
+- `./scripts/desktop/verify/verify-runtime-bundle-immutability.sh`：确认生成不写入发行目录。
 
 ## 适用范围
 
 - `desktop/internal/core/run_discovery.go`
 - `desktop/internal/core/run_config.go`
-- `desktop/internal/core/plugin_settings.go`
-- Core 仓库的运行配置实现（[锁定修订](https://github.com/Lithe-IDEA/Lithe-core-rust/blob/0ffd327b4329261e393b08ed76fbd134b4dd17e9/rust/lithe-core/src/execution/generated_layer.rs)）
+- `desktop/internal/workbench/runconfig.go`
+- Core 仓库的生成层与生成器：[generated_layer.rs](https://github.com/Lithe-IDEA/Lithe-core-rust/blob/main/rust/crates/execution/src/generated_layer.rs)、[generation.rs](https://github.com/Lithe-IDEA/Lithe-core-rust/blob/main/rust/crates/execution/src/configuration/generation.rs)
 - `https://github.com/Lithe-IDEA/Lithe-core-rust/blob/main/rust/contracts/rust-core-api.md`

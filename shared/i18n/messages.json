@@ -6773,6 +6773,41 @@
       }
     },
     {
+      "id": "desktop.build.modelStopped",
+      "description": "The note in the Build window and the Run window session that a build model load the user stopped has ended.",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.build.syncSession",
+      "description": "Run window tab title of a build model load (a project sync) of the build system {name}.",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "name": "string"
+      }
+    },
+    {
+      "id": "desktop.build.syncSessionAt",
+      "description": "Run window tab title of a build model load (a project sync) of the build system {name} whose project root {root} is not the workspace root.",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "name": "string",
+        "root": "string"
+      }
+    },
+    {
+      "id": "desktop.build.showSyncOutput",
+      "description": "Hover hint of the Build window line that a build model loads; a click shows the load's output in the Run window.",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
       "id": "desktop.build.noBuildSystems",
       "description": "No provider-backed build system was detected.",
       "platforms": [
@@ -96407,30 +96442,6 @@
       "platforms": [
         "windows"
       ]
-    },
-    {
-      "id": "run.incompleteProjectScanMessage",
-      "description": "Run: incomplete workspace scan warning",
-      "platforms": [
-        "macos",
-        "windows"
-      ],
-      "macos": {
-        "key": "Some project folders could not be read. Existing run configurations were retained. Restore access, then regenerate configurations.",
-        "arguments": []
-      }
-    },
-    {
-      "id": "run.incompleteProjectScanTitle",
-      "description": "Run: incomplete workspace scan warning",
-      "platforms": [
-        "macos",
-        "windows"
-      ],
-      "macos": {
-        "key": "Project scan is incomplete",
-        "arguments": []
-      }
     },
     {
       "id": "run.infrastructure",

@@ -183,12 +183,13 @@ func (a *App) buildDependencyTree(ctx context.Context, p *project, instance buil
 // command's attempt with the result.
 func (a *App) commandDependencies(ctx context.Context, p *project, instance buildInstance, kernel buildDependencyKernel, attempt *core.PluginAttempt, plan core.BuildPlan, execution buildExecution, decode core.BuildDecodeDependenciesRequest, outputFile string) (core.BuildDependencyTree, error) {
 	workingDirectory := filepath.Join(p.root, filepath.FromSlash(plan.WorkingDirectory))
-	output, runErr := captureBuildProcess(ctx, execution.Executable, plan.Arguments, workingDirectory, applyToolchainSelection(plan.Environment, execution.selection()))
-	runErr = withBuildOutput(runErr, output)
-	if plan.Output == "outputFile" && outputFile != "" {
+	toFile := plan.Output == "outputFile" && outputFile != ""
+	output, runErr := captureBuildProcess(ctx, execution.Executable, plan.Arguments, workingDirectory, applyToolchainSelection(plan.Environment, execution.selection()), !toFile, nil)
+	runErr = withBuildOutput(runErr, output.combined)
+	if toFile {
 		decode.OutputFile = outputFile
 	} else {
-		decode.Output = output
+		decode.Output = output.stdout
 	}
 	tree, err := kernel.DecodeBuildDependencies(ctx, instance.Manifest, instance.BuildSystemID, decode)
 	if err != nil {

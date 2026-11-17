@@ -31,7 +31,7 @@ func TestBuildCommandFailureCarriesTheToolsExplanation(t *testing.T) {
 			t.Fatalf("%s: a command that ran is a launch failure", name)
 		}
 	}
-	_, err := h.app.commandModel(buildLoadContext(t, "action-61", pluginOperationWait), p, buildCommandInstance(".", false), h.app.kernel, h.app.text.Build)
+	_, err := h.app.commandModel(buildLoadContext(t, "action-61", pluginOperationWait), p, buildCommandInstance(".", false), h.app.kernel, nil, h.app.text.Build)
 	check("model", err)
 	kernel := h.app.kernel.(buildDependencyKernel)
 	_, err = h.app.buildDependencyTree(buildLoadContext(t, "action-62", pluginOperationWait), p, buildCommandInstance(".", false), kernel, nil, false)

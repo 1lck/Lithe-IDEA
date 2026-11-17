@@ -69,35 +69,28 @@ func TestResolveExecutionEnvironmentFollowsTheContractFixture(t *testing.T) {
 	}
 }
 
-// TestInspectAndGenerateRunConfigurationsNeverWriteTheWorkspace detects the
-// entries of a small Node project and shows the folder holds nothing new.
-func TestInspectAndGenerateRunConfigurationsNeverWriteTheWorkspace(t *testing.T) {
+// TestGenerateRunConfigurationsNeverWritesTheWorkspace generates the run one
+// provider declares and shows the folder holds nothing new.
+func TestGenerateRunConfigurationsNeverWritesTheWorkspace(t *testing.T) {
 	root := t.TempDir()
-	if err := os.WriteFile(filepath.Join(root, "package.json"), []byte(`{"name":"demo","scripts":{"start":"node index.js"}}`), 0o600); err != nil {
+	if err := os.MkdirAll(filepath.Join(root, "app"), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	ctx := debugContext(t)
-	client := NewClient()
-	before, err := client.InspectRunConfigurations(ctx, root, nil, nil)
+	reference := RunProviderReference{PluginID: "dev.example.engine", BuildSystemID: "engine", Root: "app", Run: "application",
+		ProjectID: "app", TargetID: "main", UserArguments: []string{}}
+	runs, err := json.Marshal([]RunProviderRun{{ProjectPath: "app", Name: "Run Main", Reference: reference}})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if before.Status != "missing" || !before.RequiresGeneration {
-		t.Fatalf("before detection: %+v", before)
-	}
-	generation, err := client.GenerateRunConfigurations(ctx, root, t.TempDir(), nil)
+	generation, err := NewClient().GenerateRunConfigurations(debugContext(t), root, runs)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if generation.EntryCount != len(generation.Generated.Configurations) {
-		t.Fatalf("entry count %d does not match %d entries", generation.EntryCount, len(generation.Generated.Configurations))
-	}
-	after, err := client.InspectRunConfigurations(ctx, root, nil, nil)
-	if err != nil || after.Status != "ready" || after.Generated == nil {
-		t.Fatalf("after detection: %+v, %v", after, err)
+	if generation.EntryCount != 1 || len(generation.Generated.Configurations) != 1 {
+		t.Fatalf("generated %d entries, %d configurations; want 1", generation.EntryCount, len(generation.Generated.Configurations))
 	}
 	entries, err := os.ReadDir(root)
-	if err != nil || len(entries) != 1 {
+	if err != nil || len(entries) != 1 || entries[0].Name() != "app" {
 		t.Fatalf("the workspace gained files: %v %v", entries, err)
 	}
 }

@@ -79,7 +79,7 @@ func TestBuildModelLoadsFromPathOnlyBatchToolInUserProfiles(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			model, err := h.app.commandModel(buildLoadContext(t, "native-path-model", pluginOperationWait), p, instance, h.app.kernel, h.app.text.Build)
+			model, err := h.app.commandModel(buildLoadContext(t, "native-path-model", pluginOperationWait), p, instance, h.app.kernel, nil, h.app.text.Build)
 			if err != nil {
 				t.Fatal(err)
 			}

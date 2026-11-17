@@ -6,6 +6,8 @@
 
 > 2026-11-16 更新：Core 不再按名字认识任何运行时（Lithe-core-rust #69，#1856 第 3 项）。`go`、`node` 和其他 ID 一样：没写 `executables` 的运行时按同 ID 的工具定义解析，Core 不再提供版本探测参数，也没有 `hostManaged` 字段；Java 早在 Core 去除 Java 依赖时就交给了插件。下文“运行时”一条和“只允许宿主管理的运行时”一节已按此改写。
 
+> 2026-11-16 更新：`runConfig.generate` 已接入构建模型，Core 的内置运行入口探测器全部删除（[Lithe-core-rust #77](https://github.com/Lithe-IDEA/Lithe-core-rust/pull/77)，#1856 第 4 项）。Run 列表的自动条目只来自 `buildSystems[].run`，过期只看 provider run 快照和插件的 `sync.watch`，见[运行配置的生成层只来自插件声明，只存在内存里](2026-10-29-run-configuration-detection-in-memory.md)。第 13 节里“还没有接入构建模型”和两条 Windows 宿主限制已删除：Viva 桌面端在 macOS 和 Windows 上都声明 `buildSystems` 与 `buildProviders`（`desktop/internal/pluginhost/pluginhost.go` 的 `Declared`）。
+
 ## 先说结论
 
 Lithe 现在用一套统一的构建模型描述所有项目级构建工具（Build Tool，例如 Maven、Gradle、Cargo、Go）。插件在 `plugin.json` 的 `buildSystems`（插件 API 级别 3）里用纯 JSON 声明：怎样认出工程、用哪个可执行文件、有哪些选项、任务、运行入口和测试，以及怎样读工具的输出。思路与 LSP 插件化相同：插件只提供数据，通用逻辑只在 Rust Core 实现一次。
@@ -201,10 +203,8 @@ Gradle 的 `offline` 和 `userHome` 是用户自己选的值，不是猜测，�
 
 ### 13. 还没有开放给用户的部分
 
-- Windows 宿主还不发送 `hostCapabilities`，不会列出级别 3 的版本，也没有 Build 工具窗口。
-- Windows 宿主还不会启动 Provider，也不声明 `buildProviders`。任一 `buildSystems[].provider` 都要求 `buildProviders: 1`，包括共享语言服务器；不要为了让插件可安装而从 `requires` 省去它，那会因能力未列全被拒绝。
+- 任一 `buildSystems[].provider` 都要求声明 `buildProviders`，包括共享语言服务器；不要为了让插件可安装而从 `requires` 省去它，那会因能力未列全被拒绝。
 - Provider 进程没有操作系统级沙盒（例如 `sandbox-exec` 或 App Sandbox 子进程），隔离只到进程和通信通道这一层；需要时作为后续工作单独设计。
-- `runConfig.generate` 还没有接入构建模型。Cargo fixture 只证明了它产出的运行入口与内置探测器逐字一致，包括 `cargo.binary:<路径>` 这类 ID，迁移时用户的覆盖配置不会脱钩。
 
 ### 正确做法
 
