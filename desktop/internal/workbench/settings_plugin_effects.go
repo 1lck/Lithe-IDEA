@@ -23,8 +23,17 @@ func (a *App) applyPluginSettingsEffects(owner core.PluginSettingsOwner, effects
 			a.pluginServerMu.Lock()
 			server := a.pluginServers[id]
 			running := server != nil && server.project == p && server.session != nil && server.session.Version == owner.Version
+			failed := false
+			if !running {
+				for _, entry := range a.pluginServerFailed {
+					if entry != nil && entry.pluginID == id && entry.project == p && entry.version == owner.Version {
+						failed = true
+						break
+					}
+				}
+			}
 			a.pluginServerMu.Unlock()
-			if running {
+			if running || failed {
 				a.pluginSettingsRestart.Store(id, true)
 			}
 		case "immediate":

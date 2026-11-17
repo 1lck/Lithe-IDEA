@@ -105,6 +105,10 @@ func (w *window) pluginSettingsPanel(c ui.C, id string) {
 				message = i18n.Shared(language, "desktop.pluginSettings.conflict")
 			}
 			ui.Wrap(c, message).FontSize(12).Color(w.pal.danger)
+			var unavailable *pluginbackend.SessionUnavailableError
+			if errors.As(p.failed, &unavailable) && unavailable.Detail != "" {
+				ui.Wrap(c, unavailable.Detail).FontSize(12).Color(w.pal.danger)
+			}
 		}
 		if p.running {
 			ui.Text(c, i18n.Shared(language, "native.loading")).FontSize(12).Color(w.pal.muted)
@@ -113,7 +117,7 @@ func (w *window) pluginSettingsPanel(c ui.C, id string) {
 			runtime := w.ctrl.opts.PluginRuntime(id)
 			if runtime.RestartRequired || runtime.Restarting {
 				ui.Wrap(c, i18n.Shared(language, "desktop.pluginSettings.restartRequired")).FontSize(12).Color(w.pal.muted)
-				if w.ctrl.opts.RestartPlugin != nil && ui.Button(c, i18n.Shared(language, "desktop.pluginSettings.restart")).Disabled(!runtime.Running || runtime.Restarting || p.running || !p.loaded || runtime.Version != p.editor.Snapshot.State.Metadata.Version).Clicked() {
+				if w.ctrl.opts.RestartPlugin != nil && ui.Button(c, i18n.Shared(language, "desktop.pluginSettings.restart")).Disabled((!runtime.Running && !runtime.Failed) || runtime.Restarting || p.running || !p.loaded || runtime.Version != p.editor.Snapshot.State.Metadata.Version).Clicked() {
 					scope := "global"
 					if p.scope == 1 {
 						scope = "project"

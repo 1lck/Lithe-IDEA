@@ -16,6 +16,13 @@ func (a *App) pluginSettingsRuntime(id string) settingswindow.PluginRuntimeState
 	server := a.pluginServers[id]
 	if server != nil && server.session != nil && server.project != nil {
 		state.Running, state.Version, state.Workspace = true, server.session.Version, server.project.root
+		return state
+	}
+	for _, failed := range a.pluginServerFailed {
+		if failed != nil && failed.pluginID == id && failed.project != nil {
+			state.Failed, state.Version, state.Workspace = true, failed.version, failed.project.root
+			break
+		}
 	}
 	return state
 }
@@ -41,6 +48,7 @@ func (a *App) restartSettingsPlugin(id, version, scope, workspace string) {
 			a.clearFailedPluginServerLocked(id, "")
 			delete(a.pluginServerSuppressed, id)
 			a.pluginServerMu.Unlock()
+			a.pluginSettingsRestart.Delete(id)
 			a.invalidator.Invalidate()
 			for _, lang := range retryLanguages {
 				a.startPluginServer(lang)

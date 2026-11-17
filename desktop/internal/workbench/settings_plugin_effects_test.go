@@ -62,3 +62,29 @@ func TestPluginSettingsLatestQueuedDeadlineRequiresRestart(t *testing.T) {
 		t.Fatal("latest queued deadline silently discarded its saved configuration")
 	}
 }
+
+func TestPluginSettingsRestartEffectMarksFailedServerRetryable(t *testing.T) {
+	h := newHarness(t, &testKernel{Client: core.NewClient()})
+	h.open(t.TempDir())
+	p := h.app.project
+	original := h.app.plugins
+	h.app.plugins = &pluginservice.Service{}
+	defer func() { h.app.plugins = original }()
+	h.app.pluginServerMu.Lock()
+	h.app.pluginServerFailed = map[string]*failedPluginServer{
+		"fixture": {pluginID: "dev.lithe.test.lsp", languageID: "fixture", version: "1.0.0", project: p, message: "missing jdtls"},
+	}
+	h.app.pluginServerMu.Unlock()
+
+	h.app.applyPluginSettingsEffects(core.PluginSettingsOwner{PluginID: "dev.lithe.test.lsp", Version: "1.0.0"}, []string{"restart"})
+	runtime := h.app.pluginSettingsRuntime("dev.lithe.test.lsp")
+	if !runtime.RestartRequired {
+		t.Fatal("saving a restart-effect setting for a failed server did not set RestartRequired")
+	}
+	if runtime.Running {
+		t.Fatal("failed server must still report Running=false")
+	}
+	if runtime.Version != "1.0.0" || runtime.Workspace != p.root {
+		t.Fatalf("runtime = %+v, want version=1.0.0 workspace=%s", runtime, p.root)
+	}
+}

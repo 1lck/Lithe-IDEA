@@ -56,6 +56,26 @@ func (e *SharedProviderError) Error() string {
 	return fmt.Sprintf("build provider %s shares the %s language-server session", e.BuildSystemID, e.LanguageID)
 }
 
+// SessionUnavailableError reports that a plugin server is not running and
+// preserves any startup or exit diagnostic recorded for the user.
+type SessionUnavailableError struct {
+	PluginID   string
+	LanguageID string
+	Detail     string
+}
+
+func (e *SessionUnavailableError) Error() string {
+	base := fmt.Sprintf("the %s language server of %s is not running", e.LanguageID, e.PluginID)
+	if e.Detail != "" {
+		return base + ": " + e.Detail
+	}
+	return base
+}
+
+func (e *SessionUnavailableError) Unwrap() error {
+	return ErrNoSession
+}
+
 // Kernel is the part of the Core client this package uses. *core.Client
 // satisfies it.
 type Kernel interface {

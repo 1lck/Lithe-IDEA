@@ -624,7 +624,6 @@ func (a *App) retryFailedPluginServers() {
 	seen := make(map[string]bool)
 	var languages []string
 	a.pluginServerMu.Lock()
-	a.pluginServerNotifiedErrors = nil
 	for lang, failed := range a.pluginServerFailed {
 		if failed != nil && failed.project == a.project && !seen[lang] {
 			seen[lang] = true
