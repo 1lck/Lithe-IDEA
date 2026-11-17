@@ -27,13 +27,24 @@ native_path() {
     fi
 }
 
-# Lithe-core-rust #80 at 81a6ecf, the branch of the draft on top of main 788e61e (#79, #78):
+# Lithe-core-rust feat/problems-tree at 4d0dc1c, the branch of the draft (#82) with main 18a370d
+# merged into it: lsp.problems.query also lays out the Problems tool window's tree (the rows
+# visible under the group nodes the desktop closes, the diagnostic each row previews and opens, a
+# selection behind a closed node moved to that node and one of a gone diagnostic to its file's
+# node) and names each file group's file and folder (#2105). The pin moves to the squash merge
+# once #82 is in main.
+# Lithe-core-rust main at 18a370d, #81 squash-merged (the same tree as its branch at 8dd6c70, on
+# top of 5202d3b): processMemory.summarize never compares two tables less than a second apart, so
+# the memory details no longer show the burst of their own opening as CPU and GPU use; a table
+# read sooner is measured from the counters the baseline was itself measured from, which the
+# baseline now carries as earlier, and the baseline comes back unchanged.
+# Lithe-core-rust main at 5202d3b, #80 squash-merged (the same tree as its branch at 81a6ecf, on
+# top of 788e61e, #79 and #78):
 # lsp.references.query lays out the References tool window (usages grouped in natural file
 # order, the rows visible under the folds the desktop sends, the usage each row previews and the
 # usages before and after it, a selection behind a closed node moved to that node);
 # lsp.references.lines cuts each usage's line by the rule search results use, and
-# workspace.search answers previewRanges with that preview (#2096). The pin moves to the squash
-# merge once #80 is in main.
+# workspace.search answers previewRanges with that preview (#2096).
 # Lithe-core-rust main at 6a29169, #70 squash-merged on top of c928514 (#73):
 # editor.copyReferenceLocation formats the innermost document symbol a language server reports
 # around the caret, with a one-based line, and falls back to the file path when none contains it;
@@ -185,7 +196,7 @@ PINNED_CORE_REPOSITORY="https://github.com/Lithe-IDEA/Lithe-core-rust.git"
 # the contract, plugin guides, reference and SDKs live only in shared/plugins; on top of #16 (reported Git queries folded in the console),
 # #15 (git.write cherryPick, revert and reset fields), #14 (word-level changed ranges of diff
 # rows), #13, #8, #7, #6 and #4.
-PINNED_CORE_REVISION="e270b7bd363c8c9ece32e1968ce0742b7ec3aae5"
+PINNED_CORE_REVISION="4d0dc1c0d470217900b792b0c4bf65e4fb88a8e1"
 PROFILE="debug"
 while [[ $# -gt 0 ]]; do
     case "$1" in
