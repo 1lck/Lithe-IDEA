@@ -68,10 +68,10 @@ func (a *App) referencesToolbar(c ui.C, p *project, lang i18n.Language) {
 			})
 		}
 		if _, clicked := a.toolIconButton(c.Part("expand"), i18n.Shared(lang, "outline.expandAll"), icons.ChevronsUpDown, false, false); clicked {
-			c.After(func() { s.setExpanded(true) })
+			c.After(func() { a.expandReferences(true) })
 		}
 		if _, clicked := a.toolIconButton(c.Part("collapse"), i18n.Shared(lang, "outline.collapseAll"), icons.ChevronsDownUp, false, false); clicked {
-			c.After(func() { s.setExpanded(false) })
+			c.After(func() { a.expandReferences(false) })
 		}
 		if _, clicked := a.toolIconButton(c.Part("preview"), i18n.Shared(lang, "desktop.references.showPreview"), icons.PanelRight, !s.hidePreview, false); clicked {
 			show := s.hidePreview
@@ -105,8 +105,8 @@ func (a *App) referencesTree(c ui.C, lang i18n.Language) {
 		a.drawReferenceRow(c, i, lang)
 	}).Scrollbars().Label(i18n.Shared(lang, "desktop.semantics.references")).Grow(1).FillWidth().MinHeight(0).PadY(treelist.PadY)
 	if i, ok := s.view.Toggled(); ok && i < len(s.rows) {
-		key := s.key(i)
-		c.After(func() { s.toggle(s.rowOf(key)) })
+		key := s.rows[i].Key
+		c.After(func() { a.toggleReference(key) })
 	}
 	i, ok := s.view.Chosen()
 	if !ok || i >= len(s.rows) {
@@ -114,20 +114,22 @@ func (a *App) referencesTree(c ui.C, lang i18n.Language) {
 	}
 	info, clicked := c.Canvas().ClickInfo()
 	repeated := clicked && info.Clicks >= 2
-	key, row := s.key(i), s.rows[i]
+	row := s.rows[i]
 	// The row a click chose takes the keyboard, so the arrow keys go on from it.
 	c.Canvas().RequestFocus(s.view.RowID(i))
 	c.After(func() {
-		s.selected = key
-		if clicked && !repeated && (row.kind != referenceRowUsage || !s.hidePreview) {
+		if !s.selectRow(row.Key) {
+			return // a node above it closed in this frame
+		}
+		if clicked && !repeated && (row.Kind != core.ReferenceRowUsage || !s.hidePreview) {
 			return // a single click only selects
 		}
-		if row.kind == referenceRowUsage {
+		if row.Kind == core.ReferenceRowUsage {
 			a.performed("editor.references.open", surfaceButton)
-			a.openReference(s.targets[row.target])
+			a.openReference(s.targets[row.Shows])
 			return
 		}
-		s.toggle(s.rowOf(key))
+		a.toggleReference(row.Key)
 	})
 }
 
@@ -144,14 +146,17 @@ func (a *App) syncReferenceSelection(canvas *gfx.Canvas) {
 			if s.view.RowID(i) == focused {
 				inTree = true
 				if focused != s.focus {
-					s.selected = s.key(i)
+					s.selected, s.selectedRow = s.rows[i].Key, i
 				}
 				break
 			}
 		}
 		s.focus = focused
 	}
-	selected := s.rowOf(s.selected)
+	selected := s.selectedRow
+	if selected >= len(s.rows) {
+		selected = -1
+	}
 	if s.reveal && selected >= 0 {
 		if first, last := s.view.Visible(); selected < first || selected > last {
 			s.view.ScrollTo(selected, ui.ListCenter)
@@ -175,15 +180,15 @@ func (a *App) referenceRowLabel(i int) string {
 		return ""
 	}
 	lang := a.language()
-	switch r := s.rows[i]; r.kind {
-	case referenceRowRoot:
+	switch r := s.rows[i]; r.Kind {
+	case core.ReferenceRowRoot:
 		return i18n.Shared(lang, "desktop.references.usages") + " " + referenceResults(lang, len(s.targets))
-	case referenceRowFile:
-		g := s.groups[r.group]
-		return g.display + " " + referenceUsages(lang, len(g.indices))
+	case core.ReferenceRowFile:
+		g := s.groups[referenceRowGroup(r)]
+		return g.DisplayPath + " " + referenceUsages(lang, len(g.Indices))
 	default:
-		at := s.targets[r.target].Range.Start.Line + 1
-		return s.groups[r.group].display + ":" + strconv.Itoa(at) + " " + s.lines[r.target].text
+		at := s.targets[r.Shows].Range.Start.Line + 1
+		return s.groups[referenceRowGroup(r)].DisplayPath + ":" + strconv.Itoa(at) + " " + s.lines[r.Shows].Text
 	}
 }
 
@@ -209,31 +214,31 @@ func referenceUsages(lang i18n.Language, n int) string {
 // its text lines up under its file's icon.
 func (a *App) drawReferenceRow(c ui.C, i int, lang i18n.Language) {
 	s := &a.editor.refs
-	switch r := s.rows[i]; r.kind {
-	case referenceRowRoot:
+	switch r := s.rows[i]; r.Kind {
+	case core.ReferenceRowRoot:
 		ui.Text(c, i18n.Shared(lang, "desktop.references.usages")).FontSize(treeFontSize).Bold().Color(a.colors.Text).Shrink(0)
 		ui.Text(c, referenceResults(lang, len(s.targets))).FontSize(treeFontSize).Color(a.colors.Subtle).Shrink(0)
-	case referenceRowFile:
-		g := s.groups[r.group]
-		ui.Icon(c, fileicons.ForFile(g.name, a.colors.Dark)).Size(treelist.Icon, treelist.Icon).Shrink(0).Color(a.colors.Subtle)
-		ui.Text(c, g.name).FontSize(treeFontSize).Color(a.colors.Text).Shrink(0)
-		if g.dir != "" {
-			ui.Text(c, g.dir).FontSize(treeFontSize).Color(a.colors.Subtle).Shrink(1).MinWidth(0).Ellipsis()
+	case core.ReferenceRowFile:
+		g := s.groups[referenceRowGroup(r)]
+		ui.Icon(c, fileicons.ForFile(g.Name, a.colors.Dark)).Size(treelist.Icon, treelist.Icon).Shrink(0).Color(a.colors.Subtle)
+		ui.Text(c, g.Name).FontSize(treeFontSize).Color(a.colors.Text).Shrink(0)
+		if g.Folder != "" {
+			ui.Text(c, g.Folder).FontSize(treeFontSize).Color(a.colors.Subtle).Shrink(1).MinWidth(0).Ellipsis()
 		}
-		ui.Text(c, referenceUsages(lang, len(g.indices))).FontSize(treeFontSize).Color(a.colors.Subtle).Shrink(0)
+		ui.Text(c, referenceUsages(lang, len(g.Indices))).FontSize(treeFontSize).Color(a.colors.Subtle).Shrink(0)
 	default:
-		line := strconv.Itoa(s.targets[r.target].Range.Start.Line + 1)
+		line := strconv.Itoa(s.targets[r.Shows].Range.Start.Line + 1)
 		ui.Row(c).Shrink(1).MinWidth(0).Items(ui.Center).Gap(c.Theme().Metrics.GapItem).PadLeft(treeChevron).Children(func() {
 			ui.Text(c, line).FontSize(treeFontSize).Color(a.colors.Subtle).Shrink(0)
-			a.referenceLineText(c, s.lines[r.target])
+			a.referenceLineText(c, s.lines[r.Shows])
 		})
 	}
 }
 
 // referenceLineText declares a usage's line in the editor's font, the usage in bold (semibold barely
 // shows in a fixed-pitch face), cut short at the row's end.
-func (a *App) referenceLineText(c ui.C, line referenceLine) {
-	spans := utf16Spans(line.text, line.ranges)
+func (a *App) referenceLineText(c ui.C, line core.ReferenceLine) {
+	spans := utf16Spans(line.Text, line.Ranges)
 	part := func(text string, bold bool) {
 		if text == "" {
 			return
@@ -248,11 +253,11 @@ func (a *App) referenceLineText(c ui.C, line referenceLine) {
 	ui.Row(c).Shrink(1).MinWidth(0).Clip().Children(func() {
 		cursor := 0
 		for _, span := range spans {
-			part(line.text[cursor:span[0]], false)
-			part(line.text[span[0]:span[1]], true)
+			part(line.Text[cursor:span[0]], false)
+			part(line.Text[span[0]:span[1]], true)
 			cursor = span[1]
 		}
-		part(line.text[cursor:], false)
+		part(line.Text[cursor:], false)
 	})
 }
 
@@ -264,13 +269,13 @@ func (a *App) referencesPreviewPane(c ui.C, lang i18n.Language) {
 		if target, ok := s.shownTarget(); ok {
 			g := s.groups[s.groupOf[target]]
 			ui.Row(c).FillWidth().Height(treelist.RowHeight + 6).Shrink(0).Items(ui.Center).Gap(6).PadX(10).Children(func() {
-				ui.Icon(c, fileicons.ForFile(g.name, a.colors.Dark)).Size(treelist.Icon, treelist.Icon).Shrink(0).Color(a.colors.Subtle)
-				ui.Text(c, g.name).FontSize(treeFontSize).Color(a.colors.Accent).Shrink(0)
-				if g.dir != "" {
-					ui.Text(c, g.dir).FontSize(treeFontSize).Color(a.colors.Subtle).Shrink(1).MinWidth(0).Ellipsis()
+				ui.Icon(c, fileicons.ForFile(g.Name, a.colors.Dark)).Size(treelist.Icon, treelist.Icon).Shrink(0).Color(a.colors.Subtle)
+				ui.Text(c, g.Name).FontSize(treeFontSize).Color(a.colors.Accent).Shrink(0)
+				if g.Folder != "" {
+					ui.Text(c, g.Folder).FontSize(treeFontSize).Color(a.colors.Subtle).Shrink(1).MinWidth(0).Ellipsis()
 				}
 				ui.Spacer(c)
-				ui.Text(c, referenceUsages(lang, len(g.indices))).FontSize(treeFontSize).Color(a.colors.Subtle).Shrink(0)
+				ui.Text(c, referenceUsages(lang, len(g.Indices))).FontSize(treeFontSize).Color(a.colors.Subtle).Shrink(0)
 			})
 			ui.Divider(c)
 		}

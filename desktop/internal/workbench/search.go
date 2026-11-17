@@ -389,51 +389,6 @@ func searchMatchColumn(match core.WorkspaceSearchMatch) int {
 	return match.ContentMatchRanges[0].Start + 1
 }
 
-// searchPreviewLead is how many UTF-16 units of a line are kept in front of its first
-// match; a match further right is brought into view by cutting the start of the line.
-const searchPreviewLead = 32
-
-// searchPreviewLine is the preview of a content match with its highlights: the line
-// without its indentation, cut in front of a far match so the match is not lost to the
-// row's end.
-func searchPreviewLine(match core.WorkspaceSearchMatch) (string, []core.SearchNameRange) {
-	if match.SourceLine == nil {
-		return match.Preview, nil
-	}
-	return previewAroundRanges(*match.SourceLine, match.ContentMatchRanges)
-}
-
-// previewAroundRanges is a source line shown in a result row with its highlights, given in UTF-16
-// units: the line without its indentation, cut in front of a far first highlight. The Find in
-// Files results and the References tool window show their lines this way.
-func previewAroundRanges(source string, highlights []core.SearchNameRange) (string, []core.SearchNameRange) {
-	line, ranges := trimHighlightedLine(source, highlights)
-	if len(ranges) == 0 || ranges[0].Start <= searchPreviewLead {
-		return line, ranges
-	}
-	cut := ranges[0].Start - searchPreviewLead/2
-	// Walk to the byte offset of UTF-16 unit cut, not splitting a surrogate pair.
-	units, offset := 0, len(line)
-	for i, r := range line {
-		if units >= cut {
-			offset = i
-			break
-		}
-		units++
-		if r >= 0x10000 {
-			units++
-		}
-	}
-	shifted := make([]core.SearchNameRange, 0, len(ranges))
-	for _, r := range ranges {
-		if r.Start >= units {
-			// One unit for the ellipsis put in front.
-			shifted = append(shifted, core.SearchNameRange{Start: r.Start - units + 1, Length: r.Length})
-		}
-	}
-	return "…" + line[offset:], shifted
-}
-
 // openFindInFiles shows the Find in Files tool window with the keyboard in its query, and
 // replace opens its Replace field too. A selection of one line in the editor becomes the
 // query, as in the IDE; otherwise the last query stays.

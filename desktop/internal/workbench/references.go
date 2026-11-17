@@ -7,9 +7,8 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"strconv"
 	"strings"
-	"unicode/utf16"
-	"unicode/utf8"
 
 	"github.com/1lck/Lithe-IDEA/desktop/internal/core"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/editorview"
@@ -22,16 +21,16 @@ import (
 // its usages (the line number and the line, the found text in bold), and a read-only preview of
 // the selected usage's file sits beside the tree with every usage in that file marked.
 //
-// Core normalizes the locations; this file groups them by file in the order the server gave
-// them, lays the groups out as the tree's visible rows, reads the lines to show in the
-// background (an open file's from its editor, a closed one's from disk, bounded), and opens a
-// usage's file at its position.
+// Core groups the usages by file and orders them, lays the visible rows out under the nodes the
+// user closed, moves a selection that a closed node hides, and says which usage each row shows
+// and which usages come before and after it (lsp.references.query); it also cuts the usages'
+// lines as their rows show them (lsp.references.lines). This file keeps which nodes are closed
+// and which row is selected, reads the lines (an open file's from its editor, a closed one's
+// from disk, bounded), and opens a usage's file at its position.
 
 const (
 	// referencePreviewLimit bounds how much of one closed file is read to show its lines.
 	referencePreviewLimit = 2 << 20
-	// referencePreviewWidth cuts a shown line, in bytes, after it was cut in front of its usage.
-	referencePreviewWidth = 240
 	// referenceTreeWidth is the tree's width beside the preview until the user drags the
 	// splitter; the tree and the preview keep at least their minimums while it is dragged.
 	referenceTreeWidth  = 380
@@ -39,72 +38,43 @@ const (
 	referencePreviewMin = 200
 )
 
-// usageGroup is the references that lie in one file.
-type usageGroup struct {
-	// path is the file, empty for a location that is not a local file (a class in a jar).
-	path string
-	// display is the path relative to the project; name and dir are its base name and the
-	// folder it is in, empty at the project's root.
-	display, name, dir string
-	// indices point into the state's targets.
-	indices []int
-	// collapsed hides the group's usages in the tree.
-	collapsed bool
-}
-
-// referenceRowKind is what a row of the tree stands for.
-type referenceRowKind uint8
-
-const (
-	referenceRowRoot referenceRowKind = iota
-	referenceRowFile
-	referenceRowUsage
-)
-
-// referenceRow is a visible row of the tree.
-type referenceRow struct {
-	kind  referenceRowKind
-	group int
-	// target indexes the state's targets on a usage row.
-	target int
-}
-
-// referenceLine is a usage's line as its row shows it: without its indentation, cut in front of
-// a far usage, and the UTF-16 range of the usage in what is left.
-type referenceLine struct {
-	text   string
-	ranges []core.SearchNameRange
-}
-
 // referenceQuery is the document and position Find Usages was asked at, which Rerun asks again.
 type referenceQuery struct {
 	documentID   int
 	line, column int
 }
 
-// referenceMarks is the view and the row the preview's marks were set for, so they are set once
-// per change and not in every frame.
+// referenceMarks is the view and the usage the preview's marks were set for, so they are set
+// once per change and not in every frame.
 type referenceMarks struct {
-	view *editorview.View
-	key  int
+	view   *editorview.View
+	target int
 }
 
 // referencesState is the References tool window's answer and how it is shown.
 type referencesState struct {
 	project *project
 	targets []core.PluginSemanticLocation
-	groups  []usageGroup
+	// locations are the targets as Core groups them, in step with targets.
+	locations []core.ReferenceLocation
+	// groups and rows are Core's layout of the answer: the files, and the rows that show.
+	groups []core.ReferenceGroup
+	rows   []core.ReferenceRow
 	// groupOf is the group of each target, in step with targets.
 	groupOf []int
-	// lines is the line of each target, in step with targets; empty until read.
-	lines      []referenceLine
+	// lines is the line of each target as its row shows it, in step with targets; empty until
+	// read.
+	lines      []core.ReferenceLine
 	generation uint64
-	// rows are the tree's visible rows; rootCollapsed hides everything under the Usages node.
-	rows          []referenceRow
+	// collapsed holds the fileKeys of the file nodes the user closed; rootCollapsed closes the
+	// Usages node.
+	collapsed     map[string]bool
 	rootCollapsed bool
-	// selected is the key of the selected row; reveal asks the next frame to scroll it into view.
-	selected int
-	reveal   bool
+	// selected is the key of the selected row and selectedRow its place in rows, -1 for none;
+	// reveal asks the next frame to scroll it into view.
+	selected    string
+	selectedRow int
+	reveal      bool
 	// focus is the keyboard focus the last frame saw, so only a move of it selects a row.
 	focus gfx.ID
 	view  ui.TreeState
@@ -127,49 +97,82 @@ func (a *App) showReferences(p *project, targets []core.PluginSemanticLocation, 
 	}
 	s.generation++
 	s.project, s.targets, s.query, s.symbol = p, targets, query, symbol
-	s.groups, s.groupOf = s.groups[:0], make([]int, len(targets))
-	s.lines = make([]referenceLine, len(targets))
-	s.rootCollapsed, s.marked = false, referenceMarks{}
-	byPath := map[string]int{}
+	s.locations = make([]core.ReferenceLocation, len(targets))
 	for i, target := range targets {
-		key := target.FilePath
-		if key == "" {
-			key = target.URI
-		}
-		g, ok := byPath[key]
-		if !ok {
-			display := key
-			if rel, err := filepath.Rel(p.root, key); err == nil && !strings.HasPrefix(rel, "..") {
-				display = rel
-			}
-			g = len(s.groups)
-			byPath[key] = g
-			s.groups = append(s.groups, newUsageGroup(target.FilePath, display))
-		}
-		s.groups[g].indices = append(s.groups[g].indices, i)
-		s.groupOf[i] = g
+		s.locations[i] = referenceLocation(p.root, target)
 	}
-	s.layoutRows()
-	s.selected, s.reveal = s.usageKey(0), true
+	s.lines = make([]core.ReferenceLine, len(targets))
+	s.collapsed, s.rootCollapsed, s.selected, s.marked = nil, false, "", referenceMarks{}
+	if !a.layoutReferences() {
+		s.targets, s.locations, s.lines, s.groups, s.rows, s.selectedRow = nil, nil, nil, nil, nil, -1
+		return
+	}
+	s.reveal = true
 	a.reduceChrome(core.SetChromeOpen(itemReferences, true))
 	a.loadReferenceLines(p, s.generation)
 }
 
-// newUsageGroup is the group of the file at path, shown as display.
-func newUsageGroup(path, display string) usageGroup {
-	slashed := filepath.ToSlash(display)
-	name, dir := slashed, ""
-	if i := strings.LastIndexByte(slashed, '/'); i >= 0 {
-		name, dir = slashed[i+1:], slashed[:i]
+// referenceLocation is target as Core groups it: under its path, compared as this platform
+// compares paths, or under its URI when it is not a local file; shown relative to the project
+// root when it lies in it.
+func referenceLocation(root string, target core.PluginSemanticLocation) core.ReferenceLocation {
+	key, display := target.FilePath, target.URI
+	if key == "" {
+		key = target.URI
+	} else {
+		display = key
+		if rel, err := filepath.Rel(root, key); err == nil && rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+			display = rel
+		}
+		display = filepath.ToSlash(display)
 	}
-	return usageGroup{path: path, display: display, name: name, dir: dir}
+	return core.ReferenceLocation{
+		FileKey:     key,
+		DisplayPath: display,
+		Line:        max(target.Range.Start.Line, 0),
+		Column:      max(target.Range.Start.UTF16Column, 0),
+	}
+}
+
+// layoutReferences asks Core for the rows under the nodes that are closed and the selection
+// that is kept. When Core fails it reports the failure and is false, and the rows stay.
+func (a *App) layoutReferences() bool {
+	s := &a.editor.refs
+	collapsed := make([]string, 0, len(s.collapsed))
+	for key := range s.collapsed {
+		collapsed = append(collapsed, key)
+	}
+	slices.Sort(collapsed)
+	ctx, cancel := context.WithTimeout(a.operationContext(context.Background()), kernelCallTimeout)
+	defer cancel()
+	result, err := a.kernel.QueryReferences(ctx, core.ReferencesQuery{
+		Locations: s.locations, RootCollapsed: s.rootCollapsed, Collapsed: collapsed, Selected: s.selected,
+	})
+	if err != nil {
+		a.operationFailed("references_query", err)
+		a.notifyError(a.text.Errors.Core(err.Error()))
+		return false
+	}
+	s.groups, s.rows, s.selected, s.selectedRow = result.Groups, result.Rows, result.Selected, -1
+	if result.SelectedRow != nil {
+		s.selectedRow = *result.SelectedRow
+	}
+	s.groupOf = make([]int, len(s.targets))
+	for g, group := range s.groups {
+		for _, i := range group.Indices {
+			if i >= 0 && i < len(s.groupOf) {
+				s.groupOf[i] = g
+			}
+		}
+	}
+	return true
 }
 
 // closeReferences forgets the answer, as closing the header's tab does.
 func (a *App) closeReferences() {
 	s := &a.editor.refs
 	s.preview.close()
-	*s = referencesState{hidePreview: s.hidePreview, split: s.split, preview: s.preview, generation: s.generation + 1}
+	*s = referencesState{hidePreview: s.hidePreview, split: s.split, preview: s.preview, generation: s.generation + 1, selectedRow: -1}
 }
 
 // rerunReferences asks for the usages again at the position they were asked at, while that
@@ -189,166 +192,137 @@ func (s *referencesState) queryDocument(p *project) *document {
 	return p.docs.find(s.query.documentID)
 }
 
-// The keys of the rows: the Usages node is 0, a file's node follows, then the usages, so a row
-// keeps its key while the nodes above it open and close.
-func (s *referencesState) fileKey(group int) int   { return 1 + group }
-func (s *referencesState) usageKey(target int) int { return 1 + len(s.groups) + target }
-
-// key is the key of visible row i.
+// key is the Tree's key of visible row i: the Usages node is 0, a file's node follows, then the
+// usages, so a row keeps its key while the nodes above it open and close.
 func (s *referencesState) key(i int) int {
 	r := s.rows[i]
-	switch r.kind {
-	case referenceRowRoot:
+	switch r.Kind {
+	case core.ReferenceRowRoot:
 		return 0
-	case referenceRowFile:
-		return s.fileKey(r.group)
+	case core.ReferenceRowFile:
+		return 1 + referenceRowGroup(r)
 	default:
-		return s.usageKey(r.target)
+		return 1 + len(s.groups) + r.Shows
 	}
 }
 
-// layoutRows lays the tree's visible rows out again after a node opened or closed.
-func (s *referencesState) layoutRows() {
-	s.rows = append(s.rows[:0], referenceRow{kind: referenceRowRoot})
-	if s.rootCollapsed {
-		return
+// referenceRowGroup is the group of a file or usage row.
+func referenceRowGroup(r core.ReferenceRow) int {
+	if r.Group == nil {
+		return 0
 	}
-	for g, group := range s.groups {
-		s.rows = append(s.rows, referenceRow{kind: referenceRowFile, group: g})
-		if group.collapsed {
-			continue
-		}
-		for _, i := range group.indices {
-			s.rows = append(s.rows, referenceRow{kind: referenceRowUsage, group: g, target: i})
-		}
-	}
+	return *r.Group
 }
 
-// rowOf is the visible row of key, or -1 when it is hidden under a closed node.
-func (s *referencesState) rowOf(key int) int {
-	for i := range s.rows {
-		if s.key(i) == key {
-			return i
-		}
-	}
-	return -1
+// referenceUsageKey is Core's key of the row of usage target.
+func referenceUsageKey(target int) string {
+	return core.ReferenceRowUsage + ":" + strconv.Itoa(target)
 }
 
 // node describes visible row i to the Tree.
 func (s *referencesState) node(i int) ui.TreeNode {
 	r := s.rows[i]
-	selected := s.key(i) == s.selected
-	switch r.kind {
-	case referenceRowRoot:
-		return ui.TreeNode{Depth: 0, Branch: true, Expanded: !s.rootCollapsed, Selected: selected}
-	case referenceRowFile:
-		return ui.TreeNode{Depth: 1, Branch: true, Expanded: !s.groups[r.group].collapsed, Selected: selected}
-	default:
-		return ui.TreeNode{Depth: 2, Selected: selected}
+	return ui.TreeNode{
+		Depth:    r.Depth,
+		Branch:   r.Kind != core.ReferenceRowUsage,
+		Expanded: r.Expanded != nil && *r.Expanded,
+		Selected: i == s.selectedRow,
 	}
 }
 
-// toggle opens or closes the node of row i. The selection moves to the node when it was under it.
-func (s *referencesState) toggle(i int) {
-	if i < 0 || i >= len(s.rows) {
+// rowOf is the visible row with key, or -1 when it is hidden under a closed node.
+func (s *referencesState) rowOf(key string) int {
+	return slices.IndexFunc(s.rows, func(r core.ReferenceRow) bool { return r.Key == key })
+}
+
+// selectRow selects the visible row with key; it is false when that row does not show.
+func (s *referencesState) selectRow(key string) bool {
+	i := s.rowOf(key)
+	if i < 0 {
+		return false
+	}
+	s.selected, s.selectedRow = key, i
+	return true
+}
+
+// toggleReference opens or closes the node with key. Core moves the selection to the node when
+// it was under it.
+func (a *App) toggleReference(key string) {
+	s := &a.editor.refs
+	i := s.rowOf(key)
+	if i < 0 {
 		return
 	}
-	switch r := s.rows[i]; r.kind {
-	case referenceRowRoot:
+	switch r := s.rows[i]; r.Kind {
+	case core.ReferenceRowRoot:
 		s.rootCollapsed = !s.rootCollapsed
-	case referenceRowFile:
-		s.groups[r.group].collapsed = !s.groups[r.group].collapsed
+	case core.ReferenceRowFile:
+		file := s.groups[referenceRowGroup(r)].FileKey
+		if s.collapsed[file] {
+			delete(s.collapsed, file)
+		} else {
+			if s.collapsed == nil {
+				s.collapsed = map[string]bool{}
+			}
+			s.collapsed[file] = true
+		}
 	default:
 		return
 	}
-	key := s.key(i)
-	s.layoutRows()
-	if s.rowOf(s.selected) < 0 {
-		s.selected = key
-	}
+	a.layoutReferences()
 }
 
-// setExpanded opens or closes every file's node; the Usages node stays open so the files show.
-// A usage that was selected hands the selection to its file when its node closes.
-func (s *referencesState) setExpanded(expanded bool) {
-	s.rootCollapsed = false
-	for g := range s.groups {
-		s.groups[g].collapsed = !expanded
-	}
-	s.layoutRows()
-	if s.rowOf(s.selected) < 0 {
-		if target, ok := s.selectedUsage(); ok {
-			s.selected = s.fileKey(s.groupOf[target])
-		} else {
-			s.selected = 0
+// expandReferences opens or closes every file's node; the Usages node stays open so the files
+// show. A usage that was selected hands the selection to its file when its node closes.
+func (a *App) expandReferences(expanded bool) {
+	s := &a.editor.refs
+	s.rootCollapsed, s.collapsed = false, nil
+	if !expanded {
+		s.collapsed = make(map[string]bool, len(s.groups))
+		for _, g := range s.groups {
+			s.collapsed[g.FileKey] = true
 		}
 	}
+	a.layoutReferences()
 	s.reveal = true
-}
-
-// selectedUsage is the target of the selected row when it is a usage.
-func (s *referencesState) selectedUsage() (int, bool) {
-	target := s.selected - s.usageKey(0)
-	return target, target >= 0 && target < len(s.targets)
 }
 
 // shownTarget is the usage the preview shows for the selected row: the usage itself, or the
 // first usage of a file or of the whole answer.
 func (s *referencesState) shownTarget() (int, bool) {
-	switch {
-	case len(s.groups) == 0 || s.selected < 0:
+	if s.selectedRow < 0 || s.selectedRow >= len(s.rows) {
 		return 0, false
-	case s.selected == 0:
-		return s.groups[0].indices[0], true
-	case s.selected <= len(s.groups):
-		return s.groups[s.selected-1].indices[0], true
-	default:
-		return s.selectedUsage()
 	}
+	return s.rows[s.selectedRow].Shows, true
 }
 
 // stepTarget is the usage after the selected row in the tree's order, or before it when forward
-// is false, counting the usages under closed nodes too, and false at either end. The toolbar asks
-// it in every frame, so it walks the groups in place.
+// is false, counting the usages under closed nodes too, and false at either end.
 func (s *referencesState) stepTarget(forward bool) (int, bool) {
-	// at is the place of the selection among the usages in the tree's order: a usage is on its
-	// own place, and a file's node or the Usages node is just before the first usage under it.
-	at, on, count := 0, false, 0
-	target, usage := s.selectedUsage()
-	for g, group := range s.groups {
-		switch {
-		case usage && s.groupOf[target] == g:
-			at, on = count+slices.Index(group.indices, target), true
-		case !usage && s.selected == s.fileKey(g):
-			at = count
-		}
-		count += len(group.indices)
-	}
-	next := at - 1
-	if forward {
-		next = at
-		if on {
-			next = at + 1
-		}
-	}
-	if next < 0 || next >= count {
+	if s.selectedRow < 0 || s.selectedRow >= len(s.rows) {
 		return 0, false
 	}
-	for _, group := range s.groups {
-		if next < len(group.indices) {
-			return group.indices[next], true
-		}
-		next -= len(group.indices)
+	step := s.rows[s.selectedRow].Previous
+	if forward {
+		step = s.rows[s.selectedRow].Next
 	}
-	return 0, false
+	if step == nil {
+		return 0, false
+	}
+	return *step, true
 }
 
-// selectUsage selects the usage target, opening the nodes it lies under, and scrolls it into view.
-func (s *referencesState) selectUsage(target int) {
+// selectUsage selects the usage target, opening the nodes it lies under, and scrolls it into
+// view.
+func (a *App) selectUsage(target int) {
+	s := &a.editor.refs
 	s.rootCollapsed = false
-	s.groups[s.groupOf[target]].collapsed = false
-	s.layoutRows()
-	s.selected, s.reveal = s.usageKey(target), true
+	if target >= 0 && target < len(s.groupOf) && s.groupOf[target] < len(s.groups) {
+		delete(s.collapsed, s.groups[s.groupOf[target]].FileKey)
+	}
+	s.selected = referenceUsageKey(target)
+	a.layoutReferences()
+	s.reveal = true
 }
 
 // stepReference selects the next or previous usage and opens it in the editor, as IDEA's Next
@@ -359,58 +333,99 @@ func (a *App) stepReference(forward bool) {
 	if !ok {
 		return
 	}
-	s.selectUsage(target)
+	a.selectUsage(target)
 	a.openReference(s.targets[target])
 }
 
-// loadReferenceLines reads the line of every reference. An open file's lines come from its
-// editor on the window thread, which only reads rope lines; closed files are read off it.
+// loadReferenceLines reads the line of every reference and has Core cut it for its row. An open
+// file's lines come from its editor on the window thread, which only reads rope lines; closed
+// files are read off it.
 func (a *App) loadReferenceLines(p *project, generation uint64) {
 	s := &a.editor.refs
-	var closed []usageGroup
+	targets := s.targets
+	// texts holds the text of each target's start line once read, and read says which are.
+	texts, read := make([]string, len(targets)), make([]bool, len(targets))
+	var closed []core.ReferenceGroup
 	for _, g := range s.groups {
-		if g.path == "" {
+		path := targets[g.Indices[0]].FilePath
+		if path == "" {
 			continue
 		}
-		if d := p.docs.byPath(g.path); d != nil {
+		if d := p.docs.byPath(path); d != nil {
 			text := d.view.TextSnapshot()
-			for _, i := range g.indices {
-				if line := s.targets[i].Range.Start.Line; line >= 0 && line < text.LineCount() {
-					s.lines[i] = referenceLineOf(text.Line(line), s.targets[i].Range)
+			for _, i := range g.Indices {
+				if line := targets[i].Range.Start.Line; line >= 0 && line < text.LineCount() {
+					texts[i], read[i] = text.Line(line), true
 				}
 			}
 			continue
 		}
 		closed = append(closed, g)
 	}
-	if len(closed) == 0 {
-		return
-	}
-	targets := s.targets
-	a.background(p, 0, func(context.Context) func(*App) {
-		lines := make(map[int]referenceLine)
+	kernel := a.kernel
+	a.background(p, 0, func(ctx context.Context) func(*App) {
 		for _, g := range closed {
 			// A file that cannot be read keeps its rows without their lines.
-			file := readLines(g.path, referencePreviewLimit)
-			for _, i := range g.indices {
+			file := readLines(targets[g.Indices[0]].FilePath, referencePreviewLimit)
+			for _, i := range g.Indices {
 				if line := targets[i].Range.Start.Line; line >= 0 && line < len(file) {
-					lines[i] = referenceLineOf(file[line], targets[i].Range)
+					texts[i], read[i] = file[line], true
 				}
 			}
 		}
+		request, asked := referenceLinesRequest(targets, texts, read)
+		if len(asked) == 0 {
+			return nil
+		}
+		call, cancel := context.WithTimeout(ctx, kernelCallTimeout)
+		defer cancel()
+		lines, err := kernel.ReferenceLines(call, request)
 		return func(a *App) {
 			s := &a.editor.refs
 			if s.generation != generation || s.project != p {
 				return
 			}
-			for i, line := range lines {
+			if err == nil && len(lines) != len(asked) {
+				err = errors.New("references lines answer does not match its usages")
+			}
+			if err != nil {
+				a.backgroundFailed("references_lines", err)
+				return
+			}
+			for k, i := range asked {
 				if i < len(s.lines) {
-					s.lines[i] = line
+					s.lines[i] = lines[k]
 				}
 			}
 			a.invalidator.Invalidate()
 		}
 	})
+}
+
+// referenceLinesRequest asks Core to show the lines that were read, each distinct text sent
+// once, and says which target each asked usage is.
+func referenceLinesRequest(targets []core.PluginSemanticLocation, texts []string, read []bool) (core.ReferenceLinesRequest, []int) {
+	var request core.ReferenceLinesRequest
+	var asked []int
+	index := map[string]int{}
+	for i, target := range targets {
+		if !read[i] {
+			continue
+		}
+		k, ok := index[texts[i]]
+		if !ok {
+			k = len(request.Texts)
+			index[texts[i]] = k
+			request.Texts = append(request.Texts, texts[i])
+		}
+		at := target.Range
+		request.Usages = append(request.Usages, core.ReferenceUsageLine{
+			Text: k, Line: max(at.Start.Line, 0), Column: max(at.Start.UTF16Column, 0),
+			EndLine: max(at.End.Line, 0), EndColumn: max(at.End.UTF16Column, 0),
+		})
+		asked = append(asked, i)
+	}
+	return request, asked
 }
 
 // readLines is the lines of the file at path, read up to limit bytes; nil when it cannot be
@@ -427,32 +442,6 @@ func readLines(path string, limit int64) []string {
 		return nil
 	}
 	return strings.Split(string(buf[:n]), "\n")
-}
-
-// referenceLineOf is the row text of a usage at at on line: without the indentation, cut in
-// front of a far usage as the Find in Files rows are, and bounded, with the usage's range. A
-// usage that runs past the line is marked to the line's end.
-func referenceLineOf(line string, at core.PluginDocumentRange) referenceLine {
-	line = strings.TrimSuffix(line, "\r")
-	start := at.Start.UTF16Column
-	end := at.End.UTF16Column
-	if at.End.Line != at.Start.Line {
-		end = len(utf16.Encode([]rune(line)))
-	}
-	var ranges []core.SearchNameRange
-	if start >= 0 && end > start {
-		ranges = []core.SearchNameRange{{Start: start, Length: end - start}}
-	}
-	text, ranges := previewAroundRanges(line, ranges)
-	if len(text) > referencePreviewWidth {
-		// Cut before the character the width falls in, not inside it.
-		cut := referencePreviewWidth
-		for cut > 0 && !utf8.RuneStart(text[cut]) {
-			cut--
-		}
-		text = text[:cut]
-	}
-	return referenceLine{text: text, ranges: ranges}
 }
 
 // referenceRange is the byte range of a usage in view's text, and false when it is not there.
@@ -477,25 +466,26 @@ func (a *App) syncReferencePreview(p *project) {
 	if s.hidePreview || !ok {
 		return
 	}
-	group := s.groups[s.groupOf[target]]
-	if group.path == "" {
+	path := s.targets[target].FilePath
+	if path == "" {
 		if s.preview.path != "" || s.preview.view != nil {
 			s.preview.close()
 		}
 		return
 	}
 	at := s.targets[target].Range
-	a.showSourcePreview(p, &s.preview, group.path, at.Start.Line+1, func(a *App) bool {
+	a.showSourcePreview(p, &s.preview, path, at.Start.Line+1, func(a *App) bool {
 		return a.editor.refs.project == p && !a.editor.refs.hidePreview
 	})
 	view := s.preview.view
-	marks := referenceMarks{view: view, key: s.usageKey(target)}
+	marks := referenceMarks{view: view, target: target}
 	if view == nil || s.marked == marks {
 		return
 	}
 	s.marked = marks
-	matches := make([]editorview.Range, 0, len(group.indices))
-	for _, i := range group.indices {
+	group := s.groups[s.groupOf[target]]
+	matches := make([]editorview.Range, 0, len(group.Indices))
+	for _, i := range group.Indices {
 		if r, ok := referenceRange(view, s.targets[i].Range); ok {
 			matches = append(matches, r)
 		}

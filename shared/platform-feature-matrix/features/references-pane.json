@@ -13,7 +13,9 @@
       "desktop/internal/workbench/references_visual_test.go",
       "desktop/internal/workbench/pluginsemantics.go",
       "desktop/internal/workbench/pluginsemantics_test.go",
-      "desktop/internal/workbench/pluginsemantics_e2e_test.go"
+      "desktop/internal/workbench/pluginsemantics_e2e_test.go",
+      "desktop/internal/core/references.go",
+      "desktop/internal/core/references_test.go"
     ]
   },
   "windows": {
@@ -26,11 +28,13 @@
       "desktop/internal/workbench/references_visual_test.go",
       "desktop/internal/workbench/pluginsemantics.go",
       "desktop/internal/workbench/pluginsemantics_test.go",
-      "desktop/internal/workbench/pluginsemantics_e2e_test.go"
+      "desktop/internal/workbench/pluginsemantics_e2e_test.go",
+      "desktop/internal/core/references.go",
+      "desktop/internal/core/references_test.go"
     ]
   },
   "owner": "Language Tooling",
-  "verification": "Viva（2026-11-10）：Shift+F12 查找引用，以光标处弹出的可键盘导航列表（虚拟化窗口，上限 500）呈现，点击或回车打开所在文件位置；按文件分组与专用面板尚未接入。 从符号发起引用查询，验证结果分组、文件定位、关闭和重新查询。 Viva（2026-11-10）：用测试内联的合成语言服务器插件服务的文件（如调用系统 clangd 的 C 文件）发起引用查询，核对分组、行预览、文件定位、关闭与重新查询。 Viva（2026-11-17）：无头截图（references_visual_test.go，深浅主题 × 中英）核对结果树、竖排工具栏、搜索标签与预览；待在原生窗口核对单击预览、双击或回车打开、上一个/下一个用法、全部展开/折叠、拖动分隔条、关闭预览和关闭搜索标签。",
+  "verification": "Viva（2026-11-10）：Shift+F12 查找引用，以光标处弹出的可键盘导航列表（虚拟化窗口，上限 500）呈现，点击或回车打开所在文件位置；按文件分组与专用面板尚未接入。 从符号发起引用查询，验证结果分组、文件定位、关闭和重新查询。 Viva（2026-11-10）：用测试内联的合成语言服务器插件服务的文件（如调用系统 clangd 的 C 文件）发起引用查询，核对分组、行预览、文件定位、关闭与重新查询。 Viva（2026-11-17）：无头截图（references_visual_test.go，深浅主题 × 中英）核对结果树、竖排工具栏、搜索标签与预览；待在原生窗口核对单击预览、双击或回车打开、上一个/下一个用法、全部展开/折叠、拖动分隔条、关闭预览和关闭搜索标签。 Viva（2026-11-17）：引用结果的分组排序、可见行、步进和行文本改由 Core 计算，Core 契约 fixture（references-query-v1、references-lines-v1）经桌面端桥接测试；单元测试覆盖右键点在其他位置后菜单“查找用法”按点击处请求。",
   "legacy": {
     "revision": "5a54c41aa37a4e6e6b68918a4b05765b9dd07a36",
     "macos": {
@@ -48,5 +52,5 @@
       "verificationStatus": "pending"
     }
   },
-  "notes": "Viva：Shift+F12 或右键“查找引用”把结果放入 References 工具窗口（底部区），布局对齐 IntelliJ IDEA 的查找用法：标题栏有搜索标签（符号名 + 关闭，关闭即清空结果并收起窗口）；左侧竖排工具栏（重新查找、上一个/下一个用法、全部展开/折叠、显示预览）；结果树为“用法 → 文件 → 用法”，文件行带目录和用法数，用法行带行号并加粗命中词（已打开文件读编辑器，未打开文件在后台有界读取）；右侧只读预览选中用法所在文件，标出该文件全部用法并选中当前用法，宽度可拖动。单击选中并预览，双击或回车打开所在位置，预览关闭时单击直接打开；上限 500 条。无头测试和截图不是原生窗口验收，平台验证保持 pending。"
+  "notes": "Viva：Shift+F12 或右键“查找用法”把结果放入 References 工具窗口（底部区）；右键点在选区外时先把光标移到点击处，查的是被点的词。分组与文件自然排序、可见行投影（折叠时选中项移到可见的上级）、上一个/下一个用法和用法行文本裁剪由 Core 的 lsp.references.query / lsp.references.lines 计算，桌面端只保留折叠状态、选中、读取文件与绘制。布局对齐 IntelliJ IDEA 的查找用法：标题栏有搜索标签（符号名 + 关闭，关闭即清空结果并收起窗口）；左侧竖排工具栏（重新查找、上一个/下一个用法、全部展开/折叠、显示预览）；结果树为“用法 → 文件 → 用法”，文件行带目录和用法数，用法行带行号并加粗命中词（已打开文件读编辑器，未打开文件在后台有界读取）；右侧只读预览选中用法所在文件，标出该文件全部用法并选中当前用法，宽度可拖动。单击选中并预览，双击或回车打开所在位置，预览关闭时单击直接打开；上限 500 条。无头测试和截图不是原生窗口验收，平台验证保持 pending。"
 }

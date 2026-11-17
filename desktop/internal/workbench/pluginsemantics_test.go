@@ -477,10 +477,10 @@ func TestFindReferencesFillsTheReferencesPaneAndOpensChosen(t *testing.T) {
 	if !f.h.shows("B.java") || !f.h.shows("one();") || !f.h.shows("1 个结果") {
 		t.Fatalf("pane rows missing: %v", f.h.driver.Snapshot().Labels)
 	}
-	if len(s.groups) != 1 || len(s.groups[0].indices) != 1 {
+	if len(s.groups) != 1 || len(s.groups[0].Indices) != 1 {
 		t.Fatalf("groups = %+v", s.groups)
 	}
-	if got := s.lines[0]; got.text != "one();" || len(got.ranges) != 1 || got.ranges[0] != (core.SearchNameRange{Start: 0, Length: 3}) {
+	if got := s.lines[0]; got.Text != "one();" || len(got.Ranges) != 1 || got.Ranges[0] != (core.SearchNameRange{Start: 0, Length: 3}) {
 		t.Fatalf("usage line = %+v", got)
 	}
 	// The first usage is selected, and the preview shows its file with the usage selected.
@@ -494,6 +494,40 @@ func TestFindReferencesFillsTheReferencesPaneAndOpensChosen(t *testing.T) {
 	})
 	f.h.app.openReference(s.targets[0])
 	awaitDocumentState(t, f.h, func() bool { return f.p.docs.byPath(target) != nil })
+}
+
+// A right click elsewhere in the text puts the caret there, so the menu's Find Usages asks for
+// the usages of what was clicked, not of where the caret was.
+func TestEditorMenuFindUsagesAsksAtTheRightClickedPlace(t *testing.T) {
+	f := newSemanticFixture(t)
+	// The click goes to the cell of "n" in "one"; the caret then waits at the line's end.
+	f.d.view.GoToNavigation(0, 1, false)
+	f.h.settle()
+	cell, ok := f.d.view.CaretRect()
+	if !ok {
+		t.Fatal("the editor has not painted")
+	}
+	f.d.view.GoToNavigation(0, 3, false)
+	f.h.settle()
+	if err := f.h.driver.ClickButton(cell.X+1, cell.Y+cell.Height/2, gfx.PointerButtonSecondary); err != nil {
+		t.Fatal(err)
+	}
+	f.h.settle()
+	f.h.clickNamed(f.h.shared("desktop.editorMenu.findUsages"))
+	// The pointer resting on the text may have asked for a hover first.
+	var request *core.PluginSemanticRequest
+	awaitDocumentState(t, f.h, func() bool {
+		for i := range f.kernel.requestCount() {
+			if r := f.kernel.request(i); r.Operation == pluginSemanticReferences {
+				request = &r
+				return true
+			}
+		}
+		return false
+	})
+	if request.Position == nil || *request.Position != (core.PluginDocumentPosition{Line: 0, UTF16Column: 1}) {
+		t.Fatalf("references asked at %+v, want the clicked column", request.Position)
+	}
 }
 
 func TestReferencesPaneGroupsByFileAndIsBounded(t *testing.T) {
@@ -520,15 +554,15 @@ func TestReferencesPaneGroupsByFileAndIsBounded(t *testing.T) {
 	if len(s.groups) != 2 || len(s.rows) != maxReferenceTargets+3 {
 		t.Fatalf("groups = %d rows = %d", len(s.groups), len(s.rows))
 	}
-	second := 2 + len(s.groups[0].indices)
-	if r := s.rows[second]; r.kind != referenceRowFile || r.group != 1 {
+	second := 2 + len(s.groups[0].Indices)
+	if r := s.rows[second]; r.Kind != core.ReferenceRowFile || referenceRowGroup(r) != 1 {
 		t.Fatalf("second file's row = %+v", r)
 	}
-	if r := s.rows[second+3]; r.kind != referenceRowUsage || r.group != 1 || r.target != s.groups[1].indices[2] {
+	if r := s.rows[second+3]; r.Kind != core.ReferenceRowUsage || referenceRowGroup(r) != 1 || r.Shows != s.groups[1].Indices[2] {
 		t.Fatalf("row in second file = %+v", r)
 	}
-	if s.selected != s.usageKey(0) || s.rowOf(s.selected) != 2 {
-		t.Fatalf("selected key %d at row %d, want the first usage", s.selected, s.rowOf(s.selected))
+	if s.selected != "usage:0" || s.selectedRow != 2 {
+		t.Fatalf("selected key %q at row %d, want the first usage", s.selected, s.selectedRow)
 	}
 }
 

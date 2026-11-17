@@ -103,7 +103,17 @@ func showVisualReferences(a *App, p *project, d *document, targets []core.Plugin
 	a.showReferences(p, targets, referenceQuery{documentID: d.id, line: 4, column: 1}, "absSelf")
 }
 
-// visualReferencesReady reports whether the window shows what is captured: the preview loaded.
+// visualReferencesReady reports whether the window shows what is captured: the preview loaded
+// and every usage's line, which Core cuts off the window thread.
 func visualReferencesReady(a *App) bool {
-	return a.editor.refs.preview.view != nil
+	s := &a.editor.refs
+	if s.preview.view == nil {
+		return false
+	}
+	for _, line := range s.lines {
+		if line.Text == "" {
+			return false
+		}
+	}
+	return true
 }
