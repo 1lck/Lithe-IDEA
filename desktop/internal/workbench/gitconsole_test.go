@@ -10,6 +10,7 @@ import (
 
 	"github.com/1lck/Lithe-IDEA/desktop/internal/core"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/i18n"
+	"github.com/1lck/Lithe-IDEA/desktop/internal/textview"
 )
 
 // openConsole opens dir, runs a Git command the console records, and shows the Console tab
@@ -204,7 +205,7 @@ func consoleHasRow(v *consoleView, text string) bool {
 	return false
 }
 
-func TestConsoleFlattenFoldsAndKeepsKeys(t *testing.T) {
+func TestConsoleFlattenFoldsAndKeepsRowIDs(t *testing.T) {
 	text := &i18n.For(i18n.English).Console
 	record, presented := consoleFetch()
 	v := consoleViewOf([]core.GitConsoleRecord{record}, map[string]*consolePresented{record.ID: presented})
@@ -239,8 +240,8 @@ func TestConsoleFlattenFoldsAndKeepsKeys(t *testing.T) {
 	if last.text != "Receiving 100%" || last.toggle != text.Collapse || last.folded {
 		t.Fatalf("the open fold's last line is %+v", last)
 	}
-	if opened.key != header.key || last.key != fold.key {
-		t.Fatalf("the keys changed: header %d to %d, fold %d to %d", header.key, opened.key, fold.key, last.key)
+	if opened.id != header.id || last.id != fold.id {
+		t.Fatalf("the ids changed: header %+v to %+v, fold %+v to %+v", header.id, opened.id, fold.id, last.id)
 	}
 }
 
@@ -304,8 +305,8 @@ func TestConsoleStepOpensTheFoldOfAHit(t *testing.T) {
 	if !v.open[consoleFold{record: record.ID, fragment: "output-1"}] {
 		t.Fatalf("stepping to the hit left its fold closed: %+v", v.open)
 	}
-	if v.hitIndex != 0 || v.hitRow != 2 || v.rows[v.hitRow].text != "Receiving 10%" || !v.detach {
-		t.Fatalf("the current hit is %d on row %d (detach %v), want the first on the line it matched", v.hitIndex, v.hitRow, v.detach)
+	if v.hitIndex != 0 || v.hitRow != 2 || v.rows[v.hitRow].text != "Receiving 10%" {
+		t.Fatalf("the current hit is %d on row %d, want the first on the line it matched", v.hitIndex, v.hitRow)
 	}
 }
 
@@ -424,45 +425,6 @@ func TestConsoleHeaderIsSpannedForItsColorsAndItsInlineFold(t *testing.T) {
 	}
 }
 
-// consolePieceTexts is pieces as "line:kind:text".
-func consolePieceTexts(pieces []consolePiece) []string {
-	out := make([]string, 0, len(pieces))
-	for _, p := range pieces {
-		out = append(out, fmt.Sprintf("%d:%d:%s", p.line, p.kind, p.text))
-	}
-	return out
-}
-
-func TestLayoutConsoleRowBreaksAndCutsByCells(t *testing.T) {
-	spans := []consoleSpan{{end: 3, kind: consoleSpanStamp}, {end: 8, kind: consoleSpanText}}
-	cases := []struct {
-		name  string
-		text  string
-		spans []consoleSpan
-		cells int
-		wrap  bool
-		want  []string
-	}{
-		{name: "unknown width", text: "abcdefgh", cells: 0, want: []string{"0:0:abcdefgh"}},
-		{name: "fits", text: "abcd", cells: 4, want: []string{"0:0:abcd"}},
-		{name: "cut", text: "abcdef", cells: 4, want: []string{"0:0:abc", "0:0:…"}},
-		{name: "cut in the second span", text: "abcdefgh", spans: spans, cells: 6, want: []string{"0:1:abc", "0:0:de", "0:0:…"}},
-		{name: "wrap across spans", text: "abcdefgh", spans: spans, cells: 5, wrap: true, want: []string{"0:1:abc", "0:0:de", "1:0:fgh"}},
-		{name: "wide characters", text: "中文ab", cells: 3, wrap: true, want: []string{"0:0:中", "1:0:文a", "2:0:b"}},
-		{name: "cut before a wide character", text: "a中文", cells: 4, want: []string{"0:0:a中", "0:0:…"}},
-		{name: "wide character wider than the row", text: "中", cells: 1, wrap: true, want: []string{"0:0:中"}},
-		{name: "empty", text: "", cells: 4, want: []string{}},
-	}
-	for _, tc := range cases {
-		t.Run(tc.name, func(t *testing.T) {
-			got := consolePieceTexts(layoutConsoleRow(nil, tc.text, tc.spans, tc.cells, tc.wrap))
-			if !slices.Equal(got, tc.want) {
-				t.Fatalf("layoutConsoleRow(%q, %d, wrap %v) = %q, want %q", tc.text, tc.cells, tc.wrap, got, tc.want)
-			}
-		})
-	}
-}
-
 func TestConsoleExpandTabsToTheNextStop(t *testing.T) {
 	cases := map[string]string{
 		"no tab":          "no tab",
@@ -543,8 +505,8 @@ func TestConsoleFoldsTheWholeOutputOfAQuery(t *testing.T) {
 	if last.text != "d4" || last.toggle != text.Collapse || last.folded {
 		t.Fatalf("the open fold's last line is %+v", last)
 	}
-	if first.key != fold.key {
-		t.Fatalf("the fold's key changed from %d to %d as it opened", fold.key, first.key)
+	if first.id != fold.id {
+		t.Fatalf("the fold's id changed from %+v to %+v as it opened", fold.id, first.id)
 	}
 }
 
@@ -683,11 +645,45 @@ func TestConsoleDrawsTheProjectedCommandBeforeItIsPresented(t *testing.T) {
 	}
 }
 
-func TestConsoleRowKeysReserveValidMissingRowIdentity(t *testing.T) {
-	v := consoleView{keys: map[consoleRowID]int{}}
-	v.add(nil, consoleRow{})
-	missing := v.rowKey(len(v.rows))
-	if missing < 0 || uint64(missing) >= 1<<31 || missing == v.rowKey(0) {
-		t.Fatalf("missing row key %d is invalid or collides with the first row %d", missing, v.rowKey(0))
+// A selection keeps to its rows when the rows are flattened again: a fold opening above them
+// moves it with them, and it goes when the rows it covered change.
+func TestConsoleFlattenKeepsTheSelectionOnItsRows(t *testing.T) {
+	text := &i18n.For(i18n.English).Console
+	record, presented := consoleFetch()
+	v := consoleViewOf([]core.GitConsoleRecord{record}, map[string]*consolePresented{record.ID: presented})
+	v.flatten(text, time.UTC)
+	// The line row and the closed progress fold after it.
+	src := consoleSource{v}
+	v.text.Selection.Begin(textview.Point{Line: 1, Byte: len("From ")}, src.Line(1), 1)
+	v.text.Selection.Extend(textview.Point{Line: 2, Byte: len("Receiving")}, src.Line(2))
+	if got := v.text.Selection.Text(src); got != "origin\nReceiving" {
+		t.Fatalf("the selection is %q", got)
+	}
+
+	// Opening the header's configuration changes the header, above the selection, only.
+	v.open = map[consoleFold]bool{v.rows[0].fold: true}
+	v.flatten(text, time.UTC)
+	if got := v.text.Selection.Text(src); got != "origin\nReceiving" {
+		t.Fatalf("after the header opened the selection is %q, want it on the same rows", got)
+	}
+
+	// A record before this one moves the rows down; the selection goes with them.
+	before := core.GitConsoleRecord{ID: "r0", Revision: 1, Started: consoleStarted, Root: "/work/repo", Arguments: []string{"status"},
+		Lines: []core.GitConsoleLine{{Stream: "stdout", Text: "clean"}}, State: core.GitConsoleCompleted, Exited: true}
+	v.snapshot.Records = []core.GitConsoleRecord{before, record}
+	v.flatten(text, time.UTC)
+	if got := v.text.Selection.Text(src); got != "origin\nReceiving" {
+		t.Fatalf("after a record came before the selection is %q, want it on the same rows", got)
+	}
+
+	// Opening the progress fold changes a selected row, so the selection goes.
+	for _, r := range v.rows {
+		if r.toggle != "" && !r.inline {
+			v.open[r.fold] = true
+		}
+	}
+	v.flatten(text, time.UTC)
+	if v.text.Selection.Has(src) {
+		t.Fatalf("the selection %q stayed on rows that changed", v.text.Selection.Text(src))
 	}
 }

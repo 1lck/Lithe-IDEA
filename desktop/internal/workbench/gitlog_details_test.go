@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/1lck/Lithe-IDEA/desktop/internal/core"
+	"github.com/1lck/Lithe-IDEA/desktop/internal/textview"
 	"github.com/vivaui/viva/app"
 	"github.com/vivaui/viva/gfx"
 )
@@ -54,24 +55,28 @@ func TestLogCommitDetailsShowWholeAuthorLine(t *testing.T) {
 	}
 	mailbox := parts[2].text
 
-	// Every text of the details at the body size lies inside the pane's padding and none
-	// ends in an ellipsis; the texts are drawn on at least two lines. The email's lines
-	// join into the whole email and have no other part on them, and the other parts are
-	// drawn whole. The details pane starts after its splitter, is detailWidth wide and as
-	// tall as the splitter; the commit details lie below the splitter of the changed files,
-	// which this commit, changing none, leaves empty.
+	// Every text of the details lies inside the pane's padding and none ends in an
+	// ellipsis; the author line is drawn on at least two lines. The lines drawn, joined, are
+	// the subject and the whole author line, so nothing is cut; the email starts a line of
+	// its own, as it is wider than one. The details pane starts after its splitter, is
+	// detailWidth wide and as tall as the splitter; the commit details lie below the splitter
+	// of the changed files, which this commit, changing none, leaves empty.
 	split, files := h.logDetailsSplit(), h.logFilesSplit()
 	left, top, bottom := split.Right(), files.Bottom(), split.Bottom()
 	contentLeft, contentRight := left+logDetailPad, left+v.detailWidth-logDetailPad
 	const slack = 0.5
 	var drawn []app.Label
+	var joined strings.Builder
 	lines := map[float32]bool{}
+	emailStarts := false
 	for _, label := range h.driver.Snapshot().Labels {
-		if label.FontSize != h.app.theme.Metrics.FontSizeM || label.Bounds.X < left || label.Bounds.Y < top || label.Bounds.Y >= bottom {
+		if label.FontSize != logFontSize || label.Bounds.X < left || label.Bounds.Y < top || label.Bounds.Y >= bottom {
 			continue
 		}
 		drawn = append(drawn, label)
+		joined.WriteString(label.Value)
 		lines[label.Bounds.Y] = true
+		emailStarts = emailStarts || strings.HasPrefix(label.Value, mailbox[:12])
 		if strings.Contains(label.Value, "…") {
 			t.Errorf("%q is cut short", label.Value)
 		}
@@ -79,38 +84,72 @@ func TestLogCommitDetailsShowWholeAuthorLine(t *testing.T) {
 			t.Errorf("%q drawn at %+v, outside the details' %v..%v", label.Value, label.Bounds, contentLeft, contentRight)
 		}
 	}
-	if len(lines) < 2 {
-		t.Fatalf("the author line is drawn on %d lines, want at least two; drawn %+v", len(lines), drawn)
+	if len(lines) < 3 {
+		t.Fatalf("the subject and the author line are drawn on %d lines, want at least three; drawn %+v", len(lines), drawn)
 	}
-	// A label is a piece of the email when its text is part of the email and not another
-	// part's whole text, such as the hash.
-	isEmail := func(label app.Label) bool {
-		return label.Value != "" && strings.Contains(mailbox, label.Value) &&
-			!slices.ContainsFunc(parts, func(part logMetaPart) bool { return part.text != mailbox && part.text == label.Value })
+	var meta []string
+	for _, part := range parts {
+		meta = append(meta, part.text)
 	}
-	var joined strings.Builder
-	mailLines := map[float32]bool{}
-	for _, label := range drawn {
-		if isEmail(label) {
-			joined.WriteString(label.Value)
-			mailLines[label.Bounds.Y] = true
-		}
+	if want := "long author" + strings.Join(meta, " "); joined.String() != want {
+		t.Errorf("the details' lines are %q, want the whole %q", joined.String(), want)
 	}
-	if joined.String() != mailbox {
-		t.Errorf("the email's lines are %q, want the whole %q; drawn %+v", joined.String(), mailbox, drawn)
+	if !emailStarts {
+		t.Errorf("the email does not start a line of its own; drawn %+v", drawn)
 	}
-	for _, label := range drawn {
-		if !isEmail(label) && mailLines[label.Bounds.Y] {
-			t.Errorf("%q shares a line with the email, which has its lines to itself; drawn %+v", label.Value, drawn)
-		}
+}
+
+// TestLogCommitDetailsSelectAndCopy checks that the commit details are text the user selects
+// and copies (#2073): a double click on the short hash selects it and Primary+C copies it, and
+// Primary+A selects the subject, the author line and the message together.
+func TestLogCommitDetailsSelectAndCopy(t *testing.T) {
+	h := newHarness(t, gitKernel{core.NewClient()})
+	dir := newTestRepository(t)
+	gitRun(t, dir, "commit", "--allow-empty", "-m", "fix: copy the details\n\nfirst body line\nsecond body line")
+	head := gitRun(t, dir, "rev-parse", "HEAD")
+	h.app.delays = logDelays{}
+	h.open(dir)
+	h.app.reduceChrome(core.SetChromeOpen(itemGit, true))
+	h.settleChain()
+	p := h.app.project
+	if p == nil || !p.git.isRepository() {
+		t.Fatalf("the project is not a loaded repository: %+v", p)
 	}
-	for i, part := range parts {
-		if i == 2 {
-			continue
-		}
-		if !slices.ContainsFunc(drawn, func(label app.Label) bool { return label.Value == part.text }) {
-			t.Errorf("%q is not drawn whole; drawn %+v", part.text, drawn)
-		}
+	v := &h.app.logView
+	v.filesSplit.Pos = logFilesMin
+	h.app.layout.bottom = 10000
+	h.app.layout.gitTab = gitTabLog
+	h.settle()
+	if !p.log.started {
+		h.click(center(h.button(itemGit)))
+		h.settle()
+	}
+	h.app.selectCommit(p, head)
+	h.settle()
+	h.settle()
+	if p.log.detail == nil {
+		t.Fatalf("no details of %q: files %v", head, p.log.filesState)
+	}
+	hash := p.log.detail.Commit.ShortHash
+	at, ok := v.detailText.PointOf(textview.Point{Line: 1, Byte: 1})
+	if !ok {
+		t.Fatal("the author line is not on screen")
+	}
+	if err := h.driver.DoubleClick(at.X, at.Y); err != nil {
+		t.Fatal(err)
+	}
+	h.settle()
+	if got := h.copyShortcut(); got != hash {
+		t.Fatalf("a double click on the hash copied %q, want %q", got, hash)
+	}
+	if _, err := h.driver.ShortcutChord(primaryModifier(), 'a'); err != nil {
+		t.Fatal(err)
+	}
+	h.settle()
+	got := h.copyShortcut()
+	want := "fix: copy the details\n" + strings.Join(v.detailLines[1:2], "") + "\n\nfirst body line\nsecond body line"
+	if got != want || !strings.HasPrefix(v.detailLines[1], hash+" ") {
+		t.Fatalf("Primary+A then Primary+C copied %q, want %q", got, want)
 	}
 }
 

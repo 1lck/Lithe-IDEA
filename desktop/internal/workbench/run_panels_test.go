@@ -82,8 +82,8 @@ func TestRunConsoleDeclaresOnlyTheRowsOnScreen(t *testing.T) {
 		h.settle()
 	}
 	rows := 0
-	for _, hit := range h.driver.Snapshot().Hits {
-		if hit.Role == gfx.RoleOption {
+	for _, label := range h.driver.Snapshot().Labels {
+		if strings.HasPrefix(label.Value, "line ") {
 			rows++
 		}
 	}

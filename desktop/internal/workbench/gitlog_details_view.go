@@ -1,6 +1,7 @@
 package workbench
 
 import (
+	"math"
 	"path"
 	"slices"
 	"strings"
@@ -9,7 +10,9 @@ import (
 	"github.com/1lck/Lithe-IDEA/desktop/internal/fileicons"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/i18n"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/icons"
+	"github.com/1lck/Lithe-IDEA/desktop/internal/textview"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/treelist"
+	"github.com/vivaui/viva/app"
 	"github.com/vivaui/viva/gfx"
 	"github.com/vivaui/viva/ui"
 )
@@ -387,8 +390,7 @@ func (a *App) drawLogCommitDetail(c ui.C, p *project) ui.Box {
 			}
 		}
 		ui.Scroll(c).Scrollbars().Grow(1).Pad(logDetailPad).Gap(8).Children(func() {
-			ui.Wrap(c, d.Commit.Subject).Mono().Bold().FontSize(logFontSize).FillWidth()
-			a.drawLogMeta(c, d)
+			a.drawLogDetailText(c, d)
 			if chips := slices.DeleteFunc(slices.Clone(labels), func(x core.GraphLabel) bool { return x.Kind == "head" }); len(chips) > 0 {
 				ui.Flow(c).FillWidth().Gap(logRefChipGap).Children(func() {
 					for _, label := range chips {
@@ -396,36 +398,90 @@ func (a *App) drawLogCommitDetail(c ui.C, p *project) ui.Box {
 					}
 				})
 			}
-			if body := strings.TrimSpace(d.Body); body != "" {
-				ui.Wrap(c, body).FontSize(logMetaSize)
-			}
 		})
 	})
 }
 
-// drawLogMeta declares the author line of commit d's details: the short hash, the author,
-// the email and the date. None of them is cut short. The parts are a Flow, so they wrap onto
-// more lines when the details are narrow, a part that fits a line is drawn whole on one, and
-// a part wider than a line, such as a long email, has one to itself and wraps inside it as a
-// ui Wrap does.
-func (a *App) drawLogMeta(c ui.C, d *core.GitCommitDetail) {
+// drawLogDetailText declares the text of commit d's details as read-only text the user
+// selects and copies, as IntelliJ IDEA's commit details are: the subject in bold, the author
+// line, then the message after an empty line. The author line is the short hash, the author,
+// the email and the date, each in its color. Nothing is cut short: a line wider than the
+// details wraps, at a space where it can, so a long email breaks inside itself only when it
+// is wider than a line.
+func (a *App) drawLogDetailText(c ui.C, d *core.GitCommitDetail) {
 	v := &a.logView
+	if v.detailHash != d.Commit.Hash {
+		v.detailHash = d.Commit.Hash
+		v.detailText.Selection.Clear()
+	}
 	muted := a.theme.MutedForeground
 	parts := append(v.metaParts[:0],
-		logMetaPart{text: d.Commit.ShortHash, mono: true, color: muted},
+		logMetaPart{text: d.Commit.ShortHash, color: muted},
 		logMetaPart{text: d.Commit.AuthorName, color: a.theme.Foreground})
 	if d.Commit.AuthorEmail != "" {
 		parts = append(parts, logMetaPart{text: "<" + d.Commit.AuthorEmail + ">", color: a.colors.Accent})
 	}
 	parts = append(parts, logMetaPart{text: a.text.Git.On(v.date(d.Commit)), color: muted})
-	v.metaParts = parts
-	ui.Flow(c).FillWidth().Items(ui.Center).Gap(logAuthorGap).LineGap(logAuthorLineGap).Children(func() {
-		for _, part := range parts {
-			text := ui.Wrap(c, part.text).Color(part.color)
-			if part.mono {
-				text.Mono()
-			}
+	var meta strings.Builder
+	for i := range parts {
+		if i > 0 {
+			meta.WriteByte(' ')
 		}
+		parts[i].from = meta.Len()
+		meta.WriteString(parts[i].text)
+		parts[i].to = meta.Len()
+	}
+	v.metaParts = parts
+	lines := append(v.detailLines[:0], d.Commit.Subject, meta.String())
+	if body := strings.TrimSpace(d.Body); body != "" {
+		lines = append(lines, "")
+		for line := range strings.SplitSeq(body, "\n") {
+			lines = append(lines, strings.TrimSuffix(line, "\r"))
+		}
+	}
+	v.detailLines = lines
+	style := gfx.TextStyle{Size: logFontSize, Mono: true, Color: a.theme.Foreground}
+	_, cellH := c.Canvas().MonoCellSize(style.Size, style.MonoFace)
+	lang := a.language()
+	v.detailText.Declare(c.Key("details"), textview.Spec{
+		Label:      i18n.Shared(lang, "git.log.commitDetails"),
+		Source:     lines,
+		Font:       style,
+		LineHeight: float32(math.Round(float64(cellH * 1.4))),
+		Selection:  a.terminalLook().Selection,
+		Wrap:       true,
+		Spans: func(n int, text string, dst []textview.Span) []textview.Span {
+			switch n {
+			case 0:
+				return append(dst, textview.Span{From: 0, To: len(text), Color: style.Color, Bold: true})
+			case 1:
+				for _, part := range v.metaParts {
+					dst = append(dst, textview.Span{From: part.from, To: part.to, Color: part.color})
+				}
+			}
+			return dst
+		},
+		Copy: func(text string) {
+			a.performed("git.log.copyDetails", surfaceShortcut)
+			_ = app.SetClipboardText(text)
+		},
+		Menu: func(menu *ui.MenuItems) {
+			menu.WidthRange(180, 260)
+			view := &v.detailText
+			text, has := view.Text(), view.Has()
+			if menu.Item(i18n.Shared(lang, "menu.copy")).Disabled(!has).Clicked() {
+				c.After(func() {
+					a.performed("git.log.copyDetails", surfaceContextMenu)
+					_ = app.SetClipboardText(text)
+				})
+			}
+			if menu.Item(i18n.Shared(lang, "menu.selectAll")).Clicked() {
+				c.After(func() {
+					a.performed("git.log.selectDetails", surfaceContextMenu)
+					view.SelectAll()
+				})
+			}
+		},
 	})
 }
 
