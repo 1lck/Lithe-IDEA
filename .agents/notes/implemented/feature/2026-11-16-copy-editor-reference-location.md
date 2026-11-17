@@ -16,6 +16,8 @@ Viva 编辑器的右键菜单提供复制源码位置，默认把所点行复制
 - 桌面端只捕获右键坐标、管理请求生命周期并写入系统剪贴板；格式规则属于 Rust Core 的 `editor.copyReferenceLocation`。
 - Core 只消费上游提供的符号名称、类型、作用域及方法签名，没有可靠信息就按 `文件路径#L行号` 回退。用户看到的一基行号由 Core 统一处理。
 - 旧文档或项目、关闭的标签、后续编辑以及新一次复制都不能接收过期操作。插件会话失败与缺少符号不阻断文件路径回退。
+- 等语言服务器的文档符号最多 3 秒（`referenceSymbolsTimeout`）。提交请求有 `semanticStartTimeout`，但回答没有期限；正在索引或卡住的服务器会让菜单项点了没有结果。超时后取消请求、记录日志，按没有服务器时的规则复制 `文件路径#L行号`。
+- 右键坐标只属于它打开的那一次菜单：选中“复制源码位置”时使用；菜单没选这一项就关闭（Esc、点别处、选其他项）时丢弃。之后用 Shift+F10 打开的菜单读取光标位置，不会复制很久以前右键的行。
 - 菜单复用现有共享 i18n 的“复制源码位置”（`native.copySourceLocation`），而不是在桌面端增加无法生成的硬编码界面文案。
 
 ## 考虑过的备选方案
@@ -31,7 +33,7 @@ Viva 编辑器的右键菜单提供复制源码位置，默认把所点行复制
 ## 验证
 
 - Core: `cargo test -p lithe-editor`；`cargo test -p lithe-core copy_reference_location`。
-- Viva: `scripts/desktop/desktop-go.sh test ./internal/workbench -run 'TestCopyReferenceLocation|TestEditorContextMenuCopiesReference' -count=1`。
+- Viva: `scripts/desktop/desktop-go.sh test ./internal/workbench -run 'TestCopyReferenceLocation|TestEditorContextMenuCopiesReference|TestEditorContextMenuForgetsPress' -count=1`，其中包括服务器不回答时超时回退，以及右键菜单关闭后改用光标位置。
 - 视觉: `LITHE_VISUAL_OUTPUT_DIR=.artifacts/issue-2015 scripts/desktop/desktop-go.sh test -tags 'vivahead lithevisual' ./internal/workbench -run '^TestVisualCopyReferenceLocation$' -count=1`。
 - 两个平台原生集成与粘贴结果仍需实际执行，不能以静态源代码检查替代。
 

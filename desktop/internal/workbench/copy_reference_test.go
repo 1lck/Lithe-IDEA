@@ -6,8 +6,10 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/1lck/Lithe-IDEA/desktop/internal/core"
+	"github.com/vivaui/viva/gfx"
 )
 
 func TestCopyReferenceLocationWithoutServerCopiesFileLine(t *testing.T) {
@@ -101,5 +103,69 @@ func TestEditorContextMenuCopiesReferenceAtSecondaryPress(t *testing.T) {
 	h.clickNamed(h.shared("native.copySourceLocation"))
 	h.await("right-click location copied", func() bool {
 		return h.driver.Clipboard() == path+"#L"+strconv.Itoa(line+1)
+	})
+}
+
+// A language server that never answers does not hold the copy back: once the wait for its
+// symbols runs out, the request is cancelled and the file and line are copied, as without a
+// server.
+func TestCopyReferenceLocationFallsBackWhenSymbolsNeverArrive(t *testing.T) {
+	f := newSemanticFixture(t)
+	f.server.features = map[string]bool{featureDocumentSymbols: true}
+	f.h.app.editor.copyReference.symbolsWait = time.Millisecond
+	f.d.view.SetSelection(0, 0)
+	f.h.app.copyReferenceLocation(f.p, f.d)
+	f.h.await("file and line copied without symbols", func() bool {
+		return f.h.driver.Clipboard() == f.d.path+"#L1"
+	})
+	if f.h.app.editor.copyReference.request != nil {
+		t.Fatal("the reference request stays after its fallback was copied")
+	}
+	if len(f.h.app.semantics.pending) != 0 {
+		t.Fatalf("the unanswered symbols request stays pending: %+v", f.h.app.semantics.pending)
+	}
+}
+
+// A secondary press belongs to the menu it opens. Once that menu closes without a choice, a
+// menu opened from the keyboard copies the caret's line, not the old pointer position.
+func TestEditorContextMenuForgetsPressAfterItCloses(t *testing.T) {
+	h := newHarness(t, &testKernel{Client: core.NewClient()})
+	root := t.TempDir()
+	h.open(root)
+	path := filepath.Join(root, "reference.txt")
+	if err := os.WriteFile(path, []byte("one\ntwo\nthree\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	p := h.app.project
+	h.app.openFile(p, path)
+	h.settleChain()
+	d := p.docs.byPath(path)
+	if d == nil {
+		t.Fatal("document missing")
+	}
+	bounds := h.topHit(d.hit)
+	at := center(bounds)
+	line, _, ok := d.view.PositionAt(at.X, at.Y)
+	if !ok || line == 0 {
+		t.Fatalf("the press lands on line %d (painted %v); want a line after the first", line, ok)
+	}
+	h.rightClickAt(bounds)
+	if err := h.driver.Key(gfx.KeyEscape, 0); err != nil {
+		t.Fatal(err)
+	}
+	h.settle()
+	if h.shows(h.shared("native.copySourceLocation")) {
+		t.Fatal("Escape left the editor menu open")
+	}
+	d.view.SetSelection(0, 0)
+	h.app.focusDocument(d.id)
+	h.settle()
+	if err := h.driver.Key(gfx.KeyF10, gfx.ModifierShift); err != nil {
+		t.Fatal(err)
+	}
+	h.settle()
+	h.clickNamed(h.shared("native.copySourceLocation"))
+	h.await("caret line copied", func() bool {
+		return h.driver.Clipboard() == path+"#L1"
 	})
 }

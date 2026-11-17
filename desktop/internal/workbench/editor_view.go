@@ -180,7 +180,12 @@ func (a *App) documentView(c ui.C, group string, d *document) {
 		a.linkSync(c, p, d)
 	}
 	if p := a.project; p != nil && !d.virtual {
-		ui.ContextMenu(c.Key("menu"+name), box, a.editorMenuItems(c, p, d))
+		items, shown := a.editorMenuItems(c, p, d), false
+		ui.ContextMenu(c.Key("menu"+name), box, func(menu *ui.MenuItems) {
+			shown = true
+			items(menu)
+		})
+		a.referenceMenuPainted(d, shown)
 		at := d.actionPanel.menuAt
 		ui.ContextMenuAt(c.Key("lanemenu"+name), box, &d.actionPanel.menuOpen, gfx.Point{X: at.X, Y: at.Y + at.Height}, a.editorActionLaneMenu(c, p, d))
 		a.gitGutterPeek(c, p, d, box)
