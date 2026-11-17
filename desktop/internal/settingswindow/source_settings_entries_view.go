@@ -118,8 +118,10 @@ func (w *window) sourceEntryRow(c ui.C, p *sourceSettingsForm, source core.Setti
 	}
 	row.Children(func() {
 		ui.Icon(c, icon).Size(14, 14).Color(w.pal.muted)
-		ui.Text(c, label).FontSize(12).Color(w.pal.text).Shrink(1).MinWidth(0).Ellipsis()
-		ui.Text(c, entry.Detail).FontSize(11).Color(w.pal.muted).Grow(1).Shrink(1000).MinWidth(0).Ellipsis()
+		// The title keeps its width up to most of the row; the detail takes
+		// what is left and is cut first.
+		ui.Text(c, label).FontSize(12).Color(w.pal.text).Shrink(0).MaxWidthPercent(60).Ellipsis()
+		ui.Text(c, entry.Detail).FontSize(11).Color(w.pal.muted).Grow(1).Shrink(1).MinWidth(0).Ellipsis()
 		for column, attribute := range field.Attributes {
 			k := c.Key(attribute.ID)
 			title := attribute.Title + " " + label
