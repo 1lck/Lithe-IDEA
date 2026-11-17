@@ -122,11 +122,29 @@ func TestGitStatusOperationResultInvalidatesPendingRead(t *testing.T) {
 	assertGitOrder(t, p, "operation", 3)
 }
 
+// gitDiscoveryGate is gitStatusGate with a kernel that lists the workspace's repositories, so the
+// nested repository read a published status starts can be seen.
+type gitDiscoveryGate struct{ *gitStatusGate }
+
+func (gitDiscoveryGate) DiscoverWorkspaceRepositories(context.Context, string) ([]core.WorkspaceRepository, error) {
+	return nil, nil
+}
+func (gitDiscoveryGate) SelectWorkspaceRepository(context.Context, []core.WorkspaceRepository, string) (core.WorkspaceRepositorySelection, error) {
+	return core.WorkspaceRepositorySelection{}, nil
+}
+func (gitDiscoveryGate) GroupWorkspaceChanges(context.Context, []core.WorkspaceRepositoryChanges) (core.WorkspaceChangeGroups, error) {
+	return core.WorkspaceChangeGroups{}, nil
+}
+
 func TestGitStatusBranchAndSyncInvalidatePendingRead(t *testing.T) {
 	for _, operation := range []string{"branch", "sync"} {
 		t.Run(operation, func(t *testing.T) {
 			h, k := gitOrderHarness(t)
+			h.app.kernel = gitDiscoveryGate{k}
 			p := h.app.project
+			// A branch write publishes its status only for a project already known to be a repository.
+			h.app.setGit(p, gitState{loaded: true, status: gitOrderStatus(p, "last-known", 2)}, p.gitStatusGeneration.Add(1))
+			h.settle()
 			h.app.loadGit(p)
 			older := k.next(t)
 			if operation == "branch" {
@@ -137,8 +155,14 @@ func TestGitStatusBranchAndSyncInvalidatePendingRead(t *testing.T) {
 					func(context.Context, Kernel, string) (func(*App), error) { return nil, nil })
 			}
 			afterWrite := k.next(t)
+			readings := p.nested.gen
 			afterWrite <- gitStatusAnswer{status: gitOrderStatus(p, "operation", 3)}
 			h.await("operation status", func() bool { return p.git.branch() == "operation" })
+			// The dropped read would have refreshed the markers, the nested repositories and the
+			// operation state; the status that superseded it does instead.
+			if p.nested.gen == readings {
+				t.Fatal("the operation's status did not read the nested repositories again")
+			}
 			older <- gitStatusAnswer{status: gitOrderStatus(p, "old", 1)}
 			h.settle()
 			assertGitOrder(t, p, "operation", 3)

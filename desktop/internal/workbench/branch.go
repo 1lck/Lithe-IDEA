@@ -233,7 +233,9 @@ func (a *App) runBranchWrite(p *project, operation string, failed func(reason st
 			// The project's status describes its own repository only; a nested one's branch is read
 			// again with the repositories of the folder.
 			if p.git.isRepository() && root == p.git.repositoryRoot(p.root) {
-				a.setGit(p, gitState{loaded: true, status: status}, generation)
+				if a.setGit(p, gitState{loaded: true, status: status}, generation) {
+					a.gitStatusPublished(p)
+				}
 			} else {
 				a.loadNestedRepos(p)
 			}

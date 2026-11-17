@@ -16,6 +16,8 @@
 
 发起 `loadGit` 时取号；分支和同步先执行写操作，再在后台真正开始读取状态前取号。跨线程取号使用原子计数，状态发布仍仅在窗口线程进行。所有发布入口通过 `setGit` 检查编号；它不得在发布时重新取号，否则会误丢操作期间已经发起的新读取。嵌套仓库的分支读取不发布当前项目状态，也不占用当前项目的编号。过期失败仅进入后台诊断，不再改变当前界面；主动取消沿用日志豁免。
 
+状态读取之后的连带读取（编辑器差异标记、行内 blame、嵌套仓库、rebase 会话、进行中的 Git 操作）跟着发布走：`setGit` 返回 true 的入口都调用 `gitStatusPublished`。被分支或同步的读取取代的旧读取连同这些连带读取一起丢弃，所以分支和同步发布成功后必须自己补上，否则检出或拉取后标记和嵌套仓库要等下一次仓库变更才刷新。
+
 正确做法是分支写入后、读取前取号，再带着同一编号调用 `setGit`。不要直接赋值 `p.git`，也不要在读取完成后才取号，否则完成顺序会冒充观察顺序。关闭或重新打开项目仍由现有项目对象身份隔离，不复用已关闭对象。
 
 ## 考虑过的备选方案
@@ -30,7 +32,7 @@
 
 ## 验证
 
-`desktop/internal/workbench/git_order_test.go` 使用真实 Viva Driver 和 Core reducer，仅控制 Git 状态读取的完成顺序，覆盖逆序成功、过期失败、最新失败、分支与同步两种方向的交错完成、嵌套仓库隔离、操作后读取失败的既有终态、关闭重开。视觉用例 `desktop/internal/workbench/git_order_visual_test.go` 在明暗主题和中英文下渲染最新分支及计数。
+`desktop/internal/workbench/git_order_test.go` 使用真实 Viva Driver 和 Core reducer，仅控制 Git 状态读取的完成顺序，覆盖逆序成功、过期失败、最新失败、分支与同步两种方向的交错完成及取代旧读取后补上连带读取、嵌套仓库隔离、操作后读取失败的既有终态、关闭重开。视觉用例 `desktop/internal/workbench/git_order_visual_test.go` 在明暗主题和中英文下渲染最新分支及计数。
 
 运行 `scripts/desktop/desktop-go.sh test ./internal/workbench -run '^TestGitStatus'`；视觉检查使用同一入口添加 `-tags 'vivahead lithevisual' -run '^TestVisualGitStatusRequestOrder$'` 并设置 `LITHE_VISUAL_OUTPUT_DIR`。目标平台原生操作验证独立于无头测试，不能用 Linux 结果标记 macOS 或 Windows 已验收。
 

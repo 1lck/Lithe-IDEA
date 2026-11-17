@@ -54,15 +54,21 @@ func (a *App) readGit(p *project, policy func(context.Context) context.Context) 
 				a.notifyError(a.text.Git.Failed(err.Error()))
 				return
 			}
-			// The markers and the inline blame describe the file against the index and
-			// HEAD, so a new status can change both.
-			a.refreshGitGutters(p)
-			a.refreshInlineBlames(p)
-			a.loadNestedRepos(p)
-			a.loadRebaseSession(p)
-			a.loadGitOperation(p)
+			a.gitStatusPublished(p)
 		}
 	})
+}
+
+// gitStatusPublished reads again what a new status of p can change. Whoever publishes the status
+// runs it: a read the status of a branch write or a sync superseded is dropped with these reads.
+func (a *App) gitStatusPublished(p *project) {
+	// The markers and the inline blame describe the file against the index and HEAD, so a new
+	// status can change both.
+	a.refreshGitGutters(p)
+	a.refreshInlineBlames(p)
+	a.loadNestedRepos(p)
+	a.loadRebaseSession(p)
+	a.loadGitOperation(p)
 }
 
 // isRepository reports that the kernel answered and found a repository around the project.

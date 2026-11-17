@@ -162,8 +162,8 @@ func (a *App) runSyncAt(p *project, root, operation, label string, failed func(r
 			s := &p.log.sync
 			s.busy, s.cancel, s.relay, s.hasProgress = false, nil, nil, false
 			cancel()
-			if statusErr == nil {
-				a.setGit(p, gitState{loaded: true, status: status}, generation)
+			if statusErr == nil && a.setGit(p, gitState{loaded: true, status: status}, generation) {
+				a.gitStatusPublished(p)
 			}
 			if p.log.started {
 				a.loadLog(p)
