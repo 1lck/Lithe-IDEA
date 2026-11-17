@@ -37,7 +37,7 @@ func (s *nativeFormFixture) SaveSources(ctx context.Context, _ pluginservice.Set
 	s.saves <- edits
 	return editor, s.failure
 }
-func nativeFormSource(t *testing.T) *nativeFormFixture {
+func nativeFormSource(t *testing.T, adjust ...func(*core.SourceSettingsSnapshot)) *nativeFormFixture {
 	t.Helper()
 	manifest, err := os.ReadFile(contractfixture.Path("fixtures/settings/source-editor.plugin.json"))
 	if err != nil {
@@ -62,6 +62,9 @@ func nativeFormSource(t *testing.T) *nativeFormFixture {
 		t.Fatal(err)
 	}
 	fixture.Snapshot.Sources[1].Revision = fmt.Sprintf("sha256:%x", sha256.Sum256(contents))
+	for _, fn := range adjust {
+		fn(&fixture.Snapshot)
+	}
 	raw, err := json.Marshal(fixture.Snapshot)
 	if err != nil {
 		t.Fatal(err)
@@ -159,5 +162,37 @@ func TestNativeCompilerPageRequiresAnExplicitRead(t *testing.T) {
 	d.until("native compiler form", func() bool { return w.pluginSettings.sources != nil })
 	if source.reads.Load() != 1 {
 		t.Fatal("the explicit read did not query exactly once")
+	}
+}
+
+// A source the plugin projects read-only shows every item of a list, one per line, and
+// offers no Reset: an ellipsized single line hid all but the first item.
+func TestNativeSettingsFormShowsReadOnlyListsInFull(t *testing.T) {
+	items := []string{"web/lib/*.jar", "Server Runtime — 2 JARs", "Global Utils — IDE library"}
+	source := nativeFormSource(t, func(snapshot *core.SourceSettingsSnapshot) {
+		snapshot.Sources[0].Writable = false
+		for index := range snapshot.Sources[0].Fields {
+			if field := &snapshot.Sources[0].Fields[index]; field.ID == "files" {
+				value, _ := json.Marshal(items)
+				field.Value, field.EffectiveValue = value, value
+			}
+		}
+	})
+	w := nativeFormWindow(t, source, i18n.English, "light")
+	d := openWindow(t, w, func(config *app.Config) { config.Height = 1100 })
+	openNativeForm(t, w, d)
+	d.pump()
+	for _, item := range items {
+		if !d.text(item) {
+			t.Fatalf("read-only list item %q is not shown", item)
+		}
+	}
+	if hit := d.hit("Referenced files"); !hit.ReadOnly {
+		t.Fatalf("the read-only list accepts input: %+v", hit)
+	}
+	for _, action := range []string{"desktop.pluginSettings.reset", "desktop.pluginSettings.browse"} {
+		if d.has(i18n.Shared(i18n.English, action)) {
+			t.Fatalf("a read-only source offers %s", action)
+		}
 	}
 }
