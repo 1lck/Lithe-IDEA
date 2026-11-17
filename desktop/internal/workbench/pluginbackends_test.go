@@ -2,14 +2,22 @@ package workbench
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
+	"os"
+	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
+	"time"
 
 	"github.com/1lck/Lithe-IDEA/desktop/internal/buildprovider"
+	"github.com/1lck/Lithe-IDEA/desktop/internal/contractfixture"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/core"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/pluginbackend"
+	"github.com/1lck/Lithe-IDEA/desktop/internal/pluginpkg"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/pluginservice"
+	"github.com/1lck/Lithe-IDEA/desktop/internal/store"
 	"github.com/vivaui/viva/ui"
 )
 
@@ -169,5 +177,107 @@ func TestRetryFailedLSPServerClearsFailureState(t *testing.T) {
 	h.app.retryFailedLSPServer("java")
 	if len(h.app.pluginServerFailed) != 0 || len(h.app.pluginServerNotifiedErrors) != 0 {
 		t.Fatalf("retryFailedLSPServer did not clear failure state: failed=%v notified=%v", h.app.pluginServerFailed, h.app.pluginServerNotifiedErrors)
+	}
+}
+
+type failingLSPPlanKernel struct {
+	*testKernel
+	mu  sync.Mutex
+	msg string
+}
+
+func (k *failingLSPPlanKernel) PlanPluginLanguageServer(context.Context, json.RawMessage, string, core.PluginBackendDirectories) (core.PluginBackendPlan, error) {
+	k.mu.Lock()
+	msg := k.msg
+	k.mu.Unlock()
+	return core.PluginBackendPlan{}, errors.New(msg)
+}
+
+func TestRetryFailedPluginServersPreservesNotifiedErrorDeduplication(t *testing.T) {
+	kernel := &failingLSPPlanKernel{testKernel: &testKernel{Client: core.NewClient()}, msg: "missing jdtls"}
+	h := newHarness(t, kernel)
+	preferences, plugins := t.TempDir(), t.TempDir()
+	raw, err := os.ReadFile(contractfixture.CoreFixture("plugins/settings-documents.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var fixture struct {
+		Manifest json.RawMessage `json:"manifest"`
+	}
+	if err := json.Unmarshal(raw, &fixture); err != nil {
+		t.Fatal(err)
+	}
+	dir := filepath.Join(plugins, "dev.example.settings", "1.0.0")
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, pluginpkg.ManifestFile), fixture.Manifest, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	service, err := pluginservice.Open(kernel, store.At(preferences), plugins)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := service.Manager.SetEnabled("dev.example.settings", true); err != nil {
+		t.Fatal(err)
+	}
+	h.app.plugins = service
+	h.open(t.TempDir())
+
+	h.app.startPluginServer("fixture")
+	awaitStateWithin(t, h, 5*time.Second, "initial lsp failure", func() bool {
+		h.app.pluginServerMu.Lock()
+		defer h.app.pluginServerMu.Unlock()
+		return !h.app.pluginServerStarting["fixture"] && h.app.pluginServerFailed["fixture"] != nil
+	})
+	if len(h.app.notifications.list) != 1 {
+		t.Fatalf("initial notifications = %d, want 1", len(h.app.notifications.list))
+	}
+
+	// Retrying after a toolchain save must not spam the exact same error toast again.
+	h.app.retryFailedPluginServers()
+	awaitStateWithin(t, h, 5*time.Second, "retried lsp failure", func() bool {
+		h.app.pluginServerMu.Lock()
+		defer h.app.pluginServerMu.Unlock()
+		return !h.app.pluginServerStarting["fixture"] && h.app.pluginServerFailed["fixture"] != nil
+	})
+	if len(h.app.notifications.list) != 1 || h.app.notifications.list[0].count != 1 {
+		t.Fatalf("notifications after identical retry failure = %+v, want 1 with count=1 (deduplicated)", h.app.notifications.list)
+	}
+
+	// A new failure message after changing toolchains must still notify the user.
+	kernel.mu.Lock()
+	kernel.msg = "bad jdk version"
+	kernel.mu.Unlock()
+	h.app.retryFailedPluginServers()
+	awaitStateWithin(t, h, 5*time.Second, "updated lsp failure", func() bool {
+		h.app.pluginServerMu.Lock()
+		defer h.app.pluginServerMu.Unlock()
+		failed := h.app.pluginServerFailed["fixture"]
+		return !h.app.pluginServerStarting["fixture"] && failed != nil && strings.Contains(failed.message, "bad jdk version")
+	})
+	if len(h.app.notifications.list) != 2 {
+		t.Fatalf("notifications after new failure = %d, want 2: %+v", len(h.app.notifications.list), h.app.notifications.list)
+	}
+}
+
+func TestWaitReadyPluginServerWrapsErrNoSession(t *testing.T) {
+	h := newHarness(t, &testKernel{Client: core.NewClient()})
+	h.open(t.TempDir())
+	p := h.app.project
+	h.app.pluginServerMu.Lock()
+	h.app.pluginServerFailed = map[string]*failedPluginServer{
+		"java": {pluginID: "dev.lithe.test.lsp", languageID: "java", project: p, message: "missing jdtls"},
+	}
+	h.app.pluginServerMu.Unlock()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	_, err := h.app.waitReadyPluginServer(ctx, p, "dev.lithe.test.lsp", "java")
+	if !errors.Is(err, pluginbackend.ErrNoSession) {
+		t.Fatalf("waitReadyPluginServer err = %v, want errors.Is(_, pluginbackend.ErrNoSession)", err)
+	}
+	if err == nil || !strings.Contains(err.Error(), "missing jdtls") {
+		t.Fatalf("waitReadyPluginServer err = %v, want recorded detail %q", err, "missing jdtls")
 	}
 }

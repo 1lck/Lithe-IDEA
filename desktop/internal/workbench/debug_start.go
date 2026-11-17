@@ -18,6 +18,7 @@ import (
 	"github.com/1lck/Lithe-IDEA/desktop/internal/buildprocess"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/core"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/i18n"
+	"github.com/1lck/Lithe-IDEA/desktop/internal/pluginbackend"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/pluginhost"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/pluginpkg"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/pluginservice"
@@ -895,6 +896,7 @@ func (a *App) waitReadyPluginServer(ctx context.Context, p *project, pluginID, l
 		a.pluginServerMu.Lock()
 		server := a.pluginServers[pluginID]
 		starting := a.pluginServerStarting[languageID]
+		failed := a.pluginServerFailed[languageID]
 		a.pluginServerMu.Unlock()
 		switch {
 		case server != nil && server.project == p && server.isReady():
@@ -902,7 +904,15 @@ func (a *App) waitReadyPluginServer(ctx context.Context, p *project, pluginID, l
 		case server == nil && !starting:
 			idle++
 			if idle >= 3 {
-				return nil, fmt.Errorf("the %s language server of %s is not running", languageID, pluginID)
+				detail := ""
+				if failed != nil && failed.project == p {
+					detail = failed.message
+				}
+				return nil, &pluginbackend.SessionUnavailableError{
+					PluginID:   pluginID,
+					LanguageID: languageID,
+					Detail:     detail,
+				}
 			}
 		default:
 			idle = 0

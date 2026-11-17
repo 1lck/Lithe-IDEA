@@ -13,6 +13,8 @@ import (
 	"github.com/1lck/Lithe-IDEA/desktop/internal/core"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/i18n"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/marketplace"
+	"github.com/1lck/Lithe-IDEA/desktop/internal/pluginbackend"
+	"github.com/1lck/Lithe-IDEA/desktop/internal/pluginservice"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/pluginsettings"
 	"github.com/vivaui/viva/headless"
 )
@@ -153,6 +155,86 @@ func TestVisualPluginSettingsPage(t *testing.T) {
 			})
 			d.pump()
 			if err := session.Screenshot(filepath.Join(out, "plugin-settings-page-"+look.theme+".png")); err != nil {
+				t.Fatal(err)
+			}
+		})
+	}
+}
+
+type visualUnavailableActionSource struct {
+	settingsFormSource
+	err error
+}
+
+func (s visualUnavailableActionSource) Action(context.Context, pluginservice.SettingsEditor, string, bool) (pluginservice.SettingsActionResult, error) {
+	return pluginservice.SettingsActionResult{}, s.err
+}
+
+func TestVisualPluginSettingsUnavailableAction(t *testing.T) {
+	out := os.Getenv("LITHE_VISUAL_OUTPUT_DIR")
+	if out == "" {
+		t.Skip("set LITHE_VISUAL_OUTPUT_DIR to capture the unavailable plugin settings action")
+	}
+	if err := os.MkdirAll(out, 0755); err != nil {
+		t.Fatal(err)
+	}
+	data, err := os.ReadFile(contractfixture.CoreFixture("plugins/settings-documents.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var fixture struct {
+		Manifest map[string]any `json:"manifest"`
+	}
+	if err := json.Unmarshal(data, &fixture); err != nil {
+		t.Fatal(err)
+	}
+	fixture.Manifest["settings"] = []any{map[string]any{"id": "languageServerFolder", "type": "directory", "title": "Language server folder", "default": "", "page": map[string]any{"languageID": "fixture"}, "effect": "restart"}}
+	fixture.Manifest["settingActions"] = []any{map[string]any{"id": "read", "title": "Read compiler settings", "function": "compiler.read", "page": map[string]any{"languageID": "fixture"}}}
+	manifest, err := json.Marshal(fixture.Manifest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	workspace := t.TempDir()
+	for _, look := range []struct {
+		theme    string
+		language i18n.Language
+	}{{"dark", i18n.Chinese}, {"light", i18n.English}} {
+		t.Run(look.theme, func(t *testing.T) {
+			source := visualUnavailableActionSource{
+				settingsFormSource: settingsFormSource{store: pluginsettings.New(core.NewClient(), t.TempDir()), manifest: manifest, workspace: workspace},
+				err:                &pluginbackend.SessionUnavailableError{PluginID: "dev.example.settings", LanguageID: "fixture", Detail: "resolve the fixture launch: executable not found"},
+			}
+			fetch := func(context.Context) (marketplace.Snapshot, error) {
+				return marketplace.Snapshot{Index: core.MarketplaceIndex{Plugins: []core.MarketplacePlugin{{ID: "dev.example.settings", Name: "Fixture Support", LatestVersion: "1.0.0"}}}}, nil
+			}
+			w := newWindow(NewController(Options{
+				Text: func() *i18n.Messages { return i18n.For(look.language) }, Language: func() i18n.Language { return look.language },
+				SystemLanguage: look.language, SystemDark: func() bool { return look.theme == "dark" },
+				Marketplace: fetch, MarketplaceInstalled: fetch, PluginSettings: source,
+				PluginState: func(string) PluginState { return PluginState{Installed: true, Enabled: true, Version: "1.0.0"} },
+				InstalledPlugins: func() []PluginFacts {
+					return []PluginFacts{{ID: "dev.example.settings", Name: "Fixture Support", Version: "1.0.0", Settings: 1}}
+				},
+				PluginRuntime: func(string) PluginRuntimeState {
+					return PluginRuntimeState{Failed: true, RestartRequired: true, Version: "1.0.0", Workspace: workspace}
+				},
+				RestartPlugin: func(string, string, string, string) {},
+			}), Values{Theme: look.theme, Language: look.language.Code()})
+			w.sess.page = pagePlugins
+			w.installed.tab = installedSettings
+			config := w.config()
+			config.Height = 760
+			session, err := headless.Open(config, nil, headless.Options{})
+			if err != nil {
+				t.Fatal(err)
+			}
+			t.Cleanup(session.Close)
+			d := &windowDriver{t: t, w: w, driver: session.Driver()}
+			d.until("the plugin form", func() bool { return w.pluginSettings.loaded })
+			d.click("Read compiler settings")
+			d.until("the action failure", func() bool { return w.pluginSettings.failed != nil && !w.pluginSettings.running })
+			d.pump()
+			if err := session.Screenshot(filepath.Join(out, "plugin-settings-unavailable-"+look.theme+".png")); err != nil {
 				t.Fatal(err)
 			}
 		})

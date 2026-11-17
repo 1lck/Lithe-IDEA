@@ -37,6 +37,7 @@ type PluginState struct {
 // PluginRuntimeState is a memory-only view of the current native session.
 type PluginRuntimeState struct {
 	Running         bool
+	Failed          bool
 	RestartRequired bool
 	Restarting      bool
 	Version         string

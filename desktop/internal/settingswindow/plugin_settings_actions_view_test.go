@@ -12,6 +12,7 @@ import (
 	"github.com/1lck/Lithe-IDEA/desktop/internal/core"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/i18n"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/marketplace"
+	"github.com/1lck/Lithe-IDEA/desktop/internal/pluginbackend"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/pluginservice"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/pluginsettings"
 	"github.com/vivaui/viva/app"
@@ -104,5 +105,74 @@ func TestSettingsActionButtonsConfirmDismissAndPreserveUnsavedInput(t *testing.T
 	}
 	if _, err := os.Stat(filepath.Join(preferences, "plugin-settings.json")); !errors.Is(err, os.ErrNotExist) {
 		t.Fatalf("action saved preferences: %v", err)
+	}
+}
+
+type unavailableActionSource struct {
+	settingsFormSource
+	err error
+}
+
+func (s unavailableActionSource) Action(context.Context, pluginservice.SettingsEditor, string, bool) (pluginservice.SettingsActionResult, error) {
+	return pluginservice.SettingsActionResult{}, s.err
+}
+
+func TestSettingsActionUnavailableShowsProviderReasonAndRestartForFailedServer(t *testing.T) {
+	data, err := os.ReadFile(contractfixture.CoreFixture("plugins/settings-documents.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var fixture struct{ Manifest map[string]any }
+	if err := json.Unmarshal(data, &fixture); err != nil {
+		t.Fatal(err)
+	}
+	fixture.Manifest["settings"] = []any{map[string]any{"id": "count", "type": "integer", "title": "Count", "default": 3, "minimum": 1, "maximum": 10}}
+	fixture.Manifest["settingActions"] = []any{map[string]any{"id": "read", "title": "Read compiler settings", "function": "compiler.read"}}
+	manifest, err := json.Marshal(fixture.Manifest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	workspace := t.TempDir()
+	source := unavailableActionSource{
+		settingsFormSource: settingsFormSource{store: pluginsettings.New(core.NewClient(), t.TempDir()), manifest: manifest, workspace: workspace},
+		err:                &pluginbackend.SessionUnavailableError{PluginID: "dev.example.settings", LanguageID: "java", Detail: "missing jdtls"},
+	}
+	fetch := func(context.Context) (marketplace.Snapshot, error) {
+		return marketplace.Snapshot{Index: core.MarketplaceIndex{Plugins: []core.MarketplacePlugin{{ID: "dev.example.settings", Name: "Settings", LatestVersion: "1.0.0"}}}}, nil
+	}
+	restartCalls := 0
+	w := newWindow(NewController(Options{
+		PluginSettings: source,
+		Marketplace:    fetch, MarketplaceInstalled: fetch,
+		PluginState: func(string) PluginState { return PluginState{Installed: true} },
+		InstalledPlugins: func() []PluginFacts {
+			return []PluginFacts{{ID: "dev.example.settings", Name: "Settings", Version: "1.0.0", Settings: 1}}
+		},
+		PluginRuntime: func(string) PluginRuntimeState {
+			return PluginRuntimeState{Failed: true, RestartRequired: true, Version: "1.0.0", Workspace: workspace}
+		},
+		RestartPlugin: func(string, string, string, string) { restartCalls++ },
+	}), Values{})
+	w.sess.page = pagePlugins
+	w.installed.tab = installedSettings
+	d := openWindow(t, w, func(config *app.Config) { config.Height = 1100 })
+	words := func(key string) string { return i18n.Shared(i18n.English, "desktop.pluginSettings."+key) }
+	d.until("the plugin form", func() bool { return w.pluginSettings.loaded })
+	d.click("Read compiler settings")
+	d.until("the action failure", func() bool { return w.pluginSettings.failed != nil && !w.pluginSettings.running })
+	d.pump()
+
+	if !d.textContaining("no running provider") {
+		t.Fatalf("missing provider-unavailable guidance, labels=%+v", d.driver.Snapshot().Labels)
+	}
+	if !d.textContaining("missing jdtls") {
+		t.Fatalf("missing recorded language-server startup detail, labels=%+v", d.driver.Snapshot().Labels)
+	}
+	if d.textContaining("Unable to read or save settings") {
+		t.Fatalf("still displayed misleading generic save failure %q", words("failed"))
+	}
+	d.click(words("restart"))
+	if restartCalls != 1 {
+		t.Fatalf("restart calls for failed server = %d, want 1", restartCalls)
 	}
 }
