@@ -180,7 +180,12 @@ func (a *App) documentView(c ui.C, group string, d *document) {
 		a.linkSync(c, p, d)
 	}
 	if p := a.project; p != nil && !d.virtual {
-		ui.ContextMenu(c.Key("menu"+name), box, a.editorMenuItems(c, p, d))
+		items, shown := a.editorMenuItems(c, p, d), false
+		ui.ContextMenu(c.Key("menu"+name), box, func(menu *ui.MenuItems) {
+			shown = true
+			items(menu)
+		})
+		a.referenceMenuPainted(d, shown)
 		at := d.actionPanel.menuAt
 		ui.ContextMenuAt(c.Key("lanemenu"+name), box, &d.actionPanel.menuOpen, gfx.Point{X: at.X, Y: at.Y + at.Height}, a.editorActionLaneMenu(c, p, d))
 		a.gitGutterPeek(c, p, d, box)
@@ -257,6 +262,11 @@ func (a *App) documentKey(p *project, d *document, event gfx.KeyEvent) gfx.Event
 // editor: the press on a text and the moves and the release of the selection it starts,
 // wherever they go.
 func (a *App) documentPointer(p *project, d *document, event gfx.PointerEvent) gfx.EventResult {
+	if event.Kind == gfx.PointerDown && event.Button == gfx.PointerButtonSecondary {
+		if line, column, ok := d.view.PositionAt(event.X, event.Y); ok {
+			a.editor.copyReference.click = &referenceClick{documentID: d.id, line: line, column: column}
+		}
+	}
 	// A semantic popup or request belongs to the caret and symbol it was opened at; any
 	// pointer work that moved either closes it before the frame paints.
 	defer a.pluginSemanticsCaretSync()
