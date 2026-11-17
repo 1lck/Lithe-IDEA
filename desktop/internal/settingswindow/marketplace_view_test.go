@@ -2,6 +2,7 @@ package settingswindow
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 	"testing"
@@ -369,4 +370,48 @@ func TestMarketplaceDividerDragResizeAndRestore(t *testing.T) {
 			})
 		}
 	}
+}
+
+func TestMarketplaceShowsFailureError(t *testing.T) {
+	t.Run("single source failure", func(t *testing.T) {
+		const reason = "dial tcp 192.0.2.1:443: i/o timeout"
+		w := newWindow(NewController(Options{
+			Marketplace: func(context.Context) (marketplace.Snapshot, error) {
+				return marketplace.Snapshot{}, errors.New(reason)
+			},
+		}), Values{})
+		w.sess.page = pagePlugins
+		w.pluginTab = pluginTabMarketplace
+		d := openWindow(t, w)
+		d.until("marketplace failure", func() bool { return w.market.status == marketFailed })
+		if !d.textContaining(i18n.Shared(i18n.English, "native.pluginMarketplaceIsNotAvailable")) {
+			t.Fatal("unavailable heading missing")
+		}
+		if !d.textContaining(reason) {
+			t.Fatalf("failure reason %q was hidden from the marketplace view", reason)
+		}
+	})
+
+	t.Run("partial aggregate failure", func(t *testing.T) {
+		const reason = "network is unreachable"
+		w := newWindow(NewController(Options{
+			Marketplace: func(context.Context) (marketplace.Snapshot, error) {
+				return marketplace.Snapshot{Index: core.MarketplaceIndex{Plugins: []core.MarketplacePlugin{{ID: "community", Name: "Community"}}}}, nil
+			},
+			MarketplaceOfficial: func(context.Context) (marketplace.Snapshot, error) {
+				return marketplace.Snapshot{}, errors.New(reason)
+			},
+		}), Values{})
+		w.sess.page = pagePlugins
+		w.pluginTab = pluginTabMarketplace
+		w.market.chooseSource(w.market.aggregateSource())
+		d := openWindow(t, w)
+		d.until("aggregate index", func() bool { return w.market.status == marketReady })
+		if !d.textContaining(i18n.Shared(i18n.English, "desktop.marketplace.officialSource")) {
+			t.Fatal("official source label missing from aggregate failure notice")
+		}
+		if !d.textContaining(reason) {
+			t.Fatalf("partial failure reason %q was hidden from the marketplace view", reason)
+		}
+	})
 }
