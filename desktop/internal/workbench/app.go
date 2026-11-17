@@ -514,6 +514,8 @@ type App struct {
 	// editorFocus is the document whose editor had the keyboard last frame; the file is
 	// saved when the keyboard leaves it (document_autosave.go).
 	editorFocus int
+	// statusPath is the navigation path at the leading end of the status bar (status_path.go).
+	statusPath statusPath
 	// github is the GitHub account and its sign-in (github_account.go).
 	github githubAccount
 	// pullRequests is the pull-request panel of the Git log (github_prs.go).

@@ -65,11 +65,8 @@ func (a *App) noteEditorFocus(focused gfx.ID) {
 		return
 	}
 	current := 0
-	for _, d := range p.docs.list {
-		if d.view.Owns(focused) {
-			current = d.id
-			break
-		}
+	if d := p.documentOwning(focused); d != nil {
+		current = d.id
 	}
 	left := a.editorFocus
 	a.editorFocus = current
