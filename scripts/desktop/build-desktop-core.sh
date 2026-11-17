@@ -27,12 +27,16 @@ native_path() {
     fi
 }
 
-# Lithe-core-rust fix/process-memory-min-interval at 8dd6c70, the branch of the draft on top of
-# main 5202d3b: processMemory.summarize never compares two tables less than a second apart, so
+# Lithe-core-rust main at cf2f260, #82 squash-merged (the same tree as its branch at 4d0dc1c, on
+# top of 18a370d): lsp.problems.query also lays out the Problems tool window's tree (the rows
+# visible under the group nodes the desktop closes, the diagnostic each row previews and opens, a
+# selection behind a closed node moved to that node and one of a gone diagnostic to its file's
+# node) and names each file group's file and folder (#2105).
+# Lithe-core-rust main at 18a370d, #81 squash-merged (the same tree as its branch at 8dd6c70, on
+# top of 5202d3b): processMemory.summarize never compares two tables less than a second apart, so
 # the memory details no longer show the burst of their own opening as CPU and GPU use; a table
 # read sooner is measured from the counters the baseline was itself measured from, which the
-# baseline now carries as earlier, and the baseline comes back unchanged. The pin moves to the
-# squash merge once the draft is in main.
+# baseline now carries as earlier, and the baseline comes back unchanged.
 # Lithe-core-rust main at 5202d3b, #80 squash-merged (the same tree as its branch at 81a6ecf, on
 # top of 788e61e, #79 and #78):
 # lsp.references.query lays out the References tool window (usages grouped in natural file
@@ -191,7 +195,7 @@ PINNED_CORE_REPOSITORY="https://github.com/Lithe-IDEA/Lithe-core-rust.git"
 # the contract, plugin guides, reference and SDKs live only in shared/plugins; on top of #16 (reported Git queries folded in the console),
 # #15 (git.write cherryPick, revert and reset fields), #14 (word-level changed ranges of diff
 # rows), #13, #8, #7, #6 and #4.
-PINNED_CORE_REVISION="8dd6c70c87ce948f606d579957478bf19e8979b0"
+PINNED_CORE_REVISION="cf2f26095bb352f69d248f840dd7d6126747482e"
 PROFILE="debug"
 while [[ $# -gt 0 ]]; do
     case "$1" in
