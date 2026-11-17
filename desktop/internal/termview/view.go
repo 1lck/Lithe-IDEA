@@ -9,17 +9,20 @@
 // slices, so a flood of output never stalls the window, and the shell's own backlog limit
 // pushes back on a program that writes faster than the screen takes it in.
 //
-// Every method runs on the window thread. Config.Notify is the only call made from another
-// goroutine.
+// Every method runs on the window thread. The shell is started on a goroutine of its own
+// (see start), which then calls Config.Notify; Config.Notify is also called from the
+// shell's reader. No other call is made from another goroutine.
 package termview
 
 import (
 	"cmp"
 	"strings"
+	"sync/atomic"
 	"time"
 	"unicode/utf8"
 
 	"github.com/1lck/Lithe-IDEA/desktop/internal/localshell"
+	"github.com/1lck/Lithe-IDEA/desktop/internal/shellkind"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/term"
 	"github.com/vivaui/viva/app"
 	"github.com/vivaui/viva/gfx"
@@ -111,6 +114,8 @@ type Failure struct {
 	Event string
 	// Stage is the event's stage field; empty when the event has none.
 	Stage string
+	// Operation is the event's operation field; empty when the event has none.
+	Operation string
 	// Warn records the event at warn level; otherwise it is recorded at debug level.
 	Warn bool
 	Err  error
@@ -122,6 +127,11 @@ const (
 	eventInputFailed = "terminal.input.failed"
 	stageSpawn       = "spawn"
 	stageSend        = "send"
+	// eventBackgroundFailed with operationConPTY is a shell that started on a fallback: the
+	// ConPTY the Windows client carries could not host it, so the inbox one does and
+	// re-renders the program's output.
+	eventBackgroundFailed = "app.background.operation_failed"
+	operationConPTY       = "terminal_conpty"
 )
 
 // Config sets up a terminal view.
@@ -157,10 +167,17 @@ type Config struct {
 	Exited func(status *int)
 	// Clipboard reads the system clipboard for a paste. Nil uses app.ClipboardText.
 	Clipboard func() (string, error)
+	// PasteImage is asked first when a paste into a live shell finds no text on the
+	// clipboard, and reports whether it took the paste over, as the workbench does
+	// for a picture it saves and types the path of. Nil, or a false answer, sends the
+	// empty paste a program that reads the clipboard itself waits for. It runs on the
+	// window thread and must not block.
+	PasteImage func() bool
 	// OpenLink opens a link the user Command- (Control- off macOS) clicked. Nil leaves
 	// links inert.
 	OpenLink func(target string)
-	// start opens a shell; nil uses localshell.Start. Tests replace it.
+	// start opens a shell; nil uses localshell.Start. It runs off the window thread when
+	// Notify is set (see View.start). Tests replace it.
 	start func(localshell.Config) (shell, error)
 }
 
@@ -179,6 +196,10 @@ type shell interface {
 	Err() error
 	// Busy reports that the shell runs a program; it may be called from any goroutine.
 	Busy() bool
+	// Kind names the family of the program the shell runs, from its name alone.
+	Kind() shellkind.Kind
+	// Close ends the shell. It may be called from any goroutine: a view closed while its
+	// shell was starting closes the shell from the goroutine that waits for the start.
 	Close()
 }
 
@@ -218,8 +239,23 @@ type View struct {
 	cfg Config
 
 	screen *term.Terminal
-	shell  shell
-	rx     []byte // scratch the shell's output is drained into
+	// owner is the view's number in the text identities its rows are painted with (see
+	// paintGrid). Line IDs are only unique within one screen, so two terminals painted
+	// in one frame need different owners.
+	owner uint32
+	shell shell
+	// launching is the shell being started, nil when none is; queued is what was typed
+	// for it meanwhile. See start.
+	launching *launch
+	queued    []byte
+	rx        []byte // scratch the shell's output is drained into
+	// shellCols and shellRows are the size the shell was last told; wantCols and wantRows
+	// are the size a shell at its prompt is waiting to be told, once it has held since
+	// shellWaitAt. See resizeShell.
+	shellCols, shellRows int
+	wantCols, wantRows   int
+	shellWaiting         bool
+	shellWaitAt          time.Duration
 	// ended is true once a shell finished or failed to start. Enter starts a new one.
 	ended bool
 	// closed is true after Close: the view starts no shell again.
@@ -237,6 +273,10 @@ type View struct {
 	// scrollbar) uses rowH; only the text itself is drawn glyphH tall.
 	cellW, glyphH, rowH float32
 	layout              geometry // the grid of the last paint
+	// cursorThickness is how thick a bar or an underline cursor draws; SetCursor sets it.
+	cursorThickness CursorThickness
+	// options are the Terminal settings page's switches; SetOptions sets them.
+	options Options
 
 	look    Look
 	hasLook bool
@@ -244,9 +284,12 @@ type View struct {
 	cache   rowCache
 
 	selection terminalSelection
-	find      findState
-	blink     cursorBlink
-	bar       barState
+	// generation is the screen's buffer generation the selection was last reconciled
+	// with (see reconcileSelection).
+	generation uint64
+	find       findState
+	blink      cursorBlink
+	bar        barState
 
 	// preedit is the input method's composition, drawn over the cursor's cells.
 	preedit app.TextState
@@ -264,8 +307,23 @@ type View struct {
 	mousePositionValid bool
 
 	// clock is the time the selection's edge scroll steps by; it is the canvas time of the
-	// last paint or event.
+	// last paint or event. paced is whether that canvas has a clock at all: without one the
+	// time stands still, and nothing may wait for it to pass.
 	clock time.Duration
+	paced bool
+}
+
+// owners numbers the views for their text identities.
+var owners atomic.Uint32
+
+// nextOwner is a new view's owner number. Zero means no identity to Viva, so it is never
+// handed out, even after the count wraps.
+func nextOwner() uint32 {
+	for {
+		if owner := owners.Add(1); owner != 0 {
+			return owner
+		}
+	}
 }
 
 // New makes a terminal view. Its shell starts at the first paint, once the grid's size is
@@ -286,11 +344,13 @@ func New(cfg Config) *View {
 	v := &View{
 		cfg:    cfg,
 		screen: term.New(80, 24, cmp.Or(cfg.Scrollback, scrollbackLines)),
+		owner:  nextOwner(),
 		layout: geometry{cols: 80, rows: 24},
 		font:   DefaultFont(),
 	}
 	if cfg.Prefill != "" {
 		v.screen.Write([]byte(strings.ReplaceAll(strings.ReplaceAll(cfg.Prefill, "\r\n", "\n"), "\n", "\r\n") + "\r\n"))
+		v.generation = v.screen.BufferGeneration()
 	}
 	return v
 }
@@ -329,8 +389,10 @@ func (v *View) Owns(id gfx.ID) bool {
 func (v *View) SetMessages(messages Messages) { v.cfg.Messages = messages }
 
 // BusyProbe returns what tells whether the running shell is busy with a program, nil
-// when no shell runs. The probe may be called from any goroutine and answers false
-// once that shell has ended, so it can be taken now and asked off the window thread.
+// when no shell runs, including one that is still starting: it runs nothing yet, and
+// closing it ends the start (see Close). The probe may be called from any goroutine and
+// answers false once that shell has ended, so it can be taken now and asked off the
+// window thread.
 func (v *View) BusyProbe() func() bool {
 	if v.shell == nil {
 		return nil
@@ -338,18 +400,35 @@ func (v *View) BusyProbe() func() bool {
 	return v.shell.Busy
 }
 
-// Close ends the shell and keeps the view from starting another.
 // SendLine types text into the shell as one command line, followed by the Enter key. It reports
-// whether the shell accepted it.
+// whether the shell accepted it. A view that has not started its shell yet, such as a terminal
+// just made to run a command before it was ever painted, starts it, and the line waits for it.
 func (v *View) SendLine(text string) bool {
+	v.ensureStarted()
 	return v.sendInput([]byte(text + "\r"))
 }
 
-// Close ends the shell and returns a channel that is closed once its process has ended
-// and the shell has let go of what it holds; the shell is killed when it outlives its
-// grace period, so the channel is closed soon. A view with no shell returns a closed one.
+// Close ends the shell and keeps the view from starting another. It returns a channel that
+// is closed once the shell's process has ended and the shell has let go of what it holds;
+// the shell is killed when it outlives its grace period, so the channel is closed soon. A
+// shell that is still starting is ended as soon as it has started, and what was typed for
+// it is dropped; the channel then waits for both. A view with no shell returns a closed
+// one.
 func (v *View) Close() <-chan struct{} {
 	v.closed = true
+	if l := v.launching; l != nil {
+		v.launching, v.queued = nil, nil
+		ended := make(chan struct{})
+		go func() {
+			defer close(ended)
+			<-l.done
+			if l.shell != nil {
+				l.shell.Close()
+				<-l.shell.Done()
+			}
+		}()
+		return ended
+	}
 	if v.shell == nil {
 		return closedChannel
 	}

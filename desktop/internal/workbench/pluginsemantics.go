@@ -82,8 +82,12 @@ const (
 	semanticRowHeight       = float32(24)
 	semanticPopupPad        = float32(4)
 	// semanticHoverDelay is how long the pointer rests on a symbol before the
-	// hover request starts. Negative lets tests exercise it without a clock wait.
-	semanticHoverDelay = 500 * time.Millisecond
+	// hover request starts. 300 ms matches the default of Zed and VS Code
+	// (editor.hover.delay); the delay is most of what the user waits, since a
+	// warm language server answers within a few milliseconds and Core keeps
+	// repeated answers (#1995). Negative lets tests exercise it without a
+	// clock wait.
+	semanticHoverDelay = 300 * time.Millisecond
 	// semanticAutoCompletionDelay is the typing pause before automatic
 	// completion asks. Negative lets tests skip the clock wait.
 	semanticAutoCompletionDelay = 120 * time.Millisecond
@@ -198,14 +202,16 @@ type hoverState struct {
 	page        *hoverPage
 }
 
-// hoverCandidate is the symbol under the resting pointer.
+// hoverCandidate is the symbol under the resting pointer. It stays after its hover was asked for,
+// so moving within the character does not ask again, and is cleared once the pointer leaves the
+// text (leaveSemanticHover).
 type hoverCandidate struct {
 	active       bool
 	documentID   int
 	line, column int
 	anchor       gfx.Rect
 	// cancel ends the delay before the request. It is replaced or called when
-	// the pointer moves, the document changes or the window closes.
+	// the pointer moves or leaves the text, the document changes or the window closes.
 	cancel context.CancelFunc
 }
 
@@ -280,7 +286,7 @@ func (a *App) pluginSemanticsKey(event gfx.KeyEvent) gfx.EventResult {
 		return a.definitionKey(event)
 	}
 	if a.semantics.hover.open && event.Key == gfx.KeyEscape {
-		a.closeSemanticHover()
+		a.leaveSemanticHover()
 		return gfx.EventResult{Handled: true, Repaint: true}
 	}
 	return gfx.EventResult{}
@@ -470,12 +476,12 @@ func (a *App) pluginSemanticsPointer(event gfx.PointerEvent, p *project, d *docu
 			return gfx.EventResult{}, false
 		}
 		if d == nil {
-			a.closeSemanticHover()
-			a.cancelSemanticKind(pluginSemanticHover)
+			a.leaveSemanticHover()
 			return gfx.EventResult{}, false
 		}
 		line, column, ok := d.view.PositionAt(event.X, event.Y)
 		if !ok {
+			a.leaveSemanticHover()
 			return gfx.EventResult{}, false
 		}
 		// The pointer moving along the hovered symbol keeps the popup where it is instead of
@@ -488,8 +494,7 @@ func (a *App) pluginSemanticsPointer(event gfx.PointerEvent, p *project, d *docu
 		a.pointPluginHover(p, d, line, column, hoverRowAnchor(d, event.X, event.Y))
 		return gfx.EventResult{}, false
 	case gfx.PointerExit:
-		a.closeSemanticHover()
-		a.cancelSemanticKind(pluginSemanticHover)
+		a.leaveSemanticHover()
 	}
 	return gfx.EventResult{}, false
 }
@@ -1548,10 +1553,10 @@ func (a *App) pluginSemanticsCaretSync() {
 	}
 }
 
-// pluginSemanticsScrolled closes popups whose screen position the scroll moved.
+// pluginSemanticsScrolled closes popups whose screen position the scroll moved. A hover still
+// waiting would open at the place its character scrolled away from.
 func (a *App) pluginSemanticsScrolled(_ *document) {
-	a.closeSemanticHover()
-	a.cancelSemanticKind(pluginSemanticHover)
+	a.leaveSemanticHover()
 	a.closeSemanticCompletion()
 	a.closeSemanticDefinition()
 }
@@ -1604,10 +1609,7 @@ func (a *App) closePluginSemantics() {
 	a.cancelSemanticKind(pluginSemanticReferences)
 	a.cancelSemanticKind(pluginSemanticFormatting)
 	a.cancelSemanticKind(pluginSemanticRangeFormatting)
-	if a.semantics.candidate.cancel != nil {
-		a.semantics.candidate.cancel()
-	}
-	a.semantics.candidate = hoverCandidate{}
+	a.dropHoverCandidate()
 	if a.semantics.autoCancel != nil {
 		a.semantics.autoCancel()
 		a.semantics.autoCancel = nil

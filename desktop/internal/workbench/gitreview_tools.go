@@ -46,7 +46,7 @@ func (a *App) openPush(p *project, surface actionSurface) {
 // checked-out one when branch is empty, and reads Core's preview. surface is where the user
 // asked.
 func (a *App) openPushOf(p *project, root string, branch core.GitReference, surface actionSurface) {
-	if _, ok := a.reviewKernel(); !ok || !p.git.isRepository() {
+	if _, ok := a.reviewKernel(); !ok || !p.hasRepository() {
 		return
 	}
 	s := &p.review.push

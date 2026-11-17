@@ -1,6 +1,7 @@
 package settingswindow
 
 import (
+	"github.com/1lck/Lithe-IDEA/desktop/internal/core"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/fontprefs"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/i18n"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/icons"
@@ -41,17 +42,25 @@ func (w *window) view(c ui.C) {
 // the text, and Enter its meaning of OK while no control holds the focus. An open list or
 // help takes Escape first, as it claims a deeper focus scope; Enter on a control is the
 // control's. The platform's Find focuses the search and its Close key closes the window.
+// While the Keymap page records a shortcut, every chord is the recording's: none of these
+// is declared, and Escape stops the recording.
 func (w *window) keys(c ui.C) {
 	canvas := c.Canvas()
 	escape := ui.ID(c)
 	canvas.SetEscapeTarget(escape)
+	recording := w.keymap.recording != ""
 	if canvas.Clicked(escape) {
-		switch decideKey(keyEscape, keyContext{searching: canvas.Focused() == searchID, queryEmpty: w.searchField.Text() == ""}) {
+		switch decideKey(keyEscape, keyContext{searching: canvas.Focused() == searchID, queryEmpty: w.searchField.Text() == "", recording: recording}) {
 		case actionCancel:
 			w.cancel()
 		case actionClearSearch:
 			w.searchField.SetText("")
+		case actionEndRecording:
+			w.keymap.recording, w.keymap.message = "", ""
 		}
+	}
+	if recording {
+		return
 	}
 	if canvas.Focused().IsZero() && ui.Shortcut(c, 0, "enter") {
 		w.accept()
@@ -110,7 +119,9 @@ func (w *window) sidebar(c ui.C) {
 			w.toggleRow(w.rows[i])
 		}
 		if i, ok := w.nav.Chosen(); ok && i < len(w.rows) {
-			if r := w.rows[i]; r.group {
+			// A group with a page of its own, which only plugins' pages made a group, opens its
+			// page; its chevron folds the plugins' pages.
+			if r := w.rows[i]; r.group && isGroup(r.page) {
 				w.toggleRow(r)
 			} else {
 				w.selectSettingsPage(r.page, r.dynamic)
@@ -121,7 +132,7 @@ func (w *window) sidebar(c ui.C) {
 
 // toggleRow expands or collapses the group of row r. While searching every group is open.
 func (w *window) toggleRow(r row) {
-	toggleGroup(&w.sess.open, r.page, w.query != "")
+	toggleGroup(&w.sess.open, r.page, r.group, w.query != "")
 }
 
 // rowTitle is the words of a sidebar row: a contributed page's own title, else its page's.
@@ -140,7 +151,7 @@ func (w *window) navNode(i int) ui.TreeNode {
 	r := w.rows[i]
 	return ui.TreeNode{
 		Depth: int(r.level), Branch: r.group, Expanded: r.expanded,
-		Selected: !r.group && r.page == w.sess.page && r.dynamic == w.dynamicPage,
+		Selected: (!r.group || !isGroup(r.page)) && r.page == w.sess.page && r.dynamic == w.dynamicPage,
 	}
 }
 
@@ -521,7 +532,10 @@ func (w *window) footer(c ui.C) {
 			w.setProcessTermination(ProcessTermination{}, true)
 			w.resetSteppingFilters()
 			w.setTerminalShell("", true)
+			w.setTerminalBehavior(TerminalBehavior{}, true)
 			w.setFonts(fontprefs.Default(), true)
+			w.setGitConsole(core.GitConsolePreferences{}, true)
+			w.setGitLogLimits(DefaultGitLogLimit, DefaultGitLogMergedLimit)
 		}
 		ui.Spacer(c)
 		if ui.Button(c, settings.Cancel).Outline().Clicked() {

@@ -48,6 +48,9 @@ var (
 
 // document is a file open in a tab of the editor area.
 type document struct {
+	// Each replacement cancels diagnostic geometry still being prepared.
+	markerCancel      context.CancelFunc
+	markerGeneration  uint64
 	find              editorFind
 	scratch           bool
 	recoveredConflict bool
@@ -143,6 +146,12 @@ type document struct {
 	// the ID the view reports them with.
 	links       []pluginservice.EditorLink
 	actionTimer *time.Timer
+	// actionRetries counts the collections retried after a timeout since the last trigger
+	// (editor_actions.go); it bounds how long a busy server is asked again.
+	actionRetries int
+	// actionsTimedOut says the last collection timed out while no editor group showed the
+	// document, so it was not retried; selecting the document collects it again.
+	actionsTimedOut bool
 	// actionAnnotated says the line annotations show code lens titles, so clearing them is needed.
 	actionAnnotated bool
 	// actionPanel holds the lanes of the action icons and the lane menu a press opened.
@@ -562,6 +571,9 @@ func (a *App) selectDocument(p *project, id int) {
 	p.touchDocument(id)
 	if d := p.docs.find(id); d != nil {
 		a.noteRecentFile(p, d, "opened")
+		if d.actionsTimedOut {
+			a.scheduleEditorActions(p, d)
+		}
 	}
 }
 
@@ -815,7 +827,7 @@ func (a *App) removeDocument(p *project, d *document) {
 		// A document without a tab is released with nothing to close, once it is saved.
 		if d.tabless && !d.dirty() {
 			a.semanticTokensDropped(d)
-			d.view.Close()
+			d.closeEditorView()
 			p.docs.list = slices.DeleteFunc(p.docs.list, func(x *document) bool { return x.id == d.id })
 		}
 		return
@@ -825,7 +837,7 @@ func (a *App) removeDocument(p *project, d *document) {
 		return
 	}
 	a.semanticTokensDropped(d)
-	d.view.Close()
+	d.closeEditorView()
 	p.docs.list = slices.DeleteFunc(p.docs.list, func(x *document) bool { return x.id == d.id })
 	a.unwatchDocument(p, d)
 	a.closeDocumentInSession(p, d)
@@ -912,7 +924,7 @@ func (a *App) closeDocuments(p *project) {
 		a.flushCheckpoint(p, d, false)
 		d.find.dispose()
 		d.cancelAutoSave()
-		d.view.Close()
+		d.closeEditorView()
 	}
 	p.docs = documentSet{}
 }
@@ -990,4 +1002,12 @@ func (a *App) focusedDocument(id gfx.ID) *editorview.View {
 		}
 	}
 	return nil
+}
+
+func (d *document) closeEditorView() {
+	if d.markerCancel != nil {
+		d.markerCancel()
+		d.markerCancel = nil
+	}
+	d.view.Close()
 }

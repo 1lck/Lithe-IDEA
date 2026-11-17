@@ -26,3 +26,10 @@ desktop/viva.toml text eol=lf
 # The bundled fonts and their licenses are compiled in byte-for-byte and checked against the
 # SHA-256 manifest in NOTICE.txt; never convert their line endings.
 desktop/internal/bundledfont/fonts/** -text
+
+# The Windows ConPTY binaries and their license are compiled in byte-for-byte and checked
+# against the SHA-256 table in NOTICE.md.
+desktop/internal/localshell/conpty/**/*.dll binary
+desktop/internal/localshell/conpty/**/*.exe binary
+desktop/internal/localshell/conpty/LICENSE.txt -text
+desktop/internal/localshell/conpty/NOTICE.md -text

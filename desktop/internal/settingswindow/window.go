@@ -142,6 +142,8 @@ type window struct {
 	stopTimeEditing bool
 	// network is the Network page's unsaved edit.
 	network networkDraft
+	// updates is the Updates page's unsaved feed address and channel switch (updates_view.go).
+	updates updatesDraft
 	// localHistory is the General page's unsaved local history settings and the open
 	// project's history size (local_history_view.go).
 	localHistory localHistoryDraft
@@ -268,6 +270,9 @@ func (w *window) config() app.Config {
 		Invalidator:    &w.inv,
 		OnWake:         w.wake,
 		OnClosed:       w.closed,
+		// Chords of printable keys reach the window as shortcuts, not as keys of the
+		// control that has the focus; the one the Keymap page records arrives here.
+		OnShortcut: w.recordShortcut,
 	})
 	paint := config.Paint
 	config.Paint = func(canvas *gfx.Canvas, size gfx.Size) {

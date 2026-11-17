@@ -151,7 +151,7 @@ feat 和 fix 必填，docs 和 release 只处理确实涉及的组。每组的�
 - [ ] 已在仓库根目录运行 `develop-lithe` 第三节“插件归属与宿主零依赖”的自查命令，结果为空
 - [ ] 新增或修改的测试只使用测试内联的合成插件、Core 契约 fixture 或插件市场索引快照；没有读取具体插件的插件包、仓库检出、构建产物或清单，没有使用真实插件 ID，没有“缺少插件时跳过”的测试
 - [ ] 没有为具体插件提供的能力新建或更新宿主功能矩阵条目；宿主条目的证据和验证动作不引用插件的测试、插件包或插件仓库
-- [ ] 插件文案没有写进 `shared/i18n/`；插件的构建步骤、资源路径和补丁没有写进 `scripts/resources/`、`docs/ci-builds.md`、Agent Note 或 Skill
+- [ ] 插件文案没有写进 `shared/i18n/`；插件的构建步骤、资源路径和补丁没有写进 `docs/ci-builds.md`、Agent Note 或 Skill
 - [ ] 修改了通用扩展点、可能影响已发布插件的，已在受影响插件的仓库运行它的测试，插件仓库与结果：
 
 ### UI 验证 / UI evidence
@@ -228,7 +228,7 @@ Windows 目前仍使用 v1 日志，Windows 改动沿用现有写法，并在此
 <!-- 触发：新增或修改运行时资源、缓存、下载物、解压物、日志或锁文件，或任何下载、解压、生成资源的构建步骤。 -->
 
 - [ ] 运行时不向已安装的 app bundle 或 Windows 安装目录写入；新增的资源路径已说明生命周期、所有权和可写位置，并运行 `./scripts/desktop/verify/verify-runtime-bundle-immutability.sh`
-- [ ] 新增或修改宿主自身的下载、解压、生成或缓存资源的，已同步 `scripts/resources/worktree-resources.json`、`scripts/resources/reuse-worktree-resources.mjs` 的校验路由、对应测试和 `docs/ci-builds.md`“独立工作树的本地编译”一节
+- [ ] 新增或修改宿主自身的下载、解压、生成或缓存资源的，已在 `docs/ci-builds.md`“独立工作树的本地编译”一节写清路径、归属、生命周期和能否跨工作树复制
 
 ### 无用代码与重构 / Dead code and refactoring
 

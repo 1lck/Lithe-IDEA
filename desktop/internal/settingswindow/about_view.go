@@ -187,7 +187,7 @@ func (w *window) aboutPage(c ui.C) {
 			})
 		})
 		if w.ctrl.opts.UpdateStatus != nil {
-			w.updateCard(c)
+			w.updateCard(c, false)
 		}
 		w.card(c, i18n.Shared(language, "desktop.settings.about.community"), "", func() {
 			ui.Column(c).FillWidth().PadY(3).Children(func() {

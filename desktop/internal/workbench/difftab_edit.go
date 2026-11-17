@@ -4,6 +4,7 @@ import (
 	"path/filepath"
 	"runtime"
 
+	"github.com/1lck/Lithe-IDEA/desktop/internal/core"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/editorview"
 	"github.com/vivaui/viva/gfx"
 )
@@ -106,11 +107,12 @@ func (a *App) diffUndoChord(t *diffTab, event gfx.KeyEvent) bool {
 }
 
 // reloadDiffsOfPath reads again every Diff tab of the file at path, after the document of it was
-// saved, so the change the tabs show is the one on disk.
+// saved, so the change the tabs show is the one on disk. The console records these reads only
+// when it shows the diff refreshes after saving.
 func (a *App) reloadDiffsOfPath(p *project, path string) {
 	for _, t := range p.diffs.list {
 		if t.saved == nil && diffTabPath(t) == path {
-			a.loadDiff(p, t)
+			a.loadDiffAs(p, t, core.GitQueryDiffRefresh)
 		}
 	}
 }

@@ -67,6 +67,40 @@ func (t *Terminal) SelectedRange(anchor, focus Point) string {
 	return result.String()
 }
 
+// BlockRange returns the cells of the rectangle between two buffer points: the
+// columns they span, on every line they span. Unlike SelectedRange, a
+// soft-wrapped row is a line of its own here, the way the rectangle shows it on
+// screen. Points beyond the retained lines clamp to them; a wide character is
+// kept whole when the rectangle starts on its second cell. Blank cells at the
+// right edge are dropped from each line, so a column copied out of a table keeps
+// its alignment without trailing spaces.
+func (t *Terminal) BlockRange(anchor, focus Point) string {
+	base, count := t.lineBase(), uint64(t.bufferLineCount())
+	if count == 0 {
+		return ""
+	}
+	anchor, focus = t.clampPoint(anchor, base, count), t.clampPoint(focus, base, count)
+	if focus.Line < anchor.Line {
+		anchor.Line, focus.Line = focus.Line, anchor.Line
+	}
+	from, to := min(anchor.Column, focus.Column), max(anchor.Column, focus.Column)
+
+	var result strings.Builder
+	result.Grow(int(min(focus.Line-anchor.Line+1, 1<<16)) * (to - from + 1))
+	for line := anchor.Line; line <= focus.Line; line++ {
+		if line > anchor.Line {
+			result.WriteByte('\n')
+		}
+		row := t.rowOf(t.bufferLine(int(line - base)))
+		start := from
+		if start > 0 && start < len(row.Cells) && row.Cells[start].Attr&WideTail != 0 {
+			start--
+		}
+		writeSelectedCells(&result, row, start, to)
+	}
+	return result.String()
+}
+
 // lineBase is the line number of retained-buffer index 0.
 func (t *Terminal) lineBase() uint64 {
 	if t.onAlt {

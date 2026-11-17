@@ -2,6 +2,7 @@ package termview
 
 import (
 	"math"
+	"runtime"
 	"time"
 
 	"github.com/1lck/Lithe-IDEA/desktop/internal/term"
@@ -25,6 +26,21 @@ type terminalSelection struct {
 	// clicked; the drag keeps it selected whichever way it goes.
 	unit   selectionUnit
 	origin [2]term.Point
+	// block selects the rectangle between anchor and focus instead of the text
+	// between them. It is set by the press that began the selection and kept by
+	// the drags and Shift-clicks that continue it.
+	block bool
+}
+
+// blockSelectionModifiers is the chord held to start a block selection, by the
+// platform's own terminal: Option on macOS (Terminal), Alt on Windows (Windows
+// Terminal), and Ctrl+Alt on Linux (Konsole and Ghostty), where a window
+// manager usually takes Alt+drag for moving the window.
+func blockSelectionModifiers() gfx.Modifiers {
+	if runtime.GOOS == "darwin" || runtime.GOOS == "windows" {
+		return gfx.ModifierAlt
+	}
+	return gfx.ModifierControl | gfx.ModifierAlt
 }
 
 // selectionUnit is the granularity a drag snaps to.
@@ -67,6 +83,47 @@ func (selection *terminalSelection) dismiss() bool {
 	mark, marked := selection.mark, selection.marked
 	changed := selection.clear()
 	selection.mark, selection.marked = mark, marked
+	return changed
+}
+
+// trim follows the scrollback as it drops its oldest lines. A selection whose
+// later end went with them is gone; one whose earlier end did starts at the
+// oldest line the buffer still holds, column zero, which is where its first
+// surviving text is. Points a drag or a later Shift-click can still reach move
+// the same way. It reports whether anything changed.
+func (selection *terminalSelection) trim(screen *term.Terminal) bool {
+	if !selection.selected && !selection.dragging && !selection.marked {
+		return false
+	}
+	first, ok := screen.RetainedFrom()
+	if !ok {
+		return selection.clear()
+	}
+	if selection.selected {
+		start, end := selection.anchor, selection.focus
+		if pointBefore(end, start) {
+			start, end = end, start
+		}
+		if end.Line < first {
+			return selection.clear()
+		}
+	}
+	changed := false
+	clamp := func(point *term.Point) {
+		if point.Line < first {
+			*point = term.Point{Line: first}
+			changed = true
+		}
+	}
+	clamp(&selection.anchor)
+	clamp(&selection.focus)
+	clamp(&selection.mark)
+	for i := range selection.origin {
+		clamp(&selection.origin[i])
+	}
+	if changed && selection.selected {
+		selection.selected = selection.anchor != selection.focus
+	}
 	return changed
 }
 
@@ -119,6 +176,15 @@ func (selection *terminalSelection) begin(point term.Point) bool {
 	selection.focus = point
 	selection.dragging = true
 	selection.mark, selection.marked = point, true
+	return changed
+}
+
+// beginBlock starts a rectangular selection at point and leaves the drag
+// running. A rectangle of one cell selects nothing, exactly as a linear
+// selection of one cell does, so a press that never moves stays a click.
+func (selection *terminalSelection) beginBlock(point term.Point) bool {
+	changed := selection.begin(point)
+	selection.block = true
 	return changed
 }
 
@@ -193,11 +259,15 @@ func (selection *terminalSelection) selectRange(anchor, focus term.Point) {
 	selection.dragging = false
 	selection.selected = true
 	selection.unit = unitCell
+	selection.block = false
 	selection.edge = selectionEdge{}
 }
 
 // text is the selected text, wherever in the retained buffer it lies.
 func (selection terminalSelection) text(screen *term.Terminal) string {
+	if selection.block {
+		return screen.BlockRange(selection.anchor, selection.focus)
+	}
 	return screen.SelectedRange(selection.anchor, selection.focus)
 }
 
@@ -215,11 +285,15 @@ func (selection terminalSelection) span(lineNumber uint64, line term.Row, cols i
 		return 0, 0, false
 	}
 	from, to := 0, cols
-	if lineNumber == start.Line {
-		from = start.Column
-	}
-	if lineNumber == end.Line {
-		to = end.Column + 1
+	if selection.block {
+		from, to = min(start.Column, end.Column), max(start.Column, end.Column)+1
+	} else {
+		if lineNumber == start.Line {
+			from = start.Column
+		}
+		if lineNumber == end.Line {
+			to = end.Column + 1
+		}
 	}
 	if from < len(line.Cells) && line.Cells[from].Attr&term.WideTail != 0 && from > 0 {
 		from--
@@ -280,7 +354,7 @@ func (v *View) terminalPointer(event gfx.PointerEvent) gfx.EventResult {
 			// A program that asked for the mouse already had this press; what reaches
 			// here is the terminal's own. Nothing can take the text once the shell
 			// has ended.
-			if v.shell != nil {
+			if v.live() {
 				v.paste()
 			}
 			return gfx.EventResult{Handled: true, Repaint: true}
@@ -308,6 +382,12 @@ func (v *View) terminalPointer(event gfx.PointerEvent) gfx.EventResult {
 				return gfx.EventResult{Handled: true, Repaint: changed}
 			}
 		}
+		// The chord rides on a press the terminal owns: a program using the mouse
+		// had the press above. The press starts the rectangle and the drag that
+		// continues it keeps the same mode.
+		if chord := blockSelectionModifiers(); event.Modifiers&chord == chord {
+			return gfx.EventResult{Handled: true, Repaint: selection.beginBlock(v.screen.PointAt(position))}
+		}
 		return gfx.EventResult{Handled: true, Repaint: selection.begin(v.screen.PointAt(position))}
 	case gfx.PointerMove:
 		if !selection.dragging || !event.Captured {
@@ -329,6 +409,11 @@ func (v *View) terminalPointer(event gfx.PointerEvent) gfx.EventResult {
 		if !selection.selected {
 			// A click selects nothing; it only leaves the mark a Shift-click starts from.
 			changed = selection.dismiss() || changed
+			// On the line being typed it also takes the shell's cursor there, unless the
+			// settings turned that off.
+			if inputClick(event) && !v.options.NoClickMove && v.moveInputCursor(position) {
+				changed = true
+			}
 		}
 		return gfx.EventResult{Handled: true, Repaint: changed}
 	}

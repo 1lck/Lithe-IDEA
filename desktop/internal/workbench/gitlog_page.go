@@ -42,6 +42,15 @@ const (
 	logPopoverWidth  = 240
 	logPathWidth     = 320
 	logListMaxHeight = 320
+	// logBarPad is the padding at the ends of the commit list's filter bar and logBarGap the gap
+	// between its parts. logSearchMin is the least width of its text filter while view buttons are
+	// left in the bar: they go into the bar's overflow menu before the field gets narrower
+	// (logViewFit). Once they are all there, the field gives up room down to logSearchFloor before
+	// the filters' end is cut (logSearchWidth).
+	logBarPad      = 6
+	logBarGap      = 4
+	logSearchMin   = 120
+	logSearchFloor = 72
 	// logRowSlots is how many rows of the commit list can be on screen at once, and so how
 	// many draw callbacks the list keeps: a row uses the one of its index modulo the slots.
 	logRowSlots = 256
@@ -105,6 +114,13 @@ type logView struct {
 	hasBody  bool
 	details  bool
 
+	// barWidth is the width of the commit list's filter bar and filtersWidth that of its filters
+	// at their own width, as the last paint laid them out, read from the draw callbacks barDraw
+	// and filtersDraw gave their boxes. The view buttons that do not fit beside them go into the
+	// bar's overflow menu (logViewFit).
+	barWidth, filtersWidth float32
+	barDraw, filtersDraw   func(*ui.DrawContext)
+
 	// refs is the tree of the reference pane, refItems what its visible rows are and refSel
 	// the reference selected in it, as the paint being drawn has it.
 	refs     ui.TreeState
@@ -167,7 +183,7 @@ func newLogView() logView {
 	v := logView{detailWidth: logDetailsWidth}
 	v.refSplit.Pos = logRefsWidth
 	v.filesSplit.Pos = logFilesHeight
-	v.refs.RowHeight, v.refs.Indent = logItemHeight, logIndent
+	v.refs.RowHeight = logItemHeight
 	return v
 }
 
@@ -263,10 +279,10 @@ type logRefRow struct {
 	// (nil for HEAD, which stands for every reference).
 	short string
 	ref   *core.GitReference
-	// repo is the ID of the repository a group or one of its references belongs to.
+	// repo is the ID of the repository a node or a foreign reference belongs to.
 	repo string
 	open bool
-	// tint is the color of a repository group (nested_refs.go).
+	// tint is the color of a repository node (nested_refs.go).
 	tint gfx.Color
 }
 
@@ -278,8 +294,9 @@ const (
 	logRefSection
 	logRefFolder
 	logRefReference
-	// logRefRepository is the group of a repository other than the one the log walks; logRefForeign
-	// is one of its references, which a click makes the log walk.
+	// logRefRepository is the node of a repository in a folder with several; logRefForeign is a
+	// reference of a repository other than the one the log reads its references with, which a click
+	// walks in its repository.
 	logRefRepository
 	logRefForeign
 )

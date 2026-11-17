@@ -80,8 +80,9 @@ func rebaseDone(status string) bool {
 	return status == "completed" || status == "aborted"
 }
 
-// beginRebaseFromHere opens the rebase dialog on the commits after base and reads their preview.
-func (a *App) beginRebaseFromHere(p *project, base, subject string) {
+// beginRebaseFromHere opens the rebase dialog on the commits after base in the repository at root
+// and reads their preview.
+func (a *App) beginRebaseFromHere(p *project, root, base, subject string) {
 	if _, ok := a.kernel.(rebaseKernel); !ok {
 		return
 	}
@@ -94,7 +95,6 @@ func (a *App) beginRebaseFromHere(p *project, base, subject string) {
 	r := &p.rebase
 	r.gen++
 	gen := r.gen
-	root := p.logRepositoryRoot()
 	*r = rebaseState{open: true, gen: gen, busy: true, base: base, subject: subject, session: r.session, root: root}
 	kernel := a.kernel.(rebaseKernel)
 	a.performed("git.rebase.fromHere", surfaceContextMenu)
@@ -234,7 +234,7 @@ func (a *App) loadRebaseSession(p *project) {
 
 // afterRebaseWrite reads the status, the log and the session again after a rebase moved HEAD.
 func (a *App) afterRebaseWrite(p *project) {
-	a.loadGit(p)
+	a.reloadGit(p)
 	if p.log.started {
 		a.loadLog(p)
 	}

@@ -12,6 +12,10 @@ import (
 	"time"
 )
 
+// schemeSelectWidth is the scheme drop-down's width: narrower than other selects, so the
+// scheme and its four actions fit one line of the window at its minimum width in Chinese.
+const schemeSelectWidth = 150
+
 type schemeDraft struct {
 	ready, open   bool
 	operation, id string
@@ -78,7 +82,9 @@ func (w *window) keymapSchemeCard(c ui.C) {
 			ids = append(ids, scheme.ID)
 		}
 		selected := state.Active
-		ui.Row(c).FillWidth().Gap(8).Items(ui.Center).Children(func() {
+		// The scheme and every action on it share one line, wrapping only where the window
+		// is too narrow for them.
+		ui.Flow(c.Part("scheme-actions")).FillWidth().Gap(8).LineGap(8).Items(ui.Center).Children(func() {
 			if ui.Select(c.Part("scheme"), &selected, ids, func(id string) string {
 				for _, scheme := range state.Schemes {
 					if scheme.ID == id {
@@ -89,14 +95,12 @@ func (w *window) keymapSchemeCard(c ui.C) {
 					}
 				}
 				return id
-			}).Width(selectWidth).Label(i18n.Shared(w.marketLanguage(), "desktop.keymapSchemes.scheme")).Changed() {
+			}).Width(schemeSelectWidth).Label(i18n.Shared(w.marketLanguage(), "desktop.keymapSchemes.scheme")).Changed() {
 				w.reduceScheme(core.KeymapSchemeRequest{Operation: "select", ID: selected})
 			}
 			if ui.Button(c, i18n.Shared(w.marketLanguage(), "desktop.keymapImport.title")).Outline().Small().Clicked() {
 				w.openKeymapImport()
 			}
-		})
-		ui.Row(c.Part("scheme-actions")).FillWidth().Gap(8).Items(ui.Center).Children(func() {
 			begin := func(operation string) {
 				s.operation, s.id, s.open = operation, state.Active, true
 				s.name.SetText("")

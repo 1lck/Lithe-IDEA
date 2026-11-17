@@ -71,9 +71,11 @@ jobs:
           bash -n scripts/desktop/build-desktop-core.sh
           bash -n scripts/desktop/desktop-go.sh
           bash -n scripts/desktop/package-desktop.sh
+          bash -n scripts/desktop/build-viva-tool.sh
           bash -n scripts/desktop/perf/editor-bench.sh
           bash -n scripts/ci/desktop-release/package-release.sh
           bash -n scripts/ci/desktop-release/resolve-release-version.sh
+          bash -n scripts/ci/desktop-release/publish-update-feed.sh
           bash -n scripts/ci/desktop-autobuild/package-autobuild.sh
           bash -n scripts/ci/desktop-autobuild/publish-autobuild.sh
           zsh -n scripts/desktop/generate-desktop-icons.sh
@@ -86,9 +88,11 @@ jobs:
             scripts/desktop/build-desktop-core.sh \
             scripts/desktop/desktop-go.sh \
             scripts/desktop/package-desktop.sh \
+            scripts/desktop/build-viva-tool.sh \
             scripts/desktop/perf/editor-bench.sh \
             scripts/ci/desktop-release/package-release.sh \
             scripts/ci/desktop-release/resolve-release-version.sh \
+            scripts/ci/desktop-release/publish-update-feed.sh \
             scripts/ci/desktop-autobuild/package-autobuild.sh \
             scripts/ci/desktop-autobuild/publish-autobuild.sh
 
@@ -124,7 +128,7 @@ jobs:
             scripts/desktop/perf/editor-perf-report.test.mjs \
             scripts/ci/cancel-closed-pr-runs/cancel-closed-pr-runs.test.mjs \
             scripts/ci/desktop-ci/verify-ci-gate.test.mjs
-          node --test --test-concurrency=1 scripts/ci/desktop-autobuild/package-autobuild.test.mjs scripts/ci/common/desktop-packages.test.mjs scripts/ci/desktop-release/package-release.test.mjs
+          node --test --test-concurrency=1 scripts/ci/desktop-autobuild/package-autobuild.test.mjs scripts/ci/common/desktop-packages.test.mjs scripts/ci/desktop-release/package-release.test.mjs scripts/ci/desktop-release/resolve-release-version.test.mjs scripts/ci/desktop-release/publish-update-feed.test.mjs
 
   linux-test:
     name: Vet and test on Linux
@@ -165,12 +169,12 @@ jobs:
       - name: Vet and test
         run: ./scripts/desktop/check.sh
 
-      - name: Upload native cache regression report
+      - name: Upload native verification reports
         if: always()
         uses: actions/upload-artifact@v7
         with:
           name: core-cache-${{ runner.os }}-${{ runner.arch }}
-          path: .artifacts/test-stability/core-cache.junit.xml
+          path: .artifacts/test-stability/
           if-no-files-found: warn
           retention-days: 14
 
@@ -218,12 +222,42 @@ jobs:
       - name: Vet and test
         run: ./scripts/desktop/check.sh
 
-      - name: Upload native cache regression report
+      - name: Capture native settings and diagnostic screenshots
+        env:
+          LITHE_VISUAL_OUTPUT_DIR: ${{ github.workspace }}/.artifacts/native-settings-visual
+        run: |
+          ./scripts/desktop/desktop-go.sh test -tags 'vivahead lithevisual' ./internal/settingswindow ./internal/workbench -run '^(TestVisualNativeSettingsForm|TestVisualDiagnosticUnderline|TestVisualUpdatesPage|TestVisualUpdateDialog)$' -count=1 -timeout=120s
+          test_bash="$BASH"
+          if command -v cygpath >/dev/null 2>&1; then
+            test_bash="$(cygpath -w "$BASH")"
+            case "$test_bash" in
+              *.[Ee][Xx][Ee]) ;;
+              *) test_bash="$test_bash.exe" ;;
+            esac
+          fi
+          for language in en zh-Hans; do
+            LITHE_VISUAL_LANGUAGE="$language" LITHE_VISUAL_OUTPUT_DIR="$LITHE_VISUAL_OUTPUT_DIR/$language" \
+              node .agents/skills/write-stable-tests/scripts/run-go-tests-with-timing.mjs \
+                --report ".artifacts/test-stability/global-sdk-$language.json" --suite-timeout-ms 240000 -- \
+                "$test_bash" scripts/desktop/desktop-go.sh test -json -tags 'vivahead lithevisual' ./internal/settingswindow \
+                -run '^TestVisualSettings$/33-settings-toolchains' -count=1 -timeout=120s
+          done
+
+      - name: Upload native settings visual evidence
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: native-settings-visual-${{ runner.os }}-${{ runner.arch }}
+          path: .artifacts/native-settings-visual/**/*.png
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Upload native verification reports
         if: always()
         uses: actions/upload-artifact@v7
         with:
           name: core-cache-${{ runner.os }}-${{ runner.arch }}
-          path: .artifacts/test-stability/core-cache.junit.xml
+          path: .artifacts/test-stability/
           if-no-files-found: warn
           retention-days: 14
 
@@ -288,12 +322,42 @@ jobs:
       - name: Vet and test
         run: ./scripts/desktop/check.sh
 
-      - name: Upload native cache regression report
+      - name: Capture native settings and diagnostic screenshots
+        env:
+          LITHE_VISUAL_OUTPUT_DIR: ${{ github.workspace }}/.artifacts/native-settings-visual
+        run: |
+          ./scripts/desktop/desktop-go.sh test -tags 'vivahead lithevisual' ./internal/settingswindow ./internal/workbench -run '^(TestVisualNativeSettingsForm|TestVisualDiagnosticUnderline|TestVisualUpdatesPage|TestVisualUpdateDialog)$' -count=1 -timeout=120s
+          test_bash="$BASH"
+          if command -v cygpath >/dev/null 2>&1; then
+            test_bash="$(cygpath -w "$BASH")"
+            case "$test_bash" in
+              *.[Ee][Xx][Ee]) ;;
+              *) test_bash="$test_bash.exe" ;;
+            esac
+          fi
+          for language in en zh-Hans; do
+            LITHE_VISUAL_LANGUAGE="$language" LITHE_VISUAL_OUTPUT_DIR="$LITHE_VISUAL_OUTPUT_DIR/$language" \
+              node .agents/skills/write-stable-tests/scripts/run-go-tests-with-timing.mjs \
+                --report ".artifacts/test-stability/global-sdk-$language.json" --suite-timeout-ms 240000 -- \
+                "$test_bash" scripts/desktop/desktop-go.sh test -json -tags 'vivahead lithevisual' ./internal/settingswindow \
+                -run '^TestVisualSettings$/33-settings-toolchains' -count=1 -timeout=120s
+          done
+
+      - name: Upload native settings visual evidence
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: native-settings-visual-${{ runner.os }}-${{ runner.arch }}
+          path: .artifacts/native-settings-visual/**/*.png
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Upload native verification reports
         if: always()
         uses: actions/upload-artifact@v7
         with:
           name: core-cache-${{ runner.os }}-${{ runner.arch }}
-          path: .artifacts/test-stability/core-cache.junit.xml
+          path: .artifacts/test-stability/
           if-no-files-found: warn
           retention-days: 14
 

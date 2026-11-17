@@ -560,11 +560,26 @@ func (a *App) hoverCovers(d *document, line, column int) bool {
 // dropped so it cannot replace this one.
 func (a *App) holdSemanticHover() {
 	a.stopSemanticHoverHide()
+	a.dropHoverCandidate()
+	a.cancelSemanticKind(pluginSemanticHover)
+}
+
+// leaveSemanticHover ends the hover once the pointer has left the text, it was dismissed or the
+// text moved under the pointer: the popup closes, a hover already asked for is dropped and the
+// character the pointer rested on is forgotten, so resting there again asks again.
+func (a *App) leaveSemanticHover() {
+	a.closeSemanticHover()
+	a.cancelSemanticKind(pluginSemanticHover)
+	a.dropHoverCandidate()
+}
+
+// dropHoverCandidate stops the wait before asking for a hover and forgets the character it was
+// for. pointPluginHover does not ask again for the character it already waits on or asked for.
+func (a *App) dropHoverCandidate() {
 	if a.semantics.candidate.cancel != nil {
 		a.semantics.candidate.cancel()
 	}
 	a.semantics.candidate = hoverCandidate{}
-	a.cancelSemanticKind(pluginSemanticHover)
 }
 
 // releaseSemanticHover starts the delay after which a pointer hover the pointer left closes.
@@ -616,20 +631,26 @@ func (a *App) stopSemanticHoverHide() {
 	a.semantics.hideToken++
 }
 
-// hoverTrackPointer follows the pointer over the whole window for an open pointer hover: inside
-// the popup it holds the hover, over the editor the editor decides, and anywhere else the hover
-// starts to close. It runs before the pointer reaches the element under it.
+// hoverTrackPointer follows the pointer over the whole window: inside the popup of an open pointer
+// hover it holds the hover, over the editor the editor decides, and anywhere else the character
+// the pointer rested on is forgotten and an open pointer hover starts to close. It runs before
+// the pointer reaches the element under it, and is the only handler that sees the pointer go
+// from the editor to another element, which gives the editor no exit.
 func (a *App) hoverTrackPointer(event gfx.PointerEvent) {
-	hover := &a.semantics.hover
-	if event.Kind != gfx.PointerMove || !hover.open || !hover.fromPointer {
+	if event.Kind != gfx.PointerMove {
 		return
 	}
-	if pointInRect(hover.rect, event.X, event.Y) {
+	hover := &a.semantics.hover
+	pointerHover := hover.open && hover.fromPointer
+	if pointerHover && pointInRect(hover.rect, event.X, event.Y) {
 		a.holdSemanticHover()
 		return
 	}
 	if _, d := a.pluginSemanticHit(event.Target); d != nil {
 		return
 	}
-	a.releaseSemanticHover()
+	a.dropHoverCandidate()
+	if pointerHover {
+		a.releaseSemanticHover()
+	}
 }

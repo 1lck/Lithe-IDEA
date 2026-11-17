@@ -6,12 +6,18 @@ import (
 	"testing"
 
 	"github.com/1lck/Lithe-IDEA/desktop/internal/localshell"
+	"github.com/1lck/Lithe-IDEA/desktop/internal/shellkind"
 )
 
+// fakeShell is a shell the test drives: output is what the next Drain returns, input
+// keeps what the view wrote, and kind and busy are what the shell reports.
 type fakeShell struct {
 	output []byte
+	input  []byte
 	done   chan struct{}
 	err    error
+	kind   shellkind.Kind
+	busy   bool
 }
 
 func (s *fakeShell) Drain(dst []byte) []byte {
@@ -19,12 +25,16 @@ func (s *fakeShell) Drain(dst []byte) []byte {
 	s.output = nil
 	return dst
 }
-func (s *fakeShell) Write([]byte) bool     { return true }
+func (s *fakeShell) Write(p []byte) bool {
+	s.input = append(s.input, p...)
+	return true
+}
 func (s *fakeShell) Resize(int, int)       {}
 func (s *fakeShell) Done() <-chan struct{} { return s.done }
 func (s *fakeShell) Err() error            { return s.err }
 func (s *fakeShell) Close()                {}
-func (s *fakeShell) Busy() bool            { return false }
+func (s *fakeShell) Busy() bool            { return s.busy }
+func (s *fakeShell) Kind() shellkind.Kind  { return s.kind }
 
 type exitStatus int
 
@@ -119,5 +129,27 @@ func TestStartFailureIsAnExitOfAnOwnedView(t *testing.T) {
 	view.ensureStarted()
 	if !failed {
 		t.Fatal("a program that cannot start was not reported as ended")
+	}
+}
+
+// A shell that starts on a fallback (on Windows, the inbox ConPTY in place of the one the
+// client carries) runs as usual, and the log is told why it runs degraded.
+func TestAShellStartedOnAFallbackIsLoggedAndKeepsRunning(t *testing.T) {
+	reason := errors.New("conpty: install conpty.dll: access denied")
+	var failures []Failure
+	fake := &fakeShell{done: make(chan struct{})}
+	view := New(Config{Shell: "tool", Args: []string{}, Failed: func(f Failure) { failures = append(failures, f) },
+		start: func(config localshell.Config) (shell, error) {
+			config.Degraded(reason)
+			return fake, nil
+		}})
+	t.Cleanup(func() { view.Close() })
+	view.ensureStarted()
+	if view.shell != fake || view.ended {
+		t.Fatal("a shell started on a fallback did not run in the view")
+	}
+	want := Failure{Event: eventBackgroundFailed, Operation: operationConPTY, Warn: true, Err: reason}
+	if len(failures) != 1 || failures[0] != want {
+		t.Fatalf("the view logged %+v, want %+v", failures, want)
 	}
 }

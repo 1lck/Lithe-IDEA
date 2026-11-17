@@ -61,30 +61,3 @@ func TestWorkspaceDirectoryTreeUsesCoreNaturalOrder(t *testing.T) {
 		t.Fatalf("directory order = %v, want %v", got, want)
 	}
 }
-
-func TestWorkspaceDirectoryAndSearchHidePythonEnvironments(t *testing.T) {
-	root := t.TempDir()
-	for _, dir := range []string{".venv", "venv", "__pycache__"} {
-		if err := os.Mkdir(filepath.Join(root, dir), 0o700); err != nil {
-			t.Fatal(err)
-		}
-		if err := os.WriteFile(filepath.Join(root, dir, "hidden.py"), []byte("distinctive needle"), 0o600); err != nil {
-			t.Fatal(err)
-		}
-	}
-	for _, name := range []string{"main.py", "compiled.pyc"} {
-		if err := os.WriteFile(filepath.Join(root, name), []byte("distinctive needle"), 0o600); err != nil {
-			t.Fatal(err)
-		}
-	}
-	client := NewClient()
-	ctx := testContext(t)
-	listings, err := client.ListDirectories(ctx, root, []string{""})
-	if err != nil || len(listings) != 1 || len(listings[0].Children) != 1 || listings[0].Children[0].Name != "main.py" {
-		t.Fatalf("visible directory entries = %+v, error = %v", listings, err)
-	}
-	matches, err := client.SearchWorkspace(ctx, WorkspaceSearchRequest{Root: root, Query: "distinctive needle", MaxResults: 20})
-	if err != nil || len(matches) != 1 || matches[0].Path != "main.py" {
-		t.Fatalf("search matches = %+v, error = %v", matches, err)
-	}
-}

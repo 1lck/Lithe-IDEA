@@ -4,7 +4,7 @@
 #   resolve-release-version.sh <version or desktop-v tag>
 #
 # The version must be MAJOR.MINOR.PATCH, equal the [app] version of desktop/viva.toml (the
-# version the package carries), and have stable release notes at docs/releases/desktop-v<version>.md.
+# version the package carries), and have stable release notes at docs/releases/v<version>.md.
 # When GITHUB_OUTPUT is set, version and tag are written to it.
 set -euo pipefail
 
@@ -26,7 +26,7 @@ if [[ "$manifest_version" != "$version" ]]; then
 fi
 
 tag="desktop-v$version"
-node "$ROOT_DIR/scripts/release/notes/validate-stable-release-notes.mjs" "$ROOT_DIR/docs/releases/$tag.md"
+node "$ROOT_DIR/scripts/release/notes/validate-stable-release-notes.mjs" "$ROOT_DIR/docs/releases/v$version.md"
 
 if [[ -n "${GITHUB_OUTPUT:-}" ]]; then
     {

@@ -389,7 +389,7 @@ func (a *App) shelfWrite(p *project, operation string, checkout bool, write func
 			s := &p.shelf
 			s.busy = false
 			if checkout {
-				a.loadGit(p)
+				a.reloadGit(p)
 				a.reloadDiffs(p, root)
 			}
 			a.loadShelves(p)

@@ -5,6 +5,7 @@ package localshell
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"golang.org/x/sys/windows/registry"
@@ -33,6 +34,65 @@ func TestWindowsShellDiscoveryFindsInstallationsOutsidePATH(t *testing.T) {
 		}
 	}
 	t.Fatalf("installed PowerShell was not detected: %+v", choices)
+}
+
+// writeStorePowerShell puts a stand-in for the Store PowerShell alias under a new
+// LOCALAPPDATA, in the folder named for the package when family is set and at the
+// WindowsApps root otherwise, and returns the LOCALAPPDATA and the alias.
+func writeStorePowerShell(t *testing.T, family string) (local, path string) {
+	t.Helper()
+	local = t.TempDir()
+	dir := filepath.Join(local, "Microsoft", "WindowsApps")
+	if family != "" {
+		dir = filepath.Join(dir, family)
+	}
+	path = filepath.Join(dir, "pwsh.exe")
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, []byte("test executable location"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	return local, path
+}
+
+// A Store install registers an app execution alias under WindowsApps instead of
+// adding itself to PATH. Windows exposes the alias at the root and in the folder
+// named for the package; the package's own command resolution reports the latter.
+func TestWindowsShellDiscoveryFindsTheStorePowerShellAlias(t *testing.T) {
+	for _, family := range []string{"", storePowerShellFamily} {
+		t.Run("folder="+family, func(t *testing.T) {
+			local, path := writeStorePowerShell(t, family)
+			t.Setenv("PATH", t.TempDir())
+			t.Setenv("LOCALAPPDATA", local)
+			t.Setenv("USERPROFILE", t.TempDir())
+			t.Setenv("ProgramW6432", t.TempDir())
+			t.Setenv("ProgramFiles", t.TempDir())
+			t.Setenv("ProgramFiles(x86)", "")
+			choices := InstalledWindowsShells()
+			for _, choice := range choices {
+				if choice.Name == "PowerShell 7" {
+					if !strings.EqualFold(choice.Path, path) {
+						t.Fatalf("PowerShell path=%q, want %q", choice.Path, path)
+					}
+					return
+				}
+			}
+			t.Fatalf("the Store PowerShell was not detected: %+v", choices)
+		})
+	}
+}
+
+// A Store PowerShell is installed, so it is the default shell even though its
+// alias directory is not on this process's PATH and Windows PowerShell 5.1 is.
+func TestWindowsDefaultShellPrefersTheStorePowerShell(t *testing.T) {
+	local, path := writeStorePowerShell(t, storePowerShellFamily)
+	t.Setenv("PATH", t.TempDir())
+	t.Setenv("LOCALAPPDATA", local)
+	t.Setenv("COMSPEC", filepath.Join(t.TempDir(), "cmd.exe"))
+	if got := defaultShell(); !strings.EqualFold(got, path) {
+		t.Fatalf("default shell=%q, want the Store PowerShell %q", got, path)
+	}
 }
 
 // TestWindowsShellDiscoveryFindsCygwin covers the setup program's default

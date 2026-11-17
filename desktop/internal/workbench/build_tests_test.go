@@ -129,6 +129,13 @@ func TestBuildWindowRunsProjectTargetAndDiscoveredTests(t *testing.T) {
 	}
 	runTests := i18n.Shared(h.app.language(), "native.runTests")
 
+	// The library's targets show in its Targets folder, which starts closed.
+	setBuildNodeOpen(t, p, laidOutBuildRows(t, h, p), true, "library", h.app.text.Build.Targets)
+	showBuild()
+	if h.labelBounds("libapp") == (gfx.Rect{}) || h.labelBounds("libtests") == (gfx.Rect{}) {
+		t.Fatal("the opened Targets folder does not show the library's targets")
+	}
+
 	// A project runs its own tests.
 	h.rightClickAt(h.labelBounds("library"))
 	h.click(center(h.popupHit(runTests)))
@@ -154,7 +161,9 @@ func TestBuildWindowRunsProjectTargetAndDiscoveredTests(t *testing.T) {
 		t.Fatalf("target run request = %+v", request)
 	}
 
-	// Discovery runs when asked and lists the provider's tests; one runs alone.
+	// Discovery runs when asked, from the Discovered Tests folder, and lists the provider's
+	// tests; one runs alone.
+	setBuildNodeOpen(t, p, laidOutBuildRows(t, h, p), true, i18n.Shared(h.app.language(), "native.discoveredTests"))
 	showBuild()
 	h.clickNamed(i18n.Shared(h.app.language(), "native.discoverTests"))
 	awaitStateWithin(t, h, 60*time.Second, "the discovered tests", func() bool {

@@ -11,10 +11,73 @@ import (
 	"time"
 
 	"github.com/1lck/Lithe-IDEA/desktop/internal/core"
+	"github.com/1lck/Lithe-IDEA/desktop/internal/pluginpkg"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/pluginservice"
+	"github.com/1lck/Lithe-IDEA/desktop/internal/pluginstate"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/store"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/toolchain"
 )
+
+// Discovery is inert here: the test owns source failures, never the user's SDKs.
+type catalogSourceKernel struct{ *testKernel }
+
+func (*catalogSourceKernel) ToolchainDiscoveryPlanOf(context.Context, json.RawMessage, string) (core.ToolchainDiscoveryPlan, error) {
+	return core.ToolchainDiscoveryPlan{}, nil
+}
+
+func TestGlobalToolchainsDoNotHideAnUnreadableEnabledPlugin(t *testing.T) {
+	preferences, root := store.At(t.TempDir()), t.TempDir()
+	service, err := pluginservice.Open(core.NewClient(), preferences, root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, id := range []string{"dev.example.catalog-readable", "dev.example.catalog-unreadable"} {
+		staging, err := pluginpkg.NewStaging(root)
+		if err != nil {
+			t.Fatal(err)
+		}
+		fixture, err := os.ReadFile("../toolchain/testdata/compiler.plugin.json")
+		if err != nil {
+			t.Fatal(err)
+		}
+		var document map[string]any
+		if err := json.Unmarshal(fixture, &document); err != nil {
+			t.Fatal(err)
+		}
+		document["id"] = id
+		definition := document["toolDefinitions"].([]any)[0].(map[string]any)
+		definition["id"] = id + ":compiler"
+		manifest, err := json.Marshal(document)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(staging, pluginpkg.ManifestFile), manifest, 0600); err != nil {
+			t.Fatal(err)
+		}
+		installed, err := pluginpkg.Install(root, id, "1.0.0", staging)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := pluginstate.New(preferences).SetEnabled(id, true); err != nil {
+			t.Fatal(err)
+		}
+		if id == "dev.example.catalog-unreadable" {
+			if err := os.Remove(filepath.Join(installed.Path, pluginpkg.ManifestFile)); err != nil {
+				t.Fatal(err)
+			}
+		}
+	}
+	app := &App{kernel: &catalogSourceKernel{&testKernel{Client: core.NewClient()}}, store: preferences, plugins: service}
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	_, err = (settingsToolchains{app: app}).LoadScope(ctx, "global")
+	if !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("global SDK settings discarded the native read failure: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(preferences.Dir(), "toolchains", "global.json")); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("a failed read wrote a global catalog: %v", err)
+	}
+}
 
 func TestToolchainSettingsRejectSaveForAnotherOrClosedProject(t *testing.T) {
 	for _, closed := range []bool{false, true} {
@@ -59,7 +122,7 @@ func (k *settingsScopeKernel) EditToolchainPinSources(ctx context.Context, reque
 func TestToolchainSettingsSaveRereadsItsCapturedProject(t *testing.T) {
 	original, current := t.TempDir(), t.TempDir()
 	kernel := &settingsScopeKernel{testKernel: &testKernel{Client: core.NewClient()}}
-	app := &App{kernel: kernel}
+	app := &App{kernel: kernel, store: store.At(t.TempDir())}
 	app.toolchainRoot.Store(&original)
 	kernel.onEdit = func() { app.toolchainRoot.Store(&current) }
 	plugins, err := pluginservice.Open(core.NewClient(), store.At(t.TempDir()), t.TempDir())
@@ -107,7 +170,7 @@ func testToolchainSettingsWorkspaceReplacement(t *testing.T, duringEdit bool) {
 		t.Fatal(err)
 	}
 	kernel := &settingsScopeKernel{testKernel: &testKernel{Client: core.NewClient()}, onEdit: func() {}}
-	app := &App{kernel: kernel}
+	app := &App{kernel: kernel, store: store.At(t.TempDir())}
 	app.toolchainRoot.Store(&original)
 	plugins, err := pluginservice.Open(core.NewClient(), store.At(t.TempDir()), t.TempDir())
 	if err != nil {
@@ -168,7 +231,7 @@ func (k *pinReadbackFailureKernel) DecodeToolchainPinDocument(ctx context.Contex
 func TestToolchainSettingsReadbackFailureReportsCommittedSource(t *testing.T) {
 	root := t.TempDir()
 	kernel := &pinReadbackFailureKernel{testKernel: &testKernel{Client: core.NewClient()}}
-	app := &App{kernel: kernel}
+	app := &App{kernel: kernel, store: store.At(t.TempDir())}
 	app.toolchainRoot.Store(&root)
 	plugins, err := pluginservice.Open(core.NewClient(), store.At(t.TempDir()), t.TempDir())
 	if err != nil {

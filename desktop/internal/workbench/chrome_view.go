@@ -150,6 +150,9 @@ func (a *App) titleBar(c ui.C) {
 			}
 		})
 		a.chrome.placeZone(zoneTitle, zone)
+		// The update arrow is not one of the arranged buttons: it shows only while a version
+		// waits, at the very end, where Motty has it.
+		a.updateArrow(c)
 		// The line is out of the flow so that the buttons are centered in the whole bar.
 		ui.Row(c).Absolute().Left(0).Right(0).Bottom(0).Height(1).Background(a.colors.Line)
 	})
@@ -544,7 +547,7 @@ func (a *App) chromeStatusLabel(c ui.C, text string) {
 // chromeBranch declares the checked-out branch as the button that opens the branch popup, and
 // shows nothing when the project is not a repository. The popup hangs off the button.
 func (a *App) chromeBranch(c ui.C) {
-	name := a.project.git.branch()
+	name := a.project.titleBranch()
 	if name == "" {
 		if a.branch.open {
 			// The project stopped being a repository, so the popup has no branch to hang off.

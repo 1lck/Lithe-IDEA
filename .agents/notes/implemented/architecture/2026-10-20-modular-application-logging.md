@@ -92,7 +92,7 @@ Foundation URL 对活动文件首次查询时缓存的大小。
 目录；查看和导出读取有效目录，不另行推导默认文件。收集和删除必须严格识别本模块
 生成的完整文件名，不能把自定义目录里所有 `lithe.*.log` 都当作可清理文件。旧版平铺日志可通过全部会话
 选择读取。所有文件都属于用户运行状态，不进入签名包，不影响 Sparkle 增量更新。
-资源清单的 `application-log-state` 禁止跨工作树复制日志与导出暂存目录。
+日志与导出暂存目录不跨工作树复制。
 
 ### 让确认对应最终内容
 
@@ -129,7 +129,6 @@ Windows 预览只保存已经脱敏的内存快照，最多四份、五分钟有
 - `./scripts/desktop/desktop-go.sh test ./internal/core -run 'Logging|Diagnostic'`：Core 日志与诊断规则。
 - `./scripts/desktop/verify/verify-runtime-bundle-immutability.sh`：日志与导出不写发行目录。
 - `./scripts/agent-notes/verify-agent-notes.sh`：Note 格式与路径。
-- `node scripts/resources/test-reuse-worktree-resources.mjs`：日志状态禁止跨工作树复制。
 
 ## 适用范围
 
@@ -139,4 +138,3 @@ Windows 预览只保存已经脱敏的内存快照，最多四份、五分钟有
 - `desktop/internal/logstore/`
 - `desktop/internal/logwindow/`
 - `desktop/internal/core/logging.go`
-- `scripts/resources/worktree-resources.json`

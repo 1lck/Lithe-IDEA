@@ -209,12 +209,23 @@ func appendBreadcrumb(dst []string, messages *i18n.SettingsMessages, id pageID) 
 	return append(dst, titleOf(messages, id))
 }
 
+// contributedParent is the entry a plugin's settings page of kind is listed under: build
+// systems and compilers under Build, Execution, Deployment, and every other kind under
+// Languages & Frameworks.
+func contributedParent(kind string) pageID {
+	if kind == "buildSystem" || kind == "compiler" {
+		return pageBuild
+	}
+	return pageLanguages
+}
+
 // toggleGroup expands a collapsed group and collapses an expanded one. It does nothing
 // while a search is under way, because the search has expanded every group it lists and
 // the row would otherwise appear to ignore the click, nor for an entry that is not a
-// group.
-func toggleGroup(open *[pageCount]bool, id pageID, searching bool) {
-	if searching || id >= pageCount || !isGroup(id) {
+// group. group says whether id is one now: an entry with pages of its own in the table
+// above, or an entry plugins have put their settings pages under.
+func toggleGroup(open *[pageCount]bool, id pageID, group, searching bool) {
+	if searching || id >= pageCount || !group {
 		return
 	}
 	open[id] = !open[id]
@@ -396,6 +407,9 @@ const (
 	actionCancel
 	// actionClearSearch empties the search field and keeps the window open.
 	actionClearSearch
+	// actionEndRecording stops recording a shortcut on the Keymap page and keeps the window
+	// open.
+	actionEndRecording
 )
 
 // keyContext is what decides what Enter and Escape mean at the moment.
@@ -408,23 +422,30 @@ type keyContext struct {
 	// ownsEnter says the focused control acts on Enter itself: a button presses, a group
 	// row expands and a choice picks. Enter must do that and not also press OK.
 	ownsEnter bool
+	// recording says the Keymap page is recording a shortcut. Enter is a key it may record,
+	// and Escape stops the recording before it could close the window.
+	recording bool
 }
 
 // decideKey says what the window does for key in ctx. Enter is OK and Escape is Cancel,
 // as in the dialogs of an IDE; the exceptions are the cases where another control needs
 // the key. In the search field Enter belongs to the field, and Escape first empties the
-// field and only closes the window when there is nothing left to empty.
+// field and only closes the window when there is nothing left to empty. While a shortcut
+// is being recorded, Escape stops the recording and Enter is the recording's.
 func decideKey(key keyKind, ctx keyContext) keyAction {
 	if ctx.selectOpen {
 		return actionNone
 	}
 	switch key {
 	case keyEnter:
-		if ctx.searching || ctx.ownsEnter {
+		if ctx.searching || ctx.ownsEnter || ctx.recording {
 			return actionNone
 		}
 		return actionAccept
 	case keyEscape:
+		if ctx.recording {
+			return actionEndRecording
+		}
 		if ctx.searching && !ctx.queryEmpty {
 			return actionClearSearch
 		}

@@ -72,14 +72,24 @@ Continue the release only when one of these holds:
 Every release uses a `MAJOR.MINOR.PATCH` version. This covers stable app
 releases, `desktop-v*` desktop prereleases, and plugins, including the
 community plugins in the Lithe-IDEA organization. Compare the release with the
-previous published version of the same artifact, stable or prerelease. Then
-increment the part that matches the most significant change in the release:
+previous published version of the same artifact, stable or prerelease.
 
-| Part | Increment when the release contains | Compatibility | From 1.2.3 |
+Release in small steps. A backward-compatible release increments PATCH, even
+when it adds features:
+
+| Part | Increment when | Compatibility | From 1.2.3 |
 | --- | --- | --- | --- |
-| PATCH | Only backward-compatible bug fixes and small improvements | Fully compatible; users upgrade without doing anything | 1.2.4 |
-| MINOR | New features, with every existing feature unchanged | Backward compatible; nothing users rely on changes | 1.3.0 |
-| MAJOR | At least one breaking change | Not compatible with the previous version; users may need to change something | 2.0.0 |
+| PATCH | The release is backward compatible: bug fixes, improvements, and new features | Fully compatible; users upgrade without doing anything | 1.2.4 |
+| MINOR | The user explicitly asks for a MINOR release for this version | Backward compatible; nothing users rely on changes | 1.3.0 |
+| MAJOR | The release contains at least one breaking change | Not compatible with the previous version; users may need to change something | 2.0.0 |
+
+- Do not increment MINOR because a release contains new features. List the
+  features in the release notes instead.
+- Increment MINOR only when the user asks for it for the release being
+  prepared. A request applies to that one release and does not carry over to
+  later releases. Do not propose a MINOR increment yourself.
+- PATCH keeps counting past 9: 0.8.9 is followed by 0.8.10, not 0.9.0. The
+  desktop update check and the Lithe Store compare each part as a number.
 
 A change is breaking when a user of the previous version cannot upgrade
 without doing something, or loses something they relied on.
@@ -258,6 +268,33 @@ before committing the notes.
 - Check the comparison range, current platform requirements, bundled tools,
   signing status, updater availability, and known issues against the target
   commit and release configuration.
+- For a desktop release, check the in-app update feed it publishes: the
+  `update-feed` job of `desktop-release.yml` runs
+  `scripts/ci/desktop-release/publish-update-feed.sh` once the release holds
+  the packages. The repository needs the Actions secret `VIVA_UPDATE_KEY`, the
+  Ed25519 private key from `viva update-keygen`, which only that job receives
+  and which is never committed. It also needs the variable
+  `LITHE_UPDATE_PUBLIC_KEYS`, the matching public keys separated by commas,
+  which every package carries. One of those public keys belongs to a backup
+  private key kept offline, outside GitHub. A lost key is replaced by the
+  backup. A leaked key must be removed from the variable and followed by a
+  release signed with the remaining key, because clients accept any key they
+  carry and adding a key does not revoke one. Without the secret the job
+  publishes nothing and installed copies are not offered the release; without
+  the variable the packages cannot check for updates at all. The update dialog shows
+  `docs/releases/v<version>.md` as what the update changes, so the notes must
+  read well there too. A feed that already offers a later version is left as
+  it is. When the feed rules change after a release (for example which clients
+  get a patch), dispatch `desktop-release.yml` with that release's `version` and
+  `feed_only` on: it builds and uploads nothing but signs the feed again from
+  the published packages with the current script. It is a publication like any
+  other and needs the user's explicit request. See
+  `.agents/notes/implemented/feature/2026-11-15-desktop-update-channels-and-dialog.md`.
+- For a desktop release, confirm that the published release is marked Latest
+  on GitHub. The `release` job of `desktop-release.yml` marks it Latest
+  unless a published desktop release has a higher version, so that
+  `releases/latest` and the README download links lead to it. Never pass
+  `--latest=false` for the release of the highest desktop version.
 - Run `actionlint` after changing a GitHub Actions workflow. Run any focused
   packaging or manifest checks required by `develop-lithe` for other release
   changes.

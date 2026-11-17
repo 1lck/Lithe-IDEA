@@ -60,6 +60,87 @@ func fixtureOptions(home, vmHome string, outputs map[string]string) Options {
 	}
 }
 
+// An environment installation is an automatic choice even when no discovery
+// scan found it. The page must describe the same selection the runtime uses.
+func TestAutomaticHomeIncludesTheResolvedEnvironment(t *testing.T) {
+	root, home, vmHome := t.TempDir(), t.TempDir(), t.TempDir()
+	vm := filepath.Join(vmHome, "jre", "bin", "vm")
+	writeExecutable(t, vm)
+	vm = canonical(t, vm)
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	defer cancel()
+	snapshot, err := Load(ctx, core.NewClient(), root, ".", []json.RawMessage{readManifest(t, "runtime.plugin.json")},
+		fixtureOptions(home, vmHome, map[string]string{vm: "vm 7.1\n"}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(snapshot.Tools) != 1 || snapshot.Tools[0].Effective == nil {
+		t.Fatalf("no effective runtime: %+v", snapshot.Tools)
+	}
+	if snapshot.Tools[0].Effective.Home == nil {
+		t.Fatal("the resolved installation has no home")
+	}
+	if got, want := snapshot.Tools[0].AutomaticHome, *snapshot.Tools[0].Effective.Home; got != want {
+		t.Fatalf("automatic home = %q, runtime home = %q", got, want)
+	}
+}
+
+// A home reached only through the PATH or a declared variable is one the runtime
+// runs, so it must be an installation a picker can offer even when no discovery
+// scan covers it (#2032: a JDK on the Windows PATH, where the plugin declares no scan).
+func TestShellHomesAreInstallationsWithoutADiscoveryScan(t *testing.T) {
+	root, home := t.TempDir(), t.TempDir()
+	pathHome, variableHome := t.TempDir(), t.TempDir()
+	onPath := filepath.Join(pathHome, "jre", "bin", "vm")
+	writeExecutable(t, onPath)
+	onPath = canonical(t, onPath)
+	byVariable := filepath.Join(variableHome, "jre", "bin", "vm")
+	writeExecutable(t, byVariable)
+	byVariable = canonical(t, byVariable)
+	options := fixtureOptions(home, variableHome, map[string]string{onPath: "vm 8.0\n", byVariable: "vm 7.1\n"})
+	options.Lookup = func(command string) (string, error) {
+		if command != "fictional-vm" {
+			return "", errors.New("no command")
+		}
+		return onPath, nil
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	defer cancel()
+	snapshot, err := Load(ctx, core.NewClient(), root, ".", []json.RawMessage{readManifest(t, "runtime.plugin.json")}, options)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(snapshot.Tools) != 1 {
+		t.Fatalf("tools = %+v", snapshot.Tools)
+	}
+	tool := snapshot.Tools[0]
+	got := map[string]string{}
+	for _, installation := range tool.Installations {
+		got[filepath.Clean(installation.Home)] = installation.Version + " " + installation.Provider
+	}
+	want := map[string]string{
+		filepath.Dir(filepath.Dir(filepath.Dir(onPath))):     "8.0 host:shell",
+		filepath.Dir(filepath.Dir(filepath.Dir(byVariable))): "7.1 host:shell",
+	}
+	if len(got) != len(want) {
+		t.Fatalf("installations = %+v, want %v", tool.Installations, want)
+	}
+	for home, entry := range want {
+		if got[home] != entry {
+			t.Fatalf("installation %s = %q, want %q (all: %+v)", home, got[home], entry, tool.Installations)
+		}
+	}
+	commands := 0
+	for _, shell := range tool.Shell {
+		if shell.Command == "fictional-vm" {
+			commands++
+		}
+	}
+	if commands != 1 {
+		t.Fatalf("shell rows = %+v, want one for the PATH command", tool.Shell)
+	}
+}
+
 func TestLoadDiscoversTwoSemanticallyDifferentTools(t *testing.T) {
 	root := t.TempDir()
 	home := t.TempDir()

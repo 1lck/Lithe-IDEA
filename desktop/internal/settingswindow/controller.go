@@ -74,6 +74,14 @@ type Values struct {
 	// TerminalScrollback is the history lines a new terminal keeps, within
 	// MinScrollback and MaxScrollback.
 	TerminalScrollback int
+	// TerminalCursorShape is the shape the terminal cursor takes until a program asks for
+	// its own (CursorShapeBlock, CursorShapeBar or CursorShapeUnderline), and
+	// TerminalCursorThickness how thick a bar or an underline draws (CursorThicknessThin,
+	// CursorThicknessNormal or CursorThicknessThick).
+	TerminalCursorShape     string
+	TerminalCursorThickness string
+	// TerminalBehavior is the Terminal page's switches; the zero value is the default of each.
+	TerminalBehavior TerminalBehavior
 	// Fonts are the fonts of the editor, the terminal and the run output, as
 	// fontprefs.Normalize returns them. Nil is fontprefs.Default, the system's fixed-pitch
 	// font for every place.
@@ -86,6 +94,13 @@ type Values struct {
 	// updates the parent repositories' references in the Commit window; both show by default.
 	HideChangeLists      bool
 	HideParentReferences bool
+	// GitLogLimit and GitLogMergedLimit are the most commits the Git Log reads of one repository
+	// and of several at once, within MinGitLogLimit and MaxGitLogLimit.
+	GitLogLimit       int
+	GitLogMergedLimit int
+	// GitConsole says which internal Git queries the Git console records and how it draws its
+	// records; the zero value is IntelliJ IDEA's console.
+	GitConsole core.GitConsolePreferences
 	// HideProjectColors leaves the open project's color out of the workbench's chrome,
 	// which shows it by default.
 	HideProjectColors bool
@@ -186,6 +201,17 @@ type ToolchainLoader interface {
 	Save(context.Context, toolchain.Snapshot, []toolchain.Edit) (toolchain.Snapshot, error)
 }
 
+// ToolchainInspector validates an explicit installation with the runtime's
+// resolver. Inspection reads facts and probes a version without saving a pin.
+// ToolchainScopedLoader supplies machine registrations and optional project overrides.
+type ToolchainScopedLoader interface {
+	LoadScope(context.Context, string) (toolchain.Snapshot, error)
+}
+
+type ToolchainInspector interface {
+	Inspect(context.Context, toolchain.Snapshot, string, string) (core.ToolchainSelection, error)
+}
+
 // PluginSettingsLoader reads and publishes captured native sources off the UI thread.
 // Load translates the plugin's own text for the language; a save's readback keeps the
 // language its editor was loaded in.
@@ -197,6 +223,11 @@ type PluginSettingsLoader interface {
 // PluginSettingsActionLoader executes explicit declared actions without saving drafts.
 type PluginSettingsActionLoader interface {
 	Action(context.Context, pluginservice.SettingsEditor, string, bool) (pluginservice.SettingsActionResult, error)
+}
+
+// PluginSourceSettingsLoader publishes only explicitly saved native-source drafts.
+type PluginSourceSettingsLoader interface {
+	SaveSources(context.Context, pluginservice.SettingsEditor, string, pluginsettings.SourceEditor, []core.SourceSettingsEdits) (pluginsettings.SourceEditor, error)
 }
 
 // CommandInstaller finds the commands installed plugins run from the user's system and
@@ -358,6 +389,12 @@ type Options struct {
 	// SetTerminalScrollback hands a change of Values.TerminalScrollback to the settings
 	// owner, like SetTabRows.
 	SetTerminalScrollback func(int)
+	// SetTerminalCursor hands a change of Values.TerminalCursorShape and
+	// Values.TerminalCursorThickness to the settings owner, like SetTabRows.
+	SetTerminalCursor func(shape, thickness string)
+	// SetTerminalBehavior hands a change of Values.TerminalBehavior to the settings owner, like
+	// SetTabRows.
+	SetTerminalBehavior func(TerminalBehavior)
 	// SetFonts hands a change of Values.Fonts to the settings owner, like SetTabRows. The
 	// list it receives is normalized.
 	SetFonts func([]fontprefs.Font)
@@ -373,6 +410,12 @@ type Options struct {
 	// Values.HideParentReferences to the settings owner, like SetHideGitGutter.
 	SetHideChangeLists      func(bool)
 	SetHideParentReferences func(bool)
+	// SetGitLogLimits hands a change of Values.GitLogLimit or Values.GitLogMergedLimit to the
+	// settings owner, like SetHideGitGutter.
+	SetGitLogLimits func(single, merged int)
+	// SetGitConsole hands a change of Values.GitConsole to the settings owner, like
+	// SetHideGitGutter.
+	SetGitConsole func(core.GitConsolePreferences)
 	// SetProcessTermination hands a change of Values.ProcessTermination to the settings
 	// owner, like SetTabRows.
 	SetProcessTermination func(ProcessTermination)
@@ -412,6 +455,15 @@ type Options struct {
 	UpdateNow           func()
 	CancelUpdate        func()
 	SetAutoCheckUpdates func(bool)
+	// SetUpdateChannel switches the channel updates come from, as setUpdateChannel takes it:
+	// now picks stable's latest release at once on the way back from AutoBuild, and restore
+	// brings back the settings saved when Lithe last left the channel. SetUpdateSource sets a
+	// channel's feed, an empty address putting it back on the default. ShowUpdate opens the
+	// update dialog on the workbench window and brings that window forward, where the user
+	// downloads or skips the version. None of them waits.
+	SetUpdateChannel func(channel string, now, restore bool)
+	SetUpdateSource  func(channel, url string)
+	ShowUpdate       func()
 	// OpenURL opens an HTTPS page in the system browser.
 	OpenURL func(string)
 	// SetHideProjectColors hands a change of Values.HideProjectColors to the settings
@@ -532,6 +584,12 @@ func (c *Controller) OpenTerminal(application *app.Application, current Values) 
 // OpenKeymap shows the window on the Keymap page, where the gear menu's Keymap item leads.
 func (c *Controller) OpenKeymap(application *app.Application, current Values) error {
 	return c.open(application, current, pageKeymap)
+}
+
+// OpenVersionControl shows the window on the Version Control page, where the Git console's
+// settings button leads.
+func (c *Controller) OpenVersionControl(application *app.Application, current Values) error {
+	return c.open(application, current, pageVersionControl)
 }
 
 // OpenAI shows the window on the Generation page, where the commit area's settings button leads.

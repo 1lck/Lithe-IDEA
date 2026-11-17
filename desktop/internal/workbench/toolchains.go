@@ -58,7 +58,8 @@ func (a *App) defaultToolchainSelection(ctx context.Context, root, directory, to
 		directory = "."
 	}
 	return toolchain.Resolve(ctx, a.kernel, root, directory, tool, minimumVersion, nil, manifests, toolchain.Options{
-		Platform: buildPlatform(),
+		Platform:   buildPlatform(),
+		GlobalRoot: a.store.Dir(),
 	})
 }
 

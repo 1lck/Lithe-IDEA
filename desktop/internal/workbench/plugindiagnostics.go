@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"sort"
+	"time"
 
 	"github.com/1lck/Lithe-IDEA/desktop/internal/core"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/editorview"
@@ -87,7 +88,7 @@ func (a *App) refreshDocumentMarkers(path string) {
 	if document == nil {
 		return
 	}
-	document.view.SetMarkers(a.documentMarkers(path))
+	a.projectDocumentMarkers(document)
 }
 
 // documentMarkers turns every server's stored diagnostics of one file into view
@@ -183,7 +184,7 @@ func (a *App) refreshOpenDocumentMarkers() {
 		return
 	}
 	for _, document := range a.project.docs.list {
-		document.view.SetMarkers(a.documentMarkers(document.path))
+		a.projectDocumentMarkers(document)
 	}
 }
 
@@ -252,4 +253,42 @@ func (a *App) pluginProblemCount() int {
 		total += count
 	}
 	return total
+}
+
+// Capture immutable text and diagnostics on the owner thread. Geometry that
+// scans a long line belongs to a cancellable worker, never painting or input.
+func (a *App) projectDocumentMarkers(document *document) {
+	if document.markerCancel != nil {
+		document.markerCancel()
+		document.markerCancel = nil
+	}
+	document.markerGeneration++
+	generation, revision := document.markerGeneration, document.view.Revision()
+	text, markers := document.view.TextSnapshot(), a.documentMarkers(document.path)
+	if len(markers) == 0 {
+		document.view.SetMarkers(nil)
+		return
+	}
+	parent, cancel := context.WithCancel(a.project.ctx)
+	document.markerCancel = cancel
+	a.background(a.project, 10*time.Second, func(ctx context.Context) func(*App) {
+		stop := context.AfterFunc(ctx, cancel)
+		defer stop()
+		defer cancel()
+		projected, err := editorview.ProjectMarkers(parent, text, markers)
+		return func(a *App) {
+			if document.markerGeneration != generation {
+				return
+			}
+			document.markerCancel = nil
+			if err != nil {
+				// log-exempt: 用户取消：替换诊断或关闭文档取消旧几何准备。
+				if !errors.Is(err, context.Canceled) {
+					a.backgroundFailed("diagnostic_geometry", err)
+				}
+				return
+			}
+			document.view.SetProjectedMarkers(projected, revision)
+		}
+	})
 }

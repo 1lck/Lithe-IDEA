@@ -128,6 +128,11 @@ func (s *Store) load() (file, error) {
 	if err != nil {
 		return file{}, fmt.Errorf("read plugin approvals: %w", err)
 	}
+	// Approvals are read whole or not at all: one stored in a shape this version cannot read
+	// fails the read as before, instead of leaving that plugin unapproved without a word.
+	if err := s.preferences.Unread(approvalsFile); err != nil {
+		return file{}, fmt.Errorf("read plugin approvals: %w", err)
+	}
 	if !found {
 		contents = file{SchemaVersion: 1}
 	}

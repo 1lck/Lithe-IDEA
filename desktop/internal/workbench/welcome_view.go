@@ -48,6 +48,12 @@ func (a *App) welcomePanel(c ui.C) {
 		title.Children(func() {
 			ui.Text(c, i18n.Shared(a.language(), "welcome.title")).FontSize(13).Bold()
 		})
+		// The update arrow sits at the top right, as on the workbench's title bar, clear of the
+		// system's window buttons where they are on that side.
+		_, trailing := app.TitlebarInsets()
+		ui.Row(c).Absolute().Top(0).Right(trailing + chromeEdge).Height(titleBarHeight).Items(ui.Center).Children(func() {
+			a.updateArrow(c)
+		})
 	})
 }
 

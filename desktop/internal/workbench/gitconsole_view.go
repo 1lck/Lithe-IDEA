@@ -81,8 +81,8 @@ func (a *App) drawConsoleToolbar(c ui.C) {
 		}
 		ui.Spacer(c)
 		empty := len(v.snapshot.Records) == 0
-		if a.gitIconButton(c, t.HideQueries, icons.EyeOff, v.hideQueries, false) {
-			c.After(a.toggleConsoleQueries)
+		if a.gitIconButton(c, t.Settings, icons.Settings, false, false) {
+			c.After(a.openGitConsoleSettings)
 		}
 		if a.gitIconButton(c, t.Wrap, icons.WrapText, v.wrap, false) {
 			c.After(a.toggleConsoleWrap)

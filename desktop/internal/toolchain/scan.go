@@ -35,15 +35,19 @@ func newWorkspace(root string, options Options) (*workspace, error) {
 	if options.Platform == "" {
 		options.Platform = PlatformName(runtime.GOOS)
 	}
-	if root == "" || !filepath.IsAbs(root) {
-		return nil, errors.New("toolchain: the workspace root must be absolute")
-	}
-	canonicalRoot, err := canonicalPath(root)
-	if err != nil {
-		return nil, err
-	}
-	if info, err := os.Stat(canonicalRoot); err != nil || !info.IsDir() {
-		return nil, errors.New("toolchain: the workspace root is not a directory")
+	canonicalRoot := ""
+	var err error
+	if !options.Global {
+		if root == "" || !filepath.IsAbs(root) {
+			return nil, errors.New("toolchain: the workspace root must be absolute")
+		}
+		canonicalRoot, err = canonicalPath(root)
+		if err != nil {
+			return nil, err
+		}
+		if info, err := os.Stat(canonicalRoot); err != nil || !info.IsDir() {
+			return nil, errors.New("toolchain: the workspace root is not a directory")
+		}
 	}
 	home := options.Home
 	if home == "" {
@@ -121,6 +125,9 @@ func canonicalPath(name string) (string, error) {
 }
 
 func (w *workspace) insideRoot(name string) bool {
+	if w.root == "" {
+		return false
+	}
 	root := w.root
 	candidate := name
 	if !w.caseSensitive {
@@ -137,6 +144,9 @@ func (w *workspace) insideRoot(name string) bool {
 // observe records one native fact. Every fact is deduplicated by native identity
 // so Core never sees two contradictory rows for one path.
 func (w *workspace) observe(name string) core.ToolchainFileFact {
+	if name == "" {
+		return core.ToolchainFileFact{}
+	}
 	absolute, err := filepath.Abs(name)
 	if err != nil {
 		return core.ToolchainFileFact{}

@@ -47,6 +47,89 @@ type failingTreeListingKernel struct {
 	armed atomic.Bool
 }
 
+// nativeIOBudgetTreeKernel models an adapter that needs more than a pure computation's
+// budget, without making the test wait for disk or a real timeout.
+type nativeIOBudgetTreeKernel struct {
+	*testKernel
+}
+
+func (k *nativeIOBudgetTreeKernel) ListDirectories(ctx context.Context, root string, paths []string) ([]core.DirectoryListing, error) {
+	deadline, bounded := ctx.Deadline()
+	if !bounded || time.Until(deadline) < 3*time.Second || time.Until(deadline) > time.Minute {
+		return nil, context.DeadlineExceeded
+	}
+	return k.Client.ListDirectories(ctx, root, paths)
+}
+
+func TestProjectTreeDirectoryReadsAllowNativeIO(t *testing.T) {
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "visible.txt"), nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	h := newHarness(t, &nativeIOBudgetTreeKernel{testKernel: &testKernel{Client: core.NewClient()}})
+	h.open(root)
+	p := h.app.project
+	awaitDocumentState(t, h, func() bool { return !p.tree.reading })
+	if p.tree.failed != "" || p.tree.find("visible.txt") == nil {
+		t.Fatalf("directory I/O did not populate the project tree: %q", p.tree.failed)
+	}
+}
+
+type cancelledTreeListingKernel struct {
+	*testKernel
+	armed   atomic.Bool
+	started chan struct{}
+	stopped chan struct{}
+	release chan struct{}
+}
+
+func (k *cancelledTreeListingKernel) ListDirectories(ctx context.Context, root string, paths []string) ([]core.DirectoryListing, error) {
+	if !k.armed.Load() {
+		return k.Client.ListDirectories(ctx, root, paths)
+	}
+	close(k.started)
+	defer close(k.stopped)
+	select {
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	case <-k.release:
+		return nil, context.Canceled
+	}
+}
+
+func TestProjectTreeDirectoryReadCancelsWhenProjectCloses(t *testing.T) {
+	kernel := &cancelledTreeListingKernel{
+		testKernel: &testKernel{Client: core.NewClient()},
+		started:    make(chan struct{}),
+		stopped:    make(chan struct{}),
+		release:    make(chan struct{}),
+	}
+	h := newHarness(t, kernel)
+	t.Cleanup(func() { close(kernel.release) })
+	p := h.openTree(t, t.TempDir())
+	h.app.closeTree(p)
+	kernel.armed.Store(true)
+	h.app.listTree(p, "")
+	deadline := time.NewTimer(8 * time.Second)
+	defer deadline.Stop()
+	select {
+	case <-kernel.started:
+	case <-deadline.C:
+		t.Fatal("directory read did not start")
+	}
+	h.app.closeProject()
+	h.await("project close", func() bool { return h.app.project == nil })
+	select {
+	case <-kernel.stopped:
+	case <-deadline.C:
+		t.Fatal("closing the project did not cancel the directory read")
+	}
+	h.settle()
+	if h.app.project != nil {
+		t.Fatal("a closed project's listing restored the project")
+	}
+}
+
 func (k *failingTreeListingKernel) ListDirectories(ctx context.Context, root string, paths []string) ([]core.DirectoryListing, error) {
 	if k.armed.Load() {
 		return nil, errors.New("directory listing failed")
@@ -177,7 +260,7 @@ func TestProjectTreeUsesCoreToFilterHiddenEvents(t *testing.T) {
 	p.tree.recursiveWatch = true
 	p.search.watch = &documentWatch{}
 	before := k.listings.Load()
-	h.app.applyTreeRecursiveWatch(p, false, true, nil, app.DirectoryChanges{Names: []string{"node_modules/tool/generated.js"}})
+	h.app.applyTreeRecursiveWatch(p, false, true, nil, app.DirectoryChanges{Names: []string{".worktrees/copy/generated.js"}})
 	select {
 	case <-k.filtered:
 	case <-time.After(8 * time.Second):
@@ -492,6 +575,38 @@ func TestProjectTreeBatchSelectionFollowsCore(t *testing.T) {
 	h.app.removeTreeItems(p, paths(p.tree.batchTargets()), false)
 	if len(p.tree.marked) != 0 || len(p.tree.targets) != 0 {
 		t.Fatalf("the end of a batch left marks %v targets %v", p.tree.marked, p.tree.targets)
+	}
+}
+
+// TestProjectTreeShowsUnixNamesWithBackslashes is #2009: on macOS and Linux a backslash is part
+// of a file name, as in the folder `D:\logs` that Spring Boot creates for a Windows-style
+// `logging.file.path`. Core used to report it as `D:/logs`, two levels deep, so the rows of the
+// tree failed with "A project tree node is not in the folder above it" and the tree stayed empty.
+func TestProjectTreeShowsUnixNamesWithBackslashes(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("a backslash separates the folders of a path on Windows")
+	}
+	root := t.TempDir()
+	writeTreeFiles(t, root, `D:\logs/spring.log`, `D:\logs\app.log`)
+	h := newHarness(t, &testKernel{Client: core.NewClient()})
+	p := h.openTree(t, root)
+	folder := p.tree.find(`D:\logs`)
+	if folder == nil {
+		t.Fatalf("the root lists no folder named D:\\logs; notifications %q", noticeTexts(h.app))
+	}
+	h.app.toggleFolder(p, folder)
+	awaitDocumentState(t, h, func() bool { return folder.listed && p.tree.find(`D:\logs/spring.log`) != nil })
+	h.settle()
+
+	var rows []string
+	for _, row := range p.tree.rows {
+		rows = append(rows, row.path)
+	}
+	if want := []string{"", `D:\logs`, `D:\logs/spring.log`, `D:\logs\app.log`}; !slices.Equal(rows, want) {
+		t.Fatalf("rows = %q, want %q", rows, want)
+	}
+	if notices := noticeTexts(h.app); len(notices) != 0 {
+		t.Fatalf("the tree reported %q", notices)
 	}
 }
 

@@ -255,7 +255,7 @@ func (a *App) stageGitGutter(p *project, d *document, h gitHunk) {
 	a.background(p, reviewTimeout, func(ctx context.Context) func(*App) {
 		err := kernel.StageGutterChange(ctx, root, rel, h.change)
 		return func(a *App) {
-			a.loadGit(p)
+			a.reloadGit(p)
 			if err != nil {
 				a.reviewFailed("git_gutter_stage", err)
 			}

@@ -26,6 +26,46 @@ const (
 // commitReviewHeight is the most the steps of a review take before they scroll.
 const commitReviewHeight = 320
 
+// changeTreeGap is the space between the parts of a line of the change tree.
+const changeTreeGap = 6
+
+// The change tree lines its rows up on one grid, as IDEA's does. A level is a checkbox and the
+// gap after it to the right of its parent, so a row's checkbox sits under its parent's name, or
+// under the color of its repository. A fold has a slot of a checkbox with a gap on either side
+// before the row's checkbox, so the fold of a row is centered under its parent's checkbox; a row
+// without a fold among rows with one keeps the slot empty. The first level starts at 8.
+
+// changeTreeLevel is how much further right a level of the change tree starts than its parent.
+func (a *App) changeTreeLevel() float32 { return components.CheckboxExtent(a.theme) + changeTreeGap }
+
+// changeTreeSlot is the width of the slot of a fold of the change tree.
+func (a *App) changeTreeSlot() float32 {
+	return components.CheckboxExtent(a.theme) + 2*changeTreeGap
+}
+
+// changeRowIndent is the left padding of a change right under a change list whose line has no
+// fold: its checkbox is under the list's title.
+func (a *App) changeRowIndent() float32 { return 8 + a.changeTreeLevel() }
+
+// repositoryChangeIndent is the left padding of a change under a repository's group, two levels
+// under the change list's line, past the empty slot of a fold: its checkbox is under the color
+// of its repository (drawRepositoryGroup).
+func (a *App) repositoryChangeIndent() float32 {
+	return 8 + 2*a.changeTreeLevel() + a.changeTreeSlot()
+}
+
+// drawChangeTreeFold declares the fold of a line of the change tree in its slot, named collapse
+// while the line is open and expand while it is folded, and reports a click.
+func (a *App) drawChangeTreeFold(c ui.C, folded bool, collapse, expand string) bool {
+	chevron, label := icons.ChevronDown, collapse
+	if folded {
+		chevron, label = icons.ChevronRight, expand
+	}
+	side := a.changeTreeSlot()
+	return ui.Button(c, label).Icon(chevron).IconOnly().Ghost().Size(side, min(side, logItemHeight)).Shrink(0).
+		Tooltip(label).Clicked()
+}
+
 // commitPageView declares the body of the Commit tool window.
 func (a *App) commitPageView(c ui.C) {
 	v := &a.commitView
@@ -94,7 +134,7 @@ func (a *App) drawCommitStatus(c ui.C, p *project) bool {
 				c.After(func() { a.refreshChanges(p) })
 			}
 		})
-	case !p.git.isRepository():
+	case !p.hasRepository():
 		a.gitEmpty(c, g.NotRepository)
 	default:
 		return true
@@ -114,7 +154,7 @@ func (a *App) drawCommitChanges(c ui.C, p *project) ui.Box {
 			a.drawChangeListSections(c, p)
 			return
 		}
-		if len(p.nested.repos) > 0 {
+		if p.workspaceMode() {
 			a.drawRepositoryChanges(c, p)
 			return
 		}
@@ -126,14 +166,15 @@ func (a *App) drawCommitChanges(c ui.C, p *project) ui.Box {
 			return
 		}
 		a.drawChangeRows(c, t.ChangeList, t.Files(fileCount(changes)), changes, cs.busy,
-			func() { a.stageAllAcrossRepositories(p) },
-			func(change core.GitChange) { a.drawCommitChange(c, p, change) })
+			func() { a.stageAll(p, surfaceButton) },
+			func(change core.GitChange) { a.drawCommitChange(c, p, change, a.changeRowIndent()) })
 	})
 }
 
-// drawCommitChange declares the row of one change of the project's repository.
-func (a *App) drawCommitChange(c ui.C, p *project, change core.GitChange) {
-	toggled, opened, clicked, mods := a.drawChangeRow(c, change, p.commit.busy, p.lists.selected[change.Path], func(rowC ui.C) func(*ui.MenuItems) {
+// drawCommitChange declares the row of one change of the project's repository, indent from the
+// left.
+func (a *App) drawCommitChange(c ui.C, p *project, change core.GitChange, indent float32) {
+	toggled, opened, clicked, mods := a.drawChangeRow(c, change, p.commit.busy, p.lists.selected[change.Path], indent, func(rowC ui.C) func(*ui.MenuItems) {
 		return a.changeMenuItems(rowC, p, change)
 	})
 	if clicked && !toggled {
@@ -151,7 +192,7 @@ func (a *App) drawCommitChange(c ui.C, p *project, change core.GitChange) {
 // unstages them all, with the list's title and size, over a row per change.
 func (a *App) drawChangeRows(c ui.C, title, size string, changes []core.GitChange, busy bool, toggleAll func(), row func(core.GitChange)) {
 	ui.Scroll(c).Scrollbars().Grow(1).FillWidth().PadY(4).Children(func() {
-		a.drawChangeListHeader(c, title, size, changes, busy, toggleAll)
+		a.drawChangeListHeader(c, title, size, allStaged(changes), hasToggleable(changes), busy, nil, toggleAll)
 		for _, change := range changes {
 			row(change)
 		}
@@ -159,22 +200,41 @@ func (a *App) drawChangeRows(c ui.C, title, size string, changes []core.GitChang
 }
 
 // drawChangeListHeader declares the line over a change list: the checkbox that stages or unstages
-// all of its changes, with the list's title and size.
-func (a *App) drawChangeListHeader(c ui.C, title, size string, changes []core.GitChange, busy bool, toggleAll func()) {
-	ui.Row(c).Height(logItemHeight).FillWidth().Shrink(0).Items(ui.Center).Gap(6).PadX(8).Children(func() {
-		all := allStaged(changes)
-		if ui.Checkbox(c, &all, "").Label(title).Disabled(busy || !hasToggleable(changes)).Clicked() {
-			c.After(toggleAll)
+// all of its changes, checked when all is set and enabled when toggleable is, with the list's title
+// and size. With folded, the line starts with the fold of the list, which flips it.
+func (a *App) drawChangeListHeader(c ui.C, title, size string, all, toggleable, busy bool, folded *bool, toggleAll func()) {
+	ui.Row(c).Height(logItemHeight).FillWidth().Shrink(0).Items(ui.Center).PadX(8).Children(func() {
+		if folded != nil {
+			lang := a.language()
+			collapse := i18n.SharedFormat(lang, "git.log.collapse", map[string]string{"name": title})
+			expand := i18n.SharedFormat(lang, "git.log.expand", map[string]string{"name": title})
+			if a.drawChangeTreeFold(c.Key("changelist-fold"), *folded, collapse, expand) {
+				c.After(func() { *folded = !*folded })
+			}
 		}
-		ui.Text(c, title).Weight(gfx.WeightMedium).Ellipsis().Shrink(1)
-		ui.Text(c, size).Muted().Shrink(0)
+		ui.Row(c).Grow(1).Shrink(1).Items(ui.Center).Gap(changeTreeGap).Children(func() {
+			if a.treeCheckbox(c, &all, title).Disabled(busy || !toggleable).Clicked() {
+				c.After(toggleAll)
+			}
+			ui.Text(c, title).Weight(gfx.WeightMedium).Ellipsis().Shrink(1)
+			ui.Text(c, size).Muted().Shrink(0)
+		})
 	})
 }
 
+// treeCheckbox is the checkbox of a line of the change tree, named label for assistive
+// technology. It is laid out no wider than its square, so it sits as close to the fold before it
+// and to the name after it as the checkboxes of IDEA's change tree do; Viva still declares the
+// enlarged region around the square that a click hits.
+func (a *App) treeCheckbox(c ui.C, value *bool, label string) ui.Box {
+	side := components.CheckboxExtent(a.theme)
+	return ui.Checkbox(c, value, "").Label(label).Size(side, side).Shrink(0)
+}
+
 // drawChangeRow declares the row of one change: its checkbox, its icon, its name and folder,
-// and whether it is staged, with the context menu menu builds. It reports a click on the
-// checkbox and a double click on the row.
-func (a *App) drawChangeRow(c ui.C, change core.GitChange, busy, selected bool, menu func(ui.C) func(*ui.MenuItems)) (toggled, opened, clicked bool, mods gfx.Modifiers) {
+// and whether it is staged, indent from the left, with the context menu menu builds. It reports a
+// click on the checkbox and a double click on the row.
+func (a *App) drawChangeRow(c ui.C, change core.GitChange, busy, selected bool, indent float32, menu func(ui.C) func(*ui.MenuItems)) (toggled, opened, clicked bool, mods gfx.Modifiers) {
 	t := a.text.Commit
 	state, label := t.UnstagedState, t.StageFile(change.Path)
 	switch {
@@ -190,8 +250,8 @@ func (a *App) drawChangeRow(c ui.C, change core.GitChange, busy, selected bool, 
 		name = path.Base(change.OriginalPath) + " → " + name
 	}
 	rowC := c.Key(change.Path)
-	row := ui.Row(rowC).Height(logItemHeight).FillWidth().Shrink(0).Items(ui.Center).Gap(6).
-		PadSides(0, 8, 0, float32(8+logIndent)).Hover(ui.Look{}.Background(a.colors.Hover)).
+	row := ui.Row(rowC).Height(logItemHeight).FillWidth().Shrink(0).Items(ui.Center).Gap(changeTreeGap).
+		PadSides(0, 8, 0, indent).Hover(ui.Look{}.Background(a.colors.Hover)).
 		HitWith(ui.ID(rowC), change.Path, gfx.HitOptions{Cursor: gfx.PointerCursorHand})
 	if selected {
 		row = row.Background(a.colors.Selection)
@@ -199,7 +259,7 @@ func (a *App) drawChangeRow(c ui.C, change core.GitChange, busy, selected bool, 
 	ui.ContextMenu(rowC, row, menu(rowC))
 	row.Children(func() {
 		staged := change.Staged
-		toggled = ui.Checkbox(c, &staged, "").Label(label).Disabled(busy || !change.CanToggleStaging).Clicked()
+		toggled = a.treeCheckbox(c, &staged, label).Disabled(busy || !change.CanToggleStaging).Clicked()
 		icon := fileicons.ForFile(path.Base(change.Path), a.colors.Dark)
 		if folder {
 			icon = fileicons.ForDirectory(path.Base(strings.TrimSuffix(change.Path, "/")), a.colors.Dark)

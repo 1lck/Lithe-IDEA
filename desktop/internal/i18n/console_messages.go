@@ -22,8 +22,9 @@ type ConsoleMessages struct {
 	Stop        string
 	Clear       string
 	CopyAll     string
-	// HideQueries leaves out the read-only queries that did not fail.
-	HideQueries string
+	// Settings opens the Version Control settings, which choose the queries the console
+	// records and how it draws its records.
+	Settings string
 
 	// The context menu of a command.
 	CopyCommand string
@@ -76,7 +77,7 @@ func consoleMessages(language Language) ConsoleMessages {
 		Stop:        Shared(language, "git.console.cancel"),
 		Clear:       Shared(language, "native.clearGitConsole"),
 		CopyAll:     Shared(language, "native.copyCompleteConsole"),
-		HideQueries: Shared(language, "desktop.git.console.hideQueries"),
+		Settings:    Shared(language, "desktop.git.console.settings"),
 
 		CopyCommand: Shared(language, "git.console.copyCommand"),
 		CopyOutput:  Shared(language, "git.console.copyOutput"),
@@ -101,6 +102,9 @@ func consoleMessages(language Language) ConsoleMessages {
 			return SharedFormat(language, "desktop.git.console.expandConfiguration", map[string]string{"count": strconv.Itoa(n)})
 		},
 		QueryOutput: func(n int) string {
+			if n == 1 {
+				return SharedFormat(language, "desktop.git.console.queryOutputOne", map[string]string{"count": strconv.Itoa(n)})
+			}
 			return SharedFormat(language, "desktop.git.console.queryOutput", map[string]string{"count": strconv.Itoa(n)})
 		},
 		Expand:      Shared(language, "desktop.git.console.expand"),

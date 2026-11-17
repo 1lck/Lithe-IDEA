@@ -29,27 +29,48 @@ func startBackend(config Config) (backend, error) {
 	if program == "" {
 		program = defaultShell()
 	}
-	args := config.Args
-	if args == nil {
-		args = []string{"-l"}
-	}
-	cmd := exec.Command(program, args...)
-	cmd.Dir = config.Dir
-	if cmd.Dir == "" {
+	dir := config.Dir
+	if dir == "" {
 		if home, err := os.UserHomeDir(); err == nil {
-			cmd.Dir = home
+			dir = home
 		}
 	}
 	inherited := os.Environ()
-	if pwd := workingDirectoryVariable(cmd.Dir); pwd != "" {
+	if pwd := workingDirectoryVariable(dir); pwd != "" {
 		inherited = append(withoutVariables(inherited, []string{"PWD"}), "PWD="+pwd)
 	}
-	cmd.Env = append(withoutVariables(inherited, config.Unset), "TERM=xterm-256color", "COLORTERM=truecolor")
-	cmd.Env = append(cmd.Env, config.Env...)
-	cmd.Env = withUTF8Locale(cmd.Env)
+	env := append(withoutVariables(inherited, config.Unset), "TERM=xterm-256color", "COLORTERM=truecolor")
+	env = withUTF8Locale(append(env, config.Env...))
+	args := config.Args
+	// runtime is the private directory of an integrated shell's startup files:
+	// it is made here and removed once the shell has ended, however it ended,
+	// as the shell removes it itself only when its startup gets that far.
+	runtime, promptToken := "", ""
+	if args == nil {
+		args = []string{"-l"}
+		// Bash and Zsh report their prompts and commands when sh writes
+		// their startup files and then becomes them (see integration_scripts.go),
+		// so the shell is still the process started here. Without a private
+		// directory the shell starts as itself.
+		if integrationScriptWith(program, false, config.PromptToken) != "" {
+			if made, err := os.MkdirTemp(temporaryDirectory(env), "motty-shell."); err == nil {
+				program, args, runtime = "/bin/sh", integrationArgs(program, config.PromptToken, made), made
+				promptToken = config.PromptToken
+			}
+		}
+	}
+	removeRuntime := func() {
+		if runtime != "" {
+			_ = os.RemoveAll(runtime)
+		}
+	}
+	cmd := exec.Command(program, args...)
+	cmd.Dir = dir
+	cmd.Env = env
 	size := &pty.Winsize{Cols: uint16(max(config.Cols, 1)), Rows: uint16(max(config.Rows, 1))}
 	master, err := pty.StartWithSize(cmd, size)
 	if err != nil {
+		removeRuntime()
 		return backend{}, err
 	}
 	// A terminal's shell is recorded until it ends, so a leftover can be offered for ending at start-up.
@@ -71,6 +92,7 @@ func startBackend(config Config) (backend, error) {
 		wait: func() (int, error) {
 			err := cmd.Wait()
 			untrack()
+			removeRuntime()
 			var exit *exec.ExitError
 			if errors.As(err, &exit) {
 				if code := exit.ExitCode(); code > 0 {
@@ -95,7 +117,22 @@ func startBackend(config Config) (backend, error) {
 			})
 			return readErr == nil && err == nil && group > 0 && group != cmd.Process.Pid
 		},
+		promptToken: promptToken,
 	}, nil
+}
+
+// temporaryDirectory is the TMPDIR of the environment env, the shell's, or
+// /tmp when it names none. The last setting wins, as it does for the shell.
+func temporaryDirectory(env []string) string {
+	for i := len(env) - 1; i >= 0; i-- {
+		if value, ok := strings.CutPrefix(env[i], "TMPDIR="); ok {
+			if value != "" {
+				return value
+			}
+			break
+		}
+	}
+	return "/tmp"
 }
 
 // workingDirectoryVariable is the PWD of a shell started in directory, or "" when

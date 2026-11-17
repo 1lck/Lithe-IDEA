@@ -8,15 +8,20 @@ import (
 	"github.com/vivaui/viva/ui"
 )
 
-// drawRepositoryChanges declares the change list of a workspace with nested repositories: one line
-// for all the changes, then a foldable group per repository with changes, the project's own first.
-// A group is named after its repository, so a workspace where only one repository has changes still
-// shows its name. State and staging are in nested_repos.go.
+// drawRepositoryChanges declares the change list of a workspace with nested repositories as Core
+// groups it: one foldable line for all the changes, then a foldable group per repository with
+// changes, in Core's order, on the grid of the change tree (commit_view.go). A group is named
+// after its repository, so a workspace where only one repository has changes still shows its
+// name. What each checkbox writes is Core's plan; state and staging are in nested_repos.go.
 func (a *App) drawRepositoryChanges(c ui.C, p *project) {
 	t := a.text.Commit
-	changes := p.git.status.Changes
-	all := append(append([]core.GitChange(nil), changes...), nestedChanges(p)...)
-	if len(all) == 0 {
+	n := &p.nested
+	if !n.grouped {
+		a.gitEmpty(c, a.text.Git.Loading)
+		return
+	}
+	g := n.groups
+	if len(g.Groups) == 0 {
 		ui.Column(c).Fill().Center().Gap(8).Children(func() {
 			ui.Icon(c, icons.Check).Size(20, 20).Color(a.colors.Success)
 			ui.Text(c, t.Clean).Color(a.colors.Subtle)
@@ -24,100 +29,99 @@ func (a *App) drawRepositoryChanges(c ui.C, p *project) {
 		return
 	}
 	ui.Scroll(c).Scrollbars().Grow(1).FillWidth().PadY(4).Children(func() {
-		a.drawChangeListHeader(c, t.ChangeList, t.Files(fileCount(all)), all, p.commit.busy, func() { a.stageAllAcrossRepositories(p) })
-		if len(changes) > 0 {
-			a.drawRepositoryGroup(c, p, ownRepositoryGroup(p), true)
-		}
-		for _, repo := range p.nested.repos {
-			if len(repo.changes) > 0 {
-				a.drawRepositoryGroup(c, p, repo, false)
+		a.drawChangeListHeader(c, t.ChangeList, t.Files(g.FileCount), g.AllStaged, g.StageAll != nil, p.commit.busy, &n.listFolded, func() {
+			if g.StageAll != nil {
+				a.stageWorkspace(p, *g.StageAll)
 			}
+		})
+		if n.listFolded {
+			return
+		}
+		for _, group := range g.Groups {
+			a.drawRepositoryGroup(c, p, group)
 		}
 	})
 }
 
-// ownRepositoryGroup is the project's own repository as a group of the change list: the ID the
-// group keys and the repository commit use, and the project's status changes.
-func ownRepositoryGroup(p *project) nestedRepo {
-	return nestedRepo{id: commitRepositoryID, root: p.git.repositoryRoot(p.root), changes: p.git.status.Changes}
-}
-
 // drawRepositoryGroup declares the group of one repository of the change list: its fold, its
-// checkbox, its name and count, its commit button, and then its changes unless it is folded. A
-// nested repository's changes are read-only apart from staging; the project's own are the ones the
-// Commit tool window's rows act on.
-func (a *App) drawRepositoryGroup(c ui.C, p *project, repo nestedRepo, own bool) {
+// checkbox, its color, name and count, the branch its repository has checked out, and then its
+// changes unless it is folded. The Commit button commits every repository with staged changes, as
+// IDEA's does, so a group has no button of its own. A nested repository's changes are read-only
+// apart from staging; the project's own are the ones the Commit tool window's rows act on.
+func (a *App) drawRepositoryGroup(c ui.C, p *project, group core.WorkspaceChangeGroup) {
 	t := a.text.Commit
 	lang := a.language()
 	busy := p.commit.busy
-	rc := c.Key("nested/" + repo.id)
-	all := allStaged(repo.changes)
-	name := p.repositoryName(repo.id)
+	own := group.Role == core.RepositoryWorkspace
+	id := group.ID
+	changes := p.changesOf(id)
+	rc := c.Key("nested/" + id)
+	all := group.AllStaged
 	color := a.colors.Text
-	if !own && p.nested.focus == repo.id {
+	if !own && p.nested.focus == id {
 		color = a.colors.Accent
 	}
-	folded := p.nested.folded[repo.id]
-	ui.Row(rc).Height(logItemHeight).FillWidth().Shrink(0).Items(ui.Center).Gap(6).PadX(8).Children(func() {
-		chevron, foldLabel := icons.ChevronDown, i18n.Shared(lang, "desktop.nested.collapse")
-		if folded {
-			chevron, foldLabel = icons.ChevronRight, i18n.Shared(lang, "desktop.nested.expand")
-		}
-		if a.gitIconButton(rc, foldLabel, chevron, false, false) {
+	folded := p.nested.folded[id]
+	indent := a.repositoryChangeIndent()
+	// The group is one level under the line of the change list: its fold under the list's
+	// checkbox, its checkbox under the list's title.
+	ui.Row(rc).Height(logItemHeight).FillWidth().Shrink(0).Items(ui.Center).PadSides(0, 8, 0, 8+a.changeTreeLevel()).Children(func() {
+		if a.drawChangeTreeFold(rc, folded, i18n.Shared(lang, "desktop.nested.collapse"), i18n.Shared(lang, "desktop.nested.expand")) {
 			rc.After(func() {
 				if p.nested.folded == nil {
 					p.nested.folded = map[string]bool{}
 				}
-				p.nested.folded[repo.id] = !folded
+				p.nested.folded[id] = !folded
 			})
 		}
-		if ui.Checkbox(rc, &all, "").Label(name).Disabled(busy || !hasToggleable(repo.changes)).Clicked() {
-			rc.After(func() { a.stageNestedChanges(p, repo, repo.changes, allStaged(repo.changes)) })
-		}
-		ui.Text(rc, name).Color(color).Weight(gfx.WeightMedium).Ellipsis().Shrink(1)
-		ui.Text(rc, t.Files(fileCount(repo.changes))).Muted().Shrink(0)
-		if own {
-			if ui.Button(rc, i18n.Shared(lang, "desktop.nested.commit")).Outline().Disabled(!p.canCommit()).Clicked() {
-				rc.After(func() { a.startCommitIn(p, p.projectCommit(), false, surfaceButton) })
+		ui.Row(rc).Grow(1).Shrink(1).Items(ui.Center).Gap(changeTreeGap).Children(func() {
+			if a.treeCheckbox(rc, &all, group.Name).Disabled(busy || group.Staging == nil).Clicked() && group.Staging != nil {
+				plan := *group.Staging
+				rc.After(func() { a.applyStaging(p, id, plan) })
 			}
-			return
-		}
-		if ui.Button(rc, i18n.Shared(lang, "desktop.nested.commit")).Outline().Disabled(!p.canCommitNested(repo)).Clicked() {
-			rc.After(func() { a.startCommitIn(p, a.nestedCommitTarget(p, repo), false, surfaceButton) })
-		}
+			a.drawRepositorySwatch(rc, p, id)
+			ui.Text(rc, group.Name).Color(color).Weight(gfx.WeightMedium).Ellipsis().Shrink(1)
+			ui.Text(rc, t.Files(group.FileCount)).Muted().Shrink(0)
+			a.drawRepositoryBranch(rc, p, id)
+		})
 	})
 	if folded {
 		return
 	}
-	if !own && !p.submoduleReferenceChanged(repo.id) {
-		ui.Paragraph(rc, i18n.Shared(lang, "desktop.nested.refUnchanged"), 2).FontSize(a.theme.Metrics.FontSizeS).Color(a.colors.Subtle).PadX(8)
+	if group.ParentReference == core.ParentReferenceUnchanged {
+		ui.Paragraph(rc, i18n.Shared(lang, "desktop.nested.refUnchanged"), 2).FontSize(a.theme.Metrics.FontSizeS).Color(a.colors.Subtle).
+			PadSides(0, 8, 0, indent)
 	}
-	for _, change := range repo.changes {
+	repo, _ := p.nested.repo(id)
+	for _, change := range changes {
 		if own {
-			a.drawCommitChange(rc, p, change)
+			a.drawCommitChange(rc, p, change, indent)
 			continue
 		}
-		toggled, _, _, _ := a.drawChangeRow(rc, change, busy, false, func(ui.C) func(*ui.MenuItems) {
+		toggled, _, _, _ := a.drawChangeRow(rc, change, busy, false, indent, func(ui.C) func(*ui.MenuItems) {
 			return func(*ui.MenuItems) {}
 		})
-		if toggled {
-			rc.After(func() { a.stageNestedChange(p, repo, change) })
+		if toggled && repo != nil {
+			r := *repo
+			rc.After(func() { a.stageNestedChange(p, r, change) })
 		}
 	}
 }
 
-// nestedChanges are the changes of every nested repository, in the order the repositories list.
-func nestedChanges(p *project) []core.GitChange {
-	var out []core.GitChange
-	for _, repo := range p.nested.repos {
-		out = append(out, repo.changes...)
+// drawRepositoryBranch declares the tag of the branch the repository of a group has checked out,
+// the way IDEA's change tree names it after the group's count; there is none until its status is
+// read.
+func (a *App) drawRepositoryBranch(c ui.C, p *project, id string) {
+	branch := p.branchOf(id)
+	switch branch {
+	case "":
+		return
+	case "detached":
+		branch = i18n.Shared(a.language(), "git.detachedHead")
 	}
-	return out
-}
-
-// stageAllAcrossRepositories is the project's stage-all checkbox: when every change of every
-// repository is staged it unstages them all, otherwise it stages them all.
-func (a *App) stageAllAcrossRepositories(p *project) {
-	all := allStaged(append(append([]core.GitChange(nil), p.git.status.Changes...), nestedChanges(p)...))
-	a.stageAllRepositories(p, !all)
+	ui.Row(c.Part("branch")).Height(logRefChipHeight).Shrink(1).Items(ui.Center).Gap(logRefChipGap).PadX(logRefChipPad).
+		Radius(a.theme.Metrics.RadiusItem()).Background(a.colors.Hover).Children(func() {
+		ui.Icon(c, icons.GitBranch).Size(logRefIconSize, logRefIconSize).Color(a.colors.Subtle)
+		ui.Text(c, branch).FontSize(a.theme.Metrics.FontSizeS).Ellipsis()
+	})
 }

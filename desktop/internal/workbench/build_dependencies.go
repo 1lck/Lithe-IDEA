@@ -11,14 +11,15 @@ import (
 	"time"
 
 	"github.com/1lck/Lithe-IDEA/desktop/internal/core"
+	"github.com/1lck/Lithe-IDEA/desktop/internal/fileicons"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/i18n"
-	"github.com/1lck/Lithe-IDEA/desktop/internal/icons"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/treelist"
 	"github.com/vivaui/viva/ui"
 )
 
-// The Build tool window lists the dependencies of the chosen project (of the whole build when
-// none is chosen) under its projects. The build plugin says how to get them: Core plans the
+// The Build tool window lists each project's dependencies under its node, and the whole
+// build's under the group, for the scopes the build system declares (Core places the nodes,
+// build.modelTree). The build plugin says how to get them: Core plans the
 // command or the provider request (build.dependencyPlan) and decodes the answer into a
 // bounded tree (build.decodeDependencies); the window only runs, shows and navigates. A
 // dependency row opens and closes its children; a double click opens the project's build file.
@@ -57,34 +58,6 @@ func (a *App) dependenciesOf(p *project, instance *buildInstance, projectID stri
 		a.loadBuildDependencies(p, instance, projectID, deps, false)
 	}
 	return deps
-}
-
-// buildDependencyProject is the project whose dependencies the window lists, and whether it lists
-// any: the chosen project, or the whole build when none is chosen. Core refuses a scope the build
-// system does not declare (plugin.build.invalidSelection), so an undeclared scope lists nothing;
-// with no project chosen and only the project scope declared, a model of one project lists its own.
-func buildDependencyProject(instance *buildInstance, chosen string) (string, bool) {
-	declared := instance.System.Dependencies
-	if declared == nil {
-		return "", false
-	}
-	declares := func(scope string) bool {
-		for _, s := range declared.Scopes {
-			if s == scope {
-				return true
-			}
-		}
-		return false
-	}
-	switch {
-	case chosen != "" && declares("project"):
-		return chosen, true
-	case chosen == "" && declares("workspace"):
-		return "", true
-	case chosen == "" && declares("project") && len(instance.Model.Projects) == 1:
-		return instance.Model.Projects[0].ID, true
-	}
-	return "", false
 }
 
 // reloadBuildDependencies forgets every loaded tree, for a reloaded model.
@@ -210,11 +183,13 @@ func (a *App) buildDependencyTree(ctx context.Context, p *project, instance buil
 // command's attempt with the result.
 func (a *App) commandDependencies(ctx context.Context, p *project, instance buildInstance, kernel buildDependencyKernel, attempt *core.PluginAttempt, plan core.BuildPlan, execution buildExecution, decode core.BuildDecodeDependenciesRequest, outputFile string) (core.BuildDependencyTree, error) {
 	workingDirectory := filepath.Join(p.root, filepath.FromSlash(plan.WorkingDirectory))
-	output, runErr := captureBuildProcess(ctx, execution.Executable, plan.Arguments, workingDirectory, applyToolchainSelection(plan.Environment, execution.selection()))
-	if plan.Output == "outputFile" && outputFile != "" {
+	toFile := plan.Output == "outputFile" && outputFile != ""
+	output, runErr := captureBuildProcess(ctx, execution.Executable, plan.Arguments, workingDirectory, applyToolchainSelection(plan.Environment, execution.selection()), !toFile, nil)
+	runErr = withBuildOutput(runErr, output.combined)
+	if toFile {
 		decode.OutputFile = outputFile
 	} else {
-		decode.Output = output
+		decode.Output = output.stdout
 	}
 	tree, err := kernel.DecodeBuildDependencies(ctx, instance.Manifest, instance.BuildSystemID, decode)
 	if err != nil {
@@ -354,7 +329,7 @@ func (a *App) buildDependencyRow(row ui.ListRow, p *project, instance *buildInst
 	deps := a.dependenciesOf(p, instance, spec.project)
 	element := a.buildTreeRowElement(row, spec)
 	toggled := a.buildArrow(c, spec.label, !spec.leaf, deps.open[spec.path])
-	ui.Icon(c, icons.Archive).Size(14, 14).Shrink(0).Color(a.colors.Subtle)
+	ui.Icon(c, fileicons.ForBuildNode(fileicons.BuildDependency, a.colors.Dark)).Size(treelist.Icon, treelist.Icon).Shrink(0)
 	ui.Text(c, spec.label).FontSize(treeFontSize).Color(treelist.Text(a.colors.Dark)).Ellipsis().Shrink(1).MinWidth(0)
 	if spec.detail != "" {
 		ui.Text(c, spec.detail).FontSize(treeFontSize - 1).Color(a.colors.Subtle).Shrink(0)

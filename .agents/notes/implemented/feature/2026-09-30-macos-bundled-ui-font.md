@@ -17,7 +17,7 @@
 - **编译进可执行文件，只在打包时启用。** 发行构建使用 `lithe_bundled_fonts` 构建标签把目录编译进去，app bundle 中没有字体文件；开发、测试和其它平台的构建默认不含字体，回退到系统字体。
 - **注册只在当前进程内生效。** 字型按内容摘要暂存到用户缓存目录后再注册，不安装到系统，也不写入安装目录。
 - **终端字体有独立顺序。** 终端先选已安装的 MesloLGS 等 Nerd Font Mono，再选打包的 JetBrainsMono Nerd Font Mono，然后是 JetBrains Mono，最后是系统等宽字体（`desktop/internal/workbench/fonts.go` 的 `firstAvailableFamily`）。终端不跟随编辑器字体族设置。
-- **字体不增加运行时写入。** 字体文件不在运行时下载、解压或修改，不进入可跨工作树复用的资源清单。
+- **字体不增加运行时写入。** 字体文件不在运行时下载、解压或修改，不跨工作树复制。
 
 ## 考虑过的备选方案
 
@@ -30,7 +30,7 @@
 
 - 发行版的可执行文件约增加 25 MB；启动时注册全部字型有可测量的耗时，缓存摘要算法的选择会影响这一耗时。
 - 中文等字体未覆盖的字形继续由系统回退渲染，这是预期行为。
-- 字体文件属于构建输入，修改字体需要同时更新 `NOTICE.txt` 与 `resources/worktree-resources.json` 中的相关条目。
+- 字体文件属于构建输入，修改字体需要同时更新 `NOTICE.txt` 与 `docs/ci-builds.md` 的说明。
 
 ## 验证
 
@@ -46,4 +46,3 @@
 - `desktop/internal/workbench/fonts.go`
 - `desktop/internal/workbench/fonts_bundled.go`
 - `scripts/desktop/package-desktop.sh`
-- `scripts/resources/worktree-resources.json`

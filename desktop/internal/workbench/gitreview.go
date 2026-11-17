@@ -69,6 +69,8 @@ type gitReview struct {
 	blame     blameState
 	untracked untrackedState
 	rollback  rollbackState
+	// workspacePush is the Push Commits dialog Commit and Push opens (gitpush_workspace.go).
+	workspacePush workspacePushState
 }
 
 // reviewReason is the line of err to show: Git's own first line when Core gave one.
@@ -228,7 +230,7 @@ func (a *App) stageUntracked(p *project, change core.GitChange) {
 	a.background(p, reviewTimeout, func(ctx context.Context) func(*App) {
 		err := kernel.GitStage(ctx, root, change.StagingPaths())
 		return func(a *App) {
-			a.loadGit(p)
+			a.reloadGit(p)
 			if err != nil {
 				a.reviewFailed("git_stage", err)
 				return
