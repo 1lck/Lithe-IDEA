@@ -172,11 +172,8 @@ type completionState struct {
 
 // definitionState is the multi-target definition popup.
 type definitionState struct {
-	open    bool
-	targets []core.PluginSemanticLocation
-	// references marks a find-references list, which is shown even for a
-	// single result instead of jumping.
-	references bool
+	open       bool
+	targets    []core.PluginSemanticLocation
 	selected   int
 	offset     int
 	documentID int
@@ -972,7 +969,16 @@ func (a *App) applySemanticDefinition(pending *semanticPending, event core.Backe
 		return
 	}
 	if pending.kind == pluginSemanticReferences {
-		a.presentDefinitionTargets(p, d, pending.kind, a.usableDefinitionTargets(locations, maxReferenceTargets), len(locations), pending.revision)
+		targets := a.usableDefinitionTargets(locations, maxReferenceTargets)
+		if len(targets) == 0 {
+			a.presentDefinitionTargets(p, d, pending.kind, targets, len(locations), pending.revision)
+			return
+		}
+		// Find Usages fills the References tool window, which keeps the answer while the
+		// user works through it, instead of a popup that closes on the first click. The
+		// window's tab names what was searched for, and Rerun asks at the same place again.
+		query := referenceQuery{documentID: d.id, line: pending.line, column: pending.column}
+		a.showReferences(p, targets, query, identifierAt(d.view.TextSnapshot(), d.view, pending.line, pending.column))
 		return
 	}
 	if a.plugins != nil && a.plugins.HasDefinitionProvider(p.root, d.path, d.languageID) {
@@ -1047,8 +1053,9 @@ func (a *App) mergeProviderDefinitions(p *project, d *document, pending *semanti
 	})
 }
 
-// presentDefinitionTargets shows the locations of a definition or references answer, from a language
-// server or a plugin provider: one definition opens, several wait in the list, and nothing found says so.
+// presentDefinitionTargets shows the locations of a definition answer, from a language server or a
+// plugin provider: one definition opens, several wait in the list, and nothing found says so. A
+// references answer comes here only when nothing was found; its usages fill the References tool window.
 func (a *App) presentDefinitionTargets(p *project, d *document, kind semanticKind, targets []core.PluginSemanticLocation, answered int, revision int) {
 	references := kind == pluginSemanticReferences
 	if len(targets) == 0 {
@@ -1065,19 +1072,12 @@ func (a *App) presentDefinitionTargets(p *project, d *document, kind semanticKin
 		}
 		return
 	}
-	if len(targets) == 1 && !references {
+	if len(targets) == 1 {
 		a.openDefinitionTarget(targets[0])
-		return
-	}
-	if references {
-		// Find Usages fills the References tool window, which keeps the answer while the
-		// user works through it, instead of a popup that closes on the first click.
-		a.showReferences(p, targets, "")
 		return
 	}
 	a.semantics.definition = definitionState{
 		open:       true,
-		references: references,
 		targets:    targets,
 		documentID: d.id,
 		revision:   revision,
@@ -1771,10 +1771,7 @@ func popupOrigin(x, y, width float32, bounds gfx.Rect) (float32, float32) {
 }
 
 // definitionPopupTitle is the accessibility title of the open location list.
-func (a *App) definitionPopupTitle(references bool) string {
-	if references {
-		return i18n.Shared(a.language(), "desktop.semantics.references")
-	}
+func (a *App) definitionPopupTitle() string {
 	return i18n.Shared(a.language(), "desktop.semantics.definitions")
 }
 

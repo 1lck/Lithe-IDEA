@@ -400,7 +400,14 @@ func searchPreviewLine(match core.WorkspaceSearchMatch) (string, []core.SearchNa
 	if match.SourceLine == nil {
 		return match.Preview, nil
 	}
-	line, ranges := trimHighlightedLine(*match.SourceLine, match.ContentMatchRanges)
+	return previewAroundRanges(*match.SourceLine, match.ContentMatchRanges)
+}
+
+// previewAroundRanges is a source line shown in a result row with its highlights, given in UTF-16
+// units: the line without its indentation, cut in front of a far first highlight. The Find in
+// Files results and the References tool window show their lines this way.
+func previewAroundRanges(source string, highlights []core.SearchNameRange) (string, []core.SearchNameRange) {
+	line, ranges := trimHighlightedLine(source, highlights)
 	if len(ranges) == 0 || ranges[0].Start <= searchPreviewLead {
 		return line, ranges
 	}

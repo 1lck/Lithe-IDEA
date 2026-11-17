@@ -462,22 +462,37 @@ func TestFindReferencesFillsTheReferencesPaneAndOpensChosen(t *testing.T) {
 	if got := f.kernel.request(0).Operation; got != pluginSemanticReferences {
 		t.Fatalf("operation = %q", got)
 	}
-	f.deliver(t, "op-1", pluginMethodReferences, locationsResult(t, locationAt(target, 1, 1)))
+	f.deliver(t, "op-1", pluginMethodReferences, locationsResult(t, locationAt(target, 1, 4)))
 	if f.h.app.semantics.definition.open {
 		t.Fatal("references opened the popup")
 	}
 	if !f.h.app.chrome.isOpen(catalogIndex[itemReferences]) {
 		t.Fatal("the References tool window did not open")
 	}
+	s := &f.h.app.editor.refs
+	if s.symbol != "one" {
+		t.Fatalf("searched symbol = %q, want the name under the caret", s.symbol)
+	}
 	f.h.settle()
-	if !f.h.shows("B.java") || !f.h.shows("one();") {
+	if !f.h.shows("B.java") || !f.h.shows("one();") || !f.h.shows("1 个结果") {
 		t.Fatalf("pane rows missing: %v", f.h.driver.Snapshot().Labels)
 	}
-	s := &f.h.app.editor.refs
 	if len(s.groups) != 1 || len(s.groups[0].indices) != 1 {
 		t.Fatalf("groups = %+v", s.groups)
 	}
-	f.h.app.openReference(f.p, s.targets[0])
+	if got := s.lines[0]; got.text != "one();" || len(got.ranges) != 1 || got.ranges[0] != (core.SearchNameRange{Start: 0, Length: 3}) {
+		t.Fatalf("usage line = %+v", got)
+	}
+	// The first usage is selected, and the preview shows its file with the usage selected.
+	f.h.await("the usage's preview", func() bool {
+		view := s.preview.view
+		if view == nil {
+			return false
+		}
+		anchor, active := view.SelectionOffsets()
+		return s.preview.path == target && anchor == len("zero\n    ") && active == len("zero\n    one")
+	})
+	f.h.app.openReference(s.targets[0])
 	awaitDocumentState(t, f.h, func() bool { return f.p.docs.byPath(target) != nil })
 }
 
@@ -501,14 +516,19 @@ func TestReferencesPaneGroupsByFileAndIsBounded(t *testing.T) {
 	if got := len(s.targets); got != maxReferenceTargets {
 		t.Fatalf("targets = %d, want %d", got, maxReferenceTargets)
 	}
-	if len(s.groups) != 2 || s.rows != maxReferenceTargets+2 {
-		t.Fatalf("groups = %d rows = %d", len(s.groups), s.rows)
+	// The Usages node, a node per file and every usage under them.
+	if len(s.groups) != 2 || len(s.rows) != maxReferenceTargets+3 {
+		t.Fatalf("groups = %d rows = %d", len(s.groups), len(s.rows))
 	}
-	if group, index, header := s.rowAt(s.starts[1]); group != 1 || !header || index != -1 {
-		t.Fatalf("second header = %d %d %v", group, index, header)
+	second := 2 + len(s.groups[0].indices)
+	if r := s.rows[second]; r.kind != referenceRowFile || r.group != 1 {
+		t.Fatalf("second file's row = %+v", r)
 	}
-	if group, index, header := s.rowAt(s.starts[1] + 3); group != 1 || index != 2 || header {
-		t.Fatalf("row in second group = %d %d %v", group, index, header)
+	if r := s.rows[second+3]; r.kind != referenceRowUsage || r.group != 1 || r.target != s.groups[1].indices[2] {
+		t.Fatalf("row in second file = %+v", r)
+	}
+	if s.selected != s.usageKey(0) || s.rowOf(s.selected) != 2 {
+		t.Fatalf("selected key %d at row %d, want the first usage", s.selected, s.rowOf(s.selected))
 	}
 }
 

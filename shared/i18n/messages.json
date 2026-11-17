@@ -14831,8 +14831,84 @@
       ]
     },
     {
+      "id": "desktop.references.closeSearch",
+      "description": "References tool window header tab: button that closes the find-usages results",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
       "id": "desktop.references.empty",
       "description": "References tool window text before any find-usages answer",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.references.nextUsage",
+      "description": "References tool window toolbar: select and open the next usage",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.references.previewEmpty",
+      "description": "References tool window preview pane before a usage with a local file is selected",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.references.previousUsage",
+      "description": "References tool window toolbar: select and open the previous usage",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.references.resultCount",
+      "description": "References tool window: number of usages found, more than one",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "count": "integer"
+      }
+    },
+    {
+      "id": "desktop.references.resultCountOne",
+      "description": "References tool window: exactly one usage found",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.references.showPreview",
+      "description": "References tool window toolbar: toggle the preview of the selected usage's file",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.references.usageCount",
+      "description": "References tool window: number of usages in one file, more than one",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "count": "integer"
+      }
+    },
+    {
+      "id": "desktop.references.usageCountOne",
+      "description": "References tool window: exactly one usage in a file",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.references.usages",
+      "description": "References tool window: root node of the usages tree, and the header tab's name when no symbol is known",
       "platforms": [
         "desktop"
       ]
