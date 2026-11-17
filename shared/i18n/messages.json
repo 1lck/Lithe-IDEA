@@ -18465,6 +18465,16 @@
       ]
     },
     {
+      "id": "desktop.title.hiddenRunConfigurations",
+      "description": "Desktop title bar: how many saved run configurations the run configuration menu leaves out because no build plugin starts them, such as entries an earlier version saved",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "count": "unsignedInteger"
+      }
+    },
+    {
       "id": "desktop.title.keymapLater",
       "description": "Desktop title bar: KeymapLater",
       "platforms": [
@@ -18498,6 +18508,23 @@
       "platforms": [
         "desktop"
       ]
+    },
+    {
+      "id": "desktop.title.nothingToEdit",
+      "description": "Desktop title bar: Edit Configuration chosen when the project has no run configuration; build plugins generate them from the project model and none declared a runnable entry",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.title.nothingToEditHidden",
+      "description": "Desktop title bar: Edit Configuration chosen when the project has no run configuration that a build plugin starts, while count saved ones are hidden because no build plugin runs them",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "count": "unsignedInteger"
+      }
     },
     {
       "id": "desktop.title.notDebuggable",

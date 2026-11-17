@@ -21,6 +21,11 @@ type runConfigState struct {
 	list       []core.RunConfiguration
 	selected   string
 	failure    string
+	// hidden counts the saved configurations left out of list because no build plugin starts
+	// them, so an empty list can say so: user entries of another provider, and saved entries
+	// Core reports as orphaned because they no longer match a generated configuration, such as
+	// the java.main entries an earlier version generated.
+	hidden int
 	// editor is the dialog that edits one configuration's saved options.
 	editor runConfigEditor
 	// browser is the list that shows the configurations by scope and build system.
@@ -132,8 +137,17 @@ func (a *App) finishRunConfigurations(p *project, generation uint64, resolved co
 	s.failure = ""
 	// Only build provider runs can start here; the host has no launcher for the other
 	// providers Core detects.
+	s.hidden = 0
+	for _, diagnostic := range resolved.Diagnostics {
+		if diagnostic.Code == "orphanedOverride" {
+			s.hidden++
+		}
+	}
 	s.list = slices.DeleteFunc(resolved.Configurations, func(c core.RunConfiguration) bool {
 		_, ok := c.BuildReference()
+		if !ok && !c.Disabled {
+			s.hidden++
+		}
 		return !ok || c.Disabled
 	})
 	if s.configuration(s.selected) == nil {
