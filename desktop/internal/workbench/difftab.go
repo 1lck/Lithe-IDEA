@@ -51,8 +51,10 @@ type diffSet struct {
 	// ignoreSpace reads the diffs ignoring whitespace, for the tabs opened after it is set.
 	ignoreSpace bool
 	// mirroring counts the edits the Diff tabs and the documents are mirroring into each other
-	// (difftab_edit.go); a mirrored edit is not mirrored back.
+	// (difftab_edit.go); a mirrored edit is not mirrored back. origin is the second view whose
+	// edit a document is taking, so the document's mirror passes over the view it came from.
 	mirroring int
+	origin    *editorview.View
 }
 
 // find is the tab with id, nil when there is none.

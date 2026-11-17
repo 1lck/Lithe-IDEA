@@ -245,7 +245,7 @@ type pluginSemantics struct {
 	autoGeneration uint64
 }
 
-// pluginSemanticHit is the open document whose text is id.
+// pluginSemanticHit is the open document whose text, or editable preview, is id.
 func (a *App) pluginSemanticHit(id gfx.ID) (*project, *document) {
 	p := a.project
 	if p == nil || id.IsZero() {
@@ -256,7 +256,7 @@ func (a *App) pluginSemanticHit(id gfx.ID) (*project, *document) {
 			return p, d
 		}
 	}
-	return nil, nil
+	return a.previewDocumentHit(id)
 }
 
 // currentSemanticDocument is the document a popup belongs to, and nil when the
@@ -371,13 +371,13 @@ func (a *App) pluginSemanticsTrigger(event gfx.KeyEvent, p *project, d *document
 	if event.Release || (event.Modifiers != 0 && event.Modifiers != gfx.ModifierShift) {
 		return gfx.EventResult{}, false
 	}
-	if d == nil || d.view.IsComposing() {
+	if d == nil || d.caretView().IsComposing() {
 		return gfx.EventResult{}, false
 	}
 	if event.Modifiers == gfx.ModifierShift {
 		switch event.Key {
 		case gfx.KeyF12:
-			line, column := d.view.CaretUTF16()
+			line, column := d.caretView().CaretUTF16()
 			a.startPluginReferences(p, d, line, column)
 			return gfx.EventResult{Handled: true, Repaint: true}, true
 		case gfx.KeyF6:
@@ -388,15 +388,15 @@ func (a *App) pluginSemanticsTrigger(event gfx.KeyEvent, p *project, d *document
 	}
 	switch event.Key {
 	case gfx.KeyF12:
-		line, column := d.view.CaretUTF16()
+		line, column := d.caretView().CaretUTF16()
 		a.startPluginDefinition(p, d, line, column, true)
 		return gfx.EventResult{Handled: true, Repaint: true}, true
 	case gfx.KeyF2:
 		a.openPluginRename(p, d)
 		return gfx.EventResult{Handled: true, Repaint: true}, true
 	case gfx.KeyF1:
-		line, column := d.view.CaretUTF16()
-		rect, _ := d.view.CaretRect()
+		line, column := d.caretView().CaretUTF16()
+		rect, _ := d.caretView().CaretRect()
 		a.startPluginHover(p, d, line, column, rect, false, true)
 		return gfx.EventResult{Handled: true, Repaint: true}, true
 	}
@@ -420,10 +420,10 @@ func (a *App) pluginSemanticsShortcut(event gfx.KeyEvent) gfx.EventResult {
 		return gfx.EventResult{}
 	}
 	p, d := a.pluginSemanticHit(event.Target)
-	if d == nil || d.view.IsComposing() {
+	if d == nil || d.caretView().IsComposing() {
 		return gfx.EventResult{}
 	}
-	line, column := d.view.CaretUTF16()
+	line, column := d.caretView().CaretUTF16()
 	a.startPluginCompletion(p, d, line, column)
 	return gfx.EventResult{Handled: true, Repaint: true}
 }
@@ -436,17 +436,17 @@ func (a *App) declarationShortcut(event gfx.KeyEvent) gfx.EventResult {
 		return gfx.EventResult{}
 	}
 	p, d := a.pluginSemanticHit(event.Target)
-	if d == nil || d.view.IsComposing() {
+	if d == nil || d.caretView().IsComposing() {
 		return gfx.EventResult{}
 	}
-	line, column := d.view.CaretUTF16()
+	line, column := d.caretView().CaretUTF16()
 	a.startPluginDefinition(p, d, line, column, true)
 	return gfx.EventResult{Handled: true, Repaint: true}
 }
 
-// pluginSemanticsPointer handles modifier-click definition and pointer hover.
-// It runs before the editor's own pointer handling.
-func (a *App) pluginSemanticsPointer(event gfx.PointerEvent, p *project, d *document) (gfx.EventResult, bool) {
+// pluginSemanticsPointer handles modifier-click definition and pointer hover over view, the
+// document's own editor or its editable preview. It runs before the view's own pointer handling.
+func (a *App) pluginSemanticsPointer(event gfx.PointerEvent, p *project, d *document, view *editorview.View) (gfx.EventResult, bool) {
 	switch event.Kind {
 	case gfx.PointerDown:
 		if a.semantics.completion.open || a.semantics.definition.open || a.semantics.hover.open {
@@ -462,7 +462,7 @@ func (a *App) pluginSemanticsPointer(event gfx.PointerEvent, p *project, d *docu
 		if event.Modifiers&modifier == 0 {
 			return gfx.EventResult{}, false
 		}
-		line, column, ok := d.view.PositionAt(event.X, event.Y)
+		line, column, ok := view.PositionAt(event.X, event.Y)
 		if !ok {
 			return gfx.EventResult{}, false
 		}
@@ -476,7 +476,7 @@ func (a *App) pluginSemanticsPointer(event gfx.PointerEvent, p *project, d *docu
 			a.leaveSemanticHover()
 			return gfx.EventResult{}, false
 		}
-		line, column, ok := d.view.PositionAt(event.X, event.Y)
+		line, column, ok := view.PositionAt(event.X, event.Y)
 		if !ok {
 			a.leaveSemanticHover()
 			return gfx.EventResult{}, false
@@ -488,7 +488,7 @@ func (a *App) pluginSemanticsPointer(event gfx.PointerEvent, p *project, d *docu
 			return gfx.EventResult{}, false
 		}
 		a.releaseSemanticHover()
-		a.pointPluginHover(p, d, line, column, hoverRowAnchor(d, event.X, event.Y))
+		a.pointPluginHover(p, d, line, column, hoverRowAnchor(view, event.X, event.Y))
 		return gfx.EventResult{}, false
 	case gfx.PointerExit:
 		a.leaveSemanticHover()
@@ -543,7 +543,7 @@ func (a *App) startPluginLocations(kind semanticKind, p *project, d *document, l
 	if a.plugins == nil || p == nil || d == nil || a.project != p {
 		return
 	}
-	if d.view.IsComposing() {
+	if d.caretView().IsComposing() {
 		return
 	}
 	a.closeSemanticHover()
@@ -587,7 +587,7 @@ func (a *App) startPluginHover(p *project, d *document, line, column int, anchor
 	if a.plugins == nil || p == nil || d == nil || a.project != p {
 		return
 	}
-	if d.view.IsComposing() {
+	if d.caretView().IsComposing() {
 		return
 	}
 	a.closeSemanticCompletion()
@@ -665,11 +665,11 @@ func (a *App) requestPluginCompletion(p *project, d *document, line, column int,
 	if a.plugins == nil || p == nil || d == nil || a.project != p {
 		return
 	}
-	if d.view.IsComposing() {
+	if d.caretView().IsComposing() {
 		return
 	}
 	if automatic {
-		if caretLine, caretColumn := d.view.CaretUTF16(); caretLine != line || caretColumn != column {
+		if caretLine, caretColumn := d.caretView().CaretUTF16(); caretLine != line || caretColumn != column {
 			return
 		}
 	}
@@ -767,12 +767,12 @@ func (a *App) scheduleAutoCompletion(p *project, d *document, edit editorview.Ed
 		a.semantics.autoCancel()
 		a.semantics.autoCancel = nil
 	}
-	if a.plugins == nil || a.project != p || d.view.IsComposing() {
+	if a.plugins == nil || a.project != p || d.caretView().IsComposing() {
 		return
 	}
 	// An incomplete list is asked again on every word character typed while it is open.
 	if completion := a.semantics.completion; completion.open && completion.incomplete && completion.documentID == d.id && isWordInsert(edit) {
-		line, column := d.view.CaretUTF16()
+		line, column := d.caretView().CaretUTF16()
 		a.requestPluginCompletion(p, d, line, column, completionTriggerContext(), true)
 		return
 	}
@@ -792,7 +792,7 @@ func (a *App) scheduleAutoCompletion(p *project, d *document, edit editorview.Ed
 	if !ok {
 		return
 	}
-	line, column := d.view.CaretUTF16()
+	line, column := d.caretView().CaretUTF16()
 	delay := a.semantics.autoDelay
 	if delay == 0 {
 		delay = semanticAutoCompletionDelay
@@ -1212,7 +1212,7 @@ func (a *App) semanticPositionCurrent(pending *semanticPending, d *document) boo
 	if !pending.requireCaret {
 		return true
 	}
-	line, column := d.view.CaretUTF16()
+	line, column := d.caretView().CaretUTF16()
 	return line == pending.line && column == pending.column
 }
 
@@ -1313,7 +1313,7 @@ func (a *App) acceptPluginCompletion(index int) {
 			if current != p || document == nil || a.project != p || document.view.Revision() != revision {
 				return
 			}
-			document.view.ApplyTextChange(change)
+			document.caretView().ApplyTextChange(change)
 		}
 	})
 }
@@ -1530,7 +1530,7 @@ func (a *App) pluginSemanticsCaretSync() {
 			a.closeSemanticCompletion()
 			return
 		}
-		line, column := d.view.CaretUTF16()
+		line, column := d.caretView().CaretUTF16()
 		if d.view.Revision() != state.completion.revision || line != state.completion.line || column != state.completion.column {
 			a.closeSemanticCompletion()
 		}

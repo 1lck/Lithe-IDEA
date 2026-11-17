@@ -9,11 +9,11 @@ import (
 )
 
 // This file keeps the documents that have no tab (matrix id git-diff-review). The right side of a
-// working-copy Diff tab edits the file's text, and an unopened file has no document to edit. Such a
-// document is read in the background and joins the project's documents: it is saved, autosaved and
-// checked on close like any other, but no group holds it and it takes no focus. The editor attaches a
-// tab to it when the file is opened (selectDocument), and it is released when no Diff tab shows it
-// and it is saved (releaseIdleTablessDocument).
+// working-copy Diff tab and the Problems preview edit the file's text, and an unopened file has no
+// document to edit. Such a document is read in the background and joins the project's documents: it
+// is saved, autosaved and checked on close like any other, but no group holds it and it takes no
+// focus. The editor attaches a tab to it when the file is opened (selectDocument), and it is released
+// when no Diff tab and no editable preview shows it and it is saved (releaseIdleTablessDocument).
 
 // ensureTablessDocument makes sure the working-copy file of tab t has a document, opening it in the
 // background when none is open, and lays the tab out again when it has one.
@@ -40,38 +40,58 @@ func (a *App) openTablessDocument(p *project, path string) {
 	}
 	p.docs.opening[path] = true
 	registry := a.syntaxRegistry()
-	name := filepath.Base(path)
 	kernel, _ := a.kernel.(editorKernel)
 	a.background(p, 0, func(ctx context.Context) func(*App) {
-		read, err := readDocumentEncoded(ctx, kernel, path)
-		var content editorview.Content
-		var grammar *syntax.Syntax
-		languageID := ""
-		if err == nil {
-			content = editorview.Prepare(read.text)
-			grammar = registry.SyntaxForPath(path)
-			if language, ok := registry.ForPath(path); ok {
-				languageID = language.ID
-			}
-		}
+		file := readTablessFile(ctx, kernel, registry, path)
 		return func(a *App) {
 			delete(p.docs.opening, path)
 			// A file that is not text, or that cannot be read, has no document; its Diff stays read only.
-			if err != nil || a.project != p || p.docs.byPath(path) != nil {
+			if file.err != nil || a.project != p || p.docs.byPath(path) != nil {
 				return
 			}
-			p.docs.next++
-			d := a.newTablessDocument(p, p.docs.next, path, name, content, grammar, languageID)
-			d.encoding, d.hasBOM, d.diskBytes = read.encoding, read.hasBOM, read.disk
-			d.tabless = true
-			p.docs.list = append(p.docs.list, d)
-			for _, t := range p.diffs.list {
-				if diffWritable(t) && diffTabPath(t) == path {
-					a.rebuildDiff(t)
-				}
-			}
+			a.addTablessDocument(p, path, file)
 		}
 	})
+}
+
+// tablessFile is what a worker read of a file that becomes a document without a tab.
+type tablessFile struct {
+	read       documentRead
+	content    editorview.Content
+	grammar    *syntax.Syntax
+	languageID string
+	err        error
+}
+
+// readTablessFile reads path and prepares its text and grammar; it runs on a worker.
+func readTablessFile(ctx context.Context, kernel editorKernel, registry *syntax.Registry, path string) tablessFile {
+	read, err := readDocumentEncoded(ctx, kernel, path)
+	file := tablessFile{read: read, err: err}
+	if err != nil {
+		return file
+	}
+	file.content = editorview.Prepare(read.text)
+	file.grammar = registry.SyntaxForPath(path)
+	if language, ok := registry.ForPath(path); ok {
+		file.languageID = language.ID
+	}
+	return file
+}
+
+// addTablessDocument makes file the document of path without a tab and lays the Diff tabs of the
+// file out again, so their right sides become editable.
+func (a *App) addTablessDocument(p *project, path string, file tablessFile) *document {
+	p.docs.next++
+	d := a.newTablessDocument(p, p.docs.next, path, filepath.Base(path), file.content, file.grammar, file.languageID)
+	d.encoding, d.hasBOM, d.diskBytes = file.read.encoding, file.read.hasBOM, file.read.disk
+	d.tabless = true
+	p.docs.list = append(p.docs.list, d)
+	for _, t := range p.diffs.list {
+		if diffWritable(t) && diffTabPath(t) == path {
+			a.rebuildDiff(t)
+		}
+	}
+	return d
 }
 
 // newTablessDocument makes the document of path with its editor, wired the way a tab's document is,
@@ -114,11 +134,11 @@ func (a *App) attachDocumentTab(p *project, d *document) bool {
 	return true
 }
 
-// releaseIdleTablessDocument releases the tabless document of path once no Diff tab shows the file
-// and the document has nothing unsaved.
+// releaseIdleTablessDocument releases the tabless document of path once no Diff tab and no editable
+// preview shows the file and the document has nothing unsaved.
 func (a *App) releaseIdleTablessDocument(p *project, path string) {
 	d := p.docs.byPath(path)
-	if d == nil || !d.tabless {
+	if d == nil || !d.tabless || a.previewShowsDocument(d) {
 		return
 	}
 	for _, t := range p.diffs.list {

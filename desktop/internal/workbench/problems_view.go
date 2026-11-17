@@ -67,7 +67,7 @@ func (a *App) problemsContent(c ui.C, p *project, lang i18n.Language) {
 		a.problemsTree(c, p, lang)
 		return
 	}
-	a.syncProblemsPreview(p)
+	a.syncProblemsPreview(p, c.Canvas().Focused())
 	if v.split.Pos <= 0 {
 		v.split.Pos = problemsTreeWidth
 	}
@@ -127,7 +127,7 @@ func (a *App) problemsToolbar(c ui.C, lang i18n.Language) {
 				a.performed("workspace.problems.preview", surfaceButton)
 				v.show = !v.show
 				if !v.show {
-					v.preview.close()
+					a.closeSourcePreview(&v.preview)
 				}
 			})
 		}
@@ -345,8 +345,9 @@ func problemsProjectTabText(lang i18n.Language, count int) string {
 	return i18n.SharedFormat(lang, "desktop.problems.scope.projectCount", map[string]string{"count": strconv.Itoa(count)})
 }
 
-// problemSeverityMark is the icon and tint of an LSP severity. Unknown
-// severities read as information, as Core ranks them.
+// problemSeverityMark is the icon and color of an LSP severity: red for errors, yellow for
+// warnings, and blue for information and hints. Unknown severities read as information, as Core
+// ranks them. The preview colors a diagnostic's line with the same color.
 func (a *App) problemSeverityMark(severity int) (gfx.Icon, gfx.Color) {
 	switch severity {
 	case 1:
@@ -354,7 +355,7 @@ func (a *App) problemSeverityMark(severity int) (gfx.Icon, gfx.Color) {
 	case 2:
 		return icons.CircleAlert, a.colors.Warning
 	default:
-		return icons.Info, a.colors.Subtle
+		return icons.Info, a.colors.Accent
 	}
 }
 

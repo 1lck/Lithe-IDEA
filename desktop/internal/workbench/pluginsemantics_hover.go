@@ -10,6 +10,7 @@ import (
 	"github.com/1lck/Lithe-IDEA/desktop/internal/core"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/editor/rope"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/editor/syntax"
+	"github.com/1lck/Lithe-IDEA/desktop/internal/editorview"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/i18n"
 	"github.com/vivaui/viva/components"
 	"github.com/vivaui/viva/gfx"
@@ -540,9 +541,9 @@ func isHoverWordRune(r rune) bool {
 
 // hoverRowAnchor is the rectangle a pointer hover is placed under: the pointer's x across the
 // whole row it is on, so the popup starts right below the row and not over the next line.
-func hoverRowAnchor(d *document, x, y float32) gfx.Rect {
-	height := d.view.LineHeight()
-	if _, fraction, ok := d.view.LineRowAt(y); ok && height > 0 {
+func hoverRowAnchor(view *editorview.View, x, y float32) gfx.Rect {
+	height := view.LineHeight()
+	if _, fraction, ok := view.LineRowAt(y); ok && height > 0 {
 		return gfx.Rect{X: x, Y: y - fraction*height, Height: height}
 	}
 	return gfx.Rect{X: x, Y: y}

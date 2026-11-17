@@ -65,7 +65,7 @@ type renameDocumentUpdate struct {
 
 // openPluginRename opens the rename dialog for the symbol at the caret.
 func (a *App) openPluginRename(p *project, d *document) {
-	if a.plugins == nil || p == nil || d == nil || a.project != p || d.view.IsComposing() {
+	if a.plugins == nil || p == nil || d == nil || a.project != p || d.caretView().IsComposing() {
 		return
 	}
 	if _, ok := a.semanticServer(d); !ok {
@@ -73,7 +73,7 @@ func (a *App) openPluginRename(p *project, d *document) {
 		return
 	}
 	a.closePluginSemantics()
-	line, column := d.view.CaretUTF16()
+	line, column := d.caretView().CaretUTF16()
 	initial := identifierAt(d.view.TextSnapshot(), d.view, line, column)
 	state := &a.semantics.rename
 	*state = renameState{open: true, documentID: d.id, revision: d.view.Revision(), line: line, column: column, initial: initial}

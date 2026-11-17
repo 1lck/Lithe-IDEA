@@ -9,14 +9,14 @@ import (
 func TestSelectionGreysWhileAnotherWindowHasTheKeyboard(t *testing.T) {
 	a := &App{}
 	a.applyLook(themeLight)
-	if a.theme.Selection != a.colors.Selection {
-		t.Fatalf("active selection = %+v, want %+v", a.theme.Selection, a.colors.Selection)
+	if a.theme.Selection != a.colors.Selection || a.theme.Accent != a.colors.Selection {
+		t.Fatalf("active selection = %+v, accent %+v, want both %+v", a.theme.Selection, a.theme.Accent, a.colors.Selection)
 	}
 
 	a.windowInactive = true
 	a.applySelectionFocus()
-	if a.theme.Selection != a.colors.SelectionIdle {
-		t.Fatalf("inactive selection = %+v, want the idle %+v", a.theme.Selection, a.colors.SelectionIdle)
+	if a.theme.Selection != a.colors.SelectionIdle || a.theme.Accent != a.colors.SelectionIdle {
+		t.Fatalf("inactive selection = %+v, accent %+v, want both the idle %+v", a.theme.Selection, a.theme.Accent, a.colors.SelectionIdle)
 	}
 
 	// A look change while the window stays inactive keeps the idle color.
@@ -42,5 +42,9 @@ func TestIdleSelectionDiffersFromTheFocusedOne(t *testing.T) {
 	}
 	if light.Selection != lightPalette.Selection || dark.Selection != darkPalette.Selection {
 		t.Fatal("a look starts with the focused selection color")
+	}
+	// Viva fills a selected tree row with the Accent, so it is the selection blue too.
+	if light.Accent != lightPalette.Selection || dark.Accent != darkPalette.Selection {
+		t.Fatal("a look fills a selected tree row with its selection color")
 	}
 }

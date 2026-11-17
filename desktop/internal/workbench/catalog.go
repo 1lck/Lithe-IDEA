@@ -575,7 +575,7 @@ func (a *App) reduceChrome(action core.ChromeAction) {
 	// The Problems list copies the diagnostics it submits to Core. Drop that copy
 	// when the tool window closes; opening it again asks Core for a fresh answer.
 	if !a.chrome.isOpen(catalogIndex[itemProblems]) {
-		a.problems.reset()
+		a.resetProblems()
 	}
 	if !changed {
 		return
