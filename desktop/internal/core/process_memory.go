@@ -71,8 +71,18 @@ type MemoryRequest struct {
 }
 
 // MemoryBaseline holds the use counters of the instance's processes at one moment, which the
-// next request sends back so Core can measure the use in between.
+// next request sends back as it came so Core can measure the use in between.
 type MemoryBaseline struct {
+	SampledAt uint64            `json:"sampledAt"`
+	Processes []BaselineProcess `json:"processes"`
+	// Earlier holds the counters the baseline's own percentages were measured from. Core
+	// measures a table read less than a second after the baseline from them instead, and
+	// returns the baseline unchanged.
+	Earlier *MemoryCounters `json:"earlier,omitempty"`
+}
+
+// MemoryCounters holds the use counters of an earlier table, kept in a baseline.
+type MemoryCounters struct {
 	SampledAt uint64            `json:"sampledAt"`
 	Processes []BaselineProcess `json:"processes"`
 }
@@ -104,10 +114,11 @@ type MemoryUsage struct {
 	CompressedBytes *uint64 `json:"compressedBytes,omitempty"`
 	// GPUMemoryBytes is graphics memory the bytes in memory do not hold.
 	GPUMemoryBytes *uint64 `json:"gpuMemoryBytes,omitempty"`
-	// CPUPercent is the processor use since the previous table, rounded to a tenth.
+	// CPUPercent is the processor use since counters at least a second older than the table,
+	// rounded to a tenth.
 	CPUPercent *float64 `json:"cpuPercent,omitempty"`
-	// GPUPercent is the use of the busiest graphics engine since the previous table, rounded to
-	// a tenth and at most 100.
+	// GPUPercent is the use of the busiest graphics engine since counters at least a second
+	// older than the table, rounded to a tenth and at most 100.
 	GPUPercent *float64 `json:"gpuPercent,omitempty"`
 }
 

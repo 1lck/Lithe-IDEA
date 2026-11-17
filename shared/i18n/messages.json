@@ -14422,14 +14422,18 @@
       ]
     },
     {
-      "id": "desktop.problems.groupBy",
-      "description": "Toolbar button that cycles the Problems grouping; {arg1} is the current grouping's name",
+      "id": "desktop.problems.groupHeading",
+      "description": "Heading over the grouping choices in the Problems View Options menu",
       "platforms": [
         "desktop"
-      ],
-      "parameters": {
-        "arg1": "string"
-      }
+      ]
+    },
+    {
+      "id": "desktop.problems.noOpenFile",
+      "description": "Message in the Problems tool window's File tab while no file is open in the editor",
+      "platforms": [
+        "desktop"
+      ]
     },
     {
       "id": "desktop.problems.previewEmpty",
@@ -14439,29 +14443,112 @@
       ]
     },
     {
+      "id": "desktop.problems.scope.file",
+      "description": "Problems tool window header tab that shows the current file's problems, while it has none",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.problems.scope.fileCount",
+      "description": "Problems tool window header tab that shows the current file's problems; {count} is how many it has",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "count": "integer"
+      }
+    },
+    {
+      "id": "desktop.problems.scope.project",
+      "description": "Problems tool window header tab that shows the whole project's problems, while it has none",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.problems.scope.projectCount",
+      "description": "Problems tool window header tab that shows the whole project's problems; {count} is how many it has",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "count": "integer"
+      }
+    },
+    {
+      "id": "desktop.problems.severity.error",
+      "description": "Problems tree node over the error diagnostics when grouped by severity",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.problems.severity.hint",
+      "description": "Problems tree node over the hint diagnostics when grouped by severity",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.problems.severity.information",
+      "description": "Problems tree node over the information diagnostics when grouped by severity",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.problems.severity.unknown",
+      "description": "Problems tree node over the diagnostics with a missing or unknown severity when grouped by severity",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.problems.severity.warning",
+      "description": "Problems tree node over the warning diagnostics when grouped by severity",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
       "id": "desktop.problems.showErrors",
-      "description": "Checkbox in the Problems toolbar that shows error diagnostics",
+      "description": "Checked item in the Problems View Options menu that shows error diagnostics",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.problems.showHeading",
+      "description": "Heading over the severity checkboxes in the Problems View Options menu",
       "platforms": [
         "desktop"
       ]
     },
     {
       "id": "desktop.problems.showInfo",
-      "description": "Checkbox in the Problems toolbar that shows information and hint diagnostics",
+      "description": "Checked item in the Problems View Options menu that shows information and hint diagnostics",
       "platforms": [
         "desktop"
       ]
     },
     {
       "id": "desktop.problems.showPreview",
-      "description": "Checkbox above the Problems list that shows a read-only source preview of the selected diagnostic beside the list",
+      "description": "Toggle button in the Problems tool window's action column that shows a read-only source preview of the selected diagnostic beside the tree",
       "platforms": [
         "desktop"
       ]
     },
     {
       "id": "desktop.problems.showWarnings",
-      "description": "Checkbox in the Problems toolbar that shows warning diagnostics",
+      "description": "Checked item in the Problems View Options menu that shows warning diagnostics",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.problems.viewOptions",
+      "description": "Button in the Problems tool window's action column that opens the menu of severities shown and grouping",
       "platforms": [
         "desktop"
       ]
@@ -14831,8 +14918,84 @@
       ]
     },
     {
+      "id": "desktop.references.closeSearch",
+      "description": "References tool window header tab: button that closes the find-usages results",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
       "id": "desktop.references.empty",
       "description": "References tool window text before any find-usages answer",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.references.nextUsage",
+      "description": "References tool window toolbar: select and open the next usage",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.references.previewEmpty",
+      "description": "References tool window preview pane before a usage with a local file is selected",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.references.previousUsage",
+      "description": "References tool window toolbar: select and open the previous usage",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.references.resultCount",
+      "description": "References tool window: number of usages found, more than one",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "count": "integer"
+      }
+    },
+    {
+      "id": "desktop.references.resultCountOne",
+      "description": "References tool window: exactly one usage found",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.references.showPreview",
+      "description": "References tool window toolbar: toggle the preview of the selected usage's file",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.references.usageCount",
+      "description": "References tool window: number of usages in one file, more than one",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "count": "integer"
+      }
+    },
+    {
+      "id": "desktop.references.usageCountOne",
+      "description": "References tool window: exactly one usage in a file",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.references.usages",
+      "description": "References tool window: root node of the usages tree, and the header tab's name when no symbol is known",
       "platforms": [
         "desktop"
       ]

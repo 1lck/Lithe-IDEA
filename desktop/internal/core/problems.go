@@ -62,12 +62,16 @@ const (
 )
 
 // ProblemsQuery is one Problems tool-window query. The empty GroupBy and SortBy
-// ask for Core's defaults: group by file, sort by severity.
+// ask for Core's defaults: group by file, sort by severity. Collapsed and Selected
+// are the tree state the window keeps: the keys of the group nodes the user
+// closed and the selected row's key.
 type ProblemsQuery struct {
 	Diagnostics []ProblemsDiagnostic `json:"diagnostics"`
 	GroupBy     string               `json:"groupBy,omitempty"`
 	SortBy      string               `json:"sortBy,omitempty"`
 	Filter      *ProblemsFilter      `json:"filter,omitempty"`
+	Collapsed   []string             `json:"collapsed,omitempty"`
+	Selected    string               `json:"selected,omitempty"`
 }
 
 // ProblemsGroup is one group of a Problems query result. Indices point into the
@@ -79,6 +83,10 @@ type ProblemsGroup struct {
 	Kind        string `json:"kind"`
 	FileKey     string `json:"fileKey,omitempty"`
 	DisplayPath string `json:"displayPath,omitempty"`
+	// Name and Folder are a file group's DisplayPath split at its last segment;
+	// Folder is empty at the workspace root.
+	Name   string `json:"name,omitempty"`
+	Folder string `json:"folder,omitempty"`
 	// Severity is the group's LSP severity for a severity group; 0 is the
 	// unknown-severity group.
 	Severity int                    `json:"severity,omitempty"`
@@ -96,12 +104,39 @@ type ProblemsFile struct {
 	Counts          ProblemsSeverityCounts `json:"counts"`
 }
 
-// ProblemsResult is Core's filtered, ordered and grouped Problems list.
+// The kinds of a Problems row.
+const (
+	ProblemsRowGroup      = "group"
+	ProblemsRowDiagnostic = "diagnostic"
+)
+
+// ProblemsRow is a row of the Problems tree that shows.
+type ProblemsRow struct {
+	// Key stays the row's while nodes open and close, and a diagnostic's key
+	// stays its own when the server republishes the list in another order.
+	Key   string `json:"key"`
+	Kind  string `json:"kind"`
+	Depth int    `json:"depth"`
+	// Expanded is whether a node's diagnostics show; nil on a diagnostic.
+	Expanded *bool `json:"expanded,omitempty"`
+	// Group is the row's group.
+	Group int `json:"group"`
+	// Shows is the diagnostic the row previews and opens: itself or a node's first.
+	Shows int `json:"shows"`
+}
+
+// ProblemsResult is Core's filtered, ordered and grouped Problems list and the
+// tree rows that show it.
 type ProblemsResult struct {
 	Groups        []ProblemsGroup        `json:"groups"`
 	Files         []ProblemsFile         `json:"files"`
 	VisibleCounts ProblemsSeverityCounts `json:"visibleCounts"`
 	TotalCounts   ProblemsSeverityCounts `json:"totalCounts"`
+	Rows          []ProblemsRow          `json:"rows"`
+	// Selected is the selected row's key, always one of Rows, and SelectedRow its
+	// place; both are absent when nothing is selected.
+	Selected    string `json:"selected,omitempty"`
+	SelectedRow *int   `json:"selectedRow,omitempty"`
 }
 
 // QueryProblems asks Core to filter, order and group the displayed diagnostics.

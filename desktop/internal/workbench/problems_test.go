@@ -4,9 +4,11 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/1lck/Lithe-IDEA/desktop/internal/core"
+	"github.com/1lck/Lithe-IDEA/desktop/internal/i18n"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/plugindiag"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/pluginservice"
 )
@@ -33,13 +35,64 @@ func problemSet(t *testing.T, records ...plugindiag.Diagnostic) *plugindiag.Set 
 func openProblemsPanel(t *testing.T, h *harness) {
 	t.Helper()
 	h.click(center(h.button(itemProblems)))
-	awaitDocumentState(t, h, func() bool { return h.app.problems.loaded && !h.app.problems.querying })
+	awaitProblems(t, h)
+}
+
+// awaitProblems paints until the answer for the tree's current state and the current file has
+// been applied, then paints it.
+func awaitProblems(t *testing.T, h *harness) {
+	t.Helper()
+	v := &h.app.problems
+	awaitDocumentState(t, h, func() bool {
+		return v.loaded && !v.querying && v.queried == v.generation && v.file == h.app.problemsCurrentFile()
+	})
 	if err := h.driver.Pump(); err != nil {
 		t.Fatal(err)
 	}
 }
 
-func TestProblemsPanelUsesCoreOrderAndOpensPosition(t *testing.T) {
+// problemsRowKeys is the keys of the tree's visible rows.
+func problemsRowKeys(v *problemsView) []string {
+	keys := make([]string, len(v.result.Rows))
+	for i, r := range v.result.Rows {
+		keys[i] = r.Key
+	}
+	return keys
+}
+
+// problemsRowNamed is the name of the visible row with key, which the tree's control for it
+// carries.
+func problemsRowNamed(t *testing.T, h *harness, key string) string {
+	t.Helper()
+	i := h.app.problems.rowOf(key)
+	if i < 0 {
+		t.Fatalf("row %q does not show; rows %v", key, problemsRowKeys(&h.app.problems))
+	}
+	return h.app.problemsRowLabel(i)
+}
+
+// problemsDiagnosticRow is the key of the visible row of the diagnostic with message.
+func problemsDiagnosticRow(t *testing.T, h *harness, message string) string {
+	t.Helper()
+	v := &h.app.problems
+	for _, r := range v.result.Rows {
+		if r.Kind == core.ProblemsRowDiagnostic && v.diagnostics[r.Shows].Message == message {
+			return r.Key
+		}
+	}
+	t.Fatalf("no row shows %q; rows %v", message, problemsRowKeys(v))
+	return ""
+}
+
+// problemsTab is the header tab's name for a count, as the File or Project tab shows it.
+func problemsTab(h *harness, project bool, count int) string {
+	if project {
+		return problemsProjectTabText(h.app.language(), count)
+	}
+	return problemsFileTabText(h.app.language(), count)
+}
+
+func TestProblemsTabsCountTheCurrentFileAndTheProject(t *testing.T) {
 	h := newHarness(t, &testKernel{Client: core.NewClient()})
 	root := t.TempDir()
 	if err := os.MkdirAll(filepath.Join(root, "src"), 0o700); err != nil {
@@ -61,29 +114,56 @@ func TestProblemsPanelUsesCoreOrderAndOpensPosition(t *testing.T) {
 	)}
 	h.app.markProblemsChanged()
 
+	// The window opens on the File tab, as IDEA's does; no file is open yet.
 	openProblemsPanel(t, h)
-	if got := h.app.problems.result.Groups; len(got) != 2 {
-		t.Fatalf("groups = %+v", got)
+	v := &h.app.problems
+	lang := h.app.language()
+	if v.project || v.fileCount != 0 || v.projectCount != 2 || len(v.result.Rows) != 0 {
+		t.Fatalf("project %v, counts %d/%d, rows %v", v.project, v.fileCount, v.projectCount, problemsRowKeys(v))
 	}
-	if got := h.app.problems.result.Groups[0].DisplayPath; got != "src/File2.java" {
-		t.Fatalf("first group = %q, want Core's natural file order", got)
-	}
-	if !h.shows("src/File2.java") {
-		t.Fatal("the panel does not show the first file header")
-	}
-	if got := h.app.problems.rows; got != 4 {
-		t.Fatalf("flat rows = %d, want two headers and two diagnostics", got)
+	if !h.shows(i18n.Shared(lang, "desktop.problems.noOpenFile")) {
+		t.Fatal("the File tab does not say that no file is open")
 	}
 
-	// Flat row 0 is the File2 header and row 1 is its diagnostic.
-	h.clickNamed("type mismatch")
+	h.clickNamed(problemsTab(h, true, 2))
+	awaitProblems(t, h)
+	if !v.project {
+		t.Fatal("the Project tab was not chosen")
+	}
+	if got := v.result.Groups; len(got) != 2 || got[0].DisplayPath != "src/File2.java" || got[0].Name != "File2.java" || got[0].Folder != "src" {
+		t.Fatalf("groups = %+v, want Core's natural file order with File2 first", got)
+	}
+	file2Node, file10Node := "file:"+file2, "file:"+file10
+	if keys := problemsRowKeys(v); len(keys) != 4 || keys[0] != file2Node || keys[2] != file10Node {
+		t.Fatalf("rows = %v, want each file's node over its diagnostic", keys)
+	}
+	if n := v.node(0); n.Depth != 0 || !n.Branch || !n.Expanded {
+		t.Fatalf("file node = %+v", n)
+	}
+	if n := v.node(1); n.Depth != 1 || n.Branch {
+		t.Fatalf("diagnostic = %+v", n)
+	}
+	if !h.shows("File2.java") {
+		t.Fatal("the panel does not show the first file's node")
+	}
+
+	// With the preview off, a click on a diagnostic opens it at its position.
+	h.clickNamed(problemsRowNamed(t, h, v.result.Rows[1].Key))
 	awaitDocumentState(t, h, func() bool { return h.app.project.docs.byPath(file2) != nil })
 	document := h.app.project.docs.byPath(file2)
-	if document == nil {
-		t.Fatal("the clicked diagnostic did not open its document")
-	}
 	if line, column := document.view.Caret(); line != 1 || column != 2 {
 		t.Fatalf("caret = %d:%d, want the diagnostic's zero-based 1:2", line, column)
+	}
+
+	// The opened file is the current one now, so the File tab counts and shows its problem.
+	awaitProblems(t, h)
+	if v.fileCount != 1 || v.projectCount != 2 {
+		t.Fatalf("counts = %d/%d after opening File2", v.fileCount, v.projectCount)
+	}
+	h.clickNamed(problemsTab(h, false, 1))
+	awaitProblems(t, h)
+	if keys := problemsRowKeys(v); v.project || len(keys) != 2 || keys[0] != file2Node {
+		t.Fatalf("File tab rows = %v", keys)
 	}
 }
 
@@ -98,14 +178,15 @@ func TestProblemsPanelVirtualizesLongList(t *testing.T) {
 	h.open(root)
 	h.app.pluginDiagnostics = map[string]*plugindiag.Set{"java": problemSet(t, records...)}
 	h.app.markProblemsChanged()
+	h.app.problems.project = true
 
 	openProblemsPanel(t, h)
-	if got := h.app.problems.rows; got != len(records)+1 {
-		t.Fatalf("flat rows = %d, want %d", got, len(records)+1)
+	if got := len(h.app.problems.result.Rows); got != len(records)+1 {
+		t.Fatalf("rows = %d, want %d", got, len(records)+1)
 	}
 	declared := 0
 	for _, hit := range h.driver.Snapshot().Hits {
-		if hit.Label == "problem" && !hit.IsLabel {
+		if strings.HasPrefix(hit.Label, "Many.java:") && !hit.IsLabel {
 			declared++
 		}
 	}
@@ -126,50 +207,136 @@ func TestProblemsViewDropsStaleAnswer(t *testing.T) {
 	h.app.chrome.open[slotBottomLeft] = catalogIndex[itemProblems]
 	h.app.problems.generation = 7
 	h.app.problems.querying = true
-	h.app.applyProblemsQuery(p, 6, nil, core.ProblemsResult{}, nil)
+	h.app.applyProblemsQuery(p, problemsAnswer{generation: 6})
 	if h.app.problems.loaded || h.app.problems.querying {
 		t.Fatalf("a stale answer was applied: %+v", h.app.problems)
 	}
 	// The current answer is accepted and replaces any previous failure.
 	h.app.problems.failure = errors.New("old")
-	h.app.applyProblemsQuery(p, 7, nil, core.ProblemsResult{
+	selected := 1
+	h.app.applyProblemsQuery(p, problemsAnswer{generation: 7, projectCount: 1, result: core.ProblemsResult{
 		Groups: []core.ProblemsGroup{{Key: "all", Kind: "all", Indices: []int{0}, Counts: core.ProblemsSeverityCounts{Error: 1}}},
-	}, nil)
-	if !h.app.problems.loaded || h.app.problems.failure != nil {
-		t.Fatalf("the current answer was not applied: %+v", h.app.problems)
+		Rows: []core.ProblemsRow{
+			{Key: "file:a", Kind: core.ProblemsRowGroup},
+			{Key: "diagnostic:0:0:0:a", Kind: core.ProblemsRowDiagnostic, Depth: 1},
+		},
+		Selected: "diagnostic:0:0:0:a", SelectedRow: &selected,
+	}})
+	v := &h.app.problems
+	if !v.loaded || v.failure != nil || v.projectCount != 1 {
+		t.Fatalf("the current answer was not applied: %+v", v)
 	}
-	if h.app.problems.rows != 2 {
-		t.Fatalf("rows = %d, want a header and one diagnostic", h.app.problems.rows)
+	if len(v.result.Rows) != 2 || v.selected != "diagnostic:0:0:0:a" || v.selectedRow != 1 {
+		t.Fatalf("rows %v, selected %q at %d; want Core's selection", problemsRowKeys(v), v.selected, v.selectedRow)
 	}
 }
 
-func TestProblemsRowLayout(t *testing.T) {
-	v := problemsView{
-		result: core.ProblemsResult{Groups: []core.ProblemsGroup{
-			{Indices: []int{0, 1}},
-			{Indices: []int{2}},
-		}},
-		starts: []int{0, 3},
-		rows:   5,
+// A row the user selects while a query is in flight stays selected over the selection Core
+// answers for the state that query was asked with.
+func TestProblemsKeepsASelectionMadeWhileAQueryRuns(t *testing.T) {
+	h := newHarness(t, &testKernel{Client: core.NewClient()})
+	h.open(t.TempDir())
+	p := h.app.project
+	h.app.chrome.open[slotBottomLeft] = catalogIndex[itemProblems]
+	v := &h.app.problems
+	v.querying, v.asked, v.selected = true, "", "diagnostic:1:0:0:a"
+	first := 0
+	h.app.applyProblemsQuery(p, problemsAnswer{result: core.ProblemsResult{
+		Rows: []core.ProblemsRow{
+			{Key: "diagnostic:0:0:0:a", Kind: core.ProblemsRowDiagnostic},
+			{Key: "diagnostic:1:0:0:a", Kind: core.ProblemsRowDiagnostic, Shows: 1},
+		},
+		Selected: "diagnostic:0:0:0:a", SelectedRow: &first,
+	}})
+	if v.selected != "diagnostic:1:0:0:a" || v.selectedRow != 1 {
+		t.Fatalf("selected %q at %d, want the row the user chose", v.selected, v.selectedRow)
 	}
-	want := []struct {
-		group, index int
-		header       bool
-	}{
-		{0, 0, true},
-		{0, 0, false},
-		{0, 1, false},
-		{1, 0, true},
-		{1, 0, false},
-	}
-	for row, expected := range want {
-		group, index, header := v.rowAt(row)
-		if group != expected.group || index != expected.index || header != expected.header {
-			t.Fatalf("row %d = group %d index %d header %v, want %+v", row, group, index, header, expected)
+}
+
+// problemsTreeFixture opens a project with two files' problems on the Project tab: a.txt has an
+// error and a warning, b.txt an information. The preview is on, so a click only selects.
+func problemsTreeFixture(t *testing.T) (*harness, string, string) {
+	t.Helper()
+	h := newHarness(t, &testKernel{Client: core.NewClient()})
+	root := t.TempDir()
+	a, b := filepath.Join(root, "a.txt"), filepath.Join(root, "b.txt")
+	for _, file := range []string{a, b} {
+		if err := os.WriteFile(file, []byte("zero\none\n"), 0o600); err != nil {
+			t.Fatal(err)
 		}
 	}
-	if _, _, header := v.rowAt(v.rows); header {
-		t.Fatalf("row %d is past the end", v.rows)
+	h.open(root)
+	h.app.pluginDiagnostics = map[string]*plugindiag.Set{"demo": problemSet(t,
+		plugindiag.Diagnostic{FileKey: a, DisplayPath: "a.txt", Line: 0, Column: 0, Severity: plugindiag.SeverityError, Message: "broken"},
+		plugindiag.Diagnostic{FileKey: a, DisplayPath: "a.txt", Line: 1, Column: 0, Severity: plugindiag.SeverityWarning, Message: "unused"},
+		plugindiag.Diagnostic{FileKey: b, DisplayPath: "b.txt", Line: 1, Column: 0, Severity: plugindiag.SeverityInformation, Message: "note"},
+	)}
+	h.app.markProblemsChanged()
+	h.app.problems.project, h.app.problems.show = true, true
+	openProblemsPanel(t, h)
+	return h, "file:" + a, "file:" + b
+}
+
+func TestClosingAProblemsNodeHandsItTheSelectionOfADiagnosticUnderIt(t *testing.T) {
+	h, a, b := problemsTreeFixture(t)
+	v := &h.app.problems
+	if keys := problemsRowKeys(v); len(keys) != 5 || keys[0] != a || keys[3] != b {
+		t.Fatalf("rows = %v", keys)
+	}
+	unused := v.result.Rows[2].Key
+	h.clickNamed(problemsRowNamed(t, h, unused))
+	if v.selected != unused || v.selectedRow != 2 {
+		t.Fatalf("selected %q at %d after a click", v.selected, v.selectedRow)
+	}
+	if h.app.project.docs.byPath(v.diagnostics[v.result.Rows[2].Shows].FileKey) != nil {
+		t.Fatal("a click with the preview on opened the file")
+	}
+
+	h.app.toggleProblemsNode(a)
+	awaitProblems(t, h)
+	if keys := problemsRowKeys(v); len(keys) != 3 || v.selected != a || v.selectedRow != 0 || v.node(0).Expanded {
+		t.Fatalf("rows %v, selected %q at %d after closing a.txt", keys, v.selected, v.selectedRow)
+	}
+	// A node's row previews its first diagnostic.
+	if path, line, ok := v.selectedProblemLocation(); !ok || path != v.result.Groups[0].FileKey || line != 0 {
+		t.Fatalf("node shows %q:%d (%v)", path, line, ok)
+	}
+
+	h.app.expandProblems(false)
+	awaitProblems(t, h)
+	if keys := problemsRowKeys(v); len(keys) != 2 || keys[0] != a || keys[1] != b {
+		t.Fatalf("rows after collapse all = %v", keys)
+	}
+	h.app.expandProblems(true)
+	awaitProblems(t, h)
+	if keys := problemsRowKeys(v); len(keys) != 5 || v.selected != a {
+		t.Fatalf("rows %v, selected %q after expand all", keys, v.selected)
+	}
+}
+
+func TestProblemsViewOptionsGroupBySeverityAndHideASeverity(t *testing.T) {
+	h, _, _ := problemsTreeFixture(t)
+	v := &h.app.problems
+	lang := h.app.language()
+	h.clickNamed(i18n.Shared(lang, "desktop.problems.viewOptions"))
+	h.clickNamed(i18n.Shared(lang, "desktop.problems.group.severity"))
+	awaitProblems(t, h)
+	if keys := problemsRowKeys(v); v.grouping() != core.ProblemsGroupBySeverity || len(keys) != 6 || keys[0] != "severity:1" {
+		t.Fatalf("grouping %q, rows %v", v.grouping(), keys)
+	}
+	if !h.shows(problemsSeverityText(lang, 1)) {
+		t.Fatal("the severity node is not named")
+	}
+	// Under a severity node, a diagnostic names its file.
+	if label := h.app.problemsRowLabel(1); !strings.HasPrefix(label, "a.txt:1 ") {
+		t.Fatalf("diagnostic label = %q", label)
+	}
+
+	h.clickNamed(i18n.Shared(lang, "desktop.problems.viewOptions"))
+	h.clickNamed(i18n.Shared(lang, "desktop.problems.showErrors"))
+	awaitProblems(t, h)
+	if keys := problemsRowKeys(v); !v.hideErrors || len(keys) != 4 || keys[0] != "severity:2" || v.projectCount != 2 {
+		t.Fatalf("hide errors %v, rows %v, project count %d", v.hideErrors, keys, v.projectCount)
 	}
 }
 
@@ -241,8 +408,45 @@ func TestProblemsCacheIsDroppedWhenThePanelCloses(t *testing.T) {
 		t.Fatal("the panel did not load its query")
 	}
 	h.click(center(h.button(itemProblems)))
-	if h.app.problems.loaded || h.app.problems.rows != 0 || len(h.app.problems.diagnostics) != 0 {
+	if h.app.problems.loaded || len(h.app.problems.result.Rows) != 0 || len(h.app.problems.diagnostics) != 0 {
 		t.Fatalf("closing the panel kept its cached answer: %+v", h.app.problems)
+	}
+}
+
+// With the preview on, a click on a diagnostic only selects it: the shared source preview shows its
+// file at its line without opening an editor, and a file that cannot be read shows why.
+func TestProblemsPreviewFollowsTheSelectedDiagnostic(t *testing.T) {
+	h := newHarness(t, &testKernel{Client: core.NewClient()})
+	root := t.TempDir()
+	present := filepath.Join(root, "present.txt")
+	if err := os.WriteFile(present, []byte("zero\none\ntwo\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	missing := filepath.Join(root, "missing.txt")
+	h.open(root)
+	h.app.pluginDiagnostics = map[string]*plugindiag.Set{"demo": problemSet(t,
+		plugindiag.Diagnostic{FileKey: present, DisplayPath: "present.txt", Line: 2, Column: 0, Severity: plugindiag.SeverityError, Message: "on two"},
+		plugindiag.Diagnostic{FileKey: missing, DisplayPath: "missing.txt", Line: 0, Column: 0, Severity: plugindiag.SeverityWarning, Message: "gone"},
+	)}
+	h.app.markProblemsChanged()
+	h.app.problems.show, h.app.problems.project = true, true
+	openProblemsPanel(t, h)
+
+	preview := &h.app.problems.preview
+	onTwo, gone := problemsDiagnosticRow(t, h, "on two"), problemsDiagnosticRow(t, h, "gone")
+	h.clickNamed(problemsRowNamed(t, h, onTwo))
+	awaitDocumentState(t, h, func() bool { return preview.view != nil && preview.path == present })
+	if line, _ := preview.view.Caret(); line != 2 || preview.line != 3 {
+		t.Fatalf("preview at line %d (asked %d), want the diagnostic's zero-based 2", line, preview.line)
+	}
+	if h.app.project.docs.byPath(present) != nil {
+		t.Fatal("selecting a diagnostic with the preview on opened its file")
+	}
+
+	h.clickNamed(problemsRowNamed(t, h, gone))
+	awaitDocumentState(t, h, func() bool { return preview.failure != nil })
+	if preview.path != missing || preview.view != nil {
+		t.Fatalf("preview of an unreadable file = %q, view %v", preview.path, preview.view != nil)
 	}
 }
 

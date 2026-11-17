@@ -70,7 +70,7 @@ func (a *App) definitionPopup(c ui.C) {
 	x, y := popupOrigin(anchor.X, anchor.Y+anchor.Height+2, semanticDefinitionWidth, c.Bounds())
 	chosen := -1
 	a.semanticPopup(c, x, y, semanticDefinitionWidth, float32(visibleSemanticRows)*semanticRowHeight+2*semanticPopupPad,
-		a.definitionPopupTitle(state.references), semanticPopupPad, func() {
+		a.definitionPopupTitle(), semanticPopupPad, func() {
 			ui.Column(c).FillWidth().Gap(1).Children(func() {
 				for i := first; i < last; i++ {
 					label := a.definitionLabel(state.targets[i])

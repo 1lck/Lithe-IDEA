@@ -31,6 +31,8 @@ func (a *App) editorMenuItems(c ui.C, p *project, d *document) func(*ui.MenuItem
 				a.startPluginDefinition(p, d, line, column, true)
 			})
 		}
+		// A right click outside the selection has put the caret on the word clicked, so the
+		// usages are of that word.
 		if menu.Item(i18n.Shared(language, "desktop.editorMenu.findUsages")).Keys(gfx.ModifierShift, "f12").Clicked() {
 			c.After(func() {
 				line, column := d.view.CaretUTF16()
