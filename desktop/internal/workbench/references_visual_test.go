@@ -10,13 +10,14 @@ import (
 	"github.com/1lck/Lithe-IDEA/desktop/internal/core"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/store"
 	"github.com/vivaui/viva/app"
+	"github.com/vivaui/viva/gfx"
 	"github.com/vivaui/viva/headless"
 )
 
 // TestVisualReferencesToolWindow captures the References tool window after Find Usages on a
 // constant used in two files: the tree of usages under their files, the toolbar, the header's
-// tab and the preview of the selected usage. Dark/light x Chinese/English are independent
-// sessions and OS-free.
+// tab and the preview of the selected usage; then the editor's menu opened on the constant.
+// Dark/light x Chinese/English are independent sessions and OS-free.
 func TestVisualReferencesToolWindow(t *testing.T) {
 	out := os.Getenv("LITHE_VISUAL_OUTPUT_DIR")
 	if out == "" {
@@ -91,6 +92,22 @@ func TestVisualReferencesToolWindow(t *testing.T) {
 			h.await("the usage's preview", func() bool { return visualReferencesReady(h.app) })
 			h.settleChain()
 			if err := session.Screenshot(filepath.Join(out, "references-"+look.theme+"-"+look.language+".png")); err != nil {
+				t.Fatal(err)
+			}
+
+			// The editor's menu opened on absSelf, whose Find Usages asks at the word clicked.
+			d.view.GoToNavigation(4, 3, false)
+			h.settleChain()
+			cell, ok := d.view.CaretRect()
+			if !ok {
+				t.Fatal("the editor has not painted")
+			}
+			if err := session.Driver().ClickButton(cell.X, cell.Y+cell.Height/2, gfx.PointerButtonSecondary); err != nil {
+				t.Fatal(err)
+			}
+			h.settleChain()
+			h.popupHit(h.shared("desktop.editorMenu.findUsages"))
+			if err := session.Screenshot(filepath.Join(out, "references-menu-"+look.theme+"-"+look.language+".png")); err != nil {
 				t.Fatal(err)
 			}
 		})
