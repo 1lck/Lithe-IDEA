@@ -412,8 +412,10 @@ type project struct {
 	ctx    context.Context
 	cancel context.CancelFunc
 	git    gitState
-	log    gitLogState
-	commit commitState
+	// gitStatusGeneration orders status reads, including reads begun after background writes.
+	gitStatusGeneration atomic.Uint64
+	log                 gitLogState
+	commit              commitState
 	// lists are the repository's local ChangeLists and the list each change belongs to.
 	lists changeListState
 	// worktrees is the Git tool window's Worktrees tab: the repository's worktrees and the
