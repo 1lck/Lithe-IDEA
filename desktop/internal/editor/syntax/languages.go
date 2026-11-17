@@ -27,11 +27,17 @@ var JavaRules = []Rule{
 }
 
 // codeRules are what the previous editor's Monarch tokenizers colored differently from its
-// TextMate classification: a number is one number token, whatever its prefix, exponent or suffix
-// are scoped, inside the number's scope or, as Go scopes them, beside it; a string's quotes are part of the string; an operator is a keyword when it is a
-// word and a delimiter when it is a symbol; and a bracket is a delimiter. The word operators are
-// enclosing because C++ names one keyword.operator.wordlike and, inside it, keyword.operator.and.
+// TextMate classification: a regular expression literal is one regexp token, whatever its parts
+// are scoped; a number is one number token, whatever its prefix, exponent or suffix are scoped,
+// inside the number's scope or, as Go scopes them, beside it; a string's quotes are part of the
+// string; an operator is a keyword when it is a word and a delimiter when it is a symbol; and a
+// bracket is a delimiter. The word operators are known by the scopes that only words have; the
+// first are enclosing because C++ names one keyword.operator.wordlike and, inside it,
+// keyword.operator.and. Where a grammar scopes words and symbols alike, as Ruby's
+// keyword.operator.logical takes both "and" and "&&", or PowerShell's both "-and" and "!", both
+// are delimiters, as Dark+ colors them alike.
 var codeRules = []Rule{
+	{Scope: "string.regexp", Token: "regexp", Enclosing: true},
 	{Scope: "constant.numeric", Token: "number", Enclosing: true},
 	{Scope: "keyword.operator.expression", Token: "keyword", Enclosing: true},
 	{Scope: "keyword.operator.wordlike", Token: "keyword", Enclosing: true},
@@ -41,11 +47,36 @@ var codeRules = []Rule{
 	{Scope: "keyword.operator.sizeof", Token: "keyword", Enclosing: true},
 	{Scope: "keyword.operator.type.asserts", Token: "keyword", Enclosing: true},
 	{Scope: "keyword.operator.type.modifier", Token: "keyword", Enclosing: true},
+	{Scope: "keyword.operator.cast", Token: "keyword", Enclosing: true},
+	{Scope: "keyword.operator.memory", Token: "keyword", Enclosing: true},
+	{Scope: "keyword.operator.logical.python", Token: "keyword"},
+	{Scope: "keyword.operator.logical.lua", Token: "keyword"},
+	{Scope: "keyword.operator.as", Token: "keyword"},
+	{Scope: "keyword.operator.in", Token: "keyword"},
+	{Scope: "keyword.operator.instanceof", Token: "keyword"},
+	{Scope: "keyword.operator.type.php", Token: "keyword"},
+	{Scope: "keyword.operator.type-casting", Token: "keyword"},
+	// The mark a keyword or constant begins with, as # of C's #include, @ of Objective-C's
+	// @interface, $ of PowerShell's $true or : of Ruby's :name, is part of it.
+	{Scope: "constant.language", Token: "keyword", Enclosing: true},
+	{Scope: "punctuation.definition.directive", Token: "keyword"},
+	{Scope: "punctuation.definition.keyword", Token: "keyword"},
+	{Scope: "punctuation.definition.storage", Token: "keyword"},
+	// A variable the language provides, as JavaScript's document or PowerShell's $_, is a
+	// variable, and the class a class extends is a type, as Dark+ colors them.
+	{Scope: "support.variable", Token: "variable"},
+	{Scope: "entity.other.inherited-class", Token: "type.identifier"},
 	{Scope: "keyword.other.unit", Token: "number"},
 	{Scope: "keyword.operator.minus.exponent", Token: "number"},
 	{Scope: "keyword.operator.plus.exponent", Token: "number"},
 	{Scope: "keyword.operator.exponent", Token: "number"},
 	{Scope: "punctuation.definition.string", Token: "string"},
+	// The sigil of a variable, as $ in shell and PHP or @ in Ruby, is part of the variable.
+	{Scope: "punctuation.definition.variable", Token: "variable"},
+	// The code a string interpolates is not part of the string: what the grammar leaves unnamed
+	// in ${...}, as JavaScript and Kotlin scope it, or in Groovy's, has no name.
+	{Scope: "meta.template.expression", Token: ""},
+	{Scope: "source.groovy.embedded", Token: ""},
 	{Scope: "keyword.operator", Token: "delimiter"},
 	{Scope: "storage.type.function.arrow", Token: "delimiter"},
 	{Scope: "meta.brace.round", Token: "delimiter.parenthesis"},
@@ -55,10 +86,6 @@ var codeRules = []Rule{
 // CodeRules are the rules of the bundled programming languages the previous editor colored
 // with Monarch tokenizers: codeRules, then DefaultRules.
 var CodeRules = WithDefaults(codeRules...)
-
-// ScriptRules are the rules of JavaScript and TypeScript: a regular expression literal is one
-// regexp token, as the previous editor colored it, whatever its parts are scoped; then CodeRules.
-var ScriptRules = WithDefaults(append([]Rule{{Scope: "string.regexp", Token: "regexp", Enclosing: true}}, codeRules...)...)
 
 // The rules of markup and configuration languages give their tokens the names the previous
 // editor's Monarch tokenizers gave them, with the language's suffix, so that the color schemes
@@ -75,6 +102,26 @@ var HTMLRules = []Rule{
 	{Scope: "string", Token: "attribute.value.html"},
 	{Scope: "constant.character.entity", Token: "string.escape.html"},
 }
+
+// PHPRules are the rules of PHP. A PHP file is HTML with PHP code in it: the HTML is named as
+// HTMLRules name it, and the code, which the grammar embeds under meta.embedded.block.php or
+// meta.embedded.line.php, as CodeRules name it, with the <?php and ?> around it metatags as the
+// previous editor's PHP tokenizer named them. HTMLRules' rules for every comment and string
+// would also take the code's, so these name only HTML's, by their ".html" scopes. The ones
+// whose parts CodeRules would name apart, as an attribute value's quotes, are enclosing.
+var PHPRules = append([]Rule{
+	{Scope: "comment.block.html", Token: "comment.html", Enclosing: true},
+	{Scope: "meta.tag.metadata.doctype", Token: "metatag.html", Enclosing: true},
+	{Scope: "constant.character.entity", Token: "string.escape.html", Enclosing: true},
+	{Scope: "string.quoted.double.html", Token: "attribute.value.html", Enclosing: true},
+	{Scope: "string.quoted.single.html", Token: "attribute.value.html", Enclosing: true},
+	{Scope: "string.unquoted.html", Token: "attribute.value.html", Enclosing: true},
+	{Scope: "punctuation.section.embedded", Token: "metatag.php"},
+	{Scope: "entity.name.tag", Token: "tag.html"},
+	{Scope: "punctuation.definition.tag", Token: "delimiter.html"},
+	{Scope: "entity.other.attribute-name", Token: "attribute.name.html"},
+	{Scope: "punctuation.separator.key-value.html", Token: "delimiter.html"},
+}, CodeRules...)
 
 // XMLRules are the rules of XML. Strings only occur in attribute values and declarations;
 // CDATA sections are plain text.
@@ -288,34 +335,34 @@ var bundledLanguages = []Language{
 	{ID: "makefile", Scope: "source.makefile", Extensions: []string{".mk", ".mak"},
 		FileNames: []string{"makefile", "gnumakefile"}, FilePrefixes: []string{"makefile."},
 		Comments: hashComments, Brackets: cBrackets, AutoClosing: bracketClosing},
-	{ID: "cmake", Extensions: []string{".cmake"}, FileNames: []string{"cmakelists.txt"},
+	{ID: "cmake", Scope: "source.cmake", Rules: CodeRules, Extensions: []string{".cmake"}, FileNames: []string{"cmakelists.txt"},
 		Comments: hashComments, Brackets: cBrackets, AutoClosing: bracketClosing},
-	{ID: "groovy", Extensions: []string{".groovy", ".gradle"}, FileNames: []string{"jenkinsfile"},
+	{ID: "groovy", Scope: "source.groovy", Rules: CodeRules, Extensions: []string{".groovy", ".gradle"}, FileNames: []string{"jenkinsfile"},
 		Comments: cComments, Brackets: cBrackets, AutoClosing: bracketClosing},
-	{ID: "kotlin", Extensions: []string{".kt", ".kts", ".gradle.kts"},
+	{ID: "kotlin", Scope: "source.kotlin", Rules: CodeRules, Extensions: []string{".kt", ".kts", ".gradle.kts"},
 		Comments: cComments, Brackets: cBrackets, AutoClosing: cAutoClosing},
-	{ID: "powershell", Extensions: []string{".ps1", ".psm1", ".psd1"},
+	{ID: "powershell", Scope: "source.powershell", Rules: CodeRules, Extensions: []string{".ps1", ".psm1", ".psd1"},
 		Comments: Comments{Line: "#", Block: Pair{"<#", "#>"}}, Brackets: cBrackets, AutoClosing: cAutoClosing},
 	{ID: "bat", Extensions: []string{".bat", ".cmd"},
 		Comments: Comments{Line: "REM"}, Brackets: cBrackets, AutoClosing: cAutoClosing},
-	{ID: "shell", Extensions: []string{".sh", ".bash", ".zsh"},
+	{ID: "shell", Scope: "source.shell", Rules: CodeRules, Extensions: []string{".sh", ".bash", ".zsh"},
 		FileNames: []string{".bashrc", ".zshrc", ".bash_profile", ".zprofile", ".profile"},
 		Comments:  hashComments, Brackets: cBrackets, AutoClosing: cAutoClosing},
 	{ID: "dotenv", Scope: "source.dotenv", Rules: DotenvRules, Extensions: []string{".env"}, FileNames: []string{".env"}, FilePrefixes: []string{".env."},
 		Comments: hashComments, Brackets: cBrackets, AutoClosing: cAutoClosing},
-	{ID: "dockerfile", Extensions: []string{".dockerfile"}, FileNames: []string{"dockerfile", "containerfile"},
+	{ID: "dockerfile", Scope: "source.dockerfile", Rules: CodeRules, Extensions: []string{".dockerfile"}, FileNames: []string{"dockerfile", "containerfile"},
 		FilePrefixes: []string{"dockerfile.", "containerfile."},
 		Comments:     hashComments, Brackets: cBrackets, AutoClosing: cAutoClosing},
 	{ID: "c", Scope: "source.c", Rules: CodeRules, Extensions: []string{".c", ".h"}, Comments: cComments, Brackets: cBrackets, AutoClosing: cAutoClosing},
 	{ID: "cpp", Scope: "source.cpp", Rules: CodeRules, Extensions: []string{".cpp", ".cc", ".cxx", ".c++", ".hpp", ".hh", ".hxx", ".h++", ".inl", ".ipp"},
 		Comments: cComments, Brackets: cBrackets, AutoClosing: cAutoClosing},
-	{ID: "csharp", Extensions: []string{".cs", ".csx", ".cake"}, Comments: cComments, Brackets: cBrackets, AutoClosing: cAutoClosing},
+	{ID: "csharp", Scope: "source.cs", Rules: CodeRules, Extensions: []string{".cs", ".csx", ".cake"}, Comments: cComments, Brackets: cBrackets, AutoClosing: cAutoClosing},
 	{ID: "css", Scope: "source.css", Rules: CSSRules, Extensions: []string{".css"}, Comments: Comments{Block: Pair{"/*", "*/"}}, Brackets: cBrackets, AutoClosing: cAutoClosing},
 	{ID: "dart", Extensions: []string{".dart"}, Comments: cComments, Brackets: cBrackets, AutoClosing: cAutoClosing},
 	{ID: "elixir", Extensions: []string{".ex", ".exs"}, Comments: hashComments, Brackets: cBrackets, AutoClosing: cAutoClosing},
 	{ID: "go", Scope: "source.go", Rules: CodeRules, Extensions: []string{".go"}, Comments: cComments, Brackets: cBrackets,
 		AutoClosing: scriptClosing},
-	{ID: "graphql", Extensions: []string{".graphql", ".gql"}, Comments: hashComments, Brackets: cBrackets, AutoClosing: cAutoClosing},
+	{ID: "graphql", Scope: "source.graphql", Rules: CodeRules, Extensions: []string{".graphql", ".gql"}, Comments: hashComments, Brackets: cBrackets, AutoClosing: cAutoClosing},
 	// ' is not paired: it marks primes in names, as foldl'.
 	{ID: "haskell", Extensions: []string{".hs"}, Comments: Comments{Line: "--", Block: Pair{"{-", "-}"}}, Brackets: cBrackets,
 		AutoClosing: []Pair{{"{", "}"}, {"[", "]"}, {"(", ")"}, {`"`, `"`}}},
@@ -325,9 +372,9 @@ var bundledLanguages = []Language{
 		Comments: markupBlock, Brackets: markupBrackets, AutoClosing: markupClosing},
 	{ID: "ini", Scope: "source.ini", Rules: INIRules, Extensions: []string{".ini", ".properties", ".cfg", ".conf", ".gitconfig"},
 		FileNames: []string{".gitconfig", ".editorconfig"}, Comments: hashComments, Brackets: cBrackets, AutoClosing: cAutoClosing},
-	{ID: "javascript", Scope: "source.js", Rules: ScriptRules, Extensions: []string{".js", ".es6", ".mjs", ".cjs"},
+	{ID: "javascript", Scope: "source.js", Rules: CodeRules, Extensions: []string{".js", ".es6", ".mjs", ".cjs"},
 		FileNames: []string{"jakefile"}, Comments: cComments, Brackets: cBrackets, AutoClosing: scriptClosing},
-	{ID: "javascriptreact", Scope: "source.js.jsx", Rules: ScriptRules, Extensions: []string{".jsx"},
+	{ID: "javascriptreact", Scope: "source.js.jsx", Rules: CodeRules, Extensions: []string{".jsx"},
 		Comments: cComments, Brackets: cBrackets, AutoClosing: scriptClosing},
 	{ID: "jsonc", Scope: "source.json.comments", Rules: JSONRules,
 		Extensions:   []string{".jsonc", ".code-workspace", ".jshintrc", ".jscsrc", ".eslintrc", ".babelrc"},
@@ -337,19 +384,19 @@ var bundledLanguages = []Language{
 	{ID: "json", Scope: "source.json", Rules: JSONRules, Extensions: []string{".json", ".bowerrc", ".har"},
 		Comments: cComments, Brackets: jsonBrackets, AutoClosing: jsonClosing},
 	{ID: "less", Extensions: []string{".less"}, Comments: cComments, Brackets: cBrackets, AutoClosing: cAutoClosing},
-	{ID: "lua", Extensions: []string{".lua"}, Comments: Comments{Line: "--", Block: Pair{"--[[", "]]"}},
+	{ID: "lua", Scope: "source.lua", Rules: CodeRules, Extensions: []string{".lua"}, Comments: Comments{Line: "--", Block: Pair{"--[[", "]]"}},
 		Brackets: cBrackets, AutoClosing: cAutoClosing},
 	{ID: "markdown", Scope: "text.html.markdown", Rules: MarkdownRules, Extensions: []string{".md", ".markdown", ".mdown", ".mkdn", ".mkd", ".mdwn", ".mdtxt", ".mdtext"},
 		Comments: markupBlock, Brackets: cBrackets, AutoClosing: []Pair{{"{", "}"}, {"[", "]"}, {"(", ")"}, {"<", ">"}}},
-	{ID: "objective-c", Extensions: []string{".m"}, Comments: cComments, Brackets: cBrackets, AutoClosing: cAutoClosing},
-	{ID: "objective-cpp", Extensions: []string{".mm"}, Comments: cComments, Brackets: cBrackets, AutoClosing: cAutoClosing},
+	{ID: "objective-c", Scope: "source.objc", Rules: CodeRules, Extensions: []string{".m"}, Comments: cComments, Brackets: cBrackets, AutoClosing: cAutoClosing},
+	{ID: "objective-cpp", Scope: "source.objcpp", Rules: CodeRules, Extensions: []string{".mm"}, Comments: cComments, Brackets: cBrackets, AutoClosing: cAutoClosing},
 	{ID: "perl", Extensions: []string{".pl", ".pm"}, Comments: hashComments, Brackets: cBrackets, AutoClosing: cAutoClosing},
-	{ID: "php", Extensions: []string{".php", ".php4", ".php5", ".phtml", ".ctp"}, Comments: cComments, Brackets: cBrackets, AutoClosing: cAutoClosing},
-	{ID: "proto", Extensions: []string{".proto"}, Comments: cComments, Brackets: cBrackets, AutoClosing: cAutoClosing},
-	{ID: "python", Extensions: []string{".py", ".rpy", ".pyw", ".cpy", ".gyp", ".gypi"},
+	{ID: "php", Scope: "text.html.php", Rules: PHPRules, Extensions: []string{".php", ".php4", ".php5", ".phtml", ".ctp"}, Comments: cComments, Brackets: cBrackets, AutoClosing: cAutoClosing},
+	{ID: "proto", Scope: "source.proto", Rules: CodeRules, Extensions: []string{".proto"}, Comments: cComments, Brackets: cBrackets, AutoClosing: cAutoClosing},
+	{ID: "python", Scope: "source.python", Rules: CodeRules, Extensions: []string{".py", ".rpy", ".pyw", ".cpy", ".gyp", ".gypi"},
 		Comments: Comments{Line: "#", Block: Pair{"'''", "'''"}}, Brackets: cBrackets, AutoClosing: cAutoClosing},
 	{ID: "r", Extensions: []string{".r", ".rhistory", ".rmd", ".rprofile", ".rt"}, Comments: hashComments, Brackets: cBrackets, AutoClosing: cAutoClosing},
-	{ID: "ruby", Extensions: []string{".rb", ".rbx", ".rjs", ".gemspec", ".pp"}, FileNames: []string{"rakefile", "gemfile"},
+	{ID: "ruby", Scope: "source.ruby", Rules: CodeRules, Extensions: []string{".rb", ".rbx", ".rjs", ".gemspec", ".pp"}, FileNames: []string{"rakefile", "gemfile"},
 		Comments: Comments{Line: "#", Block: Pair{"=begin", "=end"}}, Brackets: cBrackets, AutoClosing: cAutoClosing},
 	{ID: "rust", Scope: "source.rust", Rules: CodeRules, Extensions: []string{".rs", ".rlib"}, Comments: cComments, Brackets: cBrackets,
 		AutoClosing: []Pair{{"{", "}"}, {"[", "]"}, {"(", ")"}, {`"`, `"`}}},
@@ -358,17 +405,17 @@ var bundledLanguages = []Language{
 		Comments: Comments{Line: ";", Block: Pair{"#|", "|#"}}, Brackets: cBrackets, AutoClosing: cAutoClosing},
 	{ID: "scss", Extensions: []string{".scss"}, Comments: cComments, Brackets: cBrackets, AutoClosing: cAutoClosing},
 	{ID: "sol", Extensions: []string{".sol"}, Comments: cComments, Brackets: cBrackets, AutoClosing: cAutoClosing},
-	{ID: "sql", Extensions: []string{".sql"}, Comments: Comments{Line: "--", Block: Pair{"/*", "*/"}}, Brackets: cBrackets, AutoClosing: cAutoClosing},
-	{ID: "swift", Extensions: []string{".swift"}, Comments: cComments, Brackets: cBrackets, AutoClosing: cAutoClosing},
-	{ID: "typescript", Scope: "source.ts", Rules: ScriptRules, Extensions: []string{".ts", ".cts", ".mts"},
+	{ID: "sql", Scope: "source.sql", Rules: CodeRules, Extensions: []string{".sql"}, Comments: Comments{Line: "--", Block: Pair{"/*", "*/"}}, Brackets: cBrackets, AutoClosing: cAutoClosing},
+	{ID: "swift", Scope: "source.swift", Rules: CodeRules, Extensions: []string{".swift"}, Comments: cComments, Brackets: cBrackets, AutoClosing: cAutoClosing},
+	{ID: "typescript", Scope: "source.ts", Rules: CodeRules, Extensions: []string{".ts", ".cts", ".mts"},
 		Comments: cComments, Brackets: cBrackets, AutoClosing: scriptClosing},
-	{ID: "typescriptreact", Scope: "source.tsx", Rules: ScriptRules, Extensions: []string{".tsx"},
+	{ID: "typescriptreact", Scope: "source.tsx", Rules: CodeRules, Extensions: []string{".tsx"},
 		Comments: cComments, Brackets: cBrackets, AutoClosing: scriptClosing},
 	{ID: "xml", Scope: "text.xml", Rules: XMLRules, Extensions: []string{".xml", ".xsd", ".dtd", ".ascx", ".csproj", ".config", ".props", ".targets",
 		".wxi", ".wxl", ".wxs", ".xaml", ".svg", ".svgz", ".opf", ".xslt", ".xsl"},
 		Comments: markupBlock, Brackets: markupBrackets, AutoClosing: markupClosing},
 	{ID: "yaml", Scope: "source.yaml", Rules: YAMLRules, Extensions: []string{".yaml", ".yml"}, Comments: hashComments, Brackets: cBrackets, AutoClosing: cAutoClosing},
-	{ID: "zig", Extensions: []string{".zig", ".zon"}, Comments: Comments{Line: "//"}, Brackets: cBrackets, AutoClosing: cAutoClosing},
+	{ID: "zig", Scope: "source.zig", Rules: CodeRules, Extensions: []string{".zig", ".zon"}, Comments: Comments{Line: "//"}, Brackets: cBrackets, AutoClosing: cAutoClosing},
 	{ID: "toml", Scope: "source.toml", Rules: TOMLRules, Extensions: []string{".toml"}, Comments: hashComments, Brackets: cBrackets, AutoClosing: cAutoClosing},
 	{ID: "plaintext", Extensions: []string{".txt"}},
 }

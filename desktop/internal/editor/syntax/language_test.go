@@ -289,10 +289,10 @@ func TestLanguageTokenNames(t *testing.T) {
 			"value": "string.yaml.plain", `"s"`: "string.yaml", "1\n": "number.yaml", "true": "keyword.yaml",
 			"&x": "namespace.yaml", "*x": "namespace.yaml", "!!str": "tag.yaml", "# c": "comment.yaml", "- i": "operators.yaml",
 		}},
-		{"markdown", "---\ntitle: x\n---\n# Head\n> quote\n- item `code` **b** *i* [text](http://x)\n```go\nfunc main() {}\n```\n", map[string]string{
+		{"markdown", "---\ntitle: x\n---\n# Head\n> quote\n- item `code` **b** *i* [text](http://x)\n```go\nfunc main() {}\n```\n```objc\n@interface A\n@end\n```\n", map[string]string{
 			"title": "type.yaml", "# ": "keyword.md", "Head": "keyword.md.heading", "> ": "comment.md", "- ": "keyword.md",
 			"`code`": "variable.md", "**b**": "strong", "*i*": "emphasis", "text": "md.link", "http": "string.link.md",
-			"```go": "string.md", "func": "keyword",
+			"```go": "string.md", "func": "keyword", "@interface": "keyword",
 		}},
 		{"ini", "; c\n[section]\nkey = \"v\"\n", map[string]string{
 			"; c": "comment.ini", "[": "metatag.ini", "section": "metatag.ini", "key": "key.ini", "=": "delimiter.ini", `"v"`: "string.ini",
@@ -316,7 +316,43 @@ func TestLanguageTokenNames(t *testing.T) {
 			"fn": "keyword", "let": "keyword", "1;": "number", "= 1": "delimiter", "::": "delimiter",
 		}},
 		{"cpp", "#include <x>\nint main() { return not 0 && sizeof(int); }\n", map[string]string{
-			"int": "keyword", "return": "keyword", "0 ": "number", "not": "keyword", "&&": "delimiter", "sizeof": "keyword",
+			"#include": "keyword", "int": "keyword", "return": "keyword", "0 ": "number", "not": "keyword", "&&": "delimiter",
+			"sizeof": "keyword",
+		}},
+		{"python", "class A(Base):\n    def f(self):\n        return self is not None and r'\\d+'\n", map[string]string{
+			"class": "keyword", "Base": "type.identifier", "def": "keyword", "self": "variable", "is": "keyword", "not": "keyword",
+			"and": "keyword", "r'": "regexp", "+'": "regexp",
+		}},
+		{"shell", "N=\"${1:-x}\"\necho \"$N\" | grep 'a' && exit 2\n", map[string]string{
+			"N=": "variable", "${1": "variable", ":-": "delimiter", "echo": "function", "$N": "variable", "|": "delimiter",
+			"'a'": "string", "&&": "delimiter", "2\n": "number",
+		}},
+		{"kotlin", "fun f(x: Int) = \"n: ${x.inc()} $x\"\n", map[string]string{
+			"fun": "keyword", "Int": "type.identifier", "\"n": "string", "${": "delimiter", "x.inc()": "", "} ": "delimiter",
+			"$x": "variable",
+		}},
+		{"groovy", "class T extends Base {\n  def r = /a\\d+/\n  def s = \"${x.y}\"\n}\n", map[string]string{
+			"class": "keyword", "Base": "type.identifier", "/a": "regexp", "+/": "regexp", "${": "delimiter", "x.y": "",
+		}},
+		{"php", "<p title=\"<?= $t ?>\">&amp;<?php if ($b instanceof C) echo 'x'; ?></p>\n", map[string]string{
+			"<p": "delimiter.html", "p ": "tag.html", "title": "attribute.name.html", "\"<": "attribute.value.html",
+			"<?=": "metatag.php", "$t": "variable", "?>": "metatag.php", "&amp;": "string.escape.html", "<?php": "metatag.php",
+			"if": "keyword", "instanceof": "keyword", "'x'": "string", "</": "delimiter.html",
+		}},
+		{"ruby", "class P < Base\n  attr_reader :name\n  @x = \"#{y}\" =~ /a/ && nil\nend\n", map[string]string{
+			"class": "keyword", "Base": "type.identifier", ":name": "keyword", "@x": "variable", "#{": "delimiter",
+			"y}": "", "/a/": "regexp", "&&": "delimiter", "nil": "keyword",
+		}},
+		{"powershell", "if ($_ -gt 1 -and $true) { Write-Host \"a $b\" }\n", map[string]string{
+			"if": "keyword", "$_": "variable", "-gt": "delimiter", "-and": "delimiter", "$true": "keyword",
+			"Write-Host": "function", "\"a": "string", "$b": "variable",
+		}},
+		{"objective-c", "#import <x.h>\n@interface P : NSObject\n@end\n", map[string]string{
+			"#import": "keyword", "<x.h>": "string", "@interface": "keyword", "P ": "type.identifier",
+			"NSObject": "type.identifier", "@end": "keyword",
+		}},
+		{"csharp", "var s = $\"a {x}\" + @\"b\";\nif (o is string) {}\n", map[string]string{
+			"var": "keyword", "$\"a": "string", "{x": "delimiter", "x}": "variable", "@\"b\"": "string", "is": "keyword",
 		}},
 	} {
 		t.Run(c.language, func(t *testing.T) {
@@ -360,10 +396,11 @@ func TestIncludedGrammarsLoadWhenReached(t *testing.T) {
 func TestPluginLanguageWithoutGrammarKeepsBundledColors(t *testing.T) {
 	r := NewRegistry()
 	family := PluginLanguage{ID: "clangd", Extensions: []string{"c", "h", "cpp", "m", "unknownext"}}
-	if failed, _ := r.SetPluginLanguages([]PluginLanguage{family}); len(failed) != 0 {
+	dart := PluginLanguage{ID: "dartls", Extensions: []string{"dart"}}
+	if failed, _ := r.SetPluginLanguages([]PluginLanguage{family, dart}); len(failed) != 0 {
 		t.Fatalf("failed %v", failed)
 	}
-	for path, want := range map[string]string{"src/main.c": "c", `inc\Util.H`: "c", "app.cpp": "cpp"} {
+	for path, want := range map[string]string{"src/main.c": "c", `inc\Util.H`: "c", "app.cpp": "cpp", "view.m": "objective-c"} {
 		language, ok := r.ForPath(path)
 		if !ok || language.ID != "clangd" {
 			t.Fatalf("ForPath(%q) = %+v, %v, want the plugin's clangd", path, language, ok)
@@ -379,7 +416,7 @@ func TestPluginLanguageWithoutGrammarKeepsBundledColors(t *testing.T) {
 	}
 	// Neither a bundled language without a grammar nor a name no bundled language takes is
 	// colored.
-	for _, path := range []string{"view.m", "file.unknownext"} {
+	for _, path := range []string{"main.dart", "file.unknownext"} {
 		if s := r.SyntaxForPath(path); s != nil {
 			t.Fatalf("SyntaxForPath(%q) = %v, want none", path, s)
 		}

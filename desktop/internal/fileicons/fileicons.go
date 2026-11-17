@@ -55,6 +55,16 @@ const (
 	kindShell
 	// kindPowerShell identifies a PowerShell script.
 	kindPowerShell
+	// kindLua identifies a Lua file.
+	kindLua
+	// kindZig identifies a Zig source or ZON file.
+	kindZig
+	// kindProtobuf identifies a Protocol Buffers definition.
+	kindProtobuf
+	// kindGraphQL identifies a GraphQL schema or query file.
+	kindGraphQL
+	// kindCMake identifies a CMake script or CMakeLists.txt.
+	kindCMake
 	// kindJavaScript identifies a JavaScript or TypeScript file.
 	kindJavaScript
 	// kindCSS identifies a CSS-family stylesheet.
@@ -140,6 +150,11 @@ var kindIcons = [kindCount][2]*gfx.Icon{
 	kindCSharp:         {&Csharp, &CsharpDark},
 	kindShell:          {&Shell, &ShellDark},
 	kindPowerShell:     {&Powershell, &PowershellDark},
+	kindLua:            {&Lua, nil},
+	kindZig:            {&Zig, nil},
+	kindProtobuf:       {&ProtoFile, &ProtoFileDark},
+	kindGraphQL:        {&Graphql, &GraphqlDark},
+	kindCMake:          {&Cmake, nil},
 	kindJavaScript:     {&JavaScript, &JavaScriptDark},
 	kindCSS:            {&Css, &CssDark},
 	kindHTML:           {&Html, &HtmlDark},
@@ -343,6 +358,10 @@ func fileKind(name string) kind {
 	if lowerName == "makefile" || lowerName == "gnumakefile" {
 		return kindMakefile
 	}
+	// CMakeLists.txt needs a name check because its extension is that of plain text.
+	if lowerName == "cmakelists.txt" {
+		return kindCMake
+	}
 	stem, ext := splitExt(lowerName)
 	if stem == "readme" {
 		return kindReadme
@@ -401,6 +420,16 @@ func fileKind(name string) kind {
 		return kindShell
 	case "ps1", "psm1", "psd1", "ps1xml", "psc1", "pssc":
 		return kindPowerShell
+	case "lua":
+		return kindLua
+	case "zig", "zon":
+		return kindZig
+	case "proto":
+		return kindProtobuf
+	case "graphql", "gql":
+		return kindGraphQL
+	case "cmake":
+		return kindCMake
 	case "css", "scss", "sass", "less":
 		return kindCSS
 	case "html", "htm", "xhtml", "vue", "svelte":

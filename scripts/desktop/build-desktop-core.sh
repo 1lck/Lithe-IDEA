@@ -27,6 +27,10 @@ native_path() {
     fi
 }
 
+# Lithe-core-rust main at 885f2a6, #83 squash-merged (the same tree as its branch at d10ee76, on
+# top of cf2f260): a plugin's TextMate grammar may declare injections, an object of scope selectors
+# each with a rule, which the editor tries beside the current rule's patterns wherever the selector
+# matches, as vscode-textmate does for a root grammar (#2112).
 # Lithe-core-rust main at cf2f260, #82 squash-merged (the same tree as its branch at 4d0dc1c, on
 # top of 18a370d): lsp.problems.query also lays out the Problems tool window's tree (the rows
 # visible under the group nodes the desktop closes, the diagnostic each row previews and opens, a
@@ -195,7 +199,7 @@ PINNED_CORE_REPOSITORY="https://github.com/Lithe-IDEA/Lithe-core-rust.git"
 # the contract, plugin guides, reference and SDKs live only in shared/plugins; on top of #16 (reported Git queries folded in the console),
 # #15 (git.write cherryPick, revert and reset fields), #14 (word-level changed ranges of diff
 # rows), #13, #8, #7, #6 and #4.
-PINNED_CORE_REVISION="cf2f26095bb352f69d248f840dd7d6126747482e"
+PINNED_CORE_REVISION="885f2a6958a9e475c88c5fb39d48068f41b08ae1"
 PROFILE="debug"
 while [[ $# -gt 0 ]]; do
     case "$1" in
