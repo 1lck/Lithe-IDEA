@@ -22,6 +22,7 @@ import (
 	"reflect"
 	"sort"
 	"sync"
+	"time"
 )
 
 // Directory is the name of the client's folder inside the user configuration directory.
@@ -36,8 +37,11 @@ type Store struct {
 	kept map[string]*keptObject
 	// unread is, per file, why its last load could not read a stored value it kept (Unread).
 	unread map[string]error
-	// failedLoad blocks Save after a file could not be read or decoded.
+	// failedLoad is, per file, why its last load could not read or decode it. The next Save
+	// moves that file aside before it writes (setAside).
 	failedLoad map[string]error
+	// now stamps the name of a file set aside; tests replace it.
+	now func() time.Time
 }
 
 // Open returns the store in the user's configuration directory. The directory is created
@@ -52,7 +56,7 @@ func Open() (*Store, error) {
 
 // At returns a store in dir; tests use it with a temporary directory.
 func At(dir string) *Store {
-	return &Store{dir: dir}
+	return &Store{dir: dir, now: time.Now}
 }
 
 // Dir is the directory the store reads and writes.
@@ -170,16 +174,16 @@ func (store *Store) Unknown(name string) []string {
 }
 
 // Save encodes value and replaces the file name with it atomically, with what the last load of
-// name could not read written back beside it. A failed Load protects the original until a
-// successful Load, a missing-file Load or an explicit Remove.
+// name could not read written back beside it. When that load could not read or decode the file,
+// the file is first moved aside to SetAsideName(name, time), so a save never destroys content a
+// load could not read, and the file that holds the new value works again from this save on.
 func (store *Store) Save(name string, value any) error {
+	if err := store.setAside(name); err != nil {
+		return err
+	}
 	store.mu.Lock()
 	kept := store.kept[name]
-	failed := store.failedLoad[name]
 	store.mu.Unlock()
-	if failed != nil {
-		return fmt.Errorf("refusing to overwrite %s after failed load: %w", name, failed)
-	}
 	if kept == nil {
 		data, err := json.MarshalIndent(value, "", "  ")
 		if err != nil {
@@ -200,6 +204,31 @@ func (store *Store) Save(name string, value any) error {
 	}
 	data.WriteByte('\n')
 	return store.WriteFile(name, data.Bytes())
+}
+
+// SetAsideName is the name an unreadable file name gets when a save moves it aside at time at.
+func SetAsideName(name string, at time.Time) string {
+	return name + ".unreadable-" + at.UTC().Format("20060102T150405.000000000Z")
+}
+
+// setAside moves the file name aside when its last load failed, at most once per failure: the
+// check, the rename and clearing the failure happen under one lock, so concurrent saves never move
+// the file a first save has just written. A file already gone has nothing to keep. A rename that
+// fails keeps the failure and fails the save, so the unreadable file stays where it was.
+func (store *Store) setAside(name string) error {
+	store.mu.Lock()
+	defer store.mu.Unlock()
+	failed := store.failedLoad[name]
+	if failed == nil {
+		return nil
+	}
+	path := filepath.Join(store.dir, name)
+	aside := filepath.Join(store.dir, SetAsideName(name, store.now()))
+	if err := os.Rename(path, aside); err != nil && !errors.Is(err, fs.ErrNotExist) {
+		return fmt.Errorf("move unreadable %s aside before saving: %w", name, errors.Join(err, failed))
+	}
+	delete(store.failedLoad, name)
+	return nil
 }
 
 // Path is where the file name lives, for a reader that streams it instead of loading it whole,
