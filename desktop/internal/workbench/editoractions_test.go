@@ -124,4 +124,27 @@ func TestEditorActionCollectionTimeoutIsRetriedWithinItsBudget(t *testing.T) {
 	if d.actionRetries != 0 || d.actionTimer != nil {
 		t.Fatalf("a non-timeout failure must not retry: retries=%d timer=%v", d.actionRetries, d.actionTimer != nil)
 	}
+
+	// A document behind another tab is not retried, so a busy server is not asked once per open
+	// file; selecting it collects it again with a fresh budget.
+	writeFixture(t, root, map[string]string{"Other.java": "class Other {}\n"})
+	h.app.openFile(p, filepath.Join(root, "Other.java"))
+	h.settle()
+	if other := documentNamed(p, "Other.java"); other == nil || p.documentShown(d) {
+		t.Fatal("the second file must hide the first behind its tab")
+	} else {
+		t.Cleanup(func() {
+			if other.actionTimer != nil {
+				other.actionTimer.Stop()
+			}
+		})
+	}
+	present(nil, busy)
+	if d.actionRetries != 0 || d.actionTimer != nil || !d.actionsTimedOut {
+		t.Fatalf("a hidden document must wait for selection: retries=%d timer=%v timedOut=%v", d.actionRetries, d.actionTimer != nil, d.actionsTimedOut)
+	}
+	h.app.selectDocument(p, d.id)
+	if !p.documentShown(d) || d.actionsTimedOut || d.actionTimer == nil {
+		t.Fatalf("selecting a timed-out document must collect it again: shown=%v timedOut=%v timer=%v", p.documentShown(d), d.actionsTimedOut, d.actionTimer != nil)
+	}
 }

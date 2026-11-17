@@ -24,9 +24,13 @@ const editorActionDelay = 600 * time.Millisecond
 
 // A collection that times out is retried: a language server reports ready when its handshake
 // ends, but a large project keeps it busy importing for minutes, and the actions it would answer
-// (a main method's run and debug icons) must not stay missing until the user edits the file. The
-// delays double from editorActionRetryFirst up to editorActionRetryMax, for at most
-// editorActionRetryLimit attempts after the first, about four minutes in all.
+// (a main method's run and debug icons) must not stay missing until the user edits the file. Only
+// a document an editor group shows is retried, so a server that every open file timed out on is
+// asked again once per visible file rather than once per open file; a document behind another tab
+// is collected again when it is selected (selectDocument). The waits double from
+// editorActionRetryFirst up to editorActionRetryMax for at most editorActionRetryLimit retries:
+// 2, 4, 8 and 16 seconds, then 30 seconds six times, three and a half minutes of waiting plus the
+// collections themselves.
 const (
 	editorActionRetryFirst = 2 * time.Second
 	editorActionRetryMax   = 30 * time.Second
@@ -44,15 +48,18 @@ func editorActionRetryDelay(attempt int) time.Duration {
 
 // scheduleEditorActions drops the document's actions and collects them again once typing pauses.
 // It starts a fresh retry budget: every trigger (an edit, a server becoming ready, a plugin
-// registering actions) deserves its own retries.
+// registering actions, selecting a document whose collection timed out) deserves its own retries.
 func (a *App) scheduleEditorActions(p *project, d *document) {
 	d.actionRetries = 0
-	a.scheduleEditorActionsAfter(p, d, editorActionDelay)
-}
-
-// scheduleEditorActionsAfter drops the document's actions and collects them after delay.
-func (a *App) scheduleEditorActionsAfter(p *project, d *document, delay time.Duration) {
+	d.actionsTimedOut = false
 	a.clearEditorActions(d)
+	a.collectEditorActionsAfter(p, d, editorActionDelay)
+}
+
+// collectEditorActionsAfter collects the document's actions after delay, replacing a collection
+// already waiting. What the document shows stays until the new answer replaces it; an edit
+// meanwhile clears it and schedules its own collection.
+func (a *App) collectEditorActionsAfter(p *project, d *document, delay time.Duration) {
 	if d.actionTimer != nil {
 		d.actionTimer.Stop()
 	}
@@ -66,21 +73,11 @@ func (a *App) scheduleEditorActionsAfter(p *project, d *document, delay time.Dur
 	})
 }
 
-// retryEditorActions collects the document's actions again after delay, keeping what the last
-// collection showed until the new answer replaces it. An edit meanwhile stops this timer and
-// schedules its own collection.
-func (a *App) retryEditorActions(p *project, d *document, delay time.Duration) {
-	if d.actionTimer != nil {
-		d.actionTimer.Stop()
-	}
-	id := d.id
-	d.actionTimer = time.AfterFunc(delay, func() {
-		a.post(func(a *App) {
-			if a.project == p && p.docs.find(id) == d {
-				a.collectEditorActions(p, d)
-			}
-		})
-	})
+// documentShown reports whether an editor group shows the document.
+func (p *project) documentShown(d *document) bool {
+	member := documentMember(d.id)
+	g := p.terms.bench.GroupOf(member)
+	return g != nil && g.Selected == member
 }
 
 // clearEditorActions forgets the document's actions and their annotations.
@@ -143,12 +140,17 @@ func (a *App) presentEditorActions(p *project, snapshot editorActionSnapshot, ac
 		a.backgroundFailed("editor_actions", err)
 		// A busy server answers late, not never. Keep what did answer and ask again later; other
 		// failures (a refused registration, a malformed answer) would fail the same way again.
-		if errors.Is(err, context.DeadlineExceeded) && d.actionRetries < editorActionRetryLimit {
-			d.actionRetries++
-			a.retryEditorActions(p, d, editorActionRetryDelay(d.actionRetries))
+		if errors.Is(err, context.DeadlineExceeded) {
+			if !p.documentShown(d) {
+				d.actionsTimedOut = true
+			} else if d.actionRetries < editorActionRetryLimit {
+				d.actionRetries++
+				a.collectEditorActionsAfter(p, d, editorActionRetryDelay(d.actionRetries))
+			}
 		}
 	} else {
 		d.actionRetries = 0
+		d.actionsTimedOut = false
 	}
 	d.actions = actions
 	a.annotateEditorActions(d)

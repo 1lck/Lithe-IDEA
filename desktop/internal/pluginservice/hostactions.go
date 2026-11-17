@@ -4,9 +4,9 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"fmt"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/core"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -154,30 +154,68 @@ func (s *Service) handleRegisterEditorActions(ctx context.Context, params json.R
 		binding.names[strings.ToLower(name)] = true
 	}
 	s.actions.mu.Lock()
-	count := 0
-	for _, existing := range s.actions.list {
-		if existing.pluginID == caller.PluginID {
-			count++
-		}
-		if existing.contextID == binding.contextID && existing.id == binding.id && existing.pluginID == binding.pluginID {
-			s.actions.mu.Unlock()
-			return nil, failure(CodePreconditionFailed, "The registration ID is already registered in this context.")
-		}
-	}
-	if count >= maxEditorActionBindings {
-		s.actions.mu.Unlock()
-		return nil, failure(CodePreconditionFailed, "The plugin has too many editor action registrations.")
-	}
-	s.actions.list = append(s.actions.list, binding)
+	ended := s.actions.dropOtherSessions(caller.PluginID, caller.SessionID)
+	refusal = s.actions.admit(binding)
 	s.actions.mu.Unlock()
+	for _, sessionID := range ended {
+		// Release outside the lock: each resource's dispose takes it to remove its binding.
+		s.resources.releaseSession(sessionID)
+	}
+	if refusal != nil {
+		return nil, refusal
+	}
 	id := s.resources.add(caller, workspace.ContextID, func() {
 		s.actions.mu.Lock()
 		s.actions.list = removeBinding(s.actions.list, binding)
 		s.actions.mu.Unlock()
 		s.editorActionsChanged(workspace.Path)
 	})
+	if session.isEnded() {
+		// The session ended after the check above. Its release may already have run without this
+		// resource, which would leave the binding behind for good; withdrawing it here closes that
+		// gap. A session marks itself ended before its release, so one of the two always sees it.
+		s.resources.dispose(caller, id)
+		return nil, failure(CodePreconditionFailed, "The function is not registered on this session.")
+	}
 	s.editorActionsChanged(workspace.Path)
 	return marshalResult(map[string]string{"subscriptionID": id})
+}
+
+// dropOtherSessions removes the plugin's bindings that a session other than current made and
+// returns those sessions. A plugin runs one backend session at a time and current is the running
+// one, so they are bindings of an ended session whose release has not run yet; left in place they
+// would refuse the new session's registration of the same ID. The caller holds b.mu.
+func (b *editorActionBindings) dropOtherSessions(pluginID, current string) []string {
+	var ended []string
+	b.list = slices.DeleteFunc(b.list, func(existing *editorActionBinding) bool {
+		if existing.pluginID != pluginID || existing.sessionID == current {
+			return false
+		}
+		if !slices.Contains(ended, existing.sessionID) {
+			ended = append(ended, existing.sessionID)
+		}
+		return true
+	})
+	return ended
+}
+
+// admit records binding unless its plugin already registered its ID in the context or holds the
+// most bindings allowed. The caller holds b.mu.
+func (b *editorActionBindings) admit(binding *editorActionBinding) *pluginhost.Failure {
+	count := 0
+	for _, existing := range b.list {
+		if existing.pluginID == binding.pluginID {
+			count++
+		}
+		if existing.contextID == binding.contextID && existing.id == binding.id && existing.pluginID == binding.pluginID {
+			return failure(CodePreconditionFailed, "The registration ID is already registered in this context.")
+		}
+	}
+	if count >= maxEditorActionBindings {
+		return failure(CodePreconditionFailed, "The plugin has too many editor action registrations.")
+	}
+	b.list = append(b.list, binding)
+	return nil
 }
 
 // editorRegistrationValue separates the host routing envelope from the Core declaration.
@@ -255,15 +293,11 @@ func (s *Service) CollectEditorActions(ctx context.Context, root, path string, d
 	var failures []error
 	for _, binding := range bindings {
 		session := s.Host.Running(binding.pluginID)
-		if session == nil {
-			// The plugin's backend is not running; releasing its session withdraws these bindings.
-			continue
-		}
-		if session.Session.ID != binding.sessionID {
-			// A restarted backend runs under a new session while this binding still names the old
-			// one. Report it instead of answering with no actions, which looks like a file
-			// without run or debug entries.
-			failures = append(failures, fmt.Errorf("%w: editor actions %q of %s belong to an ended backend session", ErrBackendUnavailable, binding.id, binding.pluginID))
+		if session == nil || session.Session.ID != binding.sessionID {
+			// The binding's session ended. That state is brief: the ending session releases its
+			// bindings right after, a registration made while it ended withdraws itself, and the
+			// restarted session's registration of the same ID replaces it. The new registration
+			// collects the document again, so there is nothing to report here.
 			continue
 		}
 		argument := mustMarshal(map[string]any{
