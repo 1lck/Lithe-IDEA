@@ -311,11 +311,8 @@ func (a *App) everywhereRow(c ui.C, p *project, result core.WorkspaceSearchMatch
 	}
 	if result.Kind == "content" {
 		ui.Column(c).Grow(1).Shrink(1).MinWidth(0).Children(func() {
-			text, ranges := result.Preview, []core.SearchNameRange(nil)
-			if result.SourceLine != nil {
-				text, ranges = trimHighlightedLine(*result.SourceLine, result.ContentMatchRanges)
-			}
-			a.highlightedText(c, text, ranges, a.colors.Text, 12, true)
+			// With the line asked for, Core gives the matches in the preview it cut.
+			a.highlightedText(c, result.Preview, result.PreviewRanges, a.colors.Text, 12, true)
 			location := name
 			if result.Line != nil {
 				location += ":" + strconv.Itoa(*result.Line)
@@ -401,19 +398,6 @@ func utf16Spans(text string, ranges []core.SearchNameRange) [][2]int {
 		last = offsets[end]
 	}
 	return spans
-}
-
-// trimHighlightedLine drops the line's leading whitespace and moves the ranges with it.
-func trimHighlightedLine(line string, ranges []core.SearchNameRange) (string, []core.SearchNameRange) {
-	trimmed := strings.TrimLeft(line, " \t")
-	removed := len(line) - len(trimmed) // spaces and tabs are one UTF-16 unit each
-	out := make([]core.SearchNameRange, 0, len(ranges))
-	for _, r := range ranges {
-		if r.Start >= removed {
-			out = append(out, core.SearchNameRange{Start: r.Start - removed, Length: r.Length})
-		}
-	}
-	return strings.TrimRight(trimmed, "\r\n"), out
 }
 
 // searchResultMenu is the context menu of a search result, in Search Everywhere and in the

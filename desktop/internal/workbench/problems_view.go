@@ -105,7 +105,7 @@ func (a *App) problemsPanel(c ui.C, p *project) {
 		ui.Row(c).FillWidth().Grow(1).Basis(0).Shrink(1).MinHeight(0).Children(func() {
 			ui.Column(c).Width(v.split.Pos).Shrink(0).FillHeight().MinHeight(0).Children(func() { list(c) })
 			ui.Splitter(c, &v.split).Mins(problemsListMin, problemsPreviewMin).Label(a.text.Panel.Resize)
-			a.problemsPreviewPane(c, p)
+			a.problemsPreviewPane(c)
 		})
 	} else {
 		list(c)

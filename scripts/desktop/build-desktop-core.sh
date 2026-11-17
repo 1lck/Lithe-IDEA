@@ -27,6 +27,13 @@ native_path() {
     fi
 }
 
+# Lithe-core-rust #80 at 81a6ecf, the branch of the draft on top of main 788e61e (#79, #78):
+# lsp.references.query lays out the References tool window (usages grouped in natural file
+# order, the rows visible under the folds the desktop sends, the usage each row previews and the
+# usages before and after it, a selection behind a closed node moved to that node);
+# lsp.references.lines cuts each usage's line by the rule search results use, and
+# workspace.search answers previewRanges with that preview (#2096). The pin moves to the squash
+# merge once #80 is in main.
 # Lithe-core-rust main at 6a29169, #70 squash-merged on top of c928514 (#73):
 # editor.copyReferenceLocation formats the innermost document symbol a language server reports
 # around the caret, with a one-based line, and falls back to the file path when none contains it;
@@ -178,7 +185,7 @@ PINNED_CORE_REPOSITORY="https://github.com/Lithe-IDEA/Lithe-core-rust.git"
 # the contract, plugin guides, reference and SDKs live only in shared/plugins; on top of #16 (reported Git queries folded in the console),
 # #15 (git.write cherryPick, revert and reset fields), #14 (word-level changed ranges of diff
 # rows), #13, #8, #7, #6 and #4.
-PINNED_CORE_REVISION="788e61eb62177dff4cb0bfe11a48eed0a1083fb3"
+PINNED_CORE_REVISION="81a6ecf947ccde35d4abc9a56111acce892470ed"
 PROFILE="debug"
 while [[ $# -gt 0 ]]; do
     case "$1" in

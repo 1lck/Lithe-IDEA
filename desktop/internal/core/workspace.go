@@ -342,6 +342,9 @@ type WorkspaceSearchMatch struct {
 	// its matches in UTF-16 units, returned when the request sets IncludeContentRanges.
 	SourceLine         *string           `json:"sourceLine,omitempty"`
 	ContentMatchRanges []SearchNameRange `json:"contentMatchRanges,omitempty"`
+	// PreviewRanges, returned with SourceLine, are the matches in Preview, which is then the
+	// line as a result row shows it: without its indentation, cut in front of a far match.
+	PreviewRanges []SearchNameRange `json:"previewRanges,omitempty"`
 }
 
 // SearchNameRange locates one Core-selected highlight in UTF-16 code units.

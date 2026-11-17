@@ -118,7 +118,8 @@ func (a *App) searchResults(c ui.C, p *project, language i18n.Language) {
 					ui.Text(row.C, searchLinePosition(result)).FontSize(12).Color(a.colors.Subtle)
 				}
 			})
-			preview, ranges := searchPreviewLine(result)
+			// Core gives the line as a result row shows it, and the matches in it.
+			preview, ranges := result.Preview, result.PreviewRanges
 			ui.Row(row.C).FillWidth().MinWidth(0).Clip().Children(func() {
 				a.highlightedText(row.C, preview, ranges, a.colors.Subtle, 11.5, true)
 			})

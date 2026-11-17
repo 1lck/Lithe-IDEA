@@ -86,7 +86,7 @@ func (a *App) shellPanel(c ui.C, s slot, index int, hidden *slot) ui.Box {
 	p := a.project
 	tabbed := tool.id == itemGit
 	header := float32(toolTitleHeight)
-	if tabbed || tool.id == itemTerminal || tool.id == itemCommit || tool.id == itemRun {
+	if tabbed || tool.id == itemTerminal || tool.id == itemCommit || tool.id == itemRun || tool.id == itemReferences {
 		header = panelHeaderHeight
 	}
 	if tool.id == itemFind && p != nil {
@@ -117,6 +117,9 @@ func (a *App) shellPanel(c ui.C, s slot, index int, hidden *slot) ui.Box {
 			case tool.id == itemRun && p != nil:
 				// So do the tabs of the Run window's executions.
 				a.runSessionTabs(c, p)
+			case tool.id == itemReferences && p != nil:
+				// And the tab of the usages the References window shows.
+				a.referencesSearchTab(c, p)
 			default:
 				ui.Spacer(c)
 			}

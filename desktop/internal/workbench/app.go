@@ -204,6 +204,8 @@ type Kernel interface {
 	PlainPluginSnippet(ctx context.Context, value string) (string, error)
 	PlanPluginWorkspaceEdit(ctx context.Context, workspaceRoot string, changes map[string][]core.PluginTextEdit, open []core.PluginOpenDocument) (core.PluginWorkspaceEditPlan, error)
 	QueryProblems(ctx context.Context, request core.ProblemsQuery) (core.ProblemsResult, error)
+	QueryReferences(ctx context.Context, request core.ReferencesQuery) (core.ReferencesResult, error)
+	ReferenceLines(ctx context.Context, request core.ReferenceLinesRequest) ([]core.ReferenceLine, error)
 	ResolveMarketplaceSource(context.Context, string) (core.MarketplaceSource, error)
 	ValidateMarketplaceIndex(context.Context, json.RawMessage, core.MarketplaceSourceKind, string, map[string][]int) (core.MarketplaceIndex, error)
 }

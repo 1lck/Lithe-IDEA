@@ -36,7 +36,7 @@ type problemsView struct {
 	// show says the Show Editor Preview option is on: a read-only source view beside the list
 	// shows the selected diagnostic's line. preview is that view.
 	show    bool
-	preview problemsPreview
+	preview sourcePreview
 	// split is the width of the list beside the preview; the user drags it.
 	split ui.SplitterState
 	// hideErrors, hideWarnings and hideInfo narrow the severities shown; a query sends them
