@@ -88,47 +88,48 @@ async function writePackage(dir, name, content = name) {
   await writeFile(path.join(dir, `${name}.sha256`), `${sha256(content)}  ${name}\n`);
 }
 
-// The archives desktop-v0.7.0 holds: no Intel macOS zip, and the rest with their .sha256.
-const previousArchives = ['lithe-0.7.0-darwin-arm64.zip', 'lithe-0.7.0-windows-amd64.zip',
-  'lithe-0.7.0-linux-amd64.tar.gz', 'lithe-0.7.0-linux-arm64.tar.gz'];
+// The archives the previous release (0.8.2 unless a test names another) holds: no Intel macOS
+// zip, and the rest with their .sha256.
+const previousArchives = (previous = '0.8.2') => [`lithe-${previous}-darwin-arm64.zip`,
+  `lithe-${previous}-windows-amd64.zip`, `lithe-${previous}-linux-amd64.tar.gz`, `lithe-${previous}-linux-arm64.tar.gz`];
 
-// A stable feed offering version; for 0.7.0 it lists the previous archives' digests, all right
-// but the Linux arm64 one, and for another version patches from 0.7.0.
-function stableFeed(version, app = 'app.lithe.viva') {
-  const assets = previousArchives.map((name) => {
+// A stable feed offering version; for the previous release it lists that release's archives'
+// digests, all right but the Linux arm64 one, and for another version patches from 0.8.2.
+function stableFeed(version, app = 'app.lithe.viva', previous = version === '0.9.0' || version === '1.0.0' ? '0.8.2' : version) {
+  const assets = previousArchives(previous).map((name) => {
     const [, os, arch] = /-(darwin|windows|linux)-(amd64|arm64)\./.exec(name);
     const digest = name.includes('linux-arm64') ? '0'.repeat(64) : sha256(name);
-    return version === '0.7.0'
-      ? { os, arch, url: `https://github.com/${REPO}/releases/download/desktop-v0.7.0/${name}`, sha256: digest }
-      : { os, arch, url: `https://github.com/${REPO}/releases/download/desktop-v${version}/${name.replace('0.7.0', version)}`,
-        sha256: '1'.repeat(64), patches: [{ from_version: '0.7.0', url: 'https://example.invalid/p', sha256: '2'.repeat(64) }] };
+    return version === previous
+      ? { os, arch, url: `https://github.com/${REPO}/releases/download/desktop-v${previous}/${name}`, sha256: digest }
+      : { os, arch, url: `https://github.com/${REPO}/releases/download/desktop-v${version}/${name.replace(previous, version)}`,
+        sha256: '1'.repeat(64), patches: [{ from_version: previous, url: 'https://example.invalid/p', sha256: '2'.repeat(64) }] };
   });
   return JSON.stringify({ schema: 1, app, channel: 'stable', latest: { version, assets } });
 }
 
-async function publish({ feed, key = 'c2VjcmV0', viewError } = {}) {
+async function publish({ feed, key = 'c2VjcmV0', viewError, previous = '0.8.2' } = {}) {
   const root = await mkdtemp(path.join(os.tmpdir(), 'lithe-update-feed-'));
   try {
     for (const dir of ['scripts/ci/desktop-release', 'scripts/ci/common', 'scripts/desktop', 'desktop', 'docs/releases',
-      'bin', 'dist', 'releases/desktop-v0.8.0', 'releases/desktop-v0.7.0']) {
+      'bin', 'dist', 'releases/desktop-v0.9.0', `releases/desktop-v${previous}`]) {
       await mkdir(path.join(root, dir), { recursive: true });
     }
     await copyFile(new URL('./publish-update-feed.sh', import.meta.url), path.join(root, 'scripts/ci/desktop-release/publish-update-feed.sh'));
     await copyFile(new URL('../common/desktop-packages.mjs', import.meta.url), path.join(root, 'scripts/ci/common/desktop-packages.mjs'));
-    await writeFile(path.join(root, 'desktop/viva.toml'), '[app]\nname = "Lithe"\nid = "app.lithe.viva"\nversion = "0.8.0"\n');
-    await writeFile(path.join(root, 'docs/releases/v0.8.0.md'), '## 中文\n\n新功能。\n\n## English\n\nNew things.\n');
+    await writeFile(path.join(root, 'desktop/viva.toml'), '[app]\nname = "Lithe"\nid = "app.lithe.viva"\nversion = "0.9.0"\n');
+    await writeFile(path.join(root, 'docs/releases/v0.9.0.md'), '## 中文\n\n新功能。\n\n## English\n\nNew things.\n');
     for (const [file, content] of Object.entries(executables)) {
       await writeFile(path.join(root, file), content);
       await chmod(path.join(root, file), 0o755);
     }
-    for (const name of packageNames('0.8.0')) await writePackage(path.join(root, 'dist'), name);
-    for (const name of previousArchives) await writePackage(path.join(root, 'releases/desktop-v0.7.0'), name);
+    for (const name of packageNames('0.9.0')) await writePackage(path.join(root, 'dist'), name);
+    for (const name of previousArchives(previous)) await writePackage(path.join(root, `releases/desktop-v${previous}`), name);
     if (feed) {
       await mkdir(path.join(root, 'releases/desktop-update-feed'));
       await writeFile(path.join(root, 'releases/desktop-update-feed/stable.json'), feed);
     }
     const env = { ...process.env, PATH: `${root}/bin${path.delimiter}${process.env.PATH}`, FIXTURE_ROOT: root,
-      GH_TOKEN: 'token', GITHUB_REPOSITORY: REPO, DESKTOP_VERSION: '0.8.0', RELEASE_TAG: 'desktop-v0.8.0', GITHUB_SHA: 'abc1234' };
+      GH_TOKEN: 'token', GITHUB_REPOSITORY: REPO, DESKTOP_VERSION: '0.9.0', RELEASE_TAG: 'desktop-v0.9.0', GITHUB_SHA: 'abc1234' };
     for (const name of ['VIVA_UPDATE_KEY', 'GITHUB_STEP_SUMMARY', 'FIXTURE_VIEW_ERROR']) delete env[name];
     if (key) env.VIVA_UPDATE_KEY = key;
     if (viewError) env.FIXTURE_VIEW_ERROR = viewError;
@@ -171,25 +172,25 @@ test('the first stable feed lists the full packages and creates the feed release
   assert.equal(run.code, 0, run.stderr);
   const args = await run.read('viva-args');
   assert.match(args, /^-channel\nstable$/m);
-  assert.match(args, new RegExp(`^-base-url\\nhttps://github.com/${REPO}/releases/download/desktop-v0.8.0$`, 'm'));
+  assert.match(args, new RegExp(`^-base-url\\nhttps://github.com/${REPO}/releases/download/desktop-v0.9.0$`, 'm'));
   assert.doesNotMatch(args, /-patch-from/);
   // The updater installs the macOS zips, the Windows installer and zip and the Linux tar.gz only.
-  assert.deepEqual((await run.read('viva-archives')).trim().split('\n').sort(), packageNames('0.8.0')
+  assert.deepEqual((await run.read('viva-archives')).trim().split('\n').sort(), packageNames('0.9.0')
     .filter((name) => /\.zip$|-setup\.exe$|\.tar\.gz$/.test(name)).sort());
   assert.match(await run.read('gh-log'), /^release create desktop-update-feed [^]*?--prerelease --latest=false --target abc1234 key=no$/m);
   assert.equal(await run.read('uploads'),
     'desktop-update-feed stable.notes.md\ndesktop-update-feed stable.json\ndesktop-update-feed stable.json.sig\n');
   assert.equal(await run.read('releases/desktop-update-feed/stable.notes.md'),
-    '<!-- lithe-update-notes version=0.8.0 -->\n## 中文\n\n新功能。\n\n## English\n\nNew things.\n');
+    '<!-- lithe-update-notes version=0.9.0 -->\n## 中文\n\n新功能。\n\n## English\n\nNew things.\n');
   await assertKeyReachesVivaAlone(run);
 }));
 
 test('a feed offering the previous version makes delta updates from its verified archives', { timeout: 30000 },
-  () => check({ feed: stableFeed('0.7.0') }, async (run) => {
+  () => check({ feed: stableFeed('0.8.2') }, async (run) => {
     assert.equal(run.code, 0, run.stderr);
     const args = await run.read('viva-args');
     for (const platform of ['darwin/arm64', 'windows/amd64', 'linux/amd64']) {
-      assert.match(args, new RegExp(`^${platform}=0\\.7\\.0=.*lithe-0\\.7\\.0-${platform.replace('/', '-')}\\.(zip|tar\\.gz)$`, 'm'));
+      assert.match(args, new RegExp(`^${platform}=0\\.8\\.2=.*lithe-0\\.8\\.2-${platform.replace('/', '-')}\\.(zip|tar\\.gz)$`, 'm'));
     }
     // Intel macOS has no previous archive and the Linux arm64 one differs from the feed.
     assert.doesNotMatch(args, /darwin\/amd64=|linux\/arm64=/);
@@ -197,34 +198,53 @@ test('a feed offering the previous version makes delta updates from its verified
     assert.match(run.stdout, /::warning::No delta update for linux\/arm64: .* does not match/);
     // The patches are up before the feed that lists them, and the feed release is reused.
     assert.equal(await run.read('uploads'), [
-      'desktop-v0.8.0 lithe-0.8.0-darwin-arm64.zip.0.7.0.patch',
-      'desktop-v0.8.0 lithe-0.8.0-linux-amd64.tar.gz.0.7.0.patch',
-      'desktop-v0.8.0 lithe-0.8.0-windows-amd64.zip.0.7.0.patch',
+      'desktop-v0.9.0 lithe-0.9.0-darwin-arm64.zip.0.8.2.patch',
+      'desktop-v0.9.0 lithe-0.9.0-linux-amd64.tar.gz.0.8.2.patch',
+      'desktop-v0.9.0 lithe-0.9.0-windows-amd64.zip.0.8.2.patch',
       'desktop-update-feed stable.notes.md', 'desktop-update-feed stable.json', 'desktop-update-feed stable.json.sig', ''].join('\n'));
     assert.doesNotMatch(await run.read('gh-log'), /release create/);
     await assertKeyReachesVivaAlone(run);
   }));
 
+// Lithe 0.8.0 and 0.8.1 delete a rebuilt Windows application before the updater's helper copies
+// it, so a Windows patch from either quits Lithe without updating it (vivaui/viva#334). Their
+// users get the full installer, which those versions install correctly.
+for (const previous of ['0.8.0', '0.8.1']) {
+  test(`a Windows client of ${previous} gets the full installer, not a patch`, { timeout: 30000 },
+    () => check({ feed: stableFeed(previous), previous }, async (run) => {
+      assert.equal(run.code, 0, run.stderr);
+      const args = await run.read('viva-args');
+      assert.doesNotMatch(args, /windows\/amd64=/);
+      for (const platform of ['darwin/arm64', 'linux/amd64']) {
+        assert.match(args, new RegExp(`^${platform}=${previous.replaceAll('.', '\\.')}=`, 'm'));
+      }
+      assert.match(run.stdout, new RegExp(`::notice::No delta update for windows/amd64 from ${previous.replaceAll('.', '\\.')}:`));
+      assert.doesNotMatch(await run.read('uploads'), /windows-amd64\.zip\.[0-9.]+\.patch/);
+      // The installer and the zip are still listed, so the client downloads the installer.
+      assert.match(await run.read('viva-archives'), /^lithe-0\.9\.0-windows-amd64-setup\.exe$/m);
+    }));
+}
+
 test('publishing the offered version again patches from the same version', { timeout: 30000 },
-  () => check({ feed: stableFeed('0.8.0') }, async (run) => {
+  () => check({ feed: stableFeed('0.9.0') }, async (run) => {
     assert.equal(run.code, 0, run.stderr);
     const args = await run.read('viva-args');
     for (const platform of ['darwin/arm64', 'windows/amd64', 'linux/amd64', 'linux/arm64']) {
-      assert.match(args, new RegExp(`^${platform}=0\\.7\\.0=`, 'm'));
+      assert.match(args, new RegExp(`^${platform}=0\\.8\\.2=`, 'm'));
     }
-    assert.match(run.stdout, /Delta updates from 0\.7\.0/);
+    assert.match(run.stdout, /Delta updates from 0\.8\.2/);
   }));
 
-test('a feed offering a later version is left as it is', { timeout: 30000 }, () => check({ feed: stableFeed('0.9.0') }, async (run) => {
+test('a feed offering a later version is left as it is', { timeout: 30000 }, () => check({ feed: stableFeed('1.0.0') }, async (run) => {
   assert.equal(run.code, 0, run.stderr);
-  assert.match(run.stdout, /already offers 0\.9\.0, later than 0\.8\.0/);
+  assert.match(run.stdout, /already offers 1\.0\.0, later than 0\.9\.0/);
   assert.equal(await run.exists('viva-args'), false);
   assert.equal(await run.exists('uploads'), false);
 }));
 
 for (const [name, options] of [
   ['a feed release that cannot be read', { viewError: 'HTTP 502: Bad Gateway' }],
-  ['a published feed for another application', { feed: stableFeed('0.7.0', 'app.other') }],
+  ['a published feed for another application', { feed: stableFeed('0.8.2', 'app.other') }],
 ]) {
   test(`${name} fails the run before anything is published`, { timeout: 30000 }, () => check(options, async (run) => {
     assert.notEqual(run.code, 0);
