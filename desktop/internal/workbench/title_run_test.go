@@ -153,7 +153,10 @@ func TestProviderDebugStartsTheNamedAdapter(t *testing.T) {
 	p.debug.adapters = []debugAdapter{decoy, named}
 	h.app.startProviderDebug(p, named.PluginID, core.BuildDebugPreparation{Adapter: named.Declaration.ID, Program: "bin/app", WorkingDirectory: "."}, nil)
 	session := p.debug.activeSession()
-	if session == nil || session.adapter.Declaration.ID != named.Declaration.ID {
+	if session == nil {
+		t.Fatal("the provider did not start a debug session")
+	}
+	if session.adapter.Declaration.ID != named.Declaration.ID {
 		t.Fatalf("session = %+v, want adapter %q", session, named.Declaration.ID)
 	}
 	launch := p.debug.pendingRemote.launchTarget
