@@ -429,14 +429,27 @@ macOS app bundle 和 Windows 安装目录是发行基线。Sparkle 增量更新�
 
 ### 工作树缓存复用
 
-每个 Git worktree 有自己的 `.artifacts`，新工作树第一次编译 Core 要从零开始。仓库不提供复制脚本；在新工作树编译前，先按下面的规则判断能不能从已有工作树复制缓存，能复制就复制。
+编译缓存分两类，做法相反：用户目录下的全局缓存，所有工作树共用同一份；每个工作树自己的 `.artifacts`，只能复制，不得共用。仓库不提供复制脚本，新工作树编译前按下面两节处理。
 
-- 全局缓存已经自动共享：Go 的模块缓存和构建缓存、`~/.cargo/registry` 都在用户目录，不要把它们挪进 `.artifacts`，也不需要复制。
-- 只复制，不共享。在 macOS 用 APFS 克隆复制（`cp -cR <源工作树>/.artifacts/desktop <目标工作树>/.artifacts/`），不要用符号链接、硬链接或让两个工作树指向同一个目录；源工作树正在编译时不要复制。
-- 只复制来源版本一致的内容：源工作树和目标工作树的 `PINNED_CORE_REVISION`（`scripts/desktop/build-desktop-core.sh`）、`desktop/go.mod` 里固定的 Viva 版本、平台、架构和工具链都要相同。不一致时不要复制，直接在目标工作树编译。
+#### 全局缓存：所有工作树共用
+
+- 所有工作树必须共用用户目录下的 Go 构建缓存（`go env GOCACHE`）、Go 模块缓存（`go env GOMODCACHE`）和 Cargo 的 `~/.cargo/registry`。
+- 不得为某个工作树或某条命令另设 `GOCACHE`、`GOMODCACHE`、`GOPATH` 或 `CARGO_HOME`，不得把它们指向 `.artifacts`、系统临时目录或其他私有目录，也不得用复制代替共用。沙盒不允许写这些目录时，申请更高权限运行命令；拿不到权限就停下来告知用户。
+- 不得用 `go clean -cache`、`go clean -modcache` 或删除这些目录来处理构建问题，它们属于所有工作树。Core 静态库变化后 Go 重编哪些包，由 `desktop-go.sh` 写进 cgo 参数的摘要决定，不需要清缓存。
+- 新工作树第一次 Go 编译会重编 `desktop/` 下的包和所有 cgo 包（例如标准库的 `runtime/cgo`、Viva 的 macOS 平台层），其余标准库包和第三方依赖照常命中，模块不会重新下载。这是预期结果，不要为此改缓存位置或复制缓存。
+
+#### 工作树的 `.artifacts`：只复制，不共用
+
+每个 Git worktree 有自己的 `.artifacts`，新工作树第一次编译 Core 要从零开始。能复制时，必须先从已有工作树复制 `.artifacts/desktop`，再编译。
+
+- 前提：源工作树和目标工作树的 `PINNED_CORE_REVISION`（`scripts/desktop/build-desktop-core.sh`）、`desktop/go.mod` 里固定的 Viva 版本、平台、架构和工具链都相同，两边都不用 `LITHE_CORE_RUST_DIR` 指向本地 Core 检出，源工作树没有在编译。任何一条不满足，就不复制，直接在目标工作树编译。
+- 在 macOS 用 APFS 克隆复制：`cp -cR <源工作树>/.artifacts/desktop <目标工作树>/.artifacts/`。不得用符号链接、硬链接或让两个工作树指向同一个目录。
 - 复制后照常运行构建脚本（例如 `scripts/desktop/build-desktop-core.sh`、`scripts/desktop/desktop-go.sh`），由脚本自己的身份检查决定重编什么：Core 构建发现 `lithe-core-built-from-*.txt` 记录的源码目录不同，只重编 Core 自己的 crate，已编译的第三方依赖继续可用。结果异常时删掉复制来的目录重新编译，不要手工修补。
 - 不得复制运行时状态、用户数据、日志、插件安装和插件状态目录、LSP workspace 状态、测试报告和截图；`.artifacts/platform-feature-matrix/` 等报告由各自的脚本在本工作树重新生成。
-- 新增或修改下载、解压、生成或缓存资源时，在 `docs/ci-builds.md`“独立工作树的本地编译”一节写清路径、归属、生命周期，以及能否跨工作树复制、复制的前提。
+
+#### 新增缓存资源
+
+新增或修改下载、解压、生成或缓存资源时，在 `docs/ci-builds.md`“独立工作树的本地编译”一节写清路径、归属、生命周期，属于全局共用还是工作树私有，以及能否跨工作树复制、复制的前提。
 
 决策原因见 `.agents/notes/implemented/process/2026-11-16-worktree-cache-reuse-without-script.md`。
 
