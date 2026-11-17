@@ -18466,7 +18466,7 @@
     },
     {
       "id": "desktop.title.hiddenRunConfigurations",
-      "description": "Desktop title bar: how many saved run configurations the run configuration menu leaves out because no build plugin starts them, such as entries an earlier version saved",
+      "description": "Desktop title bar: a short disabled line of the run configuration menu saying how many saved run configurations it leaves out because no build plugin starts them, such as entries an earlier version saved; Edit Configuration explains it in full",
       "platforms": [
         "desktop"
       ],

@@ -11252,7 +11252,7 @@
     "desktop.plugins.commandInstallError": "无法安装：{reason}",
     "desktop.title.configurationNotStartable": "无法启动 {name}：没有构建插件负责运行它。",
     "desktop.title.currentFileNotRunnable": "当前文件不能单独运行。请在运行配置菜单里选择一个项目运行配置。",
-    "desktop.title.hiddenRunConfigurations": "已隐藏 {count} 条保存的运行配置：没有构建插件负责运行它们，例如旧版 Lithe 保存在 .lithe/run 中的配置。",
+    "desktop.title.hiddenRunConfigurations": "已隐藏 {count} 条无法运行的已保存配置",
     "desktop.title.nothingToEdit": "这个项目没有可编辑的运行配置。运行配置由构建插件根据项目模型生成，当前启用的构建插件没有为这个项目声明可运行的入口。",
     "desktop.title.nothingToEditHidden": "这个项目没有可编辑的运行配置。运行配置由构建插件根据项目模型生成，当前启用的构建插件没有为这个项目声明可运行的入口。另有 {count} 条保存的运行配置没有构建插件负责运行，已隐藏，例如旧版 Lithe 保存在 .lithe/run 中的配置。",
     "desktop.title.noRunConfigurations": "没有运行配置",
