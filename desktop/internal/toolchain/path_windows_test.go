@@ -79,12 +79,10 @@ func TestToolchainCandidatesUseNativeShellPathsInUserProfiles(t *testing.T) {
 				t.Setenv(nativeToolchainHelper, "1")
 				t.Setenv("HOME", profile)
 				t.Setenv("USERPROFILE", profile)
-				for _, variable := range []string{"JAVA_HOME", "LITHE_TEST_VM_HOME"} {
-					// Setenv registers restoration; Unsetenv tests genuine absence.
-					t.Setenv(variable, "")
-					if err := os.Unsetenv(variable); err != nil {
-						t.Fatal(err)
-					}
+				// Setenv registers restoration; Unsetenv tests genuine absence.
+				t.Setenv("LITHE_TEST_VM_HOME", "")
+				if err := os.Unsetenv("LITHE_TEST_VM_HOME"); err != nil {
+					t.Fatal(err)
 				}
 				if source == "PATH" {
 					t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))

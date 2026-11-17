@@ -59,11 +59,6 @@ func TestBuildModelLoadsFromPathOnlyBatchToolInUserProfiles(t *testing.T) {
 			t.Setenv("LITHE_TEST_MODEL_HELPER", helper)
 			t.Setenv("HOME", profile)
 			t.Setenv("USERPROFILE", profile)
-			t.Setenv("JAVA_HOME", "")
-			// Preserve the old value for cleanup, but leave the variable absent.
-			if err := os.Unsetenv("JAVA_HOME"); err != nil {
-				t.Fatal(err)
-			}
 			t.Setenv("PATHEXT", ".COM;.EXE;.BAT;.CMD")
 			t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
 			h, plugins, p := buildCommandHarnessAt(t, workspace)
