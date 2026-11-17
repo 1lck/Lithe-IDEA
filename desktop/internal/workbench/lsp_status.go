@@ -81,8 +81,9 @@ type lspLogState struct {
 	// shown is the server the last paint of the tab showed and seen how many lines it had
 	// added by then: a new line keeps the list at its end unless the user scrolled away
 	// from it, and another server starts its list afresh at its end.
-	shown *pluginServer
-	seen  uint64
+	shown       *pluginServer
+	shownFailed *failedPluginServer
+	seen        uint64
 	// menu says the status bar item's menu is open.
 	menu bool
 }
@@ -169,17 +170,40 @@ func (a *App) lspStatusServer() *pluginServer {
 	return server
 }
 
+// lspStatusFailedServer returns the failed language server for the selected
+// document (or for the LSP Logs tab when it is selected), if any.
+func (a *App) lspStatusFailedServer() *failedPluginServer {
+	p := a.project
+	if p == nil {
+		return nil
+	}
+	if d := p.selectedDocument(p.docs.group); d != nil && d.languageID != "" {
+		a.pluginServerMu.Lock()
+		failed := a.pluginServerFailed[d.languageID]
+		a.pluginServerMu.Unlock()
+		if failed != nil && failed.project == p {
+			return failed
+		}
+	}
+	if p.selectedLSPLog(p.docs.group) {
+		return lspFailedLogServer(a.lspFailedServers(), a.editor.lsp.plugin)
+	}
+	return nil
+}
+
 // lspStatusText is the status bar's reading for the server of lspStatusServer: its state, or
 // the problems the servers reported. "" means no server serves the document.
 func (a *App) lspStatusText() string {
 	if total := a.pluginProblemCount(); total > 0 {
 		return a.text.Status.Problems(total)
 	}
-	server := a.lspStatusServer()
-	if server == nil {
-		return ""
+	if server := a.lspStatusServer(); server != nil {
+		return a.lspPhaseText(server)
 	}
-	return a.lspPhaseText(server)
+	if failed := a.lspStatusFailedServer(); failed != nil {
+		return i18n.Shared(a.language(), "desktop.status.lspFailed")
+	}
+	return ""
 }
 
 // lspPhase is what a server is doing, as the status bar and its menu say it.
@@ -238,6 +262,9 @@ func lspPhaseIcon(server *pluginServer) gfx.Icon {
 func (a *App) lspStatusColor() gfx.Color {
 	server := a.lspStatusServer()
 	if server == nil {
+		if a.lspStatusFailedServer() != nil {
+			return a.theme.Danger
+		}
 		return a.colors.Subtle
 	}
 	switch server.phase() {
@@ -263,6 +290,47 @@ func (a *App) lspServers() []*pluginServer {
 	}
 	sort.Slice(servers, func(i, j int) bool { return servers[i].session.PluginID < servers[j].session.PluginID })
 	return servers
+}
+
+// lspFailedServers lists the failed language servers in the open project that
+// do not currently have a running server, deduplicated by display ID.
+func (a *App) lspFailedServers() []*failedPluginServer {
+	p := a.project
+	if p == nil {
+		return nil
+	}
+	a.pluginServerMu.Lock()
+	defer a.pluginServerMu.Unlock()
+	seen := make(map[string]bool)
+	var failed []*failedPluginServer
+	for _, entry := range a.pluginServerFailed {
+		if entry == nil || entry.project != p {
+			continue
+		}
+		if entry.pluginID != "" && a.pluginServers[entry.pluginID] != nil {
+			continue
+		}
+		id := entry.displayID()
+		if seen[id] {
+			continue
+		}
+		seen[id] = true
+		failed = append(failed, entry)
+	}
+	sort.Slice(failed, func(i, j int) bool { return failed[i].displayID() < failed[j].displayID() })
+	return failed
+}
+
+func lspFailedLogServer(servers []*failedPluginServer, plugin string) *failedPluginServer {
+	for _, server := range servers {
+		if server.displayID() == plugin {
+			return server
+		}
+	}
+	if len(servers) > 0 {
+		return servers[0]
+	}
+	return nil
 }
 
 // lspLogServer is the server of servers the LSP Logs tab shows: the one whose plugin is
@@ -296,11 +364,13 @@ func (a *App) lspStatusMenu(c ui.C, anchor ui.Box) {
 	language := a.language()
 	viewLogs := i18n.Shared(language, "native.inline.viewLogs")
 	servers := a.lspServers()
+	failed := a.lspFailedServers()
+	failedText := i18n.Shared(language, "desktop.status.lspFailed")
 	ui.Menu(c, anchor, &v.menu, func(menu *ui.MenuItems) {
 		menu.Above()
 		menu.WidthRange(240, 380)
 		menu.Label(i18n.Shared(language, "native.languageServices"))
-		if len(servers) == 0 {
+		if len(servers) == 0 && len(failed) == 0 {
 			menu.Item(i18n.Shared(language, "native.noRegisteredLanguageServers")).Disabled(true)
 		}
 		for _, server := range servers {
@@ -327,12 +397,37 @@ func (a *App) lspStatusMenu(c ui.C, anchor ui.Box) {
 				}
 			}).Icon(lspPhaseIcon(server)).Description(description)
 		}
-		if len(servers) > 0 {
+		for _, entry := range failed {
+			id := entry.displayID()
+			langID := entry.languageID
+			description := failedText
+			if entry.version != "" {
+				description += " · " + entry.version
+			}
+			menu.Sub(id, func(sub *ui.MenuItems) {
+				if entry.message != "" {
+					sub.Label(entry.message)
+					sub.Separator()
+				}
+				if sub.Item(viewLogs).Icon(icons.FileText).Clicked() {
+					c.After(func() { a.showLSPLog(p, id) })
+				}
+				if sub.Item(i18n.Shared(language, "desktop.lsp.restartServer")).Icon(icons.RefreshCw).Clicked() {
+					c.After(func() {
+						a.performed("lsp.server.restart", surfaceMenu)
+						a.retryFailedLSPServer(langID)
+					})
+				}
+			}).Icon(icons.CircleX).Description(description)
+		}
+		if len(servers) > 0 || len(failed) > 0 {
 			menu.Separator()
 			if menu.Item(viewLogs).Icon(icons.FileText).Clicked() {
 				plugin := ""
 				if server := a.lspStatusServer(); server != nil {
 					plugin = server.session.PluginID
+				} else if entry := a.lspStatusFailedServer(); entry != nil {
+					plugin = entry.displayID()
 				}
 				c.After(func() { a.showLSPLog(p, plugin) })
 			}
@@ -342,15 +437,20 @@ func (a *App) lspStatusMenu(c ui.C, anchor ui.Box) {
 					for _, server := range servers {
 						a.restartLSPServer(server)
 					}
-				})
-			}
-			if menu.Item(i18n.Shared(language, "native.stopAllServers")).Icon(icons.Square).Clicked() {
-				c.After(func() {
-					a.performed("lsp.servers.stopAll", surfaceMenu)
-					for _, server := range servers {
-						a.stopPluginServer(server.session.PluginID)
+					for _, entry := range failed {
+						a.retryFailedLSPServer(entry.languageID)
 					}
 				})
+			}
+			if len(servers) > 0 {
+				if menu.Item(i18n.Shared(language, "native.stopAllServers")).Icon(icons.Square).Clicked() {
+					c.After(func() {
+						a.performed("lsp.servers.stopAll", surfaceMenu)
+						for _, server := range servers {
+							a.stopPluginServer(server.session.PluginID)
+						}
+					})
+				}
 			}
 		}
 		menu.Separator()
@@ -417,7 +517,7 @@ func (a *App) closeLSPLog(p *project) {
 	if !a.reduceTerminals(p, p.terms.bench, core.CloseEditor(group, lspLogMember, emptyPolicy(group), core.SelectAdjacent)) {
 		return
 	}
-	a.editor.lsp.shown, a.editor.lsp.seen = nil, 0
+	a.editor.lsp.shown, a.editor.lsp.shownFailed, a.editor.lsp.seen = nil, nil, 0
 	a.focusSelected(p, group)
 }
 
@@ -433,38 +533,65 @@ func (a *App) lspLogView(c ui.C) {
 	v := &a.editor.lsp
 	language := a.language()
 	servers := a.lspServers()
-	shown := lspLogServer(servers, v.plugin)
-	if shown != nil {
-		v.plugin = shown.session.PluginID
+	failed := a.lspFailedServers()
+	var shown *pluginServer
+	var shownFailed *failedPluginServer
+	for _, entry := range failed {
+		if entry.displayID() == v.plugin {
+			shownFailed = entry
+			break
+		}
+	}
+	if shownFailed == nil {
+		shown = lspLogServer(servers, v.plugin)
+		if shown != nil {
+			v.plugin = shown.session.PluginID
+		} else if len(failed) > 0 {
+			shownFailed = failed[0]
+			v.plugin = shownFailed.displayID()
+		}
 	}
 	ui.Column(c.Key("lsp-log")).Fill().Background(a.colors.Panel).Children(func() {
-		if shown == nil {
-			v.shown, v.seen = nil, 0
+		if shown == nil && shownFailed == nil {
+			v.shown, v.shownFailed, v.seen = nil, nil, 0
 			a.lspLogMessage(c, i18n.Shared(language, "desktop.lsp.noServers"))
 			return
 		}
-		a.lspLogBar(c, servers, shown)
-		ui.Row(c).FillWidth().Height(1).Shrink(0).Background(a.colors.Line)
-		measureLogLines(c.Canvas(), shown.logs)
-		lines := filterLogLines(shown.logs, v.filter)
-		if v.shown != shown {
-			v.shown, v.seen, v.list = shown, 0, ui.ListState{}
+		var rawLogs []lspLogLine
+		var logsAdded uint64
+		if shown != nil {
+			a.lspLogBar(c, servers, failed, shown, nil)
+			rawLogs = shown.logs
+			logsAdded = shown.logsAdded
+			if v.shown != shown || v.shownFailed != nil {
+				v.shown, v.shownFailed, v.seen, v.list = shown, nil, 0, ui.ListState{}
+			}
+		} else {
+			a.lspLogBar(c, servers, failed, nil, shownFailed)
+			rawLogs = shownFailed.logs
+			logsAdded = shownFailed.logsAdded
+			if v.shownFailed != shownFailed || v.shown != nil {
+				v.shown, v.shownFailed, v.seen, v.list = nil, shownFailed, 0, ui.ListState{}
+			}
 		}
+		ui.Row(c).FillWidth().Height(1).Shrink(0).Background(a.colors.Line)
+		measureLogLines(c.Canvas(), rawLogs)
+		lines := filterLogLines(rawLogs, v.filter)
 		if len(lines) == 0 {
 			// The list is not declared, so the lines that come next start it at its end.
 			v.seen, v.list = 0, ui.ListState{}
-			if len(shown.logs) > 0 && strings.TrimSpace(v.filter) != "" {
+			if len(rawLogs) > 0 && strings.TrimSpace(v.filter) != "" {
 				a.lspLogMessage(c, i18n.Shared(language, "desktop.lsp.noFilteredLog"))
 			} else {
 				a.lspLogMessage(c, i18n.Shared(language, "desktop.lsp.noLog"))
 			}
 			return
 		}
-		if v.seen != shown.logsAdded {
+		if v.seen != logsAdded {
 			if v.seen == 0 || v.list.AtEnd() {
 				v.list.ScrollToEnd()
 			}
-			v.seen = shown.logsAdded
+			v.seen = logsAdded
 		}
 		// Unwrapped, every row is as wide as the widest line, so the list scrolls sideways
 		// to the end of it; wrapped, the rows fit the tab.
@@ -528,20 +655,27 @@ func measureLogLines(canvas *gfx.Canvas, lines []lspLogLine) {
 // lspLogBar declares the bar over the log: the server whose log is shown, the filter, the
 // server's state, and the buttons that wrap long lines, clear the lines shown, stop the server
 // and restart it.
-func (a *App) lspLogBar(c ui.C, servers []*pluginServer, shown *pluginServer) {
+func (a *App) lspLogBar(c ui.C, servers []*pluginServer, failed []*failedPluginServer, shown *pluginServer, shownFailed *failedPluginServer) {
 	v := &a.editor.lsp
 	language := a.language()
 	ui.Row(c).FillWidth().Height(36).Shrink(0).PadX(10).Gap(8).Items(ui.Center).Children(func() {
-		ids := make([]string, len(servers))
-		for i, server := range servers {
-			ids[i] = server.session.PluginID
+		ids := make([]string, 0, len(servers)+len(failed))
+		for _, server := range servers {
+			ids = append(ids, server.session.PluginID)
+		}
+		for _, entry := range failed {
+			ids = append(ids, entry.displayID())
 		}
 		ui.Select(c.Key("lspServer"), &v.plugin, ids, func(id string) string { return id }).
 			Label(i18n.Shared(language, "native.languageServer")).Width(240).Height(26).Shrink(1).MinWidth(120)
 		ui.TextField(c.Key("lspFilter"), &v.filter,
 			i18n.Shared(language, "desktop.lsp.filterPlaceholder"), i18n.Shared(language, "desktop.lsp.filterPlaceholder")).
 			Height(26).Grow(1).MinWidth(120)
-		ui.Text(c, i18n.SharedFormat(language, "desktop.lsp.state", map[string]string{"state": shown.stateName()})).
+		stateText := "failed"
+		if shown != nil {
+			stateText = shown.stateName()
+		}
+		ui.Text(c, i18n.SharedFormat(language, "desktop.lsp.state", map[string]string{"state": stateText})).
 			FontSize(12).Color(a.colors.Subtle).Shrink(0)
 		wrap := ui.Button(c.Key("lspWrap"), i18n.Shared(language, "native.softWraps")).Icon(icons.WrapText).Ghost().Small()
 		if v.wrap {
@@ -556,21 +690,37 @@ func (a *App) lspLogBar(c ui.C, servers []*pluginServer, shown *pluginServer) {
 		}
 		if ui.Button(c.Key("lspClear"), i18n.Shared(language, "native.clearLogView")).Icon(icons.Eraser).Ghost().Small().Clicked() {
 			// Only the lines this tab shows go; the diagnostic log Core wrote keeps them.
-			c.After(func() { shown.logs = nil })
-		}
-		pluginID := shown.session.PluginID
-		if ui.Button(c.Key("lspStop"), i18n.Shared(language, "desktop.lsp.stopServer")).Icon(icons.Square).Ghost().Small().Clicked() {
 			c.After(func() {
-				a.performed("lsp.server.stop", surfaceButton)
-				a.stopPluginServer(pluginID)
+				if shown != nil {
+					shown.logs = nil
+				} else if shownFailed != nil {
+					shownFailed.logs = nil
+				}
 			})
 		}
-		if ui.Button(c.Key("lspRestart"), i18n.Shared(language, "desktop.lsp.restartServer")).Icon(icons.RefreshCw).Ghost().Small().Clicked() {
-			server := shown
-			c.After(func() {
-				a.performed("lsp.server.restart", surfaceButton)
-				a.restartLSPServer(server)
-			})
+		if shown != nil {
+			pluginID := shown.session.PluginID
+			if ui.Button(c.Key("lspStop"), i18n.Shared(language, "desktop.lsp.stopServer")).Icon(icons.Square).Ghost().Small().Clicked() {
+				c.After(func() {
+					a.performed("lsp.server.stop", surfaceButton)
+					a.stopPluginServer(pluginID)
+				})
+			}
+			if ui.Button(c.Key("lspRestart"), i18n.Shared(language, "desktop.lsp.restartServer")).Icon(icons.RefreshCw).Ghost().Small().Clicked() {
+				server := shown
+				c.After(func() {
+					a.performed("lsp.server.restart", surfaceButton)
+					a.restartLSPServer(server)
+				})
+			}
+		} else if shownFailed != nil {
+			langID := shownFailed.languageID
+			if ui.Button(c.Key("lspRestart"), i18n.Shared(language, "desktop.lsp.restartServer")).Icon(icons.RefreshCw).Ghost().Small().Clicked() {
+				c.After(func() {
+					a.performed("lsp.server.restart", surfaceButton)
+					a.retryFailedLSPServer(langID)
+				})
+			}
 		}
 	})
 }

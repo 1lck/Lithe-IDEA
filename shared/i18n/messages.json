@@ -61843,7 +61843,8 @@
       "id": "native.languageServerFailedToStart",
       "description": "Native UI: Language server failed to start.",
       "platforms": [
-        "macos"
+        "macos",
+        "desktop"
       ],
       "macos": {
         "key": "Language server failed to start.",
@@ -61854,7 +61855,8 @@
       "id": "native.languageServerFailedToStart.variant2",
       "description": "Native UI: Language server failed to start: %@",
       "platforms": [
-        "macos"
+        "macos",
+        "desktop"
       ],
       "macos": {
         "key": "Language server failed to start: %@",

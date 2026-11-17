@@ -645,6 +645,12 @@ type App struct {
 	// a start was in flight, so the finished start is disposed instead of
 	// registering a server the plugin no longer owns.
 	pluginServerSuppressed map[string]bool
+	// pluginServerFailed keeps the latest failed language server per language in
+	// the open project so the status bar and menu show the failure and allow retry.
+	pluginServerFailed map[string]*failedPluginServer
+	// pluginServerNotifiedErrors tracks the last error message notified per
+	// language in the current project so repeated opens do not spam duplicate toasts.
+	pluginServerNotifiedErrors map[string]string
 	// pluginDiagnostics holds what each running language server published for
 	// the files of the open project, keyed by plugin so stopping one server
 	// withdraws only its own diagnostics.

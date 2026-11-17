@@ -1,6 +1,7 @@
 package workbench
 
 import (
+	"errors"
 	"strconv"
 	"strings"
 	"testing"
@@ -397,5 +398,42 @@ func TestLSPLogScrollsSidewaysOrWrapsLongLines(t *testing.T) {
 	}
 	if list.RowHeightAt(last-1) > lspLogRow+4 {
 		t.Fatalf("the wrapped short line is %v high", list.RowHeightAt(last-1))
+	}
+}
+
+func TestLSPStatusAndMenuShowFailedServerAndLog(t *testing.T) {
+	f := newSemanticFixture(t)
+	a := f.h.app
+	lang := a.language()
+	plugin := f.server.session.PluginID
+
+	a.pluginServerExited(plugin, f.server, errors.New("toolchain too old"))
+	f.h.settle()
+
+	if got, want := a.lspStatusText(), i18n.Shared(lang, "desktop.status.lspFailed"); got != want {
+		t.Fatalf("lspStatusText() = %q, want %q", got, want)
+	}
+	if a.lspStatusColor() != a.theme.Danger {
+		t.Fatal("the dot of an exited failed server is not the danger color")
+	}
+
+	f.h.click(center(f.h.button(itemLSP)))
+	f.h.settle()
+	if f.h.shows(i18n.Shared(lang, "native.noRegisteredLanguageServers")) {
+		t.Fatal("failed server was hidden behind noRegisteredLanguageServers")
+	}
+	serverRow := f.h.pageHit(plugin).Bounds
+	if serverRow.Width <= 0 {
+		t.Fatalf("the menu does not list failed server %q", plugin)
+	}
+	f.h.click(center(serverRow))
+	f.h.settle()
+	if !f.h.shows("toolchain too old") || !f.h.shows(i18n.Shared(lang, "desktop.lsp.restartServer")) {
+		t.Fatal("failed server submenu does not show failure reason and restart action")
+	}
+	f.h.clickNamed(i18n.Shared(lang, "native.inline.viewLogs"))
+	f.h.settle()
+	if !f.p.selectedLSPLog(f.p.docs.group) || !f.h.shows("toolchain too old") {
+		t.Fatal("opening logs for failed server did not show its error line")
 	}
 }
