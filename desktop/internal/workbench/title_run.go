@@ -243,6 +243,12 @@ func (a *App) decideTitleAction(p *project, action titleAction, trigger string) 
 			a.notifyInfo(i18n.Shared(a.language(), "desktop.title.runBusy"))
 		}
 	case "debug":
+		// A run that names a public debug type debugs as a service the registered adapter of
+		// that type attaches to; one that names its own plugin's adapter debugs a prepared program.
+		if run, ok := buildRunDeclaration(p.build.instances[index].System, reference.Run); ok && run.DebugAdapter == "" && run.DebugConfigurationType != "" {
+			a.debugRunConfiguration(p, configuration.ID, run.DebugConfigurationType)
+			return
+		}
 		a.debugProviderTarget(p, index, reference.ProjectID, reference.TargetID, reference.Run)
 	case "notDebuggable":
 		a.notifyInfo(i18n.SharedFormat(a.language(), "desktop.title.notDebuggable", map[string]string{"name": configuration.Name}))
@@ -262,7 +268,7 @@ func (p *project) titleConfigurationFacts(index int, reference core.RunProviderR
 		return &core.TitleConfiguration{Kind: "modelNotLoaded", Failed: &failed}
 	}
 	run, ok := buildRunDeclaration(instance.System, reference.Run)
-	debuggable := ok && run.DebugAdapter != ""
+	debuggable := ok && run.Debuggable()
 	return &core.TitleConfiguration{Kind: "modelLoaded", Debuggable: &debuggable}
 }
 

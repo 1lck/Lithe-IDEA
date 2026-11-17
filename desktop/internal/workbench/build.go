@@ -35,6 +35,11 @@ const (
 	buildOutputBytes    = 4 << 20
 )
 
+// runPreparationTimeout bounds what precedes a run's process: planning, resolving its tools and
+// the provider's preparation. The process itself runs until it exits, the user stops it or the
+// project closes: a service runs for as long as the user works with it. Tests shorten it.
+var runPreparationTimeout = buildRequestTimeout
+
 // buildState is the Run tool window's state for one project. All fields are
 // read and written on the window thread; provider and process objects may be
 // used from background goroutines but their own operations are synchronized.
@@ -119,6 +124,10 @@ type buildOperation struct {
 	session *runEntry
 	// decoder decodes the execution's output on the goroutines that read it.
 	decoder *outputDecoder
+	// debug is the adapter and port of a service run started for registry connection
+	// debugging, nil for a plain run; debugSession is the session attached to it, once it is.
+	debug        *connectionDebug
+	debugSession *debugSession
 }
 
 // beginBuildOperation makes a new operation the window's current one and gives it the IDE
@@ -1393,8 +1402,10 @@ func (a *App) runBuildEntry(p *project, entryID string) {
 	op := a.beginBuildOperation(p, "run", entry.Name, "", restartWithInstance(instance.ID, func(a *App, p *project) {
 		a.runBuildEntry(p, entryID)
 	}))
-	a.background(p, buildRequestTimeout, func(ctx context.Context) func(*App) {
-		prepare, release := op.bind(ctx)
+	a.background(p, 0, func(ctx context.Context) func(*App) {
+		bounded, cancel := context.WithTimeout(ctx, runPreparationTimeout)
+		defer cancel()
+		prepare, release := op.bind(bounded)
 		defer release()
 		if err := a.runCommandTask(ctx, prepare, p, op, captured, plan, messages); err != nil {
 			return func(a *App) { a.finishBuildError(p, op, err) }
@@ -1407,6 +1418,24 @@ func (a *App) runBuildEntry(p *project, entryID string) {
 // declaration runID, under the project the target belongs to.
 func (a *App) runBuildTarget(p *project, targetID, runID string) {
 	instance := p.selectedBuildInstance()
+	if instance == nil {
+		return
+	}
+	run, ok := buildRunDeclaration(instance.System, runID)
+	if !ok {
+		a.operationRejected("build_run_target", "run_missing")
+		a.notifyError(a.text.Build.TargetMissing)
+		return
+	}
+	a.startBuildTarget(p, targetID, run, nil)
+}
+
+// startBuildTarget runs one target of the selected instance through run, a target the user
+// chose without a run configuration: an application run sends no launch options, as older
+// providers expect, and a service or task run the empty ones Core requires. debug, when set,
+// prepares the service suspended for its adapter.
+func (a *App) startBuildTarget(p *project, targetID string, run pluginservice.BuildRunDeclaration, debug *connectionDebug) {
+	instance := p.selectedBuildInstance()
 	if instance == nil || p.build.operation != nil {
 		return
 	}
@@ -1416,15 +1445,37 @@ func (a *App) runBuildTarget(p *project, targetID, runID string) {
 		a.notifyError(a.text.Build.TargetMissing)
 		return
 	}
+	runID := run.ID
 	op := a.beginBuildOperation(p, "run", target.Name, "", restartWithInstance(instance.ID, func(a *App, p *project) {
+		if debug != nil {
+			a.debugBuildTarget(p, targetID, runID)
+			return
+		}
 		a.runBuildTarget(p, targetID, runID)
 	}))
-	a.runBuildTargetWith(p, op, instance, target.ProjectID, targetID, runID, nil)
+	var options *core.RunLaunchOptions
+	if (run.Execution != "" && run.Execution != "application") || debug != nil {
+		options = &core.RunLaunchOptions{Execution: run.Execution, RuntimeArguments: []string{}, Arguments: []string{}, Environment: map[string]string{}}
+	}
+	if debug != nil {
+		op.debug = debug
+		options.Debug = &debug.launch
+	}
+	a.runBuildTargetWith(p, op, instance, target.ProjectID, targetID, runID, options)
 }
 
 // debugBuildTarget debugs one target of the Build window's selected instance and project
-// through the provider's run declaration runID.
+// through the provider's run declaration runID: through the adapter of the run's own plugin
+// when it names one, otherwise as a service the registered adapter of its type attaches to.
 func (a *App) debugBuildTarget(p *project, targetID, runID string) {
+	instance := p.selectedBuildInstance()
+	if instance == nil {
+		return
+	}
+	if run, ok := buildRunDeclaration(instance.System, runID); ok && run.DebugAdapter == "" && run.DebugConfigurationType != "" {
+		a.debugServiceTarget(p, targetID, run)
+		return
+	}
 	a.debugProviderTarget(p, p.build.selected, p.build.projectID, targetID, runID)
 }
 
@@ -1599,8 +1650,10 @@ func (a *App) runBuildTargetWith(p *project, op *buildOperation, instance *build
 	captured := *instance
 	kernel := a.kernel
 	messages := a.text.Build
-	a.background(p, buildRequestTimeout, func(ctx context.Context) func(*App) {
-		prepare, release := op.bind(ctx)
+	a.background(p, 0, func(ctx context.Context) func(*App) {
+		bounded, cancel := context.WithTimeout(ctx, runPreparationTimeout)
+		defer cancel()
+		prepare, release := op.bind(bounded)
 		defer release()
 		request := core.BuildPlanRequest{
 			Root:          captured.Root,
@@ -1681,7 +1734,12 @@ func (a *App) runBuildTargetWith(p *project, op *buildOperation, instance *build
 			return func(a *App) { a.finishBuildError(p, op, err) }
 		}
 		a.post(func(a *App) { a.attachProcess(p, op, process) })
+		ended := make(chan struct{})
+		if op.debug != nil {
+			go a.attachServiceDebugger(ctx, p, op, *op.debug, ended)
+		}
 		err = process.Wait()
+		close(ended)
 		return func(a *App) { a.finishBuildRun(p, op, err) }
 	})
 }
@@ -1814,6 +1872,7 @@ func (a *App) finishBuildTask(p *project, op *buildOperation, result json.RawMes
 // finishBuildRun ends a host process with how it exited: a non-zero exit fails with its code,
 // and a process that could not be waited for or ended on a signal fails without one.
 func (a *App) finishBuildRun(p *project, op *buildOperation, err error) {
+	a.endServiceDebugSession(p, op)
 	var exit *exec.ExitError
 	switch {
 	case op.cancelled:

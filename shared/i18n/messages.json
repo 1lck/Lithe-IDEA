@@ -6822,6 +6822,54 @@
       ]
     },
     {
+      "id": "desktop.build.noConnectionDebugAdapter",
+      "description": "Debug pressed on a service run whose declared public debug type no enabled plugin's attach adapter answers to",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "type": "string"
+      }
+    },
+    {
+      "id": "desktop.build.ambiguousConnectionDebugAdapter",
+      "description": "Debug pressed on a service run whose declared public debug type several enabled attach adapters answer to; lists their display names",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "type": "string",
+        "adapters": "string"
+      }
+    },
+    {
+      "id": "desktop.build.connectionDebugAdapterGone",
+      "description": "The attach adapter selected for a service run was disabled or replaced before the service was ready; the run is stopped",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "name": "string"
+      }
+    },
+    {
+      "id": "desktop.build.debugPortTimeout",
+      "description": "A service run started for debugging never opened its debug port in time; the run is stopped",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "seconds": "string"
+      }
+    },
+    {
+      "id": "desktop.build.debugSessionRunning",
+      "description": "Debug pressed on a service run while the project already has a debug session; a project debugs one session at a time",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
       "id": "desktop.build.noOptions",
       "description": "Build options dialog message when the build system declares no options",
       "platforms": [

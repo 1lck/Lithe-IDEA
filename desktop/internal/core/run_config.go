@@ -124,13 +124,34 @@ type RunLaunchOptions struct {
 	Environment      map[string]string `json:"environment"`
 	Entrypoint       string            `json:"entrypoint,omitempty"`
 	WorkingDirectory string            `json:"workingDirectory,omitempty"`
+	// Debug asks for a service suspended until the selected adapter attaches
+	// (registry connection debugging); nil runs it without a debugger. Core
+	// resolves no debug choice from the saved layers: the host sets it per launch.
+	Debug *RunLaunchDebug `json:"debug,omitempty"`
+}
+
+// RunLaunchDebug is `launchOptions.debug`: the registry adapter the host selected
+// for the run's declared type, and the loopback endpoint the host owns, on which
+// the service waits for that adapter.
+type RunLaunchDebug struct {
+	// AdapterID is the selected adapter's qualified identity, `pluginID/adapterID`.
+	AdapterID         string             `json:"adapterID"`
+	ConfigurationType string             `json:"configurationType"`
+	Target            RunDebugConnection `json:"target"`
+}
+
+// RunDebugConnection is a debuggee endpoint: Kind "connection" on Host:Port.
+type RunDebugConnection struct {
+	Kind string `json:"kind"`
+	Host string `json:"host"`
+	Port int    `json:"port"`
 }
 
 // Customized says whether the options ask for anything a launch without them
 // would not do, so an application run with none keeps the version 4 request.
 func (o RunLaunchOptions) Customized() bool {
 	return (o.Execution != "" && o.Execution != "application") || len(o.RuntimeArguments) > 0 || len(o.Arguments) > 0 ||
-		len(o.Environment) > 0 || o.Entrypoint != "" || o.WorkingDirectory != ""
+		len(o.Environment) > 0 || o.Entrypoint != "" || o.WorkingDirectory != "" || o.Debug != nil
 }
 
 // RunProviderLaunchInputs is what `runConfig.providerLaunchInputs` resolves for

@@ -502,3 +502,38 @@ func TestSteppingAdaptersListsDeclaredDefaults(t *testing.T) {
 		t.Fatalf("adapters = %+v", adapters)
 	}
 }
+
+// A language server can register workspace/executeCommand after it is ready, as JDT LS does,
+// and Core refuses the command until then. The debug port is asked for only once the server
+// offers the feature, and a server that never offers it ends the wait with a reason.
+func TestHostedDebugWaitsForTheServerToOfferCommands(t *testing.T) {
+	h := newHarness(t, &testKernel{Client: core.NewClient()})
+	server := &pluginServer{features: map[string]bool{featureDocumentSymbols: true}}
+	done := make(chan error, 1)
+	go func() {
+		done <- h.app.waitPluginServerFeature(context.Background(), server, featureExecuteCommand, time.Minute)
+	}()
+	for range 4 {
+		h.settle()
+	}
+	select {
+	case err := <-done:
+		t.Fatalf("the wait ended before the server offered commands: %v", err)
+	default:
+	}
+	// Core's featuresChanged event after the server registered its commands.
+	h.app.post(func(*App) {
+		server.features = map[string]bool{featureDocumentSymbols: true, featureExecuteCommand: true}
+	})
+	if err := awaitValueWithin(t, h, 30*time.Second, done, "the wait after the registration"); err != nil {
+		t.Fatalf("the wait failed after the server offered commands: %v", err)
+	}
+
+	never := &pluginServer{}
+	go func() {
+		done <- h.app.waitPluginServerFeature(context.Background(), never, featureExecuteCommand, 200*time.Millisecond)
+	}()
+	if err := awaitValueWithin(t, h, 30*time.Second, done, "the bounded wait"); !errors.Is(err, errPluginServerFeatureMissing) {
+		t.Fatalf("the wait on a server without commands = %v, want errPluginServerFeatureMissing", err)
+	}
+}

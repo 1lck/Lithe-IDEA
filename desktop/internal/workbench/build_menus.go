@@ -57,9 +57,10 @@ func (a *App) buildRowMenu(c ui.C, row ui.Box, p *project, instance *buildInstan
 						a.showBuildConsole(p)
 					})
 				}
-				// The same target under the debugger, when the run names an adapter of its own
-				// plugin: the provider prepares the native debug program and that adapter starts it.
-				if run.DebugAdapter != "" && menu.Item(i18n.Shared(lang, "desktop.build.debugTarget")).Disabled(b.operation != nil || instance.modelLoading || p.debug.preparing).Clicked() {
+				// The same target under the debugger, when the run declares how: an adapter of its
+				// own plugin starts the program the provider prepares, or the registered adapter of
+				// its public type attaches to the service the provider starts.
+				if run.Debuggable() && menu.Item(i18n.Shared(lang, "desktop.build.debugTarget")).Disabled(b.operation != nil || instance.modelLoading || p.debug.preparing).Clicked() {
 					c.After(func() {
 						a.performed("build.target.debug", surfaceContextMenu)
 						choose()
