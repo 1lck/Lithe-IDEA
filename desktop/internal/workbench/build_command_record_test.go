@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"strings"
 	"testing"
 	"time"
 
@@ -300,5 +301,25 @@ func TestBuildCommandStage(t *testing.T) {
 	}
 	if launch.Error() != launch.cause.Error() || !errors.Is(launch, launch.cause) {
 		t.Fatalf("a start failure changed its text or cause: %q", launch.Error())
+	}
+}
+
+// Run and debug preparation carry the build executable the host resolves, as dependency and
+// test requests do, so a provider that builds before launching uses the user's tool; without
+// one the request goes out without the hint and the provider says what it misses.
+func TestBuildRunPreparationCarriesTheResolvedTool(t *testing.T) {
+	h, _, p := buildCommandHarness(t)
+	withoutTool := installBuildTool(t)
+	ctx := buildLoadContext(t, "action-61", pluginOperationWait)
+	var request core.BuildPlanRequest
+	h.app.addBuildToolHint(ctx, p, buildCommandInstance(".", true), &request)
+	if request.Tool == nil || !strings.HasPrefix(filepath.Base(request.Tool.Executable), "fixture-build") {
+		t.Fatalf("tool = %+v, want the fixture build tool", request.Tool)
+	}
+	t.Setenv("PATH", withoutTool)
+	request = core.BuildPlanRequest{}
+	h.app.addBuildToolHint(ctx, p, buildCommandInstance(".", true), &request)
+	if request.Tool != nil {
+		t.Fatalf("tool = %+v without a build tool on PATH", request.Tool)
 	}
 }

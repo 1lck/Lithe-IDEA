@@ -1123,6 +1123,22 @@ func (a *App) runCommandTask(ctx, prepare context.Context, p *project, op *build
 	return nil
 }
 
+// addBuildToolHint gives a provider's run or debug preparation the build executable the host
+// resolves for instance, as dependency and test requests already carry it, so a provider that
+// builds with the user's tool (a Maven wrapper, the configured executable) uses the same one.
+// The hint is optional in the contract: when nothing resolves, the request goes without it, the
+// provider reports what it misses, and the reason is logged here.
+func (a *App) addBuildToolHint(ctx context.Context, p *project, instance buildInstance, request *core.BuildPlanRequest) {
+	execution, err := a.resolveBuildExecutable(ctx, p, instance, a.text.Build)
+	if err != nil {
+		a.backgroundFailedIn(ctx, "build_run_tool", err)
+		return
+	}
+	if execution.Executable != "" {
+		request.Tool = &core.BuildTool{Executable: execution.Executable, Environment: execution.Environment}
+	}
+}
+
 // resolveBuildExecutable asks Core for the ordered candidates, checks them in
 // that order, and probes the declared minimum version. It never falls back to
 // a guessed tool name.
@@ -1464,6 +1480,7 @@ func (a *App) debugProviderTarget(p *project, index int, projectID, targetID, ru
 			return
 		}
 		a.background(p, buildRequestTimeout, func(ctx context.Context) func(*App) {
+			a.addBuildToolHint(ctx, p, captured, &request)
 			plan, err := kernel.PlanBuildDebug(ctx, captured.Manifest, captured.BuildSystemID, request)
 			if err != nil {
 				return fail(err)
@@ -1581,7 +1598,7 @@ func (a *App) runBuildTargetWith(p *project, op *buildOperation, instance *build
 	a.background(p, buildRequestTimeout, func(ctx context.Context) func(*App) {
 		prepare, release := op.bind(ctx)
 		defer release()
-		plan, err := kernel.PlanBuildRun(prepare, captured.Manifest, captured.BuildSystemID, core.BuildPlanRequest{
+		request := core.BuildPlanRequest{
 			Root:          captured.Root,
 			Options:       captured.Options,
 			WorkspaceRoot: p.root,
@@ -1589,7 +1606,9 @@ func (a *App) runBuildTargetWith(p *project, op *buildOperation, instance *build
 			Project:       &core.BuildSelection{Name: project.Name, Path: project.Path, Properties: project.Properties},
 			Target:        &core.BuildSelection{Name: target.Name, Path: target.Path, Tags: target.Tags, Properties: target.Properties},
 			LaunchOptions: options,
-		})
+		}
+		a.addBuildToolHint(prepare, p, captured, &request)
+		plan, err := kernel.PlanBuildRun(prepare, captured.Manifest, captured.BuildSystemID, request)
 		if err != nil {
 			return func(a *App) { a.finishBuildError(p, op, err) }
 		}
