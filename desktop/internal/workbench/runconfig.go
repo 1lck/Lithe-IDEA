@@ -85,7 +85,7 @@ func providerRuns(instances []buildInstance) ([]core.RunProviderRun, bool) {
 	return runs, loaded
 }
 
-// refreshRunConfigurations has Core detect the provider runs of the loaded models and
+// refreshRunConfigurations has Core generate the runs the loaded models declare and
 // resolve the configurations again. Nothing is written into the workspace.
 func (a *App) refreshRunConfigurations(p *project) {
 	if p == nil {
@@ -108,7 +108,7 @@ func (a *App) refreshRunConfigurations(p *project) {
 	root, kernel := p.root, a.kernel
 	a.background(p, buildRequestTimeout, func(ctx context.Context) func(*App) {
 		if snapshot != nil {
-			if _, err := kernel.GenerateRunConfigurations(ctx, root, "", snapshot); err != nil {
+			if _, err := kernel.GenerateRunConfigurations(ctx, root, snapshot); err != nil {
 				return func(a *App) { a.finishRunConfigurations(p, generation, core.RunConfigResolution{}, err) }
 			}
 		}

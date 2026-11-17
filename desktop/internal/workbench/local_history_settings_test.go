@@ -2,8 +2,10 @@ package workbench
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -66,24 +68,26 @@ func TestLocalHistorySettingsReachCore(t *testing.T) {
 	if preview, err = source.Preview(ctx, rules, "x.tmp"); err != nil || preview.Matched == nil || preview.Matched.Kind != "regex" || preview.Matched.Index != 2 {
 		t.Fatalf("x.tmp matched %+v, %v, want the third regular expression line", preview.Matched, err)
 	}
-	// Some built-in folders are hidden in the project tree too, which Core reports first; any
-	// other one is reported as the built-in rule that keeps it out.
-	builtIn := false
-	for _, pattern := range preview.BuiltInIgnorePatterns {
-		name, ok := strings.CutPrefix(pattern, "**/")
-		if !ok || !strings.HasSuffix(name, "/") {
-			continue
-		}
-		folder, err := source.Preview(ctx, core.HistoryIgnoreRules{}, name+"x.txt")
-		if err != nil || folder.Matched == nil {
-			t.Fatalf("%sx.txt matched %+v, %v, want it kept out", name, folder.Matched, err)
-		}
-		if folder.Matched.Kind == "pattern" && folder.Matched.Pattern == pattern {
-			builtIn = true
-		}
+	// The default rules are the folders hidden from the project tree, Core's own and those an
+	// enabled plugin declares, so a file in any of them is reported as hidden.
+	clearHiddenFolders(t)
+	if _, err := core.NewClient().ConfigureVisibility(ctx, []json.RawMessage{
+		hiddenFoldersManifest(t, "dev.lithe.test.hidden-folders", "fixture-hidden", "fixture-out"),
+	}); err != nil {
+		t.Fatal(err)
 	}
-	if !builtIn {
-		t.Fatalf("no built-in folder of %q is reported as its built-in rule", preview.BuiltInIgnorePatterns)
+	if preview, err = source.Preview(ctx, core.HistoryIgnoreRules{}, "src/x.txt"); err != nil || preview.Matched != nil {
+		t.Fatalf("src/x.txt matched %+v, %v, want it recorded", preview.Matched, err)
+	}
+	if !slices.Contains(preview.BuiltInIgnorePatterns, "**/.git/") || !slices.Contains(preview.BuiltInIgnorePatterns, "**/fixture-out/") {
+		t.Fatalf("default rules %q, want Core's own folders and the declared one", preview.BuiltInIgnorePatterns)
+	}
+	for _, pattern := range preview.BuiltInIgnorePatterns {
+		name := strings.TrimSuffix(strings.TrimPrefix(pattern, "**/"), "/")
+		folder, err := source.Preview(ctx, core.HistoryIgnoreRules{}, name+"/x.txt")
+		if err != nil || folder.Matched == nil || folder.Matched.Kind != "hidden" {
+			t.Fatalf("%s/x.txt matched %+v, %v, want it hidden", name, folder.Matched, err)
+		}
 	}
 	var refused *core.Error
 	if _, err = source.Preview(ctx, rules, "../outside.txt"); !errors.As(err, &refused) || refused.Code != core.CodeInvalidRequest {

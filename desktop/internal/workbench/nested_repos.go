@@ -57,6 +57,9 @@ type nestedState struct {
 	// logRepo is the ID of the nested repository the Git log walks; empty for the project's own
 	// repository (git_log_repo.go).
 	logRepo string
+	// chosen are the Core IDs of the repositories the Git log walks together, in Core's order,
+	// the first of them logRepo's; nil while it walks one (gitlog_multi.go).
+	chosen []string
 	// refGen counts the reference readings; references are the last ones by repository ID
 	// (nested_refs.go).
 	refGen     int
@@ -66,8 +69,10 @@ type nestedState struct {
 	slots      map[string]int
 	showColors bool
 	// folded are the repositories whose changes the Commit window hides under their header; a
-	// group shows unfolded until it is folded (nested_repos_view.go).
-	folded map[string]bool
+	// group shows unfolded until it is folded (nested_repos_view.go). listFolded hides every
+	// group under the line of the change list.
+	folded     map[string]bool
+	listFolded bool
 }
 
 // loadNestedRepos reads the repositories of the project folder, the status of each nested one and
@@ -398,23 +403,4 @@ func (a *App) stageWorkspace(p *project, plan core.WorkspaceStageAll) {
 		}
 		return func(a *App) { a.stagingDone(p, stage, err) }
 	})
-}
-
-// nestedCommitTarget is the commit of one nested repository: it commits the staged changes of
-// that repository alone, with the message the Commit tool window holds.
-func (a *App) nestedCommitTarget(p *project, repo nestedRepo) commitTarget {
-	return commitTarget{
-		state:  &p.commit,
-		root:   repo.root,
-		repoID: repo.id,
-		written: func(a *App) {
-			a.reloadGit(p)
-		},
-	}
-}
-
-// canCommitNested reports that the commit button of repo may start a commit of its staged changes.
-func (p *project) canCommitNested(repo nestedRepo) bool {
-	return !p.lists.inUse() && p.listsReady() && p.commit.idle() && !p.commit.busy &&
-		countStaged(repo.changes) > 0 && p.commit.message() != ""
 }

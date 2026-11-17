@@ -311,11 +311,12 @@ func (a *App) uninstallPlugin(id string) {
 	})
 }
 
-// reloadPluginLanguages registers the languages and tool windows of the enabled plugins.
+// reloadPluginLanguages registers the languages and tool windows of the enabled plugins, and
+// hands Core the folders they hide.
 //
-// The registry replaces its plugin languages whole, and the catalog its plugin tool
-// windows, so a plugin that was disabled or removed loses its highlighting and its
-// windows in the same pass that registers a new one.
+// The registry replaces its plugin languages whole, the catalog its plugin tool windows and
+// Core its plugin-declared folders, so a plugin that was disabled or removed loses its
+// highlighting, its windows and its hidden folders in the same pass that registers a new one.
 func (a *App) reloadPluginLanguages() {
 	if a.plugins == nil {
 		return
@@ -331,7 +332,9 @@ func (a *App) reloadPluginLanguages() {
 		windows, windowsErr := a.plugins.ToolWindows(ctx, entries)
 		commands, commandsErr := a.plugins.ToolCommands(ctx, entries)
 		vcsPlugins, vcsErr := a.plugins.VcsPlugins(ctx, entries)
+		hidden := a.configureVisibility(ctx, entries, vcsPlugins)
 		return func(a *App) {
+			a.applyHiddenDirectories(hidden)
 			if commandsErr != nil {
 				a.backgroundFailed("plugin_tool_commands", commandsErr)
 			}

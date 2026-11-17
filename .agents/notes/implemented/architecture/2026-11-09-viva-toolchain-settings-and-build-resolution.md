@@ -53,12 +53,27 @@ Viva 桌面端现在把插件声明的工具链接进了设置和构建执行：
 
 `desktop/internal/workbench/toolchains.go` 把启用插件清单交给 Core，Build 的 `toolchain` 候选按 Core 顺序解析；解析结果直接进入进程启动，导出变量只补消费者未显式设置的值，PATH 前置来自声明的 `pathPrepend`。Provider Run 的 `launch.executable.kind == "toolchain"` 走同一入口。设置页的检测值从不用作启动许可。
 
+### Windows 回归测试覆盖用户目录和 shell 来源
+
+Windows 的工具发现和构建模型测试要保留两条真实本机边界：从 PATH（命令搜索目录）或环境变量找到可执行文件并读取版本，以及通过 `.cmd` 批处理脚本启动工具并解码模型。只注入查找结果或版本输出，无法检查 Windows 的路径和进程启动规则。
+
+`path_windows_test.go` 把合成运行时放在含空格的安装目录，分别通过 PATH 和合成工具自己的环境变量提供；`HOME`、`USERPROFILE` 指向含空格或中文的临时用户目录，不依赖本机装了什么工具。查找、版本进程和 Core 候选规则均走生产入口，只把全局配置根放进测试私有目录。
+
+`build_command_windows_test.go` 用现有工作台测试驱动打开同类临时项目，从 PATH 找到 `.cmd`，让脚本将带空格和中文的参数传给合成构建工具，再通过生产命令模型入口解码结果并检查终态记录。脚本从 Unicode 环境读取工具路径，不依赖机器当前的控制台代码页。
+
+正确做法是用合成清单和测试可执行文件走这些边界。不要读取某个真实插件的包，也不要因本机没装某个工具就跳过用例。
+
+临时程序只链接或复制当前测试可执行文件，始终只读；进程由有截止时间的生产启动器回收，临时目录由 Go 测试清理。工作台驱动沿用项目关闭和后台任务清理。测试不改真实用户配置，也不创建可跨工作树复用的资源。现有 Windows CI 的 `check.sh` 已运行这些包，无需增加第二个 Windows 构建作业。
+
+打包平台的通用覆盖诊断由 Core 提供，契约和检查命令只在 [Core 工具链契约](https://github.com/Lithe-IDEA/Lithe-core-rust/blob/main/shared/plugins/contract/v1/toolchains/README.md) 维护；宿主不复制校验逻辑，也不为某个插件补专属扫描规则。这项静态诊断不替代插件仓库自己的真实工具验收。
+
 ## 考虑过的备选方案
 
 - **在 Go 里扫描目录并维护 Maven/JDK 优先规则。** 能最快让界面有内容，但会重造 Core 已校验的四层选择和工具知识，第二个工具就要再改宿主，因此不采用。
 - **只做设置页，不接 Build。** 页面可展示但用户仍无法使用所选路径；无法验证“探测结果与启动目标一致”，因此先接执行。
 - **声明 `toolchainProviders` 后再补查询。** 会让市场允许带后端的工具链插件安装，但本客户端无法发 `toolchains/query`，首次使用才失败；所以本批不声明该能力。
 - **用文件监听做实时刷新。** 会新增常驻监听和失效规则；本批在打开页面和显式 Reload 时读取，避免未验收的 watcher 生命周期。
+- **在宿主 CI 下载真实插件和工具做 Windows 回归。** 会引入具体插件依赖、网络与安装布局，不能稳定控制失败形态；宿主只测试合成工具的通用流程，真实工具在插件仓库验收。
 
 ## 后果
 
@@ -83,12 +98,15 @@ node scripts/i18n/generate-i18n.mjs --check
 
 `settings_toolchains_test.go` 的三个行为回归在修复前失败：切换项目写入错误来源、关闭项目误报成功、保存中切换后的回读来源错误；修复后与设置页冲突草稿保留用例通过逐项计时。
 
+Windows 运行 `./.agents/skills/write-stable-tests/scripts/test-stability-windows.ps1 -Scope DesktopGo -GoPackages ./internal/toolchain,./internal/workbench -GoTestPattern '^(TestToolchainCandidatesUseNativeShellPathsInUserProfiles|TestBuildModelLoadsFromPathOnlyBatchToolInUserProfiles)$'`：检查 PATH／环境变量两种来源、空格／中文两种用户目录、批处理模型和逐项报告。移除 `commandHomes` 传递或恢复普通 Windows 参数引用时，新用例必须失败；恢复修复后通过。此证据只覆盖合成工作流，功能矩阵的完整原生验收状态保持独立。
+
 ## 适用范围
 
 - `desktop/internal/core/toolchain.go`
 - `desktop/internal/toolchain/`
 - `desktop/internal/settingswindow/toolchains_view.go`
 - `desktop/internal/workbench/toolchains.go`、`settings_toolchains.go`、`build.go`
+- `desktop/internal/toolchain/path_windows_test.go`、`desktop/internal/workbench/build_command_windows_test.go`
 - `desktop/internal/pluginservice/toolchains.go`
 - `shared/platform-feature-matrix/features/plugin-injected-toolchains.json`
 

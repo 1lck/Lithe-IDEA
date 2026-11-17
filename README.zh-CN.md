@@ -175,16 +175,25 @@ xattr -dr com.apple.quarantine "/Applications/Lithe Desktop.app"
 
 当前分支的 Viva 客户端仍在迁移中；已发布的稳定版和 AutoBuild 可能来自旧客户端。请先查看 [Releases 中的版本说明](https://github.com/1lck/Lithe-IDEA/releases)，确认客户端架构、平台和插件兼容性。Homebrew 跟随已发布版本，不代表当前 `preview` 源码；需要运行当前源码时，使用下方开发入口。
 
-- **macOS 13+：**前往 [GitHub Releases](https://github.com/1lck/Lithe-IDEA/releases/latest) 下载 `.dmg`。M 系列芯片选择 `arm64`，Intel 芯片选择 `x86_64`。
+- **macOS 13+：**前往 [GitHub Releases](https://github.com/1lck/Lithe-IDEA/releases/latest) 下载 `.dmg`。M 系列芯片选择 `arm64`，Intel 芯片选择 `amd64`。
 - **Windows x64：**前往 [GitHub Releases](https://github.com/1lck/Lithe-IDEA/releases/latest) 下载 Windows `.exe` 安装包。
 
 macOS 推荐使用 Homebrew 安装和更新：
 
 ```bash
-brew tap lithe-idea/lithe https://github.com/Lithe-IDEA/Lithe-IDEA.git
+brew tap lithe-idea/lithe https://github.com/1lck/Lithe-IDEA.git
 brew install --cask lithe-idea/lithe/lithe
 brew upgrade --cask lithe
 ```
+
+早先的 tap 地址 `https://github.com/Lithe-IDEA/Lithe-IDEA.git` 已归档，停在 0.6.1。用这个地址添加过 tap 的，升级前先把它换成本仓库：
+
+```bash
+brew tap --custom-remote lithe-idea/lithe https://github.com/1lck/Lithe-IDEA.git
+brew upgrade --cask lithe
+```
+
+从 0.8.1 起，配方安装的是 Viva 客户端 `Lithe Desktop.app`，它会在应用内自行更新；从 0.6.x 升级时会替换旧的 `Lithe.app`。
 
 ## 架构概览
 

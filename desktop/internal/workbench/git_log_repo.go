@@ -3,6 +3,7 @@ package workbench
 import (
 	"context"
 	"path/filepath"
+	"slices"
 
 	"github.com/1lck/Lithe-IDEA/desktop/internal/core"
 )
@@ -13,7 +14,8 @@ import (
 // itself walks its first nested repository. A click on a root of the Paths filter, or on a group or
 // a reference of another repository in the reference pane, picks that repository: its history,
 // commit details, comparisons, fetches and branch writes then act on it, and the log's header names
-// it. The other repositories' references are read in nested_refs.go.
+// it. The roots list chooses several repositories too, and the log then shows their commits
+// together (gitlog_multi.go). The other repositories' references are read in nested_refs.go.
 
 // logRepo is the nested repository the log walks, nil while it walks the project's own.
 func (p *project) logRepo() *nestedRepo {
@@ -79,6 +81,10 @@ func (p *project) repositoryName(id string) string {
 // or picks a nested one because the folder is no repository, the log walks that one from its start.
 func (a *App) selectLogRepo(p *project) {
 	n := &p.nested
+	if p.walksSeveral() {
+		a.selectLogRepos(p)
+		return
+	}
 	selection, ok := a.workspaceSelection(p, n.logRepo)
 	if !ok {
 		return
@@ -111,12 +117,12 @@ func (a *App) setLogRepo(p *project, id, full, short string) {
 	if p.isOwnID(id) {
 		id = ""
 	}
-	if p.nested.logRepo == id && full == "" {
+	if p.nested.logRepo == id && full == "" && !p.walksSeveral() {
 		return
 	}
 	// The history walk belongs to the repository it was opened in, so it is closed before the switch.
 	a.releaseLogCursor(p)
-	p.nested.logRepo = id
+	p.nested.logRepo, p.nested.chosen = id, nil
 	if selection, ok := a.workspaceSelection(p, id); ok {
 		p.nested.others = selection.Others
 	}
@@ -148,11 +154,36 @@ func (a *App) workspaceSelection(p *project, picked string) (core.WorkspaceRepos
 	return selection, true
 }
 
-// releaseLogCursor closes the history walk of the log, when one is open, in the repository it
-// was opened in.
-func (a *App) releaseLogCursor(p *project) {
-	if p.log.cursor != "" {
-		a.closeLogCursor(p, p.log.cursor)
-		p.log.cursor = ""
+// selectLogRepos asks Core which of the repositories the log walks together are still listed once
+// the repositories were read again. When some are gone the log walks the ones left, or the one Core
+// falls back to, from its start.
+func (a *App) selectLogRepos(p *project) {
+	n := &p.nested
+	selection, ok := a.workspaceRepositories(p, n.chosen)
+	if !ok {
+		return
 	}
+	if !slices.Equal(selection.Chosen, n.chosen) {
+		a.applyLogRepos(p, selection)
+		if p.log.started {
+			a.loadLog(p)
+		}
+		return
+	}
+	n.others = selection.Others
+	if p.log.started {
+		a.loadNestedReferences(p)
+	}
+}
+
+// releaseLogCursor closes the history walks of the log, when they are open, in the repositories
+// they were opened in.
+func (a *App) releaseLogCursor(p *project) {
+	l := &p.log
+	if l.cursor != "" {
+		a.closeLogCursor(p, l.cursor)
+		l.cursor = ""
+	}
+	a.closeWalkCursors(p, l.walks)
+	l.walks, l.origins, l.pending = nil, nil, nil
 }

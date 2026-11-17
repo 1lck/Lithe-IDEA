@@ -2,7 +2,6 @@ package workbench
 
 import (
 	"context"
-	"strings"
 
 	"github.com/1lck/Lithe-IDEA/desktop/internal/core"
 	"github.com/vivaui/viva/gfx"
@@ -10,17 +9,19 @@ import (
 )
 
 // This file is the references and the colors of the repositories of the project folder (matrix id
-// git-multi-repository-references). The Git Log's reference pane lists, below its own sections, a
-// group per repository the log does not walk, in Core's order and in each repository's color from
-// Core; a click on a group or one of its references makes that repository the one the log walks
-// (git_log_repo.go). The references are read with the log and again with the repositories; the
-// colors are assigned with the repositories (nested_repos.go) and mark each repository in the branch
-// popup, the change list, the Paths filter and the log rows.
+// git-multi-repository-references). In a folder with several repositories the Git Log's reference
+// pane lists, below HEAD, a node per repository in Core's order and in each repository's color from
+// Core, each with its own local, remote and tag sections; a click on another repository's reference
+// walks that reference in its repository (git_log_repo.go). The references of the repository the log
+// reads its references with come with the history; the others are read with the log and again with
+// the repositories. The colors are assigned with the repositories (nested_repos.go) and mark each
+// repository in the branch popup, the change list, the Paths filter and the log rows.
 
-// nestedReferences are the references of one repository as the pane last read them.
+// nestedReferences are the references of one repository as the pane last read them, in the
+// sections of its node.
 type nestedReferences struct {
-	refs core.GitReferences
-	err  error
+	sections [3]logSection
+	err      error
 }
 
 // repositoryColorer is the part of the kernel that assigns the repository colors. Core's client
@@ -35,9 +36,9 @@ const repositoryColorPage = 128
 // repositorySwatchSize is the side of the square that marks a repository in its color.
 const repositorySwatchSize = 10
 
-// loadNestedReferences reads in the background the references of the repositories the log does not
-// walk, the groups of the reference pane. The answer of a reading that a newer one overtook is
-// dropped.
+// loadNestedReferences reads in the background the references of the repositories besides the
+// one whose references the log reads with its history: the nodes of the reference pane. The answer
+// of a reading that a newer one overtook is dropped.
 func (a *App) loadNestedReferences(p *project) {
 	kernel := a.kernel
 	n := &p.nested
@@ -45,9 +46,10 @@ func (a *App) loadNestedReferences(p *project) {
 	gen := n.refGen
 	type read struct{ id, root string }
 	var reads []read
-	for _, id := range n.others {
-		if root := p.rootOf(id); root != "" {
-			reads = append(reads, read{id: id, root: root})
+	active := p.logRepoID()
+	for _, repo := range p.workspaceRepositories() {
+		if repo.id != active {
+			reads = append(reads, read{id: repo.id, root: repo.root})
 		}
 	}
 	a.background(p, gitTimeout, func(ctx context.Context) func(*App) {
@@ -56,8 +58,8 @@ func (a *App) loadNestedReferences(p *project) {
 		ctx = core.WithQueryCategory(ctx, core.GitQueryReferences)
 		out := make(map[string]nestedReferences, len(reads))
 		for _, r := range reads {
-			refs, err := kernel.GitReferences(ctx, r.root)
-			out[r.id] = nestedReferences{refs: refs, err: err}
+			_, sections, _, err := readReferences(ctx, kernel, r.root)
+			out[r.id] = nestedReferences{sections: sections, err: err}
 		}
 		return func(a *App) {
 			if p.nested.refGen == gen {
@@ -147,44 +149,55 @@ func repositoryColor(slot int, dark bool) gfx.Color {
 	return pick(dark, pair[0], pair[1])
 }
 
-// appendNestedLogRows appends the groups of the other repositories to the reference pane: one row
-// per repository with local branches or tags, then those references. A click on a group or a
-// reference makes its repository the one the log walks. While the filter has text only the matching
-// references show, and every group opens. It returns how many references the groups list.
-func (a *App) appendNestedLogRows(rows []logRefRow, p *project, query string) ([]logRefRow, int) {
+// appendRepositoryLogRows appends a node per repository of the project folder to the reference
+// pane, in Core's order, each with its own sections of local branches, remote branches and tags, as
+// IDEA's branches pane groups a project with several roots. The references of the repository whose
+// history the log reads its references with act on it; a click on another repository's reference
+// walks that reference in its repository. While the filter has text only the matching references
+// show, and every node opens. It returns how many references the nodes list.
+func (a *App) appendRepositoryLogRows(rows []logRefRow, p *project, query string) ([]logRefRow, int) {
 	shown := 0
-	for _, id := range p.nested.others {
-		refs, loaded := p.nested.references[id]
-		if !loaded || refs.err != nil {
-			continue
-		}
-		var matches []core.GitReference
-		for _, r := range refs.refs.References {
-			if r.Kind != "local" && r.Kind != "tag" {
+	active := p.logRepoID()
+	for _, repo := range p.workspaceRepositories() {
+		sections, foreign := &p.log.sections, ""
+		if repo.id != active {
+			refs, loaded := p.nested.references[repo.id]
+			if !loaded || refs.err != nil {
 				continue
 			}
-			if query != "" && !strings.Contains(strings.ToLower(r.ShortName), query) {
-				continue
-			}
-			matches = append(matches, r)
+			sections, foreign = &refs.sections, repo.id
 		}
-		if len(matches) == 0 {
-			continue
-		}
-		shown += len(matches)
-		key := "nested/" + id
+		key := logRepoRefKey(repo.id)
 		open := query != "" || !p.log.collapsed[key]
+		node := len(rows)
 		rows = append(rows, logRefRow{
-			kind: logRefRepository, label: p.repositoryName(id), short: id, repo: id, key: key, open: open,
-			tint: a.repositoryTint(p, id),
+			kind: logRefRepository, label: repo.name, short: repo.id, repo: repo.id, key: key, open: open,
+			tint: a.repositoryTint(p, repo.id),
 		})
-		if !open {
+		var count int
+		if open {
+			rows, count = a.appendLogSections(rows, p, key+"/", foreign, sections, 1, query)
+		} else {
+			count = sectionRefCount(sections)
+		}
+		if query != "" && count == 0 {
+			rows = rows[:node]
 			continue
 		}
-		for i := range matches {
-			ref := &matches[i]
-			rows = append(rows, logRefRow{kind: logRefForeign, depth: 1, label: ref.ShortName, key: ref.FullName, short: ref.ShortName, ref: ref, repo: id})
-		}
+		shown += count
 	}
 	return rows, shown
+}
+
+// logRepoRefKey is the key of a repository's node in the reference pane; its sections and folders
+// are keyed under it.
+func logRepoRefKey(id string) string { return "r/" + id }
+
+// sectionRefCount is how many references sections hold.
+func sectionRefCount(sections *[3]logSection) int {
+	n := 0
+	for i := range sections {
+		n += len(sections[i].refs)
+	}
+	return n
 }

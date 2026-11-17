@@ -2,6 +2,10 @@
 
 状态：已实现
 
+归档日期：2026-11-16
+
+> Core 的内置探测器已删除（[Lithe-core-rust #77](https://github.com/Lithe-IDEA/Lithe-core-rust/pull/77)，#1856 第 4 项），compose 条目、按 Maven 模块和来源清单消歧、`GENERATOR_REVISION` 都随之消失。仍然有效的分类与重名规则（重名现在只按工作目录区分）已并入[运行配置的生成层只来自插件声明，只存在内存里](../../implemented/architecture/2026-10-29-run-configuration-detection-in-memory.md)；本文只保留历史取舍。
+
 ## 先说结论
 
 同一个仓库里，“能跑的东西”不都是这个项目的服务。例如一个 Java 项目里可能有多个 docker-compose 文件，其中的数据库容器和项目自己的服务若混在同一个服务列表里，用户很难找到真正要启动的目标，同名的 `compose up` 也无法区分。

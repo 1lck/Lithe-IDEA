@@ -205,10 +205,14 @@ func (a *App) runTree(c ui.C, p *project, run *runEntry) {
 }
 
 // runDetail is the line under an execution in the tree: how it ended, else, while the host's
-// execution runs, the Build window's status of it; empty for a plugin's run still going.
+// execution runs, the Build window's status of it, and while a model loads, the last line the
+// load printed; empty for a plugin's run still going.
 func runDetail(p *project, run *runEntry) string {
 	if run.summary != "" {
 		return run.summary
+	}
+	if run.sync != nil && run.running {
+		return run.sync.latest
 	}
 	if run.operation != nil && p.build.operation == run.operation {
 		return p.build.status

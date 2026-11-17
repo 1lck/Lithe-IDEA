@@ -94,6 +94,10 @@ type Values struct {
 	// updates the parent repositories' references in the Commit window; both show by default.
 	HideChangeLists      bool
 	HideParentReferences bool
+	// GitLogLimit and GitLogMergedLimit are the most commits the Git Log reads of one repository
+	// and of several at once, within MinGitLogLimit and MaxGitLogLimit.
+	GitLogLimit       int
+	GitLogMergedLimit int
 	// GitConsole says which internal Git queries the Git console records and how it draws its
 	// records; the zero value is IntelliJ IDEA's console.
 	GitConsole core.GitConsolePreferences
@@ -406,6 +410,9 @@ type Options struct {
 	// Values.HideParentReferences to the settings owner, like SetHideGitGutter.
 	SetHideChangeLists      func(bool)
 	SetHideParentReferences func(bool)
+	// SetGitLogLimits hands a change of Values.GitLogLimit or Values.GitLogMergedLimit to the
+	// settings owner, like SetHideGitGutter.
+	SetGitLogLimits func(single, merged int)
 	// SetGitConsole hands a change of Values.GitConsole to the settings owner, like
 	// SetHideGitGutter.
 	SetGitConsole func(core.GitConsolePreferences)

@@ -1360,7 +1360,7 @@ function modalHtml(){
       <div class="foot"><button class="btn" data-refreshall>全部刷新</button><span class="sp"></span><button class="btn pri" data-closemodal>完成</button></div>`);
   }
   if(m.type==="export") return wrap(`<h3>导出变更清单（Markdown）</h3><div class="muted" style="margin-bottom:6px">按 PR 分组，可以直接贴进 Issue 或 PR 描述。</div><textarea class="inp" id="chgmd" rows="18" style="width:100%;font-family:var(--mono);font-size:11.5px">${esc(changesMarkdown())}</textarea><div class="foot"><button class="btn" data-closemodal>关闭</button><button class="btn pri" id="copymd">复制</button></div>`,760);
-  if(m.type==="rescan") return wrap(`<h3>重新识别运行配置？</h3><p class="muted">Lithe 将重新查找服务并刷新 .lithe/run/generated.json。项目与本机的覆盖配置不会被修改。</p><div class="foot"><button class="btn" data-closemodal>取消</button><button class="btn pri" data-closemodal data-toast="正在识别项目…">重新识别</button></div>`,460);
+  if(m.type==="rescan") return wrap(`<h3>重新识别运行配置？</h3><p class="muted">Lithe 将按构建插件声明的运行入口重新生成列表。项目与本机的覆盖配置不会被修改。</p><div class="foot"><button class="btn" data-closemodal>取消</button><button class="btn pri" data-closemodal data-toast="正在识别项目…">重新识别</button></div>`,460);
   return "";
 }
 function menuHtml(){
