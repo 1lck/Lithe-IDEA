@@ -8,33 +8,58 @@ import (
 	"github.com/1lck/Lithe-IDEA/desktop/internal/core"
 )
 
-// This file keeps the repositories nested in the project folder with their own changes
-// (matrix ids git-multi-repository-change-groups, git-workspace-staged-commit). Core discovers
-// them; the project reads each one's status in the background after every project status, so the
-// Commit tool window can group their changes under the project's and count their staged changes
-// toward the commit. The commit itself is planned by commit_nested.go. The window is declared in
-// nested_repos_view.go.
+// This file keeps the repositories of the project folder (matrix ids
+// git-multi-repository-change-groups, git-workspace-staged-commit, git-multi-repository-references).
+// Core discovers them, picks the one a view acts on and groups their changes; the project reads the
+// status of each nested one in the background after every project status. A folder that is no
+// repository itself but holds repositories is a workspace too: its views then act on the nested
+// ones. The Commit tool window shows Core's groups (nested_repos_view.go), a commit binds Core's list
+// (commit_nested.go), and the Git Log and the branch popup act on the repository Core picks
+// (git_log_repo.go).
 
-// nestedRepo is one repository nested in the project folder: its ID as a workspace commit names
-// it, where it is on disk, and the changes its status lists.
-type nestedRepo struct {
-	id      string
-	root    string
-	changes []core.GitChange
-	err     error
+// repositoryDiscoverer is the part of the kernel the workspace's repositories use. Core's client
+// implements it; a kernel that does not lists no nested repositories.
+type repositoryDiscoverer interface {
+	DiscoverWorkspaceRepositories(ctx context.Context, root string) ([]core.WorkspaceRepository, error)
+	SelectWorkspaceRepository(ctx context.Context, repositories []core.WorkspaceRepository, selected string) (core.WorkspaceRepositorySelection, error)
+	GroupWorkspaceChanges(ctx context.Context, repositories []core.WorkspaceRepositoryChanges) (core.WorkspaceChangeGroups, error)
 }
 
-// nestedState is what a project keeps of its nested repositories.
+// nestedRepo is one repository nested in the project folder: its ID and name as Core lists them,
+// where it is on disk, and the branch and changes its status reads.
+type nestedRepo struct {
+	id, name string
+	root     string
+	branch   string
+	changes  []core.GitChange
+	err      error
+}
+
+// nestedState is what a project keeps of the repositories of its folder.
 type nestedState struct {
 	// gen counts the readings started; an answer of an older reading is dropped.
-	gen   int
-	repos []nestedRepo
+	gen int
+	// discovered is Core's list as it answered, the repository that contains the folder first;
+	// requests hand it back to Core unchanged. repos are its nested entries with their status.
+	discovered []core.WorkspaceRepository
+	repos      []nestedRepo
+	// others are the IDs of the repositories the Git Log does not walk, in Core's order: the
+	// groups its reference pane lists (nested_refs.go).
+	others []string
+	// groupGen counts the groupings asked for; groups is Core's last answer, and grouped says
+	// one arrived for the repositories listed.
+	groupGen int
+	grouped  bool
+	groups   core.WorkspaceChangeGroups
 	// focus is the ID of the nested repository a folder of the project tree asked for; empty
 	// when the project's own repository is meant.
 	focus string
 	// logRepo is the ID of the nested repository the Git log walks; empty for the project's own
 	// repository (git_log_repo.go).
 	logRepo string
+	// chosen are the Core IDs of the repositories the Git log walks together, in Core's order,
+	// the first of them logRepo's; nil while it walks one (gitlog_multi.go).
+	chosen []string
 	// refGen counts the reference readings; references are the last ones by repository ID
 	// (nested_refs.go).
 	refGen     int
@@ -44,66 +69,57 @@ type nestedState struct {
 	slots      map[string]int
 	showColors bool
 	// folded are the repositories whose changes the Commit window hides under their header; a
-	// group shows unfolded until it is folded (nested_repos_view.go).
-	folded map[string]bool
+	// group shows unfolded until it is folded (nested_repos_view.go). listFolded hides every
+	// group under the line of the change list.
+	folded     map[string]bool
+	listFolded bool
 }
 
-// nestedRepositoryID is the ID of the repository at path in a workspace commit of projectRoot: its
-// path relative to the project folder with "/" separators. It reports false for a repository
-// outside the project folder or the project folder itself.
-func nestedRepositoryID(projectRoot, path string) (string, bool) {
-	rel, err := filepath.Rel(projectRoot, path)
-	if err != nil || rel == "." || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
-		return "", false
-	}
-	return filepath.ToSlash(rel), true
-}
-
-// loadNestedRepos reads the nested repositories of the project and the status of each in the
-// background. It does nothing outside a repository or without a kernel that discovers them.
+// loadNestedRepos reads the repositories of the project folder, the status of each nested one and
+// their colors in the background. It does nothing with a kernel that does not discover them.
 func (a *App) loadNestedRepos(p *project) {
 	discoverer, ok := a.kernel.(repositoryDiscoverer)
-	if !ok || !p.git.isRepository() {
+	if !ok {
 		return
 	}
 	n := &p.nested
 	n.gen++
 	gen := n.gen
 	kernel, root := a.kernel, p.root
-	own := filepath.Clean(p.git.repositoryRoot(p.root))
 	a.background(p, gitTimeout, func(ctx context.Context) func(*App) {
 		found, err := discoverer.DiscoverWorkspaceRepositories(ctx, root)
 		var repos []nestedRepo
+		var slots map[string]int
+		showColors := false
 		if err == nil {
+			ids := make([]string, 0, len(found))
 			for _, repo := range found {
-				path := filepath.Clean(filepath.FromSlash(repo.Path))
-				id, inside := nestedRepositoryID(root, path)
-				if !inside || path == own {
+				ids = append(ids, repo.ID)
+				if repo.Role != core.RepositoryNested {
 					continue
 				}
+				path := filepath.FromSlash(repo.Path)
 				status, serr := kernel.GitStatus(core.AutomaticRefresh(ctx), path)
-				repos = append(repos, nestedRepo{id: id, root: path, changes: status.Changes, err: serr})
+				repos = append(repos, nestedRepo{id: repo.ID, name: repo.Name, root: path, branch: status.Branch, changes: status.Changes, err: serr})
 			}
+			slots, showColors = assignRepositoryColors(ctx, kernel, ids)
 		}
 		return func(a *App) {
-			if p.nested.gen != gen || err != nil {
+			if p.nested.gen != gen {
 				return
 			}
-			p.nested.repos = repos
-			if _, ok := p.nested.repo(p.nested.focus); !ok {
-				p.nested.focus = ""
-			}
-			// A repository the log walks that left the workspace hands the log back to the project's own,
-			// which loads the references too.
-			if a.logFallsBack(p) {
-				a.loadLog(p)
+			if err != nil {
+				a.backgroundFailed("workspace_repositories", err)
 				return
 			}
-			// The Git Log's reference pane lists the nested repositories' references too, so they
-			// are read again once the repositories are.
-			if p.log.started {
-				a.loadNestedReferences(p)
+			n := &p.nested
+			n.discovered, n.repos = found, repos
+			n.slots, n.showColors = slots, showColors
+			if _, ok := n.repo(n.focus); !ok {
+				n.focus = ""
 			}
+			a.selectLogRepo(p)
+			a.groupChanges(p)
 		}
 	})
 }
@@ -116,6 +132,157 @@ func (n *nestedState) repo(id string) (*nestedRepo, bool) {
 		}
 	}
 	return nil, false
+}
+
+// own is Core's entry of the repository that contains the project folder, which it lists first.
+func (n *nestedState) own() (core.WorkspaceRepository, bool) {
+	if len(n.discovered) > 0 && n.discovered[0].Role == core.RepositoryWorkspace {
+		return n.discovered[0], true
+	}
+	return core.WorkspaceRepository{}, false
+}
+
+// ownID is the ID Core gives the project's own repository: "." for the project folder, ".."
+// segments for a repository that contains it. It is commitRepositoryID before Core listed it.
+func (p *project) ownID() string {
+	if own, ok := p.nested.own(); ok {
+		return own.ID
+	}
+	return commitRepositoryID
+}
+
+// isOwnID reports that id names the project's own repository: empty, commitRepositoryID or Core's ID.
+func (p *project) isOwnID(id string) bool {
+	return id == "" || id == commitRepositoryID || id == p.ownID()
+}
+
+// rootOf is where the repository with Core's ID id is on disk.
+func (p *project) rootOf(id string) string {
+	if p.isOwnID(id) {
+		if !p.git.isRepository() {
+			return ""
+		}
+		return p.git.repositoryRoot(p.root)
+	}
+	if repo, ok := p.nested.repo(id); ok {
+		return repo.root
+	}
+	return ""
+}
+
+// hasRepository reports that the project has a repository to act on: its own, or one nested in
+// its folder.
+func (p *project) hasRepository() bool {
+	return p.git.isRepository() || len(p.nested.repos) > 0
+}
+
+// workspaceMode reports that the views list the repositories of the folder one by one: the folder
+// holds nested repositories.
+func (p *project) workspaceMode() bool { return len(p.nested.repos) > 0 }
+
+// workspaceRepository is one repository of the project folder as the branch popup, the Pull dialog
+// and the Git Log's Paths filter list it.
+type workspaceRepository struct {
+	id, name, root string
+	own            bool
+}
+
+// workspaceRepositories are the repositories of the project folder in Core's order: the project's
+// own while the folder is in one, then each nested one.
+func (p *project) workspaceRepositories() []workspaceRepository {
+	var out []workspaceRepository
+	if p.git.isRepository() {
+		out = append(out, workspaceRepository{id: p.ownID(), name: p.repositoryName(""), root: p.git.repositoryRoot(p.root), own: true})
+	}
+	for _, repo := range p.nested.repos {
+		out = append(out, workspaceRepository{id: repo.id, name: p.repositoryName(repo.id), root: repo.root})
+	}
+	return out
+}
+
+// branchOf is the branch the repository with ID id is on, empty before its status arrived.
+func (p *project) branchOf(id string) string {
+	if p.isOwnID(id) {
+		return p.git.branch()
+	}
+	if repo, ok := p.nested.repo(id); ok && repo.err == nil {
+		return repo.branch
+	}
+	return ""
+}
+
+// titleBranch is the branch the title bar shows: the project's own, or the one of the nested
+// repository the log walks when the folder is no repository itself.
+func (p *project) titleBranch() string {
+	if branch := p.git.branch(); branch != "" {
+		return branch
+	}
+	if repo := p.logRepo(); repo != nil && repo.err == nil {
+		return repo.branch
+	}
+	return ""
+}
+
+// groupChanges asks Core in the background to group the changes of every repository of the folder
+// and to plan what each checkbox writes. The answer of a grouping a newer one overtook is dropped.
+func (a *App) groupChanges(p *project) {
+	n := &p.nested
+	discoverer, ok := a.kernel.(repositoryDiscoverer)
+	if !ok || !p.workspaceMode() {
+		n.grouped, n.groups = false, core.WorkspaceChangeGroups{}
+		return
+	}
+	n.groupGen++
+	gen := n.groupGen
+	input := make([]core.WorkspaceRepositoryChanges, 0, len(n.discovered))
+	for _, entry := range n.discovered {
+		var changes []core.GitChange
+		if entry.Role == core.RepositoryWorkspace {
+			if !p.git.isRepository() {
+				continue
+			}
+			changes = p.git.status.Changes
+		} else if repo, ok := n.repo(entry.ID); ok {
+			changes = repo.changes
+		}
+		input = append(input, core.WorkspaceRepositoryChanges{WorkspaceRepository: entry, Changes: changes})
+	}
+	a.background(p, kernelCallTimeout, func(ctx context.Context) func(*App) {
+		groups, err := discoverer.GroupWorkspaceChanges(ctx, input)
+		return func(a *App) {
+			if p.nested.groupGen != gen {
+				return
+			}
+			if err != nil {
+				a.backgroundFailed("workspace_change_groups", err)
+				return
+			}
+			p.nested.groups, p.nested.grouped = groups, true
+		}
+	})
+}
+
+// changedFiles is the number of changed files the status bar counts: Core's count over every
+// repository of the folder, the one the Commit window's list shows, while the folder holds nested
+// ones, and the project's own status otherwise.
+func (p *project) changedFiles() int {
+	if p.workspaceMode() && p.nested.grouped {
+		return p.nested.groups.FileCount
+	}
+	count, _ := p.git.changeCount()
+	return count
+}
+
+// changesOf is the changes the group with Core's ID id lists: the project's status for its own
+// repository, the nested repository's status otherwise.
+func (p *project) changesOf(id string) []core.GitChange {
+	if p.isOwnID(id) {
+		return p.git.status.Changes
+	}
+	if repo, ok := p.nested.repo(id); ok {
+		return repo.changes
+	}
+	return nil
 }
 
 // nestedStagedCount is the number of changes staged in the nested repositories.
@@ -150,30 +317,14 @@ func (a *App) showRepositoryChangesOf(p *project, full string) {
 	a.showChanges()
 }
 
-// stageNestedChanges stages or unstages changes of the nested repository repo, as a click on
-// their checkboxes asks: a click on the repository's checkbox stages everything it can, or
-// unstages everything when it is all staged. Then the nested repositories are read again.
-func (a *App) stageNestedChanges(p *project, repo nestedRepo, changes []core.GitChange, all bool) {
-	if p.commit.busy {
+// applyStaging writes Core's staging plan of the repository with ID id, as a click on the
+// checkbox of its group asks.
+func (a *App) applyStaging(p *project, id string, plan core.StagingPlan) {
+	root := p.rootOf(id)
+	if p.commit.busy || root == "" || len(plan.Paths) == 0 {
 		return
 	}
-	var paths []string
-	stage := !all
-	for _, change := range changes {
-		if !change.CanToggleStaging {
-			continue
-		}
-		if all && change.Staged {
-			paths = append(paths, change.StagingPaths()...)
-		}
-		if !all && stagesChange(change) {
-			paths = append(paths, change.StagingPaths()...)
-		}
-	}
-	if len(paths) == 0 {
-		return
-	}
-	a.writeNestedStaging(p, repo.root, stage, paths)
+	a.writeNestedStaging(p, root, plan.Operation == core.StageChanges, plan.Paths)
 }
 
 // stageNestedChange stages or unstages one change of the nested repository repo, as the
@@ -185,7 +336,7 @@ func (a *App) stageNestedChange(p *project, repo nestedRepo, change core.GitChan
 	a.writeNestedStaging(p, repo.root, stagesChange(change), change.StagingPaths())
 }
 
-// writeNestedStaging stages or unstages paths of the repository at root, then reads the nested
+// writeNestedStaging stages or unstages paths of the repository at root, then reads the
 // repositories again.
 func (a *App) writeNestedStaging(p *project, root string, stage bool, paths []string) {
 	if stage {
@@ -206,7 +357,7 @@ func (a *App) writeNestedStaging(p *project, root string, stage bool, paths []st
 			p.commit.busy = false
 			// The project's status is read with the nested repositories, as the group of its own changes
 			// may be the one that was staged.
-			a.loadGit(p)
+			a.reloadGit(p)
 			if err != nil {
 				a.stagingFailed(stage, err)
 			}
@@ -214,86 +365,42 @@ func (a *App) writeNestedStaging(p *project, root string, stage bool, paths []st
 	})
 }
 
-// nestedCommitTarget is the commit of one nested repository: it commits the staged changes of
-// that repository alone, with the message the Commit tool window holds.
-func (a *App) nestedCommitTarget(p *project, repo nestedRepo) commitTarget {
-	return commitTarget{
-		state:  &p.commit,
-		root:   repo.root,
-		repoID: repo.id,
-		written: func(a *App) {
-			a.loadGit(p)
-		},
-	}
-}
-
-// canCommitNested reports that the commit button of repo may start a commit of its staged changes.
-func (p *project) canCommitNested(repo nestedRepo) bool {
-	return !p.lists.inUse() && p.listsReady() && p.commit.idle() && !p.commit.busy &&
-		countStaged(repo.changes) > 0 && p.commit.message() != ""
-}
-
-// stageAllRepositories stages every change of the project and of its nested repositories, or
-// unstages every staged one when stage is false: the checkbox of the project's change list acts
-// on all repositories it lists. The repositories are written one after another, then read again.
-func (a *App) stageAllRepositories(p *project, stage bool) {
-	if p.commit.busy {
+// stageWorkspace writes Core's plan of the change list's checkbox: it stages, or unstages, the
+// paths of every repository it names, one repository after another, then reads them again.
+func (a *App) stageWorkspace(p *project, plan core.WorkspaceStageAll) {
+	if p.commit.busy || len(plan.Repositories) == 0 {
 		return
 	}
-	a.performed("git.stageAll", surfaceButton)
+	stage := plan.Operation == core.StageChanges
+	type write struct {
+		root  string
+		paths []string
+	}
+	var writes []write
+	for _, repo := range plan.Repositories {
+		if root := p.rootOf(repo.ID); root != "" && len(repo.Paths) > 0 {
+			writes = append(writes, write{root: root, paths: repo.Paths})
+		}
+	}
+	if stage {
+		a.performed("git.stageAll", surfaceButton)
+	} else {
+		a.performed("git.unstageAll", surfaceButton)
+	}
 	p.commit.busy = true
-	kernel, root := a.kernel, p.git.repositoryRoot(p.root)
-	projectChanges := p.git.status.Changes
-	repos := append([]nestedRepo(nil), p.nested.repos...)
+	kernel := a.kernel
 	a.background(p, gitTimeout, func(ctx context.Context) func(*App) {
 		var err error
-		if stage {
-			err = kernel.GitStageAll(ctx, root)
-		} else if paths := stagedPaths(projectChanges); len(paths) > 0 {
-			err = kernel.GitUnstage(ctx, root, paths)
-		}
-		for _, repo := range repos {
+		for _, w := range writes {
+			if stage {
+				err = kernel.GitStage(ctx, w.root, w.paths)
+			} else {
+				err = kernel.GitUnstage(ctx, w.root, w.paths)
+			}
 			if err != nil {
 				break
 			}
-			var paths []string
-			for _, change := range repo.changes {
-				if !change.CanToggleStaging {
-					continue
-				}
-				if stage && stagesChange(change) || !stage && change.Staged {
-					paths = append(paths, change.StagingPaths()...)
-				}
-			}
-			if len(paths) == 0 {
-				continue
-			}
-			if stage {
-				err = kernel.GitStage(ctx, repo.root, paths)
-			} else {
-				err = kernel.GitUnstage(ctx, repo.root, paths)
-			}
 		}
-		return func(a *App) {
-			p.commit.busy = false
-			a.loadGit(p)
-			a.loadNestedRepos(p)
-			if err != nil {
-				a.stagingFailed(stage, err)
-			}
-		}
+		return func(a *App) { a.stagingDone(p, stage, err) }
 	})
-}
-
-// submoduleReferenceChanged reports that the project's own status lists the nested repository with
-// the given ID as changed: the reference the parent records for it has moved. A nested repository
-// that has changes of its own but no moved reference shows the hint that the parent does not
-// record them yet.
-func (p *project) submoduleReferenceChanged(id string) bool {
-	for _, change := range p.git.status.Changes {
-		if strings.TrimSuffix(change.Path, "/") == id {
-			return true
-		}
-	}
-	return false
 }

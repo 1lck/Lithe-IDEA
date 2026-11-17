@@ -24,13 +24,27 @@ type gitState struct {
 }
 
 // loadGit asks the kernel for the Git status of p and keeps the answer in p.git. The
-// answer is dropped when the project closes or a newer status read starts.
+// answer is dropped when the project closes or a newer status read starts. The status
+// is read again on every repository change, too often for the console, so its queries belong
+// to no category.
 func (a *App) loadGit(p *project) {
+	a.readGit(p, core.AutomaticRefresh)
+}
+
+// reloadGit is loadGit after a Git operation the user ran, or the Changes refresh the user
+// asked for: the console records its queries when it records reloads (GitQueryReload).
+func (a *App) reloadGit(p *project) {
+	a.readGit(p, func(ctx context.Context) context.Context {
+		return core.WithQueryCategory(core.AutomaticRefresh(ctx), core.GitQueryReload)
+	})
+}
+
+// readGit reads the status of p under the context policy gives its request.
+func (a *App) readGit(p *project, policy func(context.Context) context.Context) {
 	generation := p.gitStatusGeneration.Add(1)
 	kernel, root := a.kernel, p.root
 	a.background(p, gitTimeout, func(ctx context.Context) func(*App) {
-		// The status is read again on every repository change, too often for the console.
-		status, err := kernel.GitStatus(core.AutomaticRefresh(ctx), root)
+		status, err := kernel.GitStatus(policy(ctx), root)
 		return func(a *App) {
 			if !a.setGit(p, gitState{loaded: true, status: status, err: err}, generation) {
 				return

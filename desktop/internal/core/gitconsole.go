@@ -7,6 +7,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 	"unicode/utf8"
 )
@@ -16,9 +17,11 @@ import (
 // the console stores them in the bounded journal the contract describes, and Core's
 // git.consolePresentation turns the stored records into what the console draws. Core has
 // already redacted every text it reports, so nothing here redacts again, and Core decides
-// which commands are visible: an internal read-only query reports a started command only for
-// a request that asks for queries (gitExecutionOf), and Core marks it as a query, whose output
-// git.consolePresentation folds.
+// which commands are visible: an internal read-only query reports a started command when its
+// category is one the console records (gitExecutionOf), and Core marks it as a query, with its
+// category, whose long output git.consolePresentation folds. A query the console does not record
+// reports nothing while it succeeds, so it takes none of the journal's budget; one that fails in
+// a request the user started reports its command, stderr and exit like a recorded query.
 //
 // The lengths of the retention budget are counted in bytes of UTF-8, which is never fewer
 // than the characters the budget names, so the console keeps at most what it allows.
@@ -36,6 +39,111 @@ const (
 
 // GitConsoleSearchLimit is the longest search, in bytes, git.consolePresentation accepts.
 const GitConsoleSearchLimit = 1024
+
+// GitQueryCategory is what a request's internal read-only queries read (QueryCategory in the
+// Rust contract). Core infers it from the request command; a host names it with
+// WithQueryCategory for the reads the command does not tell apart. Core rejects a request that
+// names a category it does not know, so only these constants are ever sent.
+type GitQueryCategory string
+
+// The query categories, in the order Core lists them (queryCategories of
+// rust/fixtures/git/console-queries-v1.json).
+const (
+	// GitQueryReferences are reference reads that follow a repository change without a user
+	// action, such as the branches of nested repositories.
+	GitQueryReferences GitQueryCategory = "references"
+	// GitQueryReload are the reads that reload views after an operation the user ran.
+	GitQueryReload GitQueryCategory = "reload"
+	// GitQueryDiffRefresh are diffs read again because a file they show was saved.
+	GitQueryDiffRefresh GitQueryCategory = "diffRefresh"
+	// GitQueryDiff are the file, commit, comparison and stash diffs the user opened.
+	GitQueryDiff GitQueryCategory = "diff"
+	// GitQueryLog are the history, references and commit details the log shows.
+	GitQueryLog GitQueryCategory = "log"
+	// GitQueryLogPathFilter are the per-commit file lists a log path filter reads.
+	GitQueryLogPathFilter GitQueryCategory = "logPathFilter"
+	// GitQueryAnnotate are annotation and line history.
+	GitQueryAnnotate GitQueryCategory = "annotate"
+	// GitQueryPanels are lists and panels: worktrees, stashes, remotes, pull requests and
+	// settings.
+	GitQueryPanels GitQueryCategory = "panels"
+	// GitQueryChecks are previews, preflights, plans and the queries of operations themselves.
+	GitQueryChecks GitQueryCategory = "checks"
+)
+
+// GitConsolePreferences are the user's choices of what the Git console shows. The zero value
+// is IntelliJ IDEA's console: it records no internal query and draws each record as IDEA does.
+// The commands the user ran, failed requests and unexpected exit codes always show.
+type GitConsolePreferences struct {
+	// The Show*Queries fields record the internal queries of one category.
+	ShowReferenceQueries     bool `json:"showReferenceQueries,omitempty"`
+	ShowReloadQueries        bool `json:"showReloadQueries,omitempty"`
+	ShowDiffRefreshQueries   bool `json:"showDiffRefreshQueries,omitempty"`
+	ShowDiffQueries          bool `json:"showDiffQueries,omitempty"`
+	ShowLogQueries           bool `json:"showLogQueries,omitempty"`
+	ShowLogPathFilterQueries bool `json:"showLogPathFilterQueries,omitempty"`
+	ShowAnnotateQueries      bool `json:"showAnnotateQueries,omitempty"`
+	ShowPanelQueries         bool `json:"showPanelQueries,omitempty"`
+	ShowCheckQueries         bool `json:"showCheckQueries,omitempty"`
+	// FoldShortQueries folds a successful query's output of any length, not only output longer
+	// than ten lines; a deletion's output never folds.
+	FoldShortQueries bool `json:"foldShortQueries,omitempty"`
+	// ShowCompletedWithoutOutput notes a command that finished without writing anything.
+	ShowCompletedWithoutOutput bool `json:"showCompletedWithoutOutput,omitempty"`
+	// HideTemporaryConfig omits Lithe's temporary -c configuration instead of folding it.
+	HideTemporaryConfig bool `json:"hideTemporaryConfig,omitempty"`
+	// HideRepository omits the repository each record ran in.
+	HideRepository bool `json:"hideRepository,omitempty"`
+}
+
+// QueryCategories returns the query categories p records, in the order Core lists them.
+func (p GitConsolePreferences) QueryCategories() []GitQueryCategory {
+	var categories []GitQueryCategory
+	for _, c := range []struct {
+		show     bool
+		category GitQueryCategory
+	}{
+		{p.ShowReferenceQueries, GitQueryReferences},
+		{p.ShowReloadQueries, GitQueryReload},
+		{p.ShowDiffRefreshQueries, GitQueryDiffRefresh},
+		{p.ShowDiffQueries, GitQueryDiff},
+		{p.ShowLogQueries, GitQueryLog},
+		{p.ShowLogPathFilterQueries, GitQueryLogPathFilter},
+		{p.ShowAnnotateQueries, GitQueryAnnotate},
+		{p.ShowPanelQueries, GitQueryPanels},
+		{p.ShowCheckQueries, GitQueryChecks},
+	} {
+		if c.show {
+			categories = append(categories, c.category)
+		}
+	}
+	return categories
+}
+
+// Display returns the display options git.consolePresentation draws records with under p.
+func (p GitConsolePreferences) Display() GitConsoleDisplay {
+	return GitConsoleDisplay{
+		FoldShortQueries:           p.FoldShortQueries,
+		ShowCompletedWithoutOutput: p.ShowCompletedWithoutOutput,
+		HideTemporaryConfig:        p.HideTemporaryConfig,
+		HideRepository:             p.HideRepository,
+	}
+}
+
+// GitConsoleDisplay is how git.consolePresentation draws records (Display in the Rust
+// contract). The zero value is IntelliJ IDEA's console.
+type GitConsoleDisplay struct {
+	// FoldShortQueries folds a successful query's output of any length; unset, output of ten
+	// lines or fewer stays visible. Core never folds a deletion.
+	FoldShortQueries bool `json:"foldShortQueries"`
+	// ShowCompletedWithoutOutput notes a command that finished without writing anything.
+	ShowCompletedWithoutOutput bool `json:"showCompletedWithoutOutput"`
+	// HideTemporaryConfig omits Lithe's temporary configuration; -c arguments the operation
+	// itself passed stay folded in place.
+	HideTemporaryConfig bool `json:"hideTemporaryConfig"`
+	// HideRepository leaves each entry's repository label empty and out of search.
+	HideRepository bool `json:"hideRepository"`
+}
 
 // gitConsoleRetention is the journal's budget, as requestStarted carries it.
 type gitConsoleRetention struct {
@@ -99,8 +207,10 @@ type GitConsoleRecord struct {
 	// follows it, without the global options a presentation folds. Empty when Core sent none.
 	DisplayArguments []string
 	// Query says the command is an internal read-only query Core reported because the request
-	// asked for queries, rather than a command the workflow runs visibly.
+	// asked for queries, or because it failed, rather than a command the workflow runs visibly.
 	Query bool
+	// QueryCategory is the query's category, empty for a visible command and a query of none.
+	QueryCategory GitQueryCategory
 	// Lines are the retained output, oldest first; Truncated says some of it was dropped.
 	Lines     []GitConsoleLine
 	Truncated bool
@@ -145,7 +255,10 @@ type GitConsole struct {
 	omitted     bool
 	revision    uint64
 	nextID      uint64
-	now         func() time.Time
+	// queries are the query categories recorded, read by every Git request without the lock.
+	// The slice is never changed after it is stored.
+	queries atomic.Pointer[[]GitQueryCategory]
+	now     func() time.Time
 	// changed is called after the console changed, outside the lock.
 	changed func()
 }
@@ -186,6 +299,51 @@ func NewGitConsole(changed func()) *GitConsole {
 		now:       time.Now,
 		changed:   changed,
 	}
+}
+
+// RecordQueries sets the query categories the console records from the next request on. The
+// successful queries it kept of a category it no longer records leave the journal, so turning
+// a category off frees the records it took; a failed query stays, and so does a query of a
+// request still running, whose later events keep its record.
+func (c *GitConsole) RecordQueries(categories []GitQueryCategory) {
+	categories = slices.Clone(categories)
+	c.mu.Lock()
+	c.queries.Store(&categories)
+	kept := c.records[:0]
+	for _, entry := range c.records {
+		record := &entry.record
+		if record.QueryCategory != "" && !slices.Contains(categories, record.QueryCategory) && !record.failed() && c.requests[record.OperationID] == nil {
+			entry.dropped = true
+			c.outputBytes -= entry.outputBytes
+			continue
+		}
+		kept = append(kept, entry)
+	}
+	removed := len(kept) < len(c.records)
+	clear(c.records[len(kept):])
+	c.records = kept
+	if removed {
+		c.revision++
+	}
+	c.mu.Unlock()
+	if removed {
+		c.notify()
+	}
+}
+
+// recordedQueries returns the query categories the console records; the caller must not
+// change the slice.
+func (c *GitConsole) recordedQueries() []GitQueryCategory {
+	if categories := c.queries.Load(); categories != nil {
+		return *categories
+	}
+	return nil
+}
+
+// failed says the record failed the way git.consolePresentation reads it: an error, an exit
+// that was never confirmed, or a nonzero exit the workflow did not expect.
+func (r *GitConsoleRecord) failed() bool {
+	return r.Error != "" || r.State == GitConsoleUnconfirmed || (r.State == GitConsoleCompleted && (!r.Exited || r.ExitCode != 0) && !r.ExpectedExit)
 }
 
 // Revision returns the console's revision, which grows each time it changes.
@@ -298,13 +456,14 @@ type gitConsoleEvent struct {
 	Retention   *gitConsoleRetention `json:"retention"`
 	// WorkingDirectory is the started command's directory, or, on requestStarted, the
 	// repository a host's fixture names.
-	WorkingDirectory string      `json:"workingDirectory"`
-	InvocationID     *uint64     `json:"invocationId"`
-	Arguments        []string    `json:"arguments"`
-	TemporaryConfig  [][2]string `json:"temporaryConfig"`
-	Executable       *string     `json:"executable"`
-	DisplayArguments []string    `json:"displayArguments"`
-	Query            bool        `json:"query"`
+	WorkingDirectory string           `json:"workingDirectory"`
+	InvocationID     *uint64          `json:"invocationId"`
+	Arguments        []string         `json:"arguments"`
+	TemporaryConfig  [][2]string      `json:"temporaryConfig"`
+	Executable       *string          `json:"executable"`
+	DisplayArguments []string         `json:"displayArguments"`
+	Query            bool             `json:"query"`
+	QueryCategory    GitQueryCategory `json:"queryCategory"`
 
 	Stream    string `json:"stream"`
 	Text      string `json:"text"`
@@ -473,6 +632,7 @@ func (c *GitConsole) start(request *gitConsoleRequest, event *gitConsoleEvent) {
 		TemporaryConfig:  slices.Clone(event.TemporaryConfig),
 		DisplayArguments: slices.Clone(event.DisplayArguments),
 		Query:            event.Query,
+		QueryCategory:    event.QueryCategory,
 		State:            GitConsoleRunning,
 		ExitCode:         -1,
 	}
@@ -645,27 +805,46 @@ func WithGitConsole(ctx context.Context, console *GitConsole, root string) conte
 type gitRefreshKey struct{}
 
 // AutomaticRefresh returns a context whose Git requests are automatic refreshes, which run
-// on every file or repository change: their internal queries stay out of the console, which
-// records every other Git command a request runs. The commands the user started still
-// appear.
+// on every file or repository change: their internal queries stay out of the console unless
+// WithQueryCategory names a category its preferences show. The commands the user started
+// still appear.
 func AutomaticRefresh(ctx context.Context) context.Context {
 	return context.WithValue(ctx, gitRefreshKey{}, true)
 }
 
+type gitQueryCategoryKey struct{}
+
+// WithQueryCategory returns a context whose Git requests read category, for a read whose
+// request command does not tell it apart, such as the status a view reloads after an
+// operation. The console records the request's queries when it records category, even in an
+// automatic refresh.
+func WithQueryCategory(ctx context.Context, category GitQueryCategory) context.Context {
+	return context.WithValue(ctx, gitQueryCategoryKey{}, category)
+}
+
 // gitExecutionOf is the Git policy of a request: a Git request of a context with a console
-// asks Core to report its internal queries, unless the context is an automatic refresh.
-// Other requests keep Core's defaults.
+// asks Core to report the internal queries of the categories the console records, names the
+// category the context gives, and marks an automatic refresh. Other requests, and a request
+// with nothing to ask, keep Core's defaults.
 func gitExecutionOf(ctx context.Context, command string) *gitExecution {
 	if !strings.HasPrefix(command, "git.") || gitConsoleUnrecorded[command] {
 		return nil
 	}
-	if sink, _ := ctx.Value(gitConsoleKey{}).(*gitConsoleSink); sink == nil {
+	sink, _ := ctx.Value(gitConsoleKey{}).(*gitConsoleSink)
+	if sink == nil {
 		return nil
 	}
-	if refresh, _ := ctx.Value(gitRefreshKey{}).(bool); refresh {
-		return &gitExecution{Source: "background"}
+	execution := gitExecution{ConsoleQueries: sink.console.recordedQueries()}
+	if len(execution.ConsoleQueries) > 0 {
+		execution.QueryCategory, _ = ctx.Value(gitQueryCategoryKey{}).(GitQueryCategory)
 	}
-	return &gitExecution{ReportQueries: true}
+	if refresh, _ := ctx.Value(gitRefreshKey{}).(bool); refresh {
+		execution.Source = "background"
+	}
+	if len(execution.ConsoleQueries) == 0 && execution.Source == "" {
+		return nil
+	}
+	return &execution
 }
 
 // gitConsoleUnrecorded are the git commands that never run Git: they parse, plan or present
@@ -816,6 +995,7 @@ type gitConsoleWireRecord struct {
 type gitConsolePresentationRequest struct {
 	Records []gitConsoleWireRecord `json:"records"`
 	Search  string                 `json:"search"`
+	Display GitConsoleDisplay      `json:"display"`
 }
 
 type gitConsoleGroup struct {
@@ -884,14 +1064,15 @@ func (r *GitConsoleRecord) wire() (gitConsoleWireRecord, int) {
 	return wire, size
 }
 
-// GitConsolePresentation asks Core how to draw records, matching search case-insensitively
-// when it is not empty. Records are sent in as many requests as Core's limits need, so any
-// number may be asked for; search must be at most GitConsoleSearchLimit bytes.
+// GitConsolePresentation asks Core how to draw records with display, matching search
+// case-insensitively when it is not empty. Records are sent in as many requests as Core's
+// limits need, so any number may be asked for; search must be at most GitConsoleSearchLimit
+// bytes.
 //
 // GitConsolePresentation blocks; call it from a background goroutine.
-func (c *Client) GitConsolePresentation(ctx context.Context, records []GitConsoleRecord, search string) (GitConsolePresentation, error) {
+func (c *Client) GitConsolePresentation(ctx context.Context, records []GitConsoleRecord, search string, display GitConsoleDisplay) (GitConsolePresentation, error) {
 	var presentation GitConsolePresentation
-	request := gitConsolePresentationRequest{Search: search, Records: []gitConsoleWireRecord{}}
+	request := gitConsolePresentationRequest{Search: search, Display: display, Records: []gitConsoleWireRecord{}}
 	size := 0
 	send := func() error {
 		var response gitConsolePresentationResponse

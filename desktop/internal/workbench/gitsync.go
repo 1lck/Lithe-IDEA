@@ -157,7 +157,7 @@ func (a *App) runSyncAt(p *project, root, operation, label string, failed func(r
 		readCtx, readCancel := context.WithTimeout(p.ctx, gitTimeout)
 		defer readCancel()
 		generation := p.gitStatusGeneration.Add(1)
-		status, statusErr := kernel.GitStatus(core.AutomaticRefresh(readCtx), p.root)
+		status, statusErr := kernel.GitStatus(core.WithQueryCategory(core.AutomaticRefresh(readCtx), core.GitQueryReload), p.root)
 		return func(a *App) {
 			s := &p.log.sync
 			s.busy, s.cancel, s.relay, s.hasProgress = false, nil, nil, false

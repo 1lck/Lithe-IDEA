@@ -199,8 +199,12 @@ func (w *window) readOnlyField(c ui.C, label, value string) {
 		})
 }
 
-// pluginSettingRow declares one setting: its title, the control for its kind and what is
-// known about its value. Whatever the user does with the control changes the draft only.
+// pluginSettingRow declares one setting on one line: its title on the leading side, and on
+// the trailing side the control for its kind and Reset, so the controls of a page line up
+// down its trailing edge. A text, path or list takes most of the line, and moves under the
+// title where the pane is too narrow for both. What is known about the value, and the
+// options of a multiple choice, follow under the line. Whatever the user does with the
+// control changes the draft only.
 func (w *window) pluginSettingRow(c ui.C, index int, hasSource bool) {
 	p := w.pluginSettings
 	language := w.marketLanguage()
@@ -212,57 +216,74 @@ func (w *window) pluginSettingRow(c ui.C, index int, hasSource bool) {
 	}
 	control := &p.controls[p.scope][index]
 	disabled := p.running || !p.loaded || !editor.Editable || !hasSource
-	ui.Column(c).FillWidth().Shrink(0).Gap(5).PadY(8).Children(func() {
-		ui.Row(c).FillWidth().Height(22).Items(ui.Center).Gap(8).Children(func() {
-			ui.Text(c, declaration.Title).FontSize(12).Weight(gfx.WeightSemibold).Color(w.pal.text).Ellipsis()
-			if declaration.Description != "" {
-				w.infoButton(c, declaration.Description)
+	text := declaration.Kind != "boolean" && declaration.Kind != "enum" && declaration.Kind != "multiSelect"
+	ui.Column(c).FillWidth().Shrink(0).Gap(4).PadY(6).Children(func() {
+		// The title starts the line, and the value with its buttons ends it. A value typed in
+		// or chosen from a list shares the line with the title two to three, and moves under
+		// it, buttons and all, when the pane has no room for both at their minimum widths; a
+		// switch leaves the title the rest of the line.
+		ui.Flow(c).FillWidth().MinHeight(30).Items(ui.Center).Gap(8).LineGap(6).Children(func() {
+			ui.Row(c.Part("title")).Basis(0).Grow(2).Shrink(1).MinWidth(120).Items(ui.Center).Gap(8).Children(func() {
+				ui.Text(c, declaration.Title).FontSize(12).Weight(gfx.WeightSemibold).Color(w.pal.text).Shrink(1).MinWidth(0).Ellipsis()
+				if declaration.Description != "" {
+					w.infoButton(c, declaration.Description)
+				}
+			})
+			value := ui.Row(c.Part("value")).Shrink(0).Justify(ui.End).Items(ui.Center).Gap(8)
+			switch declaration.Kind {
+			case "enum":
+				value = value.Basis(0).Grow(3).MinWidth(220)
+			case "boolean", "multiSelect":
+			default:
+				value = value.Basis(0).Grow(3).MinWidth(260)
 			}
-			ui.Spacer(c)
-			if ui.Button(c, i18n.Shared(language, "desktop.pluginSettings.reset")).Outline().Disabled(disabled).Clicked() {
-				control.apply(editor.ResetInput)
-				control.reset = true
-			}
+			value.Children(func() {
+				switch declaration.Kind {
+				case "boolean":
+					// The title on the line names the switch, so the switch carries the title
+					// for assistive technology only and shows no caption of its own.
+					if ui.Switch(c, &control.input.On, "").Label(declaration.Title).Disabled(disabled).Changed() {
+						control.reset = false
+					}
+				case "enum":
+					labels := declaration.Options
+					label := func(option int) string { return labels[option].Title }
+					if disabled {
+						ui.Text(c, label(control.input.Selected)).FontSize(12).Color(w.pal.muted).Grow(1).MinWidth(0).MaxWidth(230).TextEnd().Ellipsis()
+					} else if ui.Select(c, &control.input.Selected, control.options, label).Grow(1).MinWidth(120).MaxWidth(230).Label(declaration.Title).Changed() {
+						control.reset = false
+					}
+				case "multiSelect":
+					// Its options are listed under the line.
+				default:
+					if disabled {
+						w.readOnlyField(c, declaration.Title, control.text)
+					} else {
+						ui.TextField(c, &control.text, declaration.Title, declaration.Placeholder).Grow(1).MinWidth(0).Height(30)
+					}
+					if declaration.Kind == "file" || declaration.Kind == "directory" {
+						if ui.Button(c, i18n.Shared(language, "desktop.pluginSettings.browse")).Outline().Small().Shrink(0).Disabled(disabled).Clicked() {
+							// The native picker blocks, so it runs after the paint.
+							c.After(func() { w.pickPluginSettingPath(index) })
+						}
+					}
+				}
+				if ui.Button(c, i18n.Shared(language, "desktop.pluginSettings.reset")).Outline().Small().Shrink(0).Disabled(disabled).Clicked() {
+					control.apply(editor.ResetInput)
+					control.reset = true
+				}
+			})
 		})
-		switch declaration.Kind {
-		case "boolean":
-			// The title row above names the switch, so the switch carries the title for
-			// assistive technology only and shows no caption of its own.
-			if ui.Switch(c, &control.input.On, "").Label(declaration.Title).Disabled(disabled).Changed() {
-				control.reset = false
-			}
-		case "enum":
-			labels := declaration.Options
-			label := func(option int) string { return labels[option].Title }
-			if disabled {
-				ui.Text(c, label(control.input.Selected)).FontSize(12).Color(w.pal.muted).Width(230)
-			} else if ui.Select(c, &control.input.Selected, control.options, label).Width(230).Label(declaration.Title).Changed() {
-				control.reset = false
-			}
-		case "multiSelect":
+		if text && control.text != control.input.Text {
+			control.reset = false
+		}
+		if declaration.Kind == "multiSelect" {
 			for i, option := range declaration.Options {
 				ui.Row(c.Key(option.Value)).Height(26).FillWidth().Items(ui.Center).Gap(8).Children(func() {
 					if ui.Checkbox(c, &control.input.Checks[i], option.Title).Disabled(disabled).Changed() {
 						control.reset = false
 					}
 				})
-			}
-		default:
-			ui.Row(c).FillWidth().Gap(8).Items(ui.Center).Children(func() {
-				if disabled {
-					w.readOnlyField(c, declaration.Title, control.text)
-				} else {
-					ui.TextField(c, &control.text, declaration.Title, declaration.Placeholder).Grow(1).MinWidth(0).Height(30)
-				}
-				if declaration.Kind == "file" || declaration.Kind == "directory" {
-					if ui.Button(c, i18n.Shared(language, "desktop.pluginSettings.browse")).Outline().Disabled(disabled).Clicked() {
-						// The native picker blocks, so it runs after the paint.
-						c.After(func() { w.pickPluginSettingPath(index) })
-					}
-				}
-			})
-			if control.text != control.input.Text {
-				control.reset = false
 			}
 		}
 		if declaration.Kind == "integer" && declaration.Minimum != nil && declaration.Maximum != nil {

@@ -207,14 +207,19 @@ type ToolchainCandidatesRequest struct {
 	SystemInstallations     []ToolchainSystemInstallation   `json:"systemInstallations,omitempty"`
 	ProviderInstallations   []ToolchainProviderInstallation `json:"providerInstallations,omitempty"`
 	Environment             map[string]string               `json:"environment,omitempty"`
-	Fixed                   *ToolchainFixed                 `json:"fixed,omitempty"`
-	ProjectCodeAllowed      bool                            `json:"projectCodeAllowed,omitempty"`
+	// CommandHomes maps each declared command found on the PATH to its home, as for
+	// toolchains.resolve; Core lists those homes as shell candidates too.
+	CommandHomes       map[string]string `json:"commandHomes,omitempty"`
+	Fixed              *ToolchainFixed   `json:"fixed,omitempty"`
+	ProjectCodeAllowed bool              `json:"projectCodeAllowed,omitempty"`
 }
 
-// ToolchainShellCandidate is one login-shell home variable candidate.
+// ToolchainShellCandidate is one login-shell home: a declared variable's value, or
+// where a declared command was found on the PATH (Command set, Variable empty).
 type ToolchainShellCandidate struct {
 	CandidateID string  `json:"candidateID"`
-	Variable    string  `json:"variable"`
+	Variable    string  `json:"variable,omitempty"`
+	Command     string  `json:"command,omitempty"`
 	Home        string  `json:"home"`
 	Executable  string  `json:"executable,omitempty"`
 	Version     *string `json:"version,omitempty"`

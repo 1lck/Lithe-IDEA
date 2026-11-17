@@ -17,9 +17,10 @@ type GitHubAccount struct {
 	SignOut func()
 }
 
-// GitHubState is what the card shows: whether sign-in is configured, whether an account is
+// GitHubState is what the card shows: whether this build can reach GitHub, whether an account is
 // connected and as whom, and the device authorization in progress with its user code.
 type GitHubState struct {
+	// Available is whether the kernel plans GitHub requests; without it the card offers no sign-in.
 	Available       bool
 	Connected       bool
 	Login           string
@@ -59,7 +60,7 @@ func (w *window) gitHubCard(c ui.C, language i18n.Language, account *GitHubAccou
 				ui.Text(c, i18n.Shared(language, "desktop.github.working"))
 			default:
 				if !state.Available {
-					ui.Text(c, i18n.Shared(language, "desktop.github.notConfigured")).Color(w.pal.muted)
+					ui.Text(c, i18n.Shared(language, "desktop.github.unavailable")).Color(w.pal.muted)
 				} else if ui.Button(c, i18n.Shared(language, "desktop.github.signIn")).Outline().Clicked() && account.SignIn != nil {
 					account.SignIn()
 				}

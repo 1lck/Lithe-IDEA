@@ -21,7 +21,7 @@ var pushTagIndexes = []int{0, 1, 2}
 // repositories.
 func (a *App) drawGitReviewMenu(c ui.C, p *project) {
 	r := &a.reviewMenu
-	button, clicked := a.gitToolButton(c, i18n.Shared(a.language(), "desktop.gitReview.menuLabel"), icons.Ellipsis, r.open, !p.git.isRepository())
+	button, clicked := a.gitToolButton(c, i18n.Shared(a.language(), "desktop.gitReview.menuLabel"), icons.Ellipsis, r.open, !p.hasRepository())
 	if clicked {
 		r.open = !r.open
 	}

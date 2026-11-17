@@ -5,18 +5,22 @@ import (
 	"os/exec"
 	"strconv"
 	"strings"
+
+	"github.com/1lck/Lithe-IDEA/desktop/internal/sysinfo"
 )
 
 // ProcessSample is what a process tree used at one moment: its CPU share in percent of one core, and
-// the resident memory of every process in it, in bytes.
+// the memory of every process in it, in bytes: the resident set ps reports on macOS and Linux, the
+// private working set Task Manager shows on Windows.
 type ProcessSample struct {
 	CPUPercent  float64
 	MemoryBytes uint64
 }
 
 // SampleProcessTree reads the CPU and memory of a process and its descendants. ok is false when the
-// process is gone or the platform cannot tell. The sample is taken by one short-lived command, so the
-// caller samples on its own schedule and never from the window thread.
+// process is gone or the platform cannot tell. The sample reads the whole process table (one short-lived
+// ps on macOS and Linux, the Win32 API on Windows), so the caller samples on its own schedule and never
+// from the window thread.
 func SampleProcessTree(ctx context.Context, pid int) (ProcessSample, bool) {
 	if pid <= 0 {
 		return ProcessSample{}, false
@@ -73,44 +77,22 @@ func psCommand(ctx context.Context) ([]byte, error) {
 	return exec.CommandContext(ctx, "ps", "-axo", "pid=,ppid=,pcpu=,rss=").Output()
 }
 
-// windowsProcess is one row of the Win32_Process table: its tree links, its working set and the CPU
-// time it has used in 100-nanosecond units.
-type windowsProcess struct {
-	pid, parent int
-	workingSet  uint64
-	cpuTicks    uint64
-}
-
-// parseWindowsTable reads the CSV the Win32_Process query prints (ProcessId, ParentProcessId,
-// WorkingSetSize, KernelModeTime, UserModeTime) and sums the tree under root. cpuSeconds is the CPU
-// time the tree has used so far; the caller turns two readings into a share.
-func parseWindowsTable(output []byte, root int) (memoryBytes uint64, cpuSeconds float64, ok bool) {
+// sumProcessTree sums what root and its descendants in table hold in memory and the CPU time they
+// used, in seconds; ok is false when root is not in the table. Windows keeps the ID of a parent that
+// exited, which a later process may reuse, so a row that started before the process its parent ID
+// names is not that process's child. A start time or CPU time the system did not give counts as
+// unknown, not as zero.
+func sumProcessTree(table []sysinfo.Process, root int) (memoryBytes uint64, cpuSeconds float64, ok bool) {
+	rows := make(map[int]sysinfo.Process, len(table))
 	children := map[int][]int{}
-	rows := map[int]windowsProcess{}
-	for index, line := range strings.Split(string(output), "\n") {
-		line = strings.TrimSpace(line)
-		if index == 0 || line == "" {
-			continue
-		}
-		fields := strings.Split(strings.Trim(line, `"`), `","`)
-		if len(fields) != 5 {
-			continue
-		}
-		pid, err1 := strconv.Atoi(fields[0])
-		parent, err2 := strconv.Atoi(fields[1])
-		workingSet, err3 := strconv.ParseUint(fields[2], 10, 64)
-		kernel, err4 := strconv.ParseUint(fields[3], 10, 64)
-		user, err5 := strconv.ParseUint(fields[4], 10, 64)
-		if err1 != nil || err2 != nil || err3 != nil || err4 != nil || err5 != nil {
-			continue
-		}
-		rows[pid] = windowsProcess{pid: pid, parent: parent, workingSet: workingSet, cpuTicks: kernel + user}
-		children[parent] = append(children[parent], pid)
+	for _, row := range table {
+		rows[row.PID] = row
+		children[row.ParentPID] = append(children[row.ParentPID], row.PID)
 	}
 	if _, found := rows[root]; !found {
 		return 0, 0, false
 	}
-	var ticks uint64
+	var micros uint64
 	stack, seen := []int{root}, map[int]bool{}
 	for len(stack) > 0 {
 		pid := stack[len(stack)-1]
@@ -120,9 +102,16 @@ func parseWindowsTable(output []byte, root int) (memoryBytes uint64, cpuSeconds 
 		}
 		seen[pid] = true
 		current := rows[pid]
-		memoryBytes += current.workingSet
-		ticks += current.cpuTicks
-		stack = append(stack, children[pid]...)
+		memoryBytes += current.MemoryBytes
+		if current.CPUTime != nil {
+			micros += *current.CPUTime
+		}
+		for _, child := range children[pid] {
+			if started := rows[child].StartTime; started != 0 && current.StartTime != 0 && started < current.StartTime {
+				continue
+			}
+			stack = append(stack, child)
+		}
 	}
-	return memoryBytes, float64(ticks) / 1e7, true
+	return memoryBytes, float64(micros) / 1e6, true
 }

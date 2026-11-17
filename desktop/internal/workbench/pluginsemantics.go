@@ -82,8 +82,12 @@ const (
 	semanticRowHeight       = float32(24)
 	semanticPopupPad        = float32(4)
 	// semanticHoverDelay is how long the pointer rests on a symbol before the
-	// hover request starts. Negative lets tests exercise it without a clock wait.
-	semanticHoverDelay = 500 * time.Millisecond
+	// hover request starts. 300 ms matches the default of Zed and VS Code
+	// (editor.hover.delay); the delay is most of what the user waits, since a
+	// warm language server answers within a few milliseconds and Core keeps
+	// repeated answers (#1995). Negative lets tests exercise it without a
+	// clock wait.
+	semanticHoverDelay = 300 * time.Millisecond
 	// semanticAutoCompletionDelay is the typing pause before automatic
 	// completion asks. Negative lets tests skip the clock wait.
 	semanticAutoCompletionDelay = 120 * time.Millisecond

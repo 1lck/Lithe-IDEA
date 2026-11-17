@@ -111,12 +111,12 @@ func (s *pullState) preselectUpstream(root string) {
 	}
 }
 
-// pullRepos are the repositories the Pull dialog can pull into: the project's own, then each
-// nested repository, in the order the workspace lists them.
+// pullRepos are the repositories the Pull dialog can pull into: the project's own while the folder
+// is in one, then each nested repository, in the order the workspace lists them.
 func (a *App) pullRepos(p *project) []pullRepo {
-	repos := []pullRepo{{root: p.git.repositoryRoot(p.root), name: p.repositoryName("")}}
-	for _, repo := range p.nested.repos {
-		repos = append(repos, pullRepo{root: repo.root, name: p.repositoryName(repo.id)})
+	var repos []pullRepo
+	for _, repo := range p.workspaceRepositories() {
+		repos = append(repos, pullRepo{root: repo.root, name: repo.name})
 	}
 	return repos
 }
@@ -126,7 +126,7 @@ func (a *App) pullRepos(p *project) []pullRepo {
 // dialog starts on that repository, with the branch it tracks picked.
 func (a *App) openPullDialog(p *project) {
 	s := &p.log.sync
-	if s.busy || !p.git.isRepository() {
+	if s.busy || !p.hasRepository() {
 		return
 	}
 	repos := a.pullRepos(p)

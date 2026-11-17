@@ -2,27 +2,26 @@ package workbench
 
 import (
 	"context"
-	"strings"
 
 	"github.com/1lck/Lithe-IDEA/desktop/internal/core"
-	"github.com/1lck/Lithe-IDEA/desktop/internal/i18n"
-	"github.com/1lck/Lithe-IDEA/desktop/internal/icons"
 	"github.com/vivaui/viva/gfx"
 	"github.com/vivaui/viva/ui"
 )
 
-// This file is the references of the nested repositories (matrix id
-// git-multi-repository-references). The branch popup lists, under the project's own references,
-// the local branches and tags of each repository nested in the project folder, each repository in
-// its own group, read-only. The Git Log's reference pane lists the repository groups below its own
-// sections, with each repository's color from Core; a click on a group or one of its references makes
-// that repository the one the log walks (git_log_repo.go). The references are read when the popup
-// opens, and again with the log and the nested repositories.
+// This file is the references and the colors of the repositories of the project folder (matrix id
+// git-multi-repository-references). In a folder with several repositories the Git Log's reference
+// pane lists, below HEAD, a node per repository in Core's order and in each repository's color from
+// Core, each with its own local, remote and tag sections; a click on another repository's reference
+// walks that reference in its repository (git_log_repo.go). The references of the repository the log
+// reads its references with come with the history; the others are read with the log and again with
+// the repositories. The colors are assigned with the repositories (nested_repos.go) and mark each
+// repository in the branch popup, the change list, the Paths filter and the log rows.
 
-// nestedReferences are the references of one nested repository as the panel last read them.
+// nestedReferences are the references of one repository as the pane last read them, in the
+// sections of its node.
 type nestedReferences struct {
-	refs core.GitReferences
-	err  error
+	sections [3]logSection
+	err      error
 }
 
 // repositoryColorer is the part of the kernel that assigns the repository colors. Core's client
@@ -34,32 +33,37 @@ type repositoryColorer interface {
 // repositoryColorPage is the most identities one color request carries, as Core bounds it.
 const repositoryColorPage = 128
 
-// loadNestedReferences reads the references of the repository groups the reference pane lists in
-// the background, and the color slot of every repository of the workspace with them. The answer of
-// a reading that a newer one overtook is dropped.
+// repositorySwatchSize is the side of the square that marks a repository in its color.
+const repositorySwatchSize = 10
+
+// loadNestedReferences reads in the background the references of the repositories besides the
+// one whose references the log reads with its history: the nodes of the reference pane. The answer
+// of a reading that a newer one overtook is dropped.
 func (a *App) loadNestedReferences(p *project) {
 	kernel := a.kernel
 	n := &p.nested
 	n.refGen++
 	gen := n.refGen
-	// The branch popup lists every nested repository, so all of them are read; the project's own is
-	// read too while the log walks or the popup lists a nested repository, to list it as a group.
-	reads := append([]nestedRepo(nil), n.repos...)
-	if n.logRepo != "" || a.branch.repo != "" {
-		reads = append([]nestedRepo{{id: commitRepositoryID, root: p.root}}, reads...)
-	}
-	ids := p.workspaceRepositoryIDs()
-	a.background(p, gitTimeout, func(ctx context.Context) func(*App) {
-		out := make(map[string]nestedReferences, len(reads))
-		for _, repo := range reads {
-			refs, err := kernel.GitReferences(ctx, repo.root)
-			out[repo.id] = nestedReferences{refs: refs, err: err}
+	type read struct{ id, root string }
+	var reads []read
+	active := p.logRepoID()
+	for _, repo := range p.workspaceRepositories() {
+		if repo.id != active {
+			reads = append(reads, read{id: repo.id, root: repo.root})
 		}
-		slots, showColors := assignRepositoryColors(ctx, kernel, ids)
+	}
+	a.background(p, gitTimeout, func(ctx context.Context) func(*App) {
+		// The references are read again whenever a repository changes, so the console records
+		// these reads only when it shows background branch reads.
+		ctx = core.WithQueryCategory(ctx, core.GitQueryReferences)
+		out := make(map[string]nestedReferences, len(reads))
+		for _, r := range reads {
+			_, sections, _, err := readReferences(ctx, kernel, r.root)
+			out[r.id] = nestedReferences{sections: sections, err: err}
+		}
 		return func(a *App) {
 			if p.nested.refGen == gen {
 				p.nested.references = out
-				p.nested.slots, p.nested.showColors = slots, showColors
 			}
 		}
 	})
@@ -91,14 +95,38 @@ func assignRepositoryColors(ctx context.Context, kernel Kernel, ids []string) (m
 	return slots, showColors
 }
 
-// repositoryTint is the color a repository's group is drawn in: its Core slot in the palette when
-// the view shows colors, the text color otherwise.
+// repositoryTint is the color a repository is drawn in: its Core slot in the palette when the view
+// shows colors, the text color otherwise.
 func (a *App) repositoryTint(p *project, id string) gfx.Color {
-	slot, ok := p.nested.slots[id]
-	if !ok || !p.nested.showColors {
+	slot, ok := p.repositorySlot(id)
+	if !ok {
 		return a.colors.Text
 	}
 	return repositoryColor(slot, a.colors.Dark)
+}
+
+// repositorySlot is the Core color slot of the repository with ID, "" for the project's own, and
+// whether the view shows it in a color.
+func (p *project) repositorySlot(id string) (int, bool) {
+	if !p.nested.showColors {
+		return 0, false
+	}
+	if p.isOwnID(id) {
+		if own, ok := p.nested.own(); ok {
+			id = own.ID
+		}
+	}
+	slot, ok := p.nested.slots[id]
+	return slot, ok
+}
+
+// drawRepositorySwatch declares the square that marks a repository in its color, as IDEA marks the
+// roots of a project with several. Nothing is drawn while the view shows no colors.
+func (a *App) drawRepositorySwatch(c ui.C, p *project, id string) {
+	if _, ok := p.repositorySlot(id); !ok {
+		return
+	}
+	ui.Row(c).Size(repositorySwatchSize, repositorySwatchSize).Shrink(0).Radius(2).Background(a.repositoryTint(p, id))
 }
 
 // repositoryPalette is the pair of colors of each slot: the color on a dark surface, then on a
@@ -121,103 +149,55 @@ func repositoryColor(slot int, dark bool) gfx.Color {
 	return pick(dark, pair[0], pair[1])
 }
 
-// branchGroups are the repositories the popup lists below the picked one's references: the project's
-// own repository when the popup lists a nested one, then every nested repository but the picked one.
-func (a *App) branchGroups(p *project) []nestedRepo {
-	picked := a.branchRoot(p)
-	var groups []nestedRepo
-	if picked != p.git.repositoryRoot(p.root) {
-		groups = append(groups, nestedRepo{id: commitRepositoryID, root: p.root})
-	}
-	for _, repo := range p.nested.repos {
-		if repo.root != picked {
-			groups = append(groups, repo)
-		}
-	}
-	return groups
-}
-
-// drawNestedReferences declares the groups of the repositories the branch popup does not list
-// itself: one foldable group per repository, with its local branches and its tags.
-func (a *App) drawNestedReferences(c ui.C, p *project, t i18n.BranchMessages) {
-	b := &a.branch
-	for _, repo := range a.branchGroups(p) {
-		key := "nested/" + repo.id
-		refs, loaded := p.nested.references[repo.id]
-		collapsed := b.collapsed[key]
-		if a.drawBranchSection(c, key, p.repositoryName(repo.id), collapsed, true) {
-			c.After(func() { b.collapsed[key] = !b.collapsed[key] })
-		}
-		if collapsed {
-			continue
-		}
-		switch {
-		case !loaded:
-			a.drawBranchNote(c, t.Loading)
-		case refs.err != nil:
-			a.drawBranchNote(c, t.LoadFailed(refs.err.Error()))
-		default:
-			for _, r := range refs.refs.References {
-				if r.Kind != "local" && r.Kind != "tag" {
-					continue
-				}
-				a.drawNestedReferenceRow(c, r)
-			}
-		}
-	}
-}
-
-// drawNestedReferenceRow declares one reference of a nested repository: its icon in the color of
-// its kind and its name.
-func (a *App) drawNestedReferenceRow(c ui.C, r core.GitReference) {
-	icon := icons.GitBranch
-	if r.Kind == "tag" {
-		icon = icons.Tag
-	}
-	ui.Row(c.Key("nestedref/" + r.FullName)).Height(branchRowHeight).Shrink(0).FillWidth().Items(ui.Center).Gap(chromeMenuGap).PadX(chromeEdge + 12).Children(func() {
-		ui.Icon(c, icon).Size(chromeIconSize, chromeIconSize).Shrink(0).Color(referenceColor(r.Kind, a.colors.Dark))
-		ui.Text(c, r.ShortName).Color(a.colors.Text).LineHeight(chromeLineHeight).Ellipsis().Grow(1)
-	})
-}
-
-// appendNestedLogRows appends the groups of the other repositories to the reference pane: one row
-// per repository with local branches or tags, then those references. A click on a group or a
-// reference makes its repository the one the log walks. While the filter has text only the matching
-// references show, and every group opens. It returns how many references the groups list.
-func (a *App) appendNestedLogRows(rows []logRefRow, p *project, query string) ([]logRefRow, int) {
+// appendRepositoryLogRows appends a node per repository of the project folder to the reference
+// pane, in Core's order, each with its own sections of local branches, remote branches and tags, as
+// IDEA's branches pane groups a project with several roots. The references of the repository whose
+// history the log reads its references with act on it; a click on another repository's reference
+// walks that reference in its repository. While the filter has text only the matching references
+// show, and every node opens. It returns how many references the nodes list.
+func (a *App) appendRepositoryLogRows(rows []logRefRow, p *project, query string) ([]logRefRow, int) {
 	shown := 0
-	for _, repo := range p.referenceGroups() {
-		refs, loaded := p.nested.references[repo.id]
-		if !loaded || refs.err != nil {
-			continue
-		}
-		var matches []core.GitReference
-		for _, r := range refs.refs.References {
-			if r.Kind != "local" && r.Kind != "tag" {
+	active := p.logRepoID()
+	for _, repo := range p.workspaceRepositories() {
+		sections, foreign := &p.log.sections, ""
+		if repo.id != active {
+			refs, loaded := p.nested.references[repo.id]
+			if !loaded || refs.err != nil {
 				continue
 			}
-			if query != "" && !strings.Contains(strings.ToLower(r.ShortName), query) {
-				continue
-			}
-			matches = append(matches, r)
+			sections, foreign = &refs.sections, repo.id
 		}
-		if len(matches) == 0 {
-			continue
-		}
-		shown += len(matches)
-		key := "nested/" + repo.id
+		key := logRepoRefKey(repo.id)
 		open := query != "" || !p.log.collapsed[key]
+		node := len(rows)
 		rows = append(rows, logRefRow{
-			kind: logRefRepository, label: p.repositoryName(repo.id), short: repo.id, repo: repo.id, key: key, open: open,
+			kind: logRefRepository, label: repo.name, short: repo.id, repo: repo.id, key: key, open: open,
 			tint: a.repositoryTint(p, repo.id),
 		})
-		if !open {
+		var count int
+		if open {
+			rows, count = a.appendLogSections(rows, p, key+"/", foreign, sections, 1, query)
+		} else {
+			count = sectionRefCount(sections)
+		}
+		if query != "" && count == 0 {
+			rows = rows[:node]
 			continue
 		}
-		for i := range matches {
-			ref := &matches[i]
-			rows = append(rows, logRefRow{kind: logRefForeign, depth: 1, label: ref.ShortName, key: ref.FullName, short: ref.ShortName, ref: ref, repo: repo.id})
-		}
+		shown += count
 	}
 	return rows, shown
+}
+
+// logRepoRefKey is the key of a repository's node in the reference pane; its sections and folders
+// are keyed under it.
+func logRepoRefKey(id string) string { return "r/" + id }
+
+// sectionRefCount is how many references sections hold.
+func sectionRefCount(sections *[3]logSection) int {
+	n := 0
+	for i := range sections {
+		n += len(sections[i].refs)
+	}
+	return n
 }

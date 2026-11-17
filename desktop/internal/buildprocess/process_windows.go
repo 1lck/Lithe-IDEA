@@ -6,6 +6,7 @@ import (
 	"errors"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"sync"
 	"syscall"
 	"unsafe"
@@ -29,10 +30,27 @@ type processPlatform struct {
 	active bool
 }
 
-func (p *processPlatform) configure(command *exec.Cmd) {
+func (p *processPlatform) configure(command *exec.Cmd) error {
 	command.SysProcAttr = &syscall.SysProcAttr{
 		CreationFlags: windows.CREATE_NO_WINDOW | windows.CREATE_SUSPENDED | windows.CREATE_NEW_PROCESS_GROUP,
 	}
+	// A program that was not found keeps its lookup error for Start to report.
+	if command.Err != nil || !isBatchFile(command.Path) {
+		return nil
+	}
+	// A script runs through cmd.exe; the host starts cmd.exe itself with a line it built, so
+	// the script's path and arguments reach it as written (batch.go).
+	line, err := batchCommandLine(command.Path, command.Args[1:])
+	if err != nil {
+		return err
+	}
+	system, err := windows.GetSystemDirectory()
+	if err != nil {
+		return err
+	}
+	command.Path = filepath.Join(system, "cmd.exe")
+	command.SysProcAttr.CmdLine = line
+	return nil
 }
 
 func (p *processPlatform) adopt(process *os.Process) error {

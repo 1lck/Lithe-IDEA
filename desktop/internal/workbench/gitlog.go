@@ -70,6 +70,12 @@ const (
 	logPopoverPath
 	// logPopoverBranchSettings is the menu of the reference pane's settings.
 	logPopoverBranchSettings
+	// logPopoverViewMore is the overflow menu of the filter bar: the view buttons it has no room
+	// for.
+	logPopoverViewMore
+	// logPopoverRoots is the list of the repositories of the project folder under the name of the
+	// one the log walks, after the filter chips.
+	logPopoverRoots
 )
 
 // logSection is one section of the reference pane: the local branches, the remote ones
@@ -103,12 +109,23 @@ type gitLogState struct {
 	referenceLabel string
 
 	commits []core.GitCommit
+	// byHash finds a loaded commit by the key the graph knows it by: its hash, or the merged key
+	// while the log walks several repositories.
 	byHash  map[string]int
 	cursor  string
 	hasMore bool
+	// walks are the repositories the log walks while it walks several, origins where each of the
+	// commits comes from and pending the walks whose next page the list waits on; all nil while
+	// the log walks one repository (gitlog_multi.go).
+	walks   []logWalk
+	origins []logOrigin
+	pending []int
 	// loadingMore and moreFailed are the state of the next page.
 	loadingMore bool
 	moreFailed  bool
+	// limitReached says the log read as many commits as the Git Log settings let it while the
+	// history goes on; the list ends there with a note offering the settings (gitlog_limits.go).
+	limitReached bool
 	// window is the wider history the graph's lanes and colors stay stable against.
 	window []core.GraphCommit
 
@@ -209,6 +226,7 @@ func (a *App) loadLog(p *project) {
 	if l.cursor != "" {
 		a.closeLogCursor(p, l.cursor)
 	}
+	a.closeWalkCursors(p, l.walks)
 	l.gen++
 	gen := l.gen
 	// A projection still running for the old commits must not land on the new ones.
@@ -219,7 +237,8 @@ func (a *App) loadLog(p *project) {
 	}
 	l.loading, l.err = true, nil
 	l.commits, l.byHash, l.cursor, l.hasMore = nil, nil, "", false
-	l.loadingMore, l.moreFailed, l.window = false, false, nil
+	l.walks, l.origins, l.pending = nil, nil, nil
+	l.loadingMore, l.moreFailed, l.limitReached, l.window = false, false, false, nil
 	l.graph, l.currentRows = core.Graph{}, nil
 	l.pathFiles = nil
 	// The upstreams the graph paints were read for the repository before this one.
@@ -227,14 +246,18 @@ func (a *App) loadLog(p *project) {
 	a.selectCommit(p, "")
 	// The nested repositories' groups in the reference pane are read with the log (nested_refs.go).
 	a.loadNestedReferences(p)
+	if p.walksSeveral() {
+		a.loadLogRepos(p, gen)
+		return
+	}
 	kernel, root, reference := a.kernel, p.logRoot(), l.reference
-	expanded := l.expanded
+	expanded, limit := l.expanded, a.gitLogLimit()
 	a.background(p, gitTimeout, func(ctx context.Context) func(*App) {
 		refs, sections, current, err := readReferences(ctx, kernel, root)
 		var page core.GitHistoryPage
 		var graph core.Graph
 		if err == nil {
-			page, err = kernel.GitHistoryPage(ctx, root, reference, "", logPageSize)
+			page, err = kernel.GitHistoryPage(ctx, root, reference, "", min(logPageSize, limit), limit)
 		}
 		if err == nil {
 			commits := graphCommits(page.Commits)
@@ -260,7 +283,7 @@ func (a *App) loadLog(p *project) {
 			l.refs, l.sections, l.current = refs, sections, current
 			l.commits = page.Commits
 			l.byHash = indexCommits(page.Commits)
-			l.cursor, l.hasMore = page.NextCursor, page.HasMore
+			l.cursor, l.hasMore, l.limitReached = page.NextCursor, page.HasMore, page.LimitReached
 			l.setGraph(graph)
 			if l.filtered() {
 				a.reproject(p, 0)
@@ -314,11 +337,13 @@ func readReferences(ctx context.Context, kernel Kernel, root string) (core.GitRe
 	return refs, sections, current, nil
 }
 
-// loadLogWindow reads the wider history window and lays the graph out again against it.
+// loadLogWindow reads the wider history window, no wider than the log reads, and lays the
+// graph out again against it.
 func (a *App) loadLogWindow(p *project, gen int) {
 	kernel, root, reference := a.kernel, p.logRoot(), p.log.reference
+	size := min(logWindowSize, a.gitLogLimit())
 	a.background(p, gitTimeout, func(ctx context.Context) func(*App) {
-		page, err := kernel.GitHistoryPage(ctx, root, reference, "", logWindowSize)
+		page, err := kernel.GitHistoryPage(ctx, root, reference, "", size, size)
 		if err == nil && page.NextCursor != "" {
 			_, _ = kernel.CloseGitHistoryCursor(ctx, root, page.NextCursor)
 		}
@@ -339,6 +364,10 @@ func (a *App) loadLogWindow(p *project, gen int) {
 // loadMoreLog reads the next page of history when there is one and none is on its way.
 func (a *App) loadMoreLog(p *project) {
 	l := &p.log
+	if l.walks != nil {
+		a.loadMoreLogRepos(p)
+		return
+	}
 	if l.loading || !l.hasMore || l.loadingMore || l.moreFailed || l.cursor == "" {
 		return
 	}
@@ -346,7 +375,7 @@ func (a *App) loadMoreLog(p *project) {
 	gen := l.gen
 	kernel, root, reference, cursor := a.kernel, p.logRoot(), l.reference, l.cursor
 	a.background(p, gitTimeout, func(ctx context.Context) func(*App) {
-		page, err := kernel.GitHistoryPage(ctx, root, reference, cursor, logPageSize)
+		page, err := kernel.GitHistoryPage(ctx, root, reference, cursor, logPageSize, 0)
 		return func(a *App) {
 			if l.gen != gen {
 				return
@@ -358,7 +387,7 @@ func (a *App) loadMoreLog(p *project) {
 			}
 			l.commits = slices.Concat(l.commits, page.Commits)
 			l.byHash = indexCommits(l.commits)
-			l.cursor, l.hasMore = page.NextCursor, page.HasMore
+			l.cursor, l.hasMore, l.limitReached = page.NextCursor, page.HasMore, page.LimitReached
 			a.reproject(p, 0)
 		}
 	})
@@ -380,6 +409,12 @@ func (a *App) setLogReference(p *project, full, short string) {
 	if l.reference == full {
 		return
 	}
+	if p.walksSeveral() {
+		// A reference names a commit of one repository, so the log walks that reference in the
+		// repository whose references it lists rather than every repository together.
+		a.setLogRepo(p, p.logRepoID(), full, short)
+		return
+	}
 	l.reference, l.referenceLabel = full, short
 	a.loadLog(p)
 }
@@ -387,7 +422,11 @@ func (a *App) setLogReference(p *project, full, short string) {
 // logProjection is what one graph layout is made from, copied so the background work
 // reads nothing the window thread changes.
 type logProjection struct {
-	commits          []core.GitCommit
+	commits []core.GitCommit
+	// keys and roots are the merged keys and the repository roots of the commits while the log
+	// walks several repositories, nil while it walks one.
+	keys, roots      []string
+	origins          []logOrigin
 	window           []core.GraphCommit
 	remotes          []string
 	current          string
@@ -410,16 +449,23 @@ func (a *App) reproject(p *project, delay time.Duration) {
 	l.projStop = stop
 	in := logProjection{
 		commits:  l.commits,
+		keys:     l.logKeys(),
+		roots:    l.logRoots(),
+		origins:  l.origins,
 		window:   l.window,
-		remotes:  remoteNames(l.sections),
+		remotes:  l.logRemoteNames(),
 		current:  l.current,
 		expanded: l.expanded,
 		text:     strings.ToLower(l.text),
 		user:     l.user,
 		path:     strings.ToLower(l.path),
 	}
-	if len(in.window) < len(in.commits) {
+	if len(in.window) < len(in.commits) || in.origins != nil {
 		in.window = nil
+	}
+	if in.origins != nil {
+		// A branch name may be checked out in each of the repositories, so none is the current one.
+		in.current = ""
 	}
 	if l.date != logAnyTime {
 		in.after, in.before = logDateBounds(l.date, a.now())
@@ -465,6 +511,18 @@ func (a *App) reproject(p *project, delay time.Duration) {
 // run filters the commits and asks the kernel for the layout of what is left. It
 // returns the files the path filter read, so the next run does not read them again.
 func (in logProjection) run(ctx context.Context, kernel Kernel, root string, dated bool) (core.Graph, map[string][]core.GitCommitFile, error) {
+	key := func(i int) string {
+		if in.keys != nil {
+			return in.keys[i]
+		}
+		return in.commits[i].Hash
+	}
+	rootAt := func(i int) string {
+		if in.roots != nil {
+			return in.roots[i]
+		}
+		return root
+	}
 	var visible []string
 	if in.text != "" || in.user != "" || in.path != "" || dated {
 		keep := make([]bool, len(in.commits))
@@ -478,17 +536,20 @@ func (in logProjection) run(ctx context.Context, kernel Kernel, root string, dat
 			}
 		}
 		if in.path != "" {
+			// The path filter reads the files of commit after commit, which the console
+			// records only when it records these reads.
+			filtering := core.WithQueryCategory(ctx, core.GitQueryLogPathFilter)
 			for i, c := range in.commits {
 				if !keep[i] {
 					continue
 				}
-				files, ok := in.pathFiles[c.Hash]
+				files, ok := in.pathFiles[key(i)]
 				if !ok {
 					var err error
-					if files, err = kernel.GitCommitFiles(ctx, root, c.Hash); err != nil {
+					if files, err = kernel.GitCommitFiles(filtering, rootAt(i), c.Hash); err != nil {
 						return core.Graph{}, in.pathFiles, err
 					}
-					in.pathFiles[c.Hash] = files
+					in.pathFiles[key(i)] = files
 				}
 				keep[i] = slices.ContainsFunc(files, func(f core.GitCommitFile) bool {
 					return strings.Contains(strings.ToLower(f.Path), in.path)
@@ -496,13 +557,13 @@ func (in logProjection) run(ctx context.Context, kernel Kernel, root string, dat
 			}
 		}
 		visible = make([]string, 0, len(in.commits))
-		for i, c := range in.commits {
+		for i := range in.commits {
 			if keep[i] {
-				visible = append(visible, c.Hash)
+				visible = append(visible, key(i))
 			}
 		}
 	}
-	commits := graphCommits(in.commits)
+	commits := graphInput(in.commits, in.origins)
 	window := in.window
 	if window == nil {
 		window = commits
@@ -519,9 +580,14 @@ func (in logProjection) keepDates(ctx context.Context, kernel Kernel, keep []boo
 	for start := 0; start < len(in.commits); start += logDateChunk {
 		end := min(start+logDateChunk, len(in.commits))
 		entries := make([]core.HistoryDateEntry, 0, end-start)
-		for _, c := range in.commits[start:end] {
+		for i := start; i < end; i++ {
+			c := in.commits[i]
+			id := c.Hash
+			if in.keys != nil {
+				id = in.keys[i]
+			}
 			entries = append(entries, core.HistoryDateEntry{
-				ID: c.Hash, Date: c.Date, UTCOffsetMinutes: c.DateUTCOffsetMinutes, FallbackUnixSeconds: c.DateUnixSeconds,
+				ID: id, Date: c.Date, UTCOffsetMinutes: c.DateUTCOffsetMinutes, FallbackUnixSeconds: c.DateUnixSeconds,
 			})
 		}
 		ids, err := kernel.GitHistoryDates(ctx, entries, in.after, in.before)
@@ -533,7 +599,11 @@ func (in logProjection) keepDates(ctx context.Context, kernel Kernel, keep []boo
 			match[id] = true
 		}
 		for i := start; i < end; i++ {
-			keep[i] = keep[i] && match[in.commits[i].Hash]
+			id := in.commits[i].Hash
+			if in.keys != nil {
+				id = in.keys[i]
+			}
+			keep[i] = keep[i] && match[id]
 		}
 	}
 	return nil
@@ -594,7 +664,11 @@ func (a *App) selectCommit(p *project, hash string) {
 	stop := make(chan struct{})
 	l.selStop = stop
 	delay := a.delays.files
-	kernel, root := a.kernel, p.logRoot()
+	kernel, root, key := a.kernel, p.logRoot(), hash
+	if l.origins != nil {
+		// The commit is read in its own repository, under its hash.
+		root, hash = p.logCommitAt(key)
+	}
 	a.background(p, gitTimeout, func(ctx context.Context) func(*App) {
 		if delay > 0 {
 			select {

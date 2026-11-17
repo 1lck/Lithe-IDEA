@@ -41,8 +41,8 @@ const (
 )
 
 // runEntry is one session of the Run window: an execution the Build window, a run
-// configuration or the IDE API started (operation, while it runs), or a run a plugin
-// started (pluginID). It keeps the execution's console, when it started and ended, and
+// configuration or the IDE API started (operation, while it runs), a build model load (sync),
+// or a run a plugin started (pluginID). It keeps the execution's console, when it started and ended, and
 // how. A plugin's process belongs to the plugin service, which also owns stopping it.
 type runEntry struct {
 	id string
@@ -54,6 +54,8 @@ type runEntry struct {
 	restart func(*App, *project)
 	// operation is the host's execution writing the session, nil once it ended.
 	operation *buildOperation
+	// sync is the build model load the session shows (build_sync.go), nil for an execution.
+	sync *buildSync
 	// output is the console, decoded from the execution's ANSI escapes.
 	output  outputBuffer
 	running bool
@@ -267,7 +269,8 @@ func (a *App) applyRunOutput(id string, chunk outputChunk) {
 
 // addRunSession shows a new session in the Run window and selects it. A finished session
 // with the same label gives its tab to the new one, as running something again replaces the
-// tab of what it repeats; past maxRunEntries the oldest finished sessions go.
+// tab of what it repeats; past maxRunEntries the oldest finished sessions go, those of model
+// loads first, so the loads of many modules never push out what the user ran.
 func (a *App) addRunSession(p *project, entry *runEntry) {
 	b := &p.build
 	replaced := false
@@ -281,7 +284,10 @@ func (a *App) addRunSession(p *project, entry *runEntry) {
 		b.runs = append(b.runs, entry)
 	}
 	for len(b.runs) > maxRunEntries {
-		index := slices.IndexFunc(b.runs, func(candidate *runEntry) bool { return !candidate.running })
+		index := slices.IndexFunc(b.runs, func(candidate *runEntry) bool { return !candidate.running && candidate.sync != nil })
+		if index < 0 {
+			index = slices.IndexFunc(b.runs, func(candidate *runEntry) bool { return !candidate.running })
+		}
 		if index < 0 {
 			break
 		}
@@ -348,11 +354,15 @@ func (a *App) snapshotRunOutput(p *project, entry *runEntry) {
 	}
 }
 
-// stopRun ends a session: the host's execution through the Build window's stop, a
-// plugin's run through the plugin service, which stops and reaps the process tree on a
-// background goroutine, so the window never waits for it.
+// stopRun ends a session: the host's execution through the Build window's stop, a model
+// load by ending its load, a plugin's run through the plugin service, which stops and reaps
+// the process tree on a background goroutine, so the window never waits for it.
 func (a *App) stopRun(p *project, entry *runEntry) {
 	if entry == nil || !entry.running {
+		return
+	}
+	if entry.sync != nil {
+		a.stopBuildSync(entry)
 		return
 	}
 	if entry.pluginID == "" {

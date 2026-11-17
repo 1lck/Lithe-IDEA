@@ -394,3 +394,47 @@ func TestPluginLanguageWithoutGrammarKeepsBundledColors(t *testing.T) {
 		t.Fatalf("SyntaxForPath of an empty path = %v", s)
 	}
 }
+
+func TestCommentsForPath(t *testing.T) {
+	r := NewRegistry()
+	// Every file the line comment toggle took while Core kept its own table keeps its token.
+	for token, names := range map[string][]string{
+		"//": {"a.c", "a.h", "a.cpp", "a.cc", "a.cxx", "a.hpp", "a.hxx", "a.kt", "build.kts", "a.swift", "a.js",
+			"a.jsx", "a.mjs", "a.cjs", "a.ts", "a.tsx", "main.go", "lib.rs", "a.cs", "a.php", "a.dart", "a.scala",
+			"a.groovy", "a.m", "a.mm", "a.zig"},
+		"#": {"a.py", "a.rb", "a.sh", "a.bash", "a.zsh", "a.yml", "a.yaml", "Cargo.toml", "a.ini", "setup.cfg",
+			"nginx.conf", "app.properties", ".env", "prod.env", "a.r", "a.rmd", "a.pl", "a.ex"},
+		"--": {"a.sql", "a.lua", "Main.hs"},
+	} {
+		for _, name := range names {
+			if got := r.CommentsForPath("src/" + name).Line; got != token {
+				t.Errorf("CommentsForPath(%q).Line = %q, want %q", name, got, token)
+			}
+		}
+	}
+	// A language with block comments only, or a file no language takes, has no line token.
+	for _, path := range []string{"README.md", "site.css", "unknown.zzz", ""} {
+		if got := r.CommentsForPath(path).Line; got != "" {
+			t.Errorf("CommentsForPath(%q).Line = %q, want none", path, got)
+		}
+	}
+
+	own := strings.Replace(demoGrammar, "source.demo", "source.own", 1)
+	if failed, _ := r.SetPluginLanguages([]PluginLanguage{
+		// A plugin declares its language's comments.
+		{ID: "demo", Extensions: []string{"demo"}, Grammar: []byte(demoGrammar), Comments: Comments{Line: ";;"}},
+		// A plugin language for a bundled one inherits the comments it does not set.
+		{ID: "go", Extensions: []string{"go"}},
+		// A plugin language that only names files keeps the bundled language's comments.
+		{ID: "clangd", Extensions: []string{"c", "lua"}},
+		// A plugin language with a grammar of its own has only the comments it declares.
+		{ID: "own", Extensions: []string{"py"}, Grammar: []byte(own)},
+	}); len(failed) != 0 {
+		t.Fatalf("failed %v", failed)
+	}
+	for path, want := range map[string]string{"a.demo": ";;", "main.go": "//", "main.c": "//", "init.lua": "--", "a.py": ""} {
+		if got := r.CommentsForPath(path).Line; got != want {
+			t.Errorf("with plugins, CommentsForPath(%q).Line = %q, want %q", path, got, want)
+		}
+	}
+}

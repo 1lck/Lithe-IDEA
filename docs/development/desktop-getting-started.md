@@ -313,7 +313,7 @@ Linux 的偏好目录和插件目录按 `$XDG_CONFIG_HOME` 解析，表中是未
 
 ## 八、在多个 worktree 中开发
 
-- 每个 worktree 有自己的 `.artifacts/desktop/`（Rust 内核检出、Cargo 输出和暂存库）。这些构建状态在 `scripts/resources/worktree-resources.json` 中登记为 `viva-core-build-state`，**不允许跨 worktree 复制**，所以每个新 worktree 第一次构建都要完整编译一次 Rust 内核。不要手工复制或共享 `.artifacts/`。
+- 每个 worktree 有自己的 `.artifacts/desktop/`（Rust 内核检出、Cargo 输出和暂存库），新 worktree 第一次构建要完整编译一次 Rust 内核。两个 worktree 的 Core 固定版本、Viva 版本、平台和工具链都相同时，可以在 macOS 用 `cp -cR <已有 worktree>/.artifacts/desktop <新 worktree>/.artifacts/` 克隆一份再构建，构建脚本只重编 Core 自己的 crate；不要用链接或让两个 worktree 共用同一个目录。
 - Cargo 的 crate 下载缓存（`~/.cargo/registry`）和 Go 的模块缓存是全局共享的，新 worktree 不会重复下载依赖。
 - 详细说明见 [`docs/ci-builds.md` 的“独立工作树的本地编译”](../ci-builds.md#独立工作树的本地编译)。
 

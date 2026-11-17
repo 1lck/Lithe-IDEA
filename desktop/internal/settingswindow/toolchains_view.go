@@ -47,12 +47,19 @@ type toolchainState struct {
 	// draft maps a tool ID to the directory home the user selected, empty for
 	// the automatic layers.
 	draft map[string]string
-	// picks are the radio groups' bound values, one per tool, mirrored from draft in each paint.
+	// picks are the lists' bound values, one per tool, mirrored from draft in each paint.
 	picks map[string]*string
+	// customizing names the tools whose list is on Custom…: their directory field shows
+	// until a directory checks out or another entry is chosen.
+	customizing map[string]bool
 }
 
+// toolchainCustom is the value of the entry of a tool's list that asks for a directory the
+// discovery did not find. A home is a path, which never holds a NUL, so it names none.
+const toolchainCustom = "\x00custom"
+
 func newToolchainState(loader ToolchainLoader) *toolchainState {
-	t := &toolchainState{loader: loader, scope: "project", draft: make(map[string]string), picks: make(map[string]*string), inputs: make(map[string]*string), custom: make(map[string]core.ToolchainPin), registrations: make(map[string]bool)}
+	t := &toolchainState{loader: loader, scope: "project", draft: make(map[string]string), picks: make(map[string]*string), customizing: make(map[string]bool), inputs: make(map[string]*string), custom: make(map[string]core.ToolchainPin), registrations: make(map[string]bool)}
 	if _, ok := loader.(ToolchainScopedLoader); ok {
 		t.scope = "global"
 	}
@@ -182,6 +189,8 @@ func (t *toolchainState) acceptInspection(id string, selection core.ToolchainSel
 	} else {
 		t.custom[id] = pin
 	}
+	// The checked directory is now an entry of the list, which shows it chosen.
+	delete(t.customizing, id)
 	t.choose(id, pin.Home)
 }
 
@@ -223,6 +232,7 @@ func (t *toolchainState) apply(snapshot toolchain.Snapshot, saved bool) {
 	{
 		t.custom = make(map[string]core.ToolchainPin)
 		t.registrations = make(map[string]bool)
+		t.customizing = make(map[string]bool)
 		t.inputs = make(map[string]*string)
 		t.draft = make(map[string]string, len(snapshot.Tools))
 		for _, tool := range snapshot.Tools {
@@ -248,6 +258,7 @@ func (t *toolchainState) resetDrafts() {
 	for _, tool := range t.snapshot.Tools {
 		t.draft[tool.ID] = ""
 	}
+	clear(t.customizing)
 	t.saved = false
 }
 
@@ -403,50 +414,81 @@ func (w *window) toolchainTool(c ui.C, language i18n.Language, tool toolchain.To
 			reason := toolchainReason(tool)
 			ui.Text(c, i18n.SharedFormat(language, "desktop.toolchains.unavailable", map[string]string{"reason": reason})).FontSize(12).Color(w.pal.danger)
 		}
-		pick := t.pick(tool.ID)
-		*pick = t.draft[tool.ID]
-		automatic := ""
-		if tool.AutomaticHome != "" {
-			automatic = tool.AutomaticHome
-		} else {
+		// One list holds every directory the tool can use: the automatic choice, which shows
+		// what discovery picks, each installation found, the saved pin, a checked directory,
+		// and, where directories can be checked, Custom… for one discovery did not find.
+		var choices []string
+		labels := make(map[string]string)
+		add := func(home, label string) {
+			if _, ok := labels[home]; !ok {
+				choices = append(choices, home)
+				labels[home] = label
+			}
+		}
+		automatic := tool.AutomaticHome
+		if automatic == "" {
 			automatic = i18n.Shared(language, "desktop.toolchains.noInstallations")
 		}
-		w.radio(c.Part("automatic"), pick, "", i18n.SharedFormat(language, "desktop.toolchains.automatic", map[string]string{"value": automatic}), busy)
-		pinShown := false
+		add("", i18n.SharedFormat(language, "desktop.toolchains.automatic", map[string]string{"value": automatic}))
+		// An installation without a version cannot be pinned, so it is not a choice; it is
+		// listed under the list.
+		var unversioned []string
 		for _, installation := range tool.Installations {
-			home := installation.Home
-			if tool.Pin != nil && tool.Pin.Home == home {
-				pinShown = true
-			}
 			label := i18n.SharedFormat(language, "desktop.toolchains.installation", map[string]string{
-				"home": home, "version": installation.Version, "provider": installation.Provider,
+				"home": installation.Home, "version": installation.Version, "provider": installation.Provider,
 			})
-			w.radio(c.Key(home), pick, home, label, installation.Version == "" || busy)
+			if installation.Version == "" {
+				unversioned = append(unversioned, label)
+				continue
+			}
+			add(installation.Home, label)
 		}
-		if tool.Pin != nil && !pinShown {
+		if tool.Pin != nil {
 			label := i18n.SharedFormat(language, "desktop.toolchains.pinSource", map[string]string{"directory": tool.PinSource})
-			w.radio(c.Part("pin"), pick, tool.Pin.Home, tool.Pin.Home+" · "+label, busy)
+			add(tool.Pin.Home, tool.Pin.Home+" · "+label)
 		}
 		if pin, ok := t.custom[tool.ID]; ok {
-			label := i18n.SharedFormat(language, "desktop.toolchains.installation", map[string]string{"home": pin.Home, "version": pin.Version, "provider": pin.Provider})
-			w.radio(c.Part("custom"), pick, pin.Home, label, t.inspecting || t.saving)
-		}
-		if *pick != t.draft[tool.ID] {
-			t.choose(tool.ID, *pick)
+			add(pin.Home, i18n.SharedFormat(language, "desktop.toolchains.installation", map[string]string{"home": pin.Home, "version": pin.Version, "provider": pin.Provider}))
 		}
 		if t.inspectEffect != nil {
+			add(toolchainCustom, i18n.Shared(language, "desktop.toolchains.custom"))
+		}
+		pick := t.pick(tool.ID)
+		*pick = t.draft[tool.ID]
+		if t.customizing[tool.ID] {
+			*pick = toolchainCustom
+		}
+		// A draft of a directory no entry names still shows as itself.
+		add(*pick, *pick)
+		label := func(home string) string { return labels[home] }
+		if busy {
+			w.readOnlyField(c.Part("choice"), tool.DisplayName, label(*pick))
+		} else {
+			ui.Select(c.Part("choice"), pick, choices, label).FillWidth().MinWidth(0).Label(tool.DisplayName)
+		}
+		if *pick == toolchainCustom {
+			t.customizing[tool.ID] = true
+		} else {
+			delete(t.customizing, tool.ID)
+			if *pick != t.draft[tool.ID] {
+				t.choose(tool.ID, *pick)
+			}
+		}
+		for _, line := range unversioned {
+			ui.Text(c, line).FontSize(11).Color(w.pal.muted)
+		}
+		if t.customizing[tool.ID] {
 			input := t.inputs[tool.ID]
 			if input == nil {
 				input = new(string)
 				t.inputs[tool.ID] = input
 			}
 			label := i18n.Shared(language, "desktop.toolchains.directory")
-			busy := t.loading || t.saving || t.inspecting
 			ui.Row(c.Part("manual")).FillWidth().Gap(8).Items(ui.Center).Children(func() {
 				if busy {
 					w.readOnlyField(c, label, *input)
 				} else {
-					ui.TextField(c, input, label, "").Grow(1).MinWidth(0).Height(30)
+					ui.TextField(c, input, label, label).Grow(1).MinWidth(0).Height(30)
 				}
 				w.infoButton(c, i18n.Shared(language, "desktop.toolchains.directoryHelp"))
 				if ui.Button(c, i18n.Shared(language, "desktop.pluginSettings.browse")).Outline().Disabled(busy).Clicked() {
@@ -458,14 +500,19 @@ func (w *window) toolchainTool(c ui.C, language i18n.Language, tool toolchain.To
 			})
 		}
 		for _, shell := range tool.Shell {
-			version := shell.Variable
+			// A variable's name, or the command found on the PATH: both are the user's own words.
+			source := shell.Variable
+			if source == "" {
+				source = shell.Command
+			}
+			version := source
 			if shell.Version != nil {
 				version += " " + *shell.Version
 			} else if shell.Reason != "" {
 				version += " " + shell.Reason
 			}
 			ui.Text(c, i18n.SharedFormat(language, "desktop.toolchains.installation", map[string]string{
-				"home": shell.Home, "version": version, "provider": shell.Variable,
+				"home": shell.Home, "version": version, "provider": source,
 			})).FontSize(11).Color(w.pal.muted)
 		}
 		if tool.ProviderQueriesUnsupported {

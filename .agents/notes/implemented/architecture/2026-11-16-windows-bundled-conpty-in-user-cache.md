@@ -61,14 +61,13 @@ Motty d61d1910 把这组文件放在程序旁边，再由安装器、便携 zip 
 
 - 收益：Windows 本地终端能收到颜色查询回应，同步更新只绘制一次，鼠标上报和增强键盘协议能送达程序；安装目录、代码签名和增量更新基线不变；测试和发行版走同一条加载路径。
 - 代价：Windows amd64 可执行文件约增加 2.4 MB，arm64 约增加 1.3 MB。每个版本的文件组会在 `%LocalAppData%\Lithe\conpty\` 留下一个文件夹，旧文件夹不会自动清理，直到用户清理缓存。
-- 风险：AppLocker 或 WDAC（Windows 的应用白名单策略）可能禁止从 `%LocalAppData%` 加载 DLL 或启动程序，这时终端会回落到系统 ConPTY，只能从 WARN 日志看出原因。首次安装要计算并比较约 2.4 MB 的内容，当前仍在调用 `localshell.Start` 的 UI 线程上执行（见 #1988）。
+- 风险：AppLocker 或 WDAC（Windows 的应用白名单策略）可能禁止从 `%LocalAppData%` 加载 DLL 或启动程序，这时终端会回落到系统 ConPTY，只能从 WARN 日志看出原因。首次安装要计算并比较约 2.4 MB 的内容；`localshell.Start` 由 termview 放在后台 goroutine 上调用，这段工作不阻塞 UI 线程，期间键入的内容排队等 Shell 就绪（#1988）。
 - 重新评估的触发条件：Windows 自带的 ConPTY 修复了上述行为；Viva 打包原生支持附带文件且 Lithe 已升级到包含该支持的固定版本；或者企业环境的回落日志明显增多。
 
 ## 验证
 
 - `./scripts/desktop/desktop-go.sh test ./internal/localshell/... ./internal/termview/ ./internal/workbench/ -count=1`：核对文件组清单、安装与修复、降级日志的转发。
 - `scripts/desktop/verify/verify-runtime-bundle-immutability.sh`：确认运行时没有写入发行目录。
-- `node scripts/resources/test-reuse-worktree-resources.mjs`：确认 ConPTY 二进制登记为不可跨工作树复用的 Git 内资源。
 - 在 Windows 上运行 `TestBundledConPTYDeliversColorQueriesAndKeepsSyncBlocksAtomic`、`TestBundledConPTYForwardsMouseReporting` 和 `TestAShellStartsOnTheInboxConPTYWhenTheBundledOneCannotBeInstalled`，它们只在 Windows 编译。
 
 ## 适用范围

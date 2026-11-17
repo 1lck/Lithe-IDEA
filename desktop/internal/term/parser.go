@@ -491,8 +491,6 @@ func (t *Terminal) endOSC() {
 	switch n {
 	case 0, 2:
 		t.setTitle(text)
-	case 7:
-		t.osc7(text)
 	case 8:
 		t.setHyperlink(text)
 	case 9:
@@ -516,15 +514,9 @@ func (t *Terminal) endOSC() {
 			if own {
 				t.ReclaimApplicationModes()
 			}
-			if t.promptStartFn != nil {
-				t.promptStartFn()
-			}
 		}
 		if value == "B"+suffix {
 			t.markInputStart(own)
-			if t.promptReadyFn != nil {
-				t.promptReadyFn()
-			}
 		}
 		if value == "C"+suffix {
 			t.inputStartSet = false
@@ -532,9 +524,6 @@ func (t *Terminal) endOSC() {
 			t.dropPromptRows()
 			if own {
 				t.commandMarks = true
-			}
-			if t.commandStartFn != nil {
-				t.commandStartFn()
 			}
 		}
 		if strings.HasPrefix(value, "D;") && strings.HasSuffix(value, suffix) {
@@ -546,13 +535,9 @@ func (t *Terminal) endOSC() {
 				if own {
 					t.ReclaimApplicationModes()
 				}
-				if t.commandFinishedFn != nil {
-					t.commandFinishedFn(code)
-				}
 			}
 		}
 	case 777:
-		t.inputEnvironmentReport(text)
 		t.osc777(text)
 	case 10, 11:
 		if len(text) == 1 && text[0] == '?' && t.haveDefaults {

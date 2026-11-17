@@ -136,6 +136,43 @@ func TestMarketplaceRetryReusesBytesAndStillRejectsTampering(t *testing.T) {
 	}
 }
 
+// TestMarketplaceDownloadIsNotBoundedByThePreparationTime installs a marketplace plugin and
+// looks at the request that downloads it: the request carries no deadline, so a large archive
+// on a slow connection that keeps delivering is not cut off part way. Closing the review
+// window ends the download, and the downloader ends one that goes silent.
+func TestMarketplaceDownloadIsNotBoundedByThePreparationTime(t *testing.T) {
+	h := newHarness(t, &testKernel{Client: core.NewClient()})
+	service, err := pluginservice.Open(core.NewClient(), h.store, t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	h.app.plugins = service
+	var deadlines []bool
+	client := &http.Client{Transport: pluginArchiveTransport(func(request *http.Request) (*http.Response, error) {
+		_, has := request.Context().Deadline()
+		deadlines = append(deadlines, has)
+		return &http.Response{StatusCode: http.StatusNotFound, Header: make(http.Header), Body: io.NopCloser(bytes.NewReader(nil)), Request: request}, nil
+	})}
+	downloads := marketplace.NewArchiveSession(marketplace.NewArchiveDownloader(client))
+	h.app.pluginDownloads = downloads
+	t.Cleanup(func() {
+		if err := downloads.Close(); err != nil {
+			t.Error(err)
+		}
+	})
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	failed := false
+	plugin := core.MarketplacePlugin{ID: "dev.lithe.test.download", Availability: core.MarketplaceAvailability{
+		Status: "available", DownloadURL: "https://plugins.example.test/archive.zip", Version: "1.0.0", SHA256: hex.EncodeToString(make([]byte, sha256.Size)),
+	}}
+	h.app.installPlugin(plugin, settingswindow.PluginInstallFeedback{Context: ctx, Finish: func(f bool) { failed = f }})
+	h.app.wait()
+	if len(deadlines) != 1 || deadlines[0] || !failed {
+		t.Fatalf("the download requests carried deadlines %v and failed = %v, want one request with none", deadlines, failed)
+	}
+}
+
 func approvingPluginInstall(t *testing.T) settingswindow.PluginInstallFeedback {
 	ctx, cancel := context.WithCancel(context.Background())
 	t.Cleanup(cancel)

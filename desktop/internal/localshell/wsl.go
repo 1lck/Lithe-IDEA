@@ -208,12 +208,12 @@ func wslCommandLine(script string) string {
 
 // wslLaunch is how to start config's shell in distro through the wsl.exe at
 // exe: its arguments, and the environment to add to the process's own. A
-// DirectoryToken starts the distribution's login shell through the integration
-// script (see wslIntegrationScript), which reports its prompt and folder.
+// PromptToken starts the distribution's login shell through the integration
+// script (see wslIntegrationScript), which reports its prompts and commands.
 func wslLaunch(exe string, config Config, distro, inheritedWSLENV string) (program string, args, env []string) {
 	args = []string{"-d", distro}
 	cd := wslStartDirectory(config.Dir, distro)
-	script := wslIntegrationScript(config.DirectoryToken, WSLDirectoryVariable)
+	script := wslIntegrationScript(config.PromptToken, WSLDirectoryVariable)
 	switch {
 	case len(config.Args) > 0:
 		// An explicit command runs as given, without the integration.

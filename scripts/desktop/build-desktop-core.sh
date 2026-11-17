@@ -27,6 +27,55 @@ native_path() {
     fi
 }
 
+# Lithe-core-rust main at 84735ea, #76 squash-merged on top of ac8825b: build.modelTree lays out
+# the Build tool window's tree of a decoded model for every build tool, projects nested by
+# parentID, each with its task folders (by category, else by group), dependencies, targets and
+# child projects; a filter marks the matched nodes and keeps the nodes on the way to them
+# (#1866).
+# Lithe-core-rust main at ac8825b, #72 squash-merged: Core hides only .git, .worktree,
+# .worktrees, .DS_Store and .lithe by itself; workspace.configureVisibility takes the
+# manifests of the enabled plugins and hides the folders their build systems name in
+# layout.hiddenDirectoryNames and their VCS providers name as directory markers, in every
+# workspace, until the next call replaces them (#1856). On top of #74 squash-merged:
+# git.workspacePushPreview reads for each workspace repository whether it can push (ready, up to
+# date, no remote, empty, detached HEAD or failed), its push preview and target, and the order to
+# push them in, a submodule before the repository that records it, which the desktop's Push
+# Commits dialog reads (#2013); #69 squash-merged, so Core knows no runtime by name and go and
+# node resolve through their tool definitions like any other runtime without executables, with no
+# hostManaged field (#1856); and #71 squash-merged: git.workspaceHistoryMerge interleaves the
+# loaded history pages of several workspace repositories newest first, each in Git's own order,
+# stops where a repository with pages left runs out and names it pending, and keys a hash several
+# repositories hold <hash>@<id>; git.historyPage takes maxCommits and answers limitReached;
+# git.workspaceRepositorySelection takes chosen, the set a view walks together, and answers the
+# picks still listed in discovery order; the desktop's Git Log sends and reads all of them (#2013).
+# Lithe-core-rust main at 5a8d786, #67 squash-merged: toolchains.candidates takes the optional
+# commandHomes, lists the commands found on the PATH as shell rows, and offers each shell home that
+# checks out as an installations entry with provider host:shell, once per canonical home (#2032).
+# It is on top of #68, squash-merged into main: Core no longer
+# recognizes rust-analyzer or gopls; a language server declares indexingExclusions, and the launch
+# plan's sessionPolicy, which the desktop sends to lsp.startServer unchanged, carries it. It is on
+# top of #66, squash-merged into main: editor.lineCommentToken and Core's table of comment tokens
+# are gone; the desktop takes the token from its language registry and editor.lineEdit is
+# unchanged (#1856). It is on top of #64, squash-merged into main: gitExecution.consoleQueries
+# names the query categories the Git console records and queryCategory names a read the command
+# does not tell apart; git.consolePresentation takes display options, all false by default as in
+# IDEA; output folds only past ten lines and a deletion never folds; a failed unrecorded query
+# still reports its command, stderr and exit; a reported query's started event carries its
+# queryCategory (#2025). It is on top of #65, squash-merged into main as db54ba0: every
+# workspace.repositories entry has an id relative to the opened folder, a display name and a role
+# (workspace or nested);
+# git.workspaceRepositorySelection keeps the repository a view picked while discovery still lists
+# it and otherwise falls back to the workspace repository, then the first one;
+# git.workspaceChangeGroups groups status changes per repository with their staged counts, the
+# paths a checkbox stages or unstages and whether the parent's gitlink moved; and
+# git.workspaceCommitPrepare binds the nested repositories it is given (#2013). That is on top of
+# #63, squash-merged into main as ad148ec:
+# a Unix process group whose members have all exited but are not reaped yet is killed without
+# error, so disposing a language server or
+# closing an SSH session on macOS no longer reports EPERM (#2017). It is on top of #62,
+# squash-merged into main as b401949: a backslash or colon in a Unix file name stays part of the
+# name, so a folder named D:\logs is one level below the project root and the project tree rows
+# accept it (#2009).
 # Lithe-core-rust #61, squash-merged into main as 6a14126: the LSP engine keeps a session's hover
 # answers, so resting on a symbol again answers without asking the server (#1995). It is on top of
 # #60, squash-merged into main as ca80599: language-server indexing exclusions ask Git once per
@@ -122,7 +171,7 @@ PINNED_CORE_REPOSITORY="https://github.com/Lithe-IDEA/Lithe-core-rust.git"
 # the contract, plugin guides, reference and SDKs live only in shared/plugins; on top of #16 (reported Git queries folded in the console),
 # #15 (git.write cherryPick, revert and reset fields), #14 (word-level changed ranges of diff
 # rows), #13, #8, #7, #6 and #4.
-PINNED_CORE_REVISION="6a1412635557fcd37766faafbf2fccd4a68dc7db"
+PINNED_CORE_REVISION="66e98ecaf6bac483e2de1ac0f9f19fe8367a45cf"
 PROFILE="debug"
 while [[ $# -gt 0 ]]; do
     case "$1" in

@@ -5,6 +5,7 @@ package settingswindow
 import (
 	"github.com/1lck/Lithe-IDEA/desktop/internal/core"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/i18n"
+	"github.com/1lck/Lithe-IDEA/desktop/internal/shortcuts"
 	"github.com/vivaui/viva/headless"
 	"os"
 	"path/filepath"
@@ -23,16 +24,30 @@ func TestVisualEditorEssentialsSettings(t *testing.T) {
 		theme    string
 		language i18n.Language
 	}{{"dark", i18n.Chinese}, {"light", i18n.English}} {
-		for _, scene := range []string{"editor-settings", "keymap-schemes"} {
+		for _, scene := range []string{"editor-settings", "keymap-schemes", "keymap-double-shift"} {
 			t.Run(scene+"-"+look.theme, func(t *testing.T) {
 				w := newWindow(NewController(Options{Text: func() *i18n.Messages { return i18n.For(look.language) }, Language: func() i18n.Language { return look.language }, SystemLanguage: look.language, SystemDark: func() bool { return look.theme == "dark" }}), Values{Language: look.language.Code(), Theme: look.theme})
-				if scene == "editor-settings" {
+				switch scene {
+				case "editor-settings":
 					w.sess.page = pageEditor
-				} else {
+				case "keymap-double-shift":
+					// Filtering by the gesture brings Search Everywhere's row, with its Double
+					// Shift chip, to the top of the page.
+					w.sess.page = pageKeymap
+					w.keymap.query.SetText(shortcuts.DoubleShiftLabel())
+				default:
 					w.sess.page = pageKeymap
 					if !w.reduceScheme(core.KeymapSchemeRequest{Operation: "saveAs", ID: "my-keys", Name: "My workspace"}) {
 						t.Fatal(w.scheme.failure)
 					}
+					// One action with its keys changed shows Reset pressable beside ones that
+					// are not, and another shows the recorder waiting for a chord.
+					actions := shortcuts.All()
+					w.setKeymap(shortcuts.Overrides(nil).With(actions[0].ID, nil))
+					// The schemes are loaded; loading them again in the first paint would end
+					// the recording.
+					w.scheme.ready = true
+					w.beginRecording(actions[1])
 				}
 				session, err := headless.Open(w.config(), nil, headless.Options{})
 				if err != nil {

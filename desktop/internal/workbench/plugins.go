@@ -23,8 +23,10 @@ import (
 )
 
 const (
-	// pluginDownloadTimeout bounds downloading and preparing one package.
-	pluginDownloadTimeout = 5 * time.Minute
+	// pluginPrepareTimeout bounds checking and unpacking one downloaded package.
+	// Downloading it has no time limit: the download ends when nothing arrives for
+	// a minute, or when the review window is closed.
+	pluginPrepareTimeout = 5 * time.Minute
 	// pluginInstallTimeout bounds the context-aware work after confirmation and during removal.
 	pluginInstallTimeout = 2 * time.Minute
 	// pluginStateTimeout bounds a listing of the installed packages.
@@ -90,7 +92,7 @@ func (a *App) installPlugin(plugin core.MarketplacePlugin, feedback settingswind
 		if feedback.Preparing != nil {
 			feedback.Preparing()
 		}
-		plan, err := a.plugins.Installer.Prepare(ctx, plugininstall.Request{
+		plan, err := a.preparePlugin(ctx, plugininstall.Request{
 			ArchivePath:     archive.Path(),
 			Root:            a.plugins.Root,
 			Source:          plugintrust.Marketplace,
@@ -120,7 +122,7 @@ func (a *App) closePluginDownloads() {
 func (a *App) installPluginFromFile(path string, feedback settingswindow.PluginInstallFeedback) {
 	a.performed("plugin.install.disk", surfaceButton)
 	a.preparePluginInstall(feedback, func(ctx context.Context) (plugininstall.Plan, error) {
-		return a.plugins.Installer.Prepare(ctx, plugininstall.Request{
+		return a.preparePlugin(ctx, plugininstall.Request{
 			ArchivePath: path,
 			Root:        a.plugins.Root,
 			Source:      plugintrust.Disk,
@@ -143,9 +145,7 @@ func (a *App) preparePluginInstall(feedback settingswindow.PluginInstallFeedback
 		// The review window's context ends the install; the install still belongs to the
 		// action that started it, so its records and Core requests carry its op.
 		origin := core.OriginOf(work)
-		ctx, cancel := context.WithTimeout(core.WithOrigin(feedback.Context, origin), pluginDownloadTimeout)
-		plan, err := prepare(ctx)
-		cancel()
+		plan, err := prepare(core.WithOrigin(feedback.Context, origin))
 		if err != nil {
 			// log-exempt: 用户取消：关闭审查窗口取消未完成的安装。
 			cancelled := feedback.Context.Err() != nil
@@ -171,6 +171,13 @@ func (a *App) preparePluginInstall(feedback settingswindow.PluginInstallFeedback
 		defer cancelCommit()
 		return a.commitPluginInstall(commitCtx, plan, feedback)
 	})
+}
+
+// preparePlugin checks and unpacks a package for review, within pluginPrepareTimeout.
+func (a *App) preparePlugin(ctx context.Context, request plugininstall.Request) (plugininstall.Plan, error) {
+	ctx, cancel := context.WithTimeout(ctx, pluginPrepareTimeout)
+	defer cancel()
+	return a.plugins.Installer.Prepare(ctx, request)
 }
 
 // recordPluginInstallCleanup records a download or staging package the install could not
@@ -304,11 +311,12 @@ func (a *App) uninstallPlugin(id string) {
 	})
 }
 
-// reloadPluginLanguages registers the languages and tool windows of the enabled plugins.
+// reloadPluginLanguages registers the languages and tool windows of the enabled plugins, and
+// hands Core the folders they hide.
 //
-// The registry replaces its plugin languages whole, and the catalog its plugin tool
-// windows, so a plugin that was disabled or removed loses its highlighting and its
-// windows in the same pass that registers a new one.
+// The registry replaces its plugin languages whole, the catalog its plugin tool windows and
+// Core its plugin-declared folders, so a plugin that was disabled or removed loses its
+// highlighting, its windows and its hidden folders in the same pass that registers a new one.
 func (a *App) reloadPluginLanguages() {
 	if a.plugins == nil {
 		return
@@ -324,7 +332,9 @@ func (a *App) reloadPluginLanguages() {
 		windows, windowsErr := a.plugins.ToolWindows(ctx, entries)
 		commands, commandsErr := a.plugins.ToolCommands(ctx, entries)
 		vcsPlugins, vcsErr := a.plugins.VcsPlugins(ctx, entries)
+		hidden := a.configureVisibility(ctx, entries, vcsPlugins)
 		return func(a *App) {
+			a.applyHiddenDirectories(hidden)
 			if commandsErr != nil {
 				a.backgroundFailed("plugin_tool_commands", commandsErr)
 			}

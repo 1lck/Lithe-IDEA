@@ -27,7 +27,7 @@ func TestProviderRunsResolveAndLaunchInputs(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := client.GenerateRunConfigurations(ctx, root, "", runs); err != nil {
+	if _, err := client.GenerateRunConfigurations(ctx, root, runs); err != nil {
 		t.Fatal(err)
 	}
 	resolved, err := client.ResolveRunConfigurations(ctx, root)
@@ -70,7 +70,7 @@ func TestRunConfigurationOptionsRoundTrip(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := client.GenerateRunConfigurations(ctx, root, "", runs); err != nil {
+	if _, err := client.GenerateRunConfigurations(ctx, root, runs); err != nil {
 		t.Fatal(err)
 	}
 	resolved, err := client.ResolveRunConfigurations(ctx, root)

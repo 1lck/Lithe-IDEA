@@ -61,7 +61,7 @@ type Kernel interface {
 	ReduceChromeLayout(ctx context.Context, catalog []core.ChromeItem, state core.ChromeLayout, action core.ChromeAction) (core.ChromeLayout, bool, error)
 	GitStatus(ctx context.Context, root string) (core.GitStatus, error)
 	GitReferences(ctx context.Context, root string) (core.GitReferences, error)
-	GitHistoryPage(ctx context.Context, root, reference, cursor string, limit int) (core.GitHistoryPage, error)
+	GitHistoryPage(ctx context.Context, root, reference, cursor string, limit, maxCommits int) (core.GitHistoryPage, error)
 	DetectBuildSystems(ctx context.Context, workspaceRoot string, manifests []json.RawMessage) (core.BuildDetection, error)
 	DetectBuildSystemsWithOptions(ctx context.Context, workspaceRoot string, manifests []json.RawMessage, options core.BuildDetectOptions) (core.BuildDetection, error)
 	ResolveStoredBuildOptions(ctx context.Context, document, local json.RawMessage) (core.BuildStoredOptions, error)
@@ -98,7 +98,7 @@ type Kernel interface {
 	CreateDebugSession(ctx context.Context, request core.DebugCreateSessionRequest) (core.DebugUpdate, error)
 	LaunchDebug(ctx context.Context, sessionID, operationID string, configuration core.DebugLaunchConfiguration) (core.DebugUpdate, error)
 	NormalizeSteppingFilters(ctx context.Context, adapterID string, filters core.DebugSteppingFilters) (core.DebugSteppingFilters, error)
-	GenerateRunConfigurations(ctx context.Context, root, cacheDirectory string, providerRuns json.RawMessage) (core.RunConfigGeneration, error)
+	GenerateRunConfigurations(ctx context.Context, root string, providerRuns json.RawMessage) (core.RunConfigGeneration, error)
 	ResolveRunConfigurations(ctx context.Context, root string) (core.RunConfigResolution, error)
 	DecideTitleAction(ctx context.Context, facts core.TitleActionFacts) (string, error)
 	ProviderLaunchInputs(ctx context.Context, root, configurationID, providerRoot string) (core.RunProviderLaunchInputs, error)
@@ -118,6 +118,8 @@ type Kernel interface {
 	PlanBuildDebug(ctx context.Context, manifest json.RawMessage, buildSystemID string, request core.BuildPlanRequest) (core.BuildPlan, error)
 	DecodeBuildDebug(ctx context.Context, manifest json.RawMessage, buildSystemID string, request core.BuildDecodeDebugRequest) (core.BuildDebugPreparation, error)
 	DecodeBuildModel(ctx context.Context, manifest json.RawMessage, buildSystemID string, request core.BuildDecodeModelRequest) (core.BuildModel, error)
+	// BuildModelTree lays out a loaded model as the Build tool window's tree (build_tree.go).
+	BuildModelTree(ctx context.Context, manifest json.RawMessage, buildSystemID string, request core.BuildModelTreeRequest) (core.BuildModelTree, error)
 	DecodeBuildRun(ctx context.Context, manifest json.RawMessage, buildSystemID string, request core.BuildDecodeRunRequest) (core.BuildLaunch, error)
 	ToolchainRegistryOf(ctx context.Context, manifests []json.RawMessage) (core.ToolchainRegistry, error)
 	// CommandInstallerRequirements, PlanCommandInstaller and CommandInstallerDefaultDirectory
@@ -184,7 +186,7 @@ type Kernel interface {
 	GitUnlockWorktree(ctx context.Context, root, path string) error
 	GitPruneWorktrees(ctx context.Context, root string) error
 	GitRepairWorktrees(ctx context.Context, root string) error
-	GitConsolePresentation(ctx context.Context, records []core.GitConsoleRecord, search string) (core.GitConsolePresentation, error)
+	GitConsolePresentation(ctx context.Context, records []core.GitConsoleRecord, search string, display core.GitConsoleDisplay) (core.GitConsolePresentation, error)
 	ListDirectories(ctx context.Context, root string, paths []string) ([]core.DirectoryListing, error)
 	PlanDocumentSaveBatch(ctx context.Context, documents []core.SaveBatchDocument) (core.SaveBatchPlan, error)
 	ReduceDocumentSaveBatch(ctx context.Context, members []string, results []core.SaveBatchResult, documents []core.SaveBatchDocument) (core.SaveBatchDecision, error)
@@ -304,6 +306,14 @@ type settings struct {
 	// HideParentReferences hides the option that records submodule commits in the parent
 	// repositories; while it is hidden every commit updates them. The option shows by default.
 	HideParentReferences bool `json:"hideParentReferences,omitempty"`
+	// GitLogLimit and GitLogMergedLimit are the most commits the Git Log reads of one repository
+	// and of several at once; zero is settingswindow.DefaultGitLogLimit and
+	// DefaultGitLogMergedLimit (gitlog_limits.go).
+	GitLogLimit       int `json:"gitLogLimit,omitempty"`
+	GitLogMergedLimit int `json:"gitLogMergedLimit,omitempty"`
+	// GitConsole says which internal Git queries the Git console records and how it draws its
+	// records; the zero value is IntelliJ IDEA's console (gitconsole_settings.go).
+	GitConsole core.GitConsolePreferences `json:"gitConsole,omitzero"`
 	// DisableSemanticHighlight keeps the syntax colors alone; semantic coloring is on by default.
 	DisableSemanticHighlight bool `json:"disableSemanticHighlight,omitempty"`
 	// VimMode turns on the Vim keys of every editor; off by default (vim_mode.go).
@@ -331,6 +341,9 @@ type settings struct {
 	// normal thickness. See terminalCursor.
 	TerminalCursorShape     string `json:"terminalCursorShape,omitempty"`
 	TerminalCursorThickness string `json:"terminalCursorThickness,omitempty"`
+	// TerminalBehavior is the Terminal page's switches; the zero value is the default of each.
+	// See terminalOptions.
+	TerminalBehavior settingswindow.TerminalBehavior `json:"terminalBehavior,omitzero"`
 	// ProcessTermination is the user's part of Core's process termination settings, as the
 	// Process Termination page edits it; the zero value keeps Core's defaults.
 	ProcessTermination settingswindow.ProcessTermination `json:"processTermination,omitzero"`
@@ -776,6 +789,7 @@ func New(options Options) *App {
 	// the rest loaded. It is logged below with the failures, and the notice tells it is kept.
 	settingsUnread := a.store.Unread(settingsFile)
 	a.settings.Keymap = shortcuts.Normalize(a.settings.Keymap)
+	a.gitConsole.RecordQueries(a.settings.GitConsole.QueryCategories())
 	a.loadEditorEssentials()
 	a.initRecovery()
 	a.applyNetwork()

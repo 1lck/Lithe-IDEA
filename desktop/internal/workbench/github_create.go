@@ -323,7 +323,7 @@ func (a *App) publishCreateBranch(p *project) {
 			}
 			cr.blocked = creationBlockedReason(language, facts)
 			cr.publishable = facts.RequiresPublish && !facts.Detached
-			a.loadGit(p)
+			a.reloadGit(p)
 		}
 	})
 }

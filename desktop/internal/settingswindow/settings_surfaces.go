@@ -134,6 +134,12 @@ func (s *settingsSurfaces) run(parent context.Context) (surfacesResult, error) {
 	}
 	items := make([]core.SettingsNavigationItem, 0, int(pageCount)+len(result.pages))
 	lookup := make(map[string]row, int(pageCount)+len(result.pages))
+	// An entry plugins have put pages under is a group as well, which folds them away like
+	// the pages of any other group; it keeps the page of its own its row opens.
+	var contributed [pageCount]bool
+	for _, page := range result.pages {
+		contributed[contributedParent(page.Kind)] = true
+	}
 	for id := pageID(0); id < pageCount; id++ {
 		name := "static:" + strconv.Itoa(int(id))
 		var parent *string
@@ -141,14 +147,11 @@ func (s *settingsSurfaces) run(parent context.Context) (surfacesResult, error) {
 			value := "static:" + strconv.Itoa(int(parents[id]))
 			parent = &value
 		}
-		items = append(items, core.SettingsNavigationItem{ID: name, Title: titleOf(&key.text.Settings, id), Parent: parent, Group: isGroup(id), Expanded: key.open[id]})
+		items = append(items, core.SettingsNavigationItem{ID: name, Title: titleOf(&key.text.Settings, id), Parent: parent, Group: isGroup(id) || contributed[id], Expanded: key.open[id]})
 		lookup[name] = row{page: id}
 	}
 	for index, page := range result.pages {
-		parent := pageLanguages
-		if page.Kind == "buildSystem" || page.Kind == "compiler" {
-			parent = pageBuild
-		}
+		parent := contributedParent(page.Kind)
 		parentID := "static:" + strconv.Itoa(int(parent))
 		name := "page:" + page.Key
 		items = append(items, core.SettingsNavigationItem{ID: name, Title: page.Title, Parent: &parentID})
@@ -216,6 +219,10 @@ func (w *window) selectSettingsPage(page pageID, key string) {
 	}
 	w.pluginSettings.blur()
 	w.sess.show(page)
+	if key != "" {
+		// A plugin's page is listed under page, which is expanded so its row is on the screen.
+		w.sess.open[page] = true
+	}
 	w.dynamicPage = key
 	w.contributorID = ""
 }

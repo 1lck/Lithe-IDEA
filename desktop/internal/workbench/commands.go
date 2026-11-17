@@ -197,7 +197,7 @@ func (a *App) commands() []command {
 	addFrom("git.commit", t.GroupGit, t.Commit, true, func(surface actionSurface) { a.startCommit(p, false, surface) })
 	addFrom("git.commitPush", t.GroupGit, t.CommitAndPush, true, func(surface actionSurface) { a.startCommit(p, true, surface) })
 	add("git.branches", t.GroupGit, t.Branches, "", true, a.openBranches)
-	add("git.pull", t.GroupGit, a.text.Sync.Pull.MenuItem, "", p.git.isRepository(), func() { a.openPullDialog(p) })
+	add("git.pull", t.GroupGit, a.text.Sync.Pull.MenuItem, "", p.hasRepository(), func() { a.openPullDialog(p) })
 	if d := p.selectedDocument(p.docs.group); d != nil && !d.virtual {
 		addFrom("git.lineHistory", t.GroupGit, i18n.Shared(a.language(), "desktop.editorMenu.lineHistory"), p.git.isRepository(), func(surface actionSurface) { a.startLineHistory(p, d, surface) })
 	}

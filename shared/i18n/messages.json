@@ -6439,6 +6439,16 @@
       ]
     },
     {
+      "id": "desktop.branch.localIn",
+      "description": "Branch popup of a folder with several repositories: head of the local branches of one repository, in its panel",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "repository": "string"
+      }
+    },
+    {
       "id": "desktop.branch.newBranchFrom",
       "description": "Desktop branch: NewBranchFrom",
       "platforms": [
@@ -6454,6 +6464,26 @@
       "platforms": [
         "desktop"
       ]
+    },
+    {
+      "id": "desktop.branch.recentIn",
+      "description": "Branch popup of a folder with several repositories: head of the recently checked-out branches of one repository, in its panel",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "repository": "string"
+      }
+    },
+    {
+      "id": "desktop.branch.remoteIn",
+      "description": "Branch popup of a folder with several repositories: head of the remote branches of one repository, in its panel",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "repository": "string"
+      }
     },
     {
       "id": "desktop.branch.rename",
@@ -6507,6 +6537,17 @@
       }
     },
     {
+      "id": "desktop.branch.repositoryPanel",
+      "description": "Accessible label of a repository row in the branch popup that opens its branches beside it",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "repository": "string",
+        "branch": "string"
+      }
+    },
+    {
       "id": "desktop.branch.revision",
       "description": "Desktop branch: Revision",
       "platforms": [
@@ -6550,6 +6591,16 @@
       "platforms": [
         "desktop"
       ]
+    },
+    {
+      "id": "desktop.branch.tagsIn",
+      "description": "Branch popup of a folder with several repositories: head of the tags of one repository, in its panel",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "repository": "string"
+      }
     },
     {
       "id": "desktop.build.argumentsRequired",
@@ -6615,6 +6666,72 @@
       ]
     },
     {
+      "id": "desktop.build.group.lifecycle",
+      "description": "Build tool window: heading of the folder that holds a project's lifecycle tasks (clean, compile, package and the like)",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.build.group.build",
+      "description": "Build tool window: heading of the folder that holds a project's build tasks",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.build.group.test",
+      "description": "Build tool window: heading of the folder that holds a project's test tasks",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.build.group.run",
+      "description": "Build tool window: heading of the folder that holds a project's tasks that run the application",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.build.group.verification",
+      "description": "Build tool window: heading of the folder that holds a project's checks (lint, verify and the like)",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.build.group.documentation",
+      "description": "Build tool window: heading of the folder that holds a project's documentation tasks",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.build.group.other",
+      "description": "Build tool window: heading of the folder that holds the tasks of no other group",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.build.treeTruncated",
+      "description": "Build tool window line under a build system whose tree holds too many items to list them all",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.build.treeFailed",
+      "description": "Build tool window line when a loaded build model could not be laid out as a tree: {error}",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "error": "string"
+      }
+    },
+    {
       "id": "desktop.build.emptyOutput",
       "description": "Run a build task to see output.",
       "platforms": [
@@ -6656,6 +6773,41 @@
       }
     },
     {
+      "id": "desktop.build.modelStopped",
+      "description": "The note in the Build window and the Run window session that a build model load the user stopped has ended.",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.build.syncSession",
+      "description": "Run window tab title of a build model load (a project sync) of the build system {name}.",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "name": "string"
+      }
+    },
+    {
+      "id": "desktop.build.syncSessionAt",
+      "description": "Run window tab title of a build model load (a project sync) of the build system {name} whose project root {root} is not the workspace root.",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "name": "string",
+        "root": "string"
+      }
+    },
+    {
+      "id": "desktop.build.showSyncOutput",
+      "description": "Hover hint of the Build window line that a build model loads; a click shows the load's output in the Run window.",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
       "id": "desktop.build.noBuildSystems",
       "description": "No provider-backed build system was detected.",
       "platforms": [
@@ -6672,13 +6824,6 @@
     {
       "id": "desktop.build.noOptions",
       "description": "Build options dialog message when the build system declares no options",
-      "platforms": [
-        "desktop"
-      ]
-    },
-    {
-      "id": "desktop.build.noProjects",
-      "description": "No projects in the build model",
       "platforms": [
         "desktop"
       ]
@@ -6805,13 +6950,6 @@
       ]
     },
     {
-      "id": "desktop.build.projects",
-      "description": "Projects",
-      "platforms": [
-        "desktop"
-      ]
-    },
-    {
       "id": "desktop.build.refresh",
       "description": "Detect build systems again",
       "platforms": [
@@ -6880,13 +7018,6 @@
     {
       "id": "desktop.build.targets",
       "description": "Targets",
-      "platforms": [
-        "desktop"
-      ]
-    },
-    {
-      "id": "desktop.build.tasks",
-      "description": "Tasks",
       "platforms": [
         "desktop"
       ]
@@ -9780,15 +9911,25 @@
       }
     },
     {
-      "id": "desktop.git.console.hideQueries",
-      "description": "Desktop Git console: toolbar toggle that hides the read-only Git queries that succeeded, leaving the commands workflows ran.",
+      "id": "desktop.git.console.settings",
+      "description": "Desktop Git console: toolbar button that opens the Version Control settings, which choose the queries the console records and how it draws them.",
       "platforms": [
         "desktop"
       ]
     },
     {
       "id": "desktop.git.console.queryOutput",
-      "description": "Desktop Git console: stands for the folded output of a read-only Git query.",
+      "description": "Desktop Git console: stands for the folded output of a read-only Git query, count lines, count other than one.",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "count": "string"
+      }
+    },
+    {
+      "id": "desktop.git.console.queryOutputOne",
+      "description": "Desktop Git console: stands for the folded output of a read-only Git query of a single line.",
       "platforms": [
         "desktop"
       ],
@@ -9996,6 +10137,175 @@
       ]
     },
     {
+      "id": "desktop.git.log.limitReached",
+      "description": "Git Log: the end of a log that read as many commits as its limit while the history goes on",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "count": "integer"
+      }
+    },
+    {
+      "id": "desktop.git.log.adjustLimit",
+      "description": "Git Log: the button at the end of a log that reached its limit and opens the Git Log limits settings",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.git.pushAll.title",
+      "description": "Push Commits dialog: the title",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.git.pushAll.description",
+      "description": "Push Commits dialog: the description read by assistive technology",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.git.pushAll.defineRemote",
+      "description": "Push Commits dialog: shown instead of the destination of a repository without a remote",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.git.pushAll.emptyRepository",
+      "description": "Push Commits dialog: shown for a repository whose branch has no commit yet",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.git.pushAll.detachedHead",
+      "description": "Push Commits dialog: shown for a repository whose HEAD is detached",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.git.pushAll.upToDate",
+      "description": "Push Commits dialog: shown for a branch its remote already has",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.git.pushAll.readFailed",
+      "description": "Push Commits dialog: a repository Git could not read",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "reason": "string"
+      }
+    },
+    {
+      "id": "desktop.git.pushAll.pushTags",
+      "description": "Push Commits dialog: the checkbox that sends tags with the pushes",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.git.pushAll.tagsCurrentBranch",
+      "description": "Push Commits dialog: the tag choice that sends the tags of the pushed branch",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.git.pushAll.tagsAll",
+      "description": "Push Commits dialog: the tag choice that sends every tag",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.git.pushAll.skipped",
+      "description": "Push Commits dialog: a repository not pushed because a submodule it records failed to push",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "repository": "string"
+      }
+    },
+    {
+      "id": "desktop.git.pushAll.pushed",
+      "description": "Push Commits dialog: a repository the last push sent",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.git.pushAll.failed",
+      "description": "Push Commits dialog: a repository whose push failed",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "reason": "string"
+      }
+    },
+    {
+      "id": "desktop.git.pushAll.someFailed",
+      "description": "Push Commits dialog: the notification when some repositories were not pushed",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.git.pushAll.push",
+      "description": "Push Commits dialog: the button that pushes the checked repositories",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.git.pushAll.noCommitSelected",
+      "description": "Push Commits dialog: the file side before a commit is selected",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.git.pushAll.loadingFiles",
+      "description": "Push Commits dialog: the file side while the files of the selected commit load",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.git.pushAll.filesFailed",
+      "description": "Push Commits dialog: the file side when the files of the selected commit failed to load",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "reason": "string"
+      }
+    },
+    {
+      "id": "desktop.git.pushAll.noChangedFiles",
+      "description": "Push Commits dialog: the file side of a commit without changed files",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.git.pushAll.noRepositories",
+      "description": "Push Commits dialog: shown when no repository can be listed",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
       "id": "desktop.git.loading",
       "description": "Desktop Git: Loading",
       "platforms": [
@@ -10110,6 +10420,13 @@
       }
     },
     {
+      "id": "desktop.git.repo.choose",
+      "description": "Tooltip of the repository name after the Git Log's filter chips in a folder with several repositories: a click lists the repositories to walk",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
       "id": "desktop.git.repo.current",
       "description": "Header of the Git log's commit list: the repository the log walks",
       "platforms": [
@@ -10117,6 +10434,16 @@
       ],
       "parameters": {
         "name": "string"
+      }
+    },
+    {
+      "id": "desktop.git.repo.several",
+      "description": "Name after the Git Log's filter chips while the log walks several repositories of the folder together in one list",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "count": "string"
       }
     },
     {
@@ -10178,6 +10505,268 @@
     {
       "id": "desktop.git.settings.parentReferencesHelp",
       "description": "Help under the Show Update Parent Repository References switch",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.git.settings.logLimits",
+      "description": "Version Control settings: title of the card that sets the most commits the Git Log reads",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.git.settings.logLimitsHelp",
+      "description": "Help of the Git Log limits card in the Version Control settings",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.git.settings.logLimitSingle",
+      "description": "Git Log limits card: the row that sets the most commits read of one repository",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.git.settings.logLimitSingleHelp",
+      "description": "Help of the one-repository row of the Git Log limits card",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.git.settings.logLimitMerged",
+      "description": "Git Log limits card: the row that sets the most commits read of several repositories merged by date",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.git.settings.logLimitMergedHelp",
+      "description": "Help of the several-repositories row of the Git Log limits card",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.git.settings.logLimitDefault",
+      "description": "Git Log limits card: a choice of the limit that is the default",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "count": "integer"
+      }
+    },
+    {
+      "id": "desktop.git.settings.console.omitted",
+      "description": "Version Control settings: title of the card that chooses which internal Git queries the Git console leaves out",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.git.settings.console.omittedHelp",
+      "description": "Help of the Git console omitted-queries card: what an omitted kind means, that omitting one removes its recorded successful queries, and what always shows",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.git.settings.console.references",
+      "description": "Git console switch: leave out the branch and reference reads that run in the background",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.git.settings.console.referencesHelp",
+      "description": "Help of the Git console switch that leaves out background branch reads",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.git.settings.console.reload",
+      "description": "Git console switch: leave out the reads that reload state after an operation",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.git.settings.console.reloadHelp",
+      "description": "Help of the Git console switch that leaves out reloads after operations",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.git.settings.console.diffRefresh",
+      "description": "Git console switch: leave out the diff reads that follow saving a file",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.git.settings.console.diffRefreshHelp",
+      "description": "Help of the Git console switch that leaves out diff refreshes after saving",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.git.settings.console.diff",
+      "description": "Git console switch: leave out diff reads",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.git.settings.console.diffHelp",
+      "description": "Help of the Git console switch that leaves out diff reads",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.git.settings.console.log",
+      "description": "Git console switch: leave out the reads of the Git log",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.git.settings.console.logHelp",
+      "description": "Help of the Git console switch that leaves out the reads of the Git log",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.git.settings.console.logPathFilter",
+      "description": "Git console switch: leave out the reads the log's path filter runs",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.git.settings.console.logPathFilterHelp",
+      "description": "Help of the Git console switch that leaves out the log's path filter reads",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.git.settings.console.annotate",
+      "description": "Git console switch: leave out annotate (blame) and line history reads",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.git.settings.console.annotateHelp",
+      "description": "Help of the Git console switch that leaves out annotate and line history reads",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.git.settings.console.panels",
+      "description": "Git console switch: leave out the reads of Git lists and panels",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.git.settings.console.panelsHelp",
+      "description": "Help of the Git console switch that leaves out the reads of Git lists and panels",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.git.settings.console.checks",
+      "description": "Git console switch: leave out the queries an operation runs before and while it writes",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.git.settings.console.checksHelp",
+      "description": "Help of the Git console switch that leaves out the checks of operations",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.git.settings.console.display",
+      "description": "Version Control settings: title of the card that chooses how the Git console draws its records",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.git.settings.console.displayHelp",
+      "description": "Help of the Git console display card",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.git.settings.console.foldShortQueries",
+      "description": "Git console switch: fold a successful query's output of ten lines or fewer too, not only longer output",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.git.settings.console.foldShortQueriesHelp",
+      "description": "Help of the Git console switch that folds short query output: when output folds, and that a deletion never folds",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.git.settings.console.completedNotice",
+      "description": "Git console switch: leave out the notice under a command that completed without output",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.git.settings.console.completedNoticeHelp",
+      "description": "Help of the Git console switch that leaves out the no-output notice",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.git.settings.console.temporaryConfig",
+      "description": "Git console switch: hide the temporary -c configuration Lithe passes to a command entirely",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.git.settings.console.temporaryConfigHelp",
+      "description": "Help of the Git console switch that hides the temporary -c configuration",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.git.settings.console.repository",
+      "description": "Git console switch: leave the repository name out of each command line",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.git.settings.console.repositoryHelp",
+      "description": "Help of the Git console switch that leaves the repository name out",
       "platforms": [
         "desktop"
       ]
@@ -10783,13 +11372,6 @@
     {
       "id": "desktop.github.noReviewThreads",
       "description": "PR panel: the pull request has no line review comments",
-      "platforms": [
-        "desktop"
-      ]
-    },
-    {
-      "id": "desktop.github.notConfigured",
-      "description": "Shown when this build has no GitHub OAuth client",
       "platforms": [
         "desktop"
       ]
@@ -12684,13 +13266,6 @@
       ]
     },
     {
-      "id": "desktop.nested.commit",
-      "description": "Button on a nested repository's group: commit its staged changes with the message of the Commit tool window",
-      "platforms": [
-        "desktop"
-      ]
-    },
-    {
       "id": "desktop.nested.expand",
       "description": "Button on a nested repository's header in the Commit window: show its changes again",
       "platforms": [
@@ -12703,6 +13278,30 @@
       "platforms": [
         "desktop"
       ]
+    },
+    {
+      "id": "desktop.nested.roots",
+      "description": "Head of the repositories of the project folder in the Git Log's Paths filter and repository list; a box adds a repository to the log, a click on a name walks it alone",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.nested.rootsAll",
+      "description": "Button in the Git Log's repository list: walk every repository of the folder together in one list",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.nested.rootToggle",
+      "description": "Accessible label of a repository's box in the Git Log's repository list: add the repository to the log or take it out",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "name": "string"
+      }
     },
     {
       "id": "desktop.newProject.advanced",
@@ -15566,7 +16165,7 @@
     },
     {
       "id": "desktop.settings.localHistory.builtInsHelp",
-      "description": "Settings > General > Local History: the built-in ignore rules are lines of the wildcard list; deleting one keeps its folder out of history, and deleting its \"!\" line turns it back on",
+      "description": "Settings > General > Local History: the default ignore rules, the folders hidden from the project tree (Lithe's own and those enabled plugins declare), are lines of the wildcard list; their files are never recorded even when a line is deleted, a deleted line shows as a \"!\" line, and deleting that line restores it",
       "platforms": [
         "desktop"
       ]
@@ -16078,6 +16677,27 @@
       ]
     },
     {
+      "id": "desktop.settings.terminal.behavior",
+      "description": "Terminal settings page, behavior card title",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.settings.terminal.clickMove",
+      "description": "Terminal settings page, behavior: click to move the cursor switch",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.settings.terminal.clickMoveHelp",
+      "description": "Terminal settings page, behavior: what click to move does",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
       "id": "desktop.settings.terminal.cursor",
       "description": "Terminal settings page, cursor: the card title",
       "platforms": [
@@ -16148,6 +16768,20 @@
       ]
     },
     {
+      "id": "desktop.settings.terminal.optionAsMeta",
+      "description": "Terminal settings page, behavior: macOS Option as Meta switch",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.settings.terminal.optionAsMetaHelp",
+      "description": "Terminal settings page, behavior: what Option as Meta does",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
       "id": "desktop.settings.terminal.scrollback",
       "description": "Terminal settings page, scrollback",
       "platforms": [
@@ -16185,6 +16819,20 @@
     {
       "id": "desktop.settings.terminal.scrollbackMore",
       "description": "Terminal settings page, scrollback",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.settings.terminal.shellIntegration",
+      "description": "Terminal settings page, behavior: shell integration switch",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.settings.terminal.shellIntegrationHelp",
+      "description": "Terminal settings page, behavior: what shell integration does",
       "platforms": [
         "desktop"
       ]
@@ -17909,6 +18557,13 @@
         "tool": "string",
         "plugins": "string"
       }
+    },
+    {
+      "id": "desktop.toolchains.custom",
+      "description": "Entry of a tool's directory list that shows a field for a directory discovery did not find.",
+      "platforms": [
+        "desktop"
+      ]
     },
     {
       "id": "desktop.toolchains.description",
@@ -26831,6 +27486,7 @@
       "id": "git.log.collapse",
       "description": "Windows UI: git.log.collapse",
       "platforms": [
+        "desktop",
         "windows"
       ],
       "parameters": {
@@ -27059,6 +27715,7 @@
       "id": "git.log.expand",
       "description": "Windows UI: git.log.expand",
       "platforms": [
+        "desktop",
         "windows"
       ],
       "parameters": {
@@ -27680,9 +28337,10 @@
     },
     {
       "id": "git.log.toolbar.moreActions",
-      "description": "Windows UI: git.log.toolbar.moreActions",
+      "description": "Windows UI: git.log.toolbar.moreActions; Viva desktop: the overflow menu button of the Git Log filter bar, holding the view buttons it has no room for",
       "platforms": [
-        "windows"
+        "windows",
+        "desktop"
       ]
     },
     {
@@ -95784,30 +96442,6 @@
       "platforms": [
         "windows"
       ]
-    },
-    {
-      "id": "run.incompleteProjectScanMessage",
-      "description": "Run: incomplete workspace scan warning",
-      "platforms": [
-        "macos",
-        "windows"
-      ],
-      "macos": {
-        "key": "Some project folders could not be read. Existing run configurations were retained. Restore access, then regenerate configurations.",
-        "arguments": []
-      }
-    },
-    {
-      "id": "run.incompleteProjectScanTitle",
-      "description": "Run: incomplete workspace scan warning",
-      "platforms": [
-        "macos",
-        "windows"
-      ],
-      "macos": {
-        "key": "Project scan is incomplete",
-        "arguments": []
-      }
     },
     {
       "id": "run.infrastructure",

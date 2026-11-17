@@ -67,7 +67,9 @@ func TestClosingWithNothingRunningDoesNotAsk(t *testing.T) {
 }
 
 // busyTerminal opens a terminal whose shell runs script with job control on, so a
-// command it runs is a foreground job of its own, as in an interactive shell.
+// command it runs is a foreground job of its own, as in an interactive shell. The shell
+// starts off the window thread, and the terminal has it once the window has taken the
+// wake the finished start sends.
 func busyTerminal(t *testing.T, h *harness, script string) *terminal {
 	t.Helper()
 	p := h.app.project
@@ -78,6 +80,7 @@ func busyTerminal(t *testing.T, h *harness, script string) *terminal {
 		t.Fatal("the terminal was not opened")
 	}
 	term.view.Start()
+	h.await("the terminal's shell to start", func() bool { return term.view.BusyProbe() != nil })
 	return term
 }
 

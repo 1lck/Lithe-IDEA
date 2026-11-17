@@ -36,5 +36,4 @@ LITHE_MARKETPLACE_LAYOUT_CAPTURES="$PWD/.artifacts/marketplace-layout-check" \
 不移位、极窄视口的横向滚动与顶部对齐。已安装详情和路径控件保留各自的回归。
 测试使用独占的 UserDefaults 偏好域，并在结束后清理偏好域和窗口。
 
-这些 PNG 是静态文档材料，不由产品读取，不进入 app bundle、安装目录或工作树
-资源复用清单。产品修改没有新增运行时文件、下载入口或缓存。
+这些 PNG 是静态文档材料，不由产品读取，不进入 app bundle 或安装目录，也不跨工作树复制。产品修改没有新增运行时文件、下载入口或缓存。

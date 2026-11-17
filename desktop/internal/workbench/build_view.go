@@ -1,8 +1,6 @@
 package workbench
 
 import (
-	"strings"
-
 	"github.com/1lck/Lithe-IDEA/desktop/internal/core"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/pluginservice"
 )
@@ -15,7 +13,9 @@ type buildRowKind uint8
 
 const (
 	buildRowGroup buildRowKind = iota
-	buildRowSection
+	// buildRowFolder heads nodes it holds: a task folder, a project's targets, dependencies or
+	// discovered tests.
+	buildRowFolder
 	buildRowEmpty
 	buildRowProject
 	buildRowTarget
@@ -24,31 +24,39 @@ const (
 	buildRowTest
 )
 
-// buildRow is one row of the build tree (build_tree.go): a build system's group, a section
-// of it, a note that a section is empty or still loading, or something to choose or run.
+// buildRow is one row of the build tree (build_tree.go): a build system's group, a node of
+// the tree Core laid out for it, a dependency or discovered test the host loads under one, or
+// a note that something is empty, still loading or failed.
 type buildRow struct {
 	kind     buildRowKind
 	label    string
 	detail   string
 	selected bool
 	// tooltip is what the row shows while the pointer rests on it: the full name of a target
-	// whose label is its path alone (buildTargetLabel); empty for none.
+	// whose label is its path alone, or a task's description; empty for none.
 	tooltip string
-	// instance is the index of the build system the row belongs to, level its indentation in
-	// the tree, and section the section a section row heads.
+	// instance is the index of the build system the row belongs to and level its indentation
+	// in the tree.
 	instance int
 	level    int
-	section  string
-	// count is what a section row shows beside its name, -1 for not known yet; open says a
-	// group or a section shows its rows, and fixed that a filter keeps it open.
-	count       int
-	open, fixed bool
-	// warning marks a row that tells of a failure, loading one of a model still loading.
-	warning, loading bool
-	// id is the project, target or task the row chooses; project is the project a
-	// target belongs to.
+	// node is the tree node a folder, project, target or task row shows; on a group row, the
+	// project the group stands for, nil when its model has no single root project. Its IDs are
+	// what the row chooses and runs.
+	node *core.BuildTreeNode
+	// branch says the row has children to show, open that it shows them, and fixed that a
+	// filter keeps it open.
+	branch, open, fixed bool
+	// warning marks a row that tells of a failure, loading one of a model still loading, and
+	// model the line that tells the model failed, whose menu loads it again.
+	warning, loading, model bool
+	// sync is the Run window session of the model load a model line tells of, which a click on
+	// the line shows (build_sync.go); empty for none.
+	sync string
+	// id is the discovered test a test row runs; project is the project whose dependency
+	// tree a dependency row belongs to.
 	id, project string
-	target      *core.BuildTarget
+	// target is the model target a target row stands for, nil when the model no longer has it.
+	target *core.BuildTarget
 	// path and leaf place a dependency row in its tree (build_dependencies.go); dependencies
 	// marks the line that stands for a tree still loading, failed or empty.
 	path         string
@@ -59,36 +67,6 @@ type buildRow struct {
 	tests    bool
 	discover bool
 	test     *core.BuildDiscoveredTest
-}
-
-// declaredTasks are the tasks the manifest names itself, command and provider alike; a fromModel
-// template is listed through the model tasks it stands for.
-func declaredTasks(instance *buildInstance) []pluginservice.BuildTaskDeclaration {
-	if instance == nil {
-		return nil
-	}
-	tasks := make([]pluginservice.BuildTaskDeclaration, 0, len(instance.System.Tasks))
-	for _, task := range instance.System.Tasks {
-		if !task.FromModel {
-			tasks = append(tasks, task)
-		}
-	}
-	return tasks
-}
-
-// buildTaskDetail is what a task row shows beside its name: its category path, else its group.
-func buildTaskDetail(task *pluginservice.BuildTaskDeclaration) string {
-	if len(task.Category) != 0 {
-		return strings.Join(task.Category, " / ")
-	}
-	return task.Group
-}
-
-func buildTaskName(task *pluginservice.BuildTaskDeclaration) string {
-	if task.DisplayName != "" {
-		return task.DisplayName
-	}
-	return task.ID
 }
 
 func buildRunApplies(run pluginservice.BuildRunDeclaration, target core.BuildTarget) bool {

@@ -58,8 +58,6 @@
         "macos/Tests/LitheTests/PluginManagerTests.swift",
         "macos/Tests/LitheTests/PluginDiskInstallationTests.swift",
         "macos/Tests/LitheExecutionModuleTests/BuildSystemServiceTests.swift",
-        "scripts/resources/worktree-resources.json",
-        "scripts/resources/test-reuse-worktree-resources.mjs",
         "macos/Sources/Lithe/Models/AppModel/AppModel+PluginWeb.swift",
         "macos/Sources/Lithe/Models/AppModel/AppModel.swift",
         "macos/Sources/Lithe/Models/Workspace/ProjectSessionManager.swift",
