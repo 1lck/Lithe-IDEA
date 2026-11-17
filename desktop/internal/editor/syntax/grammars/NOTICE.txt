@@ -56,9 +56,59 @@ and that grammar's license, follow.
   7bc75dfe779ad5b35d9bf4013d9181864358cb49. MIT, LICENSE.language-xml.txt.
 - ini.tmLanguage.json (extension ini): textmate/ini.tmbundle
   2af0cbb0704940f967152616f2f1ff0aae6287a6, LICENSE.textmate-bundles.txt.
+- groovy.tmLanguage.json (extension groovy): textmate/groovy.tmbundle
+  85d8f7c97ae473ccb9473f6c8d27e4ec957f4be1, LICENSE.textmate-bundles.txt.
+- html-derivative.tmLanguage.json (extension html): textmate/html.tmbundle
+  0c3d5ee54de3a993f747f54186b73a4d2d3c44a2, LICENSE.textmate-bundles.txt. PHP uses it for the
+  HTML around its code.
+- php.tmLanguage.json, php-html.tmLanguage.json (extension php; the second is html.tmLanguage.json
+  there, renamed beside HTML's own): KapitanOczywisty/language-php
+  d94fd6b7dff1613d34bc0d36328f9982e65bd545. MIT, LICENSE.language-php.txt, which also carries the
+  permission of the TextMate PHP bundle it derives from.
+- MagicPython.tmLanguage.json (extension python): MagicStack/MagicPython
+  7d0f2b22a5ad8fccbd7341bc7b7a715169283044. MIT, LICENSE.MagicPython.txt.
+- shell-unix-bash.tmLanguage.json (extension shellscript): jeff-hykin/better-shell-syntax
+  35020b0bd79a90d3b262b4c13a8bb0b33adc1f45. MIT, LICENSE.better-shell-syntax.txt.
+- powershell.tmLanguage.json (extension powershell): PowerShell/EditorSyntax
+  23eed76d483c887a1608609e9dd57e09666411cc. MIT, LICENSE.EditorSyntax.txt.
+- ruby.tmLanguage.json (extension ruby): Shopify/ruby-lsp
+  e044408a069f43c892143f19c389628eebffbd01. MIT, LICENSE.ruby-lsp.txt.
+- csharp.tmLanguage.json (extension csharp): dotnet/csharp-tmLanguage
+  c2719309e91d2e26be21fce0ecaaca86c7b48ce4. MIT, LICENSE.csharp-tmLanguage.txt.
+- objective-c.tmLanguage.json (extension objective-c): jeff-hykin/better-objc-syntax
+  119b75fb1f4d3e8726fa62588e3b935e0b719294. MIT, LICENSE.better-objc-syntax.txt.
+- objective-c++.tmLanguage.json (extension objective-c): jeff-hykin/better-objcpp-syntax
+  5a7eb15eee382dd5aa388bc04fdb60a0d2128e14. MIT, LICENSE.better-objcpp-syntax.txt.
+- swift.tmLanguage.json (extension swift): jtbandes/swift-tmlanguage
+  2be007b6bc88e54a0edfd3c313ff31276edc923d, MIT, LICENSE.swift-tmlanguage.txt; VS Code also
+  records owensd/vscode-swift cec27af6662e3799120b208e64483efdfe5521f5, MIT,
+  LICENSE.vscode-swift.txt.
+- sql.tmLanguage.json (extension sql): microsoft/vscode-mssql
+  684648ee5414eb2d9df22b0392ef05079f91e44e. MIT, LICENSE.vscode-mssql.txt.
+- lua.tmLanguage.json (extension lua): sumneko/lua.tmbundle
+  b295d83bf0e91b5d3a69eb097f9ed351623b95be. MIT, LICENSE.lua.tmbundle.txt; VS Code records the
+  bundle under the TextMate bundle license, which LICENSE.textmate-bundles.txt reproduces too.
+- docker.tmLanguage.json (extension docker): moby/moby
+  bea959c7b793b32a893820b97c4eadc7c87fabb0, contrib/syntax/textmate/Docker.tmbundle. Apache
+  License 2.0, LICENSE.moby.txt, with the NOTICE of that project in NOTICE.moby.txt.
 - toml.tmLanguage.json: not from VS Code, but from tamasfe/taplo at commit
   08f343be02ce1b20296470396a42f0fa47820449, editors/vscode/toml.tmLanguage.json. MIT,
   LICENSE.taplo.txt.
+- cmake.tmLanguage.json: not from VS Code, but from microsoft/vscode-cmake-tools at commit
+  e0969b894e56d8ea5e6641d48a82e5ba3babcc38, syntaxes/CMake.tmLanguage.json. MIT,
+  LICENSE.vscode-cmake-tools.txt.
+- kotlin.tmLanguage.json: not from VS Code, but from fwcd/vscode-kotlin at commit
+  4a7c1538754828c1d22a8bee8ff3400045b4352a, syntaxes/kotlin.tmLanguage.json. MIT,
+  LICENSE.vscode-kotlin.txt.
+- zig.tmLanguage.json: not from VS Code, but from ziglang/vscode-zig at commit
+  38309f0b1dc0c1bdc4b23e78594302bf28ef43d1, syntaxes/zig.tmLanguage.json. MIT,
+  LICENSE.vscode-zig.txt.
+- proto3.tmLanguage.json: not from VS Code, but from zxh0/vscode-proto3 at commit
+  5563d58bc5935213a41ab168f321cf9d99c34fcb, syntaxes/proto3.tmLanguage.json. MIT,
+  LICENSE.vscode-proto3.txt.
+- graphql.tmLanguage.json: not from VS Code, but from graphql/graphiql at commit
+  7a6311da0c617e7d2759b59036442c6ef26ced3d, packages/vscode-graphql-syntax/grammars/graphql.json,
+  renamed. MIT, LICENSE.graphiql.txt.
 
 The tokenizer that runs them (internal/editor/textmate) is a Go port of vscode-textmate's
 algorithm, MIT: internal/editor/textmate/LICENSE.vscode-textmate.md.

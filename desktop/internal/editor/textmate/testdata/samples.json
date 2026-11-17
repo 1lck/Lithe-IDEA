@@ -20,5 +20,22 @@
   "sample.jsonc": "source.json.comments",
   "sample.toml": "source.toml",
   "sample.xml": "text.xml",
-  "sample.ini": "source.ini"
+  "sample.ini": "source.ini",
+  "sample.py": "source.python",
+  "sample.sh": "source.shell",
+  "sample.kt": "source.kotlin",
+  "Dockerfile": "source.dockerfile",
+  "sample.sql": "source.sql",
+  "sample.php": "text.html.php",
+  "sample.rb": "source.ruby",
+  "sample.swift": "source.swift",
+  "sample.cs": "source.cs",
+  "sample.lua": "source.lua",
+  "sample.ps1": "source.powershell",
+  "sample.zig": "source.zig",
+  "sample.proto": "source.proto",
+  "sample.m": "source.objc",
+  "sample.mm": "source.objcpp",
+  "sample.graphql": "source.graphql",
+  "sample.injection": "source.injection"
 }

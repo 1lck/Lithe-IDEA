@@ -51,9 +51,13 @@ func compilePattern(source string, noA, noG bool) (*regexp2.Regexp, error) {
 //     which charSet writes them with. POSIX brackets ([:alpha:]) and \x{...}, which may list
 //     several code points, have no .NET form and are spelled out.
 //   - \R, \N, \O and \X become their definitions; an unknown escaped letter is the letter.
+//   - The absent operator (?~X) becomes (?:(?:(?!X)\O)*), a range in which no match of X
+//     starts, where Oniguruma's is a range that no match of X lies wholly inside. The two
+//     differ only on a match of X that starts in the range and ends past it, which no bundled
+//     grammar allows: C#'s only use, (?~\*/)$, ends at a line break, which no "*/" crosses.
 //
 // What has no translation, such as \K, a call of the whole pattern (\g<0>) or the absent
-// operator, is an error, so the rule that uses it never matches.
+// operator's other forms, (?~|...), is an error, so the rule that uses it never matches.
 type translator struct {
 	src []rune
 	pos int
@@ -98,6 +102,8 @@ type frame struct {
 	// group is the number of the capturing group the frame is, or 0, and source where its "("
 	// is in src.
 	group, source int
+	// close is what the group's ")" becomes, when it is not ")".
+	close string
 }
 
 // groupSpan is where a capturing group is in src, from its "(" to past its ")", and whether
@@ -182,7 +188,11 @@ func (t *translator) run() error {
 			}
 			last := t.frames[len(t.frames)-1]
 			t.frames = t.frames[:len(t.frames)-1]
-			t.out = append(t.out, ')')
+			if last.close != "" {
+				t.write(last.close)
+			} else {
+				t.out = append(t.out, ')')
+			}
 			t.pos++
 			t.atom, t.extended = last.start, last.extended
 			if last.group > 0 && !t.resolved {
@@ -353,6 +363,11 @@ func (t *translator) open() error {
 		return t.condition(start)
 	case c == 'i' || c == 'm' || c == 'x' || c == '-':
 		return t.flags(start)
+	case c == '~' && t.peek(3) != '|':
+		// The absent operator; see translator.
+		t.frames = append(t.frames, frame{start: start, extended: t.extended, close: `)(?s:.))*)`})
+		t.write("(?:(?:(?!")
+		t.pos += 3
 	default:
 		return fmt.Errorf("unsupported group (?%c", c)
 	}

@@ -248,6 +248,15 @@ type Tokenizer struct {
 	groups []span
 	// line is the text of the line, kept here so that it is not allocated per line.
 	line text
+
+	// injectedAt is the scope stack injected was computed for: whether each of the grammar's
+	// injections applies there.
+	injectedAt *ScopeStack
+	injected   []bool
+	// ruleMatch and injectionMatch hold the groups of the current rule's best match and the
+	// injections' while both are searched, since a later search may reuse the cache slot a
+	// match is in.
+	ruleMatch, injectionMatch []int
 }
 
 // rawToken is a token with its start in runes.
@@ -327,7 +336,7 @@ func (t *Tokenizer) tokenizeText(s *text, first bool, pos int, stack *StateStack
 		if !deadline.IsZero() && time.Now().After(deadline) {
 			return stack, true
 		}
-		id, caps := t.matchRule(s, first, pos, stack, anchor)
+		id, caps := t.matchRuleOrInjections(s, first, pos, stack, anchor)
 		if caps == nil {
 			t.produce(stack.content, length)
 			return stack, false
@@ -415,11 +424,12 @@ func (t *Tokenizer) checkWhileConditions(s *text, first bool, pos int, stack *St
 		if node.hasEndRule {
 			p = r.resolvedPattern(r.while, node.endRule)
 		}
-		_, caps := t.search(s, pos, first, pos == anchor, nil, entry{rule: whileRuleID, pat: p}, false)
-		if caps == nil {
+		_, m := t.search(s, pos, first, pos == anchor, nil, entry{rule: whileRuleID, pat: p}, false)
+		if m == nil {
 			stack = node.parent
 			break
 		}
+		caps := t.keep(m)
 		t.produce(node.content, caps[0].start)
 		t.captures(s, first, node, r.whileCaptures, caps)
 		t.produce(node.content, caps[0].end)
@@ -432,9 +442,82 @@ func (t *Tokenizer) checkWhileConditions(s *text, first bool, pos int, stack *St
 	return stack, pos, first, anchor
 }
 
+// matchRuleOrInjections is vscode-textmate's matchRuleOrInjections: it finds the match the
+// innermost rule of stack makes in s from pos, and the match the injections whose selectors
+// match the scopes there make, and returns the rule the winner starts and its groups. The
+// injections' match wins when it starts earlier, or at the same start when its selector part
+// is written "L:".
+func (t *Tokenizer) matchRuleOrInjections(s *text, first bool, pos int, stack *StateStack, anchor int) (int, []span) {
+	id, m := t.matchRule(s, first, pos, stack, anchor)
+	if len(t.g.injections) == 0 {
+		if m == nil {
+			return 0, nil
+		}
+		return id, t.keep(m)
+	}
+	if m != nil {
+		t.ruleMatch = append(t.ruleMatch[:0], m...)
+		m = t.ruleMatch
+	}
+	injected, im, left := t.matchInjections(s, first, pos, stack, anchor)
+	if im != nil && (m == nil || im[0] < m[0] || left && im[0] == m[0]) {
+		return injected, t.keep(im)
+	}
+	if m == nil {
+		return 0, nil
+	}
+	return id, t.keep(m)
+}
+
+// matchInjections is vscode-textmate's matchInjections: of the injections whose selectors
+// match the scopes stack has, in priority order, the first to find the leftmost match in s
+// from pos. It returns the rule the match starts, the match as search reports it, and whether
+// the injection's priority is "L:".
+//
+// An injection written as a begin/end rule is searched with its patterns but not its end.
+// vscode-textmate searches that end too and takes a match of it for the end of whatever rule
+// is open, which at the grammar's root fails; no grammar is known to rely on it.
+func (t *Tokenizer) matchInjections(s *text, first bool, pos int, stack *StateStack, anchor int) (int, []int, bool) {
+	applies := t.injectionsAt(stack.content)
+	var best []int
+	bestRule, bestPriority := 0, 0
+	for i, inj := range t.g.injections {
+		if !applies[i] {
+			continue
+		}
+		id, m := t.search(s, pos, first, pos == anchor, t.g.rule(inj.rule).scanner(t.g), entry{}, false)
+		if m == nil || best != nil && m[0] >= best[0] {
+			// Injections are in priority order, so the earlier one wins at the same start.
+			continue
+		}
+		t.injectionMatch = append(t.injectionMatch[:0], m...)
+		best, bestRule, bestPriority = t.injectionMatch, id, inj.priority
+		if best[0] == pos {
+			break
+		}
+	}
+	return bestRule, best, bestPriority == -1
+}
+
+// injectionsAt says, for each of the grammar's injections, whether its selector matches
+// scopes. The answer is kept for the last stack asked about, which the positions of a line
+// mostly share.
+func (t *Tokenizer) injectionsAt(scopes *ScopeStack) []bool {
+	if t.injected != nil && t.injectedAt == scopes {
+		return t.injected
+	}
+	t.injected = t.injected[:0]
+	for _, inj := range t.g.injections {
+		t.injected = append(t.injected, inj.selector.matches(scopes))
+	}
+	t.injectedAt = scopes
+	return t.injected
+}
+
 // matchRule finds the leftmost match in s from pos among the patterns of the innermost rule
-// of stack, its end pattern included, and returns the rule it starts and its groups.
-func (t *Tokenizer) matchRule(s *text, first bool, pos int, stack *StateStack, anchor int) (int, []span) {
+// of stack, its end pattern included, and returns the rule it starts and the match as search
+// reports it.
+func (t *Tokenizer) matchRule(s *text, first bool, pos int, stack *StateStack, anchor int) (int, []int) {
 	r := t.g.rule(stack.rule)
 	entries := r.scanner(t.g)
 	if r.kind != beginEndRule {
@@ -449,9 +532,10 @@ func (t *Tokenizer) matchRule(s *text, first bool, pos int, stack *StateStack, a
 
 // search finds the leftmost match in s from pos among entries and end, if end has a pattern,
 // which comes first unless endLast is set. Of matches that start at the same place the first
-// in that order wins. It returns the winning entry's rule and the match's groups, or nil
-// groups when nothing matches.
-func (t *Tokenizer) search(s *text, pos int, allowA, allowG bool, entries []entry, end entry, endLast bool) (int, []span) {
+// in that order wins. It returns the winning entry's rule and the match as find reports it,
+// or nil when nothing matches; the match belongs to the cache, so keep copies its groups out
+// before the next search.
+func (t *Tokenizer) search(s *text, pos int, allowA, allowG bool, entries []entry, end entry, endLast bool) (int, []int) {
 	var best []int
 	bestRule := 0
 	try := func(e entry) bool {
@@ -477,7 +561,7 @@ func (t *Tokenizer) search(s *text, pos int, allowA, allowG bool, entries []entr
 	if best == nil {
 		return 0, nil
 	}
-	return bestRule, t.keep(best)
+	return bestRule, best
 }
 
 // find searches s from pos with one pattern, answering from the cache where an earlier
