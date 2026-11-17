@@ -49,6 +49,9 @@ func (a *App) titleRunConfigMenu(c ui.C, anchor ui.Box) {
 			menu.Item(p.build.failed).Disabled(true)
 		case len(s.list) == 0:
 			menu.Item(i18n.Shared(lang, "desktop.title.noRunConfigurations")).Disabled(true)
+			if s.hidden > 0 {
+				menu.Item(hiddenRunConfigurations(lang, s.hidden)).Disabled(true)
+			}
 		}
 		menu.Separator()
 		if menu.Item(i18n.Shared(lang, "native.editConfiguration")).Icon(icons.Pencil).Clicked() {

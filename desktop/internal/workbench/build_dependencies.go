@@ -104,10 +104,10 @@ func (a *App) loadBuildDependencies(p *project, instance *buildInstance, project
 	})
 }
 
-// buildDependencyTree plans, runs and decodes one dependency request. A command plan has no
-// plugin process to log it, so the host records it as the plugin's lithe/build/dependencies
-// operation, at the stages buildCommandStage describes; a provider request is the plugin's own
-// to log, and so is a provider system's failure before its plan says it is a command.
+// buildDependencyTree plans, runs and decodes one dependency request, by the source the
+// dependency declaration names. A command plan has no plugin process to log it, so the host
+// records it as the plugin's lithe/build/dependencies operation, at the stages
+// buildCommandStage describes; a provider request is the plugin's own to log.
 func (a *App) buildDependencyTree(ctx context.Context, p *project, instance buildInstance, kernel buildDependencyKernel, selection *core.BuildSelection, refresh bool) (core.BuildDependencyTree, error) {
 	attempt := core.StartPluginAttempt(instance.PluginID, core.OperationBuildDependencies, core.OriginOf(ctx).Operation)
 	defer attempt.Abandon()
@@ -115,9 +115,12 @@ func (a *App) buildDependencyTree(ctx context.Context, p *project, instance buil
 		a.plugins.EndAttempt(ctx, attempt, stage, err)
 		return core.BuildDependencyTree{}, err
 	}
+	// The declaration's source decides: a system with a provider process may still read its
+	// tree with a command, which needs the host's output file and the host's operation record.
+	provider := instance.System.Dependencies != nil && instance.System.Dependencies.Source == "provider"
 	execution, err := a.resolveBuildExecutable(ctx, p, instance, a.text.Build)
 	if err != nil {
-		if instance.System.Provider {
+		if provider {
 			return core.BuildDependencyTree{}, err
 		}
 		return fail(core.StageResolve, err)
@@ -128,7 +131,7 @@ func (a *App) buildDependencyTree(ctx context.Context, p *project, instance buil
 	if selection != nil {
 		decode.Project = selection.Path
 	}
-	if instance.System.Provider {
+	if provider {
 		if execution.Executable != "" {
 			request.Tool = &core.BuildTool{Executable: execution.Executable, Environment: execution.Environment}
 		}
@@ -138,7 +141,7 @@ func (a *App) buildDependencyTree(ctx context.Context, p *project, instance buil
 			return core.BuildDependencyTree{}, err
 		}
 		if plan.Provider == nil {
-			return a.commandDependencies(ctx, p, instance, kernel, attempt, plan, execution, decode, "")
+			return core.BuildDependencyTree{}, errors.New("the build system answered with a command plan")
 		}
 		client, err := a.buildProvider(ctx, p, instance)
 		if err != nil {

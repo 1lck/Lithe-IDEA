@@ -3,6 +3,7 @@ package workbench
 import (
 	"context"
 	"errors"
+	"strconv"
 
 	"github.com/1lck/Lithe-IDEA/desktop/internal/core"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/i18n"
@@ -51,6 +52,29 @@ func (p *project) runConfigsSettled() bool {
 	return true
 }
 
+// noRunConfigurationsNotice explains an empty run configuration list once it is final, and
+// is empty while there is something to edit, the list is still read, or reading it failed
+// (the menu and the Run window show that failure).
+func (p *project) noRunConfigurationsNotice(language i18n.Language) string {
+	s := &p.runConfigs
+	if !p.runConfigsSettled() || s.failure != "" || len(s.list) > 0 {
+		return ""
+	}
+	if p.build.failed != "" {
+		return p.build.failed
+	}
+	if s.hidden > 0 {
+		return i18n.SharedFormat(language, "desktop.title.nothingToEditHidden", map[string]string{"count": strconv.Itoa(s.hidden)})
+	}
+	return i18n.Shared(language, "desktop.title.nothingToEdit")
+}
+
+// hiddenRunConfigurations says how many saved configurations the list leaves out because no
+// build plugin starts them.
+func hiddenRunConfigurations(language i18n.Language, count int) string {
+	return i18n.SharedFormat(language, "desktop.title.hiddenRunConfigurations", map[string]string{"count": strconv.Itoa(count)})
+}
+
 // loadTitleRunConfigs reads what the title bar lists. Detection runs once; after it every
 // detected instance loads its model, since each offers its own runs, where the Build window
 // only loads the instance it shows.
@@ -97,9 +121,14 @@ func (a *App) chooseTitleConfiguration(p *project, id string) {
 }
 
 // editRunConfigurations opens the Run window, which lists the configurations, and the editor
-// of the one the title bar runs.
+// of the one the title bar runs. Once the configurations are read and there is none, it says
+// why instead: the Run window would show nothing, so the press looked like it did nothing.
 func (a *App) editRunConfigurations(p *project) {
 	if p == nil {
+		return
+	}
+	if notice := p.noRunConfigurationsNotice(a.language()); notice != "" {
+		a.notifyInfo(notice)
 		return
 	}
 	a.openToolWindow(itemRun)

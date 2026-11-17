@@ -27,8 +27,10 @@ type BuildPlugin struct {
 type BuildSystemDeclaration struct {
 	ID          string
 	DisplayName string
-	// Provider is true when this system answers model and task requests through
-	// a plugin process instead of a command line.
+	// Provider is true when this system declares a plugin process. Each request still names
+	// its own source: a provider system may read its model or dependencies with a command, so
+	// the model's source (BuildInstance.ModelSource) and Dependencies.Source decide how a
+	// request runs, not this.
 	Provider bool
 	Tasks    []BuildTaskDeclaration
 	Runs     []BuildRunDeclaration
@@ -46,6 +48,9 @@ type BuildSystemDeclaration struct {
 // (plugin.build.invalidSelection), so the window offers the tree only where it is declared.
 type BuildDependenciesDeclaration struct {
 	Scopes []string
+	// Source is "command" or "provider": where the tree comes from. A system with a provider
+	// process may still read its tree with a command, so this, not Provider, picks the path.
+	Source string
 }
 
 // BuildTestDeclaration is one build system's declared test entry.
@@ -78,9 +83,30 @@ type BuildTaskDeclaration struct {
 	Source                string
 }
 
+// EntryName is the run configuration of the run on target: the run's declared name before the
+// target's, or the target's name alone when the run declares none, as the contract's run.name
+// says.
+func (r BuildRunDeclaration) EntryName(target string) string {
+	if r.Name == "" {
+		return target
+	}
+	return r.Name + " " + target
+}
+
+// ActionName is what a menu entry that runs the run on target says: the run's declared name, or
+// the target's name when the run declares none.
+func (r BuildRunDeclaration) ActionName(target string) string {
+	if r.Name == "" {
+		return target
+	}
+	return r.Name
+}
+
 // BuildRunDeclaration is one provider-owned application, service, or task run.
 type BuildRunDeclaration struct {
-	ID        string
+	ID string
+	// Name is the entry name the run declares, empty when it declares none: the contract then
+	// names each entry after its target (EntryName, ActionName).
 	Name      string
 	Execution string
 	Tags      []string
@@ -160,6 +186,7 @@ type rawBuildManifest struct {
 		} `json:"test"`
 		Dependencies *struct {
 			Scopes []string `json:"scopes"`
+			Source string   `json:"source"`
 		} `json:"dependencies"`
 	} `json:"buildSystems"`
 }
@@ -200,13 +227,9 @@ func parseBuildSystems(manifest json.RawMessage) (map[string]BuildSystemDeclarat
 			if run.ID == "" || run.Source != "provider" || run.FromTargets == nil {
 				continue
 			}
-			name := run.Name
-			if name == "" {
-				name = run.ID
-			}
 			declaration := BuildRunDeclaration{
 				ID:        run.ID,
-				Name:      name,
+				Name:      run.Name,
 				Execution: run.Execution,
 				Tags:      append([]string(nil), run.FromTargets.Tags...),
 			}
@@ -224,7 +247,7 @@ func parseBuildSystems(manifest json.RawMessage) (map[string]BuildSystemDeclarat
 			}
 		}
 		if deps := raw.Dependencies; deps != nil && len(deps.Scopes) > 0 {
-			system.Dependencies = &BuildDependenciesDeclaration{Scopes: append([]string(nil), deps.Scopes...)}
+			system.Dependencies = &BuildDependenciesDeclaration{Scopes: append([]string(nil), deps.Scopes...), Source: deps.Source}
 		}
 		systems[raw.ID] = system
 	}

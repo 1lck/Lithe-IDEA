@@ -159,7 +159,7 @@ func TestParseBuildSystemsKeepsTaskPresentationAndDependencyScopes(t *testing.T)
 	if goModules.Provider {
 		t.Fatal("a command model reads as a provider")
 	}
-	if goModules.Dependencies == nil || len(goModules.Dependencies.Scopes) != 1 || goModules.Dependencies.Scopes[0] != "project" {
+	if goModules.Dependencies == nil || len(goModules.Dependencies.Scopes) != 1 || goModules.Dependencies.Scopes[0] != "project" || goModules.Dependencies.Source != "command" {
 		t.Fatalf("dependencies = %+v", goModules.Dependencies)
 	}
 	if len(goModules.Tasks) != 2 {
@@ -177,5 +177,38 @@ func TestParseBuildSystemsKeepsTaskPresentationAndDependencyScopes(t *testing.T)
 	}
 	if systems["plain"].Dependencies != nil {
 		t.Fatal("a system without dependencies offers them")
+	}
+}
+
+// A provider system may read its model and dependencies with commands and use its provider only
+// for runs; the dependency declaration keeps its own source. A run
+// without a name is called after its target, as the contract's run.name says, not after its ID.
+func TestParseBuildSystemsKeepsDependencySourceAndUnnamedRuns(t *testing.T) {
+	systems, err := parseBuildSystems(json.RawMessage(`{"buildSystems": [{
+		"id": "engine",
+		"provider": {"launch": {"kind": "packaged", "path": "provider"}},
+		"model": {"source": "command"},
+		"dependencies": {"source": "command", "scopes": ["workspace", "project"], "arguments": [], "output": "outputFile"},
+		"run": [
+			{"id": "service", "source": "provider", "fromTargets": {"tags": ["service"]}, "execution": "service"},
+			{"id": "tool", "name": "Tool", "source": "provider", "fromTargets": {"tags": ["tool"]}, "execution": "application"}
+		]
+	}]}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	engine := systems["engine"]
+	if !engine.Provider || engine.Dependencies == nil || engine.Dependencies.Source != "command" {
+		t.Fatalf("system = %+v, dependencies = %+v", engine, engine.Dependencies)
+	}
+	if len(engine.Runs) != 2 {
+		t.Fatalf("runs = %+v", engine.Runs)
+	}
+	unnamed, named := engine.Runs[0], engine.Runs[1]
+	if unnamed.Name != "" || unnamed.EntryName("ServerMain") != "ServerMain" || unnamed.ActionName("ServerMain") != "ServerMain" {
+		t.Fatalf("the unnamed run is %+v, entry %q, action %q", unnamed, unnamed.EntryName("ServerMain"), unnamed.ActionName("ServerMain"))
+	}
+	if named.EntryName("Main") != "Tool Main" || named.ActionName("Main") != "Tool" {
+		t.Fatalf("the named run's entry %q, action %q", named.EntryName("Main"), named.ActionName("Main"))
 	}
 }

@@ -611,14 +611,7 @@ func (a *App) loadBuildModelWith(p *project, index int, refresh bool) {
 	a.background(p, buildRequestTimeout, func(ctx context.Context) func(*App) {
 		ctx, cancel := feed.bind(ctx)
 		defer cancel()
-		var model core.BuildModel
-		var err error
-		// Core names where the model comes from; a static model arrived with detection.
-		if captured.ModelSource == "command" {
-			model, err = a.commandModel(ctx, p, captured, kernel, feed, a.text.Build)
-		} else {
-			model, err = a.providerModel(ctx, p, captured, kernel, feed, refresh)
-		}
+		model, err := a.buildModel(ctx, p, captured, kernel, feed, a.text.Build, refresh)
 		if err != nil && feed.stopRequested() {
 			err = errBuildModelStopped
 		}
@@ -641,6 +634,17 @@ func (a *App) reloadBuildModel(p *project, index int) {
 	p.reloadBuildDependencies()
 	p.revokeBuildTests(instance.ID)
 	a.loadBuildModelWith(p, index, true)
+}
+
+// buildModel loads instance's model from the source Core named for it at detection: a command
+// the host runs, or the plugin's provider process. A system that declares a provider process may
+// still read its model with a command, so the model's source decides, not the provider. resolved,
+// when given, is the build executable the caller already resolved.
+func (a *App) buildModel(ctx context.Context, p *project, instance buildInstance, kernel Kernel, feed *buildSyncFeed, messages i18n.BuildMessages, refresh bool, resolved ...buildExecution) (core.BuildModel, error) {
+	if instance.ModelSource == "command" {
+		return a.commandModel(ctx, p, instance, kernel, feed, messages, resolved...)
+	}
+	return a.providerModel(ctx, p, instance, kernel, feed, refresh, resolved...)
 }
 
 // commandModel runs a command-sourced model plan and decodes its output. The
@@ -1123,6 +1127,22 @@ func (a *App) runCommandTask(ctx, prepare context.Context, p *project, op *build
 	return nil
 }
 
+// addBuildToolHint gives a provider's run or debug preparation the build executable the host
+// resolves for instance, as dependency and test requests already carry it, so a provider that
+// builds with the user's tool (a Maven wrapper, the configured executable) uses the same one.
+// The hint is optional in the contract: when nothing resolves, the request goes without it, the
+// provider reports what it misses, and the reason is logged here.
+func (a *App) addBuildToolHint(ctx context.Context, p *project, instance buildInstance, request *core.BuildPlanRequest) {
+	execution, err := a.resolveBuildExecutable(ctx, p, instance, a.text.Build)
+	if err != nil {
+		a.backgroundFailedIn(ctx, "build_run_tool", err)
+		return
+	}
+	if execution.Executable != "" {
+		request.Tool = &core.BuildTool{Executable: execution.Executable, Environment: execution.Environment}
+	}
+}
+
 // resolveBuildExecutable asks Core for the ordered candidates, checks them in
 // that order, and probes the declared minimum version. It never falls back to
 // a guessed tool name.
@@ -1464,6 +1484,7 @@ func (a *App) debugProviderTarget(p *project, index int, projectID, targetID, ru
 			return
 		}
 		a.background(p, buildRequestTimeout, func(ctx context.Context) func(*App) {
+			a.addBuildToolHint(ctx, p, captured, &request)
 			plan, err := kernel.PlanBuildDebug(ctx, captured.Manifest, captured.BuildSystemID, request)
 			if err != nil {
 				return fail(err)
@@ -1581,7 +1602,7 @@ func (a *App) runBuildTargetWith(p *project, op *buildOperation, instance *build
 	a.background(p, buildRequestTimeout, func(ctx context.Context) func(*App) {
 		prepare, release := op.bind(ctx)
 		defer release()
-		plan, err := kernel.PlanBuildRun(prepare, captured.Manifest, captured.BuildSystemID, core.BuildPlanRequest{
+		request := core.BuildPlanRequest{
 			Root:          captured.Root,
 			Options:       captured.Options,
 			WorkspaceRoot: p.root,
@@ -1589,7 +1610,9 @@ func (a *App) runBuildTargetWith(p *project, op *buildOperation, instance *build
 			Project:       &core.BuildSelection{Name: project.Name, Path: project.Path, Properties: project.Properties},
 			Target:        &core.BuildSelection{Name: target.Name, Path: target.Path, Tags: target.Tags, Properties: target.Properties},
 			LaunchOptions: options,
-		})
+		}
+		a.addBuildToolHint(prepare, p, captured, &request)
+		plan, err := kernel.PlanBuildRun(prepare, captured.Manifest, captured.BuildSystemID, request)
 		if err != nil {
 			return func(a *App) { a.finishBuildError(p, op, err) }
 		}
@@ -1605,7 +1628,9 @@ func (a *App) runBuildTargetWith(p *project, op *buildOperation, instance *build
 			return func(a *App) { a.finishBuildError(p, op, err) }
 		}
 		a.post(func(a *App) { a.attachRequest(p, op, client, operation, false) })
-		result, err := operation.Wait(prepare)
+		// The provider builds before it answers; what it prints meanwhile, such as a compile
+		// error, is the run's console output, which the user reads when the preparation fails.
+		result, _, err := a.awaitProviderOperation(prepare, p, op, operation)
 		if err != nil {
 			return func(a *App) { a.finishBuildError(p, op, err) }
 		}
@@ -1690,31 +1715,7 @@ func (a *App) runProviderOperation(ctx, prepare context.Context, p *project, op 
 		return
 	}
 	a.post(func(a *App) { a.attachRequest(p, op, client, operation, true) })
-	sawProgress := false
-	for {
-		select {
-		case progress, ok := <-operation.Progress():
-			if !ok {
-				goto done
-			}
-			if progress.Output != "" {
-				sawProgress = true
-				a.streamBuildOutput(p, op, progress.Output)
-			}
-			if progress.Message != "" {
-				a.post(func(a *App) {
-					if p.build.operation == op && !op.cancelled {
-						p.build.status = progress.Message
-					}
-				})
-			}
-		case <-ctx.Done():
-			a.post(func(a *App) { a.finishBuildError(p, op, ctx.Err()) })
-			return
-		}
-	}
-done:
-	result, err := operation.Wait(ctx)
+	result, sawProgress, err := a.awaitProviderOperation(ctx, p, op, operation)
 	if err != nil {
 		a.post(func(a *App) { a.finishBuildError(p, op, err) })
 		return
@@ -1728,6 +1729,34 @@ done:
 		}
 	}
 	a.post(func(a *App) { a.finishBuildTask(p, op, result) })
+}
+
+// awaitProviderOperation waits for the provider's answer to operation and meanwhile shows its
+// progress as op's: output in op's console, messages as the window's status. sawOutput says
+// whether any progress carried output. It runs off the window thread.
+func (a *App) awaitProviderOperation(ctx context.Context, p *project, op *buildOperation, operation *buildprovider.Operation) (result json.RawMessage, sawOutput bool, err error) {
+	for {
+		select {
+		case progress, ok := <-operation.Progress():
+			if !ok {
+				result, err = operation.Wait(ctx)
+				return result, sawOutput, err
+			}
+			if progress.Output != "" {
+				sawOutput = true
+				a.streamBuildOutput(p, op, progress.Output)
+			}
+			if progress.Message != "" {
+				a.post(func(a *App) {
+					if p.build.operation == op && !op.cancelled {
+						p.build.status = progress.Message
+					}
+				})
+			}
+		case <-ctx.Done():
+			return nil, sawOutput, ctx.Err()
+		}
+	}
 }
 
 // endBuildOperation clears op as the window's operation, records how it ended in its session and

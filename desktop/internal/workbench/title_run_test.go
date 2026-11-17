@@ -211,3 +211,84 @@ func TestTitleRunOnAConfigurationNoProviderStartsSaysSo(t *testing.T) {
 		t.Fatalf("%d run requests, pending %v", len(gate.requests), p.runConfigs.pending)
 	}
 }
+
+// emptyRunConfigHarness opens root with one detected instance whose model declares no run,
+// and returns once Core resolved the project's configurations.
+func emptyRunConfigHarness(t *testing.T, root string) (*harness, *project) {
+	t.Helper()
+	h := newHarness(t, &testKernel{Client: core.NewClient()})
+	h.open(root)
+	p := h.app.project
+	h.app.post(func(a *App) {
+		instance := runConfigInstance("app")
+		instance.System.Runs = nil
+		p.build.loaded = true
+		p.build.instances = []buildInstance{instance}
+		a.refreshRunConfigurations(p)
+	})
+	awaitStateWithin(t, h, 10*time.Second, "the run configurations", func() bool { return p.runConfigs.generation > 0 && !p.runConfigs.loading })
+	if len(p.runConfigs.list) != 0 || p.runConfigs.failure != "" {
+		t.Fatalf("configurations = %+v failure %q", p.runConfigs.list, p.runConfigs.failure)
+	}
+	return h, p
+}
+
+// Edit Configuration on a project without configurations used to open a Run window that showed
+// nothing, which looked like no reaction (#2028); it now says why the list is empty.
+func TestEditRunConfigurationsWithoutAnyExplainsWhy(t *testing.T) {
+	h, p := emptyRunConfigHarness(t, runConfigRoot(t))
+	h.app.post(func(a *App) { a.editRunConfigurations(p) })
+	h.settle()
+	want := i18n.Shared(h.app.language(), "desktop.title.nothingToEdit")
+	if got := lastNotice(h); got != want {
+		t.Fatalf("notice = %q, want %q", got, want)
+	}
+	if p.runConfigs.editor.open {
+		t.Fatal("an editor opened without a configuration")
+	}
+}
+
+// Saved configurations that no build plugin starts, such as the java.main entries an earlier
+// version wrote into .lithe/run/local.json, stay out of the list; the explanation counts them
+// instead of dropping them silently (#2028).
+func TestEditRunConfigurationsCountsTheConfigurationsNoBuildPluginStarts(t *testing.T) {
+	root := runConfigRoot(t)
+	local := map[string]any{"version": 2, "configurations": []any{
+		// A generated entry of an earlier version: Core no longer generates it and reports it orphaned.
+		map[string]any{"id": "java.main:app/server:Main", "name": "Main", "provider": "java.main", "command": "java", "args": []string{"Main"}},
+		// A user entry of a provider no build plugin answers: Core resolves it, the list leaves it out.
+		map[string]any{"id": "user:boot", "name": "Boot", "provider": "spring-boot.maven", "command": "mvn", "args": []string{"spring-boot:run"}},
+	}}
+	data, err := json.Marshal(local)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(root, ".lithe", "run"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, ".lithe", "run", "local.json"), data, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	h, p := emptyRunConfigHarness(t, root)
+	if p.runConfigs.hidden != 2 {
+		t.Fatalf("hidden = %d, want 2", p.runConfigs.hidden)
+	}
+	h.app.post(func(a *App) { a.editRunConfigurations(p) })
+	h.settle()
+	language := h.app.language()
+	want := i18n.SharedFormat(language, "desktop.title.nothingToEditHidden", map[string]string{"count": "2"})
+	if got := lastNotice(h); got != want {
+		t.Fatalf("notice = %q, want %q", got, want)
+	}
+}
+
+// With configurations to show, Edit Configuration keeps opening the Run window and the editor
+// of the chosen one.
+func TestEditRunConfigurationsOpensTheChosenOnesEditor(t *testing.T) {
+	h, p := titleRunHarness(t, &testKernel{Client: core.NewClient()}, pluginservice.BuildRunDeclaration{ID: "application", Name: "Run", Tags: []string{"app"}})
+	h.app.post(func(a *App) { a.editRunConfigurations(p) })
+	awaitStateWithin(t, h, 10*time.Second, "the editor", func() bool { return p.runConfigs.editor.open })
+	if !h.app.chrome.isOpen(catalogIndex[itemRun]) || lastNotice(h) != "" {
+		t.Fatalf("Run window open %v, notice %q", h.app.chrome.isOpen(catalogIndex[itemRun]), lastNotice(h))
+	}
+}
