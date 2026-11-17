@@ -32,13 +32,11 @@ func (h *harness) expectStatusPath(want string) {
 	}
 }
 
-// The path names the item of the area the user last clicked: the editor's file or the row
-// selected in the Project tool window. Focus on a terminal, which has no item, keeps the path,
-// and a file outside the project is named by its name alone.
-func TestStatusPathFollowsTheEditorAndTheProjectTree(t *testing.T) {
-	h := newHarness(t, &testKernel{Client: core.NewClient()})
+// statusPathFixture opens a project with src/main.go and notes.txt in the Project tool window.
+func statusPathFixture(t *testing.T, h *harness) (p *project, source string) {
+	t.Helper()
 	root := t.TempDir()
-	source := filepath.Join(root, "src", "main.go")
+	source = filepath.Join(root, "src", "main.go")
 	if err := os.MkdirAll(filepath.Dir(source), 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -47,18 +45,35 @@ func TestStatusPathFollowsTheEditorAndTheProjectTree(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	p := h.openTree(t, root)
+	p = h.openTree(t, root)
+	// A click leaves the pointer on the editor; ask for the hover at once instead of after the
+	// pointer rests, so a step does not wait out the delay.
+	h.app.semantics.hoverDelay = -1
+	return p, source
+}
+
+// openStatusPathFile opens file in an editor and clicks into the editor.
+func (h *harness) openStatusPathFile(p *project, file string) {
+	h.t.Helper()
+	h.app.openFile(p, file)
+	h.settle()
+	d := p.docs.byPath(file)
+	if d == nil {
+		h.t.Fatalf("%s did not open", filepath.Base(file))
+	}
+	h.press(h.topHit(d.hit))
+}
+
+// The path names the item of the area the user last clicked: the editor's file or the row
+// selected in the Project tool window.
+func TestStatusPathFollowsTheEditorAndTheProjectTree(t *testing.T) {
+	h := newHarness(t, &testKernel{Client: core.NewClient()})
+	p, source := statusPathFixture(t, h)
 	if got := h.statusPathValue(); got != p.name {
 		t.Fatalf("with no file open the path is %q, want the project %q", got, p.name)
 	}
 
-	h.app.openFile(p, source)
-	h.settle()
-	d := p.docs.byPath(source)
-	if d == nil {
-		t.Fatal("the file did not open")
-	}
-	h.click(center(h.topHit(d.hit)))
+	h.openStatusPathFile(p, source)
 	h.expectStatusPath(p.name + "/src/main.go")
 	for _, crumb := range []string{"src", "main.go"} {
 		if !h.shows(crumb) {
@@ -66,7 +81,25 @@ func TestStatusPathFollowsTheEditorAndTheProjectTree(t *testing.T) {
 		}
 	}
 
-	h.click(center(h.treeRowHit("src").Bounds))
+	h.press(h.treeRowHit("src").Bounds)
+	h.expectStatusPath(p.name + "/src")
+	h.press(h.topHit(p.docs.byPath(source).hit))
+	h.expectStatusPath(p.name + "/src/main.go")
+	// A click on a file's row opens it in the preview tab; the path names the row.
+	h.press(h.treeRowHit("notes.txt").Bounds)
+	h.expectStatusPath(p.name + "/notes.txt")
+	// The project's own row names the project alone; the click also closes it.
+	h.press(h.treeRowHit(p.name).Bounds)
+	h.expectStatusPath(p.name)
+}
+
+// Focus on a terminal, which has no item, keeps the path, and a file outside the project is
+// named by its name alone.
+func TestStatusPathKeepsItsItemAndNamesAFileOutsideTheProject(t *testing.T) {
+	h := newHarness(t, &testKernel{Client: core.NewClient()})
+	p, source := statusPathFixture(t, h)
+	h.openStatusPathFile(p, source)
+	h.press(h.treeRowHit("src").Bounds)
 	h.expectStatusPath(p.name + "/src")
 
 	if !h.app.chrome.isOpen(catalogIndex[itemTerminal]) {
@@ -83,26 +116,11 @@ func TestStatusPathFollowsTheEditorAndTheProjectTree(t *testing.T) {
 		t.Fatalf("with the terminal focused the path is %q, want the tree's row kept", got)
 	}
 
-	h.click(center(h.topHit(d.hit)))
-	h.expectStatusPath(p.name + "/src/main.go")
-	// A click on a file's row opens it in the preview tab; the path names the row.
-	h.click(center(h.treeRowHit("notes.txt").Bounds))
-	h.expectStatusPath(p.name + "/notes.txt")
-	// The project's own row names the project alone; the click also closes it.
-	h.click(center(h.treeRowHit(p.name).Bounds))
-	h.expectStatusPath(p.name)
-
 	outside := filepath.Join(t.TempDir(), "outside.txt")
 	if err := os.WriteFile(outside, []byte("text\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	h.app.openFile(p, outside)
-	h.settle()
-	o := p.docs.byPath(outside)
-	if o == nil {
-		t.Fatal("the file outside the project did not open")
-	}
-	h.click(center(h.topHit(o.hit)))
+	h.openStatusPathFile(p, outside)
 	h.expectStatusPath("outside.txt")
 }
 
