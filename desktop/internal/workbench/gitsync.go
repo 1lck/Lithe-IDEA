@@ -156,13 +156,14 @@ func (a *App) runSyncAt(p *project, root, operation, label string, failed func(r
 		done, err := work(ctx, kernel, root)
 		readCtx, readCancel := context.WithTimeout(p.ctx, gitTimeout)
 		defer readCancel()
+		generation := p.gitStatusGeneration.Add(1)
 		status, statusErr := kernel.GitStatus(core.WithQueryCategory(core.AutomaticRefresh(readCtx), core.GitQueryReload), p.root)
 		return func(a *App) {
 			s := &p.log.sync
 			s.busy, s.cancel, s.relay, s.hasProgress = false, nil, nil, false
 			cancel()
-			if statusErr == nil {
-				a.setGit(p, gitState{loaded: true, status: status})
+			if statusErr == nil && a.setGit(p, gitState{loaded: true, status: status}, generation) {
+				a.gitStatusPublished(p)
 			}
 			if p.log.started {
 				a.loadLog(p)

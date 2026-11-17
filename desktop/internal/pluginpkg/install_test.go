@@ -95,6 +95,29 @@ func TestInstallRefusesRelativePaths(t *testing.T) {
 	}
 }
 
+func TestStateRootsFollowRemovalLayout(t *testing.T) {
+	root := t.TempDir()
+	const id = "dev.lithe.test.sample"
+	const version = "1.2.3"
+	wantRoot := filepath.Join(root, StateDirectory, id)
+	if got := StateRoot(root, id); got != wantRoot {
+		t.Fatalf("StateRoot = %q, want %q", got, wantRoot)
+	}
+	wantVersion := filepath.Join(wantRoot, version)
+	if got := VersionStateRoot(root, id, version); got != wantVersion {
+		t.Fatalf("VersionStateRoot = %q, want %q", got, wantVersion)
+	}
+	if err := os.MkdirAll(wantVersion, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := RemoveState(root, id); err != nil {
+		t.Fatalf("RemoveState = %v", err)
+	}
+	if _, err := os.Stat(wantVersion); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("version state survived removal: %v", err)
+	}
+}
+
 func TestUninstallRemovesVersionAndEmptyID(t *testing.T) {
 	root := t.TempDir()
 	if _, err := Install(root, "example", "1.0.0", newStaging(t, root)); err != nil {

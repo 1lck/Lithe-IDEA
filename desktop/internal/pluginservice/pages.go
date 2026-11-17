@@ -9,6 +9,8 @@ import (
 	"os"
 	"path/filepath"
 	"time"
+
+	"github.com/1lck/Lithe-IDEA/desktop/internal/pluginpkg"
 )
 
 // Plugin web pages (`ui` 2) reach a plugin's backend and keep a small state
@@ -40,7 +42,7 @@ func (s *Service) CallFromPage(ctx context.Context, pluginID, function string, p
 // bundle. The window ID is a digest, so it is one path component.
 func (s *Service) pageStatePath(pluginID, windowID, workspacePath string) string {
 	sum := sha256.Sum256([]byte(windowID))
-	return filepath.Join(s.Root, pluginStateDirectory, pluginID, "pages", "workspaces", WorkspaceKey(workspacePath), hex.EncodeToString(sum[:])[:24]+".json")
+	return filepath.Join(pluginpkg.StateRoot(s.Root, pluginID), "pages", "workspaces", WorkspaceKey(workspacePath), hex.EncodeToString(sum[:])[:24]+".json")
 }
 
 // PageState returns the stored state of a window, nil when there is none.

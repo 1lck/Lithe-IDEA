@@ -51,7 +51,11 @@ func TestPluginSettingsLatestQueuedDeadlineRequiresRestart(t *testing.T) {
 	server := &pluginServer{project: p, session: &pluginservice.LanguageSession{PluginID: "example", Version: "1.0.0"}, cancel: func() {}, done: make(chan struct{}), settingsGate: make(chan struct{}, 1)}
 	server.settingsGate <- struct{}{}
 	h.app.pluginServers = map[string]*pluginServer{"example": server}
+	// The bare service has no runs, builds or backends; the harness closes the project with the
+	// workbench's own service, as the other tests that swap it in do.
+	original := h.app.plugins
 	h.app.plugins = &pluginservice.Service{}
+	defer func() { h.app.plugins = original }()
 	h.app.applyLivePluginSettings(p, "example", "1.0.0")
 	h.settle()
 	if _, pending := h.app.pluginSettingsRestart.Load("example"); !pending {

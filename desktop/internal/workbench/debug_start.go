@@ -19,6 +19,7 @@ import (
 	"github.com/1lck/Lithe-IDEA/desktop/internal/core"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/i18n"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/pluginhost"
+	"github.com/1lck/Lithe-IDEA/desktop/internal/pluginpkg"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/pluginservice"
 	"github.com/vivaui/viva/ui"
 )
@@ -460,7 +461,7 @@ func (a *App) beginDebug(p *project, start debugStart) {
 	if start.parent != nil {
 		parentSessionID = start.parent.id
 	}
-	stateRoot := filepath.Join(pluginRoot, ".state", adapter.PluginID, adapter.Version)
+	stateRoot := pluginpkg.VersionStateRoot(pluginRoot, adapter.PluginID, adapter.Version)
 	// Only a stdio adapter is written through its standard input; the other
 	// transports are written through their TCP stream.
 	var stdinReader *os.File

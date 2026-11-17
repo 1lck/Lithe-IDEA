@@ -17,6 +17,7 @@ import (
 	"github.com/1lck/Lithe-IDEA/desktop/internal/core"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/i18n"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/pluginbackend"
+	"github.com/1lck/Lithe-IDEA/desktop/internal/pluginpkg"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/pluginservice"
 	"github.com/vivaui/viva/ui"
 )
@@ -388,7 +389,7 @@ func (r *vcsRuntime) session(ctx context.Context, runner *pluginbackend.Runner, 
 	if client != nil && !client.Closed() {
 		return client, nil
 	}
-	state := filepath.Join(pluginRoot, ".state", window.PluginID, window.Version, "vcs", workspaceDigest(root))
+	state := filepath.Join(pluginpkg.VersionStateRoot(pluginRoot, window.PluginID, window.Version), "vcs", workspaceDigest(root))
 	workspaceState := filepath.Join(state, "workspace")
 	temporaryDirectory := filepath.Join(state, "tmp")
 	for _, directory := range []string{state, workspaceState, temporaryDirectory} {

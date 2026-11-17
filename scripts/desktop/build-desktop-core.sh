@@ -27,11 +27,13 @@ native_path() {
     fi
 }
 
-# Lithe-core-rust #70 branch at d720cc9 (Core main 0d6e16c merged in, the same tree as the
-# 66e98ec main pinned before): editor.copyReferenceLocation formats the innermost document symbol
-# a language server reports around the caret, with a one-based line, and falls back to the file
-# path when none contains it; children may be null as the Go host sends them (#2015). Switch to
-# the Core main commit once #70 is merged.
+# Lithe-core-rust main at 6a29169, #70 squash-merged on top of c928514 (#73):
+# editor.copyReferenceLocation formats the innermost document symbol a language server reports
+# around the caret, with a one-based line, and falls back to the file path when none contains it;
+# children may be null as the Go host sends them (#2015). c928514 is #73 squash-merged on top of
+# 0d6e16c (#77): lazy project-tree reads ask Git for the tracked directories of all ignored
+# siblings in bounded batches instead of one ls-files per directory, keeping the per-directory
+# fallback, nested repositories and cancellation.
 # Lithe-core-rust main at 84735ea, #76 squash-merged on top of ac8825b: build.modelTree lays out
 # the Build tool window's tree of a decoded model for every build tool, projects nested by
 # parentID, each with its task folders (by category, else by group), dependencies, targets and
@@ -176,7 +178,7 @@ PINNED_CORE_REPOSITORY="https://github.com/Lithe-IDEA/Lithe-core-rust.git"
 # the contract, plugin guides, reference and SDKs live only in shared/plugins; on top of #16 (reported Git queries folded in the console),
 # #15 (git.write cherryPick, revert and reset fields), #14 (word-level changed ranges of diff
 # rows), #13, #8, #7, #6 and #4.
-PINNED_CORE_REVISION="d720cc922bcfbeb992c1e9fe750c962082347a99"
+PINNED_CORE_REVISION="6a29169d030d18709563780db317ab96dcad0f87"
 PROFILE="debug"
 while [[ $# -gt 0 ]]; do
     case "$1" in
