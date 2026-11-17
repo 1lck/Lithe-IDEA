@@ -259,6 +259,10 @@ func (a *App) syntaxRegistry() *syntax.Registry {
 // group. The file is read and its language's grammar loaded away from the window thread; a
 // file that cannot be read, is binary or is too large is not opened and the banner says why.
 func (a *App) openFile(p *project, path string) {
+	if path == "" {
+		return
+	}
+	path = filepath.Clean(path)
 	if d := p.docs.byPath(path); d != nil {
 		a.selectDocument(p, d.id)
 		return
@@ -346,6 +350,7 @@ func (a *App) openFileAt(p *project, path string, line int) {
 	if path == "" {
 		return
 	}
+	path = filepath.Clean(path)
 	if d := p.docs.byPath(path); d != nil {
 		a.selectDocument(p, d.id)
 		if line > 0 {
@@ -367,6 +372,7 @@ func (a *App) openFileAtPosition(p *project, path string, line, column int) {
 	if path == "" {
 		return
 	}
+	path = filepath.Clean(path)
 	a.recordNavigationJump(p, path, line, column)
 	if d := p.docs.byPath(path); d != nil {
 		a.selectDocument(p, d.id)
@@ -719,6 +725,10 @@ func (a *App) saveDocumentMode(p *project, id int, auto bool) {
 
 // saveBeforeClose waits asynchronously for any in-flight save and the latest edits.
 func (a *App) saveBeforeClose(p *project, d *document, done func(bool)) {
+	if d.virtual {
+		done(true)
+		return
+	}
 	if d.recoveredConflict {
 		done(false)
 		return
@@ -886,6 +896,9 @@ func (a *App) saveProjectPass(p *project, verified map[int]int, done func(bool))
 		}
 	} else {
 		for _, candidate := range p.docs.list {
+			if candidate.virtual {
+				continue
+			}
 			if revision, ok := verified[candidate.id]; !ok || revision != candidate.view.Revision() || candidate.checkPending || candidate.checking {
 				d = candidate
 				break

@@ -44,13 +44,12 @@ func (a *App) noteRecentFile(p *project, d *document, kind string) {
 	if d.virtual || d.scratch {
 		return
 	}
-	relative, err := filepath.Rel(p.root, d.path)
-	if err != nil {
-		a.recentFailed(err)
+	relative, inside := projectRelative(p.root, d.path)
+	if !inside {
 		return
 	}
 	_, caret := d.view.SelectionOffsets()
-	event := core.EditorRecentEvent{Kind: kind, Path: filepath.ToSlash(relative), Name: d.name}
+	event := core.EditorRecentEvent{Kind: kind, Path: relative, Name: d.name}
 	a.enqueueRecent(recentRequest{project: p, event: &event, text: d.view.TextSnapshot(), caret: caret})
 }
 func (a *App) markRecentlyEdited(p *project, d *document) {

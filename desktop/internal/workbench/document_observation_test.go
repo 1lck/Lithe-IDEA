@@ -2,6 +2,7 @@ package workbench
 
 import (
 	"bytes"
+	"context"
 	"errors"
 	"fmt"
 	"os"
@@ -15,6 +16,7 @@ import (
 	"github.com/1lck/Lithe-IDEA/desktop/internal/documentio"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/editorview"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/i18n"
+	"github.com/1lck/Lithe-IDEA/desktop/internal/pluginservice"
 	"github.com/vivaui/viva/app"
 )
 
@@ -694,5 +696,143 @@ func TestRecreateRejectsFileThatAppearedAfterAcknowledgement(t *testing.T) {
 	awaitDocumentState(t, h, func() bool { return d.conflictMissing && !d.checking && !d.checkPending })
 	if !d.conflicted {
 		t.Fatal("a second deletion silently cleared the unresolved conflict")
+	}
+}
+
+func TestVirtualDocumentClosesWithoutExternalCheckOrError(t *testing.T) {
+	h := newHarness(t, &testKernel{Client: core.NewClient()})
+	root := t.TempDir()
+	h.open(root)
+	p := h.app.project
+	w := pluginWorkbench{app: h.app}
+	uri := "jdt://contents/java.base/java/lang/SpringApplication.class"
+	if _, err := callOnWindow(h, "open virtual document", func(ctx context.Context) (struct{}, error) {
+		return struct{}{}, w.OpenVirtualDocument(ctx, root, pluginservice.VirtualDocument{
+			URI:  uri,
+			Name: "SpringApplication.java",
+			Text: "public class SpringApplication {}\n",
+		})
+	}); err != nil {
+		t.Fatal(err)
+	}
+	doc := p.docs.byPath(uri)
+	if doc == nil || !doc.virtual {
+		t.Fatalf("virtual document = %+v", doc)
+	}
+	readCalls := 0
+	h.app.documentReader = func(path string) ([]byte, error) {
+		readCalls++
+		return nil, errors.New("virtual URI is not a disk file")
+	}
+	doc.checkPending = true
+	h.app.scheduleDocumentChecks(p)
+	awaitDocumentState(t, h, func() bool { return !doc.checking && !doc.checkPending })
+	if readCalls != 0 || doc.checkFailed {
+		t.Fatalf("virtual document ran disk check: readCalls=%d checkFailed=%v", readCalls, doc.checkFailed)
+	}
+	h.app.closeDocument(p, doc.id)
+	awaitDocumentState(t, h, func() bool { return p.docs.find(doc.id) == nil || doc.checkFailed })
+	if p.docs.find(doc.id) != nil {
+		t.Fatalf("virtual document did not close; notice=%q checkFailed=%v", h.app.notice, doc.checkFailed)
+	}
+	if strings.Contains(h.app.notice, i18n.Shared(h.app.language(), "desktop.document.externalReadFailed")) {
+		t.Fatalf("unexpected external read error notice: %q", h.app.notice)
+	}
+
+	secondURI := "jdt://contents/java.base/java/lang/String.class"
+	if _, err := callOnWindow(h, "open second virtual document", func(ctx context.Context) (struct{}, error) {
+		return struct{}{}, w.OpenVirtualDocument(ctx, root, pluginservice.VirtualDocument{
+			URI:  secondURI,
+			Name: "String.java",
+			Text: "public final class String {}\n",
+		})
+	}); err != nil {
+		t.Fatal(err)
+	}
+	h.app.closeProject()
+	awaitDocumentState(t, h, func() bool { return h.app.project == nil || !h.app.closingProject })
+	if h.app.project != nil {
+		t.Fatalf("closing project blocked on virtual document; notice=%q", h.app.notice)
+	}
+}
+
+func TestCleanDocumentClosesWhenExternalReadFails(t *testing.T) {
+	h := newHarness(t, &testKernel{Client: core.NewClient()})
+	root := t.TempDir()
+	cleanPath := filepath.Join(root, "clean.txt")
+	dirtyPath := filepath.Join(root, "dirty.txt")
+	for _, path := range []string{cleanPath, dirtyPath} {
+		if err := os.WriteFile(path, []byte("initial"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	h.app.openProject(root)
+	p := h.app.project
+	h.app.openFile(p, cleanPath)
+	h.app.openFile(p, dirtyPath)
+	awaitDocumentState(t, h, func() bool { return p.docs.byPath(cleanPath) != nil && p.docs.byPath(dirtyPath) != nil })
+	cleanDoc := p.docs.byPath(cleanPath)
+	dirtyDoc := p.docs.byPath(dirtyPath)
+	for _, watch := range p.docs.watches {
+		watch.close()
+	}
+	p.docs.watches = nil
+	awaitDocumentState(t, h, func() bool {
+		return !cleanDoc.checking && !cleanDoc.checkPending && !dirtyDoc.checking && !dirtyDoc.checkPending
+	})
+
+	h.app.documentReader = func(string) ([]byte, error) {
+		return nil, errors.New("external read failed")
+	}
+
+	h.app.closeDocument(p, cleanDoc.id)
+	awaitDocumentState(t, h, func() bool {
+		return p.docs.find(cleanDoc.id) == nil || (cleanDoc.checkFailed && !cleanDoc.checking && !cleanDoc.checkPending)
+	})
+	if p.docs.find(cleanDoc.id) != nil {
+		t.Fatalf("clean document could not be closed after external read error; notice=%q", h.app.notice)
+	}
+
+	// Make dirtyDoc dirty while its close check is in flight and fails.
+	started := make(chan struct{})
+	release := make(chan struct{})
+	released := false
+	defer func() {
+		if !released {
+			close(release)
+		}
+	}()
+	h.app.documentReader = func(string) ([]byte, error) {
+		close(started)
+		<-release
+		return nil, errors.New("external read failed")
+	}
+	h.app.closeDocument(p, dirtyDoc.id)
+	select {
+	case <-started:
+	case <-time.After(5 * time.Second):
+		t.Fatal("dirty document close check did not start")
+	}
+	input := dirtyDoc.view.TextInput(app.TextInputContext{ID: dirtyDoc.hit})
+	if _, err := input.OnEvent(app.TextEvent{Kind: app.TextInsert, Text: "unsaved"}); err != nil {
+		t.Fatal(err)
+	}
+	close(release)
+	released = true
+	awaitDocumentState(t, h, func() bool { return dirtyDoc.checkFailed && !dirtyDoc.checking && !dirtyDoc.checkPending })
+	if p.docs.find(dirtyDoc.id) != dirtyDoc {
+		t.Fatal("dirty document was closed even though external read check failed")
+	}
+
+	// Clean up dirty edits so closeProject runs on only clean documents and still succeeds.
+	h.app.documentReader = func(string) ([]byte, error) {
+		return nil, errors.New("external read failed")
+	}
+	for dirtyDoc.view.Dirty() && dirtyDoc.view.Undo() {
+	}
+	h.app.closeProject()
+	awaitDocumentState(t, h, func() bool { return h.app.project == nil || !h.app.closingProject })
+	if h.app.project != nil {
+		t.Fatalf("clean project did not close when external read failed; notice=%q", h.app.notice)
 	}
 }
