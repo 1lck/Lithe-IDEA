@@ -292,11 +292,17 @@ func (w *window) marketSidebar(c ui.C, language i18n.Language) {
 	})
 	for _, failure := range m.failures {
 		name := failure.name
-		if name == "" {
+		switch name {
+		case "":
 			name = i18n.Shared(language, "desktop.marketplace.communitySource")
+		case "official":
+			name = i18n.Shared(language, "desktop.marketplace.officialSource")
 		}
-		ui.Text(c, i18n.SharedFormat(language, "desktop.marketplace.sourceUnavailable", map[string]string{"source": name})).
-			FontSize(11).Color(w.pal.danger).Ellipsis().PadX(12).PadBottom(6)
+		message := i18n.SharedFormat(language, "desktop.marketplace.sourceUnavailable", map[string]string{"source": name})
+		if failure.err != nil {
+			message += ": " + failure.err.Error()
+		}
+		ui.Wrap(c, message).FontSize(11).Color(w.pal.danger).PadX(12).PadBottom(6)
 	}
 	ui.Row(c).FillWidth().Height(1).Shrink(0).Background(w.pal.line)
 	plugins := m.snapshot.Index.Plugins
@@ -307,6 +313,9 @@ func (w *window) marketSidebar(c ui.C, language i18n.Language) {
 	case m.status == marketFailed:
 		ui.Column(c).FillWidth().Grow(1).Center().Gap(8).Children(func() {
 			ui.Text(c, i18n.Shared(language, "native.pluginMarketplaceIsNotAvailable")).Color(w.pal.danger)
+			if m.err != nil {
+				ui.Wrap(c, m.err.Error()).FontSize(12).Color(w.pal.muted).PadX(16)
+			}
 			if ui.Button(c, i18n.Shared(language, "ui.retry")).Outline().Clicked() {
 				m.start()
 			}
