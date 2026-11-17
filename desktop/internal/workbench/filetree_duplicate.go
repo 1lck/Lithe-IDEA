@@ -122,6 +122,7 @@ func moveToTrash(full string) error {
 			"else { [Microsoft.VisualBasic.FileIO.FileSystem]::DeleteFile($p, 'OnlyErrorDialogs', 'SendToRecycleBin') }"
 		cmd = exec.CommandContext(ctx, "powershell", "-NoProfile", "-NonInteractive", "-Command", script)
 		cmd.Env = append(os.Environ(), "LITHE_TRASH_PATH="+full)
+		hideConsole(cmd)
 	default:
 		cmd = exec.CommandContext(ctx, "gio", "trash", "--", full)
 	}

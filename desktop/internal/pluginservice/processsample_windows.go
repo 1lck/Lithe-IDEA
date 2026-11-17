@@ -6,7 +6,10 @@ import (
 	"context"
 	"os/exec"
 	"sync"
+	"syscall"
 	"time"
+
+	"golang.org/x/sys/windows"
 )
 
 // Windows has no ps. One PowerShell query reads the whole Win32_Process table, from which the tree under
@@ -25,7 +28,12 @@ type windowsReading struct {
 const windowsTableCommand = "Get-CimInstance Win32_Process | Select-Object ProcessId,ParentProcessId,WorkingSetSize,KernelModeTime,UserModeTime | ConvertTo-Csv -NoTypeInformation"
 
 func sampleProcessTree(ctx context.Context, pid int) (ProcessSample, bool) {
-	output, err := exec.CommandContext(ctx, "powershell", "-NoProfile", "-NonInteractive", "-Command", windowsTableCommand).Output()
+	command := exec.CommandContext(ctx, "powershell", "-NoProfile", "-NonInteractive", "-Command", windowsTableCommand)
+	// The client is a GUI program with no console, so Windows would give each sample's console
+	// program a console of its own: with Windows Terminal as the default terminal that is a new
+	// terminal window every sampling interval while a run is shown. The query needs no window.
+	command.SysProcAttr = &syscall.SysProcAttr{HideWindow: true, CreationFlags: windows.CREATE_NO_WINDOW}
+	output, err := command.Output()
 	if err != nil {
 		return ProcessSample{}, false
 	}
