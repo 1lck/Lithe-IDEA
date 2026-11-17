@@ -44,7 +44,7 @@ func (h *harness) openConsole(t *testing.T, dir string) {
 }
 
 // consolePresentedAll says v holds commands and Core's presentation of each, made for the
-// record as it is and the search the rows were flattened for.
+// record as it is and the search and display choices the rows were flattened for.
 func consolePresentedAll(v *consoleView) bool {
 	if v.presenting || v.failed || len(v.snapshot.Records) == 0 {
 		return false
@@ -52,7 +52,7 @@ func consolePresentedAll(v *consoleView) bool {
 	for i := range v.snapshot.Records {
 		r := &v.snapshot.Records[i]
 		p := v.presented[r.ID]
-		if p == nil || p.revision != r.Revision || p.search != v.searchFor {
+		if p == nil || p.revision != r.Revision || p.search != v.searchFor || p.display != v.display {
 			return false
 		}
 	}
@@ -90,6 +90,32 @@ func TestConsoleListsTheRecordedCommands(t *testing.T) {
 	h.clickNamed(h.app.text.Console.CopyAll)
 	if copied := h.driver.Clipboard(); !strings.Contains(copied, header) {
 		t.Fatalf("the copied console is %q, want a command headed %q", copied, header)
+	}
+}
+
+// The display switches of the Version Control settings take effect at once: the console asks
+// Core to present its records again with them, and they are kept with the settings.
+func TestConsoleRedrawsWithTheDisplayChoices(t *testing.T) {
+	dir := newTestRepository(t)
+	h := newHarness(t, gitKernel{core.NewClient()})
+	h.openConsole(t, dir)
+	repository := "[" + filepath.Base(dir) + "] git "
+	h.await("a recorded git command", func() bool { return h.showsWrapped(repository) })
+
+	h.app.setGitConsolePreferences(core.GitConsolePreferences{HideRepository: true})
+	h.app.invalidator.Invalidate()
+	h.settle()
+	v := &h.app.consoleView
+	h.await("the commands presented without their repository", func() bool {
+		return v.display.HideRepository && consolePresentedAll(v) && !h.showsWrapped(repository)
+	})
+	for _, row := range v.rows {
+		if row.id.part == consolePartHeader && strings.Contains(row.text, "["+filepath.Base(dir)+"]") {
+			t.Fatalf("header %q still names the repository", row.text)
+		}
+	}
+	if !h.app.settings.GitConsole.HideRepository {
+		t.Fatalf("the preferences were not kept: settings %+v", h.app.settings.GitConsole)
 	}
 }
 
@@ -545,23 +571,16 @@ func TestConsoleStepOpensTheFoldOfAQueryHit(t *testing.T) {
 	}
 }
 
-func TestConsoleHidesSuccessfulQueriesOnly(t *testing.T) {
+// A query that failed is drawn failed with its output open, whatever the presentation of the
+// queries around it folds.
+func TestConsoleDrawsAFailedQueryOpen(t *testing.T) {
 	text := &i18n.For(i18n.English).Console
 	query, presented := consoleQuery()
 	broken := query
 	broken.ID, broken.ExitCode = "q2", 128
-	fetch, fetched := consoleFetch()
-	v := consoleViewOf([]core.GitConsoleRecord{query, broken, fetch}, map[string]*consolePresented{query.ID: presented, fetch.ID: fetched})
+	v := consoleViewOf([]core.GitConsoleRecord{query, broken}, map[string]*consolePresented{query.ID: presented})
 
-	v.hideQueries = true
 	v.flatten(text, time.UTC)
-	records := map[string]bool{}
-	for _, row := range v.rows {
-		records[row.id.record] = true
-	}
-	if records[query.ID] || !records[broken.ID] || !records[fetch.ID] {
-		t.Fatalf("hiding queries drew the records %v, want the failed query and the fetch only", records)
-	}
 	for _, row := range v.rows {
 		if row.id.record == broken.ID && row.id.part == consolePartHeader && row.tone != consoleToneError {
 			t.Fatalf("the failed query's header is %+v, want it drawn failed", row)
@@ -572,16 +591,103 @@ func TestConsoleHidesSuccessfulQueriesOnly(t *testing.T) {
 	}
 }
 
+// When the display choices fold short queries, Core gives even a one-line output a query fold,
+// which the console draws closed like any other.
+func TestConsoleFoldsAShortQueryCoreFolds(t *testing.T) {
+	text := &i18n.For(i18n.English).Console
+	record, presented := consoleQuery()
+	record.Lines = record.Lines[:1]
+	presented.lines = 1
+	presented.entry.Output = []core.GitConsoleOutputFragment{{ID: "output-0", Start: 0, End: 1, Kind: consoleFragmentQuery, Count: 1}}
+	v := consoleViewOf([]core.GitConsoleRecord{record}, map[string]*consolePresented{record.ID: presented})
+
+	v.flatten(text, time.UTC)
+	if len(v.rows) != 2 || v.rows[1].text != text.QueryOutput(1) || !v.rows[1].folded {
+		t.Fatalf("the rows are %+v, want the header and the closed fold of the one line", v.rows)
+	}
+	if consoleHasRow(v, "a1") {
+		t.Fatalf("the folded line is drawn: %+v", v.rows)
+	}
+}
+
+// The display choice that hides the repository leaves the bracketed name and its space out of
+// every header, presented or not, and the copy of the console keeps it.
+func TestConsoleLeavesTheRepositoryOutWhenTheDisplayHidesIt(t *testing.T) {
+	text := &i18n.For(i18n.English).Console
+	record, presented := consoleQuery()
+	presented.entry.RepositoryLabel = ""
+	presented.display = core.GitConsoleDisplay{HideRepository: true}
+	raw := record
+	raw.ID = "q2"
+	v := consoleViewOf([]core.GitConsoleRecord{record, raw}, map[string]*consolePresented{record.ID: presented})
+	v.display = core.GitConsoleDisplay{HideRepository: true}
+
+	v.flatten(text, time.UTC)
+	const want = "09:08:07.006: git log --format=%H"
+	for _, row := range v.rows {
+		if row.id.part != consolePartHeader {
+			continue
+		}
+		if row.text != want {
+			t.Fatalf("header of %s is %q, want %q", row.id.record, row.text, want)
+		}
+		for _, span := range row.spans {
+			if span.kind == consoleSpanRepository {
+				t.Fatalf("header of %s has a repository span: %+v", row.id.record, row.spans)
+			}
+		}
+		if last := row.spans[len(row.spans)-1]; last.end != len(row.text) {
+			t.Fatalf("the spans of %q end at %d", row.text, last.end)
+		}
+	}
+	if copied := consoleCopyAll(v.snapshot.Records, text, time.UTC); !strings.Contains(copied, "[repo]") {
+		t.Fatalf("the copied console is %q, want the repositories", copied)
+	}
+}
+
+// A notice the display choices no longer show is left out until Core presents the record
+// with them again.
+func TestConsoleDropsANoticeTheDisplayNoLongerShows(t *testing.T) {
+	text := &i18n.For(i18n.English).Console
+	record, presented := consoleQuery()
+	record.Lines = nil
+	presented.lines = 0
+	presented.entry.Output = nil
+	presented.entry.Notice = core.GitConsoleNoticeNoOutput
+	presented.display = core.GitConsoleDisplay{ShowCompletedWithoutOutput: true}
+	v := consoleViewOf([]core.GitConsoleRecord{record}, map[string]*consolePresented{record.ID: presented})
+	v.display = presented.display
+
+	v.flatten(text, time.UTC)
+	if !consoleHasRow(v, text.NoOutput) {
+		t.Fatalf("the rows are %+v, want the notice", v.rows)
+	}
+	v.display = core.GitConsoleDisplay{}
+	v.flatten(text, time.UTC)
+	if consoleHasRow(v, text.NoOutput) {
+		t.Fatalf("the rows are %+v, want the notice left out", v.rows)
+	}
+}
+
 func TestConsoleDrawsTheProjectedCommandBeforeItIsPresented(t *testing.T) {
 	record, _ := consoleQuery()
-	if got := consoleDrawnHeader(&record, time.UTC); got != "09:08:07.006: [repo] git log --format=%H" {
+	if got := consoleDrawnHeader(&record, false, time.UTC); got != "09:08:07.006: [repo] git log --format=%H" {
 		t.Fatalf("consoleDrawnHeader() = %q, want the projected command", got)
 	}
 	if got := consoleRawHeader(&record, time.UTC); !strings.Contains(got, "core.quotepath=false") {
 		t.Fatalf("consoleRawHeader() = %q, want the whole command for copying", got)
 	}
 	record.DisplayArguments = nil
-	if got, want := consoleDrawnHeader(&record, time.UTC), consoleRawHeader(&record, time.UTC); got != want {
+	if got, want := consoleDrawnHeader(&record, false, time.UTC), consoleRawHeader(&record, time.UTC); got != want {
 		t.Fatalf("consoleDrawnHeader() without a projection = %q, want the raw header %q", got, want)
+	}
+}
+
+func TestConsoleRowKeysReserveValidMissingRowIdentity(t *testing.T) {
+	v := consoleView{keys: map[consoleRowID]int{}}
+	v.add(nil, consoleRow{})
+	missing := v.rowKey(len(v.rows))
+	if missing < 0 || uint64(missing) >= 1<<31 || missing == v.rowKey(0) {
+		t.Fatalf("missing row key %d is invalid or collides with the first row %d", missing, v.rowKey(0))
 	}
 }

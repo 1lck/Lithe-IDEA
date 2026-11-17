@@ -431,6 +431,7 @@ func (t *Terminal) enterAlt(clearScreen bool) {
 	}
 	t.top, t.bot = 0, t.rows-1
 	t.pend = false
+	t.generation++
 	t.version++
 }
 
@@ -451,6 +452,7 @@ func (t *Terminal) leaveAlt(clearScreen bool) {
 	t.onAlt, t.scr, t.modes.AltScreen = false, &t.main, false
 	t.top, t.bot = 0, t.rows-1
 	t.pend = false
+	t.generation++
 	t.version++
 }
 
@@ -467,6 +469,13 @@ func (t *Terminal) softReset() {
 
 func (t *Terminal) setCursorStyle(n int) {
 	t.cursorSteady = n == 2 || n == 4 || n == 6
+	if n == 0 {
+		// 0 asks for the default cursor, which is the user's choice as in Windows Terminal,
+		// iTerm2 and kitty rather than xterm's blinking block: vim, and the vi mode of zsh and
+		// fish, send it on the way out to give back the cursor they found.
+		t.cursor, t.cursorStyled = t.defaultCursor, false
+		return
+	}
 	t.cursorStyled = true
 	switch n {
 	case 3, 4:

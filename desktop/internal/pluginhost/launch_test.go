@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"strings"
 	"testing"
 )
 
@@ -142,7 +143,9 @@ func TestResolveCommand(t *testing.T) {
 	if path, err := ResolveCommand([]string{"pylsp", "gopls"}, lookup); err != nil || path != "/usr/local/bin/gopls" {
 		t.Fatalf("path = %q, err = %v", path, err)
 	}
-	if _, err := ResolveCommand([]string{"pylsp"}, lookup); !errors.Is(err, ErrPackagePath) {
+	// A missing command is plugin.command.missing, naming every command looked for.
+	var missing *CommandMissingError
+	if _, err := ResolveCommand([]string{"pylsp", "pyright"}, lookup); !errors.As(err, &missing) || strings.Join(missing.Commands, ",") != "pylsp,pyright" {
 		t.Fatalf("err = %v", err)
 	}
 	// The contract lists bare command names; a path would name a file the host never

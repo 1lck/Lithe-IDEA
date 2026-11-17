@@ -70,6 +70,10 @@ type Action struct {
 	Title func(*i18n.Messages) string
 	// Defaults are the chords the action has while the user changed nothing.
 	Defaults []keymap.Chord
+	// Gesture is a fixed gesture the action also answers to, as its keycaps: one the keymap
+	// does not bind and the user cannot change, such as Double Shift for Search Everywhere.
+	// Empty for most actions.
+	Gesture string
 }
 
 // chord is a catalog default; it panics on a chord that cannot be bound, which is a
@@ -165,7 +169,7 @@ var Catalog = []Action{
 	{ID: "documents.saveAll", Group: GroupProject, Title: func(m *i18n.Messages) string { return m.Commands.SaveAll }},
 	{ID: OpenSelected, Group: GroupProject, Title: func(m *i18n.Messages) string { return m.Keymap.OpenSelected }, Defaults: chords(chord(0, "f4"))},
 	{ID: "localHistory.show", Group: GroupProject, Title: func(m *i18n.Messages) string { return m.History.Show }},
-	{ID: "search.everywhere", Group: GroupSearch, Title: func(m *i18n.Messages) string { return m.Commands.SearchEverywhere }, Defaults: chords(chord(keymap.Primary|gfx.ModifierShift, "o"))},
+	{ID: "search.everywhere", Group: GroupSearch, Title: func(m *i18n.Messages) string { return m.Commands.SearchEverywhere }, Defaults: chords(chord(keymap.Primary|gfx.ModifierShift, "o")), Gesture: DoubleShiftLabel()},
 	{ID: FindAction, Group: GroupSearch, Title: func(m *i18n.Messages) string { return m.Commands.FindAction }, Defaults: chords(chord(keymap.Primary|gfx.ModifierShift, "a"))},
 	{ID: "search.files", Group: GroupSearch, Title: func(m *i18n.Messages) string { return m.Commands.FindInFiles }, Defaults: chords(chord(keymap.Primary|gfx.ModifierShift, "f"))},
 	{ID: "search.replace", Group: GroupSearch, Title: func(m *i18n.Messages) string { return m.Commands.ReplaceInFiles }},

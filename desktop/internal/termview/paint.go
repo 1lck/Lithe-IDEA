@@ -12,7 +12,7 @@ import (
 // and the shell always have the size of the area they are painted in, and it starts the
 // shell on the first paint, once that size is known.
 func (v *View) Paint(canvas *gfx.Canvas, area gfx.Rect, look Look) {
-	v.clock = canvas.Now()
+	v.clock, v.paced = canvas.Now(), canvas.HasClock()
 	// The cell is measured on this canvas, since the display scale decides the width, and
 	// from the font in use on this frame, so a font changed by SetFont lays the grid out anew
 	// here and fit hands the new size to the screen and the shell. A row is as tall as the
@@ -32,6 +32,7 @@ func (v *View) Paint(canvas *gfx.Canvas, area gfx.Rect, look Look) {
 	})
 	v.applyLook(look)
 	v.ensureStarted()
+	v.settleShellResize(canvas)
 	// A selection dragged past the top or bottom edge scrolls on the frames paintGrid asks
 	// for, before the rows of this frame are prepared.
 	v.stepSelectionScroll(v.clock)
@@ -120,7 +121,14 @@ func (v *View) paintGrid(canvas *gfx.Canvas, layout geometry) {
 			last := entry.runs[len(entry.runs)-1]
 			rowCols := min(int(last.Column+last.Cells)+1, cols)
 			rowWidth := min(float32(math.Ceil(float64(float32(rowCols)*cellWidth)))+1, labelWidth)
-			canvas.LabelRuns(entry.text, gfx.Rect{X: layout.left, Y: y + inset, Width: rowWidth, Height: glyphHeight}, style, cellWidth, entry.runs)
+			// The row's line ID names its text across frames, so a backend that keeps
+			// rasterized text (the Windows one) reuses a row's picture when scrolling moves
+			// it, and draws only the rows that enter the grid.
+			identity := gfx.TextIdentity{}
+			if line.ID != 0 {
+				identity = gfx.TextIdentity{Owner: v.owner, Item: line.ID}
+			}
+			canvas.LabelRunsWithIdentity(identity, entry.text, gfx.Rect{X: layout.left, Y: y + inset, Width: rowWidth, Height: glyphHeight}, style, cellWidth, entry.runs)
 		}
 	}
 	v.cache.end(rows)
@@ -136,10 +144,12 @@ func (v *View) paintGrid(canvas *gfx.Canvas, layout geometry) {
 			// The input method draws over these cells, which the rows left empty.
 		case cursor.Style == term.CursorUnderline:
 			// The thin cursors keep their shape against the row, like the block that fills it:
-			// the underline is its bottom edge and the bar runs its whole height.
-			canvas.Fill(gfx.Rect{X: x, Y: y + rowHeight - cursorUnderlineHeight, Width: cellWidth, Height: cursorUnderlineHeight}, cursorColor)
+			// the underline is its bottom edge and the bar runs its whole height. Neither is
+			// thicker than the cell, however small the font.
+			height := min(v.cursorThickness.underline(), rowHeight)
+			canvas.Fill(gfx.Rect{X: x, Y: y + rowHeight - height, Width: cellWidth, Height: height}, cursorColor)
 		case cursor.Style == term.CursorBar:
-			canvas.Fill(gfx.Rect{X: x, Y: y, Width: cursorBarWidth, Height: rowHeight}, cursorColor)
+			canvas.Fill(gfx.Rect{X: x, Y: y, Width: min(v.cursorThickness.bar(), cellWidth), Height: rowHeight}, cursorColor)
 		case !focused:
 			// A block cursor outlines its cell while the terminal does not have the keyboard.
 			canvas.Fill(gfx.Rect{X: x, Y: y, Width: cellWidth, Height: 1}, cursorColor)

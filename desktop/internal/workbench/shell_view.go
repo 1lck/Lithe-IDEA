@@ -129,6 +129,9 @@ func (a *App) shellPanel(c ui.C, s slot, index int, hidden *slot) ui.Box {
 			if tool.id == itemBuild && p != nil {
 				a.buildToolActions(c, p)
 			}
+			if tool.id == itemNotifications {
+				a.notificationClearButton(hk)
+			}
 			if tabbed && p != nil {
 				a.drawGitActions(c, p)
 			}
@@ -199,6 +202,8 @@ func (a *App) toolBody(c ui.C, tool item, p *project) {
 			a.testsView(c, p)
 		case itemDebug:
 			a.debugView(c, p)
+		case itemNotifications:
+			a.notificationsToolBody(c.Part("notificationHistory"))
 		default:
 			switch {
 			case tool.tool != nil && tool.tool.Native != nil:
@@ -318,13 +323,11 @@ func (a *App) editorArea(c ui.C) {
 	}
 	hints := [...]struct {
 		label string
-		// gesture is a gesture the keymap does not bind, shown before the command's bindings.
-		gesture string
-		// command is the keymap command whose bindings are shown.
+		// command is the keymap command whose fixed gesture and bindings are shown.
 		command string
 	}{
-		{a.text.Editor.SearchEverywhere, shortcuts.DoubleShiftLabel(), "search.everywhere"},
-		{a.text.Editor.FindInFiles, "", "search.files"},
+		{a.text.Editor.SearchEverywhere, "search.everywhere"},
+		{a.text.Editor.FindInFiles, "search.files"},
 	}
 	editor := ui.Column(c).Fill().Clip().Center().Pad(shellContentPad).Background(a.colors.Editor).Radius(workbenchPanelRadius).Children(func() {
 		ui.Column(c).FillWidth().MaxWidth(shellHintWidth).Children(func() {
@@ -332,8 +335,9 @@ func (a *App) editorArea(c ui.C) {
 			// columns however long the words are.
 			for _, hint := range hints {
 				keys := a.settings.Keymap.Label(hint.command)
-				if hint.gesture != "" {
-					keys = hint.gesture + "  " + keys
+				// The gesture, which the keymap does not bind, comes before the bindings.
+				if action, ok := shortcuts.Find(hint.command); ok && action.Gesture != "" {
+					keys = action.Gesture + "  " + keys
 				}
 				ui.Row(c).Height(rowHeight).Items(ui.Center).Gap(12).Children(func() {
 					ui.Text(c, hint.label).Color(a.colors.Subtle).TextEnd().Ellipsis().FillWidth()

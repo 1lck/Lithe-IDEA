@@ -86,6 +86,9 @@ type window struct {
 
 	market  *marketplaceState
 	install *pluginInstallDialog
+	// commands is the Installed tab's check of the commands plugins need and the dialog that
+	// installs them (command_install.go).
+	commands *commandInstalls
 	// pluginTab is the open tab of the plugin page, one of the pluginTab constants:
 	// what is installed, or the marketplace. installed is the Installed tab's own list,
 	// filter and detail (installed_view.go).
@@ -139,6 +142,8 @@ type window struct {
 	stopTimeEditing bool
 	// network is the Network page's unsaved edit.
 	network networkDraft
+	// updates is the Updates page's unsaved feed address and channel switch (updates_view.go).
+	updates updatesDraft
 	// localHistory is the General page's unsaved local history settings and the open
 	// project's history size (local_history_view.go).
 	localHistory localHistoryDraft
@@ -240,6 +245,7 @@ func newWindow(c *Controller, current Values) *window {
 	w.dynamic.bind()
 	w.pluginSettings.report = func(err error) { reportSettingsError(c.opts, pluginSettingsOperation, err) }
 	w.toolchains = newToolchainState(c.opts.Toolchains)
+	w.commands = newCommandInstalls(c.opts.CommandInstalls, func(operation string, err error) { reportSettingsError(c.opts, operation, err) }, func() { w.inv.Invalidate() })
 	w.stepping = newSteppingState(c.opts.SteppingAdapters, c.opts.NormalizeSteppingFilters)
 	w.terminal = newTerminalShellState(c.opts.TerminalShells)
 	w.fonts = newFontListState(c.opts.MonospaceFamilies)
@@ -264,6 +270,9 @@ func (w *window) config() app.Config {
 		Invalidator:    &w.inv,
 		OnWake:         w.wake,
 		OnClosed:       w.closed,
+		// Chords of printable keys reach the window as shortcuts, not as keys of the
+		// control that has the focus; the one the Keymap page records arrives here.
+		OnShortcut: w.recordShortcut,
 	})
 	paint := config.Paint
 	config.Paint = func(canvas *gfx.Canvas, size gfx.Size) {
@@ -312,6 +321,7 @@ func (w *window) wake() {
 	}
 	if w.pluginRegistryChanged.Swap(false) {
 		w.dynamic.invalidate()
+		w.commands.invalidate()
 		w.rowsValid = false
 		w.settingsChanged.Store(true)
 		if w.market.source == 2 {
@@ -433,6 +443,7 @@ func (w *window) collect() {
 	w.terminal.take()
 	w.fonts.take()
 	w.takeKeymapImport()
+	w.commands.take()
 	if w.dynamic.take() {
 		w.rowsValid = false
 	}
@@ -473,6 +484,7 @@ func (w *window) declareWork(c ui.C) {
 	if s := &w.keyImport; s.open && s.effect != nil && s.request != nil {
 		ui.Effect(c, s.effect, s.request)
 	}
+	w.commands.declare(c)
 	w.dynamic.declare(c)
 	w.market.declare(c)
 	w.market.search.declare(c)

@@ -63,6 +63,7 @@ type pluginSettingsOp struct {
 }
 
 type pluginSettingsForm struct {
+	sources            *sourceSettingsForm
 	pageKey            string
 	stale              bool
 	staleReported      bool
@@ -129,7 +130,16 @@ func newPluginSettingsForm(loader PluginSettingsLoader) *pluginSettingsForm {
 // runOp is the save or the action. The stop button cancels its context through
 // cancelOp.
 func (p *pluginSettingsForm) runOp(parent context.Context) (pluginSettingsResult, error) {
-	ctx, cancel := context.WithTimeout(parent, 30*time.Second)
+	timeout := 30 * time.Second
+	p.mu.Lock()
+	for _, action := range p.op.editor.Snapshot.State.Actions {
+		if p.op.isAction && action.ID == p.op.action && action.SourceEditor != nil {
+			timeout = 120 * time.Second
+			break
+		}
+	}
+	p.mu.Unlock()
+	ctx, cancel := context.WithTimeout(parent, timeout)
 	p.mu.Lock()
 	op := p.op
 	p.cancelOp = cancel
@@ -163,6 +173,7 @@ func (p *pluginSettingsForm) stop() {
 }
 
 func (p *pluginSettingsForm) load(id string) {
+	p.sources = nil
 	p.stale = false
 	p.staleReported = false
 	p.actionConfirmation = nil
@@ -196,6 +207,9 @@ func (p *pluginSettingsForm) take() {
 		p.running = false
 		p.applyOp(result)
 	}
+	if p.sources != nil {
+		p.sources.take()
+	}
 }
 
 // declare keeps the form's requests alive. The window declares every form it holds in
@@ -210,10 +224,18 @@ func (p *pluginSettingsForm) declare(c ui.C) {
 	if p.opKey != 0 {
 		ui.Effect(c, p.opEffect, p.opKey)
 	}
+	if p.sources != nil && p.sources.key != 0 {
+		ui.Effect(c.Part("source-editor"), p.sources.effect, p.sources.key)
+	}
 }
 
 func (p *pluginSettingsForm) applyOp(result pluginSettingsResult) {
 	if result.action != nil {
+		if result.err == nil && result.action.Sources != nil {
+			if _, ok := p.loader.(PluginSourceSettingsLoader); ok {
+				p.sources = newSourceSettingsForm(p.loader, p.editor, result.action.Plan.ActionID, *result.action.Sources)
+			}
+		}
 		p.acting = false
 		p.failed = result.err
 		p.actionComplete = result.action.Completed

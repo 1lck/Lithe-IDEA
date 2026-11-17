@@ -21,8 +21,9 @@ type processPlatform struct {
 
 // configure puts the process in its own group so Stop can end the whole build
 // tree, including wrappers that start child compilers.
-func (*processPlatform) configure(command *exec.Cmd) {
+func (*processPlatform) configure(command *exec.Cmd) error {
 	command.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+	return nil
 }
 
 func (p *processPlatform) adopt(process *os.Process) error {

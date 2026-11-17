@@ -5,7 +5,7 @@
 #
 # macOS signing uses APPLE_CERTIFICATE and APPLE_CERTIFICATE_PASSWORD, with an optional identity.
 # Windows signing uses WINDOWS_CERTIFICATE and WINDOWS_CERTIFICATE_PASSWORD, with an optional
-# WINDOWS_TIMESTAMP_URL. A missing certificate pair makes an unsigned package; a partial pair is
+# WINDOWS_TIMESTAMP_URL. A missing certificate pair uses ad hoc signing on macOS (unsigned on Windows); a partial pair is
 # refused. Linux packages are unsigned. Every archive or installer gets a checked .sha256 file
 # whose entry contains only the artifact's file name; the verified artifact paths are printed last.
 set -euo pipefail
@@ -37,6 +37,7 @@ if [[ "$GOOS" != "$GOHOSTOS" ]]; then
     printf '%s\n' "Release packaging requires the host GOOS: GOOS=$GOOS but the Go host is $GOHOSTOS." >&2
     exit 2
 fi
+FORMATS="$(node "$ROOT_DIR/scripts/ci/common/desktop-packages.mjs" formats "$GOOS" "$ARCH")"
 MANIFEST_VERSION="$(sed -n 's/^version = "\([0-9.]*\)"$/\1/p' "$ROOT_DIR/desktop/viva.toml")"
 if [[ "$VERSION" != "$MANIFEST_VERSION" ]]; then
     printf '%s\n' "Requested version $VERSION does not match desktop/viva.toml version $MANIFEST_VERSION." >&2
@@ -70,8 +71,8 @@ case "$GOOS" in
             printf '%s\n' 'Incomplete Apple signing configuration: provide APPLE_CERTIFICATE, or remove the password and identity.' >&2
             exit 1
         else
-            printf '%s\n' 'No Apple signing certificate is configured; the package is unsigned.'
-            SIGN_ARGS=(--no-sign)
+            printf '%s\n' 'No Apple certificate is configured; sealing the app with an ad hoc signature (not Apple notarized).'
+            SIGN_ARGS=(--ad-hoc-sign)
         fi
         ;;
     windows)
@@ -100,7 +101,10 @@ ARTIFACT_PATHS=()
 EXPECTED_VERSION_LINE="version = \"$VERSION\""
 
 contains_version_line() {
-    strings -a "$1" | grep -Fqx -- "$EXPECTED_VERSION_LINE"
+    # Read the whole stream: grep -q closes early after a match, making macOS
+    # strings fail to flush and pipefail reject a valid program. Keep producer
+    # errors fatal, including errors after the version was found.
+    strings -a "$1" | grep -Fx -- "$EXPECTED_VERSION_LINE" > /dev/null
 }
 
 # is_stable_program says the program was built with the lithe_stable tag, so it shows the plain
@@ -132,7 +136,7 @@ write_checksum() {
 
 case "$GOOS" in
     darwin)
-        APPLE_ARGS=(--arch "$ARCH" --format 'app,zip,dmg' --out "$OUT_DIR" --stable)
+        APPLE_ARGS=(--arch "$ARCH" --format "$FORMATS" --out "$OUT_DIR" --stable)
         APPLE_ARGS+=("${SIGN_ARGS[@]+"${SIGN_ARGS[@]}"}")
         "$ROOT_DIR/scripts/desktop/package-desktop.sh" "${APPLE_ARGS[@]+"${APPLE_ARGS[@]}"}"
 
@@ -155,9 +159,7 @@ case "$GOOS" in
             printf '%s\n' 'The program was not built as the stable release (no lithe_stable build tag).' >&2
             exit 1
         fi
-        if [[ "$SIGNED" == 1 ]]; then
-            codesign --verify --deep --strict "$APP"
-        fi
+        codesign --verify --deep --strict "$APP"
         # diskutil image replaces the deprecated hdiutil imageinfo, which older runners still need.
         diskutil image info "$OUT_DIR/$STEM.dmg" > /dev/null 2>&1 || hdiutil imageinfo "$OUT_DIR/$STEM.dmg" > /dev/null
         for archive in "$STEM.zip" "$STEM.dmg"; do
@@ -170,7 +172,7 @@ case "$GOOS" in
         ;;
     windows)
         STEM="lithe-$VERSION-windows-$ARCH"
-        "$ROOT_DIR/scripts/desktop/package-desktop.sh" --arch "$ARCH" --format nsis,zip --out "$OUT_DIR" --stable \
+        "$ROOT_DIR/scripts/desktop/package-desktop.sh" --arch "$ARCH" --format "$FORMATS" --out "$OUT_DIR" --stable \
             "${SIGN_ARGS[@]+"${SIGN_ARGS[@]}"}"
 
         INSTALLER="$OUT_DIR/$STEM-setup.exe"
@@ -218,19 +220,23 @@ case "$GOOS" in
     linux)
         if [[ "$ARCH" == "amd64" ]]; then
             DEB_ARCH="amd64"
+            RPM_ARCH="x86_64"
             EXPECTED_MACHINE="x86-64"
         else
             DEB_ARCH="arm64"
+            RPM_ARCH="aarch64"
             EXPECTED_MACHINE="aarch64"
         fi
         STEM="lithe-$VERSION-linux-$ARCH"
         DEB_NAME="lithe_${VERSION}_${DEB_ARCH}.deb"
-        "$ROOT_DIR/scripts/desktop/package-desktop.sh" --arch "$ARCH" --format tar.gz,deb --out "$OUT_DIR" --stable
+        RPM_NAME="lithe-$VERSION-1.$RPM_ARCH.rpm"
+        "$ROOT_DIR/scripts/desktop/package-desktop.sh" --arch "$ARCH" --format "$FORMATS" --out "$OUT_DIR" --stable
 
         TARBALL="$OUT_DIR/$STEM.tar.gz"
         DEB="$OUT_DIR/$DEB_NAME"
-        if [[ ! -s "$TARBALL" || ! -s "$DEB" ]]; then
-            printf '%s\n' 'The Linux tarball or Debian package is missing or empty.' >&2
+        RPM="$OUT_DIR/$RPM_NAME"
+        if [[ ! -s "$TARBALL" || ! -s "$DEB" || ! -s "$RPM" ]]; then
+            printf '%s\n' 'The Linux tarball, Debian package or RPM is missing or empty.' >&2
             exit 1
         fi
         if ! tar -tzf "$TARBALL" | awk -v program="$STEM/lithe" '$0 == program { found = 1 } END { exit !found }'; then
@@ -270,7 +276,14 @@ case "$GOOS" in
             exit 1
         fi
         write_checksum "$STEM.tar.gz"
+        rpm --checksig --nosignature "$RPM"
+        RPM_METADATA="$(rpm -qp --queryformat '%{VERSION} %{RELEASE} %{ARCH}' "$RPM")"
+        if [[ "$RPM_METADATA" != "$VERSION 1 $RPM_ARCH" ]]; then
+            printf '%s\n' "The RPM metadata is $RPM_METADATA, expected $VERSION 1 $RPM_ARCH." >&2
+            exit 1
+        fi
         write_checksum "$DEB_NAME"
+        write_checksum "$RPM_NAME"
         ;;
 esac
 

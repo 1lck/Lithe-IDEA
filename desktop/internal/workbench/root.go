@@ -324,6 +324,8 @@ func (a *App) overlays(c ui.C) {
 		a.treeRemovalDialog(c, p)
 	}
 	a.newProjectModal(c)
+	// The update dialog shows on the welcome screen as on a project, over whatever is open.
+	a.updateDialog(c)
 }
 
 // dragLayer declares what a drag in progress paints over the workbench: the zones and

@@ -41,7 +41,7 @@ func (a *App) compareReferences(p *project, base core.GitReference, target *core
 func (a *App) compareReferencesAt(p *project, root string, base core.GitReference, target *core.GitReference) {
 	kernel, ok := a.reviewKernel()
 	l := &p.log
-	if !ok || !p.git.isRepository() || l.comparing || base.FullName == "" {
+	if !ok || !p.hasRepository() || l.comparing || base.FullName == "" {
 		return
 	}
 	l.comparing = true

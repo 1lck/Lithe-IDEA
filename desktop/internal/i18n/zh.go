@@ -81,6 +81,10 @@ var chinese = Messages{
 		LoadMore:       Shared(Chinese, "git.log.loadMore"),
 		LoadingCommits: Shared(Chinese, "git.log.loadingCommits"),
 		LoadMoreFailed: Shared(Chinese, "desktop.git.loadMoreFailed"),
+		LimitReached: func(count int) string {
+			return SharedFormat(Chinese, "desktop.git.log.limitReached", map[string]string{"count": strconv.Itoa(count)})
+		},
+		AdjustLimit:    Shared(Chinese, "desktop.git.log.adjustLimit"),
 		SelectCommit:   Shared(Chinese, "git.log.selectCommit"),
 		LoadingFiles:   Shared(Chinese, "git.log.loadingChangedFiles"),
 		FilesFailed:    Shared(Chinese, "desktop.git.filesFailed"),
@@ -304,11 +308,15 @@ var chinese = Messages{
 		FindPrevious:       Shared(Chinese, "desktop.terminal.findPrevious"),
 		FindNext:           Shared(Chinese, "desktop.terminal.findNext"),
 		FindClose:          Shared(Chinese, "desktop.terminal.findClose"),
+		PasteImageTooLarge: Shared(Chinese, "desktop.terminal.pasteImageTooLarge"),
 		FindCount: func(current, total string) string {
 			return SharedFormat(Chinese, "desktop.terminal.findCount", map[string]string{"current": current, "total": total})
 		},
 		OpenLinkFailed: func(reason string) string {
 			return SharedFormat(Chinese, "desktop.terminal.openLinkFailed", map[string]string{"reason": reason})
+		},
+		PasteImageFailed: func(reason string) string {
+			return SharedFormat(Chinese, "desktop.terminal.pasteImageFailed", map[string]string{"reason": reason})
 		},
 		ShellMenu:       Shared(Chinese, "native.newTerminalWithShell"),
 		DetectingShells: Shared(Chinese, "terminal.detectingShells"),

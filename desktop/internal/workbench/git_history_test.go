@@ -118,3 +118,23 @@ func TestLogCommitMenuOffersUndoAndSquashOnlyAsCoreHints(t *testing.T) {
 		}
 	}
 }
+
+// A loading footer participates in List's row identities even though it is not
+// a selectable commit. Its key must be valid and distinct from every commit.
+func TestLogCommitKeysKeepFooterInRangeAndSeparate(t *testing.T) {
+	v := logView{keyRows: []core.GraphRow{{CommitHash: "first"}, {CommitHash: "second"}}}
+	first, second := v.logCommitKey(0), v.logCommitKey(1)
+	footer := v.logCommitKey(len(v.keyRows))
+	for _, key := range []int{first, second, footer} {
+		if key < 0 || uint64(key) >= 1<<31 {
+			t.Fatalf("row key %d is outside Viva's supported range", key)
+		}
+	}
+	if first == second || first == footer || second == footer {
+		t.Fatalf("commit and footer keys collide: %d %d %d", first, second, footer)
+	}
+	v.keyRows[0], v.keyRows[1] = v.keyRows[1], v.keyRows[0]
+	if v.logCommitKey(0) != second || v.logCommitKey(1) != first || v.logCommitKey(len(v.keyRows)) != footer {
+		t.Fatal("commit identities or the loading footer changed after reordering")
+	}
+}

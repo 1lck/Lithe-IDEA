@@ -45,7 +45,7 @@ description: 在 Lithe 仓库进行实现、重构、缺陷修复、审查、调
 | 跨平台行为或共享接口 | Lithe-core-rust 仓库的 `rust/contracts/application-boundary.md`、`rust/contracts/rust-core-api.md` 和 `rust/fixtures/` 下的相关 fixture |
 | 新增插件 API，或把内置工具迁移为插件 | `.agents/notes/implemented/architecture/2026-10-31-plugin-capability-and-domain-boundaries.md` |
 | 创建插件，或为已有插件新增提供者 | `.agents/skills/create-lithe-plugin/SKILL.md` |
-| 编写或审查涉及插件的测试、功能矩阵条目、界面文案或资源登记 | 本文件第三节“插件归属与宿主零依赖” |
+| 编写或审查涉及插件的测试、功能矩阵条目、界面文案或资源说明 | 本文件第三节“插件归属与宿主零依赖” |
 | 界面、控件或视觉交互 | [原版视觉与交互基线](references/macos-ui.md)，以及其中与本次改动相关的 Note |
 | 滚动列表、树、表格、日志、长文本或分页列表 | [滚动内容与连续列表](references/scrolling-content.md) |
 | 编辑器模块（`desktop/internal/editor/**`、`desktop/internal/editorview/**`）或它的性能基线 | [编辑器性能基线](references/editor-performance.md) |
@@ -174,7 +174,7 @@ Lithe 自己负责的是：有界生命周期、取消、过期结果隔离、�
 4. 插件能力的端到端验证（真实语言服务器、构建工具、调试器、插件界面）在插件仓库进行，由插件仓库的测试和 CI 针对宿主或 Core 的固定版本运行。宿主修改通用扩展点、可能影响已发布插件时，在受影响插件的仓库运行它的测试，把结果写进宿主 PR 说明；不得把这些测试搬进宿主仓库。
 5. 宿主的功能矩阵只记录宿主自身的能力：通用扩展点、插件安装与管理、插件市场和宿主自带的工作台功能。具体插件提供的能力不得在 `shared/platform-feature-matrix/` 建条目；宿主条目的证据路径和验证动作不得引用具体插件的测试、插件包或插件仓库。插件在自己的仓库维护自己的功能矩阵。
 6. 插件文案由插件自己翻译：清单中的文案使用插件包的 `l10n/<语言>.json`，插件界面和插件后端返回的文字由插件按界面语言自行翻译。契约当前支持的翻译范围、文件格式和回退顺序，以 Core 插件契约 README 的 Translations 一节为准。宿主 `shared/i18n/` 只放宿主自己的文案；契约无法翻译某段插件文字时，在 Core 扩展插件翻译契约，不得在宿主为某个插件补词条或译文。
-7. 插件构建时下载、生成、打包或打补丁的资源，其来源、校验方式和工作树复用说明写在插件仓库。宿主的 `scripts/resources/worktree-resources.json` 和 `docs/ci-builds.md` 只登记宿主自身构建产生的资源，以及宿主运行时为所有插件统一管理的通用目录（插件安装目录、插件状态目录），不得写某个具体插件的路径或构建步骤。
+7. 插件构建时下载、生成、打包或打补丁的资源，其来源、校验方式和能否跨工作树复制的说明写在插件仓库。宿主的 `docs/ci-builds.md` 只记录宿主自身构建产生的资源，以及宿主运行时为所有插件统一管理的通用目录（插件安装目录、插件状态目录），不得写某个具体插件的路径或构建步骤。
 8. 宿主的 Skill、Agent Note、文档和代码注释可以链接具体插件的仓库作为示例，但不得把插件的实现细节、测试命令或验证结果写成宿主的规则或宿主的验证证据。
 
 自查：提交前在宿主仓库根目录运行以下命令，结果必须为空。有命中时，按规则 1 到 3 把内容迁到插件仓库、改用合成插件或删除。命令排除了规则 3 允许的插件市场索引快照：
@@ -427,6 +427,19 @@ macOS app bundle 和 Windows 安装目录是发行基线。Sparkle 增量更新�
 
 决策和完整生命周期规则见 `.agents/notes/implemented/bug-fix/2026-09-25-runtime-bundle-immutability-and-update-delta.md` 和 `AGENTS.md`。
 
+### 工作树缓存复用
+
+每个 Git worktree 有自己的 `.artifacts`，新工作树第一次编译 Core 要从零开始。仓库不提供复制脚本；在新工作树编译前，先按下面的规则判断能不能从已有工作树复制缓存，能复制就复制。
+
+- 全局缓存已经自动共享：Go 的模块缓存和构建缓存、`~/.cargo/registry` 都在用户目录，不要把它们挪进 `.artifacts`，也不需要复制。
+- 只复制，不共享。在 macOS 用 APFS 克隆复制（`cp -cR <源工作树>/.artifacts/desktop <目标工作树>/.artifacts/`），不要用符号链接、硬链接或让两个工作树指向同一个目录；源工作树正在编译时不要复制。
+- 只复制来源版本一致的内容：源工作树和目标工作树的 `PINNED_CORE_REVISION`（`scripts/desktop/build-desktop-core.sh`）、`desktop/go.mod` 里固定的 Viva 版本、平台、架构和工具链都要相同。不一致时不要复制，直接在目标工作树编译。
+- 复制后照常运行构建脚本（例如 `scripts/desktop/build-desktop-core.sh`、`scripts/desktop/desktop-go.sh`），由脚本自己的身份检查决定重编什么：Core 构建发现 `lithe-core-built-from-*.txt` 记录的源码目录不同，只重编 Core 自己的 crate，已编译的第三方依赖继续可用。结果异常时删掉复制来的目录重新编译，不要手工修补。
+- 不得复制运行时状态、用户数据、日志、插件安装和插件状态目录、LSP workspace 状态、测试报告和截图；`.artifacts/platform-feature-matrix/` 等报告由各自的脚本在本工作树重新生成。
+- 新增或修改下载、解压、生成或缓存资源时，在 `docs/ci-builds.md`“独立工作树的本地编译”一节写清路径、归属、生命周期，以及能否跨工作树复制、复制的前提。
+
+决策原因见 `.agents/notes/implemented/process/2026-11-16-worktree-cache-reuse-without-script.md`。
+
 ### 显式处理失败
 
 - 不得静默吞掉错误。在有足够上下文的层返回、转换或记录错误；丢弃错误的写法（Go 的 `_ =`、只有 `return`/`continue`/`break` 的 `if err != nil`；Rust Core 的 `.ok();`、`let _ =`）必须记录目录事件，或属于[日志接入](references/logging.md)第二节的例外并写豁免标记。
@@ -485,13 +498,13 @@ macOS app bundle 和 Windows 安装目录是发行基线。Sparkle 增量更新�
 平台实现改动没有通过本地门禁之前，不得声称完成，不得标记为可评审，不得推送或创建、更新 PR。先列出相对 PR 基线的改动：
 
 ```bash
-git diff --name-only origin/preview...HEAD
+git diff --name-only origin/main...HEAD
 ```
 
 第三节“目录归属”中的平台实现路径有变化时，运行：
 
 ```bash
-./scripts/platform-feature-matrix/verify-platform-feature-matrix-change.sh origin/preview HEAD
+./scripts/platform-feature-matrix/verify-platform-feature-matrix-change.sh origin/main HEAD
 ./scripts/platform-feature-matrix/verify-platform-feature-matrix.sh
 ```
 
@@ -515,7 +528,7 @@ git diff --name-only origin/preview...HEAD
 | Agent Note 或架构决策迁移 | `./scripts/agent-notes/verify-agent-notes.sh` |
 | 日志事件、日志调用、界面警告或错误、会丢弃错误的代码 | 按共享日志契约检查目录与使用；旧日志生成和使用校验脚本已移除，等价检查恢复前标记门禁未完成 |
 | 测试代码或测试基础设施 | `./.agents/skills/write-stable-tests/scripts/verify-test-stability.sh`，再运行该 Skill 中对应平台的逐项计时入口 |
-| 任何改动（插件内容最常从测试、功能矩阵、i18n 词条和资源登记进入宿主） | 第三节“插件归属与宿主零依赖”的自查命令，结果为空，并按规则 2 检查命令覆盖不到的写法 |
+| 任何改动（插件内容最常从测试、功能矩阵、i18n 词条和资源说明进入宿主） | 第三节“插件归属与宿主零依赖”的自查命令，结果为空，并按规则 2 检查命令覆盖不到的写法 |
 | Viva 桌面代码 | `./scripts/desktop/desktop-go.sh test ./...`、受影响包的竞态测试，以及目标平台相应原生验证 |
 | 共享应用行为或 JSON fixture | 在 Core 仓库运行受影响的测试；升级 `PINNED_CORE_REVISION`（或用 `LITHE_CORE_RUST_DIR` 指向本地 Core 检出）后，用 `./scripts/desktop/desktop-go.sh test` 运行读取该 fixture 的桌面测试；旧 `verify-shared-contracts.sh` 已移除，等价边界检查恢复前标记门禁未完成 |
 | Rust Core、JSON C ABI 或桌面桥接 | 先在 Core 仓库完成注释与契约检查，运行 `node scripts/rust-core/verify-platform-tests.mjs`，以及 `node scripts/rust-core/affected-crates.mjs` 列出的 crate 的测试；再运行桥接和目标平台消费者测试。旧 Core 验证脚本移除后不得把缺失检查记为通过 |

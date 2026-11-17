@@ -51,7 +51,8 @@ type branchSession struct {
 	// one the log walks when the popup opened, or one the user picked in the popup. Empty for the
 	// project's own repository (branchRoot).
 	repo string
-	// repoOpen says the repository picker of the popup lists the repositories to pick from.
+	// repoOpen says the panel of the repository repo is open beside its row, in the popup of a
+	// project folder with several repositories (drawWorkspaceBranchPanel).
 	repoOpen bool
 	// gen counts the loads of the references; the answer of an older load is dropped.
 	gen int
@@ -99,7 +100,7 @@ var headReference = core.GitReference{FullName: "HEAD", ShortName: "HEAD"}
 // references of the open project.
 func (a *App) openBranches() {
 	p := a.project
-	if p == nil || !p.git.isRepository() {
+	if p == nil || !p.hasRepository() {
 		return
 	}
 	a.title.projectOpen = false
@@ -108,7 +109,6 @@ func (a *App) openBranches() {
 	b := &a.branch
 	b.open, b.menu, b.dialog = true, "", branchDialogNone
 	b.repo, b.repoOpen = p.logBranchRepo(), false
-	a.loadNestedReferences(p)
 	b.search.SetText("")
 	if b.collapsed == nil {
 		b.collapsed, b.expanded = map[string]bool{}, map[string]bool{}
@@ -118,7 +118,7 @@ func (a *App) openBranches() {
 
 // closeBranches closes the popup and the row menu in it.
 func (a *App) closeBranches() {
-	a.branch.open, a.branch.menu = false, ""
+	a.branch.open, a.branch.repoOpen, a.branch.menu = false, false, ""
 }
 
 // leaveBranches closes the popup before a write or a dialog starts and records whether the
@@ -169,12 +169,13 @@ func (a *App) branchRoot(p *project) string {
 	return p.git.repositoryRoot(p.root)
 }
 
-// selectBranchRepo makes the repository at root the one the popup lists and its dialogs act on,
-// "" or the project's own root for the project's own repository, and reads its references.
+// selectBranchRepo makes the repository at root the one the popup's repository panel lists and its
+// dialogs act on, "" or the project's own root for the project's own repository, and reads its
+// references.
 func (a *App) selectBranchRepo(p *project, root string) {
 	b := &a.branch
-	b.repoOpen, b.menu = false, ""
-	if root == p.git.repositoryRoot(p.root) {
+	b.menu = ""
+	if p.git.isRepository() && root == p.git.repositoryRoot(p.root) {
 		root = ""
 	}
 	if b.repo == root {
@@ -183,8 +184,19 @@ func (a *App) selectBranchRepo(p *project, root string) {
 	b.repo = root
 	b.refs, b.sections = core.GitReferences{}, [3]logSection{}
 	b.loaded, b.err = false, nil
-	a.loadNestedReferences(p)
 	a.loadBranches(p)
+}
+
+// toggleBranchRepo opens the panel of the repository at root beside its row, or closes it when it
+// is the one open.
+func (a *App) toggleBranchRepo(p *project, root string) {
+	b := &a.branch
+	if b.repoOpen && a.branchRoot(p) == root {
+		b.repoOpen, b.menu = false, ""
+		return
+	}
+	a.selectBranchRepo(p, root)
+	b.repoOpen = true
 }
 
 // runBranchWrite runs write against the repository of p in the background and reads the
@@ -202,7 +214,7 @@ func (a *App) runBranchWrite(p *project, operation string, failed func(reason st
 		err := write(ctx, kernel, root)
 		var status core.GitStatus
 		if err == nil {
-			status, err = kernel.GitStatus(core.AutomaticRefresh(ctx), root)
+			status, err = kernel.GitStatus(core.WithQueryCategory(core.AutomaticRefresh(ctx), core.GitQueryReload), root)
 		}
 		return func(a *App) {
 			b := &a.branch
@@ -212,9 +224,12 @@ func (a *App) runBranchWrite(p *project, operation string, failed func(reason st
 				a.operationFailed(operation, err)
 				return
 			}
-			// The project's status describes its own repository only.
-			if root == p.git.repositoryRoot(p.root) {
+			// The project's status describes its own repository only; a nested one's branch is read
+			// again with the repositories of the folder.
+			if p.git.isRepository() && root == p.git.repositoryRoot(p.root) {
 				a.setGit(p, gitState{loaded: true, status: status})
+			} else {
+				a.loadNestedRepos(p)
 			}
 			if p.log.started {
 				a.loadLog(p)

@@ -54,6 +54,9 @@ type GitHistoryPage struct {
 	// NextCursor continues the walk with GitHistoryPage; empty when the page reaches the end.
 	NextCursor string `json:"nextCursor,omitempty"`
 	HasMore    bool   `json:"hasMore"`
+	// LimitReached says the walk stopped at the most commits its first page asked for while
+	// the history goes on; HasMore is then false.
+	LimitReached bool `json:"limitReached,omitempty"`
 }
 
 // GitCommitFile is one path a commit changed.
@@ -85,6 +88,8 @@ type gitHistoryPageRequest struct {
 	Order     string `json:"order"`
 	Cursor    string `json:"cursor,omitempty"`
 	Limit     int    `json:"limit"`
+	// MaxCommits is the most commits the walk reads in all; zero leaves it to the kernel.
+	MaxCommits int `json:"maxCommits,omitempty"`
 }
 
 type gitCursorRequest struct {
@@ -122,9 +127,13 @@ func (c *Client) GitReferences(ctx context.Context, root string) (GitReferences,
 // minutes and keeps at most eight, so a stale cursor fails and the history is reloaded.
 // A walk that is not continued to its end should be released with CloseGitHistoryCursor.
 //
+// maxCommits, 1 to 100,000, is the most commits the walk reads in all, fixed by its first
+// page; zero is the kernel's 5,000 on a first page and the walk's own bound on a later one.
+// The page that stops at the bound while the history goes on says LimitReached.
+//
 // GitHistoryPage starts git and blocks; call it from a background goroutine.
-func (c *Client) GitHistoryPage(ctx context.Context, root, reference, cursor string, limit int) (GitHistoryPage, error) {
-	request := gitHistoryPageRequest{Root: root, Reference: reference, Order: "date", Cursor: cursor, Limit: limit}
+func (c *Client) GitHistoryPage(ctx context.Context, root, reference, cursor string, limit, maxCommits int) (GitHistoryPage, error) {
+	request := gitHistoryPageRequest{Root: root, Reference: reference, Order: "date", Cursor: cursor, Limit: limit, MaxCommits: maxCommits}
 	var page GitHistoryPage
 	if err := c.Execute(ctx, "git.historyPage", request, &page); err != nil {
 		return GitHistoryPage{}, err

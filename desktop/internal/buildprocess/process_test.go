@@ -160,6 +160,90 @@ func TestProcessStopEndsASleepingProcess(t *testing.T) {
 	}
 }
 
+// A protocol already asked the process to exit. Sending a platform signal at
+// this point can kill it before it consumes that request, especially on Windows.
+func TestProcessStopAfterRequestAllowsProtocolExit(t *testing.T) {
+	previous := StopGrace()
+	SetStopGrace(10 * time.Second)
+	t.Cleanup(func() { SetStopGrace(previous) })
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	defer cancel()
+	reader, writer := io.Pipe()
+	defer reader.Close()
+	defer writer.Close()
+	spec := processSpec(t, "stdin")
+	spec.Stdin = reader
+	var mu sync.Mutex
+	var output strings.Builder
+	process, err := Start(ctx, spec, func(_ Stream, text string) {
+		mu.Lock()
+		output.WriteString(text)
+		mu.Unlock()
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		process.Kill()
+		_ = writer.Close()
+		_ = process.Wait()
+	})
+	process.StopAfterRequest()
+	// Release the protocol input only after the stop was requested. This
+	// process must still be able to handle it and exit successfully.
+	if _, err := io.WriteString(writer, "finish"); err != nil {
+		t.Fatal(err)
+	}
+	if err := writer.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if err := process.Wait(); err != nil {
+		t.Fatalf("the protocol's exit was interrupted: %v", err)
+	}
+	mu.Lock()
+	defer mu.Unlock()
+	if got := output.String(); !strings.Contains(got, "got:finish") {
+		t.Fatalf("the protocol request was not processed: %q", got)
+	}
+}
+
+func TestProcessStopAfterRequestKillsAfterGrace(t *testing.T) {
+	previous := StopGrace()
+	grace := 300 * time.Millisecond
+	SetStopGrace(grace)
+	t.Cleanup(func() { SetStopGrace(previous) })
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	defer cancel()
+	started := make(chan struct{})
+	var once sync.Once
+	process, err := Start(ctx, processSpec(t, "sleep"), func(_ Stream, text string) {
+		if strings.Contains(text, "started") {
+			once.Do(func() { close(started) })
+		}
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		process.Kill()
+		_ = process.Wait()
+	})
+	select {
+	case <-started:
+	case <-ctx.Done():
+		t.Fatal("the helper did not start")
+	}
+	stopped := time.Now()
+	process.StopAfterRequest()
+	process.Stop()
+	if err := process.Wait(); err == nil {
+		t.Fatal("the unresponsive process exited successfully")
+	}
+	if elapsed := time.Since(stopped); elapsed < grace {
+		t.Fatalf("the process was killed after %v, before its grace of %v", elapsed, grace)
+	}
+}
+
 // A root process that exits normally must not keep Wait blocked on a
 // background child that inherited stdout and stderr. The job or process group
 // owns the descendants, so root exit ends them and the pipes drain in bounded

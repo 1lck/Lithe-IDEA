@@ -11,6 +11,7 @@ import (
 	"context"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/shortcuts"
 	"sync"
+	"time"
 
 	"github.com/1lck/Lithe-IDEA/desktop/internal/core"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/fontprefs"
@@ -73,6 +74,14 @@ type Values struct {
 	// TerminalScrollback is the history lines a new terminal keeps, within
 	// MinScrollback and MaxScrollback.
 	TerminalScrollback int
+	// TerminalCursorShape is the shape the terminal cursor takes until a program asks for
+	// its own (CursorShapeBlock, CursorShapeBar or CursorShapeUnderline), and
+	// TerminalCursorThickness how thick a bar or an underline draws (CursorThicknessThin,
+	// CursorThicknessNormal or CursorThicknessThick).
+	TerminalCursorShape     string
+	TerminalCursorThickness string
+	// TerminalBehavior is the Terminal page's switches; the zero value is the default of each.
+	TerminalBehavior TerminalBehavior
 	// Fonts are the fonts of the editor, the terminal and the run output, as
 	// fontprefs.Normalize returns them. Nil is fontprefs.Default, the system's fixed-pitch
 	// font for every place.
@@ -85,6 +94,13 @@ type Values struct {
 	// updates the parent repositories' references in the Commit window; both show by default.
 	HideChangeLists      bool
 	HideParentReferences bool
+	// GitLogLimit and GitLogMergedLimit are the most commits the Git Log reads of one repository
+	// and of several at once, within MinGitLogLimit and MaxGitLogLimit.
+	GitLogLimit       int
+	GitLogMergedLimit int
+	// GitConsole says which internal Git queries the Git console records and how it draws its
+	// records; the zero value is IntelliJ IDEA's console.
+	GitConsole core.GitConsolePreferences
 	// HideProjectColors leaves the open project's color out of the workbench's chrome,
 	// which shows it by default.
 	HideProjectColors bool
@@ -185,6 +201,17 @@ type ToolchainLoader interface {
 	Save(context.Context, toolchain.Snapshot, []toolchain.Edit) (toolchain.Snapshot, error)
 }
 
+// ToolchainInspector validates an explicit installation with the runtime's
+// resolver. Inspection reads facts and probes a version without saving a pin.
+// ToolchainScopedLoader supplies machine registrations and optional project overrides.
+type ToolchainScopedLoader interface {
+	LoadScope(context.Context, string) (toolchain.Snapshot, error)
+}
+
+type ToolchainInspector interface {
+	Inspect(context.Context, toolchain.Snapshot, string, string) (core.ToolchainSelection, error)
+}
+
 // PluginSettingsLoader reads and publishes captured native sources off the UI thread.
 // Load translates the plugin's own text for the language; a save's readback keeps the
 // language its editor was loaded in.
@@ -196,6 +223,72 @@ type PluginSettingsLoader interface {
 // PluginSettingsActionLoader executes explicit declared actions without saving drafts.
 type PluginSettingsActionLoader interface {
 	Action(context.Context, pluginservice.SettingsEditor, string, bool) (pluginservice.SettingsActionResult, error)
+}
+
+// PluginSourceSettingsLoader publishes only explicitly saved native-source drafts.
+type PluginSourceSettingsLoader interface {
+	SaveSources(context.Context, pluginservice.SettingsEditor, string, pluginsettings.SourceEditor, []core.SourceSettingsEdits) (pluginsettings.SourceEditor, error)
+}
+
+// CommandInstaller finds the commands installed plugins run from the user's system and
+// installs a missing one through the installer its plugin declares (commandInstallers[],
+// API-23). Every call runs off the window thread and returns once ctx ends.
+type CommandInstaller interface {
+	// Missing lists the plugin's launches none of whose commands the host finds, looked up as
+	// the launches look them up. A plugin whose commands are all found has none.
+	Missing(ctx context.Context, pluginID string) ([]MissingCommand, error)
+	// Offer prepares what the install dialog shows for one installer: the tool that runs, and
+	// each target's command line and directory. It installs nothing; it may run the tool's
+	// directory probes, which only print where the tool installs.
+	Offer(ctx context.Context, pluginID, installerID string) (CommandInstallOffer, error)
+	// Install runs the installer for the target the user chose, handing each line the tool
+	// prints to output as it arrives, and returns the directory its commands are in once they
+	// are found there. Cancelling ctx stops the tool. A failed installation is a
+	// *pluginhost.CommandInstallError when the tool ran, and a *toolchain.UnavailableError
+	// from Offer or Install when the tool is not found.
+	Install(ctx context.Context, pluginID, installerID, target string, output func(string)) (string, error)
+}
+
+// MissingCommand is one launch of a plugin none of whose commands the host finds.
+type MissingCommand struct {
+	// Kind and ID name the capability the launch belongs to: one of the Capability constants
+	// and the capability's ID. Kind is empty for the plugin's backend, which has no card.
+	Kind, ID string
+	// Commands are the commands the launch looks for, in its order.
+	Commands []string
+	// Installer is the ID of the installer that provides them, or "" when the plugin declares
+	// none and the user has to install them another way.
+	Installer string
+	// Tool is the display name of the tool the installer runs; empty without an installer.
+	Tool string
+}
+
+// CommandInstallOffer is what the install dialog shows before the user confirms.
+type CommandInstallOffer struct {
+	Installer string
+	// Commands are the commands the installation provides.
+	Commands []string
+	// Tool is the tool definition that runs it, and Executable the program resolved for it.
+	Tool, Executable string
+	// MayUseNetwork says the installation may download.
+	MayUseNetwork bool
+	// Timeout is how long the installation may run.
+	Timeout time.Duration
+	// Targets are the places the user may install into, managed first.
+	Targets []CommandInstallTarget
+}
+
+// CommandInstallTarget is one place an installation can put its commands.
+type CommandInstallTarget struct {
+	// Target is core.CommandInstallManaged or core.CommandInstallToolDefault.
+	Target string
+	// CommandLine is the program and its arguments as they will run, and Environment the
+	// variables set for it, each NAME=value.
+	CommandLine string
+	Environment []string
+	// Directory is where the commands will land; empty when the tool's probes named no
+	// directory, which leaves the target unusable since the host could not find the commands.
+	Directory string
 }
 
 // Options configure the settings window.
@@ -247,6 +340,9 @@ type Options struct {
 	// LanguageServerState reports the state of a plugin's running language server: its state
 	// name, or "" when none runs. It is read while painting on the window's thread.
 	LanguageServerState func(pluginID string) string
+	// CommandInstalls finds the commands the Installed tab's plugins are missing and installs
+	// them; nil shows no command status.
+	CommandInstalls CommandInstaller
 	// UninstallPlugin removes the installed version of a plugin.
 	UninstallPlugin func(id string)
 	// InstallPluginFromFile installs a plugin package the user picked on disk. The
@@ -293,6 +389,12 @@ type Options struct {
 	// SetTerminalScrollback hands a change of Values.TerminalScrollback to the settings
 	// owner, like SetTabRows.
 	SetTerminalScrollback func(int)
+	// SetTerminalCursor hands a change of Values.TerminalCursorShape and
+	// Values.TerminalCursorThickness to the settings owner, like SetTabRows.
+	SetTerminalCursor func(shape, thickness string)
+	// SetTerminalBehavior hands a change of Values.TerminalBehavior to the settings owner, like
+	// SetTabRows.
+	SetTerminalBehavior func(TerminalBehavior)
 	// SetFonts hands a change of Values.Fonts to the settings owner, like SetTabRows. The
 	// list it receives is normalized.
 	SetFonts func([]fontprefs.Font)
@@ -308,6 +410,12 @@ type Options struct {
 	// Values.HideParentReferences to the settings owner, like SetHideGitGutter.
 	SetHideChangeLists      func(bool)
 	SetHideParentReferences func(bool)
+	// SetGitLogLimits hands a change of Values.GitLogLimit or Values.GitLogMergedLimit to the
+	// settings owner, like SetHideGitGutter.
+	SetGitLogLimits func(single, merged int)
+	// SetGitConsole hands a change of Values.GitConsole to the settings owner, like
+	// SetHideGitGutter.
+	SetGitConsole func(core.GitConsolePreferences)
 	// SetProcessTermination hands a change of Values.ProcessTermination to the settings
 	// owner, like SetTabRows.
 	SetProcessTermination func(ProcessTermination)
@@ -347,6 +455,15 @@ type Options struct {
 	UpdateNow           func()
 	CancelUpdate        func()
 	SetAutoCheckUpdates func(bool)
+	// SetUpdateChannel switches the channel updates come from, as setUpdateChannel takes it:
+	// now picks stable's latest release at once on the way back from AutoBuild, and restore
+	// brings back the settings saved when Lithe last left the channel. SetUpdateSource sets a
+	// channel's feed, an empty address putting it back on the default. ShowUpdate opens the
+	// update dialog on the workbench window and brings that window forward, where the user
+	// downloads or skips the version. None of them waits.
+	SetUpdateChannel func(channel string, now, restore bool)
+	SetUpdateSource  func(channel, url string)
+	ShowUpdate       func()
 	// OpenURL opens an HTTPS page in the system browser.
 	OpenURL func(string)
 	// SetHideProjectColors hands a change of Values.HideProjectColors to the settings
@@ -467,6 +584,12 @@ func (c *Controller) OpenTerminal(application *app.Application, current Values) 
 // OpenKeymap shows the window on the Keymap page, where the gear menu's Keymap item leads.
 func (c *Controller) OpenKeymap(application *app.Application, current Values) error {
 	return c.open(application, current, pageKeymap)
+}
+
+// OpenVersionControl shows the window on the Version Control page, where the Git console's
+// settings button leads.
+func (c *Controller) OpenVersionControl(application *app.Application, current Values) error {
+	return c.open(application, current, pageVersionControl)
 }
 
 // OpenAI shows the window on the Generation page, where the commit area's settings button leads.

@@ -160,6 +160,9 @@ type Runner struct {
 	// lookup resolves a bare command name for a system-command launch. It is
 	// exec.LookPath in production and a test replaces it to describe a machine.
 	lookup func(name string) (string, error)
+	// commands adds the directories the host installed each plugin's commands
+	// into to lookup. Nil looks up PATH only.
+	commands *pluginhost.CommandStore
 	// tools resolves a plan's {kind: "tool"} launch to an executable. Nil refuses
 	// such a launch rather than guessing a program.
 	tools       ToolResolver
@@ -242,6 +245,11 @@ type ToolResolver func(ctx context.Context, pluginID, workingDirectory, tool str
 // before the first Start.
 func (r *Runner) SetToolResolver(resolver ToolResolver) { r.tools = resolver }
 
+// SetCommandStore installs the record of the commands the host installed for
+// plugins, so a plugin's system-command launches find them after PATH. It must
+// be called before the first Start.
+func (r *Runner) SetCommandStore(store *pluginhost.CommandStore) { r.commands = store }
+
 // New returns a runner that answers host requests with services.
 func New(kernel Kernel, services *pluginhost.Services) *Runner {
 	if services == nil {
@@ -321,7 +329,7 @@ func (r *Runner) Start(ctx context.Context, request StartRequest) (Session, erro
 		executable = resolved.Runtime
 	}
 	if executable == "" && plan.Launch.Kind == pluginhost.LaunchSystemCommand {
-		executable, err = pluginhost.ResolveCommand(plan.Launch.Commands, r.lookup)
+		executable, err = pluginhost.ResolveCommand(plan.Launch.Commands, r.commands.Lookup(request.PluginID, r.lookup))
 		if err != nil {
 			return Session{}, err
 		}
@@ -688,14 +696,14 @@ func (r *Runner) RequestBuild(ctx context.Context, session Session, request core
 	return r.kernel.RequestPluginBuild(ctx, request)
 }
 
-// ResolveCommand finds the first of commands the way a system-command launch
-// does, for a tool a provider runs itself rather than one the runner launches,
-// such as the client a VCS provider drives.
-func (r *Runner) ResolveCommand(commands []string) (string, error) {
+// ResolveCommand finds the first of commands the way a system-command launch of
+// pluginID does, for a tool a provider runs itself rather than one the runner
+// launches, such as the client a VCS provider drives.
+func (r *Runner) ResolveCommand(pluginID string, commands []string) (string, error) {
 	if r == nil {
 		return "", errors.New("pluginbackend: no runner")
 	}
-	return pluginhost.ResolveCommand(commands, r.lookup)
+	return pluginhost.ResolveCommand(commands, r.commands.Lookup(pluginID, r.lookup))
 }
 
 // RequestVcs submits one VCS operation to a session that negotiated the

@@ -55,8 +55,12 @@ const buildCommandManifest = `{
 }`
 
 // buildCommandMarker names the file in the command's working directory that tells the runner
-// what to do: print a model or a tree, exit with a failure, print what is no document, or hang.
+// what to do: print a model or a tree, exit with a failure, print what is no document, log a
+// download before the model or before it hangs, or hang.
 const buildCommandMarker = "build-command.marker"
+
+// buildCommandDownloadLine is what the runner logs on stderr in the download modes.
+const buildCommandDownloadLine = "go: downloading example.com/fixture v1.0.0"
 
 // TestBuildCommandRunner is the fixture build tool. It prints nothing of the testing package
 // and exits by itself, since the host reads its whole output.
@@ -72,6 +76,20 @@ func TestBuildCommandRunner(t *testing.T) {
 		fmt.Print(`{"format":"litheDependencies","version":0,"dependencies":[{"name":"fixture-dependency","children":[]}]}`)
 	case "fail":
 		os.Exit(3)
+	case "explain":
+		// A tool that says why it failed, in color, as Maven does with -Dstyle.color=always.
+		fmt.Print("\x1b[1mScanning\x1b[m\r\n\r\n")
+		fmt.Fprint(os.Stderr, "\x1b[1;31m[ERROR]\x1b[m The JAVA_HOME environment variable is not defined correctly\r\n")
+		os.Exit(1)
+	case "download":
+		// A tool that logs what it downloads on stderr while stdout carries the model, as `go
+		// list` does with a cold module cache.
+		fmt.Fprint(os.Stderr, buildCommandDownloadLine+"\n")
+		fmt.Print(`{"format":"litheBuildModel","version":0,"projects":[{"name":"fixture"}]}`)
+	case "download-hang":
+		// A download that never ends, which only the user's stop or the deadline ends.
+		fmt.Fprint(os.Stderr, buildCommandDownloadLine+"\n")
+		time.Sleep(pluginOperationWait)
 	case "hang":
 		// The host kills the tool when the load's deadline passes; this only outlives it.
 		time.Sleep(pluginOperationWait)
@@ -167,7 +185,7 @@ func TestBuildCommandModelLoadIsRecordedAtTheStageItEnded(t *testing.T) {
 			if tc.noTool {
 				t.Setenv("PATH", withoutTool)
 			}
-			model, err := h.app.commandModel(buildLoadContext(t, "action-41", pluginOperationWait), p, buildCommandInstance(tc.root, false), h.app.kernel, h.app.text.Build)
+			model, err := h.app.commandModel(buildLoadContext(t, "action-41", pluginOperationWait), p, buildCommandInstance(tc.root, false), h.app.kernel, nil, h.app.text.Build)
 			if (err == nil) != (tc.want.Outcome == "finished") {
 				t.Fatalf("load error = %v, want outcome %s", err, tc.want.Outcome)
 			}
@@ -184,7 +202,7 @@ func TestBuildCommandModelLoadPastItsDeadlineIsRecordedAsATimeout(t *testing.T) 
 	h, plugins, p := buildCommandHarness(t)
 	installBuildTool(t)
 	writeBuildCommandMarker(t, p.root, "hang")
-	_, err := h.app.commandModel(buildLoadContext(t, "action-42", 500*time.Millisecond), p, buildCommandInstance(".", false), h.app.kernel, h.app.text.Build)
+	_, err := h.app.commandModel(buildLoadContext(t, "action-42", 500*time.Millisecond), p, buildCommandInstance(".", false), h.app.kernel, nil, h.app.text.Build)
 	if err == nil {
 		t.Fatal("a load past its deadline succeeded")
 	}
@@ -198,7 +216,7 @@ func TestBuildCommandLoadTheProjectCancelsIsNotRecorded(t *testing.T) {
 	writeBuildCommandMarker(t, p.root, "model")
 	ctx, cancel := context.WithCancel(core.WithOrigin(context.Background(), core.Origin{Operation: "action-43"}))
 	cancel()
-	if _, err := h.app.commandModel(ctx, p, buildCommandInstance(".", false), h.app.kernel, h.app.text.Build); err == nil {
+	if _, err := h.app.commandModel(ctx, p, buildCommandInstance(".", false), h.app.kernel, nil, h.app.text.Build); err == nil {
 		t.Fatal("a cancelled model load succeeded")
 	}
 	kernel := h.app.kernel.(buildDependencyKernel)

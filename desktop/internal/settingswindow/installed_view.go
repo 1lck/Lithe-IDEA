@@ -1,7 +1,6 @@
 package settingswindow
 
 import (
-	"hash/fnv"
 	"path/filepath"
 	"slices"
 	"strconv"
@@ -35,6 +34,8 @@ type installedState struct {
 	listFor string
 	rows    []installedRow
 	bound   bool
+	// keys are the list keys the plugins have had, by plugin ID; see rowKey.
+	keys map[string]int
 	// uninstallOpen says the confirmation of an uninstall is shown, for the plugin
 	// uninstallID named uninstallName. Both tabs ask through it.
 	uninstallOpen bool
@@ -50,6 +51,8 @@ type installedRow struct {
 	fact int
 	id   string
 	name string
+	// key is the row's list key; see rowKey.
+	key int
 }
 
 // The filter chips of the Installed tab, in the order the chips show them.
@@ -161,7 +164,7 @@ func (s *installedState) layout(w *window, language i18n.Language, facts []Plugi
 		if !w.installedMatches(s.filter, fact) || query != "" && !installedFound(fact, query) {
 			continue
 		}
-		row := installedRow{fact: index, id: fact.ID, name: installedName(fact)}
+		row := installedRow{fact: index, id: fact.ID, name: installedName(fact), key: s.pluginKey(fact.ID)}
 		if w.pluginState(fact.ID).Enabled {
 			enabled = append(enabled, row)
 		} else {
@@ -170,11 +173,11 @@ func (s *installedState) layout(w *window, language i18n.Language, facts []Plugi
 	}
 	s.rows = s.rows[:0]
 	if len(enabled) > 0 {
-		s.rows = append(s.rows, installedRow{heading: i18n.Shared(language, "native.enabled.variant2")})
+		s.rows = append(s.rows, installedRow{heading: i18n.Shared(language, "native.enabled.variant2"), key: installedEnabledKey})
 		s.rows = append(s.rows, enabled...)
 	}
 	if len(disabled) > 0 {
-		s.rows = append(s.rows, installedRow{heading: i18n.Shared(language, "native.disabled.variant2")})
+		s.rows = append(s.rows, installedRow{heading: i18n.Shared(language, "native.disabled.variant2"), key: installedDisabledKey})
 		s.rows = append(s.rows, disabled...)
 	}
 	if s.selected == "" || !slices.ContainsFunc(s.rows, func(row installedRow) bool { return row.heading == "" && row.id == s.selected }) {
@@ -188,19 +191,35 @@ func (s *installedState) layout(w *window, language i18n.Language, facts []Plugi
 	}
 }
 
-// rowKey names a row by its plugin, so a row keeps its identity while the groups move it;
-// the two headings have keys no plugin's hash takes.
+// The list keys of the two headings; a plugin's key comes after them.
+const (
+	installedEnabledKey = iota
+	installedDisabledKey
+	installedFirstPluginKey
+)
+
+// rowKey is row i's list key. A plugin's row has the key its plugin was given the first time
+// a list held it, so a row keeps its identity while the groups move it. The keys count up
+// rather than hash the ID: the list names a row's identity only by a key from 0 to 2^31-1 and
+// gives every other key the same name, under which a click on any row reaches all of them.
 func (s *installedState) rowKey(i int) int {
 	if i < 0 || i >= len(s.rows) {
 		return i
 	}
-	row := s.rows[i]
-	if row.heading != "" {
-		return -1 - i
+	return s.rows[i].key
+}
+
+// pluginKey is the list key of plugin id, given the next free one the first time it is asked.
+func (s *installedState) pluginKey(id string) int {
+	if key, ok := s.keys[id]; ok {
+		return key
 	}
-	hash := fnv.New32a()
-	_, _ = hash.Write([]byte(row.id))
-	return int(hash.Sum32())
+	if s.keys == nil {
+		s.keys = map[string]int{}
+	}
+	key := installedFirstPluginKey + len(s.keys)
+	s.keys[id] = key
+	return key
 }
 
 // rowLabel is the name of the plugin row i lists.
@@ -783,11 +802,7 @@ func (w *window) openContributedPage(key, pluginID string) {
 	if page == nil {
 		return
 	}
-	parent := pageLanguages
-	if page.Kind == "buildSystem" {
-		parent = pageBuild
-	}
-	w.selectSettingsPage(parent, key)
+	w.selectSettingsPage(contributedParent(page.Kind), key)
 	w.contributorID = pluginID
 }
 
@@ -840,6 +855,11 @@ func (w *window) installedFeatures(c ui.C, language i18n.Language, fact PluginFa
 		return
 	}
 	enabled := w.pluginState(fact.ID).Enabled
+	var missing []MissingCommand
+	if enabled {
+		missing = w.commands.want(fact.ID)
+		w.commandMissingBanner(c.Part("command-missing"), language, fact, unmatchedMissing(missing, fact.Capabilities))
+	}
 	ui.Grid(c, 220).FillWidth().Gap(10).Children(func() {
 		for index, capability := range fact.Capabilities {
 			k := c.KeyInt(index)
@@ -854,7 +874,9 @@ func (w *window) installedFeatures(c ui.C, language i18n.Language, fact PluginFa
 					ui.Wrap(k, detail).FontSize(11).Color(w.pal.muted)
 				}
 				ui.Row(k).FillWidth().Gap(8).Items(ui.Center).Children(func() {
-					if enabled {
+					if entry, ok := missingFor(missing, capability); enabled && ok {
+						w.commandMissingStatus(k, language, fact, entry)
+					} else if enabled {
 						ui.Text(k, i18n.Shared(language, "native.available")).FontSize(11).Color(w.pal.success)
 					} else {
 						ui.Text(k, i18n.Shared(language, "native.pluginDisabled")).FontSize(11).Color(w.pal.muted)
@@ -926,6 +948,8 @@ func permissionDescription(language i18n.Language, permission string) string {
 		return i18n.Shared(language, "native.showItsOwnPageInAToolWindow")
 	case "process.test":
 		return i18n.Shared(language, "native.runYourTests")
+	case "commands.install":
+		return i18n.Shared(language, "desktop.marketplace.permissionCommandsInstall")
 	}
 	return ""
 }

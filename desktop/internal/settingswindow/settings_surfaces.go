@@ -31,9 +31,10 @@ type surfacesKey struct {
 // surfacesJob is what one run works from. The window thread publishes a new one when the
 // key changes and the run takes it once, so nothing the run reads is written again.
 type surfacesJob struct {
-	key    rowsKey
-	pages  []core.SettingsPage
-	loaded bool
+	language i18n.Language
+	key      rowsKey
+	pages    []core.SettingsPage
+	loaded   bool
 }
 
 // One page Effect owns catalog I/O and Core search. Rendering retains only the immutable
@@ -82,7 +83,11 @@ func (s *settingsSurfaces) request(key rowsKey) {
 	s.want = want
 	s.requested = true
 	s.jobMu.Lock()
-	s.job = surfacesJob{key: key, pages: s.pages, loaded: s.loaded}
+	language := i18n.English
+	if s.opts.Language != nil {
+		language = s.opts.Language()
+	}
+	s.job = surfacesJob{key: key, pages: s.pages, loaded: s.loaded, language: language}
 	s.jobMu.Unlock()
 }
 
@@ -99,6 +104,12 @@ func (s *settingsSurfaces) run(parent context.Context) (surfacesResult, error) {
 	if !job.loaded && opts.SettingsPages != nil {
 		var err error
 		result.pages, err = opts.SettingsPages(ctx)
+		for index := range result.pages {
+			page := &result.pages[index]
+			if page.Kind == "compiler" {
+				page.Title = i18n.SharedFormat(job.language, "desktop.sourceSettings.compilerTitle", map[string]string{"compiler": page.Title})
+			}
+		}
 		if err != nil {
 			result.err = err
 			// log-exempt: 用户取消：快速搜索或关闭窗口取代旧请求。
@@ -123,6 +134,12 @@ func (s *settingsSurfaces) run(parent context.Context) (surfacesResult, error) {
 	}
 	items := make([]core.SettingsNavigationItem, 0, int(pageCount)+len(result.pages))
 	lookup := make(map[string]row, int(pageCount)+len(result.pages))
+	// An entry plugins have put pages under is a group as well, which folds them away like
+	// the pages of any other group; it keeps the page of its own its row opens.
+	var contributed [pageCount]bool
+	for _, page := range result.pages {
+		contributed[contributedParent(page.Kind)] = true
+	}
 	for id := pageID(0); id < pageCount; id++ {
 		name := "static:" + strconv.Itoa(int(id))
 		var parent *string
@@ -130,14 +147,11 @@ func (s *settingsSurfaces) run(parent context.Context) (surfacesResult, error) {
 			value := "static:" + strconv.Itoa(int(parents[id]))
 			parent = &value
 		}
-		items = append(items, core.SettingsNavigationItem{ID: name, Title: titleOf(&key.text.Settings, id), Parent: parent, Group: isGroup(id), Expanded: key.open[id]})
+		items = append(items, core.SettingsNavigationItem{ID: name, Title: titleOf(&key.text.Settings, id), Parent: parent, Group: isGroup(id) || contributed[id], Expanded: key.open[id]})
 		lookup[name] = row{page: id}
 	}
 	for index, page := range result.pages {
-		parent := pageLanguages
-		if page.Kind == "buildSystem" {
-			parent = pageBuild
-		}
+		parent := contributedParent(page.Kind)
 		parentID := "static:" + strconv.Itoa(int(parent))
 		name := "page:" + page.Key
 		items = append(items, core.SettingsNavigationItem{ID: name, Title: page.Title, Parent: &parentID})
@@ -205,6 +219,10 @@ func (w *window) selectSettingsPage(page pageID, key string) {
 	}
 	w.pluginSettings.blur()
 	w.sess.show(page)
+	if key != "" {
+		// A plugin's page is listed under page, which is expanded so its row is on the screen.
+		w.sess.open[page] = true
+	}
 	w.dynamicPage = key
 	w.contributorID = ""
 }

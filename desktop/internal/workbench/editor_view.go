@@ -319,6 +319,8 @@ func (a *App) terminalInput(t *terminal) {
 		// written in.
 		t.view.SetMessages(a.terminalMessages())
 		t.view.SetFont(a.terminalFont())
+		t.view.SetCursor(a.terminalCursor())
+		t.view.SetOptions(a.terminalOptions())
 		t.view.Paint(dc.Canvas, dc.Rect, a.terminalLook())
 	}
 }
@@ -512,8 +514,7 @@ func verticalWheel(event *gfx.ScrollEvent) {
 // closes the hover popup of the editor, which no control sees leave.
 func (a *App) onPointer(event gfx.PointerEvent) gfx.EventResult {
 	if event.Kind == gfx.PointerExit {
-		a.closeSemanticHover()
-		a.cancelSemanticKind(pluginSemanticHover)
+		a.leaveSemanticHover()
 	}
 	return gfx.EventResult{}
 }

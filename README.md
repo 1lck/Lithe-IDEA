@@ -61,7 +61,7 @@ AI coding tools can change many files at once. Reviewing that work still means r
 
 Lithe is a general-purpose IDE designed to keep resource use low and add capabilities through plugins. Its workbench brings together project browsing, editing, search, Git review, and terminals. Installed plugins connect language intelligence, build tools, run targets, and debuggers.
 
-The current `preview` branch is developing a unified desktop client built with **Viva (Go) and Rust Core**. macOS, Windows, and Linux share the workbench code, with adapters for system integration. Feature migration and platform validation are still in progress; check the [feature matrix and decision board](https://1lck.github.io/Lithe-IDEA/) for status. The old client's feature list is not a promise of complete support in the new client.
+The current `main` branch is developing a unified desktop client built with **Viva (Go) and Rust Core**. macOS, Windows, and Linux share the workbench code, with adapters for system integration. Feature migration and platform validation are still in progress; check the [feature matrix and decision board](https://1lck.github.io/Lithe-IDEA/) for status. The old client's feature list is not a promise of complete support in the new client.
 
 Language servers, plugin backends, build tools, and debuggers start when needed. Memory use depends on the project, open content, and enabled plugins; measurements from the old client do not describe the current preview.
 
@@ -82,6 +82,12 @@ If macOS says that Apple cannot verify whether `Lithe.app` contains malware, the
    ```bash
    sudo xattr -dr com.apple.quarantine /Applications/Lithe.app
    ```
+
+The current [Desktop AutoBuild](https://github.com/1lck/Lithe-IDEA/releases/tag/desktop-AutoBuild) app is named `Lithe Desktop.app`. It uses an ad hoc signature without Apple notarization, so manual approval is still required. For that app, use its actual name:
+
+```bash
+xattr -dr com.apple.quarantine "/Applications/Lithe Desktop.app"
+```
 
 Only use these steps for an app whose source you trust. Homebrew installations usually do not require manual quarantine removal.
 
@@ -167,18 +173,27 @@ Manage agent instructions, skills, hooks, and MCP configuration, and inspect run
 
 ## Download and install
 
-The Viva client on this branch is still being migrated. Published stable and AutoBuild releases may use the earlier client. Read the [release notes](https://github.com/1lck/Lithe-IDEA/releases) for the client architecture, platforms, and plugin compatibility. Homebrew follows published versions, not the current `preview` source; use the development instructions below to run this branch.
+The Viva client on this branch is still being migrated. Published stable and AutoBuild releases may use the earlier client. Read the [release notes](https://github.com/1lck/Lithe-IDEA/releases) for the client architecture, platforms, and plugin compatibility. Homebrew follows published versions, not the current `main` source; use the development instructions below to run this branch.
 
-- **macOS 13+:** Download the `arm64` DMG for Apple silicon or the `x86_64` DMG for Intel Macs from [GitHub Releases](https://github.com/1lck/Lithe-IDEA/releases/latest).
+- **macOS 13+:** Download the `arm64` DMG for Apple silicon or the `amd64` DMG for Intel Macs from [GitHub Releases](https://github.com/1lck/Lithe-IDEA/releases/latest).
 - **Windows x64:** Download the Windows `.exe` installer from [GitHub Releases](https://github.com/1lck/Lithe-IDEA/releases/latest).
 
 Homebrew is the recommended installation and update method on macOS:
 
 ```bash
-brew tap lithe-idea/lithe https://github.com/Lithe-IDEA/Lithe-IDEA.git
+brew tap lithe-idea/lithe https://github.com/1lck/Lithe-IDEA.git
 brew install --cask lithe-idea/lithe/lithe
 brew upgrade --cask lithe
 ```
+
+The tap used to point at `https://github.com/Lithe-IDEA/Lithe-IDEA.git`, which is now archived and stops at 0.6.1. If you added the tap from that address, switch it to this repository before upgrading:
+
+```bash
+brew tap --custom-remote lithe-idea/lithe https://github.com/1lck/Lithe-IDEA.git
+brew upgrade --cask lithe
+```
+
+From 0.8.1 the cask installs the Viva client as `Lithe Desktop.app`, which updates itself in the app; upgrading from 0.6.x replaces the earlier `Lithe.app`.
 
 ## Architecture Overview
 

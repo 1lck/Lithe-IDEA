@@ -45,7 +45,7 @@ Windows 不在本轮，平台矩阵的 partial/pending 保持真实。
 | API-20 | 部分完成 | global/backend/workspace 可写目录与网页状态；语言服务器的按工作区状态目录按 `state.retention` 后台回收（Core 决定，仅 macOS，无用户可见重置入口）；统一 KV/配额/session API 未做 |
 | API-21 | 既有能力 | 协议 2 credentials/get/set/delete；权限与插件隔离不变 |
 | API-22 | 部分完成 | 既有函数进度与取消；语言服务器准备状态 `languageServer/setStatus`（仅百分比，无 actions，仅 macOS）；新增 `outputLinkMatchers:1`，插件声明的匹配器让 Run 与测试控制台出现链接（macOS）；独立 output channel、通用 log/progress API 未做 |
-| API-23 | 部分完成 | 已有进程声明与运行时解析；新增 `serverProcess:4` 的工具 ID 引用（清单 `requiresTools`）与后端发起的 `run/start`、`run/stop`、`run/didExit`（macOS，工具 ID 未找到或不可用时返回 -32025）；通用 toolchains/process 服务未开放 |
+| API-23 | 部分完成 | 已有进程声明与运行时解析；新增 `serverProcess:4` 的工具 ID 引用（清单 `requiresTools`）与后端发起的 `run/start`、`run/stop`、`run/didExit`（macOS，工具 ID 未找到或不可用时返回 -32025）；新增 `commandInstallers:0`：插件声明用哪个已注入工具安装 `systemCommand` 启动缺的命令，Core 校验并展开（`plugins.commandInstallers.requirements/plan/defaultDirectory`），宿主在能力卡片显示缺失与安装按钮，用户选择 Lithe 管理的目录或工具默认位置后运行并记录（权限 `commands.install`，Viva 桌面端）；通用 toolchains/process 服务未开放 |
 | API-24 | 部分完成 | 已公开插件自有原生终端 create/show/close/reopen/dispose/onExit（macOS、本机）；不开放 sendText/输出读取，Windows 待接入 |
 | API-25 | 部分完成 | 既有语言/LSP 贡献；`languages:2` 的清单与包内 JSON 语法/编辑配置，仅支持 Monarch；新增 `languageServers:3` 与 `serverProcess:3`：后端经 `languageServer/request\|notify\|setStatus` 使用自己的服务器、后端启动（`launch.kind:"backend"`），会话策略由 Core 执行（仅 macOS，远程后端启动未支持，见 Agent Note 2026-11-04-plugin-owned-language-server-sessions）；新增宿主方法 `lithe/host/editor/registerProviders`（权限 `editor.providers`，macOS，待运行验收）把 definition/hover/completion/codeLens/foldingRange/semanticTokens/documentLink 绑定到普通插件函数，语言服务器优先、插件只补充；符号、格式化、重命名、Code Action、签名帮助、内联提示和运行期传入 JSON 动态注册高亮未做，详见下方范围说明；Java 拆分计划（C-EDIT）：Spring、MyBatis 只补上游缺失的 Provider |
 | API-26 | 未做 | 公共诊断 collection/events API 未开放；既有 LSP 诊断不等于该 API；`registerProviders` 不接受 `diagnostics` 类型（返回 unsupportedOption），推送式诊断集合另行设计；Java 拆分计划（C-EDIT）：推送式 collection，带文档版本 |
@@ -281,7 +281,7 @@ Mac 当前声明的能力版本为：`backend:1`、`buildModelInputs:1`、`build
 - 工作区外选择文件使用单独授权句柄；OS 绝对路径不作为可持久化公共资源 ID。远程/虚拟资源需要独立 scheme/authority 和访问策略；Mac 的远程工作区现在是本机空占位根加路由绑定，占位根路径不能当作资源 ID（API-40）。
 - 工作区信任：应用现在没有工作区信任概念，只有逐操作确认（例如 Web bridge 启动进程前的确认）。M0 需决定是否引入信任状态；决定前，激活或命令入口不能借“已激活”绕过逐操作确认。契约 README 里“workspace trust”的措辞也要随决定校正。
 - 进程分离、包签名和 capability grant 都不等于操作系统沙盒。原生后端本来可以使用自己的 OS 权限；文档必须区分“宿主代理拒绝访问”和“阻止恶意程序的一切文件/网络访问”。
-- 发布 app、插件包及包内语言服务器只读。状态、日志、索引、锁和下载物走平台 storage/cache adapter；新增资源同时遵循 worktree 资源清单规则，不在此计划新增资源目录。
+- 发布 app、插件包及包内语言服务器只读。状态、日志、索引、锁和下载物走平台 storage/cache adapter；新增资源同时在 `docs/ci-builds.md`“独立工作树的本地编译”一节说明，不在此计划新增资源目录。
 
 ### 4.3 异步、事件与资源预算
 

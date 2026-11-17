@@ -194,31 +194,44 @@ type Terminal struct {
 	imageBytes int
 	imageWake  func()
 
-	replyFn            func([]byte)
-	clipboardFn        func(ClipboardWrite)
-	notifyFn           func(Notification)
-	bellFn             func()
-	cwdFn              func(Cwd)
-	cwdReportFn        func(Cwd)
-	promptReadyFn      func()
-	promptStartFn      func()
-	promptToken        string
-	inputStart         Point // where the shell's editable line begins; see InputMove
-	inputStartSet      bool
-	inputEnvironmentFn func(InputEnvironment)
-	commandStartFn     func()
-	commandFinishedFn  func(int)
-	syncFn             func(bool)
-	cwd                Cwd
-	kittyNotes         []kittyPending // OSC 99 notifications still waiting for chunks
-	defFG, defBG       [3]uint8
-	haveDefaults       bool
+	replyFn       func([]byte)
+	clipboardFn   func(ClipboardWrite)
+	notifyFn      func(Notification)
+	bellFn        func()
+	promptToken   string
+	inputStart    Point // where the shell's editable line begins; see InputMove
+	inputStartSet bool
+
+	// promptLine is the buffer line the shell's prompt began on (OSC 133 A), and
+	// promptActive whether the cursor is still on that prompt; see
+	// markPromptStart. promptStale is whether a resize left the rows it drew on
+	// waiting for the shell's own redraw; promptSaved holds those rows and the
+	// cursor column as the shell drew them until it does.
+	promptLine   uint64
+	promptActive bool
+	promptStale  bool
+	promptSaved  []*line
+	promptCol    int
+	// commandMarks is whether the owning shell has reported a command start (OSC
+	// 133 C) since its token was set. Only a shell that does is known to end
+	// every prompt before a command writes; one that marks prompts alone (the
+	// PowerShell and cmd.exe prompts on Windows) would leave its command's output
+	// taken for the prompt. See markPromptStart and CommandReporting.
+	commandMarks bool
+
+	syncFn       func(bool)
+	kittyNotes   []kittyPending // OSC 99 notifications still waiting for chunks
+	defFG, defBG [3]uint8
+	haveDefaults bool
 
 	lastRune rune   // for REP
 	runBuf   []rune // text decoded for the run path, reused across writes
 	nextID   uint64
 	version  uint64
-	reflow   reflow
+	// generation counts the structural changes that make line numbers name
+	// other text; see BufferGeneration.
+	generation uint64
+	reflow     reflow
 
 	parser
 }
@@ -241,9 +254,50 @@ func clampInt(value, low, high int) int { return min(max(value, low), high) }
 // Size is the grid size in cells.
 func (t *Terminal) Size() (cols, rows int) { return t.cols, t.rows }
 
+// AtPrompt reports whether the cursor is on a shell prompt the owning shell
+// reported with OSC 133 A and has not left, which is the state in which the
+// shell redraws the prompt itself after a resize.
+func (t *Terminal) AtPrompt() bool { return t.promptActive && !t.onAlt }
+
+// SetPromptToken names the owning shell's integration: only OSC 133 markers that
+// carry ";motty=" and the token are its own, not those of a nested SSH login or
+// of a program that also implements the standard markers. A new token is a new
+// shell: what the old one reported about its prompt, its input and its command
+// marks no longer holds. Empty trusts no marker.
+func (t *Terminal) SetPromptToken(token string) {
+	if token != t.promptToken {
+		t.inputStartSet, t.commandMarks = false, false
+		t.promptActive, t.promptStale = false, false
+		t.dropPromptRows()
+	}
+	t.promptToken = token
+}
+
+// CommandReporting reports whether the owning shell marks the start of every
+// command (OSC 133 C), so that the prompt and input it reports end before a
+// command's output. Until it does, the prompt marks alone are not trusted to
+// say where the shell's line editor is.
+func (t *Terminal) CommandReporting() bool { return t.commandMarks }
+
 // Version changes whenever anything visible may have changed: written bytes,
 // resizes and scrolling the view. The owner can skip repainting while it holds.
 func (t *Terminal) Version() uint64 { return t.version }
+
+// BufferGeneration changes when the retained line numbers stop naming the text
+// they named before: a reset, entering or leaving the alternate screen, and
+// ClearScreen. Ordinary output, which appends and scrolls, leaves it alone. An
+// owner's selection watches it to know when its points have become meaningless.
+func (t *Terminal) BufferGeneration() uint64 { return t.generation }
+
+// RetainedFrom is the oldest line the retained buffer still holds, for owners
+// that anchor to line numbers: it is where a point at or before it has to
+// start. ok is false when the buffer holds no lines at all.
+func (t *Terminal) RetainedFrom() (line uint64, ok bool) {
+	if t.bufferLineCount() == 0 {
+		return 0, false
+	}
+	return t.lineBase(), true
+}
 
 // Title is the window title the application set with OSC 0 or 2.
 func (t *Terminal) Title() string { return t.title }
@@ -348,6 +402,7 @@ func (t *Terminal) ClearScreen() bool {
 	lines[0].wrapped = false
 	t.clearHistory()
 	t.cy = 0
+	t.generation++
 	t.version++
 	return true
 }
@@ -544,12 +599,15 @@ func (t *Terminal) Reset() {
 	}
 	t.view = 0
 	t.title = ""
+	t.generation++
 	t.resetState()
 }
 
 // resetState sets modes, cursor, margins and tabs to their defaults.
 func (t *Terminal) resetState() {
 	t.inputStartSet = false
+	t.promptActive, t.promptStale = false, false
+	t.dropPromptRows()
 	t.setSync(false)
 	t.cx, t.cy, t.pend = 0, 0, false
 	t.top, t.bot = 0, t.rows-1

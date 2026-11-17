@@ -44,13 +44,12 @@ GitHub 特有媒体不是本笔记已交付的能力。
 
 这些模板和第三方脚本是 Git 输入，构建复制后再签名，运行时只读加载。
 渲染状态仅在内存和非持久 WebKit 中存活，不新增缓存、下载或安装目录写入；
-资源复用清单显式排除整个 Markdown 预览资源，不跨工作树复制生成 bundle。
+Markdown 预览资源不跨工作树复制，生成 bundle 在本工作树重新生成。
 这不改变代码签名或 Sparkle 增量更新所依赖的发布字节。
 
 ## 验证
 
 - `scripts/desktop/desktop-go.sh test ./internal/webpreview/... -count=1`（在 `desktop/` 下运行）：预览模板与资源的回归。
-- `node --test scripts/resources/test-reuse-worktree-resources.mjs`：拒绝跨工作树复制预览资源。
 - `./scripts/desktop/verify/verify-runtime-bundle-immutability.sh`。
 
 浏览器引擎回归不代替完整应用操作验收。
@@ -62,4 +61,3 @@ GitHub 特有媒体不是本笔记已交付的能力。
 - `desktop/internal/webpreview/assets/markdown.css`
 - `desktop/internal/webpreview/assets/THIRD_PARTY_NOTICES.md`
 - `https://github.com/Lithe-IDEA/Lithe-core-rust/blob/main/rust/fixtures/editor/markdown-rich-content-v1.json`
-- `scripts/resources/worktree-resources.json`

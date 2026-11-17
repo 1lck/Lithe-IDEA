@@ -4,7 +4,7 @@
 
 ## 先说结论
 
-一个具体插件的全部内容，都只放在这个插件自己的仓库里维护。这里的“全部内容”包括源码、测试（含端到端测试，即启动真实工具走完整流程的测试）、测试夹具、功能矩阵记录、界面文案翻译，以及构建时下载、生成或打包资源的说明。宿主仓库（本仓库）和 Core 仓库的代码、测试、CI、功能矩阵、i18n 词条和资源复用清单，对任何具体插件都是零依赖。
+一个具体插件的全部内容，都只放在这个插件自己的仓库里维护。这里的“全部内容”包括源码、测试（含端到端测试，即启动真实工具走完整流程的测试）、测试夹具、功能矩阵记录、界面文案翻译，以及构建时下载、生成或打包资源的说明。宿主仓库（本仓库）和 Core 仓库的代码、测试、CI、功能矩阵、i18n 词条和资源说明，对任何具体插件都是零依赖。
 
 对日常开发的直接影响：
 
@@ -61,11 +61,11 @@ if pkg == "" { t.Skip("no Java plugin") }
 
 宿主矩阵只记录通用扩展点、插件安装与管理、插件市场，以及宿主自带的工作台功能。`plugin-provided` 状态已从 `shared/platform-feature-matrix/metadata.json` 删除。宿主条目的证据路径和验证动作不能引用具体插件的测试、插件包或插件仓库。
 
-### 5. 插件自己翻译，宿主资源清单只登记宿主资源
+### 5. 插件自己翻译，宿主资源说明只写宿主资源
 
 插件清单里的文案用插件包的 `l10n/<语言>.json` 翻译；插件界面和插件后端返回的文字，由插件按界面语言自己翻译。契约翻译不了某段插件文字时，在 Core 扩展插件翻译契约，不在宿主补词条。
 
-插件构建时下载、生成、打包或打补丁的资源，在插件仓库说明来源、校验方式和复用规则。宿主的资源复用清单和 `docs/ci-builds.md` 只登记宿主自己构建产生的资源，以及宿主为所有插件统一管理的通用目录（插件安装目录、插件状态目录）。
+插件构建时下载、生成、打包或打补丁的资源，在插件仓库说明来源、校验方式和复用规则。宿主的 `docs/ci-builds.md` 只记录宿主自己构建产生的资源，以及宿主为所有插件统一管理的通用目录（插件安装目录、插件状态目录）。
 
 ### 6. 用自查命令和审查兜底
 
@@ -98,8 +98,6 @@ if pkg == "" { t.Skip("no Java plugin") }
 
 - `develop-lithe` Skill “插件归属与宿主零依赖”一节的自查命令在仓库根目录输出为空。
 - `./scripts/platform-feature-matrix/verify-platform-feature-matrix.sh`
-- `node --test scripts/resources/test-reuse-worktree-resources.mjs`
-- `node scripts/resources/test-verify-download-cache.mjs`
 - `node scripts/i18n/generate-i18n.mjs --check`
 - `node scripts/i18n/verify-app-language-localization.mjs`
 - `./scripts/desktop/desktop-go.sh test ./internal/core/... ./internal/plugininstall/... ./internal/pluginpkg/... ./internal/plugintrust/... ./internal/workbench/... ./internal/pluginservice/... ./internal/projectgen/...`
@@ -114,5 +112,4 @@ if pkg == "" { t.Skip("no Java plugin") }
 - `.github/pull_request_template.md`
 - `shared/platform-feature-matrix/metadata.json`
 - `shared/i18n/`
-- `scripts/resources/worktree-resources.json`
 - `docs/ci-builds.md`

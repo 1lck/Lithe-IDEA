@@ -11,6 +11,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"syscall"
 	"testing"
 	"time"
 
@@ -122,6 +123,11 @@ func TestDebugAnnouncedAdapterRunner(t *testing.T) {
 	code := serveFixtureAdapter(io.TeeReader(conn, &requests), conn, workspace)
 	if bytes.Contains(requests.Bytes(), []byte(`"disconnect"`)) {
 		fmt.Fprintln(watch, "disconnected")
+		// Finish the successful report before exiting. An abrupt Windows
+		// process exit can reset even this separate observation socket.
+		if err := watch.Close(); err != nil {
+			os.Exit(8)
+		}
 	}
 	os.Exit(code)
 }
@@ -146,11 +152,15 @@ func announcedWorkspace(t *testing.T, mode string) (root, source string, watch *
 		_ = listener.Close()
 		select {
 		case conn := <-watch.accepted:
-			_ = conn.Close()
-		default:
+			if conn != nil {
+				_ = conn.Close()
+			}
+		case <-time.After(5 * time.Second):
+			t.Error("the adapter watch listener did not stop after closing")
 		}
 	})
 	go func() {
+		defer close(watch.accepted)
 		conn, err := listener.Accept()
 		if err == nil {
 			watch.accepted <- conn
@@ -167,28 +177,39 @@ func announcedWorkspace(t *testing.T, mode string) (root, source string, watch *
 }
 
 // ended waits for the fixture process to end and returns what it reported
-// before it did. The connection goes back for the cleanup to close.
+// before it did.
 func (w *announcedWatch) ended(t *testing.T, limit time.Duration) string {
 	t.Helper()
+	deadline := time.Now().Add(limit)
 	var conn net.Conn
 	select {
 	case conn = <-w.accepted:
+		if conn == nil {
+			t.Fatal("the adapter watch listener stopped before accepting the connection")
+		}
 	case <-time.After(limit):
 		t.Fatal("the adapter process never connected to the watch")
 	}
-	defer func() { w.accepted <- conn }()
-	if err := conn.SetReadDeadline(time.Now().Add(limit)); err != nil {
+	defer conn.Close()
+	if err := conn.SetReadDeadline(deadline); err != nil {
 		t.Fatal(err)
 	}
 	reported, err := io.ReadAll(conn)
-	if err != nil {
+	// The fixture owns the peer socket until exit. Terminating it can reset
+	// the loopback connection instead of returning EOF. Winsock uses 10054.
+	const wsaConnectionReset = syscall.Errno(10054)
+	if err != nil && !errors.Is(err, syscall.ECONNRESET) && !errors.Is(err, wsaConnectionReset) {
 		t.Fatalf("the adapter process still runs after %v (read: %v)", limit, err)
 	}
 	return string(reported)
 }
 
 func TestDebugAnnouncedAdapterBreakpointPauseContinueStop(t *testing.T) {
+	previous := buildprocess.StopGrace()
+	t.Cleanup(func() { buildprocess.SetStopGrace(previous) })
 	h := debugPluginHarness(t, "dev.lithe.test.debug-announced", debugAnnouncedManifest, true)
+	// The harness does not run App.Run, which normally loads Core's stop time.
+	h.app.refreshStopGrace()
 	root, source, watch := announcedWorkspace(t, "")
 	p := openHostedPanel(t, h, root)
 	if declaration := p.debug.adapters[0].Declaration; declaration.Transport != "tcpAnnounced" || declaration.LaunchKind != "packaged" {
@@ -220,10 +241,22 @@ func TestDebugAnnouncedAdapterBreakpointPauseContinueStop(t *testing.T) {
 	awaitStateWithin(t, h, 20*time.Second, "the paused session", func() bool {
 		return p.debug.state == "paused" && len(p.debug.frames) == 2
 	})
+	awaitStateWithin(t, h, 20*time.Second, "Core's effective exit grace", func() bool {
+		return h.app.stopTime.Load() != nil && buildprocess.StopGrace() > 0
+	})
 
+	stoppedSession := p.debug.activeSession()
 	h.clickNamed(h.app.text.Debug.Stop)
 	awaitStateWithin(t, h, 20*time.Second, "the stopped session", func() bool {
-		return p.debug.activeSession() == nil && p.debug.state == "idle"
+		if p.debug.activeSession() != nil || p.debug.state != "idle" {
+			return false
+		}
+		select {
+		case <-stoppedSession.cleanupDone:
+			return true
+		default:
+			return false
+		}
 	})
 	// The process outlives the session's context, so the disconnect reaches it
 	// before it is stopped.
@@ -259,7 +292,8 @@ func TestDebugAnnouncedRemoteEndpointFailsAndStopsTheProcess(t *testing.T) {
 func TestDebugAnnouncedAdapterThatNeverAnnouncesTimesOut(t *testing.T) {
 	h := debugPluginHarness(t, "dev.lithe.test.debug-announced", debugAnnouncedManifest, true)
 	root, _, watch := announcedWorkspace(t, "silent")
-	h.app.debugInitializeWindow = 300 * time.Millisecond
+	// A race-instrumented child can take over a second to reach its watch.
+	h.app.debugInitializeWindow = 3 * time.Second
 	p := openHostedPanel(t, h, root)
 	h.clickNamed(h.app.text.Debug.Start)
 	awaitStateWithin(t, h, 20*time.Second, "the timeout", func() bool { return p.debug.failure != "" })

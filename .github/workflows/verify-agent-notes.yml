@@ -1,8 +1,9 @@
-# Registered by the standalone preview repository.
 name: Verify Agent Notes
 
 on:
   pull_request:
+    branches: [main]
+    types: [opened, synchronize, reopened, ready_for_review]
     paths:
       - ".agents/notes/**"
       - ".agents/skills/agent-notes/**"

@@ -73,8 +73,8 @@ type Process struct {
 	readers  sync.WaitGroup
 	done     chan struct{}
 	err      error
-	// stopping is set by the first Stop or Kill, so a repeated Stop neither signals again
-	// nor restarts the wait.
+	// stopping is set by the first Stop, StopAfterRequest or Kill, so repeated
+	// automatic stops neither signal again nor restart the wait.
 	stopping atomic.Bool
 }
 
@@ -108,8 +108,11 @@ func Start(ctx context.Context, spec Spec, observe func(Stream, string)) (*Proce
 	command.Stdout = stdoutWrite
 	command.Stderr = stderrWrite
 	platform := &processPlatform{}
-	platform.configure(command)
-	if err := command.Start(); err != nil {
+	err = platform.configure(command)
+	if err == nil {
+		err = command.Start()
+	}
+	if err != nil {
 		for _, file := range []*os.File{stdoutRead, stdoutWrite, stderrRead, stderrWrite} {
 			_ = file.Close()
 		}
@@ -195,6 +198,27 @@ func (p *Process) Stop() {
 		p.platform.terminate(p.command.Process)
 		return
 	}
+	p.killAfter(grace)
+}
+
+// StopAfterRequest lets a process handle an exit request already delivered over
+// its own protocol. It sends no platform signal: even a successful local write
+// does not mean the process has consumed the request. The tree is killed after
+// Core's effective StopGrace if it has not exited. Repeated stops preserve this
+// grace; Kill still ends it immediately.
+func (p *Process) StopAfterRequest() {
+	if p == nil || p.command == nil || p.command.Process == nil || !p.stopping.CompareAndSwap(false, true) {
+		return
+	}
+	grace := StopGrace()
+	if grace <= 0 {
+		p.platform.terminate(p.command.Process)
+		return
+	}
+	p.killAfter(grace)
+}
+
+func (p *Process) killAfter(grace time.Duration) {
 	go func() {
 		timer := time.NewTimer(grace)
 		defer timer.Stop()

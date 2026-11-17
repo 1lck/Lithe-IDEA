@@ -140,9 +140,11 @@ func VerifyLaunch(packageDirectory string, launch Launch) (Resolved, error) {
 // plan offers them.
 //
 // A system-command launch names bare commands and the host resolves them with its
-// own tool discovery. This client resolves PATH; project toolchains and user
-// overrides are not consulted yet, so a plan that depends on them is refused rather
-// than started with whatever PATH happens to hold.
+// own tool discovery. lookup decides where: PATH, then the directories the host
+// installed the plugin's commands into (see CommandStore.Lookup). Project
+// toolchains and user overrides are not consulted, so a plan that depends on them
+// is refused rather than started with whatever PATH happens to hold. When no
+// command is found the error is a *CommandMissingError naming them.
 //
 // A name that carries a separator is refused: the contract lists bare command
 // names, and a path would let a plan name a file the host never checked.
@@ -150,6 +152,7 @@ func ResolveCommand(commands []string, lookup func(name string) (string, error))
 	if lookup == nil {
 		return "", fmt.Errorf("%w: no command lookup", ErrPackagePath)
 	}
+	missing := make([]string, 0, len(commands))
 	for _, command := range commands {
 		if command == "" || strings.ContainsAny(command, `/\`) {
 			continue
@@ -157,8 +160,29 @@ func ResolveCommand(commands []string, lookup func(name string) (string, error))
 		if path, err := lookup(command); err == nil && path != "" {
 			return path, nil
 		}
+		missing = append(missing, command)
 	}
-	return "", fmt.Errorf("%w: none of the plan's commands is available", ErrPackagePath)
+	if len(missing) == 0 {
+		return "", fmt.Errorf("%w: the plan names no bare command", ErrPackagePath)
+	}
+	return "", &CommandMissingError{Commands: missing}
+}
+
+// CommandMissingCode is the contract's code for a systemCommand launch none of
+// whose commands the host found.
+const CommandMissingCode = "plugin.command.missing"
+
+// CommandMissingError is plugin.command.missing: none of the bare commands a
+// systemCommand launch names is on PATH or in a directory the host installed the
+// plugin's commands into. The window shows it in the user's language, and plugin
+// management offers the command's installer when the plugin declares one.
+type CommandMissingError struct {
+	// Commands are the commands looked for, in the launch's order.
+	Commands []string
+}
+
+func (e *CommandMissingError) Error() string {
+	return CommandMissingCode + ": none of the commands " + strings.Join(e.Commands, ", ") + " is available"
 }
 
 // GrantServices narrows the host services a launch asks for to those this host

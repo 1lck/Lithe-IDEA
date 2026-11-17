@@ -572,7 +572,7 @@ func (p *project) canCommitWorktree(path string, cs *commitState) bool {
 // checkoutWritten reads again what a write in the checkout at root changed: the project's
 // status, and the changes of the worktree at root when its Changes tab read them.
 func (a *App) checkoutWritten(p *project, root string) {
-	a.loadGit(p)
+	a.reloadGit(p)
 	if root == p.git.repositoryRoot(p.root) {
 		// The list names the project's checkout by its canonical path, which a symbolic link
 		// in the project's path makes another.
@@ -621,7 +621,7 @@ func (a *App) readWorktreeHistory(p *project, cursor string) {
 				remotes, current = remoteNames(sections), branch
 			}
 		}
-		page, err := kernel.GitHistoryPage(ctx, path, "HEAD", cursor, worktreeHistoryPage)
+		page, err := kernel.GitHistoryPage(ctx, path, "HEAD", cursor, worktreeHistoryPage, 0)
 		var graph core.Graph
 		var graphErr error
 		if err == nil {

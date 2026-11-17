@@ -2,7 +2,9 @@ name: Desktop Release
 
 # Releases the Viva desktop client (desktop/) for macOS, Windows and Linux. Its tags are
 # desktop-vMAJOR.MINOR.PATCH, apart from the v* tags of the SwiftUI and Tauri clients, and each
-# release is a GitHub prerelease, so those clients' updaters continue to read their own latest release.
+# release is stable. The release of the highest desktop version is marked Latest, so the
+# releases/latest link and the README download links lead to it; desktop updates select
+# desktop-v tags and do not read Latest.
 on:
   push:
     tags:
@@ -17,6 +19,10 @@ on:
         description: "Publish the release after the packages are verified (off for a preflight)"
         type: boolean
         default: true
+      feed_only:
+        description: "Only sign the stable update feed again for the published release, with this commit's feed script; nothing is built or uploaded but the feed and its patches"
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -32,12 +38,20 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     outputs:
+      matrix: ${{ steps.packages.outputs.matrix }}
       version: ${{ steps.version.outputs.version }}
       tag: ${{ steps.version.outputs.tag }}
+      timestamp: ${{ steps.time.outputs.timestamp }}
 
     steps:
       - name: Check out source
         uses: actions/checkout@v7
+
+      - name: Resolve the shared package matrix
+        id: packages
+        run: |
+          matrix="$(node scripts/ci/common/desktop-packages.mjs matrix)"
+          printf 'matrix=%s\n' "$matrix" >> "$GITHUB_OUTPUT"
 
       - name: Resolve the version and check the manifest and release notes
         id: version
@@ -45,38 +59,29 @@ jobs:
           REQUESTED_VERSION: ${{ github.event_name == 'workflow_dispatch' && inputs.version || github.ref_name }}
         run: bash scripts/ci/desktop-release/resolve-release-version.sh "$REQUESTED_VERSION"
 
+      # Every platform records the same build time.
+      - name: Record the build time
+        id: time
+        run: printf 'timestamp=%s\n' "$(date -u '+%Y-%m-%dT%H:%M:%SZ')" >> "$GITHUB_OUTPUT"
+
   build:
     name: Package ${{ matrix.os }} ${{ matrix.arch }}
+    if: ${{ !inputs.feed_only }}
     needs: prepare
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 60
     defaults:
       run:
         shell: bash
+    # What About and the updater show (package-desktop.sh). The feed keys are public; the
+    # private signing key never reaches a packaging runner.
+    env:
+      LITHE_BUILD_TIME: ${{ needs.prepare.outputs.timestamp }}
+      LITHE_BUILD_COMMIT: ${{ github.sha }}
+      LITHE_UPDATE_PUBLIC_KEYS: ${{ vars.LITHE_UPDATE_PUBLIC_KEYS }}
     strategy:
       fail-fast: false
-      matrix:
-        include:
-          - os: darwin
-            arch: arm64
-            runner: macos-26
-            rust-target: aarch64-apple-darwin
-          - os: darwin
-            arch: amd64
-            runner: macos-26
-            rust-target: x86_64-apple-darwin
-          - os: windows
-            arch: amd64
-            runner: windows-2022
-            rust-target: x86_64-pc-windows-gnu
-          - os: linux
-            arch: amd64
-            runner: ubuntu-22.04
-            rust-target: x86_64-unknown-linux-gnu
-          - os: linux
-            arch: arm64
-            runner: ubuntu-22.04-arm
-            rust-target: aarch64-unknown-linux-gnu
+      matrix: ${{ fromJSON(needs.prepare.outputs.matrix) }}
 
     steps:
       - name: Check out source
@@ -97,6 +102,12 @@ jobs:
       - name: Ensure Windows build tools
         if: matrix.os == 'windows'
         uses: ./.github/actions/setup-desktop-windows-build-tools
+
+      - name: Ensure Linux package inspection tools
+        if: matrix.os == 'linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y rpm
 
       - name: Restore the core build
         uses: actions/cache@v6
@@ -177,12 +188,14 @@ jobs:
             dist/desktop/${{ matrix.os }}-${{ matrix.arch }}/lithe-${{ needs.prepare.outputs.version }}-linux-${{ matrix.arch }}.tar.gz.sha256
             dist/desktop/${{ matrix.os }}-${{ matrix.arch }}/lithe_${{ needs.prepare.outputs.version }}_${{ matrix.arch }}.deb
             dist/desktop/${{ matrix.os }}-${{ matrix.arch }}/lithe_${{ needs.prepare.outputs.version }}_${{ matrix.arch }}.deb.sha256
+            dist/desktop/${{ matrix.os }}-${{ matrix.arch }}/*.rpm
+            dist/desktop/${{ matrix.os }}-${{ matrix.arch }}/*.rpm.sha256
 
           if-no-files-found: error
 
   publish:
-    name: Publish the prerelease
-    if: github.event_name != 'workflow_dispatch' || inputs.publish
+    name: Publish the release
+    if: ${{ (github.event_name != 'workflow_dispatch' || inputs.publish) && !inputs.feed_only }}
     needs:
       - prepare
       - build
@@ -202,28 +215,31 @@ jobs:
           path: dist
           merge-multiple: true
 
-      - name: Verify the checksums
-        working-directory: dist
-        run: |
-          shopt -s nullglob
-          checksums=( *.sha256 )
-          if [[ ${#checksums[@]} -eq 0 ]]; then
-            printf '%s\n' 'No desktop checksum files were downloaded.' >&2
-            exit 1
-          fi
-          sha256sum -c "${checksums[@]}"
+      - name: Verify the complete inventory and checksums
+        env:
+          DESKTOP_VERSION: ${{ needs.prepare.outputs.version }}
+        run: node scripts/ci/common/desktop-packages.mjs verify "$DESKTOP_VERSION" dist
 
-      - name: Create or update the GitHub prerelease
+      - name: Create or update the GitHub release
         env:
           GH_TOKEN: ${{ github.token }}
           RELEASE_TAG: ${{ needs.prepare.outputs.tag }}
           DESKTOP_VERSION: ${{ needs.prepare.outputs.version }}
         run: |
+          # Mark this release Latest unless a published desktop release has a higher version,
+          # so re-running the workflow for an older tag does not take Latest from a newer one.
+          newest=$(gh release list --repo "$GITHUB_REPOSITORY" --exclude-drafts --exclude-pre-releases \
+            --limit 1000 --json tagName --jq '.[].tagName' | sed -n 's/^desktop-v//p' | sort -V | tail -n 1)
+          latest=true
+          if [[ -n "$newest" && "$(printf '%s\n%s\n' "$newest" "$DESKTOP_VERSION" | sort -V | tail -n 1)" != "$DESKTOP_VERSION" ]]; then
+            latest=false
+          fi
           release_args=(
             --repo "$GITHUB_REPOSITORY"
             --title "Lithe Desktop $DESKTOP_VERSION"
-            --notes-file "docs/releases/$RELEASE_TAG.md"
-            --prerelease
+            --notes-file "docs/releases/v$DESKTOP_VERSION.md"
+            --prerelease=false
+            --latest="$latest"
           )
           if ! gh release view "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" > /dev/null 2>&1; then
             gh release create "$RELEASE_TAG" --target "$GITHUB_SHA" "${release_args[@]}" || \
@@ -231,9 +247,71 @@ jobs:
           fi
           gh release edit "$RELEASE_TAG" "${release_args[@]}"
           shopt -s nullglob
-          release_files=(dist/*.zip dist/*.dmg dist/*.exe dist/*.tar.gz dist/*.deb dist/*.sha256)
+          release_files=(dist/*.zip dist/*.dmg dist/*.exe dist/*.tar.gz dist/*.deb dist/*.rpm dist/*.sha256)
           if [[ ${#release_files[@]} -eq 0 ]]; then
             printf '%s\n' 'No desktop release artifacts were downloaded.' >&2
             exit 1
           fi
           gh release upload "$RELEASE_TAG" "${release_files[@]}" --repo "$GITHUB_REPOSITORY" --clobber
+
+  # The stable feed is signed apart from the packaging and the release: this job alone is given
+  # the private key, and it runs once the release holds the packages the feed points to. With
+  # feed_only it signs the feed of a release published earlier again, from that release's own
+  # packages, so a change to the feed rules reaches clients without rebuilding the release.
+  update-feed:
+    name: Publish the stable update feed
+    if: >-
+      ${{ !cancelled() && needs.prepare.result == 'success'
+      && (github.event_name != 'workflow_dispatch' || inputs.publish)
+      && (needs.publish.result == 'success' || (inputs.feed_only && needs.publish.result == 'skipped')) }}
+    needs:
+      - prepare
+      - publish
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: write
+    # Two releases never write the feed at once.
+    concurrency:
+      group: desktop-update-feed-stable
+      cancel-in-progress: false
+
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v7
+
+      # viva feed is built from the fork desktop/go.mod pins.
+      - name: Set up Go
+        uses: actions/setup-go@v7
+        with:
+          go-version-file: desktop/go.mod
+          cache-dependency-path: desktop/go.sum
+
+      - name: Download the packages
+        if: ${{ !inputs.feed_only }}
+        uses: actions/download-artifact@v8
+        with:
+          pattern: desktop-*
+          path: dist
+          merge-multiple: true
+
+      - name: Download the published packages
+        if: ${{ inputs.feed_only }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ needs.prepare.outputs.tag }}
+          DESKTOP_VERSION: ${{ needs.prepare.outputs.version }}
+        run: |
+          patterns=()
+          while IFS= read -r name; do
+            patterns+=(--pattern "$name" --pattern "$name.sha256")
+          done < <(node scripts/ci/common/desktop-packages.mjs names "$DESKTOP_VERSION")
+          gh release download "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" --dir dist "${patterns[@]}"
+
+      - name: Sign and publish the feed, its delta updates and notes
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ needs.prepare.outputs.tag }}
+          DESKTOP_VERSION: ${{ needs.prepare.outputs.version }}
+          VIVA_UPDATE_KEY: ${{ secrets.VIVA_UPDATE_KEY }}
+        run: bash scripts/ci/desktop-release/publish-update-feed.sh dist

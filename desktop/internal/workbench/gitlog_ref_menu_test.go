@@ -1,6 +1,7 @@
 package workbench
 
 import (
+	"cmp"
 	"os"
 	"path/filepath"
 	"slices"
@@ -45,6 +46,48 @@ func (h *harness) logRefMenu(short string) {
 	}
 }
 
+// topMenuItems lists the deepest open submenu, ordered top to bottom. Window controls may
+// occupy higher layers, so only menu-item hits participate in selecting that layer.
+func (h *harness) topMenuItems() []string {
+	h.t.Helper()
+	return topMenuItemLabels(h.driver.Snapshot().Hits)
+}
+
+func topMenuItemLabels(hits []gfx.Hit) []string {
+	var top uint16
+	for _, hit := range hits {
+		if hit.Role == gfx.RoleMenuItem && hit.Label != "" && !hit.IsLabel {
+			top = max(top, hit.Layer)
+		}
+	}
+	var items []gfx.Hit
+	for _, hit := range hits {
+		if hit.Role == gfx.RoleMenuItem && hit.Label != "" && !hit.IsLabel && hit.Layer == top {
+			items = append(items, hit)
+		}
+	}
+	slices.SortStableFunc(items, func(a, b gfx.Hit) int { return cmp.Compare(a.Bounds.Y, b.Bounds.Y) })
+	labels := make([]string, len(items))
+	for i := range items {
+		labels[i] = items[i].Label
+	}
+	return labels
+}
+
+// Window controls occupy a higher layer than popup menus on Linux and Windows.
+// Reading menu labels must ignore those controls and still choose the deepest submenu.
+func TestTopMenuItemLabelsIgnoreHigherWindowControls(t *testing.T) {
+	hits := []gfx.Hit{
+		{Label: "parent", Role: gfx.RoleMenuItem, Layer: 1},
+		{Label: "second", Role: gfx.RoleMenuItem, Layer: 2, Bounds: gfx.Rect{Y: 40}},
+		{Label: "first", Role: gfx.RoleMenuItem, Layer: 2, Bounds: gfx.Rect{Y: 20}},
+		{Label: "window close", Role: gfx.RoleButton, Layer: 100},
+	}
+	if got, want := topMenuItemLabels(hits), []string{"first", "second"}; !slices.Equal(got, want) {
+		t.Fatalf("menu labels = %q, want %q", got, want)
+	}
+}
+
 func TestLogReferenceMenuMergesTheBranchAfterItIsConfirmed(t *testing.T) {
 	h, p, dir := logWithTopicBranch(t)
 	topic := gitRun(t, dir, "rev-parse", "topic")
@@ -80,7 +123,8 @@ func TestLogReferenceMenuSetsAndStopsTheTrackingBranch(t *testing.T) {
 
 	h.logRefMenu("main")
 	h.click(center(h.popupHit(h.shared("native.trackingBranch"))))
-	h.click(center(h.popupHit("origin/main")))
+	h.click(center(h.popupHit("origin")))
+	h.click(center(h.popupHit("main")))
 	h.await("the tracking branch", func() bool {
 		return !h.app.branch.busy && p.log.currentReference().UpstreamShortName == "origin/main"
 	})
@@ -94,4 +138,40 @@ func TestLogReferenceMenuSetsAndStopsTheTrackingBranch(t *testing.T) {
 	h.await("no tracking branch", func() bool {
 		return !h.app.branch.busy && p.log.currentReference().UpstreamShortName == ""
 	})
+}
+
+// The remote branches of the tracking branch menu sit in the folders of the reference pane:
+// one submenu per remote and per "/" part of a branch name, the branches named by their last part.
+func TestLogReferenceTrackingMenuGroupsRemoteBranchesIntoFolders(t *testing.T) {
+	dir := newTestRepository(t)
+	gitRun(t, dir, "commit", "-am", "second")
+	for _, remote := range []string{"origin", "contributor"} {
+		gitRun(t, dir, "remote", "add", remote, t.TempDir())
+	}
+	for _, name := range []string{"origin/main", "origin/codex/fix-one", "origin/codex/fix-two", "contributor/main"} {
+		gitRun(t, dir, "update-ref", "refs/remotes/"+name, "HEAD")
+	}
+	h := newHarness(t, gitKernel{core.NewClient()})
+	p := h.openLog(t, dir)
+
+	h.logRefMenu("main")
+	h.click(center(h.popupHit(h.shared("native.trackingBranch"))))
+	if got, want := h.topMenuItems(), []string{"contributor", "origin"}; !slices.Equal(got, want) {
+		t.Fatalf("the tracking branch menu shows %q, want the remotes %q", got, want)
+	}
+	h.click(center(h.popupHit("origin")))
+	if got, want := h.topMenuItems(), []string{"main", "codex"}; !slices.Equal(got, want) {
+		t.Fatalf("the origin folder shows %q, want %q", got, want)
+	}
+	h.click(center(h.popupHit("codex")))
+	if got, want := h.topMenuItems(), []string{"fix-one", "fix-two"}; !slices.Equal(got, want) {
+		t.Fatalf("the codex folder shows %q, want %q", got, want)
+	}
+	h.click(center(h.popupHit("fix-one")))
+	h.await("the tracking branch", func() bool {
+		return !h.app.branch.busy && p.log.currentReference().UpstreamShortName == "origin/codex/fix-one"
+	})
+	if got := gitRun(t, dir, "rev-parse", "--abbrev-ref", "main@{upstream}"); got != "origin/codex/fix-one" {
+		t.Fatalf("main tracks %q, want origin/codex/fix-one", got)
+	}
 }

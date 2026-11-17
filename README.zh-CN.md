@@ -61,7 +61,7 @@ AI 编程工具可以一次修改许多文件。审查这些修改时，开发�
 
 Lithe 是一款以低资源占用为目标、通过插件扩展的通用 IDE。它把项目浏览、代码编辑、搜索、Git 审查和终端放在同一个工作台中；语言智能、构建、运行和调试能力由安装的插件接入。
 
-当前 `preview` 分支正在开发基于 **Viva（Go）与 Rust Core** 的统一桌面客户端。macOS、Windows 和 Linux 共用工作台代码，系统集成由各平台适配器完成。功能迁移和平台验收仍在进行，完成度见[功能矩阵与决策看板](https://1lck.github.io/Lithe-IDEA/)，不能把旧版功能列表视为新版的完整支持承诺。
+当前 `main` 分支正在开发基于 **Viva（Go）与 Rust Core** 的统一桌面客户端。macOS、Windows 和 Linux 共用工作台代码，系统集成由各平台适配器完成。功能迁移和平台验收仍在进行，完成度见[功能矩阵与决策看板](https://1lck.github.io/Lithe-IDEA/)，不能把旧版功能列表视为新版的完整支持承诺。
 
 语言服务器、插件后端、构建工具和调试器按需启动。内存占用取决于项目大小、打开的内容及启用的插件；旧客户端的测量数字不代表当前预览版。
 
@@ -82,6 +82,12 @@ Lithe 是一款以低资源占用为目标、通过插件扩展的通用 IDE。�
    ```bash
    sudo xattr -dr com.apple.quarantine /Applications/Lithe.app
    ```
+
+当前 [Desktop AutoBuild](https://github.com/1lck/Lithe-IDEA/releases/tag/desktop-AutoBuild) 的应用名称是 `Lithe Desktop.app`。它使用临时签名（ad hoc），尚未经过 Apple 公证，首次打开仍需手动放行；对应命令应使用实际的应用名称：
+
+```bash
+xattr -dr com.apple.quarantine "/Applications/Lithe Desktop.app"
+```
 
 上述命令只应对你确认来源可靠的应用使用；通过 Homebrew 安装通常不需要手动执行这些步骤。
 
@@ -169,16 +175,25 @@ Lithe 是一款以低资源占用为目标、通过插件扩展的通用 IDE。�
 
 当前分支的 Viva 客户端仍在迁移中；已发布的稳定版和 AutoBuild 可能来自旧客户端。请先查看 [Releases 中的版本说明](https://github.com/1lck/Lithe-IDEA/releases)，确认客户端架构、平台和插件兼容性。Homebrew 跟随已发布版本，不代表当前 `preview` 源码；需要运行当前源码时，使用下方开发入口。
 
-- **macOS 13+：**前往 [GitHub Releases](https://github.com/1lck/Lithe-IDEA/releases/latest) 下载 `.dmg`。M 系列芯片选择 `arm64`，Intel 芯片选择 `x86_64`。
+- **macOS 13+：**前往 [GitHub Releases](https://github.com/1lck/Lithe-IDEA/releases/latest) 下载 `.dmg`。M 系列芯片选择 `arm64`，Intel 芯片选择 `amd64`。
 - **Windows x64：**前往 [GitHub Releases](https://github.com/1lck/Lithe-IDEA/releases/latest) 下载 Windows `.exe` 安装包。
 
 macOS 推荐使用 Homebrew 安装和更新：
 
 ```bash
-brew tap lithe-idea/lithe https://github.com/Lithe-IDEA/Lithe-IDEA.git
+brew tap lithe-idea/lithe https://github.com/1lck/Lithe-IDEA.git
 brew install --cask lithe-idea/lithe/lithe
 brew upgrade --cask lithe
 ```
+
+早先的 tap 地址 `https://github.com/Lithe-IDEA/Lithe-IDEA.git` 已归档，停在 0.6.1。用这个地址添加过 tap 的，升级前先把它换成本仓库：
+
+```bash
+brew tap --custom-remote lithe-idea/lithe https://github.com/1lck/Lithe-IDEA.git
+brew upgrade --cask lithe
+```
+
+从 0.8.1 起，配方安装的是 Viva 客户端 `Lithe Desktop.app`，它会在应用内自行更新；从 0.6.x 升级时会替换旧的 `Lithe.app`。
 
 ## 架构概览
 

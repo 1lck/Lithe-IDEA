@@ -95,7 +95,7 @@ Viva 由 `desktop/go.mod` 的 `replace` 固定到 [Lithe-IDEA/viva](https://gith
 对非敏感配置，默认发现并读取工具的实际来源，回显可编辑的当前值；用户修改并确认后才写回明确的来源，再重新读取显示结果。不要只放默认值占位符、维护不生效的影子配置，或在打开页面时写文件；敏感字段不得明文回显。具体优先级、冲突保护、恢复默认值和验证要求以 Skill 与 Note 为准。
 
 ## 开发与协作
-1. 每次进行功能开发或者 bug 修复都单独从最新的 preview 分支创建新分支，如果有对应的 issue 分支名最好与 issue 编号相关
+1. 每次进行功能开发或者 bug 修复都单独从最新的 main 分支创建新分支，如果有对应的 issue 分支名最好与 issue 编号相关
 2. 开发的时候如果涉及到 github 相关的操作麻烦使用 gh CLI 来进行操作而不是使用 Compute rUse 的 Skill。由于沙盒影响可能导致需要反复的 gh 授权，每次需要授权的时候麻烦先申请更高的权限去主环境中查看对应是否有 gh 的Token，如果有就直接复用，这个时候找不到才要求登录 gh
 3. 开发完成提交 PR 的时候需要说清楚对应改动的功能点，哪怕是一些细小的改动也是需要包含在内的，需要确保 code reviewer 马上就可以理解这个改动是什么。PR 描述必须以 `.github/pull_request_template.md` 为骨架：最前面是关联 Issue，再选 feat / fix / docs / release 类型；只实现单一平台的 feat 必须为另一平台提交跟进 Issue；功能矩阵、统一日志系统等检查项逐项回答。`gh pr create` 带 `--body` 或 `--body-file` 时不会自动套用模板，必须先读取模板再按它填写
 4. 如果让你修复有关 CI 的流程，记得使用 gh 或者 curl 之类的去查看(优先 gh)而不是使用 Computer Use
@@ -108,21 +108,16 @@ Viva 由 `desktop/go.mod` 的 `replace` 固定到 [Lithe-IDEA/viva](https://gith
 并按作用语义放进对应子目录（CI 脚本在 `scripts/ci/<工作流名>/` 下），不得直接放在 `scripts/` 根目录。
 入口文件只保留这条提醒，目录表和同步清单以该参考页为准。
 
-## 工作树资源复用与文档维护
+## 工作树缓存复用与资源说明
 
-- Git worktree 之间不共享各自的 `.artifacts`。单独工作树进行本地编译时，优先
-  通过 `scripts/resources/reuse-worktree-resources.mjs --source <已有工作树>` 复用资源，不要
-  手工搬运或直接共享整个 `.artifacts`。脚本必须保持源目录只读，通过目标临时
-  目录完成校验，并在原子发布后再次校验。
-- 新增或修改任何下载、解压、生成或缓存资源时，必须同步更新
-  `scripts/resources/worktree-resources.json`、`scripts/resources/reuse-worktree-resources.mjs` 的校验路由、
-  对应测试，以及 `docs/ci-builds.md` 的“独立工作树的本地编译”章节。更新内容
-  至少包括资源路径、是否允许跨 worktree 复用、版本/平台/架构/工具链身份约束、
-  校验来源、复制时机，以及不能共享时的隔离原因。
-- PR 中如果增加新的资源目录、下载入口、缓存变量或校验逻辑，必须检查并更新
-  资源复用清单和相关验证脚本；不能只把资源加入构建流程而遗漏 worktree 复用
-  说明。生成资源没有可靠 identity stamp 时不得注册为可复用资源；可变构建状态
-  和 LSP workspace 状态不得跨 worktree 共享。
+- 每个 Git worktree 有自己的 `.artifacts`，仓库不提供跨工作树复制资源的脚本。在新工作树编译前，按
+  `develop-lithe` Skill 的“工作树缓存复用”一节尽量复用已有缓存；只复制，不让两个工作树共用同一个可写目录，
+  运行时状态、用户数据和 LSP workspace 状态不得复制。
+- 新增或修改任何下载、解压、生成或缓存资源时，同步更新 `docs/ci-builds.md` 的“独立工作树的本地编译”
+  章节，写清资源路径、归属与生命周期、能否跨工作树复制及前提（版本/平台/架构/工具链身份），不能复制时写明原因。
+
+入口文件只保留这条提醒；做法见 Skill，决策原因见
+[工作树缓存复用改由 Agent 按 Skill 提醒判断](.agents/notes/implemented/process/2026-11-16-worktree-cache-reuse-without-script.md)。
 
 ### LSP 插件构建入口
 

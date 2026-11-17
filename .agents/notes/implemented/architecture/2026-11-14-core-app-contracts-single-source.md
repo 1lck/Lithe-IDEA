@@ -81,7 +81,6 @@ Rust Core 拆成独立仓库后，应用契约和 fixture 在两个仓库各有�
 - `./scripts/agent-notes/verify-agent-notes.sh` 检查 Note 的适用范围和相对链接。
 - `./scripts/platform-feature-matrix/verify-platform-feature-matrix.sh` 和 `node scripts/platform-feature-matrix/test-platform-feature-matrix.mjs` 检查功能矩阵证据。
 - `node --test --test-timeout=60000 scripts/i18n/test-i18n.mjs` 读取 `shared/i18n/fixtures/` 的格式样例。
-- `node --test scripts/resources/test-reuse-worktree-resources.mjs` 检查删除 PHPUnit 夹具后的资源复用清单。
 
 ## 适用范围
 

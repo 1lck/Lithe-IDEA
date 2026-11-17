@@ -1,10 +1,10 @@
 package workbench
 
 import (
-	"strconv"
 	"strings"
 	"unicode/utf8"
 
+	"github.com/1lck/Lithe-IDEA/desktop/internal/core"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/fileicons"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/i18n"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/icons"
@@ -112,13 +112,16 @@ func (a *App) buildToolView(c ui.C, p *project) {
 			a.buildFilter(c, p)
 			// The rows are listed after the filter field took this frame's typing, so the tree
 			// already shows what was typed.
-			rows := a.buildTreeRows(p)
+			rows, pending := a.buildTreeRows(p)
 			if len(rows) == 0 {
-				a.buildNotice(c, i18n.Shared(language, "desktop.build.noMatches"), "", nil)
+				// A filter whose trees are still being laid out shows nothing rather than no match.
+				if !pending {
+					a.buildNotice(c, i18n.Shared(language, "desktop.build.noMatches"), "", nil)
+				}
 				return
 			}
 			list := &p.panels.choices
-			// Groups and sections open and close by a click, so none of them is a pinned header.
+			// Groups and folders open and close by a click, so none of them is a pinned header.
 			list.Header = nil
 			list.Label = func(i int) string {
 				if i >= 0 && i < len(rows) {
@@ -174,8 +177,8 @@ func (a *App) buildTreeRow(row ui.ListRow, p *project, spec buildRow) {
 	switch spec.kind {
 	case buildRowGroup:
 		a.buildGroupRow(row, p, instance, spec)
-	case buildRowSection:
-		a.buildSectionRow(row, p, instance, spec)
+	case buildRowFolder:
+		a.buildFolderRow(row, p, instance, spec)
 	case buildRowEmpty:
 		if spec.tests {
 			a.buildTestStatusRow(row, p, instance, spec)
@@ -243,19 +246,36 @@ func (a *App) buildSystemBadge(c ui.C, instance *buildInstance) {
 }
 
 // buildGroupRow declares the row of one build system: its arrow, badge, name and root, and
-// whether its model loads or failed. A click selects the build system, the one the window's
-// actions act on; the arrow or a double click opens or closes it. The selected build system's
-// row has the buttons that load its model again and open its options.
+// whether its model loads or failed. When the model has one root project the row stands for
+// it, as IntelliJ's root node does: it shows the project's name, with the build system's
+// name and root in its hover hint, and its menu has the project's items. A click selects the
+// build system, the one the window's actions act on; the arrow or a double click opens or
+// closes it. The selected build system's row has the buttons that load its model again and
+// open its options.
 func (a *App) buildGroupRow(row ui.ListRow, p *project, instance *buildInstance, spec buildRow) {
 	c, b := row.C, &p.build
 	index := spec.instance
-	// The group row shows as chosen while its build system is selected and nothing in it is.
+	root := ""
+	if spec.node != nil {
+		root = spec.node.ProjectID
+	}
+	// The group row shows as chosen while its build system is selected and nothing in it is,
+	// or only the project it stands for.
 	look := spec
-	look.selected = spec.selected && b.projectID == "" && b.targetID == "" && b.taskID == ""
+	look.selected = spec.selected && (b.projectID == "" || b.projectID == root) && b.targetID == "" && b.taskID == ""
 	element := a.buildTreeRowElement(row, look)
-	toggled := a.buildArrow(c, spec.label, !spec.fixed, spec.open)
+	label := spec.label
+	if spec.node != nil {
+		label = spec.node.Label
+		tip := spec.label
+		if spec.detail != "" {
+			tip += "\n" + spec.detail
+		}
+		element = element.Tooltip(tip)
+	}
+	toggled := a.buildArrow(c, label, !spec.fixed, spec.open)
 	a.buildSystemBadge(c.Part("badge"), instance)
-	ui.Text(c, spec.label).FontSize(treeFontSize).Weight(gfx.WeightSemibold).Color(treelist.Text(a.colors.Dark)).Ellipsis().Shrink(0)
+	ui.Text(c, label).FontSize(treeFontSize).Weight(gfx.WeightSemibold).Color(treelist.Text(a.colors.Dark)).Ellipsis().Shrink(0)
 	if spec.detail != "" {
 		ui.Text(c, spec.detail).FontSize(treeFontSize - 1).Color(a.colors.Subtle).Ellipsis().Shrink(1).MinWidth(0)
 	}
@@ -287,7 +307,7 @@ func (a *App) buildGroupRow(row ui.ListRow, p *project, instance *buildInstance,
 	case !fixed && (toggled || element.DoubleClicked()):
 		c.After(func() {
 			a.performed("build.group.toggle", surfaceButton)
-			p.setBuildOpen(buildOpenKey(instance.ID, ""), !open)
+			p.setBuildGroupOpen(index, !open)
 		})
 	case element.Clicked():
 		c.After(func() {
@@ -299,7 +319,7 @@ func (a *App) buildGroupRow(row ui.ListRow, p *project, instance *buildInstance,
 			// Selecting a group leaves it open or closed as it showed.
 			shown := p.buildGroupOpen(index)
 			a.chooseBuildInstance(p, index)
-			p.setBuildOpen(buildOpenKey(instance.ID, ""), shown)
+			p.setBuildGroupOpen(index, shown)
 		})
 	}
 	ui.ContextMenu(c, element, func(menu *ui.MenuItems) {
@@ -317,70 +337,69 @@ func (a *App) buildGroupRow(row ui.ListRow, p *project, instance *buildInstance,
 				a.openBuildOptions(p, p.selectedBuildInstance())
 			})
 		}
+		if root != "" {
+			a.buildProjectMenuItems(c, menu, p, instance, index, root)
+		}
 	})
 }
 
-// buildSectionIcons are the icons of a group's sections.
-var buildSectionIcons = map[string]*gfx.Icon{
-	buildSectionProjects:     &icons.Folder,
-	buildSectionDependencies: &icons.Archive,
-	buildSectionTargets:      &icons.CircleDot,
-	buildSectionTasks:        &icons.SquareTerminal,
-	buildSectionTests:        &icons.CircleCheck,
+// buildFolderIcons are the icons of the rows that head other nodes, by the kind of node: the
+// IntelliJ New UI icons of the same folders in IntelliJ's Maven and Gradle tool windows.
+var buildFolderIcons = map[string]fileicons.BuildNode{
+	core.BuildTreeFolder:       fileicons.BuildTaskFolder,
+	core.BuildTreeTargets:      fileicons.BuildTargets,
+	core.BuildTreeDependencies: fileicons.BuildDependencies,
+	core.BuildTreeTests:        fileicons.BuildTests,
 }
 
-// buildSectionRow declares the heading of one section of a group: its arrow, icon, name and
-// how many rows it holds, once that is known. A click opens or closes it, unless a filter
-// keeps it open. The Dependencies and Discovered Tests headings have the menu of their rows,
-// and the Dependencies heading the ⓘ that says when its tree is read.
-func (a *App) buildSectionRow(row ui.ListRow, p *project, instance *buildInstance, spec buildRow) {
-	c := row.C
+// buildFolderRow declares a row that heads other nodes: a task folder (a Maven project's
+// Lifecycle or Plugins, a plugin's goals), a project's targets, its dependencies or the
+// discovered tests. A click opens or closes it, unless a filter keeps it open. The
+// Dependencies and Discovered Tests rows have the menu of their rows, and the Dependencies
+// row the ⓘ that says when its tree is read.
+func (a *App) buildFolderRow(row ui.ListRow, p *project, instance *buildInstance, spec buildRow) {
+	c, node := row.C, spec.node
 	element := a.buildTreeRowElement(row, spec)
-	toggled := a.buildArrow(c, spec.label, !spec.fixed, spec.open)
-	if icon := buildSectionIcons[spec.section]; icon != nil {
-		ui.Icon(c, *icon).Size(14, 14).Shrink(0).Color(a.colors.Subtle)
+	if spec.tooltip != "" {
+		element = element.Tooltip(spec.tooltip)
 	}
-	ui.Text(c, spec.label).FontSize(treeFontSize).Weight(gfx.WeightMedium).Color(treelist.Text(a.colors.Dark)).Ellipsis().Shrink(1).MinWidth(0)
-	if spec.count >= 0 {
-		ui.Text(c, strconv.Itoa(spec.count)).FontSize(treeFontSize - 1).Color(a.colors.Subtle).Shrink(0)
+	toggled := a.buildArrow(c, spec.label, spec.branch && !spec.fixed, spec.open)
+	if icon, ok := buildFolderIcons[node.Kind]; ok {
+		ui.Icon(c, fileicons.ForBuildNode(icon, a.colors.Dark)).Size(treelist.Icon, treelist.Icon).Shrink(0)
 	}
-	if spec.section == buildSectionDependencies {
-		// The heading shows no count until the tree is read, and opening it runs the build
-		// tool, so the ⓘ says when that happens and how to read it again.
+	ui.Text(c, spec.label).FontSize(treeFontSize).Color(treelist.Text(a.colors.Dark)).Ellipsis().Shrink(1).MinWidth(0)
+	if spec.detail != "" {
+		ui.Text(c, spec.detail).FontSize(treeFontSize - 1).Color(a.colors.Subtle).Ellipsis().Shrink(buildDetailShrink).MinWidth(0)
+	}
+	if node.Kind == core.BuildTreeDependencies {
+		// Opening the node runs the build tool, so the ⓘ says when that happens and how to read
+		// the tree again.
 		language := a.language()
 		ui.Button(c.Part("help"), i18n.Shared(language, "native.moreInformation")).Icon(icons.Info).IconOnly().Ghost().Size(18, 18).
 			Tooltip(i18n.Shared(language, "desktop.build.dependenciesHelp")).TooltipOn(ui.TooltipRight)
 	}
 	ui.Spacer(c)
-	if !spec.fixed && (toggled || element.Clicked()) {
-		key, open := buildOpenKey(instance.ID, spec.section), spec.open
+	if spec.branch && !spec.fixed && (toggled || element.Clicked()) {
+		key := buildOpenKey(instance.ID, node.Key)
+		state := buildOpenState{open: !spec.open, dependencies: node.Kind == core.BuildTreeDependencies}
 		c.After(func() {
-			a.performed("build.section.toggle", surfaceButton)
-			p.setBuildOpen(key, !open)
+			a.performed("build.folder.toggle", surfaceButton)
+			p.setBuildOpen(key, state)
 		})
 	}
-	switch spec.section {
-	case buildSectionDependencies:
-		if projectID, ok := buildDependencyProject(instance, a.buildScopeOf(p, spec.instance)); ok {
-			a.buildDependencyMenu(c, element, p, instance, projectID)
-		}
-	case buildSectionTests:
+	switch node.Kind {
+	case core.BuildTreeDependencies:
+		a.buildDependencyMenu(c, element, p, instance, node.ProjectID)
+	case core.BuildTreeTests:
 		a.buildTestsMenu(c, element, p, instance)
 	}
 }
 
-// buildScopeOf is the project scope of the instance at index: the chosen project of the
-// selected instance, none for the others.
-func (a *App) buildScopeOf(p *project, index int) string {
-	if index == p.build.selected {
-		return p.build.projectID
-	}
-	return ""
-}
-
-// buildNoteRow declares a line that stands for rows not there: a model or a dependency tree
-// that loads, failed or is empty, or a section without tasks. The dependency lines have the
-// menu of the tree, and a model that failed has the item that loads it again.
+// buildNoteRow declares a line that stands for rows not there: a model, its tree or a
+// dependency tree that loads, failed or is empty, or a tree cut short. The dependency lines
+// have the menu of the tree, and a model that failed has the item that loads it again. A line
+// about a model load shows, while the load runs, the last line of the build tool's output, and
+// a click on it shows the load's whole output in the Run window.
 func (a *App) buildNoteRow(row ui.ListRow, p *project, instance *buildInstance, spec buildRow) {
 	c := row.C
 	element := a.buildTreeRowElement(row, spec)
@@ -394,11 +413,24 @@ func (a *App) buildNoteRow(row ui.ListRow, p *project, instance *buildInstance, 
 		ui.Icon(c, icons.CircleAlert).Size(14, 14).Shrink(0).Color(color)
 	}
 	ui.Text(c, spec.label).FontSize(treeFontSize - 1).Color(color).Ellipsis().Shrink(1).MinWidth(0)
+	if spec.detail != "" {
+		ui.Text(c, spec.detail).FontSize(treeFontSize - 1).Color(a.colors.Subtle).Ellipsis().Shrink(buildDetailShrink).MinWidth(0)
+	}
+	if spec.tooltip != "" {
+		element = element.Tooltip(spec.tooltip)
+	}
+	if spec.sync != "" && element.Clicked() {
+		id := spec.sync
+		c.After(func() {
+			a.performed("build.sync.show", surfaceButton)
+			a.showBuildSync(p, id)
+		})
+	}
 	if spec.dependencies {
 		a.buildDependencyMenu(c, element, p, instance, spec.project)
 		return
 	}
-	if spec.warning && spec.level == 1 {
+	if spec.model {
 		index := spec.instance
 		ui.ContextMenu(c, element, func(menu *ui.MenuItems) {
 			menu.WidthRange(180, 280)
@@ -413,10 +445,10 @@ func (a *App) buildNoteRow(row ui.ListRow, p *project, instance *buildInstance, 
 }
 
 // buildItemIcons are the icons of the rows a user chooses or runs that have nothing to run.
-var buildItemIcons = map[buildRowKind]*gfx.Icon{
-	buildRowProject: &icons.Folder,
-	buildRowTarget:  &icons.CircleDot,
-	buildRowTask:    &icons.SquareTerminal,
+var buildItemIcons = map[buildRowKind]fileicons.BuildNode{
+	buildRowProject: fileicons.BuildProject,
+	buildRowTarget:  fileicons.BuildTarget,
+	buildRowTask:    fileicons.BuildTask,
 }
 
 // buildDetailShrink is how much faster than its name a row's detail gives way when the row is
@@ -431,7 +463,7 @@ const buildDetailShrink = 1000
 func (a *App) buildRunMark(c ui.C, label string, disabled bool) bool {
 	k := c.Part("run")
 	// As wide as the icons of the rows beside it, so the names line up.
-	slot := ui.Row(k).Size(14, treelist.Icon).Shrink(0).Center()
+	slot := ui.Row(k).Size(treelist.Icon, treelist.Icon).Shrink(0).Center()
 	if disabled {
 		slot.Children(func() {
 			ui.Icon(k, icons.Play).Size(14, 14).Color(a.colors.Subtle).Opacity(0.5)
@@ -446,8 +478,8 @@ func (a *App) buildRunMark(c ui.C, label string, disabled bool) bool {
 }
 
 // buildItemTip is the hover hint of a project, target or task row: its whole name and, under
-// it, its whole detail, which a narrow window cuts short; or the row's own tooltip, the full
-// name of a target that shows only its path (buildTargetLabel).
+// it, its whole detail, which a narrow window cuts short; or the tooltip Core gave the node:
+// a task's description, or the full name of a target that shows only its path.
 func buildItemTip(spec buildRow) string {
 	if spec.tooltip != "" {
 		return spec.tooltip
@@ -458,32 +490,27 @@ func buildItemTip(spec buildRow) string {
 	return spec.label + "\n" + spec.detail
 }
 
-// buildItemRow declares a project, target or task: its icon, name and detail. A task, and a
-// target that has a run, lead with the green triangle that runs it; the others lead with the
-// icon of their kind. A click chooses the row, in its build system, which it selects first,
-// and a click on the row already chosen lets it go; a double click runs a task or a target's
-// first run, and opens a project's build file. The chosen target whose first run debugs has
-// the button that debugs it. When the row is too narrow, the detail gives way before the
-// name, and the hover hint shows both whole.
+// buildItemRow declares a project, target or task: its arrow when it holds other nodes, its
+// icon, name and detail. A task, and a target that has a run, lead with the green triangle
+// that runs it; the others lead with the icon of their kind. A click chooses the row, in its
+// build system, which it selects first, and a click on the row already chosen lets it go; the
+// arrow opens or closes it; a double click runs a task or a target's first run, and opens a
+// project's build file. The chosen target whose first run debugs has the button that debugs
+// it. When the row is too narrow, the detail gives way before the name, and the hover hint
+// shows both whole.
 func (a *App) buildItemRow(row ui.ListRow, p *project, instance *buildInstance, spec buildRow) {
-	c, b := row.C, &p.build
+	c, b, node := row.C, &p.build, spec.node
 	element := a.buildTreeRowElement(row, spec)
 	if tip := buildItemTip(spec); tip != "" {
 		element = element.Tooltip(tip)
 	}
 	busy := b.operation != nil || instance.modelLoading
 	index := spec.instance
-	// choose makes the row the window's choice; run, when set, then starts what it runs.
+	// choose makes the row the window's choice, the node's project, target and task as Core
+	// placed it; run, when set, then starts what it runs.
 	choose := func() {
 		a.chooseBuildInstance(p, index)
-		switch spec.kind {
-		case buildRowProject:
-			b.projectID, b.targetID, b.taskID = spec.id, "", ""
-		case buildRowTarget:
-			b.projectID, b.targetID = spec.project, spec.id
-		case buildRowTask:
-			b.taskID = spec.id
-		}
+		b.projectID, b.targetID, b.taskID = node.ProjectID, node.TargetID, node.TaskID
 	}
 	var run func()
 	var debug func()
@@ -495,7 +522,7 @@ func (a *App) buildItemRow(row ui.ListRow, p *project, instance *buildInstance, 
 		run = func() { a.runSelectedBuildTask(p) }
 	case buildRowTarget:
 		if action, ok := buildPrimaryAction(instance, spec.target); ok {
-			targetID := spec.id
+			targetID := node.TargetID
 			runLabel = a.text.Build.RunTarget(action.name)
 			run = func() { a.runBuildTargetAction(p, targetID, action) }
 			if action.debug {
@@ -503,7 +530,13 @@ func (a *App) buildItemRow(row ui.ListRow, p *project, instance *buildInstance, 
 			}
 		}
 	}
-	ui.Row(c.Part("arrow")).Size(treelist.Disclosure, treelist.Icon).Shrink(0)
+	if a.buildArrow(c, spec.label, spec.branch && !spec.fixed, spec.open) {
+		key, state := buildOpenKey(instance.ID, node.Key), buildOpenState{open: !spec.open}
+		c.After(func() {
+			a.performed("build.node.toggle", surfaceButton)
+			p.setBuildOpen(key, state)
+		})
+	}
 	if run != nil {
 		if a.buildRunMark(c, runLabel, busy) {
 			c.After(func() {
@@ -513,8 +546,8 @@ func (a *App) buildItemRow(row ui.ListRow, p *project, instance *buildInstance, 
 				a.showBuildConsole(p)
 			})
 		}
-	} else if icon := buildItemIcons[spec.kind]; icon != nil {
-		ui.Icon(c, *icon).Size(14, 14).Shrink(0).Color(a.colors.Subtle)
+	} else if icon, ok := buildItemIcons[spec.kind]; ok {
+		ui.Icon(c, fileicons.ForBuildNode(icon, a.colors.Dark)).Size(treelist.Icon, treelist.Icon).Shrink(0)
 	}
 	ui.Text(c, spec.label).FontSize(treeFontSize).Color(treelist.Text(a.colors.Dark)).Ellipsis().Shrink(1).MinWidth(0)
 	if spec.detail != "" {
@@ -534,7 +567,7 @@ func (a *App) buildItemRow(row ui.ListRow, p *project, instance *buildInstance, 
 		case spec.kind == buildRowProject:
 			c.After(func() {
 				a.performed("build.project.openBuildFile", surfaceButton)
-				a.openBuildFile(p, instance, spec.id)
+				a.openBuildFile(p, instance, node.ProjectID)
 			})
 		case run != nil && !busy:
 			c.After(func() {
@@ -552,14 +585,7 @@ func (a *App) buildItemRow(row ui.ListRow, p *project, instance *buildInstance, 
 				choose()
 				return
 			}
-			switch spec.kind {
-			case buildRowProject:
-				b.projectID, b.targetID = "", ""
-			case buildRowTarget:
-				b.targetID = ""
-			case buildRowTask:
-				b.taskID = ""
-			}
+			b.projectID, b.targetID, b.taskID = "", "", ""
 		})
 	}
 	a.buildRowMenu(c, element, p, instance, spec)

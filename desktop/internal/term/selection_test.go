@@ -81,6 +81,61 @@ func TestCustomWordSeparatorsKeepPathsTogetherAndPreserveWideCells(t *testing.T)
 	}
 }
 
+func TestBlockRangeTakesTheRectangleAcrossRows(t *testing.T) {
+	tests := []struct {
+		name       string
+		cols, rows int
+		input      string
+		anchor     Position
+		focus      Position
+		want       string
+	}{
+		{"aligned column", 16, 4, "name    value\r\nalpha   1234\r\nbeta    5678\r\n", Position{0, 8}, Position{2, 12}, "value\n1234\n5678"},
+		{"backward", 16, 4, "name    value\r\nalpha   1234\r\nbeta    5678\r\n", Position{2, 12}, Position{0, 8}, "value\n1234\n5678"},
+		{"trailing blanks", 8, 2, "ab\r\ncd", Position{0, 1}, Position{1, 5}, "b\nd"},
+		{"wide head kept whole", 6, 1, "A世Z", Position{0, 2}, Position{0, 3}, "世Z"},
+		{"combining mark", 6, 1, "A世éZ", Position{0, 3}, Position{0, 4}, "éZ"},
+		{"soft wrap rows stay separate", 4, 3, "abcdefgh", Position{0, 1}, Position{1, 2}, "bc\nfg"},
+		{"blank rows stay empty", 5, 3, "\r\n\r\nab", Position{0, 0}, Position{1, 4}, "\n"},
+		{"clamped", 8, 2, "top\r\nbottom", Position{-9, -4}, Position{20, 20}, "top\nbottom"},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			for _, chunk := range []int{len(test.input), 1} {
+				screen := New(test.cols, test.rows, 10)
+				for input := []byte(test.input); len(input) > 0; {
+					n := min(chunk, len(input))
+					screen.Write(input[:n])
+					input = input[n:]
+				}
+				if got := screen.BlockRange(
+					screen.PointAt(screen.clampPosition(test.anchor)),
+					screen.PointAt(screen.clampPosition(test.focus)),
+				); got != test.want {
+					t.Fatalf("chunk %d block %q, want %q", chunk, got, test.want)
+				}
+			}
+		})
+	}
+}
+
+func TestBlockRangeFollowsItsLinesThroughScrolling(t *testing.T) {
+	screen := New(10, 4, 4)
+	screen.Write([]byte("one\r\ntwo\r\nthree\r\n"))
+	from, to := screen.PointAt(Position{Row: 0, Column: 1}), screen.PointAt(Position{Row: 1, Column: 2})
+	if got := screen.BlockRange(from, to); got != "ne\nwo" {
+		t.Fatalf("before output %q", got)
+	}
+	screen.Write([]byte("four\r\nfive\r\n"))
+	if got := screen.BlockRange(from, to); got != "ne\nwo" {
+		t.Fatalf("after the lines moved into history %q", got)
+	}
+	screen.Scroll(2)
+	if got := screen.BlockRange(from, to); got != "ne\nwo" {
+		t.Fatalf("after scrolling back %q", got)
+	}
+}
+
 func FuzzSelectedText(f *testing.F) {
 	f.Add([]byte("plain\r\n世界 e\xcc\x81"), uint8(0), uint8(0), uint8(2), uint8(7))
 	f.Add([]byte("\x1b[31mred\x1b[0m\r\nnext"), uint8(3), uint8(12), uint8(1), uint8(0))
@@ -89,12 +144,14 @@ func FuzzSelectedText(f *testing.F) {
 		for _, value := range input {
 			screen.Write([]byte{value})
 		}
-		selected := screen.SelectedText(
-			Position{Row: int(rowA), Column: int(colA)},
-			Position{Row: int(rowB), Column: int(colB)},
-		)
+		anchor := Position{Row: int(rowA), Column: int(colA)}
+		focus := Position{Row: int(rowB), Column: int(colB)}
+		selected := screen.SelectedText(anchor, focus)
 		if !utf8.ValidString(selected) {
 			t.Fatalf("selection is not UTF-8: %q", selected)
+		}
+		if block := screen.BlockRange(screen.PointAt(anchor), screen.PointAt(focus)); !utf8.ValidString(block) {
+			t.Fatalf("block is not UTF-8: %q", block)
 		}
 	})
 }

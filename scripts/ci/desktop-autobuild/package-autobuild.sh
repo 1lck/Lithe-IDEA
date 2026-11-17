@@ -3,10 +3,13 @@
 #
 #   package-autobuild.sh <arm64|amd64>
 #
-# AutoBuild only builds and publishes. It runs no tests and does not inspect the packages; checking
-# them is the Desktop Release's job (scripts/ci/desktop-release/package-release.sh). The version is
-# the one in desktop/viva.toml. Signing follows the release: a complete certificate configuration
-# signs, none leaves the package unsigned, and a partial one is refused, so a broken secret fails
+# AutoBuild builds and publishes without running application tests. It checks the macOS bundle
+# signature before publication; fuller checks belong to Desktop Release. The version is
+# the one in desktop/viva.toml. The packages are built for the AutoBuild update channel
+# (package-desktop.sh --autobuild), with the build time, commit and feed keys the workflow
+# passes in LITHE_BUILD_TIME, LITHE_BUILD_COMMIT and LITHE_UPDATE_PUBLIC_KEYS. Signing follows
+# the release: a complete certificate configuration signs, none uses an ad hoc macOS signature
+# (unsigned on Windows), and a partial one is refused, so a broken secret fails
 # the build instead of quietly publishing unsigned packages. The packages and a .sha256 file for
 # each, whose entry contains only the file name, are copied flat into dist/autobuild/, the
 # directory the workflow uploads; their names are printed last.
@@ -31,6 +34,12 @@ if [[ -z "$VERSION" ]]; then
 fi
 GOOS="$(go env GOOS)"
 
+PACKAGE_CONTRACT="$ROOT_DIR/scripts/ci/common/desktop-packages.mjs"
+FORMATS="$(node "$PACKAGE_CONTRACT" formats "$GOOS" "$ARCH")"
+PACKAGE_NAMES="$(node "$PACKAGE_CONTRACT" names "$VERSION" "$GOOS" "$ARCH")"
+PACKAGES=()
+while IFS= read -r package; do PACKAGES+=("$package"); done <<< "$PACKAGE_NAMES"
+
 SIGN_ARGS=()
 case "$GOOS" in
     darwin)
@@ -43,11 +52,9 @@ case "$GOOS" in
             printf '%s\n' 'Incomplete Apple signing configuration: provide APPLE_CERTIFICATE, or remove the password and identity.' >&2
             exit 1
         else
-            printf '%s\n' 'No Apple signing certificate is configured; the package is unsigned.'
-            SIGN_ARGS=(--no-sign)
+            printf '%s\n' 'No Apple certificate is configured; sealing the app with an ad hoc signature (not Apple notarized).'
+            SIGN_ARGS=(--ad-hoc-sign)
         fi
-        FORMATS='app,zip,dmg'
-        PACKAGES=("lithe-$VERSION-darwin-$ARCH.dmg" "lithe-$VERSION-darwin-$ARCH.zip")
         ;;
     windows)
         if [[ -n "${WINDOWS_CERTIFICATE:-}" && -n "${WINDOWS_CERTIFICATE_PASSWORD:-}" ]]; then
@@ -60,20 +67,22 @@ case "$GOOS" in
             printf '%s\n' 'No Windows signing certificate is configured; the package is unsigned.'
             SIGN_ARGS=(--no-sign)
         fi
-        FORMATS='nsis,zip'
-        PACKAGES=("lithe-$VERSION-windows-$ARCH-setup.exe" "lithe-$VERSION-windows-$ARCH.zip")
         ;;
     linux)
-        FORMATS='tar.gz,deb'
-        PACKAGES=("lithe_${VERSION}_${ARCH}.deb" "lithe-$VERSION-linux-$ARCH.tar.gz")
         ;;
     *) printf '%s\n' "Desktop packages are not supported on host OS $GOOS." >&2; exit 2 ;;
 esac
 
 PACKAGE_DIR="$ROOT_DIR/dist/desktop/$GOOS-$ARCH"
 OUT_DIR="$ROOT_DIR/dist/autobuild"
-"$ROOT_DIR/scripts/desktop/package-desktop.sh" --arch "$ARCH" --format "$FORMATS" --out "$PACKAGE_DIR" \
+"$ROOT_DIR/scripts/desktop/package-desktop.sh" --arch "$ARCH" --format "$FORMATS" --out "$PACKAGE_DIR" --autobuild \
     "${SIGN_ARGS[@]+"${SIGN_ARGS[@]}"}"
+
+# Even without a Developer ID, the assembled bundle must have a valid resource seal.
+# The linker's executable-only signature does not cover Info.plist or bundle resources.
+if [[ "$GOOS" == darwin ]]; then
+    codesign --verify --deep --strict "$PACKAGE_DIR/Lithe Desktop.app"
+fi
 
 mkdir -p "$OUT_DIR"
 NAMES=()

@@ -49,7 +49,7 @@ replace github.com/vivaui/viva => github.com/Lithe-IDEA/viva <fork commit 的伪
 
 ### 发版前同步上游
 
-每次发布桌面端（`desktop-v*` 预发布版和稳定版）之前做一次。发版时由 `.agents/skills/release-lithe/SKILL.md` 检查 fork 的状态；发现差距就停下来提醒用户，由用户授权后才按下面的步骤做。Lithe 的固定版本升级合入 preview 以后，才开始写发布说明，因为同步会改变这个版本包含的内容。
+每次发布桌面端（`desktop-v*` 预发布版和稳定版）之前做一次。发版时由 `.agents/skills/release-lithe/SKILL.md` 检查 fork 的状态；发现差距就停下来提醒用户，由用户授权后才按下面的步骤做。Lithe 的固定版本升级合入 main 以后，才开始写发布说明，因为同步会改变这个版本包含的内容。
 
 1. **盘点。** 在 fork 的克隆里 fetch 上游和 fork，然后列出四样东西：
    - `git log --oneline main..upstream/main`：上游有、fork 还没有的提交。
@@ -64,7 +64,7 @@ replace github.com/vivaui/viva => github.com/Lithe-IDEA/viva <fork commit 的伪
    - 上游的做法缺少 Lithe 需要的能力时，仍然先换成上游的做法，再在它上面补一个小补丁，并按“fork 的分支规则”向上游提 PR。
    - 正确做法：上游提供了和 fork 补丁作用相同的 API，就让 Lithe 改用上游的 API，并 revert fork 的补丁。不要这样做：在冲突块里把两边的代码都留下，或者为了迁就 Lithe 的旧调用，去改上游 API 的名字或签名。
 5. **检查另一个平台。** fork `main` 每合入一次，都在 fork 里运行 `GOOS=windows GOARCH=amd64 go build ./...` 和 `GOOS=windows GOARCH=arm64 go build ./...`，在 macOS 上也能发现 Windows 的编译错误（`609dd47` 的重复消息号就会在这里报错）。
-6. **删掉 Lithe 里的旧绕过。** 从最新 preview 切一个分支，把 `replace` 升到同步后的 fork `main`（见“升级固定的 commit”）。然后对照新版本，逐项检查第 1 步列出的绕过代码：上游已经有合适做法的，改用新写法，删掉旧逻辑，恢复因此被跳过的测试，并更新 #1821。还不能删的，在报告里写明还缺什么，以及对应哪个 PR 或 Issue。固定版本升级和这些删除放在同一个 Lithe PR 里。
+6. **删掉 Lithe 里的旧绕过。** 从最新 main 切一个分支，把 `replace` 升到同步后的 fork `main`（见“升级固定的 commit”）。然后对照新版本，逐项检查第 1 步列出的绕过代码：上游已经有合适做法的，改用新写法，删掉旧逻辑，恢复因此被跳过的测试，并更新 #1821。还不能删的，在报告里写明还缺什么，以及对应哪个 PR 或 Issue。固定版本升级和这些删除放在同一个 Lithe PR 里。
 7. **写同步报告。** 报告写进第 6 步那个 Lithe PR 的说明里，同时发给用户。报告包括：
    - 基线：同步前后 fork `main` 的 commit、合入的上游提交范围、新的固定伪版本。
    - 上游带来的、会影响 Lithe 的变化：新增或改名的 API、行为变化。
@@ -72,6 +72,10 @@ replace github.com/vivaui/viva => github.com/Lithe-IDEA/viva <fork commit 的伪
    - 每一处冲突：在哪个文件、按上游怎么解决、Lithe 跟着改了什么。
    - 删掉的绕过代码，以及改用的新写法；还留着的绕过代码，以及原因。
    - 验证：运行了哪些命令、在哪些平台上、结果如何。没有跑的检查也要写明原因。
+
+### 列表身份兼容检查
+
+升级含行标识检查的 Viva 时，检查所有 `ListState.Key` 和 `TreeState.Key`：包括不可选择的加载页脚也必须返回 0 至 2^31−1 的唯一标识。不能用负数表达“不能选择”，也不能对摘要做截断来代替唯一编号。Git 历史视图保留 0 给加载页脚、提交从 1 编号，提交重排时复用原编号；是否允许选择仍由原来的交互逻辑决定。新建项目侧栏为两个标题固定保留 0/1，条目从 2 开始，过滤隐藏分组不改编号；Git 控制台也为刷新时暂缺的行保留 0，真实行从 1 编号。此处是 Viva 呈现身份，留在视图，不改变 Core 的提交模型。回归 `TestLogCommitKeysKeepFooterInRangeAndSeparate` 覆盖范围、唯一性和重排稳定性。
 
 ### 需要 Viva 命令行工具的脚本
 
@@ -101,7 +105,7 @@ replace github.com/vivaui/viva => github.com/Lithe-IDEA/viva <fork commit 的伪
 
 - Lithe 能当天用上自己的 Viva 修复，不必在应用层写绕过代码。
 - 维护成本：每次发布桌面端之前都要把上游合进 fork `main`、合入我们的补丁、清理 Lithe 里的旧绕过并写同步报告，并持续跟进每个上游 PR。没进上游的补丁越多，同步时冲突越多，所以补丁要尽快送上游。
-- 每次发版前都同步，差距一直保持在一个发版周期以内，冲突少、容易判断；代价是发版要等同步和固定版本升级合入 preview。
+- 每次发版前都同步，差距一直保持在一个发版周期以内，冲突少、容易判断；代价是发版要等同步和固定版本升级合入 main。
 - 冲突以上游为准，有时要放弃我们已经合入的写法，并修改 Lithe 的调用点。换来的是 fork 的补丁越来越少，最终回到只依赖上游。
 - fork `main` 不能 force push。建议在 GitHub 给 Lithe-IDEA/viva 的 `main` 开启分支保护，禁止强制推送和删除。
 - 第一次通过 goproxy.cn 查询新的 fork 伪版本时，校验和数据库代理偶尔返回 404（“temporarily unavailable”），重试即可。这不是 `go.sum` 错误。

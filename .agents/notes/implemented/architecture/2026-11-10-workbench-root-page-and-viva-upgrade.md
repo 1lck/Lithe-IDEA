@@ -35,6 +35,12 @@
 修复前会混入项目颜色，修复后必须保持 `#191a1c`。深浅色页面清单通过
 `TestVisualWorkbench` 与旧 macOS 采集包对照，截图只作外观证据，不替代原生交互验收。
 
+### 通知工具窗口与状态栏铃铛
+
+右侧「通知」工具窗口和状态栏铃铛读取同一份窗口内通知历史。查看任一入口都会把记录标为已读，从任一入口清空也会关闭仍在显示的气泡。工具窗口用 Viva 的 `ui.List` 按视口声明通知行，重复通知移动到顶部时沿用原来的行标识。
+
+沿用状态栏的弹出入口，让欢迎页和收起工具窗口后的工作台仍能查看通知。给每个入口各存一份历史会让清空、已读和重复计数产生分歧。
+
 ## 考虑过的备选方案
 
 - 先在 `339e133` 上做完根 Page 再升级 Viva：该版本没有 `DragState` 和 `RowID`，拖拽会先写一遍临时状态机再删，所以直接在新版本上做。
@@ -55,6 +61,7 @@ vivaui/viva#187 已合入，Lithe 固定的 Viva 版本已包含：等宽文字�
 ## 验证
 
 - `desktop/internal/workbench` 全量测试通过，原有断言未删，只把依赖 Frame 内部的部分改成按名字或 Viva 标识驱动；新增根 Page 下的标签拖放、文件树选中跟随焦点测试。
+- `TestNotificationsToolWindowSharesTheHistory` 与 `TestNotificationsToolWindowScrollsToOlderNotices` 通过侧栏入口验证空状态、已读、重复计数、跨入口清空和滚动。
 - `viva vet ./...`、`go vet ./...`、i18n 三项、功能矩阵 `--check`、`scripts/desktop/verify/verify-runtime-bundle-immutability.sh`。
 - 编辑器基准（`scripts/desktop/perf/editor-bench.sh`）在改动前后各跑一次，结果写在 PR 说明里。
 
@@ -64,6 +71,7 @@ vivaui/viva#187 已合入，Lithe 固定的 Viva 版本已包含：等宽文字�
 - `desktop/internal/workbench/chrome_view.go`
 - `desktop/internal/workbench/shell_view.go`
 - `desktop/internal/workbench/shell.go`
+- `desktop/internal/workbench/notifications.go`
 - `desktop/internal/workbench/editor_view.go`
 - `desktop/internal/workbench/tabstrip.go`
 - `desktop/internal/workbench/drag.go`

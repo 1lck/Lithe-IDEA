@@ -117,7 +117,7 @@ func (v *View) Key(event gfx.KeyEvent) (gfx.EventResult, bool) {
 			return handled, true
 		}
 	}
-	if v.shell == nil {
+	if !v.live() {
 		// Nothing is listening: Enter starts the session again. Every other key is
 		// swallowed, and the ended session has already said why on the screen.
 		if event.Key == gfx.KeyEnter && !event.Repeat && !event.Release && v.restart() {
@@ -217,9 +217,12 @@ func (v *View) TextInput(ctx app.TextInputContext) *app.TextInput {
 	v.input.MonoFace = v.font.Face
 	v.input.Color = v.pal.termFG
 	v.input.State = v.preedit
-	// Option stays a composing key (it types accents and symbols on a Mac keyboard), so the
-	// text system keeps it and the shell does not get Escape-prefixed Meta sequences.
-	v.input.AltSendsEscape = false
+	// Option is a composing key by default (it types accents and symbols on a Mac keyboard), so
+	// the text system keeps it and the shell does not get Escape-prefixed Meta sequences. With
+	// the Option-as-Meta switch on, Viva hands a printable Option chord over as a raw key, which
+	// the encoder sends as Escape and the key. Option+arrow keeps the word moves Key gives it
+	// either way.
+	v.input.AltSendsEscape = v.options.OptionAsMeta
 	// A program that asked for kitty keyboard enhancements needs presses, releases and raw
 	// printable keys, which Viva only delivers when the terminal asks for key releases.
 	// win32-input-mode is the same on Windows.
@@ -247,6 +250,9 @@ func (v *View) terminalText(event app.TextEvent) app.TextState {
 	case app.TextPaste:
 		redraw = v.sendInput(term.EncodePaste(event.Text, v.screen.Modes().BracketedPaste)) && moved
 	case app.TextPasteNoText:
+		if v.pasteImage() {
+			break
+		}
 		// A clipboard with no words in it is not an empty one: a program that reads
 		// pictures from the clipboard itself waits for a paste with no content to do so, as
 		// it gets from other terminals. Without bracketed paste an empty paste is no event
@@ -279,16 +285,28 @@ func (v *View) copySelection() gfx.EventResult {
 // read is skipped without a word: there is nothing to paste, and the keyboard shortcut is
 // no place for a dialog.
 func (v *View) paste() {
-	if v.shell == nil {
+	if !v.live() {
 		return
 	}
 	value, err := v.cfg.Clipboard()
+	// Some systems answer a text request on a clipboard holding only a picture with an
+	// error rather than with nothing, so the picture is looked for either way.
+	if (err != nil || value == "") && v.pasteImage() {
+		return
+	}
 	if err != nil {
 		return
 	}
 	// An empty clipboard sends an empty paste under bracketed paste and nothing otherwise,
 	// for the reason given at TextPasteNoText.
 	v.sendInput(term.EncodePaste(value, v.screen.Modes().BracketedPaste))
+}
+
+// pasteImage offers a paste that found no text to Config.PasteImage and reports whether
+// it was taken. A view without a live shell has nowhere to type a path, so it offers
+// nothing.
+func (v *View) pasteImage() bool {
+	return v.live() && v.cfg.PasteImage != nil && v.cfg.PasteImage()
 }
 
 // scrollView moves the view by lines, positive going back into history. It is handled even

@@ -58,6 +58,9 @@ type terminal struct {
 	// scripts are the command scripts written for commands too long for the shell's line; they are
 	// removed when the terminal closes (terminal_commands.go).
 	scripts []string
+	// pastingImage is set while a picture pasted into the terminal is being saved
+	// (terminal_paste_image.go).
+	pastingImage bool
 	// input and draw are the Control's handlers and painter, made once with the terminal;
 	// hit is the identity the paint declared it with.
 	input ui.Handlers
@@ -406,10 +409,14 @@ func (a *App) newTerminalWith(p *project, options terminalOptions) *terminal {
 		OpenLink:   a.openTerminalLink,
 	}
 	t := &terminal{id: id, number: set.freeNumber(), shell: shell, title: options.title, plugin: options.plugin}
+	config.PasteImage = func() bool { return a.pasteTerminalImage(p, t) }
 	if options.plugin != nil {
 		config.Exited = func(status *int) { a.pluginTerminalExited(p, t, status) }
 	}
 	t.view = termview.New(config)
+	// A terminal can start before its first paint (Start below), and the switches decide how
+	// its shell starts.
+	t.view.SetOptions(a.terminalOptions())
 	a.terminalInput(t)
 	set.list = append(set.list, t)
 	if options.plugin != nil {

@@ -1,10 +1,10 @@
 name: Desktop AutoBuild
 
-# Builds the Viva desktop client (desktop/) from the preview branch every day and publishes it to
-# the rolling prerelease desktop-AutoBuild: macOS arm64, Windows x64, and Linux x64 and arm64.
-# AutoBuild only builds and publishes. It runs no tests and does not inspect the packages, unlike
-# Desktop Release. Its tag is separate from the AutoBuild tag that the SwiftUI and Tauri clients'
-# updaters read, and the release is never marked latest.
+# Builds the Viva desktop client (desktop/) from the main branch every day and publishes it to
+# the rolling prerelease desktop-AutoBuild: macOS arm64 and x64, Windows x64, and Linux x64 and arm64.
+# AutoBuild runs no application tests. It checks signatures and the complete download inventory;
+# Desktop Release adds platform-specific package inspection. Its tag is separate from the AutoBuild
+# tag that the SwiftUI and Tauri clients' updaters read, and the release is never marked latest.
 on:
   schedule:
     # 10:00 UTC, which is 18:00 in China (UTC+8).
@@ -15,7 +15,7 @@ on:
         description: "Branch to build"
         required: true
         type: string
-        default: preview
+        default: main
 
 permissions:
   contents: read
@@ -27,7 +27,7 @@ concurrency:
 
 env:
   RELEASE_TAG: desktop-AutoBuild
-  SOURCE_BRANCH: ${{ github.event_name == 'workflow_dispatch' && inputs.source_branch || 'preview' }}
+  SOURCE_BRANCH: ${{ github.event_name == 'workflow_dispatch' && inputs.source_branch || 'main' }}
 
 jobs:
   prepare:
@@ -39,6 +39,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     outputs:
+      matrix: ${{ steps.packages.outputs.matrix }}
       sha: ${{ steps.identity.outputs.sha }}
       version: ${{ steps.identity.outputs.version }}
       build: ${{ steps.identity.outputs.build }}
@@ -50,6 +51,12 @@ jobs:
         uses: actions/checkout@v7
         with:
           ref: ${{ env.SOURCE_BRANCH }}
+
+      - name: Resolve the shared package matrix
+        id: packages
+        run: |
+          matrix="$(node scripts/ci/common/desktop-packages.mjs matrix)"
+          printf 'matrix=%s\n' "$matrix" >> "$GITHUB_OUTPUT"
 
       # Every build job checks out this commit, so a push during the run cannot mix two sources.
       # A scheduled run whose commit is already published builds nothing.
@@ -92,24 +99,7 @@ jobs:
         shell: bash
     strategy:
       fail-fast: false
-      matrix:
-        include:
-          - os: darwin
-            arch: arm64
-            runner: macos-26
-            rust-target: aarch64-apple-darwin
-          - os: windows
-            arch: amd64
-            runner: windows-2022
-            rust-target: x86_64-pc-windows-gnu
-          - os: linux
-            arch: amd64
-            runner: ubuntu-22.04
-            rust-target: x86_64-unknown-linux-gnu
-          - os: linux
-            arch: arm64
-            runner: ubuntu-22.04-arm
-            rust-target: aarch64-unknown-linux-gnu
+      matrix: ${{ fromJSON(needs.prepare.outputs.matrix) }}
 
     steps:
       - name: Check out the pinned source
@@ -156,6 +146,11 @@ jobs:
           WINDOWS_CERTIFICATE_PASSWORD: ${{ matrix.os == 'windows' && secrets.WINDOWS_SIGNING_CERTIFICATE_PASSWORD || '' }}
           WINDOWS_TIMESTAMP_URL: ${{ matrix.os == 'windows' && secrets.WINDOWS_TIMESTAMP_SERVER || '' }}
           DESKTOP_ARCH: ${{ matrix.arch }}
+          # Every platform records the same build time and commit. The feed keys are public; the
+          # private signing key never reaches a packaging runner.
+          LITHE_BUILD_TIME: ${{ needs.prepare.outputs.timestamp }}
+          LITHE_BUILD_COMMIT: ${{ needs.prepare.outputs.sha }}
+          LITHE_UPDATE_PUBLIC_KEYS: ${{ vars.LITHE_UPDATE_PUBLIC_KEYS }}
         run: bash scripts/ci/desktop-autobuild/package-autobuild.sh "$DESKTOP_ARCH"
 
       - name: Upload the packages

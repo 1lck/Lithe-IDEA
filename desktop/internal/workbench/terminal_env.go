@@ -2,6 +2,8 @@ package workbench
 
 import (
 	"github.com/1lck/Lithe-IDEA/desktop/internal/settingswindow"
+	"github.com/1lck/Lithe-IDEA/desktop/internal/term"
+	"github.com/1lck/Lithe-IDEA/desktop/internal/termview"
 )
 
 // inheritedColorVariables are variables the window may have inherited (from a CI runner,
@@ -42,5 +44,55 @@ func (a *App) setTerminalScrollback(lines int) {
 		return
 	}
 	a.settings.TerminalScrollback = lines
+	a.saveSettings()
+}
+
+// terminalCursor is the cursor the Terminal settings page chose, handed to every terminal at
+// each paint (matrix id terminal-interaction). A value the page does not offer is the default.
+func (a *App) terminalCursor() termview.Cursor {
+	var cursor termview.Cursor
+	switch settingswindow.NormalCursorShape(a.settings.TerminalCursorShape) {
+	case settingswindow.CursorShapeBar:
+		cursor.Shape = term.CursorBar
+	case settingswindow.CursorShapeUnderline:
+		cursor.Shape = term.CursorUnderline
+	}
+	switch settingswindow.NormalCursorThickness(a.settings.TerminalCursorThickness) {
+	case settingswindow.CursorThicknessThin:
+		cursor.Thickness = termview.CursorThin
+	case settingswindow.CursorThicknessThick:
+		cursor.Thickness = termview.CursorThick
+	}
+	return cursor
+}
+
+// setTerminalCursor stores the terminal cursor; open terminals take it at their next paint.
+func (a *App) setTerminalCursor(shape, thickness string) {
+	shape, thickness = settingswindow.NormalCursorShape(shape), settingswindow.NormalCursorThickness(thickness)
+	if a.settings.TerminalCursorShape == shape && a.settings.TerminalCursorThickness == thickness {
+		return
+	}
+	a.settings.TerminalCursorShape, a.settings.TerminalCursorThickness = shape, thickness
+	a.saveSettings()
+}
+
+// terminalOptions are the Terminal page's switches as every terminal takes them at each paint
+// (matrix ids terminal-shell-integration and terminal-interaction).
+func (a *App) terminalOptions() termview.Options {
+	behavior := a.settings.TerminalBehavior
+	return termview.Options{
+		PlainShell:   behavior.DisableShellIntegration,
+		NoClickMove:  behavior.DisableClickMove,
+		OptionAsMeta: behavior.OptionAsMeta,
+	}
+}
+
+// setTerminalBehavior stores the Terminal page's switches. Open terminals take the input
+// switches at their next paint, and the shell integration with the next shell they start.
+func (a *App) setTerminalBehavior(behavior settingswindow.TerminalBehavior) {
+	if a.settings.TerminalBehavior == behavior {
+		return
+	}
+	a.settings.TerminalBehavior = behavior
 	a.saveSettings()
 }

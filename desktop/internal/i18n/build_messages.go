@@ -23,14 +23,11 @@ type BuildMessages struct {
 	Stopping           string
 	Refresh            string
 	Systems            string
-	Projects           string
 	Targets            string
-	Tasks              string
 	Output             string
 	Stop               string
 	EmptyOutput        string
 	NoTasks            string
-	NoProjects         string
 	LoadingModel       string
 	ModelFailed        func(error string) string
 	// TestDiscoveryFailed is the line of the Discovered Tests section after discovery failed.
@@ -65,14 +62,11 @@ func buildMessages(language Language) BuildMessages {
 		Stopping:     Shared(language, "desktop.build.stopping"),
 		Refresh:      Shared(language, "desktop.build.refresh"),
 		Systems:      Shared(language, "desktop.build.systems"),
-		Projects:     Shared(language, "desktop.build.projects"),
 		Targets:      Shared(language, "desktop.build.targets"),
-		Tasks:        Shared(language, "desktop.build.tasks"),
 		Output:       Shared(language, "desktop.build.output"),
 		Stop:         Shared(language, "desktop.build.stop"),
 		EmptyOutput:  Shared(language, "desktop.build.emptyOutput"),
 		NoTasks:      Shared(language, "desktop.build.noTasks"),
-		NoProjects:   Shared(language, "desktop.build.noProjects"),
 		LoadingModel: Shared(language, "desktop.build.loadingModel"),
 		ModelFailed: func(reason string) string {
 			return SharedFormat(language, "desktop.build.modelFailed", map[string]string{"error": reason})

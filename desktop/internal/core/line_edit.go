@@ -35,18 +35,6 @@ type LineEditOutcome struct {
 	SelectionLength int    `json:"selectionLength"`
 }
 
-// LineCommentToken returns Core's language token or nil when none is known.
-// The identifier may be a filename, extension or language ID.
-func (c *Client) LineCommentToken(ctx context.Context, identifier string) (*string, error) {
-	var response struct {
-		Token *string `json:"token"`
-	}
-	err := c.Execute(ctx, "editor.lineCommentToken", struct {
-		Identifier string `json:"identifier"`
-	}{Identifier: identifier}, &response)
-	return response.Token, err
-}
-
 // LineEdit asks Core for a pure transformation. It does not write the file or
 // change the live editor; the caller must check the captured document version
 // and selection before applying the answer as one undoable edit.

@@ -102,6 +102,11 @@ type Capabilities map[string][]int
 //     owned by the host.
 //   - toolDefinitions: settings discovery, Build/Run selection and tool
 //     launches use the shared Core resolver.
+//   - commandInstallers: plugin management reports the commands a
+//     systemCommand launch names but the machine lacks, and installs them with
+//     the plugin's tool after the user confirms the command line, the network
+//     use and the target (the plugin's managed directory or the tool's own);
+//     systemCommand launches then find them there (CommandStore).
 //   - projectGenerators: the New Project window lists generators, evaluates
 //     their forms through Core, discovers tools with the shared toolchain and
 //     runs the plan in a staging directory.
@@ -123,8 +128,9 @@ type Capabilities map[string][]int
 //
 //   - a language server's code actions, signature help and inlay hints, and a
 //     plugin's foldingRange provider, which is not routed.
-//   - tool discovery for system commands reads PATH only; a plan that depends
-//     on a project toolchain or a user override must use a tool launch.
+//   - tool discovery for system commands reads PATH and the plugin's installed
+//     command directories only; a plan that depends on a project toolchain or a
+//     user override must use a tool launch.
 //   - build provider debug preparation, model inputs, native configuration,
 //     inline test reports and runtime debug; build system instance options and
 //     task preparations.
@@ -141,6 +147,7 @@ func Declared() Capabilities {
 		"backend",
 		"buildProviders",
 		"buildSystems",
+		"commandInstallers",
 		"debugAdapters",
 		"languageServers",
 		"languages",
@@ -148,6 +155,7 @@ func Declared() Capabilities {
 		"pluginFunctions",
 		"projectGenerators",
 		"settings",
+		"sourceSettings",
 		"toolDefinitions",
 		"ui",
 		"vcsProviders",

@@ -6439,6 +6439,16 @@
       ]
     },
     {
+      "id": "desktop.branch.localIn",
+      "description": "Branch popup of a folder with several repositories: head of the local branches of one repository, in its panel",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "repository": "string"
+      }
+    },
+    {
       "id": "desktop.branch.newBranchFrom",
       "description": "Desktop branch: NewBranchFrom",
       "platforms": [
@@ -6454,6 +6464,26 @@
       "platforms": [
         "desktop"
       ]
+    },
+    {
+      "id": "desktop.branch.recentIn",
+      "description": "Branch popup of a folder with several repositories: head of the recently checked-out branches of one repository, in its panel",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "repository": "string"
+      }
+    },
+    {
+      "id": "desktop.branch.remoteIn",
+      "description": "Branch popup of a folder with several repositories: head of the remote branches of one repository, in its panel",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "repository": "string"
+      }
     },
     {
       "id": "desktop.branch.rename",
@@ -6507,6 +6537,17 @@
       }
     },
     {
+      "id": "desktop.branch.repositoryPanel",
+      "description": "Accessible label of a repository row in the branch popup that opens its branches beside it",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "repository": "string",
+        "branch": "string"
+      }
+    },
+    {
       "id": "desktop.branch.revision",
       "description": "Desktop branch: Revision",
       "platforms": [
@@ -6550,6 +6591,16 @@
       "platforms": [
         "desktop"
       ]
+    },
+    {
+      "id": "desktop.branch.tagsIn",
+      "description": "Branch popup of a folder with several repositories: head of the tags of one repository, in its panel",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "repository": "string"
+      }
     },
     {
       "id": "desktop.build.argumentsRequired",
@@ -6615,6 +6666,72 @@
       ]
     },
     {
+      "id": "desktop.build.group.lifecycle",
+      "description": "Build tool window: heading of the folder that holds a project's lifecycle tasks (clean, compile, package and the like)",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.build.group.build",
+      "description": "Build tool window: heading of the folder that holds a project's build tasks",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.build.group.test",
+      "description": "Build tool window: heading of the folder that holds a project's test tasks",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.build.group.run",
+      "description": "Build tool window: heading of the folder that holds a project's tasks that run the application",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.build.group.verification",
+      "description": "Build tool window: heading of the folder that holds a project's checks (lint, verify and the like)",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.build.group.documentation",
+      "description": "Build tool window: heading of the folder that holds a project's documentation tasks",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.build.group.other",
+      "description": "Build tool window: heading of the folder that holds the tasks of no other group",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.build.treeTruncated",
+      "description": "Build tool window line under a build system whose tree holds too many items to list them all",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.build.treeFailed",
+      "description": "Build tool window line when a loaded build model could not be laid out as a tree: {error}",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "error": "string"
+      }
+    },
+    {
       "id": "desktop.build.emptyOutput",
       "description": "Run a build task to see output.",
       "platforms": [
@@ -6656,6 +6773,41 @@
       }
     },
     {
+      "id": "desktop.build.modelStopped",
+      "description": "The note in the Build window and the Run window session that a build model load the user stopped has ended.",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.build.syncSession",
+      "description": "Run window tab title of a build model load (a project sync) of the build system {name}.",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "name": "string"
+      }
+    },
+    {
+      "id": "desktop.build.syncSessionAt",
+      "description": "Run window tab title of a build model load (a project sync) of the build system {name} whose project root {root} is not the workspace root.",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "name": "string",
+        "root": "string"
+      }
+    },
+    {
+      "id": "desktop.build.showSyncOutput",
+      "description": "Hover hint of the Build window line that a build model loads; a click shows the load's output in the Run window.",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
       "id": "desktop.build.noBuildSystems",
       "description": "No provider-backed build system was detected.",
       "platforms": [
@@ -6672,13 +6824,6 @@
     {
       "id": "desktop.build.noOptions",
       "description": "Build options dialog message when the build system declares no options",
-      "platforms": [
-        "desktop"
-      ]
-    },
-    {
-      "id": "desktop.build.noProjects",
-      "description": "No projects in the build model",
       "platforms": [
         "desktop"
       ]
@@ -6805,13 +6950,6 @@
       ]
     },
     {
-      "id": "desktop.build.projects",
-      "description": "Projects",
-      "platforms": [
-        "desktop"
-      ]
-    },
-    {
       "id": "desktop.build.refresh",
       "description": "Detect build systems again",
       "platforms": [
@@ -6880,13 +7018,6 @@
     {
       "id": "desktop.build.targets",
       "description": "Targets",
-      "platforms": [
-        "desktop"
-      ]
-    },
-    {
-      "id": "desktop.build.tasks",
-      "description": "Tasks",
       "platforms": [
         "desktop"
       ]
@@ -9780,15 +9911,25 @@
       }
     },
     {
-      "id": "desktop.git.console.hideQueries",
-      "description": "Desktop Git console: toolbar toggle that hides the read-only Git queries that succeeded, leaving the commands workflows ran.",
+      "id": "desktop.git.console.settings",
+      "description": "Desktop Git console: toolbar button that opens the Version Control settings, which choose the queries the console records and how it draws them.",
       "platforms": [
         "desktop"
       ]
     },
     {
       "id": "desktop.git.console.queryOutput",
-      "description": "Desktop Git console: stands for the folded output of a read-only Git query.",
+      "description": "Desktop Git console: stands for the folded output of a read-only Git query, count lines, count other than one.",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "count": "string"
+      }
+    },
+    {
+      "id": "desktop.git.console.queryOutputOne",
+      "description": "Desktop Git console: stands for the folded output of a read-only Git query of a single line.",
       "platforms": [
         "desktop"
       ],
@@ -9996,6 +10137,175 @@
       ]
     },
     {
+      "id": "desktop.git.log.limitReached",
+      "description": "Git Log: the end of a log that read as many commits as its limit while the history goes on",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "count": "integer"
+      }
+    },
+    {
+      "id": "desktop.git.log.adjustLimit",
+      "description": "Git Log: the button at the end of a log that reached its limit and opens the Git Log limits settings",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.git.pushAll.title",
+      "description": "Push Commits dialog: the title",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.git.pushAll.description",
+      "description": "Push Commits dialog: the description read by assistive technology",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.git.pushAll.defineRemote",
+      "description": "Push Commits dialog: shown instead of the destination of a repository without a remote",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.git.pushAll.emptyRepository",
+      "description": "Push Commits dialog: shown for a repository whose branch has no commit yet",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.git.pushAll.detachedHead",
+      "description": "Push Commits dialog: shown for a repository whose HEAD is detached",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.git.pushAll.upToDate",
+      "description": "Push Commits dialog: shown for a branch its remote already has",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.git.pushAll.readFailed",
+      "description": "Push Commits dialog: a repository Git could not read",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "reason": "string"
+      }
+    },
+    {
+      "id": "desktop.git.pushAll.pushTags",
+      "description": "Push Commits dialog: the checkbox that sends tags with the pushes",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.git.pushAll.tagsCurrentBranch",
+      "description": "Push Commits dialog: the tag choice that sends the tags of the pushed branch",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.git.pushAll.tagsAll",
+      "description": "Push Commits dialog: the tag choice that sends every tag",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.git.pushAll.skipped",
+      "description": "Push Commits dialog: a repository not pushed because a submodule it records failed to push",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "repository": "string"
+      }
+    },
+    {
+      "id": "desktop.git.pushAll.pushed",
+      "description": "Push Commits dialog: a repository the last push sent",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.git.pushAll.failed",
+      "description": "Push Commits dialog: a repository whose push failed",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "reason": "string"
+      }
+    },
+    {
+      "id": "desktop.git.pushAll.someFailed",
+      "description": "Push Commits dialog: the notification when some repositories were not pushed",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.git.pushAll.push",
+      "description": "Push Commits dialog: the button that pushes the checked repositories",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.git.pushAll.noCommitSelected",
+      "description": "Push Commits dialog: the file side before a commit is selected",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.git.pushAll.loadingFiles",
+      "description": "Push Commits dialog: the file side while the files of the selected commit load",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.git.pushAll.filesFailed",
+      "description": "Push Commits dialog: the file side when the files of the selected commit failed to load",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "reason": "string"
+      }
+    },
+    {
+      "id": "desktop.git.pushAll.noChangedFiles",
+      "description": "Push Commits dialog: the file side of a commit without changed files",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.git.pushAll.noRepositories",
+      "description": "Push Commits dialog: shown when no repository can be listed",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
       "id": "desktop.git.loading",
       "description": "Desktop Git: Loading",
       "platforms": [
@@ -10110,6 +10420,13 @@
       }
     },
     {
+      "id": "desktop.git.repo.choose",
+      "description": "Tooltip of the repository name after the Git Log's filter chips in a folder with several repositories: a click lists the repositories to walk",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
       "id": "desktop.git.repo.current",
       "description": "Header of the Git log's commit list: the repository the log walks",
       "platforms": [
@@ -10117,6 +10434,16 @@
       ],
       "parameters": {
         "name": "string"
+      }
+    },
+    {
+      "id": "desktop.git.repo.several",
+      "description": "Name after the Git Log's filter chips while the log walks several repositories of the folder together in one list",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "count": "string"
       }
     },
     {
@@ -10178,6 +10505,268 @@
     {
       "id": "desktop.git.settings.parentReferencesHelp",
       "description": "Help under the Show Update Parent Repository References switch",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.git.settings.logLimits",
+      "description": "Version Control settings: title of the card that sets the most commits the Git Log reads",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.git.settings.logLimitsHelp",
+      "description": "Help of the Git Log limits card in the Version Control settings",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.git.settings.logLimitSingle",
+      "description": "Git Log limits card: the row that sets the most commits read of one repository",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.git.settings.logLimitSingleHelp",
+      "description": "Help of the one-repository row of the Git Log limits card",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.git.settings.logLimitMerged",
+      "description": "Git Log limits card: the row that sets the most commits read of several repositories merged by date",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.git.settings.logLimitMergedHelp",
+      "description": "Help of the several-repositories row of the Git Log limits card",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.git.settings.logLimitDefault",
+      "description": "Git Log limits card: a choice of the limit that is the default",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "count": "integer"
+      }
+    },
+    {
+      "id": "desktop.git.settings.console.omitted",
+      "description": "Version Control settings: title of the card that chooses which internal Git queries the Git console leaves out",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.git.settings.console.omittedHelp",
+      "description": "Help of the Git console omitted-queries card: what an omitted kind means, that omitting one removes its recorded successful queries, and what always shows",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.git.settings.console.references",
+      "description": "Git console switch: leave out the branch and reference reads that run in the background",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.git.settings.console.referencesHelp",
+      "description": "Help of the Git console switch that leaves out background branch reads",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.git.settings.console.reload",
+      "description": "Git console switch: leave out the reads that reload state after an operation",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.git.settings.console.reloadHelp",
+      "description": "Help of the Git console switch that leaves out reloads after operations",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.git.settings.console.diffRefresh",
+      "description": "Git console switch: leave out the diff reads that follow saving a file",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.git.settings.console.diffRefreshHelp",
+      "description": "Help of the Git console switch that leaves out diff refreshes after saving",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.git.settings.console.diff",
+      "description": "Git console switch: leave out diff reads",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.git.settings.console.diffHelp",
+      "description": "Help of the Git console switch that leaves out diff reads",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.git.settings.console.log",
+      "description": "Git console switch: leave out the reads of the Git log",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.git.settings.console.logHelp",
+      "description": "Help of the Git console switch that leaves out the reads of the Git log",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.git.settings.console.logPathFilter",
+      "description": "Git console switch: leave out the reads the log's path filter runs",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.git.settings.console.logPathFilterHelp",
+      "description": "Help of the Git console switch that leaves out the log's path filter reads",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.git.settings.console.annotate",
+      "description": "Git console switch: leave out annotate (blame) and line history reads",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.git.settings.console.annotateHelp",
+      "description": "Help of the Git console switch that leaves out annotate and line history reads",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.git.settings.console.panels",
+      "description": "Git console switch: leave out the reads of Git lists and panels",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.git.settings.console.panelsHelp",
+      "description": "Help of the Git console switch that leaves out the reads of Git lists and panels",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.git.settings.console.checks",
+      "description": "Git console switch: leave out the queries an operation runs before and while it writes",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.git.settings.console.checksHelp",
+      "description": "Help of the Git console switch that leaves out the checks of operations",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.git.settings.console.display",
+      "description": "Version Control settings: title of the card that chooses how the Git console draws its records",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.git.settings.console.displayHelp",
+      "description": "Help of the Git console display card",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.git.settings.console.foldShortQueries",
+      "description": "Git console switch: fold a successful query's output of ten lines or fewer too, not only longer output",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.git.settings.console.foldShortQueriesHelp",
+      "description": "Help of the Git console switch that folds short query output: when output folds, and that a deletion never folds",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.git.settings.console.completedNotice",
+      "description": "Git console switch: leave out the notice under a command that completed without output",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.git.settings.console.completedNoticeHelp",
+      "description": "Help of the Git console switch that leaves out the no-output notice",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.git.settings.console.temporaryConfig",
+      "description": "Git console switch: hide the temporary -c configuration Lithe passes to a command entirely",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.git.settings.console.temporaryConfigHelp",
+      "description": "Help of the Git console switch that hides the temporary -c configuration",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.git.settings.console.repository",
+      "description": "Git console switch: leave the repository name out of each command line",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.git.settings.console.repositoryHelp",
+      "description": "Help of the Git console switch that leaves the repository name out",
       "platforms": [
         "desktop"
       ]
@@ -10783,13 +11372,6 @@
     {
       "id": "desktop.github.noReviewThreads",
       "description": "PR panel: the pull request has no line review comments",
-      "platforms": [
-        "desktop"
-      ]
-    },
-    {
-      "id": "desktop.github.notConfigured",
-      "description": "Shown when this build has no GitHub OAuth client",
       "platforms": [
         "desktop"
       ]
@@ -12684,13 +13266,6 @@
       ]
     },
     {
-      "id": "desktop.nested.commit",
-      "description": "Button on a nested repository's group: commit its staged changes with the message of the Commit tool window",
-      "platforms": [
-        "desktop"
-      ]
-    },
-    {
       "id": "desktop.nested.expand",
       "description": "Button on a nested repository's header in the Commit window: show its changes again",
       "platforms": [
@@ -12703,6 +13278,30 @@
       "platforms": [
         "desktop"
       ]
+    },
+    {
+      "id": "desktop.nested.roots",
+      "description": "Head of the repositories of the project folder in the Git Log's Paths filter and repository list; a box adds a repository to the log, a click on a name walks it alone",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.nested.rootsAll",
+      "description": "Button in the Git Log's repository list: walk every repository of the folder together in one list",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.nested.rootToggle",
+      "description": "Accessible label of a repository's box in the Git Log's repository list: add the repository to the log or take it out",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "name": "string"
+      }
     },
     {
       "id": "desktop.newProject.advanced",
@@ -13598,12 +14197,207 @@
     },
     {
       "id": "desktop.plugins.installedOnThisComputer",
-      "description": "Feature card of a plugin language server that runs a program already installed on this computer; arg1 lists the commands it tries",
+      "description": "Feature card of a plugin language server that runs a program on this computer rather than one inside the plugin; arg1 lists the commands it tries. It must not claim the program is installed: the card shows separately when it is missing",
       "platforms": [
         "desktop"
       ],
       "parameters": {
         "arg1": "string"
+      }
+    },
+    {
+      "id": "desktop.plugins.commandMissing",
+      "description": "Status of a plugin feature card whose program was not found; commands lists the commands it looks for",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "commands": "string"
+      }
+    },
+    {
+      "id": "desktop.plugins.commandMissingManual",
+      "description": "Help beside a missing program whose plugin declares no way to install it",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.plugins.commandMissingBanner",
+      "description": "Notice in plugin details when a program the plugin itself runs was not found; commands lists the commands",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "commands": "string"
+      }
+    },
+    {
+      "id": "desktop.plugins.commandMissingHelp",
+      "description": "Error when a plugin feature could not start because none of its commands was found; commands lists them",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "commands": "string"
+      }
+    },
+    {
+      "id": "desktop.plugins.commandInstallTitle",
+      "description": "Title of the dialog that installs a program a plugin needs; commands lists the commands",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "commands": "string"
+      }
+    },
+    {
+      "id": "desktop.plugins.commandInstallPrompt",
+      "description": "First line of the install dialog; tool is the tool that runs the installation, commands the commands it provides",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "tool": "string",
+        "commands": "string"
+      }
+    },
+    {
+      "id": "desktop.plugins.commandInstallNetwork",
+      "description": "Warning in the install dialog when the installation may download",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.plugins.commandInstallLocation",
+      "description": "Heading of the install locations in the install dialog",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.plugins.commandInstallManaged",
+      "description": "Install location owned by Lithe for the plugin",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.plugins.commandInstallManagedHelp",
+      "description": "Explains the Lithe-managed install location",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.plugins.commandInstallToolDefault",
+      "description": "Install location the tool uses by default; tool is the tool's name",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "tool": "string"
+      }
+    },
+    {
+      "id": "desktop.plugins.commandInstallToolDefaultHelp",
+      "description": "Explains the tool's default install location",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.plugins.commandInstallNoDirectory",
+      "description": "Shown under the default install location when it could not be found; tool is the tool's name",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "tool": "string"
+      }
+    },
+    {
+      "id": "desktop.plugins.commandInstallCommand",
+      "description": "Heading of the command line the install dialog will run",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.plugins.commandInstallOutput",
+      "description": "Heading of what the installation prints, in the install dialog",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.plugins.commandInstalled",
+      "description": "Install dialog after a successful installation; directory is where the commands are",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "directory": "string"
+      }
+    },
+    {
+      "id": "desktop.plugins.commandInstallFailed",
+      "description": "Install dialog when the installation exited with an error; code is the exit code",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "code": "string"
+      }
+    },
+    {
+      "id": "desktop.plugins.commandInstallStopped",
+      "description": "Install dialog when the installation ended without an exit code, such as on a signal",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.plugins.commandInstallTimedOut",
+      "description": "Install dialog when the installation ran past its time limit; seconds is the limit",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "seconds": "string"
+      }
+    },
+    {
+      "id": "desktop.plugins.commandInstallCommandsMissing",
+      "description": "Install dialog when the installation finished but the commands are not where expected",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "commands": "string",
+        "directory": "string"
+      }
+    },
+    {
+      "id": "desktop.plugins.commandInstallToolMissing",
+      "description": "Install dialog when the tool that installs was not found; tool is its name",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "tool": "string"
+      }
+    },
+    {
+      "id": "desktop.plugins.commandInstallError",
+      "description": "Install dialog for any other failure; reason is the underlying error, not translated",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "reason": "string"
       }
     },
     {
@@ -15371,7 +16165,7 @@
     },
     {
       "id": "desktop.settings.localHistory.builtInsHelp",
-      "description": "Settings > General > Local History: the built-in ignore rules are lines of the wildcard list; deleting one keeps its folder out of history, and deleting its \"!\" line turns it back on",
+      "description": "Settings > General > Local History: the default ignore rules, the folders hidden from the project tree (Lithe's own and those enabled plugins declare), are lines of the wildcard list; their files are never recorded even when a line is deleted, a deleted line shows as a \"!\" line, and deleting that line restores it",
       "platforms": [
         "desktop"
       ]
@@ -15883,6 +16677,111 @@
       ]
     },
     {
+      "id": "desktop.settings.terminal.behavior",
+      "description": "Terminal settings page, behavior card title",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.settings.terminal.clickMove",
+      "description": "Terminal settings page, behavior: click to move the cursor switch",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.settings.terminal.clickMoveHelp",
+      "description": "Terminal settings page, behavior: what click to move does",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.settings.terminal.cursor",
+      "description": "Terminal settings page, cursor: the card title",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.settings.terminal.cursorHelp",
+      "description": "Terminal settings page, cursor: what the card sets",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.settings.terminal.cursorShape",
+      "description": "Terminal settings page, cursor: the label of the shape choice",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.settings.terminal.cursorShapeBlock",
+      "description": "Terminal settings page, cursor: the shape that fills the cell",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.settings.terminal.cursorShapeBar",
+      "description": "Terminal settings page, cursor: the thin vertical shape before the cell",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.settings.terminal.cursorShapeUnderline",
+      "description": "Terminal settings page, cursor: the shape under the cell",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.settings.terminal.cursorThickness",
+      "description": "Terminal settings page, cursor: the label of the thickness choice of the bar and underline",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.settings.terminal.cursorThin",
+      "description": "Terminal settings page, cursor: the thinnest bar and underline",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.settings.terminal.cursorNormal",
+      "description": "Terminal settings page, cursor: the default bar and underline thickness",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.settings.terminal.cursorThick",
+      "description": "Terminal settings page, cursor: the thickest bar and underline",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.settings.terminal.optionAsMeta",
+      "description": "Terminal settings page, behavior: macOS Option as Meta switch",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.settings.terminal.optionAsMetaHelp",
+      "description": "Terminal settings page, behavior: what Option as Meta does",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
       "id": "desktop.settings.terminal.scrollback",
       "description": "Terminal settings page, scrollback",
       "platforms": [
@@ -15920,6 +16819,20 @@
     {
       "id": "desktop.settings.terminal.scrollbackMore",
       "description": "Terminal settings page, scrollback",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.settings.terminal.shellIntegration",
+      "description": "Terminal settings page, behavior: shell integration switch",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.settings.terminal.shellIntegrationHelp",
+      "description": "Terminal settings page, behavior: what shell integration does",
       "platforms": [
         "desktop"
       ]
@@ -16076,6 +16989,218 @@
       ]
     },
     {
+      "id": "desktop.settings.updates.installed",
+      "description": "Settings > Updates row: the channel this build was packaged for.",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.settings.updates.build",
+      "description": "Settings > Updates: the channel of this build, when it was built and from which commit.",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "channel": "string",
+        "time": "string",
+        "commit": "string"
+      }
+    },
+    {
+      "id": "desktop.settings.updates.local",
+      "description": "Settings > Updates for a local development build: it belongs to no channel and does not update.",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.settings.updates.channel",
+      "description": "Settings > Updates row: the channel updates come from.",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.settings.updates.channelHelp",
+      "description": "Settings > Updates help under the channel row.",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.settings.updates.channelFollowsBuild",
+      "description": "Settings > Updates channel list: the entry for the channel the installed build was packaged for, which updates follow while the user has not switched to the other. {channel} is that channel's name (desktop.updates.channel.*).",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "channel": "string"
+      }
+    },
+    {
+      "id": "desktop.settings.updates.channelBusy",
+      "description": "Settings > Updates help while an update downloads or installs, during which the channel and feeds cannot change.",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.settings.updates.source",
+      "description": "Settings > Updates row: the feed one channel reads.",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "channel": "string"
+      }
+    },
+    {
+      "id": "desktop.settings.updates.sourceDefault",
+      "description": "Settings > Updates: the channel reads its default feed, from the named repository.",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "repo": "string"
+      }
+    },
+    {
+      "id": "desktop.settings.updates.sourceCustom",
+      "description": "Settings > Updates: the channel reads a feed the user set, beside the button that restores the default.",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.settings.updates.sourceHelp",
+      "description": "Settings > Updates help under the feed rows.",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.settings.updates.sourceInvalid",
+      "description": "Settings > Updates when the feed address typed is not an https address.",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.settings.updates.sourceSave",
+      "description": "Settings > Updates button that saves the feed address typed.",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.settings.updates.sourceReset",
+      "description": "Settings > Updates button that puts the channel back on its default feed.",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.settings.updates.waiting",
+      "description": "Settings > Updates after switching from AutoBuild back to stable, waiting for a stable release past the build.",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "version": "string"
+      }
+    },
+    {
+      "id": "desktop.settings.updates.cross",
+      "description": "Settings > Updates when the release found is from the other channel the user switched to.",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "version": "string",
+        "channel": "string"
+      }
+    },
+    {
+      "id": "desktop.settings.updates.skipped",
+      "description": "Settings > Updates when the available version is one the user skipped.",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "version": "string"
+      }
+    },
+    {
+      "id": "desktop.settings.updates.toAutoBuild.title",
+      "description": "Title of the confirmation before switching from stable to AutoBuild.",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.settings.updates.toAutoBuild.body",
+      "description": "Body of the confirmation before switching from stable to AutoBuild.",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.settings.updates.toAutoBuild.confirm",
+      "description": "Button that confirms switching from stable to AutoBuild.",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.settings.updates.toStable.title",
+      "description": "Title of the confirmation before switching from AutoBuild back to stable.",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.settings.updates.toStable.body",
+      "description": "Body of the confirmation before switching from AutoBuild back to stable. {version} is the release the running AutoBuild builds towards.",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "version": "string"
+      }
+    },
+    {
+      "id": "desktop.settings.updates.toStable.wait",
+      "description": "Button of the switch back to stable: wait for a stable release past the running build.",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.settings.updates.toStable.now",
+      "description": "Button of the switch back to stable: install stable's latest release now.",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.settings.updates.restore",
+      "description": "Toggle in the channel switch confirmation: start the other channel's build with the settings saved when Lithe last left that channel.",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "channel": "string"
+      }
+    },
+    {
+      "id": "desktop.settings.updates.restoreHelp",
+      "description": "Help under the restore toggle of the channel switch confirmation.",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
       "id": "desktop.settings.updates.ready",
       "description": "Updates settings page and update notices.",
       "platforms": [
@@ -16119,6 +17244,61 @@
     {
       "id": "desktop.settings.updates.update",
       "description": "Updates settings page and update notices.",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.sourceSettings.add",
+      "description": "Generic source-backed settings form controls and status.",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.sourceSettings.allEntriesShown",
+      "description": "Generic source-backed settings form controls and status.",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.sourceSettings.close",
+      "description": "Generic source-backed settings form controls and status.",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.sourceSettings.compilerTitle",
+      "description": "Generic source-backed settings form controls and status.",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "compiler": "string"
+      }
+    },
+    {
+      "id": "desktop.sourceSettings.inherit",
+      "description": "Generic source-backed settings form controls and status.",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "value": "string"
+      }
+    },
+    {
+      "id": "desktop.sourceSettings.noValue",
+      "description": "Generic source-backed settings form controls and status.",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.sourceSettings.remove",
+      "description": "Generic source-backed settings form controls and status.",
       "platforms": [
         "desktop"
       ]
@@ -17058,6 +18238,23 @@
       }
     },
     {
+      "id": "desktop.terminal.pasteImageFailed",
+      "description": "Warning when a picture pasted into the terminal could not be saved as a file for the program to read",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "reason": "string"
+      }
+    },
+    {
+      "id": "desktop.terminal.pasteImageTooLarge",
+      "description": "Warning when the picture on the clipboard is too large to paste into the terminal",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
       "id": "desktop.terminal.restartHint",
       "description": "Desktop terminal: RestartHint",
       "platforms": [
@@ -17362,8 +18559,29 @@
       }
     },
     {
+      "id": "desktop.toolchains.custom",
+      "description": "Entry of a tool's directory list that shows a field for a directory discovery did not find.",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
       "id": "desktop.toolchains.description",
       "description": "Explains what the toolchain page shows and that Core decides the effective source.",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.toolchains.directory",
+      "description": "Desktop toolchain directory selection and validation.",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.toolchains.directoryHelp",
+      "description": "Desktop toolchain directory selection and validation.",
       "platforms": [
         "desktop"
       ]
@@ -17389,6 +18607,13 @@
         "version": "string",
         "provider": "string"
       }
+    },
+    {
+      "id": "desktop.toolchains.invalidDirectory",
+      "description": "Desktop toolchain directory selection and validation.",
+      "platforms": [
+        "desktop"
+      ]
     },
     {
       "id": "desktop.toolchains.loadFailed",
@@ -17522,6 +18747,13 @@
       }
     },
     {
+      "id": "desktop.toolchains.useDirectory",
+      "description": "Desktop toolchain directory selection and validation.",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
       "id": "desktop.tools.background",
       "description": "Desktop tools: Background",
       "platforms": [
@@ -17555,12 +18787,207 @@
     },
     {
       "id": "desktop.updates.available",
-      "description": "Notice after the startup update check finds a newer version.",
+      "description": "Notice after an update check Lithe made by itself finds a newer version of the channel; its button opens the update dialog. The green arrow is the update button at the top right of the title bar.",
       "platforms": [
         "desktop"
       ],
       "parameters": {
         "version": "string"
+      }
+    },
+    {
+      "id": "desktop.updates.viewChanges",
+      "description": "Button on the update notice and in Settings > Updates that opens the update dialog with the release notes.",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.updates.manual.managed",
+      "description": "Update dialog: the installation is managed by a package manager, so Lithe cannot replace itself.",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.updates.manual.notWritable",
+      "description": "Update dialog: Lithe has no permission to replace the application where it is installed.",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.updates.channel.stable",
+      "description": "Name of the stable update channel: released versions.",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.updates.channel.autobuild",
+      "description": "Name of the AutoBuild update channel: a build of every merge to main. Product name, kept in English.",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.updates.arrow.available",
+      "description": "Tooltip and accessibility label of the green update arrow on the title bar when a version is available.",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "version": "string"
+      }
+    },
+    {
+      "id": "desktop.updates.arrow.downloading",
+      "description": "Tooltip and accessibility label of the update arrow while the version downloads.",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "version": "string",
+        "percent": "string"
+      }
+    },
+    {
+      "id": "desktop.updates.arrow.ready",
+      "description": "Tooltip and accessibility label of the update arrow once the version is downloaded and waits for a restart.",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "version": "string"
+      }
+    },
+    {
+      "id": "desktop.updates.dialog.title",
+      "description": "Title of the update dialog.",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "version": "string"
+      }
+    },
+    {
+      "id": "desktop.updates.dialog.titleReady",
+      "description": "Title of the update dialog once the version is downloaded and waits for a restart.",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "version": "string"
+      }
+    },
+    {
+      "id": "desktop.updates.dialog.current",
+      "description": "Update dialog subtitle: the running version and the channel updates come from.",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "version": "string",
+        "channel": "string"
+      }
+    },
+    {
+      "id": "desktop.updates.dialog.sizeDelta",
+      "description": "Update dialog: the download is a delta update of {size}; {full} is the full package it replaces.",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "size": "string",
+        "full": "string"
+      }
+    },
+    {
+      "id": "desktop.updates.dialog.sizeFull",
+      "description": "Update dialog: the download is the full package of {size}.",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "size": "string"
+      }
+    },
+    {
+      "id": "desktop.updates.dialog.cross",
+      "description": "Update dialog: the release is from the other channel the user switched to, so it is a full install, and settings stay shared.",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "channel": "string"
+      }
+    },
+    {
+      "id": "desktop.updates.dialog.notesLoading",
+      "description": "Update dialog while the release notes load.",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.updates.dialog.noNotes",
+      "description": "Update dialog when the release has no notes Lithe could read.",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.updates.dialog.fullNotes",
+      "description": "Update dialog link to the release page with the full notes.",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.updates.dialog.skip",
+      "description": "Update dialog button: never offer this version again; a newer one is offered.",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.updates.dialog.later",
+      "description": "Update dialog button: close the dialog and keep the arrow on the title bar.",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.updates.dialog.download",
+      "description": "Update dialog button: download the version; Lithe asks before it restarts.",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.updates.dialog.restart",
+      "description": "Update dialog button once the version is downloaded: install it and restart Lithe.",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.updates.dialog.downloads",
+      "description": "Update dialog button for an installation that cannot replace itself: open the downloads page.",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.settings.unknownKept",
+      "description": "Notice at launch when settings.json holds settings this version does not recognize, such as ones a newer build or the other update channel wrote. They are ignored but kept in the file. {count} is how many, {keys} names up to five of them.",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "count": "string",
+        "keys": "string"
       }
     },
     {
@@ -26059,6 +27486,7 @@
       "id": "git.log.collapse",
       "description": "Windows UI: git.log.collapse",
       "platforms": [
+        "desktop",
         "windows"
       ],
       "parameters": {
@@ -26287,6 +27715,7 @@
       "id": "git.log.expand",
       "description": "Windows UI: git.log.expand",
       "platforms": [
+        "desktop",
         "windows"
       ],
       "parameters": {
@@ -26908,9 +28337,10 @@
     },
     {
       "id": "git.log.toolbar.moreActions",
-      "description": "Windows UI: git.log.toolbar.moreActions",
+      "description": "Windows UI: git.log.toolbar.moreActions; Viva desktop: the overflow menu button of the Git Log filter bar, holding the view buttons it has no room for",
       "platforms": [
-        "windows"
+        "windows",
+        "desktop"
       ]
     },
     {
@@ -95014,30 +96444,6 @@
       ]
     },
     {
-      "id": "run.incompleteProjectScanMessage",
-      "description": "Run: incomplete workspace scan warning",
-      "platforms": [
-        "macos",
-        "windows"
-      ],
-      "macos": {
-        "key": "Some project folders could not be read. Existing run configurations were retained. Restore access, then regenerate configurations.",
-        "arguments": []
-      }
-    },
-    {
-      "id": "run.incompleteProjectScanTitle",
-      "description": "Run: incomplete workspace scan warning",
-      "platforms": [
-        "macos",
-        "windows"
-      ],
-      "macos": {
-        "key": "Project scan is incomplete",
-        "arguments": []
-      }
-    },
-    {
       "id": "run.infrastructure",
       "description": "Windows UI: run.infrastructure",
       "platforms": [
@@ -106444,6 +107850,13 @@
       ]
     },
     {
+      "id": "desktop.marketplace.permissionCommandsInstall",
+      "description": "Plugin installation progress or review presentation.",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
       "id": "desktop.marketplace.permissionDebug",
       "description": "Plugin installation progress or review presentation.",
       "platforms": [
@@ -106516,6 +107929,47 @@
     {
       "id": "desktop.marketplace.failureHelp",
       "description": "Plugin installation result and recovery guidance.",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.sourceSettings.effective",
+      "description": "Generic native settings effective value presentation.",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "value": "string"
+      }
+    },
+    {
+      "id": "desktop.sourceSettings.fileCount",
+      "description": "Generic native settings effective value presentation.",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "count": "string"
+      }
+    },
+    {
+      "id": "desktop.toolchains.global",
+      "description": "Machine-wide toolchain scope selector.",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.toolchains.globalHelp",
+      "description": "Explains global SDK registrations, project overrides and process restart requirements.",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.toolchains.project",
+      "description": "Current-project toolchain scope selector.",
       "platforms": [
         "desktop"
       ]

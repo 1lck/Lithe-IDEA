@@ -167,8 +167,8 @@ func (a *App) logRefIntegrateItem(c ui.C, menu *ui.MenuItems, p *project, r core
 }
 
 // drawLogTrackingMenu declares the submenu that sets the remote branch the local branch r
-// tracks: the one it tracks, checked, with the item that stops tracking it, then every remote
-// branch of the repository.
+// tracks: the one it tracks, checked, with the item that stops tracking it, then the remote
+// branches of the repository in the folders of the reference pane's remote section.
 func (a *App) drawLogTrackingMenu(c ui.C, sub *ui.MenuItems, p *project, r core.GitReference, busy bool) {
 	lang := a.language()
 	if r.UpstreamShortName != "" {
@@ -178,13 +178,31 @@ func (a *App) drawLogTrackingMenu(c ui.C, sub *ui.MenuItems, p *project, r core.
 		}
 		sub.Separator()
 	}
-	remotes := p.log.sections[1].refs
-	if len(remotes) == 0 {
+	remotes := &p.log.sections[1]
+	if len(remotes.refs) == 0 {
 		sub.Item(i18n.Shared(lang, "native.noRemoteBranches")).Disabled(true)
 	}
-	for _, remote := range remotes {
-		if sub.Item(remote.ShortName).Disabled(busy || remote.ShortName == r.UpstreamShortName).Clicked() {
-			c.After(func() { a.setLogUpstream(p, r, &remote) })
+	a.drawLogTrackingNodes(c, sub, p, r, remotes, remotes.nodes, busy)
+}
+
+// drawLogTrackingNodes declares the nodes of the remote section's tree in menu: a folder, such
+// as the remote "origin" or "codex" in "origin/codex/fix", opens a submenu of what it holds, and
+// a remote branch is an item named by its last part that makes r track it. The tree is Core's
+// git.referenceTree, so the folders and their order are the reference pane's.
+func (a *App) drawLogTrackingNodes(c ui.C, menu *ui.MenuItems, p *project, r core.GitReference, s *logSection, nodes []core.ReferenceTreeNode, busy bool) {
+	for i := range nodes {
+		node := &nodes[i]
+		if node.Reference == nil {
+			menu.Sub(node.Name, func(folder *ui.MenuItems) {
+				a.drawLogTrackingNodes(c, folder, p, r, s, node.Children, busy)
+			})
+			continue
+		}
+		if j := *node.Reference; j >= 0 && j < len(s.refs) {
+			remote := s.refs[j]
+			if menu.Item(node.Name).Disabled(busy || remote.ShortName == r.UpstreamShortName).Clicked() {
+				c.After(func() { a.setLogUpstream(p, r, &remote) })
+			}
 		}
 	}
 }

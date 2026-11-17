@@ -280,6 +280,10 @@ type GitMessages struct {
 	LoadMore       string
 	LoadingCommits string
 	LoadMoreFailed string
+	// LimitReached ends a log that read count commits, as many as the Git Log settings let it,
+	// while the history goes on; AdjustLimit opens those settings.
+	LimitReached func(count int) string
+	AdjustLimit  string
 
 	// The changed files and the commit details.
 	SelectCommit   string
@@ -498,6 +502,10 @@ type TerminalMessages struct {
 	FindCount                                         func(current, total string) string
 	// OpenLinkFailed tells that a clicked link could not be opened.
 	OpenLinkFailed func(reason string) string
+	// PasteImageFailed tells that the picture on the clipboard could not be saved for a
+	// paste, and PasteImageTooLarge that it was too large to read.
+	PasteImageFailed   func(reason string) string
+	PasteImageTooLarge string
 	// ShellMenu is the accessible name of the button beside NewTab that lists the
 	// installed shells. DetectingShells and NoShells stand in that list while it is being
 	// made and when it found none. ShellWithPath names an installation whose name another

@@ -51,6 +51,9 @@ import (
 // the calls that read the disk or run Git, so a screen can be checked against answers the
 // test chooses.
 type Kernel interface {
+	ReadSourceSettings(context.Context, json.RawMessage) (core.SourceSettingsState, error)
+	PlanSourceSettingsEdits(context.Context, core.SourceSettingsSnapshot, []core.SourceSettingsEdits, bool) ([]core.SourceSettingsWrite, error)
+	DecodeSourceSettingsReceipt(context.Context, core.SourceSettingsWrite, json.RawMessage) (core.SourceSettingsReceipt, error)
 	SelectPluginFunctionProvider(context.Context, string, string, string, string, []core.PluginFunctionProviderCandidate) (string, error)
 	ReduceRecentProjects(ctx context.Context, entries []core.RecentProject, action core.RecentAction, capacity int) (core.RecentProjectsResult, error)
 	GitCheckoutBranch(ctx context.Context, text string) (string, error)
@@ -58,7 +61,7 @@ type Kernel interface {
 	ReduceChromeLayout(ctx context.Context, catalog []core.ChromeItem, state core.ChromeLayout, action core.ChromeAction) (core.ChromeLayout, bool, error)
 	GitStatus(ctx context.Context, root string) (core.GitStatus, error)
 	GitReferences(ctx context.Context, root string) (core.GitReferences, error)
-	GitHistoryPage(ctx context.Context, root, reference, cursor string, limit int) (core.GitHistoryPage, error)
+	GitHistoryPage(ctx context.Context, root, reference, cursor string, limit, maxCommits int) (core.GitHistoryPage, error)
 	DetectBuildSystems(ctx context.Context, workspaceRoot string, manifests []json.RawMessage) (core.BuildDetection, error)
 	DetectBuildSystemsWithOptions(ctx context.Context, workspaceRoot string, manifests []json.RawMessage, options core.BuildDetectOptions) (core.BuildDetection, error)
 	ResolveStoredBuildOptions(ctx context.Context, document, local json.RawMessage) (core.BuildStoredOptions, error)
@@ -95,7 +98,7 @@ type Kernel interface {
 	CreateDebugSession(ctx context.Context, request core.DebugCreateSessionRequest) (core.DebugUpdate, error)
 	LaunchDebug(ctx context.Context, sessionID, operationID string, configuration core.DebugLaunchConfiguration) (core.DebugUpdate, error)
 	NormalizeSteppingFilters(ctx context.Context, adapterID string, filters core.DebugSteppingFilters) (core.DebugSteppingFilters, error)
-	GenerateRunConfigurations(ctx context.Context, root, cacheDirectory string, providerRuns json.RawMessage) (core.RunConfigGeneration, error)
+	GenerateRunConfigurations(ctx context.Context, root string, providerRuns json.RawMessage) (core.RunConfigGeneration, error)
 	ResolveRunConfigurations(ctx context.Context, root string) (core.RunConfigResolution, error)
 	DecideTitleAction(ctx context.Context, facts core.TitleActionFacts) (string, error)
 	ProviderLaunchInputs(ctx context.Context, root, configurationID, providerRoot string) (core.RunProviderLaunchInputs, error)
@@ -115,12 +118,22 @@ type Kernel interface {
 	PlanBuildDebug(ctx context.Context, manifest json.RawMessage, buildSystemID string, request core.BuildPlanRequest) (core.BuildPlan, error)
 	DecodeBuildDebug(ctx context.Context, manifest json.RawMessage, buildSystemID string, request core.BuildDecodeDebugRequest) (core.BuildDebugPreparation, error)
 	DecodeBuildModel(ctx context.Context, manifest json.RawMessage, buildSystemID string, request core.BuildDecodeModelRequest) (core.BuildModel, error)
+	// BuildModelTree lays out a loaded model as the Build tool window's tree (build_tree.go).
+	BuildModelTree(ctx context.Context, manifest json.RawMessage, buildSystemID string, request core.BuildModelTreeRequest) (core.BuildModelTree, error)
 	DecodeBuildRun(ctx context.Context, manifest json.RawMessage, buildSystemID string, request core.BuildDecodeRunRequest) (core.BuildLaunch, error)
 	ToolchainRegistryOf(ctx context.Context, manifests []json.RawMessage) (core.ToolchainRegistry, error)
+	// CommandInstallerRequirements, PlanCommandInstaller and CommandInstallerDefaultDirectory
+	// read a plugin's commandInstallers[]: which systemCommand launches name which commands,
+	// one installer expanded for the target the user chose, and the directory a toolDefault
+	// installation lands in from its probes' output (command_installers.go).
+	CommandInstallerRequirements(ctx context.Context, manifest json.RawMessage) (core.CommandRequirements, error)
+	PlanCommandInstaller(ctx context.Context, manifest json.RawMessage, installerID, target, installDirectory string) (core.CommandInstallPlan, error)
+	CommandInstallerDefaultDirectory(ctx context.Context, manifest json.RawMessage, installerID string, outputs []*string) (string, bool, error)
 	ToolchainDiscoveryPlanOf(ctx context.Context, registry json.RawMessage, platform string) (core.ToolchainDiscoveryPlan, error)
 	ToolchainCandidatesOf(ctx context.Context, request core.ToolchainCandidatesRequest) (core.ToolchainCandidates, error)
 	ResolveToolchain(ctx context.Context, request core.ToolchainResolveRequest) (core.ToolchainResolution, error)
 	ResolveToolchainPins(ctx context.Context, document json.RawMessage, directory, tool string) (core.ToolchainPinResolution, error)
+	EditToolchainPins(ctx context.Context, document json.RawMessage, directory string, edits []core.ToolchainPinEdit) (json.RawMessage, error)
 	ToolchainPinStorage(ctx context.Context) (core.ToolchainPinStoragePlan, error)
 	DecodeToolchainPinDocument(ctx context.Context, document *string) (json.RawMessage, error)
 	EditToolchainPinSources(ctx context.Context, request core.ToolchainPinSourcesRequest) (core.ToolchainPinSourcesEdit, error)
@@ -173,7 +186,7 @@ type Kernel interface {
 	GitUnlockWorktree(ctx context.Context, root, path string) error
 	GitPruneWorktrees(ctx context.Context, root string) error
 	GitRepairWorktrees(ctx context.Context, root string) error
-	GitConsolePresentation(ctx context.Context, records []core.GitConsoleRecord, search string) (core.GitConsolePresentation, error)
+	GitConsolePresentation(ctx context.Context, records []core.GitConsoleRecord, search string, display core.GitConsoleDisplay) (core.GitConsolePresentation, error)
 	ListDirectories(ctx context.Context, root string, paths []string) ([]core.DirectoryListing, error)
 	PlanDocumentSaveBatch(ctx context.Context, documents []core.SaveBatchDocument) (core.SaveBatchPlan, error)
 	ReduceDocumentSaveBatch(ctx context.Context, members []string, results []core.SaveBatchResult, documents []core.SaveBatchDocument) (core.SaveBatchDecision, error)
@@ -293,6 +306,14 @@ type settings struct {
 	// HideParentReferences hides the option that records submodule commits in the parent
 	// repositories; while it is hidden every commit updates them. The option shows by default.
 	HideParentReferences bool `json:"hideParentReferences,omitempty"`
+	// GitLogLimit and GitLogMergedLimit are the most commits the Git Log reads of one repository
+	// and of several at once; zero is settingswindow.DefaultGitLogLimit and
+	// DefaultGitLogMergedLimit (gitlog_limits.go).
+	GitLogLimit       int `json:"gitLogLimit,omitempty"`
+	GitLogMergedLimit int `json:"gitLogMergedLimit,omitempty"`
+	// GitConsole says which internal Git queries the Git console records and how it draws its
+	// records; the zero value is IntelliJ IDEA's console (gitconsole_settings.go).
+	GitConsole core.GitConsolePreferences `json:"gitConsole,omitzero"`
 	// DisableSemanticHighlight keeps the syntax colors alone; semantic coloring is on by default.
 	DisableSemanticHighlight bool `json:"disableSemanticHighlight,omitempty"`
 	// VimMode turns on the Vim keys of every editor; off by default (vim_mode.go).
@@ -315,6 +336,14 @@ type settings struct {
 	// TerminalScrollback is the history lines a new terminal keeps; zero is
 	// settingswindow.DefaultScrollback.
 	TerminalScrollback int `json:"terminalScrollback,omitempty"`
+	// TerminalCursorShape and TerminalCursorThickness are the terminal cursor the
+	// Terminal page chose, as settingswindow.Values holds them; empty is the block of
+	// normal thickness. See terminalCursor.
+	TerminalCursorShape     string `json:"terminalCursorShape,omitempty"`
+	TerminalCursorThickness string `json:"terminalCursorThickness,omitempty"`
+	// TerminalBehavior is the Terminal page's switches; the zero value is the default of each.
+	// See terminalOptions.
+	TerminalBehavior settingswindow.TerminalBehavior `json:"terminalBehavior,omitzero"`
 	// ProcessTermination is the user's part of Core's process termination settings, as the
 	// Process Termination page edits it; the zero value keeps Core's defaults.
 	ProcessTermination settingswindow.ProcessTermination `json:"processTermination,omitzero"`
@@ -339,6 +368,18 @@ type settings struct {
 	// Both are the window's (updater.store, updates.go).
 	UpdatesManual    bool      `json:"updatesManual,omitempty"`
 	UpdatesCheckedAt time.Time `json:"updatesCheckedAt,omitzero"`
+	// UpdateChannel is the channel the user chose to update from when it is not the one the
+	// build was packaged for; empty follows the build. UpdateSources are the feeds the user set
+	// in place of a channel's default, and UpdateSkipped the version the user skipped, both by
+	// channel. UpdateReturnNow and UpdateRestore are what the user chose with UpdateChannel:
+	// stable's latest release at once on the way back from AutoBuild rather than the first one
+	// past the build, and the settings kept when Lithe last left the channel brought back once
+	// its release is installed. All are the window's (updater.store, updates.go).
+	UpdateChannel   string            `json:"updateChannel,omitempty"`
+	UpdateReturnNow bool              `json:"updateReturnNow,omitempty"`
+	UpdateRestore   bool              `json:"updateRestore,omitempty"`
+	UpdateSources   map[string]string `json:"updateSources,omitempty"`
+	UpdateSkipped   map[string]string `json:"updateSkipped,omitempty"`
 	// Network is the proxy settings of the application's own HTTP traffic (network.go).
 	Network settingswindow.NetworkSettings `json:"network,omitzero"`
 	// LocalHistory is which files local history leaves out and how much of it a project keeps
@@ -347,6 +388,9 @@ type settings struct {
 	// WorkbenchBackground is the image chosen to show behind the workbench and how much of it
 	// shows; the image itself is a copy in the data folder (workbench_background.go).
 	WorkbenchBackground savedBackground `json:"workbenchBackground,omitzero"`
+	// UnknownSettingsNoticed names the set of settings this version could not read that the
+	// first window last told about, so the same set is told once (settings_kept.go).
+	UnknownSettingsNoticed string `json:"unknownSettingsNoticed,omitempty"`
 }
 
 const (
@@ -452,6 +496,11 @@ type App struct {
 	recentFiles           recentFileState
 	drafts                draftListState
 	editorPreferences     core.EditorPreferences
+	// clipboardImage and pasteDirectory replace, in tests, reading the clipboard's picture
+	// and the cache folder a picture pasted into a terminal is saved in
+	// (terminal_paste_image.go); nil is the system's.
+	clipboardImage func() ([]byte, error)
+	pasteDirectory func() (string, error)
 	// debugAttach are the host and port fields of the Debug panel's attach form.
 	debugAttach debugAttachFields
 	// root is the window's page; dnd are its drag and drop gestures and focus the control
@@ -724,12 +773,21 @@ func New(options Options) *App {
 	}
 	a.gitConsole = core.NewGitConsole(a.gitConsoleChanged)
 	// The settings are read before the log sink is in place; a failure is recorded below, once
-	// it is.
+	// it is. The first window first restores the settings an update to another channel asked
+	// to bring back (update_snapshots.go).
+	var restoreErr error
+	if options.first == nil {
+		_, restoreErr = restorePendingSettings(a.store, buildinfo.InstalledChannel(), options.Version)
+	}
 	_, settingsErr := a.store.Load(settingsFile, &a.settings)
 	if settingsErr != nil {
 		a.settings = settings{}
 	}
+	// A value of a shape this version cannot take leaves only its own setting on the default;
+	// the rest loaded. It is logged below with the failures, and the notice tells it is kept.
+	settingsUnread := a.store.Unread(settingsFile)
 	a.settings.Keymap = shortcuts.Normalize(a.settings.Keymap)
+	a.gitConsole.RecordQueries(a.settings.GitConsole.QueryCategories())
 	a.loadEditorEssentials()
 	a.initRecovery()
 	a.applyNetwork()
@@ -784,6 +842,11 @@ func New(options Options) *App {
 	}
 	if settingsErr != nil {
 		a.storedStateFailed("settings", settingsErr)
+	} else if settingsUnread != nil {
+		a.storedStateFailed("settings", settingsUnread)
+	}
+	if restoreErr != nil {
+		a.backgroundFailed("update_snapshot", restoreErr)
 	}
 	a.openPlugins(options)
 	a.settingsWindow = a.newSettingsWindow()
@@ -791,6 +854,11 @@ func New(options Options) *App {
 	a.loadChrome()
 	if options.first == nil && a.store != nil {
 		a.restoreBackground()
+		if settingsErr == nil {
+			// After the background is restored: the notice saves the settings, which would
+			// otherwise save no background.
+			a.noticeUnknownSettings()
+		}
 	}
 	return a
 }

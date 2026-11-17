@@ -135,6 +135,7 @@ func (a *App) newSettingsWindow() *settingswindow.Controller {
 		UninstallPlugin: func(id string) {
 			a.post(func(a *App) { a.uninstallPlugin(id) })
 		},
+		CommandInstalls: settingsCommandInstalls{app: a},
 		Language: func() i18n.Language {
 			if a.shared.text.Load() == i18n.For(i18n.Chinese) {
 				return i18n.Chinese
@@ -186,6 +187,12 @@ func (a *App) newSettingsWindow() *settingswindow.Controller {
 		SetHideParentReferences: func(value bool) {
 			a.post(func(a *App) { a.setHideParentReferences(value) })
 		},
+		SetGitLogLimits: func(single, merged int) {
+			a.post(func(a *App) { a.setGitLogLimits(single, merged) })
+		},
+		SetGitConsole: func(value core.GitConsolePreferences) {
+			a.post(func(a *App) { a.setGitConsolePreferences(value) })
+		},
 		SetDisableSemanticHighlight: func(value bool) {
 			a.post(func(a *App) { a.setDisableSemanticHighlight(value) })
 		},
@@ -227,6 +234,12 @@ func (a *App) newSettingsWindow() *settingswindow.Controller {
 		SetTerminalScrollback: func(lines int) {
 			a.post(func(a *App) { a.setTerminalScrollback(lines) })
 		},
+		SetTerminalCursor: func(shape, thickness string) {
+			a.post(func(a *App) { a.setTerminalCursor(shape, thickness) })
+		},
+		SetTerminalBehavior: func(behavior settingswindow.TerminalBehavior) {
+			a.post(func(a *App) { a.setTerminalBehavior(behavior) })
+		},
 		ResetLayout: func() {
 			a.post(func(a *App) { a.resetLayout() })
 		},
@@ -259,7 +272,12 @@ func (a *App) newSettingsWindow() *settingswindow.Controller {
 		UpdateNow:           func() { a.post(func(a *App) { a.updateNow() }) },
 		CancelUpdate:        func() { a.post(func(a *App) { a.cancelUpdate() }) },
 		SetAutoCheckUpdates: func(on bool) { a.post(func(a *App) { a.setAutoCheckUpdates(on) }) },
-		OpenURL:             func(address string) { a.post(func(a *App) { a.openSettingsLink(address) }) },
+		SetUpdateChannel: func(channel string, now, restore bool) {
+			a.post(func(a *App) { a.setUpdateChannel(channel, now, restore) })
+		},
+		SetUpdateSource: func(channel, url string) { a.post(func(a *App) { a.setUpdateSource(channel, url) }) },
+		ShowUpdate:      func() { a.post(func(a *App) { a.showUpdateDialog(surfaceButton) }) },
+		OpenURL:         func(address string) { a.post(func(a *App) { a.openSettingsLink(address) }) },
 		SetNetwork: func(next settingswindow.NetworkSettings, password *string) {
 			a.post(func(a *App) { a.setNetwork(next, password) })
 		},
@@ -371,6 +389,9 @@ const (
 	settingsAI
 	// settingsKeymap is the Keymap page, which the gear menu's Keymap item opens.
 	settingsKeymap
+	// settingsVersionControl is the Version Control page, which the Git console's settings
+	// button opens.
+	settingsVersionControl
 )
 
 func (a *App) openSettingsPage(surface actionSurface, page settingsPage) {
@@ -398,9 +419,13 @@ func (a *App) openSettingsPageWith(surface actionSurface, page settingsPage, que
 			EditorTabRows: a.settings.EditorTabRows, EditorTabOverflow: a.settings.EditorTabOverflow,
 			EditorTabLimit: settingswindow.TabLimitOf(a.settings.EditorTabLimit), EditorTabPolicy: a.settings.EditorTabPolicy,
 			TerminalShell: a.settings.TerminalShell, TerminalScrollback: a.terminalScrollback(),
+			TerminalCursorShape: settingswindow.NormalCursorShape(a.settings.TerminalCursorShape), TerminalCursorThickness: settingswindow.NormalCursorThickness(a.settings.TerminalCursorThickness),
+			TerminalBehavior:  a.settings.TerminalBehavior,
 			HideProjectColors: a.settings.HideProjectColors, ProjectOpenDestination: a.settings.ProjectOpenDestination,
 			HideGitGutter: a.settings.HideGitGutter, InlineGitBlame: a.settings.InlineGitBlame,
 			HideChangeLists: a.settings.HideChangeLists, HideParentReferences: a.settings.HideParentReferences,
+			GitLogLimit: a.gitLogLimit(), GitLogMergedLimit: a.gitLogMergedLimit(),
+			GitConsole:               a.settings.GitConsole,
 			DisableSemanticHighlight: a.settings.DisableSemanticHighlight,
 			VimMode:                  a.settings.VimMode,
 			DisableAutoSave:          a.settings.DisableAutoSave,
@@ -427,6 +452,8 @@ func (a *App) openSettingsPageWith(surface actionSurface, page settingsPage, que
 			err = a.settingsWindow.OpenKeymap(a.application, current)
 		case settingsAI:
 			err = a.settingsWindow.OpenAI(a.application, current)
+		case settingsVersionControl:
+			err = a.settingsWindow.OpenVersionControl(a.application, current)
 		default:
 			err = a.settingsWindow.Open(a.application, current)
 		}

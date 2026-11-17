@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"os"
 	"path/filepath"
 	"strings"
 	"sync/atomic"
@@ -18,8 +19,10 @@ var loadSequence atomic.Uint64
 // UnavailableError reports that Core refused to select an installation. Code is
 // a stable Core reason; callers localize it rather than parsing the text.
 type UnavailableError struct {
-	Tool string
-	Code string
+	// Terminal preserves Core's refusal of a fixed or pinned installation.
+	Terminal bool
+	Tool     string
+	Code     string
 }
 
 func (e *UnavailableError) Error() string {
@@ -45,6 +48,14 @@ func RegistryInput(manifests []json.RawMessage) (json.RawMessage, error) {
 // probes, Core's candidate report and the effective layer for every definition.
 // It writes nothing.
 func Load(ctx context.Context, kernel Kernel, root, directory string, manifests []json.RawMessage, options Options) (Snapshot, error) {
+	catalog, catalogErr := captureCatalog(ctx, kernel, options.GlobalRoot, options.Platform)
+	if catalogErr != nil {
+		return Snapshot{}, catalogErr
+	}
+	if catalog != nil {
+		options.catalog = &catalog.state.Document
+	}
+
 	if kernel == nil {
 		return Snapshot{}, fmt.Errorf("toolchain: no Core client")
 	}
@@ -52,7 +63,10 @@ func Load(ctx context.Context, kernel Kernel, root, directory string, manifests 
 	if err != nil {
 		return Snapshot{}, err
 	}
-	rootIdentity, err := directoryIdentity(ctx, workspace.root)
+	var rootIdentity os.FileInfo
+	if !options.Global {
+		rootIdentity, err = directoryIdentity(ctx, workspace.root)
+	}
 	if err != nil {
 		return Snapshot{}, err
 	}
@@ -72,11 +86,15 @@ func Load(ctx context.Context, kernel Kernel, root, directory string, manifests 
 	for _, entry := range registry.Definitions {
 		definitions[entry.Definition.ID] = entry.Definition
 	}
-	captured, err := capturePinSource(ctx, kernel, workspace.root)
+	captured := pinSource{document: json.RawMessage(`{"version":1,"toolchains":{}}`)}
+	if !options.Global {
+		captured, err = capturePinSource(ctx, kernel, workspace.root)
+	}
 	if err != nil {
 		return Snapshot{}, err
 	}
 	snapshot := Snapshot{
+		Global: options.Global, catalog: catalog,
 		Root:         workspace.root,
 		rootIdentity: rootIdentity,
 		Directory:    directory,
@@ -119,8 +137,41 @@ func Load(ctx context.Context, kernel Kernel, root, directory string, manifests 
 			tool.Pin = pin
 			tool.PinSource = source
 		}
-		if prepared.candidates.Selected != nil {
-			tool.AutomaticHome = *prepared.candidates.Selected
+		if options.catalog != nil {
+			tool.CustomHomes = append([]string(nil), options.catalog.Tools[planned.Tool].Homes...)
+		}
+		if options.Global && prepared.globalDefault != nil {
+			home := prepared.globalDefault.Home
+			tool.Pin = &core.ToolchainPin{Home: home, Provider: "host:default"}
+			tool.PinSource = "global"
+		}
+		// Automatic uses the runtime resolver too: the discovery report's
+		// selected installation omits environment and command candidates.
+		automatic := resolution
+		if options.Global && prepared.globalDefault != nil {
+			automaticPrepared := prepared
+			automaticPrepared.globalDefault = nil
+			automatic, err = resolveTool(ctx, kernel, workspace, registryRequest, automaticPrepared, captured.document, directory, options.MinimumVersion, fmt.Sprintf("settings-auto-global-%d-%d", sequence, index))
+			if err != nil {
+				return Snapshot{}, err
+			}
+		}
+		if pin != nil {
+			document, err := kernel.EditToolchainPins(ctx, captured.document, directory, []core.ToolchainPinEdit{{Tool: planned.Tool}})
+			if err != nil {
+				return Snapshot{}, err
+			}
+			automatic, err = resolveTool(ctx, kernel, workspace, registryRequest, prepared, document, directory,
+				options.MinimumVersion, fmt.Sprintf("settings-auto-%d-%d", sequence, index))
+			if err != nil {
+				return Snapshot{}, err
+			}
+		}
+		if automatic.Outcome.Kind == "resolved" && automatic.Outcome.Selection != nil {
+			tool.AutomaticHome = automatic.Outcome.Selection.Executable
+			if automatic.Outcome.Selection.Home != nil {
+				tool.AutomaticHome = *automatic.Outcome.Selection.Home
+			}
 		}
 		if resolution.Outcome.Kind == "resolved" {
 			tool.Effective = resolution.Outcome.Selection
@@ -134,6 +185,14 @@ func Load(ctx context.Context, kernel Kernel, root, directory string, manifests 
 // facts and Core entry points as the settings page, so a displayed value and a
 // launched executable cannot come from two rule sets.
 func Resolve(ctx context.Context, kernel Kernel, root, directory, tool, minimumVersion string, fixed *Fixed, manifests []json.RawMessage, options Options) (Selection, error) {
+	catalog, catalogErr := captureCatalog(ctx, kernel, options.GlobalRoot, options.Platform)
+	if catalogErr != nil {
+		return Selection{}, catalogErr
+	}
+	if catalog != nil {
+		options.catalog = &catalog.state.Document
+	}
+
 	if kernel == nil {
 		return Selection{}, fmt.Errorf("toolchain: no Core client")
 	}
@@ -157,7 +216,10 @@ func Resolve(ctx context.Context, kernel Kernel, root, directory, tool, minimumV
 	for _, entry := range registry.Definitions {
 		definitions[entry.Definition.ID] = entry.Definition
 	}
-	captured, err := capturePinSource(ctx, kernel, workspace.root)
+	captured := pinSource{document: json.RawMessage(`{"version":1,"toolchains":{}}`)}
+	if !options.Global {
+		captured, err = capturePinSource(ctx, kernel, workspace.root)
+	}
 	if err != nil {
 		return Selection{}, err
 	}
@@ -183,7 +245,7 @@ func Resolve(ctx context.Context, kernel Kernel, root, directory, tool, minimumV
 			if resolution.Outcome.Reason != nil && resolution.Outcome.Reason.Code != "" {
 				code = resolution.Outcome.Reason.Code
 			}
-			return Selection{}, &UnavailableError{Tool: tool, Code: code}
+			return Selection{}, &UnavailableError{Tool: tool, Code: code, Terminal: resolution.Outcome.Kind == "terminalFailure"}
 		}
 		return *resolution.Outcome.Selection, nil
 	}
@@ -191,6 +253,7 @@ func Resolve(ctx context.Context, kernel Kernel, root, directory, tool, minimumV
 }
 
 type preparedTool struct {
+	globalDefault *core.ToolchainGlobalDefault
 	definition    core.ToolchainToolDefinition
 	candidates    core.ToolchainCandidates
 	facts         []core.ToolchainFileFact
@@ -206,6 +269,12 @@ type preparedTool struct {
 // otherwise consider.
 func prepareTool(ctx context.Context, kernel Kernel, workspace *workspace, registry json.RawMessage, document json.RawMessage, planned core.ToolchainDiscoveryPlanTool, definition core.ToolchainToolDefinition, directory string, options Options, fixed *Fixed) (preparedTool, *core.ToolchainPin, string, error) {
 	prepared := preparedTool{definition: definition, fixed: fixed}
+	if options.catalog != nil {
+		entry := options.catalog.Tools[planned.Tool]
+		if entry.DefaultHome != nil {
+			prepared.globalDefault = &core.ToolchainGlobalDefault{Home: *entry.DefaultHome}
+		}
+	}
 	pinResolution, err := kernel.ResolveToolchainPins(ctx, document, directory, planned.Tool)
 	if err != nil {
 		return prepared, nil, "", err
@@ -213,6 +282,9 @@ func prepareTool(ctx context.Context, kernel Kernel, workspace *workspace, regis
 	homes, err := workspace.expandScans(planned)
 	if err != nil {
 		return prepared, nil, "", err
+	}
+	if options.catalog != nil {
+		homes = append(homes, options.catalog.Tools[planned.Tool].Homes...)
 	}
 	for _, home := range homes {
 		prepared.installations = append(prepared.installations, core.ToolchainSystemInstallation{Tool: planned.Tool, Home: home})
@@ -285,6 +357,7 @@ func prepareTool(ctx context.Context, kernel Kernel, workspace *workspace, regis
 	prepared.facts = workspace.all()
 
 	request := core.ToolchainCandidatesRequest{
+		Global:              options.Global,
 		Registry:            registry,
 		Tool:                planned.Tool,
 		Platform:            workspace.platform,
@@ -293,6 +366,7 @@ func prepareTool(ctx context.Context, kernel Kernel, workspace *workspace, regis
 		MinimumVersion:      options.MinimumVersion,
 		SystemInstallations: prepared.installations,
 		Environment:         prepared.environment,
+		CommandHomes:        prepared.commandHomes,
 		Fixed:               prepared.fixed,
 	}
 	candidates, err := kernel.ToolchainCandidatesOf(ctx, request)
@@ -345,6 +419,7 @@ func prepareTool(ctx context.Context, kernel Kernel, workspace *workspace, regis
 // resolveTool runs Core's four-layer resolution over the prepared evidence.
 func resolveTool(ctx context.Context, kernel Kernel, workspace *workspace, registry json.RawMessage, prepared preparedTool, document json.RawMessage, directory, minimumVersion, operationID string) (core.ToolchainResolution, error) {
 	request := core.ToolchainResolveRequest{
+		Global: workspace.root == "", GlobalDefault: prepared.globalDefault,
 		Registry:            registry,
 		Tool:                prepared.definition.ID,
 		Directory:           directory,

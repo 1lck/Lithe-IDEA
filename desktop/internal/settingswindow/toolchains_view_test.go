@@ -12,10 +12,15 @@ import (
 )
 
 type fakeToolchainLoader struct {
-	snapshot toolchain.Snapshot
-	loaded   chan struct{}
-	saved    chan []toolchain.Edit
-	saveErr  error
+	snapshot   toolchain.Snapshot
+	loaded     chan struct{}
+	saved      chan []toolchain.Edit
+	saveErr    error
+	inspectErr error
+}
+
+func (f *fakeToolchainLoader) Inspect(_ context.Context, _ toolchain.Snapshot, _ string, home string) (core.ToolchainSelection, error) {
+	return core.ToolchainSelection{Home: &home, Executable: home + "/bin/compiler", Version: "9.1"}, f.inspectErr
 }
 
 func (f *fakeToolchainLoader) Load(context.Context) (toolchain.Snapshot, error) {
@@ -81,6 +86,59 @@ func installationLabel() string {
 	})
 }
 
+// chooseToolchain chooses entry in the fixture tool's directory list, by the label the list
+// shows for it.
+func (d *windowDriver) chooseToolchain(entry string) {
+	d.t.Helper()
+	d.click("Compiler")
+	d.click(entry)
+	d.pump()
+}
+
+// enterToolchainDirectory chooses Custom… in the fixture tool's list and checks home there.
+func (d *windowDriver) enterToolchainDirectory(home string) {
+	d.t.Helper()
+	d.chooseToolchain(i18n.Shared(i18n.English, "desktop.toolchains.custom"))
+	d.click(i18n.Shared(i18n.English, "desktop.toolchains.directory"))
+	d.typeText(home)
+	d.click(i18n.Shared(i18n.English, "desktop.toolchains.useDirectory"))
+}
+
+// TestToolchainListShowsAutomaticAndHidesTheDirectoryUntilCustom opens the Build page on a tool
+// discovery found: its list reads the automatic entry with the directory discovery picks, offers
+// the installation and Custom…, and shows the directory field only while Custom… is chosen.
+func TestToolchainListShowsAutomaticAndHidesTheDirectoryUntilCustom(t *testing.T) {
+	snapshot := fixtureSnapshot()
+	snapshot.Tools[0].AutomaticHome = "/fixture/compiler"
+	w, d := toolchainWindow(t, &fakeToolchainLoader{snapshot: snapshot})
+	automatic := i18n.SharedFormat(i18n.English, "desktop.toolchains.automatic", map[string]string{"value": "/fixture/compiler"})
+	custom := i18n.Shared(i18n.English, "desktop.toolchains.custom")
+	directory := i18n.Shared(i18n.English, "desktop.toolchains.directory")
+	if !d.showsWrapped(automatic) {
+		t.Fatalf("the list does not read %q", automatic)
+	}
+	if d.has(directory) {
+		t.Fatal("the directory field shows before Custom… is chosen")
+	}
+	d.click("Compiler")
+	d.pump()
+	if !d.has(installationLabel()) || !d.has(custom) {
+		t.Fatalf("the open list has the installation = %v and Custom… = %v, want both", d.has(installationLabel()), d.has(custom))
+	}
+	d.click(custom)
+	d.pump()
+	if !d.has(directory) {
+		t.Fatal("choosing Custom… did not show the directory field")
+	}
+	if w.toolchains.hasDraft() {
+		t.Fatal("choosing Custom… made a draft before a directory was checked")
+	}
+	d.chooseToolchain(automatic)
+	if d.has(directory) {
+		t.Fatal("choosing another entry left the directory field")
+	}
+}
+
 func TestToolchainDraftSavesOnlyExplicitChanges(t *testing.T) {
 	loader := &fakeToolchainLoader{snapshot: fixtureSnapshot(), saved: make(chan []toolchain.Edit, 1)}
 	w, d := toolchainWindow(t, loader)
@@ -95,7 +153,7 @@ func TestToolchainDraftSavesOnlyExplicitChanges(t *testing.T) {
 	if !d.hit(save).Disabled {
 		t.Fatal("Save is enabled without a draft")
 	}
-	d.click(installationLabel())
+	d.chooseToolchain(installationLabel())
 	if !state.hasDraft() {
 		t.Fatal("choosing an installation did not create a draft")
 	}
@@ -119,10 +177,78 @@ func TestToolchainDraftSavesOnlyExplicitChanges(t *testing.T) {
 	}
 }
 
+func TestToolchainManualDirectoryIsValidatedBeforeAnExplicitSave(t *testing.T) {
+	loader := &fakeToolchainLoader{snapshot: fixtureSnapshot(), saved: make(chan []toolchain.Edit, 1)}
+	w, d := toolchainWindow(t, loader)
+	d.enterToolchainDirectory("/fixture/custom")
+	d.until("the checked directory", func() bool { return w.toolchains.draft["dev.example:compiler"] == "/fixture/custom" })
+	select {
+	case edits := <-loader.saved:
+		t.Fatalf("validating a directory wrote %+v", edits)
+	default:
+	}
+	d.click(i18n.Shared(i18n.English, "desktop.toolchains.save"))
+	d.until("the manual directory to save", func() bool { return w.toolchains.saved })
+	select {
+	case edits := <-loader.saved:
+		if len(edits) != 1 || edits[0].Pin == nil || edits[0].Pin.Home != "/fixture/custom" || edits[0].Pin.Version != "9.1" {
+			t.Fatalf("manual directory pin = %+v", edits)
+		}
+	default:
+		t.Fatal("manual directory was not saved")
+	}
+}
+
+type scopedToolchainLoader struct{ fakeToolchainLoader }
+
+func (f *scopedToolchainLoader) LoadScope(ctx context.Context, scope string) (toolchain.Snapshot, error) {
+	result, err := f.Load(ctx)
+	result.Global = scope == "global"
+	return result, err
+}
+
+func TestGlobalToolchainsKeepMultipleManualSDKsWithoutAProject(t *testing.T) {
+	fixture := fixtureSnapshot()
+	fixture.Root = ""
+	loader := &scopedToolchainLoader{fakeToolchainLoader{snapshot: fixture, saved: make(chan []toolchain.Edit, 1)}}
+	w := newWindow(NewController(Options{Toolchains: loader}), Values{})
+	w.sess.page = pageBuild
+	d := openWindow(t, w)
+	d.until("global toolchains without a project", func() bool { return w.toolchains.loaded })
+	if !w.toolchains.snapshot.Global || !d.text("Global defaults") || !d.text("Compiler") {
+		t.Fatal("the toolchain page requires a project or does not default to global")
+	}
+	for _, home := range []string{"/fixture/sdk8", "/fixture/sdk21"} {
+		d.enterToolchainDirectory(home)
+		d.until("the checked SDK", func() bool { return w.toolchains.draft["dev.example:compiler"] == home })
+		// Clear the input for the next native text entry without changing its draft.
+		*w.toolchains.inputs["dev.example:compiler"] = ""
+	}
+	if got := w.toolchains.snapshot.Tools[0].CustomHomes; !slices.Equal(got, []string{"/fixture/sdk8", "/fixture/sdk21"}) {
+		t.Fatalf("manual SDK registrations = %v", got)
+	}
+	if !d.hit("Current project").Disabled {
+		t.Fatal("switching scopes could discard an unsaved registration")
+	}
+	select {
+	case <-loader.saved:
+		t.Fatal("directory validation published settings")
+	default:
+	}
+	d.click(i18n.Shared(i18n.English, "desktop.toolchains.save"))
+	d.until("global SDKs saved", func() bool { return w.toolchains.saved })
+	if w.toolchains.hasDraft() {
+		t.Fatal("saved registrations remain dirty")
+	}
+	if len(w.toolchains.snapshot.Tools[0].CustomHomes) != 2 {
+		t.Fatal("saving lost a registered SDK")
+	}
+}
+
 func TestToolchainDraftCancelWritesNothing(t *testing.T) {
 	loader := &fakeToolchainLoader{snapshot: fixtureSnapshot(), saved: make(chan []toolchain.Edit, 1)}
 	w, d := toolchainWindow(t, loader)
-	d.click(installationLabel())
+	d.chooseToolchain(installationLabel())
 	d.click("Cancel")
 	select {
 	case edits := <-loader.saved:
@@ -144,7 +270,7 @@ func TestToolchainSaveConflictKeepsDraft(t *testing.T) {
 	}
 	w, d := toolchainWindow(t, loader)
 	state := w.toolchains
-	d.click(installationLabel())
+	d.chooseToolchain(installationLabel())
 	d.click(i18n.Shared(i18n.English, "desktop.toolchains.save"))
 	d.until("the conflict", func() bool { return state.failed != nil })
 	message := toolchainFailureMessage(i18n.Chinese, state.failed)

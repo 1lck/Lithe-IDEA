@@ -7,10 +7,13 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 
+	"github.com/1lck/Lithe-IDEA/desktop/internal/core"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/i18n"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/localshell"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/marketplace"
+	"github.com/1lck/Lithe-IDEA/desktop/internal/toolchain"
 	"github.com/vivaui/viva/gfx"
 	"github.com/vivaui/viva/headless"
 )
@@ -40,11 +43,12 @@ func TestVisualSettings(t *testing.T) {
 	}{
 		{"20-settings-general", pageGeneral}, {"22-settings-editor", pageEditor},
 		{"23-settings-keymap", pageKeymap}, {"24-settings-network", pageNetwork},
-		{"25-settings-process", pageProcessTermination}, {"26-settings-git", pageVersionControl},
+		{"25-settings-process", pageProcessTermination}, {"26-settings-git", pageVersionControl}, {"26-settings-git-console", pageVersionControl},
 		{"27-settings-terminal", pageTerminal}, {"28-plugins-installed", pagePlugins},
 		{"29-marketplace-empty", pagePlugins}, {"31-settings-updates", pageUpdates},
-		{"33-settings-toolchains", pageBuild}, {"fonts", pageFonts},
-		{"21-settings-language-popup", pageGeneral}, {"30-settings-history", pageGeneral}, {"35-settings-search", pageEditor},
+		{"33-settings-toolchains", pageBuild}, {"m44-toolchain-directory-menu", pageBuild}, {"m45-toolchain-custom-directory", pageBuild},
+		{"fonts", pageFonts},
+		{"21-settings-language-popup", pageGeneral}, {"30-settings-history", pageGeneral}, {"m46-history-default-rules-help", pageGeneral}, {"35-settings-search", pageEditor},
 		{"m35-editor-tab-layout", pageEditor}, {"m25-project-open-mode", pageGeneral}, {"m29-editor-font-menu", pageFonts}, {"m38-plugin-management-menu", pagePlugins},
 		{"m39-proxy-mode-menu", pageNetwork}, {"m40-process-run-policy", pageProcessTermination},
 		{"m41-process-terminal-policy", pageProcessTermination}, {"m43-process-orphan-policy", pageProcessTermination},
@@ -71,7 +75,9 @@ func TestVisualSettings(t *testing.T) {
 					MonospaceFamilies: func() []string { return []string{"JetBrains Mono", "Menlo"} },
 					Marketplace:       func(context.Context) (marketplace.Snapshot, error) { return marketplace.Snapshot{}, nil },
 					UpdateStatus:      func() UpdateStatus { return UpdateStatus{Configured: true} },
-					Toolchains:        &fakeToolchainLoader{snapshot: fixtureSnapshot()},
+					Toolchains:        &scopedToolchainLoader{fakeToolchainLoader{snapshot: globalVisualToolchains()}},
+					// Every build can sign in to GitHub; no account is connected yet.
+					GitHub: &GitHubAccount{Snapshot: func() GitHubState { return GitHubState{Available: true} }},
 				}
 				w := newWindow(NewController(opts), Values{Theme: theme, Language: language.Code(), TerminalScrollback: 2000})
 				w.sess.page = scenario.page
@@ -100,8 +106,36 @@ func TestVisualSettings(t *testing.T) {
 					d.click(w.text.Settings.TabsShowIn)
 				case "21-settings-language-popup":
 					d.click(w.text.Settings.Language)
+				case "26-settings-git-console":
+					if err := d.driver.Scroll(gfx.ScrollEvent{X: 700, Y: 500, DeltaY: 900, Viewport: gfx.Size{Width: 900, Height: 700}}); err != nil {
+						t.Fatal(err)
+					}
 				case "30-settings-history":
 					if err := d.driver.Scroll(gfx.ScrollEvent{X: 700, Y: 500, DeltaY: 500, Viewport: gfx.Size{Width: 900, Height: 700}}); err != nil {
+						t.Fatal(err)
+					}
+				case "m46-history-default-rules-help":
+					// The ⓘ on the wildcard list's row explains the default rules: the folders
+					// hidden from the tree, which deleting a line does not record.
+					if err := d.driver.Scroll(gfx.ScrollEvent{X: 700, Y: 500, DeltaY: 500, Viewport: gfx.Size{Width: 900, Height: 700}}); err != nil {
+						t.Fatal(err)
+					}
+					d.pump()
+					help := text("desktop.settings.localHistory.wildcardHelp") + " " + text("desktop.settings.localHistory.builtInsHelp")
+					info := d.hintHit(help).Bounds
+					x, y := info.X+info.Width/2, info.Y+info.Height/2
+					if err := d.driver.Move(x, y); err != nil {
+						t.Fatal(err)
+					}
+					if err := d.driver.Click(x, y); err != nil {
+						t.Fatal(err)
+					}
+					d.pump()
+					if !d.showsHelp(help) {
+						t.Fatal("the ⓘ did not pin its help open")
+					}
+					// The popover fades in; move the frame clock past it.
+					if err := session.Advance(time.Second); err != nil {
 						t.Fatal(err)
 					}
 				case "35-settings-search":
@@ -126,6 +160,12 @@ func TestVisualSettings(t *testing.T) {
 					d.click(text("desktop.settings.processTermination.onQuit"))
 				case "m43-process-orphan-policy":
 					d.click(text("desktop.settings.processTermination.leftoverTerminals"))
+				case "m44-toolchain-directory-menu":
+					d.click("Compiler")
+				case "m45-toolchain-custom-directory":
+					d.click("Compiler")
+					d.click(text("desktop.toolchains.custom"))
+					d.pump()
 				}
 				if err := session.Screenshot(filepath.Join(out, scenario.id+"-"+theme+".png")); err != nil {
 					t.Fatal(err)
@@ -133,4 +173,20 @@ func TestVisualSettings(t *testing.T) {
 			})
 		}
 	}
+}
+
+func globalVisualToolchains() toolchain.Snapshot {
+	snapshot := fixtureSnapshot()
+	snapshot.Root = ""
+	tool := &snapshot.Tools[0]
+	tool.AutomaticHome = "/fixture/compiler"
+	tool.CustomHomes = []string{"/fixture/sdk8", "/fixture/sdk21"}
+	for index, home := range tool.CustomHomes {
+		version := []string{"8.0.1", "21.0.4"}[index]
+		tool.Installations = append(tool.Installations, core.ToolchainInstallation{Home: home, Version: version, Provider: "host:manual"})
+	}
+	tool.Pin = &core.ToolchainPin{Home: "/fixture/sdk21", Provider: "host:default"}
+	selected := "/fixture/sdk21"
+	tool.Effective = &core.ToolchainSelection{Home: &selected, Executable: selected + "/bin/compiler", Version: "21.0.4", Layer: "global"}
+	return snapshot
 }
