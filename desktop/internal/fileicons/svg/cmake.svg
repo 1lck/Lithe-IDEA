@@ -1,0 +1,9 @@
+<!-- Adapted from res/logo.svg of https://github.com/microsoft/vscode-cmake-tools (revision c757bfc851ca01d18601b64178ea40190e72d5d1), MIT: the four triangles of the CMake mark alone, without the wrench of CMake Tools, in a 16x16 view box. -->
+<svg width="16" height="16" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg">
+<g transform="matrix(0.24753 0 0 0.24753 -1.151 -0.074)">
+<path d="M36.42,4.5,8.84,59,38.92,33.48Z" fill="#064F8C"/>
+<path d="M63.38,60.75l-37.08-15-17.61,15Z" fill="#249847"/>
+<path d="M65.25,60.28,37.67,5.43l4,45.35Z" fill="#BE2128"/>
+<path d="M40.48,50.31,39.07,34.88,27.23,45Z" fill="#CDCDCE"/>
+</g>
+</svg>

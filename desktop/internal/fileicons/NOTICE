@@ -3,7 +3,7 @@ File-type and folder icons of the Lithe desktop client.
 Most SVGs in svg/ are the file-tree icons the previous Lithe macOS client shipped in
 macos/Resources/IDEAIcons/, restored byte for byte from commit f1e8d8139^ of this
 repository; the Build tool window icons listed last were copied byte for byte from the
-upstream repository. Except for the two noted below, they come from the JetBrains IntelliJ
+upstream repository. Except for the icons noted below, they come from the JetBrains IntelliJ
 Platform Community repository (https://github.com/JetBrains/intellij-community) and are
 distributed under the Apache License 2.0; see LICENSE-APACHE-2.0.txt. The previous
 client's NOTICE.txt records the source paths and revisions of the restored icons, chiefly:
@@ -42,11 +42,40 @@ license.svg and makefile.svg (and their _dark siblings) are original Lithe icons
 because the Community set has no LICENSE or Makefile glyph; they follow the Lithe
 repository license.
 
+The icons of the languages whose grammars the editor bundles but the Community set has no
+glyph for were copied from these sources:
+
+- graphql.svg and graphql_dark.svg: platform/icons/src/expui/fileTypes/ of the IntelliJ
+  Community repository (revision 54d2b2d53eeea48df651d4242122370c391d4973), byte for byte,
+  under the Apache License 2.0.
+- protoFile.svg and protoFile_dark.svg: protobuf/protoeditor-core/resources/icons/newui/ of
+  the JetBrains intellij-plugins repository (https://github.com/JetBrains/intellij-plugins,
+  revision 6dfd13ea5346f031c617c558bb6f48381731ddb3), byte for byte, under the Apache License
+  2.0; see LICENSE-APACHE-2.0.txt.
+- lua.svg: icons/file_type_lua.svg of vscode-icons (https://github.com/vscode-icons/vscode-icons,
+  revision 814aab8318900f47efeae6f1c4691494ae764199), with its named colors gray and navy
+  written as #808080 and #000080, because the icon compiler reads only numeric colors. It draws
+  the official Lua logo, Copyright (c) 1998 Lua.org, graphic design by Alexandre Nakonechnyj,
+  which may be used unchanged at any scale under the terms in LICENSE-lua-logo.txt;
+  vscode-icons distributes its icons under CC BY-SA 4.0
+  (https://creativecommons.org/licenses/by-sa/4.0/).
+- zig.svg: adapted from zig-mark.svg of the official Zig logo repository
+  (https://github.com/ziglang/logo, revision 4f97e7a9ebce12fa48511c0b6502b6190005bc0e), the
+  logomark that the Zig extension for Visual Studio Code also shows, licensed under CC BY-SA
+  4.0 (https://creativecommons.org/licenses/by-sa/4.0/). The same polygons were placed in a
+  16x16 view box and their shape-rendering hints dropped; the adaptation is under CC BY-SA 4.0.
+- cmake.svg: adapted from res/logo.svg of CMake Tools for Visual Studio Code
+  (https://github.com/microsoft/vscode-cmake-tools, revision
+  c757bfc851ca01d18601b64178ea40190e72d5d1), MIT, Copyright (c) 2018 vector-of-bool; see
+  LICENSE-MIT-vscode-cmake-tools.txt. Only the four triangles of the CMake mark were kept,
+  without the CMake Tools wrench, and placed in a 16x16 view box.
+
 Copyright JetBrains s.r.o. and contributors. Lithe does not include JetBrains product
 logos.
 
 Modification: icons.go is not the SVGs themselves. scripts/desktop/generate-desktop-file-icons.sh
 rewrites each SVG into filled paths only (its strokes become outlines of the same color)
-with picosvg and compiles the result into gfx.Icon values. The SVG sources in svg/ are
-unmodified. The generator changes underscores in SVG filenames to hyphens when deriving Go
-names, so db_set_breakpoint.svg is exposed as DbSetBreakpoint.
+with picosvg and compiles the result into gfx.Icon values. Apart from lua.svg, zig.svg and
+cmake.svg, changed as described above, the SVG sources in svg/ are unmodified. The generator changes
+underscores in SVG filenames to hyphens when deriving Go names, so db_set_breakpoint.svg is
+exposed as DbSetBreakpoint.

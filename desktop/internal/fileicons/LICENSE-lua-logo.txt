@@ -1,0 +1,18 @@
+Terms of the Lua logo, as published at https://www.lua.org/images/ and in the header of
+https://www.lua.org/images/lua-logo-nolabel.ps:
+
+Copyright (c) 1998 Lua.org. Graphic design by Alexandre Nakonechnyj.
+
+Permission is hereby granted, without written agreement and without license
+or royalty fees, to use, copy, and distribute this logo for any purpose,
+including commercial applications, subject to the following conditions:
+
+* The origin of this logo must not be misrepresented; you must not
+  claim that you drew the original logo. We recommend that you give credit
+  to the graphics designer in all printed matter that includes the logo.
+
+* The only modification you can make is to adapt the orbiting text to
+  your product name.
+
+* The logo can be used in any scale as long as the relative proportions
+  of its elements are maintained.
