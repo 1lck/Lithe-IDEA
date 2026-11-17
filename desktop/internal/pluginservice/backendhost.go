@@ -609,7 +609,7 @@ func (d pluginDirectories) create() error {
 // The log directory is the log session's, which the log store has already created.
 func (s *Service) backendDirectories(ctx context.Context, pluginID, version string) pluginDirectories {
 	return pluginDirectories{
-		state: filepath.Join(s.Root, pluginStateDirectory, pluginID, version),
+		state: pluginpkg.VersionStateRoot(s.Root, pluginID, version),
 		log:   s.logDirectory(ctx, pluginID),
 	}
 }

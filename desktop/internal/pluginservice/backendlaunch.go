@@ -10,6 +10,7 @@ import (
 
 	"github.com/1lck/Lithe-IDEA/desktop/internal/core"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/pluginbackend"
+	"github.com/1lck/Lithe-IDEA/desktop/internal/pluginpkg"
 )
 
 // backendLaunch is a decoded backend-resolved launch and the directories it uses.
@@ -32,7 +33,7 @@ func (s *Service) resolveBackendLaunch(ctx context.Context, pluginID, version st
 	if workspace.ContextID == "" {
 		return backendLaunch{}, fmt.Errorf("%w: a backend-resolved server needs an open workspace", pluginbackend.ErrRequest)
 	}
-	base := filepath.Join(s.Root, pluginStateDirectory, pluginID)
+	base := pluginpkg.StateRoot(s.Root, pluginID)
 	temporary, err := os.MkdirTemp("", "lithe-server-")
 	if err != nil {
 		return backendLaunch{}, err
