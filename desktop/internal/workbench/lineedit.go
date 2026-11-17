@@ -66,7 +66,7 @@ func lineOperationFor(event gfx.KeyEvent, primary gfx.Modifiers) (core.LineEditO
 
 // lineEditKey handles a line-operation key of the focused document, or reports it unhandled.
 func (a *App) lineEditKey(p *project, d *document, event gfx.KeyEvent) (gfx.EventResult, bool) {
-	if event.Target != d.hit {
+	if event.Target != d.hit && (d.lens == nil || !d.lens.Owns(event.Target)) {
 		return gfx.EventResult{}, false
 	}
 	if result := a.navigationHistoryShortcut(event); result.Handled {
@@ -97,10 +97,14 @@ func (a *App) lineEditShortcut(event gfx.KeyEvent) gfx.EventResult {
 // runLineOperation applies op to the document's selected lines.
 func (a *App) runLineOperation(p *project, d *document, op core.LineEditOperation) {
 	kernel, ok := a.kernel.(editorKernel)
-	if !ok || p == nil || d == nil || d.virtual || d.view.ReadOnly() {
+	if !ok || p == nil || d == nil || d.virtual {
 		return
 	}
-	in, ok := d.view.LineEditInput()
+	view := d.caretView()
+	if view.ReadOnly() {
+		return
+	}
+	in, ok := view.LineEditInput()
 	if !ok {
 		return
 	}
@@ -134,8 +138,11 @@ func (a *App) runLineOperation(p *project, d *document, op core.LineEditOperatio
 			if current == nil || a.project != p {
 				return
 			}
-			// A document that changed while Core worked keeps its newer text.
-			current.view.ApplyLineEdit(in, outcome.ReplacedStart, outcome.ReplacedLength, outcome.Text, outcome.SelectionStart, outcome.SelectionLength)
+			// A document that changed while Core worked keeps its newer text, and a view that went
+			// away takes nothing.
+			if view == current.view || view == current.lens {
+				view.ApplyLineEdit(in, outcome.ReplacedStart, outcome.ReplacedLength, outcome.Text, outcome.SelectionStart, outcome.SelectionLength)
+			}
 		}
 	})
 }

@@ -66,7 +66,7 @@ type problemsView struct {
 	view  ui.TreeState
 	// optionsOpen says the View Options menu is open.
 	optionsOpen bool
-	// show says the Show Editor Preview option is on: a read-only source view beside the tree
+	// show says the Show Editor Preview option is on: an editable source view beside the tree
 	// shows the selected diagnostic's line. preview is that view.
 	show    bool
 	preview sourcePreview
@@ -76,6 +76,12 @@ type problemsView struct {
 	// as Core's severity filter. groupBy is Core's grouping: file, severity or none.
 	hideErrors, hideWarnings, hideInfo bool
 	groupBy                            string
+}
+
+// resetProblems is reset with the document without a tab that only the preview kept released.
+func (a *App) resetProblems() {
+	a.closeSourcePreview(&a.problems.preview)
+	a.problems.reset()
 }
 
 // reset forgets the answer of the previous project. The view options and the chosen tab are

@@ -72,6 +72,11 @@ type document struct {
 	path, name string
 	languageID string
 	view       *editorview.View
+	// lens is a second view of the text that the user last typed or clicked in: the editable
+	// preview of the Problems tool window (source_preview.go). The language features follow its
+	// caret while it is set, so completion, hover and the rest work there as in the editor; nil
+	// when the document's own editor was the last to take a key or a press.
+	lens *editorview.View
 	// conflict is the notice shown while the file changed on disk under unsaved edits.
 	conflict conflictBanner
 	// sync is the document's state in its language-server session.
@@ -828,6 +833,7 @@ func (a *App) closeDocument(p *project, id int) {
 // removeDocument takes a tab away without asking about its text. The caller has saved it or
 // decided that it is going away: deleting its file, for one.
 func (a *App) removeDocument(p *project, d *document) {
+	a.closePreviewsOfDocument(d)
 	d.find.dispose()
 	d.cancelAutoSave()
 	a.flushCheckpoint(p, d, false)
@@ -839,6 +845,8 @@ func (a *App) removeDocument(p *project, d *document) {
 			a.semanticTokensDropped(d)
 			d.closeEditorView()
 			p.docs.list = slices.DeleteFunc(p.docs.list, func(x *document) bool { return x.id == d.id })
+			// The preview's language features may have opened it in a server.
+			a.closeDocumentInSession(p, d)
 		}
 		return
 	}
@@ -1015,6 +1023,16 @@ func (a *App) focusedDocument(id gfx.ID) *editorview.View {
 		}
 	}
 	return nil
+}
+
+// caretView is the view whose caret, selection and geometry the language features follow: the
+// preview the user last worked in, or the document's own editor. Both show the same text, so a
+// position or an offset is the same in either; the document's own view keeps the revision.
+func (d *document) caretView() *editorview.View {
+	if d.lens != nil {
+		return d.lens
+	}
+	return d.view
 }
 
 func (d *document) closeEditorView() {

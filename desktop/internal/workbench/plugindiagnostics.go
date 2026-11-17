@@ -265,8 +265,17 @@ func (a *App) projectDocumentMarkers(document *document) {
 	document.markerGeneration++
 	generation, revision := document.markerGeneration, document.view.Revision()
 	text, markers := document.view.TextSnapshot(), a.documentMarkers(document.path)
+	// The editable preview of the document shows the same text, so the markers' geometry is its
+	// too; its revision is its own.
+	preview, previewRevision := a.documentPreviewView(document), 0
+	if preview != nil {
+		previewRevision = preview.Revision()
+	}
 	if len(markers) == 0 {
 		document.view.SetMarkers(nil)
+		if preview != nil {
+			preview.SetMarkers(nil)
+		}
 		return
 	}
 	parent, cancel := context.WithCancel(a.project.ctx)
@@ -289,6 +298,9 @@ func (a *App) projectDocumentMarkers(document *document) {
 				return
 			}
 			document.view.SetProjectedMarkers(projected, revision)
+			if preview != nil && a.documentPreviewView(document) == preview {
+				preview.SetProjectedMarkers(projected, previewRevision)
+			}
 		}
 	})
 }
