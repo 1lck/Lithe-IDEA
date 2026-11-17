@@ -2,12 +2,14 @@ package workbench
 
 import (
 	"context"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
 
 	"github.com/1lck/Lithe-IDEA/desktop/internal/buildprovider"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/core"
+	"github.com/1lck/Lithe-IDEA/desktop/internal/i18n"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/pluginbackend"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/pluginservice"
 )
@@ -19,6 +21,29 @@ const (
 	// disposed, so this covers both the graceful stop and the disposal.
 	pluginServerStopTimeout = 30 * time.Second
 )
+
+// failedPluginServer records a language server that failed to start or exited
+// abnormally in the open project so the status bar and menu can surface the
+// error and offer a retry without treating it as a live session.
+type failedPluginServer struct {
+	pluginID   string
+	languageID string
+	version    string
+	project    *project
+	message    string
+	logs       []lspLogLine
+	logsAdded  uint64
+}
+
+func (f *failedPluginServer) displayID() string {
+	if f == nil {
+		return ""
+	}
+	if f.pluginID != "" {
+		return f.pluginID
+	}
+	return f.languageID
+}
 
 // pluginServer is one running language server the window started.
 type pluginServer struct {
@@ -161,30 +186,47 @@ func (a *App) startPluginServer(languageID string) {
 		if request.WorkingDirectory != "" {
 			uri, uriErr := a.kernel.PluginDocumentURI(ctx, request.WorkingDirectory, "auto")
 			if uriErr != nil {
-				return func(a *App) { a.finishPluginServerStart(p, languageID, nil, uriErr) }
+				return func(a *App) { a.finishPluginServerStart(p, languageID, "", "", nil, uriErr) }
 			}
 			request.RootURI = uri
 		}
 		entries, err := a.plugins.Manager.Installed()
 		if err != nil {
-			return func(a *App) { a.finishPluginServerStart(p, languageID, nil, err) }
+			return func(a *App) { a.finishPluginServerStart(p, languageID, "", "", nil, err) }
 		}
 		session, err := a.plugins.StartLanguageServer(ctx, entries, languageID, request)
-		return func(a *App) { a.finishPluginServerStart(p, languageID, session, err) }
+		var failedPluginID, failedVersion string
+		if err != nil {
+			if entry, ok, _ := a.plugins.LanguageServerProvider(ctx, entries, languageID); ok {
+				failedPluginID = entry.Installed.ID
+				failedVersion = entry.Installed.Version
+			}
+		}
+		return func(a *App) { a.finishPluginServerStart(p, languageID, failedPluginID, failedVersion, session, err) }
 	})
 }
 
 // finishPluginServerStart takes the started session back on the window thread and
 // runs its serve loop.
-func (a *App) finishPluginServerStart(p *project, languageID string, session *pluginservice.LanguageSession, err error) {
+func (a *App) finishPluginServerStart(p *project, languageID, failedPluginID, failedVersion string, session *pluginservice.LanguageSession, err error) {
 	a.pluginServerMu.Lock()
 	delete(a.pluginServerStarting, languageID)
+	suppressed := failedPluginID != "" && a.pluginServerSuppressed[failedPluginID]
 	a.pluginServerMu.Unlock()
 	if err != nil {
+		if a.project != p || suppressed {
+			return
+		}
 		a.operationFailed("plugin_server_start", err)
+		a.recordPluginServerFailure(p, languageID, failedPluginID, failedVersion, err, nil, 0)
+		a.notifyPluginServerFailure(p, languageID, err)
 		return
 	}
 	if session == nil {
+		a.pluginServerMu.Lock()
+		delete(a.pluginServerFailed, languageID)
+		delete(a.pluginServerNotifiedErrors, languageID)
+		a.pluginServerMu.Unlock()
 		return
 	}
 	if session.Warnings != nil {
@@ -223,6 +265,7 @@ func (a *App) finishPluginServerStart(p *project, languageID string, session *pl
 		a.settingsWindow.Invalidate()
 	}
 	a.pluginServerLanguages[languageID] = session.PluginID
+	a.clearFailedPluginServerLocked(session.PluginID, languageID)
 	a.pluginServerMu.Unlock()
 	// A restarted server has to republish everything: keeping the previous
 	// process's diagnostics would show problems the new one may already have fixed.
@@ -275,16 +318,15 @@ func (a *App) servePluginServer(server *pluginServer, ctx context.Context) {
 				a.post(func(a *App) { a.applyServerDiagnostics(server, decoded) })
 			}
 		}
-		if serveErr := a.plugins.ServeLanguageSession(ctx, server.session, observe); serveErr != nil && ctx.Err() == nil {
-			a.post(func(a *App) {
-				a.operationFailed("plugin_server", serveErr)
-			})
+		serveErr := a.plugins.ServeLanguageSession(ctx, server.session, observe)
+		if ctx.Err() != nil {
+			serveErr = nil
 		}
 		// A server that exits on its own, crashes, or ends after a stop must not
 		// leave its last diagnostics behind. The window thread removes the entry
 		// only when this is still the session it recorded, so a restart that
 		// already replaced it keeps the new server's state.
-		a.post(func(a *App) { a.pluginServerExited(server.session.PluginID, server) })
+		a.post(func(a *App) { a.pluginServerExited(server.session.PluginID, server, serveErr) })
 	}()
 }
 
@@ -304,21 +346,42 @@ func (a *App) applyServerDiagnostics(server *pluginServer, event core.PluginDiag
 // pluginServerExited forgets a serve loop that ended and withdraws the
 // diagnostics its process published. A session that was already replaced by a
 // newer start is left alone.
-func (a *App) pluginServerExited(pluginID string, server *pluginServer) {
+func (a *App) pluginServerExited(pluginID string, server *pluginServer, serveErr error) {
 	a.pluginServerMu.Lock()
 	if a.pluginServers[pluginID] != server {
 		a.pluginServerMu.Unlock()
 		return
 	}
 	delete(a.pluginServers, pluginID)
+	var languages []string
+	seenLang := make(map[string]bool)
 	for languageID, provider := range a.pluginServerLanguages {
 		if provider == pluginID {
 			delete(a.pluginServerLanguages, languageID)
+			if !seenLang[languageID] {
+				seenLang[languageID] = true
+				languages = append(languages, languageID)
+			}
 		}
 	}
+	if server.session != nil && server.session.LanguageID != "" && !seenLang[server.session.LanguageID] {
+		languages = append(languages, server.session.LanguageID)
+	}
+	suppressed := a.pluginServerSuppressed[pluginID]
 	a.pluginServerMu.Unlock()
 	a.clearPluginDiagnostics(pluginID)
 	a.releasePluginDocuments(pluginID)
+	if serveErr != nil {
+		a.operationFailed("plugin_server", serveErr)
+		if a.project == server.project && !suppressed {
+			for i, languageID := range languages {
+				a.recordPluginServerFailure(server.project, languageID, pluginID, server.session.Version, serveErr, server.logs, server.logsAdded)
+				if i == 0 {
+					a.notifyPluginServerFailure(server.project, languageID, serveErr)
+				}
+			}
+		}
+	}
 }
 
 // stopPluginServer stops the language server of one plugin, if it is running, and
@@ -351,6 +414,7 @@ func (a *App) detachPluginServer(pluginID string) *pluginservice.LanguageSession
 		server.cancel()
 		session = server.session
 	}
+	a.clearFailedPluginServerLocked(pluginID, "")
 	a.pluginServerMu.Unlock()
 	a.clearPluginDiagnostics(pluginID)
 	a.releasePluginDocuments(pluginID)
@@ -402,6 +466,8 @@ func (a *App) stopAllPluginServers() {
 	}
 	a.pluginServerRestarting = nil
 	a.pluginSettingsRestart.Clear()
+	a.pluginServerFailed = nil
+	a.pluginServerNotifiedErrors = nil
 	if len(a.pluginServers) == 0 {
 		a.releaseAllPluginDocuments()
 		a.pluginServers = nil
@@ -456,4 +522,135 @@ func (a *App) isCurrentPluginServer(pluginID string, server *pluginServer) bool 
 	a.pluginServerMu.Lock()
 	defer a.pluginServerMu.Unlock()
 	return a.pluginServers[pluginID] == server
+}
+
+// clearFailedPluginServerLocked drops recorded failure and dedup state for
+// pluginID and languageID. Caller must hold a.pluginServerMu.
+func (a *App) clearFailedPluginServerLocked(pluginID, languageID string) {
+	if languageID != "" {
+		delete(a.pluginServerFailed, languageID)
+		delete(a.pluginServerNotifiedErrors, languageID)
+	}
+	if pluginID == "" {
+		return
+	}
+	for lang, failed := range a.pluginServerFailed {
+		if failed != nil && failed.pluginID == pluginID {
+			delete(a.pluginServerFailed, lang)
+			delete(a.pluginServerNotifiedErrors, lang)
+		}
+	}
+}
+
+func (a *App) recordPluginServerFailure(p *project, languageID, pluginID, version string, err error, logs []lspLogLine, logsAdded uint64) {
+	if a.project != p || err == nil || languageID == "" {
+		return
+	}
+	reason := strings.TrimSpace(err.Error())
+	copiedLogs := append([]lspLogLine(nil), logs...)
+	if reason != "" {
+		errLine := lspLogLine{level: "ERROR", text: cutLogLine("[ERROR] " + reason), tag: len("[ERROR]")}
+		if len(copiedLogs) >= lspLogLines {
+			copy(copiedLogs, copiedLogs[len(copiedLogs)-lspLogLines+1:])
+			copiedLogs = copiedLogs[:lspLogLines-1]
+		}
+		copiedLogs = append(copiedLogs, errLine)
+		logsAdded++
+	}
+	a.pluginServerMu.Lock()
+	if a.pluginServerFailed == nil {
+		a.pluginServerFailed = make(map[string]*failedPluginServer)
+	}
+	a.pluginServerFailed[languageID] = &failedPluginServer{
+		pluginID:   pluginID,
+		languageID: languageID,
+		version:    version,
+		project:    p,
+		message:    reason,
+		logs:       copiedLogs,
+		logsAdded:  logsAdded,
+	}
+	a.pluginServerMu.Unlock()
+	a.invalidator.Invalidate()
+}
+
+func (a *App) notifyPluginServerFailure(p *project, languageID string, err error) {
+	if a.project != p || err == nil {
+		return
+	}
+	reason := strings.TrimSpace(err.Error())
+	a.pluginServerMu.Lock()
+	if a.pluginServerNotifiedErrors == nil {
+		a.pluginServerNotifiedErrors = make(map[string]string)
+	}
+	if prev, ok := a.pluginServerNotifiedErrors[languageID]; ok && prev == reason {
+		a.pluginServerMu.Unlock()
+		return
+	}
+	a.pluginServerNotifiedErrors[languageID] = reason
+	a.pluginServerMu.Unlock()
+
+	lang := a.language()
+	if reason == "" {
+		a.notifyError(i18n.Shared(lang, "native.languageServerFailedToStart"))
+		return
+	}
+	a.notifyError(i18n.SharedFormat(lang, "native.languageServerFailedToStart.variant2", map[string]string{"arg1": reason}))
+}
+
+// retryFailedLSPServer clears the recorded failure for languageID and starts
+// its language server again.
+func (a *App) retryFailedLSPServer(languageID string) {
+	if a.project == nil || languageID == "" {
+		return
+	}
+	a.pluginServerMu.Lock()
+	if failed := a.pluginServerFailed[languageID]; failed != nil && failed.pluginID != "" {
+		delete(a.pluginServerSuppressed, failed.pluginID)
+	}
+	delete(a.pluginServerFailed, languageID)
+	delete(a.pluginServerNotifiedErrors, languageID)
+	a.pluginServerMu.Unlock()
+	a.invalidator.Invalidate()
+	a.startPluginServer(languageID)
+}
+
+// retryFailedPluginServers re-triggers startup for any failed or unstarted
+// language servers in the open project after toolchain settings change.
+func (a *App) retryFailedPluginServers() {
+	if a.project == nil || a.plugins == nil {
+		return
+	}
+	seen := make(map[string]bool)
+	var languages []string
+	a.pluginServerMu.Lock()
+	a.pluginServerNotifiedErrors = nil
+	for lang, failed := range a.pluginServerFailed {
+		if failed != nil && failed.project == a.project && !seen[lang] {
+			seen[lang] = true
+			languages = append(languages, lang)
+			if failed.pluginID != "" {
+				delete(a.pluginServerSuppressed, failed.pluginID)
+			}
+		}
+	}
+	a.pluginServerFailed = nil
+	for _, doc := range a.project.docs.list {
+		if doc.languageID == "" || seen[doc.languageID] {
+			continue
+		}
+		if provider := a.pluginServerLanguages[doc.languageID]; provider != "" && a.pluginServers[provider] != nil {
+			continue
+		}
+		if a.pluginServerStarting[doc.languageID] {
+			continue
+		}
+		seen[doc.languageID] = true
+		languages = append(languages, doc.languageID)
+	}
+	a.pluginServerMu.Unlock()
+	a.invalidator.Invalidate()
+	for _, lang := range languages {
+		a.startPluginServer(lang)
+	}
 }

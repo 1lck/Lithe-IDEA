@@ -30,7 +30,27 @@ func (a *App) restartSettingsPlugin(id, version, scope, workspace string) {
 	p := a.project
 	a.pluginServerMu.Lock()
 	server := a.pluginServers[id]
-	if server == nil || server.session == nil || server.project != p || server.session.Version != version || (scope == "project" && workspace != p.root) {
+	if server == nil {
+		var retryLanguages []string
+		for lang, failed := range a.pluginServerFailed {
+			if failed != nil && failed.pluginID == id && failed.project == p && (scope != "project" || workspace == p.root) {
+				retryLanguages = append(retryLanguages, lang)
+			}
+		}
+		if len(retryLanguages) > 0 {
+			a.clearFailedPluginServerLocked(id, "")
+			delete(a.pluginServerSuppressed, id)
+			a.pluginServerMu.Unlock()
+			a.invalidator.Invalidate()
+			for _, lang := range retryLanguages {
+				a.startPluginServer(lang)
+			}
+			return
+		}
+		a.pluginServerMu.Unlock()
+		return
+	}
+	if server.session == nil || server.project != p || server.session.Version != version || (scope == "project" && workspace != p.root) {
 		a.pluginServerMu.Unlock()
 		return
 	}

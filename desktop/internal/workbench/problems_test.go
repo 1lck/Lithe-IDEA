@@ -257,7 +257,7 @@ func TestExitedServerWithdrawsDiagnostics(t *testing.T) {
 	h.app.pluginDiagnostics = map[string]*plugindiag.Set{"java": problemSet(t,
 		plugindiag.Diagnostic{FileKey: file, DisplayPath: "A.java", Line: 0, Column: 0, Severity: plugindiag.SeverityError, Message: "boom"},
 	)}
-	h.app.pluginServerExited("java", server)
+	h.app.pluginServerExited("java", server, nil)
 	if _, ok := h.app.pluginServers["java"]; ok {
 		t.Fatal("the exited server is still registered")
 	}

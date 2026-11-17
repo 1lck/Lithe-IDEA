@@ -87,6 +87,7 @@ func (s settingsToolchains) Save(ctx context.Context, snapshot toolchain.Snapsho
 		if _, err := snapshot.SaveCatalog(ctx, s.app.kernel, edits); err != nil {
 			return snapshot, err
 		}
+		s.app.post(func(a *App) { a.retryFailedPluginServers() })
 		updated, err = s.LoadScope(ctx, "global")
 		if err != nil {
 			return snapshot, errors.Join(toolchain.ErrPinCommitted, err)
@@ -103,6 +104,7 @@ func (s settingsToolchains) Save(ctx context.Context, snapshot toolchain.Snapsho
 	if _, _, err := snapshot.SavePins(ctx, s.app.kernel, edits); err != nil {
 		return snapshot, err
 	}
+	s.app.post(func(a *App) { a.retryFailedPluginServers() })
 	// A project switch during an already confirmed save must not retarget its
 	// reread. The settings page continues to describe the captured source.
 	updated, err = s.loadAt(ctx, snapshot.Root)
