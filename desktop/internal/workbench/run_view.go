@@ -269,7 +269,7 @@ func (a *App) runConsole(c ui.C, p *project, run *runEntry) {
 			return
 		}
 		menu := &outputMenu{
-			key: "runsnapshot/" + run.id,
+			key: "runconsole/" + run.id,
 			all: run.output.all,
 			extra: func(menu *ui.MenuItems) {
 				if menu.Item(a.text.Run.Snapshot.Menu).Clicked() {
@@ -277,14 +277,14 @@ func (a *App) runConsole(c ui.C, p *project, run *runEntry) {
 				}
 			},
 		}
-		a.outputList(c, p, &run.list, outputScopeRun, a.text.Build.Output, &run.output, 0, menu).Grow(1)
+		a.outputList(c, p, &run.console, outputScopeRun, a.text.Build.Output, &run.output, 0, menu).Grow(1)
 	})
 	ui.Divider(c)
 	lang := a.language()
 	ui.Column(c).FillHeight().Shrink(0).Gap(2).Pad(4).Children(func() {
 		empty := run.output.empty()
 		if a.runToolButton(c.Part("end"), i18n.Shared(lang, "git.console.scrollToEnd"), icons.ArrowDownToLine, a.colors.Text, empty) {
-			c.After(func() { run.list.ScrollToEnd() })
+			c.After(func() { run.console.ScrollToEnd() })
 		}
 		if a.runToolButton(c.Part("clear"), i18n.Shared(lang, "git.console.clear"), icons.Trash2, a.colors.Text, empty) {
 			c.After(func() { run.output.clear() })

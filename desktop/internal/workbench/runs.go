@@ -13,8 +13,8 @@ import (
 	"github.com/1lck/Lithe-IDEA/desktop/internal/editorview"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/pluginbackend"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/pluginservice"
+	"github.com/1lck/Lithe-IDEA/desktop/internal/textview"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/toolchain"
-	"github.com/vivaui/viva/ui"
 )
 
 const (
@@ -65,8 +65,8 @@ type runEntry struct {
 	started, ended time.Time
 	// summary is how the execution ended, shown under the console.
 	summary string
-	// list is the console's scroll state.
-	list ui.ListState
+	// console is the console's selection and scroll state.
+	console textview.View
 	// snapshots counts the output snapshots taken of this run, so each tab has its own URI.
 	snapshots int
 	// samples are the process tree's CPU and memory, oldest first, bounded; stopSampling ends the sampler.

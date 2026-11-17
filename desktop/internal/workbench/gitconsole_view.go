@@ -1,48 +1,38 @@
 package workbench
 
 import (
+	"github.com/1lck/Lithe-IDEA/desktop/internal/core"
+	"github.com/1lck/Lithe-IDEA/desktop/internal/i18n"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/icons"
+	"github.com/1lck/Lithe-IDEA/desktop/internal/textview"
 	"github.com/vivaui/viva/gfx"
-	vivatext "github.com/vivaui/viva/text"
 	"github.com/vivaui/viva/ui"
 )
 
-// The Console tab is one Page: the toolbar with the search over the list of rows that
-// gitconsole.go flattens. The rows are drawn in the run output's font (fonts.go), so the
-// console reads like the run output beside it and, with the default fonts, like the editor.
+// The Console tab is one Page: the toolbar with the search over the rows that gitconsole.go
+// flattens, shown as read-only text the user selects and copies (textview), as the Run console
+// is: a drag, across rows too, a double click for a word, a triple click for a row, Shift with
+// a click, Primary+A and Primary+C. The rows are drawn in the run output's font (fonts.go), so
+// the console reads like the run output beside it and, with the default fonts, like the editor.
 // A header's stamp is subtle, its repository is in the accent color, and its temporary
 // configuration is the toggle of its fold: a click on it opens or closes it. Other folds have
-// their toggle after the row, and a header its running badge.
-//
-// The rows are broken into lines or cut to the list's width here, by the cells of the font,
-// rather than by ui Wrap and Ellipsis. A row is several spans in different colors, and a
-// header's configuration span is an inline toggle that takes clicks, while a Wrap or an
-// Ellipsis breaks or cuts one Text. A wrapped row breaks anywhere a line is full, as a
-// terminal breaks it, not between words. Viva lays each piece out on its cells, so a piece
-// needs no width of its own.
+// their toggle after the row, and a header its running badge, at the right edge, where a
+// selection never takes them. A long row ends in an ellipsis, or breaks onto more lines when
+// the console wraps.
 
 const (
-	// consoleRowPadX is the room on either side of a row, and consoleRowGap the room between
-	// its text, its badge and its toggle.
+	// consoleRowPadX is the room on either side of a row.
 	consoleRowPadX = 8
-	consoleRowGap  = 6
-	// consoleMenuWidth is the width of a record's context menu.
+	// consoleMenuWidth is the width of the console's context menu.
 	consoleMenuWidth = 220
-	// consoleEllipsis ends a line cut short; it takes one cell.
-	consoleEllipsis = "…"
 )
 
 // consolePageView declares the body of the Console tab: the toolbar over the rows, or the
 // empty message when the console holds no command.
 func (a *App) consolePageView(c ui.C) {
 	v := &a.consoleView
-	if v.drawRow == nil {
-		v.list.Key, v.list.Label = v.rowKey, v.rowLabel
-		v.drawRow = a.drawConsoleRow
-		v.measure = v.measureWidth
-	}
 	a.syncConsole()
-	ui.Column(c).Fill().Background(a.colors.Editor).Draw(v.measure).Children(func() {
+	ui.Column(c).Fill().Background(a.colors.Editor).Children(func() {
 		a.drawConsoleToolbar(c)
 		ui.Divider(c)
 		if len(v.snapshot.Records) == 0 {
@@ -107,197 +97,98 @@ func (a *App) drawConsoleCount(c ui.C, value string) {
 	ui.Text(c, value).FontSize(a.theme.Metrics.FontSizeS).Color(a.colors.Subtle).Shrink(0)
 }
 
-// drawConsoleList declares the rows. The list follows its end while the user leaves it
-// there; a step to a hit scrolls it away from the end, which Follow would undo in the same
-// layout, so the area is told it was left there.
+// consoleSource is the console's rows as the text of its view, numbered from 0.
+type consoleSource struct{ v *consoleView }
+
+func (s consoleSource) First() int        { return 0 }
+func (s consoleSource) Count() int        { return len(s.v.rows) }
+func (s consoleSource) Line(n int) string { return s.v.rows[n].text }
+
+// drawConsoleList declares the rows as read-only text that scrolls and follows its end while
+// the user leaves it there. The current hit's row is drawn selected and the other rows with a
+// hit are tinted; a header's configuration is a link that opens or closes its fold, and the
+// toggle of another fold, after its row, a button.
 func (a *App) drawConsoleList(c ui.C) {
 	v := &a.consoleView
-	v.font = a.outputFont()
-	v.cellW, _ = c.Canvas().MonoCellSize(v.font.Size, v.font.face)
-	v.lineH = v.font.lineHeight(c.Canvas())
-	area := ui.List(c, &v.list, len(v.rows), v.drawRow).Scrollbars().Label(a.text.Git.Console).Grow(1).FillWidth().Follow(true)
-	if v.detach {
-		v.detach = false
-		s := area.ScrollState()
-		s.ScrollTo(s.Offset)
-	}
-}
-
-// measureWidth records the width of the Console tab, which the list fills, as it is drawn.
-// The rows were laid out for the width before, so a frame that finds it changed asks for one
-// more, laid out for the new one.
-func (v *consoleView) measureWidth(d *ui.DrawContext) {
-	if width := d.Rect.Width; width != v.width {
-		v.width = width
-		d.Canvas.RequestFrame()
-	}
-}
-
-// drawConsoleRow declares one row: its text in the row's colors, broken into lines or cut to
-// the list's width, then its badge and the toggle of a fold that is not inline, with the
-// context menu of its record. The current hit's row is drawn selected and the other rows with
-// a hit are tinted.
-func (a *App) drawConsoleRow(row ui.ListRow) {
-	v := &a.consoleView
-	if row.Index < 0 || row.Index >= len(v.rows) {
-		return
-	}
-	r := &v.rows[row.Index]
-	c := row.C
-	item := row.Element.FillWidth().MinHeight(v.lineH).PadX(consoleRowPadX).Gap(consoleRowGap).Items(ui.Center)
-	switch {
-	case row.Index == v.hitRow:
-		item.Background(a.colors.Selection)
-	case r.matched:
-		item.Background(a.colors.Hover)
-	}
-	if r.record >= 0 {
-		ui.ContextMenu(c, row.Element, a.consoleMenu(c, r.record))
-	}
-	item.Children(func() {
-		v.pieces = layoutConsoleRow(v.pieces[:0], r.text, r.spans, a.consoleCells(c.Canvas(), r), v.wrap)
-		pieces := v.pieces
-		ui.Column(c).Grow(1).Shrink(1).MinWidth(0).Clip().Children(func() {
-			for len(pieces) > 0 {
-				n := 1
-				for n < len(pieces) && pieces[n].line == pieces[0].line {
-					n++
-				}
-				line := pieces[:n]
-				pieces = pieces[n:]
-				ui.Row(c.KeyInt(line[0].line)).Items(ui.Center).Children(func() {
-					a.drawConsolePieces(c, r, line)
-				})
+	font := a.outputFont()
+	small := gfx.TextStyle{Size: a.theme.Metrics.FontSizeS, Weight: gfx.WeightRegular, Color: a.colors.Subtle}
+	toggle := small
+	toggle.Color = a.colors.Accent
+	spec := textview.Spec{
+		Label:      a.text.Git.Console,
+		Source:     consoleSource{v},
+		Font:       font.textStyle(),
+		LineHeight: font.lineHeight(c.Canvas()),
+		PadX:       consoleRowPadX,
+		Selection:  a.terminalLook().Selection,
+		Scroll:     true,
+		Follow:     true,
+		Wrap:       v.wrap,
+		Ellipsis:   true,
+		Revision:   v.revision,
+		Spans: func(n int, text string, dst []textview.Span) []textview.Span {
+			return a.consoleTextSpans(&v.rows[n], dst)
+		},
+		Open: func(n int, _ textview.Span) {
+			if r := &v.rows[n]; r.inline && r.toggle != "" {
+				a.toggleConsoleFold(r.fold, r.folded)
 			}
-		})
-		if r.badge != "" {
-			ui.Text(c, r.badge).FontSize(a.theme.Metrics.FontSizeS).Color(a.colors.Subtle).Shrink(0)
-		}
-		if r.toggle == "" || r.inline {
-			return
-		}
-		// The toggle is named by the row's part, so each row's toggle is a control of its own.
-		fc := c.Part("fold")
-		id := ui.ID(fc)
-		toggle := ui.Row(fc).Shrink(0).Items(ui.Center).
-			HitWith(id, r.toggle, gfx.HitOptions{Role: gfx.RoleButton, Cursor: gfx.PointerCursorHand})
-		toggle.Children(func() {
-			ui.Text(fc, r.toggle).FontSize(a.theme.Metrics.FontSizeS).Color(a.colors.Accent)
-		})
-		if toggle.Clicked() {
-			fold, opening := r.fold, r.folded
-			c.After(func() { a.toggleConsoleFold(fold, opening) })
-		}
-	})
+		},
+		LineBackground: func(n int) gfx.Color {
+			switch {
+			case n == v.hitRow:
+				return a.colors.Selection
+			case v.rows[n].matched:
+				return a.colors.Hover
+			}
+			return gfx.Color{}
+		},
+		// A header's toggle is its configuration, inline; only a header has a badge.
+		Trail: func(n int) textview.Trail {
+			switch r := &v.rows[n]; {
+			case r.badge != "":
+				return textview.Trail{Text: r.badge, Style: small}
+			case r.toggle != "" && !r.inline:
+				return textview.Trail{Text: r.toggle, Style: toggle, Button: true}
+			}
+			return textview.Trail{}
+		},
+		PressTrail: func(n int) {
+			if r := &v.rows[n]; r.toggle != "" {
+				a.toggleConsoleFold(r.fold, r.folded)
+			}
+		},
+		Copy: func(text string) {
+			a.performed("git.console.copySelection", surfaceShortcut)
+			a.copyConsoleText(text)
+		},
+		Menu: a.consoleMenu(c),
+	}
+	spec.Font.Color = a.colors.Text
+	v.text.Declare(c.Key("rows"), spec).Grow(1).FillWidth()
 }
 
-// drawConsolePieces declares the pieces of one drawn line of row r, each in the run output's
-// font, which Viva lays out on its cells, and in the color of its kind. A piece of the
-// configuration of a header is the toggle of its fold: it says what a click does to assistive
-// technology, shows the hand and the accent color under the pointer, and opens or closes the
-// fold.
-func (a *App) drawConsolePieces(c ui.C, r *consoleRow, pieces []consolePiece) {
-	v := &a.consoleView
-	for _, piece := range pieces {
-		box := ui.Text(c, piece.text).FontSize(v.font.Size).MonoFace(v.font.face).LineHeight(v.lineH).
-			Shrink(0).Color(a.consoleSpanColor(r.tone, piece.kind))
-		if piece.kind != consoleSpanFold || !r.inline {
-			continue
-		}
-		box.HitWith(ui.ID(c), r.toggle, gfx.HitOptions{Role: gfx.RoleButton, Cursor: gfx.PointerCursorHand}).
-			Hover(ui.Look{}.Color(a.colors.Accent))
-		if box.Clicked() {
-			fold, opening := r.fold, r.folded
-			c.After(func() { a.toggleConsoleFold(fold, opening) })
-		}
+// consoleTextSpans appends to dst the spans of row r, each in the color of its kind. The
+// configuration of a header is the toggle of its fold, a link named by what a click does that
+// takes the accent color under the pointer.
+func (a *App) consoleTextSpans(r *consoleRow, dst []textview.Span) []textview.Span {
+	if len(r.spans) == 0 {
+		return append(dst, textview.Span{From: 0, To: len(r.text), Color: a.consoleToneColor(r.tone)})
 	}
-}
-
-// consoleCells is how many cells of the run output's font the text of row r has across: the
-// list's width as last drawn, less the row's padding and the badge and toggle drawn after the
-// text. It is 0, no limit, before the list has been drawn.
-func (a *App) consoleCells(canvas *gfx.Canvas, r *consoleRow) int {
-	v := &a.consoleView
-	if v.width <= 0 || v.cellW <= 0 {
-		return 0
-	}
-	room := v.width - 2*consoleRowPadX
-	small := gfx.TextStyle{Size: a.theme.Metrics.FontSizeS, Weight: gfx.WeightRegular}
-	if r.badge != "" {
-		room -= consoleRowGap + canvas.TextWidthStyle(r.badge, small)
-	}
-	if r.toggle != "" && !r.inline {
-		room -= consoleRowGap + canvas.TextWidthStyle(r.toggle, small)
-	}
-	// The small margin keeps a width of exactly n cells from rounding down to n-1.
-	return max(int(room/v.cellW+0.001), 1)
-}
-
-// consolePiece is a stretch of a row's text drawn on one of its lines: the text, the kind of
-// the span it is from and the line it is on.
-type consolePiece struct {
-	text string
-	kind consoleSpanKind
-	line int
-}
-
-// layoutConsoleRow appends to dst the pieces text is drawn in on a row cells cells wide: the
-// stretches of its spans, one span of text when spans is empty. With wrap set the text is
-// broken onto as many lines as it takes, anywhere a line is full, as a terminal breaks it;
-// otherwise it stays on one line, and a text too long for it is cut where the line less one
-// cell is full and ends in consoleEllipsis, of the kind of the span it was cut in. A wide
-// character that does not fit at the end of a line starts the next one. cells of zero or
-// less, a width not known yet, keeps the text on one line, whole.
-func layoutConsoleRow(dst []consolePiece, text string, spans []consoleSpan, cells int, wrap bool) []consolePiece {
-	var whole [1]consoleSpan
-	if len(spans) == 0 {
-		whole[0] = consoleSpan{end: len(text), kind: consoleSpanText}
-		spans = whole[:]
-	}
-	limit, cut := cells, false
-	if !wrap && cells > 0 && consoleTextCells(text) > cells {
-		limit, cut = cells-1, true
-	}
-	line, used, from := 0, 0, 0
-	for _, span := range spans {
-		end := min(span.end, len(text))
+	from := 0
+	for _, span := range r.spans {
+		end := min(span.end, len(r.text))
 		if end <= from {
 			continue
 		}
-		at := from
-		for i, r := range text[from:end] {
-			i += from
-			w := vivatext.CellWidth(r)
-			if cells > 0 && used+w > limit && (cut || used > 0) {
-				dst = appendConsolePiece(dst, text[at:i], span.kind, line)
-				if cut {
-					return append(dst, consolePiece{text: consoleEllipsis, kind: span.kind, line: line})
-				}
-				line, used, at = line+1, 0, i
-			}
-			used += w
+		s := textview.Span{From: from, To: end, Color: a.consoleSpanColor(r.tone, span.kind)}
+		if span.kind == consoleSpanFold && r.inline {
+			s.Link, s.Hover, s.Label = true, a.colors.Accent, r.toggle
 		}
-		dst = appendConsolePiece(dst, text[at:end], span.kind, line)
+		dst = append(dst, s)
 		from = end
 	}
 	return dst
-}
-
-// appendConsolePiece appends the piece of text to dst unless it is empty.
-func appendConsolePiece(dst []consolePiece, text string, kind consoleSpanKind, line int) []consolePiece {
-	if text == "" {
-		return dst
-	}
-	return append(dst, consolePiece{text: text, kind: kind, line: line})
-}
-
-// consoleTextCells is how many cells of a fixed-pitch font text takes.
-func consoleTextCells(text string) int {
-	cells := 0
-	for _, r := range text {
-		cells += vivatext.CellWidth(r)
-	}
-	return cells
 }
 
 // consoleSpanColor is the color of a stretch of kind in a row of tone: the stamp and the
@@ -333,26 +224,46 @@ func (a *App) consoleToneColor(tone consoleTone) gfx.Color {
 	return a.colors.Text
 }
 
-// consoleMenu declares the context menu of the record at index of the snapshot: copy its
-// command, its output or the directory it ran in. The values are taken while the menu is
-// declared, because the snapshot may change before the action runs.
-func (a *App) consoleMenu(c ui.C, index int) func(*ui.MenuItems) {
+// consoleMenu declares the console's context menu: Copy takes the selection, or the row
+// right-clicked when nothing is selected, and Select All every row; then copy the command, the
+// output or the directory of the record the row right-clicked is of. The values are taken
+// while the menu is declared, because the snapshot may change before the action runs.
+func (a *App) consoleMenu(c ui.C) func(*ui.MenuItems) {
 	return func(menu *ui.MenuItems) {
 		v, t := &a.consoleView, &a.text.Console
-		if index < 0 || index >= len(v.snapshot.Records) {
-			return
-		}
-		r := &v.snapshot.Records[index]
+		lang := a.language()
 		menu.WidthRange(consoleMenuWidth, consoleMenuWidth)
-		if menu.Item(t.CopyCommand).Disabled(len(r.Arguments) == 0).Clicked() {
+		n, onRow := v.text.MenuLine()
+		onRow = onRow && n >= 0 && n < len(v.rows)
+		text, action, copyable := v.text.Text(), "copySelection", v.text.Has()
+		if !copyable && onRow {
+			text, action, copyable = v.rows[n].text, "copyLine", true
+		}
+		if menu.Item(i18n.Shared(lang, "menu.copy")).Disabled(!copyable).Clicked() {
+			c.After(func() { a.copyConsoleRecord(action, text) })
+		}
+		if menu.Item(i18n.Shared(lang, "menu.selectAll")).Disabled(len(v.rows) == 0).Clicked() {
+			c.After(func() {
+				a.performed("git.console.selectAll", surfaceContextMenu)
+				v.text.SelectAll()
+			})
+		}
+		menu.Separator()
+		var r *core.GitConsoleRecord
+		if onRow {
+			if index := v.rows[n].record; index >= 0 && index < len(v.snapshot.Records) {
+				r = &v.snapshot.Records[index]
+			}
+		}
+		if menu.Item(t.CopyCommand).Disabled(r == nil || len(r.Arguments) == 0).Clicked() {
 			command := consoleCommand(r)
 			c.After(func() { a.copyConsoleRecord("copyCommand", command) })
 		}
-		if menu.Item(t.CopyOutput).Disabled(len(r.Lines) == 0).Clicked() {
+		if menu.Item(t.CopyOutput).Disabled(r == nil || len(r.Lines) == 0).Clicked() {
 			output := consoleOutput(r)
 			c.After(func() { a.copyConsoleRecord("copyOutput", output) })
 		}
-		if menu.Item(t.CopyPath).Disabled(r.Root == "").Clicked() {
+		if menu.Item(t.CopyPath).Disabled(r == nil || r.Root == "").Clicked() {
 			root := r.Root
 			c.After(func() { a.copyConsoleRecord("copyPath", root) })
 		}

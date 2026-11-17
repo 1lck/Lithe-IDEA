@@ -7,28 +7,35 @@ import (
 	"github.com/1lck/Lithe-IDEA/desktop/internal/core"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/i18n"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/term"
+	"github.com/1lck/Lithe-IDEA/desktop/internal/textview"
 	"github.com/vivaui/viva/app"
 	"github.com/vivaui/viva/gfx"
 	"github.com/vivaui/viva/ui"
 )
 
 // outputMenu is the context menu of a console's lines, as the old client's output view had:
-// copy the line right-clicked, copy the whole output all returns, then the items extra adds.
-// The empty space below the lines opens it too, with no line to copy; key names that space.
+// copy the selection or the line right-clicked, copy the whole output all returns, select
+// all, then the items extra adds. The empty space below the lines opens it too. key names
+// the console, so each run's keeps its own scroll and focus.
 type outputMenu struct {
 	key   string
 	all   func() string
 	extra func(*ui.MenuItems)
 }
 
-// outputLineMenu is the menu of the console line text, or of no line when line is false.
-func (a *App) outputLineMenu(c ui.C, text string, line bool, m *outputMenu) func(*ui.MenuItems) {
+// outputLineMenu is the menu of a console: Copy takes the selection, or the line
+// right-clicked when nothing is selected, and is off below the lines with no selection.
+func (a *App) outputLineMenu(c ui.C, view *textview.View, src textview.Source, m *outputMenu) func(*ui.MenuItems) {
 	return func(menu *ui.MenuItems) {
 		lang := a.language()
 		menu.WidthRange(180, 260)
-		if menu.Item(i18n.Shared(lang, "menu.copy")).Disabled(!line).Clicked() {
+		text, action, copyable := view.Text(), "output.copySelection", view.Has()
+		if n, ok := view.MenuLine(); !copyable && ok && n >= src.First() && n < src.First()+src.Count() {
+			text, action, copyable = src.Line(n), "output.copyLine", true
+		}
+		if menu.Item(i18n.Shared(lang, "menu.copy")).Disabled(!copyable).Clicked() {
 			c.After(func() {
-				a.performed("output.copyLine", surfaceContextMenu)
+				a.performed(action, surfaceContextMenu)
 				_ = app.SetClipboardText(text)
 			})
 		}
@@ -37,6 +44,12 @@ func (a *App) outputLineMenu(c ui.C, text string, line bool, m *outputMenu) func
 			c.After(func() {
 				a.performed("output.copyAll", surfaceContextMenu)
 				_ = app.SetClipboardText(all)
+			})
+		}
+		if menu.Item(i18n.Shared(lang, "menu.selectAll")).Disabled(src.Count() == 0).Clicked() {
+			c.After(func() {
+				a.performed("output.selectAll", surfaceContextMenu)
+				view.SelectAll()
 			})
 		}
 		if m.extra != nil {
@@ -91,51 +104,104 @@ func rgbColor(red, green, blue uint8) gfx.Color {
 	return gfx.Color{Red: float32(red) / 255, Green: float32(green) / 255, Blue: float32(blue) / 255, Alpha: 1}
 }
 
-// outputList declares a console's lines from from on as a list that holds only the rows on
-// screen. Each line is cut into the ranges Core styled from its escapes and the links Core
-// matched, all at UTF-16 offsets, and every piece is drawn in its own colors.
+// outputSource is a console's lines from row from on, as a view numbers them: by their
+// sequence in the buffer, so a selection keeps to its text while the oldest lines go.
+type outputSource struct {
+	output *outputBuffer
+	from   int
+}
+
+func (s outputSource) First() int        { return s.output.start + s.from }
+func (s outputSource) Count() int        { return s.output.count() - s.from }
+func (s outputSource) Line(n int) string { return s.output.row(n - s.output.start).text }
+
+// outputList declares a console's lines from row from on as read-only text the user selects
+// and copies, which draws only the rows on screen. Each line is cut into the ranges Core
+// styled from its escapes and the links Core matched, all at UTF-16 offsets, and every piece
+// is drawn in its own colors; a click on a link opens it.
 //
 // The lines are drawn in the run output's font (fonts.go), each line as tall as that font's
-// line spacing makes it. A line right-clicked opens menu, when there is one. The list keeps
+// line spacing makes it. A secondary press opens menu, when there is one. The console keeps
 // to the newest line as output arrives, until the user scrolls up, and keeps to it again once
 // they scroll back down.
-func (a *App) outputList(c ui.C, p *project, state *ui.ListState, scope, label string, output *outputBuffer, from int, menu *outputMenu) ui.Box {
-	font := a.outputFont()
-	lineH := font.lineHeight(c.Canvas())
-	ink := a.outputInk()
-	from = min(max(from, 0), output.count())
-	list := ui.List(c, state, output.count()-from, func(row ui.ListRow) {
-		line := output.row(from + row.Index)
-		a.outputLine(row, p, scope, line, &ink, font, lineH)
-		if menu != nil {
-			ui.ContextMenu(row.C, row.Element, a.outputLineMenu(row.C, line.text, true, menu))
-		}
-	}).Scrollbars().Label(label).FillWidth().Follow(true)
-	a.flushOutputLinks(p)
-	if menu != nil {
-		list = list.Hit(ui.ID(c.Key(menu.key)), label)
-		ui.ContextMenu(c, list, a.outputLineMenu(c, "", false, menu))
+func (a *App) outputList(c ui.C, p *project, view *textview.View, scope, label string, output *outputBuffer, from int, menu *outputMenu) ui.Box {
+	if menu != nil && menu.key != "" {
+		c = c.Key(menu.key)
 	}
-	return list
+	font := a.outputFont()
+	ink := a.outputInk()
+	src := outputSource{output: output, from: min(max(from, 0), output.count())}
+	spec := textview.Spec{
+		Label:      label,
+		Source:     src,
+		Font:       font.textStyle(),
+		LineHeight: font.lineHeight(c.Canvas()),
+		PadX:       8,
+		Selection:  a.terminalLook().Selection,
+		Scroll:     true,
+		Follow:     true,
+		Spans: func(n int, text string, dst []textview.Span) []textview.Span {
+			return a.outputSpans(p, scope, output.row(n-output.start), &ink, dst)
+		},
+		Open: func(n int, span textview.Span) {
+			if link, ok := a.outputLinkAt(p, scope, output.row(n-output.start), span.From); ok {
+				a.openOutputLink(p, link)
+			}
+		},
+		Copy: func(text string) {
+			a.performed("output.copySelection", surfaceShortcut)
+			_ = app.SetClipboardText(text)
+		},
+	}
+	spec.Font.Color = ink.foreground
+	if menu != nil {
+		spec.Menu = a.outputLineMenu(c, view, src, menu)
+	}
+	box := view.Declare(c, spec)
+	// The links of the lines on screen are asked for before they are drawn, so the request
+	// goes out in this frame; the answer repaints.
+	first, last := view.Visible()
+	for n := max(first, src.First()); n < min(last, src.First()+src.Count()); n++ {
+		a.outputLinksFor(p, scope, src.Line(n))
+	}
+	a.flushOutputLinks(p)
+	return box
 }
 
-// outputLine declares one console line in its row.
-func (a *App) outputLine(row ui.ListRow, p *project, scope string, line styledLine, ink *outputInk, font scopeFont, lineH float32) {
-	c := row.C
-	row.Element.PadX(8)
+// outputSpans styles one console line, appending to dst: a span for every piece
+// outputSegments cuts it into, at byte offsets.
+func (a *App) outputSpans(p *project, scope string, line styledLine, ink *outputInk, dst []textview.Span) []textview.Span {
 	links := a.outputLinksFor(p, scope, line.text)
 	if len(links) == 0 && len(line.spans) == 0 {
-		ui.Text(c, line.text).FontSize(font.Size).MonoFace(font.face).LineHeight(lineH).Color(ink.foreground)
-		return
+		return dst
 	}
+	at := 0 // the segments follow each other from the line's start
 	for _, segment := range outputSegments(line, links) {
-		a.outputSegment(c, p, segment, ink, font, lineH)
+		span := ink.span(segment)
+		span.From, span.To = at, at+len(segment.text)
+		at = span.To
+		dst = append(dst, span)
 	}
+	return dst
 }
 
-// outputSegment declares one piece of a console line in its style. A link is drawn in the
-// link color whatever its range's colors, so it reads as one.
-func (a *App) outputSegment(c ui.C, p *project, segment outputSegment, ink *outputInk, font scopeFont, lineH float32) {
+// outputLinkAt is the link of a console line at byte at.
+func (a *App) outputLinkAt(p *project, scope string, line styledLine, at int) (core.OutputLink, bool) {
+	links := a.outputLinksFor(p, scope, line.text)
+	offset := 0
+	for _, segment := range outputSegments(line, links) {
+		end := offset + len(segment.text)
+		if segment.link != nil && offset <= at && at < end {
+			return *segment.link, true
+		}
+		offset = end
+	}
+	return core.OutputLink{}, false
+}
+
+// span is the look of one piece of a console line. A link is drawn in the link color
+// whatever its range's colors, so it reads as one.
+func (ink *outputInk) span(segment outputSegment) textview.Span {
 	style := segment.style
 	foreground, ok := ink.color(style.Foreground, style.Bold)
 	if !ok {
@@ -157,32 +223,14 @@ func (a *App) outputSegment(c ui.C, p *project, segment outputSegment, ink *outp
 	if style.Hidden {
 		foreground.Alpha = 0
 	}
-	box := ui.Text(c, segment.text).FontSize(font.Size).MonoFace(font.face).LineHeight(lineH).Color(foreground).Shrink(0)
-	if style.Bold {
-		box = box.Weight(gfx.WeightBold)
+	span := textview.Span{
+		Color: foreground, Bold: style.Bold, Italic: style.Italic,
+		Underline: style.Underline, Strike: style.Strikethrough, Link: segment.link != nil,
 	}
 	if filled {
-		box = box.Background(background)
+		span.Background = background
 	}
-	if style.Underline || style.Strikethrough {
-		size, underline, strike := font.Size, style.Underline, style.Strikethrough
-		box = box.DrawOver(func(d *ui.DrawContext) {
-			middle := d.Rect.Y + d.Rect.Height/2
-			color := d.Fade(foreground)
-			if underline {
-				d.Canvas.Fill(gfx.Rect{X: d.Rect.X, Y: middle + size*0.4, Width: d.Rect.Width, Height: 1}, color)
-			}
-			if strike {
-				d.Canvas.Fill(gfx.Rect{X: d.Rect.X, Y: middle + size*0.05 - 0.5, Width: d.Rect.Width, Height: 1}, color)
-			}
-		})
-	}
-	if link := segment.link; link != nil {
-		box = box.HitWith(ui.ID(c), segment.text, gfx.HitOptions{Role: gfx.RoleLink, Cursor: gfx.PointerCursorHand})
-		if box.Clicked() {
-			a.openOutputLink(p, *link)
-		}
-	}
+	return span
 }
 
 // outputSegment is a piece of one console line with one style and at most one link.

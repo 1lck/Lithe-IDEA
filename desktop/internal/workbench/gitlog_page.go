@@ -2,6 +2,7 @@ package workbench
 
 import (
 	"github.com/1lck/Lithe-IDEA/desktop/internal/core"
+	"github.com/1lck/Lithe-IDEA/desktop/internal/textview"
 	"github.com/vivaui/viva/gfx"
 	"github.com/vivaui/viva/ui"
 )
@@ -68,20 +69,12 @@ const (
 	logRefChipGap    = 4
 )
 
-// The author line of the commit details: the short hash, the author, the email and the
-// date. drawLogMeta lays the parts out in a Flow: parts stand logAuthorGap apart along a
-// line, and the lines they wrap onto logAuthorLineGap.
-const (
-	logAuthorGap     = 6
-	logAuthorLineGap = 2
-)
-
-// logMetaPart is one part of the author line of the commit details, drawn whole in color,
-// in the fixed-pitch font when mono is set.
+// logMetaPart is one part of the author line of the commit details, the bytes from to to
+// of the line, drawn in color.
 type logMetaPart struct {
-	text  string
-	mono  bool
-	color gfx.Color
+	text     string
+	from, to int
+	color    gfx.Color
 }
 
 // The filter chips of the commit list, for logView.chips.
@@ -149,9 +142,15 @@ type logView struct {
 	// focus is the field to give the keyboard to in the next paint.
 	focus gfx.ID
 
-	// metaParts are the parts of the selected commit's author line; the array is kept so the
-	// next paint reuses it.
-	metaParts []logMetaPart
+	// detailText is the text of the selected commit's details, which the user selects and
+	// copies: its subject, its author line and its message. detailLines are its lines and
+	// detailHash the commit they are of, so choosing another commit drops the selection;
+	// metaParts are the parts of the author line. The arrays are kept so the next paint
+	// reuses them.
+	detailText  textview.View
+	detailLines textview.Strings
+	detailHash  string
+	metaParts   []logMetaPart
 
 	// file is the path of the selected changed file, and folder the path of the selected
 	// folder of the changed files; at most one of them is set.

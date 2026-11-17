@@ -1,6 +1,9 @@
 package workbench
 
-import "github.com/vivaui/viva/ui"
+import (
+	"github.com/1lck/Lithe-IDEA/desktop/internal/textview"
+	"github.com/vivaui/viva/ui"
+)
 
 // runPanels is the view state of the Run, Tests and Debug tool windows of one project. The
 // model they show (build, tests, debug) stays in the project, so this holds only what the
@@ -17,12 +20,13 @@ type runPanels struct {
 	buildRows   []buildRow
 	// choices is the Build window's tree of every build system. runSplit is the Run window's
 	// divider between its execution tree and the selected execution's console; each
-	// execution keeps its own console list (runEntry.list).
+	// execution keeps its own console (runEntry.console).
 	choices  ui.ListState
 	runSplit ui.SplitterState
 	// testResults is the grouped result list, testOutput the console of a run that
 	// failed before reporting results.
-	testResults, testOutput ui.ListState
+	testResults ui.ListState
+	testOutput  textview.View
 	// breakpoints, frames and console are the Debug tool window's lists, debugSplit the
 	// divider between its call stack and its variables, and consoleSeen the output additions
 	// the console has shown (see debugSessionView.outputCount).

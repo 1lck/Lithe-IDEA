@@ -96,7 +96,10 @@ func TestRunConsoleMenuCopiesTheChosenLineAndTheWholeOutput(t *testing.T) {
 	}
 	h.settle()
 
-	line := h.topHit(run.list.RowID(1))
+	line, ok := run.console.RowRect(run.output.start + 1)
+	if !ok {
+		t.Fatal("the second line is not on screen")
+	}
 	h.rightClickAt(line)
 	h.click(center(h.popupHit(h.shared("menu.copy"))))
 	if got := h.driver.Clipboard(); got != "second line" {

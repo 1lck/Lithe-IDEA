@@ -11,6 +11,7 @@ import (
 
 	"github.com/1lck/Lithe-IDEA/desktop/internal/core"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/i18n"
+	"github.com/1lck/Lithe-IDEA/desktop/internal/textview"
 	"github.com/vivaui/viva/app"
 	vivatext "github.com/vivaui/viva/text"
 	"github.com/vivaui/viva/ui"
@@ -69,9 +70,9 @@ const (
 	consolePartError
 )
 
-// consoleRowID names a row by what it shows, so that the row keeps its list key while rows
-// are added above it or a fold around it opens: a line row is named by its record and line
-// index, and a closed fold by the line it shows.
+// consoleRowID names a row by what it shows, so that a selection keeps to its rows while rows
+// are added around them: a line row is named by its record and line index, and a closed fold
+// by the line it shows.
 type consoleRowID struct {
 	// record is the record's ID, empty for a console-wide note.
 	record string
@@ -112,11 +113,9 @@ type consoleSpan struct {
 	kind consoleSpanKind
 }
 
-// consoleRow is one row of the console's list.
+// consoleRow is one row of the console's text.
 type consoleRow struct {
 	id consoleRowID
-	// key is the row's list key, unique among the rows and kept for the same id.
-	key int
 	// record is the index of the row's record in the snapshot, or -1 for a console-wide
 	// note, which has no context menu.
 	record int
@@ -208,29 +207,16 @@ type consoleView struct {
 	open map[consoleFold]bool
 	// wrap says long lines break into several instead of ending in an ellipsis.
 	wrap bool
-	list ui.ListState
-	// drawRow is drawConsoleRow, made once because a method value made in each paint
-	// allocates.
-	drawRow func(ui.ListRow)
-	rows    []consoleRow
+	// text shows the rows, read-only, and holds the selection; revision changes with each
+	// flattening, so the text breaks its rows again only when they changed.
+	text     textview.View
+	revision uint64
+	rows     []consoleRow
+	// kept is the selected rows before a flattening, which keepSelection finds again.
+	kept []consoleRow
 	// spans holds the spans of all the rows, which slice it; it is reused by each
 	// flattening.
 	spans []consoleSpan
-	// width is the width of the list as it was last drawn, which the rows are broken or cut
-	// to, or 0 before it was; measure, made once, records it and asks for a paint when it
-	// changed. pieces is the layout of the row being declared, reused from row to row.
-	width   float32
-	measure func(*ui.DrawContext)
-	pieces  []consolePiece
-	// font is the run output's font the rows are drawn in, taken as the list is declared,
-	// with the width of its character cell and the height of a line in it.
-	font         scopeFont
-	cellW, lineH float32
-	// keys are the list keys of the rows by id; spareKeys is the map of the flattening
-	// before, reused so that flattening allocates no map once warm. nextKey is the key a
-	// new row gets.
-	keys, spareKeys map[consoleRowID]int
-	nextKey         int
 	// dirty says the rows must be flattened again before they are drawn.
 	dirty bool
 	// hits are the search hits placed on the rows, in the order Core reported them; total
@@ -245,8 +231,6 @@ type consoleView struct {
 	hasCurrent bool
 	hitIndex   int
 	hitRow     int
-	// detach says the list was just scrolled to a hit and must stop following its end.
-	detach bool
 }
 
 // gitConsoleChanged is the journal's change callback. Core calls it on any goroutine, so it
@@ -374,46 +358,21 @@ func consoleSearchText(text string) string {
 	return text[:end]
 }
 
-// rowKey is the list key of row i. The list may ask for a row the rows no longer have while
-// it settles, which gets zero, an identity reserved for a missing row.
-func (v *consoleView) rowKey(i int) int {
-	if i < 0 || i >= len(v.rows) {
-		return 0
-	}
-	return v.rows[i].key
-}
-
-// rowLabel is the text of row i, which assistive technology reads and typing finds.
-func (v *consoleView) rowLabel(i int) string {
-	if i < 0 || i >= len(v.rows) {
-		return ""
-	}
-	return v.rows[i].text
-}
-
-// add appends row with the key its id had in old, the keys of the flattening before, or a new
-// one, and returns its index.
-func (v *consoleView) add(old map[consoleRowID]int, row consoleRow) int {
-	key, ok := old[row.id]
-	if _, taken := v.keys[row.id]; !ok || taken {
-		key = v.nextKey + 1 // Zero belongs to a missing row while the list settles.
-		v.nextKey++
-	}
-	row.key = key
-	v.keys[row.id] = key
+// add appends row and returns its index.
+func (v *consoleView) add(row consoleRow) int {
 	v.rows = append(v.rows, row)
 	return len(v.rows) - 1
 }
 
 // addLines appends a row for each of the lines [from, to) of r, the record at index. The
 // lines of a query are drawn subtle, as its header is.
-func (v *consoleView) addLines(old map[consoleRowID]int, index int, r *core.GitConsoleRecord, from, to int) {
+func (v *consoleView) addLines(index int, r *core.GitConsoleRecord, from, to int) {
 	tone := consoleToneText
 	if r.Query {
 		tone = consoleToneSubtle
 	}
 	for j := from; j < to; j++ {
-		v.add(old, consoleRow{id: consoleRowID{record: r.ID, part: consolePartLine, index: j}, record: index, text: consoleExpandTabs(r.Lines[j].Text), tone: tone, first: j, last: j})
+		v.add(consoleRow{id: consoleRowID{record: r.ID, part: consolePartLine, index: j}, record: index, text: consoleExpandTabs(r.Lines[j].Text), tone: tone, first: j, last: j})
 	}
 }
 
@@ -421,18 +380,18 @@ func (v *consoleView) addLines(old map[consoleRowID]int, index int, r *core.GitC
 // the record at index: while closed, one row that says how many lines it holds, named by its
 // first line so that it keeps its key as it opens; while open, its lines, the last with the
 // toggle that closes it.
-func (v *consoleView) addQueryFold(old map[consoleRowID]int, index int, r *core.GitConsoleRecord, fragment core.GitConsoleOutputFragment, start, end int, text *i18n.ConsoleMessages) {
+func (v *consoleView) addQueryFold(index int, r *core.GitConsoleRecord, fragment core.GitConsoleOutputFragment, start, end int, text *i18n.ConsoleMessages) {
 	fold := consoleFold{record: r.ID, fragment: fragment.ID}
 	if v.open[fold] {
-		v.addLines(old, index, r, start, end-1)
-		v.add(old, consoleRow{id: consoleRowID{record: r.ID, part: consolePartLine, index: end - 1}, record: index, text: consoleExpandTabs(r.Lines[end-1].Text), tone: consoleToneSubtle, fold: fold, toggle: text.Collapse, first: end - 1, last: end - 1})
+		v.addLines(index, r, start, end-1)
+		v.add(consoleRow{id: consoleRowID{record: r.ID, part: consolePartLine, index: end - 1}, record: index, text: consoleExpandTabs(r.Lines[end-1].Text), tone: consoleToneSubtle, fold: fold, toggle: text.Collapse, first: end - 1, last: end - 1})
 		return
 	}
 	count := fragment.Count
 	if count <= 0 {
 		count = end - start
 	}
-	v.add(old, consoleRow{id: consoleRowID{record: r.ID, part: consolePartLine, index: start}, record: index, text: text.QueryOutput(count), tone: consoleToneSubtle, fold: fold, toggle: text.Expand, folded: true, summary: true, first: start, last: end - 1})
+	v.add(consoleRow{id: consoleRowID{record: r.ID, part: consolePartLine, index: start}, record: index, text: text.QueryOutput(count), tone: consoleToneSubtle, fold: fold, toggle: text.Expand, folded: true, summary: true, first: start, last: end - 1})
 }
 
 // endSpan ends the span of kind that runs to end in the spans of the row whose spans start at
@@ -495,25 +454,25 @@ func consoleExpandTabs(line string) string {
 	return b.String()
 }
 
-// flatten turns the snapshot into the rows of the list and places the search hits on them.
+// flatten turns the snapshot into the rows of the text and places the search hits on them.
 // text is the language's words and loc the zone the start times are shown in.
 func (v *consoleView) flatten(text *i18n.ConsoleMessages, loc *time.Location) {
 	v.dirty = false
-	old := v.keys
-	v.keys = v.spareKeys
-	if v.keys == nil {
-		v.keys = map[consoleRowID]int{}
+	v.revision++
+	selFrom, selTo, selected := v.text.Selection.Lines()
+	v.kept = v.kept[:0]
+	if selected && selFrom < len(v.rows) {
+		v.kept = append(v.kept, v.rows[max(selFrom, 0):min(selTo+1, len(v.rows))]...)
 	}
-	clear(v.keys)
 	v.rows, v.spans, v.hits, v.total, v.counted = v.rows[:0], v.spans[:0], v.hits[:0], 0, true
 	if v.snapshot.Omitted {
-		v.add(old, consoleRow{id: consoleRowID{part: consolePartOmitted}, record: -1, text: text.HistoryTruncated, tone: consoleToneSubtle})
+		v.add(consoleRow{id: consoleRowID{part: consolePartOmitted}, record: -1, text: text.HistoryTruncated, tone: consoleToneSubtle})
 	}
 	if v.failed {
-		v.add(old, consoleRow{id: consoleRowID{part: consolePartUnavailable}, record: -1, text: text.Unavailable, tone: consoleToneSubtle})
+		v.add(consoleRow{id: consoleRowID{part: consolePartUnavailable}, record: -1, text: text.Unavailable, tone: consoleToneSubtle})
 	}
 	for i := range v.snapshot.Records {
-		v.flattenRecord(old, i, &v.snapshot.Records[i], text, loc)
+		v.flattenRecord(i, &v.snapshot.Records[i], text, loc)
 	}
 	v.hitIndex, v.hitRow = -1, -1
 	if v.hasCurrent {
@@ -524,13 +483,43 @@ func (v *consoleView) flatten(text *i18n.ConsoleMessages, loc *time.Location) {
 			}
 		}
 	}
-	v.spareKeys = old
+	if selected {
+		v.keepSelection(selFrom)
+	}
+}
+
+// keepSelection moves the selection, which began on row from before the rows were flattened
+// again, to where the rows it covered, v.kept, are now: rows added after them or before them,
+// as a fold opening above, leave it on the same text. It drops the selection when those rows
+// are gone or changed.
+func (v *consoleView) keepSelection(from int) {
+	kept := v.kept
+	at := -1
+	if len(kept) > 0 {
+		for i := range v.rows {
+			if v.rows[i].id == kept[0].id && v.rows[i].text == kept[0].text {
+				at = i
+				break
+			}
+		}
+	}
+	if at < 0 || at+len(kept) > len(v.rows) {
+		v.text.Selection.Clear()
+		return
+	}
+	for i := range kept {
+		if r := &v.rows[at+i]; r.id != kept[i].id || r.text != kept[i].text {
+			v.text.Selection.Clear()
+			return
+		}
+	}
+	v.text.Selection.Move(at - from)
 }
 
 // flattenRecord appends the rows of r, the record at index: its header, its output, its
 // status and its error. It uses Core's presentation while that still describes the lines r
 // has, even one made before more lines came, and draws the rest from the lines themselves.
-func (v *consoleView) flattenRecord(old map[consoleRowID]int, index int, r *core.GitConsoleRecord, text *i18n.ConsoleMessages, loc *time.Location) {
+func (v *consoleView) flattenRecord(index int, r *core.GitConsoleRecord, text *i18n.ConsoleMessages, loc *time.Location) {
 	p := v.presented[r.ID]
 	// A presentation made before lines were dropped from the front no longer indexes them.
 	use := p != nil && !p.raw && !v.failed && (p.revision == r.Revision || !r.Truncated && p.lines <= len(r.Lines))
@@ -628,10 +617,10 @@ func (v *consoleView) flattenRecord(old map[consoleRowID]int, index int, r *core
 	case quiet:
 		header.tone = consoleToneSubtle
 	}
-	headerRow := v.add(old, header)
+	headerRow := v.add(header)
 
 	if r.Truncated {
-		v.add(old, consoleRow{id: consoleRowID{record: r.ID, part: consolePartTruncated}, record: index, text: text.Truncated, tone: consoleToneSubtle})
+		v.add(consoleRow{id: consoleRowID{record: r.ID, part: consolePartTruncated}, record: index, text: text.Truncated, tone: consoleToneSubtle})
 	}
 	lo, next := len(v.rows), 0
 	if use {
@@ -640,22 +629,22 @@ func (v *consoleView) flattenRecord(old map[consoleRowID]int, index int, r *core
 			if start >= end {
 				continue
 			}
-			v.addLines(old, index, r, next, start)
+			v.addLines(index, r, next, start)
 			next = end
 			// Core folds a successful query's output longer than ten lines whole, and shorter
 			// output too when the display choices ask for it; it never folds a deletion's.
 			if fragment.Kind == consoleFragmentQuery {
-				v.addQueryFold(old, index, r, fragment, start, end, text)
+				v.addQueryFold(index, r, fragment, start, end, text)
 				continue
 			}
 			if fragment.Kind != consoleFragmentProgress || end-start <= 1 {
-				v.addLines(old, index, r, start, end)
+				v.addLines(index, r, start, end)
 				continue
 			}
 			fold := consoleFold{record: r.ID, fragment: fragment.ID}
 			last := consoleRow{id: consoleRowID{record: r.ID, part: consolePartLine, index: end - 1}, record: index, text: consoleExpandTabs(r.Lines[end-1].Text), fold: fold, first: end - 1, last: end - 1}
 			if v.open[fold] {
-				v.addLines(old, index, r, start, end-1)
+				v.addLines(index, r, start, end-1)
 				last.toggle = text.Collapse
 			} else {
 				count := fragment.Count
@@ -664,33 +653,33 @@ func (v *consoleView) flattenRecord(old map[consoleRowID]int, index int, r *core
 				}
 				last.toggle, last.folded, last.first = text.ExpandLines(count), true, start
 			}
-			v.add(old, last)
+			v.add(last)
 		}
 	}
-	v.addLines(old, index, r, next, len(r.Lines))
+	v.addLines(index, r, next, len(r.Lines))
 	hi := len(v.rows)
 
 	progressRow := -1
 	if r.State == core.GitConsoleRunning && r.Progress != "" {
-		progressRow = v.add(old, consoleRow{id: consoleRowID{record: r.ID, part: consolePartProgress}, record: index, text: r.Progress, tone: consoleToneSubtle})
+		progressRow = v.add(consoleRow{id: consoleRowID{record: r.ID, part: consolePartProgress}, record: index, text: r.Progress, tone: consoleToneSubtle})
 	}
 	// A notice the display choices no longer show is left out before Core presents the
 	// record again.
 	if exact && p.display == v.display {
 		if notice := consoleNoticeText(text, p.entry.Notice); notice != "" {
-			v.add(old, consoleRow{id: consoleRowID{record: r.ID, part: consolePartNotice}, record: index, text: notice, tone: consoleToneSubtle})
+			v.add(consoleRow{id: consoleRowID{record: r.ID, part: consolePartNotice}, record: index, text: notice, tone: consoleToneSubtle})
 		}
 	}
 	if r.State == core.GitConsoleUnconfirmed {
-		v.add(old, consoleRow{id: consoleRowID{record: r.ID, part: consolePartUnconfirmed}, record: index, text: text.Unconfirmed, tone: consoleToneError})
+		v.add(consoleRow{id: consoleRowID{record: r.ID, part: consolePartUnconfirmed}, record: index, text: text.Unconfirmed, tone: consoleToneError})
 	}
 	if consoleUnexpectedExit(r) {
-		v.add(old, consoleRow{id: consoleRowID{record: r.ID, part: consolePartExit}, record: index, text: text.ExitCode(r.ExitCode), tone: consoleToneError})
+		v.add(consoleRow{id: consoleRowID{record: r.ID, part: consolePartExit}, record: index, text: text.ExitCode(r.ExitCode), tone: consoleToneError})
 	}
 	errorRow := -1
 	if r.Error != "" {
 		for j, line := range strings.Split(strings.TrimRight(r.Error, "\n"), "\n") {
-			at := v.add(old, consoleRow{id: consoleRowID{record: r.ID, part: consolePartError, index: j}, record: index, text: line, tone: consoleToneError})
+			at := v.add(consoleRow{id: consoleRowID{record: r.ID, part: consolePartError, index: j}, record: index, text: line, tone: consoleToneError})
 			if j == 0 {
 				errorRow = at
 			}
@@ -800,8 +789,7 @@ func (v *consoleView) step(delta int, text *i18n.ConsoleMessages, loc *time.Loca
 		v.flatten(text, loc)
 	}
 	if v.hitRow >= 0 {
-		v.list.ScrollTo(v.hitRow, ui.ListCenter)
-		v.detach = true
+		v.text.ScrollTo(v.hitRow)
 	}
 }
 
@@ -846,8 +834,7 @@ func (a *App) toggleConsoleWrap() {
 // consoleScrollToEnd scrolls the list to its end, where it follows new rows again.
 func (a *App) consoleScrollToEnd() {
 	a.performed("git.console.scrollToEnd", surfaceButton)
-	a.consoleView.list.ScrollToEnd()
-	a.consoleView.detach = false
+	a.consoleView.text.ScrollToEnd()
 }
 
 // showGitConsole shows the Console tab of the Git tool window, scrolled to its end, when the
@@ -860,8 +847,7 @@ func (a *App) consoleScrollToEnd() {
 // does not take its place, and only its tab changes.
 func (a *App) showGitConsole(from string) {
 	a.layout.gitTab = gitTabConsole
-	a.consoleView.list.ScrollToEnd()
-	a.consoleView.detach = false
+	a.consoleView.text.ScrollToEnd()
 	git := catalogIndex[itemGit]
 	if a.chrome.isOpen(git) {
 		return
