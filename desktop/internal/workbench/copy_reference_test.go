@@ -46,10 +46,6 @@ func TestCopyReferenceLocationUsesLanguageSymbols(t *testing.T) {
 		symbolAt("DemoClass", 5, 0, 1,
 			symbolAt("goHome(String,Integer)", 6, 0, 1)),
 	))
-	t.Cleanup(func() {
-		req := f.h.app.editor.copyReference.request
-		t.Logf("reference diagnostics: clipboard=%q pendingRequest=%v activeGroup=%q docGroup=%q selected=%p expectedDoc=%p", f.h.driver.Clipboard(), req != nil, f.p.docs.group, f.d.group, f.p.selectedDocument(f.p.docs.group), f.d)
-	})
 	f.h.await("symbol reference request settled", func() bool {
 		return f.h.app.editor.copyReference.request == nil
 	})
@@ -74,6 +70,9 @@ func TestCopyReferenceLocationDiscardsOldDocumentRevision(t *testing.T) {
 	f.h.settleChain()
 	if got := f.h.driver.Clipboard(); strings.Contains(got, "Outdated") {
 		t.Fatalf("stale reference copied: %q", got)
+	}
+	if f.h.app.editor.copyReference.request != nil {
+		t.Fatal("a reference request for an edited document stays pending")
 	}
 }
 

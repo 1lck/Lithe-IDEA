@@ -85,6 +85,8 @@ func (a *App) applyReferenceSymbols(pending *semanticPending, event core.Backend
 	request.pending = nil
 	p, d := a.currentSemanticDocument(request.documentID)
 	if p != request.project || d == nil || d.view.Revision() != request.revision {
+		// The symbols describe a text the user has since changed or closed: nothing is copied.
+		a.editor.copyReference.request = nil
 		return
 	}
 	var symbols []core.DocumentSymbol
