@@ -1,9 +1,12 @@
 package store
 
 import (
+	"bytes"
 	"os"
 	"path/filepath"
+	"slices"
 	"testing"
+	"time"
 )
 
 type sample struct {
@@ -92,4 +95,129 @@ func TestWriteFileReplacesBytesAndRemoveDeletes(t *testing.T) {
 	if err := store.Remove("image.img"); err != nil {
 		t.Fatalf("Remove of a missing file = %v, want nil", err)
 	}
+}
+
+// A save after a failed load keeps the unreadable file beside the new one (#1943): the
+// next save of settings.json must not replace a file whose other settings were still fine.
+func TestSaveAfterAFailedLoadSetsTheUnreadableFileAside(t *testing.T) {
+	dir := t.TempDir()
+	filename := filepath.Join(dir, "settings.json")
+	original := []byte("{\"name\":\"keep me\",\"count\":12,}")
+	if err := os.WriteFile(filename, original, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	store := At(dir)
+	at := time.Date(2026, 11, 17, 8, 30, 0, 0, time.UTC)
+	store.now = func() time.Time { return at }
+	value := sample{Name: "default"}
+	if found, err := store.Load("settings.json", &value); !found || err == nil {
+		t.Fatalf("Load = %v, %v; want existing but undecodable", found, err)
+	}
+	if err := store.Save("recent-projects.json", []string{"a"}); err != nil {
+		t.Fatalf("Save of an unrelated file: %v", err)
+	}
+	if aside := setAsideFiles(t, dir, "recent-projects.json"); len(aside) != 0 {
+		t.Fatalf("an unrelated file was set aside: %v", aside)
+	}
+	if err := store.Save("settings.json", sample{Name: "changed"}); err != nil {
+		t.Fatalf("Save after a failed load: %v", err)
+	}
+	aside := setAsideFiles(t, dir, "settings.json")
+	if want := []string{SetAsideName("settings.json", at)}; !slices.Equal(aside, want) {
+		t.Fatalf("set aside = %v, want %v", aside, want)
+	}
+	kept, err := os.ReadFile(filepath.Join(dir, aside[0]))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(kept, original) {
+		t.Fatalf("the set-aside file holds %q, want the original %q", kept, original)
+	}
+	var saved sample
+	if found, err := store.Load("settings.json", &saved); !found || err != nil || saved.Name != "changed" {
+		t.Fatalf("Load after the save = %+v, %v, %v", saved, found, err)
+	}
+	// One failure sets one file aside; the saves after it replace the new file as usual.
+	at = at.Add(time.Second)
+	if err := store.Save("settings.json", sample{Name: "again"}); err != nil {
+		t.Fatal(err)
+	}
+	if aside := setAsideFiles(t, dir, "settings.json"); len(aside) != 1 {
+		t.Fatalf("set aside after a second save = %v, want one file", aside)
+	}
+}
+
+// A file the store removed, or that was gone when it loaded, has nothing to set aside.
+func TestSaveSetsNothingAsideOnceTheUnreadableFileIsGone(t *testing.T) {
+	dir := t.TempDir()
+	filename := filepath.Join(dir, "settings.json")
+	if err := os.WriteFile(filename, []byte("{"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	store := At(dir)
+	var value sample
+	if _, err := store.Load("settings.json", &value); err == nil {
+		t.Fatal("want a failed Load")
+	}
+	if err := store.Remove("settings.json"); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.Save("settings.json", sample{Name: "new"}); err != nil {
+		t.Fatalf("Save after explicit removal: %v", err)
+	}
+	if err := os.WriteFile(filename, []byte("{"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.Load("settings.json", &value); err == nil {
+		t.Fatal("want a failed Load again")
+	}
+	if err := os.Remove(filename); err != nil {
+		t.Fatal(err)
+	}
+	if found, err := store.Load("settings.json", &value); found || err != nil {
+		t.Fatalf("Load of missing file = %v, %v", found, err)
+	}
+	if err := store.Save("settings.json", sample{Name: "recreated"}); err != nil {
+		t.Fatalf("Save after external removal: %v", err)
+	}
+	if aside := setAsideFiles(t, dir, "settings.json"); len(aside) != 0 {
+		t.Fatalf("set aside = %v, want none", aside)
+	}
+}
+
+// A failed load whose file disappears before the save also writes normally.
+func TestSaveAfterAFailedLoadWritesWhenTheFileIsAlreadyGone(t *testing.T) {
+	dir := t.TempDir()
+	filename := filepath.Join(dir, "settings.json")
+	if err := os.WriteFile(filename, []byte("{"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	store := At(dir)
+	var value sample
+	if _, err := store.Load("settings.json", &value); err == nil {
+		t.Fatal("want a failed Load")
+	}
+	if err := os.Remove(filename); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.Save("settings.json", sample{Name: "new"}); err != nil {
+		t.Fatalf("Save: %v", err)
+	}
+	if aside := setAsideFiles(t, dir, "settings.json"); len(aside) != 0 {
+		t.Fatalf("set aside = %v, want none", aside)
+	}
+}
+
+func setAsideFiles(t *testing.T, dir, name string) []string {
+	t.Helper()
+	matches, err := filepath.Glob(filepath.Join(dir, name+".unreadable-*"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	names := make([]string, 0, len(matches))
+	for _, match := range matches {
+		names = append(names, filepath.Base(match))
+	}
+	slices.Sort(names)
+	return names
 }
