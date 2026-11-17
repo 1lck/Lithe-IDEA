@@ -62,7 +62,32 @@ func TestVisualMemoryDetails(t *testing.T) {
 				if err := session.Screenshot(filepath.Join(out, scene.id+"-"+look.theme+".png")); err != nil {
 					t.Fatal(err)
 				}
+				if scene.id != "memory-details" {
+					return
+				}
+				restOnMemoryHelp(h)
+				if err := session.Screenshot(filepath.Join(out, "memory-details-help-"+look.theme+".png")); err != nil {
+					t.Fatal(err)
+				}
 			})
 		}
 	}
+}
+
+// restOnMemoryHelp rests the pointer on the details' ⓘ, the control whose tip is the help, and
+// waits for the tip to show.
+func restOnMemoryHelp(h *harness) {
+	h.t.Helper()
+	help := memoryHelp(h.app.language())
+	for _, hit := range h.driver.Snapshot().Hits {
+		if hit.Hint == help && !hit.IsLabel {
+			at := center(hit.Bounds)
+			if err := h.driver.Move(at.X, at.Y); err != nil {
+				h.t.Fatal(err)
+			}
+			h.await("the help of the memory details", func() bool { return len(h.tooltips()) > 0 })
+			return
+		}
+	}
+	h.t.Fatal("the memory details have no ⓘ with the help")
 }
