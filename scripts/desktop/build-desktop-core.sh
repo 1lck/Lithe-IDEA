@@ -27,6 +27,12 @@ native_path() {
     fi
 }
 
+# Lithe-core-rust main at 5204e81 (#91 squash-merged on top of 16176c1): a run configuration
+# names the folder it is listed in, runConfig.resolve returns the list in the order the local layer
+# saves (by name by default) with sortAlphabetically, runConfig.arrange moves configurations between
+# folders and saves that order, and runConfig.copyConfiguration copies any configuration, a build
+# provider run included (#2100). Main 16176c1 adds #86 (build tree layout and the default active
+# items of multi-select options) and the squash-merged #75.
 # Lithe-core-rust branch feat/workspace-common-references at 5c48a67 (#75, merged with main at
 # 6f5fbcc, #87 on top of #90 and #89): git.workspaceCommonReferences takes each repository's
 # git.references entries unchanged and returns the branches every repository has in that entry
@@ -229,7 +235,7 @@ PINNED_CORE_REPOSITORY="https://github.com/Lithe-IDEA/Lithe-core-rust.git"
 # the contract, plugin guides, reference and SDKs live only in shared/plugins; on top of #16 (reported Git queries folded in the console),
 # #15 (git.write cherryPick, revert and reset fields), #14 (word-level changed ranges of diff
 # rows), #13, #8, #7, #6 and #4.
-PINNED_CORE_REVISION="5c48a6727fb0d22713a3f067a6f452edf41fad3a"
+PINNED_CORE_REVISION="5204e81635378425505c592575f251eeff640ee7"
 PROFILE="debug"
 while [[ $# -gt 0 ]]; do
     case "$1" in

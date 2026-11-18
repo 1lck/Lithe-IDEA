@@ -60,10 +60,29 @@ Shell 脚本、PowerShell 脚本、cmd 批处理（只能在 Windows 上运行�
 
 对话框参照 IDEA 的同名窗口（`runconfig_dialog.go`、`runconfig_dialog_view.go`），在应用窗口内以模态层显示，不开系统窗口。入口有三个：标题栏运行下拉的“新建运行配置…”和“编辑运行配置…”，以及构建窗口配置列表表头的“+”。列表里的编辑按钮也打开它，并选中那一条。
 
-- 左侧工具栏是“+”（按类型新建）、“−”（删除）和复制。配置树按类型分组，分组可以折叠，折叠状态在再次打开时保留。
-- 每条被选中过的配置都有自己的草稿。新建、修改和删除都先记在草稿里：“应用”先删除，再按配置树的顺序保存有改动的草稿，完成后留在对话框；“确定”保存后关闭；“取消”丢弃全部改动；“运行”保存后关闭，并运行选中的配置。
+- 左侧工具栏依次是“+”（按类型新建）、“−”（删除）、复制、新建文件夹和“按字母顺序排序”开关。配置树按类型分组，类型下面先列文件夹，再列不在文件夹里的配置；分组和文件夹都可以折叠，折叠状态在再次打开时保留。
+- 焦点在配置树上时，macOS 按 ⌫ 或 ⌦、其他平台按 Delete 删除选中的配置（选中文件夹时解散文件夹），和“−”一样只记进草稿。macOS 按 ⌃N、其他平台按 Alt+Insert 打开新建菜单；这两个快捷键只挂在左侧一列上，右侧编辑器里的文本框照常用 ⌃N 换行。
+- 没有配置时和 IDEA 一样：左侧写“未添加运行配置。”和链接“添加新… ⌃N”，右侧是链接“添加新的运行配置…”和“或选择要编辑的运行配置”，两个链接都打开类型菜单。有配置但没选中时，右侧也是这一页。
+- 每条被选中过的配置都有自己的草稿。新建、修改、复制、删除、文件夹和顺序都先记在草稿里：“应用”依次保存有改动的草稿、复制品，再删除，最后保存文件夹和顺序，完成后留在对话框；“确定”保存后关闭；“取消”丢弃全部改动；“运行”保存后关闭，并运行选中的配置。
 - 新建的配置第一次保存后换成 Core 给的 `user:` ID；只有 `user:` 配置能删除。第一处失败就停下，选中出错的那条配置并在它的编辑器里显示原因，对话框不关闭；失败前已保存的部分照常生效。
 - 构建插件提供的运行也在这个对话框里编辑，用的是 `runconfig_edit.go` 的编辑器；内置运行用 Core 描述的表单。
+- 树的行在 Viva 的 `ui.Tree` 里没有自己的标识，挂悬停提示会直接 panic，所以不可运行的行只带警告图标，原因写在行的无障碍标签和右侧编辑器顶部。
+
+### 文件夹、顺序和复制
+
+文件夹参照 IDEA 的 `folderName`，存在配置本身的 `folder` 字段里：项目层的配置写进 `configurations.yaml`，跟团队共享；本机配置和插件生成的配置写进 `local.yaml`（生成的配置只写一条 `{id, folder}` 覆盖）。文件夹只属于一个类型，没有单独的文件夹列表：一个文件夹里的配置都移走或删掉以后，文件夹就没了；刚建的空文件夹只在对话框打开期间存在。
+
+列表的顺序和“按字母排序”是这台机器上的选择，只存在 `local.yaml` 的 `arrangement` 里（`sortAlphabetically`、`order`），不进项目文件，避免团队成员互相改写。默认按名称排序（忽略大小写）。关掉排序后才能把配置拖到别的位置；重新打开排序时，保存的手动顺序保留，下次关掉还能恢复。`order` 里不再存在的 ID 跳过，没列进去的配置按名称排在后面。`runConfig.resolve` 按这个顺序返回配置，并带回 `sortAlphabetically`，所以标题栏下拉、构建窗口和对话框的顺序一致。这些规则都在 Core 的 `execution/src/configuration/arrangement.rs`，宿主用 `runConfig.arrange` 提交 `{folders, order, sortAlphabetically}`，拿回的仍是 `changes`。
+
+复制分两种：
+
+- 内置运行按表单当前显示的值复制，新草稿名为“<原名>（副本）”、留在原来的文件夹，保存位置跟着表单里的“存为项目文件”。
+- 其他配置（包括构建插件生成的运行）在“应用”时由 Core 的 `runConfig.copyConfiguration` 复制，保留原配置保存的全部选择。复制品是用户配置，生成的运行复制后存进 `.lithe/run/plugin/<插件 ID>.local.toml`，原来那条照常列出、不被遮住。保存前复制品的编辑器只提示“按应用或确定后生成副本”，不能运行，也不能再复制。
+
+### 正确做法（文件夹与顺序）
+
+- 新的排列方式（比如按类型以外的维度分组）先在 Core 的 `Arrangement` 里定义和存储，再让宿主画；宿主不自己排序或记顺序。
+- 只要改了名字或新建了配置，而列表又是手动顺序，就把配置树当前显示的顺序一起保存，否则新 ID 会掉到列表末尾。
 
 ### 从界面按下运行时打开 Run 窗口
 
@@ -96,6 +115,14 @@ Shell 脚本、PowerShell 脚本、cmd 批处理（只能在 Windows 上运行�
 
 实现简单，点两下就能新建。没有采用：用户要求参照 IDEA，在一个窗口里同时看到全部配置、切换着编辑，改完一起应用；子菜单也放不下“仅 Windows”这类说明和以后更多的类型。
 
+### 文件夹单独存一份列表，或连顺序一起存进项目文件
+
+单独的文件夹列表能保留空文件夹，顺序进项目文件能让全队看到同样的列表。没有采用：IDEA 把文件夹记在配置上，顺序记在 workspace 里，用户要的就是这种行为；文件夹列表和配置分开存，会出现指向已删除配置的文件夹。顺序是个人习惯，放进项目文件后，每个人拖一下都会在版本控制里产生冲突。
+
+### 复制插件生成的运行时只复制表单值
+
+和内置运行的复制走同一条路。没有采用：插件运行没有 Core 描述的表单，宿主只拿得到界面上显示的部分，会丢掉插件保存的目标、执行方式等不透明字段。交给 Core 复制，才能保留全部选择，并按插件拆分的 TOML 规则落盘。
+
 ### 全部配置都用 YAML，或都用 TOML
 
 一种格式更简单。没有采用：内置配置只有通用字段，YAML 适合手写和代码评审；插件配置要带一个“依赖哪个插件、哪个版本”的头，TOML 的 `[plugin]` 表把元数据和配置分得清楚。按插件拆文件后，卸载插件或插件出错只影响一份文件。
@@ -121,9 +148,9 @@ Shell 脚本、PowerShell 脚本、cmd 批处理（只能在 Windows 上运行�
 
 ## 验证
 
-- `scripts/desktop/desktop-go.sh test ./internal/core/... ./internal/buildprocess/... ./internal/workbench/...`：`runconfig_process_test.go` 用系统 shell 真实运行脚本，并断言 Run 窗口打开、输出进入控制台；`runconfig_dialog_test.go` 覆盖对话框的应用、取消、删除、复制、分组折叠，以及批处理在非 Windows 上能编辑、能保存、不能运行；`runconfig_browser_test.go`、`title_run_test.go`、`runconfig_edit_test.go` 覆盖列表、标题栏和插件运行的编辑。
+- `scripts/desktop/desktop-go.sh test ./internal/core/... ./internal/buildprocess/... ./internal/workbench/...`：`runconfig_process_test.go` 用系统 shell 真实运行脚本，并断言 Run 窗口打开、输出进入控制台；`runconfig_dialog_test.go` 覆盖对话框的应用、取消、删除（含 ⌫/Delete 键）、复制（含插件运行复制进 `<插件 ID>.local.toml`）、文件夹的新建、重命名和解散、手动顺序与排序开关、IDEA 式空白页和 ⌃N/Alt+Insert、分组折叠，以及批处理在非 Windows 上能编辑、能保存、不能运行；`runconfig_browser_test.go`、`title_run_test.go`、`runconfig_edit_test.go` 覆盖列表、标题栏和插件运行的编辑。
 - `scripts/desktop/desktop-go.sh test -tags 'vivahead lithevisual' ./internal/workbench -run '^(TestVisualBuiltInProcessRuns|TestVisualTitleRunWithoutConfigurations)$'`：设置 `LITHE_VISUAL_OUTPUT_DIR` 后生成 `docs/assets/builtin-process-runs/` 和 `docs/assets/run-config-empty/` 的截图。
-- Core 仓库的 `cargo test -p lithe-execution -p lithe-core`：覆盖表单、校验、启动计划、YAML/TOML 读写、旧 JSON 和插件可用性。
+- Core 仓库的 `cargo test -p lithe-execution -p lithe-core`：覆盖表单、校验、启动计划、YAML/TOML 读写、旧 JSON、插件可用性，以及 `run_configuration_arrangement.rs` 里文件夹写入哪一层、顺序只进本机、复制保留全部选择。
 - `./scripts/desktop/verify/verify-runtime-bundle-immutability.sh`：确认运行不写发行目录。
 
 ## 适用范围
@@ -138,4 +165,4 @@ Shell 脚本、PowerShell 脚本、cmd 批处理（只能在 Windows 上运行�
 - `desktop/internal/workbench/runconfig.go`
 - `desktop/internal/core/run_process.go`
 - `desktop/internal/buildprocess/`
-- Core 仓库的内置运行与文件格式：[process.rs](https://github.com/Lithe-IDEA/Lithe-core-rust/blob/main/rust/crates/execution/src/configuration/process.rs)、[storage.rs](https://github.com/Lithe-IDEA/Lithe-core-rust/blob/main/rust/crates/execution/src/configuration/storage.rs)、[plugin_document.rs](https://github.com/Lithe-IDEA/Lithe-core-rust/blob/main/rust/crates/execution/src/configuration/plugin_document.rs)
+- Core 仓库的内置运行与文件格式：[process.rs](https://github.com/Lithe-IDEA/Lithe-core-rust/blob/main/rust/crates/execution/src/configuration/process.rs)、[storage.rs](https://github.com/Lithe-IDEA/Lithe-core-rust/blob/main/rust/crates/execution/src/configuration/storage.rs)、[plugin_document.rs](https://github.com/Lithe-IDEA/Lithe-core-rust/blob/main/rust/crates/execution/src/configuration/plugin_document.rs)、[arrangement.rs](https://github.com/Lithe-IDEA/Lithe-core-rust/blob/main/rust/crates/execution/src/configuration/arrangement.rs)

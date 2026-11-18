@@ -141,6 +141,46 @@ func (c *Client) DeleteRunConfiguration(ctx context.Context, root, configuration
 	return result.Changes, err
 }
 
+// CopyRunConfiguration returns the new `user:` ID of a copy of configuration
+// configurationID named name, and the file changes that save it. Any configuration
+// can be copied; copying a generated build provider run also saves the original in
+// the local layer, so the copy does not take its place.
+func (c *Client) CopyRunConfiguration(ctx context.Context, root, configurationID, name string, plugins []RunInstalledPlugin) (string, []RunConfigChange, error) {
+	var result struct {
+		ID      string            `json:"id"`
+		Changes []RunConfigChange `json:"changes"`
+	}
+	err := c.Execute(ctx, "runConfig.copyConfiguration", struct {
+		Root            string               `json:"root"`
+		ConfigurationID string               `json:"configurationId"`
+		Name            string               `json:"name"`
+		Plugins         []RunInstalledPlugin `json:"plugins,omitempty"`
+	}{root, configurationID, name, plugins}, &result)
+	return result.ID, result.Changes, err
+}
+
+// RunConfigArrangement is a `runConfig.arrange` request. Folders maps configuration
+// IDs to the folder each moves to, nil taking it out of its folder; Order replaces
+// the saved manual order and SortAlphabetically the sort choice when set.
+type RunConfigArrangement struct {
+	Root               string               `json:"root"`
+	Folders            map[string]*string   `json:"folders,omitempty"`
+	Order              []string             `json:"order,omitempty"`
+	SortAlphabetically *bool                `json:"sortAlphabetically,omitempty"`
+	Plugins            []RunInstalledPlugin `json:"plugins,omitempty"`
+}
+
+// ArrangeRunConfigurations returns the file changes that move configurations between
+// folders and save the list's order. A folder is saved with the configuration, the
+// order on this machine only.
+func (c *Client) ArrangeRunConfigurations(ctx context.Context, request RunConfigArrangement) ([]RunConfigChange, error) {
+	var result struct {
+		Changes []RunConfigChange `json:"changes"`
+	}
+	err := c.Execute(ctx, "runConfig.arrange", request, &result)
+	return result.Changes, err
+}
+
 // RunPlanExecutable is the program a launch plan starts: Command, a name looked
 // up on the PATH of the launch environment; Path, a native absolute path; or
 // Toolchain, a runtime the host resolves from its toolchain registry.

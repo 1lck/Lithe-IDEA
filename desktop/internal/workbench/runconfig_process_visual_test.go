@@ -19,7 +19,8 @@ import (
 // the Run/Debug Configurations dialog: the dialog with nothing yet, the editor of a shell
 // script with a script file and with script text, the Run window after the script ran, the +
 // menu of every kind, the editors of a PowerShell script, an executable and a batch script
-// this platform cannot run, the title bar with that batch script chosen, and the title bar's
+// this platform cannot run, the title bar with that batch script chosen, the shell script in a
+// folder of the unsorted list, that folder's pane, a copy of the executable, and the title bar's
 // run menu marking that batch script and naming a run configuration file that was not read. The
 // script runs under the system's shell. It needs only LITHE_VISUAL_OUTPUT_DIR; the dark captures are in Chinese and the light ones in English.
 func TestVisualBuiltInProcessRuns(t *testing.T) {
@@ -146,10 +147,10 @@ func TestVisualBuiltInProcessRuns(t *testing.T) {
 
 				h.app.post(func(a *App) {
 					a.openRunConfigDialog(p, p.runConfigs.selected)
-					d.newMenu = true
+					d.newMenu = runConfigNewMenuToolbar
 				})
 				shot("new-menu")
-				h.app.post(func(a *App) { d.newMenu = false })
+				h.app.post(func(*App) { d.newMenu = runConfigNewMenuClosed })
 
 				edit(runProviderPowerShell, map[string]string{"name": "Clean", "source": "file", "script": "scripts/clean.ps1"}, nil)
 				shot("powershell")
@@ -167,6 +168,46 @@ func TestVisualBuiltInProcessRuns(t *testing.T) {
 					return !p.runConfigs.loading && len(p.runConfigs.list) == 4 && c != nil && c.Name == "Package"
 				})
 				shot("title-unavailable")
+
+				// The toolbar's folder, copy and sort: Greet in a folder of its own, the list in the
+				// order it was made, the folder's pane, and a copy of Tool.
+				id := func(name string) string {
+					t.Helper()
+					for _, configuration := range p.runConfigs.list {
+						if configuration.Name == name {
+							return configuration.ID
+						}
+					}
+					t.Fatalf("no configuration %s in %v", name, listedNames(p))
+					return ""
+				}
+				h.app.post(func(a *App) {
+					a.openRunConfigDialog(p, id("Greet"))
+					a.addRunConfigFolder(p)
+				})
+				h.settle()
+				// The folder takes the name typed in its pane, as of the tree last painted.
+				h.app.post(func(a *App) {
+					d.folderName = "Scripts"
+					a.renameRunConfigFolder(p)
+					p.toggleRunConfigDialogSort()
+					a.selectRunConfigDraft(p, id("Greet"))
+				})
+				shot("folders")
+				h.app.post(func(*App) {
+					d.selectRunConfigDialogNode(runConfigDialogNode{group: p.runConfigDialogGroupKey(id("Greet")), folder: "Scripts"})
+				})
+				shot("folder-pane")
+				tool := id("Tool")
+				h.app.post(func(a *App) { a.selectRunConfigDraft(p, tool) })
+				awaitStateWithin(t, h, 10*time.Second, "Tool's editor", func() bool { return p.runConfigCopyable(tool) })
+				h.app.post(func(a *App) { a.copyRunConfigDraft(p) })
+				awaitStateWithin(t, h, 10*time.Second, "the copy's editor", func() bool {
+					draft := d.drafts[d.selected]
+					return d.selected != tool && draft != nil && draft.form != nil && draft.form.ready()
+				})
+				shot("copy")
+				h.app.post(func(a *App) { a.closeRunConfigDialog(p) })
 
 				plugins := filepath.Join(root, ".lithe", "run", "plugin")
 				if err := os.MkdirAll(plugins, 0o755); err != nil {
