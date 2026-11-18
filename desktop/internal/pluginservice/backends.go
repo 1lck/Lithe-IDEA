@@ -7,12 +7,14 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"time"
 
 	"github.com/1lck/Lithe-IDEA/desktop/internal/core"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/pluginbackend"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/pluginlsp"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/pluginmanager"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/pluginpkg"
+	"github.com/1lck/Lithe-IDEA/desktop/internal/pluginruntime"
 )
 
 // BackendRequest is the workspace a language server serves.
@@ -22,6 +24,9 @@ type BackendRequest struct {
 	WorkingDirectory string
 	// Architecture is the platform architecture Core plans for.
 	Architecture string
+	// RuntimeProgress reports cancellable preparation before the bounded server
+	// launch. It may be called from a worker goroutine.
+	RuntimeProgress func(pluginruntime.Progress)
 }
 
 // LanguageSession is one running language server.
@@ -62,6 +67,12 @@ func (s *Service) StartLanguageServer(ctx context.Context, entries []pluginmanag
 	if !ok {
 		return nil, err
 	}
+	ctx, preparation, preparationErr := s.beginRuntimePreparation(ctx, entry.Installed.ID)
+	if preparationErr != nil {
+		return nil, errors.Join(err, preparationErr)
+	}
+	var cleanupErr error
+	defer func() { preparation.finish(cleanupErr) }()
 	// The start is one attempt of the plugin's languageServers declaration. What fails before
 	// the runner hands it to Core is the host's to record, as a launch it could not resolve;
 	// Core records everything after the handoff.
@@ -84,6 +95,15 @@ func (s *Service) StartLanguageServer(ctx context.Context, entries []pluginmanag
 	if settingsErr != nil {
 		return fail(settingsErr)
 	}
+	runtimes, runtimeErr := s.EnsureRuntimesWithSettings(ctx, manifest, entry.Installed.Path, entry.Installed.ID, entry.Installed.Version, false, settings.State, request.RuntimeProgress)
+	if runtimeErr != nil {
+		return fail(runtimeErr)
+	}
+	// Downloads have their own cancellation and transport stall limits. Apply
+	// the process-start budget only after the environment is ready, so slow
+	// healthy downloads do not repeatedly lose their progress.
+	ctx, cancelStart := context.WithTimeout(ctx, 2*time.Minute)
+	defer cancelStart()
 	// State lives beside the installed versions, never inside one: an installed
 	// package is read-only for the host, and a version directory that changed
 	// would no longer match the digest the user approved.
@@ -105,10 +125,11 @@ func (s *Service) StartLanguageServer(ctx context.Context, entries []pluginmanag
 		ProjectSettings:  settings.State.ProjectSettings,
 		RootURI:          request.RootURI,
 		WorkingDirectory: request.WorkingDirectory,
+		ManagedTools:     runtimes.Tools,
 	}
 	temporary := ""
 	if declaresBackendLaunch(manifest, languageID) {
-		resolved, resolveErr := s.resolveBackendLaunch(ctx, entry.Installed.ID, entry.Installed.Version, manifest, languageID, workspaceContext, start)
+		resolved, resolveErr := s.resolveBackendLaunch(ctx, entry.Installed.ID, entry.Installed.Version, manifest, languageID, workspaceContext, start, runtimes)
 		if resolveErr != nil {
 			return fail(resolveErr)
 		}
@@ -120,6 +141,19 @@ func (s *Service) StartLanguageServer(ctx context.Context, entries []pluginmanag
 	if startErr != nil {
 		removeTemporary(temporary)
 		return fail(startErr)
+	}
+	if cancelled := ctx.Err(); cancelled != nil {
+		preparation.retryCleanup = func(stopCtx context.Context) error {
+			disposed, err := s.Backend.StopAndDispose(stopCtx, started)
+			if disposed {
+				removeTemporary(temporary)
+			}
+			return s.runtimeStopFailure(stopCtx, disposed, err)
+		}
+		stopCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), backendStopTimeout)
+		cleanupErr = preparation.retryCleanup(stopCtx)
+		cancel()
+		return fail(errors.Join(cancelled, cleanupErr))
 	}
 	session := &LanguageSession{
 		PluginID:          entry.Installed.ID,
@@ -170,11 +204,14 @@ func (s *Service) StopLanguageServer(ctx context.Context, session *LanguageSessi
 	if session == nil {
 		return nil
 	}
-	s.unregisterLanguageSession(session)
 	session.end()
 	s.observeLanguage(session, core.BackendEvent{Type: "stateChanged", State: "stopped"})
-	removeTemporary(session.temporary)
-	return s.Backend.Stop(ctx, session.Session)
+	disposed, err := s.Backend.StopAndDispose(ctx, session.Session)
+	if disposed {
+		s.unregisterLanguageSession(session)
+		removeTemporary(session.temporary)
+	}
+	return err
 }
 
 type languageServerDeclaration struct {
