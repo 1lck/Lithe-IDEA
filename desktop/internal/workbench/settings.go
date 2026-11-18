@@ -437,9 +437,9 @@ func (a *App) openSettingsPageWith(surface actionSurface, page settingsPage, que
 			Fonts:                    fontprefs.Normalize(a.settings.Fonts),
 			Keymap:                   maps.Clone(a.settings.Keymap),
 			EditorPreferences:        a.editorPreferences, EditorStoredPreferences: a.settings.EditorPreferences, KeymapSchemes: a.settings.KeymapSchemes,
-			Network:          a.settings.Network,
-			LocalHistory:     a.settings.LocalHistory,
-			AutoCheckUpdates: a.autoCheckUpdates(),
+			Network:           a.settings.Network,
+			LocalHistory:      a.settings.LocalHistory,
+			AutoCheckUpdates:  a.autoCheckUpdates(),
 			AutoUpdatePlugins: a.pluginAuto != nil && a.pluginAuto.enabled,
 		}
 		var err error

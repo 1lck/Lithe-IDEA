@@ -72,24 +72,24 @@ type MarketplaceVersion struct {
 
 // MarketplacePlugin is a validated listing, with upstream-provided display text.
 type MarketplacePlugin struct {
-	ID                    string                  `json:"id"`
-	Name                  string                  `json:"name"`
-	Author                string                  `json:"author"`
-	Repository            string                  `json:"repository"`
-	Homepage              *string                 `json:"homepage"`
-	Description           string                  `json:"description"`
-	LocalizedDescriptions map[string]string       `json:"localizedDescriptions"`
-	Tags                  []string                `json:"tags"`
-	License               string                  `json:"license"`
-	Icon                  *string                 `json:"icon"`
-	Platforms             []string                `json:"platforms"`
-	LatestVersion         string                  `json:"latestVersion"`
-	LatestReleaseDate     string                  `json:"latestReleaseDate"`
+	ID                    string            `json:"id"`
+	Name                  string            `json:"name"`
+	Author                string            `json:"author"`
+	Repository            string            `json:"repository"`
+	Homepage              *string           `json:"homepage"`
+	Description           string            `json:"description"`
+	LocalizedDescriptions map[string]string `json:"localizedDescriptions"`
+	Tags                  []string          `json:"tags"`
+	License               string            `json:"license"`
+	Icon                  *string           `json:"icon"`
+	Platforms             []string          `json:"platforms"`
+	LatestVersion         string            `json:"latestVersion"`
+	LatestReleaseDate     string            `json:"latestReleaseDate"`
 	// MarketplaceIndexURL identifies the validated source of a fetched listing. It is
 	// native-only provenance and must never appear in the Core JSON contract.
-	MarketplaceIndexURL   string                  `json:"-"`
-	Availability          MarketplaceAvailability `json:"availability"`
-	Versions              []MarketplaceVersion    `json:"versions"`
+	MarketplaceIndexURL string                  `json:"-"`
+	Availability        MarketplaceAvailability `json:"availability"`
+	Versions            []MarketplaceVersion    `json:"versions"`
 }
 
 // MarketplaceEntryRejection describes one rejected entry without hiding accepted entries.

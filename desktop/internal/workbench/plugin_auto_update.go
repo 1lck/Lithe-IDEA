@@ -27,8 +27,8 @@ const (
 // Only the workbench/window thread touches its state.
 type pluginAutoUpdater struct {
 	enabled, stopped, deferred, checking bool
-	timer *time.Timer
-	cancel context.CancelFunc
+	timer                                *time.Timer
+	cancel                               context.CancelFunc
 }
 
 func (a *App) startPluginAutoUpdates() {
@@ -169,7 +169,7 @@ func (a *App) checkPluginAutoUpdates() {
 
 type pluginAutoSource struct {
 	input string
-	kind core.MarketplaceSourceKind
+	kind  core.MarketplaceSourceKind
 }
 
 // autoUpdateCandidates uses only Core-validated availability and release order.
@@ -264,9 +264,9 @@ func (a *App) applyPluginAutoUpdate(ctx context.Context, downloader *marketplace
 	defer func() { a.recordPluginInstallCleanup(ctx, archive.Discard()) }()
 	plan, err := a.preparePlugin(ctx, plugininstall.Request{
 		ArchivePath: archive.Path(), Root: a.plugins.Root, Source: plugintrust.Marketplace,
-		ArchiveSHA256: plugin.Availability.SHA256,
+		ArchiveSHA256:       plugin.Availability.SHA256,
 		MarketplaceIndexURL: plugin.MarketplaceIndexURL,
-		ExpectedID: plugin.ID, ExpectedVersion: plugin.Availability.Version,
+		ExpectedID:          plugin.ID, ExpectedVersion: plugin.Availability.Version,
 	})
 	if err != nil {
 		return false, err

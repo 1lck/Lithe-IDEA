@@ -44,14 +44,14 @@ type Review struct {
 
 // Record is the provenance of one approved plugin version.
 type Record struct {
-	PluginID         string            `json:"pluginID"`
-	Version          string            `json:"version"`
-	Source           Source            `json:"source"`
-	ArchiveSHA256    string            `json:"archiveSHA256,omitempty"`
-	MarketplaceIndexURL string `json:"marketplaceIndexURL,omitempty"`
-	ContentDigest    string            `json:"contentDigest,omitempty"`
-	Permissions      []string          `json:"permissions"`
-	ApprovedPrograms []json.RawMessage `json:"approvedPrograms"`
+	PluginID            string            `json:"pluginID"`
+	Version             string            `json:"version"`
+	Source              Source            `json:"source"`
+	ArchiveSHA256       string            `json:"archiveSHA256,omitempty"`
+	MarketplaceIndexURL string            `json:"marketplaceIndexURL,omitempty"`
+	ContentDigest       string            `json:"contentDigest,omitempty"`
+	Permissions         []string          `json:"permissions"`
+	ApprovedPrograms    []json.RawMessage `json:"approvedPrograms"`
 }
 
 // Request is what the host knows about the package it is about to install.
@@ -120,14 +120,14 @@ func Decide(record Record, found bool, req Request) Decision {
 // RecordFor builds the record that approves req for one plugin version.
 func RecordFor(id, version string, req Request) Record {
 	return Record{
-		PluginID:         id,
-		Version:          version,
-		Source:           req.Source,
-		ArchiveSHA256:    req.ArchiveSHA256,
+		PluginID:            id,
+		Version:             version,
+		Source:              req.Source,
+		ArchiveSHA256:       req.ArchiveSHA256,
 		MarketplaceIndexURL: req.MarketplaceIndexURL,
-		ContentDigest:    req.ContentDigest,
-		Permissions:      append([]string(nil), req.Review.Permissions...),
-		ApprovedPrograms: clonePrograms(req.Review.Programs),
+		ContentDigest:       req.ContentDigest,
+		Permissions:         append([]string(nil), req.Review.Permissions...),
+		ApprovedPrograms:    clonePrograms(req.Review.Programs),
 	}
 }
 

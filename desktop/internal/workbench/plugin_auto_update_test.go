@@ -17,7 +17,7 @@ func TestAutoUpdateCandidatesRequireMatchingApprovedSourceAndNewerRelease(t *tes
 		{Installed: pluginpkg.Installed{ID: "dev.lithe.test.disabled", Version: "1.0.0"}, Enabled: false},
 	}
 	records := map[string]plugintrust.Record{
-		"dev.lithe.test.ready": {PluginID: "dev.lithe.test.ready", Version: "1.0.0", Source: plugintrust.Marketplace, MarketplaceIndexURL: source},
+		"dev.lithe.test.ready":    {PluginID: "dev.lithe.test.ready", Version: "1.0.0", Source: plugintrust.Marketplace, MarketplaceIndexURL: source},
 		"dev.lithe.test.disabled": {PluginID: "dev.lithe.test.disabled", Version: "1.0.0", Source: plugintrust.Marketplace, MarketplaceIndexURL: source},
 	}
 	makePlugin := func(id string) core.MarketplacePlugin {

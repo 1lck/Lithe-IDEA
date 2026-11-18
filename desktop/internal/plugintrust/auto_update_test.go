@@ -9,12 +9,12 @@ func TestMayAutoUpdateRequiresSameApprovedSourceAndGrants(t *testing.T) {
 	old := Record{
 		PluginID: "dev.lithe.test.example", Version: "1.0.0",
 		Source: Marketplace, MarketplaceIndexURL: "https://example.test/index.json",
-		Permissions: []string{"language", "editor"},
+		Permissions:      []string{"language", "editor"},
 		ApprovedPrograms: []json.RawMessage{json.RawMessage(`{"id":"daemon","program":"bin/daemon"}`)},
 	}
 	next := Review{
 		Permissions: []string{"editor", "language"},
-		Programs: []json.RawMessage{json.RawMessage(`{"program":"bin/daemon","id":"daemon"}`)},
+		Programs:    []json.RawMessage{json.RawMessage(`{"program":"bin/daemon","id":"daemon"}`)},
 	}
 	if !MayAutoUpdate(old, true, old.MarketplaceIndexURL, next) {
 		t.Fatal("identical previously approved grants should allow an opt-in auto-update")

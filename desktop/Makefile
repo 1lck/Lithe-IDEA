@@ -64,7 +64,7 @@ fmt:
 	gofmt -w .
 
 fmt-check:
-	@unformatted="$(gofmt -l .)"; if [ -n "$unformatted" ]; then echo "gofmt would change:"; echo "$unformatted"; gofmt -d .; exit 1; fi
+	@unformatted="$$(gofmt -l .)"; if [ -n "$$unformatted" ]; then echo "gofmt would change:"; echo "$$unformatted"; exit 1; fi
 
 check:
 	$(SCRIPTS)/check.sh

@@ -328,7 +328,7 @@ type Options struct {
 	SetMarketplaceSources  func([]string)
 	// SetAutoUpdatePlugins changes the window-wide update preference.
 	SetAutoUpdatePlugins func(bool)
-	MarketplaceRank        func(context.Context, string, []core.RankCandidate) ([]int, error)
+	MarketplaceRank      func(context.Context, string, []core.RankCandidate) ([]int, error)
 	// MarketplaceError must be safe from a worker: a cancelled request may fail
 	// after the window has discarded its result.
 	MarketplaceError    func(error)

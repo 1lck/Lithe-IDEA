@@ -586,9 +586,9 @@ type App struct {
 	shownTitle string
 	// updates is the update check, download and install, which every tab of the window
 	// shares (updates.go).
-	updates *updater
+	updates    *updater
 	pluginAuto *pluginAutoUpdater
-	tasks   taskQueue
+	tasks      taskQueue
 	// languages are the languages the editor knows, made when the first file is opened.
 	languages *syntax.Registry
 

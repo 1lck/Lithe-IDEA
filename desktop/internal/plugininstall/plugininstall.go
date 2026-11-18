@@ -96,10 +96,10 @@ type Plan struct {
 	// Decision says whether an earlier approval covers this package.
 	Decision plugintrust.Decision
 	// Source, ArchiveSHA256 and Root repeat the request for Commit.
-	Source        plugintrust.Source
-	ArchiveSHA256 string
+	Source              plugintrust.Source
+	ArchiveSHA256       string
 	MarketplaceIndexURL string
-	Root          string
+	Root                string
 }
 
 // NeedsApproval reports that the user has to confirm the review before Commit.
@@ -187,24 +187,24 @@ func (s *Service) Prepare(ctx context.Context, request Request) (plan Plan, err 
 		return Plan{}, err
 	}
 	decision := plugintrust.Decide(record, found, plugintrust.Request{
-		Source:        request.Source,
-		ArchiveSHA256: request.ArchiveSHA256,
+		Source:              request.Source,
+		ArchiveSHA256:       request.ArchiveSHA256,
 		MarketplaceIndexURL: request.MarketplaceIndexURL,
-		ContentDigest: digest,
-		Review:        review,
+		ContentDigest:       digest,
+		Review:              review,
 	})
 	return Plan{
-		Staging:       staging,
-		ID:            identity.ID,
-		Version:       identity.Version,
-		Manifest:      normalised,
-		ContentDigest: digest,
-		Review:        review,
-		Decision:      decision,
-		Source:        request.Source,
-		ArchiveSHA256: request.ArchiveSHA256,
+		Staging:             staging,
+		ID:                  identity.ID,
+		Version:             identity.Version,
+		Manifest:            normalised,
+		ContentDigest:       digest,
+		Review:              review,
+		Decision:            decision,
+		Source:              request.Source,
+		ArchiveSHA256:       request.ArchiveSHA256,
 		MarketplaceIndexURL: request.MarketplaceIndexURL,
-		Root:          request.Root,
+		Root:                request.Root,
 	}, nil
 }
 
@@ -222,11 +222,11 @@ func (s *Service) Commit(plan Plan) (pluginpkg.Installed, error) {
 		return pluginpkg.Installed{}, err
 	}
 	record := plugintrust.RecordFor(plan.ID, plan.Version, plugintrust.Request{
-		Source:        plan.Source,
-		ArchiveSHA256: plan.ArchiveSHA256,
+		Source:              plan.Source,
+		ArchiveSHA256:       plan.ArchiveSHA256,
 		MarketplaceIndexURL: plan.MarketplaceIndexURL,
-		ContentDigest: plan.ContentDigest,
-		Review:        plan.Review,
+		ContentDigest:       plan.ContentDigest,
+		Review:              plan.Review,
 	})
 	if err := s.approvals.Approve(record); err != nil {
 		return installed, &ApprovalError{Installed: installed, Err: err}

@@ -9,12 +9,12 @@ import (
 func TestNewerOfferedOnlyUsesKnownOrderedReleases(t *testing.T) {
 	plugin := core.MarketplacePlugin{
 		LatestVersion: "2.0.0",
-		Availability: core.MarketplaceAvailability{Status: "available", Version: "2.0.0"},
-		Versions: []core.MarketplaceVersion{{Version: "2.0.0"}, {Version: "1.8.0"}, {Version: "1.7.0"}},
+		Availability:  core.MarketplaceAvailability{Status: "available", Version: "2.0.0"},
+		Versions:      []core.MarketplaceVersion{{Version: "2.0.0"}, {Version: "1.8.0"}, {Version: "1.7.0"}},
 	}
 	for _, tc := range []struct {
 		name, installed string
-		want bool
+		want            bool
 	}{
 		{"older", "1.8.0", true},
 		{"current", "2.0.0", false},
