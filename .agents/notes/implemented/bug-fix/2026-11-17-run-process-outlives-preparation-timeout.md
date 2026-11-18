@@ -47,8 +47,10 @@ a.background(p, 0, func(ctx context.Context) func(*App) {
 ## 验证
 
 - `./scripts/desktop/desktop-go.sh test ./internal/workbench/ -run TestServiceRunOutlivesItsPreparationBound -count=1`：把准备时限缩短到 5 秒，服务运行 6 秒后写出标记文件。修复前服务在第 5 秒被结束（`signal: killed`），修复后通过。
+- #2154 的构建工具版本预检属于准备阶段：`probeBuildTool` 每次派生不超过 10 秒的子上下文，超时或用户停止时由 `buildprocess` 结束进程树；不得因工具已打印文本而忽略超时或非零退出状态。这不缩短运行中服务的生命周期。跨平台回归：`./scripts/desktop/desktop-go.sh test ./internal/workbench -run 'TestProbeBuildTool' -count=1`；真实 macOS/Windows 结果在 PR 中单独记录。
 
 ## 适用范围
 
 - `desktop/internal/workbench/build.go`
+- `desktop/internal/workbench/build_probe_test.go`
 - `desktop/internal/workbench/build_connection_debug_test.go`

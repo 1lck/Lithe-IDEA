@@ -1489,10 +1489,21 @@ func buildRequiresPresent(path string, required []string, root string) bool {
 	return err == nil
 }
 
+// A version probe is a short-lived preflight, not the build itself. It must not hold a
+// model sync for the full buildRequestTimeout if the executable stalls.
+const buildToolProbeTimeout = 10 * time.Second
+
 func probeBuildTool(ctx context.Context, executable string, arguments []string, workingDirectory string, environment map[string]string) (string, error) {
-	output, waitErr := captureBuildProcess(ctx, executable, arguments, workingDirectory, environment, false, nil)
-	if output.combined == "" {
-		return "", waitErr
+	probeCtx, cancel := context.WithTimeout(ctx, buildToolProbeTimeout)
+	defer cancel()
+	output, waitErr := captureBuildProcess(probeCtx, executable, arguments, workingDirectory, environment, false, nil)
+	// The tool may have printed a version before hanging or failing. Output does not
+	// make a cancelled or nonzero-exit probe successful.
+	if err := probeCtx.Err(); err != nil {
+		return "", err
+	}
+	if waitErr != nil {
+		return "", withBuildOutput(waitErr, output.combined)
 	}
 	return output.combined, nil
 }

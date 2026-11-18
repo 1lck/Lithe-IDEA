@@ -5,13 +5,14 @@
   "capability": "加载构建模型时，Run 窗口为每次加载开一个“同步 <构建系统>”执行标签，实时显示构建工具下载、解析依赖时打印的日志，带状态、开始时间、耗时、停止和再次运行；Build 窗口里正在加载的那一行显示最新一行输出，点击打开对应标签",
   "owner": "Run",
   "notes": "Viva 共享实现。命令来源的模型从 stdout 读取时只解码 stdout，stderr（如 go: downloading …）只进同步标签的控制台，不再混进模型文档；模型写到输出文件时两路输出都进控制台。Provider 来源把 lithe/build/progress 的 output 写进控制台、message 作为最新一行。同步标签不抢占正在运行的执行标签，也不主动把 Run 窗口调到前台；同名的已结束同步标签被新一次加载替换，标签数超出上限时先移除已结束的同步标签。用户停止后结果为“构建模型加载已停止”，Build 窗口不显示失败警告，也不会因文件变化自动重新加载，直到用户点 Reload 或再次运行。文案走 shared/i18n 的 desktop.build.syncSession*、desktop.build.modelStopped、desktop.build.showSyncOutput。",
-  "verification": "打开一个首次加载需要下载依赖的 Go 模块项目（清空模块缓存），在 Build 窗口点加载或 Reload：Run 窗口出现“同步 Go Modules”标签并显示 go: downloading 行，Build 窗口加载行显示最新一行输出，点击后 Run 窗口打开并选中该标签；加载结束后标签显示成功、开始时间和耗时，Build 树正常展开。再次加载时点停止：标签结果为已停止，Build 窗口不显示警告也不自动重试，点再次运行在同一个标签重新加载。正在运行一个任务时触发加载，确认 Run 窗口仍停在那个任务上。自动化：build_sync_test.go 的 TestBuildModelLoadShowsTheToolsLogInARunWindowSession、TestBuildModelLoadTheUserStopsEndsStoppedAndRerunsInItsTab，build_command_record_test.go 的 download 场景。",
+  "verification": "打开一个首次加载需要下载依赖的 Go 模块项目（清空模块缓存），在 Build 窗口点加载或 Reload：Run 窗口出现“同步 Go Modules”标签并显示 go: downloading 行，Build 窗口加载行显示最新一行输出，点击后 Run 窗口打开并选中该标签；加载结束后标签显示成功、开始时间和耗时，Build 树正常展开。再次加载时点停止：标签结果为已停止，Build 窗口不显示警告也不自动重试，点再次运行在同一个标签重新加载。正在运行一个任务时触发加载，确认 Run 窗口仍停在那个任务上。自动化：build_sync_test.go 的 TestBuildModelLoadShowsTheToolsLogInARunWindowSession、TestBuildModelLoadTheUserStopsEndsStoppedAndRerunsInItsTab，build_command_record_test.go 的 download 场景。 通用版本探测补充检查：scripts/desktop/desktop-go.sh test ./internal/workbench -run 'TestProbeBuildTool' -count=1；用会输出版本后不退出的合成可执行文件验证单次探测不超过 10 秒加进程停止缓冲、失败不会作为有效版本，并用退出码非零但带错误输出的合成工具核对错误尾部；macOS/Windows 原生待执行。",
   "macos": {
     "implementationStatus": "implemented",
     "verificationStatus": "pending",
     "evidence": [
       "desktop/internal/workbench/build_sync.go",
       "desktop/internal/workbench/build.go",
+      "desktop/internal/workbench/build_probe_test.go",
       "desktop/internal/workbench/build_tree.go",
       "desktop/internal/workbench/build_tree_view.go",
       "desktop/internal/workbench/runs.go",
@@ -25,6 +26,7 @@
     "evidence": [
       "desktop/internal/workbench/build_sync.go",
       "desktop/internal/workbench/build.go",
+      "desktop/internal/workbench/build_probe_test.go",
       "desktop/internal/workbench/build_tree.go",
       "desktop/internal/workbench/build_tree_view.go",
       "desktop/internal/workbench/runs.go",
