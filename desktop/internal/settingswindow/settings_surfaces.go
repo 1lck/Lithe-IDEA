@@ -151,28 +151,28 @@ func (s *settingsSurfaces) run(parent context.Context) (surfacesResult, error) {
 		items = append(items, core.SettingsNavigationItem{ID: name, Title: titleOf(&key.text.Settings, id), Parent: parent, Group: isGroup(id) || contributed[id], Expanded: key.open[id], Keywords: pageKeywords(job.language, id)})
 		lookup[name] = row{page: id}
 	}
-	// The build system and compiler pages of one kind fold into a folder once there are
-	// folderMin of them: the sidebar lists its first folderLimit and the folder's own page
-	// lists them all (build_directory_view.go).
+	// The build system and compiler pages are each under one row of their kind, which opens
+	// the kind's page that lists them (build_kind_view.go). The row is a group that never
+	// expands, so its pages are in the sidebar only while a search matches them.
 	kinds := make(map[string]int)
 	for _, page := range result.pages {
 		kinds[page.Kind]++
 	}
 	buildID := "static:" + strconv.Itoa(int(pageBuild))
 	for index, kind := range buildKinds {
-		if kinds[kind] < folderMin {
+		if kinds[kind] == 0 {
 			continue
 		}
-		name := "folder:" + kind
+		name := "kind:" + kind
 		title := kindTitle(job.language, kind)
-		items = append(items, core.SettingsNavigationItem{ID: name, Title: title, Parent: &buildID, Group: true, Expanded: key.folders[index], Limit: folderLimit})
-		lookup[name] = row{page: pageBuild, folder: kind, title: title, hit: folderHit + 2*index, count: kinds[kind]}
+		items = append(items, core.SettingsNavigationItem{ID: name, Title: title, Parent: &buildID, Group: true})
+		lookup[name] = row{page: pageBuild, kind: kind, title: title, hit: kindHit + index, count: kinds[kind]}
 	}
 	for index, page := range result.pages {
 		parent := contributedParent(page.Kind)
 		parentID := "static:" + strconv.Itoa(int(parent))
-		if parent == pageBuild && kinds[page.Kind] >= folderMin {
-			parentID = "folder:" + page.Kind
+		if kindIndex(page.Kind) >= 0 {
+			parentID = "kind:" + page.Kind
 		}
 		name := "page:" + page.Key
 		items = append(items, core.SettingsNavigationItem{ID: name, Title: page.Title, Parent: &parentID})
@@ -193,13 +193,10 @@ func (s *settingsSurfaces) run(parent context.Context) (surfacesResult, error) {
 			if !ok {
 				continue
 			}
-			r.group = item.Group
-			r.expanded = item.Expanded
+			// A kind's row opens its page, which lists the pages under it.
+			r.group = item.Group && r.kind == ""
+			r.expanded = item.Expanded && r.kind == ""
 			r.level = item.Level
-			if item.Overflow > 0 {
-				// The row that stands for the pages the folder leaves out opens the folder.
-				r.group, r.expanded, r.overflow, r.hit = false, false, item.Overflow, r.hit+1
-			}
 			result.rows = append(result.rows, r)
 		}
 	}
@@ -208,7 +205,9 @@ func (s *settingsSurfaces) run(parent context.Context) (surfacesResult, error) {
 
 // searchRows lists a search's hits flat, as the prototype does: every page the search matched
 // or that is under a match, with the titles of its ancestors as its path. A group without a
-// page of its own is only a path, since its pages are listed.
+// page of its own is only a path, since its pages are listed. A plugin's page under a kind is
+// listed only when the search matched it: the kind's row stands for the others, which may be
+// thousands.
 func searchRows(projected []core.SettingsNavigationRow, lookup map[string]row) []row {
 	var rows []row
 	var matched []bool
@@ -220,10 +219,13 @@ func searchRows(projected []core.SettingsNavigationRow, lookup map[string]row) [
 			inside = inside || above
 		}
 		r, ok := lookup[item.ID]
-		if !ok || !inside || item.Overflow > 0 {
+		if !ok || !inside {
 			continue
 		}
-		if r.dynamic == "" && r.folder == "" && isGroup(r.page) && !ownsPage(r.page) {
+		if r.dynamic == "" && r.kind == "" && isGroup(r.page) && !ownsPage(r.page) {
+			continue
+		}
+		if r.dynamic != "" && r.page == pageBuild && !item.Matched {
 			continue
 		}
 		r.path = strings.Join(item.Path, " › ")

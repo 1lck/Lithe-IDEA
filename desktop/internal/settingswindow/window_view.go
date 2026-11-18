@@ -128,24 +128,23 @@ func (w *window) sidebar(c ui.C) {
 
 // chooseRow opens what row r stands for. A group without a page of its own folds; one with a
 // page, which Build is and plugins' pages make any entry they are under, opens it, and Build
-// lists its pages as it opens. A folder opens its own page. A search ends once its row is
-// chosen, with the rows above the page opened so the page's row is on the screen.
+// lists its pages as it opens. A kind's row opens the kind's page. A search ends once its row
+// is chosen, with the rows above the page opened so the page's row is on the screen.
 func (w *window) chooseRow(r row) {
 	if w.chooseSearchRow(r) {
 		return
 	}
 	searching := w.query != ""
 	switch {
-	case r.folder != "":
-		w.openFolder(r.folder)
+	case r.kind != "":
+		w.openKind(r.kind)
 	case r.group && isGroup(r.page) && !ownsPage(r.page) && r.dynamic == "":
 		w.toggleRow(r)
 		return
 	default:
-		if r.page == pageBuild && r.dynamic == "" {
+		if r.page == pageBuild {
 			w.sess.open[pageBuild] = true
 		}
-		w.folderPage = ""
 		w.selectSettingsPage(r.page, r.dynamic)
 	}
 	if searching {
@@ -154,26 +153,13 @@ func (w *window) chooseRow(r row) {
 	}
 }
 
-// openFolder shows the page of the folder of kind under Build, Execution, Deployment.
-func (w *window) openFolder(kind string) {
-	w.folderPage, w.folderQuery = kind, ""
-	w.sess.open[pageBuild] = true
-	w.selectSettingsPage(pageBuild, "")
-}
-
-// revealPage opens every row above the page row r opens, and the folder of a plugin's page
-// in one.
+// revealPage opens every row above the page row r opens.
 func (w *window) revealPage(r row) {
 	for page := parents[r.page]; page != noPage; page = parents[page] {
 		w.sess.open[page] = true
 	}
 	if r.dynamic != "" {
 		w.sess.open[r.page] = true
-		if page := w.dynamic.selected(r.dynamic); page != nil {
-			if index := kindIndex(page.Kind); index >= 0 && w.dynamic.kindCount(page.Kind) >= folderMin {
-				w.folders[index] = true
-			}
-		}
 	}
 }
 
@@ -184,15 +170,8 @@ func (w *window) clearSearch() {
 	w.rowsValid = false
 }
 
-// toggleRow expands or collapses the group of row r, or the folder r is. While searching
-// every group is open.
+// toggleRow expands or collapses the group of row r. While searching every group is open.
 func (w *window) toggleRow(r row) {
-	if r.folder != "" {
-		if index := kindIndex(r.folder); index >= 0 && w.query == "" {
-			w.folders[index] = !w.folders[index]
-		}
-		return
-	}
 	toggleGroup(&w.sess.open, r.page, r.group, w.query != "")
 }
 
@@ -220,17 +199,15 @@ func (w *window) navNode(i int) ui.TreeNode {
 	return ui.TreeNode{Depth: int(r.level), Branch: r.group, Expanded: r.expanded, Selected: w.rowSelected(r)}
 }
 
-// rowSelected says whether row r stands for the page on the screen. A folder's row is chosen
-// while its page shows, Build's while Build's own page does.
+// rowSelected says whether row r stands for the page on the screen. A kind's row is chosen
+// while its page shows one of its pages, Build's while Build's own page does.
 func (w *window) rowSelected(r row) bool {
 	switch {
-	case r.special != rowPage || r.overflow > 0:
+	case r.special != rowPage:
 		return false
-	case r.folder != "":
-		return w.sess.page == pageBuild && w.dynamicPage == "" && w.folderPage == r.folder
+	case r.kind != "":
+		return w.shownKind() == r.kind
 	case r.group && isGroup(r.page) && !ownsPage(r.page):
-		return false
-	case r.page == pageBuild && r.dynamic == "" && w.folderPage != "":
 		return false
 	}
 	return r.page == w.sess.page && r.dynamic == w.dynamicPage
@@ -253,14 +230,12 @@ func (w *window) navLabel(i int) string {
 }
 
 // rowLabel is the words row r reads as: a search's page after where it lives, the row that
-// lists what a folder or a search leaves out by its count, else the row's title.
+// lists what a search leaves out by its count, else the row's title.
 func (w *window) rowLabel(r row) string {
 	language := w.marketLanguage()
 	switch {
 	case r.special == rowAllTools:
 		return i18n.SharedFormat(language, "desktop.buildSettings.searchAllTools", map[string]string{"count": formatCount(r.overflow)})
-	case r.overflow > 0:
-		return i18n.SharedFormat(language, "desktop.buildSettings.folderAll", map[string]string{"count": formatCount(r.overflow)})
 	case r.special == rowPage && r.path != "":
 		return r.path + " › " + w.rowTitle(r)
 	}
@@ -269,7 +244,7 @@ func (w *window) rowLabel(r row) string {
 
 // navContent declares what row i holds after its chevron: the page's tile on the top level,
 // its title, then what the prototype ends it with: a count of problems, a mark of drafts, a
-// folder's count of pages or where a search's match lives.
+// kind's count of pages or where a search's match lives.
 func (w *window) navContent(c ui.C, i int) {
 	if i < 0 || i >= len(w.rows) {
 		return
@@ -282,12 +257,8 @@ func (w *window) navContent(c ui.C, i int) {
 			ui.Text(c, r.title).FontSize(buildTiny).Weight(gfx.WeightSemibold).Color(b.faint).Ellipsis()
 		})
 		return
-	case r.special == rowAllTools || r.overflow > 0:
-		pad := float32(0)
-		if w.query == "" {
-			pad = w.titleStart(r) - float32(r.level)*levelIndent
-		}
-		ui.Text(c, w.rowLabel(r)).FontSize(buildSmall).Color(b.accent).PadLeft(pad).Grow(1).Shrink(1).MinWidth(0).Ellipsis()
+	case r.special == rowAllTools:
+		ui.Text(c, w.rowLabel(r)).FontSize(buildSmall).Color(b.accent).Grow(1).Shrink(1).MinWidth(0).Ellipsis()
 		return
 	case w.query != "":
 		ui.Row(c).Grow(1).Shrink(1).MinWidth(0).Gap(6).Items(ui.Center).Children(func() {
@@ -312,7 +283,7 @@ func (w *window) navContent(c ui.C, i int) {
 		w.navTrailing(c, r)
 	}
 	if r.level != 0 {
-		pad := w.titleStart(r) - float32(r.level)*levelIndent
+		pad := childIndent - float32(r.level)*levelIndent
 		if r.group {
 			pad -= chevronSlot
 		}
@@ -335,23 +306,14 @@ func (w *window) navContent(c ui.C, i int) {
 	})
 }
 
-// titleStart is where the title of a row below the top level starts in the sidebar: under
-// the titles of the top level, and a folder's pages a step further in.
-func (w *window) titleStart(r row) float32 {
-	if r.level >= 2 {
-		return childIndent + folderStep
-	}
-	return childIndent
-}
-
 // navTrailing ends a row as the prototype does: Build folded and the Toolchains page count the
-// tools with a problem, the Debuggers page marks drafts and a folder counts its pages.
+// tools with a problem, the Debuggers page marks drafts and a kind counts its pages.
 func (w *window) navTrailing(c ui.C, r row) {
 	if r.dynamic != "" {
 		return
 	}
 	switch {
-	case r.folder != "":
+	case r.kind != "":
 		ui.Text(c, formatCount(r.count)).FontSize(buildTiny).Color(w.bp.faint).Shrink(0)
 	case r.page == pageBuild && !r.expanded, r.page == pageToolchains:
 		if problems := w.toolchainProblems(); problems > 0 {
@@ -388,6 +350,10 @@ func (w *window) content(c ui.C) {
 			return
 		}
 		w.breadcrumb(c)
+		if kind := w.shownKind(); kind != "" {
+			w.buildKindPage(c.Part("kind"), kind)
+			return
+		}
 		if w.dynamicPage != "" {
 			w.dynamicSettingsPage(c)
 			return
@@ -399,8 +365,6 @@ func (w *window) content(c ui.C) {
 			w.editorPage(c)
 		case w.sess.page == pageFonts:
 			w.fontsPage(c)
-		case w.sess.page == pageBuild && w.folderPage != "":
-			w.buildFolderPage(c.Part("folder"))
 		case w.sess.page == pageBuild:
 			w.buildPage(c.Part("build"))
 		case w.sess.page == pageToolchains:
@@ -431,7 +395,7 @@ func (w *window) content(c ui.C) {
 
 // breadcrumb is the prototype's .crumb: where the open page is, its group first and the page
 // last in the weight of the text. A title before the last that has a page of its own opens it:
-// Build, Execution, Deployment its directory, a folder its list of pages.
+// Build, Execution, Deployment its directory.
 func (w *window) breadcrumb(c ui.C) {
 	b := &w.bp
 	w.crumbs = w.appendCrumbs(w.crumbs[:0])
@@ -468,40 +432,32 @@ func (w *window) breadcrumb(c ui.C) {
 }
 
 // appendCrumbs appends the titles that lead to the open page to dst: the page's group and the
-// page, and for a plugin's page under Build, Execution, Deployment the folder it is in, which
-// the sidebar shows once its kind has folderMin pages.
+// page. A plugin's page under Build, Execution, Deployment shows on its kind's page, which the
+// breadcrumb names as the Toolchains and Debuggers pages are named; one under another entry
+// is named after it.
 func (w *window) appendCrumbs(dst []crumb) []crumb {
-	language := w.marketLanguage()
 	dst = appendBreadcrumb(dst, &w.text.Settings, w.sess.page)
 	parent := &dst[len(dst)-1]
-	switch {
-	case w.dynamicPage != "":
-		page := w.dynamic.selected(w.dynamicPage)
-		if page == nil {
-			break
-		}
-		parent.link = ownsPage(parent.page)
-		if kindIndex(page.Kind) >= 0 && contributedParent(page.Kind) == w.sess.page && w.dynamic.kindCount(page.Kind) >= folderMin {
-			dst = append(dst, crumb{title: kindTitle(language, page.Kind), page: pageBuild, folder: page.Kind, link: true})
-		}
-		dst = append(dst, crumb{title: page.Title, page: w.sess.page})
-	case w.sess.page == pageBuild && w.folderPage != "":
-		parent.link = true
-		dst = append(dst, crumb{title: kindTitle(language, w.folderPage), page: pageBuild, folder: w.folderPage})
+	if w.dynamicPage == "" {
+		return dst
 	}
-	return dst
+	page := w.dynamic.selected(w.dynamicPage)
+	if page == nil {
+		return dst
+	}
+	parent.link = ownsPage(parent.page)
+	title := page.Title
+	if kind := w.shownKind(); kind != "" {
+		title = kindTitle(w.marketLanguage(), kind)
+	}
+	return append(dst, crumb{title: title, page: w.sess.page})
 }
 
-// chooseCrumb opens what a title of the breadcrumb stands for.
+// chooseCrumb opens the page a title of the breadcrumb stands for.
 func (w *window) chooseCrumb(crumb crumb) {
-	if crumb.folder != "" {
-		w.openFolder(crumb.folder)
-		return
-	}
 	if crumb.page == pageBuild {
 		w.sess.open[pageBuild] = true
 	}
-	w.folderPage = ""
 	w.selectSettingsPage(crumb.page, "")
 }
 

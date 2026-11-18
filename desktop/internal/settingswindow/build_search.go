@@ -125,7 +125,6 @@ func (w *window) chooseSearchRow(r row) bool {
 // openBuildChild shows a page under Build, Execution, Deployment with Build expanded, so its
 // row is on the screen once the search ends.
 func (w *window) openBuildChild(page pageID) {
-	w.folderPage = ""
 	w.sess.open[pageBuild] = true
 	w.selectSettingsPage(page, "")
 }

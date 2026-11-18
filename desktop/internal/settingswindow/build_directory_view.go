@@ -1,7 +1,6 @@
 package settingswindow
 
 import (
-	"hash/fnv"
 	"strings"
 
 	"github.com/1lck/Lithe-IDEA/desktop/internal/core"
@@ -11,21 +10,16 @@ import (
 	"github.com/vivaui/viva/ui"
 )
 
-// The Build, Execution, Deployment page and the page of a folder under it follow pgBuild and
-// pgFolder of the prototype docs/design/build-execution-settings.html. The Build page lists its
-// pages with what each holds in one line, and the tools that need attention above them; it
-// shows nothing plugins put on their pages. A folder's page lists the plugin pages of one kind,
-// with a filter, for the kinds the sidebar folds.
+// The Build, Execution, Deployment page follows pgBuild of the prototype
+// docs/design/build-execution-settings.html. It lists its pages with what each holds in one
+// line, and the tools that need attention above them; it shows nothing plugins put on their
+// pages.
 
 const (
 	// buildPageWidth is the widest the Build page grows, the prototype's max-width.
 	buildPageWidth = 860
 	// directoryRowGap is the room between a row's tile, words and end, the prototype's .drow.
 	directoryRowGap = 12
-	// folderRowHeight is a row of a folder's page, the prototype's 52 points.
-	folderRowHeight = 52
-	// folderFilterWidth is the width of a folder page's filter.
-	folderFilterWidth = 260
 	// kindNames is how many of a kind's pages the Build page names before it counts them.
 	kindNames = 3
 )
@@ -233,14 +227,11 @@ func (w *window) directoryEntries(language i18n.Language) []directoryEntry {
 	separator := i18n.Shared(language, "desktop.buildSettings.listSeparator")
 	for _, kind := range buildKinds {
 		var names []string
-		count, first := 0, ""
+		count := 0
 		for index := range w.dynamic.pages {
 			page := &w.dynamic.pages[index]
 			if page.Kind != kind {
 				continue
-			}
-			if count == 0 {
-				first = page.Key
 			}
 			if count < kindNames {
 				names = append(names, page.Title)
@@ -258,13 +249,10 @@ func (w *window) directoryEntries(language i18n.Language) []directoryEntry {
 		} else {
 			desc = i18n.SharedFormat(language, "desktop.buildSettings.directoryKind", map[string]string{"names": strings.Join(names, separator)})
 		}
-		entry := directoryEntry{key: "kind:" + kind, tile: kindTile, icon: icons.LayoutGrid, title: kindTitle(language, kind), desc: desc}
-		if count >= folderMin {
-			entry.open = func() { w.openFolder(kind) }
-		} else {
-			entry.open = func() { w.selectSettingsPage(pageBuild, first) }
-		}
-		entries = append(entries, entry)
+		entries = append(entries, directoryEntry{
+			key: "kind:" + kind, tile: kindTile, icon: icons.LayoutGrid, title: kindTitle(language, kind), desc: desc,
+			open: func() { w.openKind(kind) },
+		})
 	}
 	return entries
 }
@@ -283,146 +271,4 @@ func toolchainCounts(scope *toolchainScope) (tools, plugins int) {
 		}
 	}
 	return tools, plugins
-}
-
-// buildFolderPage is the prototype's pgFolder: the plugin pages of the open folder's kind,
-// the ones whose title or plugin the filter matches, each with its plugin and what it holds.
-// Choosing one opens it with its folder open in the sidebar.
-func (w *window) buildFolderPage(c ui.C) {
-	b := &w.bp
-	language := w.marketLanguage()
-	kind := w.folderPage
-	pages := w.folderPages(kind)
-	total := w.dynamic.kindCount(kind)
-	ui.Column(c).FillWidth().Grow(1).Shrink(1).MinHeight(0).Background(b.surface).Children(func() {
-		ui.Row(c).FillWidth().Shrink(0).PadSides(10, 14, 6, 14).Gap(8).Items(ui.Center).Children(func() {
-			ui.Text(c, kindTitle(language, kind)).FontSize(buildHeading).Weight(gfx.WeightBold).Color(b.text).Shrink(0)
-			ui.Text(c, i18n.SharedFormat(language, "desktop.buildSettings.folderCount", map[string]string{"count": formatCount(total)})).
-				FontSize(buildSmall).Color(b.sub).Shrink(1).MinWidth(0).Ellipsis()
-			ui.Spacer(c)
-			ui.Row(c).Width(folderFilterWidth).Shrink(1).MinWidth(120).Children(func() {
-				placeholder := i18n.Shared(language, "desktop.buildSettings.folderFilter")
-				w.filterField(c.Part("filter"), &w.folderQuery, placeholder, placeholder, true)
-			})
-		})
-		ui.Row(c).FillWidth().Height(1).Shrink(0).Background(b.line)
-		if len(pages) == 0 {
-			ui.Row(c).FillWidth().Shrink(0).PadSides(50, 20, 50, 20).Justify(ui.Center).Children(func() {
-				ui.Wrap(c, i18n.Shared(language, "desktop.buildSettings.folderEmpty")).FontSize(buildFont).Color(b.faint).TextCenter()
-			})
-			return
-		}
-		w.folderList.Key = func(row int) int {
-			if row < 0 || row >= len(pages) {
-				return 0
-			}
-			return folderRowKey(pages[row].Key)
-		}
-		w.folderList.Label = func(row int) string {
-			if row < 0 || row >= len(pages) {
-				return ""
-			}
-			return pages[row].Title
-		}
-		separator := i18n.Shared(language, "desktop.buildSettings.listSeparator")
-		ui.List(c, &w.folderList, len(pages), func(r ui.ListRow) {
-			page := pages[r.Index]
-			k := r.C
-			r.Element.Height(folderRowHeight).PadSides(0, 12, 0, 14).Gap(11).Items(ui.Center).Hover(ui.Look{}.Background(b.hover)).Children(func() {
-				plugin := folderPlugins(page, separator)
-				w.pluginTile(k, plugin, 28)
-				ui.Column(k).Grow(1).Shrink(1).MinWidth(0).Children(func() {
-					ui.Text(k, page.Title).FontSize(buildFont).Weight(gfx.WeightSemibold).Color(b.text).Ellipsis()
-					ui.Row(k).Height(2).Shrink(0)
-					line := plugin
-					if summary := folderSummary(page, separator); summary != "" {
-						line += " · " + summary
-					}
-					ui.Text(k, line).FontSize(11).Color(b.faint).Ellipsis()
-				})
-				ui.Text(k, "›").FontSize(buildFont).Color(b.faint).Shrink(0)
-			})
-		}).Scrollbars().FillWidth().Grow(1).Shrink(1).MinHeight(0).Label(kindTitle(language, kind))
-		if row, ok := w.folderList.Submitted(); ok && row >= 0 && row < len(pages) {
-			w.openFolderPage(pages[row])
-		} else if row := w.folderList.Selected(); w.folderList.Changed() && row >= 0 && row < len(pages) {
-			w.openFolderPage(pages[row])
-		}
-	})
-}
-
-// folderRowKey is a folder page's row identity, its page's key hashed to the list's
-// non-negative 31-bit keys.
-func folderRowKey(key string) int {
-	hash := fnv.New32a()
-	_, _ = hash.Write([]byte(key))
-	return int(hash.Sum32() & 0x7fffffff)
-}
-
-// folderPages are the plugin pages of kind the folder page's filter keeps: the ones whose
-// title or a contributing plugin's title holds the filter, ignoring case.
-func (w *window) folderPages(kind string) []*core.SettingsPage {
-	query := strings.ToLower(strings.TrimSpace(w.folderQuery))
-	var pages []*core.SettingsPage
-	for index := range w.dynamic.pages {
-		page := &w.dynamic.pages[index]
-		if page.Kind != kind {
-			continue
-		}
-		if query != "" && !folderMatches(page, query) {
-			continue
-		}
-		pages = append(pages, page)
-	}
-	return pages
-}
-
-// folderMatches reports whether a lower-case query is in page's title or a contributor's.
-func folderMatches(page *core.SettingsPage, query string) bool {
-	if strings.Contains(strings.ToLower(page.Title), query) {
-		return true
-	}
-	for _, contribution := range page.Contributors {
-		if strings.Contains(strings.ToLower(contribution.Title), query) {
-			return true
-		}
-	}
-	return false
-}
-
-// folderPlugins names the plugins that contribute to page.
-func folderPlugins(page *core.SettingsPage, separator string) string {
-	names := make([]string, 0, len(page.Contributors))
-	for _, contribution := range page.Contributors {
-		name := contribution.Title
-		if name == "" {
-			name = contribution.PluginID
-		}
-		names = append(names, name)
-	}
-	return strings.Join(names, separator)
-}
-
-// folderSummary is what a plugin page holds, the titles of its sections.
-func folderSummary(page *core.SettingsPage, separator string) string {
-	titles := make([]string, 0, len(page.Sections))
-	for _, section := range page.Sections {
-		if section.Title != "" {
-			titles = append(titles, section.Title)
-		}
-	}
-	return strings.Join(titles, separator)
-}
-
-// openFolderPage opens a plugin page from its folder's page, with the folder open in the
-// sidebar so the page's row is on the screen.
-func (w *window) openFolderPage(page *core.SettingsPage) {
-	if index := kindIndex(page.Kind); index >= 0 {
-		w.folders[index] = true
-	}
-	// The list forgets the row, so choosing it again the next time the folder shows opens it.
-	w.folderList.Select(-1)
-	w.folderPage = ""
-	w.sess.open[pageBuild] = true
-	w.selectSettingsPage(pageBuild, page.Key)
 }
