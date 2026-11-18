@@ -129,7 +129,7 @@ target、profile 和 macOS deployment target，但它只描述本工作树最近
 且不使用 `LITHE_CORE_RUST_DIR` override。在 macOS 用 APFS 克隆复制（`cp -cR`），不用链接或共用目录；复制后照常运行
 `desktop-go.sh`，built-from 记录的检出路径不同，构建脚本会 `cargo clean --workspace` 并只重编工作区成员。
 2026-11-16 的实验中，克隆 4.9 GB 约 4 秒，随后 Core 构建 33 秒、桌面客户端链接 31 秒，第三方依赖没有重编。
-结果异常时删掉复制的目录重新编译。做法见 `develop-lithe` Skill 的“工作树缓存复用”一节（`.artifacts/` 被 `.gitignore` 忽略，不提交）。
+结果异常时删掉复制的目录重新编译。做法见 `develop-lithe` Skill 的“检出与编译缓存复用”一节（`.artifacts/` 被 `.gitignore` 忽略，不提交）。
 这些目录只在构建时由上述脚本写入，应用运行时不写，也不进入 app bundle 或安装目录，
 不影响代码签名和增量更新基线。
 
@@ -172,11 +172,13 @@ LITHE_VISUAL_OUTPUT_DIR=/path/to/output scripts/desktop/desktop-go.sh test -tags
 架构或工具链 identity stamp，不跨工作树复制。目标工作树运行
 `node scripts/platform-feature-matrix/generate-platform-feature-matrix.mjs`，校验源数据后重新生成。
 
+`.artifacts/desktop/` 只有留在同一个检出里才能增量复用，所以默认不新建工作树：先在空闲的主检出或空闲的已有工作树里
+切分支，都被占用才新建，判定方法见 `develop-lithe` Skill 的“检出与编译缓存复用”一节。
 Git worktree 只共享 Git 对象，不共享各自的 `.artifacts` 目录，仓库也不提供跨工作树复制资源的脚本（#2002 已删除）。
 Go 的构建缓存（`go env GOCACHE`）和模块缓存（`go env GOMODCACHE`）、`~/.cargo/registry` 都在用户目录，所有工作树共用同一份，
 不为工作树另设位置，也不复制或清空。新工作树第一次编译会重编 `desktop/` 下的包和 cgo 包（缓存键含包目录和带工作树路径的
 cgo 参数），其余包命中缓存，模块不重新下载。
-新工作树第一次编译前，按 `develop-lithe` Skill 的“工作树缓存复用”一节判断能否从已有工作树复制
+新工作树第一次编译前，按 `develop-lithe` Skill 的“检出与编译缓存复用”一节判断能否从已有工作树复制
 `.artifacts/desktop/`（前提和实验结果见上文）；其他目录按本节各段的说明处理，写明不复制的就在本工作树重新生成。
 
 Inter 4.1 的 18 个静态 OTF（内部版本 4.001）及许可、JetBrains Mono 2.304 的 16 个静态 TTF、OFL 和作者信息，
