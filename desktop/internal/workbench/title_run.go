@@ -289,11 +289,12 @@ func (p *project) titleConfigurationFacts(index int, reference core.RunProviderR
 }
 
 // performCurrentFileAction is Run or Debug on Current File. The Debug window starts the open
-// file under its selected adapter; nothing runs the current file outside a configuration.
+// file under its selected adapter; Run starts the entrypoint a build provider finds in the
+// open file (runCurrentFileEntrypoint).
 func (a *App) performCurrentFileAction(p *project, action titleAction) {
 	if action == titleActionDebug {
 		a.whenDebugAdaptersLoaded(p, func() { a.startDebug(p) })
 		return
 	}
-	a.notifyInfo(i18n.Shared(a.language(), "desktop.title.currentFileNotRunnable"))
+	a.runCurrentFileEntrypoint(p)
 }

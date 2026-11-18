@@ -11293,7 +11293,7 @@
     "desktop.plugins.commandInstallToolMissing": "{tool} not found. Install it first, or set where it is in Settings > Build, Execution, Deployment > Toolchains.",
     "desktop.plugins.commandInstallError": "Could not install: {reason}",
     "desktop.title.configurationNotStartable": "{name} cannot be started: no build plugin runs it.",
-    "desktop.title.currentFileNotRunnable": "The current file cannot run on its own. Choose a project run configuration from the run configuration menu.",
+    "desktop.title.currentFileNotRunnable": "The current file has no entrypoint to run, such as a class with a main method. Open such a file, or choose a run configuration from the run configuration menu.",
     "desktop.title.hiddenRunConfigurations": "{count} saved configurations hidden (not runnable)",
     "desktop.title.nothingToEdit": "This project has no run configurations to edit. Build plugins create them from the project model, and none of the enabled build plugins declares a runnable entry for this project.",
     "desktop.title.nothingToEditHidden": "This project has no run configurations to edit. Build plugins create them from the project model, and none of the enabled build plugins declares a runnable entry for this project. {count} saved run configurations are hidden because no build plugin runs them, for example entries an earlier version of Lithe saved in .lithe/run.",
