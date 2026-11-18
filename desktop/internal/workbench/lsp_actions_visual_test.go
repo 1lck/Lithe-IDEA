@@ -133,7 +133,7 @@ func main() {
 	d.sync.opened, d.sync.pluginID, d.sync.uri = true, pluginID, uri
 	d.inlay.initialized = true
 	d.inlay.revision = d.view.Revision()
-	d.inlay.coveredEnd = d.view.TextSnapshot().LineCount() - 1
+	d.inlay.covered = []editorview.LineSpan{{First: 0, Last: d.view.TextSnapshot().LineCount() - 1}}
 	h.app.semantics.project = p
 
 	h.app.storeRawPluginDiagnostics(pluginID, path, []core.PluginDiagnostic{{

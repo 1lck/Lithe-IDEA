@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/1lck/Lithe-IDEA/desktop/internal/core"
+	"github.com/1lck/Lithe-IDEA/desktop/internal/editorview"
 	"github.com/vivaui/viva/gfx"
 )
 
@@ -148,5 +149,29 @@ func TestLSPCodeActionsMatchEarlyResultsByOperationID(t *testing.T) {
 	a.semanticRequestStarted(pending, "current", nil, nil)
 	if state := a.semantics.codeActions; !state.open || len(state.actions) != 1 || state.actions[0].Title != "Current edits" {
 		t.Fatalf("wrong code action opened: %+v", state)
+	}
+}
+
+func TestLSPCodeActionCommandWaitsForDocumentSynchronization(t *testing.T) {
+	f := newSemanticFixture(t)
+	f.d.sync.running = true
+	called := false
+	f.h.app.deferCodeActionCommand(f.p, f.server, []renameDocumentUpdate{{id: f.d.id}}, func() { called = true })
+	if called {
+		t.Fatal("command ran while the text edit was still synchronizing")
+	}
+	f.h.app.finishDocumentChange(f.p, f.d, f.d.sync.generation, f.d.view.Revision(), nil, nil)
+	if !called || f.server.codeActionCommand != nil {
+		t.Fatal("command did not run once synchronization completed")
+	}
+}
+
+func TestLSPInlayCoverageRejectsNewlyUnfoldedInterior(t *testing.T) {
+	covered := []editorview.LineSpan{{First: 1, Last: 2}, {First: 5000, Last: 5010}}
+	if !inlaySpansCover(covered, []editorview.LineSpan{{First: 2, Last: 2}, {First: 5000, Last: 5002}}) {
+		t.Fatal("a viewport split by a fold was not covered by its two requests")
+	}
+	if inlaySpansCover(covered, []editorview.LineSpan{{First: 1, Last: 8}}) {
+		t.Fatal("unfolded lines were treated as already requested")
 	}
 }

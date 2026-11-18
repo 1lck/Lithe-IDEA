@@ -247,7 +247,7 @@ func TestLongLineMinimapBarsMatchTheWholeLine(t *testing.T) {
 			if k+1 < len(rows) {
 				end = rows[k+1].at
 			}
-			v.markRow(line, 0, rows[k], end, int32(k), cols)
+			v.markRow(line, 0, rows[k], end, int32(k), cols, nil)
 		}
 		if !slices.Equal(got, v.mm.marks) {
 			t.Fatalf("wrap %v: %d bars, want %d as the whole line gives", wrap, len(got), len(v.mm.marks))

@@ -58,6 +58,7 @@ type document struct {
 	autoSaveTimer     *time.Timer
 	inlay             documentInlayHints
 	lastArea          gfx.Rect
+	codeActionGutter  codeActionGutterState
 	// folds is the document's code folding requests (folding.go).
 	folds documentFolds
 	// serverLinks are the links the language server reported for the text, and pluginLinks the

@@ -3,12 +3,13 @@ package workbench
 import (
 	"context"
 	"encoding/json"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/1lck/Lithe-IDEA/desktop/internal/core"
-	"github.com/1lck/Lithe-IDEA/desktop/internal/editor/rope"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/editorview"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/i18n"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/icons"
@@ -24,7 +25,6 @@ const (
 	semanticAutoSignatureDelay = 60 * time.Millisecond
 	signatureHelpMaxWidth      = float32(520)
 	signatureHelpMinWidth      = float32(220)
-	maxCallScanBytes           = 2048
 )
 
 type signatureHelpState struct {
@@ -34,7 +34,6 @@ type signatureHelpState struct {
 	documentID      int
 	revision        int
 	line, column    int
-	callOpenOffset  int
 	rect            gfx.Rect
 }
 
@@ -161,50 +160,26 @@ func (a *App) scheduleAutoSignatureHelp(p *project, d *document, edit editorview
 		return
 	}
 	line, column := d.caretView().CaretUTF16()
-	caretByte, okByte := d.view.ByteOffset(line, column)
-	snapshot := d.view.TextSnapshot()
-	openParen := -1
-	if okByte {
-		openParen = enclosingCallOffset(snapshot, caretByte)
+	previous := &a.semantics.signatureHelp
+	wasOpen := previous.open && previous.documentID == d.id
+	trigger := ""
+	if edit.StartLine == edit.EndLine && edit.StartColumn == edit.EndColumn &&
+		utf8.RuneCountInString(edit.Text) == 1 &&
+		(slices.Contains(server.signatureHelpTriggers, edit.Text) ||
+			wasOpen && slices.Contains(server.signatureHelpRetriggers, edit.Text)) {
+		trigger = edit.Text
 	}
-	wasOpen := a.semantics.signatureHelp.open && a.semantics.signatureHelp.documentID == d.id
-	var sigCtx json.RawMessage
-	triggered := false
-	if edit.StartLine == edit.EndLine && edit.StartColumn == edit.EndColumn && len([]rune(edit.Text)) == 1 {
-		ch := edit.Text
-		for _, trig := range server.signatureHelpTriggers {
-			if trig == ch {
-				sigCtx = a.buildSignatureHelpContext(2, ch, wasOpen, a.activeSignatureHelpRaw(d))
-				triggered = true
-				break
-			}
-		}
-		if !triggered && (wasOpen || openParen >= 0) {
-			for _, retrig := range server.signatureHelpRetriggers {
-				if retrig == ch {
-					sigCtx = a.buildSignatureHelpContext(2, ch, wasOpen, a.activeSignatureHelpRaw(d))
-					triggered = true
-					break
-				}
-			}
-		}
+	if trigger == "" && !wasOpen {
+		return
 	}
-	if !triggered {
-		if !wasOpen {
-			return
-		}
-		if openParen < 0 {
-			a.closeSemanticSignatureHelp()
-			return
-		}
-		sigCtx = a.buildSignatureHelpContext(3, "", true, a.activeSignatureHelpRaw(d))
+	kind := 3 // ContentChange
+	if trigger != "" {
+		kind = 2 // TriggerCharacter
 	}
-	// Preserve open signature help across typing inside the call while the update is in flight.
-	if wasOpen && openParen >= 0 {
-		a.semantics.signatureHelp.revision = d.view.Revision()
-		a.semantics.signatureHelp.line = line
-		a.semantics.signatureHelp.column = column
-		a.semantics.signatureHelp.callOpenOffset = openParen
+	sigCtx := a.buildSignatureHelpContext(kind, trigger, wasOpen, a.activeSignatureHelpRaw(d))
+	if wasOpen {
+		previous.revision = d.view.Revision()
+		previous.line, previous.column = line, column
 	}
 	a.queueDebouncedSignatureHelp(p, d, line, column, sigCtx)
 }
@@ -258,25 +233,11 @@ func (a *App) syncSignatureHelpCaret() {
 		return
 	}
 	line, column := d.caretView().CaretUTF16()
-	if d.view.Revision() != st.revision {
-		// Handled by scheduleAutoSignatureHelp on edit; if changed externally, check call parens.
-		caretByte, ok := d.view.ByteOffset(line, column)
-		if !ok || enclosingCallOffset(d.view.TextSnapshot(), caretByte) < 0 {
-			a.closeSemanticSignatureHelp()
-		}
+	if d.view.Revision() != st.revision || d.caretView().IsComposing() {
+		a.closeSemanticSignatureHelp()
 		return
 	}
 	if line == st.line && column == st.column {
-		return
-	}
-	caretByte, ok := d.view.ByteOffset(line, column)
-	if !ok {
-		a.closeSemanticSignatureHelp()
-		return
-	}
-	openParen := enclosingCallOffset(d.view.TextSnapshot(), caretByte)
-	if openParen < 0 || (st.callOpenOffset >= 0 && openParen != st.callOpenOffset) {
-		a.closeSemanticSignatureHelp()
 		return
 	}
 	st.line, st.column = line, column
@@ -301,10 +262,6 @@ func (a *App) applySemanticSignatureHelp(pending *semanticPending, event core.Ba
 		}
 		return
 	}
-	openParen := -1
-	if caretByte, ok := d.view.ByteOffset(pending.line, pending.column); ok {
-		openParen = enclosingCallOffset(d.view.TextSnapshot(), caretByte)
-	}
 	active := min(max(help.ActiveSignature, 0), len(help.Signatures)-1)
 	a.semantics.signatureHelp = signatureHelpState{
 		open:            true,
@@ -314,7 +271,6 @@ func (a *App) applySemanticSignatureHelp(pending *semanticPending, event core.Ba
 		revision:        pending.revision,
 		line:            pending.line,
 		column:          pending.column,
-		callOpenOffset:  openParen,
 	}
 }
 
@@ -359,55 +315,6 @@ func (a *App) signatureHelpKey(event gfx.KeyEvent) gfx.EventResult {
 		}
 	}
 	return gfx.EventResult{}
-}
-
-// enclosingCallOffset scans up to maxCallScanBytes backwards from caretOffset to find the
-// byte offset of the unclosed '(' (or '<' when on the same line) enclosing the caret, or -1.
-func enclosingCallOffset(text rope.Rope, caretOffset int) int {
-	caretOffset = min(max(caretOffset, 0), text.Len())
-	start := max(caretOffset-maxCallScanBytes, 0)
-	window, _ := text.Substring(start, caretOffset)
-	depthParen, depthBracket, depthBrace := 0, 0, 0
-	var inQuote byte
-	for i := len(window) - 1; i >= 0; i-- {
-		b := window[i]
-		if inQuote != 0 {
-			if b == inQuote && (i == 0 || window[i-1] != '\\') {
-				inQuote = 0
-			}
-			continue
-		}
-		switch b {
-		case '"', '\'', '`':
-			inQuote = b
-		case ')':
-			depthParen++
-		case '(':
-			if depthParen == 0 {
-				return start + i
-			}
-			depthParen--
-		case ']':
-			depthBracket++
-		case '[':
-			if depthBracket > 0 {
-				depthBracket--
-			}
-		case '}':
-			depthBrace++
-		case '{':
-			if depthBrace > 0 {
-				depthBrace--
-			} else {
-				return -1
-			}
-		case ';':
-			if depthParen == 0 && depthBracket == 0 && depthBrace == 0 {
-				return -1
-			}
-		}
-	}
-	return -1
 }
 
 func (a *App) signatureHelpPopup(c ui.C) {

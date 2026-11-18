@@ -227,6 +227,8 @@ func (a *App) finishDocumentChange(p *project, d *document, generation uint64, r
 	if a.project != p || p.docs.byPath(d.path) != d || s.generation != generation {
 		return
 	}
+	server, _ := a.documentSyncServer(d)
+	defer a.resumeCodeActionCommand(server)
 	s.running = false
 	if err != nil {
 		a.reportDocumentSyncFailure("plugin_document_change", ctxErr, err)
@@ -291,6 +293,7 @@ func (a *App) closeDocumentInSession(p *project, d *document) {
 	server, pluginID := a.documentSyncServer(d)
 	uri, opened := s.uri, s.opened && s.pluginID == pluginID
 	s.reset()
+	a.resumeCodeActionCommand(server)
 	if !opened || server == nil || uri == "" {
 		return
 	}

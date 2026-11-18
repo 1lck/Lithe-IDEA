@@ -1,6 +1,7 @@
 package editorview
 
 import (
+	"slices"
 	"strings"
 	"testing"
 
@@ -152,5 +153,65 @@ func TestInlayHintPaintingAllocatesNothingAfterWarmup(t *testing.T) {
 		if allocs := testing.AllocsPerRun(25, paint); allocs != 0 {
 			t.Fatalf("painting inline hints with wrap=%t allocates %v times per frame", wrap, allocs)
 		}
+	}
+}
+
+func TestInlayHintViewportSkipsFoldedLinesAndMeasuresMarginInRows(t *testing.T) {
+	v := newTestView(t, strings.Repeat("short\n", 4006))
+	canvas := new(gfx.Canvas)
+	v.Paint(canvas, gfx.Rect{Width: 500, Height: 150}, Look{})
+	v.SetFoldRanges([]FoldRange{{2, 3999}, {4001, 4002}})
+	if !v.ToggleFold(2) || !v.ToggleFold(4001) {
+		t.Fatal("the fixture's folders could not be collapsed")
+	}
+	canvas.Reset()
+	v.Paint(canvas, gfx.Rect{Width: 500, Height: v.LineHeight() * 3}, Look{})
+	v.Scroll(gfx.ScrollEvent{Target: v.cfg.HitID, DeltaY: 2.5 * v.LineHeight(), Precise: true})
+
+	var buffer [4]LineSpan
+	visible := v.ViewportLineRanges(buffer[:0], 0)
+	if want := []LineSpan{{2, 2}, {4000, 4001}, {4003, 4003}}; !slices.Equal(visible, want) {
+		t.Fatalf("scrolled viewport = %v, want %v", visible, want)
+	}
+	prefetch := v.ViewportLineRanges(buffer[:0], 2)
+	if want := []LineSpan{{0, 2}, {4000, 4001}, {4003, 4005}}; !slices.Equal(prefetch, want) {
+		t.Fatalf("rows with prefetch = %v, want %v", prefetch, want)
+	}
+	if allocs := testing.AllocsPerRun(20, func() { v.ViewportLineRanges(buffer[:0], 2) }); allocs != 0 {
+		t.Fatalf("viewport query allocates %v times with a warmed buffer", allocs)
+	}
+}
+
+func TestInlayHintRequestEndUsesTheDocumentEndOnlyAtEOF(t *testing.T) {
+	v := newTestView(t, "text\r\n😀好")
+	if line, column := v.InlayHintRequestEnd(0); line != 1 || column != 0 {
+		t.Fatalf("position after first line = (%v, %v), want beginning of next line", line, column)
+	}
+	if line, column := v.InlayHintRequestEnd(1); line != 1 || column != 3 {
+		t.Fatalf("position after last line = (%v, %v), want (1, 3)", line, column)
+	}
+	v = newTestView(t, strings.Repeat("x", longLine+1))
+	if line, column := v.InlayHintRequestEnd(0); line != 0 || column != 0 {
+		t.Fatalf("position at final paged line = (%v, %v), want (0, 0)", line, column)
+	}
+}
+
+func TestInlayHintWrappedRowsStayAlignedInTheMinimap(t *testing.T) {
+	v := newTestView(t, "before\nshort\nnext")
+	v.SetMinimap(true)
+	area := gfx.Rect{Width: 170, Height: 110}
+	canvas, _ := paintWrapped(t, v, area)
+	installTestHints(t, v, InlayHintSpec{Line: 1, UTF16Column: 2, Label: "long-enough-to-wrap"})
+	canvas.Reset()
+	v.Paint(canvas, area, Look{})
+	rows := v.rowsOf(v.ref(1))
+	if len(rows) <= 1 {
+		t.Fatal("the test hint did not wrap")
+	}
+	if mapRows := v.minimapRows(v.ref(1)); !slices.Equal(mapRows, rows) {
+		t.Fatalf("minimap rows = %v, editor rows = %v", mapRows, rows)
+	}
+	if end, next := v.lineRowEnd(1), v.lineRow(2); end != next {
+		t.Fatalf("minimap selection end row %v differs from the next editor row %v", end, next)
 	}
 }

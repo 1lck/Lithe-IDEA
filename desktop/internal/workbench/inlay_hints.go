@@ -2,6 +2,7 @@ package workbench
 
 import (
 	"context"
+	"slices"
 	"strings"
 	"time"
 	"unicode/utf8"
@@ -27,20 +28,21 @@ const (
 
 	inlayHintsPrefetchMargin = 40
 	inlayHintsDelay          = 120 * time.Millisecond
+	maxInlayHintsPerViewport = 512
 )
 
 type documentInlayHints struct {
 	initialized   bool
 	revision      int
-	coveredStart  int
-	coveredEnd    int
-	reqStart      int
-	reqEnd        int
+	visible       []editorview.LineSpan
+	seen          []editorview.LineSpan
+	covered       []editorview.LineSpan
+	requested     []editorview.LineSpan
+	next          int
+	collected     []core.PluginSemanticInlayHint
 	dirty         bool
 	changedAt     time.Time
 	seenRevision  int
-	seenFirst     int
-	seenLast      int
 	pending       *semanticPending
 	resolve       *semanticPending
 	resolveIndex  int
@@ -80,7 +82,7 @@ func (a *App) clearDocumentInlayHints(d *document) {
 	ih.hints = nil
 	ih.resolved = nil
 	ih.revision = -1
-	ih.coveredStart, ih.coveredEnd = 0, -1
+	ih.covered, ih.requested, ih.collected = nil, nil, nil
 	ih.dirty = false
 	if d.view != nil && d.view.ClearInlayHints() {
 		a.invalidator.Invalidate()
@@ -146,7 +148,6 @@ func (a *App) inlayHintsSync(c ui.C, p *project, d *document) {
 		ih.initialized = true
 		ih.revision = -1
 		ih.seenRevision = -1
-		ih.coveredEnd = -1
 	}
 	server, offered := a.editorServer(d, featureInlayHints)
 	if server == nil || !offered || d.virtual {
@@ -155,31 +156,28 @@ func (a *App) inlayHintsSync(c ui.C, p *project, d *document) {
 		}
 		return
 	}
-	visFirst, visLast, ok := d.view.VisibleLineRange()
-	if !ok {
+	ih.visible = d.view.ViewportLineRanges(ih.visible[:0], 0)
+	if len(ih.visible) == 0 {
 		return
 	}
 	revision := d.view.Revision()
-	if !ih.dirty && ih.revision == revision && visFirst >= ih.coveredStart && visLast <= ih.coveredEnd {
+	if !ih.dirty && ih.revision == revision && inlaySpansCover(ih.covered, ih.visible) {
 		return
 	}
 	if a.editorRequestWaiting(ih.pending) {
-		if ih.pending.revision == revision && !ih.dirty && visFirst >= ih.reqStart && visLast <= ih.reqEnd {
+		if ih.pending.revision == revision && !ih.dirty && inlaySpansCover(ih.requested, ih.visible) {
 			return
 		}
 		a.cancelSemantic(ih.pending)
-		ih.pending = nil
-	} else {
-		ih.pending = nil
+		ih.pending, ih.collected = nil, nil
 	}
 	if !a.semanticDocumentReady(d) {
 		return
 	}
 	now := a.now()
-	if ih.seenRevision != revision || ih.seenFirst != visFirst || ih.seenLast != visLast {
+	if ih.seenRevision != revision || !slices.Equal(ih.seen, ih.visible) {
 		ih.seenRevision = revision
-		ih.seenFirst = visFirst
-		ih.seenLast = visLast
+		ih.seen = append(ih.seen[:0], ih.visible...)
 		ih.changedAt = now
 	}
 	delay := a.semantics.inlayDelay
@@ -192,41 +190,43 @@ func (a *App) inlayHintsSync(c ui.C, p *project, d *document) {
 			return
 		}
 	}
-	snapshot := d.view.TextSnapshot()
-	lineCount := max(snapshot.LineCount(), 1)
-	reqStart := max(visFirst-inlayHintsPrefetchMargin, 0)
-	reqEnd := min(visLast+inlayHintsPrefetchMargin, lineCount-1)
-	end := core.PluginDocumentPosition{Line: reqEnd + 1}
-	if end.Line == lineCount {
-		lastStart, lastEnd := snapshot.LineStart(reqEnd), snapshot.LineEnd(reqEnd)
-		if lastEnd-lastStart <= 64*1024 {
-			end = core.PluginDocumentPosition{Line: reqEnd, UTF16Column: utf16CountString(snapshot.Line(reqEnd))}
-		} else {
-			// The editor skips annotations on long-line mode's last line.
-			end = core.PluginDocumentPosition{Line: reqEnd}
-		}
-	}
-
 	ih.dirty = false
-	ih.reqStart = reqStart
-	ih.reqEnd = reqEnd
-	ih.pending = a.submitEditorRequest(pluginSemanticInlayHints, p, d, server, core.PluginSemanticRequest{
-		Range: &core.PluginDocumentRange{
-			Start: core.PluginDocumentPosition{Line: reqStart, UTF16Column: 0},
-			End:   end,
-		},
-	})
+	margin := inlayHintsPrefetchMargin
+	if len(ih.visible) > 1 {
+		// Give visible spans on both sides of folds priority over prefetch.
+		margin = 0
+	}
+	ih.requested = d.view.ViewportLineRanges(ih.requested[:0], margin)
+	ih.next = 0
+	ih.collected = nil
+	a.requestNextInlaySpan(p, d, server)
 }
 
-func utf16CountString(s string) int {
-	n := 0
-	for _, r := range s {
-		n++
-		if r > 0xffff {
-			n++
+// inlaySpansCover compares ordered, disjoint logical line ranges. A newly
+// unfolded interval is missing even when both of its endpoints were visible.
+func inlaySpansCover(available, visible []editorview.LineSpan) bool {
+	for _, span := range visible {
+		for len(available) > 0 && available[0].Last < span.First {
+			available = available[1:]
+		}
+		if len(available) == 0 || available[0].First > span.First || available[0].Last < span.Last {
+			return false
 		}
 	}
-	return n
+	return true
+}
+
+func (a *App) requestNextInlaySpan(p *project, d *document, server *pluginServer) {
+	ih := &d.inlay
+	span := ih.requested[ih.next]
+	ih.next++
+	line, column := d.view.InlayHintRequestEnd(span.Last)
+	ih.pending = a.submitEditorRequest(pluginSemanticInlayHints, p, d, server, core.PluginSemanticRequest{
+		Range: &core.PluginDocumentRange{
+			Start: core.PluginDocumentPosition{Line: span.First},
+			End:   core.PluginDocumentPosition{Line: line, UTF16Column: column},
+		},
+	})
 }
 
 func (a *App) applyServerInlayHints(pending *semanticPending, event core.BackendEvent, failed bool) {
@@ -243,18 +243,30 @@ func (a *App) applyServerInlayHints(pending *semanticPending, event core.Backend
 	if d.view.Revision() != pending.revision {
 		return
 	}
-	// Settle this range on a failed request too. A visible error should
-	// not turn unrelated repaints into repeated requests to the server.
-	d.inlay.revision = pending.revision
-	d.inlay.coveredStart, d.inlay.coveredEnd = d.inlay.reqStart, d.inlay.reqEnd
-	if failed {
+	if !failed {
+		hints, err := core.PluginSemanticInlayHints(event)
+		if err != nil {
+			a.backgroundFailed("plugin_inlay_hints", err)
+		} else {
+			span := ih.requested[ih.next-1]
+			for _, hint := range hints {
+				if len(ih.collected) == maxInlayHintsPerViewport {
+					break
+				}
+				if hint.Position.Line >= span.First && hint.Position.Line <= span.Last {
+					ih.collected = append(ih.collected, hint)
+				}
+			}
+		}
+	}
+	if !ih.dirty && ih.next < len(ih.requested) && len(ih.collected) < maxInlayHintsPerViewport {
+		a.requestNextInlaySpan(p, d, pending.server)
 		return
 	}
-	hints, err := core.PluginSemanticInlayHints(event)
-	if err != nil {
-		a.backgroundFailed("plugin_inlay_hints", err)
-		return
-	}
+	hints := ih.collected
+	ih.collected = nil
+	ih.revision = pending.revision
+	ih.covered = append(ih.covered[:0], ih.requested...)
 	if ih.prepareCancel != nil {
 		ih.prepareCancel()
 		ih.prepareCancel = nil
@@ -269,9 +281,6 @@ func (a *App) applyServerInlayHints(pending *semanticPending, event core.Backend
 	d.view.ClearInlayHints()
 	ih.hints = hints
 	ih.resolved = nil
-	ih.revision = pending.revision
-	ih.coveredStart = ih.reqStart
-	ih.coveredEnd = ih.reqEnd
 	if len(hints) == 0 {
 		a.invalidator.Invalidate()
 		return

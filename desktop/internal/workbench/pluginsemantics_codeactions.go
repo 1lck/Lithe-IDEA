@@ -50,11 +50,22 @@ type codeActionsState struct {
 	anchor     gfx.Rect
 }
 
+type codeActionGutterState struct {
+	server        *pluginServer
+	line          int
+	hasDiagnostic bool
+}
+
 // storeRawPluginDiagnostics retains Core's normalized LSP diagnostics per plugin and file
 // so codeAction requests forward nullable severity, tags and relatedInformation intact.
 func (a *App) storeRawPluginDiagnostics(pluginID, fileKey string, diagnostics []core.PluginDiagnostic) {
 	if pluginID == "" || fileKey == "" {
 		return
+	}
+	if a.project != nil {
+		if d := a.project.docs.byPath(fileKey); d != nil {
+			d.codeActionGutter = codeActionGutterState{}
+		}
 	}
 	if len(diagnostics) == 0 {
 		if byFile := a.rawPluginDiagnostics[pluginID]; byFile != nil {
@@ -88,6 +99,11 @@ func (a *App) clearRawPluginDiagnostics(pluginID string) {
 }
 
 func (a *App) clearRawPluginFileDiagnostics(pluginID, fileKey string) {
+	if a.project != nil {
+		if d := a.project.docs.byPath(fileKey); d != nil {
+			d.codeActionGutter = codeActionGutterState{}
+		}
+	}
 	if byFile := a.rawPluginDiagnostics[pluginID]; byFile != nil {
 		delete(byFile, fileKey)
 		if len(byFile) == 0 {
@@ -98,6 +114,11 @@ func (a *App) clearRawPluginFileDiagnostics(pluginID, fileKey string) {
 
 func (a *App) clearAllRawPluginDiagnostics() {
 	a.rawPluginDiagnostics = nil
+	if p := a.project; p != nil {
+		for _, d := range p.docs.list {
+			d.codeActionGutter = codeActionGutterState{}
+		}
+	}
 }
 
 // diagnosticsOverlapping forwards only diagnostics from the server
@@ -412,11 +433,13 @@ func (a *App) executeResolvedCodeAction(p *project, d *document, server *pluginS
 		if action.Command == nil || action.Command.Command == "" {
 			return
 		}
-		if server == nil || !server.isReady() || !server.features[featureExecuteCommand] {
+		if server == nil || !server.isReady() || !server.features[featureExecuteCommand] || p.docs.find(d.id) != d {
 			return
 		}
 		cmdBytes, err := json.Marshal(action.Command)
 		if err != nil {
+			a.operationFailed("plugin_code_action_command", err)
+			a.notifyError(i18n.Shared(a.language(), "desktop.semantics.codeActionFailed"))
 			return
 		}
 		pending := a.newSemanticPending(pluginSemanticExecuteCommand, p, d, server, 0, 0, false, false)
@@ -436,9 +459,11 @@ func (a *App) executeResolvedCodeAction(p *project, d *document, server *pluginS
 			a.notifyError(i18n.Shared(a.language(), "desktop.semantics.codeActionFailed"))
 			return
 		}
-		a.applyLanguageWorkspaceEdit(p, server, p.ctx, action.Edit.Changes, func(err error) {
+		a.applyLanguageWorkspaceEdit(p, server, p.ctx, action.Edit.Changes, func(updates []renameDocumentUpdate, err error) {
 			if err == nil {
-				runCommand()
+				if action.Command != nil {
+					a.deferCodeActionCommand(p, server, updates, runCommand)
+				}
 				return
 			}
 			if errors.Is(err, context.Canceled) || a.project != p {
@@ -455,6 +480,54 @@ func (a *App) executeResolvedCodeAction(p *project, d *document, server *pluginS
 		return
 	}
 	runCommand()
+}
+
+// deferredCodeActionCommand holds the command until the server has received
+// the code action's edits to every document it tracks.
+type deferredCodeActionCommand struct {
+	project   *project
+	documents []int
+	run       func()
+}
+
+func (a *App) deferCodeActionCommand(p *project, server *pluginServer, updates []renameDocumentUpdate, run func()) {
+	command := &deferredCodeActionCommand{project: p, run: run}
+	for _, update := range updates {
+		if d := p.docs.find(update.id); d != nil {
+			if owner, _ := a.documentSyncServer(d); owner == server {
+				command.documents = append(command.documents, d.id)
+			}
+		}
+	}
+	// Only one edit-and-command action may be waiting for this session.
+	// Replacing it is equivalent to closing the previous action's popup.
+	server.codeActionCommand = command
+	a.resumeCodeActionCommand(server)
+}
+
+func (a *App) resumeCodeActionCommand(server *pluginServer) {
+	if server == nil || server.codeActionCommand == nil {
+		return
+	}
+	command := server.codeActionCommand
+	if a.project != command.project || a.closingProject || !a.isCurrentPluginServer(server.session.PluginID, server) {
+		server.codeActionCommand = nil
+		return
+	}
+	for _, id := range command.documents {
+		d := command.project.docs.find(id)
+		if d == nil || !d.sync.opened {
+			server.codeActionCommand = nil
+			a.operationRejected("plugin_code_action_command", "document_sync_unavailable")
+			a.notifyError(i18n.Shared(a.language(), "desktop.semantics.codeActionFailed"))
+			return
+		}
+		if !a.semanticDocumentReady(d) {
+			return
+		}
+	}
+	server.codeActionCommand = nil
+	command.run()
 }
 
 func (a *App) captureWorkspaceOpenDocuments(p *project) map[string]renameOpenDocument {
@@ -497,7 +570,7 @@ var errStaleWorkspaceEdit = errors.New("open document changed before workspace e
 // applyLanguageWorkspaceEdit keeps disk I/O off the window thread. If a target
 // changes before the open-document edits are installed, it restores any disk
 // edits using the exact bytes written, preserving concurrent external edits.
-func (a *App) applyLanguageWorkspaceEdit(p *project, server *pluginServer, parent context.Context, changes map[string][]core.PluginTextEdit, done func(error)) {
+func (a *App) applyLanguageWorkspaceEdit(p *project, server *pluginServer, parent context.Context, changes map[string][]core.PluginTextEdit, done func([]renameDocumentUpdate, error)) {
 	open := a.captureWorkspaceOpenDocuments(p)
 	write := a.documentWriter
 	session := server.session
@@ -510,7 +583,7 @@ func (a *App) applyLanguageWorkspaceEdit(p *project, server *pluginServer, paren
 			err = writeWorkspaceEdit(ctx, writes, write)
 		}
 		if err != nil {
-			return func(*App) { done(err) }
+			return func(*App) { done(nil, err) }
 		}
 
 		// The worker owns the disk transaction until the window claims
@@ -525,7 +598,7 @@ func (a *App) applyLanguageWorkspaceEdit(p *project, server *pluginServer, paren
 			}
 			defer close(settled)
 			reject = ctx.Err()
-			if reject == nil && (a.project != p || !a.isCurrentPluginServer(session.PluginID, server)) {
+			if reject == nil && (a.project != p || a.closingProject || !a.isCurrentPluginServer(session.PluginID, server)) {
 				reject = context.Canceled
 			}
 			if reject != nil {
@@ -567,7 +640,7 @@ func (a *App) applyLanguageWorkspaceEdit(p *project, server *pluginServer, paren
 			if rollbackErr != nil {
 				a.operationFailed("plugin_workspace_apply_edit_rollback", rollbackErr)
 			}
-			done(errors.Join(reject, rollbackErr))
+			done(updates, errors.Join(reject, rollbackErr))
 		}
 	})
 }
@@ -597,7 +670,7 @@ func (a *App) applyServerWorkspaceEdit(server *pluginServer, event core.BackendE
 		})
 	}
 	p := a.project
-	if p == nil || p != server.project || !a.isCurrentPluginServer(server.session.PluginID, server) {
+	if p == nil || p != server.project || a.closingProject || !a.isCurrentPluginServer(server.session.PluginID, server) {
 		respond(false, "Workspace session is no longer active.")
 		return
 	}
@@ -615,7 +688,7 @@ func (a *App) applyServerWorkspaceEdit(server *pluginServer, event core.BackendE
 	}
 	ctx, cancel := context.WithCancel(p.ctx)
 	server.workspaceEdits[req.ApplyEditID] = cancel
-	a.applyLanguageWorkspaceEdit(p, server, ctx, req.Changes, func(err error) {
+	a.applyLanguageWorkspaceEdit(p, server, ctx, req.Changes, func(_ []renameDocumentUpdate, err error) {
 		delete(server.workspaceEdits, req.ApplyEditID)
 		defer cancel()
 		switch {
@@ -754,13 +827,17 @@ func (a *App) codeActionLightbulb(c ui.C, p *project, d *document) {
 		return
 	}
 	caretLine, _ := d.caretView().CaretUTF16()
-	hasDiagnostics := false
-	for _, diag := range a.rawPluginDiagnostics[server.session.PluginID][d.path] {
-		if diag.Range.Start.Line <= caretLine && caretLine <= diag.Range.End.Line {
-			hasDiagnostics = true
-			break
+	cached := &d.codeActionGutter
+	if cached.server != server || cached.line != caretLine {
+		*cached = codeActionGutterState{server: server, line: caretLine}
+		for _, diag := range a.rawPluginDiagnostics[server.session.PluginID][d.path] {
+			if diag.Range.Start.Line <= caretLine && caretLine <= diag.Range.End.Line {
+				cached.hasDiagnostic = true
+				break
+			}
 		}
 	}
+	hasDiagnostics := cached.hasDiagnostic
 	start, end := d.caretView().Selection()
 	if !hasDiagnostics && start == end {
 		return

@@ -206,6 +206,7 @@ func (v *View) ClearInlayHints() bool {
 }
 
 func (v *View) replaceInlayHints(prepared PreparedInlayHints) {
+	v.mm.key.valid = false
 	if !v.wrapping() || v.lineH <= 0 {
 		v.inlay = inlayState{prepared: prepared}
 		return
@@ -226,6 +227,7 @@ func (v *View) reflowInlayRows() {
 	if !v.wrapping() || !v.HasInlayHints() {
 		return
 	}
+	v.mm.key.valid = false
 	v.ensureRows()
 	prepared := &v.inlay.prepared
 	v.inlay.wraps = make(map[int][]wrapRow)
@@ -269,6 +271,49 @@ func (v *View) CellWidth() float32 { return v.cellW }
 // VisibleLineRange returns the inclusive zero-based range of document lines
 // at the current scroll position using the last painted viewport dimensions.
 func (v *View) VisibleLineRange() (firstLine, lastLine int, ok bool) {
+	firstRow, lastRow, ok := v.viewportRows(0)
+	if !ok {
+		return 0, 0, false
+	}
+	firstLine, _ = v.rowLine(firstRow)
+	lastLine, _ = v.rowLine(lastRow)
+	return firstLine, lastLine, true
+}
+
+// LineSpan is a contiguous range of zero-based document lines, both inclusive.
+type LineSpan struct{ First, Last int }
+
+// ViewportLineRanges appends contiguous spans of visible lines to dst. The
+// margin extends the viewport in screen rows before mapping to document lines,
+// so neither the viewport nor the margin includes any lines hidden by folding.
+func (v *View) ViewportLineRanges(dst []LineSpan, marginRows int) []LineSpan {
+	firstRow, lastRow, ok := v.viewportRows(marginRows)
+	if !ok {
+		return dst
+	}
+	first, _ := v.rowLine(firstRow)
+	last, _ := v.rowLine(lastRow)
+	if len(v.fold.collapsed) == 0 || first == last {
+		return append(dst, LineSpan{first, last})
+	}
+
+	span := LineSpan{first, first}
+	for line := first; line < last; {
+		next := line + 1
+		if v.fold.hides(next) {
+			// Hidden lines share the next visible line's first row. Map that row
+			// back once, regardless of how many logical lines the fold hides.
+			next, _ = v.rowLine(v.rowStartForLine(next))
+			dst = append(dst, span)
+			span.First = next
+		}
+		span.Last = next
+		line = next
+	}
+	return append(dst, span)
+}
+
+func (v *View) viewportRows(marginRows int) (firstRow, lastRow int, ok bool) {
 	if !v.painted || v.lineH <= 0 {
 		return 0, 0, false
 	}
@@ -276,11 +321,24 @@ func (v *View) VisibleLineRange() (firstLine, lastLine int, ok bool) {
 	if rows <= 0 {
 		return 0, 0, false
 	}
-	firstRow := min(max(int(v.scroll/v.lineH), 0), rows-1)
-	lastRow := min(max(int(math.Ceil(float64((v.scroll+v.area.Height)/v.lineH)))-1, firstRow), rows-1)
-	firstLine, _ = v.rowLine(firstRow)
-	lastLine, _ = v.rowLine(lastRow)
-	return firstLine, lastLine, true
+	firstRow = min(max(int(v.scroll/v.lineH), 0), rows-1)
+	lastRow = min(max(int(math.Ceil(float64((v.scroll+v.area.Height)/v.lineH)))-1, firstRow), rows-1)
+	marginRows = max(marginRows, 0)
+	return max(firstRow-marginRows, 0), lastRow + min(marginRows, rows-1-lastRow), true
+}
+
+// InlayHintRequestEnd returns the exclusive LSP position after lastLine.
+// Only the document's final line needs a UTF-16 measurement. A final line
+// using long-line mode is excluded as the editor cannot annotate it.
+func (v *View) InlayHintRequestEnd(lastLine int) (line, utf16Column int) {
+	if lastLine+1 < v.text.LineCount() {
+		return lastLine + 1, 0
+	}
+	start, end := v.text.LineStart(lastLine), v.text.LineEnd(lastLine)
+	if end-start > longLine {
+		return lastLine, 0
+	}
+	return lastLine, v.utf16Units(start, end)
 }
 
 // InlayHintAt reports the ID and window rectangle of an interactive hint.

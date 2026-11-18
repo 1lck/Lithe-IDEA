@@ -85,6 +85,7 @@ type pluginServer struct {
 	signatureHelpTriggers   []string
 	signatureHelpRetriggers []string
 	workspaceEdits          map[string]context.CancelFunc
+	codeActionCommand       *deferredCodeActionCommand
 	// features are the features the server offers, from Core's featuresChanged event
 	// (documentSymbols, semanticTokens and so on). Only the window thread reads or writes it.
 	features map[string]bool
