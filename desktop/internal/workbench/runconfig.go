@@ -188,7 +188,7 @@ func (a *App) finishRunConfigurations(p *project, generation uint64, resolved co
 	s.reveal = ""
 	if start := s.start; start != "" {
 		s.start = ""
-		if s.configuration(start) != nil && p.build.operation == nil {
+		if s.configuration(start) != nil {
 			s.selected = start
 			a.runConfiguration(p, start)
 		}
@@ -210,10 +210,16 @@ func (a *App) finishRunConfigurations(p *project, generation uint64, resolved co
 // button that is disabled; the IDE API reports it through startRunConfiguration, which
 // leaves the windows as they are.
 func (a *App) runConfiguration(p *project, id string) {
-	if _, err := a.startRunConfiguration(p, id); err == nil {
-		a.showBuildConsole(p)
-	}
+	// A configuration that runs is stopped first and started again once it ended (startRun).
+	a.startRun(p, configurationRunKey(id), func(a *App, p *project) {
+		if _, err := a.startRunConfiguration(p, id); err == nil {
+			a.showBuildConsole(p)
+		}
+	})
 }
+
+// configurationRunKey is the run key of run configuration id.
+func configurationRunKey(id string) string { return "config:" + id }
 
 // startRunConfiguration checks the request on the window thread, reserves the run as the
 // window's operation and starts it once unsaved documents are saved, so the run reads the files
@@ -231,8 +237,8 @@ func (a *App) startRunConfigurationWith(p *project, id string, debug *connection
 	if configuration == nil {
 		return nil, refuseBuild(refusalNotFound, "unknown run configuration")
 	}
-	if p.build.operation != nil {
-		return nil, errBuildBusy
+	if p.build.runOf(configurationRunKey(id)) != nil {
+		return nil, errRunRunning
 	}
 	if configuration.Unavailable() {
 		message := a.runConfigUnavailableText(*configuration)
@@ -260,7 +266,7 @@ func (a *App) startRunConfigurationWith(p *project, id string, debug *connection
 	if debug != nil {
 		configurationType = debug.launch.ConfigurationType
 	}
-	op := a.beginBuildOperation(p, "run", configuration.Name, id, func(a *App, p *project) {
+	op := a.beginRunOperation(p, configuration.Name, id, configurationRunKey(id), func(a *App, p *project) {
 		if debug != nil {
 			a.debugRunConfiguration(p, id, configurationType)
 			return
@@ -289,7 +295,7 @@ func (a *App) startRunConfigurationWith(p *project, id string, debug *connection
 				return func(a *App) { a.finishBuildError(p, op, err) }
 			}
 			return func(a *App) {
-				if op.cancelled || p.build.operation != op {
+				if op.cancelled || !p.build.owns(op) {
 					a.finishBuildError(p, op, context.Canceled)
 					return
 				}

@@ -1,0 +1,29 @@
+{
+  "id": "run-console-web-links",
+  "area": "运行与调试",
+  "group": "运行输出",
+  "capability": "运行和测试控制台里的 http/https 网址可点击，在系统浏览器中打开（例如 Spring Boot、Vite 启动后打印的访问地址），不需要任何插件声明匹配器",
+  "owner": "Run",
+  "notes": "Viva 共享实现。网址由 Core 的 outputLinks.match 在插件匹配器之后识别，返回不带插件的 url 链接；网址止于空白、引号、尖括号，不含句末标点和未配对的右括号，被插件链接覆盖的部分归插件链接。没有安装插件时只对含 :// 的行请求 Core。打开失败时提示 desktop.editor.linkOpenFailed。",
+  "verification": "运行一个打印“Tomcat started on http://localhost:8080/.”的服务，确认网址带下划线且句号不在链接内，点击后系统浏览器打开该地址；没有安装任何插件时同样可点。自动化：outputlinks_test.go 的 TestRunOutputWebAddressOpensInTheBrowser；Core 侧见 Lithe-core-rust#84 的 fixture。",
+  "macos": {
+    "implementationStatus": "implemented",
+    "verificationStatus": "pending",
+    "evidence": [
+      "desktop/internal/core/output_links.go",
+      "desktop/internal/workbench/outputlinks.go",
+      "desktop/internal/workbench/outputlinks_view.go",
+      "desktop/internal/workbench/outputlinks_test.go"
+    ]
+  },
+  "windows": {
+    "implementationStatus": "implemented",
+    "verificationStatus": "pending",
+    "evidence": [
+      "desktop/internal/core/output_links.go",
+      "desktop/internal/workbench/outputlinks.go",
+      "desktop/internal/workbench/outputlinks_view.go",
+      "desktop/internal/workbench/outputlinks_test.go"
+    ]
+  }
+}

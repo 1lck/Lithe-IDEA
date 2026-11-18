@@ -62,7 +62,14 @@ type buildState struct {
 	targetID  string
 	taskID    string
 
+	// operation is the Build window's one task, model or IDE API build at a time; running are
+	// the applications and services that run, any number at once but one per run key
+	// (buildOperation.key), oldest first.
 	operation *buildOperation
+	running   []*buildOperation
+	// newest is the execution begun last, which the Run window shows when a control starts
+	// one; it may have ended since.
+	newest *buildOperation
 	// runs are the Run window's sessions, oldest first: the host's executions and the
 	// runs plugins started. view is the ID of the one it shows, and sessions numbers the
 	// host's executions.
@@ -103,19 +110,27 @@ type buildInstance struct {
 	trees        buildTrees
 }
 
-// buildOperation is the one Build execution the window runs: a task or a run, from the
-// moment its start is accepted until it ends. beginBuildOperation takes it before the plan,
-// the saves and the provider request, so a second start is refused and Stop works while the
-// execution is still being prepared; the provider request or host process it started is
+// buildOperation is one Build execution the window runs: a task or a run, from the moment its
+// start is accepted until it ends. beginBuildOperation takes it before the plan, the saves and
+// the provider request, so a second start is refused, or replaces a run of the same key, and
+// Stop works while the execution is still being prepared; the provider request or host process it started is
 // attached once it exists. Its fields belong to the window thread; the goroutine preparing it
 // reads only stopped, through bind.
 type buildOperation struct {
 	// configuration is the run configuration the operation runs, "" for anything else.
 	configuration string
-	provider      *buildprovider.Client
-	request       *buildprovider.Operation
-	process       *buildprocess.Process
-	cancelled     bool
+	// key names what an application run runs: its configuration, or its target or command
+	// entry when it has none; "" for a task. A second start of the same key replaces the run
+	// (startRun), as IDEA stops and reruns a configuration that runs.
+	key string
+	// status is the operation's last line: preparing, running, stopping or how it ended.
+	status string
+	// then starts the run that replaces this one once it ended (startRun).
+	then      func(*App, *project)
+	provider  *buildprovider.Client
+	request   *buildprovider.Operation
+	process   *buildprocess.Process
+	cancelled bool
 	// stopped is closed by stop.
 	stopped chan struct{}
 	// ide is the execution's IDE API identity and state (ide_api_dispatch.go).
@@ -136,7 +151,18 @@ type buildOperation struct {
 // from that tab. Every path that follows ends it with finishBuildTask, finishBuildRun or
 // finishBuildError for this operation.
 func (a *App) beginBuildOperation(p *project, kind, label, configuration string, restart func(*App, *project)) *buildOperation {
-	operation := &buildOperation{configuration: configuration, stopped: make(chan struct{}), decoder: newOutputDecoder(a.kernel)}
+	return a.beginOperation(p, kind, label, configuration, "", restart)
+}
+
+// beginRunOperation begins an application run of key, which runs beside the Build window's
+// operation and the other runs (beginOperation).
+func (a *App) beginRunOperation(p *project, label, configuration, key string, restart func(*App, *project)) *buildOperation {
+	return a.beginOperation(p, "run", label, configuration, key, restart)
+}
+
+// beginOperation begins a task, or with key an application run, as beginBuildOperation says.
+func (a *App) beginOperation(p *project, kind, label, configuration, key string, restart func(*App, *project)) *buildOperation {
+	operation := &buildOperation{configuration: configuration, key: key, stopped: make(chan struct{}), decoder: newOutputDecoder(a.kernel)}
 	p.build.sessions++
 	operation.session = &runEntry{
 		id: "build-" + strconv.Itoa(p.build.sessions), label: label, restart: restart, operation: operation,
@@ -145,9 +171,79 @@ func (a *App) beginBuildOperation(p *project, kind, label, configuration string,
 	a.addRunSession(p, operation.session)
 	operation.ide = p.recordIDEOperation(kind, label, configuration)
 	operation.ide.output = &operation.session.output
-	p.build.operation = operation
-	p.build.status = a.text.Build.Preparing
+	if key != "" {
+		p.build.running = append(p.build.running, operation)
+	} else {
+		p.build.operation = operation
+	}
+	p.build.newest = operation
+	a.setOperationStatus(p, operation, a.text.Build.Preparing)
 	return operation
+}
+
+// setOperationStatus makes text op's line and the Build window's latest one.
+func (a *App) setOperationStatus(p *project, op *buildOperation, text string) {
+	op.status = text
+	p.build.status = text
+}
+
+// owns reports whether op is still one of the window's executions: not ended, and not detached
+// by a closing project or a plugin change. Everything that arrives for an operation checks it,
+// so late output and results of an execution that ended change nothing.
+func (b *buildState) owns(op *buildOperation) bool {
+	return op != nil && (b.operation == op || slices.Contains(b.running, op))
+}
+
+// release drops op from the window's executions.
+func (b *buildState) release(op *buildOperation) {
+	if b.operation == op {
+		b.operation = nil
+	}
+	b.running = slices.DeleteFunc(b.running, func(running *buildOperation) bool { return running == op })
+}
+
+// runOf is the application run of key that runs, or nil.
+func (b *buildState) runOf(key string) *buildOperation {
+	for _, op := range b.running {
+		if op.key == key {
+			return op
+		}
+	}
+	return nil
+}
+
+// latest is the execution a control without a tab of its own acts on, such as the Build
+// window's Stop or the console a start shows: the execution begun last while it runs, else the
+// Build window's operation, else the newest run.
+func (b *buildState) latest() *buildOperation {
+	if b.owns(b.newest) {
+		return b.newest
+	}
+	if b.operation != nil {
+		return b.operation
+	}
+	if len(b.running) > 0 {
+		return b.running[len(b.running)-1]
+	}
+	return nil
+}
+
+// active reports whether any execution runs.
+func (b *buildState) active() bool { return b.operation != nil || len(b.running) > 0 }
+
+// startRun starts the application run of key through start, at once when none of that key
+// runs; otherwise it stops the one that runs and starts the new one once it ended, so the two
+// never share a port or files. A start that is asked again while one waits replaces it.
+func (a *App) startRun(p *project, key string, start func(*App, *project)) {
+	running := p.build.runOf(key)
+	if running == nil {
+		start(a, p)
+		return
+	}
+	running.then = start
+	if !running.cancelled {
+		a.stopOperation(p, running)
+	}
 }
 
 // restartWithInstance is a session's restart that selects the build instance it ran under
@@ -230,16 +326,21 @@ func refuseBuild(code, message string) error { return &buildRefusal{code: code, 
 // errBuildBusy refuses a start while the window runs another execution.
 var errBuildBusy = refuseBuild(refusalBusy, "the Build window is already running an operation")
 
+// errRunRunning refuses a tool call's start of a run configuration that already runs; the Run
+// window stops and reruns it instead (startRun).
+var errRunRunning = refuseBuild(refusalBusy, "the run configuration is already running")
+
 // attachProcess makes process the operation's process once it started. It reports false, and
 // stops the process, when the operation was stopped or replaced while the process started.
 func (a *App) attachProcess(p *project, op *buildOperation, process *buildprocess.Process) bool {
-	if op.cancelled || p.build.operation != op {
+	if op.cancelled || !p.build.owns(op) {
 		process.Stop()
 		return false
 	}
 	op.process = process
 	op.ide.start()
-	p.build.status = a.text.Build.Running
+	op.session.processRunning = true
+	a.setOperationStatus(p, op, a.text.Build.Running)
 	return true
 }
 
@@ -1378,7 +1479,18 @@ func buildTargetRunEntries(instance *buildInstance, targetID string) []core.Buil
 // never older than the options.
 func (a *App) runBuildEntry(p *project, entryID string) {
 	instance := p.selectedBuildInstance()
-	if instance == nil || p.build.operation != nil {
+	if instance == nil {
+		return
+	}
+	instanceID := instance.ID
+	a.startRun(p, "entry:"+instanceID+"/"+entryID, func(a *App, p *project) { a.startBuildEntry(p, instanceID, entryID) })
+}
+
+// startBuildEntry runs the command Run entry entryID of the instance instanceID, which is
+// selected, once no run of it runs (runBuildEntry).
+func (a *App) startBuildEntry(p *project, instanceID, entryID string) {
+	instance := p.selectedBuildInstance()
+	if instance == nil || instance.ID != instanceID {
 		return
 	}
 	var entry *core.BuildRunEntry
@@ -1400,7 +1512,7 @@ func (a *App) runBuildEntry(p *project, entryID string) {
 	}
 	captured := *instance
 	messages := a.text.Build
-	op := a.beginBuildOperation(p, "run", entry.Name, "", restartWithInstance(instance.ID, func(a *App, p *project) {
+	op := a.beginRunOperation(p, entry.Name, "", "entry:"+instanceID+"/"+entryID, restartWithInstance(instance.ID, func(a *App, p *project) {
 		a.runBuildEntry(p, entryID)
 	}))
 	a.background(p, 0, func(ctx context.Context) func(*App) {
@@ -1437,9 +1549,25 @@ func (a *App) runBuildTarget(p *project, targetID, runID string) {
 // prepares the service suspended for its adapter.
 func (a *App) startBuildTarget(p *project, targetID string, run pluginservice.BuildRunDeclaration, debug *connectionDebug) {
 	instance := p.selectedBuildInstance()
-	if instance == nil || p.build.operation != nil {
+	if instance == nil {
 		return
 	}
+	key, instanceID := targetRunKey(instance.ID, targetID, run.ID), instance.ID
+	a.startRun(p, key, func(a *App, p *project) {
+		if selected := p.selectedBuildInstance(); selected != nil && selected.ID == instanceID {
+			a.beginBuildTarget(p, key, targetID, run, debug)
+		}
+	})
+}
+
+// targetRunKey is the run key of target targetID of an instance run through run runID.
+func targetRunKey(instanceID, targetID, runID string) string {
+	return "target:" + instanceID + "/" + targetID + "/" + runID
+}
+
+// beginBuildTarget begins the run startBuildTarget asked for, once no run of key runs.
+func (a *App) beginBuildTarget(p *project, key, targetID string, run pluginservice.BuildRunDeclaration, debug *connectionDebug) {
+	instance := p.selectedBuildInstance()
 	target, ok := buildTargetByID(instance.Model, targetID)
 	if !ok {
 		a.operationRejected("build_run_target", "target_missing")
@@ -1447,7 +1575,7 @@ func (a *App) startBuildTarget(p *project, targetID string, run pluginservice.Bu
 		return
 	}
 	runID := run.ID
-	op := a.beginBuildOperation(p, "run", target.Name, "", restartWithInstance(instance.ID, func(a *App, p *project) {
+	op := a.beginRunOperation(p, target.Name, "", key, restartWithInstance(instance.ID, func(a *App, p *project) {
 		if debug != nil {
 			a.debugBuildTarget(p, targetID, runID)
 			return
@@ -1749,7 +1877,7 @@ func (a *App) runBuildTargetWith(p *project, op *buildOperation, instance *build
 // it. execution says the request is the execution itself, a task, rather than the plan of a
 // run's process. A request accepted after the operation was stopped or replaced is cancelled.
 func (a *App) attachRequest(p *project, op *buildOperation, client *buildprovider.Client, request *buildprovider.Operation, execution bool) {
-	if op.cancelled || p.build.operation != op {
+	if op.cancelled || !p.build.owns(op) {
 		a.background(p, buildStopTimeout, func(ctx context.Context) func(*App) {
 			_ = client.Cancel(ctx, request)
 			return nil
@@ -1807,8 +1935,8 @@ func (a *App) awaitProviderOperation(ctx context.Context, p *project, op *buildO
 			}
 			if progress.Message != "" {
 				a.post(func(a *App) {
-					if p.build.operation == op && !op.cancelled {
-						p.build.status = progress.Message
+					if p.build.owns(op) && !op.cancelled {
+						a.setOperationStatus(p, op, progress.Message)
 					}
 				})
 			}
@@ -1823,13 +1951,17 @@ func (a *App) awaitProviderOperation(ctx context.Context, p *project, op *buildO
 // no longer the window's operation: a closed project or a plugin change already detached and
 // settled it, and its late terminal event changes nothing.
 func (a *App) endBuildOperation(p *project, op *buildOperation, state string, exitCode *int, failure, status string) bool {
-	if a.project != p || p.build.operation != op {
+	if a.project != p || !p.build.owns(op) {
 		return false
 	}
-	p.build.operation = nil
-	p.build.status = status
+	p.build.release(op)
+	a.setOperationStatus(p, op, status)
 	a.endBuildSession(op, state, status)
 	op.ide.settle(state, exitCode, op.session.output.sequence, failure)
+	if then := op.then; then != nil {
+		op.then = nil
+		then(a, p)
+	}
 	return true
 }
 
@@ -1909,22 +2041,30 @@ func (a *App) finishBuildError(p *project, op *buildOperation, err error) {
 	}
 }
 
-// stopBuildOperation stops the current execution: its preparation ends, its process is asked
-// to stop and the provider is asked to cancel its request. Stopping an execution that is already
-// stopping kills its process at once instead of waiting out the stop time. The terminal event
-// still clears the operation, so a replacement cannot start until the execution really ended.
+// stopBuildOperation stops the execution a control without a tab of its own acts on: the Build
+// window's operation, else the newest run (buildState.latest).
 func (a *App) stopBuildOperation(p *project) {
-	if p == nil || p.build.operation == nil {
+	if p == nil {
 		return
 	}
-	operation := p.build.operation
+	a.stopOperation(p, p.build.latest())
+}
+
+// stopOperation stops one execution: its preparation ends, its process is asked to stop and the
+// provider is asked to cancel its request. Stopping an execution that is already stopping kills
+// its process at once instead of waiting out the stop time. The terminal event still clears the
+// operation, so a replacement cannot start until the execution really ended.
+func (a *App) stopOperation(p *project, operation *buildOperation) {
+	if p == nil || !p.build.owns(operation) {
+		return
+	}
 	if operation.cancelled {
 		operation.stop()
 		return
 	}
 	operation.stop()
 	operation.ide.stopping()
-	p.build.status = a.text.Build.Stopping
+	a.setOperationStatus(p, operation, a.text.Build.Stopping)
 	if operation.provider != nil && operation.request != nil {
 		client, request := operation.provider, operation.request
 		a.background(p, buildStopTimeout, func(ctx context.Context) func(*App) {
@@ -1940,7 +2080,7 @@ func (a *App) stopBuild(p *project) {
 	a.stopBuildSessions(p, true)
 }
 
-// stopBuildSessions cancels the current operation and stops the sessions the project holds on a
+// stopBuildSessions cancels every execution and stops the sessions the project holds on a
 // background task with a bounded wait. The sessions are detached from the project first, so the
 // task closes exactly them whatever the project starts next; with closing set the project starts no
 // session again.
@@ -1948,10 +2088,15 @@ func (a *App) stopBuildSessions(p *project, closing bool) {
 	if p == nil {
 		return
 	}
-	operation := p.build.operation
-	p.build.operation = nil
-	if operation != nil {
-		// Its terminal event finds the operation detached, so it settles here.
+	operations := slices.Clone(p.build.running)
+	if p.build.operation != nil {
+		operations = append(operations, p.build.operation)
+	}
+	p.build.operation, p.build.running = nil, nil
+	for _, operation := range operations {
+		// Its terminal event finds the operation detached, so it settles here; a run waiting to
+		// replace it is dropped with it.
+		operation.then = nil
 		operation.stop()
 		a.endBuildSession(operation, "cancelled", a.text.Build.Cancelled)
 		operation.ide.settle("cancelled", nil, operation.session.output.sequence, "")
@@ -1962,8 +2107,11 @@ func (a *App) stopBuildSessions(p *project, closing bool) {
 		defer a.tasks.running.Done()
 		ctx, cancel := context.WithTimeout(context.Background(), buildStopTimeout)
 		defer cancel()
-		if operation != nil && operation.request != nil && operation.provider != nil {
-			_ = operation.provider.Cancel(ctx, operation.request)
+		for _, operation := range operations {
+			if operation.request != nil && operation.provider != nil {
+				// log-exempt: teardown：a provider that cannot cancel is closed right after.
+				_ = operation.provider.Cancel(ctx, operation.request)
+			}
 		}
 		for _, client := range clients {
 			_ = client.Close(ctx)
@@ -2001,7 +2149,7 @@ func (a *App) streamBuildOutput(p *project, op *buildOperation, text string) {
 // applyBuildOutput adds decoded output to op's console. Output of an operation the window no
 // longer runs is dropped, so it never lands in a later execution's console.
 func (a *App) applyBuildOutput(p *project, op *buildOperation, chunk outputChunk) {
-	if p == nil || a.project != p || p.build.operation != op {
+	if p == nil || a.project != p || !p.build.owns(op) {
 		return
 	}
 	op.session.output.apply(chunk)

@@ -33,7 +33,9 @@ type OutputLinkRequest struct {
 }
 
 // OutputLink is one clickable range of a console line. Start and Length count
-// UTF-16 code units of the line. Exactly one of Location and Resolve is set.
+// UTF-16 code units of the line. Exactly one of Location, Resolve and URL is set:
+// a plugin's link has Location or Resolve, and a web address the line prints has
+// URL alone, with no plugin, which opens in the browser.
 type OutputLink struct {
 	Line      int             `json:"line"`
 	Start     int             `json:"start"`
@@ -45,6 +47,7 @@ type OutputLink struct {
 		Function string          `json:"function"`
 		Groups   json.RawMessage `json:"groups"`
 	} `json:"resolve"`
+	URL string `json:"url,omitempty"`
 }
 
 // OutputLocation is where a link opens. Paths are candidates (the host opens

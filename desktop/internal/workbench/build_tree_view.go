@@ -28,14 +28,14 @@ func (a *App) buildToolActions(c ui.C, p *project) {
 		if !ok {
 			label = t.ChooseTask
 		}
-		if _, hit := a.toolIconButton(c.Part("run"), label, icons.Play, false, !ok || b.operation != nil); hit {
+		if _, hit := a.toolIconButton(c.Part("run"), label, icons.Play, false, !ok || b.taskID != "" && b.operation != nil); hit {
 			c.After(func() {
 				a.performed("build.runChosen", surfaceButton)
 				run()
 				a.showBuildConsole(p)
 			})
 		}
-		if _, hit := a.toolIconButton(c.Part("stop"), runStopLabel(language, p), icons.Square, false, b.operation == nil); hit {
+		if _, hit := a.toolIconButton(c.Part("stop"), runStopLabel(language, b.latest()), icons.Square, false, !b.active()); hit {
 			c.After(func() {
 				a.performed("build.stop", surfaceButton)
 				a.stopBuildOperation(p)
@@ -516,7 +516,9 @@ func (a *App) buildItemRow(row ui.ListRow, p *project, instance *buildInstance, 
 	if tip := buildItemTip(spec); tip != "" {
 		element = element.Tooltip(tip)
 	}
-	busy := b.operation != nil || instance.modelLoading
+	// A task waits for the Build window's operation; a target's run runs beside it and the
+	// other runs.
+	busy := instance.modelLoading || spec.kind == buildRowTask && b.operation != nil
 	index := spec.instance
 	// choose makes the row the window's choice, the node's project, target and task as Core
 	// placed it; run, when set, then starts what it runs.

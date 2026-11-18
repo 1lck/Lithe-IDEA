@@ -249,7 +249,7 @@ func awaitProcessRun(t *testing.T, h *harness, p *project, label string, previou
 	}()
 	awaitStateWithin(t, h, 20*time.Second, "the run of "+label, func() bool {
 		for _, entry := range p.build.runs {
-			if entry != previous && entry.label == label && !entry.running && p.build.operation == nil {
+			if entry != previous && entry.label == label && !entry.running && !p.build.active() {
 				found = entry
 				return true
 			}

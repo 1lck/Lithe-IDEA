@@ -86,10 +86,6 @@ func (a *App) prepareConnectionDebug(p *project, configurationType string, start
 	if p == nil {
 		return
 	}
-	if p.build.operation != nil {
-		a.notifyInfo(i18n.Shared(a.language(), "desktop.title.runBusy"))
-		return
-	}
 	a.whenDebugAdaptersLoaded(p, func() {
 		if p.debug.activeSession() != nil {
 			a.operationRejected("build_debug_connection", "session_running")
@@ -124,9 +120,11 @@ func (a *App) prepareConnectionDebug(p *project, configurationType string, start
 // selected adapter.
 func (a *App) debugRunConfiguration(p *project, id, configurationType string) {
 	a.prepareConnectionDebug(p, configurationType, func(debug connectionDebug) {
-		if _, err := a.startRunConfigurationWith(p, id, &debug); errors.Is(err, errBuildBusy) {
-			a.notifyInfo(i18n.Shared(a.language(), "desktop.title.runBusy"))
-		}
+		// A run of the configuration that runs is stopped first and debugged once it ended.
+		a.startRun(p, configurationRunKey(id), func(a *App, p *project) {
+			// log-exempt: reported：startRunConfigurationWith reports why a start cannot happen.
+			_, _ = a.startRunConfigurationWith(p, id, &debug)
+		})
 	})
 }
 
@@ -144,7 +142,7 @@ func (a *App) debugServiceTarget(p *project, targetID string, run pluginservice.
 func (a *App) attachServiceDebugger(ctx context.Context, p *project, op *buildOperation, debug connectionDebug, ended <-chan struct{}) {
 	err := pluginservice.WaitForDebugPort(ctx, debug.launch.Target.Port, ended, pluginservice.RunDebugConnectTimeout)
 	a.post(func(a *App) {
-		if a.project != p || p.build.operation != op || op.cancelled {
+		if a.project != p || !p.build.owns(op) || op.cancelled {
 			return
 		}
 		switch {
@@ -152,7 +150,7 @@ func (a *App) attachServiceDebugger(ctx context.Context, p *project, op *buildOp
 			// A plugin change since the selection is read first, so the adapter is checked
 			// against the plugins as they are now.
 			a.whenDebugAdaptersLoaded(p, func() {
-				if p.build.operation == op && !op.cancelled {
+				if p.build.owns(op) && !op.cancelled {
 					a.attachServiceDebugSession(p, op, debug)
 				}
 			})
@@ -162,7 +160,7 @@ func (a *App) attachServiceDebugger(ctx context.Context, p *project, op *buildOp
 			a.notifyError(i18n.SharedFormat(a.language(), "desktop.build.debugPortTimeout", map[string]string{
 				"seconds": strconv.Itoa(int(pluginservice.RunDebugConnectTimeout.Seconds())),
 			}))
-			a.stopBuildOperation(p)
+			a.stopOperation(p, op)
 		}
 	})
 }
@@ -175,13 +173,13 @@ func (a *App) attachServiceDebugSession(p *project, op *buildOperation, debug co
 	if index < 0 {
 		a.operationFailed("build_debug_attach", errors.New("the selected debug adapter was disabled or replaced"))
 		a.notifyError(i18n.SharedFormat(a.language(), "desktop.build.connectionDebugAdapterGone", map[string]string{"name": debug.adapter.Declaration.DisplayName}))
-		a.stopBuildOperation(p)
+		a.stopOperation(p, op)
 		return
 	}
 	if p.debug.activeSession() != nil {
 		a.operationRejected("build_debug_connection", "session_running")
 		a.notifyInfo(i18n.Shared(a.language(), "desktop.build.debugSessionRunning"))
-		a.stopBuildOperation(p)
+		a.stopOperation(p, op)
 		return
 	}
 	a.beginDebug(p, debugStart{
@@ -189,17 +187,13 @@ func (a *App) attachServiceDebugSession(p *project, op *buildOperation, debug co
 		target: &core.DebugTargetFacts{Kind: "connection", Host: debug.launch.Target.Host, Port: debug.launch.Target.Port},
 		// Release calls stopRun off the window thread.
 		stopRun: func() {
-			a.post(func(a *App) {
-				if p.build.operation == op {
-					a.stopBuildOperation(p)
-				}
-			})
+			a.post(func(a *App) { a.stopOperation(p, op) })
 		},
 	})
 	session := p.debug.activeSession()
 	if session == nil {
 		// beginDebug reported why the session did not start; nothing debugs the suspended service.
-		a.stopBuildOperation(p)
+		a.stopOperation(p, op)
 		return
 	}
 	op.debugSession = session

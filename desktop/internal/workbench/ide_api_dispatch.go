@@ -438,19 +438,25 @@ func (a *App) ideAPIOperationOutput(ctx context.Context, conn *ideAPIConnection,
 // ideAPISnapshot marks an operation snapshot apart from a failure, which has the same map type.
 type ideAPISnapshot map[string]any
 
-// ideAPIOperationStop asks the execution id names to stop. Only the window's current execution
-// can be active, so a stop never reaches another one; an execution that already ended, or is
-// already stopping, is answered with its state unchanged.
+// ideAPIOperationStop asks the execution id names to stop: the Build window's operation or one
+// of the runs. An execution that already ended, or is already stopping, is answered with its
+// state unchanged.
 func (a *App) ideAPIOperationStop(p *project, id string) any {
 	operation, failure := p.ideAPIOperationByID(id)
 	if failure != nil {
 		return failure
 	}
 	if !operation.terminal() && operation.State != "stopping" {
-		if p.build.operation == nil || p.build.operation.ide != operation {
+		live := p.build.latest()
+		for _, op := range append([]*buildOperation{p.build.operation}, p.build.running...) {
+			if op != nil && op.ide == operation {
+				live = op
+			}
+		}
+		if live == nil || live.ide != operation {
 			return ideAPIFailure("OPERATION_EXPIRED", "The operation is no longer the window's execution")
 		}
-		a.stopBuildOperation(p)
+		a.stopOperation(p, live)
 	}
 	return map[string]any{"operationID": operation.ID, "state": operation.State}
 }
@@ -516,10 +522,7 @@ func ideAPIBuildInspect(p *project) any {
 	if instance := p.selectedBuildInstance(); instance != nil {
 		selected["instanceID"] = instance.ID
 	}
-	running := false
-	if p.build.operation != nil {
-		running = true
-	}
+	running := p.build.active()
 	return map[string]any{
 		"instances": instances,
 		"selected":  selected,

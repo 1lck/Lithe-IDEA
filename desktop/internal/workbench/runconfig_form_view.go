@@ -212,7 +212,7 @@ func (a *App) drawRunConfigForm(c ui.C, p *project) {
 		})
 	}, func() {
 		ui.Row(c.Part("run-config-form-footer")).FillWidth().Items(ui.Center).Gap(8).Children(func() {
-			if ui.Button(c, i18n.Shared(language, "desktop.runConfig.run")).Icon(icons.Play).Outline().Disabled(!ready || p.build.operation != nil).Clicked() {
+			if ui.Button(c, i18n.Shared(language, "desktop.runConfig.run")).Icon(icons.Play).Outline().Disabled(!ready).Clicked() {
 				c.After(func() {
 					a.performed("run.configuration.form.run", surfaceButton)
 					a.saveRunConfigForm(p, runConfigFormRun)
