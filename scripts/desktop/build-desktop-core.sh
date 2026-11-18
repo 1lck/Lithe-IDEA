@@ -27,12 +27,12 @@ native_path() {
     fi
 }
 
-# Lithe-core-rust branch feat/2100-interpreter-shell-family at e3a974e (#92, on top of main 5204e81):
-# the interpreter field of the shell script, PowerShell and cmd editor forms names the shellFamily
-# it takes (posix, powershell, cmd), so the run configuration dialog lists the installed shells of
-# that family beside automatic and a custom path (#2100). Switch to main's commit once #92 is
-# squash-merged. Main 5204e81 adds #91 (run configuration folders, list order and copying any
-# configuration, which this branch does not use yet), #86 and the squash-merged #75.
+# Lithe-core-rust main at 8b91b32: #92, squash-merged into main on top of 5204e81, makes the
+# interpreter field of the shell script, PowerShell and cmd editor forms name the shellFamily it
+# takes (posix, powershell, cmd), so the run configuration dialog lists the installed shells of
+# that family beside automatic and a custom path (#2100). Main 5204e81 adds #91 (run configuration
+# folders, list order and copying any configuration, which this branch does not use yet), #86 and
+# the squash-merged #75.
 # Lithe-core-rust branch feat/workspace-common-references at 5c48a67 (#75, merged with main at
 # 6f5fbcc, #87 on top of #90 and #89): git.workspaceCommonReferences takes each repository's
 # git.references entries unchanged and returns the branches every repository has in that entry
@@ -235,7 +235,7 @@ PINNED_CORE_REPOSITORY="https://github.com/Lithe-IDEA/Lithe-core-rust.git"
 # the contract, plugin guides, reference and SDKs live only in shared/plugins; on top of #16 (reported Git queries folded in the console),
 # #15 (git.write cherryPick, revert and reset fields), #14 (word-level changed ranges of diff
 # rows), #13, #8, #7, #6 and #4.
-PINNED_CORE_REVISION="e3a974e2b24195d5ec2fde906f5721d385b13d36"
+PINNED_CORE_REVISION="8b91b324f0e8140cb6ca3fed3dc26fa0b59a788c"
 PROFILE="debug"
 while [[ $# -gt 0 ]]; do
     case "$1" in
