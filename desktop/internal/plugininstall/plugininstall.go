@@ -72,6 +72,8 @@ type Request struct {
 	Source plugintrust.Source
 	// ArchiveSHA256 is the digest the download layer verified against the index.
 	ArchiveSHA256 string
+	// MarketplaceIndexURL is the Core-canonical index URL that offered this archive.
+	MarketplaceIndexURL string
 	// ExpectedID and ExpectedVersion pin the marketplace entry this archive is
 	// supposed to be. They are empty for a package the user picked themselves.
 	ExpectedID      string
@@ -96,6 +98,7 @@ type Plan struct {
 	// Source, ArchiveSHA256 and Root repeat the request for Commit.
 	Source        plugintrust.Source
 	ArchiveSHA256 string
+	MarketplaceIndexURL string
 	Root          string
 }
 
@@ -186,6 +189,7 @@ func (s *Service) Prepare(ctx context.Context, request Request) (plan Plan, err 
 	decision := plugintrust.Decide(record, found, plugintrust.Request{
 		Source:        request.Source,
 		ArchiveSHA256: request.ArchiveSHA256,
+		MarketplaceIndexURL: request.MarketplaceIndexURL,
 		ContentDigest: digest,
 		Review:        review,
 	})
@@ -199,6 +203,7 @@ func (s *Service) Prepare(ctx context.Context, request Request) (plan Plan, err 
 		Decision:      decision,
 		Source:        request.Source,
 		ArchiveSHA256: request.ArchiveSHA256,
+		MarketplaceIndexURL: request.MarketplaceIndexURL,
 		Root:          request.Root,
 	}, nil
 }
@@ -219,6 +224,7 @@ func (s *Service) Commit(plan Plan) (pluginpkg.Installed, error) {
 	record := plugintrust.RecordFor(plan.ID, plan.Version, plugintrust.Request{
 		Source:        plan.Source,
 		ArchiveSHA256: plan.ArchiveSHA256,
+		MarketplaceIndexURL: plan.MarketplaceIndexURL,
 		ContentDigest: plan.ContentDigest,
 		Review:        plan.Review,
 	})

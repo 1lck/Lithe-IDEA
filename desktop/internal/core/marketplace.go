@@ -85,6 +85,9 @@ type MarketplacePlugin struct {
 	Platforms             []string                `json:"platforms"`
 	LatestVersion         string                  `json:"latestVersion"`
 	LatestReleaseDate     string                  `json:"latestReleaseDate"`
+	// MarketplaceIndexURL identifies the validated source of a fetched listing. It is
+	// native-only provenance and must never appear in the Core JSON contract.
+	MarketplaceIndexURL   string                  `json:"-"`
 	Availability          MarketplaceAvailability `json:"availability"`
 	Versions              []MarketplaceVersion    `json:"versions"`
 }

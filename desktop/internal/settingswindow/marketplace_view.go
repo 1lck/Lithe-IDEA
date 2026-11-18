@@ -434,20 +434,7 @@ func offeredVersion(plugin core.MarketplacePlugin) string {
 // installed one comes after it; an installed version the listing does not know of (a
 // package from disk, or one the index dropped) is never offered a replacement.
 func newerOffered(plugin core.MarketplacePlugin, installed string) bool {
-	offered := offeredVersion(plugin)
-	if plugin.Availability.Status != "available" || offered == "" || offered == installed {
-		return false
-	}
-	seenOffered := false
-	for _, version := range plugin.Versions {
-		switch version.Version {
-		case offered:
-			seenOffered = true
-		case installed:
-			return seenOffered
-		}
-	}
-	return false
+	return marketplace.NewerOffered(plugin, installed)
 }
 
 // marketRowAction is the right end of a marketplace row: Install, Update, or what the

@@ -99,6 +99,7 @@ func (a *App) installPlugin(plugin core.MarketplacePlugin, feedback settingswind
 			Root:            a.plugins.Root,
 			Source:          plugintrust.Marketplace,
 			ArchiveSHA256:   availability.SHA256,
+			MarketplaceIndexURL: plugin.MarketplaceIndexURL,
 			ExpectedID:      plugin.ID,
 			ExpectedVersion: availability.Version,
 		})
