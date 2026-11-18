@@ -25,7 +25,9 @@ IDE 无法直接展示的格式（DOCX、图片、设计稿等）仍需要外部
   - Windows 用 `SHAssocEnumHandlers(ASSOC_FILTER_RECOMMENDED)`，即资源管理器“打开方式”中的推荐列表；默认项由 `AssocQueryStringW` 查出的程序或友好名称匹配后放到最前，其余保持系统给出的顺序。
   - 两个应用同名时（例如 `/Applications` 和 `~/Applications` 各有一份），名称后面带所在文件夹，用户才分得清。
   - Linux 不查询，只有“其他…”。
-- 查询在后台进行，第一次展开“打开方式”时开始，期间显示“正在查找应用…”。结果只在当前菜单打开期间保留；菜单关闭后丢弃，下次重新查询，所以系统关联的修改会立即反映。
+- 查询在后台进行。“打开于”子菜单一出现（鼠标停留展开或点击展开都算）就开始，在声明子菜单的那一帧里直接启动，不经过 `ui.C.After`：悬停展开的那一帧没有点击，推迟的回调会被丢弃，菜单就会一直停在“正在查找应用…”（见 [悬停打开“打开于”时也要查询应用](../bug-fix/2026-11-18-open-with-lookup-on-hover.md)）。
+  - 这个文件还没有结果时显示“正在查找应用…”。
+  - 每次重新打开菜单都重新查询，所以系统关联的修改会立即反映；查询期间先显示同一文件上一次的列表，查询完成后替换。换了文件时先清空旧列表，不会把别的文件的应用列给这个文件。
 - 打开选中的应用：
   - macOS 交给 Viva 的 `app.OpenWith`（`/usr/bin/open -a`），它会等待命令结束，所以放在后台运行。
   - Windows 重新列出处理器，按名称找到同一个处理器后调用 `IAssocHandler::Invoke`。商店应用（打包应用）没有可执行文件路径，只能这样打开。系统已不再提供该处理器时，提示“已不能打开这类文件”。
@@ -47,14 +49,14 @@ IDE 无法直接展示的格式（DOCX、图片、设计稿等）仍需要外部
 ## 后果
 
 用户可以像在 Finder 里一样，从右键菜单直接选系统推荐的应用打开项目中的文件；需要别的应用时仍有“其他…”。
-代价是每次展开“打开方式”都要查询一次系统（通常在几十毫秒内），查询期间会短暂显示“正在查找应用…”。
+代价是每次打开“打开于”都要查询一次系统（通常在几十毫秒内），第一次查询期间会短暂显示“正在查找应用…”。
 Finder 和资源管理器对列表排序没有公开的一致性保证，Lithe 不能声称与系统菜单逐项相同。
 Windows 上“其他…”仍是选择 `.exe`，不会列出商店应用。
 应用列表不落盘，查询和打开不产生缓存或下载，不改变代码签名或 Sparkle 增量更新的源字节。
 
 ## 验证
 
-- `scripts/desktop/desktop-go.sh test ./internal/fileapps ./internal/workbench -run 'TestList|TestLabels|TestMarkDefault|TestProjectTreeOpen' -count=1 -v`（在 `desktop/` 下运行）：`fileapps` 的测试查询本机真实数据库并在日志里列出应用；`TestProjectTreeOpen*` 用替换的应用列表覆盖菜单结构、选择应用、失败提示、文件夹行，以及“终端”的起始目录。
+- `scripts/desktop/desktop-go.sh test ./internal/fileapps ./internal/workbench -run 'TestList|TestLabels|TestMarkDefault|TestProjectTreeOpen' -count=1 -v`（在 `desktop/` 下运行）：`fileapps` 的测试查询本机真实数据库并在日志里列出应用；`TestProjectTreeOpen*` 用替换的应用列表覆盖菜单结构、选择应用、失败提示、文件夹行、“终端”的起始目录，以及用鼠标停留（而不是点击）打开两级子菜单时也会查询并列出应用。
 - `scripts/desktop/desktop-go.sh test -tags vivahead,lithevisual ./internal/workbench -run '^TestVisualProjectTreeOpenIn$' -count=1`（在 `desktop/` 下设置 `LITHE_VISUAL_OUTPUT_DIR` 后运行）：生成 `docs/assets/project-tree-open-in/` 中的截图。
 - 真实产品需要在 macOS 和 Windows 上分别对 DOCX、图片、Markdown、无扩展名文件右键，与 Finder、资源管理器的“打开方式”对照，并检查中英文、深浅主题、“其他…”的选择和取消、打开失败的提示。完成前功能矩阵 `file-open-with` 保持 pending。
 
