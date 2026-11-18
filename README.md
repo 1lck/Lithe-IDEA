@@ -32,6 +32,25 @@
 
 https://github.com/user-attachments/assets/17e2325b-afed-4bbb-9926-a962f777269b
 
+## Join the Community
+
+Join the Lithe community to share feedback, discuss performance and plugins, and follow the latest updates.
+
+<div align="center">
+<table>
+  <tr>
+    <th>QQ group</th>
+    <th>WeChat group</th>
+  </tr>
+  <tr>
+    <td align="center"><a href="https://qm.qq.com/cgi-bin/qm/qr?k=&amp;group_code=163027877"><img src="./docs/assets/contact/qq-group-qr.png" width="280" alt="QR code for the Lithe QQ group"></a></td>
+    <td align="center"><a href="https://gcnctzuuwe9u.feishu.cn/wiki/HJFbwZ0hZirAPnkWF3xcPWkCnid?from=from_copylink"><img src="./docs/assets/contact/wechat-group-qr.png" width="280" alt="QR code for the Lithe WeChat group"></a></td>
+  </tr>
+</table>
+</div>
+
+If you cannot scan the WeChat QR code, [click here to join through Feishu](https://gcnctzuuwe9u.feishu.cn/wiki/HJFbwZ0hZirAPnkWF3xcPWkCnid?from=from_copylink).
+
 ## About Lithe
 
 > **AI writes the code. Lithe helps you understand the project, run and debug it, and review every change.**
@@ -258,27 +277,6 @@ node scripts/i18n/generate-i18n.mjs --check
 - Read [AGENTS.md](./AGENTS.md) and its development rules before contributing, and include your verification scope and platform status in PRs.
 
 </details>
-
----
-
-## Join the Community
-
-Join the Lithe community to share feedback, discuss performance and plugins, and follow the latest updates.
-
-<div align="center">
-<table>
-  <tr>
-    <th>QQ group</th>
-    <th>WeChat group</th>
-  </tr>
-  <tr>
-    <td align="center"><a href="https://qm.qq.com/cgi-bin/qm/qr?k=&amp;group_code=163027877"><img src="./docs/assets/contact/qq-group-qr.png" width="280" alt="QR code for the Lithe QQ group"></a></td>
-    <td align="center"><a href="https://gcnctzuuwe9u.feishu.cn/wiki/HJFbwZ0hZirAPnkWF3xcPWkCnid?from=from_copylink"><img src="./docs/assets/contact/wechat-group-qr.png" width="280" alt="QR code for the Lithe WeChat group"></a></td>
-  </tr>
-</table>
-</div>
-
-If you cannot scan the WeChat QR code, [click here to join through Feishu](https://gcnctzuuwe9u.feishu.cn/wiki/HJFbwZ0hZirAPnkWF3xcPWkCnid?from=from_copylink).
 
 ---
 

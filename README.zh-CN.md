@@ -32,6 +32,25 @@
 
 https://github.com/user-attachments/assets/17e2325b-afed-4bbb-9926-a962f777269b
 
+## 欢迎加入群聊
+
+欢迎加入 Lithe 社区，分享使用体验、交流性能与插件开发，获取项目最新动态。
+
+<div align="center">
+<table>
+  <tr>
+    <th>QQ群</th>
+    <th>微信群</th>
+  </tr>
+  <tr>
+    <td align="center"><a href="https://qm.qq.com/cgi-bin/qm/qr?k=&amp;group_code=163027877"><img src="./docs/assets/contact/qq-group-qr.png" width="280" alt="Lithe QQ 群二维码"></a></td>
+    <td align="center"><a href="https://gcnctzuuwe9u.feishu.cn/wiki/HJFbwZ0hZirAPnkWF3xcPWkCnid?from=from_copylink"><img src="./docs/assets/contact/wechat-group-qr.png" width="280" alt="Lithe 微信群二维码"></a></td>
+  </tr>
+</table>
+</div>
+
+如果无法扫描微信群二维码，[点击这里通过飞书加入群聊](https://gcnctzuuwe9u.feishu.cn/wiki/HJFbwZ0hZirAPnkWF3xcPWkCnid?from=from_copylink)。
+
 ## 关于 Lithe
 
 > **AI 负责编写代码，Lithe 帮你理解工程、运行调试并审查每一处修改。**
@@ -258,27 +277,6 @@ node scripts/i18n/generate-i18n.mjs --check
 - 贡献代码前请先阅读 [AGENTS.md](./AGENTS.md) 与其中的开发规范，并在 PR 中说明验证范围与平台状态。
 
 </details>
-
----
-
-## 欢迎加入群聊
-
-欢迎加入 Lithe 社区，分享使用体验、交流性能与插件开发，获取项目最新动态。
-
-<div align="center">
-<table>
-  <tr>
-    <th>QQ群</th>
-    <th>微信群</th>
-  </tr>
-  <tr>
-    <td align="center"><a href="https://qm.qq.com/cgi-bin/qm/qr?k=&amp;group_code=163027877"><img src="./docs/assets/contact/qq-group-qr.png" width="280" alt="Lithe QQ 群二维码"></a></td>
-    <td align="center"><a href="https://gcnctzuuwe9u.feishu.cn/wiki/HJFbwZ0hZirAPnkWF3xcPWkCnid?from=from_copylink"><img src="./docs/assets/contact/wechat-group-qr.png" width="280" alt="Lithe 微信群二维码"></a></td>
-  </tr>
-</table>
-</div>
-
-如果无法扫描微信群二维码，[点击这里通过飞书加入群聊](https://gcnctzuuwe9u.feishu.cn/wiki/HJFbwZ0hZirAPnkWF3xcPWkCnid?from=from_copylink)。
 
 ---
 
