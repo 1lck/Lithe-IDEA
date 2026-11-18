@@ -47,7 +47,7 @@ func TestVisualSettings(t *testing.T) {
 		{"27-settings-terminal", pageTerminal}, {"28-plugins-installed", pagePlugins},
 		{"29-marketplace-empty", pagePlugins}, {"31-settings-updates", pageUpdates},
 		{"33-settings-toolchains", pageBuild}, {"m44-toolchain-directory-menu", pageBuild}, {"m45-toolchain-custom-directory", pageBuild},
-		{"m47-toolchain-project-untrusted", pageBuild}, {"m48-toolchain-project-trusted", pageBuild}, {"m49-toolchain-project-trust-help", pageBuild},
+		{"m47-toolchain-project-untrusted", pageBuild}, {"m48-toolchain-project-trusted", pageBuild}, {"m49-toolchain-project-trust-click", pageBuild},
 		{"m50-toolchain-project-trust-tip", pageBuild},
 		{"fonts", pageFonts},
 		{"21-settings-language-popup", pageGeneral}, {"30-settings-history", pageGeneral}, {"m46-history-default-rules-help", pageGeneral}, {"35-settings-search", pageEditor},
@@ -129,16 +129,12 @@ func TestVisualSettings(t *testing.T) {
 					if err := d.driver.Move(x, y); err != nil {
 						t.Fatal(err)
 					}
-					if err := d.driver.Click(x, y); err != nil {
-						t.Fatal(err)
-					}
-					d.pump()
-					if !d.showsHelp(help) {
-						t.Fatal("the ⓘ did not pin its help open")
-					}
-					// The popover fades in; move the frame clock past it.
+					// Resting on the ⓘ shows its tip; move the frame clock past the hover delay.
 					if err := session.Advance(time.Second); err != nil {
 						t.Fatal(err)
+					}
+					if !d.showsHelp(help) {
+						t.Fatal("resting on the ⓘ did not show its help")
 					}
 				case "35-settings-search":
 					query := "编辑器"
@@ -168,7 +164,7 @@ func TestVisualSettings(t *testing.T) {
 					d.click("Compiler")
 					d.click(text("desktop.toolchains.custom"))
 					d.pump()
-				case "m47-toolchain-project-untrusted", "m48-toolchain-project-trusted", "m49-toolchain-project-trust-help", "m50-toolchain-project-trust-tip":
+				case "m47-toolchain-project-untrusted", "m48-toolchain-project-trusted", "m49-toolchain-project-trust-click", "m50-toolchain-project-trust-tip":
 					d.click(text("desktop.toolchains.project"))
 					status := text("desktop.toolchains.trustStatusTrusted")
 					if scenario.id == "m47-toolchain-project-untrusted" {
@@ -176,7 +172,7 @@ func TestVisualSettings(t *testing.T) {
 					}
 					// The load result can arrive during painting, before the trust controls appear.
 					d.until("the visible project trust status", func() bool { return d.text(status) })
-					if scenario.id != "m49-toolchain-project-trust-help" && scenario.id != "m50-toolchain-project-trust-tip" {
+					if scenario.id != "m49-toolchain-project-trust-click" && scenario.id != "m50-toolchain-project-trust-tip" {
 						break
 					}
 					help := text("desktop.toolchains.trustProjectHelp")
@@ -187,7 +183,7 @@ func TestVisualSettings(t *testing.T) {
 					}
 					if scenario.id == "m50-toolchain-project-trust-tip" {
 						// Resting on the ⓘ without pressing it shows the help in the client's
-						// shared hover tip rather than the pinned popover.
+						// shared hover tip.
 						if err := session.Advance(time.Second); err != nil {
 							t.Fatal(err)
 						}
@@ -196,15 +192,16 @@ func TestVisualSettings(t *testing.T) {
 						}
 						break
 					}
+					// Pressing the ⓘ hides its tip and opens no card in its place.
 					if err := d.driver.Click(x, y); err != nil {
 						t.Fatal(err)
 					}
 					d.pump()
-					if !d.showsHelp(help) {
-						t.Fatal("the project trust ⓘ did not pin its help open")
-					}
 					if err := session.Advance(time.Second); err != nil {
 						t.Fatal(err)
+					}
+					if d.showsHelp(help) {
+						t.Fatal("pressing the project trust ⓘ left its help on screen")
 					}
 				}
 				if err := session.Screenshot(filepath.Join(out, scenario.id+"-"+theme+".png")); err != nil {
@@ -287,7 +284,7 @@ func visualToolchainLoader(scenarioID string) ToolchainLoader {
 	switch scenarioID {
 	case "m47-toolchain-project-untrusted":
 		return &trustToolchainLoader{globalSnapshot: global, untrusted: untrusted, trustedSnapshot: trusted}
-	case "m48-toolchain-project-trusted", "m49-toolchain-project-trust-help", "m50-toolchain-project-trust-tip":
+	case "m48-toolchain-project-trusted", "m49-toolchain-project-trust-click", "m50-toolchain-project-trust-tip":
 		return &trustToolchainLoader{globalSnapshot: global, untrusted: untrusted, trustedSnapshot: trusted, trusted: true}
 	default:
 		return &scopedToolchainLoader{fakeToolchainLoader{snapshot: global}}

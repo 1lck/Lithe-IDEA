@@ -53,5 +53,5 @@
       ]
     }
   },
-  "notes": "Viva：放弃迁移（见 docs/viva-migration.md 对应行），不再按旧客户端行为对齐。 2026-11-12：viva 新增 gfx.TooltipStyle（Lithe-IDEA/viva#10），workbench 明暗两套主题写入 IDEA 表面：4pt 圆角、12/8 内边距、13pt 文字、各自背景/文字/1pt 边框色。 2026-11-18：此前只有工作台设置了提示样式（浅色是 IDEA Editor.ToolTip 的白底描边气泡），设置窗口和日志窗口沿用 Viva 默认反色气泡，同一客户端有两种提示；白底气泡的描边在箭头处断开。改为 uistyle.Tooltip 一份样式，三个窗口的主题都使用它：浅色改为 IDEA ToolTip 的深底白字，深色保留 #33353B，都不描边。Viva 箭头描边缺陷另行修复（Lithe-IDEA/Lithe-viva#42，上游 vivaui/viva#305），当前样式不描边，不依赖该修复。原生窗口验收保持 pending。"
+  "notes": "Viva：放弃迁移（见 docs/viva-migration.md 对应行），不再按旧客户端行为对齐。 2026-11-12：viva 新增 gfx.TooltipStyle（Lithe-IDEA/viva#10），workbench 明暗两套主题写入 IDEA 表面：4pt 圆角、12/8 内边距、13pt 文字、各自背景/文字/1pt 边框色。 2026-11-18：此前只有工作台设置了提示样式（浅色是 IDEA Editor.ToolTip 的白底描边气泡），设置窗口和日志窗口沿用 Viva 默认反色气泡，同一客户端有两种提示；白底气泡的描边在箭头处断开。改为 uistyle.Tooltip 一份样式，三个窗口的主题都使用它：浅色改为 IDEA ToolTip 的深底白字，深色保留 #33353B，都不描边。Viva 箭头描边缺陷另行修复（Lithe-IDEA/Lithe-viva#42，上游 vivaui/viva#305），当前样式不描边，不依赖该修复。设置窗口的 ⓘ 原来点击后还会固定一张白色说明卡片（Viva Popover），现已去掉，三个窗口的 ⓘ 都只用这份悬停提示。原生窗口验收保持 pending。"
 }
