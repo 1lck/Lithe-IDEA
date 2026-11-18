@@ -1,6 +1,8 @@
 package workbench
 
 import (
+	"context"
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"slices"
@@ -8,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/1lck/Lithe-IDEA/desktop/internal/core"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/i18n"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/localshell"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/shellkind"
@@ -76,10 +79,20 @@ func TestRunConfigShellChoicesListTheFamilyAndCustom(t *testing.T) {
 // the field again.
 func TestRunConfigInterpreterListsTheTerminalShells(t *testing.T) {
 	h, p, root := emptyProcessRunHarness(t)
-	h.app.listShells = testTerminalShells
+	// Saving exercises Core's native path validation. Keep the WSL identifier and
+	// give the file-backed shell choices absolute paths on the test host.
+	shellDir := t.TempDir()
+	writeTreeFiles(t, shellDir, "bash")
+	shells := testTerminalShells()
+	for i, shell := range shells {
+		if !strings.HasPrefix(shell.Path, "wsl:") {
+			shells[i].Path = filepath.Join(shellDir, shell.Name)
+		}
+	}
+	h.app.listShells = func() []localshell.Choice { return slices.Clone(shells) }
 	f := newRunConfigDraft(t, h, p, runProviderShell)
 	fillScriptText(t, h, p, f, "Greet", "echo hi\n")
-	awaitStateWithin(t, h, 10*time.Second, "the terminal's shells", func() bool { return len(h.app.term.shells.list) == len(testTerminalShells()) })
+	awaitStateWithin(t, h, 10*time.Second, "the terminal's shells", func() bool { return len(h.app.term.shells.list) == len(shells) })
 	h.settle()
 	interpreter := f.texts["interpreter"]
 	if interpreter == nil {
@@ -100,19 +113,20 @@ func TestRunConfigInterpreterListsTheTerminalShells(t *testing.T) {
 	choose := func(entry string) {
 		t.Helper()
 		h.click(center(h.hitLabeled(label)))
-		if h.hasPopupItem(shell("pwsh", "/usr/local/bin/pwsh")) || h.hasPopupItem(shell("fish", "/opt/homebrew/bin/fish")) {
+		if h.hasPopupItem(shell("pwsh", filepath.Join(shellDir, "pwsh"))) || h.hasPopupItem(shell("fish", filepath.Join(shellDir, "fish"))) {
 			t.Fatal("the list offers a shell of another family")
 		}
 		h.click(center(h.popupHit(entry)))
 	}
 
-	choose(shell("bash", "/bin/bash"))
-	if *interpreter != "/bin/bash" || h.hasPopupItem(custom) {
+	bashPath := filepath.Join(shellDir, "bash")
+	choose(shell("bash", bashPath))
+	if *interpreter != bashPath || h.hasPopupItem(custom) {
 		t.Fatalf("interpreter %q, custom field shown %v", *interpreter, h.hasPopupItem(custom))
 	}
 
 	choose(i18n.Shared(language, "desktop.runConfig.interpreterCustom"))
-	if *interpreter != "/bin/bash" || !h.hasPopupItem(custom) {
+	if *interpreter != bashPath || !h.hasPopupItem(custom) {
 		t.Fatalf("Custom…: interpreter %q, custom field shown %v", *interpreter, h.hasPopupItem(custom))
 	}
 	h.typeInto(custom, func() { *interpreter = "" }, "tools/sh")
@@ -120,17 +134,28 @@ func TestRunConfigInterpreterListsTheTerminalShells(t *testing.T) {
 		t.Fatalf("typed interpreter %q, custom field shown %v", *interpreter, h.hasPopupItem(custom))
 	}
 
-	choose(shell("bash", "/bin/bash"))
-	if *interpreter != "/bin/bash" || h.hasPopupItem(custom) {
+	choose(shell("bash", bashPath))
+	if *interpreter != bashPath || h.hasPopupItem(custom) {
 		t.Fatalf("back to bash: interpreter %q, custom field shown %v", *interpreter, h.hasPopupItem(custom))
 	}
 	applyDialog(t, h, p, runConfigDialogApply)
-	saved, err := os.ReadFile(filepath.Join(root, ".lithe", "run", "local.yaml"))
-	if err != nil || !strings.Contains(string(saved), "/bin/bash") {
-		t.Fatalf("local.yaml = %s, %v", saved, err)
+	if _, err := os.Stat(filepath.Join(root, ".lithe", "run", "local.yaml")); err != nil {
+		t.Fatalf("save local.yaml: %v, dialog failure %q, form failure %q, field errors %v", err, p.runConfigs.dialog.failure, f.failure, f.errors)
 	}
 
-	f = p.runConfigs.dialog.drafts[p.runConfigs.dialog.selected].form
+	id := p.runConfigs.dialog.selected
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	saved, err := h.app.kernel.RunEditorForm(ctx, core.RunEditorFormRequest{Root: root, Provider: runProviderShell, ConfigurationID: id})
+	if err != nil {
+		t.Fatalf("load configuration %q: %v", id, err)
+	}
+	var savedInterpreter string
+	if err := json.Unmarshal(saved.Values["interpreter"], &savedInterpreter); err != nil || savedInterpreter != bashPath {
+		t.Fatalf("saved interpreter = %q, want %q: %v", savedInterpreter, bashPath, err)
+	}
+
+	f = p.runConfigs.dialog.drafts[id].form
 	awaitStateWithin(t, h, 10*time.Second, "the saved configuration's form", func() bool { return f != nil && f.ready() })
 	interpreter = f.texts["interpreter"]
 	choose(i18n.SharedFormat(language, "desktop.runConfig.automaticValue", map[string]string{"value": automaticInterpreter(t, f)}))

@@ -83,10 +83,13 @@ func TestProjectTreeOpenWithListsTheSystemsApplications(t *testing.T) {
 	writeTreeFiles(t, root, "notes.txt")
 	h := newHarness(t, &testKernel{Client: core.NewClient()})
 	h.openTree(t, root)
+	appsDir := filepath.Join(root, "Apps")
+	otherDir := filepath.Join(root, "Other")
+	otherViewer := filepath.Join(otherDir, "Viewer.app")
 	stub := stubTreeApps(t, []fileapps.App{
-		{ID: "/Apps/Editor.app", Name: "Editor.app", Default: true},
-		{ID: "/Apps/Viewer.app", Name: "Viewer.app"},
-		{ID: "/Other/Viewer.app", Name: "Viewer.app"},
+		{ID: filepath.Join(appsDir, "Editor.app"), Name: "Editor.app", Default: true},
+		{ID: filepath.Join(appsDir, "Viewer.app"), Name: "Viewer.app"},
+		{ID: otherViewer, Name: "Viewer.app"},
 	}, nil)
 	language := h.app.language()
 	file := filepath.Join(root, "notes.txt")
@@ -104,10 +107,10 @@ func TestProjectTreeOpenWithListsTheSystemsApplications(t *testing.T) {
 		}
 	}
 	h.popupClick(h.shared("desktop.files.openWith"))
-	other := i18n.SharedFormat(language, "desktop.files.openWithAppPath", map[string]string{"name": "Viewer.app", "path": "/Other"})
+	other := i18n.SharedFormat(language, "desktop.files.openWithAppPath", map[string]string{"name": "Viewer.app", "path": otherDir})
 	for _, item := range []string{
 		i18n.SharedFormat(language, "desktop.files.openWithDefault", map[string]string{"name": "Editor.app"}),
-		i18n.SharedFormat(language, "desktop.files.openWithAppPath", map[string]string{"name": "Viewer.app", "path": "/Apps"}),
+		i18n.SharedFormat(language, "desktop.files.openWithAppPath", map[string]string{"name": "Viewer.app", "path": appsDir}),
 		other,
 		h.shared("desktop.files.openWithOther"),
 	} {
@@ -127,7 +130,7 @@ func TestProjectTreeOpenWithListsTheSystemsApplications(t *testing.T) {
 	if want := []string{file}; !slices.Equal(asked, want) {
 		t.Fatalf("asked the system about %q, want %q once", asked, want)
 	}
-	if want := []string{file + " with /Other/Viewer.app"}; !slices.Equal(opened, want) {
+	if want := []string{file + " with " + otherViewer}; !slices.Equal(opened, want) {
 		t.Fatalf("opened %q, want %q", opened, want)
 	}
 	if h.app.notice != "" {
