@@ -22,7 +22,7 @@ func TestProbeAllCoalescesWindowsNativePathAliases(t *testing.T) {
 	}}
 	probes := workspace.probeAll(ctx, core.ToolchainToolDefinition{
 		Version: core.ToolchainVersionRule{Arguments: []string{"--version"}},
-	}, []string{path, filepath.ToSlash(path), strings.ToUpper(path)})
+	}, []string{path, filepath.ToSlash(path), strings.ToUpper(path)}, false)
 	if calls.Load() != 1 || len(probes) != 1 {
 		t.Fatalf("one native executable was probed %d times: %+v", calls.Load(), probes)
 	}
