@@ -249,7 +249,7 @@ func TestWorkbenchDefaultLayout(t *testing.T) {
 		zoneBottomLeft:  {itemGit, itemTerminal, itemProblems, itemReferences, itemRun, itemTests, itemSecurity, itemDebug},
 		zoneRightTop:    {itemBuild, itemNotifications},
 		zoneRightBottom: nil,
-		zoneBottomRight: {itemUpdates, itemBackground},
+		zoneBottomRight: {itemBackground},
 		zoneTitle:       {itemRunConfig, itemTitleRun, itemTitleDebug, itemTitleSearch, itemTitleSettings},
 		zoneStatus:      {itemCaret, itemLock, itemEncoding, itemIndent, itemEOL, itemLSP, itemVim, itemMemory, itemFPS, itemChanges, itemHealth},
 	}
@@ -287,7 +287,7 @@ func TestDragToolButtonToAnotherStripeZone(t *testing.T) {
 	h.drag(center(h.button(itemCommit)), gfx.Point{X: target.X + target.Width/2, Y: target.Y + target.Height - 2})
 	h.settle()
 
-	if got := h.zoneItems(zoneBottomRight); strings.Join(got, ",") != strings.Join([]string{itemUpdates, itemBackground, itemCommit}, ",") {
+	if got := h.zoneItems(zoneBottomRight); strings.Join(got, ",") != strings.Join([]string{itemBackground, itemCommit}, ",") {
 		t.Fatalf("bottom right zone = %v, want the commit button appended", got)
 	}
 	if got := h.zoneItems(zoneLeftTop); strings.Contains(strings.Join(got, ","), itemCommit) {
@@ -463,9 +463,9 @@ func TestDetachedStripeDragTargetsDockAreasAndOtherStripeButtons(t *testing.T) {
 			name: "bottom right half",
 			point: func(h *harness) gfx.Point {
 				area := h.app.dragDockAnchors(gfx.Size{Width: 1280, Height: 800})[dockAnchorBottom].area
-				return gfx.Point{X: area.X + 3*area.Width/4, Y: h.button(itemUpdates).Y + dragThreshold}
+				return gfx.Point{X: area.X + 3*area.Width/4, Y: h.button(itemBackground).Y + dragThreshold}
 			},
-			zone: zoneBottomRight, before: itemUpdates,
+			zone: zoneBottomRight, before: itemBackground,
 		},
 		{
 			name: "upper left area",
@@ -649,7 +649,7 @@ func TestShellColumnsSplitWhenBothTheirSlotsAreOpen(t *testing.T) {
 		l := newLayoutState()
 		open := closedSlots()
 		open[slotLeftTop], open[slotLeftBottom] = catalogIndex[itemProject], catalogIndex[itemCommit]
-		open[slotRightTop], open[slotRightBottom] = catalogIndex[itemNotifications], catalogIndex[itemUpdates]
+		open[slotRightTop], open[slotRightBottom] = catalogIndex[itemNotifications], catalogIndex[itemSecurity]
 		open[slotBottomLeft] = catalogIndex[itemGit]
 		p := l.arrange(window, open)
 
@@ -713,7 +713,7 @@ func TestShellColumnsSplitWhenBothTheirSlotsAreOpen(t *testing.T) {
 		l := newLayoutState()
 		open := closedSlots()
 		open[slotLeftTop], open[slotLeftBottom] = catalogIndex[itemProject], catalogIndex[itemCommit]
-		open[slotRightTop], open[slotRightBottom] = catalogIndex[itemNotifications], catalogIndex[itemUpdates]
+		open[slotRightTop], open[slotRightBottom] = catalogIndex[itemNotifications], catalogIndex[itemSecurity]
 		p := l.arrange(window, open)
 
 		l.split[shellSplitLeftColumn].Pos = p.leftUpperH + 100

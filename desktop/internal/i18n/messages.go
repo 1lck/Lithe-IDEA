@@ -133,8 +133,9 @@ type ToolMessages struct {
 	Security      string
 	Debug         string
 	Notifications string
-	Updates       string
 	Background    string
+	// ToolWindows names the stripe button that lists the stripe buttons the user hid.
+	ToolWindows string
 	// DragHint tells assistive technology that a toolbar item can be dragged elsewhere.
 	DragHint string
 }

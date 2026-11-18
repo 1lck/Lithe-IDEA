@@ -560,8 +560,8 @@ type App struct {
 	// is whether this workbench's stripe shows its popover (workbench_background.go).
 	backdrop     *workbenchBackground
 	backdropOpen bool
-	// hiddenListOpen is whether the "…" button under the left stripe's top group shows the
-	// list of the hidden stripe buttons (chrome_view.go hiddenToolWindows).
+	// hiddenListOpen is whether the "…" button shows the list of the hidden stripe buttons
+	// (chrome_view.go hiddenToolWindowsButton).
 	hiddenListOpen bool
 	// shownTitle is the system title last given to the window (window_title.go).
 	shownTitle string
@@ -1281,6 +1281,10 @@ func (a *App) resetLayout() { a.reduceChrome(core.ResetChrome()) }
 // it, because it hangs off the button.
 func (a *App) hideEntry(index int) {
 	id := a.chrome.catalog[index].id
+	if id == itemToolWindows {
+		// The "…" button is the way back to the hidden buttons (chromeState.apply).
+		return
+	}
 	if id == itemBackground {
 		a.backdropOpen = false
 	}
