@@ -95,8 +95,10 @@ func TestVisualPluginRegion(t *testing.T) {
 	}
 	for _, theme := range []string{"dark", "light"} {
 		t.Run(theme, func(t *testing.T) {
+			// The preference directory does not exist, so the page reads the defaults and shows
+			// a fixed path rather than the machine's temporary directory; nothing here saves.
 			source := regionViewSource{
-				settingsFormSource: settingsFormSource{store: pluginsettings.New(core.NewClient(), t.TempDir()), manifest: manifest, workspace: t.TempDir()},
+				settingsFormSource: settingsFormSource{store: pluginsettings.New(core.NewClient(), "/fixture/preferences"), manifest: manifest, workspace: t.TempDir()},
 				view:               visualRegionView(),
 			}
 			// Core validates the manifest; a rule it adds would otherwise show only as a window
