@@ -15,6 +15,7 @@ import (
 	"github.com/1lck/Lithe-IDEA/desktop/internal/core"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/pluginstate"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/store"
+	"github.com/vivaui/viva/gfx"
 )
 
 const runTypesPluginID = "dev.lithe.test.run-types"
@@ -22,14 +23,15 @@ const runTypesPluginID = "dev.lithe.test.run-types"
 // runTypesManifest declares one build system, detected by build.runtypes, with one run
 // configuration kind of its own: a mode choice, a checkbox that adds -v, a required target and
 // the user's program arguments, run by the fixture-build tool, which is the copied test binary
-// running TestRunTypeRunner.
+// running TestRunTypeRunner. The build system also declares one before-launch task, which runs
+// the same tool with "task" and its required target.
 const runTypesManifest = `{
   "schemaVersion": 0,
   "id": "dev.lithe.test.run-types",
   "displayName": "Run Types Fixture",
   "version": "1.0.0",
   "pluginAPIVersion": 0,
-  "requires": {"buildSystems": 0, "runConfigurationTypes": 0},
+  "requires": {"buildSystems": 0, "runConfigurationTypes": 0, "beforeLaunchTasks": 0},
   "vendor": {"id": "dev.lithe.test", "displayName": "Test", "signatureRequirement": "publisherPackage"},
   "permissions": ["process.build"],
   "activationEvents": ["onBuildSystem:fixture-runs"],
@@ -59,11 +61,19 @@ const runTypesManifest = `{
         {"id": "target", "title": "Target", "kind": "text", "placeholder": "a name", "required": true}
       ],
       "arguments": ["-test.run=^TestRunTypeRunner$", "--", "${field:mode}", "${field:verbose}", "${field:target}", "${userArguments}"]
+    }],
+    "beforeLaunchTasks": [{
+      "id": "prepare",
+      "displayName": "Fixture Task",
+      "description": "Prepares the fixture.",
+      "icon": {"host": "run"},
+      "fields": [{"id": "target", "title": "Target", "kind": "text", "required": true}],
+      "arguments": ["-test.run=^TestRunTypeRunner$", "--", "task", "${field:target}"]
     }]
   }]
 }`
 
-// runTypesChinese is the package's Chinese translation of the kind and its fields.
+// runTypesChinese is the package's Chinese translation of the kind, the task and their fields.
 const runTypesChinese = `{
   "runConfigurationTypes": {
     "fixture-runs": {
@@ -75,6 +85,15 @@ const runTypesChinese = `{
           "verbose": {"title": "详细输出"},
           "target": {"title": "目标"}
         }
+      }
+    }
+  },
+  "beforeLaunchTasks": {
+    "fixture-runs": {
+      "prepare": {
+        "displayName": "夹具任务",
+        "description": "准备夹具。",
+        "fields": {"target": {"title": "任务目标"}}
       }
     }
   }
@@ -218,6 +237,147 @@ func fillDeclaredRun(t *testing.T, h *harness, p *project, f *runConfigForm, nam
 		a.runConfigFormEdited(p, f)
 	})
 	awaitStateWithin(t, h, 10*time.Second, "the edited form", func() bool { return !f.refreshing })
+}
+
+// The menu of kinds keeps each row one line: a kind's description, in its plugin's translation,
+// is the tip of the ⓘ at the row's end, shown while the pointer rests on the ⓘ, and pressing the
+// ⓘ does not choose the kind.
+func TestRunConfigKindMenuShowsDescriptionsBehindInfo(t *testing.T) {
+	h, p, _ := runTypesHarness(t, "print", true)
+	d := &p.runConfigs.dialog
+	h.app.post(func(a *App) {
+		a.openRunConfigDialog(p, "")
+		d.newMenu = runConfigNewMenuToolbar
+	})
+	h.settle()
+	const title, description = "夹具运行", "运行夹具工具。"
+	if !h.shows(title) || h.shows(description) {
+		t.Fatalf("the menu shows the kind %v and its description %v, want the kind alone", h.shows(title), h.shows(description))
+	}
+	var info gfx.Hit
+	for _, hit := range h.driver.Snapshot().Hits {
+		if hit.Hint == description {
+			info = hit
+		}
+	}
+	if info.ID.IsZero() || info.Label != h.shared("native.moreInformation") {
+		t.Fatalf("no ⓘ carries the description: %+v", info)
+	}
+	at := center(info.Bounds)
+	if err := h.driver.Move(at.X, at.Y); err != nil {
+		t.Fatalf("Move: %v", err)
+	}
+	if err := h.driver.Advance(150 * time.Millisecond); err != nil {
+		t.Fatalf("Advance: %v", err)
+	}
+	h.settle()
+	if !h.shows(description) {
+		t.Fatal("resting on the ⓘ does not show the kind's description")
+	}
+	h.click(at)
+	h.settle()
+	if d.newMenu != runConfigNewMenuToolbar || len(d.drafts) != 0 {
+		t.Fatalf("pressing the ⓘ left the menu %v with drafts %v, want it open with none", d.newMenu, d.drafts)
+	}
+}
+
+// runTypesIconHarness is runTypesHarness, in a dark theme, with the fixture's kind naming the
+// package icon icons/fixture.svg, and icons/fixture-dark.svg as its dark variant, holding the
+// given SVG documents. Logs go to the returned recorder from the start; the plugin root is
+// returned too.
+func runTypesIconHarness(t *testing.T, light, dark string) (*harness, *project, *treeRecordingLog, string) {
+	t.Helper()
+	options, root := runTypesOptions(t, "dark", "zh-Hans", "print", true)
+	installed := filepath.Join(options.PluginRoot, runTypesPluginID, "1.0.0")
+	manifest := strings.Replace(runTypesManifest, `"icon": {"host": "run"}`,
+		`"icon": {"path": "icons/fixture.svg", "darkPath": "icons/fixture-dark.svg", "mode": "original"}`, 1)
+	files := map[string]string{"plugin.json": manifest, "icons/fixture.svg": light, "icons/fixture-dark.svg": dark}
+	for name, content := range files {
+		target := filepath.Join(installed, filepath.FromSlash(name))
+		if err := os.MkdirAll(filepath.Dir(target), 0o700); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(target, []byte(content), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	h := newHarnessWithOptions(t, options)
+	logger := &treeRecordingLog{}
+	h.app.logSink = logger
+	h.open(root)
+	return h, awaitRunTypes(t, h, true), logger, options.PluginRoot
+}
+
+// pluginIconFailures are the logged failures to read a package icon.
+func pluginIconFailures(logger *treeRecordingLog) []core.LogEvent {
+	logger.mu.Lock()
+	defer logger.mu.Unlock()
+	var failures []core.LogEvent
+	for _, event := range logger.events {
+		if event.Event == backgroundFailedEvent && event.Fields["operation"] == "plugin_icon" {
+			failures = append(failures, event)
+		}
+	}
+	return failures
+}
+
+// iconFill is an SVG square in one color.
+func iconFill(color string) string {
+	return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16"><path d="M1 1H15V15H1Z" fill="` + color + `"/></svg>`
+}
+
+// A declared kind that names an SVG in its package is drawn with it in the + menu, in its own
+// colors and, in a dark theme, its dark variant; the package stays as installed.
+func TestRunConfigKindDrawsItsPackageIcon(t *testing.T) {
+	h, p, logger, _ := runTypesIconHarness(t, iconFill("#FF0000"), iconFill("#0000FF"))
+	if failures := pluginIconFailures(logger); len(failures) != 0 {
+		t.Fatalf("the icon was not read: %+v", failures)
+	}
+	icon := p.runConfigs.kindIcon(declaredKind(runTypesKey), &h.app.pluginIcons, h.app.colors.Dark)
+	if len(icon.Layers) != 1 || icon.Layers[0].Fill.Blue != 1 || icon.Layers[0].Fill.Red != 0 {
+		t.Fatalf("the kind's icon = %+v, want the package's dark variant in its own color", icon)
+	}
+	if light := p.runConfigs.kindIcon(declaredKind(runTypesKey), &h.app.pluginIcons, false); len(light.Layers) != 1 || light.Layers[0].Fill.Red != 1 {
+		t.Fatalf("the light theme's icon = %+v, want the package's icon", light)
+	}
+	h.app.post(func(a *App) {
+		a.openRunConfigDialog(p, "")
+		p.runConfigs.dialog.newMenu = runConfigNewMenuToolbar
+	})
+	h.settle()
+	if !h.shows("夹具运行") {
+		t.Fatal("the + menu does not list the kind")
+	}
+}
+
+// An icon the contract refuses leaves the kind its execution's icon and is logged once, by its
+// package-relative path and never by where the package is installed.
+func TestRunConfigKindWithARefusedIconKeepsItsFallback(t *testing.T) {
+	refused := `<svg viewBox="0 0 16 16" onload="x()"><path d="M1 1H15V15H1Z" fill="#FF0000"/></svg>`
+	h, p, logger, pluginRoot := runTypesIconHarness(t, refused, iconFill("#0000FF"))
+	kind := p.runConfigs.runTypeKind(runTypesKey)
+	if kind == nil {
+		t.Fatal("the kind is not listed")
+	}
+	icon := p.runConfigs.kindIcon(declaredKind(runTypesKey), &h.app.pluginIcons, h.app.colors.Dark)
+	if fallback := runExecutionIcon(kind.Execution); !slices.Equal(icon.Commands, fallback.Commands) || len(icon.Layers) != 0 {
+		t.Fatalf("a refused icon is drawn: %+v", icon)
+	}
+	// A second read of the kinds, as opening the dialog makes, does not log the same icon again.
+	read := false
+	h.app.post(func(a *App) {
+		a.loadRunConfigTypes(p, true)
+		read = p.runConfigs.typesLoading
+	})
+	awaitStateWithin(t, h, 20*time.Second, "the second read of the kinds", func() bool { return read && !p.runConfigs.typesLoading })
+	failures := pluginIconFailures(logger)
+	if len(failures) != 1 {
+		t.Fatalf("the refused icon was logged %d times, want once: %+v", len(failures), failures)
+	}
+	message, _ := failures[0].Fields["error"].(string)
+	if !strings.Contains(message, "icons/fixture.svg") || !strings.Contains(message, runTypesPluginID) || strings.Contains(message, pluginRoot) {
+		t.Fatalf("the failure reads %q", message)
+	}
 }
 
 // A plugin's declared kind lists in the plugin's translation; the + menu adds it to a dialog

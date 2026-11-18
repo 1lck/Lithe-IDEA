@@ -109,13 +109,18 @@ type runConfigForm struct {
 	// pointers, so each widget keeps the address it is bound by while the maps grow.
 	texts map[string]*string
 	flags map[string]*bool
+	// areas size each multiline text field to its text by field ID (runConfigTextArea);
+	// one is made as its field is first drawn.
+	areas map[string]*runConfigTextArea
 	// environment is the variable rows in order; each row keeps its address while rows
 	// are added or removed.
 	environment []*runConfigVariable
-	// beforeLaunch is the IDs of the process runs that start before this one, in order; nil
-	// until the form names the field. beforeLaunchMenu says the menu that adds one is open.
-	beforeLaunch     []string
-	beforeLaunchMenu bool
+	// beforeLaunch is the steps that run before this configuration, in order (runconfig_steps.go);
+	// nil until the form names the field.
+	beforeLaunch *runConfigSteps
+	// task says the form edits the values of a before-launch task step rather than a
+	// configuration (runconfig_steps.go): Core checks them on OK, and an edit asks for nothing.
+	task bool
 	// errors are the wrong values the last save reported: a code such as required by field ID.
 	errors map[string]string
 	// refreshing says an editorForm request for the edited values is out, so the automatic
@@ -189,7 +194,7 @@ func (a *App) loadRunConfigTypes(p *project, reload bool) {
 						s.types = append(s.types, kind)
 					}
 				}
-				s.typePlugins = kinds.plugins
+				s.typePlugins, s.typeDirectories = kinds.plugins, kinds.directories
 			}
 			if s.typesStale {
 				a.loadRunConfigTypes(p, true)
@@ -225,16 +230,17 @@ func (f *runConfigForm) ready() bool {
 // requestRunConfigForm asks Core for the editor. The first answer fills the fields and
 // values; a later one, for the values being edited, only replaces the field descriptions,
 // so the automatic values follow the edit and nothing the user typed since is lost.
-// A declared kind's request carries the plugins that declare kinds, so its fields read in
-// the interface language.
+// The request carries the plugins that declare kinds and before-launch tasks, so a declared
+// kind's fields read in the interface language and the Before Launch field offers the tasks.
 func (a *App) requestRunConfigForm(p *project, f *runConfigForm, generation uint64, request core.RunEditorFormRequest, initial bool) {
 	kernel, kinds, language := a.kernel, p.runConfigs.kinds(), a.language().Code()
-	declared := f.kind.declared()
 	a.background(p, buildRequestTimeout, func(ctx context.Context) func(*App) {
-		if declared {
-			request.RunTypePlugins = a.runTypePlugins(ctx, kernel, kinds, language)
-		}
+		read := a.runTypeRead(ctx, kernel, kinds, language)
+		request.RunTypePlugins = read.plugins
 		form, err := kernel.RunEditorForm(ctx, request)
+		for _, field := range form.Fields {
+			a.readRunTaskIcons(ctx, read, field.Tasks)
+		}
 		return func(a *App) {
 			if !f.open || f.generation != generation {
 				return
@@ -323,13 +329,7 @@ func (f *runConfigForm) readValues(fields []core.RunEditorField, values map[stri
 			}
 		case field.Kind == runFieldBeforeLaunch:
 			if f.beforeLaunch == nil {
-				f.beforeLaunch = []string{}
-				if known {
-					_ = json.Unmarshal(raw, &f.beforeLaunch)
-				}
-				if f.beforeLaunch == nil {
-					f.beforeLaunch = []string{}
-				}
+				f.beforeLaunch = runConfigStepsOf(raw)
 			}
 		case runFieldTextual(field.Kind):
 			if f.texts[field.ID] == nil {
@@ -362,7 +362,7 @@ func (f *runConfigForm) collect() map[string]json.RawMessage {
 			}
 			value = rows
 		case field.Kind == runFieldBeforeLaunch && f.beforeLaunch != nil:
-			value = f.beforeLaunch
+			value = f.beforeLaunch.items
 		case runFieldTextual(field.Kind) && f.texts[field.ID] != nil:
 			value = *f.texts[field.ID]
 		default:
@@ -387,13 +387,16 @@ func (k runConfigKind) answeredBy(form core.RunEditorForm) bool {
 	return form.RunType != nil && *form.RunType == k.runType
 }
 
-// runConfigFormEdited marks the form changed and asks for the editor of the edited values.
+// runConfigFormEdited marks the form changed and asks for the editor of the edited values; a
+// task step's form has no editor to ask for.
 func (a *App) runConfigFormEdited(p *project, f *runConfigForm) {
 	if !f.open || f.loading || f.fields == nil {
 		return
 	}
 	f.dirty = true
-	a.refreshRunConfigForm(p, f)
+	if !f.task {
+		a.refreshRunConfigForm(p, f)
+	}
 }
 
 // refreshRunConfigForm asks for the editor of the edited values, so automatic values such as
@@ -425,12 +428,9 @@ func (a *App) saveRunConfigForm(p *project, f *runConfigForm, done func(id strin
 	generation := f.generation
 	request := core.RunConfigurationSave{Root: p.root, Provider: f.kind.provider, RunType: f.kind.key(), ConfigurationID: f.id, Values: f.collect()}
 	kernel, kinds, language := a.kernel, p.runConfigs.kinds(), a.language().Code()
-	declared := f.kind.declared()
 	a.background(p, buildRequestTimeout, func(ctx context.Context) func(*App) {
 		request.Plugins = a.runConfigPlugins(ctx)
-		if declared {
-			request.RunTypePlugins = a.runTypePlugins(ctx, kernel, kinds, language)
-		}
+		request.RunTypePlugins = a.runTypePlugins(ctx, kernel, kinds, language)
 		saved, err := kernel.SaveRunConfiguration(ctx, request)
 		if err == nil && saved.Status == "saved" {
 			err = applyRunConfigChanges(ctx, request.Root, saved.Changes)

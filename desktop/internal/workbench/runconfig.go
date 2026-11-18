@@ -36,11 +36,13 @@ type runConfigState struct {
 	// types are the kinds a user can create, in display order, each with the reason this
 	// platform cannot run it, if any: the built-in ones, then the ones enabled plugins
 	// declare. typePlugins are the plugins that declare them, as requests about those kinds
-	// send them, nil when none does; both are replaced, never changed, by the next read.
-	// typesLoading is set while they are asked for, and typesStale says to read them again
-	// once that answers (loadRunConfigTypes).
+	// send them, nil when none does, and typeDirectories their package directories by plugin
+	// ID, where the icons they name are read; all are replaced, never changed, by the next
+	// read. typesLoading is set while they are asked for, and typesStale says to read them
+	// again once that answers (loadRunConfigTypes).
 	types                    []core.RunConfigurationType
 	typePlugins              *core.RunTypePlugins
+	typeDirectories          map[string]string
 	typesLoading, typesStale bool
 	// manualOrder says list is in the order the user gave it on this machine rather than by
 	// name; Core keeps the choice locally and lists the configurations in that order.
@@ -52,6 +54,8 @@ type runConfigState struct {
 	reveal string
 	// deleting is the user configuration whose delete waits for confirmation.
 	deleting *runConfigDeletion
+	// task is the open form of a before-launch task step, over the dialog (runconfig_steps.go).
+	task *runConfigTaskEdit
 	// beforeLaunch is the start that waits for the user to allow the steps a project file
 	// names before it (runconfig_before_launch.go).
 	beforeLaunch *beforeLaunchConfirmation

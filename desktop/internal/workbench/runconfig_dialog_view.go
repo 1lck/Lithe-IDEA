@@ -2,6 +2,7 @@ package workbench
 
 import (
 	"runtime"
+	"strings"
 
 	"github.com/1lck/Lithe-IDEA/desktop/internal/core"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/fileicons"
@@ -154,20 +155,22 @@ func (a *App) drawRunConfigNewMenu(c ui.C, p *project, anchor ui.Box, at runConf
 }
 
 // runConfigDialogTypeItems adds an item per kind to the menu of kinds, each creating a new
-// configuration of that kind: the built-in kinds, then the ones enabled plugins declare, each
-// with the description its plugin gives. A kind this platform cannot run is still offered,
-// saying so.
+// configuration of that kind: the built-in kinds, then the ones enabled plugins declare. Every
+// row stays one line: the description its plugin gives, and for a kind this platform cannot
+// run (still offered) the note saying so, are the tip of an ⓘ at the row's end.
 func (a *App) runConfigDialogTypeItems(c ui.C, menu *ui.MenuItems, p *project) {
 	language := a.language()
 	s := &p.runConfigs
+	more := i18n.Shared(language, "native.moreInformation")
+	viewport := c.Bounds()
 	for _, listed := range s.types {
 		kind := runConfigKindOfType(listed)
-		item := menu.Item(s.kindTitle(language, kind)).Icon(s.kindIcon(kind, a.colors.Dark))
-		switch {
-		case listed.Unavailable():
-			item = item.Description(runConfigTypeNote(language, listed))
-		case listed.Description != "":
-			item = item.Description(listed.Description)
+		item := menu.Item(s.kindTitle(language, kind)).Icon(s.kindIcon(kind, &a.pluginIcons, a.colors.Dark))
+		if tip := runConfigTypeTip(language, listed); tip != "" {
+			id := ui.ID(c.Key("kindinfo:" + kind.groupKey()))
+			item = item.Trailing(runConfigTypeInfoWidth, func(canvas *gfx.Canvas, slot gfx.Rect, theme gfx.Theme) {
+				a.paintRunConfigTypeInfo(canvas, theme, slot, viewport, id, more, tip)
+			})
 		}
 		if item.Clicked() {
 			c.After(func() {
@@ -178,6 +181,46 @@ func (a *App) runConfigDialogTypeItems(c ui.C, menu *ui.MenuItems, p *project) {
 	}
 	if len(p.runConfigs.types) == 0 {
 		menu.Item(i18n.Shared(language, "native.loading")).Disabled(true)
+	}
+}
+
+// runConfigTypeInfoWidth is the slot a kind's ⓘ takes at the end of its row in the menu of
+// kinds, and runConfigTypeInfoSize the ⓘ inside it.
+const (
+	runConfigTypeInfoWidth = 22
+	runConfigTypeInfoSize  = 14
+)
+
+// runConfigTypeTip is what the ⓘ of a kind in the menu of kinds says: the note of a kind this
+// platform cannot run, then the kind's description. It is empty for a kind with neither, whose
+// row has no ⓘ.
+func runConfigTypeTip(language i18n.Language, kind core.RunConfigurationType) string {
+	var lines []string
+	if kind.Unavailable() {
+		lines = append(lines, runConfigTypeNote(language, kind))
+	}
+	if kind.Description != "" {
+		lines = append(lines, kind.Description)
+	}
+	return strings.Join(lines, "\n")
+}
+
+// paintRunConfigTypeInfo paints a kind's ⓘ in slot, the end of its row in the menu of kinds, as
+// a target of its own over the row's, so pressing it does not choose the kind. While the pointer
+// rests on it, tip shows beside it as a field's ⓘ shows its tip; label names it for assistive
+// technology, which reads tip as its hint.
+func (a *App) paintRunConfigTypeInfo(canvas *gfx.Canvas, theme gfx.Theme, slot, viewport gfx.Rect, id gfx.ID, label, tip string) {
+	size := float32(runConfigTypeInfoSize)
+	bounds := gfx.Rect{X: slot.X + (slot.Width-size)/2, Y: slot.Y + (slot.Height-size)/2, Width: size, Height: size}
+	canvas.HitWithOptions(id, bounds, label, gfx.HitOptions{Role: gfx.RoleButton, Hint: tip, SkipFocus: true})
+	hovered := canvas.Hovered() == id
+	tint := a.colors.Subtle
+	if hovered {
+		tint = a.colors.Text
+	}
+	canvas.DrawIcon(icons.Info, bounds, tint)
+	if hovered && canvas.Pressed().IsZero() {
+		components.BeginTooltip(canvas, theme, viewport, bounds, components.TooltipOptions{Layer: ui.TooltipLayer, Side: components.TooltipRight}).Paint(tip)
 	}
 }
 
@@ -487,14 +530,14 @@ func (a *App) drawRunConfigNameRow(c ui.C, field func(k ui.C, label string)) {
 func (a *App) runConfigDraftIcon(p *project, key string) gfx.Icon {
 	if configuration := p.runConfigs.configuration(key); configuration != nil {
 		if kind, ok := runConfigKindOf(*configuration); ok {
-			return p.runConfigs.kindIcon(kind, a.colors.Dark)
+			return p.runConfigs.kindIcon(kind, &a.pluginIcons, a.colors.Dark)
 		}
 		return runExecutionIcon(configuration.Execution)
 	}
 	if draft := p.runConfigs.dialog.drafts[key]; draft != nil {
 		switch {
 		case draft.form != nil:
-			return p.runConfigs.kindIcon(draft.form.kind, a.colors.Dark)
+			return p.runConfigs.kindIcon(draft.form.kind, &a.pluginIcons, a.colors.Dark)
 		case draft.copyOf != "" && draft.icon.ViewBox > 0:
 			return draft.icon
 		}

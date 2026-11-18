@@ -27,6 +27,12 @@ native_path() {
     fi
 }
 
+# Lithe-core-rust main at 0a15a98: #97, squash-merged into main on top of 7f1fc4b (#96, managed
+# runtime preparation and isolated resolver sessions) and c146247 (#95, docs):
+# buildSystems[].beforeLaunchTasks (beforeLaunchTasks 0) declare tasks a run configuration's
+# Before Launch list may run; runConfig.checkBeforeLaunchTask checks a task's form,
+# runConfig.beforeLaunchField reads the list for editors without an editor form,
+# runConfig.beforeLaunch expands task steps and build.beforeLaunchTaskPlan plans one (API-29).
 # Lithe-core-rust main at e56dbb650 (#93): project tool environments use Core's discovery
 # plan, native path validation and machine-local workspace trust catalog (#2122).
 # Lithe-core-rust main at 661ef0f: #94, squash-merged into main on top of 8b91b32: a plugin's
@@ -245,7 +251,7 @@ PINNED_CORE_REPOSITORY="https://github.com/Lithe-IDEA/Lithe-core-rust.git"
 # the contract, plugin guides, reference and SDKs live only in shared/plugins; on top of #16 (reported Git queries folded in the console),
 # #15 (git.write cherryPick, revert and reset fields), #14 (word-level changed ranges of diff
 # rows), #13, #8, #7, #6 and #4.
-PINNED_CORE_REVISION="7f1fc4becd0b4b415aa463abd0ea5e2810b3e964"
+PINNED_CORE_REVISION="0a15a980108e8316ff52fc512c6603df25a06f3b"
 PROFILE="debug"
 while [[ $# -gt 0 ]]; do
     case "$1" in

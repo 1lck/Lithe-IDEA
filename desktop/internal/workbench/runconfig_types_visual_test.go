@@ -14,8 +14,9 @@ import (
 
 // TestVisualPluginDeclaredRuns captures a kind a plugin declares in the Run/Debug
 // Configurations dialog: the + menu that lists it after the built-in kinds, its editor with
-// the plugin's fields and the multiple-instances switch, and the Run window with two
-// instances of it running side by side. It needs only LITHE_VISUAL_OUTPUT_DIR; the dark
+// the plugin's fields and the multiple-instances switch, the Before Launch menu that offers the
+// plugin's task after "Run Another Configuration", the task's own form, and the Run window with
+// two instances of it running side by side. It needs only LITHE_VISUAL_OUTPUT_DIR; the dark
 // captures read the plugin's Chinese translation and the light ones its English manifest.
 func TestVisualPluginDeclaredRuns(t *testing.T) {
 	out := os.Getenv("LITHE_VISUAL_OUTPUT_DIR")
@@ -68,6 +69,23 @@ func TestVisualPluginDeclaredRuns(t *testing.T) {
 			fillDeclaredRun(t, h, p, f, "Fixture Alpha", true)
 			h.settleChain()
 			shot("form")
+
+			h.app.post(func(*App) { f.beforeLaunch.menu = true })
+			h.settleChain()
+			shot("before-launch-menu")
+			h.app.post(func(a *App) {
+				f.beforeLaunch.menu = false
+				for _, field := range f.fields {
+					if field.ID == runFieldBeforeLaunch && len(field.Tasks) > 0 {
+						kind := field.Tasks[0]
+						a.openRunConfigTask(p, f.beforeLaunch, kind, -1, kind.Values, nil)
+					}
+				}
+			})
+			awaitStateWithin(t, h, 10*time.Second, "the task form", func() bool { return p.runConfigs.task != nil })
+			h.settleChain()
+			shot("task-form")
+			h.app.post(func(*App) { p.closeRunConfigTask(p.runConfigs.task) })
 
 			applyDialog(t, h, p, runConfigDialogOK)
 			id := p.runConfigs.list[0].ID

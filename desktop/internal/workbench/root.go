@@ -313,6 +313,7 @@ func (a *App) overlays(c ui.C) {
 		a.drawWorktreeDialog(c, p)
 		a.drawRunConfigDialog(c, p)
 		a.drawRunConfigDelete(c, p)
+		a.drawRunConfigTask(c, p)
 		a.drawBeforeLaunchConfirmation(c, p)
 		a.buildOptionsDialog(c, p)
 		a.drawStartupSweep(c)

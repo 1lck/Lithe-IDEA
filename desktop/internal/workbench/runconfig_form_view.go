@@ -2,14 +2,14 @@ package workbench
 
 import (
 	"encoding/json"
-	"fmt"
 	"reflect"
-	"slices"
+	"strings"
 
 	"github.com/1lck/Lithe-IDEA/desktop/internal/core"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/fileicons"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/i18n"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/icons"
+	"github.com/vivaui/viva/components"
 	"github.com/vivaui/viva/gfx"
 	"github.com/vivaui/viva/ui"
 )
@@ -17,8 +17,9 @@ import (
 const (
 	// runConfigFormLabelWidth is the column of field titles.
 	runConfigFormLabelWidth = 150
-	// runConfigFormTextHeight is the height of a script saved as text.
-	runConfigFormTextHeight = 140
+	// runConfigFormTextRows is how many rows a multiline text field, such as a script saved
+	// as text, grows to with its text before it scrolls.
+	runConfigFormTextRows = 4
 	// runConfigFormVariableNameWidth is the name column of an environment variable row.
 	runConfigFormVariableNameWidth = 170
 )
@@ -213,6 +214,12 @@ func runConfigFieldError(language i18n.Language, code string) string {
 		return i18n.Shared(language, "desktop.runConfig.errorDuplicate")
 	case "unavailable":
 		return i18n.Shared(language, "desktop.runConfig.errorUnavailable")
+	case "invalidValue":
+		return i18n.Shared(language, "desktop.runConfig.errorInvalidValue")
+	case "taskNotDeclared":
+		return i18n.Shared(language, "desktop.runConfig.errorTaskNotDeclared")
+	case "invalidTaskValues":
+		return i18n.Shared(language, "desktop.runConfig.errorInvalidTaskValues")
 	}
 	return i18n.SharedFormat(language, "desktop.runConfig.errorOther", map[string]string{"code": code})
 }
@@ -255,8 +262,8 @@ func visibleRunConfigField(field core.RunEditorField, values map[string]json.Raw
 }
 
 // drawRunConfigFormFields declares the header row, then every other field that shows for the
-// edited values. A wrong value's reason sits under its field; one for a field not drawn sits
-// at the end.
+// edited values, and last the Before Launch section, which spans the form as IDEA's does. A
+// wrong value's reason sits under its field; one for a field not drawn sits at the end.
 func (a *App) drawRunConfigFormFields(c ui.C, p *project, f *runConfigForm, ready bool) {
 	if f.fields == nil {
 		return
@@ -264,15 +271,18 @@ func (a *App) drawRunConfigFormFields(c ui.C, p *project, f *runConfigForm, read
 	language := a.language()
 	values := f.collect()
 	drawn := map[string]bool{}
-	var header, body []core.RunEditorField
+	var header, body, sections []core.RunEditorField
 	for _, field := range f.fields {
 		if !f.drawable(language, field) || !visibleRunConfigField(field, values) {
 			continue
 		}
 		drawn[field.ID] = true
-		if field.Placement == "header" {
+		switch {
+		case field.Kind == runFieldBeforeLaunch:
+			sections = append(sections, field)
+		case field.Placement == "header":
 			header = append(header, field)
-		} else {
+		default:
 			body = append(body, field)
 		}
 	}
@@ -289,6 +299,14 @@ func (a *App) drawRunConfigFormFields(c ui.C, p *project, f *runConfigForm, read
 	}
 	for _, field := range body {
 		a.drawRunConfigFormField(c.Key(field.ID), p, f, field, ready)
+	}
+	for _, field := range sections {
+		k := c.Key(field.ID)
+		title, _ := runConfigFieldTitle(language, field)
+		ui.Column(k).FillWidth().Gap(4).Children(func() {
+			a.drawRunConfigBeforeLaunch(k, p, f.beforeLaunch, title, runConfigFieldHelp(language, f.kind.provider, field), field.Candidates, field.Tasks, ready, func() { a.runConfigFormEdited(p, f) })
+			a.drawRunConfigFormError(k, f, field.ID, 0)
+		})
 	}
 	for _, wrong := range f.fields {
 		if !drawn[wrong.ID] {
@@ -323,7 +341,7 @@ func (a *App) drawRunConfigFormHeaderField(c ui.C, p *project, f *runConfigForm,
 func (a *App) drawRunConfigFormField(c ui.C, p *project, f *runConfigForm, field core.RunEditorField, ready bool) {
 	language := a.language()
 	label, _ := runConfigFieldTitle(language, field)
-	tall := field.Kind == runFieldMultilineText || field.Kind == runFieldEnvironment || field.Kind == runFieldBeforeLaunch
+	tall := field.Kind == runFieldMultilineText || field.Kind == runFieldEnvironment
 	ui.Column(c).FillWidth().Gap(4).Children(func() {
 		row := ui.Row(c).FillWidth().Gap(12)
 		if tall {
@@ -331,8 +349,14 @@ func (a *App) drawRunConfigFormField(c ui.C, p *project, f *runConfigForm, field
 		} else {
 			row = row.Items(ui.Center)
 		}
+		// The title sits level with the first row of a multiline text field, whose rows start at
+		// its top.
+		titleHeight := float32(28)
+		if field.Kind == runFieldMultilineText {
+			titleHeight = runConfigTextAreaHeight(c.Theme(), 1)
+		}
 		row.Children(func() {
-			ui.Row(c.Part("title")).Width(runConfigFormLabelWidth).MinHeight(28).Shrink(0).Items(ui.Center).Gap(4).Children(func() {
+			ui.Row(c.Part("title")).Width(runConfigFormLabelWidth).MinHeight(titleHeight).Shrink(0).Items(ui.Center).Gap(4).Children(func() {
 				if field.Kind != runFieldCheckbox {
 					ui.Text(c, label).Ellipsis().Shrink(1).MinWidth(0)
 					a.runConfigFormHelp(c, language, f.kind.provider, field)
@@ -362,8 +386,6 @@ func (a *App) drawRunConfigFormControl(c ui.C, p *project, f *runConfigForm, fie
 	switch field.Kind {
 	case runFieldEnvironment:
 		a.drawRunConfigVariables(c, p, f, ready)
-	case runFieldBeforeLaunch:
-		a.drawRunConfigBeforeLaunch(c, &f.beforeLaunch, &f.beforeLaunchMenu, field.Candidates, ready, func() { a.runConfigFormEdited(p, f) })
 	case runFieldChoice:
 		options := field.Options
 		if ui.Choice(c, f.texts[field.ID], options, func(option string) string {
@@ -373,7 +395,13 @@ func (a *App) drawRunConfigFormControl(c ui.C, p *project, f *runConfigForm, fie
 			edited()
 		}
 	case runFieldMultilineText:
-		if ui.TextArea(c, f.texts[field.ID], label, placeholder).Mono().Grow(1).Height(runConfigFormTextHeight).Disabled(!ready).Changed() {
+		// The field is declared first: that brings the text up to what was just typed, and the
+		// field is sized by it in the same paint. MinHeight replaces the textarea's own minimum
+		// of several rows, so one row is one row.
+		box := ui.TextArea(c, f.texts[field.ID], label, placeholder)
+		area := f.textArea(field.ID)
+		height := runConfigTextAreaHeight(c.Theme(), area.rows(c, *f.texts[field.ID]))
+		if box.Mono().Grow(1).MinWidth(0).MinHeight(height).Height(height).Draw(area.hook).Disabled(!ready).Changed() {
 			edited()
 		}
 	case runFieldFile, runFieldExecutable, runFieldDirectory:
@@ -394,6 +422,54 @@ func (a *App) drawRunConfigFormControl(c ui.C, p *project, f *runConfigForm, fie
 			edited()
 		}
 	}
+}
+
+// runConfigTextArea sizes a multiline text field to its text, from one row up to
+// runConfigFormTextRows, after which the field scrolls. The rows wrap at the width the field
+// was laid out at, which only its paint knows: hook keeps that width, and asks for another
+// paint when it changes so the field is sized afresh. layout counts the rows as the field's
+// own layout wraps them; that one is the field's and not readable here.
+type runConfigTextArea struct {
+	width  float32
+	layout components.TextareaLayout
+	hook   func(*ui.DrawContext)
+}
+
+// textArea is the sizing of the multiline text field id, made on first use.
+func (f *runConfigForm) textArea(id string) *runConfigTextArea {
+	if f.areas == nil {
+		f.areas = map[string]*runConfigTextArea{}
+	}
+	area := f.areas[id]
+	if area == nil {
+		area = &runConfigTextArea{}
+		area.hook = func(d *ui.DrawContext) {
+			if d.Rect.Width != area.width {
+				area.width = d.Rect.Width
+				d.Canvas.RequestFrame()
+			}
+		}
+		f.areas[id] = area
+	}
+	return area
+}
+
+// rows is how many rows value takes in the field, between one and runConfigFormTextRows. A
+// final newline starts a row of its own. Before the field's first paint the lines are counted
+// without wrapping.
+func (area *runConfigTextArea) rows(c ui.C, value string) int {
+	rows := strings.Count(value, "\n") + 1
+	if canvas := c.Canvas(); canvas != nil && area.width > 0 {
+		rows = area.layout.RowCount(canvas, *c.Theme(), value, area.width, false)
+	}
+	return min(max(rows, 1), runConfigFormTextRows)
+}
+
+// runConfigTextAreaHeight is the height of a multiline text field showing rows rows: the rows
+// at the line height Viva's textarea paints them with (the font size plus 7, its text-sm
+// leading) and the margin it keeps above and below them.
+func runConfigTextAreaHeight(theme *ui.Theme, rows int) float32 {
+	return float32(rows)*(theme.Metrics.FontSizeM+7) + 2*components.TextareaPadY
 }
 
 // drawRunConfigVariables declares the environment variable rows, each a name, a value and its
@@ -426,94 +502,6 @@ func (a *App) drawRunConfigVariables(c ui.C, p *project, f *runConfigForm, ready
 			})
 		}
 	})
-}
-
-// runConfigBeforeLaunchLimit is the most steps a configuration names, as Core allows.
-const runConfigBeforeLaunchLimit = 16
-
-// drawRunConfigBeforeLaunch declares the steps that run before the configuration, each its name
-// with buttons that move it up or down or remove it, and the button whose menu adds one of the
-// process runs not chosen yet. A step whose configuration is gone shows its ID. edited, when
-// set, runs after each change, so an editor that tracks its edits by flag sees it.
-func (a *App) drawRunConfigBeforeLaunch(c ui.C, chosen *[]string, menuOpen *bool, candidates []core.RunConfigurationName, ready bool, edited func()) {
-	language := a.language()
-	change := func(apply func()) {
-		c.After(func() {
-			apply()
-			if edited != nil {
-				edited()
-			}
-		})
-	}
-	steps := *chosen
-	names := make(map[string]string, len(candidates))
-	for _, candidate := range candidates {
-		names[candidate.ID] = candidate.Name
-	}
-	ui.Column(c.Part("before-launch")).Grow(1).MinWidth(0).Gap(4).Children(func() {
-		if len(steps) == 0 {
-			ui.Text(c, i18n.Shared(language, "desktop.runConfig.beforeLaunchEmpty")).Color(a.colors.Subtle).LineHeight(28)
-		}
-		for index, id := range steps {
-			k := c.KeyInt(index)
-			name, known := names[id]
-			if !known {
-				name = i18n.SharedFormat(language, "desktop.runConfig.beforeLaunchMissing", map[string]string{"id": id})
-			}
-			ui.Row(k).FillWidth().MinHeight(28).Items(ui.Center).Gap(4).Children(func() {
-				ui.Icon(k, icons.Play).Size(14, 14).Shrink(0).Color(a.colors.Subtle)
-				color := a.colors.Text
-				if !known {
-					color = a.theme.Danger
-				}
-				ui.Text(k, fmt.Sprintf("%d. %s", index+1, name)).Color(color).Ellipsis().Grow(1).MinWidth(0)
-				if a.gitIconButton(k.Part("up"), i18n.Shared(language, "desktop.runConfig.beforeLaunchUp"), icons.ArrowUp, false, !ready || index == 0) {
-					change(func() { moveRunConfigStep(*chosen, index, index-1) })
-				}
-				if a.gitIconButton(k.Part("down"), i18n.Shared(language, "desktop.runConfig.beforeLaunchDown"), icons.ArrowDown, false, !ready || index == len(steps)-1) {
-					change(func() { moveRunConfigStep(*chosen, index, index+1) })
-				}
-				if a.gitIconButton(k.Part("remove"), i18n.Shared(language, "desktop.runConfig.beforeLaunchRemove"), icons.Trash2, false, !ready) {
-					change(func() { *chosen = slices.Delete(slices.Clone(*chosen), index, index+1) })
-				}
-			})
-		}
-		var left []core.RunConfigurationName
-		for _, candidate := range candidates {
-			if !slices.Contains(steps, candidate.ID) {
-				left = append(left, candidate)
-			}
-		}
-		full := len(steps) >= runConfigBeforeLaunchLimit
-		add := ui.Button(c.Part("add"), i18n.Shared(language, "desktop.runConfig.beforeLaunchAdd")).Icon(icons.Plus).Ghost().
-			Disabled(!ready || len(left) == 0 || full)
-		if len(candidates) == 0 {
-			add = add.Tooltip(i18n.Shared(language, "desktop.runConfig.beforeLaunchNoCandidates"))
-		}
-		if add.Clicked() {
-			c.After(func() { *menuOpen = !*menuOpen })
-		}
-		if *menuOpen {
-			ui.Menu(c.Part("add-menu"), add, menuOpen, func(menu *ui.MenuItems) {
-				for _, candidate := range left {
-					if menu.Item(candidate.Name).Clicked() {
-						change(func() {
-							a.performed("run.configuration.form.beforeLaunch.add", surfaceButton)
-							*chosen = append(slices.Clone(*chosen), candidate.ID)
-						})
-					}
-				}
-			})
-		}
-	})
-}
-
-// moveRunConfigStep swaps the step at from with the one at to, when both exist.
-func moveRunConfigStep(steps []string, from, to int) {
-	if from < 0 || to < 0 || from >= len(steps) || to >= len(steps) {
-		return
-	}
-	steps[from], steps[to] = steps[to], steps[from]
 }
 
 // removeRunConfigVariable is rows without row.

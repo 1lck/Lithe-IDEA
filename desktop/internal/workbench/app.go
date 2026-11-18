@@ -36,6 +36,7 @@ import (
 	"github.com/1lck/Lithe-IDEA/desktop/internal/logwindow"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/marketplace"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/plugindiag"
+	"github.com/1lck/Lithe-IDEA/desktop/internal/pluginicons"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/pluginpkg"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/pluginservice"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/projectgen"
@@ -116,8 +117,13 @@ type Kernel interface {
 	// folders and order of the list (runconfig_dialog.go).
 	CopyRunConfiguration(ctx context.Context, root, configurationID, name string, plugins []core.RunInstalledPlugin) (string, []core.RunConfigChange, error)
 	ArrangeRunConfigurations(ctx context.Context, request core.RunConfigArrangement) ([]core.RunConfigChange, error)
-	// RunBeforeLaunch expands the steps a configuration runs before it starts (runconfig_before_launch.go).
-	RunBeforeLaunch(ctx context.Context, root, configurationID string) (core.RunBeforeLaunch, error)
+	// RunBeforeLaunch expands the steps a configuration runs before it starts, and
+	// PlanBeforeLaunchTask the command of a plugin task step (runconfig_before_launch.go).
+	// CheckBeforeLaunchTask and BeforeLaunchField edit the list (runconfig_steps.go).
+	RunBeforeLaunch(ctx context.Context, root, configurationID string, plugins *core.RunTypePlugins) (core.RunBeforeLaunch, error)
+	PlanBeforeLaunchTask(ctx context.Context, manifest json.RawMessage, buildSystemID, workspaceRoot string, request core.BeforeLaunchTaskPlanRequest) (core.BuildPlan, error)
+	CheckBeforeLaunchTask(ctx context.Context, root string, runType core.RunTypeKey, values map[string]json.RawMessage, plugins *core.RunTypePlugins) (core.RunTaskCheck, error)
+	BeforeLaunchField(ctx context.Context, root, configurationID string, plugins *core.RunTypePlugins) (core.RunBeforeLaunchField, error)
 	RunArgumentText(ctx context.Context, lists [][]string) ([]string, error)
 	SetDebugBreakpoints(ctx context.Context, sessionID, sourcePath string, breakpoints []core.DebugSourceBreakpoint) (core.DebugUpdate, error)
 	ExecuteDebug(ctx context.Context, sessionID, operationID, command string, threadID *int64, granularity string) (core.DebugUpdate, error)
@@ -625,6 +631,9 @@ type App struct {
 	// plugins is the plugin stack, nil when the window was built without a plugin
 	// kernel or without a writable plugin root.
 	plugins *pluginservice.Service
+	// pluginIcons are the icons read from installed packages: read off the window thread,
+	// looked up while drawing.
+	pluginIcons pluginicons.Cache
 	// pluginDownloads holds native temporary file leases for the open settings window.
 	pluginDownloads *marketplace.ArchiveSession
 	// prompts are the questions plugins ask the user, one sheet at a time.
