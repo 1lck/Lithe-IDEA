@@ -72,10 +72,13 @@ Continue the release only when one of these holds:
 Every release uses a `MAJOR.MINOR.PATCH` version. This covers stable app
 releases, `desktop-v*` desktop prereleases, and plugins, including the
 community plugins in the Lithe-IDEA organization. Compare the release with the
-previous published version of the same artifact, stable or prerelease.
+previous published version of the same artifact, stable or prerelease. The app
+and plugins use different rules for which part to increment.
 
-Release in small steps. A backward-compatible release increments PATCH, even
-when it adds features:
+### The app
+
+Release the app in small steps. A backward-compatible release increments
+PATCH, even when it adds features:
 
 | Part | Increment when | Compatibility | From 1.2.3 |
 | --- | --- | --- | --- |
@@ -88,13 +91,10 @@ when it adds features:
 - Increment MINOR only when the user asks for it for the release being
   prepared. A request applies to that one release and does not carry over to
   later releases. Do not propose a MINOR increment yourself.
-- PATCH keeps counting past 9: 0.8.9 is followed by 0.8.10, not 0.9.0. The
-  desktop update check and the Lithe Store compare each part as a number.
 
-A change is breaking when a user of the previous version cannot upgrade
-without doing something, or loses something they relied on.
-
-For the app, these changes are breaking:
+A change to the app is breaking when a user of the previous version cannot
+upgrade without doing something, or loses something they relied on. These
+changes are breaking:
 
 - Removing or renaming a user-visible feature, command, setting, or keyboard
   shortcut.
@@ -105,23 +105,45 @@ For the app, these changes are breaking:
 - Raising the minimum supported operating system version, or dropping a
   platform or CPU architecture.
 
-For a plugin, these changes are breaking:
+### Plugins
 
-- Requiring a host or plugin contract version that hosts able to run the
-  previous version do not support, so that those users can no longer install
-  or update the plugin.
-- Removing or renaming a feature, command, task, run entry, setting, or build
-  option that the previous version declared.
-- Changing a setting key or value format, so that values users saved are lost
-  or read differently.
-- Requiring an external program the previous version did not need, or a newer
-  version of one it already ran.
+A plugin increments MINOR for features and PATCH for everything else:
 
-Apply these rules to every version number:
+| Part | Increment when | From 1.2.3 |
+| --- | --- | --- |
+| PATCH | The release changes the package but adds no feature: bug fixes, performance, wording, refactoring, packaging | 1.2.4 |
+| MINOR | The release adds at least one feature | 1.3.0 |
+| MAJOR | The user asks for it because the release is a major overhaul of the plugin | 2.0.0 |
 
-- Versions below 1.0.0 follow the same table. Do not apply the semantic
-  versioning exception for initial development: a breaking change to 0.y.z
-  releases 1.0.0, not 0.(y+1).0.
+- A feature is a change committed as `feat`: something users can newly do or
+  see, such as a command, task, run entry, run configuration type, setting,
+  build option, language feature, or supported tool. A release with both
+  features and fixes increments MINOR.
+- A feature that needs a host capability or plugin contract version that no
+  published host supports still increments MINOR. Publish that release as a
+  prerelease.
+- Breaking changes do not increment MAJOR. Increment MAJOR only when the user
+  asks for it for the release being prepared; do not propose it yourself.
+- These plugin changes are breaking. The release notes list each one with what
+  users must do:
+  - Requiring a host or plugin contract version that hosts able to run the
+    previous version do not support, so that those users can no longer install
+    or update the plugin.
+  - Removing or renaming a feature, command, task, run entry, setting, or build
+    option that the previous version declared.
+  - Changing a setting key or value format, so that values users saved are lost
+    or read differently.
+  - Requiring an external program the previous version did not need, or a newer
+    version of one it already ran.
+
+### Every version number
+
+- Versions below 1.0.0 follow the same rules. Do not apply the semantic
+  versioning exception for initial development: a breaking change to app
+  0.y.z releases 1.0.0, not 0.(y+1).0.
+- PATCH and MINOR keep counting past 9: 0.8.9 is followed by 0.8.10, not
+  0.9.0. The desktop update check and the Lithe Store compare each part as a
+  number.
 - Incrementing MAJOR resets MINOR and PATCH to 0. Incrementing MINOR resets
   PATCH to 0.
 - The version number does not say whether a release is a prerelease. Publish
@@ -142,8 +164,9 @@ Apply these rules to every version number:
   delete all of its GitHub Releases and tags, remove all of its versions from
   the Lithe Store index, and publish again from 0.0.1. Never reset a version
   on your own initiative.
-- A MAJOR release lists every breaking change, together with what users must
-  do, in its upgrade or compatibility notes.
+- Every app MAJOR release, and every plugin release with a breaking change,
+  lists each breaking change, together with what users must do, in its
+  upgrade or compatibility notes.
 
 ## Prepare the release notes first
 
