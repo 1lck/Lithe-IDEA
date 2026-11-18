@@ -748,6 +748,11 @@ type App struct {
 	// of scrolling sideways. The switch at the end of each group's strip of tabs turns it on
 	// and off for every file at once; it lasts until the client quits.
 	softWrap bool
+	// runWrap says the Run window's consoles break their long lines onto more rows instead of
+	// ending them in an ellipsis. The switch in the console's toolbar turns it on and off for
+	// every execution at once, as the Git console's does for that console; it lasts until the
+	// client quits.
+	runWrap bool
 
 	// application is the running application the log window opens in; it is nil until
 	// Run has started it.

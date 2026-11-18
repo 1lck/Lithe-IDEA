@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/1lck/Lithe-IDEA/desktop/internal/core"
+	"github.com/1lck/Lithe-IDEA/desktop/internal/i18n"
 	"github.com/vivaui/viva/gfx"
 )
 
@@ -94,4 +95,53 @@ func TestRunConsoleDeclaresOnlyTheRowsOnScreen(t *testing.T) {
 	if !h.shows("line 199") || h.shows("line 0") {
 		t.Fatal("the console does not keep to the end of its output")
 	}
+}
+
+func TestRunConsoleWrapSwitchBreaksLongLinesInsteadOfCuttingThem(t *testing.T) {
+	h := debugPluginHarness(t, "dev.lithe.test.output-links", outputLinkManifest, false)
+	root := t.TempDir()
+	h.open(root)
+	h.app.reduceChrome(core.ToggleChrome(itemRun))
+	h.startRunConsole(root, "start "+strings.Repeat("word ", 200)+"finish\nshort line\n")
+	for range 6 {
+		h.settle()
+	}
+	wrap := i18n.Shared(h.app.language(), "git.console.wrap")
+	if hit := h.pageHit(wrap); hit.Role != gfx.RoleSwitch || hit.Checked {
+		t.Fatalf("the wrap switch is %+v, want an unchecked switch", hit)
+	}
+	// Unwrapped, the long line ends in an ellipsis at the console's edge.
+	if h.shows("finish") || !h.shows("…") || !h.shows("short line") {
+		t.Fatal("an unwrapped long line is not cut with an ellipsis at the console's edge")
+	}
+	unwrapped := labelsHolding(h, "word")
+
+	h.clickNamed(wrap)
+	h.settle()
+	if !h.app.runWrap || !h.pageHit(wrap).Checked {
+		t.Fatal("a click on the wrap switch did not turn it on")
+	}
+	if !h.shows("finish") || h.shows("…") || !h.shows("short line") {
+		t.Fatal("a wrapped long line does not show its end")
+	}
+	if wrapped := labelsHolding(h, "word"); wrapped <= unwrapped {
+		t.Fatalf("the long line takes %d rows wrapped and %d unwrapped, want more wrapped", wrapped, unwrapped)
+	}
+
+	h.clickNamed(wrap)
+	h.settle()
+	if h.app.runWrap || h.shows("finish") || !h.shows("…") {
+		t.Fatal("a second click did not cut the long line again")
+	}
+}
+
+// labelsHolding is the number of labels on screen that hold value.
+func labelsHolding(h *harness, value string) int {
+	labels := 0
+	for _, label := range h.driver.Snapshot().Labels {
+		if strings.Contains(label.Value, value) {
+			labels++
+		}
+	}
+	return labels
 }
