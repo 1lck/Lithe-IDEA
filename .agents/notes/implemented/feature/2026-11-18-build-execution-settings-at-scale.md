@@ -4,7 +4,7 @@
 
 ## 先说结论
 
-「构建、执行、部署」原来一页装着作用域与保存、每个插件的工具卡片和调试器单步过滤，页面高度随插件数量线性增长。现在分组页是**目录**，宿主固定两个子页「工具链」「调试器」，插件声明的页面按种类排在后面，多了就折叠成文件夹。
+「构建、执行、部署」原来一页装着作用域与保存、每个插件的工具卡片和调试器单步过滤，页面高度随插件数量线性增长。现在分组页是**目录**，宿主固定两个子页「工具链」「调试器」，插件声明的页面按种类排在后面，每个种类只占一行，点开是分栏页。
 
 这里是**聚合，不是搬家**：插件自己的设置位置不变，插件详情的「设置」标签照样列出该插件的全部设置（包括声明了 `page` 的那些）；「构建、执行、部署」只是把各插件里和构建相关的内容额外汇到一处。两处编辑的是同一份设置、同一份草稿，宿主不按插件名写分支。界面按原型 [`docs/design/build-execution-settings.html`](../../../../docs/design/build-execution-settings.html) 复刻，偏差见下文“与原型的差异”。还没做的契约缺口见[构建设置剩余的契约缺口](../../proposed/feature/2026-11-18-build-settings-remaining-contract-gaps.md)。
 
@@ -25,7 +25,7 @@
 | 「构建、执行、部署」分组页 | 目录：最上面汇总需要处理的工具，下面是子页、两个作用域的状态和插件页种类 | 宿主 |
 | 「工具链」固定子页 | 所有插件声明的工具（`toolDefinitions`，API-23） | 宿主固定页面，行来自插件声明 |
 | 「调试器」固定子页 | 支持单步过滤的调试器（API-30） | 宿主固定页面，行来自插件声明 |
-| 插件页 | 插件用 `settings[].page`（API-19）声明的构建工具页、编译器页 | 插件声明；折叠规则见[设置页分类](2026-10-15-macos-settings-hierarchy.md) |
+| 插件页 | 插件用 `settings[].page`（API-19）声明的构建工具页、编译器页 | 插件声明；侧栏规则见[设置页分类](2026-10-15-macos-settings-hierarchy.md) |
 
 插件页里的设置同时留在插件详情的「设置」标签：Core 的设置文档把全部设置放进详情的 `sections`，`page` 只额外生成一个聚合页（`pages`）。两处由同一个按插件 ID 的表单渲染，在一处改了、没应用就切到另一处，看到的是同一份草稿。
 
@@ -41,6 +41,13 @@
 ### 调试器页
 
 左侧列出声明了单步过滤的调试器、提供插件和「已自定义」标记，可筛选；右侧编辑。「不进入的代码」是逐条列表，可以添加、删除；跳过合成方法等开关只显示调试器声明支持的。插件没有给出名称时，图标用调试器名称的字母。
+
+### 构建工具、编译器页
+
+- 侧栏每个有页面的种类只有一行，行尾是页面数，不展开；插件再多侧栏也不变长。Core 的导航把种类标成分组，宿主投影后固定为不展开的普通行。
+- 点开是和调试器页一样的分栏：左侧是这一类的页面，每行写页面名和提供插件，按需渲染，可按页面名或插件名筛选，底部是页面数；右侧是选中页面的设置，表单和插件详情「设置」标签是同一个。
+- 再次从侧栏或目录页打开这一类时，回到上次看的页面；没有看过时打开第一页。面包屑是「构建、执行、部署 › 种类」。
+- 插件页只在侧栏搜索命中时单独出现在侧栏；点结果在分栏页里打开该页并清空搜索。
 
 ### 提交和搜索
 
@@ -58,12 +65,13 @@
 ### 正确做法
 
 - Gradle 插件声明 `toolDefinitions`（Gradle，`category` 为构建工具）。宿主在「工具链」的“构建工具”组里放一行 Gradle，插件不写页面。
-- 八个插件各声明一个构建工具页：侧栏出现“构建工具”文件夹，展开列 6 个和“全部 8 个…”。
+- 八个插件各声明一个构建工具页：侧栏只多一行“构建工具 8”，点开是分栏页，左侧列 8 个页面和各自插件，右侧是第一个页面的设置。
 
 ### 不要这样做
 
 - 不要因为某个设置聚合到了「构建、执行、部署」，就把它从插件详情的「设置」标签里拿掉；聚合入口是额外的，不替代插件自己的位置。
-- 不要在宿主里按插件名或构建工具名加专用页面、专用分组或专用折叠阈值。
+- 不要在宿主里按插件名或构建工具名加专用页面、专用分组或专用阈值。
+- 不要把某一类的插件页逐个列进侧栏；侧栏只放种类行，页面列表在分栏页里。
 - 不要在卡片或插件页里放自己的保存按钮。
 - 不要把草稿值显示成当前生效值。
 
@@ -89,13 +97,14 @@ JDK 这类工具会被几个插件各自选一次，用户不知道哪个生效�
 
 ## 验证
 
-- `scripts/desktop/desktop-go.sh test ./internal/settingswindow -count=1`：`toolchains_view_test.go`、`stepping_view_test.go` 和 `build_directory_view_test.go` 覆盖作用域、筛选、分组、信任、草稿与应用、调试器编辑和种类文件夹。
-- `LITHE_VISUAL_OUTPUT_DIR=<目录> scripts/desktop/desktop-go.sh test -tags 'vivahead lithevisual' -run 'TestVisualSettings/(32|33|34|m4[4579])' ./internal/settingswindow/`：生成目录页、文件夹页、工具链、调试器和项目信任的深浅色截图，与原型对照。
+- `scripts/desktop/desktop-go.sh test ./internal/settingswindow -count=1`：`toolchains_view_test.go`、`stepping_view_test.go` 和 `build_directory_view_test.go` 覆盖作用域、筛选、分组、信任、草稿与应用、调试器编辑，以及种类行、分栏页、筛选、记住上次页面和搜索命中。
+- `LITHE_VISUAL_OUTPUT_DIR=<目录> scripts/desktop/desktop-go.sh test -tags 'vivahead lithevisual' -run 'TestVisualSettings/(32|33|34|m4[4579])' ./internal/settingswindow/`：生成目录页、构建工具分栏页、工具链、调试器和项目信任的深浅色截图，与原型对照。
 - 原生窗口与 Windows 实机验收尚未完成，功能矩阵保持 pending。
 
 ## 适用范围
 
 - `desktop/internal/settingswindow/build_directory_view.go`
+- `desktop/internal/settingswindow/build_kind_view.go`
 - `desktop/internal/settingswindow/toolchains_view.go`
 - `desktop/internal/settingswindow/toolchains_state.go`
 - `desktop/internal/settingswindow/stepping_view.go`

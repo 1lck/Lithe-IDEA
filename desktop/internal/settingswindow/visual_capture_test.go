@@ -47,7 +47,7 @@ func TestVisualSettings(t *testing.T) {
 		{"25-settings-process", pageProcessTermination}, {"26-settings-git", pageVersionControl}, {"26-settings-git-console", pageVersionControl},
 		{"27-settings-terminal", pageTerminal}, {"28-plugins-installed", pagePlugins},
 		{"29-marketplace-empty", pagePlugins},
-		{"32-settings-build", pageBuild}, {"32-settings-build-folder", pageBuild}, {"34-settings-debuggers", pageDebuggers},
+		{"32-settings-build", pageBuild}, {"32-settings-build-kind", pageBuild}, {"34-settings-debuggers", pageDebuggers},
 		{"33-settings-toolchains", pageToolchains}, {"m44-toolchain-directory-menu", pageToolchains}, {"m45-toolchain-custom-directory", pageToolchains},
 		{"m47-toolchain-project-untrusted", pageToolchains}, {"m48-toolchain-project-trusted", pageToolchains}, {"m49-toolchain-project-trust-click", pageToolchains},
 		{"m50-toolchain-project-trust-tip", pageToolchains},
@@ -101,9 +101,11 @@ func TestVisualSettings(t *testing.T) {
 					values.SteppingFilters = map[string]core.DebugSteppingFilters{"fixture-jvm": {ClassNameFilters: []string{"java.*", "javax.*", "sun.*", "com.example.generated.*"}, SkipSynthetics: true, SkipStaticInitializers: true}}
 				}
 				if scenario.page == pageBuild {
-					// Eight plugins each bring a build system page, so the kind folds into a folder.
+					// Eight plugins each bring a build system page, which the kind's one row and
+					// page list.
 					contributions := buildPageContributions(t, 8)
 					client := core.NewClient()
+					opts.PluginSettings = newBuildFormSource(t, client, contributions)
 					opts.SettingsNavigation = client.SettingsNavigation
 					opts.SettingsPages = func(ctx context.Context) ([]core.SettingsPage, error) {
 						return client.SettingsPages(ctx, contributions)
@@ -201,8 +203,11 @@ func TestVisualSettings(t *testing.T) {
 					d.click(text("desktop.settings.processTermination.onQuit"))
 				case "m43-process-orphan-policy":
 					d.click(text("desktop.settings.processTermination.leftoverTerminals"))
-				case "32-settings-build-folder":
-					w.openFolder("buildSystem")
+				case "32-settings-build-kind":
+					w.openKind("buildSystem")
+					d.until("the first page's settings", func() bool {
+						return w.shownKind() == "buildSystem" && w.pluginSettings.loaded && w.pluginSettings.id == w.contributorID
+					})
 					d.pump()
 				case "m44-toolchain-directory-menu":
 					d.click("Compiler")

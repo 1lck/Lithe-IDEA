@@ -97,8 +97,8 @@
       }
     },
     {
-      "id": "desktop.buildSettings.folderCount",
-      "description": "Build, Execution, Deployment settings: folderCount",
+      "id": "desktop.buildSettings.kindPageCount",
+      "description": "Build, Execution, Deployment settings: kindPageCount",
       "platforms": [
         "desktop"
       ],
@@ -107,28 +107,18 @@
       }
     },
     {
-      "id": "desktop.buildSettings.folderFilter",
-      "description": "Build, Execution, Deployment settings: folderFilter",
+      "id": "desktop.buildSettings.kindFilter",
+      "description": "Build, Execution, Deployment settings: kindFilter",
       "platforms": [
         "desktop"
       ]
     },
     {
-      "id": "desktop.buildSettings.folderEmpty",
-      "description": "Build, Execution, Deployment settings: folderEmpty",
+      "id": "desktop.buildSettings.kindNoMatches",
+      "description": "Build, Execution, Deployment settings: kindNoMatches",
       "platforms": [
         "desktop"
       ]
-    },
-    {
-      "id": "desktop.buildSettings.folderAll",
-      "description": "Build, Execution, Deployment settings: folderAll",
-      "platforms": [
-        "desktop"
-      ],
-      "parameters": {
-        "count": "string"
-      }
     },
     {
       "id": "desktop.buildSettings.listSeparator",
@@ -1014,10 +1004,9 @@
       "desktop.buildSettings.directoryDebuggersCustomized": "Stepping: {count} debuggers support filters · {customized} customized",
       "desktop.buildSettings.directoryKind": "{names} · provided by plugins",
       "desktop.buildSettings.directoryKindMore": "{names} and {count} more · provided by plugins",
-      "desktop.buildSettings.folderCount": "{count} pages · provided by plugins",
-      "desktop.buildSettings.folderFilter": "Filter pages or plugins",
-      "desktop.buildSettings.folderEmpty": "No matching pages",
-      "desktop.buildSettings.folderAll": "All {count}…",
+      "desktop.buildSettings.kindPageCount": "{count} pages",
+      "desktop.buildSettings.kindFilter": "Filter pages or plugins",
+      "desktop.buildSettings.kindNoMatches": "No matching pages",
       "desktop.buildSettings.listSeparator": ", ",
       "desktop.buildSettings.parenthesized": " ({text})",
       "desktop.buildSettings.apply": "Apply",
@@ -1142,10 +1131,9 @@
       "desktop.buildSettings.directoryDebuggersCustomized": "单步：{count} 个调试器支持过滤 · {customized} 个已自定义",
       "desktop.buildSettings.directoryKind": "{names} · 由插件提供",
       "desktop.buildSettings.directoryKindMore": "{names} 等 {count} 个 · 由插件提供",
-      "desktop.buildSettings.folderCount": "{count} 个页面 · 由插件提供",
-      "desktop.buildSettings.folderFilter": "筛选页面或插件",
-      "desktop.buildSettings.folderEmpty": "没有匹配的页面",
-      "desktop.buildSettings.folderAll": "全部 {count} 个…",
+      "desktop.buildSettings.kindPageCount": "{count} 个页面",
+      "desktop.buildSettings.kindFilter": "筛选页面或插件",
+      "desktop.buildSettings.kindNoMatches": "没有匹配的页面",
       "desktop.buildSettings.listSeparator": "、",
       "desktop.buildSettings.parenthesized": "（{text}）",
       "desktop.buildSettings.apply": "应用",

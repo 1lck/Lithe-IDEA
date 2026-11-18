@@ -32,7 +32,8 @@ const (
 	pageVersionControl
 	// pageBuild is the group "Build, Execution, Deployment", which also has a page of its
 	// own: the directory of its pages and what needs attention. The two pages after it
-	// belong to it, and so do the build system and compiler pages plugins contribute.
+	// belong to it, and so does a row for each kind of page plugins contribute to it, build
+	// systems and compilers, which opens that kind's pages as the two pages list theirs.
 	pageBuild
 	pageToolchains
 	pageDebuggers
@@ -153,19 +154,17 @@ type row struct {
 	title   string
 	hit     int
 	page    pageID
-	// level is 0 on the top level, 1 for a page inside a group and 2 for a page inside
-	// a folder of a group.
+	// level is 0 on the top level and 1 for a page inside a group.
 	level uint8
 	// group says the row is a group, which has a chevron and expands instead of
 	// opening a page; expanded says its pages are listed under it.
 	group, expanded bool
-	// folder is the kind of plugin pages the row is the folder of, or the folder an
-	// overflow row opens. A folder row has a chevron and opens the folder's page.
-	folder string
-	// overflow is how many pages the folder has when the row stands for the ones the
-	// sidebar leaves out; choosing it opens the folder's page. count is how many pages a
-	// folder's row holds.
-	overflow, count int
+	// kind is the kind of plugin pages under Build, Execution, Deployment the row opens, and
+	// count how many pages of it there are.
+	kind  string
+	count int
+	// overflow is how many tools the search matched on the row that lists every one of them.
+	overflow int
 	// path is where a search match lives, its ancestors' titles joined by " › ",
 	// shown after its title. A string keeps a row comparable.
 	path string
@@ -198,11 +197,10 @@ const (
 // The keys of the rows that are not a page of the table nor a plugin's page. They are past
 // any count of plugin pages and stay inside the list's non-negative 31-bit keys.
 const (
-	// folderHit is a folder's row; the row after it, folderHit+1, is the folder's row of
-	// the pages the sidebar leaves out.
-	folderHit = 1 << 28
+	// kindHit is the row of a kind of plugin pages, by the kind's place in buildKinds.
+	kindHit = 1 << 28
 	// sectionHit is a section's title; allToolsHit the row listing every matching tool.
-	sectionHit  = folderHit + 64
+	sectionHit  = kindHit + 64
 	allToolsHit = sectionHit + 16
 	// toolHit and adapterHit are the rows of a tool and a debugger, by their place.
 	toolHit    = 1 << 29
@@ -260,14 +258,12 @@ func appendVisible(dst []row, messages *i18n.SettingsMessages, open *[pageCount]
 	return dst
 }
 
-// crumb is one title of the breadcrumb and what choosing it opens: a page, or the page of a
-// folder of kind under Build, Execution, Deployment. link is set on a title before the last
-// that has a page of its own to open.
+// crumb is one title of the breadcrumb and the page choosing it opens. link is set on a title
+// before the last that has a page of its own to open.
 type crumb struct {
-	title  string
-	page   pageID
-	folder string
-	link   bool
+	title string
+	page  pageID
+	link  bool
 }
 
 // appendBreadcrumb appends the titles that lead to id to dst and returns it: the group and
@@ -291,18 +287,9 @@ func contributedParent(kind string) pageID {
 }
 
 // buildKinds are the kinds of plugin pages under Build, Execution, Deployment, in the
-// order the sidebar and the Build page list them.
+// order the sidebar and the Build page list them. Each kind has one row in the sidebar,
+// whatever the count of its pages, and its page lists them (build_kind_view.go).
 var buildKinds = [...]string{"buildSystem", "compiler"}
-
-const (
-	// folderMin is how many pages of one kind fold into a folder of their own; fewer are
-	// listed under Build, Execution, Deployment directly, as the settings hierarchy Note
-	// says.
-	folderMin = 3
-	// folderLimit is how many of a folder's pages the sidebar lists; the rest are on the
-	// folder's page.
-	folderLimit = 6
-)
 
 // kindIndex is the place of kind in buildKinds, or -1 for another kind.
 func kindIndex(kind string) int {
@@ -314,7 +301,7 @@ func kindIndex(kind string) int {
 	return -1
 }
 
-// kindTitle names a kind of plugin pages: the folder's title and its page's.
+// kindTitle names a kind of plugin pages: its row's title and its page's.
 func kindTitle(language i18n.Language, kind string) string {
 	if kind == "compiler" {
 		return i18n.Shared(language, "desktop.buildSettings.kindCompiler")
@@ -571,7 +558,7 @@ func decideKey(key keyKind, ctx keyContext) keyAction {
 }
 
 func (r row) hitIndex() int {
-	if r.dynamic != "" || r.folder != "" || r.special != rowPage {
+	if r.dynamic != "" || r.kind != "" || r.special != rowPage {
 		return r.hit
 	}
 	return int(r.page)

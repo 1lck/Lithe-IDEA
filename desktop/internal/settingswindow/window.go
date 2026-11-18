@@ -42,11 +42,9 @@ const (
 	tileGap    = 8
 	// childIndent is where the title of a row inside a group starts, under the title of the
 	// group. levelIndent is the Tree's step of a level, which a row's content pads up to where
-	// its title starts, so a folder's chevron sits in front of the titles beside it; folderStep
-	// is how much further in a folder's pages start, the prototype's step from l1 to l2.
+	// its title starts.
 	childIndent = chevronSlot + tileSize + tileGap
 	levelIndent = childIndent / 2
-	folderStep  = 18
 	// sectionHeight is the height of a section's title in the search, the prototype's .hd.
 	sectionHeight = 26
 	// crumbHeight is the height of the breadcrumb, the prototype's .crumb.
@@ -126,13 +124,9 @@ type window struct {
 	stepping   *steppingState
 	// apply is the footer's write of the Build pages' drafts.
 	apply buildApply
-	// folders says which folders of plugin pages the sidebar lists the pages of, by their
-	// kind's place in buildKinds. folderPage is the kind whose folder page shows while the
-	// Build page is open, empty for the Build page itself; folderQuery filters it.
-	folders           [len(buildKinds)]bool
-	folderPage        string
-	folderQuery       string
-	folderList        ui.ListState
+	// kinds is the list of each kind of plugin pages under Build, by the kind's place in
+	// buildKinds: its filter, its rows and the page it last showed.
+	kinds             [len(buildKinds)]kindState
 	pluginSettings    *pluginSettingsForm
 	pluginForms       map[string]*pluginSettingsForm
 	formLimitReported bool
@@ -225,10 +219,9 @@ type window struct {
 
 // rowsKey is everything Core's projection of the sidebar is computed from.
 type rowsKey struct {
-	text    *i18n.Messages
-	query   string
-	open    [pageCount]bool
-	folders [len(buildKinds)]bool
+	text  *i18n.Messages
+	query string
+	open  [pageCount]bool
 }
 
 // sidebarKey is everything the sidebar's rows are computed from: Core's projection, and while
@@ -534,7 +527,7 @@ func (w *window) declareWork(c ui.C) {
 // refreshRows rebuilds the sidebar's rows when the language, the search or the expanded
 // groups have changed since they were built.
 func (w *window) refreshRows() {
-	key := rowsKey{text: w.text, query: w.query, open: w.sess.open, folders: w.folders}
+	key := rowsKey{text: w.text, query: w.query, open: w.sess.open}
 	projected := w.ctrl.opts.SettingsNavigation != nil
 	if projected {
 		w.dynamic.request(key)
