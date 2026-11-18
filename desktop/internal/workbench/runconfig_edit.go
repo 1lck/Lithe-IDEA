@@ -14,15 +14,6 @@ import (
 	"github.com/1lck/Lithe-IDEA/desktop/internal/i18n"
 )
 
-// The run configuration layers the editor writes, relative to the workspace root. Core
-// reads the same files when it resolves; it never writes them.
-const (
-	runConfigLocalFile   = ".lithe/run/local.json"
-	runConfigProjectFile = ".lithe/run/configurations.json"
-	// runConfigMaximumBytes bounds the layer document the host captures and publishes.
-	runConfigMaximumBytes = 4 << 20
-)
-
 // runConfigEditor is the open editor of one configuration's options. It starts from
 // the effective values Core resolved, and saving writes them into the chosen layer
 // file, so the next resolve shows what took effect. Every field is bound to a widget
@@ -153,8 +144,8 @@ func (a *App) closeRunConfigEditor(p *project) {
 	e.open, e.loading, e.saving = false, false, false
 }
 
-// saveRunConfigEditor has Core apply the edit to the chosen layer and publishes the
-// document it returns, then resolves the configurations again.
+// saveRunConfigEditor has Core apply the edit to the chosen layer, applies the file changes it
+// returns, then resolves the configurations again.
 func (a *App) saveRunConfigEditor(p *project) {
 	e := &p.runConfigs.editor
 	if !e.open || e.loading || e.saving {
@@ -180,9 +171,8 @@ func (a *App) saveRunConfigEditor(p *project) {
 		}
 		edit.ProviderRunOptions = raw
 	}
-	kernel := a.kernel
 	a.background(p, buildRequestTimeout, func(ctx context.Context) func(*App) {
-		err := saveRunConfigOptions(ctx, kernel, edit)
+		err := a.saveRunConfigOptions(ctx, edit)
 		return func(a *App) {
 			e := &p.runConfigs.editor
 			if !e.open || e.generation != generation {
@@ -190,12 +180,7 @@ func (a *App) saveRunConfigEditor(p *project) {
 			}
 			e.saving = false
 			if err != nil {
-				reason := err.Error()
-				if errors.Is(err, configfile.ErrConflict) {
-					e.failure = i18n.Shared(a.language(), "desktop.runConfig.conflict")
-					return
-				}
-				e.failure = i18n.SharedFormat(a.language(), "desktop.runConfig.saveFailed", map[string]string{"reason": reason})
+				e.failure = a.runConfigSaveFailure(err)
 				return
 			}
 			a.closeRunConfigEditor(p)
@@ -204,31 +189,23 @@ func (a *App) saveRunConfigEditor(p *project) {
 	})
 }
 
-// saveRunConfigOptions captures the scope's layer file, has Core edit it and publishes
-// the result only if the file still holds the captured bytes. The local layer is
-// handed to Core as captured, so the edit applies to exactly what is replaced.
-func saveRunConfigOptions(ctx context.Context, kernel Kernel, edit core.RunOptionsEdit) error {
-	name := runConfigProjectFile
-	if edit.Scope == "local" {
-		name = runConfigLocalFile
-	}
-	file, err := configfile.Capture(ctx, edit.Root, name, runConfigMaximumBytes)
+// saveRunConfigOptions has Core compute the file changes of the edit and applies them as one
+// transaction, only while every file still holds the bytes Core read.
+func (a *App) saveRunConfigOptions(ctx context.Context, edit core.RunOptionsEdit) error {
+	edit.Plugins = a.runConfigPlugins(ctx)
+	changes, err := a.kernel.UpdateRunConfigurationOptions(ctx, edit)
 	if err != nil {
 		return err
 	}
-	if edit.Scope == "local" && file.Exists() {
-		local := file.Bytes()
-		if !json.Valid(local) {
-			return errors.New(name + ": invalid JSON")
-		}
-		edit.LocalDocument = local
+	return applyRunConfigChanges(ctx, edit.Root, changes)
+}
+
+// runConfigSaveFailure words a failed save: another edit that came first, or the reason.
+func (a *App) runConfigSaveFailure(err error) string {
+	if errors.Is(err, configfile.ErrConflict) {
+		return i18n.Shared(a.language(), "desktop.runConfig.conflict")
 	}
-	document, err := kernel.UpdateRunConfigurationOptions(ctx, edit)
-	if err != nil {
-		return err
-	}
-	_, err = file.Replace(ctx, []byte(document), nil)
-	return err
+	return i18n.SharedFormat(a.language(), "desktop.runConfig.saveFailed", map[string]string{"reason": err.Error()})
 }
 
 // environmentText is the editor text of an environment: one KEY=VALUE line per

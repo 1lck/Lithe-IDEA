@@ -13,21 +13,34 @@ import (
 )
 
 // runConfigList declares the run configurations over the build systems: a header with the
-// scope picker, the configurations of the scope under the build system that provides them,
-// and the splitter that sizes the list against the panes under it. It shows once Core resolved
-// at least one configuration; a failure without one is a line of its own.
+// scope picker and the button that creates a built-in run, the configurations of the scope
+// under the build system that provides them, and the splitter that sizes the list against the
+// panes under it. Without a configuration the header stays, over a line that says why: the
+// load failed, or there is none yet.
 func (a *App) runConfigList(c ui.C, p *project) {
 	s := &p.runConfigs
 	b := &s.browser
 	language, small := a.language(), a.theme.Metrics.FontSizeS
+	title := i18n.Shared(language, "native.runConfigurations")
+	// The list shares the Build window with the build tree, so its rows are keyed under a part
+	// of their own.
+	k := c.Part("run-configs")
 	if len(s.list) == 0 {
-		if s.failure != "" {
-			ui.Row(c.Part("run-config")).Height(panelHeaderHeight).FillWidth().Shrink(0).Items(ui.Center).PadX(8).Children(func() {
-				ui.Text(c, i18n.SharedFormat(language, "desktop.runConfig.loadFailed", map[string]string{"reason": s.failure})).
-					FontSize(small).Color(a.colors.Warning).Ellipsis().Grow(1)
+		ui.Column(k).FillWidth().Shrink(0).Children(func() {
+			a.drawRunConfigHeader(k, p, title, nil)
+			ui.Row(k.Part("empty")).Height(panelHeaderHeight).FillWidth().Items(ui.Center).PadX(8).Children(func() {
+				switch {
+				case s.failure != "":
+					ui.Text(k, i18n.SharedFormat(language, "desktop.runConfig.loadFailed", map[string]string{"reason": s.failure})).
+						FontSize(small).Color(a.colors.Warning).Ellipsis().Grow(1).MinWidth(0)
+				case s.loading:
+					ui.Text(k, i18n.Shared(language, "native.loading")).FontSize(small).Color(a.colors.Subtle).Ellipsis().Grow(1).MinWidth(0)
+				default:
+					ui.Text(k, i18n.Shared(language, "desktop.runConfig.emptyHint")).FontSize(small).Color(a.colors.Subtle).Ellipsis().Grow(1).MinWidth(0)
+				}
 			})
-			ui.Divider(c)
-		}
+		})
+		ui.Divider(c)
 		return
 	}
 	if b.split.Pos == 0 {
@@ -37,20 +50,77 @@ func (a *App) runConfigList(c ui.C, p *project) {
 	if !slices.Contains(scopes, b.scope) {
 		b.scope = ""
 	}
-	title := i18n.Shared(language, "native.runConfigurations")
-	// The list shares the Build window with the build tree, so its rows are keyed under a part
-	// of their own.
-	k := c.Part("run-configs")
 	ui.Column(k).FillWidth().Height(b.split.Pos).Shrink(0).Clip().Children(func() {
-		ui.Row(k).Height(panelHeaderHeight).FillWidth().Shrink(0).Items(ui.Center).Gap(8).PadX(8).Children(func() {
-			ui.Text(k, title).FontSize(small).Weight(gfx.WeightSemibold).Color(a.colors.Subtle).Shrink(0)
-			ui.Select(k.Part("scope"), &b.scope, scopes, func(scope string) string { return a.runScopeLabel(s, scope) }).
-				Label(title).Shrink(1).MinWidth(0).MaxWidth(240)
-			ui.Spacer(k)
-		})
+		a.drawRunConfigHeader(k, p, title, scopes)
 		a.drawRunConfigRows(k, p, title)
 	})
 	ui.Splitter(c, &b.split).Mins(runConfigListMin, runConfigRestMin).Label(a.text.Panel.Resize)
+}
+
+// drawRunConfigHeader declares the list's header: its title, the scope picker when there are
+// scopes to pick, and the button whose menu creates a built-in run of each kind.
+func (a *App) drawRunConfigHeader(c ui.C, p *project, title string, scopes []string) {
+	s := &p.runConfigs
+	b := &s.browser
+	language, small := a.language(), a.theme.Metrics.FontSizeS
+	ui.Row(c.Part("header")).Height(panelHeaderHeight).FillWidth().Shrink(0).Items(ui.Center).Gap(8).PadX(8).Children(func() {
+		ui.Text(c, title).FontSize(small).Weight(gfx.WeightSemibold).Color(a.colors.Subtle).Shrink(0)
+		if scopes != nil {
+			ui.Select(c.Part("scope"), &b.scope, scopes, func(scope string) string { return a.runScopeLabel(s, scope) }).
+				Label(title).Shrink(1).MinWidth(0).MaxWidth(240)
+		}
+		ui.Spacer(c)
+		label := i18n.Shared(language, "desktop.runConfig.newConfiguration")
+		add, clicked := a.toolIconButton(c.Part("new"), label, icons.Plus, s.newMenu, len(s.types) == 0)
+		if clicked {
+			s.newMenu = !s.newMenu
+		}
+		ui.Menu(c.Part("new-menu"), add, &s.newMenu, func(menu *ui.MenuItems) {
+			menu.WidthRange(180, 260)
+			a.runConfigTypeItems(c, menu, p, surfaceButton)
+		})
+	})
+}
+
+// runConfigTypeItems adds an item per built-in kind this platform offers, each opening the
+// editor of a new configuration of that kind.
+func (a *App) runConfigTypeItems(c ui.C, menu *ui.MenuItems, p *project, surface actionSurface) {
+	language := a.language()
+	for _, kind := range p.runConfigs.types {
+		label, ok := runConfigTypeLabel(language, kind.Provider)
+		if !ok {
+			continue
+		}
+		provider := kind.Provider
+		if menu.Item(label).Icon(runConfigTypeIcon(provider)).Clicked() {
+			c.After(func() {
+				a.performed("run.configuration.new", surface)
+				a.openRunConfigForm(p, provider, "")
+			})
+		}
+	}
+	if len(p.runConfigs.types) == 0 {
+		menu.Item(i18n.Shared(language, "native.loading")).Disabled(true)
+	}
+}
+
+// editRunConfiguration opens the editor that suits configuration id: the form of a built-in
+// run, or the options of a build provider run.
+func (a *App) editRunConfiguration(p *project, id string) {
+	configuration := p.runConfigs.configuration(id)
+	switch {
+	case configuration == nil:
+	case configuration.IsProcess():
+		a.openRunConfigForm(p, configuration.Provider, id)
+	default:
+		a.openRunConfigEditor(p, id)
+	}
+}
+
+// runConfigEditable says whether the list offers an editor for configuration: every built-in
+// run, and a build provider run its plugin can still resolve.
+func runConfigEditable(configuration core.RunConfiguration) bool {
+	return configuration.IsProcess() || !configuration.Unavailable()
 }
 
 // drawRunConfigRows declares the rows of the scope. Selecting a row keeps it selected; Enter
@@ -59,7 +129,7 @@ func (a *App) runConfigList(c ui.C, p *project) {
 func (a *App) drawRunConfigRows(c ui.C, p *project, title string) {
 	s := &p.runConfigs
 	b := &s.browser
-	p.collectRunConfigRows()
+	p.collectRunConfigRows(a.language())
 	if len(b.rows) == 0 {
 		a.gitEmpty(c, i18n.Shared(a.language(), "native.noConfigurationsInThisScope"))
 		return
@@ -133,10 +203,21 @@ func (a *App) drawRunConfigRow(p *project, row ui.ListRow, selected bool) {
 	configuration := s.list[r.configuration]
 	running := p.runningConfiguration() == configuration.ID
 	a.runConfigMenu(c, box, p, configuration, running)
+	unavailable := configuration.Unavailable()
+	if unavailable {
+		box = box.Tooltip(a.runConfigUnavailableText(configuration))
+	}
 	box.Children(func() {
 		ui.Row(c.Part("arrow")).Size(treelist.Disclosure, treelist.Icon).Shrink(0)
-		ui.Icon(c, runExecutionIcon(configuration.Execution)).Size(14, 14).Shrink(0).Color(a.colors.Subtle)
-		ui.Text(c, configuration.Name).Color(a.colors.Text).Ellipsis().Shrink(1).MinWidth(0)
+		icon, name := runExecutionIcon(configuration.Execution), a.colors.Text
+		if configuration.IsProcess() {
+			icon = runConfigTypeIcon(configuration.Provider)
+		}
+		if unavailable {
+			icon, name = icons.CircleAlert, a.colors.Subtle
+		}
+		ui.Icon(c, icon).Size(14, 14).Shrink(0).Color(a.colors.Subtle)
+		ui.Text(c, configuration.Name).Color(name).Ellipsis().Shrink(1).MinWidth(0)
 		if b.pins[configuration.ID] {
 			ui.Icon(c, icons.Pin).Size(12, 12).Shrink(0).Color(a.colors.Subtle)
 		}
@@ -188,7 +269,7 @@ func (a *App) drawRunConfigGroupArrow(c ui.C, s *runConfigState, group runConfig
 }
 
 // runConfigMenu declares the context menu of a configuration's row: run it or stop its run,
-// edit its saved options, and pin or unpin it.
+// edit it, delete one the user created, and pin or unpin it.
 func (a *App) runConfigMenu(c ui.C, row ui.Box, p *project, configuration core.RunConfiguration, running bool) {
 	ui.ContextMenu(c, row, func(menu *ui.MenuItems) {
 		language, id := a.language(), configuration.ID
@@ -204,11 +285,20 @@ func (a *App) runConfigMenu(c ui.C, row ui.Box, p *project, configuration core.R
 			})
 		}
 		menu.Separator()
-		if menu.Item(i18n.Shared(language, "native.editConfiguration")).Clicked() {
+		if menu.Item(i18n.Shared(language, "native.editConfiguration")).Disabled(!runConfigEditable(configuration)).Clicked() {
 			c.After(func() {
 				a.performed("run.configuration.edit", surfaceContextMenu)
-				a.openRunConfigEditor(p, id)
+				a.editRunConfiguration(p, id)
 			})
+		}
+		if configuration.UserDefined() {
+			if menu.Item(i18n.Shared(language, "desktop.runConfig.delete")).Destructive().Disabled(running).Clicked() {
+				name := configuration.Name
+				c.After(func() {
+					a.performed("run.configuration.delete", surfaceContextMenu)
+					p.runConfigs.deleting = &runConfigDeletion{id: id, name: name}
+				})
+			}
 		}
 		pin, action := i18n.Shared(language, "native.pinConfiguration"), "run.configuration.pin"
 		if p.runConfigs.browser.pins[id] {
@@ -325,5 +415,43 @@ func (a *App) drawRunOptionField(c ui.C, language i18n.Language, field *runOptio
 			text = field.title + ": " + string(field.raw)
 		}
 		ui.Wrap(c, text).FontSize(a.theme.Metrics.FontSizeS).Color(a.colors.Subtle)
+	}
+}
+
+// runConfigDeletion is the user configuration the delete confirmation asks about.
+type runConfigDeletion struct {
+	id, name string
+}
+
+// drawRunConfigDelete declares the confirmation of deleting a user configuration: deleted, it
+// leaves the project or local file it was saved in.
+func (a *App) drawRunConfigDelete(c ui.C, p *project) {
+	d := p.runConfigs.deleting
+	if d == nil {
+		return
+	}
+	language := a.language()
+	open := true
+	title := i18n.Shared(language, "desktop.runConfig.deleteTitle")
+	closed := ui.ModalWith(c, &open, title, ui.ModalSpec{Width: 420}, func() {
+		ui.Paragraph(c.Part("run-config-delete"), i18n.SharedFormat(language, "desktop.runConfig.deleteBody", map[string]string{"name": d.name}), 4).Color(a.colors.Text)
+	}, func() {
+		ui.Row(c.Part("run-config-delete-footer")).FillWidth().Items(ui.Center).Gap(8).Children(func() {
+			ui.Spacer(c)
+			if ui.Button(c, i18n.Shared(language, "desktop.git.cancel")).Outline().Clicked() {
+				c.After(func() { p.runConfigs.deleting = nil })
+			}
+			if ui.Button(c, i18n.Shared(language, "desktop.runConfig.delete")).Destructive().Clicked() {
+				id := d.id
+				c.After(func() {
+					p.runConfigs.deleting = nil
+					a.performed("run.configuration.delete.confirm", surfaceButton)
+					a.deleteRunConfiguration(p, id)
+				})
+			}
+		})
+	})
+	if closed {
+		c.After(func() { p.runConfigs.deleting = nil })
 	}
 }

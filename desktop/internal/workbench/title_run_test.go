@@ -234,23 +234,46 @@ func emptyRunConfigHarness(t *testing.T, root string) (*harness, *project) {
 }
 
 // Edit Configuration on a project without configurations used to open a Run window that showed
-// nothing, which looked like no reaction (#2028); it now says why the list is empty.
-func TestEditRunConfigurationsWithoutAnyExplainsWhy(t *testing.T) {
+// nothing, which looked like no reaction (#2028). It now opens the editor on a new
+// configuration of the platform's first built-in kind; only while no kind is known does it
+// say why the list is empty.
+func TestEditRunConfigurationsWithoutAnyOpensANewConfiguration(t *testing.T) {
 	h, p := emptyRunConfigHarness(t, runConfigRoot(t))
-	h.app.post(func(a *App) { a.editRunConfigurations(p) })
+	awaitStateWithin(t, h, 10*time.Second, "the built-in kinds", func() bool { return p.runConfigs.types != nil })
+	kinds := p.runConfigs.types
+	h.app.post(func(a *App) {
+		p.runConfigs.types = []core.RunConfigurationType{}
+		a.editRunConfigurations(p)
+	})
 	h.settle()
 	want := i18n.Shared(h.app.language(), "desktop.title.nothingToEdit")
 	if got := lastNotice(h); got != want {
 		t.Fatalf("notice = %q, want %q", got, want)
 	}
-	if p.runConfigs.editor.open {
-		t.Fatal("an editor opened without a configuration")
+	if p.runConfigs.editor.open || p.runConfigs.form.open {
+		t.Fatal("an editor opened without a kind")
+	}
+
+	h.app.post(func(a *App) {
+		p.runConfigs.types = kinds
+		a.editRunConfigurations(p)
+	})
+	awaitStateWithin(t, h, 10*time.Second, "the new configuration's form", func() bool {
+		f := &p.runConfigs.form
+		return f.open && !f.loading && len(f.fields) > 0
+	})
+	if f := &p.runConfigs.form; f.provider != runProviderShell || f.id != "" {
+		t.Fatalf("form = provider %q id %q, want a new %s", f.provider, f.id, runProviderShell)
+	}
+	title := i18n.SharedFormat(h.app.language(), "desktop.runConfig.newTitle", map[string]string{"type": i18n.Shared(h.app.language(), "desktop.runConfig.typeShell")})
+	if !h.shows(title) {
+		t.Fatalf("the form titled %q is not shown", title)
 	}
 }
 
 // Saved configurations that no build plugin starts, such as the java.main entries an earlier
-// version wrote into .lithe/run/local.json, stay out of the list; the explanation counts them
-// instead of dropping them silently (#2028).
+// version wrote into .lithe/run/local.json, stay out of the list; the explanation, shown while
+// no built-in kind can be created, counts them instead of dropping them silently (#2028).
 func TestEditRunConfigurationsCountsTheConfigurationsNoBuildPluginStarts(t *testing.T) {
 	root := runConfigRoot(t)
 	local := map[string]any{"version": 2, "configurations": []any{
@@ -273,7 +296,10 @@ func TestEditRunConfigurationsCountsTheConfigurationsNoBuildPluginStarts(t *test
 	if p.runConfigs.hidden != 2 {
 		t.Fatalf("hidden = %d, want 2", p.runConfigs.hidden)
 	}
-	h.app.post(func(a *App) { a.editRunConfigurations(p) })
+	h.app.post(func(a *App) {
+		p.runConfigs.types = []core.RunConfigurationType{}
+		a.editRunConfigurations(p)
+	})
 	h.settle()
 	language := h.app.language()
 	want := i18n.SharedFormat(language, "desktop.title.nothingToEditHidden", map[string]string{"count": "2"})

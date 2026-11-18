@@ -90,10 +90,21 @@ type runConfigRow struct {
 	group, configuration int
 }
 
-// runConfigGroupKey names the build system that provides a configuration: its plugin and
-// build system, whatever root the system was detected at.
+// runProcessGroupKey is the group of the built-in process runs. It starts with the separator
+// no plugin ID holds, so it never names a build system.
+const runProcessGroupKey = "\x00process"
+
+// runConfigGroupKey names the group of a configuration: the built-in runs, or the build
+// system that provides it, by its plugin and build system whatever root the system was
+// detected at, or the plugin a run that cannot resolve needs.
 func runConfigGroupKey(configuration *core.RunConfiguration) string {
-	reference, _ := configuration.BuildReference()
+	if configuration.IsProcess() {
+		return runProcessGroupKey
+	}
+	reference, ok := configuration.BuildReference()
+	if !ok && configuration.Plugin != nil {
+		return configuration.Plugin.ID + "\x00"
+	}
 	return reference.PluginID + "\x00" + reference.BuildSystemID
 }
 
@@ -148,7 +159,7 @@ func (a *App) runScopeLabel(s *runConfigState, scope string) string {
 // collectRunConfigRows groups the configurations of the scope under their build systems, the
 // groups by title and the configurations by name, and lists the rows as they show: each
 // group, then its configurations unless the user closed it.
-func (p *project) collectRunConfigRows() {
+func (p *project) collectRunConfigRows(language i18n.Language) {
 	s := &p.runConfigs
 	b := &s.browser
 	b.groups, b.rows = b.groups[:0], b.rows[:0]
@@ -161,7 +172,7 @@ func (p *project) collectRunConfigRows() {
 		g := slices.IndexFunc(b.groups, func(group runConfigGroup) bool { return group.key == key })
 		if g < 0 {
 			g = len(b.groups)
-			b.groups = append(b.groups, runConfigGroup{key: key, title: p.runConfigGroupTitle(configuration)})
+			b.groups = append(b.groups, runConfigGroup{key: key, title: p.runConfigGroupTitle(language, configuration)})
 		}
 		b.groups[g].configurations = append(b.groups[g].configurations, index)
 	}
@@ -183,10 +194,17 @@ func (p *project) collectRunConfigRows() {
 	}
 }
 
-// runConfigGroupTitle is the title of the group of a configuration: the name its detected
-// build system gives itself, else the build system's identity.
-func (p *project) runConfigGroupTitle(configuration *core.RunConfiguration) string {
-	reference, _ := configuration.BuildReference()
+// runConfigGroupTitle is the title of the group of a configuration: the built-in runs', the
+// name its detected build system gives itself, else the build system's identity, or the name
+// of the plugin a run that cannot resolve needs.
+func (p *project) runConfigGroupTitle(language i18n.Language, configuration *core.RunConfiguration) string {
+	if configuration.IsProcess() {
+		return i18n.Shared(language, "desktop.runConfig.builtInGroup")
+	}
+	reference, ok := configuration.BuildReference()
+	if plugin := configuration.Plugin; !ok && plugin != nil {
+		return cmp.Or(plugin.Name, plugin.ID)
+	}
 	if index := p.buildInstanceIndex(reference); index >= 0 && p.build.instances[index].System.DisplayName != "" {
 		return p.build.instances[index].System.DisplayName
 	}

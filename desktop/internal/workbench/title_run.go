@@ -121,10 +121,18 @@ func (a *App) chooseTitleConfiguration(p *project, id string) {
 }
 
 // editRunConfigurations opens the Run window, which lists the configurations, and the editor
-// of the one the title bar runs. Once the configurations are read and there is none, it says
-// why instead: the Run window would show nothing, so the press looked like it did nothing.
+// of the one the title bar runs. With none chosen it opens the editor of a new built-in run;
+// before the built-in kinds are read it says why there is nothing to edit instead, so the
+// press never looks like it did nothing.
 func (a *App) editRunConfigurations(p *project) {
 	if p == nil {
+		return
+	}
+	configuration := p.titleConfiguration()
+	if configuration == nil && len(p.runConfigs.types) > 0 {
+		// Nothing to edit yet: the editor opens on a new configuration of the platform's
+		// first built-in kind, whose kind the user can still pick from New Configuration.
+		a.openRunConfigForm(p, p.runConfigs.types[0].Provider, "")
 		return
 	}
 	if notice := p.noRunConfigurationsNotice(a.language()); notice != "" {
@@ -132,8 +140,8 @@ func (a *App) editRunConfigurations(p *project) {
 		return
 	}
 	a.openToolWindow(itemRun)
-	if configuration := p.titleConfiguration(); configuration != nil {
-		a.openRunConfigEditor(p, configuration.ID)
+	if configuration != nil && runConfigEditable(*configuration) {
+		a.editRunConfiguration(p, configuration.ID)
 	}
 }
 
@@ -207,9 +215,16 @@ func (a *App) decideTitleAction(p *project, action titleAction, trigger string) 
 	if configuration != nil {
 		facts.Configuration = &core.TitleConfiguration{Kind: "unsupported"}
 		var ok bool
-		if reference, ok = configuration.BuildReference(); ok {
-			index = p.buildInstanceIndex(reference)
-			facts.Configuration = p.titleConfigurationFacts(index, reference)
+		switch {
+		case configuration.Unavailable():
+			facts.Configuration = &core.TitleConfiguration{Kind: "unavailable"}
+		case configuration.IsProcess():
+			facts.Configuration = &core.TitleConfiguration{Kind: "process"}
+		default:
+			if reference, ok = configuration.BuildReference(); ok {
+				index = p.buildInstanceIndex(reference)
+				facts.Configuration = p.titleConfigurationFacts(index, reference)
+			}
 		}
 	}
 	ctx, cancel := context.WithTimeout(p.ctx, kernelCallTimeout)
@@ -229,6 +244,9 @@ func (a *App) decideTitleAction(p *project, action titleAction, trigger string) 
 		a.loadBuildModel(p, index)
 	case "currentFile":
 		a.performCurrentFileAction(p, action)
+	case "unavailable":
+		a.operationRejected("title_run", "unavailable")
+		a.notifyError(a.runConfigUnavailableText(*configuration))
 	case "unsupported":
 		a.notifyInfo(i18n.SharedFormat(a.language(), "desktop.title.configurationNotStartable", map[string]string{"name": configuration.Name}))
 	case "targetMissing":

@@ -3,6 +3,7 @@ package core
 import (
 	"context"
 	"encoding/json"
+	"strings"
 )
 
 // RunProviderReference selects one build provider run: the plugin's build system
@@ -42,6 +43,74 @@ type RunConfiguration struct {
 	Disabled   bool                       `json:"disabled"`
 	Source     string                     `json:"source,omitempty"`
 	Extensions map[string]json.RawMessage `json:"extensions,omitempty"`
+	// Plugin is the plugin the configuration needs, as its document records it.
+	Plugin *RunPluginDependency `json:"plugin,omitempty"`
+	// Availability is set when the saved configuration cannot run, such as when
+	// the plugin it needs is not installed. The host shows it and never starts it.
+	Availability *RunAvailability `json:"availability,omitempty"`
+}
+
+// RunPluginDependency is the plugin a configuration needs: its ID, and what the
+// configuration's plugin document recorded when it was saved. A build run outside
+// a plugin document carries only the ID.
+type RunPluginDependency struct {
+	ID                 string `json:"id"`
+	Name               string `json:"name,omitempty"`
+	Author             string `json:"author,omitempty"`
+	Repository         string `json:"repository,omitempty"`
+	Version            string `json:"version,omitempty"`
+	VersionRequirement string `json:"versionRequirement,omitempty"`
+}
+
+// RunAvailability says why a saved configuration cannot run. Code is
+// pluginMissing, pluginRepositoryMismatch, pluginVersionUnsupported,
+// invalidConfiguration or missingWorkingDirectory; Message is Core's English
+// description, which the host shows only as the detail of its own text.
+type RunAvailability struct {
+	Status  string `json:"status"`
+	Code    string `json:"code"`
+	Message string `json:"message"`
+}
+
+// ProcessProviderPrefix starts the providers of the built-in process runs Core
+// plans without any plugin: shell, PowerShell and batch scripts, and programs.
+const ProcessProviderPrefix = "process."
+
+// IsProcess says the configuration is a built-in process run the host starts itself.
+func (r RunConfiguration) IsProcess() bool {
+	return strings.HasPrefix(r.Provider, ProcessProviderPrefix)
+}
+
+// Unavailable says resolution found that the configuration cannot run.
+func (r RunConfiguration) Unavailable() bool {
+	return r.Availability != nil && r.Availability.Status == "unavailable"
+}
+
+// UserDefined says the user created the configuration, so it can be deleted.
+func (r RunConfiguration) UserDefined() bool {
+	return strings.HasPrefix(r.ID, "user:")
+}
+
+// RunInstalledPlugin is one installed, enabled plugin as `runConfig.resolve`
+// and the edit commands check it: the fields of its plugin.json.
+type RunInstalledPlugin struct {
+	ID               string          `json:"id"`
+	DisplayName      string          `json:"displayName,omitempty"`
+	Version          string          `json:"version"`
+	Repository       string          `json:"repository,omitempty"`
+	PluginAPIVersion *int            `json:"pluginAPIVersion,omitempty"`
+	Requires         json.RawMessage `json:"requires,omitempty"`
+}
+
+// RunConfigChange is one file an edit command changes. Path is workspace-relative
+// with '/', BaseSHA256 the lowercase hex SHA-256 of the bytes Core read (nil when
+// the file did not exist) and Content the new text (nil deletes the file). Core
+// writes nothing: the host applies the changes of one reply as one transaction,
+// and only while every file still has its base bytes.
+type RunConfigChange struct {
+	Path       string  `json:"path"`
+	BaseSHA256 *string `json:"baseSha256"`
+	Content    *string `json:"content"`
 }
 
 // BuildReference is the configuration's build provider selector, when it has one.
@@ -62,26 +131,33 @@ func (r RunConfiguration) BuildReference() (RunProviderReference, bool) {
 type RunConfigResolution struct {
 	Configurations []RunConfiguration `json:"configurations"`
 	Diagnostics    []struct {
-		ID      string `json:"id,omitempty"`
-		Code    string `json:"code"`
+		ID   string `json:"id,omitempty"`
+		Code string `json:"code"`
+		// Path is the workspace-relative file a diagnostic about a whole saved document
+		// names, such as a plugin's TOML document that cannot be read; Core left the
+		// configurations it holds out.
+		Path    string `json:"path,omitempty"`
 		Message string `json:"message"`
 	} `json:"diagnostics"`
 	DefaultRunConfiguration *string `json:"defaultRunConfiguration"`
 }
 
 // ResolveRunConfigurations merges the workspace's run configuration layers
-// (local over team over detected) without writing anything.
-func (c *Client) ResolveRunConfigurations(ctx context.Context, root string) (RunConfigResolution, error) {
+// (local over team over detected) without writing anything. plugins lists the
+// enabled plugins, so a configuration whose plugin is missing comes back
+// unavailable; nil skips that check.
+func (c *Client) ResolveRunConfigurations(ctx context.Context, root string, plugins []RunInstalledPlugin) (RunConfigResolution, error) {
 	var result RunConfigResolution
 	err := c.Execute(ctx, "runConfig.resolve", struct {
-		Root string `json:"root"`
-	}{root}, &result)
+		Root    string               `json:"root"`
+		Plugins []RunInstalledPlugin `json:"plugins,omitempty"`
+	}{root, plugins}, &result)
 	return result, err
 }
 
 // TitleConfiguration describes the configuration the title bar shows, as far as starting it
-// depends on. Kind is "unsupported", "instanceMissing", "modelNotLoaded" (with Failed) or
-// "modelLoaded" (with Debuggable).
+// depends on. Kind is "unsupported", "process", "unavailable", "instanceMissing",
+// "modelNotLoaded" (with Failed) or "modelLoaded" (with Debuggable).
 type TitleConfiguration struct {
 	Kind       string `json:"kind"`
 	Failed     *bool  `json:"failed,omitempty"`
@@ -102,8 +178,8 @@ type TitleActionFacts struct {
 }
 
 // DecideTitleAction asks Core what a title bar press does. The answer is "currentFile",
-// "wait", "loadModel", "unsupported", "targetMissing", "modelFailed", "run", "debug" or
-// "notDebuggable".
+// "wait", "loadModel", "unsupported", "unavailable", "targetMissing", "modelFailed", "run",
+// "debug" or "notDebuggable".
 func (c *Client) DecideTitleAction(ctx context.Context, facts TitleActionFacts) (string, error) {
 	var decision struct {
 		Kind string `json:"kind"`
@@ -179,8 +255,7 @@ func (c *Client) ProviderLaunchInputs(ctx context.Context, root, configurationID
 
 // RunOptionsEdit is a `runConfig.updateOptions` request: the user's arguments
 // (editor text Core splits), working directory and environment for one
-// configuration in the local or project layer. LocalDocument, when set, is the
-// captured local layer Core edits and resolves against instead of reading it.
+// configuration in the local or project layer.
 type RunOptionsEdit struct {
 	Root             string            `json:"root"`
 	Scope            string            `json:"scope"`
@@ -188,9 +263,11 @@ type RunOptionsEdit struct {
 	WorkingDirectory string            `json:"workingDirectory"`
 	Arguments        string            `json:"arguments"`
 	Environment      map[string]string `json:"environment"`
-	LocalDocument    json.RawMessage   `json:"localDocument,omitempty"`
 	// ProviderRunOptions replaces the build provider choices of the selected layer when set.
 	ProviderRunOptions json.RawMessage `json:"providerRunOptions,omitempty"`
+	// Plugins is the enabled plugin list of ResolveRunConfigurations, so a plugin
+	// document Core writes records the installed plugin.
+	Plugins []RunInstalledPlugin `json:"plugins,omitempty"`
 }
 
 // ProviderRunOptionsSnapshot is the typed choices of a build provider configuration
@@ -204,14 +281,14 @@ type ProviderRunOptionsSnapshot struct {
 	Tools            map[string]map[string]string `json:"tools"`
 }
 
-// UpdateRunConfigurationOptions returns the layer document with the edit applied.
-// Core writes nothing; the host publishes the document to the scope's file.
-func (c *Client) UpdateRunConfigurationOptions(ctx context.Context, edit RunOptionsEdit) (string, error) {
+// UpdateRunConfigurationOptions returns the file changes that apply the edit.
+// Core writes nothing; the host applies them as one transaction.
+func (c *Client) UpdateRunConfigurationOptions(ctx context.Context, edit RunOptionsEdit) ([]RunConfigChange, error) {
 	var result struct {
-		Document string `json:"document"`
+		Changes []RunConfigChange `json:"changes"`
 	}
 	err := c.Execute(ctx, "runConfig.updateOptions", edit, &result)
-	return result.Document, err
+	return result.Changes, err
 }
 
 // RunArgumentText formats each argument vector as the editor text that

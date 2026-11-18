@@ -95,3 +95,49 @@ func TestBatchFileUnderASpacedDirectoryReceivesItsArguments(t *testing.T) {
 		t.Fatal("an argument ran a command")
 	}
 }
+
+// A command line Core planned reaches the process unchanged, Executable included, instead of
+// one quoted from the arguments: cmd.exe runs a batch script the way Core wrote its line.
+func TestCommandLineReachesTheProcessUnchanged(t *testing.T) {
+	directory := filepath.Join(t.TempDir(), "spaced dir")
+	if err := os.MkdirAll(directory, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	script := filepath.Join(directory, "run me.cmd")
+	body := "@echo off\r\n\"" + os.Args[0] + "\" \"-test.run=^TestBatchArgumentsHelper$\" -- %*\r\nexit /b %ERRORLEVEL%\r\n"
+	if err := os.WriteFile(script, []byte(body), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	cmd := filepath.Join(os.Getenv("SystemRoot"), "System32", "cmd.exe")
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	defer cancel()
+	var output strings.Builder
+	var mu sync.Mutex
+	process, err := Start(ctx, Spec{
+		Executable:       cmd,
+		WorkingDirectory: directory,
+		Environment:      map[string]string{batchArgumentsMode: "1"},
+		CommandLine:      `cmd /d /s /c ""` + script + `" "a b" c"`,
+	}, func(_ Stream, text string) {
+		mu.Lock()
+		output.WriteString(text)
+		mu.Unlock()
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	waitErr := process.Wait()
+	mu.Lock()
+	text := output.String()
+	mu.Unlock()
+	if waitErr != nil {
+		t.Fatalf("script failed: %v\n%s", waitErr, text)
+	}
+	var got []string
+	if err := json.Unmarshal([]byte(strings.TrimSpace(text)), &got); err != nil {
+		t.Fatalf("output is not the helper's JSON: %v\n%s", err, text)
+	}
+	if want := []string{"a b", "c"}; !slices.Equal(got, want) {
+		t.Fatalf("arguments = %q, want %q", got, want)
+	}
+}
