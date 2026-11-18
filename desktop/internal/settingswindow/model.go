@@ -19,10 +19,9 @@ import (
 type pageID uint8
 
 const (
-	// pageAppearance is the group "Appearance & Behavior"; the seven pages after it belong to it.
+	// pageAppearance is the group "Appearance & Behavior"; the six pages after it belong to it.
 	pageAppearance pageID = iota
 	pageGeneral
-	pageUpdates
 	pageNetwork
 	pageEditor
 	pageFonts
@@ -54,7 +53,6 @@ const (
 var parents = [pageCount]pageID{
 	pageAppearance:         noPage,
 	pageGeneral:            pageAppearance,
-	pageUpdates:            pageAppearance,
 	pageNetwork:            pageAppearance,
 	pageEditor:             pageAppearance,
 	pageFonts:              pageAppearance,
@@ -100,8 +98,6 @@ func titleOf(messages *i18n.SettingsMessages, id pageID) string {
 		return messages.AppearanceBehavior
 	case pageGeneral:
 		return messages.General
-	case pageUpdates:
-		return messages.Updates
 	case pageNetwork:
 		return messages.Network
 	case pageEditor:

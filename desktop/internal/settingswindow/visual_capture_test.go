@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/1lck/Lithe-IDEA/desktop/internal/buildinfo"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/core"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/i18n"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/localshell"
@@ -45,7 +46,7 @@ func TestVisualSettings(t *testing.T) {
 		{"23-settings-keymap", pageKeymap}, {"24-settings-network", pageNetwork},
 		{"25-settings-process", pageProcessTermination}, {"26-settings-git", pageVersionControl}, {"26-settings-git-console", pageVersionControl},
 		{"27-settings-terminal", pageTerminal}, {"28-plugins-installed", pagePlugins},
-		{"29-marketplace-empty", pagePlugins}, {"31-settings-updates", pageUpdates},
+		{"29-marketplace-empty", pagePlugins},
 		{"33-settings-toolchains", pageBuild}, {"m44-toolchain-directory-menu", pageBuild}, {"m45-toolchain-custom-directory", pageBuild},
 		{"m47-toolchain-project-untrusted", pageBuild}, {"m48-toolchain-project-trusted", pageBuild}, {"m49-toolchain-project-trust-click", pageBuild},
 		{"m50-toolchain-project-trust-tip", pageBuild},
@@ -54,7 +55,7 @@ func TestVisualSettings(t *testing.T) {
 		{"m35-editor-tab-layout", pageEditor}, {"m25-project-open-mode", pageGeneral}, {"m29-editor-font-menu", pageFonts}, {"m38-plugin-management-menu", pagePlugins},
 		{"m39-proxy-mode-menu", pageNetwork}, {"m40-process-run-policy", pageProcessTermination},
 		{"m41-process-terminal-policy", pageProcessTermination}, {"m43-process-orphan-policy", pageProcessTermination},
-		{"36-settings-about", pageAbout},
+		{"36-settings-about", pageAbout}, {"36-settings-about-projects", pageAbout},
 	}
 	for _, theme := range []string{"dark", "light"} {
 		for _, scenario := range pages {
@@ -76,8 +77,10 @@ func TestVisualSettings(t *testing.T) {
 					},
 					MonospaceFamilies: func() []string { return []string{"JetBrains Mono", "Menlo"} },
 					Marketplace:       func(context.Context) (marketplace.Snapshot, error) { return marketplace.Snapshot{}, nil },
-					UpdateStatus:      func() UpdateStatus { return UpdateStatus{Configured: true} },
-					Toolchains:        visualToolchainLoader(scenario.id),
+					UpdateStatus: func() UpdateStatus {
+						return UpdateStatus{Configured: true, Installed: buildinfo.ChannelStable, Channel: buildinfo.ChannelStable}
+					},
+					Toolchains: visualToolchainLoader(scenario.id),
 					// Every build can sign in to GitHub; no account is connected yet.
 					GitHub: &GitHubAccount{Snapshot: func() GitHubState { return GitHubState{Available: true} }},
 				}
@@ -109,6 +112,11 @@ func TestVisualSettings(t *testing.T) {
 				case "21-settings-language-popup":
 					d.click(w.text.Settings.Language)
 				case "26-settings-git-console":
+					if err := d.driver.Scroll(gfx.ScrollEvent{X: 700, Y: 500, DeltaY: 900, Viewport: gfx.Size{Width: 900, Height: 700}}); err != nil {
+						t.Fatal(err)
+					}
+				case "36-settings-about-projects":
+					// The project links sit under the update card, past the first screen.
 					if err := d.driver.Scroll(gfx.ScrollEvent{X: 700, Y: 500, DeltaY: 900, Viewport: gfx.Size{Width: 900, Height: 700}}); err != nil {
 						t.Fatal(err)
 					}
