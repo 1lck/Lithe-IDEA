@@ -168,7 +168,7 @@ func (a *App) openRunConfigEditor(p *project, id string) *runConfigEditor {
 			e.loading = false
 			if err == nil {
 				e.arguments = texts[0]
-				e.beforeLaunch = &runConfigSteps{items: slices.Clone(steps.Value)}
+				e.beforeLaunch = newRunConfigSteps(slices.Clone(steps.Value))
 				if e.beforeLaunch.items == nil {
 					e.beforeLaunch.items = []core.RunBeforeLaunchEntry{}
 				}

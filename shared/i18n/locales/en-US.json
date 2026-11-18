@@ -11541,6 +11541,8 @@
     "desktop.runConfig.beforeLaunch.refused.invalidTaskValues": "The before-launch task {task} of {step} has invalid settings; edit it again in the run configuration.",
     "desktop.runConfig.beforeLaunchEdit": "Edit Task",
     "desktop.runConfig.beforeLaunchTaskMissing": "{name} (its plugin is not installed or is turned off)",
+    "desktop.runConfig.beforeLaunchRunStep": "Run '{name}'",
+    "desktop.runConfig.beforeLaunchChooseTitle": "Choose Configuration to Execute",
     "desktop.runConfig.taskAddTitle": "Add Task: {name}",
     "desktop.runConfig.taskEditTitle": "Edit Task: {name}",
     "desktop.runConfig.taskCheckFailed": "Could not check the task: {reason}",

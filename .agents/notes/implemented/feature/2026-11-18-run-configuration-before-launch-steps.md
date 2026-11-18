@@ -9,7 +9,7 @@
 - **运行另一个配置**：引用一个内置进程运行（`process.shell`、`process.powershell`、`process.batch`、`process.executable`），保存为 `{configuration: <id>}`。
 - **插件任务**：插件在构建系统下声明的 `beforeLaunchTasks`（API-29），例如“运行 Go 命令”，保存为 `{task: {pluginID, buildSystemID, type, values}}`。
 
-宿主不内置任何具体任务，也不按插件名字写分支：“添加任务”菜单（标题“添加新任务”，同 IDEA）第一项是“运行另一个配置”子菜单，后面逐项列出已启用插件声明的任务种类，名称、说明、图标和字段都来自插件清单和插件翻译。日常开发里，要加一种新的启动前任务，就去插件清单里声明，不要改宿主。
+宿主不内置任何具体任务，也不按插件名字写分支：“执行前”列表工具栏的“+”弹出“添加新任务”（同 IDEA），第一项“运行另一个配置”打开可运行配置的列表，后面逐项列出已启用插件声明的任务种类，名称、说明、图标和字段都来自插件清单和插件翻译。日常开发里，要加一种新的启动前任务，就去插件清单里声明，不要改宿主。
 
 展开、校验、确认指纹和任务的命令计划都由 Core 完成；宿主只负责画列表、打开任务表单、按顺序启动进程，并把输出写进被启动配置的 Run 控制台。
 
@@ -46,8 +46,10 @@
 
 **编辑界面**
 
-- 内置运行编辑器（字段类型 `beforeLaunch`，候选配置和任务种类都由 Core 给出）和构建提供者运行编辑器都在“运行/调试配置”窗口右侧（#2100），都可以添加、编辑、上移、下移、移除步骤。
-- “添加任务”按钮始终可用。没有可选配置时，“运行另一个配置”子菜单里显示原因，而不是把整个按钮禁用；空列表显示“启动前没有要运行的任务”。
+- 内置运行编辑器（字段类型 `beforeLaunch`，候选配置和任务种类都由 Core 给出）和构建提供者运行编辑器都在“运行/调试配置”窗口右侧（#2100），共用同一段界面，都可以添加、编辑、上移、下移、移除步骤。
+- 界面照 IDEA 的“执行前”还原，放在编辑器最底下、横跨整个表单，不和其他字段一样分左右两栏：标题行是折叠箭头、标题、ⓘ 和延伸到行尾的分隔线，点箭头或标题折叠或展开；下面是带边框的列表，顶部工具栏依次是 + − ✎ ↑ ↓，工具栏下有分隔线；每行是图标和名称（运行配置步骤显示“运行“名称””，任务步骤显示任务名和摘要），选中行整行高亮，列表显示 4 行，超出后滚动。2026-11-18 用户指出旧版（字段式“启动前”+“添加任务”文字按钮+编号列表）不还原，按 IDEA 重做；本次只还原列表，IDEA 下方的“显示此页面”“激活工具窗口”“使工具窗口获得焦点”三个复选框在 #2173 单独做（需要 Core 运行配置模型加字段）。
+- “+”始终可用（列表满 16 项时除外）。“添加新任务”弹窗标题居中加粗；“运行另一个配置”打开“选择要执行的配置”，列出列表里还没有的配置，一个都没有时显示原因，而不是把“+”禁用。空列表在中间显示“启动前没有要运行的任务”。
+- − ✎ ↑ ↓ 要先选中一行，否则禁用；回车、双击等同 ✎，Delete（macOS 上还有 Backspace）等同 −。✎ 对插件任务打开任务表单，对运行配置步骤打开“选择要执行的配置”，选中的配置替换这一步；插件已卸载或停用的任务不能编辑，只能移除。删除后选中下一行，移动时选中跟着移动。
 - 列表改动和其他字段一样算作未保存的修改：内置运行表单经 `runConfigFormEdited` 标脏，构建提供者编辑器把列表纳入 `fingerprint`，并且只有列表改动时才发送 `beforeLaunch`，不会把解析后的列表抄进本地层。“应用”“确定”“运行”会一并保存。
 
 正确做法：插件要提供“运行 Go 命令”，就在清单的构建系统下声明一个 `beforeLaunchTasks` 项和它的字段、参数模板。
@@ -72,8 +74,8 @@
 ## 验证
 
 - Core：`cargo test -p lithe-core before_launch`（`core/src/tests/before_launch_steps.rs` 覆盖展开、确认指纹、拒绝原因、编辑校验和本地层清空；`core/src/tests/before_launch_tasks.rs` 覆盖任务种类列出、值校验、保存和命令计划）。
-- 宿主：`./scripts/desktop/desktop-go.sh test ./internal/workbench/ -run 'BeforeLaunch|TestRunConfigFormKeepsTheStepList|TestRunConfigDialogSavesAnAddedStep|TestRunConfigEditorSavesTheLocalLayer' -count=1`，用真实 Core 和系统 shell/cmd 运行步骤，覆盖顺序、确认与记忆、改动后重新确认、取消、失败退出码和停止，以及在“运行/调试配置”窗口里添加的步骤算作修改并由“应用”保存。其中 `TestPluginDeclaredBeforeLaunchTaskIsAddedAndRunsFirst` 用测试插件覆盖插件任务的整条路径：菜单按中文名列出任务、任务表单显示插件翻译、空的必填值留在表单里、确定后加入列表、确认后任务先于配置运行、保存进插件的运行文档。
-- 截图：`LITHE_VISUAL_OUTPUT_DIR=<目录> ./scripts/desktop/desktop-go.sh test -tags 'vivahead lithevisual' ./internal/workbench/ -run 'TestVisualBeforeLaunchSteps|TestVisualPluginDeclaredRuns' -count=1`，其中 `declared-run-before-launch-menu-*.png` 和 `declared-run-task-form-*.png` 是“添加新任务”菜单和任务表单。
+- 宿主：`./scripts/desktop/desktop-go.sh test ./internal/workbench/ -run 'BeforeLaunch|TestRunConfigFormKeepsTheStepList|TestRunConfigDialogSavesAnAddedStep|TestRunConfigEditorSavesTheLocalLayer' -count=1`，用真实 Core 和系统 shell/cmd 运行步骤，覆盖顺序、确认与记忆、改动后重新确认、取消、失败退出码和停止，以及在“运行/调试配置”窗口里添加的步骤算作修改并由“应用”保存。`TestRunConfigBeforeLaunchToolbarEditsTheList` 覆盖工具栏：未选中时 − ✎ ↑ ↓ 禁用、上移带着选中、✎ 选另一个配置替换这一步、删除后选中下一行、删空后显示空列表提示、标题折叠和展开。其中 `TestPluginDeclaredBeforeLaunchTaskIsAddedAndRunsFirst` 用测试插件覆盖插件任务的整条路径：菜单按中文名列出任务、任务表单显示插件翻译、空的必填值留在表单里、确定后加入列表、确认后任务先于配置运行、保存进插件的运行文档。
+- 截图：`LITHE_VISUAL_OUTPUT_DIR=<目录> ./scripts/desktop/desktop-go.sh test -tags 'vivahead lithevisual' ./internal/workbench/ -run 'TestVisualBeforeLaunchSteps|TestVisualPluginDeclaredRuns' -count=1`，其中 `declared-run-before-launch-menu-*.png` 和 `declared-run-task-form-*.png` 是“添加新任务”菜单和任务表单，`before-launch-editor-*.png` 和 `before-launch-choose-*.png` 是“执行前”列表和“选择要执行的配置”。
 
 ## 适用范围
 

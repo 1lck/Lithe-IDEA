@@ -10,8 +10,8 @@
 | 场景 | 深色中文 | 浅色英文 |
 | --- | --- | --- |
 | 打开“运行/调试配置”并展开“+”菜单：四类内置运行之后列出插件声明的“夹具运行”。每类一行，有说明的类型在名称后面显示 ⓘ，鼠标停在 ⓘ 上才显示说明（插件写的“运行夹具工具。”） | [截图](declared-run-new-menu-dark.png) | [截图](declared-run-new-menu-light.png) |
-| 新建一条夹具运行：配置树里“夹具运行”单独一组；右侧是插件字段（模式、详细输出、目标），标题和选项名都来自插件翻译，下面是宿主统一提供的程序参数、工作目录、环境变量和启动前。名称行勾选了“存为项目文件”和“允许多个实例” | [截图](declared-run-form-dark.png) | [截图](declared-run-form-light.png) |
-| 点启动前的“添加任务”：菜单标题“添加新任务”，第一项是“运行另一个配置”子菜单，后面是插件声明的启动前任务“夹具任务” | [截图](declared-run-before-launch-menu-dark.png) | [截图](declared-run-before-launch-menu-light.png) |
+| 新建一条夹具运行：配置树里“夹具运行”单独一组；右侧是插件字段（模式、详细输出、目标），标题和选项名都来自插件翻译，下面是宿主统一提供的程序参数、工作目录和环境变量；最底下是横跨表单的“执行前”：标题带折叠箭头和 ⓘ，下面是带框列表，顶部工具栏是 + − ✎ ↑ ↓，没有任务时居中显示“启动前没有要运行的任务”。名称行勾选了“存为项目文件”和“允许多个实例” | [截图](declared-run-form-dark.png) | [截图](declared-run-form-light.png) |
+| 点“执行前”工具栏的“+”：弹出“添加新任务”，标题居中加粗，第一项“运行另一个配置”打开可运行配置的列表，后面是插件声明的启动前任务“夹具任务” | [截图](declared-run-before-launch-menu-dark.png) | [截图](declared-run-before-launch-menu-light.png) |
 | 选“夹具任务”后弹出任务自己的表单：标题“添加任务：夹具任务”，下面是插件写的说明和插件翻译的字段“任务目标”；点“确定”由 Core 检查值后才加入列表 | [截图](declared-run-task-form-dark.png) | [截图](declared-run-task-form-light.png) |
 | 点“确定”保存后连续运行两次：Run 窗口里有两个 Fixture Alpha 标签，两个实例都在运行，控制台打印 `run-type ran: fast -v alpha one two`，即 Core 按字段值拼出的参数。旁边的“同步 Fixture Runs”是打开项目时读取构建模型的会话 | [截图](declared-run-two-instances-dark.png) | [截图](declared-run-two-instances-light.png) |
 

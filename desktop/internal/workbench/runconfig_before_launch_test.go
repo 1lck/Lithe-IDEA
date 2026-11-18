@@ -349,3 +349,98 @@ func TestPluginDeclaredBeforeLaunchTaskIsAddedAndRunsFirst(t *testing.T) {
 		t.Fatalf("saved configuration = %+v", saved)
 	}
 }
+
+// The Before Launch section works as IntelliJ IDEA's: "−", the pencil and the arrows wait for
+// a selected step; the arrows move it and the selection with it; the pencil on a run step
+// opens the list of configurations to run, and the one chosen takes the step's place; "−"
+// removes the step and selects the next; with no step left the list says so; the title folds
+// the section and opens it again. Every change counts as an edit of the configuration.
+func TestRunConfigBeforeLaunchToolbarEditsTheList(t *testing.T) {
+	root := t.TempDir()
+	writeBeforeLaunchDocument(t, root, "local.yaml",
+		beforeLaunchEcho("user:generate", "step-generate"),
+		beforeLaunchEcho("user:compile", "step-compile"),
+		beforeLaunchEcho("user:lint", "step-lint"),
+		beforeLaunchEcho("user:app", "app-ran", "user:generate", "user:compile"),
+	)
+	h, p := openBeforeLaunchProject(t, root)
+	d := &p.runConfigs.dialog
+	h.app.post(func(a *App) { a.openRunConfigDialog(p, "user:app") })
+	var f *runConfigForm
+	awaitStateWithin(t, h, 10*time.Second, "the editor of app", func() bool {
+		if draft := d.drafts["user:app"]; draft != nil {
+			f = draft.form
+		}
+		return f != nil && f.ready() && f.beforeLaunch != nil
+	})
+	h.settle()
+	language := h.app.language()
+	text := func(id string) string { return i18n.Shared(language, id) }
+	runStep := func(name string) string {
+		return i18n.SharedFormat(language, "desktop.runConfig.beforeLaunchRunStep", map[string]string{"name": name})
+	}
+	order := func() []string {
+		var ids []string
+		for _, entry := range f.beforeLaunch.items {
+			ids = append(ids, entry.ConfigurationID)
+		}
+		return ids
+	}
+	remove, edit, up, down := text("desktop.runConfig.beforeLaunchRemove"), text("desktop.runConfig.beforeLaunchEdit"),
+		text("desktop.runConfig.beforeLaunchUp"), text("desktop.runConfig.beforeLaunchDown")
+	if !h.shows(runStep("generate")) || !h.shows(runStep("compile")) {
+		t.Fatal("the list does not show the saved steps as runs of their configurations")
+	}
+	for _, name := range []string{remove, edit, up, down} {
+		if !h.pageHit(name).Disabled {
+			t.Fatalf("%q acts with no step selected", name)
+		}
+	}
+
+	h.clickNamed(runStep("compile"))
+	h.settle()
+	if f.beforeLaunch.selected != 1 || h.pageHit(remove).Disabled || h.pageHit(up).Disabled || !h.pageHit(down).Disabled {
+		t.Fatalf("after selecting the last step: selected %d, remove/up/down disabled %v/%v/%v",
+			f.beforeLaunch.selected, h.pageHit(remove).Disabled, h.pageHit(up).Disabled, h.pageHit(down).Disabled)
+	}
+	h.clickNamed(up)
+	h.settle()
+	if !slices.Equal(order(), []string{"user:compile", "user:generate"}) || f.beforeLaunch.selected != 0 || !d.dirty() {
+		t.Fatalf("after moving up: steps %v, selected %d, dirty %v", order(), f.beforeLaunch.selected, d.dirty())
+	}
+
+	h.clickNamed(edit)
+	h.settle()
+	if !f.beforeLaunch.choose || !h.shows(text("desktop.runConfig.beforeLaunchChooseTitle")) {
+		t.Fatal("the pencil on a run step does not open the list of configurations to run")
+	}
+	h.clickNamed("lint")
+	h.settle()
+	if !slices.Equal(order(), []string{"user:lint", "user:generate"}) || f.beforeLaunch.selected != 0 || f.beforeLaunch.choose {
+		t.Fatalf("after choosing lint for the first step: steps %v, selected %d, chooser open %v", order(), f.beforeLaunch.selected, f.beforeLaunch.choose)
+	}
+
+	h.clickNamed(remove)
+	h.settle()
+	if !slices.Equal(order(), []string{"user:generate"}) || f.beforeLaunch.selected != 0 {
+		t.Fatalf("after removing the first step: steps %v, selected %d", order(), f.beforeLaunch.selected)
+	}
+	h.clickNamed(remove)
+	h.settle()
+	empty := text("desktop.runConfig.beforeLaunchEmpty")
+	if len(order()) != 0 || f.beforeLaunch.selected != -1 || !h.shows(empty) {
+		t.Fatalf("after removing the last step: steps %v, selected %d, empty note shown %v", order(), f.beforeLaunch.selected, h.shows(empty))
+	}
+
+	title := text("desktop.runConfig.fieldBeforeLaunch")
+	h.clickNamed(text("native.collapseSection") + " " + title)
+	h.settle()
+	if !f.beforeLaunch.collapsed || h.shows(empty) {
+		t.Fatal("the title does not fold the section")
+	}
+	h.clickNamed(text("native.expandSection") + " " + title)
+	h.settle()
+	if f.beforeLaunch.collapsed || !h.shows(empty) {
+		t.Fatal("the title does not open the folded section")
+	}
+}

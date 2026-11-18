@@ -16163,7 +16163,7 @@
     },
     {
       "id": "desktop.runConfig.beforeLaunchRunAnother",
-      "description": "Item of the add-task menu whose submenu lists the run configurations that can start first.",
+      "description": "Item of the add-task menu that opens the list of run configurations that can start first.",
       "platforms": [
         "desktop"
       ]
@@ -16265,6 +16265,23 @@
       "parameters": {
         "name": "string"
       }
+    },
+    {
+      "id": "desktop.runConfig.beforeLaunchRunStep",
+      "description": "Row of a before-launch step that runs another run configuration, as in IntelliJ IDEA; name is that configuration's name.",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "name": "string"
+      }
+    },
+    {
+      "id": "desktop.runConfig.beforeLaunchChooseTitle",
+      "description": "Heading of the list that picks the run configuration a before-launch step runs, as in IntelliJ IDEA.",
+      "platforms": [
+        "desktop"
+      ]
     },
     {
       "id": "desktop.runConfig.taskAddTitle",

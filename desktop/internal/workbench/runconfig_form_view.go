@@ -262,8 +262,8 @@ func visibleRunConfigField(field core.RunEditorField, values map[string]json.Raw
 }
 
 // drawRunConfigFormFields declares the header row, then every other field that shows for the
-// edited values. A wrong value's reason sits under its field; one for a field not drawn sits
-// at the end.
+// edited values, and last the Before Launch section, which spans the form as IDEA's does. A
+// wrong value's reason sits under its field; one for a field not drawn sits at the end.
 func (a *App) drawRunConfigFormFields(c ui.C, p *project, f *runConfigForm, ready bool) {
 	if f.fields == nil {
 		return
@@ -271,15 +271,18 @@ func (a *App) drawRunConfigFormFields(c ui.C, p *project, f *runConfigForm, read
 	language := a.language()
 	values := f.collect()
 	drawn := map[string]bool{}
-	var header, body []core.RunEditorField
+	var header, body, sections []core.RunEditorField
 	for _, field := range f.fields {
 		if !f.drawable(language, field) || !visibleRunConfigField(field, values) {
 			continue
 		}
 		drawn[field.ID] = true
-		if field.Placement == "header" {
+		switch {
+		case field.Kind == runFieldBeforeLaunch:
+			sections = append(sections, field)
+		case field.Placement == "header":
 			header = append(header, field)
-		} else {
+		default:
 			body = append(body, field)
 		}
 	}
@@ -296,6 +299,14 @@ func (a *App) drawRunConfigFormFields(c ui.C, p *project, f *runConfigForm, read
 	}
 	for _, field := range body {
 		a.drawRunConfigFormField(c.Key(field.ID), p, f, field, ready)
+	}
+	for _, field := range sections {
+		k := c.Key(field.ID)
+		title, _ := runConfigFieldTitle(language, field)
+		ui.Column(k).FillWidth().Gap(4).Children(func() {
+			a.drawRunConfigBeforeLaunch(k, p, f.beforeLaunch, title, runConfigFieldHelp(language, f.kind.provider, field), field.Candidates, field.Tasks, ready, func() { a.runConfigFormEdited(p, f) })
+			a.drawRunConfigFormError(k, f, field.ID, 0)
+		})
 	}
 	for _, wrong := range f.fields {
 		if !drawn[wrong.ID] {
@@ -330,7 +341,7 @@ func (a *App) drawRunConfigFormHeaderField(c ui.C, p *project, f *runConfigForm,
 func (a *App) drawRunConfigFormField(c ui.C, p *project, f *runConfigForm, field core.RunEditorField, ready bool) {
 	language := a.language()
 	label, _ := runConfigFieldTitle(language, field)
-	tall := field.Kind == runFieldMultilineText || field.Kind == runFieldEnvironment || field.Kind == runFieldBeforeLaunch
+	tall := field.Kind == runFieldMultilineText || field.Kind == runFieldEnvironment
 	ui.Column(c).FillWidth().Gap(4).Children(func() {
 		row := ui.Row(c).FillWidth().Gap(12)
 		if tall {
@@ -375,8 +386,6 @@ func (a *App) drawRunConfigFormControl(c ui.C, p *project, f *runConfigForm, fie
 	switch field.Kind {
 	case runFieldEnvironment:
 		a.drawRunConfigVariables(c, p, f, ready)
-	case runFieldBeforeLaunch:
-		a.drawRunConfigBeforeLaunch(c, p, f.beforeLaunch, field.Candidates, field.Tasks, ready, func() { a.runConfigFormEdited(p, f) })
 	case runFieldChoice:
 		options := field.Options
 		if ui.Choice(c, f.texts[field.ID], options, func(option string) string {
