@@ -575,6 +575,8 @@ type SettingsMessages struct {
 	Plugins            string
 	VersionControl     string
 	Build              string
+	Toolchains         string
+	Debuggers          string
 	Languages          string
 	Tools              string
 	AI                 string

@@ -54,8 +54,13 @@ type ToolchainRegistry struct {
 // ToolchainToolDefinition is the part of a tool definition the host reads. Core
 // remains the authority for validation and resolution.
 type ToolchainToolDefinition struct {
-	ID                string                      `json:"id"`
-	DisplayName       string                      `json:"displayName"`
+	ID          string `json:"id"`
+	DisplayName string `json:"displayName"`
+	// Category and Audience only place the tool on the settings page
+	// (toolDefinitions 1): runtime, build, package, debug, lint or other, and
+	// user or plugin.
+	Category          string                      `json:"category,omitempty"`
+	Audience          string                      `json:"audience,omitempty"`
 	ExecutableLayouts []ToolchainExecutableLayout `json:"executableLayouts"`
 	Executables       []ToolchainExecutable       `json:"executables"`
 	Version           ToolchainVersionRule        `json:"version"`
@@ -401,6 +406,7 @@ type toolchainOutcome struct {
 	Version     *ToolchainVersion       `json:"version"`
 	Preferences json.RawMessage         `json:"preferences"`
 	Edit        json.RawMessage         `json:"edit"`
+	View        *ToolchainSettingsView  `json:"view"`
 }
 
 func (o toolchainOutcome) failure(command string) error {
@@ -604,4 +610,107 @@ func (c *Client) EditToolchainPins(ctx context.Context, document json.RawMessage
 		return nil, newParseError(command, "toolchains.editPins returned no document", "")
 	}
 	return result.Edit.Document, nil
+}
+
+// ToolchainSettingsTool is one enabled tool's facts for the settings list.
+// Reason is the resolver's code when no installation applies; Terms are extra
+// searchable text such as versions and paths (at most 16).
+type ToolchainSettingsTool struct {
+	ID          string   `json:"id"`
+	DisplayName string   `json:"displayName"`
+	PluginID    string   `json:"pluginID"`
+	PluginName  string   `json:"pluginName,omitempty"`
+	Category    string   `json:"category,omitempty"`
+	Audience    string   `json:"audience,omitempty"`
+	Reason      string   `json:"reason,omitempty"`
+	Pinned      bool     `json:"pinned,omitempty"`
+	Changed     bool     `json:"changed,omitempty"`
+	Terms       []string `json:"terms,omitempty"`
+}
+
+// ToolchainSettingsQuery is what the user typed and chose above the list.
+// Filter is all, problems, pinned or changed; GroupBy is category, plugin or
+// none. Collapsed and Expanded hold the group keys the user folded or opened.
+type ToolchainSettingsQuery struct {
+	Text      string   `json:"text"`
+	Filter    string   `json:"filter"`
+	GroupBy   string   `json:"groupBy"`
+	Collapsed []string `json:"collapsed"`
+	Expanded  []string `json:"expanded"`
+}
+
+// ToolchainSettingsViewRequest asks Core for the settings list projection.
+type ToolchainSettingsViewRequest struct {
+	Tools      []ToolchainSettingsTool `json:"tools"`
+	Query      ToolchainSettingsQuery  `json:"query"`
+	IssueLimit int                     `json:"issueLimit,omitempty"`
+}
+
+// ToolchainSettingsRow is a group header (Kind "group") or a tool row (Kind
+// "tool", Index into the request's tools). Status is error, warning or ok.
+type ToolchainSettingsRow struct {
+	Kind      string `json:"kind"`
+	Key       string `json:"key,omitempty"`
+	Count     int    `json:"count,omitempty"`
+	Problems  int    `json:"problems,omitempty"`
+	Collapsed bool   `json:"collapsed,omitempty"`
+	Category  string `json:"category,omitempty"`
+	Audience  string `json:"audience,omitempty"`
+	PluginID  string `json:"pluginID,omitempty"`
+	Title     string `json:"title,omitempty"`
+	Index     int    `json:"index"`
+	Status    string `json:"status,omitempty"`
+}
+
+// ToolchainSettingsIssue is one of the first problems over every tool. Group is the key of
+// the group the tool is listed under when the query groups.
+type ToolchainSettingsIssue struct {
+	Index  int    `json:"index"`
+	Status string `json:"status"`
+	Group  string `json:"group,omitempty"`
+}
+
+// ToolchainSettingsCounts always cover every tool, whatever the query.
+type ToolchainSettingsCounts struct {
+	Total    int `json:"total"`
+	Matched  int `json:"matched"`
+	Problems int `json:"problems"`
+	Errors   int `json:"errors"`
+	Warnings int `json:"warnings"`
+	Pinned   int `json:"pinned"`
+	Changed  int `json:"changed"`
+}
+
+// ToolchainSettingsView is Core's projection of the settings list: the rows to
+// show, the first problems and the counts.
+type ToolchainSettingsView struct {
+	Rows   []ToolchainSettingsRow   `json:"rows"`
+	Issues []ToolchainSettingsIssue `json:"issues"`
+	Counts ToolchainSettingsCounts  `json:"counts"`
+}
+
+// ToolchainSettingsViewOf classifies, filters, groups, folds and counts the
+// settings list. The host renders the rows and never re-sorts or classifies.
+func (c *Client) ToolchainSettingsViewOf(ctx context.Context, request ToolchainSettingsViewRequest) (ToolchainSettingsView, error) {
+	const command = "toolchains.settingsView"
+	if request.Tools == nil {
+		request.Tools = []ToolchainSettingsTool{}
+	}
+	if request.Query.Collapsed == nil {
+		request.Query.Collapsed = []string{}
+	}
+	if request.Query.Expanded == nil {
+		request.Query.Expanded = []string{}
+	}
+	var result toolchainOutcome
+	if err := c.Execute(ctx, command, request, &result); err != nil {
+		return ToolchainSettingsView{}, err
+	}
+	if err := result.failure(command); err != nil {
+		return ToolchainSettingsView{}, err
+	}
+	if result.View == nil {
+		return ToolchainSettingsView{}, newParseError(command, "toolchains.settingsView returned no view", "")
+	}
+	return *result.View, nil
 }

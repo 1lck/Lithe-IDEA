@@ -2,8 +2,10 @@ package settingswindow
 
 import (
 	"context"
+	"errors"
 	"slices"
 	"strings"
+	"sync/atomic"
 	"testing"
 
 	"github.com/1lck/Lithe-IDEA/desktop/internal/core"
@@ -13,10 +15,11 @@ import (
 
 type fakeToolchainLoader struct {
 	snapshot   toolchain.Snapshot
-	loaded     chan struct{}
 	saved      chan []toolchain.Edit
 	saveErr    error
 	inspectErr error
+	// loads counts the reads; the window reads on an effect goroutine.
+	loads atomic.Int32
 }
 
 func (f *fakeToolchainLoader) Inspect(_ context.Context, _ toolchain.Snapshot, _ string, home string) (core.ToolchainSelection, error) {
@@ -24,9 +27,7 @@ func (f *fakeToolchainLoader) Inspect(_ context.Context, _ toolchain.Snapshot, _
 }
 
 func (f *fakeToolchainLoader) Load(context.Context) (toolchain.Snapshot, error) {
-	if f.loaded != nil {
-		close(f.loaded)
-	}
+	f.loads.Add(1)
 	return f.snapshot, nil
 }
 
@@ -54,107 +55,107 @@ func (f *fakeToolchainLoader) Save(_ context.Context, snapshot toolchain.Snapsho
 	return snapshot, nil
 }
 
+const fixtureTool = "dev.example:compiler"
+
 func fixtureSnapshot() toolchain.Snapshot {
+	home := "/fixture/compiler"
 	return toolchain.Snapshot{
 		Root:      "/fixture",
 		Directory: ".",
 		Tools: []toolchain.Tool{{
-			ID:          "dev.example:compiler",
-			DisplayName: "Compiler",
-			PluginID:    "dev.example",
+			ID:            fixtureTool,
+			DisplayName:   "Compiler",
+			PluginID:      "dev.example",
+			AutomaticHome: home,
+			Automatic:     &core.ToolchainSelection{Home: &home, Executable: home + "/bin/compiler", Version: "1.2.3", Provider: "host:system"},
 			Installations: []core.ToolchainInstallation{{
-				Home: "/fixture/compiler", Version: "1.2.3", Provider: "host:system",
+				Home: home, Version: "1.2.3", Provider: "host:system",
 			}},
 		}},
 	}
 }
 
-// toolchainWindow opens a settings window on the Build page with loader and waits for its
-// first load.
-func toolchainWindow(t *testing.T, loader *fakeToolchainLoader) (*window, *windowDriver) {
+// toolchainWindow opens a settings window on the Toolchains page with loader and waits for the
+// shown scope's first load and list.
+func toolchainWindow(t *testing.T, loader ToolchainLoader) (*window, *windowDriver) {
 	t.Helper()
 	w := newWindow(NewController(Options{Toolchains: loader}), Values{})
-	w.sess.page = pageBuild
+	w.sess.page = pageToolchains
 	d := openWindow(t, w)
-	d.until("the toolchains to load", func() bool { return w.toolchains.loaded })
+	d.until("the toolchains to load", func() bool { return w.toolchains.current().loaded && w.toolchains.view.ready })
+	d.pump()
 	return w, d
 }
 
-func installationLabel() string {
-	return i18n.SharedFormat(i18n.English, "desktop.toolchains.installation", map[string]string{
-		"home": "/fixture/compiler", "version": "1.2.3", "provider": "host:system",
-	})
-}
+func en(id string) string { return i18n.Shared(i18n.English, id) }
 
-// chooseToolchain chooses entry in the fixture tool's directory list, by the label the list
-// shows for it.
+// chooseToolchain chooses the radio row labeled entry among the chosen tool's choices.
 func (d *windowDriver) chooseToolchain(entry string) {
 	d.t.Helper()
-	d.click("Compiler")
 	d.click(entry)
 	d.pump()
 }
 
-// enterToolchainDirectory chooses Custom… in the fixture tool's list and checks home there.
+// enterToolchainDirectory opens the chosen tool's add-directory field, types home and checks it.
 func (d *windowDriver) enterToolchainDirectory(home string) {
 	d.t.Helper()
-	d.chooseToolchain(i18n.Shared(i18n.English, "desktop.toolchains.custom"))
-	d.click(i18n.Shared(i18n.English, "desktop.toolchains.directory"))
+	d.click(en("desktop.buildSettings.addDirectory"))
+	d.pump()
+	d.click(en("desktop.toolchains.directory"))
 	d.typeText(home)
-	d.click(i18n.Shared(i18n.English, "desktop.toolchains.useDirectory"))
+	d.click(en("desktop.buildSettings.checkAndUse"))
 }
 
-// TestToolchainListShowsAutomaticAndHidesTheDirectoryUntilCustom opens the Build page on a tool
-// discovery found: its list reads the automatic entry with the directory discovery picks, offers
-// the installation and Custom…, and shows the directory field only while Custom… is chosen.
-func TestToolchainListShowsAutomaticAndHidesTheDirectoryUntilCustom(t *testing.T) {
-	snapshot := fixtureSnapshot()
-	snapshot.Tools[0].AutomaticHome = "/fixture/compiler"
-	w, d := toolchainWindow(t, &fakeToolchainLoader{snapshot: snapshot})
-	automatic := i18n.SharedFormat(i18n.English, "desktop.toolchains.automatic", map[string]string{"value": "/fixture/compiler"})
-	custom := i18n.Shared(i18n.English, "desktop.toolchains.custom")
-	directory := i18n.Shared(i18n.English, "desktop.toolchains.directory")
-	if !d.showsWrapped(automatic) {
-		t.Fatalf("the list does not read %q", automatic)
-	}
-	if d.has(directory) {
-		t.Fatal("the directory field shows before Custom… is chosen")
-	}
-	d.click("Compiler")
+// applyBuild clicks the footer's Apply and waits for its writes to end.
+func (d *windowDriver) applyBuild() {
+	d.t.Helper()
+	d.click(en("desktop.buildSettings.apply"))
+	d.until("the apply to end", func() bool { return !d.w.apply.active() && !d.w.toolchains.saving })
 	d.pump()
-	if !d.has(installationLabel()) || !d.has(custom) {
-		t.Fatalf("the open list has the installation = %v and Custom… = %v, want both", d.has(installationLabel()), d.has(custom))
+}
+
+// The chosen tool lists what it falls back to, each installation once and the link that opens
+// the directory field, which stays closed until it is asked for and writes no draft.
+func TestToolchainChoicesListAutomaticAndOpenTheDirectoryOnDemand(t *testing.T) {
+	w, d := toolchainWindow(t, &fakeToolchainLoader{snapshot: fixtureSnapshot()})
+	automatic := i18n.SharedFormat(i18n.English, "desktop.buildSettings.autoWith", map[string]string{
+		"version": "1.2.3", "source": toolchainSourceLabel(i18n.English, "host:system"),
+	})
+	if !d.has(automatic) || !d.has("/fixture/compiler") {
+		t.Fatalf("the choices have automatic = %v and the installation = %v, want both", d.has(automatic), d.has("/fixture/compiler"))
 	}
-	d.click(custom)
+	directory := en("desktop.toolchains.directory")
+	if d.has(directory) {
+		t.Fatal("the directory field shows before it is asked for")
+	}
+	d.click(en("desktop.buildSettings.addDirectory"))
 	d.pump()
 	if !d.has(directory) {
-		t.Fatal("choosing Custom… did not show the directory field")
+		t.Fatal("Add directory did not open the field")
 	}
-	if w.toolchains.hasDraft() {
-		t.Fatal("choosing Custom… made a draft before a directory was checked")
+	if w.toolchains.drafts(w.toolchains.scope) != 0 {
+		t.Fatal("opening the field made a draft before a directory was checked")
 	}
-	d.chooseToolchain(automatic)
+	// The footer has a Cancel too; the field's is the one drawn first.
+	d.clickHit(d.first(en("desktop.buildSettings.cancel")))
+	d.pump()
 	if d.has(directory) {
-		t.Fatal("choosing another entry left the directory field")
+		t.Fatal("Cancel left the directory field")
 	}
 }
 
-func TestToolchainDraftSavesOnlyExplicitChanges(t *testing.T) {
+func TestToolchainDraftAppliesOnlyExplicitChanges(t *testing.T) {
 	loader := &fakeToolchainLoader{snapshot: fixtureSnapshot(), saved: make(chan []toolchain.Edit, 1)}
 	w, d := toolchainWindow(t, loader)
 	state := w.toolchains
-	if len(state.snapshot.Tools) != 1 {
-		t.Fatalf("load state = %+v", state)
-	}
-	if state.hasDraft() {
+	if state.drafts(state.scope) != 0 {
 		t.Fatal("a freshly loaded page already had a draft")
 	}
-	save := i18n.Shared(i18n.English, "desktop.toolchains.save")
-	if !d.hit(save).Disabled {
-		t.Fatal("Save is enabled without a draft")
+	if !d.hit(en("desktop.buildSettings.apply")).Disabled {
+		t.Fatal("Apply is enabled without a draft")
 	}
-	d.chooseToolchain(installationLabel())
-	if !state.hasDraft() {
+	d.chooseToolchain("/fixture/compiler")
+	if state.drafts(state.scope) != 1 {
 		t.Fatal("choosing an installation did not create a draft")
 	}
 	select {
@@ -162,40 +163,38 @@ func TestToolchainDraftSavesOnlyExplicitChanges(t *testing.T) {
 		t.Fatalf("choosing wrote %+v", edits)
 	default:
 	}
-	d.click(save)
-	d.until("the save to finish", func() bool { return state.saved })
+	d.applyBuild()
 	select {
 	case edits := <-loader.saved:
 		if len(edits) != 1 || edits[0].Pin == nil || edits[0].Pin.Home != "/fixture/compiler" {
 			t.Fatalf("edits = %+v", edits)
 		}
 	default:
-		t.Fatal("save was not requested")
+		t.Fatal("Apply did not write")
 	}
-	if state.snapshot.Tools[0].Pin == nil {
-		t.Fatalf("saved state = %+v", state)
+	if state.current().snapshot.Tools[0].Pin == nil || state.drafts(state.scope) != 0 {
+		t.Fatalf("applied state = %+v", state.current())
 	}
 }
 
-func TestToolchainManualDirectoryIsValidatedBeforeAnExplicitSave(t *testing.T) {
+func TestToolchainManualDirectoryIsValidatedBeforeAnExplicitApply(t *testing.T) {
 	loader := &fakeToolchainLoader{snapshot: fixtureSnapshot(), saved: make(chan []toolchain.Edit, 1)}
 	w, d := toolchainWindow(t, loader)
 	d.enterToolchainDirectory("/fixture/custom")
-	d.until("the checked directory", func() bool { return w.toolchains.draft["dev.example:compiler"] == "/fixture/custom" })
+	d.until("the checked directory", func() bool { return w.toolchains.current().draft[fixtureTool] == "/fixture/custom" })
 	select {
 	case edits := <-loader.saved:
 		t.Fatalf("validating a directory wrote %+v", edits)
 	default:
 	}
-	d.click(i18n.Shared(i18n.English, "desktop.toolchains.save"))
-	d.until("the manual directory to save", func() bool { return w.toolchains.saved })
+	d.applyBuild()
 	select {
 	case edits := <-loader.saved:
 		if len(edits) != 1 || edits[0].Pin == nil || edits[0].Pin.Home != "/fixture/custom" || edits[0].Pin.Version != "9.1" {
 			t.Fatalf("manual directory pin = %+v", edits)
 		}
 	default:
-		t.Fatal("manual directory was not saved")
+		t.Fatal("the manual directory was not written")
 	}
 }
 
@@ -203,59 +202,59 @@ type scopedToolchainLoader struct{ fakeToolchainLoader }
 
 func (f *scopedToolchainLoader) LoadScope(ctx context.Context, scope string) (toolchain.Snapshot, error) {
 	result, err := f.Load(ctx)
-	result.Global = scope == "global"
+	result.Global = scope == scopeGlobal
 	return result, err
 }
 
-func TestGlobalToolchainsKeepMultipleManualSDKsWithoutAProject(t *testing.T) {
+// Without a project the page opens on the machine defaults, and one Apply registers every
+// directory the user checked, not only the one chosen.
+func TestGlobalToolchainsRegisterEveryCheckedSDKWithoutAProject(t *testing.T) {
 	fixture := fixtureSnapshot()
 	fixture.Root = ""
 	loader := &scopedToolchainLoader{fakeToolchainLoader{snapshot: fixture, saved: make(chan []toolchain.Edit, 1)}}
-	w := newWindow(NewController(Options{Toolchains: loader}), Values{})
-	w.sess.page = pageBuild
-	d := openWindow(t, w)
-	d.until("global toolchains without a project", func() bool { return w.toolchains.loaded })
-	if !w.toolchains.snapshot.Global || !d.text("Global defaults") || !d.text("Compiler") {
+	w, d := toolchainWindow(t, loader)
+	if !w.toolchains.current().snapshot.Global || !d.text("Compiler") {
 		t.Fatal("the toolchain page requires a project or does not default to global")
+	}
+	d.until("the project scope to read no project", func() bool { return w.toolchains.noProject() })
+	d.pump()
+	if !d.hit(en("desktop.toolchains.project")).Disabled {
+		t.Fatal("the project scope can be chosen without a project")
 	}
 	for _, home := range []string{"/fixture/sdk8", "/fixture/sdk21"} {
 		d.enterToolchainDirectory(home)
-		d.until("the checked SDK", func() bool { return w.toolchains.draft["dev.example:compiler"] == home })
-		// Clear the input for the next native text entry without changing its draft.
-		*w.toolchains.inputs["dev.example:compiler"] = ""
+		d.until("the checked SDK", func() bool { return w.toolchains.current().draft[fixtureTool] == home })
+		d.pump()
 	}
-	if got := w.toolchains.snapshot.Tools[0].CustomHomes; !slices.Equal(got, []string{"/fixture/sdk8", "/fixture/sdk21"}) {
-		t.Fatalf("manual SDK registrations = %v", got)
-	}
-	if !d.hit("Current project").Disabled {
-		t.Fatal("switching scopes could discard an unsaved registration")
+	if !d.has("/fixture/sdk8") || !d.has("/fixture/sdk21") {
+		t.Fatal("a checked SDK is not listed as a choice")
 	}
 	select {
 	case <-loader.saved:
 		t.Fatal("directory validation published settings")
 	default:
 	}
-	d.click(i18n.Shared(i18n.English, "desktop.toolchains.save"))
-	d.until("global SDKs saved", func() bool { return w.toolchains.saved })
-	if w.toolchains.hasDraft() {
-		t.Fatal("saved registrations remain dirty")
+	d.applyBuild()
+	state := w.toolchains.current()
+	if len(state.draft) != 0 {
+		t.Fatal("applied registrations remain dirty")
 	}
-	if len(w.toolchains.snapshot.Tools[0].CustomHomes) != 2 {
-		t.Fatal("saving lost a registered SDK")
+	if got := state.snapshot.Tools[0].CustomHomes; !slices.Equal(got, []string{"/fixture/sdk8", "/fixture/sdk21"}) {
+		t.Fatalf("manual SDK registrations = %v", got)
 	}
 }
 
 func TestToolchainDraftCancelWritesNothing(t *testing.T) {
 	loader := &fakeToolchainLoader{snapshot: fixtureSnapshot(), saved: make(chan []toolchain.Edit, 1)}
 	w, d := toolchainWindow(t, loader)
-	d.chooseToolchain(installationLabel())
-	d.click("Cancel")
+	d.chooseToolchain("/fixture/compiler")
+	d.click(en("ui.cancel"))
 	select {
 	case edits := <-loader.saved:
 		t.Fatalf("cancel wrote %+v", edits)
 	default:
 	}
-	if !w.toolchains.hasDraft() {
+	if w.toolchains.drafts(w.toolchains.scope) != 1 {
 		t.Fatal("cancel must keep the draft until the window is gone")
 	}
 	if !w.sess.finished.Load() {
@@ -263,47 +262,54 @@ func TestToolchainDraftCancelWritesNothing(t *testing.T) {
 	}
 }
 
-func TestToolchainSaveConflictKeepsDraft(t *testing.T) {
+func TestToolchainApplyConflictKeepsDraft(t *testing.T) {
 	loader := &fakeToolchainLoader{
 		snapshot: fixtureSnapshot(), saved: make(chan []toolchain.Edit, 1),
 		saveErr: toolchain.ErrPinConflict,
 	}
 	w, d := toolchainWindow(t, loader)
 	state := w.toolchains
-	d.chooseToolchain(installationLabel())
-	d.click(i18n.Shared(i18n.English, "desktop.toolchains.save"))
-	d.until("the conflict", func() bool { return state.failed != nil })
+	d.chooseToolchain("/fixture/compiler")
+	d.applyBuild()
+	if state.failed == nil || w.apply.failed == nil {
+		t.Fatalf("the conflict did not stop the apply: page %v, footer %v", state.failed, w.apply.failed)
+	}
 	message := toolchainFailureMessage(i18n.Chinese, state.failed)
 	if !strings.Contains(message, "重新加载") || strings.Contains(message, toolchain.ErrPinConflict.Error()) {
 		t.Fatalf("conflict did not use the selected language: %q", message)
 	}
-	if !d.text(toolchainFailureMessage(i18n.English, state.failed)) {
+	if english := toolchainFailureMessage(i18n.English, state.failed); !d.showsWrapped(english) && !d.text(english) {
 		t.Fatal("the conflict is not on the page")
 	}
-	if state.snapshot.Tools[0].Pin != nil {
+	if state.current().snapshot.Tools[0].Pin != nil {
 		t.Fatal("a conflict changed the displayed pin")
 	}
-	if !state.hasDraft() {
+	if state.drafts(state.scope) != 1 {
 		t.Fatal("a conflict dropped the draft")
+	}
+	if w.sess.finished.Load() {
+		t.Fatal("a failed apply closed the window")
 	}
 }
 
-// A completed publication with failed readback must never reuse its old byte
-// baseline, even when the user's draft remains visible for recovery.
-func TestToolchainCommittedSaveRequiresReloadBeforeRetry(t *testing.T) {
-	state := newToolchainState(&fakeToolchainLoader{})
-	state.apply(fixtureSnapshot(), false)
-	state.choose("dev.example:compiler", "/fixture/compiler")
-	state.finish(toolchain.Snapshot{}, toolchain.ErrPinCommitted, true)
-	if state.loaded {
-		t.Error("failed readback left an editable source baseline")
+// A write that landed but could not be read back leaves no baseline to write on: the page reads
+// the scope again before anything else, and the drafts, now on disk, are gone.
+func TestToolchainCommittedApplyReadsTheScopeAgain(t *testing.T) {
+	loader := &fakeToolchainLoader{
+		snapshot: fixtureSnapshot(), saved: make(chan []toolchain.Edit, 1),
+		saveErr: errors.Join(toolchain.ErrPinCommitted, errors.New("readback failed")),
 	}
-	if !state.hasDraft() {
-		t.Error("failed readback discarded the draft")
+	w, d := toolchainWindow(t, loader)
+	state := w.toolchains
+	d.chooseToolchain("/fixture/compiler")
+	before := loader.loads.Load()
+	d.applyBuild()
+	if !errors.Is(w.apply.failed, toolchain.ErrPinCommitted) {
+		t.Fatalf("footer failure = %v", w.apply.failed)
 	}
-	state.beginSave()
-	if state.saving {
-		t.Error("retry reused a baseline from before the committed save")
+	d.until("the scope to be read again", func() bool { return loader.loads.Load() > before && state.current().loaded })
+	if state.drafts(state.scope) != 0 {
+		t.Fatal("the written drafts are still shown as unapplied")
 	}
 }
 
@@ -321,16 +327,16 @@ type trustToolchainLoader struct {
 	globalSnapshot  toolchain.Snapshot
 	untrusted       toolchain.Snapshot
 	trustedSnapshot toolchain.Snapshot
-	trusted         bool
+	trusted         atomic.Bool
 	trustCalls      []bool
 	trustErr        error
 }
 
 func (l *trustToolchainLoader) LoadScope(_ context.Context, scope string) (toolchain.Snapshot, error) {
-	if scope == "global" {
+	if scope == scopeGlobal {
 		return l.globalSnapshot, nil
 	}
-	if l.trusted {
+	if l.trusted.Load() {
 		return l.trustedSnapshot, nil
 	}
 	return l.untrusted, nil
@@ -341,7 +347,7 @@ func (l *trustToolchainLoader) SetWorkspaceTrust(_ context.Context, _ toolchain.
 	if l.trustErr != nil {
 		return toolchain.Snapshot{}, l.trustErr
 	}
-	l.trusted = trusted
+	l.trusted.Store(trusted)
 	if trusted {
 		return l.trustedSnapshot, nil
 	}
@@ -353,11 +359,12 @@ func TestProjectToolchainTrustSwitchGrantsAndRevokesImmediately(t *testing.T) {
 	global.Global = true
 	global.Root = ""
 
+	const runtime = "dev.lithe.test.runtime:interp"
 	untrusted := toolchain.Snapshot{
 		Root:      "/fixture/project",
 		Directory: ".",
 		Tools: []toolchain.Tool{{
-			ID:          "dev.lithe.test.runtime:interp",
+			ID:          runtime,
 			DisplayName: "Synthetic Runtime",
 			PluginID:    "dev.lithe.test.runtime",
 			Project: []core.ToolchainProjectCandidate{{
@@ -374,23 +381,25 @@ func TestProjectToolchainTrustSwitchGrantsAndRevokesImmediately(t *testing.T) {
 	}
 	venvVersion := "3.12.4"
 	venvHome := "/fixture/project/.venv"
+	venv := core.ToolchainSelection{
+		Home:        &venvHome,
+		Executable:  "/fixture/project/.venv/bin/interp",
+		Version:     venvVersion,
+		Provider:    "host:project",
+		Layer:       "project",
+		ProjectCode: true,
+	}
 	trusted := toolchain.Snapshot{
 		Root:               "/fixture/project",
 		Directory:          ".",
 		ProjectCodeAllowed: true,
 		Tools: []toolchain.Tool{{
-			ID:            "dev.lithe.test.runtime:interp",
+			ID:            runtime,
 			DisplayName:   "Synthetic Runtime",
 			PluginID:      "dev.lithe.test.runtime",
 			AutomaticHome: venvHome,
-			Effective: &core.ToolchainSelection{
-				Home:        &venvHome,
-				Executable:  "/fixture/project/.venv/bin/interp",
-				Version:     venvVersion,
-				Provider:    "host:project",
-				Layer:       "project",
-				ProjectCode: true,
-			},
+			Automatic:     &venv,
+			Effective:     &venv,
 			Project: []core.ToolchainProjectCandidate{{
 				CandidateID: "project-venv",
 				ProjectKind: "environment",
@@ -411,30 +420,25 @@ func TestProjectToolchainTrustSwitchGrantsAndRevokesImmediately(t *testing.T) {
 		untrusted:           untrusted,
 		trustedSnapshot:     trusted,
 	}
-	w := newWindow(NewController(Options{Toolchains: loader}), Values{})
-	w.sess.page = pageBuild
-	d := openWindow(t, w)
-	d.until("global toolchains loaded", func() bool { return w.toolchains.loaded })
+	w, d := toolchainWindow(t, loader)
+	state := w.toolchains
+	d.until("the project scope to load", func() bool { return state.projectName() != "" })
+	d.pump()
 
-	// Switch to Current project scope.
-	d.click(i18n.Shared(i18n.English, "desktop.toolchains.project"))
-	d.until("project toolchains loaded", func() bool { return w.toolchains.loaded && !w.toolchains.snapshot.Global })
-
-	notice := i18n.Shared(i18n.English, "desktop.toolchains.projectTrustRequiredNotice")
-	blockedRow := i18n.SharedFormat(i18n.English, "desktop.toolchains.projectCandidateBlocked", map[string]string{"path": venvHome})
-	autoBlocked := i18n.SharedFormat(i18n.English, "desktop.toolchains.automatic", map[string]string{
-		"value": i18n.Shared(i18n.English, "desktop.toolchains.reasonProjectTrustRequired"),
+	// The project's segment is named after its folder.
+	d.click(i18n.SharedFormat(i18n.English, "desktop.buildSettings.scopeProjectNamed", map[string]string{"project": "project"}))
+	d.until("project toolchains shown", func() bool {
+		return state.scope == scopeProject && state.current().loaded && state.view.ready && state.view.got.scope == scopeProject
 	})
-	if !d.showsWrapped(notice) || !d.text(blockedRow) || !d.showsWrapped(autoBlocked) {
-		t.Fatalf("untrusted UI missing guidance: notice=%v blocked=%v auto=%v",
-			d.showsWrapped(notice), d.text(blockedRow), d.showsWrapped(autoBlocked))
-	}
-	if !d.text(i18n.Shared(i18n.English, "desktop.toolchains.trustStatusUntrusted")) {
-		t.Fatal("missing untrusted status label")
+	d.pump()
+
+	blocked := en("desktop.toolchains.reasonProjectTrustRequired")
+	if !d.has(en("desktop.buildSettings.trustProject")) || !d.text(blocked) {
+		t.Fatalf("untrusted page misses its guidance: trust button %v, blocked tag %v", d.has(en("desktop.buildSettings.trustProject")), d.text(blocked))
 	}
 
-	// Verify the ⓘ tip explains consequences and local storage scope.
-	help := i18n.Shared(i18n.English, "desktop.toolchains.trustProjectHelp")
+	// The banner's ⓘ explains what trusting does and where it is stored.
+	help := en("desktop.toolchains.trustProjectHelp")
 	infoBounds := d.hintHit(help).Bounds
 	if err := d.driver.Move(infoBounds.X+infoBounds.Width/2, infoBounds.Y+infoBounds.Height/2); err != nil {
 		t.Fatal(err)
@@ -443,47 +447,45 @@ func TestProjectToolchainTrustSwitchGrantsAndRevokesImmediately(t *testing.T) {
 	if !d.showsHelp(help) {
 		t.Fatal("resting on the project trust ⓘ did not show its help")
 	}
-	// Leave the ⓘ before toggling the switch.
+	// Leave the ⓘ before trusting the project.
 	if err := d.driver.Move(2, 2); err != nil {
 		t.Fatal(err)
 	}
 	d.pump()
 
-	// Grant trust: reloads immediately without touching .lithe/toolchains/local.json Save.
-	d.click(i18n.Shared(i18n.English, "desktop.toolchains.trustProject"))
-	d.until("project trust granted", func() bool { return w.toolchains.snapshot.ProjectCodeAllowed && !w.toolchains.trusting })
+	// Granting trust reloads at once, without an Apply.
+	d.click(en("desktop.buildSettings.trustProject"))
+	d.until("project trust granted", func() bool { return state.current().snapshot.ProjectCodeAllowed && !state.trusting })
+	d.pump()
 	if !slices.Equal(loader.trustCalls, []bool{true}) {
 		t.Fatalf("trustCalls = %v, want [true]", loader.trustCalls)
 	}
-	autoResolved := i18n.SharedFormat(i18n.English, "desktop.toolchains.automatic", map[string]string{"value": venvHome})
-	if !d.showsWrapped(autoResolved) {
-		t.Fatalf("trusted UI did not update automatic effective value to %q", autoResolved)
+	resolved := i18n.SharedFormat(i18n.English, "desktop.buildSettings.autoProject", map[string]string{
+		"version": venvVersion, "source": "/fixture/project/.venv/bin/interp",
+	})
+	if !d.has(resolved) {
+		t.Fatalf("the trusted page does not fall back to %q", resolved)
 	}
-	if !d.text(i18n.Shared(i18n.English, "desktop.toolchains.trustStatusTrusted")) {
-		t.Fatal("missing trusted status label")
-	}
-
-	// Create an unsaved pin draft, then revoke trust: the pin draft must be preserved.
-	d.click("Synthetic Runtime")
-	d.click(i18n.SharedFormat(i18n.English, "desktop.toolchains.installation", map[string]string{
-		"home": "/fixture/system-runtime", "version": "3.11.0", "provider": "host:system",
-	}))
-	d.pump()
-	if !w.toolchains.hasDraft() {
-		t.Fatal("expected unsaved pin draft before revoking trust")
+	if !d.has(en("desktop.toolchains.trustStatusTrusted")) {
+		t.Fatal("the trusted status is missing")
 	}
 
-	d.click(i18n.Shared(i18n.English, "desktop.toolchains.trustProject"))
-	d.until("project trust revoked", func() bool { return !w.toolchains.snapshot.ProjectCodeAllowed && !w.toolchains.trusting })
+	// An unapplied choice survives revoking trust.
+	d.chooseToolchain("/fixture/system-runtime")
+	if state.drafts(scopeProject) != 1 {
+		t.Fatal("expected an unapplied choice before revoking trust")
+	}
+	d.click(en("desktop.buildSettings.revokeTrust"))
+	d.until("project trust revoked", func() bool { return !state.current().snapshot.ProjectCodeAllowed && !state.trusting })
 	if !slices.Equal(loader.trustCalls, []bool{true, false}) {
 		t.Fatalf("trustCalls = %v, want [true, false]", loader.trustCalls)
 	}
-	if !w.toolchains.hasDraft() {
-		t.Fatal("revoking trust discarded the unsaved pin draft")
+	if state.drafts(scopeProject) != 1 {
+		t.Fatal("revoking trust discarded the unapplied choice")
 	}
 	select {
 	case edits := <-loader.saved:
-		t.Fatalf("toggling local workspace trust wrote project pin file: %+v", edits)
+		t.Fatalf("changing the project's trust wrote pins: %+v", edits)
 	default:
 	}
 }

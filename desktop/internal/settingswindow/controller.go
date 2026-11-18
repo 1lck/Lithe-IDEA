@@ -137,9 +137,13 @@ type Values struct {
 // SteppingAdapter is an installed debug adapter that takes stepping filters: its ID, the
 // name the page shows and the defaults its plugin declares.
 type SteppingAdapter struct {
-	ID       string
-	Name     string
-	Defaults core.DebugSteppingFilters
+	ID   string
+	Name string
+	// PluginID and PluginName name the plugin that declares the adapter;
+	// PluginName is empty when the manifest has no display name.
+	PluginID   string
+	PluginName string
+	Defaults   core.DebugSteppingFilters
 }
 
 // ProcessTermination is the part of Core's process termination settings this client
@@ -211,6 +215,13 @@ type ToolchainScopedLoader interface {
 
 type ToolchainInspector interface {
 	Inspect(context.Context, toolchain.Snapshot, string, string) (core.ToolchainSelection, error)
+}
+
+// ToolchainViewer asks Core for the Toolchains list projection: which rows show
+// under the query, how they group and fold, the first problems and the counts.
+// A loader without it shows the list unfiltered and ungrouped.
+type ToolchainViewer interface {
+	SettingsView(context.Context, core.ToolchainSettingsViewRequest) (core.ToolchainSettingsView, error)
 }
 
 // ToolchainTrustLoader updates machine-local permission to probe and run tool

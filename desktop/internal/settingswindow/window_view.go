@@ -1,6 +1,8 @@
 package settingswindow
 
 import (
+	"strings"
+
 	"github.com/1lck/Lithe-IDEA/desktop/internal/core"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/fontprefs"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/i18n"
@@ -108,8 +110,9 @@ func (w *window) sidebar(c ui.C) {
 			}
 		}
 		if len(w.rows) == 0 {
-			ui.Row(c).FillWidth().Shrink(0).PadX(16).PadY(8).Children(func() {
-				ui.Wrap(c, settings.NoMatches).FontSize(12).Color(p.muted)
+			// The prototype's empty search: one sentence in the middle of the column's width.
+			ui.Row(c).FillWidth().Shrink(0).PadSides(30, 10, 30, 10).Justify(ui.Center).Children(func() {
+				ui.Wrap(c, settings.NoMatches).FontSize(buildSmall).Color(w.bp.faint).TextCenter()
 			})
 			return
 		}
@@ -118,19 +121,78 @@ func (w *window) sidebar(c ui.C) {
 			w.toggleRow(w.rows[i])
 		}
 		if i, ok := w.nav.Chosen(); ok && i < len(w.rows) {
-			// A group with a page of its own, which only plugins' pages made a group, opens its
-			// page; its chevron folds the plugins' pages.
-			if r := w.rows[i]; r.group && isGroup(r.page) {
-				w.toggleRow(r)
-			} else {
-				w.selectSettingsPage(r.page, r.dynamic)
-			}
+			w.chooseRow(w.rows[i])
 		}
 	})
 }
 
-// toggleRow expands or collapses the group of row r. While searching every group is open.
+// chooseRow opens what row r stands for. A group without a page of its own folds; one with a
+// page, which Build is and plugins' pages make any entry they are under, opens it, and Build
+// lists its pages as it opens. A folder opens its own page. A search ends once its row is
+// chosen, with the rows above the page opened so the page's row is on the screen.
+func (w *window) chooseRow(r row) {
+	if w.chooseSearchRow(r) {
+		return
+	}
+	searching := w.query != ""
+	switch {
+	case r.folder != "":
+		w.openFolder(r.folder)
+	case r.group && isGroup(r.page) && !ownsPage(r.page) && r.dynamic == "":
+		w.toggleRow(r)
+		return
+	default:
+		if r.page == pageBuild && r.dynamic == "" {
+			w.sess.open[pageBuild] = true
+		}
+		w.folderPage = ""
+		w.selectSettingsPage(r.page, r.dynamic)
+	}
+	if searching {
+		w.revealPage(r)
+		w.clearSearch()
+	}
+}
+
+// openFolder shows the page of the folder of kind under Build, Execution, Deployment.
+func (w *window) openFolder(kind string) {
+	w.folderPage, w.folderQuery = kind, ""
+	w.sess.open[pageBuild] = true
+	w.selectSettingsPage(pageBuild, "")
+}
+
+// revealPage opens every row above the page row r opens, and the folder of a plugin's page
+// in one.
+func (w *window) revealPage(r row) {
+	for page := parents[r.page]; page != noPage; page = parents[page] {
+		w.sess.open[page] = true
+	}
+	if r.dynamic != "" {
+		w.sess.open[r.page] = true
+		if page := w.dynamic.selected(r.dynamic); page != nil {
+			if index := kindIndex(page.Kind); index >= 0 && w.dynamic.kindCount(page.Kind) >= folderMin {
+				w.folders[index] = true
+			}
+		}
+	}
+}
+
+// clearSearch empties the sidebar's search, so it lists every page again.
+func (w *window) clearSearch() {
+	w.searchField.SetText("")
+	w.query = ""
+	w.rowsValid = false
+}
+
+// toggleRow expands or collapses the group of row r, or the folder r is. While searching
+// every group is open.
 func (w *window) toggleRow(r row) {
+	if r.folder != "" {
+		if index := kindIndex(r.folder); index >= 0 && w.query == "" {
+			w.folders[index] = !w.folders[index]
+		}
+		return
+	}
 	toggleGroup(&w.sess.open, r.page, r.group, w.query != "")
 }
 
@@ -142,16 +204,36 @@ func (w *window) rowTitle(r row) string {
 	return titleOf(&w.text.Settings, r.page)
 }
 
-// navNode describes row i of the sidebar to its Tree.
+// navNode describes row i of the sidebar to its Tree. A search lists its rows flat, under
+// the titles of its sections, which are not rows one can choose.
 func (w *window) navNode(i int) ui.TreeNode {
 	if i < 0 || i >= len(w.rows) {
 		return ui.TreeNode{}
 	}
 	r := w.rows[i]
-	return ui.TreeNode{
-		Depth: int(r.level), Branch: r.group, Expanded: r.expanded,
-		Selected: (!r.group || !isGroup(r.page)) && r.page == w.sess.page && r.dynamic == w.dynamicPage,
+	if r.special == rowSection {
+		return ui.TreeNode{Disabled: true, Height: sectionHeight}
 	}
+	if w.query != "" {
+		return ui.TreeNode{Selected: w.rowSelected(r)}
+	}
+	return ui.TreeNode{Depth: int(r.level), Branch: r.group, Expanded: r.expanded, Selected: w.rowSelected(r)}
+}
+
+// rowSelected says whether row r stands for the page on the screen. A folder's row is chosen
+// while its page shows, Build's while Build's own page does.
+func (w *window) rowSelected(r row) bool {
+	switch {
+	case r.special != rowPage || r.overflow > 0:
+		return false
+	case r.folder != "":
+		return w.sess.page == pageBuild && w.dynamicPage == "" && w.folderPage == r.folder
+	case r.group && isGroup(r.page) && !ownsPage(r.page):
+		return false
+	case r.page == pageBuild && r.dynamic == "" && w.folderPage != "":
+		return false
+	}
+	return r.page == w.sess.page && r.dynamic == w.dynamicPage
 }
 
 // navKey names row i by the page it opens, so a row keeps its focus as the search lists
@@ -167,21 +249,74 @@ func (w *window) navLabel(i int) string {
 	if i < 0 || i >= len(w.rows) {
 		return ""
 	}
-	return w.rowTitle(w.rows[i])
+	return w.rowLabel(w.rows[i])
 }
 
-// navContent declares what row i holds after its chevron: the page's tile on the top level
-// and its title.
+// rowLabel is the words row r reads as: a search's page after where it lives, the row that
+// lists what a folder or a search leaves out by its count, else the row's title.
+func (w *window) rowLabel(r row) string {
+	language := w.marketLanguage()
+	switch {
+	case r.special == rowAllTools:
+		return i18n.SharedFormat(language, "desktop.buildSettings.searchAllTools", map[string]string{"count": formatCount(r.overflow)})
+	case r.overflow > 0:
+		return i18n.SharedFormat(language, "desktop.buildSettings.folderAll", map[string]string{"count": formatCount(r.overflow)})
+	case r.special == rowPage && r.path != "":
+		return r.path + " › " + w.rowTitle(r)
+	}
+	return w.rowTitle(r)
+}
+
+// navContent declares what row i holds after its chevron: the page's tile on the top level,
+// its title, then what the prototype ends it with: a count of problems, a mark of drafts, a
+// folder's count of pages or where a search's match lives.
 func (w *window) navContent(c ui.C, i int) {
 	if i < 0 || i >= len(w.rows) {
 		return
 	}
 	r := w.rows[i]
+	b := &w.bp
+	switch {
+	case r.special == rowSection:
+		ui.Row(c).Grow(1).FillHeight().MinWidth(0).PadSides(10, 0, 3, 0).Items(ui.End).Children(func() {
+			ui.Text(c, r.title).FontSize(buildTiny).Weight(gfx.WeightSemibold).Color(b.faint).Ellipsis()
+		})
+		return
+	case r.special == rowAllTools || r.overflow > 0:
+		pad := float32(0)
+		if w.query == "" {
+			pad = w.titleStart(r) - float32(r.level)*levelIndent
+		}
+		ui.Text(c, w.rowLabel(r)).FontSize(buildSmall).Color(b.accent).PadLeft(pad).Grow(1).Shrink(1).MinWidth(0).Ellipsis()
+		return
+	case w.query != "":
+		ui.Row(c).Grow(1).Shrink(1).MinWidth(0).Gap(6).Items(ui.Center).Children(func() {
+			if r.special == rowTool {
+				dot(c, 8, b.statusColor(r.status))
+			}
+			label := w.rowTitle(r)
+			if r.special == rowPage {
+				label = w.rowLabel(r)
+			}
+			ui.Text(c, label).FontSize(13).Color(w.pal.text).Shrink(1).MinWidth(0).Ellipsis()
+			if r.special != rowPage && r.path != "" {
+				ui.Spacer(c)
+				ui.Text(c, r.path).FontSize(buildTiny).Color(b.faint).PadLeft(6).Shrink(1).MinWidth(0).Ellipsis()
+			}
+		})
+		return
+	}
 	title := func() {
-		ui.Text(c, w.rowTitle(r)).FontSize(13).Color(w.pal.text).Grow(1).Shrink(1).MinWidth(0).Ellipsis()
+		ui.Text(c, w.rowTitle(r)).FontSize(13).Color(w.pal.text).Shrink(1).MinWidth(0).Ellipsis()
+		ui.Spacer(c)
+		w.navTrailing(c, r)
 	}
 	if r.level != 0 {
-		title()
+		pad := w.titleStart(r) - float32(r.level)*levelIndent
+		if r.group {
+			pad -= chevronSlot
+		}
+		ui.Row(c).Grow(1).Shrink(1).MinWidth(0).PadLeft(pad).Gap(6).Items(ui.Center).Children(title)
 		return
 	}
 	// The tile and the title are in a row of their own, which spaces them by tileGap rather
@@ -196,8 +331,46 @@ func (w *window) navContent(c ui.C, i int) {
 		ui.Row(c).Size(tileSize, tileSize).Shrink(0).Radius(tileRadius).Background(t.color).Center().Children(func() {
 			ui.Icon(c, t.icon).Size(tileGlyph, tileGlyph).Color(w.pal.white)
 		})
-		title()
+		ui.Row(c).Grow(1).Shrink(1).MinWidth(0).Gap(6).Items(ui.Center).Children(title)
 	})
+}
+
+// titleStart is where the title of a row below the top level starts in the sidebar: under
+// the titles of the top level, and a folder's pages a step further in.
+func (w *window) titleStart(r row) float32 {
+	if r.level >= 2 {
+		return childIndent + folderStep
+	}
+	return childIndent
+}
+
+// navTrailing ends a row as the prototype does: Build folded and the Toolchains page count the
+// tools with a problem, the Debuggers page marks drafts and a folder counts its pages.
+func (w *window) navTrailing(c ui.C, r row) {
+	if r.dynamic != "" {
+		return
+	}
+	switch {
+	case r.folder != "":
+		ui.Text(c, formatCount(r.count)).FontSize(buildTiny).Color(w.bp.faint).Shrink(0)
+	case r.page == pageBuild && !r.expanded, r.page == pageToolchains:
+		if problems := w.toolchainProblems(); problems > 0 {
+			w.badge(c, problems, false)
+		}
+	case r.page == pageDebuggers:
+		if len(w.steppingPending()) > 0 {
+			dot(c, 7, w.bp.accent)
+		}
+	}
+}
+
+// toolchainProblems is how many tools of the scope the Toolchains page shows have a problem,
+// once Core projected the list.
+func (w *window) toolchainProblems() int {
+	if t := w.toolchains; t.available() && t.view.ready {
+		return t.view.view.Counts.Problems
+	}
+	return 0
 }
 
 // content is the page beside the sidebar: the breadcrumb above the page itself.
@@ -226,8 +399,14 @@ func (w *window) content(c ui.C) {
 			w.editorPage(c)
 		case w.sess.page == pageFonts:
 			w.fontsPage(c)
-		case w.sess.page == pageBuild && (w.ctrl.opts.Toolchains != nil || w.stepping.available()):
+		case w.sess.page == pageBuild && w.folderPage != "":
+			w.buildFolderPage(c.Part("folder"))
+		case w.sess.page == pageBuild:
+			w.buildPage(c.Part("build"))
+		case w.sess.page == pageToolchains:
 			w.toolchainsPage(c)
+		case w.sess.page == pageDebuggers:
+			w.debuggersPage(c)
 		case w.sess.page == pageTerminal && w.ctrl.opts.TerminalShells != nil:
 			w.terminalPage(c)
 		case w.sess.page == pageAIGeneration:
@@ -250,27 +429,80 @@ func (w *window) content(c ui.C) {
 	})
 }
 
-// breadcrumb names where the open page is: its group, then the page. The last title is
-// the page itself and is set apart by its weight; a page on the top level has only that.
+// breadcrumb is the prototype's .crumb: where the open page is, its group first and the page
+// last in the weight of the text. A title before the last that has a page of its own opens it:
+// Build, Execution, Deployment its directory, a folder its list of pages.
 func (w *window) breadcrumb(c ui.C) {
-	p := &w.pal
-	w.crumbs = appendBreadcrumb(w.crumbs[:0], &w.text.Settings, w.sess.page)
-	if page := w.dynamic.selected(w.dynamicPage); page != nil {
-		w.crumbs = append(w.crumbs, page.Title)
-	}
-	ui.Row(c).FillWidth().Height(46).Shrink(0).PadX(18).Gap(6).Items(ui.Center).Background(p.card).Children(func() {
-		for i, crumb := range w.crumbs {
+	b := &w.bp
+	w.crumbs = w.appendCrumbs(w.crumbs[:0])
+	var chosen *crumb
+	ui.Row(c).FillWidth().Height(crumbHeight).Shrink(0).PadX(18).Gap(8).Items(ui.Center).Background(b.surface).Children(func() {
+		for i := range w.crumbs {
+			crumb := &w.crumbs[i]
+			k := c.KeyInt(i)
 			if i > 0 {
-				ui.Icon(c, icons.ChevronRight).Size(chevronGlyph, chevronGlyph).Color(p.subtle).Shrink(0)
+				ui.Text(k.Part("sep"), "›").FontSize(buildFont).Color(b.faint).Shrink(0)
 			}
-			if i == len(w.crumbs)-1 {
-				ui.Text(c, crumb).FontSize(13).Weight(gfx.WeightSemibold).Color(p.text).Ellipsis()
-			} else {
-				ui.Text(c, crumb).FontSize(13).Color(p.muted).Ellipsis()
+			last := i == len(w.crumbs)-1
+			switch {
+			case last:
+				ui.Text(k, crumb.title).FontSize(buildFont).Weight(gfx.WeightSemibold).Color(b.text).Shrink(1).MinWidth(0).Ellipsis()
+			case crumb.link:
+				button := ui.ButtonBase(k, crumb.title).Shrink(1).MinWidth(0).Items(ui.Center)
+				if button.Clicked() {
+					chosen = crumb
+				}
+				button.Children(func() {
+					ui.Text(k, crumb.title).FontSize(buildFont).Color(b.sub).Shrink(1).MinWidth(0).Ellipsis().
+						StateFrom(button).Hover(ui.Look{}.Color(b.accent))
+				})
+			default:
+				ui.Text(k, crumb.title).FontSize(buildFont).Color(b.sub).Shrink(1).MinWidth(0).Ellipsis()
 			}
 		}
 	})
-	ui.Row(c).FillWidth().Height(1).Shrink(0).Background(p.line)
+	ui.Row(c).FillWidth().Height(1).Shrink(0).Background(b.line)
+	if chosen != nil {
+		w.chooseCrumb(*chosen)
+	}
+}
+
+// appendCrumbs appends the titles that lead to the open page to dst: the page's group and the
+// page, and for a plugin's page under Build, Execution, Deployment the folder it is in, which
+// the sidebar shows once its kind has folderMin pages.
+func (w *window) appendCrumbs(dst []crumb) []crumb {
+	language := w.marketLanguage()
+	dst = appendBreadcrumb(dst, &w.text.Settings, w.sess.page)
+	parent := &dst[len(dst)-1]
+	switch {
+	case w.dynamicPage != "":
+		page := w.dynamic.selected(w.dynamicPage)
+		if page == nil {
+			break
+		}
+		parent.link = ownsPage(parent.page)
+		if kindIndex(page.Kind) >= 0 && contributedParent(page.Kind) == w.sess.page && w.dynamic.kindCount(page.Kind) >= folderMin {
+			dst = append(dst, crumb{title: kindTitle(language, page.Kind), page: pageBuild, folder: page.Kind, link: true})
+		}
+		dst = append(dst, crumb{title: page.Title, page: w.sess.page})
+	case w.sess.page == pageBuild && w.folderPage != "":
+		parent.link = true
+		dst = append(dst, crumb{title: kindTitle(language, w.folderPage), page: pageBuild, folder: w.folderPage})
+	}
+	return dst
+}
+
+// chooseCrumb opens what a title of the breadcrumb stands for.
+func (w *window) chooseCrumb(crumb crumb) {
+	if crumb.folder != "" {
+		w.openFolder(crumb.folder)
+		return
+	}
+	if crumb.page == pageBuild {
+		w.sess.open[pageBuild] = true
+	}
+	w.folderPage = ""
+	w.selectSettingsPage(crumb.page, "")
 }
 
 // unavailablePage is the body of a page the new desktop client does not offer yet: an icon
@@ -506,12 +738,15 @@ func (w *window) editorPage(c ui.C) {
 	}
 }
 
-// footer is the bar along the bottom: Restore Defaults at the leading end, Cancel and OK
-// at the trailing one.
+// footer is the bar along the bottom, after docs/design/build-execution-settings.html:
+// Restore Defaults at the leading end, then what Apply would write, then Cancel, Apply and OK.
 func (w *window) footer(c ui.C) {
 	settings := &w.text.Settings
-	ui.Row(c).FillWidth().Height(footerHeight).Shrink(0).Background(w.pal.card).PadX(footerPad).Gap(8).Items(ui.Center).Children(func() {
-		if ui.Button(c, settings.RestoreDefaults).Outline().Clicked() {
+	language := w.marketLanguage()
+	applying := w.apply.active()
+	count, targets := w.buildDrafts(language)
+	ui.Row(c).FillWidth().Height(footerHeight).Shrink(0).Background(w.bp.surface).PadX(footerPad).Gap(8).Items(ui.Center).Children(func() {
+		if w.button(c.Part("restore"), buttonPlain, settings.RestoreDefaults, applying) {
 			// Reset is explicit even when an unknown stored value is displayed as the
 			// system default. Forward it so the owner's real setting is cleared.
 			w.setLanguage("", true)
@@ -531,12 +766,42 @@ func (w *window) footer(c ui.C) {
 			w.setGitConsole(core.GitConsolePreferences{}, true)
 			w.setGitLogLimits(DefaultGitLogLimit, DefaultGitLogMergedLimit)
 		}
-		ui.Spacer(c)
-		if ui.Button(c, settings.Cancel).Outline().Clicked() {
+		w.footerMessage(c.Part("message"), language, applying, count, targets)
+		if w.button(c.Part("cancel"), buttonPlain, settings.Cancel, applying) {
 			w.cancel()
 		}
-		if ui.Button(c, settings.OK).Clicked() {
+		// Apply writes the Build pages' drafts. Other pages apply their own cards, so the
+		// footer offers it only on a Build page or while Build drafts wait.
+		onBuild := w.sess.page == pageBuild || parents[w.sess.page] == pageBuild
+		if (onBuild || count > 0 || applying) && w.button(c.Part("apply"), buttonPlain, i18n.Shared(language, "desktop.buildSettings.apply"), count == 0 || applying) {
+			w.startApply(false)
+		}
+		if w.button(c.Part("ok"), buttonPrimary, settings.OK, false) {
 			w.accept()
+		}
+	})
+}
+
+// footerMessage is the footer's words between its buttons: that an apply is out, why the last
+// one stopped, or how many edits Apply would write and where.
+func (w *window) footerMessage(c ui.C, language i18n.Language, applying bool, count int, targets []string) {
+	b := &w.bp
+	ui.Row(c).Grow(1).Shrink(1).MinWidth(0).Gap(6).Items(ui.Center).Children(func() {
+		switch {
+		case applying:
+			ui.Text(c, i18n.Shared(language, "desktop.buildSettings.applying")).FontSize(buildSmall).Color(b.sub).Ellipsis()
+		case w.apply.failed != nil:
+			ui.Icon(c, icons.CircleX).Size(13, 13).Color(b.err).Shrink(0)
+			ui.Text(c, i18n.SharedFormat(language, "desktop.buildSettings.applyFailed", map[string]string{"reason": toolchainFailureMessage(language, w.apply.failed)})).
+				FontSize(buildSmall).Color(b.err).Shrink(1).Ellipsis()
+		case count > 0:
+			dot(c, 7, b.accent)
+			ui.Text(c, i18n.SharedFormat(language, "desktop.buildSettings.pending", map[string]string{"count": formatCount(count)})).
+				FontSize(buildSmall).Weight(gfx.WeightMedium).Color(b.text).Shrink(0)
+			separator := i18n.Shared(language, "desktop.buildSettings.listSeparator")
+			ui.Text(c, i18n.SharedFormat(language, "desktop.buildSettings.writes", map[string]string{"targets": strings.Join(targets, separator)})).
+				FontSize(buildSmall).Color(b.sub).Shrink(1).Ellipsis()
+			w.infoButton(c.Part("help"), i18n.Shared(language, "desktop.buildSettings.applyHelp"))
 		}
 	})
 }

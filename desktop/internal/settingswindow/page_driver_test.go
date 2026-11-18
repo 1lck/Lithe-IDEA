@@ -2,6 +2,7 @@ package settingswindow
 
 import (
 	"runtime"
+	"strings"
 	"testing"
 	"time"
 
@@ -41,6 +42,18 @@ func (d *windowDriver) find(label string) (gfx.Hit, bool) {
 		}
 	}
 	return gfx.Hit{}, false
+}
+
+// first returns the back-most control labeled label, the one drawn first.
+func (d *windowDriver) first(label string) gfx.Hit {
+	d.t.Helper()
+	for _, hit := range d.driver.Snapshot().Hits {
+		if hit.Label == label && !hit.IsLabel && !hit.Backdrop && !hit.ID.IsZero() {
+			return hit
+		}
+	}
+	d.t.Fatalf("no control labeled %q", label)
+	return gfx.Hit{}
 }
 
 func (d *windowDriver) hit(label string) gfx.Hit {
@@ -99,6 +112,16 @@ func (d *windowDriver) text(value string) bool {
 		}
 	}
 	return false
+}
+
+// wrapped reports whether the frame's labels, read in order, hold value, which a wrapping
+// text splits over several labels.
+func (d *windowDriver) wrapped(value string) bool {
+	var lines []string
+	for _, label := range d.driver.Snapshot().Labels {
+		lines = append(lines, label.Value)
+	}
+	return strings.Contains(strings.Join(lines, " "), value)
 }
 
 // until pumps the window until cond holds, within a bounded time. It wakes the window each

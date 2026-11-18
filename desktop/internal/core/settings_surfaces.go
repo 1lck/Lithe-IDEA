@@ -36,6 +36,9 @@ type SettingsNavigationItem struct {
 	Group    bool    `json:"group"`
 	Expanded bool    `json:"expanded"`
 	Keywords string  `json:"keywords,omitempty"`
+	// Limit shows at most this many children outside search; the rest fold into
+	// one overflow row that opens the group's own directory page. Zero shows all.
+	Limit int `json:"limit,omitempty"`
 }
 
 type SettingsNavigationRow struct {
@@ -44,6 +47,13 @@ type SettingsNavigationRow struct {
 	Group    bool   `json:"group"`
 	Expanded bool   `json:"expanded"`
 	Level    uint8  `json:"level"`
+	// Matched is set when the search hit this row itself rather than a row below
+	// it; Path holds the ancestor titles so a hit can be listed with its place.
+	Matched bool     `json:"matched,omitempty"`
+	Path    []string `json:"path,omitempty"`
+	// Overflow is the group's whole child count on the row that stands for the
+	// children Limit left out; the row's ID is the group's own.
+	Overflow int `json:"overflow,omitempty"`
 }
 
 type SettingsDeliveryRequest struct {
