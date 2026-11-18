@@ -29,7 +29,11 @@ native_path() {
 
 # Lithe-core-rust main at 10da502, #84 squash-merged: outputLinks.match also links the http and
 # https addresses a console line prints, as {line, start, length, url} links the host opens in
-# the browser (#1822). It is on top of 885f2a6 (#83, TextMate injections are validated).
+# the browser (#1822). It is on top of 885f2a6:
+# Lithe-core-rust main at 885f2a6, #83 squash-merged (the same tree as its branch at d10ee76, on
+# top of cf2f260): a plugin's TextMate grammar may declare injections, an object of scope selectors
+# each with a rule, which the editor tries beside the current rule's patterns wherever the selector
+# matches, as vscode-textmate does for a root grammar (#2112).
 # Lithe-core-rust main at cf2f260, #82 squash-merged (the same tree as its branch at 4d0dc1c, on
 # top of 18a370d): lsp.problems.query also lays out the Problems tool window's tree (the rows
 # visible under the group nodes the desktop closes, the diagnostic each row previews and opens, a

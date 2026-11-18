@@ -173,7 +173,9 @@ LITHE_VISUAL_OUTPUT_DIR=/path/to/output scripts/desktop/desktop-go.sh test -tags
 `node scripts/platform-feature-matrix/generate-platform-feature-matrix.mjs`，校验源数据后重新生成。
 
 Git worktree 只共享 Git 对象，不共享各自的 `.artifacts` 目录，仓库也不提供跨工作树复制资源的脚本（#2002 已删除）。
-Go 的模块缓存和构建缓存、`~/.cargo/registry` 都在用户目录，所有工作树自动共享，不需要复制。
+Go 的构建缓存（`go env GOCACHE`）和模块缓存（`go env GOMODCACHE`）、`~/.cargo/registry` 都在用户目录，所有工作树共用同一份，
+不为工作树另设位置，也不复制或清空。新工作树第一次编译会重编 `desktop/` 下的包和 cgo 包（缓存键含包目录和带工作树路径的
+cgo 参数），其余包命中缓存，模块不重新下载。
 新工作树第一次编译前，按 `develop-lithe` Skill 的“工作树缓存复用”一节判断能否从已有工作树复制
 `.artifacts/desktop/`（前提和实验结果见上文）；其他目录按本节各段的说明处理，写明不复制的就在本工作树重新生成。
 

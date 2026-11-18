@@ -82,6 +82,8 @@ func TestTranslate(t *testing.T) {
 		{`[\x{41 42}-]`, `[AB\-]`},
 		{`a{2,0}`, `(?>a{0,2})`},
 		{`(?<b>x)?\g<b>`, `(x)?(?<1>x)`},
+		{`(?~\*/)$`, `(?:(?:(?!\*/)(?s:.))*)$`},
+		{`(?~ab)?c`, `(?:(?:(?!ab)(?s:.))*)?c`},
 	}
 	for _, c := range cases {
 		got, err := translate(c.in, false, false)
@@ -99,7 +101,7 @@ func TestTranslate(t *testing.T) {
 	if got, _ := translate(`\Gx|\Ay`, true, true); got != `(?!)x|(?!)y` {
 		t.Errorf("anchors not disallowed: %q", got)
 	}
-	for _, unsupported := range []string{`\K`, `\g<x>`, `\g<0>`, `(?~x)`, `(`, `)`} {
+	for _, unsupported := range []string{`\K`, `\g<x>`, `\g<0>`, `(?~|x)`, `(?~|x|y)`, `(`, `)`} {
 		if _, err := translate(unsupported, false, false); err == nil {
 			t.Errorf("translate(%q) succeeded", unsupported)
 		}
@@ -125,6 +127,10 @@ func TestTranslatedMatches(t *testing.T) {
 		{pattern: `[\x{41 43}]+`, input: "BCAB", match: "CA"},
 		{pattern: `x[^"]{2,0}`, input: "xabc", match: "xab"},
 		{pattern: `[[:^alpha:]]+`, input: "ab12c", match: "12"},
+		// The absent operator stops before what it must not contain, and C#'s use of it sees
+		// whether a line is free of "*/" to its end.
+		{pattern: `/\*(?~\*/)`, input: "x /* a */ b */", match: "/* a "},
+		{pattern: `a(?=(?~\*/)$)`, input: "a * / b\n", match: "a"},
 	}
 	for _, c := range cases {
 		re, err := compilePattern(c.pattern, false, false)

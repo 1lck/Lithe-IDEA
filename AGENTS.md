@@ -110,8 +110,10 @@ Viva 由 `desktop/go.mod` 的 `replace` 固定到 [Lithe-IDEA/viva](https://gith
 
 ## 工作树缓存复用与资源说明
 
+- Go 的构建缓存和模块缓存、Cargo 的 `~/.cargo/registry` 是所有工作树共用的全局缓存，不得为工作树另设位置、
+  复制或清空。
 - 每个 Git worktree 有自己的 `.artifacts`，仓库不提供跨工作树复制资源的脚本。在新工作树编译前，按
-  `develop-lithe` Skill 的“工作树缓存复用”一节尽量复用已有缓存；只复制，不让两个工作树共用同一个可写目录，
+  `develop-lithe` Skill 的“工作树缓存复用”一节尽量复用已有缓存；`.artifacts` 只复制，不让两个工作树共用同一个目录，
   运行时状态、用户数据和 LSP workspace 状态不得复制。
 - 新增或修改任何下载、解压、生成或缓存资源时，同步更新 `docs/ci-builds.md` 的“独立工作树的本地编译”
   章节，写清资源路径、归属与生命周期、能否跨工作树复制及前提（版本/平台/架构/工具链身份），不能复制时写明原因。

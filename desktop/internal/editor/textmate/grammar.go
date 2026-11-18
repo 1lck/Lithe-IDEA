@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"maps"
 	"regexp"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -15,7 +16,7 @@ import (
 )
 
 // RawGrammar is a TextMate grammar as its JSON file has it. Only what tokenizing reads is
-// kept; injections are not supported.
+// kept: injectionSelector is not, since no grammar is injected into another.
 //
 // A grammar is read the way the kernel validates a plugin's grammar (plugins/grammar.rs in
 // Lithe-core-rust), so that the rules the editor runs are the rules the kernel checked: keys
@@ -27,6 +28,8 @@ type RawGrammar struct {
 	Name       string
 	Patterns   []*RawRule
 	Repository map[string]*RawRule
+	// Injections are the grammar's injections in the order vscode-textmate collects them.
+	Injections []RawInjection
 }
 
 // RawRule is one rule of a RawGrammar.
@@ -80,6 +83,9 @@ func ParseGrammar(data []byte) (*RawGrammar, error) {
 		Name:       d.string("name", object["name"]),
 		Patterns:   d.patterns("patterns", object["patterns"]),
 		Repository: d.repository("repository", object["repository"]),
+	}
+	if injections := object["injections"]; injections != nil {
+		grammar.Injections = d.injections(injections, data)
 	}
 	if d.err != nil {
 		return nil, fmt.Errorf("textmate grammar: %w", d.err)
@@ -243,6 +249,30 @@ func (d *decoder) repository(key string, value any) map[string]*RawRule {
 	}
 	d.pop()
 	return repository
+}
+
+// injections reads the injections object of the grammar in data, in the order
+// vscode-textmate collects them, leaving out rules written as null.
+func (d *decoder) injections(value any, data []byte) []RawInjection {
+	entries, ok := value.(map[string]any)
+	if !ok {
+		d.fail("injections", "an object")
+		return nil
+	}
+	keys := injectionKeys(data)
+	if len(keys) != len(entries) {
+		// The file decoded, so its keys read again; this only keeps the order deterministic.
+		keys = slices.Sorted(maps.Keys(entries))
+	}
+	injections := make([]RawInjection, 0, len(entries))
+	d.push("injections", -1)
+	for _, key := range keys {
+		if rule := d.rule(entries[key], key, -1); rule != nil {
+			injections = append(injections, RawInjection{Selector: key, Rule: rule})
+		}
+	}
+	d.pop()
+	return injections
 }
 
 // captures reads captures written as an object or as an array. An object key is a group
@@ -435,6 +465,8 @@ type Grammar struct {
 	// each use rather than keep it.
 	rules atomic.Pointer[[]*rule]
 	root  int
+	// injections are the root grammar's injections, sorted by priority; they never change.
+	injections []injection
 
 	// compileMu guards compiler, which compiles included grammars when they are reached.
 	compileMu sync.Mutex
@@ -787,6 +819,7 @@ func compileGrammar(raw *RawGrammar, source *grammarSource) *Grammar {
 	c.top = c.grammarRepo(raw, nil)
 	c.included[raw.ScopeName] = c.top
 	g.root = c.ruleID(c.top.self, c.top)
+	g.injections = c.collectInjections(raw.Injections)
 	c.publish()
 	rootName := c.rules[g.root].name.text
 	if rootName == "" {

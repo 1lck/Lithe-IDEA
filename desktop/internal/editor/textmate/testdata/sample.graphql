@@ -1,0 +1,25 @@
+# A query
+query GetUser($id: ID!, $first: Int = 10) @cached(ttl: 60) {
+  user(id: $id) {
+    id
+    name
+    ...UserFields
+    posts(first: $first, orderBy: {field: CREATED_AT, direction: DESC}) {
+      edges { node { title } }
+    }
+  }
+}
+
+fragment UserFields on User {
+  email
+  isActive
+}
+
+"""A user."""
+type User implements Node {
+  id: ID!
+  score: Float = 1.5
+  role: Role @deprecated(reason: "no")
+}
+
+enum Role { ADMIN USER }

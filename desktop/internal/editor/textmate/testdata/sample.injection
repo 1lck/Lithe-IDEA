@@ -1,0 +1,6 @@
+kw @at #hash %pct &amp ^ ~ TODO
+"kw @at #hash TODO $var \" quote ^ ~"
+{ kw @at #hash %pct DUP DUPx ^ "TODO $in" }
+[ &amp %pct ] &amp
+<ab!cd @x> after <!> and <>
+{ { nested ^ @deep } <x!y> } tail @end

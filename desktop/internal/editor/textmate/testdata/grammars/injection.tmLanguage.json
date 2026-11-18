@@ -1,0 +1,99 @@
+{
+  "comment": "Written for the tests: each injection checks one part of how vscode-textmate collects, orders and matches injections. sample.injection uses them all.",
+  "name": "Injection test",
+  "scopeName": "source.injection",
+  "patterns": [
+    { "include": "#string" },
+    { "include": "#block" },
+    { "include": "#bracket" },
+    { "match": "\\bkw\\b", "name": "keyword.normal.injection" },
+    { "match": "@\\w+", "name": "normal.at.injection" },
+    {
+      "match": "(<)([^>]*)(>)",
+      "captures": {
+        "1": { "name": "punctuation.angle.injection" },
+        "2": { "name": "meta.inside.injection", "patterns": [{ "match": "\\w+", "name": "inner.word.injection" }] },
+        "3": { "name": "punctuation.angle.injection" }
+      }
+    }
+  ],
+  "repository": {
+    "string": {
+      "begin": "\"",
+      "end": "\"",
+      "name": "string.quoted.double.injection",
+      "patterns": [{ "match": "\\\\.", "name": "constant.character.escape.injection" }]
+    },
+    "block": {
+      "begin": "\\{",
+      "end": "\\}",
+      "name": "meta.block.injection",
+      "patterns": [{ "include": "$self" }]
+    },
+    "bracket": {
+      "begin": "\\[",
+      "end": "\\]",
+      "name": "1.bracket.injection"
+    }
+  },
+  "injections": {
+    "source.injection": {
+      "comment": "Listed before \"1\", which a JavaScript object still puts first, so at the same start \"1\" wins.",
+      "patterns": [{ "match": "&\\w+", "name": "named.amp.injection" }]
+    },
+    "1": {
+      "patterns": [{ "match": "&\\w+", "name": "index.amp.injection" }]
+    },
+    "L:source.injection - string": {
+      "comment": "L: wins over the rule's own match at the same start.",
+      "patterns": [{ "match": "@\\w+", "name": "left.at.injection" }]
+    },
+    "source.injection - (string, meta.block)": {
+      "comment": "The comma inside the parentheses is an or, not a new part. At the same start the rule's own match wins.",
+      "patterns": [
+        { "match": "\\bkw\\b", "name": "injected.kw.injection" },
+        { "match": "#\\w+", "name": "hash.injection" }
+      ]
+    },
+    "source.injection string.quoted": {
+      "patterns": [{ "match": "TODO", "name": "markup.todo.injection" }]
+    },
+    "string.quote": {
+      "comment": "A prefix of a scope selects it only up to a dot.",
+      "patterns": [{ "match": "\\w+", "name": "wrong.prefix.injection" }]
+    },
+    "R:source.injection": {
+      "comment": "Sorted after the part without a priority that follows it.",
+      "patterns": [{ "match": "%\\w+", "name": "right.percent.injection" }]
+    },
+    "source": {
+      "patterns": [{ "match": "%\\w+", "name": "plain.percent.injection" }]
+    },
+    "L:, R:source.injection meta.block": {
+      "comment": "A part with only a priority matches everywhere.",
+      "patterns": [{ "match": "\\^", "name": "caret.injection" }]
+    },
+    "source.injection -": {
+      "comment": "A negation of nothing matches nothing.",
+      "patterns": [{ "match": "~", "name": "never.tilde.injection" }]
+    },
+    "(string.quoted": {
+      "comment": "An unclosed parenthesis still parses.",
+      "patterns": [{ "match": "\\$\\w+", "name": "dollar.injection" }]
+    },
+    "meta.inside": {
+      "comment": "Captures tokenized again with patterns see the injections too.",
+      "patterns": [{ "match": "!", "name": "bang.injection" }]
+    },
+    "meta.block": {
+      "patterns": [{ "match": "DUP", "name": "dup.first.injection" }]
+    },
+    "meta.block ": {
+      "patterns": [{ "match": "DUP\\w*", "name": "dup.spaced.injection" }]
+    },
+    "meta.block": {
+      "comment": "A repeated key keeps the place of its first and the rule of its last.",
+      "patterns": [{ "match": "DUP", "name": "dup.last.injection" }]
+    }
+  }
+}
