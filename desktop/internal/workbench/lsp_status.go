@@ -8,6 +8,7 @@ import (
 	"github.com/1lck/Lithe-IDEA/desktop/internal/core"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/i18n"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/icons"
+	"github.com/1lck/Lithe-IDEA/desktop/internal/settingswindow"
 	"github.com/vivaui/viva/gfx"
 	"github.com/vivaui/viva/ui"
 )
@@ -200,6 +201,9 @@ func (a *App) lspStatusText() string {
 	if server := a.lspStatusServer(); server != nil {
 		return a.lspPhaseText(server)
 	}
+	if a.lspStatusPreparation() != nil {
+		return i18n.Shared(a.language(), "desktop.status.lspStarting")
+	}
 	if failed := a.lspStatusFailedServer(); failed != nil {
 		return i18n.Shared(a.language(), "desktop.status.lspFailed")
 	}
@@ -262,6 +266,9 @@ func lspPhaseIcon(server *pluginServer) gfx.Icon {
 func (a *App) lspStatusColor() gfx.Color {
 	server := a.lspStatusServer()
 	if server == nil {
+		if a.lspStatusPreparation() != nil {
+			return a.colors.Warning
+		}
 		if a.lspStatusFailedServer() != nil {
 			return a.theme.Danger
 		}
@@ -276,6 +283,38 @@ func (a *App) lspStatusColor() gfx.Color {
 		return a.colors.Subtle
 	}
 	return a.colors.Warning
+}
+
+func (a *App) lspStatusPreparation() *pluginServerPreparation {
+	if p := a.project; p != nil {
+		if d := p.selectedDocument(p.docs.group); d != nil {
+			a.pluginServerMu.Lock()
+			preparation := a.pluginServerPreparations[d.languageID]
+			a.pluginServerMu.Unlock()
+			if preparation != nil && preparation.project == p {
+				return preparation
+			}
+		}
+	}
+	return nil
+}
+
+type lspPreparation struct {
+	languageID string
+	attempt    *pluginServerPreparation
+}
+
+func (a *App) lspPreparations() []lspPreparation {
+	a.pluginServerMu.Lock()
+	defer a.pluginServerMu.Unlock()
+	var preparations []lspPreparation
+	for languageID, attempt := range a.pluginServerPreparations {
+		if attempt.project == a.project {
+			preparations = append(preparations, lspPreparation{languageID, attempt})
+		}
+	}
+	sort.Slice(preparations, func(i, j int) bool { return preparations[i].languageID < preparations[j].languageID })
+	return preparations
 }
 
 // lspServers lists the language servers the window runs, by plugin.
@@ -365,13 +404,25 @@ func (a *App) lspStatusMenu(c ui.C, anchor ui.Box) {
 	viewLogs := i18n.Shared(language, "native.inline.viewLogs")
 	servers := a.lspServers()
 	failed := a.lspFailedServers()
+	preparations := a.lspPreparations()
 	failedText := i18n.Shared(language, "desktop.status.lspFailed")
 	ui.Menu(c, anchor, &v.menu, func(menu *ui.MenuItems) {
 		menu.Above()
 		menu.WidthRange(240, 380)
 		menu.Label(i18n.Shared(language, "native.languageServices"))
-		if len(servers) == 0 && len(failed) == 0 {
+		if len(servers) == 0 && len(failed) == 0 && len(preparations) == 0 {
 			menu.Item(i18n.Shared(language, "native.noRegisteredLanguageServers")).Disabled(true)
+		}
+		for _, preparation := range preparations {
+			description := i18n.Shared(language, "desktop.status.lspStarting")
+			if progress := preparation.attempt.progress.Load(); progress != nil && progress.Phase != "ready" {
+				description = settingswindow.RuntimeProgressText(language, *progress)
+			}
+			menu.Sub(preparation.languageID, func(sub *ui.MenuItems) {
+				if sub.Item(i18n.Shared(language, "desktop.marketplace.cancel")).Icon(icons.Square).Clicked() {
+					c.After(func() { preparation.attempt.stop() })
+				}
+			}).Icon(icons.LoaderCircle).Description(description)
 		}
 		for _, server := range servers {
 			id := server.session.PluginID

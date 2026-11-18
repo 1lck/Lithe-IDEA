@@ -12,6 +12,7 @@ import (
 	"github.com/1lck/Lithe-IDEA/desktop/internal/core"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/i18n"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/marketplace"
+	"github.com/1lck/Lithe-IDEA/desktop/internal/pluginruntime"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/plugintrust"
 	"github.com/vivaui/viva/gfx"
 )
@@ -266,6 +267,45 @@ func TestPluginInstallShowsTransferBytesAndLocalVerification(t *testing.T) {
 	d.pump()
 	if !d.text(i18n.Shared(i18n.English, "desktop.marketplace.verifying")) {
 		t.Fatal("local verification is still presented as downloading")
+	}
+}
+
+func TestRuntimePreparationRemainsCancellableAfterApproval(t *testing.T) {
+	w := newWindow(NewController(Options{}), Values{})
+	feedback := w.startPluginInstall("Example Support", true)
+	if !feedback.Review("2.0.0", plugintrust.Review{}, true) {
+		t.Fatal("a reusable approval was refused")
+	}
+	progress := pluginruntime.Progress{ID: "fixture-engine", Phase: "downloading", Received: 12 << 20, Total: 251 << 20}
+	feedback.RuntimeProgress(progress)
+	d := openWindow(t, w)
+	if !d.text(RuntimeProgressText(i18n.English, progress)) {
+		t.Fatal("dependency transfer was hidden by the installing state")
+	}
+	d.click(i18n.Shared(i18n.English, "desktop.marketplace.cancel"))
+	select {
+	case <-feedback.Context.Done():
+	default:
+		t.Fatal("cancelling an approved dependency download did not cancel its worker")
+	}
+}
+
+func TestRuntimeFailureExplainsPreservedInstallationAndOffersRetry(t *testing.T) {
+	w := newWindow(NewController(Options{}), Values{})
+	feedback := w.startPluginInstall("Example Support", true)
+	feedback.Review("2.0.0", plugintrust.Review{}, true)
+	feedback.RuntimeProgress(pluginruntime.Progress{ID: "fixture-engine", Phase: "repairing"})
+	retried := false
+	w.install.retry = func() { retried = true }
+	feedback.Failure(errors.New("offline fixture"))
+	feedback.Finish(true)
+	d := openWindow(t, w)
+	if !d.showsHelp(i18n.Shared(i18n.English, "desktop.marketplace.runtimeFailureHelp")) {
+		t.Fatal("failure omitted the retained environment and retry guidance")
+	}
+	d.click(i18n.Shared(i18n.English, "ui.retry"))
+	if !retried {
+		t.Fatal("retry action was lost after dependency failure")
 	}
 }
 
