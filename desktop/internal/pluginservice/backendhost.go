@@ -81,6 +81,9 @@ type BackendSession struct {
 	Session  pluginbackend.Session
 	cancel   context.CancelFunc
 	done     chan struct{}
+	// stopErr is published by closing done, after native shutdown/disposal.
+	stopErr  error
+	disposed bool
 
 	mu        sync.Mutex
 	ready     bool
@@ -490,7 +493,7 @@ func (b *BackendSession) serve(ctx context.Context) {
 	b.host.mu.Unlock()
 	stopCtx, cancel := context.WithTimeout(context.Background(), backendStopTimeout)
 	defer cancel()
-	_ = b.host.service.Backend.Stop(stopCtx, b.Session)
+	b.disposed, b.stopErr = b.host.service.Backend.StopAndDispose(stopCtx, b.Session)
 }
 
 // observe records the lifecycle facts calls depend on and routes completions.
