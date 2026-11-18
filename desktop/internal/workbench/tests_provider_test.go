@@ -69,6 +69,10 @@ func TestProviderTestRunner(t *testing.T) {
 	// discovered tests (build_tests_test.go).
 	_, statErr := os.Stat("discovery.marker")
 	discovery := statErr == nil
+	// entrypoints.marker selects the entrypoint fixture (title_run_entrypoints_test.go): the
+	// provider negotiates litheBuild 1 and finds an entrypoint in src/Main.java only.
+	_, statErr = os.Stat("entrypoints.marker")
+	entrypoints := statErr == nil
 	reader := bufio.NewReader(os.Stdin)
 	write := func(value any) {
 		body, err := json.Marshal(value)
@@ -132,6 +136,9 @@ func TestProviderTestRunner(t *testing.T) {
 		switch request.Method {
 		case "initialize":
 			experimental := map[string]any{"litheBuild": map[string]any{"version": 0}}
+			if entrypoints {
+				experimental["litheBuild"] = map[string]any{"version": 1}
+			}
 			if _, err := os.Stat("settings-action.marker"); err == nil {
 				experimental["litheFunctions"] = map[string]any{"version": 0, "functions": []any{map[string]any{"id": "snapshot.refresh"}}}
 			}
@@ -218,7 +225,31 @@ func TestProviderTestRunner(t *testing.T) {
 					},
 				},
 			})
+		case "lithe/build/runEntrypoints":
+			var params struct {
+				File string `json:"file"`
+			}
+			if err := json.Unmarshal(request.Params, &params); err != nil {
+				os.Exit(11)
+			}
+			found := []any{}
+			if params.File == "src/Main.java" {
+				found = append(found, map[string]any{"run": "main", "name": "Main", "entrypoint": "example.Main", "project": map[string]any{"name": "fixture", "path": "."}})
+			}
+			reply(request.ID, map[string]any{"format": "litheRunEntrypoints", "version": 0, "entrypoints": found})
 		case "lithe/build/prepareRun":
+			if entrypoints {
+				if err := os.WriteFile("prepare-run.json", request.Params, 0o600); err != nil {
+					os.Exit(9)
+				}
+				reply(request.ID, map[string]any{
+					"executable":       map[string]any{"kind": "command", "value": "fixture-service"},
+					"arguments":        []string{"-test.run=^TestFixtureEntrypointRunner$"},
+					"workingDirectory": ".",
+					"environment":      map[string]string{fixtureEntrypointVariable: "1"},
+				})
+				continue
+			}
 			// service.marker selects the service fixture (build_connection_debug_test.go): the
 			// provider records what the host asked for and answers with a process that listens
 			// on the debug port the host chose, as a runtime suspended for a debugger does.

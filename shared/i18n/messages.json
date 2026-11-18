@@ -19294,7 +19294,7 @@
     },
     {
       "id": "desktop.title.currentFileNotRunnable",
-      "description": "Desktop title bar: Run pressed while Current File is chosen; nothing runs a file outside a run configuration",
+      "description": "Desktop title bar: Run pressed while Current File is chosen, but no file is open or no build plugin finds an entrypoint (such as a class with a main method) in the open file",
       "platforms": [
         "desktop"
       ]

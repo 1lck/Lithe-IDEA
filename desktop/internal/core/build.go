@@ -123,8 +123,10 @@ type BuildPlanRequest struct {
 	Refresh                 bool                       `json:"refresh,omitempty"`
 	Tool                    *BuildTool                 `json:"tool,omitempty"`
 	WorkspaceRoot           string                     `json:"workspaceRoot,omitempty"`
-	// LaunchOptions are a run configuration's choices (buildProviders 10).
+	// LaunchOptions are a run configuration's choices.
 	LaunchOptions *RunLaunchOptions `json:"launchOptions,omitempty"`
+	// File is the workspace-relative source file build.runEntrypointsPlan asks about.
+	File string `json:"file,omitempty"`
 }
 
 // BuildProviderRequest is the typed request a provider-backed plan names.
@@ -277,6 +279,8 @@ type buildOutcome struct {
 	Discovery *BuildTestDiscovery `json:"discovery"`
 	// Tree answers build.modelTree.
 	Tree *BuildModelTree `json:"tree"`
+	// Entrypoints answers build.decodeRunEntrypoints.
+	Entrypoints *BuildRunEntrypoints `json:"entrypoints"`
 }
 
 func (o buildOutcome) failure(command string) error {
