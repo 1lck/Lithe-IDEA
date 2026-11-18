@@ -432,6 +432,46 @@ func (c *Client) planBuild(ctx context.Context, command string, manifest json.Ra
 	return *result.Plan, nil
 }
 
+// RunTypeInstance is one detected instance of a build system as
+// `build.runConfigurationPlan` takes it: its workspace-relative root and stored options.
+type RunTypeInstance struct {
+	Root    string                     `json:"root"`
+	Options map[string]json.RawMessage `json:"options,omitempty"`
+}
+
+// RunConfigurationPlanRequest asks for the launch of saved configuration
+// ConfigurationID of a kind the build system declares. Core runs it with the
+// instance whose root holds the configuration's working directory.
+type RunConfigurationPlanRequest struct {
+	ConfigurationID         string            `json:"configurationId"`
+	Instances               []RunTypeInstance `json:"instances"`
+	PluginDirectory         string            `json:"pluginDirectory,omitempty"`
+	WorkspaceStateDirectory string            `json:"workspaceStateDirectory,omitempty"`
+}
+
+// PlanRunConfiguration plans a saved configuration of a plugin-declared run kind
+// (`build.runConfigurationPlan`): the command plan of the chosen instance, whose
+// Root names it, with the configuration's environment already in Environment.
+func (c *Client) PlanRunConfiguration(ctx context.Context, manifest json.RawMessage, buildSystemID, workspaceRoot string, request RunConfigurationPlanRequest) (BuildPlan, error) {
+	const command = "build.runConfigurationPlan"
+	var result buildOutcome
+	if err := c.Execute(ctx, command, struct {
+		Manifest      json.RawMessage             `json:"manifest"`
+		BuildSystemID string                      `json:"buildSystemID"`
+		WorkspaceRoot string                      `json:"workspaceRoot"`
+		Request       RunConfigurationPlanRequest `json:"request"`
+	}{manifest, buildSystemID, workspaceRoot, request}, &result); err != nil {
+		return BuildPlan{}, err
+	}
+	if err := result.failure(command); err != nil {
+		return BuildPlan{}, err
+	}
+	if result.Plan == nil {
+		return BuildPlan{}, newParseError(command, "run configuration plan returned no plan", "")
+	}
+	return *result.Plan, nil
+}
+
 // DecodeBuildModel turns static/command output or a provider result into the
 // normalized model.
 func (c *Client) DecodeBuildModel(ctx context.Context, manifest json.RawMessage, buildSystemID string, request BuildDecodeModelRequest) (BuildModel, error) {

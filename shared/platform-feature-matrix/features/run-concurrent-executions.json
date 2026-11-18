@@ -2,10 +2,10 @@
   "id": "run-concurrent-executions",
   "area": "运行与调试",
   "group": "运行输出",
-  "capability": "像 IntelliJ IDEA 一样同时运行多个服务：不同运行配置、不同构建目标的运行可以并行，每个运行有自己的 Run 标签、状态和停止按钮；再次运行一个正在运行的配置时先停止旧进程，结束后再启动新进程；Run 标签和执行树在准备阶段显示转圈，进程启动后显示静态的绿色运行图标",
+  "capability": "像 IntelliJ IDEA 一样同时运行多个服务：不同运行配置、不同构建目标的运行可以并行，每个运行有自己的 Run 标签、状态和停止按钮；再次运行一个正在运行的配置时先停止旧进程，结束后再启动新进程，勾选“允许多个实例”的配置则在旁边另开一个实例；Run 标签和执行树在准备阶段显示转圈，进程启动后显示静态的绿色运行图标",
   "owner": "Run",
-  "notes": "Viva 共享实现。运行按键区分（运行配置 config:<id>、构建目标 target:<实例>/<目标>/<运行>、命令入口 entry:<实例>/<入口>），存在 buildState.running；构建任务、模型加载和 IDE API 的构建仍然独占 buildState.operation，一次一个。调试仍是每个项目一个会话。IDE API 对正在运行的配置再次 start 返回 BUSY。内置进程运行（Shell、PowerShell、cmd、可执行程序）同样按配置键并行。插件经 lithe/host/run/start 发起的运行一开始就显示运行图标（进程已由插件服务启动）。",
-  "verification": "打开含两个服务运行配置的项目，先运行 A，再运行 B，确认两个 Run 标签同时为运行状态、两个进程都在；在运行配置列表里分别点停止，只停对应的那个。运行中再次运行 A，确认旧 A 先结束（状态为已停止）再启动新 A，端口不冲突。服务准备期间标签显示转圈，进程启动后变为静态绿色三角。构建任务运行时目标的运行按钮仍可用、任务按钮不可用。自动化：build_concurrent_runs_test.go 的 TestRunsOfDifferentKeysRunTogether、TestStartRunReplacesTheRunOfItsKeyOnceItEnded、TestServiceRunShowsRunningAndRestartsInPlace，build_tree_test.go 的 TestBuildTreeRunMarksRunTheirRowsAtOnce。",
+  "notes": "Viva 共享实现。运行按键区分（运行配置 config:<id>、构建目标 target:<实例>/<目标>/<运行>、命令入口 entry:<实例>/<入口>），存在 buildState.running；构建任务、模型加载和 IDE API 的构建仍然独占 buildState.operation，一次一个。调试仍是每个项目一个会话。IDE API 对正在运行的配置再次 start 返回 BUSY。内置进程运行（Shell、PowerShell、cmd、可执行程序）同样按配置键并行。插件经 lithe/host/run/start 发起的运行一开始就显示运行图标（进程已由插件服务启动）。运行配置的“允许多个实例”（allowMultipleInstances，内置运行和插件声明的类型都有）勾选后，再次运行不停止正在运行的实例，新实例有自己的 Run 标签；调试不受此开关影响，同一配置正在运行时调试启动仍返回 BUSY。",
+  "verification": "打开含两个服务运行配置的项目，先运行 A，再运行 B，确认两个 Run 标签同时为运行状态、两个进程都在；在运行配置列表里分别点停止，只停对应的那个。运行中再次运行 A，确认旧 A 先结束（状态为已停止）再启动新 A，端口不冲突。服务准备期间标签显示转圈，进程启动后变为静态绿色三角。构建任务运行时目标的运行按钮仍可用、任务按钮不可用。自动化：build_concurrent_runs_test.go 的 TestRunsOfDifferentKeysRunTogether、TestStartRunReplacesTheRunOfItsKeyOnceItEnded、TestServiceRunShowsRunningAndRestartsInPlace，build_tree_test.go 的 TestBuildTreeRunMarksRunTheirRowsAtOnce。勾选 A 的“允许多个实例”后再运行 A，确认旧 A 不停止、出现第二个 A 的 Run 标签，两个都能单独停止。自动化：runconfig_types_test.go 的 TestPluginDeclaredRunStartsSeveralInstances。",
   "macos": {
     "implementationStatus": "implemented",
     "verificationStatus": "pending",
@@ -17,7 +17,8 @@
       "desktop/internal/workbench/run_view.go",
       "desktop/internal/workbench/runs.go",
       "desktop/internal/workbench/build_tree_view.go",
-      "desktop/internal/workbench/build_concurrent_runs_test.go"
+      "desktop/internal/workbench/build_concurrent_runs_test.go",
+      "desktop/internal/workbench/runconfig_types_test.go"
     ]
   },
   "windows": {
@@ -31,7 +32,8 @@
       "desktop/internal/workbench/run_view.go",
       "desktop/internal/workbench/runs.go",
       "desktop/internal/workbench/build_tree_view.go",
-      "desktop/internal/workbench/build_concurrent_runs_test.go"
+      "desktop/internal/workbench/build_concurrent_runs_test.go",
+      "desktop/internal/workbench/runconfig_types_test.go"
     ]
   }
 }

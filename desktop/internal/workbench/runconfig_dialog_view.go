@@ -153,24 +153,26 @@ func (a *App) drawRunConfigNewMenu(c ui.C, p *project, anchor ui.Box, at runConf
 	}
 }
 
-// runConfigDialogTypeItems adds an item per built-in kind to the menu of kinds, each creating a
-// new configuration of that kind. A kind this platform cannot run is still offered, saying so.
+// runConfigDialogTypeItems adds an item per kind to the menu of kinds, each creating a new
+// configuration of that kind: the built-in kinds, then the ones enabled plugins declare, each
+// with the description its plugin gives. A kind this platform cannot run is still offered,
+// saying so.
 func (a *App) runConfigDialogTypeItems(c ui.C, menu *ui.MenuItems, p *project) {
 	language := a.language()
-	for _, kind := range p.runConfigs.types {
-		label, ok := runConfigTypeLabel(language, kind.Provider)
-		if !ok {
-			continue
-		}
-		provider := kind.Provider
-		item := menu.Item(label).Icon(runConfigTypeIcon(provider, a.colors.Dark))
-		if kind.Unavailable() {
-			item = item.Description(runConfigTypeNote(language, kind))
+	s := &p.runConfigs
+	for _, listed := range s.types {
+		kind := runConfigKindOfType(listed)
+		item := menu.Item(s.kindTitle(language, kind)).Icon(s.kindIcon(kind, a.colors.Dark))
+		switch {
+		case listed.Unavailable():
+			item = item.Description(runConfigTypeNote(language, listed))
+		case listed.Description != "":
+			item = item.Description(listed.Description)
 		}
 		if item.Clicked() {
 			c.After(func() {
 				a.performed("run.configuration.new", surfaceButton)
-				a.addRunConfigDraft(p, provider, nil)
+				a.addRunConfigDraft(p, kind, nil)
 			})
 		}
 	}
@@ -481,18 +483,18 @@ func (a *App) drawRunConfigNameRow(c ui.C, field func(k ui.C, label string)) {
 }
 
 // runConfigDraftIcon is the icon of configuration key in the tree: its kind's for a built-in
-// run, its execution's for a build provider run, its original's for a copy not saved yet.
+// run or a kind a plugin declares, its execution's for a build provider run, its original's for a copy not saved yet.
 func (a *App) runConfigDraftIcon(p *project, key string) gfx.Icon {
 	if configuration := p.runConfigs.configuration(key); configuration != nil {
-		if configuration.IsProcess() {
-			return runConfigTypeIcon(configuration.Provider, a.colors.Dark)
+		if kind, ok := runConfigKindOf(*configuration); ok {
+			return p.runConfigs.kindIcon(kind, a.colors.Dark)
 		}
 		return runExecutionIcon(configuration.Execution)
 	}
 	if draft := p.runConfigs.dialog.drafts[key]; draft != nil {
 		switch {
 		case draft.form != nil:
-			return runConfigTypeIcon(draft.form.provider, a.colors.Dark)
+			return p.runConfigs.kindIcon(draft.form.kind, a.colors.Dark)
 		case draft.copyOf != "" && draft.icon.ViewBox > 0:
 			return draft.icon
 		}

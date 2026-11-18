@@ -11474,6 +11474,8 @@
     "desktop.runConfig.fieldName": "名称",
     "desktop.runConfig.fieldStoreAsProjectFile": "存为项目文件",
     "desktop.runConfig.storeAsProjectFileHelp": "勾选后保存到 .lithe/run/configurations.yaml，可随项目提交共享；不勾选则只保存在本机的 .lithe/run/local.yaml。",
+    "desktop.runConfig.fieldAllowMultipleInstances": "允许多个实例",
+    "desktop.runConfig.allowMultipleInstancesHelp": "勾选后，配置运行时再次启动会另开一个实例，与正在运行的并存；不勾选则先停止正在运行的实例，再重新启动。",
     "desktop.runConfig.fieldSource": "执行",
     "desktop.runConfig.sourceFile": "脚本文件",
     "desktop.runConfig.sourceText": "脚本文本",

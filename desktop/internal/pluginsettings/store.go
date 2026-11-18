@@ -118,7 +118,7 @@ func (s *Store) load(ctx context.Context, manifest json.RawMessage, workspace st
 		return snapshot, nil
 	}
 	if translate {
-		localization.Files, snapshot.unreadable, err = readTranslations(ctx, presentation.Package, *policy.Localization)
+		localization.Files, snapshot.unreadable, err = ReadTranslations(ctx, presentation.Package, *policy.Localization)
 		if err != nil {
 			return Snapshot{}, err
 		}
@@ -163,9 +163,10 @@ func (s *Store) load(ctx context.Context, manifest json.RawMessage, workspace st
 	return snapshot, nil
 }
 
-// readTranslations returns every candidate present in the package. A missing
-// candidate is the normal case; any other failure skips only that file.
-func readTranslations(ctx context.Context, packageDirectory string, plan core.PluginSettingsLocalization) (map[string]string, []LocalizationReadFailure, error) {
+// ReadTranslations returns every candidate of plan present in the package, as Core's
+// localization reports name them. A missing candidate is the normal case; any other
+// failure skips only that file. Only a cancelled ctx fails the whole read.
+func ReadTranslations(ctx context.Context, packageDirectory string, plan core.PluginSettingsLocalization) (map[string]string, []LocalizationReadFailure, error) {
 	files := map[string]string{}
 	var unreadable []LocalizationReadFailure
 	for _, candidate := range plan.Candidates {
