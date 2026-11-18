@@ -17,6 +17,7 @@ import (
 	"github.com/1lck/Lithe-IDEA/desktop/internal/core"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/i18n"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/logwindow"
+	"github.com/1lck/Lithe-IDEA/desktop/internal/treelist"
 	"github.com/vivaui/viva/app"
 	"github.com/vivaui/viva/gfx"
 	"github.com/vivaui/viva/ui"
@@ -1162,6 +1163,57 @@ func TestProjectTreeKeyboardKeepsSelectionVisible(t *testing.T) {
 	}
 	if p.tree.view.ScrollX() <= 0 {
 		t.Fatal("long name could not be reached by horizontal scrolling")
+	}
+}
+
+// The wheel over the open project menu stays in the menu: the project tree under the menu
+// scrolls neither down nor sideways (Viva keeps a wheel over a popover in its panel and does
+// not hand it to the window's OnScroll, which scrolls the tree sideways).
+func TestProjectMenuWheelLeavesTheTreeUnderItAlone(t *testing.T) {
+	root := t.TempDir()
+	for i := 0; i < 60; i++ {
+		name := fmt.Sprintf("folder-%02d", i)
+		if i == 0 {
+			name += strings.Repeat("x", 160)
+		}
+		if err := os.Mkdir(filepath.Join(root, name), 0o700); err != nil {
+			t.Fatal(err)
+		}
+	}
+	h := newHarness(t, &testKernel{Client: core.NewClient()})
+	h.open(root)
+	p := h.app.project
+	awaitDocumentState(t, h, func() bool { return p.tree.root != nil && p.tree.root.listed })
+	if err := h.driver.Advance(20 * time.Millisecond); err != nil {
+		t.Fatal(err)
+	}
+	h.app.post(func(a *App) { a.openProjectMenu() })
+	h.settle()
+	// The title of the recent projects is low in the menu, where the menu covers the tree.
+	var title gfx.Rect
+	for _, label := range h.driver.Snapshot().Labels {
+		if label.Value == h.app.text.Title.RecentProjects {
+			title = label.Bounds
+		}
+	}
+	at := center(title)
+	if area := p.tree.area; title.Width <= 0 || at.X < area.X || at.X >= area.Right() || at.Y < area.Y || at.Y >= area.Bottom() {
+		t.Fatalf("the menu title at %v is not over the tree at %v", title, p.tree.area)
+	}
+	top, _ := p.tree.view.Visible()
+	for _, event := range []gfx.ScrollEvent{
+		{X: at.X, Y: at.Y, DeltaY: 40 * treelist.RowHeight, Precise: true},
+		{X: at.X, Y: at.Y, DeltaX: 400, Precise: true},
+	} {
+		if err := h.driver.Scroll(event); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if now, _ := p.tree.view.Visible(); now != top || p.tree.view.ScrollX() != 0 {
+		t.Fatalf("the wheel over the menu scrolled the tree: first row %d -> %d, sideways %v", top, now, p.tree.view.ScrollX())
+	}
+	if !h.app.title.projectOpen {
+		t.Fatal("the wheel closed the project menu")
 	}
 }
 

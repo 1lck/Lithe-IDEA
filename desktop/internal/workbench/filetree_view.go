@@ -238,8 +238,9 @@ func (t *fileTree) areaHook() func(*ui.DrawContext) {
 
 // wheel scrolls the rows sideways, by a sideways swipe or the wheel with Shift held over the
 // tree, and reports whether it did. Viva's Tree lays its rows out RowWidth wide but, unlike
-// its List, does not take the sideways wheel itself (vivaui/viva#203); the page leaves such
-// an event to the window's OnScroll, which comes here.
+// its List, does not take the sideways wheel itself (only List registers a sideways wheel
+// route; #1821 item 3); the page leaves such an event to the window's OnScroll, which comes
+// here.
 func (t *fileTree) wheel(event gfx.ScrollEvent) gfx.EventResult {
 	if t.area.Width <= 0 || event.X < t.area.X || event.X >= t.area.Right() || event.Y < t.area.Y || event.Y >= t.area.Bottom() {
 		return gfx.EventResult{}
