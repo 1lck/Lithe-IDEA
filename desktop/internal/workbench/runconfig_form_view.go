@@ -432,9 +432,10 @@ func (a *App) drawRunConfigVariables(c ui.C, p *project, f *runConfigForm, ready
 const runConfigBeforeLaunchLimit = 16
 
 // drawRunConfigBeforeLaunch declares the steps that run before the configuration, each its name
-// with buttons that move it up or down or remove it, and the button whose menu adds one of the
-// process runs not chosen yet. A step whose configuration is gone shows its ID. edited, when
-// set, runs after each change, so an editor that tracks its edits by flag sees it.
+// with buttons that move it up or down or remove it, and the button whose "Add New Task" menu
+// adds one: "Run Another Configuration" lists the process runs not chosen yet, and says so
+// when there is none. A step whose configuration is gone shows its ID. edited, when set, runs
+// after each change, so an editor that tracks its edits by flag sees it.
 func (a *App) drawRunConfigBeforeLaunch(c ui.C, chosen *[]string, menuOpen *bool, candidates []core.RunConfigurationName, ready bool, edited func()) {
 	language := a.language()
 	change := func(apply func()) {
@@ -486,23 +487,29 @@ func (a *App) drawRunConfigBeforeLaunch(c ui.C, chosen *[]string, menuOpen *bool
 		}
 		full := len(steps) >= runConfigBeforeLaunchLimit
 		add := ui.Button(c.Part("add"), i18n.Shared(language, "desktop.runConfig.beforeLaunchAdd")).Icon(icons.Plus).Ghost().
-			Disabled(!ready || len(left) == 0 || full)
-		if len(candidates) == 0 {
-			add = add.Tooltip(i18n.Shared(language, "desktop.runConfig.beforeLaunchNoCandidates"))
-		}
+			Disabled(!ready || full)
 		if add.Clicked() {
 			c.After(func() { *menuOpen = !*menuOpen })
 		}
 		if *menuOpen {
+			// IDEA's "Add New Task" popup: one item per kind of task, each opening what it needs.
 			ui.Menu(c.Part("add-menu"), add, menuOpen, func(menu *ui.MenuItems) {
-				for _, candidate := range left {
-					if menu.Item(candidate.Name).Clicked() {
-						change(func() {
-							a.performed("run.configuration.form.beforeLaunch.add", surfaceButton)
-							*chosen = append(slices.Clone(*chosen), candidate.ID)
-						})
+				menu.WidthRange(200, 320)
+				menu.Label(i18n.Shared(language, "desktop.runConfig.beforeLaunchMenuTitle"))
+				menu.Sub(i18n.Shared(language, "desktop.runConfig.beforeLaunchRunAnother"), func(runs *ui.MenuItems) {
+					runs.WidthRange(160, 320)
+					if len(left) == 0 {
+						runs.Item(i18n.Shared(language, "desktop.runConfig.beforeLaunchNoCandidates")).Disabled(true)
 					}
-				}
+					for _, candidate := range left {
+						if runs.Item(candidate.Name).Icon(icons.Play).Clicked() {
+							change(func() {
+								a.performed("run.configuration.form.beforeLaunch.add", surfaceButton)
+								*chosen = append(slices.Clone(*chosen), candidate.ID)
+							})
+						}
+					}
+				}).Icon(icons.Play)
 			})
 		}
 	})

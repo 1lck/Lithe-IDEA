@@ -16149,7 +16149,21 @@
     },
     {
       "id": "desktop.runConfig.beforeLaunchAdd",
-      "description": "Button whose menu adds a process run as a before-launch step.",
+      "description": "Button whose menu adds a before-launch task.",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.runConfig.beforeLaunchMenuTitle",
+      "description": "Heading of the menu that adds a before-launch task, as in IntelliJ IDEA.",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.runConfig.beforeLaunchRunAnother",
+      "description": "Item of the add-task menu whose submenu lists the run configurations that can start first.",
       "platforms": [
         "desktop"
       ]
@@ -16163,7 +16177,7 @@
     },
     {
       "id": "desktop.runConfig.beforeLaunchEmpty",
-      "description": "Shown in the before-launch field when the configuration has no steps.",
+      "description": "Shown in the before-launch field when the configuration has no tasks.",
       "platforms": [
         "desktop"
       ]
@@ -16187,7 +16201,7 @@
     },
     {
       "id": "desktop.runConfig.beforeLaunchNoCandidates",
-      "description": "Tooltip of the disabled add-step button when the project has no process run to use.",
+      "description": "Disabled item of the Run Another Configuration submenu when the project has no process run to use.",
       "platforms": [
         "desktop"
       ]

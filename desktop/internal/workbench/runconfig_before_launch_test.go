@@ -228,8 +228,9 @@ func TestRunConfigFormKeepsTheStepList(t *testing.T) {
 	}
 }
 
-// In the Run/Debug Configurations window a step added from the menu of Add step counts as a
-// change, so Apply saves it with the configuration and the dialog shows nothing left to save.
+// In the Run/Debug Configurations window a step added from the Add New Task menu (Run Another
+// Configuration) counts as a change, so Apply saves it with the configuration and the dialog
+// shows nothing left to save.
 func TestRunConfigDialogSavesAnAddedStep(t *testing.T) {
 	root := t.TempDir()
 	writeBeforeLaunchDocument(t, root, "local.yaml",
@@ -251,6 +252,7 @@ func TestRunConfigDialogSavesAnAddedStep(t *testing.T) {
 		t.Fatal("the opened configuration shows as something to save")
 	}
 	h.clickNamed(i18n.Shared(h.app.language(), "desktop.runConfig.beforeLaunchAdd"))
+	h.clickNamed(i18n.Shared(h.app.language(), "desktop.runConfig.beforeLaunchRunAnother"))
 	h.clickNamed("generate")
 	h.settle()
 	if !slices.Equal(f.beforeLaunch, []string{"user:generate"}) || !d.dirty() {
