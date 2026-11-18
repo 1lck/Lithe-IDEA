@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/1lck/Lithe-IDEA/desktop/internal/buildprocess"
+	"github.com/1lck/Lithe-IDEA/desktop/internal/buildprovider"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/core"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/i18n"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/pluginhost"
@@ -458,11 +459,16 @@ func commandMissingMessage(language i18n.Language, err error) (string, bool) {
 	return i18n.SharedFormat(language, "desktop.plugins.commandMissingHelp", map[string]string{"commands": strings.Join(missing.Commands, " | ")}), true
 }
 
-// launchFailureText is the message of a plugin launch that failed: the missing commands when it
-// found none, the error itself otherwise.
+// launchFailureText is the message of a plugin launch or provider request that failed: the
+// missing commands when it found none, the provider's own message when the provider answered
+// with an error, the error itself otherwise.
 func (a *App) launchFailureText(err error) string {
 	if message, ok := commandMissingMessage(a.language(), err); ok {
 		return message
+	}
+	var provider *buildprovider.ProviderError
+	if errors.As(err, &provider) {
+		return provider.UserMessage()
 	}
 	return err.Error()
 }

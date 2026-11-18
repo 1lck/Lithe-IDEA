@@ -135,6 +135,24 @@ func TestProviderTestRunner(t *testing.T) {
 		}
 		switch request.Method {
 		case "initialize":
+			// initialize.marker selects the settings fixture (build_provider_restart_test.go): each
+			// start records the initializationOptions it got, one line per process.
+			if _, err := os.Stat("initialize.marker"); err == nil {
+				var params struct {
+					Options json.RawMessage `json:"initializationOptions"`
+				}
+				if err := json.Unmarshal(request.Params, &params); err != nil {
+					os.Exit(12)
+				}
+				record, err := os.OpenFile("initialize.log", os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o600)
+				if err != nil {
+					os.Exit(13)
+				}
+				_, writeErr := record.Write(append(params.Options, '\n'))
+				if closeErr := record.Close(); writeErr != nil || closeErr != nil {
+					os.Exit(14)
+				}
+			}
 			experimental := map[string]any{"litheBuild": map[string]any{"version": 0}}
 			if entrypoints {
 				experimental["litheBuild"] = map[string]any{"version": 1}
@@ -525,5 +543,10 @@ func TestProviderRunPreparationShowsItsBuildOutput(t *testing.T) {
 	}
 	if op.session.outcome != runFailed {
 		t.Fatalf("a failed preparation ended as %d, want failed", op.session.outcome)
+	}
+	// The provider's own message is what the run says: Core keeps a provider's JSON-RPC error
+	// under its generic serverError message and passes the provider's text apart (#2143).
+	if op.session.summary != "The build failed." {
+		t.Fatalf("the run summary = %q, want the provider's message", op.session.summary)
 	}
 }

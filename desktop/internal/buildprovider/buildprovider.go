@@ -13,6 +13,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -329,6 +330,32 @@ func (c *Client) Cancel(ctx context.Context, operation *Operation) error {
 	return c.runner.Cancel(ctx, c.session, operation.ID)
 }
 
+// Drain waits until the operations running when it is called reached their
+// terminal event, the session ended, or ctx is done. A caller that stops
+// handing the client new requests uses it to close the client without failing
+// the requests it already sent.
+func (c *Client) Drain(ctx context.Context) error {
+	if c == nil {
+		return nil
+	}
+	c.mu.Lock()
+	running := make([]*Operation, 0, len(c.pending))
+	for _, operation := range c.pending {
+		running = append(running, operation)
+	}
+	c.mu.Unlock()
+	for _, operation := range running {
+		select {
+		case <-operation.done:
+		case <-c.done:
+			return nil
+		case <-ctx.Done():
+			return ctx.Err()
+		}
+	}
+	return nil
+}
+
 // Close stops the session this client started.
 func (c *Client) Close(ctx context.Context) error {
 	if c == nil {
@@ -475,10 +502,14 @@ func (c *Client) ended() error {
 }
 
 // ProviderError is the failure a provider completed an operation with: the
-// stable code Core kept or normalised, and the bounded message.
+// stable code Core kept or normalised, and the bounded message. Detail is the
+// message of the provider's own JSON-RPC error, which Core keeps apart under its
+// serverError code and generic message: it is the plugin's text for the user,
+// so Error, which logs record, leaves it out.
 type ProviderError struct {
 	Code    string
 	Message string
+	Detail  string
 }
 
 func (e *ProviderError) Error() string {
@@ -488,17 +519,39 @@ func (e *ProviderError) Error() string {
 	return e.Code + ": " + e.Message
 }
 
+// UserMessage is what the window shows of the failure: the provider's own
+// message when it sent one, else Core's message.
+func (e *ProviderError) UserMessage() string {
+	if e.Detail != "" {
+		return e.Detail
+	}
+	return e.Message
+}
+
 func providerError(raw json.RawMessage) error {
 	var failure ProviderError
 	var decoded struct {
-		Code    string `json:"code"`
-		Message string `json:"message"`
+		Code       string `json:"code"`
+		Message    string `json:"message"`
+		Underlying string `json:"underlyingMessage"`
 	}
 	if json.Unmarshal(raw, &decoded) == nil && decoded.Message != "" {
-		failure.Code, failure.Message = decoded.Code, decoded.Message
+		failure.Code, failure.Message, failure.Detail = decoded.Code, decoded.Message, providerMessage(decoded.Underlying)
 		return &failure
 	}
 	return fmt.Errorf("build provider failed: %s", string(raw))
+}
+
+// providerMessage is the message of the provider's JSON-RPC error that Core
+// passes as the failure's underlyingMessage, or "" when it carries none.
+func providerMessage(underlying string) string {
+	var reply struct {
+		Message string `json:"message"`
+	}
+	if underlying == "" || json.Unmarshal([]byte(underlying), &reply) != nil {
+		return ""
+	}
+	return strings.TrimSpace(reply.Message)
 }
 
 var nextOperation atomic.Uint64
