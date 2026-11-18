@@ -53,6 +53,9 @@ type runConfigState struct {
 	// start is the configuration a save asked to run, started once the next refresh lists it
 	// so the run reads what was saved.
 	start string
+	// findingEntrypoint says Run on Current File is asking the build providers for the open
+	// file's entrypoint (title_run_entrypoints.go), so another press does not ask again.
+	findingEntrypoint bool
 	// browser is the list that shows the configurations by scope and build system.
 	browser runConfigBrowser
 	// currentFile says the user chose Current File in the title bar, so its Run and Debug act

@@ -1,0 +1,29 @@
+{
+  "id": "run-current-file-entrypoint",
+  "area": "运行与调试",
+  "group": "运行配置",
+  "capability": "标题栏选“当前文件”后点运行：构建插件（buildProviders 1 的入口运行）找出当前打开文件里的运行入口，例如没有在构建文件里写明主类、但带 main 方法的 Java 类，宿主把它保存为本机运行配置（名称取类名，引用不指向构建目标，入口存为 extensions.build-run.entrypoint），在标题栏选中并运行；之后这条配置出现在运行配置下拉里，可以像其他构建提供者运行一样编辑参数、环境变量和工作目录；同一入口再次运行复用已保存的配置；文件里没有入口时提示原因",
+  "owner": "Run",
+  "notes": "Viva 共享实现。入口由插件按文件回答（lithe/build/runEntrypoints），Core 规划请求并校验答案；宿主不按语言或插件分支。一个文件有多个入口时运行第一个。本轮只支持运行，入口运行的调试以后再做。Maven 插件提供 main 类入口（测试源码除外）。",
+  "verification": "在一个没有配置主类的 Maven 模块里打开带 public static void main 的类，标题栏选“当前文件”点运行：Maven 编译模块后运行该类，运行窗口出现输出，标题栏下拉出现以类名命名的配置并已选中；修改该配置的程序参数后再次运行生效；打开没有 main 方法的类再点运行，提示当前文件没有可运行的入口。自动化：title_run_entrypoints_test.go 的 TestRunOnCurrentFileStartsTheEntrypointAndSavesItsConfiguration（合成构建提供者）。",
+  "macos": {
+    "implementationStatus": "implemented",
+    "verificationStatus": "pending",
+    "evidence": [
+      "desktop/internal/workbench/title_run_entrypoints.go",
+      "desktop/internal/core/build_entrypoints.go",
+      "desktop/internal/pluginservice/builds.go",
+      "desktop/internal/workbench/title_run_entrypoints_test.go"
+    ]
+  },
+  "windows": {
+    "implementationStatus": "implemented",
+    "verificationStatus": "pending",
+    "evidence": [
+      "desktop/internal/workbench/title_run_entrypoints.go",
+      "desktop/internal/core/build_entrypoints.go",
+      "desktop/internal/pluginservice/builds.go",
+      "desktop/internal/workbench/title_run_entrypoints_test.go"
+    ]
+  }
+}
