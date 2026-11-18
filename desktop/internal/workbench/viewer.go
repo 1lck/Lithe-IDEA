@@ -14,6 +14,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/1lck/Lithe-IDEA/desktop/internal/bgra"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/core"
 	"github.com/vivaui/viva/gfx"
 )
@@ -265,7 +266,7 @@ func decodeViewerImage(path string, id uint64) (gfx.Bitmap, error) {
 	if err != nil {
 		return gfx.Bitmap{}, err
 	}
-	return bitmapOf(decoded, 0x5669657700000000|id), nil
+	return bgra.Bitmap(decoded, 0x5669657700000000|id), nil
 }
 
 // readViewerHex is the hex view of the leading bytes of a file: offset, sixteen bytes

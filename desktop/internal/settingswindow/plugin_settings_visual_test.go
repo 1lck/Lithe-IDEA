@@ -129,8 +129,8 @@ func TestVisualPluginSettingsPage(t *testing.T) {
 				Text: func() *i18n.Messages { return i18n.For(look.language) }, Language: func() i18n.Language { return look.language },
 				SystemLanguage: look.language, SystemDark: func() bool { return look.theme == "dark" },
 				PluginSettings: source, SettingsNavigation: client.SettingsNavigation,
-				SettingsPages: func(ctx context.Context) ([]core.SettingsPage, error) {
-					return client.SettingsPages(ctx, []core.SettingsContribution{{Manifest: manifest, Owner: core.PluginSettingsOwner{PluginID: "dev.example.settings", Version: "1.0.0"}, Enabled: true}})
+				SettingsPages: func(ctx context.Context, _ i18n.Language) ([]core.SettingsPage, error) {
+					return client.SettingsPages(ctx, []core.SettingsContribution{{Manifest: manifest, Owner: core.PluginSettingsOwner{PluginID: "dev.example.settings", Version: "1.0.0"}, Enabled: true}}, "")
 				},
 			}), Values{Theme: look.theme, Language: look.language.Code()})
 			config := w.config()

@@ -6,6 +6,7 @@ import (
 	"math"
 	"strconv"
 
+	"github.com/1lck/Lithe-IDEA/desktop/internal/bgra"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/fileicons"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/i18n"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/icons"
@@ -393,7 +394,7 @@ func checkerBitmap(surface gfx.Color, scale float32, version uint32) gfx.Bitmap 
 			}
 		}
 	}
-	bitmap := bitmapOf(picture, checkerBitmapID)
+	bitmap := bgra.Bitmap(picture, checkerBitmapID)
 	bitmap.Version = version
 	return bitmap
 }

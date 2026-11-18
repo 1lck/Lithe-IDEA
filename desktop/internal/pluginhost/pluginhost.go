@@ -124,15 +124,17 @@ type Capabilities map[string][]int
 //     their forms through Core, discovers tools with the shared toolchain and
 //     runs the plan in a staging directory.
 //   - settings: pages per language and build system, sections, every control
-//     type, the project layer, setting effects and page buttons.
+//     type, the project layer, setting effects, page buttons and settingRegions
+//     (search keywords and plugin views on a page or the plugin's own Settings tab).
 //   - debugAdapters: stdio adapters, adapter processes that print the loopback
 //     TCP endpoint they listen on (tcpAnnounced) and adapters inside the
 //     plugin's language server over loopback TCP, launch and attach (a remote host after the user
 //     confirms it), argument and environment bindings, features and defaults.
 //   - outputLinkMatchers: Build, Run and Test console lines become links at the
 //     ranges Core finds; a matcher with resolve asks the backend on click.
-//   - ui: text, web (window.lithe bridge) and native tree, list or form tool
-//     windows docked in the tool stripes.
+//   - ui: text, web (window.lithe bridge) and plugin view tool windows docked
+//     in the tool stripes; a plugin view (pluginview) draws the host controls,
+//     trees and canvases a backend view function returns.
 //   - vcsProviders: each provider's roots get a version control tool window
 //     with status, check-in, rollback, Diff and whatever else the provider
 //     negotiated; its session starts when the window first needs it.

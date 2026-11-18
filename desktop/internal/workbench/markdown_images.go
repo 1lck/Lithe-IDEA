@@ -6,12 +6,12 @@ import (
 	"errors"
 	"hash/fnv"
 	"image"
-	"image/draw"
 	"io"
 	"net/http"
 	"strings"
 	"time"
 
+	"github.com/1lck/Lithe-IDEA/desktop/internal/bgra"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/core"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/webpreview"
 	"github.com/vivaui/viva/gfx"
@@ -139,18 +139,5 @@ func decodeImageData(data []byte, id uint64) (gfx.Bitmap, error) {
 	if err != nil {
 		return gfx.Bitmap{}, err
 	}
-	return bitmapOf(decoded, id), nil
-}
-
-// bitmapOf converts an image to the canvas's premultiplied BGRA.
-func bitmapOf(decoded image.Image, id uint64) gfx.Bitmap {
-	bounds := decoded.Bounds()
-	rgba := image.NewRGBA(image.Rect(0, 0, bounds.Dx(), bounds.Dy()))
-	draw.Draw(rgba, rgba.Bounds(), decoded, bounds.Min, draw.Src)
-	// image.RGBA is premultiplied RGBA; the canvas takes premultiplied BGRA.
-	pix := rgba.Pix
-	for i := 0; i+3 < len(pix); i += 4 {
-		pix[i], pix[i+2] = pix[i+2], pix[i]
-	}
-	return gfx.Bitmap{Pix: pix, Width: rgba.Rect.Dx(), Height: rgba.Rect.Dy(), Stride: rgba.Stride, ID: id, Version: 1}
+	return bgra.Bitmap(decoded, id), nil
 }
