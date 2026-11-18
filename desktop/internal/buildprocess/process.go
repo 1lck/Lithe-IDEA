@@ -61,6 +61,11 @@ type Spec struct {
 	// adapter) can write frames after the process starts while cancellation
 	// still ends the whole tree.
 	Stdin io.Reader
+	// CommandLine, when set, is the exact Windows command line the process gets,
+	// Executable included, instead of one quoted from Arguments. Core plans it for
+	// a batch script run by cmd.exe, whose quoting rules differ from a program's.
+	// Start refuses it on other platforms, which have no command line.
+	CommandLine string
 }
 
 // Process is one running host-owned process. Wait must be called once to
@@ -108,7 +113,7 @@ func Start(ctx context.Context, spec Spec, observe func(Stream, string)) (*Proce
 	command.Stdout = stdoutWrite
 	command.Stderr = stderrWrite
 	platform := &processPlatform{}
-	err = platform.configure(command)
+	err = platform.configure(command, spec.CommandLine)
 	if err == nil {
 		err = command.Start()
 	}

@@ -810,12 +810,16 @@ func TestBuildTreeRunMarksRunTheirRowsAtOnce(t *testing.T) {
 	}
 	awaitStateWithin(t, h, 10*time.Second, "the refused plan", func() bool { return p.build.operation == nil })
 
-	// While a build operation runs, no triangle takes a click.
+	// While a build operation runs, a task's triangle takes no click, since the Build window
+	// runs one task at a time; a target's run runs beside it, so its triangle still does.
 	var operation *buildOperation
 	h.app.post(func(a *App) { operation = a.beginBuildOperation(p, "build", "vet", "", nil) })
 	h.settle()
-	if len(controls(text.RunTarget("Vet verification"))) != 0 || len(controls(text.RunTarget("Run"))) != 0 {
-		t.Fatal("a triangle took clicks while a build operation ran")
+	if len(controls(text.RunTarget("Vet verification"))) != 0 {
+		t.Fatal("a task's triangle took clicks while a build operation ran")
+	}
+	if len(controls(text.RunTarget("Run"))) != 1 {
+		t.Fatal("a target's triangle took no click while a build operation ran")
 	}
 	h.app.post(func(a *App) { a.finishBuildTask(p, operation, json.RawMessage(`{"exitCode":0}`)) })
 	h.settle()

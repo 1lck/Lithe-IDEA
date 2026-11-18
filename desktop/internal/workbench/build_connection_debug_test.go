@@ -236,13 +236,13 @@ func TestTitleDebugAttachesTheRegisteredAdapterToAServiceRun(t *testing.T) {
 	if session == nil || session.adapter.PluginID != "dev.lithe.test.registry-attach" {
 		t.Fatalf("debug session = %+v, want the registered adapter's", session)
 	}
-	if p.build.operation == nil {
+	if !p.build.active() {
 		t.Fatal("the service is not running while it is debugged")
 	}
 
 	// Stop in the Debug window ends the service it attached to.
 	h.app.post(func(a *App) { a.stopDebugByUser(p) })
-	awaitStateWithin(t, h, time.Minute, "the stopped service", func() bool { return p.build.operation == nil && p.debug.activeSession() == nil })
+	awaitStateWithin(t, h, time.Minute, "the stopped service", func() bool { return !p.build.active() && p.debug.activeSession() == nil })
 	listener, err := net.Listen("tcp", net.JoinHostPort("127.0.0.1", strconv.Itoa(debug.Target.Port)))
 	if err != nil {
 		t.Fatalf("the service still holds its debug port after Stop: %v", err)
@@ -302,8 +302,8 @@ func TestServiceDebugRefusesAMissingOrAmbiguousAdapterBeforePreparing(t *testing
 				t.Fatalf("the refusal has no message: %q", want)
 			}
 			awaitStateWithin(t, h, time.Minute, "the refusal", func() bool { return lastNotice(h) == want })
-			if p.build.operation != nil || p.debug.activeSession() != nil {
-				t.Fatalf("a refused debug started something: operation %v, session %v", p.build.operation, p.debug.activeSession())
+			if p.build.active() || p.debug.activeSession() != nil {
+				t.Fatalf("a refused debug started something: operation %v, session %v", p.build.latest(), p.debug.activeSession())
 			}
 			if _, err := os.Stat(filepath.Join(p.root, "prepare-run.json")); !os.IsNotExist(err) {
 				t.Fatalf("the provider prepared a run that nothing could debug: %v", err)
@@ -373,9 +373,9 @@ func TestServiceRunOutlivesItsPreparationBound(t *testing.T) {
 	if _, err := os.Stat(alive); err != nil {
 		t.Fatalf("the service ended before it ran for %s: status %q, console:\n%s", fixtureServiceAliveAfter, p.build.status, op.session.output.all())
 	}
-	if p.build.operation != op {
+	if !p.build.owns(op) {
 		t.Fatal("the service is not running after it outlived its preparation bound")
 	}
-	h.app.post(func(a *App) { a.stopBuildOperation(p) })
-	awaitStateWithin(t, h, time.Minute, "the stopped service", func() bool { return p.build.operation == nil })
+	h.app.post(func(a *App) { a.stopOperation(p, op) })
+	awaitStateWithin(t, h, time.Minute, "the stopped service", func() bool { return !p.build.active() })
 }

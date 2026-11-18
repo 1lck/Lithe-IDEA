@@ -154,10 +154,17 @@ func TestRunConfigurationListScopesGroupsPinsAndRuns(t *testing.T) {
 		t.Fatalf("run request %+v, want the service run of the main target", request)
 	}
 	h.settle()
+	// The run's console comes forward in the Run window. Its tab is named as the
+	// configuration is, so the window is closed again before the row is pressed by name.
+	if !h.app.chrome.isOpen(catalogIndex[itemRun]) {
+		t.Fatal("the run did not bring the Run window forward")
+	}
+	h.app.post(func(a *App) { a.reduceChrome(core.ToggleChrome(itemRun)) })
+	h.settle()
 
 	// The row of the configuration that runs shows it running, and its button stops it.
-	operation := &buildOperation{configuration: serve}
-	h.app.post(func(*App) { p.build.operation = operation })
+	operation := &buildOperation{configuration: serve, key: configurationRunKey(serve)}
+	h.app.post(func(*App) { p.build.running = []*buildOperation{operation} })
 	h.settle()
 	if !h.shows(i18n.Shared(lang, "native.running")) {
 		t.Fatal("the running configuration's row does not say it runs")
@@ -167,7 +174,7 @@ func TestRunConfigurationListScopesGroupsPinsAndRuns(t *testing.T) {
 	if !operation.cancelled {
 		t.Fatal("the row's stop button did not stop the run")
 	}
-	h.app.post(func(*App) { p.build.operation = nil })
+	h.app.post(func(*App) { p.build.running = nil })
 	h.settle()
 
 	// Unpinning drops the project from the store.

@@ -8884,7 +8884,7 @@
     },
     {
       "id": "desktop.editor.linkOpenFailed",
-      "description": "Notification when the system cannot open a web or mail link from the editor; {reason} is the system's error",
+      "description": "Notification when the system cannot open a web or mail link from the editor or a web address in a Run or Test console; {reason} is the system's error",
       "platforms": [
         "desktop"
       ],
@@ -15489,6 +15489,439 @@
       "platforms": [
         "desktop"
       ]
+    },
+    {
+      "id": "desktop.runConfig.typeShell",
+      "description": "Name of the built-in run configuration kind that runs a shell script.",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.runConfig.typePowerShell",
+      "description": "Name of the built-in run configuration kind that runs a PowerShell script.",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.runConfig.typeBatch",
+      "description": "Name of the built-in run configuration kind that runs a Windows batch (cmd) script.",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.runConfig.typeExecutable",
+      "description": "Name of the built-in run configuration kind that runs a program file.",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.runConfig.builtInGroup",
+      "description": "Title of the run configuration list group that holds the built-in script and program runs.",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.runConfig.newConfiguration",
+      "description": "Button and menu item that creates a new run configuration; its menu lists the built-in kinds.",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.runConfig.emptyHint",
+      "description": "Line under the run configuration list header when the project has no run configuration yet.",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.runConfig.newTitle",
+      "description": "Title of the editor dialog of a new built-in run configuration; type is the kind's name.",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "type": "string"
+      }
+    },
+    {
+      "id": "desktop.runConfig.fieldName",
+      "description": "Label of the name field of a built-in run configuration.",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.runConfig.fieldStoreAsProjectFile",
+      "description": "Checkbox that saves a run configuration in the project's shared file instead of on this machine only.",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.runConfig.storeAsProjectFileHelp",
+      "description": "Tooltip of the store as project file checkbox: where the configuration is saved either way.",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.runConfig.fieldSource",
+      "description": "Label of the choice between running a script file and running script text.",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.runConfig.sourceFile",
+      "description": "Option of the script source choice: run a script file.",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.runConfig.sourceText",
+      "description": "Option of the script source choice: run script text typed in the editor.",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.runConfig.fieldScript",
+      "description": "Label of the script file path field of a script run configuration.",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.runConfig.fieldText",
+      "description": "Label of the script text field of a script run configuration.",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.runConfig.fieldScriptOptions",
+      "description": "Label of the field of the arguments passed to the script.",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.runConfig.fieldInterpreter",
+      "description": "Label of the interpreter path field of a script run configuration.",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.runConfig.interpreterHelp",
+      "description": "Tooltip of the interpreter path field: an empty field uses the automatic interpreter shown.",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.runConfig.fieldInterpreterArguments",
+      "description": "Label of the field of the options passed to the interpreter before the script.",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.runConfig.fieldExecutionPolicyBypass",
+      "description": "Checkbox of a PowerShell run that passes -ExecutionPolicy Bypass.",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.runConfig.noteWindowsOnly",
+      "description": "Tooltip of an option that only takes effect on Windows.",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.runConfig.fieldProgram",
+      "description": "Label of the program path field of a program run configuration.",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.runConfig.automaticValue",
+      "description": "Placeholder of an empty field that uses an automatic value; value is that value.",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "value": "string"
+      }
+    },
+    {
+      "id": "desktop.runConfig.browse",
+      "description": "Button inside a path field that opens a file or folder chooser.",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.runConfig.variableName",
+      "description": "Placeholder of the name field of an environment variable row.",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.runConfig.variableValue",
+      "description": "Placeholder of the value field of an environment variable row.",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.runConfig.variableAdd",
+      "description": "Button that adds an environment variable row.",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.runConfig.variableRemove",
+      "description": "Button that removes an environment variable row.",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.runConfig.apply",
+      "description": "Button of the run configuration editor that saves without closing it.",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.runConfig.ok",
+      "description": "Button of the run configuration editor that saves and closes it.",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.runConfig.errorRequired",
+      "description": "Error under a required run configuration field left empty.",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.runConfig.errorConflict",
+      "description": "Error under the script source choice when both a script file and script text are set.",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.runConfig.errorNotAllowed",
+      "description": "Error under a run configuration field this kind or platform does not allow.",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.runConfig.errorTooLong",
+      "description": "Error under a run configuration field whose value is too long.",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.runConfig.errorInvalidCharacter",
+      "description": "Error under a run configuration field holding a character it cannot hold, such as a line break.",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.runConfig.errorInvalidPath",
+      "description": "Error under a run configuration path field that is not a valid path.",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.runConfig.errorNotFound",
+      "description": "Error under a run configuration path field whose file or folder does not exist.",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.runConfig.errorOutsideProject",
+      "description": "Error under the working directory field when it is outside the project.",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.runConfig.errorInvalidName",
+      "description": "Error under the environment variables when a variable name is not valid.",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.runConfig.errorDuplicate",
+      "description": "Error under the environment variables when two variables have the same name.",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.runConfig.errorOther",
+      "description": "Error under a run configuration field for a reason this version does not know; code is Core's code.",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "code": "string"
+      }
+    },
+    {
+      "id": "desktop.runConfig.formTooNew",
+      "description": "Shown in the run configuration editor when Core describes the form in a newer version than this app understands.",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.runConfig.programNotFound",
+      "description": "Run failure when the program or interpreter of a run is on no PATH directory; program is its name.",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "program": "string"
+      }
+    },
+    {
+      "id": "desktop.runConfig.documentIgnored",
+      "description": "Item of the run configuration menu for a saved run configuration file that was not read, such as a plugin's TOML file that cannot be parsed; clicking it opens the file. file is the file's name.",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "file": "string"
+      }
+    },
+    {
+      "id": "desktop.runConfig.deleteTitle",
+      "description": "Title of the dialog that confirms deleting a run configuration.",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.runConfig.deleteBody",
+      "description": "Body of the dialog that confirms deleting a run configuration; name is its name.",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "name": "string"
+      }
+    },
+    {
+      "id": "desktop.runConfig.delete",
+      "description": "Menu item and button that delete a run configuration.",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.runConfig.deleteFailed",
+      "description": "Notification when deleting a run configuration fails; reason is the error.",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "reason": "string"
+      }
+    },
+    {
+      "id": "desktop.runConfig.chooseFailed",
+      "description": "Notification when the file or folder chooser of a run configuration field could not open.",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.runConfig.unavailablePluginMissing",
+      "description": "Why a saved run configuration cannot run: the plugin it needs is not installed or enabled; plugin is its name.",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "plugin": "string"
+      }
+    },
+    {
+      "id": "desktop.runConfig.unavailableRepositoryMismatch",
+      "description": "Why a saved run configuration cannot run: the installed plugin with its ID comes from another repository; plugin is its name, repository the recorded one.",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "plugin": "string",
+        "repository": "string"
+      }
+    },
+    {
+      "id": "desktop.runConfig.unavailableVersionUnsupported",
+      "description": "Why a saved run configuration cannot run: the installed plugin version does not meet its requirement; plugin is its name, requirement the version range.",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "plugin": "string",
+        "requirement": "string"
+      }
+    },
+    {
+      "id": "desktop.runConfig.unavailableMissingDirectory",
+      "description": "Why a saved run configuration cannot run: its working directory no longer exists; directory is the saved path.",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "directory": "string"
+      }
+    },
+    {
+      "id": "desktop.runConfig.unavailableInvalid",
+      "description": "Why a saved run configuration cannot run: its saved values are invalid; reason is Core's detail.",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "reason": "string"
+      }
+    },
+    {
+      "id": "desktop.runConfig.unavailableOther",
+      "description": "Why a saved run configuration cannot run, for a reason this version does not know; reason is Core's detail.",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "reason": "string"
+      }
     },
     {
       "id": "desktop.search.collapseFile",

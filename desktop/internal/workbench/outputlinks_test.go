@@ -139,3 +139,33 @@ func TestOutputLinkToAMissingFileOnlyNotifies(t *testing.T) {
 		t.Fatal("a link to a missing file opened a document")
 	}
 }
+
+// A web address a run prints opens in the browser when clicked, with no plugin
+// declaring a matcher (#1822): Core links addresses itself, so the window asks it
+// even without plugins. The trailing period is not part of the address.
+func TestRunOutputWebAddressOpensInTheBrowser(t *testing.T) {
+	var opened []string
+	previous := openURL
+	openURL = func(url string) error {
+		opened = append(opened, url)
+		return nil
+	}
+	t.Cleanup(func() { openURL = previous })
+	h := newHarness(t, &testKernel{Client: core.NewClient()})
+	root := t.TempDir()
+	h.open(root)
+	h.app.reduceChrome(core.ToggleChrome(itemRun))
+	p := h.app.project
+	h.startRunConsole(root, "boot ok\nTomcat started on http://localhost:8080/.\n")
+	for range 6 {
+		h.settle()
+	}
+	if links := p.links.links[outputLinkKey(outputScopeRun, "boot ok")]; len(links) != 0 {
+		t.Fatalf("a line without an address has links %+v", links)
+	}
+	h.clickNamed("http://localhost:8080/")
+	h.settle()
+	if len(opened) != 1 || opened[0] != "http://localhost:8080/" {
+		t.Fatalf("opened %q, want the address", opened)
+	}
+}

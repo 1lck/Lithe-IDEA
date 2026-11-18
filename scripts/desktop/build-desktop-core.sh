@@ -27,11 +27,18 @@ native_path() {
     fi
 }
 
-# Lithe-core-rust #86 at e441598 (on top of main 10da502, #84, and 885f2a6, #83): multiSelect build
-# options support model-supplied default-active choices (optionDefaults), exclusion prefixes
-# (excludePrefix / optionExcludePrefixes), selectedChoices encoding in build.resolveOptions and
-# build.editStoredOption, and top-of-tree checklist nodes (option / optionChoice) in build.modelTree
-# (#2092).
+# Lithe-core-rust #86 at cb6e07a (merged with main at 4ed7a1f, #85 squash-merged on top of 10da502,
+# #84, and 885f2a6, #83): multiSelect build options support model-supplied default-active choices
+# (optionDefaults), exclusion prefixes (excludePrefix / optionExcludePrefixes), selectedChoices
+# encoding in build.resolveOptions and build.editStoredOption, and top-of-tree checklist nodes
+# (option / optionChoice) in build.modelTree (#2092).
+# Lithe-core-rust main at 4ed7a1f, #85 squash-merged (on top of main at 10da502, #84): built-in
+# process runs. runConfig.configurationTypes, runConfig.editorForm, runConfig.saveConfiguration and
+# runConfig.deleteConfiguration list, edit, save and delete the shell script, PowerShell, cmd and
+# executable runs without any plugin, and runConfig.createLaunchPlan plans them with a script saved
+# as text; built-in runs are stored in .lithe/run/configurations.yaml and local.yaml, and a plugin's
+# runs in .lithe/run/plugin/<plugin>.toml and <plugin>.local.toml with the plugin's repository and
+# version; runConfig.resolve lists the saved runs of a project nothing was generated for (#2100).
 # Lithe-core-rust main at 885f2a6, #83 squash-merged (the same tree as its branch at d10ee76, on
 # top of cf2f260): a plugin's TextMate grammar may declare injections, an object of scope selectors
 # each with a rule, which the editor tries beside the current rule's patterns wherever the selector
@@ -204,7 +211,7 @@ PINNED_CORE_REPOSITORY="https://github.com/Lithe-IDEA/Lithe-core-rust.git"
 # the contract, plugin guides, reference and SDKs live only in shared/plugins; on top of #16 (reported Git queries folded in the console),
 # #15 (git.write cherryPick, revert and reset fields), #14 (word-level changed ranges of diff
 # rows), #13, #8, #7, #6 and #4.
-PINNED_CORE_REVISION="e441598bb3b120d5fe6caadfd7bc65cd386acf73"
+PINNED_CORE_REVISION="cb6e07aafb4ac495c398bdeb3d1d24d7944e1dd9"
 PROFILE="debug"
 while [[ $# -gt 0 ]]; do
     case "$1" in

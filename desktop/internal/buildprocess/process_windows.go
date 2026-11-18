@@ -30,9 +30,15 @@ type processPlatform struct {
 	active bool
 }
 
-func (p *processPlatform) configure(command *exec.Cmd) error {
+// configure creates the process suspended in a group of its own. commandLine, when set, is
+// passed as the process's whole command line unchanged (Spec.CommandLine).
+func (p *processPlatform) configure(command *exec.Cmd, commandLine string) error {
 	command.SysProcAttr = &syscall.SysProcAttr{
 		CreationFlags: windows.CREATE_NO_WINDOW | windows.CREATE_SUSPENDED | windows.CREATE_NEW_PROCESS_GROUP,
+	}
+	if commandLine != "" {
+		command.SysProcAttr.CmdLine = commandLine
+		return nil
 	}
 	// A program that was not found keeps its lookup error for Start to report.
 	if command.Err != nil || !isBatchFile(command.Path) {

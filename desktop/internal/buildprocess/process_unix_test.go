@@ -4,6 +4,7 @@ package buildprocess
 
 import (
 	"context"
+	"errors"
 	"strings"
 	"sync"
 	"testing"
@@ -108,5 +109,21 @@ func TestProcessKillEndsATreeInItsGrace(t *testing.T) {
 	process.Kill()
 	if err := waitWithin(t, process, 5*time.Second); err == nil {
 		t.Fatal("the killed program reported success")
+	}
+}
+
+// A Windows command line is refused here, where a process gets its arguments as a vector, so
+// a batch plan never starts with arguments it did not mean.
+func TestStartRefusesACommandLineOutsideWindows(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	process, err := Start(ctx, Spec{Executable: "/bin/sh", CommandLine: `cmd /d /s /c "x.cmd"`}, func(Stream, string) {})
+	if err == nil {
+		process.Kill()
+		_ = process.Wait()
+		t.Fatal("Start ran a command line outside Windows")
+	}
+	if !errors.Is(err, errCommandLineUnsupported) {
+		t.Fatalf("err = %v, want errCommandLineUnsupported", err)
 	}
 }

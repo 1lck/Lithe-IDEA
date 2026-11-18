@@ -3,6 +3,7 @@
 package buildprocess
 
 import (
+	"errors"
 	"os"
 	"os/exec"
 	"sync"
@@ -20,11 +21,18 @@ type processPlatform struct {
 }
 
 // configure puts the process in its own group so Stop can end the whole build
-// tree, including wrappers that start child compilers.
-func (*processPlatform) configure(command *exec.Cmd) error {
+// tree, including wrappers that start child compilers. A process here gets its
+// arguments as a vector, so a Windows command line is refused.
+func (*processPlatform) configure(command *exec.Cmd, commandLine string) error {
+	if commandLine != "" {
+		return errCommandLineUnsupported
+	}
 	command.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 	return nil
 }
+
+// errCommandLineUnsupported refuses a Spec.CommandLine outside Windows.
+var errCommandLineUnsupported = errors.New("buildprocess: a command line is passed only on Windows")
 
 func (p *processPlatform) adopt(process *os.Process) error {
 	if process == nil {

@@ -1,0 +1,57 @@
+{
+  "id": "builtin-process-runs",
+  "area": "运行与调试",
+  "group": "运行配置",
+  "capability": "内置脚本与程序运行：不装任何插件也能新建、编辑、删除并运行 Shell 脚本、PowerShell 脚本、cmd 批处理（只在 Windows 列出）和可执行程序四类运行配置；编辑对话框参照 IDEA 的 Shell Script 配置，有名称、“存为项目文件”、脚本文件或脚本文本、脚本选项、工作目录、环境变量、解释器路径、解释器选项（留空时显示自动值：Shell 按脚本首行 #! 选解释器，没有时 macOS/Linux 用 /bin/sh、Windows 用 bash；PowerShell 用 Windows 的 powershell 或 pwsh；cmd 用 cmd /d），PowerShell 的“绕过执行策略”默认勾选、只在 Windows 生效；底部有运行、取消、应用、确定；可执行程序有程序路径、参数、工作目录和环境变量。字段、默认值、显示条件和校验错误全部来自 Core（runConfig.configurationTypes、runConfig.editorForm），新增字段不改宿主绘制代码。存为项目文件时写 .lithe/run/configurations.yaml，否则写 .lithe/run/local.yaml；插件运行另存 .lithe/run/plugin/<插件>.toml 与 <插件>.local.toml，并记下插件的作者/仓库、版本、版本要求、插件 API 版本和所需能力；旧版 configurations.json、local.json 在没有对应 YAML 时仍读取，第一次编辑该层时改写为 YAML 并删除 JSON。编辑对话框的“运行”、构建窗口的运行配置列表、标题栏的运行按钮和 Run 窗口的再次运行都能启动，启动时 Run 窗口自动打开并选中这次运行，输出进入它的控制台，以“进程已结束，退出码 N。”结束；脚本文本写到系统临时目录（不写安装目录），运行结束后删除。插件出错、未装或项目尚未加载构建模型时，内置运行照常列出和运行；某个运行配置文件没有读取（插件 TOML 写坏、同一配置存了两次、旧版 JSON 已被 YAML 取代）时，标题栏运行下拉按文件名列出它，点击在编辑器中打开",
+  "macos": {
+    "implementationStatus": "implemented",
+    "verificationStatus": "pending",
+    "evidence": [
+      "desktop/internal/core/run_config.go",
+      "desktop/internal/core/run_process.go",
+      "desktop/internal/core/run_config_test.go",
+      "desktop/internal/buildprocess/process.go",
+      "desktop/internal/buildprocess/process_unix.go",
+      "desktop/internal/buildprocess/process_unix_test.go",
+      "desktop/internal/workbench/runconfig.go",
+      "desktop/internal/workbench/runconfig_browser.go",
+      "desktop/internal/workbench/runconfig_changes.go",
+      "desktop/internal/workbench/runconfig_edit.go",
+      "desktop/internal/workbench/runconfig_form.go",
+      "desktop/internal/workbench/runconfig_form_view.go",
+      "desktop/internal/workbench/runconfig_process.go",
+      "desktop/internal/workbench/runconfig_process_test.go",
+      "desktop/internal/workbench/runconfig_edit_test.go",
+      "desktop/internal/workbench/runconfig_process_visual_test.go",
+      "desktop/internal/workbench/title_run.go",
+      "desktop/internal/workbench/title_run_test.go",
+      "docs/assets/builtin-process-runs/README.md"
+    ]
+  },
+  "windows": {
+    "implementationStatus": "implemented",
+    "verificationStatus": "pending",
+    "evidence": [
+      "desktop/internal/core/run_config.go",
+      "desktop/internal/core/run_process.go",
+      "desktop/internal/core/run_config_test.go",
+      "desktop/internal/buildprocess/process.go",
+      "desktop/internal/buildprocess/process_windows.go",
+      "desktop/internal/buildprocess/batch_windows_test.go",
+      "desktop/internal/workbench/runconfig.go",
+      "desktop/internal/workbench/runconfig_browser.go",
+      "desktop/internal/workbench/runconfig_changes.go",
+      "desktop/internal/workbench/runconfig_edit.go",
+      "desktop/internal/workbench/runconfig_form.go",
+      "desktop/internal/workbench/runconfig_form_view.go",
+      "desktop/internal/workbench/runconfig_process.go",
+      "desktop/internal/workbench/runconfig_process_test.go",
+      "desktop/internal/workbench/runconfig_edit_test.go",
+      "desktop/internal/workbench/title_run.go",
+      "desktop/internal/workbench/title_run_test.go"
+    ]
+  },
+  "owner": "Run",
+  "verification": "不装任何插件打开一个空文件夹：标题栏“编辑运行配置…”直接打开新建表单；新建 Shell 脚本，选“脚本文本”写 echo hello，勾选“存为项目文件”后点运行，确认 .lithe/run/configurations.yaml 出现该配置、Run 窗口控制台输出 hello 并以“进程已结束，退出码 0。”结束、系统临时目录没有残留的 lithe-run-script-*；标题栏运行按钮再次运行同一配置。改为脚本文件（项目内的 .sh，带与不带 #! 首行各一次）、填脚本选项、工作目录和环境变量，确认解释器自动值随首行变化，保存后重开回显一致；取消勾选“存为项目文件”后配置移到 .lithe/run/local.yaml。新建可执行程序运行项目内程序与 PATH 上的程序；程序不存在、工作目录出项目或不存在时运行前提示原因。macOS/Linux 的类型列表没有 cmd；Windows 上分别运行 .ps1（默认带 -ExecutionPolicy Bypass，取消勾选后不带）、.cmd/.bat（含空格与引号参数）和 .exe。放一份旧版 .lithe/run/configurations.json，确认仍列出，编辑一次后改写为 YAML 并删除 JSON。让一个插件的 TOML 文件写坏，确认内置运行仍列出可运行，运行下拉出现“未读取 <文件名> 中的运行配置”，点击后在编辑器打开该文件。自动化覆盖：runconfig_process_test.go 的端到端测试用真实 Core 和系统 shell（Windows 为 cmd）新建、保存、运行（确认 Run 窗口打开并选中这次运行）并从标题栏再运行；runconfig_process_visual_test.go 生成 docs/assets/builtin-process-runs 的无头截图；单元测试覆盖 PATH 查找跳过相对目录、临时脚本只写在本次目录、工作目录不出项目、浏览路径转为项目相对、字段显示条件和保留未绘制字段的值；TestUnreadablePluginRunDocumentKeepsBuiltInRunsListed 覆盖写坏的插件文件不影响内置运行、下拉列出并打开该文件；buildprocess 测试覆盖批处理参数转义。",
+  "notes": "Issue #2100。只内置平台自带的脚本和二进制程序，Python、Node 等其他运行交给插件注入。Windows 上未指定解释器的 Shell 脚本按 PATH 找 bash，可能找到 WSL 的 bash；cmd 参数转义不处理 %（cmd 会展开环境变量）。macOS 原生窗口验收、Windows 与 Linux 实机验证待做。"
+}
