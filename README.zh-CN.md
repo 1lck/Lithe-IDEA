@@ -8,7 +8,6 @@
   <p>
     <a href="./README.md"><strong>English</strong></a> ·
     <a href="#性能基准测试">性能基准</a> ·
-    <a href="#架构概览">架构概览</a> ·
     <a href="#下载与安装">下载与安装</a> ·
     <a href="https://github.com/Lithe-IDEA/Lithe-store">插件市场</a> ·
     <a href="https://github.com/Lithe-IDEA/Lithe-core-rust/tree/main/shared/plugins">插件开发</a>
@@ -72,37 +71,6 @@ Lithe 是一款基于 **Viva（Go 原生工作台）+ Rust Core** 重构的插�
 | 查找引用（首次响应 / 画面稳定） | 78 / **94 ms** | 63 / 113 ms | 82 / 1365 ms |
 | 打字（输入 / 退格） | **32 / 46 ms** | 64 / 64 ms | 62 / 64 ms |
 | 测试期间峰值内存 / 累计 CPU | 2163 MB / **62.5 s** | 2119 MB / 71.5 s | 4540 MB / 524.3 s |
-
----
-
-## 架构概览
-
-Lithe 采用**共享核心 + 原生呈现**双层架构：**Viva（`desktop/`，Go）**负责跨平台窗口、原生编辑渲染与系统 I/O；**[Rust Core](https://github.com/Lithe-IDEA/Lithe-core-rust)** 持有全部共享规则与状态机并通过 JSON C ABI 暴露给桌面端；插件代码与[契约/SDK](https://github.com/Lithe-IDEA/Lithe-core-rust/tree/main/shared/plugins)独立维护，安装包运行时保持只读以支持安全增量更新。
-
-```mermaid
-flowchart TB
-    accTitle: Lithe 桌面架构与插件边界
-    accDescr: Viva 客户端通过 Go 桥接调用 Rust Core，并通过平台适配器接入独立分发的插件与上游工具。
-
-    subgraph desktop_client["Lithe 桌面客户端 · desktop/ (Viva / Go)"]
-        workbench["Viva 工作台与原生编辑器"]
-        core_bridge["类型化 Go 桥接"]
-        native_adapters["平台与插件 I/O 适配器<br/>macOS · Windows · Linux"]
-        workbench --> core_bridge
-        workbench --> native_adapters
-        native_adapters --> core_bridge
-    end
-
-    rust_core["Rust Core · 独立仓库<br/>共享规则、模型、状态机与契约"]
-    marketplace["Lithe Store<br/>插件市场索引"]
-    plugin_packages["插件包 · 独立仓库<br/>声明、资源与 Node / Java / Rust 后端"]
-    upstream_tools["上游工具<br/>语言服务器、构建工具、调试器"]
-
-    core_bridge -->|JSON C ABI| rust_core
-    marketplace -->|按需安装| plugin_packages
-    native_adapters -->|声明与协议| plugin_packages
-    plugin_packages -->|按需接入或启动| upstream_tools
-```
 
 ---
 
@@ -229,7 +197,38 @@ flowchart TB
 ## 如何开发
 
 <details>
-<summary><strong>从源码构建、运行与验证（macOS / Windows / Linux）</strong></summary>
+<summary><strong>架构概览、从源码构建与验证（macOS / Windows / Linux）</strong></summary>
+
+### 架构概览
+
+Lithe 采用**共享核心 + 原生呈现**双层架构：**Viva（`desktop/`，Go）**负责跨平台窗口、原生编辑渲染与系统 I/O；**[Rust Core](https://github.com/Lithe-IDEA/Lithe-core-rust)** 持有全部共享规则与状态机并通过 JSON C ABI 暴露给桌面端；插件代码与[契约/SDK](https://github.com/Lithe-IDEA/Lithe-core-rust/tree/main/shared/plugins)独立维护，安装包运行时保持只读以支持安全增量更新。
+
+```mermaid
+flowchart TB
+    accTitle: Lithe 桌面架构与插件边界
+    accDescr: Viva 客户端通过 Go 桥接调用 Rust Core，并通过平台适配器接入独立分发的插件与上游工具。
+
+    subgraph desktop_client["Lithe 桌面客户端 · desktop/ (Viva / Go)"]
+        workbench["Viva 工作台与原生编辑器"]
+        core_bridge["类型化 Go 桥接"]
+        native_adapters["平台与插件 I/O 适配器<br/>macOS · Windows · Linux"]
+        workbench --> core_bridge
+        workbench --> native_adapters
+        native_adapters --> core_bridge
+    end
+
+    rust_core["Rust Core · 独立仓库<br/>共享规则、模型、状态机与契约"]
+    marketplace["Lithe Store<br/>插件市场索引"]
+    plugin_packages["插件包 · 独立仓库<br/>声明、资源与 Node / Java / Rust 后端"]
+    upstream_tools["上游工具<br/>语言服务器、构建工具、调试器"]
+
+    core_bridge -->|JSON C ABI| rust_core
+    marketplace -->|按需安装| plugin_packages
+    native_adapters -->|声明与协议| plugin_packages
+    plugin_packages -->|按需接入或启动| upstream_tools
+```
+
+### 构建与验证
 
 构建需要 `desktop/go.mod` 固定的 Go 工具链、Rust/Cargo 以及当前平台的原生构建依赖（macOS 需要 Xcode Command Line Tools；Windows 与 Linux 环境配置可参考 [Desktop CI](./.github/workflows/desktop-ci.yml)）。Viva 的固定版本由 `desktop/go.mod` 的 `replace` 指定。
 

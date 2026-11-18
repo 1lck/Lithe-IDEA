@@ -8,7 +8,6 @@
   <p>
     <a href="./README.zh-CN.md"><strong>简体中文</strong></a> ·
     <a href="#performance-benchmarks">Benchmarks</a> ·
-    <a href="#architecture-overview">Architecture</a> ·
     <a href="#download-and-install">Download</a> ·
     <a href="https://github.com/Lithe-IDEA/Lithe-store">Plugin marketplace</a> ·
     <a href="https://github.com/Lithe-IDEA/Lithe-core-rust/tree/main/shared/plugins">Plugin development</a>
@@ -72,37 +71,6 @@ Rebuilt on **Viva (Go native workbench) + Rust Core**, Lithe is a modular, plugg
 | Find References (first response / frame settled) | 78 / **94 ms** | 63 / 113 ms | 82 / 1365 ms |
 | Typing (input / backspace) | **32 / 46 ms** | 64 / 64 ms | 62 / 64 ms |
 | Peak memory / Cumulative CPU during test | 2163 MB / **62.5 s** | 2119 MB / 71.5 s | 4540 MB / 524.3 s |
-
----
-
-## Architecture Overview
-
-Lithe separates **shared deterministic logic** from **native UI presentation**: **Viva (`desktop/`, Go)** handles cross-platform windows, native editor rendering, and OS I/O; **[Rust Core](https://github.com/Lithe-IDEA/Lithe-core-rust)** owns all shared rules and state machines via a typed JSON C ABI; plugins and their [contracts/SDKs](https://github.com/Lithe-IDEA/Lithe-core-rust/tree/main/shared/plugins) live separately, and installed bundles remain read-only at runtime for safe differential updates.
-
-```mermaid
-flowchart TB
-    accTitle: Lithe desktop architecture and plugin boundaries
-    accDescr: The Viva client calls Rust Core through a Go bridge and uses native adapters to connect independently distributed plugins and upstream tools.
-
-    subgraph desktop_client["Lithe desktop client · desktop/ (Viva / Go)"]
-        workbench["Viva workbench and native editor"]
-        core_bridge["Typed Go bridge"]
-        native_adapters["Platform and plugin I/O adapters<br/>macOS · Windows · Linux"]
-        workbench --> core_bridge
-        workbench --> native_adapters
-        native_adapters --> core_bridge
-    end
-
-    rust_core["Rust Core · separate repository<br/>Shared rules, models, state machines & contracts"]
-    marketplace["Lithe Store<br/>Marketplace index"]
-    plugin_packages["Plugin packages · separate repositories<br/>Declarations, resources & Node / Java / Rust backends"]
-    upstream_tools["Upstream tools<br/>Language servers, build tools, debuggers"]
-
-    core_bridge -->|JSON C ABI| rust_core
-    marketplace -->|On-demand install| plugin_packages
-    native_adapters -->|Declarations and protocols| plugin_packages
-    plugin_packages -->|Connect or launch on demand| upstream_tools
-```
 
 ---
 
@@ -229,7 +197,38 @@ Manage agent instructions, skills, hooks, and MCP configuration, and inspect run
 ## Develop Lithe
 
 <details>
-<summary><strong>Build, run, and validate from source (macOS / Windows / Linux)</strong></summary>
+<summary><strong>Architecture overview, build, and validate from source (macOS / Windows / Linux)</strong></summary>
+
+### Architecture Overview
+
+Lithe separates **shared deterministic logic** from **native UI presentation**: **Viva (`desktop/`, Go)** handles cross-platform windows, native editor rendering, and OS I/O; **[Rust Core](https://github.com/Lithe-IDEA/Lithe-core-rust)** owns all shared rules and state machines via a typed JSON C ABI; plugins and their [contracts/SDKs](https://github.com/Lithe-IDEA/Lithe-core-rust/tree/main/shared/plugins) live separately, and installed bundles remain read-only at runtime for safe differential updates.
+
+```mermaid
+flowchart TB
+    accTitle: Lithe desktop architecture and plugin boundaries
+    accDescr: The Viva client calls Rust Core through a Go bridge and uses native adapters to connect independently distributed plugins and upstream tools.
+
+    subgraph desktop_client["Lithe desktop client · desktop/ (Viva / Go)"]
+        workbench["Viva workbench and native editor"]
+        core_bridge["Typed Go bridge"]
+        native_adapters["Platform and plugin I/O adapters<br/>macOS · Windows · Linux"]
+        workbench --> core_bridge
+        workbench --> native_adapters
+        native_adapters --> core_bridge
+    end
+
+    rust_core["Rust Core · separate repository<br/>Shared rules, models, state machines & contracts"]
+    marketplace["Lithe Store<br/>Marketplace index"]
+    plugin_packages["Plugin packages · separate repositories<br/>Declarations, resources & Node / Java / Rust backends"]
+    upstream_tools["Upstream tools<br/>Language servers, build tools, debuggers"]
+
+    core_bridge -->|JSON C ABI| rust_core
+    marketplace -->|On-demand install| plugin_packages
+    native_adapters -->|Declarations and protocols| plugin_packages
+    plugin_packages -->|Connect or launch on demand| upstream_tools
+```
+
+### Build & Validate
 
 Building requires the Go toolchain pinned in `desktop/go.mod`, Rust/Cargo, and native platform dependencies (Xcode Command Line Tools on macOS; see [Desktop CI](./.github/workflows/desktop-ci.yml) for Windows and Linux). The `replace` directive in `desktop/go.mod` pins the Viva fork and revision.
 
