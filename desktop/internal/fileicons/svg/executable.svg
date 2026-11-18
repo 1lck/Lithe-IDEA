@@ -1,0 +1,6 @@
+<!-- Custom Lithe icon: programs (.exe) use a plain window with a blue title bar, the look of the Windows default program icon. -->
+<svg width="16" height="16" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg">
+<rect x="1.5" y="2.5" width="13" height="11" rx="1.5" fill="#FFFFFF"/>
+<path d="M2 6.5V4C2 3.44772 2.44772 3 3 3H13C13.5523 3 14 3.44772 14 4V6.5H2Z" fill="#3574F0"/>
+<rect x="1.5" y="2.5" width="13" height="11" rx="1.5" stroke="#6C707E"/>
+</svg>

@@ -2,7 +2,7 @@
   "id": "builtin-process-runs",
   "area": "运行与调试",
   "group": "运行配置",
-  "capability": "内置脚本与程序运行：不装任何插件也能新建、编辑、删除并运行 Shell 脚本、PowerShell 脚本、cmd 批处理（只在 Windows 列出）和可执行程序四类运行配置；编辑对话框参照 IDEA 的 Shell Script 配置，有名称、“存为项目文件”、脚本文件或脚本文本、脚本选项、工作目录、环境变量、解释器路径、解释器选项（留空时显示自动值：Shell 按脚本首行 #! 选解释器，没有时 macOS/Linux 用 /bin/sh、Windows 用 bash；PowerShell 用 Windows 的 powershell 或 pwsh；cmd 用 cmd /d），PowerShell 的“绕过执行策略”默认勾选、只在 Windows 生效；底部有运行、取消、应用、确定；可执行程序有程序路径、参数、工作目录和环境变量。字段、默认值、显示条件和校验错误全部来自 Core（runConfig.configurationTypes、runConfig.editorForm），新增字段不改宿主绘制代码。存为项目文件时写 .lithe/run/configurations.yaml，否则写 .lithe/run/local.yaml；插件运行另存 .lithe/run/plugin/<插件>.toml 与 <插件>.local.toml，并记下插件的作者/仓库、版本、版本要求、插件 API 版本和所需能力；旧版 configurations.json、local.json 在没有对应 YAML 时仍读取，第一次编辑该层时改写为 YAML 并删除 JSON。编辑对话框的“运行”、构建窗口的运行配置列表、标题栏的运行按钮和 Run 窗口的再次运行都能启动，启动时 Run 窗口自动打开并选中这次运行，输出进入它的控制台，以“进程已结束，退出码 N。”结束；脚本文本写到系统临时目录（不写安装目录），运行结束后删除。插件出错、未装或项目尚未加载构建模型时，内置运行照常列出和运行；某个运行配置文件没有读取（插件 TOML 写坏、同一配置存了两次、旧版 JSON 已被 YAML 取代）时，标题栏运行下拉按文件名列出它，点击在编辑器中打开",
+  "capability": "内置脚本与程序运行：不装任何插件也能新建、编辑、删除并运行 Shell 脚本、PowerShell 脚本、cmd 批处理和可执行程序四类运行配置。新建和编辑都在参照 IDEA 的“运行/调试配置”对话框里：标题栏运行下拉的“新建运行配置…”“编辑运行配置…”和构建窗口配置列表的“+”打开它，左侧工具栏是“+”“−”、复制、新建文件夹和“按字母顺序排序”开关，下面是按类型分组、可折叠的配置树（类型下先列文件夹，再列其余配置），右侧是选中配置的编辑器，底部有运行、取消、应用、确定；几条配置的新建、修改、复制、删除、文件夹和顺序在“应用”或“确定”时一起保存，“取消”全部丢弃。焦点在配置树上时 macOS 按 ⌫/⌦、Windows 按 Delete 删除选中的配置，macOS 按 ⌃N、Windows 按 Alt+Insert 打开新建菜单。没有配置时和 IDEA 一样，左侧显示“未添加运行配置。”和“添加新… ⌃N”链接，右侧显示“添加新的运行配置…”链接和“或选择要编辑的运行配置”。复制对所有配置可用：内置运行按表单值复制成“<原名>（副本）”，构建插件生成的运行在应用时由 Core 复制并保留全部选择，副本存进 .lithe/run/plugin/<插件>.local.toml，原配置照常列出。文件夹存在配置自己的 folder 字段（项目配置进 configurations.yaml、本机和生成的配置进 local.yaml），可以新建、重命名（名称不能为空、不能重名、不能含控制字符）和解散，拖动配置可以换文件夹；关掉排序后可以拖动调整顺序，顺序和排序开关只存在 .lithe/run/local.yaml，标题栏下拉和构建窗口的列表顺序与对话框一致。批处理只能在 Windows 上运行：macOS/Linux 上仍可新建、编辑和保存（和 Windows 同事共享的配置不会消失），类型旁注明“仅 Windows”，编辑器顶部说明原因，配置树和标题栏下拉的这一行带警告图标，对话框的“运行”和标题栏运行按钮置灰，按下时只提示原因。内置运行的编辑器参照 IDEA 的 Shell Script 配置，有名称、“存为项目文件”、脚本文件或脚本文本、脚本选项、工作目录、环境变量、解释器路径、解释器选项（留空时显示自动值：Shell 按脚本首行 #! 选解释器，没有时 macOS/Linux 用 /bin/sh、Windows 用 bash；PowerShell 用 Windows 的 powershell 或 pwsh；cmd 用 cmd /d），脚本选项、解释器路径和解释器选项旁的 ⓘ 说明各自传给谁；解释器路径参照工具链设置做成下拉：“自动（实际生效值）”、终端新建菜单检测到的同类 shell（Shell 列 POSIX shell，PowerShell 列 pwsh/powershell，批处理列 cmd，显示名字和路径，不列 WSL 发行版）、字段里已有的其他值和“自定义…”，选“自定义…”后出现可填命令名或路径的输入框和浏览按钮，哪类 shell 由 Core 在字段上标出（shellFamily）；PowerShell 的“绕过执行策略”默认勾选、只在 Windows 生效；可执行程序有程序路径、参数、工作目录和环境变量。字段、默认值、显示条件和校验错误全部来自 Core（runConfig.configurationTypes、runConfig.editorForm），新增字段不改宿主绘制代码。存为项目文件时写 .lithe/run/configurations.yaml，否则写 .lithe/run/local.yaml；插件运行另存 .lithe/run/plugin/<插件>.toml 与 <插件>.local.toml，并记下插件的作者/仓库、版本、版本要求、插件 API 版本和所需能力；旧版 configurations.json、local.json 在没有对应 YAML 时仍读取，第一次编辑该层时改写为 YAML 并删除 JSON。编辑对话框的“运行”、构建窗口的运行配置列表、标题栏的运行按钮和 Run 窗口的再次运行都能启动，启动时 Run 窗口自动打开并选中这次运行，输出进入它的控制台，以“进程已结束，退出码 N。”结束；脚本文本写到系统临时目录（不写安装目录），运行结束后删除。插件出错、未装或项目尚未加载构建模型时，内置运行照常列出和运行；某个运行配置文件没有读取（插件 TOML 写坏、同一配置存了两次、旧版 JSON 已被 YAML 取代）时，标题栏运行下拉按文件名列出它，点击在编辑器中打开",
   "macos": {
     "implementationStatus": "implemented",
     "verificationStatus": "pending",
@@ -16,16 +16,23 @@
       "desktop/internal/workbench/runconfig.go",
       "desktop/internal/workbench/runconfig_browser.go",
       "desktop/internal/workbench/runconfig_changes.go",
+      "desktop/internal/workbench/runconfig_dialog.go",
+      "desktop/internal/workbench/runconfig_dialog_view.go",
       "desktop/internal/workbench/runconfig_edit.go",
       "desktop/internal/workbench/runconfig_form.go",
       "desktop/internal/workbench/runconfig_form_view.go",
       "desktop/internal/workbench/runconfig_process.go",
       "desktop/internal/workbench/runconfig_process_test.go",
+      "desktop/internal/workbench/runconfig_shell_view.go",
+      "desktop/internal/workbench/runconfig_shell_test.go",
       "desktop/internal/workbench/runconfig_edit_test.go",
+      "desktop/internal/workbench/runconfig_dialog_test.go",
       "desktop/internal/workbench/runconfig_process_visual_test.go",
       "desktop/internal/workbench/title_run.go",
+      "desktop/internal/workbench/title_run_view.go",
       "desktop/internal/workbench/title_run_test.go",
-      "docs/assets/builtin-process-runs/README.md"
+      "docs/assets/builtin-process-runs/README.md",
+      "desktop/internal/fileicons/fileicons.go"
     ]
   },
   "windows": {
@@ -41,17 +48,24 @@
       "desktop/internal/workbench/runconfig.go",
       "desktop/internal/workbench/runconfig_browser.go",
       "desktop/internal/workbench/runconfig_changes.go",
+      "desktop/internal/workbench/runconfig_dialog.go",
+      "desktop/internal/workbench/runconfig_dialog_view.go",
       "desktop/internal/workbench/runconfig_edit.go",
       "desktop/internal/workbench/runconfig_form.go",
       "desktop/internal/workbench/runconfig_form_view.go",
       "desktop/internal/workbench/runconfig_process.go",
       "desktop/internal/workbench/runconfig_process_test.go",
+      "desktop/internal/workbench/runconfig_shell_view.go",
+      "desktop/internal/workbench/runconfig_shell_test.go",
       "desktop/internal/workbench/runconfig_edit_test.go",
+      "desktop/internal/workbench/runconfig_dialog_test.go",
       "desktop/internal/workbench/title_run.go",
-      "desktop/internal/workbench/title_run_test.go"
+      "desktop/internal/workbench/title_run_view.go",
+      "desktop/internal/workbench/title_run_test.go",
+      "desktop/internal/fileicons/fileicons.go"
     ]
   },
   "owner": "Run",
-  "verification": "不装任何插件打开一个空文件夹：标题栏“编辑运行配置…”直接打开新建表单；新建 Shell 脚本，选“脚本文本”写 echo hello，勾选“存为项目文件”后点运行，确认 .lithe/run/configurations.yaml 出现该配置、Run 窗口控制台输出 hello 并以“进程已结束，退出码 0。”结束、系统临时目录没有残留的 lithe-run-script-*；标题栏运行按钮再次运行同一配置。改为脚本文件（项目内的 .sh，带与不带 #! 首行各一次）、填脚本选项、工作目录和环境变量，确认解释器自动值随首行变化，保存后重开回显一致；取消勾选“存为项目文件”后配置移到 .lithe/run/local.yaml。新建可执行程序运行项目内程序与 PATH 上的程序；程序不存在、工作目录出项目或不存在时运行前提示原因。macOS/Linux 的类型列表没有 cmd；Windows 上分别运行 .ps1（默认带 -ExecutionPolicy Bypass，取消勾选后不带）、.cmd/.bat（含空格与引号参数）和 .exe。放一份旧版 .lithe/run/configurations.json，确认仍列出，编辑一次后改写为 YAML 并删除 JSON。让一个插件的 TOML 文件写坏，确认内置运行仍列出可运行，运行下拉出现“未读取 <文件名> 中的运行配置”，点击后在编辑器打开该文件。自动化覆盖：runconfig_process_test.go 的端到端测试用真实 Core 和系统 shell（Windows 为 cmd）新建、保存、运行（确认 Run 窗口打开并选中这次运行）并从标题栏再运行；runconfig_process_visual_test.go 生成 docs/assets/builtin-process-runs 的无头截图；单元测试覆盖 PATH 查找跳过相对目录、临时脚本只写在本次目录、工作目录不出项目、浏览路径转为项目相对、字段显示条件和保留未绘制字段的值；TestUnreadablePluginRunDocumentKeepsBuiltInRunsListed 覆盖写坏的插件文件不影响内置运行、下拉列出并打开该文件；buildprocess 测试覆盖批处理参数转义。",
-  "notes": "Issue #2100。只内置平台自带的脚本和二进制程序，Python、Node 等其他运行交给插件注入。Windows 上未指定解释器的 Shell 脚本按 PATH 找 bash，可能找到 WSL 的 bash；cmd 参数转义不处理 %（cmd 会展开环境变量）。macOS 原生窗口验收、Windows 与 Linux 实机验证待做。"
+  "verification": "不装任何插件打开一个空文件夹：标题栏“编辑运行配置…”打开“运行/调试配置”对话框，空白页列出四类内置运行；点“+”新建 Shell 脚本，选“脚本文本”写 echo hello，勾选“存为项目文件”后点对话框的“运行”，确认 .lithe/run/configurations.yaml 出现该配置、Run 窗口控制台输出 hello 并以“进程已结束，退出码 0。”结束、系统临时目录没有残留的 lithe-run-script-*；标题栏运行按钮再次运行同一配置。改为脚本文件（项目内的 .sh，带与不带 #! 首行各一次）、填脚本选项、工作目录和环境变量，确认解释器自动值随首行变化，保存后重开回显一致；展开解释器路径下拉，确认列出终端新建菜单里的同类 shell，选中一个后保存写入其路径，选“自定义…”填 PATH 上的命令名或用浏览选文件后能运行，改回“自动”后字段清空；取消勾选“存为项目文件”后配置移到 .lithe/run/local.yaml。新建可执行程序运行项目内程序与 PATH 上的程序；程序不存在、工作目录出项目或不存在时运行前提示原因。在对话框里连续新建两条配置后点“应用”，确认两条一起保存、对话框不关；选中一条点“−”再点“取消”，确认没有删除，点“确定”后才删除；复制一条配置，确认副本名为“<原名>（副本）”且字段一致；有构建插件生成的运行时复制它，点“应用”后确认 .lithe/run/plugin/<插件>.local.toml 出现副本、原配置仍在。删掉全部配置后重开对话框，确认左右两侧的 IDEA 式空白页，点两个链接和按 ⌃N（Windows 为 Alt+Insert）都弹出类型菜单。选中配置按 ⌫（Windows 为 Delete）删除，“取消”后恢复。选中配置点“新建文件夹”，在右侧把它改名（空名、重名、含 Tab 时提示原因），“应用”后确认配置文件里写入 folder；把另一条配置拖进这个文件夹；选中文件夹点“−”解散。关掉“按字母顺序排序”后拖动调整顺序，“应用”后确认只有 .lithe/run/local.yaml 的 arrangement 变化、标题栏下拉顺序一致，重新打开排序后恢复按名称。macOS/Linux 上新建批处理：类型旁标“仅 Windows”，可编辑保存，编辑器顶部有原因，对话框“运行”和标题栏运行按钮置灰，下拉里该行带警告图标并注明“仅 Windows”，按标题栏运行只提示原因；Windows 上分别运行 .ps1（默认带 -ExecutionPolicy Bypass，取消勾选后不带）、.cmd/.bat（含空格与引号参数）和 .exe。放一份旧版 .lithe/run/configurations.json，确认仍列出，编辑一次后改写为 YAML 并删除 JSON。让一个插件的 TOML 文件写坏，确认内置运行仍列出可运行，运行下拉出现“未读取 <文件名> 中的运行配置”，点击后在编辑器打开该文件。自动化覆盖：runconfig_process_test.go 的端到端测试用真实 Core 和系统 shell（Windows 为 cmd）新建、保存、运行（确认 Run 窗口打开并选中这次运行）并从标题栏再运行；runconfig_dialog_test.go 覆盖对话框的应用、取消、删除（含 ⌫/Delete 键）、复制（含插件运行复制进 <插件>.local.toml）、文件夹新建/重命名/解散、手动顺序与排序开关、IDEA 式空白页与 ⌃N/Alt+Insert、分组折叠，以及批处理在非 Windows 上能编辑保存、不能运行；runconfig_shell_test.go 覆盖解释器下拉只列同类 shell、选中 shell、自定义输入、改回自动和保存；runconfig_process_visual_test.go 生成 docs/assets/builtin-process-runs 的无头截图；单元测试覆盖 PATH 查找跳过相对目录、临时脚本只写在本次目录、工作目录不出项目、浏览路径转为项目相对、字段显示条件和保留未绘制字段的值；TestUnreadablePluginRunDocumentKeepsBuiltInRunsListed 覆盖写坏的插件文件不影响内置运行、下拉列出并打开该文件；buildprocess 测试覆盖批处理参数转义。",
+  "notes": "Issue #2100。只内置平台自带的脚本和二进制程序，Python、Node 等其他运行交给插件注入。Windows 上未指定解释器的 Shell 脚本按 PATH 找 bash，可能找到 WSL 的 bash，需要 Git Bash 时从解释器下拉选终端检测到的 Git Bash 或自定义完整路径；cmd 参数转义不处理 %（cmd 会展开环境变量）；Core 拆分脚本选项、程序参数和解释器选项时把反斜杠当转义符（只在单引号内按原样保留），Windows 路径要用单引号括起来或把 \\ 写成 \\\\。对话框在应用窗口内以模态层显示。空文件夹只在对话框打开期间存在，不会保存（和 IDEA 一样，文件夹记在配置上）。配置树的行不显示悬停提示（Viva 的树行没有标识），不可运行的原因写在编辑器顶部和无障碍标签里。macOS 原生窗口验收、Windows 与 Linux 实机验证待做。"
 }

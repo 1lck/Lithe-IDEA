@@ -13,8 +13,8 @@ import (
 	"github.com/vivaui/viva/app"
 )
 
-// This file holds the editor of built-in process runs: shell, PowerShell and batch scripts
-// and programs. Core describes the editor as data (`runConfig.editorForm`): the fields in
+// This file holds the editor of built-in process runs, shown in the Run/Debug Configurations
+// dialog: shell, PowerShell and batch scripts and programs. Core describes the editor as data (`runConfig.editorForm`): the fields in
 // order, their kinds and current values, and the automatic value of each empty field. Core
 // also checks the values and returns the file changes that save them
 // (`runConfig.saveConfiguration`); the host draws the fields, applies the changes and
@@ -23,19 +23,27 @@ import (
 // later Core can add fields, options and buttons' inputs without breaking this host. A new
 // field shows here once it has a label in runConfigFieldLabel and a widget for its kind.
 
-// runConfigForm is the open editor of a built-in process run.
+// runConfigForm is the editor of one built-in process run in the Run/Debug Configurations
+// dialog (runconfig_dialog.go). Each configuration the dialog shows has its own, so edits to
+// several configurations wait together for Apply or OK.
 type runConfigForm struct {
+	// open is cleared when the dialog drops the form; answers still out are then ignored.
 	open bool
-	// generation rejects the answer of an editor that was closed or reopened since.
+	// generation rejects the answer of a form that was dropped or reopened since.
 	generation uint64
 	provider   string
 	// id is the saved configuration edited; empty for a new one until a save names it.
 	id string
-	// name is the configuration's name as it was saved, for the dialog's title.
+	// name is the configuration's name as it was saved.
 	name            string
 	loading, saving bool
 	failure         string
-	fields          []core.RunEditorField
+	// dirty says a value changed since the form was read or last saved.
+	dirty bool
+	// availability says why this platform cannot run the kind, such as a batch script
+	// outside Windows; the form still edits and saves it.
+	availability *core.RunAvailability
+	fields       []core.RunEditorField
 	// values are the values by field ID as Core returned them. A save sends them with the
 	// drawn fields' edits over them, so keys this host does not show go back unchanged.
 	values map[string]json.RawMessage
@@ -55,24 +63,16 @@ type runConfigForm struct {
 	// refreshing says an editorForm request for the edited values is out, so the automatic
 	// values follow the edit; stale says a value changed since it was sent.
 	refreshing, stale bool
+	// shellPicks are the interpreter lists by field ID; shellsAsked says the installed shells
+	// were looked for since the form opened.
+	shellPicks  map[string]*runConfigShellPick
+	shellsAsked bool
 }
 
 // runConfigVariable is one environment variable row of the editor.
 type runConfigVariable struct {
 	name, value string
 }
-
-// runConfigFormStep is what follows a save that succeeded.
-type runConfigFormStep int
-
-const (
-	// runConfigFormApply keeps the editor open on the saved configuration.
-	runConfigFormApply runConfigFormStep = iota
-	// runConfigFormClose closes the editor.
-	runConfigFormClose
-	// runConfigFormRun closes the editor and runs the configuration once it is listed.
-	runConfigFormRun
-)
 
 // Field kinds of `runConfig.editorForm` this host draws.
 const (
@@ -97,8 +97,9 @@ func runFieldTextual(kind string) bool {
 	return false
 }
 
-// loadRunConfigTypes reads once per project which built-in kinds a user can create here.
-// A failure leaves them unread, so the next refresh asks again.
+// loadRunConfigTypes reads once per project which built-in kinds a user can create. Every
+// platform lists every kind; one it cannot run carries the reason. A failure leaves them
+// unread, so the next refresh asks again.
 func (a *App) loadRunConfigTypes(p *project) {
 	s := &p.runConfigs
 	if s.types != nil || s.typesLoading {
@@ -126,39 +127,43 @@ func (a *App) loadRunConfigTypes(p *project) {
 	})
 }
 
-// openRunConfigForm opens the editor on a new configuration of provider, or on the saved
-// configuration id when it is set.
-func (a *App) openRunConfigForm(p *project, provider, id string) {
-	f := &p.runConfigs.form
-	generation := f.generation + 1
-	*f = runConfigForm{open: true, generation: generation, provider: provider, id: id, loading: true}
+// openRunConfigForm reads the editor of a new configuration of provider, or of the saved
+// configuration id when it is set. values seed a new configuration, such as a copy of
+// another; nil starts from Core's defaults.
+func (a *App) openRunConfigForm(p *project, provider, id string, values map[string]json.RawMessage) *runConfigForm {
+	f := &runConfigForm{open: true, generation: 1, provider: provider, id: id, loading: true}
 	if configuration := p.runConfigs.configuration(id); configuration != nil {
 		f.name = configuration.Name
 	}
-	a.requestRunConfigForm(p, generation, core.RunEditorFormRequest{Root: p.root, Provider: provider, ConfigurationID: id}, true)
+	request := core.RunEditorFormRequest{Root: p.root, Provider: provider, ConfigurationID: id, Values: values}
+	a.requestRunConfigForm(p, f, f.generation, request, true)
+	return f
 }
 
-// closeRunConfigForm closes the editor; answers still out are dropped.
-func (a *App) closeRunConfigForm(p *project) {
-	f := &p.runConfigs.form
+// close drops the form; answers still out are ignored.
+func (f *runConfigForm) close() {
 	f.generation++
 	f.open, f.loading, f.saving, f.refreshing, f.stale = false, false, false, false, false
+}
+
+// ready says the form is read and not being saved, so its values can be edited and saved.
+func (f *runConfigForm) ready() bool {
+	return f.open && !f.loading && !f.saving && f.fields != nil
 }
 
 // requestRunConfigForm asks Core for the editor. The first answer fills the fields and
 // values; a later one, for the values being edited, only replaces the field descriptions,
 // so the automatic values follow the edit and nothing the user typed since is lost.
-func (a *App) requestRunConfigForm(p *project, generation uint64, request core.RunEditorFormRequest, initial bool) {
+func (a *App) requestRunConfigForm(p *project, f *runConfigForm, generation uint64, request core.RunEditorFormRequest, initial bool) {
 	kernel := a.kernel
 	a.background(p, buildRequestTimeout, func(ctx context.Context) func(*App) {
 		form, err := kernel.RunEditorForm(ctx, request)
 		return func(a *App) {
-			f := &p.runConfigs.form
 			if !f.open || f.generation != generation {
 				return
 			}
 			if !initial {
-				a.finishRunConfigFormRefresh(p, form, err)
+				a.finishRunConfigFormRefresh(p, f, form, err)
 				return
 			}
 			f.loading = false
@@ -173,7 +178,7 @@ func (a *App) requestRunConfigForm(p *project, generation uint64, request core.R
 				f.failure = i18n.Shared(language, "desktop.runConfig.formTooNew")
 				return
 			}
-			f.provider, f.fields, f.values = form.Provider, form.Fields, form.Values
+			f.provider, f.fields, f.values, f.availability = form.Provider, form.Fields, form.Values, form.Availability
 			if f.values == nil {
 				f.values = map[string]json.RawMessage{}
 			}
@@ -185,8 +190,7 @@ func (a *App) requestRunConfigForm(p *project, generation uint64, request core.R
 
 // finishRunConfigFormRefresh takes the field descriptions for the edited values. A field
 // that appears only now takes its value from the answer.
-func (a *App) finishRunConfigFormRefresh(p *project, form core.RunEditorForm, err error) {
-	f := &p.runConfigs.form
+func (a *App) finishRunConfigFormRefresh(p *project, f *runConfigForm, form core.RunEditorForm, err error) {
 	f.refreshing = false
 	switch {
 	case err != nil:
@@ -195,11 +199,11 @@ func (a *App) finishRunConfigFormRefresh(p *project, form core.RunEditorForm, er
 	case form.FormVersion > core.RunFormVersion || form.Provider != f.provider:
 		a.operationRejected("run_config_form_refresh", "form_mismatch")
 	default:
-		f.fields = form.Fields
+		f.fields, f.availability = form.Fields, form.Availability
 		f.readValues(form.Fields, form.Values)
 	}
 	if f.stale {
-		a.runConfigFormEdited(p)
+		a.refreshRunConfigForm(p, f)
 	}
 }
 
@@ -289,11 +293,19 @@ func (f *runConfigForm) collect() map[string]json.RawMessage {
 	return values
 }
 
-// runConfigFormEdited asks for the editor of the edited values, so automatic values such as
+// runConfigFormEdited marks the form changed and asks for the editor of the edited values.
+func (a *App) runConfigFormEdited(p *project, f *runConfigForm) {
+	if !f.open || f.loading || f.fields == nil {
+		return
+	}
+	f.dirty = true
+	a.refreshRunConfigForm(p, f)
+}
+
+// refreshRunConfigForm asks for the editor of the edited values, so automatic values such as
 // the interpreter a script's first line names follow the edit. One request is out at a
 // time; an edit made while it is out sends one more when it answers.
-func (a *App) runConfigFormEdited(p *project) {
-	f := &p.runConfigs.form
+func (a *App) refreshRunConfigForm(p *project, f *runConfigForm) {
 	if !f.open || f.loading || f.fields == nil {
 		return
 	}
@@ -303,15 +315,16 @@ func (a *App) runConfigFormEdited(p *project) {
 	}
 	f.refreshing, f.stale = true, false
 	request := core.RunEditorFormRequest{Root: p.root, Provider: f.provider, ConfigurationID: f.id, Values: f.collect()}
-	a.requestRunConfigForm(p, f.generation, request, false)
+	a.requestRunConfigForm(p, f, f.generation, request, false)
 }
 
-// saveRunConfigForm has Core check the values and compute the file changes, applies them as
-// one transaction and resolves the configurations again. Wrong values stay in the editor
-// with the reason beside each field.
-func (a *App) saveRunConfigForm(p *project, step runConfigFormStep) {
-	f := &p.runConfigs.form
-	if !f.open || f.loading || f.saving || f.fields == nil {
+// saveRunConfigForm has Core check the values and compute the file changes and applies them
+// as one transaction; done gets the saved configuration's ID, or ok false. Wrong values stay
+// in the form with the reason beside each field, and any other failure under the fields.
+// The caller resolves the configurations again.
+func (a *App) saveRunConfigForm(p *project, f *runConfigForm, done func(id string, ok bool)) {
+	if !f.ready() {
+		done("", false)
 		return
 	}
 	f.saving, f.failure = true, ""
@@ -327,7 +340,6 @@ func (a *App) saveRunConfigForm(p *project, step runConfigFormStep) {
 			err = errors.New("runConfig.saveConfiguration returned an unknown status")
 		}
 		return func(a *App) {
-			f := &p.runConfigs.form
 			current := f.open && f.generation == generation
 			if current {
 				f.saving = false
@@ -337,6 +349,7 @@ func (a *App) saveRunConfigForm(p *project, step runConfigFormStep) {
 				if current {
 					f.failure = a.runConfigSaveFailure(err)
 				}
+				done("", false)
 				return
 			}
 			if saved.Status == "invalid" {
@@ -349,29 +362,34 @@ func (a *App) saveRunConfigForm(p *project, step runConfigFormStep) {
 						}
 					}
 				}
+				done("", false)
 				return
 			}
-			s := &p.runConfigs
-			s.reveal = saved.ID
 			if current {
-				f.errors, f.id = nil, saved.ID
+				f.errors, f.id, f.dirty = nil, saved.ID, false
 				if name := f.texts["name"]; name != nil && strings.TrimSpace(*name) != "" {
 					f.name = strings.TrimSpace(*name)
 				}
-				if step == runConfigFormRun {
-					s.start = saved.ID
-				}
-				if step != runConfigFormApply {
-					a.closeRunConfigForm(p)
-				}
 			}
-			a.refreshRunConfigurations(p)
+			done(saved.ID, true)
 		}
 	})
 }
 
-// deleteRunConfiguration removes a saved `user:` configuration from every layer file.
+// deleteRunConfiguration removes a saved `user:` configuration from every layer file, for
+// the Build window's Delete, and resolves the configurations again.
 func (a *App) deleteRunConfiguration(p *project, id string) {
+	a.removeRunConfiguration(p, id, func(err error) {
+		if err != nil {
+			a.notifyError(i18n.SharedFormat(a.language(), "desktop.runConfig.deleteFailed", map[string]string{"reason": err.Error()}))
+		}
+		a.refreshRunConfigurations(p)
+	})
+}
+
+// removeRunConfiguration has Core compute the file changes that remove a saved `user:`
+// configuration from every layer and applies them; done gets the failure, logged already.
+func (a *App) removeRunConfiguration(p *project, id string, done func(error)) {
 	root, kernel := p.root, a.kernel
 	a.background(p, buildRequestTimeout, func(ctx context.Context) func(*App) {
 		changes, err := kernel.DeleteRunConfiguration(ctx, root, id, a.runConfigPlugins(ctx))
@@ -381,13 +399,8 @@ func (a *App) deleteRunConfiguration(p *project, id string) {
 		return func(a *App) {
 			if err != nil {
 				a.operationFailed("run_config_delete", err)
-				a.notifyError(i18n.SharedFormat(a.language(), "desktop.runConfig.deleteFailed", map[string]string{"reason": err.Error()}))
-				return
 			}
-			if f := &p.runConfigs.form; f.open && f.id == id {
-				a.closeRunConfigForm(p)
-			}
-			a.refreshRunConfigurations(p)
+			done(err)
 		}
 	})
 }
@@ -395,8 +408,8 @@ func (a *App) deleteRunConfiguration(p *project, id string) {
 // browseRunConfigField asks for a file or a directory and puts its path in the field. A
 // path inside the project is shown project-relative, as Core saves it; a program there
 // keeps a leading "./", so it does not read as a name looked up on PATH.
-func (a *App) browseRunConfigField(p *project, field core.RunEditorField, title string) {
-	generation, root := p.runConfigs.form.generation, p.root
+func (a *App) browseRunConfigField(p *project, f *runConfigForm, field core.RunEditorField, title string) {
+	generation, root := f.generation, p.root
 	a.background(nil, 0, func(context.Context) func(*App) {
 		var path string
 		var err error
@@ -422,13 +435,12 @@ func (a *App) browseRunConfigField(p *project, field core.RunEditorField, title 
 				a.notifyError(i18n.Shared(a.language(), "desktop.runConfig.chooseFailed"))
 				return
 			}
-			f := &p.runConfigs.form
 			text := f.texts[field.ID]
 			if !f.open || f.generation != generation || text == nil {
 				return
 			}
 			*text = runConfigFieldPath(root, path, field.Kind)
-			a.runConfigFormEdited(p)
+			a.runConfigFormEdited(p, f)
 		}
 	})
 }

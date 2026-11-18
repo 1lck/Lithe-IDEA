@@ -9,14 +9,22 @@ import (
 // form is refused, since its fields may mean something this host cannot show.
 const RunFormVersion = 1
 
-// RunConfigurationType is one built-in run configuration kind a user can create
-// on this platform, such as `process.shell`.
+// RunConfigurationType is one built-in run configuration kind a user can create,
+// such as `process.shell`. Availability is set when this platform cannot run the
+// kind, such as a batch script outside Windows; its configurations are still
+// created and edited.
 type RunConfigurationType struct {
-	Provider string `json:"provider"`
+	Provider     string           `json:"provider"`
+	Availability *RunAvailability `json:"availability,omitempty"`
 }
 
-// RunConfigurationTypes lists the built-in kinds a user can create here, in
-// display order. Batch scripts are listed only on Windows.
+// Unavailable says this platform cannot run configurations of the kind.
+func (t RunConfigurationType) Unavailable() bool {
+	return t.Availability != nil && t.Availability.Status == "unavailable"
+}
+
+// RunConfigurationTypes lists the built-in kinds a user can create, in display
+// order. Every platform lists every kind; one it cannot run says so.
 func (c *Client) RunConfigurationTypes(ctx context.Context) ([]RunConfigurationType, error) {
 	var result struct {
 		Types []RunConfigurationType `json:"types"`
@@ -29,7 +37,9 @@ func (c *Client) RunConfigurationTypes(ctx context.Context) ([]RunConfigurationT
 // checkbox, choice, file, multilineText, arguments, directory, environment or
 // executable; a host skips a kind it does not know and still sends its value
 // back. Automatic is the value used while the field is empty, shown as its
-// placeholder. Note is an explanation key, such as windowsOnly.
+// placeholder. Note is an explanation key, such as windowsOnly. ShellFamily, on
+// an executable field, is the family of shell it takes (posix, powershell or
+// cmd), so a host can offer the installed shells of that family.
 type RunEditorField struct {
 	ID          string             `json:"id"`
 	Kind        string             `json:"kind"`
@@ -39,6 +49,7 @@ type RunEditorField struct {
 	Options     []string           `json:"options,omitempty"`
 	VisibleWhen *RunFieldCondition `json:"visibleWhen,omitempty"`
 	Note        string             `json:"note,omitempty"`
+	ShellFamily string             `json:"shellFamily,omitempty"`
 	// Candidates are the configurations a beforeLaunch field may name.
 	Candidates []RunConfigurationName `json:"candidates,omitempty"`
 }
@@ -57,13 +68,15 @@ type RunFieldCondition struct {
 
 // RunEditorForm is what `runConfig.editorForm` returns: the fields in order and
 // the current value of each, by field ID. Values stay raw so keys this host
-// does not show go back unchanged.
+// does not show go back unchanged. Availability is set when this platform cannot
+// run the kind; the form still edits and saves it.
 type RunEditorForm struct {
 	FormVersion     int                        `json:"formVersion"`
 	Provider        string                     `json:"provider"`
 	ConfigurationID *string                    `json:"configurationId"`
 	Values          map[string]json.RawMessage `json:"values"`
 	Fields          []RunEditorField           `json:"fields"`
+	Availability    *RunAvailability           `json:"availability,omitempty"`
 }
 
 // RunEditorFormRequest asks for the editor of a new configuration of Provider or
@@ -128,6 +141,46 @@ func (c *Client) DeleteRunConfiguration(ctx context.Context, root, configuration
 		ConfigurationID string               `json:"configurationId"`
 		Plugins         []RunInstalledPlugin `json:"plugins,omitempty"`
 	}{root, configurationID, plugins}, &result)
+	return result.Changes, err
+}
+
+// CopyRunConfiguration returns the new `user:` ID of a copy of configuration
+// configurationID named name, and the file changes that save it. Any configuration
+// can be copied; copying a generated build provider run also saves the original in
+// the local layer, so the copy does not take its place.
+func (c *Client) CopyRunConfiguration(ctx context.Context, root, configurationID, name string, plugins []RunInstalledPlugin) (string, []RunConfigChange, error) {
+	var result struct {
+		ID      string            `json:"id"`
+		Changes []RunConfigChange `json:"changes"`
+	}
+	err := c.Execute(ctx, "runConfig.copyConfiguration", struct {
+		Root            string               `json:"root"`
+		ConfigurationID string               `json:"configurationId"`
+		Name            string               `json:"name"`
+		Plugins         []RunInstalledPlugin `json:"plugins,omitempty"`
+	}{root, configurationID, name, plugins}, &result)
+	return result.ID, result.Changes, err
+}
+
+// RunConfigArrangement is a `runConfig.arrange` request. Folders maps configuration
+// IDs to the folder each moves to, nil taking it out of its folder; Order replaces
+// the saved manual order and SortAlphabetically the sort choice when set.
+type RunConfigArrangement struct {
+	Root               string               `json:"root"`
+	Folders            map[string]*string   `json:"folders,omitempty"`
+	Order              []string             `json:"order,omitempty"`
+	SortAlphabetically *bool                `json:"sortAlphabetically,omitempty"`
+	Plugins            []RunInstalledPlugin `json:"plugins,omitempty"`
+}
+
+// ArrangeRunConfigurations returns the file changes that move configurations between
+// folders and save the list's order. A folder is saved with the configuration, the
+// order on this machine only.
+func (c *Client) ArrangeRunConfigurations(ctx context.Context, request RunConfigArrangement) ([]RunConfigChange, error) {
+	var result struct {
+		Changes []RunConfigChange `json:"changes"`
+	}
+	err := c.Execute(ctx, "runConfig.arrange", request, &result)
 	return result.Changes, err
 }
 

@@ -110,6 +110,10 @@ type Kernel interface {
 	SaveRunConfiguration(ctx context.Context, request core.RunConfigurationSave) (core.RunConfigurationSaved, error)
 	DeleteRunConfiguration(ctx context.Context, root, configurationID string, plugins []core.RunInstalledPlugin) ([]core.RunConfigChange, error)
 	CreateRunLaunchPlan(ctx context.Context, root, configurationID, inlineScriptBase string) (core.RunLaunchPlan, error)
+	// CopyRunConfiguration and ArrangeRunConfigurations copy any configuration and save the
+	// folders and order of the list (runconfig_dialog.go).
+	CopyRunConfiguration(ctx context.Context, root, configurationID, name string, plugins []core.RunInstalledPlugin) (string, []core.RunConfigChange, error)
+	ArrangeRunConfigurations(ctx context.Context, request core.RunConfigArrangement) ([]core.RunConfigChange, error)
 	// RunBeforeLaunch expands the steps a configuration runs before it starts (runconfig_before_launch.go).
 	RunBeforeLaunch(ctx context.Context, root, configurationID string) (core.RunBeforeLaunch, error)
 	RunArgumentText(ctx context.Context, lists [][]string) ([]string, error)
@@ -525,6 +529,8 @@ type App struct {
 	// that is to have the keyboard once it is on screen (see FocusBind).
 	root *ui.Page
 	dnd  dragDrop
+	// treeApps is the Open With submenu of a Project tree row (filetree_openin.go).
+	treeApps treeApps
 	// editorFocus is the document whose editor had the keyboard last frame; the file is
 	// saved when the keyboard leaves it (document_autosave.go).
 	editorFocus int
@@ -742,6 +748,11 @@ type App struct {
 	// of scrolling sideways. The switch at the end of each group's strip of tabs turns it on
 	// and off for every file at once; it lasts until the client quits.
 	softWrap bool
+	// runWrap says the Run window's consoles break their long lines onto more rows instead of
+	// ending them in an ellipsis. The switch in the console's toolbar turns it on and off for
+	// every execution at once, as the Git console's does for that console; it lasts until the
+	// client quits.
+	runWrap bool
 
 	// application is the running application the log window opens in; it is nil until
 	// Run has started it.
@@ -1223,6 +1234,15 @@ func (a *App) performedIn(ctx context.Context, action string, surface actionSurf
 	return core.WithOrigin(ctx, core.Origin{Operation: id, Trigger: action})
 }
 
+// chromeSurface is the surface a click on the rearrangeable button of catalog item index
+// comes from: the toolbar while the button sits in the title bar, a button on a stripe.
+func (a *App) chromeSurface(index int) actionSurface {
+	if a.chrome.zoneOf(index).surface() == surfaceTitle {
+		return surfaceToolbar
+	}
+	return surfaceButton
+}
+
 // titleBarHeight is the height of the title bar on both screens; the system's window
 // buttons sit in it.
 const titleBarHeight = 40
@@ -1344,7 +1364,7 @@ func (a *App) activate(index int) {
 		a.titleDebug(a.project)
 	case it.id == itemTitleSearch:
 		if a.project != nil {
-			a.performed("workspace.searchEverywhere.open", surfaceToolbar)
+			a.performed("workspace.searchEverywhere.open", a.chromeSurface(index))
 			a.openEverywhere(a.project)
 		}
 	case it.id == itemCaret:

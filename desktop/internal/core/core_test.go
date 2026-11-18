@@ -558,13 +558,15 @@ func TestReduceRecentProjectsRejectsInvalidInput(t *testing.T) {
 }
 
 // chromeCatalog returns the catalog the chrome layout tests use: two panels on the upper left,
-// one at the bottom left, and one plain button each on the title bar and the status bar.
+// one at the bottom left, two plain title bar buttons, the second of which may also sit on the
+// stripes, and one plain status bar button.
 func chromeCatalog() []ChromeItem {
 	return []ChromeItem{
 		{ID: "project", DefaultZone: ZoneLeftTop, Panel: true, OpenByDefault: true},
 		{ID: "commit", DefaultZone: ZoneLeftTop, Panel: true},
 		{ID: "git", DefaultZone: ZoneBottomLeft, Panel: true},
 		{ID: "run", DefaultZone: ZoneTitleTrailing},
+		{ID: "settings", DefaultZone: ZoneTitleTrailing, AlsoOnToolStripes: true},
 		{ID: "caret", DefaultZone: ZoneStatusTrailing},
 	}
 }
@@ -602,6 +604,7 @@ func TestReduceChromeLayout(t *testing.T) {
 			{ID: "commit", Zone: ZoneLeftTop},
 			{ID: "git", Zone: ZoneBottomLeft},
 			{ID: "run", Zone: ZoneTitleTrailing},
+			{ID: "settings", Zone: ZoneTitleTrailing},
 			{ID: "caret", Zone: ZoneStatusTrailing},
 		},
 		Open: []string{"project"},
@@ -677,6 +680,35 @@ func TestReduceChromeLayout(t *testing.T) {
 		requireCode(t, err, CodeInvalidRequest)
 		_, _, err = client.ReduceChromeLayout(ctx, catalog, defaults, MoveChrome("run", ZoneLeftTop, ""))
 		requireCode(t, err, CodeInvalidRequest)
+	})
+
+	// A title bar item marked AlsoOnToolStripes moves onto a stripe and back, keeps the title bar
+	// rules there (it cannot be hidden or go into the status bar), and normalize keeps it there.
+	t.Run("a marked title item moves onto a stripe and back", func(t *testing.T) {
+		layout, changed := reduce(t, defaults, MoveChrome("settings", ZoneLeftTop, "commit"))
+		if !changed {
+			t.Error("changed = false, want true")
+		}
+		if got := zoneIDs(layout, ZoneLeftTop); !slices.Equal(got, []string{"project", "settings", "commit"}) {
+			t.Errorf("left top = %q, want [project settings commit]", got)
+		}
+		if got := zoneIDs(layout, ZoneTitleTrailing); !slices.Equal(got, []string{"run"}) {
+			t.Errorf("title = %q, want [run]", got)
+		}
+		if _, changed := reduce(t, layout, NormalizeChrome()); changed {
+			t.Error("normalizing a stripe placement of settings: changed = true, want false")
+		}
+		_, _, err := client.ReduceChromeLayout(ctx, catalog, layout, SetChromeHidden("settings", true))
+		requireCode(t, err, CodeInvalidRequest)
+		_, _, err = client.ReduceChromeLayout(ctx, catalog, layout, MoveChrome("settings", ZoneStatusTrailing, ""))
+		requireCode(t, err, CodeInvalidRequest)
+		back, _ := reduce(t, layout, MoveChrome("settings", ZoneTitleTrailing, "run"))
+		if got := zoneIDs(back, ZoneTitleTrailing); !slices.Equal(got, []string{"settings", "run"}) {
+			t.Errorf("title after moving back = %q, want [settings run]", got)
+		}
+		if got := zoneIDs(back, ZoneLeftTop); !slices.Equal(got, []string{"project", "commit"}) {
+			t.Errorf("left top after moving back = %q, want [project commit]", got)
+		}
 	})
 
 	t.Run("toggle and set open", func(t *testing.T) {
@@ -772,6 +804,9 @@ func TestReduceChromeLayout(t *testing.T) {
 		}
 		_, _, err := client.ReduceChromeLayout(ctx, repeated, ChromeLayout{}, ResetChrome())
 		requireCode(t, err, CodeInvalidRequest)
+		stripeOnStripe := []ChromeItem{{ID: "a", DefaultZone: ZoneLeftTop, AlsoOnToolStripes: true}}
+		_, _, err = client.ReduceChromeLayout(ctx, stripeOnStripe, ChromeLayout{}, ResetChrome())
+		requireCode(t, err, CodeInvalidRequest)
 	})
 
 	t.Run("zero action", func(t *testing.T) {
@@ -842,6 +877,7 @@ func TestChromeJSON(t *testing.T) {
 		{"layout", ChromeLayout{Placements: []Placement{{ID: "a", Zone: ZoneLeftTop}}, Open: []string{"a"}, Hidden: []string{"a"}}, `{"placements":[{"id":"a","zone":"leftTop"}],"open":["a"],"hidden":["a"]}`},
 		{"plain item", ChromeItem{ID: "a", DefaultZone: ZoneLeftTop}, `{"id":"a","defaultZone":"leftTop"}`},
 		{"panel item", ChromeItem{ID: "a", DefaultZone: ZoneLeftTop, Panel: true, OpenByDefault: true}, `{"id":"a","defaultZone":"leftTop","panel":true,"openByDefault":true}`},
+		{"title item also on the stripes", ChromeItem{ID: "a", DefaultZone: ZoneTitleTrailing, AlsoOnToolStripes: true}, `{"id":"a","defaultZone":"titleTrailing","alsoOnToolStripes":true}`},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

@@ -27,12 +27,35 @@ native_path() {
     fi
 }
 
-# Lithe-core-rust #93 branch commit 86bd06a (update to main squash commit after Lithe-IDEA/Lithe-core-rust#93
-# merges and before gh pr ready): toolchains.discoveryPlan expands projectFile discovery strategies
-# along workspace ancestors, toolchains.candidates and toolchains.resolve report project candidates
-# and validate symlinked .venv chains, and toolchains.readCatalogForWorkspace / editWorkspaceTrust
-# keep per-workspace projectCodeAllowed in the machine-local catalog (#2122).
-# Lithe-core-rust main at d833d6a, #89 squash-merged (on top of bb4832e, #88): buildProviders 1
+# Lithe-core-rust main at e56dbb650 (#93): project tool environments use Core's discovery
+# plan, native path validation and machine-local workspace trust catalog (#2122). Includes
+# #94 on main with plugin run configuration types and allowMultipleInstances.
+# Lithe-core-rust main at 8b91b32: #92, squash-merged into main on top of 5204e81, makes the
+# interpreter field of the shell script, PowerShell and cmd editor forms name the shellFamily it
+# takes (posix, powershell, cmd), so the run configuration dialog lists the installed shells of
+# that family beside automatic and a custom path (#2100).
+# Lithe-core-rust main at 5204e81 (#91 squash-merged on top of 16176c1): a run configuration
+# names the folder it is listed in, runConfig.resolve returns the list in the order the local layer
+# saves (by name by default) with sortAlphabetically, runConfig.arrange moves configurations between
+# folders and saves that order, and runConfig.copyConfiguration copies any configuration, a build
+# provider run included (#2100). Main 16176c1 adds #86 (build tree layout and the default active
+# items of multi-select options) and the squash-merged #75.
+# Lithe-core-rust branch feat/workspace-common-references at 5c48a67 (#75, merged with main at
+# 6f5fbcc, #87 on top of #90 and #89): git.workspaceCommonReferences takes each repository's
+# git.references entries unchanged and returns the branches every repository has in that entry
+# shape, current when every repository has it checked out, with the upstream they share and ahead
+# and behind added up; git.workspaceBranchPlan plans a checkout or a new branch on such a branch
+# across the repositories, skipping the ones already on it, with the writes that roll each step
+# back; and git.graphProjection checkedOutHeads marks the commits of every repository's
+# checked-out branch, refusing currentBranch beside it (#2013). Switch to main's commit once #75
+# is squash-merged.
+# #87, squash-merged into main as 6f5fbcc (on top of d8094c6, #90): runConfig.configurationTypes
+# lists every built-in kind on every platform, one this platform cannot run with an unsupportedPlatform
+# availability, and runConfig.editorForm, runConfig.saveConfiguration and runConfig.resolve treat a cmd
+# run off Windows the same way, so it can be created and edited there while runConfig.createLaunchPlan
+# still refuses to start it and runConfig.beforeLaunch refuses it as a step (#2100). #90, squash-merged
+# into main as d8094c6 (on top of d833d6a): the chrome layout catalog takes alsoOnToolStripes.
+# #89, squash-merged into main as d833d6a (on top of bb4832e, #88): buildProviders 1
 # adds runs with entrypoints: true; build.runEntrypointsPlan and build.decodeRunEntrypoints ask a
 # provider for the entrypoints of one source file, prepareRunPlan takes an entrypoint run without a
 # target, and runConfig.createUserConfiguration saves the entrypoint as part of the entry (#2104).
@@ -219,7 +242,7 @@ PINNED_CORE_REPOSITORY="https://github.com/Lithe-IDEA/Lithe-core-rust.git"
 # the contract, plugin guides, reference and SDKs live only in shared/plugins; on top of #16 (reported Git queries folded in the console),
 # #15 (git.write cherryPick, revert and reset fields), #14 (word-level changed ranges of diff
 # rows), #13, #8, #7, #6 and #4.
-PINNED_CORE_REVISION="86bd06a6393e543ca72d66c8398a7e0bd6a18971"
+PINNED_CORE_REVISION="e56dbb65090a96cb24a53bbbbeffe424bed3ac1d"
 PROFILE="debug"
 while [[ $# -gt 0 ]]; do
     case "$1" in

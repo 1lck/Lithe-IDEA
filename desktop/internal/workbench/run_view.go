@@ -130,12 +130,25 @@ func (a *App) runToolbar(c ui.C, p *project, run *runEntry) {
 // on it. It reports a click. Viva's icon buttons draw their icon in the text color, so the
 // toolbars draw their own.
 func (a *App) runToolButton(c ui.C, label string, icon gfx.Icon, tint gfx.Color, disabled bool) bool {
-	options := gfx.HitOptions{Role: gfx.RoleButton, Disabled: disabled}
+	return a.runToolIcon(c, label, icon, tint, false, disabled, gfx.HitOptions{Role: gfx.RoleButton, Disabled: disabled})
+}
+
+// runToolToggle declares a switch of the Run window's toolbars, which keeps the background the
+// Git console's switches take while it is on. It reports a click.
+func (a *App) runToolToggle(c ui.C, label string, icon gfx.Icon, on bool) bool {
+	return a.runToolIcon(c, label, icon, a.colors.Text, on, false, gfx.HitOptions{Role: gfx.RoleSwitch, Checked: on})
+}
+
+// runToolIcon declares the button runToolButton and runToolToggle share.
+func (a *App) runToolIcon(c ui.C, label string, icon gfx.Icon, tint gfx.Color, on, disabled bool, options gfx.HitOptions) bool {
 	if !disabled {
 		options.Cursor = gfx.PointerCursorHand
 	}
 	button := ui.Row(c).Size(shellHideSize, shellHideSize).Shrink(0).Center().Radius(a.theme.Metrics.RadiusItem()).
 		HitWith(ui.ID(c), label, options).Tooltip(label)
+	if on {
+		button = button.Background(a.colors.Active)
+	}
 	if !disabled {
 		button = button.Hover(ui.Look{}.Background(a.colors.Hover)).Pressed(ui.Look{}.Background(a.colors.Active))
 	}
@@ -285,12 +298,15 @@ func (a *App) runConsole(c ui.C, p *project, run *runEntry) {
 				}
 			},
 		}
-		a.outputList(c, p, &run.console, outputScopeRun, a.text.Build.Output, &run.output, 0, menu).Grow(1)
+		a.outputList(c, p, &run.console, outputScopeRun, a.text.Build.Output, &run.output, 0, a.runWrap, menu).Grow(1)
 	})
 	ui.Divider(c)
 	lang := a.language()
 	ui.Column(c).FillHeight().Shrink(0).Gap(2).Pad(4).Children(func() {
 		empty := run.output.empty()
+		if a.runToolToggle(c.Part("wrap"), i18n.Shared(lang, "git.console.wrap"), icons.WrapText, a.runWrap) {
+			c.After(a.toggleRunWrap)
+		}
 		if a.runToolButton(c.Part("end"), i18n.Shared(lang, "git.console.scrollToEnd"), icons.ArrowDownToLine, a.colors.Text, empty) {
 			c.After(func() { run.console.ScrollToEnd() })
 		}
@@ -298,6 +314,13 @@ func (a *App) runConsole(c ui.C, p *project, run *runEntry) {
 			c.After(func() { run.output.clear() })
 		}
 	})
+}
+
+// toggleRunWrap switches the Run window's consoles between breaking long lines and ending them in
+// an ellipsis.
+func (a *App) toggleRunWrap() {
+	a.performed("run.console.wrap", surfaceButton)
+	a.runWrap = !a.runWrap
 }
 
 // showBuildConsole brings the Run window forward, for an action of the Build window that prints

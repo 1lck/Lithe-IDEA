@@ -132,6 +132,7 @@ func (a *App) beginPaint() {
 // endPaint settles what the paint declared.
 func (a *App) endPaint() {
 	a.endTerminalFrame()
+	a.treeApps.endFrame()
 	a.endPluginPageFrame()
 	a.endPreviewFrame()
 	a.endNativePanels()
@@ -310,8 +311,7 @@ func (a *App) overlays(c ui.C) {
 		a.drawBranchDialog(c, p)
 		a.drawSyncDialog(c, p)
 		a.drawWorktreeDialog(c, p)
-		a.drawRunConfigEditor(c, p)
-		a.drawRunConfigForm(c, p)
+		a.drawRunConfigDialog(c, p)
 		a.drawRunConfigDelete(c, p)
 		a.drawBeforeLaunchConfirmation(c, p)
 		a.buildOptionsDialog(c, p)

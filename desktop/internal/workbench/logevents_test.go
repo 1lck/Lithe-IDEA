@@ -70,6 +70,8 @@ func TestLogEventsMatchCatalog(t *testing.T) {
 		{operationFailedLevel, operationFailedEvent, operationFailedFields("workbench_background_save", failure)},
 		{operationFailedLevel, operationFailedEvent, operationFailedFields("workbench_background_remove", failure)},
 		{core.LevelInfo, "app.action.performed", map[string]any{"action": "workspace.background.open", "surface": surfaceButton}},
+		{core.LevelInfo, "app.action.performed", map[string]any{"action": "workspace.searchEverywhere.open", "surface": surfaceButton}},
+		{core.LevelInfo, "app.action.performed", map[string]any{"action": "title.debug", "surface": surfaceButton}},
 		{core.LevelInfo, "app.action.performed", map[string]any{"action": "workspace.background.choose", "surface": surfaceButton}},
 		{core.LevelInfo, "app.action.performed", map[string]any{"action": "workspace.background.remove", "surface": surfaceButton}},
 		{core.LevelInfo, "app.action.performed", map[string]any{"action": "workspace.background.strength", "surface": surfaceButton}},

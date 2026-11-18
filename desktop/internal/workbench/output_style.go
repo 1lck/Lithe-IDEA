@@ -132,13 +132,16 @@ func completeUTF8(text string) int {
 // outputBuffer is one console's bounded output: finished lines, oldest first, and the line still
 // being written. The oldest lines go first when it holds more than maxLines lines or maxBytes
 // bytes. start is the sequence number of lines[0] and sequence counts the lines ever finished, so
-// a reader that remembers a sequence notices lines that were dropped. Window thread only.
+// a reader that remembers a sequence notices lines that were dropped. revision counts the changes
+// to what it shows, so a view that wraps the lines breaks them again only when they changed; it
+// is zero only before the first. Window thread only.
 type outputBuffer struct {
 	lines              []styledLine
 	open               styledLine
 	bytes              int
 	start, sequence    int
 	maxLines, maxBytes int
+	revision           uint64
 }
 
 func newOutputBuffer(maxLines, maxBytes int) outputBuffer {
@@ -147,6 +150,7 @@ func newOutputBuffer(maxLines, maxBytes int) outputBuffer {
 
 // apply adds a decoded chunk.
 func (b *outputBuffer) apply(chunk outputChunk) {
+	b.revision++
 	for _, line := range chunk.lines {
 		b.lines = append(b.lines, line)
 		b.bytes += len(line.text) + 1
@@ -173,6 +177,7 @@ func (b *outputBuffer) seal() {
 // it; the sequence keeps counting.
 func (b *outputBuffer) clear() {
 	b.lines, b.bytes, b.start = nil, 0, b.sequence
+	b.revision++
 }
 
 // count is the number of rows the console shows: the finished lines and an open line with text.

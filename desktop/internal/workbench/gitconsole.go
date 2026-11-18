@@ -11,10 +11,10 @@ import (
 
 	"github.com/1lck/Lithe-IDEA/desktop/internal/core"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/i18n"
-	"github.com/1lck/Lithe-IDEA/desktop/internal/textview"
 	"github.com/vivaui/viva/app"
 	vivatext "github.com/vivaui/viva/text"
 	"github.com/vivaui/viva/ui"
+	"github.com/vivaui/viva/ui/textview"
 )
 
 // The Console tab of the Git tool window lists the Git commands every project of the window

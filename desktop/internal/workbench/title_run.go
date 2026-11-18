@@ -52,23 +52,6 @@ func (p *project) runConfigsSettled() bool {
 	return true
 }
 
-// noRunConfigurationsNotice explains an empty run configuration list once it is final, and
-// is empty while there is something to edit, the list is still read, or reading it failed
-// (the menu and the Run window show that failure).
-func (p *project) noRunConfigurationsNotice(language i18n.Language) string {
-	s := &p.runConfigs
-	if !p.runConfigsSettled() || s.failure != "" || len(s.list) > 0 {
-		return ""
-	}
-	if p.build.failed != "" {
-		return p.build.failed
-	}
-	if s.hidden > 0 {
-		return i18n.SharedFormat(language, "desktop.title.nothingToEditHidden", map[string]string{"count": strconv.Itoa(s.hidden)})
-	}
-	return i18n.Shared(language, "desktop.title.nothingToEdit")
-}
-
 // hiddenRunConfigurations says how many saved configurations the list leaves out because no
 // build plugin starts them.
 func hiddenRunConfigurations(language i18n.Language, count int) string {
@@ -120,29 +103,18 @@ func (a *App) chooseTitleConfiguration(p *project, id string) {
 	p.runConfigs.selected = id
 }
 
-// editRunConfigurations opens the Run window, which lists the configurations, and the editor
-// of the one the title bar runs. With none chosen it opens the editor of a new built-in run;
-// before the built-in kinds are read it says why there is nothing to edit instead, so the
-// press never looks like it did nothing.
+// editRunConfigurations opens the Run/Debug Configurations dialog with the configuration the
+// title bar runs selected, or nothing selected when it runs Current File, so the user can
+// create one there.
 func (a *App) editRunConfigurations(p *project) {
 	if p == nil {
 		return
 	}
-	configuration := p.titleConfiguration()
-	if configuration == nil && len(p.runConfigs.types) > 0 {
-		// Nothing to edit yet: the editor opens on a new configuration of the platform's
-		// first built-in kind, whose kind the user can still pick from New Configuration.
-		a.openRunConfigForm(p, p.runConfigs.types[0].Provider, "")
-		return
+	id := ""
+	if configuration := p.titleConfiguration(); configuration != nil {
+		id = configuration.ID
 	}
-	if notice := p.noRunConfigurationsNotice(a.language()); notice != "" {
-		a.notifyInfo(notice)
-		return
-	}
-	a.openToolWindow(itemRun)
-	if configuration != nil && runConfigEditable(*configuration) {
-		a.editRunConfiguration(p, configuration.ID)
-	}
+	a.openRunConfigDialog(p, id)
 }
 
 // openToolWindow shows tool window id, leaving it open when it already is.
@@ -163,13 +135,14 @@ func (a *App) titleRun(p *project) {
 	a.titleStart(p, titleActionRun)
 }
 
-// titleDebug is a press on the title bar's Debug button: it opens the Debug window and debugs
-// the chosen configuration, or the current file under the selected adapter.
+// titleDebug is a press on the Debug button, in the title bar or on the stripe the user moved
+// it to: it opens the Debug window and debugs the chosen configuration, or the current file
+// under the selected adapter.
 func (a *App) titleDebug(p *project) {
 	if p == nil {
 		return
 	}
-	a.performed("title.debug", surfaceToolbar)
+	a.performed("title.debug", a.chromeSurface(catalogIndex[itemTitleDebug]))
 	a.openToolWindow(itemDebug)
 	a.titleStart(p, titleActionDebug)
 }

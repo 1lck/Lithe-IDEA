@@ -196,5 +196,5 @@ func (a *App) testOutput(c ui.C, p *project) {
 	}
 	ui.Divider(c)
 	menu := &outputMenu{key: "testoutput", all: output.all}
-	a.outputList(c, p, &p.panels.testOutput, outputScopeTest, a.text.Build.Output, output, output.count()-12, menu).Height(140).Shrink(0)
+	a.outputList(c, p, &p.panels.testOutput, outputScopeTest, a.text.Build.Output, output, output.count()-12, false, menu).Height(140).Shrink(0)
 }

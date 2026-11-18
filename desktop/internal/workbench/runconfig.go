@@ -33,18 +33,19 @@ type runConfigState struct {
 	// release's JSON document its YAML replacement wins over. The built-in configurations
 	// still list; the run menu names each file so its configurations do not vanish silently.
 	ignored []string
-	// types are the built-in kinds a user can create on this platform, in display order,
-	// read once per project; typesLoading is set while they are asked for.
+	// types are the built-in kinds a user can create, in display order, each with the reason
+	// this platform cannot run it, if any; read once per project; typesLoading is set while
+	// they are asked for.
 	types        []core.RunConfigurationType
 	typesLoading bool
-	// editor is the dialog that edits one build provider run's saved options.
-	editor runConfigEditor
-	// form is the dialog that creates or edits a built-in process run (runconfig_form.go).
-	form runConfigForm
+	// manualOrder says list is in the order the user gave it on this machine rather than by
+	// name; Core keeps the choice locally and lists the configurations in that order.
+	manualOrder bool
+	// dialog is the Run/Debug Configurations window that creates, edits and removes
+	// configurations (runconfig_dialog.go).
+	dialog runConfigDialog
 	// reveal is the configuration a save just wrote, selected once the next refresh lists it.
 	reveal string
-	// newMenu says the list header's menu of new configuration kinds is open.
-	newMenu bool
 	// deleting is the user configuration whose delete waits for confirmation.
 	deleting *runConfigDeletion
 	// beforeLaunch is the start that waits for the user to allow the steps a project file
@@ -188,6 +189,8 @@ func (a *App) finishRunConfigurations(p *project, generation uint64, resolved co
 		}
 		return !ok || c.Disabled
 	})
+	s.manualOrder = !resolved.SortAlphabetically
+	a.settleRunConfigDialog(p)
 	if s.reveal != "" && s.configuration(s.reveal) != nil {
 		s.selected = s.reveal
 	}
@@ -386,6 +389,8 @@ func (a *App) runConfigUnavailableText(configuration core.RunConfiguration) stri
 		return i18n.SharedFormat(language, "desktop.runConfig.unavailableMissingDirectory", map[string]string{"directory": configuration.Cwd})
 	case "invalidConfiguration":
 		return i18n.SharedFormat(language, "desktop.runConfig.unavailableInvalid", map[string]string{"reason": availability.Message})
+	case "unsupportedPlatform":
+		return a.runAvailabilityText(configuration.Provider, *availability)
 	}
 	return i18n.SharedFormat(language, "desktop.runConfig.unavailableOther", map[string]string{"reason": availability.Message})
 }

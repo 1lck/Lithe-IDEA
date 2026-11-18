@@ -32,8 +32,11 @@ type RunProviderRun struct {
 // detected, team and local layers. Extensions stay raw except for the build
 // reference the host needs to find the provider instance.
 type RunConfiguration struct {
-	ID         string                     `json:"id"`
-	Name       string                     `json:"name"`
+	ID   string `json:"id"`
+	Name string `json:"name"`
+	// Folder is the folder the configuration is listed in within its kind; "" when
+	// it is in none. It is display only.
+	Folder     string                     `json:"folder,omitempty"`
 	Provider   string                     `json:"provider"`
 	Execution  string                     `json:"execution"`
 	Category   string                     `json:"category,omitempty"`
@@ -72,7 +75,9 @@ type RunPluginDependency struct {
 
 // RunAvailability says why a saved configuration cannot run. Code is
 // pluginMissing, pluginRepositoryMismatch, pluginVersionUnsupported,
-// invalidConfiguration or missingWorkingDirectory; Message is Core's English
+// invalidConfiguration, unsupportedPlatform (a built-in kind this platform
+// cannot run, such as a batch script outside Windows) or
+// missingWorkingDirectory; Message is Core's English
 // description, which the host shows only as the detail of its own text.
 type RunAvailability struct {
 	Status  string `json:"status"`
@@ -148,6 +153,9 @@ type RunConfigResolution struct {
 		Message string `json:"message"`
 	} `json:"diagnostics"`
 	DefaultRunConfiguration *string `json:"defaultRunConfiguration"`
+	// SortAlphabetically says Configurations are listed by name; otherwise they come in
+	// the order the user placed them on this machine.
+	SortAlphabetically bool `json:"sortAlphabetically"`
 }
 
 // ResolveRunConfigurations merges the workspace's run configuration layers

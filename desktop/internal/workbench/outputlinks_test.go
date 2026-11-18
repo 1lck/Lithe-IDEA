@@ -37,6 +37,37 @@ func (h *harness) startRunConsole(root, text string) {
 	h.app.applyRunOutput("run-test", chunk)
 }
 
+// A wrapping console breaks its lines again only when the revision changed, so every change to
+// what the buffer shows must change it: an open line that grows keeps the row count, and a
+// trim keeps it too once the buffer is full.
+func TestOutputBufferRevisionChangesWithEveryChangeItShows(t *testing.T) {
+	b := newOutputBuffer(2, 1<<20)
+	seen := map[uint64]bool{b.revision: true}
+	step := func(what string, change func()) {
+		t.Helper()
+		change()
+		if seen[b.revision] {
+			t.Fatalf("%s left the revision at %d, which it had before", what, b.revision)
+		}
+		seen[b.revision] = true
+	}
+	step("an open line", func() { b.apply(outputChunk{open: styledLine{text: "par"}}) })
+	step("the open line growing", func() { b.apply(outputChunk{open: styledLine{text: "partial"}}) })
+	step("two finished lines", func() {
+		b.apply(outputChunk{lines: []styledLine{{text: "one"}, {text: "two"}}})
+	})
+	count := b.count()
+	step("a line that pushes the oldest out", func() { b.apply(outputChunk{lines: []styledLine{{text: "three"}}}) })
+	if b.count() != count || b.row(0).text != "two" {
+		t.Fatalf("rows = %d from %q, want %d from \"two\"", b.count(), b.row(0).text, count)
+	}
+	step("sealing the open line", func() {
+		b.apply(outputChunk{open: styledLine{text: "tail"}})
+		b.seal()
+	})
+	step("clearing", b.clear)
+}
+
 func TestOutputSegmentsCutAtStyleAndLinkBoundaries(t *testing.T) {
 	bold := core.OutputStyle{Bold: true}
 	// 😀 is two UTF-16 units, so "at" starts at unit 3.

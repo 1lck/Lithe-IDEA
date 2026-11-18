@@ -4,6 +4,7 @@ import (
 	"path"
 	"path/filepath"
 
+	"github.com/1lck/Lithe-IDEA/desktop/internal/core"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/i18n"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/icons"
 	"github.com/vivaui/viva/ui"
@@ -39,7 +40,13 @@ func (a *App) titleRunConfigMenu(c ui.C, anchor ui.Box) {
 		for index := range s.list {
 			configuration := &s.list[index]
 			id := configuration.ID
-			if menu.Item(configuration.Name).Icon(icons.Play).Chosen(chosen != nil && chosen.ID == id).Clicked() {
+			item := menu.Item(configuration.Name).Icon(icons.Play).Chosen(chosen != nil && chosen.ID == id)
+			// A configuration that cannot run here stays choosable, so it can be edited from the
+			// title bar, and says why Run will not start it.
+			if configuration.Unavailable() {
+				item.Icon(icons.CircleAlert).Description(a.runConfigMenuNote(*configuration))
+			}
+			if item.Clicked() {
 				c.After(func() { a.chooseTitleConfiguration(p, id) })
 			}
 		}
@@ -69,10 +76,12 @@ func (a *App) titleRunConfigMenu(c ui.C, anchor ui.Box) {
 			}
 		}
 		menu.Separator()
-		menu.Sub(i18n.Shared(lang, "desktop.runConfig.newConfiguration"), func(sub *ui.MenuItems) {
-			sub.WidthRange(runConfigMenuMin, runConfigMenuMax)
-			a.runConfigTypeItems(c, sub, p, surfaceToolbar)
-		}).Icon(icons.Plus)
+		if menu.Item(i18n.Shared(lang, "desktop.runConfig.newConfigurationEllipsis")).Icon(icons.Plus).Clicked() {
+			c.After(func() {
+				a.performed("run.configuration.dialog", surfaceToolbar)
+				a.openRunConfigDialog(p, "")
+			})
+		}
 		if menu.Item(i18n.Shared(lang, "native.editConfiguration")).Icon(icons.Pencil).Clicked() {
 			c.After(func() { a.editRunConfigurations(p) })
 		}
@@ -80,4 +89,14 @@ func (a *App) titleRunConfigMenu(c ui.C, anchor ui.Box) {
 	if !open {
 		a.title.runConfigOpen = false
 	}
+}
+
+// runConfigMenuNote is the line under a configuration the menu cannot run: the short platform
+// note of the dialog's + menu when this system cannot run its kind, which fits the menu's
+// width, or the reason Run would give.
+func (a *App) runConfigMenuNote(configuration core.RunConfiguration) string {
+	if availability := configuration.Availability; availability != nil && availability.Code == "unsupportedPlatform" {
+		return runConfigTypeNote(a.language(), core.RunConfigurationType{Provider: configuration.Provider, Availability: availability})
+	}
+	return a.runConfigUnavailableText(configuration)
 }

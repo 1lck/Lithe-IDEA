@@ -17,7 +17,7 @@ import (
 
 // This file gives a Project tool window row its context menu and the file operations it
 // offers: Git actions for a changed file, New File and New Directory on a folder, Rename and
-// Delete, and the path and Finder actions. Git facts come from the last Core status; the file
+// Delete, the path actions and Open In (filetree_openin.go). Git facts come from the last Core status; the file
 // operations themselves are the platform's own (Go's os package), since Core owns the Git
 // rules and not the workspace filesystem. A file with an open tab is saved before it is
 // renamed or deleted, and its tab follows the new path or closes with the file.
@@ -79,10 +79,6 @@ func (a *App) projectTreeMenu(c ui.C, p *project, row gfx.ID, n *treeNode, targe
 					a.performed("workspace.tree.open", surfaceContextMenu)
 					a.activateTreeNode(p, n)
 				})
-			}
-			if menu.Item(i18n.Shared(language, "desktop.files.openWith")).Clicked() {
-				file := filepath.Join(p.root, filepath.FromSlash(n.path))
-				c.After(func() { a.openTreeFileWith(file) })
 			}
 			opened = true
 		}
@@ -198,12 +194,7 @@ func (a *App) projectTreeMenu(c ui.C, p *project, row gfx.ID, n *treeNode, targe
 		menu.Separator()
 		full := filepath.Join(p.root, filepath.FromSlash(n.path))
 		a.copyPathMenu(c, menu, full, !root, "workspace.tree")
-		if menu.Item(revealLabel(language)).Clicked() {
-			c.After(func() {
-				a.performed("workspace.tree.reveal", surfaceContextMenu)
-				a.revealPath(full)
-			})
-		}
+		a.openInMenu(c, p, menu, full, n.dir)
 		menu.Separator()
 		if menu.Item(i18n.Shared(language, "desktop.files.refresh")).Clicked() {
 			c.After(func() {
