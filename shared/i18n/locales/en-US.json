@@ -11582,7 +11582,17 @@
     "desktop.runConfig.scriptOptionsHelpPowerShell": "Arguments placed after the script path and passed to the script, which reads them through $args or param(). Separate them with spaces; quote an argument that contains spaces.",
     "desktop.runConfig.scriptOptionsHelpBatch": "Arguments placed after the script path and passed to the script, which reads them as %1, %2… Separate them with spaces; quote an argument that contains spaces.",
     "desktop.runConfig.interpreterArgumentsHelp": "Options placed before the script path and handled by the interpreter itself, such as bash's -x, which prints each command as it runs. The script does not see them. Left empty, the automatic options shown in brackets are used.",
-    "desktop.runConfig.programArgumentsHelp": "Command-line arguments placed after the program path when it starts. Separate them with spaces; quote an argument that contains spaces."
+    "desktop.runConfig.programArgumentsHelp": "Command-line arguments placed after the program path when it starts. Separate them with spaces; quote an argument that contains spaces.",
+    "desktop.marketplace.runtimeChecking": "Checking {dependency}…",
+    "desktop.marketplace.runtimeDownloading": "Downloading {dependency}… {received} / {total} MiB",
+    "desktop.marketplace.runtimeReceived": "Downloading {dependency}… {received} MiB",
+    "desktop.marketplace.runtimeExtracting": "Unpacking {dependency}…",
+    "desktop.marketplace.runtimeVerifying": "Verifying {dependency}…",
+    "desktop.marketplace.runtimeRepairing": "Repairing {dependency}…",
+    "desktop.marketplace.runtimeReady": "{dependency} is ready",
+    "desktop.marketplace.permissionRuntimesInstall": "Download and install the plugin’s declared runtime dependencies. Existing verified installations are reused across plugin updates.",
+    "desktop.marketplace.runtimeFailureHelp": "The runtime environment could not be prepared. Installed plugin versions and verified downloads have been kept. Retry to continue.",
+    "desktop.lsp.preparationCancelled": "Language service preparation cancelled"
   },
   "overrides": {
     "windows": {
