@@ -525,6 +525,8 @@ type App struct {
 	// that is to have the keyboard once it is on screen (see FocusBind).
 	root *ui.Page
 	dnd  dragDrop
+	// treeApps is the Open With submenu of a Project tree row (filetree_openin.go).
+	treeApps treeApps
 	// editorFocus is the document whose editor had the keyboard last frame; the file is
 	// saved when the keyboard leaves it (document_autosave.go).
 	editorFocus int

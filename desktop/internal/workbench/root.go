@@ -132,6 +132,7 @@ func (a *App) beginPaint() {
 // endPaint settles what the paint declared.
 func (a *App) endPaint() {
 	a.endTerminalFrame()
+	a.treeApps.endFrame()
 	a.endPluginPageFrame()
 	a.endPreviewFrame()
 	a.endNativePanels()

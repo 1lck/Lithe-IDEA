@@ -9,9 +9,10 @@ import (
 )
 
 // This file holds the file opening actions of the project tree that leave the editor: F4
-// opens the selected file (matrix id file-open-selected), and Open With asks the system for
-// the application to open a file with (matrix id file-open-with), through the platform's
-// application picker and the open-with call of the Viva toolkit.
+// opens the selected file (matrix id file-open-selected), and Other… of Open With asks for
+// any application to open a file with (matrix id file-open-with), through the platform's
+// application picker and the open-with call of the Viva toolkit. The applications the system
+// offers for the file are listed above Other… (filetree_openin.go).
 
 // openSelectedTreeFile opens the file the tree selected, or expands the folder it selected.
 func (a *App) openSelectedTreeFile(p *project) {
