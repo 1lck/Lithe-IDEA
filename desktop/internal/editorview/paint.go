@@ -134,6 +134,7 @@ func (v *View) Paint(canvas *gfx.Canvas, area gfx.Rect, look Look) {
 			v.extraCells = v.extraSelectionCells(l, v.extraCells)
 		}
 		v.tokens = v.hl.Line(v.tokens[:0], line)
+		lineHints := v.lineInlayHints(line)
 		for k, row := range wraps {
 			y := top + float32(k)*v.lineH
 			if y+v.lineH <= area.Y {
@@ -178,7 +179,14 @@ func (v *View) Paint(canvas *gfx.Canvas, area gfx.Rect, look Look) {
 			}
 			p := v.part(l, row, end, from, to)
 			v.paintSearchMatches(canvas, l, p, from, to, shift, y, look.Selection)
-			if line == caretLine && k == composeRow && composeCells > 0 {
+			if len(lineHints) > 0 {
+				if line == caretLine && k == composeRow && composeCells > 0 {
+					v.paintRowWithHints(canvas, p.text, p.row, end, k == len(wraps)-1, lineHints, look, from, min(to, composeAt), shift, y)
+					v.paintRowWithHints(canvas, p.text, p.row, end, k == len(wraps)-1, lineHints, look, max(from, composeAt), to, shift-composeCells, y)
+				} else {
+					v.paintRowWithHints(canvas, p.text, p.row, end, k == len(wraps)-1, lineHints, look, from, to, shift, y)
+				}
+			} else if line == caretLine && k == composeRow && composeCells > 0 {
 				// The input method draws the text being composed at the caret, over the
 				// editor. The rest of the row moves right to make room for it, so no glyph
 				// of the line shows through the composition.
@@ -564,11 +572,22 @@ const markerThickness = 2
 // A marker is laid out on the cell grid like the text above it, so the underline
 // stays under the characters it belongs to when the row is scrolled or wrapped.
 func (v *View) paintMarkers(canvas *gfx.Canvas, line, from, to, shift int, y float32) {
-	if len(v.markers) == 0 {
+	markers := v.markers[line]
+	if len(markers) == 0 {
 		return
 	}
-	for _, marker := range v.markers[line] {
-		start, end := max(marker.Start, from), min(marker.End, to)
+	hasHints := len(v.lineInlayHints(line)) > 0
+	var l lineRef
+	if hasHints {
+		l = v.ref(line)
+	}
+	for _, marker := range markers {
+		mStart, mEnd := marker.Start, marker.End
+		if hasHints && marker.byteEnd > marker.byteStart {
+			mStart = v.cellsAt(l, marker.byteStart)
+			mEnd = v.cellsAt(l, marker.byteEnd)
+		}
+		start, end := max(mStart, from), min(mEnd, to)
 		if end <= start {
 			continue
 		}
@@ -709,12 +728,27 @@ func (v *View) paintHoveredLink(canvas *gfx.Canvas, line, from, to, shift int, y
 	if link == nil || line < link.StartLine || line > link.EndLine {
 		return
 	}
+	hasHints := len(v.lineInlayHints(line)) > 0
+	var l lineRef
+	if hasHints {
+		l = v.ref(line)
+	}
 	start, end := 0, linkOpenEnd
 	if line == link.StartLine {
 		start = link.StartColumn
+		if hasHints {
+			if bOff, ok := v.ByteOffset(line, link.StartColumn); ok {
+				start = v.cellsAt(l, bOff-l.start)
+			}
+		}
 	}
 	if line == link.EndLine {
 		end = link.EndColumn
+		if hasHints {
+			if bOff, ok := v.ByteOffset(line, link.EndColumn); ok {
+				end = v.cellsAt(l, bOff-l.start)
+			}
+		}
 	}
 	start, end = max(start, from), min(end, to)
 	if end <= start {

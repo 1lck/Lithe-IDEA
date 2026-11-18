@@ -81,7 +81,10 @@ type pluginServer struct {
 	// completionTriggers are the characters the server declared to open completion, from
 	// Core's featuresChanged event. Only the window thread reads or writes them; nil
 	// means the server declared none.
-	completionTriggers []string
+	completionTriggers      []string
+	signatureHelpTriggers   []string
+	signatureHelpRetriggers []string
+	workspaceEdits          map[string]context.CancelFunc
 	// features are the features the server offers, from Core's featuresChanged event
 	// (documentSymbols, semanticTokens and so on). Only the window thread reads or writes it.
 	features map[string]bool
@@ -382,6 +385,12 @@ func (a *App) servePluginServer(server *pluginServer, ctx context.Context) {
 				a.post(func(a *App) { a.applyServerFeatures(server, event) })
 			case pluginSemanticTokensRefresh:
 				a.post(func(a *App) { a.semanticTokensRefresh(server) })
+			case pluginInlayHintsRefresh:
+				a.post(func(a *App) { a.inlayHintsRefresh(server) })
+			case pluginWorkspaceApplyEdit:
+				a.post(func(a *App) { a.applyServerWorkspaceEdit(server, event) })
+			case pluginWorkspaceApplyEditCancelled:
+				a.post(func(a *App) { a.cancelServerWorkspaceEdit(server, event) })
 			case pluginSemanticCompleted:
 				// The answer is handed to the window thread with the session it
 				// belongs to, so a retired server cannot reopen a popup.

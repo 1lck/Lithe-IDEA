@@ -56,6 +56,8 @@ type document struct {
 	recoveredConflict bool
 	recoveryTimer     *time.Timer
 	autoSaveTimer     *time.Timer
+	inlay             documentInlayHints
+	lastArea          gfx.Rect
 	// folds is the document's code folding requests (folding.go).
 	folds documentFolds
 	// serverLinks are the links the language server reported for the text, and pluginLinks the
@@ -843,6 +845,7 @@ func (a *App) removeDocument(p *project, d *document) {
 		// A document without a tab is released with nothing to close, once it is saved.
 		if d.tabless && !d.dirty() {
 			a.semanticTokensDropped(d)
+			a.clearDocumentInlayHints(d)
 			d.closeEditorView()
 			p.docs.list = slices.DeleteFunc(p.docs.list, func(x *document) bool { return x.id == d.id })
 			// The preview's language features may have opened it in a server.
@@ -855,6 +858,7 @@ func (a *App) removeDocument(p *project, d *document) {
 		return
 	}
 	a.semanticTokensDropped(d)
+	a.clearDocumentInlayHints(d)
 	d.closeEditorView()
 	p.docs.list = slices.DeleteFunc(p.docs.list, func(x *document) bool { return x.id == d.id })
 	a.unwatchDocument(p, d)
@@ -945,6 +949,7 @@ func (a *App) closeDocuments(p *project) {
 		a.flushCheckpoint(p, d, false)
 		d.find.dispose()
 		d.cancelAutoSave()
+		a.clearDocumentInlayHints(d)
 		d.closeEditorView()
 	}
 	p.docs = documentSet{}

@@ -36,8 +36,9 @@ func ProjectMarkers(ctx context.Context, text rope.Rope, markers []Marker) (Proj
 		}
 		slices.Sort(positions)
 		positions = slices.Compact(positions)
-		cellsAt := make(map[int]int, len(positions))
-		index, units, cells := 0, 0, 0
+		type point struct{ cell, byteColumn int }
+		pointAt := make(map[int]point, len(positions))
+		index, units, cells, bytes := 0, 0, 0, 0
 		text.Chunks(text.LineStart(line), text.LineEnd(line), func(chunk string) bool {
 			if ctx.Err() != nil {
 				return false
@@ -51,7 +52,7 @@ func ProjectMarkers(ctx context.Context, text rope.Rope, markers []Marker) (Proj
 				// A malformed UTF-16 endpoint inside a surrogate pair rounds down,
 				// matching ByteOffset. Out-of-line endpoints clamp to the line end.
 				for index < len(positions) && positions[index] < units+width {
-					cellsAt[positions[index]] = cells
+					pointAt[positions[index]] = point{cells, bytes}
 					index++
 				}
 				if index == len(positions) {
@@ -59,6 +60,7 @@ func ProjectMarkers(ctx context.Context, text rope.Rope, markers []Marker) (Proj
 				}
 				units += width
 				cells += runeCells(r, cells)
+				bytes += size
 				chunk = chunk[size:]
 			}
 			return index < len(positions)
@@ -66,12 +68,15 @@ func ProjectMarkers(ctx context.Context, text rope.Rope, markers []Marker) (Proj
 		if err := ctx.Err(); err != nil {
 			return ProjectedMarkers{}, err
 		}
+		lineLen := text.LineEnd(line) - text.LineStart(line)
 		for ; index < len(positions); index++ {
-			cellsAt[positions[index]] = cells
+			pointAt[positions[index]] = point{cells, lineLen}
 		}
 		projected := items[:0]
 		for _, item := range items {
-			item.Start, item.End = cellsAt[item.Start], cellsAt[item.End]
+			start, end := pointAt[item.Start], pointAt[item.End]
+			item.Start, item.End = start.cell, end.cell
+			item.byteStart, item.byteEnd = start.byteColumn, end.byteColumn
 			if item.End > item.Start {
 				projected = append(projected, item)
 			}

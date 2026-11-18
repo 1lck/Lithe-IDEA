@@ -196,3 +196,181 @@ func (c *Client) PlanPluginWorkspaceEdit(ctx context.Context, workspaceRoot stri
 	}{"auto", workspaceRoot, changes, open}, &plan)
 	return plan, err
 }
+
+// PluginSemanticCommand is a normalised LSP Command attached to a code action.
+type PluginSemanticCommand struct {
+	Title     string          `json:"title"`
+	Command   string          `json:"command"`
+	Arguments json.RawMessage `json:"arguments,omitempty"`
+}
+
+// PluginSemanticWorkspaceEdit wraps the normalised file-to-edits map of a code action.
+type PluginSemanticWorkspaceEdit struct {
+	Changes          map[string][]PluginTextEdit `json:"changes"`
+	DocumentVersions map[string]int64            `json:"documentVersions"`
+}
+
+// PluginSemanticCodeAction is one Core-normalised, deterministically ordered code action.
+type PluginSemanticCodeAction struct {
+	Title       string                       `json:"title"`
+	Kind        *string                      `json:"kind"`
+	Group       string                       `json:"group"`
+	IsPreferred bool                         `json:"isPreferred"`
+	Edit        *PluginSemanticWorkspaceEdit `json:"edit"`
+	Command     *PluginSemanticCommand       `json:"command"`
+	Data        json.RawMessage              `json:"data"`
+	Raw         json.RawMessage              `json:"-"`
+}
+
+// UnmarshalJSON decodes the normalised code action while keeping the raw payload for resolveCodeAction.
+func (a *PluginSemanticCodeAction) UnmarshalJSON(data []byte) error {
+	type alias PluginSemanticCodeAction
+	var decoded alias
+	if err := json.Unmarshal(data, &decoded); err != nil {
+		return err
+	}
+	*a = PluginSemanticCodeAction(decoded)
+	a.Raw = append(json.RawMessage(nil), data...)
+	return nil
+}
+
+// PluginSemanticCodeActions decodes a completed codeActions event.
+func PluginSemanticCodeActions(event BackendEvent) ([]PluginSemanticCodeAction, error) {
+	var payload struct {
+		Actions []PluginSemanticCodeAction `json:"actions"`
+	}
+	if err := decodePluginSemanticResult(event, &payload); err != nil {
+		return nil, err
+	}
+	return payload.Actions, nil
+}
+
+// PluginSemanticResolvedCodeAction decodes a completed resolveCodeAction event.
+func PluginSemanticResolvedCodeAction(event BackendEvent) (*PluginSemanticCodeAction, error) {
+	var payload struct {
+		Action *PluginSemanticCodeAction `json:"action"`
+	}
+	if err := decodePluginSemanticResult(event, &payload); err != nil {
+		return nil, err
+	}
+	return payload.Action, nil
+}
+
+// PluginSemanticParameterInfo is one parameter of a normalised signature, with both UTF-16 and UTF-8 byte spans.
+type PluginSemanticParameterInfo struct {
+	Label         string  `json:"label"`
+	UTF16Start    *int    `json:"utf16Start"`
+	UTF16End      *int    `json:"utf16End"`
+	ByteStart     *int    `json:"byteStart"`
+	ByteEnd       *int    `json:"byteEnd"`
+	Documentation *string `json:"documentation"`
+	IsMarkdown    bool    `json:"isMarkdown"`
+}
+
+// PluginSemanticSignatureInfo is one overload in a normalised signatureHelp answer.
+type PluginSemanticSignatureInfo struct {
+	Label           string                        `json:"label"`
+	Documentation   *string                       `json:"documentation"`
+	IsMarkdown      bool                          `json:"isMarkdown"`
+	Parameters      []PluginSemanticParameterInfo `json:"parameters"`
+	ActiveParameter *int                          `json:"activeParameter"`
+}
+
+// PluginSemanticSignatureHelp is Core's normalised signatureHelp answer.
+type PluginSemanticSignatureHelp struct {
+	Signatures      []PluginSemanticSignatureInfo `json:"signatures"`
+	ActiveSignature int                           `json:"activeSignature"`
+	ActiveParameter *int                          `json:"activeParameter"`
+	Raw             json.RawMessage               `json:"-"`
+}
+
+// UnmarshalJSON decodes the signature help while retaining the normalised JSON for activeSignatureHelp retriggering.
+func (s *PluginSemanticSignatureHelp) UnmarshalJSON(data []byte) error {
+	type alias PluginSemanticSignatureHelp
+	var decoded alias
+	if err := json.Unmarshal(data, &decoded); err != nil {
+		return err
+	}
+	*s = PluginSemanticSignatureHelp(decoded)
+	s.Raw = append(json.RawMessage(nil), data...)
+	return nil
+}
+
+// PluginSemanticSignatureHelpFromEvent decodes a completed signatureHelp event.
+func PluginSemanticSignatureHelpFromEvent(event BackendEvent) (*PluginSemanticSignatureHelp, error) {
+	var payload struct {
+		SignatureHelp *PluginSemanticSignatureHelp `json:"signatureHelp"`
+	}
+	if err := decodePluginSemanticResult(event, &payload); err != nil {
+		return nil, err
+	}
+	return payload.SignatureHelp, nil
+}
+
+// PluginSemanticInlayHint is one Core-normalised, viewport-culled inlay hint.
+type PluginSemanticInlayHint struct {
+	Position       PluginDocumentPosition `json:"position"`
+	Label          string                 `json:"label"`
+	Kind           *int                   `json:"kind"`
+	Tooltip        *string                `json:"tooltip"`
+	PaddingLeft    bool                   `json:"paddingLeft"`
+	PaddingRight   bool                   `json:"paddingRight"`
+	TextEdits      []PluginTextEdit       `json:"textEdits"`
+	Data           json.RawMessage        `json:"data,omitempty"`
+	Raw            json.RawMessage        `json:"-"`
+	ResolvePayload json.RawMessage        `json:"resolvePayload,omitempty"`
+}
+
+// UnmarshalJSON decodes the hint while keeping the raw JSON for resolveInlayHint.
+func (h *PluginSemanticInlayHint) UnmarshalJSON(data []byte) error {
+	type alias PluginSemanticInlayHint
+	var decoded alias
+	if err := json.Unmarshal(data, &decoded); err != nil {
+		return err
+	}
+	*h = PluginSemanticInlayHint(decoded)
+	h.Raw = append(json.RawMessage(nil), data...)
+	return nil
+}
+
+// PluginSemanticInlayHints decodes a completed inlayHints event.
+func PluginSemanticInlayHints(event BackendEvent) ([]PluginSemanticInlayHint, error) {
+	var payload struct {
+		Hints []PluginSemanticInlayHint `json:"hints"`
+	}
+	if err := decodePluginSemanticResult(event, &payload); err != nil {
+		return nil, err
+	}
+	return payload.Hints, nil
+}
+
+// PluginSemanticResolvedInlayHint decodes a completed resolveInlayHint event.
+func PluginSemanticResolvedInlayHint(event BackendEvent) (*PluginSemanticInlayHint, error) {
+	var payload struct {
+		Hint *PluginSemanticInlayHint `json:"hint"`
+	}
+	if err := decodePluginSemanticResult(event, &payload); err != nil {
+		return nil, err
+	}
+	return payload.Hint, nil
+}
+
+// PluginWorkspaceApplyEdit is the payload of a server-initiated workspaceApplyEdit event.
+type PluginWorkspaceApplyEdit struct {
+	ApplyEditID      string                      `json:"applyEditId"`
+	Label            *string                     `json:"label"`
+	Changes          map[string][]PluginTextEdit `json:"changes"`
+	DocumentVersions map[string]int64            `json:"documentVersions"`
+}
+
+// PluginWorkspaceApplyEditFromEvent decodes a workspaceApplyEdit runtime event.
+func PluginWorkspaceApplyEditFromEvent(event BackendEvent) (PluginWorkspaceApplyEdit, error) {
+	var payload PluginWorkspaceApplyEdit
+	if len(event.Result) == 0 || string(event.Result) == "null" {
+		return payload, errors.New("workspaceApplyEdit event has no result")
+	}
+	if err := json.Unmarshal(event.Result, &payload); err != nil || payload.ApplyEditID == "" {
+		return PluginWorkspaceApplyEdit{}, errors.New("workspaceApplyEdit event is not the normalised shape")
+	}
+	return payload, nil
+}

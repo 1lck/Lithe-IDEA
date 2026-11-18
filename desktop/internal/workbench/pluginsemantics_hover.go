@@ -412,6 +412,10 @@ func (a *App) hoverPopup(c ui.C) {
 	a.layoutHover(canvas, page, maxWidth)
 	width := page.width + 2*semanticHoverPadX
 	height := min(page.height+2*semanticHoverPadY, semanticHoverMaxHeight)
+	if state.quickFix != nil {
+		width = max(width, 124)
+		height += 28
+	}
 	anchor := state.anchor
 	below := bounds.Y + bounds.Height - semanticHoverMargin - (anchor.Y + anchor.Height)
 	above := anchor.Y - bounds.Y - semanticHoverMargin
@@ -439,6 +443,21 @@ func (a *App) hoverPopup(c ui.C) {
 				id := ui.ID(c.Part(name))
 				ui.Control(c.Part(name), page.label, &page.input).Fill().Draw(page.draw).
 					HitWith(id, page.label, gfx.HitOptions{Role: gfx.RoleGroup, SkipFocus: true})
+				if state.quickFix != nil {
+					label := i18n.Shared(a.language(), "desktop.semantics.codeActionQuickFix")
+					key := c.Part("diagnostic-quick-fix")
+					button := ui.Row(key).FillWidth().Height(28).PadX(8).Items(ui.Center).
+						HitWith(ui.ID(key), label, gfx.HitOptions{Role: gfx.RoleButton, SkipFocus: true, Cursor: gfx.PointerCursorHand}).
+						Hover(ui.Look{}.Background(a.colors.Hover))
+					button.Children(func() { ui.Text(key, label).FontSize(12) })
+					if button.Clicked() {
+						docID, span, anchor := state.documentID, *state.quickFix, state.anchor
+						c.After(func() {
+							p, d := a.currentSemanticDocument(docID)
+							a.startPluginCodeActionsAtRange(p, d, span, anchor, []string{"quickfix"}, surfaceButton)
+						})
+					}
+				}
 			})
 	})
 }

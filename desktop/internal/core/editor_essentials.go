@@ -11,6 +11,7 @@ import (
 type EditorStoredPreferences struct {
 	LineNumbers               *bool   `json:"lineNumbers,omitempty"`
 	Whitespace                *bool   `json:"whitespace,omitempty"`
+	InlayHints                *bool   `json:"inlayHints,omitempty"`
 	CursorStyle               string  `json:"cursorStyle,omitempty"`
 	CursorBlink               *bool   `json:"cursorBlink,omitempty"`
 	AutoSaveDelayMilliseconds *uint64 `json:"autoSaveDelayMilliseconds,omitempty"`
@@ -20,6 +21,7 @@ type EditorStoredPreferences struct {
 type EditorPreferences struct {
 	LineNumbers                      bool   `json:"lineNumbers"`
 	Whitespace                       bool   `json:"whitespace"`
+	InlayHints                       bool   `json:"inlayHints"`
 	CursorStyle                      string `json:"cursorStyle"`
 	CursorBlink                      bool   `json:"cursorBlink"`
 	AutoSaveDelayMilliseconds        uint64 `json:"autoSaveDelayMilliseconds"`

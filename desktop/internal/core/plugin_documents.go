@@ -97,14 +97,19 @@ func (c *Client) ClosePluginDocument(ctx context.Context, session, uri string) e
 // operation name rather than a raw LSP method, so Core decides which server
 // feature answers it.
 type PluginSemanticRequest struct {
-	SessionID         string
-	Operation         string
-	URI               string
-	Position          *PluginDocumentPosition
-	CompletionContext json.RawMessage
+	SessionID            string
+	Operation            string
+	URI                  string
+	Position             *PluginDocumentPosition
+	Diagnostics          []PluginDiagnostic
+	CodeActionContext    json.RawMessage
+	CompletionContext    json.RawMessage
+	SignatureHelpContext json.RawMessage
+	CodeAction           json.RawMessage
+	InlayHint            json.RawMessage
 	// NewName is the rename operation's replacement identifier.
 	NewName string
-	// Range is the range rangeFormatting formats; Core requires it for that operation.
+	// Range is the range rangeFormatting, codeActions or inlayHints covers.
 	Range *PluginDocumentRange
 	// FormattingOptions is optional for formatting and rangeFormatting; Core fills unset
 	// fields with its defaults.
@@ -152,18 +157,23 @@ func (c *Client) PluginDocumentURI(ctx context.Context, path, platform string) (
 
 // pluginSemanticBody is the lsp.request payload.
 type pluginSemanticBody struct {
-	SessionID          string                  `json:"sessionId"`
-	Operation          string                  `json:"operation"`
-	URI                string                  `json:"uri,omitempty"`
-	Position           *PluginDocumentPosition `json:"position,omitempty"`
-	CompletionContext  json.RawMessage         `json:"completionContext,omitempty"`
-	NewName            string                  `json:"newName,omitempty"`
-	Range              *PluginDocumentRange    `json:"range,omitempty"`
-	FormattingOptions  *FormattingOptions      `json:"formattingOptions,omitempty"`
-	OperationID        string                  `json:"operationId,omitempty"`
-	Command            json.RawMessage         `json:"command,omitempty"`
-	Query              string                  `json:"query,omitempty"`
-	IncludeDeclaration *bool                   `json:"includeDeclaration,omitempty"`
+	SessionID            string                  `json:"sessionId"`
+	Operation            string                  `json:"operation"`
+	URI                  string                  `json:"uri,omitempty"`
+	Position             *PluginDocumentPosition `json:"position,omitempty"`
+	Diagnostics          []PluginDiagnostic      `json:"diagnostics,omitempty"`
+	CodeActionContext    json.RawMessage         `json:"codeActionContext,omitempty"`
+	CompletionContext    json.RawMessage         `json:"completionContext,omitempty"`
+	SignatureHelpContext json.RawMessage         `json:"signatureHelpContext,omitempty"`
+	CodeAction           json.RawMessage         `json:"codeAction,omitempty"`
+	InlayHint            json.RawMessage         `json:"inlayHint,omitempty"`
+	NewName              string                  `json:"newName,omitempty"`
+	Range                *PluginDocumentRange    `json:"range,omitempty"`
+	FormattingOptions    *FormattingOptions      `json:"formattingOptions,omitempty"`
+	OperationID          string                  `json:"operationId,omitempty"`
+	Command              json.RawMessage         `json:"command,omitempty"`
+	Query                string                  `json:"query,omitempty"`
+	IncludeDeclaration   *bool                   `json:"includeDeclaration,omitempty"`
 }
 
 // RequestPluginSemantics submits a semantic request and returns Core's opaque
@@ -171,7 +181,10 @@ type pluginSemanticBody struct {
 func (c *Client) RequestPluginSemantics(ctx context.Context, request PluginSemanticRequest) (string, error) {
 	body := pluginSemanticBody{
 		SessionID: request.SessionID, Operation: request.Operation, URI: request.URI,
-		Position: request.Position, CompletionContext: request.CompletionContext, NewName: request.NewName,
+		Position: request.Position, Diagnostics: request.Diagnostics,
+		CodeActionContext: request.CodeActionContext, CompletionContext: request.CompletionContext,
+		SignatureHelpContext: request.SignatureHelpContext, CodeAction: request.CodeAction,
+		InlayHint: request.InlayHint, NewName: request.NewName,
 		Range: request.Range, FormattingOptions: request.FormattingOptions,
 		OperationID: request.OperationID, Command: request.Command, Query: request.Query,
 		IncludeDeclaration: request.IncludeDeclaration,

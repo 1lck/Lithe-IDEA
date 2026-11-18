@@ -256,6 +256,7 @@ func (v *View) refold() {
 		}
 		v.rowsDirty = true
 	}
+	v.reflowInlayRows()
 }
 
 // revealHiddenCaret unfolds every collapsed range that hides the caret's line. A move, a search

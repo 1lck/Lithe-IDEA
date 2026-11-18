@@ -140,7 +140,16 @@ func (v *View) rowsOf(l lineRef) []wrapRow {
 	if v.fold.hides(l.line) {
 		return nil
 	}
-	if !v.wrapping() || l.size*tabSize <= v.wrapCols {
+	if !v.wrapping() {
+		return oneRow
+	}
+	if len(v.lineInlayHints(l.line)) > 0 {
+		if rows := v.inlay.wraps[l.line]; len(rows) != 0 {
+			return rows
+		}
+		return oneRow
+	}
+	if l.size*tabSize <= v.wrapCols {
 		return oneRow
 	}
 	if rows, ok := v.rowCache[l.line]; ok {
@@ -189,6 +198,7 @@ func (v *View) setWrapCols(cols int, wasLineH float32) {
 		}
 		v.rowsDirty = true
 	}
+	v.reflowInlayRows()
 	v.scroll = float32(v.lineRow(top))*v.lineH + part
 }
 
@@ -314,7 +324,14 @@ func (v *View) rowCount() int {
 		return v.text.LineCount()
 	}
 	v.ensureRows()
-	return int(v.rowStart[len(v.rowStart)-1])
+	return v.rowStartForLine(len(v.wraps))
+}
+
+func (v *View) rowStartForLine(line int) int {
+	if len(v.inlay.rowDeltas) == 0 {
+		return int(v.rowStart[line])
+	}
+	return int(v.rowStart[line]) + v.inlayRowsBefore(line)
 }
 
 // lineRow is the first row of line.
@@ -323,7 +340,7 @@ func (v *View) lineRow(line int) int {
 		return line
 	}
 	v.ensureRows()
-	return int(v.rowStart[min(max(line, 0), len(v.wraps)-1)])
+	return v.rowStartForLine(min(max(line, 0), len(v.wraps)-1))
 }
 
 // rowLine is the line row is on and which of the line's rows it is. A row past the last is the
@@ -335,8 +352,13 @@ func (v *View) rowLine(row int) (int, int) {
 	}
 	v.ensureRows()
 	lines := len(v.wraps)
-	line := min(sort.Search(lines, func(i int) bool { return int(v.rowStart[i+1]) > row }), lines-1)
-	return line, min(max(row-int(v.rowStart[line]), 0), int(v.wraps[line].rows)-1)
+	if len(v.inlay.rowDeltas) == 0 {
+		line := min(sort.Search(lines, func(i int) bool { return int(v.rowStart[i+1]) > row }), lines-1)
+		return line, min(max(row-int(v.rowStart[line]), 0), int(v.wraps[line].rows)-1)
+	}
+	line := min(sort.Search(lines, func(i int) bool { return v.rowStartForLine(i+1) > row }), lines-1)
+	start := v.rowStartForLine(line)
+	return line, min(max(row-start, 0), v.rowStartForLine(line+1)-start-1)
 }
 
 // caretPlace is the caret's line, the line's rows, and which row the caret is on.

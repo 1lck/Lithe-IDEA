@@ -74,8 +74,9 @@ type Capabilities map[string][]int
 //     toolchain layers select for the workspace, or the command line the plugin
 //     backend answers), starts the process and keeps the session's documents in
 //     step with the editor. The editor presents its diagnostics, completion,
-//     hover, definition, references, rename, formatting, document symbols,
-//     document links and semantic tokens. Plugin-owned sessions are wired: the
+//     hover, signature help, code actions, inlay hints, definition, references,
+//     rename, formatting, document symbols, document links and semantic tokens,
+//     and applies validated server-initiated workspace edits. Plugin-owned sessions are wired: the
 //     backend's languageServer/request and notify reach the server under Core's
 //     session policy, and didReceiveNotification and didChangeState reach the
 //     backend.
@@ -132,8 +133,8 @@ type Capabilities map[string][]int
 //
 // Not presented yet (the plugin installs, the part has no surface):
 //
-//   - a language server's code actions, signature help and inlay hints, and a
-//     plugin's foldingRange provider, which is not routed.
+//   - a plugin's foldingRange provider, which is not routed (language-server
+//     foldingRange is served).
 //   - tool discovery for system commands reads PATH and the plugin's installed
 //     command directories only; a plan that depends on a project toolchain or a
 //     user override must use a tool launch.

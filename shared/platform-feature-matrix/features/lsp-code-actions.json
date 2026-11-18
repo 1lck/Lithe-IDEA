@@ -1,0 +1,27 @@
+{
+  "id": "lsp-code-actions",
+  "area": "编辑器",
+  "group": "语言服务",
+  "capability": "代码操作与快速修复",
+  "macos": {
+    "implementationStatus": "implemented",
+    "verificationStatus": "pending",
+    "evidence": [
+      "desktop/internal/workbench/pluginsemantics_codeactions.go",
+      "desktop/internal/workbench/lsp_actions_test.go",
+      "desktop/internal/core/plugin_semantics.go"
+    ]
+  },
+  "windows": {
+    "implementationStatus": "implemented",
+    "verificationStatus": "pending",
+    "evidence": [
+      "desktop/internal/workbench/pluginsemantics_codeactions.go",
+      "desktop/internal/workbench/lsp_actions_test.go",
+      "desktop/internal/core/plugin_semantics.go"
+    ]
+  },
+  "owner": "Editor / Language Tooling",
+  "verification": "以声明该能力的合成语言服务器验证 Alt/Option+Enter、编辑器菜单、诊断快速修复、动作列表、撤销，以及工作区编辑的文件边界、文档版本和取消。",
+  "notes": "Viva 在 macOS 和 Windows 共享实现。原生平台验证待补。"
+}
