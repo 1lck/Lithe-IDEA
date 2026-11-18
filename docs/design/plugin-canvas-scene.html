@@ -1,0 +1,1317 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>Lithe 设置 · 插件画布节点（描述模式）交互原型</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<!--
+  交互原型，不是实现。演示设置窗口里的插件内容区怎样只用“描述模式 + 画布节点”做出风格各异的页面，而不嵌网页。
+  插件全部是虚构的（io.github.example.*）。“插件后端”是本页里模拟的进程：宿主和它之间只交换 JSON 消息，
+  每条消息都经过 JSON 序列化，并按演示栏里的响应时间延迟送达。字段名都还没定，写法只是示意。
+  可用地址参数直接打开某个状态，例如：
+    #page=maven&click=deps:guava31&panel=log
+    #page=theme&dark=1      #page=build&tip=builds:b:1290      #page=maven&fault=label
+  参数：page=maven|theme|build，dark=1，panel=notes|scene|log|0，fault=none|budget|label|timeout|crash|flood，
+        lat=20|60|200|800，click=<画布>:<节点>，tip=<画布>:<节点>，contrib=deps|mavenSupport
+-->
+<style>
+:root{
+  --bg:#f7f8fa; --surface:#ffffff; --side:#f2f3f5; --sel:#dfe7f8; --hover:#eceef1;
+  --text:#1f2329; --sub:#6c707e; --faint:#9aa0ab; --line:#e4e6ea; --accent:#3574f0;
+  --ok:#208a3c; --warn:#c27d00; --err:#d1453b; --pill:#eef1f6; --chip:#e8f0fe;
+  --note:#ffd75e; --shadow:0 8px 28px rgba(0,0,0,.14); --hl:#fff3c4;
+  font-family:-apple-system,BlinkMacSystemFont,"SF Pro Text","PingFang SC",sans-serif;
+  font-size:13px; color:var(--text);
+}
+html.dark{
+  --bg:#1e1f22; --surface:#2b2d30; --side:#26282b; --sel:#2e436e; --hover:#33363a;
+  --text:#dfe1e5; --sub:#9da0a8; --faint:#6f737a; --line:#3a3d41; --accent:#548af7;
+  --ok:#5fb865; --warn:#e0a83e; --err:#f0716a; --pill:#393b40; --chip:#25324d;
+  --shadow:0 8px 28px rgba(0,0,0,.5); --hl:#4a4220;
+}
+*{box-sizing:border-box}
+body{margin:0;background:#c9ccd3;min-height:100vh;display:flex;flex-direction:column;align-items:center}
+html.dark body{background:#111214}
+button,input,select,textarea{font:inherit;color:inherit}
+.mono{font-family:"SF Mono",Menlo,monospace;font-size:11.5px}
+.demobar{width:100%;min-width:1240px;white-space:nowrap;display:flex;gap:14px;align-items:center;padding:8px 16px;background:#24262b;color:#ddd;font-size:12px}
+.demobar b{color:#fff}.demobar label{display:flex;gap:5px;align-items:center;cursor:pointer}.demobar .sp{flex:1}
+.demobar select{background:#34373d;border:1px solid #484b52;border-radius:5px;padding:2px 6px;color:#eee}
+.demobar .perf{color:#9fb4d8;font-family:"SF Mono",Menlo,monospace;font-size:11px}
+.win{margin:16px;min-width:1240px;width:min(1640px,calc(100vw - 32px));height:min(940px,calc(100vh - 76px));min-height:680px;background:var(--surface);border-radius:12px;box-shadow:var(--shadow);display:flex;flex-direction:column;overflow:hidden;position:relative}
+.titlebar{height:38px;display:flex;align-items:center;padding:0 14px;gap:8px;border-bottom:1px solid var(--line);background:var(--side);flex:none}
+.dot{width:12px;height:12px;border-radius:50%}
+.titlebar .t{flex:1;text-align:center;font-weight:600;color:var(--sub);margin-right:52px}
+.body{flex:1;display:flex;min-height:0}
+/* 侧栏 */
+.side{width:232px;flex:none;background:var(--side);border-right:1px solid var(--line);display:flex;flex-direction:column}
+.side .search{margin:10px;padding:5px 9px;border:1px solid var(--line);border-radius:7px;background:var(--surface);display:flex;gap:6px;align-items:center;color:var(--faint)}
+.side .search input{border:0;outline:0;background:transparent;width:100%;color:var(--text)}
+.nav{overflow:auto;padding:0 6px 10px;flex:1}
+.nav .r{display:flex;align-items:center;gap:6px;padding:4px 8px;border-radius:6px;cursor:pointer;min-height:26px;white-space:nowrap}
+.nav .r:hover{background:var(--hover)}
+.nav .r.sel{background:var(--sel)}
+.nav .r.l1{padding-left:26px}.nav .r.l2{padding-left:44px}
+.nav .r .chev{width:10px;color:var(--faint);font-size:10px}
+.nav .hit{display:block;padding:6px 8px;border-radius:6px;cursor:pointer}
+.nav .hit:hover{background:var(--hover)}
+.nav .hit .k{color:var(--sub);font-size:11.5px}
+.nav .hit mark{background:var(--hl);color:inherit;border-radius:2px}
+/* 主区 */
+.main{flex:1;display:flex;flex-direction:column;min-width:0}
+.crumb{height:40px;flex:none;display:flex;align-items:center;gap:6px;padding:0 24px;border-bottom:1px solid var(--line);color:var(--sub)}
+.crumb .last{color:var(--text);font-weight:600}.crumb .sep{color:var(--faint)}
+.content{flex:1;overflow:auto;padding:18px 26px 30px}
+.page{max-width:920px}
+.footer{height:52px;flex:none;border-top:1px solid var(--line);display:flex;align-items:center;gap:8px;padding:0 16px;background:var(--surface)}
+.footer .msg{flex:1;display:flex;align-items:center;gap:6px;min-width:0;overflow:hidden;white-space:nowrap;text-overflow:ellipsis;color:var(--sub)}
+.moddot{width:7px;height:7px;border-radius:50%;background:var(--accent);flex:none}
+.btn{border:1px solid var(--line);background:var(--surface);padding:4px 12px;border-radius:6px;cursor:pointer;white-space:nowrap}
+.btn:hover{background:var(--hover)}
+.btn.pri{background:var(--accent);border-color:var(--accent);color:#fff}
+.btn.sm{padding:2px 9px;font-size:12px}
+.btn.link{border-color:transparent;background:transparent;color:var(--accent);padding:2px 4px}
+.btn[disabled]{opacity:.45;cursor:default}
+.seg{display:inline-flex;background:var(--pill);border-radius:7px;padding:2px;flex:none}
+.seg button{border:0;background:transparent;padding:3px 12px;border-radius:5px;cursor:pointer;color:var(--sub);white-space:nowrap}
+.seg button.on{background:var(--surface);color:var(--text);box-shadow:0 1px 2px rgba(0,0,0,.12)}
+.inp{border:1px solid var(--line);border-radius:6px;padding:4px 8px;background:var(--surface);outline:0;min-width:0}
+.inp:focus{border-color:var(--accent)}
+select.inp{padding:3px 6px}
+.tag{font-size:10.5px;padding:1px 7px;border-radius:999px;background:var(--pill);color:var(--sub);white-space:nowrap;flex:none}
+.tag.blue{background:var(--chip);color:var(--accent)}
+.tag.green{background:#e6f4ea;color:var(--ok)} html.dark .tag.green{background:#22382a}
+.tag.warn{background:#fff1d6;color:var(--warn)} html.dark .tag.warn{background:#3d3220}
+.tag.err{background:#fbe5e3;color:var(--err)} html.dark .tag.err{background:#45282a}
+.sw{width:30px;height:18px;border-radius:9px;background:#c4c7cd;position:relative;cursor:pointer;flex:none;border:0;padding:0;transition:background .15s}
+html.dark .sw{background:#55585e}
+.sw::after{content:"";position:absolute;top:2px;left:2px;width:14px;height:14px;border-radius:50%;background:#fff;transition:left .15s}
+.sw.on,html.dark .sw.on{background:var(--accent)} .sw.on::after{left:14px}
+.muted{color:var(--sub);font-size:12px}.faint{color:var(--faint);font-size:11.5px}
+.link{color:var(--accent);cursor:pointer;white-space:nowrap}
+.info{display:inline-flex;align-items:center;justify-content:center;width:15px;height:15px;border-radius:50%;color:var(--faint);font-size:12px;cursor:help;flex:none}
+.info:hover,.info:focus{color:var(--accent);outline:0}
+.nb{display:inline-flex;align-items:center;justify-content:center;min-width:16px;height:16px;padding:0 4px;border-radius:8px;background:var(--note);color:#5a4500;font-size:10px;font-weight:700;font-style:normal;cursor:pointer;flex:none;vertical-align:middle}
+html.nonotes .nb{display:none}
+.toast{position:absolute;bottom:64px;left:50%;transform:translateX(-50%);background:#2b2d30;color:#fff;padding:7px 14px;border-radius:8px;font-size:12px;z-index:60;box-shadow:var(--shadow);max-width:70%}
+.tip{position:fixed;pointer-events:none;background:#24262b;color:#fff;font-size:12px;line-height:1.5;padding:5px 9px;border-radius:6px;box-shadow:0 4px 14px rgba(0,0,0,.25);z-index:80;white-space:pre-line;max-width:360px}
+/* 页头 */
+.ph{display:flex;align-items:center;gap:12px;margin-bottom:12px}
+.ph h2{margin:0;font-size:18px}
+.picon{width:36px;height:36px;border-radius:9px;color:#fff;font-weight:700;display:flex;align-items:center;justify-content:center;font-size:15px;flex:none}
+.tabs{display:flex;gap:2px;border-bottom:1px solid var(--line);margin:4px 0 16px}
+.tabs span{padding:7px 14px;color:var(--sub);cursor:pointer;border-bottom:2px solid transparent;margin-bottom:-1px}
+.tabs span.on{color:var(--text);border-bottom-color:var(--accent);font-weight:600}
+.contrib{display:flex;align-items:center;gap:10px;margin:0 0 14px}
+/* 插件内容区 */
+.region{border:1.5px dashed var(--line);border-radius:10px;padding:14px 14px 10px;position:relative;margin-top:14px}
+.region>.cap{position:absolute;top:-9px;left:12px;background:var(--surface);padding:0 6px;font-size:11px;color:var(--faint);display:flex;gap:6px;align-items:center}
+.d-row{display:flex;align-items:center;gap:10px;margin:4px 0 8px;flex-wrap:wrap}
+.d-label{display:inline-flex;align-items:center;gap:4px}
+.d-label.sub{color:var(--sub)} .d-label.warn{color:var(--warn)} .d-label.err{color:var(--err)}
+.d-tg{display:inline-flex;align-items:center;gap:6px;cursor:pointer}
+.d-sec{margin-top:10px;border-top:1px solid var(--line);padding-top:10px}
+.d-sec-h{font-weight:600;margin-bottom:6px}
+.kv{display:grid;grid-template-columns:96px 1fr;gap:4px 12px;margin:2px 0 8px}
+.kv .k{color:var(--sub)} .kv .v.warn{color:var(--warn)} .kv .v.ok{color:var(--ok)} .kv .v.err{color:var(--err)}
+.tbl{border-collapse:collapse;width:100%;margin:4px 0 6px}
+.tbl th{text-align:left;color:var(--sub);font-weight:500;font-size:12px;padding:4px 8px;border-bottom:1px solid var(--line)}
+.tbl td{padding:4px 8px;border-bottom:1px solid var(--line)}
+.tbl td.num{text-align:right;font-variant-numeric:tabular-nums}
+.banner{display:flex;gap:8px;align-items:flex-start;padding:8px 10px;border-radius:7px;margin:4px 0 10px;line-height:1.55}
+.banner.info{background:var(--chip)} .banner.err{background:#fbe5e3;color:#8f2a22} .banner.warn{background:#fff1d6;color:#7a5200}
+html.dark .banner.err{background:#45282a;color:#f6c7c3} html.dark .banner.warn{background:#3d3220;color:#f3d79e}
+.banner .acts{margin-left:auto;display:flex;gap:6px;flex:none}
+.srow{display:flex;align-items:center;gap:10px;min-height:34px;padding:3px 8px;border-radius:7px}
+.srow:hover{background:var(--hover)}
+.srow .lab{width:200px;flex:none;display:flex;align-items:center;gap:5px}
+.srow .ctl{display:flex;align-items:center;gap:6px;flex:1;min-width:0}
+.cvwrap{position:relative;border-radius:8px;margin:6px 0 2px;outline:1px solid var(--line)}
+.cvwrap canvas{display:block;width:100%;border-radius:8px;touch-action:none}
+.cvwrap canvas:focus{outline:0}
+.cvtools{position:absolute;bottom:8px;right:8px;display:flex;align-items:center;gap:1px;background:var(--surface);border:1px solid var(--line);border-radius:7px;padding:2px;box-shadow:0 2px 6px rgba(0,0,0,.08)}
+.cvtools button{border:0;background:transparent;border-radius:5px;padding:1px 8px;cursor:pointer;color:var(--sub);min-width:26px}
+.cvtools button:hover{background:var(--hover);color:var(--text)}
+.cvtools .z{font-size:11px;font-family:"SF Mono",Menlo,monospace;color:var(--sub);padding:0 4px}
+.cvstatus{display:flex;gap:10px;align-items:center;font-size:11.5px;color:var(--sub);padding:4px 2px 8px;min-height:24px}
+.cvstatus .r{margin-left:auto;display:flex;gap:10px;align-items:center}
+.wait{color:var(--accent)}
+.skel{height:14px;border-radius:5px;background:var(--pill);margin:10px 0;animation:pulse 1.2s infinite}
+@keyframes pulse{50%{opacity:.5}}
+/* 右侧面板 */
+.panel{width:372px;flex:none;border-left:1px solid var(--line);display:flex;flex-direction:column;background:var(--bg);min-height:0}
+.ptabs{display:flex;gap:2px;padding:8px 10px 0;border-bottom:1px solid var(--line);flex:none}
+.ptabs span{padding:6px 10px;color:var(--sub);cursor:pointer;border-bottom:2px solid transparent;margin-bottom:-1px;display:flex;gap:5px;align-items:center}
+.ptabs span.on{color:var(--text);border-bottom-color:var(--accent);font-weight:600}
+.pbody{flex:1;overflow:auto;padding:12px 14px 20px;line-height:1.6}
+.pbody .n{display:flex;gap:8px;padding:6px 6px;border-radius:6px;margin-bottom:2px}
+.pbody .n.hl{background:var(--hl)}
+.pbody .n .nb{margin-top:2px}
+.pbody code{font-family:"SF Mono",Menlo,monospace;font-size:11px;background:var(--pill);padding:0 3px;border-radius:3px}
+.pbody .tt{font-weight:600;margin:14px 0 6px}
+.pbody .lead{background:var(--surface);border:1px solid var(--line);border-radius:8px;padding:9px 11px;margin-bottom:8px}
+.cnt{display:grid;grid-template-columns:1fr auto;gap:2px 12px;background:var(--surface);border:1px solid var(--line);border-radius:8px;padding:8px 11px;margin-bottom:10px;font-variant-numeric:tabular-nums}
+.cnt .h{grid-column:1/-1;font-weight:600;margin-top:4px}
+.cnt .v{text-align:right;font-family:"SF Mono",Menlo,monospace;font-size:11.5px}
+.lg{font-family:"SF Mono",Menlo,monospace;font-size:11px;line-height:1.5;border-top:1px solid var(--line)}
+.lg div{padding:3px 0;border-bottom:1px solid var(--line);display:grid;grid-template-columns:46px 18px 1fr;gap:4px;word-break:break-all}
+.lg .t{color:var(--faint)} .lg .out{color:var(--accent)} .lg .in{color:var(--ok)} .lg .host{color:var(--warn)} .lg .push{color:#8e6ad8}
+.meter{display:grid;grid-template-columns:72px 1fr 118px;gap:8px;align-items:center;font-size:11.5px;margin:3px 0}
+.meter .bar{height:6px;border-radius:3px;background:var(--pill);overflow:hidden}
+.meter .bar i{display:block;height:100%;background:var(--accent);border-radius:3px}
+.meter .bar i.over{background:var(--err)}
+.meter .v{text-align:right;font-family:"SF Mono",Menlo,monospace;font-size:11px}
+pre.json{font-family:"SF Mono",Menlo,monospace;font-size:10.5px;line-height:1.45;background:var(--surface);border:1px solid var(--line);border-radius:8px;padding:8px 10px;overflow:auto;white-space:pre;max-height:none}
+#err{position:fixed;bottom:0;left:0;right:0;background:#b00020;color:#fff;font:12px monospace;white-space:pre-wrap}
+#err:empty{display:none}
+</style>
+</head>
+<body>
+<div class="demobar">
+  <b>原型：插件画布节点（描述模式）</b>
+  <label><input type="checkbox" id="optDark"> 深色</label>
+  <label>插件响应 <select id="optLat"><option value="20">20 ms</option><option value="60">60 ms</option><option value="200">200 ms</option><option value="800">800 ms</option></select></label>
+  <label>故障演示 <select id="optFault">
+    <option value="none">无</option>
+    <option value="budget">节点超出预算</option>
+    <option value="label">可点节点缺少 label</option>
+    <option value="timeout">插件不响应（超时）</option>
+    <option value="crash">插件后端崩溃</option>
+    <option value="flood">推送过快（构建分析页）</option>
+  </select></label>
+  <label>右侧面板 <select id="optPanel"><option value="notes">设计标注</option><option value="scene">场景与预算</option><option value="log">消息</option><option value="0">隐藏</option></select></label>
+  <span class="sp"></span>
+  <span class="perf" id="perf"></span>
+</div>
+<div class="win">
+  <div class="titlebar"><span class="dot" style="background:#ff5f57"></span><span class="dot" style="background:#febc2e"></span><span class="dot" style="background:#28c840"></span><span class="t">设置</span></div>
+  <div class="body">
+    <aside class="side">
+      <div class="search">⌕<input id="navq" placeholder="搜索设置"><i class="nb" data-note="13">13</i></div>
+      <div class="nav" id="nav"></div>
+    </aside>
+    <main class="main">
+      <div class="crumb" id="crumb"></div>
+      <div class="content" id="content"></div>
+      <div class="footer" id="footer"></div>
+    </main>
+    <aside class="panel" id="panel"></aside>
+  </div>
+  <div id="toast"></div>
+</div>
+<div class="tip" id="tip" hidden></div>
+<div id="err"></div>
+<script>
+"use strict";
+window.addEventListener("error",e=>{document.getElementById("err").textContent+=`${e.message} @${e.lineno}:${e.colno}\n`;});
+
+/* ================= 基础 ================= */
+const $=(s,r=document)=>r.querySelector(s);
+const $$=(s,r=document)=>[...r.querySelectorAll(s)];
+const esc=s=>String(s??"").replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
+const fmt=n=>Number(n).toLocaleString("en-US");
+const clamp=(v,a,b)=>Math.max(a,Math.min(b,v));
+const now=()=>performance.now();
+const T0=now();
+const f1=n=>Math.round(n*10)/10;
+function rng(seed){let a=seed>>>0;return()=>{a|=0;a=a+0x6D2B79F5|0;let t=Math.imul(a^a>>>15,1|a);t=t+Math.imul(t^t>>>7,61|t)^t;return((t^t>>>14)>>>0)/4294967296;};}
+
+/* 宿主给每个画布的预算。正式实现中这些值由 Core 统一给出，写进契约说明。 */
+const BUDGET={nodes:2000,bytes:256*1024,applyPerSec:30,timeoutMs:2000,viewportMs:400,slowMs:300};
+/* 计数：宿主本地处理的交互 vs 跨进程消息 */
+const CNT={hover:0,press:0,focus:0,pan:0,zoom:0,tip:0,sent:0,recv:0,applied:0,merged:0,rejected:0};
+const LOG=[];
+
+const H=Object.fromEntries(new URLSearchParams(location.hash.slice(1)));
+const S={page:H.page||"maven",dark:H.dark==="1",panel:H.panel||"notes",fault:H.fault||"none",lat:+(H.lat||60),
+  navq:"",contrib:{maven:H.contrib||"deps"},noteHl:0,applying:false,open:{buildgrp:true,buildTools:true,plugins:true}};
+
+/* ================= 插件清单（宿主可见的声明部分） ================= */
+const PL={
+  mavenSupport:{id:"io.github.example.maven",name:"Maven 支持",ver:"1.4.0",bg:"#c0392b",letter:"M",
+    keywords:["settings.xml","本地仓库","离线"],
+    settings:[
+      {id:"maven.userSettings",type:"string",title:"用户 settings.xml",description:"Maven 读取的用户级配置。保存时只改动修改过的字段，保留注释和其他内容。",default:"~/.m2/settings.xml",mono:true},
+      {id:"maven.localRepo",type:"string",title:"本地仓库",description:"没有在 settings.xml 中设置时，使用 Maven 的默认位置。",default:"",placeholder:"自动（~/.m2/repository）",mono:true},
+      {id:"maven.offline",type:"bool",title:"离线模式",description:"构建时不访问远程仓库，只用本地仓库里已有的构件。",default:false}]},
+  deps:{id:"io.github.example.maven-deps",name:"Maven 依赖图",ver:"0.3.0",bg:"#6d5bd0",letter:"图",
+    keywords:["依赖","冲突","依赖树","排除","dependency","conflict"],
+    settings:[
+      {id:"deps.analyzeOnOpen",type:"bool",title:"打开项目时分析依赖",description:"打开 Maven 项目后在后台解析一次依赖，结果只保存在本机缓存。",default:true},
+      {id:"deps.defaultScope",type:"enum",title:"默认依赖范围",description:"打开依赖图时先显示哪个范围：compile 只含编译依赖，runtime 再加运行时依赖，test 再加测试依赖。",options:[["compile","compile"],["runtime","runtime"],["test","test"]],default:"compile"}]},
+  theme:{id:"io.github.example.dusk-theme",name:"Dusk 配色主题",ver:"1.2.0",bg:"linear-gradient(135deg,#6d5bd0,#e27396)",letter:"D",
+    keywords:["配色","颜色","主题","对比度","color","theme"],
+    settings:[
+      {id:"dusk.variant",type:"enum",title:"变体",description:"暮色和高对比是深色，黎明是浅色。高对比提高了所有语法颜色与背景的对比度。",options:[["dusk","暮色"],["dawn","黎明"],["contrast","高对比"]],default:"dusk"}]},
+  build:{id:"io.github.example.gradle-insights",name:"Gradle 构建分析",ver:"0.9.1",bg:"#0f766e",letter:"G",
+    keywords:["耗时","构建缓存","缓存命中","构建分析","build time","cache"],
+    settings:[
+      {id:"gradle.insights.collect",type:"bool",title:"收集构建数据",description:"每次构建结束后读取 Gradle 生成的构建报告，数据只保存在本机。",default:true},
+      {id:"gradle.insights.keep",type:"number",title:"保留最近几次构建",description:"超过这个数量的旧记录会被删除。",default:30,min:5,max:500}]},
+};
+const OWNER=id=>Object.keys(PL).find(k=>PL[k].settings.some(s=>s.id===id));
+const SETTING=id=>{for(const k in PL){const s=PL[k].settings.find(x=>x.id===id);if(s)return s;}return null;};
+const SAVED={},DRAFT={};
+for(const k in PL)for(const s of PL[k].settings)SAVED[s.id]=s.default;
+const WRITES=[];  // 插件函数在“应用”时执行的写入（例如改 pom.xml）
+const eff=id=>id in DRAFT?DRAFT[id]:SAVED[id];
+function setDraft(id,v){if(v===SAVED[id])delete DRAFT[id];else DRAFT[id]=v;}
+
+/* 宿主自己知道的工具链（第一个原型里的工具链页），插件页只按 ID 引用 */
+const TOOLS={mvn:{name:"Maven",ver:"3.9.9",home:"/opt/homebrew/Cellar/maven/3.9.9/libexec",src:"自动发现"},
+             jdk:{name:"运行 Maven 的 JDK",ver:"21.0.5",home:"/Library/Java/JavaVirtualMachines/temurin-21.jdk",src:"全局默认"}};
+
+/* ================= 页面与导航 ================= */
+const PAGES={
+  maven:{title:"Maven",crumb:["构建、执行、部署","构建工具","Maven"],contributors:["mavenSupport","deps"],kind:"page"},
+  build:{title:"Gradle",crumb:["构建、执行、部署","构建工具","Gradle"],contributors:["build"],kind:"page"},
+  theme:{title:"Dusk 配色主题",crumb:["插件","Dusk 配色主题"],contributors:["theme"],kind:"detail"},
+};
+const NAV=[
+  ["appearance","外观与行为"],["keymap","快捷键"],["editor","编辑器"],
+  ["plugins","插件",[["theme","Dusk 配色主题"]]],
+  ["vcs","版本控制"],
+  ["buildgrp","构建、执行、部署",[["toolchains","工具链"],["debugger","调试器"],["buildTools","构建工具",[["maven","Maven"],["build","Gradle"]]],["compilers","编译器"]]],
+  ["lang","语言与框架"],["tools","工具"],
+];
+const visibleRegion=(page=S.page)=>{const p=PAGES[page];return p.contributors.length>1?S.contrib[page]:p.contributors[0];};
+
+/* ================= 宿主 ↔ 插件消息（模拟进程边界） ================= */
+const REG={};          // 当前打开的插件区域
+let callSeq=0;
+const wire=x=>JSON.parse(JSON.stringify(x));
+const bytesOf=x=>new Blob([JSON.stringify(x)]).size;
+function log(dir,key,text){LOG.unshift({t:now()-T0,dir,key,text});if(LOG.length>300)LOG.length=300;schedPanel();}
+function shortMsg(m){const o={...m};delete o.settings;delete o.demoFault;return JSON.stringify(o);}
+
+function openRegion(key){
+  const R={key,plugin:PL[key],status:"loading",tree:null,err:null,pending:new Map(),st:{},canv:{},idx:{},
+    timers:new Set(),pushQ:new Map(),flushT:null,lastFlush:0,rate:{recv:0,applied:0,shownRecv:0,shownApplied:0},clickedFromHash:false};
+  R.ctx={
+    emit:res=>hostPush(R,wire(res)),
+    setInterval:(fn,ms)=>{const id=setInterval(fn,ms);R.timers.add(["i",id]);return id;},
+    setTimeout:(fn,ms)=>{const id=setTimeout(fn,ms);R.timers.add(["t",id]);return id;},
+    clearTimers:()=>{for(const [k,id] of R.timers)(k==="i"?clearInterval:clearTimeout)(id);R.timers.clear();},
+  };
+  R.rateT=setInterval(()=>{R.rate.shownRecv=R.rate.recv;R.rate.shownApplied=R.rate.applied;
+    if(R.rate.recv)log("push",key,`推送 ${R.rate.recv} 条/秒 → 应用 ${R.rate.applied} 次/秒${R.rate.recv>R.rate.applied?"（其余按节点合并）":""}`);
+    R.rate.recv=0;R.rate.applied=0;$$(".cvstatus").forEach(()=>{});updateStatuses();},1000);
+  REG[key]=R;
+  const settings={};for(const s of R.plugin.settings)settings[s.id]=eff(s.id);
+  call(R,{event:"open",settings,locale:"zh-CN",demoFault:S.fault});
+  return R;
+}
+function closeRegion(key){
+  const R=REG[key];if(!R)return;
+  const n=R.pending.size;
+  for(const p of R.pending.values()){clearTimeout(p.timer);clearTimeout(p.timeout);}
+  R.pending.clear();
+  try{BACKENDS[key].close?.(R.st,R.ctx);}catch{}
+  R.ctx.clearTimers();clearInterval(R.rateT);clearTimeout(R.flushT);
+  for(const C of Object.values(R.canv))clearTimeout(C.vpT);
+  delete REG[key];
+  log("host",key,`区域隐藏：关闭插件区域${n?`，取消 ${n} 个未完成调用`:""}`);
+}
+function latency(){return Math.max(5,S.lat*(0.8+Math.random()*0.4));}
+function call(R,msg){
+  if(!REG[R.key])return;
+  const id=++callSeq,t0=now(),m=wire(msg);
+  CNT.sent++;log("out",R.key,shortMsg(m));
+  const p={id,msg:m,t0};
+  R.pending.set(id,p);
+  p.timeout=setTimeout(()=>{if(!R.pending.has(id))return;R.pending.delete(id);clearTimeout(p.timer);
+    fail(R,"timeout",{event:m.event});},BUDGET.timeoutMs);
+  setTimeout(updateStatuses,BUDGET.slowMs+10);
+  if(S.fault==="timeout")return;            // 插件收到了但一直不回
+  p.timer=setTimeout(()=>{
+    if(!R.pending.has(id))return;
+    R.pending.delete(id);clearTimeout(p.timeout);
+    let res;
+    if(S.fault==="crash")res={error:"exited",code:1};
+    else{try{res=m.event==="open"?BACKENDS[R.key].open(R.st,m,R.ctx):BACKENDS[R.key].handle(R.st,m,R.ctx);}catch(e){res={error:String(e)};}}
+    res=res||{};
+    CNT.recv++;
+    receive(R,wire(res),now()-t0,bytesOf(res),m);
+  },latency());
+}
+
+/* ================= 宿主校验与补丁 ================= */
+const NODE_TYPES=new Set(["rect","path","text","group"]);
+const interactive=n=>Array.isArray(n.on)&&n.on.includes("click");
+function validateCanvas(cv){
+  let count=0;const ids=new Set();let bad=null;
+  const walk=(list,depth)=>{for(const n of list||[]){
+    count++;
+    if(!NODE_TYPES.has(n.type)){bad=bad||{code:"type",detail:{type:n.type}};continue;}
+    if(n.id){if(ids.has(n.id))bad=bad||{code:"dup",detail:{id:n.id}};ids.add(n.id);}
+    if(interactive(n)&&!(n.label&&String(n.label).trim()))bad=bad||{code:"label",detail:{id:n.id||"（无 ID）"}};
+    if(interactive(n)&&!n.id)bad=bad||{code:"label",detail:{id:"（无 ID）"}};
+    if(depth>16)bad=bad||{code:"depth",detail:{}};
+    if(n.type==="group")walk(n.children,depth+1);
+  }};
+  walk(cv.nodes,1);
+  const bytes=bytesOf(cv);
+  if(!bad&&count>BUDGET.nodes)bad={code:"budget",detail:{count}};
+  if(!bad&&bytes>BUDGET.bytes)bad={code:"bytes",detail:{bytes}};
+  return {ok:!bad,...(bad||{}),count,bytes};
+}
+function walkTree(list,fn,parent=null){for(let i=0;i<(list||[]).length;i++){const n=list[i];if(fn(n,list,i,parent)===false)return false;if(n.children&&n.type!=="canvas"&&walkTree(n.children,fn,n)===false)return false;}return true;}
+function canvasesOf(tree){const out=[];walkTree(tree,n=>{if(n.type==="canvas")out.push(n);});return out;}
+function indexCanvas(R,cv){
+  const m=new Map();
+  const walk=(list,parent)=>{(list||[]).forEach((n,i)=>{if(n.id)m.set(n.id,{node:n,list,i});if(n.type==="group")walk(n.children,n);});};
+  walk(cv.nodes,null);R.idx[cv.id]=m;
+}
+function adoptCanvas(R,cv){
+  const v=validateCanvas(cv);
+  if(!v.ok)return v;
+  indexCanvas(R,cv);
+  const C=R.canv[cv.id]||(R.canv[cv.id]={view:{k:1,tx:0,ty:0},hover:null,press:null,focus:null,hits:[]});
+  if(C.scene&&JSON.stringify(C.scene.viewBox)!==JSON.stringify(cv.viewBox))C.view={k:1,tx:0,ty:0};
+  C.scene=cv;C.stats={count:v.count,bytes:v.bytes};C.id=cv.id;C.region=R;
+  return v;
+}
+function receive(R,res,ms,bytes,req){
+  if(!REG[R.key])return;
+  if(res.error){fail(R,"crash",{code:res.code});return;}
+  const parts=[];
+  if(res.tree){
+    for(const cv of canvasesOf(res.tree)){const v=validateCanvas(cv);if(!v.ok){fail(R,v.code,{...v.detail,count:v.count,bytes:v.bytes});return;}}
+    R.tree=res.tree;R.status="ready";R.err=null;
+    const keep=new Set();
+    for(const cv of canvasesOf(R.tree)){adoptCanvas(R,cv);keep.add(cv.id);}
+    for(const id of Object.keys(R.canv))if(!keep.has(id))delete R.canv[id];
+    parts.push("界面树");
+  }
+  if(res.applied){for(const id of res.applied){const i=WRITES.findIndex(w=>w.id===id);if(i>=0)WRITES.splice(i,1);}parts.push(`已写入 ${res.applied.length} 项`);}
+  if(res.write){const i=WRITES.findIndex(w=>w.id===res.write.id);if(i>=0)WRITES[i]={...res.write,owner:R.key};else WRITES.push({...res.write,owner:R.key});parts.push("待应用写入 1 项");}
+  let needRender=!!res.tree||!!res.write||!!res.applied;
+  if(res.patches&&res.patches.length){
+    const r=applyPatches(R,res.patches);if(r===false)return;
+    needRender=needRender||r.ui;
+    parts.push(`补丁 ${res.patches.length} 条`);
+  }
+  log("in",R.key,`${req.event} 的回复：${parts.join("，")||"无补丁"} · ${fmt(bytes)} B · ${Math.round(ms)} ms`);
+  if(needRender)render();else{redrawAll(R);updateStatuses();schedPanel();}
+  if(res.tree&&!R.clickedFromHash){R.clickedFromHash=true;hashActions(R);}
+}
+function applyPatches(R,patches){
+  let ui=false;const touched=new Set();
+  for(const p of patches){
+    if(p.op==="ui"){
+      let done=false;
+      walkTree(R.tree,(n,list,i)=>{if(n.id===p.node){list[i]=p.with;done=true;return false;}});
+      if(!done)log("host",R.key,`忽略补丁：界面树里没有节点 ${p.node}`);
+      for(const cv of canvasesOf([p.with]))adoptCanvas(R,cv);
+      ui=true;continue;
+    }
+    const C=R.canv[p.canvas];
+    if(!C){log("host",R.key,`忽略补丁：没有画布 ${p.canvas}`);continue;}
+    if(p.op==="scene"){
+      let ok=true;
+      walkTree(R.tree,(n,list,i)=>{if(n.type==="canvas"&&n.id===p.canvas){
+        const v=validateCanvas(p.scene);if(!v.ok){fail(R,v.code,{...v.detail,count:v.count,bytes:v.bytes});ok=false;return false;}
+        list[i]=p.scene;adoptCanvas(R,p.scene);return false;}});
+      if(!ok)return false;
+      ui=ui||p.scene.height!==C.el?.clientHeight;
+      touched.add(p.canvas);continue;
+    }
+    const ref=R.idx[p.canvas]?.get(p.node);
+    if(!ref){log("host",R.key,`忽略补丁：画布 ${p.canvas} 里没有节点 ${p.node}`);continue;}
+    if(p.op==="set")Object.assign(ref.node,p.props);
+    else if(p.op==="replace"){ref.list[ref.i]=p.with;}
+    else if(p.op==="remove"){ref.list.splice(ref.i,1);}
+    if(p.op!=="set"){const v=adoptCanvas(R,C.scene);if(!v.ok){fail(R,v.code,{...v.detail,count:v.count,bytes:v.bytes});return false;}}
+    touched.add(p.canvas);
+  }
+  if(touched.size){for(const id of touched){const C=R.canv[id];const v=validateCanvas(C.scene);C.stats={count:v.count,bytes:v.bytes};if(!v.ok){fail(R,v.code,{...v.detail,count:v.count,bytes:v.bytes});return false;}}}
+  return {ui};
+}
+/* 插件主动推送：按节点合并，每秒最多应用 BUDGET.applyPerSec 次 */
+function hostPush(R,res){
+  if(!REG[R.key]||R.status!=="ready")return;
+  CNT.recv++;R.rate.recv++;
+  for(let p of res.patches||[]){
+    let key;
+    if(p.op==="set")key=`${p.canvas}/${p.node}`;
+    else if(p.op==="scene"){key=`${p.canvas}/*`;for(const k of [...R.pushQ.keys()])if(k.startsWith(p.canvas+"/")){R.pushQ.delete(k);CNT.merged++;}}
+    else key=`${p.op}/${p.canvas||""}/${p.node||""}/${Math.random()}`;
+    if(R.pushQ.has(key)){CNT.merged++;const old=R.pushQ.get(key);if(p.op==="set")p={...p,props:{...old.props,...p.props}};}
+    R.pushQ.set(key,p);
+  }
+  if(!R.flushT){
+    const wait=Math.max(0,R.lastFlush+1000/BUDGET.applyPerSec-now());
+    R.flushT=setTimeout(()=>{R.flushT=null;if(!REG[R.key])return;R.lastFlush=now();
+      const ps=[...R.pushQ.values()];R.pushQ.clear();CNT.applied++;R.rate.applied++;
+      const r=applyPatches(R,ps);if(r===false)return;
+      if(r.ui)render();else{redrawAll(R);updateStatuses();schedPanel();}
+      renderCounters();},wait);
+  }
+}
+const FAIL_TEXT={
+  budget:d=>`插件画布被拒绝：有 ${fmt(d.count)} 个节点，超过上限 ${fmt(BUDGET.nodes)}。`,
+  bytes:d=>`插件画布被拒绝：场景有 ${fmt(Math.round(d.bytes/1024))} KB，超过上限 ${BUDGET.bytes/1024} KB。`,
+  label:d=>`插件画布被拒绝：节点“${d.id}”可以点击，但没有 label（读屏软件读不出它是什么）。`,
+  dup:d=>`插件画布被拒绝：节点 ID“${d.id}”重复。`,
+  type:d=>`插件画布被拒绝：不支持的节点类型“${d.type}”。`,
+  depth:()=>`插件画布被拒绝：分组嵌套超过 16 层。`,
+  timeout:d=>`插件 ${BUDGET.timeoutMs/1000} 秒内没有响应（${d.event}）。`,
+  crash:d=>`插件后端已退出（退出码 ${d.code??1}）。`,
+};
+function fail(R,code,detail){
+  if(!REG[R.key])return;
+  R.status="error";R.err={code,text:FAIL_TEXT[code](detail||{})};
+  if(!["timeout","crash"].includes(code))CNT.rejected++;
+  try{BACKENDS[R.key].close?.(R.st,R.ctx);}catch{}
+  R.ctx.clearTimers();R.pushQ.clear();
+  for(const p of R.pending.values()){clearTimeout(p.timer);clearTimeout(p.timeout);}R.pending.clear();
+  log("host",R.key,`${R.err.text} 改为显示声明式设置行。`);
+  render();
+}
+function retry(key){closeRegion(key);openRegion(key);render();}
+
+/* ================= 画布渲染（宿主侧，正式实现用 Viva gfx） ================= */
+let TOK={};
+function readTokens(){const cs=getComputedStyle(document.documentElement);TOK={};
+  for(const k of ["surface","side","bg","text","sub","faint","line","accent","ok","warn","err","sel","hover","pill"])TOK[k]=cs.getPropertyValue("--"+k).trim();}
+const UIF='-apple-system,BlinkMacSystemFont,"SF Pro Text","PingFang SC",sans-serif';
+const MONO='"SF Mono",Menlo,monospace';
+const FONTS={title:["600",14,UIF],strong:["600",13,UIF],body:["400",13,UIF],caption:["400",11,UIF],display:["600",22,UIF],mono:["400",12,MONO],monoSmall:["400",10.5,MONO]};
+function fontOf(style){const [w,s,f]=FONTS[style]||FONTS.body;return `${w} ${s}px ${f}`;}
+function col(ctx,c,bbox){
+  if(c==null)return null;
+  if(typeof c==="string")return c.startsWith("$")?(TOK[c.slice(1)]||"#f0f"):c;
+  if(c.light||c.dark)return S.dark?c.dark:c.light;
+  if(c.linear){
+    const [x,y,w,h]=bbox||[0,0,100,100];const a=(c.angle??90)*Math.PI/180;const dx=Math.cos(a),dy=Math.sin(a);
+    const L=(Math.abs(w*dx)+Math.abs(h*dy))/2,cx=x+w/2,cy=y+h/2;
+    const g=ctx.createLinearGradient(cx-dx*L,cy-dy*L,cx+dx*L,cy+dy*L);
+    for(const [o,cc] of c.linear)g.addColorStop(o,col(ctx,cc,bbox));
+    return g;
+  }
+  return "#f0f";
+}
+function rectPath(x,y,w,h,r){const p=new Path2D();if(r)p.roundRect(x,y,w,h,r);else p.rect(x,y,w,h);return p;}
+function pathOf(n){if(n._pd!==n.d){Object.defineProperty(n,"_p",{value:new Path2D(n.d),writable:true,configurable:true});Object.defineProperty(n,"_pd",{value:n.d,writable:true,configurable:true});}return n._p;}
+const SHADOW=[null,[4,1,.14],[12,4,.18],[24,8,.24]];
+function stateOf(C,n){
+  if(!interactive(n))return {};
+  return {...(n.selected?n.sel||{}:{}),...(C.hover===n.id?n.hover||{}:{}),...(C.press===n.id?n.pressed||{}:{})};
+}
+function draw(C){
+  const el=C.el;if(!el||!el.isConnected||!C.scene)return;
+  const dpr=window.devicePixelRatio||1,cw=el.clientWidth,ch=C.scene.height;
+  if(!cw)return;
+  const W=Math.round(cw*dpr),Hh=Math.round(ch*dpr);
+  if(el.width!==W||el.height!==Hh){el.width=W;el.height=Hh;}
+  const ctx=el.getContext("2d");
+  ctx.setTransform(1,0,0,1,0,0);ctx.clearRect(0,0,W,Hh);
+  const [vx,vy,vw,vh]=C.scene.viewBox;const k0=Math.min(cw/vw,ch/vh);
+  const ox=(cw-vw*k0)/2-vx*k0,oy=(ch-vh*k0)/2-vy*k0;
+  const v=C.view;const K=k0*v.k,X=ox*v.k+v.tx,Y=oy*v.k+v.ty;
+  C.k0=k0;C.hits=[];C.dpr=dpr;
+  const m=new DOMMatrix([dpr*K,0,0,dpr*K,dpr*X,dpr*Y]);
+  for(const n of C.scene.nodes)drawNode(ctx,C,n,m,1);
+  if(C.focus&&el.matches(":focus-visible")){
+    const h=C.hits.find(h=>h.id===C.focus);
+    if(h){ctx.save();ctx.setTransform(h.m);const s=h.m.a;const pad=3*dpr/s;const [x,y,w,hh]=h.bbox;
+      ctx.lineWidth=2*dpr/s;ctx.strokeStyle=TOK.accent;ctx.setLineDash([]);
+      ctx.stroke(rectPath(x-pad,y-pad,w+pad*2,hh+pad*2,(h.radius||4)+pad));ctx.restore();}
+  }
+}
+function drawNode(ctx,C,n,m,alpha){
+  if(n.hidden)return;
+  const st=stateOf(C,n);
+  const a=alpha*(n.opacity??1)*(st.opacity??1);if(a<=0.001)return;
+  if(n.type==="group"){
+    let mm=m.translate(n.x||0,n.y||0);
+    const sc=(n.scale??1)*(st.scale??1);
+    if(sc!==1&&n.w)mm=mm.translate(n.w/2,n.h/2).scale(sc).translate(-n.w/2,-n.h/2);
+    if(interactive(n))C.hits.push({id:n.id,m:mm,path:rectPath(0,0,n.w,n.h,n.radius||0),bbox:[0,0,n.w,n.h],radius:n.radius,label:n.label,tip:n.tooltip});
+    ctx.save();
+    if(n.clip){ctx.setTransform(mm);ctx.clip(rectPath(0,0,n.w,n.h,n.radius||0));}
+    const sh=st.shadow??n.shadow;
+    (n.children||[]).forEach((c,i)=>{
+      let cc=c;
+      if(i===0&&(st.fill||st.stroke||st.width||sh)){cc={...c};for(const k of ["fill","stroke","width"])if(st[k]!=null)cc[k]=st[k];if(sh)cc.shadow=sh;}
+      drawNode(ctx,C,cc,mm,a);
+    });
+    ctx.restore();return;
+  }
+  ctx.save();ctx.setTransform(m);ctx.globalAlpha=a;
+  const s={...n,...st};
+  if(n.type==="rect"||n.type==="path"){
+    const bbox=n.type==="rect"?[n.x||0,n.y||0,n.w,n.h]:(n.bounds||[0,0,100,100]);
+    const p=n.type==="rect"?rectPath(n.x||0,n.y||0,n.w,n.h,n.radius||0):pathOf(n);
+    if(s.fill){
+      const sh=SHADOW[s.shadow||0];
+      if(sh){ctx.shadowBlur=sh[0]*C.dpr;ctx.shadowOffsetY=sh[1]*C.dpr;ctx.shadowColor=`rgba(0,0,0,${S.dark?sh[2]*2:sh[2]})`;}
+      ctx.fillStyle=col(ctx,s.fill,bbox);ctx.fill(p,s.rule||"nonzero");
+      ctx.shadowColor="transparent";
+    }
+    if(s.stroke){ctx.lineWidth=s.width||1;ctx.setLineDash(s.dash||[]);ctx.lineCap=s.cap||"butt";ctx.lineJoin="round";ctx.strokeStyle=col(ctx,s.stroke,bbox);ctx.stroke(p);}
+    if(interactive(n))C.hits.push({id:n.id,m,path:p,bbox,label:n.label,tip:n.tooltip});
+  }else if(n.type==="text")drawText(ctx,s);
+  ctx.restore();
+}
+function drawText(ctx,n){
+  ctx.font=fontOf(n.style);ctx.textBaseline="middle";ctx.textAlign="left";
+  let runs=n.runs?n.runs.map(r=>({...r})):[{text:String(n.text??""),color:n.color}];
+  const width=()=>runs.reduce((w,r)=>w+ctx.measureText(r.text).width,0);
+  let w=width();
+  if(n.maxWidth&&w>n.maxWidth){                // 宿主截断，插件不需要知道字体
+    const ell="…",ew=ctx.measureText(ell).width;let acc=0;const out=[];
+    for(const r of runs){let t="";for(const ch of r.text){const cw=ctx.measureText(ch).width;if(acc+cw+ew>n.maxWidth){out.push({...r,text:t});out.push({...r,text:ell});runs=out;w=width();return paint();}acc+=cw;t+=ch;}out.push({...r});}
+  }
+  paint();
+  function paint(){
+    let x=(n.x||0)-(n.align==="center"?w/2:n.align==="end"?w:0);
+    for(const r of runs){ctx.fillStyle=col(ctx,r.color||n.color||"$text");ctx.fillText(r.text,x,n.y||0);x+=ctx.measureText(r.text).width;}
+  }
+}
+function redrawAll(R){for(const C of Object.values(R.canv))draw(C);}
+function hitTest(C,x,y){
+  const el=C.el;if(!el)return null;const ctx=el.getContext("2d");
+  for(let i=C.hits.length-1;i>=0;i--){const h=C.hits[i];ctx.setTransform(h.m);if(ctx.isPointInPath(h.path,x*C.dpr,y*C.dpr)){ctx.setTransform(1,0,0,1,0,0);return h;}}
+  ctx.setTransform(1,0,0,1,0,0);return null;
+}
+
+/* ---- 画布交互：全部在宿主本地处理，只有语义事件发回插件 ---- */
+let tipT=null;
+function showTip(text,x,y){const t=$("#tip");t.textContent=text;t.hidden=false;t.style.left=Math.min(x+14,innerWidth-370)+"px";t.style.top=(y+16)+"px";}
+function hideTip(){clearTimeout(tipT);$("#tip").hidden=true;}
+function bindCanvas(el){
+  const [rk,cid]=el.dataset.cv.split("/");const R=REG[rk];if(!R)return;const C=R.canv[cid];if(!C)return;
+  C.el=el;draw(C);
+  const loc=e=>{const r=el.getBoundingClientRect();return {x:e.clientX-r.left,y:e.clientY-r.top};};
+  el.onpointermove=e=>{
+    const {x,y}=loc(e);
+    if(C.drag){
+      const dx=x-C.drag.x,dy=y-C.drag.y;if(!C.drag.moved&&Math.hypot(dx,dy)<3)return;
+      C.drag.moved=true;C.view.tx=C.drag.tx+dx;C.view.ty=C.drag.ty+dy;CNT.pan++;hideTip();schedViewport(R,C);draw(C);renderCounters();return;
+    }
+    const h=hitTest(C,x,y),id=h?.id||null;
+    if(id!==C.hover){
+      C.hover=id;CNT.hover++;el.style.cursor=id?"pointer":(C.scene.pan?"grab":"default");hideTip();
+      if(h?.tip){const cx=e.clientX,cy=e.clientY;tipT=setTimeout(()=>{if(C.hover===id){CNT.tip++;showTip(h.tip,cx,cy);renderCounters();}},350);}
+      draw(C);updateStatus(R,C);renderCounters();
+    }else if(id&&!$("#tip").hidden)showTip($("#tip").textContent,e.clientX,e.clientY);
+  };
+  el.onpointerdown=e=>{
+    const {x,y}=loc(e);try{el.setPointerCapture(e.pointerId);}catch{}
+    const h=hitTest(C,x,y);
+    if(h){C.press=h.id;CNT.press++;draw(C);}
+    else if(C.scene.pan){C.drag={x,y,tx:C.view.tx,ty:C.view.ty,moved:false};el.style.cursor="grabbing";}
+    renderCounters();
+  };
+  el.onpointerup=e=>{
+    const {x,y}=loc(e);
+    if(C.press){const h=hitTest(C,x,y);const id=C.press;C.press=null;draw(C);if(h&&h.id===id)canvasClick(R,C,id);}
+    if(C.drag){C.drag=null;el.style.cursor=C.hover?"pointer":(C.scene.pan?"grab":"default");}
+  };
+  el.onpointerleave=()=>{if(C.drag)return;if(C.hover){C.hover=null;draw(C);updateStatus(R,C);}hideTip();};
+  el.onwheel=e=>{
+    if(!(e.ctrlKey||e.metaKey)||!C.scene.zoom)return;  // 普通滚轮归设置页滚动
+    e.preventDefault();const {x,y}=loc(e);zoomAt(R,C,x,y,Math.exp(-e.deltaY*0.01));
+  };
+  el.onfocus=()=>{if(!C.focus&&el.matches(":focus-visible")){const f=uniqHits(C)[0];if(f){C.focus=f.id;CNT.focus++;}}draw(C);updateStatus(R,C);};
+  el.onblur=()=>{draw(C);updateStatus(R,C);};
+  el.onkeydown=e=>{
+    const list=uniqHits(C);
+    if(e.key==="Tab"&&list.length){
+      const i=list.findIndex(h=>h.id===C.focus);const j=e.shiftKey?i-1:i+1;
+      if(j>=0&&j<list.length){e.preventDefault();C.focus=list[j].id;CNT.focus++;draw(C);updateStatus(R,C);renderCounters();}
+      else C.focus=null;
+    }else if((e.key==="Enter"||e.key===" ")&&C.focus){e.preventDefault();canvasClick(R,C,C.focus);}
+    else if(e.key==="Escape"){C.focus=null;draw(C);updateStatus(R,C);}
+  };
+}
+function uniqHits(C){const seen=new Set();return C.hits.filter(h=>!seen.has(h.id)&&seen.add(h.id));}
+function zoomAt(R,C,px,py,f){
+  const [z0,z1]=C.scene.zoom||[1,1];const k=clamp(C.view.k*f,z0/C.k0>0?z0:z0,z1);
+  const r=k/C.view.k;if(r===1)return;
+  C.view.tx=px-(px-C.view.tx)*r;C.view.ty=py-(py-C.view.ty)*r;C.view.k=k;CNT.zoom++;
+  schedViewport(R,C);draw(C);updateStatus(R,C);renderCounters();
+}
+function schedViewport(R,C){
+  if(!(C.scene.on||[]).includes("viewport"))return;
+  clearTimeout(C.vpT);
+  C.vpT=setTimeout(()=>{
+    if(!REG[R.key]||R.status!=="ready"||!C.el)return;
+    const s=C.k0*C.view.k,[vx,vy,vw,vh]=C.scene.viewBox;const cw=C.el.clientWidth,ch=C.scene.height;
+    const ox=((cw-vw*C.k0)/2-vx*C.k0)*C.view.k+C.view.tx,oy=((ch-vh*C.k0)/2-vy*C.k0)*C.view.k+C.view.ty;
+    call(R,{event:"viewport",canvas:C.id,rect:[f1(-ox/s),f1(-oy/s),f1(cw/s),f1(ch/s)],zoom:f1(C.view.k)});
+  },BUDGET.viewportMs);
+}
+function canvasClick(R,C,id){
+  if(R.status!=="ready")return;
+  call(R,{event:"click",canvas:C.id,node:id});
+}
+function updateStatus(R,C){
+  const el=document.getElementById(`cvs-${R.key}-${C.id}`);if(!el)return;
+  const focused=C.el&&document.activeElement===C.el&&C.focus;
+  const lab=id=>C.hits.find(h=>h.id===id)?.label||id;
+  let left;
+  if(focused)left=`焦点：${esc(lab(C.focus))} · Enter 选中，Tab 下一个`;
+  else if(C.hover)left=esc(lab(C.hover));
+  else left=C.scene.pan?"拖动空白处平移 · ⌘/Ctrl + 滚轮缩放 · Tab 键进入画布":"Tab 键进入画布，在可点击的节点间移动";
+  const waiting=[...R.pending.values()].some(p=>now()-p.t0>BUDGET.slowMs);
+  const push=R.rate.shownRecv?`<span>推送 ${R.rate.shownRecv}/s → 应用 ${R.rate.shownApplied}/s</span>`:"";
+  el.innerHTML=`<span>${left}</span><i class="nb" data-note="9">9</i><span class="r">${push}${waiting?`<span class="wait">等待插件…</span>`:""}<span>节点 ${fmt(C.stats?.count||0)}</span>${C.scene.zoom?`<span>${Math.round(C.k0*C.view.k*100)}%</span>`:""}<i class="nb" data-note="2">2</i></span>`;
+}
+function updateStatuses(){for(const R of Object.values(REG))for(const C of Object.values(R.canv))updateStatus(R,C);}
+
+/* ================= 描述模式界面树 → 宿主控件 ================= */
+const info=t=>`<span class="info" tabindex="0" data-tip="${esc(t)}">ⓘ</span>`;
+const nb=n=>`<i class="nb" data-note="${n}">${n}</i>`;
+function renderTree(R,list){return (list||[]).map(n=>renderNode(R,n)).join("");}
+function boundVal(n){return n.setting?eff(n.setting):n.value;}
+function renderNode(R,n){
+  const ui=`data-ui="${esc(n.id||"")}" ${n.setting?`data-setting="${esc(n.setting)}"`:""}`;
+  switch(n.type){
+    case "row":return `<div class="d-row">${renderTree(R,n.children)}</div>`;
+    case "label":return `<span class="d-label ${n.tone||""}" ${n.width?`style="width:${n.width}px"`:""}>${esc(n.text)}${n.info?info(n.info):""}</span>`;
+    case "textfield":return `<input class="inp ${n.mono?"mono":""}" ${ui} data-kind="text" value="${esc(n.value||"")}" placeholder="${esc(n.placeholder||"")}" style="${n.width==="fill"?"flex:1":`width:${(n.chars||20)*8}px`}">`;
+    case "select":{const v=boundVal(n);return `<select class="inp" ${ui}>${n.options.map(([k,l])=>`<option value="${esc(k)}" ${String(k)===String(v)?"selected":""}>${esc(l)}</option>`).join("")}</select>`;}
+    case "segmented":{const v=boundVal(n);return `<span class="seg">${n.options.map(([k,l])=>`<button ${ui} data-val="${esc(k)}" class="${k===v?"on":""}">${esc(l)}</button>`).join("")}</span>`;}
+    case "toggle":{const v=!!boundVal(n);return `<span class="d-tg"><button class="sw ${v?"on":""}" ${ui} data-kind="toggle" role="switch" aria-checked="${v}"></button>${n.label?`<span>${esc(n.label)}</span>`:""}${n.info?info(n.info):""}</span>`;}
+    case "button":return `<button class="btn ${n.tone==="primary"?"pri":""} sm" ${ui}>${esc(n.text)}</button>`;
+    case "keyvalue":return `<div class="kv">${n.items.map(([k,v,t])=>`<span class="k">${esc(k)}</span><span class="v ${t||""}">${esc(v)}</span>`).join("")}</div>`;
+    case "table":return `<table class="tbl"><tr>${n.columns.map(([c,a])=>`<th style="${a==="end"?"text-align:right":""}">${esc(c)}</th>`).join("")}</tr>${n.rows.map(r=>`<tr>${r.map((c,i)=>`<td class="${n.columns[i][1]==="end"?"num":""}">${esc(c)}</td>`).join("")}</tr>`).join("")}</table>`;
+    case "banner":return `<div class="banner ${n.tone||"info"}">${esc(n.text)}</div>`;
+    case "section":return `<div class="d-sec">${n.title?`<div class="d-sec-h">${esc(n.title)}</div>`:""}${renderTree(R,n.children)}</div>`;
+    case "setting":return settingRow(SETTING(n.setting));
+    case "tool":{const t=TOOLS[n.tool];return `<div class="srow"><div class="lab">${esc(t.name)} ${info("这一项引用工具链里的工具，插件页不自己放选择框。改动请到工具链。")}</div><div class="ctl"><span class="mono">${esc(t.ver)} · ${esc(t.home)}</span><span class="tag">${esc(t.src)}</span><a class="link" data-act="toast" data-msg="演示：跳到工具链并选中 ${esc(t.name)}">在工具链中修改 ›</a></div></div>`;}
+    case "canvas":return canvasHtml(R,n);
+    default:return `<div class="faint">（宿主不认识的节点类型 ${esc(n.type)}，已跳过）</div>`;
+  }
+}
+function settingRow(s){
+  if(!s)return "";
+  const v=eff(s.id),changed=s.id in DRAFT;
+  let ctl;
+  if(s.type==="bool")ctl=`<button class="sw ${v?"on":""}" data-setting="${s.id}" data-kind="toggle" role="switch" aria-checked="${!!v}"></button>`;
+  else if(s.type==="enum")ctl=`<select class="inp" data-setting="${s.id}">${s.options.map(([k,l])=>`<option value="${esc(k)}" ${k===v?"selected":""}>${esc(l)}</option>`).join("")}</select>`;
+  else if(s.type==="number")ctl=`<input class="inp" type="number" data-setting="${s.id}" data-kind="number" value="${esc(v)}" min="${s.min}" max="${s.max}" style="width:90px">`;
+  else ctl=`<input class="inp ${s.mono?"mono":""}" data-setting="${s.id}" data-kind="string" value="${esc(v)}" placeholder="${esc(s.placeholder||"")}" style="flex:1">`;
+  const tag=changed?`<span class="tag blue">未应用</span>`:v===s.default?`<span class="tag">默认值</span>`:`<span class="tag">已修改</span>`;
+  return `<div class="srow"><div class="lab">${esc(s.title)} ${s.description?info(s.description):""}</div><div class="ctl">${ctl}${tag}</div></div>`;
+}
+function canvasHtml(R,n){
+  const C=R.canv[n.id];
+  const tools=n.zoom?`<div class="cvtools"><button data-act="zoomOut" data-cv="${R.key}/${n.id}" title="缩小">−</button><span class="z" id="cvz-${R.key}-${n.id}"></span><button data-act="zoomIn" data-cv="${R.key}/${n.id}" title="放大">+</button><button data-act="zoomFit" data-cv="${R.key}/${n.id}" title="适应画布">适应</button>${nb(6)}</div>`:"";
+  return `<div class="cvwrap"><canvas data-cv="${R.key}/${n.id}" tabindex="0" role="application" aria-label="${esc(n.label||"插件画布")}" style="height:${n.height}px"></canvas>${tools}</div><div class="cvstatus" id="cvs-${R.key}-${n.id}"></div>`;
+}
+function regionHtml(R){
+  const p=R.plugin;
+  const cap=`<span class="cap">插件内容区 · ${esc(p.name)} · 描述模式（可含画布节点），宿主按描述绘制 ${nb(1)}</span>`;
+  if(R.status==="loading")return `<div class="region" data-region="${R.key}">${cap}<div class="skel" style="width:60%"></div><div class="skel"></div><div class="skel" style="height:220px"></div><div class="faint">正在等待插件返回界面…</div></div>`;
+  if(R.status==="error"){
+    return `<div class="region" data-region="${R.key}">${cap}
+      <div class="banner err"><div><b>${esc(R.err.text)}</b><br>已改为显示插件在清单里声明的设置，窗口其他部分不受影响。</div><div class="acts"><button class="btn sm" data-act="retry" data-key="${R.key}">重试</button><button class="btn sm link" data-act="panel" data-p="log">查看消息</button>${nb(10)}</div></div>
+      ${p.settings.map(settingRow).join("")}</div>`;
+  }
+  return `<div class="region" data-region="${R.key}">${cap}${renderTree(R,R.tree)}</div>`;
+}
+
+/* ================= 插件后端（模拟插件进程：只认 JSON 消息，不碰宿主状态） ================= */
+const BACKENDS={};
+
+/* ---- 1. Maven 依赖图：全部用主题 token，跟随深浅色 ---- */
+const DEPS=[
+  // id, groupId, artifactId, version, parent, scope, winner（被谁取代）, reason
+  ["app","com.example","app","1.0.0",null,"compile"],
+  ["web","org.springframework.boot","spring-boot-starter-web","3.3.1","app","compile"],
+  ["libb","com.example","lib-b","1.8.0","app","compile"],
+  ["jdb","com.fasterxml.jackson.core","jackson-databind","2.17.1","app","compile"],
+  ["liba","com.example","lib-a","2.4.0","app","compile"],
+  ["pg","org.postgresql","postgresql","42.7.3","app","runtime"],
+  ["junit","org.junit.jupiter","junit-jupiter","5.10.2","app","test"],
+  ["mockito","org.mockito","mockito-core","5.11.0","app","test"],
+  ["mvc","org.springframework","spring-webmvc","6.1.10","web","compile"],
+  ["tomcat","org.apache.tomcat.embed","tomcat-embed-core","10.1.25","web","compile"],
+  ["guava32","com.google.guava","guava","32.1.2-jre","libb","compile"],
+  ["slf4j","org.slf4j","slf4j-api","2.0.13","libb","compile"],
+  ["jcore","com.fasterxml.jackson.core","jackson-core","2.17.1","jdb","compile"],
+  ["guava31","com.google.guava","guava","31.1-jre","liba","compile","guava32","深度相同，先声明的 lib-b 优先"],
+  ["lang3","org.apache.commons","commons-lang3","3.14.0","liba","compile"],
+  ["jcore215","com.fasterxml.jackson.core","jackson-core","2.15.4","liba","compile","jcore","深度相同，先声明的 jackson-databind 优先"],
+  ["bytebuddy","net.bytebuddy","byte-buddy","1.14.12","mockito","test"],
+  ["score","org.springframework","spring-core","6.1.10","mvc","compile"],
+  ["fa","com.google.guava","failureaccess","1.0.2","guava32","compile"],
+].map(([id,g,a,v,parent,scope,winner,reason])=>({id,g,a,v,parent,scope,winner,reason}));
+const DEP=Object.fromEntries(DEPS.map(d=>[d.id,d]));
+const SCOPES={compile:["compile"],runtime:["compile","runtime"],test:["compile","runtime","test"]};
+function depsVisible(st){
+  const ok=new Set();
+  for(const d of DEPS){if(!SCOPES[st.scope].includes(d.scope))continue;if(st.excluded[d.id])continue;if(d.parent&&!ok.has(d.parent))continue;ok.add(d.id);}
+  return DEPS.filter(d=>ok.has(d.id));
+}
+const ancestors=id=>{const out=[];let c=DEP[id];while(c){out.push(c.id);c=c.parent&&DEP[c.parent];}return out;};
+function depsLayout(list){
+  const kids={};for(const d of list)if(d.parent)(kids[d.parent]||(kids[d.parent]=[])).push(d.id);
+  const pos={};let row=0;
+  const lvl=id=>ancestors(id).length-1;
+  const place=id=>{const ch=kids[id]||[];if(!ch.length){pos[id]={x:24+lvl(id)*236,y:14+row*50};row++;return pos[id].y;}
+    const ys=ch.map(place);pos[id]={x:24+lvl(id)*236,y:(ys[0]+ys[ys.length-1])/2};return pos[id].y;};
+  place("app");
+  return {pos,rows:row,kids};
+}
+function depsScene(st){
+  const list=depsVisible(st);const {pos,rows}=depsLayout(list);
+  const W=24+3*236+196+24,Hh=Math.max(14+rows*50,200);
+  const edges=[],nodes=[];
+  const path=new Set(st.sel?ancestors(st.sel):[]);
+  for(const d of list){
+    const p=pos[d.id];
+    if(d.parent){const q=pos[d.parent];const x1=q.x+190,y1=q.y+20,x2=p.x,y2=p.y+20;
+      edges.push({id:"e:"+d.id,type:"path",d:`M${x1} ${y1}C${x1+44} ${y1} ${x2-44} ${y2} ${x2} ${y2}`,
+        stroke:path.has(d.id)?"$accent":d.winner?"$err":"$line",width:path.has(d.id)?2.5:1.5,dash:d.winner?[4,3]:null});}
+    const root=d.id==="app",omit=!!d.winner;
+    const node={id:d.id,type:"group",x:p.x,y:p.y,w:190,h:40,radius:8,on:["click"],
+      label:`${d.g}:${d.a} ${d.v}${omit?"，因冲突未使用":""}`,
+      tooltip:`${d.g}:${d.a}:${d.v}\n范围：${d.scope}${omit?`\n未使用：被 ${DEP[d.winner].v} 取代`:""}`,
+      hover:root?{shadow:2}:{fill:"$hover"},pressed:{scale:.97},sel:{stroke:"$accent",width:2},selected:st.sel===d.id,
+      children:[
+        {type:"rect",w:190,h:40,radius:8,fill:root?{linear:[[0,"$accent"],[1,{light:"#7b5cf0",dark:"#8f78f5"}]],angle:0}:omit?{light:"#fdf0ef",dark:"#3a2726"}:"$surface",
+          stroke:root?null:omit?"$err":"$line",width:1,dash:omit?[4,3]:null,shadow:root?1:0},
+        {type:"text",x:12,y:13,text:d.g,style:"caption",color:root?"rgba(255,255,255,.8)":"$sub",maxWidth:168},
+        {type:"text",x:12,y:28,style:"strong",maxWidth:168,runs:[{text:d.a,color:root?"#ffffff":"$text"},{text:"  "+d.v,color:root?"rgba(255,255,255,.85)":omit?"$err":"$sub"}]},
+      ]};
+    if(st.fault==="label"&&d.id==="libb")delete node.label;     // 故障演示：可点节点没写 label
+    nodes.push(node);
+  }
+  const all=[...edges,...nodes];
+  if(st.fault==="budget"){                                     // 故障演示：插件把 6,000 个点塞进画布
+    const g={type:"group",x:0,y:0,children:[]};
+    for(let i=0;i<6000;i++)g.children.push({type:"rect",x:(i%100)*9.4,y:Math.floor(i/100)*7,w:2,h:2,fill:"$line"});
+    all.unshift(g);
+  }
+  return {type:"canvas",id:"deps",label:"依赖图",height:Math.min(440,Math.max(300,Hh*0.92)),viewBox:[0,0,W,Hh],pan:true,zoom:[0.4,3],on:["viewport"],nodes:all};
+}
+function depsRelevant(st,d){
+  if(st.conflicts){const hot=new Set();for(const x of DEPS)if(x.winner){ancestors(x.id).forEach(i=>hot.add(i));ancestors(x.winner).forEach(i=>hot.add(i));}if(!hot.has(d.id))return false;}
+  if(st.q){const q=st.q.toLowerCase();if(!`${d.g}:${d.a}`.toLowerCase().includes(q)&&d.id!=="app")return false;}
+  return true;
+}
+function depsDim(st){
+  const out=[];
+  for(const d of depsVisible(st)){const o=depsRelevant(st,d)?1:.22;out.push({op:"set",canvas:"deps",node:d.id,props:{opacity:o}});if(d.parent)out.push({op:"set",canvas:"deps",node:"e:"+d.id,props:{opacity:o}});}
+  return out;
+}
+function depsDetail(st){
+  const d=st.sel&&DEP[st.sel];
+  if(!d)return {type:"section",id:"detail",title:"构件详情",children:[{type:"label",tone:"sub",text:"点击图中的构件查看引入路径。红色虚线框是因版本冲突没有被使用的构件。"}]};
+  const path=ancestors(d.id).reverse().map(id=>`${DEP[id].a} ${DEP[id].v}`).join(" → ");
+  const items=[["坐标",`${d.g}:${d.a}:${d.v}`],["范围",d.scope],["引入路径",path]];
+  if(d.winner)items.push(["状态",`未使用：与 ${DEP[d.winner].v} 冲突，${d.reason}`,"warn"]);
+  else items.push(["状态",d.id==="app"?"当前项目":"已使用","ok"]);
+  const ch=[{type:"keyvalue",items}];
+  if(d.winner){
+    if(st.write&&st.write.dep===d.id)ch.push({type:"banner",tone:"info",text:`已加入待应用：点窗口底部的“应用”后，插件在 app/pom.xml 的 ${DEP[d.parent].a} 依赖里加上排除项。`});
+    else ch.push({type:"row",children:[{type:"button",id:"exclude",text:`在 ${DEP[d.parent].a} 中排除 ${d.a} ${d.v}`},{type:"button",id:"gotoWinner",text:`查看被选用的 ${DEP[d.winner].v}`}]});
+  }
+  return {type:"section",id:"detail",title:"构件详情",children:ch};
+}
+function depsSelect(st,id){
+  st.sel=id;const path=new Set(ancestors(id));const out=[];
+  for(const d of depsVisible(st)){
+    out.push({op:"set",canvas:"deps",node:d.id,props:{selected:d.id===id}});
+    if(d.parent)out.push({op:"set",canvas:"deps",node:"e:"+d.id,props:{stroke:path.has(d.id)?"$accent":d.winner?"$err":"$line",width:path.has(d.id)?2.5:1.5}});
+  }
+  out.push({op:"ui",node:"detail",with:depsDetail(st)});
+  return {patches:out};
+}
+function depsTree(st){
+  return [
+    {type:"row",children:[
+      {type:"textfield",id:"q",placeholder:"筛选构件，按回车生效",value:st.q,width:"fill"},
+      {type:"label",text:"范围",tone:"sub"},
+      {type:"select",id:"scope",value:st.scope,options:[["compile","compile"],["runtime","runtime"],["test","test"]]},
+      {type:"toggle",id:"conflicts",label:"只看冲突",value:st.conflicts},
+    ]},
+    depsScene(st),
+    depsDetail(st),
+    {type:"section",title:"分析",children:[{type:"setting",setting:"deps.analyzeOnOpen"},{type:"setting",setting:"deps.defaultScope"}]},
+  ];
+}
+BACKENDS.deps={
+  open(st,msg){Object.assign(st,{scope:msg.settings["deps.defaultScope"]||"compile",sel:null,q:"",conflicts:false,excluded:{},write:null,fault:msg.demoFault});return {tree:depsTree(st)};},
+  handle(st,msg){
+    if(msg.event==="click"&&msg.canvas==="deps")return depsSelect(st,msg.node);
+    if(msg.event==="click"&&msg.node==="gotoWinner")return depsSelect(st,DEP[st.sel].winner);
+    if(msg.event==="click"&&msg.node==="exclude"){
+      const d=DEP[st.sel];st.write={id:"deps.exclude."+d.id,dep:d.id};
+      return {write:{id:st.write.id,target:"app/pom.xml",summary:`在 ${DEP[d.parent].a} 中排除 ${d.g}:${d.a}`},patches:[{op:"ui",node:"detail",with:depsDetail(st)}]};
+    }
+    if(msg.event==="change"&&msg.node==="scope"){st.scope=msg.value;if(st.sel&&!depsVisible(st).some(d=>d.id===st.sel))st.sel=null;
+      return {patches:[{op:"scene",canvas:"deps",scene:depsScene(st)},...depsDim(st),{op:"ui",node:"detail",with:depsDetail(st)}]};}
+    if(msg.event==="change"&&msg.node==="conflicts"){st.conflicts=!!msg.value;return {patches:depsDim(st)};}
+    if(msg.event==="change"&&msg.node==="q"){st.q=String(msg.value||"").trim();return {patches:depsDim(st)};}
+    if(msg.event==="apply"){for(const id of msg.writes)if(st.write&&st.write.id===id){st.excluded[st.write.dep]=true;if(st.sel===st.write.dep)st.sel=null;st.write=null;}
+      return {applied:msg.writes,tree:depsTree(st)};}    // 写完后重新读取 pom.xml，整棵树重发
+    if(msg.event==="discard"){st.write=null;return {patches:[{op:"ui",node:"detail",with:depsDetail(st)}]};}
+    return {};                                               // viewport 等：没有要改的
+  },
+};
+
+/* ---- 2. 配色主题：画布里用主题自己的固定颜色，色块说明用主题 token ---- */
+const VARIANTS={
+  dusk:{bg:"#1c1b29",panel:"#24233a",fg:"#e4e1f5",gutter:"#5f5b7f",line:"#2a2942",k:"#c39af5",s:"#f2c28b",f:"#7fd1d9",c:"#8a86a8",n:"#f07fa0",t:"#8fb8ff"},
+  dawn:{bg:"#fbf7f2",panel:"#f1ebe3",fg:"#3b3550",gutter:"#b0a8bd",line:"#efe6dc",k:"#8b45c9",s:"#a65a12",f:"#1f7f8a",c:"#857c95",n:"#c23a64",t:"#2f5fbf"},
+  contrast:{bg:"#0b0b10",panel:"#16161f",fg:"#ffffff",gutter:"#9a98b0",line:"#20202c",k:"#e0b3ff",s:"#ffd28a",f:"#7ff0ff",c:"#c4c1da",n:"#ff9cc0",t:"#a6c8ff"},
+};
+const KINDS=[["k","关键字","func、return、if"],["f","函数","Greet、Println"],["t","类型","string、String"],["s","字符串","\"hello\""],["n","数字","42"],["c","注释","// …"]];
+const CODE={
+  go:["⟨k:package⟩ main","⟨k:import⟩ ⟨s:\"fmt\"⟩","","⟨c:// Greet 返回一句问候。⟩","⟨k:func⟩ ⟨f:Greet⟩(name ⟨t:string⟩) ⟨t:string⟩ {","    ⟨k:if⟩ name == ⟨s:\"\"⟩ {","        ⟨k:return⟩ ⟨s:\"hello, world\"⟩","    }","    ⟨k:return⟩ fmt.⟨f:Sprintf⟩(⟨s:\"hello, %s\"⟩, name)","}","","⟨k:func⟩ ⟨f:main⟩() { fmt.⟨f:Println⟩(⟨f:Greet⟩(⟨s:\"Lithe\"⟩), ⟨n:42⟩) }"],
+  rust:["⟨k:use⟩ std::fmt;","","⟨c:/// 返回一句问候。⟩","⟨k:fn⟩ ⟨f:greet⟩(name: &⟨t:str⟩) -> ⟨t:String⟩ {","    ⟨k:if⟩ name.⟨f:is_empty⟩() {","        ⟨k:return⟩ ⟨s:\"hello, world\"⟩.⟨f:to_string⟩();","    }","    ⟨f:format!⟩(⟨s:\"hello, {}\"⟩, name)","}","","⟨k:fn⟩ ⟨f:main⟩() {","    ⟨f:println!⟩(⟨s:\"{} {}\"⟩, ⟨f:greet⟩(⟨s:\"Lithe\"⟩), ⟨n:42⟩);","}"],
+};
+function tokenize(line){const out=[];let last=0;line.replace(/⟨([kscftn]):(.*?)⟩/g,(m,k,t,i)=>{if(i>last)out.push(["p",line.slice(last,i)]);out.push([k,t]);last=i+m.length;});if(last<line.length)out.push(["p",line.slice(last)]);return out;}
+const hex2=h=>[1,3,5].map(i=>parseInt(h.slice(i,i+2),16));
+function mix(a,b,t){const x=hex2(a),y=hex2(b);return "#"+x.map((v,i)=>Math.round(v+(y[i]-v)*t).toString(16).padStart(2,"0")).join("");}
+function lum(h){const [r,g,b]=hex2(h).map(v=>{v/=255;return v<=.03928?v/12.92:((v+.055)/1.055)**2.4;});return .2126*r+.7152*g+.0722*b;}
+const contrast=(a,b)=>{const x=lum(a),y=lum(b);return (Math.max(x,y)+.05)/(Math.min(x,y)+.05);};
+function codeGroup(st){
+  const P=VARIANTS[st.variant],lines=CODE[st.lang];
+  const color=k=>{const c=k==="p"?P.fg:P[k];return st.kind&&k!==st.kind?mix(c,P.bg,.62):c;};
+  const ch=[];
+  lines.forEach((l,i)=>{const y=50+i*16.5;
+    ch.push({type:"text",x:40,y,text:String(i+1),align:"end",style:"monoSmall",color:P.gutter});
+    if(l)ch.push({type:"text",x:54,y,style:"mono",runs:tokenize(l).map(([k,t])=>({text:t,color:color(k)}))});
+    if(l)ch.push({type:"rect",x:664,y:y-2,w:Math.min(70,l.replace(/⟨.:|⟩/g,"").length*1.3),h:3,radius:1.5,fill:mix(P.fg,P.bg,.75)});
+  });
+  return {id:"code",type:"group",x:0,y:0,children:ch};
+}
+function themeScene(st){
+  const P=VARIANTS[st.variant],lines=CODE[st.lang],Hh=50+lines.length*16.5+8;
+  const nodes=[
+    {type:"rect",x:0,y:0,w:760,h:Hh,radius:12,fill:P.bg,shadow:2},
+    {type:"path",d:`M12 0H748A12 12 0 0 1 760 12V30H0V12A12 12 0 0 1 12 0Z`,fill:P.panel},
+    ...[18,34,50].map((x,i)=>({type:"path",d:`M${x+5} 15A5 5 0 1 1 ${x-5} 15A5 5 0 1 1 ${x+5} 15Z`,fill:mix(P.gutter,P.panel,.3+i*.15)})),
+    {type:"rect",x:74,y:4,w:104,h:26,radius:6,fill:P.bg},
+    {type:"rect",x:84,y:27,w:84,h:2,radius:1,fill:P.k},
+    {type:"text",x:126,y:16,text:st.lang==="go"?"main.go":"main.rs",align:"center",style:"caption",color:P.fg},
+    {type:"text",x:740,y:15,text:VARIANTS===null?"":({dusk:"Dusk · 暮色",dawn:"Dusk · 黎明",contrast:"Dusk · 高对比"})[st.variant],align:"end",style:"caption",color:P.gutter},
+    {type:"rect",x:0,y:50+4*16.5-8,w:760,h:16.5,fill:P.line},
+    {type:"rect",x:656,y:38,w:1,h:Hh-46,fill:P.line},
+    codeGroup(st),
+  ];
+  const y0=Hh+14;
+  KINDS.forEach(([k,name],i)=>{
+    const c=P[k],cr=contrast(c,P.bg);
+    const n={id:"sw:"+k,type:"group",x:i*127,y:y0,w:121,h:46,radius:8,on:["click"],label:`${name} ${c.toUpperCase()}`,
+      tooltip:`${name} · ${c.toUpperCase()}\n与背景的对比度 ${cr.toFixed(1)}:1`,
+      hover:{fill:"$hover"},pressed:{scale:.97},sel:{stroke:"$accent",width:2},selected:st.kind===k,
+      children:[{type:"rect",w:121,h:46,radius:8,fill:"$side",stroke:"$line",width:1},
+        {type:"rect",x:10,y:11,w:24,h:24,radius:6,fill:c,stroke:mix(c,"#000000",.25),width:1},
+        {type:"text",x:42,y:16,text:name,style:"body",color:"$text"},
+        {type:"text",x:42,y:32,text:c.toUpperCase(),style:"monoSmall",color:"$sub"}]};
+    if(st.fault==="label"&&k==="s")delete n.label;
+    nodes.push(n);
+  });
+  if(st.fault==="budget")for(let i=0;i<2400;i++)nodes.push({type:"rect",x:(i%120)*6,y:Math.floor(i/120)*6,w:1,h:1,fill:"#ffffff",opacity:.02});
+  return {type:"canvas",id:"preview",label:"配色预览",height:Math.round(y0+46+4),viewBox:[0,0,760,y0+50],nodes};
+}
+function themeInfo(st){
+  if(!st.kind)return {type:"section",id:"swInfo",title:"颜色详情",children:[{type:"label",tone:"sub",text:"点击上方的色块，预览里只保留这一类语法的颜色，并在这里显示它和背景的对比度。"}]};
+  const P=VARIANTS[st.variant],[,name,use]=KINDS.find(x=>x[0]===st.kind),c=P[st.kind],cr=contrast(c,P.bg);
+  const grade=cr>=7?["AAA（≥ 7:1）","ok"]:cr>=4.5?["AA（≥ 4.5:1）","ok"]:["低于 AA（4.5:1）","warn"];
+  return {type:"section",id:"swInfo",title:`颜色详情 · ${name}`,children:[{type:"keyvalue",items:[["颜色",c.toUpperCase()],["用于",use],["背景",P.bg.toUpperCase()],["对比度",`${cr.toFixed(2)}:1 · ${grade[0]}`,grade[1]]]}]};
+}
+function themeTree(st){
+  return [
+    {type:"row",children:[{type:"label",text:"变体",width:70,info:"暮色和高对比是深色，黎明是浅色。切换后先在下面预览，点窗口底部的“应用”才会生效。"},
+      {type:"segmented",id:"variant",setting:"dusk.variant",options:[["dusk","暮色"],["dawn","黎明"],["contrast","高对比"]]},
+      {type:"label",text:"预览语言",tone:"sub"},{type:"select",id:"lang",value:st.lang,options:[["go","Go"],["rust","Rust"]]}]},
+    themeScene(st),
+    themeInfo(st),
+  ];
+}
+BACKENDS.theme={
+  open(st,msg){Object.assign(st,{variant:msg.settings["dusk.variant"]||"dusk",lang:"go",kind:null,fault:msg.demoFault});return {tree:themeTree(st)};},
+  handle(st,msg){
+    if(msg.event==="change"&&msg.setting==="dusk.variant"){st.variant=msg.value;return {patches:[{op:"scene",canvas:"preview",scene:themeScene(st)},{op:"ui",node:"swInfo",with:themeInfo(st)}]};}
+    if(msg.event==="change"&&msg.node==="lang"){st.lang=msg.value;return {patches:[{op:"scene",canvas:"preview",scene:themeScene(st)}]};}
+    if(msg.event==="click"&&msg.canvas==="preview"&&msg.node.startsWith("sw:")){
+      const k=msg.node.slice(3);st.kind=st.kind===k?null:k;
+      return {patches:[{op:"replace",canvas:"preview",node:"code",with:codeGroup(st)},
+        ...KINDS.map(([kk])=>({op:"set",canvas:"preview",node:"sw:"+kk,props:{selected:st.kind===kk}})),
+        {op:"ui",node:"swInfo",with:themeInfo(st)}]};
+    }
+    return {};
+  },
+};
+
+/* ---- 3. Gradle 构建分析：深浅两套颜色，作者自己的看板风格 ---- */
+const PAIR={tp:{light:"#0b0b0b",dark:"#f0efec"},ts:{light:"#52514e",dark:"#c3c2b7"},tm:{light:"#8a8984",dark:"#8d8c85"},
+  series:{light:"#2a78d6",dark:"#3987e5"},seriesHover:{light:"#1c5cab",dark:"#6da7ec"},run:{light:"rgba(42,120,214,.4)",dark:"rgba(57,135,229,.45)"},
+  aqua:{light:"#1baf7a",dark:"#199e70"},track:{light:"#e7e6e1",dark:"#2c2c2a"},grid:{light:"#ebeae6",dark:"#2a2c33"},
+  tile:{light:"#ffffff",dark:"#20232f"},tileLine:{light:"#e6e8f5",dark:"#2c3145"},good:{light:"#006300",dark:"#0ca30c"},crit:"#d03b3b"};
+function genBuilds(){const r=rng(7);const out=[];for(let i=0;i<30;i++){const fail=[9,22,27].includes(i);
+  out.push({n:1261+i,dur:f1(34+r()*24+(i%7===0?22:0)),ok:!fail,hit:Math.round(68+r()*28),min:(30-i)*17});}return out;}
+const ago=m=>m<60?`${m} 分钟前`:`${Math.floor(m/60)} 小时前`;
+function tasksOf(b){const r=rng(b.n*13);const names=[":app:compileJava",":app:compileKotlin",":core:compileJava",":app:test",":core:test",":app:processResources",":app:lint",":app:bootJar"];
+  let left=b.dur*0.85;const rows=[];for(let i=0;i<5;i++){const nm=names[Math.floor(r()*names.length)];if(rows.some(x=>x[0]===nm)){i--;continue;}const d=f1(left*(0.25+r()*0.25));left-=d;
+  rows.push([nm,`${d.toFixed(1)} s`,r()<b.hit/100?"命中":r()<.5?"未命中":"不可缓存"]);}
+  rows.sort((a,b2)=>parseFloat(b2[1])-parseFloat(a[1]));return rows;}
+function barPath(x,w,base,h){if(h<=.5)return `M${x} ${base}H${x+w}`;const r=Math.min(4,w/2,h),t=base-h;return `M${x} ${base}V${t+r}Q${x} ${t} ${x+r} ${t}H${x+w-r}Q${x+w} ${t} ${x+w} ${t+r}V${base}Z`;}
+const median=a=>{const s=[...a].sort((x,y)=>x-y);const m=s.length>>1;return s.length%2?s[m]:(s[m-1]+s[m])/2;};
+function arcPath(cx,cy,r,frac){const a0=-Math.PI/2,a1=a0+2*Math.PI*Math.min(frac,.9999);const P=(a)=>`${f1(cx+r*Math.cos(a))} ${f1(cy+r*Math.sin(a))}`;return `M${P(a0)}A${r} ${r} 0 ${frac>.5?1:0} 1 ${P(a1)}`;}
+function buildWindow(st){const fin=st.builds.slice(-(st.run?st.range-1:st.range));return st.run?[...fin,{...st.run,running:true}]:fin;}
+function barNode(st,b,i,n,col){
+  const base=140,h=Math.min(b.dur,90)/90*130,bw=n<=12?26:12;
+  const tip=b.running?`构建 #${b.n} · 进行中 · ${b.dur.toFixed(1)} s`:`构建 #${b.n} · ${b.dur.toFixed(1)} s · ${b.ok?"成功":"失败"} · ${ago(b.min)}`;
+  const ch=[{id:"bp:"+b.n,type:"path",d:barPath((col-bw)/2,bw,base,h),bounds:[(col-bw)/2,base-h,bw,h],
+      fill:b.running?PAIR.run:b.ok?PAIR.series:PAIR.crit,stroke:b.running?PAIR.series:null,width:1,dash:b.running?[3,2]:null}];
+  if(!b.ok&&!b.running)ch.push({type:"text",x:col/2,y:base-h-9,text:"✕",align:"center",style:"caption",color:PAIR.crit});
+  if(n<=12||i%5===0||b.running)ch.push({type:"text",x:col/2,y:base+12,text:b.running?"进行中":`#${b.n}`,align:"center",style:"caption",color:PAIR.tm});
+  return {id:"b:"+b.n,type:"group",x:52+col*i,y:160,w:col,h:158,on:["click"],label:tip,tooltip:tip,
+    opacity:st.sel&&st.sel!==b.n?.35:1,hover:{fill:b.running?PAIR.run:b.ok?PAIR.seriesHover:"#b02e2e"},pressed:{scale:.98},children:ch};
+}
+function tile(x,w,label,value,extra){return {type:"group",x,y:58,children:[{type:"rect",w,h:72,radius:10,fill:PAIR.tile,stroke:PAIR.tileLine,width:1},
+  {type:"text",x:14,y:18,text:label,style:"caption",color:PAIR.ts},{type:"text",x:14,y:44,text:value,style:"display",color:PAIR.tp},...(extra||[])]};}
+function buildScene(st){
+  const win=buildWindow(st),n=win.length,col=748/n;
+  const fin=win.filter(b=>!b.running),med=median(fin.map(b=>b.dur)),last=fin[fin.length-1],fails=fin.filter(b=>!b.ok).length;
+  const hit=Math.round(fin.reduce((s,b)=>s+b.hit,0)/fin.length),delta=Math.round((last.dur-med)/med*100);
+  const nodes=[
+    {type:"rect",x:0,y:0,w:820,h:332,radius:14,fill:{linear:[[0,{light:"#f4f6ff",dark:"#161a2b"}],[1,{light:"#fbf7ff",dark:"#1e1730"}]],angle:120},stroke:PAIR.tileLine,width:1},
+    {type:"text",x:20,y:24,text:"每次构建耗时",style:"title",color:PAIR.tp},
+    {type:"text",x:20,y:42,text:`最近 ${n} 次 · :app:assemble${st.live?" · 实时":""}`,style:"caption",color:PAIR.ts},
+    tile(20,180,"中位耗时",`${med.toFixed(1)} s`),
+    tile(212,180,"最近一次",`${last.dur.toFixed(1)} s`,[{type:"text",x:166,y:44,align:"end",style:"caption",text:`${delta<=0?"▼":"▲"} ${Math.abs(delta)}% ${delta<=0?"比中位快":"比中位慢"}`,color:delta<=0?PAIR.good:PAIR.crit}]),
+    tile(404,180,"失败",`${fails} / ${fin.length}`,fails?[{type:"text",x:166,y:44,align:"end",style:"caption",text:"✕ 需要查看",color:PAIR.crit}]:[]),
+    {type:"group",x:596,y:58,children:[{type:"rect",w:204,h:72,radius:10,fill:PAIR.tile,stroke:PAIR.tileLine,width:1},
+      {type:"path",d:"M38 15A21 21 0 1 1 37.99 15Z",stroke:PAIR.track,width:7},
+      {type:"path",d:arcPath(38,36,21,hit/100),stroke:PAIR.aqua,width:7,cap:"round"},
+      {type:"text",x:76,y:18,text:"缓存命中",style:"caption",color:PAIR.ts},{type:"text",x:76,y:44,text:`${hit}%`,style:"display",color:PAIR.tp}]},
+  ];
+  for(const v of [0,30,60,90]){const y=300-v/90*130;nodes.push({type:"path",d:`M52 ${y}H800`,stroke:v?PAIR.grid:PAIR.track,width:1});
+    nodes.push({type:"text",x:44,y,text:v?`${v} s`:"0",align:"end",style:"caption",color:PAIR.tm});}
+  nodes.push({id:"bars",type:"group",x:0,y:0,children:win.map((b,i)=>barNode(st,b,i,n,col))});
+  return {type:"canvas",id:"builds",label:"构建耗时看板",height:332,viewBox:[0,0,820,332],nodes};
+}
+function buildDetail(st){
+  const b=st.sel&&st.builds.find(x=>x.n===st.sel);
+  if(!b)return {type:"section",id:"bdetail",title:"构建详情",children:[{type:"label",tone:"sub",text:"点击一根柱子查看那次构建最慢的 5 个任务。悬停只显示提示，不会调用插件。"}]};
+  return {type:"section",id:"bdetail",title:`构建 #${b.n} · ${b.dur.toFixed(1)} s · ${b.ok?"成功":"失败"} · ${ago(b.min)}`,children:[{type:"table",columns:[["任务"],["耗时","end"],["构建缓存"]],rows:tasksOf(b)}]};
+}
+function buildTree(st){
+  return [
+    {type:"row",children:[{type:"label",text:"范围",tone:"sub"},{type:"select",id:"range",value:String(st.range),options:[["12","最近 12 次"],["30","最近 30 次"]]},
+      {type:"toggle",id:"live",label:"实时更新",value:st.live,info:"构建进行时由插件推送进度。宿主最多每秒应用 30 次，多出的按节点合并。"}]},
+    buildScene(st),buildDetail(st),
+    {type:"section",title:"数据",children:[{type:"setting",setting:"gradle.insights.collect"},{type:"setting",setting:"gradle.insights.keep"}]},
+  ];
+}
+function startLive(st,ctx){
+  st.live=true;const tickMs=st.flood?8:100;
+  const begin=()=>{const r=rng(st.builds.length*31);st.run={n:st.builds[st.builds.length-1].n+1,dur:0,target:f1(36+r()*20),ok:r()>.15,hit:Math.round(70+r()*25),min:0};ctx.emit({patches:[{op:"scene",canvas:"builds",scene:buildScene(st)}]});};
+  begin();
+  ctx.setInterval(()=>{
+    if(!st.run)return;
+    st.run.dur=f1(st.run.dur+tickMs*0.012);
+    if(st.run.dur>=st.run.target){
+      const {running,...b}={...st.run,dur:st.run.target};st.builds.push(b);st.builds.forEach(x=>x.min+=1);st.run=null;
+      ctx.emit({patches:[{op:"scene",canvas:"builds",scene:buildScene(st)}]});
+      ctx.setTimeout(()=>{if(st.live)begin();},1200);return;
+    }
+    const win=buildWindow(st),n=win.length,col=748/n,bw=n<=12?26:12,h=Math.min(st.run.dur,90)/90*130;
+    const tip=`构建 #${st.run.n} · 进行中 · ${st.run.dur.toFixed(1)} s`;
+    ctx.emit({patches:[{op:"set",canvas:"builds",node:"bp:"+st.run.n,props:{d:barPath((col-bw)/2,bw,140,h),bounds:[(col-bw)/2,140-h,bw,h]}},
+      {op:"set",canvas:"builds",node:"b:"+st.run.n,props:{tooltip:tip,label:tip}}]});
+  },tickMs);
+}
+BACKENDS.build={
+  open(st,msg,ctx){Object.assign(st,{builds:genBuilds(),range:12,sel:null,live:false,run:null,flood:msg.demoFault==="flood",fault:msg.demoFault});
+    if(st.flood){st.live=true;ctx.setTimeout(()=>startLive(st,ctx),300);}
+    const tree=buildTree(st);
+    if(st.fault==="label")tree[1].nodes[tree[1].nodes.length-1].children[3].label="";
+    if(st.fault==="budget")for(let i=0;i<3000;i++)tree[1].nodes.push({type:"path",d:`M${i%820} 0V1`,stroke:"transparent"});
+    return {tree};},
+  handle(st,msg,ctx){
+    if(msg.event==="click"&&msg.canvas==="builds"){const n=+msg.node.slice(2);if(st.run&&n===st.run.n)return {};st.sel=st.sel===n?null:n;
+      return {patches:[...buildWindow(st).map(b=>({op:"set",canvas:"builds",node:"b:"+b.n,props:{opacity:st.sel&&st.sel!==b.n?.35:1}})),{op:"ui",node:"bdetail",with:buildDetail(st)}]};}
+    if(msg.event==="change"&&msg.node==="range"){st.range=+msg.value;return {patches:[{op:"scene",canvas:"builds",scene:buildScene(st)}]};}
+    if(msg.event==="change"&&msg.node==="live"){
+      if(msg.value)startLive(st,ctx);else{st.live=false;st.run=null;ctx.clearTimers();}
+      return {patches:[{op:"scene",canvas:"builds",scene:buildScene(st)}]};}
+    return {};
+  },
+  close(st,ctx){st.live=false;ctx.clearTimers();},
+};
+
+/* ---- Maven 支持：没有画布，只有声明式行和工具引用 ---- */
+BACKENDS.mavenSupport={
+  open(){return {tree:[{type:"tool",tool:"mvn"},{type:"tool",tool:"jdk"},{type:"setting",setting:"maven.userSettings"},{type:"setting",setting:"maven.localRepo"},{type:"setting",setting:"maven.offline"}]};},
+  handle(){return {};},
+};
+
+/* ================= 宿主界面：侧栏、页头、页脚、面板 ================= */
+function navHtml(){
+  if(S.navq.trim()){
+    const q=S.navq.trim().toLowerCase();const hits=[];
+    for(const [pk,p] of Object.entries(PAGES)){
+      if(p.title.toLowerCase().includes(q)||p.crumb.join(" ").toLowerCase().includes(q))hits.push({pk,contrib:null,why:"页面名称"});
+      for(const c of p.contributors){const kw=PL[c].keywords.find(k=>k.toLowerCase().includes(q));if(kw)hits.push({pk,contrib:c,why:`${PL[c].name} 的关键词“${kw}”`});}
+    }
+    if(!hits.length)return `<div class="faint" style="padding:10px">没有匹配的设置页。画布里的文字不参与搜索，插件页靠清单里的关键词被搜到。</div>`;
+    return hits.map(h=>`<div class="hit" data-goto="${h.pk}" ${h.contrib?`data-contrib="${h.contrib}"`:""}><div>${esc(PAGES[h.pk].crumb.join(" › "))}</div><div class="k">${esc(h.why)}</div></div>`).join("");
+  }
+  const rows=[];
+  const walk=(items,l)=>{for(const [id,label,kids] of items){
+    const has=!!kids,open=S.open[id];
+    rows.push(`<div class="r l${l} ${S.page===id?"sel":""}" data-nav="${id}" ${has?`data-fold="${id}"`:""}><span class="chev">${has?(open?"▾":"▸"):""}</span>${esc(label)}</div>`);
+    if(has&&open)walk(kids,l+1);
+  }};
+  walk(NAV,0);return rows.join("");
+}
+function crumbHtml(){const c=PAGES[S.page].crumb;return c.map((x,i)=>`<span class="${i===c.length-1?"last":""}">${esc(x)}</span>`).join(`<span class="sep">›</span>`);}
+function picon(p,size=36){return `<div class="picon" style="background:${p.bg};width:${size}px;height:${size}px">${esc(p.letter)}</div>`;}
+function pageHtml(){
+  const page=PAGES[S.page],key=visibleRegion(),R=REG[key],p=PL[key];
+  let head;
+  if(page.kind==="detail"){
+    head=`<div class="ph">${picon(p,44)}<div><h2>${esc(p.name)}</h2><div class="muted mono">${esc(p.id)} · ${esc(p.ver)} · 已启用</div></div></div>
+      <div class="tabs"><span data-act="toast" data-msg="演示：概览标签">概览</span><span class="on">设置</span><span data-act="toast" data-msg="演示：更新记录标签">更新记录</span><span style="border:0;padding:7px 4px">${nb(17)}</span></div>`;
+  }else{
+    const many=page.contributors.length>1;
+    head=`<div class="ph"><div class="picon" style="background:var(--pill);color:var(--sub)">${esc(page.title[0])}</div><div><h2>${esc(page.title)}</h2><div class="muted">${esc(page.crumb.slice(0,-1).join(" › "))}${many?` · ${page.contributors.length} 个插件为这一页提供内容`:""}</div></div></div>
+      ${many?`<div class="contrib"><span class="seg">${page.contributors.map(c=>`<button data-act="contrib" data-c="${c}" class="${c===key?"on":""}">${esc(PL[c].name)}</button>`).join("")}</span>${nb(4)}</div>`:""}
+      <div class="muted" style="display:flex;gap:8px;align-items:center">${picon(p,18)}<span>由 ${esc(p.name)}（<span class="mono">${esc(p.id)}</span>）提供</span></div>`;
+  }
+  return `<div class="page">${head}${R?regionHtml(R):""}</div>`;
+}
+function footerHtml(){
+  const ds=Object.keys(DRAFT),n=ds.length+WRITES.length;
+  const targets=[ds.length?`插件设置（全局，由 Core 校验后写入）${ds.length}项`:"",...WRITES.map(w=>`${w.target}（${w.summary}）`)].filter(Boolean).join("；");
+  const msg=S.applying?`<span>正在应用…</span>`:n?`<span class="moddot"></span><b>${n} 项未应用</b><span>· 写入 ${esc(targets)}</span>${nb(11)}`:"";
+  return `<button class="btn" data-act="toast" data-msg="演示：恢复本页的默认设置（需要确认）">恢复默认设置</button><span class="msg">${msg}</span>
+    <button class="btn" data-act="cancel" ${n&&!S.applying?"":"disabled"}>取消</button><button class="btn" data-act="apply" ${n&&!S.applying?"":"disabled"}>应用</button><button class="btn pri" data-act="ok">好</button>`;
+}
+const NOTES=[
+ [1,["*"],"设置窗口里的插件区域（插件详情的「设置」标签、侧栏插件页正文）只用<b>描述模式</b>：插件返回一棵 JSON 界面树，宿主用 Viva 控件画。需要自由绘制时，在树里放一个<b>画布节点</b>（canvas），不再嵌网页。网页只留给工具窗口，那里已经实现，只在窗口显示时存活。"],
+ [2,["*"],"画布节点是<b>保留场景</b>：插件一次发来整个场景（矩形、路径、文字、分组），宿主存着，每帧自己画。悬停、按下、键盘焦点、平移、缩放、悬停提示都在宿主本地处理，不跨进程。打开右侧「消息」，在图上来回移动、拖动：本地计数一直涨，跨进程消息只在点击时增加。"],
+ [3,["*"],"只有<b>语义事件</b>发回插件：click（点了哪个节点）、控件的 change、viewport（平移缩放停下 400 ms 后发一次，场景声明了才发）。插件按节点 ID 回补丁：<code>set</code> 改属性、<code>replace</code> 换子树、<code>scene</code> 换整个画布、<code>ui</code> 换界面树里的一个节点。"],
+ [4,["maven"],"同一页有多个插件提供内容时，用宿主的贡献者切换，每个插件只画自己那一块（沿用 <code>settings_surfaces.go</code> 的 contributorIDs）。没有画布的插件（Maven 支持）就是普通的声明式行，工具用「工具引用」节点指向工具链，不自己放选择框。"],
+ [5,["maven"],"输入只用描述模式的控件，画布里没有文本框。筛选框按回车或失焦时才发一次 change，不是每按一次键都发；输入法、选择、复制粘贴都由宿主控件负责。"],
+ [6,["maven"],"滚轮归设置页滚动，避免画布“吞掉”滚动；⌘/Ctrl + 滚轮或双指捏合缩放画布，拖动空白处平移。右上角的缩放按钮由宿主画，插件只声明 <code>pan</code> 和 <code>zoom</code> 范围。"],
+ [7,["*"],"颜色有三种写法：<b>主题 token</b>（<code>$text</code>、<code>$accent</code>，跟随深浅色，依赖图用这种）；<b>深浅两套值</b>（<code>{light, dark}</code>，构建分析用这种）；<b>固定颜色</b>（配色预览要展示主题本身的颜色，所以不跟随）。画布外的界面树只能用 token。切换演示栏的“深色”对比三页。"],
+ [8,["theme"],"文字由宿主排版：插件只给锚点、对齐方式和文字片段（runs，每段可以有自己的颜色），宿主用自己的界面字体和等宽字体测量、截断（超过 <code>maxWidth</code> 显示 …）。插件不能指定字体，所以也不需要知道字体度量。代码行就是一组 runs。"],
+ [9,["*"],"可以点击的节点必须有 <code>label</code>（读屏软件读出的名字），否则整个场景被拒绝。Tab 键进入画布后在可点击节点之间移动，Enter 或空格触发，焦点框由宿主画。演示栏选「可点节点缺少 label」看拒绝效果。"],
+ [10,["*"],"预算：每个画布最多 2,000 个节点、256 KB；插件推送每秒最多应用 30 次，多出的按节点合并，只保留最新值；每次调用 2 秒超时。超出、超时或后端崩溃时，框里显示错误，改为显示插件在清单里声明的设置行；窗口其他部分照常可用，这些设置照样能改。"],
+ [11,["*"],"保存归宿主：绑定了设置 ID 的控件只生成草稿，底部写明写入目标；点「应用」时由 Core 按清单校验后写入（API-19）。改工具的真实配置（如在 pom.xml 里加排除项）由插件函数在「应用」时执行，插件写完后重新读取，宿主再显示新结果；点「取消」时插件丢弃待写内容。"],
+ [12,["*"],"生命周期跟着区域走：区域显示时发 open，切走或换贡献者时取消未完成的调用并关闭，插件的实时推送也随之停止。在「消息」里看切换页面时的日志。"],
+ [13,["*"],"搜索：画布里的文字不进设置搜索（宿主不理解它的含义，也不想为了搜索去渲染每个插件）。插件在清单里给页面声明 <code>keywords</code>（API-19，文字按 API-37 本地化），侧栏搜索命中关键词。试试搜“冲突”或“缓存”。"],
+ [14,["*"],"首版不做：模糊、滤镜、混合模式、径向渐变、自定义字体、动画（以后可以加声明式过渡）。位图只能来自插件包，只读。圆弧（SVG 的 <code>A</code> 命令，本页的圆点和环形图在用）由宿主转换成三次贝塞尔，交给 Viva 的 PathBuilder。"],
+ [15,["*"],"内存：在 macOS 上实测，一个最简网页页面额外带来三个系统进程，两次测量分别是 WebContent 41、42 MB，GPU 22、12 MB，Networking 6、5 MB，合计约 69、59 MB。画布节点只在宿主进程里多存一份场景（大小见「场景与预算」，本页只有几 KB 到几十 KB），没有额外进程。Windows 的 WebView2 还没测。"],
+ [16,["*"],"编号：界面树和画布节点都算 API-13 的扩展，写设置用 API-19，插件文字本地化用 API-37，不新增编号。字段名都还没定，原型里的写法只是示意；契约在 Core 的 <code>shared/plugins/contract/v1/</code> 里定。"],
+ [17,["theme"],"插件详情的「设置」标签是第二块自由区域，规则和侧栏插件页相同。“变体”绑定了设置 <code>dusk.variant</code>：切换只生成草稿，插件按草稿重画预览；点「取消」时宿主把已保存的值发回去，预览随之恢复。"],
+ [18,["build"],"看板的悬停提示是宿主画的（节点的 <code>tooltip</code> 字段），不用问插件。打开“实时更新”后，插件按 10 次/秒推送进行中的构建；演示栏选「推送过快」改为约 120 次/秒，宿主合并后最多每秒应用 30 次，状态栏能看到两个速率。"],
+];
+function panelHtml(){
+  if(S.panel==="0")return "";
+  const tabs=[["notes","设计标注"],["scene","场景与预算"],["log","消息"]];
+  const head=`<div class="ptabs">${tabs.map(([k,l])=>`<span data-act="panel" data-p="${k}" class="${S.panel===k?"on":""}">${l}${k==="log"?nb(3):k==="scene"?nb(15):""}</span>`).join("")}<span style="margin-left:auto;border:0" data-act="panel" data-p="0">✕</span></div>`;
+  let body="";
+  if(S.panel==="notes"){
+    const mine=NOTES.filter(([,pg])=>pg.includes(S.page)),rest=NOTES.filter(([,pg])=>pg.includes("*"));
+    const row=([n,,t])=>`<div class="n ${S.noteHl==n?"hl":""}" id="note-${n}"><i class="nb" data-note="${n}">${n}</i><div>${t}</div></div>`;
+    body=`<div class="lead">这个原型回答两个问题：插件作者能不能做出好看、有自己风格的设置页？能不能不嵌网页？三个示例页（侧栏的 Maven、Gradle 和插件里的 Dusk 配色主题）分别用三种颜色写法，都由宿主画。</div>
+      ${mine.length?`<div class="tt">本页</div>${mine.map(row).join("")}`:""}<div class="tt">通用</div>${rest.map(row).join("")}`;
+  }else if(S.panel==="scene"){
+    const R=REG[visibleRegion()];
+    if(!R||R.status!=="ready")body=`<div class="faint">${R?.status==="error"?"区域已回退到声明式设置行，没有画布。":"正在等待插件…"}</div>`;
+    else{
+      const cvs=Object.values(R.canv);
+      if(!cvs.length)body=`<div class="faint">这个插件只用描述模式的行，没有画布节点。</div>`;
+      for(const C of cvs){
+        const json=JSON.stringify(C.scene,null,1);const lines=json.split("\n");const shown=lines.slice(0,260).join("\n");
+        const m=(label,v,max,txt)=>`<div class="meter"><span>${label}</span><span class="bar"><i class="${v>max?"over":""}" style="width:${Math.min(100,v/max*100)}%"></i></span><span class="v">${txt}</span></div>`;
+        body+=`<div class="tt">画布 <code>${esc(C.id)}</code></div>
+          ${m("节点",C.stats.count,BUDGET.nodes,`${fmt(C.stats.count)} / ${fmt(BUDGET.nodes)}`)}
+          ${m("大小",C.stats.bytes,BUDGET.bytes,`${(C.stats.bytes/1024).toFixed(1)} / ${BUDGET.bytes/1024} KB`)}
+          ${m("推送",R.rate.shownApplied,BUDGET.applyPerSec,`${R.rate.shownApplied} / ${BUDGET.applyPerSec} 次/秒`)}
+          <div class="faint" style="margin:6px 0">宿主保存的场景（插件发来后由宿主持有，补丁直接改这里）：</div>
+          <pre class="json">${esc(shown)}${lines.length>260?`\n… 还有 ${fmt(lines.length-260)} 行`:""}</pre>`;
+      }
+    }
+  }else{
+    const local=CNT.hover+CNT.press+CNT.focus+CNT.pan+CNT.zoom+CNT.tip;
+    body=`<div class="cnt"><span class="h">宿主本地处理（不跨进程）</span>
+      <span>悬停切换</span><span class="v">${fmt(CNT.hover)}</span><span>按下</span><span class="v">${fmt(CNT.press)}</span>
+      <span>键盘焦点移动</span><span class="v">${fmt(CNT.focus)}</span><span>平移帧</span><span class="v">${fmt(CNT.pan)}</span>
+      <span>缩放</span><span class="v">${fmt(CNT.zoom)}</span><span>悬停提示</span><span class="v">${fmt(CNT.tip)}</span>
+      <span><b>合计</b></span><span class="v"><b>${fmt(local)}</b></span>
+      <span class="h">跨进程</span>
+      <span>发给插件</span><span class="v">${fmt(CNT.sent)}</span><span>收到（回复 + 推送）</span><span class="v">${fmt(CNT.recv)}</span>
+      <span>推送合并掉</span><span class="v">${fmt(CNT.merged)}</span><span>宿主拒绝的场景</span><span class="v">${fmt(CNT.rejected)}</span></div>
+      <div class="lg">${LOG.slice(0,150).map(e=>`<div><span class="t">${(e.t/1000).toFixed(1)}s</span><span class="${e.dir}">${{out:"→",in:"←",push:"⇠",host:"■"}[e.dir]}</span><span><b>${esc(PL[e.key]?.name||e.key)}</b> ${esc(e.text)}</span></div>`).join("")}</div>`;
+  }
+  return head+`<div class="pbody">${body}</div>`;
+}
+let panelT=null;
+function schedPanel(){if(S.panel==="notes"||S.panel==="0")return;if(panelT)return;panelT=setTimeout(()=>{panelT=null;const sc=$("#panel .pbody")?.scrollTop||0;$("#panel").innerHTML=panelHtml();const b=$("#panel .pbody");if(b)b.scrollTop=sc;},250);}
+let cntRaf=0;
+function renderCounters(){if(cntRaf)return;cntRaf=requestAnimationFrame(()=>{cntRaf=0;
+  const local=CNT.hover+CNT.press+CNT.focus+CNT.pan+CNT.zoom+CNT.tip;
+  $("#perf").textContent=`宿主本地处理 ${fmt(local)} · 跨进程 发出 ${fmt(CNT.sent)} / 收到 ${fmt(CNT.recv)}`;
+  schedPanel();});}
+
+/* ================= 渲染与事件 ================= */
+function render(){
+  document.documentElement.classList.toggle("dark",S.dark);
+  readTokens();
+  $("#nav").innerHTML=navHtml();
+  $("#crumb").innerHTML=crumbHtml();
+  // 保留焦点
+  const a=document.activeElement;let fk=null,sel=null;
+  if(a&&a!==document.body){fk=a.dataset.cv?`[data-cv="${a.dataset.cv}"]`:a.dataset.ui&&a.closest("[data-region]")?`[data-region="${a.closest("[data-region]").dataset.region}"] [data-ui="${a.dataset.ui}"]${a.dataset.val?`[data-val="${a.dataset.val}"]`:""}`:a.dataset.setting?`[data-setting="${a.dataset.setting}"]`:a.id?`#${a.id}`:null;
+    try{sel=[a.selectionStart,a.selectionEnd];}catch{}}
+  const sc=$("#content").scrollTop;
+  $("#content").innerHTML=pageHtml();
+  $("#content").scrollTop=sc;
+  $("#footer").innerHTML=footerHtml();
+  $("#panel").innerHTML=panelHtml();$("#panel").style.display=S.panel==="0"?"none":"";
+  $$("#content canvas[data-cv]").forEach(bindCanvas);
+  if(fk&&fk!=="#navq"&&fk!=="#content"){const el=$(fk);if(el){el.focus({preventScroll:true});if(sel&&sel[0]!=null&&el.setSelectionRange)try{el.setSelectionRange(sel[0],sel[1]);}catch{}}}
+  updateStatuses();
+  for(const R of Object.values(REG))for(const C of Object.values(R.canv)){const z=document.getElementById(`cvz-${R.key}-${C.id}`);if(z)z.textContent=`${Math.round((C.k0||1)*C.view.k*100)}%`;}
+  renderCounters();
+}
+function toast(m){const t=$("#toast");t.innerHTML=`<div class="toast">${esc(m)}</div>`;clearTimeout(toast.t);toast.t=setTimeout(()=>t.innerHTML="",2600);}
+function go(page,contrib){
+  if(!PAGES[page]){toast("原型只覆盖三个示例页：Maven、Gradle 和 Dusk 配色主题");return;}
+  const old=REG[visibleRegion()]?visibleRegion():null;
+  S.page=page;if(contrib)S.contrib[page]=contrib;
+  const nu=visibleRegion();
+  if(old!==nu){if(old)closeRegion(old);if(!REG[nu])openRegion(nu);}
+  S.noteHl=0;render();
+}
+function regionOf(el){const k=el.closest("[data-region]")?.dataset.region;return k&&REG[k];}
+function uiEvent(el,value){
+  const R=regionOf(el),settingId=el.dataset.setting||null,id=el.dataset.ui||null;
+  if(settingId){setDraft(settingId,value);}
+  if(R&&R.status==="ready"&&id){
+    walkTree(R.tree,n=>{if(n.id===id){if(!n.setting)n.value=value;return false;}});
+    call(R,{event:"change",node:id,setting:settingId,value});
+  }
+  render();
+}
+function onRegionClick(el){
+  const R=regionOf(el);if(!R||R.status!=="ready")return;
+  call(R,{event:"click",node:el.dataset.ui});
+}
+document.addEventListener("click",e=>{
+  const t=e.target;
+  const nbEl=t.closest(".nb[data-note]");
+  if(nbEl){S.noteHl=+nbEl.dataset.note;if(S.panel!=="notes")S.panel="notes";$("#optPanel").value="notes";render();document.getElementById("note-"+S.noteHl)?.scrollIntoView({block:"center"});return;}
+  const fold=t.closest("[data-fold]");
+  if(fold&&!PAGES[fold.dataset.fold]){S.open[fold.dataset.fold]=!S.open[fold.dataset.fold];render();return;}
+  const nav=t.closest("[data-nav]");if(nav){go(nav.dataset.nav);return;}
+  const g=t.closest("[data-goto]");if(g){S.navq="";$("#navq").value="";go(g.dataset.goto,g.dataset.contrib);return;}
+  const act=t.closest("[data-act]");
+  if(act){
+    const a=act.dataset.act;
+    if(a==="toast")toast(act.dataset.msg);
+    else if(a==="contrib")go(S.page,act.dataset.c);
+    else if(a==="retry"){S.fault="none";$("#optFault").value="none";retry(act.dataset.key);}
+    else if(a==="panel"){S.panel=act.dataset.p;$("#optPanel").value=S.panel;render();}
+    else if(a==="apply"||a==="ok")applyAll(a==="ok");
+    else if(a==="cancel")cancelAll();
+    else if(a==="zoomIn"||a==="zoomOut"||a==="zoomFit"){
+      const [rk,cid]=act.dataset.cv.split("/");const R=REG[rk],C=R?.canv[cid];if(!C)return;
+      if(a==="zoomFit"){C.view={k:1,tx:0,ty:0};CNT.zoom++;schedViewport(R,C);draw(C);}
+      else zoomAt(R,C,C.el.clientWidth/2,C.scene.height/2,a==="zoomIn"?1.25:0.8);
+      const z=document.getElementById(`cvz-${rk}-${cid}`);if(z)z.textContent=`${Math.round(C.k0*C.view.k*100)}%`;
+    }
+    return;
+  }
+  const sw=t.closest(".sw[data-kind=toggle]");
+  if(sw){const v=!sw.classList.contains("on");uiEvent(sw,v);return;}
+  const seg=t.closest(".seg button[data-ui]");
+  if(seg){uiEvent(seg,seg.dataset.val);return;}
+  const btn=t.closest("button.btn[data-ui]");
+  if(btn){onRegionClick(btn);return;}
+});
+document.addEventListener("change",e=>{
+  const t=e.target;
+  if(t.matches("select[data-ui],select[data-setting]")){uiEvent(t,t.value);return;}
+  if(t.matches("input[data-kind=number]")){uiEvent(t,+t.value);return;}
+  if(t.matches("input[data-kind=string]")){uiEvent(t,t.value);return;}
+});
+document.addEventListener("keydown",e=>{
+  const t=e.target;
+  if(e.key==="Enter"&&t.matches("input[data-kind=text]")){commitText(t);}
+});
+document.addEventListener("focusout",e=>{if(e.target.matches?.("input[data-kind=text]"))commitText(e.target);});
+document.addEventListener("input",e=>{
+  const t=e.target;
+  if(t.id==="navq"){S.navq=t.value;$("#nav").innerHTML=navHtml();return;}
+  if(t.matches("input[data-kind=text]")){const R=regionOf(t);if(R)walkTree(R.tree,n=>{if(n.id===t.dataset.ui){n.pending=t.value;return false;}});}
+});
+function commitText(t){
+  const R=regionOf(t);if(!R||R.status!=="ready")return;
+  let node=null;walkTree(R.tree,n=>{if(n.id===t.dataset.ui){node=n;return false;}});
+  if(!node||node.committed===t.value||(node.committed===undefined&&(node.value||"")===t.value))return;
+  node.committed=t.value;node.value=t.value;
+  call(R,{event:"change",node:node.id,value:t.value});
+}
+document.addEventListener("mouseover",e=>{const i=e.target.closest?.("[data-tip]");if(i){const r=i.getBoundingClientRect();showTip(i.dataset.tip,r.left,r.bottom-8);}});
+document.addEventListener("mouseout",e=>{if(e.target.closest?.("[data-tip]"))hideTip();});
+document.addEventListener("focusin",e=>{const i=e.target.closest?.("[data-tip]");if(i){const r=i.getBoundingClientRect();showTip(i.dataset.tip,r.left,r.bottom-8);}});
+document.addEventListener("focusout",e=>{if(e.target.closest?.("[data-tip]"))hideTip();});
+window.addEventListener("resize",()=>{for(const R of Object.values(REG))redrawAll(R);});
+
+function applyAll(close){
+  if(S.applying)return;
+  const ds={...DRAFT},ws=[...WRITES];
+  if(!Object.keys(ds).length&&!ws.length){if(close)toast("演示：关闭设置窗口");return;}
+  S.applying=true;render();
+  setTimeout(()=>{
+    // Core 按清单校验：类型、取值范围、只能写本插件声明过的 ID
+    const bad=Object.entries(ds).filter(([id,v])=>{const s=SETTING(id);if(!s)return true;if(s.type==="enum")return !s.options.some(o=>o[0]===v);if(s.type==="number")return !(v>=s.min&&v<=s.max);if(s.type==="bool")return typeof v!=="boolean";return typeof v!=="string";});
+    if(bad.length){S.applying=false;toast(`Core 拒绝写入：${bad.map(b=>SETTING(b[0])?.title||b[0]).join("、")} 的值不合法，草稿已保留`);render();return;}
+    for(const [id,v] of Object.entries(ds)){SAVED[id]=v;delete DRAFT[id];}
+    const owners=new Set(ws.map(w=>w.owner));
+    for(const o of owners){const R=REG[o];if(R&&R.status==="ready")call(R,{event:"apply",writes:ws.filter(w=>w.owner===o).map(w=>w.id)});else{for(const w of ws.filter(x=>x.owner===o))WRITES.splice(WRITES.indexOf(w),1);}}
+    log("host","core",`Core 校验并写入 ${Object.keys(ds).length} 项插件设置${ws.length?`；请插件执行 ${ws.length} 项写入`:""}`);
+    S.applying=false;
+    toast(ws.length?"已应用：插件写入完成后会重新读取，界面显示读取到的结果":"已应用：Core 校验通过并写入");
+    if(close)setTimeout(()=>toast("演示：关闭设置窗口"),900);
+    render();
+  },600);
+}
+function cancelAll(){
+  const ds=Object.keys(DRAFT);for(const id of ds)delete DRAFT[id];
+  for(const id of ds){const R=REG[OWNER(id)];if(R&&R.status==="ready"){
+    let bound=null;walkTree(R.tree,n=>{if(n.setting===id&&n.id){bound=n;return false;}});
+    if(bound)call(R,{event:"change",node:bound.id,setting:id,value:SAVED[id]});}}
+  const ws=[...WRITES];WRITES.length=0;
+  const owners=new Set(ws.map(w=>w.owner));
+  for(const o of owners){const R=REG[o];if(R&&R.status==="ready")call(R,{event:"discard",writes:ws.filter(w=>w.owner===o).map(w=>w.id)});}
+  render();
+}
+
+/* 地址参数里的 click / tip，只用于截图 */
+function hashActions(R){
+  const doClick=H.click&&H.click.split(":")[0];
+  if(doClick&&R.canv[doClick]){const id=H.click.slice(doClick.length+1);setTimeout(()=>canvasClick(R,R.canv[doClick],id),30);}
+  const tipCv=H.tip&&H.tip.split(":")[0];
+  if(tipCv&&R.canv[tipCv]){const id=H.tip.slice(tipCv.length+1);setTimeout(()=>{const C=R.canv[tipCv];const h=C.hits.find(x=>x.id===id);if(!h||!C.el)return;
+    const [x,y,w,hh]=h.bbox;const p=h.m.transformPoint(new DOMPoint(x+w/2,y+hh*0.55));const r=C.el.getBoundingClientRect();
+    C.hover=id;draw(C);updateStatus(R,C);showTip(h.tip,r.left+p.x/C.dpr,r.top+p.y/C.dpr);},120);}
+}
+
+/* ================= 启动 ================= */
+$("#optDark").checked=S.dark;$("#optLat").value=String(S.lat);$("#optFault").value=S.fault;$("#optPanel").value=S.panel;
+$("#optDark").onchange=e=>{S.dark=e.target.checked;render();};
+$("#optLat").onchange=e=>{S.lat=+e.target.value;};
+$("#optFault").onchange=e=>{S.fault=e.target.value;retry(visibleRegion());toast(S.fault==="none"?"已恢复正常，重新打开插件区域":"已重新打开插件区域，看框里的变化");};
+$("#optPanel").onchange=e=>{S.panel=e.target.value;render();};
+if(!PAGES[S.page])S.page="maven";
+openRegion(visibleRegion());
+render();
+</script>
+</body>
+</html>
