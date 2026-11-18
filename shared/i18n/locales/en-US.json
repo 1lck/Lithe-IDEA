@@ -11474,6 +11474,8 @@
     "desktop.runConfig.fieldName": "Name",
     "desktop.runConfig.fieldStoreAsProjectFile": "Store as project file",
     "desktop.runConfig.storeAsProjectFileHelp": "Checked, the configuration is saved in .lithe/run/configurations.yaml and can be committed with the project; unchecked, it stays on this machine in .lithe/run/local.yaml.",
+    "desktop.runConfig.fieldAllowMultipleInstances": "Allow multiple instances",
+    "desktop.runConfig.allowMultipleInstancesHelp": "Checked, starting the configuration while it runs starts another instance beside the running one; unchecked, the running instance is stopped and started again.",
     "desktop.runConfig.fieldSource": "Execute",
     "desktop.runConfig.sourceFile": "Script file",
     "desktop.runConfig.sourceText": "Script text",

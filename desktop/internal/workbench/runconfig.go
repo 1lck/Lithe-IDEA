@@ -33,11 +33,15 @@ type runConfigState struct {
 	// release's JSON document its YAML replacement wins over. The built-in configurations
 	// still list; the run menu names each file so its configurations do not vanish silently.
 	ignored []string
-	// types are the built-in kinds a user can create, in display order, each with the reason
-	// this platform cannot run it, if any; read once per project; typesLoading is set while
-	// they are asked for.
-	types        []core.RunConfigurationType
-	typesLoading bool
+	// types are the kinds a user can create, in display order, each with the reason this
+	// platform cannot run it, if any: the built-in ones, then the ones enabled plugins
+	// declare. typePlugins are the plugins that declare them, as requests about those kinds
+	// send them, nil when none does; both are replaced, never changed, by the next read.
+	// typesLoading is set while they are asked for, and typesStale says to read them again
+	// once that answers (loadRunConfigTypes).
+	types                    []core.RunConfigurationType
+	typePlugins              *core.RunTypePlugins
+	typesLoading, typesStale bool
 	// manualOrder says list is in the order the user gave it on this machine rather than by
 	// name; Core keeps the choice locally and lists the configurations in that order.
 	manualOrder bool
@@ -157,16 +161,16 @@ func (a *App) finishRunConfigurations(p *project, generation uint64, resolved co
 	s.loading = false
 	defer a.settleTitleAction(p)
 	a.loadRunConfigPins(p)
-	a.loadRunConfigTypes(p)
+	a.loadRunConfigTypes(p, false)
 	if err != nil {
 		s.failure = err.Error()
 		s.reveal, s.start = "", ""
 		return
 	}
 	s.failure = ""
-	// Built-in process runs and build provider runs start here; the host has no launcher
-	// for the other providers Core detects. An unavailable entry stays listed with its
-	// reason, so the user can fix or delete it.
+	// Built-in process runs, build provider runs and the kinds plugins declare start here;
+	// the host has no launcher for the other providers Core detects. An unavailable entry
+	// stays listed with its reason, so the user can fix or delete it.
 	s.hidden = 0
 	var ignored []string
 	for _, diagnostic := range resolved.Diagnostics {
@@ -183,7 +187,8 @@ func (a *App) finishRunConfigurations(p *project, generation uint64, resolved co
 	s.ignored = ignored
 	s.list = slices.DeleteFunc(resolved.Configurations, func(c core.RunConfiguration) bool {
 		_, ok := c.BuildReference()
-		ok = ok || c.IsProcess() || c.Unavailable()
+		_, declared := c.RunTypeReference()
+		ok = ok || declared || c.IsProcess() || c.Unavailable()
 		if !ok && !c.Disabled {
 			s.hidden++
 		}
@@ -219,12 +224,18 @@ func (a *App) finishRunConfigurations(p *project, generation uint64, resolved co
 // button that is disabled; the IDE API reports it through startRunConfiguration, which
 // leaves the windows as they are.
 func (a *App) runConfiguration(p *project, id string) {
-	// A configuration that runs is stopped first and started again once it ended (startRun).
-	a.startRun(p, configurationRunKey(id), func(a *App, p *project) {
+	start := func(a *App, p *project) {
 		if _, err := a.startRunConfiguration(p, id); err == nil {
 			a.showBuildConsole(p)
 		}
-	})
+	}
+	// A configuration that allows several instances starts beside the ones that run; any
+	// other that runs is stopped first and started again once it ended (startRun).
+	if configuration := p.runConfigs.configuration(id); configuration != nil && configuration.AllowMultipleInstances {
+		start(a, p)
+		return
+	}
+	a.startRun(p, configurationRunKey(id), start)
 }
 
 // configurationRunKey is the run key of run configuration id.
@@ -246,7 +257,8 @@ func (a *App) startRunConfigurationWith(p *project, id string, debug *connection
 	if configuration == nil {
 		return nil, refuseBuild(refusalNotFound, "unknown run configuration")
 	}
-	if p.build.runOf(configurationRunKey(id)) != nil {
+	// Only a run, never a debug session, starts beside one of the same configuration.
+	if p.build.runOf(configurationRunKey(id)) != nil && (debug != nil || !configuration.AllowMultipleInstances) {
 		return nil, errRunRunning
 	}
 	if configuration.Unavailable() {
@@ -258,6 +270,17 @@ func (a *App) startRunConfigurationWith(p *project, id string, debug *connection
 	if configuration.IsProcess() {
 		if debug != nil {
 			return nil, refuseBuild(refusalNotSupported, "a built-in process run has no debugger")
+		}
+		return a.startProcessRun(p, *configuration), nil
+	}
+	if key, ok := configuration.RunTypeReference(); ok {
+		if debug != nil {
+			return nil, refuseBuild(refusalNotSupported, "a run configuration a plugin declares has no debugger")
+		}
+		if !p.hasRunTypeInstance(key) {
+			a.operationRejected("run_configuration", "target_missing")
+			a.notifyError(a.text.Build.TargetMissing)
+			return nil, refuseBuild(refusalNotReady, a.text.Build.TargetMissing)
 		}
 		return a.startProcessRun(p, *configuration), nil
 	}
@@ -346,14 +369,17 @@ func (p *project) buildInstanceIndex(reference core.RunProviderReference) int {
 }
 
 // runConfigurationReady reports whether a configuration can start now: a built-in process
-// run always can unless it is unavailable; a build provider run once its build instance has
-// a loaded model.
+// run always can unless it is unavailable; one of a kind a plugin declares once its build
+// system is detected; a build provider run once its build instance has a loaded model.
 func (p *project) runConfigurationReady(configuration core.RunConfiguration) bool {
 	if configuration.Unavailable() {
 		return false
 	}
 	if configuration.IsProcess() {
 		return true
+	}
+	if key, ok := configuration.RunTypeReference(); ok {
+		return p.hasRunTypeInstance(key)
 	}
 	reference, ok := configuration.BuildReference()
 	if !ok {
@@ -390,7 +416,8 @@ func (a *App) runConfigUnavailableText(configuration core.RunConfiguration) stri
 	case "invalidConfiguration":
 		return i18n.SharedFormat(language, "desktop.runConfig.unavailableInvalid", map[string]string{"reason": availability.Message})
 	case "unsupportedPlatform":
-		return a.runAvailabilityText(configuration.Provider, *availability)
+		kind, _ := runConfigKindOf(configuration)
+		return a.runAvailabilityText(kind, *availability)
 	}
 	return i18n.SharedFormat(language, "desktop.runConfig.unavailableOther", map[string]string{"reason": availability.Message})
 }

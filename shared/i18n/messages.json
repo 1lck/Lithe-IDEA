@@ -15761,6 +15761,20 @@
       ]
     },
     {
+      "id": "desktop.runConfig.fieldAllowMultipleInstances",
+      "description": "Checkbox of a run configuration that lets it start again while it runs, beside the running instance.",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.runConfig.allowMultipleInstancesHelp",
+      "description": "Tooltip of the allow multiple instances checkbox: what starting a running configuration does either way.",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
       "id": "desktop.runConfig.fieldSource",
       "description": "Label of the choice between running a script file and running script text.",
       "platforms": [

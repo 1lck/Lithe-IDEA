@@ -95,11 +95,14 @@ type runConfigRow struct {
 const runProcessGroupKey = "\x00process"
 
 // runConfigGroupKey names the group of a configuration: the built-in runs, or the build
-// system that provides it, by its plugin and build system whatever root the system was
-// detected at, or the plugin a run that cannot resolve needs.
+// system that provides it or declares its kind, by its plugin and build system whatever root
+// the system was detected at, or the plugin a run that cannot resolve needs.
 func runConfigGroupKey(configuration *core.RunConfiguration) string {
 	if configuration.IsProcess() {
 		return runProcessGroupKey
+	}
+	if key, ok := configuration.RunTypeReference(); ok {
+		return key.PluginID + "\x00" + key.BuildSystemID
 	}
 	reference, ok := configuration.BuildReference()
 	if !ok && configuration.Plugin != nil {
@@ -200,6 +203,15 @@ func (p *project) collectRunConfigRows(language i18n.Language) {
 func (p *project) runConfigGroupTitle(language i18n.Language, configuration *core.RunConfiguration) string {
 	if configuration.IsProcess() {
 		return i18n.Shared(language, "desktop.runConfig.builtInGroup")
+	}
+	if key, ok := configuration.RunTypeReference(); ok {
+		if instances := p.runTypeInstances(key); len(instances) > 0 && instances[0].System.DisplayName != "" {
+			return instances[0].System.DisplayName
+		}
+		if plugin := configuration.Plugin; plugin != nil && plugin.Name != "" {
+			return plugin.Name
+		}
+		return key.BuildSystemID
 	}
 	reference, ok := configuration.BuildReference()
 	if plugin := configuration.Plugin; !ok && plugin != nil {

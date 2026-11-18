@@ -1,0 +1,41 @@
+{
+  "id": "run-plugin-declared-types",
+  "area": "运行与调试",
+  "group": "运行配置",
+  "capability": "插件为自己的构建系统声明运行配置类型：运行/调试配置对话框的“+”菜单在内置类型之后列出这些类型，编辑器显示插件声明的字段（文本、选择、复选框、文件、目录、实参）和插件翻译的文字；保存后与内置运行一样从标题栏、运行配置列表和对话框启动",
+  "owner": "Run",
+  "notes": "Viva 共享实现。类型由插件清单 buildSystems[].runConfigurationTypes 声明（契约 runConfigurationTypes 0，API-29），Core 的 runConfig.configurationTypes、editorForm、saveConfiguration 和 build.runConfigurationPlan 负责列出、表单、校验保存和计划命令，宿主只读取 Core 指定的插件翻译文件（安装包只读）并绘制、启动。配置写在 .lithe/run/plugin/<插件 ID>.toml（存为项目文件时）或本机层，provider 为 build.run-type。检测到该构建系统后才能启动，未检测到时标题栏显示缺少实例、启动被拒绝；插件被停用或卸载时配置仍列出但不可编辑。插件声明的类型没有调试器，调试启动被拒绝。路径图标暂按执行类别显示宿主图标。不提供远程运行类型。",
+  "verification": "安装一个声明了运行配置类型的插件，打开含该构建系统标记的项目；打开“运行/调试配置”，点“+”，确认插件类型列在内置类型之后，显示插件的名称、说明和图标；新建一个，确认表单显示插件字段，中文界面显示插件的中文翻译，选择字段的选项也被翻译，必填字段留空时保存报错；填写后点“运行”，确认 Run 窗口显示插件工具的输出、参数按插件模板拼出；勾选“存为项目文件”时文件写入 .lithe/run/plugin/。删掉项目里的构建系统标记后重新打开，确认配置仍列出但不能启动。自动化：runconfig_types_test.go 的 TestPluginDeclaredRunKindIsCreatedSavedAndRun、TestPluginDeclaredRunStartsSeveralInstances、TestPluginDeclaredRunWithoutItsBuildSystemDoesNotStart；Viva 无头截图由 runconfig_types_visual_test.go 的 TestVisualPluginDeclaredRuns 生成（深色中文、浅色英文：“+”菜单、表单、两个实例），截图在 docs/assets/plugin-declared-runs/。",
+  "macos": {
+    "implementationStatus": "implemented",
+    "verificationStatus": "pending",
+    "evidence": [
+      "desktop/internal/workbench/runconfig_types.go",
+      "desktop/internal/workbench/runconfig_form.go",
+      "desktop/internal/workbench/runconfig_form_view.go",
+      "desktop/internal/workbench/runconfig_dialog.go",
+      "desktop/internal/workbench/runconfig_dialog_view.go",
+      "desktop/internal/workbench/runconfig.go",
+      "desktop/internal/core/run_process.go",
+      "desktop/internal/core/build.go",
+      "desktop/internal/workbench/runconfig_types_test.go",
+      "desktop/internal/workbench/runconfig_types_visual_test.go"
+    ]
+  },
+  "windows": {
+    "implementationStatus": "implemented",
+    "verificationStatus": "pending",
+    "evidence": [
+      "desktop/internal/workbench/runconfig_types.go",
+      "desktop/internal/workbench/runconfig_form.go",
+      "desktop/internal/workbench/runconfig_form_view.go",
+      "desktop/internal/workbench/runconfig_dialog.go",
+      "desktop/internal/workbench/runconfig_dialog_view.go",
+      "desktop/internal/workbench/runconfig.go",
+      "desktop/internal/core/run_process.go",
+      "desktop/internal/core/build.go",
+      "desktop/internal/workbench/runconfig_types_test.go",
+      "desktop/internal/workbench/runconfig_types_visual_test.go"
+    ]
+  }
+}

@@ -53,6 +53,9 @@ type RunConfiguration struct {
 	Availability *RunAvailability `json:"availability,omitempty"`
 	// BeforeLaunch names the built-in process runs started, in order, before this one.
 	BeforeLaunch []RunBeforeLaunchStep `json:"beforeLaunch,omitempty"`
+	// AllowMultipleInstances lets a new run start beside one still running instead of
+	// stopping it first.
+	AllowMultipleInstances bool `json:"allowMultipleInstances,omitempty"`
 }
 
 // RunBeforeLaunchStep is one step of a configuration's beforeLaunch: the built-in
@@ -137,6 +140,20 @@ func (r RunConfiguration) BuildReference() (RunProviderReference, bool) {
 		return RunProviderReference{}, false
 	}
 	return reference, true
+}
+
+// RunTypeReference is the declared kind a `build.run-type` configuration belongs to,
+// when it is one.
+func (r RunConfiguration) RunTypeReference() (RunTypeKey, bool) {
+	raw, ok := r.Extensions["build"]
+	if !ok || r.Provider != RunTypeProvider {
+		return RunTypeKey{}, false
+	}
+	var key RunTypeKey
+	if json.Unmarshal(raw, &key) != nil || key.PluginID == "" || key.BuildSystemID == "" || key.Type == "" {
+		return RunTypeKey{}, false
+	}
+	return key, true
 }
 
 // RunConfigResolution is what `runConfig.resolve` returns: the effective

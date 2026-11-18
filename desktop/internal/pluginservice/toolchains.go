@@ -18,6 +18,9 @@ type ToolchainPlugin struct {
 	PluginID string
 	Version  string
 	Manifest json.RawMessage
+	// Directory is the installed package, read-only; files the manifest names, such as
+	// its translations, are read from it.
+	Directory string
 }
 
 // ToolchainPlugins reads the newest enabled version of every plugin. The
@@ -37,9 +40,10 @@ func (s *Service) ToolchainPlugins(ctx context.Context, entries []pluginmanager.
 			continue
 		}
 		plugins = append(plugins, ToolchainPlugin{
-			PluginID: entry.Installed.ID,
-			Version:  entry.Installed.Version,
-			Manifest: manifest,
+			PluginID:  entry.Installed.ID,
+			Version:   entry.Installed.Version,
+			Manifest:  manifest,
+			Directory: entry.Installed.Path,
 		})
 	}
 	return plugins, errors.Join(failures...)

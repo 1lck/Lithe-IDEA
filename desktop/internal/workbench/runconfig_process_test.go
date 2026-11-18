@@ -238,7 +238,7 @@ func newRunConfigDraft(t *testing.T, h *harness, p *project, provider string) *r
 	d := &p.runConfigs.dialog
 	h.app.post(func(a *App) {
 		a.openRunConfigDialog(p, "")
-		a.addRunConfigDraft(p, provider, nil)
+		a.addRunConfigDraft(p, builtInKind(provider), nil)
 	})
 	var f *runConfigForm
 	awaitStateWithin(t, h, 10*time.Second, "the new configuration's form", func() bool {

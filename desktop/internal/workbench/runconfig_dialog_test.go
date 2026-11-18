@@ -81,7 +81,7 @@ func TestRunConfigDialogSavesWhatItHoldsTogether(t *testing.T) {
 	fillScriptText(t, h, p, one, "One", "echo one\n")
 	var two *runConfigForm
 	h.app.post(func(a *App) {
-		a.addRunConfigDraft(p, runProviderShell, nil)
+		a.addRunConfigDraft(p, builtInKind(runProviderShell), nil)
 		two = d.drafts[d.selected].form
 	})
 	awaitStateWithin(t, h, 10*time.Second, "the second form", func() bool { return two != nil && two.ready() })
@@ -117,7 +117,7 @@ func TestRunConfigDialogSavesWhatItHoldsTogether(t *testing.T) {
 	h.app.post(func(a *App) {
 		a.selectRunConfigDraft(p, oneID)
 		a.removeRunConfigDraft(p)
-		a.addRunConfigDraft(p, runProviderExecutable, nil)
+		a.addRunConfigDraft(p, builtInKind(runProviderExecutable), nil)
 		a.closeRunConfigDialog(p)
 	})
 	h.settle()
@@ -218,7 +218,7 @@ func savedShellRuns(t *testing.T, h *harness, p *project, names ...string) map[s
 			f = newRunConfigDraft(t, h, p, runProviderShell)
 		} else {
 			h.app.post(func(a *App) {
-				a.addRunConfigDraft(p, runProviderShell, nil)
+				a.addRunConfigDraft(p, builtInKind(runProviderShell), nil)
 				f = d.drafts[d.selected].form
 			})
 			awaitStateWithin(t, h, 10*time.Second, "the form of "+name, func() bool { return f != nil && f.ready() })
@@ -301,7 +301,7 @@ func TestRunConfigDialogEmptyStateOffersToAdd(t *testing.T) {
 
 	h.click(center(h.hitLabeled(i18n.Shared(language, "desktop.runConfig.addNew"))))
 	h.popupClick(shell)
-	if draft := d.drafts[d.selected]; draft == nil || draft.form == nil || draft.form.provider != runProviderShell || d.newMenu != runConfigNewMenuClosed {
+	if draft := d.drafts[d.selected]; draft == nil || draft.form == nil || draft.form.kind != builtInKind(runProviderShell) || d.newMenu != runConfigNewMenuClosed {
 		t.Fatalf("selected %q, menu %v after choosing a kind", d.selected, d.newMenu)
 	}
 }
@@ -432,7 +432,7 @@ func TestRunConfigDialogOrdersTheListWhenNotSorted(t *testing.T) {
 	// A configuration added while the list is ordered goes after the others and keeps its place.
 	var added *runConfigForm
 	h.app.post(func(a *App) {
-		a.addRunConfigDraft(p, runProviderShell, nil)
+		a.addRunConfigDraft(p, builtInKind(runProviderShell), nil)
 		added = d.drafts[d.selected].form
 	})
 	awaitStateWithin(t, h, 10*time.Second, "the new form", func() bool { return added != nil && added.ready() })
