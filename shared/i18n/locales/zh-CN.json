@@ -11519,7 +11519,23 @@
     "desktop.runConfig.unavailableVersionUnsupported": "已安装的“{plugin}”版本不满足要求 {requirement}。",
     "desktop.runConfig.unavailableMissingDirectory": "工作目录“{directory}”不存在了，请编辑配置修改它。",
     "desktop.runConfig.unavailableInvalid": "运行配置无效：{reason}",
-    "desktop.runConfig.unavailableOther": "此运行配置现在无法运行：{reason}"
+    "desktop.runConfig.unavailableOther": "此运行配置现在无法运行：{reason}",
+    "desktop.toolchains.trustProject": "信任当前项目中的工具环境",
+    "desktop.toolchains.trustProjectHelp": "允许 Lithe 对当前项目目录内的工具环境（如虚拟环境）和包装器执行版本探测与运行。此授权仅在本机对当前工作区生效，保存在应用本机设置中而不会写入项目 .lithe/，且可随时撤销。请仅对来源可信的项目开启；已运行的进程需重启后使用更新后的工具链。",
+    "desktop.toolchains.trustStatusTrusted": "本机此项目 · 已信任",
+    "desktop.toolchains.trustStatusUntrusted": "本机此项目 · 未信任",
+    "desktop.toolchains.projectTrustRequiredNotice": "检测到项目内的工具环境；在开启项目信任前不会探测版本或运行。",
+    "desktop.toolchains.projectCandidateBlocked": "{path} · 需信任当前项目后探测与使用",
+    "desktop.toolchains.updatingTrust": "正在更新项目信任状态…",
+    "desktop.toolchains.reasonProjectTrustRequired": "需要信任当前项目",
+    "desktop.toolchains.reasonProbeFailed": "版本检测失败",
+    "desktop.toolchains.reasonVersionUnsatisfied": "不满足最低版本要求",
+    "desktop.toolchains.reasonNotExecutable": "文件不可执行",
+    "desktop.toolchains.reasonUnsafePath": "路径不安全或超出允许目录",
+    "desktop.toolchains.layerPinned": "已固定",
+    "desktop.toolchains.layerProject": "项目环境",
+    "desktop.toolchains.layerGlobal": "全局默认",
+    "desktop.toolchains.layerAutomatic": "自动发现"
   },
   "overrides": {
     "macos": {

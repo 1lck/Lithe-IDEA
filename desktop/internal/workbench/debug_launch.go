@@ -81,7 +81,7 @@ func (a *App) resolveAdapterProcess(ctx context.Context, adapter debugAdapter, p
 			if err != nil {
 				return "", nil, nil, err
 			}
-			selected, err = toolchain.Resolve(ctx, a.kernel, root, ".", plan.Launch.Tool, plan.Launch.MinimumVersion, &toolchain.Fixed{Executable: runtime}, manifests, toolchain.Options{Platform: buildPlatform()})
+			selected, err = toolchain.Resolve(ctx, a.kernel, root, ".", plan.Launch.Tool, plan.Launch.MinimumVersion, &toolchain.Fixed{Executable: runtime}, manifests, toolchain.Options{Platform: buildPlatform(), GlobalRoot: a.globalToolchainRoot()})
 			if err != nil {
 				return "", nil, nil, err
 			}
@@ -227,13 +227,31 @@ func (a *App) prepareDebugLaunch(ctx context.Context, start debugStart, stateDir
 	if planned.Connection != nil && planned.Connection.Remote && !start.confirmed {
 		return preparedDebugLaunch{}, &debugRemoteError{host: planned.Connection.Host, port: planned.Connection.Port}
 	}
-	for _, directory := range plan.RequiredDirectories {
-		relative, err := filepath.Rel(stateDirectory, directory)
-		if err != nil {
-			return preparedDebugLaunch{}, adapterUnresolved(err)
-		}
-		if relative == ".." || strings.HasPrefix(relative, ".."+string(filepath.Separator)) || filepath.IsAbs(relative) {
+	for _, slot := range plan.RequiredDirectories {
+		var directory string
+		switch slot {
+		case "state":
+			directory = directories.StateDirectory
+		case "workspaceState":
+			directory = directories.WorkspaceStateDirectory
+		case "log":
+			directory = directories.LogDirectory
+		case "temporary":
+			directory = directories.TemporaryDirectory
+		default:
 			return preparedDebugLaunch{}, adapterUnresolved(errors.New(unavailable))
+		}
+		if directory == "" || !filepath.IsAbs(directory) {
+			return preparedDebugLaunch{}, adapterUnresolved(errors.New(unavailable))
+		}
+		if slot != "log" {
+			relative, err := filepath.Rel(stateDirectory, directory)
+			if err != nil {
+				return preparedDebugLaunch{}, adapterUnresolved(err)
+			}
+			if relative == ".." || strings.HasPrefix(relative, ".."+string(filepath.Separator)) || filepath.IsAbs(relative) {
+				return preparedDebugLaunch{}, adapterUnresolved(errors.New(unavailable))
+			}
 		}
 		if err := ctx.Err(); err != nil {
 			return preparedDebugLaunch{}, err

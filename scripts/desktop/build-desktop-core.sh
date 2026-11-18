@@ -27,6 +27,11 @@ native_path() {
     fi
 }
 
+# Lithe-core-rust #93 branch commit 86bd06a (update to main squash commit after Lithe-IDEA/Lithe-core-rust#93
+# merges and before gh pr ready): toolchains.discoveryPlan expands projectFile discovery strategies
+# along workspace ancestors, toolchains.candidates and toolchains.resolve report project candidates
+# and validate symlinked .venv chains, and toolchains.readCatalogForWorkspace / editWorkspaceTrust
+# keep per-workspace projectCodeAllowed in the machine-local catalog (#2122).
 # Lithe-core-rust main at d833d6a, #89 squash-merged (on top of bb4832e, #88): buildProviders 1
 # adds runs with entrypoints: true; build.runEntrypointsPlan and build.decodeRunEntrypoints ask a
 # provider for the entrypoints of one source file, prepareRunPlan takes an entrypoint run without a
@@ -214,7 +219,7 @@ PINNED_CORE_REPOSITORY="https://github.com/Lithe-IDEA/Lithe-core-rust.git"
 # the contract, plugin guides, reference and SDKs live only in shared/plugins; on top of #16 (reported Git queries folded in the console),
 # #15 (git.write cherryPick, revert and reset fields), #14 (word-level changed ranges of diff
 # rows), #13, #8, #7, #6 and #4.
-PINNED_CORE_REVISION="d833d6a71dfeaa5eda39d23f6a3a1a9ee29ff9ed"
+PINNED_CORE_REVISION="86bd06a6393e543ca72d66c8398a7e0bd6a18971"
 PROFILE="debug"
 while [[ $# -gt 0 ]]; do
     case "$1" in

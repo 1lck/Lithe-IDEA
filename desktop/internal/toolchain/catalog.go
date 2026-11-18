@@ -10,8 +10,9 @@ import (
 )
 
 type catalogKernel interface {
-	ReadToolchainCatalog(context.Context, *string, string) (core.ToolchainCatalogState, error)
+	ReadToolchainCatalogForWorkspace(context.Context, *string, string, string) (core.ToolchainCatalogState, error)
 	EditToolchainCatalog(context.Context, *string, string, []core.ToolchainCatalogEdit) (core.ToolchainCatalogPublication, error)
+	EditToolchainWorkspaceTrust(context.Context, *string, string, core.ToolchainWorkspaceTrustEdit) (core.ToolchainCatalogPublication, error)
 }
 
 type catalogSource struct {
@@ -20,9 +21,14 @@ type catalogSource struct {
 	platform string
 }
 
-// Global registrations live in the platform preference root. Reads do not create
-// that root; source bytes and native identity remain private to this adapter.
-func captureCatalog(ctx context.Context, kernel Kernel, root, platform string) (*catalogSource, error) {
+// Global SDK registrations and machine-local workspace toolchain trust
+// (trustedWorkspaces / projectCodeAllowed) live in <GlobalRoot>/toolchains/global.json
+// inside the platform user preference directory (Application Support / LocalAppData).
+// They are never written to the app bundle, plugin package directories or workspace
+// .lithe/, do not affect code signing or Sparkle delta updates, and are never copied
+// across worktrees. Reads do not create the root or file; source bytes and native
+// identity remain private to this adapter.
+func captureCatalog(ctx context.Context, kernel Kernel, root, workspaceRoot, platform string) (*catalogSource, error) {
 	if root == "" {
 		return nil, nil
 	}
@@ -33,7 +39,7 @@ func captureCatalog(ctx context.Context, kernel Kernel, root, platform string) (
 	if platform == "" {
 		platform = PlatformName(runtime.GOOS)
 	}
-	plan, err := native.ReadToolchainCatalog(ctx, nil, platform)
+	plan, err := native.ReadToolchainCatalogForWorkspace(ctx, nil, platform, "")
 	if err != nil {
 		return nil, err
 	}
@@ -45,7 +51,7 @@ func captureCatalog(ctx context.Context, kernel Kernel, root, platform string) (
 	if err != nil {
 		return nil, err
 	}
-	state, err := native.ReadToolchainCatalog(ctx, document, platform)
+	state, err := native.ReadToolchainCatalogForWorkspace(ctx, document, platform, workspaceRoot)
 	if err != nil {
 		return nil, err
 	}
@@ -93,6 +99,63 @@ func (s Snapshot) SaveCatalog(ctx context.Context, kernel Kernel, edits []Edit) 
 		return false, errors.New("toolchain: changed catalog has no source")
 	}
 	committed, err := s.catalog.file.Replace(ctx, []byte(*change.Document), func() error { return s.catalog.file.Verify(ctx) })
+	if errors.Is(err, configfile.ErrConflict) {
+		err = errors.Join(ErrPinConflict, err)
+	}
+	if err != nil && committed {
+		err = errors.Join(ErrPinCommitted, err)
+	}
+	return committed, err
+}
+
+// SaveWorkspaceTrust grants or revokes machine-local permission to probe and
+// select tool environments or wrappers inside s.Root. It writes only to the
+// platform preference root (toolchains/global.json), never to .lithe/ inside
+// the workspace, and rejects stale sources or replaced workspace directories.
+func (s Snapshot) SaveWorkspaceTrust(ctx context.Context, kernel Kernel, trusted bool) (bool, error) {
+	if s.Global || s.Root == "" || s.catalog == nil {
+		return false, ErrPinConflict
+	}
+	native, ok := kernel.(catalogKernel)
+	if !ok {
+		return false, ErrPinConflict
+	}
+	if err := ctx.Err(); err != nil {
+		return false, err
+	}
+	check := func() error {
+		if err := checkDirectoryIdentity(ctx, s.Root, s.rootIdentity); err != nil {
+			return err
+		}
+		if err := s.catalog.file.Verify(ctx); err != nil {
+			if errors.Is(err, configfile.ErrConflict) {
+				return errors.Join(ErrPinConflict, err)
+			}
+			return err
+		}
+		return nil
+	}
+	if err := check(); err != nil {
+		return false, err
+	}
+	text, err := s.catalog.file.Text()
+	if err != nil {
+		return false, err
+	}
+	change, err := native.EditToolchainWorkspaceTrust(ctx, text, s.catalog.platform, core.ToolchainWorkspaceTrustEdit{
+		Workspace: s.Root,
+		Trusted:   trusted,
+	})
+	if err != nil {
+		return false, err
+	}
+	if !change.Changed {
+		return false, check()
+	}
+	if change.Document == nil {
+		return false, errors.New("toolchain: changed catalog has no source")
+	}
+	committed, err := s.catalog.file.Replace(ctx, []byte(*change.Document), check)
 	if errors.Is(err, configfile.ErrConflict) {
 		err = errors.Join(ErrPinConflict, err)
 	}

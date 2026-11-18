@@ -11519,7 +11519,23 @@
     "desktop.runConfig.unavailableVersionUnsupported": "The installed “{plugin}” does not meet the version requirement {requirement}.",
     "desktop.runConfig.unavailableMissingDirectory": "The working directory “{directory}” no longer exists. Edit the configuration to change it.",
     "desktop.runConfig.unavailableInvalid": "The run configuration is invalid: {reason}",
-    "desktop.runConfig.unavailableOther": "This run configuration cannot run now: {reason}"
+    "desktop.runConfig.unavailableOther": "This run configuration cannot run now: {reason}",
+    "desktop.toolchains.trustProject": "Trust tool environments in this project",
+    "desktop.toolchains.trustProjectHelp": "Allows Lithe to probe versions of and run tool environments (such as virtual environments) and wrappers located inside this project folder. Trust applies only to this workspace on this machine, is saved in local application settings rather than .lithe/, and can be revoked at any time. Enable this only for projects from sources you trust; running processes use updated toolchains after restarting.",
+    "desktop.toolchains.trustStatusTrusted": "This project on this machine · Trusted",
+    "desktop.toolchains.trustStatusUntrusted": "This project on this machine · Not trusted",
+    "desktop.toolchains.projectTrustRequiredNotice": "Project tool environments were detected and will not be probed or run until this project is trusted.",
+    "desktop.toolchains.projectCandidateBlocked": "{path} · Requires trusting this project",
+    "desktop.toolchains.updatingTrust": "Updating project trust…",
+    "desktop.toolchains.reasonProjectTrustRequired": "Requires trusting this project",
+    "desktop.toolchains.reasonProbeFailed": "Version check failed",
+    "desktop.toolchains.reasonVersionUnsatisfied": "Does not meet minimum version",
+    "desktop.toolchains.reasonNotExecutable": "File is not executable",
+    "desktop.toolchains.reasonUnsafePath": "Unsafe or outside allowed root",
+    "desktop.toolchains.layerPinned": "Pinned",
+    "desktop.toolchains.layerProject": "Project",
+    "desktop.toolchains.layerGlobal": "Global",
+    "desktop.toolchains.layerAutomatic": "Automatic"
   },
   "overrides": {
     "windows": {

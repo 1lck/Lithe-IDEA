@@ -315,3 +315,175 @@ func TestToolchainSourceFailuresUseSelectedLanguage(t *testing.T) {
 		}
 	}
 }
+
+type trustToolchainLoader struct {
+	fakeToolchainLoader
+	globalSnapshot  toolchain.Snapshot
+	untrusted       toolchain.Snapshot
+	trustedSnapshot toolchain.Snapshot
+	trusted         bool
+	trustCalls      []bool
+	trustErr        error
+}
+
+func (l *trustToolchainLoader) LoadScope(_ context.Context, scope string) (toolchain.Snapshot, error) {
+	if scope == "global" {
+		return l.globalSnapshot, nil
+	}
+	if l.trusted {
+		return l.trustedSnapshot, nil
+	}
+	return l.untrusted, nil
+}
+
+func (l *trustToolchainLoader) SetWorkspaceTrust(_ context.Context, _ toolchain.Snapshot, trusted bool) (toolchain.Snapshot, error) {
+	l.trustCalls = append(l.trustCalls, trusted)
+	if l.trustErr != nil {
+		return toolchain.Snapshot{}, l.trustErr
+	}
+	l.trusted = trusted
+	if trusted {
+		return l.trustedSnapshot, nil
+	}
+	return l.untrusted, nil
+}
+
+func TestProjectToolchainTrustSwitchGrantsAndRevokesImmediately(t *testing.T) {
+	global := fixtureSnapshot()
+	global.Global = true
+	global.Root = ""
+
+	untrusted := toolchain.Snapshot{
+		Root:      "/fixture/project",
+		Directory: ".",
+		Tools: []toolchain.Tool{{
+			ID:          "dev.lithe.test.runtime:interp",
+			DisplayName: "Synthetic Runtime",
+			PluginID:    "dev.lithe.test.runtime",
+			Project: []core.ToolchainProjectCandidate{{
+				CandidateID: "project-venv",
+				ProjectKind: "environment",
+				Path:        "/fixture/project/.venv/bin/interp",
+				Home:        "/fixture/project/.venv",
+				Reason:      "projectCodeRequiresAction",
+			}},
+			Installations: []core.ToolchainInstallation{{
+				Home: "/fixture/system-runtime", Version: "3.11.0", Provider: "host:system",
+			}},
+		}},
+	}
+	venvVersion := "3.12.4"
+	venvHome := "/fixture/project/.venv"
+	trusted := toolchain.Snapshot{
+		Root:               "/fixture/project",
+		Directory:          ".",
+		ProjectCodeAllowed: true,
+		Tools: []toolchain.Tool{{
+			ID:            "dev.lithe.test.runtime:interp",
+			DisplayName:   "Synthetic Runtime",
+			PluginID:      "dev.lithe.test.runtime",
+			AutomaticHome: venvHome,
+			Effective: &core.ToolchainSelection{
+				Home:        &venvHome,
+				Executable:  "/fixture/project/.venv/bin/interp",
+				Version:     venvVersion,
+				Provider:    "host:project",
+				Layer:       "project",
+				ProjectCode: true,
+			},
+			Project: []core.ToolchainProjectCandidate{{
+				CandidateID: "project-venv",
+				ProjectKind: "environment",
+				Path:        "/fixture/project/.venv/bin/interp",
+				Home:        venvHome,
+				Executable:  "/fixture/project/.venv/bin/interp",
+				Version:     &venvVersion,
+			}},
+			Installations: []core.ToolchainInstallation{{
+				Home: "/fixture/system-runtime", Version: "3.11.0", Provider: "host:system",
+			}},
+		}},
+	}
+
+	loader := &trustToolchainLoader{
+		fakeToolchainLoader: fakeToolchainLoader{saved: make(chan []toolchain.Edit, 1)},
+		globalSnapshot:      global,
+		untrusted:           untrusted,
+		trustedSnapshot:     trusted,
+	}
+	w := newWindow(NewController(Options{Toolchains: loader}), Values{})
+	w.sess.page = pageBuild
+	d := openWindow(t, w)
+	d.until("global toolchains loaded", func() bool { return w.toolchains.loaded })
+
+	// Switch to Current project scope.
+	d.click(i18n.Shared(i18n.English, "desktop.toolchains.project"))
+	d.until("project toolchains loaded", func() bool { return w.toolchains.loaded && !w.toolchains.snapshot.Global })
+
+	notice := i18n.Shared(i18n.English, "desktop.toolchains.projectTrustRequiredNotice")
+	blockedRow := i18n.SharedFormat(i18n.English, "desktop.toolchains.projectCandidateBlocked", map[string]string{"path": venvHome})
+	autoBlocked := i18n.SharedFormat(i18n.English, "desktop.toolchains.automatic", map[string]string{
+		"value": i18n.Shared(i18n.English, "desktop.toolchains.reasonProjectTrustRequired"),
+	})
+	if !d.showsWrapped(notice) || !d.text(blockedRow) || !d.showsWrapped(autoBlocked) {
+		t.Fatalf("untrusted UI missing guidance: notice=%v blocked=%v auto=%v",
+			d.showsWrapped(notice), d.text(blockedRow), d.showsWrapped(autoBlocked))
+	}
+	if !d.text(i18n.Shared(i18n.English, "desktop.toolchains.trustStatusUntrusted")) {
+		t.Fatal("missing untrusted status label")
+	}
+
+	// Verify ⓘ help popover explains consequences and local storage scope.
+	help := i18n.Shared(i18n.English, "desktop.toolchains.trustProjectHelp")
+	infoBounds := d.hintHit(help).Bounds
+	if err := d.driver.Click(infoBounds.X+infoBounds.Width/2, infoBounds.Y+infoBounds.Height/2); err != nil {
+		t.Fatal(err)
+	}
+	d.pump()
+	if !d.showsHelp(help) {
+		t.Fatal("project trust ⓘ button did not open its help popover")
+	}
+	// Close popover before toggling the switch.
+	if err := d.driver.Click(infoBounds.X+infoBounds.Width/2, infoBounds.Y+infoBounds.Height/2); err != nil {
+		t.Fatal(err)
+	}
+	d.pump()
+
+	// Grant trust: reloads immediately without touching .lithe/toolchains/local.json Save.
+	d.click(i18n.Shared(i18n.English, "desktop.toolchains.trustProject"))
+	d.until("project trust granted", func() bool { return w.toolchains.snapshot.ProjectCodeAllowed && !w.toolchains.trusting })
+	if !slices.Equal(loader.trustCalls, []bool{true}) {
+		t.Fatalf("trustCalls = %v, want [true]", loader.trustCalls)
+	}
+	autoResolved := i18n.SharedFormat(i18n.English, "desktop.toolchains.automatic", map[string]string{"value": venvHome})
+	if !d.showsWrapped(autoResolved) {
+		t.Fatalf("trusted UI did not update automatic effective value to %q", autoResolved)
+	}
+	if !d.text(i18n.Shared(i18n.English, "desktop.toolchains.trustStatusTrusted")) {
+		t.Fatal("missing trusted status label")
+	}
+
+	// Create an unsaved pin draft, then revoke trust: the pin draft must be preserved.
+	d.click("Synthetic Runtime")
+	d.click(i18n.SharedFormat(i18n.English, "desktop.toolchains.installation", map[string]string{
+		"home": "/fixture/system-runtime", "version": "3.11.0", "provider": "host:system",
+	}))
+	d.pump()
+	if !w.toolchains.hasDraft() {
+		t.Fatal("expected unsaved pin draft before revoking trust")
+	}
+
+	d.click(i18n.Shared(i18n.English, "desktop.toolchains.trustProject"))
+	d.until("project trust revoked", func() bool { return !w.toolchains.snapshot.ProjectCodeAllowed && !w.toolchains.trusting })
+	if !slices.Equal(loader.trustCalls, []bool{true, false}) {
+		t.Fatalf("trustCalls = %v, want [true, false]", loader.trustCalls)
+	}
+	if !w.toolchains.hasDraft() {
+		t.Fatal("revoking trust discarded the unsaved pin draft")
+	}
+	select {
+	case edits := <-loader.saved:
+		t.Fatalf("toggling local workspace trust wrote project pin file: %+v", edits)
+	default:
+	}
+}

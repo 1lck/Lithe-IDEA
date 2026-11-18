@@ -17,7 +17,7 @@ func (s settingsToolchains) Inspect(ctx context.Context, snapshot toolchain.Snap
 		if readErr != nil {
 			return selection, readErr
 		}
-		return toolchain.Resolve(ctx, s.app.kernel, "", ".", tool, "", &toolchain.Fixed{Home: home}, manifests, toolchain.Options{Global: true, GlobalRoot: s.app.store.Dir(), Platform: buildPlatform()})
+		return toolchain.Resolve(ctx, s.app.kernel, "", ".", tool, "", &toolchain.Fixed{Home: home}, manifests, toolchain.Options{Global: true, GlobalRoot: s.app.globalToolchainRoot(), Platform: buildPlatform()})
 	}
 	root := s.app.toolchainRoot.Load()
 	if root == nil || snapshot.Root == "" {
@@ -30,7 +30,7 @@ func (s settingsToolchains) Inspect(ctx context.Context, snapshot toolchain.Snap
 	if err != nil {
 		return selection, err
 	}
-	selection, err = toolchain.Resolve(ctx, s.app.kernel, snapshot.Root, snapshot.Directory, tool, "", &toolchain.Fixed{Home: home}, manifests, toolchain.Options{Platform: buildPlatform(), GlobalRoot: s.app.store.Dir()})
+	selection, err = toolchain.Resolve(ctx, s.app.kernel, snapshot.Root, snapshot.Directory, tool, "", &toolchain.Fixed{Home: home}, manifests, toolchain.Options{Platform: buildPlatform(), GlobalRoot: s.app.globalToolchainRoot()})
 	if err != nil {
 		return selection, err
 	}
@@ -38,6 +38,33 @@ func (s settingsToolchains) Inspect(ctx context.Context, snapshot toolchain.Snap
 		return selection, toolchain.ErrPinConflict
 	}
 	return selection, snapshot.CheckWorkspace(ctx, *root)
+}
+
+// SetWorkspaceTrust grants or revokes machine-local permission to probe and run
+// tool environments or wrappers inside the open project, then reloads toolchains.
+func (s settingsToolchains) SetWorkspaceTrust(ctx context.Context, snapshot toolchain.Snapshot, trusted bool) (updated toolchain.Snapshot, err error) {
+	if trusted {
+		ctx = s.app.performedIn(ctx, "toolchain.workspaceTrust.grant", surfaceButton)
+	} else {
+		ctx = s.app.performedIn(ctx, "toolchain.workspaceTrust.revoke", surfaceButton)
+	}
+	defer func() { s.recordFailure(ctx, "toolchain_settings_trust", err) }()
+	root := s.app.toolchainRoot.Load()
+	if snapshot.Global || root == nil || *root == "" || snapshot.Root == "" {
+		return snapshot, toolchain.ErrPinConflict
+	}
+	if err := snapshot.CheckWorkspace(ctx, *root); err != nil {
+		return snapshot, errors.Join(toolchain.ErrPinConflict, err)
+	}
+	if _, err := snapshot.SaveWorkspaceTrust(ctx, s.app.kernel, trusted); err != nil {
+		return snapshot, err
+	}
+	s.app.post(func(a *App) { a.retryFailedPluginServers() })
+	updated, err = s.loadAt(ctx, snapshot.Root)
+	if err != nil {
+		return snapshot, errors.Join(toolchain.ErrPinCommitted, err)
+	}
+	return updated, nil
 }
 
 // settingsToolchains is the settings window's adapter onto the workbench: it
@@ -68,7 +95,7 @@ func (s settingsToolchains) LoadScope(ctx context.Context, scope string) (snapsh
 	if err != nil {
 		return snapshot, err
 	}
-	return toolchain.Load(ctx, s.app.kernel, "", ".", manifests, toolchain.Options{Global: true, GlobalRoot: s.app.store.Dir(), Platform: buildPlatform()})
+	return toolchain.Load(ctx, s.app.kernel, "", ".", manifests, toolchain.Options{Global: true, GlobalRoot: s.app.globalToolchainRoot(), Platform: buildPlatform()})
 }
 
 func (s settingsToolchains) loadAt(ctx context.Context, root string) (toolchain.Snapshot, error) {
@@ -76,7 +103,7 @@ func (s settingsToolchains) loadAt(ctx context.Context, root string) (toolchain.
 	if err != nil && len(manifests) == 0 {
 		return toolchain.Snapshot{}, err
 	}
-	return toolchain.Load(ctx, s.app.kernel, root, ".", manifests, toolchain.Options{Platform: buildPlatform(), GlobalRoot: s.app.store.Dir()})
+	return toolchain.Load(ctx, s.app.kernel, root, ".", manifests, toolchain.Options{Platform: buildPlatform(), GlobalRoot: s.app.globalToolchainRoot()})
 }
 
 // Save applies all draft changes in one Core edit, against the exact

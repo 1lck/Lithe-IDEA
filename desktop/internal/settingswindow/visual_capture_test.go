@@ -47,6 +47,7 @@ func TestVisualSettings(t *testing.T) {
 		{"27-settings-terminal", pageTerminal}, {"28-plugins-installed", pagePlugins},
 		{"29-marketplace-empty", pagePlugins}, {"31-settings-updates", pageUpdates},
 		{"33-settings-toolchains", pageBuild}, {"m44-toolchain-directory-menu", pageBuild}, {"m45-toolchain-custom-directory", pageBuild},
+		{"m47-toolchain-project-untrusted", pageBuild}, {"m48-toolchain-project-trusted", pageBuild}, {"m49-toolchain-project-trust-help", pageBuild},
 		{"fonts", pageFonts},
 		{"21-settings-language-popup", pageGeneral}, {"30-settings-history", pageGeneral}, {"m46-history-default-rules-help", pageGeneral}, {"35-settings-search", pageEditor},
 		{"m35-editor-tab-layout", pageEditor}, {"m25-project-open-mode", pageGeneral}, {"m29-editor-font-menu", pageFonts}, {"m38-plugin-management-menu", pagePlugins},
@@ -75,7 +76,7 @@ func TestVisualSettings(t *testing.T) {
 					MonospaceFamilies: func() []string { return []string{"JetBrains Mono", "Menlo"} },
 					Marketplace:       func(context.Context) (marketplace.Snapshot, error) { return marketplace.Snapshot{}, nil },
 					UpdateStatus:      func() UpdateStatus { return UpdateStatus{Configured: true} },
-					Toolchains:        &scopedToolchainLoader{fakeToolchainLoader{snapshot: globalVisualToolchains()}},
+					Toolchains:        visualToolchainLoader(scenario.id),
 					// Every build can sign in to GitHub; no account is connected yet.
 					GitHub: &GitHubAccount{Snapshot: func() GitHubState { return GitHubState{Available: true} }},
 				}
@@ -166,6 +167,28 @@ func TestVisualSettings(t *testing.T) {
 					d.click("Compiler")
 					d.click(text("desktop.toolchains.custom"))
 					d.pump()
+				case "m47-toolchain-project-untrusted", "m48-toolchain-project-trusted":
+					d.click(text("desktop.toolchains.project"))
+					d.until("project toolchains", func() bool { return w.toolchains.loaded && !w.toolchains.snapshot.Global })
+				case "m49-toolchain-project-trust-help":
+					d.click(text("desktop.toolchains.project"))
+					d.until("project toolchains help", func() bool { return w.toolchains.loaded && !w.toolchains.snapshot.Global })
+					help := text("desktop.toolchains.trustProjectHelp")
+					info := d.hintHit(help).Bounds
+					x, y := info.X+info.Width/2, info.Y+info.Height/2
+					if err := d.driver.Move(x, y); err != nil {
+						t.Fatal(err)
+					}
+					if err := d.driver.Click(x, y); err != nil {
+						t.Fatal(err)
+					}
+					d.pump()
+					if !d.showsHelp(help) {
+						t.Fatal("the project trust ⓘ did not pin its help open")
+					}
+					if err := session.Advance(time.Second); err != nil {
+						t.Fatal(err)
+					}
 				}
 				if err := session.Screenshot(filepath.Join(out, scenario.id+"-"+theme+".png")); err != nil {
 					t.Fatal(err)
@@ -189,4 +212,67 @@ func globalVisualToolchains() toolchain.Snapshot {
 	selected := "/fixture/sdk21"
 	tool.Effective = &core.ToolchainSelection{Home: &selected, Executable: selected + "/bin/compiler", Version: "21.0.4", Layer: "global"}
 	return snapshot
+}
+
+func visualToolchainLoader(scenarioID string) ToolchainLoader {
+	global := globalVisualToolchains()
+	venvHome := "/fixture/workspace/.venv"
+	untrusted := toolchain.Snapshot{
+		Root:      "/fixture/workspace",
+		Directory: ".",
+		Tools: []toolchain.Tool{{
+			ID:          "dev.lithe.test.runtime:interp",
+			DisplayName: "Synthetic Runtime",
+			PluginID:    "dev.lithe.test.runtime",
+			Project: []core.ToolchainProjectCandidate{{
+				CandidateID: "project-venv",
+				ProjectKind: "environment",
+				Path:        venvHome + "/bin/interp",
+				Home:        venvHome,
+				Reason:      "projectCodeRequiresAction",
+			}},
+			Installations: []core.ToolchainInstallation{{
+				Home: "/fixture/runtimes/3.11", Version: "3.11.9", Provider: "host:system",
+			}},
+		}},
+	}
+	venvVersion := "3.12.4"
+	trusted := toolchain.Snapshot{
+		Root:               "/fixture/workspace",
+		Directory:          ".",
+		ProjectCodeAllowed: true,
+		Tools: []toolchain.Tool{{
+			ID:            "dev.lithe.test.runtime:interp",
+			DisplayName:   "Synthetic Runtime",
+			PluginID:      "dev.lithe.test.runtime",
+			AutomaticHome: venvHome,
+			Effective: &core.ToolchainSelection{
+				Home:        &venvHome,
+				Executable:  venvHome + "/bin/interp",
+				Version:     venvVersion,
+				Provider:    "host:project",
+				Layer:       "project",
+				ProjectCode: true,
+			},
+			Project: []core.ToolchainProjectCandidate{{
+				CandidateID: "project-venv",
+				ProjectKind: "environment",
+				Path:        venvHome + "/bin/interp",
+				Home:        venvHome,
+				Executable:  venvHome + "/bin/interp",
+				Version:     &venvVersion,
+			}},
+			Installations: []core.ToolchainInstallation{{
+				Home: "/fixture/runtimes/3.11", Version: "3.11.9", Provider: "host:system",
+			}},
+		}},
+	}
+	switch scenarioID {
+	case "m47-toolchain-project-untrusted":
+		return &trustToolchainLoader{globalSnapshot: global, untrusted: untrusted, trustedSnapshot: trusted}
+	case "m48-toolchain-project-trusted", "m49-toolchain-project-trust-help":
+		return &trustToolchainLoader{globalSnapshot: global, untrusted: untrusted, trustedSnapshot: trusted, trusted: true}
+	default:
+		return &scopedToolchainLoader{fakeToolchainLoader{snapshot: global}}
+	}
 }
