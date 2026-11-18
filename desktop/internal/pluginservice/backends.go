@@ -22,6 +22,9 @@ type BackendRequest struct {
 	// RootURI and WorkingDirectory are the workspace root.
 	RootURI          any
 	WorkingDirectory string
+	// Context is captured while the window owns WorkingDirectory. A background
+	// start cannot adopt a new context after the same path is reopened.
+	Context ContextRef
 	// Architecture is the platform architecture Core plans for.
 	Architecture string
 	// RuntimeProgress reports cancellable preparation before the bounded server
@@ -85,11 +88,9 @@ func (s *Service) StartLanguageServer(ctx context.Context, entries []pluginmanag
 	if readErr != nil {
 		return fail(readErr)
 	}
-	var workspaceContext WorkspaceContext
-	if request.WorkingDirectory != "" && s.Contexts != nil {
-		// The server serves this workspace, so a backend that asks for it by
-		// context finds it: the context exists for as long as the project is open.
-		workspaceContext = s.Contexts.Open(request.WorkingDirectory)
+	workspaceContext, contextErr := s.workspaceForBackend(ctx, request)
+	if contextErr != nil {
+		return fail(contextErr)
 	}
 	settings, settingsErr := s.Settings.Load(ctx, manifest, request.WorkingDirectory)
 	if settingsErr != nil {
@@ -98,6 +99,9 @@ func (s *Service) StartLanguageServer(ctx context.Context, entries []pluginmanag
 	runtimes, runtimeErr := s.EnsureRuntimesWithSettings(ctx, manifest, entry.Installed.Path, entry.Installed.ID, entry.Installed.Version, false, settings.State, request.RuntimeProgress)
 	if runtimeErr != nil {
 		return fail(runtimeErr)
+	}
+	if _, contextErr := s.workspaceForBackend(ctx, request); contextErr != nil {
+		return fail(contextErr)
 	}
 	// Downloads have their own cancellation and transport stall limits. Apply
 	// the process-start budget only after the environment is ready, so slow
@@ -137,12 +141,16 @@ func (s *Service) StartLanguageServer(ctx context.Context, entries []pluginmanag
 		start.WorkspaceStateDirectory = resolved.directories.workspaceState
 		temporary = resolved.directories.temporary
 	}
+	if _, contextErr := s.workspaceForBackend(ctx, request); contextErr != nil {
+		removeTemporary(temporary)
+		return fail(contextErr)
+	}
 	started, startErr := s.Backend.Start(ctx, start)
 	if startErr != nil {
 		removeTemporary(temporary)
 		return fail(startErr)
 	}
-	if cancelled := ctx.Err(); cancelled != nil {
+	if _, contextErr := s.workspaceForBackend(ctx, request); contextErr != nil {
 		preparation.retryCleanup = func(stopCtx context.Context) error {
 			disposed, err := s.Backend.StopAndDispose(stopCtx, started)
 			if disposed {
@@ -153,7 +161,7 @@ func (s *Service) StartLanguageServer(ctx context.Context, entries []pluginmanag
 		stopCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), backendStopTimeout)
 		cleanupErr = preparation.retryCleanup(stopCtx)
 		cancel()
-		return fail(errors.Join(cancelled, cleanupErr))
+		return fail(errors.Join(contextErr, cleanupErr))
 	}
 	session := &LanguageSession{
 		PluginID:          entry.Installed.ID,
@@ -170,6 +178,23 @@ func (s *Service) StartLanguageServer(ctx context.Context, entries []pluginmanag
 	}
 	s.registerLanguageSession(session)
 	return session, nil
+}
+
+func (s *Service) workspaceForBackend(ctx context.Context, request BackendRequest) (WorkspaceContext, error) {
+	if err := ctx.Err(); err != nil {
+		return WorkspaceContext{}, err
+	}
+	if request.WorkingDirectory == "" {
+		return WorkspaceContext{}, nil
+	}
+	workspace, err := s.checkedWorkspaceContext(ctx, request.Context)
+	if err != nil {
+		return WorkspaceContext{}, err
+	}
+	if filepath.Clean(workspace.Path) != filepath.Clean(request.WorkingDirectory) {
+		return WorkspaceContext{}, ErrContextExpired
+	}
+	return workspace, nil
 }
 
 // ServeLanguageSession answers the session's host requests until it ends or ctx is

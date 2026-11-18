@@ -67,17 +67,22 @@ func (s *Service) SyncFunctionRelay(ctx context.Context, entries []pluginmanager
 	return errors.Join(failures...)
 }
 
-// ActivateWorkspace opens the workspace's context and starts the backends that
-// asked for onWorkspaceOpen, one plugin at a time. It belongs on a background
+// ActivateWorkspace consumes the context the window opened and starts the backends
+// that asked for onWorkspaceOpen, one plugin at a time. It belongs on a background
 // goroutine: starting a backend never delays opening the workspace, and a backend
 // that fails to start is reported without blocking the others.
-func (s *Service) ActivateWorkspace(ctx context.Context, entries []pluginmanager.Entry, root string) error {
+func (s *Service) ActivateWorkspace(ctx context.Context, entries []pluginmanager.Entry, workspace ContextRef) error {
 	if s == nil || s.Contexts == nil || s.Host == nil {
 		return nil
 	}
-	s.Contexts.Open(root)
+	if _, err := s.checkedWorkspaceContext(ctx, workspace); err != nil {
+		return err
+	}
 	selected, selectionErr := s.selectInstalled(ctx, entries, false)
 	failures := []error{selectionErr}
+	if _, err := s.checkedWorkspaceContext(ctx, workspace); err != nil {
+		return errors.Join(append(failures, err)...)
+	}
 	for _, entry := range selected {
 		manifest, err := readBounded(filepath.Join(entry.Installed.Path, pluginpkg.ManifestFile), MaxManifestBytes)
 		if err != nil {
@@ -87,11 +92,27 @@ func (s *Service) ActivateWorkspace(ctx context.Context, entries []pluginmanager
 		if !declaresBackend(manifest) || !declaredActivation(manifest, EventWorkspaceOpen) {
 			continue
 		}
+		if _, err := s.checkedWorkspaceContext(ctx, workspace); err != nil {
+			return errors.Join(append(failures, err)...)
+		}
 		if _, err := s.Host.EnsureBackend(ctx, entry.Installed.ID); err != nil {
 			failures = append(failures, fmt.Errorf("%s: %w", entry.Installed.ID, err))
 		}
 	}
 	return errors.Join(failures...)
+}
+
+// checkedWorkspaceContext never creates an owner on behalf of delayed work.
+// Closing and reopening a path invalidates the captured ID/generation even when
+// the new project's native root is identical.
+func (s *Service) checkedWorkspaceContext(ctx context.Context, ref ContextRef) (WorkspaceContext, error) {
+	if err := ctx.Err(); err != nil {
+		return WorkspaceContext{}, err
+	}
+	if s == nil || s.Contexts == nil {
+		return WorkspaceContext{}, ErrContextExpired
+	}
+	return s.Contexts.Lookup(ref)
 }
 
 // DetachWorkspaces ends every workspace context and removes every backend from
