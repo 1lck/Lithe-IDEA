@@ -1,11 +1,14 @@
 #!/bin/zsh
 # Regenerates the icon package of the Viva desktop client (desktop/internal/icons/):
 #
-#   icons.go   every icon below compiled into a gfx.Icon value by the Viva icon compiler
-#   NOTICE     the Lucide copyright and ISC license text that icons.go carries in its header
+#   icons.go       every icon below compiled into a gfx.Icon value by the Viva icon compiler
+#   NOTICE         the Lucide copyright and ISC license text that icons.go carries in its header
+#   viva_mark.go   the Viva logo (VivaMark), compiled from the Viva source pinned below; it keeps
+#                  its own red, and its header names the source file and the Apache 2.0 license
 #
 # The icons are the Lucide icons named in ICONS, downloaded at the pinned LUCIDE_VERSION tag.
-# To add or drop an icon, edit ICONS and run this script again; do not edit icons.go by hand.
+# To add or drop an icon, edit ICONS and run this script again; do not edit icons.go or
+# viva_mark.go by hand.
 # The downloads go into a fresh temporary directory that is removed on exit. They are only read
 # as data by the compiler, never executed, and nothing is written outside desktop/internal/icons/.
 # The compiler is built from the Viva source that desktop/go.mod resolves to (through its replace
@@ -38,6 +41,8 @@ RAW_URL="https://raw.githubusercontent.com/lucide-icons/lucide/$LUCIDE_VERSION"
 OUT_DIR="$ROOT_DIR/desktop/internal/icons"
 OUT_FILE="$OUT_DIR/icons.go"
 NOTICE_FILE="$OUT_DIR/NOTICE"
+MARK_FILE="$OUT_DIR/viva_mark.go"
+VIVA_MARK_SOURCE="website/src/assets/viva-mark-only.svg"
 
 TMP_DIR="$(mktemp -d)"
 trap 'rm -rf "$TMP_DIR"' EXIT
@@ -60,9 +65,23 @@ go -C "$VIVA_DIR" build -o "$TMP_DIR/viva" ./cmd/viva
 "$TMP_DIR/viva" icons \
     -o "$OUT_FILE" -pkg icons -license "$NOTICE_FILE" "$TMP_DIR"/*.svg
 
-UNFORMATTED="$(gofmt -l "$OUT_FILE")"
+# The Viva mark is read from the module cache and copied under the name that gives the value its
+# name (viva-mark.svg becomes VivaMark). It has its own directory, so the *.svg glob above never
+# sees it and its header carries the Viva notice instead of the Lucide one.
+mkdir -p "$TMP_DIR/mark"
+cp "$VIVA_DIR/$VIVA_MARK_SOURCE" "$TMP_DIR/mark/viva-mark.svg"
+{
+    print -r -- "The Viva mark, compiled from $VIVA_MARK_SOURCE in the Viva"
+    print -r -- "source that desktop/go.mod pins. Copyright 2026 The Viva Authors, used under the"
+    print -r -- "Apache License 2.0; the license text is in ../fileicons/LICENSE-APACHE-2.0.txt."
+} > "$TMP_DIR/mark/NOTICE"
+"$TMP_DIR/viva" icons \
+    -o "$MARK_FILE" -pkg icons -license "$TMP_DIR/mark/NOTICE" "$TMP_DIR/mark/viva-mark.svg"
+
+UNFORMATTED="$(gofmt -l "$OUT_FILE" "$MARK_FILE")"
 if [[ -n "$UNFORMATTED" ]]; then
     print -u2 -- "gofmt reports that the generated file is not formatted: $UNFORMATTED"
     exit 1
 fi
 print -r -- "$OUT_FILE"
+print -r -- "$MARK_FILE"

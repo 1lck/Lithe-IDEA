@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/1lck/Lithe-IDEA/desktop/internal/buildinfo"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/core"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/i18n"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/localshell"
@@ -45,15 +46,16 @@ func TestVisualSettings(t *testing.T) {
 		{"23-settings-keymap", pageKeymap}, {"24-settings-network", pageNetwork},
 		{"25-settings-process", pageProcessTermination}, {"26-settings-git", pageVersionControl}, {"26-settings-git-console", pageVersionControl},
 		{"27-settings-terminal", pageTerminal}, {"28-plugins-installed", pagePlugins},
-		{"29-marketplace-empty", pagePlugins}, {"31-settings-updates", pageUpdates},
+		{"29-marketplace-empty", pagePlugins},
 		{"33-settings-toolchains", pageBuild}, {"m44-toolchain-directory-menu", pageBuild}, {"m45-toolchain-custom-directory", pageBuild},
-		{"m47-toolchain-project-untrusted", pageBuild}, {"m48-toolchain-project-trusted", pageBuild}, {"m49-toolchain-project-trust-help", pageBuild},
+		{"m47-toolchain-project-untrusted", pageBuild}, {"m48-toolchain-project-trusted", pageBuild}, {"m49-toolchain-project-trust-click", pageBuild},
+		{"m50-toolchain-project-trust-tip", pageBuild},
 		{"fonts", pageFonts},
 		{"21-settings-language-popup", pageGeneral}, {"30-settings-history", pageGeneral}, {"m46-history-default-rules-help", pageGeneral}, {"35-settings-search", pageEditor},
 		{"m35-editor-tab-layout", pageEditor}, {"m25-project-open-mode", pageGeneral}, {"m29-editor-font-menu", pageFonts}, {"m38-plugin-management-menu", pagePlugins},
 		{"m39-proxy-mode-menu", pageNetwork}, {"m40-process-run-policy", pageProcessTermination},
 		{"m41-process-terminal-policy", pageProcessTermination}, {"m43-process-orphan-policy", pageProcessTermination},
-		{"36-settings-about", pageAbout},
+		{"36-settings-about", pageAbout}, {"36-settings-about-projects", pageAbout},
 	}
 	for _, theme := range []string{"dark", "light"} {
 		for _, scenario := range pages {
@@ -75,8 +77,10 @@ func TestVisualSettings(t *testing.T) {
 					},
 					MonospaceFamilies: func() []string { return []string{"JetBrains Mono", "Menlo"} },
 					Marketplace:       func(context.Context) (marketplace.Snapshot, error) { return marketplace.Snapshot{}, nil },
-					UpdateStatus:      func() UpdateStatus { return UpdateStatus{Configured: true} },
-					Toolchains:        visualToolchainLoader(scenario.id),
+					UpdateStatus: func() UpdateStatus {
+						return UpdateStatus{Configured: true, Installed: buildinfo.ChannelStable, Channel: buildinfo.ChannelStable}
+					},
+					Toolchains: visualToolchainLoader(scenario.id),
 					// Every build can sign in to GitHub; no account is connected yet.
 					GitHub: &GitHubAccount{Snapshot: func() GitHubState { return GitHubState{Available: true} }},
 				}
@@ -111,6 +115,11 @@ func TestVisualSettings(t *testing.T) {
 					if err := d.driver.Scroll(gfx.ScrollEvent{X: 700, Y: 500, DeltaY: 900, Viewport: gfx.Size{Width: 900, Height: 700}}); err != nil {
 						t.Fatal(err)
 					}
+				case "36-settings-about-projects":
+					// The project links sit under the update card, past the first screen.
+					if err := d.driver.Scroll(gfx.ScrollEvent{X: 700, Y: 500, DeltaY: 900, Viewport: gfx.Size{Width: 900, Height: 700}}); err != nil {
+						t.Fatal(err)
+					}
 				case "30-settings-history":
 					if err := d.driver.Scroll(gfx.ScrollEvent{X: 700, Y: 500, DeltaY: 500, Viewport: gfx.Size{Width: 900, Height: 700}}); err != nil {
 						t.Fatal(err)
@@ -128,16 +137,12 @@ func TestVisualSettings(t *testing.T) {
 					if err := d.driver.Move(x, y); err != nil {
 						t.Fatal(err)
 					}
-					if err := d.driver.Click(x, y); err != nil {
-						t.Fatal(err)
-					}
-					d.pump()
-					if !d.showsHelp(help) {
-						t.Fatal("the ⓘ did not pin its help open")
-					}
-					// The popover fades in; move the frame clock past it.
+					// Resting on the ⓘ shows its tip; move the frame clock past the hover delay.
 					if err := session.Advance(time.Second); err != nil {
 						t.Fatal(err)
+					}
+					if !d.showsHelp(help) {
+						t.Fatal("resting on the ⓘ did not show its help")
 					}
 				case "35-settings-search":
 					query := "编辑器"
@@ -167,7 +172,7 @@ func TestVisualSettings(t *testing.T) {
 					d.click("Compiler")
 					d.click(text("desktop.toolchains.custom"))
 					d.pump()
-				case "m47-toolchain-project-untrusted", "m48-toolchain-project-trusted", "m49-toolchain-project-trust-help":
+				case "m47-toolchain-project-untrusted", "m48-toolchain-project-trusted", "m49-toolchain-project-trust-click", "m50-toolchain-project-trust-tip":
 					d.click(text("desktop.toolchains.project"))
 					status := text("desktop.toolchains.trustStatusTrusted")
 					if scenario.id == "m47-toolchain-project-untrusted" {
@@ -175,7 +180,7 @@ func TestVisualSettings(t *testing.T) {
 					}
 					// The load result can arrive during painting, before the trust controls appear.
 					d.until("the visible project trust status", func() bool { return d.text(status) })
-					if scenario.id != "m49-toolchain-project-trust-help" {
+					if scenario.id != "m49-toolchain-project-trust-click" && scenario.id != "m50-toolchain-project-trust-tip" {
 						break
 					}
 					help := text("desktop.toolchains.trustProjectHelp")
@@ -184,15 +189,27 @@ func TestVisualSettings(t *testing.T) {
 					if err := d.driver.Move(x, y); err != nil {
 						t.Fatal(err)
 					}
+					if scenario.id == "m50-toolchain-project-trust-tip" {
+						// Resting on the ⓘ without pressing it shows the help in the client's
+						// shared hover tip.
+						if err := session.Advance(time.Second); err != nil {
+							t.Fatal(err)
+						}
+						if !d.showsHelp(help) {
+							t.Fatal("resting on the project trust ⓘ did not show its tip")
+						}
+						break
+					}
+					// Pressing the ⓘ hides its tip and opens no card in its place.
 					if err := d.driver.Click(x, y); err != nil {
 						t.Fatal(err)
 					}
 					d.pump()
-					if !d.showsHelp(help) {
-						t.Fatal("the project trust ⓘ did not pin its help open")
-					}
 					if err := session.Advance(time.Second); err != nil {
 						t.Fatal(err)
+					}
+					if d.showsHelp(help) {
+						t.Fatal("pressing the project trust ⓘ left its help on screen")
 					}
 				}
 				if err := session.Screenshot(filepath.Join(out, scenario.id+"-"+theme+".png")); err != nil {
@@ -275,7 +292,7 @@ func visualToolchainLoader(scenarioID string) ToolchainLoader {
 	switch scenarioID {
 	case "m47-toolchain-project-untrusted":
 		return &trustToolchainLoader{globalSnapshot: global, untrusted: untrusted, trustedSnapshot: trusted}
-	case "m48-toolchain-project-trusted", "m49-toolchain-project-trust-help":
+	case "m48-toolchain-project-trusted", "m49-toolchain-project-trust-click", "m50-toolchain-project-trust-tip":
 		return &trustToolchainLoader{globalSnapshot: global, untrusted: untrusted, trustedSnapshot: trusted, trusted: true}
 	default:
 		return &scopedToolchainLoader{fakeToolchainLoader{snapshot: global}}

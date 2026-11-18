@@ -3,6 +3,7 @@ package settingswindow
 import (
 	"errors"
 	"runtime/debug"
+	"slices"
 	"testing"
 	"time"
 
@@ -10,8 +11,9 @@ import (
 )
 
 // TestAboutFactsSayWhatThisCopyIs checks the facts the About page reads: the platform as a
-// person names it, the commit and day of the build when the build recorded them, the Go
-// runtime, and the block copied for an issue, whose first line says a preview is one.
+// person names it, the commit and day of the build when packaging or Go recorded them (the
+// packaged ones first), the Go runtime, and the block copied for an issue, whose first line
+// says a preview is one.
 func TestAboutFactsSayWhatThisCopyIs(t *testing.T) {
 	recorded := []debug.BuildSetting{
 		{Key: "vcs.revision", Value: "0123456789abcdef"},
@@ -37,6 +39,15 @@ func TestAboutFactsSayWhatThisCopyIs(t *testing.T) {
 				copy: "Lithe 0.7.0\nplatform: Windows 11 · x86-64\nbuild: 0123456 · 2026-11-13\nruntime: go1.26.1\n"},
 		},
 		{
+			// A packaged build names the commit and time packaging wrote into it, not the
+			// VCS stamp Go took of the checkout it was built in.
+			name: "packaged",
+			in: aboutInputs{version: "0.7.0", stable: true, osName: "macOS", osVersion: "26.1", arch: "arm64",
+				goVersion: "go1.26.1", commit: "fedcba9876543210", buildTime: "2026-11-17T23:30:00Z", settings: recorded},
+			facts: aboutFacts{platform: "macOS · arm64", build: "fedcba9 · 2026-11-17", runtime: "go1.26.1",
+				copy: "Lithe 0.7.0\nplatform: macOS 26.1 · arm64\nbuild: fedcba9 · 2026-11-17\nruntime: go1.26.1\n"},
+		},
+		{
 			// go run and go test record no commit; the page says so rather than a blank.
 			name: "unrecorded",
 			in:   aboutInputs{version: "0.7.0", arch: "386", goVersion: "go1.26.1"},
@@ -59,8 +70,9 @@ func TestAboutFactsSayWhatThisCopyIs(t *testing.T) {
 }
 
 // TestAboutPageShowsThePreviewAndCopiesTheFacts opens the About page of a preview build: it
-// shows the version with its preview label, its links open their pages, and Copy puts the
-// facts on the clipboard and says so, or says why it could not and reports the failure.
+// shows the version with its preview label, its links open their pages (the community's, the
+// project's, its Rust core's and Viva's upstream), and Copy puts the facts on the clipboard
+// and says so, or says why it could not and reports the failure.
 func TestAboutPageShowsThePreviewAndCopiesTheFacts(t *testing.T) {
 	saved := copyText
 	t.Cleanup(func() { copyText = saved })
@@ -93,7 +105,9 @@ func TestAboutPageShowsThePreviewAndCopiesTheFacts(t *testing.T) {
 	}
 	d.click(text("desktop.settings.about.qq"))
 	d.click(text("desktop.settings.about.issues"))
-	if want := []string{aboutQQURL, aboutIssuesURL}; len(opened) != 2 || opened[0] != want[0] || opened[1] != want[1] {
+	d.click(text("desktop.settings.about.core"))
+	d.click(text("desktop.settings.about.viva"))
+	if want := []string{aboutQQURL, aboutIssuesURL, aboutCoreURL, aboutVivaURL}; !slices.Equal(opened, want) {
 		t.Fatalf("opened %q, want %q", opened, want)
 	}
 
@@ -113,10 +127,10 @@ func TestAboutPageShowsThePreviewAndCopiesTheFacts(t *testing.T) {
 	}
 }
 
-// TestUpdatesPageNamesTheRunningVersionAsItIsReleased shows the running version on the Updates
-// page, with the preview label unless the build is a stable release, in both the card of the
-// current version and the line that says it is up to date.
-func TestUpdatesPageNamesTheRunningVersionAsItIsReleased(t *testing.T) {
+// TestAboutPageNamesTheRunningVersionAsItIsReleased shows the running version on the About
+// page, with the preview label unless the build is a stable release, in both the version fact
+// and the update card's line that says it is up to date.
+func TestAboutPageNamesTheRunningVersionAsItIsReleased(t *testing.T) {
 	for _, tc := range []struct {
 		stable bool
 		want   string
@@ -128,7 +142,7 @@ func TestUpdatesPageNamesTheRunningVersionAsItIsReleased(t *testing.T) {
 			Version: "0.7.0", Stable: tc.stable,
 			UpdateStatus: func() UpdateStatus { return UpdateStatus{Configured: true, UpToDate: true} },
 		}), Values{})
-		w.sess.page = pageUpdates
+		w.sess.page = pageAbout
 		d := openWindow(t, w)
 		upToDate := i18n.SharedFormat(i18n.English, "desktop.settings.updates.upToDate", map[string]string{"version": tc.want})
 		if !d.text(tc.want) || !d.text(upToDate) {
@@ -146,7 +160,7 @@ func TestApplyingADeltaUpdateOffersNoCancel(t *testing.T) {
 		w := newWindow(NewController(Options{
 			Version: "0.7.0", UpdateStatus: func() UpdateStatus { return status },
 		}), Values{})
-		w.sess.page = pageUpdates
+		w.sess.page = pageAbout
 		d := openWindow(t, w)
 		n := 0
 		for _, hit := range d.driver.Snapshot().Hits {

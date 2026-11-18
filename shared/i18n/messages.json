@@ -17184,6 +17184,34 @@
       ]
     },
     {
+      "id": "desktop.settings.about.core",
+      "description": "Desktop settings About page: version facts, community and project links.",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.settings.about.coreHelp",
+      "description": "Desktop settings About page: version facts, community and project links.",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.settings.about.viva",
+      "description": "Desktop settings About page: version facts, community and project links.",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.settings.about.vivaHelp",
+      "description": "Desktop settings About page: version facts, community and project links.",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
       "id": "desktop.settings.aiGeneration.help",
       "description": "AI settings page: generation options help",
       "platforms": [
@@ -18422,25 +18450,6 @@
       "platforms": [
         "desktop"
       ]
-    },
-    {
-      "id": "desktop.settings.updates.installed",
-      "description": "Settings > Updates row: the channel this build was packaged for.",
-      "platforms": [
-        "desktop"
-      ]
-    },
-    {
-      "id": "desktop.settings.updates.build",
-      "description": "Settings > Updates: the channel of this build, when it was built and from which commit.",
-      "platforms": [
-        "desktop"
-      ],
-      "parameters": {
-        "channel": "string",
-        "time": "string",
-        "commit": "string"
-      }
     },
     {
       "id": "desktop.settings.updates.local",
@@ -104302,8 +104311,7 @@
       "id": "settings.tabs.updates",
       "description": "Windows UI: settings.tabs.updates",
       "platforms": [
-        "windows",
-        "desktop"
+        "windows"
       ]
     },
     {

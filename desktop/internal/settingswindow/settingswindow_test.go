@@ -7,6 +7,7 @@ import (
 
 	"github.com/1lck/Lithe-IDEA/desktop/internal/fontprefs"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/i18n"
+	"github.com/1lck/Lithe-IDEA/desktop/internal/uistyle"
 	"github.com/vivaui/viva/gfx"
 )
 
@@ -111,7 +112,6 @@ func TestDefaultSidebarListsTheTopLevelWithAppearanceExpanded(t *testing.T) {
 	want := []row{
 		{page: pageAppearance, group: true, expanded: true},
 		{page: pageGeneral, level: 1},
-		{page: pageUpdates, level: 1},
 		{page: pageNetwork, level: 1},
 		{page: pageEditor, level: 1},
 		{page: pageFonts, level: 1},
@@ -150,8 +150,8 @@ func TestExpandedToolsGroupListsTerminal(t *testing.T) {
 	open := initialOpen()
 	open[pageTools] = true
 	rows := appendVisible(nil, english(), &open, "")
-	if len(rows) != 16 {
-		t.Fatalf("rows = %v, want the 15 of the default sidebar and the Terminal page", rows)
+	if len(rows) != 15 {
+		t.Fatalf("rows = %v, want the 14 of the default sidebar and the Terminal page", rows)
 	}
 	for i, r := range rows {
 		if r.page != pageTools {
@@ -213,7 +213,7 @@ func TestSearchKeepsTheGroupOfAMatchingPageExpanded(t *testing.T) {
 func TestSearchOnAGroupTitleKeepsAllItsPages(t *testing.T) {
 	var open [pageCount]bool
 	rows := appendVisible(nil, english(), &open, foldQuery("appearance"))
-	want := []pageID{pageAppearance, pageGeneral, pageUpdates, pageNetwork, pageEditor, pageFonts, pageKeymap, pageProcessTermination}
+	want := []pageID{pageAppearance, pageGeneral, pageNetwork, pageEditor, pageFonts, pageKeymap, pageProcessTermination}
 	if got := pagesOf(rows); !slices.Equal(got, want) {
 		t.Fatalf("pages = %v, want %v", got, want)
 	}
@@ -267,8 +267,8 @@ func TestAppendVisibleKeepsWhatIsAlreadyInDst(t *testing.T) {
 	open := initialOpen()
 	dst := []row{{page: pageAI}}
 	rows := appendVisible(dst, english(), &open, "")
-	if len(rows) != 16 || rows[0] != (row{page: pageAI}) {
-		t.Fatalf("rows = %v, want the old row followed by the 15 of the sidebar", rows)
+	if len(rows) != 15 || rows[0] != (row{page: pageAI}) {
+		t.Fatalf("rows = %v, want the old row followed by the 14 of the sidebar", rows)
 	}
 }
 
@@ -623,6 +623,10 @@ func TestWindowThemeTakesThePalette(t *testing.T) {
 		theme := windowTheme(dark, p)
 		if theme.Background != p.window || theme.Foreground != p.text || theme.Primary != p.accent {
 			t.Errorf("dark=%v: the theme did not take the palette's surface, text and accent", dark)
+		}
+		// The tips are the client's shared tip, the same one the workbench draws.
+		if theme.Tooltip != uistyle.Tooltip(dark) {
+			t.Errorf("dark=%v: tips %+v, want the shared %+v", dark, theme.Tooltip, uistyle.Tooltip(dark))
 		}
 	}
 }

@@ -5,9 +5,20 @@ import (
 	"testing"
 
 	"github.com/1lck/Lithe-IDEA/desktop/internal/i18n"
+	"github.com/1lck/Lithe-IDEA/desktop/internal/uistyle"
 	"github.com/vivaui/viva/app"
 	"github.com/vivaui/viva/gfx"
 )
+
+// The log window's tips are the client's shared tip in each look, the same one the
+// workbench draws, instead of Viva's inverted default.
+func TestWindowTipsAreTheSharedTip(t *testing.T) {
+	for _, p := range []palette{lightPalette(), darkPalette()} {
+		if tip := windowTheme(p).Tooltip; tip != uistyle.Tooltip(p.dark) {
+			t.Errorf("dark=%v: tips %+v, want the shared %+v", p.dark, tip, uistyle.Tooltip(p.dark))
+		}
+	}
+}
 
 func TestOpenWindowRepaintsWhenLanguageAndAppearanceChange(t *testing.T) {
 	fixture := newExportFixture(t)
