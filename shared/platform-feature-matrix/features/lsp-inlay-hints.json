@@ -24,6 +24,6 @@
     ]
   },
   "owner": "Editor / Language Tooling",
-  "verification": "以声明该能力的合成语言服务器验证可见行请求、编辑与服务刷新、折行和选区几何、设置禁用后清理。",
+  "verification": "以声明该能力的合成语言服务器验证可见行请求、编辑与服务刷新、失败后的单次重试及恢复、折行和选区几何、设置禁用后清理。",
   "notes": "Viva 在 macOS 和 Windows 共享实现。原生平台验证待补。"
 }

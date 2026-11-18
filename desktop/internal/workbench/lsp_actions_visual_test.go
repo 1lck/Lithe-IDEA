@@ -3,13 +3,14 @@
 package workbench
 
 import (
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/1lck/Lithe-IDEA/desktop/internal/core"
-	"github.com/1lck/Lithe-IDEA/desktop/internal/editorview"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/pluginbackend"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/pluginlsp"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/pluginservice"
@@ -119,21 +120,20 @@ func main() {
 	if _, err := tracker.Open(t.Context(), pluginlsp.Document{URI: uri, LanguageID: "visual-lsp", Text: source}); err != nil {
 		t.Fatal(err)
 	}
-	h.app.pluginServerMu.Lock()
-	h.app.pluginServers = map[string]*pluginServer{pluginID: {
+	server := &pluginServer{
 		session: &pluginservice.LanguageSession{
 			PluginID: pluginID, Session: pluginbackend.Session{ID: "visual-lsp"}, Documents: tracker,
 		},
 		project: p, buildReady: true, cancel: func() {},
 		features: map[string]bool{featureCodeActions: true, featureInlayHints: true},
-	}}
+	}
+	h.app.pluginServerMu.Lock()
+	h.app.pluginServers = map[string]*pluginServer{pluginID: server}
 	h.app.pluginServerLanguages = map[string]string{"visual-lsp": pluginID}
 	h.app.pluginServerMu.Unlock()
 	d.languageID = "visual-lsp"
 	d.sync.opened, d.sync.pluginID, d.sync.uri = true, pluginID, uri
-	d.inlay.initialized = true
-	d.inlay.revision = d.view.Revision()
-	d.inlay.covered = []editorview.LineSpan{{First: 0, Last: d.view.TextSnapshot().LineCount() - 1}}
+	h.app.editorPreferences.InlayHints = false
 	h.app.semantics.project = p
 
 	h.app.storeRawPluginDiagnostics(pluginID, path, []core.PluginDiagnostic{{
@@ -206,28 +206,43 @@ func main() {
 	picture("signature-help", parameter, paramDoc)
 
 	h.app.semantics.signatureHelp = signatureHelpState{}
+	clock := time.Date(2026, time.January, 1, 0, 0, 0, 0, time.UTC)
+	h.app.now = func() time.Time { return clock }
 	h.app.editorPreferences.InlayHints = true
+	paint()
+	h.await("initial inlay hint request", func() bool { return kernel.requestCount() == 1 })
+	h.settle()
+	h.app.applyPluginSemanticEvent(server, core.BackendEvent{
+		Type: pluginSemanticCompleted, OperationID: "op-1", Method: pluginMethodInlayHints,
+		Error: json.RawMessage(`{"code":-32801,"message":"Content modified"}`),
+	})
+	paint()
+	picture("inlay-retry-pending", "main.go")
+	clock = clock.Add(time.Second)
+	if err := session.Advance(time.Second); err != nil {
+		t.Fatal(err)
+	}
+	h.await("inlay hint retry", func() bool { return kernel.requestCount() == 2 })
+
 	_, nameColumn := d.view.PositionOf(nameAt)
 	const nameHint = "name:"
 	const countHint = "count:"
 	tip := "The name to include in the greeting."
 	position := core.PluginDocumentPosition{Line: line, UTF16Column: nameColumn}
-	d.inlay.hints = []core.PluginSemanticInlayHint{
+	hints := []core.PluginSemanticInlayHint{
 		{Position: position, Label: nameHint, Tooltip: &tip, PaddingRight: true, TextEdits: []core.PluginTextEdit{
 			{Range: core.PluginDocumentRange{Start: position, End: position}, NewText: "/* name */ "},
 		}},
 		{Position: core.PluginDocumentPosition{Line: line, UTF16Column: column}, Label: countHint, PaddingRight: true},
 	}
-	prepared, err := editorview.PrepareInlayHints(t.Context(), d.view.TextSnapshot(), d.view.Revision(), []editorview.InlayHintSpec{
-		{ID: 0, Line: line, UTF16Column: nameColumn, Label: nameHint, PaddingRight: true, Interactive: true},
-		{ID: 1, Line: line, UTF16Column: column, Label: countHint, PaddingRight: true},
-	})
+	result, err := json.Marshal(map[string]any{"hints": hints})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !d.view.SetPreparedInlayHints(prepared) {
-		t.Fatal("the visual editor did not accept its hints")
-	}
+	h.settle()
+	h.app.applyPluginSemanticEvent(server, core.BackendEvent{
+		Type: pluginSemanticCompleted, OperationID: "op-2", Method: pluginMethodInlayHints, Result: result,
+	})
 	paint()
 	for _, label := range session.Snapshot().Texts {
 		if label.Value != nameHint {

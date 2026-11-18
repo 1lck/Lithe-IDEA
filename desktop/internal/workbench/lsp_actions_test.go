@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/1lck/Lithe-IDEA/desktop/internal/core"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/editorview"
@@ -108,6 +109,78 @@ func TestLSPInlayHintsReleaseWhenDisabled(t *testing.T) {
 	f.h.app.applyInlayHintsPreference(false)
 	if f.d.view.HasInlayHints() || f.d.inlay.prepareCancel != nil {
 		t.Fatal("disabling inlay hints kept decorations or background preparation")
+	}
+}
+
+func TestLSPInlayHintsRetryAndStopAfterFailure(t *testing.T) {
+	f := newSemanticFixture(t)
+	a := f.h.app
+	clock := time.Date(2026, time.January, 1, 0, 0, 0, 0, time.UTC)
+	a.now = func() time.Time { return clock }
+	a.editorPreferences.InlayHints = true
+	f.server.features = map[string]bool{featureInlayHints: true}
+	a.invalidator.Invalidate()
+	f.h.settle()
+	f.waitForRequests(t, 1)
+
+	advance := func() {
+		t.Helper()
+		clock = clock.Add(time.Second)
+		if err := f.h.driver.Advance(time.Second); err != nil {
+			t.Fatal(err)
+		}
+	}
+	serverError := func(operation string) {
+		t.Helper()
+		f.h.settle()
+		a.applyPluginSemanticEvent(f.server, core.BackendEvent{
+			Type: pluginSemanticCompleted, OperationID: operation, Method: pluginMethodInlayHints,
+			Error: json.RawMessage(`{"code":-32801,"message":"Content modified"}`),
+		})
+		// Directly injected events bypass App.post's wakeup.
+		a.invalidator.Invalidate()
+		f.h.settle()
+	}
+
+	serverError("op-1")
+	if got := f.kernel.requestCount(); got != 1 {
+		t.Fatalf("requests before retry delay = %d, want 1", got)
+	}
+	advance()
+	f.waitForRequests(t, 2)
+	f.deliver(t, "op-2", pluginMethodInlayHints, json.RawMessage(`{"hints":[{"position":{"line":0,"utf16Column":1},"label":": string"}]}`))
+	f.h.settleChain()
+	if !f.d.view.HasInlayHints() {
+		t.Fatal("the retry did not paint hints in the same viewport")
+	}
+
+	a.inlayHintsRefresh(f.server)
+	f.h.settle()
+	advance()
+	f.waitForRequests(t, 3)
+	serverError("op-3")
+	advance()
+	f.waitForRequests(t, 4)
+	f.deliver(t, "op-4", pluginMethodInlayHints, json.RawMessage(`{"hints":true}`))
+	f.h.settle()
+	if !f.d.view.HasInlayHints() {
+		t.Fatal("a failed refresh discarded the last successful hints")
+	}
+	advance()
+	a.invalidator.Invalidate()
+	f.h.settleChain()
+	if got := f.kernel.requestCount(); got != 4 {
+		t.Fatalf("requests after the retry failed = %d, want 4", got)
+	}
+
+	a.inlayHintsRefresh(f.server)
+	f.h.settle()
+	advance()
+	f.waitForRequests(t, 5)
+	f.deliver(t, "op-5", pluginMethodInlayHints, json.RawMessage(`{"hints":[]}`))
+	f.h.settleChain()
+	if f.d.view.HasInlayHints() {
+		t.Fatal("a successful empty refresh left stale hints visible")
 	}
 }
 

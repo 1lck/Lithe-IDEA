@@ -28,28 +28,32 @@ const (
 
 	inlayHintsPrefetchMargin = 40
 	inlayHintsDelay          = 120 * time.Millisecond
+	inlayHintsRetryDelay     = 250 * time.Millisecond
+	maxInlayHintAttempts     = 2
 	maxInlayHintsPerViewport = 512
 )
 
 type documentInlayHints struct {
-	initialized   bool
-	revision      int
-	visible       []editorview.LineSpan
-	seen          []editorview.LineSpan
-	covered       []editorview.LineSpan
-	requested     []editorview.LineSpan
-	next          int
-	collected     []core.PluginSemanticInlayHint
-	dirty         bool
-	changedAt     time.Time
-	seenRevision  int
-	pending       *semanticPending
-	resolve       *semanticPending
-	resolveIndex  int
-	prepareCancel context.CancelFunc
-	prepareGen    uint64
-	hints         []core.PluginSemanticInlayHint
-	resolved      map[int]bool
+	initialized    bool
+	revision       int
+	visible        []editorview.LineSpan
+	seen           []editorview.LineSpan
+	covered        []editorview.LineSpan
+	requested      []editorview.LineSpan
+	next           int
+	collected      []core.PluginSemanticInlayHint
+	dirty          bool
+	changedAt      time.Time
+	retryAt        time.Time
+	failedAttempts int
+	seenRevision   int
+	pending        *semanticPending
+	resolve        *semanticPending
+	resolveIndex   int
+	prepareCancel  context.CancelFunc
+	prepareGen     uint64
+	hints          []core.PluginSemanticInlayHint
+	resolved       map[int]bool
 }
 
 type inlayHintHoverState struct {
@@ -84,6 +88,7 @@ func (a *App) clearDocumentInlayHints(d *document) {
 	ih.revision = -1
 	ih.covered, ih.requested, ih.collected = nil, nil, nil
 	ih.dirty = false
+	ih.failedAttempts = 0
 	if d.view != nil && d.view.ClearInlayHints() {
 		a.invalidator.Invalidate()
 	}
@@ -175,10 +180,22 @@ func (a *App) inlayHintsSync(c ui.C, p *project, d *document) {
 		return
 	}
 	now := a.now()
-	if ih.seenRevision != revision || !slices.Equal(ih.seen, ih.visible) {
+	if ih.dirty || ih.seenRevision != revision || !slices.Equal(ih.seen, ih.visible) {
 		ih.seenRevision = revision
 		ih.seen = append(ih.seen[:0], ih.visible...)
-		ih.changedAt = now
+		if !ih.dirty {
+			ih.changedAt = now
+		}
+		ih.failedAttempts = 0
+	}
+	if ih.failedAttempts >= maxInlayHintAttempts {
+		return
+	}
+	if ih.failedAttempts > 0 {
+		if wait := ih.retryAt.Sub(now); wait > 0 {
+			c.Canvas().RequestFrameIn(wait)
+			return
+		}
 	}
 	delay := a.semantics.inlayDelay
 	if delay == 0 {
@@ -229,6 +246,18 @@ func (a *App) requestNextInlaySpan(p *project, d *document, server *pluginServer
 	})
 }
 
+func (a *App) retryInlayHints(ih *documentInlayHints) {
+	// Keep the last rendered hints until a new batch succeeds. A failed batch
+	// can't establish coverage, and a persistent failure must leave the editor idle.
+	ih.covered = ih.covered[:0]
+	ih.collected = nil
+	ih.failedAttempts++
+	if ih.failedAttempts < maxInlayHintAttempts {
+		ih.retryAt = a.now().Add(inlayHintsRetryDelay)
+		a.invalidator.Invalidate()
+	}
+}
+
 func (a *App) applyServerInlayHints(pending *semanticPending, event core.BackendEvent, failed bool) {
 	p, d := a.currentSemanticDocument(pending.documentID)
 	if p != pending.project || d == nil || d.inlay.pending != pending {
@@ -240,31 +269,36 @@ func (a *App) applyServerInlayHints(pending *semanticPending, event core.Backend
 		a.clearDocumentInlayHints(d)
 		return
 	}
-	if d.view.Revision() != pending.revision {
+	if ih.dirty || d.view.Revision() != pending.revision {
+		ih.collected = nil
 		return
 	}
-	if !failed {
-		hints, err := core.PluginSemanticInlayHints(event)
-		if err != nil {
-			a.backgroundFailed("plugin_inlay_hints", err)
-		} else {
-			span := ih.requested[ih.next-1]
-			for _, hint := range hints {
-				if len(ih.collected) == maxInlayHintsPerViewport {
-					break
-				}
-				if hint.Position.Line >= span.First && hint.Position.Line <= span.Last {
-					ih.collected = append(ih.collected, hint)
-				}
-			}
+	if failed {
+		a.retryInlayHints(ih)
+		return
+	}
+	hints, err := core.PluginSemanticInlayHints(event)
+	if err != nil {
+		a.backgroundFailed("plugin_inlay_hints", err)
+		a.retryInlayHints(ih)
+		return
+	}
+	span := ih.requested[ih.next-1]
+	for _, hint := range hints {
+		if len(ih.collected) == maxInlayHintsPerViewport {
+			break
+		}
+		if hint.Position.Line >= span.First && hint.Position.Line <= span.Last {
+			ih.collected = append(ih.collected, hint)
 		}
 	}
-	if !ih.dirty && ih.next < len(ih.requested) && len(ih.collected) < maxInlayHintsPerViewport {
+	if ih.next < len(ih.requested) && len(ih.collected) < maxInlayHintsPerViewport {
 		a.requestNextInlaySpan(p, d, pending.server)
 		return
 	}
-	hints := ih.collected
+	hints = ih.collected
 	ih.collected = nil
+	ih.failedAttempts = 0
 	ih.revision = pending.revision
 	ih.covered = append(ih.covered[:0], ih.requested...)
 	if ih.prepareCancel != nil {
