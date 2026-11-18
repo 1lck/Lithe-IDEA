@@ -317,7 +317,11 @@ func (a *App) drawRunOptionField(c ui.C, language i18n.Language, field *runOptio
 	case "multiSelect":
 		ui.Text(c, field.title).FontSize(a.theme.Metrics.FontSizeS).Color(a.colors.Subtle)
 		for index := range field.choices {
-			ui.Checkbox(c.KeyInt(index), &field.picks[index], field.choices[index].title).Disabled(!ready)
+			title := field.choices[index].title
+			if field.choices[index].defaultActive {
+				title = i18n.SharedFormat(language, "desktop.build.optionChoiceDefaultLabel", map[string]string{"title": title})
+			}
+			ui.Checkbox(c.KeyInt(index), &field.picks[index], title).Disabled(!ready)
 		}
 	default:
 		text := field.title + ": " + i18n.Shared(language, "desktop.runConfig.optionReadOnly")

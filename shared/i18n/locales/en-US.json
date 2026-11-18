@@ -11441,7 +11441,10 @@
     "desktop.sourceSettings.modules": "Modules",
     "desktop.toolchains.global": "Global defaults",
     "desktop.toolchains.globalHelp": "Manage detected and manually added SDKs for all projects. Save writes to the application’s user settings; projects can override the default. Existing processes use the new SDK after restarting.",
-    "desktop.toolchains.project": "Current project"
+    "desktop.toolchains.project": "Current project",
+    "desktop.build.optionChoiceDefault": "default",
+    "desktop.build.optionChoiceDefaultLabel": "{title} (default)",
+    "desktop.build.toggleOptionChoice": "Toggle {option}: {choice}"
   },
   "overrides": {
     "windows": {

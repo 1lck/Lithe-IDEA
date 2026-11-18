@@ -1,21 +1,24 @@
 package workbench
 
 import (
+	"context"
 	"encoding/json"
 	"slices"
 
 	"github.com/1lck/Lithe-IDEA/desktop/internal/core"
 )
 
-// The run configuration editor and the Build options editor show the build options a plugin declares, from
-// the plugin manifest of the detected instance. A value is kept as the stored JSON; only a field the user
-// changed is written back, through the same Core edit that the caller uses. A boolean is a checkbox, a single
-// choice a picker, a text, file or directory a text field, and a multi-choice with declared choices a list of
-// checkboxes. Options whose choices come from the model, and kinds the editor cannot edit, show read-only.
+// The run configuration editor and the Build options editor show the build options a plugin declares,
+// resolved by Core against the instance's loaded model when one is present. A value is kept as the stored
+// JSON; only a field the user changed is written back, through the same Core edit that the caller uses. A
+// boolean is a checkbox, a single choice a picker, a text, file or directory a text field, and a
+// multi-choice with declared or model choices a list of checkboxes. Options whose model choices have not
+// been loaded yet, and kinds the editor cannot edit, show read-only.
 
-// runOptionChoice is one declared choice of a single or multi choice option.
+// runOptionChoice is one choice of a single or multi choice option.
 type runOptionChoice struct {
-	value, title string
+	value, title  string
+	defaultActive bool
 }
 
 // runOptionField is one declared option as the editor shows it. The init fields are what the value was when
@@ -106,6 +109,93 @@ func declaredOptionFields(manifest json.RawMessage, buildSystemID string, values
 		}
 	}
 	return fields
+}
+
+// resolvedOptionFields turns Core's build.resolveOptions answer into editor fields, including choices
+// supplied by the loaded model and their default-active state.
+func resolvedOptionFields(resolved core.BuildResolvedOptions) []runOptionField {
+	fields := make([]runOptionField, 0, len(resolved.Options))
+	for _, option := range resolved.Options {
+		field := runOptionField{id: option.ID, title: option.DisplayName, kind: option.Kind}
+		if field.title == "" {
+			field.title = option.ID
+		}
+		for _, choice := range option.Choices {
+			title := choice.Title
+			if title == "" {
+				title = choice.Value
+			}
+			field.choices = append(field.choices, runOptionChoice{
+				value: choice.Value, title: title, defaultActive: choice.DefaultActive,
+			})
+		}
+		stored := option.Source == "user" || option.Source == "default"
+		switch {
+		case option.Kind == "boolean" && stored:
+			_ = json.Unmarshal(option.Value, &field.flag)
+			field.initFlag = field.flag
+		case (option.Kind == "text" || option.Kind == "file" || option.Kind == "directory") && option.Source == "user":
+			_ = json.Unmarshal(option.Value, &field.text)
+			field.initText = field.text
+		case option.Kind == "singleSelect" && option.Source == "user":
+			_ = json.Unmarshal(option.Value, &field.text)
+			field.initText = field.text
+		}
+		if option.Kind == "multiSelect" && len(field.choices) > 0 {
+			selected := option.SelectedChoices
+			if selected == nil && stored {
+				_ = json.Unmarshal(option.Value, &selected)
+			}
+			field.picks = make([]bool, len(field.choices))
+			for index, choice := range field.choices {
+				field.picks[index] = slices.Contains(selected, choice.value)
+			}
+			field.initPick = slices.Clone(field.picks)
+		}
+		if (option.Kind == "singleSelect" && len(field.choices) == 0) || (option.Kind == "multiSelect" && len(field.choices) == 0) {
+			field.kind = "readonly"
+		}
+		if option.Kind == "multiSelect" && len(field.choices) == 0 && option.Source == "user" {
+			field.raw = option.Value
+		}
+		if !slices.Contains([]string{"boolean", "singleSelect", "text", "file", "directory", "multiSelect"}, option.Kind) {
+			field.kind = "readonly"
+			if option.Source == "user" {
+				field.raw = option.Value
+			}
+		}
+		fields = append(fields, field)
+	}
+	return fields
+}
+
+// resolveInstanceOptionFields asks Core to resolve instance's options against values and its loaded model.
+func resolveInstanceOptionFields(ctx context.Context, kernel Kernel, instance buildInstance, values map[string]json.RawMessage) ([]runOptionField, error) {
+	request := core.BuildResolveOptionsRequest{Options: values}
+	if instance.modelLoaded {
+		request.ModelValues = instance.Model.OptionValues
+		request.ModelDefaults = instance.Model.OptionDefaults
+		request.ModelExcludePrefixes = instance.Model.OptionExcludePrefixes
+	}
+	resolved, err := kernel.ResolveBuildOptions(ctx, instance.Manifest, instance.BuildSystemID, request)
+	if err != nil {
+		return nil, err
+	}
+	return resolvedOptionFields(resolved), nil
+}
+
+// changedSelectedChoices reports the checked choice values of a multi-select field when the user changed it.
+func changedSelectedChoices(field runOptionField) ([]string, bool) {
+	if field.kind != "multiSelect" || slices.Equal(field.picks, field.initPick) {
+		return nil, false
+	}
+	selected := []string{}
+	for index, choice := range field.choices {
+		if field.picks[index] {
+			selected = append(selected, choice.value)
+		}
+	}
+	return selected, true
 }
 
 // changedOptionValue reports the value a field's change sends, and whether the field changed. A cleared text

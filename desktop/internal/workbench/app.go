@@ -65,6 +65,7 @@ type Kernel interface {
 	DetectBuildSystems(ctx context.Context, workspaceRoot string, manifests []json.RawMessage) (core.BuildDetection, error)
 	DetectBuildSystemsWithOptions(ctx context.Context, workspaceRoot string, manifests []json.RawMessage, options core.BuildDetectOptions) (core.BuildDetection, error)
 	ResolveStoredBuildOptions(ctx context.Context, document, local json.RawMessage) (core.BuildStoredOptions, error)
+	ResolveBuildOptions(ctx context.Context, manifest json.RawMessage, buildSystemID string, request core.BuildResolveOptionsRequest) (core.BuildResolvedOptions, error)
 	EditStoredBuildOption(ctx context.Context, manifest json.RawMessage, buildSystemID string, request core.BuildOptionEditRequest) (core.BuildOptionEdit, error)
 	EditBuildIgnoredPaths(ctx context.Context, request core.BuildIgnoredPathsEditRequest) (core.BuildIgnoredPathsEdit, error)
 	IDEHostOpen(ctx context.Context, request core.IDEHostOpenRequest) (core.IDEHostOpenResult, error)

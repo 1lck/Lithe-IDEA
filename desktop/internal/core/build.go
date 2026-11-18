@@ -199,12 +199,14 @@ type BuildTask struct {
 // BuildModel is the normalized model build.decodeModel returns. Run entries
 // are command entries only; a provider run is prepared on demand.
 type BuildModel struct {
-	Projects     []BuildProject      `json:"projects"`
-	Targets      []BuildTarget       `json:"targets"`
-	Tasks        []BuildTask         `json:"tasks"`
-	ContentRoots []json.RawMessage   `json:"contentRoots"`
-	OptionValues map[string][]string `json:"optionValues"`
-	Run          []BuildRunEntry     `json:"run"`
+	Projects              []BuildProject      `json:"projects"`
+	Targets               []BuildTarget       `json:"targets"`
+	Tasks                 []BuildTask         `json:"tasks"`
+	ContentRoots          []json.RawMessage   `json:"contentRoots"`
+	OptionValues          map[string][]string `json:"optionValues"`
+	OptionDefaults        map[string][]string `json:"optionDefaults,omitempty"`
+	OptionExcludePrefixes map[string]string   `json:"optionExcludePrefixes,omitempty"`
+	Run                   []BuildRunEntry     `json:"run"`
 }
 
 // BuildRunEntry is a command Run entry Core derived from a decoded model: one
@@ -270,9 +272,10 @@ type buildOutcome struct {
 	// Dependencies is the answer of build.decodeDependencies.
 	Dependencies *BuildDependencyTree `json:"dependencies"`
 	// Storage and Edit answer build.resolveStoredOptions and build.editStoredOption; build.editIgnoredPaths
-	// decodes its own edit.
-	Storage *BuildStoredOptions `json:"storage"`
-	Edit    *BuildOptionEdit    `json:"edit"`
+	// decodes its own edit, and Options answers build.resolveOptions.
+	Storage *BuildStoredOptions   `json:"storage"`
+	Edit    *BuildOptionEdit      `json:"edit"`
+	Options *BuildResolvedOptions `json:"options"`
 	// Discovery answers build.decodeTestDiscovery.
 	Discovery *BuildTestDiscovery `json:"discovery"`
 	// Tree answers build.modelTree.
@@ -454,16 +457,20 @@ func (c *Client) DecodeBuildModel(ctx context.Context, manifest json.RawMessage,
 // narrows the tree to the nodes it matches; GroupHeadings labels the folder of each task group
 // in the user's language, and the query matches those labels too.
 type BuildModelTreeRequest struct {
-	Model         BuildModelTreeInput `json:"model"`
-	Query         string              `json:"query,omitempty"`
-	GroupHeadings map[string]string   `json:"groupHeadings,omitempty"`
+	Model         BuildModelTreeInput        `json:"model"`
+	Options       map[string]json.RawMessage `json:"options,omitempty"`
+	Query         string                     `json:"query,omitempty"`
+	GroupHeadings map[string]string          `json:"groupHeadings,omitempty"`
 }
 
 // BuildModelTreeInput is the part of a decoded model the tree reads.
 type BuildModelTreeInput struct {
-	Projects []BuildProject `json:"projects"`
-	Targets  []BuildTarget  `json:"targets"`
-	Tasks    []BuildTask    `json:"tasks"`
+	Projects              []BuildProject      `json:"projects"`
+	Targets               []BuildTarget       `json:"targets"`
+	Tasks                 []BuildTask         `json:"tasks"`
+	OptionValues          map[string][]string `json:"optionValues,omitempty"`
+	OptionDefaults        map[string][]string `json:"optionDefaults,omitempty"`
+	OptionExcludePrefixes map[string]string   `json:"optionExcludePrefixes,omitempty"`
 }
 
 // BuildModelTree is the Build tool window's tree of one instance. Project is the instance's
@@ -478,6 +485,8 @@ type BuildModelTree struct {
 
 // The kinds of a BuildTreeNode.
 const (
+	BuildTreeOption       = "option"
+	BuildTreeOptionChoice = "optionChoice"
 	BuildTreeProject      = "project"
 	BuildTreeFolder       = "folder"
 	BuildTreeTask         = "task"
@@ -489,21 +498,27 @@ const (
 
 // BuildTreeNode is one node of a BuildModelTree. Key is unique in the instance and stable
 // across reloads and filters. ProjectID and TargetID are what a task runs on, empty for the
-// whole instance; TaskID is a declared or a model task. Group names the task group a folder
-// stands for, empty for a category folder. Matched marks a node the query matches itself.
-// Targets, dependencies and tests nodes have no label: the host names them.
+// whole instance; TaskID is a declared or a model task. OptionID and OptionValue name the
+// option and choice an option or optionChoice node shows, with Checked and DefaultActive on
+// each choice. Group names the task group a folder stands for, empty for a category folder.
+// Matched marks a node the query matches itself. Targets, dependencies and tests nodes have no
+// label: the host names them.
 type BuildTreeNode struct {
-	Kind      string          `json:"kind"`
-	Key       string          `json:"key"`
-	Label     string          `json:"label"`
-	Detail    string          `json:"detail"`
-	Tooltip   string          `json:"tooltip"`
-	Group     string          `json:"group"`
-	ProjectID string          `json:"projectID"`
-	TargetID  string          `json:"targetID"`
-	TaskID    string          `json:"taskID"`
-	Matched   bool            `json:"matched"`
-	Children  []BuildTreeNode `json:"children"`
+	Kind          string          `json:"kind"`
+	Key           string          `json:"key"`
+	Label         string          `json:"label"`
+	Detail        string          `json:"detail"`
+	Tooltip       string          `json:"tooltip"`
+	Group         string          `json:"group"`
+	ProjectID     string          `json:"projectID"`
+	TargetID      string          `json:"targetID"`
+	TaskID        string          `json:"taskID"`
+	OptionID      string          `json:"optionID"`
+	OptionValue   string          `json:"optionValue"`
+	Checked       bool            `json:"checked"`
+	DefaultActive bool            `json:"defaultActive"`
+	Matched       bool            `json:"matched"`
+	Children      []BuildTreeNode `json:"children"`
 }
 
 // BuildModelTree lays out the tree of one loaded model for the Build tool window.

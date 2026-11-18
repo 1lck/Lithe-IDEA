@@ -215,7 +215,23 @@ func (a *App) readBuildIgnoredPaths(p *project, inherit bool) {
 	e := &p.build.options
 	e.ignored.restoring = inherit
 	kernel, root, session := a.kernel, p.root, e.session
+	var captured *buildInstance
+	if !inherit && e.instance != "" {
+		if instance := p.buildInstanceByID(e.instance); instance != nil {
+			copyInstance := *instance
+			captured = &copyInstance
+		}
+	}
 	a.background(p, buildRequestTimeout, func(ctx context.Context) func(*App) {
+		var resolvedFields []runOptionField
+		if captured != nil {
+			resolved, err := resolveInstanceOptionFields(ctx, kernel, *captured, captured.Options)
+			if err != nil {
+				a.backgroundFailedIn(ctx, "build_options_resolve", err)
+			} else {
+				resolvedFields = resolved
+			}
+		}
 		ignored, err := func() (core.BuildIgnoredPaths, error) {
 			docs, err := a.readBuildOptionDocuments(ctx, root)
 			if err != nil {
@@ -234,6 +250,9 @@ func (a *App) readBuildIgnoredPaths(p *project, inherit bool) {
 				return
 			}
 			e.ignored.restoring = false
+			if len(resolvedFields) != 0 {
+				e.fields = resolvedFields
+			}
 			if err != nil {
 				e.failure = err.Error()
 				return
@@ -258,6 +277,12 @@ func (a *App) saveBuildOptions(p *project) {
 	var changes []buildOptionChange
 	if instance != nil {
 		for _, field := range e.fields {
+			if selected, changed := changedSelectedChoices(field); changed {
+				changes = append(changes, buildOptionChange{
+					optionID: field.id, selectedChoices: selected, hasSelectedChoices: true,
+				})
+				continue
+			}
 			if value, changed := changedOptionValue(field); changed {
 				changes = append(changes, buildOptionChange{optionID: field.id, value: value})
 			}
@@ -300,10 +325,13 @@ func buildOptionsFailure(language i18n.Language, err error, lines []int) string 
 	return i18n.Shared(language, "desktop.build.invalidIgnoredPaths")
 }
 
-// buildOptionChange is one option the user set; a nil value removes the local override.
+// buildOptionChange is one option the user set; a nil value (without hasSelectedChoices) removes the local
+// override, while hasSelectedChoices sends the checked choice list for Core to encode against defaults.
 type buildOptionChange struct {
-	optionID string
-	value    any
+	optionID           string
+	value              any
+	selectedChoices    []string
+	hasSelectedChoices bool
 }
 
 // saveBuildOptionChanges applies changes to one instance's options, and the ignored-path change when it is
@@ -326,9 +354,21 @@ func (a *App) saveBuildOptionChanges(p *project, instance *buildInstance, change
 		local := docs.local
 		var options json.RawMessage
 		for _, change := range changes {
-			edit, err := kernel.EditStoredBuildOption(ctx, target.Manifest, target.BuildSystemID, core.BuildOptionEditRequest{
-				Document: docs.team, Local: local, Root: target.Root, OptionID: change.optionID, Value: change.value,
-			})
+			req := core.BuildOptionEditRequest{
+				Document:           docs.team,
+				Local:              local,
+				Root:               target.Root,
+				OptionID:           change.optionID,
+				Value:              change.value,
+				SelectedChoices:    change.selectedChoices,
+				HasSelectedChoices: change.hasSelectedChoices,
+			}
+			if target.modelLoaded {
+				req.ModelValues = target.Model.OptionValues
+				req.ModelDefaults = target.Model.OptionDefaults
+				req.ModelExcludePrefixes = target.Model.OptionExcludePrefixes
+			}
+			edit, err := kernel.EditStoredBuildOption(ctx, target.Manifest, target.BuildSystemID, req)
 			if err != nil {
 				return func(a *App) { done(nil, err) }
 			}
@@ -349,6 +389,7 @@ func (a *App) saveBuildOptionChanges(p *project, instance *buildInstance, change
 				return
 			}
 			done(options, nil)
+			p.reloadBuildDependencies()
 			a.requestBuildReload(p)
 		}
 	})

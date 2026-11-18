@@ -59,21 +59,68 @@ type BuildIgnoredPathsEdit struct {
 	IgnoredPaths BuildIgnoredPaths `json:"ignoredPaths"`
 }
 
-// BuildOptionEditRequest changes one declared local preference of an instance. A nil Value removes the local
-// override, so the team or declaration value applies again. A list is sent as given, an empty list being the
-// explicit empty selection.
+// BuildOptionEditRequest changes one declared local preference of an instance. A nil Value (when
+// HasSelectedChoices is false) removes the local override, so the team or declaration value applies
+// again. When HasSelectedChoices is true, Core encodes SelectedChoices against the model's defaults
+// and exclusion prefix, clearing the local override when no team override exists and the checked
+// choices equal the defaults.
 type BuildOptionEditRequest struct {
-	Document json.RawMessage
-	Local    json.RawMessage
-	Root     string
-	OptionID string
-	Value    any
+	Document             json.RawMessage
+	Local                json.RawMessage
+	Root                 string
+	OptionID             string
+	Value                any
+	SelectedChoices      []string
+	HasSelectedChoices   bool
+	ModelValues          map[string][]string
+	ModelDefaults        map[string][]string
+	ModelExcludePrefixes map[string]string
 }
 
 // BuildOptionEdit is the local document after an edit and the effective options Core checked against it.
 type BuildOptionEdit struct {
 	Local   json.RawMessage `json:"local"`
 	Options json.RawMessage `json:"options"`
+}
+
+// BuildResolveOptionsRequest asks Core (build.resolveOptions) for a build system's declared options,
+// their effective values, and the choices the UI should offer. SelectedChoices, when given, encodes
+// the positive choices checked in an option editor into Options before resolution.
+type BuildResolveOptionsRequest struct {
+	Options              map[string]json.RawMessage `json:"options,omitempty"`
+	SelectedChoices      map[string][]string        `json:"selectedChoices,omitempty"`
+	ModelValues          map[string][]string        `json:"modelValues,omitempty"`
+	ModelDefaults        map[string][]string        `json:"modelDefaults,omitempty"`
+	ModelExcludePrefixes map[string]string          `json:"modelExcludePrefixes,omitempty"`
+}
+
+// BuildResolvedOptions is Core's answer to build.resolveOptions.
+type BuildResolvedOptions struct {
+	Options     []BuildResolvedOption `json:"options"`
+	Dropped     []string              `json:"dropped"`
+	Fingerprint string                `json:"fingerprint"`
+}
+
+// BuildResolvedOption is one declared build option as Core resolved it for display and editing.
+type BuildResolvedOption struct {
+	ID              string                `json:"id"`
+	DisplayName     string                `json:"displayName"`
+	Kind            string                `json:"kind"`
+	Scope           string                `json:"scope,omitempty"`
+	Value           json.RawMessage       `json:"value"`
+	SelectedChoices []string              `json:"selectedChoices"`
+	Source          string                `json:"source"`
+	Choices         []BuildResolvedChoice `json:"choices"`
+	AllowCustom     bool                  `json:"allowCustom"`
+}
+
+// BuildResolvedChoice is one choice of a single-select or multi-select build option.
+type BuildResolvedChoice struct {
+	Value         string `json:"value"`
+	Title         string `json:"title"`
+	FromModel     bool   `json:"fromModel"`
+	Custom        bool   `json:"custom"`
+	DefaultActive bool   `json:"defaultActive"`
 }
 
 // ResolveStoredBuildOptions checks the team document and the local document against each other. It reads
@@ -96,28 +143,61 @@ func (c *Client) ResolveStoredBuildOptions(ctx context.Context, document, local 
 	return *result.Storage, nil
 }
 
+// ResolveBuildOptions resolves the declared options of a build system against stored values and
+// optional model facts (build.resolveOptions).
+func (c *Client) ResolveBuildOptions(ctx context.Context, manifest json.RawMessage, buildSystemID string, request BuildResolveOptionsRequest) (BuildResolvedOptions, error) {
+	const command = "build.resolveOptions"
+	var result buildOutcome
+	if err := c.Execute(ctx, command, struct {
+		Manifest      json.RawMessage            `json:"manifest"`
+		BuildSystemID string                     `json:"buildSystemID"`
+		Request       BuildResolveOptionsRequest `json:"request"`
+	}{manifest, buildSystemID, request}, &result); err != nil {
+		return BuildResolvedOptions{}, err
+	}
+	if err := result.failure(command); err != nil {
+		return BuildResolvedOptions{}, err
+	}
+	if result.Options == nil {
+		return BuildResolvedOptions{}, newParseError(command, "build.resolveOptions returned no options", "")
+	}
+	return *result.Options, nil
+}
+
 // EditStoredBuildOption applies one option edit to the local document of an instance, in the standard
 // manifest and build-system envelope. The host writes edit.Local itself, atomically, and reads it back.
 func (c *Client) EditStoredBuildOption(ctx context.Context, manifest json.RawMessage, buildSystemID string, request BuildOptionEditRequest) (BuildOptionEdit, error) {
 	const command = "build.editStoredOption"
+	payload := map[string]any{
+		"document": request.Document,
+		"local":    request.Local,
+		"root":     request.Root,
+		"optionID": request.OptionID,
+	}
+	if request.HasSelectedChoices {
+		selected := request.SelectedChoices
+		if selected == nil {
+			selected = []string{}
+		}
+		payload["selectedChoices"] = selected
+	} else {
+		payload["value"] = request.Value
+	}
+	if request.ModelValues != nil {
+		payload["modelValues"] = request.ModelValues
+	}
+	if request.ModelDefaults != nil {
+		payload["modelDefaults"] = request.ModelDefaults
+	}
+	if request.ModelExcludePrefixes != nil {
+		payload["modelExcludePrefixes"] = request.ModelExcludePrefixes
+	}
 	var result buildOutcome
 	if err := c.Execute(ctx, command, struct {
 		Manifest      json.RawMessage `json:"manifest"`
 		BuildSystemID string          `json:"buildSystemID"`
-		Request       struct {
-			Document json.RawMessage `json:"document"`
-			Local    json.RawMessage `json:"local"`
-			Root     string          `json:"root"`
-			OptionID string          `json:"optionID"`
-			Value    any             `json:"value"`
-		} `json:"request"`
-	}{manifest, buildSystemID, struct {
-		Document json.RawMessage `json:"document"`
-		Local    json.RawMessage `json:"local"`
-		Root     string          `json:"root"`
-		OptionID string          `json:"optionID"`
-		Value    any             `json:"value"`
-	}{request.Document, request.Local, request.Root, request.OptionID, request.Value}}, &result); err != nil {
+		Request       map[string]any  `json:"request"`
+	}{manifest, buildSystemID, payload}, &result); err != nil {
 		return BuildOptionEdit{}, err
 	}
 	if err := result.failure(command); err != nil {

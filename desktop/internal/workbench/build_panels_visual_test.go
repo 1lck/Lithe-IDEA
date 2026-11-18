@@ -54,20 +54,39 @@ func visualBuildSystems() []buildInstance {
 		lifecycle = append(lifecycle, task(phase, phase, "lifecycle", "Lifecycle"))
 	}
 	lifecycle = append(lifecycle, pluginservice.BuildTaskDeclaration{ID: "goal", DisplayName: "Plugin goal", Group: "build", FromModel: true, Source: "provider"})
+	maven := system("maven", "Maven", ".", run, lifecycle, core.BuildModel{
+		Projects: []core.BuildProject{
+			{ID: "shop", Path: ".", Name: "shop"},
+			{ID: "core", Path: "core", Name: "shop-core", ParentID: "shop"},
+			{ID: "web", Path: "web", Name: "shop-web", ParentID: "shop"},
+		},
+		Targets: []core.BuildTarget{{ID: "web-app", ProjectID: "web", Name: "ShopApplication", Path: "web", Tags: []string{"app"}}},
+		Tasks: []core.BuildTask{
+			goal("shop", "clean", "clean"), goal("shop", "install", "install"),
+			goal("core", "compiler", "compile"), goal("core", "compiler", "testCompile"), goal("core", "surefire", "test"), goal("core", "jar", "jar"),
+			goal("web", "compiler", "compile"), goal("web", "spring-boot", "run"), goal("web", "spring-boot", "repackage"),
+		},
+		OptionValues:          map[string][]string{"profiles": {"ci", "dev", "prod"}},
+		OptionDefaults:        map[string][]string{"profiles": {"dev"}},
+		OptionExcludePrefixes: map[string]string{"profiles": "-"},
+	})
+	maven.Options = map[string]json.RawMessage{"profiles": json.RawMessage(`["dev","prod"]`)}
+	maven.OptionFingerprint = "visual-profiles-dev-prod"
+	var mavenManifest map[string]any
+	if err := json.Unmarshal(maven.Manifest, &mavenManifest); err != nil {
+		panic(err)
+	}
+	mavenManifest["buildSystems"].([]any)[0].(map[string]any)["options"] = []any{map[string]any{
+		"id": "profiles", "displayName": "Profiles", "kind": "multiSelect",
+		"choicesFromModel": true, "allowCustom": true, "presentation": "tree",
+		"arguments": []string{"-P", "${value}"},
+	}}
+	var err error
+	if maven.Manifest, err = json.Marshal(mavenManifest); err != nil {
+		panic(err)
+	}
 	return []buildInstance{
-		system("maven", "Maven", ".", run, lifecycle, core.BuildModel{
-			Projects: []core.BuildProject{
-				{ID: "shop", Path: ".", Name: "shop"},
-				{ID: "core", Path: "core", Name: "shop-core", ParentID: "shop"},
-				{ID: "web", Path: "web", Name: "shop-web", ParentID: "shop"},
-			},
-			Targets: []core.BuildTarget{{ID: "web-app", ProjectID: "web", Name: "ShopApplication", Path: "web", Tags: []string{"app"}}},
-			Tasks: []core.BuildTask{
-				goal("shop", "clean", "clean"), goal("shop", "install", "install"),
-				goal("core", "compiler", "compile"), goal("core", "compiler", "testCompile"), goal("core", "surefire", "test"), goal("core", "jar", "jar"),
-				goal("web", "compiler", "compile"), goal("web", "spring-boot", "run"), goal("web", "spring-boot", "repackage"),
-			},
-		}),
+		maven,
 		system("gradle", "Gradle", "android", run, []pluginservice.BuildTaskDeclaration{
 			task("assemble", "assemble", "build", "Build"), task("build", "build", "build", "Build"), task("check", "check", "verification", "Verification"),
 		}, core.BuildModel{
@@ -169,9 +188,9 @@ func TestVisualBuildPanels(t *testing.T) {
 					a.refreshRunConfigurations(p)
 				})
 				h.settleChain()
-				// The folders a user opens to reach shop-core's compiler goals and shop-web's
-				// lifecycle; the rest stay closed, as they start.
-				for _, path := range [][]string{{"shop-core", "Plugins"}, {"shop-core", "Plugins", "compiler"}, {"shop-web", "Lifecycle"}} {
+				// The folders a user opens to inspect active profiles, shop-core's compiler goals and
+				// shop-web's lifecycle; the rest stay closed, as they start.
+				for _, path := range [][]string{{"Profiles"}, {"shop-core", "Plugins"}, {"shop-core", "Plugins", "compiler"}, {"shop-web", "Lifecycle"}} {
 					setBuildNodeOpen(t, p, laidOutBuildRows(t, h, p), true, path...)
 				}
 				switch scene {

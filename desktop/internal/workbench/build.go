@@ -53,6 +53,8 @@ type buildState struct {
 	// reloadPending says a stored option changed while a detection was running, so the instances are
 	// detected again when that detection ends.
 	reloadPending bool
+	// optionSaving says a toggle on an option choice of the tree is being saved to the local document.
+	optionSaving bool
 	// status is the last result line of the current or latest execution.
 	status string
 
@@ -614,6 +616,7 @@ func (a *App) loadBuildModelWith(p *project, index int, refresh bool) {
 	instance.modelLoading = true
 	instance.modelError, instance.modelStopped = "", false
 	captured := *instance
+	generation := p.build.generation
 	kernel := a.kernel
 	// The load is a session of the Run window, which shows what the tool prints meanwhile.
 	feed := a.beginBuildSync(p, instance)
@@ -626,6 +629,9 @@ func (a *App) loadBuildModelWith(p *project, index int, refresh bool) {
 		}
 		return func(a *App) {
 			a.endBuildSync(feed.session, err)
+			if a.project != p || p.build.generation != generation {
+				return
+			}
 			a.finishBuildModel(p, captured.ID, model, err)
 		}
 	})

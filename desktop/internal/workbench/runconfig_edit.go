@@ -119,10 +119,20 @@ func (a *App) openRunConfigEditor(p *project, id string) {
 		directory: configuration.Cwd, environment: environmentText(configuration.Env),
 		scope: "local", loading: true,
 	}
+	var buildInstance *buildInstance
+	var optionSnapshot map[string]json.RawMessage
 	if provider, ok := providerRunEditorState(*configuration); ok {
 		e.provider, e.runtimeArguments, e.entrypoint, e.options, e.tools = true, provider.runtimeArguments, provider.entrypoint, provider.options, provider.tools
 		if reference, ok := configuration.BuildReference(); ok {
 			e.optionFields = p.runOptionFields(reference, e.options)
+			if index := p.buildInstanceIndex(reference); index >= 0 {
+				captured := p.build.instances[index]
+				buildInstance = &captured
+				optionSnapshot = make(map[string]json.RawMessage, len(e.options))
+				for key, value := range e.options {
+					optionSnapshot[key] = slices.Clone(value)
+				}
+			}
 		}
 		a.loadRunConfigInstalls(p, generation)
 	}
@@ -131,6 +141,10 @@ func (a *App) openRunConfigEditor(p *project, id string) {
 		texts, err := kernel.RunArgumentText(ctx, [][]string{args})
 		if err == nil && len(texts) != 1 {
 			err = errors.New("runConfig.argumentText returned no text")
+		}
+		var resolvedFields []runOptionField
+		if err == nil && buildInstance != nil {
+			resolvedFields, _ = resolveInstanceOptionFields(ctx, kernel, *buildInstance, optionSnapshot)
 		}
 		return func(a *App) {
 			e := &p.runConfigs.editor
@@ -141,6 +155,9 @@ func (a *App) openRunConfigEditor(p *project, id string) {
 			if err != nil {
 				e.failure = i18n.SharedFormat(a.language(), "desktop.runConfig.saveFailed", map[string]string{"reason": err.Error()})
 				return
+			}
+			if len(resolvedFields) != 0 {
+				e.optionFields = resolvedFields
 			}
 			e.arguments = texts[0]
 		}
@@ -171,10 +188,39 @@ func (a *App) saveRunConfigEditor(p *project) {
 		Root: p.root, Scope: e.scope, ConfigurationID: e.id,
 		WorkingDirectory: strings.TrimSpace(e.directory), Arguments: e.arguments, Environment: environment,
 	}
+	var multiSelectEdits map[string][]string
+	var multiSelectInstance *buildInstance
+	var editorSnapshot runConfigEditor
 	if e.provider {
+		for _, field := range e.optionFields {
+			if selected, changed := changedSelectedChoices(field); changed {
+				if multiSelectEdits == nil {
+					multiSelectEdits = map[string][]string{}
+				}
+				multiSelectEdits[field.id] = selected
+			}
+		}
+		if len(multiSelectEdits) != 0 {
+			if configuration := p.runConfigs.configuration(e.id); configuration != nil {
+				if reference, ok := configuration.BuildReference(); ok {
+					if index := p.buildInstanceIndex(reference); index >= 0 {
+						captured := p.build.instances[index]
+						multiSelectInstance = &captured
+					}
+				}
+			}
+		}
 		applyRunOptionFields(e)
+		editorSnapshot = *e
+		if e.options != nil {
+			editorSnapshot.options = make(map[string]json.RawMessage, len(e.options))
+			for key, value := range e.options {
+				editorSnapshot.options[key] = slices.Clone(value)
+			}
+		}
 		raw, err := providerRunOptionsJSON(e)
 		if err != nil {
+			e.saving = false
 			e.failure = i18n.SharedFormat(a.language(), "desktop.runConfig.saveFailed", map[string]string{"reason": err.Error()})
 			return
 		}
@@ -182,6 +228,53 @@ func (a *App) saveRunConfigEditor(p *project) {
 	}
 	kernel := a.kernel
 	a.background(p, buildRequestTimeout, func(ctx context.Context) func(*App) {
+		if len(multiSelectEdits) != 0 && multiSelectInstance != nil {
+			request := core.BuildResolveOptionsRequest{
+				Options:         editorSnapshot.options,
+				SelectedChoices: multiSelectEdits,
+			}
+			if multiSelectInstance.modelLoaded {
+				request.ModelValues = multiSelectInstance.Model.OptionValues
+				request.ModelDefaults = multiSelectInstance.Model.OptionDefaults
+				request.ModelExcludePrefixes = multiSelectInstance.Model.OptionExcludePrefixes
+			}
+			resolved, err := kernel.ResolveBuildOptions(ctx, multiSelectInstance.Manifest, multiSelectInstance.BuildSystemID, request)
+			if err != nil {
+				return func(a *App) {
+					e := &p.runConfigs.editor
+					if !e.open || e.generation != generation {
+						return
+					}
+					e.saving = false
+					e.failure = i18n.SharedFormat(a.language(), "desktop.runConfig.saveFailed", map[string]string{"reason": err.Error()})
+				}
+			}
+			if editorSnapshot.options == nil {
+				editorSnapshot.options = map[string]json.RawMessage{}
+			}
+			for _, option := range resolved.Options {
+				if _, edited := multiSelectEdits[option.ID]; !edited {
+					continue
+				}
+				if option.Source == "user" {
+					editorSnapshot.options[option.ID] = option.Value
+				} else {
+					delete(editorSnapshot.options, option.ID)
+				}
+			}
+			raw, err := providerRunOptionsJSON(&editorSnapshot)
+			if err != nil {
+				return func(a *App) {
+					e := &p.runConfigs.editor
+					if !e.open || e.generation != generation {
+						return
+					}
+					e.saving = false
+					e.failure = i18n.SharedFormat(a.language(), "desktop.runConfig.saveFailed", map[string]string{"reason": err.Error()})
+				}
+			}
+			edit.ProviderRunOptions = raw
+		}
 		err := saveRunConfigOptions(ctx, kernel, edit)
 		return func(a *App) {
 			e := &p.runConfigs.editor
