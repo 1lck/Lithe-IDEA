@@ -134,3 +134,59 @@ func (k *blockingRequestKernel) RequestPluginBuild(context.Context, core.PluginB
 	<-k.release
 	return "", errors.New("request rejected")
 }
+
+// Core keeps a provider's JSON-RPC error under its serverError code and generic message and
+// passes the provider's own message apart; the window shows that message, logs keep only Core's.
+func TestProviderErrorKeepsTheProvidersOwnMessageApart(t *testing.T) {
+	err := providerError(json.RawMessage(`{"code":"serverError","stage":"request","method":"lithe/build/prepareRun","message":"Language server returned an error.","underlyingMessage":"{\"code\":-32603,\"message\":\"Choose the installation in the plugin's settings.\"}"}`))
+	var failure *ProviderError
+	if !errors.As(err, &failure) {
+		t.Fatalf("decoded %T, want *ProviderError", err)
+	}
+	if failure.UserMessage() != "Choose the installation in the plugin's settings." {
+		t.Fatalf("user message = %q, want the provider's", failure.UserMessage())
+	}
+	if strings.Contains(err.Error(), "installation") {
+		t.Fatalf("Error, which logs record, carries the plugin's text: %q", err.Error())
+	}
+	for _, raw := range []string{
+		`{"code":"timeout","message":"The request timed out."}`,
+		`{"code":"serverError","message":"The request timed out.","underlyingMessage":"not a JSON-RPC error"}`,
+	} {
+		plain := providerError(json.RawMessage(raw))
+		if !errors.As(plain, &failure) || failure.UserMessage() != "The request timed out." {
+			t.Fatalf("a failure without a provider message = %v", plain)
+		}
+	}
+}
+
+// Drain returns once the operations running when it was called ended, and at once when the
+// session ended first.
+func TestDrainWaitsForRunningOperations(t *testing.T) {
+	client := newClient(nil, pluginbackend.Session{ID: "shared"})
+	operation := newOperation("op", "lithe/build/execute")
+	client.pending["op"] = operation
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	drained := make(chan error, 1)
+	go func() { drained <- client.Drain(ctx) }()
+	select {
+	case err := <-drained:
+		t.Fatalf("Drain returned while an operation still ran: %v", err)
+	default:
+	}
+	client.Observe(core.BackendEvent{Type: "requestCompleted", OperationID: "op", Result: json.RawMessage(`{"value":{}}`)})
+	select {
+	case err := <-drained:
+		if err != nil {
+			t.Fatalf("Drain: %v", err)
+		}
+	case <-ctx.Done():
+		t.Fatal("Drain did not return after the operation completed")
+	}
+
+	idle := newClient(nil, pluginbackend.Session{ID: "idle"})
+	if err := idle.Drain(ctx); err != nil {
+		t.Fatalf("Drain of an idle client: %v", err)
+	}
+}

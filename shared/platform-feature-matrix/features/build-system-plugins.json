@@ -2,7 +2,7 @@
   "id": "build-system-plugins",
   "area": "扩展",
   "group": "插件与主题",
-  "capability": "构建系统插件（API 3 buildSystems）：插件用 JSON 声明构建工具的识别、可执行文件、选项、任务、运行入口、测试和输出格式，或由插件自带、与语言服务器同类的 Provider 进程回答模型和依赖，Rust Core 统一校验、生成命令行或 Provider 请求并解码结果，宿主为每个构建系统打开一个按声明（icon、presentation、category）布局的工具窗口；通过共享 executableResolution 候选解析支持可选设置路径、优先级与相对排序，空值自动发现、显式失败不回退；buildProviders 2/3 原生任务与测试执行复用工作区后端会话，带进度、取消、结果与配置失效隔离；协议 3 可按声明发现测试并在现有构建树按精确选择器运行，源码/设置变化撤销旧清单；协议 4 可为应用目标准备启动计划，Core 校验后交给原生 Run 管理进程；Provider 应用可保存到本地 Run v2 配置并重新准备后重启；插件自有原生程序经 Provider v5 构建并准备 Debug，Build 树和保存的 Run 配置复用原生调试会话；协议 7 可选原生配置投影经通用设置页确认保存并回读（独立能力行 build-native-configuration）；buildSystems 3 可声明按实例根独立保存选项；executableResolution 2 复用 Run 工具链注册表和实例本机选择；团队 Build 偏好与本机差异覆盖分开保存；buildProviders 8 支持后端随执行返回有界规范报告并保留工程身份；协议 9 支持声明命名空间的语义测试标识，旧后端不能忽略筛选条件",
+  "capability": "构建系统插件（API 3 buildSystems）：插件用 JSON 声明构建工具的识别、可执行文件、选项、任务、运行入口、测试和输出格式，或由插件自带、与语言服务器同类的 Provider 进程回答模型和依赖，Rust Core 统一校验、生成命令行或 Provider 请求并解码结果，宿主为每个构建系统打开一个按声明（icon、presentation、category）布局的工具窗口；通过共享 executableResolution 候选解析支持可选设置路径、优先级与相对排序，空值自动发现、显式失败不回退；buildProviders 2/3 原生任务与测试执行复用工作区后端会话，带进度、取消、结果与配置失效隔离；协议 3 可按声明发现测试并在现有构建树按精确选择器运行，源码/设置变化撤销旧清单；协议 4 可为应用目标准备启动计划，Core 校验后交给原生 Run 管理进程；Provider 应用可保存到本地 Run v2 配置并重新准备后重启；插件自有原生程序经 Provider v5 构建并准备 Debug，Build 树和保存的 Run 配置复用原生调试会话；协议 7 可选原生配置投影经通用设置页确认保存并回读（独立能力行 build-native-configuration）；buildSystems 3 可声明按实例根独立保存选项；executableResolution 2 复用 Run 工具链注册表和实例本机选择；团队 Build 偏好与本机差异覆盖分开保存；buildProviders 8 支持后端随执行返回有界规范报告并保留工程身份；协议 9 支持声明命名空间的语义测试标识，旧后端不能忽略筛选条件；Provider 以 JSON-RPC 错误回答时，运行、调试准备、模型和依赖失败显示 Provider 自己的说明，日志只记录 Core 的错误代码。",
   "macos": {
     "implementationStatus": "partial",
     "verificationStatus": "pending",
@@ -36,7 +36,8 @@
       "desktop/internal/workbench/build_ignored_paths_test.go",
       "desktop/internal/buildprocess/batch.go",
       "desktop/internal/buildprocess/batch_test.go",
-      "desktop/internal/workbench/build_command_output_test.go"
+      "desktop/internal/workbench/build_command_output_test.go",
+      "desktop/internal/buildprovider/lifecycle_regression_test.go"
     ]
   },
   "windows": {
@@ -74,7 +75,8 @@
       "desktop/internal/buildprocess/batch_test.go",
       "desktop/internal/workbench/build_command_output_test.go",
       "desktop/internal/buildprocess/batch_windows_test.go",
-      "desktop/internal/workbench/build_command_windows_test.go"
+      "desktop/internal/workbench/build_command_windows_test.go",
+      "desktop/internal/buildprovider/lifecycle_regression_test.go"
     ]
   },
   "owner": "Extensions",

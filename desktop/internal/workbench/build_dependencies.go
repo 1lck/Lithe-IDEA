@@ -96,7 +96,7 @@ func (a *App) loadBuildDependencies(p *project, instance *buildInstance, project
 			deps.loading = false
 			if err != nil {
 				a.operationFailed("build_dependencies", err)
-				deps.failed = err.Error()
+				deps.failed = a.launchFailureText(err)
 				return
 			}
 			deps.tree = tree
