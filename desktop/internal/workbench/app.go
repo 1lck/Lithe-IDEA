@@ -426,6 +426,8 @@ const (
 type project struct {
 	// root is the absolute, cleaned path of the project folder.
 	root string
+	// pluginContext belongs to this open project, not to any background consumer.
+	pluginContext pluginservice.ContextRef
 	// indexing is the search exclusion policy the project installed in Core (directory_exclusions.go).
 	indexing projectIndexing
 	// name is the folder's name, shown in the title bar.
@@ -1493,6 +1495,9 @@ func (a *App) openProjectHere(path string) {
 		a.openTerminals(p)
 		a.project = p
 		a.ideAPISetProject(p)
+		if a.plugins != nil && a.plugins.Contexts != nil {
+			p.pluginContext = a.plugins.Contexts.Open(root).ContextRef
+		}
 		rootCopy := root
 		a.toolchainRoot.Store(&rootCopy)
 		a.notice = ""
@@ -1502,7 +1507,7 @@ func (a *App) openProjectHere(path string) {
 		a.loadGit(p)
 		a.startGitObservation(p)
 		a.loadLog(p)
-		a.activatePluginWorkspace(root)
+		a.activatePluginWorkspace(p)
 		a.restoreEditorSession(p)
 		a.restoreCheckpoints(p)
 		a.restoreNativePanels(p)

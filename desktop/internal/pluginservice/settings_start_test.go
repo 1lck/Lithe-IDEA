@@ -88,7 +88,9 @@ func TestLanguageServerReadsActualPluginPreferenceLayersBeforePlanning(t *testin
 				t.Fatal(err)
 			}
 			entry := pluginmanager.Entry{Enabled: true, Installed: pluginpkg.Installed{ID: "dev.example.settings", Version: "1.0.0", Path: packageRoot}}
-			_, err = service.StartLanguageServer(ctx, []pluginmanager.Entry{entry}, "fixture", BackendRequest{WorkingDirectory: workspace, Architecture: core.PluginArchitecture()})
+			workspaceContext := service.Contexts.Open(workspace)
+			t.Cleanup(service.Contexts.CloseAll)
+			_, err = service.StartLanguageServer(ctx, []pluginmanager.Entry{entry}, "fixture", BackendRequest{WorkingDirectory: workspace, Context: workspaceContext.ContextRef, Architecture: core.PluginArchitecture()})
 			if malformed {
 				if err == nil || kernel.planned != 0 {
 					t.Fatalf("malformed settings reached process planning: plans=%d, error=%v", kernel.planned, err)

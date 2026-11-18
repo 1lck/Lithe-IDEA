@@ -509,17 +509,18 @@ func (a *App) detachPluginServer(pluginID string) *pluginservice.LanguageSession
 	return session
 }
 
-// activatePluginWorkspace opens the workspace's context for plugin backends and
-// starts the ones that asked for onWorkspaceOpen. It runs after the window shows
+// activatePluginWorkspace starts the backends that asked for onWorkspaceOpen
+// using the identity the window already owns. It runs after the window shows
 // the project, off the window thread, so it never delays opening the workspace.
-func (a *App) activatePluginWorkspace(root string) {
+func (a *App) activatePluginWorkspace(p *project) {
 	if a.plugins == nil {
 		return
 	}
-	a.background(nil, pluginServerStartTimeout, func(ctx context.Context) func(*App) {
+	workspace := p.pluginContext
+	a.background(p, pluginServerStartTimeout, func(ctx context.Context) func(*App) {
 		entries, err := a.plugins.Manager.Installed()
 		if err == nil {
-			err = a.plugins.ActivateWorkspace(ctx, entries, root)
+			err = a.plugins.ActivateWorkspace(ctx, entries, workspace)
 		}
 		return func(a *App) {
 			if err != nil {
@@ -605,6 +606,7 @@ func (a *App) pluginBackendRequest() pluginservice.BackendRequest {
 		// The root URI is resolved by Core from the absolute path in the start
 		// goroutine; a map here would not fit lsp.startServer's string field.
 		request.WorkingDirectory = a.project.root
+		request.Context = a.project.pluginContext
 	}
 	return request
 }
