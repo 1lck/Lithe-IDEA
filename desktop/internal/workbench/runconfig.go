@@ -38,6 +38,9 @@ type runConfigState struct {
 	// they are asked for.
 	types        []core.RunConfigurationType
 	typesLoading bool
+	// manualOrder says list is in the order the user gave it on this machine rather than by
+	// name; Core keeps the choice locally and lists the configurations in that order.
+	manualOrder bool
 	// dialog is the Run/Debug Configurations window that creates, edits and removes
 	// configurations (runconfig_dialog.go).
 	dialog runConfigDialog
@@ -186,6 +189,8 @@ func (a *App) finishRunConfigurations(p *project, generation uint64, resolved co
 		}
 		return !ok || c.Disabled
 	})
+	s.manualOrder = !resolved.SortAlphabetically
+	a.settleRunConfigDialog(p)
 	if s.reveal != "" && s.configuration(s.reveal) != nil {
 		s.selected = s.reveal
 	}

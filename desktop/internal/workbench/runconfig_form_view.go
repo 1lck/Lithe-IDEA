@@ -7,6 +7,7 @@ import (
 	"slices"
 
 	"github.com/1lck/Lithe-IDEA/desktop/internal/core"
+	"github.com/1lck/Lithe-IDEA/desktop/internal/fileicons"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/i18n"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/icons"
 	"github.com/vivaui/viva/gfx"
@@ -45,10 +46,18 @@ func runConfigTypeLabel(language i18n.Language, provider string) (string, bool) 
 	return "", false
 }
 
-// runConfigTypeIcon is the icon of a built-in kind: a script or a program.
-func runConfigTypeIcon(provider string) gfx.Icon {
-	if provider == runProviderExecutable {
-		return icons.Cpu
+// runConfigTypeIcon is the icon of a built-in kind: the colored project tree icon of the files
+// it runs (.sh, .ps1, .cmd, .exe), so a kind looks like its files everywhere.
+func runConfigTypeIcon(provider string, dark bool) gfx.Icon {
+	switch provider {
+	case runProviderShell:
+		return fileicons.ForFile("run.sh", dark)
+	case runProviderPowerShell:
+		return fileicons.ForFile("run.ps1", dark)
+	case runProviderBatch:
+		return fileicons.ForFile("run.cmd", dark)
+	case runProviderExecutable:
+		return fileicons.ForFile("run.exe", dark)
 	}
 	return icons.FileCode
 }

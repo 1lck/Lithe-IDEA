@@ -55,6 +55,10 @@ const (
 	kindShell
 	// kindPowerShell identifies a PowerShell script.
 	kindPowerShell
+	// kindBatch identifies a Windows batch file.
+	kindBatch
+	// kindExecutable identifies a Windows program.
+	kindExecutable
 	// kindLua identifies a Lua file.
 	kindLua
 	// kindZig identifies a Zig source or ZON file.
@@ -150,6 +154,8 @@ var kindIcons = [kindCount][2]*gfx.Icon{
 	kindCSharp:         {&Csharp, &CsharpDark},
 	kindShell:          {&Shell, &ShellDark},
 	kindPowerShell:     {&Powershell, &PowershellDark},
+	kindBatch:          {&Batch, &BatchDark},
+	kindExecutable:     {&Executable, &ExecutableDark},
 	kindLua:            {&Lua, nil},
 	kindZig:            {&Zig, nil},
 	kindProtobuf:       {&ProtoFile, &ProtoFileDark},
@@ -420,6 +426,10 @@ func fileKind(name string) kind {
 		return kindShell
 	case "ps1", "psm1", "psd1", "ps1xml", "psc1", "pssc":
 		return kindPowerShell
+	case "bat", "cmd":
+		return kindBatch
+	case "exe":
+		return kindExecutable
 	case "lua":
 		return kindLua
 	case "zig", "zon":

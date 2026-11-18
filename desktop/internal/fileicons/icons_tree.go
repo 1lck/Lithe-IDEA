@@ -39,9 +39,10 @@
 //   platform/icons/src/expui/nodes/; task.svg from
 //   platform/external-system-impl/resources/icons/newui/.
 //
-// license.svg and makefile.svg (and their _dark siblings) are original Lithe icons,
-// because the Community set has no LICENSE or Makefile glyph; they follow the Lithe
-// repository license.
+// license.svg, makefile.svg, powershell.svg, batch.svg and executable.svg (and their _dark
+// siblings) are original Lithe icons, because the Community set has no LICENSE, Makefile,
+// PowerShell, Windows batch file or Windows program glyph; they follow the Lithe repository
+// license.
 //
 // The icons of the languages whose grammars the editor bundles but the Community set has no
 // glyph for were copied from these sources:
