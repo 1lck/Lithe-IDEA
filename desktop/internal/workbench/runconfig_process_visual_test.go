@@ -10,6 +10,7 @@ import (
 
 	"github.com/1lck/Lithe-IDEA/desktop/internal/core"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/i18n"
+	"github.com/1lck/Lithe-IDEA/desktop/internal/localshell"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/store"
 	"github.com/vivaui/viva/app"
 	"github.com/vivaui/viva/headless"
@@ -17,7 +18,8 @@ import (
 
 // TestVisualBuiltInProcessRuns captures the built-in runs of a project without any plugin in
 // the Run/Debug Configurations dialog: the dialog with nothing yet, the editor of a shell
-// script with a script file and with script text, the Run window after the script ran, the +
+// script with a script file and with script text, its interpreter list of the terminal's shells
+// and its custom interpreter field, the Run window after the script ran, the +
 // menu of every kind, the editors of a PowerShell script, an executable and a batch script
 // this platform cannot run, the title bar with that batch script chosen, the shell script in a
 // folder of the unsorted list, that folder's pane, a copy of the executable, and the title bar's
@@ -75,6 +77,10 @@ func TestVisualBuiltInProcessRuns(t *testing.T) {
 					if err := session.Screenshot(filepath.Join(out, "builtin-run-"+scene+"-"+theme+".png")); err != nil {
 						t.Fatal(err)
 					}
+				}
+				// The interpreter lists show the same shells on every machine.
+				h.app.listShells = func() []localshell.Choice {
+					return []localshell.Choice{{Name: "zsh", Path: "/bin/zsh", Default: true}, {Name: "bash", Path: "/bin/bash"}, {Name: "pwsh", Path: "/usr/local/bin/pwsh"}}
 				}
 				p := h.openTree(t, root)
 				h.app.post(func(a *App) { a.refreshRunConfigurations(p) })
@@ -140,6 +146,25 @@ func TestVisualBuiltInProcessRuns(t *testing.T) {
 				awaitStateWithin(t, h, 10*time.Second, "the script text field", func() bool { return !f.refreshing && f.texts["text"] != nil })
 				h.app.post(func(a *App) { *f.texts["text"] = "echo \"$GREETING from $(pwd)\"\nuname -s\n" })
 				shot("shell-text")
+
+				// The interpreter list: automatic, the terminal's POSIX shells and Custom…, then
+				// Custom… with its field.
+				awaitStateWithin(t, h, 10*time.Second, "the terminal's shells", func() bool { return len(h.app.term.shells.list) == 3 })
+				interpreter, _ := runConfigFieldLabel(h.app.language(), "interpreter")
+				h.click(center(h.hitLabeled(interpreter)))
+				shot("interpreter-list")
+				h.click(center(h.popupHit(i18n.Shared(h.app.language(), "desktop.runConfig.interpreterCustom"))))
+				h.app.post(func(a *App) {
+					*f.texts["interpreter"] = "/opt/homebrew/bin/bash"
+					a.runConfigFormEdited(p, f)
+				})
+				awaitStateWithin(t, h, 10*time.Second, "the custom interpreter", func() bool { return !f.refreshing })
+				shot("interpreter-custom")
+				h.app.post(func(a *App) {
+					*f.texts["interpreter"] = ""
+					a.runConfigFormEdited(p, f)
+				})
+				awaitStateWithin(t, h, 10*time.Second, "the automatic interpreter", func() bool { return !f.refreshing })
 
 				apply(runConfigDialogRun)
 				awaitProcessRun(t, h, p, "Greet", nil)

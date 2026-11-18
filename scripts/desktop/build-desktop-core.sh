@@ -27,6 +27,10 @@ native_path() {
     fi
 }
 
+# Lithe-core-rust main at 8b91b32: #92, squash-merged into main on top of 5204e81, makes the
+# interpreter field of the shell script, PowerShell and cmd editor forms name the shellFamily it
+# takes (posix, powershell, cmd), so the run configuration dialog lists the installed shells of
+# that family beside automatic and a custom path (#2100).
 # Lithe-core-rust main at 5204e81 (#91 squash-merged on top of 16176c1): a run configuration
 # names the folder it is listed in, runConfig.resolve returns the list in the order the local layer
 # saves (by name by default) with sortAlphabetically, runConfig.arrange moves configurations between
@@ -235,7 +239,7 @@ PINNED_CORE_REPOSITORY="https://github.com/Lithe-IDEA/Lithe-core-rust.git"
 # the contract, plugin guides, reference and SDKs live only in shared/plugins; on top of #16 (reported Git queries folded in the console),
 # #15 (git.write cherryPick, revert and reset fields), #14 (word-level changed ranges of diff
 # rows), #13, #8, #7, #6 and #4.
-PINNED_CORE_REVISION="5204e81635378425505c592575f251eeff640ee7"
+PINNED_CORE_REVISION="8b91b324f0e8140cb6ca3fed3dc26fa0b59a788c"
 PROFILE="debug"
 while [[ $# -gt 0 ]]; do
     case "$1" in

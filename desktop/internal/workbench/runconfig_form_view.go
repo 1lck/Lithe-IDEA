@@ -345,6 +345,10 @@ func (a *App) drawRunConfigFormControl(c ui.C, p *project, f *runConfigForm, fie
 			edited()
 		}
 	case runFieldFile, runFieldExecutable, runFieldDirectory:
+		// A program Core names a shell family for is chosen from the installed shells.
+		if field.Kind == runFieldExecutable && a.drawRunConfigShellPicker(c, p, f, field, label, ready) {
+			return
+		}
 		box := ui.TextField(c, f.texts[field.ID], label, placeholder).Grow(1).MinWidth(0).Disabled(!ready).
 			Action(icons.FolderOpen, i18n.Shared(language, "desktop.runConfig.browse"))
 		if box.Changed() {

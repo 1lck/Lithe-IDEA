@@ -15811,7 +15811,39 @@
     },
     {
       "id": "desktop.runConfig.interpreterHelp",
-      "description": "Tooltip of the interpreter path field: an empty field uses the automatic interpreter shown.",
+      "description": "Tooltip of the interpreter path field: Automatic uses the interpreter shown, a shell the terminal found can be picked, and Custom… takes a command name or path.",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.runConfig.interpreterAutomatic",
+      "description": "Entry of the interpreter list that uses the automatic interpreter, when Core names no automatic program to show.",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.runConfig.interpreterShell",
+      "description": "Entry of the interpreter list for an installed shell the terminal found. {name} is the shell's name, {path} its executable.",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "name": "string",
+        "path": "string"
+      }
+    },
+    {
+      "id": "desktop.runConfig.interpreterCustom",
+      "description": "Entry of the interpreter list that shows a field for a command name or path of the user's own.",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.runConfig.interpreterCustomField",
+      "description": "Accessible name of the field shown under the interpreter list after Custom… is chosen, where the user enters a command name or path.",
       "platforms": [
         "desktop"
       ]
