@@ -94,6 +94,32 @@ async function json(root, relative) {
   return parseJSON(await readFile(path.join(root, relative), "utf8"), relative);
 }
 
+async function loadFeatures(root, localeIDs) {
+  let entries;
+  try {
+    entries = await readdir(path.join(root, "shared/i18n/features"), { withFileTypes: true });
+  } catch (error) {
+    // Older source trees keep every declaration in messages.json.
+    if (error.code === "ENOENT") return [];
+    throw error;
+  }
+  const features = [];
+  for (const entry of entries.sort((a, b) => a.name < b.name ? -1 : a.name > b.name ? 1 : 0)) {
+    const relative = `shared/i18n/features/${entry.name}`;
+    if (!entry.isFile() || !entry.name.endsWith(".json")) fail(`${relative}: expected a JSON file`);
+    const feature = await json(root, relative);
+    fields(feature, ["schemaVersion", "messages", "locales"], relative);
+    if (feature.schemaVersion !== 1 || !Array.isArray(feature.messages) || !feature.messages.length)
+      fail(`${relative}: unsupported feature catalog`);
+    fields(feature.locales, localeIDs, `${relative} locales`);
+    const keys = feature.messages.map((message) => message?.id);
+    for (const [locale, translations] of Object.entries(feature.locales))
+      fields(translations, keys, `${relative}/${locale}`);
+    features.push(feature);
+  }
+  return features;
+}
+
 function parameters(text, message, label) {
   if (!(message.allowEmptyTranslation && text === "")) nonempty(text, label);
   const names = [...text.matchAll(/\{([a-zA-Z][a-zA-Z0-9]*)\}/g)].map((match) => match[1]);
@@ -183,6 +209,8 @@ export async function loadContract(root = ROOT) {
     !registry.messages.length
   )
     fail("unsupported messages registry");
+  const features = await loadFeatures(root, [...locales.keys()]);
+  for (const feature of features) registry.messages.push(...feature.messages);
   const aliases = new Set();
   for (const message of registry.messages) {
     fields(
@@ -311,6 +339,12 @@ export async function loadContract(root = ROOT) {
     const catalog = await json(root, `shared/i18n/locales/${locale.id}.json`);
     fields(catalog, ["messages", "overrides"], locale.id);
     if (!record(catalog.messages)) fail(`${locale.id}: missing messages`);
+    for (const feature of features) {
+      for (const [key, text] of Object.entries(feature.locales[locale.id] ?? {})) {
+        if (own(catalog.messages, key)) fail(`${locale.id}: duplicate translation ${key}`);
+        catalog.messages[key] = text;
+      }
+    }
     for (const [key, text] of Object.entries(catalog.messages)) {
       if (!byID.has(key)) fail(`${locale.id}: unknown key ${key}`);
       parameters(text, byID.get(key), `${locale.id}/${key}`);
