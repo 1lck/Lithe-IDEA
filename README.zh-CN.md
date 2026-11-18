@@ -3,7 +3,7 @@
 
   <h1>Lithe</h1>
 
-  <p><strong>极致轻量、低延迟的跨平台原生 IDE —— 基于 Rust Core 与 Viva (Go) 打造</strong></p>
+  <p><strong>极致轻量、低延迟、可插拔的跨平台原生 IDE —— 基于 Rust Core 与 Viva (Go) 打造</strong></p>
 
   <p>
     <a href="./README.md"><strong>English</strong></a> ·
@@ -37,7 +37,7 @@ https://github.com/user-attachments/assets/17e2325b-afed-4bbb-9926-a962f777269b
 
 > **AI 负责编写代码，Lithe 帮你理解工程、运行调试并审查每一处修改。**
 
-Lithe 是一款基于 **Viva（Go 原生工作台）+ Rust Core** 重构的跨平台原生 IDE，告别 Electron / WebView 的沉重开销，将启动时间压到 **1 秒内**、空闲内存控制在 **171 MB**，同时保留完整的现代 IDE 工作流。
+Lithe 是一款基于 **Viva（Go 原生工作台）+ Rust Core** 重构的插件化、可插拔跨平台原生 IDE。本体告别 Electron / WebView 的沉重开销，将启动时间压到 **1 秒内**、空闲内存控制在 **171 MB**；语言智能、构建、运行与调试能力全部通过独立插件按需插拔接入，随用随装、闲置零负担。
 
 | 核心能力 | 说明 |
 | --- | --- |

@@ -3,7 +3,7 @@
 
   <h1>Lithe</h1>
 
-  <p><strong>An ultra-lightweight, low-latency, cross-platform native IDE — powered by Rust Core and Viva (Go)</strong></p>
+  <p><strong>An ultra-lightweight, low-latency, pluggable cross-platform native IDE — powered by Rust Core and Viva (Go)</strong></p>
 
   <p>
     <a href="./README.zh-CN.md"><strong>简体中文</strong></a> ·
@@ -37,7 +37,7 @@ https://github.com/user-attachments/assets/17e2325b-afed-4bbb-9926-a962f777269b
 
 > **AI writes the code. Lithe helps you understand the project, run and debug it, and review every change.**
 
-Rebuilt on **Viva (Go native workbench) + Rust Core**, Lithe leaves behind Electron / WebView overhead—starting in **under 1 second** with **171 MB** steady memory while delivering a full modern IDE workflow.
+Rebuilt on **Viva (Go native workbench) + Rust Core**, Lithe is a modular, pluggable cross-platform native IDE. The core workbench leaves behind Electron / WebView overhead—starting in **under 1 second** with **171 MB** steady memory—while language servers, build tools, run targets, and debuggers plug in independently on demand.
 
 | Capability | Overview |
 | --- | --- |
