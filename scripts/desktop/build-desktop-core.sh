@@ -27,15 +27,17 @@ native_path() {
     fi
 }
 
-# Lithe-core-rust branch feat/builtin-process-runs at 7381e79 (Draft #85, on top of main at
-# 10da502, #84): built-in process runs. runConfig.configurationTypes, runConfig.editorForm,
+# Lithe-core-rust main at bb4832e, #88 squash-merged (on top of 4ed7a1f, #85): a run
+# configuration's beforeLaunch names built-in process runs that start first; runConfig.beforeLaunch
+# expands and checks them and fingerprints the lists a project file names, the editor form has a
+# beforeLaunch field and runConfig.updateOptions takes the list (#1616). #85, squash-merged into
+# main as 4ed7a1f (on top of 10da502, #84): built-in process runs. runConfig.configurationTypes, runConfig.editorForm,
 # runConfig.saveConfiguration and runConfig.deleteConfiguration list, edit, save and delete the
 # shell script, PowerShell, cmd and executable runs without any plugin, and
 # runConfig.createLaunchPlan plans them with a script saved as text; built-in runs are stored in
 # .lithe/run/configurations.yaml and local.yaml, and a plugin's runs in
 # .lithe/run/plugin/<plugin>.toml and <plugin>.local.toml with the plugin's repository and
 # version; runConfig.resolve lists the saved runs of a project nothing was generated for (#2100).
-# Switch to main's commit once #85 is squash-merged.
 # Lithe-core-rust main at 885f2a6, #83 squash-merged (the same tree as its branch at d10ee76, on
 # top of cf2f260): a plugin's TextMate grammar may declare injections, an object of scope selectors
 # each with a rule, which the editor tries beside the current rule's patterns wherever the selector
@@ -208,7 +210,7 @@ PINNED_CORE_REPOSITORY="https://github.com/Lithe-IDEA/Lithe-core-rust.git"
 # the contract, plugin guides, reference and SDKs live only in shared/plugins; on top of #16 (reported Git queries folded in the console),
 # #15 (git.write cherryPick, revert and reset fields), #14 (word-level changed ranges of diff
 # rows), #13, #8, #7, #6 and #4.
-PINNED_CORE_REVISION="7381e79a7705e9741ed3ff76c459c7a762484783"
+PINNED_CORE_REVISION="bb4832ee73187c8dffcbd67eb4a68e839869252b"
 PROFILE="debug"
 while [[ $# -gt 0 ]]; do
     case "$1" in
