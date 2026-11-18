@@ -82,7 +82,8 @@ Viva 的 IDE API 辅助程序 `lithe-mcp` 由 `scripts/desktop/build-desktop-cor
 
 Viva 的 `desktop-go.sh` 把暂存 Core 静态库、头文件、原生链接参数和实际选中的 Windows import archive 的 SHA-256 纳入 cgo 编译参数。只改 Rust 或 Core pin 也会使 Go 构建缓存失效；相同字节仍复用 Go 缓存，不清空用户缓存。这个摘要只是本地构建身份，不是跨工作树资源密封清单。`scripts/desktop/desktop-core-cache.test.mjs` 在系统临时目录创建独占的 `lithe core-cache-*` 夹具，只替换 C 静态库来验证真实 Go 编译结果；子进程有本地时限，结束后删除夹具。该目录只属于一次测试，不跨工作树复制，不进入安装包；三个原生 CI 车道都运行此回归。
 
-Viva 文件与项目树图标的 SVG 和生成的 Go 数据由 Git 管理，生成脚本限定 Python 3.9 或 3.11、
+Viva 文件与项目树图标的 SVG（含 `desktop/internal/fileicons/svg/gradle*.svg`）和生成的 Go 数据
+（含 `desktop/internal/fileicons/icons.go`）由 Git 管理。生成脚本限定 Python 3.9 或 3.11、
 picosvg 与直接依赖以及 Viva 编译器版本，在本工作树重建；没有自动发现受支持的 Python 时可用
 `LITHE_ICON_PYTHON` 指定受支持的解释器，该变量不是缓存路径。临时转换目录退出时删除。它们不是跨工作树的可复制缓存，
 不跨工作树复制。运行期图标只读编译数据，不写入安装包，因而不改变
