@@ -61,7 +61,8 @@ func TestDeclaredServesTheBaselineOfEveryWiredCapability(t *testing.T) {
 	want := []string{
 		"backend", "buildProviders", "buildSystems", "commandInstallers", "debugAdapters",
 		"languageServers", "languages", "outputLinkMatchers", "pluginFunctions",
-		"projectGenerators", "settings", "sourceSettings", "toolDefinitions", "ui", "vcsProviders",
+		"projectGenerators", "runConfigurationTypes", "settings", "sourceSettings", "toolDefinitions", "ui",
+		"vcsProviders",
 	}
 	if len(declared) != len(want) {
 		t.Fatalf("declared = %v", declared)

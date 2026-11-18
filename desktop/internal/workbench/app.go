@@ -78,6 +78,7 @@ type Kernel interface {
 	CheckBuildToolVersion(ctx context.Context, manifest json.RawMessage, buildSystemID, runtime, output string) (core.BuildToolVersion, error)
 	PlanBuildModel(ctx context.Context, manifest json.RawMessage, buildSystemID string, request core.BuildPlanRequest) (core.BuildPlan, error)
 	PlanBuildTask(ctx context.Context, manifest json.RawMessage, buildSystemID string, request core.BuildPlanRequest) (core.BuildPlan, error)
+	PlanRunConfiguration(ctx context.Context, manifest json.RawMessage, buildSystemID, workspaceRoot string, request core.RunConfigurationPlanRequest) (core.BuildPlan, error)
 	PlanBuildTest(ctx context.Context, manifest json.RawMessage, buildSystemID string, request core.BuildTestRequest) (core.BuildPlan, error)
 	DecodeBuildTestResults(ctx context.Context, manifest json.RawMessage, buildSystemID string, request core.BuildTestResultsRequest) (core.BuildTestResults, error)
 	ResolveBuildTestOutcome(ctx context.Context, termination core.BuildTestTermination, project, suite, caseName string, summary *core.BuildTestSummary) (core.BuildTestVerdict, error)
@@ -105,7 +106,7 @@ type Kernel interface {
 	UpdateRunConfigurationOptions(ctx context.Context, edit core.RunOptionsEdit) ([]core.RunConfigChange, error)
 	// RunConfigurationTypes, RunEditorForm, SaveRunConfiguration, DeleteRunConfiguration and
 	// CreateRunLaunchPlan create, edit and start the built-in process runs (runconfig_process.go).
-	RunConfigurationTypes(ctx context.Context) ([]core.RunConfigurationType, error)
+	RunConfigurationTypes(ctx context.Context, plugins *core.RunTypePlugins) ([]core.RunConfigurationType, []core.RunTypeLocalization, error)
 	RunEditorForm(ctx context.Context, request core.RunEditorFormRequest) (core.RunEditorForm, error)
 	SaveRunConfiguration(ctx context.Context, request core.RunConfigurationSave) (core.RunConfigurationSaved, error)
 	DeleteRunConfiguration(ctx context.Context, root, configurationID string, plugins []core.RunInstalledPlugin) ([]core.RunConfigChange, error)

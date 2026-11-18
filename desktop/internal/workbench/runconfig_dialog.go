@@ -204,7 +204,7 @@ func (a *App) openRunConfigDialog(p *project, id string) {
 	}
 	a.title.runConfigOpen = false
 	a.loadTitleRunConfigs(p)
-	a.loadRunConfigTypes(p)
+	a.loadRunConfigTypes(p, true)
 	if configuration := p.runConfigs.configuration(id); configuration != nil {
 		a.selectRunConfigDraft(p, id)
 		group := p.runConfigDialogGroupKey(id)
@@ -277,10 +277,12 @@ func (a *App) selectRunConfigDraft(p *project, key string) {
 		return
 	}
 	draft := &runConfigDraft{key: key, folder: configuration.Folder}
+	kind, form := runConfigKindOf(*configuration)
 	switch {
-	case configuration.IsProcess():
-		draft.form = a.openRunConfigForm(p, configuration.Provider, key, nil)
-	case runConfigEditable(*configuration):
+	case !runConfigEditable(*configuration):
+	case form:
+		draft.form = a.openRunConfigForm(p, kind, key, nil)
+	default:
 		draft.editor = a.openRunConfigEditor(p, key)
 	}
 	d.drafts[key] = draft
@@ -305,12 +307,12 @@ func (a *App) selectRunConfigDialogRow(p *project, row runConfigDialogRow) {
 	}
 }
 
-// addRunConfigDraft creates a new configuration of provider, seeded with values when they are
-// set, opens its group and selects it. With a folder of that kind selected, or a configuration
-// in one, the new configuration goes in that folder, as in IDEA.
-func (a *App) addRunConfigDraft(p *project, provider string, values map[string]json.RawMessage) {
+// addRunConfigDraft creates a new configuration of kind, seeded with values when they are set,
+// opens its group and selects it. With a folder of that kind selected, or a configuration in
+// one, the new configuration goes in that folder, as in IDEA.
+func (a *App) addRunConfigDraft(p *project, kind runConfigKind, values map[string]json.RawMessage) {
 	d := &p.runConfigs.dialog
-	group := runProcessKindKey(provider)
+	group := kind.groupKey()
 	folder := d.node.folder
 	if d.selected != "" {
 		folder = p.runConfigDialogFolder(d.selected)
@@ -322,7 +324,7 @@ func (a *App) addRunConfigDraft(p *project, provider string, values map[string]j
 	}
 	d.next++
 	key := runConfigNewKey + strconv.Itoa(d.next)
-	draft := &runConfigDraft{key: key, form: a.openRunConfigForm(p, provider, "", values)}
+	draft := &runConfigDraft{key: key, form: a.openRunConfigForm(p, kind, "", values)}
 	d.drafts[key] = draft
 	d.added = append(d.added, key)
 	if folder != "" {
@@ -364,7 +366,7 @@ func (a *App) copyRunConfigDraft(p *project) {
 	if draft.form != nil {
 		values := draft.form.collect()
 		values["name"], _ = json.Marshal(name)
-		a.addRunConfigDraft(p, draft.form.provider, values)
+		a.addRunConfigDraft(p, draft.form.kind, values)
 		d.moveToFolder(d.selected, folder)
 		return
 	}
@@ -464,14 +466,14 @@ func (p *project) runConfigRemovable(key string) bool {
 // runConfigDialogGroupKey is the tree group of configuration or draft key.
 func (p *project) runConfigDialogGroupKey(key string) string {
 	if configuration := p.runConfigs.configuration(key); configuration != nil {
-		if configuration.IsProcess() {
-			return runProcessKindKey(configuration.Provider)
+		if kind, ok := runConfigKindOf(*configuration); ok {
+			return kind.groupKey()
 		}
 		return runConfigGroupKey(configuration)
 	}
 	if draft := p.runConfigs.dialog.drafts[key]; draft != nil {
 		if draft.form != nil {
-			return runProcessKindKey(draft.form.provider)
+			return draft.form.kind.groupKey()
 		}
 		return draft.group.key
 	}
@@ -529,16 +531,8 @@ func (p *project) collectRunConfigDialogRows(a *App) {
 		}
 		members[group.key] = append(members[group.key], key)
 	}
-	processGroup := func(provider string) runConfigDialogGroup {
-		title, ok := runConfigTypeLabel(language, provider)
-		if !ok {
-			title = i18n.Shared(language, "desktop.runConfig.builtInGroup")
-		}
-		order := slices.IndexFunc(s.types, func(kind core.RunConfigurationType) bool { return kind.Provider == provider })
-		if order < 0 {
-			order = len(s.types)
-		}
-		return runConfigDialogGroup{key: runProcessKindKey(provider), title: title, icon: runConfigTypeIcon(provider, a.colors.Dark), order: order}
+	kindGroup := func(kind runConfigKind) runConfigDialogGroup {
+		return runConfigDialogGroup{key: kind.groupKey(), title: s.kindTitle(language, kind), icon: s.kindIcon(kind, a.colors.Dark), order: s.kindOrder(kind)}
 	}
 	listed := map[string]bool{}
 	for index := range s.list {
@@ -547,8 +541,8 @@ func (p *project) collectRunConfigDialogRows(a *App) {
 		if d.removed[configuration.ID] || d.hidden[configuration.ID] {
 			continue
 		}
-		if configuration.IsProcess() {
-			place(configuration.ID, processGroup(configuration.Provider))
+		if kind, ok := runConfigKindOf(*configuration); ok {
+			place(configuration.ID, kindGroup(kind))
 			continue
 		}
 		place(configuration.ID, runConfigDialogGroup{
@@ -560,7 +554,7 @@ func (p *project) collectRunConfigDialogRows(a *App) {
 		switch {
 		case listed[key] || draft == nil:
 		case draft.form != nil:
-			place(key, processGroup(draft.form.provider))
+			place(key, kindGroup(draft.form.kind))
 		case draft.copyOf != "":
 			place(key, draft.group)
 		}
@@ -872,7 +866,7 @@ func (a *App) runConfigDraftUnavailable(p *project, key string) string {
 	draft := p.runConfigs.dialog.drafts[key]
 	if draft != nil && draft.form != nil {
 		if availability := draft.form.availability; availability != nil && availability.Status == "unavailable" {
-			return a.runAvailabilityText(draft.form.provider, *availability)
+			return a.runAvailabilityText(draft.form.kind, *availability)
 		}
 		if draft.form.dirty {
 			return ""
@@ -1296,19 +1290,20 @@ func (p *project) toggleRunConfigDialogNode(node runConfigDialogNode) {
 	}
 }
 
-// runAvailabilityText words why this platform cannot run a configuration of provider, from
-// the availability Core gave its kind or its editor.
-func (a *App) runAvailabilityText(provider string, availability core.RunAvailability) string {
+// runAvailabilityText words why this platform cannot run a configuration of kind, from the
+// availability Core gave its kind or its editor. Only a built-in kind is bound to a platform;
+// any other reason shows Core's message.
+func (a *App) runAvailabilityText(kind runConfigKind, availability core.RunAvailability) string {
 	language := a.language()
-	if availability.Code == "unsupportedPlatform" {
-		if provider == runProviderBatch {
+	if availability.Code == "unsupportedPlatform" && !kind.declared() {
+		if kind.provider == runProviderBatch {
 			return i18n.Shared(language, "desktop.runConfig.unavailableBatchPlatform")
 		}
-		kind, ok := runConfigTypeLabel(language, provider)
+		title, ok := runConfigTypeLabel(language, kind.provider)
 		if !ok {
-			kind = provider
+			title = kind.provider
 		}
-		return i18n.SharedFormat(language, "desktop.runConfig.unavailablePlatform", map[string]string{"type": kind})
+		return i18n.SharedFormat(language, "desktop.runConfig.unavailablePlatform", map[string]string{"type": title})
 	}
 	return i18n.SharedFormat(language, "desktop.runConfig.unavailableOther", map[string]string{"reason": availability.Message})
 }

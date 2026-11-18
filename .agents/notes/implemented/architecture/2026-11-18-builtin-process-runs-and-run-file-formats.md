@@ -97,6 +97,20 @@ Shell、PowerShell 和批处理表单的解释器字段（`kind: executable`）�
 - 新的排列方式（比如按类型以外的维度分组）先在 Core 的 `Arrangement` 里定义和存储，再让宿主画；宿主不自己排序或记顺序。
 - 只要改了名字或新建了配置，而列表又是手动顺序，就把配置树当前显示的顺序一起保存，否则新 ID 会掉到列表末尾。
 
+### 插件声明的运行类型
+
+插件在清单的 `buildSystems[].runConfigurationTypes` 里为自己的构建系统声明运行类型（能力 `runConfigurationTypes` 0，对应 API-29），例如 Go 插件的 Go Build、Go Test。每个类型带标题、说明、图标、字段（`choice`、`checkbox`、`text` 等）和参数模板（`${field:<id>}`、`${userArguments}`），文字由插件包里的翻译文件翻译。契约、校验、表单、保存和启动计划都在 Core（provider 为 `build.run-type`），宿主（`runconfig_types.go`）只做三件事：
+
+- 读类型：把已启用插件的清单交给 Core，Core 返回全部类型和每个插件该读哪几份翻译文件；宿主只从已安装的插件包里读这些文件（包目录只读），再问一次。翻译读不到时退回下一份或清单原文，类型照常列出。打开对话框时重新读一次，所以刚装、刚停用的插件和切换后的界面语言都能反映出来。
+- 画表单：插件字段的标题、选项名、占位符和说明直接用 Core 返回的翻译后文字，字段 ID 为 `field:<id>`；宿主仍只画它认识的字段类型。插件声明的类型排在内置类型之后，每个类型在配置树里单独一组。图标用插件指定的宿主图标；指定包内图片的暂时显示执行方式的图标。
+- 起进程：Core 的 `build.runConfigurationPlan` 按配置的工作目录选出检测到的构建系统实例并给出参数，宿主用该实例解析出的构建工具起进程，和构建任务一样走 `buildprocess`。
+
+存为项目文件的配置写进 `.lithe/run/plugin/<插件 ID>.toml`，本机配置写进 `<插件 ID>.local.toml`，和插件生成的运行同一套规则。项目里没检测到这个构建系统时，配置照常列出、可以编辑，但不能运行（`refusalNotReady`，提示找不到目标）。插件声明的类型没有调试器，调试启动返回 `refusalNotSupported`。
+
+### 允许多个实例
+
+所有运行配置（内置的和插件声明的）都有“允许多个实例”勾选项，字段 ID `allowMultipleInstances`，由 Core 描述、保存。不勾选时，按下运行会先停掉正在运行的那一个再重新启动（原来的行为）；勾选后，新实例在旁边另开一个 Run 标签，已有的继续运行。调试只允许一个：同一配置已在运行时再按调试，返回 `errRunRunning`。
+
 ### 从界面按下运行时打开 Run 窗口
 
 从编辑对话框的“运行”、构建窗口的配置列表（按钮或双击）和 Run 窗口的再次运行启动时，都走 `runConfiguration`（`runconfig.go`）。它启动后打开 Run 窗口，并选中这次运行的控制台；构建插件提供的运行从列表启动时也一样。经 IDE API（`startRunConfiguration`）启动的运行不改变窗口布局，因为调用方不一定是用户。
@@ -106,6 +120,7 @@ Shell、PowerShell 和批处理表单的解释器字段（`kind: executable`）�
 - 给 Shell 表单加一个参数框：在 Core 的 `form.rs` 描述字段、在 `process.rs` 解释它的值，再在 `shared/i18n/` 加标题词条。宿主已认识这种类型时，不用改任何宿主代码。
 - 新增一种全新的字段类型：先在宿主实现它的绘制，再让 Core 开始返回它；旧宿主跳过新字段，配置照样能保存。
 - 插件运行需要新的元数据：加进插件 TOML 的 `[plugin]` 头，由 Core 读写，宿主不解析 TOML。
+- 插件要一种新的运行方式（例如 Go Test）：在插件清单的 `runConfigurationTypes` 里声明，翻译放进插件包的 `l10n/`。宿主和 Core 都不按插件或工具名加分支。
 - 别的字段也要从本机已安装的工具里选：在 Core 的字段上标一个属性（像 `shellFamily`），宿主按属性复用平台层已有的查找，不按字段 ID 或运行类型分支。
 
 ### 不要这样做
@@ -115,6 +130,8 @@ Shell、PowerShell 和批处理表单的解释器字段（`kind: executable`）�
 - 不要让内置运行等构建模型加载完、或等插件宿主就绪再出现，那正是这次要去掉的依赖。
 - 不要把脚本文本写进项目目录或 app bundle。它是一次性的运行产物，只放系统临时目录。
 - 不要在宿主里按运行类型（`process.shell` 等）决定列出哪类 shell，只读 `shellFamily`。
+- 不要在宿主里解析插件清单或拼插件运行的参数，也不要把插件字段的文字写进 `shared/i18n/`。标题和选项名来自插件的翻译，参数来自 Core 的计划。
+- 不要从插件包目录推导可写位置：启动计划需要的状态目录是插件在本工作区的状态目录（`buildStateDirectory`），不在插件包里。
 - 不要用 `ui.C.After` 推迟 shell 查找：表单第一次画出的那一帧通常没有点击，这种帧会丢掉推迟的回调，列表就一直是空的。查找本身在后台运行，直接在绘制时发起即可。
 
 ## 考虑过的备选方案
@@ -151,6 +168,14 @@ Shell、PowerShell 和批处理表单的解释器字段（`kind: executable`）�
 
 宿主可以完全控制布局。没有采用：每加一个字段都要同时改 Core 和两个桌面端，还要在宿主里重复 Core 的校验规则；以后 Windows 端还得再写一遍。
 
+### Go 插件之类的运行类型由宿主内置
+
+宿主可以直接画 Go Build、Go Test 的表单，不用多一份契约。没有采用：用户要求插件自己用 API 注入运行方式；宿主内置就得按工具名加分支，Core 对具体语言和工具也不再零依赖。
+
+### 多实例只在运行开始时临时决定（例如按住修饰键）
+
+不用多存一个字段。没有采用：IDEA 把它做成每个配置的选项，团队共享的配置（例如同时起两个服务实例）需要记住这个选择；临时修饰键也没法通过 IDE API 表达。
+
 ### 迁移时立即把所有旧 JSON 转成 YAML
 
 一次转完，代码里不用再读 JSON。没有采用：打开项目就改写用户文件，会在版本控制里产生用户没做过的改动。现在只在用户真正编辑某一层时才转换。代价是旧客户端读不到被转换的那一层。
@@ -165,7 +190,8 @@ Shell、PowerShell 和批处理表单的解释器字段（`kind: executable`）�
 ## 验证
 
 - `scripts/desktop/desktop-go.sh test ./internal/core/... ./internal/buildprocess/... ./internal/workbench/...`：`runconfig_process_test.go` 用系统 shell 真实运行脚本，并断言 Run 窗口打开、输出进入控制台；`runconfig_dialog_test.go` 覆盖对话框的应用、取消、删除（含 ⌫/Delete 键）、复制（含插件运行复制进 `<插件 ID>.local.toml`）、文件夹的新建、重命名和解散、手动顺序与排序开关、IDEA 式空白页和 ⌃N/Alt+Insert、分组折叠，以及批处理在非 Windows 上能编辑、能保存、不能运行；`runconfig_shell_test.go` 覆盖解释器下拉只列同类 shell、选中 shell 写入路径、“自定义…”输入、改回自动和保存；`runconfig_browser_test.go`、`title_run_test.go`、`runconfig_edit_test.go` 覆盖列表、标题栏和插件运行的编辑。
-- `scripts/desktop/desktop-go.sh test -tags 'vivahead lithevisual' ./internal/workbench -run '^(TestVisualBuiltInProcessRuns|TestVisualTitleRunWithoutConfigurations)$'`：设置 `LITHE_VISUAL_OUTPUT_DIR` 后生成 `docs/assets/builtin-process-runs/` 和 `docs/assets/run-config-empty/` 的截图。
+- `runconfig_types_test.go` 用合成插件 `dev.lithe.test.run-types`（带中文翻译）覆盖插件声明类型：翻译后的标题、字段和选项名，新建、保存到 `.lithe/run/plugin/<插件 ID>.toml`、运行并检查实际参数，调试被拒；勾选“允许多个实例”后同时运行两个实例；没检测到构建系统时配置列出但不能运行。
+- `scripts/desktop/desktop-go.sh test -tags 'vivahead lithevisual' ./internal/workbench -run '^(TestVisualBuiltInProcessRuns|TestVisualTitleRunWithoutConfigurations|TestVisualPluginDeclaredRuns)$'`：设置 `LITHE_VISUAL_OUTPUT_DIR` 后生成 `docs/assets/builtin-process-runs/`、`docs/assets/run-config-empty/` 和 `docs/assets/plugin-declared-runs/` 的截图。
 - Core 仓库的 `cargo test -p lithe-execution -p lithe-core`：覆盖表单、校验、启动计划、YAML/TOML 读写、旧 JSON、插件可用性，以及 `run_configuration_arrangement.rs` 里文件夹写入哪一层、顺序只进本机、复制保留全部选择。
 - `./scripts/desktop/verify/verify-runtime-bundle-immutability.sh`：确认运行不写发行目录。
 
@@ -176,6 +202,7 @@ Shell、PowerShell 和批处理表单的解释器字段（`kind: executable`）�
 - `desktop/internal/workbench/runconfig_form.go`
 - `desktop/internal/workbench/runconfig_form_view.go`
 - `desktop/internal/workbench/runconfig_shell_view.go`
+- `desktop/internal/workbench/runconfig_types.go`
 - `desktop/internal/workbench/runconfig_dialog.go`
 - `desktop/internal/workbench/runconfig_dialog_view.go`
 - `desktop/internal/workbench/title_run_view.go`

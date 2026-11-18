@@ -86,9 +86,22 @@ func (a *App) editRunConfiguration(p *project, id string) {
 }
 
 // runConfigEditable says whether the list offers an editor for configuration: every built-in
-// run, and a build provider run its plugin can still resolve.
+// run, a run of a kind a plugin declares while that plugin is installed, as it needs, since
+// the plugin declares the editor, and a build provider run its plugin can still resolve.
 func runConfigEditable(configuration core.RunConfiguration) bool {
-	return configuration.IsProcess() || !configuration.Unavailable()
+	if configuration.IsProcess() {
+		return true
+	}
+	if _, declared := configuration.RunTypeReference(); declared {
+		return configuration.Availability == nil || !runConfigPluginUnavailable(configuration.Availability.Code)
+	}
+	return !configuration.Unavailable()
+}
+
+// runConfigPluginUnavailable says availability code is about the plugin a configuration
+// needs: missing, from another repository, or of a version it does not accept.
+func runConfigPluginUnavailable(code string) bool {
+	return code == "pluginMissing" || code == "pluginRepositoryMismatch" || code == "pluginVersionUnsupported"
 }
 
 // drawRunConfigRows declares the rows of the scope. Selecting a row keeps it selected; Enter
@@ -178,8 +191,8 @@ func (a *App) drawRunConfigRow(p *project, row ui.ListRow, selected bool) {
 	box.Children(func() {
 		ui.Row(c.Part("arrow")).Size(treelist.Disclosure, treelist.Icon).Shrink(0)
 		icon, name := runExecutionIcon(configuration.Execution), a.colors.Text
-		if configuration.IsProcess() {
-			icon = runConfigTypeIcon(configuration.Provider, a.colors.Dark)
+		if kind, ok := runConfigKindOf(configuration); ok {
+			icon = s.kindIcon(kind, a.colors.Dark)
 		}
 		if unavailable {
 			icon, name = icons.CircleAlert, a.colors.Subtle

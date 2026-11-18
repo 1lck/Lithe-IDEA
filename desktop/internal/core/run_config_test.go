@@ -166,7 +166,7 @@ func TestBuiltInProcessRunRoundTrip(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 	root := t.TempDir()
-	kinds, err := client.RunConfigurationTypes(ctx)
+	kinds, _, err := client.RunConfigurationTypes(ctx, nil)
 	if err != nil || len(kinds) == 0 || kinds[0].Provider != "process.shell" {
 		t.Fatalf("kinds = %+v, %v", kinds, err)
 	}

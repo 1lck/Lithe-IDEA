@@ -70,6 +70,8 @@ func runConfigFieldLabel(language i18n.Language, id string) (string, bool) {
 		return i18n.Shared(language, "desktop.runConfig.fieldName"), true
 	case "storeAsProjectFile":
 		return i18n.Shared(language, "desktop.runConfig.fieldStoreAsProjectFile"), true
+	case "allowMultipleInstances":
+		return i18n.Shared(language, "desktop.runConfig.fieldAllowMultipleInstances"), true
 	case "source":
 		return i18n.Shared(language, "desktop.runConfig.fieldSource"), true
 	case "script":
@@ -98,14 +100,29 @@ func runConfigFieldLabel(language i18n.Language, id string) (string, bool) {
 	return "", false
 }
 
-// runConfigFieldHelp is the ⓘ tip of a field of a provider's editor: what its note means, or
-// what the field does. The script's arguments say how the script of that kind reads them.
+// runConfigFieldTitle is the title of field: the host's for a field it knows, else the
+// translated label a plugin gives a field of its kind; ok is false for a field with neither,
+// which the host then leaves out.
+func runConfigFieldTitle(language i18n.Language, field core.RunEditorField) (string, bool) {
+	if title, ok := runConfigFieldLabel(language, field.ID); ok {
+		return title, true
+	}
+	return field.Label, field.Label != ""
+}
+
+// runConfigFieldHelp is the ⓘ tip of a field of a provider's editor: what its note means, what
+// the field does, or the description a plugin gives a field of its kind. The script's
+// arguments say how the script of that kind reads them.
 func runConfigFieldHelp(language i18n.Language, provider string, field core.RunEditorField) string {
 	switch {
 	case field.Note == "windowsOnly":
 		return i18n.Shared(language, "desktop.runConfig.noteWindowsOnly")
 	case field.ID == "storeAsProjectFile":
 		return i18n.Shared(language, "desktop.runConfig.storeAsProjectFileHelp")
+	case field.ID == "allowMultipleInstances":
+		return i18n.Shared(language, "desktop.runConfig.allowMultipleInstancesHelp")
+	case field.Description != "":
+		return field.Description
 	case field.ID == "interpreter":
 		return i18n.Shared(language, "desktop.runConfig.interpreterHelp")
 	case field.ID == "beforeLaunch":
@@ -125,10 +142,14 @@ func runConfigFieldHelp(language i18n.Language, provider string, field core.RunE
 }
 
 // runConfigFieldPlaceholder is what an empty field shows: the automatic value that applies
-// while it is empty, or an example of what goes into an argument field.
+// while it is empty, the placeholder a plugin gives a field of its kind, or an example of what
+// goes into an argument field.
 func runConfigFieldPlaceholder(language i18n.Language, field core.RunEditorField) string {
 	if field.Automatic != nil && *field.Automatic != "" {
 		return i18n.SharedFormat(language, "desktop.runConfig.automaticValue", map[string]string{"value": *field.Automatic})
+	}
+	if field.Placeholder != "" {
+		return field.Placeholder
 	}
 	switch field.ID {
 	case "scriptOptions":
@@ -144,8 +165,19 @@ func runConfigFieldPlaceholder(language i18n.Language, field core.RunEditorField
 	return ""
 }
 
-// runConfigChoiceLabel names an option of a choice field; ok is false for one this host has
-// no name for, and the field is then left out.
+// runConfigOptionTitle names an option of a choice field: the host's name for an option it
+// knows, else the translated label a plugin gives it; ok is false for one with neither, and
+// the field is then left out.
+func runConfigOptionTitle(language i18n.Language, field core.RunEditorField, option string) (string, bool) {
+	if title, ok := runConfigChoiceLabel(language, field.ID, option); ok {
+		return title, true
+	}
+	title := field.OptionLabels[option]
+	return title, title != ""
+}
+
+// runConfigChoiceLabel names an option of a built-in choice field; ok is false for one this
+// host has no name for.
 func runConfigChoiceLabel(language i18n.Language, field, option string) (string, bool) {
 	switch field + "/" + option {
 	case "source/file":
@@ -188,7 +220,7 @@ func runConfigFieldError(language i18n.Language, code string) string {
 // drawable reports whether this host draws field: a kind it knows, a title it has, and for a
 // choice a name for every option.
 func (f *runConfigForm) drawable(language i18n.Language, field core.RunEditorField) bool {
-	if _, ok := runConfigFieldLabel(language, field.ID); !ok {
+	if _, ok := runConfigFieldTitle(language, field); !ok {
 		return false
 	}
 	switch field.Kind {
@@ -200,7 +232,7 @@ func (f *runConfigForm) drawable(language i18n.Language, field core.RunEditorFie
 		return f.beforeLaunch != nil
 	case runFieldChoice:
 		for _, option := range field.Options {
-			if _, ok := runConfigChoiceLabel(language, field.ID, option); !ok {
+			if _, ok := runConfigOptionTitle(language, field, option); !ok {
 				return false
 			}
 		}
@@ -269,13 +301,13 @@ func (a *App) drawRunConfigFormFields(c ui.C, p *project, f *runConfigForm, read
 // keeps its size.
 func (a *App) drawRunConfigFormHeaderField(c ui.C, p *project, f *runConfigForm, field core.RunEditorField, ready bool) {
 	language := a.language()
-	label, _ := runConfigFieldLabel(language, field.ID)
+	label, _ := runConfigFieldTitle(language, field)
 	if field.Kind == runFieldCheckbox {
 		ui.Row(c).Shrink(0).Items(ui.Center).Gap(4).Children(func() {
 			if ui.Checkbox(c, f.flags[field.ID], label).Disabled(!ready).Changed() {
 				c.After(func() { a.runConfigFormEdited(p, f) })
 			}
-			a.runConfigFormHelp(c, language, f.provider, field)
+			a.runConfigFormHelp(c, language, f.kind.provider, field)
 		})
 		return
 	}
@@ -290,7 +322,7 @@ func (a *App) drawRunConfigFormHeaderField(c ui.C, p *project, f *runConfigForm,
 // carries its own title in the control column.
 func (a *App) drawRunConfigFormField(c ui.C, p *project, f *runConfigForm, field core.RunEditorField, ready bool) {
 	language := a.language()
-	label, _ := runConfigFieldLabel(language, field.ID)
+	label, _ := runConfigFieldTitle(language, field)
 	tall := field.Kind == runFieldMultilineText || field.Kind == runFieldEnvironment || field.Kind == runFieldBeforeLaunch
 	ui.Column(c).FillWidth().Gap(4).Children(func() {
 		row := ui.Row(c).FillWidth().Gap(12)
@@ -303,7 +335,7 @@ func (a *App) drawRunConfigFormField(c ui.C, p *project, f *runConfigForm, field
 			ui.Row(c.Part("title")).Width(runConfigFormLabelWidth).MinHeight(28).Shrink(0).Items(ui.Center).Gap(4).Children(func() {
 				if field.Kind != runFieldCheckbox {
 					ui.Text(c, label).Ellipsis().Shrink(1).MinWidth(0)
-					a.runConfigFormHelp(c, language, f.provider, field)
+					a.runConfigFormHelp(c, language, f.kind.provider, field)
 				}
 			})
 			if field.Kind == runFieldCheckbox {
@@ -311,7 +343,7 @@ func (a *App) drawRunConfigFormField(c ui.C, p *project, f *runConfigForm, field
 					if ui.Checkbox(c, f.flags[field.ID], label).Disabled(!ready).Changed() {
 						c.After(func() { a.runConfigFormEdited(p, f) })
 					}
-					a.runConfigFormHelp(c, language, f.provider, field)
+					a.runConfigFormHelp(c, language, f.kind.provider, field)
 				})
 				return
 			}
@@ -335,7 +367,7 @@ func (a *App) drawRunConfigFormControl(c ui.C, p *project, f *runConfigForm, fie
 	case runFieldChoice:
 		options := field.Options
 		if ui.Choice(c, f.texts[field.ID], options, func(option string) string {
-			name, _ := runConfigChoiceLabel(language, field.ID, option)
+			name, _ := runConfigOptionTitle(language, field, option)
 			return name
 		}).Disabled(!ready).Changed() {
 			edited()

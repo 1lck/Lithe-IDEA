@@ -9,13 +9,65 @@ import (
 // form is refused, since its fields may mean something this host cannot show.
 const RunFormVersion = 1
 
-// RunConfigurationType is one built-in run configuration kind a user can create,
-// such as `process.shell`. Availability is set when this platform cannot run the
-// kind, such as a batch script outside Windows; its configurations are still
-// created and edited.
+// RunConfigurationType is one run configuration kind a user can create: a built-in
+// one such as `process.shell`, or, with provider `build.run-type`, one an installed
+// plugin declares, named by RunType and shown with the plugin's DisplayName,
+// Description and Icon. Availability is set when this platform cannot run the kind,
+// such as a batch script outside Windows; its configurations are still created and
+// edited.
 type RunConfigurationType struct {
 	Provider     string           `json:"provider"`
 	Availability *RunAvailability `json:"availability,omitempty"`
+	RunType      *RunTypeKey      `json:"runType,omitempty"`
+	DisplayName  string           `json:"displayName,omitempty"`
+	Execution    string           `json:"execution,omitempty"`
+	Description  string           `json:"description,omitempty"`
+	Icon         *RunTypeIcon     `json:"icon,omitempty"`
+}
+
+// RunTypeProvider is the provider of every configuration of a plugin-declared kind.
+const RunTypeProvider = "build.run-type"
+
+// RunTypeKey names a plugin-declared run configuration kind: the plugin, its build
+// system and the kind's ID within it.
+type RunTypeKey struct {
+	PluginID      string `json:"pluginID"`
+	BuildSystemID string `json:"buildSystemID"`
+	Type          string `json:"type"`
+}
+
+// RunTypeIcon is the icon a declared kind names: a host icon such as `run`, or a
+// package image (Path, DarkPath) relative to the plugin directory.
+type RunTypeIcon struct {
+	Host     string `json:"host,omitempty"`
+	Path     string `json:"path,omitempty"`
+	DarkPath string `json:"darkPath,omitempty"`
+	Mode     string `json:"mode,omitempty"`
+}
+
+// RunTypePlugins is the `runTypePlugins` the run configuration editor commands take:
+// every enabled plugin's manifest, and the interface Language their text is
+// translated to. Core lists the kinds the manifests declare; a manifest that declares
+// none, or does not validate, adds nothing.
+type RunTypePlugins struct {
+	Language string          `json:"language,omitempty"`
+	Plugins  []RunTypePlugin `json:"plugins"`
+}
+
+// RunTypePlugin is one enabled plugin. Localizations are the translation files the
+// host read from the package, by package-relative path; nil until a report asked for
+// them, so Core tells which files to read. An empty map that is not nil says the
+// host read the candidates and found none, so it is sent as {} and nil as null.
+type RunTypePlugin struct {
+	Manifest      json.RawMessage   `json:"manifest"`
+	Localizations map[string]string `json:"localizations"`
+}
+
+// RunTypeLocalization is the translation report of one plugin that declares a kind,
+// the report of plugin settings with the plugin it is about.
+type RunTypeLocalization struct {
+	PluginID string `json:"pluginID"`
+	PluginSettingsLocalization
 }
 
 // Unavailable says this platform cannot run configurations of the kind.
@@ -23,14 +75,19 @@ func (t RunConfigurationType) Unavailable() bool {
 	return t.Availability != nil && t.Availability.Status == "unavailable"
 }
 
-// RunConfigurationTypes lists the built-in kinds a user can create, in display
-// order. Every platform lists every kind; one it cannot run says so.
-func (c *Client) RunConfigurationTypes(ctx context.Context) ([]RunConfigurationType, error) {
+// RunConfigurationTypes lists the kinds a user can create, in display order: the
+// built-in ones, then the kinds plugins declare. Every platform lists every built-in
+// kind; one it cannot run says so. With a language, the answer reports per plugin
+// which translation files to read, for a second call with them.
+func (c *Client) RunConfigurationTypes(ctx context.Context, plugins *RunTypePlugins) ([]RunConfigurationType, []RunTypeLocalization, error) {
 	var result struct {
-		Types []RunConfigurationType `json:"types"`
+		Types         []RunConfigurationType `json:"types"`
+		Localizations []RunTypeLocalization  `json:"localizations"`
 	}
-	err := c.Execute(ctx, "runConfig.configurationTypes", struct{}{}, &result)
-	return result.Types, err
+	err := c.Execute(ctx, "runConfig.configurationTypes", struct {
+		RunTypePlugins *RunTypePlugins `json:"runTypePlugins,omitempty"`
+	}{plugins}, &result)
+	return result.Types, result.Localizations, err
 }
 
 // RunEditorField is one field of a run configuration editor. Kind is text,
@@ -39,17 +96,23 @@ func (c *Client) RunConfigurationTypes(ctx context.Context) ([]RunConfigurationT
 // back. Automatic is the value used while the field is empty, shown as its
 // placeholder. Note is an explanation key, such as windowsOnly. ShellFamily, on
 // an executable field, is the family of shell it takes (posix, powershell or
-// cmd), so a host can offer the installed shells of that family.
+// cmd), so a host can offer the installed shells of that family. A field a
+// plugin declares (ID `field:<id>`) carries its own translated Label,
+// Description, Placeholder and the titles of its Options in OptionLabels.
 type RunEditorField struct {
-	ID          string             `json:"id"`
-	Kind        string             `json:"kind"`
-	Required    bool               `json:"required,omitempty"`
-	Placement   string             `json:"placement,omitempty"`
-	Automatic   *string            `json:"automatic,omitempty"`
-	Options     []string           `json:"options,omitempty"`
-	VisibleWhen *RunFieldCondition `json:"visibleWhen,omitempty"`
-	Note        string             `json:"note,omitempty"`
-	ShellFamily string             `json:"shellFamily,omitempty"`
+	ID           string             `json:"id"`
+	Kind         string             `json:"kind"`
+	Required     bool               `json:"required,omitempty"`
+	Placement    string             `json:"placement,omitempty"`
+	Automatic    *string            `json:"automatic,omitempty"`
+	Options      []string           `json:"options,omitempty"`
+	VisibleWhen  *RunFieldCondition `json:"visibleWhen,omitempty"`
+	Note         string             `json:"note,omitempty"`
+	ShellFamily  string             `json:"shellFamily,omitempty"`
+	Label        string             `json:"label,omitempty"`
+	Description  string             `json:"description,omitempty"`
+	Placeholder  string             `json:"placeholder,omitempty"`
+	OptionLabels map[string]string  `json:"optionLabels,omitempty"`
 	// Candidates are the configurations a beforeLaunch field may name.
 	Candidates []RunConfigurationName `json:"candidates,omitempty"`
 }
@@ -69,7 +132,9 @@ type RunFieldCondition struct {
 // RunEditorForm is what `runConfig.editorForm` returns: the fields in order and
 // the current value of each, by field ID. Values stay raw so keys this host
 // does not show go back unchanged. Availability is set when this platform cannot
-// run the kind; the form still edits and saves it.
+// run the kind; the form still edits and saves it. RunType names the declared kind
+// of a `build.run-type` form; Localizations report the translation files to read,
+// as RunConfigurationTypes does.
 type RunEditorForm struct {
 	FormVersion     int                        `json:"formVersion"`
 	Provider        string                     `json:"provider"`
@@ -77,16 +142,21 @@ type RunEditorForm struct {
 	Values          map[string]json.RawMessage `json:"values"`
 	Fields          []RunEditorField           `json:"fields"`
 	Availability    *RunAvailability           `json:"availability,omitempty"`
+	RunType         *RunTypeKey                `json:"runType,omitempty"`
+	Localizations   []RunTypeLocalization      `json:"localizations,omitempty"`
 }
 
-// RunEditorFormRequest asks for the editor of a new configuration of Provider or
-// of the saved ConfigurationID. Values are the open editor's unsaved values, so
-// the automatic values follow the edit.
+// RunEditorFormRequest asks for the editor of a new configuration of Provider (and
+// RunType, for a declared kind) or of the saved ConfigurationID. Values are the open
+// editor's unsaved values, so the automatic values follow the edit. RunTypePlugins
+// list the kinds plugins declare; a declared kind's form needs them.
 type RunEditorFormRequest struct {
 	Root            string                     `json:"root"`
 	Provider        string                     `json:"provider,omitempty"`
+	RunType         *RunTypeKey                `json:"runType,omitempty"`
 	ConfigurationID string                     `json:"configurationId,omitempty"`
 	Values          map[string]json.RawMessage `json:"values,omitempty"`
+	RunTypePlugins  *RunTypePlugins            `json:"runTypePlugins,omitempty"`
 }
 
 // RunEditorForm describes the editor fields and current values of a built-in run configuration.
@@ -103,13 +173,17 @@ type RunFieldError struct {
 	Code  string `json:"code"`
 }
 
-// RunConfigurationSave is a `runConfig.saveConfiguration` request.
+// RunConfigurationSave is a `runConfig.saveConfiguration` request. RunType and
+// RunTypePlugins are set for a declared kind, whose display name is the default
+// configuration name.
 type RunConfigurationSave struct {
 	Root            string                     `json:"root"`
 	Provider        string                     `json:"provider"`
+	RunType         *RunTypeKey                `json:"runType,omitempty"`
 	ConfigurationID string                     `json:"configurationId,omitempty"`
 	Values          map[string]json.RawMessage `json:"values"`
 	Plugins         []RunInstalledPlugin       `json:"plugins,omitempty"`
+	RunTypePlugins  *RunTypePlugins            `json:"runTypePlugins,omitempty"`
 }
 
 // RunConfigurationSaved is the answer of `runConfig.saveConfiguration`: Status

@@ -14,24 +14,82 @@ import (
 )
 
 // This file holds the editor of built-in process runs, shown in the Run/Debug Configurations
-// dialog: shell, PowerShell and batch scripts and programs. Core describes the editor as data (`runConfig.editorForm`): the fields in
+// dialog: shell, PowerShell and batch scripts and programs, and of the kinds plugins declare
+// for their build systems, such as a Go build. Core describes the editor as data (`runConfig.editorForm`): the fields in
 // order, their kinds and current values, and the automatic value of each empty field. Core
 // also checks the values and returns the file changes that save them
 // (`runConfig.saveConfiguration`); the host draws the fields, applies the changes and
 // resolves the configurations again. A field this host cannot draw (a kind it does not
 // know, or an ID it has no label for) is left out and its value goes back as it came, so a
 // later Core can add fields, options and buttons' inputs without breaking this host. A new
-// field shows here once it has a label in runConfigFieldLabel and a widget for its kind.
+// field shows here once it has a label in runConfigFieldLabel and a widget for its kind; a
+// field a plugin declares brings its own translated label.
 
-// runConfigForm is the editor of one built-in process run in the Run/Debug Configurations
-// dialog (runconfig_dialog.go). Each configuration the dialog shows has its own, so edits to
+// runConfigKind is a kind of configuration a form edits: a built-in process run by its
+// provider, or, with provider `build.run-type`, the kind runType a plugin declares.
+type runConfigKind struct {
+	provider string
+	runType  core.RunTypeKey
+}
+
+// builtInKind is the built-in kind of provider.
+func builtInKind(provider string) runConfigKind { return runConfigKind{provider: provider} }
+
+// declaredKind is the kind a plugin declares, named by key.
+func declaredKind(key core.RunTypeKey) runConfigKind {
+	return runConfigKind{provider: core.RunTypeProvider, runType: key}
+}
+
+// declared says a plugin declares the kind.
+func (k runConfigKind) declared() bool { return k.runType != core.RunTypeKey{} }
+
+// key is the declared kind's key as a request names it, nil for a built-in kind.
+func (k runConfigKind) key() *core.RunTypeKey {
+	if !k.declared() {
+		return nil
+	}
+	key := k.runType
+	return &key
+}
+
+// runConfigKindOf is the kind a form edits configuration as: a built-in process run, or a
+// kind a plugin declares; ok is false for a configuration no form edits.
+func runConfigKindOf(configuration core.RunConfiguration) (runConfigKind, bool) {
+	if configuration.IsProcess() {
+		return builtInKind(configuration.Provider), true
+	}
+	if key, ok := configuration.RunTypeReference(); ok {
+		return declaredKind(key), true
+	}
+	return runConfigKind{}, false
+}
+
+// groupKey is the dialog group of the configurations of kind k: one per built-in kind, and one
+// per declared kind, apart from the build system's other runs.
+func (k runConfigKind) groupKey() string {
+	if !k.declared() {
+		return runProcessKindKey(k.provider)
+	}
+	return runProcessKindKey(k.provider) + ":" + k.runType.PluginID + "\x00" + k.runType.BuildSystemID + "\x00" + k.runType.Type
+}
+
+// runConfigKindOfType is the kind of a kind Core lists.
+func runConfigKindOfType(kind core.RunConfigurationType) runConfigKind {
+	if kind.RunType != nil {
+		return declaredKind(*kind.RunType)
+	}
+	return builtInKind(kind.Provider)
+}
+
+// runConfigForm is the editor of one built-in process run, or of a configuration of a kind a
+// plugin declares, in the Run/Debug Configurations dialog (runconfig_dialog.go). Each configuration the dialog shows has its own, so edits to
 // several configurations wait together for Apply or OK.
 type runConfigForm struct {
 	// open is cleared when the dialog drops the form; answers still out are then ignored.
 	open bool
 	// generation rejects the answer of a form that was dropped or reopened since.
 	generation uint64
-	provider   string
+	kind       runConfigKind
 	// id is the saved configuration edited; empty for a new one until a save names it.
 	id string
 	// name is the configuration's name as it was saved.
@@ -97,45 +155,58 @@ func runFieldTextual(kind string) bool {
 	return false
 }
 
-// loadRunConfigTypes reads once per project which built-in kinds a user can create. Every
-// platform lists every kind; one it cannot run carries the reason. A failure leaves them
-// unread, so the next refresh asks again.
-func (a *App) loadRunConfigTypes(p *project) {
+// loadRunConfigTypes reads which kinds a user can create: the built-in ones, which every
+// platform lists, one it cannot run with the reason, and the ones enabled plugins declare. The
+// first refresh of the project reads them; reload reads them again, as opening the dialog
+// does, so a plugin installed or removed since, or another interface language, shows. The
+// kinds in hand stay while a read is out, and a reload asked for meanwhile reads once more
+// after it. A failure keeps them, or leaves them unread, so the next refresh asks again.
+func (a *App) loadRunConfigTypes(p *project, reload bool) {
 	s := &p.runConfigs
-	if s.types != nil || s.typesLoading {
+	if s.typesLoading {
+		s.typesStale = s.typesStale || reload
 		return
 	}
-	s.typesLoading = true
-	kernel := a.kernel
+	if s.types != nil && !reload {
+		return
+	}
+	s.typesLoading, s.typesStale = true, false
+	kernel, language := a.kernel, a.language()
 	a.background(p, buildRequestTimeout, func(ctx context.Context) func(*App) {
-		types, err := kernel.RunConfigurationTypes(ctx)
+		kinds, err := a.readRunConfigKinds(ctx, kernel, language.Code())
 		return func(a *App) {
 			s := &p.runConfigs
 			s.typesLoading = false
 			if err != nil {
 				a.backgroundFailed("run_config_types", err)
-				return
-			}
-			// Only kinds this host can name are offered; the list is never nil once read.
-			s.types = make([]core.RunConfigurationType, 0, len(types))
-			for _, kind := range types {
-				if _, ok := runConfigTypeLabel(a.language(), kind.Provider); ok {
-					s.types = append(s.types, kind)
+			} else {
+				// Only kinds this host can name are offered: the built-in ones it has a title
+				// for, and declared ones that bring theirs. The list is never nil once read.
+				s.types = make([]core.RunConfigurationType, 0, len(kinds.types))
+				for _, kind := range kinds.types {
+					_, named := runConfigTypeLabel(language, kind.Provider)
+					if named || kind.RunType != nil && kind.DisplayName != "" {
+						s.types = append(s.types, kind)
+					}
 				}
+				s.typePlugins = kinds.plugins
+			}
+			if s.typesStale {
+				a.loadRunConfigTypes(p, true)
 			}
 		}
 	})
 }
 
-// openRunConfigForm reads the editor of a new configuration of provider, or of the saved
+// openRunConfigForm reads the editor of a new configuration of kind, or of the saved
 // configuration id when it is set. values seed a new configuration, such as a copy of
 // another; nil starts from Core's defaults.
-func (a *App) openRunConfigForm(p *project, provider, id string, values map[string]json.RawMessage) *runConfigForm {
-	f := &runConfigForm{open: true, generation: 1, provider: provider, id: id, loading: true}
+func (a *App) openRunConfigForm(p *project, kind runConfigKind, id string, values map[string]json.RawMessage) *runConfigForm {
+	f := &runConfigForm{open: true, generation: 1, kind: kind, id: id, loading: true}
 	if configuration := p.runConfigs.configuration(id); configuration != nil {
 		f.name = configuration.Name
 	}
-	request := core.RunEditorFormRequest{Root: p.root, Provider: provider, ConfigurationID: id, Values: values}
+	request := core.RunEditorFormRequest{Root: p.root, Provider: kind.provider, RunType: kind.key(), ConfigurationID: id, Values: values}
 	a.requestRunConfigForm(p, f, f.generation, request, true)
 	return f
 }
@@ -154,9 +225,15 @@ func (f *runConfigForm) ready() bool {
 // requestRunConfigForm asks Core for the editor. The first answer fills the fields and
 // values; a later one, for the values being edited, only replaces the field descriptions,
 // so the automatic values follow the edit and nothing the user typed since is lost.
+// A declared kind's request carries the plugins that declare kinds, so its fields read in
+// the interface language.
 func (a *App) requestRunConfigForm(p *project, f *runConfigForm, generation uint64, request core.RunEditorFormRequest, initial bool) {
-	kernel := a.kernel
+	kernel, kinds, language := a.kernel, p.runConfigs.kinds(), a.language().Code()
+	declared := f.kind.declared()
 	a.background(p, buildRequestTimeout, func(ctx context.Context) func(*App) {
+		if declared {
+			request.RunTypePlugins = a.runTypePlugins(ctx, kernel, kinds, language)
+		}
 		form, err := kernel.RunEditorForm(ctx, request)
 		return func(a *App) {
 			if !f.open || f.generation != generation {
@@ -178,7 +255,12 @@ func (a *App) requestRunConfigForm(p *project, f *runConfigForm, generation uint
 				f.failure = i18n.Shared(language, "desktop.runConfig.formTooNew")
 				return
 			}
-			f.provider, f.fields, f.values, f.availability = form.Provider, form.Fields, form.Values, form.Availability
+			if !f.kind.answeredBy(form) {
+				a.operationRejected("run_config_form", "form_mismatch")
+				f.failure = i18n.Shared(language, "desktop.runConfig.formTooNew")
+				return
+			}
+			f.fields, f.values, f.availability = form.Fields, form.Values, form.Availability
 			if f.values == nil {
 				f.values = map[string]json.RawMessage{}
 			}
@@ -196,7 +278,7 @@ func (a *App) finishRunConfigFormRefresh(p *project, f *runConfigForm, form core
 	case err != nil:
 		// The descriptions in hand stay; only their automatic values may be out of date.
 		a.backgroundFailed("run_config_form_refresh", err)
-	case form.FormVersion > core.RunFormVersion || form.Provider != f.provider:
+	case form.FormVersion > core.RunFormVersion || !f.kind.answeredBy(form):
 		a.operationRejected("run_config_form_refresh", "form_mismatch")
 	default:
 		f.fields, f.availability = form.Fields, form.Availability
@@ -293,6 +375,18 @@ func (f *runConfigForm) collect() map[string]json.RawMessage {
 	return values
 }
 
+// answeredBy says form is the editor of the kind: the provider, and for a declared kind its
+// key, are the ones asked for.
+func (k runConfigKind) answeredBy(form core.RunEditorForm) bool {
+	if form.Provider != k.provider {
+		return false
+	}
+	if !k.declared() {
+		return form.RunType == nil
+	}
+	return form.RunType != nil && *form.RunType == k.runType
+}
+
 // runConfigFormEdited marks the form changed and asks for the editor of the edited values.
 func (a *App) runConfigFormEdited(p *project, f *runConfigForm) {
 	if !f.open || f.loading || f.fields == nil {
@@ -314,7 +408,7 @@ func (a *App) refreshRunConfigForm(p *project, f *runConfigForm) {
 		return
 	}
 	f.refreshing, f.stale = true, false
-	request := core.RunEditorFormRequest{Root: p.root, Provider: f.provider, ConfigurationID: f.id, Values: f.collect()}
+	request := core.RunEditorFormRequest{Root: p.root, Provider: f.kind.provider, RunType: f.kind.key(), ConfigurationID: f.id, Values: f.collect()}
 	a.requestRunConfigForm(p, f, f.generation, request, false)
 }
 
@@ -329,10 +423,14 @@ func (a *App) saveRunConfigForm(p *project, f *runConfigForm, done func(id strin
 	}
 	f.saving, f.failure = true, ""
 	generation := f.generation
-	request := core.RunConfigurationSave{Root: p.root, Provider: f.provider, ConfigurationID: f.id, Values: f.collect()}
-	kernel := a.kernel
+	request := core.RunConfigurationSave{Root: p.root, Provider: f.kind.provider, RunType: f.kind.key(), ConfigurationID: f.id, Values: f.collect()}
+	kernel, kinds, language := a.kernel, p.runConfigs.kinds(), a.language().Code()
+	declared := f.kind.declared()
 	a.background(p, buildRequestTimeout, func(ctx context.Context) func(*App) {
 		request.Plugins = a.runConfigPlugins(ctx)
+		if declared {
+			request.RunTypePlugins = a.runTypePlugins(ctx, kernel, kinds, language)
+		}
 		saved, err := kernel.SaveRunConfiguration(ctx, request)
 		if err == nil && saved.Status == "saved" {
 			err = applyRunConfigChanges(ctx, request.Root, saved.Changes)
