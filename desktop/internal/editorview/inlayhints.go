@@ -262,6 +262,9 @@ func (v *View) inlayRowsBefore(line int) int {
 func (v *View) HasInlayHints() bool { return len(v.inlay.prepared.lines) > 0 }
 
 func (v *View) lineInlayHints(line int) []preparedInlayHint {
+	if !v.HasInlayHints() {
+		return nil
+	}
 	return v.inlay.prepared.lines[line].hints
 }
 

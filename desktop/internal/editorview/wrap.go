@@ -143,7 +143,7 @@ func (v *View) rowsOf(l lineRef) []wrapRow {
 	if !v.wrapping() {
 		return oneRow
 	}
-	if len(v.lineInlayHints(l.line)) > 0 {
+	if !l.long && len(v.lineInlayHints(l.line)) > 0 {
 		if rows := v.inlay.wraps[l.line]; len(rows) != 0 {
 			return rows
 		}
