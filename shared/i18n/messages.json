@@ -6292,8 +6292,54 @@
       }
     },
     {
+      "id": "desktop.branch.checkoutFailedIn",
+      "description": "Branch popup of a folder with several repositories: a checkout of a common branch failed in one repository",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "name": "string",
+        "repository": "string",
+        "reason": "string"
+      }
+    },
+    {
       "id": "desktop.branch.checkoutRevision",
       "description": "Desktop branch: CheckoutRevision",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.branch.commonCheckedOut",
+      "description": "Branch popup of a folder with several repositories: every repository was switched to the common branch",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "name": "string"
+      }
+    },
+    {
+      "id": "desktop.branch.commonCreated",
+      "description": "Branch popup of a folder with several repositories: the new branch was created in every repository",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "name": "string"
+      }
+    },
+    {
+      "id": "desktop.branch.commonLocal",
+      "description": "Branch popup of a folder with several repositories: head of the local branches every repository has, as IntelliJ IDEA's Common Local Branches",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.branch.commonRemote",
+      "description": "Branch popup of a folder with several repositories: head of the remote branches every repository has, as IntelliJ IDEA's Common Remote Branches",
       "platforms": [
         "desktop"
       ]
@@ -6333,8 +6379,30 @@
       }
     },
     {
+      "id": "desktop.branch.createFailedIn",
+      "description": "Branch popup of a folder with several repositories: creating the new branch failed in one repository",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "name": "string",
+        "repository": "string",
+        "reason": "string"
+      }
+    },
+    {
       "id": "desktop.branch.createFrom",
       "description": "Desktop branch: CreateFrom",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "name": "string"
+      }
+    },
+    {
+      "id": "desktop.branch.createFromInAll",
+      "description": "New branch dialog opened on a common branch: the branch is created in every repository of the folder",
       "platforms": [
         "desktop"
       ],
@@ -6417,6 +6485,13 @@
     {
       "id": "desktop.branch.forceCheckout",
       "description": "Desktop branch: ForceCheckout",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.branch.keepButton",
+      "description": "Rollback dialog of a branch action that succeeded in some repositories only: leaves them as they are",
       "platforms": [
         "desktop"
       ]
@@ -6548,6 +6623,13 @@
       }
     },
     {
+      "id": "desktop.branch.repositorySeparator",
+      "description": "Separator between the repository names a branch message lists",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
       "id": "desktop.branch.revision",
       "description": "Desktop branch: Revision",
       "platforms": [
@@ -6567,6 +6649,61 @@
       "platforms": [
         "desktop"
       ]
+    },
+    {
+      "id": "desktop.branch.rollbackButton",
+      "description": "Rollback dialog of a branch action that succeeded in some repositories only: undoes it there",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.branch.rollbackFailed",
+      "description": "Rolling back a branch action failed in one repository",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "repository": "string",
+        "reason": "string"
+      }
+    },
+    {
+      "id": "desktop.branch.rollbackImpossible",
+      "description": "Rollback dialog: the repositories that were on no branch before the action, which a rollback cannot return to",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "repositories": "string"
+      }
+    },
+    {
+      "id": "desktop.branch.rollbackPrompt",
+      "description": "Rollback dialog: the repositories where the branch action already succeeded",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "repositories": "string"
+      }
+    },
+    {
+      "id": "desktop.branch.rollbackTitle",
+      "description": "Title of the dialog of a branch action that succeeded in some repositories only",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.branch.rolledBack",
+      "description": "Every repository a branch action had changed was rolled back",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "repositories": "string"
+      }
     },
     {
       "id": "desktop.branch.rowMenu",

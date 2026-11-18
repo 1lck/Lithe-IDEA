@@ -27,6 +27,15 @@ native_path() {
     fi
 }
 
+# Lithe-core-rust branch feat/workspace-common-references at 5c48a67 (#75, merged with main at
+# 6f5fbcc, #87 on top of #90 and #89): git.workspaceCommonReferences takes each repository's
+# git.references entries unchanged and returns the branches every repository has in that entry
+# shape, current when every repository has it checked out, with the upstream they share and ahead
+# and behind added up; git.workspaceBranchPlan plans a checkout or a new branch on such a branch
+# across the repositories, skipping the ones already on it, with the writes that roll each step
+# back; and git.graphProjection checkedOutHeads marks the commits of every repository's
+# checked-out branch, refusing currentBranch beside it (#2013). Switch to main's commit once #75
+# is squash-merged.
 # Lithe-core-rust main at d833d6a, #89 squash-merged (on top of bb4832e, #88): buildProviders 1
 # adds runs with entrypoints: true; build.runEntrypointsPlan and build.decodeRunEntrypoints ask a
 # provider for the entrypoints of one source file, prepareRunPlan takes an entrypoint run without a
@@ -214,7 +223,7 @@ PINNED_CORE_REPOSITORY="https://github.com/Lithe-IDEA/Lithe-core-rust.git"
 # the contract, plugin guides, reference and SDKs live only in shared/plugins; on top of #16 (reported Git queries folded in the console),
 # #15 (git.write cherryPick, revert and reset fields), #14 (word-level changed ranges of diff
 # rows), #13, #8, #7, #6 and #4.
-PINNED_CORE_REVISION="d833d6a71dfeaa5eda39d23f6a3a1a9ee29ff9ed"
+PINNED_CORE_REVISION="5c48a6727fb0d22713a3f067a6f452edf41fad3a"
 PROFILE="debug"
 while [[ $# -gt 0 ]]; do
     case "$1" in

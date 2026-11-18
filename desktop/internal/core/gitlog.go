@@ -200,6 +200,10 @@ type GraphRequest struct {
 	// CurrentBranch is the branch whose commits get the current-branch background, empty
 	// for none.
 	CurrentBranch string `json:"currentBranch,omitempty"`
+	// CheckedOutHeads gives the current-branch background to the commits of every checked-out
+	// branch instead, for a list that merges several repositories: each repository's own
+	// current branch. It cannot be combined with CurrentBranch.
+	CheckedOutHeads bool `json:"-"`
 }
 
 type graphRequestWire struct {
@@ -209,6 +213,7 @@ type graphRequestWire struct {
 	VisibleHashes     []string      `json:"visibleHashes"`
 	DisplayMode       string        `json:"displayMode"`
 	CurrentBranch     string        `json:"currentBranch,omitempty"`
+	CheckedOutHeads   bool          `json:"checkedOutHeads,omitempty"`
 }
 
 // GraphEdge is one edge from a row's commit to a parent.
@@ -264,7 +269,8 @@ type Graph struct {
 	// visible rows are.
 	RecommendedLaneCount int  `json:"recommendedLaneCount"`
 	HasMissingParents    bool `json:"hasMissingParents"`
-	// CurrentBranchHashes are the commits of the current branch.
+	// CurrentBranchHashes are the commits of the current branch, or of every checked-out branch
+	// for CheckedOutHeads.
 	CurrentBranchHashes []string `json:"currentBranchHashes"`
 }
 
@@ -281,6 +287,7 @@ func (c *Client) GitGraph(ctx context.Context, request GraphRequest) (Graph, err
 		VisibleHashes:     request.VisibleHashes,
 		DisplayMode:       mode,
 		CurrentBranch:     request.CurrentBranch,
+		CheckedOutHeads:   request.CheckedOutHeads,
 	}
 	var graph Graph
 	if err := c.Execute(ctx, "git.graphProjection", wire, &graph); err != nil {

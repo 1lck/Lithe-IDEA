@@ -193,8 +193,11 @@ func (a *App) loadLogRepos(p *project, gen int) {
 		}
 		if err == nil {
 			input := graphInput(commits, origins)
+			// Each repository's own current branch gets the background, as IDEA reads the branch of
+			// each commit's root.
 			graph, err = kernel.GitGraph(ctx, core.GraphRequest{
 				Commits: input, RemoteNames: walkRemotes(walks), RepositoryCommits: input, Expanded: expanded,
+				CheckedOutHeads: true,
 			})
 		}
 		return func(a *App) {
