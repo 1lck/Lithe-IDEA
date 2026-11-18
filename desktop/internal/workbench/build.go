@@ -1770,11 +1770,16 @@ func (a *App) runBuildTargetWith(p *project, op *buildOperation, instance *build
 		a.finishBuildError(p, op, errors.New(a.text.Build.ProjectMissing))
 		return
 	}
-	target, ok := buildTargetByID(instance.Model, targetID)
-	if !ok {
-		a.notifyError(a.text.Build.TargetMissing)
-		a.finishBuildError(p, op, errors.New(a.text.Build.TargetMissing))
-		return
+	// An entrypoint run names no target: it starts launchOptions.entrypoint in the project.
+	var selectedTarget *core.BuildSelection
+	if targetID != "" {
+		target, ok := buildTargetByID(instance.Model, targetID)
+		if !ok {
+			a.notifyError(a.text.Build.TargetMissing)
+			a.finishBuildError(p, op, errors.New(a.text.Build.TargetMissing))
+			return
+		}
+		selectedTarget = &core.BuildSelection{Name: target.Name, Path: target.Path, Tags: target.Tags, Properties: target.Properties}
 	}
 	captured := *instance
 	kernel := a.kernel
@@ -1790,7 +1795,7 @@ func (a *App) runBuildTargetWith(p *project, op *buildOperation, instance *build
 			WorkspaceRoot: p.root,
 			Run:           runID,
 			Project:       &core.BuildSelection{Name: project.Name, Path: project.Path, Properties: project.Properties},
-			Target:        &core.BuildSelection{Name: target.Name, Path: target.Path, Tags: target.Tags, Properties: target.Properties},
+			Target:        selectedTarget,
 			LaunchOptions: options,
 		}
 		a.addBuildToolHint(prepare, p, captured, &request)

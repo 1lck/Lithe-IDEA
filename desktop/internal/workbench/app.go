@@ -130,6 +130,11 @@ type Kernel interface {
 	// BuildModelTree lays out a loaded model as the Build tool window's tree (build_tree.go).
 	BuildModelTree(ctx context.Context, manifest json.RawMessage, buildSystemID string, request core.BuildModelTreeRequest) (core.BuildModelTree, error)
 	DecodeBuildRun(ctx context.Context, manifest json.RawMessage, buildSystemID string, request core.BuildDecodeRunRequest) (core.BuildLaunch, error)
+	// PlanBuildRunEntrypoints, DecodeBuildRunEntrypoints and CreateRunEntrypointConfiguration
+	// run the entrypoint the current file holds (title_run_entrypoints.go).
+	PlanBuildRunEntrypoints(ctx context.Context, manifest json.RawMessage, buildSystemID string, request core.BuildPlanRequest) (core.BuildPlan, error)
+	DecodeBuildRunEntrypoints(ctx context.Context, manifest json.RawMessage, buildSystemID string, request core.BuildDecodeRunEntrypointsRequest) ([]core.BuildRunEntrypoint, error)
+	CreateRunEntrypointConfiguration(ctx context.Context, request core.RunEntrypointConfigurationRequest) (string, []core.RunConfigChange, error)
 	ToolchainRegistryOf(ctx context.Context, manifests []json.RawMessage) (core.ToolchainRegistry, error)
 	// CommandInstallerRequirements, PlanCommandInstaller and CommandInstallerDefaultDirectory
 	// read a plugin's commandInstallers[]: which systemCommand launches name which commands,

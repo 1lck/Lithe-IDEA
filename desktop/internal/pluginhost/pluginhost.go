@@ -98,8 +98,9 @@ type Capabilities map[string][]int
 //   - buildSystems and buildProviders: the Build window detects instances,
 //     loads provider models, resolves the ordered executable candidates Core
 //     returns, runs command and provider tasks, prepares application targets
-//     and discovers and runs provider tests. Run sessions a backend starts are
-//     owned by the host.
+//     and discovers and runs provider tests. Run on Current File asks the
+//     providers of version 1 for the file's entrypoints and saves the first as a
+//     run configuration. Run sessions a backend starts are owned by the host.
 //   - toolDefinitions: settings discovery, Build/Run selection and tool
 //     launches use the shared Core resolver.
 //   - commandInstallers: plugin management reports the commands a
@@ -167,6 +168,8 @@ func Declared() Capabilities {
 	// Version 1 adds module sidebars, field sections and entry lists, which the
 	// settings window's source forms render.
 	declared["sourceSettings"] = []int{0, 1}
+	// Version 1 adds entrypoint runs, which Run on Current File starts.
+	declared["buildProviders"] = []int{0, 1}
 	return declared
 }
 

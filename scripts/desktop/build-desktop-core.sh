@@ -27,9 +27,14 @@ native_path() {
     fi
 }
 
-# Lithe-core-rust #90 at 6e4e02c (Draft, on top of main bb4832e): a chrome catalog item marked
-# alsoOnToolStripes, a title bar button, may also sit in the six tool stripe zones and come back to
-# the title bar. Lithe-core-rust main at bb4832e, #88 squash-merged (on top of 4ed7a1f, #85): a run
+# Lithe-core-rust main at d8094c6, #90 squash-merged (on top of d833d6a, #89): a chrome catalog
+# item marked alsoOnToolStripes, a title bar button, may also sit in the six tool stripe zones and
+# come back to the title bar.
+# #89, squash-merged into main as d833d6a (on top of bb4832e, #88): buildProviders 1
+# adds runs with entrypoints: true; build.runEntrypointsPlan and build.decodeRunEntrypoints ask a
+# provider for the entrypoints of one source file, prepareRunPlan takes an entrypoint run without a
+# target, and runConfig.createUserConfiguration saves the entrypoint as part of the entry (#2104).
+# #88, squash-merged into main as bb4832e (on top of 4ed7a1f, #85): a run
 # configuration's beforeLaunch names built-in process runs that start first; runConfig.beforeLaunch
 # expands and checks them and fingerprints the lists a project file names, the editor form has a
 # beforeLaunch field and runConfig.updateOptions takes the list (#1616). #85, squash-merged into
@@ -212,7 +217,7 @@ PINNED_CORE_REPOSITORY="https://github.com/Lithe-IDEA/Lithe-core-rust.git"
 # the contract, plugin guides, reference and SDKs live only in shared/plugins; on top of #16 (reported Git queries folded in the console),
 # #15 (git.write cherryPick, revert and reset fields), #14 (word-level changed ranges of diff
 # rows), #13, #8, #7, #6 and #4.
-PINNED_CORE_REVISION="6e4e02cf755db4855d36ff84c9f6a944dd11625c"
+PINNED_CORE_REVISION="d8094c61bb289223eba2e06a25f1eb7023c75bc8"
 PROFILE="debug"
 while [[ $# -gt 0 ]]; do
     case "$1" in
