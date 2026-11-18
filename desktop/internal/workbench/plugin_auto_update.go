@@ -156,7 +156,7 @@ func (a *App) checkPluginAutoUpdates() {
 				for _, tab := range a.everyTab() {
 					tab.refreshPluginState()
 				}
-				a.notifySuccess(i18n.SharedFormat(a.language(), "desktop.marketplace.autoUpdated", map[string]string{
+				a.shownTab().notifySuccess(i18n.SharedFormat(a.language(), "desktop.marketplace.autoUpdated", map[string]string{
 					"count": strconv.Itoa(count),
 				}))
 			}
@@ -196,6 +196,20 @@ func autoUpdateCandidates(entries []pluginmanager.Entry, approvals map[string]pl
 	return candidates
 }
 
+// approvedPluginAutoSource avoids contacting unrelated indexes just because
+// the user enabled automatic updates for a different plugin.
+func approvedPluginAutoSource(indexURL string, approvals map[string]plugintrust.Record) bool {
+	if indexURL == "" {
+		return false
+	}
+	for _, record := range approvals {
+		if record.MarketplaceIndexURL == indexURL {
+			return true
+		}
+	}
+	return false
+}
+
 func (a *App) performPluginAutoUpdates(ctx context.Context, sources []pluginAutoSource, platform string, capabilities map[string][]int) (int, error) {
 	entries, err := a.plugins.CurrentInstalled(ctx)
 	if err != nil {
@@ -221,12 +235,24 @@ func (a *App) performPluginAutoUpdates(ctx context.Context, sources []pluginAuto
 	service := marketplace.New(a.kernel, nil)
 	downloader := marketplace.NewArchiveDownloader(nil)
 	attempted := make(map[string]bool)
+	triedOrigins := make(map[string]bool)
 	var failures []error
 	updated := 0
 	for _, source := range sources {
 		if err := ctx.Err(); err != nil {
 			return updated, err
 		}
+		// Resolve sources locally before any HTTP request: only an index the
+		// user already installed from can trigger an automatic fetch.
+		origin, resolveErr := a.kernel.ResolveMarketplaceSource(ctx, source.input)
+		if resolveErr != nil {
+			failures = append(failures, resolveErr)
+			continue
+		}
+		if triedOrigins[origin.IndexURL] || !approvedPluginAutoSource(origin.IndexURL, approvals) {
+			continue
+		}
+		triedOrigins[origin.IndexURL] = true
 		fetchCtx, end := context.WithTimeout(ctx, pluginAutoFetchLimit)
 		snapshot, fetchErr := service.Fetch(fetchCtx, source.input, source.kind, platform, capabilities)
 		end()

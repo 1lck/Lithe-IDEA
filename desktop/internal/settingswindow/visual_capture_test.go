@@ -50,7 +50,7 @@ func TestVisualSettings(t *testing.T) {
 		{"m47-toolchain-project-untrusted", pageBuild}, {"m48-toolchain-project-trusted", pageBuild}, {"m49-toolchain-project-trust-help", pageBuild},
 		{"fonts", pageFonts},
 		{"21-settings-language-popup", pageGeneral}, {"30-settings-history", pageGeneral}, {"m46-history-default-rules-help", pageGeneral}, {"35-settings-search", pageEditor},
-		{"m35-editor-tab-layout", pageEditor}, {"m25-project-open-mode", pageGeneral}, {"m29-editor-font-menu", pageFonts}, {"m38-plugin-management-menu", pagePlugins},
+		{"m35-editor-tab-layout", pageEditor}, {"m25-project-open-mode", pageGeneral}, {"m29-editor-font-menu", pageFonts}, {"m38-plugin-management-menu", pagePlugins}, {"m42-plugin-auto-update-on", pagePlugins},
 		{"m39-proxy-mode-menu", pageNetwork}, {"m40-process-run-policy", pageProcessTermination},
 		{"m41-process-terminal-policy", pageProcessTermination}, {"m43-process-orphan-policy", pageProcessTermination},
 		{"36-settings-about", pageAbout},
@@ -80,7 +80,9 @@ func TestVisualSettings(t *testing.T) {
 					// Every build can sign in to GitHub; no account is connected yet.
 					GitHub: &GitHubAccount{Snapshot: func() GitHubState { return GitHubState{Available: true} }},
 				}
+				opts.SetAutoUpdatePlugins = func(bool) {}
 				w := newWindow(NewController(opts), Values{Theme: theme, Language: language.Code(), TerminalScrollback: 2000})
+				w.sess.values.AutoUpdatePlugins = scenario.id == "m42-plugin-auto-update-on"
 				w.sess.page = scenario.page
 				if scenario.id == "29-marketplace-empty" {
 					w.pluginTab = pluginTabMarketplace
@@ -151,7 +153,7 @@ func TestVisualSettings(t *testing.T) {
 				case "m29-editor-font-menu":
 					d.click(text("settings.editor.fontFamily"))
 					d.key(gfx.KeyDown)
-				case "m38-plugin-management-menu":
+				case "m38-plugin-management-menu", "m42-plugin-auto-update-on":
 					d.click(text("desktop.pluginSettings.title"))
 				case "m39-proxy-mode-menu":
 					d.click(text("desktop.settings.network.mode"))

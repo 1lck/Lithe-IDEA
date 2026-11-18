@@ -37,6 +37,15 @@ func TestFetchValidatesIndexThroughCore(t *testing.T) {
 	if err != nil || len(result.Index.Plugins) != 3 || len(result.Index.Rejected) != 2 {
 		t.Fatalf("result = %#v, error = %v", result, err)
 	}
+	for _, plugin := range result.Index.Plugins {
+		if plugin.MarketplaceIndexURL == "" || plugin.MarketplaceIndexURL != result.Source.IndexURL {
+			t.Fatalf("plugin %q source = %q, want %q", plugin.ID, plugin.MarketplaceIndexURL, result.Source.IndexURL)
+		}
+		data, marshalErr := json.Marshal(plugin)
+		if marshalErr != nil || strings.Contains(string(data), "marketplaceIndexURL") {
+			t.Fatalf("native-only provenance leaked into Core JSON: %s, error = %v", data, marshalErr)
+		}
+	}
 }
 
 func TestFetchCurrentOfficialEmptyIndex(t *testing.T) {

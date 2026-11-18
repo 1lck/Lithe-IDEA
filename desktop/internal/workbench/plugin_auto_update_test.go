@@ -41,3 +41,18 @@ func TestAutoUpdateCandidatesRequireMatchingApprovedSourceAndNewerRelease(t *tes
 		t.Fatalf("unknown provenance selected: %+v", got)
 	}
 }
+
+// A plugin from one approved index must not cause requests to other sources.
+func TestApprovedPluginAutoSourceOnlyMatchesSavedOrigins(t *testing.T) {
+	records := map[string]plugintrust.Record{
+		"dev.lithe.test.one": {MarketplaceIndexURL: "https://example.test/one.json"},
+	}
+	if !approvedPluginAutoSource("https://example.test/one.json", records) {
+		t.Fatal("a previously approved index should be eligible")
+	}
+	for _, url := range []string{"", "https://example.test/two.json", "http://example.test/one.json"} {
+		if approvedPluginAutoSource(url, records) {
+			t.Fatalf("source %q is not previously approved", url)
+		}
+	}
+}

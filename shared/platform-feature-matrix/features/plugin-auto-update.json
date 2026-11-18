@@ -16,7 +16,9 @@
       "desktop/internal/marketplace/service.go",
       "desktop/internal/marketplace/version_test.go",
       "desktop/internal/plugintrust/auto_update_test.go",
-      "desktop/internal/plugininstall/plugininstall.go"
+      "desktop/internal/plugininstall/plugininstall.go",
+      "desktop/internal/settingswindow/marketplace_view_test.go",
+      "desktop/internal/settingswindow/visual_capture_test.go"
     ]
   },
   "windows": {
@@ -29,7 +31,9 @@
       "desktop/internal/marketplace/service.go",
       "desktop/internal/marketplace/version_test.go",
       "desktop/internal/plugintrust/auto_update_test.go",
-      "desktop/internal/plugininstall/plugininstall.go"
+      "desktop/internal/plugininstall/plugininstall.go",
+      "desktop/internal/settingswindow/marketplace_view_test.go",
+      "desktop/internal/settingswindow/visual_capture_test.go"
     ]
   }
 }
