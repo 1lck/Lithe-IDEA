@@ -1,0 +1,1075 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>Lithe 设置 · 构建、执行、部署（大规模插件注入）交互原型</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<!--
+  交互原型，不是实现。数据全部是示例：插件 ID 除截图里的三个外均为虚构（io.github.example.*）。
+  “生效值、分组、筛选、计数”在原型里由 JS 模拟；正式实现中这些都由 Core 计算，Viva 只呈现可见窗口。
+  可用地址参数直接打开某个状态，例如：
+    #page=toolchains&scale=5000&sel=java.jdk&scope=project&dark=1&notes=0
+-->
+<style>
+:root{
+  --bg:#f7f8fa; --surface:#ffffff; --side:#f2f3f5; --sel:#dfe7f8; --hover:#eceef1;
+  --text:#1f2329; --sub:#6c707e; --faint:#9aa0ab; --line:#e4e6ea; --accent:#3574f0;
+  --ok:#208a3c; --warn:#c27d00; --err:#d1453b; --pill:#eef1f6; --chip:#e8f0fe;
+  --note:#ffd75e; --shadow:0 8px 28px rgba(0,0,0,.14); --hl:#fff3c4;
+  font-family:-apple-system,BlinkMacSystemFont,"SF Pro Text","PingFang SC",sans-serif;
+  font-size:13px; color:var(--text);
+}
+html.dark{
+  --bg:#1e1f22; --surface:#2b2d30; --side:#26282b; --sel:#2e436e; --hover:#33363a;
+  --text:#dfe1e5; --sub:#9da0a8; --faint:#6f737a; --line:#3a3d41; --accent:#548af7;
+  --ok:#5fb865; --warn:#e0a83e; --err:#f0716a; --pill:#393b40; --chip:#25324d;
+  --shadow:0 8px 28px rgba(0,0,0,.5); --hl:#4a4220;
+}
+*{box-sizing:border-box}
+body{margin:0;background:#c9ccd3;min-height:100vh;display:flex;flex-direction:column;align-items:center}
+html.dark body{background:#111214}
+button,input,select,textarea{font:inherit;color:inherit}
+.mono{font-family:"SF Mono",Menlo,monospace;font-size:11.5px}
+.demobar{width:100%;min-width:1180px;white-space:nowrap;display:flex;gap:14px;align-items:center;padding:8px 16px;background:#24262b;color:#ddd;font-size:12px}
+.demobar b{color:#fff}.demobar label{display:flex;gap:5px;align-items:center;cursor:pointer}.demobar .sp{flex:1}
+.demobar select{background:#34373d;border:1px solid #484b52;border-radius:5px;padding:2px 6px;color:#eee}
+.demobar .perf{color:#9fb4d8;font-family:"SF Mono",Menlo,monospace;font-size:11px}
+.win{margin:18px;min-width:1180px;width:min(1560px,calc(100vw - 36px));height:min(880px,calc(100vh - 80px));min-height:640px;background:var(--surface);border-radius:12px;box-shadow:var(--shadow);display:flex;flex-direction:column;overflow:hidden;position:relative}
+.titlebar{height:38px;display:flex;align-items:center;padding:0 14px;gap:8px;border-bottom:1px solid var(--line);background:var(--side);flex:none}
+.dot{width:12px;height:12px;border-radius:50%}
+.titlebar .t{flex:1;text-align:center;font-weight:600;color:var(--sub);margin-right:52px}
+.body{flex:1;display:flex;min-height:0}
+/* 侧栏 */
+.side{width:240px;flex:none;background:var(--side);border-right:1px solid var(--line);display:flex;flex-direction:column}
+.side .search{margin:10px;padding:5px 9px;border:1px solid var(--line);border-radius:7px;background:var(--surface);display:flex;gap:6px;align-items:center;color:var(--faint)}
+.side .search input{border:0;outline:0;background:transparent;width:100%;color:var(--text)}
+.nav{overflow:auto;padding:0 6px 10px;flex:1}
+.nav .r{display:flex;align-items:center;gap:6px;padding:4px 8px;border-radius:6px;cursor:pointer;min-height:26px;white-space:nowrap}
+.nav .r:hover{background:var(--hover)}
+.nav .r.sel{background:var(--sel)}
+.nav .r.l1{padding-left:34px}.nav .r.l2{padding-left:52px}
+.nav .r.more{color:var(--accent);font-size:12px}
+.nav .caret{width:12px;color:var(--faint);font-size:9px;transition:transform .12s;flex:none;text-align:center}
+.nav .caret.open{transform:rotate(90deg)}
+.nav .caret.none{visibility:hidden}
+.nav .gi{width:18px;height:18px;border-radius:5px;display:inline-flex;align-items:center;justify-content:center;color:#fff;font-size:10px;flex:none}
+.nav .nm{overflow:hidden;text-overflow:ellipsis;min-width:0}
+.nav .cnt{margin-left:auto;font-size:10.5px;color:var(--faint)}
+.nav .hd{font-size:10.5px;color:var(--faint);font-weight:600;padding:10px 8px 3px}
+.nav .path{font-size:10.5px;color:var(--faint);margin-left:auto;padding-left:6px;overflow:hidden;text-overflow:ellipsis}
+.bad{margin-left:auto;min-width:16px;height:16px;padding:0 5px;border-radius:8px;background:var(--err);color:#fff;font-size:10px;font-weight:600;display:inline-flex;align-items:center;justify-content:center;flex:none}
+.bad.warn{background:var(--warn)}
+/* 主区 */
+.main{flex:1;display:flex;flex-direction:column;min-width:0;background:var(--surface)}
+.crumb{height:42px;flex:none;display:flex;align-items:center;gap:8px;padding:0 18px;border-bottom:1px solid var(--line)}
+.crumb .c{color:var(--sub);cursor:pointer}.crumb .c:hover{color:var(--accent)}
+.crumb .c.last{color:var(--text);font-weight:600;cursor:default}
+.crumb .sep{color:var(--faint)}
+.content{flex:1;overflow:auto;min-height:0;position:relative}
+.content.fixed{overflow:hidden}
+.page{padding:16px 20px 30px}
+.footer{height:50px;flex:none;border-top:1px solid var(--line);display:flex;align-items:center;gap:8px;padding:0 16px;background:var(--surface)}
+.footer .msg{margin-right:auto;color:var(--sub);font-size:12px;display:flex;align-items:center;gap:6px;min-width:0;white-space:nowrap;overflow:hidden}
+.footer .msg b{color:var(--text);font-weight:500}
+.moddot{width:7px;height:7px;border-radius:50%;background:var(--accent);flex:none;display:inline-block}
+/* 通用控件 */
+.btn{border:1px solid var(--line);background:var(--surface);padding:4px 12px;border-radius:6px;cursor:pointer;white-space:nowrap}
+.btn:hover{background:var(--hover)}
+.btn.pri{background:var(--accent);border-color:var(--accent);color:#fff}
+.btn.pri:hover{filter:brightness(1.08)}
+.btn.sm{padding:2px 9px;font-size:12px}
+.btn.link{border-color:transparent;background:transparent;color:var(--accent);padding:2px 4px}
+.btn[disabled]{opacity:.45;cursor:default}
+.icon-btn{border:0;background:transparent;cursor:pointer;width:26px;height:26px;border-radius:6px;color:var(--sub);font-size:14px;flex:none;display:inline-flex;align-items:center;justify-content:center}
+.icon-btn:hover{background:var(--hover)}
+.seg{display:inline-flex;background:var(--pill);border-radius:7px;padding:2px;flex:none}
+.seg button{border:0;background:transparent;padding:3px 12px;border-radius:5px;cursor:pointer;color:var(--sub);white-space:nowrap}
+.seg button.on{background:var(--surface);color:var(--text);box-shadow:0 1px 2px rgba(0,0,0,.12)}
+.seg .mod{display:inline-block;width:6px;height:6px;border-radius:50%;background:var(--accent);margin-left:5px;vertical-align:middle}
+.inp{border:1px solid var(--line);border-radius:6px;padding:4px 8px;background:var(--surface);outline:0;min-width:0}
+.inp:focus{border-color:var(--accent)}
+select.inp{padding:3px 6px}
+.finput{display:flex;align-items:center;gap:6px;border:1px solid var(--line);border-radius:6px;padding:3px 8px;background:var(--surface);color:var(--faint);min-width:0}
+.finput:focus-within{border-color:var(--accent)}
+.finput input{border:0;outline:0;background:transparent;width:100%;color:var(--text)}
+.chip{padding:2px 9px;border-radius:999px;background:var(--pill);cursor:pointer;font-size:12px;color:var(--sub);border:1px solid transparent;user-select:none;white-space:nowrap;display:inline-flex;gap:5px;align-items:center}
+.chip b{font-weight:600;color:var(--text)}
+.chip.on{background:var(--chip);color:var(--accent);border-color:var(--accent)}
+.chip.on b{color:var(--accent)}
+.chip .e{color:var(--err)} .chip .w{color:var(--warn)}
+.tag{font-size:10.5px;padding:1px 7px;border-radius:999px;background:var(--pill);color:var(--sub);white-space:nowrap;flex:none}
+.tag.blue{background:var(--chip);color:var(--accent)}
+.tag.green{background:#e6f4ea;color:var(--ok)} html.dark .tag.green{background:#22382a}
+.tag.warn{background:#fff1d6;color:var(--warn)} html.dark .tag.warn{background:#3d3220}
+.tag.err{background:#fbe5e3;color:var(--err)} html.dark .tag.err{background:#45282a}
+.tag.src{background:transparent;border:1px solid var(--line);color:var(--sub)}
+.sw{width:30px;height:18px;border-radius:9px;background:#c4c7cd;position:relative;cursor:pointer;flex:none;border:0;padding:0;transition:background .15s}
+html.dark .sw{background:#55585e}
+.sw::after{content:"";position:absolute;top:2px;left:2px;width:14px;height:14px;border-radius:50%;background:#fff;transition:left .15s}
+.sw.on,html.dark .sw.on{background:var(--accent)} .sw.on::after{left:14px}
+.sdot{width:8px;height:8px;border-radius:50%;background:var(--ok);flex:none;display:inline-block}
+.sdot.err{background:var(--err)} .sdot.warn{background:var(--warn)} .sdot.idle{background:var(--faint)}
+.muted{color:var(--sub);font-size:12px}.faint{color:var(--faint);font-size:11.5px}
+.box{border-radius:8px;padding:8px 10px;font-size:12px;line-height:1.55;display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+.box.warn{border:1px solid #f1d29a;background:#fdf6e7;color:#7a5400} html.dark .box.warn{background:#3a301d;border-color:#5c4a24;color:#e8c47a}
+.box.info{border:1px solid var(--line);background:var(--pill);color:var(--sub)}
+.box.err{border:1px solid #f0c4c0;background:#fdf0ef;color:#8a2a22} html.dark .box.err{background:#3d2524;border-color:#5f3532;color:#f2a39c}
+.box.next{border:1px solid #bcd0f7;background:#eef4ff;color:#23468f} html.dark .box.next{background:#22314d;border-color:#36507e;color:#a9c3f5}
+.box .grow{flex:1;min-width:200px}
+i.info{width:15px;height:15px;border-radius:50%;border:1px solid var(--faint);color:var(--faint);font-size:9.5px;font-weight:600;display:inline-flex;align-items:center;justify-content:center;cursor:help;flex:none;font-style:normal}
+i.info:hover{border-color:var(--accent);color:var(--accent)}
+.nb{display:inline-flex;align-items:center;justify-content:center;min-width:17px;height:17px;padding:0 4px;border-radius:9px;background:var(--note);color:#3a2d00;font-size:10px;font-weight:700;cursor:pointer;flex:none;box-shadow:0 0 0 2px rgba(255,215,94,.35);font-style:normal}
+html.nonotes .nb{display:none}
+#tip{position:fixed;z-index:100;max-width:340px;background:var(--surface);border:1px solid var(--line);box-shadow:var(--shadow);border-radius:8px;padding:8px 11px;font-size:12px;line-height:1.55;white-space:pre-line;pointer-events:none;display:none;color:var(--text)}
+.toast{position:absolute;bottom:64px;left:50%;transform:translateX(-50%);background:#2b2d30;color:#fff;padding:7px 14px;border-radius:8px;font-size:12px;z-index:60;box-shadow:var(--shadow);max-width:70%}
+.pi{width:28px;height:28px;border-radius:7px;display:inline-flex;align-items:center;justify-content:center;color:#fff;font-weight:700;font-size:11px;flex:none;letter-spacing:-.3px}
+.pi.sm{width:20px;height:20px;border-radius:5px;font-size:9px}
+.pi.lg{width:40px;height:40px;border-radius:10px;font-size:14px}
+h2{margin:0;font-size:17px}
+.sec{border:1px solid var(--line);border-radius:10px;margin-bottom:12px;background:var(--surface)}
+.sec>.sh{display:flex;align-items:center;gap:6px;padding:10px 12px 6px;font-weight:600}
+.sec>.sh .sp{flex:1}
+.sec>.sb{padding:0 6px 8px}
+.srow{display:flex;align-items:center;gap:10px;min-height:34px;padding:3px 8px;border-radius:7px}
+.srow:hover{background:var(--hover)}
+.srow .lab{width:200px;flex:none;display:flex;align-items:center;gap:5px}
+.srow .ctl{display:flex;align-items:center;gap:6px;flex:1;min-width:0}
+/* 概览目录 */
+.dir .drow{display:flex;align-items:center;gap:12px;padding:10px 12px;border-radius:8px;cursor:pointer}
+.dir .drow:hover{background:var(--hover)}
+.dir .drow+.drow{border-top:1px solid var(--line)}
+.dir .drow:hover+.drow{border-top-color:transparent}
+.dir .t{font-weight:600}
+.dir .d{color:var(--sub);font-size:12px;margin-top:2px}
+.dir .chev{color:var(--faint);margin-left:auto}
+.issues .irow{display:flex;align-items:center;gap:8px;padding:5px 4px;cursor:pointer;border-radius:6px}
+.issues .irow:hover{background:rgba(0,0,0,.04)}
+/* 工具链页 */
+.tc{display:flex;flex-direction:column;height:100%}
+.tbar{display:flex;align-items:center;gap:8px;padding:10px 14px 6px;flex:none}
+.tbar .sp{flex:1}
+.tbar2{display:flex;align-items:center;gap:6px;padding:2px 14px 8px;flex:none;border-bottom:1px solid var(--line);flex-wrap:nowrap;overflow:hidden}
+.tbar2 .sp{flex:1}
+.tbanner{padding:8px 14px 0;flex:none}
+.split2{display:flex;flex:1;min-height:0}
+.lpane2{width:372px;flex:none;border-right:1px solid var(--line);display:flex;flex-direction:column;min-height:0}
+.rpane2{flex:1;min-width:0;overflow:auto}
+.lfoot{flex:none;border-top:1px solid var(--line);padding:5px 12px;font-size:11px;color:var(--faint);display:flex;gap:8px}
+.vl{flex:1;overflow:auto;min-height:0;position:relative;outline:0}
+.vsp{position:relative}
+.vr{position:absolute;left:0;right:0}
+.gh{display:flex;align-items:center;gap:6px;height:100%;padding:0 12px;font-size:11.5px;font-weight:600;color:var(--sub);cursor:pointer;background:var(--side);border-bottom:1px solid var(--line);user-select:none}
+.gh .caret{width:10px;font-size:8px;color:var(--faint);transition:transform .12s}
+.gh.open .caret{transform:rotate(90deg)}
+.gh .n{font-weight:400;color:var(--faint)}
+.gh .bad{margin-left:4px}
+.gh .sp{flex:1}
+.trow{display:flex;align-items:center;gap:9px;height:100%;padding:0 12px 0 14px;cursor:pointer;position:relative}
+.trow:hover{background:var(--hover)}
+.trow.sel{background:var(--sel)}
+.trow .grow{flex:1;min-width:0}
+.trow .l1{display:flex;align-items:center;gap:6px;min-width:0}
+.trow .l1 b{font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0}
+.trow .l1 .v{color:var(--sub);font-family:"SF Mono",Menlo,monospace;font-size:11px;white-space:nowrap}
+.trow .l1 .to{color:var(--accent);font-family:"SF Mono",Menlo,monospace;font-size:11px;white-space:nowrap}
+.trow .l1 .sp{flex:1}
+.trow .l2{font-size:11px;color:var(--faint);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;margin-top:2px}
+.trow .l2 .e{color:var(--err)} .trow .l2 .w{color:var(--warn)}
+.trow .mk{position:absolute;left:4px;top:50%;margin-top:-3px;width:6px;height:6px;border-radius:50%;background:var(--accent)}
+.empty{color:var(--faint);text-align:center;padding:50px 20px;line-height:1.8}
+/* 详情 */
+.dt{padding:16px 20px 30px}
+.dt .head{display:flex;gap:12px;align-items:flex-start;margin-bottom:14px}
+.dt .head .sub{color:var(--sub);font-size:12px;margin-top:4px;display:flex;gap:6px;align-items:center;flex-wrap:wrap}
+.dt .head .acts{margin-left:auto;display:flex;gap:6px}
+.kv{display:grid;grid-template-columns:72px 1fr;gap:6px 10px;padding:2px 12px 4px;align-items:center}
+.kv .k{color:var(--sub);font-size:12px}
+.kv .v{display:flex;gap:6px;align-items:center;min-width:0;flex-wrap:wrap}
+.kv .v.nw{flex-wrap:nowrap;align-items:flex-start}
+.pathv{font-family:"SF Mono",Menlo,monospace;font-size:11.5px;overflow-wrap:anywhere;min-width:0}
+.opts{padding:0 4px}
+.opt{display:grid;grid-template-columns:18px 92px minmax(0,1fr) auto;gap:8px;align-items:center;padding:6px 8px;border-radius:7px;cursor:pointer}
+.opt:hover{background:var(--hover)}
+.opt.on{background:var(--chip)}
+.opt.dis{cursor:default;opacity:.62}
+.opt.dis:hover{background:transparent}
+.opt .rd{width:14px;height:14px;border-radius:50%;border:1.5px solid var(--faint);position:relative}
+.opt.on .rd{border-color:var(--accent)}
+.opt.on .rd::after{content:"";position:absolute;inset:2.5px;border-radius:50%;background:var(--accent)}
+.opt .ov{font-family:"SF Mono",Menlo,monospace;font-size:11.5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.opt .op{font-family:"SF Mono",Menlo,monospace;font-size:11.5px;color:var(--sub);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0}
+.opt .os{display:flex;gap:4px;justify-content:flex-end}
+.opt.auto .ov{font-family:inherit;font-size:12.5px;grid-column:2 / 4;color:var(--text)}
+.addrow{display:flex;gap:6px;align-items:center;padding:6px 8px}
+.trace{margin:4px 12px 2px;padding:0;list-style:none;font-size:12px}
+.trace li{display:flex;gap:8px;align-items:baseline;padding:3px 0;color:var(--sub)}
+.trace li .m{width:14px;text-align:center;flex:none;font-weight:700}
+.trace li.use{color:var(--text)} .trace li.use .m{color:var(--ok)}
+.trace li.blk .m{color:var(--warn)}
+.disclose{color:var(--accent);cursor:pointer;font-size:12px;padding:4px 12px;display:inline-block;user-select:none}
+.users{display:flex;gap:6px;flex-wrap:wrap;padding:0 12px 4px}
+.ufoot{padding:10px 12px 0;color:var(--faint);font-size:11px;font-family:"SF Mono",Menlo,monospace}
+/* 调试器 */
+.lst{border:1px solid var(--line);border-radius:8px;overflow:hidden;flex:1;min-width:0}
+.lst .lrow{display:flex;align-items:center;gap:8px;padding:5px 8px;border-bottom:1px solid var(--line)}
+.lst .lrow:hover{background:var(--hover)}
+.lst .lrow .x{margin-left:auto;opacity:0}
+.lst .lrow:hover .x{opacity:1}
+.lst .ladd{display:flex;gap:6px;padding:6px}
+.tabs{display:flex;gap:2px;border-bottom:1px solid var(--line);margin-bottom:12px}
+.tabs button{border:0;background:transparent;padding:6px 12px;cursor:pointer;color:var(--sub);border-bottom:2px solid transparent;margin-bottom:-1px}
+.tabs button.on{color:var(--text);border-bottom-color:var(--accent);font-weight:600}
+.tabs button[disabled]{opacity:.45;cursor:default}
+/* 插件页 */
+.canvas{border:1.5px dashed var(--line);border-radius:10px;padding:10px 6px 8px;position:relative}
+.canvas .cap{position:absolute;top:-9px;left:12px;background:var(--surface);padding:0 6px;font-size:11px;color:var(--faint)}
+/* 设计标注 */
+.notes{width:320px;flex:none;background:var(--side);border-left:1px solid var(--line);display:flex;flex-direction:column;min-height:0}
+.notes .h{padding:11px 14px;border-bottom:1px solid var(--line);font-weight:600;display:flex;align-items:center;gap:6px}
+.notes .l{overflow:auto;padding:10px 14px 20px;display:flex;flex-direction:column;gap:11px}
+.notes .n{display:flex;gap:8px;line-height:1.6;font-size:12px}
+.notes .n.hl{background:var(--hl);border-radius:6px;padding:4px}
+.notes .old{font-size:12px;line-height:1.6;color:var(--sub);background:var(--surface);border:1px dashed var(--line);border-radius:8px;padding:8px 10px}
+.notes .old b{color:var(--text)}
+.notes .old ol{margin:4px 0 0;padding-left:18px}
+.notes .tt{font-size:11px;font-weight:600;color:var(--faint);margin-top:4px}
+.notes code{font-family:"SF Mono",Menlo,monospace;font-size:11px;background:var(--pill);padding:0 3px;border-radius:3px}
+#err{position:fixed;left:10px;bottom:10px;background:#d1453b;color:#fff;padding:8px 12px;border-radius:8px;font:12px Menlo,monospace;display:none;z-index:200;max-width:80vw;white-space:pre-wrap}
+</style>
+</head>
+<body>
+<div class="demobar">
+  <b>交互原型</b><span>设置 › 构建、执行、部署（面向大量插件注入）</span>
+  <label>插件规模
+    <select id="optScale">
+      <option value="shot">截图现状（3 个插件）</option>
+      <option value="sample" selected>示例（约 20 个插件）</option>
+      <option value="1000">1,000 个插件</option>
+      <option value="5000">5,000 个插件</option>
+    </select>
+  </label>
+  <label><input type="checkbox" id="optDark"> 深色</label>
+  <label><input type="checkbox" id="optNotes" checked> 设计标注</label>
+  <span class="sp"></span>
+  <span class="perf" id="perf"></span>
+</div>
+<div class="win" id="win">
+  <div class="titlebar"><span class="dot" style="background:#ff5f57"></span><span class="dot" style="background:#febc2e"></span><span class="dot" style="background:#28c840"></span><span class="t">设置</span></div>
+  <div class="body">
+    <div class="side">
+      <div class="search">⌕<input id="navq" placeholder="搜索设置、工具、调试器" autocomplete="off"></div>
+      <div class="nav" id="nav"></div>
+    </div>
+    <div class="main">
+      <div class="crumb" id="crumb"></div>
+      <div class="content" id="content"></div>
+      <div class="footer" id="footer"></div>
+    </div>
+    <div id="notesHost"></div>
+  </div>
+  <div id="overlay"></div>
+</div>
+<div id="tip"></div>
+<div id="err"></div>
+<script>
+"use strict";
+window.onerror=(m,s,l,c)=>{const e=document.getElementById("err");e.style.display="block";e.textContent+=`${m} @${l}:${c}\n`;};
+const $=s=>document.querySelector(s);
+const esc=s=>String(s??"").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+const fmt=n=>n.toLocaleString("en-US");
+function rng(seed){return()=>{seed=(Math.imul(seed,1664525)+1013904223)>>>0;return seed/4294967296;};}
+function hue(s){let h=0;for(const ch of s)h=(h*31+ch.charCodeAt(0))>>>0;return `hsl(${h%360} 52% 46%)`;}
+function abbr(name){const w=name.replace(/\bSupport\b/g,"").replace(/[^A-Za-z0-9.+ ]/g," ").trim().split(/\s+/).filter(Boolean);if(!w.length)return name.slice(0,2);const a=w[0];return a.length<=3?a:a[0].toUpperCase()+a[1];}
+function midTrim(s,max){if(s.length<=max)return s;const k=Math.floor((max-1)/2);return s.slice(0,k)+"…"+s.slice(s.length-(max-1-k));}
+
+/* ================= 数据（示例） ================= */
+const P={};
+function PL(k,name,id,color){P[k]={k,name,id,color};}
+PL("go","Go Support","io.github.lithe-idea.go-support","#00a7d0");
+PL("java","Java Support","io.github.lithe-idea.java-support","#e76f00");
+PL("lldb","LLDB Debug","io.github.lithe-idea.lldb-debug","#7a5af8");
+PL("maven","Maven","io.github.example.maven","#c71a36");
+PL("gradle","Gradle","io.github.example.gradle","#1f6f7a");
+PL("gradlex","Community Gradle Tools","io.github.example.gradle-tools","#4a6b75");
+PL("spring","Spring Boot","io.github.example.spring-boot","#6db33f");
+PL("node","Node.js Support","io.github.example.node","#3c873a");
+PL("python","Python Support","io.github.example.python","#3572a5");
+PL("rust","Rust Support","io.github.example.rust","#b7410e");
+PL("cpp","C/C++ Support","io.github.example.cpp","#00599c");
+PL("kotlin","Kotlin","io.github.example.kotlin","#7f52ff");
+PL("docker","Docker","io.github.example.docker","#1d63ed");
+PL("tf","Terraform","io.github.example.terraform","#7b42bc");
+PL("swift","Swift Support","io.github.example.swift","#f05138");
+PL("deno","Deno","io.github.example.deno","#3b3b3b");
+PL("dotnet",".NET Support","io.github.example.dotnet","#512bd4");
+PL("web","Web Linters","io.github.example.web-linters","#4b32c3");
+PL("ruff","Ruff","io.github.example.ruff","#6b7d00");
+PL("proto","Protocol Buffers","io.github.example.protobuf","#2c7be5");
+const SHOT_PLUGINS=new Set(["go","java","lldb"]);
+
+const CATS={runtime:"运行时与 SDK",build:"构建工具",package:"包管理器",debug:"调试与分析",lint:"检查与格式化",other:"其他",plugin:"插件自用运行时"};
+const CAT_ORDER=["runtime","build","package","debug","lint","other","plugin"];
+const REASON={notFound:"没有找到安装",versionUnsatisfied:"不满足最低版本要求",probeFailed:"版本检测失败",trust:"需要信任当前项目",conflict:"多个插件声明了同一工具",notExecutable:"文件不可执行",projectOnly:"只在项目中提供"};
+
+// 截图里的四个工具 + 示例工具。cands 的顺序就是插件声明的自动发现顺序。
+const BASE_TOOLS=[
+ {id:"go.go",name:"Go",cat:"runtime",pk:"go",users:["go"],cands:[
+   {home:"/opt/homebrew/Cellar/go/1.27.4/libexec",exe:"bin/go",ver:"1.27.4",src:["PATH","Homebrew"]},
+   {home:"~/go/pkg/mod/golang.org/toolchain@v0.0.1-go1.26.2.darwin-arm64",exe:"bin/go",ver:"1.26.2",src:["GOTOOLCHAIN 缓存"]}]},
+ {id:"lldb.brew",name:"Homebrew",cat:"package",pk:"lldb",users:["lldb"],cands:[
+   {home:"/opt/homebrew",exe:"bin/brew",ver:"7.0.13",src:["PATH"]}]},
+ {id:"java.jdk",name:"JDK",cat:"runtime",pk:"java",users:["java","maven","gradle","spring","kotlin"],cands:[
+   {home:"~/.sdkman/candidates/java/17.0.19-tem",exe:"bin/java",ver:"17.0.19",src:["JAVA_HOME","SDKMAN"]},
+   {home:"/usr",exe:"bin/java",ver:"17.0.19",src:["PATH"]},
+   {home:"~/.sdkman/candidates/java/21.0.5-tem",exe:"bin/java",ver:"21.0.5",src:["SDKMAN"]},
+   {home:"/opt/homebrew/Cellar/openjdk/27.0.1.0.3/libexec/openjdk.jdk/Contents/Home",exe:"bin/java",ver:"27.0.1.0.3",src:["Homebrew"]}]},
+ {id:"java.jdtls",name:"JDK for JDT LS",cat:"runtime",aud:"plugin",pk:"java",users:["java"],req:"21",purpose:"Java 语言服务器（JDT LS）",cands:[
+   {home:"/opt/homebrew/Cellar/openjdk/27.0.1.0.3/libexec/openjdk.jdk/Contents/Home",exe:"bin/java",ver:"27.0.1.0.3",src:["Homebrew"]},
+   {home:"/usr",exe:"bin/java",ver:"17.0.19",src:["PATH"],bad:"versionUnsatisfied"}]},
+ // ---- 以下为示例 ----
+ {id:"maven.mvn",name:"Maven",cat:"build",pk:"maven",users:["maven","spring"],cands:[
+   {home:"./mvnw",exe:"",ver:"3.9.9",src:["项目 Wrapper"],proj:true},
+   {home:"/opt/homebrew/Cellar/maven/3.9.11/libexec",exe:"bin/mvn",ver:"3.9.11",src:["PATH","Homebrew"]}]},
+ {id:"gradle.gradle",name:"Gradle",cat:"build",pk:"gradle",conflict:["gradlex"],users:["gradle","kotlin"],cands:[
+   {home:"./gradlew",exe:"",ver:"8.14",src:["项目 Wrapper"],proj:true},
+   {home:"~/.sdkman/candidates/gradle/8.10",exe:"bin/gradle",ver:"8.10",src:["SDKMAN"]}]},
+ {id:"node.node",name:"Node.js",cat:"runtime",pk:"node",users:["node","web"],cands:[
+   {home:"~/.nvm/versions/node/v24.14.0",exe:"bin/node",ver:"24.14.0",src:["PATH","nvm"]},
+   {home:"/opt/homebrew/Cellar/node/25.1.0",exe:"bin/node",ver:"25.1.0",src:["Homebrew"]}]},
+ {id:"node.pnpm",name:"pnpm",cat:"package",pk:"node",users:["node"],cands:[
+   {home:"~/Library/pnpm",exe:"pnpm",ver:"10.4.1",src:["PATH"]}]},
+ {id:"python.python",name:"Python",cat:"runtime",pk:"python",users:["python","ruff"],cands:[
+   {home:"./.venv",exe:"bin/python",ver:"3.12.7",src:["项目虚拟环境"],proj:true},
+   {home:"/opt/homebrew/opt/python@3.13",exe:"bin/python3",ver:"3.13.2",src:["PATH","Homebrew"]}]},
+ {id:"python.uv",name:"uv",cat:"package",pk:"python",users:["python"],cands:[
+   {home:"~/.local",exe:"bin/uv",ver:"0.9.2",src:["PATH"]}]},
+ {id:"rust.toolchain",name:"Rust 工具链",cat:"runtime",pk:"rust",users:["rust"],cands:[
+   {home:"~/.rustup/toolchains/1.100.0-aarch64-apple-darwin",exe:"bin/rustc",ver:"1.100.0",src:["rustup"]},
+   {home:"~/.rustup/toolchains/nightly-aarch64-apple-darwin",exe:"bin/rustc",ver:"1.102.0-nightly",src:["rustup"]}]},
+ {id:"rust.cargo",name:"Cargo",cat:"build",pk:"rust",users:["rust"],cands:[
+   {home:"~/.cargo",exe:"bin/cargo",ver:"1.100.0",src:["PATH","rustup"]}]},
+ {id:"rust.ra",name:"rust-analyzer",cat:"runtime",aud:"plugin",pk:"rust",users:["rust"],purpose:"Rust 语言服务器",cands:[
+   {home:"~/.cargo",exe:"bin/rust-analyzer",ver:"2026-11-10",src:["rustup"]}]},
+ {id:"cpp.clangd",name:"clangd",cat:"runtime",aud:"plugin",pk:"cpp",users:["cpp"],req:"18",purpose:"C/C++ 语言服务器",cands:[
+   {home:"/opt/homebrew/opt/llvm",exe:"bin/clangd",ver:"21.1.0",src:["Homebrew"]},
+   {home:"/Library/Developer/CommandLineTools/usr",exe:"bin/clangd",ver:"17.0.0",src:["Xcode CLT"],bad:"versionUnsatisfied"}]},
+ {id:"cpp.cmake",name:"CMake",cat:"build",pk:"cpp",users:["cpp"],cands:[
+   {home:"/opt/homebrew",exe:"bin/cmake",ver:"4.1.2",src:["PATH","Homebrew"]}]},
+ {id:"cpp.ninja",name:"Ninja",cat:"build",pk:"cpp",users:["cpp"],cands:[
+   {home:"/opt/homebrew",exe:"bin/ninja",ver:"1.13.1",src:["PATH","Homebrew"]}]},
+ {id:"lldb.lldb",name:"LLDB",cat:"debug",pk:"lldb",users:["lldb"],cands:[
+   {home:"/Library/Developer/CommandLineTools/usr",exe:"bin/lldb",ver:"20.1.0",src:["Xcode CLT"]}]},
+ {id:"lldb.dap",name:"lldb-dap",cat:"debug",pk:"lldb",users:["lldb"],install:"lldb.brew",cands:[]},
+ {id:"go.dlv",name:"Delve",cat:"debug",pk:"go",users:["go"],cands:[
+   {home:"~/go",exe:"bin/dlv",ver:"1.25.2",src:["GOPATH"]}]},
+ {id:"go.gopls",name:"gopls",cat:"runtime",aud:"plugin",pk:"go",users:["go"],purpose:"Go 语言服务器",cands:[
+   {home:"~/go",exe:"bin/gopls",ver:"0.20.0",src:["GOPATH"]}]},
+ {id:"kotlin.kotlinc",name:"Kotlin 编译器",cat:"runtime",pk:"kotlin",users:["kotlin"],cands:[
+   {home:"~/.sdkman/candidates/kotlin/2.2.20",exe:"bin/kotlinc",ver:"2.2.20",src:["SDKMAN"]}]},
+ {id:"docker.cli",name:"Docker CLI",cat:"other",pk:"docker",users:["docker"],cands:[
+   {home:"/usr/local",exe:"bin/docker",ver:"28.5.1",src:["PATH"]}]},
+ {id:"tf.terraform",name:"Terraform",cat:"other",pk:"tf",users:["tf"],probe:"terraform version 在 5 秒内没有返回",cands:[
+   {home:"/opt/homebrew",exe:"bin/terraform",ver:"",src:["PATH"],bad:"probeFailed"}]},
+ {id:"swift.toolchain",name:"Swift 工具链",cat:"runtime",pk:"swift",users:["swift"],cands:[
+   {home:"/Library/Developer/CommandLineTools/usr",exe:"bin/swift",ver:"6.2",src:["Xcode CLT"]}]},
+ {id:"deno.deno",name:"Deno",cat:"runtime",pk:"deno",users:["deno"],cands:[
+   {home:"~/.deno",exe:"bin/deno",ver:"2.5.4",src:["PATH"]}]},
+ {id:"dotnet.sdk",name:".NET SDK",cat:"runtime",pk:"dotnet",users:["dotnet"],cands:[]},
+ {id:"web.eslint",name:"ESLint",cat:"lint",pk:"web",users:["web"],cands:[
+   {home:"./node_modules",exe:".bin/eslint",ver:"9.36.0",src:["项目 node_modules"],proj:true}]},
+ {id:"web.prettier",name:"Prettier",cat:"lint",pk:"web",users:["web"],cands:[
+   {home:"./node_modules",exe:".bin/prettier",ver:"3.6.2",src:["项目 node_modules"],proj:true}]},
+ {id:"ruff.ruff",name:"Ruff",cat:"lint",pk:"ruff",users:["ruff","python"],cands:[
+   {home:"~/.local",exe:"bin/ruff",ver:"0.13.0",src:["PATH"]}]},
+ {id:"proto.protoc",name:"protoc",cat:"other",pk:"proto",users:["proto"],cands:[
+   {home:"/opt/homebrew",exe:"bin/protoc",ver:"32.1",src:["PATH","Homebrew"]}]},
+];
+const SHOT_TOOLS=new Set(["go.go","lldb.brew","java.jdk","java.jdtls"]);
+
+const BASE_ADAPTERS=[
+ {id:"java",name:"Java Debugger",pk:"java",feats:["synth","statInit","ctor","hide"],hint:"java.*、com.example.internal.*",alias:{"$JDK":"JDK 自带的类","$Libraries":"项目依赖库中的类"},def:{patterns:["$JDK","$Libraries"],synth:true,statInit:true,ctor:false,hide:true}},
+ {id:"lldb",name:"LLDB",pk:"lldb",feats:["hide"],hint:"^std::（正则，按函数名匹配）",def:{patterns:["^std::","^__gnu_cxx::"],hide:true}},
+ {id:"delve",name:"Delve",pk:"go",feats:["hide"],hint:"runtime.*（按包路径匹配）",def:{patterns:["runtime.*"],hide:false}},
+ {id:"node",name:"Node.js",pk:"node",feats:["hide"],hint:"**/node_modules/**（按脚本路径匹配）",def:{patterns:["<node_internals>/**","**/node_modules/**"],hide:true}},
+];
+const SHOT_ADAPTERS=new Set(["java"]);
+
+const BASE_PAGES=[
+ {id:"pp.maven",kind:"buildSystem",name:"Maven",pk:"maven",sum:"Maven 主目录、settings.xml、本地仓库"},
+ {id:"pp.gradle",kind:"buildSystem",name:"Gradle",pk:"gradle",sum:"Gradle 用户目录、守护进程、离线模式"},
+ {id:"pp.cargo",kind:"buildSystem",name:"Cargo",pk:"rust",sum:"Cargo 特性、目标目录、离线模式"},
+ {id:"pp.cmake",kind:"buildSystem",name:"CMake",pk:"cpp",sum:"生成器、构建目录、预设"},
+ {id:"pp.javac",kind:"compiler",name:"Java 编译器",pk:"java",sum:"javac 参数、注解处理器、模块字节码"},
+ {id:"pp.kotlinc",kind:"compiler",name:"Kotlin 编译器",pk:"kotlin",sum:"语言版本、JVM 目标、增量编译"},
+];
+const SHOT_PAGES=new Set(["pp.javac"]);
+const KIND={buildSystem:"构建工具",compiler:"编译器"};
+
+// 大规模时追加的合成插件：名称只用于演示规模。
+const SYN=[["Zig","runtime"],["Nim","runtime"],["Elixir","runtime"],["Erlang/OTP","runtime"],["Dart SDK","runtime"],["Flutter","runtime"],["Ruby","runtime"],["PHP","runtime"],["GHC","runtime"],["OCaml","runtime"],["Julia","runtime"],["R","runtime"],["Lua","runtime"],["Perl","runtime"],["Scala","runtime"],["Clojure CLI","runtime"],["Crystal","runtime"],["Gleam","runtime"],["Odin","runtime"],["Haxe","runtime"],
+["sbt","build"],["Bazel","build"],["Buck2","build"],["Meson","build"],["Make","build"],["Mill","build"],["Leiningen","build"],["Rebar3","build"],["Mix","build"],["Stack","build"],["Cabal","build"],["dune","build"],["Pants","build"],["Xmake","build"],["SCons","build"],
+["yarn","package"],["npm","package"],["pip","package"],["Poetry","package"],["Conda","package"],["vcpkg","package"],["Conan","package"],["NuGet","package"],["Composer","package"],["Bundler","package"],["opam","package"],["CocoaPods","package"],["asdf","package"],["mise","package"],
+["GDB","debug"],["Valgrind","debug"],["perf","debug"],["rr","debug"],["debugpy","debug"],["Xdebug","debug"],["async-profiler","debug"],
+["ShellCheck","lint"],["Stylelint","lint"],["golangci-lint","lint"],["clang-format","lint"],["ktlint","lint"],["Checkstyle","lint"],["RuboCop","lint"],["SwiftLint","lint"],["Black","lint"],["Biome","lint"],
+["kubectl","other"],["Helm","other"],["Podman","other"],["buf","other"],["Flyway","other"],["Liquibase","other"],["AWS CLI","other"],["gcloud","other"],["Ansible","other"],["Pulumi","other"],["Packer","other"],["jq","other"]];
+const SUF=["","Nightly","LTS","Embedded","Cross","Legacy","Enterprise","Community","Lite","Next"];
+const SRCS=["PATH","Homebrew","asdf","mise","手动添加","SDKMAN"];
+
+let TOOLS=[],TOOL={},ADAPTERS=[],PAGES=[],PLUGIN_COUNT=0;
+function build(scale){
+  for(const k of Object.keys(P))if(P[k].syn)delete P[k];
+  const shot=scale==="shot";
+  TOOLS=BASE_TOOLS.filter(t=>!shot||SHOT_TOOLS.has(t.id)).map(t=>({...t}));
+  ADAPTERS=BASE_ADAPTERS.filter(a=>!shot||SHOT_ADAPTERS.has(a.id));
+  PAGES=BASE_PAGES.filter(p=>!shot||SHOT_PAGES.has(p.id));
+  PLUGIN_COUNT=shot?SHOT_PLUGINS.size:Object.keys(P).length;
+  const n=scale==="1000"?1000:scale==="5000"?5000:0;
+  const r=rng(7);
+  for(let i=PLUGIN_COUNT;i<n;i++){
+    const [base,cat]=SYN[i%SYN.length], rep=Math.floor(i/SYN.length)%SUF.length, gen=Math.floor(i/(SYN.length*SUF.length));
+    const name=[base,SUF[rep],gen?String(gen+1):""].filter(Boolean).join(" ");
+    const slug=name.toLowerCase().replace(/[^a-z0-9]+/g,"-");
+    const k="syn"+i; P[k]={k,name:name+(cat==="lint"||cat==="other"?"":" Support"),id:"io.github.example."+slug,color:hue(slug),syn:true};
+    const mk=(tname,tcat,aud)=>{
+      const roll=r(), cnt=1+Math.floor(r()*3), cands=[];
+      for(let j=0;j<cnt;j++){const ver=`${1+Math.floor(r()*9)}.${Math.floor(r()*30)}.${Math.floor(r()*10)}`, s=SRCS[Math.floor(r()*SRCS.length)];
+        const dir={Homebrew:`/opt/homebrew/Cellar/${slug}/${ver}`,PATH:"/usr/local",asdf:`~/.asdf/installs/${slug}/${ver}`,mise:`~/.local/share/mise/installs/${slug}/${ver}`,SDKMAN:`~/.sdkman/candidates/${slug}/${ver}`,"手动添加":`~/tools/${slug}-${ver}`}[s];
+        cands.push({home:dir,exe:"bin/"+slug.split("-")[0],ver,src:[s]});}
+      const t={id:`${slug}.${tcat}${aud?".ls":""}`,name:tname,cat:tcat,aud,pk:k,users:[k],cands};
+      if(roll<.025)t.cands=[];
+      else if(roll<.035){t.cands[0].bad="probeFailed";t.cands.length=1;t.probe="探测命令返回了无法识别的输出";}
+      else if(roll<.045){t.req="99";t.cands.forEach(c=>c.bad="versionUnsatisfied");}
+      else if(roll<.05)t.conflict=["syn"+((i+37)%n)];
+      if(aud)t.purpose=name+" 语言服务器";
+      TOOLS.push(t);
+    };
+    mk(name,cat);
+    if(r()<.18)mk(`${name} 语言服务器运行时`,"runtime","plugin");
+    if(i%23===0)ADAPTERS.push({id:"a"+i,name:name+" Debugger",pk:k,feats:r()<.5?["hide"]:[],hint:"按调试器自己的写法",def:{patterns:[],hide:false}});
+    if(cat==="build"&&r()<.6)PAGES.push({id:"pp."+slug,kind:"buildSystem",name,pk:k,sum:"由插件声明的构建工具设置"});
+    if(cat==="runtime"&&r()<.08)PAGES.push({id:"pp.c."+slug,kind:"compiler",name:name+" 编译器",pk:k,sum:"由插件声明的编译器设置"});
+  }
+  if(n)PLUGIN_COUNT=n;
+  TOOL={};for(const t of TOOLS)TOOL[t.id]=t;
+}
+
+/* ================= 状态 ================= */
+const S={
+  scale:"sample",page:"toolchains",scope:"global",trusted:false,
+  q:"",filter:"all",groupBy:"category",collapsed:{plugin:true},sel:"java.jdk",
+  saved:{global:{"rust.toolchain":"~/.rustup/toolchains/1.100.0-aarch64-apple-darwin"},project:{"java.jdk":"~/.sdkman/candidates/java/21.0.5-tem"}},
+  draft:{global:{},project:{}},custom:{global:{},project:{}},
+  open:{build:true,"k.buildSystem":true,"k.compiler":false},
+  navq:"",scroll:{},whyOpen:false,adding:null,addPath:"",
+  dbgSel:"java",dbgSaved:{},dbgDraft:{},dbgAdd:"",dbgQ:"",
+  folderQ:"",notes:true,notesOpen:true,noteHl:null,toast:null,applying:false,dark:false,
+};
+
+/* ================= 生效值（原型里模拟 Core） ================= */
+const allCands=(t,scope)=>[...t.cands,...(S.custom[scope][t.id]||[])];
+function pinOf(scope,id,useDraft){const d=S.draft[scope];if(useDraft&&d&&Object.prototype.hasOwnProperty.call(d,id))return d[id];return S.saved[scope][id]||"";}
+// 返回 {c, layer, trace} 或 {err, trace}
+function resolve(t,scope,useDraft){
+  const trace=[];
+  if(t.conflict){return {err:"conflict",trace:[{s:"blk",t:`工具 ID “${t.id}” 同时由 ${[t.pk,...t.conflict].map(k=>P[k]?P[k].name:k).join("、")} 声明，已暂停解析`}]};}
+  const usable=c=>!c.bad&&(!c.proj||(scope==="project"&&S.trusted));
+  const find=h=>allCands(t,"global").concat(allCands(t,"project")).find(c=>c.home===h);
+  if(scope==="project"){
+    const pp=pinOf("project",t.id,useDraft);
+    if(pp){const c=find(pp);if(c&&usable(c)){trace.push({s:"use",t:`项目指定：${c.ver} · ${c.home}`});return {c,layer:"pinned",trace};}
+      trace.push({s:"blk",t:`项目指定：${pp}（不可用）`});}
+    else trace.push({s:"skip",t:"项目指定：未设置（.lithe/toolchains/local.json）"});
+    const pc=t.cands.find(c=>c.proj);
+    if(pc){
+      if(!S.trusted){trace.push({s:"blk",t:`项目环境：${pc.home}（${pc.src[0]}）需要先信任项目`});return {err:"trust",trace,pc};}
+      if(!pc.bad){trace.push({s:"use",t:`项目环境：${pc.ver} · ${pc.home}（${pc.src[0]}）`});return {c:pc,layer:"project",trace};}
+    } else trace.push({s:"skip",t:"项目环境：插件没有在项目中找到对应文件"});
+  }
+  const gp=pinOf("global",t.id,scope==="global"?useDraft:true);
+  if(gp){const c=find(gp);if(c&&!c.bad){trace.push({s:"use",t:`全局默认：${c.ver} · ${c.home}`});return {c,layer:"global",trace};}
+    trace.push({s:"blk",t:`全局默认：${gp}（不可用）`});}
+  else trace.push({s:"skip",t:"全局默认：未设置"});
+  const order=t.cands.filter(c=>!c.proj);
+  const a=order.find(c=>!c.bad);
+  const orderText=order.length?order.map(c=>c.src[0]).filter((v,i,arr)=>arr.indexOf(v)===i).join(" → "):"插件没有声明可探测的位置";
+  if(a){trace.push({s:"use",t:`自动发现（${orderText}）：${a.ver} · ${a.home}`});return {c:a,layer:"automatic",trace};}
+  trace.push({s:"blk",t:`自动发现（${orderText}）：没有可用安装`});
+  if(scope==="global"&&t.cands.length&&t.cands.every(c=>c.proj))return {err:"projectOnly",trace};
+  if(t.cands.some(c=>c.bad==="probeFailed"))return {err:"probeFailed",trace};
+  if(t.cands.some(c=>c.bad==="versionUnsatisfied"))return {err:"versionUnsatisfied",trace};
+  return {err:"notFound",trace};
+}
+const LAYER={pinned:["已固定","green"],project:["项目环境","green"],global:["全局默认","blue"],automatic:["自动发现",""]};
+function statusOf(res){if(!res.err)return "ok";if(res.err==="projectOnly")return "idle";if(res.err==="trust")return "warn";if(res.err==="probeFailed")return "warn";return "err";}
+const draftsIn=scope=>Object.keys(S.draft[scope]).length+Object.keys(S.custom[scope]).filter(id=>!(id in S.draft[scope])&&(S.custom[scope][id]||[]).length).length*0;
+function hasDraft(scope,id){return Object.prototype.hasOwnProperty.call(S.draft[scope],id);}
+function dbgDraftCount(){return Object.keys(S.dbgDraft).length;}
+function totalDrafts(){return draftsIn("global")+draftsIn("project")+dbgDraftCount();}
+
+/* 统计与行投影（正式实现里由 Core 完成，平台只取可见窗口） */
+let STAT={},STAT_KEY="";
+function toolInfo(t){const res=resolve(t,S.scope,false);return {res,st:statusOf(res)};}
+function stats(){
+  const key=S.scale+S.scope+S.trusted+JSON.stringify(S.saved)+JSON.stringify(S.draft)+JSON.stringify(S.custom);
+  if(key===STAT_KEY)return STAT;
+  const info={};let problems=0,pinned=0,changed=0,err=0,warn=0;
+  for(const t of TOOLS){const i=toolInfo(t);info[t.id]=i;if(i.st==="err"||i.st==="warn"){problems++;i.st==="err"?err++:warn++;}
+    if(S.saved[S.scope][t.id])pinned++;if(hasDraft(S.scope,t.id))changed++;}
+  STAT={info,problems,pinned,changed,err,warn,total:TOOLS.length};STAT_KEY=key;return STAT;
+}
+function matches(t,q){if(!q)return true;q=q.toLowerCase();if(t.name.toLowerCase().includes(q)||t.id.includes(q))return true;const p=P[t.pk];if(p&&(p.name.toLowerCase().includes(q)||p.id.includes(q)))return true;return t.cands.some(c=>c.home.toLowerCase().includes(q)||c.ver.includes(q));}
+function toolRows(){
+  const st=stats(), q=S.q.trim(), list=[];
+  for(const t of TOOLS){
+    if(!matches(t,q))continue;
+    const s=st.info[t.id].st;
+    if(S.filter==="problems"&&s!=="err"&&s!=="warn")continue;
+    if(S.filter==="pinned"&&!S.saved[S.scope][t.id])continue;
+    if(S.filter==="changed"&&!hasDraft(S.scope,t.id))continue;
+    list.push(t);
+  }
+  const rank=t=>{const s=st.info[t.id].st;return s==="err"?0:s==="warn"?1:2;};
+  const sorter=(a,b)=>rank(a)-rank(b)||a.name.localeCompare(b.name,"zh-CN");
+  const filtering=!!q||S.filter!=="all";
+  const rows=[];
+  if(S.groupBy==="none"){list.sort(sorter);for(const t of list)rows.push({type:"t",h:46,t});return rows;}
+  const groups=new Map();
+  for(const t of list){const key=S.groupBy==="plugin"?"p:"+t.pk:(t.aud==="plugin"?"plugin":t.cat);if(!groups.has(key))groups.set(key,[]);groups.get(key).push(t);}
+  let keys=[...groups.keys()];
+  if(S.groupBy==="category")keys.sort((a,b)=>CAT_ORDER.indexOf(a)-CAT_ORDER.indexOf(b));
+  else keys.sort((a,b)=>(P[a.slice(2)]?.name||a).localeCompare(P[b.slice(2)]?.name||b,"zh-CN"));
+  for(const key of keys){
+    const items=groups.get(key).sort(sorter);
+    const bad=items.filter(t=>{const s=st.info[t.id].st;return s==="err"||s==="warn";}).length;
+    const label=S.groupBy==="plugin"?(P[key.slice(2)]?.name||key):CATS[key];
+    const collapsed=!filtering&&(S.collapsed[key]??(S.groupBy==="plugin"&&keys.length>40));
+    rows.push({type:"g",h:30,key,label,n:items.length,bad,collapsed,info:key==="plugin"&&S.groupBy==="category"?"插件为自己的语言服务器或后台进程声明的运行时。平时不用改，所以默认折叠；出了问题仍会计入“需要处理”。":""});
+    if(!collapsed)for(const t of items)rows.push({type:"t",h:46,t});
+  }
+  return rows;
+}
+
+/* ================= 虚拟列表 ================= */
+const VL={};
+function vlist(key,rows,renderRow,emptyHtml){
+  const offs=new Array(rows.length+1);offs[0]=0;for(let i=0;i<rows.length;i++)offs[i+1]=offs[i]+rows[i].h;
+  VL[key]={rows,offs,renderRow,rendered:0};
+  if(!rows.length)return `<div class="vl" data-vl="${key}" tabindex="0"><div class="empty">${emptyHtml}</div></div>`;
+  return `<div class="vl" data-vl="${key}" tabindex="0"><div class="vsp" style="height:${offs[rows.length]}px"></div></div>`;
+}
+function paintVL(key){
+  const v=VL[key],host=document.querySelector(`[data-vl="${key}"]`);if(!v||!host||!v.rows.length)return;
+  const top=host.scrollTop,h=host.clientHeight||600;
+  let lo=0,hi=v.rows.length;while(lo<hi){const m=(lo+hi)>>1;if(v.offs[m+1]<=top)lo=m+1;else hi=m;}
+  const start=Math.max(0,lo-3);let end=lo;while(end<v.rows.length&&v.offs[end]<top+h)end++;end=Math.min(v.rows.length,end+3);
+  let html="";for(let i=start;i<end;i++)html+=`<div class="vr" style="top:${v.offs[i]}px;height:${v.rows[i].h}px">${v.renderRow(v.rows[i],i)}</div>`;
+  host.firstElementChild.innerHTML=html;v.rendered=end-start;perf();
+}
+function mountVLs(){
+  document.querySelectorAll("[data-vl]").forEach(el=>{const k=el.dataset.vl;if(S.scroll[k]!=null)el.scrollTop=S.scroll[k];paintVL(k);});
+}
+document.addEventListener("scroll",e=>{const el=e.target;if(el&&el.dataset&&el.dataset.vl){S.scroll[el.dataset.vl]=el.scrollTop;requestAnimationFrame(()=>paintVL(el.dataset.vl));}},true);
+function reveal(key,pred){
+  const v=VL[key],host=document.querySelector(`[data-vl="${key}"]`);if(!v||!host)return;
+  const i=v.rows.findIndex(pred);if(i<0)return;
+  const top=v.offs[i],bottom=v.offs[i+1];
+  if(top<host.scrollTop)host.scrollTop=top-30;else if(bottom>host.scrollTop+host.clientHeight)host.scrollTop=bottom-host.clientHeight+30;
+  S.scroll[key]=host.scrollTop;paintVL(key);
+}
+
+/* ================= 小部件 ================= */
+const info=t=>`<i class="info" data-tip="${esc(t)}" tabindex="0">i</i>`;
+const nb=n=>`<i class="nb" data-note="${n}">${n}</i>`;
+const picon=(k,cls="")=>{const p=P[k]||{name:k,color:"#888"};return `<span class="pi ${cls}" style="background:${p.color}">${esc(abbr(p.name))}</span>`;};
+const ticon=(t,cls="")=>`<span class="pi ${cls}" style="background:${P[t.pk]?.color||hue(t.name)}">${esc(abbr(t.name))}</span>`;
+const srcTags=c=>c.src.map(s=>`<span class="tag src">${esc(s)}</span>`).join("");
+function layerTag(res){if(res.err)return `<span class="tag ${res.err==="projectOnly"?"":res.err==="trust"||res.err==="probeFailed"?"warn":"err"}">${esc(REASON[res.err])}</span>`;const [l,c]=LAYER[res.layer];return `<span class="tag ${c}">${l}</span>`;}
+function reasonText(t,res){
+  if(res.err==="versionUnsatisfied")return `找到的安装都不满足最低版本要求（需要 ≥ ${t.req}）`;
+  if(res.err==="notFound")return t.install?`没有找到安装 · 可以用 ${TOOL[t.install]?.name||"安装器"} 安装`:"没有找到安装";
+  if(res.err==="probeFailed")return `版本检测失败：${t.probe||"无法读取版本"}`;
+  if(res.err==="trust")return `来自项目内的 ${res.pc?.src[0]||"环境"}，需要先信任项目`;
+  if(res.err==="conflict")return `同时由 ${[t.pk,...t.conflict].map(k=>P[k]?.name||k).join("、")} 声明`;
+  if(res.err==="projectOnly")return "只在项目中提供，切到“当前项目”查看";
+  return REASON[res.err]||res.err;
+}
+
+// 列表行右侧已经有原因标签，第二行只补标签里没有的信息，避免同一句话出现两次。
+function reasonDetail(t,res){
+  if(res.err==="versionUnsatisfied")return `需要 ≥ ${t.req}`;
+  if(res.err==="notFound")return t.install?`可以用 ${TOOL[t.install]?.name||"安装器"} 安装`:"";
+  if(res.err==="probeFailed")return t.probe||"";
+  if(res.err==="trust")return `来自 ${res.pc?.src[0]||"项目环境"}`;
+  if(res.err==="conflict")return `${[t.pk,...t.conflict].map(k=>P[k]?.name||k).join("、")}`;
+  if(res.err==="projectOnly")return "切到“当前项目”查看";
+  return "";
+}
+
+/* ================= 侧栏 ================= */
+const TOPS=[["appearance","外观与行为","#8d6cf6","▦",true],["plugins","插件","#f0802f","◫",false],["vcs","版本控制","#e5484d","⑂",false],["build","构建、执行、部署","#30a46c","▶",true],["langs","语言与框架","#3e7bfa","◧",true],["tools","工具","#7c8088","⚙",true],["ai","AI","#9b5cf6","✦",true],["about","关于","#12a594","ⓘ",false]];
+function pagesOf(kind){return PAGES.filter(p=>p.kind===kind);}
+function navHtml(){
+  if(S.navq.trim())return navSearch(S.navq.trim());
+  const st=stats();let h="";
+  for(const [id,label,color,glyph,isGroup] of TOPS){
+    const open=id==="build"&&S.open.build;
+    const badge=id==="build"&&!open&&st.problems?`<span class="bad">${st.problems}</span>`:"";
+    h+=`<div class="r ${S.page===id?"sel":""}" data-nav="${id}"><span class="caret ${isGroup?(open?"open":""):"none"}" ${isGroup?`data-tog="${id}"`:""}>▶</span><span class="gi" style="background:${color}">${glyph}</span><span class="nm">${label}</span>${badge}${id==="build"?nb(2):""}</div>`;
+    if(!open)continue;
+    h+=`<div class="r l1 ${S.page==="toolchains"?"sel":""}" data-nav="toolchains"><span class="nm">工具链</span>${st.problems?`<span class="bad">${st.problems}</span>`:""}</div>`;
+    h+=`<div class="r l1 ${S.page==="debugger"?"sel":""}" data-nav="debugger"><span class="nm">调试器</span>${dbgDraftCount()?`<span class="moddot" style="margin-left:auto"></span>`:""}</div>`;
+    for(const kind of ["buildSystem","compiler"]){
+      const pages=pagesOf(kind);if(!pages.length)continue;
+      if(pages.length<3){for(const p of pages)h+=`<div class="r l1 ${S.page===p.id?"sel":""}" data-nav="${p.id}"><span class="nm">${esc(p.name)}</span></div>`;continue;}
+      const k="k."+kind,o=S.open[k];
+      h+=`<div class="r l1 ${S.page==="folder:"+kind?"sel":""}" data-nav="folder:${kind}" style="padding-left:18px"><span class="caret ${o?"open":""}" data-tog="${k}">▶</span><span class="nm">${KIND[kind]}</span><span class="cnt">${fmt(pages.length)}</span></div>`;
+      if(!o)continue;
+      const shown=pages.slice(0,6);
+      for(const p of shown)h+=`<div class="r l2 ${S.page===p.id?"sel":""}" data-nav="${p.id}"><span class="nm">${esc(p.name)}</span></div>`;
+      if(pages.length>shown.length)h+=`<div class="r l2 more" data-nav="folder:${kind}">全部 ${fmt(pages.length)} 个…</div>`;
+    }
+  }
+  return h;
+}
+function navSearch(q){
+  const ql=q.toLowerCase();let h="";
+  const pages=[["toolchains","构建、执行、部署 › 工具链","工具链 sdk jdk 版本 toolchain"],["debugger","构建、执行、部署 › 调试器","调试器 单步 debugger stepping 过滤"],["build","构建、执行、部署","构建 执行 部署 build"]].filter(p=>p[1].toLowerCase().includes(ql)||p[2].includes(ql));
+  for(const p of PAGES)if(p.name.toLowerCase().includes(ql)||(P[p.pk]?.name||"").toLowerCase().includes(ql))pages.push([p.id,`构建、执行、部署 › ${KIND[p.kind]} › ${p.name}`]);
+  const tools=TOOLS.filter(t=>t.name.toLowerCase().includes(ql));
+  const ads=ADAPTERS.filter(a=>a.name.toLowerCase().includes(ql));
+  if(pages.length){h+=`<div class="hd">设置页</div>`;for(const [id,label] of pages.slice(0,8))h+=`<div class="r" data-nav="${id}"><span class="nm">${esc(label)}</span></div>`;}
+  if(tools.length){h+=`<div class="hd">工具链中的工具 ${nb(18)}</div>`;for(const t of tools.slice(0,8))h+=`<div class="r" data-goto-tool="${t.id}"><span class="sdot ${stats().info[t.id].st}"></span><span class="nm">${esc(t.name)}</span><span class="path">${esc(P[t.pk]?.name||"")}</span></div>`;
+    if(tools.length>8)h+=`<div class="r more" data-filter-tools="${esc(q)}">在工具链中查看全部 ${fmt(tools.length)} 个…</div>`;}
+  if(ads.length){h+=`<div class="hd">调试器</div>`;for(const a of ads.slice(0,5))h+=`<div class="r" data-goto-dbg="${a.id}"><span class="nm">${esc(a.name)}</span><span class="path">单步</span></div>`;}
+  if(!h)h=`<div class="empty" style="padding:30px 10px">没有匹配的设置</div>`;
+  return h;
+}
+
+/* ================= 页面：分组概览 ================= */
+function pgBuild(){
+  const st=stats();
+  const problems=TOOLS.filter(t=>{const s=st.info[t.id].st;return s==="err"||s==="warn";});
+  const issue=problems.length?`<div class="box ${st.err?"err":"warn"} issues" style="display:block;margin-bottom:14px">
+    <div style="display:flex;align-items:center;gap:6px;font-weight:600;margin-bottom:4px">${fmt(problems.length)} 项需要处理 ${nb(1)}</div>
+    ${problems.slice(0,5).map(t=>`<div class="irow" data-goto-tool="${t.id}"><span class="sdot ${st.info[t.id].st}"></span><b style="font-weight:600">${esc(t.name)}</b><span>${esc(reasonText(t,st.info[t.id].res))}</span><span style="margin-left:auto">›</span></div>`).join("")}
+    ${problems.length>5?`<div class="irow" data-act="showProblems"><span class="link" style="color:inherit;text-decoration:underline">在工具链中查看全部 ${fmt(problems.length)} 项</span></div>`:""}
+  </div>`:"";
+  const kinds=["buildSystem","compiler"].map(k=>[k,pagesOf(k)]).filter(([,p])=>p.length);
+  const row=(nav,color,glyph,title,desc,right="")=>`<div class="drow" data-nav="${nav}"><span class="pi" style="background:${color}">${glyph}</span><div><div class="t">${title}</div><div class="d">${desc}</div></div><span class="chev">${right} ›</span></div>`;
+  const customized=ADAPTERS.filter(a=>S.dbgSaved[a.id]).length;
+  return `<div class="page" style="max-width:860px">
+    <h2 style="margin-bottom:12px">构建、执行、部署</h2>
+    ${issue}
+    <div class="sec dir"><div class="sb" style="padding:4px">
+      ${row("toolchains","#30a46c","⚒","工具链",`${fmt(st.total)} 个工具 · 来自 ${fmt(PLUGIN_COUNT)} 个插件 · 当前显示${S.scope==="global"?"全局默认":"当前项目"}`,st.problems?`<span class="bad">${st.problems}</span>`:"")}
+      ${row("debugger","#e5484d","⏯","调试器",`单步：${ADAPTERS.length} 个调试器支持过滤${customized?` · ${customized} 个已自定义`:""}`)}
+      ${kinds.map(([k,p])=>row(p.length>=3?"folder:"+k:p[0].id,"#3e7bfa","◧",KIND[k],`${p.slice(0,3).map(x=>esc(x.name)).join("、")}${p.length>3?` 等 ${fmt(p.length)} 个`:""} · 由插件提供`)).join("")}
+    </div></div>
+    <div class="faint">这一页只列子页和状态摘要，不直接展示插件注入的内容。</div>
+  </div>`;
+}
+
+/* ================= 页面：工具链 ================= */
+function chipsHtml(){
+  const st=stats();
+  const c=(id,label,n,extra="")=>`<span class="chip ${S.filter===id?"on":""}" data-filter="${id}">${label} <b>${fmt(n)}</b>${extra}</span>`;
+  return `${c("all","全部",st.total)}${c("problems","需要处理",st.problems,st.problems?` <span class="${st.err?"e":"w"}">●</span>`:"")}${c("pinned","已手动指定",st.pinned)}${st.changed?c("changed","未应用",st.changed):""}${nb(5)}
+    <span class="sp"></span><span class="muted">分组</span>
+    <select class="inp" data-groupby style="width:auto">${[["category","按类别"],["plugin","按插件"],["none","不分组"]].map(([v,l])=>`<option value="${v}" ${S.groupBy===v?"selected":""}>${l}</option>`).join("")}</select>${nb(6)}`;
+}
+function trustBanner(){
+  if(S.scope!=="project")return "";
+  const need=TOOLS.filter(t=>t.cands.some(c=>c.proj));
+  if(!need.length)return "";
+  if(S.trusted)return "";
+  return `<div class="tbanner"><div class="box warn"><span>⚠</span><span class="grow">${fmt(need.length)} 个工具来自项目内的环境（${[...new Set(need.flatMap(t=>t.cands.filter(c=>c.proj).map(c=>c.src[0])))].slice(0,3).join("、")}）。信任项目之前不会探测或运行它们。</span>
+    ${info("允许 Lithe 对当前项目目录内的工具环境（如虚拟环境）和包装器执行版本探测与运行。\n此授权只在本机对当前工作区生效，保存在应用本机设置中，不写入项目 .lithe/，可以随时撤销。\n请只对来源可信的项目开启。")}
+    <button class="btn sm" data-act="trust">信任此项目</button>${nb(13)}</div></div>`;
+}
+function renderToolRow(r){
+  if(r.type==="g")return `<div class="gh ${r.collapsed?"":"open"}" data-grp="${esc(r.key)}"><span class="caret">▶</span>${esc(r.label)} <span class="n">${fmt(r.n)}</span>${r.bad?`<span class="bad ${stats().err?"":"warn"}">${r.bad}</span>`:""}${r.info?info(r.info):""}${r.key==="plugin"?nb(7):""}</div>`;
+  const t=r.t,st=stats().info[t.id],res=st.res,changed=hasDraft(S.scope,t.id);
+  let l2;
+  if(res.err){const extra=reasonDetail(t,res);l2=`${esc(P[t.pk]?.name||"")}${extra?` · <span class="${st.st==="err"?"e":st.st==="warn"?"w":""}">${esc(extra)}</span>`:""}`;}
+  else l2=`${esc(P[t.pk]?.name||"")} · ${esc(midTrim(res.c.home,44))}`;
+  let to="";
+  if(changed){const next=resolve(t,S.scope,true);to=`<span class="to">→ ${esc(next.err?"?":next.c.ver)}</span>`;}
+  return `<div class="trow ${S.sel===t.id&&S.page==="toolchains"?"sel":""}" data-tool="${t.id}">${changed?`<span class="mk"></span>`:""}<span class="sdot ${st.st}"></span>
+    <div class="grow"><div class="l1"><b>${esc(t.name)}</b><span class="v">${res.err?"":esc(res.c.ver)}</span>${to}<span class="sp"></span>${layerTag(res)}</div><div class="l2">${l2}</div></div></div>`;
+}
+function pgToolchains(){
+  const rows=toolRows();
+  const proj=S.scope==="project";
+  const trustChip=proj&&S.trusted?`<span class="tag green" data-tip="本机此项目已信任：允许探测和运行项目内的工具环境。">本机此项目 · 已信任</span><button class="btn link sm" data-act="untrust">撤销</button>`:"";
+  return `<div class="tc">
+    <div class="tbar">
+      <div class="seg" data-scope>
+        <button class="${S.scope==="global"?"on":""}" data-scope="global">全局默认${draftsIn("global")?`<span class="mod"></span>`:""}</button>
+        <button class="${proj?"on":""}" data-scope="project">当前项目 · Lithe-IDEA${draftsIn("project")?`<span class="mod"></span>`:""}</button>
+      </div>
+      ${info("全局默认：所有项目共用的选择，保存在应用的用户设置。\n当前项目：只对这个项目生效，保存到本项目的 .lithe/toolchains/local.json（本机文件，不提交）。\n项目没有指定的工具沿用全局默认。已启动的进程需要重启后才使用新版本。\n两个作用域的修改分别保留，切换不会丢失。")}${nb(3)}
+      ${trustChip}
+      <span class="sp"></span>
+      <div class="finput" style="width:260px">⌕<input id="tq" value="${esc(S.q)}" placeholder="筛选名称、版本、路径或插件" autocomplete="off"></div>
+      <button class="icon-btn" data-act="redetect" data-tip="重新检测：重新探测全部工具的安装与版本，不写入任何文件。">⟳</button>
+    </div>
+    <div class="tbar2" id="tchips">${chipsHtml()}</div>
+    ${trustBanner()}
+    <div class="split2">
+      <div class="lpane2">${vlist("tools",rows,renderToolRow,S.filter==="problems"&&!S.q?"✓ 没有需要处理的工具":"没有匹配的工具")}<div class="lfoot" id="tfoot"></div></div>
+      <div class="rpane2" id="tdetail">${toolDetail()}</div>
+    </div>
+  </div>`;
+}
+function toolOptions(t){
+  const scope=S.scope,opts=[];
+  const autoRes=(()=>{const save=S.draft[scope][t.id],had=hasDraft(scope,t.id);S.draft[scope][t.id]="";const r=resolve(t,scope,true);if(had)S.draft[scope][t.id]=save;else delete S.draft[scope][t.id];return r;})();
+  let autoLabel;
+  if(autoRes.err)autoLabel=`自动（${autoRes.err==="trust"?"需要信任项目":autoRes.err==="projectOnly"?"只在项目中提供":REASON[autoRes.err]}）`;
+  else if(scope==="project"&&autoRes.layer==="global")autoLabel=`继承（全局默认 · ${autoRes.c.ver}）`;
+  else if(scope==="project"&&autoRes.layer==="project")autoLabel=`自动（项目环境 · ${autoRes.c.ver} · ${autoRes.c.src[0]}）`;
+  else autoLabel=`自动（${autoRes.c.ver} · ${autoRes.c.src[0]}）`;
+  opts.push({home:"",auto:true,label:autoLabel});
+  const seen=new Set();
+  for(const c of allCands(t,scope)){
+    if(seen.has(c.home))continue;seen.add(c.home);
+    if(c.proj&&scope!=="project")continue;
+    let why="";
+    if(c.bad==="versionUnsatisfied")why=`版本不满足（需要 ≥ ${t.req}）`;
+    else if(c.bad==="probeFailed")why="版本检测失败";
+    else if(c.proj&&!S.trusted)why="需要信任项目";
+    opts.push({home:c.home,c,dis:!!why,why});
+  }
+  return opts;
+}
+let CUR_OPTS=[];
+function toolDetail(){
+  const t=TOOL[S.sel];
+  if(!t)return `<div class="empty">选择左侧的工具查看详情</div>`;
+  const scope=S.scope,cur=resolve(t,scope,false),changed=hasDraft(scope,t.id),next=changed?resolve(t,scope,true):null;
+  const st=statusOf(cur),p=P[t.pk]||{name:t.pk,id:t.pk};
+  const pick=pinOf(scope,t.id,true);
+  const opts=toolOptions(t);CUR_OPTS=opts;
+  const users=(t.users||[]).filter(k=>P[k]);
+  let problem="";
+  if(cur.err==="conflict")problem=`<div class="box err" style="margin-bottom:12px"><span>⛔</span><span class="grow">${esc(reasonText(t,cur))}。两个插件对同一工具的定义可能不同，Lithe 暂停解析，避免用错。</span><button class="btn sm" data-act="toast" data-msg="演示：跳到“插件”页并定位到这两个插件">在“插件”中处理…</button></div>`;
+  else if(cur.err==="notFound"&&t.install)problem=`<div class="box warn" style="margin-bottom:12px"><span>⚠</span><span class="grow">没有找到 ${esc(t.name)}。${esc(p.name)} 声明了可以用 ${esc(TOOL[t.install]?.name||"安装器")} 安装缺少的命令。</span><button class="btn sm pri" data-act="toast" data-msg="演示：确认安装位置后运行 brew install（API-23 commandInstallers）">用 ${esc(TOOL[t.install]?.name||"安装器")} 安装…</button>${nb(11)}</div>`;
+  else if(cur.err==="notFound")problem=`<div class="box warn" style="margin-bottom:12px"><span>⚠</span><span class="grow">没有找到 ${esc(t.name)}。安装后点工具栏的 ⟳ 重新检测，或在下方添加安装目录。</span></div>`;
+  else if(cur.err==="versionUnsatisfied")problem=`<div class="box err" style="margin-bottom:12px"><span>⛔</span><span class="grow">找到的安装都低于 ${esc(p.name)} 要求的最低版本 ${esc(t.req)}。</span></div>`;
+  else if(cur.err==="probeFailed")problem=`<div class="box warn" style="margin-bottom:12px"><span>⚠</span><span class="grow">版本检测失败：${esc(t.probe||"")}</span><button class="btn sm" data-act="toast" data-msg="演示：打开日志窗口并筛选这次探测">查看日志</button></div>`;
+  else if(cur.err==="trust")problem=`<div class="box warn" style="margin-bottom:12px"><span>⚠</span><span class="grow">这个项目用 ${esc(cur.pc.src[0])}（${esc(cur.pc.home)}）提供 ${esc(t.name)}。信任项目之前不会探测或运行它。</span><button class="btn sm" data-act="trust">信任此项目</button></div>`;
+  const effRows=cur.err?`<div class="kv"><span class="k">状态</span><span class="v"><span class="sdot ${st}"></span>${esc(reasonText(t,cur))}</span></div>`:
+   `<div class="kv"><span class="k">程序</span><span class="v nw"><span class="pathv">${esc(cur.c.exe?cur.c.home.replace(/\/$/,"")+"/"+cur.c.exe:cur.c.home)}</span><button class="icon-btn" style="width:20px;height:20px;font-size:11px" data-act="toast" data-msg="已复制路径" data-tip="复制路径">⧉</button></span>
+     <span class="k">版本</span><span class="v"><span class="mono">${esc(cur.c.ver)}</span></span>
+     <span class="k">来源</span><span class="v">${layerTag(cur)}${srcTags(cur.c)}</span></div>`;
+  const nextBox=changed?`<div class="box next" style="margin:8px 12px 2px"><span class="moddot"></span><span class="grow">应用后：${next.err?esc(REASON[next.err]):`<b class="mono">${esc(next.c.ver)}</b> · <span class="mono">${esc(midTrim(next.c.home,60))}</span>（${LAYER[next.layer][0]}）`}</span><button class="btn link sm" data-act="undoTool">撤销修改</button></div>`:"";
+  const optHtml=opts.map((o,i)=>{
+    const on=o.home===pick;
+    if(o.auto)return `<div class="opt auto ${on?"on":""}" data-opt="${i}"><span class="rd"></span><span class="ov">${esc(o.label)}</span><span class="os"></span></div>`;
+    return `<div class="opt ${on?"on":""} ${o.dis?"dis":""}" data-opt="${i}" title="${esc(o.home)}"><span class="rd"></span><span class="ov">${esc(o.c.ver||"—")}</span><span class="op">${esc(midTrim(o.home,58))}</span><span class="os">${o.why?`<span class="tag ${o.why.startsWith("需要")?"warn":"err"}">${esc(o.why)}</span>`:(!cur.err&&o.home===cur.c.home?`<span class="tag green">生效中</span>`:"")+srcTags(o.c)}</span></div>`;
+  }).join("");
+  const adding=S.adding===t.id?`<div class="addrow"><div class="finput" style="flex:1"><input id="addPath" value="${esc(S.addPath)}" placeholder="安装根目录，例如 ~/.sdkman/candidates/java/21.0.5-tem"></div>${info("选择包含工具程序的安装根目录（例如 JDK 目录，而不是 bin 目录）。\n检查只读取版本、修改草稿；点“应用”后才写入。")}<button class="btn sm" data-act="toast" data-msg="演示：打开系统目录选择器">浏览…</button><button class="btn sm" data-act="checkDir">检查并选用</button><button class="btn link sm" data-act="cancelAdd">取消</button></div>`
+    :`<div class="addrow"><button class="btn link sm" data-act="addDir">＋ 添加安装目录…</button></div>`;
+  return `<div class="dt">
+    <div class="head">${ticon(t,"lg")}<div style="min-width:0">
+      <h2 style="display:flex;gap:8px;align-items:center">${esc(t.name)} ${t.purpose?info(`${p.name} 用这个运行时启动${t.purpose}。一般不需要改。`):""}</h2>
+      <div class="sub">${picon(t.pk,"sm")}<span>由 <a class="link" data-act="toast" data-msg="演示：打开插件详情">${esc(p.name)}</a> 声明</span><span>·</span><span>${esc(t.aud==="plugin"?CATS.plugin:CATS[t.cat])}</span>${t.req?`<span>·</span><span>需要 ≥ ${esc(t.req)}</span>`:""}</div>
+    </div><div class="acts">${pinOf(scope,t.id,true)?`<button class="btn sm" data-act="autoTool" data-tip="恢复为${scope==="project"?"继承全局默认":"自动发现"}；点“应用”后生效。">恢复${scope==="project"?"继承":"自动"}</button>`:""}</div></div>
+    ${problem}
+    <div class="sec"><div class="sh">当前生效 ${info("工具现在实际使用的程序，由 Core 解析得出。\n修改只是草稿，点窗口底部的“应用”或“好”之后才写入并重新读取。")}${nb(9)}</div>
+      ${effRows}${nextBox}
+      <span class="disclose" data-act="why">${S.whyOpen?"▾":"▸"} 为什么是这个？</span>${nb(10)}
+      ${S.whyOpen?`<ul class="trace">${cur.trace.map(s=>`<li class="${s.s}"><span class="m">${s.s==="use"?"✓":s.s==="blk"?"!":"–"}</span><span>${esc(s.t)}</span></li>`).join("")}</ul>`:""}
+      <div style="height:6px"></div>
+    </div>
+    <div class="sec"><div class="sh">${scope==="project"?"本项目使用":"全局默认使用"} ${info(scope==="project"?"只对当前项目生效。\n“继承”沿用全局默认；项目里有插件声明的环境（Wrapper、虚拟环境等）时，信任项目后优先使用。":"所有项目共用的默认选择。\n“自动”按插件声明的顺序查找："+[...new Set(t.cands.filter(c=>!c.proj).map(c=>c.src[0]))].join(" → ")+"，取第一个满足版本要求的安装。")}${nb(8)}</div>
+      <div class="opts">${optHtml}</div>${adding}
+    </div>
+    ${users.length?`<div class="sec"><div class="sh">使用这个工具的插件 <span class="muted" style="font-weight:400">${users.length}</span>${info("这些插件按工具 ID 引用它。在这里改一次，所有使用方一起生效，插件页不再各放一个选择框。")}</div><div class="users">${users.slice(0,8).map(k=>`<span class="tag">${esc(P[k].name)}</span>`).join("")}${users.length>8?`<span class="tag">等 ${users.length} 个</span>`:""}</div><div style="height:8px"></div></div>`:""}
+    <div class="ufoot">工具 ID ${esc(t.id)} · 声明插件 ${esc(p.id)}</div>
+  </div>`;
+}
+
+/* ================= 页面：调试器 ================= */
+const FEAT={synth:["跳过合成方法","编译器自动生成的方法（如 lambda 桥接方法）在单步时直接跳过。"],statInit:["跳过静态初始化块","单步进入类时不停在 static { } 初始化代码里。"],ctor:["跳过构造方法","单步时不进入构造方法。"],hide:["在调用栈中折叠被过滤的帧","调用栈里被上面规则过滤的帧折叠成一行，展开可查看。"]};
+function dbgState(a){return S.dbgDraft[a.id]||S.dbgSaved[a.id]||a.def;}
+function pgDebugger(){
+  const list=ADAPTERS.filter(a=>!S.dbgQ||a.name.toLowerCase().includes(S.dbgQ.toLowerCase()));
+  const a=ADAPTERS.find(x=>x.id===S.dbgSel)||ADAPTERS[0];
+  const rows=list.map(x=>({type:"a",h:44,a:x}));
+  return `<div class="tc">
+    <div class="split2">
+      <div class="lpane2" style="width:280px">
+        <div style="padding:10px;border-bottom:1px solid var(--line)"><div class="finput">⌕<input id="dq" value="${esc(S.dbgQ)}" placeholder="筛选调试器" autocomplete="off"></div></div>
+        ${vlist("adapters",rows,r=>{const x=r.a,cust=S.dbgSaved[x.id]||S.dbgDraft[x.id];return `<div class="trow ${a&&x.id===a.id?"sel":""}" data-adapter="${x.id}">${S.dbgDraft[x.id]?`<span class="mk"></span>`:""}${picon(x.pk,"sm")}<div class="grow"><div class="l1"><b>${esc(x.name)}</b><span class="sp"></span>${cust?`<span class="tag blue">已自定义</span>`:""}</div><div class="l2">${esc(P[x.pk]?.name||"")}</div></div></div>`;},"没有匹配的调试器")}
+        <div class="lfoot">${fmt(ADAPTERS.length)} 个调试器支持单步过滤 ${nb(14)}</div>
+      </div>
+      <div class="rpane2">${a?dbgDetail(a):`<div class="empty">已安装的调试器都不支持单步过滤。</div>`}</div>
+    </div></div>`;
+}
+function dbgDetail(a){
+  const d=dbgState(a),cust=!!(S.dbgSaved[a.id]||S.dbgDraft[a.id]);
+  const feats=a.feats;
+  return `<div class="dt">
+    <div class="head">${picon(a.pk,"lg")}<div><h2>${esc(a.name)}</h2><div class="sub"><span>由 ${esc(P[a.pk]?.name||a.pk)} 提供</span><span>·</span><span class="tag ${cust?"blue":""}">${cust?"已自定义":"使用插件默认值"}</span></div></div>
+      <div class="acts">${cust?`<button class="btn sm" data-act="dbgReset">恢复插件默认值</button>`:""}</div></div>
+    <div class="tabs"><button class="on">单步</button><button disabled data-tip="以后其他调试设置（数据视图、热替换等）按标签页加在这里。">…</button></div>
+    ${S.dbgDraft[a.id]?`<div class="box next" style="margin-bottom:12px"><span class="moddot"></span><span class="grow">有未应用的修改，下一次调试会话生效。</span></div>`:""}
+    <div class="sec"><div class="sh">不进入的代码 ${info(`每行一个模式，写法由调试器决定，例如 ${a.hint}。\n调用栈中匹配的帧会淡化显示。`)}${nb(15)}</div>
+      <div style="padding:0 12px 10px;display:flex"><div class="lst">
+        ${d.patterns.map((p,i)=>`<div class="lrow"><span class="mono">${esc(p)}</span>${a.alias&&a.alias[p]?`<span class="faint">${esc(a.alias[p])}</span>`:""}<button class="icon-btn x" data-act="dbgDel" data-i="${i}" data-tip="删除这条">✕</button></div>`).join("")||`<div class="lrow faint">没有规则</div>`}
+        <div class="ladd"><div class="finput" style="flex:1"><input id="dbgAdd" value="${esc(S.dbgAdd)}" placeholder="添加模式，例如 ${esc(a.hint.split("（")[0].split("、")[0])}" autocomplete="off"></div><button class="btn sm" data-act="dbgAdd">添加</button></div>
+      </div></div>
+    </div>
+    ${feats.length?`<div class="sec"><div class="sb" style="padding:6px">${feats.map(f=>`<div class="srow"><div class="lab" style="width:auto;flex:1">${FEAT[f][0]} ${info(FEAT[f][1])}</div><button class="sw ${d[f]?"on":""}" data-act="dbgToggle" data-f="${f}"></button></div>`).join("")}</div></div>`:""}
+  </div>`;
+}
+
+/* ================= 页面：插件页目录 / 插件页 ================= */
+function pgFolder(kind){
+  const q=S.folderQ.toLowerCase();
+  const list=pagesOf(kind).filter(p=>!q||p.name.toLowerCase().includes(q)||(P[p.pk]?.name||"").toLowerCase().includes(q));
+  const rows=list.map(p=>({type:"p",h:52,p}));
+  return `<div class="tc">
+    <div class="tbar"><h2>${KIND[kind]}</h2><span class="muted">${fmt(pagesOf(kind).length)} 个页面 · 由插件提供</span>${nb(16)}<span class="sp"></span><div class="finput" style="width:260px">⌕<input id="fq" value="${esc(S.folderQ)}" placeholder="筛选页面或插件" autocomplete="off"></div></div>
+    <div style="border-top:1px solid var(--line);flex:1;display:flex;flex-direction:column;min-height:0">${vlist("folder",rows,r=>`<div class="trow" data-nav="${r.p.id}" style="gap:11px">${picon(r.p.pk)}<div class="grow"><div class="l1"><b>${esc(r.p.name)}</b></div><div class="l2">${esc(P[r.p.pk]?.name||"")} · ${esc(r.p.sum)}</div></div><span class="faint">›</span></div>`,"没有匹配的页面")}</div>
+  </div>`;
+}
+function pgPlugin(id){
+  const p=PAGES.find(x=>x.id===id);if(!p)return `<div class="empty">页面不存在</div>`;
+  const jdk=TOOL["java.jdk"],jr=jdk?resolve(jdk,S.scope,false):null;
+  const toolRef=(label,t,res)=>`<div class="srow"><div class="lab">${label} ${info("这个设置引用工具链里的工具，插件页不再自己放一个选择框。改动请到工具链。")}</div><div class="ctl"><span class="mono">${res&&!res.err?`${esc(res.c.ver)} · ${esc(midTrim(res.c.home,40))}`:"未找到"}</span>${res?layerTag(res):""}<a class="link" data-goto-tool="${t.id}">在工具链中修改 ›</a>${nb(17)}</div></div>`;
+  let body;
+  if(p.id==="pp.maven"){
+    const mv=TOOL["maven.mvn"],mr=mv?resolve(mv,S.scope,false):null;
+    body=`${mv?toolRef("Maven",mv,mr):""}${jdk?toolRef("运行 Maven 的 JDK",jdk,jr):""}
+      <div class="srow"><div class="lab">用户 settings.xml ${info("Maven 读取的用户级配置。保存时只改动修改过的字段，保留注释和其他内容。")}</div><div class="ctl"><input class="inp mono" style="flex:1" value="~/.m2/settings.xml"><span class="tag">用户级</span></div></div>
+      <div class="srow"><div class="lab">本地仓库 ${info("没有在 settings.xml 中设置时，使用 Maven 的默认位置。")}</div><div class="ctl"><input class="inp mono" style="flex:1" value="" placeholder="自动（~/.m2/repository）"><span class="tag">Maven 默认值</span></div></div>
+      <div class="srow"><div class="lab">离线模式</div><div class="ctl"><button class="sw"></button></div></div>`;
+  }else if(p.id==="pp.javac"&&jdk){
+    body=`${toolRef("编译使用的 JDK",jdk,jr)}
+      <div class="srow"><div class="lab">附加参数 ${info("追加到 javac 命令行的参数。")}</div><div class="ctl"><input class="inp mono" style="flex:1" value="-parameters"></div></div>
+      <div class="srow"><div class="lab">注解处理</div><div class="ctl"><button class="sw on"></button></div></div>`;
+  }else{
+    body=`<div class="srow"><div class="lab">示例设置</div><div class="ctl"><input class="inp" style="flex:1" placeholder="自动（插件给出的生效值）"></div></div><div class="srow"><div class="lab">示例开关</div><div class="ctl"><button class="sw on"></button></div></div>`;
+  }
+  return `<div class="page" style="max-width:900px">
+    <div style="display:flex;align-items:center;gap:10px;margin-bottom:14px">${picon(p.pk,"lg")}<div><h2>${esc(p.name)}</h2><div class="muted">由 ${esc(P[p.pk]?.name||p.pk)} 提供 · ${esc(P[p.pk]?.id||"")}</div></div></div>
+    <div class="canvas"><span class="cap">插件内容区（描述模式，可含画布节点；宿主按插件的描述绘制，见 plugin-canvas-scene.html）</span><div style="padding-top:6px">${body}</div></div>
+  </div>`;
+}
+function pgOther(){return `<div class="empty">原型只覆盖“构建、执行、部署”分组。</div>`;}
+
+/* ================= 页脚、面包屑、标注 ================= */
+function crumbHtml(){
+  const c=[];const push=(label,nav)=>c.push([label,nav]);
+  if(["build","toolchains","debugger"].includes(S.page)||S.page.startsWith("folder:")||S.page.startsWith("pp."))push("构建、执行、部署","build");
+  if(S.page==="toolchains")push("工具链");
+  else if(S.page==="debugger")push("调试器");
+  else if(S.page.startsWith("folder:"))push(KIND[S.page.slice(7)]);
+  else if(S.page.startsWith("pp.")){const p=PAGES.find(x=>x.id===S.page);if(p){if(pagesOf(p.kind).length>=3)push(KIND[p.kind],"folder:"+p.kind);push(p.name);}}
+  else if(S.page!=="build")push(TOPS.find(x=>x[0]===S.page)?.[1]||"");
+  return c.map(([l,n],i)=>`<span class="c ${i===c.length-1?"last":""}" ${n&&i<c.length-1?`data-nav="${n}"`:""}>${esc(l)}</span>`).join(`<span class="sep">›</span>`);
+}
+function footerHtml(){
+  const g=draftsIn("global"),p=draftsIn("project"),d=dbgDraftCount(),n=g+p+d;
+  const targets=[g?`全局用户设置（${g}）`:"",p?`.lithe/toolchains/local.json（${p}）`:"",d?`调试器单步（${d}）`:""].filter(Boolean).join("、");
+  const msg=S.applying?`<span class="muted">正在应用…</span>`:n?`<span class="moddot"></span><b>${n} 项未应用</b><span>· 写入 ${esc(targets)}</span>${info("点“应用”写入后会重新读取，界面显示的是重新读取到的实际生效值。\n点“取消”放弃全部修改，不写任何文件。")}${nb(12)}`:"";
+  return `<button class="btn" data-act="toast" data-msg="演示：恢复本页的默认设置（需要确认）">恢复默认设置</button><span class="msg">${msg}</span>
+    <button class="btn" data-act="cancel">取消</button><button class="btn" data-act="apply" ${n&&!S.applying?"":"disabled"}>应用</button><button class="btn pri" data-act="ok">好</button>`;
+}
+const NOTES=[
+ [1,["build"],"分组页改成目录：只列子页和状态摘要，问题汇总在最上面，点一下直达对应工具。插件再多，这一页的高度只跟子页数量有关，跟工具数量无关。"],
+ [2,["*"],"侧栏：宿主自带的“工具链”“调试器”是固定子页；插件声明的页面按种类放。同一种类不到 3 个页面直接列出，3 个以上才二级折叠（沿用设置分类 Note 的规则）；折叠里最多显示 6 项，其余进“全部 N 个…”目录页。分组折叠时问题数显示在分组上。需要同步更新 <code>2026-10-15-macos-settings-hierarchy.md</code>。"],
+ [3,["toolchains"],"作用域放进工具栏，原来常驻的两段说明收进 ⓘ（develop-lithe 第五节）。两个作用域的草稿分开保存，有修改的作用域带蓝点，可以随时切换，不再因为有草稿就禁用切换。"],
+ [4,["toolchains"],"列表一行一个工具（46px），按需渲染：切到 5,000 个插件看演示栏右侧的“列表渲染”计数，始终只有二十几行。筛选、分组、排序和计数应由 Core 投影，平台只取可见窗口（develop-lithe 第三、四节）。"],
+ [5,["toolchains"],"筛选：文字筛选（名称、版本、路径、插件）+“需要处理 / 已手动指定 / 未应用”。“需要处理”汇总未找到、版本不满足、检测失败、需要信任和冲突；组内也按问题优先排序。"],
+ [6,["toolchains"],"默认按类别分组。类别和“插件自用”需要给 API-23 的工具定义加两个可选字段：<code>category</code>（宿主固定的类别表，只用来分组显示）和 <code>audience</code>（用户工具 / 插件自用运行时）；插件不声明时归“其他”。这是契约缺口，确认后再在 Core 契约里补。“按插件”分组不需要改契约。"],
+ [7,["toolchains"],"插件自用运行时（语言服务器用的 JDK、gopls、clangd 等）默认折叠，平时不打扰；出了问题照样计入“需要处理”和组标题的角标。"],
+ [8,["toolchains"],"路径只出现一次。候选安装用单选列表代替“下拉框 + 下方重复几行”；版本、路径、来源（PATH、JAVA_HOME、SDKMAN 等，由插件给出）各占一列。不满足要求的候选灰显，写明原因，原因码全部翻译（现状直接显示 versionUnsatisfied）。第一项写成“自动（实际生效值）”或“继承（全局默认 · 版本）”。"],
+ [9,["toolchains"],"“当前生效”只显示工具实际在用的值；草稿另起一行“应用后”，不把草稿当生效值（Source-backed settings 第 5 条）。"],
+ [10,["toolchains"],"“为什么是这个？”把 Core 已有的决策链（tool.Trace）按层展示：项目指定 → 项目环境 → 全局默认 → 自动发现，用户能看懂为什么选中这个版本。"],
+ [11,["toolchains"],"问题就地给出办法：未找到时，如果插件声明了安装器（API-23 commandInstallers），直接给“用 Homebrew 安装…”；冲突时引导到插件页。示例里看 lldb-dap、Gradle、.NET SDK、Terraform。"],
+ [12,["*"],"提交统一走窗口底部的“应用 / 好”，并写明写入目标和作用域；去掉卡片里的“保存”和“使用自动”两个按钮，单个工具用“恢复自动 / 恢复继承”。"],
+ [13,["toolchains"],"项目信任只在“当前项目”作用域、确实有工具来自项目内环境时才出现；信任后在工具栏显示状态和“撤销”。"],
+ [14,["debugger"],"调试器单步从工具链页拆出，成为独立的“调试器”页：左侧列出支持单步过滤的调试器（API-30 debugAdapters:3 的 features），右侧编辑。以后其他调试设置按标签页加，不再挤在工具链下面。"],
+ [15,["debugger"],"“不进入的类”改成逐条列表，添加、删除不用手改多行文本；标题改成通用的“不进入的代码”，写法示例由插件给出（宿主不写 Java 专属的“类”）。宿主只显示调试器声明支持的开关。"],
+ [16,["folder"],"插件页目录：可搜索、按需渲染，每行写明提供插件。侧栏折叠里放不下的页面都从这里进。"],
+ [17,["plugin"],"插件页需要 JDK、Maven 这类工具时，不再自己放选择框，而是按工具 ID 引用工具链，并链接过去：同一个 JDK 只在一处选，避免几个页面各选各的。"],
+ [18,["*"],"侧栏搜索同时命中设置页、工具和调试器，点结果直接跳到对应工具并选中。试试搜“jdk”。"],
+];
+function noteScope(){if(S.page==="toolchains")return "toolchains";if(S.page==="debugger")return "debugger";if(S.page==="build")return "build";if(S.page.startsWith("folder:"))return "folder";if(S.page.startsWith("pp."))return "plugin";return "other";}
+function notesHtml(){
+  if(!S.notes||!S.notesOpen)return "";
+  const sc=noteScope();
+  const list=NOTES.filter(([,pg])=>pg.includes("*")||pg.includes(sc));
+  const before=PLUGIN_COUNT*150+700;
+  return `<div class="notes"><div class="h">设计标注<span style="flex:1"></span><button class="btn sm link" data-act="closeNotes">收起</button></div><div class="l">
+    <div class="old"><b>现状的问题（截图）</b><ol>
+      <li>一页装了三件事：作用域与保存、每个插件声明的工具卡片、调试器单步。页面高度随插件数量线性增长，按现在的卡片高度，${fmt(PLUGIN_COUNT)} 个插件约 ${fmt(before)} 像素高。</li>
+      <li>同一路径在一张卡片里出现三次（生效行、下拉框、候选行）；插件 ID 原样显示；原因码 versionUnsatisfied 没有翻译。</li>
+      <li>说明文字常驻，违反“用 ⓘ 解释”的规则。</li>
+      <li>卡片里的“保存”和窗口底部的“好”是两套提交。</li>
+      <li>“JDK for JDT LS”“Homebrew”这类插件自用或辅助的工具，和用户真正关心的 JDK 平铺在一起。</li>
+    </ol></div>
+    <div class="tt">本页的设计点</div>
+    ${list.map(([n,,t])=>`<div class="n ${S.noteHl==n?"hl":""}" id="note-${n}"><i class="nb" data-note="${n}">${n}</i><div>${t}</div></div>`).join("")}
+  </div></div>`;
+}
+function perf(){
+  const v=VL.tools||VL.folder||VL.adapters;
+  const key=S.page==="toolchains"?"tools":S.page==="debugger"?"adapters":S.page.startsWith("folder:")?"folder":null;
+  const vv=key?VL[key]:null;
+  $("#perf").textContent=`插件 ${fmt(PLUGIN_COUNT)} · 工具 ${fmt(TOOLS.length)}`+(vv?` · 列表 ${fmt(vv.rows.length)} 行，渲染 ${vv.rendered} 行`:"");
+  const f=$("#tfoot");if(f&&VL.tools){const st=stats();f.innerHTML=`<span>${fmt(VL.tools.rows.filter(r=>r.type==="t").length)} / ${fmt(st.total)} 个工具</span><span style="margin-left:auto">渲染 ${VL.tools.rendered} 行 ${nb(4)}</span>`;}
+}
+
+/* ================= 渲染 ================= */
+function render(){
+  document.documentElement.classList.toggle("dark",S.dark);
+  document.documentElement.classList.toggle("nonotes",!S.notes);
+  $("#nav").innerHTML=navHtml();
+  $("#crumb").innerHTML=crumbHtml();
+  const content=$("#content");
+  let html,fixed=true;
+  if(S.page==="toolchains")html=pgToolchains();
+  else if(S.page==="debugger")html=pgDebugger();
+  else if(S.page.startsWith("folder:"))html=pgFolder(S.page.slice(7));
+  else{fixed=false;html=S.page==="build"?pgBuild():S.page.startsWith("pp.")?pgPlugin(S.page):pgOther();}
+  content.classList.toggle("fixed",fixed);
+  for(const k in VL)if(!html.includes(`data-vl="${k}"`))delete VL[k];
+  content.innerHTML=html;
+  $("#footer").innerHTML=footerHtml();
+  $("#notesHost").innerHTML=notesHtml();
+  $("#overlay").innerHTML=(S.notes&&!S.notesOpen?`<button class="btn sm" style="position:absolute;right:16px;bottom:62px;z-index:40;box-shadow:0 4px 14px rgba(0,0,0,.15)" data-act="openNotes">设计标注</button>`:"")+(S.toast?`<div class="toast">${esc(S.toast)}</div>`:"");
+  mountVLs();perf();
+}
+function refreshTools(){ // 只刷新列表和计数，保留输入框焦点
+  $("#tchips").innerHTML=chipsHtml();
+  const host=document.querySelector('[data-vl="tools"]');
+  const html=vlist("tools",toolRows(),renderToolRow,S.filter==="problems"&&!S.q?"✓ 没有需要处理的工具":"没有匹配的工具");
+  const tmp=document.createElement("div");tmp.innerHTML=html;host.replaceWith(tmp.firstElementChild);
+  S.scroll.tools=0;mountVLs();
+}
+let toastTimer;
+function toast(m){S.toast=m;render();clearTimeout(toastTimer);toastTimer=setTimeout(()=>{S.toast=null;$("#overlay .toast")?.remove();},2200);}
+function go(page){S.page=page;S.navq&&(S.navq="",$("#navq").value="");render();}
+function gotoTool(id){
+  const t=TOOL[id];if(!t)return;
+  S.page="toolchains";S.sel=id;S.q="";S.filter="all";S.navq="";$("#navq").value="";S.open.build=true;
+  const key=S.groupBy==="plugin"?"p:"+t.pk:(t.aud==="plugin"?"plugin":t.cat);S.collapsed[key]=false;
+  render();reveal("tools",r=>r.type==="t"&&r.t.id===id);
+}
+
+/* ================= 交互 ================= */
+document.addEventListener("click",e=>{
+  const el=e.target.closest("[data-act],[data-nav],[data-tog],[data-tool],[data-grp],[data-filter],[data-scope],[data-opt],[data-note],[data-goto-tool],[data-goto-dbg],[data-adapter],[data-filter-tools]");
+  if(!el)return;
+  const d=el.dataset;
+  if(d.note){S.notes=true;S.notesOpen=true;S.noteHl=+d.note;$("#optNotes").checked=true;render();document.getElementById("note-"+d.note)?.scrollIntoView({block:"center"});return;}
+  if(d.tog!==undefined&&e.target.closest("[data-tog]")===el){if(d.tog==="build"||d.tog.startsWith("k."))S.open[d.tog]=!S.open[d.tog];else toast("原型只覆盖“构建、执行、部署”分组");render();return;}
+  if(d.nav){if(["appearance","plugins","vcs","langs","tools","ai","about"].includes(d.nav)){S.page=d.nav;render();return;}if(d.nav==="build")S.open.build=true;go(d.nav);return;}
+  if(d.gotoTool){gotoTool(d.gotoTool);return;}
+  if(d.filterTools!==undefined){S.page="toolchains";S.q=d.filterTools;S.filter="all";S.navq="";$("#navq").value="";render();return;}
+  if(d.gotoDbg){S.page="debugger";S.dbgSel=d.gotoDbg;S.navq="";$("#navq").value="";render();return;}
+  if(d.adapter){S.dbgSel=d.adapter;S.dbgAdd="";render();return;}
+  if(d.tool){S.sel=d.tool;S.adding=null;render();return;}
+  if(d.grp){const r=VL.tools?.rows.find(x=>x.type==="g"&&x.key===d.grp);S.collapsed[d.grp]=!(r&&r.collapsed);const sc=S.scroll.tools;render();const host=document.querySelector('[data-vl="tools"]');if(host){host.scrollTop=sc||0;paintVL("tools");}return;}
+  if(d.filter){S.filter=S.filter===d.filter&&d.filter!=="all"?"all":d.filter;refreshTools();return;}
+  if(d.scope&&d.scope!==""){S.scope=d.scope;S.adding=null;render();return;}
+  if(d.opt!==undefined){const o=CUR_OPTS[+d.opt];if(!o||o.dis)return;const t=TOOL[S.sel];
+    const saved=S.saved[S.scope][t.id]||"";if(o.home===saved)delete S.draft[S.scope][t.id];else S.draft[S.scope][t.id]=o.home;
+    const sc=S.scroll.tools;render();return;}
+  const act=d.act;if(!act)return;
+  const t=TOOL[S.sel];
+  switch(act){
+    case "toast":toast(d.msg);break;
+    case "redetect":toast("已重新检测 "+fmt(TOOLS.length)+" 个工具（演示）");break;
+    case "trust":S.trusted=true;render();break;
+    case "untrust":S.trusted=false;render();break;
+    case "why":S.whyOpen=!S.whyOpen;render();break;
+    case "undoTool":delete S.draft[S.scope][t.id];render();break;
+    case "autoTool":{const saved=S.saved[S.scope][t.id]||"";if(!saved)delete S.draft[S.scope][t.id];else S.draft[S.scope][t.id]="";render();break;}
+    case "addDir":S.adding=t.id;S.addPath="";render();$("#addPath")?.focus();break;
+    case "cancelAdd":S.adding=null;render();break;
+    case "checkDir":{const v=($("#addPath")?.value||"").trim();if(!v){toast("请先填写目录");break;}
+      const c={home:v,exe:t.cands[0]?.exe||"bin/"+t.name.toLowerCase(),ver:(t.cands[0]?.ver||"1.0.0").replace(/\d+$/,m=>String(+m+1)),src:["手动添加"]};
+      (S.custom[S.scope][t.id]||(S.custom[S.scope][t.id]=[])).push(c);S.draft[S.scope][t.id]=v;S.adding=null;render();break;}
+    case "apply":doApply(false);break;
+    case "ok":if(totalDrafts())doApply(true);else toast("演示：关闭设置窗口");break;
+    case "cancel":S.draft={global:{},project:{}};S.custom={global:{},project:{}};S.dbgDraft={};render();toast("已放弃全部修改，没有写入任何文件");break;
+    case "closeNotes":S.notesOpen=false;render();break;
+    case "openNotes":S.notesOpen=true;render();break;
+    case "dbgToggle":{const a=ADAPTERS.find(x=>x.id===S.dbgSel)||ADAPTERS[0];const cur={...dbgState(a),patterns:[...dbgState(a).patterns]};cur[d.f]=!cur[d.f];setDbg(a,cur);render();break;}
+    case "dbgDel":{const a=ADAPTERS.find(x=>x.id===S.dbgSel)||ADAPTERS[0];const cur={...dbgState(a),patterns:[...dbgState(a).patterns]};cur.patterns.splice(+d.i,1);setDbg(a,cur);render();break;}
+    case "dbgAdd":{const a=ADAPTERS.find(x=>x.id===S.dbgSel)||ADAPTERS[0];const v=($("#dbgAdd")?.value||"").trim();if(!v)break;const cur={...dbgState(a),patterns:[...dbgState(a).patterns,v]};S.dbgAdd="";setDbg(a,cur);render();break;}
+    case "dbgReset":{const a=ADAPTERS.find(x=>x.id===S.dbgSel)||ADAPTERS[0];if(S.dbgSaved[a.id])S.dbgDraft[a.id]={...a.def,patterns:[...a.def.patterns],_reset:true};else delete S.dbgDraft[a.id];render();break;}
+    case "showProblems":S.page="toolchains";S.filter="problems";S.q="";render();break;
+  }
+});
+function setDbg(a,cur){const base=S.dbgSaved[a.id]||a.def;const same=JSON.stringify({...base,_reset:0})===JSON.stringify({...cur,_reset:0});if(same)delete S.dbgDraft[a.id];else S.dbgDraft[a.id]=cur;}
+function doApply(close){
+  S.applying=true;render();
+  setTimeout(()=>{
+    for(const sc of ["global","project"]){for(const [id,h] of Object.entries(S.draft[sc])){if(h)S.saved[sc][id]=h;else delete S.saved[sc][id];}
+      for(const [id,list] of Object.entries(S.custom[sc])){const t=TOOL[id];if(t)for(const c of list)if(!t.cands.some(x=>x.home===c.home))t.cands.push(c);}}
+    for(const [id,v] of Object.entries(S.dbgDraft)){const a=ADAPTERS.find(x=>x.id===id);if(v._reset||JSON.stringify(v)===JSON.stringify(a.def))delete S.dbgSaved[id];else S.dbgSaved[id]=v;}
+    const n=totalDrafts();S.draft={global:{},project:{}};S.custom={global:{},project:{}};S.dbgDraft={};S.applying=false;
+    toast(close?`已应用 ${n} 项并重新读取生效值（演示：随后关闭窗口）`:`已应用 ${n} 项，界面显示的是重新读取后的生效值`);
+  },450);
+}
+document.addEventListener("input",e=>{
+  const id=e.target.id;
+  if(id==="tq"){S.q=e.target.value;refreshTools();}
+  else if(id==="navq"){S.navq=e.target.value;$("#nav").innerHTML=navHtml();}
+  else if(id==="addPath")S.addPath=e.target.value;
+  else if(id==="dbgAdd")S.dbgAdd=e.target.value;
+  else if(id==="dq"||id==="fq"){if(id==="dq")S.dbgQ=e.target.value;else S.folderQ=e.target.value;const pos=e.target.selectionStart;render();const el=$("#"+id);el.focus();el.setSelectionRange(pos,pos);}
+});
+document.addEventListener("change",e=>{
+  if(e.target.matches("[data-groupby]")){S.groupBy=e.target.value;S.scroll.tools=0;render();}
+  else if(e.target.id==="optScale"){S.scale=e.target.value;build(S.scale);STAT_KEY="";if(!TOOL[S.sel])S.sel=TOOLS[0]?.id;if(!ADAPTERS.find(a=>a.id===S.dbgSel))S.dbgSel=ADAPTERS[0]?.id;if(S.page.startsWith("pp.")&&!PAGES.find(p=>p.id===S.page))S.page="build";S.scroll={};render();}
+  else if(e.target.id==="optDark"){S.dark=e.target.checked;render();}
+  else if(e.target.id==="optNotes"){S.notes=e.target.checked;S.notesOpen=S.notes;render();}
+});
+document.addEventListener("keydown",e=>{
+  if(e.key==="Enter"&&e.target.id==="dbgAdd"){e.preventDefault();document.querySelector('[data-act="dbgAdd"]')?.click();return;}
+  if(e.key==="Enter"&&e.target.id==="addPath"){e.preventDefault();document.querySelector('[data-act="checkDir"]')?.click();return;}
+  if(S.page!=="toolchains"||(e.key!=="ArrowDown"&&e.key!=="ArrowUp"))return;
+  if(e.target.matches("input,select,textarea"))return;
+  const items=(VL.tools?.rows||[]).filter(r=>r.type==="t");if(!items.length)return;
+  let i=items.findIndex(r=>r.t.id===S.sel);i=e.key==="ArrowDown"?Math.min(items.length-1,i+1):Math.max(0,i-1);
+  S.sel=items[i].t.id;e.preventDefault();const sc=S.scroll.tools;render();const host=document.querySelector('[data-vl="tools"]');host.scrollTop=sc||0;reveal("tools",r=>r.type==="t"&&r.t.id===S.sel);host.focus();
+});
+/* ⓘ 提示：鼠标和键盘焦点都能打开 */
+const tip=$("#tip");
+function showTip(el){const r=el.getBoundingClientRect();tip.textContent=el.dataset.tip;tip.style.display="block";const w=tip.offsetWidth,h=tip.offsetHeight;let x=Math.min(window.innerWidth-w-8,Math.max(8,r.left-10)),y=r.bottom+6;if(y+h>window.innerHeight-8)y=r.top-h-6;tip.style.left=x+"px";tip.style.top=y+"px";}
+document.addEventListener("mouseover",e=>{const el=e.target.closest("[data-tip]");if(el)showTip(el);else tip.style.display="none";});
+document.addEventListener("focusin",e=>{const el=e.target.closest("[data-tip]");if(el)showTip(el);});
+document.addEventListener("focusout",()=>{tip.style.display="none";});
+
+/* ================= 启动：支持地址参数 ================= */
+(function init(){
+  const h=new URLSearchParams(location.hash.slice(1));
+  if(h.get("scale"))S.scale=h.get("scale");
+  if(h.get("page"))S.page=h.get("page");
+  if(h.get("scope"))S.scope=h.get("scope");
+  if(h.get("sel"))S.sel=h.get("sel");
+  if(h.get("filter"))S.filter=h.get("filter");
+  if(h.get("group"))S.groupBy=h.get("group");
+  if(h.get("q"))S.q=h.get("q");
+  if(h.get("navq"))S.navq=h.get("navq");
+  if(h.get("dbg"))S.dbgSel=h.get("dbg");
+  if(h.get("why")==="1")S.whyOpen=true;
+  if(h.get("trusted")==="1")S.trusted=true;
+  if(h.get("dark")==="1")S.dark=true;
+  if(h.get("notes")==="0"){S.notes=false;S.notesOpen=false;}
+  if(h.get("draft")){const [id,home]=h.get("draft").split("|");S.draft[S.scope][id]=home;}
+  $("#optScale").value=S.scale;$("#optDark").checked=S.dark;$("#optNotes").checked=S.notes;$("#navq").value=S.navq;
+  build(S.scale);if(!TOOL[S.sel])S.sel=TOOLS[0]?.id;
+  render();
+  if(S.page==="toolchains")reveal("tools",r=>r.type==="t"&&r.t.id===S.sel);
+})();
+</script>
+</body>
+</html>

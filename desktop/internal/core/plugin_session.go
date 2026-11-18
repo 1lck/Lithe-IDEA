@@ -18,6 +18,9 @@ type PluginBackendStart struct {
 	RootURI          any               `json:"rootUri"`
 	WorkingDirectory string            `json:"workingDirectory"`
 	HostServices     []string          `json:"hostServices,omitempty"`
+	// FunctionRelayEnabled isolates preparation sessions from both incoming and
+	// outgoing cross-plugin calls. Omitted preserves ordinary backend behavior.
+	FunctionRelayEnabled *bool `json:"functionRelayEnabled,omitempty"`
 	// HostOptions are the options of the granted services, which Core reports to the
 	// backend through lithe/host/getCapabilities.
 	HostOptions            *PluginHostOptions `json:"hostOptions,omitempty"`

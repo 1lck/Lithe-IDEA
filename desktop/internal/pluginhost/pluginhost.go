@@ -163,6 +163,7 @@ func Declared() Capabilities {
 		"debugAdapters",
 		"languageServers",
 		"languages",
+		"managedRuntimes",
 		"outputLinkMatchers",
 		"pluginFunctions",
 		"projectGenerators",

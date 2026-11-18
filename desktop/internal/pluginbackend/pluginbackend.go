@@ -137,6 +137,12 @@ type StartRequest struct {
 	// Environment is added to the provider process environment. It is for host
 	// integration tests and host-owned facts, never plugin-controlled secrets.
 	Environment map[string]string
+	// ManagedTools are per-launch installations verified by the managed runtime resolver.
+	// They are never stored as global defaults or used by a different plugin/session.
+	ManagedTools map[string]ToolExecutable
+	// Preparation starts a private resolver without workspace services or the
+	// cross-plugin function relay. Only direct host invocations may reach it.
+	Preparation bool
 	// RootURI and WorkingDirectory are the workspace the backend serves.
 	RootURI          any
 	WorkingDirectory string
@@ -341,6 +347,9 @@ func (r *Runner) Start(ctx context.Context, request StartRequest) (Session, erro
 		return Session{}, err
 	}
 	granted := pluginhost.GrantServices(plan.Backend.HostServices, r.services)
+	if request.Preparation {
+		granted = nil
+	}
 	// A packaged launch runs the program the package ships; a runtime launch runs the
 	// packaged runtime, which VerifyLaunch put in Runtime; a system-command launch
 	// names a bare command the host resolves itself.
@@ -382,12 +391,16 @@ func (r *Runner) Start(ctx context.Context, request StartRequest) (Session, erro
 	}
 	// A bare tool launch uses the selected installation and the opaque args.
 	if executable == "" && plan.Launch.Kind == pluginhost.LaunchTool {
-		if r.tools == nil {
-			return Session{}, fmt.Errorf("%w: this host cannot resolve tool launches", ErrRequest)
-		}
-		tool, err := r.tools(ctx, request.PluginID, request.WorkingDirectory, plan.Launch.Tool)
-		if err != nil {
-			return Session{}, err
+		tool, managed := request.ManagedTools[plan.Launch.Tool]
+		if !managed {
+			if r.tools == nil {
+				return Session{}, fmt.Errorf("%w: this host cannot resolve tool launches", ErrRequest)
+			}
+			var err error
+			tool, err = r.tools(ctx, request.PluginID, request.WorkingDirectory, plan.Launch.Tool)
+			if err != nil {
+				return Session{}, err
+			}
 		}
 		executable, toolEnvironment = tool.Path, tool.Environment
 	}
@@ -417,6 +430,10 @@ func (r *Runner) Start(ctx context.Context, request StartRequest) (Session, erro
 	}
 	if start.InitializeTimeoutMilliseconds == 0 && r.initializeTimeout > 0 {
 		start.InitializeTimeoutMilliseconds = int(r.initializeTimeout / time.Millisecond)
+	}
+	if request.Preparation {
+		enabled := false
+		start.FunctionRelayEnabled = &enabled
 	}
 	var started core.PluginBackendStarted
 	if request.LanguageID != "" {
@@ -465,11 +482,19 @@ func mergeEnvironment(plan, host map[string]string) map[string]string {
 // shutdown request fails, because Core keeps owning the session until it is
 // disposed.
 func (r *Runner) Stop(ctx context.Context, session Session) error {
+	_, err := r.StopAndDispose(ctx, session)
+	return err
+}
+
+// StopAndDispose also reports whether Core released the session. A graceful
+// shutdown can fail while disposal succeeds; file owners must not retry an
+// already-destroyed session or mistake that diagnostic for a live process.
+func (r *Runner) StopAndDispose(ctx context.Context, session Session) (bool, error) {
 	if r == nil || r.kernel == nil {
-		return errors.New("pluginbackend: no kernel")
+		return false, errors.New("pluginbackend: no kernel")
 	}
 	if session.ID == "" {
-		return ErrNoSession
+		return false, ErrNoSession
 	}
 	r.untrackTrace(session.ID)
 	stopErr := r.kernel.StopPluginBackend(ctx, session.ID)
@@ -492,7 +517,7 @@ func (r *Runner) Stop(ctx context.Context, session Session) error {
 			r.forwardLog(event)
 		}
 	}
-	return errors.Join(stopErr, destroyErr)
+	return destroyErr == nil, errors.Join(stopErr, destroyErr)
 }
 
 // EventDiagnostics is the runtime event carrying a language server's diagnostics

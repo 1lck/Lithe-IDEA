@@ -82,6 +82,10 @@ func TestPluginSettingsRestartWaitsForTeardownAndHonorsRevocation(t *testing.T) 
 				t.Fatal(err)
 			}
 			h.app.plugins = service
+			// The service is attached after the project opened, so give the
+			// project the workspace identity opening would have registered;
+			// a replacement start is refused without it.
+			p.pluginContext = service.Contexts.Open(p.root).ContextRef
 			session := &pluginservice.LanguageSession{PluginID: "dev.example.settings", Version: "1.0.0", LanguageID: "fixture", Session: pluginbackend.Session{ID: "old-session"}}
 			server := &pluginServer{session: session, project: p, cancel: func() {}, done: kernel.destroyed}
 			h.app.pluginServers = map[string]*pluginServer{session.PluginID: server}

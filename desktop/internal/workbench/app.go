@@ -432,6 +432,8 @@ const (
 type project struct {
 	// root is the absolute, cleaned path of the project folder.
 	root string
+	// pluginContext belongs to this open project, not to any background consumer.
+	pluginContext pluginservice.ContextRef
 	// indexing is the search exclusion policy the project installed in Core (directory_exclusions.go).
 	indexing projectIndexing
 	// name is the folder's name, shown in the title bar.
@@ -676,6 +678,10 @@ type App struct {
 	pluginServerLanguages map[string]string
 	// pluginServerStarting marks a language whose first start is in flight.
 	pluginServerStarting map[string]bool
+	// Preparations own cancellable starts until a real server takes over.
+	pluginServerPreparations map[string]*pluginServerPreparation
+	pluginServerRevision     uint64
+	pluginServerChanges      map[string]uint64
 	// pluginServerSuppressed marks plugins the user disabled or uninstalled while
 	// a start was in flight, so the finished start is disposed instead of
 	// registering a server the plugin no longer owns.
@@ -949,6 +955,8 @@ func (a *App) openPlugins(options Options) {
 	service.LanguageTool = a.resolveLanguageTool
 	service.LogDirectory = a.pluginLogDirectory
 	service.RecordFailed = a.pluginOperationRecordFailed
+	service.RuntimeIssue = a.recordPluginRuntimeIssue
+	service.SetRuntimeLanguage(a.language().Code())
 	if err := service.AttachWorkbench(pluginWorkbench{app: a}); err != nil {
 		a.operationFailed("plugin_host_services", err)
 	}
@@ -1274,6 +1282,9 @@ func (a *App) setLanguage(code string) {
 	a.settings.Language = code
 	a.text = i18n.For(a.language())
 	a.shared.text.Store(a.text)
+	if a.plugins != nil {
+		a.plugins.SetRuntimeLanguage(a.language().Code())
+	}
 	if a.settingsWindow != nil {
 		a.settingsWindow.Invalidate()
 	}
@@ -1493,6 +1504,9 @@ func (a *App) openProjectHere(path string) {
 		a.openTerminals(p)
 		a.project = p
 		a.ideAPISetProject(p)
+		if a.plugins != nil && a.plugins.Contexts != nil {
+			p.pluginContext = a.plugins.Contexts.Open(root).ContextRef
+		}
 		rootCopy := root
 		a.toolchainRoot.Store(&rootCopy)
 		a.notice = ""
@@ -1502,7 +1516,7 @@ func (a *App) openProjectHere(path string) {
 		a.loadGit(p)
 		a.startGitObservation(p)
 		a.loadLog(p)
-		a.activatePluginWorkspace(root)
+		a.activatePluginWorkspace(p)
 		a.restoreEditorSession(p)
 		a.restoreCheckpoints(p)
 		a.restoreNativePanels(p)
