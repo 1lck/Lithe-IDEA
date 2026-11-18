@@ -2,13 +2,50 @@ package workbench
 
 import (
 	"context"
+	"errors"
 	"testing"
+	"time"
 
 	"github.com/1lck/Lithe-IDEA/desktop/internal/core"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/i18n"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/pluginruntime"
+	"github.com/1lck/Lithe-IDEA/desktop/internal/pluginservice"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/settingswindow"
 )
+
+func TestPluginWorkspaceRequestKeepsIdentityAcrossReopen(t *testing.T) {
+	kernel := &testKernel{Client: core.NewClient()}
+	h := newHarness(t, kernel)
+	service, err := pluginservice.Open(kernel, h.store, t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	h.app.plugins = service
+	root := t.TempDir()
+	h.open(root)
+	first := h.app.pluginBackendRequest()
+	if first.Context.ContextID == "" {
+		t.Fatal("the project opened before owning its plugin workspace context")
+	}
+	h.app.closeProject()
+	h.settle()
+	if h.app.project != nil {
+		t.Fatal("the first project did not close")
+	}
+	h.open(root)
+	second := h.app.pluginBackendRequest()
+	if first.WorkingDirectory != second.WorkingDirectory || first.Context == second.Context {
+		t.Fatal("reopening a path reused the previous language-server request identity")
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	if err := h.app.plugins.ActivateWorkspace(ctx, nil, first.Context); !errors.Is(err, pluginservice.ErrContextExpired) {
+		t.Fatalf("the old queued activation adopted the reopened project: %v", err)
+	}
+	if _, err := h.app.plugins.Contexts.Lookup(second.Context); err != nil {
+		t.Fatalf("a late activation invalidated the new project: %v", err)
+	}
+}
 
 func TestClosingProjectCancelsRuntimePreparationAndIgnoresLateResult(t *testing.T) {
 	h := newHarness(t, &testKernel{Client: core.NewClient()})
