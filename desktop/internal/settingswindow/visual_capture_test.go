@@ -167,12 +167,17 @@ func TestVisualSettings(t *testing.T) {
 					d.click("Compiler")
 					d.click(text("desktop.toolchains.custom"))
 					d.pump()
-				case "m47-toolchain-project-untrusted", "m48-toolchain-project-trusted":
+				case "m47-toolchain-project-untrusted", "m48-toolchain-project-trusted", "m49-toolchain-project-trust-help":
 					d.click(text("desktop.toolchains.project"))
-					d.until("project toolchains", func() bool { return w.toolchains.loaded && !w.toolchains.snapshot.Global })
-				case "m49-toolchain-project-trust-help":
-					d.click(text("desktop.toolchains.project"))
-					d.until("project toolchains help", func() bool { return w.toolchains.loaded && !w.toolchains.snapshot.Global })
+					status := text("desktop.toolchains.trustStatusTrusted")
+					if scenario.id == "m47-toolchain-project-untrusted" {
+						status = text("desktop.toolchains.trustStatusUntrusted")
+					}
+					// The load result can arrive during painting, before the trust controls appear.
+					d.until("the visible project trust status", func() bool { return d.text(status) })
+					if scenario.id != "m49-toolchain-project-trust-help" {
+						break
+					}
 					help := text("desktop.toolchains.trustProjectHelp")
 					info := d.hintHit(help).Bounds
 					x, y := info.X+info.Width/2, info.Y+info.Height/2
