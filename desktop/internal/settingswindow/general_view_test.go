@@ -34,8 +34,8 @@ func (d *windowDriver) showsHelp(help string) bool {
 }
 
 // helpBeside fails unless the first line of help shows to the right of trigger, starting
-// no higher than trigger's top and no lower than its bottom: the info tip and its pinned
-// popover open beside the glyph, not over the rows under it.
+// no higher than trigger's top and no lower than its bottom: the info tip opens beside the
+// glyph, not over the rows under it.
 func (d *windowDriver) helpBeside(help string, trigger gfx.Rect, what string) {
 	d.t.Helper()
 	for _, text := range d.driver.Snapshot().Texts {
@@ -117,7 +117,10 @@ func TestGeneralLanguageChangeRepaintsOpenWindow(t *testing.T) {
 	}
 }
 
-func TestGeneralInfoHoverClickAndKeyboard(t *testing.T) {
+// TestGeneralInfoShowsHelpOnlyInItsTip covers the ⓘ: its help is the glyph's description
+// for assistive technology and shows beside it while the pointer rests on it, and pressing
+// it opens no second card that stays after the pointer leaves.
+func TestGeneralInfoShowsHelpOnlyInItsTip(t *testing.T) {
 	w := newWindow(NewController(Options{Language: func() i18n.Language { return i18n.English }}), Values{})
 	d := openWindow(t, w)
 	help := w.text.Settings.AppearanceHelp
@@ -138,40 +141,26 @@ func TestGeneralInfoHoverClickAndKeyboard(t *testing.T) {
 		t.Fatal("hover did not display the help")
 	}
 	d.helpBeside(help, trigger.Bounds, "hover")
+	// A press hides the tip until the pointer leaves the glyph, as on every other control.
 	if err := d.driver.Click(x, y); err != nil {
 		t.Fatal(err)
+	}
+	if d.showsHelp(help) {
+		t.Fatal("pressing the ⓘ opened its help in a second card")
 	}
 	if err := d.driver.Move(2, 2); err != nil {
 		t.Fatal(err)
 	}
-	if !d.showsHelp(help) {
-		t.Fatal("moving away dismissed pinned help")
-	}
-	d.helpBeside(help, trigger.Bounds, "pinned")
-	d.key(gfx.KeyEscape)
 	if d.showsHelp(help) || w.sess.finished.Load() {
-		t.Fatal("Escape did not close help without closing settings")
+		t.Fatal("the help stayed on screen after the pointer left the ⓘ")
 	}
-	if err := d.driver.Click(x, y); err != nil {
+	if err := d.driver.Move(x, y); err != nil {
 		t.Fatal(err)
 	}
 	if !d.showsHelp(help) {
-		t.Fatal("click did not pin the help")
+		t.Fatal("the tip did not come back when the pointer returned to the ⓘ")
 	}
-	d.key(gfx.KeyEnter)
-	if err := d.driver.Move(2, 2); err != nil {
-		t.Fatal(err)
-	}
-	if d.showsHelp(help) || w.sess.finished.Load() {
-		t.Fatal("keyboard activation did not toggle help")
-	}
-	if err := d.driver.Click(x, y); err != nil {
-		t.Fatal(err)
-	}
-	d.click("Search settings")
-	if d.showsHelp(help) || w.sess.finished.Load() {
-		t.Fatal("outside click did not dismiss help without closing settings")
-	}
+	d.helpBeside(help, trigger.Bounds, "hover again")
 }
 
 func TestSettingsSearchUsesPlatformShortcutAndClears(t *testing.T) {
