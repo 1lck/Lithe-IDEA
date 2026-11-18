@@ -1,12 +1,25 @@
 package workbench
 
 import (
+	"archive/zip"
+	"bytes"
+	"context"
+	"crypto/sha256"
+	"encoding/hex"
+	"io"
+	"net/http"
+	"os"
+	"path/filepath"
+	"strings"
 	"testing"
+	"time"
 
 	"github.com/1lck/Lithe-IDEA/desktop/internal/core"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/marketplace"
+	"github.com/1lck/Lithe-IDEA/desktop/internal/plugininstall"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/pluginmanager"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/pluginpkg"
+	"github.com/1lck/Lithe-IDEA/desktop/internal/pluginservice"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/plugintrust"
 )
 
@@ -54,5 +67,108 @@ func TestApprovedPluginAutoSourceOnlyMatchesSavedOrigins(t *testing.T) {
 		if approvedPluginAutoSource(url, records) {
 			t.Fatalf("source %q is not previously approved", url)
 		}
+	}
+}
+
+// A marketplace update uses the same verified archive and approval path as a
+// manual install. The previous approved version remains on disk while the next
+// version is selected, without any real plugin, network, or toolchain.
+func TestPluginAutoUpdateInstallsAnApprovedNewVersion(t *testing.T) {
+	const id = "io.github.example.output-links"
+	const origin = "https://raw.githubusercontent.com/example/lithe-plugins/HEAD/lithe-plugin-index.json"
+	const archiveURL = "https://plugins.example.test/auto-update.zip"
+
+	h := newHarness(t, &testKernel{Client: core.NewClient()})
+	service, err := pluginservice.Open(core.NewClient(), h.store, t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	h.app.plugins = service
+
+	archiveBytes := func(version string) ([]byte, string) {
+		t.Helper()
+		manifest := strings.Replace(installablePluginManifest, `"version": "1.0.0"`, `"version": "`+version+`"`, 1)
+		if !strings.Contains(manifest, `"version": "`+version+`"`) {
+			t.Fatalf("fixture version %q was not applied", version)
+		}
+		var payload bytes.Buffer
+		writer := zip.NewWriter(&payload)
+		entry, err := writer.Create(id + "/plugin.json")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := entry.Write([]byte(manifest)); err != nil {
+			t.Fatal(err)
+		}
+		if err := writer.Close(); err != nil {
+			t.Fatal(err)
+		}
+		hash := sha256.Sum256(payload.Bytes())
+		return payload.Bytes(), hex.EncodeToString(hash[:])
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	defer cancel()
+	firstBytes, firstDigest := archiveBytes("1.0.0")
+	firstPath := filepath.Join(t.TempDir(), "first.zip")
+	if err := os.WriteFile(firstPath, firstBytes, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	first, err := h.app.preparePlugin(ctx, plugininstall.Request{
+		ArchivePath: firstPath, Root: service.Root, Source: plugintrust.Marketplace,
+		ArchiveSHA256: firstDigest, MarketplaceIndexURL: origin,
+		ExpectedID: id, ExpectedVersion: "1.0.0",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = service.Installer.Discard(first) })
+	// The fixture models the user's initial, explicitly approved marketplace install.
+	if _, err := service.Installer.Commit(first); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := service.Manager.EnableInstalled(id); err != nil {
+		t.Fatal(err)
+	}
+	previous, found, err := service.Manager.Approval(id, "1.0.0")
+	if err != nil || !found || previous.MarketplaceIndexURL != origin {
+		t.Fatalf("initial approved source = %+v, found = %v, error = %v", previous, found, err)
+	}
+
+	nextBytes, nextDigest := archiveBytes("2.0.0")
+	requests := 0
+	client := &http.Client{Transport: pluginArchiveTransport(func(request *http.Request) (*http.Response, error) {
+		requests++
+		if request.URL.String() != archiveURL {
+			t.Errorf("archive request = %q, want %q", request.URL, archiveURL)
+		}
+		return &http.Response{
+			StatusCode: http.StatusOK, Header: make(http.Header),
+			Body: io.NopCloser(bytes.NewReader(nextBytes)),
+			ContentLength: int64(len(nextBytes)), Request: request,
+		}, nil
+	})}
+	download := marketplace.NewArchiveDownloader(client)
+	offer := core.MarketplacePlugin{
+		ID: id, MarketplaceIndexURL: origin,
+		Availability: core.MarketplaceAvailability{
+			Status: "available", Version: "2.0.0", SHA256: nextDigest, DownloadURL: archiveURL,
+		},
+	}
+	applied, err := h.app.applyPluginAutoUpdate(ctx, download, offer, previous)
+	if err != nil || !applied || requests != 1 {
+		t.Fatalf("auto-updated = %v, request count = %d, error = %v", applied, requests, err)
+	}
+	versions, err := pluginpkg.List(service.Root)
+	if err != nil || len(versions) != 2 {
+		t.Fatalf("retained installed versions = %+v, error = %v", versions, err)
+	}
+	selected, err := service.CurrentInstalled(ctx)
+	if err != nil || len(selected) != 1 || selected[0].Installed.Version != "2.0.0" {
+		t.Fatalf("selected plugin version = %+v, error = %v", selected, err)
+	}
+	record, approved, err := service.Manager.Approval(id, "2.0.0")
+	if err != nil || !approved || record.MarketplaceIndexURL != origin {
+		t.Fatalf("new approved source = %+v, found = %v, error = %v", record, approved, err)
 	}
 }
