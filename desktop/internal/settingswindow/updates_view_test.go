@@ -10,8 +10,8 @@ import (
 	"github.com/1lck/Lithe-IDEA/desktop/internal/i18n"
 )
 
-// updatesPage is the Updates page of a build packaged for installed, showing status as the
-// test changes it, and recording what the page asked the updater to do.
+// updatesPage is the About page's update card of a build packaged for installed, showing
+// status as the test changes it, and recording what the card asked the updater to do.
 type updatesPage struct {
 	status   UpdateStatus
 	switches []string
@@ -52,7 +52,7 @@ func newUpdatesPage(t *testing.T, version string, status UpdateStatus) (*updates
 			}
 		},
 	}), Values{})
-	w.sess.page = pageUpdates
+	w.sess.page = pageAbout
 	return p, openWindow(t, w)
 }
 

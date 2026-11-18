@@ -271,7 +271,6 @@ func (a *App) updateStatus() settingswindow.UpdateStatus {
 	status.Configured = u.open != nil
 	status.Local = u.installed == ""
 	status.Installed, status.Channel = u.installed, u.channel()
-	status.BuildTime, status.Commit = buildinfo.BuildTime, buildinfo.Commit
 	for _, channel := range buildinfo.Channels {
 		status.Sources = append(status.Sources, settingswindow.UpdateSource{
 			Channel: channel, URL: u.feedURL(channel), Custom: u.sources[channel] != "",

@@ -32,9 +32,7 @@ type UpdateStatus struct {
 	// Restorable are the channels whose settings were kept when Lithe last left them, which
 	// switching back can restore.
 	Restorable []string
-	// BuildTime and Commit say when and from what the build was packaged.
-	BuildTime, Commit string
-	Checking          bool
+	Checking   bool
 	// Available is the newer version the feed offers, empty when none; NotesURL its
 	// release notes.
 	Available string
@@ -139,7 +137,7 @@ func feedRepository(address string) string {
 	return parsed.Host
 }
 
-// updatesDraft is the Updates card's unsaved edit: the feed address being typed for the
+// updatesDraft is the update card's unsaved edit: the feed address being typed for the
 // channel updates come from, and a switch of channel waiting for the user to confirm it.
 type updatesDraft struct {
 	// source is the address field. sourceFor is the channel it edits and sourceShown the
@@ -166,26 +164,14 @@ func (d *updatesDraft) loadSource(source UpdateSource) {
 	d.source.SetText(source.URL)
 }
 
-// updatesPage is the Updates page of Appearance & Behavior: the running version over the
-// update card with the channel and its feed.
-func (w *window) updatesPage(c ui.C) {
-	language := w.marketLanguage()
-	w.pageScroll(c, pageUpdates, func() {
-		w.card(c, i18n.Shared(language, "native.currentVersion"), "", func() {
-			ui.Text(c, w.text.App.Version(w.ctrl.opts.Version, w.ctrl.opts.Stable)).FontSize(13).Color(w.pal.text)
-		})
-		w.updateCard(c, true)
-	})
-}
-
 // updateCard is the update controls, as Motty lays them out: a switch for the automatic
 // check, and one row that says what the last check found, with Check Now beside the one
 // button that moves on. A version found is shown in the update dialog of the workbench, with
 // what it changed, before anything is downloaded; the card's button opens it. Once the update
 // is downloaded the same place installs it and restarts, and while it downloads it cancels.
-// full adds, on the Updates page, the build that runs, the channel updates come from and its
-// feed; the About page shows the card without them.
-func (w *window) updateCard(c ui.C, full bool) {
+// Between the switch and that row are the channel updates come from and its feed. The card is
+// on the About page, under the facts that already name the running version and build.
+func (w *window) updateCard(c ui.C) {
 	language := w.marketLanguage()
 	opts := &w.ctrl.opts
 	p := &w.pal
@@ -200,11 +186,6 @@ func (w *window) updateCard(c ui.C, full bool) {
 			ui.Wrap(c, i18n.Shared(language, "desktop.settings.updates.notConfigured")).FontSize(12).Color(p.muted).PadY(5)
 			return
 		}
-		if full {
-			w.settingsRow(c, i18n.Shared(language, "desktop.settings.updates.installed"), "", func() {
-				ui.Text(c, buildLine(language, status)).FontSize(12).Color(p.muted).Ellipsis().Shrink(1)
-			})
-		}
 		autoLabel := i18n.Shared(language, "desktop.settings.updates.auto")
 		w.settingsRow(c, autoLabel, i18n.Shared(language, "desktop.settings.updates.autoHelp"), func() {
 			auto := w.sess.values.AutoCheckUpdates
@@ -218,9 +199,7 @@ func (w *window) updateCard(c ui.C, full bool) {
 				}
 			}
 		})
-		if full {
-			w.updateChannelRows(c, language, status)
-		}
+		w.updateChannelRows(c, language, status)
 		ui.Row(c).FillWidth().Height(1).Shrink(0).Background(p.line).MarginSides(4, 0, 4, 0)
 		ui.Row(c).FillWidth().MinHeight(40).Items(ui.Center).Gap(12).Children(func() {
 			ui.Column(c).Grow(1).Shrink(1).MinWidth(0).Gap(2).Children(func() {
@@ -242,29 +221,7 @@ func (w *window) updateCard(c ui.C, full bool) {
 				FontSize(11).Color(p.subtle).PadY(2)
 		}
 	})
-	if full {
-		w.updateChannelDialog(c, language, status)
-	}
-}
-
-// buildLine names the running build: its channel, and when and from which commit it was
-// packaged when the build says so.
-func buildLine(language i18n.Language, status UpdateStatus) string {
-	name := ChannelName(language, status.Installed)
-	if status.BuildTime == "" || status.Commit == "" {
-		return name
-	}
-	when := status.BuildTime
-	if built, err := time.Parse(time.RFC3339, when); err == nil {
-		when = built.Local().Format("2006-01-02 15:04")
-	}
-	commit := status.Commit
-	if len(commit) > 10 {
-		commit = commit[:10]
-	}
-	return i18n.SharedFormat(language, "desktop.settings.updates.build", map[string]string{
-		"channel": name, "time": when, "commit": commit,
-	})
+	w.updateChannelDialog(c, language, status)
 }
 
 // updateChannelRows are the channel updates come from and the feed it reads. Picking the other

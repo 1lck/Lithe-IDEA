@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/1lck/Lithe-IDEA/desktop/internal/appicon"
+	"github.com/1lck/Lithe-IDEA/desktop/internal/buildinfo"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/i18n"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/icons"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/sysinfo"
@@ -16,31 +17,40 @@ import (
 	"github.com/vivaui/viva/ui"
 )
 
-// The About page's links. They are the ones the project's README gives, so the page and the
-// README send people to the same groups and the same repository.
+// The About page's links. The groups and the repository are the ones the project's README
+// gives, so the page and the README send people to the same places. The Rust core is the
+// repository the clients' shared core is developed in, and Viva the upstream repository of
+// the framework the client is drawn with, not the fork go.mod pins it to.
 const (
 	aboutQQGroup   = "163027877"
 	aboutQQURL     = "https://qm.qq.com/cgi-bin/qm/qr?k=&group_code=" + aboutQQGroup
 	aboutWeChatURL = "https://gcnctzuuwe9u.feishu.cn/wiki/HJFbwZ0hZirAPnkWF3xcPWkCnid?from=from_copylink"
 	aboutRepoURL   = "https://github.com/1lck/Lithe-IDEA"
 	aboutIssuesURL = aboutRepoURL + "/issues"
+	aboutCoreURL   = "https://github.com/Lithe-IDEA/Lithe-core-rust"
+	aboutVivaURL   = "https://github.com/vivaui/viva"
 )
 
 // aboutIconSize is the logo at the head of the page; aboutChip the coloured square of a
-// link and aboutGlyph the glyph in it.
+// link, aboutGlyph the glyph in it and aboutMarkWidth the width of a mark drawn in its own
+// colours, which is wider than it is high.
 const (
-	aboutIconSize = 56
-	aboutChip     = 26
-	aboutGlyph    = 14
+	aboutIconSize  = 56
+	aboutChip      = 26
+	aboutGlyph     = 14
+	aboutMarkWidth = 18
 )
 
 // The colours of the link chips: each service's own, so the mark is recognised before
-// its name is read. The glyph on them is white in both looks.
+// its name is read. The glyph on them is white in both looks. The Rust core's chip is the
+// colour of rust; Viva's is white, as on its organisation's avatar, under its own red mark.
 var (
 	aboutQQColor     = gfx.RGB24(0x12b7f5)
 	aboutWeChatColor = gfx.RGB24(0x07c160)
 	aboutIssuesColor = gfx.RGB24(0xc0554e)
 	aboutRepoColor   = gfx.RGB24(0x24292f)
+	aboutCoreColor   = gfx.RGB24(0xb7410e)
+	aboutVivaColor   = gfx.RGB24(0xffffff)
 )
 
 // copyText puts text on the clipboard; a test replaces it.
@@ -68,12 +78,15 @@ type aboutFacts struct {
 }
 
 // aboutInputs are what aboutFacts are made from, read from the process by
-// currentAboutInputs and given by hand in tests.
+// currentAboutInputs and given by hand in tests. commit and buildTime are what packaging
+// wrote into the build (buildinfo.Commit and BuildTime), empty in a build it did not make;
+// settings are what Go recorded, whose VCS stamp stands in for them then.
 type aboutInputs struct {
 	version           string
 	stable            bool
 	osName, osVersion string
 	arch, goVersion   string
+	commit, buildTime string
 	settings          []debug.BuildSetting
 }
 
@@ -83,6 +96,7 @@ func currentAboutInputs(version string, stable bool) aboutInputs {
 		version: version, stable: stable,
 		osName: sysinfo.Name(), osVersion: sysinfo.Version(),
 		arch: runtime.GOARCH, goVersion: runtime.Version(),
+		commit: buildinfo.Commit, buildTime: buildinfo.BuildTime,
 	}
 	if info, ok := debug.ReadBuildInfo(); ok {
 		in.settings = info.Settings
@@ -95,13 +109,15 @@ func currentAboutInputs(version string, stable bool) aboutInputs {
 // the fixed English ones the bug template asks for rather than interface text.
 func readAboutFacts(in aboutInputs) aboutFacts {
 	facts := aboutFacts{platform: aboutPlatform(in.osName, in.arch), runtime: in.goVersion}
-	var revision, when string
-	for _, setting := range in.settings {
-		switch setting.Key {
-		case "vcs.revision":
-			revision = setting.Value
-		case "vcs.time":
-			when = setting.Value
+	revision, when := in.commit, in.buildTime
+	if revision == "" {
+		for _, setting := range in.settings {
+			switch setting.Key {
+			case "vcs.revision":
+				revision = setting.Value
+			case "vcs.time":
+				when = setting.Value
+			}
 		}
 	}
 	if len(revision) > 7 {
@@ -157,7 +173,7 @@ func (w *window) facts() *aboutFacts {
 }
 
 // aboutPage is the About page, the last of the sidebar: what this copy of Lithe is, its
-// updates, and where its community and code are.
+// updates and how they are checked for, and where its community and code are.
 func (w *window) aboutPage(c ui.C) {
 	language := w.marketLanguage()
 	facts := w.facts()
@@ -187,7 +203,7 @@ func (w *window) aboutPage(c ui.C) {
 			})
 		})
 		if w.ctrl.opts.UpdateStatus != nil {
-			w.updateCard(c, false)
+			w.updateCard(c)
 		}
 		w.card(c, i18n.Shared(language, "desktop.settings.about.community"), "", func() {
 			ui.Column(c).FillWidth().PadY(3).Children(func() {
@@ -203,7 +219,7 @@ func (w *window) aboutPage(c ui.C) {
 			})
 		})
 		w.card(c, i18n.Shared(language, "desktop.settings.about.project"), "", func() {
-			ui.Column(c).FillWidth().PadY(3).Children(func() {
+			ui.Column(c).FillWidth().Gap(4).PadY(3).Children(func() {
 				w.aboutPair(c,
 					func(c ui.C) {
 						w.aboutLink(c, icons.Github, aboutRepoColor, i18n.Shared(language, "desktop.settings.about.repo"),
@@ -212,6 +228,15 @@ func (w *window) aboutPage(c ui.C) {
 					func(c ui.C) {
 						w.aboutLink(c, icons.Bug, aboutIssuesColor, i18n.Shared(language, "desktop.settings.about.issues"),
 							i18n.Shared(language, "desktop.settings.about.issuesHelp"), aboutIssuesURL)
+					})
+				w.aboutPair(c,
+					func(c ui.C) {
+						w.aboutLink(c, icons.Cpu, aboutCoreColor, i18n.Shared(language, "desktop.settings.about.core"),
+							i18n.Shared(language, "desktop.settings.about.coreHelp"), aboutCoreURL)
+					},
+					func(c ui.C) {
+						w.aboutLink(c, icons.VivaMark, aboutVivaColor, i18n.Shared(language, "desktop.settings.about.viva"),
+							i18n.Shared(language, "desktop.settings.about.vivaHelp"), aboutVivaURL)
 					})
 			})
 		})
@@ -299,9 +324,7 @@ func (w *window) aboutLink(c ui.C, icon gfx.Icon, chip gfx.Color, label, help, u
 		HitWith(ui.ID(c), label, gfx.HitOptions{Role: gfx.RoleLink, Cursor: gfx.PointerCursorHand, Description: help}).
 		Hover(ui.Look{}.Background(p.hover)).Focus(ui.Look{}.Ring(2, p.accent))
 	link.Children(func() {
-		ui.Row(c).Size(aboutChip, aboutChip).Shrink(0).Radius(6).Background(chip).Center().Children(func() {
-			ui.Icon(c, icon).Size(aboutGlyph, aboutGlyph).Color(p.white)
-		})
+		w.aboutMark(c, icon, chip)
 		ui.Column(c).Grow(1).Shrink(1).MinWidth(0).Gap(2).Children(func() {
 			ui.Text(c, label).FontSize(13).Weight(gfx.WeightMedium).Color(p.text).Ellipsis()
 			ui.Paragraph(c, help, 2).FontSize(11).Color(p.muted)
@@ -311,4 +334,25 @@ func (w *window) aboutLink(c ui.C, icon gfx.Icon, chip gfx.Color, label, help, u
 	if link.Clicked() && w.ctrl.opts.OpenURL != nil {
 		w.ctrl.opts.OpenURL(url)
 	}
+}
+
+// aboutMark is the chip at the head of a link. A glyph is drawn white on the chip's colour.
+// A mark with colours of its own (its Layers, as Viva's) keeps them: it is drawn at its own
+// proportions on the chip, which a hairline keeps apart from a light card.
+func (w *window) aboutMark(c ui.C, icon gfx.Icon, chip gfx.Color) {
+	p := &w.pal
+	square := ui.Row(c).Size(aboutChip, aboutChip).Shrink(0).Radius(6).Background(chip).Center()
+	if len(icon.Layers) == 0 {
+		square.Children(func() {
+			ui.Icon(c, icon).Size(aboutGlyph, aboutGlyph).Color(p.white)
+		})
+		return
+	}
+	height := float32(aboutMarkWidth)
+	if icon.ViewHeight > 0 && icon.ViewBox > 0 {
+		height = aboutMarkWidth * icon.ViewHeight / icon.ViewBox
+	}
+	square.Stroke(0.5, p.line).Children(func() {
+		ui.Icon(c, icon).Size(aboutMarkWidth, height).Color(p.white)
+	})
 }
