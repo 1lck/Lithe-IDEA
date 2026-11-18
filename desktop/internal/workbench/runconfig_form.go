@@ -46,6 +46,10 @@ type runConfigForm struct {
 	// environment is the variable rows in order; each row keeps its address while rows
 	// are added or removed.
 	environment []*runConfigVariable
+	// beforeLaunch is the IDs of the process runs that start before this one, in order; nil
+	// until the form names the field. beforeLaunchMenu says the menu that adds one is open.
+	beforeLaunch     []string
+	beforeLaunchMenu bool
 	// errors are the wrong values the last save reported: a code such as required by field ID.
 	errors map[string]string
 	// refreshing says an editorForm request for the edited values is out, so the automatic
@@ -81,6 +85,7 @@ const (
 	runFieldDirectory     = "directory"
 	runFieldEnvironment   = "environment"
 	runFieldExecutable    = "executable"
+	runFieldBeforeLaunch  = "beforeLaunch"
 )
 
 // runFieldTextual reports a kind whose value is one string.
@@ -230,6 +235,16 @@ func (f *runConfigForm) readValues(fields []core.RunEditorField, values map[stri
 					f.environment = append(f.environment, &runConfigVariable{name: row.Name, value: row.Value})
 				}
 			}
+		case field.Kind == runFieldBeforeLaunch:
+			if f.beforeLaunch == nil {
+				f.beforeLaunch = []string{}
+				if known {
+					_ = json.Unmarshal(raw, &f.beforeLaunch)
+				}
+				if f.beforeLaunch == nil {
+					f.beforeLaunch = []string{}
+				}
+			}
 		case runFieldTextual(field.Kind):
 			if f.texts[field.ID] == nil {
 				text := ""
@@ -260,6 +275,8 @@ func (f *runConfigForm) collect() map[string]json.RawMessage {
 				rows = append(rows, map[string]string{"name": row.name, "value": row.value})
 			}
 			value = rows
+		case field.Kind == runFieldBeforeLaunch && f.beforeLaunch != nil:
+			value = f.beforeLaunch
 		case runFieldTextual(field.Kind) && f.texts[field.ID] != nil:
 			value = *f.texts[field.ID]
 		default:

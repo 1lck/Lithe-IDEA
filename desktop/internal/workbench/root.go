@@ -313,6 +313,7 @@ func (a *App) overlays(c ui.C) {
 		a.drawRunConfigEditor(c, p)
 		a.drawRunConfigForm(c, p)
 		a.drawRunConfigDelete(c, p)
+		a.drawBeforeLaunchConfirmation(c, p)
 		a.buildOptionsDialog(c, p)
 		a.drawStartupSweep(c)
 		a.drawProjectReplace(c, p)

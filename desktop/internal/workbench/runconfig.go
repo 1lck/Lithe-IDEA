@@ -47,6 +47,9 @@ type runConfigState struct {
 	newMenu bool
 	// deleting is the user configuration whose delete waits for confirmation.
 	deleting *runConfigDeletion
+	// beforeLaunch is the start that waits for the user to allow the steps a project file
+	// names before it (runconfig_before_launch.go).
+	beforeLaunch *beforeLaunchConfirmation
 	// start is the configuration a save asked to run, started once the next refresh lists it
 	// so the run reads what was saved.
 	start string
@@ -286,6 +289,16 @@ func (a *App) startRunConfigurationWith(p *project, id string, debug *connection
 			a.endBuildOperation(p, op, "failed", nil, "unsaved documents could not be saved", "")
 			return
 		}
+		// The steps a configuration names run first; Run and Debug both run them.
+		a.runBeforeLaunch(p, op, id, func() { a.prepareConfiguredRun(p, op, id, reference, index, debug) })
+	})
+	return op, nil
+}
+
+// prepareConfiguredRun asks Core for the saved launch options of configuration id and has the
+// build provider prepare and start the run.
+func (a *App) prepareConfiguredRun(p *project, op *buildOperation, id string, reference core.RunProviderReference, index int, debug *connectionDebug) {
+	{
 		root, kernel := p.root, a.kernel
 		a.background(p, buildRequestTimeout, func(ctx context.Context) func(*App) {
 			prepare, release := op.bind(ctx)
@@ -316,8 +329,7 @@ func (a *App) startRunConfigurationWith(p *project, id string, debug *connection
 				a.runBuildTargetWith(p, op, &p.build.instances[index], inputs.Reference.ProjectID, inputs.Reference.TargetID, inputs.Reference.Run, options)
 			}
 		})
-	})
-	return op, nil
+	}
 }
 
 // buildInstanceIndex returns the detected build instance a provider reference names, or -1.

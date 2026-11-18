@@ -47,6 +47,11 @@ type runConfigEditor struct {
 	// the picker's selection, 0 for none.
 	installs []runConfigInstall
 	pick     int
+	// beforeLaunch is the IDs of the process runs that start first, as the editor shows them;
+	// savedBeforeLaunch is the list it opened with, so a save that did not change it leaves the
+	// layers as they are. beforeLaunchMenu says the menu that adds a step is open.
+	beforeLaunch, savedBeforeLaunch []string
+	beforeLaunchMenu                bool
 }
 
 // runConfigInstall is one discovered installation a tool choice can be set to.
@@ -110,6 +115,10 @@ func (a *App) openRunConfigEditor(p *project, id string) {
 		directory: configuration.Cwd, environment: environmentText(configuration.Env),
 		scope: "local", loading: true,
 	}
+	for _, step := range configuration.BeforeLaunch {
+		e.beforeLaunch = append(e.beforeLaunch, step.Configuration)
+	}
+	e.savedBeforeLaunch = slices.Clone(e.beforeLaunch)
 	if provider, ok := providerRunEditorState(*configuration); ok {
 		e.provider, e.runtimeArguments, e.entrypoint, e.options, e.tools = true, provider.runtimeArguments, provider.entrypoint, provider.options, provider.tools
 		if reference, ok := configuration.BuildReference(); ok {
@@ -162,6 +171,13 @@ func (a *App) saveRunConfigEditor(p *project) {
 		Root: p.root, Scope: e.scope, ConfigurationID: e.id,
 		WorkingDirectory: strings.TrimSpace(e.directory), Arguments: e.arguments, Environment: environment,
 	}
+	if !slices.Equal(e.beforeLaunch, e.savedBeforeLaunch) {
+		steps := slices.Clone(e.beforeLaunch)
+		if steps == nil {
+			steps = []string{}
+		}
+		edit.BeforeLaunch = &steps
+	}
 	if e.provider {
 		applyRunOptionFields(e)
 		raw, err := providerRunOptionsJSON(e)
@@ -187,6 +203,18 @@ func (a *App) saveRunConfigEditor(p *project) {
 			a.refreshRunConfigurations(p)
 		}
 	})
+}
+
+// beforeLaunchCandidates is the process runs configuration id can run first: every built-in
+// process run that can start, other than itself, as Core allows them.
+func (s *runConfigState) beforeLaunchCandidates(id string) []core.RunConfigurationName {
+	var candidates []core.RunConfigurationName
+	for _, configuration := range s.list {
+		if configuration.ID != id && configuration.IsProcess() && !configuration.Unavailable() {
+			candidates = append(candidates, core.RunConfigurationName{ID: configuration.ID, Name: configuration.Name})
+		}
+	}
+	return candidates
 }
 
 // saveRunConfigOptions has Core compute the file changes of the edit and applies them as one

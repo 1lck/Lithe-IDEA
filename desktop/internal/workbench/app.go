@@ -110,6 +110,8 @@ type Kernel interface {
 	SaveRunConfiguration(ctx context.Context, request core.RunConfigurationSave) (core.RunConfigurationSaved, error)
 	DeleteRunConfiguration(ctx context.Context, root, configurationID string, plugins []core.RunInstalledPlugin) ([]core.RunConfigChange, error)
 	CreateRunLaunchPlan(ctx context.Context, root, configurationID, inlineScriptBase string) (core.RunLaunchPlan, error)
+	// RunBeforeLaunch expands the steps a configuration runs before it starts (runconfig_before_launch.go).
+	RunBeforeLaunch(ctx context.Context, root, configurationID string) (core.RunBeforeLaunch, error)
 	RunArgumentText(ctx context.Context, lists [][]string) ([]string, error)
 	SetDebugBreakpoints(ctx context.Context, sessionID, sourcePath string, breakpoints []core.DebugSourceBreakpoint) (core.DebugUpdate, error)
 	ExecuteDebug(ctx context.Context, sessionID, operationID, command string, threadID *int64, granularity string) (core.DebugUpdate, error)
