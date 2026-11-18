@@ -2,6 +2,7 @@ package workbench
 
 import (
 	"context"
+	"errors"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -11,8 +12,26 @@ import (
 	"github.com/1lck/Lithe-IDEA/desktop/internal/core"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/i18n"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/pluginbackend"
+	"github.com/1lck/Lithe-IDEA/desktop/internal/pluginruntime"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/pluginservice"
 )
+
+// pluginServerPreparation owns one start, including an optional runtime repair.
+// Progress is written by the worker and read by the status bar; identity and
+// cancellation remain protected by pluginServerMu.
+type pluginServerPreparation struct {
+	project   *project
+	cancel    context.CancelFunc
+	progress  atomic.Pointer[pluginruntime.Progress]
+	cancelled atomic.Bool
+	pluginID  string
+	revision  uint64
+}
+
+func (p *pluginServerPreparation) stop() {
+	p.cancelled.Store(true)
+	p.cancel()
+}
 
 const (
 	// pluginServerStartTimeout bounds resolving and launching one language server.
@@ -179,31 +198,84 @@ func (a *App) startPluginServer(languageID string) {
 		return
 	}
 	a.pluginServerStarting[languageID] = true
+	if a.pluginServerPreparations == nil {
+		a.pluginServerPreparations = make(map[string]*pluginServerPreparation)
+	}
+	p := a.project
+	parent := context.Background()
+	if p != nil && p.ctx != nil {
+		parent = p.ctx
+	}
+	ctx, cancel := context.WithCancel(a.operationContext(parent))
+	preparation := &pluginServerPreparation{project: p, cancel: cancel, revision: a.pluginServerRevision}
+	a.pluginServerPreparations[languageID] = preparation
 	a.pluginServerMu.Unlock()
 	request := a.pluginBackendRequest()
-	p := a.project
-	a.background(nil, pluginServerStartTimeout, func(ctx context.Context) func(*App) {
+	request.RuntimeProgress = func(progress pluginruntime.Progress) {
+		preparation.progress.Store(&progress)
+		a.invalidator.Invalidate()
+	}
+	// This task must return even after a project change to dispose a late session.
+	// The preparation's context is nevertheless canceled with its project/window.
+	a.background(nil, 0, func(context.Context) func(*App) {
+		defer cancel()
 		if request.WorkingDirectory != "" {
 			uri, uriErr := a.kernel.PluginDocumentURI(ctx, request.WorkingDirectory, "auto")
 			if uriErr != nil {
-				return func(a *App) { a.finishPluginServerStart(p, languageID, "", "", nil, uriErr) }
+				return func(a *App) { a.finishPluginServerPreparation(preparation, languageID, "", "", nil, uriErr) }
 			}
 			request.RootURI = uri
 		}
 		entries, err := a.plugins.Manager.Installed()
 		if err != nil {
-			return func(a *App) { a.finishPluginServerStart(p, languageID, "", "", nil, err) }
+			return func(a *App) { a.finishPluginServerPreparation(preparation, languageID, "", "", nil, err) }
+		}
+		var failedPluginID, failedVersion string
+		if entry, ok, _ := a.plugins.LanguageServerProvider(ctx, entries, languageID); ok {
+			failedPluginID, failedVersion = entry.Installed.ID, entry.Installed.Version
+			a.pluginServerMu.Lock()
+			preparation.pluginID = failedPluginID
+			if a.pluginServerSuppressed[failedPluginID] || a.pluginServerChanges[failedPluginID] > preparation.revision {
+				cancel()
+			}
+			a.pluginServerMu.Unlock()
 		}
 		session, err := a.plugins.StartLanguageServer(ctx, entries, languageID, request)
-		var failedPluginID, failedVersion string
-		if err != nil {
-			if entry, ok, _ := a.plugins.LanguageServerProvider(ctx, entries, languageID); ok {
-				failedPluginID = entry.Installed.ID
-				failedVersion = entry.Installed.Version
-			}
+		return func(a *App) {
+			a.finishPluginServerPreparation(preparation, languageID, failedPluginID, failedVersion, session, err)
 		}
-		return func(a *App) { a.finishPluginServerStart(p, languageID, failedPluginID, failedVersion, session, err) }
 	})
+}
+
+func (a *App) finishPluginServerPreparation(preparation *pluginServerPreparation, languageID, pluginID, version string, session *pluginservice.LanguageSession, err error) {
+	a.pluginServerMu.Lock()
+	current := a.pluginServerPreparations[languageID] == preparation
+	owner := pluginID
+	if session != nil {
+		owner = session.PluginID
+	}
+	changed := a.pluginServerChanges[owner] > preparation.revision
+	if current {
+		delete(a.pluginServerPreparations, languageID)
+	}
+	a.pluginServerMu.Unlock()
+	if !current || changed {
+		// A result from the previous project cannot clear a newer start's marker.
+		a.stopPluginSession(session)
+		if current {
+			a.pluginServerMu.Lock()
+			delete(a.pluginServerStarting, languageID)
+			a.pluginServerMu.Unlock()
+		}
+		return
+	}
+	if preparation.cancelled.Load() && err == nil {
+		// Cancel may be clicked after the worker finishes but before its queued
+		// result reaches this window. It must still dispose that late session.
+		a.stopPluginSession(session)
+		session, err = nil, context.Canceled
+	}
+	a.finishPluginServerStart(preparation.project, languageID, pluginID, version, session, err)
 }
 
 // finishPluginServerStart takes the started session back on the window thread and
@@ -215,6 +287,10 @@ func (a *App) finishPluginServerStart(p *project, languageID, failedPluginID, fa
 	a.pluginServerMu.Unlock()
 	if err != nil {
 		if a.project != p || suppressed {
+			return
+		}
+		if errors.Is(err, context.Canceled) {
+			a.recordPluginServerFailure(p, languageID, failedPluginID, failedVersion, errors.New(i18n.Shared(a.language(), "desktop.lsp.preparationCancelled")), nil, 0)
 			return
 		}
 		a.operationFailed("plugin_server_start", err)
@@ -404,6 +480,18 @@ func (a *App) detachPluginServer(pluginID string) *pluginservice.LanguageSession
 	}
 	// A start that is still resolving must not register this plugin afterwards.
 	a.pluginServerSuppressed[pluginID] = true
+	a.pluginServerRevision++
+	if a.pluginServerChanges == nil {
+		a.pluginServerChanges = make(map[string]uint64)
+	}
+	a.pluginServerChanges[pluginID] = a.pluginServerRevision
+	for languageID, preparation := range a.pluginServerPreparations {
+		if preparation.pluginID == pluginID {
+			preparation.stop()
+			delete(a.pluginServerPreparations, languageID)
+			delete(a.pluginServerStarting, languageID)
+		}
+	}
 	if server, ok := a.pluginServers[pluginID]; ok {
 		delete(a.pluginServers, pluginID)
 		for languageID, provider := range a.pluginServerLanguages {
@@ -461,6 +549,10 @@ func (a *App) closePluginBackends() {
 func (a *App) stopAllPluginServers() {
 	a.closePluginBackends()
 	a.pluginServerMu.Lock()
+	for _, preparation := range a.pluginServerPreparations {
+		preparation.stop()
+	}
+	a.pluginServerPreparations = nil
 	for id := range a.pluginServerRestarting {
 		delete(a.pluginServerSuppressed, id)
 	}

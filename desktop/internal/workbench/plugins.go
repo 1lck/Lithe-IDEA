@@ -170,7 +170,15 @@ func (a *App) preparePluginInstall(feedback settingswindow.PluginInstallFeedback
 			return nil
 		}
 		commitCtx, cancelCommit := context.WithTimeout(core.WithOrigin(context.Background(), origin), pluginInstallTimeout)
+		if pluginservice.HasManagedRuntimes(plan.Manifest) {
+			cancelCommit()
+			// Large dependencies use the downloader's inactivity deadline. Cancellation
+			// remains available until the verified environment is ready to publish.
+			commitCtx, cancelCommit = context.WithCancel(core.WithOrigin(feedback.Context, origin))
+		}
 		defer cancelCommit()
+		stop := context.AfterFunc(work, cancelCommit)
+		defer stop()
 		return a.commitPluginInstall(commitCtx, plan, feedback)
 	})
 }
@@ -193,7 +201,21 @@ func (a *App) recordPluginInstallCleanup(ctx context.Context, err error) {
 }
 
 func (a *App) commitPluginInstall(ctx context.Context, plan plugininstall.Plan, feedback settingswindow.PluginInstallFeedback) func(*App) {
-	_, err := a.plugins.Installer.Commit(plan)
+	work, finish, err := a.plugins.BeginRuntimeInstallation(ctx, plan.ID)
+	if err == nil {
+		defer finish()
+		ctx = work
+		_, err = a.plugins.EnsureRuntimes(ctx, plan.Manifest, plan.Staging, plan.ID, plan.Version, true, feedback.RuntimeProgress)
+	}
+	if err == nil {
+		err = ctx.Err()
+	}
+	if err == nil {
+		if feedback.Preparing != nil {
+			feedback.Preparing()
+		}
+		_, err = a.plugins.Installer.Commit(plan)
+	}
 	var approval *plugininstall.ApprovalError
 	var enableErr error
 	var displaced displacement
@@ -221,9 +243,10 @@ func (a *App) commitPluginInstall(ctx context.Context, plan plugininstall.Plan, 
 				// user is not told the installation failed. The next installation
 				// of the same version asks again.
 				a.operationFailed("plugin_approval", err)
-			} else {
+			} else if !errors.Is(err, context.Canceled) {
 				a.operationFailed("plugin_commit", err)
 			}
+			// log-exempt: the user may cancel runtime preparation before publication.
 		}
 		if installed && plan.ID != "" {
 			// The installation was just enabled, unless the user had disabled the
@@ -239,6 +262,13 @@ func (a *App) commitPluginInstall(ctx context.Context, plan plugininstall.Plan, 
 		}
 		feedback.Finish(!installed)
 	}
+}
+
+// recordPluginRuntimeIssue records automatic repair and cleanup at the native I/O boundary.
+func (a *App) recordPluginRuntimeIssue(ctx context.Context, err error) {
+	fields := core.LogErrorFields(err)
+	fields["stage"] = "plugin_runtime_repair"
+	a.emitIn(ctx, core.LevelWarn, "app.storage.maintenance_failed", fields)
 }
 
 // setPluginEnabled turns an installed plugin on or off.

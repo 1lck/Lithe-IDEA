@@ -225,6 +225,24 @@ Build Provider 的模型与依赖快照位于插件根（`pluginpkg.DefaultRoot`
 Provider 状态经平台 adapter 写 Application Support；插件安装目录和发行 bundle 只读，
 不改变代码签名或增量更新的源基线。
 
+显式声明 `requires.managedRuntimes: 0` 和 `runtimes.install` 权限的插件，可以让宿主在安装提交前
+准备经过插件校验的依赖。下载来源、SHA-256、平台和目录布局属于插件清单及程序审批摘要；
+宿主不保存任何特定语言的版本或下载地址。Core 选出当前平台的归档并生成依赖身份摘要，
+原生下载与解压结果位于 `<plugin-root>/.state/<plugin-id>/runtimes/<cache-key>/`，
+其中 `archive` 是校验过的归档，`install-<random>/` 是完成校验后发布的只读一代文件，
+`ready.json` 记录当前完成的一代及文件清单，`.lock` 协调跨进程写入。
+下载、解压和资格检查在私有暂存区完成；取消或失败删除本次未发布的文件，已发布的一代仍可供旧进程读取。
+正常启动检查文件清单和插件要求；安装、升级以及修复同时核对内容哈希。
+
+该目录由插件身份拥有，不含插件版本号。插件代码升级而依赖声明不变时复用同一目录和归档；
+依赖、平台或校验值变化时使用另一身份，不覆盖旧文件。完整且符合插件要求的外部安装可以直接复用，
+宿主只下载缺失项；外部目录不属于宿主，不在卸载时删除。插件禁用会取消准备任务并停止进程，
+保留已完成依赖；卸载先等待准备任务和进程退出，再随整个插件状态删除受管归档与各代文件。
+这些目录是用户运行时状态，不是工作树构建输入，不跨工作树复制或共享，不写插件包、app bundle
+或 Windows 安装目录。归档压缩大小上限为 512 MiB，展开总量 4 GiB、条目数 50,000，完成记录上限 32 MiB；
+路径和链接不能逃出解压根。相关边界见
+[受管插件运行时](../.agents/notes/implemented/architecture/2026-11-18-managed-plugin-runtimes.md)。
+
 插件网页的宿主持久状态（Viva 的 `pluginservice.SetPageState`）写到每用户插件根目录
 （`pluginpkg.DefaultRoot`）下的
 `<plugin-root>/.state/<plugin-id>/pages/workspaces/<workspace-key>/<window-digest>.json`，
