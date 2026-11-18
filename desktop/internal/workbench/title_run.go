@@ -194,6 +194,15 @@ func (a *App) decideTitleAction(p *project, action titleAction, trigger string) 
 		case configuration.IsProcess():
 			facts.Configuration = &core.TitleConfiguration{Kind: "process"}
 		default:
+			// A kind a plugin declares starts like a built-in run once its build system is
+			// detected, without a model.
+			if key, declared := configuration.RunTypeReference(); declared {
+				facts.Configuration = &core.TitleConfiguration{Kind: "process"}
+				if !p.hasRunTypeInstance(key) {
+					facts.Configuration = &core.TitleConfiguration{Kind: "instanceMissing"}
+				}
+				break
+			}
 			if reference, ok = configuration.BuildReference(); ok {
 				index = p.buildInstanceIndex(reference)
 				facts.Configuration = p.titleConfigurationFacts(index, reference)

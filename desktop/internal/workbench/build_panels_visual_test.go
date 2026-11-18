@@ -3,11 +3,13 @@
 package workbench
 
 import (
+	"context"
 	"encoding/json"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/1lck/Lithe-IDEA/desktop/internal/core"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/pluginservice"
@@ -54,20 +56,39 @@ func visualBuildSystems() []buildInstance {
 		lifecycle = append(lifecycle, task(phase, phase, "lifecycle", "Lifecycle"))
 	}
 	lifecycle = append(lifecycle, pluginservice.BuildTaskDeclaration{ID: "goal", DisplayName: "Plugin goal", Group: "build", FromModel: true, Source: "provider"})
+	maven := system("maven", "Maven", ".", run, lifecycle, core.BuildModel{
+		Projects: []core.BuildProject{
+			{ID: "shop", Path: ".", Name: "shop"},
+			{ID: "core", Path: "core", Name: "shop-core", ParentID: "shop"},
+			{ID: "web", Path: "web", Name: "shop-web", ParentID: "shop"},
+		},
+		Targets: []core.BuildTarget{{ID: "web-app", ProjectID: "web", Name: "ShopApplication", Path: "web", Tags: []string{"app"}}},
+		Tasks: []core.BuildTask{
+			goal("shop", "clean", "clean"), goal("shop", "install", "install"),
+			goal("core", "compiler", "compile"), goal("core", "compiler", "testCompile"), goal("core", "surefire", "test"), goal("core", "jar", "jar"),
+			goal("web", "compiler", "compile"), goal("web", "spring-boot", "run"), goal("web", "spring-boot", "repackage"),
+		},
+		OptionValues:          map[string][]string{"profiles": {"ci", "dev", "prod"}},
+		OptionDefaults:        map[string][]string{"profiles": {"dev"}},
+		OptionExcludePrefixes: map[string]string{"profiles": "-"},
+	})
+	maven.Options = map[string]json.RawMessage{"profiles": json.RawMessage(`["dev","prod"]`)}
+	maven.OptionFingerprint = "visual-profiles-dev-prod"
+	var mavenManifest map[string]any
+	if err := json.Unmarshal(maven.Manifest, &mavenManifest); err != nil {
+		panic(err)
+	}
+	mavenManifest["buildSystems"].([]any)[0].(map[string]any)["options"] = []any{map[string]any{
+		"id": "profiles", "displayName": "Profiles", "kind": "multiSelect",
+		"choicesFromModel": true, "allowCustom": true, "presentation": "tree",
+		"arguments": []string{"-P", "${value}"},
+	}}
+	var err error
+	if maven.Manifest, err = json.Marshal(mavenManifest); err != nil {
+		panic(err)
+	}
 	return []buildInstance{
-		system("maven", "Maven", ".", run, lifecycle, core.BuildModel{
-			Projects: []core.BuildProject{
-				{ID: "shop", Path: ".", Name: "shop"},
-				{ID: "core", Path: "core", Name: "shop-core", ParentID: "shop"},
-				{ID: "web", Path: "web", Name: "shop-web", ParentID: "shop"},
-			},
-			Targets: []core.BuildTarget{{ID: "web-app", ProjectID: "web", Name: "ShopApplication", Path: "web", Tags: []string{"app"}}},
-			Tasks: []core.BuildTask{
-				goal("shop", "clean", "clean"), goal("shop", "install", "install"),
-				goal("core", "compiler", "compile"), goal("core", "compiler", "testCompile"), goal("core", "surefire", "test"), goal("core", "jar", "jar"),
-				goal("web", "compiler", "compile"), goal("web", "spring-boot", "run"), goal("web", "spring-boot", "repackage"),
-			},
-		}),
+		maven,
 		system("gradle", "Gradle", "android", run, []pluginservice.BuildTaskDeclaration{
 			task("assemble", "assemble", "build", "Build"), task("build", "build", "build", "Build"), task("check", "check", "verification", "Verification"),
 		}, core.BuildModel{
@@ -125,8 +146,8 @@ func visualGoModule() buildInstance {
 // TestVisualBuildPanels captures the Build window on the right, with the run configurations
 // above the aggregated build tree, beside the Run window at the bottom showing only the build
 // console; a Go module whose model loads, its sync session in the Run window showing what go
-// downloads; the Build window filtered; and a Go module, whose runnable rows lead with the green
-// triangle.
+// downloads; the Build window filtered; a Go module with runnable rows; and the Build options
+// dialog while it is resolving its fields and after the result arrives.
 func TestVisualBuildPanels(t *testing.T) {
 	out := os.Getenv("LITHE_VISUAL_OUTPUT_DIR")
 	if out == "" {
@@ -136,7 +157,7 @@ func TestVisualBuildPanels(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, look := range []struct{ theme, language string }{{"dark", "zh-Hans"}, {"light", "en"}} {
-		for _, scene := range []string{"build-and-run", "concurrent-runs", "build-sync", "build-filter", "build-go-targets"} {
+		for _, scene := range []string{"build-and-run", "concurrent-runs", "build-sync", "build-filter", "build-go-targets", "build-options"} {
 			t.Run(scene+"-"+look.theme, func(t *testing.T) {
 				prefs := store.At(t.TempDir())
 				if err := prefs.Save(settingsFile, settings{Theme: themeChoice(look.theme), Language: look.language, DisableAutoSave: true}); err != nil {
@@ -150,7 +171,17 @@ func TestVisualBuildPanels(t *testing.T) {
 					}
 				}
 				var session *headless.Session
-				h := newHarnessWithDriver(t, Options{Kernel: &testKernel{Client: core.NewClient()}, Store: prefs, Languages: []string{look.language}}, func(config app.Config) (*app.Driver, func(), error) {
+				var kernel Kernel = &testKernel{Client: core.NewClient()}
+				var resolution *buildOptionResolutionGate
+				var finishResolution context.CancelFunc
+				if scene == "build-options" {
+					var release context.Context
+					release, finishResolution = context.WithCancel(t.Context())
+					defer finishResolution()
+					resolution = &buildOptionResolutionGate{Kernel: kernel, started: make(chan struct{}, 1), release: release}
+					kernel = resolution
+				}
+				h := newHarnessWithDriver(t, Options{Kernel: kernel, Store: prefs, Languages: []string{look.language}}, func(config app.Config) (*app.Driver, func(), error) {
 					config.Width, config.Height = 1440, 900
 					var err error
 					session, err = headless.Open(config, nil, headless.Options{})
@@ -169,9 +200,9 @@ func TestVisualBuildPanels(t *testing.T) {
 					a.refreshRunConfigurations(p)
 				})
 				h.settleChain()
-				// The folders a user opens to reach shop-core's compiler goals and shop-web's
-				// lifecycle; the rest stay closed, as they start.
-				for _, path := range [][]string{{"shop-core", "Plugins"}, {"shop-core", "Plugins", "compiler"}, {"shop-web", "Lifecycle"}} {
+				// The folders a user opens to inspect active profiles, shop-core's compiler goals and
+				// shop-web's lifecycle; the rest stay closed, as they start.
+				for _, path := range [][]string{{"Profiles"}, {"shop-core", "Plugins"}, {"shop-core", "Plugins", "compiler"}, {"shop-web", "Lifecycle"}} {
 					setBuildNodeOpen(t, p, laidOutBuildRows(t, h, p), true, path...)
 				}
 				switch scene {
@@ -253,6 +284,13 @@ func TestVisualBuildPanels(t *testing.T) {
 					})
 					h.settleChain()
 					setBuildNodeOpen(t, p, laidOutBuildRows(t, h, p), true, h.app.text.Build.Targets)
+				case "build-options":
+					h.app.post(func(a *App) { a.openBuildOptions(p, &p.build.instances[0]) })
+					awaitValueWithin(t, h, 5*time.Second, resolution.started, "Build options resolution to start")
+					if err := session.Screenshot(filepath.Join(out, "build-options-loading-"+look.theme+".png")); err != nil {
+						t.Fatal(err)
+					}
+					finishResolution()
 				}
 				h.settleChain()
 				h.app.invalidator.Invalidate()

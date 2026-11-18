@@ -201,6 +201,8 @@ func (a *App) buildTreeRow(row ui.ListRow, p *project, spec buildRow) {
 		a.buildDependencyRow(row, p, instance, spec)
 	case buildRowTest:
 		a.buildTestRow(row, p, instance, spec)
+	case buildRowOptionChoice:
+		a.buildOptionChoiceRow(row, p, instance, spec)
 	default:
 		a.buildItemRow(row, p, instance, spec)
 	}
@@ -359,6 +361,7 @@ func (a *App) buildGroupRow(row ui.ListRow, p *project, instance *buildInstance,
 // IntelliJ New UI icons of the same folders in IntelliJ's Maven and Gradle tool windows.
 var buildFolderIcons = map[string]fileicons.BuildNode{
 	core.BuildTreeFolder:       fileicons.BuildTaskFolder,
+	core.BuildTreeOption:       fileicons.BuildTaskFolder,
 	core.BuildTreeTargets:      fileicons.BuildTargets,
 	core.BuildTreeDependencies: fileicons.BuildDependencies,
 	core.BuildTreeTests:        fileicons.BuildTests,
@@ -603,4 +606,39 @@ func (a *App) buildItemRow(row ui.ListRow, p *project, instance *buildInstance, 
 		})
 	}
 	a.buildRowMenu(c, element, p, instance, spec)
+}
+
+// buildOptionChoiceRow declares one choice of a tree-presented multi-select option: its empty
+// arrow slot, its checkbox, its choice label and its default-active badge when the model marks
+// it active by default. Clicking the checkbox or the row toggles the choice in the project's
+// local Build options and reloads the build systems.
+func (a *App) buildOptionChoiceRow(row ui.ListRow, p *project, instance *buildInstance, spec buildRow) {
+	c, b, node := row.C, &p.build, spec.node
+	element := a.buildTreeRowElement(row, spec)
+	if tip := buildItemTip(spec); tip != "" {
+		element = element.Tooltip(tip)
+	}
+	busy := b.operation != nil || b.loading || b.optionSaving || instance.modelLoading
+	checked := node.Checked
+	toggleLabel := i18n.SharedFormat(a.language(), "desktop.build.toggleOptionChoice", map[string]string{
+		"option": spec.optionTitle,
+		"choice": spec.label,
+	})
+	ui.Row(c.Part("arrow")).Size(treelist.Disclosure, treelist.Icon).Shrink(0)
+	var boxClicked bool
+	ui.Row(c.Part("content")).Grow(1).Shrink(1).MinWidth(0).Items(ui.Center).Gap(changeTreeGap).Children(func() {
+		boxClicked = a.treeCheckbox(c.Part("check"), &checked, toggleLabel).Disabled(busy).Clicked()
+		ui.Text(c, spec.label).FontSize(treeFontSize).Color(treelist.Text(a.colors.Dark)).Ellipsis().Shrink(1).MinWidth(0)
+		if spec.detail != "" {
+			ui.Text(c, spec.detail).FontSize(treeFontSize - 1).Color(a.colors.Subtle).Ellipsis().Shrink(buildDetailShrink).MinWidth(0)
+		}
+	})
+	if !busy && (boxClicked || element.Clicked()) {
+		index, optionID, choiceValue := spec.instance, node.OptionID, node.OptionValue
+		c.After(func() {
+			a.performed("build.optionChoice.toggle", surfaceButton)
+			a.chooseBuildInstance(p, index)
+			a.toggleBuildTreeOptionChoice(p, index, optionID, choiceValue)
+		})
+	}
 }

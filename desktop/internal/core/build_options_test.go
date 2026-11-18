@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"strings"
 	"testing"
 
 	"github.com/1lck/Lithe-IDEA/desktop/internal/contractfixture"
@@ -109,5 +110,173 @@ func TestBuildDetectSkipsTheIgnoredPaths(t *testing.T) {
 	}
 	if got := roots([]string{"/tools"}); !slices.Equal(got, []string{".", ".claude/copy"}) {
 		t.Fatalf("ignoring /tools detection finds %q", got)
+	}
+}
+
+// Model-supplied multi-select options carry default-active choices and an exclusion prefix from
+// the decoded model through ResolveBuildOptions, EditStoredBuildOption and BuildModelTree.
+func TestBuildOptionDefaultsAndExclusionsRoundTripThroughStorageAndTree(t *testing.T) {
+	client, ctx := NewClient(), testContext(t)
+	manifest := json.RawMessage(`{
+		"schemaVersion": 0,
+		"id": "dev.lithe.test.profiles",
+		"displayName": "Profiles Fixture",
+		"version": "1.0.0",
+		"pluginAPIVersion": 0,
+		"requires": {"buildSystems": 0},
+		"vendor": {"id": "dev.lithe.test", "displayName": "Test", "signatureRequirement": "publisherPackage"},
+		"permissions": ["process.build"],
+		"activationEvents": ["onBuildSystem:fixture-profiles"],
+		"languages": [],
+		"buildSystems": [{
+			"id": "fixture-profiles",
+			"displayName": "Fixture Profiles",
+			"detection": {"markers": ["fixture.build"]},
+			"invocation": {
+				"executables": [{"kind": "command", "command": "fixture-profiles"}],
+				"globalArguments": ["${optionArguments:profiles}"]
+			},
+			"options": [{
+				"id": "profiles",
+				"displayName": "Profiles",
+				"kind": "multiSelect",
+				"choicesFromModel": true,
+				"allowCustom": true,
+				"presentation": "tree",
+				"arguments": ["-P", "${value}"]
+			}],
+			"model": {"source": "command", "arguments": ["model"], "decoder": "litheBuildModel", "executesProjectCode": false, "mayUseNetwork": false},
+			"tasks": [{"id": "compile", "displayName": "compile", "group": "lifecycle", "category": ["Lifecycle"], "scopes": ["workspace", "project"], "arguments": ["compile"]}]
+		}]
+	}`)
+	decodeRequest := BuildDecodeModelRequest{
+		WorkspaceRoot: t.TempDir(),
+		Root:          ".",
+		Output: `{
+			"format": "litheBuildModel",
+			"version": 0,
+			"projects": [{"path": ".", "name": "shop"}],
+			"optionValues": {"profiles": ["dev", "local", "prod"]},
+			"optionDefaults": {"profiles": ["dev"]},
+			"optionExcludePrefixes": {"profiles": "-"},
+			"optionActiveChoices": {"profiles": ["dev"]}
+		}`,
+	}
+	decoded, err := client.DecodeBuildModel(ctx, manifest, "fixture-profiles", decodeRequest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !slices.Equal(decoded.OptionDefaults["profiles"], []string{"dev"}) || decoded.OptionExcludePrefixes["profiles"] != "-" {
+		t.Fatalf("decoded model facts = defaults %+v, prefixes %+v", decoded.OptionDefaults, decoded.OptionExcludePrefixes)
+	}
+
+	resolved, err := client.ResolveBuildOptions(ctx, manifest, "fixture-profiles", BuildResolveOptionsRequest{
+		ModelValues:          decoded.OptionValues,
+		ModelDefaults:        decoded.OptionDefaults,
+		ModelExcludePrefixes: decoded.OptionExcludePrefixes,
+		ModelSelection:       decoded.OptionSelection,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(resolved.Options) != 1 || !slices.Equal(resolved.Options[0].SelectedChoices, []string{"dev"}) || !resolved.Options[0].Choices[0].DefaultActive {
+		t.Fatalf("initial resolved options = %+v", resolved.Options)
+	}
+
+	decodeRequest.Options = map[string]json.RawMessage{"profiles": json.RawMessage(`["prod"]`)}
+	decodeRequest.Output = strings.Replace(decodeRequest.Output,
+		`"optionActiveChoices": {"profiles": ["dev"]}`,
+		`"optionActiveChoices": {"profiles": ["dev", "prod"]}`, 1)
+	observed, err := client.DecodeBuildModel(ctx, manifest, "fixture-profiles", decodeRequest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	selected, err := client.ResolveBuildOptions(ctx, manifest, "fixture-profiles", BuildResolveOptionsRequest{
+		Options: decodeRequest.Options, ModelValues: observed.OptionValues,
+		ModelDefaults: observed.OptionDefaults, ModelExcludePrefixes: observed.OptionExcludePrefixes,
+		ModelSelection: observed.OptionSelection,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !slices.Equal(selected.Options[0].SelectedChoices, []string{"dev", "prod"}) {
+		t.Fatalf("checked choices after loading the stored options: %+v", selected.Options)
+	}
+
+	noTeam := json.RawMessage(`{"version":1,"systems":{}}`)
+	switched, err := client.EditStoredBuildOption(ctx, manifest, "fixture-profiles", BuildOptionEditRequest{
+		Document:             noTeam,
+		Local:                emptyBuildLocal,
+		Root:                 ".",
+		OptionID:             "profiles",
+		SelectedChoices:      []string{"prod"},
+		HasSelectedChoices:   true,
+		ModelValues:          decoded.OptionValues,
+		ModelDefaults:        decoded.OptionDefaults,
+		ModelExcludePrefixes: decoded.OptionExcludePrefixes,
+		ModelSelection:       decoded.OptionSelection,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var states BuildResolvedOptions
+	if err := json.Unmarshal(switched.Options, &states); err != nil {
+		t.Fatal(err)
+	}
+	var stored []string
+	if err := json.Unmarshal(states.Options[0].Value, &stored); err != nil || !slices.Equal(stored, []string{"-dev", "prod"}) {
+		t.Fatalf("stored profile tokens = %q (err %v), want [-dev prod]", stored, err)
+	}
+
+	plan, err := client.PlanBuildTask(ctx, manifest, "fixture-profiles", BuildPlanRequest{
+		Root:    ".",
+		Task:    "compile",
+		Options: map[string]json.RawMessage{"profiles": states.Options[0].Value},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !slices.Equal(plan.Arguments, []string{"-P", "-dev,prod", "compile"}) {
+		t.Fatalf("task plan arguments = %q, want [-P -dev,prod compile]", plan.Arguments)
+	}
+
+	tree, err := client.BuildModelTree(ctx, manifest, "fixture-profiles", BuildModelTreeRequest{
+		Model: BuildModelTreeInput{
+			Projects:              decoded.Projects,
+			OptionValues:          decoded.OptionValues,
+			OptionDefaults:        decoded.OptionDefaults,
+			OptionExcludePrefixes: decoded.OptionExcludePrefixes,
+			OptionSelection:       decoded.OptionSelection,
+		},
+		Options: map[string]json.RawMessage{"profiles": states.Options[0].Value},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(tree.Nodes) == 0 || tree.Nodes[0].Kind != BuildTreeOption || tree.Nodes[0].Detail != "prod" || len(tree.Nodes[0].Children) != 3 {
+		t.Fatalf("tree option node = %+v", tree.Nodes)
+	}
+	choices := tree.Nodes[0].Children
+	if choices[0].OptionValue != "dev" || choices[0].Checked || !choices[0].DefaultActive || choices[2].OptionValue != "prod" || !choices[2].Checked {
+		t.Fatalf("tree option choices = %+v", choices)
+	}
+
+	restored, err := client.EditStoredBuildOption(ctx, manifest, "fixture-profiles", BuildOptionEditRequest{
+		Document:             noTeam,
+		Local:                switched.Local,
+		Root:                 ".",
+		OptionID:             "profiles",
+		SelectedChoices:      []string{"dev"},
+		HasSelectedChoices:   true,
+		ModelValues:          decoded.OptionValues,
+		ModelDefaults:        decoded.OptionDefaults,
+		ModelExcludePrefixes: decoded.OptionExcludePrefixes,
+		ModelSelection:       decoded.OptionSelection,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(restored.Local) != `{"version":1,"document":{"version":1,"systems":{}},"emptySelections":{}}` && !slices.Equal(restored.Local, emptyBuildLocal) {
+		t.Fatalf("restoring the default selection left local = %s", restored.Local)
 	}
 }

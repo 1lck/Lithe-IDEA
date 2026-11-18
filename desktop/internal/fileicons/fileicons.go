@@ -41,6 +41,8 @@ const (
 	kindScala
 	// kindGroovy identifies a Groovy file.
 	kindGroovy
+	// kindGradle identifies a Gradle script written in Groovy or Kotlin.
+	kindGradle
 	// kindPHP identifies a PHP file.
 	kindPHP
 	// kindCSource identifies a C or Objective-C source file.
@@ -147,6 +149,7 @@ var kindIcons = [kindCount][2]*gfx.Icon{
 	kindRuby:           {&Ruby, nil},
 	kindScala:          {&Scala, nil},
 	kindGroovy:         {&Groovy, &GroovyDark},
+	kindGradle:         {&Gradle, &GradleDark},
 	kindPHP:            {&Php, nil},
 	kindCSource:        {&C, &CDark},
 	kindCHeader:        {&H, &HDark},
@@ -396,7 +399,12 @@ func fileKind(name string) kind {
 		return kindSwift
 	case "java":
 		return kindJava
+	case "gradle":
+		return kindGradle
 	case "kt", "kts":
+		if strings.HasSuffix(lowerName, ".gradle.kts") {
+			return kindGradle
+		}
 		return kindKotlin
 	case "rs":
 		return kindRust

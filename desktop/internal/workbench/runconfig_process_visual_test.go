@@ -95,7 +95,7 @@ func TestVisualBuiltInProcessRuns(t *testing.T) {
 					t.Helper()
 					var f *runConfigForm
 					h.app.post(func(a *App) {
-						a.addRunConfigDraft(p, provider, nil)
+						a.addRunConfigDraft(p, builtInKind(provider), nil)
 						f = d.drafts[d.selected].form
 					})
 					awaitStateWithin(t, h, 10*time.Second, "the editor of "+provider, func() bool {

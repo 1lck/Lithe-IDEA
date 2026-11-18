@@ -82,7 +82,8 @@ Viva 的 IDE API 辅助程序 `lithe-mcp` 由 `scripts/desktop/build-desktop-cor
 
 Viva 的 `desktop-go.sh` 把暂存 Core 静态库、头文件、原生链接参数和实际选中的 Windows import archive 的 SHA-256 纳入 cgo 编译参数。只改 Rust 或 Core pin 也会使 Go 构建缓存失效；相同字节仍复用 Go 缓存，不清空用户缓存。这个摘要只是本地构建身份，不是跨工作树资源密封清单。`scripts/desktop/desktop-core-cache.test.mjs` 在系统临时目录创建独占的 `lithe core-cache-*` 夹具，只替换 C 静态库来验证真实 Go 编译结果；子进程有本地时限，结束后删除夹具。该目录只属于一次测试，不跨工作树复制，不进入安装包；三个原生 CI 车道都运行此回归。
 
-Viva 文件与项目树图标的 SVG 和生成的 Go 数据由 Git 管理，生成脚本限定 Python 3.9 或 3.11、
+Viva 文件与项目树图标的 SVG（含 `desktop/internal/fileicons/svg/gradle*.svg`）和生成的 Go 数据
+（含 `desktop/internal/fileicons/icons.go`）由 Git 管理。生成脚本限定 Python 3.9 或 3.11、
 picosvg 与直接依赖以及 Viva 编译器版本，在本工作树重建；没有自动发现受支持的 Python 时可用
 `LITHE_ICON_PYTHON` 指定受支持的解释器，该变量不是缓存路径。临时转换目录退出时删除。它们不是跨工作树的可复制缓存，
 不跨工作树复制。运行期图标只读编译数据，不写入安装包，因而不改变
@@ -129,7 +130,7 @@ target、profile 和 macOS deployment target，但它只描述本工作树最近
 且不使用 `LITHE_CORE_RUST_DIR` override。在 macOS 用 APFS 克隆复制（`cp -cR`），不用链接或共用目录；复制后照常运行
 `desktop-go.sh`，built-from 记录的检出路径不同，构建脚本会 `cargo clean --workspace` 并只重编工作区成员。
 2026-11-16 的实验中，克隆 4.9 GB 约 4 秒，随后 Core 构建 33 秒、桌面客户端链接 31 秒，第三方依赖没有重编。
-结果异常时删掉复制的目录重新编译。做法见 `develop-lithe` Skill 的“工作树缓存复用”一节（`.artifacts/` 被 `.gitignore` 忽略，不提交）。
+结果异常时删掉复制的目录重新编译。做法见 `develop-lithe` Skill 的“检出与编译缓存复用”一节（`.artifacts/` 被 `.gitignore` 忽略，不提交）。
 这些目录只在构建时由上述脚本写入，应用运行时不写，也不进入 app bundle 或安装目录，
 不影响代码签名和增量更新基线。
 
@@ -172,11 +173,13 @@ LITHE_VISUAL_OUTPUT_DIR=/path/to/output scripts/desktop/desktop-go.sh test -tags
 架构或工具链 identity stamp，不跨工作树复制。目标工作树运行
 `node scripts/platform-feature-matrix/generate-platform-feature-matrix.mjs`，校验源数据后重新生成。
 
+`.artifacts/desktop/` 只有留在同一个检出里才能增量复用，所以默认不新建工作树：先在空闲的主检出或空闲的已有工作树里
+切分支，都被占用才新建，判定方法见 `develop-lithe` Skill 的“检出与编译缓存复用”一节。
 Git worktree 只共享 Git 对象，不共享各自的 `.artifacts` 目录，仓库也不提供跨工作树复制资源的脚本（#2002 已删除）。
 Go 的构建缓存（`go env GOCACHE`）和模块缓存（`go env GOMODCACHE`）、`~/.cargo/registry` 都在用户目录，所有工作树共用同一份，
 不为工作树另设位置，也不复制或清空。新工作树第一次编译会重编 `desktop/` 下的包和 cgo 包（缓存键含包目录和带工作树路径的
 cgo 参数），其余包命中缓存，模块不重新下载。
-新工作树第一次编译前，按 `develop-lithe` Skill 的“工作树缓存复用”一节判断能否从已有工作树复制
+新工作树第一次编译前，按 `develop-lithe` Skill 的“检出与编译缓存复用”一节判断能否从已有工作树复制
 `.artifacts/desktop/`（前提和实验结果见上文）；其他目录按本节各段的说明处理，写明不复制的就在本工作树重新生成。
 
 Inter 4.1 的 18 个静态 OTF（内部版本 4.001）及许可、JetBrains Mono 2.304 的 16 个静态 TTF、OFL 和作者信息，

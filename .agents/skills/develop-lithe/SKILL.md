@@ -60,6 +60,7 @@ description: 在 Lithe 仓库进行实现、重构、缺陷修复、审查、调
 | 新增需要同步调用的共享纯规则（按键、选择、渲染路径） | 先核对外部 Lithe-core-rust 的现有接口，规则仍归 Rust Core；不能在 Viva 界面新增第二份 |
 | 创建、迁移、更新、归档或审查 Agent Note | `.agents/skills/agent-notes/SKILL.md` |
 | 创建、修改或审查测试及测试基础设施 | `.agents/skills/write-stable-tests/SKILL.md` |
+| 开始修改代码前选择检出，或在新工作树第一次编译 | 本文件第七节“检出与编译缓存复用” |
 
 发布、提交 Issue、在 Windows 虚拟机中诊断等任务，按 `AGENTS.md` 加载对应 Skill。
 
@@ -427,31 +428,68 @@ macOS app bundle 和 Windows 安装目录是发行基线。Sparkle 增量更新�
 
 决策和完整生命周期规则见 `.agents/notes/implemented/bug-fix/2026-09-25-runtime-bundle-immutability-and-update-delta.md` 和 `AGENTS.md`。
 
-### 工作树缓存复用
+### 检出与编译缓存复用
 
-编译缓存分两类，做法相反：用户目录下的全局缓存，所有工作树共用同一份；每个工作树自己的 `.artifacts`，只能复制，不得共用。仓库不提供复制脚本，新工作树编译前按下面两节处理。
+编译产物只有留在同一个检出里，下一次编译才能增量复用。每多一个检出，就多一份从零编出的编译目录：本仓库的 `.artifacts/desktop` 约 5 GB，Core 的 `rust/target` 8–16 GB。因此默认在已有检出上切分支，只有已有检出都被占用时才新建工作树。本节同时适用于本仓库和 Lithe-core-rust 仓库。
 
-#### 全局缓存：所有工作树共用
+#### 选择检出
 
-- 所有工作树必须共用用户目录下的 Go 构建缓存（`go env GOCACHE`）、Go 模块缓存（`go env GOMODCACHE`）和 Cargo 的 `~/.cargo/registry`。
-- 不得为某个工作树或某条命令另设 `GOCACHE`、`GOMODCACHE`、`GOPATH` 或 `CARGO_HOME`，不得把它们指向 `.artifacts`、系统临时目录或其他私有目录，也不得用复制代替共用。沙盒不允许写这些目录时，申请更高权限运行命令；拿不到权限就停下来告知用户。
-- 不得用 `go clean -cache`、`go clean -modcache` 或删除这些目录来处理构建问题，它们属于所有工作树。Core 静态库变化后 Go 重编哪些包，由 `desktop-go.sh` 写进 cgo 参数的摘要决定，不需要清缓存。
+开始修改前，按顺序选第一个可用的检出：
+
+1. 主检出（仓库的原始克隆，不是工作树）空闲时，必须在主检出中从最新的 `origin/main` 切出新分支。
+2. 主检出不空闲时，必须复用一个空闲的已有工作树，在其中从最新的 `origin/main` 切出新分支。
+3. 主检出和所有已有工作树都不空闲时，才可以新建工作树。新工作树放在仓库根目录的 `.claude/worktrees/` 下，第一次编译前按“新工作树复制编译产物”处理。
+
+一个检出空闲，必须同时满足两条：
+
+- `git status --porcelain` 没有输出；
+- 当前分支是 `main`，或该分支的 PR 已合入或已关闭（用 `gh pr list --head <分支> --state all` 确认）；处于分离 HEAD 时，`git branch -r --contains HEAD` 有输出。
+
+选中检出后立即切出新分支。切出后它不再满足空闲条件，并行的任务不会选中同一个检出。
+
+运行环境要求在隔离工作树中修改时（例如 Claude Code 后台任务只允许在 `.claude/worktrees/` 下修改），跳过第 1 步，从第 2 步开始；进入已有工作树时给 `EnterWorktree` 传 `path`，不传 `name` 新建。
+
+在已有检出中切分支后直接编译即可：Go 构建缓存、`.artifacts/desktop` 和 `rust/target` 都在原地增量复用，不需要复制或清理。
+
+以下做法不得使用：
+
+- 在系统临时目录、会话临时目录（例如 `$CLAUDE_JOB_DIR/tmp`）或其他任务结束后会被丢弃的目录中克隆仓库、创建工作树或放置 Cargo 编译目录。后续任务找不到这些编译产物，任务结束后也没有人清理。
+- 为某个检出或某条命令把 `CARGO_TARGET_DIR` 指向临时目录、私有目录或另一个检出的编译目录。在 Core 检出中直接运行 Cargo 时，用该检出默认的 `rust/target`；桌面构建脚本设置的 `.artifacts/desktop/lithe-core-rust/target` 保持不变。验证另一个 Rust 工具链、交叉编译目标或文档时，也用同一个编译目录：Cargo 把编译器版本和目标写进产物的哈希，不同工具链和目标的产物并存，不互相覆盖。
+- 用 `git worktree remove --force` 或直接删除目录来移除工作树。只用 `git worktree remove`，它在有未提交改动时会拒绝；移除前确认分支已推送或 PR 已合入。
+
+#### 全局缓存：所有检出共用
+
+- 所有检出必须共用用户目录下的 Go 构建缓存（`go env GOCACHE`）、Go 模块缓存（`go env GOMODCACHE`）和 Cargo 的 `~/.cargo/registry`。
+- 不得为某个检出或某条命令另设 `GOCACHE`、`GOMODCACHE`、`GOPATH` 或 `CARGO_HOME`，不得把它们指向 `.artifacts`、系统临时目录或其他私有目录，也不得用复制代替共用。沙盒不允许写这些目录时，申请更高权限运行命令；拿不到权限就停下来告知用户。
+- 不得用 `go clean -cache`、`go clean -modcache` 或删除这些目录来处理构建问题，它们属于所有检出。Core 静态库变化后 Go 重编哪些包，由 `desktop-go.sh` 写进 cgo 参数的摘要决定，不需要清缓存。
 - 新工作树第一次 Go 编译会重编 `desktop/` 下的包和所有 cgo 包（例如标准库的 `runtime/cgo`、Viva 的 macOS 平台层），其余标准库包和第三方依赖照常命中，模块不会重新下载。这是预期结果，不要为此改缓存位置或复制缓存。
 
-#### 工作树的 `.artifacts`：只复制，不共用
+#### 新工作树复制编译产物
 
-每个 Git worktree 有自己的 `.artifacts`，新工作树第一次编译 Core 要从零开始。能复制时，必须先从已有工作树复制 `.artifacts/desktop`，再编译。
+新工作树没有编译目录，第一次编译要从零开始。能复制时，必须先从已有检出复制编译目录，再编译。
 
-- 前提：源工作树和目标工作树的 `PINNED_CORE_REVISION`（`scripts/desktop/build-desktop-core.sh`）、`desktop/go.mod` 里固定的 Viva 版本、平台、架构和工具链都相同，两边都不用 `LITHE_CORE_RUST_DIR` 指向本地 Core 检出，源工作树没有在编译。任何一条不满足，就不复制，直接在目标工作树编译。
-- 在 macOS 用 APFS 克隆复制：`cp -cR <源工作树>/.artifacts/desktop <目标工作树>/.artifacts/`。不得用符号链接、硬链接或让两个工作树指向同一个目录。
-- 复制后照常运行构建脚本（例如 `scripts/desktop/build-desktop-core.sh`、`scripts/desktop/desktop-go.sh`），由脚本自己的身份检查决定重编什么：Core 构建发现 `lithe-core-built-from-*.txt` 记录的源码目录不同，只重编 Core 自己的 crate，已编译的第三方依赖继续可用。结果异常时删掉复制来的目录重新编译，不要手工修补。
+- 只复制，不共用。在 macOS 用 APFS 克隆（`cp -cR`）复制，几乎不占额外磁盘；不得用符号链接、硬链接，或让两个检出指向同一个编译目录。Cargo 按修改时间判断 Core 自己的 crate 是否最新，两个检出共用一个编译目录时，会把另一个检出编出的产物当成本检出的。
+- 源检出正在编译时不得复制，否则会复制到写了一半的产物。
+- 结果异常时删掉复制来的目录重新编译，不要手工修补。
 - 不得复制运行时状态、用户数据、日志、插件安装和插件状态目录、LSP workspace 状态、测试报告和截图；`.artifacts/platform-feature-matrix/` 等报告由各自的脚本在本工作树重新生成。
+
+本仓库的 `.artifacts/desktop`：
+
+- 前提：源检出和新工作树的 `PINNED_CORE_REVISION`（`scripts/desktop/build-desktop-core.sh`）、`desktop/go.mod` 里固定的 Viva 版本、平台、架构和工具链都相同，两边都不用 `LITHE_CORE_RUST_DIR` 指向本地 Core 检出。任何一条不满足，就不复制，直接在新工作树编译。
+- 复制：`cp -cR <源检出>/.artifacts/desktop <新工作树>/.artifacts/`。
+- 复制后照常运行构建脚本（例如 `scripts/desktop/build-desktop-core.sh`、`scripts/desktop/desktop-go.sh`），由脚本自己的身份检查决定重编什么：Core 构建发现 `lithe-core-built-from-*.txt` 记录的源码目录不同，只重编 Core 自己的 crate，已编译的第三方依赖继续可用。
+
+Lithe-core-rust 的 `rust/target`：
+
+- 复制：`cp -cR <源 Core 检出>/rust/target <新 Core 工作树>/rust/`。
+- 第一次编译前必须在新工作树运行 `cargo clean --manifest-path rust/Cargo.toml --workspace`。它只删除 Core 自己的 crate 的产物（这些产物按修改时间判断新旧，留着会被当成新工作树的代码编出的），第三方依赖的产物保留并照常命中。
+- 两个检出的工具链或 `Cargo.lock` 不同时也可以复制，Cargo 只重编对不上的依赖。
 
 #### 新增缓存资源
 
-新增或修改下载、解压、生成或缓存资源时，在 `docs/ci-builds.md`“独立工作树的本地编译”一节写清路径、归属、生命周期，属于全局共用还是工作树私有，以及能否跨工作树复制、复制的前提。
+新增或修改下载、解压、生成或缓存资源时，在 `docs/ci-builds.md`“独立工作树的本地编译”一节写清路径、归属、生命周期，属于全局共用还是检出私有，以及能否跨工作树复制、复制的前提。
 
-决策原因见 `.agents/notes/implemented/process/2026-11-16-worktree-cache-reuse-without-script.md`。
+决策原因见 `.agents/notes/implemented/process/2026-11-18-reuse-checkouts-before-new-worktrees.md` 和 `.agents/notes/implemented/process/2026-11-16-worktree-cache-reuse-without-script.md`。
 
 ### 显式处理失败
 

@@ -40,7 +40,7 @@ type runConfigEditor struct {
 	provider         bool
 	runtimeArguments string
 	entrypoint       string
-	// options are the build option overrides, kept as they were: this editor does not edit them.
+	// options are the build option overrides saved for this configuration.
 	options map[string]json.RawMessage
 	// tools are the tool choices by qualified tool ID, with the kind of each choice ("home" or
 	// "executable") and the path the editor shows. A cleared path sends null for that tool.
@@ -120,10 +120,20 @@ func (a *App) openRunConfigEditor(p *project, id string) *runConfigEditor {
 		e.beforeLaunch = append(e.beforeLaunch, step.Configuration)
 	}
 	e.savedBeforeLaunch = slices.Clone(e.beforeLaunch)
+	var buildInstance *buildInstance
+	var optionSnapshot map[string]json.RawMessage
 	if provider, ok := providerRunEditorState(*configuration); ok {
 		e.provider, e.runtimeArguments, e.entrypoint, e.options, e.tools = true, provider.runtimeArguments, provider.entrypoint, provider.options, provider.tools
 		if reference, ok := configuration.BuildReference(); ok {
 			e.optionFields = p.runOptionFields(reference, e.options)
+			if index := p.buildInstanceIndex(reference); index >= 0 {
+				captured := p.build.instances[index]
+				buildInstance = &captured
+				optionSnapshot = make(map[string]json.RawMessage, len(e.options))
+				for key, value := range e.options {
+					optionSnapshot[key] = slices.Clone(value)
+				}
+			}
 		}
 		a.loadRunConfigInstalls(p, e, e.generation)
 	}
@@ -134,6 +144,15 @@ func (a *App) openRunConfigEditor(p *project, id string) *runConfigEditor {
 		if err == nil && len(texts) != 1 {
 			err = errors.New("runConfig.argumentText returned no text")
 		}
+		var resolvedFields []runOptionField
+		if err == nil && buildInstance != nil {
+			fields, resolveErr := resolveInstanceOptionFields(ctx, kernel, *buildInstance, optionSnapshot)
+			if resolveErr != nil {
+				a.backgroundFailedIn(ctx, "build_options_resolve", resolveErr)
+			} else {
+				resolvedFields = fields
+			}
+		}
 		return func(a *App) {
 			if !e.open || e.generation != generation {
 				return
@@ -143,6 +162,9 @@ func (a *App) openRunConfigEditor(p *project, id string) *runConfigEditor {
 				e.arguments = texts[0]
 			} else {
 				e.failure = i18n.SharedFormat(a.language(), "desktop.runConfig.saveFailed", map[string]string{"reason": err.Error()})
+			}
+			if len(resolvedFields) != 0 {
+				e.optionFields = resolvedFields
 			}
 			e.baseline = e.fingerprint()
 		}
@@ -202,20 +224,36 @@ func (a *App) saveRunConfigEditor(p *project, e *runConfigEditor, done func(ok b
 		steps = append([]string{}, e.beforeLaunch...)
 		edit.BeforeLaunch = &steps
 	}
+	var multiSelectEdits map[string][]string
+	var multiSelectInstance *buildInstance
+	var editorSnapshot runConfigEditor
 	if e.provider {
-		applyRunOptionFields(e)
-		raw, err := providerRunOptionsJSON(e)
-		if err != nil {
-			e.failure = i18n.SharedFormat(a.language(), "desktop.runConfig.saveFailed", map[string]string{"reason": err.Error()})
-			done(false)
-			return
+		for _, field := range e.optionFields {
+			if selected, changed := changedSelectedChoices(field); changed {
+				if multiSelectEdits == nil {
+					multiSelectEdits = map[string][]string{}
+				}
+				multiSelectEdits[field.id] = selected
+			}
 		}
-		edit.ProviderRunOptions = raw
+		if len(multiSelectEdits) != 0 {
+			if configuration := p.runConfigs.configuration(e.id); configuration != nil {
+				if reference, ok := configuration.BuildReference(); ok {
+					if index := p.buildInstanceIndex(reference); index >= 0 {
+						captured := p.build.instances[index]
+						multiSelectInstance = &captured
+					}
+				}
+			}
+		}
+		editorSnapshot = *e
+		editorSnapshot.options = maps.Clone(e.options)
+		editorSnapshot.tools = slices.Clone(e.tools)
+		applyRunOptionFields(&editorSnapshot)
 	}
 	e.saving, e.failure = true, ""
-	generation := e.generation
-	a.background(p, buildRequestTimeout, func(ctx context.Context) func(*App) {
-		err := a.saveRunConfigOptions(ctx, edit)
+	generation, kernel := e.generation, a.kernel
+	finish := func(err error) func(*App) {
 		return func(a *App) {
 			current := e.open && e.generation == generation
 			if current {
@@ -229,10 +267,55 @@ func (a *App) saveRunConfigEditor(p *project, e *runConfigEditor, done func(ok b
 				return
 			}
 			if current {
+				e.options = editorSnapshot.options
+				for i := range e.optionFields {
+					field := &e.optionFields[i]
+					field.initFlag, field.initText, field.initPick = field.flag, field.text, slices.Clone(field.picks)
+				}
 				e.baseline, e.savedBeforeLaunch = e.fingerprint(), slices.Clone(steps)
 			}
 			done(true)
 		}
+	}
+	a.background(p, buildRequestTimeout, func(ctx context.Context) func(*App) {
+		if len(multiSelectEdits) != 0 && multiSelectInstance != nil {
+			request := core.BuildResolveOptionsRequest{
+				Options:          editorSnapshot.options,
+				SelectedChoices:  multiSelectEdits,
+				InheritedOptions: multiSelectInstance.Options,
+			}
+			if multiSelectInstance.modelLoaded {
+				request.ModelValues = multiSelectInstance.Model.OptionValues
+				request.ModelDefaults = multiSelectInstance.Model.OptionDefaults
+				request.ModelExcludePrefixes = multiSelectInstance.Model.OptionExcludePrefixes
+				request.ModelSelection = multiSelectInstance.Model.OptionSelection
+			}
+			resolved, err := kernel.ResolveBuildOptions(ctx, multiSelectInstance.Manifest, multiSelectInstance.BuildSystemID, request)
+			if err != nil {
+				return finish(err)
+			}
+			if editorSnapshot.options == nil {
+				editorSnapshot.options = map[string]json.RawMessage{}
+			}
+			for _, option := range resolved.Options {
+				if _, edited := multiSelectEdits[option.ID]; !edited {
+					continue
+				}
+				if option.Source == "user" {
+					editorSnapshot.options[option.ID] = option.Value
+				} else {
+					delete(editorSnapshot.options, option.ID)
+				}
+			}
+		}
+		if editorSnapshot.provider {
+			raw, err := providerRunOptionsJSON(&editorSnapshot)
+			if err != nil {
+				return finish(err)
+			}
+			edit.ProviderRunOptions = raw
+		}
+		return finish(a.saveRunConfigOptions(ctx, edit))
 	})
 }
 

@@ -2,7 +2,9 @@ package workbench
 
 import (
 	"context"
+	"encoding/json"
 	"hash/fnv"
+	"slices"
 	"strings"
 	"time"
 
@@ -50,16 +52,18 @@ func buildGroupHeadings(language i18n.Language) map[string]string {
 	}
 }
 
-// buildTree is one instance's tree as Core laid it out for one filter. version is the model
-// version it came from (buildInstance.modelVersion), query and language the filter and the
-// language of its folder headings. targets finds a target node's target in that model by ID.
+// buildTree is one instance's tree as Core laid it out for one filter. version and
+// optionFingerprint are the model version and effective option digest it came from
+// (buildInstance.modelVersion, buildInstance.OptionFingerprint), query and language the filter
+// and the language of its folder headings. targets finds a target node's target in that model by ID.
 type buildTree struct {
-	version  uint64
-	query    string
-	language i18n.Language
-	tree     core.BuildModelTree
-	failed   string
-	targets  map[string]int
+	version           uint64
+	optionFingerprint string
+	query             string
+	language          i18n.Language
+	tree              core.BuildModelTree
+	failed            string
+	targets           map[string]int
 }
 
 // buildTrees are the trees of one instance: the whole tree and the latest filtered one, each
@@ -196,7 +200,9 @@ func (a *App) buildTreeOf(p *project, index int, query string) *buildTree {
 		shown, out = instance.trees.filtered, &instance.trees.filteredOut
 	}
 	language := a.language()
-	current := shown != nil && shown.version == instance.modelVersion && shown.query == query && shown.language == language
+	current := shown != nil && shown.version == instance.modelVersion &&
+		shown.optionFingerprint == instance.OptionFingerprint &&
+		shown.query == query && shown.language == language
 	if !current && !*out {
 		*out = true
 		a.layOutBuildTree(p, instance, query, language)
@@ -210,12 +216,26 @@ func (a *App) buildTreeOf(p *project, index int, query string) *buildTree {
 func (a *App) layOutBuildTree(p *project, instance *buildInstance, query string, language i18n.Language) {
 	kernel := a.kernel
 	id, generation := instance.ID, p.build.generation
-	manifest, buildSystemID, version := instance.Manifest, instance.BuildSystemID, instance.modelVersion
-	model := core.BuildModelTreeInput{Projects: instance.Model.Projects, Targets: instance.Model.Targets, Tasks: instance.Model.Tasks}
+	manifest, buildSystemID, version, optionFingerprint := instance.Manifest, instance.BuildSystemID, instance.modelVersion, instance.OptionFingerprint
+	options := make(map[string]json.RawMessage, len(instance.Options))
+	for key, value := range instance.Options {
+		options[key] = slices.Clone(value)
+	}
+	model := core.BuildModelTreeInput{
+		Projects:              instance.Model.Projects,
+		Targets:               instance.Model.Targets,
+		Tasks:                 instance.Model.Tasks,
+		OptionValues:          instance.Model.OptionValues,
+		OptionDefaults:        instance.Model.OptionDefaults,
+		OptionExcludePrefixes: instance.Model.OptionExcludePrefixes,
+		OptionSelection:       instance.Model.OptionSelection,
+	}
 	headings := buildGroupHeadings(language)
 	a.background(p, buildTreeTimeout, func(ctx context.Context) func(*App) {
-		tree := &buildTree{version: version, query: query, language: language}
-		laid, err := kernel.BuildModelTree(ctx, manifest, buildSystemID, core.BuildModelTreeRequest{Model: model, Query: query, GroupHeadings: headings})
+		tree := &buildTree{version: version, optionFingerprint: optionFingerprint, query: query, language: language}
+		laid, err := kernel.BuildModelTree(ctx, manifest, buildSystemID, core.BuildModelTreeRequest{
+			Model: model, Options: options, Query: query, GroupHeadings: headings,
+		})
 		if err != nil {
 			a.backgroundFailedIn(ctx, "build_tree", err)
 			tree.failed = err.Error()
@@ -249,7 +269,7 @@ func (a *App) finishBuildTree(p *project, id string, generation uint64, tree *bu
 	} else {
 		trees.filteredOut = false
 	}
-	if tree.version != instance.modelVersion {
+	if tree.version != instance.modelVersion || tree.optionFingerprint != instance.OptionFingerprint {
 		return
 	}
 	if tree.query == "" {
@@ -408,7 +428,7 @@ func (a *App) appendBuildTree(rows []buildRow, p *project, index int, tree *buil
 	if tree == nil {
 		return rows
 	}
-	rows = a.appendBuildNodes(rows, p, index, tree, tree.tree.Nodes, 1, filtering)
+	rows = a.appendBuildNodes(rows, p, index, tree, tree.tree.Nodes, 1, filtering, "")
 	if tree.tree.Truncated && !filtering {
 		row := note(i18n.Shared(a.language(), "desktop.build.treeTruncated"))
 		row.warning = true
@@ -422,7 +442,7 @@ func (a *App) appendBuildTree(rows []buildRow, p *project, index int, tree *buil
 // filtering, a node Core kept for a match below it is open and stays so, and a match shows as
 // the user left it with all it holds; the discovered tests node shows only the tests that
 // match, and is left out when none does.
-func (a *App) appendBuildNodes(rows []buildRow, p *project, index int, tree *buildTree, nodes []core.BuildTreeNode, level int, filtering bool) []buildRow {
+func (a *App) appendBuildNodes(rows []buildRow, p *project, index int, tree *buildTree, nodes []core.BuildTreeNode, level int, filtering bool, optionTitle string) []buildRow {
 	b, t, language := &p.build, a.text.Build, a.language()
 	instance := &b.instances[index]
 	selected := index == b.selected
@@ -445,9 +465,14 @@ func (a *App) appendBuildNodes(rows []buildRow, p *project, index int, tree *bui
 		case core.BuildTreeTask:
 			row.kind = buildRowTask
 			row.selected = selected && b.taskID == node.TaskID && b.projectID == node.ProjectID && b.targetID == node.TargetID
-		case core.BuildTreeFolder:
-			// Core names the folder: by its category heading, else by the group heading it was sent.
+		case core.BuildTreeFolder, core.BuildTreeOption:
+			// Core names the folder: by its category heading, option display name, or group heading.
 			row.kind = buildRowFolder
+		case core.BuildTreeOptionChoice:
+			row.kind, row.optionTitle = buildRowOptionChoice, optionTitle
+			if node.DefaultActive {
+				row.detail = i18n.Shared(language, "desktop.build.optionChoiceDefault")
+			}
 		case core.BuildTreeTargets:
 			row.kind, row.label = buildRowFolder, t.Targets
 		case core.BuildTreeDependencies:
@@ -479,10 +504,100 @@ func (a *App) appendBuildNodes(rows []buildRow, p *project, index int, tree *bui
 			}
 			rows = append(rows, tests...)
 		default:
-			rows = a.appendBuildNodes(rows, p, index, tree, node.Children, level+1, fixed)
+			childOption := optionTitle
+			if node.Kind == core.BuildTreeOption {
+				childOption = node.Label
+			}
+			rows = a.appendBuildNodes(rows, p, index, tree, node.Children, level+1, fixed, childOption)
 		}
 	}
 	return rows
+}
+
+// toggleBuildTreeOptionChoice flips one choice of a tree-presented multi-select option on the
+// instance at index, writes the updated local option document through Core, and reloads the
+// build systems so the model, tasks, dependencies and run configurations pick up the change.
+func (a *App) toggleBuildTreeOptionChoice(p *project, index int, optionID, choiceValue string) {
+	b := &p.build
+	if b.optionSaving || b.loading || b.operation != nil || index < 0 || index >= len(b.instances) {
+		return
+	}
+	instance := &b.instances[index]
+	if !instance.modelLoaded || instance.modelLoading || optionID == "" || choiceValue == "" {
+		return
+	}
+	docs, err := a.readBuildOptionDocuments(context.Background(), p.root)
+	if err != nil {
+		a.notifyError(a.launchFailureText(err))
+		return
+	}
+	b.optionSaving = true
+	captured := *instance
+	kernel, root := a.kernel, p.root
+	a.background(p, buildRequestTimeout, func(ctx context.Context) func(*App) {
+		fields, err := resolveInstanceOptionFields(ctx, kernel, captured, nil)
+		if err != nil {
+			return func(a *App) {
+				p.build.optionSaving = false
+				a.notifyError(a.launchFailureText(err))
+			}
+		}
+		var next []string
+		found := false
+		for _, field := range fields {
+			if field.id != optionID {
+				continue
+			}
+			for at, choice := range field.choices {
+				checked := at < len(field.picks) && field.picks[at]
+				if choice.value == choiceValue {
+					checked = !checked
+					found = true
+				}
+				if checked {
+					next = append(next, choice.value)
+				}
+			}
+			break
+		}
+		if !found {
+			return func(a *App) { p.build.optionSaving = false }
+		}
+		if next == nil {
+			next = []string{}
+		}
+		edit, err := kernel.EditStoredBuildOption(ctx, captured.Manifest, captured.BuildSystemID, core.BuildOptionEditRequest{
+			Document:             docs.team,
+			Local:                docs.local,
+			Root:                 captured.Root,
+			OptionID:             optionID,
+			SelectedChoices:      next,
+			HasSelectedChoices:   true,
+			ModelValues:          captured.Model.OptionValues,
+			ModelDefaults:        captured.Model.OptionDefaults,
+			ModelExcludePrefixes: captured.Model.OptionExcludePrefixes,
+			ModelSelection:       captured.Model.OptionSelection,
+		})
+		if err != nil {
+			return func(a *App) {
+				p.build.optionSaving = false
+				a.notifyError(a.launchFailureText(err))
+			}
+		}
+		return func(a *App) {
+			p.build.optionSaving = false
+			if a.project != p {
+				return
+			}
+			if err := a.storeBuildLocalOptions(root, edit.Local); err != nil {
+				a.notifyError(a.launchFailureText(err))
+				return
+			}
+			p.reloadBuildDependencies()
+			p.revokeBuildTests(captured.ID)
+			a.requestBuildReload(p)
+		}
+	})
 }
 
 // reloadBuildSystems detects the workspace's build systems again: the instances, their models,

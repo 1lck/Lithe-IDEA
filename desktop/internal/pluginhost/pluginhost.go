@@ -101,6 +101,11 @@ type Capabilities map[string][]int
 //     and discovers and runs provider tests. Run on Current File asks the
 //     providers of version 1 for the file's entrypoints and saves the first as a
 //     run configuration. Run sessions a backend starts are owned by the host.
+//   - runConfigurationTypes: the Run/Debug Configurations dialog lists the
+//     kinds a build system declares after the built-in ones, edits them with the
+//     form Core describes in the plugin's translation, saves them and runs them
+//     with the command Core plans for the detected instance. A declared kind has
+//     no debugger.
 //   - toolDefinitions: settings discovery, Build/Run selection and tool
 //     launches use the shared Core resolver.
 //   - commandInstallers: plugin management reports the commands a
@@ -155,6 +160,7 @@ func Declared() Capabilities {
 		"outputLinkMatchers",
 		"pluginFunctions",
 		"projectGenerators",
+		"runConfigurationTypes",
 		"settings",
 		"sourceSettings",
 		"toolDefinitions",

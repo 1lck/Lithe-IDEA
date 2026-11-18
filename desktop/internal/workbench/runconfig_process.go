@@ -34,9 +34,9 @@ const inlineScriptDirectoryPattern = "lithe-run-script-"
 // errRunProgramNotFound is a planned command that no PATH directory holds.
 var errRunProgramNotFound = errors.New("run program not found")
 
-// startProcessRun begins the configuration's run beside the window's other executions and
-// starts it once unsaved documents are saved, so the process reads the files on disk. Rerun
-// starts it again.
+// startProcessRun begins the run of a built-in process configuration, or of one of a kind a
+// plugin declares, beside the window's other executions and starts it once unsaved documents
+// are saved, so the process reads the files on disk. Rerun starts it again.
 func (a *App) startProcessRun(p *project, configuration core.RunConfiguration) *buildOperation {
 	id := configuration.ID
 	op := a.beginRunOperation(p, configuration.Name, id, configurationRunKey(id), func(a *App, p *project) {
@@ -51,7 +51,13 @@ func (a *App) startProcessRun(p *project, configuration core.RunConfiguration) *
 			a.endBuildOperation(p, op, "failed", nil, "unsaved documents could not be saved", "")
 			return
 		}
-		a.runBeforeLaunch(p, op, id, func() { a.launchProcessRun(p, op, id) })
+		a.runBeforeLaunch(p, op, id, func() {
+			if key, ok := configuration.RunTypeReference(); ok {
+				a.launchDeclaredRun(p, op, id, key)
+				return
+			}
+			a.launchProcessRun(p, op, id)
+		})
 	})
 	return op
 }

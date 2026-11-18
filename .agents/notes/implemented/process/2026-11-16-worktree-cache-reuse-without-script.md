@@ -4,7 +4,7 @@
 
 ## 先说结论
 
-仓库不再提供跨工作树复制资源的脚本。#2002 删除了 `scripts/resources/` 下的复用脚本、资源清单和下载缓存校验器。新工作树编译前，Agent 按 `develop-lithe` Skill 的“工作树缓存复用”一节自己判断：来源版本一致时，用 APFS 克隆复制已有工作树的 `.artifacts/desktop`，再照常运行构建脚本，由脚本自己的身份检查决定重编什么。
+仓库不再提供跨工作树复制资源的脚本。#2002 删除了 `scripts/resources/` 下的复用脚本、资源清单和下载缓存校验器。新工作树编译前，Agent 按 `develop-lithe` Skill 的“检出与编译缓存复用”一节自己判断：来源版本一致时，用 APFS 克隆复制已有工作树的 `.artifacts/desktop`，再照常运行构建脚本，由脚本自己的身份检查决定重编什么。
 
 开发者需要知道两件事：Go 的构建缓存和模块缓存、Cargo 的 `~/.cargo/registry` 是所有工作树共用的全局缓存，不得改位置、不得清空，也不复制；新增下载、解压、生成或缓存资源时，只需在 `docs/ci-builds.md`“独立工作树的本地编译”一节写清它属于全局共用还是工作树私有、能否复制、复制的前提，不再登记清单。
 
@@ -23,7 +23,7 @@
 ## 决策
 
 1. 删除 `scripts/resources/` 下全部脚本、清单和测试，归档旧 Note。
-2. 在 `develop-lithe` Skill 第七节新增“工作树缓存复用”，写明 Agent 自己判断时要遵守的规则：
+2. 在 `develop-lithe` Skill 第七节新增“工作树缓存复用”（2026-11-18 改名为“检出与编译缓存复用”，并补充了先复用已有检出的规则，见[先复用已有检出，再新建工作树](2026-11-18-reuse-checkouts-before-new-worktrees.md)），写明 Agent 自己判断时要遵守的规则：
    - 全局缓存（Go 构建缓存 `GOCACHE`、模块缓存 `GOMODCACHE`、`~/.cargo/registry`）所有工作树共用：不为工作树或单条命令另设 `GOCACHE`、`GOMODCACHE`、`GOPATH`、`CARGO_HOME`，不指向 `.artifacts` 或临时目录，不用 `go clean -cache`、`go clean -modcache` 清空；沙盒不让写时申请权限，而不是改位置。
    - 只复制、不共享：macOS 用 `cp -cR` 做 APFS 克隆，不用符号链接、硬链接或共用目录；源工作树正在编译时不复制。
    - 只在 `PINNED_CORE_REVISION`、`desktop/go.mod` 固定的 Viva 版本、平台、架构和工具链都一致，且两边都没用 `LITHE_CORE_RUST_DIR` 指向本地 Core 检出时复制。
