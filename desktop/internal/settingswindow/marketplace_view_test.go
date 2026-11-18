@@ -32,6 +32,38 @@ func stopsWithin(t *testing.T, stopped <-chan struct{}, what string) {
 	}
 }
 
+// Plugin auto-update is opt-in. The settings gear must expose both states
+// without opening a download or requiring any installed plugin.
+func TestMarketplaceAutoUpdateMenuToggle(t *testing.T) {
+	var changed []bool
+	w := newWindow(NewController(Options{
+		Marketplace: func(context.Context) (marketplace.Snapshot, error) {
+			return marketplace.Snapshot{}, nil
+		},
+		SetAutoUpdatePlugins: func(enabled bool) {
+			changed = append(changed, enabled)
+		},
+	}), Values{})
+	w.sess.page = pagePlugins
+	w.pluginTab = pluginTabMarketplace
+	d := openWindow(t, w)
+	words := func(key string) string { return i18n.Shared(i18n.English, key) }
+	d.click(words("desktop.pluginSettings.title"))
+	d.pump()
+	d.click(words("desktop.marketplace.enableAutoUpdates"))
+	d.pump()
+	if !w.sess.values.AutoUpdatePlugins || len(changed) != 1 || !changed[0] {
+		t.Fatalf("enabling auto-update: value=%v callbacks=%v", w.sess.values.AutoUpdatePlugins, changed)
+	}
+	d.click(words("desktop.pluginSettings.title"))
+	d.pump()
+	d.click(words("desktop.marketplace.disableAutoUpdates"))
+	d.pump()
+	if w.sess.values.AutoUpdatePlugins || len(changed) != 2 || changed[1] {
+		t.Fatalf("disabling auto-update: value=%v callbacks=%v", w.sess.values.AutoUpdatePlugins, changed)
+	}
+}
+
 func TestMarketplaceSourceSelectorLoadsTheChosenIndex(t *testing.T) {
 	makeFetch := func(id string) func(context.Context) (marketplace.Snapshot, error) {
 		return func(context.Context) (marketplace.Snapshot, error) {
