@@ -58,7 +58,7 @@ func (a *App) runConfigList(c ui.C, p *project) {
 }
 
 // drawRunConfigHeader declares the list's header: its title, the scope picker when there are
-// scopes to pick, and the button whose menu creates a built-in run of each kind.
+// scopes to pick, and the button that opens the Run/Debug Configurations dialog to create one.
 func (a *App) drawRunConfigHeader(c ui.C, p *project, title string, scopes []string) {
 	s := &p.runConfigs
 	b := &s.browser
@@ -70,51 +70,19 @@ func (a *App) drawRunConfigHeader(c ui.C, p *project, title string, scopes []str
 				Label(title).Shrink(1).MinWidth(0).MaxWidth(240)
 		}
 		ui.Spacer(c)
-		label := i18n.Shared(language, "desktop.runConfig.newConfiguration")
-		add, clicked := a.toolIconButton(c.Part("new"), label, icons.Plus, s.newMenu, len(s.types) == 0)
-		if clicked {
-			s.newMenu = !s.newMenu
+		label := i18n.Shared(language, "desktop.runConfig.newConfigurationEllipsis")
+		if _, clicked := a.toolIconButton(c.Part("new"), label, icons.Plus, false, false); clicked {
+			c.After(func() {
+				a.performed("run.configuration.dialog", surfaceButton)
+				a.openRunConfigDialog(p, "")
+			})
 		}
-		ui.Menu(c.Part("new-menu"), add, &s.newMenu, func(menu *ui.MenuItems) {
-			menu.WidthRange(180, 260)
-			a.runConfigTypeItems(c, menu, p, surfaceButton)
-		})
 	})
 }
 
-// runConfigTypeItems adds an item per built-in kind this platform offers, each opening the
-// editor of a new configuration of that kind.
-func (a *App) runConfigTypeItems(c ui.C, menu *ui.MenuItems, p *project, surface actionSurface) {
-	language := a.language()
-	for _, kind := range p.runConfigs.types {
-		label, ok := runConfigTypeLabel(language, kind.Provider)
-		if !ok {
-			continue
-		}
-		provider := kind.Provider
-		if menu.Item(label).Icon(runConfigTypeIcon(provider)).Clicked() {
-			c.After(func() {
-				a.performed("run.configuration.new", surface)
-				a.openRunConfigForm(p, provider, "")
-			})
-		}
-	}
-	if len(p.runConfigs.types) == 0 {
-		menu.Item(i18n.Shared(language, "native.loading")).Disabled(true)
-	}
-}
-
-// editRunConfiguration opens the editor that suits configuration id: the form of a built-in
-// run, or the options of a build provider run.
+// editRunConfiguration opens the Run/Debug Configurations dialog with configuration id selected.
 func (a *App) editRunConfiguration(p *project, id string) {
-	configuration := p.runConfigs.configuration(id)
-	switch {
-	case configuration == nil:
-	case configuration.IsProcess():
-		a.openRunConfigForm(p, configuration.Provider, id)
-	default:
-		a.openRunConfigEditor(p, id)
-	}
+	a.openRunConfigDialog(p, id)
 }
 
 // runConfigEditable says whether the list offers an editor for configuration: every built-in
@@ -314,78 +282,61 @@ func (a *App) runConfigMenu(c ui.C, row ui.Box, p *project, configuration core.R
 	})
 }
 
-// drawRunConfigEditor declares the open run configuration editor: arguments, working
-// directory, environment and the layer file the edit is saved into.
-func (a *App) drawRunConfigEditor(c ui.C, p *project) {
-	e := &p.runConfigs.editor
-	if !e.open {
-		return
-	}
+// drawRunConfigEditorPane declares the editor of a build provider run in the dialog:
+// arguments, working directory, environment, the provider's choices, the process runs that
+// start first and the layer file the edit is saved into.
+func (a *App) drawRunConfigEditorPane(c ui.C, p *project, e *runConfigEditor) {
 	language := a.language()
-	ready := !e.loading && !e.saving
-	open := true
-	title := i18n.SharedFormat(language, "desktop.runConfig.editTitle", map[string]string{"name": e.name})
-	closed := ui.ModalWith(c, &open, title, ui.ModalSpec{Width: 460}, func() {
-		ui.Column(c.Part("run-config-editor")).FillWidth().Gap(10).Children(func() {
-			ui.TextField(c.Part("arguments"), &e.arguments, i18n.Shared(language, "desktop.runConfig.arguments"), i18n.Shared(language, "desktop.runConfig.argumentsPlaceholder")).
+	ready := e.ready()
+	ui.Column(c.Part("run-config-editor")).FillWidth().Gap(10).Children(func() {
+		ui.TextField(c.Part("arguments"), &e.arguments, i18n.Shared(language, "desktop.runConfig.arguments"), i18n.Shared(language, "desktop.runConfig.argumentsPlaceholder")).
+			FillWidth().Disabled(!ready)
+		ui.TextField(c.Part("directory"), &e.directory, i18n.Shared(language, "desktop.runConfig.workingDirectory"), i18n.Shared(language, "desktop.runConfig.workingDirectoryPlaceholder")).
+			FillWidth().Disabled(!ready)
+		ui.TextArea(c.Part("environment"), &e.environment, i18n.Shared(language, "desktop.runConfig.environment"), i18n.Shared(language, "desktop.runConfig.environmentPlaceholder")).
+			FillWidth().Height(96).Disabled(!ready)
+		if e.provider {
+			ui.TextArea(c.Part("runtime-arguments"), &e.runtimeArguments, i18n.Shared(language, "desktop.runConfig.runtimeArguments"), i18n.Shared(language, "desktop.runConfig.runtimeArgumentsPlaceholder")).
+				FillWidth().Height(72).Disabled(!ready)
+			ui.TextField(c.Part("entrypoint"), &e.entrypoint, i18n.Shared(language, "desktop.runConfig.entrypoint"), i18n.Shared(language, "desktop.runConfig.entrypointPlaceholder")).
 				FillWidth().Disabled(!ready)
-			ui.TextField(c.Part("directory"), &e.directory, i18n.Shared(language, "desktop.runConfig.workingDirectory"), i18n.Shared(language, "desktop.runConfig.workingDirectoryPlaceholder")).
-				FillWidth().Disabled(!ready)
-			ui.TextArea(c.Part("environment"), &e.environment, i18n.Shared(language, "desktop.runConfig.environment"), i18n.Shared(language, "desktop.runConfig.environmentPlaceholder")).
-				FillWidth().Height(96).Disabled(!ready)
-			if e.provider {
-				ui.TextArea(c.Part("runtime-arguments"), &e.runtimeArguments, i18n.Shared(language, "desktop.runConfig.runtimeArguments"), i18n.Shared(language, "desktop.runConfig.runtimeArgumentsPlaceholder")).
-					FillWidth().Height(72).Disabled(!ready)
-				ui.TextField(c.Part("entrypoint"), &e.entrypoint, i18n.Shared(language, "desktop.runConfig.entrypoint"), i18n.Shared(language, "desktop.runConfig.entrypointPlaceholder")).
+			if len(e.installs) > 0 {
+				labels := []string{i18n.Shared(language, "desktop.runConfig.toolPickNone")}
+				for _, install := range e.installs {
+					labels = append(labels, install.toolName+": "+install.path+" "+install.version)
+				}
+				ui.Select(c.Part("tool-pick"), &e.pick, indexRange(len(labels)), func(index int) string { return labels[index] }).
+					Label(i18n.Shared(language, "desktop.runConfig.toolPick")).FillWidth().Disabled(!ready)
+				if e.pick > 0 && e.pick <= len(e.installs) {
+					e.pickRunConfigInstall(e.installs[e.pick-1])
+				}
+				e.pick = 0
+			}
+			for index := range e.tools {
+				tool := &e.tools[index]
+				label := i18n.SharedFormat(language, "desktop.runConfig.toolPath", map[string]string{"arg1": tool.id, "arg2": tool.kind})
+				ui.TextField(c.Part("tool-"+strconv.Itoa(index)), &tool.path, label, i18n.Shared(language, "desktop.runConfig.toolPathPlaceholder")).
 					FillWidth().Disabled(!ready)
-				if len(e.installs) > 0 {
-					labels := []string{i18n.Shared(language, "desktop.runConfig.toolPickNone")}
-					for _, install := range e.installs {
-						labels = append(labels, install.toolName+": "+install.path+" "+install.version)
-					}
-					ui.Select(c.Part("tool-pick"), &e.pick, indexRange(len(labels)), func(index int) string { return labels[index] }).
-						Label(i18n.Shared(language, "desktop.runConfig.toolPick")).FillWidth().Disabled(!ready)
-					if e.pick > 0 && e.pick <= len(e.installs) {
-						e.pickRunConfigInstall(e.installs[e.pick-1])
-					}
-					e.pick = 0
-				}
-				for index := range e.tools {
-					tool := &e.tools[index]
-					label := i18n.SharedFormat(language, "desktop.runConfig.toolPath", map[string]string{"arg1": tool.id, "arg2": tool.kind})
-					ui.TextField(c.Part("tool-"+strconv.Itoa(index)), &tool.path, label, i18n.Shared(language, "desktop.runConfig.toolPathPlaceholder")).
-						FillWidth().Disabled(!ready)
-				}
-				for index := range e.optionFields {
-					a.drawRunOptionField(c.Part("option-"+strconv.Itoa(index)), language, &e.optionFields[index], ready)
-				}
 			}
-			ui.Column(c.Part("before-launch-field")).FillWidth().Gap(4).Children(func() {
-				ui.Row(c).FillWidth().Items(ui.Center).Gap(4).Children(func() {
-					ui.Text(c, i18n.Shared(language, "desktop.runConfig.fieldBeforeLaunch")).FontSize(a.theme.Metrics.FontSizeS).Color(a.colors.Subtle)
-					ui.Button(c.Part("help"), i18n.Shared(language, "native.moreInformation")).Icon(icons.Info).IconOnly().Ghost().
-						Size(18, 18).Shrink(0).Tooltip(i18n.Shared(language, "desktop.runConfig.beforeLaunchHelp")).TooltipOn(ui.TooltipRight)
-				})
-				a.drawRunConfigBeforeLaunch(c, &e.beforeLaunch, &e.beforeLaunchMenu, p.runConfigs.beforeLaunchCandidates(e.id), ready)
-			})
-			labels := map[string]string{"local": i18n.Shared(language, "desktop.runConfig.scopeLocal"), "project": i18n.Shared(language, "desktop.runConfig.scopeProject")}
-			ui.Select(c.Part("scope"), &e.scope, []string{"local", "project"}, func(scope string) string { return labels[scope] }).
-				Label(i18n.Shared(language, "desktop.runConfig.scope")).FillWidth()
-			if e.failure != "" {
-				ui.Paragraph(c, e.failure, 4).FontSize(a.theme.Metrics.FontSizeS).Color(a.theme.Danger)
+			for index := range e.optionFields {
+				a.drawRunOptionField(c.Part("option-"+strconv.Itoa(index)), language, &e.optionFields[index], ready)
 			}
-		})
-	}, func() {
-		if ui.Button(c, i18n.Shared(language, "desktop.git.cancel")).Outline().Clicked() {
-			c.After(func() { a.closeRunConfigEditor(p) })
 		}
-		if ui.Button(c, i18n.Shared(language, "ui.save")).Disabled(!ready).Clicked() {
-			c.After(func() { a.saveRunConfigEditor(p) })
+		ui.Column(c.Part("before-launch-field")).FillWidth().Gap(4).Children(func() {
+			ui.Row(c).FillWidth().Items(ui.Center).Gap(4).Children(func() {
+				ui.Text(c, i18n.Shared(language, "desktop.runConfig.fieldBeforeLaunch")).FontSize(a.theme.Metrics.FontSizeS).Color(a.colors.Subtle)
+				ui.Button(c.Part("help"), i18n.Shared(language, "native.moreInformation")).Icon(icons.Info).IconOnly().Ghost().
+					Size(18, 18).Shrink(0).Tooltip(i18n.Shared(language, "desktop.runConfig.beforeLaunchHelp")).TooltipOn(ui.TooltipRight)
+			})
+			a.drawRunConfigBeforeLaunch(c, &e.beforeLaunch, &e.beforeLaunchMenu, p.runConfigs.beforeLaunchCandidates(e.id), ready, nil)
+		})
+		labels := map[string]string{"local": i18n.Shared(language, "desktop.runConfig.scopeLocal"), "project": i18n.Shared(language, "desktop.runConfig.scopeProject")}
+		ui.Select(c.Part("scope"), &e.scope, []string{"local", "project"}, func(scope string) string { return labels[scope] }).
+			Label(i18n.Shared(language, "desktop.runConfig.scope")).FillWidth().Disabled(!ready)
+		if e.failure != "" {
+			ui.Paragraph(c, e.failure, 4).FontSize(a.theme.Metrics.FontSizeS).Color(a.theme.Danger)
 		}
 	})
-	if closed {
-		c.After(func() { a.closeRunConfigEditor(p) })
-	}
 }
 
 // indexRange is the list 0..n-1, the options of an index picker.

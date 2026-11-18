@@ -14,10 +14,6 @@ import (
 )
 
 const (
-	// runConfigFormWidth is the editor dialog's width, wide enough for a path and its options.
-	runConfigFormWidth = 640
-	// runConfigFormBodyMaxHeight bounds the fields, which scroll beyond it.
-	runConfigFormBodyMaxHeight = 520
 	// runConfigFormLabelWidth is the column of field titles.
 	runConfigFormLabelWidth = 150
 	// runConfigFormTextHeight is the height of a script saved as text.
@@ -93,8 +89,9 @@ func runConfigFieldLabel(language i18n.Language, id string) (string, bool) {
 	return "", false
 }
 
-// runConfigFieldHelp is the ⓘ tip of a field: what its note means, or what the field does.
-func runConfigFieldHelp(language i18n.Language, field core.RunEditorField) string {
+// runConfigFieldHelp is the ⓘ tip of a field of a provider's editor: what its note means, or
+// what the field does. The script's arguments say how the script of that kind reads them.
+func runConfigFieldHelp(language i18n.Language, provider string, field core.RunEditorField) string {
 	switch {
 	case field.Note == "windowsOnly":
 		return i18n.Shared(language, "desktop.runConfig.noteWindowsOnly")
@@ -104,6 +101,36 @@ func runConfigFieldHelp(language i18n.Language, field core.RunEditorField) strin
 		return i18n.Shared(language, "desktop.runConfig.interpreterHelp")
 	case field.ID == "beforeLaunch":
 		return i18n.Shared(language, "desktop.runConfig.beforeLaunchHelp")
+	case field.ID == "interpreterArguments":
+		return i18n.Shared(language, "desktop.runConfig.interpreterArgumentsHelp")
+	case field.ID == "programArguments":
+		return i18n.Shared(language, "desktop.runConfig.programArgumentsHelp")
+	case field.ID == "scriptOptions" && provider == runProviderPowerShell:
+		return i18n.Shared(language, "desktop.runConfig.scriptOptionsHelpPowerShell")
+	case field.ID == "scriptOptions" && provider == runProviderBatch:
+		return i18n.Shared(language, "desktop.runConfig.scriptOptionsHelpBatch")
+	case field.ID == "scriptOptions":
+		return i18n.Shared(language, "desktop.runConfig.scriptOptionsHelpShell")
+	}
+	return ""
+}
+
+// runConfigFieldPlaceholder is what an empty field shows: the automatic value that applies
+// while it is empty, or an example of what goes into an argument field.
+func runConfigFieldPlaceholder(language i18n.Language, field core.RunEditorField) string {
+	if field.Automatic != nil && *field.Automatic != "" {
+		return i18n.SharedFormat(language, "desktop.runConfig.automaticValue", map[string]string{"value": *field.Automatic})
+	}
+	switch field.ID {
+	case "scriptOptions":
+		return i18n.Shared(language, "desktop.runConfig.scriptOptionsPlaceholder")
+	case "interpreterArguments":
+		return i18n.Shared(language, "desktop.runConfig.interpreterArgumentsPlaceholder")
+	case "programArguments":
+		return i18n.Shared(language, "desktop.runConfig.programArgumentsPlaceholder")
+	}
+	if field.Automatic != nil {
+		return i18n.SharedFormat(language, "desktop.runConfig.automaticValue", map[string]string{"value": *field.Automatic})
 	}
 	return ""
 }
@@ -186,71 +213,6 @@ func visibleRunConfigField(field core.RunEditorField, values map[string]json.Raw
 	return reflect.DeepEqual(current, condition.Equals)
 }
 
-// runConfigFormTitle is the dialog's title: the kind of a new configuration, or the name of
-// the one edited.
-func (a *App) runConfigFormTitle(f *runConfigForm) string {
-	language := a.language()
-	kind, _ := runConfigTypeLabel(language, f.provider)
-	if f.id == "" || f.name == "" {
-		return i18n.SharedFormat(language, "desktop.runConfig.newTitle", map[string]string{"type": kind})
-	}
-	return i18n.SharedFormat(language, "desktop.runConfig.editTitle", map[string]string{"name": f.name})
-}
-
-// drawRunConfigForm declares the open editor of a built-in process run: the name and where it
-// is stored on top, then the fields Core described in order, and Run, Cancel, Apply and OK.
-func (a *App) drawRunConfigForm(c ui.C, p *project) {
-	f := &p.runConfigs.form
-	if !f.open {
-		return
-	}
-	language := a.language()
-	ready := !f.loading && !f.saving && f.fields != nil
-	open := true
-	closed := ui.ModalWith(c, &open, a.runConfigFormTitle(f), ui.ModalSpec{Width: runConfigFormWidth}, func() {
-		k := c.Part("run-config-form")
-		ui.Scroll(k).Scrollbars().FillWidth().MaxHeight(runConfigFormBodyMaxHeight).Children(func() {
-			ui.Column(k).FillWidth().Gap(10).PadSides(0, 12, 0, 0).Children(func() {
-				if f.loading {
-					ui.Text(k, i18n.Shared(language, "native.loading")).Color(a.colors.Subtle)
-				}
-				a.drawRunConfigFormFields(k, p, f, ready)
-				if f.failure != "" {
-					ui.Paragraph(k, f.failure, 4).FontSize(a.theme.Metrics.FontSizeS).Color(a.theme.Danger)
-				}
-			})
-		})
-	}, func() {
-		ui.Row(c.Part("run-config-form-footer")).FillWidth().Items(ui.Center).Gap(8).Children(func() {
-			if ui.Button(c, i18n.Shared(language, "desktop.runConfig.run")).Icon(icons.Play).Outline().Disabled(!ready).Clicked() {
-				c.After(func() {
-					a.performed("run.configuration.form.run", surfaceButton)
-					a.saveRunConfigForm(p, runConfigFormRun)
-				})
-			}
-			ui.Spacer(c)
-			if ui.Button(c, i18n.Shared(language, "desktop.git.cancel")).Outline().Clicked() {
-				c.After(func() { a.closeRunConfigForm(p) })
-			}
-			if ui.Button(c, i18n.Shared(language, "desktop.runConfig.apply")).Outline().Disabled(!ready).Clicked() {
-				c.After(func() {
-					a.performed("run.configuration.form.apply", surfaceButton)
-					a.saveRunConfigForm(p, runConfigFormApply)
-				})
-			}
-			if ui.Button(c, i18n.Shared(language, "desktop.runConfig.ok")).Disabled(!ready).Clicked() {
-				c.After(func() {
-					a.performed("run.configuration.form.save", surfaceButton)
-					a.saveRunConfigForm(p, runConfigFormClose)
-				})
-			}
-		})
-	})
-	if closed {
-		c.After(func() { a.closeRunConfigForm(p) })
-	}
-}
-
 // drawRunConfigFormFields declares the header row, then every other field that shows for the
 // edited values. A wrong value's reason sits under its field; one for a field not drawn sits
 // at the end.
@@ -302,9 +264,9 @@ func (a *App) drawRunConfigFormHeaderField(c ui.C, p *project, f *runConfigForm,
 	if field.Kind == runFieldCheckbox {
 		ui.Row(c).Shrink(0).Items(ui.Center).Gap(4).Children(func() {
 			if ui.Checkbox(c, f.flags[field.ID], label).Disabled(!ready).Changed() {
-				c.After(func() { a.runConfigFormEdited(p) })
+				c.After(func() { a.runConfigFormEdited(p, f) })
 			}
-			a.runConfigFormHelp(c, language, field)
+			a.runConfigFormHelp(c, language, f.provider, field)
 		})
 		return
 	}
@@ -332,15 +294,15 @@ func (a *App) drawRunConfigFormField(c ui.C, p *project, f *runConfigForm, field
 			ui.Row(c.Part("title")).Width(runConfigFormLabelWidth).MinHeight(28).Shrink(0).Items(ui.Center).Gap(4).Children(func() {
 				if field.Kind != runFieldCheckbox {
 					ui.Text(c, label).Ellipsis().Shrink(1).MinWidth(0)
-					a.runConfigFormHelp(c, language, field)
+					a.runConfigFormHelp(c, language, f.provider, field)
 				}
 			})
 			if field.Kind == runFieldCheckbox {
 				ui.Row(c).Grow(1).Items(ui.Center).Gap(4).Children(func() {
 					if ui.Checkbox(c, f.flags[field.ID], label).Disabled(!ready).Changed() {
-						c.After(func() { a.runConfigFormEdited(p) })
+						c.After(func() { a.runConfigFormEdited(p, f) })
 					}
-					a.runConfigFormHelp(c, language, field)
+					a.runConfigFormHelp(c, language, f.provider, field)
 				})
 				return
 			}
@@ -350,23 +312,17 @@ func (a *App) drawRunConfigFormField(c ui.C, p *project, f *runConfigForm, field
 	})
 }
 
-// drawRunConfigFormControl declares the control of a field by its kind. A field whose
-// automatic value applies while it is empty shows that value as its placeholder.
+// drawRunConfigFormControl declares the control of a field by its kind, with the placeholder
+// runConfigFieldPlaceholder gives it.
 func (a *App) drawRunConfigFormControl(c ui.C, p *project, f *runConfigForm, field core.RunEditorField, label string, ready bool) {
 	language := a.language()
-	placeholder := ""
-	switch {
-	case field.Automatic != nil:
-		placeholder = i18n.SharedFormat(language, "desktop.runConfig.automaticValue", map[string]string{"value": *field.Automatic})
-	case field.Kind == runFieldArguments:
-		placeholder = i18n.Shared(language, "desktop.runConfig.argumentsPlaceholder")
-	}
-	edited := func() { c.After(func() { a.runConfigFormEdited(p) }) }
+	placeholder := runConfigFieldPlaceholder(language, field)
+	edited := func() { c.After(func() { a.runConfigFormEdited(p, f) }) }
 	switch field.Kind {
 	case runFieldEnvironment:
 		a.drawRunConfigVariables(c, p, f, ready)
 	case runFieldBeforeLaunch:
-		a.drawRunConfigBeforeLaunch(c, &f.beforeLaunch, &f.beforeLaunchMenu, field.Candidates, ready)
+		a.drawRunConfigBeforeLaunch(c, &f.beforeLaunch, &f.beforeLaunchMenu, field.Candidates, ready, func() { a.runConfigFormEdited(p, f) })
 	case runFieldChoice:
 		options := field.Options
 		if ui.Choice(c, f.texts[field.ID], options, func(option string) string {
@@ -386,7 +342,7 @@ func (a *App) drawRunConfigFormControl(c ui.C, p *project, f *runConfigForm, fie
 			edited()
 		}
 		if box.ActionClicked() {
-			c.After(func() { a.browseRunConfigField(p, field, label) })
+			c.After(func() { a.browseRunConfigField(p, f, field, label) })
 		}
 	default:
 		if ui.TextField(c, f.texts[field.ID], label, placeholder).Grow(1).MinWidth(0).Disabled(!ready).Changed() {
@@ -405,21 +361,24 @@ func (a *App) drawRunConfigVariables(c ui.C, p *project, f *runConfigForm, ready
 			k := c.KeyInt(index)
 			ui.Row(k).FillWidth().Items(ui.Center).Gap(6).Children(func() {
 				if ui.TextField(k.Part("name"), &variable.name, nameLabel, nameLabel).Width(runConfigFormVariableNameWidth).Shrink(0).Disabled(!ready).Changed() {
-					c.After(func() { a.runConfigFormEdited(p) })
+					c.After(func() { a.runConfigFormEdited(p, f) })
 				}
 				if ui.TextField(k.Part("value"), &variable.value, valueLabel, valueLabel).Grow(1).MinWidth(0).Disabled(!ready).Changed() {
-					c.After(func() { a.runConfigFormEdited(p) })
+					c.After(func() { a.runConfigFormEdited(p, f) })
 				}
 				if a.gitIconButton(k.Part("remove"), i18n.Shared(language, "desktop.runConfig.variableRemove"), icons.Trash2, false, !ready) {
 					c.After(func() {
 						f.environment = removeRunConfigVariable(f.environment, variable)
-						a.runConfigFormEdited(p)
+						a.runConfigFormEdited(p, f)
 					})
 				}
 			})
 		}
 		if ui.Button(c.Part("add"), i18n.Shared(language, "desktop.runConfig.variableAdd")).Icon(icons.Plus).Ghost().Disabled(!ready).Clicked() {
-			c.After(func() { f.environment = append(f.environment, &runConfigVariable{}) })
+			c.After(func() {
+				f.environment = append(f.environment, &runConfigVariable{})
+				f.dirty = true
+			})
 		}
 	})
 }
@@ -429,9 +388,18 @@ const runConfigBeforeLaunchLimit = 16
 
 // drawRunConfigBeforeLaunch declares the steps that run before the configuration, each its name
 // with buttons that move it up or down or remove it, and the button whose menu adds one of the
-// process runs not chosen yet. A step whose configuration is gone shows its ID.
-func (a *App) drawRunConfigBeforeLaunch(c ui.C, chosen *[]string, menuOpen *bool, candidates []core.RunConfigurationName, ready bool) {
+// process runs not chosen yet. A step whose configuration is gone shows its ID. edited, when
+// set, runs after each change, so an editor that tracks its edits by flag sees it.
+func (a *App) drawRunConfigBeforeLaunch(c ui.C, chosen *[]string, menuOpen *bool, candidates []core.RunConfigurationName, ready bool, edited func()) {
 	language := a.language()
+	change := func(apply func()) {
+		c.After(func() {
+			apply()
+			if edited != nil {
+				edited()
+			}
+		})
+	}
 	steps := *chosen
 	names := make(map[string]string, len(candidates))
 	for _, candidate := range candidates {
@@ -455,13 +423,13 @@ func (a *App) drawRunConfigBeforeLaunch(c ui.C, chosen *[]string, menuOpen *bool
 				}
 				ui.Text(k, fmt.Sprintf("%d. %s", index+1, name)).Color(color).Ellipsis().Grow(1).MinWidth(0)
 				if a.gitIconButton(k.Part("up"), i18n.Shared(language, "desktop.runConfig.beforeLaunchUp"), icons.ArrowUp, false, !ready || index == 0) {
-					c.After(func() { moveRunConfigStep(*chosen, index, index-1) })
+					change(func() { moveRunConfigStep(*chosen, index, index-1) })
 				}
 				if a.gitIconButton(k.Part("down"), i18n.Shared(language, "desktop.runConfig.beforeLaunchDown"), icons.ArrowDown, false, !ready || index == len(steps)-1) {
-					c.After(func() { moveRunConfigStep(*chosen, index, index+1) })
+					change(func() { moveRunConfigStep(*chosen, index, index+1) })
 				}
 				if a.gitIconButton(k.Part("remove"), i18n.Shared(language, "desktop.runConfig.beforeLaunchRemove"), icons.Trash2, false, !ready) {
-					c.After(func() { *chosen = slices.Delete(slices.Clone(*chosen), index, index+1) })
+					change(func() { *chosen = slices.Delete(slices.Clone(*chosen), index, index+1) })
 				}
 			})
 		}
@@ -484,7 +452,7 @@ func (a *App) drawRunConfigBeforeLaunch(c ui.C, chosen *[]string, menuOpen *bool
 			ui.Menu(c.Part("add-menu"), add, menuOpen, func(menu *ui.MenuItems) {
 				for _, candidate := range left {
 					if menu.Item(candidate.Name).Clicked() {
-						c.After(func() {
+						change(func() {
 							a.performed("run.configuration.form.beforeLaunch.add", surfaceButton)
 							*chosen = append(slices.Clone(*chosen), candidate.ID)
 						})
@@ -515,8 +483,8 @@ func removeRunConfigVariable(rows []*runConfigVariable, row *runConfigVariable) 
 }
 
 // runConfigFormHelp declares the ⓘ of a field that has a tip.
-func (a *App) runConfigFormHelp(c ui.C, language i18n.Language, field core.RunEditorField) {
-	if help := runConfigFieldHelp(language, field); help != "" {
+func (a *App) runConfigFormHelp(c ui.C, language i18n.Language, provider string, field core.RunEditorField) {
+	if help := runConfigFieldHelp(language, provider, field); help != "" {
 		ui.Button(c.Part("help"), i18n.Shared(language, "native.moreInformation")).Icon(icons.Info).IconOnly().Ghost().
 			Size(18, 18).Shrink(0).Tooltip(help).TooltipOn(ui.TooltipRight)
 	}

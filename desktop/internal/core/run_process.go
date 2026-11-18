@@ -9,14 +9,22 @@ import (
 // form is refused, since its fields may mean something this host cannot show.
 const RunFormVersion = 1
 
-// RunConfigurationType is one built-in run configuration kind a user can create
-// on this platform, such as `process.shell`.
+// RunConfigurationType is one built-in run configuration kind a user can create,
+// such as `process.shell`. Availability is set when this platform cannot run the
+// kind, such as a batch script outside Windows; its configurations are still
+// created and edited.
 type RunConfigurationType struct {
-	Provider string `json:"provider"`
+	Provider     string           `json:"provider"`
+	Availability *RunAvailability `json:"availability,omitempty"`
 }
 
-// RunConfigurationTypes lists the built-in kinds a user can create here, in
-// display order. Batch scripts are listed only on Windows.
+// Unavailable says this platform cannot run configurations of the kind.
+func (t RunConfigurationType) Unavailable() bool {
+	return t.Availability != nil && t.Availability.Status == "unavailable"
+}
+
+// RunConfigurationTypes lists the built-in kinds a user can create, in display
+// order. Every platform lists every kind; one it cannot run says so.
 func (c *Client) RunConfigurationTypes(ctx context.Context) ([]RunConfigurationType, error) {
 	var result struct {
 		Types []RunConfigurationType `json:"types"`
@@ -57,13 +65,15 @@ type RunFieldCondition struct {
 
 // RunEditorForm is what `runConfig.editorForm` returns: the fields in order and
 // the current value of each, by field ID. Values stay raw so keys this host
-// does not show go back unchanged.
+// does not show go back unchanged. Availability is set when this platform cannot
+// run the kind; the form still edits and saves it.
 type RunEditorForm struct {
 	FormVersion     int                        `json:"formVersion"`
 	Provider        string                     `json:"provider"`
 	ConfigurationID *string                    `json:"configurationId"`
 	Values          map[string]json.RawMessage `json:"values"`
 	Fields          []RunEditorField           `json:"fields"`
+	Availability    *RunAvailability           `json:"availability,omitempty"`
 }
 
 // RunEditorFormRequest asks for the editor of a new configuration of Provider or

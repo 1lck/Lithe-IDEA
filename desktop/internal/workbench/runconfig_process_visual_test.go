@@ -9,17 +9,19 @@ import (
 	"time"
 
 	"github.com/1lck/Lithe-IDEA/desktop/internal/core"
+	"github.com/1lck/Lithe-IDEA/desktop/internal/i18n"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/store"
 	"github.com/vivaui/viva/app"
 	"github.com/vivaui/viva/headless"
 )
 
-// TestVisualBuiltInProcessRuns captures the built-in runs of a project without any plugin:
-// the editor of a shell script with a script file and with script text, the Run window after
-// the script ran, the menu that creates a run of each kind this platform offers, the editors
-// of a PowerShell script and of an executable, and the title bar's run menu naming a run
-// configuration file that was not read. The script runs under the system's shell. It needs
-// only LITHE_VISUAL_OUTPUT_DIR; the dark captures are in Chinese and the light ones in English.
+// TestVisualBuiltInProcessRuns captures the built-in runs of a project without any plugin in
+// the Run/Debug Configurations dialog: the dialog with nothing yet, the editor of a shell
+// script with a script file and with script text, the Run window after the script ran, the +
+// menu of every kind, the editors of a PowerShell script, an executable and a batch script
+// this platform cannot run, the title bar with that batch script chosen, and the title bar's
+// run menu marking that batch script and naming a run configuration file that was not read. The
+// script runs under the system's shell. It needs only LITHE_VISUAL_OUTPUT_DIR; the dark captures are in Chinese and the light ones in English.
 func TestVisualBuiltInProcessRuns(t *testing.T) {
 	out := os.Getenv("LITHE_VISUAL_OUTPUT_DIR")
 	if out == "" {
@@ -41,6 +43,7 @@ func TestVisualBuiltInProcessRuns(t *testing.T) {
 					"scripts/greet.sh":  "#!/bin/bash\necho \"$GREETING from $1\"\n",
 					"scripts/clean.ps1": "Remove-Item -Recurse build\n",
 					"bin/README.md":     "Tools built here.\n",
+					"bin/tool":          "#!/bin/sh\n",
 				}
 				for name, text := range files {
 					path := filepath.Join(root, filepath.FromSlash(name))
@@ -78,20 +81,18 @@ func TestVisualBuiltInProcessRuns(t *testing.T) {
 					s := &p.runConfigs
 					return s.generation > 0 && !s.loading && s.types != nil
 				})
-				f := &p.runConfigs.form
-				// edit opens the editor of a new run of provider, sets the texts and checkboxes
-				// given, and waits for the fields that follow the edit.
-				edit := func(provider string, texts map[string]string, flags map[string]bool, variables ...*runConfigVariable) {
+				d := &p.runConfigs.dialog
+				// edit adds a new run of provider to the open dialog as its + menu does, sets the
+				// texts and checkboxes given, and waits for the fields that follow the edit.
+				edit := func(provider string, texts map[string]string, flags map[string]bool, variables ...*runConfigVariable) *runConfigForm {
 					t.Helper()
-					// The editor closed before keeps its fields, so the one waited for is told
-					// apart by its generation.
-					var generation uint64
+					var f *runConfigForm
 					h.app.post(func(a *App) {
-						a.openRunConfigForm(p, provider, "")
-						generation = f.generation
+						a.addRunConfigDraft(p, provider, nil)
+						f = d.drafts[d.selected].form
 					})
 					awaitStateWithin(t, h, 10*time.Second, "the editor of "+provider, func() bool {
-						return generation != 0 && f.generation == generation && f.open && !f.loading && f.fields != nil
+						return f != nil && f.open && !f.loading && f.fields != nil
 					})
 					h.app.post(func(a *App) {
 						for id, value := range texts {
@@ -105,44 +106,67 @@ func TestVisualBuiltInProcessRuns(t *testing.T) {
 							}
 						}
 						f.environment = append(f.environment, variables...)
-						a.runConfigFormEdited(p)
+						a.runConfigFormEdited(p, f)
 					})
 					awaitStateWithin(t, h, 10*time.Second, "the edited editor", func() bool { return !f.refreshing })
+					return f
+				}
+				// apply presses step and waits for the dialog to close.
+				apply := func(step runConfigDialogStep) {
+					t.Helper()
+					pressed := false
+					h.app.post(func(a *App) {
+						a.applyRunConfigDialog(p, step)
+						pressed = true
+					})
+					awaitStateWithin(t, h, 10*time.Second, "the save", func() bool { return pressed && (!d.open || !d.saving) })
+					if d.open {
+						t.Fatalf("the dialog stayed open: failure %q", d.failure)
+					}
 				}
 
-				edit(runProviderShell, map[string]string{"name": "Greet", "source": "file", "script": "scripts/greet.sh", "scriptOptions": "Lithe", "workingDirectory": "scripts"},
+				h.app.post(func(a *App) { a.openRunConfigDialog(p, "") })
+				shot("dialog-empty")
+
+				f := edit(runProviderShell, map[string]string{"name": "Greet", "source": "file", "script": "scripts/greet.sh", "scriptOptions": "Lithe", "workingDirectory": "scripts"},
 					map[string]bool{"storeAsProjectFile": true}, &runConfigVariable{name: "GREETING", value: "Hello"})
 				shot("shell-file")
 
 				h.app.post(func(a *App) {
 					*f.texts["source"] = "text"
-					a.runConfigFormEdited(p)
+					a.runConfigFormEdited(p, f)
 				})
 				awaitStateWithin(t, h, 10*time.Second, "the script text field", func() bool { return !f.refreshing && f.texts["text"] != nil })
 				h.app.post(func(a *App) { *f.texts["text"] = "echo \"$GREETING from $(pwd)\"\nuname -s\n" })
 				shot("shell-text")
 
-				h.app.post(func(a *App) { a.saveRunConfigForm(p, runConfigFormRun) })
-				awaitStateWithin(t, h, 10*time.Second, "the save", func() bool { return !f.open || len(f.errors) > 0 || f.failure != "" })
-				if f.open {
-					t.Fatalf("the editor stayed open: errors %v failure %q", f.errors, f.failure)
-				}
+				apply(runConfigDialogRun)
 				awaitProcessRun(t, h, p, "Greet", nil)
 				shot("run-output")
 
-				h.click(center(h.button(itemBuild)))
-				h.settleChain()
-				h.app.post(func(a *App) { p.runConfigs.newMenu = true })
+				h.app.post(func(a *App) {
+					a.openRunConfigDialog(p, p.runConfigs.selected)
+					d.newMenu = true
+				})
 				shot("new-menu")
-				h.app.post(func(a *App) { p.runConfigs.newMenu = false })
+				h.app.post(func(a *App) { d.newMenu = false })
 
 				edit(runProviderPowerShell, map[string]string{"name": "Clean", "source": "file", "script": "scripts/clean.ps1"}, nil)
 				shot("powershell")
-				h.app.post(func(a *App) { a.closeRunConfigForm(p) })
 
 				edit(runProviderExecutable, map[string]string{"name": "Tool", "program": "bin/tool", "programArguments": "--verbose \"two words\"", "workingDirectory": "bin"}, nil)
 				shot("executable")
-				h.app.post(func(a *App) { a.closeRunConfigForm(p) })
+
+				edit(runProviderBatch, map[string]string{"name": "Package", "source": "text"}, nil)
+				h.app.post(func(a *App) { *d.drafts[d.selected].form.texts["text"] = "@echo off\r\ncall build.cmd\r\n" })
+				shot("batch")
+
+				apply(runConfigDialogOK)
+				awaitStateWithin(t, h, 10*time.Second, "the saved configurations", func() bool {
+					c := p.titleConfiguration()
+					return !p.runConfigs.loading && len(p.runConfigs.list) == 4 && c != nil && c.Name == "Package"
+				})
+				shot("title-unavailable")
 
 				plugins := filepath.Join(root, ".lithe", "run", "plugin")
 				if err := os.MkdirAll(plugins, 0o755); err != nil {
@@ -158,6 +182,9 @@ func TestVisualBuiltInProcessRuns(t *testing.T) {
 					return s.generation > generation && !s.loading && len(s.ignored) == 1
 				})
 				h.click(center(h.button(itemRunConfig)))
+				if note := i18n.Shared(h.app.language(), "desktop.runConfig.windowsOnlyType"); !h.shows(note) {
+					t.Fatalf("the run menu does not mark Package with %q", note)
+				}
 				shot("run-menu")
 			})
 		}

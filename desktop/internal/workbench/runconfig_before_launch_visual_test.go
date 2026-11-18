@@ -14,10 +14,10 @@ import (
 	"github.com/vivaui/viva/headless"
 )
 
-// TestVisualBeforeLaunchSteps captures the steps before launch: the editor of a run with two
-// steps, the question before the steps a project file names run, and the Run window after the
-// steps and the run. It needs only LITHE_VISUAL_OUTPUT_DIR; the dark captures are in Chinese
-// and the light ones in English.
+// TestVisualBeforeLaunchSteps captures the steps before launch: the Run/Debug Configurations
+// window editing a run with two steps, the question before the steps a project file names
+// run, and the Run window after the steps and the run. It needs only LITHE_VISUAL_OUTPUT_DIR;
+// the dark captures are in Chinese and the light ones in English.
 func TestVisualBeforeLaunchSteps(t *testing.T) {
 	out := os.Getenv("LITHE_VISUAL_OUTPUT_DIR")
 	if out == "" {
@@ -73,11 +73,14 @@ func TestVisualBeforeLaunchSteps(t *testing.T) {
 				return s.generation > 0 && !s.loading && s.configuration("user:server") != nil
 			})
 
-			f := &p.runConfigs.form
-			h.app.post(func(a *App) { a.openRunConfigForm(p, "process.executable", "user:server") })
-			awaitStateWithin(t, h, 10*time.Second, "the editor", func() bool { return f.open && !f.loading && f.beforeLaunch != nil })
+			d := &p.runConfigs.dialog
+			h.app.post(func(a *App) { a.openRunConfigDialog(p, "user:server") })
+			awaitStateWithin(t, h, 10*time.Second, "the editor", func() bool {
+				draft := d.drafts["user:server"]
+				return draft != nil && draft.form != nil && draft.form.open && !draft.form.loading && draft.form.beforeLaunch != nil
+			})
 			shot("editor")
-			h.app.post(func(a *App) { a.closeRunConfigForm(p) })
+			h.app.post(func(a *App) { a.closeRunConfigDialog(p) })
 
 			h.app.post(func(a *App) { a.runConfiguration(p, "user:server") })
 			awaitStateWithin(t, h, 10*time.Second, "the confirmation", func() bool { return p.runConfigs.beforeLaunch != nil })

@@ -72,7 +72,9 @@ type RunPluginDependency struct {
 
 // RunAvailability says why a saved configuration cannot run. Code is
 // pluginMissing, pluginRepositoryMismatch, pluginVersionUnsupported,
-// invalidConfiguration or missingWorkingDirectory; Message is Core's English
+// invalidConfiguration, unsupportedPlatform (a built-in kind this platform
+// cannot run, such as a batch script outside Windows) or
+// missingWorkingDirectory; Message is Core's English
 // description, which the host shows only as the detail of its own text.
 type RunAvailability struct {
 	Status  string `json:"status"`

@@ -229,8 +229,14 @@ func (a *App) chromeTitleButton(c ui.C, i int) bool {
 		}
 		return false
 	case itemTitleRun:
-		// Run is the one button that keeps its color at rest: green says what it does.
-		_, clicked := a.chromeGlyph(c, i, titleGlyph, a.colors.Success, a.colors.Success, false)
+		// Run is the one button that keeps its color at rest: green says what it does. It
+		// greys while the chosen configuration cannot run here, such as a batch script off
+		// Windows; a press still says why.
+		color := a.colors.Success
+		if configuration := a.project.titleConfiguration(); configuration != nil && configuration.Unavailable() {
+			color = a.colors.Subtle
+		}
+		_, clicked := a.chromeGlyph(c, i, titleGlyph, color, color, false)
 		return clicked
 	case itemTitleSettings:
 		box, clicked := a.chromeGlyph(c, i, titleGlyph, a.colors.Text, a.colors.Text, a.title.gearOpen)

@@ -36,7 +36,13 @@ native_path() {
 # back; and git.graphProjection checkedOutHeads marks the commits of every repository's
 # checked-out branch, refusing currentBranch beside it (#2013). Switch to main's commit once #75
 # is squash-merged.
-# Lithe-core-rust main at d833d6a, #89 squash-merged (on top of bb4832e, #88): buildProviders 1
+# #87, squash-merged into main as 6f5fbcc (on top of d8094c6, #90): runConfig.configurationTypes
+# lists every built-in kind on every platform, one this platform cannot run with an unsupportedPlatform
+# availability, and runConfig.editorForm, runConfig.saveConfiguration and runConfig.resolve treat a cmd
+# run off Windows the same way, so it can be created and edited there while runConfig.createLaunchPlan
+# still refuses to start it and runConfig.beforeLaunch refuses it as a step (#2100). #90, squash-merged
+# into main as d8094c6 (on top of d833d6a): the chrome layout catalog takes alsoOnToolStripes.
+# #89, squash-merged into main as d833d6a (on top of bb4832e, #88): buildProviders 1
 # adds runs with entrypoints: true; build.runEntrypointsPlan and build.decodeRunEntrypoints ask a
 # provider for the entrypoints of one source file, prepareRunPlan takes an entrypoint run without a
 # target, and runConfig.createUserConfiguration saves the entrypoint as part of the entry (#2104).

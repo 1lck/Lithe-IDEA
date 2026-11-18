@@ -186,23 +186,22 @@ func TestBuiltInRunIsCreatedAndRunWithoutAnyPlugin(t *testing.T) {
 		t.Fatalf("configurations = %+v failure %q", s.list, s.failure)
 	}
 
-	f := &p.runConfigs.form
-	h.app.post(func(a *App) { a.openRunConfigForm(p, provider, "") })
-	awaitStateWithin(t, h, 10*time.Second, "the new configuration's form", func() bool { return f.open && !f.loading && f.fields != nil })
+	f := newRunConfigDraft(t, h, p, provider)
 	h.app.post(func(a *App) {
 		*f.texts["name"] = "Greet"
 		*f.texts["source"] = "text"
 		*f.flags["storeAsProjectFile"] = true
-		a.runConfigFormEdited(p)
+		a.runConfigFormEdited(p, f)
 	})
 	awaitStateWithin(t, h, 10*time.Second, "the text field", func() bool { return !f.refreshing && f.texts["text"] != nil })
 	h.app.post(func(a *App) {
 		*f.texts["text"] = text
-		a.saveRunConfigForm(p, runConfigFormRun)
+		a.applyRunConfigDialog(p, runConfigDialogRun)
 	})
-	awaitStateWithin(t, h, 10*time.Second, "the save", func() bool { return !f.open || len(f.errors) > 0 || f.failure != "" })
-	if f.open {
-		t.Fatalf("the form stayed open: errors %v failure %q", f.errors, f.failure)
+	d := &p.runConfigs.dialog
+	awaitStateWithin(t, h, 10*time.Second, "the save", func() bool { return !d.open || len(f.errors) > 0 || f.failure != "" })
+	if d.open {
+		t.Fatalf("the dialog stayed open: errors %v failure %q", f.errors, f.failure)
 	}
 	first := awaitProcessRun(t, h, p, "Greet", nil)
 	if !strings.Contains(first.output.all(), "hello-from-lithe") {
@@ -230,6 +229,25 @@ func TestBuiltInRunIsCreatedAndRunWithoutAnyPlugin(t *testing.T) {
 	if !strings.Contains(again.output.all(), "hello-from-lithe") {
 		t.Fatalf("the title bar's Run did not run it again; console:\n%s", again.output.all())
 	}
+}
+
+// newRunConfigDraft opens the Run/Debug Configurations dialog, adds a configuration of
+// provider as the + menu does and waits for its form.
+func newRunConfigDraft(t *testing.T, h *harness, p *project, provider string) *runConfigForm {
+	t.Helper()
+	d := &p.runConfigs.dialog
+	h.app.post(func(a *App) {
+		a.openRunConfigDialog(p, "")
+		a.addRunConfigDraft(p, provider, nil)
+	})
+	var f *runConfigForm
+	awaitStateWithin(t, h, 10*time.Second, "the new configuration's form", func() bool {
+		if draft := d.drafts[d.selected]; d.open && draft != nil && draft.form != nil {
+			f = draft.form
+		}
+		return f != nil && f.open && !f.loading && f.fields != nil
+	})
+	return f
 }
 
 // awaitProcessRun waits for an ended run session labeled label other than previous and
