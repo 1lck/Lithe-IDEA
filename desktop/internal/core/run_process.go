@@ -113,8 +113,10 @@ type RunEditorField struct {
 	Description  string             `json:"description,omitempty"`
 	Placeholder  string             `json:"placeholder,omitempty"`
 	OptionLabels map[string]string  `json:"optionLabels,omitempty"`
-	// Candidates are the configurations a beforeLaunch field may name.
+	// Candidates are the configurations a beforeLaunch field may name, and Tasks the
+	// kinds of plugin task it may add.
 	Candidates []RunConfigurationName `json:"candidates,omitempty"`
+	Tasks      []RunTaskKind          `json:"tasks,omitempty"`
 }
 
 // RunConfigurationName is a run configuration's ID and name.

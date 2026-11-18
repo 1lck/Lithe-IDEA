@@ -59,7 +59,7 @@ func TestValidateRefusesBrokenValidator(t *testing.T) {
 func TestDeclaredServesTheBaselineOfEveryWiredCapability(t *testing.T) {
 	declared := Declared()
 	want := []string{
-		"backend", "buildProviders", "buildSystems", "commandInstallers", "debugAdapters",
+		"backend", "beforeLaunchTasks", "buildProviders", "buildSystems", "commandInstallers", "debugAdapters",
 		"languageServers", "languages", "outputLinkMatchers", "pluginFunctions",
 		"projectGenerators", "runConfigurationTypes", "settings", "sourceSettings", "toolDefinitions", "ui",
 		"vcsProviders",

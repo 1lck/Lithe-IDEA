@@ -2,6 +2,7 @@ package workbench
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
@@ -11,6 +12,7 @@ import (
 	"github.com/1lck/Lithe-IDEA/desktop/internal/core"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/i18n"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/icons"
+	"github.com/1lck/Lithe-IDEA/desktop/internal/pluginicons"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/pluginservice"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/pluginsettings"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/processledger"
@@ -25,12 +27,13 @@ import (
 // declare a kind, with the files read, are kept as the `runTypePlugins` the editor, the save
 // and the run of those kinds send, so they show the same translated text.
 
-// runConfigKinds is one read of the kinds: the kinds in display order, and the plugins that
-// declare one, nil when none does. Once published, neither is changed; a later read replaces
-// them.
+// runConfigKinds is one read of the kinds: the kinds in display order, the plugins that
+// declare one, nil when none does, and their package directories by plugin ID, where the
+// icons they name are read. Once published, none is changed; a later read replaces them.
 type runConfigKinds struct {
-	types   []core.RunConfigurationType
-	plugins *core.RunTypePlugins
+	types       []core.RunConfigurationType
+	plugins     *core.RunTypePlugins
+	directories map[string]string
 }
 
 // readRunConfigKinds asks Core for the kinds off the window thread, in language. A plugin
@@ -51,12 +54,15 @@ func (a *App) readRunConfigKinds(ctx context.Context, kernel Kernel, language st
 	if err != nil {
 		return runConfigKinds{}, err
 	}
-	// Only the plugins that declare a kind go on; Core lists each declared kind under its
-	// plugin, so the host never interprets a manifest itself.
+	// Only the plugins that declare a kind or a before-launch task go on. Core lists each
+	// declared kind under its plugin and reports the translations of every plugin that
+	// declares either, so the host never interprets a manifest itself.
 	declaring := []pluginservice.ToolchainPlugin{}
 	for _, plugin := range enabled {
 		if slices.ContainsFunc(types, func(kind core.RunConfigurationType) bool {
 			return kind.RunType != nil && kind.RunType.PluginID == plugin.PluginID
+		}) || slices.ContainsFunc(reports, func(report core.RunTypeLocalization) bool {
+			return report.PluginID == plugin.PluginID
 		}) {
 			declaring = append(declaring, plugin)
 		}
@@ -65,9 +71,11 @@ func (a *App) readRunConfigKinds(ctx context.Context, kernel Kernel, language st
 		return runConfigKinds{types: types}, nil
 	}
 	plugins := &core.RunTypePlugins{Language: language, Plugins: make([]core.RunTypePlugin, len(declaring))}
+	directories := make(map[string]string, len(declaring))
 	read := false
 	for index, plugin := range declaring {
 		plugins.Plugins[index].Manifest = plugin.Manifest
+		directories[plugin.PluginID] = plugin.Directory
 		report := slices.IndexFunc(reports, func(report core.RunTypeLocalization) bool { return report.PluginID == plugin.PluginID })
 		if report < 0 || !reports[report].ReadRequired {
 			continue
@@ -92,7 +100,12 @@ func (a *App) readRunConfigKinds(ctx context.Context, kernel Kernel, language st
 			a.operationRejectedIn(ctx, "run_config_types", "invalid_localization")
 		}
 	}
-	return runConfigKinds{types: types, plugins: plugins}, nil
+	for _, kind := range types {
+		if kind.RunType != nil {
+			a.readRunTypeIcon(ctx, directories, kind.RunType.PluginID, kind.Icon)
+		}
+	}
+	return runConfigKinds{types: types, plugins: plugins, directories: directories}, nil
 }
 
 // runTypeCandidates is every enabled plugin with its manifest and package directory, nil while
@@ -113,19 +126,62 @@ func (a *App) runTypeCandidates(ctx context.Context) []pluginservice.ToolchainPl
 	return plugins
 }
 
-// runTypePlugins is the `runTypePlugins` a request about a declared kind sends: the plugins
-// the last read of the kinds kept, else, before any read answered, a read of its own. It runs
-// off the window thread; kinds is what the window held when the request was made.
+// runTypePlugins is the `runTypePlugins` a request about declared kinds or before-launch tasks
+// sends: the plugins the last read of the kinds kept, nil when none declares one, else, before
+// any read answered, a read of its own. It runs off the window thread; kinds is what the window
+// held when the request was made.
 func (a *App) runTypePlugins(ctx context.Context, kernel Kernel, kinds runConfigKinds, language string) *core.RunTypePlugins {
-	if kinds.plugins != nil {
-		return kinds.plugins
+	return a.runTypeRead(ctx, kernel, kinds, language).plugins
+}
+
+// runTypeRead is kinds when a read answered, else a read of its own, empty when it fails. It
+// runs off the window thread.
+func (a *App) runTypeRead(ctx context.Context, kernel Kernel, kinds runConfigKinds, language string) runConfigKinds {
+	// A read lists the built-in kinds at least, so its types are never nil.
+	if kinds.types != nil {
+		return kinds
 	}
 	read, err := a.readRunConfigKinds(ctx, kernel, language)
 	if err != nil {
 		a.backgroundFailedIn(ctx, "run_config_types", err)
-		return nil
+		return runConfigKinds{}
 	}
-	return read.plugins
+	return read
+}
+
+// readRunTaskIcons reads the package icons of the task kinds an answer about before-launch
+// steps lists, off the window thread, from the packages of the read of the kinds the request
+// sent.
+func (a *App) readRunTaskIcons(ctx context.Context, kinds runConfigKinds, tasks []core.RunTaskKind) {
+	for _, task := range tasks {
+		a.readRunTypeIcon(ctx, kinds.directories, task.RunType.PluginID, task.Icon)
+	}
+}
+
+// readRunTypeIcon reads the package icon a kind or task kind of pluginID names, off the window
+// thread, so drawing only looks it up. A broken icon is logged once, with its package-relative
+// path, and leaves the kind its fallback icon.
+func (a *App) readRunTypeIcon(ctx context.Context, directories map[string]string, pluginID string, icon *core.RunTypeIcon) {
+	directory, ok := directories[pluginID]
+	if icon == nil || icon.Path == "" || !ok {
+		return
+	}
+	if err := a.pluginIcons.Read(pluginID, directory, runTypeIconDeclaration(icon)); err != nil {
+		a.backgroundFailedIn(ctx, "plugin_icon", fmt.Errorf("%s: %w", pluginID, err))
+	}
+}
+
+// runTypePackageIcon is the package icon a kind or task kind of pluginID names, once read.
+func runTypePackageIcon(cache *pluginicons.Cache, pluginID string, icon *core.RunTypeIcon, dark bool) (gfx.Icon, bool) {
+	if icon == nil || icon.Path == "" {
+		return gfx.Icon{}, false
+	}
+	found, ok := cache.Lookup(pluginID, runTypeIconDeclaration(icon))
+	return found.For(dark), ok
+}
+
+func runTypeIconDeclaration(icon *core.RunTypeIcon) pluginicons.Declaration {
+	return pluginicons.Declaration{Path: icon.Path, DarkPath: icon.DarkPath, Mode: icon.Mode}
 }
 
 // runTypeKind is the declared kind key names among the kinds read, or nil.
@@ -141,7 +197,7 @@ func (s *runConfigState) runTypeKind(key core.RunTypeKey) *core.RunConfiguration
 
 // kinds is the kinds read last, for a request made off the window thread.
 func (s *runConfigState) kinds() runConfigKinds {
-	return runConfigKinds{types: s.types, plugins: s.typePlugins}
+	return runConfigKinds{types: s.types, plugins: s.typePlugins, directories: s.typeDirectories}
 }
 
 // runTypeInstances are the detected instances of the build system that declares kind key, in
@@ -206,30 +262,50 @@ func (a *App) launchDeclaredRun(p *project, op *buildOperation, id string, key c
 // plugin package is read-only, so the writable state directory the plan may name is the
 // plugin's per-workspace state, outside it.
 func (a *App) declaredRunSpec(ctx context.Context, p *project, kernel Kernel, root, pluginRoot, id string, key core.RunTypeKey, instances []buildInstance, messages i18n.BuildMessages) (buildprocess.Spec, error) {
+	return a.declaredProcessSpec(ctx, p, root, pluginRoot, instances, messages, func(manifest json.RawMessage, sources declaredPlanSources) (core.BuildPlan, error) {
+		return kernel.PlanRunConfiguration(ctx, manifest, key.BuildSystemID, root, core.RunConfigurationPlanRequest{
+			ConfigurationID: id, Instances: sources.instances,
+			PluginDirectory: sources.pluginDirectory, WorkspaceStateDirectory: sources.stateDirectory,
+		})
+	})
+}
+
+// declaredPlanSources are what Core's plan of a declared kind or task takes from the detected
+// instances of its build system: every instance, and the package directory and writable
+// per-workspace state directory of the plugin.
+type declaredPlanSources struct {
+	instances                       []core.RunTypeInstance
+	pluginDirectory, stateDirectory string
+}
+
+// declaredProcessSpec is the process of a plan of a declared kind or task: request asks Core
+// for the plan with the plugin's manifest and sources, and the process runs the build tool the
+// instance the plan picks resolves, at the plan's working directory under the project.
+func (a *App) declaredProcessSpec(ctx context.Context, p *project, root, pluginRoot string, instances []buildInstance, messages i18n.BuildMessages, request func(json.RawMessage, declaredPlanSources) (core.BuildPlan, error)) (buildprocess.Spec, error) {
 	first := instances[0]
 	state := buildStateDirectory(pluginRoot, root, first)
 	if err := os.MkdirAll(state, 0o700); err != nil {
 		return buildprocess.Spec{}, err
 	}
-	request := core.RunConfigurationPlanRequest{
-		ConfigurationID: id, PluginDirectory: first.PackageDirectory, WorkspaceStateDirectory: state,
-		Instances: make([]core.RunTypeInstance, 0, len(instances)),
+	sources := declaredPlanSources{
+		pluginDirectory: first.PackageDirectory, stateDirectory: state,
+		instances: make([]core.RunTypeInstance, 0, len(instances)),
 	}
 	for _, instance := range instances {
-		request.Instances = append(request.Instances, core.RunTypeInstance{Root: instance.Root, Options: instance.Options})
+		sources.instances = append(sources.instances, core.RunTypeInstance{Root: instance.Root, Options: instance.Options})
 	}
-	plan, err := kernel.PlanRunConfiguration(ctx, first.Manifest, key.BuildSystemID, root, request)
+	planned, err := request(first.Manifest, sources)
 	if err != nil {
 		return buildprocess.Spec{}, err
 	}
-	if plan.Provider != nil {
-		return buildprocess.Spec{}, errors.New("the run configuration plan names a provider request")
+	if planned.Provider != nil {
+		return buildprocess.Spec{}, errors.New("the declared plan names a provider request")
 	}
-	index := slices.IndexFunc(instances, func(instance buildInstance) bool { return instance.Root == plan.Root })
+	index := slices.IndexFunc(instances, func(instance buildInstance) bool { return instance.Root == planned.Root })
 	if index < 0 {
-		return buildprocess.Spec{}, fmt.Errorf("the run configuration plan names no detected instance: %s", plan.Root)
+		return buildprocess.Spec{}, fmt.Errorf("the declared plan names no detected instance: %s", planned.Root)
 	}
-	directory, err := projectRunDirectory(root, plan.WorkingDirectory)
+	directory, err := projectRunDirectory(root, planned.WorkingDirectory)
 	if err != nil {
 		return buildprocess.Spec{}, err
 	}
@@ -240,9 +316,9 @@ func (a *App) declaredRunSpec(ctx context.Context, p *project, kernel Kernel, ro
 	return buildprocess.Spec{
 		Kind:             processledger.KindRun,
 		Executable:       execution.Executable,
-		Arguments:        plan.Arguments,
+		Arguments:        planned.Arguments,
 		WorkingDirectory: directory,
-		Environment:      applyToolchainSelection(plan.Environment, execution.selection()),
+		Environment:      applyToolchainSelection(planned.Environment, execution.selection()),
 	}, nil
 }
 
@@ -262,16 +338,19 @@ func (s *runConfigState) kindTitle(language i18n.Language, k runConfigKind) stri
 	return k.runType.Type
 }
 
-// kindIcon is the icon of kind k: a built-in kind's file icon, the host icon a declared kind
-// names, else the icon of its execution. A package image a kind names is not drawn yet, so
-// such a kind shows its execution's icon too.
-func (s *runConfigState) kindIcon(k runConfigKind, dark bool) gfx.Icon {
+// kindIcon is the icon of kind k: a built-in kind's file icon, the package or host icon a
+// declared kind names, else the icon of its execution. A package icon not read, or that this
+// host cannot draw, falls back to the execution's icon.
+func (s *runConfigState) kindIcon(k runConfigKind, cache *pluginicons.Cache, dark bool) gfx.Icon {
 	if !k.declared() {
 		return runConfigTypeIcon(k.provider, dark)
 	}
 	kind := s.runTypeKind(k.runType)
 	if kind == nil {
 		return icons.Play
+	}
+	if icon, ok := runTypePackageIcon(cache, k.runType.PluginID, kind.Icon, dark); ok {
+		return icon
 	}
 	if kind.Icon != nil && kind.Icon.Host != "" {
 		if icon := pluginToolIcon(kind.Icon.Host); icon != nil {

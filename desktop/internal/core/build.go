@@ -484,6 +484,40 @@ func (c *Client) PlanRunConfiguration(ctx context.Context, manifest json.RawMess
 	return *result.Plan, nil
 }
 
+// BeforeLaunchTaskPlanRequest asks for the command of a plugin task step, with
+// Task and WorkingDirectory as `runConfig.beforeLaunch` returned the step. Core
+// runs it with the instance whose root holds the working directory.
+type BeforeLaunchTaskPlanRequest struct {
+	Task                    RunTaskReference  `json:"task"`
+	WorkingDirectory        string            `json:"workingDirectory"`
+	Instances               []RunTypeInstance `json:"instances"`
+	PluginDirectory         string            `json:"pluginDirectory,omitempty"`
+	WorkspaceStateDirectory string            `json:"workspaceStateDirectory,omitempty"`
+}
+
+// PlanBeforeLaunchTask plans a task step of a Before Launch list
+// (`build.beforeLaunchTaskPlan`): the command plan of the chosen instance, whose
+// Root names it, run to completion at the step's working directory.
+func (c *Client) PlanBeforeLaunchTask(ctx context.Context, manifest json.RawMessage, buildSystemID, workspaceRoot string, request BeforeLaunchTaskPlanRequest) (BuildPlan, error) {
+	const command = "build.beforeLaunchTaskPlan"
+	var result buildOutcome
+	if err := c.Execute(ctx, command, struct {
+		Manifest      json.RawMessage             `json:"manifest"`
+		BuildSystemID string                      `json:"buildSystemID"`
+		WorkspaceRoot string                      `json:"workspaceRoot"`
+		Request       BeforeLaunchTaskPlanRequest `json:"request"`
+	}{manifest, buildSystemID, workspaceRoot, request}, &result); err != nil {
+		return BuildPlan{}, err
+	}
+	if err := result.failure(command); err != nil {
+		return BuildPlan{}, err
+	}
+	if result.Plan == nil {
+		return BuildPlan{}, newParseError(command, "before-launch task plan returned no plan", "")
+	}
+	return *result.Plan, nil
+}
+
 // DecodeBuildModel turns static/command output or a provider result into the
 // normalized model.
 func (c *Client) DecodeBuildModel(ctx context.Context, manifest json.RawMessage, buildSystemID string, request BuildDecodeModelRequest) (BuildModel, error) {

@@ -195,19 +195,41 @@ func TestStoppingDuringABeforeLaunchStepEndsIt(t *testing.T) {
 	}
 }
 
-// The editor shows the chosen steps by name, offers the other process runs and sends the
-// edited list; a save that did not change the list sends none.
+// The editor keeps the steps Core read, process runs and plugin tasks alike, sends the edited
+// list in order, and counts a list as changed only when what it saves changed: the name and
+// summary Core gave a task are not saved.
 func TestRunConfigFormKeepsTheStepList(t *testing.T) {
+	task := `{"task":{"pluginID":"io.example","buildSystemID":"go","type":"command","values":{"command":"generate"}},"name":"Run Go command","summary":"go generate"}`
 	f := &runConfigForm{values: map[string]json.RawMessage{}, texts: map[string]*string{}, flags: map[string]*bool{}}
 	f.fields = []core.RunEditorField{{ID: "beforeLaunch", Kind: runFieldBeforeLaunch}}
-	f.readValues(f.fields, map[string]json.RawMessage{"beforeLaunch": json.RawMessage(`["user:a","user:b"]`)})
+	f.readValues(f.fields, map[string]json.RawMessage{"beforeLaunch": json.RawMessage(`["user:a",` + task + `,"user:b"]`)})
 	if !f.drawable(i18n.English, f.fields[0]) {
 		t.Fatal("the step field is not drawn")
 	}
-	moveRunConfigStep(f.beforeLaunch, 1, 0)
-	moveRunConfigStep(f.beforeLaunch, 1, 2)
-	if got := string(f.collect()["beforeLaunch"]); got != `["user:b","user:a"]` {
-		t.Fatalf("collected %s", got)
+	read := slices.Clone(f.beforeLaunch.items)
+	moveRunConfigStep(f.beforeLaunch.items, 2, 0)
+	moveRunConfigStep(f.beforeLaunch.items, 2, 3)
+	var collected []json.RawMessage
+	if err := json.Unmarshal(f.collect()["beforeLaunch"], &collected); err != nil || len(collected) != 3 {
+		t.Fatalf("collected %s (%v)", f.collect()["beforeLaunch"], err)
+	}
+	if string(collected[0]) != `"user:b"` || string(collected[2]) != `"user:a"` {
+		t.Fatalf("collected %s", f.collect()["beforeLaunch"])
+	}
+	var step core.RunTaskStep
+	if err := json.Unmarshal(collected[1], &step); err != nil || step.Task.Type != "command" || string(step.Task.Values) != `{"command":"generate"}` {
+		t.Fatalf("the task step collected as %s (%v)", collected[1], err)
+	}
+
+	renamed := slices.Clone(read)
+	renamedTask := *renamed[1].Task
+	renamedTask.Name, renamedTask.Summary = "another name", "another summary"
+	renamed[1].Task = &renamedTask
+	if !sameRunConfigSteps(read, renamed) {
+		t.Fatal("a task's name and summary count as a change")
+	}
+	if sameRunConfigSteps(read, f.beforeLaunch.items) {
+		t.Fatal("a moved step does not count as a change")
 	}
 
 	empty := &runConfigForm{values: map[string]json.RawMessage{}, texts: map[string]*string{}, flags: map[string]*bool{}}
@@ -215,16 +237,6 @@ func TestRunConfigFormKeepsTheStepList(t *testing.T) {
 	empty.readValues(empty.fields, map[string]json.RawMessage{})
 	if got := string(empty.collect()["beforeLaunch"]); got != `[]` {
 		t.Fatalf("an empty list collected %s", got)
-	}
-
-	s := runConfigState{list: []core.RunConfiguration{
-		{ID: "user:a", Name: "a", Provider: runProviderShell},
-		{ID: "user:self", Name: "self", Provider: runProviderShell},
-		{ID: "run:maven", Name: "maven", Provider: "build.example"},
-	}}
-	candidates := s.beforeLaunchCandidates("user:self")
-	if len(candidates) != 1 || candidates[0].ID != "user:a" {
-		t.Fatalf("candidates = %+v", candidates)
 	}
 }
 
@@ -255,8 +267,8 @@ func TestRunConfigDialogSavesAnAddedStep(t *testing.T) {
 	h.clickNamed(i18n.Shared(h.app.language(), "desktop.runConfig.beforeLaunchRunAnother"))
 	h.clickNamed("generate")
 	h.settle()
-	if !slices.Equal(f.beforeLaunch, []string{"user:generate"}) || !d.dirty() {
-		t.Fatalf("steps %v, dirty %v after the menu added one", f.beforeLaunch, d.dirty())
+	if len(f.beforeLaunch.items) != 1 || f.beforeLaunch.items[0].ConfigurationID != "user:generate" || !d.dirty() {
+		t.Fatalf("steps %+v, dirty %v after the menu added one", f.beforeLaunch.items, d.dirty())
 	}
 
 	applyDialog(t, h, p, runConfigDialogApply)
@@ -266,5 +278,74 @@ func TestRunConfigDialogSavesAnAddedStep(t *testing.T) {
 	}
 	if !d.open || d.dirty() {
 		t.Fatalf("dialog open %v dirty %v after Apply", d.open, d.dirty())
+	}
+}
+
+// A task a plugin declares is an entry of the Before Launch menu, under its translated name:
+// choosing it opens the task's own form, OK has Core check the values, a missing required one
+// stays in the form under its field, and the step Core returns joins the list. The saved
+// configuration runs the task by the plugin's build tool before it starts, after the project
+// file's list was allowed, with the task's output first in the configuration's console.
+func TestPluginDeclaredBeforeLaunchTaskIsAddedAndRunsFirst(t *testing.T) {
+	h, p, root := runTypesHarness(t, "print", true)
+	f := newDeclaredRunDraft(t, h, p)
+	if f.beforeLaunch == nil {
+		t.Fatal("the new configuration has no Before Launch list")
+	}
+	fillDeclaredRun(t, h, p, f, "Fixture Alpha", false)
+	h.settle()
+	language := h.app.language()
+	h.clickNamed(i18n.Shared(language, "desktop.runConfig.beforeLaunchAdd"))
+	h.settle()
+	if !h.shows(i18n.Shared(language, "desktop.runConfig.beforeLaunchRunAnother")) || !h.shows("夹具任务") {
+		t.Fatal("the Before Launch menu does not offer the plugin's task under its Chinese name")
+	}
+	h.clickNamed("夹具任务")
+	awaitStateWithin(t, h, 10*time.Second, "the task form", func() bool { return p.runConfigs.task != nil })
+	task := p.runConfigs.task
+	h.settle()
+	if !h.shows("任务目标") || !h.shows("准备夹具。") {
+		t.Fatal("the task form does not show the task's translated field and description")
+	}
+
+	ok := i18n.Shared(language, "desktop.runConfig.ok")
+	h.clickNamed(ok)
+	awaitStateWithin(t, h, 10*time.Second, "Core's check of the empty target", func() bool { return !task.checking })
+	if p.runConfigs.task != task || task.form.errors["field:target"] != "required" || len(f.beforeLaunch.items) != 0 {
+		t.Fatalf("an empty required target: form open %v, errors %v, steps %+v", p.runConfigs.task == task, task.form.errors, f.beforeLaunch.items)
+	}
+	h.app.post(func(a *App) { *task.form.texts["field:target"] = "beta" })
+	h.settle()
+	h.clickNamed(ok)
+	awaitStateWithin(t, h, 10*time.Second, "the added task step", func() bool { return p.runConfigs.task == nil })
+	prepare := core.RunTypeKey{PluginID: runTypesPluginID, BuildSystemID: "fixture-runs", Type: "prepare"}
+	if len(f.beforeLaunch.items) != 1 || f.beforeLaunch.items[0].Task == nil || f.beforeLaunch.items[0].Task.Task.RunTypeKey != prepare {
+		t.Fatalf("steps after OK = %+v", f.beforeLaunch.items)
+	}
+	h.settle()
+	if !h.shows("夹具任务") {
+		t.Fatal("the list does not show the added task")
+	}
+
+	applyDialog(t, h, p, runConfigDialogRun)
+	awaitStateWithin(t, h, 10*time.Second, "the confirmation", func() bool { return p.runConfigs.beforeLaunch != nil })
+	if steps := p.runConfigs.beforeLaunch.steps; len(steps) != 1 || steps[0].Task == nil || steps[0].Task.RunTypeKey != prepare {
+		t.Fatalf("asked steps = %+v", steps)
+	}
+	h.settle()
+	h.clickNamed(i18n.Shared(language, "desktop.runConfig.beforeLaunch.confirmRun"))
+	run := awaitProcessRun(t, h, p, "Fixture Alpha", nil)
+	console := run.output.all()
+	step, own := strings.Index(console, "run-type ran: task beta"), strings.Index(console, "run-type ran: fast -v alpha one two")
+	if step < 0 || own < step {
+		t.Fatalf("the task did not run before the configuration; console:\n%s", console)
+	}
+	data, err := os.ReadFile(filepath.Join(root, ".lithe", "run", "plugin", runTypesPluginID+".toml"))
+	if err != nil || !strings.Contains(string(data), "prepare") || !strings.Contains(string(data), "beta") {
+		t.Fatalf("plugin run document = %s, %v", data, err)
+	}
+	if saved := p.runConfigs.configuration(p.runConfigs.list[0].ID); saved == nil || len(saved.BeforeLaunch) != 1 ||
+		saved.BeforeLaunch[0].Task == nil || saved.BeforeLaunch[0].Task.RunTypeKey != prepare {
+		t.Fatalf("saved configuration = %+v", saved)
 	}
 }

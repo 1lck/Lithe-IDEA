@@ -106,6 +106,11 @@ type Capabilities map[string][]int
 //     form Core describes in the plugin's translation, saves them and runs them
 //     with the command Core plans for the detected instance. A declared kind has
 //     no debugger.
+//   - beforeLaunchTasks: the Add New Task menu of every configuration's Before
+//     launch list offers the tasks a build system declares, edits each with the
+//     form Core describes in the plugin's translation, and runs the step with
+//     the command Core plans for the detected instance before the configuration
+//     starts.
 //   - toolDefinitions: settings discovery, Build/Run selection and tool
 //     launches use the shared Core resolver.
 //   - commandInstallers: plugin management reports the commands a
@@ -151,6 +156,7 @@ type Capabilities map[string][]int
 func Declared() Capabilities {
 	baseline := []string{
 		"backend",
+		"beforeLaunchTasks",
 		"buildProviders",
 		"buildSystems",
 		"commandInstallers",

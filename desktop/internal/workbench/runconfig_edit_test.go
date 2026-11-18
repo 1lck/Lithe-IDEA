@@ -96,12 +96,12 @@ func TestRunConfigEditorSavesTheLocalLayer(t *testing.T) {
 	}
 
 	// A changed step list counts as a change; one emptied again is the list the editor read.
-	h.app.post(func(*App) { e.beforeLaunch = []string{"user:prepare"} })
+	h.app.post(func(*App) { e.beforeLaunch.items = []core.RunBeforeLaunchEntry{{ConfigurationID: "user:prepare"}} })
 	h.settle()
 	if !d.dirty() {
 		t.Fatal("a changed step list does not show as something to save")
 	}
-	h.app.post(func(*App) { e.beforeLaunch = []string{} })
+	h.app.post(func(*App) { e.beforeLaunch.items = []core.RunBeforeLaunchEntry{} })
 	h.settle()
 	if d.dirty() {
 		t.Fatal("an emptied step list shows as something to save")

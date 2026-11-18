@@ -2,15 +2,16 @@
   "id": "run-before-launch-steps",
   "area": "运行与调试",
   "group": "运行配置",
-  "capability": "像 IntelliJ IDEA 的 Before launch: Run Another Configuration 一样，运行配置可以列出启动前步骤：每一步是一个内置进程运行（Shell、PowerShell、批处理、可执行程序），按顺序在同一个 Run 控制台里运行，全部以退出码 0 结束后才启动配置；某一步失败时报出步骤名和退出码并不启动配置，停止配置会停止正在运行的步骤。项目文件（.lithe/run/configurations.yaml）列出的步骤第一次运行前要确认，确认结果按步骤列表与命令的指纹记在应用自己的存储里",
+  "capability": "像 IntelliJ IDEA 的 Before launch 一样，运行配置可以列出启动前步骤：“添加任务”菜单（标题“添加新任务”）第一项是“运行另一个配置”，引用一个内置进程运行（Shell、PowerShell、批处理、可执行程序），后面列出已启用插件声明的启动前任务，选中后在任务自己的表单里填写；步骤按顺序在同一个 Run 控制台里运行，全部以退出码 0 结束后才启动配置；某一步失败时报出步骤名和退出码并不启动配置，停止配置会停止正在运行的步骤。项目文件（.lithe/run/configurations.yaml）列出的步骤第一次运行前要确认，确认结果按步骤列表与命令的指纹记在应用自己的存储里",
   "owner": "Run",
-  "notes": "Viva 共享实现。步骤只能引用内置进程运行，嵌套步骤先展开、最多 32 步，引用不存在、不可用、成环的配置时由 Core 拒绝。“运行/调试配置”窗口里的内置运行编辑器和构建提供者运行编辑器都有步骤列表，可添加、上移、下移、移除；本平台不能运行的配置不作为步骤候选。调试（Debug）同样先运行步骤。插件可注入的 runOptions 扩展点不在本项范围。",
-  "verification": "在项目里创建两个 Shell 运行 A、B，并让应用运行配置的启动前步骤依次为 A、B；运行应用配置，确认弹出确认框列出 A、B，点“运行步骤”后控制台依次出现 A、B 的输出和应用输出；再次运行不再询问。把 B 改成以 3 退出，确认控制台写出“启动前步骤 B 以退出码 3 结束”，应用未启动。把 A 改成长时间运行，运行中点停止，确认 A 被结束、应用未启动。自动化：runconfig_before_launch_test.go 的 TestBeforeLaunchStepsRunInOrderAfterTheProjectListIsAllowed、TestFailingBeforeLaunchStepStopsTheStart、TestStoppingDuringABeforeLaunchStepEndsIt、TestRunConfigFormKeepsTheStepList、TestRunConfigDialogSavesAnAddedStep。",
+  "notes": "Viva 共享实现。“运行另一个配置”只能引用内置进程运行，嵌套步骤先展开、最多 32 步，引用不存在、不可用、成环的配置时由 Core 拒绝。插件任务由插件清单 buildSystems[].beforeLaunchTasks 声明（契约 beforeLaunchTasks 0，API-29），宿主不内置任何任务；Core 的 runConfig.checkBeforeLaunchTask 校验表单值，build.beforeLaunchTaskPlan 用保存的值和配置的工作目录计划命令，宿主用该构建系统已检测到的实例的构建工具运行；插件停用或卸载后步骤仍列出，运行时以 taskNotDeclared 拒绝。“运行/调试配置”窗口里的内置运行编辑器和构建提供者运行编辑器都有步骤列表，可添加、编辑任务、上移、下移、移除；“添加任务”始终可用，没有可选配置时在子菜单里说明原因；本平台不能运行的配置不作为步骤候选。调试（Debug）同样先运行步骤。",
+  "verification": "在项目里创建两个 Shell 运行 A、B，并让应用运行配置的启动前步骤依次为 A、B；运行应用配置，确认弹出确认框列出 A、B，点“运行步骤”后控制台依次出现 A、B 的输出和应用输出；再次运行不再询问。把 B 改成以 3 退出，确认控制台写出“启动前步骤 B 以退出码 3 结束”，应用未启动。把 A 改成长时间运行，运行中点停止，确认 A 被结束、应用未启动。装一个声明了启动前任务的插件，打开含其构建系统标记的项目，在配置的启动前点“添加任务”，确认菜单在“运行另一个配置”之后列出插件任务；选中后填写必填字段为空时点“确定”，字段下显示原因、弹窗不关；填好后确定，任务加入列表，运行时任务输出先于配置输出。自动化：runconfig_before_launch_test.go 的 TestPluginDeclaredBeforeLaunchTaskIsAddedAndRunsFirst、TestBeforeLaunchStepsRunInOrderAfterTheProjectListIsAllowed、TestFailingBeforeLaunchStepStopsTheStart、TestStoppingDuringABeforeLaunchStepEndsIt、TestRunConfigFormKeepsTheStepList、TestRunConfigDialogSavesAnAddedStep。",
   "macos": {
     "implementationStatus": "implemented",
     "verificationStatus": "pending",
     "evidence": [
       "desktop/internal/workbench/runconfig_before_launch.go",
+      "desktop/internal/workbench/runconfig_steps.go",
       "desktop/internal/workbench/runconfig_form_view.go",
       "desktop/internal/workbench/runconfig_edit.go",
       "desktop/internal/core/run_before_launch.go",
@@ -22,6 +23,7 @@
     "verificationStatus": "pending",
     "evidence": [
       "desktop/internal/workbench/runconfig_before_launch.go",
+      "desktop/internal/workbench/runconfig_steps.go",
       "desktop/internal/workbench/runconfig_form_view.go",
       "desktop/internal/workbench/runconfig_edit.go",
       "desktop/internal/core/run_before_launch.go",
