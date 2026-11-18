@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"slices"
+	"strings"
 	"testing"
 	"time"
 
@@ -30,7 +32,7 @@ func TestProviderRunsResolveAndLaunchInputs(t *testing.T) {
 	if _, err := client.GenerateRunConfigurations(ctx, root, runs); err != nil {
 		t.Fatal(err)
 	}
-	resolved, err := client.ResolveRunConfigurations(ctx, root)
+	resolved, err := client.ResolveRunConfigurations(ctx, root, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -73,23 +75,21 @@ func TestRunConfigurationOptionsRoundTrip(t *testing.T) {
 	if _, err := client.GenerateRunConfigurations(ctx, root, runs); err != nil {
 		t.Fatal(err)
 	}
-	resolved, err := client.ResolveRunConfigurations(ctx, root)
+	resolved, err := client.ResolveRunConfigurations(ctx, root, nil)
 	if err != nil || len(resolved.Configurations) != 1 {
 		t.Fatalf("resolve = %+v, %v", resolved, err)
 	}
 	id := resolved.Configurations[0].ID
-	document, err := client.UpdateRunConfigurationOptions(ctx, RunOptionsEdit{Root: root, Scope: "local", ConfigurationID: id,
+	changes, err := client.UpdateRunConfigurationOptions(ctx, RunOptionsEdit{Root: root, Scope: "local", ConfigurationID: id,
 		WorkingDirectory: "app/data", Arguments: `--name "Alice Smith"`, Environment: map[string]string{"MODE": "dev"}})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := os.MkdirAll(filepath.Join(root, ".lithe", "run"), 0o755); err != nil {
-		t.Fatal(err)
+	if len(changes) != 1 || changes[0].Path != ".lithe/run/plugin/dev.example.engine.local.toml" || changes[0].BaseSHA256 != nil {
+		t.Fatalf("changes = %+v", changes)
 	}
-	if err := os.WriteFile(filepath.Join(root, ".lithe", "run", "local.json"), []byte(document), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	resolved, err = client.ResolveRunConfigurations(ctx, root)
+	writeRunConfigChanges(t, root, changes)
+	resolved, err = client.ResolveRunConfigurations(ctx, root, nil)
 	if err != nil || len(resolved.Configurations) != 1 {
 		t.Fatalf("resolve = %+v, %v", resolved, err)
 	}
@@ -133,5 +133,82 @@ func TestTitleActionsFollowTheContractFixture(t *testing.T) {
 		if got != testCase.Expected.Kind {
 			t.Fatalf("%s: decision = %q, want %q", testCase.Name, got, testCase.Expected.Kind)
 		}
+	}
+}
+
+// writeRunConfigChanges applies the file changes of an edit command as the host would, without
+// its base checks: a test owns the workspace.
+func writeRunConfigChanges(t *testing.T, root string, changes []RunConfigChange) {
+	t.Helper()
+	for _, change := range changes {
+		path := filepath.Join(root, filepath.FromSlash(change.Path))
+		if change.Content == nil {
+			if err := os.Remove(path); err != nil {
+				t.Fatal(err)
+			}
+			continue
+		}
+		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(path, []byte(*change.Content), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+}
+
+// A shell script saved as text goes through the built-in process API: the kinds list it, the
+// editor describes its fields, saving refuses a missing value and then writes the project
+// layer, the configuration resolves without any plugin, its plan carries the script for the
+// host to write, and deleting removes it again.
+func TestBuiltInProcessRunRoundTrip(t *testing.T) {
+	client := NewClient()
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	root := t.TempDir()
+	kinds, err := client.RunConfigurationTypes(ctx)
+	if err != nil || len(kinds) == 0 || kinds[0].Provider != "process.shell" {
+		t.Fatalf("kinds = %+v, %v", kinds, err)
+	}
+	form, err := client.RunEditorForm(ctx, RunEditorFormRequest{Root: root, Provider: "process.shell"})
+	if err != nil || form.FormVersion != RunFormVersion || form.ConfigurationID != nil || len(form.Fields) == 0 || form.Fields[0].ID != "name" {
+		t.Fatalf("form = %+v, %v", form, err)
+	}
+	values := form.Values
+	values["source"] = json.RawMessage(`"text"`)
+	values["name"] = json.RawMessage(`"Greet"`)
+	values["storeAsProjectFile"] = json.RawMessage(`true`)
+	invalid, err := client.SaveRunConfiguration(ctx, RunConfigurationSave{Root: root, Provider: "process.shell", Values: values})
+	if err != nil || invalid.Status != "invalid" || len(invalid.Errors) != 1 || invalid.Errors[0] != (RunFieldError{Field: "text", Code: "required"}) {
+		t.Fatalf("save without text = %+v, %v", invalid, err)
+	}
+	values["text"] = json.RawMessage(`"echo hello"`)
+	saved, err := client.SaveRunConfiguration(ctx, RunConfigurationSave{Root: root, Provider: "process.shell", Values: values})
+	if err != nil || saved.Status != "saved" || !strings.HasPrefix(saved.ID, "user:") || len(saved.Changes) != 1 || saved.Changes[0].Path != ".lithe/run/configurations.yaml" {
+		t.Fatalf("save = %+v, %v", saved, err)
+	}
+	writeRunConfigChanges(t, root, saved.Changes)
+	resolved, err := client.ResolveRunConfigurations(ctx, root, nil)
+	if err != nil || len(resolved.Configurations) != 1 {
+		t.Fatalf("resolve = %+v, %v", resolved, err)
+	}
+	if got := resolved.Configurations[0]; got.ID != saved.ID || got.Name != "Greet" || !got.IsProcess() || got.Unavailable() || !got.UserDefined() {
+		t.Fatalf("configuration = %+v", got)
+	}
+	base := filepath.Join(t.TempDir(), "script")
+	plan, err := client.CreateRunLaunchPlan(ctx, root, saved.ID, base)
+	if err != nil || plan.InlineScript == nil || plan.InlineScript.Content != "echo hello\n" || !strings.HasPrefix(plan.InlineScript.Path, base) || plan.WorkingDirectory != "." {
+		t.Fatalf("plan = %+v, %v", plan, err)
+	}
+	if plan.Executable.Command == "" && plan.Executable.Path == "" || !slices.Contains(plan.Arguments, plan.InlineScript.Path) {
+		t.Fatalf("plan does not run the script with the shell: %+v", plan)
+	}
+	removed, err := client.DeleteRunConfiguration(ctx, root, saved.ID, nil)
+	if err != nil || len(removed) != 1 || removed[0].Path != ".lithe/run/configurations.yaml" || removed[0].BaseSHA256 == nil {
+		t.Fatalf("delete = %+v, %v", removed, err)
+	}
+	writeRunConfigChanges(t, root, removed)
+	if resolved, err := client.ResolveRunConfigurations(ctx, root, nil); err != nil || len(resolved.Configurations) != 0 {
+		t.Fatalf("resolve after delete = %+v, %v", resolved, err)
 	}
 }

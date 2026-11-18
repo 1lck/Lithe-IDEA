@@ -24,7 +24,8 @@
 - 判断“某个执行还属于窗口”一律用 `p.build.owns(op)`，不要再写 `p.build.operation == op`：运行不在 `operation` 里，这样写会让运行的输出、状态和停止全部失效。
 - 停止某个执行用 `stopOperation(p, op)`。`stopBuildOperation(p)` 只停 `latest()`（任务优先，否则最新的运行），只给没有自己标签的控件用，例如 Build 窗口工具栏的停止；IDE API 按执行 ID 找到对应的执行再停止。
 - 每个执行有自己的状态行 `op.status`，用 `setOperationStatus` 更新；`p.build.status` 只是最近一次的状态，不能拿来显示某个运行。
-- 新增启动应用进程的路径时，用 `beginRunOperation` 并给出键，通过 `startRun` 启动；不要用 `beginBuildOperation`，否则它会和构建任务互斥。
+- 新增启动应用进程的路径时（内置进程运行 `startProcessRun` 就是这样做的），用 `beginRunOperation` 并给出键，通过 `startRun` 启动；不要用 `beginBuildOperation`，否则它会和构建任务互斥。
+- `latest()` 先返回最新开始且仍在运行的执行（`buildState.newest`），所以启动后 `showBuildConsole` 显示的就是刚启动的那个，即使有任务在运行。
 - 项目关闭（`stopBuildSessions`）时清掉所有 `then`，等待重启的运行不会在关闭后启动。
 - IDE API 对正在运行的配置再次 `start` 返回 `BUSY`（`errRunRunning`）：外部调用方需要明确先停止，不替它决定重启。
 
@@ -52,5 +53,6 @@
 - `desktop/internal/workbench/runconfig_view.go`
 - `desktop/internal/workbench/run_view.go`
 - `desktop/internal/workbench/runs.go`
+- `desktop/internal/workbench/runconfig_process.go`
 - `desktop/internal/workbench/build_connection_debug.go`
 - `desktop/internal/workbench/ide_api_dispatch.go`

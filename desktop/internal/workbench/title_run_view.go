@@ -1,6 +1,9 @@
 package workbench
 
 import (
+	"path"
+	"path/filepath"
+
 	"github.com/1lck/Lithe-IDEA/desktop/internal/i18n"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/icons"
 	"github.com/vivaui/viva/ui"
@@ -53,7 +56,23 @@ func (a *App) titleRunConfigMenu(c ui.C, anchor ui.Box) {
 				menu.Item(hiddenRunConfigurations(lang, s.hidden)).Disabled(true)
 			}
 		}
+		// A saved file Core did not read is named by its file name, which fits the menu, and
+		// opens in the editor so it can be fixed; a directory has nothing to open.
+		for _, ignored := range s.ignored {
+			label := i18n.SharedFormat(lang, "desktop.runConfig.documentIgnored", map[string]string{"file": path.Base(ignored)})
+			item := menu.Item(label).Icon(icons.CircleAlert)
+			if path.Ext(ignored) == "" {
+				item.Disabled(true)
+			} else if item.Clicked() {
+				file := filepath.Join(p.root, filepath.FromSlash(ignored))
+				c.After(func() { a.openFile(p, file) })
+			}
+		}
 		menu.Separator()
+		menu.Sub(i18n.Shared(lang, "desktop.runConfig.newConfiguration"), func(sub *ui.MenuItems) {
+			sub.WidthRange(runConfigMenuMin, runConfigMenuMax)
+			a.runConfigTypeItems(c, sub, p, surfaceToolbar)
+		}).Icon(icons.Plus)
 		if menu.Item(i18n.Shared(lang, "native.editConfiguration")).Icon(icons.Pencil).Clicked() {
 			c.After(func() { a.editRunConfigurations(p) })
 		}

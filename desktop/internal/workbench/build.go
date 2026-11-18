@@ -67,6 +67,9 @@ type buildState struct {
 	// (buildOperation.key), oldest first.
 	operation *buildOperation
 	running   []*buildOperation
+	// newest is the execution begun last, which the Run window shows when a control starts
+	// one; it may have ended since.
+	newest *buildOperation
 	// runs are the Run window's sessions, oldest first: the host's executions and the
 	// runs plugins started. view is the ID of the one it shows, and sessions numbers the
 	// host's executions.
@@ -173,6 +176,7 @@ func (a *App) beginOperation(p *project, kind, label, configuration, key string,
 	} else {
 		p.build.operation = operation
 	}
+	p.build.newest = operation
 	a.setOperationStatus(p, operation, a.text.Build.Preparing)
 	return operation
 }
@@ -209,8 +213,12 @@ func (b *buildState) runOf(key string) *buildOperation {
 }
 
 // latest is the execution a control without a tab of its own acts on, such as the Build
-// window's Stop: the Build window's operation, else the newest run.
+// window's Stop or the console a start shows: the execution begun last while it runs, else the
+// Build window's operation, else the newest run.
 func (b *buildState) latest() *buildOperation {
+	if b.owns(b.newest) {
+		return b.newest
+	}
 	if b.operation != nil {
 		return b.operation
 	}
@@ -594,6 +602,8 @@ func (a *App) loadBuildSystems(p *project) {
 	if a.plugins == nil || a.plugins.Backend == nil {
 		p.build.loaded = true
 		p.build.failed = a.text.Build.PluginsUnavailable
+		// Built-in process runs start without any plugin.
+		a.refreshRunConfigurations(p)
 		return
 	}
 	p.build.loading = true
@@ -673,6 +683,10 @@ func (a *App) finishBuildDetection(p *project, generation uint64, instances []bu
 	} else if err != nil {
 		p.build.status = a.launchFailureText(err)
 	}
+	// The configurations are resolved after every detection: a model that came with detection
+	// is loaded already, so no model answer turns its runs into configurations, and built-in
+	// process runs need no build system at all, so a failed or empty detection lists them too.
+	a.refreshRunConfigurations(p)
 	if len(instances) == 0 {
 		p.build.status = a.text.Build.NoBuildSystems
 		return
@@ -680,11 +694,6 @@ func (a *App) finishBuildDetection(p *project, generation uint64, instances []bu
 	a.loadBuildModel(p, p.build.selected)
 	if p.runConfigs.wanted {
 		a.loadTitleRunConfigs(p)
-	}
-	// A model that came with detection is loaded already, so no model answer turns its runs
-	// into configurations; they are resolved here instead.
-	if _, loaded := providerRuns(p.build.instances); loaded {
-		a.refreshRunConfigurations(p)
 	}
 }
 
@@ -1994,7 +2003,8 @@ func (a *App) finishBuildTask(p *project, op *buildOperation, result json.RawMes
 }
 
 // finishBuildRun ends a host process with how it exited: a non-zero exit fails with its code,
-// and a process that could not be waited for or ended on a signal fails without one.
+// and a process that could not be waited for or ended on a signal fails without one. A process
+// that exited is summarized with its exit code, as a run a plugin reports is, not as a build.
 func (a *App) finishBuildRun(p *project, op *buildOperation, err error) {
 	a.endServiceDebugSession(p, op)
 	var exit *exec.ExitError
@@ -2003,12 +2013,12 @@ func (a *App) finishBuildRun(p *project, op *buildOperation, err error) {
 		a.endBuildOperation(p, op, "cancelled", nil, "", a.text.Build.Cancelled)
 	case errors.As(err, &exit) && exit.ExitCode() > 0:
 		code := exit.ExitCode()
-		a.endBuildOperation(p, op, "failed", &code, "", a.text.Build.Exited(code))
+		a.endBuildOperation(p, op, "failed", &code, "", a.text.Run.Exited(code))
 	case err != nil:
 		a.endBuildOperation(p, op, "failed", nil, "", a.text.Build.ProcessFailed(err.Error()))
 	default:
 		code := 0
-		a.endBuildOperation(p, op, "completed", &code, "", a.text.Build.Succeeded)
+		a.endBuildOperation(p, op, "completed", &code, "", a.text.Run.Exited(code))
 	}
 }
 

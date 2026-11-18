@@ -2,7 +2,6 @@ package workbench
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"os"
 	"path/filepath"
@@ -65,12 +64,14 @@ func TestRunConfigEditorSavesTheLocalLayer(t *testing.T) {
 	if !slices.Equal(got.Args, []string{"--name", "Alice Smith"}) || got.Cwd != "app/server" || got.Env["MODE"] != "prod" || got.Env["TRACE"] != "1" {
 		t.Fatalf("configuration = %+v", got)
 	}
-	data, err := os.ReadFile(filepath.Join(root, ".lithe", "run", "local.json"))
-	if err != nil || !json.Valid(data) || !strings.Contains(string(data), "Alice Smith") {
-		t.Fatalf("local.json = %s, %v", data, err)
+	data, err := os.ReadFile(filepath.Join(root, ".lithe", "run", "plugin", "dev.example.engine.local.toml"))
+	if err != nil || !strings.Contains(string(data), "Alice Smith") {
+		t.Fatalf("dev.example.engine.local.toml = %s, %v", data, err)
 	}
-	if _, err := os.Stat(filepath.Join(root, ".lithe", "run", "configurations.json")); !errors.Is(err, os.ErrNotExist) {
-		t.Fatalf("the project layer was written: %v", err)
+	for _, layer := range []string{"dev.example.engine.toml", "../configurations.yaml", "../local.yaml"} {
+		if _, err := os.Stat(filepath.Join(root, ".lithe", "run", "plugin", layer)); !errors.Is(err, os.ErrNotExist) {
+			t.Fatalf("%s was written: %v", layer, err)
+		}
 	}
 
 	// Reopening shows the saved values as editor text.
@@ -92,39 +93,44 @@ func TestRunConfigEditorSavesTheLocalLayer(t *testing.T) {
 	}
 }
 
-// conflictingKernel rewrites the target layer while Core is editing it.
+// conflictingKernel writes a layer file after Core read the layers and before the host
+// applies the changes Core computed from what it read.
 type conflictingKernel struct {
 	Kernel
 	path string
 }
 
-func (k *conflictingKernel) UpdateRunConfigurationOptions(ctx context.Context, edit core.RunOptionsEdit) (string, error) {
-	if err := os.WriteFile(k.path, []byte(`{"version":2,"configurations":[]}`), 0o600); err != nil {
-		return "", err
+const conflictingContent = "# written by another program\n"
+
+func (k *conflictingKernel) UpdateRunConfigurationOptions(ctx context.Context, edit core.RunOptionsEdit) ([]core.RunConfigChange, error) {
+	changes, err := k.Kernel.UpdateRunConfigurationOptions(ctx, edit)
+	if err != nil {
+		return nil, err
 	}
-	return k.Kernel.UpdateRunConfigurationOptions(ctx, edit)
+	if err := os.MkdirAll(filepath.Dir(k.path), 0o755); err != nil {
+		return nil, err
+	}
+	if err := os.WriteFile(k.path, []byte(conflictingContent), 0o600); err != nil {
+		return nil, err
+	}
+	return changes, nil
 }
 
-// A layer file another writer changed after it was captured is not replaced.
+// A layer file another writer created or changed after Core read the layers is not
+// replaced: the save fails with a conflict and the other writer's file stays as written.
 func TestRunConfigSaveRefusesAConcurrentlyChangedLayer(t *testing.T) {
 	root := t.TempDir()
 	h, p := loadedRunConfigs(t, &testKernel{Client: core.NewClient()}, root)
-	path := filepath.Join(root, ".lithe", "run", "configurations.json")
-	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(path, []byte(`{"version":2,"configurations":[] }`), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	kernel := &conflictingKernel{Kernel: h.app.kernel, path: path}
+	path := filepath.Join(root, ".lithe", "run", "plugin", "dev.example.engine.toml")
+	h.app.kernel = &conflictingKernel{Kernel: h.app.kernel, path: path}
 	ctx, cancel := context.WithTimeout(t.Context(), 10*time.Second)
 	defer cancel()
-	err := saveRunConfigOptions(ctx, kernel, core.RunOptionsEdit{Root: root, Scope: "project", ConfigurationID: p.runConfigs.selected,
+	err := h.app.saveRunConfigOptions(ctx, core.RunOptionsEdit{Root: root, Scope: "project", ConfigurationID: p.runConfigs.selected,
 		Arguments: "--port 9", Environment: map[string]string{}})
 	if !errors.Is(err, configfile.ErrConflict) {
 		t.Fatalf("save = %v, want a conflict", err)
 	}
-	if data, _ := os.ReadFile(path); string(data) != `{"version":2,"configurations":[]}` {
+	if data, _ := os.ReadFile(path); string(data) != conflictingContent {
 		t.Fatalf("the other writer's file was replaced: %s", data)
 	}
 }

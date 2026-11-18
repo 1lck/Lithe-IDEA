@@ -70,13 +70,33 @@ func (a *App) buildToolActions(c ui.C, p *project) {
 }
 
 // buildToolView declares the Build tool window: the run configurations, and under them the
-// tree of the build systems under a filter field, or why there is none. The models of the groups the tree shows open are loaded after
-// it is declared, a few at a time.
+// tree of the build systems under a filter field, or why there is none. The configurations show
+// whatever detection found, so the built-in script and program runs stay reachable in a project
+// without a build system or while detection fails. The models of the groups the tree shows open
+// are loaded after it is declared, a few at a time.
 func (a *App) buildToolView(c ui.C, p *project) {
-	b, t, language := &p.build, a.text.Build, a.language()
+	b := &p.build
 	if !b.loaded && !b.loading {
 		a.loadBuildSystems(p)
 	}
+	ui.Column(c).Fill().Children(func() {
+		a.runConfigList(c, p)
+		// The filter field and the tree, or the notice that stands for them, are one pane, the
+		// second of the splitter under the run configurations, so the splitter's limits count
+		// the whole tree and not the field alone.
+		ui.Column(c).FillWidth().Grow(1).Shrink(1).MinHeight(0).Children(func() {
+			a.buildSystemsPane(c, p)
+		})
+	})
+	if b.loaded && b.failed == "" && len(b.instances) > 0 {
+		a.loadOpenBuildModels(p)
+	}
+}
+
+// buildSystemsPane declares the build systems' part of the Build window: the filter field and
+// the tree, or why there is none.
+func (a *App) buildSystemsPane(c ui.C, p *project) {
+	b, t, language := &p.build, a.text.Build, a.language()
 	switch {
 	case b.loading || !b.loaded:
 		a.buildNotice(c, t.LoadingModel, "", func() {
@@ -104,37 +124,29 @@ func (a *App) buildToolView(c ui.C, p *project) {
 		})
 		return
 	}
-	ui.Column(c).Fill().Children(func() {
-		a.runConfigList(c, p)
-		// The filter field and the tree are one pane, the second of the splitter under the run
-		// configurations, so the splitter's limits count the whole tree and not the field alone.
-		ui.Column(c).FillWidth().Grow(1).Shrink(1).MinHeight(0).Children(func() {
-			a.buildFilter(c, p)
-			// The rows are listed after the filter field took this frame's typing, so the tree
-			// already shows what was typed.
-			rows, pending := a.buildTreeRows(p)
-			if len(rows) == 0 {
-				// A filter whose trees are still being laid out shows nothing rather than no match.
-				if !pending {
-					a.buildNotice(c, i18n.Shared(language, "desktop.build.noMatches"), "", nil)
-				}
-				return
-			}
-			list := &p.panels.choices
-			// Groups and folders open and close by a click, so none of them is a pinned header.
-			list.Header = nil
-			list.Label = func(i int) string {
-				if i >= 0 && i < len(rows) {
-					return rows[i].label
-				}
-				return ""
-			}
-			ui.List(c, list, len(rows), func(row ui.ListRow) {
-				a.buildTreeRow(row, p, rows[row.Index])
-			}).Scrollbars().Label(t.Systems).FillWidth().Grow(1).MinHeight(0).PadY(treelist.PadY)
-		})
-	})
-	a.loadOpenBuildModels(p)
+	a.buildFilter(c, p)
+	// The rows are listed after the filter field took this frame's typing, so the tree
+	// already shows what was typed.
+	rows, pending := a.buildTreeRows(p)
+	if len(rows) == 0 {
+		// A filter whose trees are still being laid out shows nothing rather than no match.
+		if !pending {
+			a.buildNotice(c, i18n.Shared(language, "desktop.build.noMatches"), "", nil)
+		}
+		return
+	}
+	list := &p.panels.choices
+	// Groups and folders open and close by a click, so none of them is a pinned header.
+	list.Header = nil
+	list.Label = func(i int) string {
+		if i >= 0 && i < len(rows) {
+			return rows[i].label
+		}
+		return ""
+	}
+	ui.List(c, list, len(rows), func(row ui.ListRow) {
+		a.buildTreeRow(row, p, rows[row.Index])
+	}).Scrollbars().Label(t.Systems).FillWidth().Grow(1).MinHeight(0).PadY(treelist.PadY)
 }
 
 // buildFilter declares the field that narrows the tree to the build systems, projects,

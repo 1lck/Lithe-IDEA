@@ -28,6 +28,22 @@ func TestRunsOfDifferentKeysRunTogether(t *testing.T) {
 		t.Fatalf("runOf a %p b %p latest %p", p.build.runOf(configurationRunKey("a")), p.build.runOf(configurationRunKey("b")), p.build.latest())
 	}
 
+	// A run begun while the task runs is what a start shows and the toolbar's Stop acts on.
+	var third *buildOperation
+	h.app.post(func(a *App) {
+		third = a.beginRunOperation(p, "C", "c", configurationRunKey("c"), nil)
+		a.showBuildConsole(p)
+	})
+	h.settle()
+	if p.build.latest() != third || p.build.view != third.session.id {
+		t.Fatal("the run begun last is not the one shown while a task runs")
+	}
+	h.app.post(func(a *App) { a.endBuildOperation(p, third, "cancelled", nil, "", a.text.Build.Cancelled) })
+	h.settle()
+	if p.build.latest() != task {
+		t.Fatal("the task is not the latest execution once the newer run ended")
+	}
+
 	h.app.post(func(a *App) { a.stopOperation(p, first) })
 	h.settle()
 	if !first.cancelled || second.cancelled || task.cancelled {
