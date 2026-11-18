@@ -2,6 +2,7 @@ package settingswindow
 
 import (
 	"github.com/1lck/Lithe-IDEA/desktop/internal/icons"
+	"github.com/1lck/Lithe-IDEA/desktop/internal/uistyle"
 	"github.com/vivaui/viva/gfx"
 )
 
@@ -92,6 +93,7 @@ func windowTheme(dark bool, p palette) gfx.Theme {
 	// The chosen row of the sidebar's Tree and a quiet button under the pointer take the
 	// tint the macOS client selects with.
 	theme.Accent, theme.AccentForeground = p.selection, p.text
+	theme.Tooltip = uistyle.Tooltip(dark)
 	return theme
 }
 

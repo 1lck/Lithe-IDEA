@@ -2,23 +2,37 @@
   "id": "macos-shared-hover-tooltip-style",
   "area": "界面",
   "group": "全局共享控件",
-  "capability": "macOS 侧边栏与工具栏悬浮提示共用 IDEA Islands 的背景、边框、圆角及文字样式",
+  "capability": "工作台、设置窗口和日志窗口的悬浮提示共用一份样式：浅色主题深底白字，深色主题灰底浅字，不描边，统一字号、圆角和内边距",
   "macos": {
-    "implementationStatus": "partial",
+    "implementationStatus": "implemented",
     "verificationStatus": "pending",
     "evidence": [
-      "desktop/internal/workbench/theme.go"
+      "desktop/internal/uistyle/uistyle.go",
+      "desktop/internal/uistyle/uistyle_test.go",
+      "desktop/internal/workbench/theme.go",
+      "desktop/internal/workbench/theme_focus_test.go",
+      "desktop/internal/settingswindow/palette.go",
+      "desktop/internal/settingswindow/settingswindow_test.go",
+      "desktop/internal/logwindow/window.go",
+      "desktop/internal/logwindow/window_test.go"
     ]
   },
   "windows": {
-    "implementationStatus": "partial",
+    "implementationStatus": "implemented",
     "verificationStatus": "pending",
     "evidence": [
-      "desktop/internal/workbench/theme.go"
+      "desktop/internal/uistyle/uistyle.go",
+      "desktop/internal/uistyle/uistyle_test.go",
+      "desktop/internal/workbench/theme.go",
+      "desktop/internal/workbench/theme_focus_test.go",
+      "desktop/internal/settingswindow/palette.go",
+      "desktop/internal/settingswindow/settingswindow_test.go",
+      "desktop/internal/logwindow/window.go",
+      "desktop/internal/logwindow/window_test.go"
     ]
   },
   "owner": "macOS UI",
-  "verification": "对照 IDEA Community ManyIslands 明暗主题、HelpTooltip、AbstractPopup 与 macOS 圆角窗口边框路径：深色背景/边框 #33353B、文字 #D1D3D9，浅色背景 #FFFFFF、边框 #D1D3D9、文字 #000000；共享 1pt 内边框、4pt 圆角、13pt 字号及左右 12pt/上 8pt/下 9pt 内边距。现有侧边栏、Git Log 与工具栏消费者共用 litheHoverTooltipSurface，保留延时、定位、屏幕边界、隐藏与拖动暂停语义；深浅实际像素及定位组件测试已运行，四周侧栏完整应用 hover 验收仍 pending。",
+  "verification": "自动化：运行 desktop/internal/uistyle、workbench、settingswindow、logwindow 的单元测试，检查共享样式的颜色与尺寸（浅色背景 #27282E、文字 #FFFFFF；深色背景 #33353B、文字 #D1D3D9；不描边，12pt 字号、4pt 圆角、左右 12pt/上下 6pt 内边距），以及三个窗口的明暗主题都使用这份样式。无头截图：带 vivahead lithevisual 标签运行 workbench 的 TestVisualNewProjectFieldDescriptions、settingswindow 的 TestVisualSettings/m50-toolchain-project-trust-tip、logwindow 的 TestVisualLogs，检查明暗主题下悬停 ⓘ 的提示一致、箭头与主体相连。产品验收：在 macOS 和 Windows 原生窗口中，分别在明暗主题下悬停工作台工具窗口、设置页和日志窗口的 ⓘ 与图标按钮，确认三处提示一致；原生窗口验收 pending。",
   "legacy": {
     "revision": "5a54c41aa37a4e6e6b68918a4b05765b9dd07a36",
     "macos": {
@@ -39,5 +53,5 @@
       ]
     }
   },
-  "notes": "Viva：放弃迁移（见 docs/viva-migration.md 对应行），不再按旧客户端行为对齐。现状：工具提示通过 viva ui 的 Tooltip 调用在 workbench 中使用（commit_view.go、debug_view.go、tests_view.go 等），但未找到 IDEA Islands 样式的共享悬浮提示表面（边框、4pt 圆角、颜色和内边距规格）。 2026-11-12：viva 新增 gfx.TooltipStyle（Lithe-IDEA/viva#10），workbench 明暗两套主题写入 IDEA 表面：4pt 圆角、12/8 内边距、13pt 文字、各自背景/文字/1pt 边框色。原生窗口验收保持 pending。"
+  "notes": "Viva：放弃迁移（见 docs/viva-migration.md 对应行），不再按旧客户端行为对齐。 2026-11-12：viva 新增 gfx.TooltipStyle（Lithe-IDEA/viva#10），workbench 明暗两套主题写入 IDEA 表面：4pt 圆角、12/8 内边距、13pt 文字、各自背景/文字/1pt 边框色。 2026-11-18：此前只有工作台设置了提示样式（浅色是 IDEA Editor.ToolTip 的白底描边气泡），设置窗口和日志窗口沿用 Viva 默认反色气泡，同一客户端有两种提示；白底气泡的描边在箭头处断开。改为 uistyle.Tooltip 一份样式，三个窗口的主题都使用它：浅色改为 IDEA ToolTip 的深底白字，深色保留 #33353B，都不描边。Viva 箭头描边缺陷另行修复（Lithe-IDEA/viva fix/tooltip-arrow-border，上游 vivaui/viva#305），当前样式不描边，不依赖该修复。原生窗口验收保持 pending。"
 }

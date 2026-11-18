@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/1lck/Lithe-IDEA/desktop/internal/i18n"
 	"github.com/vivaui/viva/headless"
@@ -34,7 +35,29 @@ func TestVisualLogs(t *testing.T) {
 				t.Fatal(err)
 			}
 			t.Cleanup(session.Close)
-			if err := session.Screenshot(filepath.Join(out, "72-logs-"+map[bool]string{true: "dark", false: "light"}[dark]+".png")); err != nil {
+			look := map[bool]string{true: "dark", false: "light"}[dark]
+			if err := session.Screenshot(filepath.Join(out, "72-logs-"+look+".png")); err != nil {
+				t.Fatal(err)
+			}
+			// Resting on the channel list's ⓘ shows its help in the client's shared tip.
+			help := w.text.Logs.ChannelHelp
+			rested := false
+			for _, hit := range session.Driver().Snapshot().Hits {
+				if hit.Hint == help && !hit.IsLabel {
+					if err := session.Driver().Move(hit.Bounds.X+hit.Bounds.Width/2, hit.Bounds.Y+hit.Bounds.Height/2); err != nil {
+						t.Fatal(err)
+					}
+					rested = true
+					break
+				}
+			}
+			if !rested {
+				t.Fatal("the channel list has no ⓘ")
+			}
+			if err := session.Advance(time.Second); err != nil {
+				t.Fatal(err)
+			}
+			if err := session.Screenshot(filepath.Join(out, "73-logs-channel-tip-"+look+".png")); err != nil {
 				t.Fatal(err)
 			}
 		})

@@ -7,6 +7,7 @@ import (
 
 	"github.com/1lck/Lithe-IDEA/desktop/internal/fontprefs"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/i18n"
+	"github.com/1lck/Lithe-IDEA/desktop/internal/uistyle"
 	"github.com/vivaui/viva/gfx"
 )
 
@@ -623,6 +624,10 @@ func TestWindowThemeTakesThePalette(t *testing.T) {
 		theme := windowTheme(dark, p)
 		if theme.Background != p.window || theme.Foreground != p.text || theme.Primary != p.accent {
 			t.Errorf("dark=%v: the theme did not take the palette's surface, text and accent", dark)
+		}
+		// The tips are the client's shared tip, the same one the workbench draws.
+		if theme.Tooltip != uistyle.Tooltip(dark) {
+			t.Errorf("dark=%v: tips %+v, want the shared %+v", dark, theme.Tooltip, uistyle.Tooltip(dark))
 		}
 	}
 }
