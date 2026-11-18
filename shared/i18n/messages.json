@@ -109410,6 +109410,121 @@
         "option": "string",
         "choice": "string"
       }
+    },
+    {
+      "id": "desktop.toolchains.trustProject",
+      "description": "Switch that grants or revokes local permission to probe and run tool environments or wrappers inside the open project.",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.toolchains.trustProjectHelp",
+      "description": "Info popover explaining consequences, local machine storage scope, security boundary and process restart behavior of project toolchain trust.",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.toolchains.trustStatusTrusted",
+      "description": "Compact status label showing that project tool environments are trusted on this machine for the open workspace.",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.toolchains.trustStatusUntrusted",
+      "description": "Compact status label showing that project tool environments are not trusted for the open workspace.",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.toolchains.projectTrustRequiredNotice",
+      "description": "Actionable notice shown when one or more declared tools have project environments or wrappers blocked until the project is trusted.",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.toolchains.projectCandidateBlocked",
+      "description": "Row under a tool card naming a detected project-local environment or wrapper that will not be probed until the project is trusted. {path} is its native home or executable path.",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "path": "string"
+      }
+    },
+    {
+      "id": "desktop.toolchains.updatingTrust",
+      "description": "Shown while saving the workspace toolchain trust setting and reloading effective toolchains.",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.toolchains.reasonProjectTrustRequired",
+      "description": "Localized reason when a tool's resolution or automatic value is blocked until the user trusts project tool environments.",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.toolchains.reasonProbeFailed",
+      "description": "Localized reason when a candidate executable failed its bounded version check.",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.toolchains.reasonVersionUnsatisfied",
+      "description": "Localized reason when a candidate executable does not satisfy the minimum version.",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.toolchains.reasonNotExecutable",
+      "description": "Localized reason when a candidate file is not executable.",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.toolchains.reasonUnsafePath",
+      "description": "Localized reason when a candidate path is unsafe or leaves its allowed root.",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.toolchains.layerPinned",
+      "description": "Localized name of the pinned toolchain resolution layer.",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.toolchains.layerProject",
+      "description": "Localized name of the project toolchain resolution layer.",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.toolchains.layerGlobal",
+      "description": "Localized name of the global default toolchain resolution layer.",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.toolchains.layerAutomatic",
+      "description": "Localized name of the automatic toolchain resolution layer.",
+      "platforms": [
+        "desktop"
+      ]
     }
   ]
 }

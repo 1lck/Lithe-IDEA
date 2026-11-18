@@ -49,6 +49,13 @@ func (a *App) resolveToolchainSelection(ctx context.Context, root, directory, to
 	return a.defaultToolchainSelection(ctx, root, directory, tool, minimumVersion)
 }
 
+func (a *App) globalToolchainRoot() string {
+	if a.store == nil {
+		return ""
+	}
+	return a.store.Dir()
+}
+
 func (a *App) defaultToolchainSelection(ctx context.Context, root, directory, tool, minimumVersion string) (core.ToolchainSelection, error) {
 	manifests, err := a.toolchainManifests(ctx)
 	if err != nil {
@@ -59,7 +66,7 @@ func (a *App) defaultToolchainSelection(ctx context.Context, root, directory, to
 	}
 	return toolchain.Resolve(ctx, a.kernel, root, directory, tool, minimumVersion, nil, manifests, toolchain.Options{
 		Platform:   buildPlatform(),
-		GlobalRoot: a.store.Dir(),
+		GlobalRoot: a.globalToolchainRoot(),
 	})
 }
 

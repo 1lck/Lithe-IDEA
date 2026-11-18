@@ -5,12 +5,16 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
+	"sync"
 	"testing"
 	"time"
 
 	"github.com/1lck/Lithe-IDEA/desktop/internal/core"
+	"github.com/1lck/Lithe-IDEA/desktop/internal/logwindow"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/pluginpkg"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/pluginservice"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/pluginstate"
@@ -255,5 +259,261 @@ func TestToolchainSettingsReadbackFailureReportsCommittedSource(t *testing.T) {
 	}
 	if !bytes.Contains(data, []byte("dev.example:compiler")) {
 		t.Fatalf("test did not exercise a committed pin: %s", data)
+	}
+}
+
+const syntheticWorkbenchInterpMarkerEnv = "LITHE_TEST_SYNTHETIC_INTERP_MARKER"
+
+func TestMain(m *testing.M) {
+	if marker := os.Getenv(syntheticWorkbenchInterpMarkerEnv); marker != "" && len(os.Args) == 2 && os.Args[1] == "--version" {
+		_ = os.WriteFile(marker, []byte("probed\n"), 0o600)
+		fmt.Println("SyntheticInterp 3.12.4")
+		os.Exit(0)
+	}
+	os.Exit(m.Run())
+}
+
+type actionFieldLog struct {
+	logwindow.Source
+	mu      sync.Mutex
+	actions []string
+	failed  []string
+}
+
+func (l *actionFieldLog) Emit(_ core.LogLevel, event, _ string, fields map[string]any) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	switch event {
+	case "app.action.performed":
+		if action, ok := fields["action"].(string); ok {
+			l.actions = append(l.actions, action)
+		}
+	case "app.notification.operation_failed":
+		if op, ok := fields["operation"].(string); ok {
+			l.failed = append(l.failed, op)
+		}
+	}
+}
+
+func TestWorkbenchToolchainTrustPersistsLocallyLogsActionAndEnablesRuntimeResolution(t *testing.T) {
+	preferences := store.At(t.TempDir())
+	pluginsRoot := t.TempDir()
+	workspaceRaw := t.TempDir()
+	workspaceRoot, err := filepath.EvalSymlinks(workspaceRaw)
+	if err != nil {
+		t.Fatal(err)
+	}
+	externalRaw := t.TempDir()
+	externalBase, err := filepath.EvalSymlinks(externalRaw)
+	if err != nil {
+		t.Fatal(err)
+	}
+	markerPath := filepath.Join(t.TempDir(), "probe-ran.marker")
+
+	const pluginID = "dev.lithe.test.projectenv"
+	const toolID = pluginID + ":interp"
+	manifestDoc := map[string]any{
+		"schemaVersion":    0,
+		"id":               pluginID,
+		"displayName":      "Synthetic Project Environment",
+		"version":          "1.0.0",
+		"pluginAPIVersion": 0,
+		"requires":         map[string]any{"toolDefinitions": 0},
+		"vendor": map[string]any{
+			"id":                   "dev.lithe.test",
+			"displayName":          "Synthetic Test Vendor",
+			"signatureRequirement": "publisherPackage",
+		},
+		"permissions": []any{},
+		"toolDefinitions": []any{
+			map[string]any{
+				"id":          toolID,
+				"displayName": "Synthetic Interpreter",
+				"executableLayouts": []any{
+					map[string]any{"path": "bin/interp", "platforms": []string{"macos", "linux"}},
+					map[string]any{"path": "Scripts/interp.exe", "platforms": []string{"windows"}},
+				},
+				"executables": []any{
+					map[string]any{
+						"id":          "project-venv-unix",
+						"kind":        "projectFile",
+						"projectKind": "environment",
+						"home":        ".venv",
+						"path":        ".venv/bin/interp",
+						"requires":    []string{".venv/env.cfg"},
+						"platforms":   []string{"macos", "linux"},
+					},
+					map[string]any{
+						"id":          "project-venv-win",
+						"kind":        "projectFile",
+						"projectKind": "environment",
+						"home":        ".venv",
+						"path":        ".venv/Scripts/interp.exe",
+						"requires":    []string{".venv/env.cfg"},
+						"platforms":   []string{"windows"},
+					},
+					map[string]any{
+						"id":      "shell-cmd",
+						"kind":    "command",
+						"command": "nonexistent-synthetic-interp",
+					},
+				},
+				"version": map[string]any{
+					"arguments": []string{"--version"},
+					"pattern":   `SyntheticInterp (\d+(?:\.\d+)*)`,
+				},
+				"commands":    []string{"nonexistent-synthetic-interp"},
+				"exports":     []any{map[string]any{"name": "SYNTHETIC_ENV_HOME", "value": "${home}"}},
+				"pathPrepend": []string{"${home}/bin", "${home}/Scripts"},
+				"launch":      []string{"${executable}", "${arguments}"},
+			},
+		},
+	}
+	manifestBytes, err := json.Marshal(manifestDoc)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	service, err := pluginservice.Open(core.NewClient(), preferences, pluginsRoot)
+	if err != nil {
+		t.Fatal(err)
+	}
+	staging, err := pluginpkg.NewStaging(pluginsRoot)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(staging, pluginpkg.ManifestFile), manifestBytes, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := pluginpkg.Install(pluginsRoot, pluginID, "1.0.0", staging); err != nil {
+		t.Fatal(err)
+	}
+	if err := pluginstate.New(preferences).SetEnabled(pluginID, true); err != nil {
+		t.Fatal(err)
+	}
+
+	venvHome := filepath.Join(workspaceRoot, ".venv")
+	if err := os.MkdirAll(venvHome, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(venvHome, "env.cfg"), []byte("home = external\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	var venvExe string
+	if runtime.GOOS == "windows" {
+		t.Setenv(syntheticWorkbenchInterpMarkerEnv, markerPath)
+		scriptsDir := filepath.Join(venvHome, "Scripts")
+		if err := os.MkdirAll(scriptsDir, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		venvExe = filepath.Join(scriptsDir, "interp.exe")
+		copyTestBinary(t, venvExe)
+	} else {
+		baseBin := filepath.Join(externalBase, "bin")
+		if err := os.MkdirAll(baseBin, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		baseExe := filepath.Join(baseBin, "interp3.12")
+		script := fmt.Sprintf("#!/bin/sh\nprintf 'probed\\n' > %q\nprintf 'SyntheticInterp 3.12.4\\n'\n", markerPath)
+		if err := os.WriteFile(baseExe, []byte(script), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		venvBin := filepath.Join(venvHome, "bin")
+		if err := os.MkdirAll(venvBin, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		venvExe = filepath.Join(venvBin, "interp")
+		if err := os.Symlink(baseExe, venvExe); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	logs := &actionFieldLog{}
+	app := &App{kernel: &testKernel{Client: core.NewClient()}, store: preferences, plugins: service, logSink: logs}
+	app.toolchainRoot.Store(&workspaceRoot)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+	adapter := settingsToolchains{app: app}
+
+	// 1. Untrusted load & runtime resolution: NEVER executes the probe, returns projectCodeRequiresAction.
+	initial, err := adapter.Load(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if initial.ProjectCodeAllowed {
+		t.Fatal("fresh project was trusted without user action")
+	}
+	if _, err := app.resolveToolchainSelection(ctx, workspaceRoot, ".", toolID, ""); err == nil {
+		t.Fatal("untrusted runtime resolution succeeded unexpectedly")
+	} else {
+		var unavailable *toolchain.UnavailableError
+		if !errors.As(err, &unavailable) || unavailable.Code != "projectCodeRequiresAction" {
+			t.Fatalf("untrusted resolveToolchainSelection = %v, want projectCodeRequiresAction", err)
+		}
+	}
+	if _, statErr := os.Stat(markerPath); !errors.Is(statErr, os.ErrNotExist) {
+		t.Fatalf("untrusted load/resolve executed workspace probe: %v", statErr)
+	}
+
+	// 2. Grant trust: logs action, stores only in preferences.Dir()/toolchains/global.json, reloads & resolves.
+	trusted, err := adapter.SetWorkspaceTrust(ctx, initial, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !trusted.ProjectCodeAllowed || len(trusted.Tools) != 1 || trusted.Tools[0].Effective == nil {
+		t.Fatalf("trusted snapshot = %+v", trusted)
+	}
+	if filepath.Clean(trusted.Tools[0].AutomaticHome) != filepath.Clean(venvHome) ||
+		filepath.Clean(trusted.Tools[0].Effective.Executable) != filepath.Clean(venvExe) {
+		t.Fatalf("trusted snapshot tool = %+v", trusted.Tools[0])
+	}
+	if _, statErr := os.Stat(markerPath); statErr != nil {
+		t.Fatalf("trusted load did not probe .venv interpreter: %v", statErr)
+	}
+	if _, statErr := os.Stat(filepath.Join(workspaceRoot, ".lithe")); !errors.Is(statErr, os.ErrNotExist) {
+		t.Fatalf("workspace trust wrote inside workspace .lithe: %v", statErr)
+	}
+	if _, statErr := os.Stat(filepath.Join(preferences.Dir(), "toolchains", "global.json")); statErr != nil {
+		t.Fatalf("workspace trust missing from local store: %v", statErr)
+	}
+
+	// Build/Run/Debug shared resolver reads the same local trust and selects .venv.
+	selected, err := app.resolveToolchainSelection(ctx, workspaceRoot, ".", toolID, "")
+	if err != nil {
+		t.Fatalf("trusted resolveToolchainSelection failed: %v", err)
+	}
+	if filepath.Clean(selected.Executable) != filepath.Clean(venvExe) || selected.Version != "3.12.4" {
+		t.Fatalf("trusted selection = %+v, want %q 3.12.4", selected, venvExe)
+	}
+
+	// 3. Revoke trust: logs action, removes probes on reload, blocks runtime resolution again.
+	if err := os.Remove(markerPath); err != nil {
+		t.Fatal(err)
+	}
+	revoked, err := adapter.SetWorkspaceTrust(ctx, trusted, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if revoked.ProjectCodeAllowed || revoked.Tools[0].Effective != nil {
+		t.Fatalf("revoked snapshot = %+v", revoked)
+	}
+	if _, err := app.resolveToolchainSelection(ctx, workspaceRoot, ".", toolID, ""); err == nil {
+		t.Fatal("revoked workspace still resolved project environment")
+	}
+	if _, statErr := os.Stat(markerPath); !errors.Is(statErr, os.ErrNotExist) {
+		t.Fatalf("revoked workspace executed probe: %v", statErr)
+	}
+
+	logs.mu.Lock()
+	gotActions := append([]string(nil), logs.actions...)
+	gotFailed := append([]string(nil), logs.failed...)
+	logs.mu.Unlock()
+	wantActions := []string{"toolchain.workspaceTrust.grant", "toolchain.workspaceTrust.revoke"}
+	if len(gotActions) != len(wantActions) || gotActions[0] != wantActions[0] || gotActions[1] != wantActions[1] {
+		t.Fatalf("logged actions = %v, want %v", gotActions, wantActions)
+	}
+	if len(gotFailed) != 0 {
+		t.Fatalf("unexpected operation failures logged: %v", gotFailed)
 	}
 }

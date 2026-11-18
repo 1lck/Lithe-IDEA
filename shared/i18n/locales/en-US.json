@@ -11582,7 +11582,23 @@
     "desktop.runConfig.scriptOptionsHelpPowerShell": "Arguments placed after the script path and passed to the script, which reads them through $args or param(). Separate them with spaces; quote an argument that contains spaces.",
     "desktop.runConfig.scriptOptionsHelpBatch": "Arguments placed after the script path and passed to the script, which reads them as %1, %2… Separate them with spaces; quote an argument that contains spaces.",
     "desktop.runConfig.interpreterArgumentsHelp": "Options placed before the script path and handled by the interpreter itself, such as bash's -x, which prints each command as it runs. The script does not see them. Left empty, the automatic options shown in brackets are used.",
-    "desktop.runConfig.programArgumentsHelp": "Command-line arguments placed after the program path when it starts. Separate them with spaces; quote an argument that contains spaces."
+    "desktop.runConfig.programArgumentsHelp": "Command-line arguments placed after the program path when it starts. Separate them with spaces; quote an argument that contains spaces.",
+    "desktop.toolchains.trustProject": "Trust tool environments in this project",
+    "desktop.toolchains.trustProjectHelp": "Allows Lithe to probe versions of and run tool environments (such as virtual environments) and wrappers located inside this project folder. Trust applies only to this workspace on this machine, is saved in local application settings rather than .lithe/, and can be revoked at any time. Enable this only for projects from sources you trust; running processes use updated toolchains after restarting.",
+    "desktop.toolchains.trustStatusTrusted": "This project on this machine · Trusted",
+    "desktop.toolchains.trustStatusUntrusted": "This project on this machine · Not trusted",
+    "desktop.toolchains.projectTrustRequiredNotice": "Project tool environments were detected and will not be probed or run until this project is trusted.",
+    "desktop.toolchains.projectCandidateBlocked": "{path} · Requires trusting this project",
+    "desktop.toolchains.updatingTrust": "Updating project trust…",
+    "desktop.toolchains.reasonProjectTrustRequired": "Requires trusting this project",
+    "desktop.toolchains.reasonProbeFailed": "Version check failed",
+    "desktop.toolchains.reasonVersionUnsatisfied": "Does not meet minimum version",
+    "desktop.toolchains.reasonNotExecutable": "File is not executable",
+    "desktop.toolchains.reasonUnsafePath": "Unsafe or outside allowed root",
+    "desktop.toolchains.layerPinned": "Pinned",
+    "desktop.toolchains.layerProject": "Project",
+    "desktop.toolchains.layerGlobal": "Global",
+    "desktop.toolchains.layerAutomatic": "Automatic"
   },
   "overrides": {
     "windows": {

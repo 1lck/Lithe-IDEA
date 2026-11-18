@@ -27,6 +27,8 @@ native_path() {
     fi
 }
 
+# Lithe-core-rust main at e56dbb650 (#93): project tool environments use Core's discovery
+# plan, native path validation and machine-local workspace trust catalog (#2122).
 # Lithe-core-rust main at 661ef0f: #94, squash-merged into main on top of 8b91b32: a plugin's
 # buildSystems[].runConfigurationTypes declare run configuration types, which runConfig lists,
 # edits and saves (.lithe/run/plugin/<plugin>.toml) and build.runConfigurationPlan turns into a
@@ -243,7 +245,7 @@ PINNED_CORE_REPOSITORY="https://github.com/Lithe-IDEA/Lithe-core-rust.git"
 # the contract, plugin guides, reference and SDKs live only in shared/plugins; on top of #16 (reported Git queries folded in the console),
 # #15 (git.write cherryPick, revert and reset fields), #14 (word-level changed ranges of diff
 # rows), #13, #8, #7, #6 and #4.
-PINNED_CORE_REVISION="661ef0fdc3a421259fb2b2fab7f8a0540ac898b7"
+PINNED_CORE_REVISION="e56dbb65090a96cb24a53bbbbeffe424bed3ac1d"
 PROFILE="debug"
 while [[ $# -gt 0 ]]; do
     case "$1" in

@@ -215,3 +215,49 @@ func TestDebugReadsProgramFromActualPluginSettingSources(t *testing.T) {
 		})
 	}
 }
+
+func TestDebugRequiredDirectoriesCreateStateAndLogSlots(t *testing.T) {
+	h := debugHarness(t)
+	p := openDebugPanel(t, h, t.TempDir())
+	adapter := p.debug.adapters[0]
+	var manifest map[string]any
+	if err := json.Unmarshal(adapter.Manifest, &manifest); err != nil {
+		t.Fatal(err)
+	}
+	process := manifest["debugAdapters"].([]any)[0].(map[string]any)["launch"].(map[string]any)["process"].(map[string]any)
+	process["arguments"] = []any{"-test.run=^TestDebugAdapterRunner$", "--state=${stateDir}", "--workspace-state=${workspaceStateDir}", "--log-dir=${logDir}"}
+	var err error
+	adapter.Manifest, err = json.Marshal(manifest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(adapter.Directory, "plugin.json"), adapter.Manifest, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	logRoot := filepath.Join(t.TempDir(), "logs", "plugins", adapter.PluginID, "files")
+	h.app.logSink = &pluginFilesLog{directory: logRoot}
+	t.Cleanup(func() { h.app.logSink = nil })
+
+	stateRoot := filepath.Join(t.TempDir(), "state")
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	plan, err := h.app.prepareDebugLaunch(ctx, debugStart{adapter: adapter, request: "launch"}, stateRoot, p.root, "", 1, "unavailable")
+	if err != nil {
+		t.Fatalf("prepareDebugLaunch failed for RequiredDirectories slots: %v", err)
+	}
+	for _, wantDir := range []string{stateRoot, filepath.Join(stateRoot, "workspace"), logRoot} {
+		info, statErr := os.Stat(wantDir)
+		if statErr != nil || !info.IsDir() {
+			t.Fatalf("required directory %q not created: %v", wantDir, statErr)
+		}
+	}
+	expected := []string{
+		"-test.run=^TestDebugAdapterRunner$",
+		"--state=" + stateRoot,
+		"--workspace-state=" + filepath.Join(stateRoot, "workspace"),
+		"--log-dir=" + logRoot,
+	}
+	if !reflect.DeepEqual(plan.Arguments, expected) {
+		t.Fatalf("arguments = %v, want %v", plan.Arguments, expected)
+	}
+}

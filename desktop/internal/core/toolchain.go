@@ -128,17 +128,28 @@ type ToolchainExport struct {
 	Value string `json:"value"`
 }
 
+// ToolchainDiscoveryPlanProjectFile is one platform-applicable projectFile
+// candidate Core asks the host to observe along the directory ancestor chain.
+type ToolchainDiscoveryPlanProjectFile struct {
+	ID          string   `json:"id,omitempty"`
+	ProjectKind string   `json:"projectKind"`
+	Path        string   `json:"path"`
+	Home        string   `json:"home,omitempty"`
+	Requires    []string `json:"requires"`
+}
+
 // ToolchainDiscoveryPlanTool is the declared scan and provider surface of one tool.
 type ToolchainDiscoveryPlanTool struct {
-	Tool              string                      `json:"tool"`
-	PluginID          string                      `json:"pluginID"`
-	Scans             []ToolchainDiscoveryScan    `json:"scans"`
-	Providers         []string                    `json:"providers"`
-	HomeLayouts       []ToolchainHomeLayout       `json:"homeLayouts"`
-	ExecutableLayouts []ToolchainExecutableLayout `json:"executableLayouts"`
-	Version           ToolchainVersionRule        `json:"version"`
-	PathPrepend       []string                    `json:"pathPrepend"`
-	Environment       []ToolchainEnvironmentHome  `json:"environment"`
+	Tool              string                              `json:"tool"`
+	PluginID          string                              `json:"pluginID"`
+	Scans             []ToolchainDiscoveryScan            `json:"scans"`
+	Providers         []string                            `json:"providers"`
+	HomeLayouts       []ToolchainHomeLayout               `json:"homeLayouts"`
+	ExecutableLayouts []ToolchainExecutableLayout         `json:"executableLayouts"`
+	Version           ToolchainVersionRule                `json:"version"`
+	PathPrepend       []string                            `json:"pathPrepend"`
+	Environment       []ToolchainEnvironmentHome          `json:"environment"`
+	ProjectFiles      []ToolchainDiscoveryPlanProjectFile `json:"projectFiles"`
 }
 
 // ToolchainEnvironmentHome is one login-shell home variable a definition reads.
@@ -243,9 +254,22 @@ type ToolchainSkippedInstallation struct {
 	Reason     string `json:"reason"`
 }
 
+// ToolchainProjectCandidate is one declared project-local environment or wrapper
+// candidate and its resolution or pending-trust state.
+type ToolchainProjectCandidate struct {
+	CandidateID string  `json:"candidateID"`
+	ProjectKind string  `json:"projectKind"`
+	Path        string  `json:"path"`
+	Home        string  `json:"home,omitempty"`
+	Executable  string  `json:"executable,omitempty"`
+	Version     *string `json:"version,omitempty"`
+	Reason      string  `json:"reason,omitempty"`
+}
+
 // ToolchainCandidates is what a settings page shows for one tool.
 type ToolchainCandidates struct {
 	Tool          string                         `json:"tool"`
+	Project       []ToolchainProjectCandidate    `json:"project"`
 	Shell         []ToolchainShellCandidate      `json:"shell"`
 	Installations []ToolchainInstallation        `json:"installations"`
 	Skipped       []ToolchainSkippedInstallation `json:"skipped"`
@@ -336,13 +360,14 @@ type ToolchainResolutionTrace struct {
 
 // ToolchainResolution is the complete, deterministic resolution of one tool.
 type ToolchainResolution struct {
-	OperationID string                     `json:"operationID"`
-	Tool        string                     `json:"tool"`
-	Directory   string                     `json:"directory"`
-	Outcome     ToolchainOutcome           `json:"outcome"`
-	Trace       []ToolchainResolutionTrace `json:"trace"`
-	Unmet       []json.RawMessage          `json:"unmet"`
-	Conflicts   []json.RawMessage          `json:"conflicts"`
+	OperationID       string                      `json:"operationID"`
+	Tool              string                      `json:"tool"`
+	Directory         string                      `json:"directory"`
+	Outcome           ToolchainOutcome            `json:"outcome"`
+	ProjectCandidates []ToolchainProjectCandidate `json:"projectCandidates"`
+	Trace             []ToolchainResolutionTrace  `json:"trace"`
+	Unmet             []json.RawMessage           `json:"unmet"`
+	Conflicts         []json.RawMessage           `json:"conflicts"`
 }
 
 // ToolchainPin is one saved directory installation reference.

@@ -11582,7 +11582,23 @@
     "desktop.runConfig.scriptOptionsHelpPowerShell": "写在脚本路径后面、传给脚本的参数，脚本里用 $args 或 param() 读取。多个参数用空格分隔，含空格的参数用引号括起来。",
     "desktop.runConfig.scriptOptionsHelpBatch": "写在脚本路径后面、传给脚本的参数，脚本里用 %1、%2… 读取。多个参数用空格分隔，含空格的参数用引号括起来。",
     "desktop.runConfig.interpreterArgumentsHelp": "写在脚本路径前面、交给解释器本身的选项，例如 bash 的 -x（逐行打印执行的命令）；脚本读不到这些值。留空时使用括号里显示的自动选项。",
-    "desktop.runConfig.programArgumentsHelp": "启动程序时附在程序路径后面的命令行参数。多个参数用空格分隔，含空格的参数用引号括起来。"
+    "desktop.runConfig.programArgumentsHelp": "启动程序时附在程序路径后面的命令行参数。多个参数用空格分隔，含空格的参数用引号括起来。",
+    "desktop.toolchains.trustProject": "信任当前项目中的工具环境",
+    "desktop.toolchains.trustProjectHelp": "允许 Lithe 对当前项目目录内的工具环境（如虚拟环境）和包装器执行版本探测与运行。此授权仅在本机对当前工作区生效，保存在应用本机设置中而不会写入项目 .lithe/，且可随时撤销。请仅对来源可信的项目开启；已运行的进程需重启后使用更新后的工具链。",
+    "desktop.toolchains.trustStatusTrusted": "本机此项目 · 已信任",
+    "desktop.toolchains.trustStatusUntrusted": "本机此项目 · 未信任",
+    "desktop.toolchains.projectTrustRequiredNotice": "检测到项目内的工具环境；在开启项目信任前不会探测版本或运行。",
+    "desktop.toolchains.projectCandidateBlocked": "{path} · 需信任当前项目后探测与使用",
+    "desktop.toolchains.updatingTrust": "正在更新项目信任状态…",
+    "desktop.toolchains.reasonProjectTrustRequired": "需要信任当前项目",
+    "desktop.toolchains.reasonProbeFailed": "版本检测失败",
+    "desktop.toolchains.reasonVersionUnsatisfied": "不满足最低版本要求",
+    "desktop.toolchains.reasonNotExecutable": "文件不可执行",
+    "desktop.toolchains.reasonUnsafePath": "路径不安全或超出允许目录",
+    "desktop.toolchains.layerPinned": "已固定",
+    "desktop.toolchains.layerProject": "项目环境",
+    "desktop.toolchains.layerGlobal": "全局默认",
+    "desktop.toolchains.layerAutomatic": "自动发现"
   },
   "overrides": {
     "macos": {

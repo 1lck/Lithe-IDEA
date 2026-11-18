@@ -180,6 +180,66 @@ func (w *workspace) observe(name string) core.ToolchainFileFact {
 	return fact
 }
 
+// observeChain observes base, every path segment from base down to target, and
+// any resolved symbolic-link target so Core can verify both parent containment
+// and target executable identity.
+func (w *workspace) observeChain(base, target string) core.ToolchainFileFact {
+	if target == "" {
+		return core.ToolchainFileFact{}
+	}
+	observeOne := func(name string) core.ToolchainFileFact {
+		fact := w.observe(name)
+		if fact.Kind != "missing" && fact.CanonicalPath != "" && fact.CanonicalPath != fact.Path {
+			w.observe(fact.CanonicalPath)
+		}
+		return fact
+	}
+	if base == "" {
+		return observeOne(target)
+	}
+	cleanBase := filepath.Clean(base)
+	cleanTarget := filepath.Clean(target)
+	observeOne(cleanBase)
+	relative, err := filepath.Rel(cleanBase, cleanTarget)
+	if err != nil || relative == "." {
+		return observeOne(cleanTarget)
+	}
+	if relative == ".." || strings.HasPrefix(relative, ".."+string(filepath.Separator)) {
+		return observeOne(cleanTarget)
+	}
+	current := cleanBase
+	var last core.ToolchainFileFact
+	for _, part := range strings.Split(relative, string(filepath.Separator)) {
+		if part == "" || part == "." {
+			continue
+		}
+		current = filepath.Join(current, part)
+		last = observeOne(current)
+	}
+	return last
+}
+
+// isWorkspaceCode reports whether name or its resolved target lies inside the
+// opened workspace root. Any resolution failure fails closed as workspace code.
+func (w *workspace) isWorkspaceCode(name string) bool {
+	if w.root == "" || name == "" {
+		return false
+	}
+	absolute, err := filepath.Abs(name)
+	if err != nil {
+		return true
+	}
+	cleaned := filepath.Clean(absolute)
+	if w.insideRoot(cleaned) {
+		return true
+	}
+	canonical, err := canonicalPath(cleaned)
+	if err != nil {
+		return true
+	}
+	return w.insideRoot(canonical)
+}
+
 // all returns the facts in a stable order, which keeps Core's input comparable
 // between two loads that observed the same native state.
 func (w *workspace) all() []core.ToolchainFileFact {
@@ -371,8 +431,9 @@ func prependPath(home, template string) (string, bool) {
 
 // probeAll runs the definition's version probe for every executable Core may
 // select. Probes are bounded in count, concurrency and time, and every process
-// is owned by this call.
-func (w *workspace) probeAll(ctx context.Context, definition core.ToolchainToolDefinition, executables []string) []core.ToolchainProbe {
+// is owned by this call. Workspace executables are never probed unless
+// projectCodeAllowed is true.
+func (w *workspace) probeAll(ctx context.Context, definition core.ToolchainToolDefinition, executables []string, projectCodeAllowed bool) []core.ToolchainProbe {
 	// Core returns native absolute paths with portable separators. Pins and
 	// filesystem discovery can name the same Windows file with backslashes or
 	// different case. Probe each native identity once; Core rejects duplicates.
@@ -380,6 +441,9 @@ func (w *workspace) probeAll(ctx context.Context, definition core.ToolchainToolD
 	paths := make([]string, 0, len(executables))
 	for _, executable := range uniqueSorted(executables) {
 		cleaned := filepath.Clean(executable)
+		if !projectCodeAllowed && w.isWorkspaceCode(cleaned) {
+			continue
+		}
 		key := cleaned
 		if !w.caseSensitive {
 			key = strings.ToLower(key)

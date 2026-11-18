@@ -27,6 +27,11 @@ type toolchainState struct {
 	inspectSnapshot          toolchain.Snapshot
 	inspectTool, inspectHome string
 	inspecting               bool
+	trustEffect              *ui.EffectState[toolchain.Snapshot, int]
+	trustKey                 int
+	trustSnapshot            toolchain.Snapshot
+	trustWanted              bool
+	trusting                 bool
 	inputs                   map[string]*string
 	custom                   map[string]core.ToolchainPin
 	scope, loadScope         string
@@ -81,16 +86,34 @@ func newToolchainState(loader ToolchainLoader) *toolchainState {
 			return inspector.Inspect(ctx, t.inspectSnapshot, t.inspectTool, t.inspectHome)
 		})
 	}
+	if truster, ok := loader.(ToolchainTrustLoader); ok {
+		t.trustEffect = ui.NewEffect[toolchain.Snapshot, int](func(ctx context.Context) (toolchain.Snapshot, error) {
+			return truster.SetWorkspaceTrust(ctx, t.trustSnapshot, t.trustWanted)
+		})
+	}
 	return t
 }
 
+func (t *toolchainState) busy() bool {
+	return t.loading || t.saving || t.inspecting || t.trusting
+}
+
 func (t *toolchainState) beginInspect(tool, home string) {
-	if t.inspectEffect == nil || t.loading || t.saving || t.inspecting || !t.loaded || home == "" {
+	if t.inspectEffect == nil || t.busy() || !t.loaded || home == "" {
 		return
 	}
 	t.inspectSnapshot, t.inspectTool, t.inspectHome = t.snapshot, tool, home
 	t.inspectKey++
 	t.inspecting, t.saved, t.failed = true, false, nil
+}
+
+func (t *toolchainState) beginTrust(trusted bool) {
+	if t.trustEffect == nil || t.busy() || !t.loaded || t.snapshot.Global || t.snapshot.Root == "" {
+		return
+	}
+	t.trustSnapshot, t.trustWanted = t.snapshot, trusted
+	t.trustKey++
+	t.trusting, t.saved, t.failed = true, false, nil
 }
 
 func toolchainFailureMessage(language i18n.Language, err error) string {
@@ -114,7 +137,7 @@ func toolchainFailureMessage(language i18n.Language, err error) string {
 
 // beginLoad reads the project's toolchains off the window thread.
 func (t *toolchainState) beginLoad() {
-	if t.loader == nil || t.loading || t.saving || t.inspecting {
+	if t.loader == nil || t.busy() {
 		return
 	}
 	t.loadScope = t.scope
@@ -126,7 +149,7 @@ func (t *toolchainState) beginLoad() {
 // beginSave writes the draft's changed pins. Every edit goes through the same
 // Core-validated document merge; a conflict keeps the draft.
 func (t *toolchainState) beginSave() {
-	if t.loader == nil || !t.loaded || t.loading || t.saving || t.inspecting || !t.hasDraft() {
+	if t.loader == nil || !t.loaded || t.busy() || !t.hasDraft() {
 		return
 	}
 	edits := t.edits()
@@ -156,6 +179,11 @@ func (t *toolchainState) take() {
 			if err == nil && selection.Home != nil {
 				t.acceptInspection(t.inspectTool, selection)
 			}
+		}
+	}
+	if t.trustEffect != nil {
+		if snapshot, err, ok := t.trustEffect.Take(); ok {
+			t.finishTrust(snapshot, err)
 		}
 	}
 }
@@ -207,6 +235,39 @@ func (t *toolchainState) finish(snapshot toolchain.Snapshot, err error, saved bo
 	t.apply(snapshot, saved)
 }
 
+func (t *toolchainState) finishTrust(snapshot toolchain.Snapshot, err error) {
+	t.trusting = false
+	if err != nil {
+		t.failed = err
+		if errors.Is(err, toolchain.ErrPinCommitted) {
+			t.loaded = false
+		}
+		t.saved = false
+		return
+	}
+	dirtyDrafts := make(map[string]string)
+	for _, tool := range t.snapshot.Tools {
+		current := ""
+		if tool.Pin != nil {
+			current = tool.Pin.Home
+		}
+		if wanted, ok := t.draft[tool.ID]; ok && wanted != current {
+			dirtyDrafts[tool.ID] = wanted
+		}
+	}
+	savedCustom := make(map[string]core.ToolchainPin, len(t.custom))
+	for id, pin := range t.custom {
+		savedCustom[id] = pin
+	}
+	t.apply(snapshot, false)
+	for id, pin := range savedCustom {
+		t.custom[id] = pin
+	}
+	for id, wanted := range dirtyDrafts {
+		t.draft[id] = wanted
+	}
+}
+
 // declare keeps the requests that are out alive. The window declares it in every paint, so
 // leaving the Build page does not cancel a save that is writing the pins.
 func (t *toolchainState) declare(c ui.C) {
@@ -221,6 +282,9 @@ func (t *toolchainState) declare(c ui.C) {
 	}
 	if t.inspectKey != 0 {
 		ui.Effect(c, t.inspectEffect, t.inspectKey)
+	}
+	if t.trustKey != 0 && t.trustEffect != nil {
+		ui.Effect(c, t.trustEffect, t.trustKey)
 	}
 }
 
@@ -331,7 +395,7 @@ func (w *window) toolchainsPage(c ui.C) {
 // toolchainCards are the Build page's cards of the tools the installed plugins resolve.
 func (w *window) toolchainCards(c ui.C, language i18n.Language) {
 	t := w.toolchains
-	if !t.loaded && !t.loading && !t.saving && t.failed == nil {
+	if !t.loaded && !t.busy() && t.failed == nil {
 		t.beginLoad()
 	}
 	w.card(c, i18n.Shared(language, "desktop.toolchains.title"), i18n.Shared(language, "desktop.toolchains.description"), func() {
@@ -339,7 +403,7 @@ func (w *window) toolchainCards(c ui.C, language i18n.Language) {
 			if _, ok := t.loader.(ToolchainScopedLoader); ok {
 				previous := t.scope
 				ui.Row(c.Part("scope")).FillWidth().Gap(16).Children(func() {
-					disabled := t.loading || t.saving || t.inspecting || t.hasDraft()
+					disabled := t.busy() || t.hasDraft()
 					w.radio(c.Part("global"), &t.scope, "global", i18n.Shared(language, "desktop.toolchains.global"), disabled)
 					w.radio(c.Part("project"), &t.scope, "project", i18n.Shared(language, "desktop.toolchains.project"), disabled)
 				})
@@ -352,21 +416,44 @@ func (w *window) toolchainCards(c ui.C, language i18n.Language) {
 				help = i18n.Shared(language, "desktop.toolchains.globalHelp")
 			}
 			ui.Wrap(c, help).FontSize(12).Color(w.pal.muted)
+			if !t.snapshot.Global && t.snapshot.Root != "" && t.loaded && t.trustEffect != nil {
+				trusted := t.snapshot.ProjectCodeAllowed
+				if t.trusting {
+					trusted = t.trustWanted
+				}
+				ui.Row(c.Part("trust")).FillWidth().Height(28).Items(ui.Center).Gap(6).Children(func() {
+					if ui.Switch(c.Part("switch"), &trusted, i18n.Shared(language, "desktop.toolchains.trustProject")).Disabled(t.busy()).Changed() {
+						t.beginTrust(trusted)
+					}
+					w.infoButton(c.Part("help"), i18n.Shared(language, "desktop.toolchains.trustProjectHelp"))
+					ui.Spacer(c)
+					statusText := i18n.Shared(language, "desktop.toolchains.trustStatusUntrusted")
+					if t.snapshot.ProjectCodeAllowed {
+						statusText = i18n.Shared(language, "desktop.toolchains.trustStatusTrusted")
+					}
+					ui.Text(c, statusText).FontSize(11).Color(w.pal.muted).Shrink(1).Ellipsis()
+				})
+				if !t.snapshot.ProjectCodeAllowed && snapshotRequiresProjectTrust(t.snapshot) {
+					ui.Wrap(c, i18n.Shared(language, "desktop.toolchains.projectTrustRequiredNotice")).FontSize(12).Color(w.pal.warning)
+				}
+			}
 			ui.Row(c).FillWidth().Gap(8).Items(ui.Center).Children(func() {
-				if ui.Button(c, i18n.Shared(language, "desktop.toolchains.reload")).Outline().Disabled(t.loading || t.saving || t.inspecting).Clicked() {
+				if ui.Button(c, i18n.Shared(language, "desktop.toolchains.reload")).Outline().Disabled(t.busy()).Clicked() {
 					t.beginLoad()
 				}
-				if ui.Button(c, i18n.Shared(language, "desktop.toolchains.reset")).Outline().Disabled(t.loading || t.saving || t.inspecting).Clicked() {
+				if ui.Button(c, i18n.Shared(language, "desktop.toolchains.reset")).Outline().Disabled(t.busy()).Clicked() {
 					t.resetDrafts()
 				}
 				ui.Spacer(c)
-				if ui.Button(c, i18n.Shared(language, "desktop.toolchains.save")).Disabled(!t.loaded || !t.hasDraft() || t.saving || t.loading || t.inspecting).Clicked() {
+				if ui.Button(c, i18n.Shared(language, "desktop.toolchains.save")).Disabled(!t.loaded || !t.hasDraft() || t.busy()).Clicked() {
 					t.beginSave()
 				}
 			})
 			switch {
 			case t.loading || t.inspecting:
 				ui.Text(c, i18n.Shared(language, "desktop.toolchains.loading")).FontSize(12).Color(w.pal.muted)
+			case t.trusting:
+				ui.Text(c, i18n.Shared(language, "desktop.toolchains.updatingTrust")).FontSize(12).Color(w.pal.muted)
 			case t.saving:
 				ui.Text(c, i18n.Shared(language, "desktop.toolchains.saving")).FontSize(12).Color(w.pal.muted)
 			case t.failed != nil:
@@ -397,7 +484,7 @@ func (w *window) toolchainCards(c ui.C, language i18n.Language) {
 
 func (w *window) toolchainTool(c ui.C, language i18n.Language, tool toolchain.Tool) {
 	t := w.toolchains
-	busy := t.loading || t.saving || t.inspecting
+	busy := t.busy()
 	ui.Column(c).FillWidth().Gap(6).Children(func() {
 		ui.Text(c, tool.PluginID).FontSize(11).Color(w.pal.muted)
 		switch {
@@ -407,12 +494,16 @@ func (w *window) toolchainTool(c ui.C, language i18n.Language, tool toolchain.To
 				value += " (" + tool.Effective.Version + ")"
 			}
 			if tool.Effective.Layer != "" {
-				value += " · " + tool.Effective.Layer
+				value += " · " + toolchainLayerLabel(language, tool.Effective.Layer)
 			}
 			ui.Text(c, i18n.SharedFormat(language, "desktop.toolchains.effective", map[string]string{"value": value})).FontSize(12).Color(w.pal.text)
 		default:
-			reason := toolchainReason(tool)
-			ui.Text(c, i18n.SharedFormat(language, "desktop.toolchains.unavailable", map[string]string{"reason": reason})).FontSize(12).Color(w.pal.danger)
+			code := toolchainReason(tool)
+			color := w.pal.danger
+			if code == "projectCodeRequiresAction" {
+				color = w.pal.warning
+			}
+			ui.Text(c, i18n.SharedFormat(language, "desktop.toolchains.unavailable", map[string]string{"reason": toolchainReasonLabel(language, code)})).FontSize(12).Color(color)
 		}
 		// One list holds every directory the tool can use: the automatic choice, which shows
 		// what discovery picks, each installation found, the saved pin, a checked directory,
@@ -427,7 +518,11 @@ func (w *window) toolchainTool(c ui.C, language i18n.Language, tool toolchain.To
 		}
 		automatic := tool.AutomaticHome
 		if automatic == "" {
-			automatic = i18n.Shared(language, "desktop.toolchains.noInstallations")
+			if toolRequiresProjectTrust(tool) {
+				automatic = i18n.Shared(language, "desktop.toolchains.reasonProjectTrustRequired")
+			} else {
+				automatic = i18n.Shared(language, "desktop.toolchains.noInstallations")
+			}
 		}
 		add("", i18n.SharedFormat(language, "desktop.toolchains.automatic", map[string]string{"value": automatic}))
 		// An installation without a version cannot be pinned, so it is not a choice; it is
@@ -499,6 +594,25 @@ func (w *window) toolchainTool(c ui.C, language i18n.Language, tool toolchain.To
 				}
 			})
 		}
+		for _, project := range tool.Project {
+			display := project.Home
+			if display == "" {
+				display = project.Path
+			}
+			if project.Reason == "projectCodeRequiresAction" {
+				ui.Text(c, i18n.SharedFormat(language, "desktop.toolchains.projectCandidateBlocked", map[string]string{"path": display})).FontSize(11).Color(w.pal.warning)
+				continue
+			}
+			version := ""
+			if project.Version != nil {
+				version = *project.Version
+			} else if project.Reason != "" {
+				version = toolchainReasonLabel(language, project.Reason)
+			}
+			ui.Text(c, i18n.SharedFormat(language, "desktop.toolchains.installation", map[string]string{
+				"home": display, "version": version, "provider": "host:project",
+			})).FontSize(11).Color(w.pal.muted)
+		}
 		for _, shell := range tool.Shell {
 			// A variable's name, or the command found on the PATH: both are the user's own words.
 			source := shell.Variable
@@ -546,7 +660,69 @@ func toolchainReason(tool toolchain.Tool) string {
 			return trace.Reason.Code
 		}
 	}
+	for _, project := range tool.Project {
+		if project.Reason != "" {
+			return project.Reason
+		}
+	}
 	return "notFound"
+}
+
+func toolRequiresProjectTrust(tool toolchain.Tool) bool {
+	for _, project := range tool.Project {
+		if project.Reason == "projectCodeRequiresAction" {
+			return true
+		}
+	}
+	for _, trace := range tool.Trace {
+		if trace.Reason != nil && trace.Reason.Code == "projectCodeRequiresAction" {
+			return true
+		}
+	}
+	return false
+}
+
+func snapshotRequiresProjectTrust(snapshot toolchain.Snapshot) bool {
+	for _, tool := range snapshot.Tools {
+		if toolRequiresProjectTrust(tool) {
+			return true
+		}
+	}
+	return false
+}
+
+func toolchainReasonLabel(language i18n.Language, code string) string {
+	switch code {
+	case "projectCodeRequiresAction":
+		return i18n.Shared(language, "desktop.toolchains.reasonProjectTrustRequired")
+	case "notFound":
+		return i18n.Shared(language, "desktop.toolchains.noInstallations")
+	case "probeFailed":
+		return i18n.Shared(language, "desktop.toolchains.reasonProbeFailed")
+	case "versionUnsatisfied":
+		return i18n.Shared(language, "desktop.toolchains.reasonVersionUnsatisfied")
+	case "notExecutable":
+		return i18n.Shared(language, "desktop.toolchains.reasonNotExecutable")
+	case "unsafePath":
+		return i18n.Shared(language, "desktop.toolchains.reasonUnsafePath")
+	default:
+		return code
+	}
+}
+
+func toolchainLayerLabel(language i18n.Language, layer string) string {
+	switch layer {
+	case "pinned":
+		return i18n.Shared(language, "desktop.toolchains.layerPinned")
+	case "project":
+		return i18n.Shared(language, "desktop.toolchains.layerProject")
+	case "global":
+		return i18n.Shared(language, "desktop.toolchains.layerGlobal")
+	case "automatic":
+		return i18n.Shared(language, "desktop.toolchains.layerAutomatic")
+	default:
+		return layer
+	}
 }
 
 // pick is the bound value of one tool's radio group. It lives as long as the window, so the

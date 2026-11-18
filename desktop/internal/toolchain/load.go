@@ -48,20 +48,21 @@ func RegistryInput(manifests []json.RawMessage) (json.RawMessage, error) {
 // probes, Core's candidate report and the effective layer for every definition.
 // It writes nothing.
 func Load(ctx context.Context, kernel Kernel, root, directory string, manifests []json.RawMessage, options Options) (Snapshot, error) {
-	catalog, catalogErr := captureCatalog(ctx, kernel, options.GlobalRoot, options.Platform)
-	if catalogErr != nil {
-		return Snapshot{}, catalogErr
-	}
-	if catalog != nil {
-		options.catalog = &catalog.state.Document
-	}
-
 	if kernel == nil {
 		return Snapshot{}, fmt.Errorf("toolchain: no Core client")
 	}
 	workspace, err := newWorkspace(root, options)
 	if err != nil {
 		return Snapshot{}, err
+	}
+	catalog, catalogErr := captureCatalog(ctx, kernel, options.GlobalRoot, workspace.root, workspace.platform)
+	if catalogErr != nil {
+		return Snapshot{}, catalogErr
+	}
+	projectCodeAllowed := !options.Global && options.ProjectCodeAllowed
+	if catalog != nil {
+		options.catalog = &catalog.state.Document
+		projectCodeAllowed = !options.Global && catalog.state.ProjectCodeAllowed
 	}
 	var rootIdentity os.FileInfo
 	if !options.Global {
@@ -94,13 +95,15 @@ func Load(ctx context.Context, kernel Kernel, root, directory string, manifests 
 		return Snapshot{}, err
 	}
 	snapshot := Snapshot{
-		Global: options.Global, catalog: catalog,
-		Root:         workspace.root,
-		rootIdentity: rootIdentity,
-		Directory:    directory,
-		Conflicts:    registry.Conflicts,
-		Baseline:     captured.file.Bytes(),
-		source:       captured,
+		Global:             options.Global,
+		ProjectCodeAllowed: projectCodeAllowed,
+		catalog:            catalog,
+		Root:               workspace.root,
+		rootIdentity:       rootIdentity,
+		Directory:          directory,
+		Conflicts:          registry.Conflicts,
+		Baseline:           captured.file.Bytes(),
+		source:             captured,
 	}
 	sequence := loadSequence.Add(1)
 	for index, planned := range plan.Tools {
@@ -111,12 +114,12 @@ func Load(ctx context.Context, kernel Kernel, root, directory string, manifests 
 		if !ok {
 			continue
 		}
-		prepared, pin, source, err := prepareTool(ctx, kernel, workspace, registryRequest, captured.document, planned, definition, directory, options, nil)
+		prepared, pin, source, err := prepareTool(ctx, kernel, workspace, registryRequest, captured.document, planned, definition, directory, plan.Limits.Ancestors, projectCodeAllowed, options, nil)
 		if err != nil {
 			return Snapshot{}, err
 		}
-		resolution, err := resolveTool(ctx, kernel, workspace, registryRequest, prepared, captured.document, directory,
-			options.MinimumVersion, fmt.Sprintf("settings-%d-%d", sequence, index))
+		resolution, err := resolveTool(ctx, kernel, workspace, registryRequest, &prepared, captured.document, directory,
+			options.MinimumVersion, projectCodeAllowed, fmt.Sprintf("settings-%d-%d", sequence, index))
 		if err != nil {
 			return Snapshot{}, err
 		}
@@ -151,7 +154,7 @@ func Load(ctx context.Context, kernel Kernel, root, directory string, manifests 
 		if options.Global && prepared.globalDefault != nil {
 			automaticPrepared := prepared
 			automaticPrepared.globalDefault = nil
-			automatic, err = resolveTool(ctx, kernel, workspace, registryRequest, automaticPrepared, captured.document, directory, options.MinimumVersion, fmt.Sprintf("settings-auto-global-%d-%d", sequence, index))
+			automatic, err = resolveTool(ctx, kernel, workspace, registryRequest, &automaticPrepared, captured.document, directory, options.MinimumVersion, projectCodeAllowed, fmt.Sprintf("settings-auto-global-%d-%d", sequence, index))
 			if err != nil {
 				return Snapshot{}, err
 			}
@@ -161,12 +164,20 @@ func Load(ctx context.Context, kernel Kernel, root, directory string, manifests 
 			if err != nil {
 				return Snapshot{}, err
 			}
-			automatic, err = resolveTool(ctx, kernel, workspace, registryRequest, prepared, document, directory,
-				options.MinimumVersion, fmt.Sprintf("settings-auto-%d-%d", sequence, index))
+			automatic, err = resolveTool(ctx, kernel, workspace, registryRequest, &prepared, document, directory,
+				options.MinimumVersion, projectCodeAllowed, fmt.Sprintf("settings-auto-%d-%d", sequence, index))
 			if err != nil {
 				return Snapshot{}, err
 			}
 		}
+		projectCandidates := automatic.ProjectCandidates
+		if len(projectCandidates) == 0 {
+			projectCandidates = resolution.ProjectCandidates
+		}
+		if len(projectCandidates) == 0 {
+			projectCandidates = prepared.candidates.Project
+		}
+		tool.Project = projectCandidates
 		if automatic.Outcome.Kind == "resolved" && automatic.Outcome.Selection != nil {
 			tool.AutomaticHome = automatic.Outcome.Selection.Executable
 			if automatic.Outcome.Selection.Home != nil {
@@ -185,20 +196,21 @@ func Load(ctx context.Context, kernel Kernel, root, directory string, manifests 
 // facts and Core entry points as the settings page, so a displayed value and a
 // launched executable cannot come from two rule sets.
 func Resolve(ctx context.Context, kernel Kernel, root, directory, tool, minimumVersion string, fixed *Fixed, manifests []json.RawMessage, options Options) (Selection, error) {
-	catalog, catalogErr := captureCatalog(ctx, kernel, options.GlobalRoot, options.Platform)
-	if catalogErr != nil {
-		return Selection{}, catalogErr
-	}
-	if catalog != nil {
-		options.catalog = &catalog.state.Document
-	}
-
 	if kernel == nil {
 		return Selection{}, fmt.Errorf("toolchain: no Core client")
 	}
 	workspace, err := newWorkspace(root, options)
 	if err != nil {
 		return Selection{}, err
+	}
+	catalog, catalogErr := captureCatalog(ctx, kernel, options.GlobalRoot, workspace.root, workspace.platform)
+	if catalogErr != nil {
+		return Selection{}, catalogErr
+	}
+	projectCodeAllowed := !options.Global && options.ProjectCodeAllowed
+	if catalog != nil {
+		options.catalog = &catalog.state.Document
+		projectCodeAllowed = !options.Global && catalog.state.ProjectCodeAllowed
 	}
 	registryRequest, err := RegistryInput(manifests)
 	if err != nil {
@@ -231,11 +243,11 @@ func Resolve(ctx context.Context, kernel Kernel, root, directory, tool, minimumV
 		if !ok {
 			continue
 		}
-		prepared, _, _, err := prepareTool(ctx, kernel, workspace, registryRequest, captured.document, planned, definition, directory, options, fixed)
+		prepared, _, _, err := prepareTool(ctx, kernel, workspace, registryRequest, captured.document, planned, definition, directory, plan.Limits.Ancestors, projectCodeAllowed, options, fixed)
 		if err != nil {
 			return Selection{}, err
 		}
-		resolution, err := resolveTool(ctx, kernel, workspace, registryRequest, prepared, captured.document, directory, minimumVersion,
+		resolution, err := resolveTool(ctx, kernel, workspace, registryRequest, &prepared, captured.document, directory, minimumVersion, projectCodeAllowed,
 			fmt.Sprintf("run-%d", loadSequence.Add(1)))
 		if err != nil {
 			return Selection{}, err
@@ -266,8 +278,8 @@ type preparedTool struct {
 
 // prepareTool performs the declared native reads for one tool. Core only sees
 // facts this function observed; a probe is run only for executables Core would
-// otherwise consider.
-func prepareTool(ctx context.Context, kernel Kernel, workspace *workspace, registry json.RawMessage, document json.RawMessage, planned core.ToolchainDiscoveryPlanTool, definition core.ToolchainToolDefinition, directory string, options Options, fixed *Fixed) (preparedTool, *core.ToolchainPin, string, error) {
+// otherwise consider, and never for workspace executables unless projectCodeAllowed is true.
+func prepareTool(ctx context.Context, kernel Kernel, workspace *workspace, registry json.RawMessage, document json.RawMessage, planned core.ToolchainDiscoveryPlanTool, definition core.ToolchainToolDefinition, directory string, maxAncestors int, projectCodeAllowed bool, options Options, fixed *Fixed) (preparedTool, *core.ToolchainPin, string, error) {
 	prepared := preparedTool{definition: definition, fixed: fixed}
 	if options.catalog != nil {
 		entry := options.catalog.Tools[planned.Tool]
@@ -322,6 +334,9 @@ func prepareTool(ctx context.Context, kernel Kernel, workspace *workspace, regis
 		}
 	}
 	workspace.observe(workspace.root)
+	if !options.Global && workspace.root != "" {
+		observeProjectFiles(workspace, directory, maxAncestors, planned)
+	}
 	prepared.commandHomes = commandHomes(workspace, definition)
 	for _, home := range uniqueSorted(evidenceHomes) {
 		workspace.observe(home)
@@ -351,8 +366,11 @@ func prepareTool(ctx context.Context, kernel Kernel, workspace *workspace, regis
 			}
 		}
 	}
-	if prepared.fixed != nil {
-		workspace.observe(prepared.fixed.Executable)
+	if prepared.fixed != nil && prepared.fixed.Executable != "" {
+		fact := workspace.observe(prepared.fixed.Executable)
+		if fact.Kind != "missing" && fact.CanonicalPath != "" && fact.CanonicalPath != fact.Path {
+			workspace.observe(fact.CanonicalPath)
+		}
 	}
 	prepared.facts = workspace.all()
 
@@ -368,12 +386,20 @@ func prepareTool(ctx context.Context, kernel Kernel, workspace *workspace, regis
 		Environment:         prepared.environment,
 		CommandHomes:        prepared.commandHomes,
 		Fixed:               prepared.fixed,
+		ProjectCodeAllowed:  projectCodeAllowed,
 	}
 	candidates, err := kernel.ToolchainCandidatesOf(ctx, request)
 	if err != nil {
 		return prepared, nil, "", err
 	}
 	var probeTargets []string
+	if projectCodeAllowed {
+		for _, row := range candidates.Project {
+			if row.Executable != "" {
+				probeTargets = append(probeTargets, row.Executable)
+			}
+		}
+	}
 	for _, row := range candidates.Shell {
 		if row.Executable != "" {
 			probeTargets = append(probeTargets, row.Executable)
@@ -399,7 +425,7 @@ func prepareTool(ctx context.Context, kernel Kernel, workspace *workspace, regis
 			probeTargets = append(probeTargets, executable)
 		}
 	}
-	prepared.probes = workspace.probeAll(ctx, definition, probeTargets)
+	prepared.probes = workspace.probeAll(ctx, definition, probeTargets, projectCodeAllowed)
 	if ctx.Err() != nil {
 		return prepared, nil, "", ctx.Err()
 	}
@@ -417,9 +443,12 @@ func prepareTool(ctx context.Context, kernel Kernel, workspace *workspace, regis
 }
 
 // resolveTool runs Core's four-layer resolution over the prepared evidence.
-func resolveTool(ctx context.Context, kernel Kernel, workspace *workspace, registry json.RawMessage, prepared preparedTool, document json.RawMessage, directory, minimumVersion, operationID string) (core.ToolchainResolution, error) {
+// When projectCodeAllowed is true and a subdirectory project candidate was not
+// yet probed by the root candidates pass, it runs one bounded follow-up probe.
+func resolveTool(ctx context.Context, kernel Kernel, workspace *workspace, registry json.RawMessage, prepared *preparedTool, document json.RawMessage, directory, minimumVersion string, projectCodeAllowed bool, operationID string) (core.ToolchainResolution, error) {
 	request := core.ToolchainResolveRequest{
-		Global: workspace.root == "", GlobalDefault: prepared.globalDefault,
+		Global:              workspace.root == "",
+		GlobalDefault:       prepared.globalDefault,
 		Registry:            registry,
 		Tool:                prepared.definition.ID,
 		Directory:           directory,
@@ -433,10 +462,126 @@ func resolveTool(ctx context.Context, kernel Kernel, workspace *workspace, regis
 		SystemInstallations: prepared.installations,
 		Environment:         prepared.environment,
 		CommandHomes:        prepared.commandHomes,
+		ProjectCodeAllowed:  projectCodeAllowed,
 		Generation:          loadSequence.Add(1),
 		Fixed:               prepared.fixed,
 	}
+	resolution, err := kernel.ResolveToolchain(ctx, request)
+	if err != nil || !projectCodeAllowed {
+		return resolution, err
+	}
+	probed := make(map[string]bool, len(prepared.probes))
+	probeKey := func(name string) string {
+		cleaned := filepath.Clean(name)
+		if !workspace.caseSensitive {
+			return strings.ToLower(cleaned)
+		}
+		return cleaned
+	}
+	for _, probe := range prepared.probes {
+		probed[probeKey(probe.Executable)] = true
+	}
+	var missing []string
+	for _, candidate := range resolution.ProjectCandidates {
+		if candidate.Executable != "" && candidate.Reason == "probeFailed" && !probed[probeKey(candidate.Executable)] {
+			missing = append(missing, candidate.Executable)
+		}
+	}
+	if len(missing) == 0 {
+		return resolution, nil
+	}
+	extra := workspace.probeAll(ctx, prepared.definition, missing, projectCodeAllowed)
+	if ctx.Err() != nil {
+		return resolution, ctx.Err()
+	}
+	for _, probe := range extra {
+		key := probeKey(probe.Executable)
+		if !probed[key] {
+			probed[key] = true
+			prepared.probes = append(prepared.probes, probe)
+		}
+	}
+	request.Probes = prepared.probes
+	request.Generation = loadSequence.Add(1)
+	request.OperationID = operationID + "-project"
 	return kernel.ResolveToolchain(ctx, request)
+}
+
+func observeProjectFiles(workspace *workspace, directory string, maxAncestors int, planned core.ToolchainDiscoveryPlanTool) {
+	if workspace.root == "" {
+		return
+	}
+	for _, ancestor := range directoryAncestors(directory, maxAncestors) {
+		if !isSafeRelativeAnchor(ancestor) {
+			continue
+		}
+		anchor := workspace.root
+		if ancestor != "." {
+			anchor = filepath.Join(workspace.root, filepath.FromSlash(ancestor))
+		}
+		workspace.observeChain(workspace.root, anchor)
+		for _, projectFile := range planned.ProjectFiles {
+			if !isSafeRelativeAnchor(projectFile.Path) {
+				continue
+			}
+			workspace.observeChain(anchor, filepath.Join(anchor, filepath.FromSlash(projectFile.Path)))
+			if projectFile.Home != "" && isSafeRelativeAnchor(projectFile.Home) {
+				nativeHome := anchor
+				if projectFile.Home != "." {
+					nativeHome = filepath.Join(anchor, filepath.FromSlash(projectFile.Home))
+				}
+				workspace.observeChain(anchor, nativeHome)
+				for _, template := range planned.PathPrepend {
+					if prepend, ok := prependPath(nativeHome, template); ok {
+						workspace.observeChain(nativeHome, prepend)
+					}
+				}
+			}
+			for _, required := range projectFile.Requires {
+				if isSafeRelativeAnchor(required) {
+					workspace.observeChain(anchor, filepath.Join(anchor, filepath.FromSlash(required)))
+				}
+			}
+		}
+	}
+}
+
+func directoryAncestors(directory string, maxAncestors int) []string {
+	if maxAncestors <= 0 {
+		maxAncestors = 64
+	}
+	current := filepath.ToSlash(directory)
+	if current == "" {
+		current = "."
+	}
+	result := []string{current}
+	for current != "." && len(result) < maxAncestors {
+		if idx := strings.LastIndexByte(current, '/'); idx >= 0 {
+			current = current[:idx]
+			if current == "" {
+				current = "."
+			}
+		} else {
+			current = "."
+		}
+		result = append(result, current)
+	}
+	return result
+}
+
+func isSafeRelativeAnchor(value string) bool {
+	if value == "." {
+		return true
+	}
+	if value == "" || strings.ContainsAny(value, "\\:") {
+		return false
+	}
+	for _, part := range strings.Split(value, "/") {
+		if part == "" || part == "." || part == ".." {
+			return false
+		}
+	}
+	return true
 }
 
 // declaredEnvironment passes only the home variables the definition declares.

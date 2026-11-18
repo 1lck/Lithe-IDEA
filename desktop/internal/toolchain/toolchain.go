@@ -64,6 +64,7 @@ type Tool struct {
 	Pin       *core.ToolchainPin `json:"pin,omitempty"`
 	PinSource string             `json:"pinSource,omitempty"`
 
+	Project       []core.ToolchainProjectCandidate    `json:"project,omitempty"`
 	Shell         []core.ToolchainShellCandidate      `json:"shell"`
 	Installations []core.ToolchainInstallation        `json:"installations"`
 	Skipped       []core.ToolchainSkippedInstallation `json:"skipped"`
@@ -80,12 +81,13 @@ type Tool struct {
 
 // Snapshot is everything one settings load read for one project directory.
 type Snapshot struct {
-	Global    bool `json:"global,omitempty"`
-	catalog   *catalogSource
-	Root      string                   `json:"root"`
-	Directory string                   `json:"directory"`
-	Tools     []Tool                   `json:"tools"`
-	Conflicts []core.ToolchainConflict `json:"conflicts"`
+	Global             bool `json:"global,omitempty"`
+	ProjectCodeAllowed bool `json:"projectCodeAllowed,omitempty"`
+	catalog            *catalogSource
+	Root               string                   `json:"root"`
+	Directory          string                   `json:"directory"`
+	Tools              []Tool                   `json:"tools"`
+	Conflicts          []core.ToolchainConflict `json:"conflicts"`
 	// Baseline is the exact bytes of .lithe/toolchains/local.json that the
 	// snapshot was built from, nil when the file did not exist.
 	Baseline []byte `json:"-"`
@@ -97,15 +99,20 @@ type Snapshot struct {
 // Options configure one load. The zero value uses the host platform, the user's
 // home, the process environment and a bounded native probe.
 type Options struct {
-	// Global permits discovery without any project; GlobalRoot owns the native SDK registry.
-	Global      bool
-	GlobalRoot  string
-	catalog     *core.ToolchainCatalog
-	Platform    string
-	Home        string
-	Environment map[string]string
-	Probe       ProbeFunc
-	Lookup      LookupFunc
+	// Global permits discovery without any project; GlobalRoot owns the native SDK
+	// registry and per-workspace toolchain trust in user application settings.
+	Global     bool
+	GlobalRoot string
+	// ProjectCodeAllowed grants probing and selection of workspace-local tool
+	// candidates only when GlobalRoot is unset in unit tests. Production loads and
+	// launches always supply GlobalRoot so trust comes solely from local storage.
+	ProjectCodeAllowed bool
+	catalog            *core.ToolchainCatalog
+	Platform           string
+	Home               string
+	Environment        map[string]string
+	Probe              ProbeFunc
+	Lookup             LookupFunc
 	// MinimumVersion is a consumer requirement for one operation; settings
 	// loads leave it empty.
 	MinimumVersion string

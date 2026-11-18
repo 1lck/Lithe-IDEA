@@ -213,6 +213,12 @@ type ToolchainInspector interface {
 	Inspect(context.Context, toolchain.Snapshot, string, string) (core.ToolchainSelection, error)
 }
 
+// ToolchainTrustLoader updates machine-local permission to probe and run tool
+// environments or wrappers inside the open project, then reloads its snapshot.
+type ToolchainTrustLoader interface {
+	SetWorkspaceTrust(context.Context, toolchain.Snapshot, bool) (toolchain.Snapshot, error)
+}
+
 // PluginSettingsLoader reads and publishes captured native sources off the UI thread.
 // Load translates the plugin's own text for the language; a save's readback keeps the
 // language its editor was loaded in.
