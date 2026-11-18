@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -224,5 +225,44 @@ func TestRunConfigFormKeepsTheStepList(t *testing.T) {
 	candidates := s.beforeLaunchCandidates("user:self")
 	if len(candidates) != 1 || candidates[0].ID != "user:a" {
 		t.Fatalf("candidates = %+v", candidates)
+	}
+}
+
+// In the Run/Debug Configurations window a step added from the menu of Add step counts as a
+// change, so Apply saves it with the configuration and the dialog shows nothing left to save.
+func TestRunConfigDialogSavesAnAddedStep(t *testing.T) {
+	root := t.TempDir()
+	writeBeforeLaunchDocument(t, root, "local.yaml",
+		beforeLaunchEcho("user:generate", "step-generate"),
+		beforeLaunchEcho("user:app", "app-ran"),
+	)
+	h, p := openBeforeLaunchProject(t, root)
+	d := &p.runConfigs.dialog
+	h.app.post(func(a *App) { a.openRunConfigDialog(p, "user:app") })
+	var f *runConfigForm
+	awaitStateWithin(t, h, 10*time.Second, "the editor of app", func() bool {
+		if draft := d.drafts["user:app"]; draft != nil {
+			f = draft.form
+		}
+		return f != nil && f.ready() && f.beforeLaunch != nil
+	})
+	h.settle()
+	if d.dirty() {
+		t.Fatal("the opened configuration shows as something to save")
+	}
+	h.clickNamed(i18n.Shared(h.app.language(), "desktop.runConfig.beforeLaunchAdd"))
+	h.clickNamed("generate")
+	h.settle()
+	if !slices.Equal(f.beforeLaunch, []string{"user:generate"}) || !d.dirty() {
+		t.Fatalf("steps %v, dirty %v after the menu added one", f.beforeLaunch, d.dirty())
+	}
+
+	applyDialog(t, h, p, runConfigDialogApply)
+	configuration := p.runConfigs.configuration("user:app")
+	if configuration == nil || len(configuration.BeforeLaunch) != 1 || configuration.BeforeLaunch[0].Configuration != "user:generate" {
+		t.Fatalf("configuration = %+v, failure %q / %q", configuration, d.failure, f.failure)
+	}
+	if !d.open || d.dirty() {
+		t.Fatalf("dialog open %v dirty %v after Apply", d.open, d.dirty())
 	}
 }

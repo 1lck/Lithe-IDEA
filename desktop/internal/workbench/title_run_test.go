@@ -234,40 +234,26 @@ func emptyRunConfigHarness(t *testing.T, root string) (*harness, *project) {
 }
 
 // Edit Configuration on a project without configurations used to open a Run window that showed
-// nothing, which looked like no reaction (#2028). It now opens the editor on a new
-// configuration of the platform's first built-in kind; only while no kind is known does it
-// say why the list is empty.
-func TestEditRunConfigurationsWithoutAnyOpensANewConfiguration(t *testing.T) {
+// nothing, which looked like no reaction (#2028). It now opens the Run/Debug Configurations
+// dialog with nothing selected, whose pane offers a button per built-in kind.
+func TestEditRunConfigurationsWithoutAnyOpensTheDialog(t *testing.T) {
 	h, p := emptyRunConfigHarness(t, runConfigRoot(t))
+	h.app.post(func(a *App) { a.editRunConfigurations(p) })
 	awaitStateWithin(t, h, 10*time.Second, "the built-in kinds", func() bool { return p.runConfigs.types != nil })
-	kinds := p.runConfigs.types
-	h.app.post(func(a *App) {
-		p.runConfigs.types = []core.RunConfigurationType{}
-		a.editRunConfigurations(p)
-	})
 	h.settle()
-	want := i18n.Shared(h.app.language(), "desktop.title.nothingToEdit")
-	if got := lastNotice(h); got != want {
-		t.Fatalf("notice = %q, want %q", got, want)
+	d := &p.runConfigs.dialog
+	if !d.open || d.selected != "" || len(d.drafts) != 0 || lastNotice(h) != "" {
+		t.Fatalf("dialog open %v selected %q drafts %d, notice %q", d.open, d.selected, len(d.drafts), lastNotice(h))
 	}
-	if p.runConfigs.editor.open || p.runConfigs.form.open {
-		t.Fatal("an editor opened without a kind")
-	}
-
-	h.app.post(func(a *App) {
-		p.runConfigs.types = kinds
-		a.editRunConfigurations(p)
-	})
-	awaitStateWithin(t, h, 10*time.Second, "the new configuration's form", func() bool {
-		f := &p.runConfigs.form
-		return f.open && !f.loading && len(f.fields) > 0
-	})
-	if f := &p.runConfigs.form; f.provider != runProviderShell || f.id != "" {
-		t.Fatalf("form = provider %q id %q, want a new %s", f.provider, f.id, runProviderShell)
-	}
-	title := i18n.SharedFormat(h.app.language(), "desktop.runConfig.newTitle", map[string]string{"type": i18n.Shared(h.app.language(), "desktop.runConfig.typeShell")})
-	if !h.shows(title) {
-		t.Fatalf("the form titled %q is not shown", title)
+	language := h.app.language()
+	for _, text := range []string{
+		i18n.Shared(language, "desktop.runConfig.dialogTitle"),
+		i18n.Shared(language, "desktop.runConfig.dialogHint"),
+		i18n.Shared(language, "desktop.runConfig.typeShell"),
+	} {
+		if !h.shows(text) {
+			t.Fatalf("%q is not shown", text)
+		}
 	}
 }
 
@@ -296,25 +282,26 @@ func TestEditRunConfigurationsCountsTheConfigurationsNoBuildPluginStarts(t *test
 	if p.runConfigs.hidden != 2 {
 		t.Fatalf("hidden = %d, want 2", p.runConfigs.hidden)
 	}
-	h.app.post(func(a *App) {
-		p.runConfigs.types = []core.RunConfigurationType{}
-		a.editRunConfigurations(p)
-	})
+	h.app.post(func(a *App) { a.editRunConfigurations(p) })
 	h.settle()
-	language := h.app.language()
-	want := i18n.SharedFormat(language, "desktop.title.nothingToEditHidden", map[string]string{"count": "2"})
-	if got := lastNotice(h); got != want {
-		t.Fatalf("notice = %q, want %q", got, want)
+	want := hiddenRunConfigurations(h.app.language(), 2)
+	if !p.runConfigs.dialog.open || !h.shows(want) {
+		t.Fatalf("dialog open %v, %q shown %v", p.runConfigs.dialog.open, want, h.shows(want))
 	}
 }
 
-// With configurations to show, Edit Configuration keeps opening the Run window and the editor
-// of the chosen one.
+// With configurations to show, Edit Configuration opens the dialog with the chosen one selected
+// and its editor read.
 func TestEditRunConfigurationsOpensTheChosenOnesEditor(t *testing.T) {
 	h, p := titleRunHarness(t, &testKernel{Client: core.NewClient()}, pluginservice.BuildRunDeclaration{ID: "application", Name: "Run", Tags: []string{"app"}})
+	id := p.titleConfiguration().ID
 	h.app.post(func(a *App) { a.editRunConfigurations(p) })
-	awaitStateWithin(t, h, 10*time.Second, "the editor", func() bool { return p.runConfigs.editor.open })
-	if !h.app.chrome.isOpen(catalogIndex[itemRun]) || lastNotice(h) != "" {
-		t.Fatalf("Run window open %v, notice %q", h.app.chrome.isOpen(catalogIndex[itemRun]), lastNotice(h))
+	d := &p.runConfigs.dialog
+	awaitStateWithin(t, h, 10*time.Second, "the editor", func() bool {
+		draft := d.drafts[id]
+		return d.open && draft != nil && draft.editor != nil && !draft.editor.loading
+	})
+	if d.selected != id || lastNotice(h) != "" {
+		t.Fatalf("selected %q, want %q; notice %q", d.selected, id, lastNotice(h))
 	}
 }

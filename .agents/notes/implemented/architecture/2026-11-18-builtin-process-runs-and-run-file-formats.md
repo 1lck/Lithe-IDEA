@@ -4,7 +4,9 @@
 
 ## 先说结论
 
-Shell 脚本、PowerShell 脚本、cmd 批处理（只在 Windows）和可执行程序四种运行由 Core 自己提供，叫“内置运行”（provider 为 `process.*`）。它们的表单、校验和启动计划都在 Core，宿主只负责画表单、写文件和起进程，不经过任何构建插件，所以 Java 等插件缺失或出错时这四种运行照常可用。
+Shell 脚本、PowerShell 脚本、cmd 批处理（只能在 Windows 上运行）和可执行程序四种运行由 Core 自己提供，叫“内置运行”（provider 为 `process.*`）。它们的表单、校验和启动计划都在 Core，宿主只负责画表单、写文件和起进程，不经过任何构建插件，所以 Java 等插件缺失或出错时这四种运行照常可用。
+
+运行配置在 IDEA 式的“运行/调试配置”对话框里新建和编辑：左侧是按类型分组的配置树，右侧是选中配置的编辑器，几处改动在“应用”或“确定”时一起保存。
 
 用户保存的运行配置换成两种格式：内置运行存 `.lithe/run/configurations.yaml`（团队共享）和 `.lithe/run/local.yaml`（本机）；插件提供的运行按插件拆成 `.lithe/run/plugin/<插件 ID>.toml` 和 `<插件 ID>.local.toml`，文件头记录插件的作者、仓库和版本要求。Core 只计算文件改动，不写文件，宿主按哈希检查后一次性应用。
 
@@ -21,7 +23,9 @@ Shell 脚本、PowerShell 脚本、cmd 批处理（只在 Windows）和可执行
 
 `process.shell`、`process.powershell`、`process.batch`、`process.executable` 的运行类型列表（`runConfig.configurationTypes`）、表单（`runConfig.editorForm`）、保存校验（`runConfig.saveConfiguration`）和启动计划（`runConfig.createLaunchPlan`）都在 Core 的 `execution/src/configuration/process.rs` 与 `form.rs`。默认解释器由 Core 决定：Shell 取脚本首行的 `#!`，没有时用 `/bin/sh`；PowerShell 用 `pwsh`（Windows 上 `powershell`）并默认带 `-ExecutionPolicy Bypass`，用户可以取消。
 
-Core 只在 Windows 上列出 `process.batch`。其他平台上读到已有的 batch 条目时丢弃，并给出 `unsupportedPlatform` 诊断，界面上不出现 cmd。
+四种类型在所有平台都列出，都能新建、编辑和保存。本机不能运行的类型（目前只有 Windows 以外的 `process.batch`）带 `availability`，code 为 `unsupportedPlatform`：`runConfig.configurationTypes` 的类型项、`runConfig.editorForm` 的表单和 `resolve` 列出的每条配置都带，`runConfig.createLaunchPlan` 拒绝启动。这样和 Windows 同事共享的项目在 macOS、Linux 上打开时，批处理配置不会消失，也能照常修改。
+
+宿主按 `availability` 提示，不自己判断平台：对话框的“+”菜单和空白页在类型旁注明“仅 Windows”；编辑器顶部显示原因；配置树和标题栏下拉的这一行带警告图标（下拉里仍可选中，注明“仅 Windows”）；对话框的“运行”和标题栏的运行按钮置灰；按下标题栏运行时只提示原因，不启动。
 
 宿主（`desktop/internal/workbench/runconfig_process.go`）拿到启动计划后只做三件事：在 PATH 里找可执行文件，把“脚本文本”写到系统临时目录里的 `lithe-run-script-*` 目录、进程退出后删除，然后用 `buildprocess` 起进程，输出进 Run 窗口。宿主不判断脚本类型，也不拼解释器参数。
 
@@ -52,6 +56,15 @@ Core 只在 Windows 上列出 `process.batch`。其他平台上读到已有的 b
 
 `runConfig.editorForm` 返回字段列表（类型、是否必填、位置、自动值、可选项、`visibleWhen` 条件、说明）和当前值，`formVersion` 为 1。宿主（`runconfig_form.go`、`runconfig_form_view.go`）只画同时满足两个条件的字段：类型是它认识的，`shared/i18n` 里有这个字段 ID 的标题。其余字段跳过不画，值原样回传。Core 返回的 `formVersion` 比宿主新时，宿主不打开表单，提示升级。
 
+### 在“运行/调试配置”对话框里新建和编辑
+
+对话框参照 IDEA 的同名窗口（`runconfig_dialog.go`、`runconfig_dialog_view.go`），在应用窗口内以模态层显示，不开系统窗口。入口有三个：标题栏运行下拉的“新建运行配置…”和“编辑运行配置…”，以及构建窗口配置列表表头的“+”。列表里的编辑按钮也打开它，并选中那一条。
+
+- 左侧工具栏是“+”（按类型新建）、“−”（删除）和复制。配置树按类型分组，分组可以折叠，折叠状态在再次打开时保留。
+- 每条被选中过的配置都有自己的草稿。新建、修改和删除都先记在草稿里：“应用”先删除，再按配置树的顺序保存有改动的草稿，完成后留在对话框；“确定”保存后关闭；“取消”丢弃全部改动；“运行”保存后关闭，并运行选中的配置。
+- 新建的配置第一次保存后换成 Core 给的 `user:` ID；只有 `user:` 配置能删除。第一处失败就停下，选中出错的那条配置并在它的编辑器里显示原因，对话框不关闭；失败前已保存的部分照常生效。
+- 构建插件提供的运行也在这个对话框里编辑，用的是 `runconfig_edit.go` 的编辑器；内置运行用 Core 描述的表单。
+
 ### 从界面按下运行时打开 Run 窗口
 
 从编辑对话框的“运行”、构建窗口的配置列表（按钮或双击）和 Run 窗口的再次运行启动时，都走 `runConfiguration`（`runconfig.go`）。它启动后打开 Run 窗口，并选中这次运行的控制台；构建插件提供的运行从列表启动时也一样。经 IDE API（`startRunConfiguration`）启动的运行不改变窗口布局，因为调用方不一定是用户。
@@ -74,6 +87,14 @@ Core 只在 Windows 上列出 `process.batch`。其他平台上读到已有的 b
 ### 把脚本和程序运行做成一个官方插件
 
 和其他运行走同一条路，Core 不多一类提供者。没有采用：用户要求插件全坏时这几种运行也能用，放进插件就又依赖插件宿主、插件安装和插件版本。
+
+### 在非 Windows 平台隐藏批处理
+
+和平台能力一致，界面也更少。没有采用：项目里的批处理配置常由 Windows 同事提交，隐藏后 macOS、Linux 用户既看不到也改不了它们（Core 之前保留文本、只是不列出）。现在照常列出和编辑，只是不能运行。
+
+### 标题栏用“新建运行配置 >”子菜单，每条配置单独弹编辑框
+
+实现简单，点两下就能新建。没有采用：用户要求参照 IDEA，在一个窗口里同时看到全部配置、切换着编辑，改完一起应用；子菜单也放不下“仅 Windows”这类说明和以后更多的类型。
 
 ### 全部配置都用 YAML，或都用 TOML
 
@@ -100,8 +121,8 @@ Core 只在 Windows 上列出 `process.batch`。其他平台上读到已有的 b
 
 ## 验证
 
-- `scripts/desktop/desktop-go.sh test ./internal/core/... ./internal/buildprocess/... ./internal/workbench/...`：`runconfig_process_test.go` 用系统 shell 真实运行脚本，并断言 Run 窗口打开、输出进入控制台；`runconfig_browser_test.go`、`title_run_test.go`、`runconfig_edit_test.go` 覆盖列表、标题栏和保存。
-- `scripts/desktop/desktop-go.sh test -tags 'vivahead lithevisual' ./internal/workbench -run '^TestVisualBuiltInProcessRuns$'`：设置 `LITHE_VISUAL_OUTPUT_DIR` 后生成 `docs/assets/builtin-process-runs/` 的截图。
+- `scripts/desktop/desktop-go.sh test ./internal/core/... ./internal/buildprocess/... ./internal/workbench/...`：`runconfig_process_test.go` 用系统 shell 真实运行脚本，并断言 Run 窗口打开、输出进入控制台；`runconfig_dialog_test.go` 覆盖对话框的应用、取消、删除、复制、分组折叠，以及批处理在非 Windows 上能编辑、能保存、不能运行；`runconfig_browser_test.go`、`title_run_test.go`、`runconfig_edit_test.go` 覆盖列表、标题栏和插件运行的编辑。
+- `scripts/desktop/desktop-go.sh test -tags 'vivahead lithevisual' ./internal/workbench -run '^(TestVisualBuiltInProcessRuns|TestVisualTitleRunWithoutConfigurations)$'`：设置 `LITHE_VISUAL_OUTPUT_DIR` 后生成 `docs/assets/builtin-process-runs/` 和 `docs/assets/run-config-empty/` 的截图。
 - Core 仓库的 `cargo test -p lithe-execution -p lithe-core`：覆盖表单、校验、启动计划、YAML/TOML 读写、旧 JSON 和插件可用性。
 - `./scripts/desktop/verify/verify-runtime-bundle-immutability.sh`：确认运行不写发行目录。
 
@@ -111,6 +132,9 @@ Core 只在 Windows 上列出 `process.batch`。其他平台上读到已有的 b
 - `desktop/internal/workbench/runconfig_changes.go`
 - `desktop/internal/workbench/runconfig_form.go`
 - `desktop/internal/workbench/runconfig_form_view.go`
+- `desktop/internal/workbench/runconfig_dialog.go`
+- `desktop/internal/workbench/runconfig_dialog_view.go`
+- `desktop/internal/workbench/title_run_view.go`
 - `desktop/internal/workbench/runconfig.go`
 - `desktop/internal/core/run_process.go`
 - `desktop/internal/buildprocess/`

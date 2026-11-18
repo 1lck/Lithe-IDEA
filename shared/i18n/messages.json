@@ -15458,16 +15458,6 @@
       ]
     },
     {
-      "id": "desktop.runConfig.editTitle",
-      "description": "Title of the run configuration editor dialog; {name} is the configuration's name.",
-      "platforms": [
-        "desktop"
-      ],
-      "parameters": {
-        "name": "string"
-      }
-    },
-    {
       "id": "desktop.runConfig.entrypoint",
       "description": "Label of the provider entrypoint field of a build provider run",
       "platforms": [
@@ -15675,16 +15665,6 @@
       "platforms": [
         "desktop"
       ]
-    },
-    {
-      "id": "desktop.runConfig.newTitle",
-      "description": "Title of the editor dialog of a new built-in run configuration; type is the kind's name.",
-      "platforms": [
-        "desktop"
-      ],
-      "parameters": {
-        "type": "string"
-      }
     },
     {
       "id": "desktop.runConfig.fieldName",
@@ -16250,6 +16230,152 @@
       "parameters": {
         "reason": "string"
       }
+    },
+    {
+      "id": "desktop.runConfig.dialogTitle",
+      "description": "Title of the Run/Debug Configurations dialog, which lists the run configurations by kind and edits the selected one.",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.runConfig.dialogHint",
+      "description": "Run/Debug Configurations dialog: hint shown while no configuration is selected, above a button per built-in kind.",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.runConfig.newConfigurationEllipsis",
+      "description": "Menu item and button that open the Run/Debug Configurations dialog to create a run configuration.",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.runConfig.removeConfiguration",
+      "description": "Run/Debug Configurations dialog: toolbar button that removes the selected configuration when Apply or OK is pressed.",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.runConfig.copyConfiguration",
+      "description": "Run/Debug Configurations dialog: toolbar button that creates a copy of the selected built-in configuration.",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.runConfig.copyName",
+      "description": "Run/Debug Configurations dialog: name of a copied configuration; {name} is the original's name.",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "name": "string"
+      }
+    },
+    {
+      "id": "desktop.runConfig.unnamed",
+      "description": "Run/Debug Configurations dialog: tree label of a configuration without a name.",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.runConfig.windowsOnlyType",
+      "description": "Run/Debug Configurations dialog: note beside the batch script kind on macOS and Linux, which can create and edit it but not run it.",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.runConfig.typeNotRunnableHere",
+      "description": "Run/Debug Configurations dialog: note beside a built-in kind this platform cannot run.",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.runConfig.unavailableBatchPlatform",
+      "description": "Why a batch script run configuration cannot run on macOS or Linux, shown over its editor, on its row and when Run is pressed.",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.runConfig.unavailablePlatform",
+      "description": "Why a built-in run configuration cannot run on this platform; {type} is the kind's name.",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "type": "string"
+      }
+    },
+    {
+      "id": "desktop.runConfig.notEditable",
+      "description": "Run/Debug Configurations dialog: shown for a plugin run configuration whose plugin is missing, disabled or the wrong version.",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.runConfig.scriptOptionsPlaceholder",
+      "description": "Placeholder of the script options field of a built-in script run.",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.runConfig.interpreterArgumentsPlaceholder",
+      "description": "Placeholder of the interpreter options field of a built-in script run while it has no automatic value.",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.runConfig.programArgumentsPlaceholder",
+      "description": "Placeholder of the program arguments field of a built-in executable run.",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.runConfig.scriptOptionsHelpShell",
+      "description": "Help tip of the script options field of a shell script run.",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.runConfig.scriptOptionsHelpPowerShell",
+      "description": "Help tip of the script options field of a PowerShell script run.",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.runConfig.scriptOptionsHelpBatch",
+      "description": "Help tip of the script options field of a batch script run.",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.runConfig.interpreterArgumentsHelp",
+      "description": "Help tip of the interpreter options field of a built-in script run.",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.runConfig.programArgumentsHelp",
+      "description": "Help tip of the program arguments field of a built-in executable run.",
+      "platforms": [
+        "desktop"
+      ]
     },
     {
       "id": "desktop.search.collapseFile",
@@ -19480,23 +19606,6 @@
       "platforms": [
         "desktop"
       ]
-    },
-    {
-      "id": "desktop.title.nothingToEdit",
-      "description": "Desktop title bar: Edit Configuration chosen when the project has no run configuration; build plugins generate them from the project model and none declared a runnable entry",
-      "platforms": [
-        "desktop"
-      ]
-    },
-    {
-      "id": "desktop.title.nothingToEditHidden",
-      "description": "Desktop title bar: Edit Configuration chosen when the project has no run configuration that a build plugin starts, while count saved ones are hidden because no build plugin runs them",
-      "platforms": [
-        "desktop"
-      ],
-      "parameters": {
-        "count": "unsignedInteger"
-      }
     },
     {
       "id": "desktop.title.notDebuggable",

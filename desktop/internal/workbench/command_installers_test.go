@@ -287,6 +287,20 @@ func TestCommandInstallManagedRecordsWhereLaterLaunchesFindTheCommand(t *testing
 	if err != nil {
 		t.Fatal(err)
 	}
+	// The tool's working directory is made under os.TempDir(), which other test runs on the
+	// machine share; a private one keeps their installs out of the check below.
+	private, err := os.MkdirTemp("", "lci-")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		if err := os.RemoveAll(private); err != nil {
+			t.Error(err)
+		}
+	})
+	for _, name := range []string{"TMPDIR", "TMP", "TEMP"} {
+		t.Setenv(name, private)
+	}
 	var output commandOutput
 	directory, err := installs.Install(ctx, commandInstallerPluginID, "fixture-ls", core.CommandInstallManaged, output.add)
 	if err != nil {
@@ -314,7 +328,7 @@ func TestCommandInstallManagedRecordsWhereLaterLaunchesFindTheCommand(t *testing
 	if len(missing) != 1 || missing[0].Kind != settingswindow.CapabilityDebugger {
 		t.Fatalf("still missing after the install: %+v", missing)
 	}
-	entries, err := os.ReadDir(os.TempDir())
+	entries, err := os.ReadDir(private)
 	if err != nil {
 		t.Fatal(err)
 	}

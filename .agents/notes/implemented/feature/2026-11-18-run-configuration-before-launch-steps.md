@@ -12,6 +12,8 @@
 - 只要展开过程中用到了项目文件写的列表，Core 就返回确认指纹：对列表和这些步骤启动的命令定义求 sha256。宿主第一次运行前弹框列出步骤和命令，用户点“运行步骤”后把指纹存进应用自己的存储 `run-before-launch-approvals.json`（按项目根目录，每个项目最多 64 个）。命令或列表一改，指纹就变，会再问一次。
 - 步骤按顺序在被启动配置的 Run 控制台里运行，每一步前写一行暗色标题。某一步退出码不是 0，就写出步骤名和退出码，不启动配置。停止配置会结束正在运行的步骤。
 - 内置运行编辑器（Core 描述的表单，字段类型 `beforeLaunch`，候选列表由 Core 给出）和构建提供者运行编辑器都可以添加、上移、下移、移除步骤。构建提供者编辑器只有列表改动时才发送 `beforeLaunch`，不会把解析后的列表抄进本地层。
+- 两种编辑器都在“运行/调试配置”窗口右侧（#2100）。步骤列表的改动和其他字段一样算作未保存的修改：内置运行表单经 `runConfigFormEdited` 标脏，构建提供者编辑器把列表纳入 `fingerprint`；“应用”“确定”“运行”会一并保存。
+- 本平台不能运行的配置（例如 macOS、Linux 上的 `process.batch`）照常列出、可以编辑，但 Core 不把它列为步骤候选；项目文件里引用它的列表在这些平台上被拒绝，原因码 `unavailable`（Lithe-core-rust#87）。
 
 ## 问题
 
@@ -42,7 +44,7 @@
 ## 验证
 
 - Core：`cargo test -p lithe-core before_launch`（`core/src/tests/before_launch_steps.rs` 覆盖展开、确认指纹、拒绝原因、编辑校验和本地层清空）。
-- 宿主：`./scripts/desktop/desktop-go.sh test ./internal/workbench/ -run 'BeforeLaunch|TestRunConfigFormKeepsTheStepList' -count=1`，用真实 Core 和系统 shell/cmd 运行步骤，覆盖顺序、确认与记忆、改动后重新确认、取消、失败退出码和停止。
+- 宿主：`./scripts/desktop/desktop-go.sh test ./internal/workbench/ -run 'BeforeLaunch|TestRunConfigFormKeepsTheStepList|TestRunConfigDialogSavesAnAddedStep|TestRunConfigEditorSavesTheLocalLayer' -count=1`，用真实 Core 和系统 shell/cmd 运行步骤，覆盖顺序、确认与记忆、改动后重新确认、取消、失败退出码和停止，以及在“运行/调试配置”窗口里添加的步骤算作修改并由“应用”保存。
 
 ## 适用范围
 
@@ -53,5 +55,6 @@
 - `desktop/internal/workbench/runconfig_form_view.go`
 - `desktop/internal/workbench/runconfig_edit.go`
 - `desktop/internal/workbench/runconfig_view.go`
+- `desktop/internal/workbench/runconfig_dialog.go`
 - `desktop/internal/core/run_before_launch.go`
 - Core：`rust/crates/execution/src/configuration/before_launch.rs`
