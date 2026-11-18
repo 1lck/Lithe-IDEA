@@ -144,7 +144,7 @@ func TestPluginAutoUpdateInstallsAnApprovedNewVersion(t *testing.T) {
 		}
 		return &http.Response{
 			StatusCode: http.StatusOK, Header: make(http.Header),
-			Body: io.NopCloser(bytes.NewReader(nextBytes)),
+			Body:          io.NopCloser(bytes.NewReader(nextBytes)),
 			ContentLength: int64(len(nextBytes)), Request: request,
 		}, nil
 	})}
