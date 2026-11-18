@@ -6,7 +6,6 @@ import (
 	"github.com/1lck/Lithe-IDEA/desktop/internal/i18n"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/icons"
 	"github.com/vivaui/viva/app"
-	"github.com/vivaui/viva/components"
 	"github.com/vivaui/viva/gfx"
 	"github.com/vivaui/viva/ui"
 )
@@ -237,8 +236,6 @@ func (w *window) content(c ui.C) {
 			w.versionControlPage(c)
 		case w.sess.page == pageNetwork && w.ctrl.opts.SetNetwork != nil:
 			w.networkPage(c)
-		case w.sess.page == pageUpdates && w.ctrl.opts.UpdateStatus != nil:
-			w.updatesPage(c)
 		case w.sess.page == pageKeymap:
 			w.keymapPage(c)
 		case w.sess.page == pageProcessTermination:
@@ -320,21 +317,16 @@ func (w *window) settingsRow(c ui.C, title, help string, body func()) {
 	})
 }
 
-// infoButton is the information glyph: hovering it shows help in a tip, and pressing it
-// pins the help open in a popover until a press elsewhere or Escape. Both open to the right
-// of the glyph, beside the label it ends, so they cover neither the label nor the rows
-// under it; without room there they open on the left.
+// infoButton is the information glyph. Resting the pointer on it shows help in the client's
+// shared tip, as every ⓘ in the workbench does; pressing it opens nothing else, so the help
+// never turns into a second, differently drawn card. The tip opens to the right of the
+// glyph, beside the label it ends, so it covers neither the label nor the rows under it;
+// without room there it opens on the left. Assistive technology reads the help as the
+// glyph's description.
 func (w *window) infoButton(c ui.C, help string) {
 	ui.Row(c).Size(18, 18).Shrink(0).Center().Children(func() {
-		open := ui.State[bool](c, "info")
-		button := ui.Button(c, i18n.Shared(w.marketLanguage(), "native.moreInformation")).Icon(icons.Info).IconOnly().Ghost().Size(18, 18).
+		ui.Button(c, i18n.Shared(w.marketLanguage(), "native.moreInformation")).Icon(icons.Info).IconOnly().Ghost().Size(18, 18).
 			Tooltip(help).TooltipOn(ui.TooltipRight)
-		if button.Clicked() {
-			*open = !*open
-		}
-		ui.PopoverWith(c, button, ui.PopoverSpec{Side: components.PopoverRight, Align: ui.Start}, open, func() {
-			ui.Wrap(c, help).FontSize(12).Color(w.pal.text).MaxWidth(320).Pad(8)
-		})
 	})
 }
 

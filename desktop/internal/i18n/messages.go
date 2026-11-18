@@ -567,7 +567,6 @@ type SettingsMessages struct {
 	// The sidebar's groups and the pages under them.
 	AppearanceBehavior string
 	General            string
-	Updates            string
 	Network            string
 	Editor             string
 	Fonts              string

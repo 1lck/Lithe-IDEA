@@ -9,7 +9,6 @@ func settingsMessages(language Language) SettingsMessages {
 		Categories:         Shared(language, "desktop.settings.categories"),
 		AppearanceBehavior: Shared(language, "settings.groups.appearance"),
 		General:            Shared(language, "settings.tabs.general"),
-		Updates:            Shared(language, "settings.tabs.updates"),
 		Network:            Shared(language, "settings.network.title"),
 		Editor:             Shared(language, "settings.editor.section"),
 		Fonts:              Shared(language, "desktop.settings.fonts"),

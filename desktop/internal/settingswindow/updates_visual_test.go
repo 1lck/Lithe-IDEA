@@ -13,10 +13,10 @@ import (
 	"github.com/vivaui/viva/headless"
 )
 
-// TestVisualUpdatesPage captures Settings > Updates: a stable build that found 0.8.0 with a
-// patch, the dialog that asks before switching it to AutoBuild, an AutoBuild build's way back
-// to stable with the settings kept of it, and a feed of its own. Opt in with -tags vivahead
-// and LITHE_VISUAL_OUTPUT_DIR.
+// TestVisualUpdatesPage captures the update card of Settings > About: a stable build that found
+// 0.8.0 with a patch, the dialog that asks before switching it to AutoBuild, an AutoBuild
+// build's way back to stable with the settings kept of it, and a feed of its own. Opt in with
+// -tags vivahead and LITHE_VISUAL_OUTPUT_DIR.
 func TestVisualUpdatesPage(t *testing.T) {
 	out := os.Getenv("LITHE_VISUAL_OUTPUT_DIR")
 	if out == "" {
@@ -36,7 +36,6 @@ func TestVisualUpdatesPage(t *testing.T) {
 				language := scene.language
 				version, status := "0.7.0", UpdateStatus{
 					Configured: true, Installed: buildinfo.ChannelStable, LastChecked: checked,
-					BuildTime: "2026-11-10T08:00:00Z", Commit: "5d2385afc",
 				}
 				switch state {
 				case "available":
@@ -64,7 +63,7 @@ func TestVisualUpdatesPage(t *testing.T) {
 					SetUpdateChannel: func(string, bool, bool) {}, SetUpdateSource: func(string, string) {},
 					UpdateNow: func() {}, ShowUpdate: func() {},
 				}), Values{Theme: scene.theme, Language: language.Code()})
-				w.sess.page = pageUpdates
+				w.sess.page = pageAbout
 				session, err := headless.Open(w.config(), nil, headless.Options{})
 				if err != nil {
 					t.Fatal(err)

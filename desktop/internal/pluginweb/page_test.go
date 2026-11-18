@@ -3,7 +3,6 @@ package pluginweb
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -207,22 +206,6 @@ func TestPageServesItsPackageOnly(t *testing.T) {
 		if _, data, ok := f.page.Serve(path); ok {
 			t.Errorf("%s was served: %q", path, data)
 		}
-	}
-}
-
-func TestReadPackageFileEnforcesTheLimit(t *testing.T) {
-	dir := t.TempDir()
-	if err := os.WriteFile(filepath.Join(dir, "big.bin"), make([]byte, 33), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := readPackageFile(dir, []string{"big.bin"}, 32); err == nil {
-		t.Fatal("a file over the limit was read")
-	}
-	if data, err := readPackageFile(dir, []string{"big.bin"}, 33); err != nil || len(data) != 33 {
-		t.Fatalf("read = %d %v", len(data), err)
-	}
-	if _, err := readPackageFile(dir, nil, 1<<20); !errors.Is(err, errOutsidePackage) {
-		t.Fatalf("the package directory itself was read: %v", err)
 	}
 }
 

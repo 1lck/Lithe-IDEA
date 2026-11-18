@@ -35,7 +35,7 @@
   },
   "owner": "Release",
   "verification": "Viva 需要在 macOS 和 Windows 真实安装环境验证失败、取消、签名拒绝和回退，当前尚无实机验收。update_channels_test.go 用假的更新源和安装器覆盖 AutoBuild 现在回到正式版、切换安装保存并恢复设置快照、待恢复的快照只对目标构建生效；运行 scripts/desktop/desktop-go.sh test -race ./internal/workbench -run 'TestAutoBuildBackToStable|TestSwitchInstall|TestPendingRestore|TestDeltaUpdateFallsBackToTheFullArchive'。",
-  "notes": "Viva：检查、下载或安装任一步失败都显示原因并写日志，用户可从更新页重试该步；安装器拒绝时不改动现有程序，Viva 更新包在新版本启动前保留旧程序。增量补丁任一步失败时自动改下完整包。AutoBuild 用户可在设置 › 更新“现在回到正式版”，确认后完整下载并安装当前正式版；离开渠道前的 settings.json 存进偏好目录的 update-snapshots/（最近 5 份），切回时可选恢复，由新构建在下次启动、读设置前恢复。同一渠道内回退到更早的版本仍没有入口：更新源只提供最新版本（见 updates-check-download）。",
+  "notes": "Viva：检查、下载或安装任一步失败都显示原因并写日志，用户可从设置 › 关于的更新卡片重试该步；安装器拒绝时不改动现有程序，Viva 更新包在新版本启动前保留旧程序。增量补丁任一步失败时自动改下完整包。AutoBuild 用户可在设置 › 关于的更新卡片“现在回到正式版”，确认后完整下载并安装当前正式版；离开渠道前的 settings.json 存进偏好目录的 update-snapshots/（最近 5 份），切回时可选恢复，由新构建在下次启动、读设置前恢复。同一渠道内回退到更早的版本仍没有入口：更新源只提供最新版本（见 updates-check-download）。",
   "legacy": {
     "revision": "5a54c41aa37a4e6e6b68918a4b05765b9dd07a36",
     "macos": {

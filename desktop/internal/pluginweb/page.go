@@ -16,7 +16,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -24,6 +23,7 @@ import (
 	"time"
 
 	"github.com/1lck/Lithe-IDEA/desktop/internal/core"
+	"github.com/1lck/Lithe-IDEA/desktop/internal/pluginpkg"
 )
 
 const (
@@ -159,7 +159,7 @@ func (p *Page) Serve(path string) (mime string, data []byte, ok bool) {
 	default:
 		return "", nil, false
 	}
-	data, err = readPackageFile(p.root, resource.Segments, p.info.FileLimit)
+	data, err = pluginpkg.ReadFile(p.root, resource.Segments, p.info.FileLimit)
 	if err != nil {
 		if !errors.Is(err, os.ErrNotExist) {
 			p.log("resource", err)
@@ -175,52 +175,6 @@ func (p *Page) Serve(path string) (mime string, data []byte, ok bool) {
 		data = []byte(html)
 	}
 	return resource.MIME, data, true
-}
-
-// errOutsidePackage is a package path that leads through a link or to
-// something other than a regular file.
-var errOutsidePackage = errors.New("plugin page resource is not a regular package file")
-
-// readPackageFile reads a file of the package at root, following no
-// symbolic link at any level, and at most limit bytes.
-func readPackageFile(root string, segments []string, limit int64) ([]byte, error) {
-	path := root
-	for _, segment := range segments {
-		path = filepath.Join(path, segment)
-		info, err := os.Lstat(path)
-		if err != nil {
-			return nil, err
-		}
-		if info.Mode()&os.ModeSymlink != 0 {
-			return nil, errOutsidePackage
-		}
-	}
-	file, err := os.Open(path)
-	if err != nil {
-		return nil, err
-	}
-	defer file.Close()
-	opened, err := file.Stat()
-	if err != nil {
-		return nil, err
-	}
-	linked, err := os.Lstat(path)
-	// The file must still be the regular file checked above, not one a
-	// concurrent change put in its place.
-	if err != nil || !opened.Mode().IsRegular() || !os.SameFile(opened, linked) {
-		return nil, errOutsidePackage
-	}
-	if opened.Size() > limit {
-		return nil, fmt.Errorf("plugin page resource is larger than %d bytes", limit)
-	}
-	data, err := io.ReadAll(io.LimitReader(file, limit+1))
-	if err != nil {
-		return nil, err
-	}
-	if int64(len(data)) > limit {
-		return nil, fmt.Errorf("plugin page resource is larger than %d bytes", limit)
-	}
-	return data, nil
 }
 
 // Loaded reports a navigation of the page; one that leaves the plugin's

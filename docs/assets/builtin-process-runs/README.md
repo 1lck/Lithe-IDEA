@@ -11,17 +11,18 @@ Shell 脚本在系统 shell 里真实运行，控制台内容是真实输出，�
 对话框左侧是工具栏（+ 新建、− 删除、复制、新建文件夹、按字母顺序排序）和按类型分组的配置树，右侧是选中配置的编辑器。
 配置树的图标是各类型的彩色文件图标：Shell 脚本、PowerShell 脚本、批处理脚本和程序各不相同。
 底部左边是“运行”，右边是“取消 / 应用 / 确定”。
+编辑器最底下是和 IDEA 一样的“执行前”区域：可折叠的标题和带工具栏（+ − ✎ ↑ ↓）的列表，截图里的配置都没有执行前任务。
 编辑器的名称行右侧是“存为项目文件”和“允许多个实例”；勾选后者的配置再次运行时，在旁边另开一个实例，不先停掉正在运行的那个（两个实例同时运行的截图在 `docs/assets/plugin-declared-runs/`）。
 
 | 场景 | 深色中文 | 浅色英文 |
 | --- | --- | --- |
 | 还没有配置时打开对话框，和 IDEA 一样：左侧是“未添加运行配置。”和链接“添加新… ⌃N”，右侧是链接“添加新的运行配置…”和“或选择要编辑的运行配置”。两个链接和 ⌃N 都打开类型菜单 | [截图](builtin-run-dialog-empty-dark.png) | [截图](builtin-run-dialog-empty-light.png) |
 | 新建 Shell 脚本，执行方式为脚本文件：勾选了“存为项目文件”，填了脚本路径、脚本选项、项目内的工作目录和一个环境变量。解释器路径选的是“自动”，下拉框显示自动值，取自脚本首行的 `#!/bin/bash`。脚本选项、解释器路径和解释器选项旁的 ⓘ 说明各自传给谁 | [截图](builtin-run-shell-file-dark.png) | [截图](builtin-run-shell-file-light.png) |
-| 同一配置换成脚本文本，出现多行文本框。文本没有首行 `#!`，解释器自动值变为 `/bin/sh` | [截图](builtin-run-shell-text-dark.png) | [截图](builtin-run-shell-text-light.png) |
+| 同一配置换成脚本文本，出现脚本文本框：默认 1 行，随内容逐行增高（这里两行命令加末尾换行，共 3 行），超过 4 行后在框内滚动。文本没有首行 `#!`，解释器自动值变为 `/bin/sh` | [截图](builtin-run-shell-text-dark.png) | [截图](builtin-run-shell-text-light.png) |
 | 展开解释器路径下拉：第一项是“自动（/bin/sh）”，然后是终端检测到的 POSIX shell（zsh、bash），最后是“自定义…”。截图用固定的 shell 列表（zsh、bash、pwsh），pwsh 不属于 Shell 脚本这一类，所以不列出 | [截图](builtin-run-interpreter-list-dark.png) | [截图](builtin-run-interpreter-list-light.png) |
 | 选“自定义…”后，下拉下方出现“自定义解释器”输入框，可以填命令名（按 PATH 查找）或路径，右侧按钮用来选择文件。这里填了 `/opt/homebrew/bin/bash`；改回“自动”或选某个 shell 后，输入框收起 | [截图](builtin-run-interpreter-custom-dark.png) | [截图](builtin-run-interpreter-custom-light.png) |
 | 点击对话框的“运行”后：配置写入 `.lithe/run/configurations.yaml`，对话框关闭，Run 窗口打开并选中这次运行。控制台打印脚本输出，执行树以“进程已结束，退出码 0。”结束；标题栏改选 Greet | [截图](builtin-run-run-output-dark.png) | [截图](builtin-run-run-output-light.png) |
-| 再次打开对话框并展开“+”菜单：列出四类内置运行，批处理脚本下注明“仅 Windows” | [截图](builtin-run-new-menu-dark.png) | [截图](builtin-run-new-menu-light.png) |
+| 再次打开对话框并展开“+”菜单：四类内置运行每类占一行，说明放在名称后的 ⓘ 里，悬停时显示；批处理脚本的 ⓘ 显示“仅 Windows” | [截图](builtin-run-new-menu-dark.png) | [截图](builtin-run-new-menu-light.png) |
 | 新建 PowerShell 脚本：macOS 上的解释器自动值是 pwsh，解释器选项自动值是 `-NoLogo -NoProfile`。“绕过执行策略（-ExecutionPolicy Bypass）”默认勾选，ⓘ 说明只在 Windows 生效 | [截图](builtin-run-powershell-dark.png) | [截图](builtin-run-powershell-light.png) |
 | 新建可执行程序：程序路径、程序参数（含带引号的空格参数）和工作目录 | [截图](builtin-run-executable-dark.png) | [截图](builtin-run-executable-light.png) |
 | 在 macOS 上新建批处理脚本：能编辑、能保存，编辑器顶部提示“批处理脚本只能在 Windows 上运行；在这台电脑上可以编辑和保存，但不能运行。”。配置树里这一行带警告图标，对话框的“运行”置灰 | [截图](builtin-run-batch-dark.png) | [截图](builtin-run-batch-light.png) |

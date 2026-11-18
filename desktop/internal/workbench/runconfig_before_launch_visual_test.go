@@ -15,8 +15,9 @@ import (
 )
 
 // TestVisualBeforeLaunchSteps captures the steps before launch: the Run/Debug Configurations
-// window editing a run with two steps, the question before the steps a project file names
-// run, and the Run window after the steps and the run. It needs only LITHE_VISUAL_OUTPUT_DIR;
+// window editing a run with two steps, the same list with a step selected and the list of
+// configurations to run open, the question before the steps a project file names run, and
+// the Run window after the steps and the run. It needs only LITHE_VISUAL_OUTPUT_DIR;
 // the dark captures are in Chinese and the light ones in English.
 func TestVisualBeforeLaunchSteps(t *testing.T) {
 	out := os.Getenv("LITHE_VISUAL_OUTPUT_DIR")
@@ -43,6 +44,7 @@ func TestVisualBeforeLaunchSteps(t *testing.T) {
 			writeBeforeLaunchDocument(t, root, "configurations.yaml",
 				beforeLaunchEcho("user:generate", "generated-sources"),
 				beforeLaunchEcho("user:frontend", "frontend-built"),
+				beforeLaunchEcho("user:docs", "docs-built"),
 				server,
 			)
 			prefs := store.At(t.TempDir())
@@ -80,7 +82,15 @@ func TestVisualBeforeLaunchSteps(t *testing.T) {
 				return draft != nil && draft.form != nil && draft.form.open && !draft.form.loading && draft.form.beforeLaunch != nil
 			})
 			shot("editor")
-			h.app.post(func(a *App) { a.closeRunConfigDialog(p) })
+			steps := d.drafts["user:server"].form.beforeLaunch
+			h.app.post(func(*App) { steps.selected = 1 })
+			h.settleChain()
+			h.app.post(func(*App) { steps.choose = true })
+			shot("choose")
+			h.app.post(func(a *App) {
+				steps.choose = false
+				a.closeRunConfigDialog(p)
+			})
 
 			h.app.post(func(a *App) { a.runConfiguration(p, "user:server") })
 			awaitStateWithin(t, h, 10*time.Second, "the confirmation", func() bool { return p.runConfigs.beforeLaunch != nil })

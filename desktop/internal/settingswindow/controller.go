@@ -370,7 +370,7 @@ type Options struct {
 	// SystemLanguage is the language the system asks for, which the choice "follow the
 	// system" resolves to and names.
 	SystemLanguage i18n.Language
-	// Version is the application's version, shown on the About and Updates pages.
+	// Version is the application's version, shown on the About page.
 	Version string
 	// Stable says the build is a stable release, packaged from its release tag
 	// (buildinfo.Stable). The pages show any other build's version as a preview.
@@ -455,8 +455,7 @@ type Options struct {
 	// version and then installs it and restarts (it installs at once a download that is
 	// already verified), and CancelUpdate stops a download; none of them waits.
 	// SetAutoCheckUpdates hands a change of Values.AutoCheckUpdates to the owner. A nil
-	// UpdateStatus leaves the Updates page unavailable and the About page without its
-	// update card.
+	// UpdateStatus leaves the About page without its update card.
 	UpdateStatus        func() UpdateStatus
 	CheckForUpdates     func()
 	UpdateNow           func()
