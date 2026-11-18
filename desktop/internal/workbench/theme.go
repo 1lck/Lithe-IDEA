@@ -1,6 +1,7 @@
 package workbench
 
 import (
+	"github.com/1lck/Lithe-IDEA/desktop/internal/uistyle"
 	"github.com/vivaui/viva/app"
 	"github.com/vivaui/viva/gfx"
 )
@@ -163,13 +164,7 @@ func lightLook() (gfx.Theme, palette) {
 	theme.Metrics = theme.Metrics.WithDensity(gfx.DensityCompact)
 	theme.Metrics.FontSizeS = 12
 	theme.Transition.Duration = 0
-	// Hover tips keep IDEA's own surface: a four point corner, a one point border and the
-	// two theme colors, instead of the inverted body the shared default draws.
-	theme.Tooltip = gfx.TooltipStyle{
-		Radius: 4, PadX: 12, PadY: 8, FontSize: 13,
-		Background: gfx.RGB24(0xFFFFFF), Text: gfx.RGB24(0x000000),
-		Border: gfx.RGB24(0xD1D3D9), BorderSize: 1,
-	}
+	theme.Tooltip = uistyle.Tooltip(false)
 	return theme, p
 }
 
@@ -224,11 +219,7 @@ func darkLook() (gfx.Theme, palette) {
 	theme.Metrics = theme.Metrics.WithDensity(gfx.DensityCompact)
 	theme.Metrics.FontSizeS = 12
 	theme.Transition.Duration = 0
-	theme.Tooltip = gfx.TooltipStyle{
-		Radius: 4, PadX: 12, PadY: 8, FontSize: 13,
-		Background: gfx.RGB24(0x33353B), Text: gfx.RGB24(0xD1D3D9),
-		Border: gfx.RGB24(0x33353B), BorderSize: 1,
-	}
+	theme.Tooltip = uistyle.Tooltip(true)
 	return theme, p
 }
 

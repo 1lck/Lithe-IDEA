@@ -2,7 +2,19 @@ package workbench
 
 import (
 	"testing"
+
+	"github.com/1lck/Lithe-IDEA/desktop/internal/uistyle"
 )
+
+// The workbench's tips are the client's shared tip in each look, the same one the settings
+// and log windows draw, instead of a style of its own.
+func TestWorkbenchTipsAreTheSharedTip(t *testing.T) {
+	light, _ := lightLook()
+	dark, _ := darkLook()
+	if light.Tooltip != uistyle.Tooltip(false) || dark.Tooltip != uistyle.Tooltip(true) {
+		t.Fatalf("workbench tips light %+v, dark %+v, want the shared %+v and %+v", light.Tooltip, dark.Tooltip, uistyle.Tooltip(false), uistyle.Tooltip(true))
+	}
+}
 
 // The selection of a list stays marked but greys while another window has the keyboard,
 // and comes back when this window is activated again.
