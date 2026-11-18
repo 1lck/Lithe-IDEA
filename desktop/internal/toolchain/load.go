@@ -44,6 +44,23 @@ func RegistryInput(manifests []json.RawMessage) (json.RawMessage, error) {
 	}{plugins})
 }
 
+// PluginNames maps each manifest's plugin ID to its display name. Manifests
+// without either field are left out; the caller then shows the plugin ID.
+func PluginNames(manifests []json.RawMessage) map[string]string {
+	names := make(map[string]string, len(manifests))
+	for _, manifest := range manifests {
+		var identity struct {
+			ID          string `json:"id"`
+			DisplayName string `json:"displayName"`
+		}
+		if json.Unmarshal(manifest, &identity) != nil || identity.ID == "" || identity.DisplayName == "" {
+			continue
+		}
+		names[identity.ID] = identity.DisplayName
+	}
+	return names
+}
+
 // Load reads one project directory: declared scans, native evidence, bounded
 // probes, Core's candidate report and the effective layer for every definition.
 // It writes nothing.
@@ -83,6 +100,7 @@ func Load(ctx context.Context, kernel Kernel, root, directory string, manifests 
 	if err != nil {
 		return Snapshot{}, err
 	}
+	pluginNames := PluginNames(manifests)
 	definitions := make(map[string]core.ToolchainToolDefinition, len(registry.Definitions))
 	for _, entry := range registry.Definitions {
 		definitions[entry.Definition.ID] = entry.Definition
@@ -127,6 +145,9 @@ func Load(ctx context.Context, kernel Kernel, root, directory string, manifests 
 			ID:                         planned.Tool,
 			DisplayName:                definition.DisplayName,
 			PluginID:                   planned.PluginID,
+			PluginName:                 pluginNames[planned.PluginID],
+			Category:                   definition.Category,
+			Audience:                   definition.Audience,
 			Providers:                  planned.Providers,
 			Shell:                      prepared.candidates.Shell,
 			Installations:              prepared.candidates.Installations,
@@ -183,9 +204,20 @@ func Load(ctx context.Context, kernel Kernel, root, directory string, manifests 
 			if automatic.Outcome.Selection.Home != nil {
 				tool.AutomaticHome = *automatic.Outcome.Selection.Home
 			}
+			tool.Automatic = automatic.Outcome.Selection
+		} else {
+			tool.AutomaticReason = "notFound"
+			if automatic.Outcome.Reason != nil && automatic.Outcome.Reason.Code != "" {
+				tool.AutomaticReason = automatic.Outcome.Reason.Code
+			}
 		}
 		if resolution.Outcome.Kind == "resolved" {
 			tool.Effective = resolution.Outcome.Selection
+		} else {
+			tool.Reason = "notFound"
+			if resolution.Outcome.Reason != nil && resolution.Outcome.Reason.Code != "" {
+				tool.Reason = resolution.Outcome.Reason.Code
+			}
 		}
 		snapshot.Tools = append(snapshot.Tools, tool)
 	}

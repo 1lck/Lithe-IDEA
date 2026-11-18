@@ -14,10 +14,11 @@ type steppingChange struct {
 	filters *core.DebugSteppingFilters
 }
 
-// TestSteppingCardAppliesAndRestoresAnAdaptersFilters walks the Build page's stepping card:
-// it starts from the plugin's declared defaults, Apply has Core check the draft and hands
-// the result to the settings owner, and Use Plugin Defaults removes the user's policy.
-func TestSteppingCardAppliesAndRestoresAnAdaptersFilters(t *testing.T) {
+// TestDebuggersPageAppliesAndRestoresAnAdaptersFilters walks the Debuggers page: it starts
+// from the plugin's declared defaults, the footer's Apply has Core check the draft and hands
+// the result to the settings owner, and Use Plugin Defaults followed by Apply removes the
+// user's policy.
+func TestDebuggersPageAppliesAndRestoresAnAdaptersFilters(t *testing.T) {
 	var changes []steppingChange
 	normalized := 0
 	w := newWindow(NewController(Options{
@@ -33,24 +34,29 @@ func TestSteppingCardAppliesAndRestoresAnAdaptersFilters(t *testing.T) {
 			changes = append(changes, steppingChange{adapter, filters})
 		},
 	}), Values{})
-	w.sess.page = pageBuild
+	w.sess.page = pageDebuggers
 	d := openWindow(t, w)
 	text := func(id string) string { return i18n.Shared(i18n.English, id) }
 	d.until("the debuggers to load", func() bool { return w.stepping.loaded })
 	d.pump()
 
 	if !d.text("Java Debugger") || !d.text(text("desktop.settings.stepping.usingDefaults")) {
-		t.Fatal("the card does not show the adapter and that it uses its plugin's defaults")
+		t.Fatal("the page does not show the adapter and that it uses its plugin's defaults")
 	}
 	if hit := d.hit(text("desktop.settings.stepping.skipSynthetics")); !hit.Checked {
 		t.Fatalf("the declared default skipSynthetics is not shown: %+v", hit)
 	}
-	if hit := d.hit(text("desktop.settings.stepping.apply")); !hit.Disabled {
+	apply := text("desktop.buildSettings.apply")
+	if hit := d.hit(apply); !hit.Disabled {
 		t.Fatal("Apply is enabled before anything changed")
 	}
 
 	d.click(text("desktop.settings.stepping.skipConstructors"))
-	d.click(text("desktop.settings.stepping.apply"))
+	d.pump()
+	if !d.wrapped(text("desktop.buildSettings.steppingPending")) {
+		t.Fatal("the page does not say the change waits for Apply")
+	}
+	d.click(apply)
 	d.until("the policy to be applied", func() bool { return len(changes) == 1 })
 	got := changes[0]
 	if normalized != 1 || got.adapter != "java" || got.filters == nil || !got.filters.SkipConstructors || !got.filters.SkipSynthetics ||
@@ -59,16 +65,25 @@ func TestSteppingCardAppliesAndRestoresAnAdaptersFilters(t *testing.T) {
 	}
 	d.pump()
 	if !d.text(text("desktop.settings.stepping.customized")) {
-		t.Fatal("the card does not say the policy is customized")
+		t.Fatal("the page does not say the policy is customized")
 	}
 
+	// Use Plugin Defaults only resets the draft; Apply removes the stored policy.
 	d.click(text("desktop.settings.stepping.restoreDefaults"))
-	if len(changes) != 2 || changes[1].adapter != "java" || changes[1].filters != nil {
+	d.pump()
+	if len(changes) != 1 {
+		t.Fatalf("Use Plugin Defaults wrote before Apply: %+v", changes)
+	}
+	if hit := d.hit(text("desktop.settings.stepping.skipConstructors")); hit.Checked {
+		t.Fatal("the page kept the removed policy's switch")
+	}
+	d.click(apply)
+	d.until("the policy to be removed", func() bool { return len(changes) == 2 })
+	if changes[1].adapter != "java" || changes[1].filters != nil {
 		t.Fatalf("Use Plugin Defaults = %+v", changes)
 	}
-	d.pump()
-	if hit := d.hit(text("desktop.settings.stepping.skipConstructors")); hit.Checked {
-		t.Fatal("the card kept the removed policy's switch")
+	if normalized != 1 {
+		t.Fatalf("removing the policy went to Core: normalized %d times", normalized)
 	}
 }
 
@@ -90,8 +105,9 @@ func TestRestoreDefaultsRemovesSteppingFilters(t *testing.T) {
 	}
 }
 
-func TestSteppingDraftReadsOnePatternPerLine(t *testing.T) {
-	draft := steppingDraft{patterns: "  java.*\n\n sun.* \r\n", hideFilteredFrames: true}
+// A draft's patterns are sent trimmed, without the blank ones.
+func TestSteppingDraftDropsBlankPatterns(t *testing.T) {
+	draft := steppingDraft{patterns: []string{"  java.*", "", " sun.* "}, hideFilteredFrames: true}
 	filters := draft.filters()
 	if !slices.Equal(filters.ClassNameFilters, []string{"java.*", "sun.*"}) || !filters.HideFilteredStackFrames {
 		t.Fatalf("filters = %+v", filters)

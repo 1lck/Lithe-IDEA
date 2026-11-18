@@ -57,6 +57,16 @@ type Tool struct {
 	ID          string   `json:"id"`
 	DisplayName string   `json:"displayName"`
 	PluginID    string   `json:"pluginID"`
+	// PluginName is the declaring plugin's manifest display name, empty when the
+	// manifest has none; the settings page then shows PluginID.
+	PluginName string `json:"pluginName,omitempty"`
+	// Category and Audience are the definition's display group (toolDefinitions
+	// 1); empty means other and user.
+	Category string `json:"category,omitempty"`
+	Audience string `json:"audience,omitempty"`
+	// Reason is Core's stable code when no installation applies, empty when the
+	// tool resolved.
+	Reason string `json:"reason,omitempty"`
 	// Providers are the qualified provider IDs that declared this tool. Their
 	// answers are not queried by this client yet, so the view states it.
 	Providers []string `json:"providers"`
@@ -69,6 +79,11 @@ type Tool struct {
 	Installations []core.ToolchainInstallation        `json:"installations"`
 	Skipped       []core.ToolchainSkippedInstallation `json:"skipped"`
 	AutomaticHome string                              `json:"automaticHome,omitempty"`
+	// Automatic is the whole selection behind AutomaticHome: what the tool falls back
+	// to when the scope pins nothing, with its version and layer. Nil when that
+	// resolution found nothing; AutomaticReason is then Core's code.
+	Automatic       *core.ToolchainSelection `json:"automatic,omitempty"`
+	AutomaticReason string                   `json:"automaticReason,omitempty"`
 
 	Effective *core.ToolchainSelection        `json:"effective,omitempty"`
 	Trace     []core.ToolchainResolutionTrace `json:"trace"`
