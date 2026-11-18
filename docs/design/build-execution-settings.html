@@ -106,7 +106,7 @@ select.inp{padding:3px 6px}
 .sw{width:30px;height:18px;border-radius:9px;background:#c4c7cd;position:relative;cursor:pointer;flex:none;border:0;padding:0;transition:background .15s}
 html.dark .sw{background:#55585e}
 .sw::after{content:"";position:absolute;top:2px;left:2px;width:14px;height:14px;border-radius:50%;background:#fff;transition:left .15s}
-.sw.on{background:var(--accent)} .sw.on::after{left:14px}
+.sw.on,html.dark .sw.on{background:var(--accent)} .sw.on::after{left:14px}
 .sdot{width:8px;height:8px;border-radius:50%;background:var(--ok);flex:none;display:inline-block}
 .sdot.err{background:var(--err)} .sdot.warn{background:var(--warn)} .sdot.idle{background:var(--faint)}
 .muted{color:var(--sub);font-size:12px}.faint{color:var(--faint);font-size:11.5px}
@@ -855,7 +855,7 @@ function pgPlugin(id){
   }
   return `<div class="page" style="max-width:900px">
     <div style="display:flex;align-items:center;gap:10px;margin-bottom:14px">${picon(p.pk,"lg")}<div><h2>${esc(p.name)}</h2><div class="muted">由 ${esc(P[p.pk]?.name||p.pk)} 提供 · ${esc(P[p.pk]?.id||"")}</div></div></div>
-    <div class="canvas"><span class="cap">插件内容区（描述模式或自绘网页，由插件绘制）</span><div style="padding-top:6px">${body}</div></div>
+    <div class="canvas"><span class="cap">插件内容区（描述模式，可含画布节点；宿主按插件的描述绘制，见 plugin-canvas-scene.html）</span><div style="padding-top:6px">${body}</div></div>
   </div>`;
 }
 function pgOther(){return `<div class="empty">原型只覆盖“构建、执行、部署”分组。</div>`;}
