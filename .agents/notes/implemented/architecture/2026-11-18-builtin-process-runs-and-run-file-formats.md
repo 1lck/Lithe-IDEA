@@ -56,6 +56,19 @@ Shell 脚本、PowerShell 脚本、cmd 批处理（只能在 Windows 上运行�
 
 `runConfig.editorForm` 返回字段列表（类型、是否必填、位置、自动值、可选项、`visibleWhen` 条件、说明）和当前值，`formVersion` 为 1。宿主（`runconfig_form.go`、`runconfig_form_view.go`）只画同时满足两个条件的字段：类型是它认识的，`shared/i18n` 里有这个字段 ID 的标题。其余字段跳过不画，值原样回传。Core 返回的 `formVersion` 比宿主新时，宿主不打开表单，提示升级。
 
+### 解释器路径从终端检测到的 shell 里选
+
+Shell、PowerShell 和批处理表单的解释器字段（`kind: executable`）带 `shellFamily`，值是 `posix`、`powershell` 或 `cmd`，由 Core 的 `Kind::shell_family`（`process.rs`）给出；二进制程序的 `program` 字段不带。哪种运行用哪类 shell 是运行规则，放在 Core。本机装了哪些 shell、某个程序属于哪类，是平台层的事：宿主复用终端“新建终端”菜单的查找（`localshell.InstalledShells`）和分类（`shellkind.FromProgram`）。
+
+宿主（`runconfig_shell_view.go`）把带 `shellFamily` 的字段画成和工具链设置一样的下拉：
+
+- “自动（实际生效值）”：字段为空，Core 按自动值运行；
+- 同类的已安装 shell，显示名字和路径，选中后字段写入该路径；WSL 发行版的登录 shell 没有能直接启动的程序路径，不列出；
+- 字段里已有、但不在列表中的值，原样显示；
+- “自定义…”：下面出现输入框和浏览按钮，可以填命令名（按 PATH 查找）或路径；改选其他项之前一直显示。
+
+表单第一次画出时，宿主在后台重新查找一次 shell，所以刚装的 shell 也能列出；查找结束前，列表里只有自动、当前值和自定义。保存的值仍是命令名或路径，YAML、校验和启动计划都不变。宿主不认识的 `shellFamily` 按普通程序字段画。
+
 ### 在“运行/调试配置”对话框里新建和编辑
 
 对话框参照 IDEA 的同名窗口（`runconfig_dialog.go`、`runconfig_dialog_view.go`），在应用窗口内以模态层显示，不开系统窗口。入口有三个：标题栏运行下拉的“新建运行配置…”和“编辑运行配置…”，以及构建窗口配置列表表头的“+”。列表里的编辑按钮也打开它，并选中那一条。
@@ -74,6 +87,7 @@ Shell 脚本、PowerShell 脚本、cmd 批处理（只能在 Windows 上运行�
 - 给 Shell 表单加一个参数框：在 Core 的 `form.rs` 描述字段、在 `process.rs` 解释它的值，再在 `shared/i18n/` 加标题词条。宿主已认识这种类型时，不用改任何宿主代码。
 - 新增一种全新的字段类型：先在宿主实现它的绘制，再让 Core 开始返回它；旧宿主跳过新字段，配置照样能保存。
 - 插件运行需要新的元数据：加进插件 TOML 的 `[plugin]` 头，由 Core 读写，宿主不解析 TOML。
+- 别的字段也要从本机已安装的工具里选：在 Core 的字段上标一个属性（像 `shellFamily`），宿主按属性复用平台层已有的查找，不按字段 ID 或运行类型分支。
 
 ### 不要这样做
 
@@ -81,6 +95,8 @@ Shell 脚本、PowerShell 脚本、cmd 批处理（只能在 Windows 上运行�
 - 不要在宿主或 Core 里直接写 `.lithe/run/` 下的文件，绕过 `changes` 和哈希检查会覆盖别人刚做的修改。
 - 不要让内置运行等构建模型加载完、或等插件宿主就绪再出现，那正是这次要去掉的依赖。
 - 不要把脚本文本写进项目目录或 app bundle。它是一次性的运行产物，只放系统临时目录。
+- 不要在宿主里按运行类型（`process.shell` 等）决定列出哪类 shell，只读 `shellFamily`。
+- 不要用 `ui.C.After` 推迟 shell 查找：表单第一次画出的那一帧通常没有点击，这种帧会丢掉推迟的回调，列表就一直是空的。查找本身在后台运行，直接在绘制时发起即可。
 
 ## 考虑过的备选方案
 
@@ -116,12 +132,12 @@ Shell 脚本、PowerShell 脚本、cmd 批处理（只能在 Windows 上运行�
 
 - 收益：不装插件也能运行脚本和程序；运行配置可以按团队和本机分开提交；插件配置能说明自己依赖哪个插件；以后加字段时，通常只需改 Core 和词条。
 - 代价：多了一种文件格式和一套插件元数据要维护；脚本文本运行要在临时目录写文件，进程崩溃时留下的目录由系统清理；旧 macOS 客户端读不到 Viva 已转换的那一层配置。
-- Windows 上裸写的 `bash` 可能解析到 WSL 的启动器，需要 Git Bash 时要在解释器路径里填完整路径。批处理的 `commandLine` 只按 cmd 的规则加引号，不转义 `%`。
+- Windows 上裸写的 `bash` 可能解析到 WSL 的启动器，需要 Git Bash 时从解释器下拉选终端检测到的 Git Bash，或在“自定义…”里填完整路径。批处理的 `commandLine` 只按 cmd 的规则加引号，不转义 `%`。
 - 需要重新评估：Windows 或 Linux 实机验收发现的解释器或引号问题；插件需要在 TOML 里放自定义字段时；`formVersion` 需要升到 2 时。
 
 ## 验证
 
-- `scripts/desktop/desktop-go.sh test ./internal/core/... ./internal/buildprocess/... ./internal/workbench/...`：`runconfig_process_test.go` 用系统 shell 真实运行脚本，并断言 Run 窗口打开、输出进入控制台；`runconfig_dialog_test.go` 覆盖对话框的应用、取消、删除、复制、分组折叠，以及批处理在非 Windows 上能编辑、能保存、不能运行；`runconfig_browser_test.go`、`title_run_test.go`、`runconfig_edit_test.go` 覆盖列表、标题栏和插件运行的编辑。
+- `scripts/desktop/desktop-go.sh test ./internal/core/... ./internal/buildprocess/... ./internal/workbench/...`：`runconfig_process_test.go` 用系统 shell 真实运行脚本，并断言 Run 窗口打开、输出进入控制台；`runconfig_dialog_test.go` 覆盖对话框的应用、取消、删除、复制、分组折叠，以及批处理在非 Windows 上能编辑、能保存、不能运行；`runconfig_shell_test.go` 覆盖解释器下拉只列同类 shell、选中 shell 写入路径、“自定义…”输入、改回自动和保存；`runconfig_browser_test.go`、`title_run_test.go`、`runconfig_edit_test.go` 覆盖列表、标题栏和插件运行的编辑。
 - `scripts/desktop/desktop-go.sh test -tags 'vivahead lithevisual' ./internal/workbench -run '^(TestVisualBuiltInProcessRuns|TestVisualTitleRunWithoutConfigurations)$'`：设置 `LITHE_VISUAL_OUTPUT_DIR` 后生成 `docs/assets/builtin-process-runs/` 和 `docs/assets/run-config-empty/` 的截图。
 - Core 仓库的 `cargo test -p lithe-execution -p lithe-core`：覆盖表单、校验、启动计划、YAML/TOML 读写、旧 JSON 和插件可用性。
 - `./scripts/desktop/verify/verify-runtime-bundle-immutability.sh`：确认运行不写发行目录。
@@ -132,6 +148,7 @@ Shell 脚本、PowerShell 脚本、cmd 批处理（只能在 Windows 上运行�
 - `desktop/internal/workbench/runconfig_changes.go`
 - `desktop/internal/workbench/runconfig_form.go`
 - `desktop/internal/workbench/runconfig_form_view.go`
+- `desktop/internal/workbench/runconfig_shell_view.go`
 - `desktop/internal/workbench/runconfig_dialog.go`
 - `desktop/internal/workbench/runconfig_dialog_view.go`
 - `desktop/internal/workbench/title_run_view.go`

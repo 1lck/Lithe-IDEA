@@ -63,6 +63,10 @@ type runConfigForm struct {
 	// refreshing says an editorForm request for the edited values is out, so the automatic
 	// values follow the edit; stale says a value changed since it was sent.
 	refreshing, stale bool
+	// shellPicks are the interpreter lists by field ID; shellsAsked says the installed shells
+	// were looked for since the form opened.
+	shellPicks  map[string]*runConfigShellPick
+	shellsAsked bool
 }
 
 // runConfigVariable is one environment variable row of the editor.

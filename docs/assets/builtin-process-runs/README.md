@@ -14,8 +14,10 @@ Shell 脚本在系统 shell 里真实运行，控制台内容是真实输出，�
 | 场景 | 深色中文 | 浅色英文 |
 | --- | --- | --- |
 | 还没有配置时打开对话框：左侧提示点 + 新建，右侧列出 macOS 提供的四类内置运行。批处理脚本（cmd）标“仅 Windows”，但也能新建 | [截图](builtin-run-dialog-empty-dark.png) | [截图](builtin-run-dialog-empty-light.png) |
-| 新建 Shell 脚本，执行方式为脚本文件：勾选了“存为项目文件”，填了脚本路径、脚本选项、项目内的工作目录和一个环境变量。解释器路径没填，自动值取自脚本首行的 `#!/bin/bash`。脚本选项、解释器路径和解释器选项旁的 ⓘ 说明各自传给谁 | [截图](builtin-run-shell-file-dark.png) | [截图](builtin-run-shell-file-light.png) |
+| 新建 Shell 脚本，执行方式为脚本文件：勾选了“存为项目文件”，填了脚本路径、脚本选项、项目内的工作目录和一个环境变量。解释器路径选的是“自动”，下拉框显示自动值，取自脚本首行的 `#!/bin/bash`。脚本选项、解释器路径和解释器选项旁的 ⓘ 说明各自传给谁 | [截图](builtin-run-shell-file-dark.png) | [截图](builtin-run-shell-file-light.png) |
 | 同一配置换成脚本文本，出现多行文本框。文本没有首行 `#!`，解释器自动值变为 `/bin/sh` | [截图](builtin-run-shell-text-dark.png) | [截图](builtin-run-shell-text-light.png) |
+| 展开解释器路径下拉：第一项是“自动（/bin/sh）”，然后是终端检测到的 POSIX shell（zsh、bash），最后是“自定义…”。截图用固定的 shell 列表（zsh、bash、pwsh），pwsh 不属于 Shell 脚本这一类，所以不列出 | [截图](builtin-run-interpreter-list-dark.png) | [截图](builtin-run-interpreter-list-light.png) |
+| 选“自定义…”后，下拉下方出现“自定义解释器”输入框，可以填命令名（按 PATH 查找）或路径，右侧按钮用来选择文件。这里填了 `/opt/homebrew/bin/bash`；改回“自动”或选某个 shell 后，输入框收起 | [截图](builtin-run-interpreter-custom-dark.png) | [截图](builtin-run-interpreter-custom-light.png) |
 | 点击对话框的“运行”后：配置写入 `.lithe/run/configurations.yaml`，对话框关闭，Run 窗口打开并选中这次运行。控制台打印脚本输出，执行树以“进程已结束，退出码 0。”结束；标题栏改选 Greet | [截图](builtin-run-run-output-dark.png) | [截图](builtin-run-run-output-light.png) |
 | 再次打开对话框并展开“+”菜单：列出四类内置运行，批处理脚本下注明“仅 Windows” | [截图](builtin-run-new-menu-dark.png) | [截图](builtin-run-new-menu-light.png) |
 | 新建 PowerShell 脚本：macOS 上的解释器自动值是 pwsh，解释器选项自动值是 `-NoLogo -NoProfile`。“绕过执行策略（-ExecutionPolicy Bypass）”默认勾选，ⓘ 说明只在 Windows 生效 | [截图](builtin-run-powershell-dark.png) | [截图](builtin-run-powershell-light.png) |

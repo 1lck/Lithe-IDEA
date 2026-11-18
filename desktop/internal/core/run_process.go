@@ -37,7 +37,9 @@ func (c *Client) RunConfigurationTypes(ctx context.Context) ([]RunConfigurationT
 // checkbox, choice, file, multilineText, arguments, directory, environment or
 // executable; a host skips a kind it does not know and still sends its value
 // back. Automatic is the value used while the field is empty, shown as its
-// placeholder. Note is an explanation key, such as windowsOnly.
+// placeholder. Note is an explanation key, such as windowsOnly. ShellFamily, on
+// an executable field, is the family of shell it takes (posix, powershell or
+// cmd), so a host can offer the installed shells of that family.
 type RunEditorField struct {
 	ID          string             `json:"id"`
 	Kind        string             `json:"kind"`
@@ -47,6 +49,7 @@ type RunEditorField struct {
 	Options     []string           `json:"options,omitempty"`
 	VisibleWhen *RunFieldCondition `json:"visibleWhen,omitempty"`
 	Note        string             `json:"note,omitempty"`
+	ShellFamily string             `json:"shellFamily,omitempty"`
 	// Candidates are the configurations a beforeLaunch field may name.
 	Candidates []RunConfigurationName `json:"candidates,omitempty"`
 }
