@@ -108,17 +108,21 @@ Viva 由 `desktop/go.mod` 的 `replace` 固定到 [Lithe-IDEA/viva](https://gith
 并按作用语义放进对应子目录（CI 脚本在 `scripts/ci/<工作流名>/` 下），不得直接放在 `scripts/` 根目录。
 入口文件只保留这条提醒，目录表和同步清单以该参考页为准。
 
-## 工作树缓存复用与资源说明
+## 检出与编译缓存复用
 
-- Go 的构建缓存和模块缓存、Cargo 的 `~/.cargo/registry` 是所有工作树共用的全局缓存，不得为工作树另设位置、
-  复制或清空。
-- 每个 Git worktree 有自己的 `.artifacts`，仓库不提供跨工作树复制资源的脚本。在新工作树编译前，按
-  `develop-lithe` Skill 的“工作树缓存复用”一节尽量复用已有缓存；`.artifacts` 只复制，不让两个工作树共用同一个目录，
-  运行时状态、用户数据和 LSP workspace 状态不得复制。
+- 能在分支上做就不开工作树。本仓库和 Lithe-core-rust 都按这个顺序选检出：主检出空闲就在主检出从最新 `origin/main`
+  切分支；主检出被占用就复用空闲的已有工作树，在其中切分支；都被占用才新建工作树。“空闲”的判定和后台任务的做法见
+  `develop-lithe` Skill 的“检出与编译缓存复用”一节。
+- 不得在系统临时目录或会话临时目录里克隆仓库、创建工作树或放置 Cargo 编译目录，不得把 `CARGO_TARGET_DIR`
+  指向临时目录或另一个检出。
+- Go 的构建缓存和模块缓存、Cargo 的 `~/.cargo/registry` 是所有检出共用的全局缓存，不得另设位置、复制或清空。
+- 新工作树第一次编译前，按 Skill 从已有检出复制编译产物（本仓库的 `.artifacts/desktop`、Core 的 `rust/target`）；
+  只复制，不让两个检出共用同一个编译目录，运行时状态、用户数据和 LSP workspace 状态不得复制。
 - 新增或修改任何下载、解压、生成或缓存资源时，同步更新 `docs/ci-builds.md` 的“独立工作树的本地编译”
   章节，写清资源路径、归属与生命周期、能否跨工作树复制及前提（版本/平台/架构/工具链身份），不能复制时写明原因。
 
 入口文件只保留这条提醒；做法见 Skill，决策原因见
+[先复用已有检出，再新建工作树](.agents/notes/implemented/process/2026-11-18-reuse-checkouts-before-new-worktrees.md)和
 [工作树缓存复用改由 Agent 按 Skill 提醒判断](.agents/notes/implemented/process/2026-11-16-worktree-cache-reuse-without-script.md)。
 
 ### LSP 插件构建入口
