@@ -49,7 +49,7 @@ func (a *App) buildRowMenu(c ui.C, row ui.Box, p *project, instance *buildInstan
 					continue
 				}
 				runID := run.ID
-				if menu.Item(a.text.Build.RunTarget(run.ActionName(spec.target.Name))).Disabled(b.operation != nil || instance.modelLoading).Clicked() {
+				if menu.Item(a.text.Build.RunTarget(run.ActionName(spec.target.Name))).Disabled(instance.modelLoading).Clicked() {
 					c.After(func() {
 						a.performed("build.target.run", surfaceContextMenu)
 						choose()
@@ -60,7 +60,7 @@ func (a *App) buildRowMenu(c ui.C, row ui.Box, p *project, instance *buildInstan
 				// The same target under the debugger, when the run declares how: an adapter of its
 				// own plugin starts the program the provider prepares, or the registered adapter of
 				// its public type attaches to the service the provider starts.
-				if run.Debuggable() && menu.Item(i18n.Shared(lang, "desktop.build.debugTarget")).Disabled(b.operation != nil || instance.modelLoading || p.debug.preparing).Clicked() {
+				if run.Debuggable() && menu.Item(i18n.Shared(lang, "desktop.build.debugTarget")).Disabled(instance.modelLoading || p.debug.preparing).Clicked() {
 					c.After(func() {
 						a.performed("build.target.debug", surfaceContextMenu)
 						choose()
@@ -70,7 +70,7 @@ func (a *App) buildRowMenu(c ui.C, row ui.Box, p *project, instance *buildInstan
 			}
 			for _, entry := range buildTargetRunEntries(instance, targetID) {
 				entryID := entry.ID
-				if menu.Item(a.text.Build.RunTarget(entry.Name)).Disabled(b.operation != nil || instance.modelLoading).Clicked() {
+				if menu.Item(a.text.Build.RunTarget(entry.Name)).Disabled(instance.modelLoading).Clicked() {
 					c.After(func() {
 						a.performed("build.target.run", surfaceContextMenu)
 						choose()

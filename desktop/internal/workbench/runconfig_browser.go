@@ -227,15 +227,6 @@ func (s *runConfigState) toggleRunConfigGroup(key string) {
 	}
 }
 
-// runningConfiguration is the run configuration the Build window's operation runs, "" when it
-// runs none.
-func (p *project) runningConfiguration() string {
-	if p.build.operation == nil {
-		return ""
-	}
-	return p.build.operation.configuration
-}
-
 // loadRunConfigPins reads the pinned configurations of the project the first time its
 // configurations resolve. A store that cannot be read leaves nothing pinned and says why.
 func (a *App) loadRunConfigPins(p *project) {

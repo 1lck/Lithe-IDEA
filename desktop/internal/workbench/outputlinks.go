@@ -5,9 +5,11 @@ import (
 	"encoding/json"
 	"os"
 	"sort"
+	"strings"
 	"time"
 
 	"github.com/1lck/Lithe-IDEA/desktop/internal/core"
+	"github.com/1lck/Lithe-IDEA/desktop/internal/i18n"
 )
 
 const (
@@ -24,7 +26,8 @@ const (
 )
 
 // outputLinkState is one project's output link matchers and what Core answered
-// for the console lines shown so far. Core decides what is a link; this only
+// for the console lines shown so far. Core decides what is a link, the web
+// addresses a line prints too, so lines are matched without any plugin; this only
 // remembers the answers so a line is matched once, not on every frame.
 type outputLinkState struct {
 	sources []core.OutputLinkSource
@@ -59,7 +62,9 @@ func (a *App) outputLinksFor(p *project, scope, line string) []core.OutputLink {
 		}
 		return nil
 	}
-	if len(l.sources) == 0 || line == "" {
+	// Core links web addresses with no matcher, so a window without plugins asks too,
+	// but only for a line that could hold one.
+	if line == "" || len(l.sources) == 0 && !strings.Contains(line, "://") {
 		return nil
 	}
 	key := outputLinkKey(scope, line)
@@ -114,7 +119,12 @@ func (a *App) flushOutputLinks(p *project) {
 	}
 	l.wanted = nil
 	l.inFlight = true
+	// A window without plugins still asks for the web addresses, with an empty list Core
+	// accepts rather than null.
 	sources := l.sources
+	if sources == nil {
+		sources = []core.OutputLinkSource{}
+	}
 	roots := []string{p.root}
 	kernel := a.kernel
 	a.background(p, outputLinkTimeout, func(ctx context.Context) func(*App) {
@@ -166,13 +176,19 @@ func (a *App) flushOutputLinks(p *project) {
 	})
 }
 
-// openOutputLink opens what a clicked link points at. A location names candidate
-// files and opens the first that exists; a link that needs its plugin asks the
-// plugin's backend first. Both run off the window thread, and a file that does
-// not exist is a notice, not a navigation.
+// openOutputLink opens what a clicked link points at. A web address opens in the
+// browser. A location names candidate files and opens the first that exists; a
+// link that needs its plugin asks the plugin's backend first. Both run off the
+// window thread, and a file that does not exist is a notice, not a navigation.
 func (a *App) openOutputLink(p *project, link core.OutputLink) {
 	messages := a.text.Run
 	switch {
+	case link.URL != "":
+		a.performed("output.link.openURL", surfaceButton)
+		if err := openURL(link.URL); err != nil {
+			a.operationFailed("output_link_open_url", err)
+			a.notifyError(i18n.SharedFormat(a.language(), "desktop.editor.linkOpenFailed", map[string]string{"reason": err.Error()}))
+		}
 	case link.Location != nil:
 		location := *link.Location
 		a.background(p, outputLinkTimeout, func(ctx context.Context) func(*App) {

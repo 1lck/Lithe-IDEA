@@ -485,10 +485,10 @@ func TestProviderRunPreparationShowsItsBuildOutput(t *testing.T) {
 	var op *buildOperation
 	h.app.post(func(a *App) {
 		a.runBuildTarget(p, targetID, "application")
-		op = p.build.operation
+		op = p.build.latest()
 	})
 	awaitStateWithin(t, h, time.Minute, "the run operation", func() bool { return op != nil })
-	awaitStateWithin(t, h, time.Minute, "the failed preparation", func() bool { return p.build.operation == nil })
+	awaitStateWithin(t, h, time.Minute, "the failed preparation", func() bool { return !p.build.active() })
 	if console := op.session.output.all(); !strings.Contains(console, "class, interface, enum, or record expected") {
 		t.Fatalf("the run console = %q, want the provider's build output", console)
 	}

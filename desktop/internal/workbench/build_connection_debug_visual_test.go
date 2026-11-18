@@ -78,7 +78,7 @@ func TestVisualServiceDebugWithoutAnAdapter(t *testing.T) {
 			if !h.shows(want) {
 				t.Fatal("the notification history did not paint the whole notice")
 			}
-			if p.build.operation != nil || p.debug.activeSession() != nil {
+			if p.build.active() || p.debug.activeSession() != nil {
 				t.Fatal("a refused debug started something")
 			}
 		})

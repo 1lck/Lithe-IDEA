@@ -239,9 +239,7 @@ func (a *App) decideTitleAction(p *project, action titleAction, trigger string) 
 		a.operationFailed("title_run", errors.New(failure))
 		a.notifyError(failure)
 	case "run":
-		if _, err := a.startRunConfiguration(p, configuration.ID); errors.Is(err, errBuildBusy) {
-			a.notifyInfo(i18n.Shared(a.language(), "desktop.title.runBusy"))
-		}
+		a.runConfiguration(p, configuration.ID)
 	case "debug":
 		// A run that names a public debug type debugs as a service the registered adapter of
 		// that type attaches to; one that names its own plugin's adapter debugs a prepared program.

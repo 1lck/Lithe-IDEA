@@ -27,6 +27,9 @@ native_path() {
     fi
 }
 
+# Lithe-core-rust main at 10da502, #84 squash-merged: outputLinks.match also links the http and
+# https addresses a console line prints, as {line, start, length, url} links the host opens in
+# the browser (#1822). It is on top of 885f2a6 (#83, TextMate injections are validated).
 # Lithe-core-rust main at cf2f260, #82 squash-merged (the same tree as its branch at 4d0dc1c, on
 # top of 18a370d): lsp.problems.query also lays out the Problems tool window's tree (the rows
 # visible under the group nodes the desktop closes, the diagnostic each row previews and opens, a
@@ -195,7 +198,7 @@ PINNED_CORE_REPOSITORY="https://github.com/Lithe-IDEA/Lithe-core-rust.git"
 # the contract, plugin guides, reference and SDKs live only in shared/plugins; on top of #16 (reported Git queries folded in the console),
 # #15 (git.write cherryPick, revert and reset fields), #14 (word-level changed ranges of diff
 # rows), #13, #8, #7, #6 and #4.
-PINNED_CORE_REVISION="cf2f26095bb352f69d248f840dd7d6126747482e"
+PINNED_CORE_REVISION="10da50295d732dfbccff9fd0d66492f1028052b3"
 PROFILE="debug"
 while [[ $# -gt 0 ]]; do
     case "$1" in

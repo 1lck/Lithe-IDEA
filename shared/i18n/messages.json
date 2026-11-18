@@ -8884,7 +8884,7 @@
     },
     {
       "id": "desktop.editor.linkOpenFailed",
-      "description": "Notification when the system cannot open a web or mail link from the editor; {reason} is the system's error",
+      "description": "Notification when the system cannot open a web or mail link from the editor or a web address in a Run or Test console; {reason} is the system's error",
       "platforms": [
         "desktop"
       ],

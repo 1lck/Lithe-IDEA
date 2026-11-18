@@ -136,7 +136,7 @@ func TestVisualBuildPanels(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, look := range []struct{ theme, language string }{{"dark", "zh-Hans"}, {"light", "en"}} {
-		for _, scene := range []string{"build-and-run", "build-sync", "build-filter", "build-go-targets"} {
+		for _, scene := range []string{"build-and-run", "concurrent-runs", "build-sync", "build-filter", "build-go-targets"} {
 			t.Run(scene+"-"+look.theme, func(t *testing.T) {
 				prefs := store.At(t.TempDir())
 				if err := prefs.Save(settingsFile, settings{Theme: themeChoice(look.theme), Language: look.language, DisableAutoSave: true}); err != nil {
@@ -201,6 +201,23 @@ func TestVisualBuildPanels(t *testing.T) {
 							info + "Total time:  8.214 s\n",
 						}, ""))
 						a.finishBuildTask(p, op, json.RawMessage(`{"exitCode":0}`))
+						a.showBuildConsole(p)
+					})
+				case "concurrent-runs":
+					h.app.post(func(a *App) {
+						// Two services at once (#2071): one still prepared, with a spinner, and one
+						// whose process runs, with the static run mark and its address linked.
+						a.beginRunOperation(p, "ShopWorker", "worker", configurationRunKey("worker"), func(*App, *project) {})
+						op := a.beginRunOperation(p, "ShopApplication", "web", configurationRunKey("web"), func(*App, *project) {})
+						op.session.processRunning = true
+						a.setOperationStatus(p, op, a.text.Build.Running)
+						feedBuildOutput(a, p, op, strings.Join([]string{
+							"  .   ____          _            __ _ _\n",
+							" :: Spring Boot ::                (v3.3.4)\n",
+							"INFO  o.s.b.w.e.tomcat.TomcatWebServer : Tomcat started on port 8080 (http) with context path '/'\n",
+							"INFO  demo.web.ShopApplication         : Started ShopApplication in 1.912 seconds\n",
+							"INFO  demo.web.ShopApplication         : Open http://localhost:8080/swagger-ui/index.html.\n",
+						}, ""))
 						a.showBuildConsole(p)
 					})
 				case "build-sync":

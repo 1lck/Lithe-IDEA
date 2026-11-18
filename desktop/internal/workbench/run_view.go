@@ -109,7 +109,9 @@ func (a *App) runSessionTabs(c ui.C, p *project) {
 // time; a stop asked of a host's execution already stopping forces it.
 func (a *App) runToolbar(c ui.C, p *project, run *runEntry) {
 	ui.Column(c).FillHeight().Shrink(0).Gap(2).Pad(4).Children(func() {
-		rerunnable := run.restart != nil && p.build.operation == nil || run.restart == nil && run.rerun != nil
+		// A task reruns only while the Build window runs no other; a run reruns at any time,
+		// replacing a run of the same key (startRun).
+		rerunnable := run.restart != nil && (run.operation == nil || run.operation.key != "" || p.build.operation == nil) || run.restart == nil && run.rerun != nil
 		if a.runToolButton(c.Part("rerun"), a.text.Run.Rerun, icons.RotateCcw, a.colors.Success, run.running || !rerunnable) {
 			c.After(func() { a.rerunRun(p, run) })
 		}
@@ -214,17 +216,23 @@ func runDetail(p *project, run *runEntry) string {
 	if run.sync != nil && run.running {
 		return run.sync.latest
 	}
-	if run.operation != nil && p.build.operation == run.operation {
-		return p.build.status
+	if run.operation != nil && p.build.owns(run.operation) {
+		return run.operation.status
 	}
 	return ""
 }
 
 // runStatusMark declares the icon of where an execution stands, size pixels square, as IDEA marks
-// one: a spinner while it runs, a green check once it succeeded, a red cross once it failed, and
-// a grey slash once the user stopped it.
+// one: a spinner while it is being prepared or a model loads, a green run mark once its process
+// runs, a green check once it succeeded, a red cross once it failed, and a grey slash once the
+// user stopped it. A service runs until it is stopped, so a spinner for as long as it runs would
+// never say it started.
 func (a *App) runStatusMark(c ui.C, run *runEntry, size float32) {
 	k := c.Part("status")
+	if run.running && run.processRunning {
+		ui.Icon(k, icons.Play).Size(size, size).Shrink(0).Color(a.colors.Success)
+		return
+	}
 	if run.running {
 		ui.Spinner(k).Size(size, size).Shrink(0)
 		return
@@ -296,7 +304,7 @@ func (a *App) runConsole(c ui.C, p *project, run *runEntry) {
 // there, on the host's execution that runs; a run a plugin starts selects its own tab when it
 // starts.
 func (a *App) showBuildConsole(p *project) {
-	if operation := p.build.operation; operation != nil && operation.session != nil {
+	if operation := p.build.latest(); operation != nil && operation.session != nil {
 		p.build.view = operation.session.id
 	}
 	a.openToolWindow(itemRun)

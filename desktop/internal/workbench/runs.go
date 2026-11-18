@@ -59,7 +59,11 @@ type runEntry struct {
 	// output is the console, decoded from the execution's ANSI escapes.
 	output  outputBuffer
 	running bool
-	outcome runOutcome
+	// processRunning says the execution's process started: before it, the execution is still
+	// being prepared (planned, compiled, asked of a provider) and the Run window shows a
+	// spinner; after it, a static running mark, since a service may run for hours.
+	processRunning bool
+	outcome        runOutcome
 	// stopping is set when the user stopped a plugin's run, so its end reads as stopped.
 	stopping       bool
 	started, ended time.Time
@@ -219,7 +223,7 @@ func (a *App) applyRunEvent(event pluginservice.RunEvent) {
 		p.links.loaded, p.links.sources = false, nil
 		entry := &runEntry{
 			id: event.RunID, pluginID: event.PluginID, label: event.Label, rerun: event.Rerun, running: true,
-			started: a.now(), output: newOutputBuffer(runOutputMaxLines, runOutputBytes),
+			processRunning: true, started: a.now(), output: newOutputBuffer(runOutputMaxLines, runOutputBytes),
 		}
 		a.addRunSession(p, entry)
 		if event.PID > 0 {
@@ -366,9 +370,7 @@ func (a *App) stopRun(p *project, entry *runEntry) {
 		return
 	}
 	if entry.pluginID == "" {
-		if entry.operation != nil && p.build.operation == entry.operation {
-			a.stopBuildOperation(p)
-		}
+		a.stopOperation(p, entry.operation)
 		return
 	}
 	if a.plugins == nil {

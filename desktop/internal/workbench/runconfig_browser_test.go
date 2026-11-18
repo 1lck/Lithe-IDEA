@@ -156,8 +156,8 @@ func TestRunConfigurationListScopesGroupsPinsAndRuns(t *testing.T) {
 	h.settle()
 
 	// The row of the configuration that runs shows it running, and its button stops it.
-	operation := &buildOperation{configuration: serve}
-	h.app.post(func(*App) { p.build.operation = operation })
+	operation := &buildOperation{configuration: serve, key: configurationRunKey(serve)}
+	h.app.post(func(*App) { p.build.running = []*buildOperation{operation} })
 	h.settle()
 	if !h.shows(i18n.Shared(lang, "native.running")) {
 		t.Fatal("the running configuration's row does not say it runs")
@@ -167,7 +167,7 @@ func TestRunConfigurationListScopesGroupsPinsAndRuns(t *testing.T) {
 	if !operation.cancelled {
 		t.Fatal("the row's stop button did not stop the run")
 	}
-	h.app.post(func(*App) { p.build.operation = nil })
+	h.app.post(func(*App) { p.build.running = nil })
 	h.settle()
 
 	// Unpinning drops the project from the store.

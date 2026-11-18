@@ -99,7 +99,7 @@ func (a *App) drawRunConfigRows(c ui.C, p *project, title string) {
 		if row.configuration < 0 {
 			key := b.groups[row.group].key
 			c.After(func() { s.toggleRunConfigGroup(key) })
-		} else if configuration := s.list[row.configuration]; p.build.operation == nil && p.runConfigurationReady(configuration) {
+		} else if configuration := s.list[row.configuration]; p.runConfigurationReady(configuration) {
 			c.After(func() {
 				a.performed("run.configuration.run", surfaceButton)
 				a.runConfiguration(p, configuration.ID)
@@ -131,7 +131,7 @@ func (a *App) drawRunConfigRow(p *project, row ui.ListRow, selected bool) {
 		return
 	}
 	configuration := s.list[r.configuration]
-	running := p.runningConfiguration() == configuration.ID
+	running := p.build.runOf(configurationRunKey(configuration.ID))
 	a.runConfigMenu(c, box, p, configuration, running)
 	box.Children(func() {
 		ui.Row(c.Part("arrow")).Size(treelist.Disclosure, treelist.Icon).Shrink(0)
@@ -142,14 +142,14 @@ func (a *App) drawRunConfigRow(p *project, row ui.ListRow, selected bool) {
 		}
 		ui.Spacer(c)
 		language := a.language()
-		if running {
+		if running != nil {
 			ui.Text(c, i18n.Shared(language, "native.running")).FontSize(small).Color(a.colors.Subtle).Shrink(0)
-			if a.gitIconButton(c.Part("stop"), runStopLabel(language, p), icons.Square, false, false) {
-				c.After(func() { a.stopBuildOperation(p) })
+			if a.gitIconButton(c.Part("stop"), runStopLabel(language, running), icons.Square, false, false) {
+				c.After(func() { a.stopOperation(p, running) })
 			}
 			return
 		}
-		disabled := p.build.operation != nil || !p.runConfigurationReady(configuration)
+		disabled := !p.runConfigurationReady(configuration)
 		if a.gitIconButton(c.Part("run"), i18n.Shared(language, "desktop.runConfig.run"), icons.Play, false, disabled) {
 			c.After(func() {
 				a.performed("run.configuration.run", surfaceButton)
@@ -159,10 +159,10 @@ func (a *App) drawRunConfigRow(p *project, row ui.ListRow, selected bool) {
 	})
 }
 
-// runStopLabel names the stop of the project's running configuration: stopping one that is
-// already stopping kills it at once.
-func runStopLabel(language i18n.Language, p *project) string {
-	if p.build.operation != nil && p.build.operation.cancelled {
+// runStopLabel names the stop of an execution: stopping one that is already stopping kills it
+// at once.
+func runStopLabel(language i18n.Language, op *buildOperation) string {
+	if op != nil && op.cancelled {
 		return i18n.Shared(language, "desktop.process.forceStop")
 	}
 	return i18n.Shared(language, "native.stopRun.variant2")
@@ -189,15 +189,15 @@ func (a *App) drawRunConfigGroupArrow(c ui.C, s *runConfigState, group runConfig
 
 // runConfigMenu declares the context menu of a configuration's row: run it or stop its run,
 // edit its saved options, and pin or unpin it.
-func (a *App) runConfigMenu(c ui.C, row ui.Box, p *project, configuration core.RunConfiguration, running bool) {
+func (a *App) runConfigMenu(c ui.C, row ui.Box, p *project, configuration core.RunConfiguration, running *buildOperation) {
 	ui.ContextMenu(c, row, func(menu *ui.MenuItems) {
 		language, id := a.language(), configuration.ID
 		menu.WidthRange(180, 280)
-		if running {
-			if menu.Item(runStopLabel(language, p)).Clicked() {
-				c.After(func() { a.stopBuildOperation(p) })
+		if running != nil {
+			if menu.Item(runStopLabel(language, running)).Clicked() {
+				c.After(func() { a.stopOperation(p, running) })
 			}
-		} else if menu.Item(i18n.Shared(language, "desktop.runConfig.run")).Disabled(p.build.operation != nil || !p.runConfigurationReady(configuration)).Clicked() {
+		} else if menu.Item(i18n.Shared(language, "desktop.runConfig.run")).Disabled(!p.runConfigurationReady(configuration)).Clicked() {
 			c.After(func() {
 				a.performed("run.configuration.run", surfaceContextMenu)
 				a.runConfiguration(p, id)

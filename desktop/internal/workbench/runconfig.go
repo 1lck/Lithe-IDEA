@@ -160,8 +160,14 @@ func (a *App) finishRunConfigurations(p *project, generation uint64, resolved co
 // options Core resolves from the saved layers. The Run window ignores the refusal; the IDE
 // API reports it through startRunConfiguration.
 func (a *App) runConfiguration(p *project, id string) {
-	_, _ = a.startRunConfiguration(p, id)
+	a.startRun(p, configurationRunKey(id), func(a *App, p *project) {
+		// log-exempt: reported：a refusal already told the user why, and the Run window has no tool call to answer.
+		_, _ = a.startRunConfiguration(p, id)
+	})
 }
+
+// configurationRunKey is the run key of run configuration id.
+func configurationRunKey(id string) string { return "config:" + id }
 
 // startRunConfiguration checks the request on the window thread, reserves the run as the
 // window's operation and starts it once unsaved documents are saved, so the run reads the files
@@ -179,8 +185,8 @@ func (a *App) startRunConfigurationWith(p *project, id string, debug *connection
 	if configuration == nil {
 		return nil, refuseBuild(refusalNotFound, "unknown run configuration")
 	}
-	if p.build.operation != nil {
-		return nil, errBuildBusy
+	if p.build.runOf(configurationRunKey(id)) != nil {
+		return nil, errRunRunning
 	}
 	reference, ok := configuration.BuildReference()
 	if !ok {
@@ -196,7 +202,7 @@ func (a *App) startRunConfigurationWith(p *project, id string, debug *connection
 	if debug != nil {
 		configurationType = debug.launch.ConfigurationType
 	}
-	op := a.beginBuildOperation(p, "run", configuration.Name, id, func(a *App, p *project) {
+	op := a.beginRunOperation(p, configuration.Name, id, configurationRunKey(id), func(a *App, p *project) {
 		if debug != nil {
 			a.debugRunConfiguration(p, id, configurationType)
 			return
@@ -225,7 +231,7 @@ func (a *App) startRunConfigurationWith(p *project, id string, debug *connection
 				return func(a *App) { a.finishBuildError(p, op, err) }
 			}
 			return func(a *App) {
-				if op.cancelled || p.build.operation != op {
+				if op.cancelled || !p.build.owns(op) {
 					a.finishBuildError(p, op, context.Canceled)
 					return
 				}
