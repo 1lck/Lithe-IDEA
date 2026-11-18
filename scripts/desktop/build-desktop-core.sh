@@ -30,9 +30,13 @@ native_path() {
 # Lithe-core-rust main at 8b91b32: #92, squash-merged into main on top of 5204e81, makes the
 # interpreter field of the shell script, PowerShell and cmd editor forms name the shellFamily it
 # takes (posix, powershell, cmd), so the run configuration dialog lists the installed shells of
-# that family beside automatic and a custom path (#2100). Main 5204e81 adds #91 (run configuration
-# folders, list order and copying any configuration, which this branch does not use yet), #86 and
-# the squash-merged #75.
+# that family beside automatic and a custom path (#2100).
+# Lithe-core-rust main at 5204e81 (#91 squash-merged on top of 16176c1): a run configuration
+# names the folder it is listed in, runConfig.resolve returns the list in the order the local layer
+# saves (by name by default) with sortAlphabetically, runConfig.arrange moves configurations between
+# folders and saves that order, and runConfig.copyConfiguration copies any configuration, a build
+# provider run included (#2100). Main 16176c1 adds #86 (build tree layout and the default active
+# items of multi-select options) and the squash-merged #75.
 # Lithe-core-rust branch feat/workspace-common-references at 5c48a67 (#75, merged with main at
 # 6f5fbcc, #87 on top of #90 and #89): git.workspaceCommonReferences takes each repository's
 # git.references entries unchanged and returns the branches every repository has in that entry

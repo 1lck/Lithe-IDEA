@@ -179,7 +179,7 @@ func (a *App) drawRunConfigRow(p *project, row ui.ListRow, selected bool) {
 		ui.Row(c.Part("arrow")).Size(treelist.Disclosure, treelist.Icon).Shrink(0)
 		icon, name := runExecutionIcon(configuration.Execution), a.colors.Text
 		if configuration.IsProcess() {
-			icon = runConfigTypeIcon(configuration.Provider)
+			icon = runConfigTypeIcon(configuration.Provider, a.colors.Dark)
 		}
 		if unavailable {
 			icon, name = icons.CircleAlert, a.colors.Subtle

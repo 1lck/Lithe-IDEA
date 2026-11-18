@@ -8,12 +8,13 @@ Shell 脚本在系统 shell 里真实运行，控制台内容是真实输出，�
 无头截图不代表 macOS/Windows 原生窗口验收。
 
 运行配置在“运行/调试配置”对话框里新建和编辑。标题栏运行下拉的“新建运行配置…”和“编辑运行配置…”都打开这个对话框。
-对话框左侧是工具栏（+ 新建、− 删除、复制）和按类型分组的配置树，右侧是选中配置的编辑器。
+对话框左侧是工具栏（+ 新建、− 删除、复制、新建文件夹、按字母顺序排序）和按类型分组的配置树，右侧是选中配置的编辑器。
+配置树的图标是各类型的彩色文件图标：Shell 脚本、PowerShell 脚本、批处理脚本和程序各不相同。
 底部左边是“运行”，右边是“取消 / 应用 / 确定”。
 
 | 场景 | 深色中文 | 浅色英文 |
 | --- | --- | --- |
-| 还没有配置时打开对话框：左侧提示点 + 新建，右侧列出 macOS 提供的四类内置运行。批处理脚本（cmd）标“仅 Windows”，但也能新建 | [截图](builtin-run-dialog-empty-dark.png) | [截图](builtin-run-dialog-empty-light.png) |
+| 还没有配置时打开对话框，和 IDEA 一样：左侧是“未添加运行配置。”和链接“添加新… ⌃N”，右侧是链接“添加新的运行配置…”和“或选择要编辑的运行配置”。两个链接和 ⌃N 都打开类型菜单 | [截图](builtin-run-dialog-empty-dark.png) | [截图](builtin-run-dialog-empty-light.png) |
 | 新建 Shell 脚本，执行方式为脚本文件：勾选了“存为项目文件”，填了脚本路径、脚本选项、项目内的工作目录和一个环境变量。解释器路径选的是“自动”，下拉框显示自动值，取自脚本首行的 `#!/bin/bash`。脚本选项、解释器路径和解释器选项旁的 ⓘ 说明各自传给谁 | [截图](builtin-run-shell-file-dark.png) | [截图](builtin-run-shell-file-light.png) |
 | 同一配置换成脚本文本，出现多行文本框。文本没有首行 `#!`，解释器自动值变为 `/bin/sh` | [截图](builtin-run-shell-text-dark.png) | [截图](builtin-run-shell-text-light.png) |
 | 展开解释器路径下拉：第一项是“自动（/bin/sh）”，然后是终端检测到的 POSIX shell（zsh、bash），最后是“自定义…”。截图用固定的 shell 列表（zsh、bash、pwsh），pwsh 不属于 Shell 脚本这一类，所以不列出 | [截图](builtin-run-interpreter-list-dark.png) | [截图](builtin-run-interpreter-list-light.png) |
@@ -24,6 +25,9 @@ Shell 脚本在系统 shell 里真实运行，控制台内容是真实输出，�
 | 新建可执行程序：程序路径、程序参数（含带引号的空格参数）和工作目录 | [截图](builtin-run-executable-dark.png) | [截图](builtin-run-executable-light.png) |
 | 在 macOS 上新建批处理脚本：能编辑、能保存，编辑器顶部提示“批处理脚本只能在 Windows 上运行；在这台电脑上可以编辑和保存，但不能运行。”。配置树里这一行带警告图标，对话框的“运行”置灰 | [截图](builtin-run-batch-dark.png) | [截图](builtin-run-batch-light.png) |
 | 点“确定”保存全部四个配置后，标题栏选中 Package：运行按钮置灰；按下时只提示原因，不会启动 | [截图](builtin-run-title-unavailable-dark.png) | [截图](builtin-run-title-unavailable-light.png) |
+| 选中 Greet 点“新建文件夹”，改名为 Scripts，再关掉“按字母顺序排序”：Shell 脚本下先列文件夹 Scripts，Greet 在里面；排序按钮不再高亮 | [截图](builtin-run-folders-dark.png) | [截图](builtin-run-folders-light.png) |
+| 选中文件夹 Scripts：右侧是文件夹名称框和说明“文件夹只用来整理列表，随其中的配置一起保存；空文件夹不会保存。” | [截图](builtin-run-folder-pane-dark.png) | [截图](builtin-run-folder-pane-light.png) |
+| 选中 Tool 点复制：副本“Tool（副本）”排在 Tool 后面，编辑器里的字段和原配置一致，按“应用”或“确定”才保存 | [截图](builtin-run-copy-dark.png) | [截图](builtin-run-copy-light.png) |
 | 标题栏运行下拉：Package 带警告图标，下方注明“仅 Windows”，仍可选中。插件运行配置文件 `.lithe/run/plugin/dev.example.engine.toml` 写坏后，下拉多出一项“未读取 dev.example.engine.toml 中的运行配置”，点击后在编辑器中打开该文件 | [截图](builtin-run-run-menu-dark.png) | [截图](builtin-run-run-menu-light.png) |
 
 `docs/assets/run-config-empty/` 是另一组截图，展示项目没有可用运行配置时的标题栏下拉和对话框。

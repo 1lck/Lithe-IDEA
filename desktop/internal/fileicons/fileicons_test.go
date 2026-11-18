@@ -58,6 +58,11 @@ func TestFileKind(t *testing.T) {
 		{"file.", kindUnknown},
 		{"App.TSX", kindJavaScript},
 		{"archive.tar.gz", kindBinary},
+		{"deploy.sh", kindShell},
+		{"deploy.ps1", kindPowerShell},
+		{"deploy.cmd", kindBatch},
+		{"DEPLOY.BAT", kindBatch},
+		{"tool.exe", kindExecutable},
 	}
 
 	for _, test := range tests {

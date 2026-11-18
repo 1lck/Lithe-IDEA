@@ -16344,13 +16344,6 @@
       ]
     },
     {
-      "id": "desktop.runConfig.dialogHint",
-      "description": "Run/Debug Configurations dialog: hint shown while no configuration is selected, above a button per built-in kind.",
-      "platforms": [
-        "desktop"
-      ]
-    },
-    {
       "id": "desktop.runConfig.newConfigurationEllipsis",
       "description": "Menu item and button that open the Run/Debug Configurations dialog to create a run configuration.",
       "platforms": [
@@ -16366,7 +16359,7 @@
     },
     {
       "id": "desktop.runConfig.copyConfiguration",
-      "description": "Run/Debug Configurations dialog: toolbar button that creates a copy of the selected built-in configuration.",
+      "description": "Run/Debug Configurations dialog: toolbar button that creates a copy of the selected configuration, a plugin run included.",
       "platforms": [
         "desktop"
       ]
@@ -16379,6 +16372,110 @@
       ],
       "parameters": {
         "name": "string"
+      }
+    },
+    {
+      "id": "desktop.runConfig.emptyTree",
+      "description": "Run/Debug Configurations dialog: shown in place of the tree while the project has no run configuration.",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.runConfig.addNew",
+      "description": "Run/Debug Configurations dialog: link under the empty tree that opens the menu of kinds a new configuration can take; its keys follow it.",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.runConfig.addNewConfiguration",
+      "description": "Run/Debug Configurations dialog: link in the editor pane while nothing is selected; opens the menu of kinds a new configuration can take.",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.runConfig.orSelectToEdit",
+      "description": "Run/Debug Configurations dialog: line under the Add New Run Configuration link while nothing is selected.",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.runConfig.newFolder",
+      "description": "Run/Debug Configurations dialog: toolbar button that makes a folder in the kind of the selection and selects it to be renamed.",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.runConfig.newFolderName",
+      "description": "Run/Debug Configurations dialog: name of a folder the toolbar button makes; a number follows it when the kind already has one so named.",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.runConfig.sortAlphabetically",
+      "description": "Run/Debug Configurations dialog: toolbar toggle that lists the configurations by name; off, they keep the order they are dragged to.",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.runConfig.folderNameEmpty",
+      "description": "Run/Debug Configurations dialog: under the name field of a folder when it is empty.",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.runConfig.folderNameInvalid",
+      "description": "Run/Debug Configurations dialog: under the name field of a folder when the name is longer than 256 bytes or has control characters.",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.runConfig.folderNameTaken",
+      "description": "Run/Debug Configurations dialog: under the name field of a folder when another folder of the same kind has the name.",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.runConfig.folderHint",
+      "description": "Run/Debug Configurations dialog: under the name field of a selected folder, saying what a folder is and how it is saved.",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.runConfig.copyPendingHint",
+      "description": "Run/Debug Configurations dialog: under the name of a copy of a plugin run configuration, which is made on Apply or OK.",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.runConfig.copyFailed",
+      "description": "Run/Debug Configurations dialog: shown when Core could not copy a configuration; {reason} is Core's detail.",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "reason": "string"
+      }
+    },
+    {
+      "id": "desktop.runConfig.arrangeFailed",
+      "description": "Run/Debug Configurations dialog: shown when the folders or the order of the list could not be saved; {reason} is Core's detail.",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "reason": "string"
       }
     },
     {

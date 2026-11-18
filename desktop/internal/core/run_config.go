@@ -32,8 +32,11 @@ type RunProviderRun struct {
 // detected, team and local layers. Extensions stay raw except for the build
 // reference the host needs to find the provider instance.
 type RunConfiguration struct {
-	ID         string                     `json:"id"`
-	Name       string                     `json:"name"`
+	ID   string `json:"id"`
+	Name string `json:"name"`
+	// Folder is the folder the configuration is listed in within its kind; "" when
+	// it is in none. It is display only.
+	Folder     string                     `json:"folder,omitempty"`
 	Provider   string                     `json:"provider"`
 	Execution  string                     `json:"execution"`
 	Category   string                     `json:"category,omitempty"`
@@ -150,6 +153,9 @@ type RunConfigResolution struct {
 		Message string `json:"message"`
 	} `json:"diagnostics"`
 	DefaultRunConfiguration *string `json:"defaultRunConfiguration"`
+	// SortAlphabetically says Configurations are listed by name; otherwise they come in
+	// the order the user placed them on this machine.
+	SortAlphabetically bool `json:"sortAlphabetically"`
 }
 
 // ResolveRunConfigurations merges the workspace's run configuration layers

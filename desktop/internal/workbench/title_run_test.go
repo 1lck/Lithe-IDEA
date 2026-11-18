@@ -235,7 +235,7 @@ func emptyRunConfigHarness(t *testing.T, root string) (*harness, *project) {
 
 // Edit Configuration on a project without configurations used to open a Run window that showed
 // nothing, which looked like no reaction (#2028). It now opens the Run/Debug Configurations
-// dialog with nothing selected, whose pane offers a button per built-in kind.
+// dialog with nothing selected, whose pane, as in IDEA, offers a link to the menu of kinds.
 func TestEditRunConfigurationsWithoutAnyOpensTheDialog(t *testing.T) {
 	h, p := emptyRunConfigHarness(t, runConfigRoot(t))
 	h.app.post(func(a *App) { a.editRunConfigurations(p) })
@@ -248,12 +248,18 @@ func TestEditRunConfigurationsWithoutAnyOpensTheDialog(t *testing.T) {
 	language := h.app.language()
 	for _, text := range []string{
 		i18n.Shared(language, "desktop.runConfig.dialogTitle"),
-		i18n.Shared(language, "desktop.runConfig.dialogHint"),
-		i18n.Shared(language, "desktop.runConfig.typeShell"),
+		i18n.Shared(language, "desktop.runConfig.emptyTree"),
+		i18n.Shared(language, "desktop.runConfig.addNewConfiguration"),
+		i18n.Shared(language, "desktop.runConfig.orSelectToEdit"),
 	} {
 		if !h.shows(text) {
 			t.Fatalf("%q is not shown", text)
 		}
+	}
+	// The built-in kinds are offered by the menu the link opens.
+	h.click(center(h.hitLabeled(i18n.Shared(language, "desktop.runConfig.addNewConfiguration"))))
+	if shell := i18n.Shared(language, "desktop.runConfig.typeShell"); d.newMenu != runConfigNewMenuPane || !h.shows(shell) {
+		t.Fatalf("menu %v, %q shown %v", d.newMenu, shell, h.shows(shell))
 	}
 }
 

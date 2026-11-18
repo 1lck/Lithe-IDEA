@@ -110,6 +110,10 @@ type Kernel interface {
 	SaveRunConfiguration(ctx context.Context, request core.RunConfigurationSave) (core.RunConfigurationSaved, error)
 	DeleteRunConfiguration(ctx context.Context, root, configurationID string, plugins []core.RunInstalledPlugin) ([]core.RunConfigChange, error)
 	CreateRunLaunchPlan(ctx context.Context, root, configurationID, inlineScriptBase string) (core.RunLaunchPlan, error)
+	// CopyRunConfiguration and ArrangeRunConfigurations copy any configuration and save the
+	// folders and order of the list (runconfig_dialog.go).
+	CopyRunConfiguration(ctx context.Context, root, configurationID, name string, plugins []core.RunInstalledPlugin) (string, []core.RunConfigChange, error)
+	ArrangeRunConfigurations(ctx context.Context, request core.RunConfigArrangement) ([]core.RunConfigChange, error)
 	// RunBeforeLaunch expands the steps a configuration runs before it starts (runconfig_before_launch.go).
 	RunBeforeLaunch(ctx context.Context, root, configurationID string) (core.RunBeforeLaunch, error)
 	RunArgumentText(ctx context.Context, lists [][]string) ([]string, error)
