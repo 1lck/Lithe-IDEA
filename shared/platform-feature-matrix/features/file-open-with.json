@@ -15,7 +15,8 @@
       "desktop/internal/workbench/filetree_open.go",
       "desktop/internal/workbench/filetree_menu.go",
       "docs/assets/project-tree-open-in/README.md",
-      ".agents/notes/implemented/feature/2026-11-03-macos-open-with.md"
+      ".agents/notes/implemented/feature/2026-11-03-macos-open-with.md",
+      ".agents/notes/implemented/bug-fix/2026-11-18-open-with-lookup-on-hover.md"
     ]
   },
   "windows": {
@@ -31,11 +32,12 @@
       "desktop/internal/workbench/filetree_open.go",
       "desktop/internal/workbench/filetree_menu.go",
       "docs/assets/project-tree-open-in/README.md",
-      ".agents/notes/implemented/feature/2026-11-03-macos-open-with.md"
+      ".agents/notes/implemented/feature/2026-11-03-macos-open-with.md",
+      ".agents/notes/implemented/bug-fix/2026-11-18-open-with-lookup-on-hover.md"
     ]
   },
   "owner": "Workspace",
-  "verification": "Viva（2026-11-18）：项目树文件行右键“打开于 › 打开方式”，确认默认应用在最前并标“（默认）”，其后是系统列出的其他应用，同名应用后带所在文件夹，最后是“其他…”；选一个应用打开确切的磁盘文件，“其他…”弹出应用选择器，取消不打开；应用不再能打开该类文件或启动失败时显示错误；查询期间显示“正在查找应用…”；文件夹和项目根行没有“打开方式”。分别对 DOCX、图片、Markdown、无扩展名文件检查，中英文、深浅主题各一次。macOS 用 LaunchServices（NSWorkspace URLsForApplicationsToOpenURL）列出应用，与 Finder 的“打开方式”对照；Windows 用 SHAssocEnumHandlers 推荐列表并经 IAssocHandler::Invoke 打开，与资源管理器的“打开方式”对照，“其他…”在 Windows 仍是选择 exe。自动化：fileapps 包测试查询本机真实数据库并记录列表；workbench 的 TestProjectTreeOpen* 用替换的应用列表覆盖菜单结构、选择、失败提示和文件夹行；Windows 的默认项排序由 TestMarkDefaultMovesTheDefaultFirstAndKeepsTheShellsOrder 覆盖；截图见 docs/assets/project-tree-open-in。原生窗口和 Windows 实机验收未做，两端保持 pending。 以下为旧 Swift 客户端记录：2026-11-03 本机 Swift 6.3.3/macOS 26.5 SDK 定向七项测试通过：六项 ExternalFileApplicationsTests 及菜单源码边界覆盖；共 1.023 秒，新增真实菜单关闭和会话标识回归分别为 0.090/0.001 秒，HTML/JUnit 已生成。独立工作树首次构建达到 15 分钟上限；随后临时只编译两个相关测试源并移除无关测试 target，Package.swift 已恢复。补齐菜单测试对最新 preview 日志配置参数的调用适配；完整菜单套件其余用例未执行。完整产品仍需对本地 DOCX、图片、未知扩展名右键，检查原生子菜单中应用、图标、默认项置顶与分隔线，中英文及深浅主题随系统显示；选择应用打开确切磁盘文件，其他…选择/取消正确，缺失文件或应用显示错误；App Store 仅按扩展名搜索；打开应用选择面板后切换项目或关闭窗口不得启动旧请求；SSH 项目无该入口。确认原有打开、复制/粘贴、Agent 子菜单与 Git 动作保留。完成产品运行验收前保持 pending；Windows 需要独立实现。 PR #1674 审查修复补充：系统菜单由共享 presenter 持有并响应 dismiss/替换，嵌套跟踪结束不能清理新会话；Agent 同名会话保留可见 ID（14.4+ 原生副标题，旧系统本地化标题格式）。ExternalFileApplicationsTests 增加真实菜单跟踪的一次性关闭回归和会话标识显示检查。",
+  "verification": "Viva（2026-11-18）：项目树文件行右键“打开于 › 打开方式”，确认默认应用在最前并标“（默认）”，其后是系统列出的其他应用，同名应用后带所在文件夹，最后是“其他…”；选一个应用打开确切的磁盘文件，“其他…”弹出应用选择器，取消不打开；应用不再能打开该类文件或启动失败时显示错误；查询期间显示“正在查找应用…”；只把鼠标停在“打开于”和“打开方式”上展开（不点击）时，也要列出应用，不能一直停在“正在查找应用…”；文件夹和项目根行没有“打开方式”。分别对 DOCX、图片、Markdown、无扩展名文件检查，中英文、深浅主题各一次。macOS 用 LaunchServices（NSWorkspace URLsForApplicationsToOpenURL）列出应用，与 Finder 的“打开方式”对照；Windows 用 SHAssocEnumHandlers 推荐列表并经 IAssocHandler::Invoke 打开，与资源管理器的“打开方式”对照，“其他…”在 Windows 仍是选择 exe。自动化：fileapps 包测试查询本机真实数据库并记录列表；workbench 的 TestProjectTreeOpen* 用替换的应用列表覆盖菜单结构、选择、失败提示和文件夹行，TestProjectTreeOpenWithListsTheApplicationsWhenOpenedByHover 覆盖鼠标停留展开子菜单时也会查询（2026-11-18 修复：查询曾经由 ui.C.After 推迟，悬停展开的那一帧会丢掉它）；Windows 的默认项排序由 TestMarkDefaultMovesTheDefaultFirstAndKeepsTheShellsOrder 覆盖；截图见 docs/assets/project-tree-open-in。原生窗口和 Windows 实机验收未做，两端保持 pending。 以下为旧 Swift 客户端记录：2026-11-03 本机 Swift 6.3.3/macOS 26.5 SDK 定向七项测试通过：六项 ExternalFileApplicationsTests 及菜单源码边界覆盖；共 1.023 秒，新增真实菜单关闭和会话标识回归分别为 0.090/0.001 秒，HTML/JUnit 已生成。独立工作树首次构建达到 15 分钟上限；随后临时只编译两个相关测试源并移除无关测试 target，Package.swift 已恢复。补齐菜单测试对最新 preview 日志配置参数的调用适配；完整菜单套件其余用例未执行。完整产品仍需对本地 DOCX、图片、未知扩展名右键，检查原生子菜单中应用、图标、默认项置顶与分隔线，中英文及深浅主题随系统显示；选择应用打开确切磁盘文件，其他…选择/取消正确，缺失文件或应用显示错误；App Store 仅按扩展名搜索；打开应用选择面板后切换项目或关闭窗口不得启动旧请求；SSH 项目无该入口。确认原有打开、复制/粘贴、Agent 子菜单与 Git 动作保留。完成产品运行验收前保持 pending；Windows 需要独立实现。 PR #1674 审查修复补充：系统菜单由共享 presenter 持有并响应 dismiss/替换，嵌套跟踪结束不能清理新会话；Agent 同名会话保留可见 ID（14.4+ 原生副标题，旧系统本地化标题格式）。ExternalFileApplicationsTests 增加真实菜单跟踪的一次性关闭回归和会话标识显示检查。",
   "legacy": {
     "revision": "5a54c41aa37a4e6e6b68918a4b05765b9dd07a36",
     "macos": {

@@ -55,4 +55,5 @@ if !m.shown || m.file != file {
 
 - `desktop/internal/workbench/filetree_openin.go`
 - `desktop/internal/workbench/filetree_openin_test.go`
+- `shared/platform-feature-matrix/features/file-open-with.json`
 - 工作台里所有“打开即启动”的后台工作；点击和选择变化后的 `c.After` 不受影响。
