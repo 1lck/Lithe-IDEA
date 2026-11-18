@@ -27,17 +27,45 @@ native_path() {
     fi
 }
 
-# Lithe-core-rust #86 at cb6e07a (merged with main at 4ed7a1f, #85 squash-merged on top of 10da502,
-# #84, and 885f2a6, #83): multiSelect build options support model-supplied default-active choices
-# (optionDefaults), exclusion prefixes (excludePrefix / optionExcludePrefixes), selectedChoices
-# encoding in build.resolveOptions and build.editStoredOption, and top-of-tree checklist nodes
-# (option / optionChoice) in build.modelTree (#2092).
-# Lithe-core-rust main at 4ed7a1f, #85 squash-merged (on top of main at 10da502, #84): built-in
-# process runs. runConfig.configurationTypes, runConfig.editorForm, runConfig.saveConfiguration and
-# runConfig.deleteConfiguration list, edit, save and delete the shell script, PowerShell, cmd and
-# executable runs without any plugin, and runConfig.createLaunchPlan plans them with a script saved
-# as text; built-in runs are stored in .lithe/run/configurations.yaml and local.yaml, and a plugin's
-# runs in .lithe/run/plugin/<plugin>.toml and <plugin>.local.toml with the plugin's repository and
+# Lithe-core-rust main at 8b91b32: #92, squash-merged into main on top of 5204e81, makes the
+# interpreter field of the shell script, PowerShell and cmd editor forms name the shellFamily it
+# takes (posix, powershell, cmd), so the run configuration dialog lists the installed shells of
+# that family beside automatic and a custom path (#2100).
+# Lithe-core-rust main at 5204e81 (#91 squash-merged on top of 16176c1): a run configuration
+# names the folder it is listed in, runConfig.resolve returns the list in the order the local layer
+# saves (by name by default) with sortAlphabetically, runConfig.arrange moves configurations between
+# folders and saves that order, and runConfig.copyConfiguration copies any configuration, a build
+# provider run included (#2100). Main 16176c1 adds #86 (build tree layout and the default active
+# items of multi-select options) and the squash-merged #75.
+# Lithe-core-rust branch feat/workspace-common-references at 5c48a67 (#75, merged with main at
+# 6f5fbcc, #87 on top of #90 and #89): git.workspaceCommonReferences takes each repository's
+# git.references entries unchanged and returns the branches every repository has in that entry
+# shape, current when every repository has it checked out, with the upstream they share and ahead
+# and behind added up; git.workspaceBranchPlan plans a checkout or a new branch on such a branch
+# across the repositories, skipping the ones already on it, with the writes that roll each step
+# back; and git.graphProjection checkedOutHeads marks the commits of every repository's
+# checked-out branch, refusing currentBranch beside it (#2013). Switch to main's commit once #75
+# is squash-merged.
+# #87, squash-merged into main as 6f5fbcc (on top of d8094c6, #90): runConfig.configurationTypes
+# lists every built-in kind on every platform, one this platform cannot run with an unsupportedPlatform
+# availability, and runConfig.editorForm, runConfig.saveConfiguration and runConfig.resolve treat a cmd
+# run off Windows the same way, so it can be created and edited there while runConfig.createLaunchPlan
+# still refuses to start it and runConfig.beforeLaunch refuses it as a step (#2100). #90, squash-merged
+# into main as d8094c6 (on top of d833d6a): the chrome layout catalog takes alsoOnToolStripes.
+# #89, squash-merged into main as d833d6a (on top of bb4832e, #88): buildProviders 1
+# adds runs with entrypoints: true; build.runEntrypointsPlan and build.decodeRunEntrypoints ask a
+# provider for the entrypoints of one source file, prepareRunPlan takes an entrypoint run without a
+# target, and runConfig.createUserConfiguration saves the entrypoint as part of the entry (#2104).
+# #88, squash-merged into main as bb4832e (on top of 4ed7a1f, #85): a run
+# configuration's beforeLaunch names built-in process runs that start first; runConfig.beforeLaunch
+# expands and checks them and fingerprints the lists a project file names, the editor form has a
+# beforeLaunch field and runConfig.updateOptions takes the list (#1616). #85, squash-merged into
+# main as 4ed7a1f (on top of 10da502, #84): built-in process runs. runConfig.configurationTypes, runConfig.editorForm,
+# runConfig.saveConfiguration and runConfig.deleteConfiguration list, edit, save and delete the
+# shell script, PowerShell, cmd and executable runs without any plugin, and
+# runConfig.createLaunchPlan plans them with a script saved as text; built-in runs are stored in
+# .lithe/run/configurations.yaml and local.yaml, and a plugin's runs in
+# .lithe/run/plugin/<plugin>.toml and <plugin>.local.toml with the plugin's repository and
 # version; runConfig.resolve lists the saved runs of a project nothing was generated for (#2100).
 # Lithe-core-rust main at 885f2a6, #83 squash-merged (the same tree as its branch at d10ee76, on
 # top of cf2f260): a plugin's TextMate grammar may declare injections, an object of scope selectors
@@ -211,7 +239,7 @@ PINNED_CORE_REPOSITORY="https://github.com/Lithe-IDEA/Lithe-core-rust.git"
 # the contract, plugin guides, reference and SDKs live only in shared/plugins; on top of #16 (reported Git queries folded in the console),
 # #15 (git.write cherryPick, revert and reset fields), #14 (word-level changed ranges of diff
 # rows), #13, #8, #7, #6 and #4.
-PINNED_CORE_REVISION="cb6e07aafb4ac495c398bdeb3d1d24d7944e1dd9"
+PINNED_CORE_REVISION="8b91b324f0e8140cb6ca3fed3dc26fa0b59a788c"
 PROFILE="debug"
 while [[ $# -gt 0 ]]; do
     case "$1" in

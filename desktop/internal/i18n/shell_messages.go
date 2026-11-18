@@ -17,8 +17,8 @@ func toolMessages(language Language) ToolMessages {
 		Security:      Shared(language, "native.security"),
 		Debug:         Shared(language, "native.debug"),
 		Notifications: Shared(language, "notifications.title"),
-		Updates:       Shared(language, "native.updates"),
 		Background:    Shared(language, "desktop.tools.background"),
+		ToolWindows:   Shared(language, "native.toolWindows"),
 		DragHint:      Shared(language, "desktop.tools.dragHint"),
 	}
 }

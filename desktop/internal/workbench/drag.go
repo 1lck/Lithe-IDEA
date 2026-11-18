@@ -126,14 +126,19 @@ func (a *App) toolAccept(source, _ gfx.ID) bool {
 	if !d.active || d.item != item {
 		button := a.chrome.rects[item]
 		z := a.chrome.zoneOf(item)
-		side, _ := stripeForZone(z)
+		side, onStripe := stripeForZone(z)
 		*d = dragState{
 			active: true, item: item, sourceZone: z, snappedStripe: side,
 			grab: gfx.Point{X: point.X - button.X, Y: point.Y - button.Y},
 		}
+		if !onStripe {
+			// A title bar button starts away from both stripes; it snaps to one when the
+			// pointer reaches it.
+			d.phase = dragDetached
+		}
 	}
 	d.x, d.y, d.viewport = point.X, point.Y, a.viewport()
-	if d.sourceZone.surface() == surfaceStripes {
+	if a.chrome.allowed(d.item, zoneLeftTop) {
 		d.phase, d.snappedStripe = dragPhaseAt(d.phase, d.snappedStripe, point, dragStripeRects(gfx.Rect{
 			Width: d.viewport.Width, Height: d.viewport.Height,
 		}))
@@ -167,21 +172,30 @@ func (a *App) endDrags() {
 	}
 }
 
-// draggingToolButton reports that a button of the tool stripes is being dragged, which is
-// when the stripes show every zone as a place to drop it (see stripe).
+// draggingToolButton reports that a button that may sit on the tool stripes is being dragged,
+// which is when the stripes show every zone as a place to drop it (see stripe).
 func (a *App) draggingToolButton() bool {
-	return a.dnd.tool.Dragging() && a.drag.active && a.drag.sourceZone.surface() == surfaceStripes
+	return a.dnd.tool.Dragging() && a.drag.active && a.chrome.allowed(a.drag.item, zoneLeftTop)
 }
 
 // dragLocate finds where dropping item at point would put it. Tool buttons use their
 // snapped stripe or detached dock geometry; title and status items keep their existing
-// bar-only targets. A point outside the window never produces a target.
+// bar-only targets. A title bar button that may also sit on the stripes lands in the title
+// bar while the pointer is over it and moves as a tool button everywhere else. A point
+// outside the window never produces a target.
 func (a *App) dragLocate(item int, source zone, point gfx.Point, viewport gfx.Size, phase dragPhase, snapped stripeSide) (dragTarget, bool) {
 	var target dragTarget
 	if point.X < 0 || point.Y < 0 || point.X >= viewport.Width || point.Y >= viewport.Height {
 		return target, false
 	}
-	switch source.surface() {
+	surface := source.surface()
+	if a.chrome.catalog[item].stripes {
+		surface = surfaceStripes
+		if point.Y < titleBarHeight {
+			surface = surfaceTitle
+		}
+	}
+	switch surface {
 	case surfaceTitle:
 		if point.Y >= titleBarHeight {
 			return target, false
@@ -273,11 +287,12 @@ func (a *App) dragInsertion(item int, z zone, x, y float32) (string, gfx.Rect) {
 	return before, gfx.Rect{X: position, Y: zr.Y + dragMarkInset, Width: dragMark, Height: zr.Height - 2*dragMarkInset}
 }
 
-// paintDrag paints the gesture above the frame: stripe zones stay tinted, detached dock
-// targets show their pane preview and localized title, and the insertion line marks the
-// position in the target zone. A snapped stripe ghost stays in its button column, while a
-// detached ghost follows the pointer with its original grab point. The source button stays
-// where it is, dimmed (see chromeBox).
+// paintDrag paints the gesture above the frame: the zones the button may go to stay tinted,
+// detached dock targets show their pane preview and localized title, and the insertion line
+// marks the position in the target zone. A snapped stripe ghost stays in its button column,
+// while a detached ghost follows the pointer with its original grab point; a title bar button
+// that may also sit on the stripes takes the title bar's ghost while the pointer is over the
+// title bar. The source button stays where it is, dimmed (see chromeBox).
 func (a *App) paintDrag(canvas *gfx.Canvas) {
 	d := &a.drag
 	if !d.active {
@@ -285,9 +300,8 @@ func (a *App) paintDrag(canvas *gfx.Canvas) {
 	}
 	canvas.PushLayer(dragLayer)
 	defer canvas.PopLayer()
-	surface := d.sourceZone.surface()
 	for z := range a.chrome.zoneRects {
-		if zone(z).surface() != surface {
+		if !a.chrome.allowed(d.item, zone(z)) {
 			continue
 		}
 		tint := float32(dragZoneTint)
@@ -298,14 +312,15 @@ func (a *App) paintDrag(canvas *gfx.Canvas) {
 			canvas.Rounded(r.Inset(gfx.All(-dragZoneOutset)), dragZoneRadius, a.colors.Accent.WithAlpha(tint))
 		}
 	}
-	if surface == surfaceStripes && d.phase == dragDetached && d.hasTarget {
+	if d.phase == dragDetached && d.hasTarget && d.target.zone.surface() == surfaceStripes {
 		a.paintDetachedDropPreview(canvas, d.target)
 	}
 	if d.hasTarget {
 		canvas.Rounded(d.target.mark, dragMark/2, a.colors.Accent)
 	}
 
-	if surface == surfaceStripes {
+	overTitle := a.chrome.catalog[d.item].stripes && d.y < titleBarHeight
+	if a.chrome.allowed(d.item, zoneLeftTop) && !overTitle {
 		if d.phase == dragDetached {
 			a.paintDetachedToolGhost(canvas, d)
 		} else {
@@ -389,7 +404,8 @@ func (a *App) paintDetachedDropPreview(canvas *gfx.Canvas, target dragTarget) {
 }
 
 // paintLegacyDragGhost keeps title and status drags on their original below-right ghost,
-// because those bars do not detach into the workbench.
+// because those bars do not detach into the workbench. A title bar button that may also sit
+// on the stripes takes it while the pointer is over the title bar.
 func (a *App) paintLegacyDragGhost(canvas *gfx.Canvas, d *dragState) {
 	icon := a.chrome.catalog[d.item].icon
 	text := a.dragGhostText(d.item)

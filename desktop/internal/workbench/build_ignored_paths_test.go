@@ -2,10 +2,12 @@ package workbench
 
 import (
 	"context"
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"slices"
 	"testing"
+	"time"
 
 	"github.com/1lck/Lithe-IDEA/desktop/internal/core"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/i18n"
@@ -39,7 +41,7 @@ const ignoredPathsManifest = `{
 // openIgnoredPathsProject installs the fixture build system, opens a project with a fixture.build file
 // in its root, in .claude/copy and in tools, writes team as the team Build options document when it is not
 // empty, and opens the Build tool window once detection has finished.
-func openIgnoredPathsProject(t *testing.T, team string) (*harness, *project) {
+func openIgnoredPathsProject(t *testing.T, team string, kernel Kernel) (*harness, *project) {
 	t.Helper()
 	dir := t.TempDir()
 	if err := os.WriteFile(filepath.Join(dir, settingsFile), []byte(`{"theme":"dark"}`), 0o600); err != nil {
@@ -74,8 +76,11 @@ func openIgnoredPathsProject(t *testing.T, team string) (*harness, *project) {
 			t.Fatal(err)
 		}
 	}
+	if kernel == nil {
+		kernel = &testKernel{Client: core.NewClient()}
+	}
 	h := newHarnessWithOptions(t, Options{
-		Kernel:       &testKernel{Client: core.NewClient()},
+		Kernel:       kernel,
 		PluginKernel: &testKernel{Client: core.NewClient()},
 		PluginRoot:   pluginRoot,
 		Store:        preferences,
@@ -164,7 +169,7 @@ func (h *harness) typeIgnoredPaths(p *project, text string) {
 // opens the Build options on the ignored paths alone; a list typed there is saved on this machine and the
 // build systems are detected again with it, and Restore Default removes it.
 func TestBuildOptionsIgnoredPathsAreSavedOnThisMachineAndRestored(t *testing.T) {
-	h, p := openIgnoredPathsProject(t, "")
+	h, p := openIgnoredPathsProject(t, "", nil)
 	if got := buildRoots(p); !slices.Equal(got, []string{".", "tools"}) {
 		t.Fatalf("by default the build systems are at %q, want the dot-named folder skipped", got)
 	}
@@ -220,7 +225,7 @@ func TestBuildOptionsIgnoredPathsAreSavedOnThisMachineAndRestored(t *testing.T) 
 // A build system's options open with the ignored paths above them, here the team file's list. A pattern
 // Core refuses keeps the dialog open, names its line in the field and stores nothing.
 func TestBuildOptionsNameTheLineOfARefusedIgnoredPath(t *testing.T) {
-	h, p := openIgnoredPathsProject(t, `{"version":1,"systems":{},"ignoredPaths":["/tools"]}`)
+	h, p := openIgnoredPathsProject(t, `{"version":1,"systems":{},"ignoredPaths":["/tools"]}`, nil)
 	if got := buildRoots(p); !slices.Equal(got, []string{".", ".claude/copy"}) {
 		t.Fatalf("with the team's list the build systems are at %q", got)
 	}
@@ -245,5 +250,80 @@ func TestBuildOptionsNameTheLineOfARefusedIgnoredPath(t *testing.T) {
 	}
 	if got := h.storedIgnoredPaths(p); got.Source != core.BuildIgnoredPathsTeam {
 		t.Fatalf("the refused list stored %+v", got)
+	}
+}
+
+type buildOptionResolutionGate struct {
+	Kernel
+	started chan struct{}
+	release context.Context
+}
+
+func (g *buildOptionResolutionGate) ResolveBuildOptions(ctx context.Context, manifest json.RawMessage, systemID string, request core.BuildResolveOptionsRequest) (core.BuildResolvedOptions, error) {
+	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
+	defer cancel()
+	select {
+	case g.started <- struct{}{}:
+	case <-ctx.Done():
+		return core.BuildResolvedOptions{}, ctx.Err()
+	}
+	select {
+	case <-g.release.Done():
+		return g.Kernel.ResolveBuildOptions(ctx, manifest, systemID, request)
+	case <-ctx.Done():
+		return core.BuildResolvedOptions{}, ctx.Err()
+	}
+}
+
+func TestBuildOptionsWaitForResolutionBeforeEditAndSave(t *testing.T) {
+	release, finishResolution := context.WithCancel(t.Context())
+	defer finishResolution()
+	gate := &buildOptionResolutionGate{
+		Kernel: &testKernel{Client: core.NewClient()}, started: make(chan struct{}, 1), release: release,
+	}
+	h, p := openIgnoredPathsProject(t, "", gate)
+	clickWithoutSettling := func(label string) {
+		at := center(h.pageHit(label).Bounds)
+		if err := h.driver.Click(at.X, at.Y); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	const option = "Release Profile"
+	save := h.shared("ui.save")
+	clickWithoutSettling(h.shared("desktop.build.options"))
+	awaitValueWithin(t, h, 5*time.Second, gate.started, "Build options resolution to start")
+
+	// The frame paints the declared checkbox while Core is still resolving the editor.
+	clickWithoutSettling(option)
+	if hit := h.pageHit(option); !hit.Disabled || hit.Checked {
+		t.Errorf("pending checkbox: disabled %v, checked %v; want disabled and unchecked", hit.Disabled, hit.Checked)
+	}
+	if !h.pageHit(save).Disabled {
+		t.Error("Save is enabled while options are resolving")
+	}
+	if h.pageHit(h.shared("desktop.git.cancel")).Disabled {
+		t.Error("Cancel is disabled while options are resolving")
+	}
+	clickWithoutSettling(save)
+	if !p.build.options.open {
+		t.Fatal("Save closed the dialog before resolution completed")
+	}
+
+	finishResolution()
+	h.awaitIgnoredPathsLoaded(p)
+	h.clickNamed(option)
+	if hit := h.pageHit(option); hit.Disabled || !hit.Checked {
+		t.Fatalf("resolved checkbox: disabled %v, checked %v; want enabled and checked", hit.Disabled, hit.Checked)
+	}
+	h.clickNamed(save)
+	h.settleUntil("the saved dialog to close", func() bool { return !p.build.options.open })
+	h.awaitBuildDetection(p)
+	instance := p.selectedBuildInstance()
+	if instance == nil {
+		t.Fatal("the build instance was not detected again after saving")
+	}
+	if got := string(instance.Options["release"]); got != "true" {
+		t.Fatalf("release option after saving and reloading = %q, want true", got)
 	}
 }

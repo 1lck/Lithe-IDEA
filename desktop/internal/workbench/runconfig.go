@@ -33,23 +33,30 @@ type runConfigState struct {
 	// release's JSON document its YAML replacement wins over. The built-in configurations
 	// still list; the run menu names each file so its configurations do not vanish silently.
 	ignored []string
-	// types are the built-in kinds a user can create on this platform, in display order,
-	// read once per project; typesLoading is set while they are asked for.
+	// types are the built-in kinds a user can create, in display order, each with the reason
+	// this platform cannot run it, if any; read once per project; typesLoading is set while
+	// they are asked for.
 	types        []core.RunConfigurationType
 	typesLoading bool
-	// editor is the dialog that edits one build provider run's saved options.
-	editor runConfigEditor
-	// form is the dialog that creates or edits a built-in process run (runconfig_form.go).
-	form runConfigForm
+	// manualOrder says list is in the order the user gave it on this machine rather than by
+	// name; Core keeps the choice locally and lists the configurations in that order.
+	manualOrder bool
+	// dialog is the Run/Debug Configurations window that creates, edits and removes
+	// configurations (runconfig_dialog.go).
+	dialog runConfigDialog
 	// reveal is the configuration a save just wrote, selected once the next refresh lists it.
 	reveal string
-	// newMenu says the list header's menu of new configuration kinds is open.
-	newMenu bool
 	// deleting is the user configuration whose delete waits for confirmation.
 	deleting *runConfigDeletion
+	// beforeLaunch is the start that waits for the user to allow the steps a project file
+	// names before it (runconfig_before_launch.go).
+	beforeLaunch *beforeLaunchConfirmation
 	// start is the configuration a save asked to run, started once the next refresh lists it
 	// so the run reads what was saved.
 	start string
+	// findingEntrypoint says Run on Current File is asking the build providers for the open
+	// file's entrypoint (title_run_entrypoints.go), so another press does not ask again.
+	findingEntrypoint bool
 	// browser is the list that shows the configurations by scope and build system.
 	browser runConfigBrowser
 	// currentFile says the user chose Current File in the title bar, so its Run and Debug act
@@ -182,6 +189,8 @@ func (a *App) finishRunConfigurations(p *project, generation uint64, resolved co
 		}
 		return !ok || c.Disabled
 	})
+	s.manualOrder = !resolved.SortAlphabetically
+	a.settleRunConfigDialog(p)
 	if s.reveal != "" && s.configuration(s.reveal) != nil {
 		s.selected = s.reveal
 	}
@@ -286,6 +295,16 @@ func (a *App) startRunConfigurationWith(p *project, id string, debug *connection
 			a.endBuildOperation(p, op, "failed", nil, "unsaved documents could not be saved", "")
 			return
 		}
+		// The steps a configuration names run first; Run and Debug both run them.
+		a.runBeforeLaunch(p, op, id, func() { a.prepareConfiguredRun(p, op, id, reference, index, debug) })
+	})
+	return op, nil
+}
+
+// prepareConfiguredRun asks Core for the saved launch options of configuration id and has the
+// build provider prepare and start the run.
+func (a *App) prepareConfiguredRun(p *project, op *buildOperation, id string, reference core.RunProviderReference, index int, debug *connectionDebug) {
+	{
 		root, kernel := p.root, a.kernel
 		a.background(p, buildRequestTimeout, func(ctx context.Context) func(*App) {
 			prepare, release := op.bind(ctx)
@@ -313,11 +332,10 @@ func (a *App) startRunConfigurationWith(p *project, id string, debug *connection
 				if launch.Customized() {
 					options = &launch
 				}
-				a.runBuildTargetWith(p, op, &p.build.instances[index], inputs.Reference.ProjectID, inputs.Reference.TargetID, inputs.Reference.Run, options)
+				a.runBuildTargetWith(p, op, &p.build.instances[index], inputs.Reference.ProjectID, inputs.Reference.TargetID, inputs.Reference.Run, options, inputs.OptionOverrides)
 			}
 		})
-	})
-	return op, nil
+	}
 }
 
 // buildInstanceIndex returns the detected build instance a provider reference names, or -1.
@@ -371,6 +389,8 @@ func (a *App) runConfigUnavailableText(configuration core.RunConfiguration) stri
 		return i18n.SharedFormat(language, "desktop.runConfig.unavailableMissingDirectory", map[string]string{"directory": configuration.Cwd})
 	case "invalidConfiguration":
 		return i18n.SharedFormat(language, "desktop.runConfig.unavailableInvalid", map[string]string{"reason": availability.Message})
+	case "unsupportedPlatform":
+		return a.runAvailabilityText(configuration.Provider, *availability)
 	}
 	return i18n.SharedFormat(language, "desktop.runConfig.unavailableOther", map[string]string{"reason": availability.Message})
 }

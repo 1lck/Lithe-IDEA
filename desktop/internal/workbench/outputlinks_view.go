@@ -7,10 +7,10 @@ import (
 	"github.com/1lck/Lithe-IDEA/desktop/internal/core"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/i18n"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/term"
-	"github.com/1lck/Lithe-IDEA/desktop/internal/textview"
 	"github.com/vivaui/viva/app"
 	"github.com/vivaui/viva/gfx"
 	"github.com/vivaui/viva/ui"
+	"github.com/vivaui/viva/ui/textview"
 )
 
 // outputMenu is the context menu of a console's lines, as the old client's output view had:
@@ -123,8 +123,10 @@ func (s outputSource) Line(n int) string { return s.output.row(n - s.output.star
 // The lines are drawn in the run output's font (fonts.go), each line as tall as that font's
 // line spacing makes it. A secondary press opens menu, when there is one. The console keeps
 // to the newest line as output arrives, until the user scrolls up, and keeps to it again once
-// they scroll back down.
-func (a *App) outputList(c ui.C, p *project, view *textview.View, scope, label string, output *outputBuffer, from int, menu *outputMenu) ui.Box {
+// they scroll back down. A line wider than the console breaks onto more rows when wrap is set
+// and otherwise ends in an ellipsis, as the Git console's do (gitconsole_view.go); the lines are
+// broken again only when the output or the width changed.
+func (a *App) outputList(c ui.C, p *project, view *textview.View, scope, label string, output *outputBuffer, from int, wrap bool, menu *outputMenu) ui.Box {
 	if menu != nil && menu.key != "" {
 		c = c.Key(menu.key)
 	}
@@ -140,6 +142,9 @@ func (a *App) outputList(c ui.C, p *project, view *textview.View, scope, label s
 		Selection:  a.terminalLook().Selection,
 		Scroll:     true,
 		Follow:     true,
+		Wrap:       wrap,
+		Ellipsis:   true,
+		Revision:   output.revision,
 		Spans: func(n int, text string, dst []textview.Span) []textview.Span {
 			return a.outputSpans(p, scope, output.row(n-output.start), &ink, dst)
 		},

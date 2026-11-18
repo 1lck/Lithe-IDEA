@@ -2,9 +2,9 @@ package workbench
 
 import (
 	"github.com/1lck/Lithe-IDEA/desktop/internal/core"
-	"github.com/1lck/Lithe-IDEA/desktop/internal/textview"
 	"github.com/vivaui/viva/gfx"
 	"github.com/vivaui/viva/ui"
+	"github.com/vivaui/viva/ui/textview"
 )
 
 // The identities of the log page's fields, named in the page's own scope so that the

@@ -228,6 +228,7 @@ func (a *App) layOutBuildTree(p *project, instance *buildInstance, query string,
 		OptionValues:          instance.Model.OptionValues,
 		OptionDefaults:        instance.Model.OptionDefaults,
 		OptionExcludePrefixes: instance.Model.OptionExcludePrefixes,
+		OptionSelection:       instance.Model.OptionSelection,
 	}
 	headings := buildGroupHeadings(language)
 	a.background(p, buildTreeTimeout, func(ctx context.Context) func(*App) {
@@ -534,7 +535,7 @@ func (a *App) toggleBuildTreeOptionChoice(p *project, index int, optionID, choic
 	captured := *instance
 	kernel, root := a.kernel, p.root
 	a.background(p, buildRequestTimeout, func(ctx context.Context) func(*App) {
-		fields, err := resolveInstanceOptionFields(ctx, kernel, captured, captured.Options)
+		fields, err := resolveInstanceOptionFields(ctx, kernel, captured, nil)
 		if err != nil {
 			return func(a *App) {
 				p.build.optionSaving = false
@@ -575,6 +576,7 @@ func (a *App) toggleBuildTreeOptionChoice(p *project, index int, optionID, choic
 			ModelValues:          captured.Model.OptionValues,
 			ModelDefaults:        captured.Model.OptionDefaults,
 			ModelExcludePrefixes: captured.Model.OptionExcludePrefixes,
+			ModelSelection:       captured.Model.OptionSelection,
 		})
 		if err != nil {
 			return func(a *App) {

@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"strings"
 	"testing"
 
 	"github.com/1lck/Lithe-IDEA/desktop/internal/contractfixture"
@@ -148,7 +149,7 @@ func TestBuildOptionDefaultsAndExclusionsRoundTripThroughStorageAndTree(t *testi
 			"tasks": [{"id": "compile", "displayName": "compile", "group": "lifecycle", "category": ["Lifecycle"], "scopes": ["workspace", "project"], "arguments": ["compile"]}]
 		}]
 	}`)
-	decoded, err := client.DecodeBuildModel(ctx, manifest, "fixture-profiles", BuildDecodeModelRequest{
+	decodeRequest := BuildDecodeModelRequest{
 		WorkspaceRoot: t.TempDir(),
 		Root:          ".",
 		Output: `{
@@ -157,9 +158,11 @@ func TestBuildOptionDefaultsAndExclusionsRoundTripThroughStorageAndTree(t *testi
 			"projects": [{"path": ".", "name": "shop"}],
 			"optionValues": {"profiles": ["dev", "local", "prod"]},
 			"optionDefaults": {"profiles": ["dev"]},
-			"optionExcludePrefixes": {"profiles": "-"}
+			"optionExcludePrefixes": {"profiles": "-"},
+			"optionActiveChoices": {"profiles": ["dev"]}
 		}`,
-	})
+	}
+	decoded, err := client.DecodeBuildModel(ctx, manifest, "fixture-profiles", decodeRequest)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -171,12 +174,33 @@ func TestBuildOptionDefaultsAndExclusionsRoundTripThroughStorageAndTree(t *testi
 		ModelValues:          decoded.OptionValues,
 		ModelDefaults:        decoded.OptionDefaults,
 		ModelExcludePrefixes: decoded.OptionExcludePrefixes,
+		ModelSelection:       decoded.OptionSelection,
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
 	if len(resolved.Options) != 1 || !slices.Equal(resolved.Options[0].SelectedChoices, []string{"dev"}) || !resolved.Options[0].Choices[0].DefaultActive {
 		t.Fatalf("initial resolved options = %+v", resolved.Options)
+	}
+
+	decodeRequest.Options = map[string]json.RawMessage{"profiles": json.RawMessage(`["prod"]`)}
+	decodeRequest.Output = strings.Replace(decodeRequest.Output,
+		`"optionActiveChoices": {"profiles": ["dev"]}`,
+		`"optionActiveChoices": {"profiles": ["dev", "prod"]}`, 1)
+	observed, err := client.DecodeBuildModel(ctx, manifest, "fixture-profiles", decodeRequest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	selected, err := client.ResolveBuildOptions(ctx, manifest, "fixture-profiles", BuildResolveOptionsRequest{
+		Options: decodeRequest.Options, ModelValues: observed.OptionValues,
+		ModelDefaults: observed.OptionDefaults, ModelExcludePrefixes: observed.OptionExcludePrefixes,
+		ModelSelection: observed.OptionSelection,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !slices.Equal(selected.Options[0].SelectedChoices, []string{"dev", "prod"}) {
+		t.Fatalf("checked choices after loading the stored options: %+v", selected.Options)
 	}
 
 	noTeam := json.RawMessage(`{"version":1,"systems":{}}`)
@@ -190,6 +214,7 @@ func TestBuildOptionDefaultsAndExclusionsRoundTripThroughStorageAndTree(t *testi
 		ModelValues:          decoded.OptionValues,
 		ModelDefaults:        decoded.OptionDefaults,
 		ModelExcludePrefixes: decoded.OptionExcludePrefixes,
+		ModelSelection:       decoded.OptionSelection,
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -221,6 +246,7 @@ func TestBuildOptionDefaultsAndExclusionsRoundTripThroughStorageAndTree(t *testi
 			OptionValues:          decoded.OptionValues,
 			OptionDefaults:        decoded.OptionDefaults,
 			OptionExcludePrefixes: decoded.OptionExcludePrefixes,
+			OptionSelection:       decoded.OptionSelection,
 		},
 		Options: map[string]json.RawMessage{"profiles": states.Options[0].Value},
 	})
@@ -245,6 +271,7 @@ func TestBuildOptionDefaultsAndExclusionsRoundTripThroughStorageAndTree(t *testi
 		ModelValues:          decoded.OptionValues,
 		ModelDefaults:        decoded.OptionDefaults,
 		ModelExcludePrefixes: decoded.OptionExcludePrefixes,
+		ModelSelection:       decoded.OptionSelection,
 	})
 	if err != nil {
 		t.Fatal(err)

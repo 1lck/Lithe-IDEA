@@ -17,8 +17,8 @@ import (
 )
 
 // TestVisualTitleRunWithoutConfigurations captures the run configuration menu of a project
-// whose build plugin declares no run while two saved configurations are hidden, and the notice
-// Edit Configuration… shows there (#2028).
+// whose build plugin declares no run while two saved configurations are hidden, and the
+// Run/Debug Configurations dialog Edit Configuration… opens there, counting them (#2028).
 func TestVisualTitleRunWithoutConfigurations(t *testing.T) {
 	out := os.Getenv("LITHE_VISUAL_OUTPUT_DIR")
 	if out == "" {
@@ -83,10 +83,10 @@ func TestVisualTitleRunWithoutConfigurations(t *testing.T) {
 			if err := session.Screenshot(filepath.Join(out, "title-run-empty-edit-"+name+".png")); err != nil {
 				t.Fatal(err)
 			}
-			want := i18n.SharedFormat(language, "desktop.title.nothingToEditHidden", map[string]string{"count": "2"})
-			if got := lastNotice(h); got != want {
-				t.Fatalf("notice = %q, want %q", got, want)
+			if !p.runConfigs.dialog.open || !h.showsWrapped(hiddenRunConfigurations(language, 2)) {
+				t.Fatal("Edit Configuration did not open the dialog counting the hidden configurations")
 			}
+			h.app.post(func(a *App) { a.closeRunConfigDialog(p) })
 		})
 	}
 }

@@ -13,8 +13,8 @@ import (
 	"github.com/1lck/Lithe-IDEA/desktop/internal/editorview"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/pluginbackend"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/pluginservice"
-	"github.com/1lck/Lithe-IDEA/desktop/internal/textview"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/toolchain"
+	"github.com/vivaui/viva/ui/textview"
 )
 
 const (

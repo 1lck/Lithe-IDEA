@@ -1,11 +1,14 @@
 package workbench
 
 import (
+	"os"
+	"path/filepath"
 	"slices"
 	"testing"
 
 	"github.com/1lck/Lithe-IDEA/desktop/internal/core"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/i18n"
+	"github.com/1lck/Lithe-IDEA/desktop/internal/store"
 	"github.com/vivaui/viva/gfx"
 )
 
@@ -80,9 +83,10 @@ func TestToolWindowMoveSubmenuUsesCoreLayout(t *testing.T) {
 	}
 }
 
-// A hidden stripe button is listed under the "…" button below the left stripe's top group,
-// as the earlier client and IDEA list it: a click on its row puts the button back where it
-// was and opens its tool window. The "…" button is there only while a button is hidden.
+// A hidden stripe button is listed under the "…" button, which starts as the last button of
+// the left stripe's top group, as the earlier client and IDEA list it: a click on its row puts
+// the button back where it was and opens its tool window. The "…" button is there only while
+// a button is hidden.
 func TestHiddenStripeButtonIsListedUnderTheEllipsisAndComesBack(t *testing.T) {
 	h := newHarness(t, &testKernel{Client: core.NewClient()})
 	h.open(t.TempDir())
@@ -111,11 +115,17 @@ func TestHiddenStripeButtonIsListedUnderTheEllipsisAndComesBack(t *testing.T) {
 		t.Fatalf("saved hidden = %q, %v; want [commit]", saved.Hidden, err)
 	}
 
-	// The "…" button is laid out as one more button of the top group and, as they do, names
+	// The "…" button is laid out as the last button of the top group and, as they do, names
 	// itself in a tip on the stripe's inner side.
 	shown := h.app.chrome.items[zoneLeftTop]
-	last := h.button(h.app.chrome.catalog[shown[len(shown)-1]].id)
+	if h.app.chrome.catalog[shown[len(shown)-1]].id != itemToolWindows {
+		t.Fatalf("the top left zone shows %v, want the hidden tool windows button last", h.zoneItems(zoneLeftTop))
+	}
+	last := h.button(h.app.chrome.catalog[shown[len(shown)-2]].id)
 	ellipsis := h.pageHit(more).Bounds
+	if ellipsis != h.button(itemToolWindows) {
+		t.Fatalf("the hidden tool windows control is at %+v, want it over its stripe button at %+v", ellipsis, h.button(itemToolWindows))
+	}
 	if ellipsis.Width != 30 || ellipsis.Height != 30 || ellipsis.X != last.X || ellipsis.Y-last.Y != 40 {
 		t.Fatalf("the hidden tool windows button is at %+v, want 30x30, 40 below the last top button at %+v", ellipsis, last)
 	}
@@ -223,4 +233,160 @@ func TestChromeStateKeepsTheZoneOfAHiddenButton(t *testing.T) {
 	if c.open[slotRightBottom] != terminal || !c.hiddenOpen() {
 		t.Fatalf("open slots = %v, want the hidden terminal in the right bottom slot", c.open)
 	}
+}
+
+// The "…" button moves like the other stripe buttons. Dragged to the end of the right stripe,
+// it stays there, in the saved layout as well, and opens its list on that stripe's inner side,
+// rising from it. With nothing hidden it is gone, and it comes back where the user left it.
+func TestTheEllipsisButtonDragsToAnotherStripeZone(t *testing.T) {
+	h := newHarness(t, &testKernel{Client: core.NewClient()})
+	h.open(t.TempDir())
+	more := h.shared("native.toolWindows")
+	commit := catalogIndex[itemCommit]
+	label := h.app.chrome.catalog[commit].label(h.app.text)
+	h.rightClickAt(h.button(itemCommit))
+	h.click(center(h.popupHit(h.shared("native.hideEntry"))))
+	h.settle()
+
+	target := h.app.chrome.zoneRects[zoneBottomRight]
+	h.drag(center(h.button(itemToolWindows)), gfx.Point{X: target.X + target.Width/2, Y: target.Y + target.Height - 2})
+	h.settle()
+	if got := h.zoneItems(zoneBottomRight); !slices.Equal(got, []string{itemBackground, itemToolWindows}) {
+		t.Fatalf("bottom right zone = %v, want the hidden tool windows button after the background button", got)
+	}
+	if got := h.zoneItems(zoneLeftTop); slices.Contains(got, itemToolWindows) {
+		t.Fatalf("top left zone = %v still holds the hidden tool windows button", got)
+	}
+	var saved core.ChromeLayout
+	if _, err := h.store.Load(layoutFile, &saved); err != nil || !slices.Contains(saved.Placements, core.Placement{ID: itemToolWindows, Zone: core.ZoneBottomRight}) {
+		t.Fatalf("saved placements = %v, %v; want the hidden tool windows button at the bottom right", saved.Placements, err)
+	}
+
+	ellipsis := h.pageHit(more).Bounds
+	if ellipsis != h.button(itemToolWindows) {
+		t.Fatalf("the hidden tool windows control is at %+v, want it over its stripe button at %+v", ellipsis, h.button(itemToolWindows))
+	}
+	h.clickNamed(more)
+	if !h.app.hiddenListOpen {
+		t.Fatal("the moved hidden tool windows button did not open its list")
+	}
+	row := h.popupHit(label)
+	if row.Right() > ellipsis.X || row.Bottom() > ellipsis.Bottom() {
+		t.Fatalf("the row of hidden Commit is at %+v, want it left of the button at %+v and not below it", row, ellipsis)
+	}
+
+	h.click(center(row))
+	h.settle()
+	if h.app.chrome.isHidden(commit) {
+		t.Fatal("the row of hidden Commit did not bring its button back")
+	}
+	if _, shown := h.findPageHit(more); shown {
+		t.Fatal("the hidden tool windows button stayed with nothing hidden")
+	}
+	if got := h.app.chrome.zoneOf(catalogIndex[itemToolWindows]); got != zoneBottomRight {
+		t.Fatalf("with nothing hidden the hidden tool windows button belongs to zone %v, want the bottom right", got)
+	}
+	h.rightClickAt(h.button(itemCommit))
+	h.click(center(h.popupHit(h.shared("native.hideEntry"))))
+	h.settle()
+	if got := h.zoneItems(zoneBottomRight); !slices.Equal(got, []string{itemBackground, itemToolWindows}) {
+		t.Fatalf("bottom right zone = %v after another hide, want the hidden tool windows button back after the background button", got)
+	}
+}
+
+// The menu of the "…" button moves it as the menu of a stripe button does, but offers no Hide
+// Entry: the button is the way back to the hidden ones.
+func TestTheEllipsisButtonMenuMovesItButCannotHideIt(t *testing.T) {
+	h := newHarness(t, &testKernel{Client: core.NewClient()})
+	h.open(t.TempDir())
+	h.rightClickAt(h.button(itemCommit))
+	h.click(center(h.popupHit(h.shared("native.hideEntry"))))
+	h.settle()
+
+	h.rightClickAt(h.button(itemToolWindows))
+	if h.hasPopupItem(h.shared("native.hideEntry")) {
+		t.Fatal("the menu of the hidden tool windows button offers Hide Entry")
+	}
+	h.click(center(h.popupHit(h.shared("native.moveEarlier"))))
+	h.settle()
+	items := h.zoneItems(zoneLeftTop)
+	if at := slices.Index(items, itemToolWindows); at != len(items)-2 {
+		t.Fatalf("after Move Earlier the top left zone holds %v, want the hidden tool windows button before the last", items)
+	}
+
+	h.rightClickAt(h.button(itemToolWindows))
+	h.clickNamed(h.shared("desktop.tools.moveTo"))
+	h.clickNamed(stripeZoneMoveText(h.app.language(), zoneRightTop))
+	h.settleChain()
+	if got := h.zoneItems(zoneRightTop); !slices.Equal(got, []string{itemBuild, itemNotifications, itemToolWindows}) {
+		t.Fatalf("after Move To the top right zone holds %v, want the hidden tool windows button last", got)
+	}
+	h.app.post(func(a *App) { a.hideEntry(catalogIndex[itemToolWindows]) })
+	h.settle()
+	if h.app.chrome.isHidden(catalogIndex[itemToolWindows]) {
+		t.Fatal("the hidden tool windows button was hidden")
+	}
+}
+
+// The "…" button is among the shown buttons of its zone only while another button is hidden,
+// so a drag or Move Later never stops at it while it is not drawn, and a layout that hides it,
+// edited by hand, still shows it.
+func TestChromeStateShowsTheEllipsisOnlyWhileAButtonIsHidden(t *testing.T) {
+	c := newChromeState()
+	more := c.index[itemToolWindows]
+	layout := defaultLayout()
+	c.apply(layout)
+	if slices.Contains(c.items[zoneLeftTop], more) {
+		t.Fatalf("with nothing hidden the top left zone shows %v, want no hidden tool windows button", c.items[zoneLeftTop])
+	}
+	if got := c.zoneOf(more); got != zoneLeftTop {
+		t.Fatalf("the hidden tool windows button belongs to zone %v, want the top left", got)
+	}
+
+	layout.Hidden = []string{itemToolWindows}
+	c.apply(layout)
+	if c.isHidden(more) || len(c.hidden) != 0 || slices.Contains(c.items[zoneLeftTop], more) {
+		t.Fatalf("a layout hiding only the hidden tool windows button leaves hidden = %v and top left %v, want neither", c.hidden, c.items[zoneLeftTop])
+	}
+
+	layout.Hidden = []string{itemToolWindows, itemCommit}
+	c.apply(layout)
+	items := c.items[zoneLeftTop]
+	if c.isHidden(more) || !slices.Equal(c.hidden, []int{c.index[itemCommit]}) || items[len(items)-1] != more {
+		t.Fatalf("with Commit hidden, hidden = %v and top left = %v, want only Commit hidden and the button last", c.hidden, items)
+	}
+}
+
+// A layout saved before the "…" button was in the catalog, still holding the Updates button
+// that was taken out, loses that button and gets the "…" button at the end of the left
+// stripe's top group, where it used to be drawn.
+func TestALayoutSavedBeforeTheEllipsisMovedPutsItAfterTheTopGroup(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, settingsFile), []byte(`{"theme":"dark"}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	var old core.ChromeLayout
+	for _, placement := range defaultLayout().Placements {
+		if placement.ID == itemToolWindows {
+			continue
+		}
+		old.Placements = append(old.Placements, placement)
+		if placement.ID == itemBackground {
+			old.Placements = append(old.Placements, core.Placement{ID: "updates", Zone: core.ZoneBottomRight})
+		}
+	}
+	old.Open = []string{itemProject}
+	old.Hidden = []string{itemCommit}
+	if err := store.At(dir).Save(layoutFile, old); err != nil {
+		t.Fatal(err)
+	}
+	h := newHarnessWithOptions(t, Options{Kernel: &testKernel{Client: core.NewClient()}, Store: store.At(dir), Languages: []string{"zh-Hans"}})
+	h.open(t.TempDir())
+	if got := h.zoneItems(zoneBottomRight); !slices.Equal(got, []string{itemBackground}) {
+		t.Fatalf("bottom right zone = %v, want only the background button", got)
+	}
+	if got := h.zoneItems(zoneLeftTop); !slices.Equal(got, []string{itemProject, itemStructure, itemFind, itemToolWindows}) {
+		t.Fatalf("top left zone = %v, want the hidden tool windows button after the top group", got)
+	}
+	h.pageHit(h.shared("native.toolWindows"))
 }

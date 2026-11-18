@@ -123,8 +123,12 @@ type BuildPlanRequest struct {
 	Refresh                 bool                       `json:"refresh,omitempty"`
 	Tool                    *BuildTool                 `json:"tool,omitempty"`
 	WorkspaceRoot           string                     `json:"workspaceRoot,omitempty"`
-	// LaunchOptions are a run configuration's choices (buildProviders 10).
+	// OptionOverrides are the saved per-run build options, layered by Core.
+	OptionOverrides map[string]json.RawMessage `json:"optionOverrides,omitempty"`
+	// LaunchOptions are a run configuration's choices.
 	LaunchOptions *RunLaunchOptions `json:"launchOptions,omitempty"`
+	// File is the workspace-relative source file build.runEntrypointsPlan asks about.
+	File string `json:"file,omitempty"`
 }
 
 // BuildProviderRequest is the typed request a provider-backed plan names.
@@ -199,14 +203,21 @@ type BuildTask struct {
 // BuildModel is the normalized model build.decodeModel returns. Run entries
 // are command entries only; a provider run is prepared on demand.
 type BuildModel struct {
-	Projects              []BuildProject      `json:"projects"`
-	Targets               []BuildTarget       `json:"targets"`
-	Tasks                 []BuildTask         `json:"tasks"`
-	ContentRoots          []json.RawMessage   `json:"contentRoots"`
-	OptionValues          map[string][]string `json:"optionValues"`
-	OptionDefaults        map[string][]string `json:"optionDefaults,omitempty"`
-	OptionExcludePrefixes map[string]string   `json:"optionExcludePrefixes,omitempty"`
-	Run                   []BuildRunEntry     `json:"run"`
+	Projects              []BuildProject             `json:"projects"`
+	Targets               []BuildTarget              `json:"targets"`
+	Tasks                 []BuildTask                `json:"tasks"`
+	ContentRoots          []json.RawMessage          `json:"contentRoots"`
+	OptionValues          map[string][]string        `json:"optionValues"`
+	OptionDefaults        map[string][]string        `json:"optionDefaults,omitempty"`
+	OptionExcludePrefixes map[string]string          `json:"optionExcludePrefixes,omitempty"`
+	OptionSelection       *BuildModelOptionSelection `json:"optionSelection,omitempty"`
+	Run                   []BuildRunEntry            `json:"run"`
+}
+
+// BuildModelOptionSelection contains choices observed by the tool for one build configuration.
+type BuildModelOptionSelection struct {
+	Fingerprint   string              `json:"fingerprint"`
+	ActiveChoices map[string][]string `json:"activeChoices"`
 }
 
 // BuildRunEntry is a command Run entry Core derived from a decoded model: one
@@ -280,6 +291,8 @@ type buildOutcome struct {
 	Discovery *BuildTestDiscovery `json:"discovery"`
 	// Tree answers build.modelTree.
 	Tree *BuildModelTree `json:"tree"`
+	// Entrypoints answers build.decodeRunEntrypoints.
+	Entrypoints *BuildRunEntrypoints `json:"entrypoints"`
 }
 
 func (o buildOutcome) failure(command string) error {
@@ -465,12 +478,13 @@ type BuildModelTreeRequest struct {
 
 // BuildModelTreeInput is the part of a decoded model the tree reads.
 type BuildModelTreeInput struct {
-	Projects              []BuildProject      `json:"projects"`
-	Targets               []BuildTarget       `json:"targets"`
-	Tasks                 []BuildTask         `json:"tasks"`
-	OptionValues          map[string][]string `json:"optionValues,omitempty"`
-	OptionDefaults        map[string][]string `json:"optionDefaults,omitempty"`
-	OptionExcludePrefixes map[string]string   `json:"optionExcludePrefixes,omitempty"`
+	Projects              []BuildProject             `json:"projects"`
+	Targets               []BuildTarget              `json:"targets"`
+	Tasks                 []BuildTask                `json:"tasks"`
+	OptionValues          map[string][]string        `json:"optionValues,omitempty"`
+	OptionDefaults        map[string][]string        `json:"optionDefaults,omitempty"`
+	OptionExcludePrefixes map[string]string          `json:"optionExcludePrefixes,omitempty"`
+	OptionSelection       *BuildModelOptionSelection `json:"optionSelection,omitempty"`
 }
 
 // BuildModelTree is the Build tool window's tree of one instance. Project is the instance's

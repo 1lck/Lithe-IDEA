@@ -12,7 +12,9 @@
 | Go 模块的模型正在加载：运行窗口为这次加载开了“同步 Go Modules (desktop)”标签，执行树显示运行中状态、开始时间和最新一行输出，控制台是 go 下载模块时打印的日志，左侧有再次运行和停止；构建窗口里正在加载的那一行在说明后显示最新一行输出，点击打开这个标签 | [截图](build-sync-dark.png) | [截图](build-sync-light.png) |
 | 构建窗口按名称筛选：只保留命中的节点和通往它的项目与文件夹，没有命中的构建系统不显示 | [截图](build-filter-dark.png) | [截图](build-filter-light.png) |
 | Go 模块的 Targets 文件夹展开：目标以完整导入路径命名，行上只显示所在目录；可运行的目标和任务行首是绿色运行按钮，依赖标题旁有 ⓘ | [截图](build-go-targets-dark.png) | [截图](build-go-targets-light.png) |
+| 构建选项加载中，编辑和保存不可用 | [截图](build-options-loading-dark.png) | [截图](build-options-loading-light.png) |
+| 构建选项加载完成，可以勾选和保存 | [截图](build-options-dark.png) | [截图](build-options-light.png) |
 
-复验：设置 `LITHE_VISUAL_OUTPUT_DIR`，通过 `scripts/desktop/desktop-go.sh test
+设置 `LITHE_VISUAL_OUTPUT_DIR` 后，运行 `scripts/desktop/desktop-go.sh test
 -tags vivahead,lithevisual ./internal/workbench -run '^TestVisualBuildPanels'
 -count=1 -timeout 180s` 生成。

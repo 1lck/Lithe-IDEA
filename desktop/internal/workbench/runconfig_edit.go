@@ -14,14 +14,18 @@ import (
 	"github.com/1lck/Lithe-IDEA/desktop/internal/i18n"
 )
 
-// runConfigEditor is the open editor of one configuration's options. It starts from
-// the effective values Core resolved, and saving writes them into the chosen layer
-// file, so the next resolve shows what took effect. Every field is bound to a widget
-// by address and lives here, not in a paint's locals.
+// runConfigEditor is the editor of one build provider run's options in the Run/Debug
+// Configurations dialog (runconfig_dialog.go). It starts from the effective values Core
+// resolved, and saving writes them into the chosen layer file, so the next resolve shows what
+// took effect. Every field is bound to a widget by address and lives here, not in a paint's
+// locals.
 type runConfigEditor struct {
+	// open is cleared when the dialog drops the editor; answers still out are then ignored.
 	open bool
-	// generation rejects the answer of an editor that was closed or reopened since.
-	generation  uint64
+	// generation rejects the answer of an editor that was dropped since.
+	generation uint64
+	// baseline is the editor's fingerprint when it was read or last saved; see dirty.
+	baseline    string
 	id, name    string
 	arguments   string
 	directory   string
@@ -36,7 +40,7 @@ type runConfigEditor struct {
 	provider         bool
 	runtimeArguments string
 	entrypoint       string
-	// options are the build option overrides, kept as they were: this editor does not edit them.
+	// options are the build option overrides saved for this configuration.
 	options map[string]json.RawMessage
 	// tools are the tool choices by qualified tool ID, with the kind of each choice ("home" or
 	// "executable") and the path the editor shows. A cleared path sends null for that tool.
@@ -47,6 +51,11 @@ type runConfigEditor struct {
 	// the picker's selection, 0 for none.
 	installs []runConfigInstall
 	pick     int
+	// beforeLaunch is the IDs of the process runs that start first, as the editor shows them;
+	// savedBeforeLaunch is the list it opened with, so a save that did not change it leaves the
+	// layers as they are. beforeLaunchMenu says the menu that adds a step is open.
+	beforeLaunch, savedBeforeLaunch []string
+	beforeLaunchMenu                bool
 }
 
 // runConfigInstall is one discovered installation a tool choice can be set to.
@@ -95,21 +104,22 @@ func providerRunEditorState(configuration core.RunConfiguration) (runConfigEdito
 	return state, true
 }
 
-// openRunConfigEditor opens the editor on configuration id. The argument field fills
-// once Core formatted the saved vector as reversible editor text.
-func (a *App) openRunConfigEditor(p *project, id string) {
+// openRunConfigEditor reads the editor of configuration id, nil when it is not listed. The
+// argument field fills once Core formatted the saved vector as reversible editor text.
+func (a *App) openRunConfigEditor(p *project, id string) *runConfigEditor {
 	configuration := p.runConfigs.configuration(id)
 	if configuration == nil {
-		return
+		return nil
 	}
-	e := &p.runConfigs.editor
-	e.generation++
-	generation := e.generation
-	*e = runConfigEditor{
-		open: true, generation: generation, id: id, name: configuration.Name,
+	e := &runConfigEditor{
+		open: true, generation: 1, id: id, name: configuration.Name,
 		directory: configuration.Cwd, environment: environmentText(configuration.Env),
 		scope: "local", loading: true,
 	}
+	for _, step := range configuration.BeforeLaunch {
+		e.beforeLaunch = append(e.beforeLaunch, step.Configuration)
+	}
+	e.savedBeforeLaunch = slices.Clone(e.beforeLaunch)
 	var buildInstance *buildInstance
 	var optionSnapshot map[string]json.RawMessage
 	if provider, ok := providerRunEditorState(*configuration); ok {
@@ -125,8 +135,9 @@ func (a *App) openRunConfigEditor(p *project, id string) {
 				}
 			}
 		}
-		a.loadRunConfigInstalls(p, generation)
+		a.loadRunConfigInstalls(p, e, e.generation)
 	}
+	generation := e.generation
 	args, kernel := slices.Clone(configuration.Args), a.kernel
 	a.background(p, buildRequestTimeout, func(ctx context.Context) func(*App) {
 		texts, err := kernel.RunArgumentText(ctx, [][]string{args})
@@ -135,49 +146,83 @@ func (a *App) openRunConfigEditor(p *project, id string) {
 		}
 		var resolvedFields []runOptionField
 		if err == nil && buildInstance != nil {
-			resolvedFields, _ = resolveInstanceOptionFields(ctx, kernel, *buildInstance, optionSnapshot)
+			fields, resolveErr := resolveInstanceOptionFields(ctx, kernel, *buildInstance, optionSnapshot)
+			if resolveErr != nil {
+				a.backgroundFailedIn(ctx, "build_options_resolve", resolveErr)
+			} else {
+				resolvedFields = fields
+			}
 		}
 		return func(a *App) {
-			e := &p.runConfigs.editor
 			if !e.open || e.generation != generation {
 				return
 			}
 			e.loading = false
-			if err != nil {
+			if err == nil {
+				e.arguments = texts[0]
+			} else {
 				e.failure = i18n.SharedFormat(a.language(), "desktop.runConfig.saveFailed", map[string]string{"reason": err.Error()})
-				return
 			}
 			if len(resolvedFields) != 0 {
 				e.optionFields = resolvedFields
 			}
-			e.arguments = texts[0]
+			e.baseline = e.fingerprint()
 		}
 	})
+	return e
 }
 
-func (a *App) closeRunConfigEditor(p *project) {
-	e := &p.runConfigs.editor
+// close drops the editor; answers still out are ignored.
+func (e *runConfigEditor) close() {
 	e.generation++
 	e.open, e.loading, e.saving = false, false, false
 }
 
-// saveRunConfigEditor has Core apply the edit to the chosen layer, applies the file changes it
-// returns, then resolves the configurations again.
-func (a *App) saveRunConfigEditor(p *project) {
-	e := &p.runConfigs.editor
-	if !e.open || e.loading || e.saving {
+// ready says the editor is read and not being saved.
+func (e *runConfigEditor) ready() bool {
+	return e.open && !e.loading && !e.saving
+}
+
+// fingerprint is every value the editor saves, so a change shows as a different one.
+func (e *runConfigEditor) fingerprint() string {
+	values := []any{e.arguments, e.directory, e.environment, e.scope, e.runtimeArguments, e.entrypoint, append([]string{}, e.beforeLaunch...)}
+	for _, tool := range e.tools {
+		values = append(values, tool.id, tool.kind, tool.path)
+	}
+	for _, field := range e.optionFields {
+		values = append(values, field.flag, field.text, field.picks)
+	}
+	raw, _ := json.Marshal(values)
+	return string(raw)
+}
+
+// dirty says a value changed since the editor was read or last saved.
+func (e *runConfigEditor) dirty() bool {
+	return e.ready() && e.fingerprint() != e.baseline
+}
+
+// saveRunConfigEditor has Core apply the edit to the chosen layer and applies the file changes
+// it returns; done gets whether it saved. A failure stays in the editor. The caller resolves
+// the configurations again.
+func (a *App) saveRunConfigEditor(p *project, e *runConfigEditor, done func(ok bool)) {
+	if !e.ready() {
+		done(false)
 		return
 	}
 	environment, line := parseEnvironment(e.environment)
 	if line > 0 {
 		e.failure = i18n.SharedFormat(a.language(), "desktop.runConfig.environmentInvalid", map[string]string{"line": strconv.Itoa(line)})
+		done(false)
 		return
 	}
-	e.saving, e.failure = true, ""
-	generation := e.generation
 	edit := core.RunOptionsEdit{
 		Root: p.root, Scope: e.scope, ConfigurationID: e.id,
 		WorkingDirectory: strings.TrimSpace(e.directory), Arguments: e.arguments, Environment: environment,
+	}
+	steps := e.savedBeforeLaunch
+	if !slices.Equal(e.beforeLaunch, e.savedBeforeLaunch) {
+		steps = append([]string{}, e.beforeLaunch...)
+		edit.BeforeLaunch = &steps
 	}
 	var multiSelectEdits map[string][]string
 	var multiSelectInstance *buildInstance
@@ -201,44 +246,53 @@ func (a *App) saveRunConfigEditor(p *project) {
 				}
 			}
 		}
-		applyRunOptionFields(e)
 		editorSnapshot = *e
-		if e.options != nil {
-			editorSnapshot.options = make(map[string]json.RawMessage, len(e.options))
-			for key, value := range e.options {
-				editorSnapshot.options[key] = slices.Clone(value)
-			}
-		}
-		raw, err := providerRunOptionsJSON(e)
-		if err != nil {
-			e.saving = false
-			e.failure = i18n.SharedFormat(a.language(), "desktop.runConfig.saveFailed", map[string]string{"reason": err.Error()})
-			return
-		}
-		edit.ProviderRunOptions = raw
+		editorSnapshot.options = maps.Clone(e.options)
+		editorSnapshot.tools = slices.Clone(e.tools)
+		applyRunOptionFields(&editorSnapshot)
 	}
-	kernel := a.kernel
+	e.saving, e.failure = true, ""
+	generation, kernel := e.generation, a.kernel
+	finish := func(err error) func(*App) {
+		return func(a *App) {
+			current := e.open && e.generation == generation
+			if current {
+				e.saving = false
+			}
+			if err != nil {
+				if current {
+					e.failure = a.runConfigSaveFailure(err)
+				}
+				done(false)
+				return
+			}
+			if current {
+				e.options = editorSnapshot.options
+				for i := range e.optionFields {
+					field := &e.optionFields[i]
+					field.initFlag, field.initText, field.initPick = field.flag, field.text, slices.Clone(field.picks)
+				}
+				e.baseline, e.savedBeforeLaunch = e.fingerprint(), slices.Clone(steps)
+			}
+			done(true)
+		}
+	}
 	a.background(p, buildRequestTimeout, func(ctx context.Context) func(*App) {
 		if len(multiSelectEdits) != 0 && multiSelectInstance != nil {
 			request := core.BuildResolveOptionsRequest{
-				Options:         editorSnapshot.options,
-				SelectedChoices: multiSelectEdits,
+				Options:          editorSnapshot.options,
+				SelectedChoices:  multiSelectEdits,
+				InheritedOptions: multiSelectInstance.Options,
 			}
 			if multiSelectInstance.modelLoaded {
 				request.ModelValues = multiSelectInstance.Model.OptionValues
 				request.ModelDefaults = multiSelectInstance.Model.OptionDefaults
 				request.ModelExcludePrefixes = multiSelectInstance.Model.OptionExcludePrefixes
+				request.ModelSelection = multiSelectInstance.Model.OptionSelection
 			}
 			resolved, err := kernel.ResolveBuildOptions(ctx, multiSelectInstance.Manifest, multiSelectInstance.BuildSystemID, request)
 			if err != nil {
-				return func(a *App) {
-					e := &p.runConfigs.editor
-					if !e.open || e.generation != generation {
-						return
-					}
-					e.saving = false
-					e.failure = a.runConfigSaveFailure(err)
-				}
+				return finish(err)
 			}
 			if editorSnapshot.options == nil {
 				editorSnapshot.options = map[string]json.RawMessage{}
@@ -253,34 +307,28 @@ func (a *App) saveRunConfigEditor(p *project) {
 					delete(editorSnapshot.options, option.ID)
 				}
 			}
+		}
+		if editorSnapshot.provider {
 			raw, err := providerRunOptionsJSON(&editorSnapshot)
 			if err != nil {
-				return func(a *App) {
-					e := &p.runConfigs.editor
-					if !e.open || e.generation != generation {
-						return
-					}
-					e.saving = false
-					e.failure = a.runConfigSaveFailure(err)
-				}
+				return finish(err)
 			}
 			edit.ProviderRunOptions = raw
 		}
-		err := a.saveRunConfigOptions(ctx, edit)
-		return func(a *App) {
-			e := &p.runConfigs.editor
-			if !e.open || e.generation != generation {
-				return
-			}
-			e.saving = false
-			if err != nil {
-				e.failure = a.runConfigSaveFailure(err)
-				return
-			}
-			a.closeRunConfigEditor(p)
-			a.refreshRunConfigurations(p)
-		}
+		return finish(a.saveRunConfigOptions(ctx, edit))
 	})
+}
+
+// beforeLaunchCandidates is the process runs configuration id can run first: every built-in
+// process run that can start, other than itself, as Core allows them.
+func (s *runConfigState) beforeLaunchCandidates(id string) []core.RunConfigurationName {
+	var candidates []core.RunConfigurationName
+	for _, configuration := range s.list {
+		if configuration.ID != id && configuration.IsProcess() && !configuration.Unavailable() {
+			candidates = append(candidates, core.RunConfigurationName{ID: configuration.ID, Name: configuration.Name})
+		}
+	}
+	return candidates
 }
 
 // saveRunConfigOptions has Core compute the file changes of the edit and applies them as one
@@ -359,7 +407,7 @@ func providerRunOptionsJSON(e *runConfigEditor) (json.RawMessage, error) {
 
 // loadRunConfigInstalls reads the toolchain discovery the settings page reads, so the editor can offer
 // the discovered installations. The answer is applied only while the same editor is open.
-func (a *App) loadRunConfigInstalls(p *project, generation uint64) {
+func (a *App) loadRunConfigInstalls(p *project, e *runConfigEditor, generation uint64) {
 	a.background(p, buildRequestTimeout, func(ctx context.Context) func(*App) {
 		snapshot, err := settingsToolchains{app: a}.Load(ctx)
 		var installs []runConfigInstall
@@ -375,7 +423,6 @@ func (a *App) loadRunConfigInstalls(p *project, generation uint64) {
 			}
 		}
 		return func(a *App) {
-			e := &p.runConfigs.editor
 			if !e.open || e.generation != generation || err != nil {
 				return
 			}

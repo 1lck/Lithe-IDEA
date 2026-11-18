@@ -2,6 +2,7 @@ package workbench
 
 import (
 	"context"
+	"slices"
 	"time"
 
 	"github.com/1lck/Lithe-IDEA/desktop/internal/core"
@@ -162,8 +163,11 @@ const (
 	itemSecurity      = "security"
 	itemDebug         = "debug"
 	itemNotifications = "notifications"
-	itemUpdates       = "updates"
 	itemBackground    = "background"
+	// itemToolWindows is the "…" button that lists the stripe buttons the user hid. It is in
+	// the catalog so it can be moved like any stripe button, but it is shown only while a
+	// button is hidden (chromeState.apply).
+	itemToolWindows = "toolWindows"
 
 	itemRunConfig     = "title.runConfig"
 	itemTitleRun      = "title.run"
@@ -187,7 +191,7 @@ const (
 // item is one button the workbench can show in its rearrangeable chrome.
 type item struct {
 	id   string
-	zone zone // the default zone; its surface is the only one the item may sit in
+	zone zone // the default zone; the item sits only in its surface's zones unless stripes is set
 	// icon is the glyph of the button; nil for a status item that is text only.
 	icon *gfx.Icon
 	// label is the button's name, read by assistive technology and, on a button that is only
@@ -200,6 +204,9 @@ type item struct {
 	panel bool
 	// open reports that the tool window is open in the default layout.
 	open bool
+	// stripes lets a title bar item also sit in the six tool stripe zones. It does the same thing
+	// there, opens no tool window and still cannot be hidden.
+	stripes bool
 	// tool is the plugin tool window the item shows; nil for a built-in item.
 	tool *pluginservice.ToolWindow
 	// vcs is the plugin version control provider whose window the item shows (vcs.go); nil for
@@ -219,10 +226,6 @@ func stripeLucide(icon gfx.Icon) *gfx.Icon {
 	return &icon
 }
 
-// hiddenToolWindowsIcon is the glyph of the left stripe's "…" button, which lists the stripe
-// buttons the user hid, at the weight of the other stripe icons.
-var hiddenToolWindowsIcon = stripeLucide(icons.Ellipsis)
-
 // catalog is every rearrangeable button, in the default order of each zone. The
 // kernel owns the layout rules; this is only the host's list of what exists. A tool
 // stripe button shows the IntelliJ New UI icon of its window (toolicons), or a Lucide icon
@@ -232,6 +235,9 @@ var catalog = []item{
 	{id: itemCommit, zone: zoneLeftTop, icon: &toolicons.Commit, label: func(m *i18n.Messages) string { return m.Tools.Commit }, panel: true},
 	{id: itemStructure, zone: zoneLeftTop, icon: &toolicons.Structure, label: func(m *i18n.Messages) string { return m.Tools.Structure }, panel: true},
 	{id: itemFind, zone: zoneLeftTop, icon: &toolicons.Find, label: func(m *i18n.Messages) string { return m.Tools.Find }, panel: true},
+	// The "…" button follows the top group, where the earlier client and IDEA put it; it lists
+	// the hidden buttons rather than opening a tool window.
+	{id: itemToolWindows, zone: zoneLeftTop, icon: stripeLucide(icons.Ellipsis), label: func(m *i18n.Messages) string { return m.Tools.ToolWindows }},
 
 	{id: itemGit, zone: zoneBottomLeft, icon: &toolicons.Vcs, label: func(m *i18n.Messages) string { return m.Tools.Git }, panel: true},
 	{id: itemTerminal, zone: zoneBottomLeft, icon: &toolicons.Terminal, label: func(m *i18n.Messages) string { return m.Tools.Terminal }, panel: true},
@@ -245,14 +251,13 @@ var catalog = []item{
 	{id: itemBuild, zone: zoneRightTop, icon: &toolicons.Build, label: func(m *i18n.Messages) string { return m.Tools.Build }, panel: true},
 	{id: itemNotifications, zone: zoneRightTop, icon: &toolicons.Notifications, label: func(m *i18n.Messages) string { return m.Tools.Notifications }, panel: true},
 
-	{id: itemUpdates, zone: zoneBottomRight, icon: stripeLucide(icons.RefreshCw), label: func(m *i18n.Messages) string { return m.Tools.Updates }, panel: true},
 	{id: itemBackground, zone: zoneBottomRight, icon: stripeLucide(icons.Image), label: func(m *i18n.Messages) string { return m.Tools.Background }},
 
 	{id: itemRunConfig, zone: zoneTitle, icon: &icons.FileCode, label: func(m *i18n.Messages) string { return m.Title.RunConfiguration }},
 	{id: itemTitleRun, zone: zoneTitle, icon: &icons.Play, label: func(m *i18n.Messages) string { return m.Title.Run }},
-	{id: itemTitleDebug, zone: zoneTitle, icon: &icons.Bug, label: func(m *i18n.Messages) string { return m.Title.Debug }},
-	{id: itemTitleSearch, zone: zoneTitle, icon: &icons.Search, label: func(m *i18n.Messages) string { return m.Title.Search }, shortcut: "search.everywhere"},
-	{id: itemTitleSettings, zone: zoneTitle, icon: &icons.Settings, label: func(m *i18n.Messages) string { return m.Title.Settings }},
+	{id: itemTitleDebug, zone: zoneTitle, icon: &icons.Bug, label: func(m *i18n.Messages) string { return m.Title.Debug }, stripes: true},
+	{id: itemTitleSearch, zone: zoneTitle, icon: &icons.Search, label: func(m *i18n.Messages) string { return m.Title.Search }, shortcut: "search.everywhere", stripes: true},
+	{id: itemTitleSettings, zone: zoneTitle, icon: &icons.Settings, label: func(m *i18n.Messages) string { return m.Title.Settings }, stripes: true},
 
 	{id: itemCaret, zone: zoneStatus, label: func(m *i18n.Messages) string { return m.Status.Caret }},
 	{id: itemLock, zone: zoneStatus, icon: &icons.LockOpen, label: func(m *i18n.Messages) string { return m.Status.Writable }},
@@ -294,7 +299,9 @@ type chromeState struct {
 	// places the tool windows of plugins that are not enabled now, so they come back where
 	// the user left them.
 	saved core.ChromeLayout
-	// items lists the catalog indices of the shown buttons of each zone in display order.
+	// items lists the catalog indices of the shown buttons of each zone in display order. The
+	// "…" button (itemToolWindows) is among them only while a button is hidden, because it is
+	// shown only then.
 	items [zoneCount][]int
 	// zones is the zone each catalog item sits in, by catalog index. A hidden stripe button
 	// keeps its zone: its tool window still opens in that zone's slot, and showing the button
@@ -337,7 +344,7 @@ func (c *chromeState) setItems(items []item) {
 	c.index = make(map[string]int, len(items))
 	c.coreItems = make([]core.ChromeItem, len(items))
 	for i, it := range items {
-		c.coreItems[i] = core.ChromeItem{ID: it.id, DefaultZone: zoneNames[it.zone], Panel: it.panel, OpenByDefault: it.open}
+		c.coreItems[i] = core.ChromeItem{ID: it.id, DefaultZone: zoneNames[it.zone], Panel: it.panel, OpenByDefault: it.open, AlsoOnToolStripes: it.stripes}
 		c.index[it.id] = i
 	}
 	c.zones = make([]zone, len(items))
@@ -429,8 +436,9 @@ func defaultLayout() core.ChromeLayout {
 
 // apply makes layout the current arrangement. Placements of unknown items or zones are
 // skipped; the kernel never returns them. A hidden button keeps its zone but is left out of
-// the zone's shown buttons. An open item that is not a tool window, such as the background
-// button an earlier layout saved as open, takes no slot.
+// the zone's shown buttons, and so is the "…" button while no button is hidden: it would list
+// nothing. An open item that is not a tool window, such as the background button an earlier
+// layout saved as open, takes no slot.
 func (c *chromeState) apply(layout core.ChromeLayout) {
 	c.layout = layout
 	for z := range c.items {
@@ -445,7 +453,9 @@ func (c *chromeState) apply(layout core.ChromeLayout) {
 	clear(c.hiddenMark)
 	c.hidden = c.hidden[:0]
 	for _, id := range layout.Hidden {
-		if index, known := c.index[id]; known {
+		// The "…" button cannot be hidden: it is the way back to the hidden buttons. A layout
+		// that hides it anyway, edited by hand, leaves it shown.
+		if index, known := c.index[id]; known && id != itemToolWindows {
 			c.hiddenMark[index] = true
 		}
 	}
@@ -462,6 +472,12 @@ func (c *chromeState) apply(layout core.ChromeLayout) {
 		}
 		c.items[z] = append(c.items[z], index)
 	}
+	if more, known := c.index[itemToolWindows]; known && len(c.hidden) == 0 {
+		z := c.zones[more]
+		if at := slices.Index(c.items[z], more); at >= 0 {
+			c.items[z] = slices.Delete(c.items[z], at, at+1)
+		}
+	}
 	for _, id := range layout.Open {
 		index, known := c.index[id]
 		if !known || !c.catalog[index].panel {
@@ -476,6 +492,14 @@ func (c *chromeState) apply(layout core.ChromeLayout) {
 // zoneOf returns the zone catalog item index sits in now, whether its button is shown or
 // hidden.
 func (c *chromeState) zoneOf(index int) zone { return c.zones[index] }
+
+// allowed reports whether catalog item index may sit in zone z: a zone of the surface of its
+// default zone, or a stripe zone for a title bar item that may also sit on the stripes. The
+// kernel enforces the same rule; the drag asks it where the button may land.
+func (c *chromeState) allowed(index int, z zone) bool {
+	it := c.catalog[index]
+	return z.surface() == it.zone.surface() || it.stripes && z.surface() == surfaceStripes
+}
 
 // isHidden reports whether the user hid the stripe button of catalog item index.
 func (c *chromeState) isHidden(index int) bool { return c.hiddenMark[index] }

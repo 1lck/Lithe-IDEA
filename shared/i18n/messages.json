@@ -6292,8 +6292,54 @@
       }
     },
     {
+      "id": "desktop.branch.checkoutFailedIn",
+      "description": "Branch popup of a folder with several repositories: a checkout of a common branch failed in one repository",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "name": "string",
+        "repository": "string",
+        "reason": "string"
+      }
+    },
+    {
       "id": "desktop.branch.checkoutRevision",
       "description": "Desktop branch: CheckoutRevision",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.branch.commonCheckedOut",
+      "description": "Branch popup of a folder with several repositories: every repository was switched to the common branch",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "name": "string"
+      }
+    },
+    {
+      "id": "desktop.branch.commonCreated",
+      "description": "Branch popup of a folder with several repositories: the new branch was created in every repository",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "name": "string"
+      }
+    },
+    {
+      "id": "desktop.branch.commonLocal",
+      "description": "Branch popup of a folder with several repositories: head of the local branches every repository has, as IntelliJ IDEA's Common Local Branches",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.branch.commonRemote",
+      "description": "Branch popup of a folder with several repositories: head of the remote branches every repository has, as IntelliJ IDEA's Common Remote Branches",
       "platforms": [
         "desktop"
       ]
@@ -6333,8 +6379,30 @@
       }
     },
     {
+      "id": "desktop.branch.createFailedIn",
+      "description": "Branch popup of a folder with several repositories: creating the new branch failed in one repository",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "name": "string",
+        "repository": "string",
+        "reason": "string"
+      }
+    },
+    {
       "id": "desktop.branch.createFrom",
       "description": "Desktop branch: CreateFrom",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "name": "string"
+      }
+    },
+    {
+      "id": "desktop.branch.createFromInAll",
+      "description": "New branch dialog opened on a common branch: the branch is created in every repository of the folder",
       "platforms": [
         "desktop"
       ],
@@ -6417,6 +6485,13 @@
     {
       "id": "desktop.branch.forceCheckout",
       "description": "Desktop branch: ForceCheckout",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.branch.keepButton",
+      "description": "Rollback dialog of a branch action that succeeded in some repositories only: leaves them as they are",
       "platforms": [
         "desktop"
       ]
@@ -6548,6 +6623,13 @@
       }
     },
     {
+      "id": "desktop.branch.repositorySeparator",
+      "description": "Separator between the repository names a branch message lists",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
       "id": "desktop.branch.revision",
       "description": "Desktop branch: Revision",
       "platforms": [
@@ -6567,6 +6649,61 @@
       "platforms": [
         "desktop"
       ]
+    },
+    {
+      "id": "desktop.branch.rollbackButton",
+      "description": "Rollback dialog of a branch action that succeeded in some repositories only: undoes it there",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.branch.rollbackFailed",
+      "description": "Rolling back a branch action failed in one repository",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "repository": "string",
+        "reason": "string"
+      }
+    },
+    {
+      "id": "desktop.branch.rollbackImpossible",
+      "description": "Rollback dialog: the repositories that were on no branch before the action, which a rollback cannot return to",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "repositories": "string"
+      }
+    },
+    {
+      "id": "desktop.branch.rollbackPrompt",
+      "description": "Rollback dialog: the repositories where the branch action already succeeded",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "repositories": "string"
+      }
+    },
+    {
+      "id": "desktop.branch.rollbackTitle",
+      "description": "Title of the dialog of a branch action that succeeded in some repositories only",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.branch.rolledBack",
+      "description": "Every repository a branch action had changed was rolled back",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "repositories": "string"
+      }
     },
     {
       "id": "desktop.branch.rowMenu",
@@ -9653,11 +9790,60 @@
       ]
     },
     {
-      "id": "desktop.files.openWith",
-      "description": "Project tree context menu item: open the file with an application the user picks",
+      "id": "desktop.files.openIn",
+      "description": "Project tree context menu submenu: open the row's file or folder in another place (Open With, the file manager, the terminal)",
       "platforms": [
         "desktop"
       ]
+    },
+    {
+      "id": "desktop.files.openInExplorer",
+      "description": "Open In item: show the row in the Windows File Explorer",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.files.openInFinder",
+      "description": "Open In item: show the row in the macOS Finder",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.files.openInTerminal",
+      "description": "Open In item: open a terminal in the row's folder, or the folder of the row's file",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.files.openWith",
+      "description": "Submenu of Open In on a file: the applications the system offers for the file, as the system's own Open With menu lists them",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.files.openWithAppPath",
+      "description": "Open With item of an application whose name another offered application shares; {path} is where the application is",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "name": "string",
+        "path": "string"
+      }
+    },
+    {
+      "id": "desktop.files.openWithDefault",
+      "description": "Open With item of the application the system opens the file with on a double click; {name} is what the system calls the application",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "name": "string"
+      }
     },
     {
       "id": "desktop.files.openWithFailed",
@@ -9668,6 +9854,30 @@
       "parameters": {
         "reason": "string"
       }
+    },
+    {
+      "id": "desktop.files.openWithFinding",
+      "description": "Disabled Open With item while the system is asked which applications open the file",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.files.openWithGone",
+      "description": "Notice when the chosen application no longer opens this kind of file; {name} is the application",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "name": "string"
+      }
+    },
+    {
+      "id": "desktop.files.openWithOther",
+      "description": "Last Open With item: pick any application to open the file with",
+      "platforms": [
+        "desktop"
+      ]
     },
     {
       "id": "desktop.files.openWithTitle",
@@ -15321,16 +15531,6 @@
       ]
     },
     {
-      "id": "desktop.runConfig.editTitle",
-      "description": "Title of the run configuration editor dialog; {name} is the configuration's name.",
-      "platforms": [
-        "desktop"
-      ],
-      "parameters": {
-        "name": "string"
-      }
-    },
-    {
       "id": "desktop.runConfig.entrypoint",
       "description": "Label of the provider entrypoint field of a build provider run",
       "platforms": [
@@ -15540,16 +15740,6 @@
       ]
     },
     {
-      "id": "desktop.runConfig.newTitle",
-      "description": "Title of the editor dialog of a new built-in run configuration; type is the kind's name.",
-      "platforms": [
-        "desktop"
-      ],
-      "parameters": {
-        "type": "string"
-      }
-    },
-    {
       "id": "desktop.runConfig.fieldName",
       "description": "Label of the name field of a built-in run configuration.",
       "platforms": [
@@ -15621,7 +15811,39 @@
     },
     {
       "id": "desktop.runConfig.interpreterHelp",
-      "description": "Tooltip of the interpreter path field: an empty field uses the automatic interpreter shown.",
+      "description": "Tooltip of the interpreter path field: Automatic uses the interpreter shown, a shell the terminal found can be picked, and Custom… takes a command name or path.",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.runConfig.interpreterAutomatic",
+      "description": "Entry of the interpreter list that uses the automatic interpreter, when Core names no automatic program to show.",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.runConfig.interpreterShell",
+      "description": "Entry of the interpreter list for an installed shell the terminal found. {name} is the shell's name, {path} its executable.",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "name": "string",
+        "path": "string"
+      }
+    },
+    {
+      "id": "desktop.runConfig.interpreterCustom",
+      "description": "Entry of the interpreter list that shows a field for a command name or path of the user's own.",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.runConfig.interpreterCustomField",
+      "description": "Accessible name of the field shown under the interpreter list after Custom… is chosen, where the user enters a command name or path.",
       "platforms": [
         "desktop"
       ]
@@ -15794,6 +16016,197 @@
       }
     },
     {
+      "id": "desktop.runConfig.beforeLaunch.confirmBody",
+      "description": "Body of the before-launch confirmation; name is the configuration that starts.",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "name": "string"
+      }
+    },
+    {
+      "id": "desktop.runConfig.beforeLaunch.confirmRun",
+      "description": "Button of the before-launch confirmation that runs the steps and remembers the choice.",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.runConfig.beforeLaunch.confirmTitle",
+      "description": "Title of the dialog asking whether to run the before-launch steps a project file names.",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.runConfig.beforeLaunch.exited",
+      "description": "Console line and error when a before-launch step exited with a code other than 0.",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "name": "string",
+        "code": "string"
+      }
+    },
+    {
+      "id": "desktop.runConfig.beforeLaunch.failed",
+      "description": "Console line and error when a before-launch step could not start.",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "name": "string",
+        "reason": "string"
+      }
+    },
+    {
+      "id": "desktop.runConfig.beforeLaunch.refused.cycle",
+      "description": "Error when before-launch steps refer back to each other.",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "step": "string"
+      }
+    },
+    {
+      "id": "desktop.runConfig.beforeLaunch.refused.notAllowed",
+      "description": "Error when a before-launch step names a configuration that is not a process run.",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "step": "string"
+      }
+    },
+    {
+      "id": "desktop.runConfig.beforeLaunch.refused.notFound",
+      "description": "Error when a before-launch step names a configuration that does not exist.",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "step": "string"
+      }
+    },
+    {
+      "id": "desktop.runConfig.beforeLaunch.refused.other",
+      "description": "Error when before-launch steps cannot run for a reason this version does not know.",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "step": "string"
+      }
+    },
+    {
+      "id": "desktop.runConfig.beforeLaunch.refused.tooLong",
+      "description": "Error when nested before-launch steps expand to more than the limit.",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "step": "string"
+      }
+    },
+    {
+      "id": "desktop.runConfig.beforeLaunch.refused.unavailable",
+      "description": "Error when a before-launch step cannot run on this system.",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "step": "string"
+      }
+    },
+    {
+      "id": "desktop.runConfig.beforeLaunch.stepHeader",
+      "description": "Console line before one before-launch step starts.",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "index": "string",
+        "count": "string",
+        "name": "string"
+      }
+    },
+    {
+      "id": "desktop.runConfig.beforeLaunchAdd",
+      "description": "Button whose menu adds a process run as a before-launch step.",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.runConfig.beforeLaunchDown",
+      "description": "Button that moves a before-launch step down.",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.runConfig.beforeLaunchEmpty",
+      "description": "Shown in the before-launch field when the configuration has no steps.",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.runConfig.beforeLaunchHelp",
+      "description": "Tip of the before-launch field of a run configuration.",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.runConfig.beforeLaunchMissing",
+      "description": "A before-launch step whose configuration no longer exists; id is the configuration ID.",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "id": "string"
+      }
+    },
+    {
+      "id": "desktop.runConfig.beforeLaunchNoCandidates",
+      "description": "Tooltip of the disabled add-step button when the project has no process run to use.",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.runConfig.beforeLaunchRemove",
+      "description": "Button that removes a before-launch step.",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.runConfig.beforeLaunchUp",
+      "description": "Button that moves a before-launch step up.",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.runConfig.errorUnavailable",
+      "description": "Error under a run configuration field naming a configuration that cannot run on this system.",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.runConfig.fieldBeforeLaunch",
+      "description": "Title of the run configuration field listing the process runs that start before it.",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
       "id": "desktop.runConfig.formTooNew",
       "description": "Shown in the run configuration editor when Core describes the form in a newer version than this app understands.",
       "platforms": [
@@ -15922,6 +16335,249 @@
       "parameters": {
         "reason": "string"
       }
+    },
+    {
+      "id": "desktop.runConfig.dialogTitle",
+      "description": "Title of the Run/Debug Configurations dialog, which lists the run configurations by kind and edits the selected one.",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.runConfig.newConfigurationEllipsis",
+      "description": "Menu item and button that open the Run/Debug Configurations dialog to create a run configuration.",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.runConfig.removeConfiguration",
+      "description": "Run/Debug Configurations dialog: toolbar button that removes the selected configuration when Apply or OK is pressed.",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.runConfig.copyConfiguration",
+      "description": "Run/Debug Configurations dialog: toolbar button that creates a copy of the selected configuration, a plugin run included.",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.runConfig.copyName",
+      "description": "Run/Debug Configurations dialog: name of a copied configuration; {name} is the original's name.",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "name": "string"
+      }
+    },
+    {
+      "id": "desktop.runConfig.emptyTree",
+      "description": "Run/Debug Configurations dialog: shown in place of the tree while the project has no run configuration.",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.runConfig.addNew",
+      "description": "Run/Debug Configurations dialog: link under the empty tree that opens the menu of kinds a new configuration can take; its keys follow it.",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.runConfig.addNewConfiguration",
+      "description": "Run/Debug Configurations dialog: link in the editor pane while nothing is selected; opens the menu of kinds a new configuration can take.",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.runConfig.orSelectToEdit",
+      "description": "Run/Debug Configurations dialog: line under the Add New Run Configuration link while nothing is selected.",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.runConfig.newFolder",
+      "description": "Run/Debug Configurations dialog: toolbar button that makes a folder in the kind of the selection and selects it to be renamed.",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.runConfig.newFolderName",
+      "description": "Run/Debug Configurations dialog: name of a folder the toolbar button makes; a number follows it when the kind already has one so named.",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.runConfig.sortAlphabetically",
+      "description": "Run/Debug Configurations dialog: toolbar toggle that lists the configurations by name; off, they keep the order they are dragged to.",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.runConfig.folderNameEmpty",
+      "description": "Run/Debug Configurations dialog: under the name field of a folder when it is empty.",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.runConfig.folderNameInvalid",
+      "description": "Run/Debug Configurations dialog: under the name field of a folder when the name is longer than 256 bytes or has control characters.",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.runConfig.folderNameTaken",
+      "description": "Run/Debug Configurations dialog: under the name field of a folder when another folder of the same kind has the name.",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.runConfig.folderHint",
+      "description": "Run/Debug Configurations dialog: under the name field of a selected folder, saying what a folder is and how it is saved.",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.runConfig.copyPendingHint",
+      "description": "Run/Debug Configurations dialog: under the name of a copy of a plugin run configuration, which is made on Apply or OK.",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.runConfig.copyFailed",
+      "description": "Run/Debug Configurations dialog: shown when Core could not copy a configuration; {reason} is Core's detail.",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "reason": "string"
+      }
+    },
+    {
+      "id": "desktop.runConfig.arrangeFailed",
+      "description": "Run/Debug Configurations dialog: shown when the folders or the order of the list could not be saved; {reason} is Core's detail.",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "reason": "string"
+      }
+    },
+    {
+      "id": "desktop.runConfig.unnamed",
+      "description": "Run/Debug Configurations dialog: tree label of a configuration without a name.",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.runConfig.windowsOnlyType",
+      "description": "Run/Debug Configurations dialog: note beside the batch script kind on macOS and Linux, which can create and edit it but not run it.",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.runConfig.typeNotRunnableHere",
+      "description": "Run/Debug Configurations dialog: note beside a built-in kind this platform cannot run.",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.runConfig.unavailableBatchPlatform",
+      "description": "Why a batch script run configuration cannot run on macOS or Linux, shown over its editor, on its row and when Run is pressed.",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.runConfig.unavailablePlatform",
+      "description": "Why a built-in run configuration cannot run on this platform; {type} is the kind's name.",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "type": "string"
+      }
+    },
+    {
+      "id": "desktop.runConfig.notEditable",
+      "description": "Run/Debug Configurations dialog: shown for a plugin run configuration whose plugin is missing, disabled or the wrong version.",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.runConfig.scriptOptionsPlaceholder",
+      "description": "Placeholder of the script options field of a built-in script run.",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.runConfig.interpreterArgumentsPlaceholder",
+      "description": "Placeholder of the interpreter options field of a built-in script run while it has no automatic value.",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.runConfig.programArgumentsPlaceholder",
+      "description": "Placeholder of the program arguments field of a built-in executable run.",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.runConfig.scriptOptionsHelpShell",
+      "description": "Help tip of the script options field of a shell script run.",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.runConfig.scriptOptionsHelpPowerShell",
+      "description": "Help tip of the script options field of a PowerShell script run.",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.runConfig.scriptOptionsHelpBatch",
+      "description": "Help tip of the script options field of a batch script run.",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.runConfig.interpreterArgumentsHelp",
+      "description": "Help tip of the interpreter options field of a built-in script run.",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.runConfig.programArgumentsHelp",
+      "description": "Help tip of the program arguments field of a built-in executable run.",
+      "platforms": [
+        "desktop"
+      ]
     },
     {
       "id": "desktop.search.collapseFile",
@@ -19103,7 +19759,7 @@
     },
     {
       "id": "desktop.title.currentFileNotRunnable",
-      "description": "Desktop title bar: Run pressed while Current File is chosen; nothing runs a file outside a run configuration",
+      "description": "Desktop title bar: Run pressed while Current File is chosen, but no file is open or no build plugin finds an entrypoint (such as a class with a main method) in the open file",
       "platforms": [
         "desktop"
       ]
@@ -19152,23 +19808,6 @@
       "platforms": [
         "desktop"
       ]
-    },
-    {
-      "id": "desktop.title.nothingToEdit",
-      "description": "Desktop title bar: Edit Configuration chosen when the project has no run configuration; build plugins generate them from the project model and none declared a runnable entry",
-      "platforms": [
-        "desktop"
-      ]
-    },
-    {
-      "id": "desktop.title.nothingToEditHidden",
-      "description": "Desktop title bar: Edit Configuration chosen when the project has no run configuration that a build plugin starts, while count saved ones are hidden because no build plugin runs them",
-      "platforms": [
-        "desktop"
-      ],
-      "parameters": {
-        "count": "unsignedInteger"
-      }
     },
     {
       "id": "desktop.title.notDebuggable",
@@ -107680,6 +108319,13 @@
     {
       "id": "desktop.tools.moveTo",
       "description": "Parent submenu for moving a tool window to a docking zone.",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.tools.moveToTitleBar",
+      "description": "Context menu item of a title bar button the user moved onto a tool stripe: moves it back to the title bar.",
       "platforms": [
         "desktop"
       ]

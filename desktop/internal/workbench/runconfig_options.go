@@ -171,11 +171,12 @@ func resolvedOptionFields(resolved core.BuildResolvedOptions) []runOptionField {
 
 // resolveInstanceOptionFields asks Core to resolve instance's options against values and its loaded model.
 func resolveInstanceOptionFields(ctx context.Context, kernel Kernel, instance buildInstance, values map[string]json.RawMessage) ([]runOptionField, error) {
-	request := core.BuildResolveOptionsRequest{Options: values}
+	request := core.BuildResolveOptionsRequest{Options: values, InheritedOptions: instance.Options}
 	if instance.modelLoaded {
 		request.ModelValues = instance.Model.OptionValues
 		request.ModelDefaults = instance.Model.OptionDefaults
 		request.ModelExcludePrefixes = instance.Model.OptionExcludePrefixes
+		request.ModelSelection = instance.Model.OptionSelection
 	}
 	resolved, err := kernel.ResolveBuildOptions(ctx, instance.Manifest, instance.BuildSystemID, request)
 	if err != nil {

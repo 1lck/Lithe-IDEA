@@ -1596,7 +1596,7 @@ func (a *App) beginBuildTarget(p *project, key, targetID string, run pluginservi
 		op.debug = debug
 		options.Debug = &debug.launch
 	}
-	a.runBuildTargetWith(p, op, instance, target.ProjectID, targetID, runID, options)
+	a.runBuildTargetWith(p, op, instance, target.ProjectID, targetID, runID, options, nil)
 }
 
 // debugBuildTarget debugs one target of the Build window's selected instance and project
@@ -1769,18 +1769,23 @@ func (a *App) startProviderDebug(p *project, pluginID string, preparation core.B
 // launch without any. A project or target the model no longer has ends op as failed. Command
 // run declarations do not come here: Core expands them into the model's Run entries, which
 // runBuildEntry runs.
-func (a *App) runBuildTargetWith(p *project, op *buildOperation, instance *buildInstance, projectID, targetID, runID string, options *core.RunLaunchOptions) {
+func (a *App) runBuildTargetWith(p *project, op *buildOperation, instance *buildInstance, projectID, targetID, runID string, options *core.RunLaunchOptions, overrides map[string]json.RawMessage) {
 	project, ok := buildProjectByID(instance.Model, projectID)
 	if !ok {
 		a.notifyError(a.text.Build.ProjectMissing)
 		a.finishBuildError(p, op, errors.New(a.text.Build.ProjectMissing))
 		return
 	}
-	target, ok := buildTargetByID(instance.Model, targetID)
-	if !ok {
-		a.notifyError(a.text.Build.TargetMissing)
-		a.finishBuildError(p, op, errors.New(a.text.Build.TargetMissing))
-		return
+	// An entrypoint run names no target: it starts launchOptions.entrypoint in the project.
+	var selectedTarget *core.BuildSelection
+	if targetID != "" {
+		target, ok := buildTargetByID(instance.Model, targetID)
+		if !ok {
+			a.notifyError(a.text.Build.TargetMissing)
+			a.finishBuildError(p, op, errors.New(a.text.Build.TargetMissing))
+			return
+		}
+		selectedTarget = &core.BuildSelection{Name: target.Name, Path: target.Path, Tags: target.Tags, Properties: target.Properties}
 	}
 	captured := *instance
 	kernel := a.kernel
@@ -1791,13 +1796,14 @@ func (a *App) runBuildTargetWith(p *project, op *buildOperation, instance *build
 		prepare, release := op.bind(bounded)
 		defer release()
 		request := core.BuildPlanRequest{
-			Root:          captured.Root,
-			Options:       captured.Options,
-			WorkspaceRoot: p.root,
-			Run:           runID,
-			Project:       &core.BuildSelection{Name: project.Name, Path: project.Path, Properties: project.Properties},
-			Target:        &core.BuildSelection{Name: target.Name, Path: target.Path, Tags: target.Tags, Properties: target.Properties},
-			LaunchOptions: options,
+			Root:            captured.Root,
+			Options:         captured.Options,
+			WorkspaceRoot:   p.root,
+			Run:             runID,
+			Project:         &core.BuildSelection{Name: project.Name, Path: project.Path, Properties: project.Properties},
+			Target:          selectedTarget,
+			LaunchOptions:   options,
+			OptionOverrides: overrides,
 		}
 		a.addBuildToolHint(prepare, p, captured, &request)
 		plan, err := kernel.PlanBuildRun(prepare, captured.Manifest, captured.BuildSystemID, request)
@@ -2149,6 +2155,18 @@ func (a *App) streamBuildOutput(p *project, op *buildOperation, text string) {
 			a.reportOutputStyleFailure(failure)
 			a.applyBuildOutput(p, op, chunk)
 		})
+	})
+}
+
+// writeBuildOutputNow adds text to op's console on the window thread at once, for a line the
+// window writes right before it ends op: a posted line would arrive after op ended and be dropped.
+func (a *App) writeBuildOutputNow(p *project, op *buildOperation, text string) {
+	if text == "" {
+		return
+	}
+	op.decoder.deliver(text, func(chunk outputChunk, failure error) {
+		a.reportOutputStyleFailure(failure)
+		a.applyBuildOutput(p, op, chunk)
 	})
 }
 

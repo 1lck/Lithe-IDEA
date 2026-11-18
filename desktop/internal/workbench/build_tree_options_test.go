@@ -100,7 +100,7 @@ prod = false
 dev = true
 `
 
-func openTreeOptionsProject(t *testing.T) (*harness, *project) {
+func openTreeOptionsProject(t *testing.T, kernel Kernel) (*harness, *project) {
 	t.Helper()
 	dir := t.TempDir()
 	if err := os.WriteFile(filepath.Join(dir, settingsFile), []byte(`{"theme":"dark"}`), 0o600); err != nil {
@@ -123,7 +123,7 @@ func openTreeOptionsProject(t *testing.T) (*harness, *project) {
 		t.Fatal(err)
 	}
 	h := newHarnessWithOptions(t, Options{
-		Kernel:       &testKernel{Client: core.NewClient()},
+		Kernel:       kernel,
 		PluginKernel: &testKernel{Client: core.NewClient()},
 		PluginRoot:   pluginRoot,
 		Store:        preferences,
@@ -173,7 +173,7 @@ func storedProfileTokens(t *testing.T, h *harness, p *project) ([]string, bool) 
 // filter, encodes exclusions when a default-active choice is unchecked, and prunes the local
 // override once the user returns to the default selection.
 func TestBuildTreePresentsAndTogglesModelOptionChoices(t *testing.T) {
-	h, p := openTreeOptionsProject(t)
+	h, p := openTreeOptionsProject(t, &testKernel{Client: core.NewClient()})
 	language := h.app.language()
 	defaultBadge := i18n.Shared(language, "desktop.build.optionChoiceDefault")
 	targets := h.app.text.Build.Targets
@@ -291,7 +291,8 @@ func TestBuildTreePresentsAndTogglesModelOptionChoices(t *testing.T) {
 // Both the Build options dialog and the Run Configuration options editor resolve model choices and
 // default-active markers through Core and encode exclusions when saving changes.
 func TestBuildAndRunOptionEditorsResolveAndSaveModelChoices(t *testing.T) {
-	h, p := openTreeOptionsProject(t)
+	gate := &captureBuildPlan{Kernel: &testKernel{Client: core.NewClient()}, requests: make(chan core.BuildPlanRequest, 1)}
+	h, p := openTreeOptionsProject(t, gate)
 	language := h.app.language()
 
 	// Open the Build options dialog on the selected instance.
@@ -319,30 +320,50 @@ func TestBuildAndRunOptionEditorsResolveAndSaveModelChoices(t *testing.T) {
 		return !p.runConfigs.loading && len(p.runConfigs.list) == 1
 	})
 	configID := p.runConfigs.list[0].ID
-	h.app.post(func(a *App) { a.openRunConfigEditor(p, configID) })
+	dialog := &p.runConfigs.dialog
+	h.app.post(func(a *App) { a.openRunConfigDialog(p, configID) })
 	awaitStateWithin(t, h, 10*time.Second, "run configuration editor resolved", func() bool {
-		e := &p.runConfigs.editor
-		return e.open && !e.loading && len(e.optionFields) == 1 && e.optionFields[0].kind == "multiSelect"
+		draft := dialog.drafts[configID]
+		return draft != nil && draft.editor != nil && draft.editor.ready() && len(draft.editor.optionFields) == 1
 	})
-	runField := &p.runConfigs.editor.optionFields[0]
-	if len(runField.choices) != 3 || !runField.choices[0].defaultActive || !slices.Equal(runField.picks, []bool{true, false, false}) {
+	editor := dialog.drafts[configID].editor
+	runField := &editor.optionFields[0]
+	if runField.kind != "multiSelect" || len(runField.choices) != 3 || !runField.choices[0].defaultActive || !slices.Equal(runField.picks, []bool{false, true, false}) {
 		t.Fatalf("run configuration option field = %+v", *runField)
 	}
-	h.app.post(func(*App) {
-		// Uncheck default dev and check prod on the run configuration.
-		runField.picks = []bool{false, false, true}
-	})
-	h.settle()
-	h.clickNamed(h.shared("ui.save"))
-	awaitStateWithin(t, h, 10*time.Second, "saved run configuration options", func() bool {
-		return !p.runConfigs.editor.open && !p.runConfigs.loading
-	})
-	var choices providerRunChoices
-	if err := json.Unmarshal(p.runConfigs.list[0].Extensions[runConfigProviderNamespace], &choices); err != nil {
-		t.Fatal(err)
+	if editor.dirty() {
+		t.Fatal("resolved choices mark an untouched run configuration dirty")
 	}
+	saveChoices := func(picks []bool, step runConfigDialogStep, want []string) {
+		t.Helper()
+		h.app.post(func(*App) { runField.picks = picks })
+		applyDialog(t, h, p, step)
+		if dialog.open != (step == runConfigDialogApply) || editor.failure != "" {
+			t.Fatalf("dialog open %v, save failure %q", dialog.open, editor.failure)
+		}
+		config := p.runConfigs.configuration(configID)
+		if config == nil {
+			t.Fatal("the saved run configuration was not read back")
+		}
+		state, _ := providerRunEditorState(*config)
+		var tokens []string
+		if err := json.Unmarshal(state.options["profiles"], &tokens); err != nil || !slices.Equal(tokens, want) {
+			t.Fatalf("run configuration profile override = %q (err %v), want %q", tokens, err, want)
+		}
+	}
+	// Apply keeps the editor alive. Editing back to its original selection must replace the saved draft.
+	saveChoices([]bool{false, false, true}, runConfigDialogApply, []string{"-dev", "prod"})
+	saveChoices([]bool{false, true, false}, runConfigDialogApply, []string{"-dev", "local"})
+	saveChoices([]bool{false, false, true}, runConfigDialogOK, []string{"-dev", "prod"})
+
+	h.app.post(func(a *App) { a.runConfiguration(p, configID) })
+	awaitStateWithin(t, h, 10*time.Second, "provider run plan", func() bool { return len(gate.requests) == 1 })
+	request := <-gate.requests
 	var runTokens []string
-	if err := json.Unmarshal(choices.Options["profiles"], &runTokens); err != nil || !slices.Equal(runTokens, []string{"-dev", "prod"}) {
-		t.Fatalf("run configuration profile override = %q (err %v), want [-dev prod]", runTokens, err)
+	if err := json.Unmarshal(request.OptionOverrides["profiles"], &runTokens); err != nil || !slices.Equal(runTokens, []string{"-dev", "prod"}) {
+		t.Fatalf("profiles passed to the run plan = %q (err %v), want [-dev prod]", runTokens, err)
+	}
+	if err := json.Unmarshal(request.Options["profiles"], &runTokens); err != nil || !slices.Equal(runTokens, []string{"-dev", "local"}) {
+		t.Fatalf("instance profiles passed to the run plan = %q (err %v), want [-dev local]", runTokens, err)
 	}
 }

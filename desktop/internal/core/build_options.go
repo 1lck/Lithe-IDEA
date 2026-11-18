@@ -75,6 +75,7 @@ type BuildOptionEditRequest struct {
 	ModelValues          map[string][]string
 	ModelDefaults        map[string][]string
 	ModelExcludePrefixes map[string]string
+	ModelSelection       *BuildModelOptionSelection
 }
 
 // BuildOptionEdit is the local document after an edit and the effective options Core checked against it.
@@ -88,10 +89,12 @@ type BuildOptionEdit struct {
 // the positive choices checked in an option editor into Options before resolution.
 type BuildResolveOptionsRequest struct {
 	Options              map[string]json.RawMessage `json:"options,omitempty"`
+	InheritedOptions     map[string]json.RawMessage `json:"inheritedOptions,omitempty"`
 	SelectedChoices      map[string][]string        `json:"selectedChoices,omitempty"`
 	ModelValues          map[string][]string        `json:"modelValues,omitempty"`
 	ModelDefaults        map[string][]string        `json:"modelDefaults,omitempty"`
 	ModelExcludePrefixes map[string]string          `json:"modelExcludePrefixes,omitempty"`
+	ModelSelection       *BuildModelOptionSelection `json:"modelSelection,omitempty"`
 }
 
 // BuildResolvedOptions is Core's answer to build.resolveOptions.
@@ -191,6 +194,9 @@ func (c *Client) EditStoredBuildOption(ctx context.Context, manifest json.RawMes
 	}
 	if request.ModelExcludePrefixes != nil {
 		payload["modelExcludePrefixes"] = request.ModelExcludePrefixes
+	}
+	if request.ModelSelection != nil {
+		payload["modelSelection"] = request.ModelSelection
 	}
 	var result buildOutcome
 	if err := c.Execute(ctx, command, struct {

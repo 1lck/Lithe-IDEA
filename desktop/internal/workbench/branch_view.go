@@ -139,10 +139,11 @@ func (a *App) drawBranchReferences(c ui.C, p *project, t i18n.BranchMessages, qu
 }
 
 // drawWorkspaceBranchPanel declares the popup of a project folder with several repositories, as
-// IDEA's: the search field, the commit of the Commit tool window, which spans every repository, and
-// a row per repository in Core's order with its color, its name and the branch it is on. A click on
-// a row opens the repository's panel beside it with its actions and references; every write there
-// acts in that repository alone.
+// IDEA's: the search field, the commit of the Commit tool window, which spans every repository, a
+// row per repository in Core's order with its color, its name and the branch it is on, and the
+// branches every repository has (drawCommonBranches). A click on a repository's row opens its panel
+// beside it with its actions and references; every write there acts in that repository alone, and
+// every write on a common branch acts in all of them.
 func (a *App) drawWorkspaceBranchPanel(c ui.C, p *project, t i18n.BranchMessages) {
 	b := &a.branch
 	query := branchQuery(b)
@@ -157,6 +158,7 @@ func (a *App) drawWorkspaceBranchPanel(c ui.C, p *project, t i18n.BranchMessages
 		for _, repo := range p.workspaceRepositories() {
 			a.drawWorkspaceBranchRepo(c, p, t, repo, query)
 		}
+		a.drawCommonBranches(c, p, t, query)
 	})
 }
 
@@ -427,7 +429,8 @@ func branchTracking(r core.GitReference) string {
 
 // drawBranchRow declares the row of reference r in section key at depth, named label: its
 // mark, its name, how far it and its upstream are apart, the upstream on the right, and the
-// chevron of its menu. A click opens the menu of the row beside it.
+// chevron of its menu. A click opens the menu of the row beside it: drawCommonBranchRowMenu for a
+// row of a common section, whose actions run in every repository, drawBranchRowMenu otherwise.
 func (a *App) drawBranchRow(c ui.C, p *project, section string, r core.GitReference, label string, depth int, current bool) {
 	b, t := &a.branch, a.text.Branch
 	rowKey := branchRowKey(section, r)
@@ -478,7 +481,11 @@ func (a *App) drawBranchRow(c ui.C, p *project, section string, r core.GitRefere
 	}
 	ui.Menu(c, row, &open, func(menu *ui.MenuItems) {
 		menu.Beside()
-		a.drawBranchRowMenu(c, menu, p, r, current)
+		if strings.HasPrefix(section, commonSectionPrefix) {
+			a.drawCommonBranchRowMenu(c, menu, p, r, current)
+		} else {
+			a.drawBranchRowMenu(c, menu, p, r, current)
+		}
 	})
 	if !open {
 		b.menu = ""
@@ -564,6 +571,8 @@ func (a *App) drawBranchDialog(c ui.C, p *project) {
 		a.drawTagDialog(c, p)
 	case branchDialogTagDelete:
 		a.drawTagDeleteDialog(c, p)
+	case branchDialogRollback:
+		a.drawBranchRollbackDialog(c, p)
 	}
 }
 
@@ -585,6 +594,9 @@ func (a *App) drawBranchNameDialog(c ui.C, p *project) {
 	title, description, confirm := t.RenameTitle, t.RenameFrom(b.target.ShortName), t.RenameButton
 	if creating {
 		title, description, confirm = t.NewBranchTitle, t.CreateFrom(b.target.ShortName), t.Create
+		if b.across {
+			description = i18n.SharedFormat(a.language(), "desktop.branch.createFromInAll", map[string]string{"name": b.target.ShortName})
+		}
 	}
 	problem := a.branchNameError()
 	name := b.preview.CleanedName

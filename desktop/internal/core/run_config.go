@@ -32,8 +32,11 @@ type RunProviderRun struct {
 // detected, team and local layers. Extensions stay raw except for the build
 // reference the host needs to find the provider instance.
 type RunConfiguration struct {
-	ID         string                     `json:"id"`
-	Name       string                     `json:"name"`
+	ID   string `json:"id"`
+	Name string `json:"name"`
+	// Folder is the folder the configuration is listed in within its kind; "" when
+	// it is in none. It is display only.
+	Folder     string                     `json:"folder,omitempty"`
 	Provider   string                     `json:"provider"`
 	Execution  string                     `json:"execution"`
 	Category   string                     `json:"category,omitempty"`
@@ -48,6 +51,14 @@ type RunConfiguration struct {
 	// Availability is set when the saved configuration cannot run, such as when
 	// the plugin it needs is not installed. The host shows it and never starts it.
 	Availability *RunAvailability `json:"availability,omitempty"`
+	// BeforeLaunch names the built-in process runs started, in order, before this one.
+	BeforeLaunch []RunBeforeLaunchStep `json:"beforeLaunch,omitempty"`
+}
+
+// RunBeforeLaunchStep is one step of a configuration's beforeLaunch: the built-in
+// process run to start first.
+type RunBeforeLaunchStep struct {
+	Configuration string `json:"configuration"`
 }
 
 // RunPluginDependency is the plugin a configuration needs: its ID, and what the
@@ -64,7 +75,9 @@ type RunPluginDependency struct {
 
 // RunAvailability says why a saved configuration cannot run. Code is
 // pluginMissing, pluginRepositoryMismatch, pluginVersionUnsupported,
-// invalidConfiguration or missingWorkingDirectory; Message is Core's English
+// invalidConfiguration, unsupportedPlatform (a built-in kind this platform
+// cannot run, such as a batch script outside Windows) or
+// missingWorkingDirectory; Message is Core's English
 // description, which the host shows only as the detail of its own text.
 type RunAvailability struct {
 	Status  string `json:"status"`
@@ -140,6 +153,9 @@ type RunConfigResolution struct {
 		Message string `json:"message"`
 	} `json:"diagnostics"`
 	DefaultRunConfiguration *string `json:"defaultRunConfiguration"`
+	// SortAlphabetically says Configurations are listed by name; otherwise they come in
+	// the order the user placed them on this machine.
+	SortAlphabetically bool `json:"sortAlphabetically"`
 }
 
 // ResolveRunConfigurations merges the workspace's run configuration layers
@@ -265,6 +281,9 @@ type RunOptionsEdit struct {
 	Environment      map[string]string `json:"environment"`
 	// ProviderRunOptions replaces the build provider choices of the selected layer when set.
 	ProviderRunOptions json.RawMessage `json:"providerRunOptions,omitempty"`
+	// BeforeLaunch replaces the steps of the selected layer when set; an empty list
+	// removes them (and in the local layer hides the project's).
+	BeforeLaunch *[]string `json:"beforeLaunch,omitempty"`
 	// Plugins is the enabled plugin list of ResolveRunConfigurations, so a plugin
 	// document Core writes records the installed plugin.
 	Plugins []RunInstalledPlugin `json:"plugins,omitempty"`

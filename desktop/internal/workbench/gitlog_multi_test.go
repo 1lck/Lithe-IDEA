@@ -85,6 +85,13 @@ func TestWorkspaceLogWalksSeveralRepositoriesTogether(t *testing.T) {
 	if !repos[alphaID] || !repos[betaID] || betaRow < 0 {
 		t.Fatalf("the merged rows belong to %v, want alpha and beta", repos)
 	}
+	// Each repository's checked-out branch has the current-branch background, as in IDEA, not only
+	// the branch of the repository the log walked first.
+	for _, row := range p.log.graph.Rows {
+		if !p.log.currentRows[row.CommitHash] {
+			t.Fatalf("commit %s of %s has no current-branch background in the merged list", row.CommitHash, p.logCommitRepo(row.CommitHash))
+		}
+	}
 
 	root, _, hashes := h.app.logMenuTarget(p, betaRow)
 	if filepath.Base(root) != "beta" || len(hashes) != 1 {

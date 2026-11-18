@@ -34,6 +34,10 @@ type BuildSystemDeclaration struct {
 	Provider bool
 	Tasks    []BuildTaskDeclaration
 	Runs     []BuildRunDeclaration
+	// EntrypointRuns are the runs declared with entrypoints (buildProviders 1): the provider
+	// names the entrypoints a source file holds, and each starts in its project without a
+	// target. They never appear among Runs, which apply to targets.
+	EntrypointRuns []BuildRunDeclaration
 	// Test is the presentation part of the optional test declaration. Core
 	// still owns whether a selection can run; the window only needs to know
 	// that the system offers tests and on which scopes.
@@ -181,6 +185,7 @@ type rawBuildManifest struct {
 			Name        string `json:"name"`
 			Source      string `json:"source"`
 			Execution   string `json:"execution"`
+			Entrypoints bool   `json:"entrypoints"`
 			FromTargets *struct {
 				Tags []string `json:"tags"`
 			} `json:"fromTargets"`
@@ -235,6 +240,10 @@ func parseBuildSystems(manifest json.RawMessage) (map[string]BuildSystemDeclarat
 			})
 		}
 		for _, run := range raw.Run {
+			if run.ID != "" && run.Source == "provider" && run.Entrypoints {
+				system.EntrypointRuns = append(system.EntrypointRuns, BuildRunDeclaration{ID: run.ID, Name: run.Name, Execution: "application"})
+				continue
+			}
 			if run.ID == "" || run.Source != "provider" || run.FromTargets == nil {
 				continue
 			}

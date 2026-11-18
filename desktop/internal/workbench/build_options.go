@@ -136,8 +136,10 @@ type buildOptionsEditor struct {
 	name, root string
 	fields     []runOptionField
 	ignored    buildIgnoredPathsEditor
-	saving     bool
-	failure    string
+	// loading keeps the initial read from replacing fields that the user has started to edit.
+	loading bool
+	saving  bool
+	failure string
 }
 
 // buildIgnoredPathsEditor is the ignored-paths field of the dialog, one pattern a line, filled with the list
@@ -199,7 +201,7 @@ func ignoredPathLines(text string) (patterns []string, lines []int) {
 // on that instance's effective option values. The ignored paths are read from the stored documents now.
 func (a *App) openBuildOptions(p *project, instance *buildInstance) {
 	p.build.optionsSessions++
-	editor := buildOptionsEditor{open: true, session: p.build.optionsSessions}
+	editor := buildOptionsEditor{open: true, session: p.build.optionsSessions, loading: true}
 	if instance != nil {
 		editor.instance, editor.name, editor.root = instance.ID, buildSystemName(instance), buildRootDetail(instance)
 		editor.fields = declaredOptionFields(instance.Manifest, instance.BuildSystemID, instance.Options)
@@ -225,7 +227,7 @@ func (a *App) readBuildIgnoredPaths(p *project, inherit bool) {
 	a.background(p, buildRequestTimeout, func(ctx context.Context) func(*App) {
 		var resolvedFields []runOptionField
 		if captured != nil {
-			resolved, err := resolveInstanceOptionFields(ctx, kernel, *captured, captured.Options)
+			resolved, err := resolveInstanceOptionFields(ctx, kernel, *captured, nil)
 			if err != nil {
 				a.backgroundFailedIn(ctx, "build_options_resolve", err)
 			} else {
@@ -249,6 +251,7 @@ func (a *App) readBuildIgnoredPaths(p *project, inherit bool) {
 			if !e.open || e.session != session {
 				return
 			}
+			e.loading = false
 			e.ignored.restoring = false
 			if len(resolvedFields) != 0 {
 				e.fields = resolvedFields
@@ -270,7 +273,7 @@ func (a *App) readBuildIgnoredPaths(p *project, inherit bool) {
 // detects the instances again so they show what was read back.
 func (a *App) saveBuildOptions(p *project) {
 	e := &p.build.options
-	if !e.open || e.saving {
+	if !e.open || e.loading || e.saving || e.ignored.restoring {
 		return
 	}
 	instance := p.buildInstanceByID(e.instance)
@@ -367,6 +370,7 @@ func (a *App) saveBuildOptionChanges(p *project, instance *buildInstance, change
 				req.ModelValues = target.Model.OptionValues
 				req.ModelDefaults = target.Model.OptionDefaults
 				req.ModelExcludePrefixes = target.Model.OptionExcludePrefixes
+				req.ModelSelection = target.Model.OptionSelection
 			}
 			edit, err := kernel.EditStoredBuildOption(ctx, target.Manifest, target.BuildSystemID, req)
 			if err != nil {
@@ -437,7 +441,7 @@ func (a *App) buildOptionsDialog(c ui.C, p *project) {
 		return
 	}
 	language := a.language()
-	ready := !e.saving
+	ready := !e.loading && !e.saving
 	open := true
 	closed := ui.ModalWith(c, &open, i18n.Shared(language, "desktop.build.optionsTitle"), ui.ModalSpec{Width: 460}, func() {
 		ui.Column(c.Part("build-options")).FillWidth().Gap(10).Children(func() {
@@ -450,12 +454,15 @@ func (a *App) buildOptionsDialog(c ui.C, p *project) {
 						ui.Text(k, e.root).FontSize(a.theme.Metrics.FontSizeS).Color(a.colors.Subtle).Ellipsis().Shrink(1).MinWidth(0)
 					}
 				})
-				if len(e.fields) == 0 {
+				if len(e.fields) == 0 && !e.loading {
 					ui.Wrap(k, i18n.Shared(language, "desktop.build.noOptions")).FontSize(a.theme.Metrics.FontSizeS).Color(a.colors.Subtle)
 				}
 				for index := range e.fields {
 					a.drawRunOptionField(k.KeyInt(index), language, &e.fields[index], ready)
 				}
+			}
+			if e.loading {
+				ui.Text(c, i18n.Shared(language, "native.loading")).FontSize(a.theme.Metrics.FontSizeS).Color(a.colors.Subtle)
 			}
 			if e.failure != "" {
 				ui.Paragraph(c, e.failure, 4).FontSize(a.theme.Metrics.FontSizeS).Color(a.theme.Danger)

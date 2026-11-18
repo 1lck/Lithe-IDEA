@@ -621,10 +621,17 @@ func (in logProjection) run(ctx context.Context, kernel Kernel, root string, dat
 	if window == nil {
 		window = commits
 	}
-	graph, err := kernel.GitGraph(ctx, core.GraphRequest{
+	request := core.GraphRequest{
 		Commits: commits, RemoteNames: in.remotes, RepositoryCommits: window,
-		VisibleHashes: visible, Expanded: in.expanded, CurrentBranch: in.current,
-	})
+		VisibleHashes: visible, Expanded: in.expanded,
+	}
+	if in.origins != nil {
+		// A merged list marks each repository's own current branch, as loadLogRepos does.
+		request.CheckedOutHeads = true
+	} else {
+		request.CurrentBranch = in.current
+	}
+	graph, err := kernel.GitGraph(ctx, request)
 	return graph, in.pathFiles, err
 }
 
