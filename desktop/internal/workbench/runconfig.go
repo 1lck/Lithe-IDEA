@@ -355,7 +355,7 @@ func (a *App) prepareConfiguredRun(p *project, op *buildOperation, id string, re
 				if launch.Customized() {
 					options = &launch
 				}
-				a.runBuildTargetWith(p, op, &p.build.instances[index], inputs.Reference.ProjectID, inputs.Reference.TargetID, inputs.Reference.Run, options)
+				a.runBuildTargetWith(p, op, &p.build.instances[index], inputs.Reference.ProjectID, inputs.Reference.TargetID, inputs.Reference.Run, options, inputs.OptionOverrides)
 			}
 		})
 	}

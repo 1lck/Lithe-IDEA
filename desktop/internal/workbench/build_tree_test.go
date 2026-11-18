@@ -98,10 +98,19 @@ func buildTreeShape(rows []buildRow) []string {
 	kinds := map[buildRowKind]string{
 		buildRowGroup: "group", buildRowFolder: "folder", buildRowEmpty: "note", buildRowProject: "project",
 		buildRowTarget: "target", buildRowTask: "task", buildRowDependency: "dependency", buildRowTest: "test",
+		buildRowOptionChoice: "choice",
 	}
 	shape := make([]string, 0, len(rows))
 	for _, row := range rows {
-		entry := strings.Repeat("  ", row.level) + kinds[row.kind] + " " + row.label
+		entry := strings.Repeat("  ", row.level) + kinds[row.kind]
+		if row.kind == buildRowOptionChoice {
+			if row.node != nil && row.node.Checked {
+				entry += " [x]"
+			} else {
+				entry += " [ ]"
+			}
+		}
+		entry += " " + row.label
 		if row.kind == buildRowGroup && row.node != nil {
 			entry += ": " + row.node.Label
 		}

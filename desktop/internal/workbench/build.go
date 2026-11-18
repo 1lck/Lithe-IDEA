@@ -54,6 +54,8 @@ type buildState struct {
 	// reloadPending says a stored option changed while a detection was running, so the instances are
 	// detected again when that detection ends.
 	reloadPending bool
+	// optionSaving says a toggle on an option choice of the tree is being saved to the local document.
+	optionSaving bool
 	// status is the last result line of the current or latest execution.
 	status string
 
@@ -803,6 +805,7 @@ func (a *App) loadBuildModelWith(p *project, index int, refresh bool) {
 	instance.modelLoading = true
 	instance.modelError, instance.modelStopped = "", false
 	captured := *instance
+	generation := p.build.generation
 	kernel := a.kernel
 	// The load is a session of the Run window, which shows what the tool prints meanwhile.
 	feed := a.beginBuildSync(p, instance)
@@ -815,6 +818,9 @@ func (a *App) loadBuildModelWith(p *project, index int, refresh bool) {
 		}
 		return func(a *App) {
 			a.endBuildSync(feed.session, err)
+			if a.project != p || p.build.generation != generation {
+				return
+			}
 			a.finishBuildModel(p, captured.ID, model, err)
 		}
 	})
@@ -1677,7 +1683,7 @@ func (a *App) beginBuildTarget(p *project, key, targetID string, run pluginservi
 		op.debug = debug
 		options.Debug = &debug.launch
 	}
-	a.runBuildTargetWith(p, op, instance, target.ProjectID, targetID, runID, options)
+	a.runBuildTargetWith(p, op, instance, target.ProjectID, targetID, runID, options, nil)
 }
 
 // debugBuildTarget debugs one target of the Build window's selected instance and project
@@ -1850,7 +1856,7 @@ func (a *App) startProviderDebug(p *project, pluginID string, preparation core.B
 // launch without any. A project or target the model no longer has ends op as failed. Command
 // run declarations do not come here: Core expands them into the model's Run entries, which
 // runBuildEntry runs.
-func (a *App) runBuildTargetWith(p *project, op *buildOperation, instance *buildInstance, projectID, targetID, runID string, options *core.RunLaunchOptions) {
+func (a *App) runBuildTargetWith(p *project, op *buildOperation, instance *buildInstance, projectID, targetID, runID string, options *core.RunLaunchOptions, overrides map[string]json.RawMessage) {
 	project, ok := buildProjectByID(instance.Model, projectID)
 	if !ok {
 		a.notifyError(a.text.Build.ProjectMissing)
@@ -1877,13 +1883,14 @@ func (a *App) runBuildTargetWith(p *project, op *buildOperation, instance *build
 		prepare, release := op.bind(bounded)
 		defer release()
 		request := core.BuildPlanRequest{
-			Root:          captured.Root,
-			Options:       captured.Options,
-			WorkspaceRoot: p.root,
-			Run:           runID,
-			Project:       &core.BuildSelection{Name: project.Name, Path: project.Path, Properties: project.Properties},
-			Target:        selectedTarget,
-			LaunchOptions: options,
+			Root:            captured.Root,
+			Options:         captured.Options,
+			WorkspaceRoot:   p.root,
+			Run:             runID,
+			Project:         &core.BuildSelection{Name: project.Name, Path: project.Path, Properties: project.Properties},
+			Target:          selectedTarget,
+			LaunchOptions:   options,
+			OptionOverrides: overrides,
 		}
 		a.addBuildToolHint(prepare, p, captured, &request)
 		plan, err := kernel.PlanBuildRun(prepare, captured.Manifest, captured.BuildSystemID, request)

@@ -13,8 +13,8 @@ type buildRowKind uint8
 
 const (
 	buildRowGroup buildRowKind = iota
-	// buildRowFolder heads nodes it holds: a task folder, a project's targets, dependencies or
-	// discovered tests.
+	// buildRowFolder heads nodes it holds: a task folder, a tree-presented option, a project's
+	// targets, dependencies or discovered tests.
 	buildRowFolder
 	buildRowEmpty
 	buildRowProject
@@ -22,16 +22,18 @@ const (
 	buildRowTask
 	buildRowDependency
 	buildRowTest
+	buildRowOptionChoice
 )
 
 // buildRow is one row of the build tree (build_tree.go): a build system's group, a node of
 // the tree Core laid out for it, a dependency or discovered test the host loads under one, or
 // a note that something is empty, still loading or failed.
 type buildRow struct {
-	kind     buildRowKind
-	label    string
-	detail   string
-	selected bool
+	kind        buildRowKind
+	label       string
+	detail      string
+	optionTitle string
+	selected    bool
 	// tooltip is what the row shows while the pointer rests on it: the full name of a target
 	// whose label is its path alone, or a task's description; empty for none.
 	tooltip string

@@ -109382,6 +109382,34 @@
       "platforms": [
         "desktop"
       ]
+    },
+    {
+      "id": "desktop.build.optionChoiceDefault",
+      "description": "Detail shown beside a build option choice in the Build tree that is active by default.",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.build.optionChoiceDefaultLabel",
+      "description": "Label of a default-active build option choice in an option editor: {title}",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "title": "string"
+      }
+    },
+    {
+      "id": "desktop.build.toggleOptionChoice",
+      "description": "Accessibility label of a checkbox that toggles one choice of a build option in the Build tree: {option}, {choice}",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "option": "string",
+        "choice": "string"
+      }
     }
   ]
 }
