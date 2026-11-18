@@ -60,8 +60,10 @@ func (a *App) chromeBox(row ui.Box, id gfx.ID, i int, open bool, value string, i
 		row = row.Tooltip(tooltip)
 	}
 	if open {
+		// The open look is the one of the buttons around it: a title bar button that sits on a
+		// stripe opens like the stripe's buttons.
 		fill := a.colors.Active
-		if it.zone.surface() == surfaceStripes {
+		if a.chrome.zoneOf(i).surface() == surfaceStripes {
 			fill = a.theme.Primary
 		}
 		row = row.Background(fill)
@@ -208,7 +210,8 @@ func (a *App) chromeProject(c ui.C) {
 }
 
 // chromeTitleButton declares the title bar button of catalog item i and reports a click on
-// it. The settings button's menu hangs off it.
+// it. The settings button's menu hangs off it. The buttons that may also sit on the stripes
+// get a context menu that moves them there (titleButtonMenu).
 func (a *App) chromeTitleButton(c ui.C, i int) bool {
 	switch a.chrome.catalog[i].id {
 	case itemRunConfig:
@@ -236,17 +239,37 @@ func (a *App) chromeTitleButton(c ui.C, i int) bool {
 		box, clicked := a.chromeGlyph(c, i, titleGlyph, a.colors.Text, a.colors.Text, a.title.gearOpen)
 		wasOpen := a.title.gearOpen
 		if wasOpen {
-			a.gearMenu(c, box)
+			a.gearMenu(c, box, false)
 		}
 		if clicked && !wasOpen {
-			a.title.gearOpen = true
-			a.title.projectOpen, a.title.runConfigOpen = false, false
-			c.After(a.closeBranches)
+			a.openGear(c)
 		}
+		a.titleButtonMenu(c, i, box)
 		return false
 	}
-	_, clicked := a.chromeGlyph(c, i, titleGlyph, a.colors.Text, a.colors.Text, false)
+	box, clicked := a.chromeGlyph(c, i, titleGlyph, a.colors.Text, a.colors.Text, false)
+	a.titleButtonMenu(c, i, box)
 	return clicked
+}
+
+// openGear opens the settings button's menu and closes the other title bar menus, which
+// would stay open under it otherwise.
+func (a *App) openGear(c ui.C) {
+	a.title.gearOpen = true
+	a.title.projectOpen, a.title.runConfigOpen = false, false
+	c.After(a.closeBranches)
+}
+
+// titleButtonMenu gives box, the title bar button of catalog item i, a context menu that
+// moves it to the end of a stripe zone when the item may also sit on the stripes: the
+// keyboard and pointer alternative to dragging it there, as the stripe buttons have.
+func (a *App) titleButtonMenu(c ui.C, i int, box ui.Box) {
+	if !a.chrome.catalog[i].stripes {
+		return
+	}
+	ui.ContextMenu(c.Part("menu").KeyInt(i), box, func(menu *ui.MenuItems) {
+		a.stripeMoveMenu(c, menu, i, zoneTitle)
+	})
 }
 
 // stripe is the column of tool buttons at one side of the workbench. Each stripe stacks its
@@ -318,11 +341,16 @@ func (a *App) stripeZone(c ui.C, z zone, left, dragging bool) int {
 				ui.ContextMenu(c.Part("menu").KeyInt(i), box, a.stripeButtonMenu(c, i, z))
 				continue
 			}
-			// The background button opens a popover, not a tool window.
+			// The background button opens a popover, not a tool window, and the settings
+			// button, when the user moved it onto a stripe, its menu.
 			background := a.chrome.catalog[i].id == itemBackground
+			settings := a.chrome.catalog[i].id == itemTitleSettings
 			open := a.chrome.isOpen(i)
-			if background {
+			switch {
+			case background:
 				open = a.backdropOpen
+			case settings:
+				open = a.title.gearOpen
 			}
 			rest := a.colors.Subtle
 			if open {
@@ -343,6 +371,14 @@ func (a *App) stripeZone(c ui.C, z zone, left, dragging bool) int {
 				if hit && !open {
 					a.performed("workspace.background.open", surfaceButton)
 					a.backdropOpen = true
+				}
+			case settings:
+				// The menu opens beside the button, over the workbench, rather than under it.
+				if open {
+					a.gearMenu(c, box, true)
+				}
+				if hit && !open {
+					a.openGear(c)
 				}
 			case hit:
 				clicked = i
@@ -724,12 +760,16 @@ func (a *App) menuClose(c ui.C) bool {
 	return button.Clicked()
 }
 
-// gearMenu declares the settings button's menu, as the macOS title bar's gear shows it, under
-// anchor, the button the user can move.
-func (a *App) gearMenu(c ui.C, anchor ui.Box) {
+// gearMenu declares the settings button's menu, as the macOS title bar's gear shows it, at
+// anchor, the button the user can move: under it in the title bar, beside it (beside) on a
+// stripe, where it opens towards the workbench.
+func (a *App) gearMenu(c ui.C, anchor ui.Box, beside bool) {
 	open := true
 	ui.Menu(c, anchor, &open, func(menu *ui.MenuItems) {
 		menu.WidthRange(gearMenuWidth, gearMenuWidth)
+		if beside {
+			menu.Beside()
+		}
 		if menu.Item(a.text.Title.Preferences).Keys(ui.Primary, ",").Clicked() {
 			c.After(func() { a.openSettings(surfaceMenu) })
 		}
@@ -755,6 +795,27 @@ func (a *App) gearMenu(c ui.C, anchor ui.Box) {
 	}
 }
 
+// stripeMoveMenu adds the "Move to" submenu to menu: it moves the button of catalog item i,
+// which sits in zone at, to the end of one of the other stripe zones.
+func (a *App) stripeMoveMenu(c ui.C, menu *ui.MenuItems, i int, at zone) {
+	language := a.language()
+	id := a.chrome.catalog[i].id
+	menu.Sub(i18n.Shared(language, "desktop.tools.moveTo"), func(sub *ui.MenuItems) {
+		for z := zoneLeftTop; z <= zoneBottomRight; z++ {
+			if z == at {
+				continue
+			}
+			target := zoneNames[z]
+			if sub.Item(stripeZoneMoveText(language, z)).Clicked() {
+				c.After(func() {
+					a.performed("workbench.toolWindow.move", surfaceContextMenu)
+					a.reduceChrome(core.MoveChrome(id, target, ""))
+				})
+			}
+		}
+	})
+}
+
 // stripeZoneMoveText is the "Move to" entry of a stripe button's menu for zone z.
 func stripeZoneMoveText(lang i18n.Language, z zone) string {
 	switch z {
@@ -777,7 +838,8 @@ func stripeZoneMoveText(lang i18n.Language, z zone) string {
 // in zone at: hiding its open tool window, hiding the button itself, which the "…" button
 // then lists, and moving it to the end of another stripe zone, the keyboard and pointer
 // alternative to dragging it. The "…" button cannot be hidden, since it is the way back to
-// the hidden buttons, so its menu only moves it.
+// the hidden buttons, so its menu only moves it. Nor can a title bar button the user moved
+// onto a stripe; its menu moves it back to the title bar instead.
 func (a *App) stripeButtonMenu(c ui.C, i int, at zone) func(*ui.MenuItems) {
 	return func(menu *ui.MenuItems) {
 		language := a.language()
@@ -791,7 +853,7 @@ func (a *App) stripeButtonMenu(c ui.C, i int, at zone) func(*ui.MenuItems) {
 				})
 			}
 		}
-		if id != itemToolWindows {
+		if id != itemToolWindows && a.chrome.catalog[i].zone.surface() == surfaceStripes {
 			if menu.Item(i18n.Shared(language, "native.hideEntry")).Clicked() {
 				c.After(func() {
 					a.performed("workbench.toolWindow.hideEntry", surfaceContextMenu)
@@ -800,20 +862,15 @@ func (a *App) stripeButtonMenu(c ui.C, i int, at zone) func(*ui.MenuItems) {
 			}
 			menu.Separator()
 		}
-		menu.Sub(i18n.Shared(language, "desktop.tools.moveTo"), func(sub *ui.MenuItems) {
-			for z := zoneLeftTop; z <= zoneBottomRight; z++ {
-				if z == at {
-					continue
-				}
-				target := zoneNames[z]
-				if sub.Item(stripeZoneMoveText(language, z)).Clicked() {
-					c.After(func() {
-						a.performed("workbench.toolWindow.move", surfaceContextMenu)
-						a.reduceChrome(core.MoveChrome(id, target, ""))
-					})
-				}
+		if a.chrome.catalog[i].stripes {
+			if menu.Item(i18n.Shared(language, "desktop.tools.moveToTitleBar")).Clicked() {
+				c.After(func() {
+					a.performed("workbench.toolWindow.move", surfaceContextMenu)
+					a.reduceChrome(core.MoveChrome(id, zoneNames[zoneTitle], ""))
+				})
 			}
-		})
+		}
+		a.stripeMoveMenu(c, menu, i, at)
 		// Move Earlier and Move Later swap the button with its neighbour in its own zone: the
 		// button goes in front of the one before it, or in front of the one after the next.
 		items := a.chrome.items[at]

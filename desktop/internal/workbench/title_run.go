@@ -163,13 +163,14 @@ func (a *App) titleRun(p *project) {
 	a.titleStart(p, titleActionRun)
 }
 
-// titleDebug is a press on the title bar's Debug button: it opens the Debug window and debugs
-// the chosen configuration, or the current file under the selected adapter.
+// titleDebug is a press on the Debug button, in the title bar or on the stripe the user moved
+// it to: it opens the Debug window and debugs the chosen configuration, or the current file
+// under the selected adapter.
 func (a *App) titleDebug(p *project) {
 	if p == nil {
 		return
 	}
-	a.performed("title.debug", surfaceToolbar)
+	a.performed("title.debug", a.chromeSurface(catalogIndex[itemTitleDebug]))
 	a.openToolWindow(itemDebug)
 	a.titleStart(p, titleActionDebug)
 }

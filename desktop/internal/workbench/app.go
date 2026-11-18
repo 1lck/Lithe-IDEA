@@ -1223,6 +1223,15 @@ func (a *App) performedIn(ctx context.Context, action string, surface actionSurf
 	return core.WithOrigin(ctx, core.Origin{Operation: id, Trigger: action})
 }
 
+// chromeSurface is the surface a click on the rearrangeable button of catalog item index
+// comes from: the toolbar while the button sits in the title bar, a button on a stripe.
+func (a *App) chromeSurface(index int) actionSurface {
+	if a.chrome.zoneOf(index).surface() == surfaceTitle {
+		return surfaceToolbar
+	}
+	return surfaceButton
+}
+
 // titleBarHeight is the height of the title bar on both screens; the system's window
 // buttons sit in it.
 const titleBarHeight = 40
@@ -1344,7 +1353,7 @@ func (a *App) activate(index int) {
 		a.titleDebug(a.project)
 	case it.id == itemTitleSearch:
 		if a.project != nil {
-			a.performed("workspace.searchEverywhere.open", surfaceToolbar)
+			a.performed("workspace.searchEverywhere.open", a.chromeSurface(index))
 			a.openEverywhere(a.project)
 		}
 	case it.id == itemCaret:
