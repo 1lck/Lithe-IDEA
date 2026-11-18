@@ -256,6 +256,32 @@ func TestStartRefusesAnUnverifiedProgram(t *testing.T) {
 	}
 }
 
+func TestPreparationSessionHasNoWorkspaceOrRelayAccess(t *testing.T) {
+	plan := packagedPlan()
+	plan.Backend.HostServices = []string{pluginhost.MethodPrefix + "workspace/stat"}
+	kernel := &fakeKernel{plan: plan, started: core.PluginBackendStarted{SessionID: "preflight"}}
+	runner := New(kernel, echoServices(t))
+	request := startRequest(backendPackage(t))
+	request.Preparation = true
+	session, err := runner.Start(context.Background(), request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(session.Granted) != 0 || len(kernel.started_.HostServices) != 0 || kernel.started_.HostOptions != nil {
+		t.Fatalf("preparation inherited workspace grants: %+v", kernel.started_)
+	}
+	if kernel.started_.FunctionRelayEnabled == nil || *kernel.started_.FunctionRelayEnabled {
+		t.Fatal("preparation was not isolated from the cross-plugin relay")
+	}
+	request.Preparation = false
+	if _, err := runner.Start(context.Background(), request); err != nil {
+		t.Fatal(err)
+	}
+	if kernel.started_.FunctionRelayEnabled != nil || len(kernel.started_.HostServices) != 1 {
+		t.Fatal("private preparation changed the next ordinary session's grants")
+	}
+}
+
 func TestStartRefusesAnUnusableRequest(t *testing.T) {
 	root := backendPackage(t)
 	kernel := &fakeKernel{plan: packagedPlan()}
@@ -689,6 +715,33 @@ func TestStartResolvesAToolThroughTheHostToolchain(t *testing.T) {
 	// The plan's environment wins over the selection's; the rest of the selection is kept.
 	if env := kernel.started_.Environment; env["JAVA_HOME"] != "/plan/jdk" || env["PATH"] != "/opt/jdk/bin" {
 		t.Fatalf("environment = %v", env)
+	}
+}
+
+func TestManagedToolSelectionBelongsOnlyToOneLaunch(t *testing.T) {
+	root := backendPackage(t)
+	var plan core.PluginBackendPlan
+	plan.Launch.Kind, plan.Launch.Tool = pluginhost.LaunchTool, "fixture-runtime"
+	kernel := &fakeKernel{plan: plan, started: core.PluginBackendStarted{SessionID: "managed-session"}}
+	runner := New(kernel, echoServices(t))
+	projectCalls := 0
+	runner.SetToolResolver(func(context.Context, string, string, string) (ToolExecutable, error) {
+		projectCalls++
+		return ToolExecutable{Path: "/project/compiler"}, nil
+	})
+	request := startRequest(root)
+	request.ManagedTools = map[string]ToolExecutable{"fixture-runtime": {Path: "/managed/runtime"}}
+	if _, err := runner.Start(context.Background(), request); err != nil {
+		t.Fatal(err)
+	}
+	if kernel.started_.ExecutablePath != "/managed/runtime" || projectCalls != 0 || len(kernel.started_.Environment) != 0 {
+		t.Fatalf("managed selection was not isolated: %+v, calls=%d", kernel.started_, projectCalls)
+	}
+	if _, err := runner.Start(context.Background(), startRequest(root)); err != nil {
+		t.Fatal(err)
+	}
+	if kernel.started_.ExecutablePath != "/project/compiler" || projectCalls != 1 {
+		t.Fatalf("managed selection leaked into a subsequent launch: %+v", kernel.started_)
 	}
 }
 
