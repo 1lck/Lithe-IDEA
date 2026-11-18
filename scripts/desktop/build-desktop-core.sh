@@ -27,7 +27,9 @@ native_path() {
     fi
 }
 
-# Lithe-core-rust main at bb4832e, #88 squash-merged (on top of 4ed7a1f, #85): a run
+# Lithe-core-rust #90 at 6e4e02c (Draft, on top of main bb4832e): a chrome catalog item marked
+# alsoOnToolStripes, a title bar button, may also sit in the six tool stripe zones and come back to
+# the title bar. Lithe-core-rust main at bb4832e, #88 squash-merged (on top of 4ed7a1f, #85): a run
 # configuration's beforeLaunch names built-in process runs that start first; runConfig.beforeLaunch
 # expands and checks them and fingerprints the lists a project file names, the editor form has a
 # beforeLaunch field and runConfig.updateOptions takes the list (#1616). #85, squash-merged into
@@ -210,7 +212,7 @@ PINNED_CORE_REPOSITORY="https://github.com/Lithe-IDEA/Lithe-core-rust.git"
 # the contract, plugin guides, reference and SDKs live only in shared/plugins; on top of #16 (reported Git queries folded in the console),
 # #15 (git.write cherryPick, revert and reset fields), #14 (word-level changed ranges of diff
 # rows), #13, #8, #7, #6 and #4.
-PINNED_CORE_REVISION="bb4832ee73187c8dffcbd67eb4a68e839869252b"
+PINNED_CORE_REVISION="6e4e02cf755db4855d36ff84c9f6a944dd11625c"
 PROFILE="debug"
 while [[ $# -gt 0 ]]; do
     case "$1" in

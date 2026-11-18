@@ -11287,6 +11287,7 @@
     "desktop.title.runBusy": "运行窗口还在执行其他操作。请等它结束，或者先停止它。",
     "desktop.diff.keepWhitespace": "不忽略空白",
     "desktop.tools.moveTo": "移动到",
+    "desktop.tools.moveToTitleBar": "移到标题栏",
     "desktop.editorFind.find": "查找",
     "desktop.editorFind.replace": "替换",
     "desktop.editorFind.replaceOne": "替换当前",

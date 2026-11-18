@@ -107876,6 +107876,13 @@
       ]
     },
     {
+      "id": "desktop.tools.moveToTitleBar",
+      "description": "Context menu item of a title bar button the user moved onto a tool stripe: moves it back to the title bar.",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
       "id": "desktop.editorFind.find",
       "description": "IDE editor essentials: editorFind.find",
       "platforms": [

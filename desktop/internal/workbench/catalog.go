@@ -191,7 +191,7 @@ const (
 // item is one button the workbench can show in its rearrangeable chrome.
 type item struct {
 	id   string
-	zone zone // the default zone; its surface is the only one the item may sit in
+	zone zone // the default zone; the item sits only in its surface's zones unless stripes is set
 	// icon is the glyph of the button; nil for a status item that is text only.
 	icon *gfx.Icon
 	// label is the button's name, read by assistive technology and, on a button that is only
@@ -204,6 +204,9 @@ type item struct {
 	panel bool
 	// open reports that the tool window is open in the default layout.
 	open bool
+	// stripes lets a title bar item also sit in the six tool stripe zones. It does the same thing
+	// there, opens no tool window and still cannot be hidden.
+	stripes bool
 	// tool is the plugin tool window the item shows; nil for a built-in item.
 	tool *pluginservice.ToolWindow
 	// vcs is the plugin version control provider whose window the item shows (vcs.go); nil for
@@ -252,9 +255,9 @@ var catalog = []item{
 
 	{id: itemRunConfig, zone: zoneTitle, icon: &icons.FileCode, label: func(m *i18n.Messages) string { return m.Title.RunConfiguration }},
 	{id: itemTitleRun, zone: zoneTitle, icon: &icons.Play, label: func(m *i18n.Messages) string { return m.Title.Run }},
-	{id: itemTitleDebug, zone: zoneTitle, icon: &icons.Bug, label: func(m *i18n.Messages) string { return m.Title.Debug }},
-	{id: itemTitleSearch, zone: zoneTitle, icon: &icons.Search, label: func(m *i18n.Messages) string { return m.Title.Search }, shortcut: "search.everywhere"},
-	{id: itemTitleSettings, zone: zoneTitle, icon: &icons.Settings, label: func(m *i18n.Messages) string { return m.Title.Settings }},
+	{id: itemTitleDebug, zone: zoneTitle, icon: &icons.Bug, label: func(m *i18n.Messages) string { return m.Title.Debug }, stripes: true},
+	{id: itemTitleSearch, zone: zoneTitle, icon: &icons.Search, label: func(m *i18n.Messages) string { return m.Title.Search }, shortcut: "search.everywhere", stripes: true},
+	{id: itemTitleSettings, zone: zoneTitle, icon: &icons.Settings, label: func(m *i18n.Messages) string { return m.Title.Settings }, stripes: true},
 
 	{id: itemCaret, zone: zoneStatus, label: func(m *i18n.Messages) string { return m.Status.Caret }},
 	{id: itemLock, zone: zoneStatus, icon: &icons.LockOpen, label: func(m *i18n.Messages) string { return m.Status.Writable }},
@@ -341,7 +344,7 @@ func (c *chromeState) setItems(items []item) {
 	c.index = make(map[string]int, len(items))
 	c.coreItems = make([]core.ChromeItem, len(items))
 	for i, it := range items {
-		c.coreItems[i] = core.ChromeItem{ID: it.id, DefaultZone: zoneNames[it.zone], Panel: it.panel, OpenByDefault: it.open}
+		c.coreItems[i] = core.ChromeItem{ID: it.id, DefaultZone: zoneNames[it.zone], Panel: it.panel, OpenByDefault: it.open, AlsoOnToolStripes: it.stripes}
 		c.index[it.id] = i
 	}
 	c.zones = make([]zone, len(items))
@@ -489,6 +492,14 @@ func (c *chromeState) apply(layout core.ChromeLayout) {
 // zoneOf returns the zone catalog item index sits in now, whether its button is shown or
 // hidden.
 func (c *chromeState) zoneOf(index int) zone { return c.zones[index] }
+
+// allowed reports whether catalog item index may sit in zone z: a zone of the surface of its
+// default zone, or a stripe zone for a title bar item that may also sit on the stripes. The
+// kernel enforces the same rule; the drag asks it where the button may land.
+func (c *chromeState) allowed(index int, z zone) bool {
+	it := c.catalog[index]
+	return z.surface() == it.zone.surface() || it.stripes && z.surface() == surfaceStripes
+}
 
 // isHidden reports whether the user hid the stripe button of catalog item index.
 func (c *chromeState) isHidden(index int) bool { return c.hiddenMark[index] }

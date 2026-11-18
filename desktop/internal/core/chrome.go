@@ -46,14 +46,19 @@ type ChromeItem struct {
 	// ID is the stable host identifier, persisted in placements. It must be unique and not
 	// empty.
 	ID string `json:"id"`
-	// DefaultZone is the zone of the default layout. Its surface (the tool stripes, the title
-	// bar or the status bar) is the only surface the item may ever sit in.
+	// DefaultZone is the zone of the default layout. The item may sit only in zones of its
+	// surface (the tool stripes, the title bar or the status bar), unless AlsoOnToolStripes adds
+	// the stripe zones.
 	DefaultZone Zone `json:"defaultZone"`
 	// Panel reports that the button opens a tool panel in its zone's panel slot. Only the six
 	// tool stripe zones can host a panel.
 	Panel bool `json:"panel,omitempty"`
 	// OpenByDefault reports that the panel is open in the default layout. It requires Panel.
 	OpenByDefault bool `json:"openByDefault,omitempty"`
+	// AlsoOnToolStripes lets a title bar item sit in the six tool stripe zones too and come back
+	// to the title bar. On a stripe the item still opens no panel and cannot be hidden. Only
+	// title bar items may set it.
+	AlsoOnToolStripes bool `json:"alsoOnToolStripes,omitempty"`
 }
 
 // Placement is the zone of one item. The order of the placements that share a zone is the
@@ -133,8 +138,8 @@ func ResetChrome() ChromeAction {
 
 // MoveChrome moves the item id into zone, in front of the item before when that item sits in
 // zone and at the end of the zone otherwise. An empty before always means the end. The zone
-// must belong to the item's own surface; moving a stripe button into the status bar fails with
-// CodeInvalidRequest.
+// must belong to the item's own surface, or be a stripe zone for an item marked
+// AlsoOnToolStripes; moving a stripe button into the status bar fails with CodeInvalidRequest.
 func MoveChrome(id string, zone Zone, before string) ChromeAction {
 	return ChromeAction{kind: chromeMove, id: id, zone: zone, before: before}
 }
@@ -152,7 +157,8 @@ func SetChromeOpen(id string, open bool) ChromeAction {
 
 // SetChromeHidden hides or shows the tool stripe button of the item id. Hiding closes the item's
 // panel; showing leaves the panel as it is. A hidden item keeps its zone and position. Only tool
-// stripe items can be hidden; a title or status bar item fails with CodeInvalidRequest.
+// stripe items can be hidden; a title or status bar item fails with CodeInvalidRequest, also
+// when it is a title bar item that sits on a stripe.
 func SetChromeHidden(id string, hidden bool) ChromeAction {
 	return ChromeAction{kind: chromeSetHidden, id: id, hidden: hidden}
 }
@@ -231,9 +237,10 @@ type chromeLayoutResponse struct {
 // moving an open panel takes its open state into the target zone.
 //
 // The kernel answers CodeInvalidRequest for a malformed catalog (an empty or repeated id, a
-// panel outside the tool stripes, a default-open item that is not a panel) and for an action
-// that names an unknown item, moves an item to another surface, opens an item that is not a
-// panel or hides an item outside the tool stripes.
+// panel outside the tool stripes, a default-open item that is not a panel, AlsoOnToolStripes on
+// an item outside the title bar) and for an action that names an unknown item, moves an item to
+// a zone it may not sit in, opens an item that is not a panel or hides an item whose default
+// zone is not on a tool stripe.
 //
 // The call only computes over its arguments and is fast enough for an event handler.
 func (c *Client) ReduceChromeLayout(ctx context.Context, catalog []ChromeItem, state ChromeLayout, action ChromeAction) (ChromeLayout, bool, error) {

@@ -11287,6 +11287,7 @@
     "desktop.title.runBusy": "The Run window is still running another operation. Wait for it to finish or stop it first.",
     "desktop.diff.keepWhitespace": "Do not ignore whitespace",
     "desktop.tools.moveTo": "Move to",
+    "desktop.tools.moveToTitleBar": "Move to Title Bar",
     "desktop.editorFind.find": "Find",
     "desktop.editorFind.replace": "Replace",
     "desktop.editorFind.replaceOne": "Replace current",
