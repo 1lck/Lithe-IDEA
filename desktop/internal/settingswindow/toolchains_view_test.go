@@ -433,18 +433,18 @@ func TestProjectToolchainTrustSwitchGrantsAndRevokesImmediately(t *testing.T) {
 		t.Fatal("missing untrusted status label")
 	}
 
-	// Verify ⓘ help popover explains consequences and local storage scope.
+	// Verify the ⓘ tip explains consequences and local storage scope.
 	help := i18n.Shared(i18n.English, "desktop.toolchains.trustProjectHelp")
 	infoBounds := d.hintHit(help).Bounds
-	if err := d.driver.Click(infoBounds.X+infoBounds.Width/2, infoBounds.Y+infoBounds.Height/2); err != nil {
+	if err := d.driver.Move(infoBounds.X+infoBounds.Width/2, infoBounds.Y+infoBounds.Height/2); err != nil {
 		t.Fatal(err)
 	}
 	d.pump()
 	if !d.showsHelp(help) {
-		t.Fatal("project trust ⓘ button did not open its help popover")
+		t.Fatal("resting on the project trust ⓘ did not show its help")
 	}
-	// Close popover before toggling the switch.
-	if err := d.driver.Click(infoBounds.X+infoBounds.Width/2, infoBounds.Y+infoBounds.Height/2); err != nil {
+	// Leave the ⓘ before toggling the switch.
+	if err := d.driver.Move(2, 2); err != nil {
 		t.Fatal(err)
 	}
 	d.pump()
