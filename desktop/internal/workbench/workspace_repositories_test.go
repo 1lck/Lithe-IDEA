@@ -169,6 +169,88 @@ func TestWorkspaceLogRootsWalkTheChosenRepository(t *testing.T) {
 	}
 }
 
+// Opening a folder that is not a repository itself—whether it holds nested repositories or is
+// empty—must never query Git references at the non-repository folder root or leave failed commands
+// in the Git console.
+func TestNonRepositoryFolderDoesNotQueryRootReferencesInGitConsole(t *testing.T) {
+	assertNoFailedConsoleRecords := func(t *testing.T, h *harness) {
+		t.Helper()
+		for _, r := range h.app.gitConsole.Snapshot().Records {
+			if r.Error != "" || (r.Exited && r.ExitCode != 0 && !r.ExpectedExit) {
+				t.Fatalf("unexpected failed Git console record: root=%q args=%v exit=%d err=%q", r.Root, r.Arguments, r.ExitCode, r.Error)
+			}
+		}
+	}
+
+	t.Run("nested repositories", func(t *testing.T) {
+		parent := newWorkspaceFolder(t, "alpha", "beta")
+		h := newHarness(t, &gitKernel{Client: core.NewClient()})
+		p := h.openWorkspaceFolder(parent)
+		alphaID := repositoryID(t, p, "alpha")
+		h.app.layout.gitTab = gitTabLog
+		if !h.app.chrome.isOpen(catalogIndex[itemGit]) {
+			h.click(center(h.button(itemGit)))
+		}
+		h.settleUntil("alpha's history", func() bool {
+			return p.logRepoID() == alphaID && !p.log.loading && len(p.log.graph.Rows) == 1
+		})
+		assertNoFailedConsoleRecords(t, h)
+	})
+
+	t.Run("empty folder", func(t *testing.T) {
+		requireTestGit(t)
+		empty := t.TempDir()
+		h := newHarness(t, &gitKernel{Client: core.NewClient()})
+		h.app.delays = logDelays{}
+		h.open(empty)
+		h.app.layout.gitTab = gitTabLog
+		if !h.app.chrome.isOpen(catalogIndex[itemGit]) {
+			h.click(center(h.button(itemGit)))
+		}
+		h.settle()
+		p := h.app.project
+		if !h.shows(h.app.text.Git.NotRepository) {
+			t.Fatalf("expected %q on empty folder log tab", h.app.text.Git.NotRepository)
+		}
+		// Refreshing the log on a non-repository folder must also stay silent.
+		h.app.loadLog(p)
+		h.settle()
+		assertNoFailedConsoleRecords(t, h)
+	})
+
+	t.Run("initialized later", func(t *testing.T) {
+		requireTestGit(t)
+		dir := t.TempDir()
+		h := newHarness(t, &gitKernel{Client: core.NewClient()})
+		h.app.delays = logDelays{}
+		h.open(dir)
+		h.app.layout.gitTab = gitTabLog
+		if !h.app.chrome.isOpen(catalogIndex[itemGit]) {
+			h.click(center(h.button(itemGit)))
+		}
+		h.settle()
+		assertNoFailedConsoleRecords(t, h)
+
+		gitRun(t, dir, "init")
+		gitRun(t, dir, "symbolic-ref", "HEAD", "refs/heads/main")
+		if err := os.WriteFile(filepath.Join(dir, "readme.txt"), []byte("hello\n"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		gitRun(t, dir, "add", "readme.txt")
+		gitRun(t, dir, "commit", "-m", "late init")
+
+		p := h.app.project
+		h.app.loadGit(p)
+		h.settleUntil("late repository history", func() bool {
+			return p.git.isRepository() && !p.log.loading && len(p.log.graph.Rows) == 1
+		})
+		if !h.shows("late init") {
+			t.Fatal("the log did not load after the folder became a Git repository")
+		}
+		assertNoFailedConsoleRecords(t, h)
+	})
+}
+
 // The Commit tool window of a folder holding repositories groups the changes by repository, and
 // its Commit button commits the staged changes of each.
 func TestWorkspaceCommitCommitsEveryNestedRepository(t *testing.T) {
