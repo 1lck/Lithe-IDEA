@@ -157,6 +157,22 @@ func (w *window) pluginMenu(c ui.C, language i18n.Language) {
 		if menu.Item(i18n.Shared(language, "native.refreshPluginRepositories")).Clicked() {
 			c.After(w.refreshMarket)
 		}
+		if w.ctrl.opts.SetAutoUpdatePlugins != nil {
+			menu.Separator()
+			if w.sess.values.AutoUpdatePlugins {
+				if menu.Item(i18n.Shared(language, "desktop.marketplace.disableAutoUpdates")).Clicked() {
+					c.After(func() {
+						w.sess.values.AutoUpdatePlugins = false
+						w.ctrl.opts.SetAutoUpdatePlugins(false)
+					})
+				}
+			} else if menu.Item(i18n.Shared(language, "desktop.marketplace.enableAutoUpdates")).Clicked() {
+				c.After(func() {
+					w.sess.values.AutoUpdatePlugins = true
+					w.ctrl.opts.SetAutoUpdatePlugins(true)
+				})
+			}
+		}
 		if w.ctrl.opts.InstallPluginFromFile != nil {
 			menu.Separator()
 			if menu.Item(i18n.Shared(language, "native.installPluginFromDisk.variant2")).Clicked() {
