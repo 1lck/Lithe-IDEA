@@ -60,6 +60,20 @@ func (h *harness) popupClick(label string) {
 	h.click(center(h.popupHit(label)))
 }
 
+// popupRest rests the pointer on the item named label of the open menu or submenu longer than
+// a submenu takes to open, as a user moving down the menu does instead of clicking. The
+// submenu then opens in a paint that delivers no click.
+func (h *harness) popupRest(label string) {
+	h.t.Helper()
+	at := center(h.popupHit(label))
+	if err := h.driver.Move(at.X, at.Y); err != nil {
+		h.t.Fatalf("Move: %v", err)
+	}
+	if err := h.driver.Advance(150 * time.Millisecond); err != nil {
+		h.t.Fatalf("Advance: %v", err)
+	}
+}
+
 // Open In replaces Reveal in Finder and Open With… on a file's row. Open With lists what the
 // system offers, as Finder's Open With menu does: the default first, then the others, with
 // the folder beside a name two applications share, then Other…; choosing one opens the file
@@ -118,6 +132,29 @@ func TestProjectTreeOpenWithListsTheSystemsApplications(t *testing.T) {
 	}
 	if h.app.notice != "" {
 		t.Fatalf("notice = %q, want none", h.app.notice)
+	}
+}
+
+// Open In opened by resting the pointer on it, as it is usually opened, asks the system too:
+// Open With lists the applications instead of saying it is finding them forever.
+func TestProjectTreeOpenWithListsTheApplicationsWhenOpenedByHover(t *testing.T) {
+	root := t.TempDir()
+	writeTreeFiles(t, root, "notes.txt")
+	h := newHarness(t, &testKernel{Client: core.NewClient()})
+	h.openTree(t, root)
+	stub := stubTreeApps(t, []fileapps.App{{ID: "/Apps/Editor.app", Name: "Editor.app", Default: true}}, nil)
+	language := h.app.language()
+
+	h.rightClickNamed("notes.txt")
+	h.popupRest(h.shared("desktop.files.openIn"))
+	h.popupRest(h.shared("desktop.files.openWith"))
+	h.settle()
+	if asked, _ := stub.record(); !slices.Equal(asked, []string{filepath.Join(root, "notes.txt")}) {
+		t.Fatalf("Open In opened by hover asked the system about %q, want the file once", asked)
+	}
+	editor := i18n.SharedFormat(language, "desktop.files.openWithDefault", map[string]string{"name": "Editor.app"})
+	if !h.hasPopupItem(editor) || h.hasPopupItem(h.shared("desktop.files.openWithFinding")) {
+		t.Fatalf("Open With opened by hover does not list %q, or still says it is finding applications", editor)
 	}
 }
 

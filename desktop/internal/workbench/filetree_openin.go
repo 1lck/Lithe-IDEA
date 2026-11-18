@@ -50,7 +50,7 @@ func (a *App) openInMenu(c ui.C, p *project, menu *ui.MenuItems, full string, di
 	language := a.language()
 	menu.Sub(i18n.Shared(language, "desktop.files.openIn"), func(sub *ui.MenuItems) {
 		if !dir {
-			a.askTreeApps(c, full)
+			a.askTreeApps(full)
 			sub.Sub(i18n.Shared(language, "desktop.files.openWith"), func(apps *ui.MenuItems) {
 				a.openWithMenu(c, apps, full)
 			})
@@ -80,12 +80,15 @@ func fileManagerLabel(language i18n.Language) string {
 }
 
 // askTreeApps asks the system for the applications of file when the Open In submenu has just
-// opened, or opened for another file.
-func (a *App) askTreeApps(c ui.C, file string) {
+// opened, or opened for another file. It asks on this paint, not through ui.C.After: the
+// submenu usually opens when the pointer rests on it, in a paint that delivers no click, and
+// such a paint drops what is deferred. The lookup runs in the background, so asking here does
+// not hold the paint.
+func (a *App) askTreeApps(file string) {
 	m := &a.treeApps
 	m.drawn = true
 	if !m.shown || m.file != file {
-		c.After(func() { a.findTreeApps(file) })
+		a.findTreeApps(file)
 	}
 }
 
