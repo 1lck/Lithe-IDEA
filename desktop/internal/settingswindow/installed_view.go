@@ -950,6 +950,8 @@ func permissionDescription(language i18n.Language, permission string) string {
 		return i18n.Shared(language, "native.runYourTests")
 	case "commands.install":
 		return i18n.Shared(language, "desktop.marketplace.permissionCommandsInstall")
+	case "runtimes.install":
+		return i18n.Shared(language, "desktop.marketplace.permissionRuntimesInstall")
 	}
 	return ""
 }
