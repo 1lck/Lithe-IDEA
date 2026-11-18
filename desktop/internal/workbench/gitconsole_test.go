@@ -10,7 +10,7 @@ import (
 
 	"github.com/1lck/Lithe-IDEA/desktop/internal/core"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/i18n"
-	"github.com/1lck/Lithe-IDEA/desktop/internal/textview"
+	"github.com/vivaui/viva/ui/textview"
 )
 
 // openConsole opens dir, runs a Git command the console records, and shows the Console tab
