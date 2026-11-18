@@ -49,6 +49,55 @@ type WorkspaceContexts struct {
 	onClosed func(contextID string)
 }
 
+// Contexts remain private to a workbench. Native runtime checks only need the
+// paths currently open in any workbench sharing this plugin state directory.
+// Counts follow Open/Close, retain no Service, and disappear with the last owner.
+// Writers hold c.mu before this lock; snapshots take only this lock.
+var openedWorkspaceRoots = struct {
+	sync.Mutex
+	byState map[string]map[string]int
+}{byState: make(map[string]map[string]int)}
+
+func (c *WorkspaceContexts) retainRoot(path string) {
+	openedWorkspaceRoots.Lock()
+	defer openedWorkspaceRoots.Unlock()
+	key := filepath.Clean(c.stateRoot)
+	if openedWorkspaceRoots.byState[key] == nil {
+		openedWorkspaceRoots.byState[key] = make(map[string]int)
+	}
+	openedWorkspaceRoots.byState[key][path]++
+}
+
+func (c *WorkspaceContexts) releaseRoot(path string) {
+	openedWorkspaceRoots.Lock()
+	defer openedWorkspaceRoots.Unlock()
+	key := filepath.Clean(c.stateRoot)
+	roots := openedWorkspaceRoots.byState[key]
+	roots[path]--
+	if roots[path] == 0 {
+		delete(roots, path)
+	}
+	if len(roots) == 0 {
+		delete(openedWorkspaceRoots.byState, key)
+	}
+}
+
+// workspaceRoots takes one immutable native path snapshot for an entire runtime
+// preparation, including its discovery probes and final tool validation.
+func (c *WorkspaceContexts) workspaceRoots() []string {
+	if c == nil {
+		return nil
+	}
+	openedWorkspaceRoots.Lock()
+	var paths []string
+	for path := range openedWorkspaceRoots.byState[filepath.Clean(c.stateRoot)] {
+		paths = append(paths, path)
+	}
+	openedWorkspaceRoots.Unlock()
+	sort.Strings(paths)
+	return paths
+}
+
 // newWorkspaceContexts loads or creates the host secret that keys root IDs. The
 // secret is stored beside the plugin state, never in a package or the app bundle.
 func newWorkspaceContexts(stateRoot string) *WorkspaceContexts {
@@ -104,6 +153,7 @@ func (c *WorkspaceContexts) Open(path string) WorkspaceContext {
 		Path:       path,
 	}
 	c.byPath[path] = created
+	c.retainRoot(path)
 	c.revision++
 	observer := c.onChange
 	value := *created
@@ -124,6 +174,7 @@ func (c *WorkspaceContexts) Close(path string) {
 		return
 	}
 	delete(c.byPath, path)
+	c.releaseRoot(path)
 	c.revision++
 	observer, closed := c.onChange, c.onClosed
 	id := closing.ContextID
@@ -146,6 +197,7 @@ func (c *WorkspaceContexts) CloseAll() {
 	ids := make([]string, 0, len(c.byPath))
 	for _, closing := range c.byPath {
 		ids = append(ids, closing.ContextID)
+		c.releaseRoot(closing.Path)
 	}
 	c.byPath = make(map[string]*WorkspaceContext)
 	c.revision++

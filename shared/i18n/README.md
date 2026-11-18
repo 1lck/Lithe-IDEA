@@ -13,6 +13,14 @@ macOS 的字符串表、Windows 的完整翻译字典，以及原先页面内的
   显式兼容，原生英文旧 key 通过 `macos.key` 显式兼容。
 - `locales/<locale>.json` 保存对应语言的 `messages`。平台措辞确实不同时，使用
   `overrides.macos` 或 `overrides.windows`，同时填写 `value` 和 `reason`。
+- `features/<feature>.json` 可以把同一宿主功能的新增声明和译文放在一个小文件中，
+  顶层只有 `schemaVersion: 1`、`messages` 和 `locales`。`messages` 使用同一声明格式；
+  `locales` 按 manifest 中的语言 ID 保存该文件自有词条的 key → 译文映射，
+  例如 `"locales": {"en-US": {"feature.status": "Ready"}, "zh-CN": {"feature.status": "就绪"}}`。
+  不能重复基础词库或其他文件的声明、覆盖已有译文，或为别处声明的词条补译文。
+  生成器按文件名稳定读取，再对合并后的词库执行相同的平台、别名、参数和完整翻译校验；
+  调用检查器也读取这份合并契约。这里只拆分源码文件，不增加运行时加载或另一套字典。
+  没有 `features/` 的旧源码目录继续使用原有词库。
 - `fixtures/` 保存生成器测试读取的格式样例（`format-v1.json`、`native-abi-v1.json`），
   只给 `scripts/i18n/test-i18n.mjs` 使用。Rust Core 不读取它们，所以放在这里，不放进 Core 的 `rust/fixtures/`。
 

@@ -19,6 +19,13 @@ import (
 // other native owners, including other project tabs, before stopping the language
 // server and backend. A failed stop preserves the package and state for retry.
 func (s *Service) Uninstall(ctx context.Context, id string, server *LanguageSession, stopNative ...func(context.Context) error) error {
+	release := s.holdRuntimeStop(id)
+	defer release()
+	// A commit already past its cancellation check may finish while stopping.
+	// Await it before Core snapshots installed versions for the removal plan.
+	if err := s.stopRuntimePreparations(ctx, id); err != nil {
+		return err
+	}
 	_, err := s.Manager.Apply(ctx, core.PluginUninstall, id, func() error {
 		var failures []error
 		for _, stop := range stopNative {
@@ -34,6 +41,11 @@ func (s *Service) Uninstall(ctx context.Context, id string, server *LanguageSess
 // as Uninstall does, so a disabled plugin keeps no process. Core plans the
 // choice before the stop, so nothing starts the plugin again while it stops.
 func (s *Service) Disable(ctx context.Context, id string, server *LanguageSession) error {
+	release := s.holdRuntimeStop(id)
+	defer release()
+	if err := s.stopRuntimePreparations(ctx, id); err != nil {
+		return err
+	}
 	_, err := s.Manager.Apply(ctx, core.PluginDisable, id, func() error { return s.stopPlugin(ctx, id, server) })
 	return err
 }
@@ -42,14 +54,31 @@ func (s *Service) Disable(ctx context.Context, id string, server *LanguageSessio
 // off (pluginmanager.Displaced): its choice is already recorded, so only the
 // programs remain. server is its language server session, or nil.
 func (s *Service) StopDisplaced(ctx context.Context, id string, server *LanguageSession) error {
+	release := s.holdRuntimeStop(id)
+	defer release()
 	return s.stopPlugin(ctx, id, server)
 }
 
-// stopPlugin stops a plugin's language server session and its backend, and
-// returns once both ended or gave up.
+// stopPlugin first cancels and awaits preparation/launch work, then stops all
+// sessions it could have published before allowing package or state removal.
 func (s *Service) stopPlugin(ctx context.Context, id string, server *LanguageSession) error {
+	preparationErr := s.stopRuntimePreparations(ctx, id)
 	stopBackend := s.DetachBackend(id)
-	err := s.StopLanguageServer(ctx, server)
+	sessions := make(map[*LanguageSession]struct{})
+	if server != nil {
+		sessions[server] = struct{}{}
+	}
+	s.lsMu.Lock()
+	for _, session := range s.lsSessions {
+		if session.PluginID == id {
+			sessions[session] = struct{}{}
+		}
+	}
+	s.lsMu.Unlock()
+	failures := []error{preparationErr}
+	for session := range sessions {
+		failures = append(failures, s.StopLanguageServer(ctx, session))
+	}
 	stopBackend()
-	return err
+	return errors.Join(failures...)
 }

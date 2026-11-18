@@ -1,0 +1,125 @@
+{
+  "schemaVersion": 1,
+  "messages": [
+    {
+      "id": "desktop.marketplace.runtimeChecking",
+      "description": "Managed plugin runtime installation: runtimeChecking",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "dependency": "string"
+      }
+    },
+    {
+      "id": "desktop.marketplace.runtimeDownloading",
+      "description": "Managed plugin runtime installation: runtimeDownloading",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "dependency": "string",
+        "received": "string",
+        "total": "string"
+      }
+    },
+    {
+      "id": "desktop.marketplace.runtimeReceived",
+      "description": "Managed plugin runtime installation: runtimeReceived",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "dependency": "string",
+        "received": "string"
+      }
+    },
+    {
+      "id": "desktop.marketplace.runtimeExtracting",
+      "description": "Managed plugin runtime installation: runtimeExtracting",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "dependency": "string"
+      }
+    },
+    {
+      "id": "desktop.marketplace.runtimeVerifying",
+      "description": "Managed plugin runtime installation: runtimeVerifying",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "dependency": "string"
+      }
+    },
+    {
+      "id": "desktop.marketplace.runtimeRepairing",
+      "description": "Managed plugin runtime installation: runtimeRepairing",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "dependency": "string"
+      }
+    },
+    {
+      "id": "desktop.marketplace.runtimeReady",
+      "description": "Managed plugin runtime installation: runtimeReady",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "dependency": "string"
+      }
+    },
+    {
+      "id": "desktop.marketplace.permissionRuntimesInstall",
+      "description": "Managed plugin runtime installation: permissionRuntimesInstall",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.marketplace.runtimeFailureHelp",
+      "description": "Managed plugin runtime installation: runtimeFailureHelp",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.lsp.preparationCancelled",
+      "description": "Language service runtime preparation was cancelled; it can be retried from the status menu.",
+      "platforms": [
+        "desktop"
+      ]
+    }
+  ],
+  "locales": {
+    "en-US": {
+      "desktop.marketplace.runtimeChecking": "Checking {dependency}…",
+      "desktop.marketplace.runtimeDownloading": "Downloading {dependency}… {received} / {total} MiB",
+      "desktop.marketplace.runtimeReceived": "Downloading {dependency}… {received} MiB",
+      "desktop.marketplace.runtimeExtracting": "Unpacking {dependency}…",
+      "desktop.marketplace.runtimeVerifying": "Verifying {dependency}…",
+      "desktop.marketplace.runtimeRepairing": "Repairing {dependency}…",
+      "desktop.marketplace.runtimeReady": "{dependency} is ready",
+      "desktop.marketplace.permissionRuntimesInstall": "Download and install the plugin’s declared runtime dependencies. Existing verified installations are reused across plugin updates.",
+      "desktop.marketplace.runtimeFailureHelp": "The runtime environment could not be prepared. Installed plugin versions and verified downloads have been kept. Retry to continue.",
+      "desktop.lsp.preparationCancelled": "Language service preparation cancelled"
+    },
+    "zh-CN": {
+      "desktop.marketplace.runtimeChecking": "正在检查 {dependency}…",
+      "desktop.marketplace.runtimeDownloading": "正在下载 {dependency}… {received} / {total} MiB",
+      "desktop.marketplace.runtimeReceived": "正在下载 {dependency}… {received} MiB",
+      "desktop.marketplace.runtimeExtracting": "正在解压 {dependency}…",
+      "desktop.marketplace.runtimeVerifying": "正在验证 {dependency}…",
+      "desktop.marketplace.runtimeRepairing": "正在修复 {dependency}…",
+      "desktop.marketplace.runtimeReady": "{dependency} 已就绪",
+      "desktop.marketplace.permissionRuntimesInstall": "下载并安装插件声明的运行依赖。插件更新时会复用已有且验证合格的环境。",
+      "desktop.marketplace.runtimeFailureHelp": "运行环境准备失败。已安装的插件版本和校验合格的下载缓存均已保留，可重试继续。",
+      "desktop.lsp.preparationCancelled": "语言服务准备已取消"
+    }
+  }
+}

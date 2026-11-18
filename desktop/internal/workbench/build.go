@@ -604,6 +604,7 @@ func (a *App) sharedBuildProvider(ctx context.Context, p *project, instance buil
 	session, err := a.plugins.StartLanguageServer(ctx, entries, languageID, pluginservice.BackendRequest{
 		RootURI:          rootURI,
 		WorkingDirectory: p.root,
+		Context:          p.pluginContext,
 		Architecture:     core.PluginArchitecture(),
 	})
 	if err != nil {

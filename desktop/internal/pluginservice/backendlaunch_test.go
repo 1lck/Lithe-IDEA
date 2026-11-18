@@ -55,3 +55,32 @@ func TestLanguageLaunchKeepsParamsWithoutOptionalTools(t *testing.T) {
 		t.Fatalf("changed unconfigured launch: %s %v", result, err)
 	}
 }
+
+func TestManagedServerToolDoesNotReplaceProjectCompiler(t *testing.T) {
+	projectHome := "/project/compiler"
+	service := &Service{LanguageTool: func(_ context.Context, _, tool string) (*core.ToolchainSelection, error) {
+		if tool != "project-compiler" {
+			t.Fatalf("managed tool incorrectly reached the project resolver: %s", tool)
+		}
+		return &core.ToolchainSelection{Home: &projectHome, Executable: projectHome + "/bin/compiler", Version: "8"}, nil
+	}}
+	runtimes := RuntimeEnvironment{
+		Runtimes: map[string]core.ManagedRuntimeInstallation{"engine": {ID: "engine", Home: "/managed/engine", Version: "25"}},
+		Facts:    map[string]RuntimeTool{"server-runtime": {Executable: "/managed/engine/bin/runtime", Home: "/managed/engine", Version: "25"}},
+	}
+	params, err := service.languageLaunchParamsWithRuntimes(context.Background(), "/workspace",
+		json.RawMessage(`{"requiresTools":["project-compiler","server-runtime"]}`), json.RawMessage(`{"settings":{}}`), runtimes)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var decoded struct {
+		Tools    map[string]RuntimeTool                     `json:"tools"`
+		Runtimes map[string]core.ManagedRuntimeInstallation `json:"runtimes"`
+	}
+	if err := json.Unmarshal(params, &decoded); err != nil {
+		t.Fatal(err)
+	}
+	if decoded.Tools["project-compiler"].Version != "8" || decoded.Tools["server-runtime"].Version != "25" || decoded.Runtimes["engine"].Home != "/managed/engine" {
+		t.Fatalf("project and language-service installations were mixed: %s", params)
+	}
+}

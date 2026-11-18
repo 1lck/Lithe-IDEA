@@ -6,6 +6,7 @@
 import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { basename, join, relative, sep } from "node:path";
 import { fileURLToPath } from "node:url";
+import { loadContract } from "./generate-i18n.mjs";
 
 const root = fileURLToPath(new URL("../..", import.meta.url));
 const sourceRoot = join(root, "macos/Sources");
@@ -188,10 +189,9 @@ for (const file of swiftFiles(sourceRoot)) {
 // Desktop uses the same generated registry. Each literal lookup must be declared
 // for desktop so a missing translation cannot silently reach the UI.
 const desktopRoot = join(root, "desktop/internal");
-const registryPath = join(root, "shared/i18n/messages.json");
 if (existsSync(desktopRoot)) {
-  const registry = JSON.parse(readFileSync(registryPath, "utf8"));
-  const desktopMessages = new Map(registry.messages.filter((message) => message.platforms.includes("desktop")).map((message) => [message.id, message]));
+  const contract = await loadContract(root);
+  const desktopMessages = new Map(contract.messages.filter((message) => message.platforms.includes("desktop")).map((message) => [message.id, message]));
   function goFiles(dir) {
     return readdirSync(dir, { withFileTypes: true }).flatMap((entry) => entry.isDirectory() ? goFiles(join(dir, entry.name)) : entry.name.endsWith(".go") && !entry.name.endsWith("_test.go") && !entry.name.endsWith(".generated.go") ? [join(dir, entry.name)] : []);
   }

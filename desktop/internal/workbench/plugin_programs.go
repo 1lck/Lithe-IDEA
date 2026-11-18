@@ -196,6 +196,12 @@ func (a *App) detachPluginPrograms(id string) func(context.Context) error {
 // explicit enable. The old starts were awaited before the package changed.
 func (a *App) allowPluginPrograms(id string) {
 	for _, tab := range a.everyTab() {
+		if tab.plugins != nil {
+			if err := tab.plugins.AllowRuntimePreparation(id); err != nil {
+				tab.operationFailed("plugin_enable", err)
+				continue
+			}
+		}
 		tab.pluginServerMu.Lock()
 		delete(tab.pluginServerSuppressed, id)
 		tab.pluginServerMu.Unlock()

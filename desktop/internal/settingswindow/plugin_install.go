@@ -13,6 +13,7 @@ import (
 	"github.com/1lck/Lithe-IDEA/desktop/internal/core"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/i18n"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/marketplace"
+	"github.com/1lck/Lithe-IDEA/desktop/internal/pluginruntime"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/plugintrust"
 	"github.com/vivaui/viva/ui"
 )
@@ -23,6 +24,8 @@ type PluginInstallFeedback struct {
 	// Progress and Preparing publish transport progress and the local I/O stage.
 	Progress  func(marketplace.ArchiveProgress)
 	Preparing func()
+	// RuntimeProgress keeps dependency preparation inside the installation's cancellable flow.
+	RuntimeProgress func(pluginruntime.Progress)
 	// Review accepts a verified reusable approval, or publishes the complete
 	// review and waits for the user's decision.
 	Review func(version string, review plugintrust.Review, reused bool) bool
@@ -41,6 +44,7 @@ type pluginInstallReview struct {
 type pluginInstallProgress struct {
 	marketplace.ArchiveProgress
 	preparing bool
+	runtime   *pluginruntime.Progress
 }
 
 type pluginInstallFailure struct{ err error }
@@ -99,6 +103,10 @@ func (w *window) startPluginInstall(name string, fromMarketplace bool) PluginIns
 		},
 		Preparing: func() {
 			dialog.progress.Store(&pluginInstallProgress{preparing: true})
+			w.inv.Invalidate()
+		},
+		RuntimeProgress: func(progress pluginruntime.Progress) {
+			dialog.progress.Store(&pluginInstallProgress{runtime: &progress})
 			w.inv.Invalidate()
 		},
 		Review: func(version string, review plugintrust.Review, reused bool) bool {
@@ -161,6 +169,8 @@ func (w *window) pluginInstallModal(c ui.C) {
 	default:
 	}
 	outcome := pluginInstallOutcome(dialog.outcome.Load())
+	progress := dialog.progress.Load()
+	preparingRuntime := progress != nil && progress.runtime != nil
 
 	review := dialog.review.Load()
 	description := dialog.name
@@ -195,6 +205,9 @@ func (w *window) pluginInstallModal(c ui.C) {
 					ui.Wrap(c, i18n.Shared(language, "desktop.marketplace.downloadPrompt"))
 				case outcome == pluginInstallFailed:
 					ui.Wrap(c, pluginInstallFailureText(language, dialog.failure.Load())).Color(w.pal.danger)
+					if preparingRuntime {
+						ui.Wrap(c, i18n.Shared(language, "desktop.marketplace.runtimeFailureHelp"))
+					}
 				case review != nil && !committing:
 					ui.Wrap(c, i18n.Shared(language, "desktop.marketplace.reviewConsent"))
 					shown := *review
@@ -210,10 +223,15 @@ func (w *window) pluginInstallModal(c ui.C) {
 					pluginInstallReviewBody(c, language, &dialog.details, &shown)
 				default:
 					label := i18n.Shared(language, "native.loading")
-					progress := dialog.progress.Load()
 					determinate := false
 					var fraction float32
 					switch {
+					case preparingRuntime:
+						label = RuntimeProgressText(language, *progress.runtime)
+						if progress.runtime.Phase == "downloading" && progress.runtime.Total > 0 {
+							determinate = true
+							fraction = float32(progress.runtime.Received) / float32(progress.runtime.Total)
+						}
 					case committing:
 						label = i18n.Shared(language, "settings.general.installing")
 					case progress != nil && progress.preparing:
@@ -252,13 +270,13 @@ func (w *window) pluginInstallModal(c ui.C) {
 				retried = ui.Button(c, i18n.Shared(language, "ui.retry")).Disabled(dialog.retry == nil).Clicked()
 				return
 			}
-			if committing {
+			if committing && !preparingRuntime {
 				return
 			}
 			cancelled = ui.Button(c, i18n.Shared(language, "desktop.marketplace.cancel")).Outline().Clicked()
 			if dialog.download != nil {
 				downloadConfirmed = ui.Button(c, i18n.Shared(language, "native.download")).AutoFocus().Clicked()
-			} else if review != nil {
+			} else if review != nil && !committing {
 				confirmed = ui.Button(c, i18n.Shared(language, "desktop.marketplace.confirmInstall")).AutoFocus().Clicked()
 			}
 		})
@@ -283,6 +301,27 @@ func (w *window) pluginInstallModal(c ui.C) {
 		})
 	case closed || cancelled:
 		c.After(w.dismissPluginInstall)
+	}
+}
+
+// RuntimeProgressText formats preparation progress for installation and startup UI.
+func RuntimeProgressText(language i18n.Language, progress pluginruntime.Progress) string {
+	switch progress.Phase {
+	case "downloading":
+		if progress.Total <= 0 {
+			return i18n.SharedFormat(language, "desktop.marketplace.runtimeReceived", map[string]string{"dependency": progress.ID, "received": fmt.Sprintf("%.1f", float64(progress.Received)/(1<<20))})
+		}
+		return i18n.SharedFormat(language, "desktop.marketplace.runtimeDownloading", map[string]string{"dependency": progress.ID, "received": fmt.Sprintf("%.1f", float64(progress.Received)/(1<<20)), "total": fmt.Sprintf("%.1f", float64(progress.Total)/(1<<20))})
+	case "extracting":
+		return i18n.SharedFormat(language, "desktop.marketplace.runtimeExtracting", map[string]string{"dependency": progress.ID})
+	case "verifying":
+		return i18n.SharedFormat(language, "desktop.marketplace.runtimeVerifying", map[string]string{"dependency": progress.ID})
+	case "repairing":
+		return i18n.SharedFormat(language, "desktop.marketplace.runtimeRepairing", map[string]string{"dependency": progress.ID})
+	case "ready":
+		return i18n.SharedFormat(language, "desktop.marketplace.runtimeReady", map[string]string{"dependency": progress.ID})
+	default:
+		return i18n.SharedFormat(language, "desktop.marketplace.runtimeChecking", map[string]string{"dependency": progress.ID})
 	}
 }
 

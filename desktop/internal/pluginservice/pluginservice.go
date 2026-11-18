@@ -16,9 +16,11 @@ import (
 	"fmt"
 	"path/filepath"
 	"sync"
+	"sync/atomic"
 
 	"github.com/1lck/Lithe-IDEA/desktop/internal/core"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/credentials"
+	"github.com/1lck/Lithe-IDEA/desktop/internal/marketplace"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/pluginbackend"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/pluginhost"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/plugininstall"
@@ -111,6 +113,15 @@ type Service struct {
 	// LanguageTool resolves an optional installation for a backend-resolved
 	// language server. A nil installation means the tool is unavailable.
 	LanguageTool func(context.Context, string, string) (*core.ToolchainSelection, error)
+	// RuntimeIssue records a damaged cache being repaired or a native cleanup failure.
+	// Production always wires the owning log boundary before preparing any runtime.
+	RuntimeIssue func(context.Context, error)
+	// RuntimeDownloader is the application's HTTPS transport for pinned dependency archives.
+	RuntimeDownloader *marketplace.ArchiveDownloader
+	runtimeLanguage   atomic.Pointer[string]
+	// runtimeBlocked closes preparation admission after disable/uninstall. The
+	// cross-window runtimePreparationCoordinator guards it and active preparations.
+	runtimeBlocked map[string]bool
 	// LogDirectory gives the ${logDir} of a process started for a plugin: the current log
 	// session's plugins/<id>/files directory, created by the window's log store. An empty
 	// answer, or a nil LogDirectory, means there is no local log store; the process then gets
@@ -170,19 +181,20 @@ func open(kernel Kernel, preferences *store.Store, root string, first bool) (*Se
 		leftovers, _ = ledger.Leftovers()
 	}
 	service := &Service{
-		startupLeftovers: leftovers,
-		Root:             root,
-		Manager:          pluginmanager.New(kernel, root, approvals, state),
-		Installer:        plugininstall.New(kernel, NewReviewer(kernel), approvals, pluginhost.Declared()),
-		Backend:          pluginbackend.New(kernel, hostServices),
-		Commands:         &pluginhost.CommandStore{State: filepath.Join(root, pluginpkg.StateDirectory)},
-		Settings:         pluginsettings.New(kernel, preferences.Dir()),
-		HostServices:     hostServices,
-		Credentials:      credentials.Default(),
-		kernel:           kernel,
-		resources:        newHostResources(),
-		ledger:           ledger,
-		messages:         newMessageLimiter(),
+		startupLeftovers:  leftovers,
+		Root:              root,
+		Manager:           pluginmanager.New(kernel, root, approvals, state),
+		Installer:         plugininstall.New(kernel, NewReviewer(kernel), approvals, pluginhost.Declared()),
+		Backend:           pluginbackend.New(kernel, hostServices),
+		Commands:          &pluginhost.CommandStore{State: filepath.Join(root, pluginpkg.StateDirectory)},
+		Settings:          pluginsettings.New(kernel, preferences.Dir()),
+		HostServices:      hostServices,
+		Credentials:       credentials.Default(),
+		kernel:            kernel,
+		resources:         newHostResources(),
+		ledger:            ledger,
+		messages:          newMessageLimiter(),
+		RuntimeDownloader: marketplace.NewArchiveDownloader(nil),
 	}
 	service.Backend.SetCommandStore(service.Commands)
 	service.Host = newBackendHost(service)

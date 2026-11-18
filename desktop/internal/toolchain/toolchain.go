@@ -103,6 +103,9 @@ type Options struct {
 	// registry and per-workspace toolchain trust in user application settings.
 	Global     bool
 	GlobalRoot string
+	// WorkspaceRoots are native open-workspace facts, including other workbenches.
+	// Global selection still excludes their code before any version probe.
+	WorkspaceRoots []string
 	// ProjectCodeAllowed grants probing and selection of workspace-local tool
 	// candidates only when GlobalRoot is unset in unit tests. Production loads and
 	// launches always supply GlobalRoot so trust comes solely from local storage.

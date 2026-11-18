@@ -18,13 +18,15 @@ import (
 // workspace holds the native facts one load may read. It is confined to the
 // opened project root and the declared scan roots.
 type workspace struct {
-	root          string
-	home          string
-	platform      string
-	environment   map[string]string
-	lookup        LookupFunc
-	probe         ProbeFunc
-	caseSensitive bool
+	root           string
+	workspaceRoots []string
+	lexicalRoots   []string
+	home           string
+	platform       string
+	environment    map[string]string
+	lookup         LookupFunc
+	probe          ProbeFunc
+	caseSensitive  bool
 	// entries bounds every scan this load performs, as Core's plan declares.
 	entries int
 	facts   map[string]core.ToolchainFileFact
@@ -49,6 +51,21 @@ func newWorkspace(root string, options Options) (*workspace, error) {
 			return nil, errors.New("toolchain: the workspace root is not a directory")
 		}
 	}
+	var workspaceRoots, lexicalRoots []string
+	for _, root := range options.WorkspaceRoots {
+		if root == "" || !filepath.IsAbs(root) {
+			return nil, errors.New("toolchain: the workspace root must be absolute")
+		}
+		canonical, err := canonicalPath(root)
+		if err != nil {
+			return nil, err
+		}
+		if info, err := os.Stat(canonical); err != nil || !info.IsDir() {
+			return nil, errors.New("toolchain: the workspace root is not a directory")
+		}
+		workspaceRoots = append(workspaceRoots, canonical)
+		lexicalRoots = append(lexicalRoots, filepath.Clean(root))
+	}
 	home := options.Home
 	if home == "" {
 		if home, err = os.UserHomeDir(); err != nil {
@@ -68,15 +85,17 @@ func newWorkspace(root string, options Options) (*workspace, error) {
 		probe = defaultProbe
 	}
 	return &workspace{
-		root:          canonicalRoot,
-		home:          home,
-		platform:      options.Platform,
-		environment:   environment,
-		lookup:        lookup,
-		probe:         probe,
-		caseSensitive: options.Platform != "windows",
-		entries:       4096,
-		facts:         make(map[string]core.ToolchainFileFact),
+		root:           canonicalRoot,
+		workspaceRoots: uniqueSorted(workspaceRoots),
+		lexicalRoots:   uniqueSorted(lexicalRoots),
+		home:           home,
+		platform:       options.Platform,
+		environment:    environment,
+		lookup:         lookup,
+		probe:          probe,
+		caseSensitive:  options.Platform != "windows",
+		entries:        4096,
+		facts:          make(map[string]core.ToolchainFileFact),
 	}, nil
 }
 
@@ -125,10 +144,13 @@ func canonicalPath(name string) (string, error) {
 }
 
 func (w *workspace) insideRoot(name string) bool {
-	if w.root == "" {
+	return w.insidePath(w.root, name)
+}
+
+func (w *workspace) insidePath(root, name string) bool {
+	if root == "" {
 		return false
 	}
-	root := w.root
 	candidate := name
 	if !w.caseSensitive {
 		root = strings.ToLower(root)
@@ -139,6 +161,20 @@ func (w *workspace) insideRoot(name string) bool {
 		return false
 	}
 	return relative == "." || (relative != ".." && !strings.HasPrefix(relative, ".."+string(filepath.Separator)))
+}
+
+func (w *workspace) insideWorkspace(name string) bool {
+	if w.insideRoot(name) {
+		return true
+	}
+	for _, roots := range [][]string{w.workspaceRoots, w.lexicalRoots} {
+		for _, root := range roots {
+			if w.insidePath(root, name) {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 // observe records one native fact. Every fact is deduplicated by native identity
@@ -220,9 +256,9 @@ func (w *workspace) observeChain(base, target string) core.ToolchainFileFact {
 }
 
 // isWorkspaceCode reports whether name or its resolved target lies inside the
-// opened workspace root. Any resolution failure fails closed as workspace code.
+// opened workspace roots. Any resolution failure fails closed as workspace code.
 func (w *workspace) isWorkspaceCode(name string) bool {
-	if w.root == "" || name == "" {
+	if name == "" || (w.root == "" && len(w.workspaceRoots) == 0) {
 		return false
 	}
 	absolute, err := filepath.Abs(name)
@@ -230,14 +266,14 @@ func (w *workspace) isWorkspaceCode(name string) bool {
 		return true
 	}
 	cleaned := filepath.Clean(absolute)
-	if w.insideRoot(cleaned) {
+	if w.insideWorkspace(cleaned) {
 		return true
 	}
 	canonical, err := canonicalPath(cleaned)
 	if err != nil {
 		return true
 	}
-	return w.insideRoot(canonical)
+	return w.insideWorkspace(canonical)
 }
 
 // all returns the facts in a stable order, which keeps Core's input comparable

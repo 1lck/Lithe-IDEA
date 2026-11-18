@@ -62,6 +62,142 @@ async function addLocale(root) {
   );
 }
 
+async function featureFixture(t) {
+  const root = await mkdtemp(path.join(os.tmpdir(), "lithe-i18n-feature-"));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  await mkdir(path.join(root, "shared/i18n/locales"), { recursive: true });
+  await mkdir(path.join(root, "desktop/internal/i18n"), { recursive: true });
+  await cp(path.join(ROOT, "shared/i18n/manifest.json"), path.join(root, "shared/i18n/manifest.json"));
+  await writeFile(path.join(root, "shared/i18n/messages.json"), JSON.stringify({
+    schemaVersion: 1,
+    messages: [{ id: "fixture.base", description: "Base catalog fixture.", platforms: ["desktop"] }],
+  }));
+  const manifest = JSON.parse(await readFile(path.join(root, "shared/i18n/manifest.json"), "utf8"));
+  for (const locale of manifest.locales)
+    await writeFile(path.join(root, `shared/i18n/locales/${locale.id}.json`), JSON.stringify({
+      messages: { "fixture.base": "Base" },
+    }));
+  return root;
+}
+
+function featureCatalog(id = "fixture.feature") {
+  return {
+    schemaVersion: 1,
+    messages: [{ id, description: "Feature catalog fixture.", platforms: ["desktop"], parameters: { dependency: "string" } }],
+    locales: {
+      "en-US": { [id]: "{dependency} is ready" },
+      "zh-CN": { [id]: "{dependency} 已就绪" },
+    },
+  };
+}
+
+async function writeFeature(root, name, feature) {
+  await mkdir(path.join(root, "shared/i18n/features"), { recursive: true });
+  await writeFile(path.join(root, `shared/i18n/features/${name}.json`), JSON.stringify(feature));
+}
+
+test("source trees without a features directory preserve their generated output", { timeout: 15000 }, async (t) => {
+  const root = await featureFixture(t);
+  const before = await planGeneration(root);
+  assert.deepEqual(before.contract.messages.map((message) => message.id), ["fixture.base"]);
+  await mkdir(path.join(root, "shared/i18n/features"));
+  assert.deepEqual((await planGeneration(root)).outputs, before.outputs);
+});
+
+test("feature catalogs generate deterministically without rewriting base sources", { timeout: 15000 }, async (t) => {
+  const root = await featureFixture(t);
+  const sources = ["messages.json", "locales/en-US.json", "locales/zh-CN.json"];
+  const before = await Promise.all(sources.map((file) => readFile(path.join(root, "shared/i18n", file), "utf8")));
+  await writeFeature(root, "zeta", featureCatalog("fixture.zeta"));
+  await writeFeature(root, "alpha", featureCatalog("fixture.alpha"));
+  const first = await planGeneration(root);
+  const desktop = first.outputs.get("desktop/internal/i18n/shared.generated.go");
+  assert.match(desktop, /fixture\.alpha/);
+  assert.match(desktop, /\{dependency\} 已就绪/);
+  await rename(path.join(root, "shared/i18n/features/alpha.json"), path.join(root, "shared/i18n/features/zz-alpha.json"));
+  assert.deepEqual((await planGeneration(root)).outputs, first.outputs);
+  await generate(root);
+  await generate(root, true);
+  assert.deepEqual(await Promise.all(sources.map((file) => readFile(path.join(root, "shared/i18n", file), "utf8"))), before);
+});
+
+test("feature catalogs cannot shadow base or other feature ownership", { timeout: 15000 }, async (t) => {
+  const cases = [
+    ["duplicate base declaration", async (root) => writeFeature(root, "feature", featureCatalog("fixture.base")), /semantic keys must be unique/],
+    ["duplicate feature declaration", async (root) => {
+      await writeFeature(root, "one", featureCatalog());
+      await writeFeature(root, "two", featureCatalog());
+    }, /semantic keys must be unique/],
+    ["base translation overwrite", async (root) => {
+      await writeFeature(root, "feature", featureCatalog());
+      await edit(root, "shared/i18n/locales/en-US.json", (catalog) => {
+        catalog.messages["fixture.feature"] = "Existing {dependency}";
+      });
+    }, /duplicate translation fixture\.feature/],
+    ["translation owned by another feature", async (root) => {
+      await writeFeature(root, "one", featureCatalog());
+      const feature = featureCatalog("fixture.other");
+      feature.locales["en-US"]["fixture.feature"] = "Borrowed {dependency}";
+      await writeFeature(root, "two", feature);
+    }, /unknown field fixture\.feature/],
+  ];
+  for (const [name, arrange, error] of cases)
+    await t.test(name, { timeout: 1000 }, async (t) => {
+      const root = await featureFixture(t);
+      await arrange(root);
+      await assert.rejects(loadContract(root), error);
+    });
+});
+
+test("feature catalogs retain schema, locale, coverage and parameter validation", { timeout: 15000 }, async (t) => {
+  const cases = [
+    ["unknown top-level field", (feature) => { feature.override = true; }, /unknown field override/],
+    ["unsupported schema", (feature) => { feature.schemaVersion = 2; }, /unsupported feature catalog/],
+    ["unknown message field", (feature) => { feature.messages[0].extra = true; }, /unknown field extra/],
+    ["unknown locale", (feature) => { feature.locales["xx-XX"] = {}; }, /unknown field xx-XX/],
+    ["translation outside the feature", (feature) => { feature.locales["en-US"]["fixture.base"] = "Base"; }, /unknown field fixture\.base/],
+    ["missing complete locale", (feature) => { delete feature.locales["zh-CN"]; }, /incomplete translation coverage/],
+    ["missing complete translation", (feature) => { feature.locales["zh-CN"] = {}; }, /incomplete translation coverage/],
+    ["non-text translation", (feature) => { feature.locales["en-US"]["fixture.feature"] = 42; }, /must be nonempty text/],
+    ["missing parameter", (feature) => { feature.locales["en-US"]["fixture.feature"] = "Ready"; }, /placeholder names differ/],
+    ["unknown parameter", (feature) => { feature.locales["en-US"]["fixture.feature"] = "{other} is ready"; }, /unknown placeholder/],
+    ["alias outside declared platform", (feature) => { feature.messages[0].macos = { key: "%@ is ready", arguments: ["dependency"] }; }, /macOS alias outside scope/],
+  ];
+  for (const [name, mutate, error] of cases)
+    await t.test(name, { timeout: 1000 }, async (t) => {
+      const root = await featureFixture(t);
+      const feature = featureCatalog();
+      mutate(feature);
+      await writeFeature(root, "feature", feature);
+      await assert.rejects(loadContract(root), error);
+    });
+});
+
+test("feature JSON rejects duplicate keys including escaped spellings", { timeout: 1000 }, async (t) => {
+  const root = await featureFixture(t);
+  await mkdir(path.join(root, "shared/i18n/features"));
+  await writeFile(path.join(root, "shared/i18n/features/duplicate.json"),
+    '{"schemaVersion":1,"messages":[],"locales":{"en-US":{"fixture.value":"First","fixture.\\u0076alue":"Second"}}}');
+  await assert.rejects(loadContract(root), /duplicate JSON key fixture\.value/);
+});
+
+test("desktop lookups use feature declarations with unchanged parameter checks", { timeout: 15000 }, async (t) => {
+  const root = await featureFixture(t);
+  await writeFeature(root, "feature", featureCatalog());
+  await mkdir(path.join(root, "scripts/i18n"), { recursive: true });
+  for (const name of ["generate-i18n.mjs", "verify-app-language-localization.mjs"])
+    await cp(path.join(ROOT, "scripts/i18n", name), path.join(root, "scripts/i18n", name));
+  const sample = path.join(root, "desktop/internal/i18n/sample.go");
+  const verify = () => spawnSync(process.execPath, [path.join(root, "scripts/i18n/verify-app-language-localization.mjs")], { encoding: "utf8", timeout: 5000 });
+  await writeFile(sample, 'package i18n\nvar s = SharedFormat(language, "fixture.feature", map[string]string{"dependency": value})\n');
+  const valid = verify();
+  assert.equal(valid.status, 0, `${valid.error ?? ""}\n${valid.stderr}`);
+  await writeFile(sample, 'package i18n\nvar s = Shared(language, "fixture.feature")\n');
+  assert.match(verify().stderr, /desktop key requires SharedFormat/);
+  await writeFile(sample, 'package i18n\nvar s = SharedFormat(language, "fixture.feature", map[string]string{"wrong": value})\n');
+  assert.match(verify().stderr, /desktop SharedFormat parameters differ/);
+});
+
 test(
   "checked-in generation is current and checking never changes bytes",
   { timeout: 15000 },

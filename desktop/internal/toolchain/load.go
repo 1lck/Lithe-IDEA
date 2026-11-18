@@ -334,6 +334,9 @@ func prepareTool(ctx context.Context, kernel Kernel, workspace *workspace, regis
 		}
 	}
 	workspace.observe(workspace.root)
+	for _, root := range workspace.workspaceRoots {
+		workspace.observe(root)
+	}
 	if !options.Global && workspace.root != "" {
 		observeProjectFiles(workspace, directory, maxAncestors, planned)
 	}
@@ -380,6 +383,7 @@ func prepareTool(ctx context.Context, kernel Kernel, workspace *workspace, regis
 		Tool:                planned.Tool,
 		Platform:            workspace.platform,
 		WorkspaceRoot:       workspace.root,
+		WorkspaceRoots:      workspace.workspaceRoots,
 		Filesystem:          prepared.facts,
 		MinimumVersion:      options.MinimumVersion,
 		SystemInstallations: prepared.installations,
@@ -456,6 +460,7 @@ func resolveTool(ctx context.Context, kernel Kernel, workspace *workspace, regis
 		Local:               document,
 		Platform:            workspace.platform,
 		WorkspaceRoot:       workspace.root,
+		WorkspaceRoots:      workspace.workspaceRoots,
 		Filesystem:          prepared.facts,
 		MinimumVersion:      minimumVersion,
 		Probes:              prepared.probes,

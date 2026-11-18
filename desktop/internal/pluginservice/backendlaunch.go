@@ -29,7 +29,7 @@ type backendLaunch struct {
 // system temporary directory. Nothing is derived from the installed
 // package or the application bundle, which stay read-only so the next
 // differential update still matches what the user installed.
-func (s *Service) resolveBackendLaunch(ctx context.Context, pluginID, version string, manifest json.RawMessage, languageID string, workspace WorkspaceContext, start pluginbackend.StartRequest) (backendLaunch, error) {
+func (s *Service) resolveBackendLaunch(ctx context.Context, pluginID, version string, manifest json.RawMessage, languageID string, workspace WorkspaceContext, start pluginbackend.StartRequest, runtimes RuntimeEnvironment) (backendLaunch, error) {
 	if workspace.ContextID == "" {
 		return backendLaunch{}, fmt.Errorf("%w: a backend-resolved server needs an open workspace", pluginbackend.ErrRequest)
 	}
@@ -74,7 +74,7 @@ func (s *Service) resolveBackendLaunch(ctx context.Context, pluginID, version st
 	}
 	// The function's params are the plan's resolveParams themselves, as the
 	// contract says: serverID, platform, the four directories and the settings.
-	params, err := s.languageLaunchParams(ctx, workspace.Path, manifest, plan.ResolveParams)
+	params, err := s.languageLaunchParamsWithRuntimes(ctx, workspace.Path, manifest, plan.ResolveParams, runtimes)
 	if err != nil {
 		return fail(err)
 	}
@@ -109,7 +109,11 @@ func (s *Service) resolveBackendLaunch(ctx context.Context, pluginID, version st
 // any tool's version or configuration. Core already validated requiresTools;
 // the resolver uses the same user choices and discovery as Build and Run.
 func (s *Service) languageLaunchParams(ctx context.Context, root string, manifest, params json.RawMessage) (json.RawMessage, error) {
-	if s.LanguageTool == nil {
+	return s.languageLaunchParamsWithRuntimes(ctx, root, manifest, params, RuntimeEnvironment{})
+}
+
+func (s *Service) languageLaunchParamsWithRuntimes(ctx context.Context, root string, manifest, params json.RawMessage, runtimes RuntimeEnvironment) (json.RawMessage, error) {
+	if s.LanguageTool == nil && len(runtimes.Runtimes) == 0 {
 		return params, nil
 	}
 	var declaration struct {
@@ -125,6 +129,14 @@ func (s *Service) languageLaunchParams(ctx context.Context, root string, manifes
 	}
 	tools := make(map[string]installation)
 	for _, tool := range declaration.RequiresTools {
+		if managed, found := runtimes.Facts[tool]; found {
+			home := managed.Home
+			tools[tool] = installation{managed.Executable, &home, managed.Version}
+			continue
+		}
+		if s.LanguageTool == nil {
+			continue
+		}
 		selected, err := s.LanguageTool(ctx, root, tool)
 		if err != nil {
 			return nil, err
@@ -133,7 +145,7 @@ func (s *Service) languageLaunchParams(ctx context.Context, root string, manifes
 			tools[tool] = installation{selected.Executable, selected.Home, selected.Version}
 		}
 	}
-	if len(tools) == 0 {
+	if len(tools) == 0 && len(runtimes.Runtimes) == 0 {
 		return params, nil
 	}
 	var value map[string]json.RawMessage
@@ -145,5 +157,11 @@ func (s *Service) languageLaunchParams(ctx context.Context, root string, manifes
 		return nil, err
 	}
 	value["tools"] = encoded
+	if len(runtimes.Runtimes) > 0 {
+		value["runtimes"], err = json.Marshal(runtimes.Runtimes)
+		if err != nil {
+			return nil, err
+		}
+	}
 	return json.Marshal(value)
 }
