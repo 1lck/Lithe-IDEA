@@ -18,8 +18,10 @@ import (
 // holds three: the branch popup listing them with one's panel open beside its row, the Git log
 // with the color strip of the repository it walks and each repository's own sections in the
 // reference pane, the Paths filter's Roots, the repository list behind the name after the filter
-// chips, the log of two repositories merged by date, the Commit window's groups, and the Push
-// Commits dialog Commit and Push opens on the three repositories.
+// chips, the log of two repositories merged by date, the Commit window's groups, the Push Commits
+// dialog Commit and Push opens on the three repositories, the branches all three have under the
+// repositories of the popup, and the rollback IDEA offers when a checkout of one of them fails in a
+// repository after it switched another.
 func TestVisualWorkspaceRepositories(t *testing.T) {
 	out := os.Getenv("LITHE_VISUAL_OUTPUT_DIR")
 	if out == "" {
@@ -29,7 +31,7 @@ func TestVisualWorkspaceRepositories(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, look := range []struct{ theme, language string }{{"dark", "zh-Hans"}, {"light", "en"}} {
-		for _, scene := range []string{"branch-popup", "git-log", "log-roots", "log-choose", "log-merged", "log-more", "commit-groups", "push-commits"} {
+		for _, scene := range []string{"branch-popup", "git-log", "log-roots", "log-choose", "log-merged", "log-more", "commit-groups", "push-commits", "branch-common", "branch-rollback"} {
 			t.Run(scene+"-"+look.theme, func(t *testing.T) {
 				// Fixed dates, so the merged log interleaves the two repositories the same way
 				// on every run.
@@ -53,12 +55,27 @@ func TestVisualWorkspaceRepositories(t *testing.T) {
 				gitRun(t, frontend, "switch", "-c", "develop")
 				commit(frontend, "Lay out the dashboard", "2026-11-10T14:00:00")
 				commit(frontend, "Tune the dark palette", "2026-11-12T11:20:00")
+				var kernel Kernel = gitKernel{core.NewClient()}
+				if scene == "branch-common" || scene == "branch-rollback" {
+					// develop and feature/login are in all three repositories; frontend is on
+					// develop, the others on main.
+					shared := filepath.Join(parent, "shared")
+					gitRun(t, backend, "branch", "develop")
+					gitRun(t, shared, "branch", "develop")
+					gitRun(t, frontend, "branch", "feature/login")
+					gitRun(t, shared, "branch", "feature/login")
+				}
+				if scene == "branch-rollback" {
+					// shared refuses the checkout, as a repository Git cannot switch does, after
+					// backend switched.
+					kernel = &refusingKernel{gitKernel: &gitKernel{core.NewClient()}, refused: "shared"}
+				}
 				prefs := store.At(t.TempDir())
 				if err := prefs.Save(settingsFile, settings{Theme: themeChoice(look.theme), Language: look.language, DisableAutoSave: true}); err != nil {
 					t.Fatal(err)
 				}
 				var session *headless.Session
-				h := newHarnessWithDriver(t, Options{Kernel: gitKernel{core.NewClient()}, Store: prefs, Languages: []string{look.language}}, func(config app.Config) (*app.Driver, func(), error) {
+				h := newHarnessWithDriver(t, Options{Kernel: kernel, Store: prefs, Languages: []string{look.language}}, func(config app.Config) (*app.Driver, func(), error) {
 					config.Width, config.Height = 1200, 760
 					var err error
 					session, err = headless.Open(config, nil, headless.Options{})
@@ -73,6 +90,13 @@ func TestVisualWorkspaceRepositories(t *testing.T) {
 					h.click(center(h.hitLabeled(h.app.text.Title.BranchMenu)))
 					label := i18n.SharedFormat(h.app.language(), "desktop.branch.repositoryPanel", map[string]string{"repository": "frontend", "branch": "develop"})
 					h.click(center(h.popupHit(label)))
+				case "branch-common", "branch-rollback":
+					h.openCommonBranches()
+					if scene == "branch-rollback" {
+						h.click(center(h.branchRow("develop")))
+						h.clickNamed(h.app.text.Branch.Checkout)
+						h.settleUntil("the rollback dialog", func() bool { return h.app.branch.dialog == branchDialogRollback })
+					}
 				case "git-log", "log-roots", "log-choose", "log-merged", "log-more":
 					h.app.layout.gitTab = gitTabLog
 					if !h.app.chrome.isOpen(catalogIndex[itemGit]) {

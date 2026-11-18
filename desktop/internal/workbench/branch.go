@@ -40,6 +40,9 @@ const (
 	branchDialogTag
 	// branchDialogTagDelete confirms deleting a tag.
 	branchDialogTagDelete
+	// branchDialogRollback offers to undo a branch action on a common branch that failed after
+	// it succeeded in some repositories (branch_common.go).
+	branchDialogRollback
 )
 
 // branchSession is the state of the branch popup while it is open and of the dialog it
@@ -88,6 +91,14 @@ type branchSession struct {
 	busy bool
 	// annotated says the new tag takes the typed message; otherwise it is lightweight.
 	annotated bool
+
+	// common are the branches every repository of a project folder with several has
+	// (branch_common.go).
+	common commonBranches
+	// across says the open dialog acts on a common branch in every repository: the new branch
+	// dialog, the conflict dialog and the rollback dialog. write is that action.
+	across bool
+	write  commonWrite
 }
 
 // branchOperationTimeout bounds one branch write and the status read after it.
@@ -114,6 +125,7 @@ func (a *App) openBranches() {
 		b.collapsed, b.expanded = map[string]bool{}, map[string]bool{}
 	}
 	a.loadBranches(p)
+	a.loadCommonBranches(p)
 }
 
 // closeBranches closes the popup and the row menu in it.
@@ -125,6 +137,7 @@ func (a *App) closeBranches() {
 // popup started it.
 func (a *App) leaveBranches() {
 	a.branch.fromPopup = a.branch.open
+	a.branch.across = false
 	a.closeBranches()
 }
 
@@ -298,10 +311,14 @@ func (a *App) noticeCheckedOut(name string, status core.GitStatus) {
 }
 
 // beginCreate opens the dialog that creates a branch from r.
-func (a *App) beginCreate(p *project, r core.GitReference) {
+func (a *App) beginCreate(p *project, r core.GitReference) { a.openCreate(p, r, false) }
+
+// openCreate opens the dialog that creates a branch from r, in every repository of the folder
+// when across is set and r is a common branch.
+func (a *App) openCreate(p *project, r core.GitReference, across bool) {
 	a.leaveBranches()
 	b := &a.branch
-	b.dialog, b.target, b.checkout = branchDialogCreate, r, true
+	b.dialog, b.target, b.checkout, b.across = branchDialogCreate, r, true, across
 	b.typed = ""
 	b.preview = a.previewBranchName(p, "", false)
 	b.name.SetText(b.preview.InitialName)
@@ -336,15 +353,19 @@ func (a *App) beginDelete(r core.GitReference) {
 
 // cancelBranchDialog closes the open dialog without doing what it asked.
 func (a *App) cancelBranchDialog() {
-	a.branch.dialog = branchDialogNone
+	a.branch.dialog, a.branch.across = branchDialogNone, false
 }
 
 // previewBranchName asks the kernel how the typed name is cleaned and whether it can be
 // created. The computation is pure and answers at once. The branch being renamed is left
-// out of the references, so that its own name is not a clash.
+// out of the references, so that its own name is not a clash. A branch created in every
+// repository must clash with none of their references.
 func (a *App) previewBranchName(p *project, raw string, require bool) core.BranchNamePreview {
 	b := &a.branch
 	refs := b.refs.References
+	if b.across {
+		refs = b.common.allReferences()
+	}
 	var from *core.GitReference
 	switch b.dialog {
 	case branchDialogCreate:
@@ -433,6 +454,10 @@ func (a *App) submitCreate(p *project) {
 	}
 	from, checkout := b.target, b.checkout
 	a.performed("git.branch.create", surfaceButton)
+	if b.across {
+		a.planCommon(p, commonWrite{operation: core.WorkspaceBranchCreate, reference: from, name: name, checkout: checkout})
+		return
+	}
 	a.runBranchWrite(p, "git_branch_create", a.text.Branch.CreateFailed,
 		func(ctx context.Context, kernel Kernel, root string) error {
 			return kernel.GitCreateBranch(ctx, root, name, from, checkout)
@@ -478,10 +503,15 @@ func (a *App) submitRevision(p *project) {
 		func(a *App, status core.GitStatus) { a.noticeCheckedOut(revision, status) })
 }
 
-// resolveConflict checks out the blocked target in mode, as the conflict dialog chose.
+// resolveConflict checks out the blocked target in mode, as the conflict dialog chose: in every
+// repository of the planned action when the dialog is about a common branch.
 func (a *App) resolveConflict(p *project, mode core.CheckoutMode) {
 	b := &a.branch
 	if b.busy {
+		return
+	}
+	if b.across {
+		a.runCommon(p, b.write, mode)
 		return
 	}
 	a.checkoutWith(p, b.target, mode)

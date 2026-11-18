@@ -4,8 +4,8 @@ import (
 	"testing"
 
 	"github.com/1lck/Lithe-IDEA/desktop/internal/core"
-	"github.com/1lck/Lithe-IDEA/desktop/internal/textview"
 	"github.com/vivaui/viva/gfx"
+	"github.com/vivaui/viva/ui/textview"
 )
 
 // showRunConsole shows a run whose console holds text, in the Run window.

@@ -1,8 +1,8 @@
 package workbench
 
 import (
-	"github.com/1lck/Lithe-IDEA/desktop/internal/textview"
 	"github.com/vivaui/viva/ui"
+	"github.com/vivaui/viva/ui/textview"
 )
 
 // runPanels is the view state of the Run, Tests and Debug tool windows of one project. The
