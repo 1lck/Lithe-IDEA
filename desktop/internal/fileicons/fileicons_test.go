@@ -52,7 +52,13 @@ func TestFileKind(t *testing.T) {
 		{"notes.txt", kindText},
 		{".gitignore", kindGitignore},
 		{".editorconfig", kindEditorConfig},
-		{"build.gradle.kts", kindKotlin},
+		{"build.gradle", kindGradle},
+		{"settings.gradle", kindGradle},
+		{"build.gradle.kts", kindGradle},
+		{"settings.gradle.kts", kindGradle},
+		{"INIT.GRADLE.KTS", kindGradle},
+		{"script.kts", kindKotlin},
+		{"build.gradle.tokens", kindUnknown},
 		{"notes", kindUnknown},
 		{".bashrc", kindUnknown},
 		{"file.", kindUnknown},
@@ -191,6 +197,10 @@ func TestForFileUsesDarkVariant(t *testing.T) {
 		{"a.json", false, &Json},
 		{"main.go", true, &Go},
 		{"main.go", false, &Go},
+		{"build.gradle", false, &Gradle},
+		{"build.gradle", true, &GradleDark},
+		{"build.gradle.kts", false, &Gradle},
+		{"build.gradle.kts", true, &GradleDark},
 	}
 	for _, c := range cases {
 		// The returned icon is a copy that shares the generated icon's layers.
