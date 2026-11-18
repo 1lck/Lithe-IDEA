@@ -2146,6 +2146,18 @@ func (a *App) streamBuildOutput(p *project, op *buildOperation, text string) {
 	})
 }
 
+// writeBuildOutputNow adds text to op's console on the window thread at once, for a line the
+// window writes right before it ends op: a posted line would arrive after op ended and be dropped.
+func (a *App) writeBuildOutputNow(p *project, op *buildOperation, text string) {
+	if text == "" {
+		return
+	}
+	op.decoder.deliver(text, func(chunk outputChunk, failure error) {
+		a.reportOutputStyleFailure(failure)
+		a.applyBuildOutput(p, op, chunk)
+	})
+}
+
 // applyBuildOutput adds decoded output to op's console. Output of an operation the window no
 // longer runs is dropped, so it never lands in a later execution's console.
 func (a *App) applyBuildOutput(p *project, op *buildOperation, chunk outputChunk) {

@@ -1,0 +1,31 @@
+{
+  "id": "run-before-launch-steps",
+  "area": "运行与调试",
+  "group": "运行配置",
+  "capability": "像 IntelliJ IDEA 的 Before launch: Run Another Configuration 一样，运行配置可以列出启动前步骤：每一步是一个内置进程运行（Shell、PowerShell、批处理、可执行程序），按顺序在同一个 Run 控制台里运行，全部以退出码 0 结束后才启动配置；某一步失败时报出步骤名和退出码并不启动配置，停止配置会停止正在运行的步骤。项目文件（.lithe/run/configurations.yaml）列出的步骤第一次运行前要确认，确认结果按步骤列表与命令的指纹记在应用自己的存储里",
+  "owner": "Run",
+  "notes": "Viva 共享实现。步骤只能引用内置进程运行，嵌套步骤先展开、最多 32 步，引用不存在、不可用、成环的配置时由 Core 拒绝。内置运行编辑器和构建提供者运行编辑器都有步骤列表，可添加、上移、下移、移除。调试（Debug）同样先运行步骤。插件可注入的 runOptions 扩展点不在本项范围。",
+  "verification": "在项目里创建两个 Shell 运行 A、B，并让应用运行配置的启动前步骤依次为 A、B；运行应用配置，确认弹出确认框列出 A、B，点“运行步骤”后控制台依次出现 A、B 的输出和应用输出；再次运行不再询问。把 B 改成以 3 退出，确认控制台写出“启动前步骤 B 以退出码 3 结束”，应用未启动。把 A 改成长时间运行，运行中点停止，确认 A 被结束、应用未启动。自动化：runconfig_before_launch_test.go 的 TestBeforeLaunchStepsRunInOrderAfterTheProjectListIsAllowed、TestFailingBeforeLaunchStepStopsTheStart、TestStoppingDuringABeforeLaunchStepEndsIt、TestRunConfigFormKeepsTheStepList。",
+  "macos": {
+    "implementationStatus": "implemented",
+    "verificationStatus": "pending",
+    "evidence": [
+      "desktop/internal/workbench/runconfig_before_launch.go",
+      "desktop/internal/workbench/runconfig_form_view.go",
+      "desktop/internal/workbench/runconfig_edit.go",
+      "desktop/internal/core/run_before_launch.go",
+      "desktop/internal/workbench/runconfig_before_launch_test.go"
+    ]
+  },
+  "windows": {
+    "implementationStatus": "implemented",
+    "verificationStatus": "pending",
+    "evidence": [
+      "desktop/internal/workbench/runconfig_before_launch.go",
+      "desktop/internal/workbench/runconfig_form_view.go",
+      "desktop/internal/workbench/runconfig_edit.go",
+      "desktop/internal/core/run_before_launch.go",
+      "desktop/internal/workbench/runconfig_before_launch_test.go"
+    ]
+  }
+}

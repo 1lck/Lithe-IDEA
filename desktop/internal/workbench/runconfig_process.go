@@ -51,7 +51,7 @@ func (a *App) startProcessRun(p *project, configuration core.RunConfiguration) *
 			a.endBuildOperation(p, op, "failed", nil, "unsaved documents could not be saved", "")
 			return
 		}
-		a.launchProcessRun(p, op, id)
+		a.runBeforeLaunch(p, op, id, func() { a.launchProcessRun(p, op, id) })
 	})
 	return op
 }
@@ -66,35 +66,10 @@ func (a *App) launchProcessRun(p *project, op *buildOperation, id string) {
 		defer cancel()
 		prepare, release := op.bind(bounded)
 		defer release()
-		scratch, err := os.MkdirTemp("", inlineScriptDirectoryPattern)
-		if err != nil {
-			return func(a *App) { a.finishBuildError(p, op, err) }
-		}
-		defer func() {
-			if err := os.RemoveAll(scratch); err != nil {
-				a.backgroundFailedIn(ctx, "run_inline_script_cleanup", err)
-			}
-		}()
-		plan, err := kernel.CreateRunLaunchPlan(prepare, root, id, filepath.Join(scratch, "script"))
-		if err != nil {
-			return func(a *App) { a.finishBuildError(p, op, err) }
-		}
-		spec, err := a.processRunSpec(prepare, root, plan)
-		if errors.Is(err, errRunProgramNotFound) {
-			err = errors.New(i18n.SharedFormat(language, "desktop.runConfig.programNotFound", map[string]string{"program": plan.Executable.Command}))
-		}
-		if err == nil && plan.InlineScript != nil {
-			err = writeInlineScript(scratch, *plan.InlineScript)
-		}
-		if err == nil {
-			err = prepare.Err()
-		}
-		if err != nil {
-			return func(a *App) { a.finishBuildError(p, op, err) }
-		}
-		process, err := buildprocess.Start(ctx, spec, func(_ buildprocess.Stream, text string) {
+		process, cleanup, err := a.startConfiguredProcess(prepare, ctx, kernel, language, root, id, func(text string) {
 			a.streamBuildOutput(p, op, text)
 		})
+		defer cleanup()
 		if err != nil {
 			return func(a *App) { a.finishBuildError(p, op, err) }
 		}
@@ -102,6 +77,43 @@ func (a *App) launchProcessRun(p *project, op *buildOperation, id string) {
 		err = process.Wait()
 		return func(a *App) { a.finishBuildRun(p, op, err) }
 	})
+}
+
+// startConfiguredProcess plans the built-in process run id under prepare and starts its
+// process under run, which ends it when it ends; output receives what the process prints.
+// cleanup removes the temporary directory of a script saved as text once the process
+// exited, and is always set. It runs off the window thread, with the kernel and language
+// taken on it.
+func (a *App) startConfiguredProcess(prepare, run context.Context, kernel Kernel, language i18n.Language, root, id string, output func(string)) (*buildprocess.Process, func(), error) {
+	cleanup := func() {}
+	scratch, err := os.MkdirTemp("", inlineScriptDirectoryPattern)
+	if err != nil {
+		return nil, cleanup, err
+	}
+	cleanup = func() {
+		if err := os.RemoveAll(scratch); err != nil {
+			a.backgroundFailedIn(run, "run_inline_script_cleanup", err)
+		}
+	}
+	plan, err := kernel.CreateRunLaunchPlan(prepare, root, id, filepath.Join(scratch, "script"))
+	if err != nil {
+		return nil, cleanup, err
+	}
+	spec, err := a.processRunSpec(prepare, root, plan)
+	if errors.Is(err, errRunProgramNotFound) {
+		err = errors.New(i18n.SharedFormat(language, "desktop.runConfig.programNotFound", map[string]string{"program": plan.Executable.Command}))
+	}
+	if err == nil && plan.InlineScript != nil {
+		err = writeInlineScript(scratch, *plan.InlineScript)
+	}
+	if err == nil {
+		err = prepare.Err()
+	}
+	if err != nil {
+		return nil, cleanup, err
+	}
+	process, err := buildprocess.Start(run, spec, func(_ buildprocess.Stream, text string) { output(text) })
+	return process, cleanup, err
 }
 
 // processRunSpec turns a launch plan into the process to start: the executable found, the

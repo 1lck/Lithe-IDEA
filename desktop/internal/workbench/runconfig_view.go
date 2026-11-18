@@ -360,6 +360,14 @@ func (a *App) drawRunConfigEditor(c ui.C, p *project) {
 					a.drawRunOptionField(c.Part("option-"+strconv.Itoa(index)), language, &e.optionFields[index], ready)
 				}
 			}
+			ui.Column(c.Part("before-launch-field")).FillWidth().Gap(4).Children(func() {
+				ui.Row(c).FillWidth().Items(ui.Center).Gap(4).Children(func() {
+					ui.Text(c, i18n.Shared(language, "desktop.runConfig.fieldBeforeLaunch")).FontSize(a.theme.Metrics.FontSizeS).Color(a.colors.Subtle)
+					ui.Button(c.Part("help"), i18n.Shared(language, "native.moreInformation")).Icon(icons.Info).IconOnly().Ghost().
+						Size(18, 18).Shrink(0).Tooltip(i18n.Shared(language, "desktop.runConfig.beforeLaunchHelp")).TooltipOn(ui.TooltipRight)
+				})
+				a.drawRunConfigBeforeLaunch(c, &e.beforeLaunch, &e.beforeLaunchMenu, p.runConfigs.beforeLaunchCandidates(e.id), ready)
+			})
 			labels := map[string]string{"local": i18n.Shared(language, "desktop.runConfig.scopeLocal"), "project": i18n.Shared(language, "desktop.runConfig.scopeProject")}
 			ui.Select(c.Part("scope"), &e.scope, []string{"local", "project"}, func(scope string) string { return labels[scope] }).
 				Label(i18n.Shared(language, "desktop.runConfig.scope")).FillWidth()

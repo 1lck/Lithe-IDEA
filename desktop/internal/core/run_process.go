@@ -39,6 +39,14 @@ type RunEditorField struct {
 	Options     []string           `json:"options,omitempty"`
 	VisibleWhen *RunFieldCondition `json:"visibleWhen,omitempty"`
 	Note        string             `json:"note,omitempty"`
+	// Candidates are the configurations a beforeLaunch field may name.
+	Candidates []RunConfigurationName `json:"candidates,omitempty"`
+}
+
+// RunConfigurationName is a run configuration's ID and name.
+type RunConfigurationName struct {
+	ID   string `json:"id"`
+	Name string `json:"name"`
 }
 
 // RunFieldCondition shows a field only while Field has the value Equals.

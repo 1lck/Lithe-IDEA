@@ -15794,6 +15794,197 @@
       }
     },
     {
+      "id": "desktop.runConfig.beforeLaunch.confirmBody",
+      "description": "Body of the before-launch confirmation; name is the configuration that starts.",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "name": "string"
+      }
+    },
+    {
+      "id": "desktop.runConfig.beforeLaunch.confirmRun",
+      "description": "Button of the before-launch confirmation that runs the steps and remembers the choice.",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.runConfig.beforeLaunch.confirmTitle",
+      "description": "Title of the dialog asking whether to run the before-launch steps a project file names.",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.runConfig.beforeLaunch.exited",
+      "description": "Console line and error when a before-launch step exited with a code other than 0.",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "name": "string",
+        "code": "string"
+      }
+    },
+    {
+      "id": "desktop.runConfig.beforeLaunch.failed",
+      "description": "Console line and error when a before-launch step could not start.",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "name": "string",
+        "reason": "string"
+      }
+    },
+    {
+      "id": "desktop.runConfig.beforeLaunch.refused.cycle",
+      "description": "Error when before-launch steps refer back to each other.",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "step": "string"
+      }
+    },
+    {
+      "id": "desktop.runConfig.beforeLaunch.refused.notAllowed",
+      "description": "Error when a before-launch step names a configuration that is not a process run.",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "step": "string"
+      }
+    },
+    {
+      "id": "desktop.runConfig.beforeLaunch.refused.notFound",
+      "description": "Error when a before-launch step names a configuration that does not exist.",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "step": "string"
+      }
+    },
+    {
+      "id": "desktop.runConfig.beforeLaunch.refused.other",
+      "description": "Error when before-launch steps cannot run for a reason this version does not know.",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "step": "string"
+      }
+    },
+    {
+      "id": "desktop.runConfig.beforeLaunch.refused.tooLong",
+      "description": "Error when nested before-launch steps expand to more than the limit.",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "step": "string"
+      }
+    },
+    {
+      "id": "desktop.runConfig.beforeLaunch.refused.unavailable",
+      "description": "Error when a before-launch step cannot run on this system.",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "step": "string"
+      }
+    },
+    {
+      "id": "desktop.runConfig.beforeLaunch.stepHeader",
+      "description": "Console line before one before-launch step starts.",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "index": "string",
+        "count": "string",
+        "name": "string"
+      }
+    },
+    {
+      "id": "desktop.runConfig.beforeLaunchAdd",
+      "description": "Button whose menu adds a process run as a before-launch step.",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.runConfig.beforeLaunchDown",
+      "description": "Button that moves a before-launch step down.",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.runConfig.beforeLaunchEmpty",
+      "description": "Shown in the before-launch field when the configuration has no steps.",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.runConfig.beforeLaunchHelp",
+      "description": "Tip of the before-launch field of a run configuration.",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.runConfig.beforeLaunchMissing",
+      "description": "A before-launch step whose configuration no longer exists; id is the configuration ID.",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "id": "string"
+      }
+    },
+    {
+      "id": "desktop.runConfig.beforeLaunchNoCandidates",
+      "description": "Tooltip of the disabled add-step button when the project has no process run to use.",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.runConfig.beforeLaunchRemove",
+      "description": "Button that removes a before-launch step.",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.runConfig.beforeLaunchUp",
+      "description": "Button that moves a before-launch step up.",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.runConfig.errorUnavailable",
+      "description": "Error under a run configuration field naming a configuration that cannot run on this system.",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.runConfig.fieldBeforeLaunch",
+      "description": "Title of the run configuration field listing the process runs that start before it.",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
       "id": "desktop.runConfig.formTooNew",
       "description": "Shown in the run configuration editor when Core describes the form in a newer version than this app understands.",
       "platforms": [

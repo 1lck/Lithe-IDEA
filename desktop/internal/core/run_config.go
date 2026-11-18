@@ -48,6 +48,14 @@ type RunConfiguration struct {
 	// Availability is set when the saved configuration cannot run, such as when
 	// the plugin it needs is not installed. The host shows it and never starts it.
 	Availability *RunAvailability `json:"availability,omitempty"`
+	// BeforeLaunch names the built-in process runs started, in order, before this one.
+	BeforeLaunch []RunBeforeLaunchStep `json:"beforeLaunch,omitempty"`
+}
+
+// RunBeforeLaunchStep is one step of a configuration's beforeLaunch: the built-in
+// process run to start first.
+type RunBeforeLaunchStep struct {
+	Configuration string `json:"configuration"`
 }
 
 // RunPluginDependency is the plugin a configuration needs: its ID, and what the
@@ -265,6 +273,9 @@ type RunOptionsEdit struct {
 	Environment      map[string]string `json:"environment"`
 	// ProviderRunOptions replaces the build provider choices of the selected layer when set.
 	ProviderRunOptions json.RawMessage `json:"providerRunOptions,omitempty"`
+	// BeforeLaunch replaces the steps of the selected layer when set; an empty list
+	// removes them (and in the local layer hides the project's).
+	BeforeLaunch *[]string `json:"beforeLaunch,omitempty"`
 	// Plugins is the enabled plugin list of ResolveRunConfigurations, so a plugin
 	// document Core writes records the installed plugin.
 	Plugins []RunInstalledPlugin `json:"plugins,omitempty"`

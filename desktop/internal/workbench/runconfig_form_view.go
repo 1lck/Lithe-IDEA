@@ -2,7 +2,9 @@ package workbench
 
 import (
 	"encoding/json"
+	"fmt"
 	"reflect"
+	"slices"
 
 	"github.com/1lck/Lithe-IDEA/desktop/internal/core"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/i18n"
@@ -85,6 +87,8 @@ func runConfigFieldLabel(language i18n.Language, id string) (string, bool) {
 		return i18n.Shared(language, "desktop.runConfig.fieldExecutionPolicyBypass"), true
 	case "program":
 		return i18n.Shared(language, "desktop.runConfig.fieldProgram"), true
+	case "beforeLaunch":
+		return i18n.Shared(language, "desktop.runConfig.fieldBeforeLaunch"), true
 	}
 	return "", false
 }
@@ -98,6 +102,8 @@ func runConfigFieldHelp(language i18n.Language, field core.RunEditorField) strin
 		return i18n.Shared(language, "desktop.runConfig.storeAsProjectFileHelp")
 	case field.ID == "interpreter":
 		return i18n.Shared(language, "desktop.runConfig.interpreterHelp")
+	case field.ID == "beforeLaunch":
+		return i18n.Shared(language, "desktop.runConfig.beforeLaunchHelp")
 	}
 	return ""
 }
@@ -137,6 +143,8 @@ func runConfigFieldError(language i18n.Language, code string) string {
 		return i18n.Shared(language, "desktop.runConfig.errorInvalidName")
 	case "duplicate":
 		return i18n.Shared(language, "desktop.runConfig.errorDuplicate")
+	case "unavailable":
+		return i18n.Shared(language, "desktop.runConfig.errorUnavailable")
 	}
 	return i18n.SharedFormat(language, "desktop.runConfig.errorOther", map[string]string{"code": code})
 }
@@ -152,6 +160,8 @@ func (f *runConfigForm) drawable(language i18n.Language, field core.RunEditorFie
 		return f.flags[field.ID] != nil
 	case runFieldEnvironment:
 		return f.environment != nil
+	case runFieldBeforeLaunch:
+		return f.beforeLaunch != nil
 	case runFieldChoice:
 		for _, option := range field.Options {
 			if _, ok := runConfigChoiceLabel(language, field.ID, option); !ok {
@@ -310,7 +320,7 @@ func (a *App) drawRunConfigFormHeaderField(c ui.C, p *project, f *runConfigForm,
 func (a *App) drawRunConfigFormField(c ui.C, p *project, f *runConfigForm, field core.RunEditorField, ready bool) {
 	language := a.language()
 	label, _ := runConfigFieldLabel(language, field.ID)
-	tall := field.Kind == runFieldMultilineText || field.Kind == runFieldEnvironment
+	tall := field.Kind == runFieldMultilineText || field.Kind == runFieldEnvironment || field.Kind == runFieldBeforeLaunch
 	ui.Column(c).FillWidth().Gap(4).Children(func() {
 		row := ui.Row(c).FillWidth().Gap(12)
 		if tall {
@@ -355,6 +365,8 @@ func (a *App) drawRunConfigFormControl(c ui.C, p *project, f *runConfigForm, fie
 	switch field.Kind {
 	case runFieldEnvironment:
 		a.drawRunConfigVariables(c, p, f, ready)
+	case runFieldBeforeLaunch:
+		a.drawRunConfigBeforeLaunch(c, &f.beforeLaunch, &f.beforeLaunchMenu, field.Candidates, ready)
 	case runFieldChoice:
 		options := field.Options
 		if ui.Choice(c, f.texts[field.ID], options, func(option string) string {
@@ -410,6 +422,85 @@ func (a *App) drawRunConfigVariables(c ui.C, p *project, f *runConfigForm, ready
 			c.After(func() { f.environment = append(f.environment, &runConfigVariable{}) })
 		}
 	})
+}
+
+// runConfigBeforeLaunchLimit is the most steps a configuration names, as Core allows.
+const runConfigBeforeLaunchLimit = 16
+
+// drawRunConfigBeforeLaunch declares the steps that run before the configuration, each its name
+// with buttons that move it up or down or remove it, and the button whose menu adds one of the
+// process runs not chosen yet. A step whose configuration is gone shows its ID.
+func (a *App) drawRunConfigBeforeLaunch(c ui.C, chosen *[]string, menuOpen *bool, candidates []core.RunConfigurationName, ready bool) {
+	language := a.language()
+	steps := *chosen
+	names := make(map[string]string, len(candidates))
+	for _, candidate := range candidates {
+		names[candidate.ID] = candidate.Name
+	}
+	ui.Column(c.Part("before-launch")).Grow(1).MinWidth(0).Gap(4).Children(func() {
+		if len(steps) == 0 {
+			ui.Text(c, i18n.Shared(language, "desktop.runConfig.beforeLaunchEmpty")).Color(a.colors.Subtle).LineHeight(28)
+		}
+		for index, id := range steps {
+			k := c.KeyInt(index)
+			name, known := names[id]
+			if !known {
+				name = i18n.SharedFormat(language, "desktop.runConfig.beforeLaunchMissing", map[string]string{"id": id})
+			}
+			ui.Row(k).FillWidth().MinHeight(28).Items(ui.Center).Gap(4).Children(func() {
+				ui.Icon(k, icons.Play).Size(14, 14).Shrink(0).Color(a.colors.Subtle)
+				color := a.colors.Text
+				if !known {
+					color = a.theme.Danger
+				}
+				ui.Text(k, fmt.Sprintf("%d. %s", index+1, name)).Color(color).Ellipsis().Grow(1).MinWidth(0)
+				if a.gitIconButton(k.Part("up"), i18n.Shared(language, "desktop.runConfig.beforeLaunchUp"), icons.ArrowUp, false, !ready || index == 0) {
+					c.After(func() { moveRunConfigStep(*chosen, index, index-1) })
+				}
+				if a.gitIconButton(k.Part("down"), i18n.Shared(language, "desktop.runConfig.beforeLaunchDown"), icons.ArrowDown, false, !ready || index == len(steps)-1) {
+					c.After(func() { moveRunConfigStep(*chosen, index, index+1) })
+				}
+				if a.gitIconButton(k.Part("remove"), i18n.Shared(language, "desktop.runConfig.beforeLaunchRemove"), icons.Trash2, false, !ready) {
+					c.After(func() { *chosen = slices.Delete(slices.Clone(*chosen), index, index+1) })
+				}
+			})
+		}
+		var left []core.RunConfigurationName
+		for _, candidate := range candidates {
+			if !slices.Contains(steps, candidate.ID) {
+				left = append(left, candidate)
+			}
+		}
+		full := len(steps) >= runConfigBeforeLaunchLimit
+		add := ui.Button(c.Part("add"), i18n.Shared(language, "desktop.runConfig.beforeLaunchAdd")).Icon(icons.Plus).Ghost().
+			Disabled(!ready || len(left) == 0 || full)
+		if len(candidates) == 0 {
+			add = add.Tooltip(i18n.Shared(language, "desktop.runConfig.beforeLaunchNoCandidates"))
+		}
+		if add.Clicked() {
+			c.After(func() { *menuOpen = !*menuOpen })
+		}
+		if *menuOpen {
+			ui.Menu(c.Part("add-menu"), add, menuOpen, func(menu *ui.MenuItems) {
+				for _, candidate := range left {
+					if menu.Item(candidate.Name).Clicked() {
+						c.After(func() {
+							a.performed("run.configuration.form.beforeLaunch.add", surfaceButton)
+							*chosen = append(slices.Clone(*chosen), candidate.ID)
+						})
+					}
+				}
+			})
+		}
+	})
+}
+
+// moveRunConfigStep swaps the step at from with the one at to, when both exist.
+func moveRunConfigStep(steps []string, from, to int) {
+	if from < 0 || to < 0 || from >= len(steps) || to >= len(steps) {
+		return
+	}
+	steps[from], steps[to] = steps[to], steps[from]
 }
 
 // removeRunConfigVariable is rows without row.
