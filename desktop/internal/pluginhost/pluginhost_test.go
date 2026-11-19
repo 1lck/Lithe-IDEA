@@ -83,6 +83,10 @@ func TestDeclaredServesTheBaselineOfEveryWiredCapability(t *testing.T) {
 		if name == "toolDefinitions" {
 			wanted = []int{0, 1}
 		}
+		// Managed runtime artifacts can use the mirror URLs version 1 adds.
+		if name == "managedRuntimes" {
+			wanted = []int{0, 1}
+		}
 		if versions := declared[name]; !slices.Equal(versions, wanted) {
 			t.Fatalf("%s = %v, want %v", name, versions, wanted)
 		}
