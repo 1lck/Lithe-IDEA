@@ -107,7 +107,7 @@ Motty 有开关。没有采用：只在命令行输入区、单击且未拖动�
 - 收益：本地 bash/zsh、WSL 和带 PSReadLine 的 PowerShell 里，提示符处调整大小不再留下重复提示符；单击命令行可以移动光标。Windows PowerShell/cmd 的提示符上报首次真正启用。
 - 代价：每次启动本地 bash/zsh 多运行一次 `sh`（随即变成 Shell，不常驻）；`TMPDIR` 下会短暂出现一个私有目录；第一个提示符上点击不生效。
 - 关闭集成终端时等 Shell 回到提示符再挂断（#2005、[#2054](https://github.com/1lck/Lithe-IDEA/issues/2054)）。Bash 运行 `PROMPT_COMMAND` 时可能无法把挂断转给后台任务。提示符钩子也能启动前台程序，所以前台进程组无法区分正在运行的用户命令和提示符钩子。显示过提示符的 Shell 如还未打出下一个 B 标记，就继续读取并丢弃输出，最多等原有的 1 秒宽限再发送 SIGHUP。未经集成或还没有提示符的 Shell 立即挂断。
-- 伪终端主端（PTY master）留到 Shell 退出并完成有界输出排空。Unix 上关闭主端会让 Shell 的读端看到 EOF 或 EIO，与 Bash 处理 SIGHUP 的顺序产生竞争。保留主端使 Bash 有机会把信号转给自己的任务。原有 0.5 秒强制结束仍为不响应的 Shell 兜底。
+- 伪终端主端（PTY master）留到 Shell 退出并完成有界输出排空。Unix 上关闭主端会让 Shell 的读端看到 EOF 或 EIO，与 Bash 处理 SIGHUP 的顺序产生竞争。保留主端使 Bash 有机会把信号转给自己的任务。Linux 并发复现显示，Bash 打出 B 标记后仍可能错过第一次 SIGHUP，0.5 秒后被强制结束而后台任务仍在运行。集成 Bash 在提示符处挂断后，若 100 毫秒内仍未完成关闭，再给 Shell 发一次 SIGHUP，让进入输入循环的 Bash 转发；0.5 秒强制结束宽限不变。
 - 不要这样做：给会话里所有进程组都发挂断。用户 `disown` 掉的任务会被一起结束；挂断交给 Shell 转发，`disown`/`disown -h` 的语义才能保留。其他终端（如 Ghostty）也只挂断 Shell 自己的进程组。
 - 仍然存在的限制：没有集成、但用户自己配了 `PROMPT_COMMAND` 的 bash 不变。zsh 只有在后台任务刚 fork、还没 exec 的约 1 毫秒里被挂断时才会留下任务，这个窗口没有标记可以等，不处理。一直不回提示符的 Shell（例如在 `PROMPT_COMMAND` 里死循环）在 1 秒后照常挂断。
 - 没有消费方的回调和目录上报已由 #1984 删除，见“只上报有消费方的内容”。

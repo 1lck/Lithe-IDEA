@@ -41,6 +41,7 @@ func startBackend(config Config) (backend, error) {
 	}
 	env := append(withoutVariables(inherited, config.Unset), "TERM=xterm-256color", "COLORTERM=truecolor")
 	env = withUTF8Locale(append(env, config.Env...))
+	bash := filepath.Base(program) == "bash"
 	args := config.Args
 	// runtime is the private directory of an integrated shell's startup files:
 	// it is made here and removed once the shell has ended, however it ended,
@@ -117,7 +118,8 @@ func startBackend(config Config) (backend, error) {
 			})
 			return readErr == nil && err == nil && group > 0 && group != cmd.Process.Pid
 		},
-		promptToken: promptToken,
+		promptToken:         promptToken,
+		retryHangupAtPrompt: bash && promptToken != "",
 	}, nil
 }
 
