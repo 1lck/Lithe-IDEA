@@ -268,7 +268,10 @@ func (a *App) runProjectSearch(p *project) {
 		err := synchronizeSearchIndex(operation, kernel, root, full, paths)
 		var matches []core.WorkspaceSearchMatch
 		if err == nil {
-			matches, err = kernel.SearchWorkspace(operation, core.WorkspaceSearchRequest{Root: root, Query: query.text, FileMask: query.mask, CaseSensitive: query.matchCase, WholeWords: query.wholeWords, RegularExpression: query.regex, MaxResults: searchMaxResults, IncludeContentRanges: true})
+			// Find in Files lists only lines, as the IDE's does; file names that contain
+			// the query would otherwise fill the result cap before any line.
+			noFileResults := 0
+			matches, err = kernel.SearchWorkspace(operation, core.WorkspaceSearchRequest{Root: root, Query: query.text, FileMask: query.mask, CaseSensitive: query.matchCase, WholeWords: query.wholeWords, RegularExpression: query.regex, MaxResults: searchMaxResults, MaxFileResults: &noFileResults, IncludeContentRanges: true})
 		}
 		return func(a *App) { a.finishProjectSearch(p, generation, matches, err, full || len(paths) > 0) }
 	})
