@@ -1,13 +1,13 @@
 package workbench
 
 import (
-	"bytes"
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"path/filepath"
 	"strconv"
 	"strings"
-	"unicode/utf8"
 
 	"github.com/1lck/Lithe-IDEA/desktop/internal/core"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/documentio"
@@ -26,6 +26,8 @@ import (
 type searchReplacer interface {
 	PreviewWorkspaceReplace(context.Context, core.WorkspaceReplaceRequest) ([]core.WorkspaceReplaceFile, error)
 	ReplaceText(context.Context, core.TextReplaceRequest) (string, int, error)
+	DecodeFileBytes(context.Context, []byte, string) (core.DecodedFile, error)
+	EncodeFileText(context.Context, string, string, *bool) (core.EncodedText, error)
 }
 
 // projectReplace is one project's Replace in Files preview and its application.
@@ -46,34 +48,29 @@ type projectReplace struct {
 
 // previewProjectReplace asks Core what Replace All would change and opens the preview.
 func (a *App) previewProjectReplace(p *project, query searchQuery, replacement string) {
+	if p == nil {
+		return
+	}
 	replacer, ok := a.kernel.(searchReplacer)
 	r := &p.replace
 	if !ok || p == nil || strings.TrimSpace(query.text) == "" || r.loading || r.applying {
 		return
 	}
-	overrides := map[string]string{}
+	snapshots := captureSearchText(p)
 	revisions := map[string]int{}
-	for _, d := range p.docs.list {
-		if d.virtual {
-			continue
-		}
-		rel, inside := projectRelative(p.root, d.path)
-		if !inside {
-			continue
-		}
-		revisions[rel] = d.view.Revision()
-		if d.dirty() {
-			data, _ := d.view.Text()
-			overrides[rel] = string(data)
+	for _, doc := range p.docs.list {
+		if path, inside := projectRelative(p.root, doc.path); inside && !doc.virtual {
+			revisions[path] = doc.view.Revision()
 		}
 	}
 	*r = projectReplace{open: true, loading: true, query: query, replacement: replacement, revisions: revisions, expanded: map[string]bool{}}
 	root := p.root
+	budget := a.searchPreferences.ReplacementMaxFileBytes
 	a.background(p, searchTimeout, func(ctx context.Context) func(*App) {
 		files, err := replacer.PreviewWorkspaceReplace(ctx, core.WorkspaceReplaceRequest{
 			Root: root, Query: query.text, Replacement: replacement, FileMask: query.mask,
 			CaseSensitive: query.matchCase, WholeWords: query.wholeWords, RegularExpression: query.regex,
-			TextOverrides: overrides,
+			TextOverrides: materializeSearchText(snapshots), MaxFileBytes: budget, ScopeExpression: query.scope, IncludeIgnored: query.includeIgnored,
 		})
 		return func(a *App) {
 			if !r.open || r.query != query || r.replacement != replacement {
@@ -81,6 +78,7 @@ func (a *App) previewProjectReplace(p *project, query searchQuery, replacement s
 			}
 			r.loading = false
 			if err != nil {
+				a.operationFailed("workspace_replace_preview", err)
 				r.failure = a.text.Search.ReplaceFailed(err.Error())
 				return
 			}
@@ -140,18 +138,30 @@ func (a *App) applyProjectReplace(p *project) {
 		}
 		path := filepath.Join(p.root, filepath.FromSlash(file.Path))
 		if d := p.docs.byPath(path); d != nil && !d.virtual {
-			outcomes = append(outcomes, a.replaceInDocument(d, file, r.revisions[file.Path]))
+			revision, previewed := r.revisions[file.Path]
+			if !previewed {
+				outcomes = append(outcomes, replaceOutcome{path: path, skipped: true})
+				continue
+			}
+			outcomes = append(outcomes, a.replaceInDocument(d, file, revision))
+			continue
+		}
+		if _, wasOpen := r.revisions[file.Path]; wasOpen {
+			outcomes = append(outcomes, replaceOutcome{path: path, skipped: true})
 			continue
 		}
 		closed = append(closed, file)
 	}
 	query, replacement, root := r.query, r.replacement, p.root
-	write := a.documentWriter
+	budget := int64(a.searchPreferences.ReplacementMaxFileBytes)
+	write := func(path string, data, expected []byte) error {
+		return documentio.WriteGuardedLimit(path, data, expected, budget)
+	}
 	r.applying = true
 	a.background(p, searchTimeout, func(ctx context.Context) func(*App) {
 		for _, file := range closed {
 			path := filepath.Join(root, filepath.FromSlash(file.Path))
-			outcomes = append(outcomes, replaceInFile(ctx, replacer, write, path, query, replacement))
+			outcomes = append(outcomes, replacePreviewInFile(ctx, replacer, write, path, query, replacement, budget, file.SourceIdentity))
 		}
 		return func(a *App) {
 			p.replace = projectReplace{}
@@ -187,35 +197,38 @@ func (a *App) replaceInDocument(d *document, file core.WorkspaceReplaceFile, rev
 	return outcome
 }
 
-// replaceInFile replaces the matches of a closed file. It reads the file again so the
-// write is guarded by the bytes the replacement was computed from; a file that is not
-// UTF-8 is left alone rather than re-encoded.
-func replaceInFile(ctx context.Context, replacer searchReplacer, write func(string, []byte, []byte) error, path string, query searchQuery, replacement string) replaceOutcome {
+// A closed file is decoded and re-encoded by Core; native writes guard exact disk bytes.
+func replacePreviewInFile(ctx context.Context, replacer searchReplacer, write func(string, []byte, []byte) error, path string, query searchQuery, replacement string, limit int64, identity string) replaceOutcome {
 	outcome := replaceOutcome{path: path}
-	data, err := documentio.ReadFile(path)
+	data, err := documentio.ReadFileLimit(path, limit)
 	if err != nil {
 		outcome.err = err
 		return outcome
 	}
-	body, bom := bytes.CutPrefix(data, utf8BOM)
-	if !utf8.Valid(body) {
-		outcome.skipped = true
+	if identity != "" {
+		hash := sha256.Sum256(data)
+		if hex.EncodeToString(hash[:]) != identity {
+			outcome.err = documentio.ErrConflict
+			return outcome
+		}
+	}
+	decoded, err := replacer.DecodeFileBytes(ctx, data, "")
+	if err != nil {
+		outcome.err = err
 		return outcome
 	}
-	text, count, err := replacer.ReplaceText(ctx, core.TextReplaceRequest{
-		Text: string(body), Query: query.text, Replacement: replacement,
-		CaseSensitive: query.matchCase, WholeWords: query.wholeWords, RegularExpression: query.regex,
-	})
+	text, count, err := replacer.ReplaceText(ctx, core.TextReplaceRequest{Text: decoded.Text, Query: query.text, Replacement: replacement, CaseSensitive: query.matchCase, WholeWords: query.wholeWords, RegularExpression: query.regex})
 	if err != nil || count == 0 {
 		outcome.err, outcome.skipped = err, err == nil
 		return outcome
 	}
-	out := []byte(text)
-	if bom {
-		out = append(append([]byte{}, utf8BOM...), out...)
+	encoded, err := replacer.EncodeFileText(ctx, text, decoded.Encoding, &decoded.HasBOM)
+	if err != nil {
+		outcome.err = err
+		return outcome
 	}
-	outcome.err = write(path, out, data)
-	outcome.before = body
+	outcome.err = write(path, encoded.Bytes, data)
+	outcome.before = []byte(decoded.Text)
 	return outcome
 }
 

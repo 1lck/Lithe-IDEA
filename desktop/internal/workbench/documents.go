@@ -289,8 +289,9 @@ func (a *App) openFile(p *project, path string) {
 	registry := a.syntaxRegistry()
 	name := filepath.Base(path)
 	kernel, _ := a.kernel.(editorKernel)
+	budget := int64(a.searchPreferences.MaxFileBytes)
 	a.background(p, 0, func(ctx context.Context) func(*App) {
-		read, err := readDocumentEncoded(ctx, kernel, path)
+		read, err := readDocumentEncodedLimit(ctx, kernel, path, budget)
 		restored := a.prepareRecoveredDocument(ctx, p, path, read.text, err)
 		if restored.found && restored.missing {
 			err = nil
@@ -636,6 +637,12 @@ func (a *App) saveDocumentMode(p *project, id int, auto bool) {
 	before := append([]byte(nil), d.view.SavedBytes()...)
 	path, name, revision := d.path, d.name, d.view.Revision()
 	write := a.documentWriter
+	if len(data) > 16<<20 {
+		budget := int64(a.searchPreferences.MaximumFileBytes)
+		write = func(path string, data, expected []byte) error {
+			return documentio.WriteGuardedLimit(path, data, expected, budget)
+		}
+	}
 	writeLinked := a.documentLinkedWriter
 	create := a.documentCreator
 	missing := d.recreateMissing

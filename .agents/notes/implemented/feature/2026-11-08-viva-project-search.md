@@ -23,19 +23,30 @@ Viva 的项目搜索侧栏调用 Rust Core 搜索本地工作区，而不是在 
 提示用户，后续每次查询重建索引，用户可手动刷新。刷新按钮始终强制重建。
 关闭搜索面板时释放监听，重新打开后重新注册；关闭项目时等待已在运行的搜索
 结束，再异步释放 Core 索引。内容匹配、掩码、大小写、整词及正则均由 Core
-决定，读取哪些文件也由 Core 决定：编辑器能当文本打开的文件都会搜（16 MiB 以内，
-按 `file.read` 的编码识别解码，含 NUL 的二进制文件跳过），CRLF 行尾的 `\r`
-不算行内容。项目搜索和 IDE 的 Find in Files 一样只列内容行，请求带
-`maxFileResults: 0`，文件名含查询词的文件不出结果，也不占用 200 条上限
-（#2198）。结果列表虚拟化，最多展示 200 项，达到上限时提示缩小范围；
-点击内容结果会打开文件并跳到匹配处，输入法组合期间不强行移动光标。
+决定。读取预算来自“工具 → 搜索”的真实用户偏好，默认 16 MiB，可设置 1–64 MiB；
+替换缺省继承搜索预算。64 MiB 是当前解码和原生 I/O 安全边界，不能宣称支持无限文件。
+Core 按编辑器的自动编码识别解码，允许 ANSI escape，保留二进制控制字符检查；
+CRLF 行尾的 `\r` 不算行内容。
 
-全局搜索复用 Core 的 `workspace.searchEverywhere`，按 50 条分页并保留 Core
-排序、打开文件的同分优先级与不透明游标；“全部”和“文件”查找文件名，“文本”
-查找内容。结果上限为 500 条并提示缩小范围；用户可以加载下一页，重复游标或
-不产生新结果的续页会停止并记录失败。弹层关闭或输入改变会取消过期请求；
-输入法组合期间不截获回车、方向键和 Escape。项目搜索和全局搜索按需共享一个
-递归监听，各自维护待处理事件和取消代次；最后一个消费者关闭后释放监听。
+项目搜索只列内容行，按 50 行自动续页，同一文件也可跨页。Core 根据已加载结果
+返回文件分组和折叠投影；界面只渲染投影，显示“已加载”的行数和文件数，不能把
+它当成完整匹配总数。项目、模块（来自已加载构建模型）、目录和自定义范围均使用
+Core 解析的路径/glob 表达式；没有模块模型时不执行模块查询。包含 Git 忽略文件
+是请求选项，不能绕过手动排除和结构隐藏。
+
+宿主在 UI 线程捕获脏文档的不可变 rope 根，在后台生成文本交给 Core。快照加入
+候选并替换磁盘文本；后续页复用同一快照，编辑变化取消并重查，查询不写盘。
+全局搜索“全部”合并正文来源；名称匹配增加有序片段和低分跳字母匹配，但未完整
+复现 IDEA MinusculeMatcher。项目搜索取消 200 条总上限，全局搜索取消 500 条总上限，
+按滚动需要追加页；失败保留已加载页并暂停，用户重试后继续。
+
+替换先显示预览，确认才修改。磁盘预览绑定原始字节的 SHA-256，宿主重读核对后，
+由 Core 解码、替换、按原编码和 BOM 编码，再原子条件写入；保留 CRLF。编辑器文档
+按版本验证后执行一次可撤销修改，预览后才打开的文件跳过，避免覆盖新文档。
+
+搜索偏好来自平台 preferences 目录的 `search.json`；打开只读，Apply/恢复默认才
+条件写回并回读。外部冲突保留草稿，用户刷新后才能再次应用。无关 JSON 字段保留。
+查询、分组、默认值和验证在 Core，平台只负责文件 I/O、不可变编辑快照和界面。
 
 查询拥有项目的取消上下文和 30 秒截止时间。用户切换项目、关闭搜索面板或输入
 新查询时，不发布已过期结果；搜索结果的相对路径在打开文件之前再次检查是否
@@ -54,15 +65,12 @@ Viva 的项目搜索侧栏调用 Rust Core 搜索本地工作区，而不是在 
 ## 后果
 
 结果显示后，收到文件变化事件会自动刷新；通知存在系统固有的投递延迟。
-2000 个小文件、三次运行的本机基准中，复用索引约 4.4 毫秒/次，重建约
-132 毫秒/次；这只是受控样本，不代表大型真实工作区。Linux 递归监听需要为
-目录分别注册，超出上限时会退回手动刷新。项目替换、完整原生搜索外观和
-各平台实机验收尚未完成，不能把该侧栏当作旧客户端搜索能力完全迁移。
-全局搜索的类、符号和操作入口尚未接入，暂时禁用；双击 Shift、预览、筛选、
-匹配高亮、自动续页与完整视觉对齐仍未完成。
-同样使用 2000 个小文件、三次运行的全局文件名搜索基准，复用索引约 28.2 毫秒/次，
-失效重建约 47.2 毫秒/次；结果包含 Core 排序与第一页 JSON 传输，不代表真实大型
-项目或界面端到端延迟。
+Linux 递归监听需要为目录分别注册，超出上限时会退回手动刷新。
+当前分组计数只覆盖已加载行。完整总数、生成目录的临时覆盖、无需先打开文件的
+全工作区类/符号索引、符号链接跟随、完整 IDEA 匹配质量与各平台实机验收仍由
+[#2199](https://github.com/1lck/Lithe-IDEA/issues/2199) 跟踪；不能把此次改进写成搜索已与 IDEA 对齐。
+名称匹配的宽松规则限于 Search Everywhere，通用 `rankNames` 保持原有边界匹配，
+避免插件市场等现有候选列表出现额外结果。
 
 ## 验证
 
@@ -72,9 +80,10 @@ Viva 的项目搜索侧栏调用 Rust Core 搜索本地工作区，而不是在 
 - `scripts/desktop/desktop-go.sh test ./internal/workbench -run TestSearchPanels`：两个搜索界面共享监听并在最后一个消费者关闭时释放。
 - `scripts/desktop/desktop-go.sh test ./internal/core -run '^$' -bench '^BenchmarkWorkspaceSearchIndex$' -benchtime=3x`：索引复用与重建开销。
 - `scripts/desktop/desktop-go.sh test ./internal/core -run '^$' -bench '^BenchmarkEverywhereSearchIndex$' -benchtime=3x`：全局文件名分页的索引复用与重建开销。
-- Windows Server 2022 上实际执行 Viva `internal/filewatch` 的交叉编译测试二进制，递归监听新建、移动、重命名、删除和事件溢出测试通过；受系统限制的监听中删除目录测试跳过。这只验证原生监听组件，尚未验证 Windows 的完整搜索界面及 Core 接线。
-- 原版 macOS 搜索窗口和 Viva 无头界面已截图对照，输入框按原版组合搜索图标、清除和选项按钮；Viva 仍缺项目替换入口、结果的两行预览及其他整体布局细节，尚未逐像素验收。
-- 原版 macOS 全局搜索和 Viva 无头弹层已截图对照，确认基础尺寸、背景、焦点边框和选中行；匹配高亮、预览、筛选与完整逐像素验收仍待完成。
+- `scripts/desktop/desktop-go.sh test ./internal/workbench -run 'TestProjectSearchReadsUnsavedTextAndAllSearchesContents|TestProjectReplacePreservesOriginalEncodingAndRejectsChangedPreview'`：脏文档/All正文及五种编码替换、外部改动保护。
+- `scripts/desktop/desktop-go.sh test ./internal/settingswindow ./internal/searchprefs -run 'TestSearchPage|TestSearchPreferences'`：真实来源读写、应用、回读及冲突。
+- `scripts/desktop/desktop-go.sh test -tags 'vivahead lithevisual' ./internal/workbench ./internal/settingswindow -run '^TestVisualSearch(Results|Preferences)$'`：明暗主题和中英文截图，需指定 `LITHE_VISUAL_OUTPUT_DIR`。
+- 组件测试与无头截图不替代两端原生窗口、大型真实项目和输入法验收。
 
 ## 适用范围
 

@@ -1,0 +1,224 @@
+{
+  "schemaVersion": 1,
+  "messages": [
+    {
+      "id": "desktop.search.settings.title",
+      "description": "Search and search preferences: title",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.search.settings.limits",
+      "description": "Search and search preferences: limits",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.search.settings.limitsHelp",
+      "description": "Search and search preferences: limitsHelp",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.search.settings.search",
+      "description": "Search and search preferences: search",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.search.settings.searchHelp",
+      "description": "Search and search preferences: searchHelp",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.search.settings.replace",
+      "description": "Search and search preferences: replace",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.search.settings.replaceHelp",
+      "description": "Search and search preferences: replaceHelp",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.search.settings.invalid",
+      "description": "Search and search preferences: invalid",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.search.scope",
+      "description": "Search and search preferences: scope",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.search.scopeHelp",
+      "description": "Search and search preferences: scopeHelp",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.search.includeIgnored",
+      "description": "Search and search preferences: includeIgnored",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.search.retry",
+      "description": "Search and search preferences: retry",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.search.count",
+      "description": "Search and search preferences: count",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "count": "string",
+        "files": "string"
+      }
+    },
+    {
+      "id": "desktop.search.group",
+      "description": "Search and search preferences: group",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "path": "string",
+        "count": "string"
+      }
+    },
+    {
+      "id": "desktop.search.scopeProject",
+      "description": "Search: scopeProject",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.search.scopeModule",
+      "description": "Search: scopeModule",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.search.scopeDirectory",
+      "description": "Search: scopeDirectory",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.search.scopeCustom",
+      "description": "Search: scopeCustom",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.search.noModules",
+      "description": "Search: noModules",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.search.loadedCount",
+      "description": "Search: loadedCount",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "count": "string",
+        "files": "string"
+      }
+    },
+    {
+      "id": "desktop.search.settings.failed",
+      "description": "Search: failed",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.search.settings.range",
+      "description": "Search: range",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "maximum": "string"
+      }
+    }
+  ],
+  "locales": {
+    "en-US": {
+      "desktop.search.settings.title": "Search",
+      "desktop.search.settings.limits": "File size limits (MiB)",
+      "desktop.search.settings.limitsHelp": "These application preferences apply to every project. Larger limits use more memory while searching and replacing. Changes take effect after Apply.",
+      "desktop.search.settings.search": "Search files up to",
+      "desktop.search.settings.searchHelp": "Maximum size of each file whose contents are searched. File names remain searchable.",
+      "desktop.search.settings.replace": "Replace files up to",
+      "desktop.search.settings.replaceHelp": "Maximum size of each file included in Replace in Files. Original encoding, BOM and line endings are preserved.",
+      "desktop.search.settings.invalid": "Enter a whole number of MiB within the supported range.",
+      "desktop.search.scope": "Scope",
+      "desktop.search.scopeHelp": "Use project-relative directories or files, comma-separated. Wildcards include paths; prefix a rule with ! to exclude it.",
+      "desktop.search.includeIgnored": "Include Git-ignored files",
+      "desktop.search.retry": "Retry search",
+      "desktop.search.count": "{count} matching lines in {files} files",
+      "desktop.search.group": "{path} ({count})",
+      "desktop.search.scopeProject": "In Project",
+      "desktop.search.scopeModule": "Module",
+      "desktop.search.scopeDirectory": "Directory",
+      "desktop.search.scopeCustom": "Custom Scope",
+      "desktop.search.noModules": "No imported modules are available.",
+      "desktop.search.loadedCount": "Loaded {count} matching lines in {files} files",
+      "desktop.search.settings.failed": "Could not read or save search settings. Refresh and try again. Your draft is kept.",
+      "desktop.search.settings.range": "Application scope · supported range: 1–{maximum} MiB"
+    },
+    "zh-CN": {
+      "desktop.search.settings.title": "搜索",
+      "desktop.search.settings.limits": "文件大小上限（MiB）",
+      "desktop.search.settings.limitsHelp": "这些应用设置作用于所有项目。提高上限会增加搜索和替换时的内存开销，点击应用后生效。",
+      "desktop.search.settings.search": "搜索文件上限",
+      "desktop.search.settings.searchHelp": "搜索正文时允许读取的单个文件大小。文件名搜索不受此值影响。",
+      "desktop.search.settings.replace": "替换文件上限",
+      "desktop.search.settings.replaceHelp": "项目替换允许处理的单个文件大小。保留原编码、BOM 和换行符。",
+      "desktop.search.settings.invalid": "请输入支持范围内的 MiB 整数。",
+      "desktop.search.scope": "范围",
+      "desktop.search.scopeHelp": "填写项目内的目录或文件，以逗号分隔。通配规则包含路径；以 ! 开头的规则排除路径。",
+      "desktop.search.includeIgnored": "包含 Git 忽略文件",
+      "desktop.search.retry": "重试搜索",
+      "desktop.search.count": "{files} 个文件中有 {count} 行匹配",
+      "desktop.search.group": "{path}（{count}）",
+      "desktop.search.scopeProject": "项目",
+      "desktop.search.scopeModule": "模块",
+      "desktop.search.scopeDirectory": "目录",
+      "desktop.search.scopeCustom": "自定义范围",
+      "desktop.search.noModules": "没有可用的已导入模块。",
+      "desktop.search.loadedCount": "已加载 {files} 个文件的 {count} 行匹配",
+      "desktop.search.settings.failed": "无法读取或保存搜索设置，请刷新后重试。已保留草稿。",
+      "desktop.search.settings.range": "应用范围 · 支持范围：1–{maximum} MiB"
+    }
+  }
+}

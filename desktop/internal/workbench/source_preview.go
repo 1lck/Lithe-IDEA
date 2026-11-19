@@ -181,11 +181,12 @@ func (a *App) showSourcePreview(p *project, sp *sourcePreview, path string, line
 	}
 	registry := a.syntaxRegistry()
 	kernel, _ := a.kernel.(editorKernel)
+	budget := int64(a.searchPreferences.MaxFileBytes)
 	a.background(p, 0, func(ctx context.Context) func(*App) {
 		data, err := openText, error(nil)
 		if !open {
 			var read documentRead
-			read, err = readDocumentEncoded(ctx, kernel, path)
+			read, err = readDocumentEncodedLimit(ctx, kernel, path, budget)
 			data = read.text
 		}
 		var content editorview.Content

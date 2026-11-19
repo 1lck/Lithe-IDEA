@@ -40,12 +40,17 @@ var (
 )
 
 type searchQuery struct {
-	text, mask                   string
+	text, mask, scope            string
 	matchCase, wholeWords, regex bool
+	includeIgnored               bool
 }
 
 // searchView contains only controls and options; results belong to a project.
 type searchView struct {
+	scopeMode                                        string
+	scopeModule                                      string
+	scope                                            ui.Field
+	includeIgnored                                   bool
 	query, mask                                      ui.Field
 	optionsOpen, matchCase, wholeWords, regex, focus bool
 	// replace is the Replace in Files field, shown while replaceOpen.
@@ -60,6 +65,9 @@ type searchView struct {
 func (v *searchView) reset() {
 	v.query.SetText("")
 	v.mask.SetText("")
+	v.scope.SetText("")
+	v.scopeMode, v.scopeModule = "project", ""
+	v.includeIgnored = false
 	v.replace.SetText("")
 	v.replaceOpen = false
 	v.optionsOpen, v.matchCase, v.wholeWords, v.regex, v.focus = false, false, false, false, false
@@ -67,24 +75,35 @@ func (v *searchView) reset() {
 }
 
 type projectSearch struct {
-	want             searchQuery
-	generation       uint64
-	cancel           context.CancelFunc
-	running, loading bool
-	indexUsed        bool
-	matches          []core.WorkspaceSearchMatch
-	failed           bool
-	watch            *documentWatch
-	watchAttached    bool
-	watchReady       bool
-	watchAvailable   bool
-	fullResync       bool
-	pending          []string
-	done             <-chan struct{}
+	request                core.WorkspaceSearchRequest
+	cursor                 *string
+	next                   bool
+	want                   searchQuery
+	generation             uint64
+	cancel                 context.CancelFunc
+	running, loading       bool
+	indexUsed              bool
+	matches                []core.WorkspaceSearchMatch
+	collapsed              map[string]bool
+	presentation           core.SearchPresentation
+	presentationGeneration uint64
+	failed                 bool
+	watch                  *documentWatch
+	watchAttached          bool
+	watchReady             bool
+	watchAvailable         bool
+	fullResync             bool
+	pending                []string
+	done                   <-chan struct{}
 }
 
 func (a *App) cancelProjectSearch(p *project) {
 	p.search.generation++
+	p.search.presentationGeneration++
+	p.search.request = core.WorkspaceSearchRequest{}
+	p.search.cursor = nil
+	p.search.matches = nil
+	p.search.presentation = core.SearchPresentation{}
 	p.search.want = searchQuery{}
 	p.search.loading = false
 	a.searchView.optionsOpen = false
@@ -200,6 +219,10 @@ func (a *App) updateProjectSearch(p *project, query searchQuery) {
 	s.want = query
 	s.generation++
 	s.matches, s.failed = nil, false
+	s.cursor, s.next = nil, false
+	s.collapsed = make(map[string]bool)
+	s.presentation = core.SearchPresentation{}
+	s.presentationGeneration++
 	a.searchView.list.ScrollTo(0, ui.ListStart)
 	if s.cancel != nil {
 		s.cancel()
@@ -251,6 +274,28 @@ func (a *App) runProjectSearch(p *project) {
 		delay = searchDebounce
 	}
 	kernel, root := a.kernel, p.root
+	previous := s.matches
+	collapsed := []string{}
+	for path, value := range s.collapsed {
+		if value {
+			collapsed = append(collapsed, path)
+		}
+	}
+	snapshots := captureSearchText(p)
+	request := s.request
+	next := s.next
+	s.next = false
+	if !next {
+		noFileResults := 0
+		request = core.WorkspaceSearchRequest{Root: root, Query: query.text, FileMask: query.mask,
+			CaseSensitive: query.matchCase, WholeWords: query.wholeWords, RegularExpression: query.regex,
+			MaxResults: searchMaxResults, MaxFileResults: &noFileResults, IncludeContentRanges: true,
+			PageSize: 50, MaxFileBytes: a.searchPreferences.MaxFileBytes,
+			ScopeExpression: query.scope, IncludeIgnored: query.includeIgnored}
+		s.request = request
+	} else {
+		request.Cursor = s.cursor
+	}
 	a.background(p, 0, func(context.Context) func(*App) {
 		defer close(finished)
 		defer cancel()
@@ -263,18 +308,56 @@ func (a *App) runProjectSearch(p *project) {
 				return func(a *App) { a.finishProjectSearch(p, generation, nil, ctx.Err(), full || len(paths) > 0) }
 			}
 		}
+		if !next {
+			request.TextOverrides = materializeSearchText(snapshots)
+		}
 		operation, done := context.WithTimeout(ctx, searchTimeout)
 		defer done()
-		err := synchronizeSearchIndex(operation, kernel, root, full, paths)
-		var matches []core.WorkspaceSearchMatch
-		if err == nil {
-			// Find in Files lists only lines, as the IDE's does; file names that contain
-			// the query would otherwise fill the result cap before any line.
-			noFileResults := 0
-			matches, err = kernel.SearchWorkspace(operation, core.WorkspaceSearchRequest{Root: root, Query: query.text, FileMask: query.mask, CaseSensitive: query.matchCase, WholeWords: query.wholeWords, RegularExpression: query.regex, MaxResults: searchMaxResults, MaxFileResults: &noFileResults, IncludeContentRanges: true})
+		var err error
+		if !next {
+			err = synchronizeSearchIndex(operation, kernel, root, full, paths)
 		}
-		return func(a *App) { a.finishProjectSearch(p, generation, matches, err, full || len(paths) > 0) }
+		var matches []core.WorkspaceSearchMatch
+		var cursor *string
+		if err == nil {
+			page, pageErr := kernel.SearchWorkspacePage(operation, request)
+			matches, cursor, err = page.Matches, page.NextCursor, pageErr
+		}
+		if next && err == nil {
+			if cursor != nil && ((request.Cursor != nil && *cursor == *request.Cursor) || len(matches) == 0) {
+				err = errors.New("search page did not advance")
+			} else {
+				matches = append(previous, matches...)
+			}
+		}
+		var presentation core.SearchPresentation
+		if err == nil {
+			identities := make([]string, len(matches))
+			for i := range matches {
+				identities[i] = matches[i].Path
+			}
+			presentation, err = core.NewClient().SearchPresentation(operation, identities, collapsed)
+		}
+		return func(a *App) {
+			if generation == s.generation && err == nil {
+				s.cursor = cursor
+				s.request = request
+				s.request.Cursor = nil
+				s.presentation = presentation
+				s.presentationGeneration++
+			}
+			a.finishProjectSearch(p, generation, matches, err, full || len(paths) > 0)
+		}
 	})
+}
+
+func (a *App) loadMoreProjectSearch(p *project) {
+	s := &p.search
+	if s.running || s.failed || s.cursor == nil {
+		return
+	}
+	s.next = true
+	a.runProjectSearch(p)
 }
 
 // synchronizeSearchIndex delegates visibility and incremental updates to Core.

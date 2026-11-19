@@ -16,6 +16,10 @@ type WorkspaceReplaceRequest struct {
 	FileMask          string            `json:"fileMask,omitempty"`
 	Paths             []string          `json:"paths,omitempty"`
 	TextOverrides     map[string]string `json:"textOverrides,omitempty"`
+	ScopeExpression   string            `json:"scopeExpression,omitempty"`
+	ScopePaths        []string          `json:"scopePaths,omitempty"`
+	IncludeIgnored    bool              `json:"includeIgnored,omitempty"`
+	MaxFileBytes      uint64            `json:"maxFileBytes,omitempty"`
 }
 
 // WorkspaceReplaceMatch is one changed line of a file, before and after.
@@ -31,6 +35,7 @@ type WorkspaceReplaceFile struct {
 	Path            string                  `json:"path"`
 	Matches         []WorkspaceReplaceMatch `json:"matches"`
 	ReplacementText string                  `json:"replacementText"`
+	SourceIdentity  string                  `json:"sourceIdentity,omitempty"`
 }
 
 // PreviewWorkspaceReplace runs workspace.replacePreview.

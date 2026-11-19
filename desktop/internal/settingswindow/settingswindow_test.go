@@ -68,7 +68,7 @@ func TestTerminalIsTheOnePageOfTheToolsGroup(t *testing.T) {
 		t.Fatal("the Terminal page does not directly follow its group, which appendVisible relies on")
 	}
 	for id := pageID(0); id < pageCount; id++ {
-		if id != pageTerminal && parents[id] == pageTools {
+		if id != pageTerminal && id != pageSearch && parents[id] == pageTools {
 			t.Errorf("page %d is also in Tools", id)
 		}
 	}
@@ -150,7 +150,7 @@ func TestExpandedToolsGroupListsTerminal(t *testing.T) {
 	open := initialOpen()
 	open[pageTools] = true
 	rows := appendVisible(nil, english(), &open, "")
-	if len(rows) != 15 {
+	if len(rows) != 16 {
 		t.Fatalf("rows = %v, want the 14 of the default sidebar and the Terminal page", rows)
 	}
 	for i, r := range rows {
@@ -190,7 +190,7 @@ func TestSearchFindsTerminalInsideItsGroup(t *testing.T) {
 func TestSearchOnTheToolsGroupKeepsTerminal(t *testing.T) {
 	open := initialOpen()
 	rows := appendVisible(nil, english(), &open, foldQuery("tools"))
-	want := []pageID{pageTools, pageTerminal}
+	want := []pageID{pageTools, pageTerminal, pageSearch}
 	if got := pagesOf(rows); !slices.Equal(got, want) {
 		t.Fatalf("pages = %v, want %v", got, want)
 	}

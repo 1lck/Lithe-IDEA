@@ -316,13 +316,21 @@ func (c *Client) ListDirectories(ctx context.Context, root string, paths []strin
 // WorkspaceSearchRequest is the shared Core search query and its visibility options.
 // Paths in the response are workspace-relative with forward slashes.
 type WorkspaceSearchRequest struct {
-	Root              string `json:"root"`
-	Query             string `json:"query"`
-	CaseSensitive     bool   `json:"caseSensitive,omitempty"`
-	WholeWords        bool   `json:"wholeWords,omitempty"`
-	RegularExpression bool   `json:"regularExpression,omitempty"`
-	FileMask          string `json:"fileMask,omitempty"`
-	MaxResults        int    `json:"maxResults"`
+	Root              string            `json:"root"`
+	Query             string            `json:"query"`
+	CaseSensitive     bool              `json:"caseSensitive,omitempty"`
+	WholeWords        bool              `json:"wholeWords,omitempty"`
+	RegularExpression bool              `json:"regularExpression,omitempty"`
+	FileMask          string            `json:"fileMask,omitempty"`
+	ScopeExpression   string            `json:"scopeExpression,omitempty"`
+	ScopePaths        []string          `json:"scopePaths,omitempty"`
+	IncludeIgnored    bool              `json:"includeIgnored,omitempty"`
+	MaxFileBytes      uint64            `json:"maxFileBytes,omitempty"`
+	TextOverrides     map[string]string `json:"textOverrides,omitempty"`
+	PageSize          int               `json:"pageSize,omitempty"`
+	Cursor            *string           `json:"cursor,omitempty"`
+	ProjectPage       bool              `json:"projectPage,omitempty"`
+	MaxResults        int               `json:"maxResults"`
 	// MaxFileResults caps the file-name matches within MaxResults; nil leaves them
 	// capped only by MaxResults and zero asks for content matches alone.
 	MaxFileResults *int `json:"maxFileResults,omitempty"`
@@ -350,6 +358,31 @@ type WorkspaceSearchMatch struct {
 	PreviewRanges []SearchNameRange `json:"previewRanges,omitempty"`
 }
 
+type WorkspaceSearchPage struct {
+	Matches    []WorkspaceSearchMatch `json:"matches"`
+	NextCursor *string                `json:"nextCursor"`
+}
+
+type SearchPreferences struct {
+	MaxFileBytes            uint64 `json:"maxFileBytes"`
+	ReplacementMaxFileBytes uint64 `json:"replacementMaxFileBytes"`
+	MaximumFileBytes        uint64 `json:"maximumFileBytes"`
+}
+
+type StoredSearchPreferences struct {
+	MaxFileBytes            *uint64 `json:"maxFileBytes,omitempty"`
+	ReplacementMaxFileBytes *uint64 `json:"replacementMaxFileBytes,omitempty"`
+}
+
+func (c *Client) ResolveSearchPreferences(ctx context.Context, maxFileBytes, replacementMaxFileBytes *uint64) (SearchPreferences, error) {
+	var result SearchPreferences
+	err := c.Execute(ctx, "workspace.searchPreferences", struct {
+		MaxFileBytes            *uint64 `json:"maxFileBytes,omitempty"`
+		ReplacementMaxFileBytes *uint64 `json:"replacementMaxFileBytes,omitempty"`
+	}{maxFileBytes, replacementMaxFileBytes}, &result)
+	return result, err
+}
+
 // SearchNameRange locates one Core-selected highlight in UTF-16 code units.
 type SearchNameRange struct {
 	Start  int `json:"start"`
@@ -368,10 +401,14 @@ type EverywhereSearchRequest struct {
 	IncludeGeneratedFileNames bool                     `json:"includeGeneratedFileNames"`
 	Context                   *EverywhereSearchContext `json:"context,omitempty"`
 	// The text options apply to content matches, as in Find in Files.
-	CaseSensitive        bool `json:"caseSensitive,omitempty"`
-	WholeWords           bool `json:"wholeWords,omitempty"`
-	RegularExpression    bool `json:"regularExpression,omitempty"`
-	IncludeContentRanges bool `json:"includeContentRanges,omitempty"`
+	CaseSensitive        bool              `json:"caseSensitive,omitempty"`
+	WholeWords           bool              `json:"wholeWords,omitempty"`
+	RegularExpression    bool              `json:"regularExpression,omitempty"`
+	IncludeContentRanges bool              `json:"includeContentRanges,omitempty"`
+	MaxFileBytes         uint64            `json:"maxFileBytes,omitempty"`
+	TextOverrides        map[string]string `json:"textOverrides,omitempty"`
+	ScopePaths           []string          `json:"scopePaths,omitempty"`
+	IncludeIgnored       bool              `json:"includeIgnored,omitempty"`
 }
 
 type EverywhereSearchContext struct {
@@ -402,6 +439,13 @@ func (c *Client) SearchWorkspace(ctx context.Context, request WorkspaceSearchReq
 		return nil, err
 	}
 	return response.Matches, nil
+}
+
+func (c *Client) SearchWorkspacePage(ctx context.Context, request WorkspaceSearchRequest) (WorkspaceSearchPage, error) {
+	request.ProjectPage = true
+	var response WorkspaceSearchPage
+	err := c.Execute(ctx, "workspace.search", request, &response)
+	return response, err
 }
 
 // InvalidateWorkspaceSearch discards Core's cached filesystem inventory, so the
