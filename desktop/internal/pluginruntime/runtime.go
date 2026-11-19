@@ -17,7 +17,6 @@ import (
 	"strings"
 
 	"github.com/1lck/Lithe-IDEA/desktop/internal/configfile"
-	"github.com/1lck/Lithe-IDEA/desktop/internal/core"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/marketplace"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/pluginpkg"
 )
@@ -39,6 +38,7 @@ var (
 // versions. Empty Home means the stripped extraction root.
 type Artifact struct {
 	ID, Version, CacheKey, URL, SHA256, Archive string
+	Mirrors                                     []string
 	StripPrefix, Home, Executable               string
 }
 
@@ -370,17 +370,11 @@ func (m *Manager) archive(ctx context.Context, artifact Artifact, base string, p
 	if progress != nil && errors.Is(checkErr, ErrCorrupt) {
 		progress(Progress{ID: artifact.ID, Phase: "repairing", Total: -1, Cause: checkErr})
 	}
-	session := marketplace.NewArchiveSession(m.Downloader)
-	defer func() { err = errors.Join(err, session.Close()) }()
-	download, err := session.Download(ctx, core.MarketplaceAvailability{Status: "available", DownloadURL: artifact.URL, SHA256: artifact.SHA256}, func(p marketplace.ArchiveProgress) {
-		if progress != nil {
-			progress(Progress{ID: artifact.ID, Phase: "downloading", Received: p.Received, Total: p.Total})
-		}
-	})
+	download, cleanup, err := m.downloadArchive(ctx, artifact, progress)
 	if err != nil {
 		return nil, err
 	}
-	defer func() { err = errors.Join(err, download.Discard()) }()
+	defer func() { err = errors.Join(err, cleanup()) }()
 	source, err := openVerified(ctx, download.Path(), artifact.SHA256)
 	if err != nil {
 		return nil, err

@@ -20,18 +20,19 @@ type ManagedRuntimeResolver struct {
 // ManagedRuntimeDependency is Core's platform-selected, content-addressed download plan.
 // Home is relative to the extracted root after StripPrefix; Executable is relative to Home.
 type ManagedRuntimeDependency struct {
-	ID          string `json:"id"`
-	Version     string `json:"version"`
-	Tool        string `json:"tool,omitempty"`
-	OS          string `json:"os"`
-	Arch        string `json:"arch"`
-	URL         string `json:"url"`
-	SHA256      string `json:"sha256"`
-	Archive     string `json:"archive"`
-	StripPrefix string `json:"stripPrefix"`
-	Home        string `json:"home"`
-	Executable  string `json:"executable"`
-	CacheKey    string `json:"cacheKey"`
+	ID          string   `json:"id"`
+	Version     string   `json:"version"`
+	Tool        string   `json:"tool,omitempty"`
+	OS          string   `json:"os"`
+	Arch        string   `json:"arch"`
+	URL         string   `json:"url"`
+	Mirrors     []string `json:"mirrors,omitempty"`
+	SHA256      string   `json:"sha256"`
+	Archive     string   `json:"archive"`
+	StripPrefix string   `json:"stripPrefix"`
+	Home        string   `json:"home"`
+	Executable  string   `json:"executable"`
+	CacheKey    string   `json:"cacheKey"`
 }
 
 // ManagedRuntimePlan describes downloads and the plugin-owned compatibility check.
