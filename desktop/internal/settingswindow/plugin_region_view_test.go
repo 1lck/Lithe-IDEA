@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"math"
 	"os"
 	"reflect"
 	"slices"
@@ -309,6 +310,10 @@ func TestRegionViewOpensWithThePageAndClosesWhenThePageChanges(t *testing.T) {
 	opened := source.next(t)
 	if opened.params["event"] != "open" || opened.region != "overview" || opened.function != "settingsView" || opened.closing {
 		t.Fatalf("the first call = %+v, want open of the overview region", opened)
+	}
+	// The region lays out at the width of the page's content, which the paint measures.
+	if width, _ := opened.params["width"].(float64); width < 100 || width != math.Floor(width) {
+		t.Fatalf("the view opened at width %v, want the region's width in whole points", opened.params["width"])
 	}
 	if opened.params["language"] != i18n.English.Code() {
 		t.Fatalf("the view opened in %v", opened.params["language"])

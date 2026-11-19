@@ -12,11 +12,14 @@ import (
 	"github.com/vivaui/viva/ui"
 )
 
-// A canvas draws its scene in view-box coordinates scaled to the width of the view: at zoom
-// 1 the view box's width fills the canvas, and its top edge is at the canvas's top. The user
-// drags the empty area to pan (pan) and zooms with ⌘ or Control and the wheel, about the
-// pointer, or with the host's zoom buttons, about the middle (zoom). The plain wheel scrolls
-// the page. A scene narrower than the canvas is centered; one shorter starts at the top.
+// A canvas draws its scene in view-box coordinates. One without pan shows its whole view box
+// at zoom 1: scaled to the width of the view, but never taller than the canvas, from the
+// canvas's top-left corner, so a scene designed at the narrowest page keeps its size and
+// stays whole as the window widens. One with pan is scaled to the width of the view: at
+// zoom 1 the view box's width fills the canvas and its top edge is at the canvas's top; a
+// scene narrower than the canvas is centered, one shorter starts at the top. The user drags
+// the empty area to pan (pan) and zooms with ⌘ or Control and the wheel, about the pointer,
+// or with the host's zoom buttons, about the middle (zoom). The plain wheel scrolls the page.
 // There is no pinch to zoom: Viva reports no trackpad magnify yet (#2182).
 const (
 	// canvasZoomStep is how far a zoom button zooms.
@@ -34,8 +37,8 @@ const (
 // drag under way, and the groups the pointer rests on. It lives in memory and ends with the
 // showing.
 type canvasState struct {
-	// zoom is the user's zoom, 1 at the view's width; x and y are the view-box point at the
-	// canvas's top-left corner. placed reports that x and y were set.
+	// zoom is the user's zoom, 1 at the canvas's fitted scale (scale); x and y are the
+	// view-box point at the canvas's top-left corner. placed reports that x and y were set.
 	zoom, x, y float64
 	placed     bool
 
@@ -98,16 +101,22 @@ func zoomRange(n *Node) (low, high float64) {
 }
 
 // scale is how many pixels one view-box unit takes in rect at the state's zoom; 0 for a
-// view box without area, which draws nothing.
+// view box without area, which draws nothing. At zoom 1 the view box's width fills rect,
+// and a canvas without pan also keeps the view box's height within rect's.
 func (s *canvasState) scale(rect gfx.Rect, n *Node) float64 {
 	if n.ViewBox[2] <= 0 || n.ViewBox[3] <= 0 || rect.Width <= 0 {
 		return 0
 	}
-	return float64(rect.Width) / n.ViewBox[2] * s.zoom
+	k := float64(rect.Width) / n.ViewBox[2]
+	if !n.Pan && rect.Height > 0 {
+		k = math.Min(k, float64(rect.Height)/n.ViewBox[3])
+	}
+	return k * s.zoom
 }
 
 // clamp keeps the visible part inside the view box: a view box narrower than the canvas
-// is centered across it, one shorter than the canvas starts at its top.
+// is centered across it when the canvas pans and starts at its leading edge when it does
+// not; one shorter than the canvas starts at its top.
 func (s *canvasState) clamp(rect gfx.Rect, n *Node) {
 	k := s.scale(rect, n)
 	if k <= 0 {
@@ -119,7 +128,10 @@ func (s *canvasState) clamp(rect gfx.Rect, n *Node) {
 	}
 	width, height := float64(rect.Width)/k, float64(rect.Height)/k
 	if width >= box[2] {
-		s.x = box[0] - (width-box[2])/2
+		s.x = box[0]
+		if n.Pan {
+			s.x -= (width - box[2]) / 2
+		}
 	} else {
 		s.x = math.Min(math.Max(s.x, box[0]), box[0]+box[2]-width)
 	}

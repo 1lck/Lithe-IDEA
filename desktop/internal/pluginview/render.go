@@ -79,7 +79,17 @@ func Draw(c ui.C, s *Session, host *Host, fill bool) {
 		}
 	}
 	r := &renderer{c: c, s: s, host: host}
-	root := ui.Column(c).FillWidth().Gap(10)
+	// The paint measures the width the nodes are laid out in: the view's, less the body's
+	// padding in a tool window. It sends open, and later resize; the scroll bars of the
+	// body float over it, so they take none of the width.
+	if s.measure == nil {
+		s.measure = s.measured
+	}
+	s.inset = 0
+	if fill {
+		s.inset = 2 * bodyPadding
+	}
+	root := ui.Column(c).FillWidth().Gap(10).Draw(s.measure)
 	if fill {
 		root = root.Fill()
 	}
@@ -91,17 +101,28 @@ func Draw(c ui.C, s *Session, host *Host, fill bool) {
 		nodes := s.View()
 		if fill && !hasTree(nodes) {
 			ui.Scroll(c).FillWidth().Grow(1).Children(func() {
-				ui.Column(c).FillWidth().Gap(10).PadX(10).PadY(10).Children(func() { r.nodes(c, nodes) })
+				ui.Column(c).FillWidth().Gap(10).PadX(bodyPadding).PadY(bodyPadding).Children(func() { r.nodes(c, nodes) })
 			})
 			return
 		}
 		body := ui.Column(c).FillWidth().Gap(10)
 		if fill {
-			body = body.Grow(1).PadX(10).PadY(10)
+			body = body.Grow(1).PadX(bodyPadding).PadY(bodyPadding)
 		}
 		r.fillTree = fill
 		body.Children(func() { r.nodes(c, nodes) })
 	})
+}
+
+// bodyPadding is the space around the nodes of a view that fills a tool window.
+const bodyPadding = 10
+
+// measured is the paint callback that gives the session the width its nodes are laid
+// out in, and asks for the frame that sends a resize once it is due.
+func (s *Session) measured(d *ui.DrawContext) {
+	if wait := s.Measured(d.Rect.Width - s.inset); wait > 0 && d.Canvas != nil {
+		d.Canvas.RequestFrameIn(wait)
+	}
 }
 
 // hasTree reports a tree among the top-level nodes: it scrolls by itself, so the body does not.
