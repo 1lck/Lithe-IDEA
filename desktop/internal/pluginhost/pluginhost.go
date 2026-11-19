@@ -190,6 +190,9 @@ func Declared() Capabilities {
 	// Version 1 adds a definition's category and audience, by which the
 	// Toolchains settings page groups and folds the tools.
 	declared["toolDefinitions"] = []int{0, 1}
+	// Version 1 adds optional mirror URLs on managed runtime artifacts for automatic
+	// fastest-source selection and failover.
+	declared["managedRuntimes"] = []int{0, 1}
 	return declared
 }
 

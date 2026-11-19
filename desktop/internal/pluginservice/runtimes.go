@@ -260,7 +260,7 @@ func (s *Service) ensureRuntimes(ctx context.Context, manifest json.RawMessage, 
 
 func runtimeArtifact(dependency core.ManagedRuntimeDependency) pluginruntime.Artifact {
 	return pluginruntime.Artifact{ID: dependency.ID, Version: dependency.Version, CacheKey: dependency.CacheKey,
-		URL: dependency.URL, SHA256: dependency.SHA256, Archive: dependency.Archive,
+		URL: dependency.URL, Mirrors: append([]string(nil), dependency.Mirrors...), SHA256: dependency.SHA256, Archive: dependency.Archive,
 		StripPrefix: dependency.StripPrefix, Home: dependency.Home, Executable: dependency.Executable}
 }
 
