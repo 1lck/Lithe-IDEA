@@ -69,6 +69,7 @@ type languageDeclaration struct {
 		ID             string   `json:"id"`
 		FileExtensions []string `json:"fileExtensions"`
 		FileNames      []string `json:"fileNames"`
+		FirstLineMatch string   `json:"firstLineMatch"`
 		Grammar        *struct {
 			Kind string `json:"kind"`
 			Path string `json:"path"`
@@ -99,9 +100,10 @@ func (s *Service) pluginLanguages(ctx context.Context, directory string) ([]synt
 			continue
 		}
 		language := syntax.PluginLanguage{
-			ID:         item.ID,
-			Extensions: item.FileExtensions,
-			FileNames:  item.FileNames,
+			ID:             item.ID,
+			Extensions:     item.FileExtensions,
+			FileNames:      item.FileNames,
+			FirstLineMatch: item.FirstLineMatch,
 		}
 		if item.Grammar != nil {
 			// The contract has a language whose grammar is refused open as plain text
@@ -123,13 +125,10 @@ func (s *Service) pluginLanguages(ctx context.Context, directory string) ([]synt
 			language.Brackets = delimiterPairs(configuration.Brackets)
 			language.AutoClosing = delimiterPairs(configuration.AutoClosingPairs)
 		}
-		if len(language.Extensions) == 0 && len(language.FileNames) == 0 {
-			// The editor matches a language by extension or base name only. A
-			// declaration that names nothing but projectFileNames is a project
-			// signal, which this client does not use to choose a language, so the
-			// language would be invisible. Reporting it is better than registering a
-			// language that can never match.
-			failures = append(failures, fmt.Errorf("%s: declares no file extensions or file names", item.ID))
+		if len(language.Extensions) == 0 && len(language.FileNames) == 0 && language.FirstLineMatch == "" {
+			// Project file names alone describe a project signal, so this language
+			// cannot match any document.
+			failures = append(failures, fmt.Errorf("%s: declares no file extensions, file names or first-line pattern", item.ID))
 			continue
 		}
 		languages = append(languages, language)

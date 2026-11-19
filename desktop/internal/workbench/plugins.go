@@ -344,14 +344,31 @@ func (a *App) reloadPluginLanguages() {
 	if a.plugins == nil {
 		return
 	}
+	registry := a.syntaxRegistry()
+	var initial *languageLoad
+	if a.initialLanguageLoad.Load() == nil {
+		initial = &languageLoad{done: make(chan struct{})}
+		a.initialLanguageLoad.Store(initial)
+	}
 	a.background(nil, pluginStateTimeout, func(ctx context.Context) func(*App) {
 		entries, err := a.plugins.Manager.Installed()
 		if err != nil {
+			if initial != nil {
+				close(initial.done)
+			}
 			return func(a *App) {
 				a.backgroundFailed("plugin_languages", err)
 			}
 		}
 		languages, loadErr := a.plugins.LoadLanguages(ctx, entries)
+		failedCount := 0
+		if initial != nil {
+			// Publish the first language snapshot on the worker before allowing restored
+			// documents to resolve. They need no tool window or visibility results.
+			failed, _ := registry.SetPluginLanguages(languages)
+			failedCount = len(failed)
+			close(initial.done)
+		}
 		windows, windowsErr := a.plugins.ToolWindows(ctx, entries)
 		commands, commandsErr := a.plugins.ToolCommands(ctx, entries)
 		vcsPlugins, vcsErr := a.plugins.VcsPlugins(ctx, entries)
@@ -379,9 +396,12 @@ func (a *App) reloadPluginLanguages() {
 				a.backgroundFailed("plugin_vcs_providers", vcsErr)
 			}
 			a.setPluginTools(windows, vcsWindows(vcsPlugins))
-			failed, _ := a.syntaxRegistry().SetPluginLanguages(languages)
-			if len(failed) > 0 {
-				a.backgroundFailed("plugin_languages", fmt.Errorf("%d plugin languages were rejected", len(failed)))
+			if initial == nil {
+				failed, _ := registry.SetPluginLanguages(languages)
+				failedCount = len(failed)
+			}
+			if failedCount > 0 {
+				a.backgroundFailed("plugin_languages", fmt.Errorf("%d plugin languages were rejected", failedCount))
 			}
 		}
 	})

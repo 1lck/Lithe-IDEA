@@ -1,0 +1,29 @@
+{
+  "id": "plugin-first-line-language",
+  "area": "扩展",
+  "group": "插件与主题",
+  "capability": "安装并启用声明首行规则的语言插件后，可按无后缀脚本的首行选择语法和语言服务，并使用该语言的编辑配置",
+  "macos": {
+    "implementationStatus": "implemented",
+    "verificationStatus": "pending",
+    "evidence": [
+      "desktop/internal/pluginservice/languages.go",
+      "desktop/internal/editor/syntax/language.go",
+      "desktop/internal/workbench/document_language.go",
+      "desktop/internal/workbench/document_language_test.go"
+    ]
+  },
+  "windows": {
+    "implementationStatus": "implemented",
+    "verificationStatus": "pending",
+    "evidence": [
+      "desktop/internal/pluginservice/languages.go",
+      "desktop/internal/editor/syntax/language.go",
+      "desktop/internal/workbench/document_language.go",
+      "desktop/internal/workbench/document_language_test.go"
+    ]
+  },
+  "owner": "Extensions",
+  "verification": "运行 scripts/desktop/desktop-go.sh test ./internal/workbench -run TestOpenFileUsesPluginFirstLineLanguage，确认无后缀文件按首行选择语言，能按该语言切换注释，现有名称与扩展关联优先，带未关联扩展名和超长首行的文件保留原行为。原生窗口另行验收。",
+  "notes": "仅传入已有文本缓冲区的完整且有界的首行。Core 按启用插件的语言注册顺序匹配。识别结果用于此次文档打开和随后编辑。"
+}

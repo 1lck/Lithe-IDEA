@@ -91,6 +91,9 @@ func TestDeclaredServesTheBaselineOfEveryWiredCapability(t *testing.T) {
 		if name == "managedRuntimes" {
 			wanted = []int{0, 1}
 		}
+		if name == "languages" {
+			wanted = []int{0, 1}
+		}
 		if versions := declared[name]; !slices.Equal(versions, wanted) {
 			t.Fatalf("%s = %v, want %v", name, versions, wanted)
 		}

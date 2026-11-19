@@ -608,6 +608,9 @@ type App struct {
 	tasks      taskQueue
 	// languages are the languages the editor knows, made when the first file is opened.
 	languages *syntax.Registry
+	// initialLanguageLoad lets early opens of extensionless files wait for the enabled
+	// language snapshot, even when the project restores its tabs during app startup.
+	initialLanguageLoad atomic.Pointer[languageLoad]
 
 	settings settings
 	// fonts is the font of each scope the settings name, worked out by applyFonts.

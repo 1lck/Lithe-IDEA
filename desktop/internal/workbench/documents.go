@@ -308,10 +308,11 @@ func (a *App) openFile(p *project, path string) {
 			} else {
 				content = editorview.Prepare(data)
 			}
-			grammar = registry.SyntaxForPath(path)
-			if language, ok := registry.ForPath(path); ok {
-				languageID = language.ID
+			snapshot := content.Snapshot()
+			if restored.found {
+				snapshot = restored.prepared.Snapshot()
 			}
+			languageID, grammar = a.resolveDocumentLanguage(ctx, registry, path, snapshot)
 		}
 		return func(a *App) {
 			delete(p.docs.opening, path)

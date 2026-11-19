@@ -51,6 +51,12 @@
 - 历史回放不保存来源语言，而是把文件当作它自己语言的源码重新校验。
 - 外部文件始终只读，保存被拒绝。普通打开（项目树、搜索、外部 URL）仍然拒绝工作区外路径。
 
+### 6. 无后缀文件按首行识别
+
+名称和扩展名先交给编辑器原有的路径关联。只有无后缀且未命中关联的文本文件才使用插件声明的首行规则。宿主在打开文档的后台任务中从已解码的缓冲区取完整首行，交给 Core 按启用插件的注册顺序匹配。启动时恢复的无后缀标签等待首份语言注册表，再决定语言。高亮、行注释和语言服务使用选中的语言。关闭后重新打开文件时重新识别。
+
+例如，插件可以用一条首行规则覆盖用户环境里的解释器路径和常见的 `env` 写法。把解释器名称写进宿主，或执行首行来猜测文件类型，都会破坏插件声明与文件内容之间的边界。匹配只消耗有界文本，沿用打开文档已读取的内容，无需创建缓存文件。
+
 ### 正确与错误示例
 
 正确：为新语言写 `plugin.json`，声明 `languageServers` 和执行提供者，在契约 fixture 中补一个命令展开样例，并在 Core 测试中验证。
@@ -77,6 +83,7 @@
 - 桌面端：`scripts/desktop/desktop-go.sh test ./internal/pluginhost/... ./internal/pluginbackend/... ./internal/plugintrust/... ./internal/plugininstall/...` 覆盖包校验、信任策略、安装审查与进程清理。
 - `scripts/desktop/verify/verify-runtime-bundle-immutability.sh` 检查插件安装不写入发行目录。
 - 新增插件还要验证下载失败、签名失败、取消、等待重启、重装、回滚、禁用和卸载后的进程与文件清理。
+- 首行识别：`scripts/desktop/desktop-go.sh test ./internal/workbench -run TestOpenFileUsesPluginFirstLineLanguage`。
 - `./scripts/agent-notes/verify-agent-notes.sh`
 
 ## 适用范围

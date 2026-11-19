@@ -193,7 +193,7 @@ func (a *App) showSourcePreview(p *project, sp *sourcePreview, path string, line
 		var grammar *syntax.Syntax
 		if err == nil {
 			content = editorview.Prepare(data)
-			grammar = registry.SyntaxForPath(path)
+			_, grammar = a.resolveDocumentLanguage(ctx, registry, path, content.Snapshot())
 		}
 		return func(a *App) {
 			if sp.generation != generation || a.project != p || !alive(a) {
@@ -222,7 +222,7 @@ func (a *App) showEditablePreview(p *project, sp *sourcePreview, path string, li
 	registry := a.syntaxRegistry()
 	kernel, _ := a.kernel.(editorKernel)
 	a.background(p, 0, func(ctx context.Context) func(*App) {
-		file := readTablessFile(ctx, kernel, registry, path)
+		file := a.readTablessFile(ctx, kernel, registry, path)
 		return func(a *App) {
 			if sp.generation != generation || a.project != p || !alive(a) {
 				return
@@ -244,11 +244,16 @@ func (a *App) showEditablePreview(p *project, sp *sourcePreview, path string, li
 // bindSourcePreview makes the editable view of document d, which shares the document's text,
 // and reveals the line.
 func (a *App) bindSourcePreview(p *project, sp *sourcePreview, d *document) {
+	registry := a.syntaxRegistry()
+	grammar := registry.SyntaxForPath(d.path)
+	if grammar == nil && d.languageID != "" {
+		grammar = registry.Syntax(d.languageID)
+	}
 	var view *editorview.View
 	view = editorview.New(editorview.Config{
 		Label:   d.name,
 		Content: d.view.CopyContent(),
-		Syntax:  a.syntaxRegistry().SyntaxForPath(d.path),
+		Syntax:  grammar,
 		Notify:  a.invalidator.Invalidate,
 		Save:    func() { a.saveDocument(p, d.id) },
 		OnEdit:  func(edit editorview.Edit) { a.previewEdited(p, sp, view, edit) },

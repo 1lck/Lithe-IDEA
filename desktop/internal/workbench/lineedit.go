@@ -114,9 +114,15 @@ func (a *App) runLineOperation(p *project, d *document, op core.LineEditOperatio
 		SelectionStart: in.SelectionStart, SelectionLength: in.SelectionLength,
 	}
 	if op == core.ToggleLineComment {
-		// By the name, as the document's language was chosen when it opened: a plugin's content
-		// document has a URI for a path and its file name only in the name.
-		token := a.syntaxRegistry().CommentsForPath(d.name).Line
+		// Use the resolved document language for an extensionless file. Path lookup
+		// also preserves the bundled fallback and handles plugin virtual documents.
+		registry := a.syntaxRegistry()
+		token := registry.CommentsForPath(d.name).Line
+		if token == "" && d.languageID != "" {
+			if language, ok := registry.Language(d.languageID); ok {
+				token = language.Comments.Line
+			}
+		}
 		if token == "" {
 			a.notifyInfo(i18n.Shared(a.language(), "desktop.editor.noLineComment"))
 			return
