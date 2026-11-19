@@ -323,6 +323,9 @@ type WorkspaceSearchRequest struct {
 	RegularExpression bool   `json:"regularExpression,omitempty"`
 	FileMask          string `json:"fileMask,omitempty"`
 	MaxResults        int    `json:"maxResults"`
+	// MaxFileResults caps the file-name matches within MaxResults; nil leaves them
+	// capped only by MaxResults and zero asks for content matches alone.
+	MaxFileResults *int `json:"maxFileResults,omitempty"`
 	// IncludeContentRanges asks for the untrimmed line and the match ranges of each
 	// content match (WorkspaceSearchMatch.SourceLine and ContentMatchRanges).
 	IncludeContentRanges bool `json:"includeContentRanges,omitempty"`

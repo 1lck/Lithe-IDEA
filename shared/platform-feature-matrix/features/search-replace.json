@@ -52,5 +52,5 @@
       "verificationStatus": "pending"
     }
   },
-  "notes": "Viva：Replace in Files 由 Core 根据文件和打开文档的未保存文本规划替换（workspace.replacePreview），用户确认预览后宿主应用；打开的文档在编辑器里作为一次可撤销编辑、由用户保存，关闭的文件重新读取、由 Core 替换（workspace.replaceText），仅在内容未变时写回；预览可取消。search_replace_menu_test.go 覆盖入口与预览。"
+  "notes": "Viva：Replace in Files 由 Core 根据文件和打开文档的未保存文本规划替换（workspace.replacePreview），用户确认预览后宿主应用；打开的文档在编辑器里作为一次可撤销编辑、由用户保存，关闭的文件重新读取、由 Core 替换（workspace.replaceText），仅在内容未变时写回；预览可取消。search_replace_menu_test.go 覆盖入口与预览。 替换预览按去掉 CRLF 行尾 \\r 的行匹配，写回时保留原换行符；按磁盘内容替换时只替换 2 MiB 以内的 UTF-8 文件，搜索能找到的 GBK、UTF-16 和更大的文件不进替换预览（#2199 跟进）；有未保存修改的打开文档按编辑器内容替换，不受此限。"
 }

@@ -27,7 +27,15 @@ native_path() {
     fi
 }
 
-# Lithe-core-rust main at 0b6da27: #109, squash-merged into main: a canvas's on may list resize
+# Lithe-core-rust main at ce628c7: #116, squash-merged into main: content search and its index read
+# every file the editor opens as text (up to 16 MiB, decoded like file.read, binary files skipped)
+# and match a CRLF line without its \r; replacement previews still read only strict UTF-8 up to
+# 2 MiB. It is on top of #115 (929b8c6, documentation only), #112 (44d62e4, command test
+# discovery: build.testDiscoveryPlan and build.decodeTestDiscovery), #111 (c481227, global
+# toolchain provider queries resolved), #106 (509c2be, typed toolchain providers in the Rust SDK),
+# #114 (a9539ed) and #113 (31657cc, the Go plugin backend SDK), which only changed plugin SDKs and
+# documentation, and #110 (7b6a967, Core CI formatting check).
+# Below them, Lithe-core-rust main at 0b6da27: #109, squash-merged into main: a canvas's on may list resize
 # beside viewport, which the desktop sends with the new width 400 ms after the width stops
 # changing; every view event carries width, the width the view's nodes are laid out in. It is on
 # top of #108 (9dea6aa), squash-merged into main: managedRuntimes 1 lists mirror URLs for runtime
@@ -271,7 +279,7 @@ PINNED_CORE_REPOSITORY="https://github.com/Lithe-IDEA/Lithe-core-rust.git"
 # the contract, plugin guides, reference and SDKs live only in shared/plugins; on top of #16 (reported Git queries folded in the console),
 # #15 (git.write cherryPick, revert and reset fields), #14 (word-level changed ranges of diff
 # rows), #13, #8, #7, #6 and #4.
-PINNED_CORE_REVISION="0b6da2725ded74de7c3b62b49d12c1947dc0a38a"
+PINNED_CORE_REVISION="ce628c7e00c5707a6321eaf9a3062402c980d208"
 PROFILE="debug"
 while [[ $# -gt 0 ]]; do
     case "$1" in
