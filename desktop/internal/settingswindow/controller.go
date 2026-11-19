@@ -630,6 +630,12 @@ func (c *Controller) OpenVersionControl(application *app.Application, current Va
 	return c.open(application, current, pageVersionControl)
 }
 
+// OpenToolchains shows the window on the Toolchains page under Build, Execution, Deployment,
+// where a build's options dialog leads to choose the project's runtime.
+func (c *Controller) OpenToolchains(application *app.Application, current Values) error {
+	return c.open(application, current, pageToolchains)
+}
+
 // OpenAI shows the window on the Generation page, where the commit area's settings button leads.
 func (c *Controller) OpenAI(application *app.Application, current Values) error {
 	return c.open(application, current, pageAIGeneration)
