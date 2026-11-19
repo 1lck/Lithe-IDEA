@@ -115,6 +115,11 @@ type BuildResolvedOption struct {
 	Source          string                `json:"source"`
 	Choices         []BuildResolvedChoice `json:"choices"`
 	AllowCustom     bool                  `json:"allowCustom"`
+	// Description is what the option does, from the manifest, for the ⓘ next to it.
+	Description string `json:"description,omitempty"`
+	// ImplicitValue is what the build tool uses for an unset text, file or directory option, as the loaded
+	// model reported it (Maven's user settings file). It is shown only; Core passes nothing for it.
+	ImplicitValue string `json:"implicitValue,omitempty"`
 }
 
 // BuildResolvedChoice is one choice of a single-select or multi-select build option.

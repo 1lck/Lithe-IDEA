@@ -365,34 +365,52 @@ func indexRange(n int) []int {
 func (a *App) drawRunOptionField(c ui.C, language i18n.Language, field *runOptionField, ready bool) {
 	switch field.kind {
 	case "boolean":
-		ui.Checkbox(c, &field.flag, field.title).Disabled(!ready)
+		ui.Row(c).FillWidth().Items(ui.Center).Gap(4).Children(func() {
+			ui.Checkbox(c, &field.flag, field.title).Disabled(!ready)
+			a.drawRunOptionHelp(c, field.description)
+		})
 	case "singleSelect":
 		values, labels := runOptionChoiceIDs(*field)
-		ui.Select(c, &field.text, values, func(value string) string {
-			if value == "" {
-				return i18n.Shared(language, "desktop.runConfig.optionDefault")
-			}
-			return labels[value]
-		}).Label(field.title).FillWidth().Disabled(!ready)
+		ui.Row(c).FillWidth().Items(ui.End).Gap(4).Children(func() {
+			ui.Select(c, &field.text, values, func(value string) string {
+				if value == "" {
+					return i18n.Shared(language, "desktop.runConfig.optionDefault")
+				}
+				return labels[value]
+			}).Label(field.title).Grow(1).Disabled(!ready)
+			a.drawRunOptionHelp(c, field.description)
+		})
 	case "text", "file", "directory":
 		// A text field's label only names it to accessibility, so the option's name is a text above it.
 		ui.Column(c).FillWidth().Gap(6).Children(func() {
-			a.drawRunOptionTitle(c, field.title)
-			box := ui.TextField(c, &field.text, field.title, "").FillWidth().Disabled(!ready)
-			if field.kind == "text" {
-				return
-			}
-			// A file or directory is chosen with the system's dialog too, as in IDEA's path fields.
-			box.Action(icons.FolderOpen, i18n.Shared(language, "desktop.runConfig.browse"))
-			if box.ActionClicked() {
-				c.After(func() { a.browseRunOptionField(field) })
-			}
+			a.drawRunOptionTitle(c, field.title, field.description)
+			ui.Row(c).FillWidth().Items(ui.Center).Gap(8).Children(func() {
+				if field.implicit != "" {
+					// The effective value shows greyed until Override is checked, as in IDEA's Maven settings.
+					field.syncOverride()
+					ui.Checkbox(c.Part("override"), &field.override, i18n.Shared(language, "desktop.build.optionOverride")).Shrink(0).Disabled(!ready)
+					if !field.override {
+						shown := field.implicit
+						ui.TextField(c.Part("implicit"), &shown, field.title, "").Grow(1).Disabled(true)
+						return
+					}
+				}
+				box := ui.TextField(c.Part("value"), &field.text, field.title, "").Grow(1).Disabled(!ready)
+				if field.kind == "text" {
+					return
+				}
+				// A file or directory is chosen with the system's dialog too, as in IDEA's path fields.
+				box.Action(icons.FolderOpen, i18n.Shared(language, "desktop.runConfig.browse"))
+				if box.ActionClicked() {
+					c.After(func() { a.browseRunOptionField(field) })
+				}
+			})
 		})
 	case "multiSelect":
 		// The choices are keyed inside the field's own column: c names only the next element, so
 		// keyed as siblings of the other fields the first choice took the first field's key.
 		ui.Column(c).FillWidth().Gap(6).Children(func() {
-			a.drawRunOptionTitle(c, field.title)
+			a.drawRunOptionTitle(c, field.title, field.description)
 			for index := range field.choices {
 				title := field.choices[index].title
 				if field.choices[index].defaultActive {
@@ -410,9 +428,22 @@ func (a *App) drawRunOptionField(c ui.C, language i18n.Language, field *runOptio
 	}
 }
 
-// drawRunOptionTitle declares the name shown above an option's text field or choices.
-func (a *App) drawRunOptionTitle(c ui.C, title string) {
-	ui.Text(c, title).FontSize(a.theme.Metrics.FontSizeS).Color(a.colors.Subtle)
+// drawRunOptionTitle declares the name shown above an option's text field or choices, with the ⓘ of its
+// description.
+func (a *App) drawRunOptionTitle(c ui.C, title, description string) {
+	ui.Row(c).FillWidth().Items(ui.Center).Gap(4).Children(func() {
+		ui.Text(c, title).FontSize(a.theme.Metrics.FontSizeS).Color(a.colors.Subtle).Shrink(0)
+		a.drawRunOptionHelp(c, description)
+	})
+}
+
+// drawRunOptionHelp declares the ⓘ that shows what an option does, when the plugin describes it.
+func (a *App) drawRunOptionHelp(c ui.C, description string) {
+	if description == "" {
+		return
+	}
+	ui.Button(c.Part("help"), i18n.Shared(a.language(), "native.moreInformation")).Icon(icons.Info).IconOnly().Ghost().
+		Size(18, 18).Shrink(0).Tooltip(description).TooltipOn(ui.TooltipRight)
 }
 
 // runConfigDeletion is the user configuration the delete confirmation asks about.

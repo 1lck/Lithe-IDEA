@@ -109795,6 +109795,13 @@
       ]
     },
     {
+      "id": "desktop.build.optionOverride",
+      "description": "Checkbox beside a build option's path or text field: unchecked shows the value the build tool uses, checked lets the user set their own (IntelliJ IDEA's Override).",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
       "id": "desktop.build.optionChoiceDefaultLabel",
       "description": "Label of a default-active build option choice in an option editor: {title}",
       "platforms": [
