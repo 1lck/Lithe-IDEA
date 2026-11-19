@@ -60,6 +60,7 @@ func (a *App) buildToolActions(c ui.C, p *project) {
 				p.setAllBuildGroups(false)
 			})
 		}
+		a.buildToolbarToggles(c.Part("toggles"), p)
 		if _, hit := a.toolIconButton(c.Part("options"), i18n.Shared(language, "desktop.build.optionsTitle"), icons.Settings, false, false); hit {
 			c.After(func() {
 				a.performed("build.options.open", surfaceButton)
@@ -309,7 +310,7 @@ func (a *App) buildGroupRow(row ui.ListRow, p *project, instance *buildInstance,
 				a.reloadBuildModel(p, index)
 			})
 		}
-		if options && a.gitIconButton(c.Part("options"), i18n.Shared(language, "desktop.build.options"), icons.Settings, false, false) {
+		if options && a.gitIconButton(c.Part("options"), i18n.SharedFormat(language, "desktop.build.instanceOptions", map[string]string{"name": buildSystemName(instance)}), icons.Settings, false, false) {
 			c.After(func() {
 				a.performed("build.options.open", surfaceButton)
 				a.openBuildOptions(p, p.selectedBuildInstance())
@@ -344,7 +345,7 @@ func (a *App) buildGroupRow(row ui.ListRow, p *project, instance *buildInstance,
 				a.reloadBuildModel(p, index)
 			})
 		}
-		if options && menu.Item(i18n.Shared(language, "desktop.build.options")).Clicked() {
+		if options && menu.Item(i18n.SharedFormat(language, "desktop.build.instanceOptions", map[string]string{"name": buildSystemName(instance)})).Clicked() {
 			c.After(func() {
 				a.performed("build.options.open", surfaceContextMenu)
 				a.chooseBuildInstance(p, index)

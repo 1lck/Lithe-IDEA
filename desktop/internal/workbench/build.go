@@ -54,8 +54,12 @@ type buildState struct {
 	// reloadPending says a stored option changed while a detection was running, so the instances are
 	// detected again when that detection ends.
 	reloadPending bool
-	// optionSaving says a toggle on an option choice of the tree is being saved to the local document.
+	// optionSaving says a toggle on an option choice of the tree or of the toolbar is being saved
+	// to the local document.
 	optionSaving bool
+	// toolbarIconsRead are the package icons of toolbar toggles already asked for, by plugin and
+	// icon, so each is read once (build_toolbar_options.go).
+	toolbarIconsRead map[string]bool
 	// status is the last result line of the current or latest execution.
 	status string
 

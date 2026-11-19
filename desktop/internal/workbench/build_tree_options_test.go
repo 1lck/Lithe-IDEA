@@ -12,6 +12,7 @@ import (
 
 	"github.com/1lck/Lithe-IDEA/desktop/internal/core"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/i18n"
+	"github.com/1lck/Lithe-IDEA/desktop/internal/pluginicons"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/pluginstate"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/store"
 )
@@ -109,26 +110,7 @@ func openTreeOptionsProject(t *testing.T, kernel Kernel) (*harness, *project) {
 // openTreeOptionsProjectWith is openTreeOptionsProject with the plugin's manifest.
 func openTreeOptionsProjectWith(t *testing.T, kernel Kernel, manifest string) (*harness, *project) {
 	t.Helper()
-	dir := t.TempDir()
-	if err := os.WriteFile(filepath.Join(dir, settingsFile), []byte(`{"theme":"dark"}`), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	preferences := store.At(dir)
-	pluginRoot := t.TempDir()
-	installed := filepath.Join(pluginRoot, "dev.lithe.test.tree-options", "1.0.0")
-	if err := os.MkdirAll(installed, 0o700); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(filepath.Join(installed, "plugin.json"), []byte(manifest), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	if err := pluginstate.New(preferences).SetEnabled("dev.lithe.test.tree-options", true); err != nil {
-		t.Fatal(err)
-	}
-	root := t.TempDir()
-	if err := os.WriteFile(filepath.Join(root, "fixture.toml"), []byte(treeOptionsFixtureTOML), 0o600); err != nil {
-		t.Fatal(err)
-	}
+	preferences, pluginRoot, root := treeOptionsWorkspace(t, manifest, "dark")
 	h := newHarnessWithOptions(t, Options{
 		Kernel:       kernel,
 		PluginKernel: &testKernel{Client: core.NewClient()},
@@ -136,6 +118,43 @@ func openTreeOptionsProjectWith(t *testing.T, kernel Kernel, manifest string) (*
 		Store:        preferences,
 		Languages:    []string{"en-US"},
 	})
+	return h, showTreeOptionsProject(t, h, root)
+}
+
+// treeOptionsWorkspace installs and enables the fixture plugin with manifest, in preferences of
+// the given theme, and makes a project it detects.
+func treeOptionsWorkspace(t *testing.T, manifest, theme string) (preferences *store.Store, pluginRoot, root string) {
+	t.Helper()
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, settingsFile), []byte(`{"theme":"`+theme+`"}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	preferences = store.At(dir)
+	pluginRoot = t.TempDir()
+	installed := filepath.Join(pluginRoot, "dev.lithe.test.tree-options", "1.0.0")
+	if err := os.MkdirAll(filepath.Join(installed, "icons"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(installed, "plugin.json"), []byte(manifest), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	// The icon a toolbar option of the fixture may name.
+	if err := os.WriteFile(filepath.Join(installed, "icons", "offline.svg"), []byte(treeOptionsToggleIcon), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := pluginstate.New(preferences).SetEnabled("dev.lithe.test.tree-options", true); err != nil {
+		t.Fatal(err)
+	}
+	root = t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "fixture.toml"), []byte(treeOptionsFixtureTOML), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	return preferences, pluginRoot, root
+}
+
+// showTreeOptionsProject opens root in h with the Build window shown and waits for its tree.
+func showTreeOptionsProject(t *testing.T, h *harness, root string) *project {
+	t.Helper()
 	h.open(root)
 	p := h.app.project
 	if p == nil {
@@ -147,7 +166,7 @@ func openTreeOptionsProjectWith(t *testing.T, kernel Kernel, manifest string) (*
 		return !p.runConfigs.loading && p.build.instances[0].trees.whole != nil && !p.build.instances[0].trees.wholeOut
 	})
 	h.settle()
-	return h, p
+	return p
 }
 
 func storedProfileTokens(t *testing.T, h *harness, p *project) ([]string, bool) {
@@ -303,7 +322,7 @@ func TestBuildAndRunOptionEditorsResolveAndSaveModelChoices(t *testing.T) {
 	language := h.app.language()
 
 	// Open the Build options dialog on the selected instance.
-	h.clickNamed(h.shared("desktop.build.options"))
+	h.clickNamed(h.instanceOptions(p))
 	h.settleUntil("build options dialog resolved", func() bool {
 		e := &p.build.options
 		return e.open && e.ignored.loaded && len(e.fields) == 1 && e.fields[0].kind == "multiSelect"
@@ -388,7 +407,7 @@ var treeOptionsDirectoryFirstManifest = strings.Replace(treeOptionsStaticManifes
 func TestOptionEditorsShowAMultiSelectAfterAnotherOption(t *testing.T) {
 	h, p := openTreeOptionsProjectWith(t, &testKernel{Client: core.NewClient()}, treeOptionsDirectoryFirstManifest)
 
-	h.clickNamed(h.shared("desktop.build.options"))
+	h.clickNamed(h.instanceOptions(p))
 	h.settleUntil("build options dialog resolved", func() bool {
 		e := &p.build.options
 		return e.open && e.ignored.loaded && len(e.fields) == 2 && e.fields[1].kind == "multiSelect"
@@ -399,6 +418,11 @@ func TestOptionEditorsShowAMultiSelectAfterAnotherOption(t *testing.T) {
 	}
 	if !h.shows("Home") {
 		t.Fatal("the Build options dialog does not name its directory option")
+	}
+	// The directory is chosen with the system's dialog too, and the dialog is the build system's own.
+	h.hitLabeled(i18n.Shared(h.app.language(), "desktop.runConfig.browse"))
+	if !h.shows(h.instanceOptions(p)) {
+		t.Fatalf("the dialog is not titled %q", h.instanceOptions(p))
 	}
 	h.app.post(func(a *App) { p.build.options.open = false })
 	h.settle()
@@ -419,5 +443,53 @@ func TestOptionEditorsShowAMultiSelectAfterAnotherOption(t *testing.T) {
 	}
 	if !h.shows("Home") {
 		t.Fatal("the run configuration editor does not name its directory option")
+	}
+}
+
+// treeOptionsToggleIcon is the package icon of the fixture's toolbar option.
+const treeOptionsToggleIcon = `<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 16 16"><polygon fill="#6E6E6E" points="10.5 1 12 1 9 15 7.5 15"/></svg>`
+
+// treeOptionsToolbarManifest adds a boolean option presented on the toolbar, as Maven's Offline.
+var treeOptionsToolbarManifest = strings.Replace(treeOptionsStaticManifest, `"options": [{
+      "id": "profiles",`, `"options": [{"id": "offline", "displayName": "Offline", "kind": "boolean", "presentation": "toolbar", "icon": {"path": "icons/offline.svg"}, "arguments": ["-o"]}, {
+      "id": "profiles",`, 1)
+
+// A boolean option a plugin presents on the toolbar is a toggle there, with the plugin's icon,
+// as IDEA's Maven window has Toggle Offline Mode: a click stores the option in the local options
+// the Build options dialog edits, the toggle stays pressed, and a second click turns it off.
+func TestBuildToolbarTogglesABooleanOption(t *testing.T) {
+	h, p := openTreeOptionsProjectWith(t, &testKernel{Client: core.NewClient()}, treeOptionsToolbarManifest)
+	language := h.app.language()
+	toggle := func(on bool) string {
+		state := i18n.Shared(language, "desktop.build.toggleOff")
+		if on {
+			state = i18n.Shared(language, "desktop.build.toggleOn")
+		}
+		return i18n.SharedFormat(language, "desktop.build.toggleOption", map[string]string{"option": "Offline", "state": state})
+	}
+	instance := p.selectedBuildInstance()
+	awaitStateWithin(t, h, 10*time.Second, "the toggle's icon", func() bool {
+		_, ok := h.app.pluginIcons.Lookup(instance.PluginID, pluginicons.Declaration{Path: "icons/offline.svg"})
+		return ok
+	})
+	h.settle()
+
+	for _, on := range []bool{true, false} {
+		h.clickNamed(toggle(!on))
+		awaitStateWithin(t, h, 10*time.Second, "the option to be stored and the instance detected again", func() bool {
+			instance := p.selectedBuildInstance()
+			return !p.build.optionSaving && !p.build.loading && instance != nil && instance.optionOn("offline") == on
+		})
+		h.settle()
+		if !h.shows(toggle(on)) && h.hitLabeled(toggle(on)).Width == 0 {
+			t.Fatalf("the toggle is not shown as %v", on)
+		}
+		docs, err := h.app.readBuildOptionDocuments(context.Background(), p.root)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if stored := strings.Contains(strings.Join(strings.Fields(string(docs.local)), ""), `"offline":true`); stored != on {
+			t.Fatalf("local options %s, want offline stored as %v", docs.local, on)
+		}
 	}
 }
