@@ -116,12 +116,12 @@ type delayedSearchKernel struct {
 }
 
 func (k *delayedSearchKernel) InvalidateWorkspaceSearch(context.Context, string) error { return nil }
-func (k *delayedSearchKernel) SearchWorkspace(_ context.Context, request core.WorkspaceSearchRequest) ([]core.WorkspaceSearchMatch, error) {
+func (k *delayedSearchKernel) SearchWorkspacePage(_ context.Context, request core.WorkspaceSearchRequest) (core.WorkspaceSearchPage, error) {
 	k.started <- request.Query
 	if request.Query == "first" {
 		<-k.release
 	}
-	return []core.WorkspaceSearchMatch{{Path: request.Query}}, nil
+	return core.WorkspaceSearchPage{Matches: []core.WorkspaceSearchMatch{{Path: request.Query}}}, nil
 }
 
 func TestProjectSearchCancelsAndSerializesSupersededQueries(t *testing.T) {
@@ -284,8 +284,8 @@ func (k *cleanupSearchKernel) InvalidateWorkspaceSearch(context.Context, string)
 	k.invalidations.Add(1)
 	return nil
 }
-func (k *cleanupSearchKernel) SearchWorkspace(context.Context, core.WorkspaceSearchRequest) ([]core.WorkspaceSearchMatch, error) {
-	return nil, nil
+func (k *cleanupSearchKernel) SearchWorkspacePage(context.Context, core.WorkspaceSearchRequest) (core.WorkspaceSearchPage, error) {
+	return core.WorkspaceSearchPage{}, nil
 }
 
 func TestProjectSearchDropsIndexWhenProjectCloses(t *testing.T) {
@@ -454,10 +454,10 @@ type closeSearchKernel struct {
 	release chan struct{}
 }
 
-func (k *closeSearchKernel) SearchWorkspace(context.Context, core.WorkspaceSearchRequest) ([]core.WorkspaceSearchMatch, error) {
+func (k *closeSearchKernel) SearchWorkspacePage(context.Context, core.WorkspaceSearchRequest) (core.WorkspaceSearchPage, error) {
 	close(k.started)
 	<-k.release
-	return nil, nil
+	return core.WorkspaceSearchPage{}, nil
 }
 
 func TestProjectSearchCloseWaitsForInflightIndexBeforeCleanup(t *testing.T) {
@@ -491,7 +491,7 @@ func TestProjectSearchCloseWaitsForInflightIndexBeforeCleanup(t *testing.T) {
 	}
 }
 
-func TestProjectSearchVirtualizesAndDisclosesResultLimit(t *testing.T) {
+func TestProjectSearchVirtualizesLoadedGroups(t *testing.T) {
 	h := newHarness(t, &testKernel{Client: core.NewClient()})
 	h.open(t.TempDir())
 	h.click(center(h.button(itemFind)))
@@ -502,10 +502,8 @@ func TestProjectSearchVirtualizesAndDisclosesResultLimit(t *testing.T) {
 	for i := range p.search.matches {
 		p.search.matches[i] = core.WorkspaceSearchMatch{Path: fmt.Sprintf("file-%03d.txt", i), Preview: "sample"}
 	}
-	h.app.invalidator.Invalidate()
-	if err := h.driver.Pump(); err != nil {
-		t.Fatal(err)
-	}
+	h.app.projectSearchPresentation(p)
+	h.settle()
 	countRows := func() int {
 		n := 0
 		for _, hit := range h.driver.Snapshot().Hits {
@@ -525,15 +523,8 @@ func TestProjectSearchVirtualizesAndDisclosesResultLimit(t *testing.T) {
 	if got := countRows(); got > 20 {
 		t.Fatalf("scrolled rows = %d", got)
 	}
-	want := i18n.Shared(h.app.language(), "desktop.search.first200")
-	found := false
-	for _, label := range h.driver.Snapshot().Labels {
-		if len(label.Value) > 8 && strings.HasPrefix(want, label.Value) {
-			found = true
-		}
-	}
-	if !found {
-		t.Fatal("result limit is not disclosed")
+	if h.shows(i18n.Shared(h.app.language(), "desktop.search.first200")) {
+		t.Fatal("obsolete total cap shown")
 	}
 }
 
@@ -636,6 +627,9 @@ func TestProjectSearchF4OpensTheSelectedMatchAndKeepsItsPlace(t *testing.T) {
 		}
 	}
 	labels := map[string]bool{}
+	for _, row := range p.search.presentation.Rows {
+		labels[row.Path] = true
+	}
 	for _, match := range p.search.matches {
 		labels[searchMatchLabel(match)] = true
 	}
@@ -669,15 +663,15 @@ func TestProjectSearchF4OpensTheSelectedMatchAndKeepsItsPlace(t *testing.T) {
 		}
 	}
 
-	focusRow(1)
+	focusRow(3)
 	press(gfx.KeyF4)
 	opensAt(p.search.matches[1], 1)
-	if got := h.app.searchView.list.Selected(); got != 1 {
-		t.Fatalf("the result list selects row %d after F4, want the opened match (1)", got)
+	if got := h.app.searchView.list.Selected(); got != 3 {
+		t.Fatalf("the result list selects row %d after F4, want the opened match (3)", got)
 	}
 
 	h.app.settings.Keymap = h.app.settings.Keymap.With(shortcuts.OpenSelected, []keymap.Chord{chordF7(t)})
-	focusRow(0)
+	focusRow(1)
 	press(gfx.KeyF4)
 	if n := countPerformed(log, "workspace.search.openResult"); n != 1 {
 		t.Fatalf("F4 opened a match while Open Selected File is on F7 (%d opens)", n)

@@ -189,6 +189,25 @@ jobs:
           if-no-files-found: error
           retention-days: 14
 
+      - name: Capture search screenshots
+        id: search-visual
+        if: ${{ !cancelled() && steps.rust.outcome == 'success' }}
+        timeout-minutes: 5
+        env:
+          LITHE_VISUAL_OUTPUT_DIR: ${{ github.workspace }}/.artifacts/search-visual
+        run: |
+          ./scripts/desktop/desktop-go.sh test -tags 'vivahead lithevisual' ./internal/workbench ./internal/settingswindow \
+            -run '^TestVisualSearch(Results|Preferences)$' -count=1 -timeout=120s
+
+      - name: Upload search screenshots
+        if: ${{ !cancelled() && steps.search-visual.outcome != 'skipped' }}
+        uses: actions/upload-artifact@v7
+        with:
+          name: search-visual-${{ runner.os }}-${{ runner.arch }}
+          path: .artifacts/search-visual/*.png
+          if-no-files-found: error
+          retention-days: 14
+
       - name: Upload native verification reports
         if: always()
         uses: actions/upload-artifact@v7

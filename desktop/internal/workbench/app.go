@@ -221,6 +221,7 @@ type Kernel interface {
 	ReduceDocumentSaveBatch(ctx context.Context, members []string, results []core.SaveBatchResult, documents []core.SaveBatchDocument) (core.SaveBatchDecision, error)
 	ReduceDocument(ctx context.Context, state core.DocumentState, event core.DocumentEvent) (core.DocumentDecision, error)
 	SearchWorkspace(ctx context.Context, request core.WorkspaceSearchRequest) ([]core.WorkspaceSearchMatch, error)
+	SearchWorkspacePage(ctx context.Context, request core.WorkspaceSearchRequest) (core.WorkspaceSearchPage, error)
 	InvalidateWorkspaceSearch(ctx context.Context, root string) error
 	FilterWorkspaceChanges(ctx context.Context, paths []string) ([]string, error)
 	UpdateWorkspaceSearch(ctx context.Context, root string, paths []string) error
@@ -538,6 +539,7 @@ type App struct {
 	recentFiles           recentFileState
 	drafts                draftListState
 	editorPreferences     core.EditorPreferences
+	searchPreferences     core.SearchPreferences
 	// clipboardImage and pasteDirectory replace, in tests, reading the clipboard's picture
 	// and the cache folder a picture pasted into a terminal is saved in
 	// (terminal_paste_image.go); nil is the system's.
@@ -919,6 +921,7 @@ func New(options Options) *App {
 	if restoreErr != nil {
 		a.backgroundFailed("update_snapshot", restoreErr)
 	}
+	a.loadSearchPreferences()
 	a.openPlugins(options)
 	a.settingsWindow = a.newSettingsWindow()
 	a.loadRecent()

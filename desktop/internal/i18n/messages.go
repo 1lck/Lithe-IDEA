@@ -579,6 +579,7 @@ type SettingsMessages struct {
 	Debuggers          string
 	Languages          string
 	Tools              string
+	SearchPage         string
 	AI                 string
 	IDEAPI             string
 	// PageLater is the body of a page the new desktop client does not offer yet.

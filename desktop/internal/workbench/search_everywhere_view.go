@@ -171,9 +171,10 @@ func (a *App) everywhereFilter(c ui.C, p *project, language i18n.Language) {
 			v.hiddenKinds = map[string]bool{}
 		}
 		names := map[string]string{
-			"file":   i18n.Shared(language, "desktop.everywhere.files"),
-			"type":   i18n.Shared(language, "desktop.everywhere.classes"),
-			"symbol": i18n.Shared(language, "desktop.everywhere.symbols"),
+			"file":    i18n.Shared(language, "desktop.everywhere.files"),
+			"type":    i18n.Shared(language, "desktop.everywhere.classes"),
+			"symbol":  i18n.Shared(language, "desktop.everywhere.symbols"),
+			"content": i18n.Shared(language, "desktop.everywhere.text"),
 		}
 		for _, kind := range everywhereKinds {
 			shown := !v.hiddenKinds[kind]
@@ -234,10 +235,6 @@ func (a *App) everywhereWithPreview(c ui.C, p *project, language i18n.Language) 
 // end of what was loaded asks for the next page.
 func (a *App) everywhereResults(c ui.C, p *project, language i18n.Language) {
 	v, s := &a.everywhereView, &p.everywhere
-	rowHeight := float32(everywhereFileHeight)
-	if s.scope == 5 {
-		rowHeight = everywhereTextHeight
-	}
 	v.list.Label = func(i int) string { return searchMatchLabel(s.matches[i]) }
 	// The list learns its row count when it is declared, so the first paint with matches
 	// cannot select one yet and the next does. Only a selection that moved scrolls the list;
@@ -253,6 +250,10 @@ func (a *App) everywhereResults(c ui.C, p *project, language i18n.Language) {
 	ui.List(c, &v.list, len(s.matches), func(row ui.ListRow) {
 		result := s.matches[row.Index]
 		selected := row.Index == s.selected
+		rowHeight := float32(everywhereFileHeight)
+		if result.Kind == "content" {
+			rowHeight = everywhereTextHeight
+		}
 		row.Element.FillWidth().Height(rowHeight).Items(ui.Center).PadX(10).Gap(8).Children(func() {
 			a.everywhereRow(row.C, p, result, selected)
 		})
@@ -284,10 +285,6 @@ func (a *App) everywhereResults(c ui.C, p *project, language i18n.Language) {
 			ui.Text(c, i18n.Shared(language, "search.failed")).Color(a.theme.Danger)
 			a.everywhereRetry(c, p, language)
 		})
-		return
-	}
-	if s.cursor != nil && len(s.matches) >= everywhereMaxResults {
-		ui.Paragraph(c, i18n.Shared(language, "desktop.everywhere.limit"), 2).Muted()
 		return
 	}
 	if s.cursor != nil && !s.loading && !s.running {

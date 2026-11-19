@@ -9,7 +9,11 @@
     "evidence": [
       "desktop/internal/workbench/search.go",
       "desktop/internal/workbench/search_test.go",
-      "desktop/internal/core/workspace.go"
+      "desktop/internal/core/workspace.go",
+      "desktop/internal/workbench/search_idea_test.go",
+      "desktop/internal/workbench/search_presentation.go",
+      "desktop/internal/workbench/search_scope_view.go",
+      "desktop/internal/workbench/search_visual_test.go"
     ]
   },
   "windows": {
@@ -18,11 +22,15 @@
     "evidence": [
       "desktop/internal/workbench/search.go",
       "desktop/internal/workbench/search_test.go",
-      "desktop/internal/core/workspace.go"
+      "desktop/internal/core/workspace.go",
+      "desktop/internal/workbench/search_idea_test.go",
+      "desktop/internal/workbench/search_presentation.go",
+      "desktop/internal/workbench/search_scope_view.go",
+      "desktop/internal/workbench/search_visual_test.go"
     ]
   },
   "owner": "Search",
-  "verification": "使用同一项目和查询 fixture 对比命中路径、行号、列号和结果排序；在 macOS 深浅主题检查搜索框输入、焦点与失焦、工具按钮及文件类型图标；点击侧栏 Search 时第一个输入框不自动获得焦点，使用 Cmd+Shift+F 时仍获得焦点。 Search 查询与文件掩码、Database 连接搜索、Redis Key pattern 和 Nacos 配置/服务搜索均直接使用 Git Log 同源的全局唯一 LitheSearchFieldStyle；在深浅主题核对 36pt 外框、30pt 可见高度、4pt 圆角、1pt 常态边框、2pt 聚焦边框、3pt 外留白及 13pt 常规文字和提示色，确认无局部背景或原生边框叠加，并保留搜索、清除与键盘提交行为。 使用原生 NSHostingView 渲染验证共享 LitheSearchTextField 的占位文字在深浅主题均为 IDEA Component.infoForeground 对应的 #73767C、13pt 常规字重；空输入框单独绘制占位文字，避免 SwiftUI 原生 prompt 替换其颜色与字重，有内容时占位文字消失并保留原生编辑和主文字色。 中文输入法组词期间，即使绑定文本仍为空，共享 LitheSearchTextField 占位文字立即隐藏；取消组词或删空后恢复，确认中文后仍隐藏。原生 setMarkedText 回归覆盖明暗主题和两个输入框互不影响；保留焦点、键盘提交、搜索/过滤语义及占位字号颜色。原生背景观察视图卸载和移出窗口时清理通知，匹配当前窗口的字段编辑器及所属输入区域，不修改业务绑定。 共享搜索字段未聚焦时悬停立即显示文本编辑光标，离开或禁用时恢复箭头；保留中文组词、焦点及键盘动作。 macOS 项目树文件、目录、项目根和多选右键菜单均显示 Find in Files，调用已有项目范围搜索并聚焦查询框；验证编辑器选中文字预填与现有搜索规则。该菜单入口沿用整个项目范围。 在同一项目放入大量文件名含查询词的文件、GBK 与 UTF-16 文件、2–16 MiB 日志和 CRLF 文件，确认结果只有内容行、各文件都能命中、正则 `$` 在 CRLF 行尾生效，点击结果跳到匹配列。",
+  "verification": "使用同一项目和查询 fixture 对比命中路径、行号、列号和结果排序；在 macOS 深浅主题检查搜索框输入、焦点与失焦、工具按钮及文件类型图标；点击侧栏 Search 时第一个输入框不自动获得焦点，使用 Cmd+Shift+F 时仍获得焦点。 Search 查询与文件掩码、Database 连接搜索、Redis Key pattern 和 Nacos 配置/服务搜索均直接使用 Git Log 同源的全局唯一 LitheSearchFieldStyle；在深浅主题核对 36pt 外框、30pt 可见高度、4pt 圆角、1pt 常态边框、2pt 聚焦边框、3pt 外留白及 13pt 常规文字和提示色，确认无局部背景或原生边框叠加，并保留搜索、清除与键盘提交行为。 使用原生 NSHostingView 渲染验证共享 LitheSearchTextField 的占位文字在深浅主题均为 IDEA Component.infoForeground 对应的 #73767C、13pt 常规字重；空输入框单独绘制占位文字，避免 SwiftUI 原生 prompt 替换其颜色与字重，有内容时占位文字消失并保留原生编辑和主文字色。 中文输入法组词期间，即使绑定文本仍为空，共享 LitheSearchTextField 占位文字立即隐藏；取消组词或删空后恢复，确认中文后仍隐藏。原生 setMarkedText 回归覆盖明暗主题和两个输入框互不影响；保留焦点、键盘提交、搜索/过滤语义及占位字号颜色。原生背景观察视图卸载和移出窗口时清理通知，匹配当前窗口的字段编辑器及所属输入区域，不修改业务绑定。 共享搜索字段未聚焦时悬停立即显示文本编辑光标，离开或禁用时恢复箭头；保留中文组词、焦点及键盘动作。 macOS 项目树文件、目录、项目根和多选右键菜单均显示 Find in Files，调用已有项目范围搜索并聚焦查询框；验证编辑器选中文字预填与现有搜索规则。该菜单入口沿用整个项目范围。 在同一项目放入大量文件名含查询词的文件、GBK 与 UTF-16 文件、2–16 MiB 日志和 CRLF 文件，确认结果只有内容行、各文件都能命中、正则 `$` 在 CRLF 行尾生效，点击结果跳到匹配列。 #2199：核对超过200条的同文件/多文件分页、文件折叠、未保存文本、范围过滤；设置16/32/64 MiB、恢复默认及外部冲突，确认查询/替换生效且不写安装目录。",
   "legacy": {
     "revision": "5a54c41aa37a4e6e6b68918a4b05765b9dd07a36",
     "macos": {
@@ -45,5 +53,5 @@
       "verificationStatus": "pending"
     }
   },
-  "notes": "Viva 已接入 Core 项目搜索、掩码与选项、结果跳转和递归监听增量刷新；结果只列内容行，文件名匹配不再占满 200 条上限；编辑器能打开的 GBK/GB18030、UTF-16、16 MiB 以内的文件和 CRLF 行尾都能搜到（#2198）；预览换行、右键入口、列位置、完整视觉对齐及 Windows 整机验收仍待完成。macOS 无头界面和 Windows 监听组件测试不替代两端完整验收。"
+  "notes": "Viva：Core 内容搜索按50行自动续页，同文件跨页不漏行；结果按文件分组/折叠，计数明确为已加载匹配行与文件数。支持脏文档快照、项目/已加载模块/目录/自定义路径和glob范围、临时包含Git忽略文件；手动排除和结构隐藏仍保留。大小来自工具→搜索设置。完整总数、生成目录覆盖、符号链接跟随及两端实机/性能验收仍由 #2199 跟踪。"
 }

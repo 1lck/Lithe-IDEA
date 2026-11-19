@@ -11,6 +11,7 @@ import (
 	"sync"
 
 	"github.com/1lck/Lithe-IDEA/desktop/internal/core"
+	"github.com/1lck/Lithe-IDEA/desktop/internal/documentio"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/editor/rope"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/editorview"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/i18n"
@@ -197,6 +198,23 @@ func (a *App) scheduleDocumentChecks(p *project) {
 		baseline := d.view.SavedSnapshot()
 		missing := d.recreateMissing
 		read := a.documentReader
+		maximum := int64(a.searchPreferences.MaximumFileBytes)
+		if baseline.Len() > 16<<20 {
+			read = func(path string) ([]byte, error) {
+				data, err := documentio.ReadFileLimit(path, maximum)
+				if err != nil {
+					return nil, err
+				}
+				kind, err := core.ClassifyDocumentText(data)
+				if kind == core.DocumentInvalidUTF8 {
+					return nil, errUnsupportedEncoding
+				}
+				if kind == core.DocumentBinary {
+					return nil, errNotText
+				}
+				return data, err
+			}
+		}
 		kernel, _ := a.kernel.(editorKernel)
 		encoding, hasBOM, disk := d.encoding, d.hasBOM, d.diskBytes
 		a.background(p, 0, func(ctx context.Context) func(*App) {

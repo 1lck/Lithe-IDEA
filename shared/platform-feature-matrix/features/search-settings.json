@@ -1,0 +1,33 @@
+{
+  "id": "search-settings",
+  "area": "搜索",
+  "group": "搜索与导航",
+  "capability": "搜索与替换文件大小设置",
+  "owner": "Search",
+  "verification": "打开工具→搜索回显真实search.json；确认打开不写文件，应用后回读并在搜索和替换生效；外部编辑后Apply拒绝且保留草稿，刷新重读，恢复默认；明暗主题中英文及两端原生验收。",
+  "notes": "共用Viva页面和Core解析，默认16 MiB、可设置1–64 MiB，替换缺省继承搜索；64 MiB是当前解码和原生I/O安全边界，未支持无限大小。偏好位于平台用户目录，不进入bundle。",
+  "macos": {
+    "implementationStatus": "implemented",
+    "verificationStatus": "pending",
+    "evidence": [
+      "desktop/internal/settingswindow/search_view.go",
+      "desktop/internal/settingswindow/search_view_test.go",
+      "desktop/internal/settingswindow/search_visual_test.go",
+      "desktop/internal/searchprefs/source.go",
+      "desktop/internal/searchprefs/source_test.go",
+      "desktop/internal/workbench/search_preferences.go"
+    ]
+  },
+  "windows": {
+    "implementationStatus": "implemented",
+    "verificationStatus": "pending",
+    "evidence": [
+      "desktop/internal/settingswindow/search_view.go",
+      "desktop/internal/settingswindow/search_view_test.go",
+      "desktop/internal/settingswindow/search_visual_test.go",
+      "desktop/internal/searchprefs/source.go",
+      "desktop/internal/searchprefs/source_test.go",
+      "desktop/internal/workbench/search_preferences.go"
+    ]
+  }
+}
