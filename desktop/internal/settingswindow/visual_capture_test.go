@@ -53,7 +53,7 @@ func TestVisualSettings(t *testing.T) {
 		{"m50-toolchain-project-trust-tip", pageToolchains},
 		{"fonts", pageFonts},
 		{"21-settings-language-popup", pageGeneral}, {"30-settings-history", pageGeneral}, {"m46-history-default-rules-help", pageGeneral}, {"35-settings-search", pageEditor},
-		{"m35-editor-tab-layout", pageEditor}, {"m25-project-open-mode", pageGeneral}, {"m29-editor-font-menu", pageFonts}, {"m38-plugin-management-menu", pagePlugins},
+		{"m35-editor-tab-layout", pageEditor}, {"m25-project-open-mode", pageGeneral}, {"m29-editor-font-menu", pageFonts}, {"m38-plugin-management-menu", pagePlugins}, {"m42-plugin-auto-update-on", pagePlugins},
 		{"m39-proxy-mode-menu", pageNetwork}, {"m40-process-run-policy", pageProcessTermination},
 		{"m41-process-terminal-policy", pageProcessTermination}, {"m43-process-orphan-policy", pageProcessTermination},
 		{"36-settings-about", pageAbout}, {"36-settings-about-projects", pageAbout},
@@ -96,7 +96,8 @@ func TestVisualSettings(t *testing.T) {
 					},
 					SetSteppingFilters: func(string, *core.DebugSteppingFilters) {},
 				}
-				values := Values{Theme: theme, Language: language.Code(), TerminalScrollback: 2000}
+				opts.SetAutoUpdatePlugins = func(bool) {}
+				values := Values{Theme: theme, Language: language.Code(), TerminalScrollback: 2000, AutoUpdatePlugins: scenario.id == "m42-plugin-auto-update-on"}
 				if scenario.page == pageBuild || scenario.page == pageDebuggers {
 					values.SteppingFilters = map[string]core.DebugSteppingFilters{"fixture-jvm": {ClassNameFilters: []string{"java.*", "javax.*", "sun.*", "com.example.generated.*"}, SkipSynthetics: true, SkipStaticInitializers: true}}
 				}
@@ -193,7 +194,7 @@ func TestVisualSettings(t *testing.T) {
 				case "m29-editor-font-menu":
 					d.click(text("settings.editor.fontFamily"))
 					d.key(gfx.KeyDown)
-				case "m38-plugin-management-menu":
+				case "m38-plugin-management-menu", "m42-plugin-auto-update-on":
 					d.click(text("desktop.pluginSettings.title"))
 				case "m39-proxy-mode-menu":
 					d.click(text("desktop.settings.network.mode"))

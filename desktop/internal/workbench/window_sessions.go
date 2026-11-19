@@ -155,6 +155,7 @@ func (s *windowSessions) config() app.Config {
 		// runs now.
 		if s.active != nil {
 			s.active.resumeUpdateCheck()
+			s.active.resumePluginAutoUpdates()
 		}
 	}
 	window.OnFullscreen = func(fullscreen bool) {

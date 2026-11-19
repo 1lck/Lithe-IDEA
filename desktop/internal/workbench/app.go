@@ -322,6 +322,8 @@ type settings struct {
 	MarketplaceWidth float32     `json:"marketplaceWidth,omitempty"`
 	// MarketplaceSources are the custom plugin index URLs the user added, in the order they were added.
 	MarketplaceSources []string `json:"marketplaceSources,omitempty"`
+	// AutoUpdatePlugins lets approved marketplace plugins update with unchanged grants.
+	AutoUpdatePlugins bool `json:"autoUpdatePlugins,omitempty"`
 	// HideMinimap hides the minimap of every editor; the editors show it by default.
 	HideMinimap bool `json:"hideMinimap,omitempty"`
 	// HideGitGutter hides the Git change markers of the editor gutter; they show by default.
@@ -591,8 +593,9 @@ type App struct {
 	shownTitle string
 	// updates is the update check, download and install, which every tab of the window
 	// shares (updates.go).
-	updates *updater
-	tasks   taskQueue
+	updates    *updater
+	pluginAuto *pluginAutoUpdater
+	tasks      taskQueue
 	// languages are the languages the editor knows, made when the first file is opened.
 	languages *syntax.Registry
 
@@ -868,9 +871,11 @@ func New(options Options) *App {
 		a.application, a.window, a.fullscreen = first.application, first.window, first.fullscreen
 		a.logSink, a.logs = first.logSink, first.logs
 		a.updates = first.updates
+		a.pluginAuto = first.pluginAuto
 	} else {
 		a.sessions = newWindowSessions(a, options)
 		a.updates = newUpdater(a.settings)
+		a.pluginAuto = &pluginAutoUpdater{enabled: a.settings.AutoUpdatePlugins}
 		a.invalidator = windowWake{invalidator: new(app.Invalidator)}
 	}
 	if options.Logs != nil && options.first == nil {
@@ -983,6 +988,7 @@ func (a *App) Run() error {
 		}
 		a.window = window
 		a.startUpdates()
+		a.startPluginAutoUpdates()
 		if path := a.startupPath; path != "" {
 			a.startupPath = ""
 			a.post(func(a *App) { a.openProject(path) })
@@ -1001,6 +1007,7 @@ func (a *App) Run() error {
 		}
 		return nil
 	})
+	a.stopPluginAutoUpdates()
 	a.windowLoopEnded(err, faulted.Load())
 	for _, session := range a.sessions.everyOne() {
 		session.unsubscribeSettings()

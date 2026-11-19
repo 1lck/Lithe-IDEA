@@ -116,6 +116,9 @@ func (a *App) newSettingsWindow() *settingswindow.Controller {
 			return ""
 		},
 		MarketplaceSources: append([]string(nil), a.settings.MarketplaceSources...),
+		SetAutoUpdatePlugins: func(on bool) {
+			a.post(func(a *App) { a.setPluginAutoUpdates(on) })
+		},
 		FetchMarketplaceSource: func(ctx context.Context, url string) (marketplace.Snapshot, error) {
 			arch := runtime.GOARCH
 			if arch == "amd64" {
@@ -434,9 +437,10 @@ func (a *App) openSettingsPageWith(surface actionSurface, page settingsPage, que
 			Fonts:                    fontprefs.Normalize(a.settings.Fonts),
 			Keymap:                   maps.Clone(a.settings.Keymap),
 			EditorPreferences:        a.editorPreferences, EditorStoredPreferences: a.settings.EditorPreferences, KeymapSchemes: a.settings.KeymapSchemes,
-			Network:          a.settings.Network,
-			LocalHistory:     a.settings.LocalHistory,
-			AutoCheckUpdates: a.autoCheckUpdates(),
+			Network:           a.settings.Network,
+			LocalHistory:      a.settings.LocalHistory,
+			AutoCheckUpdates:  a.autoCheckUpdates(),
+			AutoUpdatePlugins: a.pluginAuto != nil && a.pluginAuto.enabled,
 		}
 		var err error
 		switch page {

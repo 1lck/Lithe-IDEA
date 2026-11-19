@@ -13028,6 +13028,30 @@
       ]
     },
     {
+      "id": "desktop.marketplace.autoUpdated",
+      "description": "Notice after automatic updates of previously approved marketplace plugins; restart is needed to activate them.",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "count": "string"
+      }
+    },
+    {
+      "id": "desktop.marketplace.disableAutoUpdates",
+      "description": "Menu option to disable automatic updates of approved marketplace plugins.",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.marketplace.enableAutoUpdates",
+      "description": "Menu option to enable automatic updates of approved marketplace plugins.",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
       "id": "desktop.marketplace.cancel",
       "description": "Button that closes the review without installing.",
       "platforms": [
