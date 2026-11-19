@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"strings"
 	"sync"
 	"testing"
 
@@ -61,7 +62,11 @@ type semanticFixture struct {
 func newSemanticFixture(t *testing.T) *semanticFixture {
 	t.Helper()
 	kernel := &semanticTestKernel{testKernel: &testKernel{Client: core.NewClient()}}
-	h := newHarness(t, kernel)
+	return openSemanticFixture(t, newHarness(t, kernel), kernel)
+}
+
+func openSemanticFixture(t *testing.T, h *harness, kernel *semanticTestKernel) *semanticFixture {
+	t.Helper()
 	h.open(t.TempDir())
 	service, err := pluginservice.Open(kernel, h.store, t.TempDir())
 	if err != nil {
@@ -333,6 +338,100 @@ func TestExplicitCompletionAcceptsThroughCoreEdits(t *testing.T) {
 	}
 	if f.h.app.semantics.completion.open {
 		t.Fatal("the completion list stayed open after acceptance")
+	}
+}
+
+const (
+	completionTimeoutLabel  = "WithTimeout"
+	completionCauseLabel    = "WithTimeoutCause"
+	completionTimeoutDetail = "func(parent context.Context, timeout time.Duration) (context.Context, context.CancelFunc)"
+	completionCauseDetail   = "func(parent context.Context, timeout time.Duration, cause error) (context.Context, context.CancelFunc)"
+)
+
+func (f *semanticFixture) openFunctionCompletions(t *testing.T) {
+	t.Helper()
+	f.openCompletions(t,
+		core.PluginSemanticCompletionItem{Label: completionTimeoutLabel, Detail: completionTimeoutDetail},
+		core.PluginSemanticCompletionItem{Label: completionCauseLabel, Detail: completionCauseDetail},
+	)
+}
+
+func (f *semanticFixture) openCompletions(t *testing.T, items ...core.PluginSemanticCompletionItem) {
+	t.Helper()
+	f.d.view.GoToNavigation(0, 0, false)
+	if err := f.h.driver.Key(gfx.KeySpace, gfx.ModifierControl); err != nil {
+		t.Fatal(err)
+	}
+	f.waitForRequests(t, 1)
+	f.deliver(t, "op-1", pluginMethodCompletion, completionResult(t, items...))
+}
+
+func TestCompletionPopupKeepsFunctionNamesAndShowsSelectedSignature(t *testing.T) {
+	f := newSemanticFixture(t)
+	if err := f.h.driver.Resize(350, 600); err != nil {
+		t.Fatal(err)
+	}
+	f.openFunctionCompletions(t)
+	snapshot := f.h.driver.Snapshot()
+	for _, name := range []string{completionTimeoutLabel, completionCauseLabel} {
+		var row gfx.Rect
+		for _, hit := range snapshot.Hits {
+			if hit.Label == name && hit.Role == gfx.RoleOption {
+				row = hit.Bounds
+			}
+		}
+		found := false
+		for _, label := range snapshot.Labels {
+			if label.Value == name && label.Bounds.X >= row.X && label.Bounds.Right() <= row.Right() &&
+				label.Bounds.Y >= row.Y && label.Bounds.Bottom() <= row.Bottom() {
+				found = true
+			}
+		}
+		if !found {
+			t.Errorf("candidate row did not paint the full name %q", name)
+		}
+	}
+	if !f.h.showsWrapped(completionTimeoutDetail) || f.h.showsWrapped(completionCauseDetail) {
+		t.Error("the first candidate's complete signature should be readable")
+	}
+	if err := f.h.driver.Key(gfx.KeyDown, 0); err != nil {
+		t.Fatal(err)
+	}
+	if !f.h.showsWrapped(completionCauseDetail) || f.h.showsWrapped(completionTimeoutDetail) {
+		t.Error("the complete signature should follow keyboard selection")
+	}
+	if focus := f.h.driver.Snapshot().Focused; focus != snapshot.Focused || focus.IsZero() {
+		t.Fatalf("focus changed from %v to %v while choosing a candidate", snapshot.Focused, focus)
+	}
+	if err := f.h.driver.Key(gfx.KeyEnter, 0); err != nil {
+		t.Fatal(err)
+	}
+	f.h.settle()
+	if got := f.d.view.TextSnapshot().String(); got != "WithTimeoutCauseone\n" {
+		t.Fatalf("accepted text = %q", got)
+	}
+}
+
+func TestCompletionPopupCanScrollToTheEndOfALongSignature(t *testing.T) {
+	f := newSemanticFixture(t)
+	if err := f.h.driver.Resize(350, 600); err != nil {
+		t.Fatal(err)
+	}
+	const tail = "finalParameter bool)"
+	detail := "func(" + strings.Repeat("parameter distinguished.package.Type, ", 16) + tail
+	f.openCompletions(t, core.PluginSemanticCompletionItem{Label: "call", Detail: detail})
+	if f.h.showsWrapped(tail) {
+		t.Fatal("the end of the long signature should start outside the preview")
+	}
+	completion := f.h.hitLabeled(f.h.shared("desktop.semantics.completion"))
+	if err := f.h.driver.Scroll(gfx.ScrollEvent{
+		X: completion.X + completion.Width/2, Y: completion.Bottom() - 12,
+		DeltaY: 600, Precise: true,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if !f.h.showsWrapped(tail) {
+		t.Fatal("scrolling the preview did not reveal the end of the signature")
 	}
 }
 

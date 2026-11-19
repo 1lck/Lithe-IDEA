@@ -150,6 +150,33 @@ func TestLSPSignatureHelpShortcutPresentsAndDismisses(t *testing.T) {
 	}
 }
 
+func TestLSPSignatureHelpKeepsCompletionPreviewVisible(t *testing.T) {
+	f := newSemanticFixture(t)
+	if err := f.h.driver.Resize(350, 600); err != nil {
+		t.Fatal(err)
+	}
+	f.openFunctionCompletions(t)
+	f.server.features = map[string]bool{featureSignatureHelp: true}
+	f.h.app.startPluginSignatureHelp(f.p, f.d, 0, 0, "")
+	f.waitForRequests(t, 2)
+	f.deliver(t, "op-2", pluginMethodSignatureHelp, json.RawMessage(`{
+		"signatureHelp": {
+			"signatures": [{"label":"call(arg: string)", "documentation":"Active call.",
+				"parameters": [{"documentation":"Active argument.", "byteStart":5, "byteEnd":8}]}],
+			"activeSignature":0, "activeParameter":0
+		}
+	}`))
+	completion := f.h.hitLabeled(f.h.shared("desktop.semantics.completion"))
+	parameters := f.h.hitLabeled(f.h.shared("desktop.semantics.signatureHelp"))
+	if completion.X < parameters.Right() && parameters.X < completion.Right() &&
+		completion.Y < parameters.Bottom() && parameters.Y < completion.Bottom() {
+		t.Fatalf("completion %v and parameter information %v overlap", completion, parameters)
+	}
+	if !f.h.showsWrapped(completionTimeoutDetail) || !f.h.shows("Active argument.") {
+		t.Fatal("the selected completion and current parameter details should both be visible")
+	}
+}
+
 func TestLSPInlayHintsReleaseWhenDisabled(t *testing.T) {
 	f := newSemanticFixture(t)
 	f.h.app.editorPreferences.InlayHints = true

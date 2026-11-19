@@ -61,6 +61,52 @@ func TestVisualGradleFileIcons(t *testing.T) {
 	}
 }
 
+func TestVisualCompletionPopup(t *testing.T) {
+	out := os.Getenv("LITHE_VISUAL_OUTPUT_DIR")
+	if out == "" {
+		t.Skip("set LITHE_VISUAL_OUTPUT_DIR")
+	}
+	if err := os.MkdirAll(out, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	for _, scene := range []struct {
+		theme, language string
+		width           int
+	}{
+		{"light", "en-US", 1000},
+		{"dark", "zh-Hans", 1000},
+		{"light", "zh-Hans", 350},
+		{"dark", "en-US", 350},
+	} {
+		t.Run(scene.theme+"-"+scene.language, func(t *testing.T) {
+			prefs := store.At(t.TempDir())
+			if err := prefs.Save(settingsFile, map[string]string{"theme": scene.theme}); err != nil {
+				t.Fatal(err)
+			}
+			kernel := &semanticTestKernel{testKernel: &testKernel{Client: core.NewClient()}}
+			var session *headless.Session
+			h := newHarnessWithDriver(t, Options{Kernel: kernel, Store: prefs, Languages: []string{scene.language}}, func(config app.Config) (*app.Driver, func(), error) {
+				config.Width, config.Height = scene.width, 600
+				config.MinWidth = min(config.MinWidth, scene.width)
+				var err error
+				session, err = headless.Open(config, nil, headless.Options{})
+				if err != nil {
+					return nil, nil, err
+				}
+				return session.Driver(), session.Close, nil
+			})
+			f := openSemanticFixture(t, h, kernel)
+			f.openFunctionCompletions(t)
+			if err := h.driver.Key(gfx.KeyDown, 0); err != nil {
+				t.Fatal(err)
+			}
+			if err := session.Screenshot(filepath.Join(out, "completion-"+scene.theme+"-"+scene.language+".png")); err != nil {
+				t.Fatal(err)
+			}
+		})
+	}
+}
+
 // TestVisualWorkbench uses the archive's repository in a private temporary checkout.
 // No installed plugins, user settings, native windows or network services are used.
 func TestVisualWorkbench(t *testing.T) {
