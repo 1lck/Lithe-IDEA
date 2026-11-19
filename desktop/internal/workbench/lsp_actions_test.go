@@ -6,6 +6,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -148,6 +149,91 @@ func TestLSPSignatureHelpShortcutPresentsAndDismisses(t *testing.T) {
 	if f.h.app.semantics.signatureHelp.open {
 		t.Fatal("Escape left the signature popup open")
 	}
+}
+
+func TestLSPSignatureHelpKeepsCompletionPreviewVisible(t *testing.T) {
+	f := newSemanticFixture(t)
+	if err := f.h.driver.Resize(350, 600); err != nil {
+		t.Fatal(err)
+	}
+	f.openFunctionCompletions(t)
+	f.server.features = map[string]bool{featureSignatureHelp: true}
+	f.h.app.startPluginSignatureHelp(f.p, f.d, 0, 0, "")
+	f.waitForRequests(t, 2)
+	f.deliver(t, "op-2", pluginMethodSignatureHelp, json.RawMessage(`{
+		"signatureHelp": {
+			"signatures": [{"label":"call(arg: string)", "documentation":"Active call.",
+				"parameters": [{"documentation":"Active argument.", "byteStart":5, "byteEnd":8}]}],
+			"activeSignature":0, "activeParameter":0
+		}
+	}`))
+	completion := f.h.hitLabeled(f.h.shared("desktop.semantics.completion"))
+	parameters := f.h.hitLabeled(f.h.shared("desktop.semantics.signatureHelp"))
+	if completion.X < parameters.Right() && parameters.X < completion.Right() &&
+		completion.Y < parameters.Bottom() && parameters.Y < completion.Bottom() {
+		t.Fatalf("completion %v and parameter information %v overlap", completion, parameters)
+	}
+	if !f.h.showsWrapped(completionTimeoutDetail) || !f.h.shows("Active argument.") {
+		t.Fatal("the selected completion and current parameter details should both be visible")
+	}
+}
+
+func TestLSPSignatureHelpStaysClearOfCaretWhenCompletionIsAbove(t *testing.T) {
+	f := newSemanticFixture(t)
+	if err := f.h.driver.Resize(900, 600); err != nil {
+		t.Fatal(err)
+	}
+	caret := f.placeCompletionCaret(t, 19)
+	f.requestCompletions(t, longFunctionCandidates()...)
+	completion := f.h.hitLabeled(f.h.shared("desktop.semantics.completion"))
+	if completion.Bottom() > caret.Y {
+		t.Fatalf("expected completion %v to open above the caret %v", completion, caret)
+	}
+	f.openCompletionCaretSignature(t)
+	parameters := f.h.hitLabeled(f.h.shared("desktop.semantics.signatureHelp"))
+	if parameters.Y < caret.Bottom() {
+		t.Fatalf("parameters %v should fit below the caret %v", parameters, caret)
+	}
+}
+
+func (f *semanticFixture) openCompletionCaretSignature(t *testing.T) {
+	t.Helper()
+	line, column := f.d.caretView().CaretUTF16()
+	f.server.features = map[string]bool{featureSignatureHelp: true}
+	f.h.app.startPluginSignatureHelp(f.p, f.d, line, column, "")
+	f.waitForRequests(t, 2)
+	f.deliver(t, "op-2", pluginMethodSignatureHelp, json.RawMessage(`{
+		"signatureHelp": {
+			"signatures": [{"label":"call(arg: path.to.a.package.with.a.lengthy.qualified.parameter.Type)", "documentation":"Short help."}],
+			"activeSignature":0
+		}
+	}`))
+}
+
+func TestLSPSignatureHelpMeasuresDocumentationInsideBorder(t *testing.T) {
+	f := newSemanticFixture(t)
+	f.d.view.GoToNavigation(0, 0, false)
+	f.server.features = map[string]bool{featureSignatureHelp: true}
+	f.h.app.startPluginSignatureHelp(f.p, f.d, 0, 0, "")
+	f.waitForRequests(t, 1)
+	// At 11 px with the driver's reference fonts, this needs 198.15 px.
+	const doc = "Calls www iiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiii daily."
+	f.deliver(t, "op-1", pluginMethodSignatureHelp, json.RawMessage(`{
+		"signatureHelp": {
+			"signatures": [{"label":"call(arg: string)", "documentation":"`+doc+`"}],
+			"activeSignature":0
+		}
+	}`))
+	popup := f.h.hitLabeled(f.h.shared("desktop.semantics.signatureHelp"))
+	for _, label := range f.h.driver.Snapshot().Labels {
+		if strings.HasSuffix(label.Value, "daily.") {
+			if label.Bounds.Bottom() > popup.Bottom() {
+				t.Fatalf("documentation line %v extends below its card %v", label.Bounds, popup)
+			}
+			return
+		}
+	}
+	t.Fatal("last line of the parameter documentation was not drawn")
 }
 
 func TestLSPInlayHintsReleaseWhenDisabled(t *testing.T) {

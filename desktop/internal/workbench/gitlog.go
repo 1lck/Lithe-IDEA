@@ -244,6 +244,11 @@ func (a *App) loadLog(p *project) {
 	// The upstreams the graph paints were read for the repository before this one.
 	a.logView.upstream, a.logView.upstreamFor = nil, nil
 	a.selectCommit(p, "")
+	if !p.logHasRepository() {
+		l.loading = false
+		l.refs, l.sections, l.current = core.GitReferences{}, [3]logSection{}, ""
+		return
+	}
 	// The nested repositories' groups in the reference pane are read with the log (nested_refs.go).
 	a.loadNestedReferences(p)
 	if p.walksSeveral() {
