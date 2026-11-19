@@ -586,7 +586,7 @@ func (w *window) layerTag(c ui.C, language i18n.Language, result toolchainResult
 	case "global":
 		kind = tagBlue
 	}
-	w.tag(c, kind, toolchainLayerLabel(language, result.layer))
+	w.tag(c, kind, ToolchainLayerLabel(language, result.layer))
 }
 
 // toolchainName is a tool's display name, its ID when it has none.
@@ -844,7 +844,7 @@ func (w *window) toolchainEffective(c ui.C, language i18n.Language, scope *toolc
 					return
 				}
 				w.layerTag(c, language, current, status)
-				layerLabel := toolchainLayerLabel(language, current.layer)
+				layerLabel := ToolchainLayerLabel(language, current.layer)
 				for _, option := range t.options(language, scope, tool) {
 					if !option.auto && option.home == current.home {
 						for _, source := range option.sources {
@@ -872,7 +872,7 @@ func (w *window) toolchainEffective(c ui.C, language i18n.Language, scope *toolc
 						ui.Text(c, next.version).FontSize(buildSmall).Mono().Weight(gfx.WeightBold).Color(words).Shrink(0)
 						ui.Text(c, " · ").FontSize(buildSmall).Color(words).Shrink(0)
 						ui.Text(c, midTrim(next.home, 60)).FontSize(buildSmall).Mono().Color(words).Shrink(1).Ellipsis()
-						ui.Text(c, i18n.SharedFormat(language, "desktop.buildSettings.parenthesized", map[string]string{"text": toolchainLayerLabel(language, next.layer)})).
+						ui.Text(c, i18n.SharedFormat(language, "desktop.buildSettings.parenthesized", map[string]string{"text": ToolchainLayerLabel(language, next.layer)})).
 							FontSize(buildSmall).Color(words).Shrink(0)
 					})
 					if w.button(c.Part("undo"), buttonLinkSmall, i18n.Shared(language, "desktop.buildSettings.undoChange"), t.saving) {
@@ -945,7 +945,7 @@ func (w *window) toolchainTrace(c ui.C, language i18n.Language, tool *toolchain.
 	ui.Column(c).FillWidth().MinWidth(0).PadSides(4, 12, 2, 12).Children(func() {
 		for index, step := range tool.Trace {
 			k := c.KeyInt(index)
-			layer := toolchainLayerLabel(language, step.Layer)
+			layer := ToolchainLayerLabel(language, step.Layer)
 			candidate := toolchainTraceCandidate(tool, step.CandidateID)
 			var text string
 			mark, words := "–", b.sub

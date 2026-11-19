@@ -140,6 +140,12 @@ type buildOptionsEditor struct {
 	loading bool
 	saving  bool
 	failure string
+	// runtimes are the Runtime section's rows, read in the background when the dialog opens on an
+	// instance; runtimesLoaded says they arrived.
+	runtimes       []buildRuntimeView
+	runtimesLoaded bool
+	// dropped are the saved options the build system no longer declares, with their saved values.
+	dropped []buildDroppedOption
 }
 
 // buildIgnoredPathsEditor is the ignored-paths field of the dialog, one pattern a line, filled with the list
@@ -208,6 +214,9 @@ func (a *App) openBuildOptions(p *project, instance *buildInstance) {
 	}
 	p.build.options = editor
 	a.readBuildIgnoredPaths(p, false)
+	if instance != nil {
+		a.readBuildInstanceDetails(p, *instance, droppedBuildOptionIDs(instance, editor.fields))
+	}
 }
 
 // readBuildIgnoredPaths fills the ignored-paths field with the list Core picks from the stored documents or,
@@ -466,6 +475,8 @@ func (a *App) buildOptionsDialog(c ui.C, p *project) {
 				for index := range e.fields {
 					a.drawRunOptionField(k.KeyInt(index), language, &e.fields[index], ready)
 				}
+				a.buildRuntimeSection(c, language, e)
+				a.buildDroppedOptionsSection(c, language, p, ready)
 			}
 			if e.loading {
 				ui.Text(c, i18n.Shared(language, "native.loading")).FontSize(a.theme.Metrics.FontSizeS).Color(a.colors.Subtle)

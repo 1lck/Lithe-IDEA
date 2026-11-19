@@ -1156,7 +1156,9 @@ func toolchainReasonLabel(language i18n.Language, code string) string {
 	}
 }
 
-func toolchainLayerLabel(language i18n.Language, layer string) string {
+// ToolchainLayerLabel names the layer the shared resolver selected an installation from: pinned,
+// project, global or automatic. The workbench shows it beside a build's runtime as well.
+func ToolchainLayerLabel(language i18n.Language, layer string) string {
 	switch layer {
 	case "pinned":
 		return i18n.Shared(language, "desktop.toolchains.layerPinned")
