@@ -109802,6 +109802,82 @@
       ]
     },
     {
+      "id": "desktop.build.runtimeHeading",
+      "description": "Heading of the section of a build system's options dialog that shows the build tool and the runtimes it runs on, as they resolve now.",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.build.runtimeHelp",
+      "description": "Explains under the Runtime heading that builds and launches use one runtime, chosen in the Toolchains settings page.",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.build.openToolchains",
+      "description": "Button in a build system's options dialog that opens the Toolchains settings page.",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.build.sourceEnvironment",
+      "description": "Where a build's tool or runtime was found: the environment variable {variable} names its home directory.",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "variable": "string"
+      }
+    },
+    {
+      "id": "desktop.build.sourcePath",
+      "description": "Where a build's tool or runtime was found: a command on the system PATH.",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.build.sourceSetting",
+      "description": "Where a build's tool or runtime was found: the path set in the plugin's settings.",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.build.sourceProjectFile",
+      "description": "Where a build's tool was found: a wrapper script inside the project.",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.build.droppedOptions",
+      "description": "Notice in a build system's options dialog listing saved options the plugin no longer declares; their values are ignored.",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.build.droppedInTeam",
+      "description": "Beside a dropped build option whose value is saved in the project's shared options file {file}, which only the project can change.",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "file": "string"
+      }
+    },
+    {
+      "id": "desktop.build.clearDropped",
+      "description": "Button that removes this machine's saved values of the build options the plugin no longer declares.",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
       "id": "desktop.build.optionChoiceDefaultLabel",
       "description": "Label of a default-active build option choice in an option editor: {title}",
       "platforms": [

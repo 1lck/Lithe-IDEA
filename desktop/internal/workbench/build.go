@@ -1501,8 +1501,13 @@ func (a *App) resolveBuildCandidates(ctx context.Context, p *project, directory 
 			execution.Executable = selection.Executable
 			execution.Environment = selection.Environment
 			execution.PathPrepend = selection.PathPrepend
+			execution.Source.Version, execution.Source.Layer = selection.Version, selection.Layer
 		}
 		if execution.Executable != "" {
+			// A runtime candidate keeps the source of the runtime it named.
+			if candidate.Kind != "runtime" {
+				execution.Source.Kind, execution.Source.Variable = candidate.Kind, candidate.Variable
+			}
 			break
 		}
 	}
