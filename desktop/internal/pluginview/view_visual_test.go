@@ -106,7 +106,7 @@ func TestVisualPluginView(t *testing.T) {
 				},
 				Theme: &theme, Background: &background, Invalidator: invalidator,
 			})
-			session, err := headless.Open(page.Config(app.Config{Width: 480, Height: 860, Invalidator: invalidator}), nil, headless.Options{})
+			session, err := headless.Open(ui.Configure(page, app.Config{Width: 480, Height: 860, Invalidator: invalidator}), nil, headless.Options{})
 			if err != nil {
 				t.Fatal(err)
 			}
