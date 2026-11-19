@@ -19,3 +19,13 @@ func (h *harness) focusedName() string {
 	}
 	return ""
 }
+
+// instanceOptions is the name of the button that opens the options of p's selected build instance.
+func (h *harness) instanceOptions(p *project) string {
+	h.t.Helper()
+	instance := p.selectedBuildInstance()
+	if instance == nil {
+		h.t.Fatal("no build instance is selected")
+	}
+	return i18n.SharedFormat(h.app.language(), "desktop.build.instanceOptions", map[string]string{"name": buildSystemName(instance)})
+}
