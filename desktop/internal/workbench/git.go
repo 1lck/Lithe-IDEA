@@ -46,6 +46,7 @@ func (a *App) readGit(p *project, policy func(context.Context) context.Context) 
 	a.background(p, gitTimeout, func(ctx context.Context) func(*App) {
 		status, err := kernel.GitStatus(policy(ctx), root)
 		return func(a *App) {
+			wasRepo := p.git.isRepository()
 			if !a.setGit(p, gitState{loaded: true, status: status, err: err}, generation) {
 				return
 			}
@@ -55,6 +56,10 @@ func (a *App) readGit(p *project, policy func(context.Context) context.Context) 
 				return
 			}
 			a.gitStatusPublished(p)
+			// Load or clear the log once GitStatus determines whether p.root is a repository.
+			if p.git.isRepository() != wasRepo && p.log.started && !p.walksSeveral() && p.logRepo() == nil {
+				a.loadLog(p)
+			}
 		}
 	})
 }

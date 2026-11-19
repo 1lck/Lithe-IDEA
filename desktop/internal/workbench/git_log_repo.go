@@ -17,6 +17,13 @@ import (
 // it. The roots list chooses several repositories too, and the log then shows their commits
 // together (gitlog_multi.go). The other repositories' references are read in nested_refs.go.
 
+// logHasRepository reports whether the log already has a repository to walk. Until the project's
+// Git status confirms p.root is a repository or Core selects a nested one, querying references at
+// p.root would fail on non-repository folders and pollute the Git console.
+func (p *project) logHasRepository() bool {
+	return p.walksSeveral() || p.logRepo() != nil || p.git.isRepository()
+}
+
 // logRepo is the nested repository the log walks, nil while it walks the project's own.
 func (p *project) logRepo() *nestedRepo {
 	repo, ok := p.nested.repo(p.nested.logRepo)
