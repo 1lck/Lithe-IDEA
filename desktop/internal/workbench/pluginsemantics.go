@@ -78,7 +78,6 @@ const (
 	// operation kind is enough; a newer request cancels the older one.
 	maxSemanticPending = 3
 
-	semanticPopupWidth      = float32(360)
 	semanticDefinitionWidth = float32(480)
 	semanticRowHeight       = float32(24)
 	semanticPopupPad        = float32(4)

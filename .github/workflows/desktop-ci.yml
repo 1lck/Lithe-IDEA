@@ -178,7 +178,7 @@ jobs:
           LITHE_VISUAL_OUTPUT_DIR: ${{ github.workspace }}/.artifacts/lsp-editor-visual
         run: |
           ./scripts/desktop/desktop-go.sh test -v -tags 'vivahead lithevisual' ./internal/workbench \
-            -run '^(TestLSP|TestVisualLSPActions$)' -count=1 -timeout=120s
+            -run '^(TestLSP|TestCompletionPopup|TestVisual(LSPActions|CompletionPopup)$)' -count=1 -timeout=120s
 
       - name: Upload LSP editor screenshots
         if: ${{ !cancelled() && steps.lsp-visual.outcome != 'skipped' }}
