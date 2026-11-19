@@ -71,6 +71,7 @@ func (a *App) previewProjectReplace(p *project, query searchQuery, replacement s
 			Root: root, Query: query.text, Replacement: replacement, FileMask: query.mask,
 			CaseSensitive: query.matchCase, WholeWords: query.wholeWords, RegularExpression: query.regex,
 			TextOverrides: materializeSearchText(snapshots), MaxFileBytes: budget, ScopeExpression: query.scope, IncludeIgnored: query.includeIgnored,
+			IncludeGenerated: query.includeGenerated, FollowSymlinks: query.followSymlinks,
 		})
 		return func(a *App) {
 			if !r.open || r.query != query || r.replacement != replacement {

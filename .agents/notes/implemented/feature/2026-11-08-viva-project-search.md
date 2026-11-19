@@ -34,6 +34,16 @@ CRLF 行尾的 `\r` 不算行内容。
 Core 解析的路径/glob 表达式；没有模块模型时不执行模块查询。包含 Git 忽略文件
 是请求选项，不能绕过手动排除和结构隐藏。
 
+交互式项目分页与全局文本搜索使用同一冷查询策略：已有全文索引时复用，否则
+直接枚举文件并匹配当前页，不等所有文件建立三元组倒排表后才显示首屏。
+旧侧栏在首次查询时强制构建全文索引，导致同一查询比双 Shift 明显更慢；
+不要把主动预热或旧同步消费者的索引构建放回交互式分页的必经路径。
+文件标题与命中行统一为24pt，文件名只在标题显示一次，命中行缩进并对齐
+行列号与正文。两种搜索结果的正文高亮均使用主题的13pt界面字体，避免与文件名
+切换字体；编辑器预览仍遵循编辑器自己的字体设置。
+全局搜索的类别称为“类型”，包含语言服务报告的类、枚举、接口和结构体，
+“符号”保持其他声明；Go 等语言不再被 Java 的“类”文案误导。
+
 宿主在 UI 线程捕获脏文档的不可变 rope 根，在后台生成文本交给 Core。快照加入
 候选并替换磁盘文本；后续页复用同一快照，编辑变化取消并重查，查询不写盘。
 全局搜索“全部”合并正文来源；名称匹配增加有序片段和低分跳字母匹配，但未完整
@@ -58,6 +68,8 @@ Core 解析的路径/glob 表达式；没有模块模型时不执行模块查询
 - 一直复用现有索引而不接文件监听，会在外部编辑后产生静默漏报，不能采用。
 - 每次按键并行启动新查询会积累索引构建任务，浪费资源并可能发布旧结果；采用
   输入合并、取消和单查询串行。
+- 在冷分页之前强制建立全文索引会读取所有候选两次，增加首屏延迟和常驻倒排表；
+  使用现成索引或文件清单直接匹配。低命中查询仍需读完可搜索文件，不保证常数时间。
 - 项目搜索继续列出文件名匹配、只是排在内容行之后：Core 先收集文件名匹配，文件名
   含查询词的文件一多就占满 200 条上限，内容行一条都不剩；IDE 的 Find in Files
   也不列文件名，查文件名用全局搜索的“文件”。被否。
@@ -66,9 +78,23 @@ Core 解析的路径/glob 表达式；没有模块模型时不执行模块查询
 
 结果显示后，收到文件变化事件会自动刷新；通知存在系统固有的投递延迟。
 Linux 递归监听需要为目录分别注册，超出上限时会退回手动刷新。
-当前分组计数只覆盖已加载行。完整总数、生成目录的临时覆盖、无需先打开文件的
-全工作区类/符号索引、符号链接跟随、完整 IDEA 匹配质量与各平台实机验收仍由
-[#2199](https://github.com/1lck/Lithe-IDEA/issues/2199) 跟踪；不能把此次改进写成搜索已与 IDEA 对齐。
+首屏发布后独立统计全部文件、匹配行和出现次数；只返回当前加载文件的计数明细，
+避免把全项目路径传到界面。计数显示进行中/失败与重试，查询、文件和脏文档变化
+立即取消旧统计，关闭项目等待统计退出再释放索引。
+
+两个搜索入口提供包含 Git 忽略、插件生成目录和工作区内部符号链接的一次性选项。
+手动排除仍优先；外部链接不自动遍历，需要单独打开工作区根。Core 检查规范目标、
+祖先循环和目标排除，保留别名路径；替换按规范路径去重。原生目标事件使链接索引
+重建，保存使其失效；项目树可展开内部链接，已展开别名在目标事件到达时重新读取。
+
+类型/符号搜索按已启用清单的文件选择器发现项目语言，再启动相关语言服务，不要求
+先打开文件。晚到的就绪事件只补问尚未查询的服务，保留其他服务答案；关闭面板、
+换查询会取消操作和截止计时器，过期排名结果不能覆盖新结果。语言语义完全来自
+标准 workspace/symbol，不维护 Core 语言解析器或第二份符号索引。类型包括 Class、
+Enum、Interface、Struct，其余作为符号。界面字体统一为13pt，侧栏24pt行高与图标列对齐。
+
+实现覆盖 #2199 的列举场景，不声称完全等价于 IDEA 所有匹配质量和外部库能力。
+两端原生窗口和输入法验收仍须在目标平台完成，不能由无头截图替代。
 名称匹配的宽松规则限于 Search Everywhere，通用 `rankNames` 保持原有边界匹配，
 避免插件市场等现有候选列表出现额外结果。
 
@@ -80,6 +106,7 @@ Linux 递归监听需要为目录分别注册，超出上限时会退回手动�
 - `scripts/desktop/desktop-go.sh test ./internal/workbench -run TestSearchPanels`：两个搜索界面共享监听并在最后一个消费者关闭时释放。
 - `scripts/desktop/desktop-go.sh test ./internal/core -run '^$' -bench '^BenchmarkWorkspaceSearchIndex$' -benchtime=3x`：索引复用与重建开销。
 - `scripts/desktop/desktop-go.sh test ./internal/core -run '^$' -bench '^BenchmarkEverywhereSearchIndex$' -benchtime=3x`：全局文件名分页的索引复用与重建开销。
+- `scripts/desktop/desktop-go.sh test ./internal/core -run '^$' -bench '^BenchmarkWorkspaceColdContentSearch$' -benchtime=3x`：通过 `LITHE_SEARCH_BENCH_ROOT` 显式选择真实工作区，安装工作台同样的 Git 忽略策略后对比两种冷内容查询。
 - `scripts/desktop/desktop-go.sh test ./internal/workbench -run 'TestProjectSearchReadsUnsavedTextAndAllSearchesContents|TestProjectReplacePreservesOriginalEncodingAndRejectsChangedPreview'`：脏文档/All正文及五种编码替换、外部改动保护。
 - `scripts/desktop/desktop-go.sh test ./internal/settingswindow ./internal/searchprefs -run 'TestSearchPage|TestSearchPreferences'`：真实来源读写、应用、回读及冲突。
 - `scripts/desktop/desktop-go.sh test -tags 'vivahead lithevisual' ./internal/workbench ./internal/settingswindow -run '^TestVisualSearch(Results|Preferences)$'`：明暗主题和中英文截图，需指定 `LITHE_VISUAL_OUTPUT_DIR`。

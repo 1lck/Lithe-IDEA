@@ -19,6 +19,8 @@ type WorkspaceReplaceRequest struct {
 	ScopeExpression   string            `json:"scopeExpression,omitempty"`
 	ScopePaths        []string          `json:"scopePaths,omitempty"`
 	IncludeIgnored    bool              `json:"includeIgnored,omitempty"`
+	IncludeGenerated  bool              `json:"includeGenerated,omitempty"`
+	FollowSymlinks    bool              `json:"followSymlinks,omitempty"`
 	MaxFileBytes      uint64            `json:"maxFileBytes,omitempty"`
 }
 

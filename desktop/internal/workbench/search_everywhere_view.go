@@ -73,7 +73,7 @@ func (a *App) everywherePopup(c ui.C) {
 				return
 			}
 			switch {
-			case s.loading && len(s.matches) == 0:
+			case (s.loading || a.everywhereSymbolsLoading(p)) && len(s.matches) == 0:
 				ui.Text(c, i18n.Shared(language, "quickOpen.searching")).Muted()
 			case s.failed && len(s.matches) == 0:
 				ui.Row(c).Gap(8).Items(ui.Center).Children(func() {
@@ -100,7 +100,7 @@ func (a *App) everywhereScopes(c ui.C, p *project, language i18n.Language) {
 	v := &a.everywhereView
 	labels := [...]string{
 		i18n.Shared(language, "desktop.everywhere.all"),
-		i18n.Shared(language, "desktop.everywhere.classes"),
+		i18n.Shared(language, "desktop.everywhere.types"),
 		i18n.Shared(language, "desktop.everywhere.files"),
 		i18n.Shared(language, "desktop.everywhere.symbols"),
 		i18n.Shared(language, "desktop.everywhere.actions"),
@@ -132,7 +132,7 @@ func (a *App) everywhereScopes(c ui.C, p *project, language i18n.Language) {
 			}
 			a.focusEverywhere(p)
 		}
-		if v.scope == 0 || v.scope == 5 {
+		if v.scope != everywhereScopeActions {
 			a.everywhereFilter(c, p, language)
 		}
 	})
@@ -153,18 +153,25 @@ func (a *App) everywhereFilter(c ui.C, p *project, language i18n.Language) {
 	if button.Clicked() {
 		v.filterOpen = !v.filterOpen
 	}
-	ui.PopoverWith(c, button, ui.PopoverSpec{Align: ui.End, Width: 230}, &v.filterOpen, func() {
-		if v.scope == 5 {
-			option := func(label, action string, value *bool) {
-				before := *value
-				ui.Checkbox(c, value, label)
-				if *value != before {
-					a.performed(action, surfaceButton)
-				}
+	ui.PopoverWith(c, button, ui.PopoverSpec{Align: ui.End, Width: 300}, &v.filterOpen, func() {
+		option := func(label, action string, value *bool) {
+			before := *value
+			ui.Checkbox(c, value, label)
+			if *value != before {
+				a.performed(action, surfaceButton)
 			}
+		}
+		option(i18n.Shared(language, "desktop.search.includeIgnored"), "workspace.searchEverywhere.includeIgnored", &v.includeIgnored)
+		option(i18n.Shared(language, "desktop.search.includeGenerated"), "workspace.searchEverywhere.includeGenerated", &v.includeGenerated)
+		option(i18n.Shared(language, "desktop.search.followSymlinks"), "workspace.searchEverywhere.followSymlinks", &v.followSymlinks)
+		ui.Wrap(c, i18n.Shared(language, "desktop.search.symlinkHelp")).FontSize(11).Muted()
+		if v.scope == 5 {
 			option(i18n.Shared(language, "native.matchCase"), "workspace.searchEverywhere.matchCase", &v.matchCase)
 			option(i18n.Shared(language, "native.wholeWords"), "workspace.searchEverywhere.wholeWords", &v.wholeWords)
 			option(i18n.Shared(language, "native.regularExpression"), "workspace.searchEverywhere.regularExpression", &v.regex)
+			return
+		}
+		if v.scope != 0 {
 			return
 		}
 		if v.hiddenKinds == nil {
@@ -172,7 +179,7 @@ func (a *App) everywhereFilter(c ui.C, p *project, language i18n.Language) {
 		}
 		names := map[string]string{
 			"file":    i18n.Shared(language, "desktop.everywhere.files"),
-			"type":    i18n.Shared(language, "desktop.everywhere.classes"),
+			"type":    i18n.Shared(language, "desktop.everywhere.types"),
 			"symbol":  i18n.Shared(language, "desktop.everywhere.symbols"),
 			"content": i18n.Shared(language, "desktop.everywhere.text"),
 		}
@@ -309,7 +316,7 @@ func (a *App) everywhereRow(c ui.C, p *project, result core.WorkspaceSearchMatch
 	if result.Kind == "content" {
 		ui.Column(c).Grow(1).Shrink(1).MinWidth(0).Children(func() {
 			// With the line asked for, Core gives the matches in the preview it cut.
-			a.highlightedText(c, result.Preview, result.PreviewRanges, a.colors.Text, 12, true)
+			a.highlightedText(c, result.Preview, result.PreviewRanges, a.colors.Text, 13)
 			location := name
 			if result.Line != nil {
 				location += ":" + strconv.Itoa(*result.Line)
@@ -329,9 +336,9 @@ func (a *App) everywhereRow(c ui.C, p *project, result core.WorkspaceSearchMatch
 	if selected {
 		ranges = result.NameMatchRanges
 	}
-	ui.Row(c).Shrink(0).Children(func() { a.highlightedText(c, label, ranges, a.colors.Text, 13, false) })
+	ui.Row(c).Shrink(0).Children(func() { a.highlightedText(c, label, ranges, a.colors.Text, 13) })
 	if result.Kind != "file" && result.Line != nil {
-		ui.Text(c, ":"+strconv.Itoa(*result.Line)).Mono().FontSize(11).Color(a.colors.Subtle).Shrink(0)
+		ui.Text(c, ":"+strconv.Itoa(*result.Line)).FontSize(11).Color(a.colors.Subtle).Shrink(0)
 	}
 	if result.Kind != "file" {
 		folder = result.Path
@@ -344,16 +351,13 @@ func (a *App) everywhereRow(c ui.C, p *project, result core.WorkspaceSearchMatch
 
 // highlightedText declares text as runs, the ranges Core marked (UTF-16 units) on
 // the match color. Ranges that overlap, run backwards or leave the text are skipped.
-func (a *App) highlightedText(c ui.C, text string, ranges []core.SearchNameRange, color gfx.Color, size float32, mono bool) {
+func (a *App) highlightedText(c ui.C, text string, ranges []core.SearchNameRange, color gfx.Color, size float32) {
 	spans := utf16Spans(text, ranges)
 	declare := func(part string, marked bool) {
 		if part == "" {
 			return
 		}
 		t := ui.Text(c, part).FontSize(size).Color(color)
-		if mono {
-			t.Mono()
-		}
 		if marked {
 			t.Background(a.colors.Warning.WithAlpha(0.35))
 		}

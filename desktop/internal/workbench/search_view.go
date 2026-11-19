@@ -22,7 +22,8 @@ func (a *App) searchPanel(c ui.C) {
 		return
 	}
 	language := a.language()
-	query := searchQuery{text: v.query.Text(), mask: v.mask.Text(), scope: v.scope.Text(), includeIgnored: v.includeIgnored, matchCase: v.matchCase, wholeWords: v.wholeWords, regex: v.regex}
+	query := searchQuery{text: v.query.Text(), mask: v.mask.Text(), scope: v.scope.Text(), includeIgnored: v.includeIgnored,
+		includeGenerated: v.includeGenerated, followSymlinks: v.followSymlinks, matchCase: v.matchCase, wholeWords: v.wholeWords, regex: v.regex}
 	if v.focus {
 		c.Canvas().RequestFocus(searchQueryID)
 		v.focus = false
@@ -94,7 +95,7 @@ func (a *App) searchOptions(c ui.C, language i18n.Language) {
 	if button.Clicked() {
 		v.optionsOpen = !v.optionsOpen
 	}
-	ui.PopoverWith(c, button, ui.PopoverSpec{Align: ui.End, Width: 210}, &v.optionsOpen, func() {
+	ui.PopoverWith(c, button, ui.PopoverSpec{Align: ui.End, Width: 300}, &v.optionsOpen, func() {
 		option := func(label, action string, value *bool) {
 			before := *value
 			ui.Checkbox(c, value, label)
@@ -106,6 +107,9 @@ func (a *App) searchOptions(c ui.C, language i18n.Language) {
 		option(i18n.Shared(language, "native.wholeWords"), "workspace.search.wholeWords", &v.wholeWords)
 		option(i18n.Shared(language, "native.regularExpression"), "workspace.search.regularExpression", &v.regex)
 		option(i18n.Shared(language, "desktop.search.includeIgnored"), "workspace.search.includeIgnored", &v.includeIgnored)
+		option(i18n.Shared(language, "desktop.search.includeGenerated"), "workspace.search.includeGenerated", &v.includeGenerated)
+		option(i18n.Shared(language, "desktop.search.followSymlinks"), "workspace.search.followSymlinks", &v.followSymlinks)
+		ui.Wrap(c, i18n.Shared(language, "desktop.search.symlinkHelp")).FontSize(11).Muted()
 	})
 }
 
@@ -120,7 +124,22 @@ func (a *App) searchResults(c ui.C, p *project, language i18n.Language) {
 	if p.search.cursor != nil {
 		summary = i18n.SharedFormat(language, "desktop.search.loadedCount", map[string]string{"count": strconv.Itoa(projection.Lines), "files": strconv.Itoa(projection.Files)})
 	}
-	ui.Text(c, summary).FontSize(12).Color(a.colors.Subtle).PadX(11)
+	if counts := p.search.counts; counts != nil {
+		summary = i18n.SharedFormat(language, "desktop.search.totalCount", map[string]string{
+			"count": strconv.Itoa(counts.Occurrences), "files": strconv.Itoa(counts.Files)})
+	}
+	ui.Row(c).FillWidth().PadX(11).Gap(8).Items(ui.Center).Children(func() {
+		ui.Text(c, summary).FontSize(12).Color(a.colors.Subtle)
+		if p.search.countCancel != nil {
+			ui.Text(c, i18n.Shared(language, "desktop.search.counting")).FontSize(11).Muted()
+		}
+		if p.search.countFailed {
+			ui.Text(c, i18n.Shared(language, "desktop.search.countIncomplete")).FontSize(11).Muted()
+			if ui.Button(c, i18n.Shared(language, "ui.retry")).Ghost().Clicked() {
+				c.After(func() { a.countProjectSearch(p, p.search.request, p.search.generation) })
+			}
+		}
+	})
 	v.list.Label = func(i int) string {
 		if rows[i].MatchIndex == nil {
 			return rows[i].Path
@@ -136,8 +155,20 @@ func (a *App) searchResults(c ui.C, p *project, language i18n.Language) {
 				if p.search.collapsed[item.Path] {
 					icon = icons.ChevronRight
 				}
-				ui.Icon(row.C, icon).Size(14, 14)
-				ui.Text(row.C, i18n.SharedFormat(language, "desktop.search.group", map[string]string{"path": item.Path, "count": strconv.Itoa(item.Count)})).FontSize(12).Ellipsis()
+				ui.Icon(row.C, icon).Size(14, 14).Shrink(0)
+				native := filepath.FromSlash(item.Path)
+				name, folder := filepath.Base(native), filepath.Dir(native)
+				ui.Icon(row.C, fileicons.ForFile(name, a.colors.Dark)).Size(treelist.Icon, treelist.Icon).Shrink(0).Color(a.colors.Subtle)
+				count := item.Count
+				if p.search.counts != nil {
+					if complete, ok := p.search.counts.FileOccurrences[item.Path]; ok {
+						count = complete
+					}
+				}
+				ui.Text(row.C, i18n.SharedFormat(language, "desktop.search.group", map[string]string{"path": name, "count": strconv.Itoa(count)})).FontSize(13).Shrink(1).MinWidth(0).Ellipsis()
+				if folder != "." {
+					ui.Text(row.C, filepath.ToSlash(folder)).FontSize(11).Color(a.colors.Subtle).Shrink(1).MinWidth(0).Ellipsis()
+				}
 			})
 			if row.Element.Clicked() {
 				p.search.collapsed[item.Path] = !p.search.collapsed[item.Path]
@@ -146,21 +177,12 @@ func (a *App) searchResults(c ui.C, p *project, language i18n.Language) {
 			return
 		}
 		result := results[*item.MatchIndex]
-		row.Element.FillWidth().Height(searchResultHeight).PadX(11).PadY(6).Gap(2).Hover(ui.Look{}.Background(a.colors.Hover)).Children(func() {
-			ui.Column(row.C).FillWidth().Gap(2).Children(func() {
-				ui.Row(row.C).FillWidth().Items(ui.Center).Gap(6).Children(func() {
-					name := filepath.Base(filepath.FromSlash(result.Path))
-					ui.Icon(row.C, fileicons.ForFile(name, a.colors.Dark)).Size(treelist.Icon, treelist.Icon).Shrink(0).Color(a.colors.Subtle)
-					ui.Text(row.C, name).Grow(1).Shrink(1).FontSize(12.5).Ellipsis()
-					if result.Line != nil {
-						ui.Text(row.C, searchLinePosition(result)).FontSize(12).Color(a.colors.Subtle)
-					}
-				})
-				// Core gives the line as a result row shows it, and the matches in it.
-				preview, ranges := result.Preview, result.PreviewRanges
-				ui.Row(row.C).FillWidth().MinWidth(0).Clip().Children(func() {
-					a.highlightedText(row.C, preview, ranges, a.colors.Subtle, 11.5, true)
-				})
+		row.Element.FillWidth().Height(searchResultHeight).PadSides(0, 11, 0, 31).Items(ui.Center).Gap(8).Children(func() {
+			if result.Line != nil {
+				ui.Text(row.C, strings.TrimPrefix(searchLinePosition(result), ":")).Width(36).Shrink(0).FontSize(11).Color(a.colors.Subtle)
+			}
+			ui.Row(row.C).Grow(1).Shrink(1).MinWidth(0).Clip().Children(func() {
+				a.highlightedText(row.C, result.Preview, result.PreviewRanges, a.colors.Text, 13)
 			})
 		})
 		if row.Element.Clicked() {

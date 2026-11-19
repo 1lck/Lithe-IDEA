@@ -15,8 +15,8 @@ import (
 // Search Everywhere also lists the symbols the project's language servers report through
 // workspace/symbol. Each server that declares workspaceSymbols is asked with the query, after the
 // query has settled; the answers are ranked by Core's workspace.rankNames and joined to the Core
-// index's results on the Classes, Symbols and All tabs. A kind that is a class (LSP 5, 10, 11, 23)
-// is listed as a class; the others as symbols. A match is removed again when the query changes.
+// index's results on the Types, Symbols and All tabs. Type kinds (LSP 5, 10, 11, 23)
+// are listed as types; the others as symbols. A match is removed again when the query changes.
 
 const (
 	// pluginSemanticWorkspaceSymbols is the operation, featureWorkspaceSymbols the feature a server
@@ -30,24 +30,30 @@ const (
 	everywhereSymbolLimit = 1000
 )
 
-// everywhereClassKinds are the LSP SymbolKind numbers listed on the Classes tab: Class, Enum,
+// everywhereTypeKinds are the LSP SymbolKind numbers listed on the Types tab: Class, Enum,
 // Interface and Struct.
-var everywhereClassKinds = map[int]bool{5: true, 10: true, 11: true, 23: true}
+var everywhereTypeKinds = map[int]bool{5: true, 10: true, 11: true, 23: true}
 
 // everywhereSymbolState is the project's workspace/symbol query: its generation, the requests in
 // flight, the symbols answered so far and the ranked matches shown.
 type everywhereSymbolState struct {
-	generation uint64
-	query      string
-	cancel     context.CancelFunc
-	pending    []*semanticPending
-	items      []core.WorkspaceSymbol
-	itemKeys   map[string]bool
-	servers    []string
-	ranked     []core.WorkspaceSearchMatch
+	discoveryRevision uint64
+	discoveryStarted  bool
+	discovering       bool
+	discoveryCancel   context.CancelFunc
+	generation        uint64
+	query             string
+	cancel            context.CancelFunc
+	pending           []*semanticPending
+	items             []core.WorkspaceSymbol
+	itemKeys          map[string]bool
+	servers           []string
+	ranked            []core.WorkspaceSearchMatch
 	// lspKeys are the keys of the matches this state added to the Search Everywhere list, so
 	// they can be taken out again before the list is rebuilt.
-	lspKeys map[string]bool
+	lspKeys      map[string]bool
+	rankRevision uint64
+	deadline     *time.Timer
 }
 
 // everywhereMatchKey is the identity of a match for de-duplication: path, line and name.
@@ -66,25 +72,56 @@ func (a *App) startEverywhereSymbols(p *project, query string, scope int) {
 	a.cancelEverywhereSymbols(p)
 	st.generation++
 	st.query = query
-	st.items, st.itemKeys, st.ranked = nil, nil, nil
+	st.items, st.itemKeys, st.ranked, st.servers = nil, nil, nil, nil
 	if strings.TrimSpace(query) == "" || !everywhereShowsSymbols(scope) || a.plugins == nil {
 		return
 	}
+	a.discoverEverywhereLanguages(p)
+	a.requestEverywhereSymbols(p)
+}
+
+// A newly ready server joins the current generation without discarding other answers.
+func (a *App) requestEverywhereSymbols(p *project) {
+	st := &p.everywhereSymbols
+	query := st.query
 	servers := a.workspaceSymbolServers(p)
+	servers = slices.DeleteFunc(servers, func(server *pluginServer) bool { return slices.Contains(st.servers, server.session.Session.ID) })
 	if len(servers) == 0 {
 		return
 	}
-	ctx, cancel := context.WithCancel(p.ctx)
-	st.cancel = cancel
+	if st.deadline != nil {
+		st.deadline.Stop()
+	}
 	generation := st.generation
-	st.pending = nil
+	st.deadline = time.AfterFunc(searchTimeout, func() {
+		a.post(func(a *App) {
+			if a.project != p || st.generation != generation {
+				return
+			}
+			if len(st.pending) > 0 {
+				a.backgroundFailed("workspace_symbols", context.DeadlineExceeded)
+			}
+			a.cancelEverywhereSymbols(p)
+		})
+	})
+	ctx, cancel := context.WithTimeout(p.ctx, searchTimeout)
+	previousCancel := st.cancel
+	st.cancel = func() {
+		if previousCancel != nil {
+			previousCancel()
+		}
+		cancel()
+	}
+	var submitted []*semanticPending
 	for _, server := range servers {
+		st.servers = append(st.servers, server.session.Session.ID)
 		pending := &semanticPending{kind: pluginSemanticWorkspaceSymbols, generation: generation, project: p, server: server}
 		st.pending = append(st.pending, pending)
+		submitted = append(submitted, pending)
 		a.semantics.pending = append(a.semantics.pending, pending)
 	}
 	// The goroutine reads its own copy: the window thread keeps the list as answers arrive.
-	pendings := append([]*semanticPending(nil), st.pending...)
+	pendings := submitted
 	plugins := a.plugins
 	request := core.PluginSemanticRequest{Operation: pluginSemanticWorkspaceSymbols, Query: query}
 	a.background(p, 0, func(context.Context) func(*App) {
@@ -121,7 +158,60 @@ func (a *App) startEverywhereSymbols(p *project, query string, scope int) {
 	})
 }
 
-// everywhereShowsSymbols reports whether a tab lists symbols: All, Classes and Symbols do.
+// Discover providers once when symbol search is requested, before any file is opened.
+func (a *App) discoverEverywhereLanguages(p *project) {
+	if p.everywhereSymbols.discoveryStarted || a.plugins == nil {
+		return
+	}
+	p.everywhereSymbols.discoveryRevision++
+	revision := p.everywhereSymbols.discoveryRevision
+	p.everywhereSymbols.discoveryStarted = true
+	p.everywhereSymbols.discovering = true
+	ctx, cancel := context.WithCancel(p.ctx)
+	p.everywhereSymbols.discoveryCancel = cancel
+	plugins := a.plugins
+	a.background(p, searchTimeout, func(deadline context.Context) func(*App) {
+		defer cancel()
+		stop := context.AfterFunc(deadline, cancel)
+		defer stop()
+		sources, sourceErr := plugins.SearchLanguageSources(ctx)
+		languages, err := core.NewClient().SearchWorkspaceLanguages(ctx, p.root, sources)
+		return func(a *App) {
+			if a.project != p || p.everywhereSymbols.discoveryRevision != revision {
+				return
+			}
+			p.everywhereSymbols.discovering = false
+			p.everywhereSymbols.discoveryCancel = nil
+			if sourceErr != nil {
+				a.backgroundFailed("workspace_symbol_sources", sourceErr)
+			}
+			if err != nil {
+				p.everywhereSymbols.discoveryStarted = false
+				a.backgroundFailed("workspace_symbol_languages", err)
+				return
+			}
+			if !a.everywhereView.open || !everywhereShowsSymbols(p.everywhere.scope) {
+				p.everywhereSymbols.discoveryStarted = false
+				return
+			}
+			for _, language := range languages {
+				a.startPluginServer(language)
+			}
+		}
+	})
+}
+
+// A server that became available after the query must answer the current search too.
+func (a *App) resumeEverywhereSymbols(p *project) {
+	if p == nil || a.project != p || !a.everywhereView.open || strings.TrimSpace(p.everywhere.query) == "" {
+		return
+	}
+	if everywhereShowsSymbols(p.everywhere.scope) {
+		a.requestEverywhereSymbols(p)
+	}
+}
+
+// everywhereShowsSymbols reports whether a tab lists symbols: All, Types and Symbols do.
 func everywhereShowsSymbols(scope int) bool {
 	return scope == 0 || scope == 1 || scope == 3
 }
@@ -130,12 +220,16 @@ func everywhereShowsSymbols(scope int) bool {
 // answer that arrives later is ignored because its pending entry is gone.
 func (a *App) cancelEverywhereSymbols(p *project) {
 	st := &p.everywhereSymbols
+	if st.deadline != nil {
+		st.deadline.Stop()
+		st.deadline = nil
+	}
 	if st.cancel != nil {
 		st.cancel()
 		st.cancel = nil
 	}
 	for _, pending := range st.pending {
-		a.removePending(pending)
+		a.cancelSemantic(pending)
 	}
 	st.pending = nil
 }
@@ -206,11 +300,13 @@ func (a *App) applyWorkspaceSymbols(pending *semanticPending, event core.Backend
 		candidates = append(candidates, core.RankCandidate{Name: item.Name, Path: path})
 	}
 	items := append([]core.WorkspaceSymbol(nil), st.items...)
+	st.rankRevision++
+	rankRevision := st.rankRevision
 	query, generation, kernel := st.query, st.generation, a.kernel
 	a.background(p, searchTimeout, func(ctx context.Context) func(*App) {
 		order, err := kernel.RankNames(ctx, query, candidates)
 		return func(a *App) {
-			if st.generation != generation {
+			if st.generation != generation || st.rankRevision != rankRevision {
 				return
 			}
 			if err != nil {
@@ -262,7 +358,7 @@ func everywhereRankedMatches(p *project, items []core.WorkspaceSymbol, order []i
 			continue
 		}
 		kind := "symbol"
-		if everywhereClassKinds[item.Kind] {
+		if everywhereTypeKinds[item.Kind] {
 			kind = "type"
 		}
 		name := item.Name
@@ -341,4 +437,27 @@ func everywhereMatchOf(match core.WorkspaceSearchMatch) string {
 		name = *match.SymbolName
 	}
 	return everywhereMatchKey(match.Path, line, name)
+}
+
+// Loading indicators reflect provider discovery, startup and pending symbol answers.
+func (a *App) everywhereSymbolsLoading(p *project) bool {
+	if !everywhereShowsSymbols(p.everywhere.scope) {
+		return false
+	}
+	if p.everywhereSymbols.discovering || len(p.everywhereSymbols.pending) > 0 {
+		return true
+	}
+	a.pluginServerMu.Lock()
+	defer a.pluginServerMu.Unlock()
+	for _, preparation := range a.pluginServerPreparations {
+		if preparation.project == p {
+			return true
+		}
+	}
+	for _, server := range a.pluginServers {
+		if server != nil && server.project == p && server.state == "starting" {
+			return true
+		}
+	}
+	return false
 }

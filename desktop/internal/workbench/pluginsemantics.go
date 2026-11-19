@@ -821,6 +821,9 @@ func (a *App) applyServerFeatures(server *pluginServer, event core.BackendEvent)
 	}
 	// The features arrive after the documents opened: ask for the colors now.
 	a.semanticTokensResume()
+	if server.features[featureWorkspaceSymbols] {
+		a.resumeEverywhereSymbols(server.project)
+	}
 }
 
 // scheduleAutoCompletion starts the debounce for one typed character. Each new
@@ -942,6 +945,9 @@ func (a *App) semanticRequestStarted(pending *semanticPending, operation string,
 	pending.operation = operation
 	if err != nil {
 		a.removePending(pending)
+		if pending.kind == pluginSemanticWorkspaceSymbols {
+			pending.project.everywhereSymbols.pending = removePendingEntry(pending.project.everywhereSymbols.pending, pending)
+		}
 		a.settleMergeSide(pending.join, true, nil, false)
 		if pending.kind == pluginSemanticCopyReference {
 			a.applyReferenceSymbols(pending, core.BackendEvent{}, true)

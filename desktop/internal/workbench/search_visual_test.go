@@ -28,7 +28,10 @@ func TestVisualSearchResults(t *testing.T) {
 					t.Fatal(err)
 				}
 				root := t.TempDir()
-				for name, text := range map[string]string{"search-notes.txt": "Search results\nSearch in unsaved documents\n", "guide.txt": "Search across the project\n"} {
+				for name, text := range map[string]string{"search-notes.txt": "Search results\nSearch in unsaved documents\n", "docs/guide.txt": "Search across the project\n"} {
+					if err := os.MkdirAll(filepath.Dir(filepath.Join(root, name)), 0755); err != nil {
+						t.Fatal(err)
+					}
 					if err := os.WriteFile(filepath.Join(root, name), []byte(text), 0600); err != nil {
 						t.Fatal(err)
 					}
@@ -50,13 +53,20 @@ func TestVisualSearchResults(t *testing.T) {
 				h.app.openFindInFiles(p, false)
 				h.app.searchView.query.SetText("Search")
 				h.await("grouped search", func() bool {
-					return !p.search.loading && len(p.search.matches) == 3 && len(p.search.presentation.Rows) == 5
+					return !p.search.loading && len(p.search.matches) == 3 && len(p.search.presentation.Rows) == 5 && p.search.counts != nil
 				})
 				h.app.invalidator.Invalidate()
 				h.settleChain()
 				if err := session.Screenshot(filepath.Join(out, "search-project-"+language+"-"+theme+".png")); err != nil {
 					t.Fatal(err)
 				}
+				h.app.searchView.optionsOpen = true
+				h.app.invalidator.Invalidate()
+				h.settleChain()
+				if err := session.Screenshot(filepath.Join(out, "search-options-"+language+"-"+theme+".png")); err != nil {
+					t.Fatal(err)
+				}
+				h.app.searchView.optionsOpen = false
 				h.app.openEverywhere(p)
 				h.app.everywhereView.query.SetText("Search")
 				h.await("All content", func() bool { return !p.everywhere.loading && len(p.everywhere.matches) >= 4 })

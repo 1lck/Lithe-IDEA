@@ -15,6 +15,7 @@ import (
 // treeNode is a file or a folder of the project tree. A folder's children are listed by the
 // kernel the first time it is expanded.
 type treeNode struct {
+	linked bool
 	// id identifies the node's row; it is never reused.
 	id int
 	// path is relative to the project root with "/" separators; empty for the root.
@@ -283,6 +284,7 @@ func (a *App) pumpTreeListings(p *project) {
 					continue
 				}
 				if listing, ok := byPath[path]; ok {
+					n.linked = listing.Linked
 					t.replaceChildren(n, listing.Children)
 					n.listed, n.empty = true, len(n.children) == 0
 					if n == t.root {

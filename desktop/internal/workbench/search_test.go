@@ -513,15 +513,21 @@ func TestProjectSearchVirtualizesLoadedGroups(t *testing.T) {
 		}
 		return n
 	}
-	if got := countRows(); got < 1 || got > 20 {
-		t.Fatalf("visible rows = %d", got)
+	first, last := h.app.searchView.list.Visible()
+	if got := countRows(); got < 1 || got > last-first+1 || got >= len(p.search.presentation.Rows) {
+		t.Fatalf("visible rows = %d, visible range = %d..%d, total = %d", got, first, last, len(p.search.presentation.Rows))
+	}
+	if h.shows("file-199.txt (1)") {
+		t.Fatal("offscreen file heading was painted")
 	}
 	at := center(h.pageHit("file-000.txt").Bounds)
 	if err := h.driver.Scroll(gfx.ScrollEvent{X: at.X, Y: at.Y, DeltaY: 20000, Precise: true}); err != nil {
 		t.Fatal(err)
 	}
-	if got := countRows(); got > 20 {
-		t.Fatalf("scrolled rows = %d", got)
+	h.settleChain()
+	first, last = h.app.searchView.list.Visible()
+	if got := countRows(); first == 0 || got < 1 || got > last-first+1 || got >= len(p.search.presentation.Rows) {
+		t.Fatalf("scrolled rows = %d, visible range = %d..%d", got, first, last)
 	}
 	if h.shows(i18n.Shared(h.app.language(), "desktop.search.first200")) {
 		t.Fatal("obsolete total cap shown")

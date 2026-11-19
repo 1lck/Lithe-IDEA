@@ -1005,7 +1005,6 @@
     "desktop.errors.settingsFailed": "Could not open the settings window: {reason}",
     "desktop.everywhere.actions": "Actions",
     "desktop.everywhere.all": "All",
-    "desktop.everywhere.classes": "Classes",
     "desktop.everywhere.files": "Files",
     "desktop.everywhere.limit": "Showing the first 500 results. Narrow your search to see more.",
     "desktop.everywhere.more": "Load more",
@@ -11661,7 +11660,14 @@
     "desktop.toolchains.layerPinned": "Pinned",
     "desktop.toolchains.layerProject": "Project",
     "desktop.toolchains.layerGlobal": "Global",
-    "desktop.toolchains.layerAutomatic": "Automatic"
+    "desktop.toolchains.layerAutomatic": "Automatic",
+    "desktop.everywhere.types": "Types",
+    "desktop.search.countIncomplete": "Total unavailable",
+    "desktop.search.counting": "Counting all matches…",
+    "desktop.search.followSymlinks": "Follow symbolic links",
+    "desktop.search.includeGenerated": "Include generated directories",
+    "desktop.search.symlinkHelp": "Only targets inside this project are searched; cycles are skipped.",
+    "desktop.search.totalCount": "{count} occurrences in {files} files"
   },
   "overrides": {
     "windows": {

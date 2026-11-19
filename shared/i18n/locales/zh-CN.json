@@ -1005,7 +1005,6 @@
     "desktop.errors.settingsFailed": "无法打开设置窗口：{reason}",
     "desktop.everywhere.actions": "操作",
     "desktop.everywhere.all": "全部",
-    "desktop.everywhere.classes": "类",
     "desktop.everywhere.files": "文件",
     "desktop.everywhere.limit": "显示前 500 条结果。请缩小搜索范围以查看更多。",
     "desktop.everywhere.more": "加载更多",
@@ -11661,7 +11660,14 @@
     "desktop.toolchains.layerPinned": "已固定",
     "desktop.toolchains.layerProject": "项目环境",
     "desktop.toolchains.layerGlobal": "全局默认",
-    "desktop.toolchains.layerAutomatic": "自动发现"
+    "desktop.toolchains.layerAutomatic": "自动发现",
+    "desktop.everywhere.types": "类型",
+    "desktop.search.countIncomplete": "总数尚未统计完成",
+    "desktop.search.counting": "正在统计全部匹配…",
+    "desktop.search.followSymlinks": "跟随符号链接",
+    "desktop.search.includeGenerated": "包含生成目录",
+    "desktop.search.symlinkHelp": "仅搜索当前项目内的目标，并跳过循环链接。",
+    "desktop.search.totalCount": "{files} 个文件中有 {count} 处匹配"
   },
   "overrides": {
     "macos": {
