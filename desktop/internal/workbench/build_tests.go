@@ -307,6 +307,7 @@ func (a *App) commandTestDiscovery(ctx context.Context, p *project, instance bui
 	plan, err := kernel.PlanBuildTestDiscovery(ctx, instance.Manifest, instance.BuildSystemID, core.BuildPlanRequest{
 		Root: instance.Root, Options: instance.Options, WorkspaceRoot: p.root,
 		PluginDirectory: instance.PackageDirectory, WorkspaceStateDirectory: state, OutputFile: outputFile,
+		ProjectCodeAllowed: p.trust.allowed(),
 	})
 	if err != nil {
 		return fail(core.StagePlan, err)

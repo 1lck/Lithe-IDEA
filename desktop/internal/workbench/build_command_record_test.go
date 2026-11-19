@@ -286,15 +286,18 @@ func TestBuildCommandDiscoversExactTestsAndRecordsItsResult(t *testing.T) {
 	kernel := h.app.kernel.(buildTestDiscoveryKernel)
 	fixture := contractfixture.Path("fixtures/build-systems/build-command-test-discovery.json")
 	for _, tc := range []struct {
-		mode  string
-		file  string
-		stage core.PluginStage
+		mode      string
+		file      string
+		stage     core.PluginStage
+		untrusted bool
 	}{
 		{mode: "discover-tests", file: fixture},
 		{mode: "fail", file: fixture, stage: core.StageExit},
 		{mode: "garbage", file: fixture, stage: core.StageDecode},
+		{mode: "safe-mode", file: fixture, stage: core.StagePlan, untrusted: true},
 	} {
 		t.Run(tc.mode, func(t *testing.T) {
+			p.trust.codeAllowed.Store(!tc.untrusted)
 			writeBuildCommandMarker(t, p.root, tc.mode)
 			instance := commandDiscoveryTestInstance(t, tc.file)
 			ctx := buildLoadContext(t, "action-discovery", pluginOperationWait)
@@ -302,6 +305,12 @@ func TestBuildCommandDiscoversExactTestsAndRecordsItsResult(t *testing.T) {
 			if tc.stage != "" {
 				if err == nil || len(result.Tests) != 0 {
 					t.Fatalf("discovery = %+v, error = %v", result, err)
+				}
+				if tc.untrusted {
+					var rejection *core.MarketplaceRejection
+					if !errors.As(err, &rejection) || rejection.Code != core.BuildUntrustedWorkspace {
+						t.Fatalf("safe-mode discovery returned %v, want %s", err, core.BuildUntrustedWorkspace)
+					}
 				}
 				wantPluginOperation(t, plugins.next(t, tc.mode), failedBuildCommand(core.OperationBuildTestDiscovery, "action-discovery", tc.stage))
 			} else {
@@ -311,6 +320,7 @@ func TestBuildCommandDiscoversExactTestsAndRecordsItsResult(t *testing.T) {
 				for _, test := range result.Tests {
 					plan, err := core.NewClient().PlanBuildTest(ctx, instance.Manifest, instance.BuildSystemID, core.BuildTestRequest{
 						Root: instance.Root, WorkspaceRoot: p.root, Project: test.Project, Target: test.Target, Suite: test.Suite, Case: test.Case,
+						ProjectCodeAllowed: p.trust.allowed(),
 					})
 					if err != nil || !slices.Contains(plan.Arguments, "--case=checks spaces # [exact]") {
 						t.Fatalf("exact test plan = %+v, error = %v", plan, err)
