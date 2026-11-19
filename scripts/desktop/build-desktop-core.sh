@@ -27,8 +27,6 @@ native_path() {
     fi
 }
 
-# Lithe-core-rust main at 555eb95: #105 documents plugin views, after #101 (30a9f8d)
-# merged code actions, signature help, inlay hints and server-initiated workspace edits.
 # Lithe-core-rust main at 545ca11: #104, squash-merged into main: plugin views replace the native
 # UI document. A tool window's view.function and a manifest's settingRegions[].view name a backend
 # view function the host calls once per event, and plugins.ui.applyResult checks each result (a
@@ -268,7 +266,7 @@ PINNED_CORE_REPOSITORY="https://github.com/Lithe-IDEA/Lithe-core-rust.git"
 # the contract, plugin guides, reference and SDKs live only in shared/plugins; on top of #16 (reported Git queries folded in the console),
 # #15 (git.write cherryPick, revert and reset fields), #14 (word-level changed ranges of diff
 # rows), #13, #8, #7, #6 and #4.
-PINNED_CORE_REVISION="555eb9584c90478c0d93e26fd85c4106ac64de94"
+PINNED_CORE_REVISION="9dea6aa6eaaf830c3568b647aa7daae5018b9727"
 PROFILE="debug"
 while [[ $# -gt 0 ]]; do
     case "$1" in

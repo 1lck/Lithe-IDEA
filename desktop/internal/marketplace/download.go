@@ -81,6 +81,14 @@ func newArchiveDownloader(client *http.Client, temporaryRoot string) *ArchiveDow
 	}
 }
 
+// HTTPClient returns the configured HTTP client (including any proxy or test transport).
+func (d *ArchiveDownloader) HTTPClient() *http.Client {
+	if d != nil && d.http != nil {
+		return d.http
+	}
+	return marketplaceHTTPClient(nil, 0)
+}
+
 // DownloadedArchive owns a private staging directory. The caller must discard
 // it after review, cancellation, successful installation, or any later error.
 // The path is not an immutable handle: before extraction, the caller must bind
