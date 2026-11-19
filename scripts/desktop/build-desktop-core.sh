@@ -27,7 +27,12 @@ native_path() {
     fi
 }
 
-# Lithe-core-rust main at 545ca11: #104, squash-merged into main: plugin views replace the native
+# Lithe-core-rust main at 0b6da27: #109, squash-merged into main: a canvas's on may list resize
+# beside viewport, which the desktop sends with the new width 400 ms after the width stops
+# changing; every view event carries width, the width the view's nodes are laid out in. It is on
+# top of #108 (9dea6aa), squash-merged into main: managedRuntimes 1 lists mirror URLs for runtime
+# artifacts, and #105 (555eb95), which only changed the plugin documentation.
+# Below them, Lithe-core-rust main at 545ca11: #104, squash-merged into main: plugin views replace the native
 # UI document. A tool window's view.function and a manifest's settingRegions[].view name a backend
 # view function the host calls once per event, and plugins.ui.applyResult checks each result (a
 # whole view, patches or nothing) against the manifest, the surface and the view drawn last and
@@ -266,7 +271,7 @@ PINNED_CORE_REPOSITORY="https://github.com/Lithe-IDEA/Lithe-core-rust.git"
 # the contract, plugin guides, reference and SDKs live only in shared/plugins; on top of #16 (reported Git queries folded in the console),
 # #15 (git.write cherryPick, revert and reset fields), #14 (word-level changed ranges of diff
 # rows), #13, #8, #7, #6 and #4.
-PINNED_CORE_REVISION="9dea6aa6eaaf830c3568b647aa7daae5018b9727"
+PINNED_CORE_REVISION="0b6da2725ded74de7c3b62b49d12c1947dc0a38a"
 PROFILE="debug"
 while [[ $# -gt 0 ]]; do
     case "$1" in

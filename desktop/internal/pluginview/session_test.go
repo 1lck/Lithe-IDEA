@@ -124,6 +124,20 @@ func (b *backend) last() map[string]any {
 	return b.calls[len(b.calls)-1].params
 }
 
+// testWidth is the width the tests' first paint measures.
+const testWidth = 600
+
+// show opens the session and measures its width, as the first paint of the view does.
+func show(s *Session) {
+	s.Open()
+	s.Measured(testWidth)
+}
+
+// resizeView is a view whose canvas lays itself out at the width and listens for resize.
+func resizeView() json.RawMessage {
+	return json.RawMessage(`[{"type":"canvas","id":"fit","label":"Fit","height":120,"viewBox":[0,0,600,120],"on":["resize"],"nodes":[]}]`)
+}
+
 // shown is the text of the session's label, which names the event that drew it.
 func shown(t *testing.T, s *Session) string {
 	t.Helper()
@@ -138,8 +152,15 @@ func TestSessionOpenSendsOpenAndDrawsTheAnswer(t *testing.T) {
 	b := newBackend(t)
 	s := b.session()
 	s.Open()
-	if !s.Opened() || !s.Busy() || len(b.pending) != 1 {
-		t.Fatalf("after Open: opened %v, busy %v, %d calls queued", s.Opened(), s.Busy(), len(b.pending))
+	if !s.Opened() || s.Busy() || len(b.pending) != 0 {
+		t.Fatalf("before the first paint: opened %v, busy %v, %d calls queued", s.Opened(), s.Busy(), len(b.pending))
+	}
+	if s.Measured(0.5) != 0 || len(b.pending) != 0 {
+		t.Fatal("a width under one point sent open")
+	}
+	s.Measured(612.7)
+	if !s.Busy() || len(b.pending) != 1 || s.Width() != 612 {
+		t.Fatalf("after the first paint: busy %v, %d calls queued, width %d", s.Busy(), len(b.pending), s.Width())
 	}
 	if s.Drawn() {
 		t.Fatal("a view is drawn before the backend answered")
@@ -158,6 +179,9 @@ func TestSessionOpenSendsOpenAndDrawsTheAnswer(t *testing.T) {
 	if call.params["event"] != "open" || call.view != nil || call.closing {
 		t.Fatalf("open call = %+v, want open with no drawn view", call)
 	}
+	if call.params["width"] != 612.0 {
+		t.Fatalf("open width = %v, want the measured width in whole points", call.params["width"])
+	}
 	if instance := s.Instance(); !strings.HasPrefix(instance, "view-") || call.params["instance"] != instance {
 		t.Fatalf("instance = %q, sent %v", instance, call.params["instance"])
 	}
@@ -173,7 +197,7 @@ func TestSessionOpenSendsOpenAndDrawsTheAnswer(t *testing.T) {
 func TestSessionSendsOneEventAtATimeWithTheDrawnView(t *testing.T) {
 	b := newBackend(t)
 	s := b.session()
-	s.Open()
+	show(s)
 	b.answered(s)
 	s.Send(Event{Name: "click", Node: "refresh"})
 	s.Send(Event{Name: "change", Node: "filter", Value: "core"})
@@ -202,7 +226,7 @@ func TestSessionSendsOneEventAtATimeWithTheDrawnView(t *testing.T) {
 func TestSessionSettlesSettingsAndSendsTheValuesAtSending(t *testing.T) {
 	b := newBackend(t)
 	s := b.session()
-	s.Open()
+	show(s)
 	b.answered(s)
 	s.SettingsChanged()
 	b.now = b.now.Add(100 * time.Millisecond)
@@ -233,7 +257,7 @@ func TestSessionSettlesSettingsAndSendsTheValuesAtSending(t *testing.T) {
 func TestSessionMergesWaitingViewportsPerCanvas(t *testing.T) {
 	b := newBackend(t)
 	s := b.session()
-	s.Open()
+	show(s)
 	s.ViewportMoved("graph", Viewport{X: 1, Width: 10, Height: 10})
 	s.ViewportMoved("minimap", Viewport{X: 2, Width: 5, Height: 5})
 	b.now = b.now.Add(settleDelay)
@@ -259,7 +283,7 @@ func TestSessionMergesWaitingViewportsPerCanvas(t *testing.T) {
 func TestSessionCloseDropsTheLateAnswerAndSendsClose(t *testing.T) {
 	b := newBackend(t)
 	s := b.session()
-	s.Open()
+	show(s)
 	first := s.Instance()
 	s.Close()
 	if s.Opened() || s.Instance() != "" || len(b.pending) != 2 {
@@ -274,13 +298,16 @@ func TestSessionCloseDropsTheLateAnswerAndSendsClose(t *testing.T) {
 	if !closing.closing || closing.params["event"] != "close" || closing.params["instance"] != first {
 		t.Fatalf("close call = %+v", closing)
 	}
+	if closing.params["width"] != float64(testWidth) {
+		t.Fatalf("close width = %v", closing.params["width"])
+	}
 	if err := closing.ctx.Err(); err != nil {
 		t.Fatalf("the close call's context = %v, want it to outlive the showing", err)
 	}
 	if s.Take() != 0 || s.Drawn() {
 		t.Fatal("a closed session took the late answer")
 	}
-	s.Open()
+	show(s)
 	if s.Instance() == first || s.Instance() == "" {
 		t.Fatalf("reopening kept instance %q", s.Instance())
 	}
@@ -297,9 +324,9 @@ func TestSessionKeepsTheNewerAnswerWhenAClosedShowingAnswersLate(t *testing.T) {
 		return labelView(instance), true, nil
 	}
 	s := b.session()
-	s.Open()
+	show(s)
 	s.Close()
-	s.Open()
+	show(s)
 	if len(b.pending) != 3 {
 		t.Fatalf("%d calls queued, want the first open, close and the second open", len(b.pending))
 	}
@@ -326,7 +353,7 @@ func TestSessionRetrySendsTheFailedEventAgain(t *testing.T) {
 		return labelView(name), true, nil
 	}
 	s := b.session()
-	s.Open()
+	show(s)
 	b.answered(s)
 	s.Send(Event{Name: "click", Node: "refresh"})
 	b.answered(s)
@@ -358,7 +385,7 @@ func TestSessionLogsAViewItCannotRead(t *testing.T) {
 		return labelView("open"), true, nil
 	}
 	s := b.session()
-	s.Open()
+	show(s)
 	b.answered(s)
 	s.Send(Event{Name: "click", Node: "refresh"})
 	b.answered(s)
@@ -383,7 +410,7 @@ func TestSessionIgnoresACancelledCall(t *testing.T) {
 		return labelView("open"), true, nil
 	}
 	s := b.session()
-	s.Open()
+	show(s)
 	b.answered(s)
 	s.Send(Event{Name: "click"})
 	b.answered(s)
@@ -409,7 +436,7 @@ func TestSessionKeepsTheViewForAnEmptyOrUnchangedAnswer(t *testing.T) {
 		return labelView("open"), true, nil
 	}
 	s := b.session()
-	s.Open()
+	show(s)
 	b.answered(s)
 	s.Send(Event{Name: "click"})
 	b.answered(s)
@@ -424,7 +451,7 @@ func TestSessionEncodesTheEventOverTheSurfaceParams(t *testing.T) {
 	b := newBackend(t)
 	b.params["event"], b.params["instance"] = "spoofed", "spoofed"
 	s := b.session()
-	s.Open()
+	show(s)
 	b.answered(s)
 	if _, ok := b.calls[0].params["node"]; ok {
 		t.Fatalf("open params %v carry a node", b.calls[0].params)
@@ -437,7 +464,7 @@ func TestSessionEncodesTheEventOverTheSurfaceParams(t *testing.T) {
 	params := b.last()
 	want := map[string]any{
 		"event": "activate", "instance": s.Instance(), "node": "modules", "item": "core",
-		"setting": "jdk", "value": 3.0, "canvas": "graph",
+		"setting": "jdk", "value": 3.0, "canvas": "graph", "width": float64(testWidth),
 	}
 	for key, value := range want {
 		if params[key] != value {
@@ -458,7 +485,7 @@ func TestSessionCallsEndWithTheHostContext(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	s := b.session(func(options *Options) { options.Context = ctx })
-	s.Open()
+	show(s)
 	cancel()
 	b.run()
 	if err := b.calls[0].ctx.Err(); !errors.Is(err, context.Canceled) {
@@ -473,6 +500,9 @@ func TestSessionTakesNoInputWhileClosed(t *testing.T) {
 	s.SettingsChanged()
 	s.ViewportMoved("graph", Viewport{Width: 1, Height: 1})
 	s.Retry()
+	if s.Measured(500) != 0 || s.Width() != 0 {
+		t.Fatal("a closed session took a width")
+	}
 	b.now = b.now.Add(settleDelay)
 	if s.Take() != 0 || len(b.pending) != 0 || len(b.calls) != 0 {
 		t.Fatalf("a closed session sent %d events", len(b.pending)+len(b.calls))
@@ -480,8 +510,116 @@ func TestSessionTakesNoInputWhileClosed(t *testing.T) {
 	var none *Session
 	none.Open()
 	none.Send(Event{Name: "click"})
+	none.Measured(500)
 	none.Close()
 	if none.Opened() || none.Drawn() || none.Busy() || none.Err() != nil || none.View() != nil || none.Instance() != "" {
 		t.Fatal("a nil session reports a view")
+	}
+}
+
+func TestSessionSendsResizeOnceTheWidthSettles(t *testing.T) {
+	b := newBackend(t)
+	b.answer = func(params map[string]any) (json.RawMessage, bool, error) { return resizeView(), true, nil }
+	s := b.session()
+	show(s)
+	b.answered(s)
+	if wait := s.Measured(500); wait != settleDelay {
+		t.Fatalf("a new width waits %v, want %v", wait, settleDelay)
+	}
+	b.now = b.now.Add(100 * time.Millisecond)
+	if wait := s.Take(); wait != 300*time.Millisecond || len(b.pending) != 0 {
+		t.Fatalf("100 ms after the width changed: wait %v, %d calls", wait, len(b.pending))
+	}
+	b.now = b.now.Add(100 * time.Millisecond)
+	s.Measured(450)
+	b.now = b.now.Add(300 * time.Millisecond)
+	if wait := s.Take(); wait != 100*time.Millisecond || len(b.pending) != 0 {
+		t.Fatalf("a second change did not restart the wait: wait %v, %d calls", wait, len(b.pending))
+	}
+	// An event in between carries the width, but the plugin lays out again only on resize.
+	s.Send(Event{Name: "click", Node: "refresh"})
+	b.answered(s)
+	if b.last()["width"] != 450.0 {
+		t.Fatalf("click width = %v", b.last()["width"])
+	}
+	b.now = b.now.Add(100 * time.Millisecond)
+	if wait := s.Take(); wait != 0 || len(b.pending) != 1 {
+		t.Fatalf("once settled: wait %v, %d calls", wait, len(b.pending))
+	}
+	b.answered(s)
+	if got := b.events(); !slices.Equal(got, []string{"open", "click", "resize"}) || b.last()["width"] != 450.0 {
+		t.Fatalf("events = %v, last %v", got, b.last())
+	}
+	b.now = b.now.Add(time.Second)
+	if wait := s.Take(); wait != 0 || len(b.pending) != 0 {
+		t.Fatalf("a width the plugin laid out at sent resize again: wait %v, %d calls", wait, len(b.pending))
+	}
+}
+
+func TestSessionMergesAWaitingResizeAndSendsTheWidthAtSending(t *testing.T) {
+	b := newBackend(t)
+	b.answer = func(params map[string]any) (json.RawMessage, bool, error) { return resizeView(), true, nil }
+	s := b.session()
+	show(s)
+	b.answered(s)
+	s.Send(Event{Name: "click", Node: "refresh"})
+	s.Measured(500)
+	b.now = b.now.Add(settleDelay)
+	s.Take()
+	s.Measured(450)
+	b.now = b.now.Add(settleDelay)
+	s.Take()
+	for len(b.pending) > 0 {
+		b.answered(s)
+	}
+	if got := b.events(); !slices.Equal(got, []string{"open", "click", "resize"}) || b.last()["width"] != 450.0 {
+		t.Fatalf("events = %v, last %v, want one resize with the latest width", got, b.last())
+	}
+}
+
+func TestSessionSendsNoResizeWithoutACanvasThatListens(t *testing.T) {
+	b := newBackend(t)
+	listens := false
+	b.answer = func(params map[string]any) (json.RawMessage, bool, error) {
+		if listens {
+			return resizeView(), true, nil
+		}
+		return labelView("open"), true, nil
+	}
+	s := b.session()
+	show(s)
+	b.answered(s)
+	if wait := s.Measured(500); wait != 0 {
+		t.Fatalf("a view without a resize canvas waits %v", wait)
+	}
+	b.now = b.now.Add(time.Second)
+	if wait := s.Take(); wait != 0 || len(b.pending) != 0 {
+		t.Fatalf("a view without a resize canvas: wait %v, %d calls", wait, len(b.pending))
+	}
+	// A view that starts listening hears the width that changed before it at once.
+	listens = true
+	s.Send(Event{Name: "click", Node: "refresh"})
+	b.answered(s)
+	if len(b.pending) != 1 {
+		t.Fatalf("%d calls queued, want the resize the new canvas listens for", len(b.pending))
+	}
+	b.answered(s)
+	if got := b.events(); !slices.Equal(got, []string{"open", "click", "resize"}) || b.last()["width"] != 500.0 {
+		t.Fatalf("events = %v, last %v", got, b.last())
+	}
+}
+
+func TestSessionClosedBeforeItsFirstPaintSendsNothing(t *testing.T) {
+	b := newBackend(t)
+	s := b.session()
+	s.Open()
+	s.Close()
+	if len(b.pending) != 0 || len(b.calls) != 0 {
+		t.Fatalf("a view closed before its first paint sent %d events", len(b.pending)+len(b.calls))
+	}
+	show(s)
+	b.answered(s)
+	if got := b.events(); !slices.Equal(got, []string{"open"}) || shown(t, s) != "open" {
+		t.Fatalf("events = %v after reopening", got)
 	}
 }

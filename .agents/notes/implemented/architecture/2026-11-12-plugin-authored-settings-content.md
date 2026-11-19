@@ -41,14 +41,16 @@
 
 ### 事件与答案
 
-- 宿主按契约发送 `open`、`close`、`click`、`change`、`select`、`activate`、`viewport`、`settings` 事件，每个事件调用一次视图函数，参数里带 `instance`、`surface`、`language` 和 `settings{effective, draft}`。
-- 每个视图同一时间只发一个调用，按顺序发送。`viewport` 和 `settings` 停止变化 400 ms 后才发，等待中的同类事件合并成最新一个。输入框只在回车、失焦或提交时发一次 `change`，不按键调用。
+- 宿主按契约发送 `open`、`close`、`click`、`change`、`select`、`activate`、`viewport`、`resize`、`settings` 事件，每个事件调用一次视图函数，参数里带 `instance`、`surface`、`language`、`width` 和 `settings{effective, draft}`。`width` 是视图节点排版用的宽度（整数点，也是顶层画布的宽度）；工具窗口要减去视图四周各 10 点的内边距。宿主在绘制时量出宽度，量到之后才发 `open`。
+- 每个视图同一时间只发一个调用，按顺序发送。`viewport`、`resize` 和 `settings` 停止变化 400 ms 后才发，等待中的同类事件合并成最新一个；`resize` 只在画出来的视图里有画布在 `on` 写了它时发，发送时带当时的宽度。输入框只在回车、失焦或提交时发一次 `change`，不按键调用。
 - 函数返回整棵视图 `{view}`、补丁 `{patches}`（`set`、`replace`、`remove`、`insert`，最多 512 个）或 `{}`。宿主把答案连同清单、位置和上一次画的视图交给 Core 的 `plugins.ui.applyResult`，Core 校验并应用补丁后返回完整的下一棵视图，宿主只画这棵。宿主不保留自己的校验器或补丁引擎。
 - 本版没有插件主动推送：视图只在回答事件时变化。
 
 ### 画布
 
-- 节点是 `rect`、`path`、`text`、`image`、`group`，按 `viewBox` 坐标缩放到视图宽度。
+- 节点是 `rect`、`path`、`text`、`image`、`group`，用 `viewBox` 坐标，画在和视图一样宽、`height` 点高的区域里。
+- 缩放为 1 时，不写 `pan` 的画布显示整个 `viewBox`：按视图宽度缩放，但不超过 `height`，从左上角开始；写了 `pan` 的画布按视图宽度缩放，缩小到比区域窄时水平居中。只按宽度缩放会在宽窗口里把场景放大、裁掉下半部分，0.8.7/0.8.8 的 Go Modules 预览就是这样。
+- 跟随窗口的场景：插件把 `viewBox` 宽度设成事件里的 `width`，按这个宽度排版，并在 `on` 里写 `resize`；窗口变化后宿主发 `resize`，插件按新宽度重新排版。新答复到达之前，宿主按上面的规则缩放已有场景。旧宿主不带 `width`，它的 Core 也拒绝写了 `resize` 的画布，所以插件只在收到 `width` 后才写 `resize`，否则按固定宽度排版（语言页约 610 点，构建系统页和编译器页的详情约 340 点）（Core [#109](https://github.com/Lithe-IDEA/Lithe-core-rust/pull/109)）。
 - 颜色可以是固定值、主题令牌（`$accent`、`$text` 等）、深浅两套值，或线性渐变；令牌和深浅两套值跟随主题。宿主控件不接受颜色、字体、尺寸和坐标。
 - 可点击的分组必须有 `id`、`w`、`h` 和 `label`。悬停、按下、选中的样式写在 `states`（`hover`、`pressed`、`selected`）里，由宿主本地切换。
 - 普通滚轮滚动页面；⌘ 或 Ctrl 加滚轮缩放，拖动空白处平移，缩放按钮由宿主画。悬停提示停留 500 ms 后显示。
@@ -63,7 +65,7 @@
 
 ### 生命周期
 
-视图显示时发 `open`，消失时发 `close`。关闭、停用、更新或卸载插件、关闭项目、切换界面语言时，宿主取消未完成的调用并丢弃晚到的答案；切换语言后用新的 `instance` 重新打开。视图状态只存在后端和宿主内存里，不写进插件包或应用包。
+视图显示后第一次绘制量到宽度时发 `open`，消失时发 `close`；还没画过就消失的视图两个都不发。关闭、停用、更新或卸载插件、关闭项目、切换界面语言时，宿主取消未完成的调用并丢弃晚到的答案；切换语言后用新的 `instance` 重新打开。视图状态只存在后端和宿主内存里，不写进插件包或应用包。
 
 ### Viva 尚不支持的画布能力
 
@@ -96,6 +98,7 @@
 
 - 2026-11-12：渲染归 API-13，读写设置归 API-19，插件文字本地化归 API-37，都是现有编号的扩展，不新增编号。契约在 v0 里直接删掉 `native-ui`，换成插件视图，不升版本号（版本已于 2026-11-11 全部归 0）。
 - 2026-11-18：设置区域只用插件视图，需要自由绘制时用画布（保留场景），不嵌网页；网页只用于工具窗口，沿用[插件自带网页界面](2026-10-18-plugin-web-content-in-host-windows.md)。顺序是先合设计和原型，再做 Core 契约加 SDK，最后做桌面端 Viva 渲染。
+- 2026-11-19：画布要自动适应窗口：不放大、不裁剪，并按真实宽度重新排版。做法是事件带 `width`、画布可写 `resize`，属于 API-13 的补充，不升能力版本（Core #109 取代只改缩放规则的 #107）。
 
 ## 考虑过的备选方案
 
@@ -136,7 +139,7 @@
 
 ## 验证
 
-- `scripts/desktop/desktop-go.sh test ./internal/pluginview/ ./internal/pluginservice/ ./internal/workbench/ ./internal/settingswindow/ ./internal/core/ -count=1`：覆盖事件顺序与去抖、晚到答案丢弃、失败重试、节点解析、画布路径与颜色、图片限制、嵌套树高度、视图事件参数（Core 契约 fixture）、区域绑定设置与搜索关键词。
+- `scripts/desktop/desktop-go.sh test ./internal/pluginview/ ./internal/pluginservice/ ./internal/workbench/ ./internal/settingswindow/ ./internal/core/ -count=1`：覆盖事件顺序与去抖、量到宽度后才发 `open`、每个事件带 `width`、`resize` 的去抖与合并（含无头窗口缩小后发送新宽度）、晚到答案丢弃、失败重试、节点解析、画布路径与颜色、图片限制、嵌套树高度、视图事件参数（Core 契约 fixture）、区域绑定设置与搜索关键词。
 - `scripts/desktop/desktop-go.sh test -count=1 -tags 'vivahead lithevisual' -run 'TestVisualPluginView' ./internal/pluginview/` 和 `scripts/desktop/desktop-go.sh test -count=1 -tags 'vivahead lithevisual' -run 'TestVisualPluginRegion' ./internal/settingswindow/`：设置 `LITHE_VISUAL_OUTPUT_DIR` 后输出工具窗口视图和设置区域的深浅主题截图。
 - `scripts/desktop/verify/verify-runtime-bundle-immutability.sh`：确认插件包和应用包在运行中不被写入。
 - 原生整机验收：安装一个声明了视图工具窗口和设置区域的测试插件，检查点击、编辑、树选择与激活、画布平移缩放、绑定设置的应用与取消、后端报错后的重试、停用插件后视图关闭；macOS 上打开插件区域时不出现新的 `com.apple.WebKit` 进程。Windows 在虚拟机上重复。
