@@ -59,13 +59,12 @@ func hiddenRunConfigurations(language i18n.Language, count int) string {
 }
 
 // loadTitleRunConfigs reads what the title bar lists. Detection runs once; after it every
-// detected instance loads its model, since each offers its own runs, where the Build window
-// only loads the instance it shows.
+// detected instance loads its model, since each offers its own runs. The project calls it as
+// soon as it opens, so the title bar lists them without a press first.
 func (a *App) loadTitleRunConfigs(p *project) {
 	if p == nil {
 		return
 	}
-	p.runConfigs.wanted = true
 	if !p.build.loaded {
 		a.loadBuildSystems(p)
 		return

@@ -781,10 +781,10 @@ func (a *App) finishBuildDetection(p *project, generation uint64, instances []bu
 		p.build.status = a.text.Build.NoBuildSystems
 		return
 	}
+	// The instance the Build window shows loads first, then every other one, whose runs the
+	// title bar lists too.
 	a.loadBuildModel(p, p.build.selected)
-	if p.runConfigs.wanted {
-		a.loadTitleRunConfigs(p)
-	}
+	a.loadTitleRunConfigs(p)
 }
 
 // loadBuildModel loads the model of an instance whose detection did not carry one (a
@@ -1099,9 +1099,9 @@ func (a *App) finishBuildModel(p *project, id string, model core.BuildModel, err
 			if err != nil {
 				a.backgroundFailed("plugin_model_superseded", err)
 			}
-			if index == p.build.selected || p.runConfigs.wanted {
-				a.loadBuildModel(p, index)
-			}
+			// The title bar lists the runs of every instance, so a superseded model loads again
+			// whether or not the Build window shows its instance.
+			a.loadBuildModel(p, index)
 			a.settleTitleAction(p)
 			return
 		}
