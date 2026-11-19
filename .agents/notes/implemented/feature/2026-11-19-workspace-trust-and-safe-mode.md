@@ -12,7 +12,7 @@ Maven 这类命令来源的模型会运行 `mvn`，pom 里的扩展和插件就�
 
 ## 决策
 
-- **三种状态由 Core 判定。** Core 的工具链目录记着信任过的工作区、明确不信任的工作区和信任的位置（父文件夹）。`toolchains.catalogState` 返回 `workspaceTrust`（`trusted`、`distrusted`、`unknown`，以及可以提供的父文件夹）；显式决定优先于位置，和 IDEA 的 `TrustedPaths` 一致。根目录、盘符和网络共享根不作为可信位置提供。
+- **三种状态由 Core 判定。** Core 的工具链目录记着信任过的工作区、明确不信任的工作区和信任的位置（父文件夹）。`toolchains.catalogState` 返回 `workspaceTrust`（`trusted`、`distrusted`、`unknown`，以及可以提供的父文件夹）；显式决定优先于位置，和 IDEA 的 `TrustedPaths` 一致。根目录、盘符和网络共享根不作为可信位置提供。Core 返回的父文件夹路径在生成复选框标签时转换为当前平台的显示格式，再缩写主目录或长路径。
 - **Core 拒绝会运行项目代码的计划。** 计划请求带 `projectCodeAllowed`；为假时，命令模型（清单标了 `executesProjectCode`）、执行类提供者计划和声明了运行项目代码的提供者都会被拒绝，错误码 `plugin.build.untrustedWorkspace`。宿主只负责把项目当前的信任带进请求（`desktop/internal/workbench` 中 11 处请求都填 `p.trust.allowed()`），不自己判断哪些计划危险。
 - **先问再打开。** `openProjectHere` 先读信任（`toolchain.ReadWorkspaceTrust`），再决定直接打开、以安全模式打开或提问；选“不打开”时当前项目原样保留，新开的项目页签直接关掉。“以安全模式预览”记成不信任，下次打开不再问，和 IDEA 的 `setProjectTrusted(false)` 相同。
 - **安全模式下的动作先问。** `startRun`、`runBuildTask`、`startTests`、运行当前文件和重新加载模型前，安全模式会弹出“信任项目？/ 保持安全模式”。信任保存成功后才执行原动作；保存失败按未信任处理。自动加载的模型不运行，构建窗口在模型位置显示安全模式说明。
