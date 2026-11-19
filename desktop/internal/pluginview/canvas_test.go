@@ -36,6 +36,40 @@ func TestCanvasScaleFollowsTheWidthAndTheZoom(t *testing.T) {
 	}
 }
 
+func TestCanvasWithoutPanShowsItsWholeViewBoxFromTheTopLeft(t *testing.T) {
+	// A scene designed 600 × 300 in a canvas 300 points tall.
+	n := &Node{Type: "canvas", ID: "preview", ViewBox: [4]float64{10, 20, 600, 300}}
+	state := &canvasState{zoom: 1}
+
+	// As wide as designed it takes one pixel a unit.
+	if got := state.scale(gfx.Rect{Width: 600, Height: 300}, n); got != 1 {
+		t.Fatalf("scale at the designed width = %v, want 1", got)
+	}
+	// Narrower, it shrinks to the width.
+	if got := state.scale(gfx.Rect{Width: 300, Height: 300}, n); got != 0.5 {
+		t.Fatalf("scale at half the width = %v, want 0.5", got)
+	}
+	// Wider, it keeps its size, whole, from the leading edge.
+	wide := gfx.Rect{Width: 1000, Height: 300}
+	if got := state.scale(wide, n); got != 1 {
+		t.Fatalf("scale wider than designed = %v, want the height kept", got)
+	}
+	state.clamp(wide, n)
+	if state.x != 10 || state.y != 20 {
+		t.Fatalf("wider than designed at (%v, %v), want the view box's top-left corner", state.x, state.y)
+	}
+	if got := state.viewport(wide, n); got != (Viewport{X: 10, Y: 20, Width: 1000, Height: 300}) {
+		t.Fatalf("viewport = %+v", got)
+	}
+
+	// Its zoom scales the fitted scene.
+	n.Zoom = &[2]float64{1, 2}
+	state = &canvasState{zoom: 2}
+	if got := state.scale(wide, n); got != 2 {
+		t.Fatalf("scale at zoom 2 = %v, want twice the fitted scale", got)
+	}
+}
+
 func TestCanvasClampKeepsTheViewInsideTheViewBox(t *testing.T) {
 	n := testCanvas()
 	n.ViewBox = [4]float64{100, 50, 400, 200}
