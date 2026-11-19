@@ -99,7 +99,10 @@ type Capabilities map[string][]int
 //   - buildSystems and buildProviders: the Build window detects instances,
 //     loads provider models, resolves the ordered executable candidates Core
 //     returns, runs command and provider tasks, prepares application targets
-//     and discovers and runs provider tests. Run on Current File asks the
+//     and discovers and runs provider tests. Debug on a target, or on a
+//     provider run configuration in the title bar, has the provider prepare
+//     the program of a run that names the plugin's own adapter (debug.adapter)
+//     and starts that adapter on it. Run on Current File asks the
 //     providers of version 1 for the file's entrypoints and saves the first as a
 //     run configuration. Run sessions a backend starts are owned by the host.
 //   - runConfigurationTypes: the Run/Debug Configurations dialog lists the
@@ -147,9 +150,8 @@ type Capabilities map[string][]int
 //   - tool discovery for system commands reads PATH and the plugin's installed
 //     command directories only; a plan that depends on a project toolchain or a
 //     user override must use a tool launch.
-//   - build provider debug preparation, model inputs, native configuration,
-//     inline test reports and runtime debug; build system instance options and
-//     task preparations.
+//   - build provider model inputs, native configuration, inline test reports
+//     and runtime debug; build system instance options and task preparations.
 //   - ui commands that belong to no tool window.
 //   - VCS provider annotation, file history, file operations, metadata
 //     watching, authentication, history entry diffs, status in the project tree
