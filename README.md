@@ -62,7 +62,7 @@ Rebuilt on **Viva (Go native workbench) + Rust Core**, Lithe is a modular, plugg
 | **Native Editor & Search** | High-performance native editor, project tree, file tabs, and Search Everywhere (files, symbols, actions). |
 | **Deep Git Review** | Changed files, split/inline diffs, commits, branch history, and first-class Git worktree management. |
 | **On-Demand LSP, Build & Debug** | Independent plugins connect language servers, build tasks, and debuggers (DAP / native) only when needed—zero idle drain. |
-| **AI Agent & Plugin Ecosystem** | Built-in agent chat, MCP, and live resource monitor; extensible via Node, Java, and Rust plugin SDKs ([Lithe Store](https://github.com/Lithe-IDEA/Lithe-store)). |
+| **AI Assist & Plugin Ecosystem** | AI commit messages, pull request descriptions, and inline edits, MCP, and live resource monitor; extensible via Rust, Go, Node, and Java plugin SDKs ([Lithe Store](https://github.com/Lithe-IDEA/Lithe-store)). |
 
 > Track per-platform completeness on the [Feature Matrix & Decision Board](https://1lck.github.io/Lithe-IDEA/).
 

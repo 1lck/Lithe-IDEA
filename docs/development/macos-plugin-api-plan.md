@@ -343,7 +343,7 @@ Mac 当前声明的能力版本为：`backend:1`、`buildModelInputs:1`、`build
 ### 5.3 Core 仓库的交付顺序
 
 1. 同一个 Core PR 修改 Core、`Lithe-core-rust/shared/plugins/contract/v1/`、fixtures 和真实能力表；宿主适配器（Mac adapter）在本仓库另提 PR，固定到该 Core PR 合入后的 commit。API 计划文档不代替 schema/契约，也不先放开未实现字段。
-2. 涉及后端协议变更，合并前在 Core 仓库根运行 `node shared/plugins/scripts/sdk-e2e.mjs`（测试当前工作树的 Core）；覆盖 Node/Java 既有示例，修改 Rust SDK 时也覆盖 Rust 后端场景。
+2. 涉及后端协议变更，合并前在 Core 仓库根运行 `node shared/plugins/scripts/sdk-e2e.mjs`（测试当前工作树的 Core），覆盖所有官方 SDK（Rust、Go、Node、Java）的示例后端。
 3. 契约、`capabilities.rs`、`plugin_function.rs` 的改动，和[协议更新记录](https://github.com/Lithe-IDEA/Lithe-core-rust/blob/main/shared/plugins/reference/protocol-changelog.md)、[API 总表](https://github.com/Lithe-IDEA/Lithe-core-rust/blob/main/shared/plugins/reference/api-catalog.md)的登记，在同一个 Core PR 里完成；没有合并后的同步步骤。
 4. SDK、指南、示例和兼容性矩阵在同一个 Core PR 里配套提交，锁定实际已支持宿主；正式 release（Core 仓库的 `sdk-*` 标签）与哈希校验成功后再把该能力标成“已发布”。不能把正在开发的 main 当稳定 SDK 下载入口。
 5. 本仓库不保存 SDK；桌面端测试读取正在链接的那个 Core 检出里的契约（`desktop/internal/contractfixture`），CI 不隐式依赖浮动 main。本次纯计划未改契约/协议，因此不触发 Core PR 登记或 SDK 发版。
