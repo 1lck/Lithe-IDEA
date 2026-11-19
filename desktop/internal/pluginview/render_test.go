@@ -29,11 +29,17 @@ func drawView(t *testing.T, view string) *viewDriver {
 	b := newBackend(t)
 	b.answer = func(map[string]any) (json.RawMessage, bool, error) { return json.RawMessage(view), true, nil }
 	s := b.session()
-	s.Open()
+	show(s)
 	b.answered(s)
 	if !s.Drawn() {
 		t.Fatalf("the open answer was not drawn: %v", s.Err())
 	}
+	return paintView(t, b, s)
+}
+
+// paintView draws the session as a tool window body in a headless window 480 points wide.
+func paintView(t *testing.T, b *backend, s *Session) *viewDriver {
+	t.Helper()
 	theme := ui.LightTheme()
 	background := theme.Background
 	invalidator := &app.Invalidator{}
@@ -240,3 +246,27 @@ func TestDrawShowsTheFailureWithRetry(t *testing.T) {
 
 // errPluginFailed is a backend's own failure, shown untranslated under the host's words.
 var errPluginFailed = errors.New("the index is locked")
+
+func TestDrawSendsOpenAndResizeWithTheWidthItsNodesAreLaidOutIn(t *testing.T) {
+	b := newBackend(t)
+	b.answer = func(map[string]any) (json.RawMessage, bool, error) { return resizeView(), true, nil }
+	s := b.session()
+	s.Open()
+	d := paintView(t, b, s)
+	// The window is 480 points wide, and the body pads the nodes by 10 on each side.
+	if open := d.sent(); open["event"] != "open" || open["width"] != 460.0 {
+		t.Fatalf("event = %v, want open at the width the first paint measured", open)
+	}
+	d.repaint()
+	if err := d.driver.Resize(400, 400); err != nil {
+		t.Fatal(err)
+	}
+	if len(b.pending) != 0 {
+		t.Fatal("resize went out before the width settled")
+	}
+	b.now = b.now.Add(settleDelay)
+	d.repaint()
+	if resize := d.sent(); resize["event"] != "resize" || resize["width"] != 380.0 {
+		t.Fatalf("event = %v, want resize at the new width", resize)
+	}
+}

@@ -92,7 +92,7 @@ func TestVisualPluginView(t *testing.T) {
 			b := newBackend(t)
 			b.answer = func(map[string]any) (json.RawMessage, bool, error) { return json.RawMessage(visualView), true, nil }
 			s := b.session()
-			s.Open()
+			show(s)
 			b.answered(s)
 			if !s.Drawn() {
 				t.Fatalf("the view was not drawn: %v", s.Err())
