@@ -18,6 +18,8 @@ type BuildTestRequest struct {
 	Case          string                     `json:"case,omitempty"`
 	UserArguments []string                   `json:"userArguments,omitempty"`
 	Projects      []string                   `json:"projects,omitempty"`
+	// ProjectCodeAllowed is the workspace's trust, as in BuildPlanRequest.
+	ProjectCodeAllowed bool `json:"projectCodeAllowed,omitempty"`
 }
 
 // BuildTestResultsRequest asks Core to normalize the results of one test run.

@@ -216,7 +216,7 @@ func (a *App) buildTestDiscovery(ctx context.Context, p *project, instance build
 	if err != nil {
 		return core.BuildTestDiscovery{}, err
 	}
-	request := core.BuildPlanRequest{Root: instance.Root, Options: instance.Options, WorkspaceRoot: p.root, Refresh: refresh}
+	request := core.BuildPlanRequest{Root: instance.Root, Options: instance.Options, WorkspaceRoot: p.root, Refresh: refresh, ProjectCodeAllowed: p.trust.allowed()}
 	if execution.Executable != "" {
 		request.Tool = &core.BuildTool{Executable: execution.Executable, Environment: execution.Environment}
 	}

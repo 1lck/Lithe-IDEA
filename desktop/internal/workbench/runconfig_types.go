@@ -266,6 +266,7 @@ func (a *App) declaredRunSpec(ctx context.Context, p *project, kernel Kernel, ro
 		return kernel.PlanRunConfiguration(ctx, manifest, key.BuildSystemID, root, core.RunConfigurationPlanRequest{
 			ConfigurationID: id, Instances: sources.instances,
 			PluginDirectory: sources.pluginDirectory, WorkspaceStateDirectory: sources.stateDirectory,
+			ProjectCodeAllowed: p.trust.allowed(),
 		})
 	})
 }

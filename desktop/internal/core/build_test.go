@@ -50,6 +50,8 @@ func TestBuildTaskPlanCarriesProviderParams(t *testing.T) {
 		Task:          "build",
 		UserArguments: []string{"--warning-mode", "all"},
 		Options:       map[string]json.RawMessage{"offline": json.RawMessage("true")},
+		// The task runs the build tool on the workspace, which needs its trust.
+		ProjectCodeAllowed: true,
 	})
 	if err != nil {
 		t.Fatal(err)

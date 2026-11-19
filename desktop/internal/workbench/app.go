@@ -280,6 +280,10 @@ type Options struct {
 	// first is the window's first workbench when this one is another project tab of its
 	// window; nil for the first (window_sessions.go).
 	first *App
+	// trustEveryWorkspace opens every folder trusted without asking. Only the tests' harness
+	// sets it, as IDEA turns trust checks off in unit-test mode; the project tabs of the window
+	// share it through the options they are made with.
+	trustEveryWorkspace bool
 }
 
 // LogSink is the client's log as the window uses it: the log window reads it and the
@@ -439,6 +443,9 @@ type project struct {
 	root string
 	// pluginContext belongs to this open project, not to any background consumer.
 	pluginContext pluginservice.ContextRef
+	// trust says whether the project's code may run; a project opens in safe mode without it
+	// (workspace_trust.go).
+	trust projectTrust
 	// indexing is the search exclusion policy the project installed in Core (directory_exclusions.go).
 	indexing projectIndexing
 	// name is the folder's name, shown in the title bar.
@@ -724,6 +731,8 @@ type App struct {
 	missing map[string]bool
 
 	project *project
+	// trustEveryWorkspace is Options.trustEveryWorkspace; tests of the trust flow clear it.
+	trustEveryWorkspace bool
 	// toolchainRoot is the open project's root, read by the settings window from
 	// its own thread. Nil means no project is open.
 	toolchainRoot atomic.Pointer[string]
@@ -813,6 +822,7 @@ func New(options Options) *App {
 	}
 	a := &App{
 		kernel:               options.Kernel,
+		trustEveryWorkspace:  options.trustEveryWorkspace,
 		documentWriter:       documentio.WriteGuarded,
 		documentLinkedWriter: documentio.WriteGuardedLinked,
 		documentCreator:      documentio.WriteMissing,
@@ -1504,11 +1514,18 @@ func (a *App) openProjectHere(path string) {
 		a.notifyError(a.text.Errors.FolderMissing(root))
 		return
 	}
+	a.openProjectByTrust(root)
+}
+
+// openProjectWithTrust closes the open project and opens the folder at root, with its project
+// code allowed to run when trusted and in safe mode otherwise (workspace_trust.go).
+func (a *App) openProjectWithTrust(root string, trusted bool) {
 	a.requestCloseProject(func() {
 		a.reduceRecent(a.recent, core.RecordRecent(root, a.now()), true)
 		// Every Git command the project runs is kept in the Git console.
 		ctx, cancel := context.WithCancel(core.WithGitConsole(context.Background(), a.gitConsole, root))
 		p := &project{root: root, name: filepath.Base(root), ctx: ctx, cancel: cancel, commit: newCommitState()}
+		p.trust.codeAllowed.Store(trusted)
 		a.searchView.reset()
 		a.openTerminals(p)
 		a.project = p
@@ -1529,8 +1546,7 @@ func (a *App) openProjectHere(path string) {
 		// The title bar lists the runs the build plugins declare as soon as the project opens,
 		// so its application is found without a press on Run or on the run menu first. Loading
 		// a model runs the plugin's model command, such as mvn, which runs the project's build
-		// extensions, as the Build window did when it first showed; the toolchain layers leave
-		// out workspace programs such as a wrapper until the user trusts the workspace.
+		// extensions, so in safe mode the models stay unloaded until the user trusts the project.
 		a.loadTitleRunConfigs(p)
 		a.restoreEditorSession(p)
 		a.restoreCheckpoints(p)

@@ -107,6 +107,9 @@ type buildInstance struct {
 	// it, which shows without the warning of a failure.
 	modelError   string
 	modelStopped bool
+	// modelUntrusted says the model was left unloaded because the project is in safe mode;
+	// trusting the project clears it and loads the model.
+	modelUntrusted bool
 	// modelVersion counts the models the instance loaded, so a tree laid out from an earlier
 	// one is known stale; trees are the Build window's trees of the model (build_tree.go).
 	modelVersion uint64
@@ -237,7 +240,13 @@ func (b *buildState) active() bool { return b.operation != nil || len(b.running)
 // startRun starts the application run of key through start, at once when none of that key
 // runs; otherwise it stops the one that runs and starts the new one once it ended, so the two
 // never share a port or files. A start that is asked again while one waits replaces it.
+//
+// In safe mode the user is first asked to trust the project, since a run runs its code.
 func (a *App) startRun(p *project, key string, start func(*App, *project)) {
+	if p.safeMode() {
+		a.askToTrustProject(p, func() { a.startRun(p, key, start) })
+		return
+	}
 	running := p.build.runOf(key)
 	if running == nil {
 		start(a, p)
@@ -803,6 +812,15 @@ func (a *App) loadBuildModelWith(p *project, index int, refresh bool) {
 	if instance.modelLoaded || instance.modelLoading {
 		return
 	}
+	// Loading a model runs the build tool on the project, which safe mode does not allow: a
+	// reload the user asked for asks to trust the project, which then loads every model.
+	if p.safeMode() {
+		a.skipUntrustedModel(instance)
+		if refresh {
+			a.askToTrustProject(p, nil)
+		}
+		return
+	}
 	instance.modelLoading = true
 	instance.modelError, instance.modelStopped = "", false
 	captured := *instance
@@ -886,6 +904,7 @@ func (a *App) commandModel(ctx context.Context, p *project, instance buildInstan
 		WorkspaceStateDirectory: state,
 		WorkspaceRoot:           p.root,
 		OutputFile:              outputFile,
+		ProjectCodeAllowed:      p.trust.allowed(),
 	})
 	if err != nil {
 		return fail(core.StagePlan, err)
@@ -1027,6 +1046,7 @@ func (a *App) providerModel(ctx context.Context, p *project, instance buildInsta
 		WorkspaceStateDirectory: "",
 		Refresh:                 refresh,
 		Tool:                    tool,
+		ProjectCodeAllowed:      p.trust.allowed(),
 	})
 	if err != nil {
 		return core.BuildModel{}, err
@@ -1227,6 +1247,12 @@ func buildTaskSelection(instance *buildInstance, task *pluginservice.BuildTaskDe
 // client chose. It returns the execution it reserved; validation refusals are returned instead
 // so a tool call can report them, and the Build window keeps its notification and ignores them.
 func (a *App) runBuildTask(p *project, projectID, targetID, taskID string, userArguments []string) (*buildOperation, error) {
+	// A task runs the build tool on the project: in safe mode the user is asked to trust it
+	// first, and the task starts once trusted. The caller, such as the IDE API, is refused.
+	if p.safeMode() {
+		a.askToTrustProject(p, func() { _, _ = a.runBuildTask(p, projectID, targetID, taskID, userArguments) })
+		return nil, refuseBuild(refusalNotReady, "the workspace is not trusted")
+	}
 	instance := p.selectedBuildInstance()
 	if instance == nil || taskID == "" {
 		a.notify(a.text.Build.ChooseTask)
@@ -1240,10 +1266,11 @@ func (a *App) runBuildTask(p *project, projectID, targetID, taskID string, userA
 		return nil, refuseBuild(refusalNotFound, "unknown build task")
 	}
 	request := core.BuildPlanRequest{
-		Root:          instance.Root,
-		Options:       instance.Options,
-		WorkspaceRoot: p.root,
-		UserArguments: append([]string(nil), userArguments...),
+		Root:               instance.Root,
+		Options:            instance.Options,
+		WorkspaceRoot:      p.root,
+		UserArguments:      append([]string(nil), userArguments...),
+		ProjectCodeAllowed: p.trust.allowed(),
 	}
 	if projectID != "" {
 		project, ok := buildProjectByID(instance.Model, projectID)
@@ -1737,12 +1764,13 @@ func (a *App) debugProviderTarget(p *project, index int, projectID, targetID, ru
 	reference := core.RunProviderReference{PluginID: captured.PluginID, BuildSystemID: captured.BuildSystemID, Root: captured.Root}
 	rerun := func() { a.redebugProviderTarget(p, reference, projectID, targetID, runID) }
 	request := core.BuildPlanRequest{
-		Root:          captured.Root,
-		Options:       captured.Options,
-		WorkspaceRoot: p.root,
-		Run:           runID,
-		Project:       &core.BuildSelection{Name: project.Name, Path: project.Path, Properties: project.Properties},
-		Target:        &core.BuildSelection{Name: target.Name, Path: target.Path, Tags: target.Tags, Properties: target.Properties},
+		Root:               captured.Root,
+		Options:            captured.Options,
+		WorkspaceRoot:      p.root,
+		Run:                runID,
+		Project:            &core.BuildSelection{Name: project.Name, Path: project.Path, Properties: project.Properties},
+		Target:             &core.BuildSelection{Name: target.Name, Path: target.Path, Tags: target.Tags, Properties: target.Properties},
+		ProjectCodeAllowed: p.trust.allowed(),
 	}
 	p.debug.preparing = true
 	fail := func(err error) func(*App) {
@@ -1884,14 +1912,15 @@ func (a *App) runBuildTargetWith(p *project, op *buildOperation, instance *build
 		prepare, release := op.bind(bounded)
 		defer release()
 		request := core.BuildPlanRequest{
-			Root:            captured.Root,
-			Options:         captured.Options,
-			WorkspaceRoot:   p.root,
-			Run:             runID,
-			Project:         &core.BuildSelection{Name: project.Name, Path: project.Path, Properties: project.Properties},
-			Target:          selectedTarget,
-			LaunchOptions:   options,
-			OptionOverrides: overrides,
+			Root:               captured.Root,
+			Options:            captured.Options,
+			WorkspaceRoot:      p.root,
+			Run:                runID,
+			Project:            &core.BuildSelection{Name: project.Name, Path: project.Path, Properties: project.Properties},
+			Target:             selectedTarget,
+			LaunchOptions:      options,
+			OptionOverrides:    overrides,
+			ProjectCodeAllowed: p.trust.allowed(),
 		}
 		a.addBuildToolHint(prepare, p, captured, &request)
 		plan, err := kernel.PlanBuildRun(prepare, captured.Manifest, captured.BuildSystemID, request)

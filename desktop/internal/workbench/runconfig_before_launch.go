@@ -209,6 +209,7 @@ func (a *App) runBeforeLaunchTask(ctx context.Context, p *project, run beforeLau
 		return run.kernel.PlanBeforeLaunchTask(ctx, manifest, task.BuildSystemID, run.root, core.BeforeLaunchTaskPlanRequest{
 			Task: task, WorkingDirectory: step.WorkingDirectory, Instances: sources.instances,
 			PluginDirectory: sources.pluginDirectory, WorkspaceStateDirectory: sources.stateDirectory,
+			ProjectCodeAllowed: p.trust.allowed(),
 		})
 	})
 	if err == nil {

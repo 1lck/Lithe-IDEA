@@ -1,0 +1,27 @@
+{
+  "id": "workspace-trust",
+  "area": "工作区",
+  "group": "工作区生命周期",
+  "capability": "工作区信任与安全模式",
+  "macos": {
+    "implementationStatus": "implemented",
+    "verificationStatus": "pending",
+    "evidence": [
+      "desktop/internal/workbench/workspace_trust.go",
+      "desktop/internal/workbench/workspace_trust_test.go",
+      "desktop/internal/toolchain/catalog.go"
+    ]
+  },
+  "windows": {
+    "implementationStatus": "implemented",
+    "verificationStatus": "pending",
+    "evidence": [
+      "desktop/internal/workbench/workspace_trust.go",
+      "desktop/internal/workbench/workspace_trust_test.go",
+      "desktop/internal/toolchain/catalog.go"
+    ]
+  },
+  "owner": "Workspace",
+  "verification": "打开一个没有信任记录的文件夹，先出现“信任并打开项目”对话框，按钮依次为不打开、以安全模式预览、信任项目，并可勾选信任父文件夹；不打开时当前项目不变。信任后再次打开不再询问；勾选父文件夹后同级项目直接以信任打开。以安全模式预览后，编辑器上方显示安全模式提示条，构建窗口不加载模型，运行、构建、测试和重新加载前先问“信任项目？”，选择保持安全模式时不运行；点提示条的“信任项目…”信任后提示条消失，模型和标题栏运行配置自动加载。确认偏好目录 toolchains/global.json 记录决定，项目目录中没有新增 .lithe 文件。",
+  "notes": "2026-11-19（#2201）：对齐 IntelliJ IDEA 的可信项目。信任状态（trusted/distrusted/unknown 与可信位置）由 Core 的工具链目录判定，计划请求带 projectCodeAllowed，Core 拒绝会运行项目代码的计划（plugin.build.untrustedWorkspace）。宿主无平台分支，两个平台共用同一实现；尚未在两个平台做真实应用验收。语言服务器和 Git 在安全模式下仍启动、可信位置没有独立设置页，分别由 #2208、#2207 跟进。"
+}
