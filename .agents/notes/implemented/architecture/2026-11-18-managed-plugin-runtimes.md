@@ -18,7 +18,7 @@
 
 `managedRuntimes` 是版本为 0 的可选能力，同时要求 `runtimes.install` 权限。插件清单固定每个依赖的版本、平台归档、HTTPS 来源、SHA-256 和相对目录布局，并声明一个检查函数。这些内容进入既有程序审批摘要，插件改变下载来源或可执行文件布局时必须重新走审批。
 
-检查函数由插件自带的后端运行；这个后端必须能够独立启动，不能先依赖尚待准备的工具。宿主在审批后、插件版本提交前运行检查，因此检查失败或下载失败不会替换已安装的可用版本。检查进程不加入正常插件函数转发，不获得工作区和其他宿主服务授权；宿主仍可直接调用它，并接收能力查询和日志。
+检查函数由插件自带的后端运行；这个后端必须能够独立启动，不能先依赖尚待准备的工具。**安装与自动更新阶段不再阻塞等待受管依赖下载，只在审批后直接提交插件包并保持原有准备准入协同；受管依赖在需要时于工具链“插件自用运行时”设置页按需准备（“下载并准备”）或校验修复，或在语言服务首次启动前自动按需补齐（准备期间保留既有取消与状态菜单重试通道）。已准备就绪且绑定到工具 ID 的受管运行时目录通过只读通道（`ManagedToolchainFacts` / `ManagedHomes`）喂给 `toolchain.Load` 与 `toolchain.Resolve`，使工具链设置页能够直接显示并选用已准备的运行环境而不误报版本缺失；未绑定 `tool` 的 `managedRuntimes` 依赖也会由宿主按清单泛化投影到“插件自用运行时”（只读展示目录、版本、`受管运行时`来源，支持缺失时“下载并准备”和就绪后“校验并修复”）。**检查进程不加入正常插件函数转发，不获得工作区和其他宿主服务授权；宿主仍可直接调用它，并接收能力查询和日志。
 
 ### 2. Core、插件与宿主分别回答不同问题
 
@@ -82,6 +82,11 @@ Core 校验清单、按平台选择唯一归档、计算稳定缓存键，并校
 - `desktop/internal/pluginservice/runtime_lifecycle.go`
 - `desktop/internal/pluginbackend/pluginbackend.go`
 - `desktop/internal/settingswindow/plugin_install.go`
+- `desktop/internal/settingswindow/toolchains_state.go`
+- `desktop/internal/settingswindow/toolchains_view.go`
+- `desktop/internal/toolchain/toolchain.go`
+- `desktop/internal/toolchain/load.go`
+- `desktop/internal/workbench/settings_toolchains.go`
 - `desktop/internal/workbench/runtime_preparation_test.go`
 - `shared/i18n/features/plugin-managed-runtimes.json`
 - `docs/ci-builds.md`

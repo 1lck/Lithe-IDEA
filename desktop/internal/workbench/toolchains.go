@@ -56,6 +56,13 @@ func (a *App) globalToolchainRoot() string {
 	return a.store.Dir()
 }
 
+func (a *App) managedToolchainOptions(ctx context.Context, manifests []json.RawMessage) (map[string][]string, map[string]string, []toolchain.ManagedDependency) {
+	if a.plugins == nil {
+		return nil, nil, nil
+	}
+	return a.plugins.ManagedToolchainFacts(ctx, manifests)
+}
+
 func (a *App) defaultToolchainSelection(ctx context.Context, root, directory, tool, minimumVersion string) (core.ToolchainSelection, error) {
 	manifests, err := a.toolchainManifests(ctx)
 	if err != nil {
@@ -64,9 +71,12 @@ func (a *App) defaultToolchainSelection(ctx context.Context, root, directory, to
 	if directory == "" {
 		directory = "."
 	}
+	managedHomes, managedTools, _ := a.managedToolchainOptions(ctx, manifests)
 	return toolchain.Resolve(ctx, a.kernel, root, directory, tool, minimumVersion, nil, manifests, toolchain.Options{
-		Platform:   buildPlatform(),
-		GlobalRoot: a.globalToolchainRoot(),
+		Platform:     buildPlatform(),
+		GlobalRoot:   a.globalToolchainRoot(),
+		ManagedHomes: managedHomes,
+		ManagedTools: managedTools,
 	})
 }
 

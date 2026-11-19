@@ -94,6 +94,51 @@
       "platforms": [
         "desktop"
       ]
+    },
+    {
+      "id": "desktop.toolchains.prepareRuntime",
+      "description": "Action button on the Toolchains page to download and prepare a plugin's managed runtime.",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.toolchains.preparingRuntime",
+      "description": "Busy notice on the Toolchains page while a plugin's managed runtime is being prepared.",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.buildSettings.sourceManaged",
+      "description": "Source tag for an installation prepared and verified automatically as a plugin managed runtime.",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.toolchains.managedDirectory",
+      "description": "Key label for the installation folder of a managed dependency without a separate executable.",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.toolchains.managedOnlyNote",
+      "description": "Explanation note shown for a read-only plugin managed dependency in the Toolchains detail pane.",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "plugin": "string"
+      }
+    },
+    {
+      "id": "desktop.toolchains.verifyRuntime",
+      "description": "Action button to verify and repair an existing plugin managed runtime installation.",
+      "platforms": [
+        "desktop"
+      ]
     }
   ],
   "locales": {
@@ -107,7 +152,13 @@
       "desktop.marketplace.runtimeReady": "{dependency} is ready",
       "desktop.marketplace.permissionRuntimesInstall": "Download and install the plugin’s declared runtime dependencies. Existing verified installations are reused across plugin updates.",
       "desktop.marketplace.runtimeFailureHelp": "The runtime environment could not be prepared. Installed plugin versions and verified downloads have been kept. Retry to continue.",
-      "desktop.lsp.preparationCancelled": "Language service preparation cancelled"
+      "desktop.lsp.preparationCancelled": "Language service preparation cancelled",
+      "desktop.toolchains.prepareRuntime": "Download & Prepare",
+      "desktop.toolchains.preparingRuntime": "Preparing runtime environment…",
+      "desktop.buildSettings.sourceManaged": "Managed runtime",
+      "desktop.toolchains.managedDirectory": "Folder",
+      "desktop.toolchains.managedOnlyNote": "Downloaded and verified automatically for {plugin}. If files are missing or damaged, verify and repair them here.",
+      "desktop.toolchains.verifyRuntime": "Verify & Repair"
     },
     "zh-CN": {
       "desktop.marketplace.runtimeChecking": "正在检查 {dependency}…",
@@ -119,7 +170,13 @@
       "desktop.marketplace.runtimeReady": "{dependency} 已就绪",
       "desktop.marketplace.permissionRuntimesInstall": "下载并安装插件声明的运行依赖。插件更新时会复用已有且验证合格的环境。",
       "desktop.marketplace.runtimeFailureHelp": "运行环境准备失败。已安装的插件版本和校验合格的下载缓存均已保留，可重试继续。",
-      "desktop.lsp.preparationCancelled": "语言服务准备已取消"
+      "desktop.lsp.preparationCancelled": "语言服务准备已取消",
+      "desktop.toolchains.prepareRuntime": "下载并准备",
+      "desktop.toolchains.preparingRuntime": "正在准备运行环境…",
+      "desktop.buildSettings.sourceManaged": "受管运行时",
+      "desktop.toolchains.managedDirectory": "目录",
+      "desktop.toolchains.managedOnlyNote": "由 Lithe 为 {plugin} 自动下载并校验完整性。如文件缺失或损坏，可在此校验并修复。",
+      "desktop.toolchains.verifyRuntime": "校验并修复"
     }
   }
 }

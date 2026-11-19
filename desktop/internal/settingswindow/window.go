@@ -270,6 +270,7 @@ func newWindow(c *Controller, current Values) *window {
 	w.dynamic.bind()
 	w.pluginSettings.report = func(err error) { reportSettingsError(c.opts, pluginSettingsOperation, err) }
 	w.toolchains = newToolchainState(c.opts.Toolchains)
+	w.toolchains.invalidate = func() { w.inv.Invalidate() }
 	w.commands = newCommandInstalls(c.opts.CommandInstalls, func(operation string, err error) { reportSettingsError(c.opts, operation, err) }, func() { w.inv.Invalidate() })
 	w.stepping = newSteppingState(c.opts.SteppingAdapters, c.opts.NormalizeSteppingFilters)
 	w.terminal = newTerminalShellState(c.opts.TerminalShells)

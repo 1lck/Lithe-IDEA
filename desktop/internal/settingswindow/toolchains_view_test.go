@@ -10,6 +10,7 @@ import (
 
 	"github.com/1lck/Lithe-IDEA/desktop/internal/core"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/i18n"
+	"github.com/1lck/Lithe-IDEA/desktop/internal/pluginruntime"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/toolchain"
 )
 
@@ -487,5 +488,146 @@ func TestProjectToolchainTrustSwitchGrantsAndRevokesImmediately(t *testing.T) {
 	case edits := <-loader.saved:
 		t.Fatalf("changing the project's trust wrote pins: %+v", edits)
 	default:
+	}
+}
+
+type runtimePrepareLoader struct {
+	fakeToolchainLoader
+	ready    toolchain.Snapshot
+	prepared atomic.Bool
+}
+
+func (l *runtimePrepareLoader) PrepareRuntime(_ context.Context, _ string, _ toolchain.Snapshot, _ toolchain.Tool, progress func(pluginruntime.Progress)) (toolchain.Snapshot, error) {
+	if progress != nil {
+		progress(pluginruntime.Progress{ID: "runtime", Phase: "ready"})
+	}
+	l.prepared.Store(true)
+	return l.ready, nil
+}
+
+func TestToolchainManagedRuntimeButtonPreparesAndClearsProblem(t *testing.T) {
+	missing := toolchain.Snapshot{
+		Root:      "/fixture/project",
+		Directory: ".",
+		Tools: []toolchain.Tool{{
+			ID:             "dev.example:runtime",
+			DisplayName:    "Plugin Runtime",
+			PluginID:       "dev.example",
+			PluginName:     "Example",
+			Category:       "runtime",
+			Audience:       "plugin",
+			ManagedRuntime: true,
+			Reason:         "notFound",
+		}},
+	}
+	home := "/managed/runtime/25"
+	sel := core.ToolchainSelection{Home: &home, Executable: home + "/bin/tool", Version: "25.0.5", Provider: "host:system", Layer: "automatic"}
+	ready := toolchain.Snapshot{
+		Root:      "/fixture/project",
+		Directory: ".",
+		Tools: []toolchain.Tool{{
+			ID:             "dev.example:runtime",
+			DisplayName:    "Plugin Runtime",
+			PluginID:       "dev.example",
+			PluginName:     "Example",
+			Category:       "runtime",
+			Audience:       "plugin",
+			ManagedRuntime: true,
+			AutomaticHome:  home,
+			Automatic:      &sel,
+			Effective:      &sel,
+			Installations:  []core.ToolchainInstallation{{Home: home, Version: "25.0.5", Provider: "host:system"}},
+		}},
+	}
+	loader := &runtimePrepareLoader{
+		fakeToolchainLoader: fakeToolchainLoader{snapshot: missing},
+		ready:               ready,
+	}
+	w, d := toolchainWindow(t, loader)
+	state := w.toolchains
+	d.until("the missing managed tool shows its prepare button", func() bool {
+		return state.current().loaded && d.has(en("desktop.toolchains.prepareRuntime"))
+	})
+	d.click(en("desktop.toolchains.prepareRuntime"))
+	d.until("runtime preparation finished", func() bool {
+		return loader.prepared.Load() && !state.preparingRuntime && d.text("25.0.5")
+	})
+	d.pump()
+	if d.has(en("desktop.toolchains.prepareRuntime")) {
+		t.Fatal("prepare button stayed visible after the managed runtime resolved")
+	}
+	if !d.has(en("desktop.toolchains.verifyRuntime")) {
+		t.Fatal("expected Verify & Repair button on ready managed runtime")
+	}
+}
+
+func TestToolchainManagedOnlyDependencyViewAndPrepare(t *testing.T) {
+	missing := toolchain.Snapshot{
+		Root:      "/fixture/project",
+		Directory: ".",
+		Tools: []toolchain.Tool{{
+			ID:             "dev.example:server-pkg",
+			DisplayName:    "server-pkg",
+			PluginID:       "dev.example",
+			PluginName:     "Example",
+			Category:       "runtime",
+			Audience:       "plugin",
+			ManagedRuntime: true,
+			ManagedOnly:    true,
+			Reason:         "notFound",
+		}},
+	}
+	home := "/managed/runtime/server-pkg"
+	sel := core.ToolchainSelection{Home: &home, Executable: home, Version: "1.61.0", Provider: "host:managed", Layer: "automatic"}
+	ready := toolchain.Snapshot{
+		Root:      "/fixture/project",
+		Directory: ".",
+		Tools: []toolchain.Tool{{
+			ID:                  "dev.example:server-pkg",
+			DisplayName:         "server-pkg",
+			PluginID:            "dev.example",
+			PluginName:          "Example",
+			Category:            "runtime",
+			Audience:            "plugin",
+			ManagedRuntime:      true,
+			ManagedOnly:         true,
+			ManagedRuntimeHomes: []string{home},
+			AutomaticHome:       home,
+			Automatic:           &sel,
+			Effective:           &sel,
+			Installations:       []core.ToolchainInstallation{{Home: home, Version: "1.61.0", Provider: "host:managed"}},
+		}},
+	}
+	loader := &runtimePrepareLoader{
+		fakeToolchainLoader: fakeToolchainLoader{snapshot: missing},
+		ready:               ready,
+	}
+	w, d := toolchainWindow(t, loader)
+	state := w.toolchains
+	d.until("the missing managed-only dependency shows its prepare button", func() bool {
+		return state.current().loaded && d.has(en("desktop.toolchains.prepareRuntime"))
+	})
+	if d.has(en("desktop.buildSettings.addDirectory")) {
+		t.Fatal("managed-only dependency should not expose manual add-directory button")
+	}
+	d.click(en("desktop.toolchains.prepareRuntime"))
+	d.until("managed-only preparation finished", func() bool {
+		return loader.prepared.Load() && !state.preparingRuntime && d.text("1.61.0")
+	})
+	d.pump()
+	if d.has(en("desktop.toolchains.prepareRuntime")) {
+		t.Fatal("prepare button stayed visible after managed-only dependency resolved")
+	}
+	if !d.text(en("desktop.toolchains.managedDirectory")) {
+		t.Fatal("expected Folder label on managed-only dependency")
+	}
+	if !d.text(en("desktop.buildSettings.sourceManaged")) {
+		t.Fatal("expected Managed runtime source tag on managed-only dependency")
+	}
+	if !d.has(en("desktop.toolchains.verifyRuntime")) {
+		t.Fatal("expected Verify & Repair button on ready managed-only dependency")
+	}
+	if d.has(en("desktop.buildSettings.addDirectory")) {
+		t.Fatal("ready managed-only dependency should not expose manual add-directory button")
 	}
 }

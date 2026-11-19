@@ -2,6 +2,8 @@ package toolchain
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -148,6 +150,8 @@ func Load(ctx context.Context, kernel Kernel, root, directory string, manifests 
 			PluginName:                 pluginNames[planned.PluginID],
 			Category:                   definition.Category,
 			Audience:                   definition.Audience,
+			ManagedRuntime:             options.ManagedTools[planned.Tool] != "" && options.ManagedTools[planned.Tool] == planned.PluginID,
+			ManagedRuntimeHomes:        uniqueSorted(prepared.managedHomes),
 			Providers:                  planned.Providers,
 			Shell:                      prepared.candidates.Shell,
 			Installations:              prepared.candidates.Installations,
@@ -221,7 +225,89 @@ func Load(ctx context.Context, kernel Kernel, root, directory string, manifests 
 		}
 		snapshot.Tools = append(snapshot.Tools, tool)
 	}
+	appendManagedDependencies(&snapshot, pluginNames, options.ManagedDependencies)
 	return snapshot, nil
+}
+
+func appendManagedDependencies(snapshot *Snapshot, pluginNames map[string]string, deps []ManagedDependency) {
+	if len(deps) == 0 {
+		return
+	}
+	usedIDs := make(map[string]bool, len(snapshot.Tools)+len(snapshot.Conflicts))
+	for _, tool := range snapshot.Tools {
+		if tool.ID != "" {
+			usedIDs[tool.ID] = true
+		}
+	}
+	for _, conflict := range snapshot.Conflicts {
+		if conflict.Tool != "" {
+			usedIDs[conflict.Tool] = true
+		}
+	}
+	for _, dep := range deps {
+		if dep.PluginID == "" || dep.ID == "" {
+			continue
+		}
+		toolID := managedDependencyToolID(dep.PluginID, dep.ID)
+		if usedIDs[toolID] {
+			continue
+		}
+		usedIDs[toolID] = true
+		pluginName := dep.PluginName
+		if pluginName == "" {
+			pluginName = pluginNames[dep.PluginID]
+		}
+		tool := Tool{
+			ID:             toolID,
+			DisplayName:    dep.ID,
+			PluginID:       dep.PluginID,
+			PluginName:     pluginName,
+			Category:       "runtime",
+			Audience:       "plugin",
+			ManagedRuntime: true,
+			ManagedOnly:    true,
+		}
+		if dep.Ready && dep.Home != "" {
+			home := dep.Home
+			if canonical, err := canonicalPath(dep.Home); err == nil && canonical != "" {
+				home = canonical
+			}
+			sel := &core.ToolchainSelection{
+				Home:       &home,
+				Executable: home,
+				Version:    dep.Version,
+				Provider:   "host:managed",
+				Layer:      "automatic",
+			}
+			tool.ManagedRuntimeHomes = []string{home}
+			tool.Effective = sel
+			tool.Automatic = sel
+			tool.AutomaticHome = home
+			tool.Installations = []core.ToolchainInstallation{{
+				Home:     home,
+				Version:  dep.Version,
+				Provider: "host:managed",
+			}}
+		} else {
+			tool.Reason = "notFound"
+			tool.AutomaticReason = "notFound"
+		}
+		snapshot.Tools = append(snapshot.Tools, tool)
+	}
+}
+
+func managedDependencyToolID(pluginID, depID string) string {
+	id := pluginID + ":" + depID
+	if len(id) <= 192 {
+		return id
+	}
+	sum := sha256.Sum256([]byte(pluginID))
+	prefix := hex.EncodeToString(sum[:8])
+	candidate := prefix + ":" + depID
+	if len(candidate) <= 192 {
+		return candidate
+	}
+	return candidate[:192]
 }
 
 // Resolve selects one installation for one consumer operation. It reads the same
@@ -303,6 +389,7 @@ type preparedTool struct {
 	facts         []core.ToolchainFileFact
 	probes        []core.ToolchainProbe
 	installations []core.ToolchainSystemInstallation
+	managedHomes  []string
 	environment   map[string]string
 	commandHomes  map[string]string
 	fixed         *Fixed
@@ -330,6 +417,15 @@ func prepareTool(ctx context.Context, kernel Kernel, workspace *workspace, regis
 	if options.catalog != nil {
 		homes = append(homes, options.catalog.Tools[planned.Tool].Homes...)
 	}
+	if owner := options.ManagedTools[planned.Tool]; owner == "" || owner == planned.PluginID {
+		for _, managed := range options.ManagedHomes[planned.Tool] {
+			if canonical, err := canonicalPath(managed); err == nil && !workspace.isWorkspaceCode(canonical) {
+				homes = append(homes, canonical)
+				prepared.managedHomes = append(prepared.managedHomes, canonical)
+			}
+		}
+	}
+	homes = uniqueSorted(homes)
 	for _, home := range homes {
 		prepared.installations = append(prepared.installations, core.ToolchainSystemInstallation{Tool: planned.Tool, Home: home})
 	}
