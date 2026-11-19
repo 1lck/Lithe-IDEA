@@ -54,8 +54,12 @@ type buildState struct {
 	// reloadPending says a stored option changed while a detection was running, so the instances are
 	// detected again when that detection ends.
 	reloadPending bool
-	// optionSaving says a toggle on an option choice of the tree is being saved to the local document.
+	// optionSaving says a toggle on an option choice of the tree or of the toolbar is being saved
+	// to the local document.
 	optionSaving bool
+	// toolbarIconsRead are the package icons of toolbar toggles already asked for, by plugin and
+	// icon, so each is read once (build_toolbar_options.go).
+	toolbarIconsRead map[string]bool
 	// status is the last result line of the current or latest execution.
 	status string
 
@@ -713,6 +717,7 @@ func (a *App) loadBuildSystems(p *project) {
 	// The team and local option documents are read here, on the window thread, and resolved and detected
 	// with the instances below; a document that cannot be read fails the detection instead of emptying it.
 	docs, docsErr := a.readBuildOptionDocuments(a.operationContext(context.Background()), p.root)
+	language := a.language().Code()
 	a.background(p, buildRequestTimeout, func(ctx context.Context) func(*App) {
 		entries, err := a.plugins.Manager.Installed()
 		if err != nil {
@@ -722,10 +727,11 @@ func (a *App) loadBuildSystems(p *project) {
 			return func(a *App) { a.finishBuildDetection(p, generation, nil, docsErr) }
 		}
 		plugins, pluginErr := a.plugins.BuildPlugins(ctx, entries)
-		manifests := make([]json.RawMessage, 0, len(plugins))
+		// The manifests carry their option text in the interface language from here on.
+		manifests := a.localizeBuildManifests(ctx, kernel, language, plugins)
 		byPlugin := make(map[string]pluginservice.BuildPlugin, len(plugins))
-		for _, plugin := range plugins {
-			manifests = append(manifests, plugin.Manifest)
+		for index, plugin := range plugins {
+			plugin.Manifest = manifests[index]
 			byPlugin[plugin.PluginID] = plugin
 		}
 		detection, detectErr := detectBuildSystemsWithStoredOptions(ctx, kernel, p.root, manifests, docs)
@@ -1495,8 +1501,13 @@ func (a *App) resolveBuildCandidates(ctx context.Context, p *project, directory 
 			execution.Executable = selection.Executable
 			execution.Environment = selection.Environment
 			execution.PathPrepend = selection.PathPrepend
+			execution.Source.Version, execution.Source.Layer = selection.Version, selection.Layer
 		}
 		if execution.Executable != "" {
+			// A runtime candidate keeps the source of the runtime it named.
+			if candidate.Kind != "runtime" {
+				execution.Source.Kind, execution.Source.Variable = candidate.Kind, candidate.Variable
+			}
 			break
 		}
 	}
@@ -2257,6 +2268,7 @@ func (a *App) invalidateBuild(p *project) {
 	}
 	a.stopTestsForProject(p)
 	a.stopBuildSessions(p, false)
+	p.revokeAllBuildTests()
 	// The Run window's sessions are what ran, not the models, so they stay.
 	runs, view, sessions := p.build.runs, p.build.view, p.build.sessions
 	p.build = buildState{runs: runs, view: view, sessions: sessions}

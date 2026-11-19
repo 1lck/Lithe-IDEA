@@ -64,6 +64,7 @@ type Kernel interface {
 	GitReferences(ctx context.Context, root string) (core.GitReferences, error)
 	GitHistoryPage(ctx context.Context, root, reference, cursor string, limit, maxCommits int) (core.GitHistoryPage, error)
 	DetectBuildSystems(ctx context.Context, workspaceRoot string, manifests []json.RawMessage) (core.BuildDetection, error)
+	LocalizeBuildOptions(ctx context.Context, language string, plugins []core.BuildOptionPlugin) (core.BuildOptionTexts, error)
 	DetectBuildSystemsWithOptions(ctx context.Context, workspaceRoot string, manifests []json.RawMessage, options core.BuildDetectOptions) (core.BuildDetection, error)
 	ResolveStoredBuildOptions(ctx context.Context, document, local json.RawMessage) (core.BuildStoredOptions, error)
 	ResolveBuildOptions(ctx context.Context, manifest json.RawMessage, buildSystemID string, request core.BuildResolveOptionsRequest) (core.BuildResolvedOptions, error)
@@ -647,6 +648,8 @@ type App struct {
 	// pluginIcons are the icons read from installed packages: read off the window thread,
 	// looked up while drawing.
 	pluginIcons pluginicons.Cache
+	// buildOptionTexts keeps the build option translation files read per plugin package and language.
+	buildOptionTexts buildOptionTextCache
 	// pluginDownloads holds native temporary file leases for the open settings window.
 	pluginDownloads *marketplace.ArchiveSession
 	// prompts are the questions plugins ask the user, one sheet at a time.
@@ -671,6 +674,9 @@ type App struct {
 	// pluginFacts is what the Installed tab shows about each installed plugin, in name order,
 	// read from disk off the window thread.
 	pluginFacts atomic.Pointer[[]settingswindow.PluginFacts]
+	// Discovery remains registered until its report is cleaned up, even after
+	// this workbench closes its project or leaves the tab strip.
+	pluginDiscoveryLaunches pluginLaunches
 	// pluginServerMu guards the language-server maps because a build provider
 	// may attach to a shared session from a background model load.
 	pluginServerMu sync.Mutex

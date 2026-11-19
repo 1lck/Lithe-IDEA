@@ -400,6 +400,9 @@ const (
 	// settingsVersionControl is the Version Control page, which the Git console's settings
 	// button opens.
 	settingsVersionControl
+	// settingsToolchainsPage is the Toolchains page, where a build's options dialog leads to the
+	// runtime its builds and launches use.
+	settingsToolchainsPage
 )
 
 func (a *App) openSettingsPage(surface actionSurface, page settingsPage) {
@@ -463,6 +466,8 @@ func (a *App) openSettingsPageWith(surface actionSurface, page settingsPage, que
 			err = a.settingsWindow.OpenAI(a.application, current)
 		case settingsVersionControl:
 			err = a.settingsWindow.OpenVersionControl(a.application, current)
+		case settingsToolchainsPage:
+			err = a.settingsWindow.OpenToolchains(a.application, current)
 		default:
 			err = a.settingsWindow.Open(a.application, current)
 		}

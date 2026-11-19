@@ -25,10 +25,19 @@ type runOptionChoice struct {
 // the editor opened, so a change is detected by comparison.
 type runOptionField struct {
 	id, title, kind string
-	choices         []runOptionChoice
-	flag, initFlag  bool
-	text, initText  string
-	picks, initPick []bool
+	// description is the manifest's text for the ⓘ next to the option.
+	description string
+	// implicit is what the build tool uses for a text, file or directory option left unset, as the model
+	// reported it. Such a field is edited as IDEA's path overrides are: the effective value is shown greyed
+	// until Override is checked, and unchecking it removes the stored value.
+	implicit string
+	// override says the user's text is the value; it starts checked when a value is stored. The checkbox
+	// writes it after a frame, so overrideApplied is the state the text was last brought in line with.
+	override, overrideApplied bool
+	choices                   []runOptionChoice
+	flag, initFlag            bool
+	text, initText            string
+	picks, initPick           []bool
 	// raw is the stored JSON of a kind the editor shows read-only.
 	raw json.RawMessage
 }
@@ -41,6 +50,7 @@ type runOptionDeclarations struct {
 		Options []struct {
 			ID          string `json:"id"`
 			DisplayName string `json:"displayName"`
+			Description string `json:"description"`
 			Kind        string `json:"kind"`
 			Choices     []struct {
 				Value string `json:"value"`
@@ -63,7 +73,7 @@ func declaredOptionFields(manifest json.RawMessage, buildSystemID string, values
 			continue
 		}
 		for _, option := range system.Options {
-			field := runOptionField{id: option.ID, title: option.DisplayName, kind: option.Kind}
+			field := runOptionField{id: option.ID, title: option.DisplayName, kind: option.Kind, description: option.Description}
 			if field.title == "" {
 				field.title = option.ID
 			}
@@ -116,7 +126,10 @@ func declaredOptionFields(manifest json.RawMessage, buildSystemID string, values
 func resolvedOptionFields(resolved core.BuildResolvedOptions) []runOptionField {
 	fields := make([]runOptionField, 0, len(resolved.Options))
 	for _, option := range resolved.Options {
-		field := runOptionField{id: option.ID, title: option.DisplayName, kind: option.Kind}
+		field := runOptionField{
+			id: option.ID, title: option.DisplayName, kind: option.Kind,
+			description: option.Description, implicit: option.ImplicitValue,
+		}
 		if field.title == "" {
 			field.title = option.ID
 		}
@@ -137,6 +150,7 @@ func resolvedOptionFields(resolved core.BuildResolvedOptions) []runOptionField {
 		case (option.Kind == "text" || option.Kind == "file" || option.Kind == "directory") && option.Source == "user":
 			_ = json.Unmarshal(option.Value, &field.text)
 			field.initText = field.text
+			field.override, field.overrideApplied = true, true
 		case option.Kind == "singleSelect" && option.Source == "user":
 			_ = json.Unmarshal(option.Value, &field.text)
 			field.initText = field.text
@@ -183,6 +197,22 @@ func resolveInstanceOptionFields(ctx context.Context, kernel Kernel, instance bu
 		return nil, err
 	}
 	return resolvedOptionFields(resolved), nil
+}
+
+// syncOverride brings the text in line with Override after the user checked or unchecked it. Checking it
+// starts the text from the effective value, as IDEA does, so the user edits the path the tool used;
+// unchecking it clears the text, which removes the stored value on save.
+func (field *runOptionField) syncOverride() {
+	if field.override == field.overrideApplied {
+		return
+	}
+	field.overrideApplied = field.override
+	switch {
+	case field.override && field.text == "":
+		field.text = field.implicit
+	case !field.override:
+		field.text = ""
+	}
 }
 
 // changedSelectedChoices reports the checked choice values of a multi-select field when the user changed it.

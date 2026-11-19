@@ -284,9 +284,9 @@ PINNED_CORE_REPOSITORY="https://github.com/Lithe-IDEA/Lithe-core-rust.git"
 # the contract, plugin guides, reference and SDKs live only in shared/plugins; on top of #16 (reported Git queries folded in the console),
 # #15 (git.write cherryPick, revert and reset fields), #14 (word-level changed ranges of diff
 # rows), #13, #8, #7, #6 and #4.
-# Search pages, unsaved snapshots, source identities and budgets; Core PR #125
-# must merge before this desktop change. Pinned commit is already available on origin.
-PINNED_CORE_REVISION="603fbac294639a815db29dc21711868c5a949ca3"
+# Search pages, unsaved snapshots, source identities and budgets from Core #125,
+# merged on top of the build-option changes through Core #124.
+PINNED_CORE_REVISION="6a2c0826b54eec385880f64da4a5e6b613d00dbe"
 PROFILE="debug"
 while [[ $# -gt 0 ]]; do
     case "$1" in

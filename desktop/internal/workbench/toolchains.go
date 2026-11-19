@@ -20,6 +20,16 @@ type buildExecution struct {
 	Executable  string
 	Environment map[string]string
 	PathPrepend []string
+	// Source is the candidate the executable was found by, which the options dialog shows
+	// beside a build's runtime.
+	Source buildExecutionSource
+}
+
+// buildExecutionSource is where an executable came from: the candidate kind Core listed it under
+// ("toolchain", "environment", "command", "setting", "projectFile"), the environment variable of
+// an environment candidate, and the version and resolver layer of a toolchain selection.
+type buildExecutionSource struct {
+	Kind, Variable, Version, Layer string
 }
 
 // toolchainManifests reads the enabled plugins' manifests off the window

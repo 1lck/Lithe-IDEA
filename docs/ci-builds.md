@@ -72,6 +72,8 @@ macOS 的本地手动打包可用 `package-desktop.sh --ad-hoc-sign` 生成有�
 
 Desktop CI 的 LSP 无头截图由 `TestVisualLSPActions` 写入当前工作树的 `.artifacts/lsp-editor-visual/`。截图是当前提交与当前渲染环境的验证产物，绑定源码、平台、Go 工具链和固定的 Viva 与 Core 版本，不跨工作树复用。CI 上传后由运行器清理工作树，截图不进入安装包。
 
+Desktop CI 的 Build 命令发现截图由 `TestVisualBuildCommandDiscovery` 写入当前工作树的 `.artifacts/build-command-discovery-visual/`。该结果绑定提交、平台、Go 工具链和固定的 Viva 与 Core 版本，上传后由 CI 清理，不跨工作树复制，也不进入安装包。
+
 Viva 编辑器性能基线 `scripts/desktop/perf/editor-bench.sh` 把每次运行的原始输出和 Markdown 预算报告写入当前工作树的 `.artifacts/editor-perf/`（`run-<UTC 时间戳>.txt`、`record-<UTC 时间戳>.txt` 及同名 `.md`，以及开发者用 `--out` 指定在该目录下的文件）。它们只属于这一次运行，受源码修订、机器、CPU、运行时负载、Go 工具链和大文档大小（默认 10 MiB，可用 `LITHE_EDITOR_PERF_LARGE_BYTES` 或 `--large-bytes` 修改）影响；没有可验证的跨树身份 stamp，不跨工作树复制，由开发者在本地清理；该基线不是 CI 必跑项，CI 不运行基准，也没有 artifact。随仓库提交的历史记录 `desktop/benchmarks/history/*.jsonl` 由 Git 跟踪，属于源码而不是下载或生成资源，各工作树从 Git 检出。这些文件都不进入安装包，也不会改变代码签名或增量更新。
 
 Viva 的 Core 源码检出、Cargo 目标目录和暂存静态库位于当前工作树的
@@ -228,7 +230,9 @@ Build Provider 的模型与依赖快照位于插件根（`pluginpkg.DefaultRoot`
 它属于具体插件、构建系统和工作区的可变上游状态，没有版本/平台/架构/工具链 identity stamp，
 不跨工作树复制或共享。
 Provider 状态经平台 adapter 写 Application Support；插件安装目录和发行 bundle 只读，
-不改变代码签名或增量更新的源基线。
+不改变代码签名或增量更新的源基线。命令式测试发现把这次命令的 JSON 报告写入同一工作区状态下的
+`test-discovery-*/tests.json`。宿主为每个操作创建独立目录，在成功、失败或取消后清理，
+报告不能跨工作树复用。
 
 显式声明 `requires.managedRuntimes: 0` 和 `runtimes.install` 权限的插件，可以让宿主在安装提交前
 准备经过插件校验的依赖。下载来源、SHA-256、平台和目录布局属于插件清单及程序审批摘要；
