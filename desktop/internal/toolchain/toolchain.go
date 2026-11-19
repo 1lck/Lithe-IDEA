@@ -125,7 +125,12 @@ type Options struct {
 	// ProviderScope is required when Providers queries an open project.
 	Providers           *ProviderClient
 	ProviderScope       *ProviderScope
+	providerVersions    map[string]string
 	skipPinnedProviders bool
+
+	// DiscoveryTools restricts Load to the consumer's requested tool IDs. An
+	// empty list loads the complete settings catalog.
+	DiscoveryTools []string
 
 	// Global permits discovery without any project; GlobalRoot owns the native SDK
 	// registry and per-workspace toolchain trust in user application settings.

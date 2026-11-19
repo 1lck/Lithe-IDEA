@@ -26,7 +26,7 @@ type ProviderScope struct {
 // never authority to execute a tool. Every use captures fresh evidence and
 // validates the reply again in Core.
 type ProviderClient struct {
-	Request      func(context.Context, string, core.ToolchainQueryParams) (core.ToolchainProviderReply, error)
+	Request      func(ctx context.Context, pluginID, version string, params core.ToolchainQueryParams) (core.ToolchainProviderReply, error)
 	FailureReply func(context.Context, core.ToolchainQueryParams, string) (core.ToolchainProviderReply, error)
 	Decode       func(context.Context, core.ToolchainQuery) (core.ToolchainProviderSnapshot, error)
 	Failed       func(context.Context, error)
@@ -93,6 +93,7 @@ func (p *ProviderClient) Invalidate() func() {
 func (p *ProviderClient) round(
 	ctx context.Context, w *workspace, registry json.RawMessage,
 	planned core.ToolchainDiscoveryPlanTool, directory string, scope *ProviderScope,
+	versions map[string]string,
 ) (*providerRound, providerCacheKey, error) {
 	key := providerCacheKey{
 		registry: sha256.Sum256(registry), platform: w.platform, root: w.root,
@@ -144,7 +145,11 @@ func (p *ProviderClient) round(
 		var reply core.ToolchainProviderReply
 		err := queryCtx.Err()
 		if err == nil {
-			reply, err = p.Request(queryCtx, pluginID, params)
+			version := versions[pluginID]
+			if version == "" {
+				return nil, key, errors.New("toolchain: Core returned a provider outside the manifest snapshot")
+			}
+			reply, err = p.Request(queryCtx, pluginID, version, params)
 		}
 		// The round's budget is separate from the caller's lifetime. Core
 		// can still resolve completed replies and local candidates.
@@ -170,6 +175,23 @@ func (p *ProviderClient) round(
 		round.answers = append(round.answers, providerAnswer{pluginID, request, reply.Response})
 	}
 	return round, key, nil
+}
+
+// The registry digest includes these same manifest versions, so a response can
+// only be cached under the package snapshot used to obtain it.
+func providerVersions(manifests []json.RawMessage) (map[string]string, error) {
+	versions := make(map[string]string, len(manifests))
+	for _, manifest := range manifests {
+		var identity struct {
+			ID      string `json:"id"`
+			Version string `json:"version"`
+		}
+		if err := json.Unmarshal(manifest, &identity); err != nil {
+			return nil, err
+		}
+		versions[identity.ID] = identity.Version
+	}
+	return versions, nil
 }
 
 // Observe only the inert paths required by the contract. Core still verifies
@@ -244,8 +266,9 @@ func (w *workspace) observeToolHome(home string, definition core.ToolchainToolDe
 func (p *ProviderClient) capture(
 	ctx context.Context, w *workspace, registry json.RawMessage, directory string,
 	planned core.ToolchainDiscoveryPlanTool, definition core.ToolchainToolDefinition, scope *ProviderScope,
+	versions map[string]string,
 ) (*providerRound, []core.ToolchainQuery, []core.ToolchainProviderInstallation, error) {
-	round, key, err := p.round(ctx, w, registry, planned, directory, scope)
+	round, key, err := p.round(ctx, w, registry, planned, directory, scope, versions)
 	if err != nil || round == nil {
 		return nil, nil, nil, err
 	}

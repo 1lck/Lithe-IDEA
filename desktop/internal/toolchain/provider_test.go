@@ -20,7 +20,10 @@ func TestToolchainProviderRoundPreservesAnswersAtItsDeadline(t *testing.T) {
 		success := core.ToolchainProviderReply{ID: json.RawMessage(`"ready"`), Response: json.RawMessage(`{"result":{}}`)}
 		timeout := core.ToolchainProviderReply{ID: json.RawMessage(`"timeout"`), Response: json.RawMessage(`{"error":{}}`)}
 		client := ProviderClient{
-			Request: func(query context.Context, _ string, params core.ToolchainQueryParams) (core.ToolchainProviderReply, error) {
+			Request: func(query context.Context, _, version string, params core.ToolchainQueryParams) (core.ToolchainProviderReply, error) {
+				if version != "1.0.0" {
+					t.Fatalf("queried provider version %q", version)
+				}
 				contacted = append(contacted, params.ProviderID)
 				if params.ProviderID == "ready" {
 					return success, nil
@@ -37,7 +40,7 @@ func TestToolchainProviderRoundPreservesAnswersAtItsDeadline(t *testing.T) {
 			},
 		}
 		planned := core.ToolchainDiscoveryPlanTool{Tool: "fixture", Providers: []string{"test:ready", "test:slow", "test:queued"}}
-		round, _, err := client.round(ctx, &workspace{platform: "macos"}, nil, planned, ".", nil)
+		round, _, err := client.round(ctx, &workspace{platform: "macos"}, nil, planned, ".", nil, map[string]string{"test": "1.0.0"})
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -56,7 +59,7 @@ func TestToolchainProviderRoundHonorsCallerDeadline(t *testing.T) {
 		ctx, cancel := context.WithTimeout(context.Background(), time.Second)
 		defer cancel()
 		client := ProviderClient{
-			Request: func(query context.Context, _ string, _ core.ToolchainQueryParams) (core.ToolchainProviderReply, error) {
+			Request: func(query context.Context, _, _ string, _ core.ToolchainQueryParams) (core.ToolchainProviderReply, error) {
 				<-query.Done()
 				return core.ToolchainProviderReply{}, query.Err()
 			},
@@ -66,7 +69,7 @@ func TestToolchainProviderRoundHonorsCallerDeadline(t *testing.T) {
 			},
 		}
 		planned := core.ToolchainDiscoveryPlanTool{Tool: "fixture", Providers: []string{"test:slow"}}
-		round, _, err := client.round(ctx, &workspace{platform: "macos"}, nil, planned, ".", nil)
+		round, _, err := client.round(ctx, &workspace{platform: "macos"}, nil, planned, ".", nil, map[string]string{"test": "1.0.0"})
 		if round != nil || !errors.Is(err, context.DeadlineExceeded) {
 			t.Fatalf("round = %+v, error = %v", round, err)
 		}

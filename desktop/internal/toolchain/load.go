@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync/atomic"
 
@@ -107,6 +108,12 @@ func load(ctx context.Context, kernel Kernel, root, directory string, manifests 
 	if err != nil {
 		return Snapshot{}, err
 	}
+	if options.Providers != nil {
+		options.providerVersions, err = providerVersions(manifests)
+		if err != nil {
+			return Snapshot{}, err
+		}
+	}
 	plan, err := kernel.ToolchainDiscoveryPlanOf(ctx, registryRequest, workspace.platform)
 	if err != nil {
 		return Snapshot{}, err
@@ -137,6 +144,10 @@ func load(ctx context.Context, kernel Kernel, root, directory string, manifests 
 	sequence := loadSequence.Add(1)
 	var rounds []*providerRound
 	for index, planned := range plan.Tools {
+		if len(options.DiscoveryTools) > 0 && !slices.Contains(options.DiscoveryTools, planned.Tool) &&
+			!slices.Contains(options.DiscoveryTools, planned.PluginID+":"+planned.Tool) {
+			continue
+		}
 		if ctx.Err() != nil {
 			return Snapshot{}, ctx.Err()
 		}
@@ -242,7 +253,9 @@ func load(ctx context.Context, kernel Kernel, root, directory string, manifests 
 			return Snapshot{}, err
 		}
 	}
-	appendManagedDependencies(&snapshot, pluginNames, options.ManagedDependencies)
+	if len(options.DiscoveryTools) == 0 {
+		appendManagedDependencies(&snapshot, pluginNames, options.ManagedDependencies)
+	}
 	return snapshot, nil
 }
 
@@ -362,6 +375,12 @@ func resolve(ctx context.Context, kernel Kernel, root, directory, tool, minimumV
 	registry, err := kernel.ToolchainRegistryOf(ctx, manifests)
 	if err != nil {
 		return Selection{}, err
+	}
+	if options.Providers != nil {
+		options.providerVersions, err = providerVersions(manifests)
+		if err != nil {
+			return Selection{}, err
+		}
 	}
 	plan, err := kernel.ToolchainDiscoveryPlanOf(ctx, registryRequest, workspace.platform)
 	if err != nil {
@@ -518,7 +537,7 @@ func prepareTool(ctx context.Context, kernel Kernel, workspace *workspace, regis
 	}
 	var providerInstallations []core.ToolchainProviderInstallation
 	if options.Providers != nil && len(planned.Providers) > 0 && fixed == nil && !(pin != nil && options.skipPinnedProviders) {
-		prepared.providerRound, prepared.queries, providerInstallations, err = options.Providers.capture(ctx, workspace, registry, directory, planned, definition, options.ProviderScope)
+		prepared.providerRound, prepared.queries, providerInstallations, err = options.Providers.capture(ctx, workspace, registry, directory, planned, definition, options.ProviderScope, options.providerVersions)
 		if err != nil {
 			return prepared, nil, "", err
 		}

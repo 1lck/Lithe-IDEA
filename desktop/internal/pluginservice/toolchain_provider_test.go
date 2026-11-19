@@ -287,6 +287,106 @@ func TestToolchainProviderQueriesThroughSharedBackendAndReobservesSources(t *tes
 	}
 }
 
+func TestToolchainProviderQueriesTheInstalledVersionAfterUpgrade(t *testing.T) {
+	client, preferences, plugins := core.NewClient(), store.At(t.TempDir()), t.TempDir()
+	service, err := Open(client, preferences, plugins)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { service.DetachWorkspaces()() })
+	if err := pluginstate.New(preferences).SetEnabled(toolchainFixturePlugin, true); err != nil {
+		t.Fatal(err)
+	}
+	binary, err := os.Executable()
+	if err != nil {
+		t.Fatal(err)
+	}
+	install := func(version string) string {
+		t.Helper()
+		packageDir := filepath.Join(plugins, toolchainFixturePlugin, version)
+		stateDir := pluginpkg.VersionStateRoot(plugins, toolchainFixturePlugin, version)
+		home := t.TempDir()
+		for _, path := range []string{packageDir, stateDir, filepath.Join(home, "bin")} {
+			if err := os.MkdirAll(path, 0o700); err != nil {
+				t.Fatal(err)
+			}
+		}
+		program := filepath.Join(packageDir, "provider.exe")
+		if err := os.Link(binary, program); err != nil {
+			image, readErr := os.ReadFile(binary)
+			if readErr != nil {
+				t.Fatal(readErr)
+			}
+			if err := os.WriteFile(program, image, 0o700); err != nil {
+				t.Fatal(err)
+			}
+		}
+		config, err := json.Marshal(toolchainProviderFixtureConfig{Home: home})
+		if err != nil {
+			t.Fatal(err)
+		}
+		manifest := strings.Replace(toolchainProviderFixtureManifest, `"version": "1.0.0"`, `"version": "`+version+`"`, 1)
+		executable := filepath.Join(home, "bin", "fixture")
+		for path, data := range map[string][]byte{
+			filepath.Join(packageDir, pluginpkg.ManifestFile): []byte(manifest),
+			filepath.Join(stateDir, "toolchain-fixture.json"): config,
+			executable: nil,
+		} {
+			if err := os.WriteFile(path, data, 0o700); err != nil {
+				t.Fatal(err)
+			}
+		}
+		canonical, err := filepath.EvalSymlinks(executable)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return canonical
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	defer cancel()
+	options := service.ToolchainOptions("", toolchain.Options{
+		Global: true, Home: t.TempDir(), Environment: map[string]string{},
+		Probe:  func(context.Context, string, []string) (string, int, error) { return "Fixture 7.1", 0, nil },
+		Lookup: func(string) (string, error) { return "", os.ErrNotExist },
+	})
+	resolve := func(version, executable string) *BackendSession {
+		t.Helper()
+		entries, err := service.Manager.Installed()
+		if err != nil {
+			t.Fatal(err)
+		}
+		selected, err := service.ToolchainPlugins(ctx, entries)
+		if err != nil || len(selected) != 1 || selected[0].Version != version {
+			t.Fatalf("current toolchain manifest = %+v, error = %v, want %s", selected, err, version)
+		}
+		selection, err := toolchain.Resolve(ctx, client, "", ".", toolchainFixtureTool, "", nil, []json.RawMessage{selected[0].Manifest}, options)
+		session := service.Host.Running(toolchainFixturePlugin)
+		if err != nil || selection.Executable != executable {
+			t.Fatalf("installed %s, executable %q, want %q (error %v)", version, selection.Executable, executable, err)
+		}
+		if session == nil || session.Version != version {
+			t.Fatalf("the backend for installed version %s did not own the query", version)
+		}
+		return session
+	}
+	old := resolve("1.0.0", install("1.0.0"))
+	current := resolve("1.1.0", install("1.1.0"))
+	if current == old {
+		t.Fatal("the upgrade reused the old backend")
+	}
+	select {
+	case <-old.done:
+	default:
+		t.Fatal("the replacement published before the old backend stopped")
+	}
+	if _, err := service.Host.ensureBackend(ctx, toolchainFixturePlugin, old.Version); !errors.Is(err, ErrBackendUnavailable) {
+		t.Fatalf("a late query for the superseded version returned %v", err)
+	}
+	if service.Host.Running(toolchainFixturePlugin) != current {
+		t.Fatal("a late query displaced the current backend")
+	}
+}
+
 type toolchainCancellationKernel struct {
 	*core.Client
 	submitted chan string

@@ -136,12 +136,14 @@ func (h *BackendHost) RunningPlugins() []string {
 // EnsureBackend starts the plugin's backend when it is not running and returns
 // its session. It does not wait for the backend to finish initialize; Call does.
 func (h *BackendHost) EnsureBackend(ctx context.Context, pluginID string) (*BackendSession, error) {
+	return h.ensureBackend(ctx, pluginID, "")
+}
+
+// A toolchain query names the version from its registry snapshot. Updating the
+// package can change the provider's response without changing its provider ID.
+func (h *BackendHost) ensureBackend(ctx context.Context, pluginID, version string) (*BackendSession, error) {
 	for {
 		h.mu.Lock()
-		if session := h.sessions[pluginID]; session != nil && !session.isEnded() {
-			h.mu.Unlock()
-			return session, nil
-		}
 		if wait, busy := h.starting[pluginID]; busy {
 			h.mu.Unlock()
 			select {
@@ -151,11 +153,16 @@ func (h *BackendHost) EnsureBackend(ctx context.Context, pluginID string) (*Back
 				return nil, ctx.Err()
 			}
 		}
+		previous := h.sessions[pluginID]
+		if previous != nil && !previous.isEnded() && (version == "" || previous.Version == version) {
+			h.mu.Unlock()
+			return previous, nil
+		}
 		startCtx, cancel := context.WithCancel(ctx)
 		start := &backendStart{done: make(chan struct{}), cancel: cancel}
 		h.starting[pluginID] = start
 		h.mu.Unlock()
-		session, err := h.start(startCtx, pluginID)
+		session, err := h.start(startCtx, pluginID, version, previous)
 		cancel()
 		h.mu.Lock()
 		detached := h.starting[pluginID] != start
@@ -178,7 +185,7 @@ func (h *BackendHost) EnsureBackend(ctx context.Context, pluginID string) (*Back
 	}
 }
 
-func (h *BackendHost) start(ctx context.Context, pluginID string) (*BackendSession, error) {
+func (h *BackendHost) start(ctx context.Context, pluginID, version string, previous *BackendSession) (*BackendSession, error) {
 	s := h.service
 	entries, err := s.Manager.Installed()
 	if err != nil {
@@ -193,7 +200,7 @@ func (h *BackendHost) start(ctx context.Context, pluginID string) (*BackendSessi
 			break
 		}
 	}
-	if !found {
+	if !found || (version != "" && entry.Installed.Version != version) {
 		return nil, errors.Join(ErrBackendUnavailable, selectionErr)
 	}
 	manifest, err := readBounded(filepath.Join(entry.Installed.Path, pluginpkg.ManifestFile), MaxManifestBytes)
@@ -202,6 +209,29 @@ func (h *BackendHost) start(ctx context.Context, pluginID string) (*BackendSessi
 	}
 	if !declaresBackend(manifest) {
 		return nil, fmt.Errorf("%w: %s declares no backend", ErrBackendUnavailable, pluginID)
+	}
+	// Validate the current package before ending the old session. A delayed
+	// query for a superseded version must leave the new session alone.
+	if previous != nil {
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
+		previous.cancel()
+		select {
+		case <-previous.done:
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		}
+		disposed, stopErr := previous.disposed, previous.stopErr
+		if !disposed {
+			disposed, stopErr = s.Backend.StopAndDispose(ctx, previous.Session)
+			if disposed {
+				h.forget(previous)
+			}
+		}
+		if err := s.runtimeStopFailure(ctx, disposed, stopErr); err != nil {
+			return nil, err
+		}
 	}
 	var declaration struct {
 		ToolchainProviders []struct {
@@ -538,15 +568,22 @@ func (b *BackendSession) serve(ctx context.Context) {
 	_ = err
 	// Everything the session created in the host goes with it.
 	b.host.service.resources.releaseSession(b.Session.ID)
-	// A backend that exited on its own leaves the Core session to dispose.
-	b.host.mu.Lock()
-	if b.host.sessions[b.PluginID] == b {
-		delete(b.host.sessions, b.PluginID)
-	}
-	b.host.mu.Unlock()
+	// Keep the session registered until its process is disposed so the next
+	// start can wait for it, even if the event loop has already ended.
 	stopCtx, cancel := context.WithTimeout(context.Background(), backendStopTimeout)
 	defer cancel()
 	b.disposed, b.stopErr = b.host.service.Backend.StopAndDispose(stopCtx, b.Session)
+	if b.disposed {
+		b.host.forget(b)
+	}
+}
+
+func (h *BackendHost) forget(session *BackendSession) {
+	h.mu.Lock()
+	if h.sessions[session.PluginID] == session {
+		delete(h.sessions, session.PluginID)
+	}
+	h.mu.Unlock()
 }
 
 // observe records the lifecycle facts calls depend on and routes completions.

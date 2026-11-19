@@ -61,7 +61,7 @@ func (s *Service) ToolchainOptions(root string, options toolchain.Options) toolc
 
 const toolchainQueryTimeout = 10 * time.Second
 
-func (s *Service) queryToolchain(ctx context.Context, pluginID string, params core.ToolchainQueryParams) (core.ToolchainProviderReply, error) {
+func (s *Service) queryToolchain(ctx context.Context, pluginID, version string, params core.ToolchainQueryParams) (core.ToolchainProviderReply, error) {
 	queryCtx, cancel := context.WithTimeout(ctx, toolchainQueryTimeout)
 	defer cancel()
 	verify := func() error {
@@ -74,7 +74,7 @@ func (s *Service) queryToolchain(ctx context.Context, pluginID string, params co
 	if err := verify(); err != nil {
 		return core.ToolchainProviderReply{}, err
 	}
-	session, err := s.Host.EnsureBackend(queryCtx, pluginID)
+	session, err := s.Host.ensureBackend(queryCtx, pluginID, version)
 	if err == nil {
 		if err := verify(); err != nil {
 			return core.ToolchainProviderReply{}, err
