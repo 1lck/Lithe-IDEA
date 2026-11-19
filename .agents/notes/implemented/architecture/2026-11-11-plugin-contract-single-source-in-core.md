@@ -4,7 +4,7 @@
 
 ## 先说结论
 
-插件契约、插件开发指南与参考、三个官方后端 SDK（Node、Java、Rust）和 SDK 端到端测试只有一份，放在 Rust Core 仓库的 [`shared/plugins/`](https://github.com/Lithe-IDEA/Lithe-core-rust/tree/main/shared/plugins)。本仓库删除了 `shared/contracts/plugins/` 副本，原 lithe-plugin-docs 仓库的内容整体并入 Core，该仓库停止维护。
+插件契约、插件开发指南与参考、四个官方后端 SDK（Rust、Go、Node、Java）和 SDK 端到端测试只有一份，放在 Rust Core 仓库的 [`shared/plugins/`](https://github.com/Lithe-IDEA/Lithe-core-rust/tree/main/shared/plugins)。本仓库删除了 `shared/contracts/plugins/` 副本，原 lithe-plugin-docs 仓库的内容整体并入 Core，该仓库停止维护。
 
 对日常开发的直接影响：
 
@@ -24,7 +24,7 @@
 
 - 执行契约的代码在 Core，但本仓库还留着一份契约，两边哪份是真源要靠约定，改动要在两个仓库各提一个 PR。
 - 文档仓库的副本永远落后于 Core 一次手动同步；漏同步时，插件开发者读到的是旧行为，SDK 端到端测试验证的也是旧契约。
-- SDK 和它要遵守的协议不在同一个仓库，改协议的 PR 无法在合并前用同一个提交跑三个 SDK 的示例后端。
+- SDK 和它要遵守的协议不在同一个仓库，改协议的 PR 无法在合并前用同一个提交跑所有 SDK 的示例后端。
 
 ## 决策
 
@@ -35,7 +35,7 @@
 | 契约 README、schema、fixture | `shared/plugins/contract/v1/` |
 | 开发指南 | `shared/plugins/guides/` |
 | API 总表、协议更新记录等参考页 | `shared/plugins/reference/` |
-| Node、Java、Rust 后端 SDK 与示例 | `shared/plugins/sdk/` |
+| Rust、Go、Node、Java 后端 SDK 与示例 | `shared/plugins/sdk/` |
 | SDK 端到端场景 | `shared/plugins/sdk/e2e/` |
 | 文档检查与端到端入口 | `shared/plugins/scripts/verify-docs.mjs`、`shared/plugins/scripts/sdk-e2e.mjs` |
 
@@ -49,7 +49,7 @@ Core 的 `shared/` 下只保留 `plugins/`。本仓库和 Lithe Store 都不再�
 
 - 更新 [插件协议更新记录](https://github.com/Lithe-IDEA/Lithe-core-rust/blob/main/shared/plugins/reference/protocol-changelog.md)，写明合入日期、PR、修改人和改了哪个协议或 API。
 - 新增宿主方法时，在 [API 总表](https://github.com/Lithe-IDEA/Lithe-core-rust/blob/main/shared/plugins/reference/api-catalog.md) 的中英方法表和更新记录的“宿主方法（按 API 编号）”索引里各加一行。
-- 改后端协议时，在 Core 仓库根运行 `node shared/plugins/scripts/sdk-e2e.mjs`，三个 SDK 的示例后端对同一个提交跑通后才能合并。
+- 改后端协议时，在 Core 仓库根运行 `node shared/plugins/scripts/sdk-e2e.mjs`，所有官方 SDK 的示例后端对同一个提交跑通后才能合并。
 
 ### 3. 本仓库的测试读链接的 Core 检出
 
@@ -59,7 +59,7 @@ Core 的 `shared/` 下只保留 `plugins/`。本仓库和 Lithe Store 都不再�
 
 ### 4. SDK 从 Core 发版
 
-SDK 发版改为在 Core 打 `sdk-node-v*`、`sdk-java-v*`、`sdk-rust-v*` 标签，由 Core 的 `plugins-release-*-sdk.yml` 工作流发布。0.4.x 及更早的版本发布于已停止维护的 lithe-plugin-docs，旧标签和旧包继续可用。
+SDK 发版改为在 Core 打 `sdk-node-v*`、`sdk-java-v*`、`sdk-rust-v*` 标签，由 Core 的 `plugins-release-*-sdk.yml` 工作流发布。Go SDK 是 Go 模块，在 Core 推送模块标签 `shared/plugins/sdk/go/v*` 就是发版，由 Go module proxy 分发，没有发布工作流；标签推送后不能移动或删除，版本号也不能重复使用。0.4.x 及更早的版本发布于已停止维护的 lithe-plugin-docs，旧标签和旧包继续可用。
 
 ## 考虑过的备选方案
 
@@ -79,7 +79,7 @@ SDK 发版改为在 Core 打 `sdk-node-v*`、`sdk-java-v*`、`sdk-rust-v*` 标�
 ## 验证
 
 - `node shared/plugins/scripts/verify-docs.mjs`（Core 仓库根）检查每份 schema 的 `$id` 和插件文档的相对链接。
-- `node shared/plugins/scripts/sdk-e2e.mjs`（Core 仓库根）用当前提交的 Core 跑三个 SDK 的示例后端。
+- `node shared/plugins/scripts/sdk-e2e.mjs`（Core 仓库根）用当前提交的 Core 跑所有官方 SDK 的示例后端。
 - `scripts/desktop/desktop-go.sh test ./internal/core/... ./internal/marketplace/... ./internal/pluginweb/... ./internal/workbench/... ./internal/pluginservice/...` 用链接的 Core 检出里的契约 fixture 运行桌面端测试。
 
 ## 适用范围

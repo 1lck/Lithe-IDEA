@@ -5,7 +5,7 @@ import (
 	"errors"
 
 	"github.com/1lck/Lithe-IDEA/desktop/internal/core"
-
+	"github.com/1lck/Lithe-IDEA/desktop/internal/pluginruntime"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/toolchain"
 )
 
@@ -17,7 +17,14 @@ func (s settingsToolchains) Inspect(ctx context.Context, snapshot toolchain.Snap
 		if readErr != nil {
 			return selection, readErr
 		}
-		return toolchain.Resolve(ctx, s.app.kernel, "", ".", tool, "", &toolchain.Fixed{Home: home}, manifests, toolchain.Options{Global: true, GlobalRoot: s.app.globalToolchainRoot(), Platform: buildPlatform()})
+		managedHomes, managedTools, _ := s.app.managedToolchainOptions(ctx, manifests)
+		return toolchain.Resolve(ctx, s.app.kernel, "", ".", tool, "", &toolchain.Fixed{Home: home}, manifests, toolchain.Options{
+			Global:       true,
+			GlobalRoot:   s.app.globalToolchainRoot(),
+			Platform:     buildPlatform(),
+			ManagedHomes: managedHomes,
+			ManagedTools: managedTools,
+		})
 	}
 	root := s.app.toolchainRoot.Load()
 	if root == nil || snapshot.Root == "" {
@@ -30,7 +37,13 @@ func (s settingsToolchains) Inspect(ctx context.Context, snapshot toolchain.Snap
 	if err != nil {
 		return selection, err
 	}
-	selection, err = toolchain.Resolve(ctx, s.app.kernel, snapshot.Root, snapshot.Directory, tool, "", &toolchain.Fixed{Home: home}, manifests, toolchain.Options{Platform: buildPlatform(), GlobalRoot: s.app.globalToolchainRoot()})
+	managedHomes, managedTools, _ := s.app.managedToolchainOptions(ctx, manifests)
+	selection, err = toolchain.Resolve(ctx, s.app.kernel, snapshot.Root, snapshot.Directory, tool, "", &toolchain.Fixed{Home: home}, manifests, toolchain.Options{
+		Platform:     buildPlatform(),
+		GlobalRoot:   s.app.globalToolchainRoot(),
+		ManagedHomes: managedHomes,
+		ManagedTools: managedTools,
+	})
 	if err != nil {
 		return selection, err
 	}
@@ -95,7 +108,15 @@ func (s settingsToolchains) LoadScope(ctx context.Context, scope string) (snapsh
 	if err != nil {
 		return snapshot, err
 	}
-	return toolchain.Load(ctx, s.app.kernel, "", ".", manifests, toolchain.Options{Global: true, GlobalRoot: s.app.globalToolchainRoot(), Platform: buildPlatform()})
+	managedHomes, managedTools, managedDeps := s.app.managedToolchainOptions(ctx, manifests)
+	return toolchain.Load(ctx, s.app.kernel, "", ".", manifests, toolchain.Options{
+		Global:              true,
+		GlobalRoot:          s.app.globalToolchainRoot(),
+		Platform:            buildPlatform(),
+		ManagedHomes:        managedHomes,
+		ManagedTools:        managedTools,
+		ManagedDependencies: managedDeps,
+	})
 }
 
 func (s settingsToolchains) loadAt(ctx context.Context, root string) (toolchain.Snapshot, error) {
@@ -103,7 +124,14 @@ func (s settingsToolchains) loadAt(ctx context.Context, root string) (toolchain.
 	if err != nil && len(manifests) == 0 {
 		return toolchain.Snapshot{}, err
 	}
-	return toolchain.Load(ctx, s.app.kernel, root, ".", manifests, toolchain.Options{Platform: buildPlatform(), GlobalRoot: s.app.globalToolchainRoot()})
+	managedHomes, managedTools, managedDeps := s.app.managedToolchainOptions(ctx, manifests)
+	return toolchain.Load(ctx, s.app.kernel, root, ".", manifests, toolchain.Options{
+		Platform:            buildPlatform(),
+		GlobalRoot:          s.app.globalToolchainRoot(),
+		ManagedHomes:        managedHomes,
+		ManagedTools:        managedTools,
+		ManagedDependencies: managedDeps,
+	})
 }
 
 // Save applies all draft changes in one Core edit, against the exact
@@ -146,6 +174,31 @@ func (s settingsToolchains) Save(ctx context.Context, snapshot toolchain.Snapsho
 func (s settingsToolchains) SettingsView(ctx context.Context, request core.ToolchainSettingsViewRequest) (view core.ToolchainSettingsView, err error) {
 	defer func() { s.recordFailure(ctx, "toolchain_settings_view", err) }()
 	return s.app.kernel.ToolchainSettingsViewOf(ctx, request)
+}
+
+// PrepareRuntime downloads or repairs the declared managed runtimes for tool's plugin,
+// retries failed language servers, and reloads the requested scope's toolchain snapshot.
+func (s settingsToolchains) PrepareRuntime(ctx context.Context, scope string, snapshot toolchain.Snapshot, tool toolchain.Tool, progress func(pluginruntime.Progress)) (updated toolchain.Snapshot, err error) {
+	ctx = s.app.performedIn(ctx, "toolchain.prepareRuntime", surfaceButton)
+	defer func() { s.recordFailure(ctx, "toolchain_prepare_runtime", err) }()
+	if s.app.plugins == nil {
+		return snapshot, errors.New("the plugin host is not available")
+	}
+	if err := s.app.plugins.PreparePluginRuntimes(ctx, tool.PluginID, progress); err != nil {
+		return snapshot, err
+	}
+	s.app.post(func(a *App) { a.retryFailedPluginServers() })
+	if scope == "global" {
+		return s.LoadScope(ctx, "global")
+	}
+	root := s.app.toolchainRoot.Load()
+	if root == nil || *root == "" || snapshot.Root == "" {
+		return snapshot, toolchain.ErrPinConflict
+	}
+	if err := snapshot.CheckWorkspace(ctx, *root); err != nil {
+		return snapshot, errors.Join(toolchain.ErrPinConflict, err)
+	}
+	return s.loadAt(ctx, snapshot.Root)
 }
 
 // recordFailure logs a failed settings request from the settings worker that ran it, under the
