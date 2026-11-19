@@ -323,7 +323,7 @@ func (a *App) loadProjectTools(ctx context.Context, tools []string) (map[string]
 	if err != nil && len(manifests) == 0 {
 		return nil, err
 	}
-	snapshot, loadErr := toolchain.Load(ctx, a.kernel, "", ".", manifests, a.toolchainOptions(""))
+	snapshot, loadErr := toolchain.Load(ctx, a.kernel, "", ".", manifests, a.toolchainOptions(ctx, "", manifests))
 	if loadErr != nil {
 		return nil, loadErr
 	}

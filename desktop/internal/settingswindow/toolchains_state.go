@@ -8,11 +8,13 @@ import (
 	"slices"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/1lck/Lithe-IDEA/desktop/internal/configfile"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/core"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/i18n"
+	"github.com/1lck/Lithe-IDEA/desktop/internal/pluginruntime"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/toolchain"
 	"github.com/vivaui/viva/app"
 	"github.com/vivaui/viva/ui"
@@ -91,7 +93,8 @@ func (s *toolchainScope) tool(id string) *toolchain.Tool {
 
 // choose records the user's choice of a home; choosing the saved pin drops the draft.
 func (s *toolchainScope) choose(id, home string) {
-	if s.tool(id) == nil {
+	tool := s.tool(id)
+	if tool == nil || tool.ManagedOnly {
 		return
 	}
 	if home == s.saved(id) {
@@ -373,6 +376,15 @@ type toolchainState struct {
 	trustWanted   bool
 	trusting      bool
 
+	runtimeEffect    *ui.EffectState[toolchain.Snapshot, int]
+	runtimeKey       int
+	runtimeScope     string
+	runtimeSnapshot  toolchain.Snapshot
+	runtimeTool      toolchain.Tool
+	preparingRuntime bool
+	runtimeProgress  atomic.Pointer[pluginruntime.Progress]
+	invalidate       func()
+
 	// failed is the last write, check or trust request's error; a read's error is its scope's.
 	failed error
 
@@ -428,6 +440,16 @@ func newToolchainState(loader ToolchainLoader) *toolchainState {
 			return truster.SetWorkspaceTrust(ctx, t.trustSnapshot, t.trustWanted)
 		})
 	}
+	if preparer, ok := loader.(ToolchainRuntimePreparer); ok {
+		t.runtimeEffect = ui.NewEffect[toolchain.Snapshot, int](func(ctx context.Context) (toolchain.Snapshot, error) {
+			return preparer.PrepareRuntime(ctx, t.runtimeScope, t.runtimeSnapshot, t.runtimeTool, func(progress pluginruntime.Progress) {
+				t.runtimeProgress.Store(&progress)
+				if t.invalidate != nil {
+					t.invalidate()
+				}
+			})
+		})
+	}
 	return t
 }
 
@@ -441,7 +463,7 @@ func (t *toolchainState) current() *toolchainScope {
 }
 
 func (t *toolchainState) busy() bool {
-	if t.saving || t.inspecting || t.trusting {
+	if t.saving || t.inspecting || t.trusting || t.preparingRuntime {
 		return true
 	}
 	for _, scope := range t.scopes {
@@ -551,6 +573,17 @@ func (t *toolchainState) beginTrust(trusted bool) {
 	t.trusting, t.failed = true, nil
 }
 
+func (t *toolchainState) beginPrepareRuntime(tool toolchain.Tool) {
+	scope := t.current()
+	if t.runtimeEffect == nil || t.busy() || scope == nil || !scope.loaded || !tool.ManagedRuntime {
+		return
+	}
+	t.runtimeScope, t.runtimeSnapshot, t.runtimeTool = scope.name, scope.snapshot, tool
+	t.runtimeProgress.Store(nil)
+	t.runtimeKey++
+	t.preparingRuntime, t.failed = true, nil
+}
+
 // take applies finished work on the window thread at the start of a paint. It reports a
 // write that failed, so the footer's apply stops.
 func (t *toolchainState) take() (saveFailed error) {
@@ -613,6 +646,26 @@ func (t *toolchainState) take() (saveFailed error) {
 			}
 		}
 	}
+	if t.runtimeEffect != nil {
+		if snapshot, err, ok := t.runtimeEffect.Take(); ok {
+			t.preparingRuntime = false
+			t.runtimeProgress.Store(nil)
+			if err != nil {
+				t.failed = err
+			} else {
+				if scope := t.scopes[t.runtimeScope]; scope != nil {
+					scope.apply(snapshot, false)
+				}
+				other := scopeProject
+				if t.runtimeScope == scopeProject {
+					other = scopeGlobal
+				}
+				if sibling := t.scopes[other]; sibling != nil && sibling.loaded {
+					sibling.stale = true
+				}
+			}
+		}
+	}
 	t.view.take()
 	t.search.take()
 	return saveFailed
@@ -652,6 +705,9 @@ func (t *toolchainState) declare(c ui.C) {
 	}
 	if t.trustKey != 0 && t.trustEffect != nil {
 		ui.Effect(c, t.trustEffect, t.trustKey)
+	}
+	if t.runtimeKey != 0 && t.runtimeEffect != nil {
+		ui.Effect(c, t.runtimeEffect, t.runtimeKey)
 	}
 	t.view.declare(c.Part("toolchain-view"))
 	t.search.declare(c.Part("toolchain-search"))
@@ -898,7 +954,7 @@ func (t *toolchainState) options(language i18n.Language, scope *toolchainScope, 
 		if installation.Version == "" {
 			why = i18n.Shared(language, "desktop.toolchains.reasonProbeFailed")
 		}
-		add(installation.Home, installation.Version, toolchainSourceLabel(language, installation.Provider), why)
+		add(installation.Home, installation.Version, toolchainInstallationSource(language, tool, installation.Home, installation.Provider), why)
 	}
 	for _, shell := range tool.Shell {
 		version, why := "", ""
@@ -966,10 +1022,19 @@ func (t *toolchainState) options(language i18n.Language, scope *toolchainScope, 
 	return options
 }
 
+func toolchainInstallationSource(language i18n.Language, tool *toolchain.Tool, home, provider string) string {
+	if provider == "host:managed" || slices.Contains(tool.ManagedRuntimeHomes, home) {
+		return toolchainSourceLabel(language, "host:managed")
+	}
+	return toolchainSourceLabel(language, provider)
+}
+
 // toolchainSourceLabel names who found a home: the host's own sources in the user's language,
 // a plugin's provider by its ID.
 func toolchainSourceLabel(language i18n.Language, provider string) string {
 	switch provider {
+	case "host:managed":
+		return i18n.Shared(language, "desktop.buildSettings.sourceManaged")
 	case "host:manual":
 		return i18n.Shared(language, "desktop.buildSettings.sourceManual")
 	case "host:system":

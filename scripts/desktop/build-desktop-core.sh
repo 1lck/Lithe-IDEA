@@ -272,7 +272,7 @@ PINNED_CORE_REPOSITORY="https://github.com/Lithe-IDEA/Lithe-core-rust.git"
 # #15 (git.write cherryPick, revert and reset fields), #14 (word-level changed ranges of diff
 # rows), #13, #8, #7, #6 and #4.
 # Global toolchain provider replies can be resolved without a workspace scope (Core #111).
-PINNED_CORE_REVISION="db27c70e4927ad02a789bb0b635fa02cab9e8d94"
+PINNED_CORE_REVISION="c481227084deead11b5171a1db4fb711401af49c"
 PROFILE="debug"
 while [[ $# -gt 0 ]]; do
     case "$1" in

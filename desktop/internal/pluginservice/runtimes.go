@@ -397,3 +397,91 @@ func (s *Service) runtimeStopFailure(ctx context.Context, disposed bool, err err
 	}
 	return err
 }
+
+// ManagedToolchainFacts inspects declared managedRuntimes across manifests without
+// starting any backend process. It returns ready home directories keyed by bound tool
+// ID, maps each bound tool ID to its declaring plugin ID, and lists unbound managed
+// dependencies so Toolchains settings can surface them read-only under Plugin Runtimes.
+func (s *Service) ManagedToolchainFacts(ctx context.Context, manifests []json.RawMessage) (homes map[string][]string, declarers map[string]string, dependencies []toolchain.ManagedDependency) {
+	if s == nil || s.Root == "" {
+		return nil, nil, nil
+	}
+	kernel, ok := s.kernel.(managedRuntimeKernel)
+	if !ok {
+		return nil, nil, nil
+	}
+	platform := core.ManagedRuntimePlatform{OS: toolchain.PlatformName(runtime.GOOS), Arch: core.PluginArchitecture()}
+	for _, manifest := range manifests {
+		if !HasManagedRuntimes(manifest) {
+			continue
+		}
+		var identity struct {
+			ID          string `json:"id"`
+			DisplayName string `json:"displayName"`
+		}
+		if json.Unmarshal(manifest, &identity) != nil || identity.ID == "" {
+			continue
+		}
+		plan, err := kernel.PlanManagedRuntimes(ctx, manifest, platform)
+		if err != nil {
+			continue
+		}
+		manager := pluginruntime.Manager{Root: filepath.Join(pluginpkg.StateRoot(s.Root, identity.ID), "runtimes")}
+		for _, dependency := range plan.Dependencies {
+			installation, found, err := manager.Find(ctx, runtimeArtifact(dependency))
+			ready := err == nil && found && installation.Home != ""
+			if dependency.Tool != "" {
+				if declarers == nil {
+					declarers = make(map[string]string)
+				}
+				declarers[dependency.Tool] = identity.ID
+				if ready {
+					if homes == nil {
+						homes = make(map[string][]string)
+					}
+					homes[dependency.Tool] = append(homes[dependency.Tool], installation.Home)
+				}
+				continue
+			}
+			home := ""
+			if ready {
+				home = installation.Home
+			}
+			dependencies = append(dependencies, toolchain.ManagedDependency{
+				PluginID:   identity.ID,
+				PluginName: identity.DisplayName,
+				ID:         dependency.ID,
+				Version:    dependency.Version,
+				Home:       home,
+				Ready:      ready,
+			})
+		}
+	}
+	return homes, declarers, dependencies
+}
+
+// PreparePluginRuntimes prepares or repairs all declared managed runtimes for an
+// enabled plugin ID using full installation verification, without starting any
+// plugin installation commit.
+func (s *Service) PreparePluginRuntimes(ctx context.Context, pluginID string, progress func(pluginruntime.Progress)) error {
+	if s == nil || s.Manager == nil {
+		return ErrAssembly
+	}
+	entries, err := s.Manager.Installed()
+	if err != nil {
+		return err
+	}
+	selected, selectionErr := s.selectInstalled(ctx, entries, false)
+	for _, entry := range selected {
+		if entry.Installed.ID != pluginID {
+			continue
+		}
+		manifest, readErr := readBounded(filepath.Join(entry.Installed.Path, pluginpkg.ManifestFile), MaxManifestBytes)
+		if readErr != nil {
+			return readErr
+		}
+		_, err = s.EnsureRuntimes(ctx, manifest, entry.Installed.Path, entry.Installed.ID, entry.Installed.Version, true, progress)
+		return err
+	}
+	return errors.Join(selectionErr, fmt.Errorf("plugin %s is not enabled", pluginID))
+}

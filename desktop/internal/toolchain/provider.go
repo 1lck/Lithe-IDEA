@@ -26,9 +26,10 @@ type ProviderScope struct {
 // never authority to execute a tool. Every use captures fresh evidence and
 // validates the reply again in Core.
 type ProviderClient struct {
-	Request func(context.Context, string, core.ToolchainQueryParams) (core.ToolchainProviderReply, error)
-	Decode  func(context.Context, core.ToolchainQuery) (core.ToolchainProviderSnapshot, error)
-	Failed  func(context.Context, error)
+	Request      func(context.Context, string, core.ToolchainQueryParams) (core.ToolchainProviderReply, error)
+	FailureReply func(context.Context, core.ToolchainQueryParams, string) (core.ToolchainProviderReply, error)
+	Decode       func(context.Context, core.ToolchainQuery) (core.ToolchainProviderSnapshot, error)
+	Failed       func(context.Context, error)
 
 	mu       sync.Mutex
 	revision uint64
@@ -140,7 +141,16 @@ func (p *ProviderClient) round(
 			params.Context = &scope.Context
 			params.Workspace = &core.ToolchainQueryWorkspace{RootID: scope.RootID(pluginID), Root: w.root, Directory: directory}
 		}
-		reply, err := p.Request(queryCtx, pluginID, params)
+		var reply core.ToolchainProviderReply
+		err := queryCtx.Err()
+		if err == nil {
+			reply, err = p.Request(queryCtx, pluginID, params)
+		}
+		// The round's budget is separate from the caller's lifetime. Core
+		// can still resolve completed replies and local candidates.
+		if errors.Is(err, context.DeadlineExceeded) && queryCtx.Err() == context.DeadlineExceeded && ctx.Err() == nil {
+			reply, err = p.FailureReply(ctx, params, core.ToolchainProviderTimeout)
+		}
 		if err != nil {
 			return nil, key, err
 		}

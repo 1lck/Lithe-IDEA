@@ -206,8 +206,9 @@ func open(kernel Kernel, preferences *store.Store, root string, first bool) (*Se
 	if providerKernel, ok := kernel.(toolchainProviderKernel); ok {
 		service.toolchainKernel = providerKernel
 		service.toolchainProviders = &toolchain.ProviderClient{
-			Request: service.queryToolchain,
-			Decode:  providerKernel.DecodeToolchainReply,
+			Request:      service.queryToolchain,
+			FailureReply: providerKernel.ToolchainFailureReply,
+			Decode:       providerKernel.DecodeToolchainReply,
 			Failed: func(ctx context.Context, err error) {
 				if service.ToolchainIssue != nil {
 					service.ToolchainIssue(ctx, err)

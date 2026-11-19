@@ -64,6 +64,15 @@ type Tool struct {
 	// 1); empty means other and user.
 	Category string `json:"category,omitempty"`
 	Audience string `json:"audience,omitempty"`
+	// ManagedRuntime reports that the declaring plugin manages this tool through
+	// managedRuntimes, so the settings page can prepare or repair it on demand.
+	ManagedRuntime bool `json:"managedRuntime,omitempty"`
+	// ManagedRuntimeHomes lists canonical directories prepared via managedRuntimes
+	// so the settings UI can distinguish them from generic system discovery.
+	ManagedRuntimeHomes []string `json:"managedRuntimeHomes,omitempty"`
+	// ManagedOnly reports a plugin managedRuntimes dependency that does not bind a
+	// toolDefinition, surfaced read-only under Plugin Runtimes.
+	ManagedOnly bool `json:"managedOnly,omitempty"`
 	// Reason is Core's stable code when no installation applies, empty when the
 	// tool resolved.
 	Reason string `json:"reason,omitempty"`
@@ -138,6 +147,24 @@ type Options struct {
 	// MinimumVersion is a consumer requirement for one operation; settings
 	// loads leave it empty.
 	MinimumVersion string
+	// ManagedHomes are ready managed-runtime home directories keyed by bound tool ID.
+	ManagedHomes map[string][]string
+	// ManagedTools maps a bound tool ID to the plugin ID that declares it in managedRuntimes.
+	ManagedTools map[string]string
+	// ManagedDependencies lists declared managedRuntimes dependencies that do not bind a tool.
+	ManagedDependencies []ManagedDependency
+}
+
+// ManagedDependency is a plugin-declared managedRuntimes dependency that does
+// not bind a toolDefinition, surfaced read-only under Plugin Runtimes so users
+// can inspect its location, version and readiness, and prepare or repair it.
+type ManagedDependency struct {
+	PluginID   string
+	PluginName string
+	ID         string
+	Version    string
+	Home       string
+	Ready      bool
 }
 
 // Selection is the validated installation one consumer operation may launch.

@@ -133,7 +133,7 @@ Viva 由 `desktop/go.mod` 的 `replace` 固定到 [Lithe-IDEA/viva](https://gith
 
 ## 插件契约只在 Rust Core
 
-插件契约、插件开发指南与参考、三个官方插件后端 SDK（Node、Java、Rust）和它们的端到端测试只有一份，
+插件契约、插件开发指南与参考、四个官方插件后端 SDK（Rust、Go、Node、Java）和它们的端到端测试只有一份，
 在 Rust Core 仓库 [Lithe-IDEA/Lithe-core-rust](https://github.com/Lithe-IDEA/Lithe-core-rust) 的
 [`shared/plugins/`](https://github.com/Lithe-IDEA/Lithe-core-rust/tree/main/shared/plugins)，和执行契约的
 Core 代码在同一个仓库、同一个 PR 里修改。本仓库不保存契约、SDK 或插件开发文档的副本；插件开发者只看那个目录就能开发，
@@ -156,7 +156,7 @@ Core 代码在同一个仓库、同一个 PR 里修改。本仓库不保存契�
   `shared/plugins/guides/` 或 `shared/plugins/reference/` 的对应页。只写在实施计划、Agent Note 或宿主代码里的行为，不算已公开。
   面向插件开发者的新说明不写进本仓库或 Lithe Store。
 - Core 仓库根运行 `node shared/plugins/scripts/verify-docs.mjs`，检查每份 schema 的 `$id` 和文档相对链接；
-  改插件后端协议时运行 `node shared/plugins/scripts/sdk-e2e.mjs`，确认三个 SDK 的示例后端对当前 Core 仍能跑通。
+  改插件后端协议时运行 `node shared/plugins/scripts/sdk-e2e.mjs`，确认所有官方 SDK 的示例后端对当前 Core 仍能跑通。
 - 本仓库的桌面端测试通过 `desktop/internal/contractfixture` 读取正在链接的 Core 检出里的契约 fixture，
   路径由 `scripts/desktop/desktop-go.sh` 导出的 `LITHE_PLUGIN_CONTRACT_DIR` 给出。不要把 fixture 复制回本仓库；
   改了契约后，把 `scripts/desktop/build-desktop-core.sh` 的 `PINNED_CORE_REVISION` 升到包含该改动的 Core commit。
