@@ -198,6 +198,17 @@ func (w *window) pluginSettingsListRow(row ui.ListRow, p *pluginSettingsForm, ha
 	})
 }
 
+// readOnlyField shows value as a field that cannot be edited. Box.Disabled does not apply to
+// a TextField in pinned Viva, so the field is the text it holds inside a frame, which
+// assistive technology and the platform see as a read-only text field that takes no input.
+func (w *window) readOnlyField(c ui.C, label, value string) {
+	ui.Row(c).Grow(1).MinWidth(0).Height(30).PadX(10).Border(1, w.pal.line).Radius(6).Items(ui.Center).
+		HitWith(ui.ID(c), label, gfx.HitOptions{Role: gfx.RoleTextField, Value: value, ReadOnly: true, Disabled: true}).
+		Children(func() {
+			ui.Text(c, value).FontSize(13).Color(w.pal.muted).Ellipsis()
+		})
+}
+
 // readOnlyList shows a list value that cannot be edited one item per line, as the TextArea
 // shows it while it can be, so a read-only list is not cut down to its first item.
 func (w *window) readOnlyList(c ui.C, label, value string) {
@@ -268,10 +279,7 @@ func (w *window) pluginSettingRow(c ui.C, index int, hasSource bool) {
 					// Its options are listed under the line.
 				default:
 					if disabled {
-						if control.readOnly.Text() != control.text {
-							control.readOnly.SetText(control.text)
-						}
-						ui.TextField(c, &control.readOnly, declaration.Title, declaration.Placeholder).ReadOnly(true).Grow(1).MinWidth(0).Height(30)
+						w.readOnlyField(c, declaration.Title, control.text)
 					} else {
 						ui.TextField(c, &control.text, declaration.Title, declaration.Placeholder).Grow(1).MinWidth(0).Height(30)
 					}
