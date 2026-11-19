@@ -258,7 +258,7 @@ func (w *window) config() app.Config {
 		Invalidator: &w.inv,
 		BarStyle:    uistyle.Bars,
 	})
-	config := w.page.Config(app.Config{
+	config := ui.Configure(w.page, app.Config{
 		Title:          w.ctrl.text().Logs.Logs,
 		Icon:           appicon.Window(),
 		Width:          1100,

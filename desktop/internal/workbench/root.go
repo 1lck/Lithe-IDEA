@@ -79,7 +79,7 @@ func (a *App) sessionConfig() app.Config {
 		// page inherits it, so the project tree and the Git log measure their bars alike.
 		BarStyle: uistyle.Bars,
 	})
-	config := a.root.Config(base)
+	config := ui.Configure(a.root, base)
 	// An open pointer hover follows the pointer over the whole window, before the element under
 	// it does, so the pointer resting on the popup keeps it open (pluginsemantics_hover.go).
 	pointer := config.OnPointer
