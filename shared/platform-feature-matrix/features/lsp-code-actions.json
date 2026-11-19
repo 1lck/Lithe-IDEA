@@ -22,6 +22,6 @@
     ]
   },
   "owner": "Editor / Language Tooling",
-  "verification": "以声明该能力的合成语言服务器验证 Alt/Option+Enter、编辑器菜单、诊断快速修复、动作列表、撤销，以及工作区编辑的文件边界、文档版本和取消。",
+  "verification": "以合成语言服务器验证 Alt/Option+Enter、编辑器菜单、诊断快速修复、动作列表、撤销、编辑同步后的命令提交，以及工作区编辑的文件边界、文档版本、磁盘回滚和外部编辑保护。",
   "notes": "Viva 在 macOS 和 Windows 共享实现。原生平台验证待补。"
 }

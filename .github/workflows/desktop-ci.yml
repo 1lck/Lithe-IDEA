@@ -169,6 +169,26 @@ jobs:
       - name: Vet and test
         run: ./scripts/desktop/check.sh
 
+      - name: Run LSP editor headless tests
+        id: lsp-visual
+        # Capture evidence even when an unrelated test in the full suite fails.
+        if: ${{ !cancelled() && steps.rust.outcome == 'success' }}
+        timeout-minutes: 5
+        env:
+          LITHE_VISUAL_OUTPUT_DIR: ${{ github.workspace }}/.artifacts/lsp-editor-visual
+        run: |
+          ./scripts/desktop/desktop-go.sh test -v -tags 'vivahead lithevisual' ./internal/workbench \
+            -run '^(TestLSP|TestVisualLSPActions$)' -count=1 -timeout=120s
+
+      - name: Upload LSP editor screenshots
+        if: ${{ !cancelled() && steps.lsp-visual.outcome != 'skipped' }}
+        uses: actions/upload-artifact@v7
+        with:
+          name: lsp-editor-visual-${{ runner.os }}-${{ runner.arch }}
+          path: .artifacts/lsp-editor-visual/*.png
+          if-no-files-found: error
+          retention-days: 14
+
       - name: Upload native verification reports
         if: always()
         uses: actions/upload-artifact@v7
