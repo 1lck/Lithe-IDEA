@@ -25,11 +25,12 @@ func loadedRunConfigs(t *testing.T, kernel Kernel, root string) (*harness, *proj
 	h := newHarness(t, kernel)
 	h.open(root)
 	p := h.app.project
+	since := p.runConfigs.generation
 	h.app.post(func(a *App) {
-		p.build.instances = []buildInstance{runConfigInstance("app")}
+		setDetected(p, []buildInstance{runConfigInstance("app")})
 		a.refreshRunConfigurations(p)
 	})
-	awaitStateWithin(t, h, 10*time.Second, "the run configurations", func() bool { return p.runConfigs.generation > 0 && !p.runConfigs.loading })
+	awaitRunConfigsAfter(t, h, p, since)
 	if s := &p.runConfigs; s.failure != "" || len(s.list) != 1 {
 		t.Fatalf("configurations = %+v failure %q", s.list, s.failure)
 	}

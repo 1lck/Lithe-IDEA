@@ -99,6 +99,7 @@ func TestBuildLoadKeepsWorkingWhenDetectionReportsAnInvalidManifest(t *testing.T
 	h := newHarness(t, &testKernel{Client: core.NewClient()})
 	h.open(t.TempDir())
 	p := h.app.project
+	setDetected(p, nil)
 	p.build.loading = true
 	h.app.finishBuildDetection(p, p.build.generation, []buildInstance{{BuildInstance: instance}}, context.Canceled)
 	if p.build.failed != "" {

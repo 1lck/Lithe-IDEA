@@ -2,6 +2,8 @@
 
 状态：已实现
 
+> 2026-11-19 更新：打开项目时就识别构建系统并加载每个实例的模型，标题栏不再停在“当前文件”、等用户先点运行或打开下拉。见下文“模型加载后自动生成”。
+>
 > 2026-11-18 更新：用户层改存 `.lithe/run/configurations.yaml`、`local.yaml` 和按插件拆分的 `.lithe/run/plugin/<插件 ID>.toml`、`<插件 ID>.local.toml`；Core 不再写这些文件，编辑命令返回文件改动，由宿主按哈希检查后应用。内置的脚本与程序运行不经过生成层。决策见[脚本与程序运行由 Core 内置，运行配置存 YAML 和 TOML](2026-11-18-builtin-process-runs-and-run-file-formats.md)。
 >
 > 2026-11-16 更新：Core 删除了内置的运行发现探测器、项目内容指纹和工具链需求（[Lithe-core-rust #77](https://github.com/Lithe-IDEA/Lithe-core-rust/pull/77)，#1856 第 4 项）。生成层现在只由构建插件声明的 `buildSystems[].run` 组成。原来的“跨会话缓存语言服务入口”和“识别前也能选 JDK”两节随之删除；分类与重名规则从已归档的 `.agents/notes/archived/feature/2026-09-20-run-configuration-discovery-quality.md` 并入本文，指纹相关的旧做法见已归档的 `.agents/notes/archived/bug-fix/2026-09-22-run-panel-fingerprint-loading.md`。
@@ -40,6 +42,10 @@ Core 按规范化后的工作区路径保存最近一次 `runConfig.generate` �
 ### 模型加载后自动生成
 
 `inspect` 在本进程还没生成过这个工作区时返回 `requiresGeneration: true`。保存过构建任务的工作区即使没有生成层也可以返回 `ready`，因此宿主不能只检查 `missing`：否则重启后只剩用户任务，自动入口不会恢复。桌面端在构建模型加载后生成（`desktop/internal/workbench/runconfig.go` 的 `refreshRunConfigurations`），不停在“请生成”的空状态。
+
+模型在打开项目时就开始加载：`openProjectHere`（`desktop/internal/workbench/app.go`）调用 `loadTitleRunConfigs`，先识别构建系统，再加载每个识别到的实例的模型，因为标题栏要列出所有实例声明的运行，不只是构建窗口选中的那一个。以前只有按下标题栏的运行、打开运行配置下拉或打开构建窗口时才识别，用户打开 Spring Boot 工程后看到的是“当前文件”和空列表，以为启动类没被识别出来。
+
+自动加载把执行时机提前了：命令来源的模型（如 Maven 的 `mvn`，清单标了 `executesProjectCode`）会在打开项目时运行，而 pom 里的扩展和插件就是仓库代码。此前构建窗口、测试窗口或运行菜单第一次出现时同样会运行它，构建窗口随布局恢复时也就是打开时，所以这不是新增的门槛缺口，但范围变大了。所以打开项目前先确认工作区信任：没有信任记录时先问，安全模式下不加载模型，Core 也会拒绝会运行项目代码的计划，见 [工作区信任与安全模式](../feature/2026-11-19-workspace-trust-and-safe-mode.md)。加载模型不写用户工程。
 
 ### 默认配置由 Core 选
 

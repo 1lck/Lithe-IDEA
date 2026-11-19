@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"strings"
 	"testing"
 	"time"
 
@@ -102,6 +103,12 @@ dev = true
 
 func openTreeOptionsProject(t *testing.T, kernel Kernel) (*harness, *project) {
 	t.Helper()
+	return openTreeOptionsProjectWith(t, kernel, treeOptionsStaticManifest)
+}
+
+// openTreeOptionsProjectWith is openTreeOptionsProject with the plugin's manifest.
+func openTreeOptionsProjectWith(t *testing.T, kernel Kernel, manifest string) (*harness, *project) {
+	t.Helper()
 	dir := t.TempDir()
 	if err := os.WriteFile(filepath.Join(dir, settingsFile), []byte(`{"theme":"dark"}`), 0o600); err != nil {
 		t.Fatal(err)
@@ -112,7 +119,7 @@ func openTreeOptionsProject(t *testing.T, kernel Kernel) (*harness, *project) {
 	if err := os.MkdirAll(installed, 0o700); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(installed, "plugin.json"), []byte(treeOptionsStaticManifest), 0o600); err != nil {
+	if err := os.WriteFile(filepath.Join(installed, "plugin.json"), []byte(manifest), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	if err := pluginstate.New(preferences).SetEnabled("dev.lithe.test.tree-options", true); err != nil {
@@ -365,5 +372,52 @@ func TestBuildAndRunOptionEditorsResolveAndSaveModelChoices(t *testing.T) {
 	}
 	if err := json.Unmarshal(request.Options["profiles"], &runTokens); err != nil || !slices.Equal(runTokens, []string{"-dev", "local"}) {
 		t.Fatalf("instance profiles passed to the run plan = %q (err %v), want [-dev local]", runTokens, err)
+	}
+}
+
+// treeOptionsDirectoryFirstManifest declares a directory option, as a JDK is, before the
+// multi-select Profiles option.
+var treeOptionsDirectoryFirstManifest = strings.Replace(treeOptionsStaticManifest, `"options": [{
+      "id": "profiles",`, `"options": [{"id": "home", "displayName": "Home", "kind": "directory", "environment": {"FIXTURE_HOME": "${value}"}}, {
+      "id": "profiles",`, 1)
+
+// A multi-select option after another option opens in both editors, and a text option shows its
+// name: a text field's label only names it to accessibility. Its choices were keyed among
+// the editor's fields, so the first choice took the key of the first field and the paint panicked:
+// opening the Build options of a Maven project with profiles closed the application.
+func TestOptionEditorsShowAMultiSelectAfterAnotherOption(t *testing.T) {
+	h, p := openTreeOptionsProjectWith(t, &testKernel{Client: core.NewClient()}, treeOptionsDirectoryFirstManifest)
+
+	h.clickNamed(h.shared("desktop.build.options"))
+	h.settleUntil("build options dialog resolved", func() bool {
+		e := &p.build.options
+		return e.open && e.ignored.loaded && len(e.fields) == 2 && e.fields[1].kind == "multiSelect"
+	})
+	h.settle()
+	if !h.shows("local") || !h.shows("prod") {
+		t.Fatal("the Build options dialog does not show the profile choices")
+	}
+	if !h.shows("Home") {
+		t.Fatal("the Build options dialog does not name its directory option")
+	}
+	h.app.post(func(a *App) { p.build.options.open = false })
+	h.settle()
+
+	awaitStateWithin(t, h, 10*time.Second, "provider run configuration", func() bool {
+		return !p.runConfigs.loading && len(p.runConfigs.list) == 1
+	})
+	configID := p.runConfigs.list[0].ID
+	dialog := &p.runConfigs.dialog
+	h.app.post(func(a *App) { a.openRunConfigDialog(p, configID) })
+	awaitStateWithin(t, h, 10*time.Second, "run configuration editor resolved", func() bool {
+		draft := dialog.drafts[configID]
+		return draft != nil && draft.editor != nil && draft.editor.ready() && len(draft.editor.optionFields) == 2
+	})
+	h.settle()
+	if !h.shows("local") || !h.shows("prod") {
+		t.Fatal("the run configuration editor does not show the profile choices")
+	}
+	if !h.shows("Home") {
+		t.Fatal("the run configuration editor does not name its directory option")
 	}
 }

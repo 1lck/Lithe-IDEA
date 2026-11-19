@@ -276,12 +276,19 @@ func TestTrustedWorkspacePersistsInLocalSettingsOnlyAndResolvesSymlinkedVenv(t *
 	if err != nil {
 		t.Fatal(err)
 	}
-	// Revoking trust when already untrusted is a no-op and creates no file.
-	if changed, err := initial.SaveWorkspaceTrust(ctx, kernel, false); err != nil || changed {
-		t.Fatalf("no-op revoke = %v, %v", changed, err)
+	// Revoking trust of a workspace with no decision records the distrust, as IDEA's "Preview in
+	// Safe Mode" does, in the preference directory and never inside the workspace.
+	if changed, err := initial.SaveWorkspaceTrust(ctx, kernel, false); err != nil || !changed {
+		t.Fatalf("revoke without a decision = %v, %v", changed, err)
 	}
-	if _, statErr := os.Stat(filepath.Join(settingsDir, "toolchains", "global.json")); !errors.Is(statErr, os.ErrNotExist) {
-		t.Fatalf("no-op revoke created global.json: %v", statErr)
+	if distrusted, err := ReadWorkspaceTrust(ctx, kernel, settingsDir, root); err != nil || distrusted.State != core.WorkspaceDistrusted {
+		t.Fatalf("trust after the revoke = %q, %v, want distrusted", distrusted.State, err)
+	}
+	if _, statErr := os.Stat(filepath.Join(root, ".lithe")); !errors.Is(statErr, os.ErrNotExist) {
+		t.Fatalf("revoking workspace trust wrote inside workspace .lithe: %v", statErr)
+	}
+	if initial, err = Load(ctx, kernel, root, ".", manifests, options); err != nil {
+		t.Fatal(err)
 	}
 
 	// Grant trust for root: stored in settingsDir/toolchains/global.json, NEVER in root/.lithe.

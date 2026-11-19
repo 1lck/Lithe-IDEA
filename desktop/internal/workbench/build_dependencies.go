@@ -126,7 +126,7 @@ func (a *App) buildDependencyTree(ctx context.Context, p *project, instance buil
 		return fail(core.StageResolve, err)
 	}
 	// The package directory expands ${pluginDir} in a dependency command.
-	request := core.BuildPlanRequest{Root: instance.Root, Options: instance.Options, PluginDirectory: instance.PackageDirectory, WorkspaceRoot: p.root, Project: selection}
+	request := core.BuildPlanRequest{Root: instance.Root, Options: instance.Options, PluginDirectory: instance.PackageDirectory, WorkspaceRoot: p.root, Project: selection, ProjectCodeAllowed: p.trust.allowed()}
 	decode := core.BuildDecodeDependenciesRequest{WorkspaceRoot: p.root, Root: instance.Root}
 	if selection != nil {
 		decode.Project = selection.Path

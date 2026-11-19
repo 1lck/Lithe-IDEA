@@ -3,6 +3,7 @@ package toolchain
 import (
 	"context"
 	"errors"
+	"os"
 	"runtime"
 
 	"github.com/1lck/Lithe-IDEA/desktop/internal/configfile"
@@ -116,6 +117,61 @@ func (s Snapshot) SaveWorkspaceTrust(ctx context.Context, kernel Kernel, trusted
 	if s.Global || s.Root == "" || s.catalog == nil {
 		return false, ErrPinConflict
 	}
+	return saveWorkspaceTrust(ctx, kernel, s.catalog, s.Root, s.rootIdentity, core.ToolchainWorkspaceTrustEdit{
+		Workspace: s.Root,
+		Trusted:   trusted,
+	})
+}
+
+// WorkspaceTrust is one workspace's trust decision as Core reads it from the
+// machine-local catalog, with the source it was read from so a decision is saved
+// against the same bytes.
+type WorkspaceTrust struct {
+	// Root is the workspace folder.
+	Root string
+	core.ToolchainWorkspaceTrust
+	catalog      *catalogSource
+	rootIdentity os.FileInfo
+}
+
+// ReadWorkspaceTrust reads the trust of the workspace at root from the catalog in
+// globalRoot, the platform preference directory. Reading creates nothing.
+func ReadWorkspaceTrust(ctx context.Context, kernel Kernel, globalRoot, root string) (WorkspaceTrust, error) {
+	if globalRoot == "" || root == "" {
+		return WorkspaceTrust{}, errors.New("toolchain: workspace trust needs the preference directory and a workspace")
+	}
+	identity, err := directoryIdentity(ctx, root)
+	if err != nil {
+		return WorkspaceTrust{}, err
+	}
+	catalog, err := captureCatalog(ctx, kernel, globalRoot, root, "")
+	if err != nil {
+		return WorkspaceTrust{}, err
+	}
+	if catalog.state.WorkspaceTrust == nil {
+		return WorkspaceTrust{}, errors.New("toolchain: Core returned no workspace trust")
+	}
+	return WorkspaceTrust{Root: root, ToolchainWorkspaceTrust: *catalog.state.WorkspaceTrust, catalog: catalog, rootIdentity: identity}, nil
+}
+
+// Save records the user's decision: trusted lets the workspace's project code run
+// and false keeps it in safe mode; location also trusts its offered parent folder.
+// It writes only toolchains/global.json in the preference directory and refuses a
+// catalog changed since it was read or a workspace folder replaced since.
+func (t WorkspaceTrust) Save(ctx context.Context, kernel Kernel, trusted, location bool) (bool, error) {
+	if t.catalog == nil {
+		return false, ErrPinConflict
+	}
+	return saveWorkspaceTrust(ctx, kernel, t.catalog, t.Root, t.rootIdentity, core.ToolchainWorkspaceTrustEdit{
+		Workspace: t.Root,
+		Trusted:   trusted,
+		Location:  location,
+	})
+}
+
+// saveWorkspaceTrust publishes one trust decision on root against the catalog
+// bytes it was read from.
+func saveWorkspaceTrust(ctx context.Context, kernel Kernel, catalog *catalogSource, root string, rootIdentity os.FileInfo, edit core.ToolchainWorkspaceTrustEdit) (bool, error) {
 	native, ok := kernel.(catalogKernel)
 	if !ok {
 		return false, ErrPinConflict
@@ -124,10 +180,10 @@ func (s Snapshot) SaveWorkspaceTrust(ctx context.Context, kernel Kernel, trusted
 		return false, err
 	}
 	check := func() error {
-		if err := checkDirectoryIdentity(ctx, s.Root, s.rootIdentity); err != nil {
+		if err := checkDirectoryIdentity(ctx, root, rootIdentity); err != nil {
 			return err
 		}
-		if err := s.catalog.file.Verify(ctx); err != nil {
+		if err := catalog.file.Verify(ctx); err != nil {
 			if errors.Is(err, configfile.ErrConflict) {
 				return errors.Join(ErrPinConflict, err)
 			}
@@ -138,14 +194,11 @@ func (s Snapshot) SaveWorkspaceTrust(ctx context.Context, kernel Kernel, trusted
 	if err := check(); err != nil {
 		return false, err
 	}
-	text, err := s.catalog.file.Text()
+	text, err := catalog.file.Text()
 	if err != nil {
 		return false, err
 	}
-	change, err := native.EditToolchainWorkspaceTrust(ctx, text, s.catalog.platform, core.ToolchainWorkspaceTrustEdit{
-		Workspace: s.Root,
-		Trusted:   trusted,
-	})
+	change, err := native.EditToolchainWorkspaceTrust(ctx, text, catalog.platform, edit)
 	if err != nil {
 		return false, err
 	}
@@ -155,7 +208,7 @@ func (s Snapshot) SaveWorkspaceTrust(ctx context.Context, kernel Kernel, trusted
 	if change.Document == nil {
 		return false, errors.New("toolchain: changed catalog has no source")
 	}
-	committed, err := s.catalog.file.Replace(ctx, []byte(*change.Document), check)
+	committed, err := catalog.file.Replace(ctx, []byte(*change.Document), check)
 	if errors.Is(err, configfile.ErrConflict) {
 		err = errors.Join(ErrPinConflict, err)
 	}
