@@ -127,7 +127,7 @@ func (c *Client) DecodeBuildTestResults(ctx context.Context, manifest json.RawMe
 	return *result.Results, nil
 }
 
-// BuildDiscoveredTest is one exact test a provider discovered. Core accepted it only after the
+// BuildDiscoveredTest is one exact test discovered by a command or provider. Core accepted it only after the
 // ordinary test plan could run it, so Suite, Case, Project and Target go back into
 // BuildTestRequest unchanged. ID tells tests with equal names in sibling modules apart.
 type BuildDiscoveredTest struct {
@@ -144,22 +144,23 @@ type BuildTestDiscovery struct {
 }
 
 // BuildDecodeTestDiscoveryRequest carries the plan context the discovery ran with and the
-// litheTestDiscovery document the provider answered.
+// litheTestDiscovery document returned by a command or provider.
 type BuildDecodeTestDiscoveryRequest struct {
 	Root                    string                     `json:"root"`
 	Options                 map[string]json.RawMessage `json:"options,omitempty"`
 	PluginDirectory         string                     `json:"pluginDirectory,omitempty"`
 	WorkspaceStateDirectory string                     `json:"workspaceStateDirectory,omitempty"`
-	Result                  json.RawMessage            `json:"result"`
+	OutputFile              string                     `json:"outputFile,omitempty"`
+	Result                  json.RawMessage            `json:"result,omitempty"`
 }
 
-// PlanBuildTestDiscovery plans the provider request that lists the instance's tests. Only a
+// PlanBuildTestDiscovery plans how to list the instance's tests. Only a
 // declaration with test discovery accepts it, and it always addresses the whole instance.
 func (c *Client) PlanBuildTestDiscovery(ctx context.Context, manifest json.RawMessage, buildSystemID string, request BuildPlanRequest) (BuildPlan, error) {
 	return c.planBuild(ctx, "build.testDiscoveryPlan", manifest, buildSystemID, request)
 }
 
-// DecodeBuildTestDiscovery validates a provider's discovered tests. Core rejects the whole
+// DecodeBuildTestDiscovery validates the discovered tests. Core rejects the whole
 // document rather than publish a partial list.
 func (c *Client) DecodeBuildTestDiscovery(ctx context.Context, manifest json.RawMessage, buildSystemID string, request BuildDecodeTestDiscoveryRequest) (BuildTestDiscovery, error) {
 	const command = "build.decodeTestDiscovery"

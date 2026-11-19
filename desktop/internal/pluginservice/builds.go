@@ -67,6 +67,8 @@ type BuildTestDeclaration struct {
 	// beyond choosing how to present the run.
 	Source    string
 	Discovery bool
+	// DiscoveryCommand selects the command path for an enabled discovery action.
+	DiscoveryCommand bool
 }
 
 // BuildTaskDeclaration is one task the Build window may offer.
@@ -195,10 +197,11 @@ type rawBuildManifest struct {
 			} `json:"debug"`
 		} `json:"run"`
 		Test *struct {
-			Scopes     []string `json:"scopes"`
-			TargetTags []string `json:"targetTags"`
-			Source     string   `json:"source"`
-			Discovery  bool     `json:"discovery"`
+			Scopes           []string  `json:"scopes"`
+			TargetTags       []string  `json:"targetTags"`
+			Source           string    `json:"source"`
+			Discovery        bool      `json:"discovery"`
+			DiscoveryCommand *struct{} `json:"discoveryCommand"`
 		} `json:"test"`
 		Dependencies *struct {
 			Scopes []string `json:"scopes"`
@@ -261,10 +264,11 @@ func parseBuildSystems(manifest json.RawMessage) (map[string]BuildSystemDeclarat
 		}
 		if raw.Test != nil {
 			system.Test = &BuildTestDeclaration{
-				Scopes:     append([]string(nil), raw.Test.Scopes...),
-				TargetTags: append([]string(nil), raw.Test.TargetTags...),
-				Source:     raw.Test.Source,
-				Discovery:  raw.Test.Discovery,
+				Scopes:           append([]string(nil), raw.Test.Scopes...),
+				TargetTags:       append([]string(nil), raw.Test.TargetTags...),
+				Source:           raw.Test.Source,
+				Discovery:        raw.Test.Discovery || raw.Test.DiscoveryCommand != nil,
+				DiscoveryCommand: raw.Test.DiscoveryCommand != nil,
 			}
 		}
 		if deps := raw.Dependencies; deps != nil && len(deps.Scopes) > 0 {

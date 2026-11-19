@@ -9,10 +9,12 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"slices"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/1lck/Lithe-IDEA/desktop/internal/contractfixture"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/core"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/pluginservice"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/store"
@@ -130,6 +132,30 @@ func TestBuildCommandRunner(t *testing.T) {
 		if err := os.WriteFile(arguments[len(arguments)-1], []byte(tree), 0o600); err != nil {
 			os.Exit(5)
 		}
+	case "discover-blocked":
+		arguments := flag.Args()
+		if len(arguments) != 2 {
+			os.Exit(4)
+		}
+		if err := os.WriteFile(arguments[0], []byte("running"), 0o600); err != nil {
+			os.Exit(5)
+		}
+		// The deadline is a watchdog for a failed cancellation, not a readiness signal.
+		timer := time.NewTimer(pluginOperationWait)
+		<-timer.C
+		os.Exit(7)
+	case "discover-tests":
+		arguments := flag.Args()
+		if len(arguments) != 2 {
+			os.Exit(4)
+		}
+		result, err := os.ReadFile(arguments[0])
+		if err != nil {
+			os.Exit(5)
+		}
+		if err := os.WriteFile(arguments[1], result, 0o600); err != nil {
+			os.Exit(6)
+		}
 	case "fail":
 		os.Exit(3)
 	case "explain":
@@ -227,6 +253,102 @@ func buildLoadContext(t *testing.T, op string, timeout time.Duration) context.Co
 
 func failedBuildCommand(operation core.PluginOperationName, op string, stage core.PluginStage) core.PluginOperation {
 	return core.PluginOperation{PluginID: buildCommandPluginID, Operation: operation, Outcome: "failed", Stage: stage, OperationID: op}
+}
+
+func commandDiscoveryTestInstance(t *testing.T, reportSource string) buildInstance {
+	t.Helper()
+	raw, err := os.ReadFile(contractfixture.Path("fixtures/build-systems/build-command-test-discovery.plugin.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var manifest map[string]any
+	if err := json.Unmarshal(raw, &manifest); err != nil {
+		t.Fatal(err)
+	}
+	system := manifest["buildSystems"].([]any)[0].(map[string]any)
+	system["invocation"] = map[string]any{"executables": []map[string]string{{"kind": "command", "command": "fixture-build"}}}
+	test := system["test"].(map[string]any)
+	discovery := test["discoveryCommand"].(map[string]any)
+	discovery["arguments"] = []string{"-test.run=^TestBuildCommandRunner$", "--", reportSource, "${outputFile}"}
+	contents, err := json.Marshal(manifest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	instance := buildCommandInstance(".", false)
+	instance.BuildSystemID, instance.Manifest = "sample", contents
+	instance.System.Test = &pluginservice.BuildTestDeclaration{Discovery: true, DiscoveryCommand: true}
+	return instance
+}
+
+func TestBuildCommandDiscoversExactTestsAndRecordsItsResult(t *testing.T) {
+	h, plugins, p := buildCommandHarness(t)
+	installBuildTool(t)
+	kernel := h.app.kernel.(buildTestDiscoveryKernel)
+	fixture := contractfixture.Path("fixtures/build-systems/build-command-test-discovery.json")
+	for _, tc := range []struct {
+		mode  string
+		file  string
+		stage core.PluginStage
+	}{
+		{mode: "discover-tests", file: fixture},
+		{mode: "fail", file: fixture, stage: core.StageExit},
+		{mode: "garbage", file: fixture, stage: core.StageDecode},
+	} {
+		t.Run(tc.mode, func(t *testing.T) {
+			writeBuildCommandMarker(t, p.root, tc.mode)
+			instance := commandDiscoveryTestInstance(t, tc.file)
+			ctx := buildLoadContext(t, "action-discovery", pluginOperationWait)
+			result, err := h.app.buildTestDiscovery(ctx, p, instance, kernel, false)
+			if tc.stage != "" {
+				if err == nil || len(result.Tests) != 0 {
+					t.Fatalf("discovery = %+v, error = %v", result, err)
+				}
+				wantPluginOperation(t, plugins.next(t, tc.mode), failedBuildCommand(core.OperationBuildTestDiscovery, "action-discovery", tc.stage))
+			} else {
+				if err != nil || len(result.Tests) != 2 || result.Tests[0].ID == result.Tests[1].ID {
+					t.Fatalf("discovery = %+v, error = %v", result, err)
+				}
+				for _, test := range result.Tests {
+					plan, err := core.NewClient().PlanBuildTest(ctx, instance.Manifest, instance.BuildSystemID, core.BuildTestRequest{
+						Root: instance.Root, WorkspaceRoot: p.root, Project: test.Project, Target: test.Target, Suite: test.Suite, Case: test.Case,
+					})
+					if err != nil || !slices.Contains(plan.Arguments, "--case=checks spaces # [exact]") {
+						t.Fatalf("exact test plan = %+v, error = %v", plan, err)
+					}
+				}
+				wantPluginOperation(t, plugins.next(t, tc.mode), core.PluginOperation{PluginID: buildCommandPluginID, Operation: core.OperationBuildTestDiscovery, Outcome: "finished", OperationID: "action-discovery"})
+			}
+			plugins.none(t)
+			entries, err := os.ReadDir(buildStateDirectory(h.app.plugins.Root, p.root, instance))
+			if err != nil || len(entries) != 0 {
+				t.Fatalf("discovery left state entries %v (%v)", entries, err)
+			}
+		})
+	}
+}
+
+func TestBuildCommandDiscoveryRevocationCancelsTheProcess(t *testing.T) {
+	h, plugins, p := buildCommandHarness(t)
+	installBuildTool(t)
+	ready := filepath.Join(t.TempDir(), "discovery-ready")
+	writeBuildCommandMarker(t, p.root, "discover-blocked")
+	instance := commandDiscoveryTestInstance(t, ready)
+	h.app.discoverBuildTests(p, &instance, false)
+	discovery := p.build.discovered[instance.ID]
+	awaitStateWithin(t, h, 5*time.Second, "the discovery process to start", func() bool {
+		_, err := os.Stat(ready)
+		return err == nil
+	})
+	p.revokeBuildTests(instance.ID)
+	state := buildStateDirectory(h.app.plugins.Root, p.root, instance)
+	awaitStateWithin(t, h, 5*time.Second, "the cancelled discovery process to release its report directory", func() bool {
+		entries, err := os.ReadDir(state)
+		return err == nil && len(entries) == 0
+	})
+	if p.build.discovered[instance.ID] != nil || discovery.loaded {
+		t.Fatal("revoked discovery published a result")
+	}
+	plugins.none(t)
 }
 
 func TestBuildCommandModelLoadIsRecordedAtTheStageItEnded(t *testing.T) {

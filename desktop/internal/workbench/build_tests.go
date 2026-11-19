@@ -4,6 +4,8 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"os"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -17,8 +19,8 @@ import (
 // The Build tool window offers the test scopes the build system declares. A project row and a
 // target row run their tests from the context menu, and a build system that discovers tests
 // lists them under Discovered Tests, where one test runs on its own. Core plans discovery
-// (build.testDiscoveryPlan), the plugin's provider answers lithe/build/discoverTests, and Core
-// checks and bounds the list (build.decodeTestDiscovery). Every run is planned by Core's
+// (build.testDiscoveryPlan), the declared command or provider finds the tests, and Core checks
+// and bounds the list (build.decodeTestDiscovery). Every run is planned by Core's
 // build.testPlan and shows in the Tests tool window (tests.go).
 
 // buildTestDiscoveryKernel is the part of Core test discovery uses.
@@ -36,6 +38,7 @@ type buildDiscoveredTests struct {
 	tests   []core.BuildDiscoveredTest
 	// generation rejects a discovery a reload replaced.
 	generation uint64
+	cancel     context.CancelFunc
 }
 
 // discoveredTestsOf is the discovery state of instance, created empty the first time.
@@ -62,10 +65,13 @@ func (p *project) discoveredTestsView(instance *buildInstance) buildDiscoveredTe
 
 // revokeBuildTests forgets the tests the instance discovered: a reloaded model or a saved
 // source file can rename, add or remove them, and a selector Core no longer recognizes would
-// only fail when run. A discovery still running is dropped by its generation.
+// only fail when run. Cancel an in-flight discovery and discard its result by generation.
 func (p *project) revokeBuildTests(instanceID string) {
 	if tests := p.build.discovered[instanceID]; tests != nil {
 		tests.generation++
+		if tests.cancel != nil {
+			tests.cancel()
+		}
 		delete(p.build.discovered, instanceID)
 	}
 }
@@ -178,7 +184,7 @@ func (a *App) startBuildTests(p *project, selection testSelection) {
 	a.startTests(p, selection)
 }
 
-// discoverBuildTests asks the instance's provider for its tests off the window thread.
+// discoverBuildTests runs the instance's declared discovery off the window thread.
 func (a *App) discoverBuildTests(p *project, instance *buildInstance, refresh bool) {
 	kernel, ok := a.kernel.(buildTestDiscoveryKernel)
 	if !ok || instance.System.Test == nil || !instance.System.Test.Discovery {
@@ -192,13 +198,25 @@ func (a *App) discoverBuildTests(p *project, instance *buildInstance, refresh bo
 	tests.generation++
 	generation := tests.generation
 	captured := *instance
+	lifetime, cancel := context.WithCancel(p.ctx)
+	tests.cancel = cancel
 	a.background(p, buildRequestTimeout, func(ctx context.Context) func(*App) {
+		defer cancel()
+		ctx, stop := context.WithCancel(ctx)
+		defer stop()
+		unregister := context.AfterFunc(lifetime, stop)
+		defer unregister()
+		if lifetime.Err() != nil {
+			// log-exempt: 用户取消：发现请求在后台执行前已因实例失效撤销。
+			return nil
+		}
 		discovery, err := a.buildTestDiscovery(ctx, p, captured, kernel, refresh)
 		return func(a *App) {
 			if tests.generation != generation {
 				return
 			}
 			tests.loading = false
+			tests.cancel = nil
 			if err != nil {
 				a.operationFailed("build_test_discovery", err)
 				tests.failed = err.Error()
@@ -210,8 +228,11 @@ func (a *App) discoverBuildTests(p *project, instance *buildInstance, refresh bo
 	})
 }
 
-// buildTestDiscovery plans, sends and decodes one discovery request.
+// buildTestDiscovery plans, executes and decodes a discovery request.
 func (a *App) buildTestDiscovery(ctx context.Context, p *project, instance buildInstance, kernel buildTestDiscoveryKernel, refresh bool) (core.BuildTestDiscovery, error) {
+	if instance.System.Test.DiscoveryCommand {
+		return a.commandTestDiscovery(ctx, p, instance, kernel)
+	}
 	execution, err := a.resolveBuildExecutable(ctx, p, instance, a.text.Build)
 	if err != nil {
 		return core.BuildTestDiscovery{}, err
@@ -244,6 +265,54 @@ func (a *App) buildTestDiscovery(ctx context.Context, p *project, instance build
 		Options: instance.Options,
 		Result:  result,
 	})
+}
+
+// commandTestDiscovery runs the plan in the workspace and owns the report until Core decodes it.
+func (a *App) commandTestDiscovery(ctx context.Context, p *project, instance buildInstance, kernel buildTestDiscoveryKernel) (core.BuildTestDiscovery, error) {
+	attempt := core.StartPluginAttempt(instance.PluginID, core.OperationBuildTestDiscovery, core.OriginOf(ctx).Operation)
+	fail := func(stage core.PluginStage, err error) (core.BuildTestDiscovery, error) {
+		a.plugins.EndAttempt(ctx, attempt, stage, err)
+		return core.BuildTestDiscovery{}, err
+	}
+	state := buildStateDirectory(a.plugins.Root, p.root, instance)
+	if err := os.MkdirAll(state, 0o700); err != nil {
+		return fail(core.StagePlan, err)
+	}
+	dir, err := os.MkdirTemp(state, "test-discovery-")
+	if err != nil {
+		return fail(core.StagePlan, err)
+	}
+	defer func() {
+		if err := os.RemoveAll(dir); err != nil {
+			a.backgroundFailedIn(ctx, "build_test_discovery_cleanup", err)
+		}
+	}()
+	outputFile := filepath.Join(dir, "tests.json")
+	plan, err := kernel.PlanBuildTestDiscovery(ctx, instance.Manifest, instance.BuildSystemID, core.BuildPlanRequest{
+		Root: instance.Root, Options: instance.Options, WorkspaceRoot: p.root,
+		PluginDirectory: instance.PackageDirectory, WorkspaceStateDirectory: state, OutputFile: outputFile,
+	})
+	if err != nil {
+		return fail(core.StagePlan, err)
+	}
+	if plan.Provider != nil || plan.Output != "outputFile" || plan.Decoder != "litheTestDiscovery" {
+		return fail(core.StagePlan, errors.New(a.text.Build.CommandUnsupported))
+	}
+	execution, err := a.resolveBuildExecutable(ctx, p, instance, a.text.Build)
+	if err != nil {
+		return fail(core.StageResolve, err)
+	}
+	workingDirectory := filepath.Join(p.root, filepath.FromSlash(plan.WorkingDirectory))
+	output, err := captureBuildProcess(ctx, execution.Executable, plan.Arguments, workingDirectory, applyToolchainSelection(plan.Environment, execution.selection()), false, nil)
+	if err != nil {
+		return fail(buildCommandStage(err), withBuildOutput(err, output.combined))
+	}
+	result, err := kernel.DecodeBuildTestDiscovery(ctx, instance.Manifest, instance.BuildSystemID, core.BuildDecodeTestDiscoveryRequest{
+		Root: instance.Root, Options: instance.Options, OutputFile: outputFile,
+		PluginDirectory: instance.PackageDirectory, WorkspaceStateDirectory: state,
+	})
+	a.plugins.EndAttempt(ctx, attempt, core.StageDecode, err)
+	return result, err
 }
 
 // discoveredTestLabel names a discovered test by the selectors that tell it apart.

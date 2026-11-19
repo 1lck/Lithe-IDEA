@@ -189,6 +189,25 @@ jobs:
           if-no-files-found: error
           retention-days: 14
 
+      - name: Run command test discovery headless
+        id: build-command-discovery-visual
+        if: ${{ !cancelled() && steps.rust.outcome == 'success' }}
+        timeout-minutes: 5
+        env:
+          LITHE_VISUAL_OUTPUT_DIR: ${{ github.workspace }}/.artifacts/build-command-discovery-visual
+        run: |
+          ./scripts/desktop/desktop-go.sh test -v -tags 'vivahead lithevisual' ./internal/workbench \
+            -run '^TestVisualBuildCommandDiscovery$' -count=1 -timeout=120s
+
+      - name: Upload command test discovery screenshots
+        if: ${{ !cancelled() && steps.build-command-discovery-visual.outcome != 'skipped' }}
+        uses: actions/upload-artifact@v7
+        with:
+          name: build-command-discovery-visual-${{ runner.os }}-${{ runner.arch }}
+          path: .artifacts/build-command-discovery-visual/*.png
+          if-no-files-found: error
+          retention-days: 14
+
       - name: Upload native verification reports
         if: always()
         uses: actions/upload-artifact@v7

@@ -1,0 +1,27 @@
+{
+  "id": "build-command-test-discovery",
+  "area": "扩展",
+  "group": "插件与主题",
+  "capability": "构建插件通过一次性命令发现测试，并从已有构建树精确运行选中的用例。",
+  "macos": {
+    "implementationStatus": "implemented",
+    "verificationStatus": "verified",
+    "evidence": [
+      "desktop/internal/workbench/build_tests.go",
+      "desktop/internal/workbench/build_command_record_test.go",
+      "desktop/internal/workbench/build_command_discovery_visual_test.go"
+    ]
+  },
+  "windows": {
+    "implementationStatus": "implemented",
+    "verificationStatus": "pending",
+    "evidence": [
+      "desktop/internal/workbench/build_tests.go",
+      "desktop/internal/buildprocess/process_windows.go",
+      "desktop/internal/workbench/build_command_record_test.go"
+    ]
+  },
+  "owner": "Extensions",
+  "verification": "在构建面板展开已发现的测试，点击发现，检查命令返回两个同名但属于不同工程的用例，验证精确选择器和终态日志。使实例在发现中失效，确认子进程及报告目录清理，旧列表不重新出现。用 TestVisualBuildCommandDiscovery 截取中英与明暗主题。Windows 原生交互待验收。",
+  "notes": "buildSystems 1 使用 Core 计划并解码宿主状态目录中的临时报告。发现前不启动命令，工作区关闭或构建实例失效后取消；原有后端发现路径继续可用。"
+}
