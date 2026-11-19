@@ -278,7 +278,7 @@ func (a *App) buildTestDiscovery(ctx context.Context, p *project, instance build
 
 // commandTestDiscovery runs the plan in the workspace and owns the report until Core decodes it.
 func (a *App) commandTestDiscovery(ctx context.Context, p *project, instance buildInstance, kernel buildTestDiscoveryKernel) (core.BuildTestDiscovery, error) {
-	ctx, finish, err := p.buildSessions.launches.begin(ctx, instance.PluginID)
+	ctx, finish, err := a.pluginDiscoveryLaunches.begin(ctx, instance.PluginID)
 	if err != nil {
 		return core.BuildTestDiscovery{}, err
 	}

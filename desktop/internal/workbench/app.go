@@ -662,6 +662,9 @@ type App struct {
 	// pluginFacts is what the Installed tab shows about each installed plugin, in name order,
 	// read from disk off the window thread.
 	pluginFacts atomic.Pointer[[]settingswindow.PluginFacts]
+	// Discovery remains registered until its report is cleaned up, even after
+	// this workbench closes its project or leaves the tab strip.
+	pluginDiscoveryLaunches pluginLaunches
 	// pluginServerMu guards the language-server maps because a build provider
 	// may attach to a shared session from a background model load.
 	pluginServerMu sync.Mutex

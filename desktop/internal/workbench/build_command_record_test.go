@@ -376,6 +376,64 @@ func TestPluginTeardownWaitsForBuildCommandDiscovery(t *testing.T) {
 	}
 }
 
+type blockedDiscoveryDecoder struct {
+	buildTestDiscoveryKernel
+	entered chan struct{}
+	release chan struct{}
+}
+
+func (k blockedDiscoveryDecoder) DecodeBuildTestDiscovery(ctx context.Context, _ json.RawMessage, _ string, _ core.BuildDecodeTestDiscoveryRequest) (core.BuildTestDiscovery, error) {
+	close(k.entered)
+	select {
+	case <-k.release:
+		return core.BuildTestDiscovery{}, ctx.Err()
+	case <-time.After(10 * time.Second):
+		return core.BuildTestDiscovery{}, errors.New("test did not release discovery cleanup")
+	}
+}
+
+func TestPluginTeardownWaitsForDiscoveryAfterProjectCloses(t *testing.T) {
+	h, _, p := buildCommandHarness(t)
+	installBuildTool(t)
+	writeBuildCommandMarker(t, p.root, "discover-tests")
+	instance := commandDiscoveryTestInstance(t, contractfixture.Path("fixtures/build-systems/build-command-test-discovery.json"))
+	kernel := blockedDiscoveryDecoder{h.app.kernel.(buildTestDiscoveryKernel), make(chan struct{}), make(chan struct{})}
+	released := false
+	defer func() {
+		if !released {
+			close(kernel.release)
+		}
+	}()
+	h.app.background(p, 15*time.Second, func(ctx context.Context) func(*App) {
+		_, _ = h.app.commandTestDiscovery(ctx, p, instance, kernel)
+		return nil
+	})
+	select {
+	case <-kernel.entered:
+	case <-time.After(5 * time.Second):
+		t.Fatal("discovery never entered report decoding")
+	}
+	h.app.finishCloseProject(p, nil)
+	if h.app.project != nil || p.ctx.Err() == nil {
+		t.Fatal("closing the project did not cancel its work")
+	}
+	_, stop := h.app.detachPluginPrograms(instance.PluginID)
+	cancelled, cancel := context.WithCancel(context.Background())
+	cancel()
+	if err := stop(cancelled); !errors.Is(err, context.Canceled) {
+		t.Fatalf("plugin teardown returned %v while discovery still owned its report", err)
+	}
+	close(kernel.release)
+	released = true
+	if err := stop(buildLoadContext(t, "stop-closed-discovery", 5*time.Second)); err != nil {
+		t.Fatal(err)
+	}
+	entries, err := os.ReadDir(buildStateDirectory(h.app.plugins.Root, p.root, instance))
+	if err != nil || len(entries) != 0 {
+		t.Fatalf("plugin teardown returned with discovery state %v (%v)", entries, err)
+	}
+}
+
 func TestBuildCommandModelLoadIsRecordedAtTheStageItEnded(t *testing.T) {
 	h, plugins, p := buildCommandHarness(t)
 	withoutTool := installBuildTool(t)

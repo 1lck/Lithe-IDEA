@@ -151,6 +151,7 @@ func (a *App) detachPluginPrograms(id string) (*pluginservice.LanguageSession, f
 			continue
 		}
 		server := tab.detachPluginServer(id)
+		stops = append(stops, tab.pluginDiscoveryLaunches.stop(id))
 		if p := tab.project; p != nil {
 			p.revokePluginBuildTests(id)
 			stops = append(stops, p.buildSessions.detachPlugin(id))
@@ -212,6 +213,7 @@ func (a *App) allowPluginPrograms(id string) {
 		tab.pluginServerMu.Lock()
 		delete(tab.pluginServerSuppressed, id)
 		tab.pluginServerMu.Unlock()
+		tab.pluginDiscoveryLaunches.allow(id)
 		if p := tab.project; p != nil {
 			p.buildSessions.launches.allow(id)
 			if p.vcs.launches != nil {
