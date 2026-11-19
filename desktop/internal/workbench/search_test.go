@@ -48,6 +48,67 @@ func TestProjectSearchOpensMatchingLine(t *testing.T) {
 	}
 }
 
+// Find in Files lists the lines that contain the query, as the IDE's does: file names
+// that contain it are not results, so many of them cannot use up the result cap.
+func TestProjectSearchListsContentLinesWhenManyFileNamesMatch(t *testing.T) {
+	h := newHarness(t, &testKernel{Client: core.NewClient()})
+	h.app.searchView.delay = 0
+	root := t.TempDir()
+	for i := range searchMaxResults + 50 {
+		if err := os.WriteFile(filepath.Join(root, fmt.Sprintf("handler%03d.go", i)), []byte("package main\n"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := os.WriteFile(filepath.Join(root, "content.txt"), []byte("first\ncall handler here\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	h.open(root)
+	p := h.app.project
+	h.app.updateProjectSearch(p, searchQuery{text: "handler"})
+	awaitDocumentState(t, h, func() bool { return !p.search.loading && (p.search.failed || len(p.search.matches) > 0) })
+	if p.search.failed || len(p.search.matches) != 1 {
+		t.Fatalf("got %d results, want only the content line", len(p.search.matches))
+	}
+	match := p.search.matches[0]
+	if match.Kind != "content" || match.Path != "content.txt" || match.Line == nil || *match.Line != 2 {
+		t.Fatalf("result = %+v, want content.txt line 2", match)
+	}
+}
+
+// Find in Files searches every file the editor opens as text: a GBK file, and a CRLF line whose
+// end `$` matches. A result opens at the match, so Core and the editor decode the file alike.
+func TestProjectSearchFindsLinesInEveryFileTheEditorOpens(t *testing.T) {
+	h := newHarness(t, &testKernel{Client: core.NewClient()})
+	h.app.searchView.delay = 0
+	root := t.TempDir()
+	// "中文 gbkNeedle417" in GBK, where U+4E2D is D6 D0 and U+6587 is CE C4.
+	gbk := filepath.Join(root, "gbk.txt")
+	if err := os.WriteFile(gbk, append([]byte{0xD6, 0xD0, 0xCE, 0xC4, ' '}, "gbkNeedle417\n"...), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "crlf.txt"), []byte("first\r\ncrlfNeedle417\r\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	h.open(root)
+	p := h.app.project
+	h.app.updateProjectSearch(p, searchQuery{text: "Needle417$", regex: true})
+	awaitDocumentState(t, h, func() bool { return !p.search.loading && (p.search.failed || len(p.search.matches) > 0) })
+	found := map[string]core.WorkspaceSearchMatch{}
+	for _, match := range p.search.matches {
+		found[match.Path] = match
+	}
+	crlf, gbkMatch := found["crlf.txt"], found["gbk.txt"]
+	if p.search.failed || len(found) != 2 || crlf.Line == nil || *crlf.Line != 2 || gbkMatch.Line == nil || *gbkMatch.Line != 1 {
+		t.Fatalf("results = %+v, want crlf.txt line 2 and gbk.txt line 1", p.search.matches)
+	}
+	h.app.openSearchResult(p, gbkMatch)
+	awaitDocumentState(t, h, func() bool { return p.docs.byPath(gbk) != nil })
+	// The match starts after the two Han characters, the space and "gbk": 10 UTF-8 bytes.
+	if line, column := p.docs.byPath(gbk).view.Caret(); line != 0 || column != 10 {
+		t.Fatalf("opened at %d:%d, want 0:10 (zero-based, in bytes)", line, column)
+	}
+}
+
 type delayedSearchKernel struct {
 	*testKernel
 	started chan string
