@@ -134,6 +134,7 @@ func (w *window) pluginSettingsPanel(c ui.C, id string) {
 		}
 		if compiler {
 			w.pluginSettingActions(c)
+			w.pluginRegion(c, p, true)
 			for _, item := range p.layout {
 				if item.action {
 					w.pluginSettingActionRow(c, item.row)
@@ -162,8 +163,12 @@ func (w *window) pluginSettingsPanel(c ui.C, id string) {
 			ui.Wrap(c, source).FontSize(11).Color(w.pal.muted)
 		}
 		w.pluginSettingActions(c)
+		// The plugin's region sits between the header and its declared rows, which stay.
+		w.pluginRegion(c, p, source != "")
 		if len(p.layout) == 0 {
-			ui.Text(c, i18n.Shared(language, "desktop.pluginSettings.empty")).FontSize(12).Color(w.pal.muted)
+			if w.region == nil {
+				ui.Text(c, i18n.Shared(language, "desktop.pluginSettings.empty")).FontSize(12).Color(w.pal.muted)
+			}
 			return
 		}
 		// Core's section references are walked in Core's order, without sorting or

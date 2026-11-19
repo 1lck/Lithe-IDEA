@@ -222,11 +222,20 @@ func (e SettingsEditor) SettingsOwner() core.PluginSettingsOwner {
 	return core.PluginSettingsOwner{PluginID: e.entry.Installed.ID, Version: e.entry.Installed.Version}
 }
 
+// Package is the installed package directory the editor was read from, which a region's
+// canvas reads its images from. It is read only.
+func (e SettingsEditor) Package() string {
+	return e.entry.Installed.Path
+}
+
 // SettingsPages captures a bounded catalog off the window thread. Core owns
 // enabled filtering, placement, grouping, ordering and display-name resolution.
-func (s *Service) SettingsPages(ctx context.Context) ([]core.SettingsPage, error) {
+// language (a code such as zh-Hans; empty for none) translates section headings and
+// adds each region's translated keywords: when Core reports a translation to read,
+// the package's candidates are read once and the catalog is asked again with them.
+func (s *Service) SettingsPages(ctx context.Context, language string) ([]core.SettingsPage, error) {
 	kernel, ok := s.kernel.(interface {
-		SettingsPages(context.Context, []core.SettingsContribution) ([]core.SettingsPage, error)
+		SettingsPages(context.Context, []core.SettingsContribution, string) ([]core.SettingsPage, error)
 	})
 	if !ok {
 		return nil, ErrAssembly
@@ -239,6 +248,7 @@ func (s *Service) SettingsPages(ctx context.Context) ([]core.SettingsPage, error
 		return nil, errors.New("settings catalog exceeds package read budget")
 	}
 	contributions := make([]core.SettingsContribution, 0, len(entries))
+	directories := make(map[string]string, len(entries))
 	var failures []error
 	for _, entry := range entries {
 		manifest, err := configfile.Capture(ctx, entry.Installed.Path, pluginpkg.ManifestFile, MaxManifestBytes)
@@ -251,8 +261,40 @@ func (s *Service) SettingsPages(ctx context.Context) ([]core.SettingsPage, error
 			continue
 		}
 		contributions = append(contributions, core.SettingsContribution{Manifest: manifest.Bytes(), Owner: core.PluginSettingsOwner{PluginID: entry.Installed.ID, Version: entry.Installed.Version}, Enabled: entry.Enabled})
+		directories[entry.Installed.ID] = entry.Installed.Path
 	}
-	pages, err := kernel.SettingsPages(ctx, contributions)
+	pages, err := kernel.SettingsPages(ctx, contributions, language)
+	if err != nil || language == "" {
+		return pages, errors.Join(append(failures, err)...)
+	}
+	// A plugin contributes to several pages with one translation, so its report is read once.
+	plans := make(map[string]core.PluginSettingsLocalization)
+	for _, page := range pages {
+		for _, contributor := range page.Contributors {
+			if contributor.Localization != nil && contributor.Localization.ReadRequired {
+				plans[contributor.PluginID] = *contributor.Localization
+			}
+		}
+	}
+	if len(plans) == 0 {
+		return pages, errors.Join(failures...)
+	}
+	for index := range contributions {
+		id := contributions[index].Owner.PluginID
+		plan, ok := plans[id]
+		if !ok {
+			continue
+		}
+		// An unreadable translation leaves the manifest's headings and keywords; the plugin's
+		// settings form reads the same files and reports them when it loads.
+		files, _, readErr := pluginsettings.ReadTranslations(ctx, directories[id], plan)
+		if readErr != nil {
+			return pages, errors.Join(append(failures, readErr)...)
+		}
+		// A read that found no file is an empty map, so Core does not ask for it again.
+		contributions[index].Localizations = files
+	}
+	pages, err = kernel.SettingsPages(ctx, contributions, language)
 	return pages, errors.Join(append(failures, err)...)
 }
 

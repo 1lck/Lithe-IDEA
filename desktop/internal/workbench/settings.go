@@ -40,11 +40,11 @@ func (a *App) newSettingsWindow() *settingswindow.Controller {
 			(settingsToolchains{app: a}).recordFailure(context.Background(), operation, err)
 		},
 		SettingsNavigation: navigation,
-		SettingsPages: func(ctx context.Context) ([]core.SettingsPage, error) {
+		SettingsPages: func(ctx context.Context, language i18n.Language) ([]core.SettingsPage, error) {
 			if a.plugins == nil {
 				return nil, nil
 			}
-			return a.plugins.SettingsPages(ctx)
+			return a.plugins.SettingsPages(ctx, language.Code())
 		},
 		MarketplaceRank: a.kernel.RankNames,
 		PluginRuntime:   a.pluginSettingsRuntime,

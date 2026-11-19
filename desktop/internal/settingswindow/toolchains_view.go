@@ -476,7 +476,17 @@ func (w *window) toolchainGroupRow(r ui.ListRow, language i18n.Language, row cor
 // draft changes it to and its layer, then the plugin and the home or the reason.
 func (w *window) toolchainToolRow(r ui.ListRow, language i18n.Language, scope *toolchainScope, entry *toolchainEntry, status string) {
 	b := &w.bp
-	c := r.C
+	r.Element.Height(toolchainToolRow).PadSides(0, 12, 0, 14).Gap(9).Items(ui.Center).Hover(ui.Look{}.Background(b.hover))
+	if r.Selected() {
+		r.Element.Background(b.sel)
+	}
+	r.Element.Children(func() { w.toolchainToolContent(r.C, language, scope, entry, status) })
+}
+
+// toolchainToolContent is what a tool's row holds, inside the row the caller lays out: the
+// toolchains list's row, or a plugin region's tool node, which draws the same row.
+func (w *window) toolchainToolContent(c ui.C, language i18n.Language, scope *toolchainScope, entry *toolchainEntry, status string) {
+	b := &w.bp
 	tool := &entry.tool
 	if fresh := scope.tool(tool.ID); fresh != nil {
 		tool = fresh
@@ -486,47 +496,41 @@ func (w *window) toolchainToolRow(r ui.ListRow, language i18n.Language, scope *t
 		status = toolchainStatus(current)
 	}
 	changed := scope.changed(tool.ID)
-	r.Element.Height(toolchainToolRow).PadSides(0, 12, 0, 14).Gap(9).Items(ui.Center).Hover(ui.Look{}.Background(b.hover))
-	if r.Selected() {
-		r.Element.Background(b.sel)
+	if changed {
+		ui.Row(c).Absolute().Left(4).Top(20).Size(6, 6).Radius(3).Background(b.accent)
 	}
-	r.Element.Children(func() {
-		if changed {
-			ui.Row(c).Absolute().Left(4).Top(20).Size(6, 6).Radius(3).Background(b.accent)
-		}
-		dot(c, 8, b.statusColor(status))
-		ui.Column(c).Grow(1).Shrink(1).MinWidth(0).Children(func() {
-			ui.Row(c).FillWidth().Gap(6).Items(ui.Center).Children(func() {
-				ui.Text(c, toolchainName(tool)).FontSize(buildFont).Weight(gfx.WeightSemibold).Color(b.text).Shrink(1).Ellipsis()
-				if current.ok {
-					ui.Text(c, current.version).FontSize(11).Mono().Color(b.sub).Shrink(0)
+	dot(c, 8, b.statusColor(status))
+	ui.Column(c).Grow(1).Shrink(1).MinWidth(0).Children(func() {
+		ui.Row(c).FillWidth().Gap(6).Items(ui.Center).Children(func() {
+			ui.Text(c, toolchainName(tool)).FontSize(buildFont).Weight(gfx.WeightSemibold).Color(b.text).Shrink(1).Ellipsis()
+			if current.ok {
+				ui.Text(c, current.version).FontSize(11).Mono().Color(b.sub).Shrink(0)
+			}
+			if changed {
+				next := toolchainNext(scope, tool)
+				version := "?"
+				if next.ok {
+					version = next.version
 				}
-				if changed {
-					next := toolchainNext(scope, tool)
-					version := "?"
-					if next.ok {
-						version = next.version
-					}
-					ui.Text(c, "→ "+version).FontSize(11).Mono().Color(b.accent).Shrink(0)
-				}
-				ui.Spacer(c)
-				w.layerTag(c, language, current, status)
-			})
-			ui.Row(c).FillWidth().Height(2).Shrink(0)
-			ui.Row(c).FillWidth().MinWidth(0).Items(ui.Center).Children(func() {
-				plugin := toolchainPluginName(scope, tool.PluginID, tool.PluginName)
-				if current.ok {
-					ui.Text(c, plugin+" · "+midTrim(current.home, 44)).FontSize(11).Color(b.faint).Shrink(1).Ellipsis()
-					return
-				}
-				detail := w.toolchainReasonDetail(language, scope, entry, tool)
-				if detail == "" {
-					ui.Text(c, plugin).FontSize(11).Color(b.faint).Shrink(1).Ellipsis()
-					return
-				}
-				ui.Text(c, plugin+" · ").FontSize(11).Color(b.faint).Shrink(0)
-				ui.Text(c, detail).FontSize(11).Color(b.statusColor(status)).Shrink(1).Ellipsis()
-			})
+				ui.Text(c, "→ "+version).FontSize(11).Mono().Color(b.accent).Shrink(0)
+			}
+			ui.Spacer(c)
+			w.layerTag(c, language, current, status)
+		})
+		ui.Row(c).FillWidth().Height(2).Shrink(0)
+		ui.Row(c).FillWidth().MinWidth(0).Items(ui.Center).Children(func() {
+			plugin := toolchainPluginName(scope, tool.PluginID, tool.PluginName)
+			if current.ok {
+				ui.Text(c, plugin+" · "+midTrim(current.home, 44)).FontSize(11).Color(b.faint).Shrink(1).Ellipsis()
+				return
+			}
+			detail := w.toolchainReasonDetail(language, scope, entry, tool)
+			if detail == "" {
+				ui.Text(c, plugin).FontSize(11).Color(b.faint).Shrink(1).Ellipsis()
+				return
+			}
+			ui.Text(c, plugin+" · ").FontSize(11).Color(b.faint).Shrink(0)
+			ui.Text(c, detail).FontSize(11).Color(b.statusColor(status)).Shrink(1).Ellipsis()
 		})
 	})
 }

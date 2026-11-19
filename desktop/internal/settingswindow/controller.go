@@ -9,6 +9,7 @@ package settingswindow
 
 import (
 	"context"
+	"encoding/json"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/shortcuts"
 	"sync"
 	"time"
@@ -243,6 +244,15 @@ type PluginSettingsActionLoader interface {
 	Action(context.Context, pluginservice.SettingsEditor, string, bool) (pluginservice.SettingsActionResult, error)
 }
 
+// PluginViewLoader sends one event of a settings region's view (API-13, API-19) to the
+// plugin's backend, off the window thread, and returns the whole view Core checked and
+// whether it differs from view, the view drawn last. event carries the page's settings,
+// the saved values with the draft. ctx ends when the region closes; a close event (closing)
+// returns nothing.
+type PluginViewLoader interface {
+	View(ctx context.Context, editor pluginservice.SettingsEditor, region, function string, event, view json.RawMessage, closing bool) (json.RawMessage, bool, error)
+}
+
 // PluginSourceSettingsLoader publishes only explicitly saved native-source drafts.
 type PluginSourceSettingsLoader interface {
 	SaveSources(context.Context, pluginservice.SettingsEditor, string, pluginsettings.SourceEditor, []core.SourceSettingsEdits) (pluginsettings.SourceEditor, error)
@@ -318,7 +328,7 @@ type Options struct {
 	// SettingsError logs a failure of the window, with the operation that failed as the log
 	// names it (plugin_settings_surface, keymap_schemes, settings_about_copy, ...).
 	SettingsError      func(operation string, err error)
-	SettingsPages      func(context.Context) ([]core.SettingsPage, error)
+	SettingsPages      func(context.Context, i18n.Language) ([]core.SettingsPage, error)
 	SettingsNavigation func(context.Context, []core.SettingsNavigationItem, string) ([]core.SettingsNavigationRow, error)
 	// Marketplace fetches the enabled source only while the plugin page is open.
 	Marketplace func(context.Context) (marketplace.Snapshot, error)

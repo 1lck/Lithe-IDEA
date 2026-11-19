@@ -213,8 +213,8 @@ func (a *App) toolBody(c ui.C, tool item, p *project) {
 			a.notificationsToolBody(c.Part("notificationHistory"))
 		default:
 			switch {
-			case tool.tool != nil && tool.tool.Native != nil:
-				a.pluginNativeBody(c, p, tool.tool)
+			case tool.tool != nil && tool.tool.View != "":
+				a.pluginViewBody(c, p, tool.tool)
 			case tool.tool != nil && tool.tool.Web != "":
 				a.pluginWebBody(c, tool, p)
 			case tool.tool != nil:

@@ -51,8 +51,8 @@ func TestBuildPageGathersSettingsThePluginKeepsInItsOwnTab(t *testing.T) {
 			return []PluginFacts{{ID: pluginID, Name: "Settings", Version: "1.0.0", Settings: 2}}
 		},
 		SettingsNavigation: client.SettingsNavigation,
-		SettingsPages: func(ctx context.Context) ([]core.SettingsPage, error) {
-			return client.SettingsPages(ctx, contributions)
+		SettingsPages: func(ctx context.Context, _ i18n.Language) ([]core.SettingsPage, error) {
+			return client.SettingsPages(ctx, contributions, "")
 		},
 	}), Values{})
 	w.sess.page = pagePlugins

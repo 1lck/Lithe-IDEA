@@ -104,7 +104,7 @@ func (s *settingsSurfaces) run(parent context.Context) (surfacesResult, error) {
 	result := surfacesResult{pages: job.pages}
 	if !job.loaded && opts.SettingsPages != nil {
 		var err error
-		result.pages, err = opts.SettingsPages(ctx)
+		result.pages, err = opts.SettingsPages(ctx, job.language)
 		for index := range result.pages {
 			page := &result.pages[index]
 			if page.Kind == "compiler" {
@@ -175,7 +175,7 @@ func (s *settingsSurfaces) run(parent context.Context) (surfacesResult, error) {
 			parentID = "kind:" + page.Kind
 		}
 		name := "page:" + page.Key
-		items = append(items, core.SettingsNavigationItem{ID: name, Title: page.Title, Parent: &parentID})
+		items = append(items, core.SettingsNavigationItem{ID: name, Title: page.Title, Parent: &parentID, Keywords: regionKeywords(page)})
 		lookup[name] = row{page: parent, dynamic: page.Key, title: page.Title, hit: int(pageCount) + index}
 	}
 	projected, err := opts.SettingsNavigation(ctx, items, key.query)
@@ -201,6 +201,19 @@ func (s *settingsSurfaces) run(parent context.Context) (surfacesResult, error) {
 		}
 	}
 	return result, nil
+}
+
+// regionKeywords are the words the settings regions of a plugin page's contributors add to
+// its search (settingRegions, API-19): Core lists each region's keywords, the manifest's and
+// those of the interface language.
+func regionKeywords(page core.SettingsPage) string {
+	var words []string
+	for _, contributor := range page.Contributors {
+		if contributor.Region != nil {
+			words = append(words, contributor.Region.Keywords...)
+		}
+	}
+	return strings.Join(words, " ")
 }
 
 // searchRows lists a search's hits flat, as the prototype does: every page the search matched

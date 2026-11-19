@@ -107,8 +107,8 @@ func TestVisualSettings(t *testing.T) {
 					client := core.NewClient()
 					opts.PluginSettings = newBuildFormSource(t, client, contributions)
 					opts.SettingsNavigation = client.SettingsNavigation
-					opts.SettingsPages = func(ctx context.Context) ([]core.SettingsPage, error) {
-						return client.SettingsPages(ctx, contributions)
+					opts.SettingsPages = func(ctx context.Context, _ i18n.Language) ([]core.SettingsPage, error) {
+						return client.SettingsPages(ctx, contributions, "")
 					}
 				}
 				w := newWindow(NewController(opts), values)

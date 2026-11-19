@@ -6,25 +6,25 @@
 
 ## 先说结论
 
-PR #37 建立了第一阶段 UI Contribution（插件声明的界面入口）；到 2026-10-30，Mac 已有原生 Tree/List/Form、包内网页和独立后端，不再只是静态文本窗口。下一步先在 Viva 桌面端（`desktop/`，macOS 与 Windows 共用）把已有编辑器、文件和命令功能开放成有授权、版本与生命周期的公共 API，再接续领域 Provider（提供业务数据、行为或进程的实现）。不开放任意第三方原生二进制动态加载，也不把 WASM 运行时作为补齐 API 的前置条件；任务与公开文档待办见 [macOS 插件 API 实施计划](../../../../docs/development/macos-plugin-api-plan.md)。
+PR #37 建立了第一阶段 UI Contribution（插件声明的界面入口）；到 2026-11-19，桌面端已有插件视图（宿主控件、树、画布）、包内网页和独立后端，不再只是静态文本窗口。下一步先在 Viva 桌面端（`desktop/`，macOS 与 Windows 共用）把已有编辑器、文件和命令功能开放成有授权、版本与生命周期的公共 API，再接续领域 Provider（提供业务数据、行为或进程的实现）。不开放任意第三方原生二进制动态加载，也不把 WASM 运行时作为补齐 API 的前置条件；任务与公开文档待办见 [macOS 插件 API 实施计划](../../../../docs/development/macos-plugin-api-plan.md)。
 
 ## 问题
 
-最初的 API level 2 要求窗口使用 `text`，命令只能打开自身窗口，插件校验依赖语言或 UI。这是第一阶段的历史背景，不是今天的完整能力表：当前 Core 已允许纯 Build/VCS/Debug/项目生成器插件，桌面端的 `ui:3` 也已经支持原生树、列表和表单。
+最初的 API level 2 要求窗口使用 `text`，命令只能打开自身窗口，插件校验依赖语言或 UI。这是第一阶段的历史背景，不是今天的完整能力表：当前 Core 已允许纯 Build/VCS/Debug/项目生成器插件，桌面端也已经支持插件视图（ui 0）。
 
-当前缺口在于通用接入：`ui.commands` 仍绑定自身窗口；原生动态数据源绑定自身构建系统和唯一实例；`backend:1` 是每插件一个应用级本机进程，只由自身网页调用，不识别远程工作区。函数协议 v2 已有本插件凭据服务，但尚不是通用工作区/编辑器 SDK。开发者不能因为宿主内部模块能操作文件或编辑器，就直接从第三方后端调用它。领域能力的进一步迁移也不能与通用宿主 API 混为一谈。
+当前缺口在于通用接入：`ui.commands` 仍绑定自身窗口；插件视图只在回答事件时变化，还没有主动推送和树的懒加载；`backend:1` 是每插件一个应用级本机进程，只由自身网页调用，不识别远程工作区。函数协议 v2 已有本插件凭据服务，但尚不是通用工作区/编辑器 SDK。开发者不能因为宿主内部模块能操作文件或编辑器，就直接从第三方后端调用它。领域能力的进一步迁移也不能与通用宿主 API 混为一谈。
 
 ## 提案
 
 ### 原生 UI 与窗口管理分离
 
-第三方插件可声明版本化 JSON UI 组件树，包含 Tree/List/Form/Input/Button、数据源和事件，由各平台的原生适配器渲染。窗口外壳继续由宿主管理停靠、标题、活动栏、顺序、显隐、布局和生命周期；组件事件通过宿主授权的动作或 Provider 调用。
+第三方插件可声明版本化 JSON UI 组件树，包含宿主控件（输入、选择、按钮、表格、树等）、画布和事件，由各平台的原生适配器渲染（已落地为插件视图）。窗口外壳继续由宿主管理停靠、标题、活动栏、顺序、显隐、布局和生命周期；组件事件通过宿主授权的动作或 Provider 调用。
 
 2026-10-18 起，插件也可以在宿主管理的窗口里放自己的包内网页（`ui` 能力版本 2），这是可选项，不替代组件树。外壳规则不变，加载与桥接边界见[插件自带网页界面](../../implemented/architecture/2026-10-18-plugin-web-content-in-host-windows.md)。
 
 内置或受信任的原生模块可通过 Native View/Renderer Factory（宿主登记的原生视图构造器）接入复杂原生内容，并共用同一套窗口管理。这个路径不等于开放任意第三方原生动态库加载；二进制接口（ABI）、签名、分发与隔离仍需单独设计。数据契约不含任何平台 UI 类型，各平台适配器的完成度以跨平台功能矩阵为准。
 
-截至 2026-10-28，原生 Tree/List/Form 及面板动作已落地，见[声明式原生插件树与动作](../../implemented/feature/2026-10-21-declarative-native-plugin-ui.md)。后续应扩展通用数据源与分页，而不是重新实现一套控件；面板内动作不等于已支持独立全局命令。
+2026-10-28 落地的原生 Tree/List/Form 已于 2026-11-19 由插件视图取代：工具窗口和设置区域的内容由插件后端返回节点树（宿主控件、树、画布），Core 校验，宿主原生绘制，见[插件视图——插件描述界面，宿主用 Viva 原生绘制](../../implemented/architecture/2026-11-12-plugin-authored-settings-content.md)。后续应在插件视图上扩展主动推送、懒加载与分页，而不是再实现一套控件；视图里的按钮不等于已支持独立全局命令。
 
 ### 动作独立于窗口
 
@@ -136,4 +136,4 @@ Agent 的 Skills、Hooks、MCP 是用户管理的 Codex/Claude 原生配置，�
 - [通用 ServiceProvider 与资源归属 #42](https://github.com/Lithe-IDEA/Lithe-IDEA/issues/42)。
 - [四个纵向端到端样例 #14](https://github.com/Lithe-IDEA/Lithe-IDEA/issues/14)。
 
-本 Note 保留公共扩展的未完成方向；已落地部分以[第一阶段工作台 UI 贡献](../../implemented/architecture/2026-10-12-workbench-ui-contributions.md)、[原生插件 UI](../../implemented/feature/2026-10-21-declarative-native-plugin-ui.md)及[插件契约](https://github.com/Lithe-IDEA/Lithe-core-rust/blob/main/shared/plugins/contract/v1/README.md)为准，不能再把第一阶段限制当成全部当前能力。
+本 Note 保留公共扩展的未完成方向；已落地部分以[第一阶段工作台 UI 贡献](../../implemented/architecture/2026-10-12-workbench-ui-contributions.md)、[插件视图](../../implemented/architecture/2026-11-12-plugin-authored-settings-content.md)及[插件契约](https://github.com/Lithe-IDEA/Lithe-core-rust/blob/main/shared/plugins/contract/v1/README.md)为准，不能再把第一阶段限制当成全部当前能力。

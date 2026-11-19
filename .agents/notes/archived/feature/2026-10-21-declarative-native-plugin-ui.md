@@ -2,6 +2,10 @@
 
 状态：已实现
 
+归档日期：2026-11-19
+
+> 契约在 v0 里删掉了 `native-ui`，换成插件视图：工具窗口和设置区域都由插件返回节点树，Core 的 `plugins.ui.applyResult` 校验，宿主用 Viva 原生绘制。本文的 `desktop/internal/core/plugin_native.go` 已删除，当前决策见[插件视图——插件描述界面，宿主用 Viva 原生绘制](../../implemented/architecture/2026-11-12-plugin-authored-settings-content.md)。本文只保留历史取舍。
+
 ## 先说结论
 
 插件可以声明树、列表、表单和面板工具栏动作，由宿主用共享控件呈现，开发者只提供数据与函数，不编写样式。声明本身不能携带颜色、字体或脚本。结构、所有权和预算的校验由 Rust Core 完成，宿主的呈现层不复制这些规则。当前 Viva 桌面端只有 Core 侧的校验入口（`desktop/internal/core/plugin_native.go`），还没有渲染原生插件界面。

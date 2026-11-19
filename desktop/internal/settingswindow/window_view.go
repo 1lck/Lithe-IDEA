@@ -37,6 +37,7 @@ func (w *window) view(c ui.C) {
 	w.pluginInstallModal(c.Part("plugin-install"))
 	w.commandInstallModal(c.Part("command-install"))
 	w.declareWork(c)
+	w.endRegion()
 }
 
 // keys gives Escape its meaning of Cancel, or of emptying the search while the search has
