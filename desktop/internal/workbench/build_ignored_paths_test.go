@@ -230,7 +230,7 @@ func TestBuildOptionsNameTheLineOfARefusedIgnoredPath(t *testing.T) {
 		t.Fatalf("with the team's list the build systems are at %q", got)
 	}
 
-	h.clickNamed(h.shared("desktop.build.options"))
+	h.clickNamed(h.instanceOptions(p))
 	h.awaitIgnoredPathsLoaded(p)
 	e := &p.build.options
 	if selected := p.selectedBuildInstance(); selected == nil || e.instance != selected.ID || len(e.fields) != 1 || e.name != "Fixture Build" {
@@ -291,7 +291,7 @@ func TestBuildOptionsWaitForResolutionBeforeEditAndSave(t *testing.T) {
 
 	const option = "Release Profile"
 	save := h.shared("ui.save")
-	clickWithoutSettling(h.shared("desktop.build.options"))
+	clickWithoutSettling(h.instanceOptions(p))
 	awaitValueWithin(t, h, 5*time.Second, gate.started, "Build options resolution to start")
 
 	// The frame paints the declared checkbox while Core is still resolving the editor.
