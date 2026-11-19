@@ -1528,8 +1528,9 @@ func (a *App) openProjectHere(path string) {
 		a.activatePluginWorkspace(p)
 		// The title bar lists the runs the build plugins declare as soon as the project opens,
 		// so its application is found without a press on Run or on the run menu first. Loading
-		// a model resolves the build tool through the toolchain layers, which leave out
-		// workspace programs such as a wrapper until the user trusts the workspace.
+		// a model runs the plugin's model command, such as mvn, which runs the project's build
+		// extensions, as the Build window did when it first showed; the toolchain layers leave
+		// out workspace programs such as a wrapper until the user trusts the workspace.
 		a.loadTitleRunConfigs(p)
 		a.restoreEditorSession(p)
 		a.restoreCheckpoints(p)
