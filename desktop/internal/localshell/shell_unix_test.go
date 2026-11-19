@@ -7,7 +7,9 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
+	"sync"
 	"testing"
+	"testing/synctest"
 	"time"
 )
 
@@ -198,6 +200,63 @@ func TestCloseHangsUpARunningProgramAndReleasesIt(t *testing.T) {
 		t.Fatal("closing did not end the shell")
 	}
 	shell.Close() // idempotent
+}
+
+type hangupTestPTY struct {
+	resizeTestIO
+	onClose func()
+}
+
+func (pty hangupTestPTY) Close() error {
+	pty.onClose()
+	return nil
+}
+
+func TestCloseLetsTheShellHandleHangupBeforeReleasingThePTY(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		exited := make(chan struct{})
+		var calls []string
+		shell := resizeTestShell(backend{
+			io: hangupTestPTY{onClose: func() { calls = append(calls, "close PTY") }},
+			wait: func() (int, error) {
+				<-exited
+				return 0, nil
+			},
+			hangup: func() { calls = append(calls, "hangup") },
+			kill:   func() { calls = append(calls, "kill") },
+			busy:   func() bool { return true },
+		})
+		shell.space = sync.NewCond(&shell.mu)
+		shell.readDone = make(chan struct{})
+		shell.prompted, shell.lastMark = true, 'C'
+		liveShells.Acquire()
+		go shell.wait()
+
+		// A foreground process can belong to a slow PROMPT_COMMAND. Its
+		// presence doesn't mean the shell can already propagate a hangup.
+		shell.Close()
+		synctest.Wait()
+		if len(calls) != 0 {
+			t.Errorf("while the prompt hook runs: %v, want no backend calls", calls)
+		}
+		shell.sawMark('B')
+		synctest.Wait()
+		if !slices.Equal(calls, []string{"hangup"}) {
+			t.Errorf("before the shell handles hangup: %v, want only hangup", calls)
+		}
+
+		close(exited)
+		close(shell.readDone)
+		select {
+		case <-shell.Done():
+		case <-time.After(time.Second):
+			t.Fatal("the shell never released its terminal")
+		}
+		synctest.Wait()
+		if !slices.Equal(calls, []string{"hangup", "close PTY"}) {
+			t.Fatalf("shutdown order = %v, want hangup followed by PTY close", calls)
+		}
+	})
 }
 
 func TestOutputIsBoundedAndNothingIsLost(t *testing.T) {
