@@ -196,6 +196,10 @@ func (a *App) startTests(p *project, selection testSelection) {
 	if p == nil || p.tests.running {
 		return
 	}
+	if p.safeMode() {
+		a.askToTrustProject(p, func() { a.startTests(p, selection) })
+		return
+	}
 	instance := p.buildInstanceByID(selection.instanceID)
 	if instance == nil || instance.System.Test == nil {
 		a.notifyInfo(a.text.Tests.NoSystems)
@@ -226,14 +230,15 @@ func (a *App) startTests(p *project, selection testSelection) {
 // the publication callback; Core calls happen here, never on the window thread.
 func (a *App) executeTestRun(ctx context.Context, p *project, instance buildInstance, selection testSelection, generation uint64, startedMillis int64) func(*App) {
 	request := core.BuildTestRequest{
-		Root:          instance.Root,
-		Options:       instance.Options,
-		WorkspaceRoot: p.root,
-		Project:       selection.project,
-		Target:        selection.target,
-		Suite:         selection.suite,
-		Case:          selection.caseName,
-		Projects:      selection.projects,
+		Root:               instance.Root,
+		Options:            instance.Options,
+		WorkspaceRoot:      p.root,
+		Project:            selection.project,
+		Target:             selection.target,
+		Suite:              selection.suite,
+		Case:               selection.caseName,
+		Projects:           selection.projects,
+		ProjectCodeAllowed: p.trust.allowed(),
 	}
 	plan, err := a.kernel.PlanBuildTest(ctx, instance.Manifest, instance.BuildSystemID, request)
 	if err != nil {

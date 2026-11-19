@@ -91,6 +91,9 @@ func (a *App) editorGroup(c ui.C, id string) ui.Box {
 				}
 			})
 		})
+		if doc != nil && p.safeMode() {
+			a.safeModeNotice(c.Part("safeMode"), p)
+		}
 		if doc != nil && doc.conflicted {
 			a.documentConflict(c, doc)
 		}

@@ -19,7 +19,9 @@ type ToolchainCatalogEntry struct {
 type ToolchainCatalogState struct {
 	Document           ToolchainCatalog `json:"document"`
 	ProjectCodeAllowed bool             `json:"projectCodeAllowed,omitempty"`
-	Storage            struct {
+	// WorkspaceTrust is the trust of the requested workspace root; nil without one.
+	WorkspaceTrust *ToolchainWorkspaceTrust `json:"workspaceTrust,omitempty"`
+	Storage        struct {
 		RelativePath string `json:"relativePath"`
 		MaximumBytes int64  `json:"maximumBytes"`
 	} `json:"storage"`
@@ -31,9 +33,29 @@ type ToolchainCatalogEdit struct {
 	DefaultHome *string  `json:"defaultHome"`
 }
 
+// ToolchainWorkspaceTrustEdit records one decision on a workspace: Trusted lets its project code
+// run and false keeps it in safe mode; Location also trusts its offered parent folder.
 type ToolchainWorkspaceTrustEdit struct {
 	Workspace string `json:"workspace"`
 	Trusted   bool   `json:"trusted"`
+	Location  bool   `json:"location,omitempty"`
+}
+
+// Workspace trust states Core reports.
+const (
+	WorkspaceTrusted    = "trusted"
+	WorkspaceDistrusted = "distrusted"
+	WorkspaceTrustUnset = "unknown"
+)
+
+// ToolchainWorkspaceTrust is a workspace's trust as Core decides it from the machine-local
+// catalog: State is WorkspaceTrusted, WorkspaceDistrusted (kept in safe mode) or
+// WorkspaceTrustUnset (never asked). Location is the trusted folder that trusts it, and
+// OfferedLocation the parent folder a trust prompt may offer; nil when there is none.
+type ToolchainWorkspaceTrust struct {
+	State           string  `json:"state"`
+	Location        *string `json:"location"`
+	OfferedLocation *string `json:"offeredLocation"`
 }
 
 type ToolchainCatalogPublication struct {

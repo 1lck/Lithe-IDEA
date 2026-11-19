@@ -39,6 +39,10 @@ type entrypointFound struct {
 // loaded first, since the configuration names the model's project; a press waits for it as a
 // press on a configuration does.
 func (a *App) runCurrentFileEntrypoint(p *project) {
+	if p.safeMode() {
+		a.askToTrustProject(p, func() { a.runCurrentFileEntrypoint(p) })
+		return
+	}
 	s := &p.runConfigs
 	if s.findingEntrypoint {
 		return
@@ -141,7 +145,7 @@ func (a *App) findEntrypoint(ctx context.Context, p *project, kernel Kernel, can
 
 // runEntrypoints plans, sends and decodes one instance's lithe/build/runEntrypoints request.
 func (a *App) runEntrypoints(ctx context.Context, p *project, kernel Kernel, instance buildInstance, file string) ([]core.BuildRunEntrypoint, error) {
-	request := core.BuildPlanRequest{Root: instance.Root, Options: instance.Options, PluginDirectory: instance.PackageDirectory, WorkspaceRoot: p.root, File: file}
+	request := core.BuildPlanRequest{Root: instance.Root, Options: instance.Options, PluginDirectory: instance.PackageDirectory, WorkspaceRoot: p.root, File: file, ProjectCodeAllowed: p.trust.allowed()}
 	plan, err := kernel.PlanBuildRunEntrypoints(ctx, instance.Manifest, instance.BuildSystemID, request)
 	if err != nil {
 		return nil, err

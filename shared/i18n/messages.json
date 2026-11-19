@@ -20229,6 +20229,106 @@
       ]
     },
     {
+      "id": "desktop.trust.actionText",
+      "description": "Body of the question asked before running, building or testing a project in safe mode",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.trust.banner",
+      "description": "Notice above the editor while the project is in safe mode",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.trust.bannerLink",
+      "description": "Link in the safe mode notice that asks to trust the project",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.trust.dontOpen",
+      "description": "Button that cancels opening an untrusted project",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.trust.location",
+      "description": "Checkbox in the trust question that also trusts every project in the parent folder. {folder} is that folder",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "folder": "string"
+      }
+    },
+    {
+      "id": "desktop.trust.modelSafeMode",
+      "description": "Build window line in place of a model that is not loaded because the project is in safe mode",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.trust.openText",
+      "description": "Body of the question asked before an untrusted project opens",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.trust.openTitle",
+      "description": "Title of the question asked before a project Lithe has no trust decision for opens. {project} is the folder name",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "project": "string"
+      }
+    },
+    {
+      "id": "desktop.trust.previewSafeMode",
+      "description": "Button that opens the project in safe mode without trusting it",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.trust.saveFailed",
+      "description": "Error shown when the trust decision could not be saved. {reason} is the cause",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "reason": "string"
+      }
+    },
+    {
+      "id": "desktop.trust.stayInSafeMode",
+      "description": "Button that keeps the project in safe mode and cancels the action",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.trust.title",
+      "description": "Title of the question asked before an action runs project code in a project opened in safe mode",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.trust.trustProject",
+      "description": "Button that trusts the project",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
       "id": "desktop.updates.available",
       "description": "Notice after an update check Lithe made by itself finds a newer version of the channel; its button opens the update dialog. The green arrow is the update button at the top right of the title bar.",
       "platforms": [

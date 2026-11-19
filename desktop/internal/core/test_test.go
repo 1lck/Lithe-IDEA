@@ -75,8 +75,9 @@ func TestBuildTestPlanDecodesReportsAndResolvesOutcome(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 	defer cancel()
 
+	// Running the tests runs the workspace's code, which needs its trust.
 	plan, err := client.PlanBuildTest(ctx, testsManifest(t), "fixture-tests", BuildTestRequest{
-		Root: ".", WorkspaceRoot: root,
+		Root: ".", WorkspaceRoot: root, ProjectCodeAllowed: true,
 	})
 	if err != nil {
 		t.Fatalf("PlanBuildTest: %v", err)

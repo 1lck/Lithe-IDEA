@@ -1,0 +1,197 @@
+package workbench
+
+import (
+	"os"
+	"path/filepath"
+	"strings"
+	"testing"
+	"time"
+
+	"github.com/1lck/Lithe-IDEA/desktop/internal/core"
+	"github.com/1lck/Lithe-IDEA/desktop/internal/i18n"
+)
+
+// trustHarness is a window that asks about trust, as a user's does: the harness otherwise
+// opens every folder trusted. Its trust decisions go to the toolchain catalog in the window's
+// own temporary preference directory.
+func trustHarness(t *testing.T) *harness {
+	t.Helper()
+	h := newHarness(t, &testKernel{Client: core.NewClient()})
+	h.app.trustEveryWorkspace = false
+	return h
+}
+
+// trustFolder is a new folder named name in a new parent folder.
+func trustFolder(t *testing.T, name string) string {
+	t.Helper()
+	dir := filepath.Join(t.TempDir(), name)
+	if err := os.Mkdir(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	return dir
+}
+
+// openAsking opens dir and waits for the question about trusting it.
+func openAsking(t *testing.T, h *harness, dir string) *pluginPrompt {
+	t.Helper()
+	h.app.openProjectHere(dir)
+	awaitStateWithin(t, h, 10*time.Second, "the trust question", func() bool { return len(h.app.prompts.queue) == 1 })
+	h.settle()
+	return h.app.prompts.queue[0]
+}
+
+// awaitOpened waits until dir is the open project.
+func awaitOpened(t *testing.T, h *harness, dir string) *project {
+	t.Helper()
+	awaitStateWithin(t, h, 10*time.Second, "the project to open", func() bool {
+		return h.app.project != nil && h.app.project.root == dir
+	})
+	return h.app.project
+}
+
+// reopen closes the open project and opens dir again.
+func reopen(t *testing.T, h *harness, dir string) *project {
+	t.Helper()
+	h.app.closeProject()
+	awaitStateWithin(t, h, 10*time.Second, "the project to close", func() bool { return h.app.project == nil })
+	h.app.openProjectHere(dir)
+	return awaitOpened(t, h, dir)
+}
+
+func TestTrustingAFolderOpensItAndIsRemembered(t *testing.T) {
+	h := trustHarness(t)
+	dir := trustFolder(t, "demo")
+	language := h.app.language()
+
+	prompt := openAsking(t, h, dir)
+	if h.app.project != nil {
+		t.Fatal("the folder opened before the user answered")
+	}
+	title := i18n.SharedFormat(language, "desktop.trust.openTitle", map[string]string{"project": "demo"})
+	home, _ := os.UserHomeDir()
+	location := i18n.SharedFormat(language, "desktop.trust.location", map[string]string{"folder": trustFolderLabel(filepath.Dir(dir), home)})
+	if prompt.title != title || !h.shows(i18n.Shared(language, "desktop.trust.previewSafeMode")) || !h.shows(location) {
+		t.Fatalf("the question is %q with the check %q, want %q offering the parent folder", prompt.title, prompt.check, title)
+	}
+
+	h.clickShared("desktop.trust.trustProject")
+	p := awaitOpened(t, h, dir)
+	if p.safeMode() {
+		t.Fatal("a trusted project opened in safe mode")
+	}
+	if p = reopen(t, h, dir); p.safeMode() || len(h.app.prompts.queue) != 0 {
+		t.Fatalf("reopening asked again (%d questions) or opened in safe mode", len(h.app.prompts.queue))
+	}
+	if _, err := os.Stat(filepath.Join(dir, ".lithe")); !os.IsNotExist(err) {
+		t.Fatalf("trusting wrote into the project: %v", err)
+	}
+}
+
+func TestTrustingTheParentFolderTrustsItsOtherProjects(t *testing.T) {
+	h := trustHarness(t)
+	dir := trustFolder(t, "first")
+	sibling := filepath.Join(filepath.Dir(dir), "second")
+	if err := os.Mkdir(sibling, 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	openAsking(t, h, dir)
+	h.clickLabeled(h.app.prompts.queue[0].check)
+	if !h.app.prompts.queue[0].checked {
+		t.Fatal("clicking the parent folder's checkbox did not check it")
+	}
+	h.clickShared("desktop.trust.trustProject")
+	awaitOpened(t, h, dir)
+
+	if p := reopen(t, h, sibling); p.safeMode() || len(h.app.prompts.queue) != 0 {
+		t.Fatal("a project in the trusted folder was not trusted")
+	}
+}
+
+func TestDontOpenLeavesTheWindowAsItWas(t *testing.T) {
+	h := trustHarness(t)
+	dir := trustFolder(t, "demo")
+
+	openAsking(t, h, dir)
+	h.clickShared("desktop.trust.dontOpen")
+	h.settle()
+	if h.app.project != nil || len(h.app.prompts.queue) != 0 {
+		t.Fatal("Don't Open opened the folder or left the question")
+	}
+	// Nothing was decided, so the next open asks again.
+	openAsking(t, h, dir)
+}
+
+func TestSafeModeKeepsProjectCodeFromRunningUntilTrusted(t *testing.T) {
+	h := trustHarness(t)
+	dir := trustFolder(t, "demo")
+	source := filepath.Join(dir, "Main.java")
+	if err := os.WriteFile(source, []byte("class Main {}\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	language := h.app.language()
+
+	openAsking(t, h, dir)
+	h.clickShared("desktop.trust.previewSafeMode")
+	p := awaitOpened(t, h, dir)
+	if !p.safeMode() {
+		t.Fatal("Preview in Safe Mode opened the project trusted")
+	}
+	// The choice is remembered: the folder opens in safe mode without asking.
+	if p = reopen(t, h, dir); !p.safeMode() || len(h.app.prompts.queue) != 0 {
+		t.Fatal("reopening a folder previewed in safe mode asked again or trusted it")
+	}
+
+	// A model is not loaded: loading one runs the build tool.
+	setDetected(p, []buildInstance{{BuildInstance: core.BuildInstance{ID: "fixture:."}}})
+	h.app.loadBuildModel(p, 0)
+	if instance := p.build.instances[0]; instance.modelLoading || !instance.modelUntrusted || instance.modelError != i18n.Shared(language, "desktop.trust.modelSafeMode") {
+		t.Fatalf("in safe mode the model load = loading %v, untrusted %v, %q", instance.modelLoading, instance.modelUntrusted, instance.modelError)
+	}
+
+	// A run asks first; staying in safe mode runs nothing.
+	ran := 0
+	h.app.startRun(p, "app", func(*App, *project) { ran++ })
+	awaitStateWithin(t, h, 10*time.Second, "the question before the run", func() bool { return len(h.app.prompts.queue) == 1 })
+	h.settle()
+	h.clickShared("desktop.trust.stayInSafeMode")
+	h.settle()
+	if ran != 0 || !p.safeMode() {
+		t.Fatal("staying in safe mode ran the program or left safe mode")
+	}
+
+	// The notice above the editor offers to trust the project; trusting it leaves safe mode.
+	h.app.openFile(p, source)
+	h.settle()
+	if !h.shows(i18n.Shared(language, "desktop.trust.banner")) {
+		t.Fatal("the editor does not say the project is in safe mode")
+	}
+	h.clickShared("desktop.trust.bannerLink")
+	awaitStateWithin(t, h, 10*time.Second, "the trust question", func() bool { return len(h.app.prompts.queue) == 1 })
+	h.settle()
+	h.clickShared("desktop.trust.trustProject")
+	awaitStateWithin(t, h, 10*time.Second, "the project to leave safe mode", func() bool { return !p.safeMode() })
+	h.settle()
+	if h.shows(i18n.Shared(language, "desktop.trust.banner")) {
+		t.Fatal("the safe mode notice stayed after trusting the project")
+	}
+	if p.build.instances[0].modelUntrusted {
+		t.Fatal("trusting the project left the model unloaded for safe mode")
+	}
+	h.app.startRun(p, "app", func(*App, *project) { ran++ })
+	if ran != 1 {
+		t.Fatalf("a run in the trusted project ran %d times, want at once", ran)
+	}
+}
+
+func TestTrustFolderLabelShortensHomeAndLongPaths(t *testing.T) {
+	home := filepath.Join(string(filepath.Separator)+"Users", "ann")
+	if got, want := trustFolderLabel(filepath.Join(home, "IdeaProjects"), home), "~"+string(filepath.Separator)+"IdeaProjects"; got != want {
+		t.Fatalf("label = %q, want %q", got, want)
+	}
+	long := filepath.Join(string(filepath.Separator)+"srv", "builds", "a-very-long-folder-name-for-every-checkout", "of-the-team", "projects")
+	got := []rune(trustFolderLabel(long, home))
+	if len(got) != trustFolderMaxRunes || string(got[:5]) != string([]rune(long)[:5]) || !strings.HasSuffix(string(got), "projects") || !strings.Contains(string(got), "…") {
+		t.Fatalf("long label = %q, want %d runes keeping its start and its own name", string(got), trustFolderMaxRunes)
+	}
+}

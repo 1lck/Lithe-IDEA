@@ -72,9 +72,6 @@ type runConfigState struct {
 	currentFile bool
 	// pending is the title bar's Run or Debug waiting for the configurations to be read.
 	pending titleAction
-	// wanted says the title bar asked for the configurations, so every detected instance
-	// loads its model and not only the one the Build window shows.
-	wanted bool
 }
 
 // configuration is the listed configuration id, or nil.

@@ -27,7 +27,12 @@ native_path() {
     fi
 }
 
-# Lithe-core-rust main at ce628c7: #116, squash-merged into main: content search and its index read
+# Lithe-core-rust main at 98e6940 (#119 protocol changelog only) on top of #118 (8c77c3f, on top of #117 plugin
+# SDK documentation only): the toolchain catalog records a decision on each workspace (trusted,
+# distrusted for safe mode, or unknown) and trusted locations, toolchains.catalogState reports it as
+# workspaceTrust, and build plan requests take projectCodeAllowed, without which every plan that
+# runs project code is refused as plugin.build.untrustedWorkspace (#2201).
+# Below it, Lithe-core-rust main at ce628c7: #116, squash-merged into main: content search and its index read
 # every file the editor opens as text (up to 16 MiB, decoded like file.read, binary files skipped)
 # and match a CRLF line without its \r; replacement previews still read only strict UTF-8 up to
 # 2 MiB. It is on top of #115 (929b8c6, documentation only), #112 (44d62e4, command test
@@ -279,7 +284,7 @@ PINNED_CORE_REPOSITORY="https://github.com/Lithe-IDEA/Lithe-core-rust.git"
 # the contract, plugin guides, reference and SDKs live only in shared/plugins; on top of #16 (reported Git queries folded in the console),
 # #15 (git.write cherryPick, revert and reset fields), #14 (word-level changed ranges of diff
 # rows), #13, #8, #7, #6 and #4.
-PINNED_CORE_REVISION="ce628c7e00c5707a6321eaf9a3062402c980d208"
+PINNED_CORE_REVISION="98e694049fde68b61a3783c69e341ec887e06049"
 PROFILE="debug"
 while [[ $# -gt 0 ]]; do
     case "$1" in

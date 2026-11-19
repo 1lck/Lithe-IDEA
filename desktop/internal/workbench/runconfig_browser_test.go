@@ -45,8 +45,9 @@ func TestRunConfigurationListScopesGroupsPinsAndRuns(t *testing.T) {
 	if err := h.driver.Resize(1280, 1200); err != nil {
 		t.Fatal(err)
 	}
+	since := p.runConfigs.generation
 	h.app.post(func(a *App) {
-		p.build.instances, p.build.loaded = runBrowserInstances(), true
+		setDetected(p, runBrowserInstances())
 		a.refreshRunConfigurations(p)
 		if !a.chrome.isOpen(catalogIndex[itemBuild]) {
 			a.reduceChrome(core.SetChromeOpen(itemBuild, true))
@@ -54,7 +55,7 @@ func TestRunConfigurationListScopesGroupsPinsAndRuns(t *testing.T) {
 	})
 	s := &p.runConfigs
 	b := &s.browser
-	awaitStateWithin(t, h, 10*time.Second, "the run configurations", func() bool { return s.generation > 0 && !s.loading })
+	awaitRunConfigsAfter(t, h, p, since)
 	h.settle()
 	if s.failure != "" || len(s.list) != 3 {
 		t.Fatalf("configurations = %+v, failure %q", s.list, s.failure)
