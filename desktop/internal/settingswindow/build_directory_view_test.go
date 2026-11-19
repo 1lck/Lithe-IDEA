@@ -86,8 +86,8 @@ func buildPagesWindow(t *testing.T, count int) (*window, *windowDriver) {
 		Text: func() *i18n.Messages { return i18n.For(i18n.English) }, Language: func() i18n.Language { return i18n.English },
 		PluginSettings:     newBuildFormSource(t, client, contributions),
 		SettingsNavigation: client.SettingsNavigation,
-		SettingsPages: func(ctx context.Context) ([]core.SettingsPage, error) {
-			return client.SettingsPages(ctx, contributions)
+		SettingsPages: func(ctx context.Context, _ i18n.Language) ([]core.SettingsPage, error) {
+			return client.SettingsPages(ctx, contributions, "")
 		},
 	}), Values{Theme: "dark"})
 	w.sess.page = pageBuild

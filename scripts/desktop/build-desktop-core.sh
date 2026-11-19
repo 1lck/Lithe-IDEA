@@ -27,9 +27,17 @@ native_path() {
     fi
 }
 
-# Core compatibility pin for #2128: LSP #101 plus the desktop main's #102 pin.
-# Core main after #104 requires the desktop plugin views migration.
-# Lithe-core-rust main at 8d3c16b: #102, squash-merged into main on top of fa33446:
+# Lithe-core-rust main at 555eb95: #105 documents plugin views, after #101 (30a9f8d)
+# merged code actions, signature help, inlay hints and server-initiated workspace edits.
+# Lithe-core-rust main at 545ca11: #104, squash-merged into main: plugin views replace the native
+# UI document. A tool window's view.function and a manifest's settingRegions[].view name a backend
+# view function the host calls once per event, and plugins.ui.applyResult checks each result (a
+# whole view, patches or nothing) against the manifest, the surface and the view drawn last and
+# returns the view to draw; settingsState and plugins.settings.catalog carry each settings region
+# with its translated keywords. It is on top of #103 (a76f7d1), squash-merged into main:
+# plugins.settings.navigation no longer takes limit or returns overflow rows, which the desktop
+# never sent or read.
+# Below them, Lithe-core-rust main at 8d3c16b: #102, squash-merged into main on top of fa33446:
 # toolchains.settingsView issues carry the key of the group their tool is listed under, so the
 # Toolchains page opens that group with the tool. Main below it has #99 (2ddfae7):
 # toolDefinitions 1 adds a definition's category and audience; toolchains.settingsView filters,
@@ -260,7 +268,7 @@ PINNED_CORE_REPOSITORY="https://github.com/Lithe-IDEA/Lithe-core-rust.git"
 # the contract, plugin guides, reference and SDKs live only in shared/plugins; on top of #16 (reported Git queries folded in the console),
 # #15 (git.write cherryPick, revert and reset fields), #14 (word-level changed ranges of diff
 # rows), #13, #8, #7, #6 and #4.
-PINNED_CORE_REVISION="9a674e28e9397fe0c1805cc877b6b51705e0508e"
+PINNED_CORE_REVISION="555eb9584c90478c0d93e26fd85c4106ac64de94"
 PROFILE="debug"
 while [[ $# -gt 0 ]]; do
     case "$1" in

@@ -446,8 +446,8 @@ func (k *fakeKernel) ReadInstalledPluginSettingsState(ctx context.Context, manif
 	return core.NewClient().ReadInstalledPluginSettingsState(ctx, manifest, id, version)
 }
 
-func (k *fakeKernel) ValidatePluginNativeData(ctx context.Context, declaration, data json.RawMessage) (json.RawMessage, error) {
-	return core.NewClient().ValidatePluginNativeData(ctx, declaration, data)
+func (k *fakeKernel) ApplyPluginViewResult(ctx context.Context, manifest json.RawMessage, surface core.PluginViewSurface, view, result json.RawMessage) (json.RawMessage, bool, error) {
+	return core.NewClient().ApplyPluginViewResult(ctx, manifest, surface, view, result)
 }
 
 func (k *fakeKernel) InvokePluginFunction(context.Context, string, string, string, string, json.RawMessage) (string, error) {

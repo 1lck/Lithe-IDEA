@@ -10,6 +10,9 @@ type SettingsContribution struct {
 	Manifest json.RawMessage     `json:"manifest"`
 	Owner    PluginSettingsOwner `json:"owner"`
 	Enabled  bool                `json:"enabled"`
+	// Localizations are the translation files read for the request's language, by
+	// package-relative path: nil before the host read them, empty when it found none.
+	Localizations map[string]string `json:"localizations"`
 }
 
 // SettingsPageContribution references the complete editor of one installed owner.
@@ -18,6 +21,11 @@ type SettingsPageContribution struct {
 	Version  string                  `json:"version"`
 	Title    string                  `json:"title"`
 	Sections []PluginSettingsSection `json:"sections"`
+	// Region is the settings region the contributor placed on the page, nil when none.
+	Region *PluginSettingsRegion `json:"region,omitempty"`
+	// Localization reports the translation the catalog applied, present when the request
+	// named a language; ReadRequired asks the host to read Candidates and ask again.
+	Localization *PluginSettingsLocalization `json:"localization,omitempty"`
 }
 
 type SettingsPage struct {
@@ -91,13 +99,17 @@ func settingsSurfaceResult[T any](ctx context.Context, c *Client, command, field
 	return value, nil
 }
 
-func (c *Client) SettingsPages(ctx context.Context, plugins []SettingsContribution) ([]SettingsPage, error) {
+// SettingsPages asks Core for the settings page catalog of plugins. language, when not empty,
+// translates section headings and adds region keywords from each plugin's translation files,
+// which the host supplies as SettingsContribution.Localizations.
+func (c *Client) SettingsPages(ctx context.Context, plugins []SettingsContribution, language string) ([]SettingsPage, error) {
 	if plugins == nil {
 		plugins = []SettingsContribution{}
 	}
 	return settingsSurfaceResult[[]SettingsPage](ctx, c, "plugins.settings.catalog", "pages", struct {
-		Plugins []SettingsContribution `json:"plugins"`
-	}{plugins})
+		Plugins  []SettingsContribution `json:"plugins"`
+		Language string                 `json:"language,omitempty"`
+	}{plugins, language})
 }
 
 func (c *Client) SettingsNavigation(ctx context.Context, items []SettingsNavigationItem, query string) ([]SettingsNavigationRow, error) {

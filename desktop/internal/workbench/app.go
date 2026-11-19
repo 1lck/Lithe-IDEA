@@ -470,10 +470,8 @@ type project struct {
 	everywhereSymbols everywhereSymbolState
 	// tree is the Project tool window's tree of the project folder.
 	tree fileTree
-	// nativePanels is the view state of each native plugin panel the project shows, by window, and
-	// nativeSaved what the project kept for them when it last closed (plugin_native.go, plugin_native_state.go).
-	nativePanels map[string]*nativePanelState
-	nativeSaved  map[string]savedNativePanel
+	// pluginViews are the plugin views the project's tool windows show, by window (plugin_view.go).
+	pluginViews map[string]*pluginViewState
 	// build is the Run tool window's provider-backed instances and output.
 	build buildState
 	// buildSessions are the build provider sessions the project started. They live beside build
@@ -1523,7 +1521,6 @@ func (a *App) openProjectHere(path string) {
 		a.activatePluginWorkspace(p)
 		a.restoreEditorSession(p)
 		a.restoreCheckpoints(p)
-		a.restoreNativePanels(p)
 		a.openPendingFiles(p)
 	})
 }
@@ -1566,7 +1563,7 @@ func (a *App) finishCloseProject(p *project, after func()) {
 	}
 	{
 		a.saveEditorSession(p)
-		a.saveNativePanels(p)
+		a.closePluginViews(p)
 		a.releaseIndexing(p)
 		a.closeEverywhere(p)
 		a.recentFiles.open = false

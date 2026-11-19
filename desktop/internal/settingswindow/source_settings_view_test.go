@@ -107,8 +107,8 @@ func nativeFormWindow(t *testing.T, source *nativeFormFixture, language i18n.Lan
 	}
 	w := newWindow(NewController(Options{Text: func() *i18n.Messages { return i18n.For(language) }, Language: func() i18n.Language { return language }, SystemLanguage: language, SystemDark: func() bool { return theme == "dark" }, PluginSettings: source,
 		SettingsNavigation: core.NewClient().SettingsNavigation,
-		SettingsPages: func(ctx context.Context) ([]core.SettingsPage, error) {
-			return core.NewClient().SettingsPages(ctx, []core.SettingsContribution{{Manifest: source.manifest, Owner: core.PluginSettingsOwner{PluginID: "dev.lithe.test.source-settings", Version: "1.0.0"}, Enabled: true}})
+		SettingsPages: func(ctx context.Context, _ i18n.Language) ([]core.SettingsPage, error) {
+			return core.NewClient().SettingsPages(ctx, []core.SettingsContribution{{Manifest: source.manifest, Owner: core.PluginSettingsOwner{PluginID: "dev.lithe.test.source-settings", Version: "1.0.0"}, Enabled: true}}, "")
 		}, Marketplace: fetch, MarketplaceInstalled: fetch, PluginState: func(string) PluginState { return PluginState{Installed: true, Enabled: true, Version: "1.0.0"} }, InstalledPlugins: func() []PluginFacts {
 			return []PluginFacts{{ID: "dev.lithe.test.source-settings", Name: "Fictional Compiler", Version: "1.0.0", Settings: 1}}
 		}}), Values{Theme: theme, Language: language.Code()})

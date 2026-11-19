@@ -13461,41 +13461,6 @@
       ]
     },
     {
-      "id": "desktop.nativePanel.empty",
-      "description": "Shown in a plugin native panel that declares no node",
-      "platforms": [
-        "desktop"
-      ]
-    },
-    {
-      "id": "desktop.nativePanel.failed",
-      "description": "Notice when a plugin native panel action failed",
-      "platforms": [
-        "desktop"
-      ]
-    },
-    {
-      "id": "desktop.nativePanel.multipleInstances",
-      "description": "Shown in a source-backed plugin panel when the workspace has several instances, so the root is ambiguous",
-      "platforms": [
-        "desktop"
-      ]
-    },
-    {
-      "id": "desktop.nativePanel.noInstance",
-      "description": "Shown in a source-backed plugin panel when the workspace has no instance of the build system it reads",
-      "platforms": [
-        "desktop"
-      ]
-    },
-    {
-      "id": "desktop.nativePanel.sourceFailed",
-      "description": "Shown when a source-backed plugin panel could not read its nodes",
-      "platforms": [
-        "desktop"
-      ]
-    },
-    {
       "id": "desktop.navigation.historyUnavailable",
       "description": "Banner shown when the location a back/forward step leads to no longer exists",
       "platforms": [

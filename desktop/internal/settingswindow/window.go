@@ -126,9 +126,11 @@ type window struct {
 	apply buildApply
 	// kinds is the list of each kind of plugin pages under Build, by the kind's place in
 	// buildKinds: its filter, its rows and the page it last showed.
-	kinds             [len(buildKinds)]kindState
-	pluginSettings    *pluginSettingsForm
-	pluginForms       map[string]*pluginSettingsForm
+	kinds          [len(buildKinds)]kindState
+	pluginSettings *pluginSettingsForm
+	pluginForms    map[string]*pluginSettingsForm
+	// region is the plugin view of the settings region on screen (plugin_region_view.go).
+	region            *regionView
 	formLimitReported bool
 	dynamic           settingsSurfaces
 	dynamicPage       string
@@ -397,6 +399,7 @@ func (w *window) native() *app.Window {
 // the system look is no longer watched and the controller forgets the window, so the next
 // Open makes a new one. The Page has cancelled its effects by then.
 func (w *window) closed() {
+	w.closeRegion()
 	w.dismissPluginInstall()
 	if w.ctrl.opts.PluginInstallsClosed != nil {
 		w.ctrl.opts.PluginInstallsClosed()

@@ -137,6 +137,29 @@ type PluginSettingsState struct {
 	Storage         PluginSettingsStorage      `json:"storage"`
 	// Localization is present whenever the request named a language.
 	Localization *PluginSettingsLocalization `json:"localization,omitempty"`
+	// Region is the settings region the plugin placed on its own Settings tab, nil when it
+	// placed none there.
+	Region *PluginSettingsRegion `json:"region,omitempty"`
+}
+
+// PluginSettingsRegion is a plugin-owned part of one settings page (settingRegions, API-19):
+// search keywords that find the page and, when View is set, the plugin view (API-13) the
+// host draws between the page's header and its declared rows, which stay. Keywords are the
+// manifest's followed by those of the request's language.
+type PluginSettingsRegion struct {
+	ID       string   `json:"id"`
+	Keywords []string `json:"keywords"`
+	View     *struct {
+		Function string `json:"function"`
+	} `json:"view,omitempty"`
+}
+
+// ViewFunction is the region's view function, empty when the region only adds keywords.
+func (r *PluginSettingsRegion) ViewFunction() string {
+	if r == nil || r.View == nil {
+		return ""
+	}
+	return r.View.Function
 }
 
 // PluginSettingsLocalizationRequest names the interface language and, on the

@@ -724,13 +724,19 @@ func (t *toolchainState) searchReady(text string) bool {
 // searchGroup is the key of the group the sidebar's search lists the tool under, empty when
 // the page does not group.
 func (t *toolchainState) searchGroup(id string) string {
+	return t.search.group(id)
+}
+
+// group is the key of the group the projection lists the tool under, empty when it does not
+// group or does not list the tool.
+func (p *toolchainProjection) group(id string) string {
 	group := ""
-	for _, row := range t.search.view.Rows {
+	for _, row := range p.view.Rows {
 		if row.Kind != "tool" {
 			group = row.Key
 			continue
 		}
-		if entry := t.search.entry(row); entry != nil && entry.tool.ID == id {
+		if entry := p.entry(row); entry != nil && entry.tool.ID == id {
 			return group
 		}
 	}

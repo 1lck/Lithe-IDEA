@@ -35,13 +35,13 @@ Windows 不在本轮，平台矩阵的 partial/pending 保持真实。
 | API-10 | 已公开 | applyEdits/replaceSelections/insertText；版本校验、IME/只读拒绝、一次 Undo |
 | API-11 | 未做 | 公共 save/saveAs/close 与工作区文件变更接口未接入 |
 | API-12 | 部分完成 | 已公开 `documents/registerContentProvider`（只读内容，≤1 MiB，每窗口每 scheme 一个，仅 macOS）；公共多文件 edit、showDiff 未接入 |
-| API-13 | 部分完成 | 既有 ui:3 原生 Tree/List/Form；通用独立后端数据源/懒加载未做 |
+| API-13 | 部分完成 | 插件视图（ui 0）：工具窗口和设置区域的内容由插件后端返回节点树（宿主控件、树、画布），Core `plugins.ui.applyResult` 校验，桌面端用 Viva 原生绘制；旧的 Tree/List/Form 已删除；插件主动推送、树懒加载/分页、`views.reveal` 未做 |
 | API-14 | 部分完成 | 既有包内网页 bridge、状态/生命周期；通用双向页面消息未做 |
 | API-15 | 部分完成 | editor/open/reveal 返回 documentID/version；range 只起点光标，替换预览标签未做 |
 | API-16 | 已公开 | preview/openHTML 支持 split/previewOnly；browser/openExternal 支持 HTTP(S)/已保存 HTML |
 | API-17 | 部分完成 | 三类窗口消息和按钮/取消；通用 QuickPick/InputBox/授权文件句柄未做 |
 | API-18 | 未做 | 通用剪贴板与 revealInFinder API 未开放 |
-| API-19 | 部分完成 | 已有声明式设置 1/2；通用 settings.get/inspect/update/events 未做；Java 拆分计划（M1、D1）：Maven 插件按真实配置读取、回显、写回 settings |
+| API-19 | 部分完成 | 已有声明式设置（settings 0）和设置区域 `settingRegions`（搜索关键词、绑定声明设置的插件视图）；通用 settings.get/inspect/update/events 未做；Java 拆分计划（M1、D1）：Maven 插件按真实配置读取、回显、写回 settings |
 | API-20 | 部分完成 | global/backend/workspace 可写目录与网页状态；语言服务器的按工作区状态目录按 `state.retention` 后台回收（Core 决定，仅 macOS，无用户可见重置入口）；统一 KV/配额/session API 未做 |
 | API-21 | 既有能力 | 协议 2 credentials/get/set/delete；权限与插件隔离不变 |
 | API-22 | 部分完成 | 既有函数进度与取消；语言服务器准备状态 `languageServer/setStatus`（仅百分比，无 actions，仅 macOS）；新增 `outputLinkMatchers:1`，插件声明的匹配器让 Run 与测试控制台出现链接（macOS）；独立 output channel、通用 log/progress API 未做 |
@@ -145,7 +145,7 @@ Windows 不在本轮，平台矩阵的 partial/pending 保持真实。
 | 表面 | 当前事实 | 仍需补齐 |
 | --- | --- | --- |
 | 清单与能力协商 | Mac 支持声明式 API level 1–4；`PluginManifest.hostCapabilities` 是宿主实际声明的版本表 [S1] | 每个新 API 同步完成 Core 校验、Mac 执行、权限、文档、旧版拒绝路径 |
-| 原生插件界面 | `ui:3` 已有 Tree/List/Form、工具栏、右键和本地动作，不只是静态文本 [S3] | 动态数据源目前绑定自身 `buildSystemID` 和唯一匹配实例；需通用后端来源、懒加载和分页 |
+| 原生插件界面 | 插件视图（ui 0）：插件后端的视图函数回答 open/close/click/change/select/activate/viewport/settings 事件，返回宿主控件、树和画布节点，宿主原生绘制 [S3] | 视图只在回答事件时变化，需插件主动推送；树需懒加载和分页 |
 | 命令 | `ui.commands` 打开自己的工具窗口；面板内动作可以调用函数 [S1/S3] | 不依赖窗口/构建系统的命令处理器，以及语义事件、上下文菜单、快捷键接入 |
 | 自有网页 | 包内页面可走白名单 Web bridge [S4] | 不是完整文件/编辑器 API；新能力必须分别授权，不能开放 AppModel、DOM 或任意脚本入口 |
 | 独立后端 | `backend:1` 是每插件一个应用级本机外部进程，只服务自己的网页；`${stateDir}` 可用，`${workspaceStateDir}` 被拒绝；后端会话未接入远程工作区注册表 [S2/S20] | 没有窗口的命令/事件插件不能直接复用该声明；需新版本上下文和激活模型，不能悄悄改 v1 的作用域 |
@@ -211,7 +211,7 @@ Mac 当前声明的能力版本为：`backend:1`、`buildModelInputs:1`、`build
 
 | ID / 方向 | 候选能力与现状/所有者 | 权限、作用域与验收 | 阶段 |
 | --- | --- | --- | --- |
-| API-13 C/P/E | Tree/List/Form 通用数据源、`views.refresh/getChildren/reveal`、选择/激活/提交；已有 `ui:3` [S3] | UI 贡献权限；数据源不再被迫声明假构建系统。稳定节点 ID、懒加载、分页、错误保留旧数据；选中不等于执行，表单不逐按键调用后端 | M3 |
+| API-13 C/P/E | 插件主动推送、树的 `getChildren` 懒加载与分页、`views.reveal`；已有 ui 0 插件视图（节点树、画布、选择/激活/提交事件，视图函数属于插件自己的后端）[S3] | UI 贡献权限；稳定节点 ID、懒加载、分页、错误保留旧数据；选中不等于执行，表单不逐按键调用后端 | M3 |
 | API-14 C/H/E | 自有 Webview 的 `postMessage/onMessage`、显隐/销毁/状态；已有包内网页与 bridge [S4] | 只面向自己的页面；origin/主框架/页面 generation 验证、内容安全策略、消息/队列限额；关闭页面取消所属请求。不能控制编辑器 Webview 或别的插件页面 | M3 |
 | API-15 H | `editor.open/reveal`；复用 `workspace.openFile` 与文档 owner [S4/S5] | 文件打开/编辑器访问权限，明确窗口、预览标签与定位范围；已打开 dirty 文档不被磁盘内容替换，后台窗口不抢焦点 | M1：已有打开入口接续；M3：统一选项 |
 | API-16 H | `preview.openHTML`、`browser.openExternal`；已有内嵌 HTML 浏览器与系统打开 adapter [S9] | 分开授权本地预览和外部链接；内嵌可用当前缓冲区，外部本地文件读取磁盘，未保存时明确告知/请求保存。远程 URL 仅 http(s)，本地文件只接授权资源句柄，禁止任意 scheme/脚本注入 | M3 |
@@ -224,7 +224,7 @@ Mac 当前声明的能力版本为：`backend:1`、`buildModelInputs:1`、`build
 
 | ID / 方向 | 候选能力与现状/所有者 | 权限、作用域与验收 | 阶段 |
 | --- | --- | --- | --- |
-| API-19 H/C/E | `settings.get/inspect/update/onDidChange`；已有 settings 1/2 和注册表 [S10] | 只读/写入分权；区分 Lithe 偏好与工具真实配置，显示来源/作用域/有效值。工具配置显式 Apply、冲突保护、写后重读，不建立无效影子设置 | M3；Java 拆分（M1、D1）：Maven 插件内实现 |
+| API-19 H/C/E | `settings.get/inspect/update/onDidChange`；已有 settings 0、`settingRegions` 和注册表 [S10] | 只读/写入分权；区分 Lithe 偏好与工具真实配置，显示来源/作用域/有效值。工具配置显式 Apply、冲突保护、写后重读，不建立无效影子设置 | M3；Java 拆分（M1、D1）：Maven 插件内实现 |
 | API-20 H | `storage.global/workspace/session`、包内只读资源；已有平台 state store [S2/S4] | 插件命名空间和配额；状态放平台可写位置，迁移/卸载策略明确。工作区状态不是 v1 应用级 `${stateDir}` 的别名，不写插件包/bundle | M0：作用域；M3：扩展接口；Java 拆分（C-LS）：仅新增 temporaryDirectory |
 | API-21 H | `secrets.get/set/delete`；已有函数协议 v2 credentials 服务 [S2] | 保持本插件隔离和现有凭据授权；不得读取 IDE/Agent/其他插件密钥，不将 secret 放日志、普通配置或状态。先补 SDK/文档一致性，不另造密码库 | M1 |
 | API-22 H/E | `output.createChannel/append/dispose`、`log`、`progress.withCancellation`；已有函数进度与输出生命周期 [S2/S11] | 插件/操作归属、日志脱敏与字节预算；取消/超时后不再更新 UI。只复用已有进度状态机，不把 stdout 协议流与业务日志混用。输出链接由 Core 匹配、宿主只上样式和转发点击，`resolve` 函数在点击时才调用 | M1：命令结果/进度；M3：独立输出；Java 拆分（C-LS）：setStatus |
@@ -325,7 +325,7 @@ Mac 当前声明的能力版本为：`backend:1`、`buildModelInputs:1`、`build
 | DOC-05 | `reference/commands-and-events.md` | handler/贡献/事件区别；菜单、快捷键、上下文键；事件过滤、初始快照和背压 | API-02–04，M1/M3 |
 | DOC-06 | `reference/workspace-and-files.md` | 目录分页/懒加载、读取/编码、watch、搜索、授权资源句柄、文件修改 | API-05–08/11，M3 |
 | DOC-07 | `reference/documents-and-editor.md` | dirty 与磁盘、版本/范围/UTF-16、选区、单次 undo、安全保存、保存前事件与超时、diff/只读/多文件限制 | API-09–12/15/43，M1–M3 |
-| DOC-08 | `guides/native-ui-and-webviews.md` | 原生 Tree/List/Form 与包内网页的选择；数据源、动作、页面消息、恢复/释放、限制 | API-13/14，M3 |
+| DOC-08 | `guides/native-ui-and-webviews.md` | 插件视图（宿主控件、树、画布）与包内网页的选择；事件、补丁、预算、失败与生命周期、页面消息、限制 | API-13/14，M3 |
 | DOC-09 | `guides/browser-and-preview.md` | 编辑器/内嵌 HTML/自有网页/外部浏览器四分法；未保存内容、网络及 bridge 隔离 | API-15/16，M3 |
 | DOC-10 | `reference/settings-storage-and-secrets.md` | 真实工具配置与偏好区别、scope、Apply/冲突、状态迁移/卸载、凭据授权 | API-19–21，M1/M3 |
 | DOC-11 | `reference/window-output-and-execution.md` | 通知/选择/进度/输出、剪贴板、toolchain/process/terminal 权限和所有权 | API-17/18/22–24，随对应阶段 |
@@ -393,7 +393,7 @@ Mac 当前声明的能力版本为：`backend:1`、`buildModelInputs:1`、`build
 | --- | --- |
 | S1 | [插件契约](https://github.com/Lithe-IDEA/Lithe-core-rust/blob/main/shared/plugins/contract/v1/README.md)、[Core 能力](https://github.com/Lithe-IDEA/Lithe-core-rust/blob/main/rust/crates/plugin-model/src/capabilities.rs)、[清单校验与激活事件](https://github.com/Lithe-IDEA/Lithe-core-rust/tree/main/rust/crates/plugin-manifest/src)、[清单 schema](https://github.com/Lithe-IDEA/Lithe-core-rust/blob/main/shared/plugins/contract/v1/plugin-manifest.schema.json)、Mac 能力表 |
 | S2 | [backend 1](https://github.com/Lithe-IDEA/Lithe-core-rust/blob/main/rust/crates/plugin-backend/src/lib.rs)、[函数协议](https://github.com/Lithe-IDEA/Lithe-core-rust/tree/main/rust/crates/plugin-rpc/src)、Mac 后端会话、宿主凭据服务 |
-| S3 | 原生 UI 功能、[Core UI 校验](https://github.com/Lithe-IDEA/Lithe-core-rust/blob/main/rust/crates/plugin-native-ui/src/lib.rs)、[已实现原生 UI Note](../../.agents/notes/implemented/feature/2026-10-21-declarative-native-plugin-ui.md) |
+| S3 | 插件视图渲染（`desktop/internal/pluginview/`）、[Core 视图校验](https://github.com/Lithe-IDEA/Lithe-core-rust/blob/main/rust/crates/plugin-ui/src/lib.rs)、[插件视图 Note](../../.agents/notes/implemented/architecture/2026-11-12-plugin-authored-settings-content.md) |
 | S4 | Web bridge、包内内容、页面生命周期、状态存储 |
 | S5 | 文档功能、LSP 编辑入口、Monaco model、diff review |
 | S6 | 文件端口、Mac 文件适配、目录变更、工程功能 |

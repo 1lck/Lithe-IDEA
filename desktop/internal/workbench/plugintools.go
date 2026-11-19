@@ -11,6 +11,7 @@ import (
 	"github.com/1lck/Lithe-IDEA/desktop/internal/i18n"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/icons"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/pluginservice"
+	"github.com/1lck/Lithe-IDEA/desktop/internal/pluginview"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/toolicons"
 	"github.com/vivaui/viva/gfx"
 	"github.com/vivaui/viva/ui"
@@ -39,40 +40,18 @@ func placementZone(placement string) zone {
 	return zoneBottomLeft
 }
 
-// pluginToolIcon is the host icon a window declared by ID, or the generic tool window icon for
-// an ID the host does not map. The IDs are the public ones the manifest contract lists. As for
-// the built-in windows, an ID IntelliJ has a tool window icon for shows that icon, and the
-// others a Lucide icon at its weight.
+// pluginToolIcon is the host icon a window declared by ID (pluginview.HostIcon), or the generic
+// tool window icon for an ID the host does not map. As for the built-in windows, an ID IntelliJ
+// has a tool window icon for shows that icon, and the others a Lucide icon at its weight.
 func pluginToolIcon(host string) *gfx.Icon {
-	switch host {
-	case "database", "services":
-		return &toolicons.Services
-	case "terminal":
-		return &toolicons.Terminal
-	case "search":
-		return &toolicons.Find
-	case "refresh":
-		return stripeLucide(icons.RefreshCw)
-	case "reset":
-		return stripeLucide(icons.Undo2)
-	case "run":
-		return &toolicons.Run
-	case "debug":
-		return &toolicons.Debug
-	case "settings":
-		return stripeLucide(icons.Settings)
-	case "add":
-		return stripeLucide(icons.Plus)
-	case "remove":
-		return stripeLucide(icons.Minus)
-	case "git":
-		return &toolicons.Vcs
-	case "problems":
-		return &toolicons.Problems
-	case "plugin":
-		return stripeLucide(icons.Sparkles)
+	icon, ok := pluginview.HostIcon(host)
+	if !ok {
+		icon = icons.LayoutGrid
 	}
-	return stripeLucide(icons.LayoutGrid)
+	if icon.Stroke > 0 {
+		return stripeLucide(icon)
+	}
+	return &icon
 }
 
 // pluginItems is the built-in catalog followed by an item for each plugin tool window, then
