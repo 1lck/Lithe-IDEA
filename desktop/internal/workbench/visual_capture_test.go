@@ -70,15 +70,18 @@ func TestVisualCompletionPopup(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, scene := range []struct {
-		theme, language string
-		width           int
+		name, theme, language string
+		width, caretLine      int
 	}{
-		{"light", "en-US", 1000},
-		{"dark", "zh-Hans", 1000},
-		{"light", "zh-Hans", 350},
-		{"dark", "en-US", 350},
+		{"completion", "light", "en-US", 1000, 0},
+		{"completion", "dark", "zh-Hans", 1000, 0},
+		{"completion", "light", "zh-Hans", 350, 0},
+		{"completion", "dark", "en-US", 350, 0},
+		{"completion-center", "light", "en-US", 900, 10},
+		{"completion-signature", "dark", "zh-Hans", 900, 19},
 	} {
-		t.Run(scene.theme+"-"+scene.language, func(t *testing.T) {
+		name := scene.name + "-" + scene.theme + "-" + scene.language
+		t.Run(name, func(t *testing.T) {
 			prefs := store.At(t.TempDir())
 			if err := prefs.Save(settingsFile, map[string]string{"theme": scene.theme}); err != nil {
 				t.Fatal(err)
@@ -96,11 +99,19 @@ func TestVisualCompletionPopup(t *testing.T) {
 				return session.Driver(), session.Close, nil
 			})
 			f := openSemanticFixture(t, h, kernel)
-			f.openFunctionCompletions(t)
-			if err := h.driver.Key(gfx.KeyDown, 0); err != nil {
-				t.Fatal(err)
+			if scene.caretLine == 0 {
+				f.openFunctionCompletions(t)
+				if err := h.driver.Key(gfx.KeyDown, 0); err != nil {
+					t.Fatal(err)
+				}
+			} else {
+				f.placeCompletionCaret(t, scene.caretLine)
+				f.requestCompletions(t, longFunctionCandidates()...)
+				if scene.name == "completion-signature" {
+					f.openCompletionCaretSignature(t)
+				}
 			}
-			if err := session.Screenshot(filepath.Join(out, "completion-"+scene.theme+"-"+scene.language+".png")); err != nil {
+			if err := session.Screenshot(filepath.Join(out, name+".png")); err != nil {
 				t.Fatal(err)
 			}
 		})

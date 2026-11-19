@@ -17,6 +17,8 @@ import (
 	"github.com/1lck/Lithe-IDEA/desktop/internal/pluginbackend"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/pluginlsp"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/pluginservice"
+	"github.com/1lck/Lithe-IDEA/desktop/internal/store"
+	"github.com/vivaui/viva/app"
 	"github.com/vivaui/viva/gfx"
 )
 
@@ -359,6 +361,11 @@ func (f *semanticFixture) openFunctionCompletions(t *testing.T) {
 func (f *semanticFixture) openCompletions(t *testing.T, items ...core.PluginSemanticCompletionItem) {
 	t.Helper()
 	f.d.view.GoToNavigation(0, 0, false)
+	f.requestCompletions(t, items...)
+}
+
+func (f *semanticFixture) requestCompletions(t *testing.T, items ...core.PluginSemanticCompletionItem) {
+	t.Helper()
 	if err := f.h.driver.Key(gfx.KeySpace, gfx.ModifierControl); err != nil {
 		t.Fatal(err)
 	}
@@ -410,6 +417,126 @@ func TestCompletionPopupKeepsFunctionNamesAndShowsSelectedSignature(t *testing.T
 	if got := f.d.view.TextSnapshot().String(); got != "WithTimeoutCauseone\n" {
 		t.Fatalf("accepted text = %q", got)
 	}
+}
+
+func TestCompletionPopupSignatureAtContentWidth(t *testing.T) {
+	f := newSemanticFixture(t)
+	if err := f.h.driver.Resize(1000, 600); err != nil {
+		t.Fatal(err)
+	}
+	const detail = "func(parent sample.Context, delay sample.Duration) (sample.Context, sample.Cancel)"
+	f.openCompletions(t, core.PluginSemanticCompletionItem{Label: "CallAfter", Detail: detail})
+	if !f.h.showsWrapped(detail) {
+		t.Fatal("the width-setting candidate's signature was clipped without a preview")
+	}
+}
+
+// placeCompletionCaret sets up enough lines to place the caret away from the top
+// of the document. The caller chooses the line for the window geometry under test.
+func (f *semanticFixture) placeCompletionCaret(t *testing.T, line int) gfx.Rect {
+	t.Helper()
+	content := []byte(strings.Repeat("call(value)\n", 70))
+	if err := os.WriteFile(f.d.path, content, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	f.d.view.ShowContent(editorview.Prepare(content))
+	f.h.settle()
+	f.d.view.GoToNavigation(line, 5, false)
+	f.h.app.invalidator.Invalidate()
+	if err := f.h.driver.Pump(); err != nil {
+		t.Fatal(err)
+	}
+	caret, ok := f.d.caretView().CaretRect()
+	if !ok {
+		t.Fatal("could not measure the caret")
+	}
+	if got, _ := f.d.caretView().CaretUTF16(); got != line {
+		t.Fatalf("caret ended on line %d, want %d", got, line)
+	}
+	return caret
+}
+
+func longFunctionCandidates() []core.PluginSemanticCompletionItem {
+	items := make([]core.PluginSemanticCompletionItem, 10)
+	for i := range items {
+		items[i] = core.PluginSemanticCompletionItem{
+			Label:  fmt.Sprintf("candidate%02d", i),
+			Detail: "func(" + strings.Repeat("parameter distinguished.package.Type, ", 12) + "tail bool)",
+		}
+	}
+	return items
+}
+
+func TestCompletionPopupStaysClearOfCaret(t *testing.T) {
+	f := newSemanticFixture(t)
+	if err := f.h.driver.Resize(900, 600); err != nil {
+		t.Fatal(err)
+	}
+	caret := f.placeCompletionCaret(t, 10)
+	f.requestCompletions(t, longFunctionCandidates()...)
+	popup := f.h.hitLabeled(f.h.shared("desktop.semantics.completion"))
+	if popup.Y < caret.Bottom() && caret.Y < popup.Bottom() {
+		t.Fatalf("completion %v covers the caret %v", popup, caret)
+	}
+	if err := f.h.driver.Key(gfx.KeyPageDown, 0); err != nil {
+		t.Fatal(err)
+	}
+	f.h.hitLabeled("candidate09")
+}
+
+func TestCompletionPopupBoundsLongSignatureMeasurement(t *testing.T) {
+	kernel := &semanticTestKernel{testKernel: &testKernel{Client: core.NewClient()}}
+	canvas := &gfx.Canvas{}
+	longest := 0
+	canvas.SetMeasurer(func(value string, _, _ float32) float32 {
+		if strings.Contains(value[:min(len(value), 40)], "distinguished.package.Type") {
+			longest = max(longest, len(value))
+		}
+		return 0 // use the normal headless measurement
+	})
+	prefs := store.At(t.TempDir())
+	if err := prefs.Save(settingsFile, map[string]string{"theme": "dark"}); err != nil {
+		t.Fatal(err)
+	}
+	h := newHarnessWithDriver(t, Options{Kernel: kernel, Store: prefs}, func(config app.Config) (*app.Driver, func(), error) {
+		driver, err := app.NewDriver(config, canvas)
+		if err != nil {
+			return nil, nil, err
+		}
+		return driver, driver.Close, nil
+	})
+	f := openSemanticFixture(t, h, kernel)
+	const tail = "finalParameter bool)"
+	detail := "func(" + strings.Repeat("parameter distinguished.package.Type, ", 4096) + tail
+	f.openCompletions(t, core.PluginSemanticCompletionItem{Label: "shortCall", Detail: "func()"},
+		core.PluginSemanticCompletionItem{Label: "longCall", Detail: detail})
+	if err := h.driver.Key(gfx.KeyDown, 0); err != nil {
+		t.Fatal(err)
+	}
+	if longest == 0 || longest > 2048 {
+		t.Fatalf("first display measured a %d-byte fragment of the %d-byte signature", longest, len(detail))
+	}
+	if h.showsWrapped(tail) {
+		t.Fatal("tail should start outside the preview")
+	}
+	focus := h.driver.Snapshot().Focused
+	popup := h.hitLabeled(h.shared("desktop.semantics.completion"))
+	x, y := popup.X+popup.Width/2, popup.Bottom()-12
+	if err := h.driver.Click(x, y); err != nil {
+		t.Fatal(err)
+	}
+	if got := h.driver.Snapshot().Focused; focus.IsZero() || got != focus {
+		t.Fatalf("clicking preview changed editor focus from %v to %v", focus, got)
+	}
+	for range 8 {
+		if err := h.driver.Scroll(gfx.ScrollEvent{X: x, Y: y, DeltaY: 1e6, Precise: true}); err != nil {
+			t.Fatal(err)
+		}
+		if h.showsWrapped(tail) {
+			return
+		}
+	}
+	t.Fatal("scrolling the virtual preview did not reveal the end of the signature")
 }
 
 func TestCompletionPopupCanScrollToTheEndOfALongSignature(t *testing.T) {

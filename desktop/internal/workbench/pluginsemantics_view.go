@@ -3,6 +3,7 @@ package workbench
 import (
 	"math"
 	"strings"
+	"unicode/utf8"
 
 	"github.com/1lck/Lithe-IDEA/desktop/internal/i18n"
 	"github.com/vivaui/viva/gfx"
@@ -13,6 +14,8 @@ const (
 	semanticRowPad              = 8
 	semanticRowGap              = 8
 	semanticListGap             = 1
+	semanticPopupBorder         = 1
+	semanticPopupMargin         = 4
 	completionMinWidth          = 360
 	completionMaxWidth          = 640
 	completionLabelSize         = 12
@@ -21,6 +24,10 @@ const (
 	completionPreviewLineHeight = 18
 	completionPreviewPadY       = 4
 	completionPreviewMaxHeight  = completionPreviewLines*completionPreviewLineHeight + 2*completionPreviewPadY
+	completionPreviewMinHeight  = completionPreviewLineHeight + 2*completionPreviewPadY
+	// Keep single-line measurement and each virtual preview block bounded,
+	// including when the server sends one long line without newlines.
+	completionTextBlockBytes = 512
 )
 
 // semanticPopups declares the open rename dialog or the definition, completion
@@ -60,7 +67,7 @@ func (a *App) semanticPopups(c ui.C) {
 func (a *App) semanticPopup(c ui.C, x, y, width, maxHeight float32, label string, pad float32, body func()) {
 	ui.Stack(c).Fill().Children(func() {
 		ui.Column(c).Absolute().Left(x).Top(y).Width(width).MaxHeight(maxHeight).Pad(pad).
-			Background(a.theme.Popover).Border(1, a.theme.Border).
+			Background(a.theme.Popover).Border(semanticPopupBorder, a.theme.Border).
 			Radius(a.theme.Metrics.RadiusPopup()).Shadow(gfx.ShadowMD).
 			HitWith(ui.ID(c), label, gfx.HitOptions{Role: gfx.RoleMenu, SkipFocus: true}).
 			Children(body)
@@ -115,9 +122,26 @@ func (a *App) definitionPopup(c ui.C) {
 }
 
 type completionRowLayout struct {
-	nameWidth, detailWidth float32
-	detail                 string
-	multiline              bool
+	nameWidth, detailWidth  float32
+	name, detail            string
+	nameClipped, moreDetail bool
+}
+
+// completionSummary reads only a bounded first line. The preview still uses the
+// original text, so even a candidate whose label contains a signature is readable.
+func completionSummary(value string) (string, bool) {
+	end := min(len(value), completionTextBlockBytes)
+	if end < len(value) {
+		end = gfx.GraphemeStart(value[:min(end+utf8.UTFMax, len(value))], end)
+		// A single cluster longer than the whole budget cannot appear in a summary.
+		if end == 0 {
+			return "…", true
+		}
+	}
+	if line, _, found := strings.Cut(value[:end], "\n"); found {
+		return strings.TrimSuffix(line, "\r"), true
+	}
+	return value[:end], end < len(value)
 }
 
 func (a *App) completionPopup(c ui.C) gfx.Rect {
@@ -133,32 +157,32 @@ func (a *App) completionPopup(c ui.C) gfx.Rect {
 		return gfx.Rect{}
 	}
 
-	bounds := c.Bounds().Inset(gfx.All(4))
-	const rowInsets = 2 * (semanticPopupPad + semanticRowPad)
-	if bounds.Width <= rowInsets || bounds.Height < semanticRowHeight+2*semanticPopupPad {
+	bounds := c.Bounds().Inset(gfx.All(semanticPopupMargin))
+	const (
+		popupInsets = 2 * (semanticPopupPad + semanticPopupBorder)
+		rowInsets   = popupInsets + 2*semanticRowPad
+		caretGap    = 2
+		rowStep     = semanticRowHeight + semanticListGap
+	)
+	above := anchor.Y - caretGap - bounds.Y
+	below := bounds.Bottom() - (anchor.Bottom() + caretGap)
+	if bounds.Width <= rowInsets || anchor.Bottom() <= bounds.Y || anchor.Y >= bounds.Bottom() ||
+		max(above, below) < semanticRowHeight+popupInsets {
 		return gfx.Rect{}
 	}
 	first, last := semanticWindow(state.selected, len(state.items))
 	if first == last {
 		return gfx.Rect{}
 	}
-	// Reserve a footer's worth of space in short windows so the selected row and its
-	// details can both be shown. Normal windows retain the full candidate window.
-	previewHeight := min(float32(completionPreviewMaxHeight), max(0, bounds.Height-semanticRowHeight-2*semanticPopupPad-semanticListGap))
-	maxRows := max(1, int((bounds.Height-previewHeight-2*semanticPopupPad)/(semanticRowHeight+semanticListGap)))
-	if last-first > maxRows {
-		first = min(max(first, state.selected-maxRows+1), last-maxRows)
-		last = first + maxRows
-	}
-
 	canvas := c.Canvas()
 	var rows [visibleSemanticRows]completionRowLayout
 	desiredWidth := float32(completionMinWidth)
 	for i, item := range state.items[first:last] {
-		detail, _, multiline := strings.Cut(item.Detail, "\n")
-		nameWidth := float32(math.Ceil(float64(canvas.TextWidth(item.Label, completionLabelSize))))
+		name, nameClipped := completionSummary(item.Label)
+		detail, moreDetail := completionSummary(item.Detail)
+		nameWidth := float32(math.Ceil(float64(canvas.TextWidth(name, completionLabelSize))))
 		detailWidth := float32(math.Ceil(float64(canvas.TextWidth(detail, completionDetailSize))))
-		rows[i] = completionRowLayout{nameWidth: nameWidth, detailWidth: detailWidth, detail: detail, multiline: multiline}
+		rows[i] = completionRowLayout{nameWidth, detailWidth, name, detail, nameClipped, moreDetail}
 		rowWidth := rowInsets + nameWidth
 		if detailWidth > 0 {
 			rowWidth += semanticRowGap + detailWidth
@@ -170,73 +194,153 @@ func (a *App) completionPopup(c ui.C) gfx.Rect {
 
 	selected := state.items[state.selected]
 	selectedRow := rows[state.selected-first]
-	var previewLabel, previewDetail string
-	if selectedRow.nameWidth > textWidth {
-		previewLabel, previewDetail = selected.Label, selected.Detail
-	} else if selectedRow.multiline || selectedRow.detailWidth > 0 && selectedRow.nameWidth+semanticRowGap+selectedRow.detailWidth > textWidth {
-		previewDetail = selected.Detail
+	var preview [2]string
+	if selectedRow.nameClipped || selectedRow.nameWidth > textWidth {
+		preview = [2]string{selected.Label, selected.Detail}
+	} else if selectedRow.moreDetail || selectedRow.detailWidth > 0 && selectedRow.nameWidth+semanticRowGap+selectedRow.detailWidth > textWidth {
+		preview[1] = selected.Detail
 	}
-	preview := [2]string{previewLabel, previewDetail}
 
-	height := 2*semanticPopupPad + float32(last-first)*(semanticRowHeight+semanticListGap) - semanticListGap
-	showPreview := (previewLabel != "" || previewDetail != "") && previewHeight >= completionPreviewLineHeight+2*completionPreviewPadY
-	if showPreview {
-		var scratch [completionPreviewLines]string
-		style := gfx.TextStyle{Size: completionLabelSize}
-		var lineCount int
-		for _, part := range preview {
-			lines := canvas.WrapLinesStyle(scratch[:0], part, style, textWidth, len(scratch)-lineCount, nil)
-			lineCount += len(lines)
-		}
-		previewHeight = min(previewHeight, float32(lineCount)*completionPreviewLineHeight+2*completionPreviewPadY)
+	previewHeight := completionPreviewHeight(canvas, preview, textWidth)
+	height := popupInsets + float32(last-first)*rowStep - semanticListGap
+	if previewHeight > 0 {
 		height += previewHeight + semanticListGap
 	}
-	x := min(max(anchor.X, bounds.X), bounds.Right()-width)
-	y := anchor.Bottom() + 2
-	if y+height > bounds.Bottom() && anchor.Y-2-bounds.Y > bounds.Bottom()-y {
-		y = anchor.Y - 2 - height
+	// Choose a side before limiting the row window. Clamping a too-tall
+	// popup after placement can make it cover the line being edited.
+	placeAbove := height > below && above > below
+	available := below
+	if placeAbove {
+		available = above
 	}
-	y = min(max(y, bounds.Y), bounds.Bottom()-height)
+	previewHeight = min(previewHeight, available-popupInsets-semanticRowHeight-semanticListGap)
+	footerHeight := float32(0)
+	if previewHeight >= completionPreviewMinHeight {
+		footerHeight = previewHeight + semanticListGap
+	}
+	maxRows := max(1, int((available-popupInsets-footerHeight+semanticListGap)/rowStep))
+	from := min(max(first, state.selected-maxRows+1), max(first, last-maxRows))
+	to := min(last, from+maxRows)
+	height = popupInsets + float32(to-from)*rowStep - semanticListGap + footerHeight
+	x := min(max(anchor.X, bounds.X), bounds.Right()-width)
+	y := anchor.Bottom() + caretGap
+	if placeAbove {
+		y = anchor.Y - caretGap - height
+	}
 
 	chosen := -1
 	language := a.language()
 	a.semanticPopup(c, x, y, width, height, i18n.Shared(language, "desktop.semantics.completion"), semanticPopupPad, func() {
 		ui.Column(c).FillWidth().Gap(semanticListGap).Children(func() {
-			for i, item := range state.items[first:last] {
-				index := first + i
-				row := rows[i]
+			for index := from; index < to; index++ {
+				item := state.items[index]
+				row := rows[index-first]
 				if a.semanticRow(c, index, item.Label, index == state.selected, func(rc ui.C) {
 					nameWidth := min(row.nameWidth, textWidth)
-					ui.Text(rc, item.Label).FontSize(completionLabelSize).Width(nameWidth).Shrink(0).Ellipsis()
-					if row.detail != "" && textWidth-nameWidth-semanticRowGap >= min(row.detailWidth, completionDetailSize*3) {
+					ui.Text(rc, row.name).FontSize(completionLabelSize).Width(nameWidth).Shrink(0).Ellipsis()
+					detailRoom := textWidth - nameWidth - semanticRowGap
+					if row.detail != "" && detailRoom >= min(row.detailWidth, completionDetailSize*3) {
 						ui.Text(rc, row.detail).FontSize(completionDetailSize).Color(a.colors.Subtle).
-							Grow(1).Shrink(1).MinWidth(0).Ellipsis()
+							Width(detailRoom).Shrink(0).Ellipsis()
 					}
 				}) {
 					chosen = index
 				}
 			}
 		})
-		if showPreview {
-			pc := c.Part("completion-preview").KeyInt(state.selected)
-			ui.Divider(pc).Height(semanticListGap)
-			ui.Scroll(pc).FillWidth().Height(previewHeight).Scrollbars().
-				ScrollbarLabels(i18n.Shared(language, "desktop.editor.verticalScrollbar"), i18n.Shared(language, "desktop.editor.horizontalScrollbar")).
-				Children(func() {
-					ui.Column(pc).FillWidth().PadX(semanticRowPad).PadY(completionPreviewPadY).Children(func() {
-						for _, part := range preview {
-							if part != "" {
-								ui.Wrap(pc, part).FillWidth().FontSize(completionLabelSize).LineHeight(completionPreviewLineHeight)
-							}
-						}
-					})
-				})
+		if footerHeight > 0 {
+			ui.Divider(c).Height(semanticListGap)
+			ui.Column(c.KeyInt(state.selected)).FillWidth().Height(previewHeight).Children(func() {
+				a.completionPreview(c, preview, previewHeight)
+			})
 		}
 	})
 	if chosen >= 0 {
 		c.After(func() { a.acceptPluginCompletion(chosen) })
 	}
 	return gfx.Rect{X: x, Y: y, Width: width, Height: height}
+}
+
+func completionPreviewHeight(canvas *gfx.Canvas, text [2]string, width float32) float32 {
+	var scratch [completionPreviewLines]string
+	lineCount := 0
+	for _, part := range text {
+		if len(part) > completionTextBlockBytes {
+			return completionPreviewMaxHeight
+		}
+		lines := canvas.WrapLines(scratch[:0], part, completionLabelSize, gfx.WeightRegular, width, len(scratch)-lineCount)
+		lineCount += len(lines)
+	}
+	if lineCount == 0 {
+		return 0
+	}
+	return float32(lineCount)*completionPreviewLineHeight + 2*completionPreviewPadY
+}
+
+func (a *App) completionPreview(c ui.C, text [2]string, height float32) {
+	first := completionBlockCount(text[0])
+	total := first + completionBlockCount(text[1])
+	language := a.language()
+	vertical := i18n.Shared(language, "desktop.editor.verticalScrollbar")
+	horizontal := i18n.Shared(language, "desktop.editor.horizontalScrollbar")
+	if len(text[0]) <= completionTextBlockBytes && len(text[1]) <= completionTextBlockBytes {
+		ui.Scroll(c).FillWidth().Height(height).Scrollbars().ScrollbarLabels(vertical, horizontal).Children(func() {
+			ui.Column(c).FillWidth().PadX(semanticRowPad).PadY(completionPreviewPadY).Children(func() {
+				for _, part := range text {
+					if part != "" {
+						ui.Wrap(c, part).FillWidth().FontSize(completionLabelSize).LineHeight(completionPreviewLineHeight)
+					}
+				}
+			})
+		})
+		return
+	}
+
+	list := ui.State[ui.ListState](c, "preview-blocks")
+	ui.List(c, list, total, func(row ui.ListRow) {
+		part, index := 0, row.Index
+		if index >= first {
+			part, index = 1, index-first
+		}
+		row.Element.PadX(semanticRowPad).Items(ui.Start).
+			HitWith(row.ID, "", gfx.HitOptions{Role: gfx.RoleGroup, SkipFocus: true})
+		if row.Index == 0 {
+			row.Element.PadTop(completionPreviewPadY)
+		}
+		if row.Index == total-1 {
+			row.Element.PadBottom(completionPreviewPadY)
+		}
+		start := completionBlockStart(text[part], index)
+		end := completionBlockStart(text[part], index+1)
+		value := text[part][start:end]
+		ui.Wrap(row.C, value).Grow(1).MinWidth(0).FontSize(completionLabelSize).LineHeight(completionPreviewLineHeight)
+	}).FillWidth().Height(height).Scrollbars().ScrollbarLabels(vertical, horizontal)
+}
+
+func completionBlockCount(value string) int {
+	return (len(value) + completionTextBlockBytes - 1) / completionTextBlockBytes
+}
+
+// Block offsets are calculated independently so the scrollbar can jump without
+// reading preceding text. Prefer a nearby whitespace break, then a grapheme
+// boundary in the same bounded window.
+func completionBlockStart(value string, index int) int {
+	if index == 0 {
+		return 0
+	}
+	offset := index * completionTextBlockBytes
+	if offset >= len(value) {
+		return len(value)
+	}
+	const lookBehind = 64
+	start := offset - lookBehind
+	if at := strings.LastIndexAny(value[start:offset], " \t\n"); at >= 0 {
+		return start + at + 1
+	}
+	for !utf8.RuneStart(value[start]) {
+		start++
+	}
+	return start + gfx.GraphemeStart(value[start:min(offset+utf8.UTFMax, len(value))], offset-start)
 }
 
 // renameDialog is the thin view over renameState: it shows the name field and
