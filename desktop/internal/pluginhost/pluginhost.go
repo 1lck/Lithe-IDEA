@@ -106,8 +106,15 @@ type Capabilities map[string][]int
 //     form Core describes in the plugin's translation, saves them and runs them
 //     with the command Core plans for the detected instance. A declared kind has
 //     no debugger.
+//   - beforeLaunchTasks: the Add New Task menu of every configuration's Before
+//     launch list offers the tasks a build system declares, edits each with the
+//     form Core describes in the plugin's translation, and runs the step with
+//     the command Core plans for the detected instance before the configuration
+//     starts.
 //   - toolDefinitions: settings discovery, Build/Run selection and tool
-//     launches use the shared Core resolver.
+//     launches use the shared Core resolver. Version 1 adds a definition's
+//     category and audience, which group the tool on the Toolchains settings
+//     page.
 //   - commandInstallers: plugin management reports the commands a
 //     systemCommand launch names but the machine lacks, and installs them with
 //     the plugin's tool after the user confirms the command line, the network
@@ -117,15 +124,17 @@ type Capabilities map[string][]int
 //     their forms through Core, discovers tools with the shared toolchain and
 //     runs the plan in a staging directory.
 //   - settings: pages per language and build system, sections, every control
-//     type, the project layer, setting effects and page buttons.
+//     type, the project layer, setting effects, page buttons and settingRegions
+//     (search keywords and plugin views on a page or the plugin's own Settings tab).
 //   - debugAdapters: stdio adapters, adapter processes that print the loopback
 //     TCP endpoint they listen on (tcpAnnounced) and adapters inside the
 //     plugin's language server over loopback TCP, launch and attach (a remote host after the user
 //     confirms it), argument and environment bindings, features and defaults.
 //   - outputLinkMatchers: Build, Run and Test console lines become links at the
 //     ranges Core finds; a matcher with resolve asks the backend on click.
-//   - ui: text, web (window.lithe bridge) and native tree, list or form tool
-//     windows docked in the tool stripes.
+//   - ui: text, web (window.lithe bridge) and plugin view tool windows docked
+//     in the tool stripes; a plugin view (pluginview) draws the host controls,
+//     trees and canvases a backend view function returns.
 //   - vcsProviders: each provider's roots get a version control tool window
 //     with status, check-in, rollback, Diff and whatever else the provider
 //     negotiated; its session starts when the window first needs it.
@@ -151,6 +160,7 @@ type Capabilities map[string][]int
 func Declared() Capabilities {
 	baseline := []string{
 		"backend",
+		"beforeLaunchTasks",
 		"buildProviders",
 		"buildSystems",
 		"commandInstallers",
@@ -177,6 +187,9 @@ func Declared() Capabilities {
 	declared["sourceSettings"] = []int{0, 1}
 	// Version 1 adds entrypoint runs, which Run on Current File starts.
 	declared["buildProviders"] = []int{0, 1}
+	// Version 1 adds a definition's category and audience, by which the
+	// Toolchains settings page groups and folds the tools.
+	declared["toolDefinitions"] = []int{0, 1}
 	return declared
 }
 

@@ -135,7 +135,7 @@ func (a *App) endPaint() {
 	a.treeApps.endFrame()
 	a.endPluginPageFrame()
 	a.endPreviewFrame()
-	a.endNativePanels()
+	a.endPluginViews()
 }
 
 // page declares the window: one stack, so what is declared after the workbench lies over it
@@ -313,6 +313,7 @@ func (a *App) overlays(c ui.C) {
 		a.drawWorktreeDialog(c, p)
 		a.drawRunConfigDialog(c, p)
 		a.drawRunConfigDelete(c, p)
+		a.drawRunConfigTask(c, p)
 		a.drawBeforeLaunchConfirmation(c, p)
 		a.buildOptionsDialog(c, p)
 		a.drawStartupSweep(c)

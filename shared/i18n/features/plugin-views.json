@@ -1,0 +1,65 @@
+{
+  "schemaVersion": 1,
+  "messages": [
+    {
+      "id": "desktop.pluginView.failed",
+      "description": "Plugin view (tool window or settings region): the plugin's backend could not answer the last view event; the last drawn view stays and Retry sends it again",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.pluginView.timedOut",
+      "description": "Plugin view: the plugin's backend did not answer a view event within the contract's time limit",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.pluginView.invalid",
+      "description": "Plugin view: Core refused the view the plugin returned, so the host keeps drawing the last valid one",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.pluginView.zoom",
+      "description": "Plugin view canvas: accessibility label of the zoom percentage button",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.pluginView.resetZoom",
+      "description": "Plugin view canvas: tooltip of the zoom percentage button, which resets the zoom",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.pluginView.resetZoomHint",
+      "description": "Plugin view canvas: accessibility hint of the zoom percentage button",
+      "platforms": [
+        "desktop"
+      ]
+    }
+  ],
+  "locales": {
+    "en-US": {
+      "desktop.pluginView.failed": "The plugin could not update this view.",
+      "desktop.pluginView.timedOut": "The plugin took too long to update this view.",
+      "desktop.pluginView.invalid": "The plugin returned a view Lithe cannot show.",
+      "desktop.pluginView.zoom": "Canvas zoom",
+      "desktop.pluginView.resetZoom": "Reset zoom to 100%",
+      "desktop.pluginView.resetZoomHint": "Reset zoom"
+    },
+    "zh-CN": {
+      "desktop.pluginView.failed": "插件无法更新此视图。",
+      "desktop.pluginView.timedOut": "插件更新此视图超时。",
+      "desktop.pluginView.invalid": "插件返回的视图无法显示。",
+      "desktop.pluginView.zoom": "画布缩放",
+      "desktop.pluginView.resetZoom": "缩放重置为 100%",
+      "desktop.pluginView.resetZoomHint": "重置缩放"
+    }
+  }
+}

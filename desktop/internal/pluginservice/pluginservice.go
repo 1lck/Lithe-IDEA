@@ -44,7 +44,7 @@ type Kernel interface {
 	pluginbackend.Kernel
 	pluginsettings.Kernel
 	ReadInstalledPluginSettingsState(context.Context, json.RawMessage, string, string) (core.PluginSettingsState, error)
-	ValidatePluginNativeData(ctx context.Context, declaration, data json.RawMessage) (json.RawMessage, error)
+	ApplyPluginViewResult(ctx context.Context, manifest json.RawMessage, surface core.PluginViewSurface, view, result json.RawMessage) (json.RawMessage, bool, error)
 	SelectInstalledPluginVersions(context.Context, []core.InstalledPluginFact, bool) (core.InstalledPluginSelection, error)
 	pluginmanager.Kernel
 	ExpandPluginWorkspaceConfiguration(context.Context, json.RawMessage, string, map[string]json.RawMessage, map[string]json.RawMessage) (json.RawMessage, error)

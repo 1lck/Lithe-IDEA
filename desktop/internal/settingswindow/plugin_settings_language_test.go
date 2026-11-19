@@ -67,8 +67,8 @@ func TestPluginSettingsTextFollowsTheWindowLanguageWithoutDiscardingDrafts(t *te
 		Language:           current,
 		Text:               func() *i18n.Messages { return i18n.For(current()) },
 		SettingsNavigation: client.SettingsNavigation,
-		SettingsPages: func(ctx context.Context) ([]core.SettingsPage, error) {
-			return client.SettingsPages(ctx, []core.SettingsContribution{{Manifest: manifest, Owner: core.PluginSettingsOwner{PluginID: "dev.lithe.fixture.settings", Version: "0.1.0"}, Enabled: true}})
+		SettingsPages: func(ctx context.Context, _ i18n.Language) ([]core.SettingsPage, error) {
+			return client.SettingsPages(ctx, []core.SettingsContribution{{Manifest: manifest, Owner: core.PluginSettingsOwner{PluginID: "dev.lithe.fixture.settings", Version: "0.1.0"}, Enabled: true}}, "")
 		},
 	}), Values{Theme: "dark"})
 	d := openWindow(t, w, func(config *app.Config) { config.Height = 1100 })

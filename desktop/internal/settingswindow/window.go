@@ -40,9 +40,15 @@ const (
 	tileRadius = 4
 	tileGlyph  = 12
 	tileGap    = 8
-	// childIndent is what a row inside a group is indented by, so its title lines up with
-	// the title of the group.
+	// childIndent is where the title of a row inside a group starts, under the title of the
+	// group. levelIndent is the Tree's step of a level, which a row's content pads up to where
+	// its title starts.
 	childIndent = chevronSlot + tileSize + tileGap
+	levelIndent = childIndent / 2
+	// sectionHeight is the height of a section's title in the search, the prototype's .hd.
+	sectionHeight = 26
+	// crumbHeight is the height of the breadcrumb, the prototype's .crumb.
+	crumbHeight = 42
 
 	// contentPad is the margin of the page at its sides.
 	contentPad = 26
@@ -59,8 +65,9 @@ const (
 	radioDot    = 6
 	// emptyWidth is the width the sentence of a page that is not available yet wraps at.
 	emptyWidth = 360
-	// footerHeight is the height of the bar with the buttons.
-	footerHeight = 52
+	// footerHeight is the height of the bar with the buttons under its 1px top line, 50 in all
+	// as in the prototype.
+	footerHeight = 49
 	// footerPad is the margin of the bar's buttons at its sides.
 	footerPad = 16
 )
@@ -113,10 +120,17 @@ type window struct {
 	requestedPage         atomic.Uint32
 	pluginRegistryChanged atomic.Bool
 	// toolchains is the Build settings page's draft and loaded snapshot.
-	toolchains        *toolchainState
-	stepping          *steppingState
-	pluginSettings    *pluginSettingsForm
-	pluginForms       map[string]*pluginSettingsForm
+	toolchains *toolchainState
+	stepping   *steppingState
+	// apply is the footer's write of the Build pages' drafts.
+	apply buildApply
+	// kinds is the list of each kind of plugin pages under Build, by the kind's place in
+	// buildKinds: its filter, its rows and the page it last showed.
+	kinds          [len(buildKinds)]kindState
+	pluginSettings *pluginSettingsForm
+	pluginForms    map[string]*pluginSettingsForm
+	// region is the plugin view of the settings region on screen (plugin_region_view.go).
+	region            *regionView
 	formLimitReported bool
 	dynamic           settingsSurfaces
 	dynamicPage       string
@@ -142,7 +156,7 @@ type window struct {
 	stopTimeEditing bool
 	// network is the Network page's unsaved edit.
 	network networkDraft
-	// updates is the Updates page's unsaved feed address and channel switch (updates_view.go).
+	// updates is the update card's unsaved feed address and channel switch (updates_view.go).
 	updates updatesDraft
 	// localHistory is the General page's unsaved local history settings and the open
 	// project's history size (local_history_view.go).
@@ -173,9 +187,11 @@ type window struct {
 	marketSourceNotice string
 
 	// What the current paint works from.
-	text  *i18n.Messages
-	dark  bool
-	pal   palette
+	text *i18n.Messages
+	dark bool
+	pal  palette
+	// bp is the look of the Build, Execution, Deployment pages (build_style.go).
+	bp    buildPalette
 	theme ui.Theme
 	// background is what the page fills the window with, which follows the look.
 	background ui.Color
@@ -190,10 +206,10 @@ type window struct {
 	// rows is the sidebar as listed for rowsFor, rebuilt only when what it depends on has
 	// changed. nav is the Tree that shows them.
 	rows      []row
-	rowsFor   rowsKey
+	rowsFor   sidebarKey
 	rowsValid bool
 	nav       ui.TreeState
-	crumbs    []string
+	crumbs    []crumb
 
 	// The words of the two lists, built for labelsFor.
 	themeLabels    []string
@@ -203,11 +219,20 @@ type window struct {
 	labelsValid    bool
 }
 
-// rowsKey is everything the sidebar's rows are computed from.
+// rowsKey is everything Core's projection of the sidebar is computed from.
 type rowsKey struct {
 	text  *i18n.Messages
 	query string
 	open  [pageCount]bool
+}
+
+// sidebarKey is everything the sidebar's rows are computed from: Core's projection, and while
+// searching the tools and the debuggers that match.
+type sidebarKey struct {
+	rows     rowsKey
+	revision uint64
+	tools    toolchainWant
+	adapters int
 }
 
 // labelsKey is everything the words of the two lists are computed from.
@@ -250,7 +275,7 @@ func newWindow(c *Controller, current Values) *window {
 	w.terminal = newTerminalShellState(c.opts.TerminalShells)
 	w.fonts = newFontListState(c.opts.MonospaceFamilies)
 	w.generation = newAIGeneration(c.opts, func() { w.inv.Invalidate() })
-	w.nav.Node, w.nav.Key, w.nav.RowHeight, w.nav.Indent = w.navNode, w.navKey, rowHeight, childIndent
+	w.nav.Node, w.nav.Key, w.nav.RowHeight, w.nav.Indent = w.navNode, w.navKey, rowHeight, levelIndent
 	return w
 }
 
@@ -374,6 +399,7 @@ func (w *window) native() *app.Window {
 // the system look is no longer watched and the controller forgets the window, so the next
 // Open makes a new one. The Page has cancelled its effects by then.
 func (w *window) closed() {
+	w.closeRegion()
 	w.dismissPluginInstall()
 	if w.ctrl.opts.PluginInstallsClosed != nil {
 		w.ctrl.opts.PluginInstallsClosed()
@@ -393,16 +419,18 @@ func (w *window) closed() {
 	}
 }
 
-// accept is OK: it closes the window. A second OK, such as an Enter
-// that arrives with a click, does nothing.
+// accept is OK: it writes the Build pages' drafts, then closes the window (build_apply.go).
+// A second OK, such as an Enter that arrives with a click, joins the write that is out.
 func (w *window) accept() {
-	if w.sess.accept() {
-		w.closeNative()
-	}
+	w.startApply(true)
 }
 
-// cancel is Cancel: it closes the window without undoing already applied settings.
+// cancel is Cancel: it drops the Build pages' drafts and closes the window without undoing
+// already applied settings. It waits for nothing: while a write is out, Cancel is off.
 func (w *window) cancel() {
+	if w.apply.active() {
+		return
+	}
 	if w.sess.cancel() {
 		w.closeNative()
 	}
@@ -425,6 +453,7 @@ func (w *window) prepare(size gfx.Size) {
 	w.text = w.ctrl.text()
 	w.dark = windowDark(w.sess.values.Theme, w.ctrl.systemDark())
 	w.pal = paletteFor(w.dark)
+	w.bp = buildPaletteFor(w.dark)
 	if !w.themed || w.themedDark != w.dark {
 		w.theme, w.themed, w.themedDark = windowTheme(w.dark, w.pal), true, w.dark
 	}
@@ -436,10 +465,12 @@ func (w *window) prepare(size gfx.Size) {
 
 // collect takes the result of each background request on the window thread.
 func (w *window) collect() {
-	w.toolchains.take()
-	if saved, ok := w.stepping.take(); ok {
+	toolchainFailed := w.toolchains.take()
+	saved, err, done := w.stepping.take()
+	if done && err == nil {
 		w.setSteppingFilters(saved.adapter, &saved.filters)
 	}
+	w.advanceApply(toolchainFailed, steppingResult{done: done, err: err})
 	w.terminal.take()
 	w.fonts.take()
 	w.takeKeymapImport()
@@ -500,16 +531,29 @@ func (w *window) declareWork(c ui.C) {
 // groups have changed since they were built.
 func (w *window) refreshRows() {
 	key := rowsKey{text: w.text, query: w.query, open: w.sess.open}
-	if w.rowsValid && key == w.rowsFor {
+	projected := w.ctrl.opts.SettingsNavigation != nil
+	if projected {
+		w.dynamic.request(key)
+	}
+	full := sidebarKey{rows: key, revision: w.dynamic.revision}
+	if w.query != "" {
+		full.tools, full.adapters = w.searchSources()
+	}
+	if w.rowsValid && full == w.rowsFor {
 		return
 	}
-	if w.ctrl.opts.SettingsNavigation != nil {
-		w.dynamic.request(key)
-		w.rows = w.dynamic.rows
+	var pages []row
+	if projected {
+		pages = w.dynamic.rows
 	} else {
-		w.rows = appendVisible(w.rows[:0], &w.text.Settings, &key.open, w.query)
+		pages = appendVisible(nil, &w.text.Settings, &key.open, w.query)
 	}
-	w.rowsFor, w.rowsValid = key, true
+	if w.query == "" {
+		w.rows = pages
+	} else {
+		w.rows = w.searchSections(pages)
+	}
+	w.rowsFor, w.rowsValid = full, true
 }
 
 // refreshLabels rebuilds the words of the appearance choice and the language list when the

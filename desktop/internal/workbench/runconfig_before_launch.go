@@ -1,22 +1,26 @@
 package workbench
 
-// Steps before launch (#1616): a run configuration names built-in process runs that start,
-// in order, before it does, as IntelliJ IDEA's "Before launch: Run Another Configuration".
-// Core expands the list and says whether a project file named it
-// (`runConfig.beforeLaunch`); the host asks once per list a project file names, runs each
-// step as its process run, writes the output to the console of the configuration that
-// starts, and starts the configuration only after every step exited with 0. Stopping the
+// Steps before launch (#1616): a run configuration names steps that start, in order, before
+// it does, as IntelliJ IDEA's "Before launch" list: another built-in process run, or a task a
+// plugin declares (API-29, `beforeLaunchTasks`), such as running a build tool's command. Core
+// expands the list and says whether a project file named it (`runConfig.beforeLaunch`); the
+// host asks once per list a project file names, runs each step (a process run as its launch
+// plan, a task as Core's plan of it, `build.beforeLaunchTaskPlan`, by the build tool the
+// plugin's detected instance resolves), writes the output to the console of the configuration
+// that starts, and starts the configuration only after every step exited with 0. Stopping the
 // configuration stops the step that runs.
 //
 // Note: 决策见 .agents/notes/implemented/feature/2026-11-18-run-configuration-before-launch-steps.md
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"os/exec"
 	"slices"
 
+	"github.com/1lck/Lithe-IDEA/desktop/internal/buildprocess"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/core"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/i18n"
 	"github.com/vivaui/viva/gfx"
@@ -47,10 +51,11 @@ type beforeLaunchConfirmation struct {
 // with the reason in its console.
 func (a *App) runBeforeLaunch(p *project, op *buildOperation, id string, start func()) {
 	root, kernel := p.root, a.kernel
+	kinds, language := p.runConfigs.kinds(), a.language().Code()
 	a.background(p, runPreparationTimeout, func(ctx context.Context) func(*App) {
 		prepare, release := op.bind(ctx)
 		defer release()
-		steps, err := kernel.RunBeforeLaunch(prepare, root, id)
+		steps, err := kernel.RunBeforeLaunch(prepare, root, id, a.runTypePlugins(prepare, kernel, kinds, language))
 		return func(a *App) {
 			if !a.ownsLiveOperation(p, op) {
 				a.finishBuildError(p, op, context.Canceled)
@@ -85,11 +90,15 @@ func (a *App) ownsLiveOperation(p *project, op *buildOperation) bool {
 	return a.project == p && p.build.owns(op) && !op.cancelled
 }
 
-// refuseBeforeLaunch ends op with why its steps cannot run.
+// refuseBeforeLaunch ends op with why its steps cannot run. A refusal of a task step names
+// the configuration that lists it and the task's kind.
 func (a *App) refuseBeforeLaunch(p *project, op *buildOperation, refusal *core.RunBeforeLaunchRefusal) {
-	code, step := "", ""
+	code, step, task := "", "", ""
 	if refusal != nil {
 		code, step = refusal.Code, refusal.ConfigurationID
+		if refusal.Task != nil {
+			task = refusal.Task.Type
+		}
 	}
 	if configuration := p.runConfigs.configuration(step); configuration != nil {
 		step = configuration.Name
@@ -107,6 +116,10 @@ func (a *App) refuseBeforeLaunch(p *project, op *buildOperation, refusal *core.R
 		message = i18n.SharedFormat(language, "desktop.runConfig.beforeLaunch.refused.cycle", map[string]string{"step": step})
 	case "tooLong":
 		message = i18n.SharedFormat(language, "desktop.runConfig.beforeLaunch.refused.tooLong", map[string]string{"step": step})
+	case "taskNotDeclared":
+		message = i18n.SharedFormat(language, "desktop.runConfig.beforeLaunch.refused.taskNotDeclared", map[string]string{"step": step, "task": task})
+	case "invalidTaskValues":
+		message = i18n.SharedFormat(language, "desktop.runConfig.beforeLaunch.refused.invalidTaskValues", map[string]string{"step": step, "task": task})
 	default:
 		message = i18n.SharedFormat(language, "desktop.runConfig.beforeLaunch.refused.other", map[string]string{"step": step})
 	}
@@ -115,18 +128,41 @@ func (a *App) refuseBeforeLaunch(p *project, op *buildOperation, refusal *core.R
 	a.finishBuildError(p, op, errors.New(message))
 }
 
+// beforeLaunchRun is what the steps of one start take from the window thread: the project,
+// the kernel and language, the build messages and plugin directory a task's plan needs, and,
+// per step that runs a plugin's task, the detected instances of the build system that
+// declares it.
+type beforeLaunchRun struct {
+	root, pluginRoot string
+	kernel           Kernel
+	language         i18n.Language
+	messages         i18n.BuildMessages
+	instances        [][]buildInstance
+}
+
 // runBeforeLaunchSteps starts each step in order off the window thread and waits for it;
 // start runs once the last one exited with 0. Each step is bounded like a run's
 // preparation and ends when op is stopped.
 func (a *App) runBeforeLaunchSteps(p *project, op *buildOperation, steps []core.RunBeforeLaunchItem, start func()) {
-	root, kernel, language := p.root, a.kernel, a.language()
+	run := beforeLaunchRun{
+		root: p.root, kernel: a.kernel, language: a.language(), messages: a.text.Build,
+		instances: make([][]buildInstance, len(steps)),
+	}
+	if a.plugins != nil {
+		run.pluginRoot = a.plugins.Root
+	}
+	for index, step := range steps {
+		if step.Task != nil {
+			run.instances[index] = p.runTypeInstances(step.Task.RunTypeKey)
+		}
+	}
 	a.background(p, 0, func(ctx context.Context) func(*App) {
 		for index, step := range steps {
-			header := i18n.SharedFormat(language, "desktop.runConfig.beforeLaunch.stepHeader", map[string]string{
+			header := i18n.SharedFormat(run.language, "desktop.runConfig.beforeLaunch.stepHeader", map[string]string{
 				"index": fmt.Sprint(index + 1), "count": fmt.Sprint(len(steps)), "name": step.Name,
 			})
 			a.streamBuildOutput(p, op, "\x1b[2m"+header+"\x1b[0m\n")
-			if err := a.runBeforeLaunchStep(ctx, p, op, kernel, language, root, step); err != nil {
+			if err := a.runBeforeLaunchStep(ctx, p, op, run, run.instances[index], step); err != nil {
 				return func(a *App) { a.failBeforeLaunch(p, op, step, err) }
 			}
 		}
@@ -141,16 +177,47 @@ func (a *App) runBeforeLaunchSteps(p *project, op *buildOperation, steps []core.
 }
 
 // runBeforeLaunchStep starts one step's process with its output in op's console and waits
-// for it to exit.
-func (a *App) runBeforeLaunchStep(ctx context.Context, p *project, op *buildOperation, kernel Kernel, language i18n.Language, root string, step core.RunBeforeLaunchItem) error {
+// for it to exit. instances are the detected instances of the build system whose task the
+// step runs, nil for a process run.
+func (a *App) runBeforeLaunchStep(ctx context.Context, p *project, op *buildOperation, run beforeLaunchRun, instances []buildInstance, step core.RunBeforeLaunchItem) error {
 	bounded, cancel := context.WithTimeout(ctx, runPreparationTimeout)
 	defer cancel()
 	prepare, release := op.bind(bounded)
 	defer release()
-	process, cleanup, err := a.startConfiguredProcess(prepare, prepare, kernel, language, root, step.ConfigurationID, func(text string) {
-		a.streamBuildOutput(p, op, text)
-	})
+	output := func(text string) { a.streamBuildOutput(p, op, text) }
+	if step.Task != nil {
+		return a.runBeforeLaunchTask(prepare, p, run, instances, step, output)
+	}
+	process, cleanup, err := a.startConfiguredProcess(prepare, prepare, run.kernel, run.language, run.root, step.ConfigurationID, output)
 	defer cleanup()
+	if err != nil {
+		return err
+	}
+	return process.Wait()
+}
+
+// runBeforeLaunchTask starts the process of a plugin's task step under ctx and waits for it:
+// Core plans the build system's command with the saved values, at the step's working
+// directory, and the build tool of the instance the plan picks runs it. A build system with
+// no detected instance cannot run the task.
+func (a *App) runBeforeLaunchTask(ctx context.Context, p *project, run beforeLaunchRun, instances []buildInstance, step core.RunBeforeLaunchItem, output func(string)) error {
+	if len(instances) == 0 || run.pluginRoot == "" {
+		return errors.New(run.messages.TargetMissing)
+	}
+	task := *step.Task
+	spec, err := a.declaredProcessSpec(ctx, p, run.root, run.pluginRoot, instances, run.messages, func(manifest json.RawMessage, sources declaredPlanSources) (core.BuildPlan, error) {
+		return run.kernel.PlanBeforeLaunchTask(ctx, manifest, task.BuildSystemID, run.root, core.BeforeLaunchTaskPlanRequest{
+			Task: task, WorkingDirectory: step.WorkingDirectory, Instances: sources.instances,
+			PluginDirectory: sources.pluginDirectory, WorkspaceStateDirectory: sources.stateDirectory,
+		})
+	})
+	if err == nil {
+		err = ctx.Err()
+	}
+	if err != nil {
+		return err
+	}
+	process, err := buildprocess.Start(ctx, spec, func(_ buildprocess.Stream, text string) { output(text) })
 	if err != nil {
 		return err
 	}

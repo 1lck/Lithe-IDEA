@@ -216,6 +216,9 @@ func (a *App) openRunConfigDialog(p *project, id string) {
 // closeRunConfigDialog closes the dialog and drops every draft; answers still out are ignored.
 func (a *App) closeRunConfigDialog(p *project) {
 	d := &p.runConfigs.dialog
+	if t := p.runConfigs.task; t != nil {
+		p.closeRunConfigTask(t)
+	}
 	d.dropDrafts()
 	d.generation++
 	d.open, d.saving, d.newMenu = false, false, runConfigNewMenuClosed
@@ -532,7 +535,7 @@ func (p *project) collectRunConfigDialogRows(a *App) {
 		members[group.key] = append(members[group.key], key)
 	}
 	kindGroup := func(kind runConfigKind) runConfigDialogGroup {
-		return runConfigDialogGroup{key: kind.groupKey(), title: s.kindTitle(language, kind), icon: s.kindIcon(kind, a.colors.Dark), order: s.kindOrder(kind)}
+		return runConfigDialogGroup{key: kind.groupKey(), title: s.kindTitle(language, kind), icon: s.kindIcon(kind, &a.pluginIcons, a.colors.Dark), order: s.kindOrder(kind)}
 	}
 	listed := map[string]bool{}
 	for index := range s.list {

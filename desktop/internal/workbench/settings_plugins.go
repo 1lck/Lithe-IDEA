@@ -2,6 +2,7 @@ package workbench
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"os"
 
@@ -77,4 +78,14 @@ func (s pluginSettingsSources) Save(ctx context.Context, editor pluginservice.Se
 		err = errors.Join(err, s.app.publishSettings(editor, scope, effects))
 	}
 	return result, err
+}
+
+// View sends one event of a settings region's view to the plugin's backend (API-13, API-19).
+// The event already carries the page's settings, so nothing is read for it here; the
+// workspace is the one the editor was read for. Every failure is logged, that of a close
+// event too, whose answer the view ignores; a call the closing page cancelled is not.
+func (s pluginSettingsSources) View(ctx context.Context, editor pluginservice.SettingsEditor, region, function string, event, view json.RawMessage, closing bool) (json.RawMessage, bool, error) {
+	drawn, changed, err := s.app.plugins.CallView(ctx, pluginservice.SettingsViewCall(editor, region, function, editor.Snapshot.Workspace(), event, view, closing))
+	s.app.viewCallFailed(ctx, "plugin_settings_view", err)
+	return drawn, changed, err
 }

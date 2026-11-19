@@ -324,6 +324,7 @@ func windowTheme(p palette) ui.Theme {
 	theme.Border, theme.Input, theme.Hover = p.line, p.bd, p.bg3
 	theme.Primary, theme.PrimaryForeground = p.blu, p.white
 	theme.Selection, theme.Ring, theme.Danger = p.hl, p.blu, p.red
+	theme.Tooltip = uistyle.Tooltip(p.dark)
 	return theme
 }
 

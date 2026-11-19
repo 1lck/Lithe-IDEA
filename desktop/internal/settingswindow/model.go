@@ -19,10 +19,9 @@ import (
 type pageID uint8
 
 const (
-	// pageAppearance is the group "Appearance & Behavior"; the seven pages after it belong to it.
+	// pageAppearance is the group "Appearance & Behavior"; the six pages after it belong to it.
 	pageAppearance pageID = iota
 	pageGeneral
-	pageUpdates
 	pageNetwork
 	pageEditor
 	pageFonts
@@ -31,7 +30,13 @@ const (
 	// The pages on the top level of the sidebar.
 	pagePlugins
 	pageVersionControl
+	// pageBuild is the group "Build, Execution, Deployment", which also has a page of its
+	// own: the directory of its pages and what needs attention. The two pages after it
+	// belong to it, and so does a row for each kind of page plugins contribute to it, build
+	// systems and compilers, which opens that kind's pages as the two pages list theirs.
 	pageBuild
+	pageToolchains
+	pageDebuggers
 	pageLanguages
 	// pageTools is the group "Tools"; the page after it belongs to it.
 	pageTools
@@ -54,7 +59,6 @@ const (
 var parents = [pageCount]pageID{
 	pageAppearance:         noPage,
 	pageGeneral:            pageAppearance,
-	pageUpdates:            pageAppearance,
 	pageNetwork:            pageAppearance,
 	pageEditor:             pageAppearance,
 	pageFonts:              pageAppearance,
@@ -63,6 +67,8 @@ var parents = [pageCount]pageID{
 	pagePlugins:            noPage,
 	pageVersionControl:     noPage,
 	pageBuild:              noPage,
+	pageToolchains:         pageBuild,
+	pageDebuggers:          pageBuild,
 	pageLanguages:          noPage,
 	pageTools:              noPage,
 	pageTerminal:           pageTools,
@@ -93,6 +99,10 @@ func isGroup(id pageID) bool {
 	return false
 }
 
+// ownsPage says whether the group id also opens a page of its own when its row is
+// chosen, instead of only expanding and collapsing.
+func ownsPage(id pageID) bool { return id == pageBuild }
+
 // titleOf is the name of an entry in the language of messages.
 func titleOf(messages *i18n.SettingsMessages, id pageID) string {
 	switch id {
@@ -100,8 +110,6 @@ func titleOf(messages *i18n.SettingsMessages, id pageID) string {
 		return messages.AppearanceBehavior
 	case pageGeneral:
 		return messages.General
-	case pageUpdates:
-		return messages.Updates
 	case pageNetwork:
 		return messages.Network
 	case pageEditor:
@@ -118,6 +126,10 @@ func titleOf(messages *i18n.SettingsMessages, id pageID) string {
 		return messages.VersionControl
 	case pageBuild:
 		return messages.Build
+	case pageToolchains:
+		return messages.Toolchains
+	case pageDebuggers:
+		return messages.Debuggers
 	case pageLanguages:
 		return messages.Languages
 	case pageTools:
@@ -147,7 +159,53 @@ type row struct {
 	// group says the row is a group, which has a chevron and expands instead of
 	// opening a page; expanded says its pages are listed under it.
 	group, expanded bool
+	// kind is the kind of plugin pages under Build, Execution, Deployment the row opens, and
+	// count how many pages of it there are.
+	kind  string
+	count int
+	// overflow is how many tools the search matched on the row that lists every one of them.
+	overflow int
+	// path is where a search match lives, its ancestors' titles joined by " › ",
+	// shown after its title. A string keeps a row comparable.
+	path string
+	// special is what a row of the search's sections stands for other than a page: a
+	// section's title, a tool of the Toolchains page, a debugger, or the row that lists
+	// every matching tool. ref is the tool's or the debugger's ID, status the tool's state.
+	special     rowKind
+	ref, status string
 }
+
+// rowKind is what a sidebar row stands for besides a page.
+type rowKind uint8
+
+const (
+	rowPage rowKind = iota
+	rowSection
+	rowTool
+	rowAdapter
+	rowAllTools
+)
+
+// The search's sections: the settings pages, the tools of the Toolchains page and the
+// debuggers, in that order.
+const (
+	sectionPages = iota
+	sectionTools
+	sectionDebuggers
+)
+
+// The keys of the rows that are not a page of the table nor a plugin's page. They are past
+// any count of plugin pages and stay inside the list's non-negative 31-bit keys.
+const (
+	// kindHit is the row of a kind of plugin pages, by the kind's place in buildKinds.
+	kindHit = 1 << 28
+	// sectionHit is a section's title; allToolsHit the row listing every matching tool.
+	sectionHit  = kindHit + 64
+	allToolsHit = sectionHit + 16
+	// toolHit and adapterHit are the rows of a tool and a debugger, by their place.
+	toolHit    = 1 << 29
+	adapterHit = toolHit + 1<<20
+)
 
 // foldQuery turns what the user typed into what titles are compared with: without the
 // spaces around it and in lower case, so a search ignores case. An empty result lists
@@ -200,13 +258,22 @@ func appendVisible(dst []row, messages *i18n.SettingsMessages, open *[pageCount]
 	return dst
 }
 
+// crumb is one title of the breadcrumb and the page choosing it opens. link is set on a title
+// before the last that has a page of its own to open.
+type crumb struct {
+	title string
+	page  pageID
+	link  bool
+}
+
 // appendBreadcrumb appends the titles that lead to id to dst and returns it: the group and
-// then the page for a page inside a group, and the title alone for any other entry.
-func appendBreadcrumb(dst []string, messages *i18n.SettingsMessages, id pageID) []string {
+// then the page for a page inside a group, and the title alone for any other entry. The group
+// links to its page when it has one.
+func appendBreadcrumb(dst []crumb, messages *i18n.SettingsMessages, id pageID) []crumb {
 	if parent := parents[id]; parent != noPage {
-		dst = append(dst, titleOf(messages, parent))
+		dst = append(dst, crumb{title: titleOf(messages, parent), page: parent, link: ownsPage(parent)})
 	}
-	return append(dst, titleOf(messages, id))
+	return append(dst, crumb{title: titleOf(messages, id), page: id})
 }
 
 // contributedParent is the entry a plugin's settings page of kind is listed under: build
@@ -217,6 +284,42 @@ func contributedParent(kind string) pageID {
 		return pageBuild
 	}
 	return pageLanguages
+}
+
+// buildKinds are the kinds of plugin pages under Build, Execution, Deployment, in the
+// order the sidebar and the Build page list them. Each kind has one row in the sidebar,
+// whatever the count of its pages, and its page lists them (build_kind_view.go).
+var buildKinds = [...]string{"buildSystem", "compiler"}
+
+// kindIndex is the place of kind in buildKinds, or -1 for another kind.
+func kindIndex(kind string) int {
+	for index, k := range buildKinds {
+		if k == kind {
+			return index
+		}
+	}
+	return -1
+}
+
+// kindTitle names a kind of plugin pages: its row's title and its page's.
+func kindTitle(language i18n.Language, kind string) string {
+	if kind == "compiler" {
+		return i18n.Shared(language, "desktop.buildSettings.kindCompiler")
+	}
+	return i18n.Shared(language, "desktop.buildSettings.kindBuildSystem")
+}
+
+// pageKeywords are the words besides its title a search finds a page by.
+func pageKeywords(language i18n.Language, id pageID) string {
+	switch id {
+	case pageBuild:
+		return i18n.Shared(language, "desktop.buildSettings.keywordsBuild")
+	case pageToolchains:
+		return i18n.Shared(language, "desktop.buildSettings.keywordsToolchains")
+	case pageDebuggers:
+		return i18n.Shared(language, "desktop.buildSettings.keywordsDebuggers")
+	}
+	return ""
 }
 
 // toggleGroup expands a collapsed group and collapses an expanded one. It does nothing
@@ -370,7 +473,7 @@ func newSession(current Values) *session {
 // screen. An entry that is a group or does not exist is left alone: a group has no page of
 // its own.
 func (s *session) show(page pageID) {
-	if page >= pageCount || isGroup(page) {
+	if page >= pageCount || (isGroup(page) && !ownsPage(page)) {
 		return
 	}
 	s.page = page
@@ -455,7 +558,7 @@ func decideKey(key keyKind, ctx keyContext) keyAction {
 }
 
 func (r row) hitIndex() int {
-	if r.dynamic != "" {
+	if r.dynamic != "" || r.kind != "" || r.special != rowPage {
 		return r.hit
 	}
 	return int(r.page)

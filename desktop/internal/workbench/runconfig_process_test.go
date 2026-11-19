@@ -13,6 +13,7 @@ import (
 
 	"github.com/1lck/Lithe-IDEA/desktop/internal/core"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/i18n"
+	"github.com/vivaui/viva/gfx"
 )
 
 // A bare command is found only in the absolute directories of the search path, in order; a
@@ -228,6 +229,83 @@ func TestBuiltInRunIsCreatedAndRunWithoutAnyPlugin(t *testing.T) {
 	again := awaitProcessRun(t, h, p, "Greet", first)
 	if !strings.Contains(again.output.all(), "hello-from-lithe") {
 		t.Fatalf("the title bar's Run did not run it again; console:\n%s", again.output.all())
+	}
+}
+
+// A script saved as text starts one row tall and grows a row at a time with its text, wrapped
+// rows included, up to four rows; a longer script scrolls inside them.
+func TestRunConfigScriptTextGrowsToFourRows(t *testing.T) {
+	root := t.TempDir()
+	h := newHarness(t, &testKernel{Client: core.NewClient()})
+	h.open(root)
+	p := h.app.project
+	h.app.post(func(a *App) { a.refreshRunConfigurations(p) })
+	awaitStateWithin(t, h, 10*time.Second, "the configuration types", func() bool {
+		s := &p.runConfigs
+		return s.generation > 0 && !s.loading && s.types != nil
+	})
+	f := newRunConfigDraft(t, h, p, runProviderShell)
+	h.app.post(func(a *App) {
+		*f.texts["source"] = "text"
+		a.runConfigFormEdited(p, f)
+	})
+	awaitStateWithin(t, h, 10*time.Second, "the script text field", func() bool { return !f.refreshing && f.texts["text"] != nil })
+	var label string
+	for _, field := range f.fields {
+		if field.ID == "text" {
+			label, _ = runConfigFieldTitle(h.app.language(), field)
+		}
+	}
+	if label == "" {
+		t.Fatalf("no script text field in %+v", f.fields)
+	}
+	drawn := func() float32 {
+		t.Helper()
+		for _, hit := range h.driver.Snapshot().Hits {
+			if hit.Label == label && hit.Role == gfx.RoleTextField {
+				return hit.Bounds.Height
+			}
+		}
+		t.Fatalf("the script text field %q is not drawn", label)
+		return 0
+	}
+	height := func(value string) float32 {
+		t.Helper()
+		h.app.post(func(*App) { *f.texts["text"] = value })
+		h.settle()
+		h.settle() // the paint after a field's first one sizes it at its width
+		return drawn()
+	}
+	rows := func(n int) float32 { return runConfigTextAreaHeight(&h.app.theme, n) }
+	for _, step := range []struct {
+		value string
+		rows  int
+	}{
+		{"", 1},
+		{"echo one", 1},
+		{"echo one\necho two", 2},
+		{"echo one\necho two\n", 3},
+		{"1\n2\n3\n4", 4},
+		{"1\n2\n3\n4\n5\n6\n7", 4},
+		{"echo one", 1},
+	} {
+		if got := height(step.value); got != rows(step.rows) {
+			t.Fatalf("script %q is %v tall, want %d rows (%v)", step.value, got, step.rows, rows(step.rows))
+		}
+	}
+	// One line longer than the field wraps, and the field grows with its rows.
+	long := strings.TrimSpace(strings.Repeat("echo wrapped ", 40))
+	if got := height(long); got <= rows(1) || got > rows(runConfigFormTextRows) {
+		t.Fatalf("a wrapped line is %v tall, want more than one row (%v) and at most four (%v)", got, rows(1), rows(runConfigFormTextRows))
+	}
+	// Typed lines size the field as they arrive.
+	typed := "echo one\necho two\necho three"
+	h.typeInto(label, func() { h.app.post(func(*App) { *f.texts["text"] = "" }) }, typed)
+	if got := *f.texts["text"]; got != typed {
+		t.Fatalf("the script holds %q, want %q", got, typed)
+	}
+	if got := drawn(); got != rows(3) {
+		t.Fatalf("three typed lines are %v tall, want three rows (%v)", got, rows(3))
 	}
 }
 

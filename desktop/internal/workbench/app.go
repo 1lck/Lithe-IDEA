@@ -36,6 +36,7 @@ import (
 	"github.com/1lck/Lithe-IDEA/desktop/internal/logwindow"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/marketplace"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/plugindiag"
+	"github.com/1lck/Lithe-IDEA/desktop/internal/pluginicons"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/pluginpkg"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/pluginservice"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/projectgen"
@@ -116,8 +117,13 @@ type Kernel interface {
 	// folders and order of the list (runconfig_dialog.go).
 	CopyRunConfiguration(ctx context.Context, root, configurationID, name string, plugins []core.RunInstalledPlugin) (string, []core.RunConfigChange, error)
 	ArrangeRunConfigurations(ctx context.Context, request core.RunConfigArrangement) ([]core.RunConfigChange, error)
-	// RunBeforeLaunch expands the steps a configuration runs before it starts (runconfig_before_launch.go).
-	RunBeforeLaunch(ctx context.Context, root, configurationID string) (core.RunBeforeLaunch, error)
+	// RunBeforeLaunch expands the steps a configuration runs before it starts, and
+	// PlanBeforeLaunchTask the command of a plugin task step (runconfig_before_launch.go).
+	// CheckBeforeLaunchTask and BeforeLaunchField edit the list (runconfig_steps.go).
+	RunBeforeLaunch(ctx context.Context, root, configurationID string, plugins *core.RunTypePlugins) (core.RunBeforeLaunch, error)
+	PlanBeforeLaunchTask(ctx context.Context, manifest json.RawMessage, buildSystemID, workspaceRoot string, request core.BeforeLaunchTaskPlanRequest) (core.BuildPlan, error)
+	CheckBeforeLaunchTask(ctx context.Context, root string, runType core.RunTypeKey, values map[string]json.RawMessage, plugins *core.RunTypePlugins) (core.RunTaskCheck, error)
+	BeforeLaunchField(ctx context.Context, root, configurationID string, plugins *core.RunTypePlugins) (core.RunBeforeLaunchField, error)
 	RunArgumentText(ctx context.Context, lists [][]string) ([]string, error)
 	SetDebugBreakpoints(ctx context.Context, sessionID, sourcePath string, breakpoints []core.DebugSourceBreakpoint) (core.DebugUpdate, error)
 	ExecuteDebug(ctx context.Context, sessionID, operationID, command string, threadID *int64, granularity string) (core.DebugUpdate, error)
@@ -142,6 +148,9 @@ type Kernel interface {
 	DecodeBuildRunEntrypoints(ctx context.Context, manifest json.RawMessage, buildSystemID string, request core.BuildDecodeRunEntrypointsRequest) ([]core.BuildRunEntrypoint, error)
 	CreateRunEntrypointConfiguration(ctx context.Context, request core.RunEntrypointConfigurationRequest) (string, []core.RunConfigChange, error)
 	ToolchainRegistryOf(ctx context.Context, manifests []json.RawMessage) (core.ToolchainRegistry, error)
+	// ToolchainSettingsViewOf lays out the Toolchains settings list
+	// (settings_toolchains.go).
+	ToolchainSettingsViewOf(ctx context.Context, request core.ToolchainSettingsViewRequest) (core.ToolchainSettingsView, error)
 	// CommandInstallerRequirements, PlanCommandInstaller and CommandInstallerDefaultDirectory
 	// read a plugin's commandInstallers[]: which systemCommand launches name which commands,
 	// one installer expanded for the target the user chose, and the directory a toolDefault
@@ -463,10 +472,8 @@ type project struct {
 	everywhereSymbols everywhereSymbolState
 	// tree is the Project tool window's tree of the project folder.
 	tree fileTree
-	// nativePanels is the view state of each native plugin panel the project shows, by window, and
-	// nativeSaved what the project kept for them when it last closed (plugin_native.go, plugin_native_state.go).
-	nativePanels map[string]*nativePanelState
-	nativeSaved  map[string]savedNativePanel
+	// pluginViews are the plugin views the project's tool windows show, by window (plugin_view.go).
+	pluginViews map[string]*pluginViewState
 	// build is the Run tool window's provider-backed instances and output.
 	build buildState
 	// buildSessions are the build provider sessions the project started. They live beside build
@@ -628,6 +635,9 @@ type App struct {
 	// plugins is the plugin stack, nil when the window was built without a plugin
 	// kernel or without a writable plugin root.
 	plugins *pluginservice.Service
+	// pluginIcons are the icons read from installed packages: read off the window thread,
+	// looked up while drawing.
+	pluginIcons pluginicons.Cache
 	// pluginDownloads holds native temporary file leases for the open settings window.
 	pluginDownloads *marketplace.ArchiveSession
 	// prompts are the questions plugins ask the user, one sheet at a time.
@@ -1517,7 +1527,6 @@ func (a *App) openProjectHere(path string) {
 		a.activatePluginWorkspace(p)
 		a.restoreEditorSession(p)
 		a.restoreCheckpoints(p)
-		a.restoreNativePanels(p)
 		a.openPendingFiles(p)
 	})
 }
@@ -1560,7 +1569,7 @@ func (a *App) finishCloseProject(p *project, after func()) {
 	}
 	{
 		a.saveEditorSession(p)
-		a.saveNativePanels(p)
+		a.closePluginViews(p)
 		a.releaseIndexing(p)
 		a.closeEverywhere(p)
 		a.recentFiles.open = false

@@ -9,6 +9,7 @@ package settingswindow
 
 import (
 	"context"
+	"encoding/json"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/shortcuts"
 	"sync"
 	"time"
@@ -139,9 +140,13 @@ type Values struct {
 // SteppingAdapter is an installed debug adapter that takes stepping filters: its ID, the
 // name the page shows and the defaults its plugin declares.
 type SteppingAdapter struct {
-	ID       string
-	Name     string
-	Defaults core.DebugSteppingFilters
+	ID   string
+	Name string
+	// PluginID and PluginName name the plugin that declares the adapter;
+	// PluginName is empty when the manifest has no display name.
+	PluginID   string
+	PluginName string
+	Defaults   core.DebugSteppingFilters
 }
 
 // ProcessTermination is the part of Core's process termination settings this client
@@ -215,6 +220,13 @@ type ToolchainInspector interface {
 	Inspect(context.Context, toolchain.Snapshot, string, string) (core.ToolchainSelection, error)
 }
 
+// ToolchainViewer asks Core for the Toolchains list projection: which rows show
+// under the query, how they group and fold, the first problems and the counts.
+// A loader without it shows the list unfiltered and ungrouped.
+type ToolchainViewer interface {
+	SettingsView(context.Context, core.ToolchainSettingsViewRequest) (core.ToolchainSettingsView, error)
+}
+
 // ToolchainTrustLoader updates machine-local permission to probe and run tool
 // environments or wrappers inside the open project, then reloads its snapshot.
 type ToolchainTrustLoader interface {
@@ -232,6 +244,15 @@ type PluginSettingsLoader interface {
 // PluginSettingsActionLoader executes explicit declared actions without saving drafts.
 type PluginSettingsActionLoader interface {
 	Action(context.Context, pluginservice.SettingsEditor, string, bool) (pluginservice.SettingsActionResult, error)
+}
+
+// PluginViewLoader sends one event of a settings region's view (API-13, API-19) to the
+// plugin's backend, off the window thread, and returns the whole view Core checked and
+// whether it differs from view, the view drawn last. event carries the page's settings,
+// the saved values with the draft. ctx ends when the region closes; a close event (closing)
+// returns nothing.
+type PluginViewLoader interface {
+	View(ctx context.Context, editor pluginservice.SettingsEditor, region, function string, event, view json.RawMessage, closing bool) (json.RawMessage, bool, error)
 }
 
 // PluginSourceSettingsLoader publishes only explicitly saved native-source drafts.
@@ -309,7 +330,7 @@ type Options struct {
 	// SettingsError logs a failure of the window, with the operation that failed as the log
 	// names it (plugin_settings_surface, keymap_schemes, settings_about_copy, ...).
 	SettingsError      func(operation string, err error)
-	SettingsPages      func(context.Context) ([]core.SettingsPage, error)
+	SettingsPages      func(context.Context, i18n.Language) ([]core.SettingsPage, error)
 	SettingsNavigation func(context.Context, []core.SettingsNavigationItem, string) ([]core.SettingsNavigationRow, error)
 	// Marketplace fetches the enabled source only while the plugin page is open.
 	Marketplace func(context.Context) (marketplace.Snapshot, error)
@@ -374,7 +395,7 @@ type Options struct {
 	// SystemLanguage is the language the system asks for, which the choice "follow the
 	// system" resolves to and names.
 	SystemLanguage i18n.Language
-	// Version is the application's version, shown on the About and Updates pages.
+	// Version is the application's version, shown on the About page.
 	Version string
 	// Stable says the build is a stable release, packaged from its release tag
 	// (buildinfo.Stable). The pages show any other build's version as a preview.
@@ -459,8 +480,7 @@ type Options struct {
 	// version and then installs it and restarts (it installs at once a download that is
 	// already verified), and CancelUpdate stops a download; none of them waits.
 	// SetAutoCheckUpdates hands a change of Values.AutoCheckUpdates to the owner. A nil
-	// UpdateStatus leaves the Updates page unavailable and the About page without its
-	// update card.
+	// UpdateStatus leaves the About page without its update card.
 	UpdateStatus        func() UpdateStatus
 	CheckForUpdates     func()
 	UpdateNow           func()

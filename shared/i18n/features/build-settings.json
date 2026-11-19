@@ -1,0 +1,1251 @@
+{
+  "schemaVersion": 1,
+  "messages": [
+    {
+      "id": "desktop.buildSettings.directoryNote",
+      "description": "Build, Execution, Deployment settings: directoryNote",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.buildSettings.issuesTitle",
+      "description": "Build, Execution, Deployment settings: issuesTitle",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "count": "string"
+      }
+    },
+    {
+      "id": "desktop.buildSettings.issuesAll",
+      "description": "Build, Execution, Deployment settings: issuesAll",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "count": "string"
+      }
+    },
+    {
+      "id": "desktop.buildSettings.directoryScopeGlobal",
+      "description": "Build, Execution, Deployment settings: directoryScopeGlobal",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.buildSettings.directoryScopeProject",
+      "description": "Build, Execution, Deployment settings: directoryScopeProject",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.buildSettings.directoryToolchains",
+      "description": "Build, Execution, Deployment settings: directoryToolchains",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "plugins": "string",
+        "scope": "string",
+        "tools": "string"
+      }
+    },
+    {
+      "id": "desktop.buildSettings.directoryDebuggers",
+      "description": "Build, Execution, Deployment settings: directoryDebuggers",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "count": "string"
+      }
+    },
+    {
+      "id": "desktop.buildSettings.directoryDebuggersCustomized",
+      "description": "Build, Execution, Deployment settings: directoryDebuggersCustomized",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "count": "string",
+        "customized": "string"
+      }
+    },
+    {
+      "id": "desktop.buildSettings.directoryKind",
+      "description": "Build, Execution, Deployment settings: directoryKind",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "names": "string"
+      }
+    },
+    {
+      "id": "desktop.buildSettings.directoryKindMore",
+      "description": "Build, Execution, Deployment settings: directoryKindMore",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "count": "string",
+        "names": "string"
+      }
+    },
+    {
+      "id": "desktop.buildSettings.kindPageCount",
+      "description": "Build, Execution, Deployment settings: kindPageCount",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "count": "string"
+      }
+    },
+    {
+      "id": "desktop.buildSettings.kindFilter",
+      "description": "Build, Execution, Deployment settings: kindFilter",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.buildSettings.kindNoMatches",
+      "description": "Build, Execution, Deployment settings: kindNoMatches",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.buildSettings.listSeparator",
+      "description": "Build, Execution, Deployment settings: listSeparator",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.buildSettings.parenthesized",
+      "description": "Build, Execution, Deployment settings: parenthesized",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "text": "string"
+      }
+    },
+    {
+      "id": "desktop.buildSettings.apply",
+      "description": "Build, Execution, Deployment settings: apply",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.buildSettings.applying",
+      "description": "Build, Execution, Deployment settings: applying",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.buildSettings.applyFailed",
+      "description": "Build, Execution, Deployment settings: applyFailed",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "reason": "string"
+      }
+    },
+    {
+      "id": "desktop.buildSettings.pending",
+      "description": "Build, Execution, Deployment settings: pending",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "count": "string"
+      }
+    },
+    {
+      "id": "desktop.buildSettings.writes",
+      "description": "Build, Execution, Deployment settings: writes",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "targets": "string"
+      }
+    },
+    {
+      "id": "desktop.buildSettings.applyHelp",
+      "description": "Build, Execution, Deployment settings: applyHelp",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.buildSettings.targetGlobal",
+      "description": "Build, Execution, Deployment settings: targetGlobal",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.buildSettings.targetProject",
+      "description": "Build, Execution, Deployment settings: targetProject",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.buildSettings.targetStepping",
+      "description": "Build, Execution, Deployment settings: targetStepping",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.buildSettings.scopeProjectNamed",
+      "description": "Build, Execution, Deployment settings: scopeProjectNamed",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "project": "string"
+      }
+    },
+    {
+      "id": "desktop.buildSettings.scopeHelp",
+      "description": "Build, Execution, Deployment settings: scopeHelp",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.buildSettings.trustedHelp",
+      "description": "Build, Execution, Deployment settings: trustedHelp",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.buildSettings.revokeTrust",
+      "description": "Build, Execution, Deployment settings: revokeTrust",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.buildSettings.filterLabel",
+      "description": "Build, Execution, Deployment settings: filterLabel",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.buildSettings.filterPlaceholder",
+      "description": "Build, Execution, Deployment settings: filterPlaceholder",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.buildSettings.redetect",
+      "description": "Build, Execution, Deployment settings: redetect",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.buildSettings.filterAll",
+      "description": "Build, Execution, Deployment settings: filterAll",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.buildSettings.filterProblems",
+      "description": "Build, Execution, Deployment settings: filterProblems",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.buildSettings.filterPinned",
+      "description": "Build, Execution, Deployment settings: filterPinned",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.buildSettings.filterChanged",
+      "description": "Build, Execution, Deployment settings: filterChanged",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.buildSettings.groupBy",
+      "description": "Build, Execution, Deployment settings: groupBy",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.buildSettings.groupCategory",
+      "description": "Build, Execution, Deployment settings: groupCategory",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.buildSettings.groupPlugin",
+      "description": "Build, Execution, Deployment settings: groupPlugin",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.buildSettings.groupNone",
+      "description": "Build, Execution, Deployment settings: groupNone",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.buildSettings.trustBanner",
+      "description": "Build, Execution, Deployment settings: trustBanner",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "count": "string",
+        "sources": "string"
+      }
+    },
+    {
+      "id": "desktop.buildSettings.trustProject",
+      "description": "Build, Execution, Deployment settings: trustProject",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.buildSettings.listCount",
+      "description": "Build, Execution, Deployment settings: listCount",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "matched": "string",
+        "total": "string"
+      }
+    },
+    {
+      "id": "desktop.buildSettings.noMatches",
+      "description": "Build, Execution, Deployment settings: noMatches",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.buildSettings.noProblems",
+      "description": "Build, Execution, Deployment settings: noProblems",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.buildSettings.pluginGroupHelp",
+      "description": "Build, Execution, Deployment settings: pluginGroupHelp",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.buildSettings.fromSource",
+      "description": "Build, Execution, Deployment settings: fromSource",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "source": "string"
+      }
+    },
+    {
+      "id": "desktop.buildSettings.categoryRuntime",
+      "description": "Build, Execution, Deployment settings: categoryRuntime",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.buildSettings.categoryBuild",
+      "description": "Build, Execution, Deployment settings: categoryBuild",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.buildSettings.categoryPackage",
+      "description": "Build, Execution, Deployment settings: categoryPackage",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.buildSettings.categoryDebug",
+      "description": "Build, Execution, Deployment settings: categoryDebug",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.buildSettings.categoryLint",
+      "description": "Build, Execution, Deployment settings: categoryLint",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.buildSettings.categoryOther",
+      "description": "Build, Execution, Deployment settings: categoryOther",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.buildSettings.categoryPlugin",
+      "description": "Build, Execution, Deployment settings: categoryPlugin",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.buildSettings.selectTool",
+      "description": "Build, Execution, Deployment settings: selectTool",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.buildSettings.toolFooter",
+      "description": "Build, Execution, Deployment settings: toolFooter",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "id": "string",
+        "plugin": "string"
+      }
+    },
+    {
+      "id": "desktop.buildSettings.declaredBy",
+      "description": "Build, Execution, Deployment settings: declaredBy",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "plugin": "string"
+      }
+    },
+    {
+      "id": "desktop.buildSettings.restoreAutomatic",
+      "description": "Build, Execution, Deployment settings: restoreAutomatic",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.buildSettings.restoreAutomaticTip",
+      "description": "Build, Execution, Deployment settings: restoreAutomaticTip",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.buildSettings.restoreInherited",
+      "description": "Build, Execution, Deployment settings: restoreInherited",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.buildSettings.restoreInheritedTip",
+      "description": "Build, Execution, Deployment settings: restoreInheritedTip",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.buildSettings.problemConflict",
+      "description": "Build, Execution, Deployment settings: problemConflict",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "plugins": "string"
+      }
+    },
+    {
+      "id": "desktop.buildSettings.problemNotFound",
+      "description": "Build, Execution, Deployment settings: problemNotFound",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "tool": "string"
+      }
+    },
+    {
+      "id": "desktop.buildSettings.problemVersion",
+      "description": "Build, Execution, Deployment settings: problemVersion",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "plugin": "string"
+      }
+    },
+    {
+      "id": "desktop.buildSettings.problemProbeFailed",
+      "description": "Build, Execution, Deployment settings: problemProbeFailed",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.buildSettings.problemTrust",
+      "description": "Build, Execution, Deployment settings: problemTrust",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "home": "string",
+        "source": "string",
+        "tool": "string"
+      }
+    },
+    {
+      "id": "desktop.buildSettings.effectiveTitle",
+      "description": "Build, Execution, Deployment settings: effectiveTitle",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.buildSettings.effectiveHelp",
+      "description": "Build, Execution, Deployment settings: effectiveHelp",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.buildSettings.status",
+      "description": "Build, Execution, Deployment settings: status",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.buildSettings.program",
+      "description": "Build, Execution, Deployment settings: program",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.buildSettings.copyPath",
+      "description": "Build, Execution, Deployment settings: copyPath",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.buildSettings.version",
+      "description": "Build, Execution, Deployment settings: version",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.buildSettings.source",
+      "description": "Build, Execution, Deployment settings: source",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.buildSettings.afterApply",
+      "description": "Build, Execution, Deployment settings: afterApply",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.buildSettings.undoChange",
+      "description": "Build, Execution, Deployment settings: undoChange",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.buildSettings.why",
+      "description": "Build, Execution, Deployment settings: why",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.buildSettings.conflictReason",
+      "description": "Build, Execution, Deployment settings: conflictReason",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "plugins": "string"
+      }
+    },
+    {
+      "id": "desktop.buildSettings.trustReason",
+      "description": "Build, Execution, Deployment settings: trustReason",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "source": "string"
+      }
+    },
+    {
+      "id": "desktop.buildSettings.traceStep",
+      "description": "Build, Execution, Deployment settings: traceStep",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "detail": "string",
+        "layer": "string"
+      }
+    },
+    {
+      "id": "desktop.buildSettings.traceCandidate",
+      "description": "Build, Execution, Deployment settings: traceCandidate",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "candidate": "string",
+        "reason": "string"
+      }
+    },
+    {
+      "id": "desktop.buildSettings.notSet",
+      "description": "Build, Execution, Deployment settings: notSet",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.buildSettings.optionsGlobal",
+      "description": "Build, Execution, Deployment settings: optionsGlobal",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.buildSettings.optionsProject",
+      "description": "Build, Execution, Deployment settings: optionsProject",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.buildSettings.optionsProjectHelp",
+      "description": "Build, Execution, Deployment settings: optionsProjectHelp",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.buildSettings.optionsGlobalHelp",
+      "description": "Build, Execution, Deployment settings: optionsGlobalHelp",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "order": "string"
+      }
+    },
+    {
+      "id": "desktop.buildSettings.optionsGlobalHelpPlain",
+      "description": "Build, Execution, Deployment settings: optionsGlobalHelpPlain",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.buildSettings.autoReason",
+      "description": "Build, Execution, Deployment settings: autoReason",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "reason": "string"
+      }
+    },
+    {
+      "id": "desktop.buildSettings.autoWith",
+      "description": "Build, Execution, Deployment settings: autoWith",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "source": "string",
+        "version": "string"
+      }
+    },
+    {
+      "id": "desktop.buildSettings.autoProject",
+      "description": "Build, Execution, Deployment settings: autoProject",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "source": "string",
+        "version": "string"
+      }
+    },
+    {
+      "id": "desktop.buildSettings.inheritWith",
+      "description": "Build, Execution, Deployment settings: inheritWith",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "version": "string"
+      }
+    },
+    {
+      "id": "desktop.buildSettings.inUse",
+      "description": "Build, Execution, Deployment settings: inUse",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.buildSettings.addDirectory",
+      "description": "Build, Execution, Deployment settings: addDirectory",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.buildSettings.addPlaceholder",
+      "description": "Build, Execution, Deployment settings: addPlaceholder",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.buildSettings.addHelp",
+      "description": "Build, Execution, Deployment settings: addHelp",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.buildSettings.checkAndUse",
+      "description": "Build, Execution, Deployment settings: checkAndUse",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.buildSettings.cancel",
+      "description": "Build, Execution, Deployment settings: cancel",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.buildSettings.sourceManual",
+      "description": "Build, Execution, Deployment settings: sourceManual",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.buildSettings.sourceSystem",
+      "description": "Build, Execution, Deployment settings: sourceSystem",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.buildSettings.reasonNotFound",
+      "description": "Build, Execution, Deployment settings: reasonNotFound",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.buildSettings.reasonConflict",
+      "description": "Build, Execution, Deployment settings: reasonConflict",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.buildSettings.debuggers",
+      "description": "Build, Execution, Deployment settings: debuggers",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.buildSettings.debuggerFilter",
+      "description": "Build, Execution, Deployment settings: debuggerFilter",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.buildSettings.debuggerCount",
+      "description": "Build, Execution, Deployment settings: debuggerCount",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "count": "string"
+      }
+    },
+    {
+      "id": "desktop.buildSettings.debuggerNoMatches",
+      "description": "Build, Execution, Deployment settings: debuggerNoMatches",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.buildSettings.providedBy",
+      "description": "Build, Execution, Deployment settings: providedBy",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "plugin": "string"
+      }
+    },
+    {
+      "id": "desktop.buildSettings.tabStepping",
+      "description": "Build, Execution, Deployment settings: tabStepping",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.buildSettings.steppingPending",
+      "description": "Build, Execution, Deployment settings: steppingPending",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.buildSettings.skipCode",
+      "description": "Build, Execution, Deployment settings: skipCode",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.buildSettings.skipCodeHelp",
+      "description": "Build, Execution, Deployment settings: skipCodeHelp",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.buildSettings.skipSyntheticsHelp",
+      "description": "Build, Execution, Deployment settings: skipSyntheticsHelp",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.buildSettings.skipStaticInitializersHelp",
+      "description": "Build, Execution, Deployment settings: skipStaticInitializersHelp",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.buildSettings.skipConstructorsHelp",
+      "description": "Build, Execution, Deployment settings: skipConstructorsHelp",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.buildSettings.hideFilteredFramesHelp",
+      "description": "Build, Execution, Deployment settings: hideFilteredFramesHelp",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.buildSettings.noPatterns",
+      "description": "Build, Execution, Deployment settings: noPatterns",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.buildSettings.removePattern",
+      "description": "Build, Execution, Deployment settings: removePattern",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.buildSettings.addPattern",
+      "description": "Build, Execution, Deployment settings: addPattern",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.buildSettings.keywordsBuild",
+      "description": "Build, Execution, Deployment settings: keywordsBuild",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.buildSettings.keywordsToolchains",
+      "description": "Build, Execution, Deployment settings: keywordsToolchains",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.buildSettings.keywordsDebuggers",
+      "description": "Build, Execution, Deployment settings: keywordsDebuggers",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.buildSettings.kindCompiler",
+      "description": "Build, Execution, Deployment settings: kindCompiler",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.buildSettings.kindBuildSystem",
+      "description": "Build, Execution, Deployment settings: kindBuildSystem",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.buildSettings.searchPages",
+      "description": "Build, Execution, Deployment settings: searchPages",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.buildSettings.searchTools",
+      "description": "Build, Execution, Deployment settings: searchTools",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.buildSettings.searchDebuggers",
+      "description": "Build, Execution, Deployment settings: searchDebuggers",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.buildSettings.steppingTab",
+      "description": "Build, Execution, Deployment settings: steppingTab",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.buildSettings.searchAllTools",
+      "description": "Build, Execution, Deployment settings: searchAllTools",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "count": "string"
+      }
+    }
+  ],
+  "locales": {
+    "en-US": {
+      "desktop.buildSettings.directoryNote": "This page lists the subpages and their status only; it does not show what plugins add.",
+      "desktop.buildSettings.issuesTitle": "{count} need attention",
+      "desktop.buildSettings.issuesAll": "View all {count} in Toolchains",
+      "desktop.buildSettings.directoryScopeGlobal": "global defaults",
+      "desktop.buildSettings.directoryScopeProject": "the current project",
+      "desktop.buildSettings.directoryToolchains": "{tools} tools · from {plugins} plugins · showing {scope}",
+      "desktop.buildSettings.directoryDebuggers": "Stepping: {count} debuggers support filters",
+      "desktop.buildSettings.directoryDebuggersCustomized": "Stepping: {count} debuggers support filters · {customized} customized",
+      "desktop.buildSettings.directoryKind": "{names} · provided by plugins",
+      "desktop.buildSettings.directoryKindMore": "{names} and {count} more · provided by plugins",
+      "desktop.buildSettings.kindPageCount": "{count} pages",
+      "desktop.buildSettings.kindFilter": "Filter pages or plugins",
+      "desktop.buildSettings.kindNoMatches": "No matching pages",
+      "desktop.buildSettings.listSeparator": ", ",
+      "desktop.buildSettings.parenthesized": " ({text})",
+      "desktop.buildSettings.apply": "Apply",
+      "desktop.buildSettings.applying": "Applying…",
+      "desktop.buildSettings.applyFailed": "Could not apply: {reason}",
+      "desktop.buildSettings.pending": "{count} not applied",
+      "desktop.buildSettings.writes": "· writes to {targets}",
+      "desktop.buildSettings.applyHelp": "Apply writes the changes, then reads them back; the page shows the values read back.\nCancel discards every change and writes no file.",
+      "desktop.buildSettings.targetGlobal": "global user settings",
+      "desktop.buildSettings.targetProject": "this project's .lithe/toolchains/local.json",
+      "desktop.buildSettings.targetStepping": "debugger stepping",
+      "desktop.buildSettings.scopeProjectNamed": "Current Project · {project}",
+      "desktop.buildSettings.scopeHelp": "Global defaults: the choice every project shares, saved in the app's user settings.\nCurrent project: applies to this project only, saved to .lithe/toolchains/local.json (a local file, not committed).\nA tool the project does not set uses the global default. Running processes use a new version after they restart.\nChanges in the two scopes are kept apart; switching loses neither.",
+      "desktop.buildSettings.trustedHelp": "This project is trusted on this Mac: Lithe may probe and run the tool environments inside it.",
+      "desktop.buildSettings.revokeTrust": "Revoke",
+      "desktop.buildSettings.filterLabel": "Filter tools",
+      "desktop.buildSettings.filterPlaceholder": "Filter by name, version, path or plugin",
+      "desktop.buildSettings.redetect": "Detect again: probe every tool's installations and versions again, without writing any file.",
+      "desktop.buildSettings.filterAll": "All",
+      "desktop.buildSettings.filterProblems": "Needs Attention",
+      "desktop.buildSettings.filterPinned": "Set Manually",
+      "desktop.buildSettings.filterChanged": "Not Applied",
+      "desktop.buildSettings.groupBy": "Group",
+      "desktop.buildSettings.groupCategory": "By Category",
+      "desktop.buildSettings.groupPlugin": "By Plugin",
+      "desktop.buildSettings.groupNone": "None",
+      "desktop.buildSettings.trustBanner": "{count} tools come from environments inside the project ({sources}). Lithe does not probe or run them until you trust the project.",
+      "desktop.buildSettings.trustProject": "Trust This Project",
+      "desktop.buildSettings.listCount": "{matched} / {total} tools",
+      "desktop.buildSettings.noMatches": "No matching tools",
+      "desktop.buildSettings.noProblems": "✓ No tools need attention",
+      "desktop.buildSettings.pluginGroupHelp": "Runtimes plugins declare for their own language servers or background processes. You rarely change them, so the group starts collapsed; their problems still count under Needs Attention.",
+      "desktop.buildSettings.fromSource": "from {source}",
+      "desktop.buildSettings.categoryRuntime": "Runtimes & SDKs",
+      "desktop.buildSettings.categoryBuild": "Build Tools",
+      "desktop.buildSettings.categoryPackage": "Package Managers",
+      "desktop.buildSettings.categoryDebug": "Debuggers",
+      "desktop.buildSettings.categoryLint": "Linters & Formatters",
+      "desktop.buildSettings.categoryOther": "Other",
+      "desktop.buildSettings.categoryPlugin": "Plugin Runtimes",
+      "desktop.buildSettings.selectTool": "Select a tool on the left to see its details",
+      "desktop.buildSettings.toolFooter": "Tool ID {id} · declared by plugin {plugin}",
+      "desktop.buildSettings.declaredBy": "Declared by {plugin}",
+      "desktop.buildSettings.restoreAutomatic": "Restore Automatic",
+      "desktop.buildSettings.restoreAutomaticTip": "Drop the global choice so the tool is found automatically again. Takes effect after Apply.",
+      "desktop.buildSettings.restoreInherited": "Restore Inherited",
+      "desktop.buildSettings.restoreInheritedTip": "Drop the project's choice so the tool follows the global default again. Takes effect after Apply.",
+      "desktop.buildSettings.problemConflict": "Several plugins declare this tool: {plugins}. Their definitions may differ, so Lithe stops resolving it to avoid using the wrong one.",
+      "desktop.buildSettings.problemNotFound": "{tool} was not found. After installing it, click ⟳ in the toolbar to detect again, or add its installation directory below.",
+      "desktop.buildSettings.problemVersion": "Every installation found is older than the minimum version {plugin} requires.",
+      "desktop.buildSettings.problemProbeFailed": "Detecting the version failed. Check the tool's installation, then detect again.",
+      "desktop.buildSettings.problemTrust": "This project provides {tool} through {source} ({home}). Lithe does not probe or run it until you trust the project.",
+      "desktop.buildSettings.effectiveTitle": "In Effect",
+      "desktop.buildSettings.effectiveHelp": "The program the tool uses now, as Core resolves it.\nChanges are only a draft until you click Apply or OK at the bottom of the window; then they are written and read back.",
+      "desktop.buildSettings.status": "Status",
+      "desktop.buildSettings.program": "Program",
+      "desktop.buildSettings.copyPath": "Copy Path",
+      "desktop.buildSettings.version": "Version",
+      "desktop.buildSettings.source": "Source",
+      "desktop.buildSettings.afterApply": "After Apply: ",
+      "desktop.buildSettings.undoChange": "Undo Change",
+      "desktop.buildSettings.why": "Why this one?",
+      "desktop.buildSettings.conflictReason": "Also declared by {plugins}",
+      "desktop.buildSettings.trustReason": "From {source}; trust the project first",
+      "desktop.buildSettings.traceStep": "{layer}: {detail}",
+      "desktop.buildSettings.traceCandidate": "{candidate} ({reason})",
+      "desktop.buildSettings.notSet": "not set",
+      "desktop.buildSettings.optionsGlobal": "Global Default",
+      "desktop.buildSettings.optionsProject": "This Project Uses",
+      "desktop.buildSettings.optionsProjectHelp": "Applies to the current project only.\nInherit follows the global default; when the project has an environment a plugin declares (a wrapper, a virtual environment), it comes first once you trust the project.",
+      "desktop.buildSettings.optionsGlobalHelp": "The default every project shares.\nAutomatic looks in the order the plugin declares: {order}, and takes the first installation that meets the version requirement.",
+      "desktop.buildSettings.optionsGlobalHelpPlain": "The default every project shares.\nAutomatic takes the first installation that meets the version requirement.",
+      "desktop.buildSettings.autoReason": "Automatic ({reason})",
+      "desktop.buildSettings.autoWith": "Automatic ({version} · {source})",
+      "desktop.buildSettings.autoProject": "Automatic (project environment · {version} · {source})",
+      "desktop.buildSettings.inheritWith": "Inherit (global default · {version})",
+      "desktop.buildSettings.inUse": "In Use",
+      "desktop.buildSettings.addDirectory": "+ Add Installation Directory…",
+      "desktop.buildSettings.addPlaceholder": "Installation root, for example ~/.sdkman/candidates/java/21.0.5-tem",
+      "desktop.buildSettings.addHelp": "Choose the installation root that contains the tool's programs (the JDK directory, for example, not its bin directory).\nChecking only reads the version and changes the draft; nothing is written until Apply.",
+      "desktop.buildSettings.checkAndUse": "Check and Use",
+      "desktop.buildSettings.cancel": "Cancel",
+      "desktop.buildSettings.sourceManual": "Added manually",
+      "desktop.buildSettings.sourceSystem": "Found automatically",
+      "desktop.buildSettings.reasonNotFound": "No installation found",
+      "desktop.buildSettings.reasonConflict": "Several plugins declare this tool",
+      "desktop.buildSettings.debuggers": "Debuggers",
+      "desktop.buildSettings.debuggerFilter": "Filter debuggers",
+      "desktop.buildSettings.debuggerCount": "{count} debuggers",
+      "desktop.buildSettings.debuggerNoMatches": "No matching debuggers",
+      "desktop.buildSettings.providedBy": "Provided by {plugin}",
+      "desktop.buildSettings.tabStepping": "Stepping",
+      "desktop.buildSettings.steppingPending": "Changes not applied yet; they take effect in the next debug session.",
+      "desktop.buildSettings.skipCode": "Code Not to Step Into",
+      "desktop.buildSettings.skipCodeHelp": "One pattern per row, written the way the debugger expects.\nMatching frames are dimmed in the call stack.",
+      "desktop.buildSettings.skipSyntheticsHelp": "Steps straight over methods the compiler generates, such as lambda bridge methods.",
+      "desktop.buildSettings.skipStaticInitializersHelp": "Stepping into a class does not stop in its static initializer block.",
+      "desktop.buildSettings.skipConstructorsHelp": "Stepping does not enter constructors.",
+      "desktop.buildSettings.hideFilteredFramesHelp": "Frames the rules above filter out fold into one row in the call stack; expand it to see them.",
+      "desktop.buildSettings.noPatterns": "No rules",
+      "desktop.buildSettings.removePattern": "Remove This Rule",
+      "desktop.buildSettings.addPattern": "Add a pattern",
+      "desktop.buildSettings.keywordsBuild": "build execution deployment",
+      "desktop.buildSettings.keywordsToolchains": "toolchain sdk jdk version",
+      "desktop.buildSettings.keywordsDebuggers": "debugger stepping filter",
+      "desktop.buildSettings.kindCompiler": "Compiler",
+      "desktop.buildSettings.kindBuildSystem": "Build Tools",
+      "desktop.buildSettings.searchPages": "Settings Pages",
+      "desktop.buildSettings.searchTools": "Tools in Toolchains",
+      "desktop.buildSettings.searchDebuggers": "Debuggers",
+      "desktop.buildSettings.steppingTab": "Debuggers › Stepping",
+      "desktop.buildSettings.searchAllTools": "View all {count} in Toolchains…"
+    },
+    "zh-CN": {
+      "desktop.buildSettings.directoryNote": "这一页只列子页和状态摘要，不直接展示插件注入的内容。",
+      "desktop.buildSettings.issuesTitle": "{count} 项需要处理",
+      "desktop.buildSettings.issuesAll": "在工具链中查看全部 {count} 项",
+      "desktop.buildSettings.directoryScopeGlobal": "全局默认",
+      "desktop.buildSettings.directoryScopeProject": "当前项目",
+      "desktop.buildSettings.directoryToolchains": "{tools} 个工具 · 来自 {plugins} 个插件 · 当前显示{scope}",
+      "desktop.buildSettings.directoryDebuggers": "单步：{count} 个调试器支持过滤",
+      "desktop.buildSettings.directoryDebuggersCustomized": "单步：{count} 个调试器支持过滤 · {customized} 个已自定义",
+      "desktop.buildSettings.directoryKind": "{names} · 由插件提供",
+      "desktop.buildSettings.directoryKindMore": "{names} 等 {count} 个 · 由插件提供",
+      "desktop.buildSettings.kindPageCount": "{count} 个页面",
+      "desktop.buildSettings.kindFilter": "筛选页面或插件",
+      "desktop.buildSettings.kindNoMatches": "没有匹配的页面",
+      "desktop.buildSettings.listSeparator": "、",
+      "desktop.buildSettings.parenthesized": "（{text}）",
+      "desktop.buildSettings.apply": "应用",
+      "desktop.buildSettings.applying": "正在应用…",
+      "desktop.buildSettings.applyFailed": "应用失败：{reason}",
+      "desktop.buildSettings.pending": "{count} 项未应用",
+      "desktop.buildSettings.writes": "· 写入 {targets}",
+      "desktop.buildSettings.applyHelp": "点“应用”写入后会重新读取，界面显示的是重新读取到的实际生效值。\n点“取消”放弃全部修改，不写任何文件。",
+      "desktop.buildSettings.targetGlobal": "全局用户设置",
+      "desktop.buildSettings.targetProject": "本项目的 .lithe/toolchains/local.json",
+      "desktop.buildSettings.targetStepping": "调试器单步",
+      "desktop.buildSettings.scopeProjectNamed": "当前项目 · {project}",
+      "desktop.buildSettings.scopeHelp": "全局默认：所有项目共用的选择，保存在应用的用户设置。\n当前项目：只对这个项目生效，保存到本项目的 .lithe/toolchains/local.json（本机文件，不提交）。\n项目没有指定的工具沿用全局默认。已启动的进程需要重启后才使用新版本。\n两个作用域的修改分别保留，切换不会丢失。",
+      "desktop.buildSettings.trustedHelp": "本机此项目已信任：允许探测和运行项目内的工具环境。",
+      "desktop.buildSettings.revokeTrust": "撤销",
+      "desktop.buildSettings.filterLabel": "筛选工具",
+      "desktop.buildSettings.filterPlaceholder": "筛选名称、版本、路径或插件",
+      "desktop.buildSettings.redetect": "重新检测：重新探测全部工具的安装与版本，不写入任何文件。",
+      "desktop.buildSettings.filterAll": "全部",
+      "desktop.buildSettings.filterProblems": "需要处理",
+      "desktop.buildSettings.filterPinned": "已手动指定",
+      "desktop.buildSettings.filterChanged": "未应用",
+      "desktop.buildSettings.groupBy": "分组",
+      "desktop.buildSettings.groupCategory": "按类别",
+      "desktop.buildSettings.groupPlugin": "按插件",
+      "desktop.buildSettings.groupNone": "不分组",
+      "desktop.buildSettings.trustBanner": "{count} 个工具来自项目内的环境（{sources}）。信任项目之前不会探测或运行它们。",
+      "desktop.buildSettings.trustProject": "信任此项目",
+      "desktop.buildSettings.listCount": "{matched} / {total} 个工具",
+      "desktop.buildSettings.noMatches": "没有匹配的工具",
+      "desktop.buildSettings.noProblems": "✓ 没有需要处理的工具",
+      "desktop.buildSettings.pluginGroupHelp": "插件为自己的语言服务器或后台进程声明的运行时。平时不用改，所以默认折叠；出了问题仍会计入“需要处理”。",
+      "desktop.buildSettings.fromSource": "来自 {source}",
+      "desktop.buildSettings.categoryRuntime": "运行时与 SDK",
+      "desktop.buildSettings.categoryBuild": "构建工具",
+      "desktop.buildSettings.categoryPackage": "包管理器",
+      "desktop.buildSettings.categoryDebug": "调试器",
+      "desktop.buildSettings.categoryLint": "检查与格式化",
+      "desktop.buildSettings.categoryOther": "其他",
+      "desktop.buildSettings.categoryPlugin": "插件自用运行时",
+      "desktop.buildSettings.selectTool": "选择左侧的工具查看详情",
+      "desktop.buildSettings.toolFooter": "工具 ID {id} · 声明插件 {plugin}",
+      "desktop.buildSettings.declaredBy": "由 {plugin} 声明",
+      "desktop.buildSettings.restoreAutomatic": "恢复自动",
+      "desktop.buildSettings.restoreAutomaticTip": "去掉全局选择，重新自动查找。点“应用”后生效。",
+      "desktop.buildSettings.restoreInherited": "恢复继承",
+      "desktop.buildSettings.restoreInheritedTip": "去掉本项目的选择，重新沿用全局默认。点“应用”后生效。",
+      "desktop.buildSettings.problemConflict": "多个插件声明了同一工具：{plugins}。它们对这个工具的定义可能不同，Lithe 暂停解析，避免用错。",
+      "desktop.buildSettings.problemNotFound": "没有找到 {tool}。安装后点工具栏的 ⟳ 重新检测，或在下方添加安装目录。",
+      "desktop.buildSettings.problemVersion": "找到的安装都低于 {plugin} 要求的最低版本。",
+      "desktop.buildSettings.problemProbeFailed": "版本检测失败。请检查工具的安装，然后重新检测。",
+      "desktop.buildSettings.problemTrust": "这个项目用 {source}（{home}）提供 {tool}。信任项目之前不会探测或运行它。",
+      "desktop.buildSettings.effectiveTitle": "当前生效",
+      "desktop.buildSettings.effectiveHelp": "工具现在实际使用的程序，由 Core 解析得出。\n修改只是草稿，点窗口底部的“应用”或“好”之后才写入并重新读取。",
+      "desktop.buildSettings.status": "状态",
+      "desktop.buildSettings.program": "程序",
+      "desktop.buildSettings.copyPath": "复制路径",
+      "desktop.buildSettings.version": "版本",
+      "desktop.buildSettings.source": "来源",
+      "desktop.buildSettings.afterApply": "应用后：",
+      "desktop.buildSettings.undoChange": "撤销修改",
+      "desktop.buildSettings.why": "为什么是这个？",
+      "desktop.buildSettings.conflictReason": "同时由 {plugins} 声明",
+      "desktop.buildSettings.trustReason": "来自 {source}，需要先信任项目",
+      "desktop.buildSettings.traceStep": "{layer}：{detail}",
+      "desktop.buildSettings.traceCandidate": "{candidate}（{reason}）",
+      "desktop.buildSettings.notSet": "未设置",
+      "desktop.buildSettings.optionsGlobal": "全局默认使用",
+      "desktop.buildSettings.optionsProject": "本项目使用",
+      "desktop.buildSettings.optionsProjectHelp": "只对当前项目生效。\n“继承”沿用全局默认；项目里有插件声明的环境（Wrapper、虚拟环境等）时，信任项目后优先使用。",
+      "desktop.buildSettings.optionsGlobalHelp": "所有项目共用的默认选择。\n“自动”按插件声明的顺序查找：{order}，取第一个满足版本要求的安装。",
+      "desktop.buildSettings.optionsGlobalHelpPlain": "所有项目共用的默认选择。\n“自动”取第一个满足版本要求的安装。",
+      "desktop.buildSettings.autoReason": "自动（{reason}）",
+      "desktop.buildSettings.autoWith": "自动（{version} · {source}）",
+      "desktop.buildSettings.autoProject": "自动（项目环境 · {version} · {source}）",
+      "desktop.buildSettings.inheritWith": "继承（全局默认 · {version}）",
+      "desktop.buildSettings.inUse": "生效中",
+      "desktop.buildSettings.addDirectory": "＋ 添加安装目录…",
+      "desktop.buildSettings.addPlaceholder": "安装根目录，例如 ~/.sdkman/candidates/java/21.0.5-tem",
+      "desktop.buildSettings.addHelp": "选择包含工具程序的安装根目录（例如 JDK 目录，而不是 bin 目录）。\n检查只读取版本、修改草稿；点“应用”后才写入。",
+      "desktop.buildSettings.checkAndUse": "检查并选用",
+      "desktop.buildSettings.cancel": "取消",
+      "desktop.buildSettings.sourceManual": "手动添加",
+      "desktop.buildSettings.sourceSystem": "自动发现",
+      "desktop.buildSettings.reasonNotFound": "没有找到安装",
+      "desktop.buildSettings.reasonConflict": "多个插件声明了同一工具",
+      "desktop.buildSettings.debuggers": "调试器",
+      "desktop.buildSettings.debuggerFilter": "筛选调试器",
+      "desktop.buildSettings.debuggerCount": "{count} 个调试器",
+      "desktop.buildSettings.debuggerNoMatches": "没有匹配的调试器",
+      "desktop.buildSettings.providedBy": "由 {plugin} 提供",
+      "desktop.buildSettings.tabStepping": "单步",
+      "desktop.buildSettings.steppingPending": "有未应用的修改，下一次调试会话生效。",
+      "desktop.buildSettings.skipCode": "不进入的代码",
+      "desktop.buildSettings.skipCodeHelp": "每条一个模式，写法由调试器决定。\n调用栈中匹配的帧会淡化显示。",
+      "desktop.buildSettings.skipSyntheticsHelp": "编译器自动生成的方法（如 lambda 桥接方法）在单步时直接跳过。",
+      "desktop.buildSettings.skipStaticInitializersHelp": "单步进入类时不停在静态初始化块里。",
+      "desktop.buildSettings.skipConstructorsHelp": "单步时不进入构造方法。",
+      "desktop.buildSettings.hideFilteredFramesHelp": "调用栈里被上面规则过滤的帧折叠成一行，展开可查看。",
+      "desktop.buildSettings.noPatterns": "没有规则",
+      "desktop.buildSettings.removePattern": "删除这条",
+      "desktop.buildSettings.addPattern": "添加模式",
+      "desktop.buildSettings.keywordsBuild": "构建 执行 部署 build",
+      "desktop.buildSettings.keywordsToolchains": "工具链 sdk jdk 版本 toolchain",
+      "desktop.buildSettings.keywordsDebuggers": "调试器 单步 debugger stepping 过滤",
+      "desktop.buildSettings.kindCompiler": "编译器",
+      "desktop.buildSettings.kindBuildSystem": "构建工具",
+      "desktop.buildSettings.searchPages": "设置页",
+      "desktop.buildSettings.searchTools": "工具链中的工具",
+      "desktop.buildSettings.searchDebuggers": "调试器",
+      "desktop.buildSettings.steppingTab": "调试器 › 单步",
+      "desktop.buildSettings.searchAllTools": "在工具链中查看全部 {count} 个…"
+    }
+  }
+}

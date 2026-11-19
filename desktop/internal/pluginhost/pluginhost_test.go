@@ -59,7 +59,7 @@ func TestValidateRefusesBrokenValidator(t *testing.T) {
 func TestDeclaredServesTheBaselineOfEveryWiredCapability(t *testing.T) {
 	declared := Declared()
 	want := []string{
-		"backend", "buildProviders", "buildSystems", "commandInstallers", "debugAdapters",
+		"backend", "beforeLaunchTasks", "buildProviders", "buildSystems", "commandInstallers", "debugAdapters",
 		"languageServers", "languages", "managedRuntimes", "outputLinkMatchers", "pluginFunctions",
 		"projectGenerators", "runConfigurationTypes", "settings", "sourceSettings", "toolDefinitions", "ui",
 		"vcsProviders",
@@ -76,6 +76,11 @@ func TestDeclaredServesTheBaselineOfEveryWiredCapability(t *testing.T) {
 		}
 		// Run on Current File starts the entrypoint runs version 1 adds.
 		if name == "buildProviders" {
+			wanted = []int{0, 1}
+		}
+		// The Toolchains page groups tools by the category and audience version 1
+		// adds.
+		if name == "toolDefinitions" {
 			wanted = []int{0, 1}
 		}
 		if versions := declared[name]; !slices.Equal(versions, wanted) {

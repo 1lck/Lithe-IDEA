@@ -567,7 +567,6 @@ type SettingsMessages struct {
 	// The sidebar's groups and the pages under them.
 	AppearanceBehavior string
 	General            string
-	Updates            string
 	Network            string
 	Editor             string
 	Fonts              string
@@ -576,6 +575,8 @@ type SettingsMessages struct {
 	Plugins            string
 	VersionControl     string
 	Build              string
+	Toolchains         string
+	Debuggers          string
 	Languages          string
 	Tools              string
 	AI                 string

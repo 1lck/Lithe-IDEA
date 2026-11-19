@@ -2,11 +2,13 @@ package workbench
 
 import (
 	"context"
+	"encoding/json"
 	"slices"
 	"strings"
 
 	"github.com/1lck/Lithe-IDEA/desktop/internal/core"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/settingswindow"
+	"github.com/1lck/Lithe-IDEA/desktop/internal/toolchain"
 )
 
 // steppingAdapters lists the installed debug adapters that declare stepping filters
@@ -23,6 +25,7 @@ func (a *App) steppingAdapters(ctx context.Context) ([]settingswindow.SteppingAd
 	plugins, pluginErr := a.plugins.DebugPlugins(ctx, entries)
 	var adapters []settingswindow.SteppingAdapter
 	for _, plugin := range plugins {
+		pluginName := toolchain.PluginNames([]json.RawMessage{plugin.Manifest})[plugin.PluginID]
 		for _, declaration := range plugin.Adapters {
 			defaults, ok := core.DeclaredSteppingFilters(declaration.Features, declaration.Defaults)
 			if !ok || slices.ContainsFunc(adapters, func(s settingswindow.SteppingAdapter) bool { return s.ID == declaration.AdapterID }) {
@@ -32,7 +35,9 @@ func (a *App) steppingAdapters(ctx context.Context) ([]settingswindow.SteppingAd
 			if name == "" {
 				name = declaration.AdapterID
 			}
-			adapters = append(adapters, settingswindow.SteppingAdapter{ID: declaration.AdapterID, Name: name, Defaults: defaults})
+			adapters = append(adapters, settingswindow.SteppingAdapter{
+				ID: declaration.AdapterID, Name: name, PluginID: plugin.PluginID, PluginName: pluginName, Defaults: defaults,
+			})
 		}
 	}
 	slices.SortFunc(adapters, func(x, y settingswindow.SteppingAdapter) int {

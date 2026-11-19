@@ -192,7 +192,7 @@ func (a *App) drawRunConfigRow(p *project, row ui.ListRow, selected bool) {
 		ui.Row(c.Part("arrow")).Size(treelist.Disclosure, treelist.Icon).Shrink(0)
 		icon, name := runExecutionIcon(configuration.Execution), a.colors.Text
 		if kind, ok := runConfigKindOf(configuration); ok {
-			icon = s.kindIcon(kind, a.colors.Dark)
+			icon = s.kindIcon(kind, &a.pluginIcons, a.colors.Dark)
 		}
 		if unavailable {
 			icon, name = icons.CircleAlert, a.colors.Subtle
@@ -296,8 +296,8 @@ func (a *App) runConfigMenu(c ui.C, row ui.Box, p *project, configuration core.R
 }
 
 // drawRunConfigEditorPane declares the editor of a build provider run in the dialog:
-// arguments, working directory, environment, the provider's choices, the process runs that
-// start first and the layer file the edit is saved into.
+// arguments, working directory, environment, the provider's choices, the layer file the edit
+// is saved into and, last, the Before Launch section.
 func (a *App) drawRunConfigEditorPane(c ui.C, p *project, e *runConfigEditor) {
 	language := a.language()
 	ready := e.ready()
@@ -335,17 +335,13 @@ func (a *App) drawRunConfigEditorPane(c ui.C, p *project, e *runConfigEditor) {
 				a.drawRunOptionField(c.Part("option-"+strconv.Itoa(index)), language, &e.optionFields[index], ready)
 			}
 		}
-		ui.Column(c.Part("before-launch-field")).FillWidth().Gap(4).Children(func() {
-			ui.Row(c).FillWidth().Items(ui.Center).Gap(4).Children(func() {
-				ui.Text(c, i18n.Shared(language, "desktop.runConfig.fieldBeforeLaunch")).FontSize(a.theme.Metrics.FontSizeS).Color(a.colors.Subtle)
-				ui.Button(c.Part("help"), i18n.Shared(language, "native.moreInformation")).Icon(icons.Info).IconOnly().Ghost().
-					Size(18, 18).Shrink(0).Tooltip(i18n.Shared(language, "desktop.runConfig.beforeLaunchHelp")).TooltipOn(ui.TooltipRight)
-			})
-			a.drawRunConfigBeforeLaunch(c, &e.beforeLaunch, &e.beforeLaunchMenu, p.runConfigs.beforeLaunchCandidates(e.id), ready, nil)
-		})
 		labels := map[string]string{"local": i18n.Shared(language, "desktop.runConfig.scopeLocal"), "project": i18n.Shared(language, "desktop.runConfig.scopeProject")}
 		ui.Select(c.Part("scope"), &e.scope, []string{"local", "project"}, func(scope string) string { return labels[scope] }).
 			Label(i18n.Shared(language, "desktop.runConfig.scope")).FillWidth().Disabled(!ready)
+		if e.beforeLaunch != nil {
+			a.drawRunConfigBeforeLaunch(c.Part("before-launch-field"), p, e.beforeLaunch, i18n.Shared(language, "desktop.runConfig.fieldBeforeLaunch"),
+				i18n.Shared(language, "desktop.runConfig.beforeLaunchHelp"), e.beforeLaunchCandidates, e.beforeLaunchTasks, ready, nil)
+		}
 		if e.failure != "" {
 			ui.Paragraph(c, e.failure, 4).FontSize(a.theme.Metrics.FontSizeS).Color(a.theme.Danger)
 		}
