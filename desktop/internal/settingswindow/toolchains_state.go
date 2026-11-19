@@ -376,14 +376,14 @@ type toolchainState struct {
 	trustWanted   bool
 	trusting      bool
 
-	runtimeEffect   *ui.EffectState[toolchain.Snapshot, int]
-	runtimeKey      int
-	runtimeScope    string
-	runtimeSnapshot toolchain.Snapshot
-	runtimeTool     toolchain.Tool
+	runtimeEffect    *ui.EffectState[toolchain.Snapshot, int]
+	runtimeKey       int
+	runtimeScope     string
+	runtimeSnapshot  toolchain.Snapshot
+	runtimeTool      toolchain.Tool
 	preparingRuntime bool
-	runtimeProgress atomic.Pointer[pluginruntime.Progress]
-	invalidate      func()
+	runtimeProgress  atomic.Pointer[pluginruntime.Progress]
+	invalidate       func()
 
 	// failed is the last write, check or trust request's error; a read's error is its scope's.
 	failed error
