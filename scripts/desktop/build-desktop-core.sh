@@ -27,7 +27,7 @@ native_path() {
     fi
 }
 
-# Lithe-core-rust branch feat/workspace-trust at 150c857 (#118, on top of main 06a4c79, #117 plugin
+# Lithe-core-rust main at 98e6940 (#119 protocol changelog only) on top of #118 (8c77c3f, on top of #117 plugin
 # SDK documentation only): the toolchain catalog records a decision on each workspace (trusted,
 # distrusted for safe mode, or unknown) and trusted locations, toolchains.catalogState reports it as
 # workspaceTrust, and build plan requests take projectCodeAllowed, without which every plan that
@@ -284,7 +284,7 @@ PINNED_CORE_REPOSITORY="https://github.com/Lithe-IDEA/Lithe-core-rust.git"
 # the contract, plugin guides, reference and SDKs live only in shared/plugins; on top of #16 (reported Git queries folded in the console),
 # #15 (git.write cherryPick, revert and reset fields), #14 (word-level changed ranges of diff
 # rows), #13, #8, #7, #6 and #4.
-PINNED_CORE_REVISION="150c857efc3c286798e224a9d04b78d062eba9ce"
+PINNED_CORE_REVISION="98e694049fde68b61a3783c69e341ec887e06049"
 PROFILE="debug"
 while [[ $# -gt 0 ]]; do
     case "$1" in
