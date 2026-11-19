@@ -486,11 +486,11 @@ var providerRunManifest = strings.Replace(providerTestsManifest, `"model": {"sou
 	`"model": {"source": "provider"},
     "run": [{"id": "application", "source": "provider", "fromTargets": {"tags": ["app"]}, "execution": "application"}],`, 1)
 
-// What a provider prints while it prepares a run, such as the compile error that ends the
-// preparation, is the run's console output: the user reads it there when the run fails. The
-// host used to wait for the answer without reading the progress, so the console stayed empty.
-func TestProviderRunPreparationShowsItsBuildOutput(t *testing.T) {
-	h := providerTestsHarnessWith(t, providerRunManifest)
+// providerRunWorkspace is a workspace the provider fixture detects, with the fixture's build
+// tool on PATH: the host resolves the provider's build tool before it starts the provider, and
+// the fixture provider never runs it.
+func providerRunWorkspace(t *testing.T) string {
+	t.Helper()
 	root := t.TempDir()
 	for _, marker := range []string{"fixture.marker", "discovery.marker"} {
 		if err := os.WriteFile(filepath.Join(root, marker), []byte("fixture\n"), 0o600); err != nil {
@@ -500,8 +500,6 @@ func TestProviderRunPreparationShowsItsBuildOutput(t *testing.T) {
 	if err := os.MkdirAll(filepath.Join(root, "lib"), 0o700); err != nil {
 		t.Fatal(err)
 	}
-	// The host resolves the provider's build tool before it starts the provider; the fixture
-	// provider never runs it.
 	bin := t.TempDir()
 	tool := filepath.Join(bin, "fixture-tool")
 	if runtime.GOOS == "windows" {
@@ -512,7 +510,36 @@ func TestProviderRunPreparationShowsItsBuildOutput(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Setenv("PATH", bin+string(filepath.ListSeparator)+os.Getenv("PATH"))
-	h.open(root)
+	return root
+}
+
+// Opening a project lists the runs its build plugins declare, and the title bar shows the one
+// it starts, without the user opening the run menu or pressing Run first. The host used to
+// detect the build systems only on such a press, so a project opened on Current File with an
+// empty run list and its application was never found.
+func TestOpeningAProjectListsItsDeclaredRuns(t *testing.T) {
+	h := providerTestsHarnessWith(t, providerRunManifest)
+	h.open(providerRunWorkspace(t))
+	p := h.app.project
+	awaitStateWithin(t, h, time.Minute, "the declared run in the title bar", func() bool {
+		return p.titleConfiguration() != nil
+	})
+	configuration := p.titleConfiguration()
+	reference, ok := configuration.BuildReference()
+	if !ok || reference.Run != "application" || reference.PluginID != "dev.lithe.test.provider-tests" {
+		t.Fatalf("the title bar runs %+v, want the provider's application run", configuration)
+	}
+	if label := h.app.titleRunLabel(); label != configuration.Name {
+		t.Fatalf("the title bar reads %q, want %q", label, configuration.Name)
+	}
+}
+
+// What a provider prints while it prepares a run, such as the compile error that ends the
+// preparation, is the run's console output: the user reads it there when the run fails. The
+// host used to wait for the answer without reading the progress, so the console stayed empty.
+func TestProviderRunPreparationShowsItsBuildOutput(t *testing.T) {
+	h := providerTestsHarnessWith(t, providerRunManifest)
+	h.open(providerRunWorkspace(t))
 	p := h.app.project
 	h.app.post(func(a *App) { a.loadBuildSystems(p) })
 	awaitStateWithin(t, h, time.Minute, "the provider model", func() bool {

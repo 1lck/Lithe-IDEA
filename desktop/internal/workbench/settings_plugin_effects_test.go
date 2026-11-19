@@ -29,10 +29,14 @@ func TestPluginSettingsReloadInvalidatesOnlyOwningModelsAndKeepsRunningTask(t *t
 		t.Fatal("in-flight model did not retain the pending reload")
 	}
 	// The old read completes after publication. Its stale model must not become
-	// loaded, and an unselected instance must not eagerly start another process.
+	// loaded; the title bar lists the runs of every instance, so the unselected one
+	// is read again instead of waiting for the Build window to select it.
 	h.app.finishBuildModel(p, "changed", core.BuildModel{}, nil)
-	if p.build.instances[0].modelLoaded || p.build.instances[0].modelLoading || p.build.instances[0].modelReloadPending {
+	if p.build.instances[0].modelLoaded || p.build.instances[0].modelReloadPending {
 		t.Fatal("superseded model became current")
+	}
+	if !p.build.instances[0].modelLoading {
+		t.Fatal("the invalidated model was not read again for the title bar")
 	}
 	if p.build.operation != running || !p.build.instances[1].modelLoaded {
 		t.Fatal("completion disturbed the active task or unrelated model")

@@ -59,7 +59,11 @@ func (s settingsToolchains) SetWorkspaceTrust(ctx context.Context, snapshot tool
 	if _, err := snapshot.SaveWorkspaceTrust(ctx, s.app.kernel, trusted); err != nil {
 		return snapshot, err
 	}
-	s.app.post(func(a *App) { a.retryFailedPluginServers() })
+	// The open project leaves or enters safe mode with the decision.
+	s.app.post(func(a *App) {
+		a.retryFailedPluginServers()
+		a.reloadProjectTrust(a.project)
+	})
 	updated, err = s.loadAt(ctx, snapshot.Root)
 	if err != nil {
 		return snapshot, errors.Join(toolchain.ErrPinCommitted, err)

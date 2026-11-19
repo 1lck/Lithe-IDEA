@@ -255,7 +255,8 @@ func TestProviderModelTaskAndCancellation(t *testing.T) {
 		t.Fatalf("model = %+v", model)
 	}
 
-	taskPlan, err := client.PlanBuildTask(ctx, validated, "fixture", core.BuildPlanRequest{Root: ".", WorkspaceRoot: workspace, Task: "build"})
+	// A provider task runs the workspace's build, which the workspace's trust allows.
+	taskPlan, err := client.PlanBuildTask(ctx, validated, "fixture", core.BuildPlanRequest{Root: ".", WorkspaceRoot: workspace, Task: "build", ProjectCodeAllowed: true})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -288,7 +289,7 @@ func TestProviderModelTaskAndCancellation(t *testing.T) {
 		t.Fatalf("execution = %+v", execution)
 	}
 
-	slowPlan, err := client.PlanBuildTask(ctx, validated, "fixture", core.BuildPlanRequest{Root: ".", WorkspaceRoot: workspace, Task: "slow"})
+	slowPlan, err := client.PlanBuildTask(ctx, validated, "fixture", core.BuildPlanRequest{Root: ".", WorkspaceRoot: workspace, Task: "slow", ProjectCodeAllowed: true})
 	if err != nil {
 		t.Fatal(err)
 	}

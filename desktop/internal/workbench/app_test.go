@@ -99,6 +99,9 @@ func newHarnessWithDriver(t testing.TB, options Options, open func(app.Config) (
 		}
 		return start.Add(h.driver.Now())
 	}
+	// Tests open their folders trusted, as IDEA's unit-test mode does; the trust flow's own tests
+	// clear it before they open one.
+	options.trustEveryWorkspace = true
 	h.app = New(options)
 	h.config = h.app.Config()
 	driver, closeDriver, err := open(h.config)
@@ -185,6 +188,25 @@ func (h *harness) open(dir string) {
 	h.t.Helper()
 	h.app.openProject(dir)
 	h.settle()
+}
+
+// setDetected gives p the instances a finished detection reports. Opening a project already
+// detects its build systems, which ends with the plugins unavailable in a harness without a
+// plugin service; a test that supplies its own instances replaces that answer. It runs on the
+// window thread.
+func setDetected(p *project, instances []buildInstance) {
+	p.build.instances, p.build.loaded, p.build.loading = instances, true, false
+	p.build.failed, p.build.status = "", ""
+}
+
+// awaitRunConfigsAfter waits until Core resolved p's configurations again after the read
+// numbered since, so the read a test asked for is the one it checks: opening the project
+// already read them once.
+func awaitRunConfigsAfter(t *testing.T, h *harness, p *project, since uint64) {
+	t.Helper()
+	awaitStateWithin(t, h, 10*time.Second, "the run configurations", func() bool {
+		return p.runConfigs.generation > since && !p.runConfigs.loading
+	})
 }
 
 // shows reports whether a label in the current frame contains value.

@@ -32,14 +32,14 @@ func titleRunHarness(t *testing.T, kernel Kernel, run pluginservice.BuildRunDecl
 	h := newHarness(t, kernel)
 	h.open(runConfigRoot(t))
 	p := h.app.project
+	since := p.runConfigs.generation
 	h.app.post(func(a *App) {
 		instance := runConfigInstance("app")
 		instance.System.Runs = []pluginservice.BuildRunDeclaration{run}
-		p.build.loaded = true
-		p.build.instances = []buildInstance{instance}
+		setDetected(p, []buildInstance{instance})
 		a.refreshRunConfigurations(p)
 	})
-	awaitStateWithin(t, h, 10*time.Second, "the run configurations", func() bool { return p.runConfigs.generation > 0 && !p.runConfigs.loading })
+	awaitRunConfigsAfter(t, h, p, since)
 	if len(p.runConfigs.list) != 1 || p.titleConfiguration() == nil {
 		t.Fatalf("configurations = %+v failure %q", p.runConfigs.list, p.runConfigs.failure)
 	}
@@ -72,8 +72,7 @@ func TestTitleRunWaitsForTheConfigurationsAndRunsTheChosenOne(t *testing.T) {
 	h.open(runConfigRoot(t))
 	p := h.app.project
 	h.app.post(func(a *App) {
-		p.build.loaded = true
-		p.build.instances = []buildInstance{runConfigInstance("app")}
+		setDetected(p, []buildInstance{runConfigInstance("app")})
 		a.refreshRunConfigurations(p)
 		a.titleRun(p)
 		if p.runConfigs.pending != titleActionRun {
@@ -184,10 +183,11 @@ func TestStaticModelDetectionResolvesRunConfigurations(t *testing.T) {
 	h := newHarness(t, &testKernel{Client: core.NewClient()})
 	h.open(runConfigRoot(t))
 	p := h.app.project
+	since := p.runConfigs.generation
 	h.app.post(func(a *App) {
 		a.finishBuildDetection(p, p.build.generation, []buildInstance{runConfigInstance("app")}, nil)
 	})
-	awaitStateWithin(t, h, 10*time.Second, "the run configurations", func() bool { return p.runConfigs.generation > 0 && !p.runConfigs.loading })
+	awaitRunConfigsAfter(t, h, p, since)
 	if len(p.runConfigs.list) != 1 || p.runConfigs.list[0].Name != "Run Main" || h.app.titleRunLabel() != "Run Main" {
 		t.Fatalf("configurations = %+v failure %q", p.runConfigs.list, p.runConfigs.failure)
 	}
@@ -219,14 +219,14 @@ func emptyRunConfigHarness(t *testing.T, root string) (*harness, *project) {
 	h := newHarness(t, &testKernel{Client: core.NewClient()})
 	h.open(root)
 	p := h.app.project
+	since := p.runConfigs.generation
 	h.app.post(func(a *App) {
 		instance := runConfigInstance("app")
 		instance.System.Runs = nil
-		p.build.loaded = true
-		p.build.instances = []buildInstance{instance}
+		setDetected(p, []buildInstance{instance})
 		a.refreshRunConfigurations(p)
 	})
-	awaitStateWithin(t, h, 10*time.Second, "the run configurations", func() bool { return p.runConfigs.generation > 0 && !p.runConfigs.loading })
+	awaitRunConfigsAfter(t, h, p, since)
 	if len(p.runConfigs.list) != 0 || p.runConfigs.failure != "" {
 		t.Fatalf("configurations = %+v failure %q", p.runConfigs.list, p.runConfigs.failure)
 	}

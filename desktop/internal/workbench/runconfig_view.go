@@ -372,16 +372,24 @@ func (a *App) drawRunOptionField(c ui.C, language i18n.Language, field *runOptio
 			return labels[value]
 		}).Label(field.title).FillWidth().Disabled(!ready)
 	case "text", "file", "directory":
-		ui.TextField(c, &field.text, field.title, "").FillWidth().Disabled(!ready)
+		// A text field's label only names it to accessibility, so the option's name is a text above it.
+		ui.Column(c).FillWidth().Gap(6).Children(func() {
+			a.drawRunOptionTitle(c, field.title)
+			ui.TextField(c, &field.text, field.title, "").FillWidth().Disabled(!ready)
+		})
 	case "multiSelect":
-		ui.Text(c, field.title).FontSize(a.theme.Metrics.FontSizeS).Color(a.colors.Subtle)
-		for index := range field.choices {
-			title := field.choices[index].title
-			if field.choices[index].defaultActive {
-				title = i18n.SharedFormat(language, "desktop.build.optionChoiceDefaultLabel", map[string]string{"title": title})
+		// The choices are keyed inside the field's own column: c names only the next element, so
+		// keyed as siblings of the other fields the first choice took the first field's key.
+		ui.Column(c).FillWidth().Gap(6).Children(func() {
+			a.drawRunOptionTitle(c, field.title)
+			for index := range field.choices {
+				title := field.choices[index].title
+				if field.choices[index].defaultActive {
+					title = i18n.SharedFormat(language, "desktop.build.optionChoiceDefaultLabel", map[string]string{"title": title})
+				}
+				ui.Checkbox(c.KeyInt(index), &field.picks[index], title).Disabled(!ready)
 			}
-			ui.Checkbox(c.KeyInt(index), &field.picks[index], title).Disabled(!ready)
-		}
+		})
 	default:
 		text := field.title + ": " + i18n.Shared(language, "desktop.runConfig.optionReadOnly")
 		if field.raw != nil {
@@ -389,6 +397,11 @@ func (a *App) drawRunOptionField(c ui.C, language i18n.Language, field *runOptio
 		}
 		ui.Wrap(c, text).FontSize(a.theme.Metrics.FontSizeS).Color(a.colors.Subtle)
 	}
+}
+
+// drawRunOptionTitle declares the name shown above an option's text field or choices.
+func (a *App) drawRunOptionTitle(c ui.C, title string) {
+	ui.Text(c, title).FontSize(a.theme.Metrics.FontSizeS).Color(a.colors.Subtle)
 }
 
 // runConfigDeletion is the user configuration the delete confirmation asks about.

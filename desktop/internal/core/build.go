@@ -129,7 +129,14 @@ type BuildPlanRequest struct {
 	LaunchOptions *RunLaunchOptions `json:"launchOptions,omitempty"`
 	// File is the workspace-relative source file build.runEntrypointsPlan asks about.
 	File string `json:"file,omitempty"`
+	// ProjectCodeAllowed is the workspace's trust; without it Core refuses a plan that runs
+	// project code with BuildUntrustedWorkspace.
+	ProjectCodeAllowed bool `json:"projectCodeAllowed,omitempty"`
 }
+
+// BuildUntrustedWorkspace is the code Core refuses a plan with when it would run project
+// code in a workspace the user has not trusted.
+const BuildUntrustedWorkspace = "plugin.build.untrustedWorkspace"
 
 // BuildProviderRequest is the typed request a provider-backed plan names.
 type BuildProviderRequest struct {
@@ -459,6 +466,8 @@ type RunConfigurationPlanRequest struct {
 	Instances               []RunTypeInstance `json:"instances"`
 	PluginDirectory         string            `json:"pluginDirectory,omitempty"`
 	WorkspaceStateDirectory string            `json:"workspaceStateDirectory,omitempty"`
+	// ProjectCodeAllowed is the workspace's trust, as in BuildPlanRequest.
+	ProjectCodeAllowed bool `json:"projectCodeAllowed,omitempty"`
 }
 
 // PlanRunConfiguration plans a saved configuration of a plugin-declared run kind
@@ -493,6 +502,8 @@ type BeforeLaunchTaskPlanRequest struct {
 	Instances               []RunTypeInstance `json:"instances"`
 	PluginDirectory         string            `json:"pluginDirectory,omitempty"`
 	WorkspaceStateDirectory string            `json:"workspaceStateDirectory,omitempty"`
+	// ProjectCodeAllowed is the workspace's trust, as in BuildPlanRequest.
+	ProjectCodeAllowed bool `json:"projectCodeAllowed,omitempty"`
 }
 
 // PlanBeforeLaunchTask plans a task step of a Before Launch list
