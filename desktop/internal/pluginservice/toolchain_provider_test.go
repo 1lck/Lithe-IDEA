@@ -205,12 +205,17 @@ func TestToolchainProviderQueriesThroughSharedBackendAndReobservesSources(t *tes
 	if err != nil {
 		t.Fatal(err)
 	}
-	image, err := os.ReadFile(binary)
-	if err != nil {
-		t.Fatal(err)
-	}
 	write(filepath.Join(installed, pluginpkg.ManifestFile), manifest, 0o600)
-	write(filepath.Join(installed, "provider.exe"), image, 0o700)
+	// The fixture never changes its executable. A hard link lets the platform
+	// reuse validation of the test binary instead of validating a second image.
+	program := filepath.Join(installed, "provider.exe")
+	if err := os.Link(binary, program); err != nil {
+		image, readErr := os.ReadFile(binary)
+		if readErr != nil {
+			t.Fatal(readErr)
+		}
+		write(program, image, 0o700)
+	}
 	write(filepath.Join(home, "bin", "fixture"), nil, 0o700)
 	config, err := json.Marshal(toolchainProviderFixtureConfig{Home: home})
 	if err != nil {
