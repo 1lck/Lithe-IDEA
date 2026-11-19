@@ -112,7 +112,7 @@ const trustFolderMaxRunes = 48
 // trustFolderLabel is how the checkbox names folder: under home as "~" plus the rest, as IDEA
 // writes it, and a longer one with its middle left out, so its start and its own name stay.
 func trustFolderLabel(folder, home string) string {
-	label := []rune(welcomeShorten(folder, home))
+	label := []rune(welcomeShorten(filepath.FromSlash(folder), home))
 	if len(label) <= trustFolderMaxRunes {
 		return string(label)
 	}

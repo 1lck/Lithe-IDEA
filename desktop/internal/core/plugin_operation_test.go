@@ -162,7 +162,7 @@ func TestCoreTakesEveryResultTheHostRecords(t *testing.T) {
 	}
 	contributions := map[PluginOperationName]map[PluginStage]string{
 		OperationLanguageServerStart: processStart, OperationDebugAdapterStart: processStart,
-		OperationBuildModel: commandRun, OperationBuildDependencies: commandRun,
+		OperationBuildModel: commandRun, OperationBuildDependencies: commandRun, OperationBuildTestDiscovery: commandRun,
 	}
 	allStages := []PluginStage{StagePlan, StageResolve, StageLaunch, StageInitialize, StageTimeout, StageExit, StageDecode}
 	want := map[string]string{} // op -> code, "" for finished

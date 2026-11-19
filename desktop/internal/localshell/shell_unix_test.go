@@ -7,7 +7,9 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
+	"sync"
 	"testing"
+	"testing/synctest"
 	"time"
 )
 
@@ -198,6 +200,100 @@ func TestCloseHangsUpARunningProgramAndReleasesIt(t *testing.T) {
 		t.Fatal("closing did not end the shell")
 	}
 	shell.Close() // idempotent
+}
+
+type hangupTestPTY struct {
+	resizeTestIO
+	onClose func()
+}
+
+func (pty hangupTestPTY) Close() error {
+	pty.onClose()
+	return nil
+}
+
+func TestCloseLetsTheShellHandleHangupBeforeReleasingThePTY(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		exited := make(chan struct{})
+		var calls []string
+		shell := resizeTestShell(backend{
+			io: hangupTestPTY{onClose: func() { calls = append(calls, "close PTY") }},
+			wait: func() (int, error) {
+				<-exited
+				return 0, nil
+			},
+			hangup:              func() { calls = append(calls, "hangup") },
+			kill:                func() { calls = append(calls, "kill") },
+			busy:                func() bool { return true },
+			retryHangupAtPrompt: true,
+		})
+		shell.space = sync.NewCond(&shell.mu)
+		shell.readDone = make(chan struct{})
+		shell.prompted, shell.lastMark = true, 'C'
+		liveShells.Acquire()
+		go shell.wait()
+
+		// A foreground process can belong to a slow PROMPT_COMMAND. Its
+		// presence doesn't mean the shell can already propagate a hangup.
+		shell.Close()
+		synctest.Wait()
+		if len(calls) != 0 {
+			t.Errorf("while the prompt hook runs: %v, want no backend calls", calls)
+		}
+		shell.sawMark('B')
+		synctest.Wait()
+		if !slices.Equal(calls, []string{"hangup"}) {
+			t.Errorf("before the shell handles hangup: %v, want only hangup", calls)
+		}
+
+		close(exited)
+		close(shell.readDone)
+		select {
+		case <-shell.Done():
+		case <-time.After(time.Second):
+			t.Fatal("the shell never released its terminal")
+		}
+		synctest.Wait()
+		if !slices.Equal(calls, []string{"hangup", "close PTY"}) {
+			t.Fatalf("shutdown order = %v, want hangup followed by PTY close", calls)
+		}
+	})
+}
+
+func TestHangupRetriesAtTheBashPromptBeforeForcingExit(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		signals := make(chan string, 3)
+		shell := resizeTestShell(backend{
+			hangup:              func() { signals <- "hangup" },
+			retryHangupAtPrompt: true,
+		})
+		shell.b.kill = func() {
+			signals <- "kill"
+			close(shell.done)
+		}
+		shell.lastMark = 'B'
+		shell.hangUp()
+		synctest.Wait()
+		if len(signals) != 1 {
+			t.Errorf("initial signal count = %d, want one hangup", len(signals))
+		}
+
+		select {
+		case <-shell.done:
+		case <-time.After(killGrace + time.Millisecond):
+			t.Fatal("the fallback did not end the shell within its original grace period")
+		}
+		for _, want := range []string{"hangup", "hangup", "kill"} {
+			select {
+			case got := <-signals:
+				if got != want {
+					t.Fatalf("signal = %q, want %q", got, want)
+				}
+			default:
+				t.Fatalf("missing signal %q", want)
+			}
+		}
+	})
 }
 
 func TestOutputIsBoundedAndNothingIsLost(t *testing.T) {

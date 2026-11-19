@@ -186,7 +186,9 @@ func TestSafeModeKeepsProjectCodeFromRunningUntilTrusted(t *testing.T) {
 
 func TestTrustFolderLabelShortensHomeAndLongPaths(t *testing.T) {
 	home := filepath.Join(string(filepath.Separator)+"Users", "ann")
-	if got, want := trustFolderLabel(filepath.Join(home, "IdeaProjects"), home), "~"+string(filepath.Separator)+"IdeaProjects"; got != want {
+	// Core returns a slash-separated location even on Windows.
+	folder := filepath.ToSlash(filepath.Join(home, "IdeaProjects"))
+	if got, want := trustFolderLabel(folder, home), "~"+string(filepath.Separator)+"IdeaProjects"; got != want {
 		t.Fatalf("label = %q, want %q", got, want)
 	}
 	long := filepath.Join(string(filepath.Separator)+"srv", "builds", "a-very-long-folder-name-for-every-checkout", "of-the-team", "projects")
