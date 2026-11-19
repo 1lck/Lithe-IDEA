@@ -121,5 +121,8 @@ func (s *Service) Fetch(ctx context.Context, input string, kind core.Marketplace
 	if err != nil {
 		return Snapshot{}, err
 	}
+	for i := range index.Plugins {
+		index.Plugins[i].MarketplaceIndexURL = source.IndexURL
+	}
 	return Snapshot{Source: source, Index: index}, nil
 }

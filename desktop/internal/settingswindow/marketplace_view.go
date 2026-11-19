@@ -9,6 +9,7 @@ import (
 	"github.com/1lck/Lithe-IDEA/desktop/internal/core"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/i18n"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/icons"
+	"github.com/1lck/Lithe-IDEA/desktop/internal/marketplace"
 	"github.com/vivaui/viva/app"
 	"github.com/vivaui/viva/gfx"
 	"github.com/vivaui/viva/ui"
@@ -156,6 +157,22 @@ func (w *window) pluginMenu(c ui.C, language i18n.Language) {
 		}
 		if menu.Item(i18n.Shared(language, "native.refreshPluginRepositories")).Clicked() {
 			c.After(w.refreshMarket)
+		}
+		if w.ctrl.opts.SetAutoUpdatePlugins != nil {
+			menu.Separator()
+			if w.sess.values.AutoUpdatePlugins {
+				if menu.Item(i18n.Shared(language, "desktop.marketplace.disableAutoUpdates")).Clicked() {
+					c.After(func() {
+						w.sess.values.AutoUpdatePlugins = false
+						w.ctrl.opts.SetAutoUpdatePlugins(false)
+					})
+				}
+			} else if menu.Item(i18n.Shared(language, "desktop.marketplace.enableAutoUpdates")).Clicked() {
+				c.After(func() {
+					w.sess.values.AutoUpdatePlugins = true
+					w.ctrl.opts.SetAutoUpdatePlugins(true)
+				})
+			}
 		}
 		if w.ctrl.opts.InstallPluginFromFile != nil {
 			menu.Separator()
@@ -434,20 +451,7 @@ func offeredVersion(plugin core.MarketplacePlugin) string {
 // installed one comes after it; an installed version the listing does not know of (a
 // package from disk, or one the index dropped) is never offered a replacement.
 func newerOffered(plugin core.MarketplacePlugin, installed string) bool {
-	offered := offeredVersion(plugin)
-	if plugin.Availability.Status != "available" || offered == "" || offered == installed {
-		return false
-	}
-	seenOffered := false
-	for _, version := range plugin.Versions {
-		switch version.Version {
-		case offered:
-			seenOffered = true
-		case installed:
-			return seenOffered
-		}
-	}
-	return false
+	return marketplace.NewerOffered(plugin, installed)
 }
 
 // marketRowAction is the right end of a marketplace row: Install, Update, or what the

@@ -44,13 +44,14 @@ type Review struct {
 
 // Record is the provenance of one approved plugin version.
 type Record struct {
-	PluginID         string            `json:"pluginID"`
-	Version          string            `json:"version"`
-	Source           Source            `json:"source"`
-	ArchiveSHA256    string            `json:"archiveSHA256,omitempty"`
-	ContentDigest    string            `json:"contentDigest,omitempty"`
-	Permissions      []string          `json:"permissions"`
-	ApprovedPrograms []json.RawMessage `json:"approvedPrograms"`
+	PluginID            string            `json:"pluginID"`
+	Version             string            `json:"version"`
+	Source              Source            `json:"source"`
+	ArchiveSHA256       string            `json:"archiveSHA256,omitempty"`
+	MarketplaceIndexURL string            `json:"marketplaceIndexURL,omitempty"`
+	ContentDigest       string            `json:"contentDigest,omitempty"`
+	Permissions         []string          `json:"permissions"`
+	ApprovedPrograms    []json.RawMessage `json:"approvedPrograms"`
 }
 
 // Request is what the host knows about the package it is about to install.
@@ -59,6 +60,8 @@ type Request struct {
 	Source Source
 	// ArchiveSHA256 is the digest of the archive the package was extracted from.
 	ArchiveSHA256 string
+	// MarketplaceIndexURL is the canonical index source, not a plugin's own claim.
+	MarketplaceIndexURL string
 	// ContentDigest is the digest of the extracted package tree.
 	ContentDigest string
 	// Review is Core's install review for this package.
@@ -117,13 +120,14 @@ func Decide(record Record, found bool, req Request) Decision {
 // RecordFor builds the record that approves req for one plugin version.
 func RecordFor(id, version string, req Request) Record {
 	return Record{
-		PluginID:         id,
-		Version:          version,
-		Source:           req.Source,
-		ArchiveSHA256:    req.ArchiveSHA256,
-		ContentDigest:    req.ContentDigest,
-		Permissions:      append([]string(nil), req.Review.Permissions...),
-		ApprovedPrograms: clonePrograms(req.Review.Programs),
+		PluginID:            id,
+		Version:             version,
+		Source:              req.Source,
+		ArchiveSHA256:       req.ArchiveSHA256,
+		MarketplaceIndexURL: req.MarketplaceIndexURL,
+		ContentDigest:       req.ContentDigest,
+		Permissions:         append([]string(nil), req.Review.Permissions...),
+		ApprovedPrograms:    clonePrograms(req.Review.Programs),
 	}
 }
 

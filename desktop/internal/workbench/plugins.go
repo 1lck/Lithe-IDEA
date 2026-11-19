@@ -95,12 +95,13 @@ func (a *App) installPlugin(plugin core.MarketplacePlugin, feedback settingswind
 			feedback.Preparing()
 		}
 		plan, err := a.preparePlugin(ctx, plugininstall.Request{
-			ArchivePath:     archive.Path(),
-			Root:            a.plugins.Root,
-			Source:          plugintrust.Marketplace,
-			ArchiveSHA256:   availability.SHA256,
-			ExpectedID:      plugin.ID,
-			ExpectedVersion: availability.Version,
+			ArchivePath:         archive.Path(),
+			Root:                a.plugins.Root,
+			Source:              plugintrust.Marketplace,
+			ArchiveSHA256:       availability.SHA256,
+			MarketplaceIndexURL: plugin.MarketplaceIndexURL,
+			ExpectedID:          plugin.ID,
+			ExpectedVersion:     availability.Version,
 		})
 		if err != nil && !errors.Is(err, context.Canceled) && !errors.Is(err, context.DeadlineExceeded) {
 			a.recordPluginInstallCleanup(ctx, downloads.Forget(archive))

@@ -44,7 +44,7 @@ func drawView(t *testing.T, view string) *viewDriver {
 		Background:  &background,
 		Invalidator: invalidator,
 	})
-	driver, err := app.NewDriver(page.Config(app.Config{Width: 480, Height: 400, Invalidator: invalidator}), nil)
+	driver, err := app.NewDriver(ui.Configure(page, app.Config{Width: 480, Height: 400, Invalidator: invalidator}), nil)
 	if err != nil {
 		t.Fatal(err)
 	}

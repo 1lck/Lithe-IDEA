@@ -128,6 +128,8 @@ type Values struct {
 	// AutoCheckUpdates has Lithe check for a newer version 5 seconds after it starts and
 	// then every hour, pausing while its window is in the background.
 	AutoCheckUpdates bool
+	// AutoUpdatePlugins opts in to background updates with unchanged grants.
+	AutoUpdatePlugins bool
 	// Network is the proxy settings of the application's own HTTP traffic.
 	Network NetworkSettings
 	// LocalHistory is the user's local history settings: what is not recorded and how much
@@ -345,7 +347,9 @@ type Options struct {
 	MarketplaceSources     []string
 	FetchMarketplaceSource func(context.Context, string) (marketplace.Snapshot, error)
 	SetMarketplaceSources  func([]string)
-	MarketplaceRank        func(context.Context, string, []core.RankCandidate) ([]int, error)
+	// SetAutoUpdatePlugins changes the window-wide update preference.
+	SetAutoUpdatePlugins func(bool)
+	MarketplaceRank      func(context.Context, string, []core.RankCandidate) ([]int, error)
 	// MarketplaceError must be safe from a worker: a cancelled request may fail
 	// after the window has discarded its result.
 	MarketplaceError    func(error)
