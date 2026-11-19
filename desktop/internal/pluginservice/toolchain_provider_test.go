@@ -361,7 +361,7 @@ func TestToolchainProviderQueriesTheInstalledVersionAfterUpgrade(t *testing.T) {
 		}
 		selection, err := toolchain.Resolve(ctx, client, "", ".", toolchainFixtureTool, "", nil, []json.RawMessage{selected[0].Manifest}, options)
 		session := service.Host.Running(toolchainFixturePlugin)
-		if err != nil || selection.Executable != executable {
+		if err != nil || filepath.FromSlash(selection.Executable) != executable {
 			t.Fatalf("installed %s, executable %q, want %q (error %v)", version, selection.Executable, executable, err)
 		}
 		if session == nil || session.Version != version {
