@@ -11,7 +11,7 @@ func (a *App) searchScopeControls(c ui.C, p *project, language i18n.Language) bo
 	if v.scopeMode == "" {
 		v.scopeMode = "project"
 	}
-	ui.Column(c).FillWidth().PadX(10).Gap(4).Children(func() {
+	ui.Column(c).FillWidth().PadSides(0, 10, 6, 10).Gap(6).Children(func() {
 		ui.Select(c.Part("scope-kind"), &v.scopeMode, []string{"project", "module", "directory", "custom"}, func(value string) string {
 			switch value {
 			case "module":

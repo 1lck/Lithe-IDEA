@@ -21,7 +21,7 @@ var (
 )
 
 const (
-	searchResultHeight = 52
+	searchResultHeight = 24
 	searchMaxResults   = 200
 	searchDebounce     = 250 * time.Millisecond
 	searchTimeout      = 30 * time.Second
@@ -40,9 +40,10 @@ var (
 )
 
 type searchQuery struct {
-	text, mask, scope            string
-	matchCase, wholeWords, regex bool
-	includeIgnored               bool
+	text, mask, scope                string
+	matchCase, wholeWords, regex     bool
+	includeIgnored                   bool
+	includeGenerated, followSymlinks bool
 }
 
 // searchView contains only controls and options; results belong to a project.
@@ -51,6 +52,7 @@ type searchView struct {
 	scopeModule                                      string
 	scope                                            ui.Field
 	includeIgnored                                   bool
+	includeGenerated, followSymlinks                 bool
 	query, mask                                      ui.Field
 	optionsOpen, matchCase, wholeWords, regex, focus bool
 	// replace is the Replace in Files field, shown while replaceOpen.
@@ -68,6 +70,7 @@ func (v *searchView) reset() {
 	v.scope.SetText("")
 	v.scopeMode, v.scopeModule = "project", ""
 	v.includeIgnored = false
+	v.includeGenerated, v.followSymlinks = false, false
 	v.replace.SetText("")
 	v.replaceOpen = false
 	v.optionsOpen, v.matchCase, v.wholeWords, v.regex, v.focus = false, false, false, false, false
@@ -75,6 +78,11 @@ func (v *searchView) reset() {
 }
 
 type projectSearch struct {
+	counts                 *core.WorkspaceSearchCounts
+	countDone              <-chan struct{}
+	countFailed            bool
+	countRevision          uint64
+	countCancel            context.CancelFunc
 	request                core.WorkspaceSearchRequest
 	cursor                 *string
 	next                   bool
@@ -98,6 +106,11 @@ type projectSearch struct {
 }
 
 func (a *App) cancelProjectSearch(p *project) {
+	if p.search.countCancel != nil {
+		p.search.countCancel()
+		p.search.countCancel = nil
+	}
+	p.search.counts = nil
 	p.search.generation++
 	p.search.presentationGeneration++
 	p.search.request = core.WorkspaceSearchRequest{}
@@ -196,6 +209,12 @@ func (a *App) drainProjectSearchWatch(p *project, slot *documentWatch) {
 		a.applyTreeRecursiveWatch(p, ready, watch != nil, err, events)
 	}
 	if changed {
+		if s.countCancel != nil {
+			s.countCancel()
+			s.countCancel = nil
+		}
+		s.counts = nil
+		s.countFailed = false
 		s.generation++
 		if s.cancel != nil {
 			s.cancel()
@@ -217,6 +236,12 @@ func (a *App) updateProjectSearch(p *project, query searchQuery) {
 		return
 	}
 	s.want = query
+	if s.countCancel != nil {
+		s.countCancel()
+		s.countCancel = nil
+	}
+	s.counts = nil
+	s.countFailed = false
 	s.generation++
 	s.matches, s.failed = nil, false
 	s.cursor, s.next = nil, false
@@ -291,7 +316,8 @@ func (a *App) runProjectSearch(p *project) {
 			CaseSensitive: query.matchCase, WholeWords: query.wholeWords, RegularExpression: query.regex,
 			MaxResults: searchMaxResults, MaxFileResults: &noFileResults, IncludeContentRanges: true,
 			PageSize: 50, MaxFileBytes: a.searchPreferences.MaxFileBytes,
-			ScopeExpression: query.scope, IncludeIgnored: query.includeIgnored}
+			ScopeExpression: query.scope, IncludeIgnored: query.includeIgnored,
+			IncludeGenerated: query.includeGenerated, FollowSymlinks: query.followSymlinks}
 		s.request = request
 	} else {
 		request.Cursor = s.cursor
@@ -347,6 +373,19 @@ func (a *App) runProjectSearch(p *project) {
 				s.presentationGeneration++
 			}
 			a.finishProjectSearch(p, generation, matches, err, full || len(paths) > 0)
+			if generation == s.generation && err == nil {
+				needsCounts := !next
+				for _, match := range matches[max(0, len(matches)-50):] {
+					if s.counts != nil {
+						if _, exists := s.counts.FileOccurrences[match.Path]; !exists {
+							needsCounts = true
+						}
+					}
+				}
+				if needsCounts {
+					a.countProjectSearch(p, request, generation)
+				}
+			}
 		}
 	})
 }
@@ -358,6 +397,56 @@ func (a *App) loadMoreProjectSearch(p *project) {
 	}
 	s.next = true
 	a.runProjectSearch(p)
+}
+
+// Count after publishing the first page so a complete scan cannot delay navigation.
+func (a *App) countProjectSearch(p *project, request core.WorkspaceSearchRequest, generation uint64) {
+	if p.search.countCancel != nil {
+		p.search.countCancel()
+	}
+	p.search.countRevision++
+	countRevision := p.search.countRevision
+	ctx, cancel := context.WithCancel(p.ctx)
+	p.search.countCancel = cancel
+	p.search.countFailed = false
+	finished := make(chan struct{})
+	p.search.countDone = finished
+	// Only loaded headings cross the bridge; totals still cover the full query.
+	seen := map[string]bool{}
+	for _, match := range p.search.matches[max(0, len(p.search.matches)-50):] {
+		if !seen[match.Path] {
+			request.CountPaths = append(request.CountPaths, match.Path)
+			seen[match.Path] = true
+		}
+	}
+	a.background(p, searchTimeout, func(deadline context.Context) func(*App) {
+		defer close(finished)
+		defer cancel()
+		stop := context.AfterFunc(deadline, cancel)
+		defer stop()
+		counts, err := core.NewClient().CountWorkspaceSearch(ctx, request)
+		return func(a *App) {
+			if generation != p.search.generation || countRevision != p.search.countRevision {
+				return
+			}
+			p.search.countCancel = nil
+			if err != nil {
+				p.search.countFailed = true
+				if !errors.Is(err, context.Canceled) {
+					a.backgroundFailed("workspace_search_count", err)
+				}
+				return
+			}
+			if previous := p.search.counts; previous != nil {
+				for path, count := range previous.FileOccurrences {
+					if _, exists := counts.FileOccurrences[path]; !exists {
+						counts.FileOccurrences[path] = count
+					}
+				}
+			}
+			p.search.counts = &counts
+		}
+	})
 }
 
 // synchronizeSearchIndex delegates visibility and incremental updates to Core.
@@ -385,6 +474,10 @@ func synchronizeSearchIndex(ctx context.Context, kernel Kernel, root string, ful
 // releaseProjectSearch drops Core's index after the project closes so switching
 // among projects does not retain every workspace inventory for the whole session.
 func (a *App) releaseProjectSearch(p *project) {
+	if p.search.countCancel != nil {
+		p.search.countCancel()
+		p.search.countCancel = nil
+	}
 	if p.search.watch != nil {
 		p.search.watch.close()
 		p.search.watch = nil
@@ -393,9 +486,10 @@ func (a *App) releaseProjectSearch(p *project) {
 		return
 	}
 	kernel, root, sink, finished, everywhereFinished := a.kernel, p.root, a.logSink, p.search.done, p.everywhere.done
+	countFinished := p.search.countDone
 	a.background(nil, kernelCallTimeout, func(ctx context.Context) func(*App) {
 		var err error
-		for _, job := range []<-chan struct{}{finished, everywhereFinished} {
+		for _, job := range []<-chan struct{}{finished, everywhereFinished, countFinished} {
 			if job == nil || err != nil {
 				continue
 			}

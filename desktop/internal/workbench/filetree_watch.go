@@ -212,6 +212,13 @@ func (a *App) applyFilteredTreeEvents(p *project, names []string) {
 			parent = treeParentPath(parent)
 		}
 	}
+	// Native recursive streams report physical target paths. Loaded linked listings
+	// must refresh too; Core revalidates their canonical boundary and cycles.
+	for name, node := range p.tree.byPath {
+		if node.linked && node.expanded {
+			selected[name] = struct{}{}
+		}
+	}
 	paths := make([]string, 0, len(selected))
 	for name := range selected {
 		paths = append(paths, name)

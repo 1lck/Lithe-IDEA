@@ -20,6 +20,7 @@ import (
 )
 
 type sourceSettingControl struct {
+	readOnly  ui.Field
 	input     core.SourceSettingInput
 	base      core.SourceSettingInput
 	inherited core.SourceSettingInput
@@ -527,7 +528,11 @@ func (w *window) sourceSettingsControl(c ui.C, p *sourceSettingsForm, source cor
 			return i18n.SharedFormat(language, "desktop.sourceSettings.inherit", map[string]string{"value": value})
 		}
 		if disabled {
-			w.readOnlyField(c, field.Title, label(control.selected))
+			value := label(control.selected)
+			if control.readOnly.Text() != value {
+				control.readOnly.SetText(value)
+			}
+			ui.TextField(c, &control.readOnly, accessibleTitle, "").ReadOnly(true).Width(190).Height(30)
 			return
 		}
 		if ui.Select(c, &control.selected, control.choices, label).Width(190).Label(accessibleTitle).Changed() {
@@ -547,7 +552,10 @@ func (w *window) sourceSettingsControl(c ui.C, p *sourceSettingsForm, source cor
 		if disabled && list {
 			w.readOnlyList(c, field.Title, control.input.Text)
 		} else if disabled {
-			w.readOnlyField(c, field.Title, control.input.Text)
+			if control.readOnly.Text() != control.input.Text {
+				control.readOnly.SetText(control.input.Text)
+			}
+			ui.TextField(c, &control.readOnly, accessibleTitle, "").ReadOnly(true).FillWidth().Height(30)
 		} else if list {
 			if ui.TextArea(c, &control.input.Text, field.Title, "").FillWidth().Height(100).Changed() {
 				control.input.Inherit = false

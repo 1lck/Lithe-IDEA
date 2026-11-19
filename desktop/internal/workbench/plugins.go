@@ -358,6 +358,12 @@ func (a *App) reloadPluginLanguages() {
 		hidden := a.configureVisibility(ctx, entries, vcsPlugins)
 		return func(a *App) {
 			a.applyHiddenDirectories(hidden)
+			if p := a.project; p != nil && !p.everywhereSymbols.discovering {
+				p.everywhereSymbols.discoveryStarted = false
+				if a.everywhereView.open && everywhereShowsSymbols(p.everywhere.scope) {
+					a.discoverEverywhereLanguages(p)
+				}
+			}
 			if commandsErr != nil {
 				a.backgroundFailed("plugin_tool_commands", commandsErr)
 			}

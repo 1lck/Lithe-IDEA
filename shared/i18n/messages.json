@@ -9460,13 +9460,6 @@
       ]
     },
     {
-      "id": "desktop.everywhere.classes",
-      "description": "Classes tab in global search.",
-      "platforms": [
-        "desktop"
-      ]
-    },
-    {
       "id": "desktop.everywhere.files",
       "description": "Files tab in global search.",
       "platforms": [
@@ -110012,6 +110005,59 @@
       "platforms": [
         "desktop"
       ]
+    },
+    {
+      "id": "desktop.everywhere.types",
+      "description": "Types tab in global search (classes, interfaces, structs and enums).",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.search.countIncomplete",
+      "description": "Workspace search complete-count status",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.search.counting",
+      "description": "Workspace search complete-count status",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.search.followSymlinks",
+      "description": "Desktop project search options and complete totals",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.search.includeGenerated",
+      "description": "Desktop project search options and complete totals",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.search.symlinkHelp",
+      "description": "Desktop project search options and complete totals",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.search.totalCount",
+      "description": "Desktop project search options and complete totals",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "count": "string",
+        "files": "string"
+      }
     }
   ]
 }

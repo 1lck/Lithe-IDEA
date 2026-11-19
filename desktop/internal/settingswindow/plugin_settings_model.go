@@ -23,6 +23,8 @@ type pluginSettingControl struct {
 	// text is the draft of a text, number or path row.
 	text  string
 	input core.PluginSettingInput
+	// readOnly keeps native selection while a setting cannot be edited.
+	readOnly ui.Field
 	// options are the indexes of an enumeration's options, the values of its select.
 	options []int
 	reset   bool

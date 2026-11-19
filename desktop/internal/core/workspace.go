@@ -263,6 +263,7 @@ type WorkspaceNode struct {
 // DirectoryListing is the visible children of one directory, directories first and then by
 // name, in the kernel's order.
 type DirectoryListing struct {
+	Linked bool `json:"linked"`
 	// Path is relative to the project root; empty for the root.
 	Path     string          `json:"path"`
 	Children []WorkspaceNode `json:"children"`
@@ -293,6 +294,7 @@ func (c *Client) ListDirectories(ctx context.Context, root string, paths []strin
 	var response struct {
 		Directories []struct {
 			Path     string             `json:"path"`
+			Linked   bool               `json:"linked"`
 			Children []rawWorkspaceNode `json:"children"`
 		} `json:"directories"`
 	}
@@ -308,7 +310,7 @@ func (c *Client) ListDirectories(ctx context.Context, root string, paths []strin
 				Leaf: child.IsDirectory && child.Children != nil && len(*child.Children) == 0,
 			})
 		}
-		listings = append(listings, DirectoryListing{Path: d.Path, Children: children})
+		listings = append(listings, DirectoryListing{Path: d.Path, Linked: d.Linked, Children: children})
 	}
 	return listings, nil
 }
@@ -325,6 +327,10 @@ type WorkspaceSearchRequest struct {
 	ScopeExpression   string            `json:"scopeExpression,omitempty"`
 	ScopePaths        []string          `json:"scopePaths,omitempty"`
 	IncludeIgnored    bool              `json:"includeIgnored,omitempty"`
+	IncludeGenerated  bool              `json:"includeGenerated,omitempty"`
+	FollowSymlinks    bool              `json:"followSymlinks,omitempty"`
+	CountPaths        []string          `json:"countPaths,omitempty"`
+	CountOnly         bool              `json:"countOnly,omitempty"`
 	MaxFileBytes      uint64            `json:"maxFileBytes,omitempty"`
 	TextOverrides     map[string]string `json:"textOverrides,omitempty"`
 	PageSize          int               `json:"pageSize,omitempty"`
@@ -361,6 +367,22 @@ type WorkspaceSearchMatch struct {
 type WorkspaceSearchPage struct {
 	Matches    []WorkspaceSearchMatch `json:"matches"`
 	NextCursor *string                `json:"nextCursor"`
+}
+
+// WorkspaceSearchCounts contains complete totals, independent of the loaded page.
+type WorkspaceSearchCounts struct {
+	Files           int            `json:"files"`
+	Lines           int            `json:"lines"`
+	Occurrences     int            `json:"occurrences"`
+	FileOccurrences map[string]int `json:"fileOccurrences"`
+}
+
+func (c *Client) CountWorkspaceSearch(ctx context.Context, request WorkspaceSearchRequest) (WorkspaceSearchCounts, error) {
+	request.CountOnly = true
+	request.Cursor = nil
+	var counts WorkspaceSearchCounts
+	err := c.Execute(ctx, "workspace.search", request, &counts)
+	return counts, err
 }
 
 type SearchPreferences struct {
@@ -409,6 +431,8 @@ type EverywhereSearchRequest struct {
 	TextOverrides        map[string]string `json:"textOverrides,omitempty"`
 	ScopePaths           []string          `json:"scopePaths,omitempty"`
 	IncludeIgnored       bool              `json:"includeIgnored,omitempty"`
+	IncludeGenerated     bool              `json:"includeGenerated,omitempty"`
+	FollowSymlinks       bool              `json:"followSymlinks,omitempty"`
 }
 
 type EverywhereSearchContext struct {

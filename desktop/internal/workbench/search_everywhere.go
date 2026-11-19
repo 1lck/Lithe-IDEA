@@ -60,13 +60,15 @@ type everywhereView struct {
 	hiddenKinds                  map[string]bool
 	matchCase, wholeWords, regex bool
 	// gesture is Core's double-Shift state (keymap.modifierGestureStep), opaque here.
-	gesture json.RawMessage
+	gesture                                          json.RawMessage
+	includeIgnored, includeGenerated, followSymlinks bool
 }
 
 // everywhereOptions is what besides the query and the tab decides a search.
 type everywhereOptions struct {
-	kinds                        string
-	matchCase, wholeWords, regex bool
+	includeIgnored, includeGenerated, followSymlinks bool
+	kinds                                            string
+	matchCase, wholeWords, regex                     bool
 }
 
 // effectiveScope is the tab the query is for: a query that starts with "/" lists
@@ -107,7 +109,7 @@ func (v *everywhereView) resultKinds(scope int) []string {
 
 // options is the search options of a tab.
 func (v *everywhereView) options(scope int) everywhereOptions {
-	o := everywhereOptions{kinds: strings.Join(v.resultKinds(scope), ",")}
+	o := everywhereOptions{kinds: strings.Join(v.resultKinds(scope), ","), includeIgnored: v.includeIgnored, includeGenerated: v.includeGenerated, followSymlinks: v.followSymlinks}
 	if scope == 5 {
 		o.matchCase, o.wholeWords, o.regex = v.matchCase, v.wholeWords, v.regex
 	}
@@ -116,6 +118,9 @@ func (v *everywhereView) options(scope int) everywhereOptions {
 
 // filtered reports whether the current tab's filter differs from its default.
 func (v *everywhereView) filtered() bool {
+	if v.includeIgnored || v.includeGenerated || v.followSymlinks {
+		return true
+	}
 	if v.scope == 5 {
 		return v.matchCase || v.wholeWords || v.regex
 	}
@@ -173,6 +178,15 @@ func (a *App) closeEverywhere(p *project) {
 		return
 	}
 	s := &p.everywhere
+	a.cancelEverywhereSymbols(p)
+	st := &p.everywhereSymbols
+	st.discoveryRevision++
+	st.generation++
+	if st.discoveryCancel != nil {
+		st.discoveryCancel()
+		st.discoveryCancel = nil
+	}
+	st.discoveryStarted, st.discovering = false, false
 	s.generation++
 	s.query, s.loading, s.matches, s.cursor = "", false, nil, nil
 	if s.cancel != nil {
@@ -221,6 +235,7 @@ func (a *App) updateEverywhere(p *project, query string, scope int) {
 		IncludeGeneratedFileNames: scope != 5, Context: &core.EverywhereSearchContext{OpenPaths: openPaths},
 		CaseSensitive: options.matchCase, WholeWords: options.wholeWords, RegularExpression: options.regex,
 		IncludeContentRanges: scope == 5 || scope == 0, MaxFileBytes: a.searchPreferences.MaxFileBytes,
+		IncludeIgnored: options.includeIgnored, IncludeGenerated: options.includeGenerated, FollowSymlinks: options.followSymlinks,
 	}
 	s.loading = true
 	if !s.watchAttached {
@@ -280,6 +295,10 @@ func (a *App) applyEverywhereWatch(p *project, ready, available bool, err error,
 		changed = true
 	}
 	if changed {
+		if !p.everywhereSymbols.discovering {
+			p.everywhereSymbols.discoveryStarted = false
+			a.discoverEverywhereLanguages(p)
+		}
 		s.generation++
 		if s.cancel != nil {
 			s.cancel()
