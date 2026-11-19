@@ -6796,6 +6796,16 @@
       ]
     },
     {
+      "id": "desktop.build.instanceOptions",
+      "description": "Build window button and dialog title for one build system's own options. {name} is the build system, such as Maven",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "name": "string"
+      }
+    },
+    {
       "id": "desktop.build.noMatches",
       "description": "Build tool window text when no build system, project, target, task or test matches the filter",
       "platforms": [
@@ -6850,6 +6860,31 @@
       "platforms": [
         "desktop"
       ]
+    },
+    {
+      "id": "desktop.build.toggleOff",
+      "description": "State of a toolbar toggle that is off",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.build.toggleOn",
+      "description": "State of a toolbar toggle that is on",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.build.toggleOption",
+      "description": "Tooltip of a toolbar toggle of a build option. {option} is the option's name, {state} is On or Off",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "option": "string",
+        "state": "string"
+      }
     },
     {
       "id": "desktop.build.treeTruncated",
@@ -7021,15 +7056,8 @@
       ]
     },
     {
-      "id": "desktop.build.options",
-      "description": "Build tool window button and menu item that open the Build options of one build system, beside the project-wide ones",
-      "platforms": [
-        "desktop"
-      ]
-    },
-    {
       "id": "desktop.build.optionsTitle",
-      "description": "Title of the Build options dialog and of the Build tool window header button that opens it",
+      "description": "Build window toolbar button and dialog title for which folders build system detection skips",
       "platforms": [
         "desktop"
       ]

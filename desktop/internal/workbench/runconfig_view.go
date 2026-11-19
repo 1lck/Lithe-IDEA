@@ -1,6 +1,8 @@
 package workbench
 
 import (
+	"context"
+	"errors"
 	"slices"
 	"strconv"
 
@@ -8,6 +10,7 @@ import (
 	"github.com/1lck/Lithe-IDEA/desktop/internal/i18n"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/icons"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/treelist"
+	"github.com/vivaui/viva/app"
 	"github.com/vivaui/viva/gfx"
 	"github.com/vivaui/viva/ui"
 )
@@ -375,7 +378,15 @@ func (a *App) drawRunOptionField(c ui.C, language i18n.Language, field *runOptio
 		// A text field's label only names it to accessibility, so the option's name is a text above it.
 		ui.Column(c).FillWidth().Gap(6).Children(func() {
 			a.drawRunOptionTitle(c, field.title)
-			ui.TextField(c, &field.text, field.title, "").FillWidth().Disabled(!ready)
+			box := ui.TextField(c, &field.text, field.title, "").FillWidth().Disabled(!ready)
+			if field.kind == "text" {
+				return
+			}
+			// A file or directory is chosen with the system's dialog too, as in IDEA's path fields.
+			box.Action(icons.FolderOpen, i18n.Shared(language, "desktop.runConfig.browse"))
+			if box.ActionClicked() {
+				c.After(func() { a.browseRunOptionField(field) })
+			}
 		})
 	case "multiSelect":
 		// The choices are keyed inside the field's own column: c names only the next element, so
@@ -440,4 +451,39 @@ func (a *App) drawRunConfigDelete(c ui.C, p *project) {
 	if closed {
 		c.After(func() { p.runConfigs.deleting = nil })
 	}
+}
+
+// browseRunOptionField asks for the file or directory of a file or directory option and puts its
+// absolute path in the field: the build tool runs at the instance root, not the project root, so
+// a path relative to either would be read wrong by one of them. A cancelled dialog changes nothing.
+func (a *App) browseRunOptionField(field *runOptionField) {
+	directory, title := field.kind == "directory", field.title
+	a.background(nil, 0, func(context.Context) func(*App) {
+		var path string
+		var err error
+		if directory {
+			path, err = app.OpenDirectory(app.OpenDirectoryOptions{Title: title})
+		} else {
+			var paths []string
+			paths, err = app.OpenFiles(app.OpenFileOptions{Title: title})
+			if err == nil && len(paths) == 0 {
+				err = app.ErrCanceled
+			}
+			if err == nil {
+				path = paths[0]
+			}
+		}
+		return func(a *App) {
+			if errors.Is(err, app.ErrCanceled) {
+				// log-exempt: 用户取消：未选择文件或目录，字段保持不变。
+				return
+			}
+			if err != nil {
+				a.operationFailed("build_option_browse", documentLogError(err))
+				a.notifyError(i18n.Shared(a.language(), "desktop.runConfig.chooseFailed"))
+				return
+			}
+			field.text = path
+		}
+	})
 }
