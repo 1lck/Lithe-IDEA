@@ -351,6 +351,39 @@ func (c *Client) DetectBuildSystemsWithOptions(ctx context.Context, workspaceRoo
 	return *result.Detection, nil
 }
 
+// BuildOptionPlugin is one enabled build plugin of a build.localizeOptions request: its manifest and, once
+// read, the translation files Core named, by package-relative path.
+type BuildOptionPlugin struct {
+	Manifest      json.RawMessage   `json:"manifest"`
+	Localizations map[string]string `json:"localizations,omitempty"`
+}
+
+// BuildOptionTexts is Core's answer to build.localizeOptions: one manifest per plugin, in request order, with
+// the option text translated when a file applied, and one translation report per plugin that declares a build
+// option.
+type BuildOptionTexts struct {
+	Manifests     []json.RawMessage     `json:"manifests"`
+	Localizations []RunTypeLocalization `json:"localizations"`
+}
+
+// LocalizeBuildOptions asks Core for the build plugins' manifests with their option text in language. Sent
+// without localizations, the reports name the files to read; sent again with them, the manifests are
+// translated.
+func (c *Client) LocalizeBuildOptions(ctx context.Context, language string, plugins []BuildOptionPlugin) (BuildOptionTexts, error) {
+	const command = "build.localizeOptions"
+	var result BuildOptionTexts
+	if err := c.Execute(ctx, command, struct {
+		Language string              `json:"language,omitempty"`
+		Plugins  []BuildOptionPlugin `json:"plugins"`
+	}{language, plugins}, &result); err != nil {
+		return BuildOptionTexts{}, err
+	}
+	if len(result.Manifests) != len(plugins) {
+		return BuildOptionTexts{}, newParseError(command, "build.localizeOptions returned a manifest count that does not match the request", "")
+	}
+	return result, nil
+}
+
 // BuildInvocationRequest supplies native facts and the actual global plugin layer.
 // Core validates executable settings; project values cannot select local tools.
 type BuildInvocationRequest struct {
