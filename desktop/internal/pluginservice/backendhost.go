@@ -65,12 +65,25 @@ type BackendHost struct {
 	// sessions are the running backends by plugin ID.
 	sessions map[string]*BackendSession
 	// starting makes concurrent EnsureBackend calls for one plugin share a start.
-	starting map[string]chan struct{}
+	starting map[string]*backendStart
 	nextOp   atomic.Uint64
 }
 
+type backendStart struct {
+	done   chan struct{}
+	cancel context.CancelFunc
+}
+
+func (s *backendStart) stop() {
+	s.cancel()
+	select {
+	case <-s.done:
+	case <-time.After(backendStopTimeout):
+	}
+}
+
 func newBackendHost(service *Service) *BackendHost {
-	return &BackendHost{service: service, sessions: make(map[string]*BackendSession), starting: make(map[string]chan struct{})}
+	return &BackendHost{service: service, sessions: make(map[string]*BackendSession), starting: make(map[string]*backendStart)}
 }
 
 // BackendSession is one running plugin backend and its serve loop.
@@ -132,23 +145,35 @@ func (h *BackendHost) EnsureBackend(ctx context.Context, pluginID string) (*Back
 		if wait, busy := h.starting[pluginID]; busy {
 			h.mu.Unlock()
 			select {
-			case <-wait:
+			case <-wait.done:
 				continue
 			case <-ctx.Done():
 				return nil, ctx.Err()
 			}
 		}
-		done := make(chan struct{})
-		h.starting[pluginID] = done
+		startCtx, cancel := context.WithCancel(ctx)
+		start := &backendStart{done: make(chan struct{}), cancel: cancel}
+		h.starting[pluginID] = start
 		h.mu.Unlock()
-		session, err := h.start(ctx, pluginID)
+		session, err := h.start(startCtx, pluginID)
+		cancel()
 		h.mu.Lock()
-		delete(h.starting, pluginID)
-		if err == nil {
-			h.sessions[pluginID] = session
+		detached := h.starting[pluginID] != start
+		if !detached {
+			delete(h.starting, pluginID)
+			if err == nil {
+				h.sessions[pluginID] = session
+			}
 		}
 		h.mu.Unlock()
-		close(done)
+		if detached {
+			if session != nil {
+				session.stop()
+			}
+			err = context.Canceled
+			session = nil
+		}
+		close(start.done)
 		return session, err
 	}
 }
@@ -178,6 +203,18 @@ func (h *BackendHost) start(ctx context.Context, pluginID string) (*BackendSessi
 	if !declaresBackend(manifest) {
 		return nil, fmt.Errorf("%w: %s declares no backend", ErrBackendUnavailable, pluginID)
 	}
+	var declaration struct {
+		ToolchainProviders []struct {
+			ID string `json:"id"`
+		} `json:"toolchainProviders"`
+	}
+	if err := json.Unmarshal(manifest, &declaration); err != nil {
+		return nil, err
+	}
+	providerIDs := make([]string, 0, len(declaration.ToolchainProviders))
+	for _, provider := range declaration.ToolchainProviders {
+		providerIDs = append(providerIDs, provider.ID)
+	}
 	settings, err := s.Settings.Load(ctx, manifest, "")
 	if err != nil {
 		return nil, err
@@ -189,15 +226,16 @@ func (h *BackendHost) start(ctx context.Context, pluginID string) (*BackendSessi
 	startCtx, cancelStart := context.WithTimeout(ctx, backendStartTimeout)
 	defer cancelStart()
 	started, err := s.Backend.Start(startCtx, pluginbackend.StartRequest{
-		Manifest:         manifest,
-		PackageDirectory: entry.Installed.Path,
-		PluginID:         entry.Installed.ID,
-		ProviderID:       entry.Installed.ID + "/backend",
-		StateDirectory:   directories.state,
-		LogDirectory:     directories.log,
-		Architecture:     core.PluginArchitecture(),
-		Settings:         settings.State.Settings,
-		ProjectSettings:  settings.State.ProjectSettings,
+		Manifest:           manifest,
+		PackageDirectory:   entry.Installed.Path,
+		PluginID:           entry.Installed.ID,
+		ProviderID:         entry.Installed.ID + "/backend",
+		ToolchainProviders: providerIDs,
+		StateDirectory:     directories.state,
+		LogDirectory:       directories.log,
+		Architecture:       core.PluginArchitecture(),
+		Settings:           settings.State.Settings,
+		ProjectSettings:    settings.State.ProjectSettings,
 		// A backend belongs to no workspace: it starts with its plugin-wide state
 		// directory as root and working directory.
 		RootURI:          fileURI(directories.state),
@@ -228,8 +266,16 @@ func (h *BackendHost) Detach(pluginID string) func() {
 	h.mu.Lock()
 	session := h.sessions[pluginID]
 	delete(h.sessions, pluginID)
+	start := h.starting[pluginID]
+	delete(h.starting, pluginID)
 	h.mu.Unlock()
+	if start != nil {
+		start.cancel()
+	}
 	return func() {
+		if start != nil {
+			start.stop()
+		}
 		if session != nil {
 			session.stop()
 		}
@@ -248,12 +294,19 @@ func (h *BackendHost) DetachAll() func() {
 		sessions = append(sessions, session)
 	}
 	h.sessions = make(map[string]*BackendSession)
+	starts := h.starting
+	h.starting = make(map[string]*backendStart)
 	h.mu.Unlock()
+	for _, start := range starts {
+		start.cancel()
+	}
 	return func() {
 		var group sync.WaitGroup
 		for _, session := range sessions {
-			group.Add(1)
-			go func() { defer group.Done(); session.stop() }()
+			group.Go(session.stop)
+		}
+		for _, start := range starts {
+			group.Go(start.stop)
 		}
 		group.Wait()
 	}

@@ -1,0 +1,32 @@
+{
+  "id": "plugin-toolchain-providers",
+  "area": "扩展",
+  "group": "插件与主题",
+  "capability": "从启用插件的工具链提供方发现安装和版本要求",
+  "macos": {
+    "implementationStatus": "implemented",
+    "verificationStatus": "pending",
+    "evidence": [
+      "desktop/internal/pluginservice/toolchain_provider.go",
+      "desktop/internal/pluginservice/toolchain_provider_test.go",
+      "desktop/internal/toolchain/provider.go",
+      "desktop/internal/toolchain/provider_observation.go",
+      "desktop/internal/workbench/settings_toolchains.go"
+    ]
+  },
+  "windows": {
+    "implementationStatus": "implemented",
+    "verificationStatus": "pending",
+    "evidence": [
+      "desktop/internal/pluginservice/toolchain_provider.go",
+      "desktop/internal/pluginservice/toolchain_provider_test.go",
+      "desktop/internal/toolchain/provider.go",
+      "desktop/internal/toolchain/provider_observation.go",
+      "desktop/internal/toolchain/native_path_windows.go",
+      "desktop/internal/workbench/settings_toolchains.go"
+    ]
+  },
+  "owner": "Plugins",
+  "verification": "使用 TestToolchainProviderQueriesThroughSharedBackendAndReobservesSources 核对合成插件协商、安装与项目版本要求、生效层、全局发现、源文件变化、复用和关闭清理。使用 TestToolchainProviderCancellationDoesNotCompleteTheNextQuery 核对取消与迟到回复。原生设置工作流还需核对打开项目、改写版本要求、重新加载和关闭窗口。",
+  "notes": "Core 从提供方回包与本机文件事实得出候选和有效安装。桌面首次使用时启动插件的共享后端，并为短期缓存观察输入变化。安装与工作区目录保持原有信任检查。"
+}

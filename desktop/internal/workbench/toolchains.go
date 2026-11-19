@@ -64,9 +64,12 @@ func (a *App) defaultToolchainSelection(ctx context.Context, root, directory, to
 	if directory == "" {
 		directory = "."
 	}
-	return toolchain.Resolve(ctx, a.kernel, root, directory, tool, minimumVersion, nil, manifests, toolchain.Options{
-		Platform:   buildPlatform(),
-		GlobalRoot: a.globalToolchainRoot(),
+	return toolchain.Resolve(ctx, a.kernel, root, directory, tool, minimumVersion, nil, manifests, a.toolchainOptions(root))
+}
+
+func (a *App) toolchainOptions(root string) toolchain.Options {
+	return a.plugins.ToolchainOptions(root, toolchain.Options{
+		Global: root == "", GlobalRoot: a.globalToolchainRoot(), Platform: buildPlatform(),
 	})
 }
 

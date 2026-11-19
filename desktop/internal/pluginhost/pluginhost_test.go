@@ -61,7 +61,7 @@ func TestDeclaredServesTheBaselineOfEveryWiredCapability(t *testing.T) {
 	want := []string{
 		"backend", "beforeLaunchTasks", "buildProviders", "buildSystems", "commandInstallers", "debugAdapters",
 		"languageServers", "languages", "managedRuntimes", "outputLinkMatchers", "pluginFunctions",
-		"projectGenerators", "runConfigurationTypes", "settings", "sourceSettings", "toolDefinitions", "ui",
+		"projectGenerators", "runConfigurationTypes", "settings", "sourceSettings", "toolDefinitions", "toolchainProviders", "ui",
 		"vcsProviders",
 	}
 	if len(declared) != len(want) {
@@ -94,7 +94,7 @@ func TestDeclaredServesTheBaselineOfEveryWiredCapability(t *testing.T) {
 	// Capabilities nothing here serves stay absent so their plugins are not
 	// offered for installation.
 	for _, name := range []string{
-		"buildModelInputs", "executionProviders", "keymapImportProviders", "packageTrust", "toolchainProviders",
+		"buildModelInputs", "executionProviders", "keymapImportProviders", "packageTrust",
 	} {
 		if _, ok := declared[name]; ok {
 			t.Fatalf("%s was declared", name)

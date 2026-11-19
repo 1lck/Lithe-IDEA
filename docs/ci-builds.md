@@ -68,6 +68,8 @@ macOS 的本地手动打包可用 `package-desktop.sh --ad-hoc-sign` 生成有�
 
 ### 独立工作树的本地编译
 
+工具链提供方回包只在窗口进程内短期缓存。缓存由当前插件版本、工作区上下文和工具输入决定，关闭项目或停用插件时清理。原生文件观察器随缓存释放。该状态没有可复制的编译身份，不跨工作树复用，也不写入插件包或发行目录。
+
 Desktop CI 的 LSP 无头截图由 `TestVisualLSPActions` 写入当前工作树的 `.artifacts/lsp-editor-visual/`。截图是当前提交与当前渲染环境的验证产物，绑定源码、平台、Go 工具链和固定的 Viva 与 Core 版本，不跨工作树复用。CI 上传后由运行器清理工作树，截图不进入安装包。
 
 Viva 编辑器性能基线 `scripts/desktop/perf/editor-bench.sh` 把每次运行的原始输出和 Markdown 预算报告写入当前工作树的 `.artifacts/editor-perf/`（`run-<UTC 时间戳>.txt`、`record-<UTC 时间戳>.txt` 及同名 `.md`，以及开发者用 `--out` 指定在该目录下的文件）。它们只属于这一次运行，受源码修订、机器、CPU、运行时负载、Go 工具链和大文档大小（默认 10 MiB，可用 `LITHE_EDITOR_PERF_LARGE_BYTES` 或 `--large-bytes` 修改）影响；没有可验证的跨树身份 stamp，不跨工作树复制，由开发者在本地清理；该基线不是 CI 必跑项，CI 不运行基准，也没有 artifact。随仓库提交的历史记录 `desktop/benchmarks/history/*.jsonl` 由 Git 跟踪，属于源码而不是下载或生成资源，各工作树从 Git 检出。这些文件都不进入安装包，也不会改变代码签名或增量更新。

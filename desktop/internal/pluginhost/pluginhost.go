@@ -116,6 +116,9 @@ type Capabilities map[string][]int
 //     launches use the shared Core resolver. Version 1 adds a definition's
 //     category and audience, which group the tool on the Toolchains settings
 //     page.
+//   - toolchainProviders: the shared plugin backend discovers global and project
+//     installations and requirements on demand. Core validates each answer with
+//     native filesystem facts before the toolchain resolver can use it.
 //   - commandInstallers: plugin management reports the commands a
 //     systemCommand launch names but the machine lacks, and installs them with
 //     the plugin's tool after the user confirms the command line, the network
@@ -155,9 +158,9 @@ type Capabilities map[string][]int
 //     watching, authentication, history entry diffs, status in the project tree
 //     and the editor gutter, and lithe/vcs/execution console output.
 //
-// buildModelInputs, executionProviders, keymapImportProviders, packageTrust and
-// toolchainProviders are not declared: nothing here serves
-// them, so a plugin that needs one is not offered for installation.
+// buildModelInputs, executionProviders, keymapImportProviders and packageTrust
+// are not declared: nothing here serves them, so plugins requiring them are
+// not offered for installation.
 func Declared() Capabilities {
 	baseline := []string{
 		"backend",
@@ -176,6 +179,7 @@ func Declared() Capabilities {
 		"settings",
 		"sourceSettings",
 		"toolDefinitions",
+		"toolchainProviders",
 		"ui",
 		"vcsProviders",
 	}
