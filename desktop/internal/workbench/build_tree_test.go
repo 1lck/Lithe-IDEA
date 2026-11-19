@@ -238,7 +238,8 @@ func openBuildTree(t *testing.T, kernel Kernel, instances []buildInstance) (*har
 	h.open(t.TempDir())
 	p := h.app.project
 	h.app.post(func(a *App) {
-		p.build.instances, p.build.loaded, p.build.selected = instances, true, 0
+		setDetected(p, instances)
+		p.build.selected = 0
 	})
 	h.settle()
 	return h, p

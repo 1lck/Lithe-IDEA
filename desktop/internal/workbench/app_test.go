@@ -187,6 +187,25 @@ func (h *harness) open(dir string) {
 	h.settle()
 }
 
+// setDetected gives p the instances a finished detection reports. Opening a project already
+// detects its build systems, which ends with the plugins unavailable in a harness without a
+// plugin service; a test that supplies its own instances replaces that answer. It runs on the
+// window thread.
+func setDetected(p *project, instances []buildInstance) {
+	p.build.instances, p.build.loaded, p.build.loading = instances, true, false
+	p.build.failed, p.build.status = "", ""
+}
+
+// awaitRunConfigsAfter waits until Core resolved p's configurations again after the read
+// numbered since, so the read a test asked for is the one it checks: opening the project
+// already read them once.
+func awaitRunConfigsAfter(t *testing.T, h *harness, p *project, since uint64) {
+	t.Helper()
+	awaitStateWithin(t, h, 10*time.Second, "the run configurations", func() bool {
+		return p.runConfigs.generation > since && !p.runConfigs.loading
+	})
+}
+
 // shows reports whether a label in the current frame contains value.
 func (h *harness) shows(value string) bool {
 	for _, label := range h.driver.Snapshot().Labels {

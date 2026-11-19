@@ -31,7 +31,7 @@ func TestBuildRowMenusRunTargetsAndOpenTheBuildFile(t *testing.T) {
 	instance := runConfigInstance("app")
 	instance.Manifest = buildTestManifest(&instance)
 	h.app.post(func(a *App) {
-		p.build.instances, p.build.loaded = []buildInstance{instance}, true
+		setDetected(p, []buildInstance{instance})
 		// Every node opens, so the target shows in its project's Targets folder.
 		p.setAllBuildGroups(true)
 		a.reduceChrome(core.ToggleChrome(itemBuild))

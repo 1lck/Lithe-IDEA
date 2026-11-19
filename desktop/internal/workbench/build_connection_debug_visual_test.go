@@ -51,16 +51,16 @@ func TestVisualServiceDebugWithoutAnAdapter(t *testing.T) {
 			})
 			h.open(runConfigRoot(t))
 			p := h.app.project
+			since := p.runConfigs.generation
 			h.app.post(func(a *App) {
 				instance := runConfigInstance("app")
 				instance.System.Runs = []pluginservice.BuildRunDeclaration{{
 					ID: "service", Name: "Serve", Execution: "service", Tags: []string{"app"}, DebugConfigurationType: "fixture-attach",
 				}}
-				p.build.loaded = true
-				p.build.instances = []buildInstance{instance}
+				setDetected(p, []buildInstance{instance})
 				a.refreshRunConfigurations(p)
 			})
-			awaitStateWithin(t, h, 10*time.Second, "the run configurations", func() bool { return p.runConfigs.generation > 0 && !p.runConfigs.loading })
+			awaitRunConfigsAfter(t, h, p, since)
 			language := h.app.language()
 			want := i18n.SharedFormat(language, "desktop.build.noConnectionDebugAdapter", map[string]string{"type": "fixture-attach"})
 			h.app.post(func(a *App) { a.titleDebug(p) })

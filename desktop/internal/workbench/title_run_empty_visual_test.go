@@ -7,7 +7,6 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
-	"time"
 
 	"github.com/1lck/Lithe-IDEA/desktop/internal/core"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/i18n"
@@ -61,14 +60,14 @@ func TestVisualTitleRunWithoutConfigurations(t *testing.T) {
 			})
 			h.open(root)
 			p := h.app.project
+			since := p.runConfigs.generation
 			h.app.post(func(a *App) {
 				instance := runConfigInstance("app")
 				instance.System.Runs = nil
-				p.build.loaded = true
-				p.build.instances = []buildInstance{instance}
+				setDetected(p, []buildInstance{instance})
 				a.refreshRunConfigurations(p)
 			})
-			awaitStateWithin(t, h, 10*time.Second, "the run configurations", func() bool { return p.runConfigs.generation > 0 && !p.runConfigs.loading })
+			awaitRunConfigsAfter(t, h, p, since)
 			language := h.app.language()
 			h.click(center(h.button(itemRunConfig)))
 			h.settle()

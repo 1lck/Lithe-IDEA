@@ -69,11 +69,12 @@ func TestRunConfigurationRunsWithItsSavedChoices(t *testing.T) {
 	h := newHarness(t, gate)
 	h.open(root)
 	p := h.app.project
+	since := p.runConfigs.generation
 	h.app.post(func(a *App) {
-		p.build.instances = []buildInstance{runConfigInstance("app")}
+		setDetected(p, []buildInstance{runConfigInstance("app")})
 		a.refreshRunConfigurations(p)
 	})
-	awaitStateWithin(t, h, 10*time.Second, "the run configurations", func() bool { return p.runConfigs.generation > 0 && !p.runConfigs.loading })
+	awaitRunConfigsAfter(t, h, p, since)
 	s := &p.runConfigs
 	if s.failure != "" || len(s.list) != 1 || s.selected != s.list[0].ID || s.list[0].Name != "Run Main" {
 		t.Fatalf("configurations = %+v selected %q failure %q", s.list, s.selected, s.failure)
