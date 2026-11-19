@@ -15,8 +15,11 @@ import (
 	"github.com/1lck/Lithe-IDEA/desktop/internal/contractfixture"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/core"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/i18n"
+	"github.com/1lck/Lithe-IDEA/desktop/internal/pluginpkg"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/pluginservice"
+	"github.com/1lck/Lithe-IDEA/desktop/internal/pluginstate"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/projectgen"
+	"github.com/1lck/Lithe-IDEA/desktop/internal/store"
 	"github.com/vivaui/viva/gfx"
 	"github.com/vivaui/viva/ui"
 )
@@ -70,6 +73,95 @@ func (h *harness) openNewProjectSheet() {
 }
 
 var generatorFixtures = contractfixture.Path("fixtures/project-generators")
+
+const (
+	generatorToolPlugin    = "dev.lithe.test.generator-tools"
+	generatorToolWanted    = "fixture-wanted"
+	generatorToolUnrelated = "fixture-unrelated"
+)
+
+type generatorToolKernel struct{ *testKernel }
+
+func (k generatorToolKernel) ToolchainCandidatesOf(_ context.Context, request core.ToolchainCandidatesRequest) (core.ToolchainCandidates, error) {
+	if request.Tool == generatorToolUnrelated {
+		return core.ToolchainCandidates{}, errors.New("unrelated tool discovery failed")
+	}
+	return core.ToolchainCandidates{Installations: []core.ToolchainInstallation{{Home: "fixture-home", Version: "1.0"}}}, nil
+}
+
+func TestNewProjectOnlyDiscoversToolsRequestedByTheForm(t *testing.T) {
+	client := core.NewClient()
+	preferences, pluginRoot := store.At(t.TempDir()), t.TempDir()
+	service, err := pluginservice.Open(client, preferences, pluginRoot)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { service.DetachWorkspaces()() })
+	fixture, err := os.ReadFile("../toolchain/testdata/compiler.plugin.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var manifest map[string]json.RawMessage
+	if err := json.Unmarshal(fixture, &manifest); err != nil {
+		t.Fatal(err)
+	}
+	manifest["id"], err = json.Marshal(generatorToolPlugin)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var tools []json.RawMessage
+	if err := json.Unmarshal(manifest["toolDefinitions"], &tools); err != nil {
+		t.Fatal(err)
+	}
+	var template map[string]json.RawMessage
+	if err := json.Unmarshal(tools[0], &template); err != nil {
+		t.Fatal(err)
+	}
+	delete(template, "discovery")
+	delete(template, "homeLayouts")
+	tools = nil
+	for _, id := range []string{generatorToolWanted, generatorToolUnrelated} {
+		template["id"], err = json.Marshal(id)
+		if err != nil {
+			t.Fatal(err)
+		}
+		definition, err := json.Marshal(template)
+		if err != nil {
+			t.Fatal(err)
+		}
+		tools = append(tools, definition)
+	}
+	manifest["toolDefinitions"], err = json.Marshal(tools)
+	if err != nil {
+		t.Fatal(err)
+	}
+	data, err := json.Marshal(manifest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	dir := filepath.Join(pluginRoot, generatorToolPlugin, "1.0.0")
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, pluginpkg.ManifestFile), data, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := pluginstate.New(preferences).SetEnabled(generatorToolPlugin, true); err != nil {
+		t.Fatal(err)
+	}
+	a := &App{kernel: generatorToolKernel{&testKernel{Client: client}}, store: preferences, plugins: service}
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	for _, name := range []string{generatorToolWanted, generatorToolPlugin + ":" + generatorToolWanted} {
+		lists, err := a.loadProjectTools(ctx, []string{name})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if installations := lists[name].Installations; len(installations) != 1 || installations[0].Home != "fixture-home" {
+			t.Errorf("tool %s installations = %+v", name, installations)
+		}
+	}
+}
 
 func fixtureGeneratorPlugin(t *testing.T) pluginservice.GeneratorPlugin {
 	t.Helper()

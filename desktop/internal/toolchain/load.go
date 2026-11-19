@@ -5,9 +5,11 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync/atomic"
 
@@ -67,6 +69,14 @@ func PluginNames(manifests []json.RawMessage) map[string]string {
 // probes, Core's candidate report and the effective layer for every definition.
 // It writes nothing.
 func Load(ctx context.Context, kernel Kernel, root, directory string, manifests []json.RawMessage, options Options) (Snapshot, error) {
+	snapshot, err := load(ctx, kernel, root, directory, manifests, options)
+	if errors.Is(err, errProviderGenerationChanged) {
+		return load(ctx, kernel, root, directory, manifests, options)
+	}
+	return snapshot, err
+}
+
+func load(ctx context.Context, kernel Kernel, root, directory string, manifests []json.RawMessage, options Options) (Snapshot, error) {
 	if kernel == nil {
 		return Snapshot{}, fmt.Errorf("toolchain: no Core client")
 	}
@@ -98,6 +108,12 @@ func Load(ctx context.Context, kernel Kernel, root, directory string, manifests 
 	if err != nil {
 		return Snapshot{}, err
 	}
+	if options.Providers != nil {
+		options.providerVersions, err = providerVersions(manifests)
+		if err != nil {
+			return Snapshot{}, err
+		}
+	}
 	plan, err := kernel.ToolchainDiscoveryPlanOf(ctx, registryRequest, workspace.platform)
 	if err != nil {
 		return Snapshot{}, err
@@ -126,7 +142,12 @@ func Load(ctx context.Context, kernel Kernel, root, directory string, manifests 
 		source:             captured,
 	}
 	sequence := loadSequence.Add(1)
+	var rounds []*providerRound
 	for index, planned := range plan.Tools {
+		if len(options.DiscoveryTools) > 0 && !slices.Contains(options.DiscoveryTools, planned.Tool) &&
+			!slices.Contains(options.DiscoveryTools, planned.PluginID+":"+planned.Tool) {
+			continue
+		}
 		if ctx.Err() != nil {
 			return Snapshot{}, ctx.Err()
 		}
@@ -144,22 +165,21 @@ func Load(ctx context.Context, kernel Kernel, root, directory string, manifests 
 			return Snapshot{}, err
 		}
 		tool := Tool{
-			ID:                         planned.Tool,
-			DisplayName:                definition.DisplayName,
-			PluginID:                   planned.PluginID,
-			PluginName:                 pluginNames[planned.PluginID],
-			Category:                   definition.Category,
-			Audience:                   definition.Audience,
-			ManagedRuntime:             options.ManagedTools[planned.Tool] != "" && options.ManagedTools[planned.Tool] == planned.PluginID,
-			ManagedRuntimeHomes:        uniqueSorted(prepared.managedHomes),
-			Providers:                  planned.Providers,
-			Shell:                      prepared.candidates.Shell,
-			Installations:              prepared.candidates.Installations,
-			Skipped:                    prepared.candidates.Skipped,
-			Trace:                      resolution.Trace,
-			Unmet:                      resolution.Unmet,
-			Conflicts:                  resolution.Conflicts,
-			ProviderQueriesUnsupported: len(planned.Providers) > 0,
+			ID:                  planned.Tool,
+			DisplayName:         definition.DisplayName,
+			PluginID:            planned.PluginID,
+			PluginName:          pluginNames[planned.PluginID],
+			Category:            definition.Category,
+			Audience:            definition.Audience,
+			ManagedRuntime:      options.ManagedTools[planned.Tool] != "" && options.ManagedTools[planned.Tool] == planned.PluginID,
+			ManagedRuntimeHomes: uniqueSorted(prepared.managedHomes),
+			Providers:           planned.Providers,
+			Shell:               prepared.candidates.Shell,
+			Installations:       prepared.candidates.Installations,
+			Skipped:             prepared.candidates.Skipped,
+			Trace:               resolution.Trace,
+			Unmet:               resolution.Unmet,
+			Conflicts:           resolution.Conflicts,
 		}
 		if pin != nil {
 			tool.Pin = pin
@@ -224,8 +244,18 @@ func Load(ctx context.Context, kernel Kernel, root, directory string, manifests 
 			}
 		}
 		snapshot.Tools = append(snapshot.Tools, tool)
+		if prepared.providerRound != nil {
+			rounds = append(rounds, prepared.providerRound)
+		}
 	}
-	appendManagedDependencies(&snapshot, pluginNames, options.ManagedDependencies)
+	for _, round := range rounds {
+		if err := options.Providers.check(ctx, round, options.ProviderScope); err != nil {
+			return Snapshot{}, err
+		}
+	}
+	if len(options.DiscoveryTools) == 0 {
+		appendManagedDependencies(&snapshot, pluginNames, options.ManagedDependencies)
+	}
 	return snapshot, nil
 }
 
@@ -314,6 +344,14 @@ func managedDependencyToolID(pluginID, depID string) string {
 // facts and Core entry points as the settings page, so a displayed value and a
 // launched executable cannot come from two rule sets.
 func Resolve(ctx context.Context, kernel Kernel, root, directory, tool, minimumVersion string, fixed *Fixed, manifests []json.RawMessage, options Options) (Selection, error) {
+	selection, err := resolve(ctx, kernel, root, directory, tool, minimumVersion, fixed, manifests, options)
+	if errors.Is(err, errProviderGenerationChanged) {
+		return resolve(ctx, kernel, root, directory, tool, minimumVersion, fixed, manifests, options)
+	}
+	return selection, err
+}
+
+func resolve(ctx context.Context, kernel Kernel, root, directory, tool, minimumVersion string, fixed *Fixed, manifests []json.RawMessage, options Options) (Selection, error) {
 	if kernel == nil {
 		return Selection{}, fmt.Errorf("toolchain: no Core client")
 	}
@@ -338,6 +376,12 @@ func Resolve(ctx context.Context, kernel Kernel, root, directory, tool, minimumV
 	if err != nil {
 		return Selection{}, err
 	}
+	if options.Providers != nil {
+		options.providerVersions, err = providerVersions(manifests)
+		if err != nil {
+			return Selection{}, err
+		}
+	}
 	plan, err := kernel.ToolchainDiscoveryPlanOf(ctx, registryRequest, workspace.platform)
 	if err != nil {
 		return Selection{}, err
@@ -361,6 +405,9 @@ func Resolve(ctx context.Context, kernel Kernel, root, directory, tool, minimumV
 		if !ok {
 			continue
 		}
+		// A runtime operation with an explicit pin or fixed choice does not query
+		// providers that cannot affect the choice.
+		options.skipPinnedProviders = true
 		prepared, _, _, err := prepareTool(ctx, kernel, workspace, registryRequest, captured.document, planned, definition, directory, plan.Limits.Ancestors, projectCodeAllowed, options, fixed)
 		if err != nil {
 			return Selection{}, err
@@ -369,6 +416,11 @@ func Resolve(ctx context.Context, kernel Kernel, root, directory, tool, minimumV
 			fmt.Sprintf("run-%d", loadSequence.Add(1)))
 		if err != nil {
 			return Selection{}, err
+		}
+		if prepared.providerRound != nil {
+			if err := options.Providers.check(ctx, prepared.providerRound, options.ProviderScope); err != nil {
+				return Selection{}, err
+			}
 		}
 		if resolution.Outcome.Kind != "resolved" || resolution.Outcome.Selection == nil {
 			code := "notFound"
@@ -383,6 +435,8 @@ func Resolve(ctx context.Context, kernel Kernel, root, directory, tool, minimumV
 }
 
 type preparedTool struct {
+	providerRound *providerRound
+	queries       []core.ToolchainQuery
 	globalDefault *core.ToolchainGlobalDefault
 	definition    core.ToolchainToolDefinition
 	candidates    core.ToolchainCandidates
@@ -470,32 +524,10 @@ func prepareTool(ctx context.Context, kernel Kernel, workspace *workspace, regis
 	}
 	prepared.commandHomes = commandHomes(workspace, definition)
 	for _, home := range uniqueSorted(evidenceHomes) {
-		workspace.observe(home)
-		for _, layout := range definition.ExecutableLayouts {
-			if !platformMatches(layout.Platforms, workspace.platform) {
-				continue
-			}
-			workspace.observe(filepath.Join(home, filepath.FromSlash(layout.Path)))
-		}
-		for _, template := range definition.PathPrepend {
-			if name, ok := prependPath(home, template); ok {
-				workspace.observe(name)
-			}
-		}
+		workspace.observeToolHome(home, definition)
 	}
 	for _, home := range uniqueSorted(valuesOf(prepared.commandHomes)) {
-		workspace.observe(home)
-		for _, layout := range definition.ExecutableLayouts {
-			if !platformMatches(layout.Platforms, workspace.platform) {
-				continue
-			}
-			workspace.observe(filepath.Join(home, filepath.FromSlash(layout.Path)))
-		}
-		for _, template := range definition.PathPrepend {
-			if name, ok := prependPath(home, template); ok {
-				workspace.observe(name)
-			}
-		}
+		workspace.observeToolHome(home, definition)
 	}
 	if prepared.fixed != nil && prepared.fixed.Executable != "" {
 		fact := workspace.observe(prepared.fixed.Executable)
@@ -503,22 +535,30 @@ func prepareTool(ctx context.Context, kernel Kernel, workspace *workspace, regis
 			workspace.observe(fact.CanonicalPath)
 		}
 	}
+	var providerInstallations []core.ToolchainProviderInstallation
+	if options.Providers != nil && len(planned.Providers) > 0 && fixed == nil && !(pin != nil && options.skipPinnedProviders) {
+		prepared.providerRound, prepared.queries, providerInstallations, err = options.Providers.capture(ctx, workspace, registry, directory, planned, definition, options.ProviderScope, options.providerVersions)
+		if err != nil {
+			return prepared, nil, "", err
+		}
+	}
 	prepared.facts = workspace.all()
 
 	request := core.ToolchainCandidatesRequest{
-		Global:              options.Global,
-		Registry:            registry,
-		Tool:                planned.Tool,
-		Platform:            workspace.platform,
-		WorkspaceRoot:       workspace.root,
-		WorkspaceRoots:      workspace.workspaceRoots,
-		Filesystem:          prepared.facts,
-		MinimumVersion:      options.MinimumVersion,
-		SystemInstallations: prepared.installations,
-		Environment:         prepared.environment,
-		CommandHomes:        prepared.commandHomes,
-		Fixed:               prepared.fixed,
-		ProjectCodeAllowed:  projectCodeAllowed,
+		Global:                options.Global,
+		Registry:              registry,
+		Tool:                  planned.Tool,
+		Platform:              workspace.platform,
+		WorkspaceRoot:         workspace.root,
+		WorkspaceRoots:        workspace.workspaceRoots,
+		Filesystem:            prepared.facts,
+		MinimumVersion:        options.MinimumVersion,
+		SystemInstallations:   prepared.installations,
+		ProviderInstallations: providerInstallations,
+		Environment:           prepared.environment,
+		CommandHomes:          prepared.commandHomes,
+		Fixed:                 prepared.fixed,
+		ProjectCodeAllowed:    projectCodeAllowed,
 	}
 	candidates, err := kernel.ToolchainCandidatesOf(ctx, request)
 	if err != nil {
@@ -599,6 +639,11 @@ func resolveTool(ctx context.Context, kernel Kernel, workspace *workspace, regis
 		Generation:          loadSequence.Add(1),
 		Fixed:               prepared.fixed,
 	}
+	if prepared.providerRound != nil {
+		request.Generation = prepared.providerRound.generation
+		request.Context = prepared.providerRound.context
+		request.Queries = prepared.queries
+	}
 	resolution, err := kernel.ResolveToolchain(ctx, request)
 	if err != nil || !projectCodeAllowed {
 		return resolution, err
@@ -635,7 +680,6 @@ func resolveTool(ctx context.Context, kernel Kernel, workspace *workspace, regis
 		}
 	}
 	request.Probes = prepared.probes
-	request.Generation = loadSequence.Add(1)
 	request.OperationID = operationID + "-project"
 	return kernel.ResolveToolchain(ctx, request)
 }

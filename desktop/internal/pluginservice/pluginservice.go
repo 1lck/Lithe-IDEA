@@ -31,6 +31,7 @@ import (
 	"github.com/1lck/Lithe-IDEA/desktop/internal/plugintrust"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/processledger"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/store"
+	"github.com/1lck/Lithe-IDEA/desktop/internal/toolchain"
 )
 
 // ErrAssembly reports a stack that cannot be built.
@@ -64,6 +65,10 @@ type Kernel interface {
 
 // Service is the assembled plugin stack.
 type Service struct {
+	toolchainProviders *toolchain.ProviderClient
+	toolchainKernel    toolchainProviderKernel
+	// ToolchainIssue records discovery failures that left declared fallback sources usable.
+	ToolchainIssue func(context.Context, error)
 	// providers2 holds the editor provider registrations of the window (hostproviders.go).
 	providers2 *editorProviderBindings
 	// actions holds the editor action registrations of the window (hostactions.go).
@@ -198,6 +203,19 @@ func open(kernel Kernel, preferences *store.Store, root string, first bool) (*Se
 	}
 	service.Backend.SetCommandStore(service.Commands)
 	service.Host = newBackendHost(service)
+	if providerKernel, ok := kernel.(toolchainProviderKernel); ok {
+		service.toolchainKernel = providerKernel
+		service.toolchainProviders = &toolchain.ProviderClient{
+			Request:      service.queryToolchain,
+			FailureReply: providerKernel.ToolchainFailureReply,
+			Decode:       providerKernel.DecodeToolchainReply,
+			Failed: func(ctx context.Context, err error) {
+				if service.ToolchainIssue != nil {
+					service.ToolchainIssue(ctx, err)
+				}
+			},
+		}
+	}
 	service.Runs = newRuns(service)
 	service.Contexts = newWorkspaceContexts(filepath.Join(root, pluginpkg.StateDirectory))
 	service.Contexts.SetObserver(service.contextsChanged)

@@ -119,6 +119,8 @@ type StartRequest struct {
 	// VcsProviderID selects a VCS provider the same way. It is empty for the
 	// other roles.
 	VcsProviderID string
+	// ToolchainProviders are the provider IDs from the approved backend manifest.
+	ToolchainProviders []string
 	// Role is the Core session role. Empty keeps the historical backend role;
 	// a build provider names "build" and a VCS provider "vcs".
 	Role string
@@ -422,6 +424,7 @@ func (r *Runner) Start(ctx context.Context, request StartRequest) (Session, erro
 		RootURI:                request.RootURI,
 		WorkingDirectory:       request.WorkingDirectory,
 		HostServices:           granted,
+		ToolchainProviders:     request.ToolchainProviders,
 		HostOptions:            hostOptions(granted),
 		InitializationOptions:  plan.InitializationOptions,
 		WorkspaceConfiguration: plan.WorkspaceConfiguration,

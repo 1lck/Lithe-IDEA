@@ -65,12 +65,25 @@ type BackendHost struct {
 	// sessions are the running backends by plugin ID.
 	sessions map[string]*BackendSession
 	// starting makes concurrent EnsureBackend calls for one plugin share a start.
-	starting map[string]chan struct{}
+	starting map[string]*backendStart
 	nextOp   atomic.Uint64
 }
 
+type backendStart struct {
+	done   chan struct{}
+	cancel context.CancelFunc
+}
+
+func (s *backendStart) stop() {
+	s.cancel()
+	select {
+	case <-s.done:
+	case <-time.After(backendStopTimeout):
+	}
+}
+
 func newBackendHost(service *Service) *BackendHost {
-	return &BackendHost{service: service, sessions: make(map[string]*BackendSession), starting: make(map[string]chan struct{})}
+	return &BackendHost{service: service, sessions: make(map[string]*BackendSession), starting: make(map[string]*backendStart)}
 }
 
 // BackendSession is one running plugin backend and its serve loop.
@@ -123,37 +136,56 @@ func (h *BackendHost) RunningPlugins() []string {
 // EnsureBackend starts the plugin's backend when it is not running and returns
 // its session. It does not wait for the backend to finish initialize; Call does.
 func (h *BackendHost) EnsureBackend(ctx context.Context, pluginID string) (*BackendSession, error) {
+	return h.ensureBackend(ctx, pluginID, "")
+}
+
+// A toolchain query names the version from its registry snapshot. Updating the
+// package can change the provider's response without changing its provider ID.
+func (h *BackendHost) ensureBackend(ctx context.Context, pluginID, version string) (*BackendSession, error) {
 	for {
 		h.mu.Lock()
-		if session := h.sessions[pluginID]; session != nil && !session.isEnded() {
-			h.mu.Unlock()
-			return session, nil
-		}
 		if wait, busy := h.starting[pluginID]; busy {
 			h.mu.Unlock()
 			select {
-			case <-wait:
+			case <-wait.done:
 				continue
 			case <-ctx.Done():
 				return nil, ctx.Err()
 			}
 		}
-		done := make(chan struct{})
-		h.starting[pluginID] = done
+		previous := h.sessions[pluginID]
+		if previous != nil && !previous.isEnded() && (version == "" || previous.Version == version) {
+			h.mu.Unlock()
+			return previous, nil
+		}
+		startCtx, cancel := context.WithCancel(ctx)
+		start := &backendStart{done: make(chan struct{}), cancel: cancel}
+		h.starting[pluginID] = start
 		h.mu.Unlock()
-		session, err := h.start(ctx, pluginID)
+		session, err := h.start(startCtx, pluginID, version, previous)
+		cancel()
 		h.mu.Lock()
-		delete(h.starting, pluginID)
-		if err == nil {
-			h.sessions[pluginID] = session
+		detached := h.starting[pluginID] != start
+		if !detached {
+			delete(h.starting, pluginID)
+			if err == nil {
+				h.sessions[pluginID] = session
+			}
 		}
 		h.mu.Unlock()
-		close(done)
+		if detached {
+			if session != nil {
+				session.stop()
+			}
+			err = context.Canceled
+			session = nil
+		}
+		close(start.done)
 		return session, err
 	}
 }
 
-func (h *BackendHost) start(ctx context.Context, pluginID string) (*BackendSession, error) {
+func (h *BackendHost) start(ctx context.Context, pluginID, version string, previous *BackendSession) (*BackendSession, error) {
 	s := h.service
 	entries, err := s.Manager.Installed()
 	if err != nil {
@@ -168,7 +200,7 @@ func (h *BackendHost) start(ctx context.Context, pluginID string) (*BackendSessi
 			break
 		}
 	}
-	if !found {
+	if !found || (version != "" && entry.Installed.Version != version) {
 		return nil, errors.Join(ErrBackendUnavailable, selectionErr)
 	}
 	manifest, err := readBounded(filepath.Join(entry.Installed.Path, pluginpkg.ManifestFile), MaxManifestBytes)
@@ -177,6 +209,41 @@ func (h *BackendHost) start(ctx context.Context, pluginID string) (*BackendSessi
 	}
 	if !declaresBackend(manifest) {
 		return nil, fmt.Errorf("%w: %s declares no backend", ErrBackendUnavailable, pluginID)
+	}
+	// Validate the current package before ending the old session. A delayed
+	// query for a superseded version must leave the new session alone.
+	if previous != nil {
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
+		previous.cancel()
+		select {
+		case <-previous.done:
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		}
+		disposed, stopErr := previous.disposed, previous.stopErr
+		if !disposed {
+			disposed, stopErr = s.Backend.StopAndDispose(ctx, previous.Session)
+			if disposed {
+				h.forget(previous)
+			}
+		}
+		if err := s.runtimeStopFailure(ctx, disposed, stopErr); err != nil {
+			return nil, err
+		}
+	}
+	var declaration struct {
+		ToolchainProviders []struct {
+			ID string `json:"id"`
+		} `json:"toolchainProviders"`
+	}
+	if err := json.Unmarshal(manifest, &declaration); err != nil {
+		return nil, err
+	}
+	providerIDs := make([]string, 0, len(declaration.ToolchainProviders))
+	for _, provider := range declaration.ToolchainProviders {
+		providerIDs = append(providerIDs, provider.ID)
 	}
 	settings, err := s.Settings.Load(ctx, manifest, "")
 	if err != nil {
@@ -189,15 +256,16 @@ func (h *BackendHost) start(ctx context.Context, pluginID string) (*BackendSessi
 	startCtx, cancelStart := context.WithTimeout(ctx, backendStartTimeout)
 	defer cancelStart()
 	started, err := s.Backend.Start(startCtx, pluginbackend.StartRequest{
-		Manifest:         manifest,
-		PackageDirectory: entry.Installed.Path,
-		PluginID:         entry.Installed.ID,
-		ProviderID:       entry.Installed.ID + "/backend",
-		StateDirectory:   directories.state,
-		LogDirectory:     directories.log,
-		Architecture:     core.PluginArchitecture(),
-		Settings:         settings.State.Settings,
-		ProjectSettings:  settings.State.ProjectSettings,
+		Manifest:           manifest,
+		PackageDirectory:   entry.Installed.Path,
+		PluginID:           entry.Installed.ID,
+		ProviderID:         entry.Installed.ID + "/backend",
+		ToolchainProviders: providerIDs,
+		StateDirectory:     directories.state,
+		LogDirectory:       directories.log,
+		Architecture:       core.PluginArchitecture(),
+		Settings:           settings.State.Settings,
+		ProjectSettings:    settings.State.ProjectSettings,
 		// A backend belongs to no workspace: it starts with its plugin-wide state
 		// directory as root and working directory.
 		RootURI:          fileURI(directories.state),
@@ -228,8 +296,16 @@ func (h *BackendHost) Detach(pluginID string) func() {
 	h.mu.Lock()
 	session := h.sessions[pluginID]
 	delete(h.sessions, pluginID)
+	start := h.starting[pluginID]
+	delete(h.starting, pluginID)
 	h.mu.Unlock()
+	if start != nil {
+		start.cancel()
+	}
 	return func() {
+		if start != nil {
+			start.stop()
+		}
 		if session != nil {
 			session.stop()
 		}
@@ -248,12 +324,19 @@ func (h *BackendHost) DetachAll() func() {
 		sessions = append(sessions, session)
 	}
 	h.sessions = make(map[string]*BackendSession)
+	starts := h.starting
+	h.starting = make(map[string]*backendStart)
 	h.mu.Unlock()
+	for _, start := range starts {
+		start.cancel()
+	}
 	return func() {
 		var group sync.WaitGroup
 		for _, session := range sessions {
-			group.Add(1)
-			go func() { defer group.Done(); session.stop() }()
+			group.Go(session.stop)
+		}
+		for _, start := range starts {
+			group.Go(start.stop)
 		}
 		group.Wait()
 	}
@@ -485,15 +568,22 @@ func (b *BackendSession) serve(ctx context.Context) {
 	_ = err
 	// Everything the session created in the host goes with it.
 	b.host.service.resources.releaseSession(b.Session.ID)
-	// A backend that exited on its own leaves the Core session to dispose.
-	b.host.mu.Lock()
-	if b.host.sessions[b.PluginID] == b {
-		delete(b.host.sessions, b.PluginID)
-	}
-	b.host.mu.Unlock()
+	// Keep the session registered until its process is disposed so the next
+	// start can wait for it, even if the event loop has already ended.
 	stopCtx, cancel := context.WithTimeout(context.Background(), backendStopTimeout)
 	defer cancel()
 	b.disposed, b.stopErr = b.host.service.Backend.StopAndDispose(stopCtx, b.Session)
+	if b.disposed {
+		b.host.forget(b)
+	}
+}
+
+func (h *BackendHost) forget(session *BackendSession) {
+	h.mu.Lock()
+	if h.sessions[session.PluginID] == session {
+		delete(h.sessions, session.PluginID)
+	}
+	h.mu.Unlock()
 }
 
 // observe records the lifecycle facts calls depend on and routes completions.
