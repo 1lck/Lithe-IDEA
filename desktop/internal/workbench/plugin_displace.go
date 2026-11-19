@@ -61,9 +61,9 @@ func (a *App) stopDisplaced(d displacement) {
 	p := a.project
 	for _, item := range d.displaced {
 		id, languages := item.PluginID, item.LanguageIDs
-		server := a.detachPluginServer(id)
+		server, stop := a.detachPluginPrograms(id)
 		a.background(nil, pluginServerStopTimeout, func(ctx context.Context) func(*App) {
-			err := a.plugins.StopDisplaced(ctx, id, server)
+			err := a.plugins.StopDisplaced(ctx, id, server, stop)
 			return func(a *App) {
 				if err != nil {
 					a.backgroundFailed("plugin_displace", err)

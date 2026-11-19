@@ -22,6 +22,8 @@ const (
 	OperationDebugAdapterStart PluginOperationName = "debugAdapter/start"
 	// OperationBuildModel is one model load of a buildSystems[].model command source.
 	OperationBuildModel PluginOperationName = "lithe/build/model"
+	// OperationBuildTestDiscovery is one test discovery command.
+	OperationBuildTestDiscovery PluginOperationName = "lithe/build/discoverTests"
 	// OperationBuildDependencies is one dependency tree load of a command source.
 	OperationBuildDependencies PluginOperationName = "lithe/build/dependencies"
 	// OperationCommandInstallerInstall is one commandInstallers[] installation the user

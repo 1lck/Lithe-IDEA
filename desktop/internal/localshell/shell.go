@@ -91,6 +91,8 @@ type backend struct {
 	// promptToken is the token of the prompt marks the shell prints when it was
 	// started with integration (see integration_scripts.go), else empty.
 	promptToken string
+	// retryHangupAtPrompt is set by the Unix backend for integrated Bash.
+	retryHangupAtPrompt bool
 }
 
 // ExitError is why a shell ended with a nonzero status. It has the same
@@ -281,6 +283,9 @@ func (shell *Shell) wait() {
 	case <-shell.readDone:
 	case <-time.After(readDrainGrace):
 	}
+	// Closing a Unix PTY early can make Bash read EOF before it handles SIGHUP.
+	// By now the shell has had its chance to forward SIGHUP to its jobs.
+	_ = shell.b.io.Close()
 	shell.mu.Lock()
 	shell.exitErr = err
 	shell.finished = true
@@ -398,10 +403,9 @@ func (shell *Shell) ExitStatus() int {
 // The shell passes the hangup on to the jobs it would end, and leaves those the user
 // disowned. Bash does so only while it is interactive, and running PROMPT_COMMAND,
 // which the integration uses, it is not; a job Zsh is still starting misses it too.
-// So an integrated shell that has shown a prompt but is not at one now and runs no
-// program in the foreground, that is one between a command and its next prompt, is
-// hung up when it shows the prompt, or after promptGrace. Without integration the
-// shell is hung up at once.
+// A foreground program can also be part of PROMPT_COMMAND. Wait for the next
+// prompt of an integrated shell that has already shown one, bounded by
+// promptGrace. A shell without prompt information is hung up at once.
 func (shell *Shell) Close() {
 	shell.mu.Lock()
 	if shell.closed {
@@ -414,35 +418,20 @@ func (shell *Shell) Close() {
 	if shell.resizeWake != nil {
 		close(shell.resizeWake)
 	}
-	settling := shell.prompted && shell.lastMark != 'B' && !shell.finished
-	mark := shell.lastMark
+	var shown chan struct{}
+	if shell.prompted && shell.lastMark != 'B' && !shell.finished {
+		shown = make(chan struct{})
+		shell.promptShown = shown
+	}
+	shell.finished = true
 	shell.mu.Unlock()
 	// A reader waiting for room drops what it holds and reads on.
 	shell.space.Broadcast()
-	// A command in the foreground keeps the shell waiting for it, interactive.
-	if settling && mark == 'C' && shell.b.busy != nil && shell.b.busy() {
-		settling = false
-	}
-	var shown chan struct{}
-	if settling {
-		shell.mu.Lock()
-		if shell.lastMark == 'B' {
-			settling = false
-		} else {
-			shown = make(chan struct{})
-			shell.promptShown = shown
-		}
-		shell.mu.Unlock()
-	}
-	if settling {
+	if shown != nil {
 		go shell.hangUpAtPrompt(shown)
 	} else {
 		shell.hangUp()
 	}
-	shell.mu.Lock()
-	shell.finished = true
-	shell.mu.Unlock()
-	shell.space.Broadcast()
 }
 
 // hangUpAtPrompt hangs up a closed shell once it shows its prompt, ends, or has had
@@ -453,21 +442,40 @@ func (shell *Shell) hangUpAtPrompt(shown <-chan struct{}) {
 	select {
 	case <-shown:
 	case <-shell.done:
+		return
 	case <-timer.C:
 	}
 	shell.hangUp()
 }
 
-// hangUp asks the shell to end, kills it when it outlives killGrace and lets go of
-// the terminal.
+// hangUp asks the shell to end and kills it if it outlives killGrace. The
+// waiter releases the terminal after the process exits and output is drained.
 func (shell *Shell) hangUp() {
+	select {
+	case <-shell.done:
+		return
+	default:
+	}
 	shell.b.hangup()
-	timer := time.AfterFunc(killGrace, shell.b.kill)
+	kill := time.AfterFunc(killGrace, shell.b.kill)
+	var retry *time.Timer
+	if shell.b.retryHangupAtPrompt {
+		shell.mu.Lock()
+		atPrompt := shell.lastMark == 'B'
+		shell.mu.Unlock()
+		if atPrompt {
+			// Bash can print the prompt before Readline is ready to handle
+			// SIGHUP. Give the shell another chance to forward it to its jobs.
+			retry = time.AfterFunc(hangupRetryDelay, shell.b.hangup)
+		}
+	}
 	go func() {
 		<-shell.done
-		timer.Stop()
+		kill.Stop()
+		if retry != nil {
+			retry.Stop()
+		}
 	}()
-	_ = shell.b.io.Close()
 }
 
 // sawMark records a prompt mark the reader found in the output.
@@ -484,6 +492,9 @@ func (shell *Shell) sawMark(kind byte) {
 		shell.promptShown = nil
 	}
 }
+
+// hangupRetryDelay lets Readline finish entering its input loop after the prompt.
+const hangupRetryDelay = 100 * time.Millisecond
 
 // killGrace is how long a shell gets to leave after a hangup before it is killed.
 const killGrace = 500 * time.Millisecond

@@ -26,37 +26,39 @@ func (s *Service) Uninstall(ctx context.Context, id string, server *LanguageSess
 	if err := s.stopRuntimePreparations(ctx, id); err != nil {
 		return err
 	}
-	_, err := s.Manager.Apply(ctx, core.PluginUninstall, id, func() error {
-		var failures []error
-		for _, stop := range stopNative {
-			failures = append(failures, stop(ctx))
-		}
-		failures = append(failures, s.stopPlugin(ctx, id, server))
-		return errors.Join(failures...)
-	})
+	_, err := s.Manager.Apply(ctx, core.PluginUninstall, id, func() error { return s.stopWithNativePrograms(ctx, id, server, stopNative) })
 	return err
 }
 
 // Disable records that the user turned plugin id off and stops what it runs,
 // as Uninstall does, so a disabled plugin keeps no process. Core plans the
 // choice before the stop, so nothing starts the plugin again while it stops.
-func (s *Service) Disable(ctx context.Context, id string, server *LanguageSession) error {
+func (s *Service) Disable(ctx context.Context, id string, server *LanguageSession, stopNative ...func(context.Context) error) error {
 	release := s.holdRuntimeStop(id)
 	defer release()
 	if err := s.stopRuntimePreparations(ctx, id); err != nil {
 		return err
 	}
-	_, err := s.Manager.Apply(ctx, core.PluginDisable, id, func() error { return s.stopPlugin(ctx, id, server) })
+	_, err := s.Manager.Apply(ctx, core.PluginDisable, id, func() error { return s.stopWithNativePrograms(ctx, id, server, stopNative) })
 	return err
+}
+
+func (s *Service) stopWithNativePrograms(ctx context.Context, id string, server *LanguageSession, stopNative []func(context.Context) error) error {
+	var failures []error
+	for _, stop := range stopNative {
+		failures = append(failures, stop(ctx))
+	}
+	failures = append(failures, s.stopPlugin(ctx, id, server))
+	return errors.Join(failures...)
 }
 
 // StopDisplaced stops what plugin id runs after enabling another plugin turned it
 // off (pluginmanager.Displaced): its choice is already recorded, so only the
 // programs remain. server is its language server session, or nil.
-func (s *Service) StopDisplaced(ctx context.Context, id string, server *LanguageSession) error {
+func (s *Service) StopDisplaced(ctx context.Context, id string, server *LanguageSession, stopNative ...func(context.Context) error) error {
 	release := s.holdRuntimeStop(id)
 	defer release()
-	return s.stopPlugin(ctx, id, server)
+	return s.stopWithNativePrograms(ctx, id, server, stopNative)
 }
 
 // stopPlugin first cancels and awaits preparation/launch work, then stops all
