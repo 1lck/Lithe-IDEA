@@ -27,7 +27,15 @@ native_path() {
     fi
 }
 
-# Lithe-core-rust #101 for #2128: code actions, signature help, inlay hints, and guarded workspace edits.
+# Core compatibility pin for #2128: LSP #101 plus the desktop main's #102 pin.
+# Core main after #104 requires the desktop plugin views migration.
+# Lithe-core-rust main at 8d3c16b: #102, squash-merged into main on top of fa33446:
+# toolchains.settingsView issues carry the key of the group their tool is listed under, so the
+# Toolchains page opens that group with the tool. Main below it has #99 (2ddfae7):
+# toolDefinitions 1 adds a definition's category and audience; toolchains.settingsView filters,
+# groups, folds and counts the Toolchains settings list; plugins.settings.navigation takes a
+# group's limit, answers each row's matched flag and ancestor path, and folds the children past
+# the limit into one overflow row.
 # Lithe-core-rust main at 0a15a98: #97, squash-merged into main on top of 7f1fc4b (#96, managed
 # runtime preparation and isolated resolver sessions) and c146247 (#95, docs):
 # buildSystems[].beforeLaunchTasks (beforeLaunchTasks 0) declare tasks a run configuration's
@@ -252,7 +260,7 @@ PINNED_CORE_REPOSITORY="https://github.com/Lithe-IDEA/Lithe-core-rust.git"
 # the contract, plugin guides, reference and SDKs live only in shared/plugins; on top of #16 (reported Git queries folded in the console),
 # #15 (git.write cherryPick, revert and reset fields), #14 (word-level changed ranges of diff
 # rows), #13, #8, #7, #6 and #4.
-PINNED_CORE_REVISION="c6083727ba2ee8d30adf868ac58cdd76ead0e713"
+PINNED_CORE_REVISION="9a674e28e9397fe0c1805cc877b6b51705e0508e"
 PROFILE="debug"
 while [[ $# -gt 0 ]]; do
     case "$1" in

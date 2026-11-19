@@ -47,9 +47,10 @@ func TestVisualSettings(t *testing.T) {
 		{"25-settings-process", pageProcessTermination}, {"26-settings-git", pageVersionControl}, {"26-settings-git-console", pageVersionControl},
 		{"27-settings-terminal", pageTerminal}, {"28-plugins-installed", pagePlugins},
 		{"29-marketplace-empty", pagePlugins},
-		{"33-settings-toolchains", pageBuild}, {"m44-toolchain-directory-menu", pageBuild}, {"m45-toolchain-custom-directory", pageBuild},
-		{"m47-toolchain-project-untrusted", pageBuild}, {"m48-toolchain-project-trusted", pageBuild}, {"m49-toolchain-project-trust-click", pageBuild},
-		{"m50-toolchain-project-trust-tip", pageBuild},
+		{"32-settings-build", pageBuild}, {"32-settings-build-kind", pageBuild}, {"34-settings-debuggers", pageDebuggers},
+		{"33-settings-toolchains", pageToolchains}, {"m44-toolchain-directory-menu", pageToolchains}, {"m45-toolchain-custom-directory", pageToolchains},
+		{"m47-toolchain-project-untrusted", pageToolchains}, {"m48-toolchain-project-trusted", pageToolchains}, {"m49-toolchain-project-trust-click", pageToolchains},
+		{"m50-toolchain-project-trust-tip", pageToolchains},
 		{"fonts", pageFonts},
 		{"21-settings-language-popup", pageGeneral}, {"30-settings-history", pageGeneral}, {"m46-history-default-rules-help", pageGeneral}, {"35-settings-search", pageEditor},
 		{"m35-editor-tab-layout", pageEditor}, {"m25-project-open-mode", pageGeneral}, {"m29-editor-font-menu", pageFonts}, {"m38-plugin-management-menu", pagePlugins},
@@ -83,9 +84,39 @@ func TestVisualSettings(t *testing.T) {
 					Toolchains: visualToolchainLoader(scenario.id),
 					// Every build can sign in to GitHub; no account is connected yet.
 					GitHub: &GitHubAccount{Snapshot: func() GitHubState { return GitHubState{Available: true} }},
+					// Two installed debuggers take stepping filters; one keeps the user's own.
+					SteppingAdapters: func(context.Context) ([]SteppingAdapter, error) {
+						return []SteppingAdapter{
+							{ID: "fixture-jvm", Name: "Fixture JVM Debugger", PluginID: "dev.example.jvm", PluginName: "Fixture JVM", Defaults: core.DebugSteppingFilters{ClassNameFilters: []string{"java.*", "javax.*", "sun.*"}, SkipSynthetics: true, SkipStaticInitializers: true}},
+							{ID: "fixture-native", Name: "Fixture Native Debugger", PluginID: "dev.example.native", PluginName: "Fixture Native", Defaults: core.DebugSteppingFilters{ClassNameFilters: []string{"std::*"}}},
+						}, nil
+					},
+					NormalizeSteppingFilters: func(_ context.Context, _ string, filters core.DebugSteppingFilters) (core.DebugSteppingFilters, error) {
+						return filters, nil
+					},
+					SetSteppingFilters: func(string, *core.DebugSteppingFilters) {},
 				}
-				w := newWindow(NewController(opts), Values{Theme: theme, Language: language.Code(), TerminalScrollback: 2000})
+				values := Values{Theme: theme, Language: language.Code(), TerminalScrollback: 2000}
+				if scenario.page == pageBuild || scenario.page == pageDebuggers {
+					values.SteppingFilters = map[string]core.DebugSteppingFilters{"fixture-jvm": {ClassNameFilters: []string{"java.*", "javax.*", "sun.*", "com.example.generated.*"}, SkipSynthetics: true, SkipStaticInitializers: true}}
+				}
+				if scenario.page == pageBuild {
+					// Eight plugins each bring a build system page, which the kind's one row and
+					// page list.
+					contributions := buildPageContributions(t, 8)
+					client := core.NewClient()
+					opts.PluginSettings = newBuildFormSource(t, client, contributions)
+					opts.SettingsNavigation = client.SettingsNavigation
+					opts.SettingsPages = func(ctx context.Context) ([]core.SettingsPage, error) {
+						return client.SettingsPages(ctx, contributions)
+					}
+				}
+				w := newWindow(NewController(opts), values)
 				w.sess.page = scenario.page
+				if scenario.page == pageBuild || parents[scenario.page] == pageBuild {
+					// As the Build page opens its pages: with the group open in the sidebar.
+					w.sess.open[pageBuild] = true
+				}
 				if scenario.id == "29-marketplace-empty" {
 					w.pluginTab = pluginTabMarketplace
 				}
@@ -98,8 +129,14 @@ func TestVisualSettings(t *testing.T) {
 				switch scenario.page {
 				case pageTerminal:
 					d.until("shell choices", func() bool { return w.terminal.loaded })
+				case pageToolchains:
+					d.until("toolchain facts", func() bool { return w.toolchains.current().loaded })
 				case pageBuild:
-					d.until("toolchain facts", func() bool { return w.toolchains.loaded })
+					d.until("the build page's facts", func() bool {
+						return w.toolchains.current().loaded && w.toolchains.view.ready && w.stepping.loaded && w.dynamic.loaded
+					})
+				case pageDebuggers:
+					d.until("the debuggers", func() bool { return w.stepping.loaded })
 				case pagePlugins:
 					d.until("offline index", func() bool { return w.market.status == marketReady })
 				case pageFonts:
@@ -166,20 +203,27 @@ func TestVisualSettings(t *testing.T) {
 					d.click(text("desktop.settings.processTermination.onQuit"))
 				case "m43-process-orphan-policy":
 					d.click(text("desktop.settings.processTermination.leftoverTerminals"))
+				case "32-settings-build-kind":
+					w.openKind("buildSystem")
+					d.until("the first page's settings", func() bool {
+						return w.shownKind() == "buildSystem" && w.pluginSettings.loaded && w.pluginSettings.id == w.contributorID
+					})
+					d.pump()
 				case "m44-toolchain-directory-menu":
 					d.click("Compiler")
 				case "m45-toolchain-custom-directory":
-					d.click("Compiler")
-					d.click(text("desktop.toolchains.custom"))
+					d.click(text("desktop.buildSettings.addDirectory"))
 					d.pump()
 				case "m47-toolchain-project-untrusted", "m48-toolchain-project-trusted", "m49-toolchain-project-trust-click", "m50-toolchain-project-trust-tip":
-					d.click(text("desktop.toolchains.project"))
+					d.until("the project scope", func() bool { return w.toolchains.projectName() != "" })
+					d.pump()
+					d.click(i18n.SharedFormat(language, "desktop.buildSettings.scopeProjectNamed", map[string]string{"project": "workspace"}))
 					status := text("desktop.toolchains.trustStatusTrusted")
-					if scenario.id == "m47-toolchain-project-untrusted" {
-						status = text("desktop.toolchains.trustStatusUntrusted")
+					if scenario.id != "m48-toolchain-project-trusted" {
+						status = text("desktop.buildSettings.trustProject")
 					}
 					// The load result can arrive during painting, before the trust controls appear.
-					d.until("the visible project trust status", func() bool { return d.text(status) })
+					d.until("the visible project trust status", func() bool { return d.has(status) })
 					if scenario.id != "m49-toolchain-project-trust-click" && scenario.id != "m50-toolchain-project-trust-tip" {
 						break
 					}
@@ -290,10 +334,12 @@ func visualToolchainLoader(scenarioID string) ToolchainLoader {
 		}},
 	}
 	switch scenarioID {
-	case "m47-toolchain-project-untrusted":
+	case "m47-toolchain-project-untrusted", "m49-toolchain-project-trust-click", "m50-toolchain-project-trust-tip":
 		return &trustToolchainLoader{globalSnapshot: global, untrusted: untrusted, trustedSnapshot: trusted}
-	case "m48-toolchain-project-trusted", "m49-toolchain-project-trust-click", "m50-toolchain-project-trust-tip":
-		return &trustToolchainLoader{globalSnapshot: global, untrusted: untrusted, trustedSnapshot: trusted, trusted: true}
+	case "m48-toolchain-project-trusted":
+		loader := &trustToolchainLoader{globalSnapshot: global, untrusted: untrusted, trustedSnapshot: trusted}
+		loader.trusted.Store(true)
+		return loader
 	default:
 		return &scopedToolchainLoader{fakeToolchainLoader{snapshot: global}}
 	}

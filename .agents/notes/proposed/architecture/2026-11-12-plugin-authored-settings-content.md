@@ -13,7 +13,7 @@
 可以操作的原型：
 
 - [`docs/design/plugin-canvas-scene.html`](../../../../docs/design/plugin-canvas-scene.html)：画布节点的交互、预算、故障回退和消息计数。
-- [`docs/design/build-execution-settings.html`](../../../../docs/design/build-execution-settings.html)：「构建、执行、部署」页在大量插件注入时的布局，见[构建、执行、部署设置页在大量插件注入时的结构](../feature/2026-11-18-build-execution-settings-at-scale.md)。
+- [`docs/design/build-execution-settings.html`](../../../../docs/design/build-execution-settings.html)：「构建、执行、部署」页在大量插件注入时的布局，见[构建、执行、部署设置页在大量插件注入时的结构](../../implemented/feature/2026-11-18-build-execution-settings-at-scale.md)。
 
 ## 问题
 

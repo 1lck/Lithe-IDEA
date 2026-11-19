@@ -52,9 +52,9 @@ func TestParentsTableKeepsGroupsBesideTheirPages(t *testing.T) {
 	}
 }
 
-func TestOnlyAppearanceToolsAndAIAreGroups(t *testing.T) {
+func TestOnlyAppearanceBuildToolsAndAIAreGroups(t *testing.T) {
 	for id := pageID(0); id < pageCount; id++ {
-		if got, want := isGroup(id), id == pageAppearance || id == pageTools || id == pageAI; got != want {
+		if got, want := isGroup(id), id == pageAppearance || id == pageBuild || id == pageTools || id == pageAI; got != want {
 			t.Errorf("isGroup(%d) = %v, want %v", id, got, want)
 		}
 	}
@@ -119,7 +119,7 @@ func TestDefaultSidebarListsTheTopLevelWithAppearanceExpanded(t *testing.T) {
 		{page: pageProcessTermination, level: 1},
 		{page: pagePlugins},
 		{page: pageVersionControl},
-		{page: pageBuild},
+		{page: pageBuild, group: true},
 		{page: pageLanguages},
 		{page: pageTools, group: true},
 		{page: pageAI, group: true},
@@ -134,13 +134,13 @@ func TestCollapsedGroupHidesItsPages(t *testing.T) {
 	var open [pageCount]bool
 	rows := appendVisible(nil, english(), &open, "")
 	if len(rows) != 8 {
-		t.Fatalf("rows = %v, want the three groups and the five pages on the top level", rows)
+		t.Fatalf("rows = %v, want the four groups and the four pages on the top level", rows)
 	}
 	for _, r := range rows {
 		if r.level != 0 || r.expanded {
 			t.Fatalf("row %+v should be on the top level and not expanded", r)
 		}
-		if want := r.page == pageAppearance || r.page == pageTools || r.page == pageAI; r.group != want {
+		if want := r.page == pageAppearance || r.page == pageBuild || r.page == pageTools || r.page == pageAI; r.group != want {
 			t.Fatalf("row %+v: group = %v, want %v", r, r.group, want)
 		}
 	}
@@ -221,10 +221,10 @@ func TestSearchOnAGroupTitleKeepsAllItsPages(t *testing.T) {
 
 func TestSearchOnATopLevelPageListsOnlyIt(t *testing.T) {
 	open := initialOpen()
-	// The query is folded, so "  AI " finds the group, which names the whole group and
-	// keeps its pages.
-	rows := appendVisible(nil, english(), &open, foldQuery("  AI "))
-	if want := []row{{page: pageAI, group: true, expanded: true}, {page: pageAIGeneration, level: 1}, {page: pageIDEAPI, level: 1}}; !slices.Equal(rows, want) {
+	// The query is folded, so "  Generation " finds the page inside the AI group, and only
+	// it: no other page's title or keywords hold the words.
+	rows := appendVisible(nil, english(), &open, foldQuery("  Generation "))
+	if want := []row{{page: pageAI, group: true, expanded: true}, {page: pageAIGeneration, level: 1}}; !slices.Equal(rows, want) {
 		t.Fatalf("rows = %v, want %v", rows, want)
 	}
 }
@@ -298,15 +298,30 @@ func TestBreadcrumb(t *testing.T) {
 		{pageTerminal, []string{"Tools", "Terminal"}},
 		{pageAbout, []string{"About"}},
 	}
+	titles := func(crumbs []crumb) []string {
+		out := make([]string, len(crumbs))
+		for i, crumb := range crumbs {
+			out[i] = crumb.title
+		}
+		return out
+	}
 	for _, tc := range cases {
-		if got := appendBreadcrumb(nil, english(), tc.page); !slices.Equal(got, tc.want) {
+		if got := titles(appendBreadcrumb(nil, english(), tc.page)); !slices.Equal(got, tc.want) {
 			t.Errorf("breadcrumb of %d = %q, want %q", tc.page, got, tc.want)
 		}
 	}
 	// It appends, so a buffer can be reused.
-	got := appendBreadcrumb([]string{"x"}, english(), pageTools)
-	if !slices.Equal(got, []string{"x", "Tools"}) {
-		t.Errorf("breadcrumb appended to a buffer = %q", got)
+	got := appendBreadcrumb([]crumb{{title: "x"}}, english(), pageTools)
+	if !slices.Equal(titles(got), []string{"x", "Tools"}) {
+		t.Errorf("breadcrumb appended to a buffer = %q", titles(got))
+	}
+	// Only a group with a page of its own links to it: Build opens its directory, Tools has
+	// no page of its own.
+	if build := appendBreadcrumb(nil, english(), pageToolchains); !build[0].link || build[0].page != pageBuild || build[1].link {
+		t.Errorf("Toolchains breadcrumb = %+v, want Build linked", build)
+	}
+	if tools := appendBreadcrumb(nil, english(), pageTerminal); tools[0].link {
+		t.Errorf("Terminal breadcrumb = %+v, want Tools not linked", tools)
 	}
 }
 

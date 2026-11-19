@@ -113,7 +113,9 @@ type Capabilities map[string][]int
 //     the command Core plans for the detected instance before the configuration
 //     starts.
 //   - toolDefinitions: settings discovery, Build/Run selection and tool
-//     launches use the shared Core resolver.
+//     launches use the shared Core resolver. Version 1 adds a definition's
+//     category and audience, which group the tool on the Toolchains settings
+//     page.
 //   - commandInstallers: plugin management reports the commands a
 //     systemCommand launch names but the machine lacks, and installs them with
 //     the plugin's tool after the user confirms the command line, the network
@@ -184,6 +186,9 @@ func Declared() Capabilities {
 	declared["sourceSettings"] = []int{0, 1}
 	// Version 1 adds entrypoint runs, which Run on Current File starts.
 	declared["buildProviders"] = []int{0, 1}
+	// Version 1 adds a definition's category and audience, by which the
+	// Toolchains settings page groups and folds the tools.
+	declared["toolDefinitions"] = []int{0, 1}
 	return declared
 }
 

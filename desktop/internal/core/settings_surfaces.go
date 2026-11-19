@@ -44,6 +44,10 @@ type SettingsNavigationRow struct {
 	Group    bool   `json:"group"`
 	Expanded bool   `json:"expanded"`
 	Level    uint8  `json:"level"`
+	// Matched is set when the search hit this row itself rather than a row below
+	// it; Path holds the ancestor titles so a hit can be listed with its place.
+	Matched bool     `json:"matched,omitempty"`
+	Path    []string `json:"path,omitempty"`
 }
 
 type SettingsDeliveryRequest struct {

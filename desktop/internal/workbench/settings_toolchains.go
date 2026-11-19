@@ -141,6 +141,13 @@ func (s settingsToolchains) Save(ctx context.Context, snapshot toolchain.Snapsho
 	return updated, nil
 }
 
+// SettingsView asks Core to filter, group, fold and count the Toolchains list.
+// It runs on the settings worker for every query change.
+func (s settingsToolchains) SettingsView(ctx context.Context, request core.ToolchainSettingsViewRequest) (view core.ToolchainSettingsView, err error) {
+	defer func() { s.recordFailure(ctx, "toolchain_settings_view", err) }()
+	return s.app.kernel.ToolchainSettingsViewOf(ctx, request)
+}
+
 // recordFailure logs a failed settings request from the settings worker that ran it, under the
 // user action ctx carries; it never reads the window thread's operation.
 func (s settingsToolchains) recordFailure(ctx context.Context, operation string, err error) {

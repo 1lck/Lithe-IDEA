@@ -17,6 +17,8 @@ func settingsMessages(language Language) SettingsMessages {
 		Plugins:            Shared(language, "settings.tabs.plugins"),
 		VersionControl:     Shared(language, "settings.groups.versionControl"),
 		Build:              Shared(language, "settings.groups.build"),
+		Toolchains:         Shared(language, "desktop.toolchains.title"),
+		Debuggers:          Shared(language, "desktop.buildSettings.debuggers"),
 		Languages:          Shared(language, "settings.groups.languages"),
 		Tools:              Shared(language, "settings.groups.tools"),
 		AI:                 Shared(language, "native.ai"),

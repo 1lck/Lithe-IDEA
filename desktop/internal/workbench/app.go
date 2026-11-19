@@ -148,6 +148,9 @@ type Kernel interface {
 	DecodeBuildRunEntrypoints(ctx context.Context, manifest json.RawMessage, buildSystemID string, request core.BuildDecodeRunEntrypointsRequest) ([]core.BuildRunEntrypoint, error)
 	CreateRunEntrypointConfiguration(ctx context.Context, request core.RunEntrypointConfigurationRequest) (string, []core.RunConfigChange, error)
 	ToolchainRegistryOf(ctx context.Context, manifests []json.RawMessage) (core.ToolchainRegistry, error)
+	// ToolchainSettingsViewOf lays out the Toolchains settings list
+	// (settings_toolchains.go).
+	ToolchainSettingsViewOf(ctx context.Context, request core.ToolchainSettingsViewRequest) (core.ToolchainSettingsView, error)
 	// CommandInstallerRequirements, PlanCommandInstaller and CommandInstallerDefaultDirectory
 	// read a plugin's commandInstallers[]: which systemCommand launches name which commands,
 	// one installer expanded for the target the user chose, and the directory a toolDefault
