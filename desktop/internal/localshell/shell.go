@@ -91,6 +91,8 @@ type backend struct {
 	// promptToken is the token of the prompt marks the shell prints when it was
 	// started with integration (see integration_scripts.go), else empty.
 	promptToken string
+	// retryHangupAtPrompt is set by the Unix backend for integrated Bash.
+	retryHangupAtPrompt bool
 }
 
 // ExitError is why a shell ended with a nonzero status. It has the same
@@ -455,10 +457,24 @@ func (shell *Shell) hangUp() {
 	default:
 	}
 	shell.b.hangup()
-	timer := time.AfterFunc(killGrace, shell.b.kill)
+	kill := time.AfterFunc(killGrace, shell.b.kill)
+	var retry *time.Timer
+	if shell.b.retryHangupAtPrompt {
+		shell.mu.Lock()
+		atPrompt := shell.lastMark == 'B'
+		shell.mu.Unlock()
+		if atPrompt {
+			// Bash can print the prompt before Readline is ready to handle
+			// SIGHUP. Give the shell another chance to forward it to its jobs.
+			retry = time.AfterFunc(hangupRetryDelay, shell.b.hangup)
+		}
+	}
 	go func() {
 		<-shell.done
-		timer.Stop()
+		kill.Stop()
+		if retry != nil {
+			retry.Stop()
+		}
 	}()
 }
 
@@ -476,6 +492,9 @@ func (shell *Shell) sawMark(kind byte) {
 		shell.promptShown = nil
 	}
 }
+
+// hangupRetryDelay lets Readline finish entering its input loop after the prompt.
+const hangupRetryDelay = 100 * time.Millisecond
 
 // killGrace is how long a shell gets to leave after a hangup before it is killed.
 const killGrace = 500 * time.Millisecond

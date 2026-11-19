@@ -222,9 +222,10 @@ func TestCloseLetsTheShellHandleHangupBeforeReleasingThePTY(t *testing.T) {
 				<-exited
 				return 0, nil
 			},
-			hangup: func() { calls = append(calls, "hangup") },
-			kill:   func() { calls = append(calls, "kill") },
-			busy:   func() bool { return true },
+			hangup:              func() { calls = append(calls, "hangup") },
+			kill:                func() { calls = append(calls, "kill") },
+			busy:                func() bool { return true },
+			retryHangupAtPrompt: true,
 		})
 		shell.space = sync.NewCond(&shell.mu)
 		shell.readDone = make(chan struct{})
@@ -255,6 +256,42 @@ func TestCloseLetsTheShellHandleHangupBeforeReleasingThePTY(t *testing.T) {
 		synctest.Wait()
 		if !slices.Equal(calls, []string{"hangup", "close PTY"}) {
 			t.Fatalf("shutdown order = %v, want hangup followed by PTY close", calls)
+		}
+	})
+}
+
+func TestHangupRetriesAtTheBashPromptBeforeForcingExit(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		signals := make(chan string, 3)
+		shell := resizeTestShell(backend{
+			hangup:              func() { signals <- "hangup" },
+			retryHangupAtPrompt: true,
+		})
+		shell.b.kill = func() {
+			signals <- "kill"
+			close(shell.done)
+		}
+		shell.lastMark = 'B'
+		shell.hangUp()
+		synctest.Wait()
+		if len(signals) != 1 {
+			t.Errorf("initial signal count = %d, want one hangup", len(signals))
+		}
+
+		select {
+		case <-shell.done:
+		case <-time.After(killGrace + time.Millisecond):
+			t.Fatal("the fallback did not end the shell within its original grace period")
+		}
+		for _, want := range []string{"hangup", "hangup", "kill"} {
+			select {
+			case got := <-signals:
+				if got != want {
+					t.Fatalf("signal = %q, want %q", got, want)
+				}
+			default:
+				t.Fatalf("missing signal %q", want)
+			}
 		}
 	})
 }
