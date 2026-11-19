@@ -351,6 +351,31 @@ func TestBuildCommandDiscoveryRevocationCancelsTheProcess(t *testing.T) {
 	plugins.none(t)
 }
 
+func TestPluginTeardownWaitsForBuildCommandDiscovery(t *testing.T) {
+	h, _, p := buildCommandHarness(t)
+	installBuildTool(t)
+	ready := filepath.Join(t.TempDir(), "discovery-ready")
+	writeBuildCommandMarker(t, p.root, "discover-blocked")
+	instance := commandDiscoveryTestInstance(t, ready)
+	h.app.discoverBuildTests(p, &instance, false)
+	awaitStateWithin(t, h, 5*time.Second, "the discovery process to start", func() bool {
+		_, err := os.Stat(ready)
+		return err == nil
+	})
+	_, stop := h.app.detachPluginPrograms(instance.PluginID)
+	ctx := buildLoadContext(t, "stop-discovery", 5*time.Second)
+	if err := stop(ctx); err != nil {
+		t.Fatal(err)
+	}
+	entries, err := os.ReadDir(buildStateDirectory(h.app.plugins.Root, p.root, instance))
+	if err != nil || len(entries) != 0 {
+		t.Fatalf("plugin teardown returned with discovery state %v (%v)", entries, err)
+	}
+	if p.build.discovered[instance.ID] != nil {
+		t.Fatal("plugin teardown left its discovery state published")
+	}
+}
+
 func TestBuildCommandModelLoadIsRecordedAtTheStageItEnded(t *testing.T) {
 	h, plugins, p := buildCommandHarness(t)
 	withoutTool := installBuildTool(t)

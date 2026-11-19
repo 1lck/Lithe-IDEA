@@ -23,5 +23,5 @@
   },
   "owner": "Extensions",
   "verification": "在构建面板展开已发现的测试，点击发现，检查命令返回两个同名但属于不同工程的用例，验证精确选择器和终态日志。使实例在发现中失效，确认子进程及报告目录清理，旧列表不重新出现。用 TestVisualBuildCommandDiscovery 截取中英与明暗主题。Windows 原生交互待验收。",
-  "notes": "buildSystems 1 使用 Core 计划并解码宿主状态目录中的临时报告。发现前不启动命令，工作区关闭或构建实例失效后取消；原有后端发现路径继续可用。"
+  "notes": "buildSystems 1 使用 Core 计划并解码宿主状态目录中的临时报告。工作区关闭或构建实例失效时取消命令。停用或卸载插件时，各项目标签撤销发现并等待进程和报告清理，由 TestPluginTeardownWaitsForBuildCommandDiscovery 覆盖。原有后端发现路径仍可用。"
 }

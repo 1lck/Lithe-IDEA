@@ -32,10 +32,11 @@ type buildTestDiscoveryKernel interface {
 // buildDiscoveredTests are the tests one build instance discovered. Discovery runs only when
 // asked for, because it may compile the workspace.
 type buildDiscoveredTests struct {
-	loading bool
-	loaded  bool
-	failed  string
-	tests   []core.BuildDiscoveredTest
+	pluginID string
+	loading  bool
+	loaded   bool
+	failed   string
+	tests    []core.BuildDiscoveredTest
 	// generation rejects a discovery a reload replaced.
 	generation uint64
 	cancel     context.CancelFunc
@@ -48,7 +49,7 @@ func (p *project) discoveredTestsOf(instance *buildInstance) *buildDiscoveredTes
 	}
 	tests := p.build.discovered[instance.ID]
 	if tests == nil {
-		tests = &buildDiscoveredTests{}
+		tests = &buildDiscoveredTests{pluginID: instance.PluginID}
 		p.build.discovered[instance.ID] = tests
 	}
 	return tests
@@ -81,6 +82,14 @@ func (p *project) revokeBuildTests(instanceID string) {
 func (p *project) revokeAllBuildTests() {
 	for id := range p.build.discovered {
 		p.revokeBuildTests(id)
+	}
+}
+
+func (p *project) revokePluginBuildTests(pluginID string) {
+	for id, tests := range p.build.discovered {
+		if tests.pluginID == pluginID {
+			p.revokeBuildTests(id)
+		}
 	}
 }
 
@@ -269,6 +278,12 @@ func (a *App) buildTestDiscovery(ctx context.Context, p *project, instance build
 
 // commandTestDiscovery runs the plan in the workspace and owns the report until Core decodes it.
 func (a *App) commandTestDiscovery(ctx context.Context, p *project, instance buildInstance, kernel buildTestDiscoveryKernel) (core.BuildTestDiscovery, error) {
+	ctx, finish, err := p.buildSessions.launches.begin(ctx, instance.PluginID)
+	if err != nil {
+		return core.BuildTestDiscovery{}, err
+	}
+	var cleanupErr error
+	defer func() { finish(cleanupErr) }()
 	attempt := core.StartPluginAttempt(instance.PluginID, core.OperationBuildTestDiscovery, core.OriginOf(ctx).Operation)
 	fail := func(stage core.PluginStage, err error) (core.BuildTestDiscovery, error) {
 		a.plugins.EndAttempt(ctx, attempt, stage, err)
@@ -283,8 +298,9 @@ func (a *App) commandTestDiscovery(ctx context.Context, p *project, instance bui
 		return fail(core.StagePlan, err)
 	}
 	defer func() {
-		if err := os.RemoveAll(dir); err != nil {
-			a.backgroundFailedIn(ctx, "build_test_discovery_cleanup", err)
+		cleanupErr = os.RemoveAll(dir)
+		if cleanupErr != nil {
+			a.backgroundFailedIn(ctx, "build_test_discovery_cleanup", cleanupErr)
 		}
 	}()
 	outputFile := filepath.Join(dir, "tests.json")
@@ -301,6 +317,9 @@ func (a *App) commandTestDiscovery(ctx context.Context, p *project, instance bui
 	execution, err := a.resolveBuildExecutable(ctx, p, instance, a.text.Build)
 	if err != nil {
 		return fail(core.StageResolve, err)
+	}
+	if err := ctx.Err(); err != nil {
+		return fail(core.StageLaunch, err)
 	}
 	workingDirectory := filepath.Join(p.root, filepath.FromSlash(plan.WorkingDirectory))
 	output, err := captureBuildProcess(ctx, execution.Executable, plan.Arguments, workingDirectory, applyToolchainSelection(plan.Environment, execution.selection()), false, nil)
