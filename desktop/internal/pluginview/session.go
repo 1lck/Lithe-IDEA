@@ -4,6 +4,8 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"math"
+	"slices"
 	"strconv"
 	"sync"
 	"sync/atomic"
@@ -12,9 +14,10 @@ import (
 	"github.com/vivaui/viva/ui"
 )
 
-// settleDelay is how long a canvas stays still, or the settings stay unchanged, before
-// the host sends the viewport or settings event: the contract's 400 ms for viewport,
-// which settings follow so typing in a declared row does not call the backend per key.
+// settleDelay is how long a canvas stays still, the view's width stays the same, or the
+// settings stay unchanged, before the host sends the viewport, resize or settings event:
+// the contract's 400 ms for viewport and resize, which settings follow so typing in a
+// declared row does not call the backend per key.
 const settleDelay = 400 * time.Millisecond
 
 // Call sends one view event to the plugin's backend and has Core check the answer. It
@@ -112,6 +115,18 @@ type Session struct {
 	settings   *settling
 	viewports  map[string]*settling
 
+	// width is the width the view's nodes are laid out in, in whole points, as the last
+	// paint measured it: 0 until the first paint, and open waits for it. heard is the
+	// width the last open or resize event carried, and changed is when width last
+	// changed, so resize goes out once the width stays the same for settleDelay.
+	width   int
+	heard   int
+	changed time.Time
+	// inset is how much narrower than the view the nodes are laid out, and measure the
+	// paint callback that measures the width, made once so a paint does not allocate it.
+	inset   float32
+	measure func(*ui.DrawContext)
+
 	// fields, selects, toggles, trees and canvases are the host's own state of the
 	// drawn nodes, by node ID. They live in memory and end with the showing.
 	fields   map[string]*fieldState
@@ -135,8 +150,9 @@ func NewSession(options Options) *Session {
 	return &Session{options: options}
 }
 
-// Open shows the view: it sends open with a new instance. A session already open is
-// left as it is.
+// Open shows the view: it sends open with a new instance once Measured gives the
+// view's width, so the plugin lays out its first view in the space it has. A session
+// already open is left as it is.
 func (s *Session) Open() {
 	if s == nil || s.open {
 		return
@@ -148,7 +164,8 @@ func (s *Session) Open() {
 }
 
 // Close hides the view: it cancels the pending call, drops its late answer and every
-// waiting event, sends close, and forgets the view and the host's state of it.
+// waiting event, sends close when open went out, and forgets the view and the host's
+// state of it.
 func (s *Session) Close() {
 	if s == nil || !s.open {
 		return
@@ -156,7 +173,9 @@ func (s *Session) Close() {
 	if s.cancel != nil {
 		s.cancel()
 	}
-	if s.options.Call != nil {
+	// heard is set when open goes out, so a view closed before its first paint sends
+	// neither open nor close.
+	if s.options.Call != nil && s.heard > 0 {
 		event := s.encode(Event{Name: "close"})
 		view, call := s.raw, s.options.Call
 		// The close event outlives the showing, so it is not cancelled with it.
@@ -168,7 +187,40 @@ func (s *Session) Close() {
 	s.generation++
 	s.open, s.instance, s.raw, s.nodes, s.err, s.failed = false, "", nil, nil, nil, nil
 	s.busy, s.cancel, s.queue, s.settings, s.viewports = false, nil, nil, nil, nil
+	s.width, s.heard = 0, 0
 	s.fields, s.selects, s.toggles, s.trees, s.canvases = nil, nil, nil, nil, nil
+}
+
+// Measured takes the width the view's nodes are laid out in, which the paint measures.
+// The first width sends the open that waits for it. A later change sends resize once
+// the width stays the same for settleDelay, while the drawn view has a canvas that
+// listens for it; wait is then how long until it is due, so the host asks for a frame.
+func (s *Session) Measured(width float32) (wait time.Duration) {
+	if s == nil || !s.open {
+		return 0
+	}
+	w := int(math.Floor(float64(width)))
+	if w < 1 || w == s.width {
+		return 0
+	}
+	first := s.width == 0
+	s.width, s.changed = w, s.options.Now()
+	if first {
+		s.pump()
+		return 0
+	}
+	if !listsResize(s.nodes) {
+		return 0
+	}
+	return settleDelay
+}
+
+// Width is the width the view's nodes are laid out in, 0 before the first paint.
+func (s *Session) Width() int {
+	if s == nil {
+		return 0
+	}
+	return s.width
 }
 
 // Opened reports whether the view is showing.
@@ -248,8 +300,37 @@ func (s *Session) Take() (wait time.Duration) {
 			wait = left
 		}
 	}
+	// A width the plugin has not laid out at goes out as resize once it settles. A view
+	// that starts listening later hears the width that changed before it at once.
+	if s.heard > 0 && s.width != s.heard && !s.queued("resize") && listsResize(s.nodes) {
+		due := s.changed.Add(settleDelay)
+		if !now.Before(due) {
+			s.enqueue(Event{Name: "resize"})
+		} else if left := due.Sub(now); wait == 0 || left < wait {
+			wait = left
+		}
+	}
 	s.pump()
 	return wait
+}
+
+// queued reports an event of the name waiting to be sent.
+func (s *Session) queued(name string) bool {
+	return slices.ContainsFunc(s.queue, func(event Event) bool { return event.Name == name })
+}
+
+// listsResize reports a canvas among nodes, at any depth, that lists resize in its on.
+func listsResize(nodes []Node) bool {
+	for i := range nodes {
+		n := &nodes[i]
+		if n.Type == "canvas" && slices.Contains(n.On, "resize") {
+			return true
+		}
+		if listsResize(n.Children) {
+			return true
+		}
+	}
+	return false
 }
 
 // apply takes in the answer of the call that just finished.
@@ -283,10 +364,11 @@ func (s *Session) apply(done *outcome) {
 }
 
 // enqueue queues a settled event, merging it into a waiting one of the same kind: the
-// latest settings, or the latest viewport of the same canvas, is all the plugin needs.
+// latest settings, the latest viewport of the same canvas, or one resize, which carries
+// the width at sending, is all the plugin needs.
 func (s *Session) enqueue(event Event) {
 	for i, waiting := range s.queue {
-		if waiting.Name == event.Name && (event.Name == "settings" || waiting.Canvas == event.Canvas) {
+		if waiting.Name == event.Name && (event.Name != "viewport" || waiting.Canvas == event.Canvas) {
 			s.queue = append(s.queue[:i], s.queue[i+1:]...)
 			break
 		}
@@ -294,13 +376,17 @@ func (s *Session) enqueue(event Event) {
 	s.queue = append(s.queue, event)
 }
 
-// pump starts the next waiting event when no call is pending.
+// pump starts the next waiting event when no call is pending and the width is known.
 func (s *Session) pump() {
-	if s.busy || len(s.queue) == 0 || s.options.Call == nil {
+	if s.busy || len(s.queue) == 0 || s.options.Call == nil || s.width == 0 {
 		return
 	}
 	event := s.queue[0]
 	s.queue = s.queue[1:]
+	if event.Name == "open" || event.Name == "resize" {
+		// The plugin lays out its whole view at the width these carry.
+		s.heard = s.width
+	}
 	encoded := s.encode(event)
 	s.busy = true
 	s.generation++
@@ -332,6 +418,9 @@ func (s *Session) encode(event Event) json.RawMessage {
 		}
 	}
 	params["event"], params["instance"] = event.Name, s.instance
+	if s.width > 0 {
+		params["width"] = s.width
+	}
 	if event.Node != "" {
 		params["node"] = event.Node
 	}
