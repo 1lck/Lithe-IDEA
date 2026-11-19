@@ -81,12 +81,14 @@ func (a *App) defaultToolchainSelection(ctx context.Context, root, directory, to
 	if directory == "" {
 		directory = "."
 	}
-	managedHomes, managedTools, _ := a.managedToolchainOptions(ctx, manifests)
-	return toolchain.Resolve(ctx, a.kernel, root, directory, tool, minimumVersion, nil, manifests, toolchain.Options{
-		Platform:     buildPlatform(),
-		GlobalRoot:   a.globalToolchainRoot(),
-		ManagedHomes: managedHomes,
-		ManagedTools: managedTools,
+	return toolchain.Resolve(ctx, a.kernel, root, directory, tool, minimumVersion, nil, manifests, a.toolchainOptions(ctx, root, manifests))
+}
+
+func (a *App) toolchainOptions(ctx context.Context, root string, manifests []json.RawMessage) toolchain.Options {
+	homes, tools, dependencies := a.managedToolchainOptions(ctx, manifests)
+	return a.plugins.ToolchainOptions(root, toolchain.Options{
+		Global: root == "", GlobalRoot: a.globalToolchainRoot(), Platform: buildPlatform(),
+		ManagedHomes: homes, ManagedTools: tools, ManagedDependencies: dependencies,
 	})
 }
 

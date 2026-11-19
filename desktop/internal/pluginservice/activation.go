@@ -124,8 +124,13 @@ func (s *Service) DetachWorkspaces() func() {
 	if s == nil || s.Contexts == nil || s.Host == nil {
 		return func() {}
 	}
+	stopObserving := s.toolchainProviders.Invalidate()
 	s.Contexts.CloseAll()
-	return s.Host.DetachAll()
+	stopBackend := s.Host.DetachAll()
+	return func() {
+		stopObserving()
+		stopBackend()
+	}
 }
 
 // DetachBackend removes one plugin's backend from the host, as DetachWorkspaces
@@ -134,7 +139,12 @@ func (s *Service) DetachBackend(pluginID string) func() {
 	if s == nil || s.Host == nil {
 		return func() {}
 	}
-	return s.Host.Detach(pluginID)
+	stopObserving := s.toolchainProviders.Invalidate()
+	stopBackend := s.Host.Detach(pluginID)
+	return func() {
+		stopObserving()
+		stopBackend()
+	}
 }
 
 // contextsChanged tells running backends the contexts changed and refreshes the

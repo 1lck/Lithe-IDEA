@@ -9,15 +9,16 @@ import (
 // PluginBackendStart is the host-resolved process and workspace. The host must
 // only supply programs and grants from an approved, verified plugin package.
 type PluginBackendStart struct {
-	ProviderID       string            `json:"providerId"`
-	PluginID         string            `json:"pluginId"`
-	Role             string            `json:"role,omitempty"`
-	ExecutablePath   string            `json:"executablePath"`
-	Arguments        []string          `json:"arguments,omitempty"`
-	Environment      map[string]string `json:"environment,omitempty"`
-	RootURI          any               `json:"rootUri"`
-	WorkingDirectory string            `json:"workingDirectory"`
-	HostServices     []string          `json:"hostServices,omitempty"`
+	ProviderID         string            `json:"providerId"`
+	PluginID           string            `json:"pluginId"`
+	Role               string            `json:"role,omitempty"`
+	ExecutablePath     string            `json:"executablePath"`
+	Arguments          []string          `json:"arguments,omitempty"`
+	Environment        map[string]string `json:"environment,omitempty"`
+	RootURI            any               `json:"rootUri"`
+	WorkingDirectory   string            `json:"workingDirectory"`
+	HostServices       []string          `json:"hostServices,omitempty"`
+	ToolchainProviders []string          `json:"toolchainProviders,omitempty"`
 	// FunctionRelayEnabled isolates preparation sessions from both incoming and
 	// outgoing cross-plugin calls. Omitted preserves ordinary backend behavior.
 	FunctionRelayEnabled *bool `json:"functionRelayEnabled,omitempty"`

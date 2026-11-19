@@ -51,6 +51,7 @@ func TestVisualSettings(t *testing.T) {
 		{"33-settings-toolchains", pageToolchains}, {"m44-toolchain-directory-menu", pageToolchains}, {"m45-toolchain-custom-directory", pageToolchains},
 		{"m47-toolchain-project-untrusted", pageToolchains}, {"m48-toolchain-project-trusted", pageToolchains}, {"m49-toolchain-project-trust-click", pageToolchains},
 		{"m50-toolchain-project-trust-tip", pageToolchains},
+		{"m51-toolchain-provider-installation", pageToolchains},
 		{"fonts", pageFonts},
 		{"21-settings-language-popup", pageGeneral}, {"30-settings-history", pageGeneral}, {"m46-history-default-rules-help", pageGeneral}, {"35-settings-search", pageEditor},
 		{"m35-editor-tab-layout", pageEditor}, {"m25-project-open-mode", pageGeneral}, {"m29-editor-font-menu", pageFonts}, {"m38-plugin-management-menu", pagePlugins}, {"m42-plugin-auto-update-on", pagePlugins},
@@ -215,6 +216,8 @@ func TestVisualSettings(t *testing.T) {
 				case "m45-toolchain-custom-directory":
 					d.click(text("desktop.buildSettings.addDirectory"))
 					d.pump()
+				case "m51-toolchain-provider-installation":
+					d.until("the provider installation", func() bool { return d.has("/fixture/provider/compiler") })
 				case "m47-toolchain-project-untrusted", "m48-toolchain-project-trusted", "m49-toolchain-project-trust-click", "m50-toolchain-project-trust-tip":
 					d.until("the project scope", func() bool { return w.toolchains.projectName() != "" })
 					d.pump()
@@ -335,6 +338,19 @@ func visualToolchainLoader(scenarioID string) ToolchainLoader {
 		}},
 	}
 	switch scenarioID {
+	case "m51-toolchain-provider-installation":
+		snapshot := fixtureSnapshot()
+		snapshot.Root = ""
+		tool := &snapshot.Tools[0]
+		const provider = "dev.example:discovery"
+		home := "/fixture/provider/compiler"
+		tool.PluginName = "Example Toolchain"
+		tool.Providers = []string{provider}
+		tool.AutomaticHome = home
+		tool.Automatic = &core.ToolchainSelection{Home: &home, Executable: home + "/bin/compiler", Version: "2.0.0", Provider: provider, Layer: "global"}
+		tool.Effective = tool.Automatic
+		tool.Installations = []core.ToolchainInstallation{{Home: home, Version: "2.0.0", Provider: provider}}
+		return &scopedToolchainLoader{fakeToolchainLoader{snapshot: snapshot}}
 	case "m47-toolchain-project-untrusted", "m49-toolchain-project-trust-click", "m50-toolchain-project-trust-tip":
 		return &trustToolchainLoader{globalSnapshot: global, untrusted: untrusted, trustedSnapshot: trusted}
 	case "m48-toolchain-project-trusted":

@@ -981,6 +981,10 @@ func (a *App) openPlugins(options Options) {
 	service.LanguageTool = a.resolveLanguageTool
 	service.LogDirectory = a.pluginLogDirectory
 	service.RecordFailed = a.pluginOperationRecordFailed
+	service.ToolchainIssue = func(ctx context.Context, err error) {
+		a.backgroundFailedIn(ctx, "toolchain_provider_discovery", err)
+	}
+
 	service.RuntimeIssue = a.recordPluginRuntimeIssue
 	service.SetRuntimeLanguage(a.language().Code())
 	if err := service.AttachWorkbench(pluginWorkbench{app: a}); err != nil {

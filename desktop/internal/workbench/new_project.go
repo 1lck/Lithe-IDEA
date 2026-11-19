@@ -313,9 +313,8 @@ func (a *App) loadProjectCatalog(ctx context.Context, _ struct{}) (catalogResult
 }
 
 // loadProjectTools lists the installations of each tool a generator's fields
-// pick. New Project has no workspace, so discovery runs in an empty temporary
-// directory: no project pin applies, exactly as the settings page shows a tool
-// before a project chooses one.
+// pick. New Project has no workspace, so discovery uses the same global
+// scope as the settings page shows before a project opens.
 func (a *App) loadProjectTools(ctx context.Context, tools []string) (map[string]toolList, error) {
 	if a.projectToolLists != nil {
 		return a.projectToolLists(ctx, tools)
@@ -324,12 +323,9 @@ func (a *App) loadProjectTools(ctx context.Context, tools []string) (map[string]
 	if err != nil && len(manifests) == 0 {
 		return nil, err
 	}
-	root, mkErr := os.MkdirTemp("", "lithe-new-project-tools-*")
-	if mkErr != nil {
-		return nil, mkErr
-	}
-	defer os.RemoveAll(root)
-	snapshot, loadErr := toolchain.Load(ctx, a.kernel, root, ".", manifests, toolchain.Options{Platform: buildPlatform()})
+	options := a.toolchainOptions(ctx, "", manifests)
+	options.DiscoveryTools = tools
+	snapshot, loadErr := toolchain.Load(ctx, a.kernel, "", ".", manifests, options)
 	if loadErr != nil {
 		return nil, loadErr
 	}

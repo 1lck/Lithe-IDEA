@@ -17,14 +17,7 @@ func (s settingsToolchains) Inspect(ctx context.Context, snapshot toolchain.Snap
 		if readErr != nil {
 			return selection, readErr
 		}
-		managedHomes, managedTools, _ := s.app.managedToolchainOptions(ctx, manifests)
-		return toolchain.Resolve(ctx, s.app.kernel, "", ".", tool, "", &toolchain.Fixed{Home: home}, manifests, toolchain.Options{
-			Global:       true,
-			GlobalRoot:   s.app.globalToolchainRoot(),
-			Platform:     buildPlatform(),
-			ManagedHomes: managedHomes,
-			ManagedTools: managedTools,
-		})
+		return toolchain.Resolve(ctx, s.app.kernel, "", ".", tool, "", &toolchain.Fixed{Home: home}, manifests, s.app.toolchainOptions(ctx, "", manifests))
 	}
 	root := s.app.toolchainRoot.Load()
 	if root == nil || snapshot.Root == "" {
@@ -37,13 +30,7 @@ func (s settingsToolchains) Inspect(ctx context.Context, snapshot toolchain.Snap
 	if err != nil {
 		return selection, err
 	}
-	managedHomes, managedTools, _ := s.app.managedToolchainOptions(ctx, manifests)
-	selection, err = toolchain.Resolve(ctx, s.app.kernel, snapshot.Root, snapshot.Directory, tool, "", &toolchain.Fixed{Home: home}, manifests, toolchain.Options{
-		Platform:     buildPlatform(),
-		GlobalRoot:   s.app.globalToolchainRoot(),
-		ManagedHomes: managedHomes,
-		ManagedTools: managedTools,
-	})
+	selection, err = toolchain.Resolve(ctx, s.app.kernel, snapshot.Root, snapshot.Directory, tool, "", &toolchain.Fixed{Home: home}, manifests, s.app.toolchainOptions(ctx, snapshot.Root, manifests))
 	if err != nil {
 		return selection, err
 	}
@@ -112,15 +99,7 @@ func (s settingsToolchains) LoadScope(ctx context.Context, scope string) (snapsh
 	if err != nil {
 		return snapshot, err
 	}
-	managedHomes, managedTools, managedDeps := s.app.managedToolchainOptions(ctx, manifests)
-	return toolchain.Load(ctx, s.app.kernel, "", ".", manifests, toolchain.Options{
-		Global:              true,
-		GlobalRoot:          s.app.globalToolchainRoot(),
-		Platform:            buildPlatform(),
-		ManagedHomes:        managedHomes,
-		ManagedTools:        managedTools,
-		ManagedDependencies: managedDeps,
-	})
+	return toolchain.Load(ctx, s.app.kernel, "", ".", manifests, s.app.toolchainOptions(ctx, "", manifests))
 }
 
 func (s settingsToolchains) loadAt(ctx context.Context, root string) (toolchain.Snapshot, error) {
@@ -128,14 +107,7 @@ func (s settingsToolchains) loadAt(ctx context.Context, root string) (toolchain.
 	if err != nil && len(manifests) == 0 {
 		return toolchain.Snapshot{}, err
 	}
-	managedHomes, managedTools, managedDeps := s.app.managedToolchainOptions(ctx, manifests)
-	return toolchain.Load(ctx, s.app.kernel, root, ".", manifests, toolchain.Options{
-		Platform:            buildPlatform(),
-		GlobalRoot:          s.app.globalToolchainRoot(),
-		ManagedHomes:        managedHomes,
-		ManagedTools:        managedTools,
-		ManagedDependencies: managedDeps,
-	})
+	return toolchain.Load(ctx, s.app.kernel, root, ".", manifests, s.app.toolchainOptions(ctx, root, manifests))
 }
 
 // Save applies all draft changes in one Core edit, against the exact

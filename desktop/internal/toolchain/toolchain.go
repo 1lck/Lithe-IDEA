@@ -76,8 +76,7 @@ type Tool struct {
 	// Reason is Core's stable code when no installation applies, empty when the
 	// tool resolved.
 	Reason string `json:"reason,omitempty"`
-	// Providers are the qualified provider IDs that declared this tool. Their
-	// answers are not queried by this client yet, so the view states it.
+	// Providers are the qualified provider IDs that declared this tool.
 	Providers []string `json:"providers"`
 
 	Pin       *core.ToolchainPin `json:"pin,omitempty"`
@@ -100,7 +99,6 @@ type Tool struct {
 	Conflicts []json.RawMessage               `json:"conflicts"`
 	// Hidden lists provider declarations the host cannot query yet, so the
 	// settings page says the tool may have more installations than shown.
-	ProviderQueriesUnsupported bool `json:"providerQueriesUnsupported"`
 }
 
 // Snapshot is everything one settings load read for one project directory.
@@ -123,6 +121,17 @@ type Snapshot struct {
 // Options configure one load. The zero value uses the host platform, the user's
 // home, the process environment and a bounded native probe.
 type Options struct {
+	// Providers are the enabled plugins' on-demand query transport and cache.
+	// ProviderScope is required when Providers queries an open project.
+	Providers           *ProviderClient
+	ProviderScope       *ProviderScope
+	providerVersions    map[string]string
+	skipPinnedProviders bool
+
+	// DiscoveryTools restricts Load to the consumer's requested tool IDs. An
+	// empty list loads the complete settings catalog.
+	DiscoveryTools []string
+
 	// Global permits discovery without any project; GlobalRoot owns the native SDK
 	// registry and per-workspace toolchain trust in user application settings.
 	Global     bool

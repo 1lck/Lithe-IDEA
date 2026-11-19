@@ -70,6 +70,8 @@ macOS 的本地手动打包可用 `package-desktop.sh --ad-hoc-sign` 生成有�
 
 搜索偏好 `<platform-preferences>/search.json` 由桌面原生存储适配器持有，最多64 KiB；只在用户应用/恢复默认时条件原子写回，打开页面不创建文件。它是用户状态，没有源码、版本、平台、架构或工具链复用身份，不跨工作树复制。搜索索引和未保存快照仅在当前进程内，绑定工作区、可见性与读取预算，关闭项目后释放，不写入安装目录。它们不改变代码签名或增量更新基线。`TestVisualSearchResults` 和 `TestVisualSearchPreferences` 的截图写入当前检出的 `.artifacts/search-visual/`，绑定本次源码、语言、主题和渲染环境，不跨工作树复制；Linux Desktop CI上传后由runner清理，不进入发行包。
 
+工具链提供方回包只在窗口进程内短期缓存。缓存由当前插件版本、工作区上下文和工具输入决定，关闭项目或停用插件时清理。原生文件观察器随缓存释放。该状态没有可复制的编译身份，不跨工作树复用，也不写入插件包或发行目录。 Linux Desktop CI 的工具链提供方截图写入当前检出的 `.artifacts/toolchain-provider-visual/`，按语言分目录，绑定本次源码、Go 工具链与固定的 Viva 和 Core 版本。截图上传后由运行器清理，不跨工作树复制，也不进入安装包。
+
 Desktop CI 的 LSP 无头截图由 `TestVisualLSPActions` 写入当前工作树的 `.artifacts/lsp-editor-visual/`。截图是当前提交与当前渲染环境的验证产物，绑定源码、平台、Go 工具链和固定的 Viva 与 Core 版本，不跨工作树复用。CI 上传后由运行器清理工作树，截图不进入安装包。
 
 Desktop CI 的 Build 命令发现截图由 `TestVisualBuildCommandDiscovery` 写入当前工作树的 `.artifacts/build-command-discovery-visual/`。该结果绑定提交、平台、Go 工具链和固定的 Viva 与 Core 版本，上传后由 CI 清理，不跨工作树复制，也不进入安装包。

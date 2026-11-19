@@ -1,0 +1,32 @@
+{
+  "id": "plugin-toolchain-providers",
+  "area": "扩展",
+  "group": "插件与主题",
+  "capability": "从启用插件的工具链提供方发现安装和版本要求",
+  "macos": {
+    "implementationStatus": "implemented",
+    "verificationStatus": "pending",
+    "evidence": [
+      "desktop/internal/pluginservice/toolchain_provider.go",
+      "desktop/internal/pluginservice/toolchain_provider_test.go",
+      "desktop/internal/toolchain/provider.go",
+      "desktop/internal/toolchain/provider_observation.go",
+      "desktop/internal/workbench/settings_toolchains.go"
+    ]
+  },
+  "windows": {
+    "implementationStatus": "implemented",
+    "verificationStatus": "pending",
+    "evidence": [
+      "desktop/internal/pluginservice/toolchain_provider.go",
+      "desktop/internal/pluginservice/toolchain_provider_test.go",
+      "desktop/internal/toolchain/provider.go",
+      "desktop/internal/toolchain/provider_observation.go",
+      "desktop/internal/toolchain/native_path_windows.go",
+      "desktop/internal/workbench/settings_toolchains.go"
+    ]
+  },
+  "owner": "Plugins",
+  "verification": "使用 TestToolchainProviderQueriesThroughSharedBackendAndReobservesSources 核对合成插件协商、安装与项目版本要求、生效层、全局发现、源文件变化、复用和关闭清理。使用 TestToolchainProviderCancellationDoesNotCompleteTheNextQuery 核对取消与迟到回复。使用 TestToolchainProviderQueriesTheInstalledVersionAfterUpgrade 核对升级后的版本和路径，使用 TestNewProjectOnlyDiscoversToolsRequestedByTheForm 核对表单工具范围。原生设置工作流还需核对打开项目、改写版本要求、重新加载和关闭窗口。",
+  "notes": "Core 从提供方回包与本机文件事实得出候选和有效安装。桌面按选定清单版本启动共享后端，并为短期缓存观察输入变化。查询期限耗尽时保留已完成的答复和本机候选，由 TestToolchainProviderRoundPreservesAnswersAtItsDeadline 覆盖。安装与工作区目录沿用原有信任检查。"
+}
