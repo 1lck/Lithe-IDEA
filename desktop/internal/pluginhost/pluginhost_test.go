@@ -74,6 +74,10 @@ func TestDeclaredServesTheBaselineOfEveryWiredCapability(t *testing.T) {
 		if name == "sourceSettings" {
 			wanted = []int{0, 1}
 		}
+		// The Build test tree supports the discovery command version 1 adds.
+		if name == "buildSystems" {
+			wanted = []int{0, 1}
+		}
 		// Run on Current File starts the entrypoint runs version 1 adds.
 		if name == "buildProviders" {
 			wanted = []int{0, 1}

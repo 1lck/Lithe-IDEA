@@ -7,6 +7,7 @@ import (
 	"sync"
 
 	"github.com/1lck/Lithe-IDEA/desktop/internal/buildprovider"
+	"github.com/1lck/Lithe-IDEA/desktop/internal/pluginservice"
 )
 
 // pluginLaunches owns native starts until they either publish a process or finish
@@ -138,10 +139,11 @@ func (r *vcsRuntime) detachPlugin(id string) func(context.Context) error {
 }
 
 // detachPluginPrograms takes native handles on the UI thread, then returns the
-// bounded cleanup performed by Core's stopPrograms step. A hidden project tab
-// owns its own plugin stack and must finish using the same package too.
+// current tab's language server and the bounded cleanup for the other native
+// owners. The caller stops the current tab's service as part of its lifecycle action.
 // Note: 卸载约束见 .agents/notes/implemented/bug-fix/2026-11-13-viva-plugin-install-enables-and-uninstall-cleans-state.md。
-func (a *App) detachPluginPrograms(id string) func(context.Context) error {
+func (a *App) detachPluginPrograms(id string) (*pluginservice.LanguageSession, func(context.Context) error) {
+	var currentServer *pluginservice.LanguageSession
 	var stops []func(context.Context) error
 	for _, tab := range a.everyTab() {
 		service := tab.plugins
@@ -149,7 +151,9 @@ func (a *App) detachPluginPrograms(id string) func(context.Context) error {
 			continue
 		}
 		server := tab.detachPluginServer(id)
+		stops = append(stops, tab.pluginDiscoveryLaunches.stop(id))
 		if p := tab.project; p != nil {
+			p.revokePluginBuildTests(id)
 			stops = append(stops, p.buildSessions.detachPlugin(id))
 			stops = append(stops, p.vcs.runtime().detachPlugin(id))
 			var debugging []*debugSession
@@ -179,11 +183,15 @@ func (a *App) detachPluginPrograms(id string) func(context.Context) error {
 				return errors.Join(failures...)
 			})
 		}
-		stops = append(stops, func(ctx context.Context) error {
-			return service.StopDisplaced(ctx, id, server)
-		})
+		if tab == a {
+			currentServer = server
+		} else {
+			stops = append(stops, func(ctx context.Context) error {
+				return service.StopDisplaced(ctx, id, server)
+			})
+		}
 	}
-	return func(ctx context.Context) error {
+	return currentServer, func(ctx context.Context) error {
 		var failures []error
 		for _, stop := range stops {
 			failures = append(failures, stop(ctx))
@@ -205,6 +213,7 @@ func (a *App) allowPluginPrograms(id string) {
 		tab.pluginServerMu.Lock()
 		delete(tab.pluginServerSuppressed, id)
 		tab.pluginServerMu.Unlock()
+		tab.pluginDiscoveryLaunches.allow(id)
 		if p := tab.project; p != nil {
 			p.buildSessions.launches.allow(id)
 			if p.vcs.launches != nil {

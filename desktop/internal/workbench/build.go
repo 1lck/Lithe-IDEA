@@ -2263,6 +2263,7 @@ func (a *App) invalidateBuild(p *project) {
 	}
 	a.stopTestsForProject(p)
 	a.stopBuildSessions(p, false)
+	p.revokeAllBuildTests()
 	// The Run window's sessions are what ran, not the models, so they stay.
 	runs, view, sessions := p.build.runs, p.build.view, p.build.sessions
 	p.build = buildState{runs: runs, view: view, sessions: sessions}

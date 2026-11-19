@@ -268,11 +268,10 @@ func (a *App) setPluginEnabled(id string, enabled bool) {
 	if a.plugins == nil {
 		return
 	}
-	// A disabled plugin keeps no process and no session: its server leaves the
-	// workbench now, and Disable stops it and the plugin's backend.
 	var server *pluginservice.LanguageSession
+	var stop func(context.Context) error
 	if !enabled {
-		server = a.detachPluginServer(id)
+		server, stop = a.detachPluginPrograms(id)
 	}
 	a.background(nil, pluginStateTimeout+pluginServerStopTimeout, func(ctx context.Context) func(*App) {
 		var err error
@@ -284,7 +283,7 @@ func (a *App) setPluginEnabled(id string, enabled bool) {
 			list, err = a.plugins.Manager.Enable(id)
 			displaced = a.describeDisplacement(ctx, id, list)
 		} else {
-			err = a.plugins.Disable(ctx, id, server)
+			err = a.plugins.Disable(ctx, id, server, stop)
 		}
 		return func(a *App) {
 			if err != nil {
@@ -317,9 +316,9 @@ func (a *App) uninstallPlugin(id string) {
 	}
 	// Detach native owners on their window thread before asking Core to remove
 	// anything. The stopPrograms step waits for every tab, including late starts.
-	stop := a.detachPluginPrograms(id)
+	server, stop := a.detachPluginPrograms(id)
 	a.background(nil, pluginInstallTimeout, func(ctx context.Context) func(*App) {
-		err := a.plugins.Uninstall(ctx, id, nil, stop)
+		err := a.plugins.Uninstall(ctx, id, server, stop)
 		return func(a *App) {
 			if err != nil {
 				a.operationFailed("plugin_uninstall", err)
