@@ -1,11 +1,16 @@
 package pluginservice
 
 import (
+	"archive/zip"
 	"bytes"
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
+	"net/http"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -13,6 +18,7 @@ import (
 	"time"
 
 	"github.com/1lck/Lithe-IDEA/desktop/internal/core"
+	"github.com/1lck/Lithe-IDEA/desktop/internal/marketplace"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/store"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/toolchain"
 )
@@ -30,10 +36,12 @@ func runtimeFixtureCommand() string {
 // installed interpreter. The child records its execution before printing a version.
 func TestMain(m *testing.M) {
 	executable, err := os.Executable()
-	if err == nil && filepath.Base(executable) == runtimeFixtureCommand() && len(os.Args) == 2 && os.Args[1] == "--version" {
-		if err := os.WriteFile(filepath.Join(filepath.Dir(executable), "probe-ran"), []byte("ran"), 0o600); err != nil {
-			fmt.Fprintln(os.Stderr, err)
-			os.Exit(1)
+	if err == nil && filepath.Base(executable) == runtimeFixtureCommand() && len(os.Args) == 2 && (os.Args[1] == "--version" || os.Args[1] == "--version-readonly") {
+		if os.Args[1] == "--version" {
+			if err := os.WriteFile(filepath.Join(filepath.Dir(executable), "probe-ran"), []byte("ran"), 0o600); err != nil {
+				fmt.Fprintln(os.Stderr, err)
+				os.Exit(1)
+			}
 		}
 		fmt.Println("ManagedFixture 1.0")
 		os.Exit(0)
@@ -332,5 +340,177 @@ func TestManagedRuntimeBoundToolDoesNotRetainWorkspaceSymlink(t *testing.T) {
 	fromHome, err := os.Stat(filepath.Join(environment.Runtimes["alpha"].Home, "bin", runtimeFixtureCommand()))
 	if err != nil || !os.SameFile(approved, fromHome) {
 		t.Fatalf("changing a workspace symlink redirected the approved runtime home: %v", err)
+	}
+}
+
+func TestManagedToolchainFactsFeedToolchainResolutionWithoutStartingBackend(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	defer cancel()
+	manifest, packageRoot := runtimeToolFixture(t)
+	resolverBytes, err := os.ReadFile(filepath.Join(packageRoot, "bin", "resolver"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var archiveBuf bytes.Buffer
+	zw := zip.NewWriter(&archiveBuf)
+	header := &zip.FileHeader{Name: "bin/" + runtimeFixtureCommand(), Method: zip.Deflate}
+	header.SetMode(0o755)
+	fw, err := zw.CreateHeader(header)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := fw.Write(resolverBytes); err != nil {
+		t.Fatal(err)
+	}
+	pw, err := zw.Create("payload")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := pw.Write([]byte("usable")); err != nil {
+		t.Fatal(err)
+	}
+	if err := zw.Close(); err != nil {
+		t.Fatal(err)
+	}
+	archiveBytes := archiveBuf.Bytes()
+	digest := sha256.Sum256(archiveBytes)
+
+	var betaBuf bytes.Buffer
+	bzw := zip.NewWriter(&betaBuf)
+	bpw, err := bzw.Create("payload")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := bpw.Write([]byte("usable")); err != nil {
+		t.Fatal(err)
+	}
+	if err := bzw.Close(); err != nil {
+		t.Fatal(err)
+	}
+	betaArchiveBytes := betaBuf.Bytes()
+	betaDigest := sha256.Sum256(betaArchiveBytes)
+
+	var value map[string]any
+	if err := json.Unmarshal(manifest, &value); err != nil {
+		t.Fatal(err)
+	}
+	managed := value["managedRuntimes"].(map[string]any)
+	depsList := managed["dependencies"].([]any)
+	artifact := depsList[0].(map[string]any)["artifacts"].([]any)[0].(map[string]any)
+	artifact["sha256"] = hex.EncodeToString(digest[:])
+	artifact["executable"] = "bin/" + runtimeFixtureCommand()
+	betaDep := map[string]any{
+		"id":      "beta",
+		"version": "1.0",
+		"artifacts": []any{map[string]any{
+			"os":      toolchain.PlatformName(runtime.GOOS),
+			"arch":    core.PluginArchitecture(),
+			"url":     "https://runtimes.example.test/beta.zip",
+			"sha256":  hex.EncodeToString(betaDigest[:]),
+			"archive": "zip",
+		}},
+	}
+	managed["dependencies"] = append(depsList, betaDep)
+	value["toolDefinitions"].([]any)[0].(map[string]any)["version"].(map[string]any)["arguments"] = []string{"--version-readonly"}
+	manifest, err = json.Marshal(value)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	service, kernel, preferences := runtimeTrustService(t, "")
+	service.RuntimeDownloader = marketplace.NewArchiveDownloader(&http.Client{Transport: runtimeTransport(func(request *http.Request) (*http.Response, error) {
+		body := archiveBytes
+		if request.URL.Path == "/beta.zip" {
+			body = betaArchiveBytes
+		}
+		return &http.Response{StatusCode: 200, Header: make(http.Header), Body: io.NopCloser(bytes.NewReader(body)), ContentLength: int64(len(body)), Request: request}, nil
+	})})
+	t.Setenv("PATH", t.TempDir())
+
+	// Before preparation: unbound dependency beta is already surfaced read-only as notFound,
+	// without starting any backend process.
+	beforeStarts := kernel.starts.Load()
+	beforeHomes, beforeDeclarers, beforeDeps := service.ManagedToolchainFacts(ctx, []json.RawMessage{manifest})
+	if kernel.starts.Load() != beforeStarts {
+		t.Fatalf("ManagedToolchainFacts started backend before preparation (%d -> %d)", beforeStarts, kernel.starts.Load())
+	}
+	if len(beforeHomes) != 0 || beforeDeclarers[runtimeFixtureTool] != "dev.lithe.test.managed-environment" {
+		t.Fatalf("before facts homes=%+v declarers=%+v", beforeHomes, beforeDeclarers)
+	}
+	if len(beforeDeps) != 1 || beforeDeps[0].ID != "beta" || beforeDeps[0].Ready || beforeDeps[0].Home != "" {
+		t.Fatalf("beforeDeps=%+v, want 1 unready beta dependency", beforeDeps)
+	}
+	beforeSnapshot, err := toolchain.Load(ctx, kernel, "", ".", []json.RawMessage{manifest}, toolchain.Options{
+		Global:              true,
+		GlobalRoot:          preferences.Dir(),
+		Platform:            toolchain.PlatformName(runtime.GOOS),
+		ManagedHomes:        beforeHomes,
+		ManagedTools:        beforeDeclarers,
+		ManagedDependencies: beforeDeps,
+	})
+	if err != nil {
+		t.Fatalf("toolchain.Load before prepare: %v", err)
+	}
+	if len(beforeSnapshot.Tools) != 2 || !beforeSnapshot.Tools[1].ManagedOnly || beforeSnapshot.Tools[1].Reason != "notFound" || beforeSnapshot.Tools[1].Audience != "plugin" {
+		t.Fatalf("beforeSnapshot.Tools=%+v, want unready ManagedOnly entry for beta", beforeSnapshot.Tools)
+	}
+
+	environment, err := service.EnsureRuntimes(ctx, manifest, packageRoot, "dev.lithe.test.managed-environment", "1.0.0", true, nil)
+	if err != nil {
+		t.Fatalf("EnsureRuntimes: %v", err)
+	}
+
+	starts := kernel.starts.Load()
+	homes, declarers, deps := service.ManagedToolchainFacts(ctx, []json.RawMessage{manifest})
+	if kernel.starts.Load() != starts {
+		t.Fatalf("ManagedToolchainFacts started backend unexpectedly (%d -> %d)", starts, kernel.starts.Load())
+	}
+	if declarers[runtimeFixtureTool] != "dev.lithe.test.managed-environment" {
+		t.Fatalf("declarers=%+v, want dev.lithe.test.managed-environment", declarers)
+	}
+	if len(homes[runtimeFixtureTool]) != 1 {
+		t.Fatalf("homes=%+v, want 1 prepared home", homes)
+	}
+	if len(deps) != 1 || !deps[0].Ready || deps[0].Version != "1.0" || filepath.Clean(deps[0].Home) != filepath.Clean(environment.Runtimes["beta"].Home) {
+		t.Fatalf("deps=%+v, want ready beta home %q", deps, environment.Runtimes["beta"].Home)
+	}
+
+	snapshot, err := toolchain.Load(ctx, kernel, "", ".", []json.RawMessage{manifest}, toolchain.Options{
+		Global:              true,
+		GlobalRoot:          preferences.Dir(),
+		Platform:            toolchain.PlatformName(runtime.GOOS),
+		ManagedHomes:        homes,
+		ManagedTools:        declarers,
+		ManagedDependencies: deps,
+	})
+	if err != nil {
+		t.Fatalf("toolchain.Load: %v", err)
+	}
+	if len(snapshot.Tools) != 2 {
+		t.Fatalf("snapshot.Tools=%+v, want 2 tools", snapshot.Tools)
+	}
+	tool := snapshot.Tools[0]
+	if !tool.ManagedRuntime || len(tool.ManagedRuntimeHomes) == 0 {
+		t.Fatalf("expected tool.ManagedRuntime=true and ManagedRuntimeHomes non-empty, got %+v", tool)
+	}
+	if tool.Effective == nil || tool.Reason != "" || tool.Effective.Home == nil {
+		t.Fatalf("expected managed tool to resolve without errors, got reason=%q effective=%+v", tool.Reason, tool.Effective)
+	}
+	if filepath.Clean(*tool.Effective.Home) != filepath.Clean(environment.Runtimes["alpha"].Home) {
+		t.Fatalf("resolved home=%q, want %q", *tool.Effective.Home, environment.Runtimes["alpha"].Home)
+	}
+	depTool := snapshot.Tools[1]
+	if !depTool.ManagedOnly || !depTool.ManagedRuntime || depTool.DisplayName != "beta" || depTool.Audience != "plugin" || depTool.Category != "runtime" {
+		t.Fatalf("unexpected ManagedOnly tool: %+v", depTool)
+	}
+	if depTool.Effective == nil || depTool.Reason != "" || depTool.Effective.Version != "1.0" || depTool.Effective.Provider != "host:managed" || depTool.Effective.Home == nil {
+		t.Fatalf("expected ManagedOnly dependency to resolve cleanly, got %+v", depTool)
+	}
+	wantBetaHome, err := filepath.EvalSymlinks(environment.Runtimes["beta"].Home)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if filepath.Clean(*depTool.Effective.Home) != filepath.Clean(wantBetaHome) {
+		t.Fatalf("beta home=%q, want %q", *depTool.Effective.Home, wantBetaHome)
 	}
 }

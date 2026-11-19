@@ -19,6 +19,7 @@ import (
 	"github.com/1lck/Lithe-IDEA/desktop/internal/i18n"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/localshell"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/marketplace"
+	"github.com/1lck/Lithe-IDEA/desktop/internal/pluginruntime"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/pluginservice"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/pluginsettings"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/toolchain"
@@ -231,6 +232,12 @@ type ToolchainViewer interface {
 // environments or wrappers inside the open project, then reloads its snapshot.
 type ToolchainTrustLoader interface {
 	SetWorkspaceTrust(context.Context, toolchain.Snapshot, bool) (toolchain.Snapshot, error)
+}
+
+// ToolchainRuntimePreparer downloads or repairs a plugin's managed runtimes
+// from the Toolchains settings page, then reloads its snapshot.
+type ToolchainRuntimePreparer interface {
+	PrepareRuntime(context.Context, string, toolchain.Snapshot, toolchain.Tool, func(pluginruntime.Progress)) (toolchain.Snapshot, error)
 }
 
 // PluginSettingsLoader reads and publishes captured native sources off the UI thread.

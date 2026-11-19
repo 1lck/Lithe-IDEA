@@ -329,10 +329,6 @@ func (a *App) applyPluginAutoUpdate(ctx context.Context, downloader *marketplace
 		// log-exempt: 用户已更改本机插件状态，此次自动更新放弃写入。
 		return false, nil
 	}
-	_, err = a.plugins.EnsureRuntimes(work, plan.Manifest, plan.Staging, plan.ID, plan.Version, true, nil)
-	if err != nil {
-		return false, err
-	}
 	if err := work.Err(); err != nil {
 		return false, err
 	}

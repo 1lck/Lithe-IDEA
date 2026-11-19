@@ -240,6 +240,12 @@ func (w *window) toolchainsNotices(c ui.C, language i18n.Language, scope *toolch
 		busy = i18n.Shared(language, "desktop.toolchains.saving")
 	case t.trusting:
 		busy = i18n.Shared(language, "desktop.toolchains.updatingTrust")
+	case t.preparingRuntime:
+		if progress := t.runtimeProgress.Load(); progress != nil {
+			busy = RuntimeProgressText(language, *progress)
+		} else {
+			busy = i18n.Shared(language, "desktop.toolchains.preparingRuntime")
+		}
 	case t.inspecting:
 		busy = i18n.Shared(language, "desktop.toolchains.loading")
 	}
@@ -515,7 +521,11 @@ func (w *window) toolchainToolContent(c ui.C, language i18n.Language, scope *too
 				ui.Text(c, "→ "+version).FontSize(11).Mono().Color(b.accent).Shrink(0)
 			}
 			ui.Spacer(c)
-			w.layerTag(c, language, current, status)
+			if tool.ManagedOnly && current.ok {
+				w.tag(c, tagPlain, toolchainSourceLabel(language, "host:managed"))
+			} else {
+				w.layerTag(c, language, current, status)
+			}
 		})
 		ui.Row(c).FillWidth().Height(2).Shrink(0)
 		ui.Row(c).FillWidth().MinWidth(0).Items(ui.Center).Children(func() {
@@ -675,12 +685,31 @@ func (w *window) toolchainDetail(c ui.C, language i18n.Language, scope *toolchai
 		}
 		w.toolchainEffective(c.Part("effective"), language, scope, entry, current, status)
 		ui.Row(c).Height(12).Shrink(0)
-		w.toolchainChoices(c.Part("choices"), language, scope, tool, current)
+		if tool.ManagedOnly {
+			w.toolchainManagedOnlyNote(c.Part("managed"), language, tool, plugin)
+		} else {
+			w.toolchainChoices(c.Part("choices"), language, scope, tool, current)
+		}
 		ui.Row(c).Height(12).Shrink(0)
 		ui.Row(c).FillWidth().PadSides(10, 12, 0, 12).Children(func() {
+			displayID := tool.ID
+			if tool.ManagedOnly {
+				displayID = strings.TrimPrefix(tool.ID, tool.PluginID+":")
+			}
 			// Not monospaced as in the prototype: the monospaced face sets CJK words a cell apart.
-			ui.Wrap(c, i18n.SharedFormat(language, "desktop.buildSettings.toolFooter", map[string]string{"id": tool.ID, "plugin": tool.PluginID})).
+			ui.Wrap(c, i18n.SharedFormat(language, "desktop.buildSettings.toolFooter", map[string]string{"id": displayID, "plugin": tool.PluginID})).
 				FontSize(11).Color(b.faint).Grow(1).Shrink(1).MinWidth(0)
+		})
+	})
+}
+
+// toolchainManagedOnlyNote explains a plugin-managed dependency that cannot be manually pinned.
+func (w *window) toolchainManagedOnlyNote(c ui.C, language i18n.Language, tool *toolchain.Tool, plugin string) {
+	b := &w.bp
+	w.section(c, i18n.Shared(language, "desktop.buildSettings.categoryPlugin"), "", nil, func() {
+		ui.Row(c).FillWidth().MinWidth(0).PadSides(2, 12, 10, 12).Items(ui.Center).Children(func() {
+			ui.Wrap(c, i18n.SharedFormat(language, "desktop.toolchains.managedOnlyNote", map[string]string{"plugin": plugin})).
+				FontSize(buildSmall).Color(b.sub).Grow(1).Shrink(1).MinWidth(0)
 		})
 	})
 }
@@ -746,11 +775,15 @@ func (w *window) toolchainProblem(c ui.C, language i18n.Language, scope *toolcha
 	default:
 		text = toolchainReasonLabel(language, current.reason)
 	}
+	prepareRuntime := entry.tool.ManagedRuntime && t.runtimeEffect != nil && !trust
 	w.box(c, kind, func(words gfx.Color) {
 		boxIcon(c, icon, words)
 		boxText(c, text, words)
 		if trust && w.button(c.Part("trust"), buttonSmall, i18n.Shared(language, "desktop.buildSettings.trustProject"), t.busy()) {
 			t.beginTrust(true)
+		}
+		if prepareRuntime && w.button(c.Part("prepare-runtime"), buttonSmall, i18n.Shared(language, "desktop.toolchains.prepareRuntime"), t.busy()) {
+			t.beginPrepareRuntime(entry.tool)
 		}
 	})
 	return true
@@ -762,7 +795,15 @@ func (w *window) toolchainEffective(c ui.C, language i18n.Language, scope *toolc
 	t := w.toolchains
 	b := &w.bp
 	tool := &entry.tool
-	w.section(c, i18n.Shared(language, "desktop.buildSettings.effectiveTitle"), i18n.Shared(language, "desktop.buildSettings.effectiveHelp"), nil, func() {
+	var trailing func()
+	if tool.ManagedRuntime && current.ok && t.runtimeEffect != nil {
+		trailing = func() {
+			if w.button(c.Part("verify-runtime"), buttonSmall, i18n.Shared(language, "desktop.toolchains.verifyRuntime"), t.busy()) {
+				t.beginPrepareRuntime(*tool)
+			}
+		}
+	}
+	w.section(c, i18n.Shared(language, "desktop.buildSettings.effectiveTitle"), i18n.Shared(language, "desktop.buildSettings.effectiveHelp"), trailing, func() {
 		ui.Column(c).FillWidth().MinWidth(0).PadSides(2, 12, 4, 12).Gap(6).Children(func() {
 			if !current.ok {
 				w.toolchainKV(c, i18n.Shared(language, "desktop.buildSettings.status"), func() {
@@ -775,7 +816,11 @@ func (w *window) toolchainEffective(c ui.C, language i18n.Language, scope *toolc
 			if program == "" {
 				program = current.home
 			}
-			w.toolchainKVTop(c, i18n.Shared(language, "desktop.buildSettings.program"), func() {
+			pathLabel := i18n.Shared(language, "desktop.buildSettings.program")
+			if tool.ManagedOnly {
+				pathLabel = i18n.Shared(language, "desktop.toolchains.managedDirectory")
+			}
+			w.toolchainKVTop(c, pathLabel, func() {
 				ui.Wrap(c, program).FontSize(buildMono).Mono().Color(b.text).Grow(1).Shrink(1).MinWidth(0)
 				copyLabel := i18n.Shared(language, "desktop.buildSettings.copyPath")
 				copyButton := ui.ButtonBase(c.Part("copy"), copyLabel).Size(20, 20).Shrink(0).Radius(6).Center().
@@ -794,10 +839,18 @@ func (w *window) toolchainEffective(c ui.C, language i18n.Language, scope *toolc
 				ui.Text(c, current.version).FontSize(buildMono).Mono().Color(b.text).Shrink(1).Ellipsis()
 			})
 			w.toolchainKV(c, i18n.Shared(language, "desktop.buildSettings.source"), func() {
+				if tool.ManagedOnly {
+					w.tag(c, tagSource, toolchainSourceLabel(language, "host:managed"))
+					return
+				}
 				w.layerTag(c, language, current, status)
+				layerLabel := toolchainLayerLabel(language, current.layer)
 				for _, option := range t.options(language, scope, tool) {
 					if !option.auto && option.home == current.home {
 						for _, source := range option.sources {
+							if source == layerLabel {
+								continue
+							}
 							w.tag(c, tagSource, source)
 						}
 						break
@@ -1013,7 +1066,7 @@ func toolchainAutoLabel(language i18n.Language, scope *toolchainScope, tool *too
 	if home == "" && automatic.Home != nil {
 		home = *automatic.Home
 	}
-	source := toolchainSourceLabel(language, automatic.Provider)
+	source := toolchainInstallationSource(language, tool, home, automatic.Provider)
 	if scope.name == scopeProject {
 		switch automatic.Layer {
 		case "project":

@@ -2,7 +2,7 @@
   "id": "plugin-managed-runtimes",
   "area": "插件",
   "group": "插件管理",
-  "capability": "插件声明的受管运行时：安装与升级在程序审批后、提交前由插件检查已有运行时，只下载缺失依赖；宿主按 Core 选择的平台与内容身份校验、解压并保存完整文件，插件升级复用不变的依赖，启动前可修复缺失或损坏。进度可见且可取消，准备失败保留已安装版本；选定运行时只服务这次语言服务器启动，不修改项目工具或全局 SDK。禁用与卸载先停止准备和进程，外部安装不被删除。",
+  "capability": "插件声明的受管运行时：安装与自动更新在程序审批后直接提交，不在安装阶段阻塞下载；已准备及未准备的受管运行时（含绑定工具的运行时与未绑定工具的独立依赖）在工具链的“插件自用运行时”分组只读展示目录、版本与受管来源，支持按需触发“下载并准备”或“校验并修复”，也可在语言服务器首次启动前自动按需补齐（支持多镜像并行测速、失败/低速切换与 SHA-256 校验）。进度可见且可取消，准备失败保留已安装版本；选定运行时只服务这次语言服务器启动，不修改项目工具或全局 SDK，卸载不删除外部目录。",
   "macos": {
     "implementationStatus": "implemented",
     "verificationStatus": "pending",
@@ -16,11 +16,17 @@
       "desktop/internal/pluginbackend/pluginbackend_test.go",
       "desktop/internal/settingswindow/plugin_install.go",
       "desktop/internal/settingswindow/runtime_visual_test.go",
+      "desktop/internal/settingswindow/toolchains_state.go",
+      "desktop/internal/settingswindow/toolchains_view.go",
+      "desktop/internal/settingswindow/toolchains_view_test.go",
       "desktop/internal/workbench/runtime_preparation_test.go",
+      "desktop/internal/workbench/settings_toolchains.go",
       ".agents/notes/implemented/architecture/2026-11-18-managed-plugin-runtimes.md",
       "desktop/internal/pluginservice/contexts.go",
       "desktop/internal/pluginservice/runtime_trust_test.go",
-      "desktop/internal/toolchain/"
+      "desktop/internal/toolchain/",
+      "desktop/internal/toolchain/toolchain.go",
+      "desktop/internal/toolchain/load.go"
     ]
   },
   "windows": {
@@ -34,15 +40,21 @@
       "desktop/internal/pluginservice/runtime_lifecycle.go",
       "desktop/internal/pluginbackend/pluginbackend_test.go",
       "desktop/internal/settingswindow/plugin_install.go",
+      "desktop/internal/settingswindow/toolchains_state.go",
+      "desktop/internal/settingswindow/toolchains_view.go",
+      "desktop/internal/settingswindow/toolchains_view_test.go",
       "desktop/internal/workbench/runtime_preparation_test.go",
+      "desktop/internal/workbench/settings_toolchains.go",
       ".agents/notes/implemented/architecture/2026-11-18-managed-plugin-runtimes.md",
       "desktop/internal/pluginservice/contexts.go",
       "desktop/internal/pluginservice/runtime_trust_test.go",
-      "desktop/internal/toolchain/"
+      "desktop/internal/toolchain/",
+      "desktop/internal/toolchain/toolchain.go",
+      "desktop/internal/toolchain/load.go"
     ]
   },
   "owner": "Plugins",
-  "verification": "合成插件测试通过真实 Core 清单与回复校验，使用本地传输夹具验证外部安装零下载、仅下载缺失项、插件版本变化不重复下载、缓存破损从已校验归档恢复、哈希与解压路径拒绝、并发和取消、失败不改旧目录以及准备后端不参与函数转发。使用合成可执行文件验证当前与其他已打开项目的 PATH、全局符号链接和检查函数返回路径不会绕过工具信任；绑定工具保持 Core 验证的规范文件与目录身份，工作区关闭后释放根引用。运行 desktop-go.sh test -race ./internal/core/ ./internal/pluginruntime/ ./internal/pluginbackend/ ./internal/pluginservice/，及 -tags vivahead 的 workbench、settingswindow 测试。macOS 与 Windows 真机分别安装声明 managedRuntimes 的插件：缺依赖时看到准备进度，取消和断网保留原插件；完整外部安装不下载；仅更新插件代码不下载依赖；损坏缓存后启动修复；关闭项目、禁用和卸载不残留进程，卸载不删除外部目录；运行前后安装包文件清单一致。原生窗口验收尚未完成。",
-  "notes": "通用能力 managedRuntimes 0 和权限 runtimes.install；清单、归档选择、缓存键及结果完整性由独立 Core 仓库定义，插件检查版本与目录是否合用。状态在 <plugin-root>/.state/<plugin-id>/runtimes/，与插件版本分开；旧插件不进入新流程。平台实现共用 Go 服务，Windows 使用本机文件锁和可执行文件验证，实机验证状态独立保留为 pending。",
-  "lastReviewed": "2026-11-18"
+  "verification": "合成插件测试通过真实 Core 清单与回复校验，使用本地传输夹具验证外部安装零下载、仅下载缺失项、插件版本变化不重复下载、缓存破损从已校验归档恢复、哈希与解压路径拒绝、并发和取消、失败不改旧目录以及准备后端不参与函数转发；验证无后端探测即可汇总受管工具与未绑定依赖到工具链设置视图，并可在缺失时按需触发准备、就绪后触发校验修复。使用合成可执行文件验证当前与其他已打开项目的 PATH、全局符号链接和检查函数返回路径不会绕过工具信任；绑定工具保持 Core 验证的规范文件与目录身份，工作区关闭后释放根引用。运行 desktop-go.sh test ./internal/toolchain/ ./internal/pluginservice/ ./internal/settingswindow/ ./internal/workbench/ 覆盖绑定/未绑定受管依赖投影与准备按钮。macOS 与 Windows 真机仍保留 pending 状态以完成完整安装与原生流程验收。",
+  "notes": "通用能力 managedRuntimes 0/1 和权限 runtimes.install；清单、归档选择、缓存键及结果完整性由独立 Core 仓库定义，插件检查版本与目录是否合用。状态在 <plugin-root>/.state/<plugin-id>/runtimes/，与插件版本分开；旧插件不进入新流程。安装与更新不再阻塞下载受管依赖，改为在工具链“插件自用运行时”页按需准备/修复或在语言服务器首次启动前自动准备。平台实现共用 Go/Viva 服务，Windows 使用本机文件锁和可执行文件验证，实机验证状态独立保留为 pending。",
+  "lastReviewed": "2026-11-19"
 }
