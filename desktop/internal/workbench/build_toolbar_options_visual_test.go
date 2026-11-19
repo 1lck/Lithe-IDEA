@@ -16,8 +16,8 @@ import (
 )
 
 // TestVisualBuildToolbarToggleAndOptionPaths captures the Build window with a toolbar toggle on
-// and the build system's own options dialog, whose directory option has a browse button
-// (#2202, #2152).
+// and the build system's own options dialog, whose directory option has a browse button and whose
+// settings file shows the tool's value until Override is checked, with an ⓘ (#2202, #2152).
 func TestVisualBuildToolbarToggleAndOptionPaths(t *testing.T) {
 	out := os.Getenv("LITHE_VISUAL_OUTPUT_DIR")
 	if out == "" {
@@ -26,8 +26,15 @@ func TestVisualBuildToolbarToggleAndOptionPaths(t *testing.T) {
 	if err := os.MkdirAll(out, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	manifest := strings.Replace(treeOptionsToolbarManifest, `"options": [{"id": "offline"`,
-		`"options": [{"id": "home", "displayName": "Home", "kind": "directory", "environment": {"FIXTURE_HOME": "${value}"}}, {"id": "offline"`, 1)
+	manifest := strings.NewReplacer(
+		`"options": [{"id": "offline"`,
+		`"options": [{"id": "home", "displayName": "Home", "kind": "directory", "environment": {"FIXTURE_HOME": "${value}"}},
+		{"id": "settingsFile", "displayName": "User settings file", "kind": "file",
+		 "description": "The settings file passed to the tool.", "arguments": ["-s", "${value}"]}, {"id": "offline"`,
+		`"optionDefaults": {"profiles": {"each": "/defaultProfiles/*", "value": "@key"}}`,
+		`"optionDefaults": {"profiles": {"each": "/defaultProfiles/*", "value": "@key"},
+          "settingsFile": {"each": "/package", "value": "/settings"}}`,
+	).Replace(treeOptionsToolbarManifest)
 	for _, scene := range []struct{ theme, language string }{{"light", "zh-CN"}, {"dark", "en-US"}} {
 		name := scene.theme + "-" + scene.language
 		t.Run(name, func(t *testing.T) {
@@ -63,10 +70,15 @@ func TestVisualBuildToolbarToggleAndOptionPaths(t *testing.T) {
 			h.clickNamed(h.instanceOptions(p))
 			h.settleUntil("the options dialog", func() bool {
 				e := &p.build.options
-				return e.open && !e.loading && len(e.fields) == 3
+				return e.open && !e.loading && len(e.fields) == 4 && e.fields[1].implicit != ""
 			})
 			h.settle()
 			if err := session.Screenshot(filepath.Join(out, "build-instance-options-"+name+".png")); err != nil {
+				t.Fatal(err)
+			}
+			h.clickShared("desktop.build.optionOverride")
+			h.settle()
+			if err := session.Screenshot(filepath.Join(out, "build-instance-options-override-"+name+".png")); err != nil {
 				t.Fatal(err)
 			}
 		})

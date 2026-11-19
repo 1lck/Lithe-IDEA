@@ -89,6 +89,7 @@ const treeOptionsStaticManifest = `{
 
 const treeOptionsFixtureTOML = `[package]
 name = "shop"
+settings = "/home/me/.fixture/settings.xml"
 
 [[apps]]
 name = "ServerApp"
@@ -491,5 +492,97 @@ func TestBuildToolbarTogglesABooleanOption(t *testing.T) {
 		if stored := strings.Contains(strings.Join(strings.Fields(string(docs.local)), ""), `"offline":true`); stored != on {
 			t.Fatalf("local options %s, want offline stored as %v", docs.local, on)
 		}
+	}
+}
+
+// treeOptionsPathOverrideManifest declares a file option the model reports the tool's own value
+// for, as Maven's user settings file is, with a description for its ⓘ.
+var treeOptionsPathOverrideManifest = strings.NewReplacer(
+	`"options": [{
+      "id": "profiles",`, `"options": [{"id": "settingsFile", "displayName": "User settings file", "kind": "file",
+      "description": "The settings file passed to the tool.", "arguments": ["-s", "${value}"]}, {
+      "id": "profiles",`,
+	`"optionDefaults": {"profiles": {"each": "/defaultProfiles/*", "value": "@key"}}`,
+	`"optionDefaults": {"profiles": {"each": "/defaultProfiles/*", "value": "@key"},
+          "settingsFile": {"each": "/package", "value": "/settings"}}`,
+).Replace(treeOptionsStaticManifest)
+
+// A path option the tool fills itself shows the tool's value greyed until Override is checked, as
+// IDEA's Maven settings do. Checking it starts from that value, the edited path is stored, and
+// unchecking it removes the stored path so the tool decides again.
+func TestPathOptionShowsTheToolValueUntilOverridden(t *testing.T) {
+	h, p := openTreeOptionsProjectWith(t, &testKernel{Client: core.NewClient()}, treeOptionsPathOverrideManifest)
+	const implicit = "/home/me/.fixture/settings.xml"
+	language := h.app.language()
+	settingsField := func() *runOptionField {
+		for index := range p.build.options.fields {
+			if field := &p.build.options.fields[index]; field.id == "settingsFile" {
+				return field
+			}
+		}
+		return nil
+	}
+	openDialog := func() *runOptionField {
+		h.clickNamed(h.instanceOptions(p))
+		h.settleUntil("build options dialog resolved", func() bool {
+			e := &p.build.options
+			return e.open && !e.loading && e.ignored.loaded && settingsField() != nil && settingsField().implicit != ""
+		})
+		h.settle()
+		return settingsField()
+	}
+	storedSettings := func() string {
+		docs, err := h.app.readBuildOptionDocuments(context.Background(), p.root)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return strings.Join(strings.Fields(string(docs.local)), "")
+	}
+	save := func(what string) {
+		h.clickShared("ui.save")
+		awaitStateWithin(t, h, 10*time.Second, what, func() bool {
+			return !p.build.options.open && !p.build.loading && !p.build.instances[0].modelLoading
+		})
+		h.settle()
+	}
+
+	field := openDialog()
+	if field.implicit != implicit || field.override || field.text != "" {
+		t.Fatalf("the unset option = implicit %q, override %v, text %q; want the tool's %q, not overridden", field.implicit, field.override, field.text, implicit)
+	}
+	// The dialog's ignored paths have an ⓘ of their own; the option adds a second.
+	infos := 0
+	for _, hit := range h.driver.Snapshot().Hits {
+		if hit.Label == i18n.Shared(language, "native.moreInformation") && !hit.IsLabel {
+			infos++
+		}
+	}
+	if field.description != "The settings file passed to the tool." || infos != 2 {
+		t.Fatalf("the option's description %q shows %d ⓘ in the dialog, want 2", field.description, infos)
+	}
+
+	h.clickShared("desktop.build.optionOverride")
+	h.settle()
+	if field = settingsField(); !field.override || field.text != implicit {
+		t.Fatalf("checking Override = override %v, text %q; want the tool's path to edit", field.override, field.text)
+	}
+	field.text = "/work/settings.xml"
+	save("the overridden path to be stored")
+	if stored := storedSettings(); !strings.Contains(stored, `"settingsFile":"/work/settings.xml"`) {
+		t.Fatalf("local options %s, want the overridden path", stored)
+	}
+
+	field = openDialog()
+	if !field.override || field.text != "/work/settings.xml" {
+		t.Fatalf("reopened, the option = override %v, text %q; want the stored path", field.override, field.text)
+	}
+	h.clickShared("desktop.build.optionOverride")
+	h.settle()
+	if field = settingsField(); field.override || field.text != "" {
+		t.Fatalf("unchecking Override = override %v, text %q; want the path cleared", field.override, field.text)
+	}
+	save("the override to be removed")
+	if stored := storedSettings(); strings.Contains(stored, "settingsFile") {
+		t.Fatalf("local options %s still hold the path after Override was unchecked", stored)
 	}
 }
