@@ -317,7 +317,7 @@ func (a *App) signatureHelpKey(event gfx.KeyEvent) gfx.EventResult {
 	return gfx.EventResult{}
 }
 
-func (a *App) signatureHelpPopup(c ui.C) {
+func (a *App) signatureHelpPopup(c ui.C, completion gfx.Rect) {
 	st := &a.semantics.signatureHelp
 	if !st.open || st.help == nil || len(st.help.Signatures) == 0 {
 		return
@@ -361,55 +361,61 @@ func (a *App) signatureHelpPopup(c ui.C) {
 		sigDoc = truncateDisplayText(*sig.Documentation, 200)
 	}
 
-	hasDocs := paramDoc != "" || sigDoc != ""
-	estimatedHeight := float32(34)
-	if hasDocs {
-		estimatedHeight += 26
-		if paramDoc != "" && sigDoc != "" {
-			estimatedHeight += 18
-		}
+	const (
+		padX             = 10
+		padY             = 6
+		gap              = 4
+		headerHeight     = 22
+		docLineHeight    = 18
+		paramDocSize     = 11.5
+		signatureDocSize = 11
+	)
+	const horizontalInsets = 2 * (padX + semanticPopupBorder)
+	bounds := c.Bounds().Inset(gfx.All(semanticPopupMargin))
+	if bounds.Width <= horizontalInsets {
+		st.rect = gfx.Rect{}
+		return
 	}
-	bounds := c.Bounds()
 	charWidth := max(d.view.CellWidth(), 7.5)
-	labelRunes := float32(len([]rune(sig.Label)))
+	labelRunes := float32(utf8.RuneCountInString(sig.Label))
 	overloadRoom := float32(28)
 	if len(st.help.Signatures) > 1 {
 		overloadRoom = 96
 	}
-	width := min(max(labelRunes*charWidth+overloadRoom, signatureHelpMinWidth), min(signatureHelpMaxWidth, bounds.Width-8))
-
-	// Prefer above the caret so completion (placed below the caret) is never occluded.
-	y := anchor.Y - estimatedHeight - 4
-	x := min(max(anchor.X, bounds.X+4), max(bounds.X+bounds.Width-width-4, bounds.X+4))
-	if y < bounds.Y+4 {
-		if a.semantics.completion.open {
-			compX, compY := popupOrigin(anchor.X, anchor.Y+anchor.Height+2, semanticPopupWidth, bounds)
-			compRows := min(len(a.semantics.completion.items), visibleSemanticRows)
-			compH := float32(compRows)*semanticRowHeight + 2*semanticPopupPad
-			// Place beside completion if there is horizontal room, else below completion.
-			if compX+semanticPopupWidth+8+width <= bounds.X+bounds.Width-4 {
-				x = compX + semanticPopupWidth + 8
-				y = max(anchor.Y+anchor.Height+2, bounds.Y+4)
-			} else {
-				y = min(compY+compH+4, max(bounds.Y+bounds.Height-estimatedHeight-4, bounds.Y+4))
+	width := min(max(labelRunes*charWidth+overloadRoom, signatureHelpMinWidth), signatureHelpMaxWidth, bounds.Width)
+	height := float32(headerHeight + 2*(padY+semanticPopupBorder))
+	hasDocs := paramDoc != "" || sigDoc != ""
+	if hasDocs {
+		height += gap + 1
+		var scratch [8]string
+		for _, doc := range []struct {
+			text string
+			size float32
+		}{{paramDoc, paramDocSize}, {sigDoc, signatureDocSize}} {
+			if doc.text != "" {
+				lines := c.Canvas().WrapLinesStyle(scratch[:0], doc.text, gfx.TextStyle{Size: doc.size},
+					width-horizontalInsets, utf8.RuneCountInString(doc.text), nil)
+				height += float32(len(lines))*docLineHeight + gap
 			}
-		} else {
-			y = min(anchor.Y+anchor.Height+4, max(bounds.Y+bounds.Height-estimatedHeight-4, bounds.Y+4))
 		}
 	}
-	st.rect = gfx.Rect{X: x, Y: y, Width: width, Height: estimatedHeight}
+	rect := signatureHelpPosition(bounds, anchor, completion, width, height)
+	st.rect = rect
+	if rect.Height == 0 {
+		return
+	}
 	lang := a.language()
 	title := i18n.Shared(lang, "desktop.semantics.signatureHelp")
 	stepDelta := 0
 
 	ui.Stack(c.Part("signature-help-layer")).Fill().Children(func() {
 		sc := c.Part("signature-help-card")
-		ui.Column(sc).Absolute().Left(x).Top(y).Width(width).PadX(10).PadY(6).Gap(4).
-			Background(a.theme.Popover).Border(1, a.theme.Border).
+		ui.Column(sc).Absolute().Left(rect.X).Top(rect.Y).Width(width).Height(height).PadX(padX).PadY(padY).Gap(gap).
+			Background(a.theme.Popover).Border(semanticPopupBorder, a.theme.Border).
 			Radius(a.theme.Metrics.RadiusPopup()).Shadow(gfx.ShadowMD).
 			HitWith(ui.ID(sc), title, gfx.HitOptions{Role: gfx.RoleGroup, SkipFocus: true}).
 			Children(func() {
-				ui.Row(sc).FillWidth().Items(ui.Center).Gap(6).Children(func() {
+				ui.Row(sc).FillWidth().Height(headerHeight).Items(ui.Center).Gap(6).Children(func() {
 					ui.Row(sc).Grow(1).Shrink(1).MinWidth(0).Items(ui.Center).Gap(0).Clip().Children(func() {
 						if prefix != "" {
 							ui.Text(sc, prefix).Mono().FontSize(12).Color(a.colors.Subtle).Shrink(1).Ellipsis()
@@ -460,10 +466,10 @@ func (a *App) signatureHelpPopup(c ui.C) {
 				if hasDocs {
 					ui.Row(sc).FillWidth().Height(1).Background(a.theme.Border)
 					if paramDoc != "" {
-						ui.Wrap(sc, paramDoc).FontSize(11.5).Color(a.colors.Text)
+						ui.Wrap(sc, paramDoc).FillWidth().FontSize(paramDocSize).LineHeight(docLineHeight).Color(a.colors.Text)
 					}
 					if sigDoc != "" {
-						ui.Wrap(sc, sigDoc).FontSize(11).Color(a.colors.Subtle)
+						ui.Wrap(sc, sigDoc).FillWidth().FontSize(signatureDocSize).LineHeight(docLineHeight).Color(a.colors.Subtle)
 					}
 				}
 			})
@@ -471,4 +477,38 @@ func (a *App) signatureHelpPopup(c ui.C) {
 	if stepDelta != 0 {
 		c.After(func() { a.stepSignatureOverload(stepDelta) })
 	}
+}
+
+// signatureHelpPosition keeps the active editor line visible even when the
+// completion popup has moved above it. If no position fits, completion wins.
+func signatureHelpPosition(bounds, caret, completion gfx.Rect, width, height float32) gfx.Rect {
+	const caretGap, popupGap = 4, 8
+	x := min(max(caret.X, bounds.X), bounds.Right()-width)
+	above := caret.Y - caretGap - height
+	below := caret.Bottom() + caretGap
+	positions := [...]gfx.Point{
+		{X: x, Y: above},
+		{X: x, Y: below},
+		{X: completion.Right() + popupGap, Y: above},
+		{X: completion.X - popupGap - width, Y: above},
+		{X: completion.Right() + popupGap, Y: below},
+		{X: completion.X - popupGap - width, Y: below},
+		{X: x, Y: max(completion.Bottom()+popupGap, below)},
+		{X: x, Y: min(completion.Y-popupGap-height, above)},
+	}
+	options := positions[:]
+	if completion.Height == 0 {
+		options = options[:2]
+	}
+	for _, origin := range options {
+		if origin.X < bounds.X || origin.X+width > bounds.Right() || origin.Y < bounds.Y || origin.Y+height > bounds.Bottom() {
+			continue
+		}
+		if completion.Height > 0 && origin.X < completion.Right() && origin.X+width > completion.X &&
+			origin.Y < completion.Bottom() && origin.Y+height > completion.Y {
+			continue
+		}
+		return gfx.Rect{X: origin.X, Y: origin.Y, Width: width, Height: height}
+	}
+	return gfx.Rect{}
 }

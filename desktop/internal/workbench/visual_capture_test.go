@@ -61,6 +61,63 @@ func TestVisualGradleFileIcons(t *testing.T) {
 	}
 }
 
+func TestVisualCompletionPopup(t *testing.T) {
+	out := os.Getenv("LITHE_VISUAL_OUTPUT_DIR")
+	if out == "" {
+		t.Skip("set LITHE_VISUAL_OUTPUT_DIR")
+	}
+	if err := os.MkdirAll(out, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	for _, scene := range []struct {
+		name, theme, language string
+		width, caretLine      int
+	}{
+		{"completion", "light", "en-US", 1000, 0},
+		{"completion", "dark", "zh-Hans", 1000, 0},
+		{"completion", "light", "zh-Hans", 350, 0},
+		{"completion", "dark", "en-US", 350, 0},
+		{"completion-center", "light", "en-US", 900, 10},
+		{"completion-signature", "dark", "zh-Hans", 900, 19},
+	} {
+		name := scene.name + "-" + scene.theme + "-" + scene.language
+		t.Run(name, func(t *testing.T) {
+			prefs := store.At(t.TempDir())
+			if err := prefs.Save(settingsFile, map[string]string{"theme": scene.theme}); err != nil {
+				t.Fatal(err)
+			}
+			kernel := &semanticTestKernel{testKernel: &testKernel{Client: core.NewClient()}}
+			var session *headless.Session
+			h := newHarnessWithDriver(t, Options{Kernel: kernel, Store: prefs, Languages: []string{scene.language}}, func(config app.Config) (*app.Driver, func(), error) {
+				config.Width, config.Height = scene.width, 600
+				config.MinWidth = min(config.MinWidth, scene.width)
+				var err error
+				session, err = headless.Open(config, nil, headless.Options{})
+				if err != nil {
+					return nil, nil, err
+				}
+				return session.Driver(), session.Close, nil
+			})
+			f := openSemanticFixture(t, h, kernel)
+			if scene.caretLine == 0 {
+				f.openFunctionCompletions(t)
+				if err := h.driver.Key(gfx.KeyDown, 0); err != nil {
+					t.Fatal(err)
+				}
+			} else {
+				f.placeCompletionCaret(t, scene.caretLine)
+				f.requestCompletions(t, longFunctionCandidates()...)
+				if scene.name == "completion-signature" {
+					f.openCompletionCaretSignature(t)
+				}
+			}
+			if err := session.Screenshot(filepath.Join(out, name+".png")); err != nil {
+				t.Fatal(err)
+			}
+		})
+	}
+}
+
 // TestVisualWorkbench uses the archive's repository in a private temporary checkout.
 // No installed plugins, user settings, native windows or network services are used.
 func TestVisualWorkbench(t *testing.T) {
