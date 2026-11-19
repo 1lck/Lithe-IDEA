@@ -717,6 +717,7 @@ func (a *App) loadBuildSystems(p *project) {
 	// The team and local option documents are read here, on the window thread, and resolved and detected
 	// with the instances below; a document that cannot be read fails the detection instead of emptying it.
 	docs, docsErr := a.readBuildOptionDocuments(a.operationContext(context.Background()), p.root)
+	language := a.language().Code()
 	a.background(p, buildRequestTimeout, func(ctx context.Context) func(*App) {
 		entries, err := a.plugins.Manager.Installed()
 		if err != nil {
@@ -726,10 +727,11 @@ func (a *App) loadBuildSystems(p *project) {
 			return func(a *App) { a.finishBuildDetection(p, generation, nil, docsErr) }
 		}
 		plugins, pluginErr := a.plugins.BuildPlugins(ctx, entries)
-		manifests := make([]json.RawMessage, 0, len(plugins))
+		// The manifests carry their option text in the interface language from here on.
+		manifests := a.localizeBuildManifests(ctx, kernel, language, plugins)
 		byPlugin := make(map[string]pluginservice.BuildPlugin, len(plugins))
-		for _, plugin := range plugins {
-			manifests = append(manifests, plugin.Manifest)
+		for index, plugin := range plugins {
+			plugin.Manifest = manifests[index]
 			byPlugin[plugin.PluginID] = plugin
 		}
 		detection, detectErr := detectBuildSystemsWithStoredOptions(ctx, kernel, p.root, manifests, docs)

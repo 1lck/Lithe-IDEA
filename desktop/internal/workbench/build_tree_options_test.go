@@ -586,3 +586,64 @@ func TestPathOptionShowsTheToolValueUntilOverridden(t *testing.T) {
 		t.Fatalf("local options %s still hold the path after Override was unchecked", stored)
 	}
 }
+
+// treeOptionsTranslation is the fixture plugin's Chinese translation of its build options.
+const treeOptionsTranslation = `{
+  "buildOptions": {"fixture-profiles": {
+    "profiles": {"displayName": "配置文件"},
+    "offline": {"displayName": "离线模式"},
+    "settingsFile": {"displayName": "用户设置文件", "description": "传给工具的设置文件。"}
+  }}
+}`
+
+// A plugin's translation of its build options shows wherever the options do: the tree's option
+// node, the toolbar toggle, and the options dialog with its ⓘ. The manifest is installed as
+// written; only the instances carry the translated text.
+func TestBuildOptionsShowThePluginsTranslation(t *testing.T) {
+	manifest := strings.Replace(treeOptionsPathOverrideManifest, `"options": [{"id": "settingsFile"`,
+		`"options": [{"id": "offline", "displayName": "Offline", "kind": "boolean", "presentation": "toolbar", "icon": {"path": "icons/offline.svg"}, "arguments": ["-o"]}, {"id": "settingsFile"`, 1)
+	preferences, pluginRoot, root := treeOptionsWorkspace(t, manifest, "dark")
+	installed := filepath.Join(pluginRoot, "dev.lithe.test.tree-options", "1.0.0")
+	if err := os.MkdirAll(filepath.Join(installed, "l10n"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(installed, "l10n", "zh-Hans.json"), []byte(treeOptionsTranslation), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	h := newHarnessWithOptions(t, Options{
+		Kernel: &testKernel{Client: core.NewClient()}, PluginKernel: &testKernel{Client: core.NewClient()},
+		PluginRoot: pluginRoot, Store: preferences, Languages: []string{"zh-CN"},
+	})
+	p := showTreeOptionsProject(t, h, root)
+	language := h.app.language()
+
+	expectBuildTree(t, h, p, "the translated option node", []string{
+		"group Fixture Build: shop",
+		"  folder 配置文件 (dev)",
+		"  folder Lifecycle",
+		"  folder " + h.app.text.Build.Targets,
+	})
+	toggle := i18n.SharedFormat(language, "desktop.build.toggleOption", map[string]string{
+		"option": "离线模式", "state": i18n.Shared(language, "desktop.build.toggleOff"),
+	})
+	h.hitLabeled(toggle)
+
+	h.clickNamed(h.instanceOptions(p))
+	h.settleUntil("build options dialog resolved", func() bool {
+		e := &p.build.options
+		return e.open && !e.loading && e.ignored.loaded && len(e.fields) == 3
+	})
+	h.settle()
+	field := p.build.options.fields[1]
+	if field.title != "用户设置文件" || field.description != "传给工具的设置文件。" || !h.shows("用户设置文件") {
+		t.Fatalf("the dialog shows the option as %q (%q), want the translation", field.title, field.description)
+	}
+
+	installedManifest, err := os.ReadFile(filepath.Join(installed, "plugin.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(installedManifest) != manifest {
+		t.Fatal("translating the options changed the installed manifest")
+	}
+}
