@@ -699,7 +699,8 @@ type App struct {
 	// pluginDiagnostics holds what each running language server published for
 	// the files of the open project, keyed by plugin so stopping one server
 	// withdraws only its own diagnostics.
-	pluginDiagnostics map[string]*plugindiag.Set
+	pluginDiagnostics    map[string]*plugindiag.Set
+	rawPluginDiagnostics map[string]map[string][]core.PluginDiagnostic
 	// semantics is the editor's pending and presented language answers.
 	semantics   pluginSemantics
 	contentOpen *contentOpenRequest

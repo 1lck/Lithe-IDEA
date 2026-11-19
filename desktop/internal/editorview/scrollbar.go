@@ -81,7 +81,8 @@ func (v *View) maxScrollX() float32 {
 	if v.wrapping() {
 		return 0
 	}
-	return max(float32(v.widest+4)*v.cellW-(v.textRight-v.textLeft), 0)
+	widest := max(v.widest, v.inlay.prepared.widest)
+	return max(float32(widest+4)*v.cellW-(v.textRight-v.textLeft), 0)
 }
 
 // verticalThumb is the thumb of the vertical bar, with the scroll its far end stands for. It is

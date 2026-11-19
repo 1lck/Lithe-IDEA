@@ -76,6 +76,9 @@ func (v *View) ref(line int) lineRef {
 // cellsAt is how many cells the bytes of l take up to byte column col, as cellsOf counts them.
 func (v *View) cellsAt(l lineRef, col int) int {
 	if !l.long {
+		if hints := v.lineInlayHints(l.line); len(hints) > 0 {
+			return cellsOfWithHints(l.text, hints, col)
+		}
 		return cellsOf(l.text, col)
 	}
 	col = min(max(col, 0), l.size)
@@ -87,6 +90,9 @@ func (v *View) cellsAt(l lineRef, col int) int {
 // startCells columns in, whose cell holds cells, counted from the line's start.
 func (v *View) columnFrom(l lineRef, from, to, startCells int, cells float32) int {
 	if !l.long {
+		if hints := v.lineInlayHints(l.line); len(hints) > 0 {
+			return columnInWithHints(l.text, hints, from, to, startCells, cells)
+		}
 		return columnIn(l.text, from, to, startCells, cells)
 	}
 	at, sum := from, startCells

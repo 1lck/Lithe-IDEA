@@ -35,6 +35,12 @@ func (w *window) editorPresentationCard(c ui.C) {
 		if ui.Switch(c.Part("whitespace"), &current.Whitespace, i18n.Shared(lang, "desktop.editorPrefs.whitespace")).Changed() {
 			w.setEditorPresentation(current)
 		}
+		ui.Row(c).FillWidth().Items(ui.Center).Gap(6).Children(func() {
+			if ui.Switch(c.Part("inlay-hints"), &current.InlayHints, i18n.Shared(lang, "desktop.editorPrefs.inlayHints")).Changed() {
+				w.setEditorPresentation(current)
+			}
+			w.infoButton(c.Part("inlay-hints-info"), i18n.Shared(lang, "desktop.editorPrefs.inlayHintsHelp"))
+		})
 		w.settingsRow(c, i18n.Shared(lang, "desktop.editorPrefs.cursorStyle"), "", func() {
 			if ui.Select(c.Part("caret-style"), &current.CursorStyle, []string{"line", "block", "underline"}, func(style string) string {
 				switch style {
@@ -72,7 +78,14 @@ func (w *window) editorPresentationCard(c ui.C) {
 }
 
 func (w *window) setEditorPresentation(value core.EditorPreferences) {
-	stored := core.EditorStoredPreferences{LineNumbers: &value.LineNumbers, Whitespace: &value.Whitespace, CursorStyle: value.CursorStyle, CursorBlink: &value.CursorBlink, AutoSaveDelayMilliseconds: &value.AutoSaveDelayMilliseconds}
+	stored := core.EditorStoredPreferences{
+		LineNumbers:               &value.LineNumbers,
+		Whitespace:                &value.Whitespace,
+		InlayHints:                &value.InlayHints,
+		CursorStyle:               value.CursorStyle,
+		CursorBlink:               &value.CursorBlink,
+		AutoSaveDelayMilliseconds: &value.AutoSaveDelayMilliseconds,
+	}
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	resolved, err := core.NewClient().ResolveEditorPreferences(ctx, stored)

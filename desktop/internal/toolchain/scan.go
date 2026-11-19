@@ -126,21 +126,13 @@ func executableMode(info os.FileInfo) bool {
 	return runtime.GOOS == "windows" || info.Mode().Perm()&0o111 != 0
 }
 
-// canonicalPath resolves every symbolic link. Missing paths keep the cleaned
-// absolute spelling, which is still enough evidence for Core to see "missing".
+// canonicalPath resolves an existing path through filesystem redirects.
 func canonicalPath(name string) (string, error) {
 	absolute, err := filepath.Abs(name)
 	if err != nil {
 		return "", err
 	}
-	resolved, err := filepath.EvalSymlinks(absolute)
-	if err == nil {
-		return resolved, nil
-	}
-	if errors.Is(err, os.ErrNotExist) {
-		return filepath.Clean(absolute), nil
-	}
-	return "", err
+	return resolveNativePath(absolute)
 }
 
 func (w *workspace) insideRoot(name string) bool {
@@ -196,19 +188,18 @@ func (w *workspace) observe(name string) core.ToolchainFileFact {
 		return fact
 	}
 	fact := core.ToolchainFileFact{Path: cleaned, CanonicalPath: cleaned, Kind: "missing"}
-	if info, statErr := os.Lstat(cleaned); statErr == nil {
-		if resolved, linkErr := filepath.EvalSymlinks(cleaned); linkErr == nil {
+	// Only publish a file or directory fact with a resolved path. Core uses it
+	// to check containment before authorizing an executable probe.
+	if resolved, err := resolveNativePath(cleaned); err == nil {
+		if info, err := os.Stat(resolved); err == nil {
 			fact.CanonicalPath = resolved
-			if target, targetErr := os.Stat(resolved); targetErr == nil {
-				info = target
+			switch {
+			case info.Mode().IsRegular():
+				fact.Kind = "file"
+				fact.Executable = executableMode(info)
+			case info.IsDir():
+				fact.Kind = "directory"
 			}
-		}
-		switch {
-		case info.Mode().IsRegular():
-			fact.Kind = "file"
-			fact.Executable = executableMode(info)
-		case info.IsDir():
-			fact.Kind = "directory"
 		}
 	}
 	w.facts[key] = fact

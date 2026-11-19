@@ -1,0 +1,27 @@
+{
+  "id": "lsp-signature-help",
+  "area": "编辑器",
+  "group": "语言服务",
+  "capability": "参数信息",
+  "macos": {
+    "implementationStatus": "implemented",
+    "verificationStatus": "pending",
+    "evidence": [
+      "desktop/internal/workbench/signature_help.go",
+      "desktop/internal/workbench/lsp_actions_test.go",
+      "desktop/internal/core/plugin_semantics.go"
+    ]
+  },
+  "windows": {
+    "implementationStatus": "implemented",
+    "verificationStatus": "pending",
+    "evidence": [
+      "desktop/internal/workbench/signature_help.go",
+      "desktop/internal/workbench/lsp_actions_test.go",
+      "desktop/internal/core/plugin_semantics.go"
+    ]
+  },
+  "owner": "Editor / Language Tooling",
+  "verification": "以声明该能力的合成语言服务器验证参数信息快捷键、触发字符、当前参数高亮、重载切换、离开调用和 Esc 关闭。",
+  "notes": "Viva 在 macOS 和 Windows 共享实现。原生平台验证待补。"
+}

@@ -1,0 +1,29 @@
+{
+  "id": "lsp-inlay-hints",
+  "area": "编辑器",
+  "group": "语言服务",
+  "capability": "内联提示",
+  "macos": {
+    "implementationStatus": "implemented",
+    "verificationStatus": "pending",
+    "evidence": [
+      "desktop/internal/workbench/inlay_hints.go",
+      "desktop/internal/workbench/lsp_actions_test.go",
+      "desktop/internal/core/plugin_semantics.go",
+      "desktop/internal/editorview/inlayhints.go"
+    ]
+  },
+  "windows": {
+    "implementationStatus": "implemented",
+    "verificationStatus": "pending",
+    "evidence": [
+      "desktop/internal/workbench/inlay_hints.go",
+      "desktop/internal/workbench/lsp_actions_test.go",
+      "desktop/internal/core/plugin_semantics.go",
+      "desktop/internal/editorview/inlayhints.go"
+    ]
+  },
+  "owner": "Editor / Language Tooling",
+  "verification": "以声明该能力的合成语言服务器验证可见行请求、编辑与服务刷新、失败后的单次重试及恢复、折行和选区几何、设置禁用后清理。",
+  "notes": "Viva 在 macOS 和 Windows 共享实现。原生平台验证待补。"
+}

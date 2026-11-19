@@ -328,6 +328,13 @@ type CompletionOptions struct {
 	AllCommitCharacters []string `json:"allCommitCharacters"`
 }
 
+// SignatureHelpOptions is the signature-help trigger and retrigger characters a language
+// server session declares, as Core reports them on a featuresChanged event.
+type SignatureHelpOptions struct {
+	TriggerCharacters   []string `json:"triggerCharacters"`
+	RetriggerCharacters []string `json:"retriggerCharacters"`
+}
+
 type BackendEvent struct {
 	Type         string          `json:"type"`
 	Channel      string          `json:"channel"`
@@ -353,7 +360,9 @@ type BackendEvent struct {
 	Capabilities []string        `json:"capabilities"`
 	// CompletionOptions is set on featuresChanged while completion is offered.
 	CompletionOptions *CompletionOptions `json:"completionOptions"`
-	ServerInfo        json.RawMessage    `json:"serverInfo"`
+	// SignatureHelpOptions is set on featuresChanged while signatureHelp is offered.
+	SignatureHelpOptions *SignatureHelpOptions `json:"signatureHelpOptions"`
+	ServerInfo           json.RawMessage       `json:"serverInfo"`
 }
 
 type pluginFunctionReference struct {
@@ -382,6 +391,17 @@ func (c *Client) RespondPluginHostRequest(ctx context.Context, session, requestI
 		Result    json.RawMessage    `json:"result,omitempty"`
 		Error     *PluginHostFailure `json:"error,omitempty"`
 	}{session, requestID, result, failure}, nil)
+}
+
+// RespondWorkspaceApplyEdit answers one server-initiated workspaceApplyEdit event.
+func (c *Client) RespondWorkspaceApplyEdit(ctx context.Context, session, applyEditID string, applied bool, failureReason string) error {
+	body := struct {
+		SessionID     string `json:"sessionId"`
+		ApplyEditID   string `json:"applyEditId"`
+		Applied       bool   `json:"applied"`
+		FailureReason string `json:"failureReason,omitempty"`
+	}{session, applyEditID, applied, failureReason}
+	return c.Execute(ctx, "lsp.applyEditResponse", body, nil)
 }
 
 // StartPluginBackend starts a Core-owned process; initialization completes via

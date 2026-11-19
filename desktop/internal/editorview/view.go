@@ -195,6 +195,10 @@ type View struct {
 	// over while the link modifier is held, or nil.
 	links   []Link
 	hovered *Link
+	// Inline hints are prepared from one revision. Runs are styled into
+	// scratch space before each draw without mutating worker results.
+	inlay     inlayState
+	inlayRuns []gfx.TextRun
 
 	hl    *syntax.Highlighter
 	theme *syntax.Theme
@@ -360,10 +364,11 @@ const (
 // Line, Start and End are zero-based, and End counts UTF-16 code units within the
 // line, which is the unit the language protocol reports.
 type Marker struct {
-	Line     int
-	Start    int
-	End      int
-	Severity MarkerSeverity
+	Line               int
+	Start              int
+	End                int
+	Severity           MarkerSeverity
+	byteStart, byteEnd int
 }
 
 // SetMarkers replaces the diagnostics the view underlines.
@@ -500,6 +505,7 @@ func (v *View) replaceFromDisk(content Content) bool {
 		v.undo = v.undo[len(v.undo)-undoLimit:]
 	}
 	v.redo = v.redo[:0]
+	v.ClearInlayHints()
 	v.text = content.text
 	v.saved = v.text
 	v.revision++
@@ -886,6 +892,7 @@ func (v *View) edit(start, end int, text string, kind editKind) {
 		column = v.caretUTF16Column - v.utf16Units(start, v.caretUTF16Offset) + utf16Length(text)
 	}
 	adjustedCells, adjusted := v.adjustCaretLine(firstLine, start, end, text)
+	v.ClearInlayHints()
 	v.text = v.text.Replace(start, end, []byte(text))
 	if len(v.vim.marks) > 0 {
 		v.vimShiftMarks(start, end, len(text))
@@ -985,6 +992,7 @@ func (v *View) restore(s snapshot) {
 		change = v.editBetween(start, oldEnd, text)
 	}
 	firstLine, oldLast, oldCount := v.text.LineOf(start), v.text.LineOf(oldEnd), v.text.LineCount()
+	v.ClearInlayHints()
 	v.text = s.text
 	v.revision++
 	v.clearCursorHistory()

@@ -13,18 +13,27 @@ import (
 // constant number of views.
 func (a *App) semanticPopups(c ui.C) {
 	state := &a.semantics
+	if p := a.project; p != nil {
+		a.codeActionLightbulb(c, p, p.selectedDocument(p.docs.group))
+	}
 	if a.project == nil || state.project != a.project {
 		return
 	}
 	switch {
 	case state.rename.open:
 		a.renameDialog(c)
+	case state.codeActions.open:
+		a.codeActionsPopup(c)
 	case state.definition.open:
 		a.definitionPopup(c)
 	case state.completion.open:
 		a.completionPopup(c)
 	case state.hover.open:
 		a.hoverPopup(c)
+	}
+	if !state.rename.open && !state.codeActions.open && !state.definition.open {
+		a.signatureHelpPopup(c)
+		a.inlayHintHoverPopup(c)
 	}
 }
 

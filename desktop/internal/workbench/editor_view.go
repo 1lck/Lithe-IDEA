@@ -179,6 +179,7 @@ func (a *App) documentView(c ui.C, group string, d *document) {
 	if p := a.project; p != nil {
 		a.foldSync(c, p, d)
 		a.linkSync(c, p, d)
+		a.inlayHintsSync(c, p, d)
 	}
 	if p := a.project; p != nil && !d.virtual {
 		items, shown := a.editorMenuItems(c, p, d), false
@@ -235,7 +236,18 @@ func (a *App) documentInput(p *project, d *document) {
 		// belongs to the line the frame draws.
 		a.applyInlineBlame(p, d)
 		a.applyDebugGutter(p, d)
+		// Inlay requests depend on the geometry published by paint. Resize and
+		// the first paint queue a single follow-up with the new viewport.
+		first, last, measured := v.VisibleLineRange()
+		previousArea := d.lastArea
+		d.lastArea = dc.Rect
 		v.Paint(dc.Canvas, dc.Rect, a.editorLook())
+		if prefs.InlayHints && previousArea != dc.Rect {
+			nextFirst, nextLast, ok := v.VisibleLineRange()
+			if ok && (!measured || first != nextFirst || last != nextLast) {
+				a.invalidator.Invalidate()
+			}
+		}
 		if dc.State.Focused {
 			p.docs.group = d.group
 		}
@@ -256,6 +268,9 @@ func (a *App) documentViewKey(p *project, d *document, view *editorview.View, ev
 	// one sync covers arrows, edits and commands.
 	defer a.pluginSemanticsCaretSync()
 	if result := a.pluginSemanticsKey(event); result.Handled {
+		return result
+	}
+	if result := a.codeActionsShortcut(event); result.Handled {
 		return result
 	}
 	if result, handled := a.pluginSemanticsTrigger(event, p, d); handled {
@@ -287,6 +302,9 @@ func (a *App) documentPointer(p *project, d *document, event gfx.PointerEvent) g
 	// A semantic popup or request belongs to the caret and symbol it was opened at; any
 	// pointer work that moved either closes it before the frame paints.
 	defer a.pluginSemanticsCaretSync()
+	if result, handled := a.inlayHintPointer(event, p, d, d.view); handled {
+		return result
+	}
 	if result, handled := a.documentLinkPointer(event, d); handled {
 		return result
 	}
@@ -545,6 +563,7 @@ func verticalWheel(event *gfx.ScrollEvent) {
 // closes the hover popup of the editor, which no control sees leave.
 func (a *App) onPointer(event gfx.PointerEvent) gfx.EventResult {
 	if event.Kind == gfx.PointerExit {
+		a.semantics.inlayHover = inlayHintHoverState{}
 		a.leaveSemanticHover()
 	}
 	return gfx.EventResult{}

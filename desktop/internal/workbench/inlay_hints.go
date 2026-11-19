@@ -1,0 +1,531 @@
+package workbench
+
+import (
+	"context"
+	"slices"
+	"strings"
+	"time"
+	"unicode/utf8"
+
+	"github.com/1lck/Lithe-IDEA/desktop/internal/core"
+	"github.com/1lck/Lithe-IDEA/desktop/internal/editorview"
+	"github.com/1lck/Lithe-IDEA/desktop/internal/i18n"
+	"github.com/vivaui/viva/gfx"
+	"github.com/vivaui/viva/ui"
+)
+
+const (
+	pluginSemanticInlayHints       semanticKind = "inlayHints"
+	pluginSemanticResolveInlayHint semanticKind = "resolveInlayHint"
+
+	pluginMethodInlayHints       = "textDocument/inlayHint"
+	pluginMethodResolveInlayHint = "inlayHint/resolve"
+
+	pluginInlayHintsRefresh = "inlayHintsRefresh"
+
+	featureInlayHints       = "inlayHints"
+	featureInlayHintResolve = "inlayHintResolve"
+
+	inlayHintsPrefetchMargin = 40
+	inlayHintsDelay          = 120 * time.Millisecond
+	inlayHintsRetryDelay     = 250 * time.Millisecond
+	maxInlayHintAttempts     = 2
+	maxInlayHintsPerViewport = 512
+)
+
+type documentInlayHints struct {
+	initialized    bool
+	revision       int
+	visible        []editorview.LineSpan
+	seen           []editorview.LineSpan
+	covered        []editorview.LineSpan
+	requested      []editorview.LineSpan
+	next           int
+	collected      []core.PluginSemanticInlayHint
+	dirty          bool
+	changedAt      time.Time
+	retryAt        time.Time
+	failedAttempts int
+	seenRevision   int
+	pending        *semanticPending
+	resolve        *semanticPending
+	resolveIndex   int
+	prepareCancel  context.CancelFunc
+	prepareGen     uint64
+	hints          []core.PluginSemanticInlayHint
+	resolved       map[int]bool
+}
+
+type inlayHintHoverState struct {
+	open       bool
+	documentID int
+	revision   int
+	hintIndex  int
+	anchor     gfx.Rect
+	rect       gfx.Rect
+}
+
+func (a *App) clearDocumentInlayHints(d *document) {
+	if d == nil {
+		return
+	}
+	ih := &d.inlay
+	if ih.pending != nil {
+		a.cancelSemantic(ih.pending)
+		ih.pending = nil
+	}
+	if ih.resolve != nil {
+		a.cancelSemantic(ih.resolve)
+		ih.resolve = nil
+	}
+	if ih.prepareCancel != nil {
+		ih.prepareCancel()
+		ih.prepareCancel = nil
+	}
+	ih.prepareGen++
+	ih.hints = nil
+	ih.resolved = nil
+	ih.revision = -1
+	ih.covered, ih.requested, ih.collected = nil, nil, nil
+	ih.dirty = false
+	ih.failedAttempts = 0
+	if d.view != nil && d.view.ClearInlayHints() {
+		a.invalidator.Invalidate()
+	}
+	if a.semantics.inlayHover.open && a.semantics.inlayHover.documentID == d.id {
+		a.semantics.inlayHover = inlayHintHoverState{}
+	}
+}
+
+func (a *App) applyInlayHintsPreference(enabled bool) {
+	p := a.project
+	if p == nil {
+		return
+	}
+	if !enabled {
+		a.semantics.inlayHover = inlayHintHoverState{}
+		for _, d := range p.docs.list {
+			a.clearDocumentInlayHints(d)
+		}
+		return
+	}
+	for _, d := range p.docs.list {
+		d.inlay.dirty = true
+	}
+	a.invalidator.Invalidate()
+}
+
+func (a *App) inlayHintsRefresh(server *pluginServer) {
+	if server == nil || server.session == nil || !a.isCurrentPluginServer(server.session.PluginID, server) {
+		return
+	}
+	p := a.project
+	if p == nil || p != server.project {
+		return
+	}
+	changed := false
+	for _, d := range p.docs.list {
+		if srv, _ := a.documentSyncServer(d); srv == server {
+			d.inlay.dirty = true
+			d.inlay.changedAt = a.now()
+			changed = true
+		}
+	}
+	if changed && a.editorPreferences.InlayHints {
+		a.invalidator.Invalidate()
+	}
+}
+
+// inlayHintsSync requests visible-viewport (+ bounded margin) inlay hints when enabled,
+// coalescing scroll and edit bursts without idle polling or idle repaints.
+func (a *App) inlayHintsSync(c ui.C, p *project, d *document) {
+	if p == nil || d == nil {
+		return
+	}
+	if !a.editorPreferences.InlayHints {
+		if d.view.HasInlayHints() || d.inlay.pending != nil || d.inlay.prepareCancel != nil {
+			a.clearDocumentInlayHints(d)
+		}
+		return
+	}
+	ih := &d.inlay
+	if !ih.initialized {
+		ih.initialized = true
+		ih.revision = -1
+		ih.seenRevision = -1
+	}
+	server, offered := a.editorServer(d, featureInlayHints)
+	if server == nil || !offered || d.virtual {
+		if d.view.HasInlayHints() || ih.pending != nil {
+			a.clearDocumentInlayHints(d)
+		}
+		return
+	}
+	ih.visible = d.view.ViewportLineRanges(ih.visible[:0], 0)
+	if len(ih.visible) == 0 {
+		return
+	}
+	revision := d.view.Revision()
+	if !ih.dirty && ih.revision == revision && inlaySpansCover(ih.covered, ih.visible) {
+		return
+	}
+	if a.editorRequestWaiting(ih.pending) {
+		if ih.pending.revision == revision && !ih.dirty && inlaySpansCover(ih.requested, ih.visible) {
+			return
+		}
+		a.cancelSemantic(ih.pending)
+		ih.pending, ih.collected = nil, nil
+	}
+	if !a.semanticDocumentReady(d) {
+		return
+	}
+	now := a.now()
+	if ih.dirty || ih.seenRevision != revision || !slices.Equal(ih.seen, ih.visible) {
+		ih.seenRevision = revision
+		ih.seen = append(ih.seen[:0], ih.visible...)
+		if !ih.dirty {
+			ih.changedAt = now
+		}
+		ih.failedAttempts = 0
+	}
+	if ih.failedAttempts >= maxInlayHintAttempts {
+		return
+	}
+	if ih.failedAttempts > 0 {
+		if wait := ih.retryAt.Sub(now); wait > 0 {
+			c.Canvas().RequestFrameIn(wait)
+			return
+		}
+	}
+	delay := a.semantics.inlayDelay
+	if delay == 0 {
+		delay = inlayHintsDelay
+	}
+	if ih.revision >= 0 && delay > 0 {
+		if wait := ih.changedAt.Add(delay).Sub(now); wait > 0 {
+			c.Canvas().RequestFrameIn(wait)
+			return
+		}
+	}
+	ih.dirty = false
+	margin := inlayHintsPrefetchMargin
+	if len(ih.visible) > 1 {
+		// Give visible spans on both sides of folds priority over prefetch.
+		margin = 0
+	}
+	ih.requested = d.view.ViewportLineRanges(ih.requested[:0], margin)
+	ih.next = 0
+	ih.collected = nil
+	a.requestNextInlaySpan(p, d, server)
+}
+
+// inlaySpansCover compares ordered, disjoint logical line ranges. A newly
+// unfolded interval is missing even when both of its endpoints were visible.
+func inlaySpansCover(available, visible []editorview.LineSpan) bool {
+	for _, span := range visible {
+		for len(available) > 0 && available[0].Last < span.First {
+			available = available[1:]
+		}
+		if len(available) == 0 || available[0].First > span.First || available[0].Last < span.Last {
+			return false
+		}
+	}
+	return true
+}
+
+func (a *App) requestNextInlaySpan(p *project, d *document, server *pluginServer) {
+	ih := &d.inlay
+	span := ih.requested[ih.next]
+	ih.next++
+	line, column := d.view.InlayHintRequestEnd(span.Last)
+	ih.pending = a.submitEditorRequest(pluginSemanticInlayHints, p, d, server, core.PluginSemanticRequest{
+		Range: &core.PluginDocumentRange{
+			Start: core.PluginDocumentPosition{Line: span.First},
+			End:   core.PluginDocumentPosition{Line: line, UTF16Column: column},
+		},
+	})
+}
+
+func (a *App) retryInlayHints(ih *documentInlayHints) {
+	// Keep the last rendered hints until a new batch succeeds. A failed batch
+	// can't establish coverage, and a persistent failure must leave the editor idle.
+	ih.covered = ih.covered[:0]
+	ih.collected = nil
+	ih.failedAttempts++
+	if ih.failedAttempts < maxInlayHintAttempts {
+		ih.retryAt = a.now().Add(inlayHintsRetryDelay)
+		a.invalidator.Invalidate()
+	}
+}
+
+func (a *App) applyServerInlayHints(pending *semanticPending, event core.BackendEvent, failed bool) {
+	p, d := a.currentSemanticDocument(pending.documentID)
+	if p != pending.project || d == nil || d.inlay.pending != pending {
+		return
+	}
+	ih := &d.inlay
+	ih.pending = nil
+	if !a.editorPreferences.InlayHints {
+		a.clearDocumentInlayHints(d)
+		return
+	}
+	if ih.dirty || d.view.Revision() != pending.revision {
+		ih.collected = nil
+		return
+	}
+	if failed {
+		a.retryInlayHints(ih)
+		return
+	}
+	hints, err := core.PluginSemanticInlayHints(event)
+	if err != nil {
+		a.backgroundFailed("plugin_inlay_hints", err)
+		a.retryInlayHints(ih)
+		return
+	}
+	span := ih.requested[ih.next-1]
+	for _, hint := range hints {
+		if len(ih.collected) == maxInlayHintsPerViewport {
+			break
+		}
+		if hint.Position.Line >= span.First && hint.Position.Line <= span.Last {
+			ih.collected = append(ih.collected, hint)
+		}
+	}
+	if ih.next < len(ih.requested) && len(ih.collected) < maxInlayHintsPerViewport {
+		a.requestNextInlaySpan(p, d, pending.server)
+		return
+	}
+	hints = ih.collected
+	ih.collected = nil
+	ih.failedAttempts = 0
+	ih.revision = pending.revision
+	ih.covered = append(ih.covered[:0], ih.requested...)
+	if ih.prepareCancel != nil {
+		ih.prepareCancel()
+		ih.prepareCancel = nil
+	}
+	if ih.resolve != nil {
+		a.cancelSemantic(ih.resolve)
+		ih.resolve = nil
+	}
+	if a.semantics.inlayHover.documentID == d.id {
+		a.semantics.inlayHover = inlayHintHoverState{}
+	}
+	d.view.ClearInlayHints()
+	ih.hints = hints
+	ih.resolved = nil
+	if len(hints) == 0 {
+		a.invalidator.Invalidate()
+		return
+	}
+	specs := make([]editorview.InlayHintSpec, len(hints))
+	for i, h := range hints {
+		specs[i] = editorview.InlayHintSpec{
+			ID:           i,
+			Line:         h.Position.Line,
+			UTF16Column:  h.Position.UTF16Column,
+			Label:        h.Label,
+			PaddingLeft:  h.PaddingLeft,
+			PaddingRight: h.PaddingRight,
+			Interactive:  (h.Tooltip != nil && *h.Tooltip != "") || len(h.TextEdits) > 0 || len(h.ResolvePayload) > 0,
+		}
+	}
+	snapshot := d.view.TextSnapshot()
+	revision := pending.revision
+	docID := d.id
+	ih.prepareGen++
+	gen := ih.prepareGen
+	ctx, cancel := context.WithCancel(p.ctx)
+	ih.prepareCancel = cancel
+	a.background(p, 10*time.Second, func(workCtx context.Context) func(*App) {
+		defer cancel()
+		prepared, prepErr := editorview.PrepareInlayHints(ctx, snapshot, revision, specs)
+		if prepErr != nil {
+			// log-exempt: 用户取消：滚动、编辑或关闭开关会取消旧的内联提示排版计算。
+			return nil
+		}
+		return func(a *App) {
+			curProj, curDoc := a.currentSemanticDocument(docID)
+			if curProj != p || curDoc == nil || !a.editorPreferences.InlayHints || curDoc.inlay.prepareGen != gen {
+				return
+			}
+			curDoc.inlay.prepareCancel = nil
+			if curDoc.view.SetPreparedInlayHints(prepared) {
+				a.invalidator.Invalidate()
+			}
+		}
+	})
+}
+
+func (a *App) applyResolvedInlayHint(pending *semanticPending, event core.BackendEvent, failed bool) {
+	p, d := a.currentSemanticDocument(pending.documentID)
+	if p != pending.project || d == nil || d.inlay.resolve != pending {
+		return
+	}
+	ih := &d.inlay
+	idx := ih.resolveIndex
+	ih.resolve = nil
+	if failed || d.view.Revision() != pending.revision || idx < 0 || idx >= len(ih.hints) {
+		return
+	}
+	resolved, err := core.PluginSemanticResolvedInlayHint(event)
+	if err != nil || resolved == nil {
+		if err != nil {
+			a.backgroundFailed("plugin_inlay_hint_resolve", err)
+		}
+		return
+	}
+	ih.hints[idx] = *resolved
+	if ih.resolved == nil {
+		ih.resolved = make(map[int]bool)
+	}
+	ih.resolved[idx] = true
+	a.invalidator.Invalidate()
+}
+
+func (a *App) inlayHintPointer(event gfx.PointerEvent, p *project, d *document, view *editorview.View) (gfx.EventResult, bool) {
+	if p == nil || d == nil || view == nil || !a.editorPreferences.InlayHints {
+		return gfx.EventResult{}, false
+	}
+	switch event.Kind {
+	case gfx.PointerMove:
+		if pointInRect(a.semantics.inlayHover.rect, event.X, event.Y) {
+			return gfx.EventResult{}, false
+		}
+		id, rect, ok := view.InlayHintAt(event.X, event.Y)
+		if !ok || id < 0 || id >= len(d.inlay.hints) {
+			if a.semantics.inlayHover.open {
+				a.semantics.inlayHover = inlayHintHoverState{}
+				a.invalidator.Invalidate()
+			}
+			return gfx.EventResult{}, false
+		}
+		hint := d.inlay.hints[id]
+		server, _ := a.editorServer(d, featureInlayHintResolve)
+		canResolve := server != nil && server.features[featureInlayHintResolve] && len(hint.ResolvePayload) > 0 && !d.inlay.resolved[id]
+		hasTooltip := hint.Tooltip != nil && strings.TrimSpace(*hint.Tooltip) != ""
+		hasEdits := len(hint.TextEdits) > 0 && !d.view.ReadOnly()
+		if !hasTooltip && !hasEdits && !canResolve {
+			return gfx.EventResult{}, false
+		}
+		if canResolve && !hasTooltip && !hasEdits && d.inlay.resolve == nil {
+			d.inlay.resolveIndex = id
+			d.inlay.resolve = a.submitEditorRequest(pluginSemanticResolveInlayHint, p, d, server, core.PluginSemanticRequest{
+				InlayHint: hint.Raw,
+			})
+		}
+		if !a.semantics.inlayHover.open || a.semantics.inlayHover.documentID != d.id || a.semantics.inlayHover.hintIndex != id {
+			a.semantics.project = p
+			a.semantics.inlayHover = inlayHintHoverState{
+				open:       true,
+				documentID: d.id,
+				revision:   d.view.Revision(),
+				hintIndex:  id,
+				anchor:     rect,
+			}
+			a.invalidator.Invalidate()
+		}
+		return gfx.EventResult{}, false
+	case gfx.PointerDown:
+		if event.Button == gfx.PointerButtonPrimary && event.ClickCount >= 2 && !d.view.ReadOnly() && !d.caretView().IsComposing() {
+			id, _, ok := view.InlayHintAt(event.X, event.Y)
+			if ok && id >= 0 && id < len(d.inlay.hints) && len(d.inlay.hints[id].TextEdits) > 0 {
+				a.applyInlayHintEdits(p, d, id)
+				return gfx.EventResult{Handled: true, Repaint: true}, true
+			}
+		}
+		if a.semantics.inlayHover.open && !pointInRect(a.semantics.inlayHover.rect, event.X, event.Y) {
+			a.semantics.inlayHover = inlayHintHoverState{}
+		}
+	case gfx.PointerExit:
+		if a.semantics.inlayHover.open {
+			a.semantics.inlayHover = inlayHintHoverState{}
+			a.invalidator.Invalidate()
+		}
+	}
+	return gfx.EventResult{}, false
+}
+
+func (a *App) applyInlayHintEdits(p *project, d *document, hintIndex int) {
+	if p == nil || d == nil || p != a.project || d.view.ReadOnly() || d.caretView().IsComposing() {
+		return
+	}
+	if hintIndex < 0 || hintIndex >= len(d.inlay.hints) || d.inlay.revision != d.view.Revision() {
+		return
+	}
+	edits := d.inlay.hints[hintIndex].TextEdits
+	if len(edits) == 0 {
+		return
+	}
+	a.semantics.inlayHover = inlayHintHoverState{}
+	a.performed("editor.inlayHint.apply", surfaceButton)
+	a.applyEditsToDocument(p, d, edits, "plugin_inlay_hint_apply")
+}
+
+func (a *App) inlayHintHoverPopup(c ui.C) {
+	st := &a.semantics.inlayHover
+	if !st.open || !a.editorPreferences.InlayHints {
+		return
+	}
+	p, d := a.currentSemanticDocument(st.documentID)
+	if d == nil || p != a.project || d.view.Revision() != st.revision || st.hintIndex < 0 || st.hintIndex >= len(d.inlay.hints) {
+		*st = inlayHintHoverState{}
+		return
+	}
+	hint := d.inlay.hints[st.hintIndex]
+	tooltip := ""
+	if hint.Tooltip != nil {
+		tooltip = truncateDisplayText(*hint.Tooltip, 260)
+	}
+	hasEdits := len(hint.TextEdits) > 0 && !d.view.ReadOnly()
+	if tooltip == "" && !hasEdits {
+		return
+	}
+	bounds := c.Bounds()
+	width := float32(300)
+	if tooltip == "" {
+		width = 180
+	}
+	height := float32(40)
+	if tooltip != "" && hasEdits {
+		height = 68
+	} else if tooltip != "" && utf8.RuneCountInString(tooltip) > 42 {
+		height = 56
+	}
+	x, y := popupOrigin(st.anchor.X, st.anchor.Y+st.anchor.Height+2, width, bounds)
+	st.rect = gfx.Rect{X: x, Y: y, Width: width, Height: height}
+	lang := a.language()
+	label := i18n.Shared(lang, "desktop.semantics.inlayHintTooltip")
+	applyClicked := false
+	ui.Stack(c.Part("inlay-hover-layer")).Fill().Children(func() {
+		hc := c.Part("inlay-hover-card")
+		ui.Column(hc).Absolute().Left(x).Top(y).Width(width).Pad(8).Gap(6).
+			Background(a.theme.Popover).Border(1, a.theme.Border).
+			Radius(a.theme.Metrics.RadiusPopup()).Shadow(gfx.ShadowMD).
+			HitWith(ui.ID(hc), label, gfx.HitOptions{Role: gfx.RoleGroup, SkipFocus: true}).
+			Children(func() {
+				if tooltip != "" {
+					ui.Wrap(hc, tooltip).FontSize(11.5).Color(a.colors.Text)
+				}
+				if hasEdits {
+					btnLabel := i18n.Shared(lang, "desktop.semantics.inlayHintApply")
+					bc := hc.Part("apply-inlay-edit")
+					btn := ui.Row(bc).Height(22).PadX(8).Center().Radius(4).
+						Background(a.colors.Active).
+						HitWith(ui.ID(bc), btnLabel, gfx.HitOptions{Role: gfx.RoleButton, SkipFocus: true, Cursor: gfx.PointerCursorHand}).
+						Hover(ui.Look{}.Background(a.colors.Hover))
+					btn.Children(func() {
+						ui.Text(bc, btnLabel).FontSize(11.5).Color(a.colors.Text)
+					})
+					if btn.Clicked() {
+						applyClicked = true
+					}
+				}
+			})
+	})
+	if applyClicked {
+		idx := st.hintIndex
+		c.After(func() { a.applyInlayHintEdits(p, d, idx) })
+	}
+}

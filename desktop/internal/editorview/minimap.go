@@ -214,7 +214,7 @@ func (v *View) lineRowEnd(line int) int {
 		return line + 1
 	}
 	v.ensureRows()
-	return int(v.rowStart[min(max(line, 0), len(v.wraps)-1)+1])
+	return v.rowStartForLine(min(max(line, 0), len(v.wraps)-1) + 1)
 }
 
 // buildMinimap makes the bars of rows first to last at cols columns, unless the ones kept are
@@ -261,8 +261,12 @@ func (v *View) markRows(first, last, cols int) {
 	line, sub := v.rowLine(first)
 	row := first
 	for row <= last && line < v.text.LineCount() {
+		if v.fold.hides(line) {
+			line, _ = v.rowLine(row)
+		}
 		l := v.ref(line)
 		rows := v.minimapRows(l)
+		hints := v.lineInlayHints(line)
 		v.mm.tokens = v.hl.Line(v.mm.tokens[:0], line)
 		for k := sub; k < len(rows) && row <= last; k++ {
 			end := l.size
@@ -271,7 +275,7 @@ func (v *View) markRows(first, last, cols int) {
 			}
 			// A row shows its first cols columns, so of a long line only those are read.
 			p := v.part(l, rows[k], end, rows[k].cells, rows[k].cells+cols)
-			v.markRow(p.text, p.base, p.row, end, int32(row), cols)
+			v.markRow(p.text, p.base, p.row, end, int32(row), cols, hints)
 			row++
 		}
 		line, sub = line+1, 0
@@ -285,7 +289,13 @@ func (v *View) minimapRows(l lineRef) []wrapRow {
 	if v.fold.hides(l.line) {
 		return nil
 	}
-	if !v.wrapping() || l.size*tabSize <= v.wrapCols {
+	if !v.wrapping() {
+		return oneRow
+	}
+	if len(v.lineInlayHints(l.line)) > 0 {
+		return v.rowsOf(l)
+	}
+	if l.size*tabSize <= v.wrapCols {
 		return oneRow
 	}
 	if rows, ok := v.rowCache[l.line]; ok {
@@ -304,7 +314,7 @@ func (v *View) minimapRows(l lineRef) []wrapRow {
 // at or after base, the same number of columns into the line as the row the view lays out. A run of characters of one color is one bar, and spaces, tabs and
 // control characters leave gaps. A wrapped row starts at the minimap's left edge, as it does in
 // the view; columns past cols are left out. The tokens of the line are in v.mm.tokens.
-func (v *View) markRow(text string, base int, row wrapRow, end int, at int32, cols int) {
+func (v *View) markRow(text string, base int, row wrapRow, end int, at int32, cols int, hints []preparedInlayHint) {
 	tokens := v.mm.tokens
 	token := max(sort.Search(len(tokens), func(i int) bool { return int(tokens[i].Start) > row.at })-1, 0)
 	colored := -1
@@ -312,8 +322,15 @@ func (v *View) markRow(text string, base int, row wrapRow, end int, at int32, co
 	// mark is the bar being made longer, -1 after a gap.
 	mark := -1
 	cells := row.cells
+	for len(hints) > 0 && hints[0].byteCol < row.at {
+		hints = hints[1:]
+	}
 	for i, r := range text[row.at-base : min(end-base, len(text))] {
 		i += row.at
+		for len(hints) > 0 && hints[0].byteCol == i {
+			cells = hints[0].cell + hints[0].cells
+			hints = hints[1:]
+		}
 		w := runeCells(r, cells)
 		col := cells - row.cells
 		cells += w

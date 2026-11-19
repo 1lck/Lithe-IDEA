@@ -19,9 +19,10 @@ const (
 // LineIcon is an icon drawn in the gutter of one zero-based line, in the zero-based slot (column)
 // of the icon area. A slot should be used densely: slots 0 to n-1 with no gap.
 type LineIcon struct {
-	Line int
-	Slot int
-	Icon gfx.Icon
+	Line  int
+	Slot  int
+	Icon  gfx.Icon
+	Color gfx.Color
 }
 
 // SetLineIcons replaces the icons of the gutter. The first icon of a line and slot wins; the slice is
@@ -54,11 +55,14 @@ func (v *View) lineIconColumn() float32 {
 
 // paintLineIcons draws the icons of the lines firstLine to lastLine, centered in their rows.
 func (v *View) paintLineIcons(canvas *gfx.Canvas, area gfx.Rect, look Look, firstLine, lastLine int) {
-	color := look.Subtle
 	side := min(v.lineH-2, lineIconSize)
 	for _, icon := range v.gutter.icons {
 		if icon.Line < firstLine || icon.Line > lastLine || icon.Line >= v.text.LineCount() {
 			continue
+		}
+		color := icon.Color
+		if color.Alpha == 0 {
+			color = look.Subtle
 		}
 		top := area.Y + float32(v.lineRow(icon.Line))*v.lineH - v.scroll
 		x := v.iconX + float32(icon.Slot)*lineIconWidth

@@ -4,6 +4,7 @@ import (
 	"context"
 
 	"github.com/1lck/Lithe-IDEA/desktop/internal/core"
+	"github.com/1lck/Lithe-IDEA/desktop/internal/i18n"
 )
 
 // The editor's own language requests: the outline's document symbols and the semantic
@@ -89,6 +90,32 @@ func (a *App) applyEditorEvent(pending *semanticPending, event core.BackendEvent
 		a.applyServerDocumentLinks(pending, event, failed)
 	case pluginSemanticWorkspaceSymbols:
 		a.applyWorkspaceSymbols(pending, event, failed)
+	case pluginSemanticInlayHints:
+		a.applyServerInlayHints(pending, event, failed)
+	case pluginSemanticResolveInlayHint:
+		a.applyResolvedInlayHint(pending, event, failed)
+	case pluginSemanticSignatureHelp:
+		if !failed {
+			a.applySemanticSignatureHelp(pending, event)
+		}
+	case pluginSemanticCodeActions:
+		if failed {
+			a.closeSemanticCodeActions()
+			a.notifyError(i18n.Shared(a.language(), "desktop.semantics.codeActionFailed"))
+		} else {
+			a.applySemanticCodeActions(pending, event)
+		}
+	case pluginSemanticResolveCodeAction:
+		if failed {
+			a.closeSemanticCodeActions()
+			a.notifyError(i18n.Shared(a.language(), "desktop.semantics.codeActionFailed"))
+		} else {
+			a.applySemanticResolveCodeAction(pending, event)
+		}
+	case pluginSemanticExecuteCommand:
+		if failed {
+			a.notifyError(i18n.Shared(a.language(), "desktop.semantics.codeActionFailed"))
+		}
 	default:
 		return false
 	}

@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"runtime"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -98,6 +99,18 @@ type semanticKind string
 
 func (k semanticKind) method() string {
 	switch k {
+	case pluginSemanticCodeActions:
+		return pluginMethodCodeActions
+	case pluginSemanticResolveCodeAction:
+		return pluginMethodResolveCodeAction
+	case pluginSemanticExecuteCommand:
+		return pluginMethodExecuteCommand
+	case pluginSemanticSignatureHelp:
+		return pluginMethodSignatureHelp
+	case pluginSemanticInlayHints:
+		return pluginMethodInlayHints
+	case pluginSemanticResolveInlayHint:
+		return pluginMethodResolveInlayHint
 	case pluginSemanticDefinition:
 		return pluginMethodDefinition
 	case pluginSemanticHover:
@@ -156,6 +169,13 @@ type semanticPending struct {
 	usages bool
 }
 
+type earlySemanticResult struct {
+	server *pluginServer
+	event  core.BackendEvent
+}
+
+const maxEarlySemanticResults = 32
+
 // completionState is the explicit completion popup.
 type completionState struct {
 	open         bool
@@ -197,6 +217,7 @@ type hoverState struct {
 	// the symbol and the popup.
 	fromPointer bool
 	page        *hoverPage
+	quickFix    *core.PluginDocumentRange
 }
 
 // hoverCandidate is the symbol under the resting pointer. It stays after its hover was asked for,
@@ -219,17 +240,28 @@ type pluginSemantics struct {
 	documentID int
 	generation uint64
 	pending    []*semanticPending
+	// A result may reach the window before the submission acknowledgement.
+	// IDs keep those answers apart from requests for the same document and method.
+	early []earlySemanticResult
 	// deferred starts the user's request once the document's pending changes
 	// have reached Core, so a definition never asks about stale text.
 	deferred   func(*App)
 	completion completionState
 	// merge is the explicit completion whose language-server and provider answers are pending.
-	merge      *completionMergeJoin
-	definition definitionState
-	hover      hoverState
-	rename     renameState
-	candidate  hoverCandidate
-	hoverDelay time.Duration
+	merge         *completionMergeJoin
+	definition    definitionState
+	hover         hoverState
+	codeActions   codeActionsState
+	signatureHelp signatureHelpState
+	sigCancel     context.CancelFunc
+	sigDelay      time.Duration
+	sigGeneration uint64
+	sigDeferred   func(*App)
+	inlayHover    inlayHintHoverState
+	inlayDelay    time.Duration
+	rename        renameState
+	candidate     hoverCandidate
+	hoverDelay    time.Duration
 	// hoverHideDelay overrides semanticHoverHideDelay; hideCancel ends the pending close of a
 	// pointer hover and hideToken names the newest one, so an older wait that fired is ignored.
 	hoverHideDelay time.Duration
@@ -276,11 +308,21 @@ func (a *App) pluginSemanticsKey(event gfx.KeyEvent) gfx.EventResult {
 	if event.Release {
 		return gfx.EventResult{}
 	}
+	if a.semantics.codeActions.open {
+		return a.codeActionsKey(event)
+	}
 	if a.semantics.completion.open {
 		return a.completionKey(event)
 	}
 	if a.semantics.definition.open {
 		return a.definitionKey(event)
+	}
+	if result := a.signatureHelpKey(event); result.Handled {
+		return result
+	}
+	if a.semantics.inlayHover.open && event.Key == gfx.KeyEscape {
+		a.semantics.inlayHover = inlayHintHoverState{}
+		return gfx.EventResult{Handled: true, Repaint: true}
 	}
 	if a.semantics.hover.open && event.Key == gfx.KeyEscape {
 		a.leaveSemanticHover()
@@ -407,6 +449,12 @@ func (a *App) pluginSemanticsTrigger(event gfx.KeyEvent, p *project, d *document
 // trigger. A platform may deliver it as a shortcut text without the key code,
 // so the space text is accepted as well as KeySpace.
 func (a *App) pluginSemanticsShortcut(event gfx.KeyEvent) gfx.EventResult {
+	if result := a.codeActionsShortcut(event); result.Handled {
+		return result
+	}
+	if result := a.signatureHelpShortcut(event); result.Handled {
+		return result
+	}
 	if result := a.pluginEditShortcut(event); result.Handled {
 		return result
 	}
@@ -449,7 +497,7 @@ func (a *App) declarationShortcut(event gfx.KeyEvent) gfx.EventResult {
 func (a *App) pluginSemanticsPointer(event gfx.PointerEvent, p *project, d *document, view *editorview.View) (gfx.EventResult, bool) {
 	switch event.Kind {
 	case gfx.PointerDown:
-		if a.semantics.completion.open || a.semantics.definition.open || a.semantics.hover.open {
+		if a.semantics.codeActions.open || a.semantics.completion.open || a.semantics.definition.open || a.semantics.hover.open {
 			a.closePluginSemantics()
 		}
 		if d == nil || event.Button != gfx.PointerButtonPrimary {
@@ -469,7 +517,7 @@ func (a *App) pluginSemanticsPointer(event gfx.PointerEvent, p *project, d *docu
 		a.startPluginDefinition(p, d, line, column, false)
 		return gfx.EventResult{Handled: true, Repaint: true}, true
 	case gfx.PointerMove:
-		if a.semantics.completion.open || a.semantics.definition.open {
+		if a.semantics.codeActions.open || a.semantics.completion.open || a.semantics.definition.open {
 			return gfx.EventResult{}, false
 		}
 		if d == nil {
@@ -592,6 +640,17 @@ func (a *App) startPluginHover(p *project, d *document, line, column int, anchor
 	}
 	a.closeSemanticCompletion()
 	a.closeSemanticDefinition()
+	if diag, ok := a.diagnosticAt(d, line, column); ok && !d.view.ReadOnly() {
+		span := core.PluginDocumentRange{
+			Start: core.PluginDocumentPosition{Line: diag.Range.Start.Line, UTF16Column: diag.Range.Start.UTF16Column},
+			End:   core.PluginDocumentPosition{Line: diag.Range.End.Line, UTF16Column: diag.Range.End.UTF16Column},
+		}
+		a.cancelSemanticKind(pluginSemanticHover)
+		a.semantics.project, a.semantics.documentID = p, d.id
+		a.showSemanticHover(p, d, diag.Message, false, line, column, &span, anchor, fromPointer)
+		a.semantics.hover.quickFix = &span
+		return
+	}
 	if !a.semanticDocumentReady(d) {
 		a.deferSemantic(p, d, func(a *App) {
 			a.startPluginHover(p, d, line, column, anchor, fromPointer, requireCaret)
@@ -755,6 +814,12 @@ func (a *App) applyServerFeatures(server *pluginServer, event core.BackendEvent)
 	if event.CompletionOptions != nil {
 		server.completionTriggers = event.CompletionOptions.TriggerCharacters
 	}
+	server.signatureHelpTriggers = nil
+	server.signatureHelpRetriggers = nil
+	if options := event.SignatureHelpOptions; options != nil {
+		server.signatureHelpTriggers = options.TriggerCharacters
+		server.signatureHelpRetriggers = options.RetriggerCharacters
+	}
 	// The features arrive after the documents opened: ask for the colors now.
 	a.semanticTokensResume()
 }
@@ -865,10 +930,10 @@ func (a *App) submitSemantic(pending *semanticPending, request core.PluginSemant
 	})
 }
 
-// semanticRequestStarted records Core's operation ID. An answer may have
-// arrived before this hand-off; that answer settled the pending request and the
-// late ID is cancelled instead of leaving a pending server operation.
+// semanticRequestStarted binds Core's operation ID to the submitted request.
+// If an answer arrived first, only this ID's result can settle the request.
 func (a *App) semanticRequestStarted(pending *semanticPending, operation string, err, ctxErr error) {
+	result, received := a.takeEarlySemanticResult(pending.server, operation)
 	if !a.hasPending(pending) {
 		if operation != "" {
 			a.cancelSemanticOperation(pending, operation)
@@ -889,10 +954,19 @@ func (a *App) semanticRequestStarted(pending *semanticPending, operation string,
 		// tell the user, the others go without.
 		if pending.kind.toldToUser() {
 			a.operationFailed("plugin_semantics", err)
-			a.semanticOperationFailed(pending.kind)
+			if !a.applyEditorEvent(pending, core.BackendEvent{}, true) {
+				a.semanticOperationFailed(pending.kind)
+			}
 		} else {
 			a.backgroundFailed("plugin_semantics", err)
+			if pending.kind == pluginSemanticInlayHints || pending.kind == pluginSemanticResolveInlayHint {
+				a.applyEditorEvent(pending, core.BackendEvent{}, true)
+			}
 		}
+		return
+	}
+	if received {
+		a.applyPluginSemanticEvent(pending.server, result)
 	}
 }
 
@@ -903,8 +977,7 @@ func (a *App) applyPluginSemanticEvent(server *pluginServer, event core.BackendE
 	}
 	pending := a.matchPending(server, event)
 	if pending == nil {
-		// A late answer from a cancelled or replaced request. Core already
-		// dropped operations it timed out; nothing may reopen a popup.
+		a.queueEarlySemanticResult(server, event)
 		return
 	}
 	a.removePending(pending)
@@ -938,20 +1011,41 @@ func (a *App) applyPluginSemanticEvent(server *pluginServer, event core.BackendE
 }
 
 func (a *App) matchPending(server *pluginServer, event core.BackendEvent) *semanticPending {
-	if event.OperationID != "" {
-		for _, pending := range a.semantics.pending {
-			if pending.server == server && pending.operation == event.OperationID {
-				return pending
-			}
-		}
-	}
 	for _, pending := range a.semantics.pending {
-		if pending.server == server && pending.kind.method() == event.Method &&
-			(pending.operation == "" || pending.operation == event.OperationID) {
+		if pending.server == server && pending.operation != "" && pending.operation == event.OperationID {
 			return pending
 		}
 	}
 	return nil
+}
+
+func (a *App) queueEarlySemanticResult(server *pluginServer, event core.BackendEvent) {
+	if event.OperationID == "" {
+		return
+	}
+	for _, pending := range a.semantics.pending {
+		if pending.server != server || pending.operation != "" || pending.kind.method() != event.Method ||
+			(event.URI != "" && event.URI != pending.uri) {
+			continue
+		}
+		early := &a.semantics.early
+		if len(*early) == maxEarlySemanticResults {
+			*early = slices.Delete(*early, 0, 1)
+		}
+		*early = append(*early, earlySemanticResult{server: server, event: event})
+		return
+	}
+}
+
+func (a *App) takeEarlySemanticResult(server *pluginServer, operation string) (core.BackendEvent, bool) {
+	early := &a.semantics.early
+	for i, result := range *early {
+		if result.server == server && result.event.OperationID == operation {
+			*early = slices.Delete(*early, i, i+1)
+			return result.event, true
+		}
+	}
+	return core.BackendEvent{}, false
 }
 
 func (a *App) applySemanticDefinition(pending *semanticPending, event core.BackendEvent) {
@@ -1458,8 +1552,7 @@ func (a *App) resumeDeferredSemantics() {
 	// The outline waits for the synchronization too, and asks again on the next frame.
 	a.invalidator.Invalidate()
 	a.semanticTokensResume()
-	run := a.semantics.deferred
-	if run == nil {
+	if a.semantics.deferred == nil && a.semantics.sigDeferred == nil {
 		return
 	}
 	p, d := a.currentSemanticDocument(a.semantics.documentID)
@@ -1470,8 +1563,14 @@ func (a *App) resumeDeferredSemantics() {
 	if !ok || !server.isReady() {
 		return
 	}
-	a.semantics.deferred = nil
-	run(a)
+	run, sigRun := a.semantics.deferred, a.semantics.sigDeferred
+	a.semantics.deferred, a.semantics.sigDeferred = nil, nil
+	if run != nil {
+		run(a)
+	}
+	if sigRun != nil {
+		sigRun(a)
+	}
 }
 
 func (a *App) pointPluginHover(p *project, d *document, line, column int, anchor gfx.Rect) {
@@ -1524,6 +1623,14 @@ func (a *App) pluginSemanticsCaretSync() {
 	if state.project == nil || a.project != state.project {
 		return
 	}
+	a.syncSignatureHelpCaret()
+	if state.codeActions.open {
+		p, d := a.currentSemanticDocument(state.codeActions.documentID)
+		if d == nil || p != a.project || d.view.Revision() != state.codeActions.revision || d.caretView().IsComposing() {
+			a.closeSemanticCodeActions()
+			a.cancelSemanticKind(pluginSemanticResolveCodeAction)
+		}
+	}
 	if state.completion.open {
 		p, d := a.currentSemanticDocument(state.completion.documentID)
 		if d == nil || p != a.project {
@@ -1559,6 +1666,9 @@ func (a *App) pluginSemanticsCaretSync() {
 // pluginSemanticsScrolled closes popups whose screen position the scroll moved. A hover still
 // waiting would open at the place its character scrolled away from.
 func (a *App) pluginSemanticsScrolled(_ *document) {
+	a.semantics.inlayHover = inlayHintHoverState{}
+	a.closeSemanticCodeActions()
+	a.cancelSemanticKind(pluginSemanticResolveCodeAction)
 	a.leaveSemanticHover()
 	a.closeSemanticCompletion()
 	a.closeSemanticDefinition()
@@ -1569,11 +1679,13 @@ func (a *App) pluginSemanticsScrolled(_ *document) {
 func (a *App) pluginSemanticsEdited(d *document) {
 	if p := a.project; p != nil && d != nil {
 		a.semanticTokensEdited(p, d)
+		a.clearDocumentInlayHints(d)
 	}
 	if d == nil || a.semantics.documentID != d.id {
 		return
 	}
-	a.closePluginSemantics()
+	// Keep the previous signature answer while the typing hook refreshes it.
+	a.closePositionSemantics()
 }
 
 // pluginSemanticsDocumentClosed drops state that belonged to a closed tab.
@@ -1593,6 +1705,7 @@ func (a *App) pluginSemanticsReset() {
 	a.closePluginSemantics()
 	a.cancelSemanticKind(pluginSemanticRename)
 	a.semantics.rename = renameState{}
+	a.semantics.early = nil
 	a.semantics.deferred = nil
 	a.semantics.project = nil
 	a.semantics.documentID = 0
@@ -1602,6 +1715,16 @@ func (a *App) pluginSemanticsReset() {
 }
 
 func (a *App) closePluginSemantics() {
+	a.closeSemanticSignatureHelp()
+	a.cancelSemanticKind(pluginSemanticExecuteCommand)
+	a.closePositionSemantics()
+}
+
+func (a *App) closePositionSemantics() {
+	a.closeSemanticCodeActions()
+	a.semantics.inlayHover = inlayHintHoverState{}
+	a.cancelSemanticKind(pluginSemanticCodeActions)
+	a.cancelSemanticKind(pluginSemanticResolveCodeAction)
 	a.cancelContentOpen()
 	a.closeSemanticCompletion()
 	a.closeSemanticDefinition()
@@ -1723,7 +1846,8 @@ func (a *App) logSemanticError(kind semanticKind, raw json.RawMessage) {
 // hover, completion or location, and the failure is a background one.
 func (k semanticKind) toldToUser() bool {
 	switch k {
-	case pluginSemanticFormatting, pluginSemanticRangeFormatting, pluginSemanticRename:
+	case pluginSemanticFormatting, pluginSemanticRangeFormatting, pluginSemanticRename,
+		pluginSemanticCodeActions, pluginSemanticResolveCodeAction, pluginSemanticExecuteCommand:
 		return true
 	}
 	return false

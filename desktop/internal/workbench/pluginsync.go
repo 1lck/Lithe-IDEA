@@ -91,6 +91,7 @@ func (a *App) documentEdited(p *project, d *document, edit editorview.Edit) {
 	// Keeping it after an edit would apply or jump from stale positions.
 	a.pluginSemanticsEdited(d)
 	a.scheduleAutoCompletion(p, d, edit)
+	a.scheduleAutoSignatureHelp(p, d, edit)
 	s := &d.sync
 	if s.full || len(s.pending) >= maxPendingDocumentChanges {
 		s.full, s.pending = true, nil
@@ -226,6 +227,8 @@ func (a *App) finishDocumentChange(p *project, d *document, generation uint64, r
 	if a.project != p || p.docs.byPath(d.path) != d || s.generation != generation {
 		return
 	}
+	server, _ := a.documentSyncServer(d)
+	defer a.resumeCodeActionCommand(server)
 	s.running = false
 	if err != nil {
 		a.reportDocumentSyncFailure("plugin_document_change", ctxErr, err)
@@ -290,6 +293,7 @@ func (a *App) closeDocumentInSession(p *project, d *document) {
 	server, pluginID := a.documentSyncServer(d)
 	uri, opened := s.uri, s.opened && s.pluginID == pluginID
 	s.reset()
+	a.resumeCodeActionCommand(server)
 	if !opened || server == nil || uri == "" {
 		return
 	}
@@ -314,6 +318,7 @@ func (a *App) releasePluginDocuments(pluginID string) {
 	a.semanticTokensReleased(pluginID)
 	for _, d := range a.project.docs.list {
 		if d.sync.pluginID == pluginID {
+			a.clearDocumentInlayHints(d)
 			d.sync.reset()
 		}
 	}
@@ -328,6 +333,7 @@ func (a *App) releaseAllPluginDocuments() {
 	a.pluginSemanticsReset()
 	a.semanticTokensReleased("")
 	for _, d := range a.project.docs.list {
+		a.clearDocumentInlayHints(d)
 		d.sync.reset()
 	}
 }

@@ -70,6 +70,7 @@ func (v *View) ApplyPreparedEdit(prepared PreparedEdit) bool {
 	}
 	v.redo = v.redo[:0]
 	v.extra = nil
+	v.ClearInlayHints()
 	v.text = prepared.after
 	v.widest = prepared.widest
 	v.revision++

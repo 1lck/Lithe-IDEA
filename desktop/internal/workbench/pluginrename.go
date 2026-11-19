@@ -44,10 +44,12 @@ type renameState struct {
 // renameOpenDocument is one open editor document captured on the window thread
 // for a workspace edit.
 type renameOpenDocument struct {
-	id       int
-	revision int
-	text     rope.Rope
-	caret    int
+	id          int
+	revision    int
+	text        rope.Rope
+	caret       int
+	isReadOnly  bool
+	isComposing bool
 }
 
 // renameClosedWrite is one closed file's before and after bytes.
@@ -199,7 +201,7 @@ func (a *App) applyWorkspaceChanges(p *project, changes map[string][]core.Plugin
 	for _, d := range p.docs.list {
 		line, column := d.view.CaretUTF16()
 		caret, _ := d.view.ByteOffset(line, column)
-		open[d.path] = renameOpenDocument{id: d.id, revision: d.view.Revision(), text: d.view.TextSnapshot(), caret: caret}
+		open[d.path] = renameOpenDocument{id: d.id, revision: d.view.Revision(), text: d.view.TextSnapshot(), caret: caret, isReadOnly: d.view.ReadOnly(), isComposing: d.caretView().IsComposing()}
 	}
 	write := a.documentWriter
 	root := p.root
@@ -240,6 +242,17 @@ func (a *App) applyWorkspaceChanges(p *project, changes map[string][]core.Plugin
 // order. A failed write restores the files already written in reverse order and
 // returns the failure, leaving open documents untouched.
 func (a *App) commitWorkspaceEdit(ctx context.Context, root string, changes map[string][]core.PluginTextEdit, openByPath map[string]renameOpenDocument, write func(string, []byte, []byte) error) (int, []renameDocumentUpdate, error) {
+	writes, updates, err := a.prepareWorkspaceEdit(ctx, root, changes, openByPath)
+	if err != nil {
+		return 0, nil, err
+	}
+	if err := writeWorkspaceEdit(ctx, writes, write); err != nil {
+		return 0, nil, err
+	}
+	return len(writes), updates, nil
+}
+
+func (a *App) prepareWorkspaceEdit(ctx context.Context, root string, changes map[string][]core.PluginTextEdit, openByPath map[string]renameOpenDocument) ([]renameClosedWrite, []renameDocumentUpdate, error) {
 	// A language server may name a file by its real path or by the path it was
 	// given, so the workspace root, the open documents and the targets are all
 	// compared by real path; otherwise a project opened through a symbolic link
@@ -265,10 +278,10 @@ func (a *App) commitWorkspaceEdit(ctx context.Context, root string, changes map[
 	}
 	plan, err := a.kernel.PlanPluginWorkspaceEdit(ctx, root, resolved, list)
 	if err != nil {
-		return 0, nil, err
+		return nil, nil, err
 	}
 	if plan.Rejection != nil {
-		return 0, nil, fmt.Errorf("%w: %s", errRenameRejected, plan.Rejection.Code)
+		return nil, nil, fmt.Errorf("%w: %s", errRenameRejected, plan.Rejection.Code)
 	}
 	var writes []renameClosedWrite
 	var updates []renameDocumentUpdate
@@ -277,40 +290,58 @@ func (a *App) commitWorkspaceEdit(ctx context.Context, root string, changes map[
 		case "writeFile":
 			data, err := readDocument(target.Path)
 			if err != nil {
-				return 0, nil, err
+				return nil, nil, err
 			}
 			text, err := a.kernel.ApplyPluginTextEdits(ctx, string(data), target.Edits)
 			if err != nil {
-				return 0, nil, err
+				return nil, nil, err
 			}
 			writes = append(writes, renameClosedWrite{path: target.Path, before: data, after: []byte(text)})
 		case "updateDocument":
 			snapshot, ok := open[target.Path]
 			if !ok {
-				return 0, nil, errors.New("workspace edit names an open document the editor does not hold")
+				return nil, nil, errors.New("workspace edit names an open document the editor does not hold")
+			}
+			if snapshot.isReadOnly || snapshot.isComposing {
+				return nil, nil, errRenameRejected
 			}
 			text, err := a.kernel.ApplyPluginTextEdits(ctx, snapshot.text.String(), target.Edits)
 			if err != nil {
-				return 0, nil, err
+				return nil, nil, err
 			}
 			updates = append(updates, renameDocumentUpdate{
 				id: snapshot.id, revision: snapshot.revision,
 				change: preparedTextChange(snapshot.text, text, snapshot.caret),
 			})
 		default:
-			return 0, nil, errors.New("workspace edit plan has an unknown effect")
+			return nil, nil, errors.New("workspace edit plan has an unknown effect")
 		}
 	}
+	return writes, updates, nil
+}
+
+func writeWorkspaceEdit(ctx context.Context, writes []renameClosedWrite, write func(string, []byte, []byte) error) error {
 	for i, w := range writes {
+		if err := ctx.Err(); err != nil {
+			return errors.Join(err, restoreWorkspaceEdit(writes[:i], write))
+		}
 		if err := write(w.path, w.after, w.before); err != nil {
-			failure := err
-			for j := i - 1; j >= 0; j-- {
-				if restoreErr := write(writes[j].path, writes[j].before, writes[j].after); restoreErr != nil {
-					failure = errors.Join(failure, restoreErr)
-				}
-			}
-			return 0, nil, failure
+			return errors.Join(err, restoreWorkspaceEdit(writes[:i], write))
 		}
 	}
-	return len(writes), updates, nil
+	if err := ctx.Err(); err != nil {
+		return errors.Join(err, restoreWorkspaceEdit(writes, write))
+	}
+	return nil
+}
+
+func restoreWorkspaceEdit(writes []renameClosedWrite, write func(string, []byte, []byte) error) error {
+	var failure error
+	for i := len(writes) - 1; i >= 0; i-- {
+		w := writes[i]
+		if err := write(w.path, w.before, w.after); err != nil {
+			failure = errors.Join(failure, err)
+		}
+	}
+	return failure
 }

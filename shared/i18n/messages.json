@@ -108610,6 +108610,164 @@
       ]
     },
     {
+      "id": "desktop.editorPrefs.inlayHints",
+      "description": "IDE editor essentials: editorPrefs.inlayHints",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.editorPrefs.inlayHintsHelp",
+      "description": "IDE editor essentials: editorPrefs.inlayHintsHelp",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.editorMenu.codeActions",
+      "description": "Editor context menu: open code actions popup",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.editorMenu.parameterInfo",
+      "description": "Editor context menu: invoke parameter signature help",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.semantics.codeActions",
+      "description": "Code actions popup accessibility label and title",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.semantics.noCodeActions",
+      "description": "Shown when the language server returns no code actions at the caret",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.semantics.codeActionQuickFix",
+      "description": "Group badge for quickfix code actions",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.semantics.codeActionRefactor",
+      "description": "Group badge for refactor code actions",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.semantics.codeActionSource",
+      "description": "Group badge for source code actions",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.semantics.codeActionOther",
+      "description": "Group badge for uncategorized code actions",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.semantics.codeActionPreferred",
+      "description": "Badge marking a preferred code action",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.semantics.codeActionFailed",
+      "description": "Error shown when applying a code action fails",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.semantics.codeActionRejected",
+      "description": "Error shown when a code action workspace edit targets outside or read-only files",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.semantics.codeActionPartial",
+      "description": "Error shown when open documents changed before a code action finished applying",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.semantics.quickFixButton",
+      "description": "Diagnostic hover quick fix button label",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.semantics.signatureHelp",
+      "description": "Signature help floating card accessibility label",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.semantics.noSignatureHelp",
+      "description": "Shown when explicit signature help finds no active call signature",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.semantics.signatureOverload",
+      "description": "Overload counter in signature help",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "current": "string",
+        "total": "string"
+      }
+    },
+    {
+      "id": "desktop.semantics.signaturePrevious",
+      "description": "Previous signature overload button label",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.semantics.signatureNext",
+      "description": "Next signature overload button label",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.semantics.inlayHintApply",
+      "description": "Button label to apply an inlay hint's attached text edits",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.semantics.inlayHintTooltip",
+      "description": "Inlay hint tooltip popover accessibility label",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
       "id": "desktop.editorPrefs.cursorStyle",
       "description": "IDE editor essentials: editorPrefs.cursorStyle",
       "platforms": [

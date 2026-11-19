@@ -72,6 +72,7 @@ func (a *App) applyPluginDiagnostics(pluginID string, event core.PluginDiagnosti
 		a.backgroundFailed("plugin_diagnostics", err)
 		return
 	}
+	a.storeRawPluginDiagnostics(pluginID, fileKey, event.Diagnostics)
 	a.refreshDocumentMarkers(fileKey)
 	a.markProblemsChanged()
 }
@@ -137,6 +138,7 @@ func markerSeverity(severity plugindiag.Severity) editorview.MarkerSeverity {
 // clearPluginDiagnostics withdraws everything one plugin's server published.
 // Other plugins' diagnostics for the same files stay.
 func (a *App) clearPluginDiagnostics(pluginID string) {
+	a.clearRawPluginDiagnostics(pluginID)
 	if a.pluginDiagnostics == nil {
 		return
 	}
@@ -154,6 +156,7 @@ func (a *App) clearPluginDiagnostics(pluginID string) {
 // clearPluginFileDiagnostics withdraws one plugin's diagnostics for one file,
 // which is what closing the document in its session means for the Problems list.
 func (a *App) clearPluginFileDiagnostics(pluginID, fileKey string) {
+	a.clearRawPluginFileDiagnostics(pluginID, fileKey)
 	if a.pluginDiagnostics == nil || fileKey == "" {
 		return
 	}
@@ -169,6 +172,7 @@ func (a *App) clearPluginFileDiagnostics(pluginID, fileKey string) {
 // clearAllPluginDiagnostics drops every server's diagnostics, for a project
 // switch or close.
 func (a *App) clearAllPluginDiagnostics() {
+	a.clearAllRawPluginDiagnostics()
 	if a.pluginDiagnostics == nil {
 		return
 	}
