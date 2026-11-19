@@ -26,11 +26,10 @@ const everywhereScopeActions = 4
 // All tab lists (each can be filtered out).
 const everywhereScopeCount = 6
 
-var everywhereKinds = []string{"file", "type", "symbol"}
+var everywhereKinds = []string{"file", "type", "symbol", "content"}
 
 const (
 	everywherePageSize   = 50
-	everywhereMaxResults = 500
 	everywhereDebounce   = 180 * time.Millisecond
 	everywhereFileHeight = 24
 	everywhereTextHeight = 40
@@ -221,7 +220,8 @@ func (a *App) updateEverywhere(p *project, query string, scope int) {
 	s.request = core.EverywhereSearchRequest{Root: p.root, Query: query, PageSize: everywherePageSize, ResultKinds: kinds,
 		IncludeGeneratedFileNames: scope != 5, Context: &core.EverywhereSearchContext{OpenPaths: openPaths},
 		CaseSensitive: options.matchCase, WholeWords: options.wholeWords, RegularExpression: options.regex,
-		IncludeContentRanges: scope == 5}
+		IncludeContentRanges: scope == 5 || scope == 0, MaxFileBytes: a.searchPreferences.MaxFileBytes,
+	}
 	s.loading = true
 	if !s.watchAttached {
 		a.startEverywhereWatch(p)
@@ -299,8 +299,9 @@ func (a *App) runEverywhere(p *project, next bool) {
 		return
 	}
 	request, generation := s.request, s.generation
+	snapshots := captureSearchText(p)
 	if next {
-		if s.cursor == nil || len(s.matches) >= everywhereMaxResults {
+		if s.cursor == nil {
 			return
 		}
 		request.Cursor = s.cursor
@@ -335,6 +336,9 @@ func (a *App) runEverywhere(p *project, next bool) {
 				}
 			}
 		}
+		if !next {
+			request.TextOverrides = materializeSearchText(snapshots)
+		}
 		operation, done := context.WithTimeout(ctx, searchTimeout)
 		defer done()
 		var err error
@@ -345,7 +349,13 @@ func (a *App) runEverywhere(p *project, next bool) {
 		if err == nil {
 			page, err = kernel.SearchEverywherePage(operation, request)
 		}
-		return func(a *App) { a.finishEverywhere(p, generation, next, page, err, full || len(paths) > 0) }
+		return func(a *App) {
+			if generation == s.generation && err == nil {
+				s.request = request
+				s.request.Cursor = nil
+			}
+			a.finishEverywhere(p, generation, next, page, err, full || len(paths) > 0)
+		}
 	})
 }
 
@@ -410,9 +420,6 @@ func (a *App) finishEverywhere(p *project, generation uint64, next bool, page co
 		}
 	} else {
 		s.matches = page.Matches
-	}
-	if len(s.matches) > everywhereMaxResults {
-		s.matches = s.matches[:everywhereMaxResults]
 	}
 	s.cursor = page.NextCursor
 }

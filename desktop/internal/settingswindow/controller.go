@@ -10,6 +10,7 @@ package settingswindow
 import (
 	"context"
 	"encoding/json"
+	"github.com/1lck/Lithe-IDEA/desktop/internal/searchprefs"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/shortcuts"
 	"sync"
 	"time"
@@ -328,8 +329,15 @@ type CommandInstallTarget struct {
 	Directory string
 }
 
+// SearchPreferencesSource owns a read-only opening and explicit guarded Save with read-back.
+type SearchPreferencesSource interface {
+	Load(context.Context) (searchprefs.Snapshot, error)
+	Save(context.Context, searchprefs.Snapshot, core.StoredSearchPreferences) (searchprefs.Snapshot, error)
+}
+
 // Options configure the settings window.
 type Options struct {
+	SearchPreferences SearchPreferencesSource
 	// PluginInstallsClosed releases downloads retained by the settings session.
 	PluginInstallsClosed func()
 	// GitHub is the account the Version Control page shows and drives; nil hides the card.

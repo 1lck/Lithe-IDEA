@@ -374,6 +374,8 @@ func (w *window) content(c ui.C) {
 			w.debuggersPage(c)
 		case w.sess.page == pageTerminal && w.ctrl.opts.TerminalShells != nil:
 			w.terminalPage(c)
+		case w.sess.page == pageSearch:
+			w.searchPage(c)
 		case w.sess.page == pageAIGeneration:
 			w.generationPage(c)
 		case w.sess.page == pageVersionControl:

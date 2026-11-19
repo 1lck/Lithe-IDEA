@@ -328,9 +328,6 @@ func (a *App) everywhereSymbolsMerge(p *project) {
 		st.lspKeys[key] = true
 		s.matches = append(s.matches, match)
 	}
-	if len(s.matches) > everywhereMaxResults {
-		s.matches = s.matches[:everywhereMaxResults]
-	}
 }
 
 // everywhereMatchOf is the de-duplication key of a match: its path, line and name.

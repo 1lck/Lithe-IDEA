@@ -67,7 +67,21 @@ type documentRead struct {
 // before; a file with a UTF-8 byte order mark, UTF-16 or a legacy encoding is detected and
 // decoded by Core. A file Core cannot decode is refused for the reason readDocument gave.
 func readDocumentEncoded(ctx context.Context, kernel editorKernel, path string) (documentRead, error) {
-	data, err := readDocument(path)
+	return readDocumentEncodedLimit(ctx, kernel, path, 16<<20)
+}
+
+func readDocumentEncodedLimit(ctx context.Context, kernel editorKernel, path string, limit int64) (documentRead, error) {
+	data, err := documentio.ReadFileLimit(path, limit)
+	if err == nil {
+		kind, classifyErr := core.ClassifyDocumentText(data)
+		err = classifyErr
+		if kind == core.DocumentInvalidUTF8 {
+			err = errUnsupportedEncoding
+		}
+		if kind == core.DocumentBinary {
+			err = errNotText
+		}
+	}
 	if err == nil && !bytes.HasPrefix(data, utf8BOM) {
 		return documentRead{text: data}, nil
 	}
@@ -80,7 +94,7 @@ func readDocumentEncoded(ctx context.Context, kernel editorKernel, path string) 
 	raw := data
 	if err != nil {
 		var readErr error
-		if raw, readErr = documentio.ReadFile(path); readErr != nil {
+		if raw, readErr = documentio.ReadFileLimit(path, limit); readErr != nil {
 			return documentRead{}, err
 		}
 	}
@@ -272,7 +286,7 @@ func (d *document) revertEncodingChoice() {
 
 // readRawDocument reads a file's bytes without judging them as text, for a document whose
 // file is compared and decoded through Core.
-func readRawDocument(path string) ([]byte, error) { return documentio.ReadFile(path) }
+func readRawDocument(path string) ([]byte, error) { return documentio.ReadFileLimit(path, 64<<20) }
 
 // decodeExternal is the editor text of bytes read from the file of a document: the bytes
 // themselves for plain UTF-8, or Core's decoding in the encoding the document was opened with.

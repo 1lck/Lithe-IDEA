@@ -21,6 +21,7 @@ func settingsMessages(language Language) SettingsMessages {
 		Debuggers:          Shared(language, "desktop.buildSettings.debuggers"),
 		Languages:          Shared(language, "settings.groups.languages"),
 		Tools:              Shared(language, "settings.groups.tools"),
+		SearchPage:         Shared(language, "desktop.search.settings.title"),
 		AI:                 Shared(language, "native.ai"),
 		AIGeneration:       Shared(language, "desktop.settings.aiGeneration.page"),
 		IDEAPI:             Shared(language, "desktop.ideApi.title"),

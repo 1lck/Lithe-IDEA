@@ -75,6 +75,7 @@ const (
 // window is one open settings window and the model of its Page. Everything in it runs on
 // its window thread, but for the fields that say so.
 type window struct {
+	searchDraft      searchPreferencesDraft
 	editorDelay      ui.Field
 	editorDelayReady bool
 	editorPrefsError string
@@ -475,6 +476,7 @@ func (w *window) collect() {
 	w.terminal.take()
 	w.fonts.take()
 	w.takeKeymapImport()
+	w.takeSearchPreferences()
 	w.commands.take()
 	if w.dynamic.take() {
 		w.rowsValid = false
@@ -509,6 +511,9 @@ func (w *window) reportMarket(previous marketStatus) {
 // of the declaration, so a request made while the page was declared starts in the same
 // paint, and in every paint, so leaving a page does not cancel what it asked for.
 func (w *window) declareWork(c ui.C) {
+	if d := &w.searchDraft; d.effect != nil && d.work != nil {
+		ui.Effect(c, d.effect, d.work)
+	}
 	w.toolchains.declare(c)
 	w.stepping.declare(c)
 	w.terminal.declare(c)

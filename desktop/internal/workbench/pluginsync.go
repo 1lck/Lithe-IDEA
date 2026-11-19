@@ -3,6 +3,7 @@ package workbench
 import (
 	"context"
 	"errors"
+	"strings"
 	"time"
 
 	"github.com/1lck/Lithe-IDEA/desktop/internal/core"
@@ -80,6 +81,16 @@ func (a *App) documentEdited(p *project, d *document, edit editorview.Edit) {
 	a.scheduleEditorActions(p, d)
 	a.checkpointDocument(p, d)
 	a.markRecentlyEdited(p, d)
+	if a.project == p && !d.virtual {
+		if p.search.watchAttached && strings.TrimSpace(p.search.want.text) != "" {
+			query := p.search.want
+			p.search.want = searchQuery{}
+			a.updateProjectSearch(p, query)
+		}
+		if a.everywhereView.open {
+			p.everywhere.query = ""
+		}
+	}
 	if d.scratch {
 		return
 	}

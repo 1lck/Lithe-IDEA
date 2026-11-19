@@ -16,7 +16,7 @@ func ReadFile(path string) (data []byte, err error) {
 // refuses content beyond limit, including bytes added after the size check.
 // It is intended for small native metadata whose limit comes from a Core contract.
 func ReadFileLimit(path string, limit int64) (data []byte, err error) {
-	if limit < 0 || limit > maxBytes {
+	if limit < 0 || limit > maxNativeBytes {
 		return nil, ErrTooLarge
 	}
 	source, info, err := openReadable(path)

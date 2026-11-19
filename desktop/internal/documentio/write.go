@@ -34,6 +34,9 @@ var (
 
 const maxBytes = 16 << 20
 
+// Native allocation guard; feature budgets come from the shared Core policy.
+const maxNativeBytes = 64 << 20
+
 // Locks bound concurrent writes without retaining a per-path lock forever.
 var writeLocks [64]sync.Mutex
 
@@ -146,7 +149,19 @@ func WriteGuarded(path string, data, expected []byte) error {
 // WriteGuardedLinked is WriteGuarded with the user's answer for a hard-linked document:
 // nil refuses one, HardLinkReplacePath saves this path as its own file and
 // HardLinkUpdateShared writes the shared file in place.
-func WriteGuardedLinked(path string, data, expected []byte, consent *HardLinkConsent) (err error) {
+func WriteGuardedLinked(path string, data, expected []byte, consent *HardLinkConsent) error {
+	return writeGuardedLimit(path, data, expected, consent, maxBytes)
+}
+
+// WriteGuardedLimit preserves native conflict and metadata protection for a Core-selected budget.
+func WriteGuardedLimit(path string, data, expected []byte, limit int64) error {
+	if limit < 0 || limit > maxNativeBytes {
+		return ErrTooLarge
+	}
+	return writeGuardedLimit(path, data, expected, nil, limit)
+}
+
+func writeGuardedLimit(path string, data, expected []byte, consent *HardLinkConsent, limit int64) (err error) {
 	lock := writeLock(path)
 	lock.Lock()
 	defer lock.Unlock()
@@ -158,11 +173,11 @@ func WriteGuardedLinked(path string, data, expected []byte, consent *HardLinkCon
 		return err
 	}
 	defer func() { err = errors.Join(err, source.Close()) }()
-	current, err := io.ReadAll(io.LimitReader(source, maxBytes+1))
+	current, err := io.ReadAll(io.LimitReader(source, limit+1))
 	if err != nil {
 		return err
 	}
-	if len(current) > maxBytes || len(data) > maxBytes {
+	if int64(len(current)) > limit || int64(len(data)) > limit {
 		return ErrTooLarge
 	}
 	if !bytes.Equal(current, expected) {
@@ -208,7 +223,7 @@ func WriteGuardedLinked(path string, data, expected []byte, consent *HardLinkCon
 	if err != nil {
 		return err
 	}
-	latestBytes, readErr := io.ReadAll(io.LimitReader(latest, maxBytes+1))
+	latestBytes, readErr := io.ReadAll(io.LimitReader(latest, limit+1))
 	closeErr := latest.Close()
 	if err = errors.Join(readErr, closeErr); err != nil {
 		return err
