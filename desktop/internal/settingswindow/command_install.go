@@ -11,6 +11,7 @@ import (
 	"github.com/1lck/Lithe-IDEA/desktop/internal/core"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/i18n"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/pluginhost"
+	"github.com/1lck/Lithe-IDEA/desktop/internal/pluginruntime"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/toolchain"
 	"github.com/vivaui/viva/ui"
 )
@@ -114,7 +115,7 @@ func newCommandInstalls(source CommandInstaller, report func(string, error), wak
 	})
 	// The installer bounds its own run by the plan's timeout.
 	s.install = ui.NewEffectKeyed[string, *commandInstallRequest](func(ctx context.Context, request *commandInstallRequest) (string, error) {
-		return source.Install(ctx, request.pluginID, request.installerID, request.target, request.output.add)
+		return source.Install(ctx, request.pluginID, request.installerID, request.target, request.output.add, request.output.setProgress)
 	})
 	return s
 }
@@ -234,13 +235,37 @@ func (s *commandInstalls) close() {
 	s.dialog = nil
 }
 
-// commandOutput keeps the last lines an installation printed. The installation's goroutine
-// adds them; the window thread reads them.
+// commandOutput keeps the last lines an installation printed, or the last phase a download
+// reported. The installation's goroutine adds them; the window thread reads them.
 type commandOutput struct {
 	wake func()
 
-	mu    sync.Mutex
-	lines []string
+	mu       sync.Mutex
+	lines    []string
+	progress *pluginruntime.Progress
+}
+
+func (o *commandOutput) setProgress(progress pluginruntime.Progress) {
+	o.mu.Lock()
+	o.progress = &progress
+	o.mu.Unlock()
+	if o.wake != nil {
+		o.wake()
+	}
+}
+
+// lastProgress is the last phase a download reported; ok is false before the first and for
+// a tool installation.
+func (o *commandOutput) lastProgress() (pluginruntime.Progress, bool) {
+	if o == nil {
+		return pluginruntime.Progress{}, false
+	}
+	o.mu.Lock()
+	defer o.mu.Unlock()
+	if o.progress == nil {
+		return pluginruntime.Progress{}, false
+	}
+	return *o.progress, true
 }
 
 func (o *commandOutput) add(line string) {
@@ -347,8 +372,7 @@ func (w *window) commandInstallModal(c ui.C) {
 		ui.Column(c).FillWidth().Gap(8).Children(func() {
 			switch {
 			case installing:
-				ui.Text(c, i18n.Shared(language, "settings.general.installing"))
-				ui.Progress(c, 0).Indeterminate().FillWidth()
+				w.commandInstallProgress(c, language, dialog.output)
 				w.commandInstallOutput(c, language, dialog.output)
 			case installed:
 				ui.Wrap(c, i18n.SharedFormat(language, "desktop.plugins.commandInstalled", map[string]string{"directory": dialog.directory})).Color(w.pal.success)
@@ -421,15 +445,56 @@ func (d *commandInstallDialog) targetUsable() bool {
 	return false
 }
 
+// commandInstallProgress is the running installation's status: a download's phase, with
+// how much of the archive arrived when its size is known, or that a tool is installing.
+func (w *window) commandInstallProgress(c ui.C, language i18n.Language, output *commandOutput) {
+	progress, ok := output.lastProgress()
+	if !ok {
+		ui.Text(c, i18n.Shared(language, "settings.general.installing"))
+		ui.Progress(c, 0).Indeterminate().FillWidth()
+		return
+	}
+	ui.Wrap(c, RuntimeProgressText(language, progress))
+	if progress.Phase == "downloading" && progress.Total > 0 {
+		ui.Progress(c, float32(progress.Received)/float32(progress.Total)).FillWidth()
+		return
+	}
+	ui.Progress(c, 0).Indeterminate().FillWidth()
+}
+
 // commandInstallOffer is the confirmation: what runs, whether it downloads, and where the
-// commands may go.
+// commands may go. A download names the archive's addresses and digest instead of a tool and
+// its command line.
 func (w *window) commandInstallOffer(c ui.C, language i18n.Language, dialog *commandInstallDialog) {
 	offer := dialog.offer
-	ui.Wrap(c, i18n.SharedFormat(language, "desktop.plugins.commandInstallPrompt", map[string]string{
-		"tool": offer.Tool, "commands": commandList(offer.Commands),
-	}))
-	if offer.MayUseNetwork {
-		ui.Wrap(c, i18n.Shared(language, "desktop.plugins.commandInstallNetwork")).FontSize(12).Color(w.pal.warning)
+	if download := offer.Download; download != nil {
+		ui.Wrap(c, i18n.SharedFormat(language, "desktop.plugins.commandInstallDownloadPrompt", map[string]string{
+			"commands": commandList(offer.Commands), "version": download.Version,
+		}))
+		ui.Wrap(c, i18n.Shared(language, "desktop.plugins.commandInstallDownloadNetwork")).FontSize(12).Color(w.pal.warning)
+		ui.Text(c, i18n.Shared(language, "desktop.plugins.commandInstallSource")).FontSize(13).Bold().PadTop(4)
+		// Labels are in the text font, so a translated label keeps its own spacing; the address
+		// and the digest are monospaced.
+		labelled := func(k ui.C, label, value string) {
+			ui.Row(k).FillWidth().Gap(6).Children(func() {
+				ui.Text(k, label).FontSize(11).Color(w.pal.muted).Shrink(0)
+				ui.Wrap(k, value).Mono().FontSize(11).Color(w.pal.muted).Grow(1).Shrink(1).MinWidth(0)
+			})
+		}
+		ui.Column(c).FillWidth().Gap(2).Pad(8).Radius(6).Background(w.pal.card).Stroke(1, w.pal.line).Children(func() {
+			ui.Wrap(c, download.URL).Mono().FontSize(11).Color(w.pal.text)
+			for index, mirror := range download.Mirrors {
+				labelled(c.KeyInt(index), i18n.Shared(language, "desktop.plugins.commandInstallMirror"), mirror)
+			}
+			labelled(c.KeyInt(len(download.Mirrors)), i18n.Shared(language, "desktop.plugins.commandInstallDigest"), download.SHA256)
+		})
+	} else {
+		ui.Wrap(c, i18n.SharedFormat(language, "desktop.plugins.commandInstallPrompt", map[string]string{
+			"tool": offer.Tool, "commands": commandList(offer.Commands),
+		}))
+		if offer.MayUseNetwork {
+			ui.Wrap(c, i18n.Shared(language, "desktop.plugins.commandInstallNetwork")).FontSize(12).Color(w.pal.warning)
+		}
 	}
 	ui.Text(c, i18n.Shared(language, "desktop.plugins.commandInstallLocation")).FontSize(13).Bold().PadTop(4)
 	var chosen *CommandInstallTarget
@@ -453,7 +518,7 @@ func (w *window) commandInstallOffer(c ui.C, language i18n.Language, dialog *com
 			chosen = target
 		}
 	}
-	if chosen == nil {
+	if chosen == nil || chosen.CommandLine == "" {
 		return
 	}
 	ui.Text(c, i18n.Shared(language, "desktop.plugins.commandInstallCommand")).FontSize(13).Bold().PadTop(4)
@@ -507,6 +572,12 @@ func commandInstallFailureText(language i18n.Language, tool string, err error) s
 				return i18n.Shared(language, "desktop.plugins.commandInstallStopped")
 			}
 			return i18n.SharedFormat(language, "desktop.plugins.commandInstallFailed", map[string]string{"code": strconv.Itoa(installErr.ExitCode)})
+		case pluginhost.CommandInstallDownloadFailedCode:
+			return i18n.SharedFormat(language, "desktop.plugins.commandInstallDownloadFailed", map[string]string{"reason": causeText(installErr)})
+		case pluginhost.CommandInstallChecksumMismatchCode:
+			return i18n.Shared(language, "desktop.plugins.commandInstallChecksumMismatch")
+		case pluginhost.CommandInstallArchiveInvalidCode:
+			return i18n.SharedFormat(language, "desktop.plugins.commandInstallArchiveInvalid", map[string]string{"reason": causeText(installErr)})
 		}
 	case errors.As(err, &unavailable):
 		if tool == "" {
@@ -515,4 +586,12 @@ func commandInstallFailureText(language i18n.Language, tool string, err error) s
 		return i18n.SharedFormat(language, "desktop.plugins.commandInstallToolMissing", map[string]string{"tool": tool})
 	}
 	return i18n.SharedFormat(language, "desktop.plugins.commandInstallError", map[string]string{"reason": err.Error()})
+}
+
+// causeText is the untranslated error a download failure wraps, or its code without one.
+func causeText(err *pluginhost.CommandInstallError) string {
+	if err.Err == nil {
+		return err.Code
+	}
+	return err.Err.Error()
 }

@@ -126,7 +126,10 @@ type Capabilities map[string][]int
 //     systemCommand launch names but the machine lacks, and installs them with
 //     the plugin's tool after the user confirms the command line, the network
 //     use and the target (the plugin's managed directory or the tool's own);
-//     systemCommand launches then find them there (CommandStore).
+//     systemCommand launches then find them there (CommandStore). Version 1
+//     adds pinned archive downloads, which the host downloads, checks against
+//     the pinned SHA-256 and extracts below the plugin's managed directory
+//     after the user confirms the version and the URL.
 //   - projectGenerators: the New Project window lists generators, evaluates
 //     their forms through Core, discovers tools with the shared toolchain and
 //     runs the plan in a staging directory.
@@ -202,6 +205,9 @@ func Declared() Capabilities {
 	// Version 1 adds optional mirror URLs on managed runtime artifacts for automatic
 	// fastest-source selection and failover.
 	declared["managedRuntimes"] = []int{0, 1}
+	// Version 1 adds installers that download a pinned archive instead of running
+	// a tool; the host extracts it below the plugin's managed command directory.
+	declared["commandInstallers"] = []int{0, 1}
 	return declared
 }
 

@@ -302,7 +302,7 @@ func TestCommandInstallManagedRecordsWhereLaterLaunchesFindTheCommand(t *testing
 		t.Setenv(name, private)
 	}
 	var output commandOutput
-	directory, err := installs.Install(ctx, commandInstallerPluginID, "fixture-ls", core.CommandInstallManaged, output.add)
+	directory, err := installs.Install(ctx, commandInstallerPluginID, "fixture-ls", core.CommandInstallManaged, output.add, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -342,7 +342,7 @@ func TestCommandInstallManagedRecordsWhereLaterLaunchesFindTheCommand(t *testing
 func TestCommandInstallToolDefaultRecordsTheProbedDirectory(t *testing.T) {
 	h, _, home := commandInstallerHarness(t, fixtureToolInstalls)
 	installs := settingsCommandInstalls{app: h.app}
-	directory, err := installs.Install(commandInstallContext(t), commandInstallerPluginID, "fixture-ls", core.CommandInstallToolDefault, func(string) {})
+	directory, err := installs.Install(commandInstallContext(t), commandInstallerPluginID, "fixture-ls", core.CommandInstallToolDefault, func(string) {}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -386,7 +386,7 @@ func TestCommandInstallReportsWhyTheCommandsDidNotLand(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			installed, err := installs.Install(commandInstallContext(t), commandInstallerPluginID, test.installer, core.CommandInstallManaged, func(string) {})
+			installed, err := installs.Install(commandInstallContext(t), commandInstallerPluginID, test.installer, core.CommandInstallManaged, func(string) {}, nil)
 			var failure *pluginhost.CommandInstallError
 			if !errors.As(err, &failure) {
 				t.Fatalf("Install = %q, %v; want a CommandInstallError", installed, err)
@@ -418,7 +418,7 @@ func TestCommandInstallStopsTheToolWhenCancelled(t *testing.T) {
 		if line == "fixture: downloading" {
 			cancel()
 		}
-	})
+	}, nil)
 	if !errors.Is(err, context.Canceled) {
 		t.Fatalf("Install = %v, want the cancel", err)
 	}
@@ -434,7 +434,7 @@ func TestCommandInstallStopsTheToolWhenCancelled(t *testing.T) {
 func TestCommandInstallRefusesATargetTheInstallerLacks(t *testing.T) {
 	h, _, _ := commandInstallerHarness(t, fixtureToolInstalls)
 	installs := settingsCommandInstalls{app: h.app}
-	if _, err := installs.Install(commandInstallContext(t), commandInstallerPluginID, "fixture-dap", core.CommandInstallToolDefault, func(string) {}); err == nil {
+	if _, err := installs.Install(commandInstallContext(t), commandInstallerPluginID, "fixture-dap", core.CommandInstallToolDefault, func(string) {}, nil); err == nil {
 		t.Fatal("installed into a target the installer does not declare")
 	}
 	if _, err := installs.Offer(commandInstallContext(t), commandInstallerPluginID, "absent"); err == nil {

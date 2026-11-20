@@ -369,7 +369,8 @@ func TestChecksumFailureAndCancelledValidationNeverPublish(t *testing.T) {
 	artifact := selected(body, "tar.gz", "1")
 	manager, _ := testManager(t, map[string][]byte{artifact.URL: []byte("damaged download")})
 	ctx := testContext(t)
-	if _, err := manager.Prepare(ctx, artifact, validateBody("working"), nil); !errors.Is(err, marketplace.ErrArchiveChecksum) {
+	// A download that never delivered the pinned bytes says so, with the transfer's own cause.
+	if _, err := manager.Prepare(ctx, artifact, validateBody("working"), nil); !errors.Is(err, ErrDownload) || !errors.Is(err, marketplace.ErrArchiveChecksum) {
 		t.Fatalf("checksum failure = %v", err)
 	}
 	manager, _ = testManager(t, map[string][]byte{artifact.URL: body})

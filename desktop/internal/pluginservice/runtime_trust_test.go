@@ -353,7 +353,9 @@ func TestManagedToolchainFactsFeedToolchainResolutionWithoutStartingBackend(t *t
 	}
 	var archiveBuf bytes.Buffer
 	zw := zip.NewWriter(&archiveBuf)
-	header := &zip.FileHeader{Name: "bin/" + runtimeFixtureCommand(), Method: zip.Deflate}
+	// The entry is the test binary itself, about 250 MB. Stored rather than deflated: under
+	// -race, compressing and inflating it took longer than the whole deadline.
+	header := &zip.FileHeader{Name: "bin/" + runtimeFixtureCommand(), Method: zip.Store}
 	header.SetMode(0o755)
 	fw, err := zw.CreateHeader(header)
 	if err != nil {

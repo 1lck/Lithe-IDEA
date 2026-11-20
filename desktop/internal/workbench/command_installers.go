@@ -5,8 +5,11 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net/url"
 	"os"
 	"os/exec"
+	"path"
+	"path/filepath"
 	"slices"
 	"sort"
 	"strings"
@@ -17,8 +20,11 @@ import (
 	"github.com/1lck/Lithe-IDEA/desktop/internal/buildprovider"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/core"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/i18n"
+	"github.com/1lck/Lithe-IDEA/desktop/internal/marketplace"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/pluginhost"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/pluginmanager"
+	"github.com/1lck/Lithe-IDEA/desktop/internal/pluginruntime"
+	"github.com/1lck/Lithe-IDEA/desktop/internal/pluginservice"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/processledger"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/settingswindow"
 )
@@ -38,9 +44,17 @@ const maxCommandOutputLine = 4096
 // settingsCommandInstalls is the settings window's settingswindow.CommandInstaller. It looks
 // the commands of the plugins' systemCommand launches up the way those launches do, and runs
 // the installer a plugin declares (commandInstallers[], API-23) once the user confirms one.
-// Core expands every installer and names its directories; the host resolves the tool, runs
-// it, checks that the commands landed and records where.
+// Core expands every installer, selects a download's archive and names the directories; the
+// host resolves and runs a tool, or downloads, checks and extracts the archive, then checks
+// that the commands landed and records where.
 type settingsCommandInstalls struct{ app *App }
+
+// archivePlatform is the platform Core selects a download installer's archive for. It is
+// passed on every call, so an installer without an archive for this host is never offered.
+func archivePlatform() *core.CommandArchivePlatform {
+	platform := pluginservice.ArchivePlatform()
+	return &platform
+}
 
 var _ settingswindow.CommandInstaller = settingsCommandInstalls{}
 
@@ -82,7 +96,7 @@ func (s settingsCommandInstalls) Missing(ctx context.Context, pluginID string) (
 	if err != nil {
 		return nil, err
 	}
-	requirements, err := s.app.kernel.CommandInstallerRequirements(ctx, manifest)
+	requirements, err := s.app.kernel.CommandInstallerRequirements(ctx, manifest, archivePlatform())
 	if err != nil {
 		return nil, err
 	}
@@ -112,10 +126,13 @@ func (s settingsCommandInstalls) Missing(ctx context.Context, pluginID string) (
 			entry.ID = *consumer.ID
 		}
 		if installer, ok := installers[installerID]; ok {
-			if tools == nil {
-				tools = s.toolNames(ctx)
+			entry.Installer = installer.ID
+			if installer.Tool != nil {
+				if tools == nil {
+					tools = s.toolNames(ctx)
+				}
+				entry.Tool = toolName(tools, *installer.Tool)
 			}
-			entry.Installer, entry.Tool = installer.ID, toolName(tools, installer.Tool)
 		}
 		missing = append(missing, entry)
 	}
@@ -180,7 +197,8 @@ func toolName(names map[string]string, id string) string {
 }
 
 // Offer resolves the installer's tool and expands each of its targets, running a toolDefault
-// target's directory probes to find where it would install.
+// target's directory probes to find where it would install. A download installer has no tool:
+// its offer names the archive Core selected for this host.
 func (s settingsCommandInstalls) Offer(ctx context.Context, pluginID, installerID string) (_ settingswindow.CommandInstallOffer, err error) {
 	// The card's Install button is the action; its operation travels in ctx, since the settings
 	// worker must not touch the window thread's operation.
@@ -191,10 +209,13 @@ func (s settingsCommandInstalls) Offer(ctx context.Context, pluginID, installerI
 		return settingswindow.CommandInstallOffer{}, err
 	}
 	defer session.close()
+	if session.installer.Download != nil {
+		return session.downloadOffer(ctx)
+	}
 	offer := settingswindow.CommandInstallOffer{
 		Installer:     installerID,
 		Commands:      session.installer.Commands,
-		Tool:          toolName(s.toolNames(ctx), session.installer.Tool),
+		Tool:          toolName(s.toolNames(ctx), session.installer.ToolID()),
 		Executable:    session.selection.Executable,
 		MayUseNetwork: session.installer.MayUseNetwork,
 	}
@@ -216,6 +237,26 @@ func (s settingsCommandInstalls) Offer(ctx context.Context, pluginID, installerI
 	return offer, nil
 }
 
+// downloadOffer is the offer of a download installer: the archive's version, URL and digest,
+// and the managed directory it extracts below, its only target.
+func (s *commandInstallSession) downloadOffer(ctx context.Context) (settingswindow.CommandInstallOffer, error) {
+	prepared, err := s.prepare(ctx, core.CommandInstallManaged)
+	if err != nil {
+		return settingswindow.CommandInstallOffer{}, err
+	}
+	download := prepared.plan.Download
+	return settingswindow.CommandInstallOffer{
+		Installer:     s.installer.ID,
+		Commands:      s.installer.Commands,
+		MayUseNetwork: s.installer.MayUseNetwork,
+		Timeout:       prepared.timeout(),
+		Download: &settingswindow.CommandInstallDownload{
+			Version: download.Version, URL: download.URL, Mirrors: download.Mirrors, SHA256: download.SHA256,
+		},
+		Targets: []settingswindow.CommandInstallTarget{{Target: core.CommandInstallManaged, Directory: prepared.directory}},
+	}, nil
+}
+
 // environmentLines is an installation's environment as sorted NAME=value lines.
 func environmentLines(environment map[string]string) []string {
 	lines := make([]string, 0, len(environment))
@@ -227,23 +268,24 @@ func environmentLines(environment map[string]string) []string {
 }
 
 // Install runs the installer for target and records where its commands landed, so the
-// plugin's later launches find them. The attempt is recorded on the plugin's host channel; a
-// cancelled one is not.
-func (s settingsCommandInstalls) Install(ctx context.Context, pluginID, installerID, target string, output func(string)) (_ string, err error) {
+// plugin's later launches find them. A tool's output goes to output; a download reports its
+// phases to progress. The attempt is recorded on the plugin's host channel; a cancelled one is
+// not.
+func (s settingsCommandInstalls) Install(ctx context.Context, pluginID, installerID, target string, output func(string), progress func(pluginruntime.Progress)) (_ string, err error) {
 	// The dialog's Install button is the action; the attempt and the installer's tool run under
 	// its operation.
 	ctx = s.app.performedIn(ctx, "plugin.commandInstaller.install", surfaceButton)
 	defer func() { (settingsToolchains{app: s.app}).recordFailure(ctx, "plugin_command_install", err) }()
 	attempt := core.StartPluginAttempt(pluginID, core.OperationCommandInstallerInstall, core.OriginOf(ctx).Operation)
 	defer attempt.Abandon()
-	directory, stage, err := s.install(ctx, pluginID, installerID, target, output)
+	directory, stage, err := s.install(ctx, pluginID, installerID, target, output, progress)
 	if s.app.plugins != nil {
 		s.app.plugins.EndAttempt(ctx, attempt, stage, err)
 	}
 	return directory, err
 }
 
-func (s settingsCommandInstalls) install(ctx context.Context, pluginID, installerID, target string, output func(string)) (string, core.PluginStage, error) {
+func (s settingsCommandInstalls) install(ctx context.Context, pluginID, installerID, target string, output func(string), progress func(pluginruntime.Progress)) (string, core.PluginStage, error) {
 	session, stage, err := s.open(ctx, pluginID, installerID)
 	if err != nil {
 		return "", stage, err
@@ -255,6 +297,9 @@ func (s settingsCommandInstalls) install(ctx context.Context, pluginID, installe
 	prepared, err := session.prepare(ctx, target)
 	if err != nil {
 		return "", core.StagePlan, err
+	}
+	if prepared.plan.Download != nil {
+		return session.download(ctx, prepared, progress)
 	}
 	if prepared.directory == "" {
 		return "", core.StagePlan, fmt.Errorf("no directory probe of installer %s named where it installs", installerID)
@@ -312,15 +357,122 @@ func (s settingsCommandInstalls) install(ctx context.Context, pluginID, installe
 	return prepared.directory, "", nil
 }
 
+// download fetches the archive of a download plan, checks its pinned SHA-256 and extracts it
+// below the installer's managed directory, then checks that every command is in the plan's
+// command directory there and records it. pluginruntime.Manager does the transfer and the
+// extraction, the same as for managed runtimes: an extraction already in place that still
+// holds the commands is used as it is, and a damaged one is replaced.
+func (s *commandInstallSession) download(ctx context.Context, prepared preparedCommandInstall, progress func(pluginruntime.Progress)) (string, core.PluginStage, error) {
+	plan, download := prepared.plan, prepared.plan.Download
+	commandDirectory := func(installation pluginruntime.Installation) string {
+		return filepath.Join(installation.Home, filepath.FromSlash(download.CommandDirectory))
+	}
+	timeout := prepared.timeout()
+	run, cancel := context.WithTimeout(ctx, timeout)
+	defer cancel()
+	manager := pluginruntime.Manager{Root: prepared.installDirectory, Downloader: s.app.plugins.RuntimeDownloader}
+	installation, err := manager.Prepare(run, pluginruntime.Artifact{
+		ID:          strings.Join(plan.Commands, ", "),
+		Version:     download.Version,
+		CacheKey:    download.CacheKey,
+		URL:         download.URL,
+		Mirrors:     download.Mirrors,
+		SHA256:      download.SHA256,
+		Archive:     download.Archive,
+		StripPrefix: download.StripPrefix,
+	}, func(_ context.Context, installation pluginruntime.Installation) error {
+		directory := commandDirectory(installation)
+		var absent []string
+		for _, command := range plan.Commands {
+			if _, err := pluginhost.CommandInDirectory(directory, command); err != nil {
+				absent = append(absent, command)
+			}
+		}
+		if len(absent) > 0 {
+			// The extraction that lacks them is discarded, so the failure names where in the
+			// archive they were looked for.
+			return &pluginhost.CommandInstallError{Code: pluginhost.CommandInstallCommandsMissingCode, Commands: absent, Directory: archiveLocation(download)}
+		}
+		return nil
+	}, progress)
+	if err != nil {
+		stage, err := downloadFailure(ctx, run, timeout, err)
+		return "", stage, err
+	}
+	directory := commandDirectory(installation)
+	// A record that cannot be written leaves the commands where later launches do not look,
+	// which is the same outcome for them as commands missing from the directory.
+	if err := s.app.plugins.Commands.Record(s.pluginID, pluginhost.CommandInstallation{Installer: s.installer.ID, Target: core.CommandInstallManaged, Directory: directory}); err != nil {
+		return "", core.StageDecode, err
+	}
+	if err := removeOtherExtractions(prepared.installDirectory, download.CacheKey); err != nil {
+		s.app.backgroundFailedIn(ctx, "plugin_command_download_cleanup", err)
+	}
+	return directory, "", nil
+}
+
+// removeOtherExtractions removes what earlier archives of an installer left in its managed
+// directory root, every entry but keep's: the archive and extraction of a version the plugin
+// pinned before an update, which no record names any more. An entry that cannot go, such as
+// an adapter of the old version still running on Windows, stays for the next installation to
+// remove; the installation that just finished does not depend on it.
+func removeOtherExtractions(root, keep string) error {
+	entries, err := os.ReadDir(root)
+	if err != nil {
+		return err
+	}
+	var failures []error
+	for _, entry := range entries {
+		if entry.Name() != keep {
+			failures = append(failures, os.RemoveAll(filepath.Join(root, entry.Name())))
+		}
+	}
+	return errors.Join(failures...)
+}
+
+// archiveLocation is a download's command directory inside its archive, after the archive's
+// file name: tool-1.2.3-darwin-arm64.zip/extension/bin.
+func archiveLocation(download *core.CommandInstallDownload) string {
+	name := download.URL
+	if parsed, err := url.Parse(download.URL); err == nil && path.Base(parsed.Path) != "/" && path.Base(parsed.Path) != "." {
+		name = path.Base(parsed.Path)
+	}
+	return path.Join(name, download.StripPrefix, download.CommandDirectory)
+}
+
+// downloadFailure is the stage and the contract code of a download installation that failed
+// with err. run is the installation's context, bounded by timeout within ctx, the user's.
+func downloadFailure(ctx, run context.Context, timeout time.Duration, err error) (core.PluginStage, error) {
+	var installErr *pluginhost.CommandInstallError
+	switch {
+	case ctx.Err() != nil:
+		// The user cancelled, which is never recorded.
+		return core.StageExit, ctx.Err()
+	case run.Err() != nil:
+		// A stalled transfer also ends with a deadline, so the installation's own context
+		// decides whether its time ran out.
+		return core.StageTimeout, &pluginhost.CommandInstallError{Code: pluginhost.CommandInstallTimedOutCode, Timeout: timeout}
+	case errors.As(err, &installErr):
+		return core.StageDecode, installErr
+	case errors.Is(err, marketplace.ErrArchiveChecksum):
+		return core.StageResolve, &pluginhost.CommandInstallError{Code: pluginhost.CommandInstallChecksumMismatchCode, Err: err}
+	case errors.Is(err, pluginruntime.ErrDownload):
+		return core.StageResolve, &pluginhost.CommandInstallError{Code: pluginhost.CommandInstallDownloadFailedCode, Err: err}
+	case errors.Is(err, pluginruntime.ErrArchive):
+		return core.StageDecode, &pluginhost.CommandInstallError{Code: pluginhost.CommandInstallArchiveInvalidCode, Err: err}
+	}
+	return core.StageDecode, err
+}
+
 // commandInstallSession is one installer with its tool resolved, for an offer or an
-// installation.
+// installation. A download installer has no tool, so nothing is resolved for it.
 type commandInstallSession struct {
 	app       *App
 	pluginID  string
 	manifest  json.RawMessage
 	installer core.CommandInstaller
 	// directory is an empty directory of its own the tool runs in, so no project's files change
-	// what it installs; close removes it.
+	// what it installs; close removes it. Empty for a download installer.
 	directory string
 	selection core.ToolchainSelection
 }
@@ -333,7 +485,7 @@ func (s settingsCommandInstalls) open(ctx context.Context, pluginID, installerID
 	if err != nil {
 		return nil, core.StagePlan, err
 	}
-	requirements, err := s.app.kernel.CommandInstallerRequirements(ctx, manifest)
+	requirements, err := s.app.kernel.CommandInstallerRequirements(ctx, manifest, archivePlatform())
 	if err != nil {
 		return nil, core.StagePlan, err
 	}
@@ -341,11 +493,15 @@ func (s settingsCommandInstalls) open(ctx context.Context, pluginID, installerID
 	if index < 0 {
 		return nil, core.StagePlan, fmt.Errorf("plugin %s declares no installer %s", pluginID, installerID)
 	}
+	installer := requirements.Installers[index]
+	if installer.Download != nil || installer.Tool == nil {
+		return &commandInstallSession{app: s.app, pluginID: pluginID, manifest: manifest, installer: installer}, "", nil
+	}
 	directory, err := os.MkdirTemp("", "lithe-command-install-")
 	if err != nil {
 		return nil, core.StagePlan, err
 	}
-	session := &commandInstallSession{app: s.app, pluginID: pluginID, manifest: manifest, installer: requirements.Installers[index], directory: directory}
+	session := &commandInstallSession{app: s.app, pluginID: pluginID, manifest: manifest, installer: installer, directory: directory}
 	root := directory
 	if current := s.app.toolchainRoot.Load(); current != nil {
 		root = *current
@@ -354,7 +510,7 @@ func (s settingsCommandInstalls) open(ctx context.Context, pluginID, installerID
 	if session.installer.MinimumVersion != nil {
 		minimumVersion = *session.installer.MinimumVersion
 	}
-	session.selection, err = s.app.resolveToolchainSelection(ctx, root, ".", session.installer.Tool, minimumVersion)
+	session.selection, err = s.app.resolveToolchainSelection(ctx, root, ".", *session.installer.Tool, minimumVersion)
 	if err != nil {
 		session.close()
 		return nil, core.StageResolve, err
@@ -374,7 +530,9 @@ type preparedCommandInstall struct {
 	// installDirectory is the directory a managed installation writes into; empty for
 	// toolDefault.
 	installDirectory string
-	// directory is where the commands land; empty when no directory probe named one.
+	// directory is where the commands land; empty when no directory probe named one. For a
+	// download it is installDirectory, below which the archive's extraction gets a directory
+	// of its own.
 	directory string
 }
 
@@ -383,7 +541,8 @@ func (p preparedCommandInstall) timeout() time.Duration {
 }
 
 // prepare has Core expand target: a managed one into the plugin's install directory, a
-// toolDefault one with the directory its probes name.
+// toolDefault one with the directory its probes name. A download is planned for this host's
+// platform without a directory; the host extracts it below the install directory itself.
 func (s *commandInstallSession) prepare(ctx context.Context, target string) (preparedCommandInstall, error) {
 	kernel := s.app.kernel
 	switch target {
@@ -392,13 +551,26 @@ func (s *commandInstallSession) prepare(ctx context.Context, target string) (pre
 		if err != nil {
 			return preparedCommandInstall{}, err
 		}
-		plan, err := kernel.PlanCommandInstaller(ctx, s.manifest, s.installer.ID, target, installDirectory)
+		if s.installer.Download != nil {
+			plan, err := kernel.PlanCommandInstaller(ctx, s.manifest, s.installer.ID, target, "", archivePlatform())
+			if err != nil {
+				return preparedCommandInstall{}, err
+			}
+			if plan.Download == nil {
+				return preparedCommandInstall{}, fmt.Errorf("installer %s was planned without its download", s.installer.ID)
+			}
+			return preparedCommandInstall{plan: plan, installDirectory: installDirectory, directory: installDirectory}, nil
+		}
+		plan, err := kernel.PlanCommandInstaller(ctx, s.manifest, s.installer.ID, target, installDirectory, archivePlatform())
 		if err != nil {
 			return preparedCommandInstall{}, err
 		}
+		if plan.CommandDirectory == nil {
+			return preparedCommandInstall{}, fmt.Errorf("installer %s was planned without its command directory", s.installer.ID)
+		}
 		return preparedCommandInstall{plan: plan, installDirectory: installDirectory, directory: *plan.CommandDirectory}, nil
 	case core.CommandInstallToolDefault:
-		plan, err := kernel.PlanCommandInstaller(ctx, s.manifest, s.installer.ID, target, "")
+		plan, err := kernel.PlanCommandInstaller(ctx, s.manifest, s.installer.ID, target, "", archivePlatform())
 		if err != nil {
 			return preparedCommandInstall{}, err
 		}

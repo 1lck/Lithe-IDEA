@@ -260,6 +260,16 @@ Provider 状态经平台 adapter 写 Application Support；插件安装目录和
 路径和链接不能逃出解压根。相关边界见
 [受管插件运行时](../.agents/notes/implemented/architecture/2026-11-18-managed-plugin-runtimes.md)。
 
+插件用 `commandInstallers` 声明的下载安装器（`requires.commandInstallers: 1`，权限 `commands.install`）
+在用户点击安装并确认后，才下载插件固定地址和 SHA-256 的压缩包。结果位于
+`<plugin-root>/.state/<plugin-id>/commands/<installer-id>/<cache-key>/`，布局与上面的受管运行时相同
+（`archive`、`install-<random>/`、`ready.json`、`.lock`），大小和路径上限也相同；
+命令所在目录记录在 `<plugin-root>/.state/<plugin-id>/commands.json`。缓存键由 Core 按压缩包内容身份
+（地址、版本、平台、校验值、格式和目录）生成，镜像不参与。记录新缓存键后，宿主删除同一安装器下的其他缓存键目录；
+删不掉的留到下次安装。卸载插件时随插件状态一起删除。它是用户运行时状态，不是工作树构建输入，
+不跨工作树复制或共享，也不写插件包、app bundle 或 Windows 安装目录。决策见
+[插件声明的命令缺失时由宿主安装](../.agents/notes/implemented/architecture/2026-11-15-plugin-command-installers.md)。
+
 插件网页的宿主持久状态（Viva 的 `pluginservice.SetPageState`）写到每用户插件根目录
 （`pluginpkg.DefaultRoot`）下的
 `<plugin-root>/.state/<plugin-id>/pages/workspaces/<workspace-key>/<window-digest>.json`，

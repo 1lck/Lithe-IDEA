@@ -37,33 +37,81 @@ type RequiredCommand struct {
 	Installer *string `json:"installer"`
 }
 
-// CommandInstaller is the summary of one commandInstallers[] entry.
+// CommandInstaller is the summary of one commandInstallers[] entry: a tool installer runs Tool,
+// a download installer (commandInstallers 1) downloads a pinned archive and has no tool.
 type CommandInstaller struct {
-	ID             string   `json:"id"`
-	Commands       []string `json:"commands"`
-	Tool           string   `json:"tool"`
-	MinimumVersion *string  `json:"minimumVersion"`
-	MayUseNetwork  bool     `json:"mayUseNetwork"`
+	ID       string   `json:"id"`
+	Commands []string `json:"commands"`
+	// Tool is the tool definition a tool installer runs; nil for a download installer.
+	Tool           *string `json:"tool"`
+	MinimumVersion *string `json:"minimumVersion"`
+	// Download is the pinned version of a download installer; nil for a tool installer.
+	Download      *CommandInstallerDownload `json:"download"`
+	MayUseNetwork bool                      `json:"mayUseNetwork"`
 	// Targets lists the declared targets, managed before toolDefault.
 	Targets []string `json:"targets"`
 }
 
-// CommandInstallPlan is one installer expanded for the target the user chose. The host runs
-// Tool's resolved executable with Arguments and Environment set over the tool's environment.
+// CommandInstallerDownload is what the requirements say of a download installer.
+type CommandInstallerDownload struct {
+	Version string `json:"version"`
+}
+
+// ToolID is the tool definition a tool installer runs, or "" for a download installer.
+func (i CommandInstaller) ToolID() string {
+	if i.Tool == nil {
+		return ""
+	}
+	return *i.Tool
+}
+
+// CommandArchivePlatform is the host platform a download installer selects its archive for:
+// os macos, windows or linux and arch arm64 or x86_64.
+type CommandArchivePlatform = ManagedRuntimePlatform
+
+// CommandInstallPlan is one installer expanded for the target the user chose. For a tool
+// installer the host runs Tool's resolved executable with Arguments and Environment set over the
+// tool's environment; for a download installer it downloads, checks and extracts Download.
 type CommandInstallPlan struct {
 	Installer           string            `json:"installer"`
 	Target              string            `json:"target"`
 	Commands            []string          `json:"commands"`
-	Tool                string            `json:"tool"`
+	Tool                *string           `json:"tool"`
 	MinimumVersion      *string           `json:"minimumVersion"`
 	MayUseNetwork       bool              `json:"mayUseNetwork"`
 	TimeoutMilliseconds int64             `json:"timeoutMilliseconds"`
 	Arguments           []string          `json:"arguments"`
 	Environment         map[string]string `json:"environment"`
-	// CommandDirectory is where a managed installation's commands land; nil for toolDefault,
-	// whose directory the probes find.
+	// CommandDirectory is where a managed tool installation's commands land; nil for
+	// toolDefault, whose directory the probes find, and for a download installation, whose
+	// directory is below the extracted archive.
 	CommandDirectory *string                 `json:"commandDirectory"`
 	DirectoryProbes  []CommandDirectoryProbe `json:"directoryProbes"`
+	// Download is the archive a download installation extracts; nil for a tool installation.
+	Download *CommandInstallDownload `json:"download"`
+}
+
+// CommandInstallDownload is the archive Core selected for the host's platform. CacheKey names
+// the extraction, which every change to what the archive holds replaces; mirrors do not count.
+type CommandInstallDownload struct {
+	Installer string `json:"installer"`
+	Version   string `json:"version"`
+	OS        string `json:"os"`
+	Arch      string `json:"arch"`
+	URL       string `json:"url"`
+	// Mirrors are fallback URLs for the same bytes.
+	Mirrors []string `json:"mirrors,omitempty"`
+	// SHA256 is the lowercase digest the archive must have.
+	SHA256 string `json:"sha256"`
+	// Archive is zip or tar.gz.
+	Archive string `json:"archive"`
+	// StripPrefix is the slash-separated directory the archive's entries are below; empty
+	// for none.
+	StripPrefix string `json:"stripPrefix"`
+	CacheKey    string `json:"cacheKey"`
+	// CommandDirectory is where the commands are, slash-separated and relative to the
+	// extracted root; empty for the root.
+	CommandDirectory string `json:"commandDirectory"`
 }
 
 // CommandDirectoryProbe is one run of the plan's tool whose output names the directory a
@@ -73,8 +121,9 @@ type CommandDirectoryProbe struct {
 }
 
 // CommandInstallerRequirements lists the systemCommand launches of manifest and the installer
-// of each command. It reads nothing and starts nothing.
-func (c *Client) CommandInstallerRequirements(ctx context.Context, manifest json.RawMessage) (CommandRequirements, error) {
+// of each command. With platform, a download installer without an archive for it is left out;
+// a host that installs downloads always passes its own. It reads nothing and starts nothing.
+func (c *Client) CommandInstallerRequirements(ctx context.Context, manifest json.RawMessage, platform *CommandArchivePlatform) (CommandRequirements, error) {
 	const command = "plugins.commandInstallers.requirements"
 	var result struct {
 		Status       string                `json:"status"`
@@ -82,8 +131,9 @@ func (c *Client) CommandInstallerRequirements(ctx context.Context, manifest json
 		Requirements *CommandRequirements  `json:"requirements"`
 	}
 	if err := c.Execute(ctx, command, struct {
-		Manifest json.RawMessage `json:"manifest"`
-	}{manifest}, &result); err != nil {
+		Manifest json.RawMessage         `json:"manifest"`
+		Platform *CommandArchivePlatform `json:"platform,omitempty"`
+	}{manifest, platform}, &result); err != nil {
 		return CommandRequirements{}, err
 	}
 	if result.Status == "rejected" && result.Error != nil {
@@ -96,8 +146,9 @@ func (c *Client) CommandInstallerRequirements(ctx context.Context, manifest json
 }
 
 // PlanCommandInstaller expands installerID for target. installDirectory is the absolute
-// directory the host made for a managed installation and must be empty for toolDefault.
-func (c *Client) PlanCommandInstaller(ctx context.Context, manifest json.RawMessage, installerID, target, installDirectory string) (CommandInstallPlan, error) {
+// directory the host made for a managed tool installation and must be empty for toolDefault
+// and for a download installation, which needs platform to select its archive.
+func (c *Client) PlanCommandInstaller(ctx context.Context, manifest json.RawMessage, installerID, target, installDirectory string, platform *CommandArchivePlatform) (CommandInstallPlan, error) {
 	const command = "plugins.commandInstallers.plan"
 	var result struct {
 		Status string                `json:"status"`
@@ -105,11 +156,12 @@ func (c *Client) PlanCommandInstaller(ctx context.Context, manifest json.RawMess
 		Plan   *CommandInstallPlan   `json:"plan"`
 	}
 	if err := c.Execute(ctx, command, struct {
-		Manifest         json.RawMessage `json:"manifest"`
-		InstallerID      string          `json:"installerID"`
-		Target           string          `json:"target"`
-		InstallDirectory string          `json:"installDirectory,omitempty"`
-	}{manifest, installerID, target, installDirectory}, &result); err != nil {
+		Manifest         json.RawMessage         `json:"manifest"`
+		InstallerID      string                  `json:"installerID"`
+		Target           string                  `json:"target"`
+		InstallDirectory string                  `json:"installDirectory,omitempty"`
+		Platform         *CommandArchivePlatform `json:"platform,omitempty"`
+	}{manifest, installerID, target, installDirectory, platform}, &result); err != nil {
 		return CommandInstallPlan{}, err
 	}
 	if result.Status == "rejected" && result.Error != nil {
@@ -118,10 +170,23 @@ func (c *Client) PlanCommandInstaller(ctx context.Context, manifest json.RawMess
 	if result.Status != "ok" || result.Plan == nil || result.Plan.Installer != installerID || result.Plan.Target != target || len(result.Plan.Commands) == 0 || result.Plan.TimeoutMilliseconds <= 0 {
 		return CommandInstallPlan{}, newParseError(command, "command installer plan returned an invalid outcome", "")
 	}
-	if (target == CommandInstallManaged) != (result.Plan.CommandDirectory != nil) {
+	if !result.Plan.consistent() {
 		return CommandInstallPlan{}, newParseError(command, "command installer plan returned an invalid outcome", "")
 	}
 	return *result.Plan, nil
+}
+
+// consistent says the plan is one the host can carry out: a download installs into the managed
+// target with nothing to run, and a tool installation has a command directory exactly when
+// it is managed.
+func (p *CommandInstallPlan) consistent() bool {
+	if download := p.Download; download != nil {
+		return p.Target == CommandInstallManaged && p.CommandDirectory == nil && p.Tool == nil &&
+			len(p.Arguments) == 0 && len(p.Environment) == 0 && len(p.DirectoryProbes) == 0 &&
+			download.Installer == p.Installer && download.URL != "" && download.SHA256 != "" &&
+			download.CacheKey != "" && (download.Archive == "zip" || download.Archive == "tar.gz")
+	}
+	return p.Tool != nil && (p.Target == CommandInstallManaged) == (p.CommandDirectory != nil)
 }
 
 // CommandInstallerDefaultDirectory reads where a toolDefault installation of installerID puts

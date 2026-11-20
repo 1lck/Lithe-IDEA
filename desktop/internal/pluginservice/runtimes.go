@@ -45,6 +45,12 @@ type RuntimeEnvironment struct {
 // SetRuntimeLanguage supplies the UI's current language without reading view state on an I/O worker.
 func (s *Service) SetRuntimeLanguage(language string) { s.runtimeLanguage.Store(&language) }
 
+// ArchivePlatform is the platform Core selects this host's pinned archives for: managed runtime
+// artifacts and command installer downloads.
+func ArchivePlatform() core.ManagedRuntimePlatform {
+	return core.ManagedRuntimePlatform{OS: toolchain.PlatformName(runtime.GOOS), Arch: core.PluginArchitecture()}
+}
+
 // HasManagedRuntimes is a dispatch check, not manifest validation. Core validates the declaration
 // before any process or I/O; old plugins keep their existing path without a new service call.
 func HasManagedRuntimes(manifest json.RawMessage) bool {
@@ -85,7 +91,7 @@ func (s *Service) ensureRuntimes(ctx context.Context, manifest json.RawMessage, 
 	if !ok {
 		return RuntimeEnvironment{}, fmt.Errorf("%w: managed runtime service unavailable", ErrAssembly)
 	}
-	platform := core.ManagedRuntimePlatform{OS: toolchain.PlatformName(runtime.GOOS), Arch: core.PluginArchitecture()}
+	platform := ArchivePlatform()
 	plan, err := kernel.PlanManagedRuntimes(ctx, manifest, platform)
 	if err != nil {
 		return RuntimeEnvironment{}, err
@@ -410,7 +416,7 @@ func (s *Service) ManagedToolchainFacts(ctx context.Context, manifests []json.Ra
 	if !ok {
 		return nil, nil, nil
 	}
-	platform := core.ManagedRuntimePlatform{OS: toolchain.PlatformName(runtime.GOOS), Arch: core.PluginArchitecture()}
+	platform := ArchivePlatform()
 	for _, manifest := range manifests {
 		if !HasManagedRuntimes(manifest) {
 			continue

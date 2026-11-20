@@ -17,7 +17,9 @@ import (
 )
 
 type commandInstallerCase struct {
-	Name          string          `json:"name"`
+	Name string `json:"name"`
+	// Plugin names the case's manifest in place of the fixture's.
+	Plugin        string          `json:"plugin"`
 	Operation     string          `json:"operation"`
 	Payload       json.RawMessage `json:"payload"`
 	ManifestEdits []struct {
@@ -46,9 +48,18 @@ func TestCommandInstallersSharedFixture(t *testing.T) {
 	if err := json.Unmarshal(data, &fixture); err != nil {
 		t.Fatal(err)
 	}
-	plugin, err := os.ReadFile(filepath.Join(directory, fixture.Plugin))
-	if err != nil {
-		t.Fatal(err)
+	plugins := map[string][]byte{}
+	load := func(name string) []byte {
+		t.Helper()
+		if plugin, ok := plugins[name]; ok {
+			return plugin
+		}
+		plugin, err := os.ReadFile(filepath.Join(directory, name))
+		if err != nil {
+			t.Fatal(err)
+		}
+		plugins[name] = plugin
+		return plugin
 	}
 	if len(fixture.Cases) == 0 {
 		t.Fatal("fixture has no cases")
@@ -67,12 +78,17 @@ func TestCommandInstallersSharedFixture(t *testing.T) {
 				payload = mergeObjects(t, payload, specific.Payload)
 				expected = specific.Expected
 			}
-			manifest := editManifest(t, plugin, c)
+			pluginName := fixture.Plugin
+			if c.Plugin != "" {
+				pluginName = c.Plugin
+			}
+			manifest := editManifest(t, load(pluginName), c)
 			var fields struct {
-				InstallerID      string    `json:"installerID"`
-				Target           string    `json:"target"`
-				InstallDirectory string    `json:"installDirectory"`
-				Outputs          []*string `json:"outputs"`
+				InstallerID      string                  `json:"installerID"`
+				Target           string                  `json:"target"`
+				InstallDirectory string                  `json:"installDirectory"`
+				Platform         *CommandArchivePlatform `json:"platform"`
+				Outputs          []*string               `json:"outputs"`
 			}
 			if err := json.Unmarshal(payload, &fields); err != nil {
 				t.Fatal(err)
@@ -80,9 +96,9 @@ func TestCommandInstallersSharedFixture(t *testing.T) {
 			var got any
 			switch c.Operation {
 			case "requirements":
-				got, err = client.CommandInstallerRequirements(ctx, manifest)
+				got, err = client.CommandInstallerRequirements(ctx, manifest, fields.Platform)
 			case "plan":
-				got, err = client.PlanCommandInstaller(ctx, manifest, fields.InstallerID, fields.Target, fields.InstallDirectory)
+				got, err = client.PlanCommandInstaller(ctx, manifest, fields.InstallerID, fields.Target, fields.InstallDirectory, fields.Platform)
 			case "defaultDirectory":
 				var directory string
 				var ok bool
@@ -136,11 +152,47 @@ func TestPlanCommandInstallerRefusesAnInconsistentOutcome(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 	client := NewClient()
-	if _, err := client.PlanCommandInstaller(ctx, manifest, "sample-ls", "unknown", ""); err == nil {
+	if _, err := client.PlanCommandInstaller(ctx, manifest, "sample-ls", "unknown", "", nil); err == nil {
 		t.Fatal("an unknown target was planned")
 	}
 	if directory, ok, err := client.CommandInstallerDefaultDirectory(ctx, manifest, "sample-ls", []*string{nil, nil}); err != nil || ok || directory != "" {
 		t.Fatalf("failed probes gave %q, %v, %v", directory, ok, err)
+	}
+}
+
+// A download plan is one the host can carry out only when it installs into the managed target
+// with nothing to run and names an archive it can check.
+func TestCommandInstallPlanConsistency(t *testing.T) {
+	tool := "builder"
+	directory := "/data/commands/sample"
+	download := func(edit func(*CommandInstallDownload)) *CommandInstallDownload {
+		d := &CommandInstallDownload{Installer: "sample", URL: "https://example.org/a.zip", SHA256: strings.Repeat("a", 64), Archive: "zip", CacheKey: strings.Repeat("b", 64)}
+		if edit != nil {
+			edit(d)
+		}
+		return d
+	}
+	for _, c := range []struct {
+		name string
+		plan CommandInstallPlan
+		want bool
+	}{
+		{"managed tool plan", CommandInstallPlan{Installer: "sample", Target: CommandInstallManaged, Tool: &tool, CommandDirectory: &directory}, true},
+		{"toolDefault tool plan", CommandInstallPlan{Installer: "sample", Target: CommandInstallToolDefault, Tool: &tool}, true},
+		{"managed tool plan without a directory", CommandInstallPlan{Installer: "sample", Target: CommandInstallManaged, Tool: &tool}, false},
+		{"tool plan without a tool", CommandInstallPlan{Installer: "sample", Target: CommandInstallManaged, CommandDirectory: &directory}, false},
+		{"download plan", CommandInstallPlan{Installer: "sample", Target: CommandInstallManaged, Download: download(nil)}, true},
+		{"download plan for toolDefault", CommandInstallPlan{Installer: "sample", Target: CommandInstallToolDefault, Download: download(nil)}, false},
+		{"download plan with a tool", CommandInstallPlan{Installer: "sample", Target: CommandInstallManaged, Tool: &tool, Download: download(nil)}, false},
+		{"download plan with a command directory", CommandInstallPlan{Installer: "sample", Target: CommandInstallManaged, CommandDirectory: &directory, Download: download(nil)}, false},
+		{"download plan with arguments", CommandInstallPlan{Installer: "sample", Target: CommandInstallManaged, Arguments: []string{"x"}, Download: download(nil)}, false},
+		{"download of another installer", CommandInstallPlan{Installer: "sample", Target: CommandInstallManaged, Download: download(func(d *CommandInstallDownload) { d.Installer = "other" })}, false},
+		{"download without a digest", CommandInstallPlan{Installer: "sample", Target: CommandInstallManaged, Download: download(func(d *CommandInstallDownload) { d.SHA256 = "" })}, false},
+		{"download of an unknown format", CommandInstallPlan{Installer: "sample", Target: CommandInstallManaged, Download: download(func(d *CommandInstallDownload) { d.Archive = "rar" })}, false},
+	} {
+		if got := c.plan.consistent(); got != c.want {
+			t.Errorf("%s: consistent() = %v, want %v", c.name, got, c.want)
+		}
 	}
 }
 
