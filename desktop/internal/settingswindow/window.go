@@ -137,7 +137,9 @@ type window struct {
 	apply buildApply
 	// kinds is the list of each kind of plugin pages under Build, by the kind's place in
 	// buildKinds: its filter, its rows and the page it last showed.
-	kinds          [len(buildKinds)]kindState
+	kinds [len(buildKinds)]kindState
+	// languages is the directory of the Languages & Frameworks page (languages_view.go).
+	languages      ui.ListState
 	pluginSettings *pluginSettingsForm
 	pluginForms    map[string]*pluginSettingsForm
 	// region is the plugin view of the settings region on screen (plugin_region_view.go).

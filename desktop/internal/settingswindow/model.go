@@ -39,6 +39,9 @@ const (
 	pageToolchains
 	pageDebuggers
 	pageConsole
+	// pageLanguages is "Languages & Frameworks", a top-level page with no static pages
+	// under it: the pages plugins contribute to it make it a group, and its own page is the
+	// directory of them.
 	pageLanguages
 	// pageTools is the group "Tools"; the page after it belongs to it.
 	pageTools
@@ -105,8 +108,10 @@ func isGroup(id pageID) bool {
 }
 
 // ownsPage says whether the group id also opens a page of its own when its row is
-// chosen, instead of only expanding and collapsing.
-func ownsPage(id pageID) bool { return id == pageBuild }
+// chosen, instead of only expanding and collapsing: Build, Execution, Deployment and
+// Languages & Frameworks open the directory of their pages (languages_view.go), which the
+// breadcrumb above one of those pages links to as well.
+func ownsPage(id pageID) bool { return id == pageBuild || id == pageLanguages }
 
 // titleOf is the name of an entry in the language of messages.
 func titleOf(messages *i18n.SettingsMessages, id pageID) string {
