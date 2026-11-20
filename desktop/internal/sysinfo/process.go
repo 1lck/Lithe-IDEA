@@ -58,3 +58,35 @@ type Options struct {
 // Processes reads the process table: every process this user can see. A fact the system does
 // not give for one process is zero or nil; the error says the table could not be listed at all.
 func Processes(options Options) ([]Process, error) { return processes(options) }
+
+// ProcessTreeIDs returns the root and the descendants visible in a native process snapshot.
+// Callers use it to scope native per-process queries before reading details.
+func ProcessTreeIDs(rootPID int, table []Process) []int {
+	byPID := make(map[int]Process, len(table))
+	children := make(map[int][]Process)
+	for _, row := range table {
+		if _, seen := byPID[row.PID]; row.PID <= 0 || seen {
+			continue
+		}
+		byPID[row.PID] = row
+		children[row.ParentPID] = append(children[row.ParentPID], row)
+	}
+	pids := []int{rootPID}
+	seen := map[int]bool{rootPID: true}
+	for index := 0; index < len(pids); index++ {
+		parentPID := pids[index]
+		parent, hasParent := byPID[parentPID]
+		for _, child := range children[parentPID] {
+			if seen[child.PID] {
+				continue
+			}
+			// Guard against OS PID reuse where a child appears older than its recycled parent.
+			if hasParent && parent.StartTime > 0 && child.StartTime > 0 && parent.StartTime > child.StartTime {
+				continue
+			}
+			seen[child.PID] = true
+			pids = append(pids, child.PID)
+		}
+	}
+	return pids
+}

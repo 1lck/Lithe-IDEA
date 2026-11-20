@@ -64,3 +64,35 @@ func TestVisualRunOnCurrentFile(t *testing.T) {
 		})
 	}
 }
+
+func TestVisualRunAttachShowsDebugWindow(t *testing.T) {
+	out := os.Getenv("LITHE_VISUAL_OUTPUT_DIR")
+	if out == "" {
+		t.Skip("set LITHE_VISUAL_OUTPUT_DIR")
+	}
+	if err := os.MkdirAll(out, 0755); err != nil {
+		t.Fatal(err)
+	}
+	for _, look := range []struct{ theme, language string }{{"dark", "zh-Hans"}, {"light", "en-US"}} {
+		t.Run(look.theme, func(t *testing.T) {
+			options := attachRunDebugOptions(t, look.theme)
+			options.Languages = []string{look.language}
+			var session *headless.Session
+			h := newHarnessWithDriver(t, options, func(config app.Config) (*app.Driver, func(), error) {
+				config.Width, config.Height = 1200, 820
+				var err error
+				session, err = headless.Open(config, nil, headless.Options{})
+				if err != nil {
+					return nil, nil, err
+				}
+				return session.Driver(), session.Close, nil
+			})
+			p := attachRunDebugFixture(t, h)
+			h.settleChain()
+			if err := session.Screenshot(filepath.Join(out, "run-attach-debug-"+look.theme+".png")); err != nil {
+				t.Fatal(err)
+			}
+			h.app.stopDebug(p)
+		})
+	}
+}

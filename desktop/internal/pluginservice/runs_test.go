@@ -67,12 +67,30 @@ func TestRunHelperProcess(t *testing.T) {
 			fmt.Printf("file %x\n", data)
 		}
 		os.Exit(0)
-	case "listen":
+	case "listen", "listen-once":
 		listener, err := net.Listen("tcp", "127.0.0.1:"+os.Getenv("LITHE_RUN_PORT"))
 		if err != nil {
 			os.Exit(2)
 		}
 		defer listener.Close()
+		if os.Getenv("LITHE_RUN_HELPER") == "listen-once" {
+			if err := listener.(*net.TCPListener).SetDeadline(time.Now().Add(10 * time.Second)); err != nil {
+				t.Fatal(err)
+			}
+			connection, err := listener.Accept()
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer connection.Close()
+			if err := connection.SetReadDeadline(time.Now().Add(5 * time.Second)); err != nil {
+				t.Fatal(err)
+			}
+			var handshake [1]byte
+			if _, err := connection.Read(handshake[:]); err != nil || handshake[0] != 'D' {
+				t.Fatalf("first debugger connection did not handshake: %v", err)
+			}
+			return
+		}
 		time.Sleep(time.Minute)
 		os.Exit(0)
 	}
@@ -460,6 +478,42 @@ func TestRunStartAttachesTheDebuggerOnceThePortOpens(t *testing.T) {
 		h.await(t, "the attached run to stop with its session", func(events []RunEvent) bool { return exitedEvent(events) != nil })
 	case <-time.After(20 * time.Second):
 		t.Fatal("the debugger was never attached")
+	}
+}
+
+func TestRunDebuggeeFirstConnectionBelongsToTheAdapter(t *testing.T) {
+	h := newRunHarness(t)
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	port := listener.Addr().(*net.TCPAddr).Port
+	if err := listener.Close(); err != nil {
+		t.Fatal(err)
+	}
+	h.service.Runs.Debug = func(ctx context.Context, request RunDebugRequest) (string, error) {
+		dialer := net.Dialer{Timeout: time.Second}
+		connection, err := dialer.DialContext(ctx, "tcp", net.JoinHostPort(request.Host, fmt.Sprint(request.Port)))
+		if err != nil {
+			return "", err
+		}
+		defer connection.Close()
+		if err := connection.SetWriteDeadline(time.Now().Add(time.Second)); err != nil {
+			return "", err
+		}
+		_, err = connection.Write([]byte{'D'})
+		return "debug-session", err
+	}
+	params := h.params(t, "listen-once", map[string]any{
+		"port":  port,
+		"debug": map[string]any{"configurationType": "script", "target": map[string]any{"kind": "connection", "port": port}},
+	})
+	result, refusal := respond(t, h.service, runFixturePlugin, "run/start", params)
+	startedRunID(t, result, refusal)
+	events := h.await(t, "the fake debug handshake to finish", func(events []RunEvent) bool { return exitedEvent(events) != nil })
+	exited := exitedEvent(events)
+	if exited.ExitCode == nil || *exited.ExitCode != 0 {
+		t.Fatalf("run never received the expected first debugger connection: %+v", events)
 	}
 }
 

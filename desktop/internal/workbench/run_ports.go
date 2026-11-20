@@ -142,51 +142,23 @@ func readRunPortsSnapshot(
 // candidateRunTree collects rootPID and its valid descendants so socket enumeration only
 // inspects the run's processes rather than unrelated processes on the host.
 func candidateRunTree(rootPID int, table []sysinfo.Process) ([]int, []core.PortProcess) {
-	byPID := make(map[int]sysinfo.Process, len(table))
-	children := make(map[int][]sysinfo.Process)
+	seen := make(map[int]bool, len(table))
 	coreProcesses := make([]core.PortProcess, 0, len(table))
 	for _, proc := range table {
-		if proc.PID <= 0 {
+		if proc.PID <= 0 || seen[proc.PID] {
 			continue
 		}
-		if _, dup := byPID[proc.PID]; dup {
-			continue
-		}
-		byPID[proc.PID] = proc
-		children[proc.ParentPID] = append(children[proc.ParentPID], proc)
+		seen[proc.PID] = true
 		var started *uint64
 		if proc.StartTime > 0 {
 			v := proc.StartTime
 			started = &v
 		}
 		coreProcesses = append(coreProcesses, core.PortProcess{
-			ProcessID:       int64(proc.PID),
-			ParentProcessID: int64(proc.ParentPID),
-			StartTime:       started,
+			ProcessID: int64(proc.PID), ParentProcessID: int64(proc.ParentPID), StartTime: started,
 		})
 	}
-
-	pids := []int{rootPID}
-	seen := map[int]bool{rootPID: true}
-	queue := []int{rootPID}
-	for len(queue) > 0 {
-		parentPID := queue[0]
-		queue = queue[1:]
-		parent, hasParent := byPID[parentPID]
-		for _, child := range children[parentPID] {
-			if seen[child.PID] {
-				continue
-			}
-			// Guard against OS PID reuse where a child appears older than its recycled parent.
-			if hasParent && parent.StartTime > 0 && child.StartTime > 0 && parent.StartTime > child.StartTime {
-				continue
-			}
-			seen[child.PID] = true
-			pids = append(pids, child.PID)
-			queue = append(queue, child.PID)
-		}
-	}
-	return pids, coreProcesses
+	return sysinfo.ProcessTreeIDs(rootPID, table), coreProcesses
 }
 
 // openRunPort opens the listening endpoint's URL in the system browser.

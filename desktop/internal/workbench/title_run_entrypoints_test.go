@@ -13,6 +13,7 @@ import (
 
 	"github.com/1lck/Lithe-IDEA/desktop/internal/core"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/i18n"
+	"github.com/1lck/Lithe-IDEA/desktop/internal/pluginservice"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/pluginstate"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/store"
 )
@@ -197,4 +198,31 @@ func openSource(t *testing.T, h *harness, p *project, file string) {
 		doc := p.selectedDocument(p.docs.group)
 		return doc != nil && doc.path == file
 	})
+}
+
+func TestCurrentFileUsesAnEditorRunActionWithoutABuildEntrypoint(t *testing.T) {
+	h := debugHarness(t)
+	root := t.TempDir()
+	writeFixture(t, root, map[string]string{"source.txt": "entry\n"})
+	h.open(root)
+	p := h.app.project
+	openSource(t, h, p, filepath.Join(root, "source.txt"))
+	d := p.selectedDocument(p.docs.group)
+	if d.view.Revision() != 0 {
+		t.Fatalf("test needs the initial revision, got %d", d.view.Revision())
+	}
+	h.app.post(func(a *App) {
+		p.build.loaded = true
+		d.actions = []pluginservice.EditorAction{{
+			Title: "Run editor entry", Icon: "run",
+			Range: pluginservice.EditorActionRange{StartLine: 1, StartColumn: 1},
+		}}
+		a.chooseTitleConfiguration(p, "")
+		a.titleRun(p)
+	})
+	h.settle()
+	want := i18n.SharedFormat(h.app.language(), "desktop.editorActions.starting", map[string]string{"label": "Run editor entry"})
+	if !slices.Contains(noticeTexts(h.app), want) {
+		t.Fatalf("Run did not invoke the editor entry: notices = %v", noticeTexts(h.app))
+	}
 }

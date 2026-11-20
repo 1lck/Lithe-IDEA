@@ -344,6 +344,124 @@ func (a *App) editorActionMenuItems(c ui.C, p *project, d *document, menu *ui.Me
 	}
 }
 
+// runCurrentFileEditorAction presents the same plugin invocation the gutter
+// offers. An absent cached action may mean its initial collection is still in flight.
+func (a *App) runCurrentFileEditorAction(p *project, d *document, mode titleAction) {
+	fallback := func(a *App) {
+		if mode == titleActionDebug {
+			a.whenDebugAdaptersLoaded(p, func() {
+				if p.selectedDocument(p.docs.group) == d {
+					a.startDebug(p)
+				}
+			})
+			return
+		}
+		a.operationRejected("title_run_current_file", "no_entrypoint")
+		a.notifyInfo(i18n.Shared(a.language(), "desktop.title.currentFileNotRunnable"))
+	}
+	if d == nil || d.virtual || d.path == "" || a.plugins == nil {
+		fallback(a)
+		return
+	}
+	if p.runConfigs.findingEntrypoint {
+		return
+	}
+	start := func() {
+		if a.project != p || p.selectedDocument(p.docs.group) != d {
+			return
+		}
+		invoke := func(a *App, actions []pluginservice.EditorAction) bool {
+			choice := currentFileEditorChoice(actions, d.view.Revision(), mode)
+			if choice == nil {
+				return false
+			}
+			a.runEditorAction(p, d, choice.action, choice.alternative)
+			return true
+		}
+		if invoke(a, d.actions) {
+			return
+		}
+		p.runConfigs.findingEntrypoint = true
+		plugins := a.plugins
+		path, revision := d.path, d.view.Revision()
+		data, _ := d.view.Text()
+		text := string(data)
+		id := strconv.Itoa(d.id)
+		a.background(p, 10*time.Second, func(ctx context.Context) func(*App) {
+			actions, err := plugins.CollectEditorActions(ctx, p.root, path, id, revision, text)
+			return func(a *App) {
+				p.runConfigs.findingEntrypoint = false
+				if p.selectedDocument(p.docs.group) != d || d.path != path || d.view.Revision() != revision {
+					return
+				}
+				if invoke(a, actions) {
+					if err != nil {
+						a.backgroundFailed("editor_actions", err)
+					}
+					return
+				}
+				if err != nil {
+					a.operationFailed("title_run_current_file", err)
+					a.notifyError(i18n.Shared(a.language(), "desktop.editorActions.failed"))
+					return
+				}
+				fallback(a)
+			}
+		})
+	}
+	if d.dirty() || d.saving || d.conflicted {
+		p.runConfigs.findingEntrypoint = true
+		a.saveBeforeClose(p, d, func(ok bool) {
+			p.runConfigs.findingEntrypoint = false
+			if ok {
+				start()
+			}
+		})
+		return
+	}
+	start()
+}
+
+// currentFileEditorChoice selects the first source-order action in the Run lane.
+// Debug uses its Debug alternative, or a standalone Debug action if it has none.
+func currentFileEditorChoice(actions []pluginservice.EditorAction, revision int, mode titleAction) *editorActionChoice {
+	var run, debug *pluginservice.EditorAction
+	first := func(current *pluginservice.EditorAction, action *pluginservice.EditorAction) *pluginservice.EditorAction {
+		if current == nil || action.Range.StartLine < current.Range.StartLine ||
+			(action.Range.StartLine == current.Range.StartLine && action.Range.StartColumn < current.Range.StartColumn) {
+			return action
+		}
+		return current
+	}
+	for index := range actions {
+		action := &actions[index]
+		if action.Version() != revision {
+			continue
+		}
+		lane, _, _ := editorActionPresentation(action.Icon)
+		switch lane {
+		case "run":
+			run = first(run, action)
+		case "debug":
+			debug = first(debug, action)
+		}
+	}
+	if run != nil {
+		if mode == titleActionRun {
+			return &editorActionChoice{action: *run, alternative: -1}
+		}
+		for index, alternative := range run.Alternatives {
+			if alternative.Icon == "debug" {
+				return &editorActionChoice{action: *run, alternative: index}
+			}
+		}
+	}
+	if mode == titleActionDebug && debug != nil {
+		return &editorActionChoice{action: *debug, alternative: -1}
+	}
+	return nil
+}
+
 // runEditorAction calls the plugin for one action or alternative. The call is refused when the
 // document changed since the action was collected. Locations the result asks to reveal are opened;
 // only the first is opened for now, the others wait for the navigation list.
