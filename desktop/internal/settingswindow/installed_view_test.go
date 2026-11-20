@@ -284,8 +284,8 @@ func detailFixture(language i18n.Language) (*window, PluginFacts, string) {
 
 // TestInstalledVersionsLinesUpItsValues covers the grid of the Versions & Source tab: every
 // value, the repository link's words included, starts at one left edge, the lines keep one
-// spacing, and the note on when the content digest is checked is the ⓘ's tip beside the
-// digest, not a line under it.
+// spacing, and the note on when the content digest is checked is the tip of an ⓘ beside the
+// digest's label, not a line under the digest.
 func TestInstalledVersionsLinesUpItsValues(t *testing.T) {
 	w, fact, repository := detailFixture(i18n.English)
 	// Wide enough that no value wraps, so every line of the grid is one line of text.
@@ -317,6 +317,7 @@ func TestInstalledVersionsLinesUpItsValues(t *testing.T) {
 	for _, key := range labels {
 		tops = append(tops, painted(i18n.Shared(i18n.English, key)).Y)
 	}
+	d.versionsLabelsKeepTheirWidth(i18n.English)
 	step := tops[1] - tops[0]
 	for i := 2; i < len(tops); i++ {
 		if gap := tops[i] - tops[i-1]; gap < step-0.5 || gap > step+0.5 {
@@ -328,17 +329,41 @@ func TestInstalledVersionsLinesUpItsValues(t *testing.T) {
 		t.Fatal("the note on the content digest is permanently visible")
 	}
 	trigger := d.hintHit(help)
-	digest := painted(fact.ContentDigest)
-	if trigger.Bounds.X < digest.X+digest.Width || trigger.Bounds.Y > digest.Y+digest.Height || trigger.Bounds.Y+trigger.Bounds.Height < digest.Y {
-		t.Fatalf("the ⓘ at %+v does not follow the digest at %+v", trigger.Bounds, digest)
+	label := painted(i18n.Shared(i18n.English, "native.contentSHA256"))
+	if trigger.Bounds.X < label.X+label.Width || trigger.Bounds.X+trigger.Bounds.Width > edge {
+		t.Fatalf("the ⓘ at %+v is not between the label at %+v and the values at x=%.1f", trigger.Bounds, label, edge)
+	}
+	if middle := trigger.Bounds.Y + trigger.Bounds.Height/2; middle < label.Y || middle > label.Y+label.Height {
+		t.Fatalf("the ⓘ at %+v is not on the line of the label at %+v", trigger.Bounds, label)
+	}
+}
+
+// versionsLabelsKeepTheirWidth fails the test when a label of the Versions & Source tab, the
+// one an ⓘ follows included, was laid out narrower than its words, so the ⓘ or the value
+// would cover its end. The headless canvas measures words a little narrower than the
+// system font does; the visual test checks again with the system font.
+func (d *windowDriver) versionsLabelsKeepTheirWidth(language i18n.Language) {
+	d.t.Helper()
+	snapshot := d.driver.Snapshot()
+	for _, key := range []string{"native.currentVersion", "native.previousVersion", "native.updates", "native.sourceRepository",
+		"native.localPackage", "native.archiveSHA256", "native.contentSHA256", "native.pluginID"} {
+		label := i18n.Shared(language, key)
+		for i := len(snapshot.Texts) - 1; i >= 0; i-- {
+			if text := snapshot.Texts[i]; text.Value == label {
+				if i < len(snapshot.TextWidths) && snapshot.TextWidths[i] > text.Bounds.Width+0.5 {
+					d.t.Errorf("%q needs %.1f points but has %.1f", label, snapshot.TextWidths[i], text.Bounds.Width)
+				}
+				break
+			}
+		}
 	}
 }
 
 // TestInstalledPermissionsKeepsEachEntryToOneLine covers the Permissions & Programs tab: a
 // permission's description and its name in the contract share one line, a program is one
-// line that names it until it is opened to its full declaration, the copy button beside it
-// copies that declaration, and the note on settings is the tip of the ⓘ beside the heading,
-// not a paragraph under the list.
+// line that names it until it is opened to its full declaration, colored as the editor colors
+// JSON, the copy button beside it copies that declaration, and the note on settings is the tip
+// of the ⓘ beside the heading, not a paragraph under the list.
 func TestInstalledPermissionsKeepsEachEntryToOneLine(t *testing.T) {
 	saved := copyText
 	t.Cleanup(func() { copyText = saved })
@@ -406,8 +431,34 @@ func TestInstalledPermissionsKeepsEachEntryToOneLine(t *testing.T) {
 
 	d.click("buildSystem fixture")
 	d.pump()
-	if !d.wrapped(`"buildSystemID": "fixture",`) {
+	// The declaration is colored as the editor colors JSON: the property's name, its string
+	// value and the punctuation between them each take their own color.
+	const entry = `"buildSystemID": "fixture",`
+	snapshot := d.driver.Snapshot()
+	var line *gfx.Text
+	for i := range snapshot.Texts {
+		if strings.Contains(snapshot.Texts[i].Value, entry) {
+			line = &snapshot.Texts[i]
+		}
+	}
+	if line == nil {
 		t.Fatal("the opened program does not show its declaration")
+	}
+	colorAt := func(at int) gfx.Color {
+		t.Helper()
+		offset := 0
+		for _, run := range snapshot.Runs[line.RunFirst : line.RunFirst+line.RunCount] {
+			if offset += int(run.Bytes); at < offset {
+				return run.Color
+			}
+		}
+		t.Fatalf("no run of %q covers byte %d", line.Value, at)
+		return gfx.Color{}
+	}
+	start := strings.Index(line.Value, entry)
+	name, colon, value := colorAt(start+1), colorAt(start+len(`"buildSystemID"`)), colorAt(start+len(`"buildSystemID": "`))
+	if name == value || name == colon || value == colon {
+		t.Fatalf("%q is not highlighted: the name is %+v, the colon %+v and the value %+v", line.Value, name, colon, value)
 	}
 	d.click("buildSystem fixture")
 	d.pump()

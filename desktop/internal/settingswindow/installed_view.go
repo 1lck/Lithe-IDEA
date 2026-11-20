@@ -7,12 +7,16 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"sync"
 
 	"github.com/1lck/Lithe-IDEA/desktop/internal/core"
+	"github.com/1lck/Lithe-IDEA/desktop/internal/editor/rope"
+	"github.com/1lck/Lithe-IDEA/desktop/internal/editor/syntax"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/i18n"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/icons"
 	"github.com/vivaui/viva/gfx"
 	"github.com/vivaui/viva/ui"
+	"github.com/vivaui/viva/ui/textview"
 )
 
 // The Installed tab of the plugin page, laid out as the macOS client's is: a search with
@@ -39,8 +43,14 @@ type installedState struct {
 	// keys are the list keys the plugins have had, by plugin ID; see rowKey.
 	keys map[string]int
 	// programsOpen are the program declarations the Permissions & Programs tab shows in
-	// full, by programKey.
+	// full, by programKey, and programTexts the colored texts they are shown in: one is made
+	// the first time its declaration is shown and dropped when the declaration closes.
 	programsOpen map[string]bool
+	programTexts map[string]*programText
+	// programTheme colors the declarations as the editor colors JSON, in the look
+	// programThemeDark names; see declarationTheme.
+	programTheme     *syntax.Theme
+	programThemeDark bool
 	// uninstallOpen says the confirmation of an uninstall is shown, for the plugin
 	// uninstallID named uninstallName. Both tabs ask through it.
 	uninstallOpen bool
@@ -690,6 +700,11 @@ func (w *window) installedTabs(c ui.C, language i18n.Language, fact PluginFacts)
 // that ends in one is as tall as a line of text and the grid keeps one rhythm.
 const installedFieldLine = 18
 
+// installedLabelColumn is the width of a detail grid's labels, where the values start. It
+// holds the widest label with an ⓘ after it, "Content SHA-256", which the system font draws
+// about 102 points wide, with room to spare for the ⓘ's gap and glyph.
+const installedLabelColumn = 136
+
 // installedLinkInset is the side padding Viva keeps around a link button's words, the same
 // as a regular button's (components.Button's geometry). A link that is a field's value is
 // pulled left by it so its words start where the plain values above and below start.
@@ -699,8 +714,20 @@ const installedLinkInset = 10
 // what body declares. The label and the value stand on one text baseline, whatever their
 // fonts, and a value that wraps keeps the label beside its first line.
 func (w *window) installedField(c ui.C, label string, body func()) {
+	w.installedFieldHelp(c, label, "", body)
+}
+
+// installedFieldHelp is installedField whose label is followed, inside the label's column,
+// by an ⓘ whose tip is help, so a note on the field neither takes a line of its own nor
+// pushes the value aside. An empty help leaves the label alone.
+func (w *window) installedFieldHelp(c ui.C, label, help string, body func()) {
 	ui.Row(c).FillWidth().MinHeight(installedFieldLine).Gap(16).Items(ui.Baseline).Children(func() {
-		ui.Text(c, label).Width(120).Shrink(0).FontSize(12).Color(w.pal.muted)
+		ui.Row(c).Width(installedLabelColumn).Shrink(0).Gap(4).Items(ui.Baseline).Children(func() {
+			ui.Text(c, label).FontSize(12).Color(w.pal.muted).Shrink(1).MinWidth(0)
+			if help != "" {
+				w.infoButton(c, help)
+			}
+		})
 		ui.Row(c).Grow(1).Shrink(1).MinWidth(0).Gap(8).Items(ui.Baseline).Children(body)
 	})
 }
@@ -1042,6 +1069,7 @@ func (w *window) installedProgram(c ui.C, language i18n.Language, fact PluginFac
 			if disclose.Clicked() {
 				if open {
 					delete(w.installed.programsOpen, key)
+					delete(w.installed.programTexts, key)
 				} else {
 					if w.installed.programsOpen == nil {
 						w.installed.programsOpen = map[string]bool{}
@@ -1079,11 +1107,114 @@ func (w *window) installedProgram(c ui.C, language i18n.Language, fact PluginFac
 			})
 		})
 		if open {
-			ui.Row(c).FillWidth().MarginLeft(22).Pad(8).Radius(6).Background(w.pal.card).Stroke(1, w.pal.line).Children(func() {
-				ui.Wrap(c, declaration).Mono().FontSize(11).Color(w.pal.text).Grow(1).Shrink(1).MinWidth(0)
+			text := w.declarationText(key, declaration)
+			theme := w.declarationTheme()
+			ui.Column(c).FillWidth().MarginLeft(22).Pad(8).Radius(6).Background(w.pal.card).Stroke(1, w.pal.line).Children(func() {
+				// The lines never change for one text, so it wraps them again only when its
+				// width does.
+				text.view.Declare(c.Key("declaration"), textview.Spec{
+					Label:      i18n.Shared(language, "native.fullProgramDeclaration"),
+					Source:     text.lines,
+					Font:       gfx.TextStyle{Size: 11, Weight: gfx.WeightRegular, Mono: true, Color: w.pal.text},
+					LineHeight: 16,
+					Selection:  w.pal.highlight,
+					Wrap:       true,
+					Revision:   1,
+					Spans: func(n int, line string, dst []textview.Span) []textview.Span {
+						return text.spans(theme, w.pal.text, n, line, dst)
+					},
+					Copy: func(selected string) {
+						if err := copyText(selected); err != nil {
+							reportSettingsError(w.ctrl.opts, "settings_plugin_program_copy", err)
+						}
+					},
+				})
 			})
 		}
 	})
+}
+
+// programText is an opened program declaration: its lines, the editor's JSON tokens of each,
+// and the read-only text that shows them, which can be selected and copied.
+type programText struct {
+	lines  textview.Strings
+	tokens [][]syntax.Token
+	view   textview.View
+}
+
+// declarationGrammar is the editor's JSON grammar, the one the declarations are colored with.
+// The grammars are built into Lithe, so making it reads no file; its patterns compile the
+// first time a declaration opens.
+var declarationGrammar = sync.OnceValue(func() *syntax.Syntax {
+	return syntax.NewRegistry().Syntax("json")
+})
+
+// declarationText is the text of the declaration of the program key names, made the first
+// time it is shown: a declaration is a few lines, read once through one highlighter so a
+// string that spans lines is colored as the editor colors it.
+func (w *window) declarationText(key, declaration string) *programText {
+	if text, ok := w.installed.programTexts[key]; ok {
+		return text
+	}
+	source := rope.FromString(declaration)
+	text := &programText{}
+	for i := 0; i < source.LineCount(); i++ {
+		text.lines = append(text.lines, source.Line(i))
+	}
+	text.tokens = make([][]syntax.Token, len(text.lines))
+	if grammar := declarationGrammar(); grammar != nil {
+		highlighter := syntax.NewHighlighter(grammar, source, syntax.HighlighterOptions{})
+		for i := range text.lines {
+			text.tokens[i] = highlighter.Line(nil, i)
+		}
+		highlighter.Close()
+	}
+	if w.installed.programTexts == nil {
+		w.installed.programTexts = map[string]*programText{}
+	}
+	w.installed.programTexts[key] = text
+	return text
+}
+
+// declarationTheme is the editor's Lithe scheme in the window's look, built again only when
+// the look changes.
+func (w *window) declarationTheme() *syntax.Theme {
+	s := &w.installed
+	if s.programTheme == nil || s.programThemeDark != w.dark {
+		options := syntax.ThemeOptions{Dark: w.dark, Scheme: syntax.SchemeLithe}
+		s.programTheme, s.programThemeDark = syntax.BuildTheme(options, syntax.DefaultPalette()), w.dark
+	}
+	return s.programTheme
+}
+
+// spans appends to dst the styled stretches of line n of the declaration, in theme's colors.
+// A token in the scheme's text color takes plain, the card's text color, as the hover's code
+// does, and one that is plain in every way is left out.
+func (t *programText) spans(theme *syntax.Theme, plain gfx.Color, n int, line string, dst []textview.Span) []textview.Span {
+	if n < 0 || n >= len(t.tokens) {
+		return dst
+	}
+	tokens, text := t.tokens[n], theme.Default().Foreground
+	for i, token := range tokens {
+		start, end := int(token.Start), len(line)
+		if i+1 < len(tokens) {
+			end = int(tokens[i+1].Start)
+		}
+		if start < 0 || start >= end || end > len(line) {
+			continue
+		}
+		style := theme.Style(token.Name)
+		if style.Foreground == text && style.Font == 0 {
+			continue
+		}
+		span := textview.Span{From: start, To: end, Color: plain}
+		if style.Foreground != text {
+			span.Color = gfx.RGB24(uint32(style.Foreground))
+		}
+		span.Bold, span.Italic = style.Font&syntax.Bold != 0, style.Font&syntax.Italic != 0
+		dst = append(dst, span)
+	}
+	return dst
 }
 
 // programSummary names a program declaration on one line: its kind, and the words its
@@ -1173,15 +1304,13 @@ func (w *window) installedVersions(c ui.C, language i18n.Language, fact PluginFa
 		})
 		w.installedField(c, i18n.Shared(language, "native.localPackage"), mono(fact.Path))
 		w.installedField(c, i18n.Shared(language, "native.archiveSHA256"), mono(fact.ArchiveSHA256))
-		w.installedField(c, i18n.Shared(language, "native.contentSHA256"), func() {
-			if fact.ContentDigest == "" {
-				mono("")()
-				return
-			}
-			// The digest keeps its own width so the ⓘ that says when it is checked follows it.
-			ui.Wrap(c, fact.ContentDigest).Mono().FontSize(11).Color(w.pal.text).Shrink(1).MinWidth(0)
-			w.infoButton(c, i18n.Shared(language, "native.checkedAgainEveryTimeLitheLoadsThePlugin"))
-		})
+		// The ⓘ that says when the digest is checked follows the label: after the digest it would
+		// sit at the far end of a line the digest fills, away from what it explains.
+		checked := ""
+		if fact.ContentDigest != "" {
+			checked = i18n.Shared(language, "native.checkedAgainEveryTimeLitheLoadsThePlugin")
+		}
+		w.installedFieldHelp(c, i18n.Shared(language, "native.contentSHA256"), checked, mono(fact.ContentDigest))
 		w.installedField(c, i18n.Shared(language, "native.pluginID"), mono(fact.ID))
 	})
 }

@@ -45,6 +45,9 @@ func TestVisualInstalledVersions(t *testing.T) {
 				w.installed.tab = tab.tab
 				w.inv.Invalidate()
 				d.pump()
+				if tab.tab == installedVersions {
+					d.versionsLabelsKeepTheirWidth(look.language)
+				}
 				if err := session.Screenshot(filepath.Join(out, "installed-"+tab.name+"-"+look.theme+".png")); err != nil {
 					t.Fatal(err)
 				}
