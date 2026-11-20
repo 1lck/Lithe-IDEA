@@ -1,0 +1,20 @@
+{
+  "schemaVersion": 1,
+  "messages": [
+    {
+      "id": "desktop.marketplace.programsSettingsHelp",
+      "description": "Installed plugin details, Permissions & Programs tab: the help behind the programs heading, saying why changing a setting needs no new review",
+      "platforms": [
+        "desktop"
+      ]
+    }
+  ],
+  "locales": {
+    "en-US": {
+      "desktop.marketplace.programsSettingsHelp": "Setting values only fill the places the program templates reserve for them, so changing a setting never changes the programs listed here and needs no new review."
+    },
+    "zh-CN": {
+      "desktop.marketplace.programsSettingsHelp": "设置值只会填入程序模板预留的位置，不会改变这里列出的程序，所以修改设置不需要重新审查。"
+    }
+  }
+}

@@ -1,6 +1,8 @@
 package settingswindow
 
 import (
+	"bytes"
+	"encoding/json"
 	"path/filepath"
 	"slices"
 	"strconv"
@@ -36,6 +38,9 @@ type installedState struct {
 	bound   bool
 	// keys are the list keys the plugins have had, by plugin ID; see rowKey.
 	keys map[string]int
+	// programsOpen are the program declarations the Permissions & Programs tab shows in
+	// full, by programKey.
+	programsOpen map[string]bool
 	// uninstallOpen says the confirmation of an uninstall is shown, for the plugin
 	// uninstallID named uninstallName. Both tabs ask through it.
 	uninstallOpen bool
@@ -681,13 +686,29 @@ func (w *window) installedTabs(c ui.C, language i18n.Language, fact PluginFacts)
 	})
 }
 
+// installedFieldLine is the least height of a detail grid's line: the ⓘ glyph's, so a line
+// that ends in one is as tall as a line of text and the grid keeps one rhythm.
+const installedFieldLine = 18
+
+// installedLinkInset is the side padding Viva keeps around a link button's words, the same
+// as a regular button's (components.Button's geometry). A link that is a field's value is
+// pulled left by it so its words start where the plain values above and below start.
+const installedLinkInset = 10
+
 // installedField is one line of a detail's grid: a label in the secondary color beside
-// what body declares.
+// what body declares. The label and the value stand on one text baseline, whatever their
+// fonts, and a value that wraps keeps the label beside its first line.
 func (w *window) installedField(c ui.C, label string, body func()) {
-	ui.Row(c).FillWidth().Gap(16).Items(ui.Start).Children(func() {
+	ui.Row(c).FillWidth().MinHeight(installedFieldLine).Gap(16).Items(ui.Baseline).Children(func() {
 		ui.Text(c, label).Width(120).Shrink(0).FontSize(12).Color(w.pal.muted)
-		ui.Row(c).Grow(1).Shrink(1).MinWidth(0).Gap(8).Items(ui.Center).Children(body)
+		ui.Row(c).Grow(1).Shrink(1).MinWidth(0).Gap(8).Items(ui.Baseline).Children(body)
 	})
+}
+
+// installedLink is a field's value that opens something: link words that line up with the
+// plain values of the other lines and keep the line as tall as theirs.
+func (w *window) installedLink(c ui.C, label string) ui.Box {
+	return ui.Button(c, label).Link().Height(installedFieldLine).MarginLeft(-installedLinkInset)
 }
 
 // installedValue is a field's plain value.
@@ -727,7 +748,7 @@ func (w *window) installedOverview(c ui.C, language i18n.Language, fact PluginFa
 				ui.Text(c, i18n.SharedFormat(language, "native.installedFrom", map[string]string{"arg1": i18n.Shared(language, "native.marketplace")})).
 					FontSize(12).Color(w.pal.text).Shrink(1).MinWidth(0).Ellipsis()
 				if listed && webURL(entry.Repository) && w.ctrl.opts.OpenURL != nil {
-					if ui.Button(c, i18n.Shared(language, "native.sourceRepository")).Link().Tooltip(entry.Repository).Clicked() {
+					if w.installedLink(c, i18n.Shared(language, "native.sourceRepository")).Tooltip(entry.Repository).Clicked() {
 						w.ctrl.opts.OpenURL(entry.Repository)
 					}
 				}
@@ -741,7 +762,7 @@ func (w *window) installedOverview(c ui.C, language i18n.Language, fact PluginFa
 				return
 			}
 			ui.Text(c, strconv.Itoa(fact.Settings)).FontSize(12).Color(w.pal.text).Shrink(0)
-			if ui.Button(c, i18n.Shared(language, "native.view")).Link().Clicked() {
+			if w.installedLink(c, i18n.Shared(language, "native.view")).Clicked() {
 				w.installed.tab = installedSettings
 			}
 		})
@@ -956,8 +977,14 @@ func permissionDescription(language i18n.Language, permission string) string {
 	return ""
 }
 
-// installedPermissions is what the user approved: the permissions, then the programs the
-// plugin may run.
+// installedPermissionLine is the height of one line of a permission's description. Its
+// shield is centered in a box this tall, so it stays on the first line of a description that
+// wraps.
+const installedPermissionLine = 19
+
+// installedPermissions is what the user approved: the permissions, each one line of what it
+// lets the plugin do followed by its name in the contract, then the programs the plugin may
+// run, each one line that opens to its full declaration.
 func (w *window) installedPermissions(c ui.C, language i18n.Language, fact PluginFacts) {
 	ui.Column(c).FillWidth().Gap(4).Children(func() {
 		ui.Text(c, i18n.Shared(language, "native.permissions")).FontSize(13).Weight(gfx.WeightSemibold).Color(w.pal.text).PadBottom(4)
@@ -966,31 +993,143 @@ func (w *window) installedPermissions(c ui.C, language i18n.Language, fact Plugi
 		}
 		for index, permission := range fact.Permissions {
 			k := c.KeyInt(index)
-			ui.Row(k).FillWidth().PadY(4).Gap(8).Items(ui.Start).Children(func() {
-				ui.Icon(k, icons.ShieldCheck).Size(14, 14).Color(w.pal.accent).Shrink(0)
-				ui.Column(k).Grow(1).Shrink(1).MinWidth(0).Gap(2).Children(func() {
+			ui.Row(k).FillWidth().PadY(3).Gap(8).Items(ui.Start).Children(func() {
+				ui.Row(k).Height(installedPermissionLine).Shrink(0).Items(ui.Center).Children(func() {
+					ui.Icon(k, icons.ShieldCheck).Size(14, 14).Color(w.pal.accent)
+				})
+				ui.Row(k).Grow(1).Shrink(1).MinWidth(0).Gap(8).Items(ui.Baseline).Children(func() {
 					if description := permissionDescription(language, permission); description != "" {
-						ui.Wrap(k, description).FontSize(12).Color(w.pal.text)
+						ui.Wrap(k, description).FontSize(12).LineHeight(installedPermissionLine).Color(w.pal.text).Shrink(1).MinWidth(0)
 					}
-					ui.Text(k, permission).Mono().FontSize(11).Color(w.pal.subtle)
+					ui.Text(k, permission).Mono().FontSize(11).Color(w.pal.subtle).Shrink(0)
 				})
 			})
 		}
-		ui.Text(c, i18n.Shared(language, "native.programsItCanRun")).FontSize(13).Weight(gfx.WeightSemibold).Color(w.pal.text).PadTop(14).PadBottom(4)
+		ui.Row(c).FillWidth().Gap(6).Items(ui.Center).PadTop(14).PadBottom(4).Children(func() {
+			ui.Text(c, i18n.Shared(language, "native.programsItCanRun")).FontSize(13).Weight(gfx.WeightSemibold).Color(w.pal.text)
+			if len(fact.Programs) != 0 {
+				w.infoButton(c, i18n.Shared(language, "desktop.marketplace.programsSettingsHelp"))
+			}
+		})
 		if len(fact.Programs) == 0 {
 			ui.Wrap(c, i18n.Shared(language, "native.startsNoPrograms")).FontSize(12).Color(w.pal.muted)
-		} else {
-			ui.Text(c, i18n.Shared(language, "native.fullProgramDeclaration")).FontSize(11).Color(w.pal.muted).PadBottom(2)
 		}
 		for index, program := range fact.Programs {
-			k := c.KeyInt(1000 + index)
-			ui.Row(k).FillWidth().Pad(8).Radius(6).Background(w.pal.card).Stroke(1, w.pal.line).Children(func() {
-				ui.Wrap(k, program).Mono().FontSize(11).Color(w.pal.text).Grow(1).Shrink(1).MinWidth(0)
+			w.installedProgram(c.KeyInt(1000+index), language, fact, program)
+		}
+	})
+}
+
+// programKey names one program declaration of one plugin in installedState.programsOpen.
+func programKey(fact PluginFacts, program string) string {
+	return fact.ID + "\x00" + program
+}
+
+// installedProgram is one program the plugin may run: a line that names it by its kind and
+// the words its declaration gives it, which opens and closes the declaration in full, and a
+// button that copies the declaration. The line's caret sits in the column of the permissions'
+// shields, so the two lists start at one edge.
+func (w *window) installedProgram(c ui.C, language i18n.Language, fact PluginFacts, program string) {
+	key := programKey(fact, program)
+	open := w.installed.programsOpen[key]
+	kind, detail := programSummary(program)
+	declaration := programDeclaration(program)
+	ui.Column(c).FillWidth().Gap(4).Children(func() {
+		ui.Row(c).FillWidth().Gap(4).Items(ui.Center).Children(func() {
+			disclose := ui.ButtonBase(c.Part("open"), strings.TrimSpace(kind+" "+detail)).Grow(1).Shrink(1).MinWidth(0).
+				MinHeight(installedFieldLine).PadX(4).PadY(3).MarginLeft(-4).Gap(8).Radius(6).Items(ui.Center).Justify(ui.Start).
+				Hover(ui.Look{}.Background(w.pal.hover)).Tooltip(i18n.Shared(language, "native.fullProgramDeclaration"))
+			if disclose.Clicked() {
+				if open {
+					delete(w.installed.programsOpen, key)
+				} else {
+					if w.installed.programsOpen == nil {
+						w.installed.programsOpen = map[string]bool{}
+					}
+					w.installed.programsOpen[key] = true
+				}
+			}
+			disclose.Children(func() {
+				caret := icons.ChevronRight
+				if open {
+					caret = icons.ChevronDown
+				}
+				ui.Row(c).Width(14).Shrink(0).Center().Children(func() {
+					ui.Icon(c, caret).Size(10, 10).Color(w.pal.muted)
+				})
+				if kind == "" {
+					ui.Text(c, program).Mono().FontSize(11).Color(w.pal.text).Shrink(1).MinWidth(0).Ellipsis()
+					return
+				}
+				ui.Text(c, kind).Mono().FontSize(11).Color(w.pal.text).Shrink(0)
+				if detail != "" {
+					ui.Text(c, detail).Mono().FontSize(11).Color(w.pal.subtle).Shrink(1).MinWidth(0).Ellipsis()
+				}
+			})
+			copyLabel := i18n.Shared(language, "native.copyJSON")
+			copyButton := ui.ButtonBase(c.Part("copy"), copyLabel).Size(20, 20).Shrink(0).Radius(6).Center().
+				Hover(ui.Look{}.Background(w.pal.hover)).Tooltip(copyLabel)
+			if copyButton.Clicked() {
+				if err := copyText(declaration); err != nil {
+					reportSettingsError(w.ctrl.opts, "settings_plugin_program_copy", err)
+				}
+			}
+			copyButton.Children(func() {
+				ui.Icon(c, icons.Copy).Size(11, 11).Color(w.pal.muted)
+			})
+		})
+		if open {
+			ui.Row(c).FillWidth().MarginLeft(22).Pad(8).Radius(6).Background(w.pal.card).Stroke(1, w.pal.line).Children(func() {
+				ui.Wrap(c, declaration).Mono().FontSize(11).Color(w.pal.text).Grow(1).Shrink(1).MinWidth(0)
 			})
 		}
-		ui.Wrap(c, i18n.Shared(language, "native.settingValuesOnlyFillThePlacesTheProgramTemplatesReserveForThemSoChangingASetta1ef53141a")).
-			FontSize(11).Color(w.pal.subtle).PadTop(10)
 	})
+}
+
+// programSummary names a program declaration on one line: its kind, and the words its
+// declaration gives it at the top level (the language, the tool, the installer's or build
+// system's ID), in the order it gives them. A declaration that is not a JSON object with a
+// kind has no summary, and the caller shows it as it is.
+func programSummary(program string) (kind, detail string) {
+	decoder := json.NewDecoder(strings.NewReader(program))
+	if token, err := decoder.Token(); err != nil || token != json.Delim('{') {
+		return "", ""
+	}
+	var words []string
+	for decoder.More() {
+		token, err := decoder.Token()
+		if err != nil {
+			return "", ""
+		}
+		name, _ := token.(string)
+		var value any
+		if err := decoder.Decode(&value); err != nil {
+			return "", ""
+		}
+		text, ok := value.(string)
+		if !ok || text == "" {
+			continue
+		}
+		if name == "kind" {
+			kind = text
+		} else {
+			words = append(words, text)
+		}
+	}
+	if kind == "" {
+		return "", ""
+	}
+	return kind, strings.Join(words, " · ")
+}
+
+// programDeclaration is a program declaration indented for reading, the form it is shown
+// and copied in; a declaration that is not JSON stays as it is.
+func programDeclaration(program string) string {
+	var indented bytes.Buffer
+	if err := json.Indent(&indented, []byte(program), "", "  "); err != nil {
+		return program
+	}
+	return indented.String()
 }
 
 // installedVersions is the installed version, where updates come from and what the
@@ -1028,17 +1167,20 @@ func (w *window) installedVersions(c ui.C, language i18n.Language, fact PluginFa
 				w.installedValue(c, entry.Repository)
 				return
 			}
-			if ui.Button(c, repositoryName(entry.Repository)).Link().Tooltip(entry.Repository).Clicked() {
+			if w.installedLink(c, repositoryName(entry.Repository)).Tooltip(entry.Repository).Clicked() {
 				w.ctrl.opts.OpenURL(entry.Repository)
 			}
 		})
 		w.installedField(c, i18n.Shared(language, "native.localPackage"), mono(fact.Path))
 		w.installedField(c, i18n.Shared(language, "native.archiveSHA256"), mono(fact.ArchiveSHA256))
 		w.installedField(c, i18n.Shared(language, "native.contentSHA256"), func() {
-			ui.Column(c).Grow(1).Shrink(1).MinWidth(0).Gap(3).Children(func() {
-				mono(fact.ContentDigest)()
-				ui.Wrap(c, i18n.Shared(language, "native.checkedAgainEveryTimeLitheLoadsThePlugin")).FontSize(11).Color(w.pal.subtle)
-			})
+			if fact.ContentDigest == "" {
+				mono("")()
+				return
+			}
+			// The digest keeps its own width so the ⓘ that says when it is checked follows it.
+			ui.Wrap(c, fact.ContentDigest).Mono().FontSize(11).Color(w.pal.text).Shrink(1).MinWidth(0)
+			w.infoButton(c, i18n.Shared(language, "native.checkedAgainEveryTimeLitheLoadsThePlugin"))
 		})
 		w.installedField(c, i18n.Shared(language, "native.pluginID"), mono(fact.ID))
 	})
