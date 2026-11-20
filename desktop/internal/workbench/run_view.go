@@ -1,6 +1,8 @@
 package workbench
 
 import (
+	"strconv"
+
 	"github.com/1lck/Lithe-IDEA/desktop/internal/i18n"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/icons"
 	"github.com/vivaui/viva/gfx"
@@ -77,6 +79,9 @@ func (a *App) runSessionTabs(c ui.C, p *project) {
 					text.Color(a.colors.Text)
 				} else {
 					text.Color(a.colors.Subtle).StateFrom(chip).Hover(ui.Look{}.Color(a.colors.Text))
+				}
+				if run.running && len(run.ports) > 0 {
+					a.runTabPortBadge(k.Part("ports"), run, on)
 				}
 				if run.running {
 					return
@@ -210,6 +215,9 @@ func (a *App) runTree(c ui.C, p *project, run *runEntry) {
 					ui.Text(k, duration).FontSize(a.theme.Metrics.FontSizeS).Color(a.colors.Subtle).Shrink(0)
 				}
 			})
+		if run.running && len(run.ports) > 0 {
+			a.runPortsRow(c.Part("ports"), run)
+		}
 		if detail := runDetail(p, run); detail != "" {
 			// Indented under the root's name, past its icon and the gap after it.
 			ui.Row(c).FillWidth().Height(buildRowHeight).Shrink(0).Items(ui.Center).PadSides(0, 8, 0, 8+runTreeIcon+6).Children(func() {
@@ -233,6 +241,64 @@ func runDetail(p *project, run *runEntry) string {
 		return run.operation.status
 	}
 	return ""
+}
+
+func (a *App) runTabPortBadge(c ui.C, run *runEntry, selected bool) {
+	badge := run.ports[0].Label
+	if len(run.ports) > 1 {
+		badge += " " + a.text.Run.Ports.More(len(run.ports)-1)
+	}
+	fill := a.colors.Hover
+	if selected {
+		fill = a.colors.Active
+	}
+	ui.Row(c).Shrink(0).Height(18).Items(ui.Center).PadX(5).Radius(4).
+		Background(fill).Stroke(1, a.colors.TabIdleBorder).
+		Children(func() {
+			ui.Text(c, badge).FontSize(a.theme.Metrics.FontSizeS).Color(a.colors.Accent).Shrink(0)
+		})
+}
+
+func (a *App) runPortsRow(c ui.C, run *runEntry) {
+	const pillHeight = buildRowHeight - 4
+	ui.Column(c).FillWidth().Shrink(0).PadSides(2, 8, 2, 8+runTreeIcon+6).Children(func() {
+		ui.Flow(c).FillWidth().Gap(6).Children(func() {
+			ui.Row(c.Part("label")).Height(pillHeight).Shrink(0).Items(ui.Center).Children(func() {
+				ui.Text(c, a.text.Run.Ports.Label).FontSize(a.theme.Metrics.FontSizeS).Color(a.colors.Subtle).Shrink(0)
+			})
+			for index, port := range run.ports {
+				port := port
+				pk := c.Key("port" + strconv.Itoa(index))
+				pill := ui.Row(pk).Height(pillHeight).Shrink(0).Items(ui.Center).Gap(4).PadX(6).
+					Radius(a.theme.Metrics.RadiusItem()).
+					Background(a.colors.Hover).Stroke(1, a.colors.TabIdleBorder).
+					Hover(ui.Look{}.Background(a.colors.Active)).
+					Pressed(ui.Look{}.Background(a.colors.Active)).
+					HitWith(ui.ID(pk), port.URL, gfx.HitOptions{Role: gfx.RoleLink, Cursor: gfx.PointerCursorHand}).
+					Tooltip(port.URL)
+				pill.Children(func() {
+					ui.Icon(pk, icons.ExternalLink).Size(12, 12).Color(a.colors.Accent).Shrink(0)
+					ui.Text(pk, port.Label).FontSize(a.theme.Metrics.FontSizeS).Color(a.colors.Accent).Shrink(0)
+				})
+				if pill.Clicked() {
+					c.After(func() { a.openRunPort(port, surfaceButton) })
+				}
+				ui.ContextMenu(pk.Part("menu"), pill, func(menu *ui.MenuItems) {
+					if menu.Item(a.text.Run.Ports.Open).Clicked() {
+						c.After(func() { a.openRunPort(port, surfaceContextMenu) })
+					}
+					if menu.Item(a.text.Run.Ports.Copy).Clicked() {
+						c.After(func() { a.copyRunPortURL(port) })
+					}
+				})
+			}
+			if run.portsTruncated {
+				ui.Row(c.Part("truncated")).Height(pillHeight).Shrink(0).Items(ui.Center).Children(func() {
+					ui.Text(c, "...").FontSize(a.theme.Metrics.FontSizeS).Color(a.colors.Subtle).Shrink(0)
+				})
+			}
+		})
+	})
 }
 
 // runStatusMark declares the icon of where an execution stands, size pixels square, as IDEA marks
