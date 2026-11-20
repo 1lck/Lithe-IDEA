@@ -269,12 +269,15 @@ func (p *project) titleConfigurationFacts(index int, reference core.RunProviderR
 	return &core.TitleConfiguration{Kind: "modelLoaded", Debuggable: &debuggable}
 }
 
-// performCurrentFileAction is Run or Debug on Current File. The Debug window starts the open
-// file under its selected adapter; Run starts the entrypoint a build provider finds in the
-// open file (runCurrentFileEntrypoint).
+// performCurrentFileAction keeps build-provider runs on their existing path and
+// offers the editor's Debug action before using the selected adapter directly.
 func (a *App) performCurrentFileAction(p *project, action titleAction) {
 	if action == titleActionDebug {
-		a.whenDebugAdaptersLoaded(p, func() { a.startDebug(p) })
+		if p.safeMode() {
+			a.askToTrustProject(p, func() { a.performCurrentFileAction(p, action) })
+			return
+		}
+		a.runCurrentFileEditorAction(p, p.selectedDocument(p.docs.group), action)
 		return
 	}
 	a.runCurrentFileEntrypoint(p)

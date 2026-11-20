@@ -655,3 +655,40 @@ func TestRunAttachLoadsAdaptersWithoutOpeningDebugPanel(t *testing.T) {
 		t.Fatalf("adapter discovery loaded=%v error=%v", p.debug.loaded, err)
 	}
 }
+
+func attachRunDebugOptions(t *testing.T, theme string) Options {
+	t.Helper()
+	manifest := strings.Replace(debugAttachManifest, `"requests": ["attach"]`, `"requests": ["attach"], "configurationTypes": ["fixture-attach"]`, 1)
+	return debugPluginOptions(t, "dev.lithe.test.debug-attach", manifest, true, &testKernel{Client: core.NewClient()}, theme)
+}
+
+func TestRunAttachShowsDebugWindow(t *testing.T) {
+	h := newHarnessWithOptions(t, attachRunDebugOptions(t, "dark"))
+	p := attachRunDebugFixture(t, h)
+	h.app.stopDebug(p)
+}
+
+func attachRunDebugFixture(t *testing.T, h *harness) *project {
+	t.Helper()
+	root, _ := fixtureWorkspace(t)
+	h.open(root)
+	p := h.app.project
+	h.app.openToolWindow(itemRun)
+	ctx, cancel := context.WithTimeout(t.Context(), 10*time.Second)
+	defer cancel()
+	done := make(chan error, 1)
+	go func() {
+		_, err := h.app.attachDebugForRun(ctx, pluginservice.RunDebugRequest{
+			PluginID: "dev.lithe.test.debug-attach", WorkspaceRoot: root,
+			ConfigurationType: "fixture-attach", Host: "127.0.0.1", Port: 12345,
+		})
+		done <- err
+	}()
+	if err := awaitValueWithin(t, h, 10*time.Second, done, "the run's attach request"); err != nil {
+		t.Fatal(err)
+	}
+	if !h.app.chrome.isOpen(catalogIndex[itemDebug]) {
+		t.Fatal("the run started an attach session without showing the Debug window")
+	}
+	return p
+}

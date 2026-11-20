@@ -21,6 +21,7 @@ import (
 	"github.com/1lck/Lithe-IDEA/desktop/internal/pluginhost"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/pluginmanager"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/pluginpkg"
+	"github.com/1lck/Lithe-IDEA/desktop/internal/sysinfo"
 )
 
 const (
@@ -585,7 +586,10 @@ func (r *Runs) attachDebugger(ctx context.Context, run *hostRun) {
 			r.stopRun(run, false)
 		}
 	}
-	if err := WaitForDebugPort(ctx, port, run.done, RunDebugConnectTimeout); err != nil {
+	err := waitForDebugPort(ctx, port, run.done, RunDebugConnectTimeout, func(context.Context) (bool, error) {
+		return debuggeeListening(run.pid, uint16(port))
+	})
+	if err != nil {
 		fail(err)
 		return
 	}
@@ -616,25 +620,64 @@ var (
 // is closed, or the timeout passes. The probe connects and closes without a
 // handshake; a runtime suspended for a debugger keeps listening after it.
 func WaitForDebugPort(ctx context.Context, port int, ended <-chan struct{}, timeout time.Duration) error {
-	deadline := time.NewTimer(timeout)
-	defer deadline.Stop()
-	ticker := time.NewTicker(runDebugPollInterval)
-	defer ticker.Stop()
 	address := net.JoinHostPort("127.0.0.1", strconv.Itoa(port))
-	for {
+	return waitForDebugPort(ctx, port, ended, timeout, func(ctx context.Context) (bool, error) {
 		dialer := net.Dialer{Timeout: time.Second}
 		connection, err := dialer.DialContext(ctx, "tcp", address)
-		if err == nil {
-			_ = connection.Close()
-			return nil
+		if err != nil {
+			// log-exempt: 预期的缺失：目标还没监听时继续等待，超时由调用方处理。
+			return false, nil
 		}
+		// log-exempt: best-effort 清理：探测连接没有要送达的数据。
+		_ = connection.Close()
+		return true, nil
+	})
+}
+
+// A connection probe can consume a debuggee's first handshake. For host-owned
+// runs, observe the listener through the OS and leave the first connection to DAP.
+func debuggeeListening(pid int, port uint16) (bool, error) {
+	processes, err := sysinfo.Processes(sysinfo.Options{})
+	if err != nil {
+		return false, err
+	}
+	sockets, err := sysinfo.ListeningSockets(sysinfo.ProcessTreeIDs(pid, processes))
+	if err != nil {
+		return false, err
+	}
+	for _, socket := range sockets {
+		if socket.Port == port {
+			return true, nil
+		}
+	}
+	return false, nil
+}
+
+func waitForDebugPort(ctx context.Context, port int, ended <-chan struct{}, timeout time.Duration, ready func(context.Context) (bool, error)) error {
+	probeContext, cancel := context.WithTimeout(ctx, timeout)
+	defer cancel()
+	ticker := time.NewTicker(runDebugPollInterval)
+	defer ticker.Stop()
+	for {
 		select {
 		case <-ctx.Done():
 			return ctx.Err()
 		case <-ended:
 			return ErrDebuggeeEnded
-		case <-deadline.C:
+		case <-probeContext.Done():
 			return fmt.Errorf("%w (port %d)", ErrDebugPortTimeout, port)
+		default:
+		}
+		listening, err := ready(probeContext)
+		if err != nil {
+			return err
+		}
+		if listening {
+			return nil
+		}
+		select {
+		case <-probeContext.Done():
+		case <-ended:
 		case <-ticker.C:
 		}
 	}

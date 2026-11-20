@@ -76,7 +76,7 @@ func (a *App) runCurrentFileEntrypoint(p *project) {
 	}
 	candidates = slices.DeleteFunc(candidates, func(c entrypointCandidate) bool { return !c.instance.modelLoaded })
 	if len(candidates) == 0 {
-		a.notifyInfo(i18n.Shared(a.language(), "desktop.title.currentFileNotRunnable"))
+		a.runCurrentFileEditorAction(p, doc, titleActionRun)
 		return
 	}
 	a.performed("title.run.currentFile", surfaceToolbar)
@@ -96,8 +96,9 @@ func (a *App) runCurrentFileEntrypoint(p *project) {
 				a.notifyError(err.Error())
 				return
 			}
-			a.operationRejected("title_run_current_file", "no_entrypoint")
-			a.notifyInfo(i18n.Shared(a.language(), "desktop.title.currentFileNotRunnable"))
+			if p.selectedDocument(p.docs.group) == doc {
+				a.runCurrentFileEditorAction(p, doc, titleActionRun)
+			}
 		}
 	})
 }

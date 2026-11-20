@@ -248,7 +248,13 @@ func (a *App) attachDebugForRun(ctx context.Context, request pluginservice.RunDe
 						target:  &core.DebugTargetFacts{Kind: "connection", Host: request.Host, Port: request.Port},
 						stopRun: request.StopRun,
 					})
-					result <- outcome{id: p.debug.activeSession().id}
+					session := p.debug.activeSession()
+					if session == nil {
+						result <- outcome{err: errors.New("the debug session did not start")}
+						return
+					}
+					a.openToolWindow(itemDebug)
+					result <- outcome{id: session.id}
 					return
 				}
 			}
