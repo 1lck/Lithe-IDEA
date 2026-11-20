@@ -4,6 +4,7 @@ import (
 	"context"
 	"slices"
 	"strings"
+	"time"
 
 	"github.com/1lck/Lithe-IDEA/desktop/internal/core"
 	"github.com/vivaui/viva/ui"
@@ -34,7 +35,7 @@ const (
 	// branchDialogConflict asks what to do with the local changes a checkout would
 	// overwrite.
 	branchDialogConflict
-	// branchDialogDelete confirms deleting a local branch.
+	// branchDialogDelete confirms deleting local and remote branches (branch_delete.go).
 	branchDialogDelete
 	// branchDialogTag asks for the name, target and message of a new tag.
 	branchDialogTag
@@ -91,6 +92,10 @@ type branchSession struct {
 	busy bool
 	// annotated says the new tag takes the typed message; otherwise it is lightweight.
 	annotated bool
+	// deleting are the local and remote branches the delete dialog deletes, in the order it lists
+	// them; deleteSkipped counts the marked references it leaves out (branch_delete.go).
+	deleting      []core.GitReference
+	deleteSkipped int
 
 	// common are the branches every repository of a project folder with several has
 	// (branch_common.go).
@@ -217,6 +222,13 @@ func (a *App) toggleBranchRepo(p *project, root string) {
 // user, and done reports its success once the status is in place.
 func (a *App) runBranchWrite(p *project, operation string, failed func(reason string) string,
 	write func(ctx context.Context, kernel Kernel, root string) error, done func(a *App, status core.GitStatus)) {
+	a.runBranchWriteWithin(p, branchOperationTimeout, operation, failed, write, done)
+}
+
+// runBranchWriteWithin is runBranchWrite bounded by timeout instead of branchOperationTimeout, for
+// a write that talks to a remote.
+func (a *App) runBranchWriteWithin(p *project, timeout time.Duration, operation string, failed func(reason string) string,
+	write func(ctx context.Context, kernel Kernel, root string) error, done func(a *App, status core.GitStatus)) {
 	b := &a.branch
 	b.busy = true
 	if b.fromPopup {
@@ -224,7 +236,7 @@ func (a *App) runBranchWrite(p *project, operation string, failed func(reason st
 	}
 	kernel, root := a.kernel, a.branchRoot(p)
 	updatesProject := root == p.git.repositoryRoot(p.root)
-	a.background(p, branchOperationTimeout, func(ctx context.Context) func(*App) {
+	a.background(p, timeout, func(ctx context.Context) func(*App) {
 		err := write(ctx, kernel, root)
 		var status core.GitStatus
 		var generation uint64
@@ -342,13 +354,6 @@ func (a *App) beginRevision() {
 	b := &a.branch
 	b.dialog = branchDialogRevision
 	b.revision.SetText("")
-}
-
-// beginDelete opens the dialog that confirms deleting the local branch r.
-func (a *App) beginDelete(r core.GitReference) {
-	a.leaveBranches()
-	b := &a.branch
-	b.dialog, b.target = branchDialogDelete, r
 }
 
 // cancelBranchDialog closes the open dialog without doing what it asked.
@@ -515,29 +520,4 @@ func (a *App) resolveConflict(p *project, mode core.CheckoutMode) {
 		return
 	}
 	a.checkoutWith(p, b.target, mode)
-}
-
-// confirmDelete deletes the branch the delete dialog is about.
-func (a *App) confirmDelete(p *project) {
-	b := &a.branch
-	if b.busy {
-		return
-	}
-	branch := b.target
-	root := a.branchRoot(p)
-	var deleted core.GitBranchDeletion
-	a.performed("git.branch.delete", surfaceButton)
-	a.runBranchWrite(p, "git_branch_delete", a.text.Branch.DeleteFailed,
-		func(ctx context.Context, kernel Kernel, root string) (err error) {
-			deleted, err = kernel.GitDeleteBranch(ctx, root, branch)
-			return err
-		},
-		func(a *App, status core.GitStatus) {
-			a.dropLogReference(p, root, branch.FullName)
-			target := deleted.DeletedTarget
-			if len(target) > 10 {
-				target = target[:10]
-			}
-			a.notifySuccess(a.text.Branch.Deleted(deleted.Name, target))
-		})
 }

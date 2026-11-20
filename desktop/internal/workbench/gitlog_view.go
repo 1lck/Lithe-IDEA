@@ -1,6 +1,7 @@
 package workbench
 
 import (
+	"context"
 	"slices"
 	"strconv"
 	"strings"
@@ -40,6 +41,7 @@ func (a *App) logPageView(c ui.C) {
 		a.loadLog(p)
 	}
 	a.syncLogFilters(p)
+	v.syncLogRefMarks(p)
 	ui.Row(c).Fill().Background(a.colors.Editor).Children(func() {
 		if l.branchesHidden {
 			a.drawLogHiddenStripe(c, p)
@@ -87,7 +89,9 @@ func (a *App) drawLogStripe(c ui.C, p *project) {
 	l := &p.log
 	g := a.text.Git
 	selected, hasSelected := l.findReference(l.refSelected)
-	deletable := hasSelected && selected.Kind == "local" && !selected.IsCurrent
+	// With several rows marked the button deletes the branches among them, else the selected one.
+	batch, skipped, several := a.logChosenBranches(p)
+	deletable := several && len(batch) > 0 || !several && hasSelected && deletableBranch(selected)
 	base, compareTarget, comparable := l.primaryComparison()
 	compare := g.CompareWorkingTree
 	if compareTarget != nil {
@@ -121,8 +125,12 @@ func (a *App) drawLogStripe(c ui.C, p *project) {
 		}
 		if a.gitIconButton(c, g.DeleteBranch, icons.Trash2, false, !deletable) {
 			c.After(func() {
-				a.branch.repo = p.logBranchRepo()
-				a.beginDelete(selected)
+				a.adoptLogBranches(p)
+				if several {
+					a.beginDeleteBranches(batch, skipped)
+				} else {
+					a.beginDelete(selected)
+				}
 			})
 		}
 		if a.gitIconButton(c, compare, icons.ArrowLeftRight, false, !comparable || l.comparing) {
@@ -203,8 +211,15 @@ func (a *App) drawLogReferences(c ui.C, p *project) ui.Box {
 		if i, ok := v.refs.Toggled(); ok {
 			c.After(func() { a.toggleLogRef(p, v.refItems[i], query) })
 		}
+		// A click with Cmd, Ctrl or Shift held marks references instead; Enter is a choice with no
+		// click behind it.
+		info, clicked := c.Canvas().ClickInfo()
 		if i, ok := v.refs.Chosen(); ok {
-			c.After(func() { a.chooseLogRef(p, v.refItems[i], query) })
+			r, mods := v.refItems[i], gfx.Modifiers(0)
+			if clicked {
+				mods = info.Modifiers
+			}
+			c.After(func() { a.chooseLogRef(p, r, query, clicked, mods) })
 		}
 		if query != "" && shown == 0 {
 			ui.Text(c, g.NoMatchingReferences).Muted().TextCenter().FillWidth().PadY(16)
@@ -298,17 +313,100 @@ func (a *App) appendLogNodes(rows []logRefRow, p *project, prefix, foreign strin
 	return rows
 }
 
-// refNode describes row i of the reference pane to its tree.
+// refNode describes row i of the reference pane to its tree. HEAD and the references of the
+// walked repository show as selected when the log walks them or they are marked; the other rows
+// only fold or switch repository.
 func (v *logView) refNode(i int) ui.TreeNode {
 	r := v.refItems[i]
-	selected := false
-	switch r.kind {
-	case logRefHead:
-		selected = v.refSel == "HEAD"
-	case logRefReference:
-		selected = v.refSel == r.key
-	}
+	selected := (r.kind == logRefHead || r.kind == logRefReference) && (v.refSel == r.key || v.refMarks[r.key])
 	return ui.TreeNode{Depth: r.depth, Branch: r.kind == logRefSection || r.kind == logRefFolder || r.kind == logRefRepository, Expanded: r.open, Selected: selected}
+}
+
+// logRefScope is what the marks of the reference pane belong to: the project, the repository the
+// log walks and the reference it selects.
+type logRefScope struct {
+	p              *project
+	repo, selected string
+}
+
+// syncLogRefMarks drops the marks of the reference pane when they no longer belong to what the
+// log walks: when it walks another repository, or selects another reference than a click in the
+// pane left selected (a menu, the popover, a deletion). It also drops the marks of references
+// the log no longer lists, so that a branch created again under a deleted name is not marked.
+// Marks of rows the pane does not show, folded or filtered out, stay, as Core keeps them.
+func (v *logView) syncLogRefMarks(p *project) {
+	scope := logRefScope{p: p, repo: p.logRepoID(), selected: p.log.refSelected}
+	if scope != v.refScope {
+		v.refScope = scope
+		v.forgetLogRefMarks()
+		return
+	}
+	for key := range v.refMarks {
+		if _, ok := p.log.findReference(key); !ok && key != "HEAD" {
+			delete(v.refMarks, key)
+		}
+	}
+}
+
+// forgetLogRefMarks drops the marks of the reference pane and its anchor.
+func (v *logView) forgetLogRefMarks() { v.refMarks, v.refAnchor = nil, "" }
+
+// markedLogRefs are the references of the walked repository marked in the reference pane, in the
+// order the log lists them, and whether HEAD is marked. Marks the pane has not synced to p yet
+// count for nothing.
+func (v *logView) markedLogRefs(p *project) (refs []core.GitReference, head bool) {
+	l := &p.log
+	if len(v.refMarks) == 0 || v.refScope != (logRefScope{p: p, repo: p.logRepoID(), selected: l.refSelected}) {
+		return nil, false
+	}
+	for _, s := range l.sections {
+		for _, r := range s.refs {
+			if v.refMarks[r.FullName] {
+				refs = append(refs, r)
+			}
+		}
+	}
+	return refs, v.refMarks["HEAD"]
+}
+
+// reduceLogRefMarks applies a click on HEAD or a reference of the pane to its marks, with Core's
+// workspace.rowSelection over HEAD and the references the pane shows, top to bottom. It reports
+// whether the click applied; Core rejects a row that went away since the paint that showed it.
+func (a *App) reduceLogRefMarks(p *project, action core.RowAction) bool {
+	v, l := &a.logView, &p.log
+	rows := make([]string, 0, len(v.refItems))
+	for i := range v.refItems {
+		if r := &v.refItems[i]; r.kind == logRefHead || r.kind == logRefReference {
+			rows = append(rows, r.key)
+		}
+	}
+	selection := core.RowSelection{Anchor: v.refAnchor}
+	if l.refSelected != "" {
+		selection.Selected = new(l.refSelected)
+	}
+	for key := range v.refMarks {
+		selection.Marked = append(selection.Marked, key)
+	}
+	ctx, cancel := context.WithTimeout(a.operationContext(context.Background()), kernelCallTimeout)
+	defer cancel()
+	result, err := a.kernel.ReduceRowSelection(ctx, rows, selection, action)
+	if err != nil {
+		a.operationFailed("git_log_ref_selection", err)
+		a.notifyError(a.text.Errors.Core(err.Error()))
+		return false
+	}
+	if result.Rejection != "" {
+		return false
+	}
+	v.refMarks = nil
+	if len(result.Selection.Marked) > 0 {
+		v.refMarks = make(map[string]bool, len(result.Selection.Marked))
+		for _, key := range result.Selection.Marked {
+			v.refMarks[key] = true
+		}
+	}
+	v.refAnchor = result.Selection.Anchor
+	return true
 }
 
 // refRowLabel is the accessible name of row i of the reference pane.
@@ -389,19 +487,36 @@ func (a *App) toggleLogRef(p *project, r logRefRow, query string) {
 	}
 }
 
-// chooseLogRef acts on a click on a row of the reference pane: a repository's node, a section or a
-// folder folds, a reference of another repository walks that reference in its repository, and a
-// reference of the walked repository becomes the one the log walks.
-func (a *App) chooseLogRef(p *project, r logRefRow, query string) {
-	l := &p.log
+// chooseLogRef acts on a choice of row r of the reference pane: a repository's node, a section or
+// a folder folds, a reference of another repository walks that reference in its repository, and
+// HEAD or a reference of the walked repository becomes the one the log walks. A click on HEAD or
+// a reference also goes to the pane's marks, as reduceLogRefMarks says: a plain click drops them,
+// a Cmd or Ctrl click marks or unmarks the row and a Shift click marks the rows from the anchor.
+// Enter, a choice with no click behind it, leaves the marks.
+func (a *App) chooseLogRef(p *project, r logRefRow, query string, clicked bool, mods gfx.Modifiers) {
+	l, v := &p.log, &a.logView
 	switch r.kind {
 	case logRefSection, logRefFolder, logRefRepository:
 		a.toggleLogRef(p, r, query)
 	case logRefForeign:
 		a.setLogRepo(p, r.repo, r.ref.FullName, r.ref.ShortName)
 	default:
+		if clicked {
+			action := core.ChooseRow(r.key)
+			switch {
+			case mods&ui.Primary != 0:
+				action = core.ToggleRow(r.key)
+			case mods&gfx.ModifierShift != 0:
+				action = core.ExtendRow(r.key)
+			}
+			if !a.reduceLogRefMarks(p, action) {
+				return
+			}
+		}
 		l.refSelected = r.key
 		a.setLogReference(p, r.key, r.short)
+		// The marks belong to what the click left the log walking.
+		v.refScope = logRefScope{p: p, repo: p.logRepoID(), selected: l.refSelected}
 	}
 }
 

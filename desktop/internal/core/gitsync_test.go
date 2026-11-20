@@ -190,3 +190,25 @@ func TestGitFetchSettingsEchoTheRepositoryConfigurationWithoutWritingIt(t *testi
 		t.Fatalf("invalid configuration: settings %+v, err %v", settings, err)
 	}
 }
+
+// GitDeleteRemoteBranch deletes the branch from its remote and the remote-tracking branch with it,
+// and refuses a local branch.
+func TestGitDeleteRemoteBranch(t *testing.T) {
+	bare, mine, _ := remoteWithClones(t)
+	client := NewClient()
+	ctx := testContext(t)
+	runGit(t, mine, "push", "origin", "HEAD:refs/heads/feature")
+	runGit(t, mine, "fetch", "origin")
+	feature := GitReference{FullName: "refs/remotes/origin/feature", ShortName: "origin/feature", Kind: "remote"}
+
+	requireCode(t, client.GitDeleteRemoteBranch(ctx, mine, localBranch("main")), CodeInvalidRequest)
+	if err := client.GitDeleteRemoteBranch(ctx, mine, feature); err != nil {
+		t.Fatalf("GitDeleteRemoteBranch() error: %v", err)
+	}
+	if got := runGit(t, bare, "branch", "--list", "feature"); got != "" {
+		t.Fatalf("the origin still has feature: %q", got)
+	}
+	if got := runGit(t, mine, "branch", "-r", "--list", "origin/feature"); got != "" {
+		t.Fatalf("the remote-tracking branch is still there: %q", got)
+	}
+}
