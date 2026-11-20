@@ -1,6 +1,7 @@
 package workbench
 
 import (
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"strings"
@@ -14,16 +15,42 @@ import (
 )
 
 func TestOpenFileUsesPluginFirstLineLanguage(t *testing.T) {
+	t.Run("grammar", func(t *testing.T) { testOpenFileUsesPluginFirstLineLanguage(t, false) })
+	t.Run("metadata", func(t *testing.T) { testOpenFileUsesPluginFirstLineLanguage(t, true) })
+}
+
+func testOpenFileUsesPluginFirstLineLanguage(t *testing.T, standalone bool) {
+	t.Helper()
 	kernel := core.NewClient()
 	manifest, err := os.ReadFile(contractfixture.Path("fixtures/languages/first-line.plugin.json"))
 	if err != nil {
 		t.Fatal(err)
 	}
+	const id = "dev.lithe.test.first-line"
+	grammarPath := "grammars/sample.tmLanguage.json"
+	if standalone {
+		var declaration map[string]json.RawMessage
+		var languages []map[string]json.RawMessage
+		if err := json.Unmarshal(manifest, &declaration); err != nil {
+			t.Fatal(err)
+		}
+		if err := json.Unmarshal(declaration["languages"], &languages); err != nil {
+			t.Fatal(err)
+		}
+		delete(languages[0], "grammar")
+		declaration["languages"], err = json.Marshal(languages)
+		if err != nil {
+			t.Fatal(err)
+		}
+		manifest, err = json.Marshal(declaration)
+		if err != nil {
+			t.Fatal(err)
+		}
+		grammarPath = "grammars/sample.first-line.json"
+	}
 	if _, err := pluginhost.Validate(t.Context(), kernel, manifest, pluginhost.Declared()); err != nil {
 		t.Fatal(err)
 	}
-	const id = "dev.lithe.test.first-line"
-	const grammarPath = "grammars/sample.tmLanguage.json"
 	grammar, err := os.ReadFile(contractfixture.Path("fixtures/languages/" + grammarPath))
 	if err != nil {
 		t.Fatal(err)

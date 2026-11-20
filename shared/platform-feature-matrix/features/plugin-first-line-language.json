@@ -2,7 +2,7 @@
   "id": "plugin-first-line-language",
   "area": "扩展",
   "group": "插件与主题",
-  "capability": "安装并启用在 TextMate 语法文件中提供首行规则的语言插件后，可按无后缀脚本的首行选择语法和语言服务，并使用该语言的编辑配置",
+  "capability": "安装并启用提供 TextMate 首行规则的语言插件后，可按无后缀脚本的首行选择语法和语言服务，并使用该语言的编辑配置",
   "macos": {
     "implementationStatus": "implemented",
     "verificationStatus": "pending",
@@ -24,6 +24,6 @@
     ]
   },
   "owner": "Extensions",
-  "verification": "运行 scripts/desktop/desktop-go.sh test ./internal/workbench -run TestOpenFileUsesPluginFirstLineLanguage，确认无后缀文件按首行选择语言，能按该语言切换注释，现有名称与扩展关联优先，带未关联扩展名和超长首行的文件保留原行为。原生窗口另行验收。",
-  "notes": "通过现有的包内语法文件入口加载首行规则，旧版桌面仍可安装同一插件。仅传入已有文本缓冲区的完整且有界的首行。Core 按启用插件的语言注册顺序匹配。识别结果用于此次文档打开和随后编辑。"
+  "verification": "运行 scripts/desktop/desktop-go.sh test ./internal/workbench -run TestOpenFileUsesPluginFirstLineLanguage，验证包内语法和独立元数据两种入口都能按首行选择语言并切换注释，名称与扩展关联优先，带未关联扩展名和超长首行的文件保留原行为。原生窗口另行验收。",
+  "notes": "首行规则来自包内语法文件或独立元数据。独立元数据保留已有高亮，旧版桌面仍可安装同一插件。Core 按启用插件的语言注册顺序匹配已有文本缓冲区的有界首行。识别结果用于此次文档打开和随后编辑。"
 }

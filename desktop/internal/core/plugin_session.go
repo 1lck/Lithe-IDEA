@@ -176,6 +176,8 @@ type PluginEditorLanguage struct {
 	FileNames      []string        `json:"fileNames"`
 	Grammar        *PluginGrammar  `json:"grammar"`
 	Configuration  json.RawMessage `json:"configuration"`
+	// FirstLineMatch comes from standalone metadata and leaves the current grammar intact.
+	FirstLineMatch string `json:"firstLineMatch,omitempty"`
 }
 
 // PluginGrammar is a validated TextMate source, retained byte for byte.

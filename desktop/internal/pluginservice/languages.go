@@ -23,6 +23,8 @@ const (
 	// language is well under a megabyte; the ceiling only stops a malformed
 	// package from being read into memory.
 	MaxGrammarBytes = 16 << 20
+	// maxFirstLineMetadataBytes bounds an optional TextMate hint without a grammar.
+	maxFirstLineMetadataBytes = 4096
 	// MaxDelimiterBytes bounds one comment or bracket delimiter, matching the
 	// contract's editorDelimiter.
 	MaxDelimiterBytes = 16
@@ -104,16 +106,22 @@ func (s *Service) pluginLanguages(ctx context.Context, directory string) ([]synt
 			Extensions: item.FileExtensions,
 			FileNames:  item.FileNames,
 		}
+		name := "grammars/" + item.ID + ".first-line.json"
+		limit := int64(maxFirstLineMetadataBytes)
 		if item.Grammar != nil {
-			// The contract has a language whose grammar is refused open as plain text
-			// while the rest of the plugin keeps working, so a bad grammar costs that
-			// language its highlighting and nothing else.
-			if grammar, err := s.grammar(ctx, directory, manifest, item.ID, item.Grammar.Path); err != nil {
+			name, limit = item.Grammar.Path, MaxGrammarBytes
+		}
+		decoded, err := s.editorLanguage(ctx, directory, manifest, item.ID, name, limit)
+		if err != nil {
+			// log-exempt: 预期的缺失：独立首行元数据是语言插件的可选资源。
+			if item.Grammar != nil || !errors.Is(err, os.ErrNotExist) {
 				failures = append(failures, fmt.Errorf("%s: %w", item.ID, err))
-			} else if grammar != nil {
-				language.Grammar = []byte(grammar.Source)
-				language.FirstLineMatch = grammar.FirstLineMatch
 			}
+		} else if grammar := decoded.Grammar; grammar != nil {
+			language.Grammar = []byte(grammar.Source)
+			language.FirstLineMatch = grammar.FirstLineMatch
+		} else {
+			language.FirstLineMatch = decoded.FirstLineMatch
 		}
 		if configuration := item.Configuration; configuration != nil {
 			if validDelimiter(configuration.LineComment) {
@@ -136,21 +144,17 @@ func (s *Service) pluginLanguages(ctx context.Context, directory string) ([]synt
 	return languages, errors.Join(failures...)
 }
 
-// grammar reads one grammar file from the package and has Core validate it.
-func (s *Service) grammar(ctx context.Context, directory string, manifest json.RawMessage, languageID, name string) (*core.PluginGrammar, error) {
+// editorLanguage reads one grammar or metadata file and has Core validate it.
+func (s *Service) editorLanguage(ctx context.Context, directory string, manifest json.RawMessage, languageID, name string, limit int64) (core.PluginEditorLanguage, error) {
 	path, err := pluginhost.ResolvePackagePath(directory, name)
 	if err != nil {
-		return nil, err
+		return core.PluginEditorLanguage{}, err
 	}
-	source, err := readBounded(path, MaxGrammarBytes)
+	source, err := readBounded(path, limit)
 	if err != nil {
-		return nil, err
+		return core.PluginEditorLanguage{}, err
 	}
-	decoded, err := s.kernel.DecodePluginGrammar(ctx, manifest, languageID, string(source))
-	if err != nil {
-		return nil, err
-	}
-	return decoded.Grammar, nil
+	return s.kernel.DecodePluginGrammar(ctx, manifest, languageID, string(source))
 }
 
 // delimiterPair converts one two-element delimiter declaration.
