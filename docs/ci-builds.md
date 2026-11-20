@@ -80,6 +80,8 @@ Desktop CI 的 LSP 无头截图由 `TestVisualLSPActions` 写入当前工作树�
 
 Desktop CI 的 Build 命令发现截图由 `TestVisualBuildCommandDiscovery` 写入当前工作树的 `.artifacts/build-command-discovery-visual/`。该结果绑定提交、平台、Go 工具链和固定的 Viva 与 Core 版本，上传后由 CI 清理，不跨工作树复制，也不进入安装包。
 
+项目树失焦后的选择由 `TestVisualProjectTreeMissingFile` 验证。Linux Desktop CI 将明暗主题和中英文截图写入当前工作树的 `.artifacts/project-tree-visual/`，上传后保留 14 天。截图对应本次提交、主题、语言、渲染平台、Go 工具链和固定的 Viva 与 Core 版本，不跨工作树复制。运行器清理本地输出，截图不进入安装包。
+
 Viva 编辑器性能基线 `scripts/desktop/perf/editor-bench.sh` 把每次运行的原始输出和 Markdown 预算报告写入当前工作树的 `.artifacts/editor-perf/`（`run-<UTC 时间戳>.txt`、`record-<UTC 时间戳>.txt` 及同名 `.md`，以及开发者用 `--out` 指定在该目录下的文件）。它们只属于这一次运行，受源码修订、机器、CPU、运行时负载、Go 工具链和大文档大小（默认 10 MiB，可用 `LITHE_EDITOR_PERF_LARGE_BYTES` 或 `--large-bytes` 修改）影响；没有可验证的跨树身份 stamp，不跨工作树复制，由开发者在本地清理；该基线不是 CI 必跑项，CI 不运行基准，也没有 artifact。随仓库提交的历史记录 `desktop/benchmarks/history/*.jsonl` 由 Git 跟踪，属于源码而不是下载或生成资源，各工作树从 Git 检出。这些文件都不进入安装包，也不会改变代码签名或增量更新。
 
 Viva 的 Core 源码检出、Cargo 目标目录和暂存静态库位于当前工作树的

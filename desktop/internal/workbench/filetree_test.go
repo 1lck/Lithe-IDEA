@@ -1326,6 +1326,31 @@ func TestProjectTreeSelectionFollowsTheKeyboardFocus(t *testing.T) {
 	}
 }
 
+func TestProjectTreeKeepsSelectionWhenFocusClearsBeforeNewRowsPaint(t *testing.T) {
+	root := t.TempDir()
+	h := newHarness(t, &testKernel{Client: core.NewClient()})
+	tree := &h.openTree(t, root).tree
+	tree.selected = tree.root
+	tree.focused = tree.view.RowID(0)
+	if tree.focused.IsZero() {
+		t.Fatal("the painted root has no row ID")
+	}
+
+	// A directory listing has added a row to the model, but Viva has yet to paint it.
+	tree.rows = append(tree.rows, &treeNode{id: 1, name: "kept.go", path: "kept.go", depth: 1})
+	if !tree.view.RowID(1).IsZero() {
+		t.Fatal("the new row already has a row ID")
+	}
+
+	h.app.syncTreeSelection(new(gfx.Canvas), tree)
+	if tree.selected != tree.root || tree.view.Selected() != 0 {
+		t.Fatalf("clearing focus selected %+v (row %d), want the root", tree.selected, tree.view.Selected())
+	}
+	if !tree.focused.IsZero() {
+		t.Fatal("cleared focus was not recorded")
+	}
+}
+
 // labelBounds is where the label that reads exactly value was painted in the last frame, or
 // an empty rectangle when no label reads so.
 func (h *harness) labelBounds(value string) gfx.Rect {
