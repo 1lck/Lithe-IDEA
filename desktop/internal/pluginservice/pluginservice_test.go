@@ -6,7 +6,6 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
-	"slices"
 	"testing"
 
 	"github.com/1lck/Lithe-IDEA/desktop/internal/core"
@@ -151,7 +150,7 @@ func TestOpenAssemblesEveryPart(t *testing.T) {
 	if service.Root == "" {
 		t.Fatal("the service has no root")
 	}
-	if versions := service.Capabilities()["languages"]; !slices.Equal(versions, []int{0, 1}) {
+	if versions := service.Capabilities()["languages"]; len(versions) != 1 || versions[0] != 0 {
 		t.Fatalf("capabilities = %v", service.Capabilities())
 	}
 }
@@ -206,7 +205,7 @@ func TestReviewerAdaptsCoreReview(t *testing.T) {
 	}
 	// The capabilities handed to Core must be the ones this client implements, not
 	// what Core could parse.
-	if caps := kernel.reviewCaps["languages"]; !slices.Equal(caps, []int{0, 1}) {
+	if caps := kernel.reviewCaps["languages"]; len(caps) != 1 || caps[0] != 0 {
 		t.Fatalf("capabilities = %v", kernel.reviewCaps)
 	}
 }

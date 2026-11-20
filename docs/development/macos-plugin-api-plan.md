@@ -77,6 +77,7 @@ Windows 不在本轮，平台矩阵的 partial/pending 保持真实。
 | 新增文本格式或高亮规则 | 通过插件清单 `languages[]` 声明文件类型，`grammar.path` 引用包内 JSON 语法；宿主校验后由 worker 执行，不需要 LSP 或后端 |
 | 注释、括号、自动配对 | 可仅贡献 `configuration`，不要求同时提供 grammar |
 | 安装、更新、停用或卸载纯静态贡献 | 随已验证插件包的生命周期更新编辑器；这不等于插件可以调用动态 Provider 注册方法，也不授权修改已安装包或监听任意 JSON 文件自动重载 |
+| 识别无后缀文本文件 | Viva 可通过已安装的 TextMate 语法文件提供首行规则。走现有的静态语言贡献入口，见 [Core 语法与编辑配置](https://github.com/Lithe-IDEA/Lithe-core-rust/blob/main/shared/plugins/contract/v1/README.md#grammars-and-editor-configuration)。 |
 | 运行中直接提交 JSON，注册、替换或释放高亮 Provider | 尚未开放公共方法；当前不是接收任意内联 grammar 的注册入口。`semanticTokens` Provider 提供的是按文档请求的语义着色，只在语言服务器没有语义着色的位置生效，不替代 grammar |
 | 将补全、悬浮、定义、CodeLens、折叠、语义着色或文档链接绑定到普通插件函数 | 已开放：`lithe/host/editor/registerProviders`，需要 `editor.providers` 权限；每次最多 32 个注册，答案形状与预算由 Core 规定，宿主只能补充语言服务器的答案（见 Agent Note） |
 | 符号、格式化、重命名、Code Action、签名帮助、内联提示、诊断 | 尚未开放；`registerProviders` 对这些类型返回 `plugin.host.unsupportedOption`（`details.option` 为 `providers.<类型>`），诊断属于 API-26 |

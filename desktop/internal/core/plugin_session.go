@@ -183,6 +183,8 @@ type PluginGrammar struct {
 	Kind      string `json:"kind"`
 	ScopeName string `json:"scopeName"`
 	Source    string `json:"source"`
+	// FirstLineMatch is the optional language detection hint accepted by Core.
+	FirstLineMatch string `json:"firstLineMatch,omitempty"`
 }
 
 // DecodePluginGrammar asks Core to validate static editor resources. The

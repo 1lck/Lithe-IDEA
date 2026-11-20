@@ -194,8 +194,6 @@ func Declared() Capabilities {
 	declared["sourceSettings"] = []int{0, 1}
 	// Version 1 adds command-sourced discovery in the Build test tree.
 	declared["buildSystems"] = []int{0, 1}
-	// Version 1 adds first-line patterns for extensionless editor documents.
-	declared["languages"] = []int{0, 1}
 	// Version 1 adds entrypoint runs, which Run on Current File starts.
 	declared["buildProviders"] = []int{0, 1}
 	// Version 1 adds a definition's category and audience, by which the

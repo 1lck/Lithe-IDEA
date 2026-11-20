@@ -23,13 +23,23 @@ func TestOpenFileUsesPluginFirstLineLanguage(t *testing.T) {
 		t.Fatal(err)
 	}
 	const id = "dev.lithe.test.first-line"
-	pluginRoot := t.TempDir()
-	installed := filepath.Join(pluginRoot, id, "1.0.0")
-	if err := os.MkdirAll(installed, 0o700); err != nil {
+	const grammarPath = "grammars/sample.tmLanguage.json"
+	grammar, err := os.ReadFile(contractfixture.Path("fixtures/languages/" + grammarPath))
+	if err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(installed, "plugin.json"), manifest, 0o600); err != nil {
+	pluginRoot := t.TempDir()
+	installed := filepath.Join(pluginRoot, id, "1.0.0")
+	if err := os.MkdirAll(filepath.Join(installed, "grammars"), 0o700); err != nil {
 		t.Fatal(err)
+	}
+	for path, contents := range map[string][]byte{
+		"plugin.json": manifest,
+		grammarPath:   grammar,
+	} {
+		if err := os.WriteFile(filepath.Join(installed, path), contents, 0o600); err != nil {
+			t.Fatal(err)
+		}
 	}
 	settings := store.At(t.TempDir())
 	if err := os.WriteFile(filepath.Join(settings.Dir(), settingsFile), []byte(`{"theme":"dark"}`), 0o600); err != nil {
@@ -49,6 +59,7 @@ func TestOpenFileUsesPluginFirstLineLanguage(t *testing.T) {
 		{"no-newline", start, "sample"},
 		{"later-line", "\n" + start, ""},
 		{"long-header", start + " " + strings.Repeat("x", 1024) + "\n", ""},
+		{"typed.sample", "value", "sample"},
 		{"main.go", start, "go"},
 		{"Makefile", start, "makefile"},
 		{"unmapped.ext", start, ""},

@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 
+	"github.com/1lck/Lithe-IDEA/desktop/internal/core"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/editor/syntax"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/pluginhost"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/pluginmanager"
@@ -69,7 +70,6 @@ type languageDeclaration struct {
 		ID             string   `json:"id"`
 		FileExtensions []string `json:"fileExtensions"`
 		FileNames      []string `json:"fileNames"`
-		FirstLineMatch string   `json:"firstLineMatch"`
 		Grammar        *struct {
 			Kind string `json:"kind"`
 			Path string `json:"path"`
@@ -100,10 +100,9 @@ func (s *Service) pluginLanguages(ctx context.Context, directory string) ([]synt
 			continue
 		}
 		language := syntax.PluginLanguage{
-			ID:             item.ID,
-			Extensions:     item.FileExtensions,
-			FileNames:      item.FileNames,
-			FirstLineMatch: item.FirstLineMatch,
+			ID:         item.ID,
+			Extensions: item.FileExtensions,
+			FileNames:  item.FileNames,
 		}
 		if item.Grammar != nil {
 			// The contract has a language whose grammar is refused open as plain text
@@ -111,8 +110,9 @@ func (s *Service) pluginLanguages(ctx context.Context, directory string) ([]synt
 			// language its highlighting and nothing else.
 			if grammar, err := s.grammar(ctx, directory, manifest, item.ID, item.Grammar.Path); err != nil {
 				failures = append(failures, fmt.Errorf("%s: %w", item.ID, err))
-			} else {
-				language.Grammar = grammar
+			} else if grammar != nil {
+				language.Grammar = []byte(grammar.Source)
+				language.FirstLineMatch = grammar.FirstLineMatch
 			}
 		}
 		if configuration := item.Configuration; configuration != nil {
@@ -137,7 +137,7 @@ func (s *Service) pluginLanguages(ctx context.Context, directory string) ([]synt
 }
 
 // grammar reads one grammar file from the package and has Core validate it.
-func (s *Service) grammar(ctx context.Context, directory string, manifest json.RawMessage, languageID, name string) ([]byte, error) {
+func (s *Service) grammar(ctx context.Context, directory string, manifest json.RawMessage, languageID, name string) (*core.PluginGrammar, error) {
 	path, err := pluginhost.ResolvePackagePath(directory, name)
 	if err != nil {
 		return nil, err
@@ -150,10 +150,7 @@ func (s *Service) grammar(ctx context.Context, directory string, manifest json.R
 	if err != nil {
 		return nil, err
 	}
-	if decoded.Grammar == nil {
-		return nil, nil
-	}
-	return []byte(decoded.Grammar.Source), nil
+	return decoded.Grammar, nil
 }
 
 // delimiterPair converts one two-element delimiter declaration.
