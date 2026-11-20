@@ -207,6 +207,7 @@ type Kernel interface {
 	GitDeleteBranch(ctx context.Context, root string, branch core.GitReference) (core.GitBranchDeletion, error)
 	GitForceDeleteBranch(ctx context.Context, root string, branch core.GitReference, expectedTarget string) (core.GitBranchDeletion, error)
 	GitDeleteRemoteBranch(ctx context.Context, root string, reference core.GitReference) error
+	GitAuthRespond(ctx context.Context, requestID string, answer *string) (bool, error)
 	GitCreateTag(ctx context.Context, root, name, revision, message string) error
 	GitRebasePreview(ctx context.Context, root, base string) (core.RebasePreview, error)
 	GitRebaseStart(ctx context.Context, root string, preview core.RebasePreview, steps []core.RebaseStep) (*core.RebaseSession, error)
@@ -763,8 +764,10 @@ type App struct {
 	// semantics: back/forward history, the outline, references and so on (editor_features.go).
 	editor editorFeatures
 
-	welcome    welcomeState
-	clone      cloneState
+	welcome welcomeState
+	clone   cloneState
+	// gitAuth holds the questions of the Git operations the user started (git_auth.go).
+	gitAuth    gitAuthState
 	newProject newProjectState
 	// generatorPlugins, projectToolLists and projectCommand replace the plugin
 	// service, the toolchain discovery and the PATH lookup the New Project window

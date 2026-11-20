@@ -836,10 +836,12 @@ func WithProjectCodeAllowed(ctx context.Context, allowed func() bool) context.Co
 // gitExecutionOf is the Git policy of a request. A request of an untrusted workspace
 // (WithProjectCodeAllowed) forbids Git, whatever its command. A Git request of a context with
 // a console also asks Core to report the internal queries of the categories the console
-// records, names the category the context gives, and marks an automatic refresh. A request
-// with nothing to ask keeps Core's defaults.
+// records, names the category the context gives, and marks an automatic refresh. A Git request
+// of a context that can ask the user (WithGitAuthentication) is interactive, unless it is an
+// automatic refresh, which never asks. A request with nothing to ask keeps Core's defaults.
 func gitExecutionOf(ctx context.Context, command string) *gitExecution {
-	var execution gitExecution
+	refresh, _ := ctx.Value(gitRefreshKey{}).(bool)
+	execution := gitExecution{Interactive: !refresh && gitAuthenticationOf(ctx, command) != nil}
 	if allowed, _ := ctx.Value(projectCodeAllowedKey{}).(func() bool); allowed != nil && !allowed() {
 		execution.ProjectCodeAllowed = new(false)
 	}
@@ -849,11 +851,11 @@ func gitExecutionOf(ctx context.Context, command string) *gitExecution {
 		if len(execution.ConsoleQueries) > 0 {
 			execution.QueryCategory, _ = ctx.Value(gitQueryCategoryKey{}).(GitQueryCategory)
 		}
-		if refresh, _ := ctx.Value(gitRefreshKey{}).(bool); refresh {
+		if refresh {
 			execution.Source = "background"
 		}
 	}
-	if len(execution.ConsoleQueries) == 0 && execution.Source == "" && execution.ProjectCodeAllowed == nil {
+	if len(execution.ConsoleQueries) == 0 && execution.Source == "" && execution.ProjectCodeAllowed == nil && !execution.Interactive {
 		return nil
 	}
 	return &execution

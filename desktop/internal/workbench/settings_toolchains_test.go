@@ -265,6 +265,11 @@ func TestToolchainSettingsReadbackFailureReportsCommittedSource(t *testing.T) {
 const syntheticWorkbenchInterpMarkerEnv = "LITHE_TEST_SYNTHETIC_INTERP_MARKER"
 
 func TestMain(m *testing.M) {
+	// Core names the running executable as the AskPass helper of an interactive Git command,
+	// so a test that lets Git ask starts this binary in helper mode; it must not run the tests.
+	if prompt, helper := core.GitAskPassRequest(os.Args); helper {
+		os.Exit(core.GitAskPass(prompt))
+	}
 	if maybeRunBuildProbeHelper() {
 		return
 	}

@@ -13,6 +13,17 @@ import (
 	"unsafe"
 )
 
+// GitAskPass runs this process as the AskPass helper GitAskPassRequest detected: Core sends
+// prompt to the Lithe request that started Git, waits for the user's answer, prints it on
+// standard output for Git or SSH and returns the exit status, 0 when it printed an answer and 1
+// when there is none (cancelled, expired or refused). Call it first in main and exit with its
+// result: a helper process opens no window, log or store.
+func GitAskPass(prompt string) int {
+	cPrompt := C.CString(prompt)
+	defer C.free(unsafe.Pointer(cPrompt))
+	return int(C.lithe_core_git_askpass(cPrompt))
+}
+
 // classifyTextBytes borrows the Go byte slice only for the synchronous Core
 // call. The slice contains no pointers, and Core neither retains nor mutates it.
 func classifyTextBytes(data []byte) int {

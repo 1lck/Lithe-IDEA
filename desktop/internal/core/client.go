@@ -53,6 +53,10 @@ type gitExecution struct {
 	// (WithProjectCodeAllowed): Core starts no Git process for it and answers
 	// CodeGitUntrustedWorkspace. Nil keeps Core's default, which allows Git.
 	ProjectCodeAllowed *bool `json:"projectCodeAllowed,omitempty"`
+	// Interactive lets the Git processes the user sees ask for credentials through Lithe
+	// (WithGitAuthentication). Core then requires the request to observe execution events,
+	// which carry the questions.
+	Interactive bool `json:"interactive,omitempty"`
 }
 
 // responseEnvelope is the response the kernel encodes (CoreResponse in the Rust protocol).
@@ -110,11 +114,12 @@ func (c *Client) execute(ctx context.Context, command string, payload, result an
 		payload = struct{}{}
 	}
 	operationID := fmt.Sprintf("desktop-%d", nextCoreOperation.Add(1))
+	execution := gitExecutionOf(ctx, command)
 	request, err := json.Marshal(requestEnvelope{
 		OperationID:  operationID,
 		Command:      command,
 		Payload:      payload,
-		GitExecution: gitExecutionOf(ctx, command),
+		GitExecution: execution,
 		Origin:       requestOriginOf(ctx),
 	})
 	if err != nil {
@@ -132,6 +137,14 @@ func (c *Client) execute(ctx context.Context, command string, payload, result an
 	}
 	// A Git request of a context with a console is observed so its commands are recorded.
 	observer = gitConsoleObserver(ctx, command, request, observer)
+	if execution != nil && execution.Interactive {
+		// The questions of an interactive request arrive as its events, and Core refuses one
+		// that observes none. Closing returned tells each open question that no answer reaches
+		// its request any more.
+		returned := make(chan struct{})
+		defer close(returned)
+		observer = gitAuthenticationObserver(gitAuthenticationOf(ctx, command), returned, observer)
+	}
 	if observer == nil {
 		return nil, decodeResponse(ctx, command, call(ctx, operationID, request), result)
 	}

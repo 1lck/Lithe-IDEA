@@ -1,0 +1,119 @@
+{
+  "schemaVersion": 1,
+  "messages": [
+    {
+      "id": "desktop.gitAuth.title",
+      "description": "Git authentication dialog: title while a Git process the user started waits for an answer",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.gitAuth.directory",
+      "description": "Git authentication dialog: the folder the asking Git process runs in",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "path": "string"
+      }
+    },
+    {
+      "id": "desktop.gitAuth.again",
+      "description": "Git authentication dialog: Git or SSH asks the same question again because the previous answer did not work (attempt is at least 2)",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "attempt": "string"
+      }
+    },
+    {
+      "id": "desktop.gitAuth.answer",
+      "description": "Git authentication dialog: accessible label of the field the answer is typed into",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.gitAuth.secretHint",
+      "description": "Git authentication dialog: note under a password, token or passphrase field",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.gitAuth.cancel",
+      "description": "Git authentication dialog: button that cancels the question, which fails the Git operation",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.gitAuth.submit",
+      "description": "Git authentication dialog: button that passes the typed answer to Git",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.gitAuth.retryMessage",
+      "description": "Git authentication dialog: question after a fetch, pull, push or clone failed to authenticate, whether to run it once more with credentials typed in Lithe",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.gitAuth.retry",
+      "description": "Git authentication dialog: button that runs the failed transfer once more and asks for the credentials in Lithe",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.gitAuth.refused",
+      "description": "Git authentication: notice after Core refused the typed answer, which also cancelled the question",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.gitAuth.failed",
+      "description": "Git authentication: notice after the answer could not be passed to Core",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "reason": "string"
+      }
+    }
+  ],
+  "locales": {
+    "en-US": {
+      "desktop.gitAuth.title": "Git Authentication",
+      "desktop.gitAuth.directory": "Asked by Git in {path}",
+      "desktop.gitAuth.again": "Asked again (attempt {attempt}): the previous answer did not work.",
+      "desktop.gitAuth.answer": "Answer",
+      "desktop.gitAuth.secretHint": "The answer goes to this Git process only. Lithe does not save it.",
+      "desktop.gitAuth.cancel": "Cancel",
+      "desktop.gitAuth.submit": "OK",
+      "desktop.gitAuth.retryMessage": "Git could not authenticate with the remote. Retry once and type the credentials in Lithe instead of using the credential helper?",
+      "desktop.gitAuth.retry": "Retry",
+      "desktop.gitAuth.refused": "Git did not accept the answer: an answer is at most 8192 bytes and has no line breaks. The question was cancelled.",
+      "desktop.gitAuth.failed": "Could not pass the answer to Git: {reason}"
+    },
+    "zh-CN": {
+      "desktop.gitAuth.title": "Git 身份验证",
+      "desktop.gitAuth.directory": "Git 在 {path} 中询问",
+      "desktop.gitAuth.again": "第 {attempt} 次询问：上一次的回答没有通过。",
+      "desktop.gitAuth.answer": "回答",
+      "desktop.gitAuth.secretHint": "回答只交给这个 Git 进程，Lithe 不会保存。",
+      "desktop.gitAuth.cancel": "取消",
+      "desktop.gitAuth.submit": "确定",
+      "desktop.gitAuth.retryMessage": "Git 没有通过远程仓库的身份验证。要重试一次，并改为在 Lithe 中输入凭据（不使用凭据助手）吗？",
+      "desktop.gitAuth.retry": "重试",
+      "desktop.gitAuth.refused": "Git 没有接受这个回答：回答最多 8192 字节，且不能包含换行。这个问题已取消。",
+      "desktop.gitAuth.failed": "无法把回答交给 Git：{reason}"
+    }
+  }
+}

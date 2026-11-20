@@ -351,8 +351,10 @@ func (a *App) checkoutPullRequest(p *project) {
 	reviewed := *pr.preview
 	pr.busy = true
 	a.performed("github.pullRequest.checkout", surfaceButton)
-	a.background(p, gitTimeout, func(ctx context.Context) func(*App) {
-		err := kernel.GitPullRequestCheckout(ctx, root, number, head, reviewed, &repo)
+	// The checkout fetches the pull request's head, which waits on the network, and on the user
+	// while it asks for credentials, as any fetch.
+	a.background(p, syncTimeout, func(ctx context.Context) func(*App) {
+		err := kernel.GitPullRequestCheckout(a.gitAuthentication(ctx), root, number, head, reviewed, &repo)
 		return func(a *App) {
 			pr := &a.pullRequests
 			pr.busy = false
