@@ -745,6 +745,26 @@ func TestManagedToolSelectionBelongsOnlyToOneLaunch(t *testing.T) {
 	}
 }
 
+func TestSharedBuildProviderDoesNotResolveToolsInTheBuildRunner(t *testing.T) {
+	root := backendPackage(t)
+	plan := core.PluginBackendPlan{BuildProvider: &core.PluginBuildProviderPlan{
+		BuildSystemID: "fixture-build", LanguageServer: "fixture-language",
+	}}
+	plan.Launch.Kind, plan.Launch.Tool = pluginhost.LaunchTool, "fixture-runtime"
+	kernel := &fakeKernel{plan: plan}
+	runner := New(kernel, echoServices(t))
+	request := startRequest(root)
+	request.BuildSystemID = plan.BuildProvider.BuildSystemID
+	request.BeforeResolveTool = func(context.Context) error {
+		t.Fatal("a shared build provider tried to read a toolchain source")
+		return nil
+	}
+	var shared *SharedProviderError
+	if _, err := runner.Start(context.Background(), request); !errors.As(err, &shared) || shared.LanguageID != "fixture-language" {
+		t.Fatalf("start = %v, want the shared language server", err)
+	}
+}
+
 func TestToolEntryUsesCoreInstantiationAfterNativeVerification(t *testing.T) {
 	root := backendPackage(t)
 	entry := filepath.Join(root, "入口 with 空格.script")

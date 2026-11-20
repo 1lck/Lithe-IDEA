@@ -142,6 +142,9 @@ type StartRequest struct {
 	// ManagedTools are per-launch installations verified by the managed runtime resolver.
 	// They are never stored as global defaults or used by a different plugin/session.
 	ManagedTools map[string]ToolExecutable
+	// BeforeResolveTool lets a launch owner capture the sources that determine
+	// the selected installation. It runs only before host toolchain resolution.
+	BeforeResolveTool func(context.Context) error
 	// Preparation starts a private resolver without workspace services or the
 	// cross-plugin function relay. Only direct host invocations may reach it.
 	Preparation bool
@@ -382,6 +385,11 @@ func (r *Runner) Start(ctx context.Context, request StartRequest) (Session, erro
 		if r.toolEntries == nil {
 			return Session{}, fmt.Errorf("%w: this host cannot instantiate tool entries", ErrRequest)
 		}
+		if executable == "" && request.BeforeResolveTool != nil {
+			if err := request.BeforeResolveTool(ctx); err != nil {
+				return Session{}, err
+			}
+		}
 		tool, err := r.toolEntries(ctx, request.PluginID, request.WorkingDirectory, ToolEntryLaunch{
 			Tool: plan.Launch.Tool, Executable: executable, Entry: resolved.Entry,
 			MinimumVersion: plan.Launch.MinimumVersion, RuntimeArguments: plan.Launch.RuntimeArguments, Arguments: plan.Arguments,
@@ -397,6 +405,11 @@ func (r *Runner) Start(ctx context.Context, request StartRequest) (Session, erro
 		if !managed {
 			if r.tools == nil {
 				return Session{}, fmt.Errorf("%w: this host cannot resolve tool launches", ErrRequest)
+			}
+			if request.BeforeResolveTool != nil {
+				if err := request.BeforeResolveTool(ctx); err != nil {
+					return Session{}, err
+				}
 			}
 			var err error
 			tool, err = r.tools(ctx, request.PluginID, request.WorkingDirectory, plan.Launch.Tool)

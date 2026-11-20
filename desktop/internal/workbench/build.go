@@ -388,19 +388,20 @@ type buildRuntime struct {
 }
 
 type buildProviderLaunchKey struct {
-	settings  string
-	toolchain toolchain.SourceRevision
+	settings      string
+	usesToolchain bool
+	toolchain     toolchain.SourceRevision
 }
 
 func (key buildProviderLaunchKey) equal(other buildProviderLaunchKey) bool {
-	return key.settings == other.settings && key.toolchain.Equal(other.toolchain)
+	return key.settings == other.settings && key.usesToolchain == other.usesToolchain && key.toolchain.Equal(other.toolchain)
 }
 
 var errBuildProviderSourceChanged = errors.New("build provider source changed during launch")
 
 // standaloneBuildProvider starts a process outside the session lock. Only a
 // start from the current project and saved toolchain sources can be published.
-func (a *App) standaloneBuildProvider(ctx context.Context, p *project, instance buildInstance, rootURI string, settings core.PluginSettingsState, launchKey buildProviderLaunchKey, detached uint64) (*buildprovider.Client, error) {
+func (a *App) standaloneBuildProvider(ctx context.Context, p *project, instance buildInstance, rootURI string, settings core.PluginSettingsState, settingsKey string, detached uint64) (*buildprovider.Client, error) {
 	r := &p.buildSessions
 	key := instance.PluginID + "\x00" + instance.BuildSystemID
 	r.mu.Lock()
@@ -413,11 +414,35 @@ func (a *App) standaloneBuildProvider(ctx context.Context, p *project, instance 
 		return nil, buildprovider.ErrClosed
 	}
 	client := r.providers[key]
-	if client != nil {
-		if !client.Closed() && r.launchKeys[key].equal(launchKey) {
+	if cached := r.launchKeys[key]; client != nil && !client.Closed() && cached.settings == settingsKey {
+		if !cached.usesToolchain {
 			r.mu.Unlock()
 			return client, nil
 		}
+		r.mu.Unlock()
+		revision, err := a.buildToolchainSource(ctx, p)
+		if err != nil {
+			return nil, err
+		}
+		r.mu.Lock()
+		if r.closed || r.detached != detached {
+			r.mu.Unlock()
+			return nil, buildprovider.ErrClosed
+		}
+		if err := ctx.Err(); err != nil {
+			r.mu.Unlock()
+			return nil, err
+		}
+		if r.providers[key] != client {
+			r.mu.Unlock()
+			return nil, errBuildProviderSourceChanged
+		}
+		if !client.Closed() && cached.toolchain.Equal(revision) {
+			r.mu.Unlock()
+			return client, nil
+		}
+	}
+	if client != nil {
 		// Register retirement before releasing the lock that uninstall uses to
 		// take active sessions. There must be no gap in native ownership.
 		a.closingBuildProviders.add(p.ctx, client)
@@ -437,6 +462,7 @@ func (a *App) standaloneBuildProvider(ctx context.Context, p *project, instance 
 			return nil, err
 		}
 	}
+	launchKey := buildProviderLaunchKey{settings: settingsKey}
 	started, startErr := buildprovider.Launch(ctx, a.plugins.Backend, pluginbackend.StartRequest{
 		Manifest:                instance.Manifest,
 		PackageDirectory:        instance.PackageDirectory,
@@ -453,6 +479,14 @@ func (a *App) standaloneBuildProvider(ctx context.Context, p *project, instance 
 		ProjectSettings:         settings.ProjectSettings,
 		RootURI:                 rootURI,
 		WorkingDirectory:        p.root,
+		BeforeResolveTool: func(ctx context.Context) error {
+			revision, err := a.buildToolchainSource(ctx, p)
+			if err != nil {
+				return err
+			}
+			launchKey.toolchain, launchKey.usesToolchain = revision, true
+			return nil
+		},
 	})
 	var shared *pluginbackend.SharedProviderError
 	if errors.As(startErr, &shared) {
@@ -461,7 +495,11 @@ func (a *App) standaloneBuildProvider(ctx context.Context, p *project, instance 
 	if startErr == nil {
 		startErr = started.WaitReady(ctx)
 	}
-	latest, revisionErr := a.buildToolchainSource(ctx, p)
+	var latest toolchain.SourceRevision
+	var revisionErr error
+	if launchKey.usesToolchain {
+		latest, revisionErr = a.buildToolchainSource(ctx, p)
+	}
 	r.mu.Lock()
 	open := !r.closed && r.detached == detached && ctx.Err() == nil
 	current := open && revisionErr == nil && launchKey.toolchain.Equal(latest)
@@ -495,7 +533,7 @@ func (a *App) standaloneBuildProvider(ctx context.Context, p *project, instance 
 		}
 		return nil, buildprovider.ErrClosed
 	}
-	if errors.Is(revisionErr, configfile.ErrConflict) {
+	if revisionErr == errBuildProviderSourceChanged {
 		return nil, errBuildProviderSourceChanged
 	}
 	if revisionErr != nil {
@@ -592,7 +630,11 @@ func (a *App) buildProvider(ctx context.Context, p *project, instance buildInsta
 }
 
 func (a *App) buildToolchainSource(ctx context.Context, p *project) (toolchain.SourceRevision, error) {
-	return toolchain.ReadSourceRevision(ctx, a.kernel, p.root, a.globalToolchainRoot(), buildPlatform())
+	revision, err := toolchain.ReadSourceRevision(ctx, a.kernel, p.root, a.globalToolchainRoot(), buildPlatform())
+	if errors.Is(err, configfile.ErrConflict) {
+		return revision, errBuildProviderSourceChanged
+	}
+	return revision, err
 }
 
 func (a *App) buildProviderWithSources(ctx context.Context, p *project, instance buildInstance, detached uint64) (*buildprovider.Client, error) {
@@ -608,15 +650,7 @@ func (a *App) buildProviderWithSources(ctx context.Context, p *project, instance
 	if err != nil {
 		return nil, err
 	}
-	revision, err := a.buildToolchainSource(ctx, p)
-	if errors.Is(err, configfile.ErrConflict) {
-		return nil, errBuildProviderSourceChanged
-	}
-	if err != nil {
-		return nil, err
-	}
-	launchKey := buildProviderLaunchKey{settings: settingsKey, toolchain: revision}
-	client, err := a.standaloneBuildProvider(ctx, p, instance, rootURI, settings.State, launchKey, detached)
+	client, err := a.standaloneBuildProvider(ctx, p, instance, rootURI, settings.State, settingsKey, detached)
 	var shared *pluginbackend.SharedProviderError
 	if !errors.As(err, &shared) {
 		return client, err
