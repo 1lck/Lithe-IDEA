@@ -347,9 +347,11 @@ func (w *window) selectPluginForm(id string) bool {
 }
 
 // dynamicSettingsPage is the settings page a plugin contributes to a language or a build
-// system: the contributors' chooser above the selected contributor's form. It scrolls, named
-// by the page so it starts at its top each time the page is opened, and the form grows to
-// the scroll's height.
+// system: the chosen contributor's form, under the chooser of the contributor while more than
+// one contributes. The page does not repeat what its row in the group's directory says, the
+// plugins that provide it and the state of a language's server. It scrolls, named by the page
+// so it starts at its top each time the page is opened, and the form grows to the scroll's
+// height.
 func (w *window) dynamicSettingsPage(c ui.C) {
 	page := w.dynamic.selected(w.dynamicPage)
 	ui.Scroll(c.Key(w.dynamicPage)).Scrollbars().FillWidth().Grow(1).Shrink(1).MinHeight(0).Pad(contentPad).Gap(10).Children(func() {
@@ -364,12 +366,12 @@ func (w *window) dynamicSettingsPage(c ui.C) {
 		if w.contributionOf(page) < 0 {
 			w.contributorID = page.Contributors[0].PluginID
 		}
-		ids := w.dynamic.contributorIDs[page.Key]
-		ui.Select(c, &w.contributorID, ids, w.contributorLabel).FillWidth().Label(i18n.Shared(w.marketLanguage(), "desktop.pluginSettings.contributor"))
-		if page.Kind == "language" {
-			w.languageStatusCard(c, w.contributorID)
+		chooser := len(page.Contributors) > 1
+		if chooser {
+			ids := w.dynamic.contributorIDs[page.Key]
+			ui.Select(c, &w.contributorID, ids, w.contributorLabel).FillWidth().Label(i18n.Shared(w.marketLanguage(), "desktop.pluginSettings.contributor"))
 		}
-		w.pluginSettingsPanel(c, w.contributorID)
+		w.pluginSettingsPanel(c, w.contributorID, chooser)
 	})
 }
 

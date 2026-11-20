@@ -32,14 +32,16 @@ func (w *window) scopeLabel(scope int) string {
 
 // pluginSettingsPanel is the form of the plugin id: the toolbar that reloads or saves it,
 // what the last request said, the scope and then Core's rows in Core's order. The drafts
-// live in the form, so the panel can come and go without losing them.
+// live in the form, so the panel can come and go without losing them. ruled draws a line
+// above the toolbar, which parts the form from what its parent shows above it; a page that
+// opens on the form leaves it out.
 //
 // The panel grows into the height its parent leaves under what sits above it, and the rows'
 // list fills what the panel's header leaves, so the last row ends at the bottom of the page
 // and not at a fixed height above blank space. The list keeps settingsListMinHeight, so the
 // parent must be a scroll that grows its content to the viewport: a short window scrolls
 // the page rather than cutting the list's last rows off under the window's buttons.
-func (w *window) pluginSettingsPanel(c ui.C, id string) {
+func (w *window) pluginSettingsPanel(c ui.C, id string, ruled bool) {
 	if !w.selectPluginForm(id) {
 		ui.Wrap(c, i18n.Shared(w.marketLanguage(), "desktop.pluginSettings.draftLimit")).Color(w.pal.danger)
 		return
@@ -66,7 +68,9 @@ func (w *window) pluginSettingsPanel(c ui.C, id string) {
 	compiler := page != nil && page.Kind == "compiler"
 	ui.Column(c).FillWidth().Grow(1).Gap(10).Children(func() {
 		if !compiler {
-			ui.Row(c).FillWidth().Height(1).Background(w.pal.line)
+			if ruled {
+				ui.Row(c).FillWidth().Height(1).Background(w.pal.line)
+			}
 			ui.Row(c).FillWidth().Gap(8).Items(ui.Center).Children(func() {
 				ui.Text(c, i18n.Shared(language, "desktop.pluginSettings.title")).FontSize(14).Weight(gfx.WeightSemibold).Color(w.pal.text)
 				ui.Spacer(c)

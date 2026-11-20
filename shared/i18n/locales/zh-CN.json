@@ -10881,7 +10881,6 @@
     "desktop.debug.breakpoint.functionRow": "ƒ {name}",
     "desktop.debug.breakpoint.removeFunction": "移除方法断点",
     "desktop.marketplace.tab.settings": "设置",
-    "desktop.languageStatus.title": "语言服务",
     "desktop.languageStatus.none": "未运行",
     "desktop.languageStatus.starting": "正在启动",
     "desktop.languageStatus.ready": "就绪",

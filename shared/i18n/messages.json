@@ -12381,49 +12381,42 @@
     },
     {
       "id": "desktop.languageStatus.degraded",
-      "description": "Language server state card value when it runs with reduced features",
+      "description": "Language server state on a language row of the Languages & Frameworks directory when it runs with reduced features",
       "platforms": [
         "desktop"
       ]
     },
     {
       "id": "desktop.languageStatus.failed",
-      "description": "Language server state card value when it failed",
+      "description": "Language server state on a language row of the Languages & Frameworks directory when it failed",
       "platforms": [
         "desktop"
       ]
     },
     {
       "id": "desktop.languageStatus.none",
-      "description": "Language server state card value when no server runs",
+      "description": "Language server state on a language row of the Languages & Frameworks directory when no server runs",
       "platforms": [
         "desktop"
       ]
     },
     {
       "id": "desktop.languageStatus.ready",
-      "description": "Language server state card value when it is ready",
+      "description": "Language server state on a language row of the Languages & Frameworks directory when it is ready",
       "platforms": [
         "desktop"
       ]
     },
     {
       "id": "desktop.languageStatus.starting",
-      "description": "Language server state card value while it starts",
+      "description": "Language server state on a language row of the Languages & Frameworks directory while it starts",
       "platforms": [
         "desktop"
       ]
     },
     {
       "id": "desktop.languageStatus.stopped",
-      "description": "Language server state card value when it stopped",
-      "platforms": [
-        "desktop"
-      ]
-    },
-    {
-      "id": "desktop.languageStatus.title",
-      "description": "Label of the language server state card on a language settings page",
+      "description": "Language server state on a language row of the Languages & Frameworks directory when it stopped",
       "platforms": [
         "desktop"
       ]

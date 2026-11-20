@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"os"
+	"strings"
 	"testing"
 
 	"github.com/1lck/Lithe-IDEA/desktop/internal/contractfixture"
@@ -19,6 +20,17 @@ import (
 // one page for each under Languages & Frameworks.
 func languagePageContributions(t *testing.T, languages ...string) []core.SettingsContribution {
 	t.Helper()
+	contributions := make([]core.SettingsContribution, 0, len(languages))
+	for _, language := range languages {
+		contributions = append(contributions, languagePageContribution(t, "dev.example."+language, language))
+	}
+	return contributions
+}
+
+// languagePageContribution is the enabled synthetic plugin id, titled "Test <id's last part>
+// plugin", with one setting, "Run checks", on the page of language.
+func languagePageContribution(t *testing.T, id, language string) core.SettingsContribution {
+	t.Helper()
 	data, err := os.ReadFile(contractfixture.CoreFixture("plugins/settings-documents.json"))
 	if err != nil {
 		t.Fatal(err)
@@ -27,30 +39,30 @@ func languagePageContributions(t *testing.T, languages ...string) []core.Setting
 	if err := json.Unmarshal(data, &fixture); err != nil {
 		t.Fatal(err)
 	}
-	contributions := make([]core.SettingsContribution, 0, len(languages))
-	for _, language := range languages {
-		id := "dev.example." + language
-		fixture.Manifest["id"] = id
-		fixture.Manifest["displayName"] = "Test " + language + " plugin"
-		page := map[string]string{"languageID": language}
-		fixture.Manifest["settings"] = []any{
-			map[string]any{"id": "checks", "type": "boolean", "title": "Run checks", "default": true, "page": page, "section": "Options"},
-		}
-		delete(fixture.Manifest, "settingActions")
-		manifest, err := json.Marshal(fixture.Manifest)
-		if err != nil {
-			t.Fatal(err)
-		}
-		contributions = append(contributions, core.SettingsContribution{Manifest: manifest, Owner: core.PluginSettingsOwner{PluginID: id, Version: "1.0.0"}, Enabled: true})
+	fixture.Manifest["id"] = id
+	fixture.Manifest["displayName"] = "Test " + strings.TrimPrefix(id, "dev.example.") + " plugin"
+	fixture.Manifest["settings"] = []any{
+		map[string]any{"id": "checks", "type": "boolean", "title": "Run checks", "default": true, "page": map[string]string{"languageID": language}, "section": "Options"},
 	}
-	return contributions
+	delete(fixture.Manifest, "settingActions")
+	manifest, err := json.Marshal(fixture.Manifest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return core.SettingsContribution{Manifest: manifest, Owner: core.PluginSettingsOwner{PluginID: id, Version: "1.0.0"}, Enabled: true}
 }
 
 // languagesWindow is an English settings window on the General page whose synthetic plugins
 // contribute a page for each of languages, with the catalog loaded. adjust changes its options.
 func languagesWindow(t *testing.T, adjust func(*Options), languages ...string) (*window, *windowDriver) {
 	t.Helper()
-	contributions := languagePageContributions(t, languages...)
+	return contributedWindow(t, adjust, languagePageContributions(t, languages...), len(languages))
+}
+
+// contributedWindow is an English settings window on the General page with the plugin
+// settings contributions, once the catalog lists its pages. adjust changes its options.
+func contributedWindow(t *testing.T, adjust func(*Options), contributions []core.SettingsContribution, pages int) (*window, *windowDriver) {
+	t.Helper()
 	client := core.NewClient()
 	opts := Options{
 		Text: func() *i18n.Messages { return i18n.For(i18n.English) }, Language: func() i18n.Language { return i18n.English },
@@ -65,7 +77,7 @@ func languagesWindow(t *testing.T, adjust func(*Options), languages ...string) (
 	}
 	w := newWindow(NewController(opts), Values{Theme: "dark"})
 	d := openWindow(t, w, func(config *app.Config) { config.Height = 900 })
-	d.until("the plugin pages", func() bool { return w.dynamic.loaded && len(w.dynamic.pages) == len(languages) })
+	d.until("the plugin pages", func() bool { return w.dynamic.loaded && len(w.dynamic.pages) == pages })
 	return w, d
 }
 
@@ -158,4 +170,52 @@ func TestLanguagesPageWithoutPluginPages(t *testing.T) {
 	}
 	d.click(i18n.Shared(i18n.English, "desktop.languageSettings.browse"))
 	d.until("the marketplace", func() bool { return w.sess.page == pagePlugins && w.pluginTab == pluginTabMarketplace })
+}
+
+// TestLanguagePageDoesNotRepeatItsDirectoryRow keeps a language page from repeating what its
+// row in the directory says: the page one plugin provides opens on that plugin's settings,
+// without a chooser of the one plugin or a card of its language server's state. The chooser
+// is there while two plugins contribute to the page, the one way to switch between them.
+func TestLanguagePageDoesNotRepeatItsDirectoryRow(t *testing.T) {
+	contributions := append(languagePageContributions(t, "alpha", "beta"), languagePageContribution(t, "dev.example.beta-extra", "beta"))
+	w, d := contributedWindow(t, func(opts *Options) {
+		opts.LanguageServerState = func(string) string { return "ready" }
+	}, contributions, 2)
+	open := func(language string) {
+		t.Helper()
+		key := ""
+		for _, page := range w.languagePages() {
+			for _, contribution := range page.Contributors {
+				if contribution.PluginID == "dev.example."+language {
+					key = page.Key
+				}
+			}
+		}
+		if key == "" {
+			t.Fatalf("no page of %s", language)
+		}
+		w.selectSettingsPage(pageLanguages, key)
+		d.until("the page of "+language, func() bool {
+			return w.dynamicPage == key && w.contributorID != "" && w.pluginSettings.id == w.contributorID &&
+				w.pluginSettings.loaded && d.wrapped("Run checks")
+		})
+	}
+	chooser := i18n.Shared(i18n.English, "desktop.pluginSettings.contributor")
+	ready, _ := languageStateWords(i18n.English, "ready")
+
+	open("alpha")
+	if d.has(chooser) {
+		t.Fatal("the page one plugin provides chooses between plugins")
+	}
+	if d.text(ready) {
+		t.Fatalf("the page repeats its directory row's language server state %q", ready)
+	}
+
+	open("beta")
+	if !d.has(chooser) {
+		t.Fatal("the page two plugins contribute to has no chooser between them")
+	}
+	if d.text(ready) {
+		t.Fatalf("the page repeats its directory row's language server state %q", ready)
+	}
 }

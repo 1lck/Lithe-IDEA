@@ -15,8 +15,8 @@ import (
 )
 
 // TestVisualLanguagesPage renders the Languages & Frameworks page of synthetic plugins that
-// contribute four language pages, whose language servers are in different states, and the
-// page while no plugin contributes one. The real Core projects the pages. Opt in with
+// contribute four language pages, whose language servers are in different states, the page
+// while no plugin contributes one, and the page of one language opened from it. The real Core projects the pages. Opt in with
 // -tags 'vivahead lithevisual' and LITHE_VISUAL_OUTPUT_DIR.
 func TestVisualLanguagesPage(t *testing.T) {
 	out := os.Getenv("LITHE_VISUAL_OUTPUT_DIR")
@@ -32,10 +32,12 @@ func TestVisualLanguagesPage(t *testing.T) {
 		theme     string
 		language  i18n.Language
 		languages []string
+		open      string
 	}{
-		{"languages-settings-dark", "dark", i18n.Chinese, []string{"go", "python", "rust", "typescript"}},
-		{"languages-settings-light", "light", i18n.English, []string{"go", "python", "rust", "typescript"}},
-		{"languages-settings-empty", "dark", i18n.Chinese, nil},
+		{"languages-settings-dark", "dark", i18n.Chinese, []string{"go", "python", "rust", "typescript"}, ""},
+		{"languages-settings-light", "light", i18n.English, []string{"go", "python", "rust", "typescript"}, ""},
+		{"languages-settings-empty", "dark", i18n.Chinese, nil, ""},
+		{"languages-settings-go-page-dark", "dark", i18n.Chinese, []string{"go", "python", "rust", "typescript"}, "dev.example.go"},
 	} {
 		t.Run(look.name, func(t *testing.T) {
 			contributions := languagePageContributions(t, look.languages...)
@@ -62,6 +64,14 @@ func TestVisualLanguagesPage(t *testing.T) {
 			t.Cleanup(session.Close)
 			d := &windowDriver{t: t, w: w, driver: session.Driver()}
 			d.until("the plugin pages", func() bool { return w.dynamic.loaded && len(w.dynamic.pages) == len(look.languages) })
+			if look.open != "" {
+				for _, page := range w.languagePages() {
+					if page.Contributors[0].PluginID == look.open {
+						w.selectSettingsPage(pageLanguages, page.Key)
+					}
+				}
+				d.until("the opened page", func() bool { return w.dynamicPage != "" && w.pluginSettings.loaded && d.wrapped("Run checks") })
+			}
 			d.pump()
 			if err := session.Screenshot(filepath.Join(out, look.name+".png")); err != nil {
 				t.Fatal(err)
