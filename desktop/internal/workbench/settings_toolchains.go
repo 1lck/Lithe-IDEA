@@ -1,7 +1,6 @@
 package workbench
 
 import (
-	"bytes"
 	"context"
 	"errors"
 
@@ -116,11 +115,7 @@ func (s settingsToolchains) loadAt(ctx context.Context, root string) (toolchain.
 func (s settingsToolchains) Save(ctx context.Context, snapshot toolchain.Snapshot, edits []toolchain.Edit) (updated toolchain.Snapshot, err error) {
 	defer func() { s.recordFailure(ctx, "toolchain_settings_save", err) }()
 	if snapshot.Global {
-		committed, err := snapshot.SaveCatalog(ctx, s.app.kernel, edits)
-		if committed {
-			s.app.advanceGlobalBuildToolchainRevision()
-		}
-		if err != nil {
+		if _, err := snapshot.SaveCatalog(ctx, s.app.kernel, edits); err != nil {
 			return snapshot, err
 		}
 		s.app.post(func(a *App) { a.retryFailedPluginServers() })
@@ -137,13 +132,7 @@ func (s settingsToolchains) Save(ctx context.Context, snapshot toolchain.Snapsho
 	if err := snapshot.CheckWorkspace(ctx, *root); err != nil {
 		return snapshot, errors.Join(toolchain.ErrPinConflict, err)
 	}
-	_, saved, err := snapshot.SavePins(ctx, s.app.kernel, edits)
-	if errors.Is(err, toolchain.ErrPinCommitted) || (err == nil && !bytes.Equal(snapshot.Baseline, saved)) {
-		if s.app.toolchainRoot.Load() == root {
-			s.app.buildToolchainRevision.Add(1)
-		}
-	}
-	if err != nil {
+	if _, _, err := snapshot.SavePins(ctx, s.app.kernel, edits); err != nil {
 		return snapshot, err
 	}
 	s.app.post(func(a *App) { a.retryFailedPluginServers() })

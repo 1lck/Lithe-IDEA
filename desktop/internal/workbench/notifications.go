@@ -28,7 +28,7 @@ type notification struct {
 	text   string
 	detail string
 	kind   ui.ToastKind
-	count int
+	count  int
 	// at is when it came last.
 	at time.Time
 	// unread says it came after the history was last looked at.

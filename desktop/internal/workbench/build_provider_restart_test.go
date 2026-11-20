@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -225,6 +226,170 @@ func TestBuildProviderRestartsAfterSavingProjectToolchain(t *testing.T) {
 	}
 	if again := requestProvider(t, h, project, instance); again != second {
 		t.Fatal("saving the same pin replaced the build provider again")
+	}
+}
+
+// A native window started as a separate process cannot receive an in-memory
+// settings notification. Both clients still read the same catalog.
+func TestBuildProviderObservesGlobalToolchainSavedByAnotherClient(t *testing.T) {
+	manifest := providerSettingsManifest(t)
+	h := providerTestsHarnessWith(t, manifest)
+	project := openProviderSettingsFixture(t, h)
+	instance := settingsFixtureInstance(h, manifest)
+	first := requestProvider(t, h, project, instance)
+	h.app.unsubscribeSettings()
+
+	other := &App{kernel: h.app.kernel, store: h.store, plugins: h.app.plugins}
+	adapter := settingsToolchains{app: other}
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	snapshot, err := adapter.LoadScope(ctx, "global")
+	if err != nil {
+		t.Fatal(err)
+	}
+	snapshot.Tools = append(snapshot.Tools, toolchain.Tool{
+		ID: "dev.lithe.test.provider-tests:runtime", CustomHomes: []string{t.TempDir()},
+	})
+	tool := snapshot.Tools[len(snapshot.Tools)-1]
+	if _, err := adapter.Save(ctx, snapshot, []toolchain.Edit{{
+		Tool: tool.ID, Pin: &core.ToolchainPin{Home: tool.CustomHomes[0]},
+	}}); err != nil {
+		t.Fatal(err)
+	}
+	if second := requestProvider(t, h, project, instance); second == first {
+		t.Fatal("the next request reused a provider from before the global save")
+	}
+}
+
+type toolchainStartupKernel struct {
+	*testKernel
+	starts  atomic.Int32
+	entered chan struct{}
+	release chan struct{}
+}
+
+func (k *toolchainStartupKernel) StartPluginBackend(ctx context.Context, start core.PluginBackendStart) (core.PluginBackendStarted, error) {
+	if start.Role == "build" && k.starts.Add(1) == 1 {
+		close(k.entered)
+		select {
+		case <-k.release:
+		case <-ctx.Done():
+			return core.PluginBackendStarted{}, ctx.Err()
+		}
+	}
+	return k.Client.StartPluginBackend(ctx, start)
+}
+
+func TestBuildProviderRetriesAStartOvertakenByToolchainSave(t *testing.T) {
+	kernel := &toolchainStartupKernel{
+		testKernel: &testKernel{Client: core.NewClient()},
+		entered:    make(chan struct{}),
+		release:    make(chan struct{}),
+	}
+	manifest := providerSettingsManifest(t)
+	h := providerTestsHarnessWith(t, manifest, kernel)
+	project := openProviderSettingsFixture(t, h)
+	instance := settingsFixtureInstance(h, manifest)
+	ctx, cancel := context.WithTimeout(project.ctx, 40*time.Second)
+	defer cancel()
+	result := make(chan error, 1)
+	h.app.background(project, 0, func(context.Context) func(*App) {
+		_, err := h.app.buildProvider(ctx, project, instance)
+		result <- err
+		return nil
+	})
+	select {
+	case <-kernel.entered:
+	case <-ctx.Done():
+		t.Fatalf("provider did not reach its startup gate: %v", ctx.Err())
+	}
+	saveFixtureToolchain(t, ctx, h.app)
+	close(kernel.release)
+	select {
+	case err := <-result:
+		if err != nil {
+			t.Fatalf("the original request failed after saving a toolchain: %v", err)
+		}
+	case <-ctx.Done():
+		t.Fatalf("the original request did not finish: %v", ctx.Err())
+	}
+	if got := kernel.starts.Load(); got != 2 {
+		t.Fatalf("provider starts = %d, want the superseded start followed by a retry", got)
+	}
+}
+
+func saveFixtureToolchain(t *testing.T, ctx context.Context, app *App) {
+	t.Helper()
+	adapter := settingsToolchains{app: app}
+	snapshot, err := adapter.Load(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := adapter.Save(ctx, snapshot, []toolchain.Edit{{
+		Tool: "dev.lithe.test.provider-tests:runtime",
+		Pin:  &core.ToolchainPin{Home: filepath.ToSlash(t.TempDir()), Version: "1.0", Provider: "host:manual"},
+	}}); err != nil {
+		t.Fatal(err)
+	}
+}
+
+type toolchainRetirementKernel struct {
+	*uninstallOrderKernel
+	failOn atomic.Pointer[string]
+}
+
+var errFixtureProviderStop = errors.New("injected provider stop failure")
+
+func (k *toolchainRetirementKernel) StopPluginBackend(ctx context.Context, id string) error {
+	err := k.Client.StopPluginBackend(ctx, id)
+	if target := k.failOn.Load(); target != nil && id == *target && k.failOn.CompareAndSwap(target, nil) {
+		return errors.Join(err, errFixtureProviderStop)
+	}
+	return err
+}
+
+func TestUninstallStopsToolchainRetireesBeforeRemovingPackage(t *testing.T) {
+	kernel := &toolchainRetirementKernel{uninstallOrderKernel: &uninstallOrderKernel{
+		testKernel: &testKernel{Client: core.NewClient()}, destroyed: make(chan bool, 4),
+	}}
+	manifest := providerSettingsManifest(t)
+	h := providerTestsHarnessWith(t, manifest, kernel)
+	project := openProviderSettingsFixture(t, h, "block.marker")
+	instance := settingsFixtureInstance(h, manifest)
+	kernel.directory = instance.PackageDirectory
+	first := requestProvider(t, h, project, instance)
+	ctx, cancel := context.WithTimeout(context.Background(), 40*time.Second)
+	defer cancel()
+	if _, err := first.Execute(ctx, "lithe/build/test", json.RawMessage(`{"root":".","scope":"workspace","operationID":"before-uninstall"}`), 60_000); err != nil {
+		t.Fatal(err)
+	}
+	saveFixtureToolchain(t, ctx, h.app)
+	second := requestProvider(t, h, project, instance)
+	if second == first || first.Closed() {
+		t.Fatal("expected an active provider and its draining predecessor")
+	}
+	oldSession := first.Session().ID
+	kernel.failOn.Store(&oldSession)
+	server, stop := h.app.detachPluginPrograms(instance.PluginID)
+	if err := h.app.plugins.Uninstall(ctx, instance.PluginID, server, stop); !errors.Is(err, errFixtureProviderStop) {
+		t.Fatalf("uninstall with a failed stop = %v, want the retired provider's failure", err)
+	}
+	if _, err := os.Stat(instance.PackageDirectory); err != nil {
+		t.Fatalf("uninstall removed the package while its retired provider's stop failed: %v", err)
+	}
+	server, stop = h.app.detachPluginPrograms(instance.PluginID)
+	if err := h.app.plugins.Uninstall(ctx, instance.PluginID, server, stop); err != nil {
+		t.Fatal(err)
+	}
+	for range 2 {
+		select {
+		case packagePresent := <-kernel.destroyed:
+			if !packagePresent {
+				t.Fatal("a provider was destroyed after package removal")
+			}
+		default:
+			t.Fatal("uninstall returned before both providers were destroyed")
+		}
 	}
 }
 

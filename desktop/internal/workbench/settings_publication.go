@@ -50,18 +50,6 @@ func (a *App) unsubscribeSettings() {
 	}
 }
 
-func (a *App) advanceGlobalBuildToolchainRevision() {
-	a.buildToolchainRevision.Add(1)
-	root := a.globalToolchainRoot()
-	settingsWindows.Lock()
-	defer settingsWindows.Unlock()
-	for target := range settingsWindows.live {
-		if target != a && target.globalToolchainRoot() == root {
-			target.buildToolchainRevision.Add(1)
-		}
-	}
-}
-
 // Publication has already committed. A page cancellation must not undo delivery;
 // an independent deadline bounds native identity reads and backpressure instead.
 func (a *App) publishSettings(editor pluginservice.SettingsEditor, scope string, effects []string) error {

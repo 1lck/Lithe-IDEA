@@ -168,6 +168,7 @@ type Kernel interface {
 	ResolveToolchainPins(ctx context.Context, document json.RawMessage, directory, tool string) (core.ToolchainPinResolution, error)
 	EditToolchainPins(ctx context.Context, document json.RawMessage, directory string, edits []core.ToolchainPinEdit) (json.RawMessage, error)
 	ToolchainPinStorage(ctx context.Context) (core.ToolchainPinStoragePlan, error)
+	ReadToolchainCatalogForWorkspace(ctx context.Context, document *string, platform, workspace string) (core.ToolchainCatalogState, error)
 	DecodeToolchainPinDocument(ctx context.Context, document *string) (json.RawMessage, error)
 	EditToolchainPinSources(ctx context.Context, request core.ToolchainPinSourcesRequest) (core.ToolchainPinSourcesEdit, error)
 	CloseGitHistoryCursor(ctx context.Context, root, cursor string) (bool, error)
@@ -707,6 +708,10 @@ type App struct {
 	// Discovery remains registered until its report is cleaned up, even after
 	// this workbench closes its project or leaves the tab strip.
 	pluginDiscoveryLaunches pluginLaunches
+	// Provider launches can still be cleaning up after their project closes.
+	buildProviderLaunches pluginLaunches
+	// Providers remain owned here until native disposal succeeds.
+	closingBuildProviders closingBuildProviders
 	// pluginServerMu guards the language-server maps because a build provider
 	// may attach to a shared session from a background model load.
 	pluginServerMu sync.Mutex
@@ -773,8 +778,7 @@ type App struct {
 	trustEveryWorkspace bool
 	// toolchainRoot is the open project's root, read by the settings window from
 	// its own thread. Nil means no project is open.
-	toolchainRoot          atomic.Pointer[string]
-	buildToolchainRevision atomic.Uint64
+	toolchainRoot atomic.Pointer[string]
 	// toolchainResolve is the execution-side selector; tests replace it to keep
 	// workspace file reads out of the window. Production leaves it nil.
 	toolchainResolve func(ctx context.Context, root, directory, tool, minimumVersion string) (core.ToolchainSelection, error)

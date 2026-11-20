@@ -105,7 +105,7 @@ func takePluginClients(clients map[string]*buildprovider.Client, id string) []pl
 	return taken
 }
 
-func stopPluginClients(ctx context.Context, mu *sync.Mutex, clients []pluginClient, pending func(context.Context) error) error {
+func stopPluginClients(ctx context.Context, mu *sync.Mutex, clients []pluginClient) error {
 	var failures []error
 	for _, owned := range clients {
 		if err := owned.client.Close(ctx); err != nil {
@@ -118,16 +118,14 @@ func stopPluginClients(ctx context.Context, mu *sync.Mutex, clients []pluginClie
 		}
 		mu.Unlock()
 	}
-	failures = append(failures, pending(ctx))
 	return errors.Join(failures...)
 }
 
 func (r *buildRuntime) detachPlugin(id string) func(context.Context) error {
-	wait := r.launches.stop(id)
 	r.mu.Lock()
 	clients := append(takePluginClients(r.providers, id), takePluginClients(r.shared, id)...)
 	r.mu.Unlock()
-	return func(ctx context.Context) error { return stopPluginClients(ctx, &r.mu, clients, wait) }
+	return func(ctx context.Context) error { return stopPluginClients(ctx, &r.mu, clients) }
 }
 
 func (r *vcsRuntime) detachPlugin(id string) func(context.Context) error {
@@ -135,7 +133,7 @@ func (r *vcsRuntime) detachPlugin(id string) func(context.Context) error {
 	r.mu.Lock()
 	clients := takePluginClients(r.clients, id)
 	r.mu.Unlock()
-	return func(ctx context.Context) error { return stopPluginClients(ctx, &r.mu, clients, wait) }
+	return func(ctx context.Context) error { return errors.Join(stopPluginClients(ctx, &r.mu, clients), wait(ctx)) }
 }
 
 // detachPluginPrograms takes native handles on the UI thread, then returns the
@@ -152,6 +150,7 @@ func (a *App) detachPluginPrograms(id string) (*pluginservice.LanguageSession, f
 		}
 		server := tab.detachPluginServer(id)
 		stops = append(stops, tab.pluginDiscoveryLaunches.stop(id))
+		stops = append(stops, tab.buildProviderLaunches.stop(id))
 		if p := tab.project; p != nil {
 			p.revokePluginBuildTests(id)
 			stops = append(stops, p.buildSessions.detachPlugin(id))
@@ -183,6 +182,18 @@ func (a *App) detachPluginPrograms(id string) (*pluginservice.LanguageSession, f
 				return errors.Join(failures...)
 			})
 		}
+		// A provider can still own native files after retirement or project close.
+		// Take these after the active starts and sessions above have stopped.
+		stops = append(stops, func(ctx context.Context) error {
+			clients := tab.closingBuildProviders.snapshot(func(client *buildprovider.Client, _ context.Context) bool {
+				return client.Session().PluginID == id
+			})
+			var failures []error
+			for _, client := range clients {
+				failures = append(failures, tab.closingBuildProviders.close(ctx, client))
+			}
+			return errors.Join(failures...)
+		})
 		if tab == a {
 			currentServer = server
 		} else {
@@ -214,8 +225,8 @@ func (a *App) allowPluginPrograms(id string) {
 		delete(tab.pluginServerSuppressed, id)
 		tab.pluginServerMu.Unlock()
 		tab.pluginDiscoveryLaunches.allow(id)
+		tab.buildProviderLaunches.allow(id)
 		if p := tab.project; p != nil {
-			p.buildSessions.launches.allow(id)
 			if p.vcs.launches != nil {
 				p.vcs.launches.allow(id)
 			}

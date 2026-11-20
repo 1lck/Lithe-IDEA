@@ -7,6 +7,7 @@ import (
 	"bytes"
 	"context"
 	"crypto/rand"
+	"crypto/sha256"
 	"errors"
 	"io"
 	"os"
@@ -32,19 +33,37 @@ type Snapshot struct {
 	name     string
 	maximum  int64
 	rootInfo os.FileInfo
+	fileInfo os.FileInfo
 	content  []byte
-	exists   bool
 }
 
 // Path is a display-only source path. I/O always uses os.Root-relative methods.
 func (s Snapshot) Path() string  { return filepath.Join(s.root, s.name) }
-func (s Snapshot) Exists() bool  { return s.exists }
+func (s Snapshot) Exists() bool  { return s.fileInfo != nil }
 func (s Snapshot) Bytes() []byte { return append([]byte(nil), s.content...) }
+
+// Revision identifies the bounded bytes and the native file that supplied them.
+// Atomic replacements can restore the same bytes while a consumer is starting.
+type Revision struct {
+	file os.FileInfo
+	hash [sha256.Size]byte
+}
+
+func (s Snapshot) Revision() Revision {
+	return Revision{file: s.fileInfo, hash: sha256.Sum256(s.content)}
+}
+
+func (r Revision) Equal(other Revision) bool {
+	if r.file == nil || other.file == nil {
+		return r.file == nil && other.file == nil
+	}
+	return r.hash == other.hash && r.file.ModTime().Equal(other.file.ModTime()) && os.SameFile(r.file, other.file)
+}
 
 // Text rejects undecodable bytes before JSON string transport can replace them.
 // A nil string means a missing file; an empty existing file remains explicit.
 func (s Snapshot) Text() (*string, error) {
-	if !s.exists {
+	if !s.Exists() {
 		return nil, nil
 	}
 	if !utf8.Valid(s.content) {
@@ -76,66 +95,66 @@ func Capture(ctx context.Context, rootDirectory, relativeName string, maximumByt
 	if err != nil {
 		return snapshot, err
 	}
-	snapshot.content, snapshot.exists, err = read(ctx, root, snapshot.name, maximumBytes, false)
+	snapshot.content, snapshot.fileInfo, err = read(ctx, root, snapshot.name, maximumBytes)
 	return snapshot, err
 }
 
-func read(ctx context.Context, root *os.Root, name string, maximum int64, writable bool) (data []byte, exists bool, err error) {
+func read(ctx context.Context, root *os.Root, name string, maximum int64) (data []byte, info os.FileInfo, err error) {
 	if err := ctx.Err(); err != nil {
-		return nil, false, err
+		return nil, nil, err
 	}
-	info, err := root.Lstat(name)
+	info, err = root.Lstat(name)
 	// log-exempt: 预期的缺失：缺失的配置文件是未覆盖的空来源。
 	if errors.Is(err, os.ErrNotExist) {
-		return nil, false, nil
+		return nil, nil, nil
 	}
 	if err != nil {
-		return nil, false, err
+		return nil, nil, err
 	}
 	if !info.Mode().IsRegular() {
-		return nil, false, ErrTarget
+		return nil, nil, ErrTarget
 	}
-	file, err := openSource(root, name, writable)
+	file, err := openSource(root, name, false)
 	if err != nil {
-		return nil, false, err
+		return nil, nil, err
 	}
 	defer func() { err = errors.Join(err, file.Close()) }()
 	openedInfo, err := file.Stat()
 	if err != nil {
-		return nil, false, err
+		return nil, nil, err
 	}
 	if !os.SameFile(info, openedInfo) {
-		return nil, false, ErrConflict
+		return nil, nil, ErrConflict
 	}
 	info = openedInfo
 	if !info.Mode().IsRegular() {
-		return nil, false, ErrTarget
+		return nil, nil, ErrTarget
 	}
 	if info.Size() > maximum {
-		return nil, true, ErrTooLarge
+		return nil, nil, ErrTooLarge
 	}
 	data, err = io.ReadAll(io.LimitReader(file, maximum+1))
 	if err != nil {
-		return nil, true, err
+		return nil, nil, err
 	}
 	if int64(len(data)) > maximum {
-		return nil, true, ErrTooLarge
+		return nil, nil, ErrTooLarge
 	}
 	if err := ctx.Err(); err != nil {
-		return nil, true, err
+		return nil, nil, err
 	}
-	return data, true, nil
+	return data, info, nil
 }
 
 func (s Snapshot) check(ctx context.Context, root *os.Root) error {
-	data, exists, err := read(ctx, root, s.name, s.maximum, false)
+	data, info, err := read(ctx, root, s.name, s.maximum)
 	if errors.Is(err, ErrTooLarge) {
 		return ErrConflict
 	}
 	if err != nil {
 		return err
 	}
-	if exists != s.exists || !bytes.Equal(data, s.content) {
+	if (info != nil) != s.Exists() || !bytes.Equal(data, s.content) {
 		return ErrConflict
 	}
 	return nil
@@ -255,16 +274,16 @@ func (s Snapshot) publish(ctx context.Context, content []byte, remove bool, chec
 			return false, err
 		}
 	}
-	if remove && !s.exists {
+	if remove && !s.Exists() {
 		return false, nil
 	}
-	if !remove && s.exists && bytes.Equal(content, s.content) {
+	if !remove && s.Exists() && bytes.Equal(content, s.content) {
 		return false, nil
 	}
 
 	// Prove native write access, and retain the original metadata by handle.
 	var source *os.File
-	if s.exists {
+	if s.Exists() {
 		source, err = openSource(root, s.name, true)
 		if err != nil {
 			return false, err

@@ -15,24 +15,6 @@ import (
 	"github.com/1lck/Lithe-IDEA/desktop/internal/store"
 )
 
-func TestGlobalBuildToolchainRevisionReachesOnlyMatchingSettingsWindows(t *testing.T) {
-	preferences := t.TempDir()
-	source := &App{store: store.At(preferences)}
-	matching := &App{store: store.At(preferences)}
-	unrelated := &App{store: store.At(t.TempDir())}
-	for _, window := range []*App{source, matching, unrelated} {
-		window.subscribeSettings()
-		t.Cleanup(window.unsubscribeSettings)
-	}
-	source.advanceGlobalBuildToolchainRevision()
-	if source.buildToolchainRevision.Load() != 1 || matching.buildToolchainRevision.Load() != 1 {
-		t.Fatal("global toolchain save did not invalidate both windows using the same settings")
-	}
-	if unrelated.buildToolchainRevision.Load() != 0 {
-		t.Fatal("global toolchain save invalidated a window using different settings")
-	}
-}
-
 func TestSettingsPublicationReachesMatchingWindowsAndKeepsProjectLayers(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()

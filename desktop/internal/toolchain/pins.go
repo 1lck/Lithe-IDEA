@@ -21,14 +21,19 @@ type pinSource struct {
 	document json.RawMessage
 }
 
-func capturePinSource(ctx context.Context, kernel Kernel, root string) (pinSource, error) {
+func capturePinFile(ctx context.Context, kernel Kernel, root string) (configfile.Snapshot, core.ToolchainPinStoragePlan, error) {
 	plan, err := kernel.ToolchainPinStorage(ctx)
 	if err != nil {
-		return pinSource{}, err
+		return configfile.Snapshot{}, plan, err
 	}
 	file, err := configfile.Capture(ctx, root, plan.DocumentRelativePath, plan.MaximumDocumentBytes)
+	return file, plan, pinSourceError(err)
+}
+
+func capturePinSource(ctx context.Context, kernel Kernel, root string) (pinSource, error) {
+	file, plan, err := capturePinFile(ctx, kernel, root)
 	if err != nil {
-		return pinSource{}, pinSourceError(err)
+		return pinSource{}, err
 	}
 	text, err := file.Text()
 	if err != nil {
