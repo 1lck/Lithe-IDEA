@@ -917,6 +917,35 @@ func TestMarketplaceWidthPersistsWithOtherSettings(t *testing.T) {
 	}
 }
 
+// TestSettingsWindowSizePersistsWithOtherSettings covers the size the user gave the settings
+// window: it is saved with the other settings, only when it changes, and the next workbench
+// reads it back for the settings window it opens.
+func TestSettingsWindowSizePersistsWithOtherSettings(t *testing.T) {
+	h := newHarness(t, &testKernel{Client: core.NewClient()})
+	h.app.setLanguage("zh-Hans")
+	h.app.setSettingsWindowSize(1100, 760)
+	var saved settings
+	found, err := h.store.Load(settingsFile, &saved)
+	if err != nil || !found {
+		t.Fatalf("load saved settings: found=%v err=%v", found, err)
+	}
+	if saved.SettingsWindowWidth != 1100 || saved.SettingsWindowHeight != 760 || saved.Language != "zh-Hans" || saved.Theme != themeDark {
+		t.Fatalf("saved settings lost values: %+v", saved)
+	}
+	if err := os.Remove(filepath.Join(h.store.Dir(), settingsFile)); err != nil {
+		t.Fatal(err)
+	}
+	h.app.setSettingsWindowSize(1100, 760)
+	if _, err := os.Stat(filepath.Join(h.store.Dir(), settingsFile)); !os.IsNotExist(err) {
+		t.Fatalf("an unchanged size saved the settings again: %v", err)
+	}
+	h.app.setSettingsWindowSize(1180, 820)
+	reloaded := newHarnessWithOptions(t, Options{Kernel: &testKernel{Client: core.NewClient()}, Store: h.store, Languages: []string{"zh-Hans"}})
+	if got := reloaded.app.settings; got.SettingsWindowWidth != 1180 || got.SettingsWindowHeight != 820 {
+		t.Fatalf("reloaded settings window size = %dx%d, want 1180x820", got.SettingsWindowWidth, got.SettingsWindowHeight)
+	}
+}
+
 // TestWindowControlsFollowTheTitleBar covers the buttons Viva draws in the custom title bar on
 // Windows and Linux: unstyled, they took Viva's ink for its default dark clear color and were
 // white on the light title bar. They must take the ink of the title bar and the language of

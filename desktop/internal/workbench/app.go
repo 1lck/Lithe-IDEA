@@ -341,6 +341,10 @@ type settings struct {
 	Language         string      `json:"language,omitempty"`
 	Theme            themeChoice `json:"theme,omitempty"`
 	MarketplaceWidth float32     `json:"marketplaceWidth,omitempty"`
+	// SettingsWindowWidth and SettingsWindowHeight are the size the user last gave the settings
+	// window, which the next one opens at; zero opens it at its default size.
+	SettingsWindowWidth  int `json:"settingsWindowWidth,omitempty"`
+	SettingsWindowHeight int `json:"settingsWindowHeight,omitempty"`
 	// MarketplaceSources are the custom plugin index URLs the user added, in the order they were added.
 	MarketplaceSources []string `json:"marketplaceSources,omitempty"`
 	// AutoUpdatePlugins lets approved marketplace plugins update with unchanged grants.
@@ -1183,7 +1187,7 @@ func (a *App) closed() {
 	a.closeClone()
 	a.closeNewProject()
 	a.closeProject()
-	a.settingsWindow.Close()
+	a.closeSettingsWindow()
 	a.stopUpdates()
 }
 
