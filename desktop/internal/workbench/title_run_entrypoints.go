@@ -49,12 +49,12 @@ func (a *App) performCurrentFileAction(p *project, action titleAction) {
 	}
 	doc := p.selectedDocument(p.docs.group)
 	if doc == nil || doc.path == "" {
-		a.runCurrentFileEditorAction(p, doc, action)
+		a.runCurrentFileEditorAction(p, doc, action, nil)
 		return
 	}
 	relative, err := filepath.Rel(p.root, doc.path)
 	if err != nil || relative == "." || strings.HasPrefix(relative, "..") {
-		a.runCurrentFileEditorAction(p, doc, action)
+		a.runCurrentFileEditorAction(p, doc, action, nil)
 		return
 	}
 	file := filepath.ToSlash(relative)
@@ -76,7 +76,17 @@ func (a *App) performCurrentFileAction(p *project, action titleAction) {
 	}
 	candidates = slices.DeleteFunc(candidates, func(c entrypointCandidate) bool { return !c.instance.modelLoaded })
 	if len(candidates) == 0 {
-		a.runCurrentFileEditorAction(p, doc, action)
+		a.runCurrentFileEditorAction(p, doc, action, nil)
+		return
+	}
+	if doc.dirty() || doc.saving || doc.conflicted {
+		s.findingEntrypoint = true
+		a.saveBeforeClose(p, doc, func(ok bool) {
+			s.findingEntrypoint = false
+			if ok && a.project == p && p.selectedDocument(p.docs.group) == doc {
+				a.performCurrentFileAction(p, action)
+			}
+		})
 		return
 	}
 	if action == titleActionRun {
@@ -84,23 +94,39 @@ func (a *App) performCurrentFileAction(p *project, action titleAction) {
 	}
 	s.findingEntrypoint = true
 	kernel := a.kernel
+	documentPath, revision := doc.path, doc.view.Revision()
 	a.background(p, buildRequestTimeout, func(ctx context.Context) func(*App) {
 		found, err := a.findEntrypoint(ctx, p, kernel, candidates, file, action)
-		if err == nil && found != nil {
-			var id string
-			id, err = a.saveEntrypointConfiguration(ctx, p, kernel, *found)
-			return func(a *App) { a.startEntrypointConfiguration(p, id, action, err) }
-		}
+		cancelled := errors.Is(ctx.Err(), context.Canceled)
 		return func(a *App) {
-			p.runConfigs.findingEntrypoint = false
-			if err != nil {
+			s.findingEntrypoint = false
+			// log-exempt: 用户取消：项目关闭或请求取消后没有入口需要启动。
+			if cancelled {
+				return
+			}
+			if p.selectedDocument(p.docs.group) != doc || doc.path != documentPath || doc.view.Revision() != revision {
+				if err != nil {
+					a.backgroundFailed("title_run_current_file", err)
+				}
+				return
+			}
+			if found != nil {
+				s.findingEntrypoint = true
+				a.background(p, buildRequestTimeout, func(ctx context.Context) func(*App) {
+					id, err := a.saveEntrypointConfiguration(ctx, p, kernel, *found)
+					return func(a *App) { a.startEntrypointConfiguration(p, id, action, err) }
+				})
+				return
+			}
+			if err != nil && action != titleActionDebug {
 				a.operationFailed("title_run_current_file", err)
 				a.notifyError(err.Error())
 				return
 			}
-			if p.selectedDocument(p.docs.group) == doc {
-				a.runCurrentFileEditorAction(p, doc, action)
+			if err != nil {
+				a.backgroundFailed("title_run_current_file", err)
 			}
+			a.runCurrentFileEditorAction(p, doc, action, err)
 		}
 	})
 }

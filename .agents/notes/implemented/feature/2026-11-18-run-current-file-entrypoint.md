@@ -11,7 +11,7 @@
 - 宿主取第一个入口，按项目路径找到模型里的项目，用 `runConfig.createUserConfiguration` 保存本机配置：名称取入口名（类名），引用的 `targetID` 为空，入口存为 `extensions.build-run.entrypoint`，入口是配置身份的一部分。同一入口再次运行复用已保存的配置。
 - 保存后重新读取配置、在标题栏选中并运行。准备运行时请求不带 `target`，入口通过 `launchOptions.entrypoint` 交给插件。之后用户可以像编辑其他构建提供者运行一样修改参数、环境变量和工作目录。
 - 没有打开文件、没有可回答的构建实例或文件里没有入口时，提示“当前文件没有可运行的入口”。
-- 提供者声明 `buildSystems: 2` 后，可以给应用入口加 `debug.configurationType`。调试只在声明该类型的入口中查找，保存或复用同一份配置，然后使用已注册的适配器连接暂停的进程。没有匹配入口时，继续使用编辑器提供的操作。
+- 提供者声明 `buildSystems: 2` 后，可以给应用入口加 `debug.configurationType`。调试只在声明该类型的入口中查找，保存或复用同一份配置，然后使用已注册的适配器连接暂停的进程。没有匹配入口或调试查找失败时，继续尝试编辑器提供的操作。
 
 ## 问题
 
@@ -24,6 +24,9 @@
 - 能力版本：`buildProviders` 和 `litheBuild` 都升到 1。旧宿主不声明 1，不会安装需要入口运行的插件版本；SDK 按宿主提供的版本协商最新的一个。
 - 入口作为配置身份的一部分，同一模块里不同类各存一条配置，同一个类不会重复保存。
 - 一个文件有多个入口时先运行第一个；选择菜单以后需要时再加。
+
+- 构建提供者按磁盘内容查找入口，因此先通过编辑器原有的流程保存修改并处理冲突。查找期间切换文件或修改内容时，丢弃这次查找结果。
+- 调试查找失败时记录失败原因，当前文档仍可使用自己的 Debug 动作。没有可用的编辑器动作时显示查找错误。
 
 ## 考虑过的备选方案
 
@@ -42,6 +45,8 @@
 - Core：`cargo test -p lithe-core provider_run_entrypoints_are_found_by_file_and_start_without_a_target entrypoint_runs_are_saved_per_entrypoint_without_a_target`。
 - 宿主：`./scripts/desktop/desktop-go.sh test ./internal/workbench/ -run TestRunOnCurrentFile -count=1`（合成构建提供者回答入口、准备运行）；截图 `TestVisualRunOnCurrentFile`。
 - 宿主：`TestCurrentFileDebugSavesAndAttachesToTheDiscoveredEntrypoint` 验证首次调试保存入口，并让已注册的适配器连接该入口的回环端口。
+
+- 宿主：`TestCurrentFileDebugSavesEditsBeforeDiscoveringAnEntrypoint` 验证从缓冲区删除入口时，提供者读取的是保存后的文件。`TestCurrentFileDebugFallsBackWhenProviderDiscoveryFails` 验证提供者失败后仍能启动当前文档的 Debug 动作。
 
 ## 适用范围
 
