@@ -297,10 +297,11 @@ PINNED_CORE_REPOSITORY="https://github.com/Lithe-IDEA/Lithe-core-rust.git"
 # contract, resolveSource.recommendationsURL, and plugins.marketplace.recommendForWorkspace (#2228).
 # Core #132, merged into main: reviewed-tip force deletion and first-primary-click selection.
 # Core #133, merged into main: commandInstallers 1 pinned archive downloads (API-23).
-# Lithe-core-rust main at 83a9f92: #135 (squash-merged) resolves an external installation whose
-# layout file links to another file name (rustup's cargo and rust-analyzer proxies) to the layout
-# path, so probes and launches start cargo, not rustup; #134 hardens remote connections.
-PINNED_CORE_REVISION="83a9f92505b5152669420e449085851a676b0931"
+# Lithe-core-rust main at 43e3f27: #135 resolves an external installation whose layout file links
+# to another file name (rustup's cargo and rust-analyzer proxies) to the layout path, so probes and
+# launches start cargo, not rustup; #134 hardens remote connections and #136 logs the remote
+# connection lifecycle as structured log v2 events.
+PINNED_CORE_REVISION="43e3f277c47033ca8c98e67e7da896a79fde595f"
 PROFILE="debug"
 CHECKOUT_ONLY="no"
 while [[ $# -gt 0 ]]; do
