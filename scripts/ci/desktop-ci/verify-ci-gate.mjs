@@ -2,7 +2,7 @@ import { pathToFileURL } from "node:url";
 
 // Keep the required lanes explicit: an omitted dependency must never pass the gate.
 export function verifyCIGate(needs, draft) {
-  const lanes = ["pins", "linux", "linux-test", "macos", "windows"];
+  const lanes = ["pins", "linux", "linux-test", "remote-server", "macos", "windows"];
   const failures = lanes.filter((lane) => {
     const result = needs?.[lane]?.result;
     return result !== "success" && !(draft && ["macos", "windows"].includes(lane) && result === "skipped");

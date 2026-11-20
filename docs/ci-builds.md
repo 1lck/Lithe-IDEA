@@ -8,12 +8,12 @@ CI 构建缓存、架构并行、测试产物和 artifact 保留策略见
 
 | 工作流 | 触发 | 内容 |
 | --- | --- | --- |
-| **Desktop CI**（`desktop-ci.yml`） | PR（Draft 只跑 Linux 作业，`ready_for_review` 时补跑完整矩阵）、推送到 `main`、手动运行 | `pins` 校验固定版本；`linux`（Format and script tests）运行 gofmt、ShellCheck、本地化校验、安装资源路径检查和脚本测试；`linux-test` 通过 `scripts/desktop/check.sh` 运行 Linux 的 vet 和测试；`macos`（`macos-26`）、`windows`（`windows-2022`）同样运行 vet 和测试，只在非 Draft 时执行 |
+| **Desktop CI**（`desktop-ci.yml`） | PR（Draft 只跑 Linux 作业，`ready_for_review` 时补跑完整矩阵）、推送到 `main`、手动运行 | `pins` 校验固定版本；`linux`（Format and script tests）运行 gofmt、ShellCheck、本地化校验、安装资源路径检查和脚本测试；`linux-test` 通过 `scripts/desktop/check.sh` 运行 Linux 的 vet 和测试；`remote-server`（Remote server artifacts）编译两种架构的 Linux musl 远端服务，检查静态链接、ELF 架构、清单与 SHA-256，在 x86_64 上直接运行、在 aarch64 上经 qemu-user 运行冒烟测试，把体积写进任务摘要；`macos`（`macos-26`）、`windows`（`windows-2022`）同样运行 vet 和测试，只在非 Draft 时执行 |
 | **Desktop Release**（`desktop-release.yml`） | 推送 `desktop-v*.*.*` 标签，或手动运行并填写版本 | 打包并校验 macOS、Windows、Linux 产物，核对校验和，然后创建或更新 GitHub prerelease，再签名发布正式版更新源。手动版本必须与 `desktop/viva.toml` 中的版本一致 |
 | **Desktop AutoBuild**（`desktop-autobuild.yml`） | 每天 UTC 10:00 定时，或手动运行 | 构建 macOS arm64 与 x64、Windows x64、Linux x64 和 arm64，发布到滚动预发布 `desktop-AutoBuild`。同一提交已经发布时，定时运行不会重复构建 |
 
 - Draft PR 只运行 Linux 检查：macOS 和 Windows 作业带有 `draft == false` 条件。标记为 ready 后，才运行完整的 Desktop CI。
-- `Desktop CI gate` 汇总固定版本、Linux 格式与脚本、Linux 测试、macOS 测试和 Windows 测试；普通 PR 必须全部成功，Draft 只允许跳过 macOS 和 Windows。更换已有 PR 的目标分支后，保留 Draft 状态；需要评审时标记为 ready 以针对新基线重新运行完整检查。单纯修改标题或正文不触发平台 runner。
+- `Desktop CI gate` 汇总固定版本、Linux 格式与脚本、Linux 测试、远端服务产物、macOS 测试和 Windows 测试；普通 PR 必须全部成功，Draft 只允许跳过 macOS 和 Windows。更换已有 PR 的目标分支后，保留 Draft 状态；需要评审时标记为 ready 以针对新基线重新运行完整检查。单纯修改标题或正文不触发平台 runner。
 - Desktop CI 通过 `scripts/desktop/check.sh` 执行 Go 检查，Rust 内核由 `scripts/desktop/build-desktop-core.sh` 按 `PINNED_CORE_REVISION` 固定的 Lithe-core-rust 修订构建。
 - Linux 测试作业也运行 `TestVisualLSPActions`，覆盖中英文与明暗主题的代码操作、签名帮助和内联提示失败重试。全量测试失败时仍采集截图。结果作为 `lsp-editor-visual-<系统>-<架构>` artifact 保留 14 天。
 - Desktop Release 的打包脚本是 `scripts/ci/desktop-release/package-release.sh`，AutoBuild 的打包和发布脚本位于 `scripts/ci/desktop-autobuild/`。
@@ -124,7 +124,8 @@ Viva 的市场包传输由操作系统提供的临时目录持有，目录形如
 增量更新基线。
 
 Viva 桌面端（`desktop/`，Go）的构建状态位于 `.artifacts/desktop/`，只由
-`scripts/desktop/build-desktop-core.sh` 和 `scripts/desktop/desktop-go.sh` 写入：
+`scripts/desktop/build-desktop-core.sh`、`scripts/desktop/desktop-go.sh`、上文的 `build-viva-tool.sh`
+和下文的 `build-remote-server.sh` 写入：
 `lithe-core-rust/` 是 Lithe-core-rust 的源码检出和 `CARGO_TARGET_DIR` 指向的 Cargo 编译目录（数 GB），
 `lithe-core/<debug|release>/` 是暂存给 cgo 的 `include/lithe_core.h`、`lib/liblithe_core.a`、
 `native-static-libs.txt` 和 `identity.txt`（单个 profile 约 700 MB），`bin/` 是本工作树构建的桌面端二进制。
@@ -148,6 +149,21 @@ target、profile 和 macOS deployment target，但它只描述本工作树最近
 结果异常时删掉复制的目录重新编译。做法见 `develop-lithe` Skill 的“检出与编译缓存复用”一节（`.artifacts/` 被 `.gitignore` 忽略，不提交）。
 这些目录只在构建时由上述脚本写入，应用运行时不写，也不进入 app bundle 或安装目录，
 不影响代码签名和增量更新基线。
+
+远端工作区的服务端 `lithe-remote-server` 由 `scripts/desktop/build-remote-server.sh` 编译（#2231）。它复用
+`build-desktop-core.sh --checkout-only` 准备的同一份 Core 检出（固定提交或 `LITHE_CORE_RUST_DIR`）和同一个 Cargo 编译目录，
+只开启 `lithe-remote` 的 `server` 特性，按 Core 的 release profile 和 `--locked` 编译 `x86_64-unknown-linux-musl` 与
+`aarch64-unknown-linux-musl`；两者都用 Rust 自带的 `rust-lld` 链接，不需要 Docker、zig 或交叉 C 工具链，但要先
+`rustup target add` 这两个目标。中间产物在 `lithe-core-rust/target/<目标>/release/`，与桌面 Core 一样按目标记录
+built-from 检出，换检出时只清理工作区成员。全部目标编译成功后，脚本删掉并重建 `.artifacts/desktop/remote-server/`，
+放入 `<目标>/lithe-remote-server` 和 `remote-server-manifest.json`（Core 提交、`coreWorktree`、`coreSource`、服务版本、rustc，
+以及每个文件的体积和 SHA-256）。`scripts/desktop/verify/verify-remote-server-artifacts.mjs` 读取这个目录：检查清单字段、
+文件哈希、ELF 架构和静态链接（没有解释器、没有动态库依赖），能运行目标架构时再跑 `--identity`、`--version` 和一次
+`server.hello`；`--require-smoke` 要求两种架构都跑通，`--require-pinned` 要求清单来自固定提交且工作区干净。体积只记录在报告和
+CI 任务摘要里，不设上限（#2231 的 D9）。随 `.artifacts/desktop/` 复制到另一个工作树时，除上一段的前提外，还要满足 Rust
+工具链和已安装目标相同、源工作树不在编译，并在使用前运行一次验证脚本确认清单哈希仍然一致；否则删掉 `remote-server/`，
+重新运行构建脚本。目前它只是构建状态：不进入安装包，应用运行时不读也不写，不影响代码签名或增量更新基线。把它放进发行包、
+运行时定位和校验它，留给 #2231 后续的连接实现。
 
 共享翻译源文件位于 `shared/i18n/`，桌面端生成文件是 Git 跟踪的 `desktop/internal/i18n/shared.generated.go`。每个工作树通过 Git 获取源文件和生成文件，然后运行 `node scripts/i18n/generate-i18n.mjs --check` 校验。修改源翻译后运行不带 `--check` 的同一命令，在当前工作树重新生成。资源身份由当前语言清单、词条和翻译共同决定，不需要下载，也没有独立的工具链或可复用 identity stamp。不要从其他工作树复制生成文件。生成文件随源码编译，不写入安装资源，也不改变签名和增量更新基线。维护步骤见 [共享翻译说明](../shared/i18n/README.md)。
 

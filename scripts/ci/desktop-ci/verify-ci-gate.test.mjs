@@ -4,7 +4,7 @@ import { fileURLToPath } from "node:url";
 import test from "node:test";
 import { verifyCIGate } from "./verify-ci-gate.mjs";
 
-const lanes = ["pins", "linux", "linux-test", "macos", "windows"];
+const lanes = ["pins", "linux", "linux-test", "remote-server", "macos", "windows"];
 const passed = () => Object.fromEntries(lanes.map((lane) => [lane, { result: "success" }]));
 
 test("ready PRs and main pushes require every lane to pass", { timeout: 1000 }, () => {
@@ -30,7 +30,7 @@ test("drafts defer only native lanes and still require all Linux lanes", { timeo
     delete broken[lane];
     assert.throws(() => verifyCIGate(broken, true), /missing/);
   }
-  for (const lane of ["pins", "linux", "linux-test"]) {
+  for (const lane of ["pins", "linux", "linux-test", "remote-server"]) {
     const broken = structuredClone(needs);
     broken[lane].result = "skipped";
     assert.throws(() => verifyCIGate(broken, true), new RegExp(lane));
