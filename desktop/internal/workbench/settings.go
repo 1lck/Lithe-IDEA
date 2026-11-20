@@ -214,7 +214,11 @@ func (a *App) newSettingsWindow() *settingswindow.Controller {
 		SetProcessTermination: func(value settingswindow.ProcessTermination) {
 			a.post(func(a *App) { a.setProcessTermination(value) })
 		},
-		StopTime:                 a.stopTimeOption(),
+		StopTime: a.stopTimeOption(),
+		SetConsoleEncoding: func(value string) {
+			a.post(func(a *App) { a.setConsoleEncoding(value) })
+		},
+		ConsoleEncodings:         a.consoleEncodingsOption,
 		SweepsLeftovers:          processledger.Supported,
 		SteppingAdapters:         a.steppingAdapters,
 		NormalizeSteppingFilters: a.kernel.NormalizeSteppingFilters,
@@ -441,6 +445,7 @@ func (a *App) openSettingsPageWith(surface actionSurface, page settingsPage, que
 			VimMode:                  a.settings.VimMode,
 			DisableAutoSave:          a.settings.DisableAutoSave,
 			ProcessTermination:       a.settings.ProcessTermination,
+			ConsoleEncoding:          a.settings.ConsoleEncoding,
 			SteppingFilters:          maps.Clone(a.settings.DebugSteppingFilters),
 			Fonts:                    fontprefs.Normalize(a.settings.Fonts),
 			Keymap:                   maps.Clone(a.settings.Keymap),

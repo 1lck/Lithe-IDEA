@@ -372,6 +372,8 @@ func (w *window) content(c ui.C) {
 			w.toolchainsPage(c)
 		case w.sess.page == pageDebuggers:
 			w.debuggersPage(c)
+		case w.sess.page == pageConsole:
+			w.consolePage(c)
 		case w.sess.page == pageTerminal && w.ctrl.opts.TerminalShells != nil:
 			w.terminalPage(c)
 		case w.sess.page == pageSearch:
@@ -716,6 +718,7 @@ func (w *window) footer(c ui.C) {
 			w.setVimMode(false, true)
 			w.resetEditorPresentation()
 			w.setProcessTermination(ProcessTermination{}, true)
+			w.setConsoleEncoding("", true)
 			w.resetSteppingFilters()
 			w.setTerminalShell("", true)
 			w.setTerminalBehavior(TerminalBehavior{}, true)

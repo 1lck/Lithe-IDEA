@@ -258,7 +258,7 @@ func (a *App) executeTestCommand(ctx context.Context, p *project, instance build
 		return func(a *App) { a.finishTestError(p, generation, err) }
 	}
 	output := &testOutput{}
-	decoder := newOutputDecoder(a.kernel)
+	decoder := newOutputDecoder(a.kernel, a.outputEncodingPolicy())
 	operation := &testOperation{}
 	workingDirectory := filepath.Join(p.root, filepath.FromSlash(plan.WorkingDirectory))
 	process, err := buildprocess.Start(ctx, buildprocess.Spec{
@@ -315,7 +315,7 @@ func (a *App) executeTestProvider(ctx context.Context, p *project, instance buil
 		p.tests.status = a.text.Tests.Running
 	})
 	output := &testOutput{}
-	decoder := newOutputDecoder(a.kernel)
+	decoder := newOutputDecoder(a.kernel, a.outputEncodingPolicy())
 	var providerResult json.RawMessage
 	for {
 		select {

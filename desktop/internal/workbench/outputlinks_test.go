@@ -30,7 +30,7 @@ const outputLinkManifest = `{
 func (h *harness) startRunConsole(root, text string) {
 	h.t.Helper()
 	h.app.applyRunEvent(pluginservice.RunEvent{Type: pluginservice.RunStarted, RunID: "run-test", PluginID: "dev.lithe.test.output-links", Label: "Test run", Workspace: root})
-	chunk, err := newOutputDecoder(h.app.kernel).decode(text)
+	chunk, err := newOutputDecoder(h.app.kernel, h.app.outputEncodingPolicy()).decode(text)
 	if err != nil {
 		h.t.Fatal(err)
 	}

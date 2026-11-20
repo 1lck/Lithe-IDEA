@@ -708,6 +708,17 @@ func (w *window) setProcessTermination(value ProcessTermination, force bool) {
 	}
 }
 
+// setConsoleEncoding stores a decoding preference for newly started consoles.
+func (w *window) setConsoleEncoding(value string, force bool) {
+	if w.sess.finished.Load() || (!force && w.sess.values.ConsoleEncoding == value) {
+		return
+	}
+	w.sess.values.ConsoleEncoding = value
+	if w.ctrl.opts.SetConsoleEncoding != nil {
+		w.ctrl.opts.SetConsoleEncoding(value)
+	}
+}
+
 // sameProcessTermination compares two settings by what they store.
 func sameProcessTermination(a, b ProcessTermination) bool {
 	confirms := func(v *bool) int {

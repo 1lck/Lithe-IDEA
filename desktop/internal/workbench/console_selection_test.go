@@ -15,7 +15,7 @@ func showRunConsole(t *testing.T, text string) (*harness, *runEntry) {
 	h.open(t.TempDir())
 	p := h.app.project
 	run := &runEntry{id: "run-1", label: "Serve", output: newOutputBuffer(runOutputMaxLines, runOutputBytes)}
-	chunk, err := newOutputDecoder(h.app.kernel).decode(text)
+	chunk, err := newOutputDecoder(h.app.kernel, h.app.outputEncodingPolicy()).decode(text)
 	if err != nil {
 		t.Fatal(err)
 	}

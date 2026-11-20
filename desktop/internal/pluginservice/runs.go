@@ -60,8 +60,10 @@ type RunEvent struct {
 	Label     string
 	Workspace string
 	Text      string
-	ExitCode  *int
-	Signal    string
+	// OutputEncoding is the process's declaration, set on RunStarted before any output.
+	OutputEncoding string
+	ExitCode       *int
+	Signal         string
 	// Rerun is set on RunStarted when the plugin supplied a rerun function.
 	Rerun *RunRerun
 	// PID is the run's root process on RunStarted, 0 when it has none (a debug launch).
@@ -442,7 +444,7 @@ func (r *Runs) handleStart(ctx context.Context, params json.RawMessage) (json.Ra
 	r.runs[run.id] = run
 	r.wait.Add(1)
 	r.mu.Unlock()
-	event := RunEvent{Type: RunStarted, RunID: run.id, PluginID: run.pluginID, Label: start.Label, Workspace: workspace.Path, PID: run.pid}
+	event := RunEvent{Type: RunStarted, RunID: run.id, PluginID: run.pluginID, Label: start.Label, Workspace: workspace.Path, PID: run.pid, OutputEncoding: start.OutputEncoding}
 	if start.Rerun != nil {
 		event.Rerun = &RunRerun{PluginID: run.pluginID, Function: start.Rerun.Function, Data: start.Rerun.Data, Workspace: workspace.Path}
 	}

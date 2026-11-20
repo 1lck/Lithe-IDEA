@@ -57,7 +57,7 @@ func TestVisualReadOnlyTextSelection(t *testing.T) {
 			h.open(t.TempDir())
 			p := h.app.project
 			run := &runEntry{id: "run-1", label: "Main", output: newOutputBuffer(runOutputMaxLines, runOutputBytes)}
-			chunk, err := newOutputDecoder(h.app.kernel).decode(stackTrace)
+			chunk, err := newOutputDecoder(h.app.kernel, h.app.outputEncodingPolicy()).decode(stackTrace)
 			if err != nil {
 				t.Fatal(err)
 			}

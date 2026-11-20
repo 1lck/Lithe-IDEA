@@ -33,27 +33,39 @@ type outputChunk struct {
 }
 
 // outputDecoder turns one console's output into styled lines through Core's outputStyle.decode,
-// carrying Core's state from chunk to chunk. It runs on the goroutines that read the output, never
-// on the window thread: deliver decodes and hands the result to post while holding the decoder, so
-// the chunks of a console that two streams write reach the window in the order they were decoded.
+// carrying Core's state from chunk to chunk. The output is the bytes the process wrote, which Core
+// decodes line by line with the encoding the policy picks for each line, so a chunk may end inside
+// a character. It runs on the goroutines that read the output, never on the window thread: deliver
+// decodes and hands the result to post while holding the decoder, so the chunks of a console that
+// two streams write reach the window in the order they were decoded.
 type outputDecoder struct {
 	kernel Kernel
 	mu     sync.Mutex
+	// policy is the console encoding setting and platform when the console began, and the
+	// encoding its process declared.
+	policy core.OutputEncodingPolicy
 	state  json.RawMessage
-	// carry is the start of a character the previous text ended inside.
-	carry string
 	// open is the line still being written, kept for the plain fallback.
 	open styledLine
-	// plain is set once Core failed: the rest of the console is split into lines as it is.
+	// plain is set once Core failed: the rest of the console is split into lines as it is, with
+	// bytes that are not UTF-8 replaced.
 	plain bool
 }
 
-func newOutputDecoder(kernel Kernel) *outputDecoder {
-	return &outputDecoder{kernel: kernel}
+func newOutputDecoder(kernel Kernel, policy core.OutputEncodingPolicy) *outputDecoder {
+	return &outputDecoder{kernel: kernel, policy: policy}
 }
 
-// deliver decodes text and passes the result to post, with failure set the first time Core could
-// not decode this console's output; the window thread logs it once.
+// declare records the encoding the console's process says it writes, tried before the others in
+// automatic mode; empty is none. Call it before the process writes.
+func (d *outputDecoder) declare(encoding string) {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	d.policy.Declared = encoding
+}
+
+// deliver decodes the bytes text holds and passes the result to post, with failure set the first
+// time Core could not decode this console's output; the window thread logs it once.
 func (d *outputDecoder) deliver(text string, post func(chunk outputChunk, failure error)) {
 	d.mu.Lock()
 	defer d.mu.Unlock()
@@ -63,26 +75,14 @@ func (d *outputDecoder) deliver(text string, post func(chunk outputChunk, failur
 
 // decode is deliver without the lock and the hand-off; d.mu is held.
 func (d *outputDecoder) decode(text string) (outputChunk, error) {
-	text = d.carry + text
-	d.carry = ""
-	if cut := completeUTF8(text); cut < len(text) {
-		d.carry, text = text[cut:], text[:cut]
-	}
 	chunk := outputChunk{open: d.open}
 	var failure error
 	for len(text) > 0 {
-		piece := text
-		if len(piece) > outputDecodePiece {
-			cut := outputDecodePiece
-			for cut > 0 && !utf8.RuneStart(piece[cut]) {
-				cut--
-			}
-			piece = piece[:cut]
-		}
+		piece := text[:min(len(text), outputDecodePiece)]
 		text = text[len(piece):]
 		if !d.plain {
 			ctx, cancel := context.WithTimeout(context.Background(), outputDecodeTimeout)
-			decoded, err := d.kernel.DecodeOutputStyle(ctx, piece, d.state)
+			decoded, err := d.kernel.DecodeOutputStyle(ctx, []byte(piece), d.policy, d.state)
 			cancel()
 			if err == nil {
 				d.state = decoded.State
@@ -94,7 +94,7 @@ func (d *outputDecoder) decode(text string) (outputChunk, error) {
 			}
 			d.plain, d.state, failure = true, nil, err
 		}
-		chunk.lines, chunk.open = splitPlainOutput(chunk.lines, chunk.open, piece)
+		chunk.lines, chunk.open = splitPlainOutput(chunk.lines, chunk.open, strings.ToValidUTF8(piece, string(utf8.RuneError)))
 	}
 	d.open = chunk.open
 	return chunk, failure
@@ -112,21 +112,6 @@ func splitPlainOutput(lines []styledLine, open styledLine, text string) ([]style
 		lines = append(lines, open)
 		open, text = styledLine{}, text[index+1:]
 	}
-}
-
-// completeUTF8 returns how much of text ends on a character boundary: a character the text ends
-// inside is left for the next text.
-func completeUTF8(text string) int {
-	for back := 1; back < utf8.UTFMax && back <= len(text); back++ {
-		start := len(text) - back
-		if utf8.RuneStart(text[start]) {
-			if utf8.FullRuneInString(text[start:]) {
-				return len(text)
-			}
-			return start
-		}
-	}
-	return len(text)
 }
 
 // outputBuffer is one console's bounded output: finished lines, oldest first, and the line still

@@ -191,6 +191,15 @@ func TestBuildDecodeRunKeepsValidatedExecutable(t *testing.T) {
 	if err := json.Unmarshal(raw, &fixture); err != nil {
 		t.Fatal(err)
 	}
+	var result map[string]any
+	if err := json.Unmarshal(fixture.Result, &result); err != nil {
+		t.Fatal(err)
+	}
+	result["outputEncoding"] = "cp936"
+	fixture.Result, err = json.Marshal(result)
+	if err != nil {
+		t.Fatal(err)
+	}
 	launch, err := client.DecodeBuildRun(ctx, manifest, "gradle", BuildDecodeRunRequest{
 		WorkspaceRoot: root,
 		Root:          ".",
@@ -204,6 +213,9 @@ func TestBuildDecodeRunKeepsValidatedExecutable(t *testing.T) {
 	}
 	if launch.WorkingDirectory != "app" || len(launch.Arguments) != 4 || launch.Environment["APP_ENV"] != "test" {
 		t.Fatalf("launch = %+v", launch)
+	}
+	if launch.OutputEncoding != "gbk" {
+		t.Fatalf("output encoding = %q, want normalized GBK", launch.OutputEncoding)
 	}
 }
 

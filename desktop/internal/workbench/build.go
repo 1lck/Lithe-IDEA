@@ -176,7 +176,7 @@ func (a *App) beginRunOperation(p *project, label, configuration, key string, re
 
 // beginOperation begins a task, or with key an application run, as beginBuildOperation says.
 func (a *App) beginOperation(p *project, kind, label, configuration, key string, restart func(*App, *project)) *buildOperation {
-	operation := &buildOperation{configuration: configuration, key: key, stopped: make(chan struct{}), decoder: newOutputDecoder(a.kernel)}
+	operation := &buildOperation{configuration: configuration, key: key, stopped: make(chan struct{}), decoder: newOutputDecoder(a.kernel, a.outputEncodingPolicy())}
 	p.build.sessions++
 	operation.session = &runEntry{
 		id: "build-" + strconv.Itoa(p.build.sessions), label: label, restart: restart, operation: operation,
@@ -2036,6 +2036,7 @@ func (a *App) runBuildTargetWith(p *project, op *buildOperation, instance *build
 			return func(a *App) { a.finishBuildError(p, op, prepare.Err()) }
 		}
 		workingDirectory := filepath.Join(p.root, filepath.FromSlash(launch.WorkingDirectory))
+		op.decoder.declare(launch.OutputEncoding)
 		process, err := buildprocess.Start(ctx, buildprocess.Spec{
 			Kind:             processledger.KindBuild,
 			Executable:       execution.Executable,
