@@ -4,8 +4,8 @@
   "group": "运行输出",
   "capability": "加载构建模型时，Run 窗口为每次加载开一个“同步 <构建系统>”执行标签，实时显示构建工具下载、解析依赖时打印的日志，带状态、开始时间、耗时、停止和再次运行；Build 窗口里正在加载的那一行显示最新一行输出，点击打开对应标签",
   "owner": "Run",
-  "notes": "Viva 共享实现。命令来源的模型从 stdout 读取时只解码 stdout，stderr（如 go: downloading …）只进同步标签的控制台，不再混进模型文档；模型写到输出文件时两路输出都进控制台。Provider 来源把 lithe/build/progress 的 output 写进控制台、message 作为最新一行。同步标签不抢占正在运行的执行标签，也不主动把 Run 窗口调到前台；同名的已结束同步标签被新一次加载替换，标签数超出上限时先移除已结束的同步标签。用户停止后结果为“构建模型加载已停止”，Build 窗口不显示失败警告，也不会因文件变化自动重新加载，直到用户点 Reload 或再次运行。文案走 shared/i18n 的 desktop.build.syncSession*、desktop.build.modelStopped、desktop.build.showSyncOutput。",
-  "verification": "打开一个首次加载需要下载依赖的 Go 模块项目（清空模块缓存），在 Build 窗口点加载或 Reload：Run 窗口出现“同步 Go Modules”标签并显示 go: downloading 行，Build 窗口加载行显示最新一行输出，点击后 Run 窗口打开并选中该标签；加载结束后标签显示成功、开始时间和耗时，Build 树正常展开。再次加载时点停止：标签结果为已停止，Build 窗口不显示警告也不自动重试，点再次运行在同一个标签重新加载。正在运行一个任务时触发加载，确认 Run 窗口仍停在那个任务上。自动化：build_sync_test.go 的 TestBuildModelLoadShowsTheToolsLogInARunWindowSession、TestBuildModelLoadTheUserStopsEndsStoppedAndRerunsInItsTab，build_command_record_test.go 的 download 场景。",
+  "notes": "Viva 共享实现。命令来源的模型从 stdout 读取时只解码 stdout，stderr（如 go: downloading …）只进同步标签的控制台，不再混进模型文档；模型写到输出文件时两路输出都进控制台。Provider 来源把 lithe/build/progress 的 output 写进控制台、message 作为最新一行。同步标签不抢占正在运行的执行标签，也不主动把 Run 窗口调到前台；同名的已结束同步标签被新一次加载替换，标签数超出上限时先移除已结束的同步标签。用户停止后结果为“构建模型加载已停止”，Build 窗口不显示失败警告，也不会因文件变化自动重新加载，直到用户点 Reload 或再次运行。文案走 shared/i18n 的 desktop.build.syncSession*、desktop.build.modelStopped、desktop.build.showSyncOutput。2026-11-20（#2027）：模型加载失败或处于安全模式时，titleRunConfigMenu 也会列出对应条目及首行原因，点击失败条目优先调用 showBuildSync 打开同步会话标签（无会话则打开 Build 窗口并选中该实例），点击安全模式条目触发工作区信任弹窗。",
+  "verification": "打开一个首次加载需要下载依赖的 Go 模块项目（清空模块缓存），在 Build 窗口点加载或 Reload：Run 窗口出现“同步 Go Modules”标签并显示 go: downloading 行，Build 窗口加载行显示最新一行输出，点击后 Run 窗口打开并选中该标签；加载结束后标签显示成功、开始时间和耗时，Build 树正常展开。再次加载时点停止：标签结果为已停止，Build 窗口不显示警告也不自动重试，点再次运行在同一个标签重新加载。正在运行一个任务时触发加载，确认 Run 窗口仍停在那个任务上。标题栏运行配置下拉在模型加载失败或安全模式暂停时直接显示提示行，点击可打开对应同步会话标签或工作区信任。自动化：build_sync_test.go 的 TestBuildModelLoadShowsTheToolsLogInARunWindowSession、TestBuildModelLoadTheUserStopsEndsStoppedAndRerunsInItsTab，build_command_record_test.go 的 download 场景，以及 title_run_test.go 与 title_run_empty_visual_test.go（#2027）。",
   "macos": {
     "implementationStatus": "implemented",
     "verificationStatus": "pending",
@@ -14,9 +14,11 @@
       "desktop/internal/workbench/build.go",
       "desktop/internal/workbench/build_tree.go",
       "desktop/internal/workbench/build_tree_view.go",
+      "desktop/internal/workbench/title_run_view.go",
       "desktop/internal/workbench/runs.go",
       "desktop/internal/workbench/build_sync_test.go",
-      "desktop/internal/workbench/build_command_record_test.go"
+      "desktop/internal/workbench/build_command_record_test.go",
+      "desktop/internal/workbench/title_run_test.go"
     ]
   },
   "windows": {
@@ -27,9 +29,11 @@
       "desktop/internal/workbench/build.go",
       "desktop/internal/workbench/build_tree.go",
       "desktop/internal/workbench/build_tree_view.go",
+      "desktop/internal/workbench/title_run_view.go",
       "desktop/internal/workbench/runs.go",
       "desktop/internal/workbench/build_sync_test.go",
-      "desktop/internal/workbench/build_command_record_test.go"
+      "desktop/internal/workbench/build_command_record_test.go",
+      "desktop/internal/workbench/title_run_test.go"
     ]
   }
 }

@@ -175,3 +175,68 @@ func TestEnvironmentTextRoundTrips(t *testing.T) {
 		t.Fatalf("line = %d, want 2", line)
 	}
 }
+
+// Re-picking the already selected Save-to layer on an unsaved generated configuration counts as
+// an explicit save request so OK persists the generated configuration to disk (#2147).
+func TestRunConfigEditorSavesGeneratedConfigOnExplicitScopePick(t *testing.T) {
+	root := t.TempDir()
+	h, p := loadedRunConfigs(t, &testKernel{Client: core.NewClient()}, root)
+	if source := p.runConfigs.list[0].Source; source != "generated" {
+		t.Fatalf("initial configuration source = %q, want generated", source)
+	}
+	id := p.runConfigs.selected
+	d := &p.runConfigs.dialog
+	open := func() *runConfigEditor {
+		t.Helper()
+		h.app.post(func(a *App) { a.editRunConfiguration(p, id) })
+		var e *runConfigEditor
+		awaitStateWithin(t, h, 10*time.Second, "the editor to finish loading", func() bool {
+			if draft := d.drafts[id]; d.open && draft != nil {
+				e = draft.editor
+			}
+			return e != nil && !e.loading
+		})
+		return e
+	}
+	_ = open()
+	h.settle()
+	if d.dirty() {
+		t.Fatal("unmodified editor should not start dirty")
+	}
+
+	language := h.app.language()
+	trigger := h.hitLabeled(i18n.Shared(language, "desktop.runConfig.scope"))
+	h.click(center(trigger))
+	h.settle()
+	localLabel := i18n.Shared(language, "desktop.runConfig.scopeLocal")
+	var optionHit gfx.Hit
+	for _, hit := range h.driver.Snapshot().Hits {
+		if hit.Label == localLabel && !hit.IsLabel && hit.Bounds != trigger {
+			optionHit = hit
+		}
+	}
+	if optionHit.Bounds == (gfx.Rect{}) {
+		t.Fatalf("scope popup did not list option %q (hits: %+v)", localLabel, h.driver.Snapshot().Hits)
+	}
+	h.click(center(optionHit.Bounds))
+	h.settle()
+	if !d.dirty() {
+		t.Fatal("explicitly picking the Save-to scope on a generated configuration did not mark the editor dirty")
+	}
+
+	ok := h.hitLabeled(i18n.Shared(language, "desktop.runConfig.ok"))
+	h.click(center(ok))
+	localLayer := filepath.Join(root, ".lithe", "run", "plugin", "dev.example.engine.local.toml")
+	awaitStateWithin(t, h, 10*time.Second, "the generated configuration saved to disk", func() bool {
+		if d.open || p.runConfigs.loading {
+			return false
+		}
+		_, err := os.Stat(localLayer)
+		return err == nil
+	})
+	_ = open()
+	h.settle()
+	if d.dirty() {
+		t.Fatal("reopened configuration after saving should not start dirty")
+	}
+}

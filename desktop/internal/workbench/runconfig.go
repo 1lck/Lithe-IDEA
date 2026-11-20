@@ -141,6 +141,8 @@ func (a *App) refreshRunConfigurations(p *project) {
 			return
 		}
 		snapshot = data
+	} else if p.build.loaded && len(p.build.instances) == 0 && p.build.failed == "" {
+		snapshot = json.RawMessage("[]")
 	}
 	root, kernel := p.root, a.kernel
 	a.background(p, buildRequestTimeout, func(ctx context.Context) func(*App) {

@@ -36,6 +36,10 @@ const (
 	buildOutputBytes    = 4 << 20
 )
 
+// buildToolProbeTimeout bounds one version probe of a build tool or runtime candidate so a
+// stalled wrapper or SDK cannot block model loading or candidate fallback. Tests shorten it.
+var buildToolProbeTimeout = 10 * time.Second
+
 // runPreparationTimeout bounds what precedes a run's process: planning, resolving its tools and
 // the provider's preparation. The process itself runs until it exits, the user stops it or the
 // project closes: a service runs for as long as the user works with it. Tests shorten it.
@@ -1394,25 +1398,34 @@ func (a *App) resolveBuildExecutable(ctx context.Context, p *project, instance b
 		return buildExecution{}, err
 	}
 	runtimes := make(map[string]buildExecution, len(invocation.RuntimeDependencies))
-	var runtimeEnvironment map[string]string
-	for _, requirement := range invocation.RuntimeDependencies {
-		resolved, err := a.resolveBuildCandidates(ctx, p, instance.Root, requirement.Executables, requirement.MinimumVersion, messages, runtimes)
-		if err != nil {
-			return buildExecution{}, err
+	validateCandidate := func(requirementID, minimum string, versionSpec *core.BuildVersionProbe) func(buildExecution) error {
+		if minimum == "" || versionSpec == nil {
+			return nil
 		}
-		resolved.Environment = applyToolchainSelection(resolved.Environment, core.ToolchainSelection{Environment: runtimeEnvironment})
-		if requirement.MinimumVersion != "" && requirement.Version != nil {
-			output, err := probeBuildTool(ctx, resolved.Executable, requirement.Version.Arguments, p.root, applyToolchainSelection(nil, resolved.selection()))
-			if err != nil {
-				return buildExecution{}, err
+		return func(candidate buildExecution) error {
+			output, probeErr := probeBuildTool(ctx, candidate.Executable, versionSpec.Arguments, p.root, applyToolchainSelection(nil, candidate.selection()))
+			if probeErr != nil {
+				return probeErr
 			}
-			version, err := a.kernel.CheckBuildToolVersion(ctx, instance.Manifest, instance.BuildSystemID, requirement.ID, output)
-			if err != nil {
-				return buildExecution{}, err
+			version, checkErr := a.kernel.CheckBuildToolVersion(ctx, instance.Manifest, instance.BuildSystemID, requirementID, output)
+			if checkErr != nil {
+				return checkErr
 			}
 			if !version.Satisfied {
-				return buildExecution{}, errors.New(messages.VersionTooOld(requirement.MinimumVersion, version.Version))
+				return errors.New(messages.VersionTooOld(minimum, version.Version))
 			}
+			return nil
+		}
+	}
+	var runtimeEnvironment map[string]string
+	for _, requirement := range invocation.RuntimeDependencies {
+		resolved, err := a.resolveAndCheckBuildCandidates(
+			ctx, p, instance.Root, requirement.Executables, requirement.MinimumVersion,
+			messages, runtimes, runtimeEnvironment,
+			validateCandidate(requirement.ID, requirement.MinimumVersion, requirement.Version),
+		)
+		if err != nil {
+			return buildExecution{}, err
 		}
 		if requirement.PathVariable != "" {
 			if resolved.Environment == nil {
@@ -1423,23 +1436,13 @@ func (a *App) resolveBuildExecutable(ctx context.Context, p *project, instance b
 		runtimeEnvironment = applyToolchainSelection(runtimeEnvironment, resolved.selection())
 		runtimes[requirement.ID] = resolved
 	}
-	execution, err := a.resolveBuildCandidates(ctx, p, instance.Root, invocation.Executables, invocation.MinimumVersion, messages, runtimes)
+	execution, err := a.resolveAndCheckBuildCandidates(
+		ctx, p, instance.Root, invocation.Executables, invocation.MinimumVersion,
+		messages, runtimes, runtimeEnvironment,
+		validateCandidate("", invocation.MinimumVersion, invocation.Version),
+	)
 	if err != nil {
 		return buildExecution{}, err
-	}
-	execution.Environment = applyToolchainSelection(execution.Environment, core.ToolchainSelection{Environment: runtimeEnvironment})
-	if invocation.MinimumVersion != "" && invocation.Version != nil {
-		output, probeErr := probeBuildTool(ctx, execution.Executable, invocation.Version.Arguments, p.root, applyToolchainSelection(nil, execution.selection()))
-		if probeErr != nil {
-			return buildExecution{}, probeErr
-		}
-		version, checkErr := a.kernel.CheckBuildToolVersion(ctx, instance.Manifest, instance.BuildSystemID, "", output)
-		if checkErr != nil {
-			return buildExecution{}, checkErr
-		}
-		if !version.Satisfied {
-			return buildExecution{}, errors.New(messages.VersionTooOld(invocation.MinimumVersion, version.Version))
-		}
 	}
 	return execution, nil
 }
@@ -1447,74 +1450,112 @@ func (a *App) resolveBuildExecutable(ctx context.Context, p *project, instance b
 // Native candidate lookup consumes Core's order and runtime bindings. Runtime
 // exports and version probes are applied before the build tool itself starts.
 func (a *App) resolveBuildCandidates(ctx context.Context, p *project, directory string, candidates []core.BuildExecutableCandidate, minimum string, messages i18n.BuildMessages, runtimes map[string]buildExecution) (buildExecution, error) {
-	execution := buildExecution{}
+	return a.resolveAndCheckBuildCandidates(ctx, p, directory, candidates, minimum, messages, runtimes, nil, nil)
+}
+
+func (a *App) resolveAndCheckBuildCandidates(
+	ctx context.Context, p *project, directory string,
+	candidates []core.BuildExecutableCandidate, minimum string,
+	messages i18n.BuildMessages, runtimes map[string]buildExecution,
+	inheritedEnv map[string]string, validate func(buildExecution) error,
+) (buildExecution, error) {
+	var lastErr error
 	for _, candidate := range candidates {
-		switch candidate.Kind {
-		case "projectFile":
-			path := filepath.Join(p.root, filepath.FromSlash(candidate.Path))
-			if !buildRequiresPresent(path, candidate.Requires, p.root) {
-				continue
-			}
-			if info, statErr := os.Stat(path); statErr == nil && info.Mode().IsRegular() && (runtime.GOOS == "windows" || info.Mode().Perm()&0o111 != 0) {
-				execution.Executable = path
-			}
-		case "environment":
-			base := os.Getenv(candidate.Variable)
-			if base == "" {
-				continue
-			}
-			path := filepath.Join(base, filepath.FromSlash(candidate.Path))
-			if info, statErr := os.Stat(path); statErr == nil && info.Mode().IsRegular() {
-				execution.Executable = path
-			}
-		case "setting":
-			if candidate.Path == "" {
-				continue
-			}
-			// An explicit setting is terminal: native lookup failure must not
-			// silently select a different installed program.
-			path, lookupErr := exec.LookPath(candidate.Path)
-			if lookupErr != nil {
-				return buildExecution{}, lookupErr
-			}
-			execution.Executable = path
-			execution.PathPrepend = []string{filepath.Dir(path)}
-		case "command":
-			if path, lookupErr := exec.LookPath(candidate.Command); lookupErr == nil {
-				execution.Executable = path
-			}
-		case "runtime":
-			// The tool runs on one of its declared runtimes, all resolved before the tool's
-			// own candidates; Core rejects a runtime that names another runtime.
-			if resolved, ok := runtimes[candidate.Runtime]; ok {
-				execution = resolved
-			}
-		case "toolchain":
-			selection, selectErr := a.resolveToolchainSelection(ctx, p.root, directory, candidate.ToolchainID, minimum)
-			if selectErr != nil {
-				var unavailable *toolchain.UnavailableError
-				if errors.As(selectErr, &unavailable) && !unavailable.Terminal {
-					continue
+		execution, terminal, resolved, err := a.resolveOneBuildCandidate(ctx, p, directory, candidate, minimum, runtimes)
+		if err != nil {
+			return buildExecution{}, err
+		}
+		if !resolved || execution.Executable == "" {
+			continue
+		}
+		// A runtime candidate keeps the source of the runtime it named.
+		if candidate.Kind != "runtime" {
+			execution.Source.Kind, execution.Source.Variable = candidate.Kind, candidate.Variable
+		}
+		execution.Environment = applyToolchainSelection(execution.Environment, core.ToolchainSelection{Environment: inheritedEnv})
+		if validate != nil {
+			if checkErr := validate(execution); checkErr != nil {
+				if terminal || ctx.Err() != nil {
+					return buildExecution{}, checkErr
 				}
-				return buildExecution{}, selectErr
+				lastErr = checkErr
+				continue
 			}
-			execution.Executable = selection.Executable
-			execution.Environment = selection.Environment
-			execution.PathPrepend = selection.PathPrepend
-			execution.Source.Version, execution.Source.Layer = selection.Version, selection.Layer
 		}
-		if execution.Executable != "" {
-			// A runtime candidate keeps the source of the runtime it named.
-			if candidate.Kind != "runtime" {
-				execution.Source.Kind, execution.Source.Variable = candidate.Kind, candidate.Variable
+		return execution, nil
+	}
+	if lastErr != nil {
+		return buildExecution{}, lastErr
+	}
+	return buildExecution{}, errors.New(messages.ExecutableMissing)
+}
+
+func (a *App) resolveOneBuildCandidate(ctx context.Context, p *project, directory string, candidate core.BuildExecutableCandidate, minimum string, runtimes map[string]buildExecution) (buildExecution, bool, bool, error) {
+	var execution buildExecution
+	terminal := false
+	resolved := false
+	switch candidate.Kind {
+	case "projectFile":
+		path := filepath.Join(p.root, filepath.FromSlash(candidate.Path))
+		if !buildRequiresPresent(path, candidate.Requires, p.root) {
+			return buildExecution{}, false, false, nil
+		}
+		if info, statErr := os.Stat(path); statErr == nil && info.Mode().IsRegular() && (runtime.GOOS == "windows" || info.Mode().Perm()&0o111 != 0) {
+			execution.Executable = path
+			resolved = true
+		}
+	case "environment":
+		base := os.Getenv(candidate.Variable)
+		if base == "" {
+			return buildExecution{}, false, false, nil
+		}
+		path := filepath.Join(base, filepath.FromSlash(candidate.Path))
+		if info, statErr := os.Stat(path); statErr == nil && info.Mode().IsRegular() {
+			execution.Executable = path
+			resolved = true
+		}
+	case "setting":
+		if candidate.Path == "" {
+			return buildExecution{}, false, false, nil
+		}
+		// An explicit setting is terminal: native lookup or version failure must not
+		// silently select a different installed program.
+		path, lookupErr := exec.LookPath(candidate.Path)
+		if lookupErr != nil {
+			return buildExecution{}, true, false, lookupErr
+		}
+		execution.Executable = path
+		execution.PathPrepend = []string{filepath.Dir(path)}
+		terminal, resolved = true, true
+	case "command":
+		if path, lookupErr := exec.LookPath(candidate.Command); lookupErr == nil {
+			execution.Executable = path
+			resolved = true
+		}
+	case "runtime":
+		// The tool runs on one of its declared runtimes, all resolved before the tool's
+		// own candidates; Core rejects a runtime that names another runtime.
+		if rt, ok := runtimes[candidate.Runtime]; ok {
+			execution = rt
+			resolved = true
+		}
+	case "toolchain":
+		selection, selectErr := a.resolveToolchainSelection(ctx, p.root, directory, candidate.ToolchainID, minimum)
+		if selectErr != nil {
+			var unavailable *toolchain.UnavailableError
+			if errors.As(selectErr, &unavailable) && !unavailable.Terminal {
+				return buildExecution{}, false, false, nil
 			}
-			break
+			return buildExecution{}, true, false, selectErr
 		}
+		execution.Executable = selection.Executable
+		execution.Environment = selection.Environment
+		execution.PathPrepend = selection.PathPrepend
+		execution.Source.Version, execution.Source.Layer = selection.Version, selection.Layer
+		terminal = selection.Layer == "pinned"
+		resolved = true
 	}
-	if execution.Executable == "" {
-		return buildExecution{}, errors.New(messages.ExecutableMissing)
-	}
-	return execution, nil
+	return execution, terminal, resolved, nil
 }
 
 func buildRequiresPresent(path string, required []string, root string) bool {
@@ -1529,8 +1570,13 @@ func buildRequiresPresent(path string, required []string, root string) bool {
 }
 
 func probeBuildTool(ctx context.Context, executable string, arguments []string, workingDirectory string, environment map[string]string) (string, error) {
-	output, waitErr := captureBuildProcess(ctx, executable, arguments, workingDirectory, environment, false, nil)
-	if output.combined == "" {
+	probeCtx, cancel := context.WithTimeout(ctx, buildToolProbeTimeout)
+	defer cancel()
+	output, waitErr := captureBuildProcess(probeCtx, executable, arguments, workingDirectory, environment, false, nil)
+	if waitErr != nil {
+		if errors.Is(probeCtx.Err(), context.DeadlineExceeded) && ctx.Err() == nil {
+			return "", fmt.Errorf("version check timed out after %s: %w", buildToolProbeTimeout, waitErr)
+		}
 		return "", waitErr
 	}
 	return output.combined, nil
@@ -2270,8 +2316,10 @@ func (a *App) invalidateBuild(p *project) {
 	a.stopBuildSessions(p, false)
 	p.revokeAllBuildTests()
 	// The Run window's sessions are what ran, not the models, so they stay.
-	runs, view, sessions := p.build.runs, p.build.view, p.build.sessions
-	p.build = buildState{runs: runs, view: view, sessions: sessions}
+	// generation keeps rising so any in-flight detection invalidated here cannot
+	// land its stale instances or run configurations afterward.
+	runs, view, sessions, generation := p.build.runs, p.build.view, p.build.sessions, p.build.generation+1
+	p.build = buildState{runs: runs, view: view, sessions: sessions, generation: generation}
 }
 
 // streamBuildOutput decodes text op wrote, on the goroutine that read it, and posts the decoded

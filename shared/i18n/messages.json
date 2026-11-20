@@ -19895,6 +19895,26 @@
       ]
     },
     {
+      "id": "desktop.title.buildModelFailed",
+      "description": "Desktop title bar: a detected build system failed to load its project model so its run configurations could not be discovered",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "name": "string"
+      }
+    },
+    {
+      "id": "desktop.title.buildModelSafeMode",
+      "description": "Desktop title bar: a detected build system is paused because the workspace is in safe mode",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "name": "string"
+      }
+    },
+    {
       "id": "desktop.title.cloneLater",
       "description": "Desktop title bar: CloneLater",
       "platforms": [

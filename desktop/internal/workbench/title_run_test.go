@@ -311,3 +311,115 @@ func TestEditRunConfigurationsOpensTheChosenOnesEditor(t *testing.T) {
 		t.Fatalf("selected %q, want %q; notice %q", d.selected, id, lastNotice(h))
 	}
 }
+
+// When a build instance fails to load its model (#2027), the title run menu explains why
+// instead of claiming there are no run configurations, and clicking opens the sync log in
+// the Run window (or the Build window when no sync session exists).
+func TestTitleRunMenuShowsFailedBuildModelAndOpensLogOrBuildWindow(t *testing.T) {
+	t.Run("with sync session opens Run window session", func(t *testing.T) {
+		h := newHarness(t, &testKernel{Client: core.NewClient()})
+		h.open(runConfigRoot(t))
+		p := h.app.project
+		since := p.runConfigs.generation
+		h.app.post(func(a *App) {
+			instance := buildInstance{
+				BuildInstance: core.BuildInstance{ID: "engine@.", BuildSystemID: "engine", Root: ".", DisplayName: "Engine"},
+				PluginID:      "dev.example.engine",
+				System:        pluginservice.BuildSystemDeclaration{DisplayName: "Engine"},
+				modelError:    "JAVA_HOME is not defined\nsecond detail line",
+			}
+			setDetected(p, []buildInstance{instance})
+			entry := &runEntry{id: "sync-1", sync: &buildSync{instance: instance.ID}, outcome: runFailed, summary: "JAVA_HOME is not defined"}
+			p.build.runs = append(p.build.runs, entry)
+			a.refreshRunConfigurations(p)
+		})
+		awaitRunConfigsAfter(t, h, p, since)
+		language := h.app.language()
+		wantItem := i18n.SharedFormat(language, "desktop.title.buildModelFailed", map[string]string{"name": "Engine"})
+		noConfigs := i18n.Shared(language, "desktop.title.noRunConfigurations")
+
+		h.click(center(h.button(itemRunConfig)))
+		h.settle()
+		if !h.shows(wantItem) {
+			t.Fatalf("title run menu did not show %q", wantItem)
+		}
+		if h.shows(noConfigs) {
+			t.Fatalf("title run menu showed misleading %q alongside build model failure", noConfigs)
+		}
+		h.click(center(h.menuItemHit(wantItem)))
+		h.settle()
+		if !h.app.chrome.isOpen(catalogIndex[itemRun]) || p.build.view != "sync-1" {
+			t.Fatalf("click did not show sync session in Run window: runOpen=%v view=%q", h.app.chrome.isOpen(catalogIndex[itemRun]), p.build.view)
+		}
+	})
+
+	t.Run("without sync session selects instance and opens Build window", func(t *testing.T) {
+		h := newHarness(t, &testKernel{Client: core.NewClient()})
+		h.open(runConfigRoot(t))
+		p := h.app.project
+		since := p.runConfigs.generation
+		h.app.post(func(a *App) {
+			first := runConfigInstance("alpha")
+			first.modelLoaded = true
+			second := buildInstance{
+				BuildInstance: core.BuildInstance{ID: "engine@app", BuildSystemID: "engine", Root: "app", DisplayName: "Engine"},
+				PluginID:      "dev.example.engine",
+				System:        pluginservice.BuildSystemDeclaration{DisplayName: "Engine"},
+				modelError:    "missing wrapper",
+			}
+			setDetected(p, []buildInstance{first, second})
+			a.refreshRunConfigurations(p)
+		})
+		awaitRunConfigsAfter(t, h, p, since)
+		language := h.app.language()
+		wantItem := i18n.SharedFormat(language, "desktop.title.buildModelFailed", map[string]string{"name": "Engine (app)"})
+
+		h.click(center(h.button(itemRunConfig)))
+		h.settle()
+		if !h.shows(wantItem) {
+			t.Fatalf("title run menu did not show %q", wantItem)
+		}
+		h.click(center(h.menuItemHit(wantItem)))
+		h.settle()
+		if !h.app.chrome.isOpen(catalogIndex[itemBuild]) || p.build.selected != 1 {
+			t.Fatalf("click did not select failed instance in Build window: buildOpen=%v selected=%d", h.app.chrome.isOpen(catalogIndex[itemBuild]), p.build.selected)
+		}
+	})
+}
+
+// When safe mode paused build model loading (#2027), the title run menu explains why
+// and clicking opens the workspace trust prompt.
+func TestTitleRunMenuShowsSafeModePausedModelAndAsksToTrust(t *testing.T) {
+	h := newHarness(t, &testKernel{Client: core.NewClient()})
+	h.open(runConfigRoot(t))
+	p := h.app.project
+	since := p.runConfigs.generation
+	h.app.post(func(a *App) {
+		instance := buildInstance{
+			BuildInstance: core.BuildInstance{ID: "engine@.", BuildSystemID: "engine", Root: ".", DisplayName: "Engine"},
+			PluginID:      "dev.example.engine",
+			System:        pluginservice.BuildSystemDeclaration{DisplayName: "Engine"},
+		}
+		a.skipUntrustedModel(&instance)
+		setDetected(p, []buildInstance{instance})
+		a.refreshRunConfigurations(p)
+	})
+	awaitRunConfigsAfter(t, h, p, since)
+	language := h.app.language()
+	wantItem := i18n.SharedFormat(language, "desktop.title.buildModelSafeMode", map[string]string{"name": "Engine"})
+	noConfigs := i18n.Shared(language, "desktop.title.noRunConfigurations")
+
+	h.click(center(h.button(itemRunConfig)))
+	h.settle()
+	if !h.shows(wantItem) {
+		t.Fatalf("title run menu did not show %q", wantItem)
+	}
+	if h.shows(noConfigs) {
+		t.Fatalf("title run menu showed misleading %q in safe mode", noConfigs)
+	}
+	h.click(center(h.menuItemHit(wantItem)))
+	h.settle()
+	if !p.trust.asking || len(h.app.prompts.queue) != 1 {
+		t.Fatalf("clicking safe mode item did not ask to trust: asking=%v queue=%d", p.trust.asking, len(h.app.prompts.queue))
+	}
+}

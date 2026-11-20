@@ -31,10 +31,14 @@ type runConfigEditor struct {
 	directory   string
 	environment string
 	// scope is "local" or "project": which layer file the edit is saved into.
-	scope   string
-	loading bool
-	saving  bool
-	failure string
+	// generated says the configuration is an unsaved generated entry, so explicitly
+	// picking its Save-to scope marks the editor dirty even if it keeps "local".
+	scope        string
+	generated    bool
+	explicitSave bool
+	loading      bool
+	saving       bool
+	failure      string
 	// provider says the configuration is a build provider run, whose choices are edited
 	// too. runtimeArguments is one argument per line; entrypoint is the provider's entry.
 	provider         bool
@@ -117,7 +121,7 @@ func (a *App) openRunConfigEditor(p *project, id string) *runConfigEditor {
 	e := &runConfigEditor{
 		open: true, generation: 1, id: id, name: configuration.Name,
 		directory: configuration.Cwd, environment: environmentText(configuration.Env),
-		scope: "local", loading: true,
+		scope: "local", generated: configuration.Source == "generated", loading: true,
 	}
 	var buildInstance *buildInstance
 	var optionSnapshot map[string]json.RawMessage
@@ -216,9 +220,10 @@ func (e *runConfigEditor) fingerprint() string {
 	return string(raw)
 }
 
-// dirty says a value changed since the editor was read or last saved.
+// dirty says a value changed since the editor was read or last saved, or an
+// unsaved generated configuration had its save scope explicitly chosen.
 func (e *runConfigEditor) dirty() bool {
-	return e.ready() && e.fingerprint() != e.baseline
+	return e.ready() && (e.explicitSave || e.fingerprint() != e.baseline)
 }
 
 // saveRunConfigEditor has Core apply the edit to the chosen layer and applies the file changes
@@ -293,6 +298,7 @@ func (a *App) saveRunConfigEditor(p *project, e *runConfigEditor, done func(ok b
 					field := &e.optionFields[i]
 					field.initFlag, field.initText, field.initPick = field.flag, field.text, slices.Clone(field.picks)
 				}
+				e.generated, e.explicitSave = false, false
 				e.baseline, e.savedBeforeLaunch = e.fingerprint(), slices.Clone(steps)
 			}
 			done(true)
