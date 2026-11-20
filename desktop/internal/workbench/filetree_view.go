@@ -137,8 +137,11 @@ func (a *App) projectTree(c ui.C, p *project) {
 // scrolls a row to show to the middle of the view when it is out of view. The selection
 // follows the keyboard: the row the arrow keys moved the focus to is the selected one.
 func (a *App) syncTreeSelection(canvas *gfx.Canvas, t *fileTree) {
-	if focused := canvas.Focused(); focused != t.focused {
-		t.focused = focused
+	focused := canvas.Focused()
+	focusChanged := focused != t.focused
+	t.focused = focused
+	// A row added since the previous paint can also have a zero ID.
+	if focusChanged && !focused.IsZero() {
 		if _, pointer := canvas.PointerOn(focused); !pointer {
 			for i, n := range t.rows {
 				if t.view.RowID(i) == focused {

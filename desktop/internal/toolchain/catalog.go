@@ -10,8 +10,12 @@ import (
 	"github.com/1lck/Lithe-IDEA/desktop/internal/core"
 )
 
-type catalogKernel interface {
+type catalogReader interface {
 	ReadToolchainCatalogForWorkspace(context.Context, *string, string, string) (core.ToolchainCatalogState, error)
+}
+
+type catalogKernel interface {
+	catalogReader
 	EditToolchainCatalog(context.Context, *string, string, []core.ToolchainCatalogEdit) (core.ToolchainCatalogPublication, error)
 	EditToolchainWorkspaceTrust(context.Context, *string, string, core.ToolchainWorkspaceTrustEdit) (core.ToolchainCatalogPublication, error)
 }
@@ -40,11 +44,7 @@ func captureCatalog(ctx context.Context, kernel Kernel, root, workspaceRoot, pla
 	if platform == "" {
 		platform = PlatformName(runtime.GOOS)
 	}
-	plan, err := native.ReadToolchainCatalogForWorkspace(ctx, nil, platform, "")
-	if err != nil {
-		return nil, err
-	}
-	file, err := configfile.Capture(ctx, root, plan.Storage.RelativePath, plan.Storage.MaximumBytes)
+	file, err := captureCatalogFile(ctx, native, root, platform)
 	if err != nil {
 		return nil, err
 	}
@@ -57,6 +57,14 @@ func captureCatalog(ctx context.Context, kernel Kernel, root, workspaceRoot, pla
 		return nil, err
 	}
 	return &catalogSource{file: file, state: state, platform: platform}, nil
+}
+
+func captureCatalogFile(ctx context.Context, kernel catalogReader, root, platform string) (configfile.Snapshot, error) {
+	plan, err := kernel.ReadToolchainCatalogForWorkspace(ctx, nil, platform, "")
+	if err != nil {
+		return configfile.Snapshot{}, err
+	}
+	return configfile.Capture(ctx, root, plan.Storage.RelativePath, plan.Storage.MaximumBytes)
 }
 
 // SaveCatalog publishes only confirmed registrations/defaults. It never writes

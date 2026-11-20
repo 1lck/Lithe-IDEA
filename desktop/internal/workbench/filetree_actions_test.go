@@ -89,19 +89,24 @@ func TestProjectTreeLocatesTheActiveFile(t *testing.T) {
 }
 
 func TestProjectTreeLocateGivesUpOnAFileThatIsGone(t *testing.T) {
-	root := t.TempDir()
-	writeTreeFiles(t, root, "a/gone.go", "a/kept.go")
 	h := newHarness(t, &testKernel{Client: core.NewClient()})
+	locateMissingTreeFile(t, h)
+}
+
+func locateMissingTreeFile(t *testing.T, h *harness) {
+	t.Helper()
+	root := filepath.Join(t.TempDir(), "MissingFileProject")
+	writeTreeFiles(t, root, "a/gone.go", "a/kept.go")
 	p := h.openTree(t, root)
+	p.tree.selected = p.tree.root
 	h.app.openFile(p, filepath.Join(root, "a", "gone.go"))
 	awaitDocumentState(t, h, func() bool { _, ok := activeTreePath(p); return ok })
 	if err := os.Remove(filepath.Join(root, "a", "gone.go")); err != nil {
 		t.Fatal(err)
 	}
-	selected := p.tree.selected
 	h.app.revealActiveFile(p)
 	awaitDocumentState(t, h, func() bool { return p.tree.reveal == "" && treeIdle(p) })
-	if p.tree.selected != selected {
+	if p.tree.selected != p.tree.root {
 		t.Fatalf("locating a file that is gone selected %+v", p.tree.selected)
 	}
 	if n := p.tree.find("a"); n == nil || !n.expanded || p.tree.find("a/kept.go") == nil {

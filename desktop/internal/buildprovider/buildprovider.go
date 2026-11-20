@@ -140,6 +140,8 @@ type Client struct {
 	done      chan struct{}
 	doneOnce  sync.Once
 	closeOnce sync.Once
+	dispose   chan struct{}
+	disposed  bool
 	// closeErr records why the session ended, for requests that arrive later.
 	closeErr error
 
@@ -160,6 +162,26 @@ type Client struct {
 // provider. The caller must run this away from the window thread. Close owns
 // the process and must be called when the workspace closes.
 func Start(ctx context.Context, runner *pluginbackend.Runner, request pluginbackend.StartRequest) (*Client, error) {
+	client, err := Launch(ctx, runner, request)
+	if err != nil {
+		return nil, err
+	}
+	if err := client.WaitReady(ctx); err != nil {
+		// The session may have started but never negotiated the protocol. Stop
+		// it instead of leaving an unusable process behind.
+		stopCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		defer cancel()
+		if stopErr := client.Close(stopCtx); stopErr != nil {
+			return nil, errors.Join(err, stopErr)
+		}
+		return nil, err
+	}
+	return client, nil
+}
+
+// Launch gives the caller ownership immediately. The caller must wait for
+// readiness and dispose the session even if initialization fails.
+func Launch(ctx context.Context, runner *pluginbackend.Runner, request pluginbackend.StartRequest) (*Client, error) {
 	if runner == nil {
 		return nil, errors.New("buildprovider: no runner")
 	}
@@ -173,16 +195,6 @@ func Start(ctx context.Context, runner *pluginbackend.Runner, request pluginback
 	client := newClient(runner, session)
 	client.ctx, client.cancel = context.WithCancel(context.Background())
 	go client.serve()
-	if err := client.WaitReady(ctx); err != nil {
-		// The session may have started but never negotiated the protocol. Stop
-		// it instead of leaving an unusable process behind.
-		stopCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-		defer cancel()
-		if stopErr := client.Close(stopCtx); stopErr != nil {
-			return nil, errors.Join(err, stopErr)
-		}
-		return nil, err
-	}
 	return client, nil
 }
 
@@ -211,6 +223,7 @@ func newClient(runner *pluginbackend.Runner, session pluginbackend.Session) *Cli
 		session: session,
 		ready:   make(chan struct{}),
 		done:    make(chan struct{}),
+		dispose: make(chan struct{}, 1),
 		pending: make(map[string]*Operation),
 	}
 }
@@ -361,6 +374,19 @@ func (c *Client) Close(ctx context.Context) error {
 	if c == nil {
 		return nil
 	}
+	if !c.shared {
+		// Retirement, project close and uninstall can all request the same stop.
+		// Claim native disposal before waking the requests that retirement awaits.
+		select {
+		case c.dispose <- struct{}{}:
+			defer func() { <-c.dispose }()
+		case <-ctx.Done():
+			return ctx.Err()
+		}
+		if c.disposed {
+			return nil
+		}
+	}
 	c.closeOnce.Do(func() {
 		c.mu.Lock()
 		c.closed = true
@@ -380,7 +406,7 @@ func (c *Client) Close(ctx context.Context) error {
 	}
 	var err error
 	if c.runner != nil {
-		err = c.runner.Stop(ctx, c.session)
+		c.disposed, err = c.runner.StopAndDispose(ctx, c.session)
 	}
 	c.end(ErrClosed)
 	return err

@@ -20,6 +20,7 @@ import (
 
 	"github.com/1lck/Lithe-IDEA/desktop/internal/buildprocess"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/buildprovider"
+	"github.com/1lck/Lithe-IDEA/desktop/internal/configfile"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/core"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/i18n"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/pluginbackend"
@@ -374,15 +375,9 @@ func (a *App) attachProcess(p *project, op *buildOperation, process *buildproces
 // buildRuntime owns provider sessions for one project. A session is keyed by
 // plugin and build system, so two projects never share a process.
 type buildRuntime struct {
-	launches  pluginLaunches
-	mu        sync.Mutex
-	providers map[string]*buildprovider.Client
-	// settings is, for each running provider, the plugin settings it was started with
-	// (buildSettingsKey). The contract restarts a provider on the next request after they change.
-	settings map[string]string
-	// retired are providers a settings change replaced. Each closes once the requests it already
-	// had finished; a detach closes them at once with the others.
-	retired map[*buildprovider.Client]struct{}
+	mu         sync.Mutex
+	providers  map[string]*buildprovider.Client
+	launchKeys map[string]buildProviderLaunchKey
 	// shared maps a plugin and language to the client attached to that
 	// language server's session.
 	shared map[string]*buildprovider.Client
@@ -392,53 +387,83 @@ type buildRuntime struct {
 	detached uint64
 }
 
-// provider is the running provider of instance, started when there is none. The process starts
-// outside the lock, so detaching on the window thread never waits for a start; a start that lost
-// to another one or to a detach is stopped again. logDirectory gives the process's ${logDir}, and
-// is asked only when a process starts.
-//
-// A provider started with other plugin settings than settings holds is replaced, as the contract
-// says: a change of the plugin's settings restarts it on the next request, so its launch
-// arguments reflect the current values. The replaced provider is returned as retired; the
-// caller closes it with retire once the requests it already had finished.
-func (r *buildRuntime) provider(ctx context.Context, runner *pluginbackend.Runner, pluginRoot, root, rootURI string, instance buildInstance, settings core.PluginSettingsState, logDirectory func(context.Context, string) string) (client, retired *buildprovider.Client, err error) {
+type buildProviderLaunchKey struct {
+	settings      string
+	usesToolchain bool
+	toolchain     toolchain.SourceRevision
+}
+
+func (key buildProviderLaunchKey) equal(other buildProviderLaunchKey) bool {
+	return key.settings == other.settings && key.usesToolchain == other.usesToolchain && key.toolchain.Equal(other.toolchain)
+}
+
+var errBuildProviderSourceChanged = errors.New("build provider source changed during launch")
+
+// standaloneBuildProvider starts a process outside the session lock. Only a
+// start from the current project and saved toolchain sources can be published.
+func (a *App) standaloneBuildProvider(ctx context.Context, p *project, instance buildInstance, rootURI string, settings core.PluginSettingsState, settingsKey string, detached uint64) (*buildprovider.Client, error) {
+	r := &p.buildSessions
 	key := instance.PluginID + "\x00" + instance.BuildSystemID
-	errClosing := buildprovider.ErrClosed
-	launchedWith, err := buildSettingsKey(settings)
-	if err != nil {
-		return nil, nil, err
-	}
 	r.mu.Lock()
-	closed, client, detached := r.closed, r.providers[key], r.detached
-	if !closed && client != nil && !client.Closed() && r.settings[key] != launchedWith {
-		retired = client
-		delete(r.providers, key)
-		delete(r.settings, key)
-		if r.retired == nil {
-			r.retired = make(map[*buildprovider.Client]struct{})
+	if err := ctx.Err(); err != nil {
+		r.mu.Unlock()
+		return nil, err
+	}
+	if r.closed || r.detached != detached {
+		r.mu.Unlock()
+		return nil, buildprovider.ErrClosed
+	}
+	client := r.providers[key]
+	if cached := r.launchKeys[key]; client != nil && !client.Closed() && cached.settings == settingsKey {
+		if !cached.usesToolchain {
+			r.mu.Unlock()
+			return client, nil
 		}
-		r.retired[retired] = struct{}{}
-		client = nil
+		r.mu.Unlock()
+		revision, err := a.buildToolchainSource(ctx, p)
+		if err != nil {
+			return nil, err
+		}
+		r.mu.Lock()
+		if r.closed || r.detached != detached {
+			r.mu.Unlock()
+			return nil, buildprovider.ErrClosed
+		}
+		if err := ctx.Err(); err != nil {
+			r.mu.Unlock()
+			return nil, err
+		}
+		if r.providers[key] != client {
+			r.mu.Unlock()
+			return nil, errBuildProviderSourceChanged
+		}
+		if !client.Closed() && cached.toolchain.Equal(revision) {
+			r.mu.Unlock()
+			return client, nil
+		}
+	}
+	if client != nil {
+		// Register retirement before releasing the lock that uninstall uses to
+		// take active sessions. There must be no gap in native ownership.
+		a.closingBuildProviders.add(p.ctx, client)
+		delete(r.providers, key)
+		delete(r.launchKeys, key)
 	}
 	r.mu.Unlock()
-	if closed {
-		return nil, nil, errClosing
+	if client != nil {
+		a.retireBuildProvider(ctx, client)
 	}
-	if client != nil && !client.Closed() {
-		return client, nil, nil
-	}
-	state := buildStateDirectory(pluginRoot, root, instance)
-	if err := os.MkdirAll(state, 0o700); err != nil {
-		return nil, retired, err
-	}
+
+	state := buildStateDirectory(a.plugins.Root, p.root, instance)
 	workspaceState := filepath.Join(state, "workspace")
 	temporaryDirectory := filepath.Join(state, "tmp")
 	for _, directory := range []string{workspaceState, temporaryDirectory} {
 		if err := os.MkdirAll(directory, 0o700); err != nil {
-			return nil, retired, err
+			return nil, err
 		}
 	}
-	started, err := buildprovider.Start(ctx, runner, pluginbackend.StartRequest{
+	launchKey := buildProviderLaunchKey{settings: settingsKey}
+	started, startErr := buildprovider.Launch(ctx, a.plugins.Backend, pluginbackend.StartRequest{
 		Manifest:                instance.Manifest,
 		PackageDirectory:        instance.PackageDirectory,
 		PluginID:                instance.PluginID,
@@ -447,66 +472,85 @@ func (r *buildRuntime) provider(ctx context.Context, runner *pluginbackend.Runne
 		Role:                    "build",
 		StateDirectory:          state,
 		WorkspaceStateDirectory: workspaceState,
-		LogDirectory:            logDirectory(ctx, instance.PluginID),
+		LogDirectory:            a.pluginLogDirectory(ctx, instance.PluginID),
 		TemporaryDirectory:      temporaryDirectory,
 		Architecture:            core.PluginArchitecture(),
 		Settings:                settings.Settings,
 		ProjectSettings:         settings.ProjectSettings,
 		RootURI:                 rootURI,
-		WorkingDirectory:        root,
+		WorkingDirectory:        p.root,
+		BeforeResolveTool: func(ctx context.Context) error {
+			revision, err := a.buildToolchainSource(ctx, p)
+			if err != nil {
+				return err
+			}
+			launchKey.toolchain, launchKey.usesToolchain = revision, true
+			return nil
+		},
 	})
-	if err != nil {
-		return nil, retired, err
+	var shared *pluginbackend.SharedProviderError
+	if errors.As(startErr, &shared) {
+		return nil, startErr
+	}
+	if startErr == nil {
+		startErr = started.WaitReady(ctx)
+	}
+	var latest toolchain.SourceRevision
+	var revisionErr error
+	if launchKey.usesToolchain {
+		latest, revisionErr = a.buildToolchainSource(ctx, p)
 	}
 	r.mu.Lock()
-	current := !r.closed && r.detached == detached && ctx.Err() == nil
+	open := !r.closed && r.detached == detached && ctx.Err() == nil
+	current := open && revisionErr == nil && launchKey.toolchain.Equal(latest)
 	client = r.providers[key]
-	if current && (client == nil || client.Closed()) {
+	if current && startErr == nil && client == nil {
 		if r.providers == nil {
 			r.providers = make(map[string]*buildprovider.Client)
-			r.settings = make(map[string]string)
+			r.launchKeys = make(map[string]buildProviderLaunchKey)
 		}
 		r.providers[key] = started
-		r.settings[key] = launchedWith
+		r.launchKeys[key] = launchKey
 		r.mu.Unlock()
-		return started, retired, nil
+		return started, nil
+	}
+	matched := client != nil && !client.Closed() && r.launchKeys[key].equal(launchKey)
+	if started != nil {
+		a.closingBuildProviders.add(p.ctx, started)
 	}
 	r.mu.Unlock()
-	stopCtx, cancel := context.WithTimeout(context.Background(), buildStopTimeout)
-	defer cancel()
-	if err := started.Close(stopCtx); err != nil {
-		return nil, retired, err
+	if started != nil {
+		stopCtx, cancel := context.WithTimeout(context.Background(), buildStopTimeout)
+		defer cancel()
+		if err := a.closingBuildProviders.close(stopCtx, started); err != nil {
+			return nil, &trackedBuildProviderStopError{cause: errors.Join(startErr, revisionErr, err)}
+		}
+	}
+	if !open {
+		// log-exempt: teardown：关闭项目会撤销被替换的启动，进程清理错误已在上方返回。
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
+		return nil, buildprovider.ErrClosed
+	}
+	if revisionErr == errBuildProviderSourceChanged {
+		return nil, errBuildProviderSourceChanged
+	}
+	if revisionErr != nil {
+		return nil, errors.Join(startErr, revisionErr)
 	}
 	if !current {
-		return nil, retired, errClosing
+		// log-exempt: 预期的缺失：过期启动结果随旧配置一起丢弃，调用方在同一期限内重试。
+		return nil, errBuildProviderSourceChanged
 	}
-	return client, retired, nil
-}
-
-// retire closes a provider that provider replaced, once the requests it already had finished or
-// buildRequestTimeout passed; requests still running then end with the close. It leaves the
-// client alone when a detach took it first and closes it itself. The error reports a provider
-// that outlived the wait or failed to stop.
-func (r *buildRuntime) retire(client *buildprovider.Client) error {
-	drainCtx, cancelDrain := context.WithTimeout(context.Background(), buildRequestTimeout)
-	defer cancelDrain()
-	var failures []error
-	if err := client.Drain(drainCtx); err != nil {
-		failures = append(failures, fmt.Errorf("the replaced build provider still served requests after %s: %w", buildRequestTimeout, err))
+	if matched {
+		// log-exempt: 预期的缺失：同一配置的并发启动已有可复用的进程。
+		return client, nil
 	}
-	r.mu.Lock()
-	_, owned := r.retired[client]
-	delete(r.retired, client)
-	r.mu.Unlock()
-	if !owned {
-		return nil
+	if startErr != nil {
+		return nil, startErr
 	}
-	stopCtx, cancel := context.WithTimeout(context.Background(), buildStopTimeout)
-	defer cancel()
-	if err := client.Close(stopCtx); err != nil {
-		failures = append(failures, err)
-	}
-	return errors.Join(failures...)
+	return nil, errBuildProviderSourceChanged
 }
 
 // buildSettingsKey identifies the plugin settings a provider starts with: the global values and
@@ -537,10 +581,7 @@ func (r *buildRuntime) detach(closing bool) []*buildprovider.Client {
 	for _, provider := range r.shared {
 		clients = append(clients, provider)
 	}
-	for provider := range r.retired {
-		clients = append(clients, provider)
-	}
-	r.providers, r.settings, r.retired, r.shared = nil, nil, nil, nil
+	r.providers, r.launchKeys, r.shared = nil, nil, nil
 	r.detached++
 	if closing {
 		r.closed = true
@@ -560,12 +601,48 @@ func buildStateDirectory(pluginRoot, workspace string, instance buildInstance) s
 // buildProvider starts a provider process, or attaches to the language server
 // that shares it. The caller runs this away from the window thread.
 func (a *App) buildProvider(ctx context.Context, p *project, instance buildInstance) (client *buildprovider.Client, err error) {
-	ctx, finish, err := p.buildSessions.launches.begin(ctx, instance.PluginID)
+	ctx, finish, err := a.buildProviderLaunches.begin(ctx, instance.PluginID)
 	if err != nil {
 		return nil, err
 	}
-	defer func() { finish(err) }()
+	defer func() {
+		var tracked *trackedBuildProviderStopError
+		if errors.As(err, &tracked) {
+			// The launch finished. Uninstall can retry disposal through the workbench.
+			finish(nil)
+			return
+		}
+		finish(err)
+	}()
+	p.buildSessions.mu.Lock()
+	detached := p.buildSessions.detached
+	p.buildSessions.mu.Unlock()
+	const maxSourceAttempts = 3
+	for range maxSourceAttempts {
+		client, err = a.buildProviderWithSources(ctx, p, instance, detached)
+		// log-exempt: 预期的缺失：读取或启动期间工具链来源已更新，在原请求期限内重试。
+		if err == errBuildProviderSourceChanged {
+			continue
+		}
+		return client, err
+	}
+	return nil, toolchain.ErrPinConflict
+}
+
+func (a *App) buildToolchainSource(ctx context.Context, p *project) (toolchain.SourceRevision, error) {
+	revision, err := toolchain.ReadSourceRevision(ctx, a.kernel, p.root, a.globalToolchainRoot(), buildPlatform())
+	if errors.Is(err, configfile.ErrConflict) {
+		return revision, errBuildProviderSourceChanged
+	}
+	return revision, err
+}
+
+func (a *App) buildProviderWithSources(ctx context.Context, p *project, instance buildInstance, detached uint64) (*buildprovider.Client, error) {
 	settings, err := a.loadPluginPreferenceSources(ctx, instance.Manifest, p.root)
+	if err != nil {
+		return nil, err
+	}
+	settingsKey, err := buildSettingsKey(settings.State)
 	if err != nil {
 		return nil, err
 	}
@@ -573,28 +650,12 @@ func (a *App) buildProvider(ctx context.Context, p *project, instance buildInsta
 	if err != nil {
 		return nil, err
 	}
-	client, retired, err := p.buildSessions.provider(ctx, a.plugins.Backend, a.plugins.Root, p.root, rootURI, instance, settings.State, a.pluginLogDirectory)
-	if retired != nil {
-		a.retireBuildProvider(ctx, p, retired)
-	}
+	client, err := a.standaloneBuildProvider(ctx, p, instance, rootURI, settings.State, settingsKey, detached)
 	var shared *pluginbackend.SharedProviderError
 	if !errors.As(err, &shared) {
 		return client, err
 	}
 	return a.sharedBuildProvider(ctx, p, instance, shared.LanguageID)
-}
-
-// retireBuildProvider closes, away from the window thread, a provider its plugin's changed
-// settings replaced, after the requests it already had finished. A failure is logged under the
-// user action whose request (ctx) replaced it.
-func (a *App) retireBuildProvider(ctx context.Context, p *project, client *buildprovider.Client) {
-	a.tasks.running.Add(1)
-	go func() {
-		defer a.tasks.running.Done()
-		if err := p.buildSessions.retire(client); err != nil {
-			a.backgroundFailedIn(ctx, "build_provider_restart", err)
-		}
-	}()
 }
 
 // sharedBuildProvider attaches a build client to the language server of the
@@ -2297,11 +2358,17 @@ func (a *App) stopBuildSessions(p *project, closing bool) {
 		a.endBuildSession(operation, "cancelled", a.text.Build.Cancelled)
 		operation.ide.settle("cancelled", nil, operation.session.output.sequence, "")
 	}
-	clients := p.buildSessions.detach(closing)
+	for _, client := range p.buildSessions.detach(closing) {
+		a.closingBuildProviders.add(p.ctx, client)
+	}
+	clients := a.closingBuildProviders.snapshot(func(_ *buildprovider.Client, owner context.Context) bool {
+		return owner == p.ctx
+	})
+	origin := a.operationContext(context.Background())
 	a.tasks.running.Add(1)
 	go func() {
 		defer a.tasks.running.Done()
-		ctx, cancel := context.WithTimeout(context.Background(), buildStopTimeout)
+		ctx, cancel := context.WithTimeout(origin, buildStopTimeout)
 		defer cancel()
 		for _, operation := range operations {
 			if operation.request != nil && operation.provider != nil {
@@ -2310,7 +2377,9 @@ func (a *App) stopBuildSessions(p *project, closing bool) {
 			}
 		}
 		for _, client := range clients {
-			_ = client.Close(ctx)
+			if err := a.closingBuildProviders.close(ctx, client); err != nil {
+				a.backgroundFailedIn(ctx, "build_provider_stop", err)
+			}
 		}
 	}()
 }
