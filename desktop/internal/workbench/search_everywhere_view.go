@@ -11,6 +11,7 @@ import (
 	"github.com/1lck/Lithe-IDEA/desktop/internal/i18n"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/icons"
 	"github.com/vivaui/viva/app"
+	"github.com/vivaui/viva/components"
 	"github.com/vivaui/viva/gfx"
 	"github.com/vivaui/viva/ui"
 )
@@ -115,21 +116,20 @@ func (a *App) everywhereScopes(c ui.C, p *project, language i18n.Language) {
 	}
 	ui.Row(c).FillWidth().Gap(4).Items(ui.Center).Children(func() {
 		for index, label := range labels {
-			tab := ui.Button(c.KeyInt(index), label).Ghost()
-			if index == v.scope {
-				tab.Secondary()
+			var clicked bool
+			if key, help := everywhereScopeHelp(language, index); help != "" {
+				clicked = a.everywhereHelpTab(c.KeyInt(index), c.Key(key), language, label, help, index == v.scope)
+			} else {
+				tab := ui.Button(c.KeyInt(index), label).Ghost()
+				if index == v.scope {
+					tab.Secondary()
+				}
+				clicked = tab.Clicked()
 			}
-			if tab.Clicked() {
+			if clicked {
 				a.performed("workspace.searchEverywhere.scope", surfaceButton)
 				v.scope = index
 				a.focusEverywhere(p)
-			}
-			if key, help := everywhereScopeHelp(language, index); help != "" {
-				info := ui.Button(c.Key(key), i18n.Shared(language, "native.moreInformation")).Icon(icons.Info).IconOnly().Ghost().Size(18, 18).
-					Tooltip(help)
-				if info.Clicked() {
-					a.focusEverywhere(p)
-				}
 			}
 		}
 		ui.Spacer(c).Grow(1)
@@ -152,7 +152,49 @@ func (a *App) everywhereScopes(c ui.C, p *project, language i18n.Language) {
 	})
 }
 
-// everywhereScopeHelp is the key and text of the ⓘ after a tab: what the tab lists and
+// A tab with an ⓘ starts with a button's own padding before its name, keeps the ⓘ close
+// after the name, and leaves only a little room after the ⓘ, whose icon is already inset.
+const (
+	everywhereHelpTabStartPad = 10
+	everywhereHelpTabGap      = 2
+	everywhereHelpTabEndPad   = 4
+	everywhereHelpInfoSize    = 18
+)
+
+// everywhereHelpTab declares a tab whose ⓘ explains it, and reports a click on the tab or
+// its ⓘ. The ⓘ belongs to the tab, so both sit in one block: the chosen fill, the hover
+// and the click cover the name and the ⓘ together. The block takes the colors, radius and
+// height the theme gives the other tabs' buttons (Ghost, Secondary when chosen), so it
+// reads as one of them; the ⓘ stays a button of its own, so the pointer and the keyboard
+// both reach its tooltip.
+func (a *App) everywhereHelpTab(c, infoKey ui.C, language i18n.Language, label, help string, chosen bool) bool {
+	variant := components.ButtonGhost
+	if chosen {
+		variant = components.ButtonSecondary
+	}
+	rest := components.ButtonRecipe(a.theme, variant, gfx.State{})
+	hovered := components.ButtonRecipe(a.theme, variant, gfx.State{Hovered: true})
+	pressed := components.ButtonRecipe(a.theme, variant, gfx.State{Pressed: true})
+	focused := components.ButtonRecipe(a.theme, variant, gfx.State{FocusVisible: true})
+	metrics := a.theme.Metrics
+	tab := ui.ButtonBase(c, label).Height(metrics.ControlHeight).Shrink(0).
+		PadSides(0, everywhereHelpTabEndPad, 0, everywhereHelpTabStartPad).Gap(everywhereHelpTabGap).
+		Radius(rest.Radius).Items(ui.Center).
+		Hover(ui.Look{}.Background(hovered.Background)).Pressed(ui.Look{}.Background(pressed.Background)).
+		Focus(ui.Look{}.Ring(focused.RingWidth, focused.Ring))
+	if rest.Filled {
+		tab.Background(rest.Background)
+	}
+	var info ui.Box
+	tab.Children(func() {
+		ui.Text(c, label).FontSize(metrics.FontSizeM).Weight(gfx.WeightMedium).Color(rest.Foreground)
+		info = ui.Button(infoKey, i18n.Shared(language, "native.moreInformation")).Icon(icons.Info).IconOnly().Ghost().
+			Size(everywhereHelpInfoSize, everywhereHelpInfoSize).Tooltip(help)
+	})
+	return info.Clicked() || tab.Clicked()
+}
+
+// everywhereScopeHelp is the key and text of the ⓘ in a tab: what the tab lists and
 // how far it reaches. Only the tabs that list what language servers report have one,
 // since what they leave out (the standard library, dependencies) is not obvious.
 func everywhereScopeHelp(language i18n.Language, scope int) (string, string) {
