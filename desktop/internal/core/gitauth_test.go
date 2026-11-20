@@ -168,7 +168,8 @@ func TestGitAuthenticationRelaysQuestionsAndAnswers(t *testing.T) {
 	}
 }
 
-// Cancelling Git's question fails authentication without sending anything to the remote.
+// Cancelling Git's question fails authentication without sending anything to the remote, and
+// Core does not ask again whether to retry: the user has just declined.
 func TestGitAuthenticationCancelledQuestionSendsNothing(t *testing.T) {
 	requireGit(t)
 	remote := newAuthenticationRemote(t)
@@ -181,9 +182,8 @@ func TestGitAuthenticationCancelledQuestionSendsNothing(t *testing.T) {
 	for _, challenge := range challenges {
 		kinds = append(kinds, challengeKind(challenge))
 	}
-	t.Logf("challenges after a cancelled question: %q", kinds)
-	if len(kinds) == 0 || kinds[0] != "user" {
-		t.Fatalf("challenges = %q, want Git's user name question first", kinds)
+	if len(kinds) != 1 || kinds[0] != "user" {
+		t.Fatalf("challenges = %q, want only Git's user name question", kinds)
 	}
 	if got := remote.received(); len(got) != 0 {
 		t.Fatalf("remote received %q, want no credentials", got)

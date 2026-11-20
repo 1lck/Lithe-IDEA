@@ -304,7 +304,9 @@ PINNED_CORE_REPOSITORY="https://github.com/Lithe-IDEA/Lithe-core-rust.git"
 # Lithe-core-rust main at 4ab420e: #140 records remote workspace trust by target and host real
 # path (S01/S02/S04); #141 starts no Git, language server, build provider or VCS that runs project
 # code for a workspace the user has not trusted (#2208).
-PINNED_CORE_REVISION="4ab420e312dbfe26c14ba1c6e64b059fd4775c70"
+# Lithe-core-rust main at 94408ca: #142 returns Git's authentication failure without asking to
+# retry once a credential question was cancelled or expired unanswered (#2231).
+PINNED_CORE_REVISION="94408ca269b3c56d2c66a805d224609151c8a781"
 PROFILE="debug"
 CHECKOUT_ONLY="no"
 while [[ $# -gt 0 ]]; do
