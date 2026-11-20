@@ -574,8 +574,49 @@ func TestProjectTreeBatchSelectionFollowsCore(t *testing.T) {
 	h.app.treeModifiedClick(p, p.tree.find("b.txt"), ui.Primary)
 	stubTreeTrash(t)
 	h.app.removeTreeItems(p, paths(p.tree.batchTargets()), false)
+	h.settleChain()
 	if len(p.tree.marked) != 0 || len(p.tree.targets) != 0 {
 		t.Fatalf("the end of a batch left marks %v targets %v", p.tree.marked, p.tree.targets)
+	}
+}
+
+func TestProjectTreePrimaryClickPreservesAndTogglesSelection(t *testing.T) {
+	root := t.TempDir()
+	writeTreeFiles(t, root, "a.txt", "b.txt", "c.txt")
+	h := newHarness(t, &testKernel{Client: core.NewClient()})
+	p := h.openTree(t, root)
+	h.click(center(h.treeRowHit("a.txt").Bounds))
+	h.settleChain()
+	key := gfx.KeyControlLeft
+	if primaryModifier() == gfx.ModifierMeta {
+		key = gfx.KeyMetaLeft
+	}
+	if err := h.driver.KeyDown(key, ""); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = h.driver.KeyUp(key, "") })
+	h.click(center(h.treeRowHit("b.txt").Bounds))
+	h.settleChain()
+	if !p.tree.marked["a.txt"] || !p.tree.marked["b.txt"] {
+		t.Fatalf("primary click lost the previous selection: %v", p.tree.marked)
+	}
+	for i, n := range p.tree.rows {
+		if (n.path == "a.txt" || n.path == "b.txt") && !p.tree.describe(i).Selected {
+			t.Fatalf("marked row %s is not painted selected", n.path)
+		}
+	}
+	h.click(center(h.treeRowHit("a.txt").Bounds))
+	h.settleChain()
+	if p.tree.marked["a.txt"] || !p.tree.marked["b.txt"] {
+		t.Fatalf("primary click did not toggle one row: %v", p.tree.marked)
+	}
+	if err := h.driver.KeyUp(key, ""); err != nil {
+		t.Fatal(err)
+	}
+	h.click(center(h.treeRowHit("c.txt").Bounds))
+	h.settleChain()
+	if len(p.tree.marked) != 0 || p.tree.selected != p.tree.find("c.txt") {
+		t.Fatalf("plain click left selection: %v", p.tree.marked)
 	}
 }
 

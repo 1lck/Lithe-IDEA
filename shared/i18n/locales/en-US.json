@@ -774,7 +774,7 @@
     "desktop.branch.created": "Created branch '{name}'",
     "desktop.branch.current": "Current branch",
     "desktop.branch.deleteFailed": "Failed to delete branch: {reason}",
-    "desktop.branch.deletePrompt": "Delete the local branch '{name}'? It is deleted even if it is not merged, and commits only on it will no longer be on any branch.",
+    "desktop.branch.deletePrompt": "Delete the local branch '{name}'? If it is not fully merged, it will be kept until you separately confirm force deletion.",
     "desktop.branch.deleteTitle": "Delete branch?",
     "desktop.branch.deleted": "Deleted branch '{name}' (was {target})",
     "desktop.branch.detached": "Checked out '{revision}' in detached HEAD state",

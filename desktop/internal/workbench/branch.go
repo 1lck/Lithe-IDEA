@@ -18,6 +18,8 @@ type branchState struct {
 	search, name, revision ui.Field
 	// tagMessage is the annotation typed in the new tag dialog.
 	tagMessage ui.Field
+	// deleteGen isolates completions from a dismissed or replaced deletion dialog.
+	deleteGen int
 	branchSession
 }
 
@@ -37,6 +39,12 @@ const (
 	branchDialogConflict
 	// branchDialogDelete confirms deleting local and remote branches (branch_delete.go).
 	branchDialogDelete
+	// branchDialogDeleteUnmerged offers review after Core refused ordinary deletion.
+	branchDialogDeleteUnmerged
+	// branchDialogForceDelete requires a second explicit destructive confirmation.
+	branchDialogForceDelete
+	// branchDialogDeleteResult keeps every batch outcome visible until dismissed.
+	branchDialogDeleteResult
 	// branchDialogTag asks for the name, target and message of a new tag.
 	branchDialogTag
 	// branchDialogTagDelete confirms deleting a tag.
@@ -96,6 +104,14 @@ type branchSession struct {
 	// them; deleteSkipped counts the marked references it leaves out (branch_delete.go).
 	deleting      []core.GitReference
 	deleteSkipped int
+	// deleteRoot binds both confirmation steps to the repository originally selected.
+	deleteRoot string
+	// deleteUnmerged are only the branches Core refused as unmerged, with their reviewed tips.
+	deleteUnmerged   []branchDeletion
+	deleteError      string
+	deleteList       ui.ListState
+	deleteResults    []branchDeletion
+	deleteResultList ui.ListState
 
 	// common are the branches every repository of a project folder with several has
 	// (branch_common.go).
@@ -358,6 +374,13 @@ func (a *App) beginRevision() {
 
 // cancelBranchDialog closes the open dialog without doing what it asked.
 func (a *App) cancelBranchDialog() {
+	if a.branch.dialog == branchDialogDelete || a.branch.dialog == branchDialogDeleteUnmerged || a.branch.dialog == branchDialogForceDelete || a.branch.dialog == branchDialogDeleteResult {
+		a.branch.deleteGen++
+		a.branch.busy = false
+		a.branch.deleteUnmerged = nil
+		a.branch.deleteError = ""
+		a.branch.deleteResults = nil
+	}
 	a.branch.dialog, a.branch.across = branchDialogNone, false
 }
 
