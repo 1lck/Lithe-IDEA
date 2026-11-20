@@ -380,7 +380,7 @@ func (a *App) openPluginSettings(surface actionSurface) {
 
 // openPluginSettingsSearch shows the plugin page with the marketplace search set to query.
 func (a *App) openPluginSettingsSearch(surface actionSurface, query string) {
-	a.openSettingsPageWith(surface, settingsPlugins, query)
+	a.openSettingsPageWith(surface, settingsMarketplace, query)
 }
 
 // openTerminalSettings shows the settings window on its Terminal page, where the shell new
@@ -401,6 +401,7 @@ const (
 	// settingsHome opens the window where it was left, or on its first page.
 	settingsHome settingsPage = iota
 	settingsPlugins
+	settingsMarketplace
 	settingsTerminal
 	// settingsAI is the AI page, where the providers a commit message is generated with are
 	// configured.
@@ -428,7 +429,7 @@ func (a *App) openSettingsPageWith(surface actionSurface, page settingsPage, que
 	if a.application == nil {
 		return
 	}
-	if page == settingsPlugins {
+	if page == settingsPlugins || page == settingsMarketplace {
 		a.reloadPluginLanguages()
 	}
 	a.post(func(a *App) {
@@ -464,11 +465,9 @@ func (a *App) openSettingsPageWith(surface actionSurface, page settingsPage, que
 		var err error
 		switch page {
 		case settingsPlugins:
-			if query != "" {
-				err = a.settingsWindow.OpenPluginsWithQuery(a.application, current, query)
-			} else {
-				err = a.settingsWindow.OpenPlugins(a.application, current)
-			}
+			err = a.settingsWindow.OpenPlugins(a.application, current)
+		case settingsMarketplace:
+			err = a.settingsWindow.OpenPluginsWithQuery(a.application, current, query)
 		case settingsTerminal:
 			err = a.settingsWindow.OpenTerminal(a.application, current)
 		case settingsKeymap:

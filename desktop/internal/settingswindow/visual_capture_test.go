@@ -46,7 +46,7 @@ func TestVisualSettings(t *testing.T) {
 		{"23-settings-keymap", pageKeymap}, {"24-settings-network", pageNetwork},
 		{"25-settings-process", pageProcessTermination}, {"26-settings-git", pageVersionControl}, {"26-settings-git-console", pageVersionControl},
 		{"27-settings-terminal", pageTerminal}, {"28-plugins-installed", pagePlugins},
-		{"29-marketplace-empty", pagePlugins},
+		{"29-marketplace-empty", pagePlugins}, {"29-marketplace-recommendations", pagePlugins},
 		{"32-settings-build", pageBuild}, {"32-settings-build-kind", pageBuild}, {"34-settings-debuggers", pageDebuggers},
 		{"33-settings-toolchains", pageToolchains}, {"m44-toolchain-directory-menu", pageToolchains}, {"m45-toolchain-custom-directory", pageToolchains},
 		{"m47-toolchain-project-untrusted", pageToolchains}, {"m48-toolchain-project-trusted", pageToolchains}, {"m49-toolchain-project-trust-click", pageToolchains},
@@ -99,6 +99,17 @@ func TestVisualSettings(t *testing.T) {
 				}
 				opts.SetAutoUpdatePlugins = func(bool) {}
 				values := Values{Theme: theme, Language: language.Code(), TerminalScrollback: 2000, AutoUpdatePlugins: scenario.id == "m42-plugin-auto-update-on"}
+				if scenario.id == "29-marketplace-recommendations" {
+					query := ""
+					values.MarketplaceQuery = &query
+					opts.Marketplace = func(context.Context) (marketplace.Snapshot, error) {
+						return marketplace.Snapshot{Index: core.MarketplaceIndex{Plugins: []core.MarketplacePlugin{
+							{ID: "dev.lithe.test.demo-build", Name: "Demo Build", Availability: core.MarketplaceAvailability{Status: "available", Version: "1.0.0"}},
+							{ID: "dev.lithe.test.demo-language", Name: "Demo Language", Availability: core.MarketplaceAvailability{Status: "available", Version: "1.0.0"}},
+						}}}, nil
+					}
+					opts.PluginState = nil
+				}
 				if scenario.page == pageBuild || scenario.page == pageDebuggers {
 					values.SteppingFilters = map[string]core.DebugSteppingFilters{"fixture-jvm": {ClassNameFilters: []string{"java.*", "javax.*", "sun.*", "com.example.generated.*"}, SkipSynthetics: true, SkipStaticInitializers: true}}
 				}
@@ -115,6 +126,9 @@ func TestVisualSettings(t *testing.T) {
 				}
 				w := newWindow(NewController(opts), values)
 				w.sess.page = scenario.page
+				if scenario.id == "29-marketplace-recommendations" && (w.pluginTab != pluginTabMarketplace || w.marketQuery != "") {
+					t.Fatal("recommendations must open the unfiltered Marketplace")
+				}
 				if scenario.page == pageBuild || parents[scenario.page] == pageBuild {
 					// As the Build page opens its pages: with the group open in the sidebar.
 					w.sess.open[pageBuild] = true

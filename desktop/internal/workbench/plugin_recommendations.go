@@ -354,19 +354,17 @@ func (a *App) notifyPluginRecommendations(root string, recommendations []core.Ma
 	})
 	primaryLabel := i18n.Shared(language, "desktop.marketplace.recommendedAction")
 	secondaryLabel := i18n.Shared(language, "desktop.marketplace.recommendedDismiss")
-	firstQuery := names[0]
-	multiple := len(filtered) > 1
+	query := ""
+	if len(names) == 1 {
+		query = names[0]
+	}
 	a.shownTab().notifyActions(
 		title,
 		detail,
 		ui.ToastInfo,
 		primaryLabel,
 		func(target *App) {
-			if multiple {
-				target.openPluginSettings(surfaceNotification)
-				return
-			}
-			target.openPluginSettingsSearch(surfaceNotification, firstQuery)
+			target.openPluginSettingsSearch(surfaceNotification, query)
 		},
 		secondaryLabel,
 		func(target *App) {

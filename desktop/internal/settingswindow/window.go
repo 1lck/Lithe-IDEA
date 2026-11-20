@@ -260,8 +260,8 @@ func newWindow(c *Controller, current Values) *window {
 	w.market.setCustom(c.opts.MarketplaceSources)
 	w.market.reportDiscarded = c.opts.MarketplaceError
 	w.market.search.rank = c.opts.MarketplaceRank
-	w.marketQuery = current.MarketplaceQuery
-	if w.marketQuery != "" {
+	if current.MarketplaceQuery != nil {
+		w.marketQuery = *current.MarketplaceQuery
 		w.pluginTab = pluginTabMarketplace
 	}
 	w.market.search.report = c.opts.MarketplaceError

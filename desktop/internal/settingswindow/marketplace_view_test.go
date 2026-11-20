@@ -447,3 +447,26 @@ func TestMarketplaceShowsFailureError(t *testing.T) {
 		}
 	})
 }
+
+func TestOpenMarketplaceWithoutSearch(t *testing.T) {
+	query := ""
+	w := newWindow(NewController(Options{
+		Marketplace: func(context.Context) (marketplace.Snapshot, error) {
+			return marketplace.Snapshot{}, nil
+		},
+	}), Values{MarketplaceQuery: &query})
+	w.sess.show(pagePlugins)
+	d := openWindow(t, w)
+	if w.pluginTab != pluginTabMarketplace || w.marketQuery != "" {
+		t.Fatalf("opened plugins tab = %v, query = %q, want unfiltered Marketplace", w.pluginTab, w.marketQuery)
+	}
+
+	w.pluginTab = pluginTabInstalled
+	w.marketQuery = "previous query"
+	w.requestQuery("")
+	w.requestPage(pagePlugins)
+	d.pump()
+	if w.pluginTab != pluginTabMarketplace || w.marketQuery != "" {
+		t.Fatalf("reopened plugins tab = %v, query = %q, want unfiltered Marketplace", w.pluginTab, w.marketQuery)
+	}
+}
