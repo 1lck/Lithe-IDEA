@@ -9,7 +9,10 @@
     "evidence": [
       "desktop/internal/workbench/filetree_menu.go",
       "desktop/internal/workbench/filetree.go",
-      "desktop/internal/workbench/filetree_batch.go"
+      "desktop/internal/workbench/filetree_batch.go",
+      "desktop/internal/workbench/filetree_view.go",
+      "desktop/internal/workbench/filetree_test.go",
+      "desktop/internal/workbench/branch_delete_visual_test.go"
     ]
   },
   "windows": {
@@ -21,11 +24,14 @@
       "desktop/internal/workbench/filetree_batch.go",
       "desktop/internal/workbench/filetree_duplicate.go",
       "desktop/internal/workbench/hide_console_windows.go",
-      "desktop/internal/workbench/filetree_trash_windows_test.go"
+      "desktop/internal/workbench/filetree_trash_windows_test.go",
+      "desktop/internal/workbench/filetree_view.go",
+      "desktop/internal/workbench/filetree_test.go",
+      "desktop/internal/workbench/branch_delete_visual_test.go"
     ]
   },
   "owner": "Workspace",
-  "verification": "macOS：单击目录名称只选中本行，箭头展开/折叠，子项不继承高亮；⌘ 点击增减独立选择，Shift 正反向选择，Control 点击右键、右键未选中子项只作用于该行；⌘A 仍选择焦点项同级。拖动已选项携带整组，拖动未选项只携带该项，目录整体移动，父子去重；同窗口项目目录接收拖放，项目根不能移动，同目录无操作，同名整批拒绝，目录移入自身/后代和符号链接越界拒绝；中途失败报告已完成数量、保留剩余源项，切换工作区停止后续项。确认未保存文件保护、成功移动后打开文档路径/历史/目录标记更新；外部拖放仍提供文件 URL。大目录分别测量选择、展开和滚动，懒加载行应能滚动到末尾，折叠与定位保持正确。保留复制/粘贴/副本/废纸篓、快捷键焦点和双击可执行文件回归。Windows 尚无该多选入口；macOS 实机事件、性能及 Swift 测试需在目标平台验证。 Windows：TestTrashCommandStartsWithoutAConsoleAndKeepsItsDialogsVisible 检查回收站命令以 CREATE_NO_WINDOW 启动且不设 HideWindow；实机移到回收站不再闪出终端窗口，删除被其他程序占用的文件时系统错误框仍然可见（#2068）。",
+  "verification": "macOS：单击目录名称只选中本行，箭头展开/折叠，子项不继承高亮；⌘ 点击增减独立选择，Shift 正反向选择，Control 点击右键、右键未选中子项只作用于该行；⌘A 仍选择焦点项同级。拖动已选项携带整组，拖动未选项只携带该项，目录整体移动，父子去重；同窗口项目目录接收拖放，项目根不能移动，同目录无操作，同名整批拒绝，目录移入自身/后代和符号链接越界拒绝；中途失败报告已完成数量、保留剩余源项，切换工作区停止后续项。确认未保存文件保护、成功移动后打开文档路径/历史/目录标记更新；外部拖放仍提供文件 URL。大目录分别测量选择、展开和滚动，懒加载行应能滚动到末尾，折叠与定位保持正确。保留复制/粘贴/副本/废纸篓、快捷键焦点和双击可执行文件回归。Windows 尚无该多选入口；macOS 实机事件、性能及 Swift 测试需在目标平台验证。 Windows：TestTrashCommandStartsWithoutAConsoleAndKeepsItsDialogsVisible 检查回收站命令以 CREATE_NO_WINDOW 启动且不设 HideWindow；实机移到回收站不再闪出终端窗口，删除被其他程序占用的文件时系统错误框仍然可见（#2068）。 Viva 两端用平台主修饰键增减多选（macOS Command，Windows Control）：先普通点击 A，再修饰键点击 B，A/B 都保留选中底色；再次点击 A 只取消 A，普通点击 C 恢复单选，Shift 范围与键盘方向导航保持正确。Core fixture 和 macOS 真实鼠标无头测试覆盖，明暗主题截图可检查；Windows 原生交互未执行，验证状态保持 pending。",
   "legacy": {
     "revision": "5a54c41aa37a4e6e6b68918a4b05765b9dd07a36",
     "macos": {

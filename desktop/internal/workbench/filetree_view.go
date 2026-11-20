@@ -31,7 +31,11 @@ func (t *fileTree) label(i int) string { return t.rows[i].name }
 
 func (t *fileTree) describe(i int) ui.TreeNode {
 	n := t.rows[i]
-	return ui.TreeNode{Depth: n.depth, Branch: n.dir && !n.empty, Expanded: n.dir && n.expanded, Selected: n == t.selected}
+	selected := t.marked[n.path]
+	if len(t.marked) == 0 && t.anchor == "" {
+		selected = n == t.selected
+	}
+	return ui.TreeNode{Depth: n.depth, Branch: n.dir && !n.empty, Expanded: n.dir && n.expanded, Selected: selected}
 }
 
 // projectTree declares the body of the Project tool window: the rows of the project's
@@ -133,11 +137,14 @@ func (a *App) projectTree(c ui.C, p *project) {
 // scrolls a row to show to the middle of the view when it is out of view. The selection
 // follows the keyboard: the row the arrow keys moved the focus to is the selected one.
 func (a *App) syncTreeSelection(canvas *gfx.Canvas, t *fileTree) {
-	if focused := canvas.Focused(); !focused.IsZero() {
-		for i, n := range t.rows {
-			if t.view.RowID(i) == focused {
-				t.selected = n
-				break
+	if focused := canvas.Focused(); focused != t.focused {
+		t.focused = focused
+		if _, pointer := canvas.PointerOn(focused); !pointer {
+			for i, n := range t.rows {
+				if t.view.RowID(i) == focused {
+					t.selected = n
+					break
+				}
 			}
 		}
 	}

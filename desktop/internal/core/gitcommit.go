@@ -24,8 +24,10 @@ type gitWriteRequest struct {
 	Revision string `json:"revision,omitempty"`
 	// Checkout switches to a branch right after creating it.
 	Checkout bool `json:"checkout,omitempty"`
-	// Force discards the local changes a checkout would otherwise refuse to overwrite.
+	// Force discards checkout/worktree changes, or skips only the branch merge check.
 	Force bool `json:"force,omitempty"`
+	// ExpectedTarget binds a branch deletion to the exact commit the user reviewed.
+	ExpectedTarget string `json:"expectedTarget,omitempty"`
 	// AutoStash stashes the local changes before a checkout and restores them after it.
 	AutoStash bool `json:"autoStash,omitempty"`
 	// FetchOptions are the structured choices of one fetch.
