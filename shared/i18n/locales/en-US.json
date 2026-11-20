@@ -7729,7 +7729,6 @@
     "native.setsAsTheUpstream": "Sets {arg1} as the upstream",
     "native.setting": "Setting",
     "native.settingOfPluginCannotBeSetForThis": "Setting {arg1} of plugin {arg2} cannot be set for this project.",
-    "native.settingValuesOnlyFillThePlacesTheProgramTemplatesReserveForThemSoChangingASetta1ef53141a": "Setting values only fill the places the program templates reserve for them, so changing a setting never changes the programs above.",
     "native.settings": "Settings…",
     "native.sha256": "SHA-256",
     "native.shareProjectOn": "Share project on",

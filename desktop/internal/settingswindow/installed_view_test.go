@@ -3,6 +3,7 @@ package settingswindow
 import (
 	"context"
 	"fmt"
+	"strings"
 	"testing"
 
 	"github.com/1lck/Lithe-IDEA/desktop/internal/core"
@@ -240,6 +241,266 @@ func TestInstalledTabShowsPermissionsAndVersions(t *testing.T) {
 	d.pump()
 	if !d.text(i18n.Shared(i18n.English, "native.currentVersion")) || !d.text("dev.example.go") {
 		t.Fatal("versions tab does not show the version and the ID")
+	}
+}
+
+// detailFixture is the detail of one marketplace plugin whose listing names its repository,
+// with every field of the Versions & Source and the Permissions & Programs tabs filled in.
+// It opens on the Versions & Source tab.
+func detailFixture(language i18n.Language) (*window, PluginFacts, string) {
+	const repository = "https://github.com/example/versions-fixture"
+	fact := PluginFacts{
+		ID: "dev.lithe.test.versions", Name: "Versions Fixture", Vendor: "Test", Version: "1.2.3",
+		Source: PluginSourceMarketplace, Path: "/plugins/dev.lithe.test.versions/1.2.3",
+		ArchiveSHA256: strings.Repeat("a1", 32), ContentDigest: strings.Repeat("c3", 32),
+		Permissions: []string{"backend.launch", "commands.install", "languageServer.launch", "process.build", "ui.contribute"},
+		Programs: []string{
+			`{"kind":"buildSystem","buildSystemID":"fixture","invocation":{"executables":[{"kind":"command","command":"fixture"}]},"tasks":[{"id":"build","arguments":["build","${optionArguments}"]},{"id":"check","arguments":["check","./..."]}]}`,
+			`{"kind":"commandInstaller","installer":"fixture-debugger","commands":["fixture-debugger"],"tool":"fixture","minimumVersion":"1.0","arguments":["install","example.com/fixture-debugger@latest"]}`,
+			`{"kind":"packagedLanguageServer","path":"bin/fixture-ls","arguments":["serve"],"validationArguments":["--version"],"languageID":"fixture"}`,
+		},
+	}
+	index := core.MarketplaceIndex{Plugins: []core.MarketplacePlugin{{
+		ID: fact.ID, Name: fact.Name, LatestVersion: fact.Version, Repository: repository,
+		Availability: core.MarketplaceAvailability{Status: "available", Version: fact.Version},
+		Versions:     []core.MarketplaceVersion{{Version: fact.Version}},
+	}}}
+	w := newWindow(NewController(Options{
+		Text: func() *i18n.Messages { return i18n.For(language) }, Language: func() i18n.Language { return language },
+		SystemLanguage: language,
+		Marketplace: func(context.Context) (marketplace.Snapshot, error) {
+			return marketplace.Snapshot{Index: index}, nil
+		},
+		InstalledPlugins: func() []PluginFacts { return []PluginFacts{fact} },
+		PluginState: func(string) PluginState {
+			return PluginState{Installed: true, Version: fact.Version, Enabled: true}
+		},
+		OpenURL: func(string) {},
+	}), Values{Language: language.Code()})
+	w.sess.page = pagePlugins
+	w.installed.tab = installedVersions
+	return w, fact, repositoryName(repository)
+}
+
+// TestInstalledVersionsLinesUpItsValues covers the grid of the Versions & Source tab: every
+// value, the repository link's words included, starts at one left edge, the lines keep one
+// spacing, and the note on when the content digest is checked is the tip of an ⓘ beside the
+// digest's label, not a line under the digest.
+func TestInstalledVersionsLinesUpItsValues(t *testing.T) {
+	w, fact, repository := detailFixture(i18n.English)
+	// Wide enough that no value wraps, so every line of the grid is one line of text.
+	d := openWindow(t, w, func(config *app.Config) { config.Width, config.Height = 1400, 800 })
+	d.until("the marketplace index", func() bool { return w.market.status == marketReady })
+	d.pump()
+	// painted is where value was last painted: the detail paints after the plugin list,
+	// whose filter chips share some of its words.
+	painted := func(value string) gfx.Rect {
+		t.Helper()
+		texts := d.driver.Snapshot().Texts
+		for i := len(texts) - 1; i >= 0; i-- {
+			if texts[i].Value == value {
+				return texts[i].Bounds
+			}
+		}
+		t.Fatalf("%q is not painted", value)
+		return gfx.Rect{}
+	}
+	edge := painted(fact.Version).X
+	for _, value := range []string{repository, fact.Path, fact.ArchiveSHA256, fact.ContentDigest, fact.ID} {
+		if x := painted(value).X; x < edge-0.5 || x > edge+0.5 {
+			t.Errorf("%q starts at x=%.1f, the values start at x=%.1f", value, x, edge)
+		}
+	}
+	labels := []string{"native.currentVersion", "native.previousVersion", "native.updates", "native.sourceRepository",
+		"native.localPackage", "native.archiveSHA256", "native.contentSHA256", "native.pluginID"}
+	var tops []float32
+	for _, key := range labels {
+		tops = append(tops, painted(i18n.Shared(i18n.English, key)).Y)
+	}
+	d.versionsLabelsKeepTheirWidth(i18n.English)
+	step := tops[1] - tops[0]
+	for i := 2; i < len(tops); i++ {
+		if gap := tops[i] - tops[i-1]; gap < step-0.5 || gap > step+0.5 {
+			t.Errorf("%s is %.1f below the line above it, the grid's step is %.1f", labels[i], gap, step)
+		}
+	}
+	help := i18n.Shared(i18n.English, "native.checkedAgainEveryTimeLitheLoadsThePlugin")
+	if d.showsHelp(help) {
+		t.Fatal("the note on the content digest is permanently visible")
+	}
+	trigger := d.hintHit(help)
+	label := painted(i18n.Shared(i18n.English, "native.contentSHA256"))
+	if trigger.Bounds.X < label.X+label.Width || trigger.Bounds.X+trigger.Bounds.Width > edge {
+		t.Fatalf("the ⓘ at %+v is not between the label at %+v and the values at x=%.1f", trigger.Bounds, label, edge)
+	}
+	if middle := trigger.Bounds.Y + trigger.Bounds.Height/2; middle < label.Y || middle > label.Y+label.Height {
+		t.Fatalf("the ⓘ at %+v is not on the line of the label at %+v", trigger.Bounds, label)
+	}
+}
+
+// versionsLabelsKeepTheirWidth fails the test when a label of the Versions & Source tab, the
+// one an ⓘ follows included, was laid out narrower than its words, so the ⓘ or the value
+// would cover its end. The headless canvas measures words a little narrower than the
+// system font does; the visual test checks again with the system font.
+func (d *windowDriver) versionsLabelsKeepTheirWidth(language i18n.Language) {
+	d.t.Helper()
+	snapshot := d.driver.Snapshot()
+	for _, key := range []string{"native.currentVersion", "native.previousVersion", "native.updates", "native.sourceRepository",
+		"native.localPackage", "native.archiveSHA256", "native.contentSHA256", "native.pluginID"} {
+		label := i18n.Shared(language, key)
+		for i := len(snapshot.Texts) - 1; i >= 0; i-- {
+			if text := snapshot.Texts[i]; text.Value == label {
+				if i < len(snapshot.TextWidths) && snapshot.TextWidths[i] > text.Bounds.Width+0.5 {
+					d.t.Errorf("%q needs %.1f points but has %.1f", label, snapshot.TextWidths[i], text.Bounds.Width)
+				}
+				break
+			}
+		}
+	}
+}
+
+// TestInstalledPermissionsKeepsEachEntryToOneLine covers the Permissions & Programs tab: a
+// permission's description and its name in the contract share one line, a program is one
+// line that names it until it is opened to its full declaration, colored as the editor colors
+// JSON, the copy button beside it copies that declaration, and the note on settings is the tip
+// of the ⓘ beside the heading, not a paragraph under the list.
+func TestInstalledPermissionsKeepsEachEntryToOneLine(t *testing.T) {
+	saved := copyText
+	t.Cleanup(func() { copyText = saved })
+	var copied []string
+	copyText = func(text string) error {
+		copied = append(copied, text)
+		return nil
+	}
+	w, fact, _ := detailFixture(i18n.English)
+	w.installed.tab = installedPermissions
+	d := openWindow(t, w, func(config *app.Config) { config.Width, config.Height = 1400, 800 })
+	d.until("the marketplace index", func() bool { return w.market.status == marketReady })
+	d.pump()
+	painted := func(value string) gfx.Rect {
+		t.Helper()
+		texts := d.driver.Snapshot().Texts
+		for i := len(texts) - 1; i >= 0; i-- {
+			if texts[i].Value == value {
+				return texts[i].Bounds
+			}
+		}
+		t.Fatalf("%q is not painted", value)
+		return gfx.Rect{}
+	}
+	oneLine := func(what string, left, right gfx.Rect) {
+		t.Helper()
+		if right.X < left.X+left.Width {
+			t.Errorf("%s: %+v does not follow %+v", what, right, left)
+		}
+		if middle, other := left.Y+left.Height/2, right.Y+right.Height/2; middle-other > 2 || other-middle > 2 {
+			t.Errorf("%s: %+v and %+v are not on one line", what, left, right)
+		}
+	}
+	for _, permission := range fact.Permissions {
+		oneLine(permission, painted(permissionDescription(i18n.English, permission)), painted(permission))
+	}
+	declared := func() bool {
+		for _, text := range d.driver.Snapshot().Texts {
+			if strings.Contains(text.Value, `"kind"`) {
+				return true
+			}
+		}
+		return false
+	}
+	if declared() {
+		t.Fatal("a program declaration is shown before it is opened")
+	}
+	oneLine("the build system", painted("buildSystem"), painted("fixture"))
+	oneLine("the installer", painted("commandInstaller"), painted("fixture-debugger · fixture · 1.0"))
+	// The programs' names start at the left edge of the permissions' descriptions.
+	edge := painted(permissionDescription(i18n.English, fact.Permissions[0])).X
+	for _, kind := range []string{"buildSystem", "commandInstaller", "packagedLanguageServer"} {
+		if x := painted(kind).X; x < edge-0.5 || x > edge+0.5 {
+			t.Errorf("%s starts at x=%.1f, the descriptions start at x=%.1f", kind, x, edge)
+		}
+	}
+
+	help := i18n.Shared(i18n.English, "desktop.marketplace.programsSettingsHelp")
+	if d.showsHelp(help) {
+		t.Fatal("the note on settings is permanently visible")
+	}
+	trigger := d.hintHit(help)
+	heading := painted(i18n.Shared(i18n.English, "native.programsItCanRun"))
+	oneLine("the programs heading", heading, trigger.Bounds)
+
+	d.click("buildSystem fixture")
+	d.pump()
+	// The declaration is colored as the editor colors JSON: the property's name, its string
+	// value and the punctuation between them each take their own color.
+	const entry = `"buildSystemID": "fixture",`
+	snapshot := d.driver.Snapshot()
+	var line *gfx.Text
+	for i := range snapshot.Texts {
+		if strings.Contains(snapshot.Texts[i].Value, entry) {
+			line = &snapshot.Texts[i]
+		}
+	}
+	if line == nil {
+		t.Fatal("the opened program does not show its declaration")
+	}
+	colorAt := func(at int) gfx.Color {
+		t.Helper()
+		offset := 0
+		for _, run := range snapshot.Runs[line.RunFirst : line.RunFirst+line.RunCount] {
+			if offset += int(run.Bytes); at < offset {
+				return run.Color
+			}
+		}
+		t.Fatalf("no run of %q covers byte %d", line.Value, at)
+		return gfx.Color{}
+	}
+	start := strings.Index(line.Value, entry)
+	name, colon, value := colorAt(start+1), colorAt(start+len(`"buildSystemID"`)), colorAt(start+len(`"buildSystemID": "`))
+	if name == value || name == colon || value == colon {
+		t.Fatalf("%q is not highlighted: the name is %+v, the colon %+v and the value %+v", line.Value, name, colon, value)
+	}
+	d.click("buildSystem fixture")
+	d.pump()
+	if declared() {
+		t.Fatal("the program does not close again")
+	}
+
+	var copies []gfx.Hit
+	for _, hit := range d.driver.Snapshot().Hits {
+		if hit.Label == i18n.Shared(i18n.English, "native.copyJSON") && !hit.IsLabel && !hit.Backdrop && !hit.ID.IsZero() {
+			copies = append(copies, hit)
+		}
+	}
+	if len(copies) != len(fact.Programs) {
+		t.Fatalf("%d copy buttons for %d programs", len(copies), len(fact.Programs))
+	}
+	d.clickHit(copies[1])
+	d.pump()
+	if want := programDeclaration(fact.Programs[1]); len(copied) != 1 || copied[0] != want {
+		t.Fatalf("copied %q, want %q", copied, want)
+	}
+}
+
+func TestProgramSummaryNamesTheDeclaration(t *testing.T) {
+	for _, tc := range []struct{ program, kind, detail string }{
+		{`{"kind":"buildSystem","buildSystemID":"go","tasks":[{"id":"build"}]}`, "buildSystem", "go"},
+		{`{"kind":"commandInstaller","installer":"dlv","commands":["dlv"],"tool":"go"}`, "commandInstaller", "dlv · go"},
+		{`{"path":"bin/server","kind":"packagedLanguageServer","languageID":"go"}`, "packagedLanguageServer", "bin/server · go"},
+		{`{"kind":"run"}`, "run", ""},
+		{`{"languageID":"go"}`, "", ""},
+		{`["kind","run"]`, "", ""},
+		{`not json`, "", ""},
+	} {
+		if kind, detail := programSummary(tc.program); kind != tc.kind || detail != tc.detail {
+			t.Errorf("programSummary(%s) = %q, %q; want %q, %q", tc.program, kind, detail, tc.kind, tc.detail)
+		}
+	}
+	if got := programDeclaration(`{"kind":"run","arguments":["a"]}`); got != "{\n  \"kind\": \"run\",\n  \"arguments\": [\n    \"a\"\n  ]\n}" {
+		t.Errorf("programDeclaration indents to %q", got)
+	}
+	if got := programDeclaration(`not json`); got != "not json" {
+		t.Errorf("programDeclaration changed a declaration that is not JSON to %q", got)
 	}
 }
 

@@ -7729,7 +7729,6 @@
     "native.setsAsTheUpstream": "将 {arg1} 设为上游分支",
     "native.setting": "设置项",
     "native.settingOfPluginCannotBeSetForThis": "插件 {arg1} 的设置项 {arg2} 不能用于此项目。",
-    "native.settingValuesOnlyFillThePlacesTheProgramTemplatesReserveForThemSoChangingASetta1ef53141a": "设置值只会填入程序模板预留的位置，不能改变上面列出的程序，所以修改设置不需要重新审查。",
     "native.settings": "设置…",
     "native.sha256": "SHA-256",
     "native.shareProjectOn": "将项目分享至",

@@ -51129,7 +51129,8 @@
       "id": "native.copyJSON",
       "description": "Native UI: Copy JSON",
       "platforms": [
-        "macos"
+        "macos",
+        "desktop"
       ],
       "macos": {
         "key": "Copy JSON",
@@ -81743,18 +81744,6 @@
       "parameters": {
         "arg1": "string",
         "arg2": "string"
-      }
-    },
-    {
-      "id": "native.settingValuesOnlyFillThePlacesTheProgramTemplatesReserveForThemSoChangingASetta1ef53141a",
-      "description": "Native UI: Setting values only fill the places the program templates reserve for them, so changing a setting never changes the programs above.",
-      "platforms": [
-        "macos",
-        "desktop"
-      ],
-      "macos": {
-        "key": "Setting values only fill the places the program templates reserve for them, so changing a setting never changes the programs above.",
-        "arguments": []
       }
     },
     {
