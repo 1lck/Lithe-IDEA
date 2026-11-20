@@ -855,6 +855,9 @@ func (a *App) drawLogChip(c ui.C, i int, label, value string, open bool) ui.Box 
 func (a *App) drawLogList(c ui.C, p *project) {
 	l, v, g := &p.log, &a.logView, a.text.Git
 	switch {
+	case p.git.safeMode:
+		a.safeModePanel(c, p, i18n.Shared(a.language(), "desktop.trust.gitSafeMode"))
+		return
 	case !p.git.loaded || l.loading && len(l.commits) == 0:
 		a.gitEmpty(c, g.Loading)
 		return

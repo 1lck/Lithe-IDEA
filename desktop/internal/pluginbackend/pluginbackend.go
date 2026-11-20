@@ -136,6 +136,10 @@ type StartRequest struct {
 	Settings map[string]json.RawMessage
 	// ProjectSettings is the separately captured project override layer.
 	ProjectSettings map[string]json.RawMessage
+	// ProjectCodeAllowed is whether the user trusts the workspace. Without it Core plans no
+	// language server, build provider process or VCS provider that would run project code
+	// (core.LaunchUntrustedWorkspace).
+	ProjectCodeAllowed bool
 	// Environment is added to the provider process environment. It is for host
 	// integration tests and host-owned facts, never plugin-controlled secrets.
 	Environment map[string]string
@@ -310,6 +314,7 @@ func (r *Runner) Start(ctx context.Context, request StartRequest) (Session, erro
 		Architecture:            request.Architecture,
 		Settings:                request.Settings,
 		ProjectSettings:         request.ProjectSettings,
+		ProjectCodeAllowed:      request.ProjectCodeAllowed,
 	}
 	var plan core.PluginBackendPlan
 	var err error

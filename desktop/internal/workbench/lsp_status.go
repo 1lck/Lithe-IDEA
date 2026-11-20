@@ -205,6 +205,9 @@ func (a *App) lspStatusText() string {
 		return i18n.Shared(a.language(), "desktop.status.lspStarting")
 	}
 	if failed := a.lspStatusFailedServer(); failed != nil {
+		if failed.untrusted {
+			return i18n.Shared(a.language(), "desktop.status.lspSafeMode")
+		}
 		return i18n.Shared(a.language(), "desktop.status.lspFailed")
 	}
 	return ""
@@ -262,14 +265,14 @@ func lspPhaseIcon(server *pluginServer) gfx.Icon {
 
 // lspStatusColor is the color of the status bar item's dot: the success color for a ready
 // server, the warning color while it starts, the danger color when it failed and subdued when
-// it stopped or no server serves the document.
+// it stopped, safe mode holds it back or no server serves the document.
 func (a *App) lspStatusColor() gfx.Color {
 	server := a.lspStatusServer()
 	if server == nil {
 		if a.lspStatusPreparation() != nil {
 			return a.colors.Warning
 		}
-		if a.lspStatusFailedServer() != nil {
+		if failed := a.lspStatusFailedServer(); failed != nil && !failed.untrusted {
 			return a.theme.Danger
 		}
 		return a.colors.Subtle
@@ -451,17 +454,33 @@ func (a *App) lspStatusMenu(c ui.C, anchor ui.Box) {
 		for _, entry := range failed {
 			id := entry.displayID()
 			langID := entry.languageID
-			description := failedText
+			description, icon := failedText, icons.CircleX
+			if entry.untrusted {
+				description, icon = i18n.Shared(language, "desktop.status.lspSafeMode"), icons.Lock
+			}
 			if entry.version != "" {
 				description += " · " + entry.version
 			}
 			menu.Sub(id, func(sub *ui.MenuItems) {
-				if entry.message != "" {
-					sub.Label(entry.message)
+				// A menu sizes to its items, not its headings, so a heading wider than them
+				// is cut short: safe mode's heading is a short one, the reason is in the log.
+				heading := entry.message
+				if entry.untrusted {
+					heading = i18n.Shared(language, "desktop.trust.lspSafeModeHeading")
+					sub.WidthRange(240, 0)
+				}
+				if heading != "" {
+					sub.Label(heading)
 					sub.Separator()
 				}
 				if sub.Item(viewLogs).Icon(icons.FileText).Clicked() {
 					c.After(func() { a.showLSPLog(p, id) })
+				}
+				if entry.untrusted {
+					if sub.Item(i18n.Shared(language, "desktop.trust.bannerLink")).Icon(icons.LockOpen).Disabled(p.trust.asking).Clicked() {
+						c.After(func() { a.askToTrustProject(p, nil) })
+					}
+					return
 				}
 				if sub.Item(i18n.Shared(language, "desktop.lsp.restartServer")).Icon(icons.RefreshCw).Clicked() {
 					c.After(func() {
@@ -469,7 +488,7 @@ func (a *App) lspStatusMenu(c ui.C, anchor ui.Box) {
 						a.retryFailedLSPServer(langID)
 					})
 				}
-			}).Icon(icons.CircleX).Description(description)
+			}).Icon(icon).Description(description)
 		}
 		if len(servers) > 0 || len(failed) > 0 {
 			menu.Separator()
@@ -489,7 +508,10 @@ func (a *App) lspStatusMenu(c ui.C, anchor ui.Box) {
 						a.restartLSPServer(server)
 					}
 					for _, entry := range failed {
-						a.retryFailedLSPServer(entry.languageID)
+						// A server safe mode holds back starts once the project is trusted.
+						if !entry.untrusted {
+							a.retryFailedLSPServer(entry.languageID)
+						}
 					}
 				})
 			}
@@ -725,6 +747,8 @@ func (a *App) lspLogBar(c ui.C, servers []*pluginServer, failed []*failedPluginS
 		stateText := "failed"
 		if shown != nil {
 			stateText = shown.stateName()
+		} else if shownFailed != nil && shownFailed.untrusted {
+			stateText = "untrusted"
 		}
 		ui.Text(c, i18n.SharedFormat(language, "desktop.lsp.state", map[string]string{"state": stateText})).
 			FontSize(12).Color(a.colors.Subtle).Shrink(0)
@@ -763,6 +787,13 @@ func (a *App) lspLogBar(c ui.C, servers []*pluginServer, failed []*failedPluginS
 					a.performed("lsp.server.restart", surfaceButton)
 					a.restartLSPServer(server)
 				})
+			}
+		} else if shownFailed != nil && shownFailed.untrusted {
+			// Safe mode holds the server back; trusting the project starts it.
+			if p := shownFailed.project; p == a.project {
+				if ui.Button(c.Key("lspTrust"), i18n.Shared(language, "desktop.trust.bannerLink")).Icon(icons.LockOpen).Ghost().Small().Disabled(p.trust.asking).Clicked() {
+					c.After(func() { a.askToTrustProject(p, nil) })
+				}
 			}
 		} else if shownFailed != nil {
 			langID := shownFailed.languageID

@@ -125,11 +125,13 @@ func (a *App) drawCommitToolbar(c ui.C, p *project) {
 func (a *App) drawCommitStatus(c ui.C, p *project) bool {
 	g := a.text.Git
 	switch {
+	case p.git.safeMode:
+		a.safeModePanel(c, p, i18n.Shared(a.language(), "desktop.trust.gitSafeMode"))
 	case !p.git.loaded:
 		a.gitEmpty(c, g.Loading)
 	case p.git.err != nil:
 		ui.Column(c).Fill().Center().Gap(8).PadX(shellContentPad).Children(func() {
-			ui.Paragraph(c, g.Failed(p.git.err.Error()), 3).TextCenter().Color(a.colors.Subtle)
+			ui.Paragraph(c, g.Failed(p.git.err.Error()), 3).FillWidth().TextCenter().Color(a.colors.Subtle)
 			if ui.Button(c, g.Retry).Ghost().Clicked() {
 				c.After(func() { a.refreshChanges(p) })
 			}

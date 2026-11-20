@@ -525,7 +525,7 @@ func (a *App) beginDebug(p *project, start debugStart) {
 		// Assigned only by startup; cleanup reads it after startupDone closes.
 		session.stateDirectory = stateDirectory
 		preparationContext, cancelPreparation := context.WithTimeout(ctx, debugOperationTimeout)
-		prepared, err := a.prepareDebugLaunch(preparationContext, start, session.stateDirectory, p.root, targetPath, generation, targetUnavailable)
+		prepared, err := a.prepareDebugLaunch(preparationContext, start, session.stateDirectory, p, targetPath, generation, targetUnavailable)
 		if err != nil {
 			// Only the adapter's own launch is the plugin's start; a debuggee that cannot be
 			// found or a remote endpoint waiting for the user is not. The preparation's

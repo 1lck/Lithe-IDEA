@@ -53,6 +53,10 @@ type failedPluginServer struct {
 	message    string
 	logs       []lspLogLine
 	logsAdded  uint64
+	// untrusted is set when Core planned no server because the project is in safe mode and the
+	// server may run the project's code (#2208). It is no failure: the status bar says safe
+	// mode, and trusting the project starts the server (applyProjectTrust).
+	untrusted bool
 }
 
 func (f *failedPluginServer) displayID() string {
@@ -308,6 +312,16 @@ func (a *App) finishPluginServerStart(p *project, languageID, failedPluginID, fa
 		}
 		if errors.Is(err, context.Canceled) {
 			a.recordPluginServerFailure(p, languageID, failedPluginID, failedVersion, errors.New(i18n.Shared(a.language(), "desktop.lsp.preparationCancelled")), nil, 0)
+			return
+		}
+		if core.IsLaunchUntrustedWorkspace(err) {
+			if p.trust.allowed() {
+				// The project was trusted while Core planned this start: plan it again.
+				a.startPluginServer(languageID)
+				return
+			}
+			a.backgroundFailed("plugin_server_safe_mode", err)
+			a.recordPluginServerSafeMode(p, languageID, failedPluginID, failedVersion)
 			return
 		}
 		a.operationFailed("plugin_server_start", err)
@@ -631,6 +645,9 @@ func (a *App) pluginBackendRequest() pluginservice.BackendRequest {
 		// goroutine; a map here would not fit lsp.startServer's string field.
 		request.WorkingDirectory = a.project.root
 		request.Context = a.project.pluginContext
+		// In safe mode Core plans only a server that declares it runs no project code; the
+		// others wait for trust (finishPluginServerStart).
+		request.ProjectCodeAllowed = a.project.trust.allowed()
 	}
 	return request
 }
@@ -687,6 +704,32 @@ func (a *App) recordPluginServerFailure(p *project, languageID, pluginID, versio
 		message:    reason,
 		logs:       copiedLogs,
 		logsAdded:  logsAdded,
+	}
+	a.pluginServerMu.Unlock()
+	a.invalidator.Invalidate()
+}
+
+// recordPluginServerSafeMode records that Core planned no server for languageID because the
+// project is in safe mode and the server may run the project's code. The status bar, its menu
+// and the LSP log say so and offer to trust the project, which starts the server.
+func (a *App) recordPluginServerSafeMode(p *project, languageID, pluginID, version string) {
+	if a.project != p || languageID == "" {
+		return
+	}
+	message := i18n.Shared(a.language(), "desktop.trust.lspSafeMode")
+	a.pluginServerMu.Lock()
+	if a.pluginServerFailed == nil {
+		a.pluginServerFailed = make(map[string]*failedPluginServer)
+	}
+	a.pluginServerFailed[languageID] = &failedPluginServer{
+		pluginID:   pluginID,
+		languageID: languageID,
+		version:    version,
+		project:    p,
+		message:    message,
+		logs:       []lspLogLine{{level: "INFO", text: cutLogLine("[INFO] " + message), tag: len("[INFO]")}},
+		logsAdded:  1,
+		untrusted:  true,
 	}
 	a.pluginServerMu.Unlock()
 	a.invalidator.Invalidate()

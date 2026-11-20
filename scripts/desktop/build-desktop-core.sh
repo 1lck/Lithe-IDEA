@@ -301,7 +301,10 @@ PINNED_CORE_REPOSITORY="https://github.com/Lithe-IDEA/Lithe-core-rust.git"
 # to another file name (rustup's cargo and rust-analyzer proxies) to the layout path, so probes and
 # launches start cargo, not rustup; #134 hardens remote connections and #136 logs the remote
 # connection lifecycle as structured log v2 events.
-PINNED_CORE_REVISION="39aa5fb51fcbc9c986536d1c48ab9665e4a68a62"
+# Lithe-core-rust main at 4ab420e: #140 records remote workspace trust by target and host real
+# path (S01/S02/S04); #141 starts no Git, language server, build provider or VCS that runs project
+# code for a workspace the user has not trusted (#2208).
+PINNED_CORE_REVISION="4ab420e312dbfe26c14ba1c6e64b059fd4775c70"
 PROFILE="debug"
 CHECKOUT_ONLY="no"
 while [[ $# -gt 0 ]]; do

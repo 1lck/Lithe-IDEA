@@ -9,10 +9,12 @@ import (
 	"runtime"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
 	"github.com/1lck/Lithe-IDEA/desktop/internal/core"
+	"github.com/1lck/Lithe-IDEA/desktop/internal/i18n"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/pluginservice"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/pluginstate"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/store"
@@ -345,6 +347,27 @@ func TestDebugTCPEndpointFailureIsShownAndStartsNothing(t *testing.T) {
 	awaitStateWithin(t, h, 20*time.Second, "the failure", func() bool { return p.debug.failure != "" })
 	if !strings.Contains(p.debug.failure, "no debug command") || p.debug.activeSession() != nil {
 		t.Fatalf("failure = %q, session = %v", p.debug.failure, p.debug.activeSession())
+	}
+}
+
+// TestDebugHostedAdapterInSafeModeStartsNothing: an adapter hosted in a language server that
+// runs project code is that server's launch, so safe mode refuses it before the server is
+// asked for a port, and says why in the user's language rather than in Core's words (#2208).
+func TestDebugHostedAdapterInSafeModeStartsNothing(t *testing.T) {
+	h := debugPluginHarness(t, "dev.lithe.test.debug-hosted", debugHostedManifest, false)
+	root, _ := fixtureWorkspace(t)
+	var asked atomic.Bool
+	h.app.debugHostedPort = func(context.Context, *project, debugAdapter) (int, error) {
+		asked.Store(true)
+		return 0, errors.New("the port was asked for")
+	}
+	p := openHostedPanel(t, h, root)
+	h.app.applyProjectTrust(p, false)
+	h.settle()
+	h.clickNamed(h.app.text.Debug.Start)
+	awaitStateWithin(t, h, 20*time.Second, "the failure", func() bool { return p.debug.failure != "" })
+	if want := i18n.Shared(h.app.language(), "desktop.trust.launchSafeMode"); p.debug.failure != want || p.debug.activeSession() != nil || asked.Load() {
+		t.Fatalf("failure = %q, session = %v, port asked = %v; want %q and nothing started", p.debug.failure, p.debug.activeSession(), asked.Load(), want)
 	}
 }
 

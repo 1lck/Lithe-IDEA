@@ -95,6 +95,10 @@ func TestDeclaredServesTheBaselineOfEveryWiredCapability(t *testing.T) {
 		if name == "commandInstallers" {
 			wanted = []int{0, 1}
 		}
+		// Safe mode starts the servers that declare the executesProjectCode version 1 adds as false.
+		if name == "languageServers" {
+			wanted = []int{0, 1}
+		}
 		if versions := declared[name]; !slices.Equal(versions, wanted) {
 			t.Fatalf("%s = %v, want %v", name, versions, wanted)
 		}

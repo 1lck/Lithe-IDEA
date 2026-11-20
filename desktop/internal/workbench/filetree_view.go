@@ -60,7 +60,7 @@ func (a *App) projectTree(c ui.C, p *project) {
 	switch {
 	case t.failed != "":
 		ui.Column(c).Fill().Center().Gap(8).Children(func() {
-			ui.Paragraph(c, a.text.Project.Failed(t.failed), 3).TextCenter().Color(a.colors.Subtle)
+			ui.Paragraph(c, a.text.Project.Failed(t.failed), 3).FillWidth().TextCenter().Color(a.colors.Subtle)
 			if ui.Button(c, i18n.Shared(a.language(), "ui.retry")).Outline().Clicked() {
 				c.After(func() { a.retryProjectTree(p) })
 			}

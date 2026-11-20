@@ -542,7 +542,7 @@ func TestRuntimePreparationOwnsLanguageServerStartUntilCancelledProcessStops(t *
 	var startErr error
 	go func() {
 		defer close(startDone)
-		_, startErr = service.StartLanguageServer(work, []pluginmanager.Entry{entry}, "fixture", BackendRequest{Architecture: core.PluginArchitecture()})
+		_, startErr = service.StartLanguageServer(work, []pluginmanager.Entry{entry}, "fixture", BackendRequest{Architecture: core.PluginArchitecture(), ProjectCodeAllowed: true})
 	}()
 	t.Cleanup(func() { cancelWork(); release(); joinRuntimeWorker(t, startDone, "late language-server start") })
 	select {

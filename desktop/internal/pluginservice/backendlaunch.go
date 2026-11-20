@@ -64,6 +64,7 @@ func (s *Service) resolveBackendLaunch(ctx context.Context, pluginID, version st
 		Architecture:            start.Architecture,
 		Settings:                start.Settings,
 		ProjectSettings:         start.ProjectSettings,
+		ProjectCodeAllowed:      start.ProjectCodeAllowed,
 	}
 	plan, err := s.kernel.PlanPluginLanguageServer(ctx, manifest, languageID, request)
 	if err != nil {

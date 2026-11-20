@@ -1603,10 +1603,12 @@ func (a *App) openProjectHere(path string) {
 func (a *App) openProjectWithTrust(root string, trusted bool) {
 	a.requestCloseProject(func() {
 		a.reduceRecent(a.recent, core.RecordRecent(root, a.now()), true)
-		// Every Git command the project runs is kept in the Git console.
-		ctx, cancel := context.WithCancel(core.WithGitConsole(context.Background(), a.gitConsole, root))
-		p := &project{root: root, name: filepath.Base(root), ctx: ctx, cancel: cancel, commit: newCommitState()}
+		p := &project{root: root, name: filepath.Base(root), commit: newCommitState()}
 		p.trust.codeAllowed.Store(trusted)
+		// Every Git command the project runs is kept in the Git console, and in safe mode Core
+		// runs none: the repository's configuration can name programs Git runs (#2208).
+		ctx := core.WithProjectCodeAllowed(core.WithGitConsole(context.Background(), a.gitConsole, root), p.trust.allowed)
+		p.ctx, p.cancel = context.WithCancel(ctx)
 		a.searchView.reset()
 		a.openTerminals(p)
 		a.project = p

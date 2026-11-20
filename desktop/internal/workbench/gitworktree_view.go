@@ -151,8 +151,8 @@ func (a *App) drawWorktreeStale(c ui.C, p *project, stale int) {
 // drawWorktreeEmpty declares a message with its hint that stands for an empty pane.
 func (a *App) drawWorktreeEmpty(c ui.C, title, hint string) {
 	ui.Column(c).Fill().Center().Gap(6).PadX(shellContentPad).Children(func() {
-		ui.Paragraph(c, title, 2).TextCenter().Weight(gfx.WeightMedium)
-		ui.Paragraph(c, hint, 4).TextCenter().FontSize(a.theme.Metrics.FontSizeS).Color(a.colors.Subtle)
+		ui.Paragraph(c, title, 2).FillWidth().TextCenter().Weight(gfx.WeightMedium)
+		ui.Paragraph(c, hint, 4).FillWidth().TextCenter().FontSize(a.theme.Metrics.FontSizeS).Color(a.colors.Subtle)
 	})
 }
 

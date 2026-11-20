@@ -184,6 +184,94 @@ func TestSafeModeKeepsProjectCodeFromRunningUntilTrusted(t *testing.T) {
 	}
 }
 
+// In safe mode no Git process runs, since the repository's configuration can name programs Git
+// runs: the Commit window says so in place of the changes, the repository's metadata is not
+// watched, and trusting the project from the window loads the changes (#2208).
+func TestSafeModeRunsNoGitUntilTrusted(t *testing.T) {
+	dir := newTestRepository(t)
+	h := newHarness(t, &gitKernel{Client: core.NewClient()})
+	h.app.trustEveryWorkspace = false
+	language := h.app.language()
+
+	openAsking(t, h, dir)
+	h.clickShared("desktop.trust.previewSafeMode")
+	p := awaitOpened(t, h, dir)
+	h.click(center(h.button(itemCommit)))
+	h.settle()
+	if !p.git.safeMode || p.git.isRepository() || p.git.err != nil {
+		t.Fatalf("safe mode read the repository: %+v", p.git)
+	}
+	if !h.showsWrapped(i18n.Shared(language, "desktop.trust.gitSafeMode")) || h.shows("changed.txt") {
+		t.Fatal("the Commit window does not say safe mode runs no Git, or lists the changes")
+	}
+	if p.observe.metadata != nil || p.observe.watches != nil {
+		t.Fatal("safe mode watches the repository's metadata")
+	}
+
+	h.clickShared("desktop.trust.bannerLink")
+	awaitStateWithin(t, h, 10*time.Second, "the trust question", func() bool { return len(h.app.prompts.queue) == 1 })
+	h.settle()
+	h.clickShared("desktop.trust.trustProject")
+	awaitStateWithin(t, h, 10*time.Second, "the changes to load", func() bool { return p.git.isRepository() })
+	h.settle()
+	if p.git.safeMode || !h.shows("changed.txt") || h.showsWrapped(i18n.Shared(language, "desktop.trust.gitSafeMode")) {
+		t.Fatal("trusting the project did not list the changes")
+	}
+	awaitStateWithin(t, h, 10*time.Second, "the metadata watch", func() bool { return p.observe.metadata != nil })
+
+	// Withdrawing the trust stops Git again: the status and the watch of the metadata.
+	h.app.applyProjectTrust(p, false)
+	h.settle()
+	if !p.git.safeMode || p.observe.metadata != nil || p.observe.watches != nil {
+		t.Fatalf("withdrawn trust kept Git running: git %+v, watching %v", p.git, p.observe.watches)
+	}
+	if !h.showsWrapped(i18n.Shared(language, "desktop.trust.gitSafeMode")) || h.shows("changed.txt") {
+		t.Fatal("the Commit window still lists the changes of an untrusted project")
+	}
+}
+
+// In safe mode Core refuses to start a language server that does not declare it runs no project
+// code; the host keeps the refusal as safe mode, not as a failure, and trusting the project
+// starts the server again (#2208).
+func TestSafeModeStartsNoLanguageServerUntilTrusted(t *testing.T) {
+	kernel := &testKernel{Client: core.NewClient()}
+	h := newHarness(t, kernel)
+	h.app.plugins = settingsFixturePlugins(t, kernel)
+	h.open(t.TempDir())
+	p := h.app.project
+	p.trust.codeAllowed.Store(false)
+
+	failure := func() *failedPluginServer {
+		h.app.pluginServerMu.Lock()
+		defer h.app.pluginServerMu.Unlock()
+		if h.app.pluginServerStarting["fixture"] {
+			return nil
+		}
+		return h.app.pluginServerFailed["fixture"]
+	}
+	h.app.startPluginServer("fixture")
+	awaitStateWithin(t, h, 10*time.Second, "the refused start", func() bool { return failure() != nil })
+	refused := failure()
+	if !refused.untrusted || refused.message != i18n.Shared(h.app.language(), "desktop.trust.lspSafeMode") {
+		t.Fatalf("refused start = %+v, want safe mode", refused)
+	}
+	if len(h.app.notifications.list) != 0 {
+		t.Fatalf("safe mode notified %+v", h.app.notifications.list)
+	}
+
+	// The fixture's command may not run here; what matters is that Core no longer refuses it.
+	h.app.applyProjectTrust(p, true)
+	awaitStateWithin(t, h, 10*time.Second, "the start after trust", func() bool {
+		h.app.pluginServerMu.Lock()
+		defer h.app.pluginServerMu.Unlock()
+		return !h.app.pluginServerStarting["fixture"] && (h.app.pluginServerFailed["fixture"] != nil || h.app.pluginServerLanguages["fixture"] != "")
+	})
+	if failed := failure(); failed != nil && failed.untrusted {
+		t.Fatalf("the start after trust = %+v, still safe mode", failed)
+	}
+	h.app.stopAllPluginServers()
+}
+
 func TestTrustFolderLabelShortensHomeAndLongPaths(t *testing.T) {
 	home := filepath.Join(string(filepath.Separator)+"Users", "ann")
 	// Core returns a slash-separated location even on Windows.

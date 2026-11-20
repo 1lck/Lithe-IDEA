@@ -49,6 +49,10 @@ type gitExecution struct {
 	// Source is the request's provenance: "background" for an automatic refresh, whose
 	// queries Core keeps silent unless QueryCategory names them; empty for unknown.
 	Source string `json:"source,omitempty"`
+	// ProjectCodeAllowed is false for a request of a workspace the user has not trusted
+	// (WithProjectCodeAllowed): Core starts no Git process for it and answers
+	// CodeGitUntrustedWorkspace. Nil keeps Core's default, which allows Git.
+	ProjectCodeAllowed *bool `json:"projectCodeAllowed,omitempty"`
 }
 
 // responseEnvelope is the response the kernel encodes (CoreResponse in the Rust protocol).
