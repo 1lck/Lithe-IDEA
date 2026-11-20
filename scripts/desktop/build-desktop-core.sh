@@ -293,7 +293,8 @@ PINNED_CORE_REPOSITORY="https://github.com/Lithe-IDEA/Lithe-core-rust.git"
 # Lithe-core-rust main at d630938 (#130 squash-merged): companion marketplace recommendations
 # contract, resolveSource.recommendationsURL, and plugins.marketplace.recommendForWorkspace (#2228).
 # Core #132, merged into main: reviewed-tip force deletion and first-primary-click selection.
-PINNED_CORE_REVISION="4ef9d9e0ad1c28d195242d9e8986da151bcc50c2"
+# Core #133 on top of #132: commandInstallers 1 pinned archive downloads (API-23).
+PINNED_CORE_REVISION="f9af83e6a827fb87464b9e7228c187fe516982b6"
 PROFILE="debug"
 while [[ $# -gt 0 ]]; do
     case "$1" in

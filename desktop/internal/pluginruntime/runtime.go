@@ -30,6 +30,9 @@ var (
 	ErrArtifact = errors.New("managed runtime artifact is not usable")
 	ErrArchive  = errors.New("managed runtime archive is not safe to extract")
 	ErrBusy     = errors.New("managed runtime preparation is busy")
+	// ErrDownload means no URL of the artifact delivered its archive; it wraps the last
+	// URL's failure, such as marketplace.ErrArchiveChecksum for bytes that do not match.
+	ErrDownload = errors.New("managed runtime archive could not be downloaded")
 )
 
 // Artifact is the selected platform artifact returned by Core. All paths are

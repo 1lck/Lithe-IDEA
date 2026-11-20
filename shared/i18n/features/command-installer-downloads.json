@@ -1,0 +1,93 @@
+{
+  "schemaVersion": 1,
+  "messages": [
+    {
+      "id": "desktop.plugins.commandInstallDownloadPrompt",
+      "description": "First line of the install dialog for an installer that downloads a pinned archive; commands are the commands it provides, version the pinned version",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "commands": "string",
+        "version": "string"
+      }
+    },
+    {
+      "id": "desktop.plugins.commandInstallDownloadNetwork",
+      "description": "Note in the install dialog of a download installer: the archive is checked against the pinned digest before it is extracted",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.plugins.commandInstallSource",
+      "description": "Heading of the download address and digest in the install dialog of a download installer",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.plugins.commandInstallMirror",
+      "description": "Label before one fallback address of the archive in the install dialog; the address follows in a monospaced font",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.plugins.commandInstallDigest",
+      "description": "Label before the SHA-256 digest the downloaded archive must have in the install dialog; the hexadecimal digest follows in a monospaced font",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.plugins.commandInstallDownloadFailed",
+      "description": "Install dialog when the archive could not be downloaded from any address; reason is the underlying error, not translated",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "reason": "string"
+      }
+    },
+    {
+      "id": "desktop.plugins.commandInstallChecksumMismatch",
+      "description": "Install dialog when the downloaded archive's SHA-256 differs from the pinned one",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.plugins.commandInstallArchiveInvalid",
+      "description": "Install dialog when the downloaded archive could not be extracted safely; reason is the underlying error, not translated",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "reason": "string"
+      }
+    }
+  ],
+  "locales": {
+    "en-US": {
+      "desktop.plugins.commandInstallDownloadPrompt": "{commands} {version} will be downloaded and extracted.",
+      "desktop.plugins.commandInstallDownloadNetwork": "The archive is downloaded from the address below and installed only if its SHA-256 matches the one the plugin pins.",
+      "desktop.plugins.commandInstallSource": "Download from",
+      "desktop.plugins.commandInstallMirror": "Mirror",
+      "desktop.plugins.commandInstallDigest": "SHA-256",
+      "desktop.plugins.commandInstallDownloadFailed": "Could not download the archive: {reason}",
+      "desktop.plugins.commandInstallChecksumMismatch": "The downloaded archive does not match the SHA-256 the plugin pins. It was discarded without being installed.",
+      "desktop.plugins.commandInstallArchiveInvalid": "Could not extract the archive: {reason}"
+    },
+    "zh-CN": {
+      "desktop.plugins.commandInstallDownloadPrompt": "将下载并解压 {commands} {version}。",
+      "desktop.plugins.commandInstallDownloadNetwork": "将从下面的地址下载压缩包，SHA-256 与插件固定的值一致才会安装。",
+      "desktop.plugins.commandInstallSource": "下载地址",
+      "desktop.plugins.commandInstallMirror": "镜像",
+      "desktop.plugins.commandInstallDigest": "SHA-256",
+      "desktop.plugins.commandInstallDownloadFailed": "无法下载压缩包：{reason}",
+      "desktop.plugins.commandInstallChecksumMismatch": "下载的压缩包与插件固定的 SHA-256 不一致，已丢弃，没有安装。",
+      "desktop.plugins.commandInstallArchiveInvalid": "无法解压压缩包：{reason}"
+    }
+  }
+}

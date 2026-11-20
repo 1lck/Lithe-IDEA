@@ -3,6 +3,7 @@ package pluginruntime
 import (
 	"context"
 	"errors"
+	"fmt"
 	"io"
 	"net/http"
 	"sort"
@@ -68,7 +69,7 @@ func (m *Manager) downloadArchive(ctx context.Context, artifact Artifact, progre
 			return nil, nil, ctx.Err()
 		}
 	}
-	return nil, nil, lastErr
+	return nil, nil, fmt.Errorf("%w: %w", ErrDownload, lastErr)
 }
 
 func (m *Manager) downloadFromMirror(ctx context.Context, artifact Artifact, location string, allowSpeedFailover bool, progress func(Progress)) (*marketplace.DownloadedArchive, func() error, error) {

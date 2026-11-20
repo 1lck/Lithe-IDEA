@@ -291,15 +291,17 @@ type CommandInstaller interface {
 	// the launches look them up. A plugin whose commands are all found has none.
 	Missing(ctx context.Context, pluginID string) ([]MissingCommand, error)
 	// Offer prepares what the install dialog shows for one installer: the tool that runs, and
-	// each target's command line and directory. It installs nothing; it may run the tool's
-	// directory probes, which only print where the tool installs.
+	// each target's command line and directory, or the archive a download installer fetches.
+	// It installs nothing; it may run the tool's directory probes, which only print where the
+	// tool installs.
 	Offer(ctx context.Context, pluginID, installerID string) (CommandInstallOffer, error)
-	// Install runs the installer for the target the user chose, handing each line the tool
-	// prints to output as it arrives, and returns the directory its commands are in once they
-	// are found there. Cancelling ctx stops the tool. A failed installation is a
-	// *pluginhost.CommandInstallError when the tool ran, and a *toolchain.UnavailableError
-	// from Offer or Install when the tool is not found.
-	Install(ctx context.Context, pluginID, installerID, target string, output func(string)) (string, error)
+	// Install runs the installer for the target the user chose and returns the directory its
+	// commands are in once they are found there. A tool hands each line it prints to output as
+	// it arrives; a download reports its phases to progress, from any goroutine. Cancelling
+	// ctx stops the tool or the transfer. A failed installation is a
+	// *pluginhost.CommandInstallError when the tool ran or the download failed, and a
+	// *toolchain.UnavailableError from Offer or Install when the tool is not found.
+	Install(ctx context.Context, pluginID, installerID, target string, output func(string), progress func(pluginruntime.Progress)) (string, error)
 }
 
 // MissingCommand is one launch of a plugin none of whose commands the host finds.
@@ -312,7 +314,8 @@ type MissingCommand struct {
 	// Installer is the ID of the installer that provides them, or "" when the plugin declares
 	// none and the user has to install them another way.
 	Installer string
-	// Tool is the display name of the tool the installer runs; empty without an installer.
+	// Tool is the display name of the tool the installer runs; empty without an installer and
+	// for a download installer, which runs no tool.
 	Tool string
 }
 
@@ -321,14 +324,29 @@ type CommandInstallOffer struct {
 	Installer string
 	// Commands are the commands the installation provides.
 	Commands []string
-	// Tool is the tool definition that runs it, and Executable the program resolved for it.
+	// Tool is the tool definition that runs it, and Executable the program resolved for it;
+	// both empty for a download.
 	Tool, Executable string
+	// Download is the archive a download installer fetches; nil for a tool installer.
+	Download *CommandInstallDownload
 	// MayUseNetwork says the installation may download.
 	MayUseNetwork bool
 	// Timeout is how long the installation may run.
 	Timeout time.Duration
-	// Targets are the places the user may install into, managed first.
+	// Targets are the places the user may install into, managed first. A download has only
+	// managed, without a command line.
 	Targets []CommandInstallTarget
+}
+
+// CommandInstallDownload is the archive a download installer fetches for this host.
+type CommandInstallDownload struct {
+	// Version is the pinned upstream version.
+	Version string
+	// URL is where the archive is fetched from, and Mirrors the fallbacks for the same bytes.
+	URL     string
+	Mirrors []string
+	// SHA256 is the digest the archive must have; anything else is discarded unextracted.
+	SHA256 string
 }
 
 // CommandInstallTarget is one place an installation can put its commands.

@@ -58,7 +58,10 @@ type commandRecord struct {
 // (pluginpkg.RemoveState):
 //
 //   - commands/<installer ID>/ is the install directory of a managed
-//     installation; the tool writes into it, the host creates it.
+//     installation; the tool writes into it, the host creates it. A download
+//     installer keeps its verified archive and the extraction below it in
+//     <cache key>/, pluginruntime.Manager's layout; after an installation
+//     records a new key, the host removes the others.
 //   - commands.json records each installation's target and command directory,
 //     so a toolDefault installation that landed in the tool's own directory
 //     (such as GOPATH/bin) is found by later launches as well.
@@ -247,6 +250,15 @@ const (
 	// CommandInstallCommandsMissingCode: the installation finished but a command it provides
 	// is not in its directory.
 	CommandInstallCommandsMissingCode = "plugin.commandInstaller.commandsMissing"
+	// CommandInstallDownloadFailedCode: no URL of a download installation delivered its
+	// archive.
+	CommandInstallDownloadFailedCode = "plugin.commandInstaller.downloadFailed"
+	// CommandInstallChecksumMismatchCode: a download installation's archive does not have its
+	// pinned SHA-256.
+	CommandInstallChecksumMismatchCode = "plugin.commandInstaller.checksumMismatch"
+	// CommandInstallArchiveInvalidCode: a download installation's archive is not a zip or
+	// tar.gz whose entries extract safely below its strip prefix.
+	CommandInstallArchiveInvalidCode = "plugin.commandInstaller.archiveInvalid"
 )
 
 // CommandInstallError is an installation that ran and did not provide its commands. Plugin
@@ -263,6 +275,9 @@ type CommandInstallError struct {
 	// CommandInstallCommandsMissingCode.
 	Commands  []string
 	Directory string
+	// Err is what went wrong, for the download codes; it is the host's own diagnostic and
+	// not shown translated.
+	Err error
 }
 
 func (e *CommandInstallError) Error() string {
@@ -273,6 +288,12 @@ func (e *CommandInstallError) Error() string {
 		return fmt.Sprintf("%s: the installation ran past %s", e.Code, e.Timeout)
 	case CommandInstallCommandsMissingCode:
 		return fmt.Sprintf("%s: %s not in %s", e.Code, strings.Join(e.Commands, ", "), e.Directory)
+	case CommandInstallDownloadFailedCode, CommandInstallChecksumMismatchCode, CommandInstallArchiveInvalidCode:
+		if e.Err != nil {
+			return fmt.Sprintf("%s: %v", e.Code, e.Err)
+		}
 	}
 	return e.Code
 }
+
+func (e *CommandInstallError) Unwrap() error { return e.Err }
