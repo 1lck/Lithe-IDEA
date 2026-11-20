@@ -292,9 +292,8 @@ PINNED_CORE_REPOSITORY="https://github.com/Lithe-IDEA/Lithe-core-rust.git"
 # CLI launch policy, isolated document command policy and opt-in shell registration from Core #129.
 # Lithe-core-rust main at d630938 (#130 squash-merged): companion marketplace recommendations
 # contract, resolveSource.recommendationsURL, and plugins.marketplace.recommendForWorkspace (#2228).
-# Draft integration pin for Core #132: reviewed-tip force deletion and first-primary-click
-# selection. Before merging this desktop PR, replace with the Core #132 main merge commit.
-PINNED_CORE_REVISION="c6296fa201f36e29b9fc51dd1d7fb7054f5ad635"
+# Core #132, merged into main: reviewed-tip force deletion and first-primary-click selection.
+PINNED_CORE_REVISION="4ef9d9e0ad1c28d195242d9e8986da151bcc50c2"
 PROFILE="debug"
 while [[ $# -gt 0 ]]; do
     case "$1" in
