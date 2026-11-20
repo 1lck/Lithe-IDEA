@@ -565,6 +565,7 @@ func (w *window) generalPage(c ui.C) {
 	w.themePick = w.sess.values.Theme
 	w.languagePick = languageCode(languageIndex(w.sess.values.Language))
 	w.pageScroll(c, pageGeneral, func() {
+		w.cliCard(c)
 		w.card(c, settings.Appearance, settings.AppearanceHelp, func() {
 			choice := func() {
 				ui.Choice(c, &w.themePick, themeValues[:], w.themeLabel).Width(420).Shrink(1).MinWidth(0).Label(settings.AppearanceMode)

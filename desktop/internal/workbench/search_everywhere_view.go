@@ -33,6 +33,9 @@ func (a *App) everywherePopup(c ui.C) {
 	}
 	s := &p.everywhere
 	scope := v.effectiveScope()
+	if p.standalone {
+		scope = everywhereScopeActions
+	}
 	a.updateEverywhere(p, v.query.Text(), scope)
 	if v.focus {
 		c.Canvas().RequestFocus(everywhereQueryID)
@@ -56,7 +59,11 @@ func (a *App) everywherePopup(c ui.C) {
 		Width: width, Offset: 1, Align: ui.Start, KeepOpenOnAnchor: true,
 	}, &v.open, func() {
 		ui.Column(c).FillWidth().Height(height).Gap(8).Children(func() {
-			a.everywhereScopes(c, p, language)
+			if p.standalone {
+				ui.Text(c, i18n.Shared(language, "desktop.everywhere.actions")).Bold()
+			} else {
+				a.everywhereScopes(c, p, language)
+			}
 			field := ui.TextFieldID(c, everywhereQueryID, &v.query, i18n.Shared(language, "desktop.everywhere.title"),
 				i18n.Shared(language, "native.typeToSeeCommands")).
 				Icon(icons.Search).Action(icons.X, i18n.Shared(language, "native.clearSearch"))
@@ -504,7 +511,7 @@ func (a *App) everywhereKey(p *project, event gfx.KeyEvent) gfx.EventResult {
 		}
 	}
 	v := &a.everywhereView
-	if event.Key == gfx.KeyTab && (event.Modifiers == 0 || event.Modifiers == gfx.ModifierShift) {
+	if !p.standalone && event.Key == gfx.KeyTab && (event.Modifiers == 0 || event.Modifiers == gfx.ModifierShift) {
 		step := 1
 		if event.Modifiers == gfx.ModifierShift {
 			step = -1
@@ -516,7 +523,7 @@ func (a *App) everywhereKey(p *project, event gfx.KeyEvent) gfx.EventResult {
 	if event.Modifiers != 0 {
 		return gfx.EventResult{}
 	}
-	if v.effectiveScope() == everywhereScopeActions {
+	if p.standalone || v.effectiveScope() == everywhereScopeActions {
 		switch event.Key {
 		case gfx.KeyUp:
 			v.actionSelected = max(0, v.actionSelected-1)

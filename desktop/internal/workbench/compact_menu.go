@@ -73,10 +73,15 @@ func (a *App) compactMenu(c ui.C, anchor ui.Box) {
 	commands := a.commands()
 	ui.Menu(c, anchor, &open, func(menu *ui.MenuItems) {
 		menu.WidthRange(220, 320)
-		for i, group := range compactMenuGroups(a.text.Commands) {
-			if i > 0 {
+		shown := 0
+		for _, group := range compactMenuGroups(a.text.Commands) {
+			if len(compactMenuItems(commands, group.groups)) == 0 {
+				continue
+			}
+			if shown > 0 {
 				menu.Separator()
 			}
+			shown++
 			menu.Sub(group.title(a.text.Commands), func(sub *ui.MenuItems) {
 				for _, cmd := range compactMenuItems(commands, group.groups) {
 					item := sub.Item(cmd.title).Disabled(!cmd.enabled)

@@ -52,6 +52,7 @@ import (
 // the calls that read the disk or run Git, so a screen can be checked against answers the
 // test chooses.
 type Kernel interface {
+	CLIOpenTarget(context.Context, string) (core.CLITarget, error)
 	ReadSourceSettings(context.Context, json.RawMessage) (core.SourceSettingsState, error)
 	PlanSourceSettingsEdits(context.Context, core.SourceSettingsSnapshot, []core.SourceSettingsEdits, bool) ([]core.SourceSettingsWrite, error)
 	DecodeSourceSettingsReceipt(context.Context, core.SourceSettingsWrite, json.RawMessage) (core.SourceSettingsReceipt, error)
@@ -251,6 +252,8 @@ type Options struct {
 	// OpenPath is a project folder the window opens when it starts; a window launched to show a
 	// worktree in a new window gets it from the command line.
 	OpenPath string
+	// OpenFile creates an isolated document session, before any plugin service exists.
+	OpenFile string
 	// Languages are the system's preferred languages, most preferred first; nil asks
 	// the system.
 	Languages []string
@@ -444,6 +447,8 @@ const (
 // keeps the pointer it started for and its result is dropped once a.project is a
 // different one (see App.background).
 type project struct {
+	// standalone owns documents and opt-in terminals; root is a location, never a workspace.
+	standalone bool
 	// root is the absolute, cleaned path of the project folder.
 	root string
 	// pluginContext belongs to this open project, not to any background consumer.
@@ -579,8 +584,11 @@ type App struct {
 	kernel                Kernel
 	store                 *store.Store
 	// startupPath is the project folder the window opens once it exists (Options.OpenPath).
-	startupPath string
-	now         func() time.Time
+	startupPath      string
+	startupFile      string
+	documentOnly     bool
+	documentCommands map[string]bool
+	now              func() time.Time
 	// invalidator asks the window for a repaint. Every workbench of the window shares the one
 	// the window was opened with (window_sessions.go).
 	invalidator windowWake
@@ -846,6 +854,8 @@ func New(options Options) *App {
 		documentReader:       readDocument,
 		store:                options.Store,
 		startupPath:          options.OpenPath,
+		startupFile:          options.OpenFile,
+		documentOnly:         options.OpenFile != "",
 		now:                  now,
 		systemLanguage:       i18n.Detect(languages),
 		chrome:               newChromeState(),
@@ -856,6 +866,17 @@ func New(options Options) *App {
 		delays:               defaultLogDelays,
 		aiKernel:             options.AIKernel,
 		listShells:           localshell.InstalledShells,
+	}
+	if a.documentOnly {
+		a.aiKernel = nil
+		policy, err := a.kernel.CLIOpenTarget(context.Background(), "file")
+		a.documentCommands = make(map[string]bool, len(policy.Commands))
+		for _, id := range policy.Commands {
+			a.documentCommands[id] = true
+		}
+		if err != nil {
+			a.backgroundFailed("single_file_policy", err)
+		}
 	}
 	a.gitConsole = core.NewGitConsole(a.gitConsoleChanged)
 	// The settings are read before the log sink is in place; a failure is recorded below, once
@@ -939,9 +960,13 @@ func New(options Options) *App {
 		a.backgroundFailed("update_snapshot", restoreErr)
 	}
 	a.loadSearchPreferences()
-	a.openPlugins(options)
+	if !a.documentOnly {
+		a.openPlugins(options)
+	}
 	a.settingsWindow = a.newSettingsWindow()
-	a.loadRecent()
+	if !a.documentOnly {
+		a.loadRecent()
+	}
 	a.loadChrome()
 	if options.first == nil && a.store != nil {
 		a.restoreBackground()
@@ -1028,15 +1053,23 @@ func (a *App) Run() error {
 			a.startupPath = ""
 			a.post(func(a *App) { a.openProject(path) })
 		}
+		if path := a.startupFile; path != "" {
+			a.startupFile = ""
+			a.post(func(a *App) { a.openStandaloneFile(path) })
+		}
 		// The plugin stack is assembled before the window exists, because opening a
 		// window is what installs the invalidator its background work needs.
 		a.reloadPluginLanguages()
-		a.loadGitHubAccount()
+		if !a.documentOnly {
+			a.loadGitHubAccount()
+		}
 		// Core's stop time applies to every process stopped from now on, and Core decides what an
 		// earlier run left behind; both need the window, which delivers their answers.
-		a.refreshStopGrace()
-		a.refreshConsoleEncodings()
-		a.planStartupSweep()
+		if !a.documentOnly {
+			a.refreshStopGrace()
+			a.refreshConsoleEncodings()
+			a.planStartupSweep()
+		}
 		// Development builds mark the Dock icon without changing the product name in the UI.
 		if buildinfo.Development {
 			application.SetDockBadge(a.text.App.DevBadge)

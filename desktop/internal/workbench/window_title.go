@@ -22,6 +22,12 @@ func (a *App) windowTitle() string {
 	if p == nil {
 		return a.text.App.Name
 	}
+	if p.standalone {
+		if d := a.selectedEditorDocument(); d != nil {
+			return d.name + windowTitleSeparator + a.text.App.Name
+		}
+		return a.text.App.Name
+	}
 	title := a.projectDisplayName(p)
 	if runtime.GOOS == "darwin" {
 		return title

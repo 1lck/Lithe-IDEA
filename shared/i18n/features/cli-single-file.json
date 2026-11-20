@@ -1,0 +1,194 @@
+{
+  "schemaVersion": 1,
+  "messages": [
+    {
+      "id": "desktop.cli.title",
+      "description": "CLI registration and standalone editor: title",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.cli.help",
+      "description": "CLI registration and standalone editor: help",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.cli.notRegistered",
+      "description": "CLI registration and standalone editor: notRegistered",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.cli.registered",
+      "description": "CLI registration and standalone editor: registered",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.cli.register",
+      "description": "CLI registration and standalone editor: register",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.cli.remove",
+      "description": "CLI registration and standalone editor: remove",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.cli.refresh",
+      "description": "CLI registration and standalone editor: refresh",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.cli.source",
+      "description": "CLI registration and standalone editor: source",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "target": "string"
+      }
+    },
+    {
+      "id": "desktop.cli.reopenTerminal",
+      "description": "CLI registration and standalone editor: reopenTerminal",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.cli.failed",
+      "description": "CLI registration and standalone editor: failed",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.cli.unsupportedShell",
+      "description": "CLI registration and standalone editor: unsupportedShell",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.cli.launcherConflict",
+      "description": "CLI registration and standalone editor: launcherConflict",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.cli.conflict",
+      "description": "CLI registration and standalone editor: conflict",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.singleFile.mode",
+      "description": "CLI registration and standalone editor: mode",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.singleFile.help",
+      "description": "CLI registration and standalone editor: help",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.singleFile.openFolder",
+      "description": "CLI registration and standalone editor: openFolder",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.singleFile.openFolderHelp",
+      "description": "CLI registration and standalone editor: openFolderHelp",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.singleFile.openFile",
+      "description": "CLI registration and standalone editor: openFile",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.cli.usage",
+      "description": "Command line help",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.cli.repair",
+      "description": "Repair the owned CLI launcher after moving the application",
+      "platforms": [
+        "desktop"
+      ]
+    }
+  ],
+  "locales": {
+    "en-US": {
+      "desktop.cli.title": "CLI",
+      "desktop.cli.help": "Register the lithe command for your default shell. This writes only the shown shell configuration or user PATH and a launcher in your user data. Registration is off by default. Use lithe <folder> to open a project, or lithe <file> for an editor with bundled highlighting and no plugins.",
+      "desktop.cli.notRegistered": "Not registered",
+      "desktop.cli.registered": "Registered",
+      "desktop.cli.register": "Register lithe command",
+      "desktop.cli.remove": "Remove registration",
+      "desktop.cli.refresh": "Refresh status",
+      "desktop.cli.source": "Configuration: {target}",
+      "desktop.cli.reopenTerminal": "Open a new terminal for the change to take effect.",
+      "desktop.cli.failed": "Could not update CLI registration. Check the configuration permissions and refresh to try again.",
+      "desktop.cli.unsupportedShell": "This default shell is not supported yet. Use zsh, bash, sh or fish, then refresh.",
+      "desktop.cli.launcherConflict": "Another command already exists at the launcher path. Move it aside, then refresh and register again.",
+      "desktop.cli.conflict": "The shell configuration changed. Refresh its status before applying again.",
+      "desktop.singleFile.mode": "Single File Mode",
+      "desktop.singleFile.help": "Bundled syntax highlighting and text editing, with an optional terminal. Project indexing, Git and all plugins remain inactive.",
+      "desktop.singleFile.openFolder": "Open Folder as Project",
+      "desktop.singleFile.openFolderHelp": "Open the containing folder in a new project window, where project services and enabled plugins become available.",
+      "desktop.singleFile.openFile": "Open File…",
+      "desktop.cli.usage": "Usage: lithe [--] [file-or-folder]\nlithe --help\nlithe --version\n\nA folder opens a project; a file opens in Single File Mode without plugins.",
+      "desktop.cli.repair": "Repair registration"
+    },
+    "zh-CN": {
+      "desktop.cli.title": "CLI",
+      "desktop.cli.help": "为默认 shell 注册 lithe 命令。此操作会修改下方显示的 shell 配置或用户 PATH，并在用户数据目录创建启动器。默认不注册。lithe <文件夹> 打开项目，lithe <文件> 打开仅使用内置高亮、不激活插件的编辑器。",
+      "desktop.cli.notRegistered": "未注册",
+      "desktop.cli.registered": "已注册",
+      "desktop.cli.register": "注册 lithe 命令",
+      "desktop.cli.remove": "移除注册",
+      "desktop.cli.refresh": "刷新状态",
+      "desktop.cli.source": "配置来源：{target}",
+      "desktop.cli.reopenTerminal": "重新打开终端后生效。",
+      "desktop.cli.failed": "无法读取或更新 CLI 注册。请检查配置文件权限，刷新状态后重试。",
+      "desktop.cli.unsupportedShell": "暂不支持当前默认 shell。请使用 zsh、bash、sh 或 fish，然后刷新状态。",
+      "desktop.cli.launcherConflict": "启动器位置已存在其他命令。请先移走该文件，再刷新并重新注册。",
+      "desktop.cli.conflict": "shell 配置已被修改。请刷新状态后重新操作。",
+      "desktop.singleFile.mode": "单文件模式",
+      "desktop.singleFile.help": "提供内置语法高亮和文本编辑，可按需打开终端。项目索引、Git 和所有插件保持关闭。",
+      "desktop.singleFile.openFolder": "以项目打开所在文件夹",
+      "desktop.singleFile.openFolderHelp": "在新项目窗口中打开所在文件夹，启用项目服务和已启用的插件。",
+      "desktop.singleFile.openFile": "打开文件…",
+      "desktop.cli.usage": "用法：lithe [--] [文件或文件夹]\nlithe --help\nlithe --version\n\n文件夹以项目打开；文件以不激活插件的单文件模式打开。",
+      "desktop.cli.repair": "修复注册"
+    }
+  }
+}

@@ -158,6 +158,9 @@ func (a *App) openEverywhere(p *project) {
 	}
 	a.everywhereView.open = true
 	a.everywhereView.scope = 0
+	if p.standalone {
+		a.everywhereView.scope = everywhereScopeActions
+	}
 	a.everywhereView.query.SetText("")
 	p.everywhere.selected = 0
 	a.focusEverywhere(p)
@@ -208,6 +211,9 @@ func (a *App) closeEverywhere(p *project) {
 
 func (a *App) updateEverywhere(p *project, query string, scope int) {
 	v, s := &a.everywhereView, &p.everywhere
+	if p.standalone {
+		scope = everywhereScopeActions
+	}
 	options := v.options(scope)
 	if s.query == query && s.scope == scope && s.options == options {
 		return

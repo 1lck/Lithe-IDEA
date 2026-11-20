@@ -3,6 +3,7 @@ package workbench
 import (
 	"context"
 
+	"github.com/1lck/Lithe-IDEA/desktop/internal/core"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/icons"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/localshell"
 	"github.com/vivaui/viva/ui"
@@ -62,6 +63,9 @@ func (a *App) shellMenuButton(c ui.C) {
 // Terminal setting's when shell is empty, and gives it the keyboard.
 func (a *App) openToolTerminal(shell string) {
 	if t := a.newTerminal(a.project, shell); t != nil {
+		if a.documentOnly {
+			a.reduceChrome(core.SetChromeOpen(itemTerminal, true))
+		}
 		a.focusTerminal(t.id)
 	}
 }

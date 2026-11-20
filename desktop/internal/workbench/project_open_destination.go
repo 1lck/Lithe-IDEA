@@ -21,6 +21,10 @@ import (
 // openProject opens the folder at path, asking first where to open it when the window
 // already has a project.
 func (a *App) openProject(path string) {
+	if a.documentOnly {
+		a.openProjectInNewWindow(path)
+		return
+	}
 	if a.missing[path] {
 		a.askRemoveUnavailableRecent(path)
 		return

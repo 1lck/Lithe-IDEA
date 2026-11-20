@@ -15,6 +15,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/1lck/Lithe-IDEA/desktop/internal/cli"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/core"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/fontprefs"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/i18n"
@@ -351,6 +352,8 @@ type SearchPreferencesSource interface {
 
 // Options configure the settings window.
 type Options struct {
+	CLI               *cli.Manager
+	CLIAction         func(string)
 	SearchPreferences SearchPreferencesSource
 	// PluginInstallsClosed releases downloads retained by the settings session.
 	PluginInstallsClosed func()

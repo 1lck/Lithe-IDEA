@@ -106,7 +106,7 @@ func (a *App) renamedLocalHistory(p *project, oldPath, newPath string, before []
 // when it is asked for.
 func (a *App) localHistoryJob(p *project, work func(ctx context.Context, kernel localHistoryKernel, root, storage string, policy core.HistoryPolicy) error) {
 	kernel, ok := a.kernel.(localHistoryKernel)
-	if !ok || p == nil {
+	if !ok || p == nil || p.standalone {
 		return
 	}
 	root, policy := p.root, a.settings.LocalHistory.Policy()
@@ -188,7 +188,7 @@ type localHistoryState struct {
 // openLocalHistory shows the snapshots of the file at path.
 func (a *App) openLocalHistory(p *project, path string) {
 	kernel, ok := a.kernel.(localHistoryKernel)
-	if !ok || p == nil {
+	if !ok || p == nil || p.standalone {
 		return
 	}
 	rel, inside := projectRelative(p.root, path)

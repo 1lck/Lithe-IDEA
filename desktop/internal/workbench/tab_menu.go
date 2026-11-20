@@ -83,13 +83,13 @@ func (a *App) tabMenuItems(c ui.C, group string, t shownTab, tabs []shownTab) fu
 			})
 		}
 		_, inside := projectRelative(p.root, path)
-		if _, ok := a.kernel.(localHistoryKernel); ok && inside && menu.Item(i18n.Shared(language, "desktop.history.show")).Clicked() {
+		if _, ok := a.kernel.(localHistoryKernel); ok && !p.standalone && inside && menu.Item(i18n.Shared(language, "desktop.history.show")).Clicked() {
 			c.After(func() {
 				a.performed("localHistory.show", surfaceContextMenu)
 				a.openLocalHistory(p, path)
 			})
 		}
-		if inside && menu.Item(i18n.Shared(language, "desktop.tab.selectInProject")).Clicked() {
+		if !p.standalone && inside && menu.Item(i18n.Shared(language, "desktop.tab.selectInProject")).Clicked() {
 			c.After(func() {
 				a.performed("editor.tabs.selectInProject", surfaceContextMenu)
 				a.selectDocument(p, d.id)

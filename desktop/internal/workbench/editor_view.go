@@ -80,10 +80,10 @@ func (a *App) editorGroup(c ui.C, id string) ui.Box {
 			// The tabs fill the strip and give up their room before the buttons do, so they
 			// stay at the end of the strip's first row however many files are open.
 			a.tabBar(c, place, layout, func() {
-				if isMarkdownDocument(doc) {
+				if !p.standalone && isMarkdownDocument(doc) {
 					a.markdownContentsButton(c, p, doc)
 					a.pageModeSwitch(c, doc)
-				} else if (isSVGDocument(doc) && a.previewWeb()) || a.htmlPreviewable(doc) {
+				} else if !p.standalone && ((isSVGDocument(doc) && a.previewWeb()) || a.htmlPreviewable(doc)) {
 					a.pageModeSwitch(c, doc)
 				}
 				if doc != nil {
@@ -110,6 +110,10 @@ func (a *App) editorGroup(c ui.C, id string) ui.Box {
 // with its rendered page, an SVG file with its picture, an HTML file with its page), of the Diff
 // tab, of the viewer tab, the LSP Logs tab or the terminal.
 func (a *App) groupBody(c ui.C, id string, doc *document) {
+	if a.project.standalone && doc != nil {
+		a.documentView(c, id, doc)
+		return
+	}
 	if isMarkdownDocument(doc) {
 		a.markdownDocument(c, a.project, id, doc)
 		return

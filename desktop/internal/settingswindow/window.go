@@ -75,6 +75,7 @@ const (
 // window is one open settings window and the model of its Page. Everything in it runs on
 // its window thread, but for the fields that say so.
 type window struct {
+	cli              cliRegistration
 	searchDraft      searchPreferencesDraft
 	editorDelay      ui.Field
 	editorDelayReady bool
@@ -511,6 +512,7 @@ func (w *window) reportMarket(previous marketStatus) {
 // of the declaration, so a request made while the page was declared starts in the same
 // paint, and in every paint, so leaving a page does not cancel what it asked for.
 func (w *window) declareWork(c ui.C) {
+	w.declareCLI(c)
 	if d := &w.searchDraft; d.effect != nil && d.work != nil {
 		ui.Effect(c, d.effect, d.work)
 	}

@@ -41,7 +41,7 @@ type recentFileState struct {
 
 func recentFilesName(root string) string { return "editor-recent-" + draftstore.Key(root) + ".json" }
 func (a *App) noteRecentFile(p *project, d *document, kind string) {
-	if d.virtual || d.scratch {
+	if p.standalone || d.virtual || d.scratch {
 		return
 	}
 	relative, inside := projectRelative(p.root, d.path)

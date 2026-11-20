@@ -7,6 +7,7 @@ import (
 	"runtime"
 
 	"github.com/1lck/Lithe-IDEA/desktop/internal/buildinfo"
+	"github.com/1lck/Lithe-IDEA/desktop/internal/cli"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/core"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/fontprefs"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/i18n"
@@ -31,6 +32,8 @@ func (a *App) newSettingsWindow() *settingswindow.Controller {
 		navigation = kernel.SettingsNavigation
 	}
 	return settingswindow.NewController(settingswindow.Options{
+		CLI:               cli.New(),
+		CLIAction:         func(action string) { a.post(func(a *App) { a.performed("settings.cli."+action, surfaceButton) }) },
 		SearchPreferences: appSearchPreferences{app: a},
 		PluginInstallsClosed: func() {
 			a.post(func(a *App) { a.closePluginDownloads() })
@@ -53,6 +56,9 @@ func (a *App) newSettingsWindow() *settingswindow.Controller {
 			a.post(func(a *App) { a.restartSettingsPlugin(id, version, scope, workspace) })
 		},
 		MarketplaceInstalled: func(ctx context.Context) (marketplace.Snapshot, error) {
+			if a.plugins == nil {
+				return marketplace.Snapshot{}, nil
+			}
 			plugins, err := a.plugins.SettingsCatalog(ctx)
 			if err != nil {
 				if plugins == nil {

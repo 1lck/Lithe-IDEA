@@ -87,11 +87,14 @@ func (a *App) commands() []command {
 	add("language.zh", t.GroupView, t.LanguageChinese, "", a.settings.Language != "zh-Hans", func() { a.setLanguage("zh-Hans") })
 	add("editor.vimMode", t.GroupEditor, t.ToggleVim, "", true, func() { a.setVimMode(!a.settings.VimMode) })
 
+	if a.documentOnly {
+		add("document.open", t.GroupEditor, i18n.Shared(a.language(), "desktop.singleFile.openFile"), "", true, a.chooseStandaloneFile)
+	}
 	addFrom("project.open", t.GroupProject, t.OpenProject, true, a.chooseProject)
 	addFrom("project.new", t.GroupProject, t.NewProject, true, a.openNewProject)
 	addFrom("project.clone", t.GroupProject, t.Clone, true, a.openClone)
 	if p == nil {
-		return sortCommands(list)
+		return a.sessionCommands(sortCommands(list))
 	}
 	add("editor.newScratch", t.GroupEditor, a.text.Commands.NewScratch, "", true, func() { a.newScratch(p) })
 	add("editor.scratchFiles", t.GroupEditor, a.text.Commands.ScratchFiles, "", true, a.openScratchList)
@@ -167,6 +170,10 @@ func (a *App) commands() []command {
 		id := it.id
 		open := a.chrome.isOpen(index)
 		add(toolCommandPrefix+id, t.GroupToolWindows, t.ShowTool(it.label(a.text)), "", !open, func() {
+			if a.documentOnly && id == itemTerminal {
+				a.toggleStandaloneTerminal()
+				return
+			}
 			a.reduceChrome(core.SetChromeOpen(id, true))
 		})
 	}
@@ -208,7 +215,7 @@ func (a *App) commands() []command {
 	add("debug.toggleBreakpoint", t.GroupRun, t.ToggleBreakpoint, "", true, func() { a.toggleBreakpoint(p) })
 
 	add("terminal.new", t.GroupTerminal, t.NewTerminal, "", true, func() { a.openToolTerminal("") })
-	return sortCommands(list)
+	return a.sessionCommands(sortCommands(list))
 }
 
 // sortCommands orders the catalog by group, then title, so the list reads the

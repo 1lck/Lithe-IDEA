@@ -68,6 +68,8 @@ macOS 的本地手动打包可用 `package-desktop.sh --ad-hoc-sign` 生成有�
 
 ### 独立工作树的本地编译
 
+CLI 用户启动器由 `desktop/internal/cli` 在明确注册时生成到 `<os.UserConfigDir()>/Lithe/cli/bin/lithe`（Windows 为 `lithe.cmd`）。它绑定用户机器与当前应用可执行路径，随用户移除注册删除；它不是编译缓存，不跨工作树复制，不写安装目录，也不影响代码签名和增量更新基线。CLI 与单文件模式的无头截图可写入当前检出的 `.artifacts/cli-single-file/`；它们绑定本次源码、语言、主题、Viva/Core 修订和渲染环境，不跨工作树复制，由开发者或 CI 清理，不进入发行包。
+
 TextMate 首行元数据随各插件归档发布，从已安装版本目录只读加载。宿主的匹配缓存只保留当前进程内的编译结果，没有可跨工作树复用的状态。加载过程不写入应用或插件包，不改变签名和增量更新基线。
 
 搜索偏好 `<platform-preferences>/search.json` 由桌面原生存储适配器持有，最多64 KiB；只在用户应用/恢复默认时条件原子写回，打开页面不创建文件。它是用户状态，没有源码、版本、平台、架构或工具链复用身份，不跨工作树复制。搜索索引和未保存快照仅在当前进程内，绑定工作区、可见性与读取预算，关闭项目后释放，不写入安装目录。它们不改变代码签名或增量更新基线。`TestVisualSearchResults` 和 `TestVisualSearchPreferences` 的截图写入当前检出的 `.artifacts/search-visual/`，绑定本次源码、语言、主题和渲染环境，不跨工作树复制；Linux Desktop CI上传后由runner清理，不进入发行包。
