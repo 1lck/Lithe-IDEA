@@ -256,7 +256,7 @@ func (a *App) commitPluginInstall(ctx context.Context, plan plugininstall.Plan, 
 }
 
 // applyPluginLifecycleChange updates plugin state across every tab and, when reload is
-// true, clears stale build state, reloads languages and re-detects builds on open tabs.
+// true, reloads languages and refreshes build and language services in open projects.
 func (a *App) applyPluginLifecycleChange(reload bool) {
 	for _, tab := range a.everyTab() {
 		if reload {
@@ -267,8 +267,17 @@ func (a *App) applyPluginLifecycleChange(reload bool) {
 	}
 	if reload {
 		for _, tab := range a.openTabs() {
-			if tab.project != nil {
-				tab.loadBuildSystems(tab.project)
+			if p := tab.project; p != nil {
+				tab.loadBuildSystems(p)
+				// Opening a file normally requests its server. A plugin installed
+				// later must also get the files that were already open.
+				languages := make(map[string]bool)
+				for _, d := range p.docs.list {
+					if !d.virtual && !d.scratch && d.languageID != "" && !languages[d.languageID] {
+						languages[d.languageID] = true
+						tab.requestPluginServer(d.languageID, true)
+					}
+				}
 			}
 		}
 	}

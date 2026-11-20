@@ -20,12 +20,13 @@ import (
 // Progress is written by the worker and read by the status bar; identity and
 // cancellation remain protected by pluginServerMu.
 type pluginServerPreparation struct {
-	project   *project
-	cancel    context.CancelFunc
-	progress  atomic.Pointer[pluginruntime.Progress]
-	cancelled atomic.Bool
-	pluginID  string
-	revision  uint64
+	project              *project
+	cancel               context.CancelFunc
+	progress             atomic.Pointer[pluginruntime.Progress]
+	cancelled            atomic.Bool
+	pluginID             string
+	revision             uint64
+	retryWithoutProvider bool
 }
 
 func (p *pluginServerPreparation) stop() {
@@ -182,6 +183,10 @@ func (s *pluginServer) endBuild() {
 // A language nothing serves is the ordinary case for most files, so a missing
 // provider is not an error and nothing is logged for it.
 func (a *App) startPluginServer(languageID string) {
+	a.requestPluginServer(languageID, false)
+}
+
+func (a *App) requestPluginServer(languageID string, providersChanged bool) {
 	if a.plugins == nil || languageID == "" {
 		return
 	}
@@ -197,7 +202,11 @@ func (a *App) startPluginServer(languageID string) {
 	}
 	if a.pluginServerStarting[languageID] {
 		// Opening several files of one language at once must not launch several
-		// servers; the first start answers for all of them.
+		// servers. A registry change can arrive after this start read the
+		// old registry, so repeat selection if it returns without a provider.
+		if preparation := a.pluginServerPreparations[languageID]; providersChanged && preparation != nil {
+			preparation.retryWithoutProvider = true
+		}
 		a.pluginServerMu.Unlock()
 		return
 	}
@@ -259,6 +268,7 @@ func (a *App) finishPluginServerPreparation(preparation *pluginServerPreparation
 		owner = session.PluginID
 	}
 	changed := a.pluginServerChanges[owner] > preparation.revision
+	retryWithoutProvider := preparation.retryWithoutProvider
 	if current {
 		delete(a.pluginServerPreparations, languageID)
 	}
@@ -280,6 +290,9 @@ func (a *App) finishPluginServerPreparation(preparation *pluginServerPreparation
 		session, err = nil, context.Canceled
 	}
 	a.finishPluginServerStart(preparation.project, languageID, pluginID, version, session, err)
+	if retryWithoutProvider && session == nil && err == nil && a.project == preparation.project {
+		a.startPluginServer(languageID)
+	}
 }
 
 // finishPluginServerStart takes the started session back on the window thread and

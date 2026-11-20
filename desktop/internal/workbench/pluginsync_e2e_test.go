@@ -365,3 +365,67 @@ func TestClangdBuildStartedSessionSynchronizesEditor(t *testing.T) {
 		t.Fatal("shared server survived project close")
 	}
 }
+
+func TestPluginEnableStartsServerForOpenDocument(t *testing.T) {
+	h := clangdHarness(t)
+	pluginID := "dev.lithe.test.clangd"
+	if err := h.app.plugins.Manager.SetEnabled(pluginID, false); err != nil {
+		t.Fatal(err)
+	}
+	root := t.TempDir()
+	path := filepath.Join(root, "open.c")
+	if err := os.WriteFile(path, []byte("int main(void) { return 0; }\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	h.open(root)
+	p := h.app.project
+	h.app.openFile(p, path)
+	h.settle()
+	doc := p.docs.byPath(path)
+	if doc == nil || doc.languageID != "c" || doc.sync.opened {
+		t.Fatal("expected the existing document to have the bundled language and no server")
+	}
+	h.app.setPluginEnabled(pluginID, true)
+	awaitStateWithin(t, h, 5*time.Second, "the server to open the existing document", func() bool {
+		return doc.sync.opened && doc.sync.pluginID == pluginID
+	})
+	if p.docs.byPath(path) != doc {
+		t.Fatal("the original document was replaced")
+	}
+}
+
+func TestPluginEnableRetriesAnInFlightStartWithoutProvider(t *testing.T) {
+	h := clangdHarness(t)
+	a := h.app
+	const pluginID = "dev.lithe.test.clangd"
+	if err := a.plugins.Manager.SetEnabled(pluginID, false); err != nil {
+		t.Fatal(err)
+	}
+	root := t.TempDir()
+	path := filepath.Join(root, "open.c")
+	if err := os.WriteFile(path, []byte("int main(void) { return 0; }\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	h.open(root)
+	p := a.project
+	a.openFile(p, path)
+	h.settle()
+	doc := p.docs.byPath(path)
+	if doc == nil || doc.languageID != "c" || doc.sync.opened {
+		t.Fatal("expected the file open without an enabled provider")
+	}
+
+	// The first start inspected the disabled registry. Hold its empty result
+	// until after the plugin lifecycle callback requests the server again.
+	attempt := &pluginServerPreparation{project: p, cancel: func() {}}
+	a.pluginServerPreparations["c"] = attempt
+	a.pluginServerStarting["c"] = true
+	if err := a.plugins.Manager.SetEnabled(pluginID, true); err != nil {
+		t.Fatal(err)
+	}
+	a.applyPluginLifecycleChange(true)
+	a.finishPluginServerPreparation(attempt, "c", "", "", nil, nil)
+	awaitStateWithin(t, h, 5*time.Second, "the enabled server to open the existing document", func() bool {
+		return doc.sync.opened && doc.sync.pluginID == pluginID
+	})
+}
