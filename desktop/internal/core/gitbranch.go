@@ -165,6 +165,17 @@ func (c *Client) GitDeleteBranch(ctx context.Context, root string, branch GitRef
 	return *response.BranchDeletion, nil
 }
 
+// GitDeleteRemoteBranch deletes the remote branch reference from its remote with git push
+// --delete, run in the repository at root, which drops the remote-tracking reference too. Core
+// finds the remote from the reference's full name; any other kind of reference is refused with
+// CodeInvalidRequest.
+//
+// GitDeleteRemoteBranch starts git, which talks to the remote, and blocks; call it from a
+// background goroutine.
+func (c *Client) GitDeleteRemoteBranch(ctx context.Context, root string, reference GitReference) error {
+	return c.gitWrite(ctx, gitWriteRequest{Root: root, Operation: "deleteRemoteBranch", GitReference: reference.request()})
+}
+
 // BranchNameRequest asks how a typed branch name is cleaned and whether it can be created.
 type BranchNameRequest struct {
 	// RawName is the text exactly as the user typed it.

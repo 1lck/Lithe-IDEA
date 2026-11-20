@@ -119,6 +119,14 @@ type logView struct {
 	refs     ui.TreeState
 	refItems []logRefRow
 	refSel   string
+	// refMarks are HEAD and the references a Cmd, Ctrl or Shift click marked in the pane, by key,
+	// which the Delete button and the menu delete together (branch_delete.go); refAnchor is the
+	// row a Shift click extends from. Core's workspace.rowSelection decides both. refScope is
+	// what they were marked in: when the log walks another repository or selects another
+	// reference by itself, the marks go (syncLogRefMarks).
+	refMarks  map[string]bool
+	refAnchor string
+	refScope  logRefScope
 	// refLabel names the rows of refs, made once because a method value made in each paint
 	// allocates.
 	refLabel func(int) string
@@ -199,6 +207,8 @@ func (v *logView) reset() {
 	v.keyRows, v.keys = nil, nil
 	v.files = ui.ListState{}
 	v.refs.ListState = ui.ListState{}
+	v.forgetLogRefMarks()
+	v.refScope = logRefScope{}
 	v.compareSource, v.compareRoot = nil, ""
 }
 
