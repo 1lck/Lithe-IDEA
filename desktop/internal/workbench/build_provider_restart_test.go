@@ -14,6 +14,7 @@ import (
 	"github.com/1lck/Lithe-IDEA/desktop/internal/buildprovider"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/core"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/pluginsettings"
+	"github.com/1lck/Lithe-IDEA/desktop/internal/toolchain"
 )
 
 const restartFixtureID = "dev.lithe.test.provider-tests"
@@ -178,6 +179,53 @@ func TestReplacedBuildProviderFinishesTheRequestItHas(t *testing.T) {
 		t.Fatal("closing the replaced provider failed the request it was serving")
 	}
 	awaitStateWithin(t, h, 30*time.Second, "the replaced provider's exit after its request", first.Closed)
+}
+
+func TestBuildProviderRestartsAfterSavingProjectToolchain(t *testing.T) {
+	manifest := providerSettingsManifest(t)
+	h := providerTestsHarnessWith(t, manifest)
+	project := openProviderSettingsFixture(t, h, "block.marker")
+	instance := settingsFixtureInstance(h, manifest)
+	first := requestProvider(t, h, project, instance)
+	adapter := settingsToolchains{app: h.app}
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	defer cancel()
+	operation, err := first.Execute(ctx, "lithe/build/test", json.RawMessage(`{"root":".","scope":"workspace","operationID":"before-toolchain-save"}`), 60_000)
+	if err != nil {
+		t.Fatal(err)
+	}
+	snapshot, err := adapter.Load(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	changes := []toolchain.Edit{{
+		Tool: "dev.lithe.test.provider-tests:runtime",
+		Pin:  &core.ToolchainPin{Home: filepath.ToSlash(t.TempDir()), Version: "1.0", Provider: "host:manual"},
+	}}
+	snapshot, err = adapter.Save(ctx, snapshot, changes)
+	if err != nil {
+		t.Fatal(err)
+	}
+	second := requestProvider(t, h, project, instance)
+	if first == second {
+		t.Fatal("saving a project toolchain pin reused the old build provider")
+	}
+	if first.Closed() {
+		t.Fatal("saving a project toolchain pin stopped an active test")
+	}
+	if err := first.Cancel(ctx, operation); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := operation.Wait(ctx); errors.Is(err, buildprovider.ErrClosed) || errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("replaced provider did not finish its test: %v", err)
+	}
+	awaitStateWithin(t, h, 30*time.Second, "the replaced provider's exit", first.Closed)
+	if _, err := adapter.Save(ctx, snapshot, changes); err != nil {
+		t.Fatal(err)
+	}
+	if again := requestProvider(t, h, project, instance); again != second {
+		t.Fatal("saving the same pin replaced the build provider again")
+	}
 }
 
 // Closing the project closes a replaced provider at once with the others, without waiting for

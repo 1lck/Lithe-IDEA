@@ -760,7 +760,8 @@ type App struct {
 	trustEveryWorkspace bool
 	// toolchainRoot is the open project's root, read by the settings window from
 	// its own thread. Nil means no project is open.
-	toolchainRoot atomic.Pointer[string]
+	toolchainRoot          atomic.Pointer[string]
+	buildToolchainRevision atomic.Uint64
 	// toolchainResolve is the execution-side selector; tests replace it to keep
 	// workspace file reads out of the window. Production leaves it nil.
 	toolchainResolve func(ctx context.Context, root, directory, tool, minimumVersion string) (core.ToolchainSelection, error)

@@ -16,6 +16,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/1lck/Lithe-IDEA/desktop/internal/buildprocess"
@@ -367,13 +368,11 @@ func (a *App) attachProcess(p *project, op *buildOperation, process *buildproces
 // buildRuntime owns provider sessions for one project. A session is keyed by
 // plugin and build system, so two projects never share a process.
 type buildRuntime struct {
-	launches  pluginLaunches
-	mu        sync.Mutex
-	providers map[string]*buildprovider.Client
-	// settings is, for each running provider, the plugin settings it was started with
-	// (buildSettingsKey). The contract restarts a provider on the next request after they change.
-	settings map[string]string
-	// retired are providers a settings change replaced. Each closes once the requests it already
+	launches   pluginLaunches
+	mu         sync.Mutex
+	providers  map[string]*buildprovider.Client
+	launchKeys map[string]buildProviderLaunchKey
+	// retired are providers a configuration change replaced. Each closes once the requests it already
 	// had finished; a detach closes them at once with the others.
 	retired map[*buildprovider.Client]struct{}
 	// shared maps a plugin and language to the client attached to that
@@ -385,28 +384,32 @@ type buildRuntime struct {
 	detached uint64
 }
 
+type buildProviderLaunchKey struct {
+	settings          string
+	toolchainRevision uint64
+}
+
 // provider is the running provider of instance, started when there is none. The process starts
 // outside the lock, so detaching on the window thread never waits for a start; a start that lost
 // to another one or to a detach is stopped again. logDirectory gives the process's ${logDir}, and
 // is asked only when a process starts.
 //
-// A provider started with other plugin settings than settings holds is replaced, as the contract
-// says: a change of the plugin's settings restarts it on the next request, so its launch
-// arguments reflect the current values. The replaced provider is returned as retired; the
-// caller closes it with retire once the requests it already had finished.
-func (r *buildRuntime) provider(ctx context.Context, runner *pluginbackend.Runner, pluginRoot, root, rootURI string, instance buildInstance, settings core.PluginSettingsState, logDirectory func(context.Context, string) string) (client, retired *buildprovider.Client, err error) {
+// A provider started with other plugin settings or before a toolchain change is replaced on the
+// next request. The caller retires the old provider once the requests it already had finish.
+func (r *buildRuntime) provider(ctx context.Context, runner *pluginbackend.Runner, pluginRoot, root, rootURI string, instance buildInstance, settings core.PluginSettingsState, toolchainRevision *atomic.Uint64, logDirectory func(context.Context, string) string) (client, retired *buildprovider.Client, err error) {
 	key := instance.PluginID + "\x00" + instance.BuildSystemID
 	errClosing := buildprovider.ErrClosed
-	launchedWith, err := buildSettingsKey(settings)
+	settingsKey, err := buildSettingsKey(settings)
 	if err != nil {
 		return nil, nil, err
 	}
 	r.mu.Lock()
+	launchedWith := buildProviderLaunchKey{settings: settingsKey, toolchainRevision: toolchainRevision.Load()}
 	closed, client, detached := r.closed, r.providers[key], r.detached
-	if !closed && client != nil && !client.Closed() && r.settings[key] != launchedWith {
+	if !closed && client != nil && !client.Closed() && r.launchKeys[key] != launchedWith {
 		retired = client
 		delete(r.providers, key)
-		delete(r.settings, key)
+		delete(r.launchKeys, key)
 		if r.retired == nil {
 			r.retired = make(map[*buildprovider.Client]struct{})
 		}
@@ -452,15 +455,15 @@ func (r *buildRuntime) provider(ctx context.Context, runner *pluginbackend.Runne
 		return nil, retired, err
 	}
 	r.mu.Lock()
-	current := !r.closed && r.detached == detached && ctx.Err() == nil
+	current := !r.closed && r.detached == detached && ctx.Err() == nil && launchedWith.toolchainRevision == toolchainRevision.Load()
 	client = r.providers[key]
 	if current && (client == nil || client.Closed()) {
 		if r.providers == nil {
 			r.providers = make(map[string]*buildprovider.Client)
-			r.settings = make(map[string]string)
+			r.launchKeys = make(map[string]buildProviderLaunchKey)
 		}
 		r.providers[key] = started
-		r.settings[key] = launchedWith
+		r.launchKeys[key] = launchedWith
 		r.mu.Unlock()
 		return started, retired, nil
 	}
@@ -533,7 +536,7 @@ func (r *buildRuntime) detach(closing bool) []*buildprovider.Client {
 	for provider := range r.retired {
 		clients = append(clients, provider)
 	}
-	r.providers, r.settings, r.retired, r.shared = nil, nil, nil, nil
+	r.providers, r.launchKeys, r.retired, r.shared = nil, nil, nil, nil
 	r.detached++
 	if closing {
 		r.closed = true
@@ -566,7 +569,7 @@ func (a *App) buildProvider(ctx context.Context, p *project, instance buildInsta
 	if err != nil {
 		return nil, err
 	}
-	client, retired, err := p.buildSessions.provider(ctx, a.plugins.Backend, a.plugins.Root, p.root, rootURI, instance, settings.State, a.pluginLogDirectory)
+	client, retired, err := p.buildSessions.provider(ctx, a.plugins.Backend, a.plugins.Root, p.root, rootURI, instance, settings.State, &a.buildToolchainRevision, a.pluginLogDirectory)
 	if retired != nil {
 		a.retireBuildProvider(ctx, p, retired)
 	}
@@ -577,8 +580,8 @@ func (a *App) buildProvider(ctx context.Context, p *project, instance buildInsta
 	return a.sharedBuildProvider(ctx, p, instance, shared.LanguageID)
 }
 
-// retireBuildProvider closes, away from the window thread, a provider its plugin's changed
-// settings replaced, after the requests it already had finished. A failure is logged under the
+// retireBuildProvider closes, away from the window thread, a replaced provider after the requests
+// it already had finished. A failure is logged under the
 // user action whose request (ctx) replaced it.
 func (a *App) retireBuildProvider(ctx context.Context, p *project, client *buildprovider.Client) {
 	a.tasks.running.Add(1)
