@@ -11673,7 +11673,13 @@
     "desktop.search.followSymlinks": "Follow symbolic links",
     "desktop.search.includeGenerated": "Include generated directories",
     "desktop.search.symlinkHelp": "Only targets inside this project are searched; cycles are skipped.",
-    "desktop.search.totalCount": "{count} occurrences in {files} files"
+    "desktop.search.totalCount": "{count} occurrences in {files} files",
+    "desktop.editorActions.starting": "Starting {label}...",
+    "desktop.run.ports.label": "Listening on",
+    "desktop.run.ports.open": "Open in browser",
+    "desktop.run.ports.copy": "Copy URL",
+    "desktop.run.ports.more": "+{count}",
+    "desktop.run.ports.openFailed": "Could not open {url}."
   },
   "overrides": {
     "windows": {

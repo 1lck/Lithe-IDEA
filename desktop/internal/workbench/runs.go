@@ -76,6 +76,10 @@ type runEntry struct {
 	// samples are the process tree's CPU and memory, oldest first, bounded; stopSampling ends the sampler.
 	samples      []pluginservice.ProcessSample
 	stopSampling context.CancelFunc
+	// ports holds deduplicated live TCP listeners owned by this run's process tree.
+	ports          []core.ListeningPort
+	portsTruncated bool
+	stopPorts      context.CancelFunc
 }
 
 // wirePluginRuns connects the plugin service's run host to the window: where a
@@ -230,6 +234,7 @@ func (a *App) applyRunEvent(event pluginservice.RunEvent) {
 		a.addRunSession(p, entry)
 		if event.PID > 0 {
 			a.startRunSampling(entry, event.PID)
+			a.startRunPortSampling(p, entry, event.PID, event.DebugPort)
 		}
 		a.openToolWindow(itemRun)
 	case pluginservice.RunExited:
@@ -243,6 +248,7 @@ func (a *App) applyRunEvent(event pluginservice.RunEvent) {
 			entry.stopSampling()
 			entry.stopSampling = nil
 		}
+		stopRunPortSampling(entry)
 		messages := a.text.Run
 		switch {
 		case event.ExitCode != nil:
@@ -420,7 +426,17 @@ func (a *App) rerunRun(p *project, entry *runEntry) {
 // stopRunsForProject ends every run of a closing project. The wait is bounded and
 // off the window thread; the shutdown path waits for background tasks.
 func (a *App) stopRunsForProject(p *project) {
-	if a.plugins == nil || p == nil {
+	if p == nil {
+		return
+	}
+	for _, entry := range p.build.runs {
+		if entry.stopSampling != nil {
+			entry.stopSampling()
+			entry.stopSampling = nil
+		}
+		stopRunPortSampling(entry)
+	}
+	if a.plugins == nil {
 		return
 	}
 	runs, root := a.plugins.Runs, p.root

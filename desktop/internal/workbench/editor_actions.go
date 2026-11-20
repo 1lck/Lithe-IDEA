@@ -355,6 +355,14 @@ func (a *App) runEditorAction(p *project, d *document, action pluginservice.Edit
 		a.notify(i18n.Shared(a.language(), "desktop.editorActions.stale"))
 		return
 	}
+	label := action.Title
+	if alternative >= 0 && alternative < len(action.Alternatives) {
+		label = action.Alternatives[alternative].Title
+	}
+	a.performed("editor.action.invoke", surfaceButton)
+	if label != "" {
+		a.notifyInfo(i18n.SharedFormat(a.language(), "desktop.editorActions.starting", map[string]string{"label": label}))
+	}
 	plugins, root := a.plugins, p.root
 	a.background(p, 100*time.Second, func(ctx context.Context) func(*App) {
 		locations, err := plugins.InvokeEditorAction(ctx, action, alternative)

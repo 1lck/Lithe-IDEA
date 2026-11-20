@@ -11673,7 +11673,13 @@
     "desktop.search.followSymlinks": "跟随符号链接",
     "desktop.search.includeGenerated": "包含生成目录",
     "desktop.search.symlinkHelp": "仅搜索当前项目内的目标，并跳过循环链接。",
-    "desktop.search.totalCount": "{files} 个文件中有 {count} 处匹配"
+    "desktop.search.totalCount": "{files} 个文件中有 {count} 处匹配",
+    "desktop.editorActions.starting": "正在启动 {label}…",
+    "desktop.run.ports.label": "监听端口",
+    "desktop.run.ports.open": "在浏览器中打开",
+    "desktop.run.ports.copy": "复制地址",
+    "desktop.run.ports.more": "+{count}",
+    "desktop.run.ports.openFailed": "无法打开 {url}。"
   },
   "overrides": {
     "macos": {

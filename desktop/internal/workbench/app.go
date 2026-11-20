@@ -98,6 +98,7 @@ type Kernel interface {
 	debugStateKernel
 	processExitKernel
 	processMemoryKernel
+	processPortsKernel
 	MatchOutputLinks(context.Context, core.OutputLinkRequest) ([]core.OutputLink, error)
 	DecodeOutputStyle(ctx context.Context, chunk []byte, policy core.OutputEncodingPolicy, state json.RawMessage) (core.OutputStyleDecoding, error)
 	ResolveOutputEncoding(ctx context.Context, policy core.OutputEncodingPolicy) (core.OutputEncodings, error)
@@ -622,12 +623,12 @@ type App struct {
 	shownTitle string
 	// updates is the update check, download and install, which every tab of the window
 	// shares (updates.go).
-	updates               *updater
-	pluginAuto            *pluginAutoUpdater
-	pluginRecommendations *pluginRecommendationState
+	updates                *updater
+	pluginAuto             *pluginAutoUpdater
+	pluginRecommendations  *pluginRecommendationState
 	disableRecommendations bool
-	recommendationFetcher func(ctx context.Context, sources []PluginRecommendationSource) ([]core.MarketplaceRecommendationCatalog, error)
-	tasks      taskQueue
+	recommendationFetcher  func(ctx context.Context, sources []PluginRecommendationSource) ([]core.MarketplaceRecommendationCatalog, error)
+	tasks                  taskQueue
 	// languages are the languages the editor knows, made when the first file is opened.
 	languages *syntax.Registry
 	// initialLanguageLoad lets early opens of unknown extensionless files wait for the
