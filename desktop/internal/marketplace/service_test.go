@@ -195,3 +195,77 @@ func TestFetchStopsWhenRequestIsCancelled(t *testing.T) {
 		t.Fatalf("error = %v, want context cancellation", err)
 	}
 }
+
+func TestFetchRecommendationBundle(t *testing.T) {
+	index, err := os.ReadFile(contractfixture.Path("fixtures/marketplace/index.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	recommendations, err := os.ReadFile(contractfixture.Path("fixtures/marketplace/recommendations.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	t.Run("downloads companion recommendations and index", func(t *testing.T) {
+		var requested []string
+		client := &http.Client{Transport: transportFunc(func(r *http.Request) (*http.Response, error) {
+			requested = append(requested, r.URL.String())
+			switch r.URL.String() {
+			case "https://raw.githubusercontent.com/example/lithe-plugins/HEAD/lithe-plugin-recommendations.json":
+				return &http.Response{StatusCode: 200, Header: make(http.Header), Body: io.NopCloser(strings.NewReader(string(recommendations))), Request: r}, nil
+			case "https://raw.githubusercontent.com/example/lithe-plugins/HEAD/lithe-plugin-index.json":
+				return &http.Response{StatusCode: 200, Header: make(http.Header), Body: io.NopCloser(strings.NewReader(string(index))), Request: r}, nil
+			default:
+				return &http.Response{StatusCode: 404, Header: make(http.Header), Body: io.NopCloser(strings.NewReader("")), Request: r}, nil
+			}
+		})}
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		bundle, ok, fetchErr := New(core.NewClient(), client).FetchRecommendationBundle(ctx, "https://github.com/example/lithe-plugins", core.MarketplaceThirdParty)
+		if fetchErr != nil || !ok {
+			t.Fatalf("FetchRecommendationBundle = (%v, %v)", ok, fetchErr)
+		}
+		if len(requested) != 2 || len(bundle.Recommendations) == 0 || len(bundle.Index) == 0 {
+			t.Fatalf("requested = %v, bundle sizes = (%d, %d)", requested, len(bundle.Recommendations), len(bundle.Index))
+		}
+	})
+
+	t.Run("skips silently on 404 recommendations without fetching index", func(t *testing.T) {
+		var requested []string
+		client := &http.Client{Transport: transportFunc(func(r *http.Request) (*http.Response, error) {
+			requested = append(requested, r.URL.String())
+			return &http.Response{StatusCode: 404, Header: make(http.Header), Body: io.NopCloser(strings.NewReader("")), Request: r}, nil
+		})}
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		_, ok, fetchErr := New(core.NewClient(), client).FetchRecommendationBundle(ctx, "https://github.com/example/lithe-plugins", core.MarketplaceThirdParty)
+		if fetchErr != nil || ok {
+			t.Fatalf("FetchRecommendationBundle on 404 = (%v, %v), want (false, nil)", ok, fetchErr)
+		}
+		if len(requested) != 1 || !strings.HasSuffix(requested[0], "/lithe-plugin-recommendations.json") {
+			t.Fatalf("requested = %v, expected only recommendations URL", requested)
+		}
+	})
+
+	t.Run("rejects invalid JSON or oversized recommendations", func(t *testing.T) {
+		for _, tc := range []struct {
+			name, body string
+			want       error
+		}{
+			{"invalid", "not-json", ErrInvalidJSON},
+			{"oversized", strings.Repeat("x", MaxIndexBytes+1), ErrIndexTooLarge},
+		} {
+			t.Run(tc.name, func(t *testing.T) {
+				client := &http.Client{Transport: transportFunc(func(r *http.Request) (*http.Response, error) {
+					return &http.Response{StatusCode: 200, Header: make(http.Header), Body: io.NopCloser(strings.NewReader(tc.body)), Request: r}, nil
+				})}
+				ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+				defer cancel()
+				_, _, fetchErr := New(core.NewClient(), client).FetchRecommendationBundle(ctx, "https://plugins.example.com/index.json", core.MarketplaceThirdParty)
+				if !errors.Is(fetchErr, tc.want) {
+					t.Fatalf("error = %v, want %v", fetchErr, tc.want)
+				}
+			})
+		}
+	})
+}

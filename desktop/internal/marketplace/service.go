@@ -82,40 +82,30 @@ type Snapshot struct {
 	Index  core.MarketplaceIndex
 }
 
+// RecommendationBundle holds a raw marketplace index and its companion workspace recommendations catalog.
+type RecommendationBundle struct {
+	Source          core.MarketplaceSource
+	SourceKind      core.MarketplaceSourceKind
+	Index           json.RawMessage
+	Recommendations json.RawMessage
+}
+
+type httpStatusError int
+
+func (e httpStatusError) Error() string {
+	return fmt.Sprintf("marketplace HTTP status %d", int(e))
+}
+
 // Fetch resolves a source, downloads a bounded index, and asks Core to validate it.
 // Caller supplies the actual host capabilities; Core alone determines availability.
-func (s *Service) Fetch(ctx context.Context, input string, kind core.MarketplaceSourceKind, platform string, capabilities map[string][]int) (snapshot Snapshot, err error) {
+func (s *Service) Fetch(ctx context.Context, input string, kind core.MarketplaceSourceKind, platform string, capabilities map[string][]int) (Snapshot, error) {
 	source, err := s.core.ResolveMarketplaceSource(ctx, input)
 	if err != nil {
 		return Snapshot{}, err
 	}
-	request, err := http.NewRequestWithContext(ctx, http.MethodGet, source.IndexURL, nil)
+	data, _, err := s.fetchJSON(ctx, source.IndexURL)
 	if err != nil {
 		return Snapshot{}, err
-	}
-	if !strings.EqualFold(request.URL.Scheme, "https") || request.URL.Host == "" || request.URL.User != nil {
-		return Snapshot{}, ErrUnsafeRedirect
-	}
-	response, err := s.http.Do(request)
-	if err != nil {
-		return Snapshot{}, err
-	}
-	defer func() { err = errors.Join(err, response.Body.Close()) }()
-	if response.StatusCode < 200 || response.StatusCode >= 300 {
-		return Snapshot{}, fmt.Errorf("marketplace HTTP status %d", response.StatusCode)
-	}
-	if response.ContentLength > MaxIndexBytes {
-		return Snapshot{}, ErrIndexTooLarge
-	}
-	data, err := io.ReadAll(io.LimitReader(response.Body, MaxIndexBytes+1))
-	if err != nil {
-		return Snapshot{}, err
-	}
-	if len(data) > MaxIndexBytes {
-		return Snapshot{}, ErrIndexTooLarge
-	}
-	if !json.Valid(data) {
-		return Snapshot{}, ErrInvalidJSON
 	}
 	index, err := s.core.ValidateMarketplaceIndex(ctx, json.RawMessage(data), kind, platform, capabilities)
 	if err != nil {
@@ -125,4 +115,69 @@ func (s *Service) Fetch(ctx context.Context, input string, kind core.Marketplace
 		index.Plugins[i].MarketplaceIndexURL = source.IndexURL
 	}
 	return Snapshot{Source: source, Index: index}, nil
+}
+
+// FetchRecommendationBundle downloads the companion recommendations file first and returns
+// ok=false without fetching the index when the marketplace publishes no recommendations (HTTP 404).
+func (s *Service) FetchRecommendationBundle(ctx context.Context, input string, kind core.MarketplaceSourceKind) (RecommendationBundle, bool, error) {
+	source, err := s.core.ResolveMarketplaceSource(ctx, input)
+	if err != nil {
+		return RecommendationBundle{}, false, err
+	}
+	if source.RecommendationsURL == "" {
+		return RecommendationBundle{}, false, nil
+	}
+	recBody, _, err := s.fetchJSON(ctx, source.RecommendationsURL)
+	if err != nil {
+		if err == httpStatusError(http.StatusNotFound) {
+			return RecommendationBundle{}, false, nil
+		}
+		return RecommendationBundle{}, false, err
+	}
+	indexBody, _, err := s.fetchJSON(ctx, source.IndexURL)
+	if err != nil {
+		return RecommendationBundle{}, false, err
+	}
+	return RecommendationBundle{
+		Source:          source,
+		SourceKind:      kind,
+		Index:           json.RawMessage(indexBody),
+		Recommendations: json.RawMessage(recBody),
+	}, true, nil
+}
+
+func (s *Service) fetchJSON(ctx context.Context, rawURL string) (data []byte, status int, err error) {
+	request, err := http.NewRequestWithContext(ctx, http.MethodGet, rawURL, nil)
+	if err != nil {
+		return nil, 0, err
+	}
+	if !strings.EqualFold(request.URL.Scheme, "https") || request.URL.Host == "" || request.URL.User != nil {
+		return nil, 0, ErrUnsafeRedirect
+	}
+	response, err := s.http.Do(request)
+	if err != nil {
+		return nil, 0, err
+	}
+	defer func() {
+		if closeErr := response.Body.Close(); closeErr != nil {
+			err = errors.Join(err, closeErr)
+		}
+	}()
+	if response.StatusCode < 200 || response.StatusCode >= 300 {
+		return nil, response.StatusCode, httpStatusError(response.StatusCode)
+	}
+	if response.ContentLength > MaxIndexBytes {
+		return nil, response.StatusCode, ErrIndexTooLarge
+	}
+	data, err = io.ReadAll(io.LimitReader(response.Body, MaxIndexBytes+1))
+	if err != nil {
+		return nil, response.StatusCode, err
+	}
+	if len(data) > MaxIndexBytes {
+		return nil, response.StatusCode, ErrIndexTooLarge
+	}
+	if !json.Valid(data) {
+		return nil, response.StatusCode, ErrInvalidJSON
+	}
+	return data, response.StatusCode, nil
 }
