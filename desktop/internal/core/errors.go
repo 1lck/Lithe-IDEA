@@ -28,6 +28,10 @@ const (
 	CodeProcessFailed ErrorCode = "process_failed"
 	// CodeGitBranchExists means a reviewed checkout would conflict with a local reference.
 	CodeGitBranchExists ErrorCode = "git_branch_exists"
+	// CodeGitBranchNotMerged means ordinary deletion needs an explicit forced confirmation.
+	CodeGitBranchNotMerged ErrorCode = "git_branch_not_merged"
+	// CodeGitBranchChanged means the branch moved after its deletion was reviewed.
+	CodeGitBranchChanged ErrorCode = "git_branch_changed"
 	// CodeGitCheckoutChanged means a reviewed checkout no longer matches the repository.
 	CodeGitCheckoutChanged ErrorCode = "git_checkout_changed"
 	// CodeGitAuthenticationFailed means a git.write operation failed because the remote

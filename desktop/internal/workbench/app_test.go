@@ -102,6 +102,9 @@ func newHarnessWithDriver(t testing.TB, options Options, open func(app.Config) (
 	// Tests open their folders trusted, as IDEA's unit-test mode does; the trust flow's own tests
 	// clear it before they open one.
 	options.trustEveryWorkspace = true
+	if options.PluginRecommendationFetcher == nil && !options.DisablePluginRecommendations {
+		options.DisablePluginRecommendations = true
+	}
 	h.app = New(options)
 	h.config = h.app.Config()
 	driver, closeDriver, err := open(h.config)

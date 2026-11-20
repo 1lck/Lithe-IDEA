@@ -1,9 +1,13 @@
 package core
 
 import (
+	"encoding/json"
+	"os"
 	"path/filepath"
 	"slices"
 	"testing"
+
+	"github.com/1lck/Lithe-IDEA/desktop/internal/contractfixture"
 )
 
 // committedRepository is a repository on main with one commit of base.txt.
@@ -77,6 +81,38 @@ func TestBranchCreateCheckoutRenameAndDelete(t *testing.T) {
 	}
 	if current := runGit(t, repo, "branch", "--show-current"); current != "" {
 		t.Fatalf("current branch after a detached checkout = %q, want none", current)
+	}
+}
+
+func TestBranchForceDeleteReviewAndExpectedTarget(t *testing.T) {
+	repo := committedRepository(t)
+	client, ctx := NewClient(), testContext(t)
+	runGit(t, repo, "switch", "-c", "backup/unmerged")
+	runGit(t, repo, "commit", "--allow-empty", "-m", "unmerged")
+	target := runGit(t, repo, "rev-parse", "HEAD")
+	runGit(t, repo, "switch", "main")
+	_, err := client.GitDeleteBranch(ctx, repo, localBranch("backup/unmerged"))
+	requireCode(t, err, CodeGitBranchNotMerged)
+	review, ok := BranchDeleteReview(err)
+	if !ok || review.Name != "backup/unmerged" || review.ExpectedTarget != target {
+		t.Fatalf("review = %+v, %v", review, ok)
+	}
+	data, err := os.ReadFile(contractfixture.CoreFixture("git/branch-delete-v1.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var fixture struct {
+		UnmergedCode ErrorCode `json:"unmergedCode"`
+	}
+	if err := json.Unmarshal(data, &fixture); err != nil {
+		t.Fatal(err)
+	}
+	if fixture.UnmergedCode != CodeGitBranchNotMerged {
+		t.Fatal("branch deletion error code differs from Core's contract")
+	}
+	deleted, err := client.GitForceDeleteBranch(ctx, repo, localBranch(review.Name), review.ExpectedTarget)
+	if err != nil || deleted.DeletedTarget != target {
+		t.Fatalf("force deletion = %+v, %v", deleted, err)
 	}
 }
 

@@ -9226,6 +9226,16 @@
       ]
     },
     {
+      "id": "desktop.editorActions.starting",
+      "description": "Immediate info toast when invoking a plugin editor action",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "label": "string"
+      }
+    },
+    {
       "id": "desktop.editorMenu.back",
       "description": "Editor context menu: back to the previous caret place",
       "platforms": [
@@ -13059,6 +13069,37 @@
       }
     },
     {
+      "id": "desktop.marketplace.recommendedTitle",
+      "description": "Short notification title for workspace-matched marketplace plugin suggestions.",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.marketplace.recommendedPlugins",
+      "description": "Notification body listing workspace-matched marketplace plugins to install for the opened project.",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "plugins": "string"
+      }
+    },
+    {
+      "id": "desktop.marketplace.recommendedAction",
+      "description": "Primary notification action button opening plugin settings for workspace plugin recommendations.",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.marketplace.recommendedDismiss",
+      "description": "Secondary notification action button dismissing future recommendations for the listed plugins.",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
       "id": "desktop.marketplace.disableAutoUpdates",
       "description": "Menu option to disable automatic updates of approved marketplace plugins.",
       "platforms": [
@@ -15445,6 +15486,47 @@
       ],
       "parameters": {
         "megabytes": "string"
+      }
+    },
+    {
+      "id": "desktop.run.ports.copy",
+      "description": "Context menu item on a listening port badge that copies its URL to the clipboard",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.run.ports.label",
+      "description": "Row label under the execution tree introducing the TCP ports a run process tree listens on",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.run.ports.more",
+      "description": "Badge showing how many additional listening ports are hidden after the primary port",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "count": "string"
+      }
+    },
+    {
+      "id": "desktop.run.ports.open",
+      "description": "Context menu item on a listening port badge that opens its URL in a browser",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.run.ports.openFailed",
+      "description": "Error toast shown when opening a listening port URL in the browser fails",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "url": "string"
       }
     },
     {

@@ -68,6 +68,8 @@ type RunEvent struct {
 	Rerun *RunRerun
 	// PID is the run's root process on RunStarted, 0 when it has none (a debug launch).
 	PID int
+	// DebugPort is the loopback debugger port when started for connection debugging, 0 otherwise.
+	DebugPort int
 }
 
 // RunExecutable is a tool the host resolved for a run.
@@ -445,6 +447,9 @@ func (r *Runs) handleStart(ctx context.Context, params json.RawMessage) (json.Ra
 	r.wait.Add(1)
 	r.mu.Unlock()
 	event := RunEvent{Type: RunStarted, RunID: run.id, PluginID: run.pluginID, Label: start.Label, Workspace: workspace.Path, PID: run.pid, OutputEncoding: start.OutputEncoding}
+	if start.Debug != nil && start.Debug.Target.Kind == "connection" && start.Debug.Target.Port > 0 {
+		event.DebugPort = start.Debug.Target.Port
+	}
 	if start.Rerun != nil {
 		event.Rerun = &RunRerun{PluginID: run.pluginID, Function: start.Rerun.Function, Data: start.Rerun.Data, Workspace: workspace.Path}
 	}

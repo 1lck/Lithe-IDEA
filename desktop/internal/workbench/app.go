@@ -98,6 +98,7 @@ type Kernel interface {
 	debugStateKernel
 	processExitKernel
 	processMemoryKernel
+	processPortsKernel
 	MatchOutputLinks(context.Context, core.OutputLinkRequest) ([]core.OutputLink, error)
 	DecodeOutputStyle(ctx context.Context, chunk []byte, policy core.OutputEncodingPolicy, state json.RawMessage) (core.OutputStyleDecoding, error)
 	ResolveOutputEncoding(ctx context.Context, policy core.OutputEncodingPolicy) (core.OutputEncodings, error)
@@ -202,6 +203,7 @@ type Kernel interface {
 	GitFetchSettingsOf(ctx context.Context, root string) (core.GitFetchSettings, error)
 	GitPull(ctx context.Context, root string, strategy core.GitPullStrategy) error
 	GitDeleteBranch(ctx context.Context, root string, branch core.GitReference) (core.GitBranchDeletion, error)
+	GitForceDeleteBranch(ctx context.Context, root string, branch core.GitReference, expectedTarget string) (core.GitBranchDeletion, error)
 	GitDeleteRemoteBranch(ctx context.Context, root string, reference core.GitReference) error
 	GitCreateTag(ctx context.Context, root, name, revision, message string) error
 	GitRebasePreview(ctx context.Context, root, base string) (core.RebasePreview, error)
@@ -242,6 +244,7 @@ type Kernel interface {
 	ReferenceLines(ctx context.Context, request core.ReferenceLinesRequest) ([]core.ReferenceLine, error)
 	ResolveMarketplaceSource(context.Context, string) (core.MarketplaceSource, error)
 	ValidateMarketplaceIndex(context.Context, json.RawMessage, core.MarketplaceSourceKind, string, map[string][]int) (core.MarketplaceIndex, error)
+	RecommendMarketplacePlugins(ctx context.Context, platform string, workspaceFiles []string, catalogs []core.MarketplaceRecommendationCatalog, hostCapabilities map[string][]int, installedPluginIDs []string, dismissedPluginIDs []string) (core.MarketplaceRecommendationResult, error)
 }
 
 // Options configure a window.
@@ -284,6 +287,11 @@ type Options struct {
 	// instrumented test binary raise it so scheduler load cannot masquerade as
 	// a provider failure.
 	PluginInitializeTimeout time.Duration
+	// DisablePluginRecommendations suppresses background workspace plugin detection when
+	// opening a project (used by default in test harnesses unless a fetcher is supplied).
+	DisablePluginRecommendations bool
+	// PluginRecommendationFetcher overrides marketplace recommendation catalog fetches in tests.
+	PluginRecommendationFetcher func(ctx context.Context, sources []PluginRecommendationSource) ([]core.MarketplaceRecommendationCatalog, error)
 	// first is the window's first workbench when this one is another project tab of its
 	// window; nil for the first (window_sessions.go).
 	first *App
@@ -335,6 +343,8 @@ type settings struct {
 	MarketplaceSources []string `json:"marketplaceSources,omitempty"`
 	// AutoUpdatePlugins lets approved marketplace plugins update with unchanged grants.
 	AutoUpdatePlugins bool `json:"autoUpdatePlugins,omitempty"`
+	// DismissedPluginRecommendations lists plugin IDs the user dismissed from workspace prompts.
+	DismissedPluginRecommendations []string `json:"dismissedPluginRecommendations,omitempty"`
 	// HideMinimap hides the minimap of every editor; the editors show it by default.
 	HideMinimap bool `json:"hideMinimap,omitempty"`
 	// HideGitGutter hides the Git change markers of the editor gutter; they show by default.
@@ -614,9 +624,12 @@ type App struct {
 	shownTitle string
 	// updates is the update check, download and install, which every tab of the window
 	// shares (updates.go).
-	updates    *updater
-	pluginAuto *pluginAutoUpdater
-	tasks      taskQueue
+	updates                *updater
+	pluginAuto             *pluginAutoUpdater
+	pluginRecommendations  *pluginRecommendationState
+	disableRecommendations bool
+	recommendationFetcher  func(ctx context.Context, sources []PluginRecommendationSource) ([]core.MarketplaceRecommendationCatalog, error)
+	tasks                  taskQueue
 	// languages are the languages the editor knows, made when the first file is opened.
 	languages *syntax.Registry
 	// initialLanguageLoad lets early opens of unknown extensionless files wait for the
@@ -924,12 +937,16 @@ func New(options Options) *App {
 		a.logSink, a.logs = first.logSink, first.logs
 		a.updates = first.updates
 		a.pluginAuto = first.pluginAuto
+		a.pluginRecommendations = first.pluginRecommendations
 	} else {
 		a.sessions = newWindowSessions(a, options)
 		a.updates = newUpdater(a.settings)
 		a.pluginAuto = &pluginAutoUpdater{enabled: a.settings.AutoUpdatePlugins}
+		a.pluginRecommendations = newPluginRecommendationState()
 		a.invalidator = windowWake{invalidator: new(app.Invalidator)}
 	}
+	a.disableRecommendations = options.DisablePluginRecommendations
+	a.recommendationFetcher = options.PluginRecommendationFetcher
 	if options.Logs != nil && options.first == nil {
 		a.logSink = options.Logs
 		version := options.Version
@@ -1607,6 +1624,7 @@ func (a *App) openProjectWithTrust(root string, trusted bool) {
 		// a model runs the plugin's model command, such as mvn, which runs the project's build
 		// extensions, so in safe mode the models stay unloaded until the user trusts the project.
 		a.loadTitleRunConfigs(p)
+		a.checkPluginRecommendations(p)
 		a.restoreEditorSession(p)
 		a.restoreCheckpoints(p)
 		a.openPendingFiles(p)

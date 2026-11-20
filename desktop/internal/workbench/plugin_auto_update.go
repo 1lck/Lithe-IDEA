@@ -128,21 +128,8 @@ func (a *App) checkPluginAutoUpdates() {
 	}
 	ctx, cancel := context.WithCancel(context.Background())
 	u.checking, u.cancel = true, cancel
-	sources := []pluginAutoSource{
-		{marketplace.CommunityRepositoryURL, core.MarketplaceThirdParty},
-		{marketplace.OfficialIndexURL, core.MarketplaceOfficial},
-	}
-	for _, url := range a.settings.MarketplaceSources {
-		if len(sources) >= pluginAutoMaxSources {
-			break
-		}
-		sources = append(sources, pluginAutoSource{url, core.MarketplaceThirdParty})
-	}
-	arch := runtime.GOARCH
-	if arch == "amd64" {
-		arch = "x64"
-	}
-	platform := runtime.GOOS + "-" + arch
+	sources := a.marketplaceSources()
+	platform := marketplaceHostPlatform()
 	capabilities := pluginhost.Declared().Clone()
 	a.background(nil, 0, func(context.Context) func(*App) {
 		defer cancel()
@@ -167,9 +154,26 @@ func (a *App) checkPluginAutoUpdates() {
 	})
 }
 
-type pluginAutoSource struct {
-	input string
-	kind  core.MarketplaceSourceKind
+func (a *App) marketplaceSources() []PluginRecommendationSource {
+	sources := []PluginRecommendationSource{
+		{Input: marketplace.CommunityRepositoryURL, Kind: core.MarketplaceThirdParty},
+		{Input: marketplace.OfficialIndexURL, Kind: core.MarketplaceOfficial},
+	}
+	for _, url := range a.settings.MarketplaceSources {
+		if len(sources) >= pluginAutoMaxSources {
+			break
+		}
+		sources = append(sources, PluginRecommendationSource{Input: url, Kind: core.MarketplaceThirdParty})
+	}
+	return sources
+}
+
+func marketplaceHostPlatform() string {
+	arch := runtime.GOARCH
+	if arch == "amd64" {
+		arch = "x64"
+	}
+	return runtime.GOOS + "-" + arch
 }
 
 // autoUpdateCandidates uses only Core-validated availability and release order.
@@ -210,7 +214,7 @@ func approvedPluginAutoSource(indexURL string, approvals map[string]plugintrust.
 	return false
 }
 
-func (a *App) performPluginAutoUpdates(ctx context.Context, sources []pluginAutoSource, platform string, capabilities map[string][]int) (int, error) {
+func (a *App) performPluginAutoUpdates(ctx context.Context, sources []PluginRecommendationSource, platform string, capabilities map[string][]int) (int, error) {
 	entries, err := a.plugins.CurrentInstalled(ctx)
 	if err != nil {
 		return 0, err
@@ -244,7 +248,7 @@ func (a *App) performPluginAutoUpdates(ctx context.Context, sources []pluginAuto
 		}
 		// Resolve sources locally before any HTTP request: only an index the
 		// user already installed from can trigger an automatic fetch.
-		origin, resolveErr := a.kernel.ResolveMarketplaceSource(ctx, source.input)
+		origin, resolveErr := a.kernel.ResolveMarketplaceSource(ctx, source.Input)
 		if resolveErr != nil {
 			failures = append(failures, resolveErr)
 			continue
@@ -254,7 +258,7 @@ func (a *App) performPluginAutoUpdates(ctx context.Context, sources []pluginAuto
 		}
 		triedOrigins[origin.IndexURL] = true
 		fetchCtx, end := context.WithTimeout(ctx, pluginAutoFetchLimit)
-		snapshot, fetchErr := service.Fetch(fetchCtx, source.input, source.kind, platform, capabilities)
+		snapshot, fetchErr := service.Fetch(fetchCtx, source.Input, source.Kind, platform, capabilities)
 		end()
 		if fetchErr != nil {
 			failures = append(failures, fetchErr)

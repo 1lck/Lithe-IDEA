@@ -41,6 +41,9 @@ type fileTree struct {
 	byPath map[string]*treeNode
 	// selected is the node whose row is highlighted, which the arrow keys move.
 	selected *treeNode
+	// focused remembers focus already observed so pointer focus cannot replace the selection
+	// before Core applies the click's modifiers.
+	focused gfx.ID
 	// marked are the paths a Ctrl or Shift click selected for a batch; anchor is the path a
 	// Shift click extends from, and targets what a batch acts on, as Core last said
 	// (filetree_batch.go).

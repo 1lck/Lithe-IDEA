@@ -318,7 +318,11 @@ func (a *App) appendLogNodes(rows []logRefRow, p *project, prefix, foreign strin
 // only fold or switch repository.
 func (v *logView) refNode(i int) ui.TreeNode {
 	r := v.refItems[i]
-	selected := (r.kind == logRefHead || r.kind == logRefReference) && (v.refSel == r.key || v.refMarks[r.key])
+	selected := v.refMarks[r.key]
+	if len(v.refMarks) == 0 && v.refAnchor == "" {
+		selected = v.refSel == r.key
+	}
+	selected = selected && (r.kind == logRefHead || r.kind == logRefReference)
 	return ui.TreeNode{Depth: r.depth, Branch: r.kind == logRefSection || r.kind == logRefFolder || r.kind == logRefRepository, Expanded: r.open, Selected: selected}
 }
 

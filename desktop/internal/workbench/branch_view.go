@@ -567,6 +567,8 @@ func (a *App) drawBranchDialog(c ui.C, p *project) {
 		a.drawBranchConflictDialog(c, p)
 	case branchDialogDelete:
 		a.drawBranchDeleteDialog(c, p)
+	case branchDialogDeleteUnmerged, branchDialogForceDelete, branchDialogDeleteResult:
+		a.drawBranchForceDeleteDialog(c, p)
 	case branchDialogTag:
 		a.drawTagDialog(c, p)
 	case branchDialogTagDelete:

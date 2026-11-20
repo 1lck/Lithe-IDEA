@@ -2,10 +2,12 @@ package core
 
 import (
 	"encoding/json"
-	"github.com/1lck/Lithe-IDEA/desktop/internal/contractfixture"
 	"os"
 	"path/filepath"
+	"slices"
 	"testing"
+
+	"github.com/1lck/Lithe-IDEA/desktop/internal/contractfixture"
 )
 
 // readMarketFixture uses the shared fixtures of the pinned Core contract.
@@ -25,8 +27,9 @@ func TestMarketplaceSourceFixture(t *testing.T) {
 		Cases []struct {
 			Input    string `json:"input"`
 			Expected struct {
-				IndexURL    string `json:"indexURL"`
-				DisplayName string `json:"displayName"`
+				IndexURL           string `json:"indexURL"`
+				RecommendationsURL string `json:"recommendationsURL"`
+				DisplayName        string `json:"displayName"`
 			} `json:"expected"`
 			ExpectedCode string `json:"expectedCode"`
 		} `json:"cases"`
@@ -43,7 +46,10 @@ func TestMarketplaceSourceFixture(t *testing.T) {
 				}
 				return
 			}
-			if err != nil || source.IndexURL != item.Expected.IndexURL || source.DisplayName != item.Expected.DisplayName {
+			if err != nil ||
+				source.IndexURL != item.Expected.IndexURL ||
+				source.RecommendationsURL != item.Expected.RecommendationsURL ||
+				source.DisplayName != item.Expected.DisplayName {
 				t.Fatalf("source = %#v, error = %v", source, err)
 			}
 		})
@@ -134,5 +140,68 @@ func TestMarketplaceValidatesCommunityStore(t *testing.T) {
 		if entry.Availability.Status != "unsupported" {
 			t.Fatalf("%s must not be offered without the host capabilities it requires: %#v", entry.ID, entry.Availability)
 		}
+	}
+}
+
+func TestMarketplaceRecommendationFixture(t *testing.T) {
+	var index json.RawMessage
+	readMarketFixture(t, "marketplace/index.json", &index)
+	var recommendations json.RawMessage
+	readMarketFixture(t, "marketplace/recommendations.json", &recommendations)
+	var fixture struct {
+		Cases []struct {
+			Name               string                `json:"name"`
+			SourceKind         MarketplaceSourceKind `json:"sourceKind"`
+			Platform           string                `json:"platform"`
+			HostCapabilities   map[string][]int      `json:"hostCapabilities"`
+			WorkspaceFiles     []string              `json:"workspaceFiles"`
+			InstalledPluginIDs []string              `json:"installedPluginIDs"`
+			DismissedPluginIDs []string              `json:"dismissedPluginIDs"`
+			ExpectedPlugins    []struct {
+				ID                string   `json:"id"`
+				MatchedMarkers    []string `json:"matchedMarkers"`
+				MatchedExtensions []string `json:"matchedExtensions"`
+			} `json:"expectedPlugins"`
+		} `json:"cases"`
+	}
+	readMarketFixture(t, "marketplace/recommendations-cases.json", &fixture)
+	client := NewClient()
+	const indexURL = "https://example.com/lithe-plugin-index.json"
+	for _, tc := range fixture.Cases {
+		t.Run(tc.Name, func(t *testing.T) {
+			result, err := client.RecommendMarketplacePlugins(
+				testContext(t),
+				tc.Platform,
+				tc.WorkspaceFiles,
+				[]MarketplaceRecommendationCatalog{{
+					Index:           index,
+					SourceKind:      tc.SourceKind,
+					IndexURL:        indexURL,
+					Recommendations: recommendations,
+				}},
+				tc.HostCapabilities,
+				tc.InstalledPluginIDs,
+				tc.DismissedPluginIDs,
+			)
+			if err != nil {
+				t.Fatalf("RecommendMarketplacePlugins: %v", err)
+			}
+			if len(result.Rejected) != 0 {
+				t.Fatalf("rejected = %#v, want empty", result.Rejected)
+			}
+			if len(result.Plugins) != len(tc.ExpectedPlugins) {
+				t.Fatalf("plugins = %#v, want %d entries", result.Plugins, len(tc.ExpectedPlugins))
+			}
+			for i, got := range result.Plugins {
+				want := tc.ExpectedPlugins[i]
+				if got.Plugin.ID != want.ID ||
+					!slices.Equal(got.MatchedMarkers, want.MatchedMarkers) ||
+					!slices.Equal(got.MatchedExtensions, want.MatchedExtensions) ||
+					got.MarketplaceIndexURL != indexURL ||
+					got.Plugin.MarketplaceIndexURL != indexURL {
+					t.Fatalf("plugin[%d] = %#v, want %#v", i, got, want)
+				}
+			}
+		})
 	}
 }

@@ -20,6 +20,8 @@ type RunMessages struct {
 	Snapshot RunSnapshotMessages
 	// Performance words the CPU and memory readings of a run (run_performance_messages.go).
 	Performance RunPerformanceMessages
+	// Ports words the listening TCP ports row and actions of a running run (run_ports_messages.go).
+	Ports RunPortsMessages
 	// Exited reports a finished process and its exit code.
 	Exited func(code int) string
 	// Signalled reports a process ended by a signal.
@@ -45,6 +47,7 @@ func runMessages(language Language) RunMessages {
 		Stopped:        Shared(language, "desktop.run.statusStopped"),
 		Snapshot:       runSnapshotMessages(language),
 		Performance:    runPerformanceMessages(language),
+		Ports:          runPortsMessages(language),
 		Exited: func(code int) string {
 			return SharedFormat(language, "desktop.run.exited", map[string]string{"code": strconv.Itoa(code)})
 		},

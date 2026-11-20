@@ -362,6 +362,13 @@ func (a *App) attachProcess(p *project, op *buildOperation, process *buildproces
 	op.ide.start()
 	op.session.processRunning = true
 	a.setOperationStatus(p, op, a.text.Build.Running)
+	if pid := process.Pid(); pid > 0 {
+		debugPort := 0
+		if op.debug != nil {
+			debugPort = op.debug.launch.Target.Port
+		}
+		a.startRunPortSampling(p, op.session, pid, debugPort)
+	}
 	return true
 }
 
@@ -2162,6 +2169,7 @@ func (a *App) endBuildSession(op *buildOperation, state, status string) {
 	if session == nil || !session.running {
 		return
 	}
+	stopRunPortSampling(session)
 	session.output.seal()
 	session.running, session.operation, session.ended, session.summary = false, nil, a.now(), status
 	switch state {

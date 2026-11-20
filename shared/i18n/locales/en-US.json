@@ -774,7 +774,7 @@
     "desktop.branch.created": "Created branch '{name}'",
     "desktop.branch.current": "Current branch",
     "desktop.branch.deleteFailed": "Failed to delete branch: {reason}",
-    "desktop.branch.deletePrompt": "Delete the local branch '{name}'? It is deleted even if it is not merged, and commits only on it will no longer be on any branch.",
+    "desktop.branch.deletePrompt": "Delete the local branch '{name}'? If it is not fully merged, it will be kept until you separately confirm force deletion.",
     "desktop.branch.deleteTitle": "Delete branch?",
     "desktop.branch.deleted": "Deleted branch '{name}' (was {target})",
     "desktop.branch.detached": "Checked out '{revision}' in detached HEAD state",
@@ -1255,6 +1255,10 @@
     "desktop.markdown.preview": "Rendered Markdown",
     "desktop.markdown.tooLarge": "This file is too large to preview.",
     "desktop.marketplace.autoUpdated": "Automatically updated {count} plugins. Restart Lithe to activate the updates.",
+    "desktop.marketplace.recommendedTitle": "Recommended Plugins",
+    "desktop.marketplace.recommendedPlugins": "Suggested for this project: {plugins}",
+    "desktop.marketplace.recommendedAction": "View Plugins",
+    "desktop.marketplace.recommendedDismiss": "Don't Show Again",
     "desktop.marketplace.disableAutoUpdates": "Turn off automatic plugin updates",
     "desktop.marketplace.enableAutoUpdates": "Automatically update previously approved plugins",
     "desktop.marketplace.cancel": "Cancel",
@@ -11669,7 +11673,13 @@
     "desktop.search.followSymlinks": "Follow symbolic links",
     "desktop.search.includeGenerated": "Include generated directories",
     "desktop.search.symlinkHelp": "Only targets inside this project are searched; cycles are skipped.",
-    "desktop.search.totalCount": "{count} occurrences in {files} files"
+    "desktop.search.totalCount": "{count} occurrences in {files} files",
+    "desktop.editorActions.starting": "Starting {label}...",
+    "desktop.run.ports.label": "Listening on",
+    "desktop.run.ports.open": "Open in browser",
+    "desktop.run.ports.copy": "Copy URL",
+    "desktop.run.ports.more": "+{count}",
+    "desktop.run.ports.openFailed": "Could not open {url}."
   },
   "overrides": {
     "windows": {

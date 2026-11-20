@@ -1,6 +1,10 @@
 package core
 
-import "context"
+import (
+	"context"
+	"encoding/json"
+	"errors"
+)
 
 // gitReferenceRequest is the complete identity of a reference the kernel acts on. The kernel
 // checks all three fields against the repository before it runs Git.
@@ -149,18 +153,49 @@ type GitBranchDeletion struct {
 	DeletedTarget string `json:"deletedTarget"`
 }
 
-// GitDeleteBranch deletes the local branch from the repository at root, even when its commits
-// are not merged anywhere, and returns what it was. The current branch is refused with
-// CodeInvalidRequest.
+// GitBranchDeleteReview is Core's snapshot of a branch refused by ordinary deletion.
+type GitBranchDeleteReview struct {
+	Name           string `json:"name"`
+	ExpectedTarget string `json:"expectedTarget"`
+}
+
+// BranchDeleteReview decodes Core's structured unmerged-branch diagnostic. Other failures
+// never offer force; no localized Git output is interpreted here.
+func BranchDeleteReview(err error) (GitBranchDeleteReview, bool) {
+	var failure *Error
+	var review GitBranchDeleteReview
+	if !errors.As(err, &failure) || failure.Code != CodeGitBranchNotMerged {
+		return review, false
+	}
+	if json.Unmarshal([]byte(failure.Details), &review) != nil {
+		return GitBranchDeleteReview{}, false
+	}
+	return review, review.Name != "" && review.ExpectedTarget != ""
+}
+
+// GitDeleteBranch safely deletes a merged local branch and returns what it was. An unmerged
+// branch returns CodeGitBranchNotMerged and a BranchDeleteReview for a separately confirmed
+// force retry. Current and worktree-occupied branches remain protected.
 //
 // GitDeleteBranch starts git and blocks; call it from a background goroutine.
 func (c *Client) GitDeleteBranch(ctx context.Context, root string, branch GitReference) (GitBranchDeletion, error) {
-	response, err := c.gitWriteAnswer(ctx, gitWriteRequest{Root: root, Operation: "deleteBranch", GitReference: branch.request()})
+	return c.deleteBranch(ctx, gitWriteRequest{Root: root, Operation: "deleteBranch", GitReference: branch.request()})
+}
+
+// GitForceDeleteBranch deletes only the reviewed branch tip, bypassing the merge check after
+// explicit destructive confirmation. A changed target or checked-out branch is refused.
+// It starts Git and blocks; call it from a background goroutine.
+func (c *Client) GitForceDeleteBranch(ctx context.Context, root string, branch GitReference, expectedTarget string) (GitBranchDeletion, error) {
+	return c.deleteBranch(ctx, gitWriteRequest{Root: root, Operation: "deleteBranch", GitReference: branch.request(), Force: true, ExpectedTarget: expectedTarget})
+}
+
+func (c *Client) deleteBranch(ctx context.Context, request gitWriteRequest) (GitBranchDeletion, error) {
+	response, err := c.gitWriteAnswer(ctx, request)
 	if err != nil {
 		return GitBranchDeletion{}, err
 	}
 	if response.BranchDeletion == nil {
-		return GitBranchDeletion{Name: branch.ShortName}, nil
+		return GitBranchDeletion{Name: request.GitReference.ShortName}, nil
 	}
 	return *response.BranchDeletion, nil
 }
