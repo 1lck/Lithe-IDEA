@@ -2,7 +2,7 @@
 # Builds the pinned Lithe-core-rust static library for the Viva desktop client and stages the
 # header, archive, native linker flags and build identity under .artifacts/desktop/lithe-core/:
 #
-# Usage: scripts/desktop/build-desktop-core.sh [--debug|--release]
+# Usage: scripts/desktop/build-desktop-core.sh [--debug|--release|--checkout-only]
 #
 #   include/lithe_core.h     the C ABI header of that core revision
 #   lib/liblithe_core.a      the static library that cgo links
@@ -13,6 +13,9 @@
 # LITHE_CORE_RUST_DIR points the build at a local core checkout. LITHE_CORE_TARGET selects a Rust
 # target; Windows uses x86_64-pc-windows-gnu because cgo cannot link an MSVC .lib archive. The
 # staging directory is build state of this worktree and is never written into an app bundle.
+#
+# --checkout-only prepares the same core checkout, builds nothing and prints the checkout instead.
+# scripts/desktop/build-remote-server.sh uses it, so the pin and the clone live only here.
 #
 # The staging directory is the only line written to standard output, so a caller can read it.
 set -euo pipefail
@@ -296,17 +299,20 @@ PINNED_CORE_REPOSITORY="https://github.com/Lithe-IDEA/Lithe-core-rust.git"
 # Core #133, merged into main: commandInstallers 1 pinned archive downloads (API-23).
 PINNED_CORE_REVISION="72036de379e4a71bb995c81a8f574859937bc616"
 PROFILE="debug"
+CHECKOUT_ONLY="no"
 while [[ $# -gt 0 ]]; do
     case "$1" in
         --release) PROFILE="release"; shift ;;
         --debug) PROFILE="debug"; shift ;;
-        *) printf '%s\n' "Usage: $0 [--debug|--release]" >&2; exit 2 ;;
+        --checkout-only) CHECKOUT_ONLY="yes"; shift ;;
+        *) printf '%s\n' "Usage: $0 [--debug|--release|--checkout-only]" >&2; exit 2 ;;
     esac
 done
 
 HOST_TARGET="$(rustc -vV | sed -n 's/^host: //p')"
 RUST_TARGET="${LITHE_CORE_TARGET:-$HOST_TARGET}"
-if [[ "$RUST_TARGET" == *-windows-msvc ]]; then
+# Preparing the checkout links nothing, so it works on an MSVC host as well.
+if [[ "$RUST_TARGET" == *-windows-msvc && "$CHECKOUT_ONLY" == "no" ]]; then
     printf '%s\n' "cgo cannot link the MSVC .lib archive for $RUST_TARGET; use x86_64-pc-windows-gnu for Windows." >&2
     exit 2
 fi
@@ -361,6 +367,10 @@ if [[ ! -f "$MANIFEST" ]]; then
     exit 1
 fi
 MANIFEST_NATIVE="$(native_path "$MANIFEST")"
+if [[ "$CHECKOUT_ONLY" == "yes" ]]; then
+    printf '%s\n' "$CORE_DIR"
+    exit 0
+fi
 
 CORE_REVISION="$(git -C "$CORE_DIR" rev-parse HEAD)"
 CORE_DIRTY="clean"
