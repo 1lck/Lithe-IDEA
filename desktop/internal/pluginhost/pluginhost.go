@@ -284,7 +284,7 @@ func resolve(packageDirectory, name string, executable bool) (string, error) {
 		last := i == len(segments)-1
 		info, statErr := os.Lstat(current)
 		if errors.Is(statErr, os.ErrNotExist) {
-			return "", fmt.Errorf("%w: %q does not exist", ErrPackagePath, name)
+			return "", fmt.Errorf("%w: %q: %w", ErrPackagePath, name, os.ErrNotExist)
 		}
 		if statErr != nil {
 			return "", statErr

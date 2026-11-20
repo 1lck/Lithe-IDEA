@@ -134,6 +134,8 @@ func (l *Language) rules() []Rule {
 // language its ID resolves to, if any, when they are set; the rest are inherited.
 type PluginLanguage struct {
 	ID string
+	// FirstLineMatch is the plugin's Core-validated pattern for an unknown extensionless file.
+	FirstLineMatch string
 	// Extensions are file name suffixes, with or without their dot, in any case.
 	Extensions []string
 	// FileNames are base names, in any case.
@@ -184,6 +186,25 @@ type Registry struct {
 	// the languages that embed it.
 	classifiers map[string]*classifier
 	version     uint64
+}
+
+// FirstLineCandidate is one enabled language's pattern, ready for the Core matcher.
+type FirstLineCandidate struct {
+	LanguageID     string `json:"languageID"`
+	FirstLineMatch string `json:"firstLineMatch"`
+}
+
+// FirstLineCandidates returns candidates in the same registration order as ForPath.
+func (r *Registry) FirstLineCandidates() []FirstLineCandidate {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	var candidates []FirstLineCandidate
+	for _, id := range r.pluginOrder {
+		if pattern := r.plugins[id].source.FirstLineMatch; pattern != "" {
+			candidates = append(candidates, FirstLineCandidate{LanguageID: id, FirstLineMatch: pattern})
+		}
+	}
+	return candidates
 }
 
 type pluginEntry struct {

@@ -55,6 +55,9 @@ func PrepareEdits(before, saved rope.Rope, edits []TextEdit) (PreparedEdit, erro
 	return prepared, nil
 }
 
+// Snapshot returns the replacement text prepared on the worker.
+func (p PreparedEdit) Snapshot() rope.Rope { return p.after }
+
 // ApplyPreparedEdit keeps saved contents and undo history while replacing the native
 // buffer. A stale result, composing input or a read-only view changes nothing.
 func (v *View) ApplyPreparedEdit(prepared PreparedEdit) bool {

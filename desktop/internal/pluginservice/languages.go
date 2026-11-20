@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 
+	"github.com/1lck/Lithe-IDEA/desktop/internal/core"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/editor/syntax"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/pluginhost"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/pluginmanager"
@@ -22,6 +23,8 @@ const (
 	// language is well under a megabyte; the ceiling only stops a malformed
 	// package from being read into memory.
 	MaxGrammarBytes = 16 << 20
+	// maxFirstLineMetadataBytes bounds an optional TextMate hint without a grammar.
+	maxFirstLineMetadataBytes = 4096
 	// MaxDelimiterBytes bounds one comment or bracket delimiter, matching the
 	// contract's editorDelimiter.
 	MaxDelimiterBytes = 16
@@ -103,15 +106,22 @@ func (s *Service) pluginLanguages(ctx context.Context, directory string) ([]synt
 			Extensions: item.FileExtensions,
 			FileNames:  item.FileNames,
 		}
+		name := "grammars/" + item.ID + ".first-line.json"
+		limit := int64(maxFirstLineMetadataBytes)
 		if item.Grammar != nil {
-			// The contract has a language whose grammar is refused open as plain text
-			// while the rest of the plugin keeps working, so a bad grammar costs that
-			// language its highlighting and nothing else.
-			if grammar, err := s.grammar(ctx, directory, manifest, item.ID, item.Grammar.Path); err != nil {
+			name, limit = item.Grammar.Path, MaxGrammarBytes
+		}
+		decoded, err := s.editorLanguage(ctx, directory, manifest, item.ID, name, limit)
+		if err != nil {
+			// log-exempt: 预期的缺失：独立首行元数据是语言插件的可选资源。
+			if item.Grammar != nil || !errors.Is(err, os.ErrNotExist) {
 				failures = append(failures, fmt.Errorf("%s: %w", item.ID, err))
-			} else {
-				language.Grammar = grammar
 			}
+		} else if grammar := decoded.Grammar; grammar != nil {
+			language.Grammar = []byte(grammar.Source)
+			language.FirstLineMatch = grammar.FirstLineMatch
+		} else {
+			language.FirstLineMatch = decoded.FirstLineMatch
 		}
 		if configuration := item.Configuration; configuration != nil {
 			if validDelimiter(configuration.LineComment) {
@@ -123,13 +133,10 @@ func (s *Service) pluginLanguages(ctx context.Context, directory string) ([]synt
 			language.Brackets = delimiterPairs(configuration.Brackets)
 			language.AutoClosing = delimiterPairs(configuration.AutoClosingPairs)
 		}
-		if len(language.Extensions) == 0 && len(language.FileNames) == 0 {
-			// The editor matches a language by extension or base name only. A
-			// declaration that names nothing but projectFileNames is a project
-			// signal, which this client does not use to choose a language, so the
-			// language would be invisible. Reporting it is better than registering a
-			// language that can never match.
-			failures = append(failures, fmt.Errorf("%s: declares no file extensions or file names", item.ID))
+		if len(language.Extensions) == 0 && len(language.FileNames) == 0 && language.FirstLineMatch == "" {
+			// Project file names alone describe a project signal, so this language
+			// cannot match any document.
+			failures = append(failures, fmt.Errorf("%s: declares no file extensions, file names or first-line pattern", item.ID))
 			continue
 		}
 		languages = append(languages, language)
@@ -137,24 +144,17 @@ func (s *Service) pluginLanguages(ctx context.Context, directory string) ([]synt
 	return languages, errors.Join(failures...)
 }
 
-// grammar reads one grammar file from the package and has Core validate it.
-func (s *Service) grammar(ctx context.Context, directory string, manifest json.RawMessage, languageID, name string) ([]byte, error) {
+// editorLanguage reads one grammar or metadata file and has Core validate it.
+func (s *Service) editorLanguage(ctx context.Context, directory string, manifest json.RawMessage, languageID, name string, limit int64) (core.PluginEditorLanguage, error) {
 	path, err := pluginhost.ResolvePackagePath(directory, name)
 	if err != nil {
-		return nil, err
+		return core.PluginEditorLanguage{}, err
 	}
-	source, err := readBounded(path, MaxGrammarBytes)
+	source, err := readBounded(path, limit)
 	if err != nil {
-		return nil, err
+		return core.PluginEditorLanguage{}, err
 	}
-	decoded, err := s.kernel.DecodePluginGrammar(ctx, manifest, languageID, string(source))
-	if err != nil {
-		return nil, err
-	}
-	if decoded.Grammar == nil {
-		return nil, nil
-	}
-	return []byte(decoded.Grammar.Source), nil
+	return s.kernel.DecodePluginGrammar(ctx, manifest, languageID, string(source))
 }
 
 // delimiterPair converts one two-element delimiter declaration.

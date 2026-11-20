@@ -74,7 +74,10 @@ type document struct {
 	// by.
 	path, name string
 	languageID string
-	view       *editorview.View
+	// grammar is the syntax selected on open, including any bundled fallback.
+	// Views of this document share it for the lifetime of the open document.
+	grammar *syntax.Syntax
+	view    *editorview.View
 	// lens is a second view of the text that the user last typed or clicked in: the editable
 	// preview of the Problems tool window (source_preview.go). The language features follow its
 	// caret while it is set, so completion, hover and the rest work there as in the editor; nil
@@ -308,10 +311,11 @@ func (a *App) openFile(p *project, path string) {
 			} else {
 				content = editorview.Prepare(data)
 			}
-			grammar = registry.SyntaxForPath(path)
-			if language, ok := registry.ForPath(path); ok {
-				languageID = language.ID
+			snapshot := content.Snapshot()
+			if restored.found {
+				snapshot = restored.prepared.Snapshot()
 			}
+			languageID, grammar = a.resolveDocumentLanguage(ctx, registry, path, snapshot)
 		}
 		return func(a *App) {
 			delete(p.docs.opening, path)
@@ -511,7 +515,7 @@ func (a *App) placeDocumentAs(p *project, path, name string, content editorview.
 		return
 	}
 	p.docs.next = id
-	d := &document{id: id, path: path, name: name, languageID: languageID, virtual: virtual}
+	d := &document{id: id, path: path, name: name, languageID: languageID, grammar: grammar, virtual: virtual}
 	d.view = editorview.New(editorview.Config{
 		Label:   name,
 		Content: content,

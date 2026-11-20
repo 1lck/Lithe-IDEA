@@ -176,6 +176,8 @@ type PluginEditorLanguage struct {
 	FileNames      []string        `json:"fileNames"`
 	Grammar        *PluginGrammar  `json:"grammar"`
 	Configuration  json.RawMessage `json:"configuration"`
+	// FirstLineMatch comes from standalone metadata and leaves the current grammar intact.
+	FirstLineMatch string `json:"firstLineMatch,omitempty"`
 }
 
 // PluginGrammar is a validated TextMate source, retained byte for byte.
@@ -183,6 +185,8 @@ type PluginGrammar struct {
 	Kind      string `json:"kind"`
 	ScopeName string `json:"scopeName"`
 	Source    string `json:"source"`
+	// FirstLineMatch is the optional language detection hint accepted by Core.
+	FirstLineMatch string `json:"firstLineMatch,omitempty"`
 }
 
 // DecodePluginGrammar asks Core to validate static editor resources. The

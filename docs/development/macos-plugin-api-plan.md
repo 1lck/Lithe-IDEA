@@ -92,6 +92,10 @@ Windows 不在本轮，平台矩阵的 partial/pending 保持真实。
 决策边界见[独立插件编辑器 API](../../.agents/notes/implemented/architecture/2026-10-31-plugin-editor-extension-apis.md)，
 正式资源契约见[语法与编辑配置](https://github.com/Lithe-IDEA/Lithe-core-rust/blob/main/shared/plugins/contract/v1/README.md#grammars-and-editor-configuration)。
 
+#### Viva 的首行语言识别
+
+上表保留 PR #1595 的盘点。Viva 支持通过 API-25 的静态语法入口为无后缀文件提供首行识别规则。沿用已有语法的插件可提供独立的首行元数据。语法文件格式与版本说明见 [Core 语法与编辑配置](https://github.com/Lithe-IDEA/Lithe-core-rust/blob/main/shared/plugins/contract/v1/README.md#grammars-and-editor-configuration)。
+
 ### 当前公共调用面汇总
 
 所有宿主请求以 `lithe/host/` 为前缀；这里的点号是阅读简写，正式方法使用 `/`。

@@ -167,7 +167,7 @@ func TestResolvePackagePathRefusesUnsafeNames(t *testing.T) {
 
 func TestResolvePackagePathRefusesMissingFile(t *testing.T) {
 	root := writePackage(t, map[string]string{"plugin.json": "{}"})
-	if _, err := ResolvePackagePath(root, "bin/absent"); !errors.Is(err, ErrPackagePath) {
+	if _, err := ResolvePackagePath(root, "bin/absent"); !errors.Is(err, ErrPackagePath) || !errors.Is(err, os.ErrNotExist) {
 		t.Fatalf("err = %v", err)
 	}
 }

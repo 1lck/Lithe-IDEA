@@ -173,10 +173,11 @@ func (a *App) showSourcePreview(p *project, sp *sourcePreview, path string, line
 	sp.path, sp.line = path, line
 	generation := sp.generation
 	var openText []byte
+	var openGrammar *syntax.Syntax
 	open := false
 	if d := p.docs.byPath(path); d != nil {
-		data, _ := d.view.Text()
-		openText = append([]byte(nil), data...)
+		openText, _ = d.view.Text()
+		openGrammar = d.grammar
 		open = true
 	}
 	registry := a.syntaxRegistry()
@@ -190,10 +191,12 @@ func (a *App) showSourcePreview(p *project, sp *sourcePreview, path string, line
 			data = read.text
 		}
 		var content editorview.Content
-		var grammar *syntax.Syntax
+		grammar := openGrammar
 		if err == nil {
 			content = editorview.Prepare(data)
-			grammar = registry.SyntaxForPath(path)
+			if !open {
+				_, grammar = a.resolveDocumentLanguage(ctx, registry, path, content.Snapshot())
+			}
 		}
 		return func(a *App) {
 			if sp.generation != generation || a.project != p || !alive(a) {
@@ -222,7 +225,7 @@ func (a *App) showEditablePreview(p *project, sp *sourcePreview, path string, li
 	registry := a.syntaxRegistry()
 	kernel, _ := a.kernel.(editorKernel)
 	a.background(p, 0, func(ctx context.Context) func(*App) {
-		file := readTablessFile(ctx, kernel, registry, path)
+		file := a.readTablessFile(ctx, kernel, registry, path)
 		return func(a *App) {
 			if sp.generation != generation || a.project != p || !alive(a) {
 				return
@@ -248,7 +251,7 @@ func (a *App) bindSourcePreview(p *project, sp *sourcePreview, d *document) {
 	view = editorview.New(editorview.Config{
 		Label:   d.name,
 		Content: d.view.CopyContent(),
-		Syntax:  a.syntaxRegistry().SyntaxForPath(d.path),
+		Syntax:  d.grammar,
 		Notify:  a.invalidator.Invalidate,
 		Save:    func() { a.saveDocument(p, d.id) },
 		OnEdit:  func(edit editorview.Edit) { a.previewEdited(p, sp, view, edit) },
