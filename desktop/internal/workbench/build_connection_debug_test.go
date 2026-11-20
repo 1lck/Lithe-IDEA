@@ -86,6 +86,11 @@ func registryAttachManifest(id string) string {
 // and the fixture service on PATH.
 func connectionDebugHarness(t *testing.T, adapters map[string]string) *harness {
 	t.Helper()
+	return connectionDebugHarnessWithProvider(t, providerServiceDebugManifest, adapters)
+}
+
+func connectionDebugHarnessWithProvider(t *testing.T, providerManifest string, adapters map[string]string) *harness {
+	t.Helper()
 	dir := t.TempDir()
 	if err := os.WriteFile(filepath.Join(dir, settingsFile), []byte(`{"theme":"dark"}`), 0o600); err != nil {
 		t.Fatal(err)
@@ -105,7 +110,7 @@ func connectionDebugHarness(t *testing.T, adapters map[string]string) *harness {
 			t.Fatal(err)
 		}
 	}
-	install("dev.lithe.test.provider-tests", providerServiceDebugManifest, "provider")
+	install("dev.lithe.test.provider-tests", providerManifest, "provider")
 	for id, manifest := range adapters {
 		if runtime.GOOS == "windows" {
 			manifest = strings.ReplaceAll(manifest, `"path": "adapter"`, `"path": "adapter.exe"`)
@@ -166,8 +171,9 @@ func openServiceDebugProject(t *testing.T, h *harness) (*project, string) {
 
 // preparedDebug is the launchOptions.debug the fixture provider received.
 type preparedDebug struct {
-	Execution string `json:"execution"`
-	Debug     *struct {
+	Execution  string `json:"execution"`
+	Entrypoint string `json:"entrypoint"`
+	Debug      *struct {
 		AdapterID         string `json:"adapterID"`
 		ConfigurationType string `json:"configurationType"`
 		Target            struct {
@@ -248,6 +254,38 @@ func TestTitleDebugAttachesTheRegisteredAdapterToAServiceRun(t *testing.T) {
 		t.Fatalf("the service still holds its debug port after Stop: %v", err)
 	}
 	_ = listener.Close()
+}
+
+func TestCurrentFileDebugSavesAndAttachesToTheDiscoveredEntrypoint(t *testing.T) {
+	const adapterID = "dev.lithe.test.registry-attach"
+	manifest := strings.Replace(providerEntrypointsManifest, `"buildSystems": 0`, `"buildSystems": 2`, 1)
+	manifest = strings.Replace(manifest, `"entrypoints": true`, `"entrypoints": true, "debug": {"configurationType": "fixture-attach"}`, 1)
+	h := connectionDebugHarnessWithProvider(t, manifest, map[string]string{adapterID: registryAttachManifest(adapterID)})
+	gate := &captureDebugLaunch{Kernel: h.app.kernel, configurations: make(chan core.DebugLaunchConfiguration, 1)}
+	h.app.kernel = gate
+	root := entrypointWorkspace(t)
+	writeFixture(t, root, map[string]string{"debug.marker": "fixture\n"})
+	h.open(root)
+	p := h.app.project
+	openSource(t, h, p, filepath.Join(root, "src", "Main.java"))
+	h.app.post(func(a *App) {
+		a.chooseTitleConfiguration(p, "")
+		a.titleDebug(p)
+	})
+	configuration := awaitValueWithin(t, h, time.Minute, gate.configurations, "the attach to the discovered entrypoint")
+	prepared := readPreparedRun(t, root)
+	if prepared.Execution != "application" || prepared.Entrypoint != "example.Main" || prepared.Debug == nil {
+		t.Fatalf("the provider prepared %+v, want the application entrypoint with a debug target", prepared)
+	}
+	if configuration.Request != "attach" || !sameDebugPort(configuration.Arguments["port"], prepared.Debug.Target.Port) {
+		t.Fatalf("attach configuration = %+v, want the entrypoint's port %d", configuration, prepared.Debug.Target.Port)
+	}
+	saved := p.titleConfiguration()
+	if saved == nil || saved.Name != "Main" || len(p.runConfigs.list) != 1 {
+		t.Fatalf("selected configuration = %+v, configurations = %+v", saved, p.runConfigs.list)
+	}
+	h.app.post(func(a *App) { a.stopDebugByUser(p) })
+	awaitStateWithin(t, h, time.Minute, "the stopped entrypoint", func() bool { return !p.build.active() && p.debug.activeSession() == nil })
 }
 
 // sameDebugPort reports whether a DAP argument decoded from JSON is port.

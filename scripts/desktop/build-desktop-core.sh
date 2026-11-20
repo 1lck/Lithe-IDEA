@@ -301,7 +301,7 @@ PINNED_CORE_REPOSITORY="https://github.com/Lithe-IDEA/Lithe-core-rust.git"
 # to another file name (rustup's cargo and rust-analyzer proxies) to the layout path, so probes and
 # launches start cargo, not rustup; #134 hardens remote connections and #136 logs the remote
 # connection lifecycle as structured log v2 events.
-PINNED_CORE_REVISION="43e3f277c47033ca8c98e67e7da896a79fde595f"
+PINNED_CORE_REVISION="39aa5fb51fcbc9c986536d1c48ab9665e4a68a62"
 PROFILE="debug"
 CHECKOUT_ONLY="no"
 while [[ $# -gt 0 ]]; do

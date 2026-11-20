@@ -240,8 +240,8 @@ func (a *App) decideTitleAction(p *project, action titleAction, trigger string) 
 	case "run":
 		a.runConfiguration(p, configuration.ID)
 	case "debug":
-		// A run that names a public debug type debugs as a service the registered adapter of
-		// that type attaches to; one that names its own plugin's adapter debugs a prepared program.
+		// A run that names a public debug type starts suspended so the registered
+		// adapter can attach. A run that names a native adapter prepares a launch.
 		if run, ok := buildRunDeclaration(p.build.instances[index].System, reference.Run); ok && run.DebugAdapter == "" && run.DebugConfigurationType != "" {
 			a.debugRunConfiguration(p, configuration.ID, run.DebugConfigurationType)
 			return
@@ -267,18 +267,4 @@ func (p *project) titleConfigurationFacts(index int, reference core.RunProviderR
 	run, ok := buildRunDeclaration(instance.System, reference.Run)
 	debuggable := ok && run.Debuggable()
 	return &core.TitleConfiguration{Kind: "modelLoaded", Debuggable: &debuggable}
-}
-
-// performCurrentFileAction keeps build-provider runs on their existing path and
-// offers the editor's Debug action before using the selected adapter directly.
-func (a *App) performCurrentFileAction(p *project, action titleAction) {
-	if action == titleActionDebug {
-		if p.safeMode() {
-			a.askToTrustProject(p, func() { a.performCurrentFileAction(p, action) })
-			return
-		}
-		a.runCurrentFileEditorAction(p, p.selectedDocument(p.docs.group), action)
-		return
-	}
-	a.runCurrentFileEntrypoint(p)
 }
