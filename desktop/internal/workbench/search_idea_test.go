@@ -19,6 +19,7 @@ import (
 	"github.com/1lck/Lithe-IDEA/desktop/internal/documentio"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/editorview"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/i18n"
+	"github.com/vivaui/viva/gfx"
 )
 
 func TestEverywhereTypesAndSymbolsUseSeparateTabs(t *testing.T) {
@@ -46,6 +47,79 @@ func TestEverywhereTypesAndSymbolsUseSeparateTabs(t *testing.T) {
 			if match.Kind != p.everywhere.options.kinds {
 				t.Fatalf("scope %d includes another category: %+v", scope, match)
 			}
+		}
+	}
+}
+
+// The Types and Symbols tabs list only what language servers report inside the
+// project folder, so an ⓘ right after each tab says what it lists and how far it
+// reaches. The filter's file options do not reach those results, so neither tab has a
+// filter; the tabs that search files keep theirs.
+func TestEverywhereLanguageTabsExplainTheirScopeAndHaveNoFilter(t *testing.T) {
+	h := newHarness(t, &testKernel{Client: core.NewClient()})
+	h.app.everywhereView.delay = 0
+	h.open(t.TempDir())
+	p := h.app.project
+	h.app.openEverywhere(p)
+	h.settleChain()
+	language := h.app.language()
+	control := func(label string) (gfx.Hit, bool) {
+		for _, hit := range h.driver.Snapshot().Hits {
+			if hit.Label == label && !hit.IsLabel && !hit.Backdrop && !hit.ID.IsZero() {
+				return hit, true
+			}
+		}
+		return gfx.Hit{}, false
+	}
+	info := i18n.Shared(language, "native.moreInformation")
+	for _, tc := range []struct{ tab, next, help string }{
+		{tab: "desktop.everywhere.types", next: "desktop.everywhere.files", help: "desktop.everywhere.typesHelp"},
+		{tab: "desktop.everywhere.symbols", next: "desktop.everywhere.actions", help: "desktop.everywhere.symbolsHelp"},
+	} {
+		help := i18n.Shared(language, tc.help)
+		tab, ok := control(i18n.Shared(language, tc.tab))
+		next, nextOK := control(i18n.Shared(language, tc.next))
+		if !ok || !nextOK {
+			t.Fatalf("the %s and %s tabs are not shown", tc.tab, tc.next)
+		}
+		var button gfx.Hit
+		for _, hit := range h.driver.Snapshot().Hits {
+			if hit.Label == info && hit.Hint == help && !hit.IsLabel && !hit.ID.IsZero() {
+				button = hit
+			}
+		}
+		if button.ID.IsZero() {
+			t.Fatalf("no ⓘ tells assistive technology %q", help)
+		}
+		if button.Bounds.X < tab.Bounds.Right() || button.Bounds.Right() > next.Bounds.X || button.Bounds.Bottom() < tab.Bounds.Y || button.Bounds.Y > tab.Bounds.Bottom() {
+			t.Fatalf("the ⓘ at %+v is not between the %s tab at %+v and the %s tab at %+v", button.Bounds, tc.tab, tab.Bounds, tc.next, next.Bounds)
+		}
+		at := center(button.Bounds)
+		if err := h.driver.Move(at.X, at.Y); err != nil {
+			t.Fatal(err)
+		}
+		h.settle()
+		// The tip wraps, one label a line; the lines together are the whole text.
+		unspaced := func(text string) string { return strings.Join(strings.Fields(text), "") }
+		var shown []string
+		for _, tip := range h.tooltips() {
+			shown = append(shown, tip.Value)
+		}
+		if got := unspaced(strings.Join(shown, "")); got != unspaced(help) {
+			t.Fatalf("resting on the ⓘ after the %s tab shows %q, want only %q", tc.tab, shown, help)
+		}
+	}
+
+	for scope, want := range map[int]bool{0: true, 1: false, 2: true, 3: false, 5: true} {
+		h.app.everywhereView.scope = scope
+		h.app.invalidator.Invalidate()
+		h.settleChain()
+		label := i18n.Shared(language, "native.filterResults")
+		if scope == 5 {
+			label = i18n.Shared(language, "native.searchOptions")
+		}
+		if _, shown := control(label); shown != want {
+			t.Fatalf("tab %d shows the filter: %v, want %v", scope, shown, want)
 		}
 	}
 }
