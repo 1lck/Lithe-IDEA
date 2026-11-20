@@ -604,13 +604,21 @@ func (a *App) presentDiff(t *diffTab) {
 // diffSideEditor shows pane in e, or in a new editor when e is nil or was made with another
 // grammar; a new editor takes the scroll of the one it replaces.
 func (a *App) diffSideEditor(t *diffTab, e *diffEditor, pane *diffPane, before bool) *diffEditor {
-	content := editorview.Prepare(pane.text)
 	// The right side of a working copy shows its document, which may hold edits the disk does not.
-	editable := !before && a.diffDocument(t) != nil
-	if editable {
-		content = a.diffDocument(t).view.CopyContent()
+	var doc *document
+	if !before {
+		doc = a.diffDocument(t)
 	}
-	if e != nil && e.grammar == t.grammar {
+	grammar := t.grammar
+	var content editorview.Content
+	if doc != nil {
+		grammar = doc.grammar
+		content = doc.view.CopyContent()
+	} else {
+		content = editorview.Prepare(pane.text)
+	}
+	editable := doc != nil
+	if e != nil && e.grammar == grammar {
 		e.view.ShowContent(content)
 		e.view.SetReadOnly(!editable)
 		e.decorated = nil
@@ -626,8 +634,8 @@ func (a *App) diffSideEditor(t *diffTab, e *diffEditor, pane *diffPane, before b
 	if before {
 		label = left + " " + t.change.Path
 	}
-	e = &diffEditor{label: label, grammar: t.grammar, x: x, y: y}
-	cfg := editorview.Config{Label: label, Content: content, Syntax: t.grammar, Notify: a.invalidator.Invalidate}
+	e = &diffEditor{label: label, grammar: grammar, x: x, y: y}
+	cfg := editorview.Config{Label: label, Content: content, Syntax: grammar, Notify: a.invalidator.Invalidate}
 	if !before {
 		cfg.OnEdit = func(edit editorview.Edit) { a.diffEdited(t, edit) }
 		cfg.Save = func() {

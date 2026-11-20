@@ -94,7 +94,7 @@ func (a *App) addTablessDocument(p *project, path string, file tablessFile) *doc
 // newTablessDocument makes the document of path with its editor, wired the way a tab's document is,
 // except for its tab, its input and its watch, which attachDocumentTab adds.
 func (a *App) newTablessDocument(p *project, id int, path, name string, content editorview.Content, grammar *syntax.Syntax, languageID string) *document {
-	d := &document{id: id, path: path, name: name, languageID: languageID}
+	d := &document{id: id, path: path, name: name, languageID: languageID, grammar: grammar}
 	d.view = editorview.New(editorview.Config{
 		Label:   name,
 		Content: content,

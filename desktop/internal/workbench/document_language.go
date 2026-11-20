@@ -19,18 +19,32 @@ type languageLoad struct {
 // matches keep priority. Core receives only the bounded, decoded first line.
 func (a *App) resolveDocumentLanguage(ctx context.Context, registry *syntax.Registry, path string, text rope.Rope) (string, *syntax.Syntax) {
 	hasExtension := filepath.Ext(path) != ""
+	var pending <-chan struct{}
 	if initial := a.initialLanguageLoad.Load(); initial != nil && !hasExtension {
 		select {
 		case <-initial.done:
+		default:
+			pending = initial.done
+		}
+	}
+	for {
+		if language, ok := registry.ForPath(path); ok {
+			return language.ID, registry.SyntaxForPath(path)
+		}
+		if hasExtension {
+			return "", nil
+		}
+		if pending == nil {
+			break
+		}
+		// Known paths restore immediately. For unknown paths, the initial snapshot
+		// may add an exact file name, which still wins over a first-line match.
+		select {
+		case <-pending:
+			pending = nil
 		case <-ctx.Done():
 			return "", nil
 		}
-	}
-	if language, ok := registry.ForPath(path); ok {
-		return language.ID, registry.SyntaxForPath(path)
-	}
-	if hasExtension {
-		return "", nil
 	}
 	const maxFirstLineBytes = 1024
 	end := text.LineEnd(0)

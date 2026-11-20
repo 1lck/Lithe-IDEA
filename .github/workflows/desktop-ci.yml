@@ -216,7 +216,7 @@ jobs:
           LITHE_VISUAL_OUTPUT_DIR: ${{ github.workspace }}/.artifacts/search-visual
         run: |
           ./scripts/desktop/desktop-go.sh test -tags 'vivahead lithevisual' ./internal/workbench ./internal/settingswindow \
-            -run '^TestVisualSearch(Results|Preferences)$' -count=1 -timeout=120s
+            -run '^TestVisualSearch(Results|Preferences|FirstLineLanguage)$' -count=1 -timeout=120s
 
       - name: Upload search screenshots
         if: ${{ !cancelled() && steps.search-visual.outcome != 'skipped' }}
