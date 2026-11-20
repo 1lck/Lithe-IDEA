@@ -27,6 +27,9 @@ native_path() {
     fi
 }
 
+# Lithe-core-rust #128 (604699f), on top of #127: outputStyle.decode preserves raw
+# bytes and decodes each line as UTF-8, with GBK fallback on Windows; outputEncoding.resolve
+# supplies actual candidates. run/start and build prepareRun may declare outputEncoding (#2186).
 # Lithe-core-rust main at 98e6940 (#119 protocol changelog only) on top of #118 (8c77c3f, on top of #117 plugin
 # SDK documentation only): the toolchain catalog records a decision on each workspace (trusted,
 # distrusted for safe mode, or unknown) and trusted locations, toolchains.catalogState reports it as
@@ -286,7 +289,7 @@ PINNED_CORE_REPOSITORY="https://github.com/Lithe-IDEA/Lithe-core-rust.git"
 # rows), #13, #8, #7, #6 and #4.
 # Search pages, unsaved snapshots, source identities and budgets from Core #125,
 # merged on top of the build-option changes through Core #124.
-PINNED_CORE_REVISION="3c0fcffcbc7067be86b832ca2ee3acfc48bf6187"
+PINNED_CORE_REVISION="604699f0df9a7c5ec1b245d3f2526d158f5a8eed"
 PROFILE="debug"
 while [[ $# -gt 0 ]]; do
     case "$1" in
