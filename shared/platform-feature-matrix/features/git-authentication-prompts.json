@@ -1,0 +1,29 @@
+{
+  "id": "git-authentication-prompts",
+  "area": "版本控制",
+  "group": "Git",
+  "capability": "Git 在窗口中询问用户名、密码、口令和是否重试",
+  "macos": {
+    "implementationStatus": "implemented",
+    "verificationStatus": "pending",
+    "evidence": [
+      "desktop/internal/core/gitauth.go",
+      "desktop/internal/core/gitauth_test.go",
+      "desktop/internal/workbench/git_auth.go",
+      "desktop/internal/workbench/git_auth_test.go",
+      "desktop/cmd/lithe/main.go"
+    ]
+  },
+  "windows": {
+    "implementationStatus": "implemented",
+    "verificationStatus": "pending",
+    "evidence": [
+      "desktop/internal/core/gitauth.go",
+      "desktop/internal/workbench/git_auth.go",
+      "desktop/cmd/lithe/main.go"
+    ]
+  },
+  "owner": "Git",
+  "verification": "对一个要求 HTTPS Basic 认证、且没有凭据助手可用的远程仓库分别执行克隆、拉取、推送、删除远程分支和提交并推送：窗口依次询问用户名和密码，密码输入以圆点显示，答案到达远程；凭据被拒后询问是否在 Lithe 中重新输入，取消后操作以失败结束且不留下克隆目录。对带口令的 SSH 私钥执行拉取，确认口令同样在窗口中询问。两个操作同时询问时按顺序逐个显示；操作结束后它的问题自动消失。日志中只有 git.authentication.answer/retry/cancel 动作，不含提示原文、用户名、主机或答案。",
+  "notes": "Viva：Git 由 Core 以 GIT_ASKPASS/SSH_ASKPASS 指向 lithe 可执行文件的助手模式运行，助手经 Core 的本地连接取回答案；只有用户在窗口中发起的 Git 操作（克隆、拉取/推送/同步、删除远程分支、提交并推送、GitHub 新建仓库和检出 PR）会询问，后台刷新不询问。macOS 用真实 Core 与 Git 对拒绝认证的 HTTP 远程端到端测试通过；Windows 上助手是 GUI 子系统程序，Git 读取其标准输出仍待实机验证。插件 VCS 提供者的认证提示不在本能力范围。"
+}

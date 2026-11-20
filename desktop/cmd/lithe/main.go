@@ -22,6 +22,12 @@ import (
 )
 
 func main() {
+	// Git and SSH run this program as the AskPass helper of a Git command the user started in
+	// Lithe. The helper only relays one question to that window and prints the answer, so it
+	// returns before any window, log, store or login environment exists.
+	if prompt, helper := core.GitAskPassRequest(os.Args); helper {
+		os.Exit(core.GitAskPass(prompt))
+	}
 	// AppKit needs the process's main thread for the application and its windows. Pin the
 	// main goroutine before any setup that can yield, so the scheduler cannot move it.
 	runtime.LockOSThread()

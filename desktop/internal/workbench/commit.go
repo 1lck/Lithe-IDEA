@@ -352,6 +352,8 @@ func (a *App) runCommit(p *project, t commitTarget, session core.WorkspaceCommit
 	}
 	kernel := a.kernel
 	a.background(p, commitRunTimeout, func(ctx context.Context) func(*App) {
+		// A push step may ask for credentials.
+		ctx = a.gitAuthentication(ctx)
 		var err error
 		for !session.Finished {
 			next, stepErr := kernel.WorkspaceCommitStep(ctx, session)

@@ -117,6 +117,10 @@ func (a *App) confirmDelete(p *project) {
 	kernel := a.kernel
 	results := make([]branchDeletion, len(branches))
 	a.background(p, timeout, func(ctx context.Context) func(*App) {
+		if remote {
+			// The push that deletes a remote branch may ask for credentials.
+			ctx = a.gitAuthentication(ctx)
+		}
 		for i, r := range branches {
 			if force {
 				deleted, err := kernel.GitForceDeleteBranch(ctx, root, r, reviews[i].target)

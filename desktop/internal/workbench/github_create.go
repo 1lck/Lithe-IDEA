@@ -297,13 +297,14 @@ func (a *App) publishCreateBranch(p *project) {
 	cr.busy, cr.err = true, ""
 	a.performed("git.publishBranch", surfaceButton)
 	language := a.language()
-	a.background(p, gitTimeout, func(ctx context.Context) func(*App) {
+	// The push waits on the network, and on the user while it asks for credentials, as any push.
+	a.background(p, syncTimeout, func(ctx context.Context) func(*App) {
 		preview, err := kernel.GitPushPreviewOf(ctx, root, core.GitReference{}, core.GitPushTagsNone, "")
 		if err == nil && preview.TargetKind == "divergent" {
 			err = errPublishDivergent
 		}
 		if err == nil {
-			err = kernel.GitPush(ctx, root, preview, core.GitPushTagsNone, "", false)
+			err = kernel.GitPush(a.gitAuthentication(ctx), root, preview, core.GitPushTagsNone, "", false)
 		}
 		var facts core.PullRequestContext
 		if err == nil {

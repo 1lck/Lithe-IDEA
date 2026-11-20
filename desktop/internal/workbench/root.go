@@ -299,7 +299,8 @@ func (a *App) runShortcut(id string, view *editorview.View, term *terminal) {
 
 // overlays declares everything the window shows over the workbench: the dialogs, the search
 // and navigation popups, the language popups, the plugin prompts, the import of an
-// earlier client's plugin secrets, the Git dialogs and the New Project dialog. Each dialog's
+// earlier client's plugin secrets, the Git dialogs, the New Project dialog and the questions
+// Git asks while it authenticates. Each dialog's
 // state stays with its own file; the toasts are declared last, over all of them.
 func (a *App) overlays(c ui.C) {
 	a.scratchPopup(c)
@@ -336,6 +337,9 @@ func (a *App) overlays(c ui.C) {
 	a.newProjectModal(c)
 	// The update dialog shows on the welcome screen as on a project, over whatever is open.
 	a.updateDialog(c)
+	// A Git question holds up the operation that asked it, which may have any dialog open, so
+	// it shows over all of them.
+	a.gitAuthDialog(c)
 }
 
 // dragLayer declares what a drag in progress paints over the workbench: the zones and

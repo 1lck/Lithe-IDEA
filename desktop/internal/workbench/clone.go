@@ -122,7 +122,7 @@ func (a *App) submitClone() {
 	kernel := a.kernel
 	a.background(nil, 0, func(context.Context) func(*App) {
 		defer cancel()
-		err := kernel.GitClone(ctx, parent, source, destination)
+		err := kernel.GitClone(a.gitAuthentication(ctx), parent, source, destination)
 		return func(a *App) {
 			c := &a.clone
 			if !c.open || c.generation != generation {
