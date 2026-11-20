@@ -247,12 +247,30 @@ func (a *App) commitPluginInstall(ctx context.Context, plan plugininstall.Plan, 
 			a.allowPluginPrograms(plan.ID)
 		}
 		a.stopDisplaced(displaced)
-		a.refreshPluginState()
-		a.reloadPluginLanguages()
+		a.applyPluginLifecycleChange(installed)
 		if !installed && feedback.Failure != nil {
 			feedback.Failure(err)
 		}
 		feedback.Finish(!installed)
+	}
+}
+
+// applyPluginLifecycleChange updates plugin state across every tab and, when reload is
+// true, clears stale build state, reloads languages and re-detects builds on open tabs.
+func (a *App) applyPluginLifecycleChange(reload bool) {
+	for _, tab := range a.everyTab() {
+		if reload {
+			tab.invalidateBuild(tab.project)
+			tab.reloadPluginLanguages()
+		}
+		tab.refreshPluginState()
+	}
+	if reload {
+		for _, tab := range a.openTabs() {
+			if tab.project != nil {
+				tab.loadBuildSystems(tab.project)
+			}
+		}
 	}
 }
 
@@ -294,10 +312,8 @@ func (a *App) setPluginEnabled(id string, enabled bool) {
 				a.allowPluginPrograms(id)
 			}
 			a.stopDisplaced(displaced)
-			// Enabling and disabling both change the detected build systems.
-			a.invalidateBuild(a.project)
-			a.refreshPluginState()
-			a.reloadPluginLanguages()
+			// Enabling and disabling both change the detected build systems across tabs.
+			a.applyPluginLifecycleChange(err == nil)
 		}
 	})
 }
@@ -323,13 +339,7 @@ func (a *App) uninstallPlugin(id string) {
 			if err != nil {
 				a.operationFailed("plugin_uninstall", err)
 			}
-			for _, tab := range a.everyTab() {
-				if err == nil {
-					tab.invalidateBuild(tab.project)
-					tab.reloadPluginLanguages()
-				}
-				tab.refreshPluginState()
-			}
+			a.applyPluginLifecycleChange(err == nil)
 		}
 	})
 }

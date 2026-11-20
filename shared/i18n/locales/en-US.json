@@ -11315,6 +11315,8 @@
     "desktop.plugins.commandInstallCommandsMissing": "The installation finished, but {commands} was not found in {directory}.",
     "desktop.plugins.commandInstallToolMissing": "{tool} not found. Install it first, or set where it is in Settings > Build, Execution, Deployment > Toolchains.",
     "desktop.plugins.commandInstallError": "Could not install: {reason}",
+    "desktop.title.buildModelFailed": "{name}: model load failed",
+    "desktop.title.buildModelSafeMode": "{name}: paused in safe mode",
     "desktop.title.configurationNotStartable": "{name} cannot be started: no build plugin runs it.",
     "desktop.title.currentFileNotRunnable": "The current file has no entrypoint to run, such as a class with a main method. Open such a file, or choose a run configuration from the run configuration menu.",
     "desktop.title.hiddenRunConfigurations": "{count} saved configurations hidden (not runnable)",

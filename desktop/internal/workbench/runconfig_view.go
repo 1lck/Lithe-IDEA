@@ -339,8 +339,11 @@ func (a *App) drawRunConfigEditorPane(c ui.C, p *project, e *runConfigEditor) {
 			}
 		}
 		labels := map[string]string{"local": i18n.Shared(language, "desktop.runConfig.scopeLocal"), "project": i18n.Shared(language, "desktop.runConfig.scopeProject")}
-		ui.Select(c.Part("scope"), &e.scope, []string{"local", "project"}, func(scope string) string { return labels[scope] }).
+		sel := ui.Select(c.Part("scope"), &e.scope, []string{"local", "project"}, func(scope string) string { return labels[scope] }).
 			Label(i18n.Shared(language, "desktop.runConfig.scope")).FillWidth().Disabled(!ready)
+		if _, picked := sel.Picked(); picked && e.generated {
+			e.explicitSave = true
+		}
 		if e.beforeLaunch != nil {
 			a.drawRunConfigBeforeLaunch(c.Part("before-launch-field"), p, e.beforeLaunch, i18n.Shared(language, "desktop.runConfig.fieldBeforeLaunch"),
 				i18n.Shared(language, "desktop.runConfig.beforeLaunchHelp"), e.beforeLaunchCandidates, e.beforeLaunchTasks, ready, nil)

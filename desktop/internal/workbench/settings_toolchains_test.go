@@ -265,6 +265,9 @@ func TestToolchainSettingsReadbackFailureReportsCommittedSource(t *testing.T) {
 const syntheticWorkbenchInterpMarkerEnv = "LITHE_TEST_SYNTHETIC_INTERP_MARKER"
 
 func TestMain(m *testing.M) {
+	if maybeRunBuildProbeHelper() {
+		return
+	}
 	if marker := os.Getenv(syntheticWorkbenchInterpMarkerEnv); marker != "" && len(os.Args) == 2 && os.Args[1] == "--version" {
 		_ = os.WriteFile(marker, []byte("probed\n"), 0o600)
 		fmt.Println("SyntheticInterp 3.12.4")

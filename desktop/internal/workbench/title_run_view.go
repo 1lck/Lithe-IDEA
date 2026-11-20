@@ -3,6 +3,7 @@ package workbench
 import (
 	"path"
 	"path/filepath"
+	"strings"
 
 	"github.com/1lck/Lithe-IDEA/desktop/internal/core"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/i18n"
@@ -57,10 +58,48 @@ func (a *App) titleRunConfigMenu(c ui.C, anchor ui.Box) {
 			menu.Item(i18n.SharedFormat(lang, "desktop.runConfig.loadFailed", map[string]string{"reason": s.failure})).Disabled(true)
 		case p.build.failed != "":
 			menu.Item(p.build.failed).Disabled(true)
-		case len(s.list) == 0:
-			menu.Item(i18n.Shared(lang, "desktop.title.noRunConfigurations")).Disabled(true)
-			if s.hidden > 0 {
-				menu.Item(hiddenRunConfigurations(lang, s.hidden)).Disabled(true)
+		default:
+			hasModelIssue := false
+			for i := range p.build.instances {
+				instance := &p.build.instances[i]
+				if !instance.modelUntrusted && instance.modelError == "" {
+					continue
+				}
+				hasModelIssue = true
+				instanceName := titleBuildInstanceName(instance)
+				var label string
+				if instance.modelUntrusted {
+					label = i18n.SharedFormat(lang, "desktop.title.buildModelSafeMode", map[string]string{"name": instanceName})
+				} else {
+					label = i18n.SharedFormat(lang, "desktop.title.buildModelFailed", map[string]string{"name": instanceName})
+				}
+				item := menu.Item(label).Icon(icons.CircleAlert)
+				if desc := firstNonEmptyLine(instance.modelError); desc != "" {
+					item.Description(desc)
+				}
+				if item.Clicked() {
+					instanceID, instanceIndex, untrusted := instance.ID, i, instance.modelUntrusted
+					c.After(func() {
+						if untrusted {
+							a.askToTrustProject(p, nil)
+							return
+						}
+						if session := p.buildSyncSession(instanceID); session != nil {
+							a.showBuildSync(p, session.id)
+							return
+						}
+						p.build.selected = instanceIndex
+						a.openToolWindow(itemBuild)
+					})
+				}
+			}
+			if len(s.list) == 0 {
+				if !hasModelIssue {
+					menu.Item(i18n.Shared(lang, "desktop.title.noRunConfigurations")).Disabled(true)
+				}
+				if s.hidden > 0 {
+					menu.Item(hiddenRunConfigurations(lang, s.hidden)).Disabled(true)
+				}
 			}
 		}
 		// A saved file Core did not read is named by its file name, which fits the menu, and
@@ -99,4 +138,24 @@ func (a *App) runConfigMenuNote(configuration core.RunConfiguration) string {
 		return runConfigTypeNote(a.language(), core.RunConfigurationType{Provider: configuration.Provider, Availability: availability})
 	}
 	return a.runConfigUnavailableText(configuration)
+}
+
+// titleBuildInstanceName names a build instance concisely for the title run menu, appending
+// its root only when it lives in a subdirectory.
+func titleBuildInstanceName(instance *buildInstance) string {
+	name := buildSystemName(instance)
+	if detail := buildRootDetail(instance); detail != "" {
+		return name + " (" + detail + ")"
+	}
+	return name
+}
+
+// firstNonEmptyLine returns the first non-blank line of text for menu descriptions.
+func firstNonEmptyLine(text string) string {
+	for _, line := range strings.FieldsFunc(text, func(r rune) bool { return r == '\n' || r == '\r' }) {
+		if trimmed := strings.TrimSpace(line); trimmed != "" {
+			return trimmed
+		}
+	}
+	return ""
 }
