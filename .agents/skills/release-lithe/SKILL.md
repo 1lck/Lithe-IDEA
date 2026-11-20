@@ -198,6 +198,43 @@ A plugin increments MINOR for features and PATCH for everything else:
   English:
   `xattr -dr com.apple.quarantine /Applications/Lithe.app`
 
+## Trace the host capabilities that plugins need
+
+Most new host capabilities exist because a plugin needed them. Every desktop
+release names the plugin versions that need a capability the release adds, so
+users can see which Lithe version a plugin requires and every addition stays
+traceable to the plugin that asked for it.
+
+1. List what the release adds to the plugin API. Read `PINNED_CORE_REVISION`
+   in `scripts/desktop/build-desktop-core.sh` at the previous release tag and
+   at the target commit, and compare the two Core revisions in the Core
+   repository:
+   - `git diff <previous> <target> -- rust/crates/plugin-model/src/capabilities.rs`
+     shows the capability versions added to `SUPPORTED_CAPABILITIES`.
+   - The entries added to `shared/plugins/reference/protocol-changelog.md`
+     between the two revisions show the new host methods and host
+     notifications.
+   - Count an addition only when the desktop app at the target commit also
+     implements it; Core can accept a capability version before the desktop
+     host declares it.
+2. Find the plugin behind each addition. The Core and desktop pull requests
+   that added it name the plugin that needs it. Confirm it in that plugin's
+   repository: the `requires` object of its `plugin.json` names the capability
+   version, or its backend calls the host method. Take the first plugin version
+   that needs the addition, whether it is already published or is the version
+   on the plugin's `main` that waits for this release.
+3. Under `#### 🔌 插件需要的新宿主能力` and
+   `#### 🔌 New host capabilities that plugins need`, write one bullet per
+   plugin version: the repository link, the plugin name and version (mark a
+   prerelease or an unpublished version), each capability with its version or
+   each host method, what the plugin uses it for, and any fix in this release
+   the plugin also relies on. Precede the bullets with one sentence that says
+   what an older Lithe does with those plugin versions, as the contract states
+   it: for example, Lithe refuses to install a plugin whose `requires` names a
+   capability version it lacks.
+4. Do not list additions that no plugin needs yet. When nothing qualifies,
+   omit the category in both languages.
+
 ## Use the bilingual structure
 
 Write Simplified Chinese first and English second, separated by `---`. Keep the
@@ -206,12 +243,15 @@ this order:
 
 1. `## 中文`, a short release summary, `### 下载`, and `### 重点更新`.
 2. A brief overview sentence under `### 重点更新`, then `#### ✨ 新功能`,
-   `#### ⚡ 改进`, and `#### 🛠 修复`; omit categories with no changes.
+   `#### ⚡ 改进`, `#### 🛠 修复`, and `#### 🔌 插件需要的新宿主能力`;
+   omit categories with no changes.
 3. `### 升级说明` and `### 兼容性与已知问题`.
 4. A comparison link from the previous stable tag to the new tag.
 5. `## English`, a short release summary, `### Downloads`, and `### Highlights`.
 6. A matching overview under `### Highlights`, then `#### ✨ New features`,
-   `#### ⚡ Improvements`, and `#### 🛠 Fixes`; omit the same empty categories.
+   `#### ⚡ Improvements`, `#### 🛠 Fixes`, and
+   `#### 🔌 New host capabilities that plugins need`; omit the same empty
+   categories.
 7. `### Upgrade instructions` and `### Compatibility and known issues`.
 8. The equivalent English comparison link.
 9. At the very bottom, `### 🙌 感谢贡献者` followed by `### 🙌 Contributors`, with
@@ -283,6 +323,10 @@ before committing the notes.
   allows continuing: the release target commit pins the head of fork `main`,
   and fork `main` contains upstream `main`, or the user's decision to skip
   the sync is recorded in the release report.
+- For a desktop release, confirm that the plugin capability category follows
+  “Trace the host capabilities that plugins need”: every capability version
+  and host method the release adds for a plugin has a bullet naming the
+  plugin repository and version.
 - Confirm that the version follows “Choose the version number” when compared
   with the previous published version, that the filename is exactly
   `docs/releases/v<version>.md`, and that the file is non-empty.

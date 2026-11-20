@@ -1,6 +1,7 @@
 <!--
 复用方式：复制为 v<version>.md，替换 {version}、{previous_version} 和正文占位符，再删除本注释。
-以“新功能 → 改进 → 修复”为固定分类顺序；删除没有内容的分类，中英文保持一致。
+以“新功能 → 改进 → 修复 → 插件需要的新宿主能力”为固定分类顺序；删除没有内容的分类，中英文保持一致。
+“插件需要的新宿主能力”按 release-lithe Skill 的“Trace the host capabilities that plugins need”逐个插件版本列出：仓库、版本、所需能力及版本号、用途。
 每条只写一个用户可感知的变化、一个短句、一行 Markdown，不嵌套列表。
 建议中文约 40 字以内、英文约 20 词以内；按需写平台名，不承诺任何屏幕宽度下都不换行。
 不列内部类名、实现机制、测试数量或原始提交列表；贡献者在底部集中致谢。
@@ -35,6 +36,12 @@
 #### 🛠 修复
 
 - {一句短句描述用户可感知的变化。}
+
+#### 🔌 插件需要的新宿主能力
+
+以下插件版本需要本版新增的宿主能力，{previous_version} 及更早的 Lithe 会拒绝安装。
+
+- [{插件仓库}](https://github.com/{插件仓库}) {插件名} {插件版本}：需要 `{能力}` 能力版本 {N}（{这项能力做什么}），用于{插件用它做什么}。
 
 ### 升级说明
 
@@ -79,6 +86,12 @@ Changes are grouped below.
 #### 🛠 Fixes
 
 - {One short sentence describing a user-visible change.}
+
+#### 🔌 New host capabilities that plugins need
+
+These plugin versions need host capabilities added in this release; Lithe {previous_version} and earlier refuse to install them.
+
+- [{plugin repository}](https://github.com/{plugin repository}) {plugin name} {plugin version}: needs `{capability}` capability version {N} ({what the capability does}) to {what the plugin uses it for}.
 
 ### Upgrade instructions
 
