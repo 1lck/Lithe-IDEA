@@ -52,9 +52,10 @@ func TestEverywhereTypesAndSymbolsUseSeparateTabs(t *testing.T) {
 }
 
 // The Types and Symbols tabs list only what language servers report inside the
-// project folder, so an ⓘ right after each tab says what it lists and how far it
-// reaches. The filter's file options do not reach those results, so neither tab has a
-// filter; the tabs that search files keep theirs.
+// project folder, so an ⓘ inside each tab, right after its name, says what it lists
+// and how far it reaches: the ⓘ explains the tab, so it shares the tab's block (its
+// fill when selected, its click). The filter's file options do not reach those
+// results, so neither tab has a filter; the tabs that search files keep theirs.
 func TestEverywhereLanguageTabsExplainTheirScopeAndHaveNoFilter(t *testing.T) {
 	h := newHarness(t, &testKernel{Client: core.NewClient()})
 	h.app.everywhereView.delay = 0
@@ -72,15 +73,17 @@ func TestEverywhereLanguageTabsExplainTheirScopeAndHaveNoFilter(t *testing.T) {
 		return gfx.Hit{}, false
 	}
 	info := i18n.Shared(language, "native.moreInformation")
-	for _, tc := range []struct{ tab, next, help string }{
-		{tab: "desktop.everywhere.types", next: "desktop.everywhere.files", help: "desktop.everywhere.typesHelp"},
-		{tab: "desktop.everywhere.symbols", next: "desktop.everywhere.actions", help: "desktop.everywhere.symbolsHelp"},
+	for _, tc := range []struct {
+		scope     int
+		tab, help string
+	}{
+		{scope: 1, tab: "desktop.everywhere.types", help: "desktop.everywhere.typesHelp"},
+		{scope: 3, tab: "desktop.everywhere.symbols", help: "desktop.everywhere.symbolsHelp"},
 	} {
 		help := i18n.Shared(language, tc.help)
 		tab, ok := control(i18n.Shared(language, tc.tab))
-		next, nextOK := control(i18n.Shared(language, tc.next))
-		if !ok || !nextOK {
-			t.Fatalf("the %s and %s tabs are not shown", tc.tab, tc.next)
+		if !ok {
+			t.Fatalf("the %s tab is not shown", tc.tab)
 		}
 		var button gfx.Hit
 		for _, hit := range h.driver.Snapshot().Hits {
@@ -91,8 +94,13 @@ func TestEverywhereLanguageTabsExplainTheirScopeAndHaveNoFilter(t *testing.T) {
 		if button.ID.IsZero() {
 			t.Fatalf("no ⓘ tells assistive technology %q", help)
 		}
-		if button.Bounds.X < tab.Bounds.Right() || button.Bounds.Right() > next.Bounds.X || button.Bounds.Bottom() < tab.Bounds.Y || button.Bounds.Y > tab.Bounds.Bottom() {
-			t.Fatalf("the ⓘ at %+v is not between the %s tab at %+v and the %s tab at %+v", button.Bounds, tc.tab, tab.Bounds, tc.next, next.Bounds)
+		// Inside the tab and at its end: the tab's name, then the ⓘ, then only the
+		// tab's own end padding.
+		if button.Bounds.X <= tab.Bounds.X || button.Bounds.Right() > tab.Bounds.Right() || button.Bounds.Y < tab.Bounds.Y || button.Bounds.Bottom() > tab.Bounds.Bottom() {
+			t.Fatalf("the ⓘ at %+v is not inside the %s tab at %+v", button.Bounds, tc.tab, tab.Bounds)
+		}
+		if end := tab.Bounds.Right() - button.Bounds.Right(); end > everywhereHelpTabEndPad {
+			t.Fatalf("the ⓘ ends %v before the %s tab does, want at most %v", end, tc.tab, everywhereHelpTabEndPad)
 		}
 		at := center(button.Bounds)
 		if err := h.driver.Move(at.X, at.Y); err != nil {
@@ -106,7 +114,12 @@ func TestEverywhereLanguageTabsExplainTheirScopeAndHaveNoFilter(t *testing.T) {
 			shown = append(shown, tip.Value)
 		}
 		if got := unspaced(strings.Join(shown, "")); got != unspaced(help) {
-			t.Fatalf("resting on the ⓘ after the %s tab shows %q, want only %q", tc.tab, shown, help)
+			t.Fatalf("resting on the ⓘ in the %s tab shows %q, want only %q", tc.tab, shown, help)
+		}
+		// The ⓘ is part of the tab, so a click on it chooses the tab.
+		h.click(at)
+		if got := h.app.everywhereView.scope; got != tc.scope {
+			t.Fatalf("a click on the ⓘ in the %s tab leaves tab %d chosen, want %d", tc.tab, got, tc.scope)
 		}
 	}
 
