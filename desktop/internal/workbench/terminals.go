@@ -2,6 +2,7 @@ package workbench
 
 import (
 	"context"
+	"path/filepath"
 	"slices"
 	"strconv"
 	"strings"
@@ -355,7 +356,13 @@ func dockable(member string) bool {
 // The tool window's group is made if the state has none, so a project is never without
 // the group the tool window's tabs are listed in.
 func (a *App) newTerminal(p *project, shell string) *terminal {
-	return a.newTerminalWith(p, terminalOptions{shell: shell, activate: true})
+	options := terminalOptions{shell: shell, activate: true}
+	if p.standalone {
+		if d := a.selectedEditorDocument(); d != nil {
+			options.dir = filepath.Dir(d.path)
+		}
+	}
+	return a.newTerminalWith(p, options)
 }
 
 // terminalOptions say what a terminal runs and whether opening it takes the tab group's

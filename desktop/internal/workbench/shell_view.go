@@ -328,6 +328,15 @@ func (a *App) editorArea(c ui.C) {
 	if a.editorGroups(c) {
 		return
 	}
+	if a.documentOnly {
+		ui.Column(c).Fill().Center().Background(a.colors.Editor).Children(func() {
+			ui.Text(c, i18n.Shared(a.language(), "desktop.singleFile.help")).Color(a.colors.Subtle)
+			if ui.Button(c, i18n.Shared(a.language(), "desktop.singleFile.openFile")).Outline().Clicked() {
+				c.After(a.chooseStandaloneFile)
+			}
+		})
+		return
+	}
 	hints := [...]struct {
 		label string
 		// command is the keymap command whose fixed gesture and bindings are shown.

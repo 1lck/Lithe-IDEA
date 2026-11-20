@@ -9,6 +9,30 @@ import (
 // fileDrop routes files dropped on the window. The start screen opens a dropped folder as a
 // project; with a project open, files dropped on a terminal are typed into it.
 func (a *App) fileDrop(event gfx.FileDropEvent) gfx.EventResult {
+	if a.documentOnly {
+		if result, handled := a.terminalFileDrop(event); handled {
+			return result
+		}
+		if event.Phase == gfx.FileDropDrop {
+			for _, path := range event.Paths {
+				info, err := os.Stat(path)
+				if err != nil {
+					a.operationFailed("single_file_drop", documentLogError(err))
+					continue
+				}
+				if info.IsDir() {
+					a.openProject(path)
+				} else if info.Mode().IsRegular() {
+					if a.project == nil {
+						a.openStandaloneFile(path)
+					} else {
+						a.openFile(a.project, path)
+					}
+				}
+			}
+		}
+		return gfx.EventResult{Handled: true, Repaint: true}
+	}
 	if a.project == nil {
 		return a.welcomeFileDrop(event)
 	}

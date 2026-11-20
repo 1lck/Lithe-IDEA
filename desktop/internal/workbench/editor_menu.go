@@ -24,37 +24,39 @@ func (a *App) editorMenuItems(c ui.C, p *project, d *document) func(*ui.MenuItem
 		if menu.Item(a.text.Commands.Replace).Disabled(readOnly).Clicked() {
 			c.After(func() { a.selectDocument(p, d.id); a.openEditorFind(true, surfaceContextMenu) })
 		}
-		menu.Separator()
-		if menu.Item(i18n.Shared(language, "desktop.editorMenu.goToDefinition")).Keys(primary, "b").Clicked() {
-			c.After(func() {
-				line, column := d.view.CaretUTF16()
-				a.startPluginDefinition(p, d, line, column, true)
-			})
-		}
-		// A right click outside the selection has put the caret on the word clicked, so the
-		// usages are of that word.
-		if menu.Item(i18n.Shared(language, "desktop.editorMenu.findUsages")).Keys(gfx.ModifierShift, "f12").Clicked() {
-			c.After(func() {
-				line, column := d.view.CaretUTF16()
-				a.startPluginReferences(p, d, line, column)
-			})
-		}
-		if menu.Item(i18n.Shared(language, "desktop.editorMenu.rename")).Keys(0, "f2").Disabled(readOnly).Clicked() {
-			c.After(func() { a.openPluginRename(p, d) })
-		}
-		if menu.Item(i18n.Shared(language, "desktop.editorMenu.reformat")).Disabled(readOnly).Clicked() {
-			c.After(func() { a.startPluginFormattingAtSelection(p, d) })
-		}
-		_, codeActions := a.editorServer(d, featureCodeActions)
-		if menu.Item(i18n.Shared(language, "desktop.editorMenu.codeActions")).Keys(gfx.ModifierAlt, "enter").Disabled(readOnly || !codeActions).Clicked() {
-			c.After(func() { a.startPluginCodeActions(p, d, nil, surfaceContextMenu) })
-		}
-		_, parameterInfo := a.editorServer(d, featureSignatureHelp)
-		if menu.Item(i18n.Shared(language, "desktop.semantics.signatureHelp")).Keys(primary, "p").Disabled(!parameterInfo).Clicked() {
-			c.After(func() {
-				line, column := d.view.CaretUTF16()
-				a.startPluginSignatureHelp(p, d, line, column, surfaceContextMenu)
-			})
+		if !p.standalone {
+			menu.Separator()
+			if menu.Item(i18n.Shared(language, "desktop.editorMenu.goToDefinition")).Keys(primary, "b").Clicked() {
+				c.After(func() {
+					line, column := d.view.CaretUTF16()
+					a.startPluginDefinition(p, d, line, column, true)
+				})
+			}
+			// A right click outside the selection has put the caret on the word clicked, so the
+			// usages are of that word.
+			if menu.Item(i18n.Shared(language, "desktop.editorMenu.findUsages")).Keys(gfx.ModifierShift, "f12").Clicked() {
+				c.After(func() {
+					line, column := d.view.CaretUTF16()
+					a.startPluginReferences(p, d, line, column)
+				})
+			}
+			if menu.Item(i18n.Shared(language, "desktop.editorMenu.rename")).Keys(0, "f2").Disabled(readOnly).Clicked() {
+				c.After(func() { a.openPluginRename(p, d) })
+			}
+			if menu.Item(i18n.Shared(language, "desktop.editorMenu.reformat")).Disabled(readOnly).Clicked() {
+				c.After(func() { a.startPluginFormattingAtSelection(p, d) })
+			}
+			_, codeActions := a.editorServer(d, featureCodeActions)
+			if menu.Item(i18n.Shared(language, "desktop.editorMenu.codeActions")).Keys(gfx.ModifierAlt, "enter").Disabled(readOnly || !codeActions).Clicked() {
+				c.After(func() { a.startPluginCodeActions(p, d, nil, surfaceContextMenu) })
+			}
+			_, parameterInfo := a.editorServer(d, featureSignatureHelp)
+			if menu.Item(i18n.Shared(language, "desktop.semantics.signatureHelp")).Keys(primary, "p").Disabled(!parameterInfo).Clicked() {
+				c.After(func() {
+					line, column := d.view.CaretUTF16()
+					a.startPluginSignatureHelp(p, d, line, column, surfaceContextMenu)
+				})
+			}
 		}
 		if browserPreviewable(d) {
 			if menu.Item(i18n.Shared(language, "desktop.editorMenu.openInBrowser")).Clicked() {

@@ -278,7 +278,7 @@ func (a *App) openFile(p *project, path string) {
 		a.selectDocument(p, d.id)
 		return
 	}
-	if kind, ok := viewerKindOf(path); ok {
+	if kind, ok := viewerKindOf(path); ok && !p.standalone {
 		a.openViewer(p, path, kind)
 		return
 	}
@@ -322,7 +322,7 @@ func (a *App) openFile(p *project, path string) {
 			location := p.docs.locations[path]
 			delete(p.docs.locations, path)
 			defer a.openFinished(p, path, err)
-			if errors.Is(err, errNotText) {
+			if errors.Is(err, errNotText) && !p.standalone {
 				// A binary file opens in the hex viewer rather than not at all.
 				a.openViewer(p, path, viewerHex)
 				return

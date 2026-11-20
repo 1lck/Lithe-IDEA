@@ -36,7 +36,7 @@ var (
 
 // projectGradientOn reports whether the window paints the open project's color.
 func (a *App) projectGradientOn() bool {
-	return a.project != nil && !a.settings.HideProjectColors
+	return a.project != nil && !a.project.standalone && !a.settings.HideProjectColors
 }
 
 // chromeFill is the background of the chrome's own surfaces: none while the gradient or a

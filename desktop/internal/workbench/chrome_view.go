@@ -629,7 +629,7 @@ func (a *App) projectMenu(c ui.C, anchor ui.Box) {
 	var buf [chromeMenuRecents]int
 	recents := a.menuRecents(&buf)
 	var created, chosen, cloned, current, closing bool
-	picked := -1
+	picked, removed := -1, -1
 	spec := ui.PopoverSpec{Align: ui.Start, Offset: chromeMenuOffset, Width: chromeMenuWidth, ConsumeOutsidePress: true}
 	open := true
 	ui.PopoverWith(c, anchor, spec, &open, func() {
@@ -655,7 +655,10 @@ func (a *App) projectMenu(c ui.C, anchor ui.Box) {
 				row := a.welcome.row(path, len(a.recent))
 				missing := a.missing[path]
 				// A folder that is gone cannot be opened, so its row is shown and not offered.
-				if hit, _ := a.projectMenuRow(c.Key(path), row, a.title.branches[path], false, missing); hit && !missing {
+				hit, remove := a.projectMenuRow(c.Key(path), row, a.title.branches[path], false, missing)
+				if remove {
+					removed = i
+				} else if hit && !missing {
 					picked = i
 				}
 			}
@@ -675,6 +678,12 @@ func (a *App) projectMenu(c ui.C, anchor ui.Box) {
 		a.title.projectOpen = false
 		a.performed("workspace.close", surfaceMenu)
 		a.post(func(a *App) { a.closeProject() })
+	case removed >= 0:
+		path := a.recent[removed].Path
+		c.After(func() {
+			a.performed("workspace.recent.remove", surfaceMenu)
+			a.reduceRecent(a.recent, core.RemoveRecent(path), true)
+		})
 	case picked >= 0:
 		// The path is taken now: opening a project replaces the recent list the index is into.
 		path := a.recent[picked].Path
@@ -715,13 +724,14 @@ func (a *App) menuTitle(c ui.C, label string) {
 }
 
 // projectMenuRow declares one project of the menu: its badge, its name, its folder and, when
-// it is a repository, its branch. It reports a click on the row and, for the open project, a
-// click on the button at its end that closes the project. The open project is marked as
+// it is a repository, its branch. The trailing X closes the current project or removes
+// a recent record; removing a record never opens or deletes its folder. The open project is marked as
 // selected. A project whose folder is gone is faded and inert.
 func (a *App) projectMenuRow(c ui.C, row welcomeRow, branch string, current, missing bool) (clicked, closed bool) {
 	options := gfx.HitOptions{Role: gfx.RoleMenuItem, Cursor: gfx.PointerCursorHand, Description: row.path, Selected: current}
 	if missing {
-		options.Cursor, options.Disabled, options.Hint = gfx.PointerCursorDefault, true, a.text.Welcome.Missing
+		// Keep the row enabled so its independent remove button remains reachable.
+		options.Cursor, options.Hint = gfx.PointerCursorDefault, a.text.Welcome.Missing
 	}
 	item := ui.Row(c).FillWidth().MinHeight(chromeMenuProject).Shrink(0).Items(ui.Center).Gap(chromeMenuGap).PadX(chromeEdge).PadY(chromeMenuRowPad).
 		Radius(a.theme.Metrics.RadiusItem()).HitWith(ui.ID(c), row.name, options)
@@ -745,20 +755,21 @@ func (a *App) projectMenuRow(c ui.C, row welcomeRow, branch string, current, mis
 				})
 			}
 		})
+		label := a.text.Welcome.MenuRemove
 		if current {
-			closed = a.menuClose(c)
+			label = a.text.Title.CloseProject
 		}
+		closed = a.menuProjectDismiss(c, label)
 	})
-	return item.Clicked(), closed
+	return item.Clicked() && !closed && !missing, closed
 }
 
-// menuClose declares the button at the end of the open project's row that closes the
-// project, and reports a click on it.
-func (a *App) menuClose(c ui.C) bool {
+// menuProjectDismiss presents the action appropriate to this section of the menu.
+func (a *App) menuProjectDismiss(c ui.C, label string) bool {
 	k := c.Part("close")
 	button := a.chromeHover(ui.Row(k).Size(chromeMenuClosing, chromeMenuClosing).Shrink(0).Center().
 		Radius(a.theme.Metrics.RadiusItem()).
-		HitWith(ui.ID(k), a.text.Title.CloseProject, gfx.HitOptions{Role: gfx.RoleButton, Cursor: gfx.PointerCursorHand}))
+		HitWith(ui.ID(k), label, gfx.HitOptions{Role: gfx.RoleButton, Cursor: gfx.PointerCursorHand})).Tooltip(label)
 	button.Children(func() {
 		ui.Icon(k, icons.X).Size(chromeMarkSize, chromeMarkSize).Color(a.colors.Subtle).
 			StateFrom(button).Hover(ui.Look{}.Color(a.colors.Text))

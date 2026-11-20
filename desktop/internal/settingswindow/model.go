@@ -321,6 +321,8 @@ func kindTitle(language i18n.Language, kind string) string {
 // pageKeywords are the words besides its title a search finds a page by.
 func pageKeywords(language i18n.Language, id pageID) string {
 	switch id {
+	case pageGeneral:
+		return i18n.Shared(language, "desktop.cli.title")
 	case pageBuild:
 		return i18n.Shared(language, "desktop.buildSettings.keywordsBuild")
 	case pageToolchains:

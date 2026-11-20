@@ -31,7 +31,7 @@ type debugGutter struct {
 // changed, and lets a press on a line number toggle a breakpoint in a file that can have one.
 func (a *App) applyDebugGutter(p *project, d *document) {
 	g := &d.debugGutter
-	if d.virtual {
+	if d.virtual || p.standalone {
 		d.view.SetBreakpointClick(nil)
 	} else {
 		if g.click == nil {

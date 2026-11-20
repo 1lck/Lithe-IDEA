@@ -142,7 +142,9 @@ func (a *App) endPaint() {
 // and an overlay that hangs off a point of the window is placed against the whole window.
 func (a *App) page(c ui.C) {
 	ui.Stack(c).Fill().Children(func() {
-		if a.project == nil {
+		if a.documentOnly {
+			a.standaloneWorkbench(c)
+		} else if a.project == nil {
 			a.welcomePanel(c)
 		} else {
 			a.workbench(c)
@@ -158,6 +160,10 @@ func (a *App) page(c ui.C) {
 // workbench declares the window of an open project: the title bar over the stripes and the
 // main column, over the status bar.
 func (a *App) workbench(c ui.C) {
+	if a.project.standalone {
+		a.standaloneWorkbench(c)
+		return
+	}
 	// A copy: a click on a stripe button changes a.chrome while this paint is still being
 	// declared, and the panels must be declared for the same tool windows the sizes were
 	// worked out for.
@@ -245,7 +251,7 @@ func (a *App) shortcutApplies(c ui.C, id string) bool {
 	focused := c.Canvas().Focused()
 	switch id {
 	case shortcuts.InlineEdit:
-		return a.project != nil && a.focusedDocument(focused) != nil
+		return a.project != nil && !a.project.standalone && a.focusedDocument(focused) != nil
 	case shortcuts.GoToLine:
 		return a.project != nil && a.focusedTerminal(focused) == nil &&
 			(runtime.GOOS == "darwin" || a.focusedDocument(focused) != nil)
@@ -271,7 +277,7 @@ func (a *App) runShortcut(id string, view *editorview.View, term *terminal) {
 		}
 		return
 	case shortcuts.InlineEdit:
-		if p != nil && view != nil {
+		if p != nil && !p.standalone && view != nil {
 			a.requestInlineEdit(p, view)
 		}
 		return

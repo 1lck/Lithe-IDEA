@@ -1,0 +1,45 @@
+{
+  "id": "cli-single-file-mode",
+  "area": "应用与设置",
+  "group": "CLI",
+  "capability": "可选注册 lithe 命令，按文件夹/单文件分别打开项目与轻量编辑器",
+  "owner": "Desktop",
+  "verification": "macOS：打开通用 > CLI 时不写来源；点击注册后新终端能使用 lithe，分别传入带空格/中文文件、文件夹和 -- 保护的路径；单文件只使用内置高亮，能编辑保存，默认不创建终端，无插件、项目树、Git、运行/调试/测试或父目录索引，查找动作不搜索工作区。点击终端后使用当前文件目录，真实命令输出可见，隐藏后重开复用会话，关闭窗口清理 shell。以项目打开所在文件夹在新窗口走正常信任和插件流程。修复应用移动后的启动器；移除注册保留无关 shell 内容。Windows：检查 HKCU Environment Path 类型与无关项保留、外部修改冲突、环境广播、新 cmd/PowerShell 中调用及移除，原生运行待验收。",
+  "notes": "已在 macOS 执行真实临时配置注册、修复、移除和冲突保护测试，并验证单文件真实编辑保存、真实 PTY 命令及中英/明暗无头截图。尚未通过真实系统终端完成注册到 GUI 的端到端验收。Windows 无本地来宾，规则测试及 Windows 目标编译通过，不代表原生验收完成。",
+  "macos": {
+    "implementationStatus": "implemented",
+    "verificationStatus": "pending",
+    "evidence": [
+      "desktop/cmd/lithe/main.go",
+      "desktop/internal/cli/registration.go",
+      "desktop/internal/core/cli.go",
+      "desktop/internal/workbench/standalone.go",
+      "desktop/internal/settingswindow/cli_view.go",
+      "desktop/internal/workbench/standalone_test.go",
+      "desktop/internal/core/cli_test.go",
+      "desktop/internal/workbench/standalone_visual_test.go",
+      "desktop/internal/settingswindow/cli_visual_test.go",
+      ".agents/notes/implemented/feature/2026-11-20-cli-and-standalone-editor.md",
+      "desktop/internal/cli/source_unix.go",
+      "desktop/internal/cli/registration_unix_test.go"
+    ]
+  },
+  "windows": {
+    "implementationStatus": "implemented",
+    "verificationStatus": "pending",
+    "evidence": [
+      "desktop/cmd/lithe/main.go",
+      "desktop/internal/cli/registration.go",
+      "desktop/internal/core/cli.go",
+      "desktop/internal/workbench/standalone.go",
+      "desktop/internal/settingswindow/cli_view.go",
+      "desktop/internal/workbench/standalone_test.go",
+      "desktop/internal/core/cli_test.go",
+      "desktop/internal/workbench/standalone_visual_test.go",
+      "desktop/internal/settingswindow/cli_visual_test.go",
+      ".agents/notes/implemented/feature/2026-11-20-cli-and-standalone-editor.md",
+      "desktop/internal/cli/source_windows.go",
+      "desktop/cmd/lithe/detach_windows.go"
+    ]
+  }
+}

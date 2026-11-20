@@ -289,7 +289,8 @@ PINNED_CORE_REPOSITORY="https://github.com/Lithe-IDEA/Lithe-core-rust.git"
 # rows), #13, #8, #7, #6 and #4.
 # Search pages, unsaved snapshots, source identities and budgets from Core #125,
 # merged on top of the build-option changes through Core #124.
-PINNED_CORE_REVISION="604699f0df9a7c5ec1b245d3f2526d158f5a8eed"
+# CLI launch policy, isolated document command policy and opt-in shell registration.
+PINNED_CORE_REVISION="ea502256b6537ff6aec7dff35892452cc5e8e7af"
 PROFILE="debug"
 while [[ $# -gt 0 ]]; do
     case "$1" in

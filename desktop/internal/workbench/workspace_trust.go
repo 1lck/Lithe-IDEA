@@ -42,7 +42,7 @@ type projectTrust struct {
 func (t *projectTrust) allowed() bool { return t.codeAllowed.Load() }
 
 // safeMode reports whether p is open without trust.
-func (p *project) safeMode() bool { return p != nil && !p.trust.allowed() }
+func (p *project) safeMode() bool { return p != nil && !p.standalone && !p.trust.allowed() }
 
 // openProjectByTrust opens the folder at root once its trust is known. A trusted folder opens at
 // once; one the user previewed in safe mode before opens in safe mode; for one with no

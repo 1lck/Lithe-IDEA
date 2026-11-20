@@ -553,6 +553,13 @@ const kernelCallTimeout = 2 * time.Second
 // kernel. A missing file is the default layout; an unreadable one is reported and
 // replaced by the default layout on the next change.
 func (a *App) loadChrome() {
+	if a.documentOnly {
+		// A standalone window never restores project panels or changes their saved layout.
+		layout := defaultLayout()
+		layout.Open = nil
+		a.chrome.apply(layout)
+		return
+	}
 	var saved core.ChromeLayout
 	found, err := a.store.Load(layoutFile, &saved)
 	if err != nil {
@@ -601,7 +608,7 @@ func (a *App) reduceChrome(action core.ChromeAction) {
 	if !a.chrome.isOpen(catalogIndex[itemProblems]) {
 		a.resetProblems()
 	}
-	if !changed {
+	if !changed || a.documentOnly {
 		return
 	}
 	saved := a.chrome.withAbsent(layout)

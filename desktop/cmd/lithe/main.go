@@ -3,13 +3,18 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"runtime"
+	"time"
 
 	"github.com/1lck/Lithe-IDEA/desktop"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/core"
+	"github.com/1lck/Lithe-IDEA/desktop/internal/i18n"
+	"github.com/1lck/Lithe-IDEA/desktop/internal/installedpackage"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/loginenv"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/logstore"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/store"
@@ -20,23 +25,50 @@ func main() {
 	// AppKit needs the process's main thread for the application and its windows. Pin the
 	// main goroutine before any setup that can yield, so the scheduler cannot move it.
 	runtime.LockOSThread()
+	client := core.NewClient()
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	launch, err := client.PlanCLILaunch(ctx, os.Args[1:])
+	cancel()
+	if err != nil {
+		fail(err)
+	}
+	switch launch.Action {
+	case "help":
+		fmt.Println(i18n.Shared(i18n.Detect([]string{os.Getenv("LC_ALL"), os.Getenv("LC_MESSAGES"), os.Getenv("LANG")}), "desktop.cli.usage"))
+		return
+	case "version":
+		fmt.Println(desktop.Version())
+		return
+	}
+	path, file, err := commandLineTarget(client, launch.Path)
+	if err != nil {
+		fail(err)
+	}
+	if launch.Detach {
+		if err := launchGUI(path); err != nil {
+			fail(err)
+		}
+		return
+	}
 	// An app started from Finder or the Dock gets only the system PATH; take the login shell's
-	// before Core starts the threads that read the environment.
-	refreshLoginEnvironment := loginenv.Activate()
+	// before any project services start. The CLI requests above are synchronous pure rules.
+	var refreshLoginEnvironment func()
+	if !file {
+		refreshLoginEnvironment = loginenv.Activate()
+	}
 	preferences, err := store.Open()
 	if err != nil {
 		fail(err)
 	}
-	client := core.NewClient()
 	if refreshLoginEnvironment != nil {
 		go refreshLoginEnvironment()
 	}
 	version := desktop.Version()
 	options := workbench.DesktopOptions(client, preferences, version)
-	// A project folder given on the command line is opened when the window starts; a worktree's
-	// "Open in New Window" starts the client that way.
-	if folder := commandLineFolder(os.Args[1:]); folder != "" {
-		options.OpenPath = folder
+	if file {
+		options.OpenFile = path
+	} else {
+		options.OpenPath = path
 	}
 	// A log that cannot be opened leaves the client without its log window instead of
 	// keeping it from starting; the window says so when the log is asked for.
@@ -61,19 +93,52 @@ func main() {
 	}
 }
 
-// commandLineFolder is the first argument that names an existing folder, made absolute; empty when
-// there is none.
-func commandLineFolder(args []string) string {
-	for _, arg := range args {
-		abs, err := filepath.Abs(arg)
-		if err != nil {
-			continue
-		}
-		if info, err := os.Stat(abs); err == nil && info.IsDir() {
-			return abs
-		}
+// commandLineTarget observes the native file type; Core selects the session policy.
+func commandLineTarget(client *core.Client, path string) (string, bool, error) {
+	if path == "" {
+		return "", false, nil
 	}
-	return ""
+	abs, err := filepath.Abs(path)
+	if err != nil {
+		return "", false, err
+	}
+	abs, err = filepath.EvalSymlinks(abs)
+	if err != nil {
+		return "", false, err
+	}
+	info, err := os.Stat(abs)
+	if err != nil {
+		return "", false, err
+	}
+	kind := "other"
+	if info.IsDir() {
+		kind = "directory"
+	} else if info.Mode().IsRegular() {
+		kind = "file"
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	target, err := client.CLIOpenTarget(ctx, kind)
+	return abs, target.Mode == "file", err
+}
+
+// The shell launcher exits after starting the GUI, without a shell subprocess or
+// inherited terminal streams. The child receives an absolute path and no --cli.
+func launchGUI(path string) error {
+	executable, err := installedpackage.Executable()
+	if err != nil {
+		return err
+	}
+	args := []string{}
+	if path != "" {
+		args = []string{"--", path}
+	}
+	cmd := exec.Command(executable, args...)
+	detachGUI(cmd)
+	if err := cmd.Start(); err != nil {
+		return err
+	}
+	return cmd.Process.Release()
 }
 
 // fail reports an error that keeps the client from starting or running and exits.
