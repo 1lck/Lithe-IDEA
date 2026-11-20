@@ -632,11 +632,15 @@ func commandMissingMessage(language i18n.Language, err error) (string, bool) {
 }
 
 // launchFailureText is the message of a plugin launch or provider request that failed: the
-// missing commands when it found none, the provider's own message when the provider answered
-// with an error, the error itself otherwise.
+// missing commands when it found none, why safe mode holds the process back when Core refused
+// it for want of trust, the provider's own message when the provider answered with an error,
+// the error itself otherwise.
 func (a *App) launchFailureText(err error) string {
 	if message, ok := commandMissingMessage(a.language(), err); ok {
 		return message
+	}
+	if core.IsLaunchUntrustedWorkspace(err) {
+		return i18n.Shared(a.language(), "desktop.trust.launchSafeMode")
 	}
 	var provider *buildprovider.ProviderError
 	if errors.As(err, &provider) {

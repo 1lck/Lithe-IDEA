@@ -28,13 +28,13 @@ func (a *App) gitToolButton(c ui.C, label string, icon gfx.Icon, on, disabled bo
 // gitEmpty declares the message that stands for an empty pane.
 func (a *App) gitEmpty(c ui.C, message string) {
 	ui.Column(c).Fill().Center().PadX(shellContentPad).Children(func() {
-		ui.Paragraph(c, message, 3).TextCenter().Color(a.colors.Subtle)
+		ui.Paragraph(c, message, 3).FillWidth().TextCenter().Color(a.colors.Subtle)
 	})
 }
 
 // panelMessage declares a centered empty or progress message.
 func (a *App) panelMessage(c ui.C, message string, color gfx.Color) {
 	ui.Column(c).Fill().Center().PadX(shellContentPad).Children(func() {
-		ui.Paragraph(c, message, 3).TextCenter().Color(color)
+		ui.Paragraph(c, message, 3).FillWidth().TextCenter().Color(color)
 	})
 }

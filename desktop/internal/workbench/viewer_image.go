@@ -172,7 +172,7 @@ func (a *App) imageFailure(c ui.C, path string) {
 	ui.Column(c.Part("image-failed")).Fill().Center().Gap(10).PadX(20).Children(func() {
 		ui.Icon(c, icons.ImageOff).Size(28, 28).Color(a.colors.Subtle)
 		ui.Text(c, i18n.Shared(a.language(), "desktop.viewer.imageFailed")).FontSize(13).Color(a.colors.Text)
-		ui.Paragraph(c, path, 2).FontSize(11).TextCenter().Color(a.colors.Subtle)
+		ui.Paragraph(c, path, 2).FillWidth().FontSize(11).TextCenter().Color(a.colors.Subtle)
 	})
 }
 

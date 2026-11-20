@@ -225,9 +225,9 @@ func (a *App) outlineStatus(c ui.C, s *outlineState) {
 func (a *App) outlineNotice(c ui.C, message, hint string, action func()) {
 	ui.Column(c).Fill().Center().Gap(8).PadX(shellContentPad).Children(func() {
 		ui.Icon(c, icons.ListTree).Size(28, 28).Shrink(0).Color(a.colors.Subtle).Opacity(0.6)
-		ui.Paragraph(c, message, 3).TextCenter().Color(a.colors.Text)
+		ui.Paragraph(c, message, 3).FillWidth().TextCenter().Color(a.colors.Text)
 		if hint != "" {
-			ui.Paragraph(c, hint, 4).TextCenter().FontSize(treeFontSize - 1).Color(a.colors.Subtle)
+			ui.Paragraph(c, hint, 4).FillWidth().TextCenter().FontSize(treeFontSize - 1).Color(a.colors.Subtle)
 		}
 		if action != nil {
 			action()

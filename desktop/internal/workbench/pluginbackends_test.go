@@ -193,9 +193,11 @@ func (k *failingLSPPlanKernel) PlanPluginLanguageServer(context.Context, json.Ra
 	return core.PluginBackendPlan{}, errors.New(msg)
 }
 
-func TestRetryFailedPluginServersPreservesNotifiedErrorDeduplication(t *testing.T) {
-	kernel := &failingLSPPlanKernel{testKernel: &testKernel{Client: core.NewClient()}, msg: "missing jdtls"}
-	h := newHarness(t, kernel)
+// settingsFixturePlugins is a plugin service with Core's settings-documents fixture installed and
+// enabled: dev.example.settings, whose language server serves the "fixture" language and does
+// not declare it runs no project code.
+func settingsFixturePlugins(t *testing.T, kernel pluginservice.Kernel) *pluginservice.Service {
+	t.Helper()
 	preferences, plugins := t.TempDir(), t.TempDir()
 	raw, err := os.ReadFile(contractfixture.CoreFixture("plugins/settings-documents.json"))
 	if err != nil {
@@ -221,7 +223,13 @@ func TestRetryFailedPluginServersPreservesNotifiedErrorDeduplication(t *testing.
 	if err := service.Manager.SetEnabled("dev.example.settings", true); err != nil {
 		t.Fatal(err)
 	}
-	h.app.plugins = service
+	return service
+}
+
+func TestRetryFailedPluginServersPreservesNotifiedErrorDeduplication(t *testing.T) {
+	kernel := &failingLSPPlanKernel{testKernel: &testKernel{Client: core.NewClient()}, msg: "missing jdtls"}
+	h := newHarness(t, kernel)
+	h.app.plugins = settingsFixturePlugins(t, kernel)
 	h.open(t.TempDir())
 
 	h.app.startPluginServer("fixture")

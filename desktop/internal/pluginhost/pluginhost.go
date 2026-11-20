@@ -209,6 +209,10 @@ func Declared() Capabilities {
 	// Version 1 adds installers that download a pinned archive instead of running
 	// a tool; the host extracts it below the plugin's managed command directory.
 	declared["commandInstallers"] = []int{0, 1}
+	// Version 1 adds a server's executesProjectCode: in a project in safe mode Core
+	// starts only the servers that declare false, and the status bar says why the
+	// others wait for trust (#2208).
+	declared["languageServers"] = []int{0, 1}
 	return declared
 }
 

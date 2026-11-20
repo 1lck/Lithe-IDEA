@@ -47,10 +47,11 @@ type gitObservation struct {
 }
 
 // startGitObservation resolves the metadata roots of the project in the background and
-// installs their watches. The first answer rescans the status once.
+// installs their watches. The first answer rescans the status once. Finding the roots runs Git,
+// so a project in safe mode is observed once it is trusted (applyProjectTrust).
 func (a *App) startGitObservation(p *project) {
 	kernel, ok := a.kernel.(gitObserveKernel)
-	if !ok || p.observe.metadata != nil || p.observe.watches != nil {
+	if !ok || p.safeMode() || p.observe.metadata != nil || p.observe.watches != nil {
 		return
 	}
 	p.observe.gen++

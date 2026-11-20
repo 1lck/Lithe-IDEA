@@ -822,26 +822,38 @@ func WithQueryCategory(ctx context.Context, category GitQueryCategory) context.C
 	return context.WithValue(ctx, gitQueryCategoryKey{}, category)
 }
 
-// gitExecutionOf is the Git policy of a request: a Git request of a context with a console
-// asks Core to report the internal queries of the categories the console records, names the
-// category the context gives, and marks an automatic refresh. Other requests, and a request
-// with nothing to ask, keep Core's defaults.
+type projectCodeAllowedKey struct{}
+
+// WithProjectCodeAllowed returns a context whose requests belong to a workspace whose trust
+// allowed reads when each request is sent. While it reports false, every request of the
+// context, not only the git ones, tells Core to start no Git process: Core runs Git for other
+// commands too, such as the ignore check of workspace.listDirectories, and the repository's
+// own configuration can name programs Git runs (core.fsmonitor, hooks, filters).
+func WithProjectCodeAllowed(ctx context.Context, allowed func() bool) context.Context {
+	return context.WithValue(ctx, projectCodeAllowedKey{}, allowed)
+}
+
+// gitExecutionOf is the Git policy of a request. A request of an untrusted workspace
+// (WithProjectCodeAllowed) forbids Git, whatever its command. A Git request of a context with
+// a console also asks Core to report the internal queries of the categories the console
+// records, names the category the context gives, and marks an automatic refresh. A request
+// with nothing to ask keeps Core's defaults.
 func gitExecutionOf(ctx context.Context, command string) *gitExecution {
-	if !strings.HasPrefix(command, "git.") || gitConsoleUnrecorded[command] {
-		return nil
+	var execution gitExecution
+	if allowed, _ := ctx.Value(projectCodeAllowedKey{}).(func() bool); allowed != nil && !allowed() {
+		execution.ProjectCodeAllowed = new(false)
 	}
 	sink, _ := ctx.Value(gitConsoleKey{}).(*gitConsoleSink)
-	if sink == nil {
-		return nil
+	if sink != nil && strings.HasPrefix(command, "git.") && !gitConsoleUnrecorded[command] {
+		execution.ConsoleQueries = sink.console.recordedQueries()
+		if len(execution.ConsoleQueries) > 0 {
+			execution.QueryCategory, _ = ctx.Value(gitQueryCategoryKey{}).(GitQueryCategory)
+		}
+		if refresh, _ := ctx.Value(gitRefreshKey{}).(bool); refresh {
+			execution.Source = "background"
+		}
 	}
-	execution := gitExecution{ConsoleQueries: sink.console.recordedQueries()}
-	if len(execution.ConsoleQueries) > 0 {
-		execution.QueryCategory, _ = ctx.Value(gitQueryCategoryKey{}).(GitQueryCategory)
-	}
-	if refresh, _ := ctx.Value(gitRefreshKey{}).(bool); refresh {
-		execution.Source = "background"
-	}
-	if len(execution.ConsoleQueries) == 0 && execution.Source == "" {
+	if len(execution.ConsoleQueries) == 0 && execution.Source == "" && execution.ProjectCodeAllowed == nil {
 		return nil
 	}
 	return &execution

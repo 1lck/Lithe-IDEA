@@ -1,0 +1,65 @@
+{
+  "schemaVersion": 1,
+  "messages": [
+    {
+      "id": "desktop.status.lspSafeMode",
+      "description": "Status bar and language server menu: a language server that safe mode does not start",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.trust.lspSafeMode",
+      "description": "Language server menu and log: why a language server is not started while the project is in safe mode",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.trust.lspSafeModeHeading",
+      "description": "Language server menu: heading of the submenu of a language server that safe mode does not start, short enough for one menu row",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.trust.gitSafeMode",
+      "description": "Commit and Git log windows: shown in place of changes and history while the project is in safe mode",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.trust.vcsSafeMode",
+      "description": "Version control window of a plugin provider: shown in place of working copies while the project is in safe mode",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.trust.launchSafeMode",
+      "description": "Run and Debug windows: why a process a plugin would start is not started while the project is in safe mode",
+      "platforms": [
+        "desktop"
+      ]
+    }
+  ],
+  "locales": {
+    "en-US": {
+      "desktop.status.lspSafeMode": "LSP safe mode",
+      "desktop.trust.lspSafeMode": "Safe mode does not start this language server, because it can run code from the project. It starts once you trust the project.",
+      "desktop.trust.gitSafeMode": "Safe mode does not run Git, because the repository's configuration can name programs Git runs. Trust the project to see its changes and history.",
+      "desktop.trust.vcsSafeMode": "Safe mode does not run version control, because the working copy's configuration can name programs it runs. Trust the project to use it.",
+      "desktop.trust.launchSafeMode": "Safe mode does not start this process, because it can run code from the project. Trust the project to start it.",
+      "desktop.trust.lspSafeModeHeading": "Starts once you trust the project"
+    },
+    "zh-CN": {
+      "desktop.status.lspSafeMode": "LSP 安全模式",
+      "desktop.trust.lspSafeMode": "安全模式不启动此语言服务器，因为它可能运行项目中的代码。信任项目后才会启动。",
+      "desktop.trust.gitSafeMode": "安全模式不运行 Git，因为仓库配置可以指定 Git 要运行的程序。信任项目后才显示更改和历史。",
+      "desktop.trust.vcsSafeMode": "安全模式不运行版本控制，因为工作副本的配置可以指定要运行的程序。信任项目后即可使用。",
+      "desktop.trust.launchSafeMode": "安全模式不启动此进程，因为它可能运行项目中的代码。信任项目后即可启动。",
+      "desktop.trust.lspSafeModeHeading": "信任项目后才会启动"
+    }
+  }
+}

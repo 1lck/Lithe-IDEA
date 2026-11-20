@@ -444,7 +444,7 @@ func TestRuntimeToolPlanKeepsAnEntryForNativeInstantiation(t *testing.T) {
 		t.Fatal(err)
 	}
 	root := t.TempDir()
-	plan, err := NewClient().PlanPluginLanguageServer(testContext(t), manifest, "script", PluginBackendDirectories{PluginDirectory: root, StateDirectory: t.TempDir(), Architecture: PluginArchitecture()})
+	plan, err := NewClient().PlanPluginLanguageServer(testContext(t), manifest, "script", PluginBackendDirectories{PluginDirectory: root, StateDirectory: t.TempDir(), Architecture: PluginArchitecture(), ProjectCodeAllowed: true})
 	if err != nil {
 		t.Fatal(err)
 	}

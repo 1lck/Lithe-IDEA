@@ -130,7 +130,9 @@ func (a *App) resolveAdapterProcess(ctx context.Context, adapter debugAdapter, p
 
 // prepareDebugLaunch runs off the window thread. The Core owns template expansion
 // and DAP argument bindings; this adapter only verifies and opens native resources.
-func (a *App) prepareDebugLaunch(ctx context.Context, start debugStart, stateDirectory, root, targetPath string, generation uint64, unavailable string) (preparedDebugLaunch, error) {
+// It reads only p's root and its workspace trust, which is atomic.
+func (a *App) prepareDebugLaunch(ctx context.Context, start debugStart, stateDirectory string, p *project, targetPath string, generation uint64, unavailable string) (preparedDebugLaunch, error) {
+	root := p.root
 	adapter := start.adapter
 	hosted := adapter.Declaration.Transport == "tcpLanguageServer"
 	settings, err := a.loadPluginPreferenceSources(ctx, adapter.Manifest, root)
@@ -146,6 +148,9 @@ func (a *App) prepareDebugLaunch(ctx context.Context, start debugStart, stateDir
 		Architecture:            core.PluginArchitecture(),
 		Settings:                settings.State.Settings,
 		ProjectSettings:         settings.State.ProjectSettings,
+		// A hosted adapter's launch is its language server's, which Core refuses in an
+		// untrusted workspace when the server runs project code.
+		ProjectCodeAllowed: p.trust.allowed(),
 	}
 	plan, err := a.kernel.PlanPluginDebugAdapter(ctx, adapter.Manifest, adapter.Declaration.ID, directories)
 	if err != nil {

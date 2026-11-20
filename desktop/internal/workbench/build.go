@@ -479,6 +479,9 @@ func (a *App) standaloneBuildProvider(ctx context.Context, p *project, instance 
 		ProjectSettings:         settings.ProjectSettings,
 		RootURI:                 rootURI,
 		WorkingDirectory:        p.root,
+		// Core plans no provider process that runs project code in safe mode; the requests
+		// that would reach it already ask to trust the project first.
+		ProjectCodeAllowed: p.trust.allowed(),
 		BeforeResolveTool: func(ctx context.Context) error {
 			revision, err := a.buildToolchainSource(ctx, p)
 			if err != nil {
@@ -687,10 +690,11 @@ func (a *App) sharedBuildProvider(ctx context.Context, p *project, instance buil
 		return nil, err
 	}
 	session, err := a.plugins.StartLanguageServer(ctx, entries, languageID, pluginservice.BackendRequest{
-		RootURI:          rootURI,
-		WorkingDirectory: p.root,
-		Context:          p.pluginContext,
-		Architecture:     core.PluginArchitecture(),
+		RootURI:            rootURI,
+		WorkingDirectory:   p.root,
+		Context:            p.pluginContext,
+		Architecture:       core.PluginArchitecture(),
+		ProjectCodeAllowed: p.trust.allowed(),
 	})
 	if err != nil {
 		return nil, err

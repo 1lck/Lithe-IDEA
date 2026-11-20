@@ -372,7 +372,7 @@ func TestUninstallStopsProviderSessionsBeforeDeletingFiles(t *testing.T) {
 					})
 				} else if err == nil {
 					started, err = runtime.session(ctx, h.app.plugins.Backend, h.app.plugins.Root, root, uri,
-						vcsWindow{PluginID: id, Version: "1.0.0", Directory: directory, Manifest: json.RawMessage(manifest), Vcs: "fakevcs"}, core.PluginSettingsState{}, h.app.pluginLogDirectory)
+						vcsWindow{PluginID: id, Version: "1.0.0", Directory: directory, Manifest: json.RawMessage(manifest), Vcs: "fakevcs"}, core.PluginSettingsState{}, true, h.app.pluginLogDirectory)
 				}
 				return func(*App) {
 					if err != nil {
@@ -415,7 +415,7 @@ func TestUninstallStopsProviderSessionsBeforeDeletingFiles(t *testing.T) {
 				ctx, cancel := context.WithTimeout(context.Background(), time.Second)
 				defer cancel()
 				_, err := p.vcs.runtime().session(ctx, h.app.plugins.Backend, h.app.plugins.Root, root, "",
-					vcsWindow{PluginID: id, Version: "1.0.0"}, core.PluginSettingsState{}, h.app.pluginLogDirectory)
+					vcsWindow{PluginID: id, Version: "1.0.0"}, core.PluginSettingsState{}, true, h.app.pluginLogDirectory)
 				if !errors.Is(err, buildprovider.ErrClosed) {
 					t.Fatalf("catalog refresh reopened a removed plugin: %v", err)
 				}
@@ -532,7 +532,7 @@ func TestEnableReopensVcsAfterCatalogRefresh(t *testing.T) {
 		uri, err := h.app.kernel.PluginDocumentURI(ctx, root, "auto")
 		if err == nil {
 			_, err = sessions.session(ctx, h.app.plugins.Backend, h.app.plugins.Root, root, uri,
-				vcsWindow{PluginID: id, Version: "1.0.0", Directory: filepath.Join(h.app.plugins.Root, id, "1.0.0"), Manifest: json.RawMessage(vcsFixtureManifest), Vcs: "fakevcs"}, core.PluginSettingsState{}, h.app.pluginLogDirectory)
+				vcsWindow{PluginID: id, Version: "1.0.0", Directory: filepath.Join(h.app.plugins.Root, id, "1.0.0"), Manifest: json.RawMessage(vcsFixtureManifest), Vcs: "fakevcs"}, core.PluginSettingsState{}, true, h.app.pluginLogDirectory)
 		}
 		return func(*App) {
 			if err != nil {

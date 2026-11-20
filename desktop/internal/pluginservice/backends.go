@@ -27,6 +27,10 @@ type BackendRequest struct {
 	Context ContextRef
 	// Architecture is the platform architecture Core plans for.
 	Architecture string
+	// ProjectCodeAllowed is whether the user trusts the workspace. Without it Core plans no
+	// language server that would run project code, and the start fails with
+	// core.LaunchUntrustedWorkspace.
+	ProjectCodeAllowed bool
 	// RuntimeProgress reports cancellable preparation before the bounded server
 	// launch. It may be called from a worker goroutine.
 	RuntimeProgress func(pluginruntime.Progress)
@@ -116,20 +120,21 @@ func (s *Service) StartLanguageServer(ctx context.Context, entries []pluginmanag
 		return fail(stateErr)
 	}
 	start := pluginbackend.StartRequest{
-		Manifest:         manifest,
-		PackageDirectory: entry.Installed.Path,
-		PluginID:         entry.Installed.ID,
-		ProviderID:       entry.Installed.ID + "/language-server",
-		LanguageID:       languageID,
-		Attempt:          attempt,
-		StateDirectory:   stateDirectory,
-		LogDirectory:     s.logDirectory(ctx, entry.Installed.ID),
-		Architecture:     request.Architecture,
-		Settings:         settings.State.Settings,
-		ProjectSettings:  settings.State.ProjectSettings,
-		RootURI:          request.RootURI,
-		WorkingDirectory: request.WorkingDirectory,
-		ManagedTools:     runtimes.Tools,
+		Manifest:           manifest,
+		PackageDirectory:   entry.Installed.Path,
+		PluginID:           entry.Installed.ID,
+		ProviderID:         entry.Installed.ID + "/language-server",
+		LanguageID:         languageID,
+		Attempt:            attempt,
+		StateDirectory:     stateDirectory,
+		LogDirectory:       s.logDirectory(ctx, entry.Installed.ID),
+		Architecture:       request.Architecture,
+		Settings:           settings.State.Settings,
+		ProjectSettings:    settings.State.ProjectSettings,
+		RootURI:            request.RootURI,
+		WorkingDirectory:   request.WorkingDirectory,
+		ManagedTools:       runtimes.Tools,
+		ProjectCodeAllowed: request.ProjectCodeAllowed,
 	}
 	temporary := ""
 	if declaresBackendLaunch(manifest, languageID) {

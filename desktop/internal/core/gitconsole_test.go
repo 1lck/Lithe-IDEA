@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -329,6 +330,33 @@ func TestGitConsoleRecordsNothingForADetachedContext(t *testing.T) {
 	}
 }
 
+// A request of an untrusted workspace starts no Git process: Core answers
+// CodeGitUntrustedWorkspace, the console keeps only the refusal (a record with no command), and
+// the same context runs Git once the workspace is trusted (#2208).
+func TestGitRequestOfAnUntrustedWorkspaceRunsNoGit(t *testing.T) {
+	repo := committedRepository(t)
+	client := NewClient()
+	console := NewGitConsole(nil)
+	console.RecordQueries([]GitQueryCategory{GitQueryReferences, GitQueryChecks})
+	var trusted atomic.Bool
+	ctx := WithProjectCodeAllowed(WithGitConsole(testContext(t), console, repo), trusted.Load)
+	if _, err := client.GitStatus(ctx, repo); !IsGitUntrustedWorkspace(err) {
+		t.Fatalf("GitStatus(untrusted) error = %v, want %s", err, CodeGitUntrustedWorkspace)
+	}
+	for _, record := range console.Snapshot().Records {
+		if record.Executable != "" || len(record.Arguments) != 0 || record.Error == "" {
+			t.Fatalf("an untrusted request recorded a command: %+v", record)
+		}
+	}
+	trusted.Store(true)
+	if _, err := client.GitStatus(ctx, repo); err != nil {
+		t.Fatalf("GitStatus(trusted) error: %v", err)
+	}
+	if commands := consoleCommands(console); !slices.Contains(commands, "status") {
+		t.Fatalf("console commands = %q, want the trusted status query", commands)
+	}
+}
+
 // consoleCommands are the Git subcommands of the console's records, in order.
 func consoleCommands(console *GitConsole) []string {
 	var commands []string
@@ -399,12 +427,15 @@ func TestGitConsoleRecordsTheQueriesOfTheCategoriesItShows(t *testing.T) {
 
 // Only a Git request with a console asks Core to report queries, of the categories the
 // console records and under the category the context names; an automatic refresh names its
-// provenance.
+// provenance. Every request of an untrusted workspace forbids Git, whatever its command, since
+// Core also runs Git for requests that are not Git's (#2208); the decision is read per request.
 func TestGitExecutionOfAsksForTheCategoriesTheConsoleShows(t *testing.T) {
 	idea := WithGitConsole(context.Background(), NewGitConsole(nil), "/repo")
 	shown := NewGitConsole(nil)
 	shown.RecordQueries(GitConsolePreferences{ShowDiffQueries: true, ShowCheckQueries: true}.QueryCategories())
 	ctx := WithGitConsole(context.Background(), shown, "/repo")
+	var trusted atomic.Bool
+	gated := WithProjectCodeAllowed(ctx, trusted.Load)
 	cases := []struct {
 		name    string
 		ctx     context.Context
@@ -421,12 +452,19 @@ func TestGitExecutionOfAsksForTheCategoriesTheConsoleShows(t *testing.T) {
 		{"detached", WithGitConsole(ctx, nil, ""), "git.status", `null`},
 		{"never runs Git", ctx, "git.consolePresentation", `null`},
 		{"not Git", ctx, "core.ping", `null`},
+		{"untrusted", gated, "git.status", `{"consoleQueries":["diff","checks"],"projectCodeAllowed":false}`},
+		{"untrusted without console", WithProjectCodeAllowed(context.Background(), trusted.Load), "workspace.listDirectories", `{"projectCodeAllowed":false}`},
+		{"untrusted never runs Git", gated, "git.consolePresentation", `{"projectCodeAllowed":false}`},
 	}
 	for _, c := range cases {
 		got, err := json.Marshal(gitExecutionOf(c.ctx, c.command))
 		if err != nil || string(got) != c.want {
 			t.Fatalf("%s: gitExecution = %s (%v), want %s", c.name, got, err, c.want)
 		}
+	}
+	trusted.Store(true)
+	if got, err := json.Marshal(gitExecutionOf(gated, "core.ping")); err != nil || string(got) != `null` {
+		t.Fatalf("trusted: gitExecution = %s (%v), want null, Core's default", got, err)
 	}
 }
 

@@ -2,6 +2,7 @@ package core
 
 import (
 	"context"
+	"errors"
 	"fmt"
 )
 
@@ -54,6 +55,10 @@ const (
 	// CodeGitCommitAuthorInvalid means a commit named an author that is not exactly
 	// "Name <email>"; nothing was committed.
 	CodeGitCommitAuthorInvalid ErrorCode = "git_commit_author_invalid"
+	// CodeGitUntrustedWorkspace means the request belongs to a workspace the user has not trusted
+	// (WithProjectCodeAllowed), so Core started no Git process: the repository's own configuration
+	// can name programs Git runs, such as core.fsmonitor and hooks.
+	CodeGitUntrustedWorkspace ErrorCode = "git_untrusted_workspace"
 	// CodeParseFailed means input or tool output could not be decoded into the stable
 	// contract. This package also uses it for a response it cannot decode.
 	CodeParseFailed ErrorCode = "parse_failed"
@@ -95,6 +100,13 @@ func (e *Error) Is(target error) bool {
 		return e.Code == CodeTimedOut
 	}
 	return false
+}
+
+// IsGitUntrustedWorkspace reports whether err is Core refusing to run Git for a workspace the
+// user has not trusted (CodeGitUntrustedWorkspace).
+func IsGitUntrustedWorkspace(err error) bool {
+	var coreErr *Error
+	return errors.As(err, &coreErr) && coreErr.Code == CodeGitUntrustedWorkspace
 }
 
 // newParseError reports a response that violates the envelope contract.

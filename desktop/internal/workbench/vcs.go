@@ -178,6 +178,17 @@ type vcsRootView struct {
 	revision int
 }
 
+// clearFailures forgets why each working copy's changes and history failed, so the window reads
+// them again: trusting the project lifts errVcsSafeMode, which an operation that raced the
+// revoking of trust may have left.
+func (s *vcsState) clearFailures() {
+	for _, view := range s.views {
+		for _, root := range view.roots {
+			root.failure, root.historyFailure = "", ""
+		}
+	}
+}
+
 // vcsRow is one row of the list of changes: a section's title, with change -1, or a change of
 // the status at its index.
 type vcsRow struct {
@@ -358,6 +369,12 @@ var errVcsNotNegotiated = errors.New("the provider session did not negotiate its
 // errVcsToolMissing is a provider whose client none of its commands finds.
 var errVcsToolMissing = errors.New("the version control client of the provider was not found")
 
+// errVcsSafeMode is an operation of a project the user has not trusted. A provider runs a version
+// control client, and the working copy's configuration can name programs that client runs, so no
+// operation runs until the project is trusted, not even on a session started before trust was
+// revoked (#2208).
+var errVcsSafeMode = errors.New("the project is in safe mode")
+
 // live is the running session of key, nil when there is none.
 func (r *vcsRuntime) live(key string) *buildprovider.Client {
 	r.mu.Lock()
@@ -373,7 +390,7 @@ func (r *vcsRuntime) live(key string) *buildprovider.Client {
 // outside the lock, so detaching on the window thread never waits for a start; a start that lost
 // to another one or to detaching is stopped again. logDirectory gives the process's ${logDir}, and
 // is asked only when a process starts.
-func (r *vcsRuntime) session(ctx context.Context, runner *pluginbackend.Runner, pluginRoot, root, rootURI string, window vcsWindow, settings core.PluginSettingsState, logDirectory func(context.Context, string) string) (client *buildprovider.Client, err error) {
+func (r *vcsRuntime) session(ctx context.Context, runner *pluginbackend.Runner, pluginRoot, root, rootURI string, window vcsWindow, settings core.PluginSettingsState, projectCodeAllowed bool, logDirectory func(context.Context, string) string) (client *buildprovider.Client, err error) {
 	ctx, finish, err := r.launches.begin(ctx, window.PluginID)
 	if err != nil {
 		return nil, err
@@ -413,6 +430,7 @@ func (r *vcsRuntime) session(ctx context.Context, runner *pluginbackend.Runner, 
 		ProjectSettings:         settings.ProjectSettings,
 		RootURI:                 rootURI,
 		WorkingDirectory:        root,
+		ProjectCodeAllowed:      projectCodeAllowed,
 	})
 	if err != nil {
 		return nil, err
@@ -645,6 +663,9 @@ func (a *App) runVcs(ctx context.Context, p *project, sessions *vcsRuntime, call
 	if !ok || a.plugins == nil || a.plugins.Backend == nil {
 		return nil, nil, errVcsNotNegotiated
 	}
+	if !p.trust.allowed() {
+		return nil, nil, errVcsSafeMode
+	}
 	client := sessions.live(call.window.PluginID + "\x00" + call.window.Vcs)
 	if client == nil {
 		settings, err := a.loadPluginPreferenceSources(ctx, call.window.Manifest, p.root)
@@ -655,7 +676,7 @@ func (a *App) runVcs(ctx context.Context, p *project, sessions *vcsRuntime, call
 		if err != nil {
 			return nil, nil, err
 		}
-		if client, err = sessions.session(ctx, a.plugins.Backend, a.plugins.Root, p.root, rootURI, call.window, settings.State, a.pluginLogDirectory); err != nil {
+		if client, err = sessions.session(ctx, a.plugins.Backend, a.plugins.Root, p.root, rootURI, call.window, settings.State, p.trust.allowed(), a.pluginLogDirectory); err != nil {
 			return nil, nil, err
 		}
 	}
@@ -726,6 +747,8 @@ func (a *App) vcsFailureText(err error) string {
 		return message
 	}
 	switch {
+	case errors.Is(err, errVcsSafeMode), core.IsLaunchUntrustedWorkspace(err):
+		return i18n.Shared(language, "desktop.trust.vcsSafeMode")
 	case errors.Is(err, errVcsToolMissing):
 		return i18n.Shared(language, "native.theVersionControlClientCouldNotBeRunCheckThatItIsInstalled")
 	case errors.Is(err, errVcsNotNegotiated):

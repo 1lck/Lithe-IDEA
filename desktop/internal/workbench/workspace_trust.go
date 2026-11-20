@@ -19,10 +19,19 @@ import (
 // decision for opens, the user is asked to trust it, to preview it in safe mode or not to open
 // it; trusting may cover every project of the parent folder. The decision is machine-local,
 // kept by Core in the toolchain catalog of the preference directory (toolchains/global.json),
-// never in the project. In safe mode the project's code is not run: models are not loaded and
-// Core refuses the plans that would run the build tool, a wrapper or a build extension
-// (plugin.build.untrustedWorkspace). A run, build, test or reload the user asks for first asks
-// to trust the project, and the notice above the editor offers it too.
+// never in the project. In safe mode the project's code is not run (#2208):
+//   - models are not loaded, and Core refuses the plans that would run the build tool, a wrapper
+//     or a build extension (plugin.build.untrustedWorkspace);
+//   - Core plans no language server, build provider process or version control provider that
+//     may run the project's code (plugin.launch.untrustedWorkspace); a language server whose
+//     plugin declares it runs none still starts;
+//   - no Git runs, since the repository's configuration can name programs Git runs: the window
+//     reads no status, and Core refuses any Git of the project's requests
+//     (git_untrusted_workspace, core.WithProjectCodeAllowed).
+//
+// A run, build, test or reload the user asks for first asks to trust the project; the notice
+// above the editor, the Git and version control windows and the language server status offer
+// it too. Trusting the project loads and starts what safe mode left out (applyProjectTrust).
 
 // workspaceTrustTimeout bounds reading or saving a trust decision: a Core call and a look at
 // the workspace folder.
@@ -229,14 +238,25 @@ func (a *App) reloadProjectTrust(p *project) {
 }
 
 // applyProjectTrust makes trusted the trust of p. Leaving safe mode loads what safe mode left
-// out: the models, and through them the run configurations of the title bar, and the language
-// servers that failed for want of the workspace's tools.
+// out: Git and the version control provider, the models, and through them the run
+// configurations of the title bar, and the language servers Core planned none for or that
+// failed for want of the workspace's tools. Entering it again stops Git at once, both the status
+// and the watch of the repository's metadata; the language servers already running keep running
+// until the project closes.
 func (a *App) applyProjectTrust(p *project, trusted bool) {
 	was := p.trust.allowed()
 	p.trust.codeAllowed.Store(trusted)
-	if !trusted || was {
+	if trusted == was {
 		return
 	}
+	if !trusted {
+		a.closeGitObservation(p)
+		a.loadGit(p)
+		return
+	}
+	a.loadGit(p)
+	a.startGitObservation(p)
+	p.vcs.clearFailures()
 	for index := range p.build.instances {
 		instance := &p.build.instances[index]
 		if instance.modelUntrusted {
@@ -252,6 +272,17 @@ func (a *App) applyProjectTrust(p *project, trusted bool) {
 func (a *App) skipUntrustedModel(instance *buildInstance) {
 	instance.modelUntrusted, instance.modelStopped = true, true
 	instance.modelError = i18n.Shared(a.language(), "desktop.trust.modelSafeMode")
+}
+
+// safeModePanel declares what a tool window shows in safe mode in place of what it would read by
+// running project code: message, and the button that asks to trust the project.
+func (a *App) safeModePanel(c ui.C, p *project, message string) {
+	ui.Column(c).Fill().Center().Gap(8).PadX(shellContentPad).Children(func() {
+		ui.Paragraph(c, message, 3).FillWidth().TextCenter().Color(a.colors.Subtle)
+		if ui.Button(c.Key("trust"), i18n.Shared(a.language(), "desktop.trust.bannerLink")).Ghost().Disabled(p.trust.asking).Clicked() {
+			c.After(func() { a.askToTrustProject(p, nil) })
+		}
+	})
 }
 
 // safeModeNotice declares the notice above the editor of a project in safe mode, with the link
