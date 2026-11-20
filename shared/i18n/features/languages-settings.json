@@ -1,0 +1,68 @@
+{
+  "schemaVersion": 1,
+  "messages": [
+    {
+      "id": "desktop.languageSettings.intro",
+      "description": "Languages & Frameworks settings page: the line under its heading on what the page lists",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.languageSettings.loading",
+      "description": "Languages & Frameworks settings page: shown while the settings pages plugins contribute are still being read",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.languageSettings.failed",
+      "description": "Languages & Frameworks settings page: shown when the settings pages plugins contribute could not be read",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.languageSettings.empty",
+      "description": "Languages & Frameworks settings page: shown while no enabled plugin contributes a page under it",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.languageSettings.browse",
+      "description": "Languages & Frameworks settings page: button of the empty page that opens the plugin marketplace",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.languageSettings.serverState",
+      "description": "Languages & Frameworks settings page: the state of the language server a language row's plugin runs, at the end of the row",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "state": "string"
+      }
+    }
+  ],
+  "locales": {
+    "en-US": {
+      "desktop.languageSettings.intro": "Settings that installed plugins provide for languages and frameworks. Choose one to open its settings.",
+      "desktop.languageSettings.loading": "Reading plugin settings…",
+      "desktop.languageSettings.failed": "Could not read the settings pages plugins provide.",
+      "desktop.languageSettings.empty": "No plugin provides language or framework settings yet. Install a language plugin and its settings appear here.",
+      "desktop.languageSettings.browse": "Browse Marketplace",
+      "desktop.languageSettings.serverState": "Language server: {state}"
+    },
+    "zh-CN": {
+      "desktop.languageSettings.intro": "已安装插件为语言和框架提供的设置。选择一项打开它的设置。",
+      "desktop.languageSettings.loading": "正在读取插件设置…",
+      "desktop.languageSettings.failed": "无法读取插件提供的设置页。",
+      "desktop.languageSettings.empty": "还没有插件提供语言或框架设置。安装语言插件后，它的设置会出现在这里。",
+      "desktop.languageSettings.browse": "浏览插件市场",
+      "desktop.languageSettings.serverState": "语言服务：{state}"
+    }
+  }
+}

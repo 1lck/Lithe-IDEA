@@ -10881,7 +10881,6 @@
     "desktop.debug.breakpoint.functionRow": "ƒ {name}",
     "desktop.debug.breakpoint.removeFunction": "Remove method breakpoint",
     "desktop.marketplace.tab.settings": "Settings",
-    "desktop.languageStatus.title": "Language server",
     "desktop.languageStatus.none": "Not running",
     "desktop.languageStatus.starting": "Starting",
     "desktop.languageStatus.ready": "Ready",

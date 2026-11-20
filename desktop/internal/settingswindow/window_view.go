@@ -128,8 +128,8 @@ func (w *window) sidebar(c ui.C) {
 }
 
 // chooseRow opens what row r stands for. A group without a page of its own folds; one with a
-// page, which Build is and plugins' pages make any entry they are under, opens it, and Build
-// lists its pages as it opens. A kind's row opens the kind's page. A search ends once its row
+// page, which Build and Languages & Frameworks are and plugins' pages make any entry they are
+// under, opens it, and a group that owns its page lists its pages as it opens. A kind's row opens the kind's page. A search ends once its row
 // is chosen, with the rows above the page opened so the page's row is on the screen.
 func (w *window) chooseRow(r row) {
 	if w.chooseSearchRow(r) {
@@ -143,8 +143,8 @@ func (w *window) chooseRow(r row) {
 		w.toggleRow(r)
 		return
 	default:
-		if r.page == pageBuild {
-			w.sess.open[pageBuild] = true
+		if ownsPage(r.page) {
+			w.sess.open[r.page] = true
 		}
 		w.selectSettingsPage(r.page, r.dynamic)
 	}
@@ -368,6 +368,8 @@ func (w *window) content(c ui.C) {
 			w.fontsPage(c)
 		case w.sess.page == pageBuild:
 			w.buildPage(c.Part("build"))
+		case w.sess.page == pageLanguages:
+			w.languagesPage(c.Part("languages"))
 		case w.sess.page == pageToolchains:
 			w.toolchainsPage(c)
 		case w.sess.page == pageDebuggers:
@@ -400,7 +402,7 @@ func (w *window) content(c ui.C) {
 
 // breadcrumb is the prototype's .crumb: where the open page is, its group first and the page
 // last in the weight of the text. A title before the last that has a page of its own opens it:
-// Build, Execution, Deployment its directory.
+// Build, Execution, Deployment and Languages & Frameworks their directories.
 func (w *window) breadcrumb(c ui.C) {
 	b := &w.bp
 	w.crumbs = w.appendCrumbs(w.crumbs[:0])
@@ -460,8 +462,8 @@ func (w *window) appendCrumbs(dst []crumb) []crumb {
 
 // chooseCrumb opens the page a title of the breadcrumb stands for.
 func (w *window) chooseCrumb(crumb crumb) {
-	if crumb.page == pageBuild {
-		w.sess.open[pageBuild] = true
+	if ownsPage(crumb.page) {
+		w.sess.open[crumb.page] = true
 	}
 	w.selectSettingsPage(crumb.page, "")
 }

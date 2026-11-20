@@ -186,7 +186,7 @@ func (w *window) kindDetail(c ui.C, language i18n.Language, page *core.SettingsP
 		ui.Select(c, &w.contributorID, w.dynamic.contributorIDs[page.Key], w.contributorLabel).FillWidth().
 			Label(i18n.Shared(language, "desktop.pluginSettings.contributor"))
 	}
-	w.pluginSettingsPanel(c, w.contributorID)
+	w.pluginSettingsPanel(c, w.contributorID, true)
 }
 
 // kindRowKey is a row's identity in a kind's list, its page's key hashed to the list's

@@ -512,7 +512,7 @@ func (w *window) installedDetail(c ui.C, language i18n.Language, fact PluginFact
 					if fact.Settings == 0 {
 						ui.Wrap(c, i18n.Shared(language, "desktop.pluginSettings.empty")).FontSize(12).Color(w.pal.muted)
 					} else {
-						w.pluginSettingsPanel(c, fact.ID)
+						w.pluginSettingsPanel(c, fact.ID, true)
 					}
 				case installedPermissions:
 					w.installedPermissions(c, language, fact)

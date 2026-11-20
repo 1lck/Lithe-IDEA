@@ -1,36 +1,35 @@
 package settingswindow
 
-import (
-	"github.com/1lck/Lithe-IDEA/desktop/internal/i18n"
-	"github.com/vivaui/viva/gfx"
-	"github.com/vivaui/viva/ui"
-)
+import "github.com/1lck/Lithe-IDEA/desktop/internal/i18n"
 
-// languageStatusCard declares the state of the language server a language page's contributor runs.
-// It reads the state the window thread last recorded, so the card never waits for the server.
-func (w *window) languageStatusCard(c ui.C, pluginID string) {
-	language := w.marketLanguage()
-	state := ""
-	if w.ctrl.opts.LanguageServerState != nil {
-		state = w.ctrl.opts.LanguageServerState(pluginID)
+// A language's row in the Languages & Frameworks directory says the state of the language
+// server its first contributor runs. The row reads the state the window thread last recorded,
+// so drawing it never waits for the server. The language's own page does not repeat it.
+
+// languageServerState is the state of the language server pluginID runs as the window thread
+// last recorded it, empty when none runs or the host reports none.
+func (w *window) languageServerState(pluginID string) string {
+	if w.ctrl.opts.LanguageServerState == nil || pluginID == "" {
+		return ""
 	}
-	value, color := i18n.Shared(language, "desktop.languageStatus.none"), w.pal.muted
+	return w.ctrl.opts.LanguageServerState(pluginID)
+}
+
+// languageStateWords are the words of a language server's state and its tone, as
+// buildPalette.statusColor reads it: "ok" while it is ready, "error" once it failed, "warning"
+// while it starts or works with less, and "idle" when it stopped or none runs.
+func languageStateWords(language i18n.Language, state string) (string, string) {
 	switch state {
-	case "":
 	case "starting", "preparing":
-		value = i18n.Shared(language, "desktop.languageStatus.starting")
+		return i18n.Shared(language, "desktop.languageStatus.starting"), "warning"
 	case "ready":
-		value, color = i18n.Shared(language, "desktop.languageStatus.ready"), w.pal.text
+		return i18n.Shared(language, "desktop.languageStatus.ready"), "ok"
 	case "degraded":
-		value = i18n.Shared(language, "desktop.languageStatus.degraded")
+		return i18n.Shared(language, "desktop.languageStatus.degraded"), "warning"
 	case "stopped":
-		value = i18n.Shared(language, "desktop.languageStatus.stopped")
+		return i18n.Shared(language, "desktop.languageStatus.stopped"), "idle"
 	case "failed", "error":
-		value, color = i18n.Shared(language, "desktop.languageStatus.failed"), w.pal.danger
+		return i18n.Shared(language, "desktop.languageStatus.failed"), "error"
 	}
-	ui.Row(c).FillWidth().Height(40).Shrink(0).PadX(12).Gap(12).Items(ui.Center).Radius(6).Background(w.pal.card).Children(func() {
-		ui.Text(c, i18n.Shared(language, "desktop.languageStatus.title")).FontSize(12).Color(w.pal.muted).Shrink(0)
-		ui.Spacer(c)
-		ui.Text(c, value).FontSize(13).Weight(gfx.WeightSemibold).Color(color).Ellipsis()
-	})
+	return i18n.Shared(language, "desktop.languageStatus.none"), "idle"
 }
