@@ -196,7 +196,8 @@ func Declared() Capabilities {
 	// settings window's source forms render.
 	declared["sourceSettings"] = []int{0, 1}
 	// Version 1 adds command-sourced discovery in the Build test tree.
-	declared["buildSystems"] = []int{0, 1}
+	// Version 2 adds registry connection debugging for provider applications.
+	declared["buildSystems"] = []int{0, 1, 2}
 	// Version 1 adds entrypoint runs, which Run on Current File starts.
 	declared["buildProviders"] = []int{0, 1}
 	// Version 1 adds a definition's category and audience, by which the

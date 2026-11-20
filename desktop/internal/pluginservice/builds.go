@@ -243,24 +243,25 @@ func parseBuildSystems(manifest json.RawMessage) (map[string]BuildSystemDeclarat
 			})
 		}
 		for _, run := range raw.Run {
-			if run.ID != "" && run.Source == "provider" && run.Entrypoints {
-				system.EntrypointRuns = append(system.EntrypointRuns, BuildRunDeclaration{ID: run.ID, Name: run.Name, Execution: "application"})
-				continue
-			}
-			if run.ID == "" || run.Source != "provider" || run.FromTargets == nil {
+			if run.ID == "" || run.Source != "provider" {
 				continue
 			}
 			declaration := BuildRunDeclaration{
 				ID:        run.ID,
 				Name:      run.Name,
 				Execution: run.Execution,
-				Tags:      append([]string(nil), run.FromTargets.Tags...),
 			}
 			if run.Debug != nil {
 				declaration.DebugAdapter = run.Debug.Adapter
 				declaration.DebugConfigurationType = run.Debug.ConfigurationType
 			}
-			system.Runs = append(system.Runs, declaration)
+			if run.Entrypoints {
+				declaration.Execution = "application"
+				system.EntrypointRuns = append(system.EntrypointRuns, declaration)
+			} else if run.FromTargets != nil {
+				declaration.Tags = append([]string(nil), run.FromTargets.Tags...)
+				system.Runs = append(system.Runs, declaration)
+			}
 		}
 		if raw.Test != nil {
 			system.Test = &BuildTestDeclaration{

@@ -1052,7 +1052,7 @@ func (a *App) applyRunConfigDialog(p *project, step runConfigDialogStep) {
 			if id := d.selected; id != "" && !strings.HasPrefix(id, runConfigNewKey) {
 				s.reveal, s.currentFile = id, false
 				if step == runConfigDialogRun {
-					s.start = id
+					s.start, s.startAction = id, titleActionRun
 				}
 			}
 			if step != runConfigDialogApply {

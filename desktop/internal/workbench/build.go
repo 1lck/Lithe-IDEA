@@ -1963,9 +1963,11 @@ func (a *App) redebugProviderTarget(p *project, reference core.RunProviderRefere
 
 // buildRunDeclaration is the run declaration id of system.
 func buildRunDeclaration(system pluginservice.BuildSystemDeclaration, id string) (pluginservice.BuildRunDeclaration, bool) {
-	for _, run := range system.Runs {
-		if run.ID == id {
-			return run, true
+	for _, runs := range [][]pluginservice.BuildRunDeclaration{system.Runs, system.EntrypointRuns} {
+		for _, run := range runs {
+			if run.ID == id {
+				return run, true
+			}
 		}
 	}
 	return pluginservice.BuildRunDeclaration{}, false

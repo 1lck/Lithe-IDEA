@@ -116,7 +116,7 @@ func (a *App) prepareConnectionDebug(p *project, configurationType string, start
 }
 
 // debugRunConfiguration debugs configuration id, whose run declares a public debug type: the
-// configuration's saved launch options apply as for Run, with the service suspended for the
+// configuration's saved launch options apply as for Run, with the debuggee suspended for the
 // selected adapter.
 func (a *App) debugRunConfiguration(p *project, id, configurationType string) {
 	a.prepareConnectionDebug(p, configurationType, func(debug connectionDebug) {

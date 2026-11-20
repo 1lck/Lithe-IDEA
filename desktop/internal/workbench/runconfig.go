@@ -59,10 +59,11 @@ type runConfigState struct {
 	// beforeLaunch is the start that waits for the user to allow the steps a project file
 	// names before it (runconfig_before_launch.go).
 	beforeLaunch *beforeLaunchConfirmation
-	// start is the configuration a save asked to run, started once the next refresh lists it
-	// so the run reads what was saved.
-	start string
-	// findingEntrypoint says Run on Current File is asking the build providers for the open
+	// start is the configuration a save asked to start once the next refresh lists it.
+	// startAction is Debug for a discovered debug entrypoint and defaults to Run.
+	start       string
+	startAction titleAction
+	// findingEntrypoint says Current File is asking the build providers for the open
 	// file's entrypoint (title_run_entrypoints.go), so another press does not ask again.
 	findingEntrypoint bool
 	// browser is the list that shows the configurations by scope and build system.
@@ -167,7 +168,7 @@ func (a *App) finishRunConfigurations(p *project, generation uint64, resolved co
 	a.loadRunConfigTypes(p, false)
 	if err != nil {
 		s.failure = err.Error()
-		s.reveal, s.start = "", ""
+		s.reveal, s.start, s.startAction = "", "", titleActionNone
 		return
 	}
 	s.failure = ""
@@ -204,10 +205,15 @@ func (a *App) finishRunConfigurations(p *project, generation uint64, resolved co
 	}
 	s.reveal = ""
 	if start := s.start; start != "" {
-		s.start = ""
+		action := s.startAction
+		s.start, s.startAction = "", titleActionNone
 		if s.configuration(start) != nil {
 			s.selected = start
-			a.runConfiguration(p, start)
+			if action == titleActionDebug {
+				a.titleStart(p, action)
+			} else {
+				a.runConfiguration(p, start)
+			}
 		}
 	}
 	if s.configuration(s.selected) == nil {

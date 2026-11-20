@@ -346,8 +346,12 @@ func (a *App) editorActionMenuItems(c ui.C, p *project, d *document, menu *ui.Me
 
 // runCurrentFileEditorAction presents the same plugin invocation the gutter
 // offers. An absent cached action may mean its initial collection is still in flight.
-func (a *App) runCurrentFileEditorAction(p *project, d *document, mode titleAction) {
+func (a *App) runCurrentFileEditorAction(p *project, d *document, mode titleAction, discoveryErr error) {
 	fallback := func(a *App) {
+		if discoveryErr != nil {
+			a.notifyError(discoveryErr.Error())
+			return
+		}
 		if mode == titleActionDebug {
 			a.whenDebugAdaptersLoaded(p, func() {
 				if p.selectedDocument(p.docs.group) == d {
@@ -401,6 +405,11 @@ func (a *App) runCurrentFileEditorAction(p *project, d *document, mode titleActi
 					return
 				}
 				if err != nil {
+					if discoveryErr != nil {
+						a.backgroundFailed("editor_actions", err)
+						fallback(a)
+						return
+					}
 					a.operationFailed("title_run_current_file", err)
 					a.notifyError(i18n.Shared(a.language(), "desktop.editorActions.failed"))
 					return

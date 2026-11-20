@@ -256,7 +256,13 @@ func TestProviderTestRunner(t *testing.T) {
 			}
 			reply(request.ID, map[string]any{"format": "litheRunEntrypoints", "version": 0, "entrypoints": found})
 		case "lithe/build/prepareRun":
-			if entrypoints {
+			var params struct {
+				LaunchOptions preparedDebug `json:"launchOptions"`
+			}
+			if err := json.Unmarshal(request.Params, &params); err != nil {
+				os.Exit(10)
+			}
+			if entrypoints && params.LaunchOptions.Debug == nil {
 				if err := os.WriteFile("prepare-run.json", request.Params, 0o600); err != nil {
 					os.Exit(9)
 				}
@@ -268,33 +274,25 @@ func TestProviderTestRunner(t *testing.T) {
 				})
 				continue
 			}
-			// service.marker selects the service fixture (build_connection_debug_test.go): the
-			// provider records what the host asked for and answers with a process that listens
+			// The provider records what the host asked for and answers with a process that listens
 			// on the debug port the host chose, as a runtime suspended for a debugger does.
-			if _, err := os.Stat("service.marker"); err == nil {
+			_, serviceErr := os.Stat("service.marker")
+			if params.LaunchOptions.Debug != nil || serviceErr == nil {
 				if err := os.WriteFile("prepare-run.json", request.Params, 0o600); err != nil {
 					os.Exit(9)
-				}
-				var params struct {
-					LaunchOptions struct {
-						Debug *struct {
-							Target struct {
-								Port int `json:"port"`
-							} `json:"target"`
-						} `json:"debug"`
-					} `json:"launchOptions"`
-				}
-				if err := json.Unmarshal(request.Params, &params); err != nil {
-					os.Exit(10)
 				}
 				port := 0
 				if params.LaunchOptions.Debug != nil {
 					port = params.LaunchOptions.Debug.Target.Port
 				}
+				directory := "lib"
+				if entrypoints {
+					directory = "."
+				}
 				reply(request.ID, map[string]any{
 					"executable":       map[string]any{"kind": "command", "value": "fixture-service"},
 					"arguments":        []string{"-test.run=^TestFixtureServiceRunner$"},
-					"workingDirectory": "lib",
+					"workingDirectory": directory,
 					"environment":      map[string]string{fixtureServicePortVariable: strconv.Itoa(port)},
 				})
 				continue

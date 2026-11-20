@@ -2,10 +2,10 @@
   "id": "run-current-file-entrypoint",
   "area": "运行与调试",
   "group": "运行配置",
-  "capability": "标题栏选择“当前文件”后可运行当前源码。构建提供者找到入口时自动保存、选中并运行配置，同一入口复用已保存的配置，可编辑参数、环境变量和工作目录。构建提供者没有返回入口时，运行复用编辑器行号栏的 Run 动作，调试复用它的 Debug 选项或独立的 Debug 动作。",
+  "capability": "标题栏选择“当前文件”后可运行或调试当前源码。构建提供者找到支持所选操作的入口时，保存并选中运行配置，同一入口复用已保存的配置。声明公共调试类型的入口可用已安装的调试适配器启动。没有匹配的入口时，继续提供编辑器行号栏的 Run 或 Debug 动作。调试查找失败时，也会尝试当前文件的 Debug 动作。",
   "owner": "Run",
-  "notes": "Viva 共享实现。构建入口由提供者回答，Core 规划请求并校验答案。编辑器动作按源码位置选择并通过原有调用路径执行。显示通用的无入口提示前，先查看当前文档是否有可用的 Run 动作。",
-  "verification": "用合成构建提供者验证运行当前文件时保存并复用配置，无入口时提示原因。用合成编辑器动作提供者验证未声明构建入口的文件可从标题栏执行行号栏的动作。自动化入口在 title_run_entrypoints_test.go。",
+  "notes": "Viva 共享实现。构建入口由提供者回答，Core 规划请求并校验答案。运行和调试读取同一个配置的参数、环境变量和工作目录。编辑器动作按源码位置选择。",
+  "verification": "用合成构建提供者验证当前文件运行时保存并复用配置。用声明公共调试类型的入口验证首次点击调试会保存配置、携带入口类名并连接对应适配器。用编辑器动作提供者验证没有适用构建入口和调试查找失败时的回退。修改缓冲区里的入口后点击调试，确认构建提供者读取保存后的文件。",
   "macos": {
     "implementationStatus": "implemented",
     "verificationStatus": "pending",
@@ -14,7 +14,8 @@
       "desktop/internal/core/build_entrypoints.go",
       "desktop/internal/pluginservice/builds.go",
       "desktop/internal/workbench/title_run_entrypoints_test.go",
-      "desktop/internal/workbench/editor_actions.go"
+      "desktop/internal/workbench/editor_actions.go",
+      "desktop/internal/workbench/build_connection_debug_test.go"
     ]
   },
   "windows": {
@@ -25,7 +26,8 @@
       "desktop/internal/core/build_entrypoints.go",
       "desktop/internal/pluginservice/builds.go",
       "desktop/internal/workbench/title_run_entrypoints_test.go",
-      "desktop/internal/workbench/editor_actions.go"
+      "desktop/internal/workbench/editor_actions.go",
+      "desktop/internal/workbench/build_connection_debug_test.go"
     ]
   }
 }

@@ -1,18 +1,23 @@
 package workbench
 
 import (
+	"context"
 	"encoding/json"
+	"errors"
 	"net"
 	"os"
 	"path/filepath"
 	"runtime"
+	"slices"
 	"strconv"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/1lck/Lithe-IDEA/desktop/internal/core"
+	"github.com/1lck/Lithe-IDEA/desktop/internal/editorview"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/i18n"
+	"github.com/1lck/Lithe-IDEA/desktop/internal/pluginservice"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/pluginstate"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/store"
 )
@@ -86,6 +91,11 @@ func registryAttachManifest(id string) string {
 // and the fixture service on PATH.
 func connectionDebugHarness(t *testing.T, adapters map[string]string) *harness {
 	t.Helper()
+	return connectionDebugHarnessWithProvider(t, providerServiceDebugManifest, adapters)
+}
+
+func connectionDebugHarnessWithProvider(t *testing.T, providerManifest string, adapters map[string]string) *harness {
+	t.Helper()
 	dir := t.TempDir()
 	if err := os.WriteFile(filepath.Join(dir, settingsFile), []byte(`{"theme":"dark"}`), 0o600); err != nil {
 		t.Fatal(err)
@@ -105,7 +115,7 @@ func connectionDebugHarness(t *testing.T, adapters map[string]string) *harness {
 			t.Fatal(err)
 		}
 	}
-	install("dev.lithe.test.provider-tests", providerServiceDebugManifest, "provider")
+	install("dev.lithe.test.provider-tests", providerManifest, "provider")
 	for id, manifest := range adapters {
 		if runtime.GOOS == "windows" {
 			manifest = strings.ReplaceAll(manifest, `"path": "adapter"`, `"path": "adapter.exe"`)
@@ -166,8 +176,9 @@ func openServiceDebugProject(t *testing.T, h *harness) (*project, string) {
 
 // preparedDebug is the launchOptions.debug the fixture provider received.
 type preparedDebug struct {
-	Execution string `json:"execution"`
-	Debug     *struct {
+	Execution  string `json:"execution"`
+	Entrypoint string `json:"entrypoint"`
+	Debug      *struct {
 		AdapterID         string `json:"adapterID"`
 		ConfigurationType string `json:"configurationType"`
 		Target            struct {
@@ -248,6 +259,130 @@ func TestTitleDebugAttachesTheRegisteredAdapterToAServiceRun(t *testing.T) {
 		t.Fatalf("the service still holds its debug port after Stop: %v", err)
 	}
 	_ = listener.Close()
+}
+
+func TestCurrentFileDebugSavesAndAttachesToTheDiscoveredEntrypoint(t *testing.T) {
+	const adapterID = "dev.lithe.test.registry-attach"
+	h := connectionDebugHarnessWithProvider(t, debugEntrypointsManifest(), map[string]string{adapterID: registryAttachManifest(adapterID)})
+	gate := &captureDebugLaunch{Kernel: h.app.kernel, configurations: make(chan core.DebugLaunchConfiguration, 1)}
+	h.app.kernel = gate
+	root := entrypointWorkspace(t)
+	writeFixture(t, root, map[string]string{"debug.marker": "fixture\n"})
+	h.open(root)
+	p := h.app.project
+	openSource(t, h, p, filepath.Join(root, "src", "Main.java"))
+	h.app.post(func(a *App) {
+		a.chooseTitleConfiguration(p, "")
+		a.titleDebug(p)
+	})
+	configuration := awaitValueWithin(t, h, time.Minute, gate.configurations, "the attach to the discovered entrypoint")
+	prepared := readPreparedRun(t, root)
+	if prepared.Execution != "application" || prepared.Entrypoint != "example.Main" || prepared.Debug == nil {
+		t.Fatalf("the provider prepared %+v, want the application entrypoint with a debug target", prepared)
+	}
+	if configuration.Request != "attach" || !sameDebugPort(configuration.Arguments["port"], prepared.Debug.Target.Port) {
+		t.Fatalf("attach configuration = %+v, want the entrypoint's port %d", configuration, prepared.Debug.Target.Port)
+	}
+	saved := p.titleConfiguration()
+	if saved == nil || saved.Name != "Main" || len(p.runConfigs.list) != 1 {
+		t.Fatalf("selected configuration = %+v, configurations = %+v", saved, p.runConfigs.list)
+	}
+	h.app.post(func(a *App) { a.stopDebugByUser(p) })
+	awaitStateWithin(t, h, time.Minute, "the stopped entrypoint", func() bool { return !p.build.active() && p.debug.activeSession() == nil })
+}
+
+func debugEntrypointsManifest() string {
+	manifest := strings.Replace(providerEntrypointsManifest, `"buildSystems": 0`, `"buildSystems": 2`, 1)
+	return strings.Replace(manifest, `"entrypoints": true`, `"entrypoints": true, "debug": {"configurationType": "fixture-attach"}`, 1)
+}
+
+type entrypointDiscoveryKernel struct {
+	Kernel
+	discover func(context.Context, core.BuildPlanRequest) error
+}
+
+func (k entrypointDiscoveryKernel) PlanBuildRunEntrypoints(ctx context.Context, manifest json.RawMessage, system string, request core.BuildPlanRequest) (core.BuildPlan, error) {
+	if err := k.discover(ctx, request); err != nil {
+		return core.BuildPlan{}, err
+	}
+	return k.Kernel.PlanBuildRunEntrypoints(ctx, manifest, system, request)
+}
+
+func TestCurrentFileDebugFallsBackWhenProviderDiscoveryFails(t *testing.T) {
+	h := connectionDebugHarnessWithProvider(t, debugEntrypointsManifest(), nil)
+	failure := errors.New("fixture entrypoint discovery failed")
+	discovering := make(chan struct{}, 1)
+	finishDiscovery := make(chan struct{})
+	h.app.kernel = entrypointDiscoveryKernel{
+		Kernel: h.app.kernel,
+		discover: func(ctx context.Context, _ core.BuildPlanRequest) error {
+			discovering <- struct{}{}
+			select {
+			case <-finishDiscovery:
+				return failure
+			case <-ctx.Done():
+				return ctx.Err()
+			}
+		},
+	}
+	root := entrypointWorkspace(t)
+	h.open(root)
+	p := h.app.project
+	openSource(t, h, p, filepath.Join(root, "src", "Main.java"))
+	d := p.selectedDocument(p.docs.group)
+	h.app.post(func(a *App) {
+		a.chooseTitleConfiguration(p, "")
+		a.titleDebug(p)
+	})
+	awaitValueWithin(t, h, 15*time.Second, discovering, "the provider discovery request")
+	h.app.post(func(a *App) {
+		d.actions = []pluginservice.EditorAction{{
+			Title: "Debug editor entry", Icon: "debug",
+			Range: pluginservice.EditorActionRange{StartLine: 1, StartColumn: 1},
+		}}
+		close(finishDiscovery)
+	})
+	want := i18n.SharedFormat(h.app.language(), "desktop.editorActions.starting", map[string]string{"label": "Debug editor entry"})
+	awaitStateWithin(t, h, 15*time.Second, "the editor debug action", func() bool {
+		notices := noticeTexts(h.app)
+		if slices.Contains(notices, failure.Error()) {
+			t.Fatalf("provider failure blocked editor debug: %v", notices)
+		}
+		return slices.Contains(notices, want)
+	})
+}
+
+func TestCurrentFileDebugSavesEditsBeforeDiscoveringAnEntrypoint(t *testing.T) {
+	h := connectionDebugHarnessWithProvider(t, debugEntrypointsManifest(), nil)
+	const modified = "package example;\n\npublic final class Main {}\n"
+	sourceAtDiscovery := make(chan string, 1)
+	h.app.kernel = entrypointDiscoveryKernel{
+		Kernel: h.app.kernel,
+		discover: func(_ context.Context, request core.BuildPlanRequest) error {
+			data, err := os.ReadFile(filepath.Join(request.WorkspaceRoot, filepath.FromSlash(request.File)))
+			if err != nil {
+				return err
+			}
+			sourceAtDiscovery <- string(data)
+			return errors.New("fixture stops after reading the source")
+		},
+	}
+	root := entrypointWorkspace(t)
+	h.open(root)
+	p := h.app.project
+	openSource(t, h, p, filepath.Join(root, "src", "Main.java"))
+	d := p.selectedDocument(p.docs.group)
+	data, _ := d.view.Text()
+	if err := d.view.ApplyEdits([]editorview.TextEdit{{Range: editorview.Range{End: len(data)}, Text: modified}}); err != nil {
+		t.Fatal(err)
+	}
+	h.app.post(func(a *App) {
+		a.chooseTitleConfiguration(p, "")
+		a.titleDebug(p)
+	})
+	if got := awaitValueWithin(t, h, 15*time.Second, sourceAtDiscovery, "the source read by the provider"); got != modified {
+		t.Fatalf("provider read stale source: %q", got)
+	}
 }
 
 // sameDebugPort reports whether a DAP argument decoded from JSON is port.
