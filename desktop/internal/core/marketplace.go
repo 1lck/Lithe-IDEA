@@ -24,11 +24,12 @@ type MarketplaceRejection struct {
 func (r *MarketplaceRejection) Error() string { return fmt.Sprintf("%s: %s", r.Code, r.Message) }
 
 type marketplaceOutcome struct {
-	Status string                `json:"status"`
-	Error  *MarketplaceRejection `json:"error"`
-	Index  *MarketplaceIndex     `json:"index"`
-	Source *MarketplaceSource    `json:"source"`
-	Review *MarketplaceReview    `json:"review"`
+	Status         string                           `json:"status"`
+	Error          *MarketplaceRejection            `json:"error"`
+	Index          *MarketplaceIndex                `json:"index"`
+	Source         *MarketplaceSource               `json:"source"`
+	Review         *MarketplaceReview               `json:"review"`
+	Recommendation *MarketplaceRecommendationResult `json:"recommendation"`
 }
 
 func (o marketplaceOutcome) failure(command string) error {
@@ -43,9 +44,10 @@ func (o marketplaceOutcome) failure(command string) error {
 
 // MarketplaceSource is Core's canonical index location and its optional repository.
 type MarketplaceSource struct {
-	IndexURL    string  `json:"indexURL"`
-	Repository  *string `json:"repository"`
-	DisplayName string  `json:"displayName"`
+	IndexURL           string  `json:"indexURL"`
+	RecommendationsURL string  `json:"recommendationsURL"`
+	Repository         *string `json:"repository"`
+	DisplayName        string  `json:"displayName"`
 }
 
 // MarketplaceAvailability is Core's platform and capability decision.
@@ -176,4 +178,82 @@ func (c *Client) ReviewMarketplaceInstall(ctx context.Context, manifest json.Raw
 		return MarketplaceReview{}, newParseError(command, "marketplace returned no review", "")
 	}
 	return *result.Review, nil
+}
+
+// MarketplaceRecommendationCatalog pairs one marketplace index with its companion recommendations catalog.
+type MarketplaceRecommendationCatalog struct {
+	Index           json.RawMessage       `json:"index"`
+	SourceKind      MarketplaceSourceKind `json:"sourceKind"`
+	IndexURL        string                `json:"indexURL,omitempty"`
+	Recommendations json.RawMessage       `json:"recommendations"`
+}
+
+// MarketplaceRecommendation is one validated plugin recommendation matched against the workspace.
+type MarketplaceRecommendation struct {
+	Plugin              MarketplacePlugin `json:"plugin"`
+	MatchedMarkers      []string          `json:"matchedMarkers"`
+	MatchedExtensions   []string          `json:"matchedExtensions"`
+	MarketplaceIndexURL string            `json:"marketplaceIndexURL,omitempty"`
+}
+
+// MarketplaceRecommendationResult holds accepted recommendations and isolated catalog/entry rejections.
+type MarketplaceRecommendationResult struct {
+	Plugins  []MarketplaceRecommendation `json:"plugins"`
+	Rejected []MarketplaceEntryRejection `json:"rejected"`
+}
+
+// RecommendMarketplacePlugins asks Core to match workspace signals against recommendation catalogs.
+func (c *Client) RecommendMarketplacePlugins(
+	ctx context.Context,
+	platform string,
+	workspaceFiles []string,
+	catalogs []MarketplaceRecommendationCatalog,
+	hostCapabilities map[string][]int,
+	installedPluginIDs []string,
+	dismissedPluginIDs []string,
+) (MarketplaceRecommendationResult, error) {
+	const command = "plugins.marketplace.recommendForWorkspace"
+	if workspaceFiles == nil {
+		workspaceFiles = []string{}
+	}
+	if catalogs == nil {
+		catalogs = []MarketplaceRecommendationCatalog{}
+	}
+	if installedPluginIDs == nil {
+		installedPluginIDs = []string{}
+	}
+	if dismissedPluginIDs == nil {
+		dismissedPluginIDs = []string{}
+	}
+	request := struct {
+		Platform           string                             `json:"platform"`
+		WorkspaceFiles     []string                           `json:"workspaceFiles"`
+		Catalogs           []MarketplaceRecommendationCatalog `json:"catalogs"`
+		HostCapabilities   map[string][]int                   `json:"hostCapabilities,omitempty"`
+		InstalledPluginIDs []string                           `json:"installedPluginIDs"`
+		DismissedPluginIDs []string                           `json:"dismissedPluginIDs"`
+	}{
+		Platform:           platform,
+		WorkspaceFiles:     workspaceFiles,
+		Catalogs:           catalogs,
+		HostCapabilities:   hostCapabilities,
+		InstalledPluginIDs: installedPluginIDs,
+		DismissedPluginIDs: dismissedPluginIDs,
+	}
+	var result marketplaceOutcome
+	if err := c.Execute(ctx, command, request, &result); err != nil {
+		return MarketplaceRecommendationResult{}, err
+	}
+	if err := result.failure(command); err != nil {
+		return MarketplaceRecommendationResult{}, err
+	}
+	if result.Recommendation == nil {
+		return MarketplaceRecommendationResult{}, newParseError(command, "marketplace returned no recommendations", "")
+	}
+	for i := range result.Recommendation.Plugins {
+		if result.Recommendation.Plugins[i].MarketplaceIndexURL != "" {
+			result.Recommendation.Plugins[i].Plugin.MarketplaceIndexURL = result.Recommendation.Plugins[i].MarketplaceIndexURL
+		}
+	}
+	return *result.Recommendation, nil
 }

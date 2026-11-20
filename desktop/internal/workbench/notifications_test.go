@@ -295,3 +295,53 @@ func TestNoticesKeepTheirKindAndShowAtMostThreeToasts(t *testing.T) {
 		t.Fatal("the welcome page has no bell")
 	}
 }
+
+func TestNotificationSupportsPrimaryAndSecondaryActions(t *testing.T) {
+	h := newHarnessWithLanguages(t, &testKernel{Client: core.NewClient()}, []string{"en-US"})
+	h.open(t.TempDir())
+	clock := time.Date(2026, 11, 11, 10, 0, 0, 0, time.Local)
+	h.app.now = func() time.Time { return clock }
+
+	var primaryCalls, secondaryCalls int
+	h.app.notifyActions(
+		"Recommended plugins",
+		"Suggested for this project: Demo Lang",
+		ui.ToastInfo,
+		"View Plugins", func(*App) { primaryCalls++ },
+		"Don't Show Again", func(*App) { secondaryCalls++ },
+	)
+	h.app.invalidator.Invalidate()
+	h.settle()
+
+	if len(h.app.notifications.list) != 1 {
+		t.Fatalf("notifications = %d, want 1", len(h.app.notifications.list))
+	}
+	if h.pageControls("View Plugins") != 1 {
+		t.Fatalf("floating toast View Plugins count = %d, want 1", h.pageControls("View Plugins"))
+	}
+	h.clickNamed("View Plugins")
+	h.settle()
+	if primaryCalls != 1 {
+		t.Fatalf("primaryCalls = %d, want 1", primaryCalls)
+	}
+
+	// Open the notification bell history where both primary and secondary actions appear.
+	for _, entry := range h.app.notifications.list {
+		h.app.overlay.toaster.Close(entry.toast)
+	}
+	h.app.invalidator.Invalidate()
+	h.settle()
+	h.clickNamed("Notifications, 1 unread")
+	h.settle()
+	if n := h.pageControls("View Plugins"); n != 1 {
+		t.Fatalf("history View Plugins count = %d, want 1", n)
+	}
+	if n := h.pageControls("Don't Show Again"); n != 1 {
+		t.Fatalf("history Don't Show Again count = %d, want 1", n)
+	}
+	h.clickNamed("Don't Show Again")
+	h.settle()
+	if secondaryCalls != 1 || h.app.notifications.open {
+		t.Fatalf("secondaryCalls = %d, open = %v; want 1, false", secondaryCalls, h.app.notifications.open)
+	}
+}

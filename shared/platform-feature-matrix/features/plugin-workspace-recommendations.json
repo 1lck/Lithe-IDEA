@@ -1,0 +1,39 @@
+{
+  "id": "plugin-workspace-recommendations",
+  "area": "扩展",
+  "group": "插件与主题",
+  "capability": "打开工作区时对项目根及浅层子目录执行有界非阻塞扫描，结合插件市场发布的独立推荐索引与 Core 匹配规则筛选尚未安装或未被替代插件覆盖的可安装插件，并在应用内发出一条汇总通知，支持一键跳转到对应插件市场页面或永久不再提示。",
+  "owner": "Extensions",
+  "notes": "Viva Go 跨平台实现；桌面端仅保留协议与通用算法，具体插件与语言映射规则完全由外部插件市场同级索引提供，向后兼容旧版市场客户端。同一会话对市场目录缓存 15 分钟且按工作区根目录去重；选择不再提示后将插件 ID 持久化到设置文件中。macOS 与 Windows 原生真实环境均共享该逻辑。",
+  "verification": "自动化：Lithe-core-rust 契约单测（marketplace_plugins）、desktop/internal/core/marketplace_test.go 契约 fixture 测试、desktop/internal/marketplace/service_test.go HTTP 404/200/校验测试、desktop/internal/workbench/plugin_recommendations_test.go 与 notifications_test.go 覆盖深度与条目上限/符号链接跳过/多插件合并/覆盖插件过滤/查看插件与不再提示持久化，以及 -race 并发测试与无头 Viva 暗亮/中英截图验证。Windows 原生实机验证待 CI/VM 执行。",
+  "macos": {
+    "implementationStatus": "implemented",
+    "verificationStatus": "verified",
+    "evidence": [
+      "desktop/internal/core/marketplace.go",
+      "desktop/internal/core/marketplace_test.go",
+      "desktop/internal/marketplace/service.go",
+      "desktop/internal/marketplace/service_test.go",
+      "desktop/internal/workbench/notifications.go",
+      "desktop/internal/workbench/notifications_test.go",
+      "desktop/internal/workbench/plugin_recommendations.go",
+      "desktop/internal/workbench/plugin_recommendations_test.go",
+      "desktop/internal/workbench/plugin_recommendations_visual_test.go"
+    ]
+  },
+  "windows": {
+    "implementationStatus": "implemented",
+    "verificationStatus": "pending",
+    "evidence": [
+      "desktop/internal/core/marketplace.go",
+      "desktop/internal/core/marketplace_test.go",
+      "desktop/internal/marketplace/service.go",
+      "desktop/internal/marketplace/service_test.go",
+      "desktop/internal/workbench/notifications.go",
+      "desktop/internal/workbench/notifications_test.go",
+      "desktop/internal/workbench/plugin_recommendations.go",
+      "desktop/internal/workbench/plugin_recommendations_test.go",
+      "desktop/internal/workbench/plugin_recommendations_visual_test.go"
+    ]
+  }
+}
