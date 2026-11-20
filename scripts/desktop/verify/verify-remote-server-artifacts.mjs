@@ -3,7 +3,7 @@
 // staged, and reports their sizes.
 //
 // Usage: node scripts/desktop/verify/verify-remote-server-artifacts.mjs
-//            [--stage <dir>] [--require-smoke] [--require-pinned]
+//            [--stage <dir>] [--require-smoke <target>|all]... [--require-pinned]
 //
 // From the manifest and the files alone, for every target of SERVER_TARGETS:
 // - the manifest names exactly these targets, each at <target>/lithe-remote-server;
@@ -12,14 +12,18 @@
 //   program interpreter nor a DT_NEEDED entry, so it runs on any Linux host or container of
 //   that architecture, whatever C library it has.
 //
-// When this machine can run the executable, natively on Linux of the same architecture or
-// through qemu-user (qemu-<arch>-static or qemu-<arch> on PATH), a smoke test also runs it.
+// On Linux of a target's own architecture, a smoke test also runs that executable.
 // `--identity` must report the manifest's version and SHA-256, and `--version` the same
 // version. A `--stdio` session must answer `server.hello` for the target's architecture and
-// end when standard input closes.
+// end when standard input closes. Executables of another architecture are never run under an
+// emulator: a pass there would not show that they work on the hardware they ship to, so CI
+// runs each target on a runner of its own architecture.
 //
 // Flags:
-//   --require-smoke    fail when a target cannot be run; otherwise it is reported as skipped.
+//   --require-smoke <target>|all
+//                      fail unless the smoke test of this target, or of every target, ran and
+//                      passed here. Repeat it to name several targets. Without it, a target
+//                      this machine cannot run is reported as skipped.
 //   --require-pinned   fail unless the artifacts come from a clean checkout of the core revision
 //                      that scripts/desktop/build-desktop-core.sh pins.
 //
@@ -27,7 +31,6 @@
 // security and features come before size (#2231, D9).
 import { spawn } from "node:child_process";
 import { createHash } from "node:crypto";
-import { accessSync, constants as fsConstants, statSync } from "node:fs";
 import { appendFile, lstat, readFile } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -503,41 +506,17 @@ export async function stdioHello(spawnArgs, { protocolVersion, arch, serverVersi
   }
 }
 
-function findOnPath(name, searchPath) {
-  for (const directory of (searchPath ?? "").split(path.delimiter)) {
-    if (!directory) {
-      continue;
-    }
-    const candidate = path.join(directory, name);
-    try {
-      accessSync(candidate, fsConstants.X_OK);
-      if (statSync(candidate).isFile()) {
-        return candidate;
-      }
-    } catch {
-      // Not here.
-    }
-  }
-  return null;
-}
-
 /// How this machine can run an executable of `target`: `{ how, spawnArgs(binary, flags) }`,
 /// or `{ skipped }` with the reason it cannot.
-export function defaultRunnerFor(target, { platform = process.platform, arch = process.arch, env = process.env } = {}) {
+export function defaultRunnerFor(target, { platform = process.platform, arch = process.arch } = {}) {
   const expected = SERVER_TARGETS[target];
   if (platform !== "linux") {
     return { skipped: `Linux executables do not run on ${platform}` };
   }
-  if (arch === expected.nodeArch) {
-    return { how: "native", spawnArgs: (binary, flags) => ({ command: binary, args: flags }) };
+  if (arch !== expected.nodeArch) {
+    return { skipped: `it runs only on ${expected.nodeArch} Linux, and this machine is ${arch}` };
   }
-  for (const name of [`qemu-${expected.arch}-static`, `qemu-${expected.arch}`]) {
-    const emulator = findOnPath(name, env.PATH);
-    if (emulator !== null) {
-      return { how: name, spawnArgs: (binary, flags) => ({ command: emulator, args: [binary, ...flags] }) };
-    }
-  }
-  return { skipped: `no qemu-${expected.arch}-static or qemu-${expected.arch} on PATH runs ${expected.arch} executables` };
+  return { how: "native", spawnArgs: (binary, flags) => ({ command: binary, args: flags }) };
 }
 
 /// Runs `--identity`, `--version` and a `--stdio` session of one staged executable.
@@ -588,9 +567,10 @@ export async function readPinnedCoreRevision(file = PIN_FILE) {
 
 /// Checks a staging directory. Returns the manifest (when it could be read), one result per
 /// artifact and the problems found; never throws for a problem with the artifacts.
+/// `requireSmoke` names the targets whose smoke test must run and pass here.
 export async function verifyArtifacts({
   stageDir = DEFAULT_STAGE_DIR,
-  requireSmoke = false,
+  requireSmoke = [],
   pinnedRevision = null,
   runnerFor = defaultRunnerFor,
   timeoutMs = DEFAULT_TIMEOUT_MS,
@@ -654,7 +634,7 @@ export async function verifyArtifacts({
     const runner = runnerFor(target);
     if (runner.skipped !== undefined) {
       result.smoke = `skipped: ${runner.skipped}`;
-      if (requireSmoke) {
+      if (requireSmoke.includes(target)) {
         problems.push(`${target}: the smoke test is required but cannot run: ${runner.skipped}`);
       }
       continue;
@@ -702,19 +682,29 @@ export function formatSummaryMarkdown({ manifest, results }) {
 }
 
 function usage() {
-  return "Usage: node scripts/desktop/verify/verify-remote-server-artifacts.mjs [--stage <dir>] [--require-smoke] [--require-pinned]";
+  return `Usage: node scripts/desktop/verify/verify-remote-server-artifacts.mjs [--stage <dir>] [--require-smoke <target>|all]... [--require-pinned]
+Targets: ${Object.keys(SERVER_TARGETS).join(", ")}`;
 }
 
 async function main(argv) {
   let stageDir = DEFAULT_STAGE_DIR;
-  let requireSmoke = false;
+  const requireSmoke = new Set();
   let requirePinned = false;
   for (let index = 0; index < argv.length; index += 1) {
     const argument = argv[index];
     if (argument === "--stage" && index + 1 < argv.length) {
       stageDir = path.resolve(argv[++index]);
-    } else if (argument === "--require-smoke") {
-      requireSmoke = true;
+    } else if (argument === "--require-smoke" && index + 1 < argv.length) {
+      const target = argv[++index];
+      if (target === "all") {
+        Object.keys(SERVER_TARGETS).forEach((name) => requireSmoke.add(name));
+      } else if (Object.hasOwn(SERVER_TARGETS, target)) {
+        requireSmoke.add(target);
+      } else {
+        console.error(`unknown target for --require-smoke: ${target}`);
+        console.error(usage());
+        return 2;
+      }
     } else if (argument === "--require-pinned") {
       requirePinned = true;
     } else {
@@ -723,7 +713,7 @@ async function main(argv) {
     }
   }
   const pinnedRevision = requirePinned ? await readPinnedCoreRevision() : null;
-  const outcome = await verifyArtifacts({ stageDir, requireSmoke, pinnedRevision });
+  const outcome = await verifyArtifacts({ stageDir, requireSmoke: [...requireSmoke], pinnedRevision });
   if (outcome.manifest !== null) {
     process.stdout.write(formatReport(outcome));
     if (process.env.GITHUB_STEP_SUMMARY) {
