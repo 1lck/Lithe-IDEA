@@ -117,6 +117,13 @@ func (a *App) everywhereScopes(c ui.C, p *project, language i18n.Language) {
 				v.scope = index
 				a.focusEverywhere(p)
 			}
+			if key, help := everywhereScopeHelp(language, index); help != "" {
+				info := ui.Button(c.Key(key), i18n.Shared(language, "native.moreInformation")).Icon(icons.Info).IconOnly().Ghost().Size(18, 18).
+					Tooltip(help)
+				if info.Clicked() {
+					a.focusEverywhere(p)
+				}
+			}
 		}
 		ui.Spacer(c).Grow(1)
 		preview := ui.Button(c.Key("everywherePreview"), i18n.Shared(language, "native.showPreview")).Icon(icons.Eye).IconOnly().Ghost().
@@ -132,10 +139,30 @@ func (a *App) everywhereScopes(c ui.C, p *project, language i18n.Language) {
 			}
 			a.focusEverywhere(p)
 		}
-		if v.scope != everywhereScopeActions {
+		if v.scope != everywhereScopeActions && !everywhereLanguageScope(v.scope) {
 			a.everywhereFilter(c, p, language)
 		}
 	})
+}
+
+// everywhereScopeHelp is the key and text of the ⓘ after a tab: what the tab lists and
+// how far it reaches. Only the tabs that list what language servers report have one,
+// since what they leave out (the standard library, dependencies) is not obvious.
+func everywhereScopeHelp(language i18n.Language, scope int) (string, string) {
+	switch scope {
+	case 1:
+		return "everywhereTypesHelp", i18n.Shared(language, "desktop.everywhere.typesHelp")
+	case 3:
+		return "everywhereSymbolsHelp", i18n.Shared(language, "desktop.everywhere.symbolsHelp")
+	}
+	return "", ""
+}
+
+// everywhereLanguageScope reports whether a tab lists only what language servers
+// report (Types, Symbols): the file options of the filter do not reach those results,
+// so these tabs have no filter.
+func everywhereLanguageScope(scope int) bool {
+	return scope == 1 || scope == 3
 }
 
 // everywhereFilter is the filter of the All tab (which kinds of names it lists) and

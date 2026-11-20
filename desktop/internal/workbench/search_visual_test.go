@@ -4,8 +4,10 @@ package workbench
 
 import (
 	"github.com/1lck/Lithe-IDEA/desktop/internal/core"
+	"github.com/1lck/Lithe-IDEA/desktop/internal/i18n"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/store"
 	"github.com/vivaui/viva/app"
+	"github.com/vivaui/viva/gfx"
 	"github.com/vivaui/viva/headless"
 	"os"
 	"path/filepath"
@@ -74,6 +76,33 @@ func TestVisualSearchResults(t *testing.T) {
 				h.settleChain()
 				if err := session.Screenshot(filepath.Join(out, "search-all-"+language+"-"+theme+".png")); err != nil {
 					t.Fatal(err)
+				}
+				for _, tab := range []struct {
+					scope      int
+					help, name string
+				}{{1, "desktop.everywhere.typesHelp", "search-types-help"}, {3, "desktop.everywhere.symbolsHelp", "search-symbols-help"}} {
+					h.app.everywhereView.scope = tab.scope
+					h.app.invalidator.Invalidate()
+					h.settleChain()
+					h.await("the tab's search", func() bool { return !p.everywhere.loading })
+					help := i18n.Shared(h.app.language(), tab.help)
+					var info gfx.Rect
+					for _, hit := range h.driver.Snapshot().Hits {
+						if hit.Hint == help && !hit.IsLabel && !hit.ID.IsZero() {
+							info = hit.Bounds
+						}
+					}
+					if info.Width == 0 {
+						t.Fatalf("no ⓘ explains tab %d", tab.scope)
+					}
+					at := center(info)
+					if err := h.driver.Move(at.X, at.Y); err != nil {
+						t.Fatal(err)
+					}
+					h.settle()
+					if err := session.Screenshot(filepath.Join(out, tab.name+"-"+language+"-"+theme+".png")); err != nil {
+						t.Fatal(err)
+					}
 				}
 			})
 		}

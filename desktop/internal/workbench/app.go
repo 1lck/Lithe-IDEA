@@ -200,6 +200,7 @@ type Kernel interface {
 	GitFetchSettingsOf(ctx context.Context, root string) (core.GitFetchSettings, error)
 	GitPull(ctx context.Context, root string, strategy core.GitPullStrategy) error
 	GitDeleteBranch(ctx context.Context, root string, branch core.GitReference) (core.GitBranchDeletion, error)
+	GitDeleteRemoteBranch(ctx context.Context, root string, reference core.GitReference) error
 	GitCreateTag(ctx context.Context, root, name, revision, message string) error
 	GitRebasePreview(ctx context.Context, root, base string) (core.RebasePreview, error)
 	GitRebaseStart(ctx context.Context, root string, preview core.RebasePreview, steps []core.RebaseStep) (*core.RebaseSession, error)

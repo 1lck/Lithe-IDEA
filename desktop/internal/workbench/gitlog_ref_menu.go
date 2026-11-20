@@ -2,6 +2,7 @@ package workbench
 
 import (
 	"context"
+	"strconv"
 
 	"github.com/1lck/Lithe-IDEA/desktop/internal/core"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/i18n"
@@ -13,8 +14,8 @@ import (
 // button, in IDEA's order: a branch from it, the comparisons, the checkout, the checkout and
 // rebase, the merge and the rebase of a branch that is not the
 // checked-out one, the pulls of a remote branch, the update, push, rename and tracking branch of
-// a local branch, the delete and the copy of the name. Everything acts in the repository the log
-// walks. The merge, the rebase, the checkout and rebase and the pulls are confirmed first; Core
+// a local branch, the delete of a branch or tag and the copy of the name. Everything acts in the
+// repository the log walks. The merge, the rebase, the checkout and rebase and the pulls are confirmed first; Core
 // runs them and refuses what Git does not allow, and one that stops at conflicts is shown on the
 // Commit tool window by the operation banner of git_history.go.
 
@@ -59,12 +60,24 @@ func (a *App) drawLogRefMenu(c ui.C, name ui.Box, p *project, r core.GitReferenc
 // drawLogRefMenuItems declares the items of the menu of reference r. The checked-out branch is
 // not checked out, merged, rebased or deleted; only a branch while one is checked out is merged
 // or rebased, only a remote branch pulled, and only a local branch updated, pushed, renamed or
-// given a tracking branch.
+// given a tracking branch. A remote branch is deleted from its remote. When r is marked with
+// other rows of the pane, the menu only deletes the marked branches (branch_delete.go).
 func (a *App) drawLogRefMenuItems(c ui.C, menu *ui.MenuItems, p *project, r core.GitReference) {
 	l, v, t, g := &p.log, &a.logView, a.text.Branch, a.text.Git
 	lang := a.language()
 	root := p.logRepositoryRoot()
 	busy := a.branch.busy || l.sync.busy || p.historyBusy()
+	if batch, skipped, several := a.logChosenBranches(p); several && v.refMarks[r.FullName] {
+		// A reference marked with others opens the menu of the marks, which deletes their branches.
+		label := i18n.SharedFormat(lang, "desktop.branch.deleteSelected", map[string]string{"count": strconv.Itoa(len(batch))})
+		if menu.Item(label).Destructive().Disabled(busy || len(batch) == 0).Clicked() {
+			c.After(func() {
+				a.adoptLogBranches(p)
+				a.beginDeleteBranches(batch, skipped)
+			})
+		}
+		return
+	}
 	head := l.currentReference()
 	onBranch := head.Kind == "local" && head.IsCurrent
 	current := r.Kind == "local" && r.IsCurrent
@@ -130,7 +143,7 @@ func (a *App) drawLogRefMenuItems(c ui.C, menu *ui.MenuItems, p *project, r core
 			a.drawLogTrackingMenu(c, sub, p, r, busy)
 		}).Disabled(busy)
 	}
-	if r.Kind == "tag" || r.Kind == "local" && !current {
+	if r.Kind == "tag" || deletableBranch(r) {
 		menu.Separator()
 		if menu.Item(t.Delete).Destructive().Disabled(busy).Clicked() {
 			c.After(func() {

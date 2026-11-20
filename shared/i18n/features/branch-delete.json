@@ -1,0 +1,116 @@
+{
+  "schemaVersion": 1,
+  "messages": [
+    {
+      "id": "desktop.branch.deleteRemotePrompt",
+      "description": "Branch delete dialog: prompt for deleting one remote branch",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "name": "string"
+      }
+    },
+    {
+      "id": "desktop.branch.deletedRemote",
+      "description": "Branch delete: notice after one remote branch was deleted",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "name": "string"
+      }
+    },
+    {
+      "id": "desktop.branch.deleteManyTitle",
+      "description": "Branch delete dialog: title when several branches are deleted at once (count is at least 2)",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "count": "string"
+      }
+    },
+    {
+      "id": "desktop.branch.deleteManyLocal",
+      "description": "Branch delete dialog: what deleting the listed local branches does",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.branch.deleteManyRemote",
+      "description": "Branch delete dialog: what deleting the listed remote branches does",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.branch.deleteSkipped",
+      "description": "Branch delete dialog: how many marked references are left out",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "count": "string"
+      }
+    },
+    {
+      "id": "desktop.branch.deletedMany",
+      "description": "Branch delete: notice after several branches were all deleted (count is at least 2)",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "count": "string"
+      }
+    },
+    {
+      "id": "desktop.branch.deleteManyFailed",
+      "description": "Branch delete: notice when some of several branches could not be deleted, with the first failure",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "failed": "string",
+        "total": "string",
+        "name": "string",
+        "reason": "string"
+      }
+    },
+    {
+      "id": "desktop.branch.deleteSelected",
+      "description": "Branch menu: delete every branch marked in the log's branches pane",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "count": "string"
+      }
+    }
+  ],
+  "locales": {
+    "en-US": {
+      "desktop.branch.deleteRemotePrompt": "Delete the remote branch '{name}'? It is deleted from the remote for everyone who uses it, and its remote-tracking branch is removed here.",
+      "desktop.branch.deletedRemote": "Deleted remote branch '{name}'",
+      "desktop.branch.deleteManyTitle": "Delete {count} branches?",
+      "desktop.branch.deleteManyLocal": "Local branches are deleted even if they are not merged; commits only on them will no longer be on any branch.",
+      "desktop.branch.deleteManyRemote": "Remote branches are deleted from their remote for everyone who uses it.",
+      "desktop.branch.deleteSkipped": "Left out of the selection: {count}. Tags, HEAD and the current branch are not deleted here.",
+      "desktop.branch.deletedMany": "Deleted {count} branches",
+      "desktop.branch.deleteManyFailed": "Could not delete {failed} of {total} branches. {name}: {reason}",
+      "desktop.branch.deleteSelected": "Delete Selected Branches ({count})"
+    },
+    "zh-CN": {
+      "desktop.branch.deleteRemotePrompt": "删除远程分支“{name}”？它会从远程仓库中删除，所有使用这个仓库的人都将看不到它，本地对应的远程跟踪分支也会一并移除。",
+      "desktop.branch.deletedRemote": "已删除远程分支“{name}”",
+      "desktop.branch.deleteManyTitle": "删除 {count} 个分支？",
+      "desktop.branch.deleteManyLocal": "本地分支即使尚未合并也会删除，只在这些分支上的提交将不再属于任何分支。",
+      "desktop.branch.deleteManyRemote": "远程分支会从远程仓库中删除，所有使用这个仓库的人都将看不到它们。",
+      "desktop.branch.deleteSkipped": "所选项中有 {count} 项不会删除：标签、HEAD 和当前分支不在这里删除。",
+      "desktop.branch.deletedMany": "已删除 {count} 个分支",
+      "desktop.branch.deleteManyFailed": "{total} 个分支中有 {failed} 个删除失败。{name}：{reason}",
+      "desktop.branch.deleteSelected": "删除所选分支（{count}）"
+    }
+  }
+}

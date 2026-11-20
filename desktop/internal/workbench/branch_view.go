@@ -495,8 +495,8 @@ func (a *App) drawBranchRow(c ui.C, p *project, section string, r core.GitRefere
 // drawBranchRowMenu declares the items of the menu of reference r in IDEA's order: a branch
 // from it and the two comparisons, the checkout, the update and push of a local branch, its
 // rename, and the delete. The checked-out branch is not checked out again, compared with
-// itself or deleted; only a local branch is updated, pushed or renamed. The comparisons, the
-// update and the push work in the repository the popup lists.
+// itself or deleted; only a local branch is updated, pushed or renamed. A remote branch is deleted
+// from its remote. The comparisons, the update and the push work in the repository the popup lists.
 func (a *App) drawBranchRowMenu(c ui.C, menu *ui.MenuItems, p *project, r core.GitReference, current bool) {
 	b, t, g := &a.branch, a.text.Branch, a.text.Git
 	lang := a.language()
@@ -543,7 +543,7 @@ func (a *App) drawBranchRowMenu(c ui.C, menu *ui.MenuItems, p *project, r core.G
 			c.After(func() { a.beginRename(p, r) })
 		}
 	}
-	if r.Kind == "tag" || r.Kind == "local" && !current {
+	if r.Kind == "tag" || deletableBranch(r) && !current {
 		menu.Separator()
 		if menu.Item(t.Delete).Destructive().Disabled(busy).Clicked() {
 			if r.Kind == "tag" {
@@ -681,20 +681,6 @@ func (a *App) drawBranchConflictDialog(c ui.C, p *project) {
 		}
 		if ui.Button(c, t.SmartCheckout).Disabled(b.busy).Clicked() {
 			c.After(func() { a.resolveConflict(p, core.CheckoutSmart) })
-		}
-	})
-}
-
-// drawBranchDeleteDialog declares the dialog that confirms deleting a local branch. The
-// focus starts on Cancel, the first control, so Enter does not delete by accident.
-func (a *App) drawBranchDeleteDialog(c ui.C, p *project) {
-	b, t := &a.branch, a.text.Branch
-	a.branchDialogOf(c, t.DeleteTitle, t.DeletePrompt(b.target.ShortName), nil, func() {
-		if ui.Button(c, t.Cancel).Outline().Clicked() {
-			c.After(a.cancelBranchDialog)
-		}
-		if ui.Button(c, t.DeleteButton).Destructive().Disabled(b.busy).Clicked() {
-			c.After(func() { a.confirmDelete(p) })
 		}
 	})
 }
