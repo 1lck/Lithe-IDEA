@@ -62,6 +62,10 @@ type Values struct {
 	Theme string
 	// MarketplaceWidth is a layout preference, applied on completed resize, not a draft setting.
 	MarketplaceWidth float32
+	// WindowWidth and WindowHeight are the size the window opens at, the one the user last
+	// gave it (Options.WindowResized); zero opens it at its default size. Like
+	// MarketplaceWidth they are a layout preference, not a draft setting.
+	WindowWidth, WindowHeight int
 	// EditorTabRows is TabRowsMultiple when an editor group's tabs wrap onto more rows; empty
 	// keeps them in one row. EditorTabOverflow says what one row does with tabs that do not
 	// fit: TabOverflowSqueeze makes them narrower, and empty scrolls them sideways.
@@ -405,6 +409,12 @@ type Options struct {
 	MarketplaceRejected func(int)
 	// MarketplaceResized persists a completed splitter gesture or keyboard step.
 	MarketplaceResized func(float32)
+	// WindowResized keeps the size the user gave the window, for Values.WindowWidth and
+	// WindowHeight of the next one. It runs once, on the settings window's thread, when the
+	// window closes at a size other than the one it opened at, so it must hand the size to
+	// its owner. An owner that closes the window as it closes itself takes the size from
+	// Controller.ResizedWindow first, because this report comes after the close.
+	WindowResized func(width, height int)
 	// PluginState reports what the plugin page shows about one plugin. It is read
 	// while painting, so it must answer from memory rather than from disk. Nil
 	// treats every plugin as not installed and hides the plugin actions.
@@ -732,6 +742,20 @@ func (c *Controller) Close() {
 	if current != nil && current.win != nil {
 		current.win.Close()
 	}
+}
+
+// ResizedWindow is the size the user gave the open window since it opened, with ok false
+// when no window is open or it still has the size it opened at. It is for an owner that
+// closes the window as it closes itself: Options.WindowResized reports the size only after
+// the close. It is safe from any goroutine.
+func (c *Controller) ResizedWindow() (width, height int, ok bool) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.current == nil {
+		return 0, 0, false
+	}
+	size, resized := c.current.resized()
+	return size.width, size.height, resized
 }
 
 // Invalidate repaints the open settings window after shared application state changes.

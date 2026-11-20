@@ -140,6 +140,31 @@ func TestClosingAProjectTabShowsTheNextTab(t *testing.T) {
 	}
 }
 
+// A size the user gave the settings window from one project tab is every tab's: the next
+// settings window opens at it from another tab, and a save of that tab's settings keeps it.
+func TestSettingsWindowSizeIsEveryProjectTabs(t *testing.T) {
+	h, alpha, beta := newTabsHarness(t)
+	h.open(alpha)
+	h.app.openProject(beta)
+	h.settleTabs()
+	second := h.app.sessions.active
+	if second == h.app {
+		t.Fatal("beta did not open in a second tab")
+	}
+	h.app.setSettingsWindowSize(1100, 760)
+	if got := second.settings; got.SettingsWindowWidth != 1100 || got.SettingsWindowHeight != 760 {
+		t.Fatalf("beta's tab would open the settings window at %dx%d, want 1100x760", got.SettingsWindowWidth, got.SettingsWindowHeight)
+	}
+	second.setLanguage("zh-Hans")
+	var saved settings
+	if found, err := h.store.Load(settingsFile, &saved); err != nil || !found {
+		t.Fatalf("load saved settings: found=%v err=%v", found, err)
+	}
+	if saved.SettingsWindowWidth != 1100 || saved.SettingsWindowHeight != 760 || saved.Language != "zh-Hans" {
+		t.Fatalf("a save from beta's tab kept %dx%d, language %q; want 1100x760, zh-Hans", saved.SettingsWindowWidth, saved.SettingsWindowHeight, saved.Language)
+	}
+}
+
 // Closing the window closes the project of every tab, and the window closes only once all of
 // them have.
 func TestClosingTheWindowClosesEveryProjectTab(t *testing.T) {

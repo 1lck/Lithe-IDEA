@@ -96,6 +96,9 @@ func (a *App) newSettingsWindow() *settingswindow.Controller {
 		MarketplaceResized: func(width float32) {
 			a.post(func(a *App) { a.setMarketplaceWidth(width) })
 		},
+		WindowResized: func(width, height int) {
+			a.post(func(a *App) { a.setSettingsWindowSize(width, height) })
+		},
 		// The plugin page paints from memory and hands every action back, so the
 		// window never installs, enables or removes anything on its own thread.
 		PluginState: func(id string) settingswindow.PluginState {
@@ -355,6 +358,32 @@ func (a *App) setMarketplaceWidth(width float32) {
 	}
 }
 
+// setSettingsWindowSize keeps the size the user gave the settings window, which the next one
+// opens at. Every project tab of the window holds its own copy of the settings and saves it
+// whole, so each tab takes the size: the next window opens at it whichever tab opens it, and no
+// tab writes the old size back. One owner for the settings of every tab and window (#1851)
+// replaces this.
+func (a *App) setSettingsWindowSize(width, height int) {
+	if a.settings.SettingsWindowWidth == width && a.settings.SettingsWindowHeight == height {
+		return
+	}
+	for _, tab := range a.sessions.everyOne() {
+		tab.settings.SettingsWindowWidth, tab.settings.SettingsWindowHeight = width, height
+	}
+	a.settings.SettingsWindowWidth, a.settings.SettingsWindowHeight = width, height
+	a.saveSettings()
+}
+
+// closeSettingsWindow closes the open settings window as this workbench closes. It keeps the
+// size the user gave the window first, because the window reports it only once it has
+// closed, to a queue this workbench no longer drains.
+func (a *App) closeSettingsWindow() {
+	if width, height, ok := a.settingsWindow.ResizedWindow(); ok {
+		a.setSettingsWindowSize(width, height)
+	}
+	a.settingsWindow.Close()
+}
+
 // invalidateSettingsWindow repaints the open settings window after state one of its pages
 // reads changed off that window's thread.
 func (a *App) invalidateSettingsWindow() {
@@ -438,6 +467,7 @@ func (a *App) openSettingsPageWith(surface actionSurface, page settingsPage, que
 		}
 		current := settingswindow.Values{
 			Language: a.settings.Language, Theme: string(a.settings.Theme), MarketplaceWidth: a.settings.MarketplaceWidth,
+			WindowWidth: a.settings.SettingsWindowWidth, WindowHeight: a.settings.SettingsWindowHeight,
 			EditorTabRows: a.settings.EditorTabRows, EditorTabOverflow: a.settings.EditorTabOverflow,
 			EditorTabLimit: settingswindow.TabLimitOf(a.settings.EditorTabLimit), EditorTabPolicy: a.settings.EditorTabPolicy,
 			TerminalShell: a.settings.TerminalShell, TerminalScrollback: a.terminalScrollback(),

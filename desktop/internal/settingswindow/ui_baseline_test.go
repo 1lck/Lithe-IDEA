@@ -25,12 +25,12 @@ func TestBaselineSettingsControlsFitReferenceWindow(t *testing.T) {
 	w := newWindow(NewController(Options{}), Values{Theme: "dark", Language: "en"})
 	d := openWindow(t, w)
 	shot := d.driver.Snapshot()
-	if shot.Width != 900 || shot.Height != 700 {
-		t.Fatalf("initial window=%dx%d, want 900x700", shot.Width, shot.Height)
+	if shot.Width != 1270 || shot.Height != 700 {
+		t.Fatalf("initial window=%dx%d, want 1270x700", shot.Width, shot.Height)
 	}
 	for _, label := range []string{"Search settings", "Language", "Cancel", "OK"} {
 		hit := d.hit(label)
-		if hit.Bounds.X < 0 || hit.Bounds.Y < 0 || hit.Bounds.X+hit.Bounds.Width > 900 || hit.Bounds.Y+hit.Bounds.Height > 700 {
+		if hit.Bounds.X < 0 || hit.Bounds.Y < 0 || hit.Bounds.X+hit.Bounds.Width > 1270 || hit.Bounds.Y+hit.Bounds.Height > 700 {
 			t.Fatalf("%s outside reference window: %v", label, hit.Bounds)
 		}
 	}

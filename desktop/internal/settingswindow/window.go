@@ -1,6 +1,7 @@
 package settingswindow
 
 import (
+	"math"
 	"sync"
 	"sync/atomic"
 
@@ -16,7 +17,9 @@ import (
 
 // The metrics of the window, after the macOS client's settings window and the log window.
 const (
-	windowWidth, windowHeight = 900, 700
+	// windowWidth and windowHeight are the size the window opens at until the user gives it
+	// another, which it then keeps (Values.WindowWidth, Options.WindowResized).
+	windowWidth, windowHeight = 1270, 700
 	windowMinWidth            = 900
 	windowMinHeight           = 668
 
@@ -89,6 +92,12 @@ type window struct {
 	win       *app.Window
 	stopWatch func()
 	gone      bool
+	// openedSize is the size the window opened at and size the size of its content in the last
+	// frame the system reported, which is kept when it differs (closed, Controller.ResizedWindow).
+	// size is guarded by ctrl.mu too: the window's thread sets it, and the owner may read it
+	// from its own thread.
+	openedSize windowSize
+	size       windowSize
 
 	inv  app.Invalidator
 	page *ui.Page
@@ -243,9 +252,25 @@ type labelsKey struct {
 	systemDark bool
 }
 
+// windowSize is the size of a window's content area, in logical pixels.
+type windowSize struct {
+	width, height int
+}
+
+// openingSize is the size a window opens at: the one the user last gave it, or the default
+// when none is kept, and never under the smallest.
+func openingSize(width, height int) windowSize {
+	if width <= 0 || height <= 0 {
+		width, height = windowWidth, windowHeight
+	}
+	return windowSize{width: max(width, windowMinWidth), height: max(height, windowMinHeight)}
+}
+
 // newWindow returns a window whose values start from the settings in force.
 func newWindow(c *Controller, current Values) *window {
 	w := &window{ctrl: c, sess: newSession(current)}
+	w.openedSize = openingSize(current.WindowWidth, current.WindowHeight)
+	w.size = w.openedSize
 	width := current.MarketplaceWidth
 	if width <= 0 {
 		width = marketListWidth
@@ -288,8 +313,8 @@ func (w *window) config() app.Config {
 	config := ui.Configure(w.page, app.Config{
 		Title:          w.ctrl.text().Settings.Title,
 		Icon:           appicon.Window(),
-		Width:          windowWidth,
-		Height:         windowHeight,
+		Width:          w.openedSize.width,
+		Height:         w.openedSize.height,
 		MinWidth:       windowMinWidth,
 		MinHeight:      windowMinHeight,
 		WindowMode:     app.WindowCustomTitlebar,
@@ -297,6 +322,7 @@ func (w *window) config() app.Config {
 		WindowControls: func() app.WindowControlsStyle { return windowcontrols.Style(w.pal.text, w.ctrl.text()) },
 		Invalidator:    &w.inv,
 		OnWake:         w.wake,
+		OnFrameChange:  w.framed,
 		OnClosed:       w.closed,
 		// Chords of printable keys reach the window as shortcuts, not as keys of the
 		// control that has the focus; the one the Keymap page records arrives here.
@@ -398,9 +424,30 @@ func (w *window) native() *app.Window {
 	return w.win
 }
 
+// framed takes the size of the window's content from a frame the system reports. It is the
+// window's own size: Viva reports no frame while the window is full screen, maximized or
+// minimized. A live resize reports every step, so the size is only noted here and kept when
+// the window closes, never written per frame.
+func (w *window) framed(frame gfx.Rect) {
+	size := windowSize{width: int(math.Round(float64(frame.Width))), height: int(math.Round(float64(frame.Height)))}
+	if size.width <= 0 || size.height <= 0 {
+		return
+	}
+	w.ctrl.mu.Lock()
+	w.size = size
+	w.ctrl.mu.Unlock()
+}
+
+// resized is the size the user gave the window since it opened, if any. The caller holds
+// ctrl.mu.
+func (w *window) resized() (windowSize, bool) {
+	return w.size, w.size != w.openedSize
+}
+
 // closed runs once the native window is gone, however it was closed: the session is over,
-// the system look is no longer watched and the controller forgets the window, so the next
-// Open makes a new one. The Page has cancelled its effects by then.
+// the system look is no longer watched, the controller forgets the window, so the next Open
+// makes a new one, and a size the user gave the window is kept for that one. The Page has
+// cancelled its effects by then.
 func (w *window) closed() {
 	w.closeRegion()
 	w.dismissPluginInstall()
@@ -416,9 +463,13 @@ func (w *window) closed() {
 	if c.current == w {
 		c.current = nil
 	}
+	size, resized := w.resized()
 	c.mu.Unlock()
 	if stop != nil {
 		stop()
+	}
+	if resized && c.opts.WindowResized != nil {
+		c.opts.WindowResized(size.width, size.height)
 	}
 }
 

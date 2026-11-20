@@ -275,7 +275,7 @@ func (s *windowSessions) leave(a *App) {
 	a.stopWatchingDiagnostics()
 	a.closeClone()
 	a.closeNewProject()
-	a.settingsWindow.Close()
+	a.closeSettingsWindow()
 	if a.root != nil {
 		a.root.Close()
 	}
