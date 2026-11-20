@@ -84,7 +84,7 @@ func TestRunConsoleMenuCopiesTheChosenLineAndTheWholeOutput(t *testing.T) {
 	h.open(t.TempDir())
 	p := h.app.project
 	run := &runEntry{id: "run-1", label: "Serve", output: newOutputBuffer(runOutputMaxLines, runOutputBytes)}
-	chunk, err := newOutputDecoder(h.app.kernel).decode("first line\nsecond line\n")
+	chunk, err := newOutputDecoder(h.app.kernel, h.app.outputEncodingPolicy()).decode("first line\nsecond line\n")
 	if err != nil {
 		t.Fatal(err)
 	}

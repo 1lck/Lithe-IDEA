@@ -577,6 +577,7 @@ type SettingsMessages struct {
 	Build              string
 	Toolchains         string
 	Debuggers          string
+	Console            string
 	Languages          string
 	Tools              string
 	SearchPage         string

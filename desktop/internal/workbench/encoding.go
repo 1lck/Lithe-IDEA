@@ -8,6 +8,7 @@ import (
 	"github.com/1lck/Lithe-IDEA/desktop/internal/core"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/documentio"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/editorview"
+	"github.com/1lck/Lithe-IDEA/desktop/internal/encodingname"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/i18n"
 	"github.com/vivaui/viva/ui"
 )
@@ -23,22 +24,6 @@ import (
 
 // utf8BOM leads a UTF-8 file with a byte order mark.
 var utf8BOM = []byte{0xEF, 0xBB, 0xBF}
-
-// encodingLabels are the names shown for Core's encoding ids; they are the encodings' own
-// names, not translations.
-var encodingLabels = map[string]string{
-	"utf-8": "UTF-8", "utf-8-bom": "UTF-8 BOM", "utf-16le-bom": "UTF-16 LE BOM", "utf-16be-bom": "UTF-16 BE BOM",
-	"utf-16le": "UTF-16 LE", "utf-16be": "UTF-16 BE", "gbk": "GBK", "gb18030": "GB18030", "big5": "Big5",
-	"shift-jis": "Shift JIS", "euc-jp": "EUC-JP", "euc-kr": "EUC-KR", "windows-1250": "Windows-1250",
-	"windows-1251": "Windows-1251", "windows-1252": "Windows-1252", "koi8-r": "KOI8-R",
-}
-
-func encodingLabel(id string) string {
-	if label, ok := encodingLabels[id]; ok {
-		return label
-	}
-	return id
-}
 
 // encodingID is the document's encoding as Core names it.
 func (d *document) encodingID() string {
@@ -162,7 +147,7 @@ func (a *App) encodingMenu(c ui.C, anchor ui.Box) {
 		menu.Sub(i18n.Shared(language, "desktop.encoding.reopen"), func(sub *ui.MenuItems) {
 			sub.WidthRange(180, 180)
 			for _, id := range core.FileEncodings {
-				if sub.Item(encodingLabel(id)).Clicked() {
+				if sub.Item(encodingname.DisplayName(id)).Clicked() {
 					c.After(func() { a.reopenWithEncoding(p, d, id) })
 				}
 			}
@@ -170,7 +155,7 @@ func (a *App) encodingMenu(c ui.C, anchor ui.Box) {
 		menu.Sub(i18n.Shared(language, "desktop.encoding.saveAs"), func(sub *ui.MenuItems) {
 			sub.WidthRange(180, 180)
 			for _, id := range core.FileEncodings {
-				if sub.Item(encodingLabel(id)).Clicked() {
+				if sub.Item(encodingname.DisplayName(id)).Clicked() {
 					c.After(func() { a.saveWithEncoding(p, d, id) })
 				}
 			}
@@ -270,7 +255,7 @@ type encodingChoice struct {
 func (a *App) saveEncodingName(id int) string {
 	if p := a.project; p != nil {
 		if d := p.docs.find(id); d != nil {
-			return encodingLabel(d.encodingID())
+			return encodingname.DisplayName(d.encodingID())
 		}
 	}
 	return ""

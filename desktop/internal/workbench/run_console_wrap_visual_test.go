@@ -52,7 +52,7 @@ func TestVisualRunConsoleWrap(t *testing.T) {
 			h.open(t.TempDir())
 			p := h.app.project
 			run := &runEntry{id: "run-1", label: "Makefile", output: newOutputBuffer(runOutputMaxLines, runOutputBytes)}
-			chunk, err := newOutputDecoder(h.app.kernel).decode(wrapOutput)
+			chunk, err := newOutputDecoder(h.app.kernel, h.app.outputEncodingPolicy()).decode(wrapOutput)
 			if err != nil {
 				t.Fatal(err)
 			}

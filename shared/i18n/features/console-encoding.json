@@ -1,0 +1,116 @@
+{
+  "schemaVersion": 1,
+  "messages": [
+    {
+      "id": "desktop.consoleSettings.title",
+      "description": "Console settings page under Build, Execution, Deployment: its sidebar title and heading",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.consoleSettings.keywords",
+      "description": "Console settings page: the words besides its title a settings search finds it by",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.consoleSettings.outputCard",
+      "description": "Console settings page: title of the card about the output of the programs Lithe runs",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.consoleSettings.encoding",
+      "description": "Console settings page: label of the select that chooses the output encoding",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.consoleSettings.encodingHelp",
+      "description": "Console settings page: help of the output encoding, shown from its information glyph",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.consoleSettings.automatic",
+      "description": "Console settings page: the automatic choice, with the encodings it tries on this machine in order",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "encodings": "string"
+      }
+    },
+    {
+      "id": "desktop.consoleSettings.automaticPending",
+      "description": "Console settings page: the automatic choice before Core said which encodings it tries",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.consoleSettings.otherwise",
+      "description": "Console settings page: what joins two encodings automatic mode tries, the later used when the earlier does not fit a line",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.consoleSettings.directory",
+      "description": "Build, Execution, Deployment page: the line about the Console page, naming the output encoding in force",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "encoding": "string"
+      }
+    },
+    {
+      "id": "desktop.consoleSettings.automaticFailed",
+      "description": "Console settings page: automatic encoding when Core could not resolve the catalog",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.consoleSettings.readFailed",
+      "description": "Console settings page: error when Core cannot resolve output encodings",
+      "platforms": [
+        "desktop"
+      ]
+    }
+  ],
+  "locales": {
+    "en-US": {
+      "desktop.consoleSettings.title": "Console",
+      "desktop.consoleSettings.keywords": "console run build test output encoding charset garbled gbk utf-8",
+      "desktop.consoleSettings.outputCard": "Program Output",
+      "desktop.consoleSettings.encoding": "Output encoding",
+      "desktop.consoleSettings.encodingHelp": "How Lithe reads output from Run, Build and Tests.\nAutomatic uses UTF-8. On Windows only, a line that is not valid UTF-8 falls back to GBK. A run can explicitly declare another encoding.\nChoose an encoding to override automatic decoding. Changes apply to programs started afterwards.",
+      "desktop.consoleSettings.automatic": "Automatic ({encodings})",
+      "desktop.consoleSettings.automaticPending": "Automatic (loading)",
+      "desktop.consoleSettings.otherwise": ", otherwise ",
+      "desktop.consoleSettings.directory": "Output encoding: {encoding}",
+      "desktop.consoleSettings.automaticFailed": "Automatic (could not read)",
+      "desktop.consoleSettings.readFailed": "Could not read output encodings."
+    },
+    "zh-CN": {
+      "desktop.consoleSettings.title": "控制台",
+      "desktop.consoleSettings.keywords": "控制台 运行 构建 测试 输出 编码 字符集 乱码 console encoding gbk utf-8",
+      "desktop.consoleSettings.outputCard": "程序输出",
+      "desktop.consoleSettings.encoding": "输出编码",
+      "desktop.consoleSettings.encodingHelp": "Lithe 怎样读取运行、构建和测试的输出。\n自动模式默认使用 UTF-8。仅 Windows 会在某一行不是合法 UTF-8 时尝试 GBK；运行也可以显式声明其他编码。\n选择具体编码会覆盖自动判断。修改后对之后启动的程序生效。",
+      "desktop.consoleSettings.automatic": "自动（{encodings}）",
+      "desktop.consoleSettings.automaticPending": "自动（检测中）",
+      "desktop.consoleSettings.otherwise": "，否则 ",
+      "desktop.consoleSettings.directory": "输出编码：{encoding}",
+      "desktop.consoleSettings.automaticFailed": "自动（读取失败）",
+      "desktop.consoleSettings.readFailed": "无法读取输出编码。"
+    }
+  }
+}

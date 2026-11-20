@@ -225,6 +225,11 @@ func (w *window) directoryEntries(language i18n.Language) []directoryEntry {
 		entries = append(entries, entry)
 	}
 	separator := i18n.Shared(language, "desktop.buildSettings.listSeparator")
+	entries = append(entries, directoryEntry{
+		key: "console", tile: consoleTile, icon: icons.SquareTerminal, title: titleOf(&w.text.Settings, pageConsole),
+		desc: i18n.SharedFormat(language, "desktop.consoleSettings.directory", map[string]string{"encoding": w.consoleEncodingLabel(w.sess.values.ConsoleEncoding)}),
+		open: func() { w.openBuildChild(pageConsole) },
+	})
 	for _, kind := range buildKinds {
 		var names []string
 		count := 0

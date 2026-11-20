@@ -98,7 +98,8 @@ type Kernel interface {
 	processExitKernel
 	processMemoryKernel
 	MatchOutputLinks(context.Context, core.OutputLinkRequest) ([]core.OutputLink, error)
-	DecodeOutputStyle(ctx context.Context, text string, state json.RawMessage) (core.OutputStyleDecoding, error)
+	DecodeOutputStyle(ctx context.Context, chunk []byte, policy core.OutputEncodingPolicy, state json.RawMessage) (core.OutputStyleDecoding, error)
+	ResolveOutputEncoding(ctx context.Context, policy core.OutputEncodingPolicy) (core.OutputEncodings, error)
 	CreateDebugSession(ctx context.Context, request core.DebugCreateSessionRequest) (core.DebugUpdate, error)
 	LaunchDebug(ctx context.Context, sessionID, operationID string, configuration core.DebugLaunchConfiguration) (core.DebugUpdate, error)
 	NormalizeSteppingFilters(ctx context.Context, adapterID string, filters core.DebugSteppingFilters) (core.DebugSteppingFilters, error)
@@ -387,6 +388,7 @@ type settings struct {
 	// ProcessTermination is the user's part of Core's process termination settings, as the
 	// Process Termination page edits it; the zero value keeps Core's defaults.
 	ProcessTermination settingswindow.ProcessTermination `json:"processTermination,omitzero"`
+	ConsoleEncoding    string                            `json:"consoleEncoding,omitempty"`
 	// DebugSteppingFilters are the user's stepping policies by debug adapter ID, as Core
 	// normalized them; an adapter without one uses its plugin's declared defaults.
 	DebugSteppingFilters map[string]core.DebugSteppingFilters `json:"debugSteppingFilters,omitempty"`
@@ -644,6 +646,9 @@ type App struct {
 	// stopTime is Core's rule for the stop time once it was read (refreshStopGrace); the
 	// settings window reads it from its own thread.
 	stopTime atomic.Pointer[settingswindow.StopTime]
+	// Console policies are read by process goroutines; the catalog by the settings window.
+	consoleEncoding  atomic.Pointer[string]
+	consoleEncodings atomic.Pointer[settingswindow.ConsoleEncodings]
 
 	settingsSubscription *settingsSubscription
 	// plugins is the plugin stack, nil when the window was built without a plugin
@@ -864,6 +869,8 @@ func New(options Options) *App {
 	if settingsErr != nil {
 		a.settings = settings{}
 	}
+	consoleEncoding := a.settings.ConsoleEncoding
+	a.consoleEncoding.Store(&consoleEncoding)
 	// A value of a shape this version cannot take leaves only its own setting on the default;
 	// the rest loaded. It is logged below with the failures, and the notice tells it is kept.
 	settingsUnread := a.store.Unread(settingsFile)
@@ -1028,6 +1035,7 @@ func (a *App) Run() error {
 		// Core's stop time applies to every process stopped from now on, and Core decides what an
 		// earlier run left behind; both need the window, which delivers their answers.
 		a.refreshStopGrace()
+		a.refreshConsoleEncodings()
 		a.planStartupSweep()
 		// Development builds mark the Dock icon without changing the product name in the UI.
 		if buildinfo.Development {

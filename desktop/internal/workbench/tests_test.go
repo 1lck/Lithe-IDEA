@@ -291,7 +291,7 @@ func TestTestsPanelDropsStaleResultAndBoundsOutput(t *testing.T) {
 
 	p.tests.generation = 3
 	p.tests.output = newOutputBuffer(testOutputMaxLines, testOutputBytes)
-	decoder := newOutputDecoder(h.app.kernel)
+	decoder := newOutputDecoder(h.app.kernel, h.app.outputEncodingPolicy())
 	h.app.streamTestOutput(p, 2, decoder, "stale\n")
 	h.app.streamTestOutput(p, 3, decoder, strings.Repeat("line\n", testOutputMaxLines+50))
 	h.settle()

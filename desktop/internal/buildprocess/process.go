@@ -83,9 +83,11 @@ type Process struct {
 	stopping atomic.Bool
 }
 
-// Start runs spec and reports every output chunk to observe. observe runs on a
-// reader goroutine and must return promptly. The process is killed when ctx
-// ends; Stop does the same explicitly.
+// Start runs spec and reports every output chunk to observe. A chunk is the bytes
+// the process wrote, in whatever encoding it chose, and may end inside a
+// character; Core decides the characters (core.Client.DecodeOutputStyle). observe
+// runs on a reader goroutine and must return promptly. The process is killed when
+// ctx ends; Stop does the same explicitly.
 //
 // The host owns explicit pipes rather than exec.Cmd.StdoutPipe so root exit and
 // pipe EOF are independent. Wait first reaps the root, then ends descendants

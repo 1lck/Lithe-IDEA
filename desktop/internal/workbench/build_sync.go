@@ -57,7 +57,7 @@ func (a *App) beginBuildSync(p *project, instance *buildInstance) *buildSyncFeed
 	if shown != nil && shown.running && p.runEntry(shown.id) == shown {
 		p.build.view = shown.id
 	}
-	return &buildSyncFeed{app: a, project: p, session: session, stopped: sync.stopped, decoder: newOutputDecoder(a.kernel)}
+	return &buildSyncFeed{app: a, project: p, session: session, stopped: sync.stopped, decoder: newOutputDecoder(a.kernel, a.outputEncodingPolicy())}
 }
 
 // buildSyncLabel names the session of a model load of instance: its build system, and its root

@@ -6,6 +6,7 @@ import (
 	"strconv"
 
 	"github.com/1lck/Lithe-IDEA/desktop/internal/core"
+	"github.com/1lck/Lithe-IDEA/desktop/internal/encodingname"
 )
 
 // gearMenuWidth is the width of the settings button's menu, which holds five short items
@@ -124,10 +125,10 @@ func (a *App) chromeStatusText(i int) string {
 	case itemEncoding:
 		if a.project != nil {
 			if doc := a.project.selectedDocument(a.project.docs.group); doc != nil {
-				return encodingLabel(doc.encodingID())
+				return encodingname.DisplayName(doc.encodingID())
 			}
 		}
-		return encodingLabel("utf-8")
+		return encodingname.DisplayName("utf-8")
 	case itemIndent:
 		if doc := a.selectedEditorDocument(); doc != nil {
 			size, spaces := doc.view.IndentSettings()

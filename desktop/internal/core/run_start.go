@@ -57,6 +57,7 @@ type RunStart struct {
 	Arguments        []string           `json:"arguments"`
 	WorkingDirectory string             `json:"workingDirectory"`
 	Environment      map[string]string  `json:"environment"`
+	OutputEncoding   string             `json:"outputEncoding,omitempty"`
 	TemporaryFiles   []RunStartFile     `json:"temporaryFiles"`
 	Debug            *RunStartDebug     `json:"debug"`
 	Rerun            *RunStartRerun     `json:"rerun"`

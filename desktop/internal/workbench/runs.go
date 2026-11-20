@@ -97,7 +97,9 @@ func (a *App) wirePluginRuns() {
 		// only adds the decoded lines.
 		switch event.Type {
 		case pluginservice.RunStarted:
-			decoders.start(event.RunID, newOutputDecoder(a.kernel))
+			policy := a.outputEncodingPolicy()
+			policy.Declared = event.OutputEncoding
+			decoders.start(event.RunID, newOutputDecoder(a.kernel, policy))
 		case pluginservice.RunOutput:
 			if decoder := decoders.get(event.RunID); decoder != nil {
 				id := event.RunID

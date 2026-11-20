@@ -144,7 +144,9 @@ func (h *runHarness) params(t *testing.T, mode string, extra map[string]any) str
 		},
 	}
 	for key, value := range extra {
-		if key != "port" {
+		if key == "outputEncoding" {
+			params["process"].(map[string]any)[key] = value
+		} else if key != "port" {
 			params[key] = value
 		}
 	}
@@ -196,10 +198,10 @@ func exitedEvent(events []RunEvent) *RunEvent {
 
 func TestRunStartReportsOutputAndTheExitCode(t *testing.T) {
 	h := newRunHarness(t)
-	result, refusal := respond(t, h.service, runFixturePlugin, "run/start", h.params(t, "print", nil))
+	result, refusal := respond(t, h.service, runFixturePlugin, "run/start", h.params(t, "print", map[string]any{"outputEncoding": "cp936"}))
 	id := startedRunID(t, result, refusal)
 	events := h.await(t, "the run to exit", func(events []RunEvent) bool { return exitedEvent(events) != nil })
-	if events[0].Type != RunStarted || events[0].RunID != id || events[0].Label != "Run print" {
+	if events[0].Type != RunStarted || events[0].RunID != id || events[0].Label != "Run print" || events[0].OutputEncoding != "gbk" {
 		t.Fatalf("the first event = %+v, want the started run", events[0])
 	}
 	var output strings.Builder

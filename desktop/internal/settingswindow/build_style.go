@@ -437,6 +437,7 @@ func (w *window) glyphTile(c ui.C, color gfx.Color, icon gfx.Icon, size float32)
 var (
 	toolchainsTile = gfx.RGB24(0x30a46c)
 	debuggersTile  = gfx.RGB24(0xe5484d)
+	consoleTile    = gfx.RGB24(0x6e56cf)
 	kindTile       = gfx.RGB24(0x3e7bfa)
 )
 

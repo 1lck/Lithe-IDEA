@@ -121,6 +121,8 @@ type Values struct {
 	// ProcessTermination is the Process Termination page's part of Core's termination
 	// settings; the zero value keeps Core's defaults.
 	ProcessTermination ProcessTermination
+	// ConsoleEncoding is the output encoding override; empty asks Core to decide per line.
+	ConsoleEncoding string
 	// SteppingFilters are the user's stepping policies by debug adapter ID. An adapter
 	// without an entry uses the defaults its plugin declares.
 	SteppingFilters map[string]core.DebugSteppingFilters
@@ -187,6 +189,18 @@ const (
 // stopped program gets when none is stored, and the limits a stored time is kept within.
 type StopTime struct {
 	Default, Min, Max int
+}
+
+// ConsoleEncoding is one encoding Core supports, with its display name.
+type ConsoleEncoding struct {
+	ID, Label string
+}
+
+// ConsoleEncodings is Core's automatic candidates and selectable encodings, in order.
+// Error is a failed read; no choices are offered until the read succeeds.
+type ConsoleEncodings struct {
+	Automatic, Choices []ConsoleEncoding
+	Error              string
 }
 
 // Seconds is the stop time value gives, as Core applies it.
@@ -466,6 +480,11 @@ type Options struct {
 	// SetProcessTermination hands a change of Values.ProcessTermination to the settings
 	// owner, like SetTabRows.
 	SetProcessTermination func(ProcessTermination)
+	// SetConsoleEncoding stores the application preference for newly started consoles.
+	SetConsoleEncoding func(string)
+	// ConsoleEncodings reads the resolved encoding catalog safely from the window thread.
+	// ok is false until Core answers.
+	ConsoleEncodings func() (encodings ConsoleEncodings, ok bool)
 	// StopTime reads Core's rule for the stop time; it is safe from the window thread, and ok
 	// is false until Core has answered. Nil hides the stop time, for a platform where a
 	// stopped program is ended at once.
