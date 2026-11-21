@@ -217,6 +217,9 @@ type Kernel interface {
 	RemoteDisconnect(ctx context.Context, sessionID string) (bool, error)
 	RemoteCloseAll(ctx context.Context) (int, error)
 	RemoteReadDir(ctx context.Context, sessionID, path string) (core.RemoteDirectory, error)
+	RemoteStat(ctx context.Context, sessionID, path string) (core.RemoteFileMetadata, error)
+	RemoteReadFile(ctx context.Context, sessionID, path string) ([]byte, core.RemoteFileVersion, error)
+	RemoteWriteFile(ctx context.Context, sessionID, path string, data []byte, expected *core.RemoteFileVersion) (core.RemoteFileVersion, bool, error)
 	RemoteServerState(ctx context.Context, sessionID string) error
 	GitCreateTag(ctx context.Context, root, name, revision, message string) error
 	GitRebasePreview(ctx context.Context, root, base string) (core.RebasePreview, error)

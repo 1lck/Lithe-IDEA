@@ -183,11 +183,12 @@ func (a *App) showSourcePreview(p *project, sp *sourcePreview, path string, line
 	registry := a.syntaxRegistry()
 	kernel, _ := a.kernel.(editorKernel)
 	budget := int64(a.searchPreferences.MaxFileBytes)
+	bytesOf := a.documentBytesOf(p)
 	a.background(p, 0, func(ctx context.Context) func(*App) {
 		data, err := openText, error(nil)
 		if !open {
 			var read documentRead
-			read, err = readDocumentEncodedLimit(ctx, kernel, path, budget)
+			read, err = readDocumentEncodedLimit(ctx, kernel, bytesOf, path, budget)
 			data = read.text
 		}
 		var content editorview.Content
@@ -224,8 +225,9 @@ func (a *App) showEditablePreview(p *project, sp *sourcePreview, path string, li
 	generation := sp.generation
 	registry := a.syntaxRegistry()
 	kernel, _ := a.kernel.(editorKernel)
+	bytesOf := a.documentBytesOf(p)
 	a.background(p, 0, func(ctx context.Context) func(*App) {
-		file := a.readTablessFile(ctx, kernel, registry, path)
+		file := a.readTablessFile(ctx, kernel, bytesOf, registry, path)
 		return func(a *App) {
 			if sp.generation != generation || a.project != p || !alive(a) {
 				return

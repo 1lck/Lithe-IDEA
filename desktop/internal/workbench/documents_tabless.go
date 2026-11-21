@@ -41,8 +41,9 @@ func (a *App) openTablessDocument(p *project, path string) {
 	p.docs.opening[path] = true
 	registry := a.syntaxRegistry()
 	kernel, _ := a.kernel.(editorKernel)
+	bytesOf := a.documentBytesOf(p)
 	a.background(p, 0, func(ctx context.Context) func(*App) {
-		file := a.readTablessFile(ctx, kernel, registry, path)
+		file := a.readTablessFile(ctx, kernel, bytesOf, registry, path)
 		return func(a *App) {
 			delete(p.docs.opening, path)
 			// A file that is not text, or that cannot be read, has no document; its Diff stays read only.
@@ -63,14 +64,14 @@ type tablessFile struct {
 	err        error
 }
 
-// readTablessFile reads path and prepares its text and grammar; it runs on a worker.
-func (a *App) readTablessFile(ctx context.Context, kernel editorKernel, registry *syntax.Registry, path string) tablessFile {
-	read, err := readDocumentEncoded(ctx, kernel, path)
-	file := tablessFile{read: read, err: err}
+// readTablessFile reads path with read and prepares its text and grammar; it runs on a worker.
+func (a *App) readTablessFile(ctx context.Context, kernel editorKernel, read documentBytes, registry *syntax.Registry, path string) tablessFile {
+	text, err := readDocumentEncoded(ctx, kernel, read, path)
+	file := tablessFile{read: text, err: err}
 	if err != nil {
 		return file
 	}
-	file.content = editorview.Prepare(read.text)
+	file.content = editorview.Prepare(text.text)
 	file.languageID, file.grammar = a.resolveDocumentLanguage(ctx, registry, path, file.content.Snapshot())
 	return file
 }

@@ -270,13 +270,23 @@ func (a *App) syntaxRegistry() *syntax.Registry {
 // group. The file is read and its language's grammar loaded away from the window thread; a
 // file that cannot be read, is binary or is too large is not opened and the banner says why.
 func (a *App) openFile(p *project, path string) {
-	if path == "" || a.refuseRemote(p, "open_file") {
+	if path == "" {
 		return
 	}
 	path = filepath.Clean(path)
 	if d := p.docs.byPath(path); d != nil {
 		a.selectDocument(p, d.id)
 		return
+	}
+	if p.remote != nil {
+		// A remote workspace edits the files of its host folder; the viewers still read this
+		// computer's files.
+		if _, ok := remoteHostPathBelow(p.root, p.remote.binding.RemoteRoot(), path); !ok && a.refuseRemote(p, "open_file") {
+			return
+		}
+		if _, ok := viewerKindOf(path); ok && a.refuseRemote(p, "open_viewer") {
+			return
+		}
 	}
 	if kind, ok := viewerKindOf(path); ok && !p.standalone {
 		a.openViewer(p, path, kind)
@@ -293,8 +303,12 @@ func (a *App) openFile(p *project, path string) {
 	name := filepath.Base(path)
 	kernel, _ := a.kernel.(editorKernel)
 	budget := int64(a.searchPreferences.MaxFileBytes)
+	bytesOf := a.documentBytesOf(p)
+	remote := p.remote != nil
 	a.background(p, 0, func(ctx context.Context) func(*App) {
-		read, err := readDocumentEncodedLimit(ctx, kernel, path, budget)
+		// A host file is read over the session (remote_documents.go); decoding, recovery and the
+		// language are payload-only Core commands, so they need no connection.
+		read, err := readDocumentEncodedLimit(ctx, kernel, bytesOf, path, budget)
 		restored := a.prepareRecoveredDocument(ctx, p, path, read.text, err)
 		if restored.found && restored.missing {
 			err = nil
@@ -322,8 +336,9 @@ func (a *App) openFile(p *project, path string) {
 			location := p.docs.locations[path]
 			delete(p.docs.locations, path)
 			defer a.openFinished(p, path, err)
-			if errors.Is(err, errNotText) && !p.standalone {
-				// A binary file opens in the hex viewer rather than not at all.
+			if errors.Is(err, errNotText) && !p.standalone && !remote {
+				// A binary file opens in the hex viewer rather than not at all. The viewer reads
+				// this computer's files, so a remote workspace says the file is not text instead.
 				a.openViewer(p, path, viewerHex)
 				return
 			}
@@ -343,8 +358,9 @@ func (a *App) openFile(p *project, path string) {
 			}
 			// A plugin that serves this language starts its server the first time a
 			// file of it is opened, not when the project opens: a workspace of Go
-			// files must not pay for a Java server.
-			if languageID != "" {
+			// files must not pay for a Java server. A remote workspace runs none on this
+			// computer, which would read the placeholder.
+			if languageID != "" && !remote {
 				a.startPluginServer(languageID)
 			}
 			if d := p.docs.byPath(path); d != nil {
@@ -402,7 +418,13 @@ func (a *App) openFileAtPosition(p *project, path string, line, column int) {
 // readDocument reads an editor file and asks Core to classify its complete
 // contents, refusing binary controls or bytes that cannot be edited as UTF-8.
 func readDocument(path string) ([]byte, error) {
-	data, err := documentio.ReadFile(path)
+	return classifiedDocument(documentio.ReadFile(path))
+}
+
+// classifiedDocument is data, the complete contents of a file read with err, when Core
+// classifies it as editor text: binary controls and bytes that cannot be edited as UTF-8 are
+// refused.
+func classifiedDocument(data []byte, err error) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
@@ -467,6 +489,12 @@ func documentOpenReason(err error) string {
 		return "not_regular"
 	case errors.Is(err, documentio.ErrSymbolicLink):
 		return "symbolic_link"
+	case errors.Is(err, errRemoteDisconnected):
+		return "remote_disconnected"
+	case errors.Is(err, errRemoteTimedOut):
+		return "remote_timed_out"
+	case errors.Is(err, errRemoteFileFailed):
+		return "remote_failed"
 	case errors.Is(err, fs.ErrNotExist):
 		return "not_found"
 	case errors.Is(err, fs.ErrPermission):
@@ -489,6 +517,9 @@ func (a *App) documentReason(err error) string {
 		return i18n.Shared(a.language(), "document.fileAccess.onlyRegularFilesCanBeOpenedAsTextDevicesSocketsAndNamedPipesAreNotSupported")
 	case errors.Is(err, documentio.ErrSymbolicLink):
 		return i18n.Shared(a.language(), "document.fileAccess.openTheTargetFileDirectlySymbolicLinkEditingIsNotSupportedByThisFileAdapter")
+	}
+	if reason, ok := a.remoteDocumentReason(err); ok {
+		return reason
 	}
 	var pathErr *os.PathError
 	if errors.As(err, &pathErr) {
@@ -536,7 +567,9 @@ func (a *App) placeDocumentAs(p *project, path, name string, content editorview.
 	a.refreshGitGutter(p, d)
 	a.refreshInlineBlame(p, d)
 	p.docs.group = group
-	if !virtual {
+	if !virtual && p.remote == nil {
+		// The host's folder is not watched yet; a remote document is checked when it is saved,
+		// before it closes and after the connection opens again (remote_documents.go).
 		a.watchDocument(p, d)
 	}
 	a.focusDocument(id)
@@ -653,11 +686,18 @@ func (a *App) saveDocumentMode(p *project, id int, auto bool) {
 	consent := d.linkConsent
 	d.linkConsent = nil
 	d.saving = true
+	remote := a.remoteDocuments(p)
 	a.background(p, 0, func(ctx context.Context) func(*App) {
 		var err error
 		bytesOut := data
 		if bytesOut, err = a.encodeForSave(ctx, d, data); err == nil {
 			switch {
+			case remote != nil && missing:
+				err = remote.create(ctx, path, bytesOut)
+			case remote != nil:
+				// The host replaces the file as its own, so a remote save never asks about
+				// hard links.
+				err = remote.save(ctx, path, bytesOut, expected)
 			case missing:
 				err = create(path, bytesOut)
 			case consent != nil:
@@ -880,14 +920,6 @@ func (a *App) removeDocument(p *project, d *document) {
 
 // saveProjectDocuments drains writes and verifies each current document before closing.
 func (a *App) saveProjectDocuments(p *project, done func(bool)) {
-	if p.remote != nil && len(p.docs.list) == 0 {
-		// A remote workspace opens no file yet (openFile refuses it), so there is nothing to save.
-		// Core's save batch is a pure reducer with no remote adapter, and a request of the
-		// project's context carries the remote binding, which Core refuses; asking would keep the
-		// workspace from closing. A remote workspace with documents still asks, and fails loudly.
-		done(true)
-		return
-	}
 	a.saveProjectPass(p, make(map[int]int), done)
 }
 
@@ -909,6 +941,8 @@ func (a *App) saveProjectPass(p *project, verified map[int]int, done func(bool))
 	for _, d := range p.docs.list {
 		documents = append(documents, core.SaveBatchDocument{ID: documentMember(d.id), Dirty: !d.scratch && (d.dirty() || d.conflicted), ContentSynchronized: !d.view.IsComposing()})
 	}
+	// The save batch is planned from the documents' states alone, so it goes without a remote
+	// workspace's binding, which Core refuses for a request with no remote adapter.
 	ctx, cancel := context.WithTimeout(p.ctx, kernelCallTimeout)
 	plan, err := a.kernel.PlanDocumentSaveBatch(ctx, documents)
 	cancel()

@@ -6,7 +6,6 @@ import (
 	"errors"
 
 	"github.com/1lck/Lithe-IDEA/desktop/internal/core"
-	"github.com/1lck/Lithe-IDEA/desktop/internal/documentio"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/editorview"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/encodingname"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/i18n"
@@ -48,25 +47,22 @@ type documentRead struct {
 	disk     []byte
 }
 
-// readDocumentEncoded reads the file at path as the editor opens it. Plain UTF-8 reads as
-// before; a file with a UTF-8 byte order mark, UTF-16 or a legacy encoding is detected and
-// decoded by Core. A file Core cannot decode is refused for the reason readDocument gave.
-func readDocumentEncoded(ctx context.Context, kernel editorKernel, path string) (documentRead, error) {
-	return readDocumentEncodedLimit(ctx, kernel, path, 16<<20)
+// readDocumentEncoded reads the file at path through read as the editor opens it, up to the
+// editor's default limit.
+func readDocumentEncoded(ctx context.Context, kernel editorKernel, read documentBytes, path string) (documentRead, error) {
+	return readDocumentEncodedLimit(ctx, kernel, read, path, 16<<20)
 }
 
-func readDocumentEncodedLimit(ctx context.Context, kernel editorKernel, path string, limit int64) (documentRead, error) {
-	data, err := documentio.ReadFileLimit(path, limit)
-	if err == nil {
-		kind, classifyErr := core.ClassifyDocumentText(data)
-		err = classifyErr
-		if kind == core.DocumentInvalidUTF8 {
-			err = errUnsupportedEncoding
-		}
-		if kind == core.DocumentBinary {
-			err = errNotText
-		}
+// readDocumentEncodedLimit reads up to limit bytes of the file at path through read as the
+// editor opens it. Plain UTF-8 reads as it is; a file with a UTF-8 byte order mark, UTF-16 or a
+// legacy encoding is detected and decoded by Core. A file Core cannot decode is refused for the
+// reason classifiedDocument gave.
+func readDocumentEncodedLimit(ctx context.Context, kernel editorKernel, read documentBytes, path string, limit int64) (documentRead, error) {
+	raw, err := read(ctx, path, limit)
+	if err != nil {
+		return documentRead{}, err
 	}
+	data, err := classifiedDocument(raw, nil)
 	if err == nil && !bytes.HasPrefix(data, utf8BOM) {
 		return documentRead{text: data}, nil
 	}
@@ -75,13 +71,6 @@ func readDocumentEncodedLimit(ctx context.Context, kernel editorKernel, path str
 	}
 	if kernel == nil {
 		return documentRead{}, err
-	}
-	raw := data
-	if err != nil {
-		var readErr error
-		if raw, readErr = documentio.ReadFileLimit(path, limit); readErr != nil {
-			return documentRead{}, err
-		}
 	}
 	decoded, decodeErr := kernel.DecodeFileBytes(ctx, raw, "")
 	if decodeErr != nil {
@@ -97,10 +86,10 @@ func readDocumentEncodedLimit(ctx context.Context, kernel editorKernel, path str
 // all of it: the window shows replacement characters for the bytes it lost.
 var errLossyDecode = errors.New("the file has bytes the chosen encoding cannot decode")
 
-// readDocumentAs reads the file at path decoded as encoding, which is the reopen path: a wrong
-// choice shows replacement characters and Lossy says so.
-func readDocumentAs(ctx context.Context, kernel editorKernel, path, encoding string) (documentRead, bool, error) {
-	raw, err := documentio.ReadFile(path)
+// readDocumentAs reads the file at path through read decoded as encoding, which is the reopen
+// path: a wrong choice shows replacement characters and Lossy says so.
+func readDocumentAs(ctx context.Context, kernel editorKernel, read documentBytes, path, encoding string) (documentRead, bool, error) {
+	raw, err := read(ctx, path, 16<<20)
 	if err != nil {
 		return documentRead{}, false, err
 	}
@@ -108,11 +97,11 @@ func readDocumentAs(ctx context.Context, kernel editorKernel, path, encoding str
 	if err != nil {
 		return documentRead{}, false, err
 	}
-	read := documentRead{text: []byte(decoded.Text), encoding: decoded.Encoding, hasBOM: decoded.HasBOM, disk: raw}
+	opened := documentRead{text: []byte(decoded.Text), encoding: decoded.Encoding, hasBOM: decoded.HasBOM, disk: raw}
 	if decoded.Encoding == "utf-8" && !decoded.HasBOM {
-		read.encoding, read.disk = "", nil
+		opened.encoding, opened.disk = "", nil
 	}
-	return read, decoded.Lossy, nil
+	return opened, decoded.Lossy, nil
 }
 
 // expectedDiskBytes is what the file must still hold for a guarded save.
@@ -179,8 +168,9 @@ func (a *App) reopenWithEncoding(p *project, d *document, encoding string) {
 	// Unchanged until the apply below, which checks the revision: the content is measured
 	// against this text on the worker.
 	base := d.view.TextSnapshot()
+	bytesOf := a.documentBytesOf(p)
 	a.background(p, 0, func(ctx context.Context) func(*App) {
-		read, lossy, err := readDocumentAs(ctx, kernel, d.path, encoding)
+		read, lossy, err := readDocumentAs(ctx, kernel, bytesOf, d.path, encoding)
 		var content editorview.Content
 		if err == nil {
 			content = editorview.PrepareAgainst(base, read.text)
@@ -269,9 +259,9 @@ func (d *document) revertEncodingChoice() {
 	d.previousEncoding, d.encodingChanged = nil, false
 }
 
-// readRawDocument reads a file's bytes without judging them as text, for a document whose
-// file is compared and decoded through Core.
-func readRawDocument(path string) ([]byte, error) { return documentio.ReadFileLimit(path, 64<<20) }
+// rawDocumentLimit bounds the bytes of a file read without judging them as text, for a document
+// whose file is compared and decoded through Core (documentRawOf).
+const rawDocumentLimit = 64 << 20
 
 // decodeExternal is the editor text of bytes read from the file of a document: the bytes
 // themselves for plain UTF-8, or Core's decoding in the encoding the document was opened with.
