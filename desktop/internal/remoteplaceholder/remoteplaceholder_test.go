@@ -3,6 +3,7 @@ package remoteplaceholder
 import (
 	"errors"
 	"os"
+	"path"
 	"path/filepath"
 	"runtime"
 	"strings"
@@ -136,6 +137,33 @@ func TestHostAndLocalPathsMapBothWays(t *testing.T) {
 	for _, local := range []string{filepath.Dir(root), filepath.Join(filepath.Dir(root), "other"), root + "x"} {
 		if host, ok := HostPath(root, "/srv/repo", local); ok {
 			t.Errorf("HostPath(%q) = %q; want no host path", local, host)
+		}
+	}
+}
+
+// HostNamedPath names every absolute host path below the root's sibling, the workspace's own
+// folder too, so that a path beside it is a host path again, and HostPath undoes it.
+func TestHostNamedPathNamesEveryHostPathBelowTheSibling(t *testing.T) {
+	anchor := filepath.Join(string(filepath.Separator)+"cache", AnchorName)
+	root := Root(anchor, "c1", "/srv/repo")
+	sibling := root + HostSuffix
+	for _, tc := range []struct{ host, local string }{
+		{"/srv/repo", filepath.Join(sibling, "srv", "repo")},
+		{"/srv/repo/sub/", filepath.Join(sibling, "srv", "repo", "sub")},
+		{"/srv/repo-feature", filepath.Join(sibling, "srv", "repo-feature")},
+		{"/", sibling},
+	} {
+		local, ok := HostNamedPath(root, tc.host)
+		if !ok || local != tc.local {
+			t.Errorf("HostNamedPath(%q) = %q, %v; want %q", tc.host, local, ok, tc.local)
+		}
+		if host, ok := HostPath(root, "/srv/repo", local); !ok || host != path.Clean(tc.host) {
+			t.Errorf("HostPath(HostNamedPath(%q)) = %q, %v", tc.host, host, ok)
+		}
+	}
+	for _, host := range []string{"", "relative/path"} {
+		if local, ok := HostNamedPath(root, host); ok {
+			t.Errorf("HostNamedPath(%q) = %q; want no local path", host, local)
 		}
 	}
 }
