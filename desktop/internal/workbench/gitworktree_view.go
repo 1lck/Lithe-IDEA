@@ -55,7 +55,8 @@ func (a *App) worktreePageView(c ui.C) {
 	})
 }
 
-// shownWorktrees are the worktrees whose path or branch holds the search's text.
+// shownWorktrees are the worktrees whose path or branch holds the search's text: in a remote
+// workspace, the host path.
 func (a *App) shownWorktrees(p *project) []core.GitWorktree {
 	query := strings.ToLower(strings.TrimSpace(a.worktreeView.search.Text()))
 	if query == "" {
@@ -63,7 +64,7 @@ func (a *App) shownWorktrees(p *project) []core.GitWorktree {
 	}
 	var shown []core.GitWorktree
 	for _, w := range p.worktrees.list {
-		if strings.Contains(strings.ToLower(w.Path), query) || strings.Contains(strings.ToLower(w.Branch), query) {
+		if strings.Contains(strings.ToLower(p.remoteHostPath(w.Path)), query) || strings.Contains(strings.ToLower(w.Branch), query) {
 			shown = append(shown, w)
 		}
 	}
@@ -78,7 +79,7 @@ func (a *App) drawWorktreeList(c ui.C, p *project) ui.Box {
 	return ui.Column(c).FillHeight().Background(a.colors.Panel).Clip().Children(func() {
 		ui.Row(c).Height(logToolbarHeight).Shrink(0).Items(ui.Center).Gap(4).PadX(6).Children(func() {
 			ui.TextField(c, &v.search, t.Search, t.Search).Grow(1).MinWidth(0)
-			if a.gitIconButton(c, t.New, icons.Plus, false, w.busy || !w.loaded || p.remote != nil) {
+			if a.gitIconButton(c, t.New, icons.Plus, false, w.busy || !w.loaded) {
 				c.After(func() { a.beginCreateWorktree(p) })
 			}
 			if a.gitIconButton(c, t.Refresh, icons.RefreshCw, false, w.loading) {
@@ -162,7 +163,7 @@ func (a *App) drawWorktreeRow(p *project, shown []core.GitWorktree, row ui.ListR
 		return
 	}
 	w, c := shown[row.Index], row.C
-	item := row.Element.FillWidth().PadX(10).PadY(5).Gap(8).Items(ui.Center).Tooltip(w.Path)
+	item := row.Element.FillWidth().PadX(10).PadY(5).Gap(8).Items(ui.Center).Tooltip(p.remoteHostPath(w.Path))
 	if w.Path == p.worktrees.selected {
 		item = item.Background(a.colors.Selection)
 	} else {
@@ -197,8 +198,8 @@ func (a *App) worktreeRowMenu(row ui.ListRow, p *project, w core.GitWorktree) {
 	}
 	ui.ContextMenu(c, row.Element, func(menu *ui.MenuItems) {
 		ws, t := &p.worktrees, &a.text.Worktrees
-		// A remote workspace's worktrees are host folders: this window neither opens them nor shows
-		// them in the file browser yet.
+		// A remote workspace's worktrees are host folders: a new client opens local folders only, and
+		// the file browser shows this computer's.
 		remote := p.remote != nil
 		menu.WidthRange(180, 260)
 		item := func(label string, disabled bool, action string, run func()) {
@@ -209,7 +210,7 @@ func (a *App) worktreeRowMenu(row ui.ListRow, p *project, w core.GitWorktree) {
 				})
 			}
 		}
-		item(t.OpenCurrent, remote || w.IsCurrent || w.IsPrunable || w.IsBare, "git.worktree.open", func() { a.openWorktree(w.Path) })
+		item(t.OpenCurrent, w.IsCurrent || w.IsPrunable || w.IsBare, "git.worktree.open", func() { a.openWorktree(w.Path) })
 		item(i18n.Shared(a.language(), "desktop.worktree.openNewWindow"), remote || w.IsPrunable || w.IsBare, "git.worktree.openNewWindow", func() { a.openWorktreeInNewWindow(w.Path) })
 		item(t.Reveal, remote || w.IsPrunable, "git.worktree.reveal", func() { a.revealWorktree(w.Path) })
 		item(t.CopyPath, false, "git.worktree.copyPath", func() { a.copyWorktreePath(w.Path) })
@@ -311,7 +312,7 @@ func (a *App) drawWorktreeOverview(c ui.C, p *project, w core.GitWorktree) {
 	status := ws.statusOf(w)
 	ui.Scroll(c).Scrollbars().Grow(1).FillWidth().Pad(shellContentPad).Gap(12).Children(func() {
 		a.worktreeCard(c, t.BasicInformation, func() {
-			a.worktreeField(c, t.Path, w.Path)
+			a.worktreeField(c, t.Path, p.remoteHostPath(w.Path))
 			a.worktreeField(c, t.Branch, a.worktreeBranchText(w))
 			head := w.Head
 			if len(head) > 12 {
@@ -386,7 +387,7 @@ func (a *App) drawWorktreeActions(c ui.C, p *project, w core.GitWorktree) {
 			c.After(run)
 		}
 	}
-	action(t.OpenCurrent, "", icons.FolderOpen, remote || w.IsCurrent || w.IsPrunable || w.IsBare, func() { a.openWorktree(w.Path) })
+	action(t.OpenCurrent, "", icons.FolderOpen, w.IsCurrent || w.IsPrunable || w.IsBare, func() { a.openWorktree(w.Path) })
 	action(i18n.Shared(a.language(), "desktop.worktree.openNewWindow"), "", icons.FolderOpen, remote || w.IsPrunable || w.IsBare, func() { a.openWorktreeInNewWindow(w.Path) })
 	action(t.Reveal, "", icons.Folder, remote || w.IsPrunable, func() { a.revealWorktree(w.Path) })
 	action(t.CopyPath, "", icons.Copy, false, func() { a.copyWorktreePath(w.Path) })
@@ -810,6 +811,8 @@ func (a *App) drawWorktreeCreateDialog(c ui.C, p *project) {
 			submitted = ui.TextField(c, &cr.destination, t.Destination, t.Destination).FillWidth().Submitted() || submitted
 			if !cr.result.DestinationIsAbsolute {
 				ui.Paragraph(c, t.DestinationAbsolute, 3).FontSize(a.theme.Metrics.FontSizeS).Color(a.theme.Danger)
+			} else if p.remote != nil {
+				ui.Paragraph(c, i18n.Shared(a.language(), "desktop.remote.worktree.destination"), 3).FontSize(a.theme.Metrics.FontSizeS).Color(a.colors.Subtle)
 			}
 			ui.Checkbox(c, &cr.noCheckout, t.NoCheckout).Disabled(w.busy)
 			if cr.noCheckout {
