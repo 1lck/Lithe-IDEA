@@ -99,7 +99,7 @@ func (a *App) enqueueCheckpoint(job checkpoint) {
 	}
 	writer.running = true
 	writer.mu.Unlock()
-	a.background(nil, 0, func(context.Context) func(*App) {
+	a.background(nil, 0, func(ctx context.Context) func(*App) {
 		for {
 			writer.mu.Lock()
 			var next checkpoint
@@ -132,7 +132,9 @@ func (a *App) enqueueCheckpoint(job checkpoint) {
 				}
 			}
 			if err != nil {
-				a.post(func(a *App) { a.recoveryFailed(err) })
+				// The shutdown checkpoint may finish after the window stops draining.
+				a.operationFailedIn(ctx, "editor_recovery", documentLogError(err))
+				a.post(func(a *App) { a.notifyError(i18n.Shared(a.language(), "desktop.drafts.failed")) })
 			}
 			if next.after != nil {
 				a.post(next.after)

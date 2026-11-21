@@ -474,7 +474,7 @@ func (r *renderer) choice(c ui.C, n *Node) {
 // the user made in this paint.
 func choose[T comparable](c ui.C, n *Node, label string, value *T, values []T, name func(T) string) bool {
 	if n.Type == "segmented" {
-		return ui.Choice(c, value, values, name).Label(label).Changed()
+		return ui.Choice(c, value, values, name).Changed()
 	}
 	return ui.Select(c, value, values, name).MinWidth(120).MaxWidth(230).Label(label).Changed()
 }

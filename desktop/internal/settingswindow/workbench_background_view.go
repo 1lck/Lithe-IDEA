@@ -117,7 +117,7 @@ func (w *window) workbenchBackgroundRows(c ui.C, narrow bool) {
 	strength := func() {
 		ui.Choice(c.Part("background-strength"), &w.backgroundStrengthPick, workbenchBackgroundStrengths, func(value string) string {
 			return workbenchBackgroundStrengthLabel(language, value)
-		}).Width(420).Shrink(1).MinWidth(0).Label(visibility)
+		}).Width(420).Shrink(1).MinWidth(0)
 	}
 	if narrow {
 		ui.Column(c).FillWidth().Gap(8).PadY(6).Children(func() {

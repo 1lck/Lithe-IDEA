@@ -579,7 +579,7 @@ func (w *window) generalPage(c ui.C) {
 		w.cliCard(c)
 		w.card(c, settings.Appearance, settings.AppearanceHelp, func() {
 			choice := func() {
-				ui.Choice(c, &w.themePick, themeValues[:], w.themeLabel).Width(420).Shrink(1).MinWidth(0).Label(settings.AppearanceMode)
+				ui.Choice(c, &w.themePick, themeValues[:], w.themeLabel).Width(420).Shrink(1).MinWidth(0)
 			}
 			narrow := w.extent-2*contentPad-2*cardPad < 460
 			if narrow {
