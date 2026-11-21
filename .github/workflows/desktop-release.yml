@@ -64,10 +64,18 @@ jobs:
         id: time
         run: printf 'timestamp=%s\n' "$(date -u '+%Y-%m-%dT%H:%M:%SZ')" >> "$GITHUB_OUTPUT"
 
+  # The remote workspace server is built and smoke tested once, on both architectures; every
+  # package of this release embeds those bytes.
+  remote-server:
+    name: Remote server
+    if: ${{ !inputs.feed_only }}
+    needs: prepare
+    uses: ./.github/workflows/desktop-remote-server.yml
+
   build:
     name: Package ${{ matrix.os }} ${{ matrix.arch }}
     if: ${{ !inputs.feed_only }}
-    needs: prepare
+    needs: [prepare, remote-server]
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 60
     defaults:
@@ -86,6 +94,20 @@ jobs:
     steps:
       - name: Check out source
         uses: actions/checkout@v7
+
+      # package-desktop.sh checks the builds remote-server tested against the pinned core and
+      # embeds them, instead of building the server again on this runner.
+      - name: Download the remote server builds
+        uses: actions/download-artifact@v8
+        with:
+          name: remote-server-linux-musl
+          path: .artifacts/desktop/remote-server/
+
+      # Artifacts do not keep file modes.
+      - name: Use the downloaded remote server builds
+        run: |
+          chmod 0755 .artifacts/desktop/remote-server/*/lithe-remote-server
+          printf 'LITHE_REMOTE_SERVER_STAGE=%s\n' "$PWD/.artifacts/desktop/remote-server" >> "$GITHUB_ENV"
 
       - name: Set up Go
         uses: actions/setup-go@v7

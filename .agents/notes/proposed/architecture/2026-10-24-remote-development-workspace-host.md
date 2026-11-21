@@ -66,7 +66,12 @@ SSH 会把远端命令交给远端用户的登录 shell 当作一个字符串解
 4. **上传**：总是由本地通过同一条链上传，不让远端自己下载，因为很多服务器和容器不能访问外网。上传先写到临时文件名，再改名为正式文件，配合 `umask 077`，同一台机器上的其他用户无法替换它。
 5. **安装位置**：默认是 `$HOME/.lithe-server/bin/<版本>-<哈希前 16 位>/lithe-remote-server`，不同版本并存，互不覆盖。
 
-本地这一侧，服务产物属于应用的打包资源，运行时只读取，不写入 app bundle。实现打包时还要遵守已发布程序包的运行时只读规则，并在 `docs/ci-builds.md` 说明能否跨工作树复制。
+本地这一侧（2026-11-21，#2231）：Linux 服务和它的清单嵌入客户端可执行文件本身（`desktop/internal/remoteserver`，构建标签 `lithe_bundled_remote_server`），不作为单独的文件放进安装包。因为 Core 按路径读取要上传的文件，客户端在连接时把嵌入的字节安装到用户缓存目录 `<UserCacheDir>/Lithe/remote-server/<目标>/lithe-remote-server`：目录 0700、文件 0600，字节相同就不重写，不同就原子替换。交给 `remote.connect` 的 SHA-256 永远来自嵌入的清单，不由即将上传的文件算出（S17）；缓存里的文件被换掉时，Core 会在上传前拒绝它。安装包和安装目录在运行时不被写入，签名和增量更新基线不受影响。
+
+- **正确做法**：连接时调用 `remoteserver.Resolve`，把它返回的路径和清单哈希原样交给 `remote.connect`。
+- **不要这样做**：从安装目录或 `resource_dir()` 推导服务路径；对缓存里的文件现算哈希再交给 Core；在运行时往 app bundle 里写服务文件。
+
+开发运行没有嵌入的字节时，`desktop-go.sh` 导出 `LITHE_REMOTE_SERVER_STAGE` 指向 `build-remote-server.sh` 的暂存目录，客户端按暂存清单校验后直接读取，不复制；暂存目录没有随客户端签名，所以只有打包版才有 S17 的保证。打包版忽略这个变量。CI 只构建一次服务：Desktop CI、Release 和 AutoBuild 都调用 `desktop-remote-server.yml`，Release 和 AutoBuild 的每个打包任务下载这份已在两种架构上冒烟测试过的产物再嵌入，所以同一次运行的所有安装包带的是同一份字节。产物位置和能否跨工作树复制见 `docs/ci-builds.md`。
 
 ### 远端服务尽量轻量，但安全和功能优先
 
@@ -178,7 +183,7 @@ inotify 的坑：目录是逐个注册的，新建目录要在收到创建事件
 ### 后续阶段
 
 1. **M0（已完成）**：协议、服务（文件、进程）、传输链、远端安装、会话，以及端到端测试。
-2. **M1（后端已完成）**：目录遍历、文件监听（inotify/FSEvents）、终端（PTY）、登录环境解析、隧道与端口转发、监听端口列表、文件复制/真实路径/权限、常驻会话与断线重连、客户端强类型 API。剩下的是 musl/darwin 产物的构建和打包（Linux 用 `rust-lld` 静态链接，并在 `docs/ci-builds.md` 说明产物位置），这一步会改动 macOS 应用的构建流程，单独提交。
+2. **M1（后端已完成）**：目录遍历、文件监听（inotify/FSEvents）、终端（PTY）、登录环境解析、隧道与端口转发、监听端口列表、文件复制/真实路径/权限、常驻会话与断线重连、客户端强类型 API。Linux musl 两种架构的构建、CI 校验和打包嵌入已完成（`build-remote-server.sh`、`desktop-remote-server.yml`、`desktop/internal/remoteserver`，见上文“远端服务的启动和安装”）。#2231 只支持连接 Linux 主机，darwin 产物不构建也不打包，等支持远程 Mac 时再加。
 3. **M2**：macOS 应用中的工作区后端接口，把现有的直接调用迁到本地实现，再接入“打开远程文件夹”。这一步的接口设计另写 Note。
 4. **M3**：Git（凭据请求回传到本地，复用现有的 askpass 入口）、运行和构建、端口自动转发（HTML 预览访问转发后的地址）。
 5. **M4**：插件声明运行位置和支持的平台，插件包在本地验签后上传，远端再校验哈希；LSP 和调试适配器在远端运行。
@@ -321,6 +326,10 @@ M2 接入“打开远程文件夹”时，SSH 连接的配置界面参考用户�
 
 最吸引人的地方是简单：一个数字就能挡住体积膨胀，早期实测的全部后端能力版本约 1.0～1.15 MiB，曾定为 1.5 MiB。没有采用的原因是（2026-11-20，#2231 的 D9）：固定上限会逼着开发者为了过线去删安全措施或功能，例如改用 `panic = "abort"`、放弃远端哈希校验或某项主机能力，而远程开发里安全和功能齐全比多上传几百 KiB 更重要。现在的做法是 CI 只记录和报告体积，由 PR 说明解释每次体积变化。
 
+### 把服务作为单独的文件放进安装包
+
+最吸引人的地方是不用在用户缓存目录再写一份：Core 直接读取安装目录里的文件。没有采用的原因是（2026-11-21，#2231）：三个平台的安装包布局都由 Viva 打包器固定，额外文件要分别处理 app bundle、NSIS 安装目录和 Linux 包；更重要的是，独立文件和它的哈希会分开放，Linux 安装包和没有证书时的 Windows 安装包都不签名，其他程序能同时改掉安装目录里的文件和清单。嵌入可执行文件后，清单和字节都属于同一个可执行文件，S17 的哈希来源才可信。代价是客户端可执行文件大约增加两个服务的体积，并在用户缓存目录多出一份可随时重建的副本。IDE API 辅助程序 `lithe-mcp` 已经用同样的嵌入方式。
+
 ### 用 `notify` crate 做文件监听
 
 最吸引人的地方是成熟、跨平台。没有采用的原因是：它会带来一串依赖（FSEvents 绑定、crossbeam 等），而服务需要的只是“递归监听 + 排除目录 + 合并批次”这一小部分；更关键的是，FSEvents 的累积标志和 inotify 新目录补报这两个语义问题，无论用不用它都要自己处理。直接调用系统接口，代码量相近，体积更小，行为完全可控。
@@ -341,7 +350,8 @@ M2 接入“打开远程文件夹”时，SSH 连接的配置界面参考用户�
   - 单元测试：覆盖受限文件时临时文件不放宽权限（`fs.rs`），多个 SSH 跳转嵌套时参数原样到达 sh、bash、zsh、csh、fish（`transport.rs`，本机装了的都会测）。
   - `tests/persistence.rs`：断线期间进程继续运行且输出被重放、断线后续传时每个事件恰好到达一次、重连后先订阅再续传能接上终端并收到断开期间的输出、旧常驻进程关闭期间重连会得到新会话、空会话不需要额外请求就会被清理、空闲会话超时结束、两个代理并发启动时只有一个常驻进程、已订阅的事件不会进入通用通道。
 - 服务能检查通过所有远端目标（Linux musl 两种架构、macOS 两种架构）；两个 Linux 静态 release 版用 `rust-lld` 构建成功；CI 校验静态链接、架构和清单哈希，跑通冒烟测试，并把两个版本的体积记录在任务摘要中。
-- 远端相关的 CI 任务（旧 `ci-remote.yml` 已随旧客户端移除）只在远程相关路径变化时运行，不占用 macOS 和 Windows runner；Viva 的对应流水线待建。
+- 远端服务的 CI 任务是 Desktop CI 的 `remote-server` 车道（调用 `desktop-remote-server.yml`），Draft PR 也运行，只用 Linux x86_64 和 arm64 runner，不占用 macOS 和 Windows runner；它是 `Desktop CI gate` 的必过车道。Release 和 AutoBuild 调用同一个工作流，打包前先过这些检查。
+- 打包嵌入由 `scripts/desktop/package-desktop.test.mjs` 覆盖（本地打包重新编译、CI 打包使用给定暂存并要求固定提交、校验失败或校验后字节变化时不打包、不留生成文件），运行期安装由 `desktop/internal/remoteserver` 的测试覆盖（字节相同不重写、被替换或是链接时原子恢复、嵌入字节与清单不符或清单格式错误时什么也不写）。
 - 后续阶段的验收标准在各自的 PR 和 Note 中补充，例如 M1 要在真实的 SSH 主机、Docker 容器和远程 Mac 上各验证一次完整流程。
 - “待评估能力候选”采纳后另定对应验收：超出 2 GiB/4 GiB 的流式传输与偏移、分片乱序/重复/缺失、源或目标中途改变、断线/重启、磁盘不足/限额/权限、取消清理、哈希一致性，以及大流量下终端和 LSP 的延迟与内存预算。这里只定义要验证的问题，不代表这些能力已有实现或测试结果。
 - 环境候选采纳后验证来源读取、差异、敏感变量保护、显式选择与取消、仅新进程生效、确认重启、忙碌终端保护、缓存失效和跨主机隔离；测试不得执行用户真实 profile 或写入用户 shell 历史。
@@ -368,4 +378,5 @@ M2 接入“打开远程文件夹”时，SSH 连接的配置界面参考用户�
 - [远程工作区协议 v1](https://github.com/Lithe-IDEA/Lithe-core-rust/blob/main/rust/contracts/remote-workspace-protocol-v1.md)
 - `desktop/internal/core/plugin_session.go`
 - `desktop/internal/term/`
-- 远端持续集成：旧版工作流已随旧客户端删除，Viva 的对应远端构建与验收仍需重建。
+- `desktop/internal/remoteserver/`（嵌入、安装和暂存读取）
+- 远端服务的构建与持续集成：`scripts/desktop/build-remote-server.sh`、`scripts/desktop/verify/verify-remote-server-artifacts.mjs`、`.github/workflows/desktop-remote-server.yml`，打包嵌入在 `scripts/desktop/package-desktop.sh`。

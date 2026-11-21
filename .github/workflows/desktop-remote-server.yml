@@ -1,0 +1,97 @@
+name: Desktop remote server
+
+# Builds the remote workspace server for its Linux targets once, checks every executable, smoke
+# tests each one on a runner of its own architecture and uploads them as the artifact
+# remote-server-linux-musl (#2231). Desktop CI calls it to check a change; Desktop Release and
+# Desktop AutoBuild call it, and every package job downloads that artifact and embeds those exact
+# bytes (scripts/desktop/package-desktop.sh with LITHE_REMOTE_SERVER_STAGE), so all packages of a
+# run carry the same server builds that were tested here.
+on:
+  workflow_call:
+    inputs:
+      ref:
+        description: "Commit to build; the caller's commit when empty"
+        required: false
+        type: string
+        default: ""
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: Remote server artifacts
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ inputs.ref }}
+
+      - name: Set up Rust
+        id: rust
+        uses: dtolnay/rust-toolchain@1.100.0
+        with:
+          targets: x86_64-unknown-linux-musl,aarch64-unknown-linux-musl
+
+      - name: Restore the core build
+        uses: actions/cache@v6
+        with:
+          path: |
+            ~/.cargo/registry/index
+            ~/.cargo/registry/cache
+            ~/.cargo/git/db
+            .artifacts/desktop/lithe-core-rust
+          key: remote-server-${{ runner.os }}-${{ runner.arch }}-${{ steps.rust.outputs.cachekey }}-${{ hashFiles('scripts/desktop/build-desktop-core.sh', 'scripts/desktop/build-remote-server.sh') }}
+          restore-keys: |
+            remote-server-${{ runner.os }}-${{ runner.arch }}-${{ steps.rust.outputs.cachekey }}-
+
+      - name: Build the remote server
+        run: ./scripts/desktop/build-remote-server.sh
+
+      # Every executable is checked here; only the x86_64 one runs on this runner, and the arm64
+      # job runs the aarch64 one on arm64 hardware. Sizes go to the job summary and never fail the
+      # lane (#2231, D9).
+      - name: Verify the remote server artifacts
+        run: node scripts/desktop/verify/verify-remote-server-artifacts.mjs --require-smoke x86_64-unknown-linux-musl --require-pinned
+
+      - name: Upload the remote server artifacts
+        uses: actions/upload-artifact@v7
+        with:
+          name: remote-server-linux-musl
+          path: .artifacts/desktop/remote-server/
+          if-no-files-found: error
+          retention-days: 14
+
+  arm64:
+    name: Remote server on arm64
+    needs: build
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 10
+
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ inputs.ref }}
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 20
+
+      # The same bytes that the build job built and uploaded, not a second build.
+      - name: Download the remote server artifacts
+        uses: actions/download-artifact@v8
+        with:
+          name: remote-server-linux-musl
+          path: .artifacts/desktop/remote-server/
+
+      # Artifacts do not keep file modes. The SHA-256 check below still proves that these are
+      # the executables the build job verified.
+      - name: Restore the executable mode
+        run: chmod 0755 .artifacts/desktop/remote-server/*/lithe-remote-server
+
+      - name: Smoke test the aarch64 server natively
+        run: node scripts/desktop/verify/verify-remote-server-artifacts.mjs --require-smoke aarch64-unknown-linux-musl --require-pinned

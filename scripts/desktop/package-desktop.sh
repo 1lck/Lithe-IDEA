@@ -14,6 +14,11 @@
 # from 'viva update-keygen' separated by commas) go into a generated Go file. A build without keys
 # cannot check a feed, so it does not update either.
 #
+# The Linux builds of the remote workspace server are embedded too (desktop/internal/remoteserver).
+# They come from LITHE_REMOTE_SERVER_STAGE, a stage of scripts/desktop/build-remote-server.sh that
+# CI built once and every release package downloads, which must come from the pinned core; without
+# it this script runs build-remote-server.sh, so a local package embeds the core it links.
+#
 # --ad-hoc-sign seals a macOS bundle without a Developer ID; it does not satisfy Gatekeeper.
 # Viva builds the program from desktop/viva.toml, embeds that manifest and applies Windows
 # resources and signing. It must receive desktop-go.sh's cgo environment so the packaged client
@@ -164,11 +169,56 @@ if [[ ! -f "$HELPER_SOURCE" ]]; then
     printf '%s\n' "The staged lithe-mcp helper is missing at $HELPER_SOURCE." >&2
     exit 1
 fi
+
+# The remote workspace server is embedded under the lithe_bundled_remote_server build tag: the
+# manifest of build-remote-server.sh, and each build it lists as <target>.bin. The client checks
+# every build against that manifest before Core uploads it to a host (#2231, S17), so both must be
+# part of the signed executable. A stage that CI passes must come from a clean checkout of the
+# pinned core; a local one is built here from the core this package links.
+if [[ -n "${LITHE_REMOTE_SERVER_STAGE:-}" ]]; then
+    SERVER_STAGE="$(cd "$LITHE_REMOTE_SERVER_STAGE" && pwd -P)"
+    SERVER_PINNED=(--require-pinned)
+else
+    SERVER_STAGE="$("$ROOT_DIR/scripts/desktop/build-remote-server.sh")"
+    SERVER_PINNED=()
+fi
+node "$ROOT_DIR/scripts/desktop/verify/verify-remote-server-artifacts.mjs" --stage "$SERVER_STAGE" \
+    "${SERVER_PINNED[@]+"${SERVER_PINNED[@]}"}"
+
 EMBED_FILE="$ROOT_DIR/desktop/internal/idehelp/lithe-mcp.bin"
-mkdir -p "$(dirname "$EMBED_FILE")"
-cp -- "$HELPER_SOURCE" "$EMBED_FILE"
 PACKAGE_INFO_FILE="$ROOT_DIR/desktop/internal/buildinfo/package_info.go"
-trap 'rm -f -- "$EMBED_FILE" "$PACKAGE_INFO_FILE"' EXIT
+SERVER_EMBED_DIR="$ROOT_DIR/desktop/internal/remoteserver"
+# Every generated file is removed when packaging ends, also after a failed copy; *.bin of the server
+# directory is only ever generated here, so a build an interrupted run left is never embedded.
+remove_generated() {
+    rm -f -- "$EMBED_FILE" "$PACKAGE_INFO_FILE" "$SERVER_EMBED_DIR/remote-server-manifest.json" \
+        "$SERVER_EMBED_DIR"/*.bin
+}
+trap remove_generated EXIT
+remove_generated
+mkdir -p "$(dirname "$EMBED_FILE")" "$SERVER_EMBED_DIR"
+cp -- "$HELPER_SOURCE" "$EMBED_FILE"
+# The builds are copied from bytes checked once more against the manifest, so a stage that changed
+# after the check above is refused here rather than by the client. The check above accepted exactly
+# the targets of the verify script, each at <target>/lithe-remote-server.
+# shellcheck disable=SC2016 # JavaScript source: the shell must not expand its ${...} templates.
+node -e '
+const { createHash } = require("node:crypto");
+const fs = require("node:fs");
+const path = require("node:path");
+const [stage, embed] = process.argv.slice(1);
+const manifest = fs.readFileSync(path.join(stage, "remote-server-manifest.json"));
+for (const artifact of JSON.parse(manifest).artifacts) {
+  const build = fs.readFileSync(path.join(stage, artifact.target, "lithe-remote-server"));
+  const sha256 = createHash("sha256").update(build).digest("hex");
+  if (build.length !== artifact.size || sha256 !== artifact.sha256) {
+    console.error(`The staged ${artifact.target} server changed after it was checked.`);
+    process.exit(1);
+  }
+  fs.writeFileSync(path.join(embed, `${artifact.target}.bin`), build);
+}
+fs.writeFileSync(path.join(embed, "remote-server-manifest.json"), manifest);
+' "$SERVER_STAGE" "$SERVER_EMBED_DIR"
 
 # viva package links with fixed flags, so the build's channel, time, commit and feed keys reach
 # internal/buildinfo as a generated file under the lithe_package_info build tag instead of -X. Like
@@ -187,7 +237,7 @@ trap 'rm -f -- "$EMBED_FILE" "$PACKAGE_INFO_FILE"' EXIT
 # The macOS client's fonts (desktop/internal/bundledfont/fonts, tracked in Git) are compiled into the
 # executable under the lithe_bundled_fonts build tag, so the app bundle gets no font files and the
 # client never reads its own installation for them. Other platforms ignore the tag.
-BUILD_TAGS="lithe_bundled_helper,lithe_bundled_fonts,lithe_package_info"
+BUILD_TAGS="lithe_bundled_helper,lithe_bundled_fonts,lithe_bundled_remote_server,lithe_package_info"
 # --stable, which only the Desktop Release passes for the commit of its desktop-v<version> tag, adds
 # the lithe_stable build tag: the client then shows the plain version. Any other package, the daily
 # AutoBuild or a local one, shows the version as a preview.

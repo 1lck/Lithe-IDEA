@@ -4,16 +4,16 @@ CI 构建缓存、架构并行、测试产物和 artifact 保留策略见
 [`2026-09-13-ci-build-cache-and-artifact-strategy.md`](../.agents/notes/implemented/process/2026-09-13-ci-build-cache-and-artifact-strategy.md)。
 本文只保留 CI 使用说明、下载方式和本地资源复用规则。
 
-仓库里的桌面端工作流只有三个，都位于 `.github/workflows/`：
+仓库里会单独触发的桌面端工作流只有三个，都位于 `.github/workflows/`；第四个文件 `desktop-remote-server.yml` 只能被它们调用（`workflow_call`），负责构建并冒烟测试远端服务：
 
 | 工作流 | 触发 | 内容 |
 | --- | --- | --- |
-| **Desktop CI**（`desktop-ci.yml`） | PR（Draft 只跑 Linux 作业，`ready_for_review` 时补跑完整矩阵）、推送到 `main`、手动运行 | `pins` 校验固定版本；`linux`（Format and script tests）运行 gofmt、ShellCheck、本地化校验、安装资源路径检查和脚本测试；`linux-test` 通过 `scripts/desktop/check.sh` 运行 Linux 的 vet 和测试；`remote-server`（Remote server artifacts）编译两种架构的 Linux musl 远端服务，检查静态链接、ELF 架构、清单与 SHA-256，在 x86_64 runner 上运行 x86_64 版的冒烟测试，上传产物并把体积写进任务摘要；`remote-server-arm64`（Remote server on arm64）在 `ubuntu-24.04-arm` 上下载同一份产物，重新校验并运行 aarch64 版的冒烟测试，两种架构都在原生硬件上运行，不用模拟器；`macos`（`macos-26`）、`windows`（`windows-2022`）同样运行 vet 和测试，只在非 Draft 时执行 |
-| **Desktop Release**（`desktop-release.yml`） | 推送 `desktop-v*.*.*` 标签，或手动运行并填写版本 | 打包并校验 macOS、Windows、Linux 产物，核对校验和，然后创建或更新 GitHub prerelease，再签名发布正式版更新源。手动版本必须与 `desktop/viva.toml` 中的版本一致 |
-| **Desktop AutoBuild**（`desktop-autobuild.yml`） | 每天 UTC 10:00 定时，或手动运行 | 构建 macOS arm64 与 x64、Windows x64、Linux x64 和 arm64，发布到滚动预发布 `desktop-AutoBuild`。同一提交已经发布时，定时运行不会重复构建 |
+| **Desktop CI**（`desktop-ci.yml`） | PR（Draft 只跑 Linux 作业，`ready_for_review` 时补跑完整矩阵）、推送到 `main`、手动运行 | `pins` 校验固定版本；`linux`（Format and script tests）运行 gofmt、ShellCheck、本地化校验、安装资源路径检查和脚本测试；`linux-test` 通过 `scripts/desktop/check.sh` 运行 Linux 的 vet 和测试；`remote-server`（Remote server）调用可复用工作流 `desktop-remote-server.yml`：其中的 Remote server artifacts 任务编译两种架构的 Linux musl 远端服务，检查静态链接、ELF 架构、清单与 SHA-256，在 x86_64 runner 上运行 x86_64 版的冒烟测试，上传产物 `remote-server-linux-musl` 并把体积写进任务摘要，Remote server on arm64 任务在 `ubuntu-24.04-arm` 上下载同一份产物，重新校验并运行 aarch64 版的冒烟测试，两种架构都在原生硬件上运行，不用模拟器；`macos`（`macos-26`）、`windows`（`windows-2022`）同样运行 vet 和测试，只在非 Draft 时执行 |
+| **Desktop Release**（`desktop-release.yml`） | 推送 `desktop-v*.*.*` 标签，或手动运行并填写版本 | 先调用 `desktop-remote-server.yml` 编译并在两种架构上冒烟测试远端服务，再打包并校验 macOS、Windows、Linux 产物（每个包都嵌入这一份远端服务），核对校验和，然后创建或更新 GitHub prerelease，再签名发布正式版更新源。手动版本必须与 `desktop/viva.toml` 中的版本一致 |
+| **Desktop AutoBuild**（`desktop-autobuild.yml`） | 每天 UTC 10:00 定时，或手动运行 | 与 Release 一样先调用 `desktop-remote-server.yml`，再构建 macOS arm64 与 x64、Windows x64、Linux x64 和 arm64，发布到滚动预发布 `desktop-AutoBuild`。同一提交已经发布时，定时运行不会重复构建 |
 
 - Draft PR 只运行 Linux 检查：macOS 和 Windows 作业带有 `draft == false` 条件。标记为 ready 后，才运行完整的 Desktop CI。
-- `Desktop CI gate` 汇总固定版本、Linux 格式与脚本、Linux 测试、远端服务产物（x86_64 与 arm64 两个任务）、macOS 测试和 Windows 测试；普通 PR 必须全部成功，Draft 只允许跳过 macOS 和 Windows。更换已有 PR 的目标分支后，保留 Draft 状态；需要评审时标记为 ready 以针对新基线重新运行完整检查。单纯修改标题或正文不触发平台 runner。
+- `Desktop CI gate` 汇总固定版本、Linux 格式与脚本、Linux 测试、远端服务（可复用工作流里的 x86_64 与 arm64 两个任务都成功，`remote-server` 才算成功）、macOS 测试和 Windows 测试；普通 PR 必须全部成功，Draft 只允许跳过 macOS 和 Windows。更换已有 PR 的目标分支后，保留 Draft 状态；需要评审时标记为 ready 以针对新基线重新运行完整检查。单纯修改标题或正文不触发平台 runner。
 - Desktop CI 通过 `scripts/desktop/check.sh` 执行 Go 检查，Rust 内核由 `scripts/desktop/build-desktop-core.sh` 按 `PINNED_CORE_REVISION` 固定的 Lithe-core-rust 修订构建。
 - Linux 测试作业也运行 `TestVisualLSPActions`，覆盖中英文与明暗主题的代码操作、签名帮助和内联提示失败重试。全量测试失败时仍采集截图。结果作为 `lsp-editor-visual-<系统>-<架构>` artifact 保留 14 天。
 - Desktop Release 的打包脚本是 `scripts/ci/desktop-release/package-release.sh`，AutoBuild 的打包和发布脚本位于 `scripts/ci/desktop-autobuild/`。
@@ -91,6 +91,7 @@ Viva 的 Core 源码检出、Cargo 目标目录和暂存静态库位于当前工
 `winapi-import-libraries=mingw-system`。这避免 cgo 依赖 Cargo 私有路径中的
 `libwinapi_*` 归档；不增加下载、缓存目录或运行期资源。能否把这些构建状态复制到另一个工作树，见下文 `.artifacts/desktop/` 一段。Core 仓库恢复的 `scripts/rust-core/verify-rust-core-comments.sh` 先用固定词法器检查真实注释，再检查 Rustdoc；调用方应沿用本工作树的 `CARGO_TARGET_DIR`。独立 Core 检出未提供该变量时，输出只进入该检出的 `.artifacts/rust-core-checks/`（桌面默认检出内为 `.artifacts/desktop/lithe-core-rust/source/.artifacts/rust-core-checks/`）。词法器二进制、Cargo 状态与 Rustdoc 受 Core 修订、helper Cargo.lock、目标、编译器及环境约束，随 Core 构建状态一起处理；只在构建/验证阶段生成，不进入安装包，不影响签名或增量更新。
 Viva 的 IDE API 辅助程序 `lithe-mcp` 由 `scripts/desktop/build-desktop-core.sh` 在同一固定 Core 检出上以 `features=mcp` 编到暂存目录的 `bin/`。`package-desktop.sh` 在 `viva package` 前把它复制成 `desktop/internal/idehelp/lithe-mcp.bin`，以 `lithe_bundled_helper` 构建标签嵌入客户端二进制，打包结束或失败时删除该生成文件；文件被 Git 忽略，不跨工作树复制。运行期客户端把嵌入的字节原子安装到应用数据目录的 `ide-host/bin/` 再启动，安装包本身不增加可执行文件、不被写入，也不改变签名或增量更新基线；开发运行由 `desktop-go.sh` 用暂存目录里的辅助程序通过 `LITHE_IDE_HELPER` 提供，不读取安装目录。
+远端工作区服务 `lithe-remote-server`（#2231）也嵌入客户端二进制：`package-desktop.sh` 在 `viva package` 前取得一个暂存目录（CI 通过 `LITHE_REMOTE_SERVER_STAGE` 给出可复用工作流已经冒烟测试过的产物，用 `--require-pinned` 校验；本地打包运行 `build-remote-server.sh` 重新编译，不要求固定提交），用 `verify-remote-server-artifacts.mjs` 校验后，再逐个核对体积和 SHA-256，复制成 `desktop/internal/remoteserver/<目标>.bin` 和 `remote-server-manifest.json`，以 `lithe_bundled_remote_server` 构建标签嵌入；校验后字节有变化就停止打包。这些生成文件被 Git 忽略，打包开始前先删掉上一次中断留下的旧文件，打包结束或失败时再删除，不跨工作树复制。运行期由 `remoteserver.Install` 在连接远程主机时（连接流程在 #2231 后续阶段接上）把与清单哈希一致的字节原子安装到用户缓存目录 `<os.UserCacheDir()>/Lithe/remote-server/<目标>/lithe-remote-server`（目录 0700、文件 0600，字节相同就复用），再交给 Core 上传到远程主机；它不执行这个文件，不写安装目录，安装包里也不多出文件，签名和增量更新基线不受影响。删除该缓存目录是安全的，下次连接会重新安装。开发运行由 `desktop-go.sh` 在 `.artifacts/desktop/remote-server/` 有清单时导出 `LITHE_REMOTE_SERVER_STAGE`，客户端直接读取暂存目录并按清单校验，不复制；打包版只用嵌入的字节，忽略该变量。
 `viva package` 的链接参数是固定的，不能用 `-X` 注入构建信息，所以 `package-desktop.sh` 每次打包都生成 `desktop/internal/buildinfo/package_info.go`，以 `lithe_package_info` 构建标签编进客户端。文件记录更新渠道（`--stable` 为正式版，`--autobuild` 为 AutoBuild，本地包为空，不会自我更新）、构建时间（`LITHE_BUILD_TIME`，缺省为打包时刻）、提交（`LITHE_BUILD_COMMIT`，缺省为 `git HEAD`），以及验证更新源签名的公钥（`LITHE_UPDATE_PUBLIC_KEYS`，逗号分隔，只含公钥）。打包结束或失败时删除这个文件；它被 Git 忽略，不跨工作树复制。它只改变可执行文件本身，安装包里不会多出文件，签名和增量更新基线也不受影响。
 
 打包和更新源签名用的 `viva` 命令由 `scripts/desktop/build-viva-tool.sh` 按 `desktop/go.mod` 的 `replace` 从 Viva fork 编译，放在当前工作树的 `.artifacts/desktop/tools/viva-<模块版本>/`；`replace` 指向本地目录时没有版本，放在 `viva-local/` 并每次重新编译。目录名只固定 Viva 源码，不记录 Go 工具链和主机平台；随 `.artifacts/desktop/` 一起复制时，必须满足下文的前提（含相同的 Go 工具链和主机平台），否则删掉该目录，由脚本在本工作树重新编译。它只在打包（`package-desktop.sh`）和签名更新源（`publish-update-feed.sh`）时使用，不进入安装包，不影响签名或增量更新基线。
@@ -163,8 +164,10 @@ built-from 检出，换检出时只清理工作区成员。全部目标编译成
 `all` 表示全部目标；`--require-pinned` 要求清单来自固定提交且工作区干净。体积只记录在报告和
 CI 任务摘要里，不设上限（#2231 的 D9）。随 `.artifacts/desktop/` 复制到另一个工作树时，除上一段的前提外，还要满足 Rust
 工具链和已安装目标相同、源工作树不在编译，并在使用前运行一次验证脚本确认清单哈希仍然一致；否则删掉 `remote-server/`，
-重新运行构建脚本。目前它只是构建状态：不进入安装包，应用运行时不读也不写，不影响代码签名或增量更新基线。把它放进发行包、
-运行时定位和校验它，留给 #2231 后续的连接实现。
+重新运行构建脚本。这个目录本身是构建状态：它不作为独立文件进入安装包，打包时按上文嵌入客户端二进制；开发运行只读取它，
+不写入。Desktop CI、Release 和 AutoBuild 都调用 `desktop-remote-server.yml` 构建一次，Release 与 AutoBuild 的每个打包任务
+下载这一份产物（artifact 不保留可执行位，下载后恢复 0755），通过 `LITHE_REMOTE_SERVER_STAGE` 交给 `package-desktop.sh`，
+所以同一次运行的所有安装包嵌入相同的、已在两种架构上冒烟测试过的字节。
 
 共享翻译源文件位于 `shared/i18n/`，桌面端生成文件是 Git 跟踪的 `desktop/internal/i18n/shared.generated.go`。每个工作树通过 Git 获取源文件和生成文件，然后运行 `node scripts/i18n/generate-i18n.mjs --check` 校验。修改源翻译后运行不带 `--check` 的同一命令，在当前工作树重新生成。资源身份由当前语言清单、词条和翻译共同决定，不需要下载，也没有独立的工具链或可复用 identity stamp。不要从其他工作树复制生成文件。生成文件随源码编译，不写入安装资源，也不改变签名和增量更新基线。维护步骤见 [共享翻译说明](../shared/i18n/README.md)。
 
