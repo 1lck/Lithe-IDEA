@@ -1040,6 +1040,8 @@ func New(options Options) *App {
 			// After the background is restored: the notice saves the settings, which would
 			// otherwise save no background.
 			a.noticeUnknownSettings()
+		} else {
+			a.noticeUnreadableSettings()
 		}
 	}
 	return a
@@ -1468,7 +1470,11 @@ func (a *App) saveSettings() {
 	// The background is the window's, which another tab may have changed since this one loaded.
 	a.settings.WorkbenchBackground = a.savedBackgroundState()
 	a.updates.store(&a.settings)
-	if err := a.store.Save(settingsFile, a.settings); err != nil {
+	backup, err := a.store.SaveWithBackup(settingsFile, a.settings)
+	if backup != "" {
+		a.noticeSettingsBackup(backup)
+	}
+	if err != nil {
 		a.operationFailed("settings_save", documentLogError(err))
 		a.notifyError(a.text.Errors.SaveFailed(err.Error()))
 	}

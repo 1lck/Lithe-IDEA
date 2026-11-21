@@ -9,6 +9,7 @@ import (
 
 	"github.com/1lck/Lithe-IDEA/desktop/internal/core"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/store"
+	"github.com/vivaui/viva/app"
 )
 
 // keptNotices is the notices that told about settings this version does not read.
@@ -102,5 +103,56 @@ func TestAnEditorSessionANewerVersionShapedDifferentlyIsLogged(t *testing.T) {
 
 	if _, operations := loggedStages(log); len(operations) != 1 || operations[0] != "editor_session_load" {
 		t.Fatalf("background failures = %v, want one for the editor session read", operations)
+	}
+}
+
+func TestUnreadableSettingsWarnAtStartupAndIdentifyTheBackupOnSave(t *testing.T) {
+	// Invalid settings follow system appearance before the workbench driver
+	// exists. Open Viva's headless driver first to supply that setting.
+	system, err := app.NewDriver(app.Config{}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(system.Close)
+	dir := t.TempDir()
+	original := []byte(`{"theme":"dark","incomplete":`)
+	path := filepath.Join(dir, settingsFile)
+	if err := os.WriteFile(path, original, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	h := newHarnessWithOptions(t, Options{
+		Kernel: &testKernel{Client: core.NewClient()}, Store: store.At(dir), Languages: []string{"en"},
+	})
+	notices := h.app.notifications.list
+	if len(notices) != 1 || !strings.Contains(notices[0].text, "Could not read settings") || !strings.Contains(notices[0].detail, "default settings") {
+		t.Fatalf("startup did not explain that default settings are in use: %+v", notices)
+	}
+	backups, err := filepath.Glob(path + ".unreadable-*")
+	if err != nil || len(backups) != 0 {
+		t.Fatalf("startup changed the backup files: %v, %v", backups, err)
+	}
+	if actual, err := os.ReadFile(path); err != nil || string(actual) != string(original) {
+		t.Fatalf("startup changed the settings file: %q, %v", actual, err)
+	}
+
+	h.app.setTheme("dark")
+	backups, err = filepath.Glob(path + ".unreadable-*")
+	if err != nil || len(backups) != 1 {
+		t.Fatalf("after saving, backups = %v, %v", backups, err)
+	}
+	if backup, err := os.ReadFile(backups[0]); err != nil || string(backup) != string(original) {
+		t.Fatalf("backup = %q, %v, want original settings bytes", backup, err)
+	}
+	notices = h.app.notifications.list
+	if len(notices) != 2 || !strings.Contains(notices[0].detail, backups[0]) {
+		t.Fatalf("saving did not report the backup path: %+v", notices)
+	}
+	var restored settings
+	if found, err := store.At(dir).Load(settingsFile, &restored); err != nil || !found || restored.Theme != "dark" {
+		t.Fatalf("new settings theme = %q, found = %v, err = %v", restored.Theme, found, err)
+	}
+	h.app.saveSettings()
+	if got := len(h.app.notifications.list); got != 2 {
+		t.Fatalf("second save produced a notice, got %d notices", got)
 	}
 }
