@@ -306,11 +306,18 @@ PINNED_CORE_REPOSITORY="https://github.com/Lithe-IDEA/Lithe-core-rust.git"
 # code for a workspace the user has not trusted (#2208).
 # Lithe-core-rust main at 94408ca: #142 returns Git's authentication failure without asking to
 # retry once a credential question was cancelled or expired unanswered (#2231).
-# Lithe-core-rust feat/2231-saved-connections at d1a5b82 (#145, on main 7c1cd55): #143 shares the
-# Unix socket peer check, #144 adds and removes single trusted locations (#2207), #145 keeps the
-# saved SSH connections (remote.connections, remote.editConnections) and refuses a field of a
-# connection by name. Replace with the main commit once #145 is merged.
-PINNED_CORE_REVISION="d1a5b829ef508f3b1a692a7d05df66004fe87b08"
+# Lithe-core-rust main at 7c1cd55: #143 shares one peer_uid implementation across the remote
+# crate; #144 lets toolchains.editCatalog add and remove trustedLocations, refusing filesystem
+# roots and lists over 256 entries (#2207).
+# Lithe-core-rust main at 7901a86: #145 keeps the saved SSH connections (remote.connections,
+# remote.editConnections) and refuses a field of a connection by name; #146 checks the server
+# build against the SHA-256 the client names before uploading it (S17); #148 gives OpenSSH only
+# allow-listed environment variables (S26); #149 reports resource labels, running time and the
+# terminal command in server.state (#2231).
+# Lithe-core-rust main at 66a1476: #147 starts, stops and lists port forwards
+# (remote.startForward, remote.stopForward, remote.forwards) and names the process of each
+# listening port (S28/S29, #2231).
+PINNED_CORE_REVISION="66a147629cc9f82fc551a52682b522230e6a8340"
 PROFILE="debug"
 CHECKOUT_ONLY="no"
 while [[ $# -gt 0 ]]; do

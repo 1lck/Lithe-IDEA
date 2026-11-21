@@ -13,11 +13,16 @@ import (
 	"github.com/1lck/Lithe-IDEA/desktop/internal/contractfixture"
 )
 
-var projectGeneratorFixtures = contractfixture.Path("fixtures/project-generators")
+// projectGeneratorFixtures is a function, not a package variable: this test binary also runs as
+// the AskPass helper, whose environment Core cuts to what ssh needs, and package initialisation
+// runs before TestMain can see that mode.
+func projectGeneratorFixtures() string {
+	return contractfixture.Path("fixtures/project-generators")
+}
 
 func projectFixture(t *testing.T, name string) json.RawMessage {
 	t.Helper()
-	data, err := os.ReadFile(filepath.Join(projectGeneratorFixtures, name))
+	data, err := os.ReadFile(filepath.Join(projectGeneratorFixtures(), name))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -99,7 +104,7 @@ func TestProjectGeneratorWrappersMatchTheSharedGoldenCases(t *testing.T) {
 					t.Fatalf("form = %+v\nwant %+v", form, *expected.Form)
 				}
 			case "generationPlan":
-				plan, err := client.ProjectGenerationPlanOf(projectContext(t), manifest, test.GeneratorID, projectGeneratorFixtures, input)
+				plan, err := client.ProjectGenerationPlanOf(projectContext(t), manifest, test.GeneratorID, projectGeneratorFixtures(), input)
 				if expected.Status == "rejected" {
 					var rejection *ProjectRejection
 					if !errors.As(err, &rejection) || rejection.Code != expected.Error.Code {
