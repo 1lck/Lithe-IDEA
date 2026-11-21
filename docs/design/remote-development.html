@@ -1,0 +1,998 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>Lithe · 远程开发窗口 交互原型（含从 Motty 导入）</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<!--
+  交互原型，不是实现。主机、用户、路径、指纹全部是虚构示例（*.example.com / 10.0.x.x）。
+  正式实现用 Viva 绘制，文案全部走 shared/i18n（desktop.remote.*），生效值、校验、导入映射由 Core 计算。
+  可用地址参数直接打开某个状态，例如：
+    #state=import&dark=1&notes=0
+  state 取值：empty overview edit newError testOk testFail hostKey password folder trust import importSsh
+-->
+<style>
+:root{
+  --bg:#c9ccd3; --surface:#ffffff; --side:#f7f8fa; --sel:#dfe7f8; --hover:#eef0f3;
+  --text:#1f2329; --sub:#6c707e; --faint:#9aa0ab; --line:#e4e6ea; --accent:#3574f0;
+  --ok:#208a3c; --warn:#c27d00; --err:#d1453b; --pill:#eef1f6; --chip:#e8f0fe;
+  --note:#ffd75e; --shadow:0 12px 40px rgba(0,0,0,.22); --hl:#fff3c4; --field:#f7f8fa;
+  font-family:-apple-system,BlinkMacSystemFont,"SF Pro Text","PingFang SC",sans-serif;
+  font-size:13px; color:var(--text);
+}
+html.dark{
+  --bg:#111214; --surface:#2b2d30; --side:#26282b; --sel:#2e436e; --hover:#33363a;
+  --text:#dfe1e5; --sub:#9da0a8; --faint:#6f737a; --line:#3a3d41; --accent:#548af7;
+  --ok:#5fb865; --warn:#e0a83e; --err:#f0716a; --pill:#393b40; --chip:#25324d;
+  --shadow:0 12px 40px rgba(0,0,0,.6); --hl:#4a4220; --field:#232427;
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);min-height:100vh;display:flex;flex-direction:column}
+button,input,select,textarea{font:inherit;color:inherit}
+.mono{font-family:"SF Mono",Menlo,monospace;font-size:11.5px}
+/* 演示条 */
+.demobar{width:100%;min-width:1240px;white-space:nowrap;display:flex;gap:14px;align-items:center;padding:8px 16px;background:#24262b;color:#ddd;font-size:12px;flex:none}
+.demobar b{color:#fff}.demobar label{display:flex;gap:5px;align-items:center;cursor:pointer}.demobar .sp{flex:1}
+.demobar select{background:#34373d;border:1px solid #484b52;border-radius:5px;padding:2px 6px;color:#eee}
+.stage{flex:1;display:flex;gap:18px;padding:22px;align-items:flex-start;justify-content:center;min-width:1240px}
+/* 窗口 */
+.win{width:980px;height:660px;flex:none;background:var(--surface);border-radius:12px;box-shadow:var(--shadow);display:flex;flex-direction:column;overflow:hidden;position:relative}
+.wtitle{height:48px;flex:none;display:flex;align-items:center;gap:10px;padding:0 10px 0 18px;border-bottom:1px solid var(--line)}
+.wtitle .t{font-size:15px;font-weight:600}
+.wtitle .crumb{color:var(--sub);display:flex;gap:6px;align-items:center}
+.wbody{flex:1;display:flex;min-height:0}
+/* 侧栏 */
+.side{width:270px;flex:none;background:var(--side);border-right:1px solid var(--line);display:flex;flex-direction:column;min-height:0}
+.side .top{display:flex;gap:4px;align-items:center;padding:10px 8px 8px 10px}
+.search{flex:1;display:flex;gap:6px;align-items:center;padding:4px 8px;border:1px solid var(--line);border-radius:7px;background:var(--surface);color:var(--faint);min-width:0}
+.search input{border:0;outline:0;background:transparent;width:100%;color:var(--text);min-width:0}
+.list{flex:1;overflow:auto;padding:0 6px 8px}
+.grp{display:flex;align-items:center;gap:6px;padding:8px 6px 3px;font-size:11px;font-weight:600;color:var(--faint);cursor:pointer;user-select:none}
+.grp .cnt{font-weight:400}
+.caret{width:10px;font-size:9px;transition:transform .12s;display:inline-block;text-align:center}
+.caret.open{transform:rotate(90deg)}
+.row{display:flex;align-items:center;gap:8px;padding:6px 8px;border-radius:7px;cursor:pointer;position:relative;min-height:44px}
+.row:hover{background:var(--hover)}
+.row.sel{background:var(--sel)}
+.row .cbar{position:absolute;left:0;top:9px;bottom:9px;width:3px;border-radius:2px}
+.row .txt{flex:1;min-width:0}
+.row .nm{font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.row .ad{font-size:11px;color:var(--sub);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-family:"SF Mono",Menlo,monospace}
+.row .st{font-size:10.5px;color:var(--faint);white-space:nowrap;display:flex;align-items:center;gap:4px;flex:none}
+.side .foot{border-top:1px solid var(--line);padding:7px 10px;display:flex;gap:6px;align-items:center;color:var(--faint);font-size:11px}
+/* 系统图标 */
+.os{width:24px;height:24px;border-radius:6px;display:inline-flex;align-items:center;justify-content:center;font-size:10px;font-weight:700;color:#fff;flex:none;letter-spacing:-.3px}
+.os.ubuntu{background:#e95420}.os.debian{background:#c70036}.os.linux{background:#5b6170}.os.unknown{background:var(--pill);color:var(--faint);border:1px dashed var(--faint)}
+.os.windows{background:#2b78d6}.os.lg{width:40px;height:40px;border-radius:10px;font-size:14px}
+/* 主区 */
+.main{flex:1;display:flex;flex-direction:column;min-width:0;min-height:0}
+.content{flex:1;overflow:auto;min-height:0}
+.pad{padding:18px 22px 22px}
+.foot2{height:56px;flex:none;border-top:1px solid var(--line);display:flex;align-items:center;gap:8px;padding:0 18px}
+.foot2 .sp{flex:1}
+.foot2 .msg{color:var(--sub);font-size:12px;display:flex;gap:6px;align-items:center;min-width:0;overflow:hidden;white-space:nowrap}
+/* 控件 */
+.btn{border:1px solid var(--line);background:var(--surface);padding:5px 13px;border-radius:7px;cursor:pointer;white-space:nowrap;display:inline-flex;align-items:center;gap:6px}
+.btn:hover{background:var(--hover)}
+.btn.pri{background:var(--accent);border-color:var(--accent);color:#fff}
+.btn.pri:hover{filter:brightness(1.08)}
+.btn.danger{color:var(--err)}
+.btn.sm{padding:2px 9px;font-size:12px;border-radius:6px}
+.btn.link{border-color:transparent;background:transparent;color:var(--accent);padding:2px 4px}
+.btn.link:hover{text-decoration:underline}
+.btn[disabled]{opacity:.45;cursor:default;pointer-events:none}
+.ib{border:0;background:transparent;cursor:pointer;width:26px;height:26px;border-radius:6px;color:var(--sub);font-size:15px;flex:none;display:inline-flex;align-items:center;justify-content:center;position:relative}
+.ib:hover{background:var(--hover);color:var(--text)}
+.ib.on{background:var(--hover);color:var(--text)}
+i.info{width:15px;height:15px;border-radius:50%;border:1px solid var(--faint);color:var(--faint);font-size:9.5px;font-weight:600;display:inline-flex;align-items:center;justify-content:center;cursor:help;flex:none;font-style:normal;position:relative}
+i.info:hover{border-color:var(--accent);color:var(--accent)}
+i.info .tip{display:none;position:absolute;left:50%;top:20px;transform:translateX(-50%);width:280px;background:#2b2d30;color:#eee;font-weight:400;font-size:11.5px;line-height:1.55;padding:8px 10px;border-radius:7px;z-index:60;box-shadow:0 6px 18px rgba(0,0,0,.3);text-align:left;white-space:normal}
+i.info:hover .tip{display:block}
+.tag{font-size:10.5px;padding:1px 7px;border-radius:999px;background:var(--pill);color:var(--sub);white-space:nowrap;flex:none;display:inline-flex;align-items:center;gap:4px}
+.tag.blue{background:var(--chip);color:var(--accent)}
+.tag.green{background:#e6f4ea;color:var(--ok)} html.dark .tag.green{background:#22382a}
+.tag.warn{background:#fff1d6;color:var(--warn)} html.dark .tag.warn{background:#3d3220}
+.tag.err{background:#fbe5e3;color:var(--err)} html.dark .tag.err{background:#45282a}
+.tag.from{background:transparent;border:1px solid var(--line);color:var(--sub)}
+.sdot{width:7px;height:7px;border-radius:50%;background:var(--ok);flex:none;display:inline-block}
+.sdot.idle{background:var(--faint)}.sdot.err{background:var(--err)}.sdot.warn{background:var(--warn)}
+.muted{color:var(--sub);font-size:12px}.faint{color:var(--faint);font-size:11.5px}
+.h2{font-size:12px;font-weight:600;color:var(--sub);margin:18px 0 8px;display:flex;align-items:center;gap:6px}
+.h2:first-child{margin-top:0}
+.h2 .sp{flex:1}
+.card{border:1px solid var(--line);border-radius:9px;background:var(--surface)}
+.box{border-radius:8px;padding:9px 11px;font-size:12px;line-height:1.55;display:flex;gap:9px;align-items:flex-start}
+.box .ic{font-size:14px;line-height:1.2;flex:none}
+.box .grow{flex:1;min-width:0}
+.box.ok{border:1px solid #bfe3c8;background:#f0faf2;color:#1d5f2e} html.dark .box.ok{background:#20321f;border-color:#2f5230;color:#a6dba9}
+.box.warn{border:1px solid #f1d29a;background:#fdf6e7;color:#7a5400} html.dark .box.warn{background:#3a301d;border-color:#5c4a24;color:#e8c47a}
+.box.err{border:1px solid #f0c4c0;background:#fdf0ef;color:#8a2a22} html.dark .box.err{background:#3d2524;border-color:#5f3532;color:#f2a39c}
+.box.info{border:1px solid var(--line);background:var(--side);color:var(--sub)}
+.box.ask{border:1px solid #bcd0f7;background:#f3f7ff;color:var(--text)} html.dark .box.ask{background:#22314d;border-color:#36507e}
+/* 表单（借鉴 Motty：标签在上，多列紧凑） */
+.fgrid{display:grid;grid-template-columns:repeat(12,1fr);column-gap:12px;row-gap:12px}
+.f{display:flex;flex-direction:column;gap:5px;min-width:0}
+.f>label,.f>.lb{font-size:12px;font-weight:500;display:flex;align-items:center;gap:5px;color:var(--text)}
+.f>.lb .opt{font-weight:400;color:var(--faint)}
+.s3{grid-column:span 3}.s4{grid-column:span 4}.s5{grid-column:span 5}.s6{grid-column:span 6}.s7{grid-column:span 7}.s8{grid-column:span 8}.s9{grid-column:span 9}.s12{grid-column:span 12}
+.inp{border:1px solid var(--line);border-radius:7px;padding:6px 9px;background:var(--field);outline:0;min-width:0;width:100%;height:32px}
+.inp::placeholder{color:var(--faint)}
+.inp:focus{border-color:var(--accent);background:var(--surface);box-shadow:0 0 0 3px rgba(53,116,240,.15)}
+.inp.bad{border-color:var(--err);background:var(--surface)}
+.ferr{font-size:11.5px;color:var(--err);display:flex;gap:4px;align-items:flex-start;line-height:1.45}
+.fhint{font-size:11.5px;color:var(--faint);line-height:1.45}
+.dd{position:relative}
+.dd select{appearance:none;-webkit-appearance:none;padding-right:26px;cursor:pointer}
+.dd::after{content:"⌄";position:absolute;right:10px;top:4px;color:var(--sub);pointer-events:none;font-size:14px}
+.withbtn{display:flex;gap:6px}
+.seg{display:inline-flex;background:var(--pill);border-radius:8px;padding:2px;flex:none}
+.seg button{border:0;background:transparent;padding:4px 12px;border-radius:6px;cursor:pointer;color:var(--sub);white-space:nowrap}
+.seg button.on{background:var(--surface);color:var(--text);box-shadow:0 1px 2px rgba(0,0,0,.12);font-weight:500}
+.seg.full{display:flex}.seg.full button{flex:1}
+.swatches{display:flex;gap:6px;align-items:center;height:32px}
+.sw{width:22px;height:22px;border-radius:50%;border:2px solid transparent;cursor:pointer;padding:0;position:relative;flex:none;box-shadow:inset 0 0 0 1px rgba(0,0,0,.08)}
+.sw.on{outline:2px solid var(--text);outline-offset:1px}
+.sw.none{background:var(--surface);border:1px solid var(--faint)}
+.sw.none::after{content:"";position:absolute;left:3px;right:3px;top:50%;height:1.5px;background:var(--faint);transform:rotate(-45deg)}
+/* 跳板链 */
+.hops{display:flex;align-items:center;gap:6px;flex-wrap:wrap;min-height:32px;border:1px solid var(--line);border-radius:7px;background:var(--field);padding:3px 6px}
+.hop{display:inline-flex;align-items:center;gap:5px;padding:2px 4px 2px 8px;border-radius:6px;background:var(--surface);border:1px solid var(--line);font-family:"SF Mono",Menlo,monospace;font-size:11.5px}
+.hop .x{border:0;background:transparent;cursor:pointer;color:var(--faint);padding:0 3px;font-size:12px}
+.hop .x:hover{color:var(--err)}
+.hopadd{border:0;background:transparent;color:var(--accent);cursor:pointer;font-size:12px;padding:2px 6px}
+.route{display:flex;align-items:center;gap:6px;font-size:11.5px;color:var(--sub);flex-wrap:wrap}
+.route .n{padding:1px 7px;border-radius:5px;background:var(--pill);font-family:"SF Mono",Menlo,monospace;font-size:11px}
+.route .n.tgt{background:var(--chip);color:var(--accent)}
+.route .ar{color:var(--faint)}
+/* 高级折叠 */
+.adv{border-top:1px solid var(--line);margin-top:16px;padding-top:6px}
+.advh{display:flex;align-items:center;gap:8px;padding:6px 2px;cursor:pointer;user-select:none}
+.advh b{font-weight:600;font-size:12.5px}
+.advh .sum{color:var(--faint);font-size:11.5px;margin-left:6px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+/* 概览 */
+.hero{display:flex;gap:14px;align-items:center;padding-bottom:16px;border-bottom:1px solid var(--line)}
+.hero .tt{flex:1;min-width:0}
+.hero .nm{font-size:17px;font-weight:600;display:flex;align-items:center;gap:8px}
+.hero .ad{margin-top:3px;color:var(--sub);display:flex;gap:6px;align-items:center;flex-wrap:wrap}
+.folders .fr{display:flex;align-items:center;gap:10px;padding:7px 10px;border-bottom:1px solid var(--line);cursor:pointer}
+.folders .fr:last-child{border-bottom:0}
+.folders .fr:hover{background:var(--hover)}
+.folders .fr .p{flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.folders .fr .go{visibility:hidden}
+.folders .fr:hover .go{visibility:visible}
+.kv{display:grid;grid-template-columns:repeat(4,1fr);gap:0}
+.kv>div{padding:9px 12px;border-right:1px solid var(--line)}
+.kv>div:last-child{border-right:0}
+.kv .k{font-size:11px;color:var(--faint)}
+.kv .v{margin-top:3px;font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.eff{width:100%;border-collapse:collapse}
+.eff td{padding:6px 12px;border-bottom:1px solid var(--line);vertical-align:middle}
+.eff tr:last-child td{border-bottom:0}
+.eff td.k{width:110px;color:var(--sub)}
+.eff td.s{width:150px;text-align:right}
+/* 连接步骤 */
+.steps{display:flex;flex-direction:column}
+.step{display:flex;gap:12px;position:relative;padding-bottom:14px}
+.step::before{content:"";position:absolute;left:10px;top:24px;bottom:0;width:2px;background:var(--line)}
+.step:last-child::before{display:none}
+.step .ico{width:22px;height:22px;border-radius:50%;flex:none;display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:700;background:var(--pill);color:var(--faint);z-index:1}
+.step.done .ico{background:var(--ok);color:#fff}
+.step.run .ico{background:var(--accent);color:#fff}
+.step.ask .ico{background:var(--warn);color:#fff}
+.step.fail .ico{background:var(--err);color:#fff}
+.step .bd{flex:1;min-width:0;padding-top:2px}
+.step .tl{display:flex;gap:8px;align-items:center}
+.step.wait .tl{color:var(--faint)}
+.step .tm{margin-left:auto;font-size:11px;color:var(--faint);font-variant-numeric:tabular-nums}
+.step .ds{font-size:11.5px;color:var(--sub);margin-top:2px}
+.spin{width:11px;height:11px;border:2px solid rgba(255,255,255,.4);border-top-color:#fff;border-radius:50%;animation:sp 0.8s linear infinite}
+@keyframes sp{to{transform:rotate(360deg)}}
+.log{margin-top:10px;background:#1e1f22;color:#c9ccd3;border-radius:8px;padding:10px 12px;font-family:"SF Mono",Menlo,monospace;font-size:11px;line-height:1.6;max-height:170px;overflow:auto;white-space:pre-wrap}
+.log .d{color:#7f8590}
+.fp{font-family:"SF Mono",Menlo,monospace;font-size:12px;background:var(--surface);border:1px solid var(--line);border-radius:6px;padding:6px 9px;margin:6px 0;word-break:break-all;user-select:all}
+.prog{height:4px;border-radius:2px;background:var(--pill);overflow:hidden;margin-top:6px;width:240px}
+.prog>i{display:block;height:100%;background:var(--accent);transition:width .25s}
+/* 文件夹选择 */
+.pathbar{display:flex;gap:6px;align-items:center}
+.crumbs{display:flex;align-items:center;gap:2px;flex-wrap:wrap;font-size:12px;margin:8px 0}
+.crumbs .c{padding:1px 6px;border-radius:5px;cursor:pointer;color:var(--sub)}
+.crumbs .c:hover{background:var(--hover);color:var(--text)}
+.crumbs .c.last{color:var(--text);font-weight:600}
+.crumbs .sep{color:var(--faint)}
+.dirs{border:1px solid var(--line);border-radius:9px;overflow:hidden}
+.dirs .dr{display:flex;align-items:center;gap:9px;padding:6px 10px;cursor:pointer;border-bottom:1px solid var(--line)}
+.dirs .dr:last-child{border-bottom:0}
+.dirs .dr:hover{background:var(--hover)}
+.dirs .dr.sel{background:var(--sel)}
+.dirs .dr.file{color:var(--faint);cursor:default}
+.dirs .dr .nm{flex:1;min-width:0}
+.quick{display:flex;gap:6px;flex-wrap:wrap}
+.qc{padding:3px 10px;border-radius:999px;background:var(--pill);cursor:pointer;font-size:12px;color:var(--sub);border:1px solid transparent;white-space:nowrap}
+.qc:hover{border-color:var(--line);color:var(--text)}
+.chk{display:inline-flex;gap:6px;align-items:center;cursor:pointer;user-select:none}
+.chk input{margin:0;accent-color:var(--accent)}
+/* 空状态 */
+.empty{height:100%;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:30px 50px;text-align:center}
+.empty .big{font-size:18px;font-weight:600;margin-top:12px}
+.empty .quickc{display:flex;gap:8px;margin-top:16px;width:460px}
+.empty .quickc .inp{flex:1;height:34px}
+.srcs{display:grid;grid-template-columns:1fr 1fr;gap:10px;width:460px;margin-top:22px;text-align:left}
+.src{border:1px solid var(--line);border-radius:10px;padding:11px 12px;cursor:pointer;display:flex;gap:10px;align-items:center}
+.src:hover{border-color:var(--accent);background:var(--hover)}
+.src .lg{width:30px;height:30px;border-radius:8px;display:flex;align-items:center;justify-content:center;font-weight:700;color:#fff;flex:none}
+.divider{display:flex;align-items:center;gap:10px;color:var(--faint);font-size:11.5px;width:460px;margin-top:26px}
+.divider::before,.divider::after{content:"";flex:1;height:1px;background:var(--line)}
+/* 导入 */
+.itable{width:100%;border-collapse:collapse}
+.itable th{font-size:11px;font-weight:600;color:var(--faint);text-align:left;padding:6px 8px;border-bottom:1px solid var(--line);white-space:nowrap}
+.itable td{padding:7px 8px;border-bottom:1px solid var(--line);vertical-align:middle}
+.itable tr.off td{color:var(--faint)}
+.itable tr.off .ad{color:var(--faint)}
+.itable tr.exp td{background:var(--side)}
+.itable .ad{font-family:"SF Mono",Menlo,monospace;font-size:11px;color:var(--sub)}
+.map{width:100%;border-collapse:collapse;font-size:12px;margin:2px 0 4px}
+.map td{padding:4px 8px;border-bottom:1px dashed var(--line)}
+.map tr:last-child td{border-bottom:0}
+.map td.m{color:var(--sub);width:140px}
+.map td.a{color:var(--faint);width:22px;text-align:center}
+.map td.r{width:84px;text-align:right}
+.map td.mono{white-space:nowrap}
+.lost{display:flex;flex-direction:column;gap:6px;margin-top:8px}
+.lost .li{display:flex;gap:8px;font-size:12px;line-height:1.5}
+.lost .li b{font-weight:500;min-width:140px}
+.lost .li span{color:var(--sub)}
+/* 菜单与提示 */
+.menu{position:absolute;z-index:50;background:var(--surface);border:1px solid var(--line);border-radius:8px;box-shadow:0 8px 24px rgba(0,0,0,.18);padding:4px;min-width:200px}
+.menu .mi{padding:6px 10px;border-radius:5px;cursor:pointer;display:flex;gap:8px;align-items:center;white-space:nowrap}
+.menu .mi:hover{background:var(--accent);color:#fff}
+.menu .mi:hover .faint{color:#e6ecff}
+.menu .sepm{height:1px;background:var(--line);margin:4px 2px}
+.menu .mi.danger{color:var(--err)}
+.menu .mi.danger:hover{background:var(--err);color:#fff}
+.toast{position:absolute;left:50%;bottom:70px;transform:translateX(-50%);background:#2b2d30;color:#fff;padding:7px 14px;border-radius:8px;font-size:12px;z-index:70;box-shadow:0 6px 18px rgba(0,0,0,.3)}
+/* 设计标注 */
+.nb{display:inline-flex;align-items:center;justify-content:center;min-width:17px;height:17px;padding:0 4px;border-radius:9px;background:var(--note);color:#3a2d00;font-size:10px;font-weight:700;cursor:pointer;flex:none;box-shadow:0 0 0 2px rgba(255,215,94,.35);font-style:normal;vertical-align:middle}
+html.nonotes .nb{display:none}
+.notes{width:340px;flex:none;background:var(--surface);border-radius:12px;box-shadow:var(--shadow);display:flex;flex-direction:column;max-height:660px;overflow:hidden}
+.notes .h{padding:12px 14px;border-bottom:1px solid var(--line);font-weight:600;display:flex;align-items:center;gap:6px}
+.notes .l{overflow:auto;padding:10px 14px 20px;display:flex;flex-direction:column;gap:11px}
+.notes .n{display:flex;gap:8px;line-height:1.6;font-size:12px}
+.notes .n.hl{background:var(--hl);border-radius:6px;padding:4px}
+.notes .old{font-size:12px;line-height:1.6;color:var(--sub);background:var(--side);border:1px dashed var(--line);border-radius:8px;padding:8px 10px}
+.notes .old b{color:var(--text)}
+.notes .old ol{margin:4px 0 0;padding-left:18px}
+.notes .tt{font-size:11px;font-weight:600;color:var(--faint);margin-top:4px}
+.notes code{font-family:"SF Mono",Menlo,monospace;font-size:11px;background:var(--pill);padding:0 3px;border-radius:3px}
+html.nonotes .notes{display:none}
+</style>
+</head>
+<body>
+<div class="demobar">
+  <b>交互原型</b><span>远程开发窗口（重设计，含从 Motty 导入）</span>
+  <label>状态
+    <select id="optState">
+      <option value="empty">首次使用（没有保存的连接）</option>
+      <option value="overview" selected>选中连接 · 概览</option>
+      <option value="edit">编辑连接</option>
+      <option value="newError">新建连接 · 字段错误</option>
+      <option value="testOk">测试连接 · 成功</option>
+      <option value="testFail">测试连接 · 失败</option>
+      <option value="hostKey">连接中 · 确认主机密钥</option>
+      <option value="password">连接中 · 输入密码</option>
+      <option value="folder">已连接 · 选择远程文件夹</option>
+      <option value="trust">打开前 · 信任确认</option>
+      <option value="import">从 Motty 导入</option>
+      <option value="importSsh">从 SSH 配置导入</option>
+    </select>
+  </label>
+  <label><input type="checkbox" id="optDark"> 深色</label>
+  <label><input type="checkbox" id="optNotes" checked> 设计标注</label>
+  <span class="sp"></span>
+  <span style="color:#9fb4d8">点“连接”可以走完整流程：主机密钥 → 密码 → 安装远程服务 → 选文件夹 → 信任</span>
+</div>
+<div class="stage">
+  <div class="win" id="win"></div>
+  <div class="notes" id="notes"></div>
+</div>
+
+<script>
+"use strict";
+const $=s=>document.querySelector(s);
+const esc=s=>String(s??"").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+const nb=n=>`<i class="nb" data-note="${n}">${n}</i>`;
+const info=t=>`<i class="info">i<span class="tip">${t}</span></i>`;
+
+/* ---------- 示例数据（全部虚构） ---------- */
+const COLORS=[["none",""],["red","#e5484d"],["orange","#f76b15"],["yellow","#e2a400"],["green","#30a46c"],["blue","#3b82f6"],["purple","#8e4ec6"]];
+const colorOf=k=>(COLORS.find(c=>c[0]===k)||["",""])[1];
+const OSNAME={ubuntu:"Ub",debian:"De",linux:"Lx",unknown:"?",windows:"Win"};
+const osIcon=(os,lg)=>`<span class="os ${os||"unknown"} ${lg?"lg":""}">${OSNAME[os||"unknown"]}</span>`;
+
+const SEED_GROUPS=[{id:"g-build",name:"构建机"},{id:"g-stage",name:"测试环境"},{id:"g-own",name:"个人"}];
+const SEED=[
+  {id:"build-01",name:"build-01",host:"build-01.example.com",port:"",user:"deploy",auth:"key",key:"~/.ssh/id_ed25519",hops:["bastion.example.com"],timeout:"",keep:"30",color:"blue",group:"g-build",os:"ubuntu",
+   status:"connected",windows:1,last:"已连接",known:true,
+   probe:{sys:"Ubuntu 24.04 LTS",arch:"x86_64",host:"build-01",cpu:"32",mem:"125.7 GiB",disk:"可用 412 GiB，共 1.8 TiB",when:"10 分钟前"},
+   eff:{port:["22","默认"],user:["deploy","本连接"],auth:["私钥 ~/.ssh/id_ed25519","本连接"],hops:["bastion.example.com","本连接"],timeout:["15 秒","默认"],keep:["30 秒","本连接"]},
+   folders:[["~/src/lithe","2 小时前",true],["~/src/lithe-core-rust","昨天",true],["/srv/ci/workspace","3 天前",false]]},
+  {id:"build-arm",name:"build-arm",host:"build-arm.example.com",port:"",user:"ci",auth:"agent",key:"",hops:[],timeout:"",keep:"",color:"green",group:"g-build",os:"debian",
+   status:"idle",last:"昨天",known:true,
+   probe:{sys:"Debian 12",arch:"aarch64",host:"build-arm",cpu:"64",mem:"251.4 GiB",disk:"可用 1.1 TiB，共 1.8 TiB",when:"昨天"},
+   eff:{port:["22","默认"],user:["ci","本连接"],auth:["SSH Agent","本连接"],hops:["无","默认"],timeout:["15 秒","默认"],keep:["60 秒","~/.ssh/config"]},
+   folders:[["~/work/viva","昨天",true]]},
+  {id:"staging-api",name:"staging-api",host:"10.0.12.34",port:"2222",user:"ubuntu",auth:"password",key:"",hops:["bastion.example.com"],timeout:"30",keep:"",color:"orange",group:"g-stage",os:"ubuntu",
+   status:"idle",last:"5 天前",known:false,from:"Motty",
+   probe:{sys:"Ubuntu 22.04 LTS",arch:"x86_64",host:"staging-api-1",cpu:"8",mem:"15.6 GiB",disk:"可用 61 GiB，共 160 GiB",when:"5 天前"},
+   eff:{port:["2222","本连接"],user:["ubuntu","本连接"],auth:["密码（连接时询问）","本连接"],hops:["bastion.example.com","本连接"],timeout:["30 秒","本连接"],keep:["未设置","默认"]},
+   folders:[]},
+  {id:"devbox",name:"devbox",host:"devbox",port:"",user:"",auth:"auto",key:"",hops:[],timeout:"",keep:"",color:"none",group:"g-own",os:"unknown",
+   status:"never",last:"",known:false,
+   probe:null,
+   eff:{port:["2200","~/.ssh/config"],user:["yao","~/.ssh/config"],auth:["自动（IdentityFile ~/.ssh/devbox_ed25519）","~/.ssh/config"],hops:["无","默认"],timeout:["15 秒","默认"],keep:["未设置","默认"]},
+   folders:[]},
+];
+/* Motty 示例：字段结构取自 config.db 的 records(kind='host'|'group').payload.d；值全部虚构 */
+const MOTTY=[
+  {id:"m1",name:"web-01",addr:"web-01.example.com",port:22,user:"root",auth:"密码",color:"red",group:"生产",os:"ubuntu",state:"partial",
+   map:[["名称","web-01","名称","ok"],["地址 / 端口","web-01.example.com : 22","主机 / 端口","ok"],["用户","root","用户名","ok"],["认证方式","密码（已加密保存）","身份验证：密码","warn","密码本身不导入，连接时询问"],["颜色 / 分组","红 / 生产","颜色 / 分组","ok"],["登录后命令","sudo -i","—","lost","远程开发不打开登录终端"],["一次性验证码密钥","已设置","—","lost","验证码在连接时询问"]]},
+  {id:"m2",name:"gpu-box",addr:"gpu.example.net",port:2200,user:"yao",auth:"私钥",color:"purple",group:"实验室",os:"ubuntu",state:"ok",
+   map:[["名称","gpu-box","名称","ok"],["地址 / 端口","gpu.example.net : 2200","主机 / 端口","ok"],["用户","yao","用户名","ok"],["认证方式 + 仅使用已配置的身份","私钥 ~/.ssh/lab_ed25519","身份验证：私钥文件","ok"],["空闲保活","30 秒","保活间隔 30","ok"],["系统","ubuntu","系统图标（首次测试后更新）","ok"],["转发 ssh-agent","开","—","lost","远程开发会话不转发 agent"]]},
+  {id:"m3",name:"nas",addr:"nas.internal",port:22,user:"admin",auth:"自动",color:"none",group:"实验室",os:"debian",state:"ok",
+   map:[["名称","nas","名称","ok"],["地址","nas.internal","主机","ok"],["跳板路由","经 gpu-box","跳板机 yao@gpu.example.net:2200","ok","引用的 Motty 主机展开成 [用户@]主机[:端口]"],["SSH 算法","兼容","—","lost","按 SSH 配置"]]},
+  {id:"m4",name:"build-01",addr:"build-01.example.com",port:22,user:"deploy",auth:"自动",color:"blue",group:"构建机",os:"ubuntu",state:"dup",
+   map:[["主机 + 用户 + 端口","deploy@build-01.example.com:22","已保存的 build-01","dup"]]},
+  {id:"m5",name:"win-desktop",addr:"10.0.3.20",port:22,user:"yao",auth:"密码",color:"none",group:"",os:"windows",state:"unsupported",reason:"远端是 Windows",
+   map:[["系统","windows","—","lost","远程开发目前只支持 x86_64 / arm64 Linux"]]},
+  {id:"m6",name:"switch-core",addr:"10.0.0.1",port:23,user:"",auth:"—",color:"none",group:"",os:"unknown",proto:"Telnet",state:"unsupported",reason:"Telnet 主机",
+   map:[["协议","Telnet","—","lost","远程开发只用 SSH"]]},
+];
+const SSHCFG=[
+  {alias:"devbox",host:"devbox.lan",user:"yao",port:"2200",exists:true},
+  {alias:"lab-*",wild:true},
+  {alias:"gpu",host:"gpu.example.net",user:"yao",port:"2200",exists:false},
+  {alias:"bastion",host:"bastion.example.com",user:"jump",port:"22",exists:false,note:"作为其他主机的 ProxyJump"},
+  {alias:"pi",host:"192.168.1.42",user:"pi",port:"22",exists:false},
+];
+
+/* ---------- 状态 ---------- */
+const S={
+  state:"overview",view:"overview",sel:"build-01",conns:[],groups:[],collapsed:{},q:"",
+  form:null,err:{},advOpen:false,dirty:false,test:null,logOpen:false,
+  conn:null,folder:null,trustOpen:false,
+  imp:null,
+  menu:null,toast:null,dark:false,notes:true,noteHl:null,
+};
+let timers=[];
+const later=(ms,f)=>{const t=setTimeout(f,ms);timers.push(t);};
+const clearTimers=()=>{timers.forEach(clearTimeout);timers=[];};
+const cur=()=>S.conns.find(c=>c.id===S.sel);
+const clone=o=>JSON.parse(JSON.stringify(o));
+
+function formFrom(c){return c?{id:c.id,name:c.name,host:c.host,port:c.port,user:c.user,auth:c.auth,key:c.key,hops:[...c.hops],timeout:c.timeout,keep:c.keep,color:c.color,group:c.group}
+  :{id:null,name:"",host:"",port:"",user:"",auth:"auto",key:"",hops:[],timeout:"",keep:"",color:"none",group:""};}
+
+function applyState(st){
+  clearTimers();
+  Object.assign(S,{state:st,conns:clone(SEED),groups:clone(SEED_GROUPS),sel:"build-01",view:"overview",form:null,err:{},advOpen:false,dirty:false,test:null,logOpen:false,conn:null,folder:null,imp:null,menu:null,toast:null,q:"",addingHop:false});
+  switch(st){
+    case "empty":S.conns=[];S.sel=null;S.view="empty";break;
+    case "overview":break;
+    case "edit":S.view="edit";S.form=formFrom(cur());S.advOpen=true;break;
+    case "newError":S.sel=null;S.view="edit";S.form=Object.assign(formFrom(null),{host:"deploy@build-02.example.com:2222",port:"70000",name:"build-01"});
+      S.err={host:"只填主机名、IP 地址或 SSH 别名；用户名和端口请填到各自的字段。",port:"请填 1 到 65535 之间的端口。",name:"已有同名的连接（不区分大小写）。"};S.dirty=true;break;
+    case "testOk":S.view="edit";S.form=formFrom(cur());S.test={kind:"ok"};break;
+    case "testFail":S.sel="staging-api";S.view="edit";S.form=formFrom(cur());S.test={kind:"auth"};S.logOpen=true;break;
+    case "hostKey":S.sel="staging-api";startConnect("open",{stopAt:"hostkey"});break;
+    case "password":S.sel="staging-api";startConnect("open",{stopAt:"password"});break;
+    case "folder":openFolder();break;
+    case "trust":openFolder();S.folder.pick="/home/deploy/src/lithe";S.view="trust";break;
+    case "import":openImport("motty");break;
+    case "importSsh":openImport("ssh");break;
+  }
+}
+
+/* ---------- 连接流程模拟 ---------- */
+const STEPS=[
+  ["config","读取 SSH 配置","ssh -G 解析出生效的主机、端口、用户和跳板"],
+  ["ssh","建立 SSH 连接",""],
+  ["auth","身份验证",""],
+  ["platform","检查远端平台","只支持 x86_64 / arm64 Linux"],
+  ["install","安装远程服务","上传到远端私有目录，远端自算 SHA-256 后才启动"],
+  ["start","启动远程服务并建立会话",""],
+];
+/* opt.c：要连接的对象（编辑页测试时是按表单临时拼出的连接）；opt.saved：对应的已保存连接；
+   opt.back：停止或测试结束后回到哪个视图；opt.then：连接后直接打开的最近文件夹 */
+function startConnect(target,opt={}){
+  clearTimers();
+  const c=opt.c||cur();
+  const back=opt.back||(S.view==="edit"?"edit":"overview");
+  S.view="connect";S.menu=null;
+  S.conn={target,c,saved:opt.c?opt.saved||null:c,back,then:opt.then||null,i:0,ask:null,done:{},times:{},prog:0,log:["$ ssh -G "+c.host]};
+  if(opt.stopAt==="hostkey"){S.conn.i=1;S.conn.done={config:true};S.conn.times={config:"0.1 秒"};S.conn.ask="hostkey";S.conn.log.push("debug1: Connecting to bastion.example.com port 22.","debug1: Authenticated to bastion.example.com (publickey).","debug1: channel 0: connected to 10.0.12.34 port 2222","The authenticity of host '[10.0.12.34]:2222' can't be established.");return;}
+  if(opt.stopAt==="password"){S.conn.i=2;S.conn.done={config:true,ssh:true};S.conn.times={config:"0.1 秒",ssh:"0.8 秒"};S.conn.ask="password";S.conn.log.push("debug1: Connecting to bastion.example.com port 22.","debug1: Authenticated to bastion.example.com (publickey).","Warning: Permanently added '[10.0.12.34]:2222' (ED25519) to the list of known hosts.","debug1: Next authentication method: password","ubuntu@10.0.12.34's password:");return;}
+  tick();
+}
+function stepDone(id,t){S.conn.done[id]=true;S.conn.times[id]=t;S.conn.i++;}
+function finishConnect(){
+  const k=S.conn,c=k.c,saved=k.saved;
+  const probe=c.probe?Object.assign({},c.probe,{when:"刚刚"}):{sys:"Ubuntu 24.04 LTS",arch:"x86_64",host:c.host.split(".")[0],cpu:"16",mem:"31.2 GiB",disk:"可用 220 GiB，共 476 GiB",when:"刚刚"};
+  for(const o of [c,saved].filter(Boolean)){o.probe=probe;if(o.os==="unknown")o.os="ubuntu";o.known=true;}
+  S.conn=null;
+  if(k.target==="test"){
+    if(saved&&saved.status==="never"){saved.status="idle";saved.last="刚刚";}
+    if(k.back==="edit"){S.view="edit";S.test={kind:"ok",c};}
+    else{S.view="overview";toast("测试成功："+c.name+" 可以用于远程开发");return;}
+  }else{
+    saved.status="connected";saved.last="已连接";saved.windows=(saved.windows||0)+(k.then?1:0);
+    if(k.then){const f=saved.folders.find(x=>x[0]===k.then);if(f)f[1]="刚刚";S.view="overview";toast("已连接 "+saved.name+"，在新窗口打开 "+k.then);return;}
+    openFolder(true);
+  }
+  render();
+}
+function tick(){
+  const k=S.conn;if(!k)return;
+  const c=k.c;
+  const id=STEPS[k.i]?.[0];
+  render();
+  if(!id){later(450,finishConnect);return;}
+  if(id==="config"){later(350,()=>{k.log.push("hostname "+c.host,"port "+(c.port||"22"),"user "+(c.user||"yao"));stepDone("config","0.1 秒");tick();});return;}
+  if(id==="ssh"){later(700,()=>{k.log.push("debug1: Connecting to "+(c.hops[0]||c.host)+" port 22.");if(!c.known){k.ask="hostkey";k.log.push("The authenticity of host '"+c.host+"' can't be established.");render();}else{stepDone("ssh","0.8 秒");tick();}});return;}
+  if(id==="auth"){later(500,()=>{if(c.auth==="password"){k.ask="password";k.log.push(c.user+"@"+c.host+"'s password:");render();}else{k.log.push("debug1: Authenticated to "+c.host+" (publickey).");stepDone("auth","0.4 秒");tick();}});return;}
+  if(id==="platform"){later(500,()=>{k.log.push("uname: Linux x86_64");stepDone("platform","0.2 秒");tick();});return;}
+  if(id==="install"){
+    if(k.target==="test"){stepDone("install","已安装，跳过");tick();return;}
+    const step=()=>{k.prog+=20;render();if(k.prog<100)later(260,step);else{k.log.push("lithe-remote-server 0.8.12 x86_64-musl sha256 ok");stepDone("install","1.3 秒");tick();}};later(200,step);return;}
+  if(id==="start"){later(600,()=>{k.log.push("server.hello: protocol 1");stepDone("start","0.3 秒");tick();});return;}
+}
+function answer(ok){
+  const k=S.conn;if(!k||!k.ask)return;
+  const c=k.c;
+  if(!ok){k.fail=k.ask==="hostkey"?"hostkey":"auth";k.ask=null;k.log.push(k.fail==="hostkey"?"Host key verification failed.":"Permission denied (password).");render();return;}
+  if(k.ask==="hostkey"){c.known=true;if(k.saved)k.saved.known=true;k.log.push("Warning: Permanently added '"+c.host+"' (ED25519) to the list of known hosts.");k.ask=null;stepDone("ssh","4.2 秒");}
+  else if(k.ask==="password"){k.log.push("debug1: Authentication succeeded (password).");k.ask=null;stepDone("auth","3.1 秒");}
+  tick();
+}
+
+/* ---------- 文件夹与信任 ---------- */
+const TREE={
+  "/home/deploy":[["src",1],[".cache",1],[".config",1],["notes.md",0]],
+  "/home/deploy/src":[["lithe",1,"git"],["lithe-core-rust",1,"git"],["scratch",1],["README.txt",0]],
+  "/home/deploy/src/lithe":[["desktop",1],["docs",1],["scripts",1],["shared",1],["go.work",0],["README.md",0]],
+  "/home/deploy/src/lithe-core-rust":[["rust",1],["shared",1],["README.md",0]],
+  "/home/deploy/src/scratch":[["a.go",0]],
+};
+function openFolder(fromConnect){
+  S.sel=S.sel||"build-01";
+  if(!fromConnect){S.conns=S.conns.length?S.conns:clone(SEED);S.sel="build-01";}
+  S.view="folder";S.folder={path:"/home/deploy/src",pick:null,newWin:false,typed:""};
+}
+
+/* ---------- 导入 ---------- */
+function openImport(src){
+  S.view="import";
+  S.imp={src,keepGroups:true,keepColors:true,exp:"m2",lostOpen:false,
+    pick:Object.fromEntries(MOTTY.map(m=>[m.id,m.state==="ok"||m.state==="partial"])),
+    dupMode:"skip",
+    sshPick:Object.fromEntries(SSHCFG.map(h=>[h.alias,!h.wild&&!h.exists&&h.alias!=="bastion"]))};
+}
+function doImport(){
+  const im=S.imp;let n=0;
+  if(im.src==="motty"){
+    MOTTY.forEach(m=>{if(!im.pick[m.id])return;
+      if(m.state==="dup"&&im.dupMode==="skip")return;
+      let g="";if(im.keepGroups&&m.group){let gg=S.groups.find(x=>x.name===m.group);if(!gg){gg={id:"g-"+m.group,name:m.group};S.groups.push(gg);}g=gg.id;}
+      if(m.state==="dup"){const e=S.conns.find(c=>c.id==="build-01");if(e){e.from="Motty";}n++;return;}
+      S.conns.push({id:m.id,name:m.name,host:m.addr,port:m.port===22?"":String(m.port),user:m.user,auth:m.auth==="密码"?"password":m.auth==="私钥"?"key":"auto",key:m.auth==="私钥"?"~/.ssh/lab_ed25519":"",hops:m.id==="m3"?["yao@gpu.example.net:2200"]:[],timeout:"",keep:m.id==="m2"?"30":"",color:im.keepColors?m.color:"none",group:g,os:m.os,status:"never",last:"",known:false,from:"Motty",probe:null,
+        eff:{port:[String(m.port),m.port===22?"默认":"本连接"],user:[m.user,"本连接"],auth:m.auth==="自动"?["自动","默认"]:[m.auth==="密码"?"密码（连接时询问）":"私钥 ~/.ssh/lab_ed25519","本连接"],hops:[m.id==="m3"?"yao@gpu.example.net:2200":"无",m.id==="m3"?"本连接":"默认"],timeout:["15 秒","默认"],keep:[m.id==="m2"?"30 秒":"未设置",m.id==="m2"?"本连接":"默认"]},folders:[]});n++;});
+  }else{
+    SSHCFG.forEach(h=>{if(h.wild||!im.sshPick[h.alias]||h.exists)return;
+      S.conns.push({id:"ssh-"+h.alias,name:h.alias,host:h.alias,port:"",user:"",auth:"auto",key:"",hops:[],timeout:"",keep:"",color:"none",group:"",os:"unknown",status:"never",last:"",known:false,from:"SSH 配置",probe:null,
+        eff:{port:[h.port,"~/.ssh/config"],user:[h.user,"~/.ssh/config"],auth:["自动","默认"],hops:["无","默认"],timeout:["15 秒","默认"],keep:["未设置","默认"]},folders:[]});n++;});
+  }
+  S.view=S.conns.length?"overview":"empty";S.sel=S.conns.at(-1)?.id||null;S.imp=null;toast("已导入 "+n+" 个连接");
+}
+
+/* ---------- 渲染：侧栏 ---------- */
+function statusHtml(c){
+  if(c.status==="connected")return `<span class="st"><span class="sdot"></span>已连接</span>`;
+  if(c.status==="never")return `<span class="st">未连接过</span>`;
+  return `<span class="st">${esc(c.last)}</span>`;
+}
+function addr(c){const u=c.user?c.user+"@":"";const p=c.port?":"+c.port:"";return u+c.host+p;}
+function sideHtml(){
+  const q=S.q.trim().toLowerCase();
+  const match=c=>!q||(c.name+" "+addr(c)).toLowerCase().includes(q);
+  const groups=[...S.groups.map(g=>[g.id,g.name]),["","未分组"]];
+  let rows="";
+  for(const [gid,gname] of groups){
+    const list=S.conns.filter(c=>(c.group||"")===gid&&match(c));
+    if(!list.length)continue;
+    const open=!S.collapsed[gid];
+    rows+=`<div class="grp" data-act="grp" data-id="${gid}"><span class="caret ${open?"open":""}">▶</span>${esc(gname)}<span class="cnt">${list.length}</span></div>`;
+    if(open)rows+=list.map(c=>`<div class="row ${c.id===S.sel&&S.view!=="import"&&!(S.view==="edit"&&!S.form.id)&&!(S.view==="connect"&&!S.conn.saved)?"sel":""}" data-act="pick" data-id="${c.id}">
+      ${c.color&&c.color!=="none"?`<span class="cbar" style="background:${colorOf(c.color)}"></span>`:""}
+      ${osIcon(c.os)}
+      <div class="txt"><div class="nm">${esc(c.name)}</div><div class="ad">${esc(addr(c))}</div></div>
+      ${statusHtml(c)}</div>`).join("");
+  }
+  if(!S.conns.length)rows=`<div class="faint" style="padding:14px 10px;line-height:1.6">还没有保存的连接。</div>`;
+  else if(!rows)rows=`<div class="faint" style="padding:14px 10px">没有匹配“${esc(S.q)}”的连接。</div>`;
+  return `<div class="side">
+    <div class="top">
+      <div class="search">⌕<input id="q" placeholder="搜索名称或地址" value="${esc(S.q)}"></div>
+      <button class="ib ${S.menu==="import"?"on":""}" title="导入" data-act="menu" data-id="import">⇩</button>
+      <button class="ib" title="新建连接" data-act="new">＋</button>
+      ${nb(1)}
+    </div>
+    ${S.menu==="import"?`<div class="menu" style="left:150px;top:40px">
+      <div class="mi" data-act="import" data-id="motty"><b style="width:16px">M</b>从 Motty 导入…<span class="faint" style="margin-left:auto">6 台主机</span></div>
+      <div class="mi" data-act="import" data-id="ssh"><b style="width:16px">~</b>从 SSH 配置导入…<span class="faint" style="margin-left:auto">4 个 Host</span></div>
+    </div>`:""}
+    <div class="list">${rows}</div>
+    <div class="foot">${info("保存在本机的 ~/Library/Application Support/Lithe/remote/connections.json。不会保存密码和私钥内容。")}<span>${S.conns.length} 个连接 · 只保存在本机</span></div>
+  </div>`;
+}
+
+/* ---------- 渲染：主区各视图 ---------- */
+function titleHtml(){
+  const c=cur();
+  let crumb="";
+  if(S.view==="import")crumb=`<span class="crumb">›<span>${S.imp.src==="motty"?"从 Motty 导入":"从 SSH 配置导入"}</span></span>`;
+  else if(S.view==="edit")crumb=`<span class="crumb">›<span>${S.form.id?"编辑 "+esc(S.form.name):"新建连接"}</span></span>`;
+  else if(S.view==="connect")crumb=`<span class="crumb">›<span>${esc(S.conn.c.name)}</span></span>`;
+  else if(c&&S.view!=="empty")crumb=`<span class="crumb">›<span>${esc(c.name)}</span></span>`;
+  return `<div class="wtitle"><span class="t">远程开发</span>${crumb}<span style="flex:1"></span><button class="ib" title="关闭">✕</button></div>`;
+}
+
+function emptyHtml(){
+  return `<div class="main"><div class="content"><div class="empty">
+    ${osIcon("linux",true)}
+    <div class="big">连接到 Linux 主机 ${nb(2)}</div>
+    <div class="muted" style="margin-top:6px">用 OpenSSH 连接，Lithe 会在远端安装远程服务，代码、终端和工具都在远端运行。${info("目前只支持 x86_64 和 arm64 的 Linux。OpenSSH 照常读取 ~/.ssh/config；这里留空的字段不会覆盖配置里的值。")}</div>
+    <div class="quickc"><input class="inp" id="quick" placeholder="用户@主机:端口，或 SSH 配置里的别名"><button class="btn pri" data-act="quick">继续</button></div>
+    <div class="fhint" style="margin-top:6px">会拆成表单里的用户名、主机、端口，保存前还能修改。</div>
+    <div class="divider">或从已有的配置导入 ${nb(3)}</div>
+    <div class="srcs">
+      <div class="src" data-act="import" data-id="motty"><span class="lg" style="background:#111">M</span><div><div style="font-weight:600">Motty</div><div class="faint">找到 6 台主机、3 个分组</div></div></div>
+      <div class="src" data-act="import" data-id="ssh"><span class="lg" style="background:#5b6170">~</span><div><div style="font-weight:600">SSH 配置</div><div class="faint">~/.ssh/config 中 4 个 Host</div></div></div>
+    </div>
+    <button class="btn link" style="margin-top:18px" data-act="new">手动填写所有字段</button>
+  </div></div></div>`;
+}
+
+function overviewHtml(){
+  const c=cur();if(!c)return emptyHtml();
+  const effRow=(k,label)=>{const [v,s]=c.eff[k];return `<tr><td class="k">${label}</td><td>${esc(v)}</td><td class="s"><span class="tag from">${esc(s)}</span></td></tr>`;};
+  const gname=(S.groups.find(g=>g.id===c.group)||{}).name;
+  const p=c.probe;
+  return `<div class="main"><div class="content"><div class="pad">
+    <div class="hero">
+      ${osIcon(c.os,true)}
+      <div class="tt">
+        <div class="nm">${c.color!=="none"?`<span class="sdot" style="background:${colorOf(c.color)};width:9px;height:9px"></span>`:""}${esc(c.name)}
+          ${gname?`<span class="tag">${esc(gname)}</span>`:""}${c.from?`<span class="tag from">导入自 ${esc(c.from)}</span>`:""}</div>
+        <div class="ad"><span class="mono">${esc(addr(c))}</span>${c.hops.length?`<span class="faint">经 ${esc(c.hops.join(" → "))}</span>`:""}
+          ${c.status==="connected"?`<span class="tag green"><span class="sdot"></span>已连接 · ${c.windows} 个窗口</span>`:""}</div>
+      </div>
+      <button class="btn" data-act="edit">编辑</button>
+      <button class="ib ${S.menu==="more"?"on":""}" data-act="menu" data-id="more" title="更多">⋯</button>
+      <button class="btn pri" data-act="connect">${c.status==="connected"?"打开文件夹…":"连接"}</button>${nb(4)}
+    </div>
+    ${S.menu==="more"?`<div class="menu" style="right:22px;top:112px">
+      <div class="mi" data-act="test">测试连接</div>
+      <div class="mi" data-act="dup">复制为新连接</div>
+      ${c.status==="connected"?`<div class="mi" data-act="disconnect">断开连接</div>`:""}
+      <div class="sepm"></div>
+      <div class="mi danger" data-act="del">删除“${esc(c.name)}”…</div>
+    </div>`:""}
+
+    <div class="h2" style="margin-top:16px">最近的文件夹 ${nb(5)}<span class="sp"></span>${c.folders.length?`<button class="btn link sm" data-act="connect">打开其他文件夹…</button>`:""}</div>
+    ${c.folders.length?`<div class="card folders">${c.folders.map(([p,t,g])=>`<div class="fr" data-act="openRecent" data-id="${esc(p)}">📁<span class="p mono" style="font-size:12px">${esc(p)}</span>${g?`<span class="tag">Git</span>`:""}<span class="faint">${t}</span><button class="btn sm go">打开</button></div>`).join("")}</div>`
+      :`<div class="box info"><span class="ic">📁</span><div class="grow">还没有在这台主机上打开过文件夹。连接后选择一个文件夹，下次可以从这里直接打开。</div></div>`}
+
+    <div class="h2">主机 ${nb(6)}<span class="sp"></span>${p?`<span class="faint">上次测试 ${p.when}</span>`:""}<button class="btn link sm" data-act="test">${p?"重新测试":"测试连接"}</button></div>
+    ${p?`<div class="card kv">
+        <div><div class="k">系统</div><div class="v">${esc(p.sys)}</div></div>
+        <div><div class="k">架构 · CPU</div><div class="v">${esc(p.arch)} · ${esc(p.cpu)} 核</div></div>
+        <div><div class="k">内存</div><div class="v">${esc(p.mem)}</div></div>
+        <div><div class="k">磁盘（主目录）</div><div class="v">${esc(p.disk)}</div></div></div>`
+      :`<div class="box info"><span class="ic">ⓘ</span><div class="grow">还没有连接过。测试连接后这里会显示系统、架构、CPU、内存和磁盘。</div></div>`}
+
+    <div class="h2">生效的 SSH 设置 ${nb(7)} ${info("由 ssh -G 解析，和真正连接时 OpenSSH 用的值一致。右侧标出每个值来自哪里：本连接、~/.ssh/config 或 OpenSSH 默认值。")}<span class="sp"></span><button class="btn link sm" data-act="edit">编辑</button></div>
+    <div class="card"><table class="eff">
+      ${effRow("port","端口")}${effRow("user","用户名")}${effRow("auth","身份验证")}${effRow("hops","跳板机")}${effRow("timeout","连接超时")}${effRow("keep","保活间隔")}
+    </table></div>
+  </div></div></div>`;
+}
+
+function fld(cls,label,body,{err,hint,help,opt}={}){
+  return `<div class="f ${cls}"><div class="lb">${label}${opt?` <span class="opt">${opt}</span>`:""}${help?info(help):""}</div>${body}${err?`<div class="ferr">⚠ ${esc(err)}</div>`:hint?`<div class="fhint">${hint}</div>`:""}</div>`;
+}
+function editHtml(){
+  const f=S.form,e=S.err;
+  const c=f.id?S.conns.find(x=>x.id===f.id):null;
+  const eff=c?c.eff:{port:["22","默认"],user:["yao","本机用户名"],keep:["未设置","默认"],timeout:["15 秒","默认"]};
+  const inp=(k,ph,extra="")=>`<input class="inp ${e[k]?"bad":""} ${extra}" data-f="${k}" value="${esc(f[k])}" placeholder="${esc(ph)}">`;
+  const authThird=()=>{
+    if(f.auth==="key")return fld("s4","私钥",`<div class="withbtn">${inp("key","~/.ssh/id_ed25519","mono")}<button class="btn" title="选择文件…">…</button></div>`,{help:"只保存路径并交给 OpenSSH；Lithe 不读取私钥内容。口令在连接时询问。"});
+    const t={auto:`自动（${esc(c&&c.id==="devbox"?"IdentityFile ~/.ssh/devbox_ed25519":"SSH 配置与 ssh-agent")}）`,agent:"只用 ssh-agent 里的密钥",password:"连接时在窗口里询问，不保存"}[f.auth];
+    return `<div class="f s4"><div class="lb">&nbsp;</div><div class="fhint" style="height:32px;display:flex;align-items:center">${t}</div></div>`;
+  };
+  const groupOpts=S.groups.map(g=>`<option value="${g.id}" ${f.group===g.id?"selected":""}>${esc(g.name)}</option>`).join("");
+  const target=(f.user?f.user+"@":"")+(f.host||"目标主机");
+  const advSum=`连接超时 ${f.timeout?f.timeout+" 秒":"自动（"+eff.timeout[0]+"）"} · 保活间隔 ${f.keep?f.keep+" 秒":"自动（"+eff.keep[0]+"）"}`;
+  return `<div class="main"><div class="content"><div class="pad">
+    <div class="fgrid">
+      ${fld("s8","名称 "+nb(8),inp("name","自动（"+(f.host||"主机名")+"）"),{err:e.name})}
+      ${fld("s4","颜色",`<div class="swatches">${COLORS.map(([k,v])=>`<button class="sw ${k==="none"?"none":""} ${f.color===k?"on":""}" data-act="color" data-id="${k}" title="${k}" style="${v?"background:"+v:""}"></button>`).join("")}</div>`,{help:"颜色会出现在连接列表、窗口标题和状态栏的远程标识上，方便一眼区分生产机和测试机。"})}
+      ${fld("s9","主机",inp("host","build.example.com 或 SSH 配置里的别名"),{err:e.host,help:"主机名、IP 地址或 ~/.ssh/config 里的 Host 别名。OpenSSH 照常读取它的配置；这里留空的字段不会覆盖配置里的值。"})}
+      ${fld("s3","端口",inp("port","自动（"+eff.port[0]+"）"),{err:e.port})}
+      ${fld("s4","用户名",inp("user","自动（"+eff.user[0]+"）"),{err:e.user})}
+      ${fld("s4","身份验证 "+nb(9),`<div class="dd"><select class="inp" data-f="auth">
+          ${[["auto","自动"],["agent","SSH Agent"],["key","私钥文件"],["password","密码"]].map(([k,v])=>`<option value="${k}" ${f.auth===k?"selected":""}>${v}</option>`).join("")}</select></div>`,
+          {help:"自动：按 SSH 配置和 ssh-agent 决定。SSH Agent：只用 ssh-agent 里的密钥。私钥文件：只用选定的私钥（等同 IdentitiesOnly），口令在连接时询问。密码：在连接时询问。Lithe 不保存任何回答。"})}
+      ${authThird()}
+      ${fld("s6","分组",`<div class="dd"><select class="inp" data-f="group"><option value="" ${!f.group?"selected":""}>未分组</option>${groupOpts}<option value="__new">新建分组…</option></select></div>`)}
+      <div class="s6"></div>
+      ${fld("s12","跳板机 "+nb(10),`<div class="hops">${f.hops.map((h,i)=>`<span class="hop">${esc(h)}<button class="x" data-act="rmhop" data-id="${i}" title="移除">✕</button></span>`).join("")}
+          ${S.addingHop?`<input class="inp mono" id="hopin" style="height:24px;width:220px" placeholder="[用户@]主机[:端口]">`:`<button class="hopadd" data-act="addhop">＋ 添加跳板</button>`}
+          ${!f.hops.length&&!S.addingHop?`<span class="faint">无（或按 SSH 配置）</span>`:""}</div>
+          <div class="route" style="margin-top:4px"><span class="n">本机</span>${f.hops.map(h=>`<span class="ar">→</span><span class="n">${esc(h)}</span>`).join("")}<span class="ar">→</span><span class="n tgt">${esc(target)}</span></div>`,
+          {help:"先经过这些主机再连接，等同 OpenSSH 的 ProxyJump：[用户@]主机[:端口]，按顺序连接。"})}
+    </div>
+    <div class="adv">
+      <div class="advh" data-act="adv"><span class="caret ${S.advOpen?"open":""}">▶</span><b>高级</b>${S.advOpen?"":`<span class="sum">${advSum}</span>`}${nb(11)}</div>
+      ${S.advOpen?`<div class="fgrid" style="padding:6px 0 2px 18px">
+        ${fld("s4","连接超时（秒）",inp("timeout","自动（"+eff.timeout[0]+"）"),{err:e.timeout})}
+        ${fld("s4","保活间隔（秒）",inp("keep","自动（"+eff.keep[0]+"）"),{err:e.keep,help:"OpenSSH 每隔多久确认一次服务器仍有响应（ServerAliveInterval），以便发现网络已断开。"})}
+      </div>`:""}
+    </div>
+    ${testHtml()}
+  </div></div>
+  <div class="foot2">
+    <button class="btn" data-act="test" ${!f.host||Object.keys(e).length?"disabled":""}>测试连接</button>${nb(12)}
+    <span class="msg">${S.dirty?`<span class="sdot" style="background:var(--accent)"></span>有未保存的修改`:""}</span>
+    <span class="sp"></span>
+    <button class="btn" data-act="cancel">取消</button>
+    <button class="btn" data-act="save" ${!f.host||Object.keys(e).length||(!S.dirty&&f.id)?"disabled":""}>保存</button>
+    <button class="btn pri" data-act="saveConnect" ${!f.host||Object.keys(e).length?"disabled":""}>${S.dirty||!f.id?"保存并连接":"连接"}</button>
+  </div></div>`;
+}
+
+function testHtml(){
+  const t=S.test;if(!t)return "";
+  const p=(t.c&&t.c.probe)||(cur()&&cur().probe)||SEED[0].probe;
+  if(t.kind==="ok")return `<div class="box ok" style="margin-top:16px"><span class="ic">✓</span><div class="grow"><b>已连接：Linux ${esc(p.arch)}</b>，这台主机可以用于远程开发。
+      <div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:6px"><span class="tag">${esc(p.sys)}</span><span class="tag">主机名 ${esc(p.host)}</span><span class="tag">${esc(p.cpu)} 核</span><span class="tag">内存 ${esc(p.mem)}</span><span class="tag">${esc(p.disk)}</span></div></div>
+      <button class="btn link sm" data-act="log">${S.logOpen?"收起":"OpenSSH 输出"}</button></div>${S.logOpen?logHtml(["debug1: Authenticated to build-01.example.com (via proxy) using \"publickey\".","Linux build-01 6.8.0-49-generic x86_64"]):""}`;
+  return `<div class="box err" style="margin-top:16px"><span class="ic">✕</span><div class="grow"><b>身份验证失败：</b>服务器没有接受提供的密钥或密码。
+      <div style="margin-top:4px">检查用户名是否正确；密码方式会在连接时询问。若服务器只允许密钥，把身份验证改成“私钥文件”。</div></div>
+      <button class="btn link sm" data-act="log">${S.logOpen?"收起":"OpenSSH 输出"}</button></div>
+      ${S.logOpen?logHtml(["debug1: Connecting to bastion.example.com port 22.","debug1: Authenticated to bastion.example.com (publickey).","debug1: Next authentication method: password","Permission denied, please try again.","ubuntu@10.0.12.34: Permission denied (publickey,password)."]):""}`;
+}
+function logHtml(lines){return `<div class="log">${lines.map(l=>`<div>${l.startsWith("debug1")?`<span class="d">${esc(l)}</span>`:esc(l)}</div>`).join("")}</div>`;}
+
+function connectHtml(){
+  const k=S.conn,c=k.c;
+  const st=(id,idx)=>k.done[id]?"done":k.fail&&idx===k.i?"fail":idx===k.i?(k.ask?"ask":"run"):"wait";
+  const stepsHtml=STEPS.map(([id,t,d],idx)=>{
+    const s=st(id,idx);
+    let ds=d;
+    if(id==="ssh")ds=c.hops.length?"本机 → "+c.hops.join(" → ")+" → "+c.host:c.host;
+    if(id==="auth")ds={auto:"自动",agent:"SSH Agent",key:"私钥 "+c.key,password:"密码"}[c.auth];
+    if(id==="install"&&k.target==="test")ds="测试连接不安装";
+    let extra="";
+    if(s==="ask"&&k.ask==="hostkey")extra=`<div class="box ask" style="margin-top:8px"><span class="ic">🔑</span><div class="grow">
+        <b>第一次连接 ${esc(c.host)}${c.port?":"+esc(c.port):""}，请核对主机密钥。</b> ${nb(14)}
+        <div class="muted" style="margin-top:2px">向服务器管理员确认下面的指纹。信任后由 OpenSSH 写入 ~/.ssh/known_hosts，以后不再询问。</div>
+        <div class="fp">ED25519 · SHA256:q3Vb0rN+7oK2mYz8F1XwP4c9sT6eLhJdA5uGiRkQ0nM</div>
+        <div style="display:flex;gap:8px;margin-top:6px"><button class="btn" data-act="ans" data-id="0">拒绝</button><button class="btn" data-act="ans" data-id="1">信任并继续</button></div></div></div>`;
+    if(s==="ask"&&k.ask==="password")extra=`<div class="box ask" style="margin-top:8px"><span class="ic">🔒</span><div class="grow">
+        <div class="muted">OpenSSH 询问：</div><div class="mono" style="margin:2px 0 6px">${esc(c.user)}@${esc(c.host)}'s password:</div>
+        <div style="display:flex;gap:8px;align-items:center"><input class="inp" type="password" id="pw" style="width:260px" placeholder="密码" autofocus><button class="btn" data-act="ans" data-id="0">取消</button><button class="btn pri" data-act="ans" data-id="1">继续</button></div>
+        <div class="faint" style="margin-top:6px">回答只交给这一次连接，Lithe 不保存。验证码、私钥口令等其他询问也在这里出现。</div></div></div>`;
+    if(s==="fail")extra=`<div class="box err" style="margin-top:8px"><span class="ic">✕</span><div class="grow">${k.fail==="hostkey"?"主机密钥没有通过验证：你拒绝了它。":"身份验证失败：服务器没有接受提供的密钥或密码。"}</div><button class="btn sm" data-act="retry">重试</button><button class="btn sm" data-act="editFromConnect">编辑连接</button></div>`;
+    if(id==="install"&&s==="run")extra=`<div class="prog"><i style="width:${k.prog}%"></i></div><div class="faint" style="margin-top:3px">lithe-remote-server x86_64-musl · 1.39 MiB · ${k.prog}%</div>`;
+    return `<div class="step ${s}"><span class="ico">${s==="done"?"✓":s==="run"?'<span class="spin"></span>':s==="ask"?"?":s==="fail"?"✕":idx+1}</span>
+      <div class="bd"><div class="tl">${t}<span class="tm">${k.times[id]||""}</span></div>${ds?`<div class="ds">${esc(ds)}</div>`:""}${extra}</div></div>`;
+  }).join("");
+  return `<div class="main"><div class="content"><div class="pad">
+    <div class="hero" style="border:0;padding-bottom:6px">${osIcon(c.os,true)}<div class="tt"><div class="nm">${k.target==="test"?"测试连接":"正在连接"} ${esc(c.name)} ${nb(13)}</div><div class="ad mono">${esc(addr(c))}</div></div></div>
+    <div class="steps" style="margin-top:12px">${stepsHtml}</div>
+    <div class="h2" style="margin-top:4px"><button class="btn link sm" data-act="log" style="padding:0">${S.logOpen?"▾":"▸"} OpenSSH 输出</button><span class="faint">原文，不翻译</span></div>
+    ${S.logOpen?logHtml(k.log):""}
+  </div></div>
+  <div class="foot2"><span class="msg">${k.ask?"等待你回答 OpenSSH 的询问":k.fail?"连接失败":"正在连接…"}</span><span class="sp"></span>
+    <button class="btn" data-act="stop">${k.fail?"返回":"停止"}</button></div></div>`;
+}
+
+function folderHtml(){
+  const fo=S.folder,c=cur();
+  const items=TREE[fo.path]||[];
+  const parts=fo.path.split("/").filter(Boolean);
+  const crumbs=[`<span class="c" data-act="cd" data-id="/">/</span>`].concat(parts.map((p,i)=>{const path="/"+parts.slice(0,i+1).join("/");return `<span class="sep">›</span><span class="c ${i===parts.length-1?"last":""}" data-act="cd" data-id="${path}">${esc(p)}</span>`;})).join("");
+  return `<div class="main"><div class="content"><div class="pad">
+    <div class="hero" style="padding-bottom:12px">${osIcon(c.os,true)}<div class="tt"><div class="nm">选择 ${esc(c.name)} 上的文件夹 ${nb(15)}</div>
+      <div class="ad"><span class="tag green"><span class="sdot"></span>已连接</span><span class="mono">${esc(addr(c))}</span><span class="faint">${esc(c.probe.sys)} ${esc(c.probe.arch)}</span></div></div>
+      <button class="btn sm" data-act="disconnect">断开</button></div>
+    <div class="pathbar" style="margin-top:14px"><input class="inp mono" id="pathin" value="${esc(fo.pick||fo.path)}" placeholder="/home/deploy/…"><button class="btn" data-act="goPath">前往</button></div>
+    <div class="quick" style="margin-top:8px"><span class="faint" style="align-self:center">常用</span>
+      <span class="qc" data-act="cd" data-id="/home/deploy">~ 主目录</span>
+      ${c.folders.map(([p])=>`<span class="qc" data-act="pickRecent" data-id="${esc(p)}">${esc(p)}</span>`).join("")}</div>
+    <div class="crumbs">${crumbs}</div>
+    <div class="dirs">
+      ${fo.path!=="/"?`<div class="dr" data-act="up">↰<span class="nm faint">上一级</span></div>`:""}
+      ${items.map(([n,d,g])=>{const p=(fo.path==="/"?"":fo.path)+"/"+n;return d?`<div class="dr ${fo.pick===p?"sel":""}" data-act="pickDir" data-id="${esc(p)}">📁<span class="nm">${esc(n)}</span>${g?`<span class="tag">Git</span>`:""}<span class="faint">双击进入</span></div>`
+        :`<div class="dr file">📄<span class="nm">${esc(n)}</span></div>`;}).join("")}
+    </div>
+  </div></div>
+  <div class="foot2"><label class="chk"><input type="checkbox" ${fo.newWin?"checked":""} data-act="newWin"> 在新窗口打开</label>
+    <span class="sp"></span><button class="btn" data-act="toOverview">稍后再选</button>
+    <button class="btn pri" data-act="openPick" ${fo.pick||fo.path!=="/"?"":"disabled"}>打开 ${esc((fo.pick||fo.path).split("/").pop()||"/")}</button></div></div>`;
+}
+
+function trustHtml(){
+  const fo=S.folder,c=cur();
+  const path=fo.pick||fo.path;
+  return `<div class="main"><div class="content"><div class="pad" style="max-width:640px;margin:0 auto;padding-top:34px">
+    <div style="display:flex;gap:14px;align-items:flex-start">
+      <span class="os lg" style="background:var(--warn)">!</span>
+      <div style="flex:1"><div style="font-size:17px;font-weight:600">信任这个远程文件夹吗？ ${nb(16)}</div>
+        <div class="mono" style="margin-top:6px;font-size:12.5px">${esc(c.user)}@${esc(c.host)} : ${esc(path)}</div>
+        <div class="muted" style="margin-top:12px;line-height:1.7">信任后，Lithe 会在<b>远端</b>运行这个文件夹里的构建脚本、语言服务器、Git 钩子和调试适配器。只在你相信这些代码时才信任。
+        本机文件夹的信任不会带到远端；同一主机的其他文件夹需要单独信任。</div>
+        <div class="card" style="margin-top:14px;padding:10px 12px;font-size:12px;line-height:1.8">
+          <div><b>信任并打开</b>：完整功能。</div>
+          <div><b>以安全模式打开</b>：可以浏览和编辑文件；不启动构建、语言服务器、Git、调试，之后可以在状态栏改为信任。</div></div>
+        <label class="chk" style="margin-top:12px;font-size:12px"><input type="checkbox"> 信任 ${esc(path.split("/").slice(0,-1).join("/")||"/")} 下的所有文件夹</label>
+      </div>
+    </div>
+  </div></div>
+  <div class="foot2"><span class="msg">${info("信任记录按“连接目标（含跳板）+ 远端用户 + 远端真实路径”精确匹配，不从本机继承。可在 设置 › 工具 › 远程工作区 中管理。")}信任记录只保存在本机</span><span class="sp"></span>
+    <button class="btn" data-act="backFolder">返回</button><button class="btn" data-act="openSafe">以安全模式打开</button><button class="btn pri" data-act="openTrusted">信任并打开</button></div></div>`;
+}
+
+function importHtml(){
+  const im=S.imp;
+  const seg=`<div class="seg"><button class="${im.src==="motty"?"on":""}" data-act="impsrc" data-id="motty">Motty</button><button class="${im.src==="ssh"?"on":""}" data-act="impsrc" data-id="ssh">SSH 配置</button></div>`;
+  if(im.src==="ssh")return importSshHtml(seg);
+  const stTag=m=>({ok:`<span class="tag green">可导入</span>`,partial:`<span class="tag warn">部分导入</span>`,dup:`<span class="tag">已存在</span>`,unsupported:`<span class="tag err">不支持 · ${esc(m.reason)}</span>`}[m.state]);
+  const res=r=>({ok:`<span class="tag green">✓ 导入</span>`,warn:`<span class="tag warn">改为询问</span>`,lost:`<span class="tag err">不导入</span>`,dup:`<span class="tag">重复</span>`}[r]);
+  const sel=MOTTY.filter(m=>im.pick[m.id]&&!(m.state==="dup"&&im.dupMode==="skip"));
+  const newGroups=[...new Set(sel.filter(m=>m.state!=="dup").map(m=>m.group).filter(g=>g&&!S.groups.some(x=>x.name===g)))];
+  const rows=MOTTY.map(m=>{
+    const off=m.state==="unsupported";
+    const exp=im.exp===m.id;
+    return `<tr class="${off?"off":""} ${exp?"exp":""}">
+      <td style="width:28px"><input type="checkbox" ${im.pick[m.id]?"checked":""} ${off?"disabled":""} data-act="ipick" data-id="${m.id}"></td>
+      <td style="width:26px">${m.color!=="none"?`<span class="sdot" style="background:${colorOf(m.color)};width:9px;height:9px"></span>`:""}</td>
+      <td>${osIcon(m.os)}</td>
+      <td><div style="font-weight:500">${esc(m.name)}${m.proto?` <span class="tag">${m.proto}</span>`:""}</div><div class="ad">${esc((m.user?m.user+"@":"")+m.addr+":"+m.port)}</div></td>
+      <td class="muted">${esc(m.group||"—")}</td>
+      <td>${stTag(m)}${m.state==="dup"?`<div class="dd" style="display:inline-block;margin-left:6px"><select class="inp" style="height:24px;width:auto;padding:0 24px 0 8px;font-size:12px" data-act="dupMode">
+          <option value="skip" ${im.dupMode==="skip"?"selected":""}>跳过</option><option value="merge" ${im.dupMode==="merge"?"selected":""}>补全颜色和分组</option></select></div>`:""}</td>
+      <td style="width:32px"><button class="ib" data-act="iexp" data-id="${m.id}" title="字段对应">${exp?"▾":"▸"}</button></td></tr>
+      ${exp?`<tr class="exp"><td></td><td colspan="6"><table class="map">${m.map.map(([a,v,b,r,why])=>`<tr><td class="m">${esc(a)}</td><td class="mono">${esc(v)}</td><td class="a">→</td><td>${esc(b)}${why?`<div class="faint">${esc(why)}</div>`:""}</td><td class="r">${res(r)}</td></tr>`).join("")}</table></td></tr>`:""}`;
+  }).join("");
+  return `<div class="main"><div class="content"><div class="pad">
+    <div style="display:flex;gap:10px;align-items:center">${seg}<span class="muted">只读读取，不修改 Motty 的数据 ${info("读取 ~/Library/Application Support/motty/config.db 中的主机与分组记录（只读打开，先检查数据格式版本）。不读取 vault.json，密码、私钥口令和验证码密钥一律不导入。")}</span>${nb(17)}
+      <span style="flex:1"></span><button class="btn link sm" data-act="toast" data-id="已重新读取 Motty 数据">重新读取</button></div>
+    <div class="box info" style="margin-top:12px;align-items:center"><span class="lg" style="width:26px;height:26px;border-radius:7px;background:#111;color:#fff;display:inline-flex;align-items:center;justify-content:center;font-weight:700">M</span>
+      <div class="grow">找到 <b>6</b> 台主机、<b>3</b> 个分组 · 数据格式 28</div>
+      <label class="chk"><input type="checkbox" ${im.keepGroups?"checked":""} data-act="keepGroups"> 保留分组</label>
+      <label class="chk"><input type="checkbox" ${im.keepColors?"checked":""} data-act="keepColors"> 保留颜色</label></div>
+    <table class="itable" style="margin-top:10px"><thead><tr><th></th><th></th><th></th><th>主机 ${nb(18)}</th><th>分组</th><th>结果</th><th></th></tr></thead><tbody>${rows}</tbody></table>
+    <div class="h2" style="margin-top:16px;cursor:pointer" data-act="lost"><span class="caret ${im.lostOpen?"open":""}">▶</span>不会导入的 Motty 设置 ${nb(19)}<span class="faint" style="font-weight:400">7 类</span></div>
+    ${im.lostOpen?`<div class="card" style="padding:10px 12px"><div class="lost">
+      <div class="li"><b>密码、私钥口令</b><span>Lithe 不保存密码，连接时在窗口里询问（web-01、win-desktop）。</span></div>
+      <div class="li"><b>一次性验证码密钥</b><span>不保存密钥；服务器要验证码时在窗口里询问（web-01）。</span></div>
+      <div class="li"><b>转发 X11 / ssh-agent</b><span>远程开发会话关闭所有转发，避免远端借用本机凭据（gpu-box）。</span></div>
+      <div class="li"><b>出站代理</b><span>请在 ~/.ssh/config 用 ProxyCommand 配置，Lithe 会照常读取。</span></div>
+      <div class="li"><b>SSH 算法</b><span>按 SSH 配置；需要兼容旧服务器时在 ~/.ssh/config 设置（nas）。</span></div>
+      <div class="li"><b>登录后命令、字符编码、文件传输协议</b><span>远程开发不开登录终端，文件由 Lithe 远程服务读写（UTF-8）。</span></div>
+      <div class="li"><b>Motty 的 known_hosts</b><span>不合并；第一次连接时在窗口里核对指纹，由 OpenSSH 写入 ~/.ssh/known_hosts。</span></div>
+    </div></div>`:""}
+  </div></div>
+  <div class="foot2"><span class="msg">将导入 <b style="color:var(--text)">${sel.filter(m=>m.state!=="dup").length}</b> 个连接${newGroups.length&&im.keepGroups?`、新建 ${newGroups.length} 个分组（${newGroups.map(esc).join("、")}）`:""}${sel.some(m=>m.state==="dup")?"，补全 1 个已有连接":""}</span><span class="sp"></span>
+    <button class="btn" data-act="cancelImport">取消</button><button class="btn pri" data-act="doImport" ${sel.length?"":"disabled"}>导入</button></div></div>`;
+}
+function importSshHtml(seg){
+  const im=S.imp;
+  const n=SSHCFG.filter(h=>!h.wild&&!h.exists&&im.sshPick[h.alias]).length;
+  return `<div class="main"><div class="content"><div class="pad">
+    <div style="display:flex;gap:10px;align-items:center">${seg}<span class="muted">读取 ~/.ssh/config（含 Include），只读 ${info("导入后连接的主机就是这个别名，其他字段留空，所以端口、用户、跳板仍由 SSH 配置决定，改配置后连接自动跟随。")}</span>${nb(20)}</div>
+    <table class="itable" style="margin-top:12px"><thead><tr><th></th><th>Host 别名</th><th>生效值（ssh -G）</th><th>结果</th></tr></thead><tbody>
+    ${SSHCFG.map(h=>{const off=h.wild||h.exists;return `<tr class="${off?"off":""}"><td style="width:28px"><input type="checkbox" ${im.sshPick[h.alias]?"checked":""} ${off?"disabled":""} data-act="spick" data-id="${esc(h.alias)}"></td>
+      <td class="mono">${esc(h.alias)}</td><td class="ad">${h.wild?"通配符，不是具体主机":esc(h.user+"@"+h.host+":"+h.port)}${h.note?`<div class="faint">${esc(h.note)}</div>`:""}</td>
+      <td>${h.wild?`<span class="tag">跳过 · 通配符</span>`:h.exists?`<span class="tag">已存在（devbox）</span>`:`<span class="tag green">可导入</span>`}</td></tr>`;}).join("")}
+    </tbody></table>
+  </div></div>
+  <div class="foot2"><span class="msg">将导入 <b style="color:var(--text)">${n}</b> 个连接</span><span class="sp"></span><button class="btn" data-act="cancelImport">取消</button><button class="btn pri" data-act="doImport" ${n?"":"disabled"}>导入</button></div></div>`;
+}
+
+/* ---------- 设计标注 ---------- */
+const NOTES=[
+  [1,"all","左栏按<b>分组</b>列出连接（借鉴 Motty），行内是颜色条、系统图标、<code>用户@主机:端口</code> 和状态（已连接 / 上次连接时间 / 未连接过）。顶部：搜索、导入（⇩）、新建（＋）。存储位置收进底部 ⓘ，不常驻。"],
+  [2,"empty","首次使用不再给一张空表单：一行输入 <code>user@host:port</code> 或别名，拆进表单后再确认；下面直接给导入入口。"],
+  [3,"empty","导入来源：<b>Motty</b>（检测到本机数据才显示数量）和 <b>~/.ssh/config</b>。以后可以加其他客户端，入口相同。"],
+  [4,"overview","选中连接先看<b>概览</b>，主按钮是“连接”（已连接时是“打开文件夹…”）；编辑是次要动作，删除、复制、测试收进 ⋯。现状窗口只有保存和测试，没有连接入口。"],
+  [5,"overview","最近的文件夹按连接记录，点一下直接连接并打开，等于 IDEA 的“最近项目”。"],
+  [6,"overview","主机信息来自上次测试或连接（RemoteProbe 已有：系统、主机名、CPU、内存、磁盘），标出时间。"],
+  [7,"overview","生效的 SSH 设置用 <code>ssh -G</code> 解析，并标来源（本连接 / ~/.ssh/config / 默认）。这同时补上 #2256 的已知缺口：端口和用户名留空时只显示规则、不显示实际值。<b>需要 Core 提供解析结果</b>。"],
+  [8,"edit","表单借鉴 Motty：标签在上，多列紧凑排列（主机+端口一行，用户名+身份验证+私钥一行），去掉现状 132px 的标签列和下方大片空白。留空字段写成“自动（实际值）”，如 <code>自动（22）</code>。"],
+  [9,"edit","身份验证第三列随方式变化：私钥文件 → 路径和选择按钮；密码 → “连接时询问，不保存”；自动 → 生效的 IdentityFile。<b>与 Motty 不同：没有密码输入框</b>，Lithe 不保存密码。"],
+  [10,"edit","跳板机按顺序显示成链路：本机 → bastion → 目标，比一个逗号分隔的输入框更容易看清。保存的仍是 ProxyJump 字符串。"],
+  [11,"edit","“高级”收起时在标题行显示当前值摘要，不用展开就知道超时和保活是多少。"],
+  [12,"edit","测试连接放在左下角（与 Motty 一致），结果就地显示在表单下方，可以展开 OpenSSH 原始输出。保存和“保存并连接”分开。"],
+  [13,"connect","连接过程分步显示：读配置 → SSH → 身份验证 → 平台 → 安装远程服务（显示体积与进度，远端校验 SHA-256）→ 启动。每步显示耗时，失败停在那一步并给出“重试 / 编辑连接”。"],
+  [14,"connect","OpenSSH 的询问（主机密钥、密码、私钥口令、验证码）在当前步骤下就地回答，和 Git 认证共用同一个问题队列。主机密钥显示类型和 SHA256 指纹；“拒绝”和“信任”都不设为回车默认按钮，必须点击。"],
+  [15,"folder","连接后在同一个窗口选择远程文件夹：路径输入、面包屑、常用位置（主目录、最近文件夹）、Git 仓库标记。目录列表来自远程服务，不在本机生成。"],
+  [16,"trust","打开前的信任确认（S03）：信任记录按“目标（含跳板）+ 远端用户 + 真实路径”精确匹配，不继承本机信任。提供“以安全模式打开”。"],
+  [17,"import","从 Motty 导入：只读打开 <code>~/Library/Application Support/motty/config.db</code>，读取 <code>records</code> 表中 <code>kind='host'</code>/<code>'group'</code> 的 JSON（<code>payload.d</code>），先检查 <code>meta.format</code>（现为 28），不认识的版本就提示而不是猜。<b>不读取 <code>vault.json</code></b>。Windows 上 Motty 的数据位置待确认。"],
+  [18,"import","每行给出结论：可导入 / 部分导入 / 已存在 / 不支持；展开可见逐字段对应。重复按“主机+用户+端口”判定，默认跳过，可选“补全颜色和分组”。Windows 主机和 Telnet/串口/VNC/RDP/Mosh 主机不能勾选（远程开发只支持 SSH 到 Linux）。"],
+  [19,"import","不导入的内容集中列出并给原因：密码与口令、验证码密钥、X11/agent 转发、出站代理、SSH 算法、登录后命令/编码/传输协议、Motty 自己的 known_hosts。Motty 的“跳板路由”引用其他 Motty 主机时，展开成 <code>[用户@]主机[:端口]</code> 再写进跳板机。"],
+  [20,"importSsh","从 SSH 配置导入只记别名，其他字段留空，以后改 ~/.ssh/config 连接自动跟随；通配符 Host 跳过。Motty 的 ssh-config-sync 已把主机关联到别名时，也优先导入别名。"],
+];
+const SCOPE={empty:["all","empty"],overview:["all","overview"],edit:["all","edit"],connect:["all","connect"],folder:["all","folder"],trust:["all","trust"],import:["all","import","importSsh"]};
+function notesHtml(){
+  const sc=SCOPE[S.view]||["all"];
+  const list=NOTES.filter(n=>sc.includes(n[1]));
+  return `<div class="h">设计标注<span style="flex:1"></span><span class="faint">${list.length} 条</span></div><div class="l">
+    <div class="old"><b>现状的问题</b><ol>
+      <li>表单只占右侧上方三分之一，左栏和下方大片空白；标签列过宽。</li>
+      <li>只能保存和测试，<b>没有“连接”</b>，也没有选远程文件夹、最近文件夹。</li>
+      <li>端口、用户名留空时只写规则（“自动（SSH 配置，否则 22）”），看不到实际值。</li>
+      <li>空列表只有一句话，没有导入入口。</li></ol></div>
+    ${S.view==="import"||S.view==="edit"?`<div class="old"><b>参考 Motty “新建主机”</b>：采用了标签在上的多列布局、颜色、分组、左下角测试连接、跳板路由的概念；<b>没有采用</b>协议页签（只做 SSH→Linux，WSL/容器以后复用同一条传输链）、密码与验证码保存、文件传输协议、字符编码、登录后命令、X11/agent 转发、MCP 代理开关。</div>`:""}
+    <div class="tt">本状态</div>
+    ${list.map(([n,,t])=>`<div class="n ${S.noteHl==n?"hl":""}" id="note-${n}"><i class="nb" data-note="${n}">${n}</i><div>${t}</div></div>`).join("")}
+    <div class="tt">实现前需要确认</div>
+    <div class="n"><div>· 颜色、分组是新字段，要扩展 Core 已保存连接的结构（<code>remote.connections</code> / <code>remote.editConnections</code>）和导入映射。<br>· <code>ssh -G</code> 生效值、最近文件夹、远程目录列表需要 Core 提供。<br>· 全部文案进 <code>shared/i18n/features/remote-connections.json</code>，OpenSSH 原文不翻译。</div></div>
+  </div>`;
+}
+
+/* ---------- 主渲染 ---------- */
+function toast(t){S.toast=t;render();later(1600,()=>{S.toast=null;render();});}
+function render(){
+  document.documentElement.classList.toggle("dark",S.dark);
+  document.documentElement.classList.toggle("nonotes",!S.notes);
+  let main="";
+  switch(S.view){
+    case "empty":main=emptyHtml();break;
+    case "overview":main=overviewHtml();break;
+    case "edit":main=editHtml();break;
+    case "connect":main=connectHtml();break;
+    case "folder":main=folderHtml();break;
+    case "trust":main=trustHtml();break;
+    case "import":main=importHtml();break;
+  }
+  const focusId=document.activeElement&&document.activeElement.id;
+  const focusF=document.activeElement&&document.activeElement.dataset&&document.activeElement.dataset.f;
+  const selStart=document.activeElement&&document.activeElement.selectionStart;
+  $("#win").innerHTML=titleHtml()+`<div class="wbody">${sideHtml()}${main}</div>`+(S.toast?`<div class="toast">${esc(S.toast)}</div>`:"");
+  $("#notes").innerHTML=S.notes?notesHtml():"";
+  const el=focusId?document.getElementById(focusId):focusF?document.querySelector(`[data-f="${focusF}"]`):null;
+  if(el){el.focus();try{if(selStart!=null)el.setSelectionRange(selStart,selStart);}catch(_){}}
+  const hi=$("#hopin");if(hi&&!focusId)hi.focus();
+}
+
+/* ---------- 校验（原型里简化；正式实现由 Core 返回 { field, reason }） ---------- */
+function validate(){
+  const f=S.form,e={};
+  if(/[@\s]/.test(f.host)||/:\d+$/.test(f.host))e.host="只填主机名、IP 地址或 SSH 别名；用户名和端口请填到各自的字段。";
+  if(f.port&&!(+f.port>=1&&+f.port<=65535&&/^\d+$/.test(f.port)))e.port="请填 1 到 65535 之间的端口。";
+  if(f.timeout&&!(+f.timeout>=1&&+f.timeout<=600))e.timeout="请填 1 到 600 秒。";
+  if(f.keep&&!(+f.keep>=1&&+f.keep<=3600))e.keep="请填 1 到 3600 秒。";
+  const nm=(f.name||f.host).toLowerCase();
+  if(nm&&S.conns.some(c=>c.id!==f.id&&c.name.toLowerCase()===nm))e.name="已有同名的连接（不区分大小写）。";
+  S.err=e;
+}
+function saveForm(){
+  const f=S.form;validate();if(Object.keys(S.err).length){render();return false;}
+  let c=f.id&&S.conns.find(x=>x.id===f.id);
+  const name=f.name||f.host;
+  if(!c){c={id:"c"+Date.now(),os:"unknown",status:"never",last:"",known:false,probe:null,folders:[],eff:{port:[f.port||"22",f.port?"本连接":"默认"],user:[f.user||"yao",f.user?"本连接":"本机用户名"],auth:[{auto:"自动",agent:"SSH Agent",key:"私钥 "+f.key,password:"密码（连接时询问）"}[f.auth],"本连接"],hops:[f.hops.join(", ")||"无",f.hops.length?"本连接":"默认"],timeout:[(f.timeout||"15")+" 秒",f.timeout?"本连接":"默认"],keep:[f.keep?f.keep+" 秒":"未设置",f.keep?"本连接":"默认"]}};S.conns.push(c);}
+  Object.assign(c,{name,host:f.host,port:f.port,user:f.user,auth:f.auth,key:f.key,hops:[...f.hops],timeout:f.timeout,keep:f.keep,color:f.color,group:f.group});
+  S.sel=c.id;S.form.id=c.id;S.form.name=name;S.dirty=false;return true;
+}
+
+/* ---------- 事件 ---------- */
+document.addEventListener("click",ev=>{
+  const t=ev.target.closest("[data-act],[data-note]");
+  if(!t){if(S.menu){S.menu=null;render();}return;}
+  if(t.dataset.note){S.notes=true;S.noteHl=+t.dataset.note;$("#optNotes").checked=true;render();document.getElementById("note-"+t.dataset.note)?.scrollIntoView({block:"center",behavior:"smooth"});return;}
+  const a=t.dataset.act,id=t.dataset.id;
+  if(a!=="menu")S.menu=null;
+  switch(a){
+    case "menu":S.menu=S.menu===id?null:id;break;
+    case "grp":S.collapsed[id]=!S.collapsed[id];break;
+    case "pick":clearTimers();S.sel=id;S.view="overview";S.conn=null;S.test=null;S.imp=null;break;
+    case "new":clearTimers();S.view="edit";S.form=formFrom(null);S.err={};S.test=null;S.dirty=false;S.advOpen=false;S.sel=S.sel;break;
+    case "edit":S.view="edit";S.form=formFrom(cur());S.err={};S.test=null;S.dirty=false;break;
+    case "dup":{const f=formFrom(cur());f.id=null;f.name=f.name+" 副本";S.view="edit";S.form=f;S.err={};S.dirty=true;break;}
+    case "del":if(confirm("删除“"+cur().name+"”？")){S.conns=S.conns.filter(c=>c.id!==S.sel);S.sel=S.conns[0]?.id||null;S.view=S.sel?"overview":"empty";}break;
+    case "disconnect":clearTimers();cur().status="idle";cur().last="刚刚";S.view="overview";toast("已断开 "+cur().name);return;
+    case "connect":if(cur().status==="connected"){openFolder(true);}else startConnect("open");break;
+    case "openRecent":if(cur().status==="connected"){toast("在新窗口打开 "+id);return;}startConnect("open",{then:id,back:"overview"});return;
+    case "test":{S.logOpen=false;S.test=null;
+      if(S.view!=="edit"){startConnect("test",{back:"overview"});return;}
+      /* 测试用表单里的当前值，不要求先保存 */
+      validate();if(Object.keys(S.err).length)break;
+      const f=S.form,saved=f.id?S.conns.find(x=>x.id===f.id):null;
+      const tmp=Object.assign({os:"unknown",known:false,probe:null,status:"never",last:"",folders:[]},saved?clone(saved):{},
+        {name:f.name||f.host,host:f.host,port:f.port,user:f.user,auth:f.auth,key:f.key,hops:[...f.hops],timeout:f.timeout,keep:f.keep});
+      startConnect("test",{c:tmp,saved,back:"edit"});return;}
+    case "color":S.form.color=id;S.dirty=true;break;
+    case "adv":S.advOpen=!S.advOpen;break;
+    case "addhop":S.addingHop=true;break;
+    case "rmhop":S.form.hops.splice(+id,1);S.dirty=true;break;
+    case "cancel":S.view=S.sel?"overview":(S.conns.length?"overview":"empty");if(!cur()&&S.conns.length)S.sel=S.conns[0].id;S.test=null;break;
+    case "save":if(saveForm())toast("已保存");break;
+    case "saveConnect":if(S.dirty||!S.form.id){if(!saveForm())break;}S.test=null;startConnect("open");return;
+    case "log":S.logOpen=!S.logOpen;break;
+    case "ans":answer(id==="1");return;
+    case "retry":{const k=S.conn;startConnect(k.target,{c:k.c,saved:k.saved,back:k.back,then:k.then});return;}
+    case "editFromConnect":{clearTimers();const k=S.conn;S.conn=null;S.view="edit";if(!(k.back==="edit"&&S.form))S.form=formFrom(k.saved||cur());S.err={};S.test=null;break;}
+    case "stop":{clearTimers();const k=S.conn;S.conn=null;S.view=k.back==="edit"&&S.form?"edit":"overview";S.test=null;break;}
+    case "cd":S.folder.path=id;S.folder.pick=null;break;
+    case "up":S.folder.path=S.folder.path.split("/").slice(0,-1).join("/")||"/";S.folder.pick=null;break;
+    case "pickDir":if(S.folder.pick===id&&TREE[id]){S.folder.path=id;S.folder.pick=null;}else S.folder.pick=id;break;
+    case "pickRecent":S.folder.pick=id.replace("~","/home/deploy");break;
+    case "goPath":{const v=$("#pathin").value.trim();if(TREE[v]){S.folder.path=v;S.folder.pick=null;}else S.folder.pick=v;break;}
+    case "newWin":S.folder.newWin=t.checked;return;
+    case "toOverview":S.view="overview";break;
+    case "openPick":{const p=S.folder.pick||S.folder.path;const known=cur().folders.some(f=>f[0].replace("~","/home/deploy")===p);if(known){S.view="overview";toast("打开 "+p);return;}S.view="trust";break;}
+    case "backFolder":S.view="folder";break;
+    case "openSafe":addRecent();S.view="overview";toast("以安全模式打开 "+(S.folder.pick||S.folder.path));return;
+    case "openTrusted":addRecent();S.view="overview";toast("已信任并打开 "+(S.folder.pick||S.folder.path));return;
+    case "import":openImport(id);break;
+    case "impsrc":S.imp.src=id;break;
+    case "ipick":S.imp.pick[id]=t.checked;break;
+    case "spick":S.imp.sshPick[id]=t.checked;break;
+    case "iexp":S.imp.exp=S.imp.exp===id?null:id;break;
+    case "keepGroups":S.imp.keepGroups=t.checked;break;
+    case "keepColors":S.imp.keepColors=t.checked;break;
+    case "lost":S.imp.lostOpen=!S.imp.lostOpen;break;
+    case "dupMode":return;
+    case "cancelImport":S.imp=null;S.view=S.conns.length?"overview":"empty";if(!cur()&&S.conns.length)S.sel=S.conns[0].id;break;
+    case "doImport":doImport();return;
+    case "toast":toast(id);return;
+    case "quick":{const v=$("#quick").value.trim();const m=v.match(/^(?:([^@\s]+)@)?([^:\s]+)(?::(\d+))?$/);S.view="edit";S.form=formFrom(null);if(m){S.form.user=m[1]||"";S.form.host=m[2];S.form.port=m[3]||"";}S.dirty=true;S.err={};break;}
+  }
+  render();
+});
+function addRecent(){const c=cur();const p=(S.folder.pick||S.folder.path).replace("/home/deploy","~");if(!c.folders.some(f=>f[0]===p))c.folders.unshift([p,"刚刚",false]);}
+document.addEventListener("change",ev=>{
+  const t=ev.target;
+  if(t.dataset.f){const k=t.dataset.f;if(k==="group"&&t.value==="__new"){const n=prompt("分组名称");if(n){const g={id:"g-"+n,name:n};S.groups.push(g);S.form.group=g.id;}render();return;}S.form[k]=t.value;S.dirty=true;validate();render();}
+  if(t.dataset.act==="dupMode"){S.imp.dupMode=t.value;render();}
+});
+document.addEventListener("input",ev=>{
+  const t=ev.target;
+  if(t.id==="q"){S.q=t.value;render();}
+  else if(t.dataset.f&&t.tagName==="INPUT"){S.form[t.dataset.f]=t.value;S.dirty=true;if(Object.keys(S.err).length)validate();render();}
+});
+document.addEventListener("keydown",ev=>{
+  if(ev.target.id==="hopin"){if(ev.key==="Enter"){const v=ev.target.value.trim();if(v){S.form.hops.push(v);S.dirty=true;}S.addingHop=false;render();}if(ev.key==="Escape"){S.addingHop=false;render();}}
+  if(ev.target.id==="quick"&&ev.key==="Enter")document.querySelector('[data-act="quick"]').click();
+  if(ev.target.id==="pw"&&ev.key==="Enter")answer(true);
+});
+document.addEventListener("dblclick",ev=>{const t=ev.target.closest('[data-act="pickDir"]');if(t&&TREE[t.dataset.id]){S.folder.path=t.dataset.id;S.folder.pick=null;render();}});
+$("#optState").addEventListener("change",e=>{applyState(e.target.value);syncHash();render();});
+$("#optDark").addEventListener("change",e=>{S.dark=e.target.checked;syncHash();render();});
+$("#optNotes").addEventListener("change",e=>{S.notes=e.target.checked;syncHash();render();});
+function syncHash(){history.replaceState(null,"","#state="+S.state+(S.dark?"&dark=1":"")+(S.notes?"":"&notes=0"));}
+
+/* ---------- 启动 ---------- */
+(function(){
+  const h=new URLSearchParams(location.hash.slice(1));
+  const st=h.get("state")||"overview";
+  S.dark=h.get("dark")==="1";S.notes=h.get("notes")!=="0";
+  $("#optState").value=st;$("#optDark").checked=S.dark;$("#optNotes").checked=S.notes;
+  applyState(st);
+  if(h.get("log")==="1")S.logOpen=true;
+  render();
+})();
+</script>
+</body>
+</html>
