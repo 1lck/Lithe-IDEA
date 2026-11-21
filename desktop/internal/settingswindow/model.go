@@ -27,27 +27,30 @@ const (
 	pageFonts
 	pageKeymap
 	pageProcessTermination
-	// The pages on the top level of the sidebar.
+	// pagePlugins is a page on the top level of the sidebar.
 	pagePlugins
+	// pageVersionControl is the group "Version Control", which also has a page of its own:
+	// the directory of its pages. The Git page after it belongs to it.
 	pageVersionControl
+	pageGit
 	// pageBuild is the group "Build, Execution, Deployment", which also has a page of its
-	// own: the directory of its pages and what needs attention. The four pages after it
+	// own: the directory of its pages and what needs attention. The two pages after it
 	// belong to it, and so does a row for each kind of page plugins contribute to it, build
 	// systems and compilers, which opens that kind's pages as Toolchains and Debuggers list
 	// theirs.
 	pageBuild
 	pageToolchains
 	pageDebuggers
-	pageConsole
-	pageTrustedLocations
 	// pageLanguages is "Languages & Frameworks", a top-level page with no static pages
 	// under it: the pages plugins contribute to it make it a group, and its own page is the
 	// directory of them.
 	pageLanguages
-	// pageTools is the group "Tools"; the page after it belongs to it.
+	// pageTools is the group "Tools"; the four pages after it belong to it.
 	pageTools
 	pageTerminal
 	pageSearch
+	pageConsole
+	pageTrustedLocations
 	// pageAI is the group "AI"; the two pages after it belong to it.
 	pageAI
 	pageAIGeneration
@@ -73,15 +76,16 @@ var parents = [pageCount]pageID{
 	pageProcessTermination: pageAppearance,
 	pagePlugins:            noPage,
 	pageVersionControl:     noPage,
+	pageGit:                pageVersionControl,
 	pageBuild:              noPage,
 	pageToolchains:         pageBuild,
 	pageDebuggers:          pageBuild,
-	pageConsole:            pageBuild,
-	pageTrustedLocations:   pageBuild,
 	pageLanguages:          noPage,
 	pageTools:              noPage,
 	pageTerminal:           pageTools,
 	pageSearch:             pageTools,
+	pageConsole:            pageTools,
+	pageTrustedLocations:   pageTools,
 	pageAI:                 noPage,
 	pageAIGeneration:       pageAI,
 	pageIDEAPI:             pageAI,
@@ -110,10 +114,13 @@ func isGroup(id pageID) bool {
 }
 
 // ownsPage says whether the group id also opens a page of its own when its row is
-// chosen, instead of only expanding and collapsing: Build, Execution, Deployment and
-// Languages & Frameworks open the directory of their pages (languages_view.go), which the
+// chosen, instead of only expanding and collapsing: Version Control, Build, Execution,
+// Deployment and Languages & Frameworks open the directory of their pages
+// (version_control_view.go, build_directory_view.go, languages_view.go), which the
 // breadcrumb above one of those pages links to as well.
-func ownsPage(id pageID) bool { return id == pageBuild || id == pageLanguages }
+func ownsPage(id pageID) bool {
+	return id == pageVersionControl || id == pageBuild || id == pageLanguages
+}
 
 // titleOf is the name of an entry in the language of messages.
 func titleOf(messages *i18n.SettingsMessages, id pageID) string {
@@ -136,6 +143,8 @@ func titleOf(messages *i18n.SettingsMessages, id pageID) string {
 		return messages.Plugins
 	case pageVersionControl:
 		return messages.VersionControl
+	case pageGit:
+		return messages.Git
 	case pageBuild:
 		return messages.Build
 	case pageToolchains:

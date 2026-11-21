@@ -22,7 +22,7 @@ type ConsoleMessages struct {
 	Stop        string
 	Clear       string
 	CopyAll     string
-	// Settings opens the Version Control settings, which choose the queries the console
+	// Settings opens the Git settings, which choose the queries the console
 	// records and how it draws its records.
 	Settings string
 

@@ -128,8 +128,8 @@ func (w *window) sidebar(c ui.C) {
 }
 
 // chooseRow opens what row r stands for. A group without a page of its own folds; one with a
-// page, which Build and Languages & Frameworks are and plugins' pages make any entry they are
-// under, opens it, and a group that owns its page lists its pages as it opens. A kind's row opens the kind's page. A search ends once its row
+// page, which Version Control, Build and Languages & Frameworks are and plugins' pages make
+// any entry they are under, opens it, and a group that owns its page lists its pages as it opens. A kind's row opens the kind's page. A search ends once its row
 // is chosen, with the rows above the page opened so the page's row is on the screen.
 func (w *window) chooseRow(r row) {
 	if w.chooseSearchRow(r) {
@@ -390,7 +390,9 @@ func (w *window) content(c ui.C) {
 		case w.sess.page == pageAIGeneration:
 			w.generationPage(c)
 		case w.sess.page == pageVersionControl:
-			w.versionControlPage(c)
+			w.versionControlPage(c.Part("versionControl"))
+		case w.sess.page == pageGit:
+			w.gitPage(c)
 		case w.sess.page == pageNetwork && w.ctrl.opts.SetNetwork != nil:
 			w.networkPage(c)
 		case w.sess.page == pageKeymap:

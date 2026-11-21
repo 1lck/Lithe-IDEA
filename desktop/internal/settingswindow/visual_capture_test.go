@@ -44,7 +44,7 @@ func TestVisualSettings(t *testing.T) {
 	}{
 		{"20-settings-general", pageGeneral}, {"22-settings-editor", pageEditor},
 		{"23-settings-keymap", pageKeymap}, {"24-settings-network", pageNetwork},
-		{"25-settings-process", pageProcessTermination}, {"26-settings-git", pageVersionControl}, {"26-settings-git-console", pageVersionControl},
+		{"25-settings-process", pageProcessTermination}, {"26-settings-version-control", pageVersionControl}, {"26-settings-git", pageGit}, {"26-settings-git-console", pageGit},
 		{"27-settings-terminal", pageTerminal}, {"28-plugins-installed", pagePlugins},
 		{"29-marketplace-empty", pagePlugins}, {"29-marketplace-recommendations", pagePlugins},
 		{"32-settings-build", pageBuild}, {"32-settings-build-kind", pageBuild}, {"34-settings-debuggers", pageDebuggers},

@@ -4,7 +4,7 @@
   "group": "运行输出",
   "capability": "运行、构建和测试控制台保留进程原始字节，由 Rust Core 按行读取 UTF-8 和 Windows GBK，支持固定输出编码及插件声明",
   "owner": "Run",
-  "notes": "桌面桥接以 base64 字节调用 outputStyle.decode；Core 使用插件声明、UTF-8、仅 Windows 的 GBK 自动候选或用户固定的编码。所有平台默认 UTF-8，仅 Windows 增加 GBK 回退，不读取系统代码页。设置页位于构建、执行、部署下，显示真实候选和 18 种编码，修改只影响新控制台。macOS 通过 94 项相关测试，SSH Windows 11 原生 x64 主机通过 95 项相关测试，包含 stdout/stderr 握手拆分 GBK 字符、混合行、颜色范围、声明传递与设置交互；两端相关竞态测试及中英文明暗无头截图通过。完整应用窗口的 Run、Build、Tests、复制和链接操作未逐项验收，verification 保持 pending。宿主固定到 Core PR #128 的 604699f 修订，包含最终默认策略与插件声明契约。",
+  "notes": "桌面桥接以 base64 字节调用 outputStyle.decode；Core 使用插件声明、UTF-8、仅 Windows 的 GBK 自动候选或用户固定的编码。所有平台默认 UTF-8，仅 Windows 增加 GBK 回退，不读取系统代码页。设置页位于“工具”下，显示真实候选和 18 种编码，修改只影响新控制台。macOS 通过 94 项相关测试，SSH Windows 11 原生 x64 主机通过 95 项相关测试，包含 stdout/stderr 握手拆分 GBK 字符、混合行、颜色范围、声明传递与设置交互；两端相关竞态测试及中英文明暗无头截图通过。完整应用窗口的 Run、Build、Tests、复制和链接操作未逐项验收，verification 保持 pending。宿主固定到 Core PR #128 的 604699f 修订，包含最终默认策略与插件声明契约。",
   "verification": "在简体中文 Windows 上输出 GBK 和 UTF-8 的不同日志行，并把多字节字符拆成多次写入；检查 Run、Build、Tests 的中文、颜色、复制和输出链接。切换到固定 GBK，再恢复自动，重启程序检查设置；插件 run/start 与 build prepareRun 声明 outputEncoding 时检查优先级。macOS/Linux 自动候选默认只有 UTF-8。自动化：core/output_style_test.go、core/run_start_test.go、core/build_test.go、pluginservice/runs_test.go、workbench/console_encoding_test.go、settingswindow/console_view_test.go、settingswindow/console_visual_test.go。",
   "macos": {
     "implementationStatus": "implemented",

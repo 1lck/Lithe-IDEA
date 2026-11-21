@@ -17,7 +17,7 @@ func TestGitLogLimitsCardShowsAppliesAndRestores(t *testing.T) {
 	w := newWindow(NewController(Options{
 		SetGitLogLimits: func(single, merged int) { changes = append(changes, limits{single, merged}) },
 	}), Values{GitLogMergedLimit: 30000})
-	w.sess.page = pageVersionControl
+	w.sess.page = pageGit
 	d := openWindow(t, w, func(config *app.Config) { config.Height = 1800 })
 	text := func(id string) string { return i18n.Shared(i18n.English, id) }
 	byDefault := func(n int) string {

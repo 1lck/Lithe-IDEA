@@ -6,7 +6,7 @@ import (
 	"github.com/vivaui/viva/ui"
 )
 
-// GitHubAccount is the GitHub account the Version Control page shows. The window reads a snapshot
+// GitHubAccount is the GitHub account the Git settings page shows. The window reads a snapshot
 // on every paint and asks the owner to act; the owner keeps the token and the sign-in.
 type GitHubAccount struct {
 	// Snapshot reads the account; it must not block.

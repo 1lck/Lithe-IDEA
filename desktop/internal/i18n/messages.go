@@ -574,6 +574,7 @@ type SettingsMessages struct {
 	ProcessTermination string
 	Plugins            string
 	VersionControl     string
+	Git                string
 	Build              string
 	Toolchains         string
 	Debuggers          string

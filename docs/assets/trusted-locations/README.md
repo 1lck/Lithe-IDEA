@@ -9,6 +9,8 @@
 
 截图不代表 macOS/Windows 原生窗口验收。
 
+2026-11-21 起“可信位置”移到“工具”分组，“构建、执行、部署”目录页不再有这一行；下表的目录页截图只作历史记录，新的位置见 [settings-tools-and-git](../settings-tools-and-git/README.md)。
+
 | 场景 | 深色主题 | 浅色主题 |
 | --- | --- | --- |
 | 目录页（中文） | [深色中文](trusted-locations-directory-dark-zh-Hans.png) | [浅色中文](trusted-locations-directory-light-zh-Hans.png) |

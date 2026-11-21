@@ -11,8 +11,7 @@ import (
 	"github.com/vivaui/viva/headless"
 )
 
-// TestVisualTrustedLocations renders the Trusted Locations page and its Build directory row:
-// the saved list, then a draft that adds a folder, one that removes a folder and Core's refusal
+// TestVisualTrustedLocations renders the Trusted Locations page under Tools: the saved list, then a draft that adds a folder, one that removes a folder and Core's refusal
 // of a filesystem root. The folders are fictional; the loader is the tests' fake.
 func TestVisualTrustedLocations(t *testing.T) {
 	out := os.Getenv("LITHE_VISUAL_OUTPUT_DIR")
@@ -37,7 +36,7 @@ func TestVisualTrustedLocations(t *testing.T) {
 					SystemLanguage: language, SystemDark: func() bool { return theme == "dark" },
 					Toolchains: loader,
 				}), Values{Theme: theme, Language: language.Code()})
-				w.sess.page = pageBuild
+				w.sess.show(pageTrustedLocations)
 				session, err := headless.Open(w.config(), nil, headless.Options{})
 				if err != nil {
 					t.Fatal(err)
@@ -53,10 +52,8 @@ func TestVisualTrustedLocations(t *testing.T) {
 						t.Fatal(err)
 					}
 				}
-				shot("directory")
 				// Pump paints only what was invalidated, so wait for the list's first folder to be
-				// on the screen; otherwise the shot repeats the directory page.
-				w.openBuildChild(pageTrustedLocations)
+				// on the screen.
 				d.until("the saved list to be painted", func() bool { return d.text(work) })
 				shot("list")
 				d.changeLocation(l, sandbox, true)

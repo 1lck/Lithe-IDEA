@@ -10194,7 +10194,7 @@
     },
     {
       "id": "desktop.git.console.settings",
-      "description": "Desktop Git console: toolbar button that opens the Version Control settings, which choose the queries the console records and how it draws them.",
+      "description": "Desktop Git console: toolbar button that opens the Git settings page, which choose the queries the console records and how it draws them.",
       "platforms": [
         "desktop"
       ]
@@ -10751,7 +10751,7 @@
     },
     {
       "id": "desktop.git.settings.changeLists",
-      "description": "Version Control settings switch: show the local ChangeLists of the Commit window",
+      "description": "Git settings switch: show the local ChangeLists of the Commit window",
       "platforms": [
         "desktop"
       ]
@@ -10779,7 +10779,7 @@
     },
     {
       "id": "desktop.git.settings.parentReferences",
-      "description": "Version Control settings switch: show the option that updates parent repositories' references",
+      "description": "Git settings switch: show the option that updates parent repositories' references",
       "platforms": [
         "desktop"
       ]
@@ -10793,14 +10793,14 @@
     },
     {
       "id": "desktop.git.settings.logLimits",
-      "description": "Version Control settings: title of the card that sets the most commits the Git Log reads",
+      "description": "Git settings: title of the card that sets the most commits the Git Log reads",
       "platforms": [
         "desktop"
       ]
     },
     {
       "id": "desktop.git.settings.logLimitsHelp",
-      "description": "Help of the Git Log limits card in the Version Control settings",
+      "description": "Help of the Git Log limits card in the Git settings",
       "platforms": [
         "desktop"
       ]
@@ -10845,7 +10845,7 @@
     },
     {
       "id": "desktop.git.settings.console.omitted",
-      "description": "Version Control settings: title of the card that chooses which internal Git queries the Git console leaves out",
+      "description": "Git settings: title of the card that chooses which internal Git queries the Git console leaves out",
       "platforms": [
         "desktop"
       ]
@@ -10985,7 +10985,7 @@
     },
     {
       "id": "desktop.git.settings.console.display",
-      "description": "Version Control settings: title of the card that chooses how the Git console draws its records",
+      "description": "Git settings: title of the card that chooses how the Git console draws its records",
       "platforms": [
         "desktop"
       ]
@@ -11778,7 +11778,7 @@
     },
     {
       "id": "desktop.github.settingsTitle",
-      "description": "Title of the GitHub account card on the Version Control settings page",
+      "description": "Title of the GitHub account card on the Git settings page",
       "platforms": [
         "desktop"
       ]

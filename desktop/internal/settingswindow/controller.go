@@ -387,7 +387,7 @@ type Options struct {
 	SearchPreferences SearchPreferencesSource
 	// PluginInstallsClosed releases downloads retained by the settings session.
 	PluginInstallsClosed func()
-	// GitHub is the account the Version Control page shows and drives; nil hides the card.
+	// GitHub is the account the Git settings page shows and drives; nil hides the card.
 	GitHub *GitHubAccount
 	// SettingsError logs a failure of the window, with the operation that failed as the log
 	// names it (plugin_settings_surface, keymap_schemes, settings_about_copy, ...).
@@ -690,10 +690,10 @@ func (c *Controller) OpenKeymap(application *app.Application, current Values) er
 	return c.open(application, current, pageKeymap)
 }
 
-// OpenVersionControl shows the window on the Version Control page, where the Git console's
-// settings button leads.
-func (c *Controller) OpenVersionControl(application *app.Application, current Values) error {
-	return c.open(application, current, pageVersionControl)
+// OpenGit shows the window on the Git page under Version Control, where the settings buttons
+// of the Git console and the Git Log lead.
+func (c *Controller) OpenGit(application *app.Application, current Values) error {
+	return c.open(application, current, pageGit)
 }
 
 // OpenToolchains shows the window on the Toolchains page under Build, Execution, Deployment,

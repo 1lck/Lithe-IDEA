@@ -52,25 +52,41 @@ func TestParentsTableKeepsGroupsBesideTheirPages(t *testing.T) {
 	}
 }
 
-func TestOnlyAppearanceBuildToolsAndAIAreGroups(t *testing.T) {
+func TestOnlyAppearanceVersionControlBuildToolsAndAIAreGroups(t *testing.T) {
 	for id := pageID(0); id < pageCount; id++ {
-		if got, want := isGroup(id), id == pageAppearance || id == pageBuild || id == pageTools || id == pageAI; got != want {
+		if got, want := isGroup(id), id == pageAppearance || id == pageVersionControl || id == pageBuild || id == pageTools || id == pageAI; got != want {
 			t.Errorf("isGroup(%d) = %v, want %v", id, got, want)
 		}
 	}
 }
 
-func TestTerminalIsTheOnePageOfTheToolsGroup(t *testing.T) {
-	if parents[pageTerminal] != pageTools {
-		t.Fatalf("the Terminal page is in group %d, want Tools", parents[pageTerminal])
+func TestToolsGroupHoldsTerminalSearchConsoleAndTrustedLocations(t *testing.T) {
+	want := []pageID{pageTerminal, pageSearch, pageConsole, pageTrustedLocations}
+	var got []pageID
+	for id := pageID(0); id < pageCount; id++ {
+		if parents[id] == pageTools {
+			got = append(got, id)
+		}
+	}
+	if !slices.Equal(got, want) {
+		t.Fatalf("pages in Tools = %v, want Terminal, Search, Console and Trusted Locations %v", got, want)
 	}
 	if pageTerminal != pageTools+1 {
 		t.Fatal("the Terminal page does not directly follow its group, which appendVisible relies on")
 	}
+}
+
+func TestGitIsTheOnePageOfTheVersionControlGroup(t *testing.T) {
+	if pageGit != pageVersionControl+1 || parents[pageGit] != pageVersionControl {
+		t.Fatal("the Git page does not directly follow Version Control inside it, which appendVisible relies on")
+	}
 	for id := pageID(0); id < pageCount; id++ {
-		if id != pageTerminal && id != pageSearch && parents[id] == pageTools {
-			t.Errorf("page %d is also in Tools", id)
+		if id != pageGit && parents[id] == pageVersionControl {
+			t.Errorf("page %d is also in Version Control", id)
 		}
+	}
+	if !ownsPage(pageVersionControl) {
+		t.Fatal("Version Control does not open a page of its own, the directory of its pages")
 	}
 }
 
@@ -118,7 +134,7 @@ func TestDefaultSidebarListsTheTopLevelWithAppearanceExpanded(t *testing.T) {
 		{page: pageKeymap, level: 1},
 		{page: pageProcessTermination, level: 1},
 		{page: pagePlugins},
-		{page: pageVersionControl},
+		{page: pageVersionControl, group: true},
 		{page: pageBuild, group: true},
 		{page: pageLanguages},
 		{page: pageTools, group: true},
@@ -134,13 +150,13 @@ func TestCollapsedGroupHidesItsPages(t *testing.T) {
 	var open [pageCount]bool
 	rows := appendVisible(nil, english(), &open, "")
 	if len(rows) != 8 {
-		t.Fatalf("rows = %v, want the four groups and the four pages on the top level", rows)
+		t.Fatalf("rows = %v, want the five groups and the three pages on the top level", rows)
 	}
 	for _, r := range rows {
 		if r.level != 0 || r.expanded {
 			t.Fatalf("row %+v should be on the top level and not expanded", r)
 		}
-		if want := r.page == pageAppearance || r.page == pageBuild || r.page == pageTools || r.page == pageAI; r.group != want {
+		if want := r.page == pageAppearance || r.page == pageVersionControl || r.page == pageBuild || r.page == pageTools || r.page == pageAI; r.group != want {
 			t.Fatalf("row %+v: group = %v, want %v", r, r.group, want)
 		}
 	}
@@ -150,8 +166,8 @@ func TestExpandedToolsGroupListsTerminal(t *testing.T) {
 	open := initialOpen()
 	open[pageTools] = true
 	rows := appendVisible(nil, english(), &open, "")
-	if len(rows) != 16 {
-		t.Fatalf("rows = %v, want the 14 of the default sidebar and the Terminal page", rows)
+	if len(rows) != 18 {
+		t.Fatalf("rows = %v, want the 14 of the default sidebar and the four pages of Tools", rows)
 	}
 	for i, r := range rows {
 		if r.page != pageTools {
@@ -190,7 +206,7 @@ func TestSearchFindsTerminalInsideItsGroup(t *testing.T) {
 func TestSearchOnTheToolsGroupKeepsTerminal(t *testing.T) {
 	open := initialOpen()
 	rows := appendVisible(nil, english(), &open, foldQuery("tools"))
-	want := []pageID{pageTools, pageTerminal, pageSearch}
+	want := []pageID{pageTools, pageTerminal, pageSearch, pageConsole, pageTrustedLocations}
 	if got := pagesOf(rows); !slices.Equal(got, want) {
 		t.Fatalf("pages = %v, want %v", got, want)
 	}
@@ -233,8 +249,9 @@ func TestSearchIgnoresCase(t *testing.T) {
 	open := initialOpen()
 	lower := appendVisible(nil, english(), &open, foldQuery("version control"))
 	upper := appendVisible(nil, english(), &open, foldQuery("VERSION CONTROL"))
-	if !slices.Equal(lower, upper) || len(lower) != 1 || lower[0].page != pageVersionControl {
-		t.Fatalf("lower = %v, upper = %v, want only the version control page", lower, upper)
+	want := []row{{page: pageVersionControl, group: true, expanded: true}, {page: pageGit, level: 1}}
+	if !slices.Equal(lower, upper) || !slices.Equal(lower, want) {
+		t.Fatalf("lower = %v, upper = %v, want the Version Control group and its Git page %v", lower, upper, want)
 	}
 }
 
@@ -322,6 +339,9 @@ func TestBreadcrumb(t *testing.T) {
 	}
 	if tools := appendBreadcrumb(nil, english(), pageTerminal); tools[0].link {
 		t.Errorf("Terminal breadcrumb = %+v, want Tools not linked", tools)
+	}
+	if git := appendBreadcrumb(nil, english(), pageGit); !git[0].link || git[0].page != pageVersionControl || git[1].link || git[1].title != "Git" {
+		t.Errorf("Git breadcrumb = %+v, want Version Control linked, then Git", git)
 	}
 }
 

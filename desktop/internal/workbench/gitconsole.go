@@ -200,7 +200,7 @@ type consoleView struct {
 	// searchFor is the search the rows were flattened for: the field's text, cut to what
 	// Core accepts.
 	searchFor string
-	// display is the display choices of the Version Control settings the rows were
+	// display is the display choices of the Git settings the rows were
 	// flattened for, which Core presents the records with.
 	display core.GitConsoleDisplay
 	// open holds the folds the user opened.

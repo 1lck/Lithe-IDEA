@@ -275,7 +275,7 @@ func (a *App) githubAccountSnapshot() githubSnapshot {
 	}
 }
 
-// githubSettings is the GitHub account the Version Control page of the settings window drives.
+// githubSettings is the GitHub account the Git page of the settings window drives.
 // The window calls it on its own thread, so every action is posted to the window's.
 func (a *App) githubSettings() *settingswindow.GitHubAccount {
 	return &settingswindow.GitHubAccount{

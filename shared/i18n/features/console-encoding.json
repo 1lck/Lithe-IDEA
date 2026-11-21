@@ -3,7 +3,7 @@
   "messages": [
     {
       "id": "desktop.consoleSettings.title",
-      "description": "Console settings page under Build, Execution, Deployment: its sidebar title and heading",
+      "description": "Console settings page under Tools: its sidebar title and heading",
       "platforms": [
         "desktop"
       ]
@@ -61,16 +61,6 @@
       ]
     },
     {
-      "id": "desktop.consoleSettings.directory",
-      "description": "Build, Execution, Deployment page: the line about the Console page, naming the output encoding in force",
-      "platforms": [
-        "desktop"
-      ],
-      "parameters": {
-        "encoding": "string"
-      }
-    },
-    {
       "id": "desktop.consoleSettings.automaticFailed",
       "description": "Console settings page: automatic encoding when Core could not resolve the catalog",
       "platforms": [
@@ -95,7 +85,6 @@
       "desktop.consoleSettings.automatic": "Automatic ({encodings})",
       "desktop.consoleSettings.automaticPending": "Automatic (loading)",
       "desktop.consoleSettings.otherwise": ", otherwise ",
-      "desktop.consoleSettings.directory": "Output encoding: {encoding}",
       "desktop.consoleSettings.automaticFailed": "Automatic (could not read)",
       "desktop.consoleSettings.readFailed": "Could not read output encodings."
     },
@@ -108,7 +97,6 @@
       "desktop.consoleSettings.automatic": "自动（{encodings}）",
       "desktop.consoleSettings.automaticPending": "自动（检测中）",
       "desktop.consoleSettings.otherwise": "，否则 ",
-      "desktop.consoleSettings.directory": "输出编码：{encoding}",
       "desktop.consoleSettings.automaticFailed": "自动（读取失败）",
       "desktop.consoleSettings.readFailed": "无法读取输出编码。"
     }

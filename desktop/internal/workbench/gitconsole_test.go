@@ -94,7 +94,7 @@ func TestConsoleListsTheRecordedCommands(t *testing.T) {
 	}
 }
 
-// The display switches of the Version Control settings take effect at once: the console asks
+// The display switches of the Git settings take effect at once: the console asks
 // Core to present its records again with them, and they are kept with the settings.
 func TestConsoleRedrawsWithTheDisplayChoices(t *testing.T) {
 	dir := newTestRepository(t)

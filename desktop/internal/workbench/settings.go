@@ -437,9 +437,9 @@ const (
 	settingsAI
 	// settingsKeymap is the Keymap page, which the gear menu's Keymap item opens.
 	settingsKeymap
-	// settingsVersionControl is the Version Control page, which the Git console's settings
-	// button opens.
-	settingsVersionControl
+	// settingsGit is the Git page under Version Control, which the settings buttons of the Git
+	// console and the Git Log open.
+	settingsGit
 	// settingsToolchainsPage is the Toolchains page, where a build's options dialog leads to the
 	// runtime its builds and launches use.
 	settingsToolchainsPage
@@ -504,8 +504,8 @@ func (a *App) openSettingsPageWith(surface actionSurface, page settingsPage, que
 			err = a.settingsWindow.OpenKeymap(a.application, current)
 		case settingsAI:
 			err = a.settingsWindow.OpenAI(a.application, current)
-		case settingsVersionControl:
-			err = a.settingsWindow.OpenVersionControl(a.application, current)
+		case settingsGit:
+			err = a.settingsWindow.OpenGit(a.application, current)
 		case settingsToolchainsPage:
 			err = a.settingsWindow.OpenToolchains(a.application, current)
 		default:

@@ -89,32 +89,27 @@ func TestConsoleEncodingPageReflectsCatalogArrivalAndFailure(t *testing.T) {
 	}
 }
 
-func TestConsoleEncodingPageBelongsToBuildAndMatchesSearch(t *testing.T) {
-	if parents[pageConsole] != pageBuild {
-		t.Fatal("Console is not under Build, Execution, Deployment")
+func TestConsoleEncodingPageBelongsToToolsAndMatchesSearch(t *testing.T) {
+	if parents[pageConsole] != pageTools {
+		t.Fatal("Console is not under Tools")
 	}
 	w := newWindow(NewController(Options{SettingsNavigation: core.NewClient().SettingsNavigation}), Values{})
 	d := openWindow(t, w)
-	entries := w.directoryEntries(i18n.English)
-	for _, entry := range entries {
-		if entry.key == "console" {
-			entry.open()
-			if w.sess.page != pageConsole {
-				t.Fatal("directory entry did not open Console")
+	w.searchField.SetText("GBK")
+	w.inv.Invalidate()
+	d.pump()
+	var found row
+	d.until("Console in the Core-projected encoding search", func() bool {
+		for _, r := range w.rows {
+			if r.page == pageConsole {
+				found = r
+				return true
 			}
-			w.searchField.SetText("GBK")
-			w.inv.Invalidate()
-			d.pump()
-			d.until("Console in the Core-projected encoding search", func() bool {
-				for _, row := range w.rows {
-					if row.page == pageConsole {
-						return true
-					}
-				}
-				return false
-			})
-			return
 		}
+		return false
+	})
+	w.chooseRow(found)
+	if w.sess.page != pageConsole || !w.sess.open[pageTools] {
+		t.Fatalf("choosing the match opened page %v with Tools open %v", w.sess.page, w.sess.open[pageTools])
 	}
-	t.Fatal("Console missing from the Build directory")
 }

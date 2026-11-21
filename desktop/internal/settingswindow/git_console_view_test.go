@@ -18,7 +18,7 @@ func TestGitConsoleCardsStartAsIDEAAndHandOnTheirChanges(t *testing.T) {
 	w := newWindow(NewController(Options{
 		SetGitConsole: func(preferences core.GitConsolePreferences) { changes = append(changes, preferences) },
 	}), Values{})
-	w.sess.page = pageVersionControl
+	w.sess.page = pageGit
 	d := openWindow(t, w, func(config *app.Config) { config.Height = 1800 })
 	switchOf := func(key string) gfx.Hit {
 		t.Helper()

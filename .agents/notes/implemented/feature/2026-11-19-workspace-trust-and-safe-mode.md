@@ -17,7 +17,7 @@ Maven 这类命令来源的模型会运行 `mvn`，pom 里的扩展和插件就�
 - **先问再打开。** `openProjectHere` 先读信任（`toolchain.ReadWorkspaceTrust`），再决定直接打开、以安全模式打开或提问；选“不打开”时当前项目原样保留，新开的项目页签直接关掉。“以安全模式预览”记成不信任，下次打开不再问，和 IDEA 的 `setProjectTrusted(false)` 相同。
 - **安全模式下的动作先问。** `startRun`、`runBuildTask`、`startTests`、运行当前文件和重新加载模型前，安全模式会弹出“信任项目？/ 保持安全模式”。信任保存成功后才执行原动作；保存失败按未信任处理。自动加载的模型不运行，构建窗口在模型位置显示安全模式说明。
 - **设置页和对话框是同一份记录。** 构建设置里撤销或授予工作区信任后，工作台重新读取信任并应用；离开安全模式时重新加载被跳过的模型和失败的语言服务器。
-- **可信位置有自己的设置页（#2207）。** 设置 › 构建、执行、部署 › 可信位置列出 Core 读出的 `trustedLocations`。增删都是草稿：每项改动单独交给 Core 的 `toolchains.editCatalog`（字段 `trustedLocations`）预演，页面显示 Core 算出的结果；Core 拒绝根目录（`plugin.toolchain.rootLocation`）和超过 256 项（`plugin.toolchain.trustListFull`），拒绝只丢掉这一项改动。“撤销修改”去掉该文件夹的全部改动，而不是追加一项反向改动，否则恢复的文件夹会跑到列表末尾。底栏应用时先写工具链、再写可信位置；两边共用偏好目录的 `toolchains/global.json`，任一方写入后把另一方读到的内容标记为过期，过期的列表在写入前先重新读取，改动相互抵消时不写文件。写入成功后工作台重试失败的语言服务器并重新判定当前项目的信任。
+- **可信位置有自己的设置页（#2207）。** 设置 › 工具 › 可信位置列出 Core 读出的 `trustedLocations`。增删都是草稿：每项改动单独交给 Core 的 `toolchains.editCatalog`（字段 `trustedLocations`）预演，页面显示 Core 算出的结果；Core 拒绝根目录（`plugin.toolchain.rootLocation`）和超过 256 项（`plugin.toolchain.trustListFull`），拒绝只丢掉这一项改动。“撤销修改”去掉该文件夹的全部改动，而不是追加一项反向改动，否则恢复的文件夹会跑到列表末尾。底栏应用时先写工具链、再写可信位置；两边共用偏好目录的 `toolchains/global.json`，任一方写入后把另一方读到的内容标记为过期，过期的列表在写入前先重新读取，改动相互抵消时不写文件。写入成功后工作台重试失败的语言服务器并重新判定当前项目的信任。
 
 ## 考虑过的备选方案
 
