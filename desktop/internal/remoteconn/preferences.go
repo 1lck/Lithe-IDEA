@@ -15,8 +15,8 @@ import (
 // only the values the user changed, and only ever replaced whole, atomically, against the bytes
 // they were read from. They are never written to a host, a workspace, the app bundle or the
 // installation directory, so they do not affect code signing or Sparkle delta updates, and they
-// are not copied across worktrees. They hold no secret, only the SSH program's path and the
-// reconnect limit.
+// are not copied across worktrees. They hold no secret, only the SSH program's path, the
+// reconnect limit and what closing a window does to the host's programs.
 
 // PreferencesKernel is the part of the Core client the remote workspace preferences use.
 type PreferencesKernel interface {

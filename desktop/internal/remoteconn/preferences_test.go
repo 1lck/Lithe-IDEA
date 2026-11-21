@@ -91,6 +91,33 @@ func TestRefusedPreferenceNamesTheField(t *testing.T) {
 	}
 }
 
+// What closing a window does to the host's programs asks by default, is stored as the user
+// chooses it and asks again once made automatic.
+func TestClosingChoiceIsStoredAndRestored(t *testing.T) {
+	ctx := testContext(t)
+	kernel := core.NewClient()
+	read, err := ReadPreferences(ctx, kernel, t.TempDir(), "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if closing := read.State.Closing; closing.Source != core.RemotePreferenceAutomatic || closing.Programs != core.RemoteCloseAsk || closing.IdleTimeoutSeconds != 600 || read.State.Preferences.ClosePrograms != nil {
+		t.Fatalf("automatic closing = %+v", closing)
+	}
+	keep := core.RemoteCloseKeep
+	kept, committed, err := read.Edit(ctx, kernel, core.RemotePreferenceEdit{ClosePrograms: &core.RemoteCloseProgramsEdit{Programs: &keep}})
+	if err != nil || !committed {
+		t.Fatalf("keep: committed = %v, err = %v", committed, err)
+	}
+	stored := kept.State.Preferences.ClosePrograms
+	if closing := kept.State.Closing; closing.Source != core.RemotePreferenceFromSetting || closing.Programs != core.RemoteCloseKeep || stored == nil || *stored != keep {
+		t.Fatalf("kept closing = %+v", closing)
+	}
+	asked, committed, err := kept.Edit(ctx, kernel, core.RemotePreferenceEdit{ClosePrograms: &core.RemoteCloseProgramsEdit{}})
+	if err != nil || !committed || asked.State.Closing.Source != core.RemotePreferenceAutomatic || asked.State.Closing.Programs != core.RemoteCloseAsk {
+		t.Fatalf("automatic again: committed = %v, closing = %+v, err = %v", committed, asked.State.Closing, err)
+	}
+}
+
 // A saved program that is executable takes effect; one that later disappears is reported, not
 // treated as a damaged document.
 func TestSavedProgramIsReportedWhenItDisappears(t *testing.T) {
