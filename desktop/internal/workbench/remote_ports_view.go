@@ -4,6 +4,7 @@ import (
 	"net"
 	"strconv"
 	"strings"
+	"unicode/utf8"
 
 	"github.com/1lck/Lithe-IDEA/desktop/internal/i18n"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/icons"
@@ -18,7 +19,7 @@ const (
 	// remotePortsRowHeight is the height of a row of the list and of its header.
 	remotePortsRowHeight = 26
 	// The widths of the list's fixed columns; the Process column takes the rest.
-	remotePortsRemoteWidth = 150
+	remotePortsRemoteWidth = 200
 	remotePortsLocalWidth  = 150
 	remotePortsSourceWidth = 90
 	remotePortsStatusWidth = 170
@@ -54,7 +55,11 @@ func (a *App) remotePortsView(c ui.C, p *project) {
 	language := a.language()
 	ui.Column(c).Fill().Background(a.colors.Editor).Children(func() {
 		a.remotePortsAddRow(c, p)
-		if ports.addInvalid {
+		switch ports.addRefused {
+		case "":
+		case "credentials":
+			a.remotePortsLine(c.Part("add-invalid"), i18n.Shared(language, "desktop.remote.ports.addCredentials"), a.theme.Danger)
+		default:
 			a.remotePortsLine(c.Part("add-invalid"), i18n.Shared(language, "desktop.remote.ports.addInvalid"), a.theme.Danger)
 		}
 		if ports.notice != "" {
@@ -96,7 +101,8 @@ func (a *App) remotePortsLine(c ui.C, text string, color gfx.Color) {
 	})
 }
 
-// remotePortsAddRow declares the field a port is typed into and the button that forwards it.
+// remotePortsAddRow declares the field a port, host:port or URL is typed into and the button that
+// forwards it.
 func (a *App) remotePortsAddRow(c ui.C, p *project) {
 	ports := &p.remote.ports
 	language := a.language()
@@ -104,9 +110,10 @@ func (a *App) remotePortsAddRow(c ui.C, p *project) {
 	ui.Row(k).FillWidth().Height(panelHeaderHeight).Shrink(0).Items(ui.Center).Gap(6).PadX(8).Children(func() {
 		submitted := ui.TextField(k.Part("field"), &ports.add, i18n.Shared(language, "desktop.remote.ports.addLabel"),
 			i18n.Shared(language, "desktop.remote.ports.addPlaceholder")).Grow(1).Submitted()
+		unavailable := p.remote.session == "" || ports.adding
 		add := ui.Button(k.Part("button"), i18n.Shared(language, "desktop.remote.ports.add")).Outline().
-			Disabled(p.remote.session == "" || strings.TrimSpace(ports.add.Text()) == "")
-		if (submitted || add.Clicked()) && p.remote.session != "" {
+			Disabled(unavailable || strings.TrimSpace(ports.add.Text()) == "")
+		if (submitted || add.Clicked()) && !unavailable {
 			surface := surfaceButton
 			if submitted {
 				surface = surfaceShortcut
@@ -164,14 +171,41 @@ func remotePortsProcess(language i18n.Language, row remotePortRow) string {
 	return strings.Join(names, ", ")
 }
 
-// remotePortsRemote is the Remote Port column of row: the port, after the address it is bound to
-// when that is not the host's loopback interface.
-func remotePortsRemote(row remotePortRow) string {
+// remotePortsRemoteFits is the most characters of the Remote Port column that its width shows
+// whole; a longer text, such as a URL, a global IPv6 address or a long host name, ends in an
+// ellipsis, so its tooltip gives it whole.
+const remotePortsRemoteFits = 24
+
+// remotePortsRemote is the Remote Port column of row and its tooltip. The column reads the URL the
+// user added the port as; otherwise the first address the host listens on for it, IPv4 first,
+// with the count of the others; otherwise the address the user typed or the forward's target.
+// The tooltip gives what the column cuts off or leaves out: the URL with every address the host
+// listens on for its port, every address of a port the host listens on more than once, or a text
+// longer than the column shows whole. It is "" when the column says everything.
+func remotePortsRemote(language i18n.Language, row remotePortRow) (text, tip string) {
 	port := strconv.Itoa(int(row.key.port))
-	if row.key.host == "" {
-		return port
+	addresses := row.addresses()
+	switch {
+	case row.url():
+		text = row.added.scheme + "://" + net.JoinHostPort(row.added.host, port) + row.added.path
+	case len(addresses) > 1:
+		text = i18n.SharedFormat(language, "desktop.remote.ports.remoteMore",
+			map[string]string{"address": addresses[0], "count": strconv.Itoa(len(addresses) - 1)})
+	case len(addresses) == 1:
+		text = addresses[0]
+	default:
+		text = net.JoinHostPort(row.target(), port)
 	}
-	return net.JoinHostPort(row.key.host, port)
+	listening := strings.Join(addresses, ", ")
+	switch {
+	case row.url() && len(addresses) > 0:
+		tip = i18n.SharedFormat(language, "desktop.remote.ports.remoteUrlListening", map[string]string{"url": text, "addresses": listening})
+	case len(addresses) > 1:
+		tip = i18n.SharedFormat(language, "desktop.remote.ports.remoteListening", map[string]string{"addresses": listening})
+	case utf8.RuneCountInString(text) > remotePortsRemoteFits:
+		tip = text
+	}
+	return text, tip
 }
 
 // remotePortsStatus is the Status column of row and its colour.
@@ -214,12 +248,20 @@ func (a *App) remotePortsRow(c ui.C, p *project, row remotePortRow) {
 			})
 		}
 	}
+	remote, remoteTip := remotePortsRemote(language, row)
 	line := ui.Row(c).FillWidth().Height(remotePortsRowHeight).Shrink(0).Items(ui.Center).PadX(shellContentPad).
 		Hover(ui.Look{}.Background(a.colors.Hover)).
-		HitWith(ui.ID(c), remotePortsRemote(row), gfx.HitOptions{Value: status, SkipFocus: true})
+		HitWith(ui.ID(c), remote, gfx.HitOptions{Value: status, SkipFocus: true})
 	line.Children(func() {
-		ui.Row(c.Part("remote")).Width(remotePortsRemoteWidth).Shrink(0).Items(ui.Center).Children(func() {
-			ui.Text(c.Part("remote-text"), remotePortsRemote(row)).Color(a.colors.Text).Ellipsis()
+		remoteCell := ui.Row(c.Part("remote")).Width(remotePortsRemoteWidth).Shrink(0).Items(ui.Center)
+		if remoteTip != "" {
+			// The cell takes an identity for its tooltip, which gives what the column cuts off or
+			// leaves out.
+			remoteCell = remoteCell.HitWith(ui.ID(c.Part("remote")), remoteTip, gfx.HitOptions{Role: gfx.RoleStatus, SkipFocus: true}).
+				Tooltip(remoteTip)
+		}
+		remoteCell.Children(func() {
+			ui.Text(c.Part("remote-text"), remote).Color(a.colors.Text).Ellipsis()
 		})
 		localCell := ui.Row(c.Part("local")).Width(remotePortsLocalWidth).Shrink(0).Items(ui.Center)
 		color := a.colors.Text
@@ -249,11 +291,13 @@ func (a *App) remotePortsRow(c ui.C, p *project, row remotePortRow) {
 		menu.WidthRange(180, 280)
 		if row.forward != nil {
 			forward := *row.forward
-			if menu.Item(i18n.Shared(language, "desktop.remote.ports.openBrowser")).Icon(icons.ExternalLink).Clicked() {
-				c.After(func() { a.openRemotePort(forward, surfaceContextMenu) })
+			if _, browsable := row.browserURL(); browsable {
+				if menu.Item(i18n.Shared(language, "desktop.remote.ports.openBrowser")).Icon(icons.ExternalLink).Clicked() {
+					c.After(func() { a.openRemotePort(row, surfaceContextMenu) })
+				}
 			}
 			if menu.Item(i18n.Shared(language, "desktop.remote.ports.copyAddress")).Icon(icons.Copy).Clicked() {
-				c.After(func() { a.copyRemotePort(forward, surfaceContextMenu) })
+				c.After(func() { a.copyRemotePort(row, surfaceContextMenu) })
 			}
 			if menu.Item(i18n.Shared(language, "desktop.remote.ports.changeLocal")).Icon(icons.Pencil).Disabled(busy || r.session == "").Clicked() {
 				c.After(func() { a.chooseRemoteLocalPort(p, row.key, surfaceContextMenu) })
@@ -269,7 +313,7 @@ func (a *App) remotePortsRow(c ui.C, p *project, row remotePortRow) {
 				c.After(func() { a.chooseRemoteLocalPort(p, row.key, surfaceContextMenu) })
 			}
 		}
-		if row.manual && row.forward == nil && len(row.listening) == 0 {
+		if row.added != nil && row.forward == nil && len(row.listening) == 0 {
 			menu.Separator()
 			if menu.Item(i18n.Shared(language, "desktop.remote.ports.remove")).Icon(icons.Trash2).Disabled(busy).Clicked() {
 				c.After(func() { a.removeRemotePort(p, row.key) })
@@ -278,8 +322,9 @@ func (a *App) remotePortsRow(c ui.C, p *project, row remotePortRow) {
 	})
 }
 
-// remotePortsRowActions declares the buttons at the end of row: Open in Browser, Copy Local Address
-// and Stop Forwarding for a forwarded port, Forward otherwise.
+// remotePortsRowActions declares the buttons at the end of row: Open in Browser — unless the row's
+// URL is not one a browser opens — Copy Local Address and Stop Forwarding for a forwarded port,
+// Forward otherwise.
 func (a *App) remotePortsRowActions(c ui.C, p *project, row remotePortRow, busy bool) {
 	language := a.language()
 	if row.forward == nil {
@@ -289,11 +334,13 @@ func (a *App) remotePortsRowActions(c ui.C, p *project, row remotePortRow, busy 
 		return
 	}
 	forward := *row.forward
-	if _, clicked := a.toolIconButton(c.Part("open"), i18n.Shared(language, "desktop.remote.ports.openBrowser"), icons.ExternalLink, false, false); clicked {
-		c.After(func() { a.openRemotePort(forward, surfaceButton) })
+	if _, browsable := row.browserURL(); browsable {
+		if _, clicked := a.toolIconButton(c.Part("open"), i18n.Shared(language, "desktop.remote.ports.openBrowser"), icons.ExternalLink, false, false); clicked {
+			c.After(func() { a.openRemotePort(row, surfaceButton) })
+		}
 	}
 	if _, clicked := a.toolIconButton(c.Part("copy"), i18n.Shared(language, "desktop.remote.ports.copyAddress"), icons.Copy, false, false); clicked {
-		c.After(func() { a.copyRemotePort(forward, surfaceButton) })
+		c.After(func() { a.copyRemotePort(row, surfaceButton) })
 	}
 	if _, clicked := a.toolIconButton(c.Part("stop"), i18n.Shared(language, "desktop.remote.ports.stop"), icons.Square, false, busy); clicked {
 		c.After(func() { a.stopRemotePort(p, row.key, forward.ID, surfaceButton) })
@@ -339,7 +386,8 @@ func (a *App) remotePortsLocal(c ui.C, p *project) {
 		return
 	}
 	language := a.language()
-	remote := remotePortsRemote(remotePortRow{key: *ports.local})
+	row, _ := ports.row(*ports.local)
+	remote, _ := remotePortsRemote(language, row)
 	closed := ui.Modal(c.Part("ports-local"), &ports.localOpen, i18n.Shared(language, "desktop.remote.ports.localTitle"), func() {
 		ui.Paragraph(c, i18n.SharedFormat(language, "desktop.remote.ports.localBody",
 			map[string]string{"remote": remote, "name": p.remote.name}), 5).Color(a.colors.Text)

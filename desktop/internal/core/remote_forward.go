@@ -104,3 +104,29 @@ func (c *Client) RemoteListeningPorts(ctx context.Context, sessionID string) ([]
 	err := c.RemoteHostRequest(ctx, sessionID, "ports.listening", nil, &result)
 	return result.Ports, err
 }
+
+// RemoteForwardAddress is an address the user typed into the Ports window, as a forward target:
+// TargetHost and TargetPort are what the host dials, TargetHost without brackets and a name in
+// lower case. Scheme and Path come only from an address written as a URL, which the window opens
+// the same way: Scheme in lower case, and Path what follows the host and port, its query and
+// fragment included, empty when that is empty or "/".
+type RemoteForwardAddress struct {
+	TargetHost string `json:"targetHost"`
+	TargetPort uint16 `json:"targetPort"`
+	Scheme     string `json:"scheme,omitempty"`
+	Path       string `json:"path,omitempty"`
+}
+
+// RemoteParseForwardAddress reads text, a port alone (on localhost), host:port with brackets
+// around an IPv6 host, or a URL, whose scheme gives the port when it names none (80 for http and
+// ws, 443 for https and wss). A refused address fails with CodeInvalidRequest, and
+// RemoteConnectionFieldError names the field text and the reason: empty, tooLong, malformed,
+// scheme, credentials (a user name or password, refused rather than kept), host or port. Nothing
+// is resolved or contacted, and no session is needed.
+func (c *Client) RemoteParseForwardAddress(ctx context.Context, text string) (RemoteForwardAddress, error) {
+	var address RemoteForwardAddress
+	err := c.Execute(ctx, "remote.parseForwardAddress", struct {
+		Text string `json:"text"`
+	}{text}, &address)
+	return address, err
+}

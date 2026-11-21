@@ -94,6 +94,36 @@ func TestRemoteParseAddressSplitsTheFields(t *testing.T) {
 	}
 }
 
+// A port, host:port or URL typed into the Ports window becomes a forward target; a URL keeps its
+// scheme and path and gives its default port, and a user name or password is refused by reason.
+func TestRemoteParseForwardAddressReadsPortsAndURLs(t *testing.T) {
+	client := NewClient()
+	ctx := testContext(t)
+	cases := map[string]RemoteForwardAddress{
+		"3000":                          {TargetHost: "localhost", TargetPort: 3000},
+		"10.0.0.5:9000":                 {TargetHost: "10.0.0.5", TargetPort: 9000},
+		"[::1]:5432":                    {TargetHost: "::1", TargetPort: 5432},
+		"HTTPS://Build.Example/app?x=1": {TargetHost: "build.example", TargetPort: 443, Scheme: "https", Path: "/app?x=1"},
+		"http://localhost:3000/":        {TargetHost: "localhost", TargetPort: 3000, Scheme: "http"},
+	}
+	for text, want := range cases {
+		if got, err := client.RemoteParseForwardAddress(ctx, text); err != nil || got != want {
+			t.Errorf("address %q = %+v, err = %v, want %+v", text, got, err, want)
+		}
+	}
+	for text, reason := range map[string]string{
+		"https://dev:secret@build.example": "credentials",
+		"postgres://build.example":         "port",
+		"not a port":                       "malformed",
+		"70000":                            "port",
+	} {
+		_, err := client.RemoteParseForwardAddress(ctx, text)
+		if field, got, ok := RemoteConnectionFieldError(err); !ok || field != "text" || got != reason {
+			t.Errorf("address #%d: field %q, reason %q, want text and %q", len(text), field, got, reason)
+		}
+	}
+}
+
 // The effective values name where each comes from: the connection, the SSH configuration or the
 // default.
 func TestRemoteEffectiveSettingsNameTheirSources(t *testing.T) {

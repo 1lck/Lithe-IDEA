@@ -26,6 +26,11 @@ import (
 // Forwards belong to the session: when it ends, Core stops them, and the window shows the ports
 // unforwarded again.
 //
+// A port is added by typing it alone, as host:port or as a URL; Core reads the address
+// (remote.parseForwardAddress), and the row keeps a URL's scheme and path, to show the row as typed
+// and to open and copy the forwarded address the same way. Each row shows the address the host
+// serves the port on, its IP address included.
+//
 // The window reads the host's listening ports and the session's forwards while it is shown, every
 // remotePortsInterval, and stops reading once it is hidden; nothing reads them in the background.
 
@@ -68,20 +73,31 @@ func forwardKey(forward core.RemoteForward) remotePortKey {
 	return remotePortKey{host: remotePortHost(forward.TargetHost), port: forward.TargetPort}
 }
 
+// remotePortAdded is a port the user added, as Core read the address typed: host is the host as
+// typed, localhost for a port alone, and scheme and path are the URL's, "" for an address that is
+// not a URL and for a URL without a path. The same row typed again replaces them.
+type remotePortAdded struct {
+	key    remotePortKey
+	host   string
+	scheme string
+	path   string
+}
+
 // remotePortRow is one row of the window.
 type remotePortRow struct {
 	key remotePortKey
 	// listening holds the host's listening sockets of the row, empty for a port that only the
 	// user added.
 	listening []core.RemoteListeningPort
-	// manual reports that the user added the port.
-	manual bool
+	// added is the address the user added the port with, nil for a port the user did not add.
+	added *remotePortAdded
 	// forward is the row's running forward, nil while there is none.
 	forward *core.RemoteForward
 }
 
 // target is the host the row's forward is started to: the row's own address, or the loopback
-// address of the family the host's server listens on, or localhost for a port added by hand.
+// address of the family the host's server listens on, or the host typed for a port added by hand,
+// or the target of the row's running forward.
 func (row remotePortRow) target() string {
 	if row.key.host != "" {
 		return row.key.host
@@ -91,10 +107,67 @@ func (row remotePortRow) target() string {
 			return "127.0.0.1"
 		}
 	}
-	if len(row.listening) > 0 {
+	switch {
+	case len(row.listening) > 0:
 		return "::1"
+	case row.added != nil:
+		return row.added.host
+	case row.forward != nil:
+		return row.forward.TargetHost
 	}
 	return "localhost"
+}
+
+// addresses are the distinct addresses the host listens on for the row, as address:port, IPv4
+// first and otherwise in the host's order.
+func (row remotePortRow) addresses() []string {
+	var v4, v6 []string
+	port := strconv.Itoa(int(row.key.port))
+	for _, listening := range row.listening {
+		address := net.JoinHostPort(listening.Address, port)
+		if slices.Contains(v4, address) || slices.Contains(v6, address) {
+			continue
+		}
+		if ip, err := netip.ParseAddr(listening.Address); err == nil && !ip.Unmap().Is4() {
+			v6 = append(v6, address)
+		} else {
+			v4 = append(v4, address)
+		}
+	}
+	return append(v4, v6...)
+}
+
+// url reports whether the user added the row as a URL.
+func (row remotePortRow) url() bool {
+	return row.added != nil && row.added.scheme != ""
+}
+
+// browserURL is the address Open in Browser opens for the row's forward: the URL the user added,
+// with this computer's local address in place of the host's, or http on the local address. ok is
+// false for a row without a forward and for a URL a browser does not open, such as ws or postgres.
+func (row remotePortRow) browserURL() (url string, ok bool) {
+	if row.forward == nil {
+		return "", false
+	}
+	if !row.url() {
+		return "http://" + remotePortAddress(*row.forward), true
+	}
+	if row.added.scheme != "http" && row.added.scheme != "https" {
+		return "", false
+	}
+	return row.added.scheme + "://" + remotePortAddress(*row.forward) + row.added.path, true
+}
+
+// copyText is what Copy Local Address copies for the row's forward: the URL the user added, with
+// this computer's local address in place of the host's, or the local address as host:port.
+func (row remotePortRow) copyText() string {
+	switch {
+	case row.forward == nil:
+		return ""
+	case row.url():
+		return row.added.scheme + "://" + remotePortAddress(*row.forward) + row.added.path
+	}
+	return remotePortAddress(*row.forward)
 }
 
 // remotePortsBusy is what runs for a row.
@@ -121,7 +194,7 @@ type remotePorts struct {
 	// forwards are the session's running forwards by id.
 	forwards []core.RemoteForward
 	// manual are the ports the user added, kept while the workspace is open, across sessions.
-	manual []remotePortKey
+	manual []remotePortAdded
 	// localPorts are the local ports the user chose for rows, kept like manual; a row without one
 	// is forwarded on its own port number.
 	localPorts map[remotePortKey]uint16
@@ -141,9 +214,11 @@ type remotePorts struct {
 	confirmOpen bool
 	// notice is the window's message about the last action, such as the forward limit, "" for none.
 	notice string
-	// add is the field a port is typed into, and addInvalid is set when its text is not a port.
+	// add is the field a port is typed into; adding is set while Core reads the address typed, and
+	// addRefused is the reason Core refused the last one, "" when it did not.
 	add        ui.Field
-	addInvalid bool
+	adding     bool
+	addRefused string
 	// reading is set while a reading runs or the next one is scheduled; shown is set each time the
 	// window is drawn, so a reading that finds it unset since the last one stops reading. stopTimer
 	// stops the scheduled reading; timer tells its callback apart from a later schedule's.
@@ -204,8 +279,9 @@ func (ports *remotePorts) rows() []remotePortRow {
 		r := row(remotePortKey{host: remotePortHost(port.Address), port: port.Port})
 		r.listening = append(r.listening, port)
 	}
-	for _, key := range ports.manual {
-		row(key).manual = true
+	for _, added := range ports.manual {
+		// A copy: a row outlives a later change of ports.manual in the callbacks it is given to.
+		row(added.key).added = &added
 	}
 	for i := range ports.forwards {
 		r := row(forwardKey(ports.forwards[i]))
@@ -220,6 +296,27 @@ func (ports *remotePorts) rows() []remotePortRow {
 		return strings.Compare(x.key.host, y.key.host)
 	})
 	return rows
+}
+
+// row is the window's row key, and whether there is one.
+func (ports *remotePorts) row(key remotePortKey) (remotePortRow, bool) {
+	for _, row := range ports.rows() {
+		if row.key == key {
+			return row, true
+		}
+	}
+	return remotePortRow{key: key}, false
+}
+
+// putAdded records a port the user added, replacing the address its row was added with before.
+func (ports *remotePorts) putAdded(added remotePortAdded) {
+	for i := range ports.manual {
+		if ports.manual[i].key == added.key {
+			ports.manual[i] = added
+			return
+		}
+	}
+	ports.manual = append(ports.manual, added)
 }
 
 // putForward records forward as running, replacing the one of the same id.
@@ -482,16 +579,12 @@ func (a *App) applyRemoteLocalPort(p *project) {
 		ports.localPorts = map[remotePortKey]uint16{}
 	}
 	ports.localPorts[key] = port
-	for _, row := range ports.rows() {
-		switch {
-		case row.key != key:
-			continue
-		case row.forward == nil:
-			a.forwardRemotePort(p, key, row.target(), false, surfaceButton)
-		case row.forward.LocalPort != port:
-			a.moveRemotePort(p, key, *row.forward, port)
-		}
-		return
+	switch row, ok := ports.row(key); {
+	case !ok:
+	case row.forward == nil:
+		a.forwardRemotePort(p, key, row.target(), false, surfaceButton)
+	case row.forward.LocalPort != port:
+		a.moveRemotePort(p, key, *row.forward, port)
 	}
 }
 
@@ -632,68 +725,91 @@ func (a *App) stopAllRemotePorts(p *project, surface actionSurface) {
 	})
 }
 
-// parseRemotePort reads a port typed into the window: a port alone, on the host's loopback
-// interface, or host:port, with brackets around an IPv6 host. The host is checked by Core.
-func parseRemotePort(text string) (host string, port uint16, ok bool) {
-	text = strings.TrimSpace(text)
-	portText := text
-	host = "localhost"
-	if _, err := strconv.Atoi(text); err != nil {
-		h, p, err := net.SplitHostPort(text)
-		if err != nil || h == "" {
-			return "", 0, false
-		}
-		host, portText = h, p
-	}
-	n, err := strconv.ParseUint(portText, 10, 16)
-	if err != nil || n == 0 {
-		return "", 0, false
-	}
-	return host, uint16(n), true
-}
-
-// addRemotePort adds the port typed into the window and forwards it.
+// addRemotePort has Core read the address typed into the window — a port, host:port or a URL —
+// then adds its port and forwards it. A refused address is shown under the field, which keeps the
+// text so it can be corrected.
 func (a *App) addRemotePort(p *project, surface actionSurface) {
 	r := p.remote
-	if r == nil || r.closed {
+	if r == nil || r.closed || r.ports.adding {
+		// log-exempt: 非用户操作：工作区已关闭或上一个地址正在解析，按钮此时不可用。
 		return
 	}
 	ports := &r.ports
-	host, port, ok := parseRemotePort(ports.add.Text())
-	if !ok {
-		a.operationRejected("remote_port_add", "invalid_port")
-		ports.addInvalid = true
+	text := strings.TrimSpace(ports.add.Text())
+	if text == "" {
+		// log-exempt: 非用户操作：输入为空，按钮此时不可用。
 		return
 	}
-	ports.addInvalid = false
-	ports.add.SetText("")
-	key := remotePortKey{host: remotePortHost(host), port: port}
-	if !slices.Contains(ports.manual, key) {
-		ports.manual = append(ports.manual, key)
+	ports.adding = true
+	kernel := a.kernel
+	a.background(p, remotePortsTimeout, func(ctx context.Context) func(*App) {
+		address, err := kernel.RemoteParseForwardAddress(ctx, text)
+		return func(a *App) {
+			ports.adding = false
+			if r.closed {
+				// log-exempt: 用户取消：工作区已关闭，添加的端口随窗口一起丢弃。
+				return
+			}
+			if _, reason, refused := core.RemoteConnectionFieldError(err); refused {
+				a.operationRejected("remote_port_add", remotePortsAddRejection(reason))
+				ports.addRefused = reason
+				return
+			}
+			if err != nil {
+				a.operationFailed("remote_port_add", remoteLogError(err))
+				ports.notice = i18n.SharedFormat(a.language(), "desktop.remote.ports.statusFailed",
+					map[string]string{"reason": remotePortsReason(err)})
+				return
+			}
+			ports.addRefused = ""
+			if strings.TrimSpace(ports.add.Text()) == text {
+				ports.add.SetText("")
+			}
+			a.addRemoteAddress(p, address, surface)
+		}
+	})
+}
+
+// remotePortsAddRejections are the log reasons of the reasons Core refuses an address typed into
+// the window with (remote.parseForwardAddress); a reason Core adds later is logged as
+// invalid_address.
+var remotePortsAddRejections = map[string]string{
+	"empty":       "empty_address",
+	"tooLong":     "address_too_long",
+	"malformed":   "malformed_address",
+	"scheme":      "invalid_scheme",
+	"credentials": "credentials_in_address",
+	"host":        "invalid_host",
+	"port":        "invalid_port",
+}
+
+// remotePortsAddRejection is the log reason of reason, a fixed token whatever Core sends.
+func remotePortsAddRejection(reason string) string {
+	if token, known := remotePortsAddRejections[reason]; known {
+		return token
 	}
-	for _, row := range ports.rows() {
-		if row.key != key {
-			continue
-		}
-		if row.forward != nil {
-			// log-exempt: 非用户操作：这个端口已在转发，添加只让它出现在列表里。
-			return
-		}
-		if key.host == "" && len(row.listening) == 0 {
-			// A port typed alone or as localhost goes to the address the user typed.
-			a.forwardRemotePort(p, key, host, false, surface)
-			return
-		}
-		a.forwardRemotePort(p, key, row.target(), false, surface)
+	return "invalid_address"
+}
+
+// addRemoteAddress adds the port of address, which Core read, and forwards it unless it is
+// forwarded already.
+func (a *App) addRemoteAddress(p *project, address core.RemoteForwardAddress, surface actionSurface) {
+	ports := &p.remote.ports
+	key := remotePortKey{host: remotePortHost(address.TargetHost), port: address.TargetPort}
+	ports.putAdded(remotePortAdded{key: key, host: address.TargetHost, scheme: address.Scheme, path: address.Path})
+	row, _ := ports.row(key)
+	if row.forward != nil {
+		// log-exempt: 非用户操作：这个端口已在转发，添加只让它出现在列表里，或换成新输入的网址。
 		return
 	}
+	a.forwardRemotePort(p, key, row.target(), false, surface)
 }
 
 // removeRemotePort removes a port the user added from the window.
 func (a *App) removeRemotePort(p *project, key remotePortKey) {
 	ports := &p.remote.ports
 	a.performed("remote.ports.remove", surfaceContextMenu)
-	ports.manual = slices.DeleteFunc(ports.manual, func(k remotePortKey) bool { return k == key })
+	ports.manual = slices.DeleteFunc(ports.manual, func(added remotePortAdded) bool { return added.key == key })
 	ports.setFailed(key, "")
 }
 
@@ -702,20 +818,34 @@ func remotePortAddress(forward core.RemoteForward) string {
 	return net.JoinHostPort(forward.LocalHost, strconv.Itoa(int(forward.LocalPort)))
 }
 
-// openRemotePort opens the local address of forward in the system browser.
-func (a *App) openRemotePort(forward core.RemoteForward, surface actionSurface) {
+// openRemotePort opens the forward of row in the system browser (remotePortRow.browserURL).
+func (a *App) openRemotePort(row remotePortRow, surface actionSurface) {
+	url, ok := row.browserURL()
+	if !ok {
+		// log-exempt: 非用户操作：这一行没有转发，或它的网址不是浏览器打开的协议，按钮此时不显示。
+		return
+	}
 	a.performed("remote.ports.open", surface)
-	url := "http://" + remotePortAddress(forward)
 	if err := openURL(url); err != nil {
-		a.operationFailed("remote_port_open", err)
+		// The error can name the URL, whose path and query the user typed and which may hold a
+		// token, so the log keeps only that the browser did not open it; the notice shows the URL.
+		a.operationFailed("remote_port_open", errRemotePortOpen)
 		a.notifyError(a.text.Run.Ports.OpenFailed(url))
 	}
 }
 
-// copyRemotePort copies the local address of forward to the clipboard.
-func (a *App) copyRemotePort(forward core.RemoteForward, surface actionSurface) {
+// errRemotePortOpen is what the log keeps of a forward's address the system did not open.
+var errRemotePortOpen = errors.New("the system did not open the forwarded address")
+
+// copyRemotePort copies the local address of row's forward to the clipboard
+// (remotePortRow.copyText).
+func (a *App) copyRemotePort(row remotePortRow, surface actionSurface) {
+	if row.forward == nil {
+		// log-exempt: 非用户操作：这一行没有转发，按钮此时不显示。
+		return
+	}
 	a.performed("remote.ports.copy", surface)
-	if err := app.SetClipboardText(remotePortAddress(forward)); err != nil {
+	if err := app.SetClipboardText(row.copyText()); err != nil {
 		a.operationFailed("remote_port_copy", err)
 	}
 }

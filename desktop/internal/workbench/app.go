@@ -238,6 +238,7 @@ type Kernel interface {
 	RemoteStopForward(ctx context.Context, sessionID string, id uint64) (bool, error)
 	RemoteForwards(ctx context.Context, sessionID string) ([]core.RemoteForward, error)
 	RemoteListeningPorts(ctx context.Context, sessionID string) ([]core.RemoteListeningPort, error)
+	RemoteParseForwardAddress(ctx context.Context, text string) (core.RemoteForwardAddress, error)
 	GitCreateTag(ctx context.Context, root, name, revision, message string) error
 	GitRebasePreview(ctx context.Context, root, base string) (core.RebasePreview, error)
 	GitRebaseStart(ctx context.Context, root string, preview core.RebasePreview, steps []core.RebaseStep) (*core.RebaseSession, error)

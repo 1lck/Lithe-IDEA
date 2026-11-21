@@ -317,11 +317,12 @@ PINNED_CORE_REPOSITORY="https://github.com/Lithe-IDEA/Lithe-core-rust.git"
 # Lithe-core-rust main at 66a1476: #147 starts, stops and lists port forwards
 # (remote.startForward, remote.stopForward, remote.forwards) and names the process of each
 # listening port (S28/S29, #2231).
-# Lithe-core-rust #154 at 2304b57 (on main 68a69a6): remote.parseAddress, remote.effectiveSettings,
+# Lithe-core-rust main at 822f871: #154 remote.parseAddress, remote.effectiveSettings,
 # remote.sshConfigHosts and remote.mottyHosts; the connections query, import and markConnected;
-# remoteStage events and classified authentication questions (#2231). Move to the main commit once
-# #154 merges.
-PINNED_CORE_REVISION="a73d60f387f91935c12003804303b12bfba79af9"
+# remoteStage events and classified authentication questions (#2231); #155 build preferences.
+# Lithe-core-rust #156 at 46278d6 (on main 822f871): remote.parseForwardAddress reads a port,
+# host:port or URL typed into the Ports window (#2231). Move to the main commit once #156 merges.
+PINNED_CORE_REVISION="46278d655c858f08615bd1da233dedd432e059e9"
 PROFILE="debug"
 CHECKOUT_ONLY="no"
 while [[ $# -gt 0 ]]; do

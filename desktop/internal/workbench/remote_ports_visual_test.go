@@ -19,9 +19,9 @@ import (
 )
 
 // TestVisualRemotePorts captures the Ports tool window of a remote workspace: the host's listening
-// ports with one forwarded on a free local port because its own was taken and one added by hand,
-// the row's menu, the question a target outside the host's loopback interface asks, and the
-// dialog a forward's local port is chosen in.
+// ports by the addresses the host serves them on, with one forwarded on a free local port because
+// its own was taken and a URL added by hand, the row's menu, the question a target outside the
+// host's loopback interface asks, and the dialog a forward's local port is chosen in.
 func TestVisualRemotePorts(t *testing.T) {
 	out := os.Getenv("LITHE_VISUAL_OUTPUT_DIR")
 	if out == "" {
@@ -45,6 +45,7 @@ func TestVisualRemotePorts(t *testing.T) {
 			kernel.git.trust = map[string]string{remoteTestFolder: core.WorkspaceDistrusted}
 			kernel.ports.listening = []core.RemoteListeningPort{
 				{Address: "0.0.0.0", Port: 8080, PID: 41, Process: "node"},
+				{Address: "::", Port: 8080, PID: 41, Process: "node"},
 				{Address: "127.0.0.1", Port: 5432, PID: 7, Process: "postgres"},
 				{Address: "10.0.0.5", Port: 9000},
 			}
@@ -99,20 +100,22 @@ func TestVisualRemotePorts(t *testing.T) {
 				t.Fatalf("reading the ports failed: %s", ports.readFailed)
 			}
 
-			// Nothing is forwarded until asked: 8080 is forwarded on a free local port because
-			// another program uses its own, and 3000 is added by hand.
+			// Nothing is forwarded until asked: 8080, which the host serves on both families, is
+			// forwarded on a free local port because another program uses its own, and a URL is
+			// added by hand.
 			for _, row := range ports.rows() {
 				if row.key.port == 8080 {
 					h.app.forwardRemotePort(p, row.key, row.target(), false, surfaceButton)
 				}
 			}
 			h.await("the forward", func() bool { return len(ports.forwards) == 1 && len(ports.busy) == 0 })
-			ports.add.SetText("3000")
+			ports.add.SetText("http://localhost:5173/app")
 			h.app.addRemotePort(p, surfaceButton)
-			h.await("the added port's forward", func() bool { return len(ports.forwards) == 2 && len(ports.busy) == 0 })
+			h.await("the added URL's forward", func() bool { return len(ports.forwards) == 2 && len(ports.busy) == 0 })
 			shot("list")
 
-			h.rightClickAt(h.portRowControl("8080", "8080"))
+			both := i18n.SharedFormat(lang, "desktop.remote.ports.remoteMore", map[string]string{"address": "0.0.0.0:8080", "count": "1"})
+			h.rightClickAt(h.portRowControl(both, both))
 			h.settleChain()
 			if !h.shows(i18n.Shared(lang, "desktop.remote.ports.changeLocal")) {
 				t.Fatal("the row's menu did not open")

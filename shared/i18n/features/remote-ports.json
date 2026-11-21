@@ -154,14 +154,14 @@
     },
     {
       "id": "desktop.remote.ports.openBrowser",
-      "description": "Ports tool window: button and menu item that opens the forward's local address in the default browser",
+      "description": "Ports tool window: button and menu item that opens the forward's local address in the default browser, with the scheme and path of the URL the port was added as",
       "platforms": [
         "desktop"
       ]
     },
     {
       "id": "desktop.remote.ports.copyAddress",
-      "description": "Ports tool window: menu item that copies the forward's local address",
+      "description": "Ports tool window: button and menu item that copies the forward's local address, as a URL when the port was added as one",
       "platforms": [
         "desktop"
       ]
@@ -182,7 +182,7 @@
     },
     {
       "id": "desktop.remote.ports.addPlaceholder",
-      "description": "Ports tool window: placeholder of the field where a port to forward is typed",
+      "description": "Ports tool window: placeholder of the field where a port to forward is typed, as a port alone, host:port or a URL",
       "platforms": [
         "desktop"
       ]
@@ -196,10 +196,49 @@
     },
     {
       "id": "desktop.remote.ports.addInvalid",
-      "description": "Ports tool window: the typed text is not a port or host:port",
+      "description": "Ports tool window: the typed text is not a port, host:port or a URL with a port or a known scheme",
       "platforms": [
         "desktop"
       ]
+    },
+    {
+      "id": "desktop.remote.ports.addCredentials",
+      "description": "Ports tool window: the typed URL contains a user name or password, which the window refuses so it is never stored or shown",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.remote.ports.remoteMore",
+      "description": "Ports tool window, Remote Port column: the first address the host listens on for the port, with how many other addresses it also listens on",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "address": "string",
+        "count": "string"
+      }
+    },
+    {
+      "id": "desktop.remote.ports.remoteListening",
+      "description": "Ports tool window, Remote Port column: tooltip listing every address the host listens on for the port, separated by commas",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "addresses": "string"
+      }
+    },
+    {
+      "id": "desktop.remote.ports.remoteUrlListening",
+      "description": "Ports tool window, Remote Port column: tooltip of a port the user added as a URL, giving the whole URL and every address the host listens on for its port, separated by commas",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "url": "string",
+        "addresses": "string"
+      }
     },
     {
       "id": "desktop.remote.ports.empty",
@@ -385,9 +424,13 @@
       "desktop.remote.ports.copyAddress": "Copy Local Address",
       "desktop.remote.ports.remove": "Remove",
       "desktop.remote.ports.addLabel": "Port to Forward",
-      "desktop.remote.ports.addPlaceholder": "Port or host:port",
+      "desktop.remote.ports.addPlaceholder": "Port, host:port or URL",
       "desktop.remote.ports.add": "Forward Port",
-      "desktop.remote.ports.addInvalid": "Enter a port from 1 to 65535, or host:port.",
+      "desktop.remote.ports.addInvalid": "Enter a port from 1 to 65535, host:port, or a URL such as http://localhost:3000.",
+      "desktop.remote.ports.addCredentials": "The address can't include a user name or password.",
+      "desktop.remote.ports.remoteMore": "{address} +{count}",
+      "desktop.remote.ports.remoteListening": "Listening on {addresses}",
+      "desktop.remote.ports.remoteUrlListening": "{url}, listening on {addresses}",
       "desktop.remote.ports.empty": "No ports are listening on the host. Type a port above to forward it anyway.",
       "desktop.remote.ports.loading": "Reading the host's listening ports…",
       "desktop.remote.ports.disconnected": "Not connected. Forwards end with the connection; forward the ports again after reconnecting.",
@@ -434,9 +477,13 @@
       "desktop.remote.ports.copyAddress": "复制本机地址",
       "desktop.remote.ports.remove": "移除",
       "desktop.remote.ports.addLabel": "要转发的端口",
-      "desktop.remote.ports.addPlaceholder": "端口或 主机:端口",
+      "desktop.remote.ports.addPlaceholder": "端口、主机:端口或网址",
       "desktop.remote.ports.add": "转发端口",
-      "desktop.remote.ports.addInvalid": "请输入 1–65535 的端口，或“主机:端口”。",
+      "desktop.remote.ports.addInvalid": "请输入 1–65535 的端口、“主机:端口”，或 http://localhost:3000 这样的网址。",
+      "desktop.remote.ports.addCredentials": "地址不能包含用户名或密码。",
+      "desktop.remote.ports.remoteMore": "{address} +{count}",
+      "desktop.remote.ports.remoteListening": "监听地址：{addresses}",
+      "desktop.remote.ports.remoteUrlListening": "{url}，监听地址：{addresses}",
       "desktop.remote.ports.empty": "主机上没有正在监听的端口。也可以在上方输入端口直接转发。",
       "desktop.remote.ports.loading": "正在读取主机上的监听端口…",
       "desktop.remote.ports.disconnected": "未连接。转发随连接一起结束，重新连接后需要再次转发。",
