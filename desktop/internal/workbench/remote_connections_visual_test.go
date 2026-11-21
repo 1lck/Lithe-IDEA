@@ -3,7 +3,6 @@
 package workbench
 
 import (
-	"context"
 	"os"
 	"path/filepath"
 	"testing"
@@ -14,20 +13,9 @@ import (
 	"github.com/vivaui/viva/headless"
 )
 
-// remoteVisualKernel reports a fixed probe outcome instead of starting OpenSSH; everything else
-// is the real Core.
-type remoteVisualKernel struct {
-	*core.Client
-	result core.RemoteProbeResult
-}
-
-func (k *remoteVisualKernel) RemoteProbe(context.Context, core.SSHConnection) (core.RemoteProbeResult, error) {
-	return k.result, nil
-}
-
-// TestVisualRemoteConnections captures the Remote Development window: two saved connections
-// with the tested one's host report, a host Core refused under its field, and OpenSSH's password
-// question over the window.
+// TestVisualRemoteConnections captures the Remote Development window: saved connections under
+// their groups with the tested one's overview, its form, a new connection whose host Core refused
+// under its field, and OpenSSH's password question over the window.
 func TestVisualRemoteConnections(t *testing.T) {
 	out := os.Getenv("LITHE_VISUAL_OUTPUT_DIR")
 	if out == "" {
@@ -57,7 +45,7 @@ func TestVisualRemoteConnections(t *testing.T) {
 				t.Fatal(err)
 			}
 			var session *headless.Session
-			kernel := &remoteVisualKernel{Client: core.NewClient(), result: probed}
+			kernel := &remoteProbeKernel{Client: core.NewClient(), result: probed}
 			h := newHarnessWithDriver(t, Options{Kernel: kernel, Store: prefs, Languages: []string{look.language}}, func(config app.Config) (*app.Driver, func(), error) {
 				config.Width, config.Height = 1200, 760
 				var err error
@@ -80,32 +68,59 @@ func TestVisualRemoteConnections(t *testing.T) {
 			h.settleChain()
 			r := &h.app.remote
 
-			save := func(name, host, port, user, authentication, identityFile string) {
+			type saved struct {
+				name, host, port, user, authentication, identityFile, proxyJump, group string
+				color                                                                  core.RemoteConnectionColor
+			}
+			save := func(entry saved) {
 				t.Helper()
 				r.selectNew()
-				r.form.name.SetText(name)
-				r.form.host.SetText(host)
-				r.form.port.SetText(port)
-				r.form.user.SetText(user)
-				r.form.authentication = authentication
-				r.form.identityFile.SetText(identityFile)
+				r.form.name.SetText(entry.name)
+				r.form.host.SetText(entry.host)
+				r.form.port.SetText(entry.port)
+				r.form.user.SetText(entry.user)
+				r.form.authentication = entry.authentication
+				r.form.identityFile.SetText(entry.identityFile)
+				r.form.proxyJump.SetText(entry.proxyJump)
+				r.form.color = entry.color
+				r.form.group = remoteNewGroup
+				r.form.newGroup.SetText(entry.group)
 				h.app.saveRemote()
 				h.settleChain()
 				if r.err != "" || r.fieldErr.field != "" {
-					t.Fatalf("saving %s: %q %+v", name, r.err, r.fieldErr)
+					t.Fatalf("saving %s: %q %+v", entry.name, r.err, r.fieldErr)
 				}
 			}
-			save("Lab ARM", "lab-arm.internal", "", "dev", core.RemoteAuthenticationAgent, "")
-			save("Build box", "build.example", "2222", "dev", core.RemoteAuthenticationPrivateKey, "/home/me/.ssh/id_ed25519")
+			save(saved{name: "Build box", host: "build.example", port: "2222", user: "dev", authentication: core.RemoteAuthenticationPrivateKey,
+				identityFile: "/home/me/.ssh/id_ed25519", proxyJump: "bastion.example", group: "Production", color: core.RemoteConnectionRed})
+			save(saved{name: "API gateway", host: "api.example", user: "deploy", authentication: core.RemoteAuthenticationAgent,
+				group: "Production", color: core.RemoteConnectionOrange})
+			save(saved{name: "Lab ARM", host: "lab-arm.internal", user: "dev", authentication: core.RemoteAuthenticationAgent,
+				group: "Lab", color: core.RemoteConnectionGreen})
+			save(saved{name: "Scratch VM", host: "10.0.4.17", authentication: core.RemoteAuthenticationAuto})
+			buildBox := ""
+			for _, entry := range r.source.Connections {
+				if entry.Name == "Build box" {
+					buildBox = entry.ID
+				}
+			}
+			r.selectEntry(buildBox)
 			h.app.testRemote()
 			h.settleChain()
 			if r.result == nil {
 				t.Fatal("the test did not report")
 			}
-			shot("tested")
+			shot("overview")
 
-			r.selectNew()
+			h.app.editSelectedRemote()
+			r.form.advanced.Open = true
+			shot("edit")
+
+			h.app.newRemote()
 			r.form.host.SetText("dev@build.example")
+			r.form.color = core.RemoteConnectionPurple
+			r.form.group = remoteNewGroup
+			r.form.newGroup.SetText("Experiments")
 			h.app.saveRemote()
 			h.settleChain()
 			if r.fieldErr.field != "host" {
@@ -113,11 +128,7 @@ func TestVisualRemoteConnections(t *testing.T) {
 			}
 			shot("refused")
 
-			for _, entry := range r.source.Connections {
-				if entry.Name == "Build box" {
-					r.selectEntry(entry.ID)
-				}
-			}
+			r.selectEntry(buildBox)
 			done := make(chan struct{})
 			h.app.gitAuth.queue = append(h.app.gitAuth.queue, core.GitAuthChallenge{
 				RequestID: "visual", Prompt: "dev@build.example's password: ", Secret: true, Attempt: 1, Remote: true, Done: done,
