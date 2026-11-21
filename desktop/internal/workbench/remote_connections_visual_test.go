@@ -228,7 +228,32 @@ func TestVisualRemoteConnections(t *testing.T) {
 				mottyChosen: []bool{true, true, true, false},
 			}
 			shot("import")
+
+			r.importer = &remoteImporter{source: remoteImportSSH,
+				ssh: core.RemoteSSHConfigHosts{Files: []string{"~/.ssh/config", "~/.ssh/config.d/lab"}, Hosts: []core.RemoteSSHConfigHost{
+					{Alias: "build", Status: core.RemoteImportExists, ExistingID: buildBox, ExistingName: "Build box",
+						Resolved: &core.RemoteResolvedHost{HostName: "build.example", User: "dev", Port: 2222}},
+					{Alias: "bastion", Status: core.RemoteImportable, UsedAsJumpBy: []string{"gpu"},
+						Resolved: &core.RemoteResolvedHost{HostName: "bastion.example", User: "ops", Port: 22}},
+					{Alias: "gpu", Status: core.RemoteImportable,
+						Resolved: &core.RemoteResolvedHost{HostName: "gpu-07.lab.example", User: "ml", Port: 22, ProxyJump: "bastion"}},
+					{Alias: "*.internal", Status: core.RemoteImportPattern},
+				}},
+				sshChosen: []bool{false, true, true, false},
+			}
+			shot("import-ssh")
 			r.importer = nil
+
+			// Once connected, the page lists the host's folders to open one.
+			r.selectEntry(buildBox)
+			browser := &remoteBrowser{entryID: buildBox, name: "Build box", connection: r.entry(buildBox).Connection,
+				recent: []string{"/home/dev/src/lithe", "/srv/ci/workspace"},
+				dir:    "/home/dev/src", folders: []string{"lithe", "lithe-core-rust", "scratch"}, files: []string{"README.txt"},
+				session: core.RemoteSession{HomeDirectory: "/home/dev"}}
+			browser.path.SetText("/home/dev/src")
+			r.browser = browser
+			shot("folder")
+			r.browser = nil
 			h.app.closeRemote()
 			h.settleChain()
 		})

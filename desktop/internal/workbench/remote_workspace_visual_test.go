@@ -88,7 +88,7 @@ func TestVisualRemoteWorkspace(t *testing.T) {
 			}
 			shot("browse")
 
-			h.clickFront(i18n.Shared(h.app.language(), "desktop.remote.browse.open"))
+			h.clickFront(i18n.SharedFormat(h.app.language(), "desktop.remote.browse.open", map[string]string{"name": "project"}))
 			h.await("the remote workspace's tree", func() bool {
 				p := h.app.project
 				return p != nil && p.remote != nil && !p.remote.beating && p.tree.root != nil && p.tree.root.listed && !p.tree.reading
