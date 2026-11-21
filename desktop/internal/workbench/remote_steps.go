@@ -147,7 +147,7 @@ func (a *App) remoteStepsView(c ui.C, language i18n.Language, s *remoteSteps) {
 	ui.Scroll(c.Part("steps")).Fill().Children(func() {
 		ui.Column(c).FillWidth().Gap(18).PadSides(20, 24, 24, 24).Children(func() {
 			ui.Row(c.Part("head")).FillWidth().Items(ui.Center).Gap(14).Children(func() {
-				a.remoteTile(c.Part("tile"), remoteSystemMark(a.remote.probedOutcome(s.entry.Connection)), s.entry.Color, remoteHeroTile, 15)
+				a.remoteTile(c.Part("tile"), remoteSystemMark(a.remote.probedOutcome(s.entry.Connection)), s.entry.Name, s.entry.Color, remoteHeroTile, 15)
 				ui.Column(c).Grow(1).Basis(0).MinWidth(0).Gap(5).Children(func() {
 					ui.Text(c, title).FontSize(16).Weight(gfx.WeightSemibold).Ellipsis().MinWidth(0)
 					ui.Text(c, remoteAddress(s.entry.Connection)).Mono().FontSize(a.theme.Metrics.FontSizeS).Color(a.colors.Subtle).Ellipsis().MinWidth(0)

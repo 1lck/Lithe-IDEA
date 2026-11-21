@@ -334,7 +334,7 @@ func (a *App) remoteImportList(c ui.C, language i18n.Language, m *remoteImporter
 					if host.system != "" {
 						mark = remoteSystemMark(&remoteProbeOutcome{result: core.RemoteProbeResult{Host: &core.RemoteProbedHost{System: host.system}}})
 					}
-					a.remoteTile(k.Part("tile"), mark, host.color, 26, 10)
+					a.remoteTile(k.Part("tile"), mark, host.name, host.color, 26, 10)
 					color := a.colors.Text
 					if !host.choosable {
 						color = a.colors.Subtle

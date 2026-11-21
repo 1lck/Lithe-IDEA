@@ -1,21 +1,50 @@
 # 远程开发连接窗口（#2231）无头测试截图
 
-来自生产 Viva Page 的无头渲染。连接列表由真实 Core 写入测试临时偏好目录，颜色、分组和分组顺序都由 Core 保存和给出；“测试连接”的结果由测试替换的内核直接返回固定的主机信息，不启动 OpenSSH，密码询问由测试直接放入提问队列。截图里的主机、用户和路径都是虚构的。截图覆盖深色与浅色主题、中文与英文界面，用于确认：
+截图来自生产 Viva Page 的无头渲染。连接列表由真实 Core 写入测试的临时偏好目录，颜色、分组和分组顺序都由 Core 保存并返回。下列内容都由测试直接给出固定值，不读取本机配置，也不启动 OpenSSH：
 
-- 左侧列表按 Core 给出的分组列出连接，分组标题带数量，没有分组的连接排在最后的“未分组”下；每个连接左侧是它的颜色条；
-- 选中已保存的连接时右侧显示概览：颜色图标、名称、分组标签、地址和跳板机，“主机信息”显示这次运行中最近一次测试得到的系统、CPU、内存和磁盘，“连接设置”逐项列出设置，未填写的项显示它的回退规则，例如“自动（SSH 配置，否则 22）”；底部是“删除”“测试连接”“关闭”和“连接”，连接后的文件夹选择见 `docs/assets/remote-workspace`；
-- 点“编辑”后右侧换成表单：名称与颜色、主机与端口、用户名、身份验证与私钥、分组各占一行，高级选项折叠在下方；
-- 新建连接时可以选“新建分组…”并在旁边输入分组名；主机字段填了 `user@host` 时，Core 拒绝的原因显示在主机字段下方，没有写入列表；
-- OpenSSH 询问密码时，窗口上方弹出“SSH 身份验证”，提示原文照搬，输入框为密码框，说明答案只交给这次连接、不会保存。
+- “测试连接”的结果：由测试替换的内核返回固定的主机信息；
+- `ssh -G` 解析出的生效设置；
+- 空页面上 Motty 和 `~/.ssh/config` 的可导入数量；
+- 导入页的 Motty 主机；
+- OpenSSH 的主机密钥和密码询问。
 
-截图不代表 macOS/Windows 原生窗口验收。
+截图里的主机、用户、指纹和路径都是虚构的。截图覆盖深色与浅色主题、中文与英文界面，用于确认：
+
+- **空页面：** 左侧只有搜索、导入、新建和“还没有保存的连接”。右侧是“通过 SSH 连接 Linux 主机”：
+  - 一个 `user@host:22` 地址框，交给 Core 解析后填入新连接；
+  - “从 Motty 导入”和“从 ~/.ssh/config 导入”两张卡片，各显示可导入的主机数；
+  - “手动填写”。
+- **列表与概览：** 连接按 Core 给出的分组列出，分组可以折叠。每行显示：
+  - 图标：测过的主机显示系统名的前两个字母（Ubuntu 显示“Ub”），没测过的显示名称首字母，都用连接的颜色；
+  - 名称、地址和上次连接时间。
+- **概览页：** 选中连接后右侧显示：
+  - 顶部：图标、颜色点、名称、分组标签，地址后跟跳板机；
+  - 按钮：“编辑”、“⋯”和“打开文件夹…”；
+  - 各区块：“最近打开的文件夹”、“主机信息”（主机名、系统、CPU、内存、磁盘，以及测试时间和“重新测试”）、“生效的 SSH 设置”。生效设置逐项列出 `ssh -G` 解析出的值和来源（本连接 / SSH 配置 / 默认值）。
+- **编辑与新建：** 在表单中编辑连接，高级选项可以展开。主机字段填了 `user@host` 时，Core 拒绝的原因显示在主机字段下方，连接不会写入列表。测试失败时，结果显示在表单顶部，OpenSSH 的原始诊断默认展开。
+- **连接步骤：** 依次为读取配置、连接主机、身份验证、检查平台、安装服务端、启动会话：
+  - OpenSSH 的主机密钥询问显示在“连接主机”下方，带密钥类型和指纹，按钮为“拒绝”和“信任并继续”；
+  - 密码询问显示在“身份验证”下方；
+  - 失败时标出失败的步骤并展开诊断。
+- **SSH 密码询问（弹窗）：** 窗口上方弹出“SSH 身份验证”，提示原样显示。
+- **信任文件夹：** 第一次打开远程文件夹时询问是否信任，可以选择只信任这个文件夹或信任它的上级目录。
+- **导入：** 页面右上角在 Motty 和 `~/.ssh/config` 之间切换，并显示数据来源路径。可以选择保留分组和保留颜色。每台主机标出状态（可导入 / 部分导入 / 已存在 / 非 SSH），不能导入的主机不能勾选。底部显示已选择的数量。
+
+截图不能代替 macOS/Windows 原生窗口验收。
 
 | 场景 | 浅色英文 | 深色中文 |
 | --- | --- | --- |
+| 空页面 | [浅色英文](remote-connections-empty-light-en-US.png) | [深色中文](remote-connections-empty-dark-zh-CN.png) |
 | 已测试连接的概览 | [浅色英文](remote-connections-overview-light-en-US.png) | [深色中文](remote-connections-overview-dark-zh-CN.png) |
 | 编辑已保存的连接（展开高级选项） | [浅色英文](remote-connections-edit-light-en-US.png) | [深色中文](remote-connections-edit-dark-zh-CN.png) |
 | 新建连接：新分组，主机字段被拒绝 | [浅色英文](remote-connections-refused-light-en-US.png) | [深色中文](remote-connections-refused-dark-zh-CN.png) |
-| SSH 密码询问 | [浅色英文](remote-connections-password-light-en-US.png) | [深色中文](remote-connections-password-dark-zh-CN.png) |
+| SSH 密码询问（弹窗） | [浅色英文](remote-connections-password-light-en-US.png) | [深色中文](remote-connections-password-dark-zh-CN.png) |
+| 测试失败，诊断展开 | [浅色英文](remote-connections-test-failed-light-en-US.png) | [深色中文](remote-connections-test-failed-dark-zh-CN.png) |
+| 连接步骤：主机密钥询问 | [浅色英文](remote-connections-steps-host-key-light-en-US.png) | [深色中文](remote-connections-steps-host-key-dark-zh-CN.png) |
+| 连接步骤：密码询问 | [浅色英文](remote-connections-steps-password-light-en-US.png) | [深色中文](remote-connections-steps-password-dark-zh-CN.png) |
+| 连接步骤：失败 | [浅色英文](remote-connections-steps-failed-light-en-US.png) | [深色中文](remote-connections-steps-failed-dark-zh-CN.png) |
+| 是否信任远程文件夹 | [浅色英文](remote-connections-trust-light-en-US.png) | [深色中文](remote-connections-trust-dark-zh-CN.png) |
+| 从 Motty 导入 | [浅色英文](remote-connections-import-light-en-US.png) | [深色中文](remote-connections-import-dark-zh-CN.png) |
 
-复验：从仓库根目录设置绝对路径 `LITHE_VISUAL_OUTPUT_DIR="$(pwd)/docs/assets/remote-connections"`，在 `desktop/` 下通过
-`../scripts/desktop/desktop-go.sh test -tags vivahead,lithevisual ./internal/workbench -run '^TestVisualRemoteConnections$' -count=1 -timeout 180s` 生成。
+复验方法：在仓库根目录把 `LITHE_VISUAL_OUTPUT_DIR` 设为绝对路径 `"$(pwd)/docs/assets/remote-connections"`，然后在 `desktop/` 下运行
+`../scripts/desktop/desktop-go.sh test -tags vivahead,lithevisual ./internal/workbench -run '^TestVisualRemoteConnections$' -count=1 -timeout 300s`。

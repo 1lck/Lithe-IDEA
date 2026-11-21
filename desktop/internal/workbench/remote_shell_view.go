@@ -2,6 +2,7 @@ package workbench
 
 import (
 	"strconv"
+	"strings"
 
 	"github.com/1lck/Lithe-IDEA/desktop/internal/core"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/i18n"
@@ -205,7 +206,7 @@ func (a *App) remoteEntryRow(row ui.ListRow, language i18n.Language, entry core.
 	rc := row.C
 	small := a.theme.Metrics.FontSizeS
 	row.Element.Height(remoteRowHeight).Items(ui.Center).Gap(10).PadSides(0, 12, 0, 12)
-	a.remoteTile(rc.Part("tile"), remoteSystemMark(r.probedOutcome(entry.Connection)), entry.Color, 26, 10)
+	a.remoteTile(rc.Part("tile"), remoteSystemMark(r.probedOutcome(entry.Connection)), entry.Name, entry.Color, 26, 10)
 	ui.Column(rc).Grow(1).Basis(0).MinWidth(0).Gap(2).Children(func() {
 		ui.Text(rc, entry.Name).Weight(gfx.WeightMedium).Ellipsis().MinWidth(0)
 		ui.Text(rc, remoteAddress(entry.Connection)).Mono().FontSize(small).Color(a.colors.Subtle).Ellipsis().MinWidth(0)
@@ -221,9 +222,9 @@ func (a *App) remoteEntryRow(row ui.ListRow, language i18n.Language, entry core.
 }
 
 // remoteTile declares the square that marks a connection's host: the first letters of its system
-// on the connection's color, as the build tree marks its build systems, or a question mark on the
-// neutral background while the host was never tested.
-func (a *App) remoteTile(c ui.C, mark string, color core.RemoteConnectionColor, size, fontSize float32) {
+// on the connection's color, as the build tree marks its build systems, or the first letter of its
+// name, outlined, while the host was never tested.
+func (a *App) remoteTile(c ui.C, mark, name string, color core.RemoteConnectionColor, size, fontSize float32) {
 	tint, marked := remoteColor(a.colors.Dark, color)
 	if !marked {
 		tint = a.colors.Subtle
@@ -234,7 +235,7 @@ func (a *App) remoteTile(c ui.C, mark string, color core.RemoteConnectionColor, 
 	}
 	text := mark
 	if text == "" {
-		text = "?"
+		text = remoteNameMark(name)
 	}
 	tile := ui.Row(c).Size(size, size).Shrink(0).Center().Radius(size / 5).Background(tint.WithAlpha(alpha))
 	if mark == "" {
@@ -243,6 +244,14 @@ func (a *App) remoteTile(c ui.C, mark string, color core.RemoteConnectionColor, 
 	tile.Children(func() {
 		ui.Text(c, text).FontSize(fontSize).Weight(gfx.WeightBold).Color(tint)
 	})
+}
+
+// remoteNameMark is the first letter of name, upper-cased, or "?" for a name without one.
+func remoteNameMark(name string) string {
+	for _, r := range strings.TrimSpace(name) {
+		return strings.ToUpper(string(r))
+	}
+	return "?"
 }
 
 // remoteDot declares a round mark of color.

@@ -167,7 +167,7 @@ func (a *App) remoteOverview(c ui.C, language i18n.Language, entry core.SavedRem
 func (a *App) remoteHero(c ui.C, language i18n.Language, entry core.SavedRemoteConnection, outcome *remoteProbeOutcome) {
 	r := &a.remote
 	ui.Row(c).FillWidth().Items(ui.Center).Gap(14).Children(func() {
-		a.remoteTile(c.Part("tile"), remoteSystemMark(outcome), entry.Color, remoteHeroTile, 15)
+		a.remoteTile(c.Part("tile"), remoteSystemMark(outcome), entry.Name, entry.Color, remoteHeroTile, 15)
 		ui.Column(c).Grow(1).Basis(0).MinWidth(0).Gap(5).Children(func() {
 			ui.Row(c).FillWidth().Items(ui.Center).Gap(8).Children(func() {
 				if tint, ok := remoteColor(a.colors.Dark, entry.Color); ok {
@@ -181,11 +181,13 @@ func (a *App) remoteHero(c ui.C, language i18n.Language, entry core.SavedRemoteC
 					a.remoteStatusPill(c.Part("live"), i18n.SharedFormat(language, "desktop.remote.connectedWindows", map[string]string{"count": strconv.Itoa(windows)}), a.colors.Success)
 				}
 			})
-			address := remoteAddress(entry.Connection)
-			if hops := remoteHopList(entry.Connection.ProxyJump); len(hops) > 0 {
-				address += "  ·  " + i18n.SharedFormat(language, "desktop.remote.viaHosts", map[string]string{"hosts": strings.Join(hops, " › ")})
-			}
-			ui.Text(c, address).Mono().FontSize(a.theme.Metrics.FontSizeS).Color(a.colors.Subtle).Ellipsis().MinWidth(0)
+			ui.Row(c.Part("address")).FillWidth().Gap(8).Items(ui.Center).Children(func() {
+				ui.Text(c, remoteAddress(entry.Connection)).Mono().FontSize(a.theme.Metrics.FontSizeS).Color(a.colors.Subtle).Ellipsis().Shrink(0).MinWidth(0)
+				if hops := remoteHopList(entry.Connection.ProxyJump); len(hops) > 0 {
+					ui.Text(c, "·  "+i18n.SharedFormat(language, "desktop.remote.viaHosts", map[string]string{"hosts": strings.Join(hops, " › ")})).
+						FontSize(a.theme.Metrics.FontSizeS).Color(a.colors.Subtle).Ellipsis().Shrink(1).MinWidth(0)
+				}
+			})
 		})
 		if ui.Button(c.Part("edit"), i18n.Shared(language, "desktop.remote.edit")).Icon(icons.Pencil).Outline().Shrink(0).Disabled(!r.editable()).Clicked() {
 			c.After(a.editSelectedRemote)
@@ -346,7 +348,7 @@ func (a *App) remoteHostGrid(c ui.C, language i18n.Language, host core.RemotePro
 				ui.Text(k, item.label).FontSize(small).Color(a.colors.Subtle).Ellipsis().MinWidth(0)
 				ui.Text(k, value).Weight(gfx.WeightMedium).Ellipsis().MinWidth(0)
 				if item.detail != "" {
-					ui.Text(k, item.detail).Mono().FontSize(small).Color(a.colors.Subtle).Ellipsis().MinWidth(0)
+					ui.Text(k, item.detail).FontSize(small).Color(a.colors.Subtle).Ellipsis().MinWidth(0)
 				}
 			})
 		}
@@ -420,6 +422,7 @@ func (a *App) remoteEffectiveTable(c ui.C, language i18n.Language, settings core
 	type line struct {
 		key, value string
 		source     core.RemoteSettingSource
+		words      bool
 	}
 	number := func(value core.RemoteEffectiveNumber, seconds bool) string {
 		text := strconv.FormatUint(uint64(value.Value), 10)
@@ -429,19 +432,19 @@ func (a *App) remoteEffectiveTable(c ui.C, language i18n.Language, settings core
 		return text
 	}
 	lines := []line{
-		{i18n.Shared(language, "desktop.remote.setting.hostName"), settings.HostName.Value, settings.HostName.Source},
-		{i18n.Shared(language, "desktop.remote.setting.user"), settings.User.Value, settings.User.Source},
-		{i18n.Shared(language, "desktop.remote.setting.port"), number(settings.Port, false), settings.Port.Source},
+		{i18n.Shared(language, "desktop.remote.setting.hostName"), settings.HostName.Value, settings.HostName.Source, false},
+		{i18n.Shared(language, "desktop.remote.setting.user"), settings.User.Value, settings.User.Source, false},
+		{i18n.Shared(language, "desktop.remote.setting.port"), number(settings.Port, false), settings.Port.Source, false},
 	}
 	if len(settings.IdentityFiles.Value) > 0 {
-		lines = append(lines, line{i18n.Shared(language, "desktop.remote.setting.identityFiles"), strings.Join(settings.IdentityFiles.Value, ", "), settings.IdentityFiles.Source})
+		lines = append(lines, line{i18n.Shared(language, "desktop.remote.setting.identityFiles"), strings.Join(settings.IdentityFiles.Value, ", "), settings.IdentityFiles.Source, false})
 	}
 	if jump := settings.ProxyJump; jump != nil && jump.Value != "" {
-		lines = append(lines, line{i18n.Shared(language, "desktop.remote.setting.proxyJump"), jump.Value, jump.Source})
+		lines = append(lines, line{i18n.Shared(language, "desktop.remote.setting.proxyJump"), jump.Value, jump.Source, false})
 	}
 	lines = append(lines,
-		line{i18n.Shared(language, "desktop.remote.setting.connectTimeout"), number(settings.ConnectTimeoutSeconds, true), settings.ConnectTimeoutSeconds.Source},
-		line{i18n.Shared(language, "desktop.remote.setting.keepAlive"), number(settings.KeepAliveSeconds, true), settings.KeepAliveSeconds.Source},
+		line{i18n.Shared(language, "desktop.remote.setting.connectTimeout"), number(settings.ConnectTimeoutSeconds, true), settings.ConnectTimeoutSeconds.Source, true},
+		line{i18n.Shared(language, "desktop.remote.setting.keepAlive"), number(settings.KeepAliveSeconds, true), settings.KeepAliveSeconds.Source, true},
 	)
 	small := a.theme.Metrics.FontSizeS
 	a.remoteBordered(c).Children(func() {
@@ -452,7 +455,10 @@ func (a *App) remoteEffectiveTable(c ui.C, language i18n.Language, settings core
 			}
 			ui.Row(k).FillWidth().Height(30).Items(ui.Center).Gap(10).PadX(12).Children(func() {
 				ui.Text(k, item.key).FontSize(small).Color(a.colors.Subtle).Width(140).Shrink(0).Ellipsis()
-				ui.Text(k, item.value).Mono().FontSize(small).Ellipsis().Grow(1).MinWidth(0)
+				value := ui.Text(k, item.value).FontSize(small).Ellipsis().Grow(1).MinWidth(0)
+				if !item.words {
+					value.Mono()
+				}
 				a.remotePill(k.Part("source"), remoteSourceName(language, item.source), a.colors.Subtle)
 			})
 		}
