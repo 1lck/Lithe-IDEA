@@ -251,3 +251,28 @@ func (c *Client) EditBuildIgnoredPaths(ctx context.Context, request BuildIgnored
 	}
 	return *result.Edit, nil
 }
+
+// ResolveStoredInstanceOptions returns the declared effective options for one
+// build root using Core's team/local preference resolution.
+func (c *Client) ResolveStoredInstanceOptions(ctx context.Context, manifest json.RawMessage, systemID, root string, team, local json.RawMessage) (json.RawMessage, error) {
+	const command = "build.resolveStoredInstanceOptions"
+	var result struct {
+		buildOutcome
+		Values json.RawMessage `json:"options"`
+	}
+	payload := map[string]any{
+		"manifest":      manifest,
+		"buildSystemID": systemID,
+		"request":       map[string]any{"root": root, "document": team, "local": local},
+	}
+	if err := c.Execute(ctx, command, payload, &result); err != nil {
+		return nil, err
+	}
+	if err := result.failure(command); err != nil {
+		return nil, err
+	}
+	if len(result.Values) == 0 {
+		return nil, newParseError(command, "build.resolveStoredInstanceOptions returned no options", "")
+	}
+	return result.Values, nil
+}

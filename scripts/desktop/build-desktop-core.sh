@@ -321,7 +321,7 @@ PINNED_CORE_REPOSITORY="https://github.com/Lithe-IDEA/Lithe-core-rust.git"
 # remote.sshConfigHosts and remote.mottyHosts; the connections query, import and markConnected;
 # remoteStage events and classified authentication questions (#2231). Move to the main commit once
 # #154 merges.
-PINNED_CORE_REVISION="72ad095a0fc1302712775ca21ac26b3cc1de4515"
+PINNED_CORE_REVISION="a73d60f387f91935c12003804303b12bfba79af9"
 PROFILE="debug"
 CHECKOUT_ONLY="no"
 while [[ $# -gt 0 ]]; do
