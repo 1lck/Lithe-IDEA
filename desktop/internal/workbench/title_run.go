@@ -150,8 +150,9 @@ func (a *App) titleDebug(p *project) {
 // while the configurations are read, and an answer that settles them while they are asked for
 // performs it; otherwise Core decides what the press does now.
 func (a *App) titleStart(p *project, action titleAction) {
-	// A remote workspace's project runs on its host, which Run and Debug do not reach yet.
-	if a.refuseRemote(p, "title_run") {
+	// A remote workspace's project runs on its host, where Run starts a built-in configuration
+	// (remote_run.go); Debug and the current file's run do not reach it yet.
+	if (action == titleActionDebug || p.runConfigs.currentFile) && a.refuseRemote(p, "title_run") {
 		return
 	}
 	if !p.runConfigs.currentFile {
@@ -186,6 +187,14 @@ func (a *App) decideTitleAction(p *project, action titleAction, trigger string) 
 		facts.Action = "debug"
 	}
 	configuration := p.titleConfiguration()
+	if p.remote != nil && configuration != nil && !configuration.IsProcess() && !configuration.Unavailable() {
+		// A remote workspace detects no build system and runs no plugin, so only a built-in
+		// configuration starts there; the others say why instead of a missing target.
+		p.runConfigs.pending = titleActionNone
+		a.operationRejected("title_run", "remote_workspace")
+		a.notifyError(i18n.Shared(a.language(), "desktop.run.remote.unsupported"))
+		return
+	}
 	var reference core.RunProviderReference
 	index := -1
 	if configuration != nil {

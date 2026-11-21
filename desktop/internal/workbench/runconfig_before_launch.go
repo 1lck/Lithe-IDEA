@@ -73,6 +73,15 @@ func (a *App) runBeforeLaunch(p *project, op *buildOperation, id string, start f
 				start()
 				return
 			}
+			// A step runs a plugin's task or a process on this computer, which a remote
+			// workspace's files are not on.
+			if p.remote != nil {
+				message := i18n.Shared(a.language(), "desktop.run.remote.beforeLaunch")
+				a.operationRejected("run_before_launch", "remote_workspace")
+				a.notifyError(message)
+				a.finishBuildError(p, op, errors.New(message))
+				return
+			}
 			run := func() { a.runBeforeLaunchSteps(p, op, steps.Steps, start) }
 			if steps.Confirmation == nil || a.beforeLaunchApproved(root, steps.Confirmation.Fingerprint) {
 				run()

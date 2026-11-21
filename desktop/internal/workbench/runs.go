@@ -69,6 +69,8 @@ type runEntry struct {
 	started, ended time.Time
 	// summary is how the execution ended, shown under the console.
 	summary string
+	// remote says the execution runs on a remote workspace's host, which its tab shows.
+	remote bool
 	// console is the console's selection and scroll state.
 	console textview.View
 	// snapshots counts the output snapshots taken of this run, so each tab has its own URI.

@@ -56,6 +56,10 @@ func (a *App) startProcessRun(p *project, configuration core.RunConfiguration) *
 				a.launchDeclaredRun(p, op, id, key)
 				return
 			}
+			if p.remote != nil {
+				a.launchRemoteProcessRun(p, op, id)
+				return
+			}
 			a.launchProcessRun(p, op, id)
 		})
 	})

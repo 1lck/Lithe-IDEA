@@ -10,6 +10,7 @@ import (
 
 	"github.com/1lck/Lithe-IDEA/desktop/internal/core"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/i18n"
+	"github.com/1lck/Lithe-IDEA/desktop/internal/remoteplaceholder"
 )
 
 const (
@@ -125,7 +126,12 @@ func (a *App) flushOutputLinks(p *project) {
 	if sources == nil {
 		sources = []core.OutputLinkSource{}
 	}
-	roots := []string{p.root}
+	roots, platform := []string{p.root}, buildPlatform()
+	if p.remote != nil {
+		// A remote workspace's programs print host paths: Core matches them against the host
+		// folder, as paths of a Unix host (Linux and macOS name paths alike here).
+		roots, platform = []string{p.remote.binding.RemoteRoot()}, "linux"
+	}
 	kernel := a.kernel
 	a.background(p, outputLinkTimeout, func(ctx context.Context) func(*App) {
 		answers := make(map[string][]core.OutputLink)
@@ -135,7 +141,7 @@ func (a *App) flushOutputLinks(p *project) {
 			for start := 0; start < len(lines); start += outputLinkBatch {
 				batch := lines[start:min(start+outputLinkBatch, len(lines))]
 				links, err := kernel.MatchOutputLinks(ctx, core.OutputLinkRequest{
-					Scope: scope, Platform: buildPlatform(), WorkspaceRoots: roots, Sources: sources, Lines: batch,
+					Scope: scope, Platform: platform, WorkspaceRoots: roots, Sources: sources, Lines: batch,
 				})
 				if err != nil {
 					failure = err
@@ -191,8 +197,12 @@ func (a *App) openOutputLink(p *project, link core.OutputLink) {
 		}
 	case link.Location != nil:
 		location := *link.Location
+		find := firstExistingFile
+		if p.remote != nil {
+			find = p.remoteFileFinder(a.kernel)
+		}
 		a.background(p, outputLinkTimeout, func(ctx context.Context) func(*App) {
-			path := firstExistingFile(location.Paths)
+			path := find(ctx, location.Paths)
 			if path == "" {
 				return func(a *App) {
 					a.operationRejected("output_link_open", "target_missing")
@@ -201,6 +211,9 @@ func (a *App) openOutputLink(p *project, link core.OutputLink) {
 			}
 			return func(a *App) { a.openFileAtPosition(p, path, zeroBased(location.Line), zeroBased(location.Column)) }
 		})
+	case link.Resolve != nil && p.remote != nil:
+		// The plugin that resolves the link reads this computer's files, not the host's.
+		a.refuseRemote(p, "output_link_resolve")
 	case link.Resolve != nil && a.plugins != nil:
 		function, groups, pluginID := link.Resolve.Function, link.Resolve.Groups, link.PluginID
 		a.background(p, outputLinkTimeout, func(ctx context.Context) func(*App) {
@@ -217,7 +230,7 @@ func (a *App) openOutputLink(p *project, link core.OutputLink) {
 					a.notifyError(messages.LinkUnresolved)
 				}
 			}
-			path := firstExistingFile([]string{location.Path})
+			path := firstExistingFile(ctx, []string{location.Path})
 			if path == "" {
 				return func(a *App) {
 					a.operationRejected("output_link_open", "target_missing")
@@ -238,12 +251,37 @@ func zeroBased(position int) int {
 	return position - 1
 }
 
-// firstExistingFile returns the first candidate that is a regular file.
-func firstExistingFile(candidates []string) string {
+// firstExistingFile returns the first candidate that is a regular file of this computer.
+func firstExistingFile(_ context.Context, candidates []string) string {
 	for _, candidate := range candidates {
 		if info, err := os.Stat(candidate); err == nil && info.Mode().IsRegular() {
 			return candidate
 		}
 	}
 	return ""
+}
+
+// remoteFileFinder finds, for a remote workspace, the first candidate host path that is a file
+// on the host, and returns its path in the workspace's placeholder, which the editor opens
+// through the host (remoteplaceholder.LocalPath). A host that does not answer finds none. It is
+// taken on the window thread and runs off it.
+func (p *project) remoteFileFinder(kernel Kernel) func(context.Context, []string) string {
+	root, binding := p.root, p.remote.binding
+	remoteRoot := binding.RemoteRoot()
+	return func(ctx context.Context, candidates []string) string {
+		session := binding.SessionID()
+		if session == "" {
+			return ""
+		}
+		for _, candidate := range candidates {
+			local, ok := remoteplaceholder.LocalPath(root, remoteRoot, candidate)
+			if !ok {
+				continue
+			}
+			if metadata, err := kernel.RemoteStat(ctx, session, candidate); err == nil && metadata.Kind == core.RemoteFileKindFile {
+				return local
+			}
+		}
+		return ""
+	}
 }
