@@ -47,12 +47,14 @@ type remotePreferencesState struct {
 	damagedPath string
 	source      RemotePreferences
 
-	// program and limit are the drafts; set says the user changed the value, and a nil value
-	// drafts Automatic.
+	// program, limit and closing are the drafts; set says the user changed the value, and a nil
+	// value drafts Automatic.
 	program    *string
 	programSet bool
 	limit      *uint32
 	limitSet   bool
+	closing    *core.RemoteClosePrograms
+	closingSet bool
 
 	saveEffect *ui.EffectState[RemotePreferences, int]
 	saveKey    int
@@ -140,9 +142,33 @@ func (r *remotePreferencesState) setLimit(seconds *uint32) {
 	r.limit, r.limitSet = seconds, !sameUint32(seconds, r.source.Saved.State.Preferences.ReconnectLimitSeconds)
 }
 
-func sameString(a, b *string) bool { return (a == nil) == (b == nil) && (a == nil || *a == *b) }
+// shownClosing is what closing a workspace does to the host's programs as the page shows it: the
+// draft, or the saved choice; nil is Automatic, which asks every time.
+func (r *remotePreferencesState) shownClosing() *core.RemoteClosePrograms {
+	if r.closingSet {
+		return r.closing
+	}
+	return r.source.Saved.State.Preferences.ClosePrograms
+}
 
-func sameUint32(a, b *uint32) bool { return (a == nil) == (b == nil) && (a == nil || *a == *b) }
+// setClosing drafts the closing choice, nil for Automatic; choosing the saved value drops the
+// draft.
+func (r *remotePreferencesState) setClosing(programs *core.RemoteClosePrograms) {
+	if !r.available() || !r.loaded || r.busy() {
+		return
+	}
+	r.failed = nil
+	r.closing, r.closingSet = programs, !samePointer(programs, r.source.Saved.State.Preferences.ClosePrograms)
+}
+
+func sameString(a, b *string) bool { return samePointer(a, b) }
+
+func sameUint32(a, b *uint32) bool { return samePointer(a, b) }
+
+// samePointer says a and b are both nil or point to equal values.
+func samePointer[T comparable](a, b *T) bool {
+	return (a == nil) == (b == nil) && (a == nil || *a == *b)
+}
 
 func (r *remotePreferencesState) drafts() int {
 	if !r.available() {
@@ -155,10 +181,13 @@ func (r *remotePreferencesState) drafts() int {
 	if r.limitSet {
 		n++
 	}
+	if r.closingSet {
+		n++
+	}
 	return n
 }
 
-// edits are the drafts as Core edits, the program first.
+// edits are the drafts as Core edits, in the page's order.
 func (r *remotePreferencesState) edits() []core.RemotePreferenceEdit {
 	var edits []core.RemotePreferenceEdit
 	if r.programSet {
@@ -166,6 +195,9 @@ func (r *remotePreferencesState) edits() []core.RemotePreferenceEdit {
 	}
 	if r.limitSet {
 		edits = append(edits, core.RemotePreferenceEdit{ReconnectLimit: &core.RemoteReconnectLimitEdit{Seconds: r.limit}})
+	}
+	if r.closingSet {
+		edits = append(edits, core.RemotePreferenceEdit{ClosePrograms: &core.RemoteCloseProgramsEdit{Programs: r.closing}})
 	}
 	return edits
 }
@@ -190,6 +222,9 @@ func (r *remotePreferencesState) keepChanged() {
 	}
 	if r.limitSet && sameUint32(r.limit, stored.ReconnectLimitSeconds) {
 		r.limit, r.limitSet = nil, false
+	}
+	if r.closingSet && samePointer(r.closing, stored.ClosePrograms) {
+		r.closing, r.closingSet = nil, false
 	}
 }
 
@@ -219,6 +254,7 @@ func (r *remotePreferencesState) take() (saveFailed error) {
 		default:
 			r.source, r.loaded, r.stale = source, true, false
 			r.program, r.programSet, r.limit, r.limitSet = nil, false, nil, false
+			r.closing, r.closingSet = nil, false
 		}
 	}
 	return saveFailed

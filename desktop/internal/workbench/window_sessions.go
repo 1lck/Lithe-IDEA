@@ -257,6 +257,7 @@ func (s *windowSessions) openTab(path string) {
 func (s *windowSessions) openRemoteTab(from *App, target remoteTarget) {
 	a := New(s.options)
 	a.remoteBundle, a.remoteAnchor, a.remoteAfter = from.remoteBundle, from.remoteAnchor, from.remoteAfter
+	a.remoteKeptSecrets = from.remoteKeptSecrets
 	s.list = append(s.list, a)
 	s.activate(a)
 	a.reloadPluginLanguages()

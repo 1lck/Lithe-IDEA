@@ -44,6 +44,10 @@ func (w *window) remoteWorkspacePage(c ui.C) {
 		w.card(c.Part("reconnection"), i18n.Shared(language, "desktop.remoteSettings.reconnection"), "", func() {
 			w.remoteReconnectRow(c.Part("reconnect"), language, r)
 		})
+		w.card(c.Part("closing"), i18n.Shared(language, "desktop.remoteSettings.closing"), "", func() {
+			w.remoteCloseRow(c.Part("close-programs"), language, r)
+			w.remoteIdleTimeoutRow(c.Part("idle-timeout"), language, r)
+		})
 		w.card(c.Part("storage"), i18n.Shared(language, "desktop.remoteSettings.storage"), "", func() {
 			title := i18n.Shared(language, "desktop.remoteSettings.storage")
 			note := ""
@@ -165,7 +169,58 @@ func (w *window) remoteReconnectRow(c ui.C, language i18n.Language, r *remotePre
 	})
 }
 
-// remoteDuration is a reconnect time in whole minutes when it is one, else in seconds.
+// remoteCloseRow chooses what closing a remote workspace does to the programs still running on
+// the host: Automatic, which asks every time, End them or Keep on host. A saved "ask" is listed
+// as its own choice so the row shows what the file holds; Remember my choice in the close
+// question writes End or Keep here (workbench, remote_close.go).
+func (w *window) remoteCloseRow(c ui.C, language i18n.Language, r *remotePreferencesState) {
+	title := i18n.Shared(language, "desktop.remoteSettings.closePrograms")
+	value := core.RemoteClosePrograms("")
+	if shown := r.shownClosing(); shown != nil {
+		value = *shown
+	}
+	choices := []core.RemoteClosePrograms{"", core.RemoteCloseEnd, core.RemoteCloseKeep}
+	for _, programs := range []*core.RemoteClosePrograms{r.source.Saved.State.Preferences.ClosePrograms, r.shownClosing()} {
+		if programs != nil && !slices.Contains(choices, *programs) {
+			choices = append(choices, *programs)
+		}
+	}
+	label := func(programs core.RemoteClosePrograms) string {
+		switch programs {
+		case "":
+			return i18n.Shared(language, "desktop.remoteSettings.closeAsk")
+		case core.RemoteCloseEnd:
+			return i18n.Shared(language, "desktop.remoteSettings.closeEnd")
+		case core.RemoteCloseKeep:
+			return i18n.Shared(language, "desktop.remoteSettings.closeKeep")
+		}
+		return i18n.Shared(language, "desktop.remoteSettings.closeAskSaved")
+	}
+	w.settingsRow(c, title, i18n.Shared(language, "desktop.remoteSettings.closeProgramsHelp"), func() {
+		if ui.Select(c.Part("programs"), &value, choices, label).FillWidth().Label(title).Disabled(r.busy()).Changed() {
+			if value == "" {
+				r.setClosing(nil)
+			} else {
+				programs := value
+				r.setClosing(&programs)
+			}
+		}
+	})
+}
+
+// remoteIdleTimeoutRow shows how long the host keeps a session whose connection was lost, as the
+// remote server reports it; nothing on this machine changes it.
+func (w *window) remoteIdleTimeoutRow(c ui.C, language i18n.Language, r *remotePreferencesState) {
+	seconds := r.source.Saved.State.Closing.IdleTimeoutSeconds
+	if seconds == 0 {
+		return
+	}
+	w.settingsRow(c, i18n.Shared(language, "desktop.remoteSettings.idleTimeout"), i18n.Shared(language, "desktop.remoteSettings.idleTimeoutHelp"), func() {
+		ui.Text(c.Part("value"), remoteDuration(language, int(seconds))).FontSize(12).Color(w.pal.text)
+	})
+}
+
+// remoteDuration is a time in whole minutes when it is one, else in seconds.
 func remoteDuration(language i18n.Language, seconds int) string {
 	if seconds >= 60 && seconds%60 == 0 {
 		return i18n.SharedFormat(language, "desktop.remoteSettings.minutes", map[string]string{"count": strconv.Itoa(seconds / 60)})

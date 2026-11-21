@@ -7,12 +7,14 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/1lck/Lithe-IDEA/desktop/internal/core"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/i18n"
 	"github.com/vivaui/viva/headless"
 )
 
 // TestVisualRemoteWorkspace renders the Remote Workspace page under Tools: the automatic values as
-// Core resolves them on this machine, then drafts that choose an SSH program and a reconnect time.
+// Core resolves them on this machine, then drafts that choose an SSH program and a reconnect time,
+// and one that keeps the host's programs when a workspace closes.
 // The preference directory is a test directory and the home directory is fictional.
 func TestVisualRemoteWorkspace(t *testing.T) {
 	out := os.Getenv("LITHE_VISUAL_OUTPUT_DIR")
@@ -59,6 +61,14 @@ func TestVisualRemoteWorkspace(t *testing.T) {
 				r.setLimit(&seconds)
 				d.until("the drafts to be painted", func() bool { return d.text(program) })
 				shot("drafts")
+				// Closing a remote workspace keeps the host's programs instead of asking.
+				keep := core.RemoteCloseKeep
+				r.setClosing(&keep)
+				d.w.inv.Invalidate()
+				d.until("the closing draft to be painted", func() bool {
+					return d.text(i18n.Shared(language, "desktop.remoteSettings.closeKeep"))
+				})
+				shot("closing")
 			})
 		}
 	}
