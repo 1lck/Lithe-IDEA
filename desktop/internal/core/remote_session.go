@@ -305,6 +305,16 @@ func (c *Client) RemoteWriteFile(ctx context.Context, sessionID, path string, da
 	return result.RemoteFileVersion, true, nil
 }
 
+// RemoteCreateDirectory creates the host folder path over the session sessionID with its missing
+// parents; a folder already there is left as it is. RemoteWriteFile creates no parent, so a file
+// whose folder may be missing is written after it.
+func (c *Client) RemoteCreateDirectory(ctx context.Context, sessionID, path string) error {
+	return c.RemoteHostRequest(ctx, sessionID, "fs.createDir", struct {
+		Path      string `json:"path"`
+		Recursive bool   `json:"recursive"`
+	}{path, true}, nil)
+}
+
 // RemoteHostRequest performs the finite host method with params over the session sessionID and
 // decodes its result into result, which may be nil. Core accepts the filesystem, environment
 // and port queries, server.state and the controls of existing processes and terminals; a
@@ -395,7 +405,8 @@ func WithRemoteWorkspace(ctx context.Context, binding *RemoteWorkspace) context.
 // that will then fail. workspace.filterChanges drops the host watch's changes in folders Core
 // hides, by name alone; workspace.searchPresentation groups search results by the paths it is
 // sent, and workspace.replaceText replaces in the text it is sent, which Replace All read from
-// the host.
+// the host. editor.find searches the text of the editor or the diff side it is sent, and
+// github.parseRemote reads the GitHub repository out of the remote URL the host's Git answered.
 //
 // Add a command here only after reading its Core handler; a command that touches the workspace
 // sent without the binding would read the empty placeholder instead of the host.
@@ -403,11 +414,13 @@ var payloadOnlyCommands = map[string]bool{
 	"document.lifecycle":              true,
 	"document.planSaveBatch":          true,
 	"document.reduceSaveBatch":        true,
+	"editor.find":                     true,
 	"editor.lineEdit":                 true,
 	"editor.navigationHistory.reduce": true,
 	"editor.parseNavigationInput":     true,
 	"editor.recent.reduce":            true,
 	"editor.recovery.decide":          true,
+	"github.parseRemote":              true,
 	"languages.matchFirstLine":        true,
 	"markdown.outline":                true,
 	"text.decode":                     true,

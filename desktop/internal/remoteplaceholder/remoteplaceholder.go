@@ -134,3 +134,59 @@ func reservedOnWindows(name string) bool {
 	}
 	return false
 }
+
+// HostSuffix is added to a local root to name the sibling Core maps every host path outside the
+// workspace to: <root>.lithe-remote-host/<the host path without its leading "/">.
+const HostSuffix = ".lithe-remote-host"
+
+// HostPath is the host path local stands for, as Core maps it, in the workspace whose local root
+// is root and whose host folder is remoteRoot: a path below root is the same path below
+// remoteRoot, and a path below root's sibling (HostSuffix) is the host path it names. ok is false
+// for any other path.
+func HostPath(root, remoteRoot, local string) (string, bool) {
+	if suffix, ok := below(root+HostSuffix, local); ok {
+		return path.Join("/", suffix), true
+	}
+	if suffix, ok := below(root, local); ok {
+		return path.Join(remoteRoot, suffix), true
+	}
+	return "", false
+}
+
+// LocalPath is the path that stands for host, an absolute host path, in the same workspace: the
+// inverse of HostPath. ok is false for a path that is not absolute, and on Windows for one with a
+// name holding "\", which would name another path there.
+func LocalPath(root, remoteRoot, host string) (string, bool) {
+	if !path.IsAbs(host) {
+		return "", false
+	}
+	host = path.Clean(host)
+	remote := path.Clean(remoteRoot)
+	if host == remote {
+		return root, true
+	}
+	base, suffix := root+HostSuffix, strings.TrimPrefix(host, "/")
+	if rest, ok := strings.CutPrefix(host, strings.TrimSuffix(remote, "/")+"/"); ok {
+		base, suffix = root, rest
+	}
+	if suffix == "" {
+		return base, true
+	}
+	if filepath.Separator != '/' && strings.ContainsRune(suffix, filepath.Separator) {
+		return "", false
+	}
+	return filepath.Join(base, filepath.FromSlash(suffix)), true
+}
+
+// below is the slash-separated path of full below dir, "" for dir itself; ok is false for a path
+// outside dir.
+func below(dir, full string) (string, bool) {
+	rel, err := filepath.Rel(dir, full)
+	if err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+		return "", false
+	}
+	if rel == "." {
+		return "", true
+	}
+	return filepath.ToSlash(rel), true
+}

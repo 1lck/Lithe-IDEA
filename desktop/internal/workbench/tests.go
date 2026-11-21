@@ -196,6 +196,9 @@ func (a *App) startTests(p *project, selection testSelection) {
 	if p == nil || p.tests.running {
 		return
 	}
+	if a.refuseRemote(p, "test_start") {
+		return
+	}
 	if p.safeMode() {
 		a.askToTrustProject(p, func() { a.startTests(p, selection) })
 		return

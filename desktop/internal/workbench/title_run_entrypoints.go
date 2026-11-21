@@ -39,6 +39,9 @@ type entrypointFound struct {
 // loaded first, since the configuration names the model's project; a press waits for it as a
 // press on a configuration does.
 func (a *App) performCurrentFileAction(p *project, action titleAction) {
+	if a.refuseRemote(p, "run_current_file") {
+		return
+	}
 	if p.safeMode() {
 		a.askToTrustProject(p, func() { a.performCurrentFileAction(p, action) })
 		return

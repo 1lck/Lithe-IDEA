@@ -858,6 +858,9 @@ func (a *App) drawLogList(c ui.C, p *project) {
 	case p.git.safeMode:
 		a.safeModePanel(c, p, i18n.Shared(a.language(), "desktop.trust.gitSafeMode"))
 		return
+	case p.git.remoteAbove:
+		a.gitEmpty(c, i18n.Shared(a.language(), "desktop.remote.workspace.gitAbove"))
+		return
 	case !p.git.loaded || l.loading && len(l.commits) == 0:
 		a.gitEmpty(c, g.Loading)
 		return

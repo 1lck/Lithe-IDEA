@@ -127,6 +127,8 @@ func (a *App) drawCommitStatus(c ui.C, p *project) bool {
 	switch {
 	case p.git.safeMode:
 		a.safeModePanel(c, p, i18n.Shared(a.language(), "desktop.trust.gitSafeMode"))
+	case p.git.remoteAbove:
+		a.gitEmpty(c, i18n.Shared(a.language(), "desktop.remote.workspace.gitAbove"))
 	case !p.git.loaded:
 		a.gitEmpty(c, g.Loading)
 	case p.git.err != nil:

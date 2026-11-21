@@ -18,9 +18,11 @@ import (
 )
 
 // TestVisualRemoteWorkspace captures a remote workspace being opened: the host's home folder in
-// the Remote Development window with a folder chosen, the workspace it opened with its notice and
-// status bar item, the status bar's menu of the connection, a host file open in the editor, the
-// conflict a save over a change made on the host shows, and a terminal running on the host.
+// the Remote Development window with a folder chosen, the question whether to trust it, the
+// workspace it opened in safe mode with its notice and status bar item, the status bar's menu of
+// the connection, a host file open in the editor, the conflict a save over a change made on the
+// host shows, a terminal running on the host, the host's search, and, once trusted, the Commit
+// tool window of a folder inside a repository that starts above it.
 func TestVisualRemoteWorkspace(t *testing.T) {
 	out := os.Getenv("LITHE_VISUAL_OUTPUT_DIR")
 	if out == "" {
@@ -88,7 +90,11 @@ func TestVisualRemoteWorkspace(t *testing.T) {
 			}
 			shot("browse")
 
+			// A folder never decided is asked about first; opening it in safe mode reads it only.
 			h.clickFront(i18n.SharedFormat(h.app.language(), "desktop.remote.browse.open", map[string]string{"name": "project"}))
+			h.await("the trust question", func() bool { return h.app.remote.trust != nil })
+			shot("trust")
+			h.clickFront(i18n.Shared(h.app.language(), "desktop.remote.trust.safeOpen"))
 			h.await("the remote workspace's tree", func() bool {
 				p := h.app.project
 				return p != nil && p.remote != nil && !p.remote.beating && p.tree.root != nil && p.tree.root.listed && !p.tree.reading
@@ -157,6 +163,18 @@ func TestVisualRemoteWorkspace(t *testing.T) {
 			})
 			shot("everywhere")
 			h.app.closeEverywhere(p)
+
+			// Trusting the folder starts Git on the host; a repository that starts above the folder
+			// leaves the Commit tool window empty and says why.
+			kernel.set(func(k *remoteHostKernel) { k.git.repository = "above" })
+			h.app.askToTrustProject(p, nil)
+			// Asking does not ask for a frame.
+			h.app.invalidator.Invalidate()
+			h.settleChain()
+			h.clickFront(i18n.Shared(h.app.language(), "desktop.trust.trustProject"))
+			h.await("the host's status", func() bool { return p.git.remoteAbove })
+			h.app.openToolWindow(itemCommit)
+			shot("git-above")
 		})
 	}
 }

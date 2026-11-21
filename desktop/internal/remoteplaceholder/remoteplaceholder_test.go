@@ -104,3 +104,38 @@ func TestRootNamesTheFolderAndTellsWorkspacesApart(t *testing.T) {
 		}
 	}
 }
+
+// HostPath and LocalPath map the workspace's own paths below the root and every other host path
+// below the root's sibling, as Core does, and each undoes the other.
+func TestHostAndLocalPathsMapBothWays(t *testing.T) {
+	anchor := filepath.Join(string(filepath.Separator)+"cache", AnchorName)
+	root := Root(anchor, "c1", "/srv/repo")
+	sibling := root + HostSuffix
+	for _, tc := range []struct{ host, local string }{
+		{"/srv/repo", root},
+		{"/srv/repo/.git/HEAD", filepath.Join(root, ".git", "HEAD")},
+		{"/srv/main/.git/worktrees/repo", filepath.Join(sibling, "srv", "main", ".git", "worktrees", "repo")},
+		{"/srv/repository/x", filepath.Join(sibling, "srv", "repository", "x")},
+		{"/", sibling},
+	} {
+		local, ok := LocalPath(root, "/srv/repo", tc.host)
+		if !ok || local != tc.local {
+			t.Errorf("LocalPath(%q) = %q, %v; want %q", tc.host, local, ok, tc.local)
+		}
+		host, ok := HostPath(root, "/srv/repo", tc.local)
+		if !ok || host != tc.host {
+			t.Errorf("HostPath(%q) = %q, %v; want %q", tc.local, host, ok, tc.host)
+		}
+	}
+	if local, ok := LocalPath(Root(anchor, "c1", "/"), "/", "/etc/hosts"); !ok || local != filepath.Join(Root(anchor, "c1", "/"), "etc", "hosts") {
+		t.Errorf("LocalPath below the host's root = %q, %v", local, ok)
+	}
+	if _, ok := LocalPath(root, "/srv/repo", "relative/path"); ok {
+		t.Error("mapped a relative host path")
+	}
+	for _, local := range []string{filepath.Dir(root), filepath.Join(filepath.Dir(root), "other"), root + "x"} {
+		if host, ok := HostPath(root, "/srv/repo", local); ok {
+			t.Errorf("HostPath(%q) = %q; want no host path", local, host)
+		}
+	}
+}

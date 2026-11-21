@@ -250,8 +250,12 @@ func (b *buildState) active() bool { return b.operation != nil || len(b.running)
 // runs; otherwise it stops the one that runs and starts the new one once it ended, so the two
 // never share a port or files. A start that is asked again while one waits replaces it.
 //
-// In safe mode the user is first asked to trust the project, since a run runs its code.
+// In safe mode the user is first asked to trust the project, since a run runs its code. A
+// remote workspace's project runs on its host, which a run does not reach yet.
 func (a *App) startRun(p *project, key string, start func(*App, *project)) {
+	if a.refuseRemote(p, "run_start") {
+		return
+	}
 	if p.safeMode() {
 		a.askToTrustProject(p, func() { a.startRun(p, key, start) })
 		return
@@ -776,6 +780,11 @@ func (a *App) attachSharedBuildClient(ctx context.Context, p *project, instance 
 // loadBuildSystems detects provider-backed build systems in the open project.
 func (a *App) loadBuildSystems(p *project) {
 	if p == nil || p.build.loading {
+		return
+	}
+	if p.remote != nil {
+		// log-exempt: 远程工作区的构建工具要在主机上运行，现在还不支持：本机的占位文件夹里没有项目，不探测构建系统；
+		// 构建、运行和测试窗口显示只在本机可用的说明，按下运行时 refuseRemote 记录并提示。
 		return
 	}
 	if a.plugins == nil || a.plugins.Backend == nil {
@@ -1330,7 +1339,11 @@ func buildTaskSelection(instance *buildInstance, task *pluginservice.BuildTaskDe
 // so a tool call can report them, and the Build window keeps its notification and ignores them.
 func (a *App) runBuildTask(p *project, projectID, targetID, taskID string, userArguments []string) (*buildOperation, error) {
 	// A task runs the build tool on the project: in safe mode the user is asked to trust it
-	// first, and the task starts once trusted. The caller, such as the IDE API, is refused.
+	// first, and the task starts once trusted. The caller, such as the IDE API, is refused. A
+	// remote workspace's build tool runs on its host, which a task does not reach yet.
+	if a.refuseRemote(p, "build_task") {
+		return nil, refuseBuild(refusalNotReady, "the workspace is remote")
+	}
 	if p.safeMode() {
 		a.askToTrustProject(p, func() { _, _ = a.runBuildTask(p, projectID, targetID, taskID, userArguments) })
 		return nil, refuseBuild(refusalNotReady, "the workspace is not trusted")

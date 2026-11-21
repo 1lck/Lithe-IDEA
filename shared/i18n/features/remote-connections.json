@@ -961,7 +961,21 @@
     },
     {
       "id": "desktop.remote.workspace.banner",
-      "description": "Notice above the editor of a remote workspace: what works in it so far",
+      "description": "Notice above the editor of a trusted remote workspace: what works in it so far",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.remote.workspace.safeBanner",
+      "description": "Notice above the editor of a remote workspace in safe mode, next to the link that asks to trust the folder",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.remote.workspace.gitAbove",
+      "description": "Changes and Git Log text when the remote workspace's folder lies inside a Git repository that starts in a folder above it on the host",
       "platforms": [
         "desktop"
       ]
@@ -2578,8 +2592,10 @@
       "desktop.remote.import.sshHelp": "Reads {files}. The effective value is what `ssh -G` resolves each alias to; the import saves the alias, so OpenSSH keeps resolving it.",
       "desktop.remote.import.reload": "Read Again",
       "desktop.remote.import.mottyFound": "Found {hosts} host(s), {groups} group(s) · data format {format}",
-      "desktop.remote.workspace.banner": "This is a remote workspace. Its files open, edit, save and are searched on the host, and terminals run on the host; Git and running do not work here yet.",
-      "desktop.remote.workspace.localOnly": "This feature does not work in a remote workspace yet. You can browse, edit, save and search the host's files and run terminals on the host.",
+      "desktop.remote.workspace.banner": "This is a remote workspace. Its files open, edit, save and are searched on the host, and terminals and Git run on the host; running, debugging and language servers do not work here yet.",
+      "desktop.remote.workspace.safeBanner": "This remote workspace is in safe mode: you can browse, edit, save and search its files on the host. Trust the folder to use Git.",
+      "desktop.remote.workspace.gitAbove": "This folder is inside a Git repository that starts in a folder above it on the host. Open the repository's top folder to use Git in a remote workspace.",
+      "desktop.remote.workspace.localOnly": "This feature does not work in a remote workspace yet. You can browse, edit, save and search the host's files, run terminals and use Git on the host.",
       "desktop.remote.document.disconnected": "the remote workspace is not connected; try again once it reconnects",
       "desktop.remote.document.timedOut": "the host did not answer in time",
       "desktop.remote.document.notFound": "the file no longer exists on the host",
@@ -2881,8 +2897,10 @@
       "desktop.remote.import.sshHelp": "读取 {files}。生效值是 `ssh -G` 对每个别名解析出的结果；导入保存的是别名，之后仍由 OpenSSH 解析。",
       "desktop.remote.import.reload": "重新读取",
       "desktop.remote.import.mottyFound": "找到 {hosts} 台主机、{groups} 个分组 · 数据格式 {format}",
-      "desktop.remote.workspace.banner": "这是远程工作区。主机上的文件可以打开、编辑、保存和搜索，终端在主机上运行；Git 和运行暂不可用。",
-      "desktop.remote.workspace.localOnly": "远程工作区暂不支持此功能，可以浏览、编辑、保存和搜索主机上的文件，也可以在主机上运行终端。",
+      "desktop.remote.workspace.banner": "这是远程工作区。主机上的文件可以打开、编辑、保存和搜索，终端和 Git 在主机上运行；运行、调试和语言服务器暂不可用。",
+      "desktop.remote.workspace.safeBanner": "此远程工作区处于安全模式：可以浏览、编辑、保存和搜索主机上的文件。信任此文件夹后即可使用 Git。",
+      "desktop.remote.workspace.gitAbove": "此文件夹位于主机上更上层文件夹开始的 Git 仓库中。请打开仓库的顶层文件夹，以便在远程工作区中使用 Git。",
+      "desktop.remote.workspace.localOnly": "远程工作区暂不支持此功能，可以浏览、编辑、保存和搜索主机上的文件，也可以在主机上运行终端和使用 Git。",
       "desktop.remote.document.disconnected": "远程工作区未连接，请在重新连接后再试",
       "desktop.remote.document.timedOut": "主机没有及时响应",
       "desktop.remote.document.notFound": "主机上已没有这个文件",
