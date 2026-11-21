@@ -124,6 +124,7 @@ func (a *App) connectRemote(folder string) {
 			}
 			a.operationFailed("remote_connect", remoteConnectFailure(result, err))
 			steps.fail(a.now(), remoteConnectOutcome(result, err), a.language())
+			r.log.Open = true
 		}
 	})
 }

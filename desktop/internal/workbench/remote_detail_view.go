@@ -314,21 +314,23 @@ func (a *App) remoteHostGrid(c ui.C, language i18n.Language, host core.RemotePro
 	if system == "" {
 		system = host.System
 	}
+	// The host name is the machine that answered, which a load balancer or a jump host may pick.
 	cells := []cell{
+		{i18n.Shared(language, "desktop.remote.probe.hostName"), strings.TrimSpace(details.HostName), host.HomeDirectory},
 		{i18n.Shared(language, "desktop.remote.probe.os"), system, details.Kernel},
 		{i18n.Shared(language, "desktop.remote.probe.cpu"), host.Machine, ""},
 		{i18n.Shared(language, "desktop.remote.probe.memory"), "", ""},
 		{i18n.Shared(language, "desktop.remote.probe.disk"), "", ""},
 	}
 	if details.CPUCount > 0 {
-		cells[1].detail = i18n.SharedFormat(language, "desktop.remote.host.cores", map[string]string{"count": strconv.FormatUint(uint64(details.CPUCount), 10)})
+		cells[2].detail = i18n.SharedFormat(language, "desktop.remote.host.cores", map[string]string{"count": strconv.FormatUint(uint64(details.CPUCount), 10)})
 	}
 	if details.MemoryBytes > 0 {
-		cells[2].value = memorySize(language, details.MemoryBytes)
+		cells[3].value = memorySize(language, details.MemoryBytes)
 	}
 	if details.DiskTotalBytes > 0 {
-		cells[3].value = memorySize(language, details.DiskAvailableBytes)
-		cells[3].detail = i18n.SharedFormat(language, "desktop.remote.host.diskOf", map[string]string{"total": memorySize(language, details.DiskTotalBytes)})
+		cells[4].value = memorySize(language, details.DiskAvailableBytes)
+		cells[4].detail = i18n.SharedFormat(language, "desktop.remote.host.diskOf", map[string]string{"total": memorySize(language, details.DiskTotalBytes)})
 	}
 	ui.Row(c).FillWidth().Radius(6).Stroke(1, a.colors.Line).Clip().Children(func() {
 		for index, item := range cells {
@@ -480,7 +482,8 @@ func (a *App) remoteFormPage(c ui.C, language i18n.Language, entry *core.SavedRe
 		ui.Column(c).FillWidth().Gap(16).PadSides(18, 24, 24, 24).Children(func() {
 			ui.Text(c, title).FontSize(16).Weight(gfx.WeightSemibold).Ellipsis().MinWidth(0)
 			a.remoteNotices(c)
-			a.remoteFields(c)
+			// The test runs from the footer; its outcome goes over the fields, where it is seen
+			// without scrolling the form.
 			switch {
 			case r.probe != nil:
 				ui.Row(c.Part("testing")).FillWidth().Items(ui.Center).Gap(8).Pad(12).Radius(6).Stroke(1, a.colors.Line).Children(func() {
@@ -490,6 +493,7 @@ func (a *App) remoteFormPage(c ui.C, language i18n.Language, entry *core.SavedRe
 			case r.result != nil:
 				a.remoteOutcomeBox(c.Part("outcome"), language, r.result)
 			}
+			a.remoteFields(c)
 		})
 	})
 }

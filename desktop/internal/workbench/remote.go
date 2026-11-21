@@ -724,6 +724,8 @@ func (a *App) testRemote() {
 				a.operationFailed("remote_probe", errors.New("remote probe: "+string(result.Status)))
 			}
 			r.result = &remoteProbeOutcome{result: result, err: err, at: a.now()}
+			// A refusal shows what OpenSSH said at once; a host reached keeps it folded.
+			r.log.Open = err == nil && result.Status != core.RemoteProbeConnected
 			if err == nil {
 				// What the host is outlives the form; an error that kept the test from
 				// running says nothing about the host and is only shown.
