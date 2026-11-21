@@ -55,10 +55,17 @@ type treePrompt struct {
 // from anywhere on it too. A row of a folder or the root can make files and folders; any row
 // but the root can be renamed or deleted. The Git items appear only for a file the last status
 // lists as changed.
+//
+// A row of a remote workspace has the items that do not touch the folder: copying its host path
+// and refreshing the tree. Its rows are neither dragged nor dropped on.
 func (a *App) projectTreeMenu(c ui.C, p *project, row gfx.ID, n *treeNode, target ui.Box) {
 	language := a.language()
 	root := n == p.tree.root
 	target.LabelFor(row)
+	if p.remote != nil {
+		a.remoteTreeMenu(c, p, n, target)
+		return
+	}
 	if !root {
 		p.tree.rememberRow(row, n)
 		target.DragSource(&a.dnd.tree)
@@ -205,6 +212,23 @@ func (a *App) projectTreeMenu(c ui.C, p *project, row gfx.ID, n *treeNode, targe
 	})
 }
 
+// remoteTreeMenu declares the context menu of row n of the remote workspace p.
+func (a *App) remoteTreeMenu(c ui.C, p *project, n *treeNode, target ui.Box) {
+	language := a.language()
+	ui.ContextMenu(c, target, func(menu *ui.MenuItems) {
+		menu.WidthRange(200, 280)
+		full := filepath.Join(p.root, filepath.FromSlash(n.path))
+		a.copyPathMenu(c, menu, full, n != p.tree.root, "workspace.tree")
+		menu.Separator()
+		if menu.Item(i18n.Shared(language, "desktop.files.refresh")).Clicked() {
+			c.After(func() {
+				a.performed("workspace.tree.refresh", surfaceContextMenu)
+				a.refreshProjectTree(p)
+			})
+		}
+	})
+}
+
 // revealLabel is the menu label that shows a path in the platform's file manager.
 func revealLabel(language i18n.Language) string {
 	if runtime.GOOS == "windows" {
@@ -248,10 +272,12 @@ func (a *App) copyPathMenu(c ui.C, menu *ui.MenuItems, full string, relative boo
 }
 
 // copyTreePath copies a path to the clipboard, relative to the project when relative is set.
+// The absolute path of a remote workspace's file is its path on the host.
 func (a *App) copyTreePath(full string, relative bool) {
 	text := full
-	if relative {
-		if p := a.project; p != nil {
+	if p := a.project; p != nil {
+		text = p.remoteHostPath(full)
+		if relative {
 			if rel, err := filepath.Rel(p.root, full); err == nil {
 				text = filepath.ToSlash(rel)
 			}

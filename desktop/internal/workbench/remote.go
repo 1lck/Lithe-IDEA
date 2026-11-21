@@ -54,6 +54,10 @@ type remoteState struct {
 	// probe is the running test, nil when none runs; result is the last one's outcome.
 	probe  *remoteProbe
 	result *remoteProbeOutcome
+	// connect is the running connection to the selected host, nil when none runs; its failure is
+	// shown as result. browser chooses the host folder to open over the session it opened.
+	connect *remoteProbe
+	browser *remoteBrowser
 	// err is the last failure that names no field of the form; fieldErr names one.
 	err      string
 	fieldErr remoteFieldRefusal
@@ -104,11 +108,13 @@ func (a *App) openRemote(surface actionSurface) {
 	a.loadRemote(remoteLoadSelectFirst, "")
 }
 
-// closeRemote closes the window, stopping a running test. What was typed and not saved is
-// dropped.
+// closeRemote closes the window, stopping a running test or connection and ending the session a
+// folder was being chosen over. What was typed and not saved is dropped.
 func (a *App) closeRemote() {
 	r := &a.remote
 	r.stopProbe()
+	r.stopConnect()
+	a.leaveRemoteBrowser()
 	r.generation++
 	r.open, r.saving, r.loading = false, false, false
 	r.form = remoteForm{}
@@ -215,9 +221,10 @@ func (r *remoteState) selectNew() {
 	r.syncListSelection()
 }
 
-// resetEditing drops the last test, its errors and the delete question.
+// resetEditing drops the last test or connection, its errors and the delete question.
 func (r *remoteState) resetEditing() {
 	r.stopProbe()
+	r.stopConnect()
 	r.result, r.err, r.fieldErr, r.confirmDelete = nil, "", remoteFieldRefusal{}, false
 }
 

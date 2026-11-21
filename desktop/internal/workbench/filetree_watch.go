@@ -17,6 +17,11 @@ import (
 const treeWatchLimit = 128
 
 func (a *App) watchTreeNode(p *project, n *treeNode) {
+	if p.remote != nil {
+		// A remote workspace's folder is on the host; the local watch would only fail on its
+		// placeholder. The tree is read again when the connection comes back.
+		return
+	}
 	if treeUsesRecursiveWatch() {
 		if !p.tree.recursiveWatch {
 			p.tree.recursiveWatch = true

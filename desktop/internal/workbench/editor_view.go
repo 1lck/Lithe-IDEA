@@ -4,6 +4,7 @@ import (
 	"strconv"
 
 	"github.com/1lck/Lithe-IDEA/desktop/internal/editorview"
+	"github.com/1lck/Lithe-IDEA/desktop/internal/i18n"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/icons"
 	"github.com/vivaui/viva/app"
 	"github.com/vivaui/viva/gfx"
@@ -419,6 +420,11 @@ func (a *App) terminalToolBody(c ui.C, p *project) {
 	case len(set.list) > 0:
 		body.Items(ui.Center).PadX(shellContentPad).Children(func() {
 			ui.Paragraph(c, a.text.Terminal.NoTerminals, 3).Grow(1).TextCenter().Color(a.colors.Subtle)
+		})
+	case p.remote != nil:
+		// A terminal of a remote workspace would be a shell of this computer, so none is opened.
+		body.Items(ui.Center).PadX(shellContentPad).Children(func() {
+			ui.Paragraph(c, i18n.Shared(a.language(), "desktop.remote.workspace.localOnly"), 3).Grow(1).TextCenter().Color(a.colors.Subtle)
 		})
 	case !u.autoFailed:
 		c.After(func() {

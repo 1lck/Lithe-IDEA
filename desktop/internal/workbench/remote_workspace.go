@@ -1,0 +1,487 @@
+package workbench
+
+import (
+	"context"
+	"errors"
+	"path"
+	"path/filepath"
+	"strings"
+	"time"
+
+	"github.com/1lck/Lithe-IDEA/desktop/internal/core"
+	"github.com/1lck/Lithe-IDEA/desktop/internal/i18n"
+	"github.com/1lck/Lithe-IDEA/desktop/internal/remoteplaceholder"
+	"github.com/1lck/Lithe-IDEA/desktop/internal/remoteserver"
+)
+
+// A remote workspace is a project whose folder is on an SSH host (#2231, R0). Its root is a
+// placeholder below a read-only file of the user's cache directory (remoteplaceholder), and its
+// context carries a core.RemoteWorkspace binding: every Core request of the project runs on the
+// host or is refused with not_supported, and a local call with a path of the project fails
+// instead of touching a local folder that only looks like it.
+//
+// The workspace opens over a session the Remote Development window connected, and keeps it alive:
+// a heartbeat asks the server's state, a failed request of the binding reports the connection
+// lost, and the window then connects again on its own a few times, pausing longer each time.
+// OpenSSH's questions are cancelled during those attempts, which must not ask the user anything
+// they did not start; a host that needs a password then ends disconnected, and Reconnect in the
+// status bar asks. Closing the project ends its session, and quitting ends every session Core
+// keeps (App.Run).
+//
+// In this stage the workspace lists its folder in the Project tool window. The features that
+// still read the project through the local file system (the editor, terminals, Git, the watch
+// of the folder, language servers, run configurations and plugins) are not started for it and
+// say so, until each moves to the host (R0, step 3). The workspace stays in safe mode: nothing of
+// the host's project runs on this computer.
+
+const (
+	// remoteHeartbeatInterval is the pause between two heartbeats of a connected workspace.
+	remoteHeartbeatInterval = 15 * time.Second
+	// remoteHeartbeatTimeout bounds one heartbeat. A server that does not answer in time is shown
+	// unresponsive; remoteHeartbeatMisses in a row end the session and connect again.
+	remoteHeartbeatTimeout = 10 * time.Second
+	remoteHeartbeatMisses  = 3
+	// remoteReconnectAttempts bounds the attempts to connect again after the connection was lost.
+	// The pause before the next attempt doubles from remoteReconnectFirstPause up to
+	// remoteReconnectMaxPause.
+	remoteReconnectAttempts   = 6
+	remoteReconnectFirstPause = time.Second
+	remoteReconnectMaxPause   = 30 * time.Second
+	// remoteDisconnectTimeout bounds ending one session; remoteCloseAllTimeout bounds ending every
+	// session while the application quits.
+	remoteDisconnectTimeout = 10 * time.Second
+	remoteCloseAllTimeout   = 10 * time.Second
+	// remoteReadDirTimeout bounds listing one host folder in the folder browser.
+	remoteReadDirTimeout = 30 * time.Second
+)
+
+// remoteLink is how the workspace's connection is doing, as the status bar shows it.
+type remoteLink int
+
+const (
+	// remoteConnected: the last heartbeat was answered.
+	remoteConnected remoteLink = iota
+	// remoteUnresponsive: the session is open, but the last heartbeat went unanswered.
+	remoteUnresponsive
+	// remoteReconnecting: the session was lost and a new one is being opened.
+	remoteReconnecting
+	// remoteDisconnected: the session was lost and connecting again failed or gave up; Reconnect
+	// tries again.
+	remoteDisconnected
+)
+
+// remoteProject is the remote side of a project (project.remote).
+type remoteProject struct {
+	// binding carries the session and the two roots in every Core request of the project.
+	binding *core.RemoteWorkspace
+	// connectionID, name and connection are the saved connection the workspace was opened over,
+	// as it was when the workspace opened; connecting again uses the same.
+	connectionID string
+	name         string
+	connection   core.SSHConnection
+	// session is the session the binding is attached to, "" while there is none.
+	session string
+	// home is the host account's home directory, "" when the host did not report it.
+	home    string
+	link    remoteLink
+	latency time.Duration
+	// misses counts the heartbeats in a row that went unanswered.
+	misses int
+	// stopTimer stops the pending heartbeat or reconnection; timer tells its callback apart from
+	// one a later schedule replaced.
+	stopTimer func() bool
+	timer     uint64
+	beating   bool
+	// attempt counts the attempts of the current reconnection; reconnecting is the running one.
+	attempt      int
+	reconnecting *remoteProbe
+	// failure is why connecting again failed, nil while it has not.
+	failure *remoteProbeOutcome
+	// menuOpen is the status bar's menu of the connection.
+	menuOpen bool
+	// closed is set once the project closes; nothing of the workspace runs afterwards.
+	closed bool
+}
+
+// remoteTarget is a host folder to open as a workspace over a connected session.
+type remoteTarget struct {
+	connectionID string
+	name         string
+	connection   core.SSHConnection
+	session      core.RemoteSession
+	// remoteRoot is the host folder, an absolute POSIX path; root is its local placeholder.
+	remoteRoot string
+	root       string
+}
+
+// errRemoteSessionClosed is what the binding's loss reports: a request of the workspace found
+// its connection closed.
+var errRemoteSessionClosed = &core.Error{Code: core.CodeConnectionClosed, Message: "the connection to the host closed"}
+
+// remoteLogError is err as the log keeps it. Core's message of a remote failure may name the host
+// or a host path, so only its command and code are kept; any other error loses its paths.
+func remoteLogError(err error) error {
+	var coreErr *core.Error
+	if errors.As(err, &coreErr) {
+		return &core.Error{Command: coreErr.Command, Code: coreErr.Code, Message: "remote request failed"}
+	}
+	return documentLogError(err)
+}
+
+// remoteConnectionClosed reports whether err says the session's connection is gone.
+func remoteConnectionClosed(err error) bool {
+	var coreErr *core.Error
+	return errors.As(err, &coreErr) && coreErr.Code == core.CodeConnectionClosed
+}
+
+// remoteHostPath is the host path of full, a path below the project's root; the root itself is
+// the host folder. A path outside the root, and every path of a local project, is returned as
+// it is.
+func (p *project) remoteHostPath(full string) string {
+	if p.remote == nil {
+		return full
+	}
+	rel, err := filepath.Rel(p.root, full)
+	if err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+		return full
+	}
+	root := p.remote.binding.RemoteRoot()
+	if rel == "." {
+		return root
+	}
+	return path.Join(root, filepath.ToSlash(rel))
+}
+
+// remoteLocation is the workspace as the user names it: the connection's name and the host
+// folder.
+func (r *remoteProject) remoteLocation() string {
+	return r.name + ":" + r.binding.RemoteRoot()
+}
+
+// remoteServerBundle is the server builds a connection sends: the ones the client carries,
+// installed below the user's cache directory. It runs off the window thread.
+func (a *App) remoteServerBundle() (remoteserver.Bundle, error) {
+	if a.remoteBundle != nil {
+		return a.remoteBundle()
+	}
+	dir, err := remoteserver.DefaultDir()
+	if err != nil {
+		return remoteserver.Bundle{}, err
+	}
+	return remoteserver.Resolve(dir)
+}
+
+// remotePlaceholderAnchor is the anchor below which the workspaces' placeholders lie. It runs off
+// the window thread.
+func (a *App) remotePlaceholderAnchor() (string, error) {
+	if a.remoteAnchor != nil {
+		return a.remoteAnchor()
+	}
+	return remoteplaceholder.DefaultAnchor()
+}
+
+// connectRemoteHost opens a session to the host of connection with the server builds the client
+// carries. It runs off the window thread.
+func (a *App) connectRemoteHost(ctx context.Context, kernel Kernel, connection core.SSHConnection) (core.RemoteConnectResult, error) {
+	bundle, err := a.remoteServerBundle()
+	if err != nil {
+		return core.RemoteConnectResult{}, err
+	}
+	servers := make([]core.RemoteServerBuild, len(bundle.Builds))
+	for i, build := range bundle.Builds {
+		servers[i] = core.RemoteServerBuild{Target: build.Target, Path: build.Path, SHA256: build.SHA256}
+	}
+	return kernel.RemoteConnect(ctx, core.RemoteConnectRequest{Connection: connection, Servers: servers, ServerVersion: bundle.Version})
+}
+
+// remoteConnectOutcome is a connection's result as the window shows a test's.
+func remoteConnectOutcome(result core.RemoteConnectResult, err error) *remoteProbeOutcome {
+	return &remoteProbeOutcome{result: core.RemoteProbeResult{Status: result.Status, Host: result.Host, Diagnostics: result.Diagnostics}, err: err}
+}
+
+// remoteConnectFailure is the error the log keeps for a connection that failed: err, or Core's
+// fixed status when the connection was refused.
+func remoteConnectFailure(result core.RemoteConnectResult, err error) error {
+	if err != nil {
+		return remoteLogError(err)
+	}
+	return errors.New("remote connect: " + string(result.Status))
+}
+
+// releaseRemoteSession ends the session id in the background; a session Core no longer knows is
+// already gone.
+func (a *App) releaseRemoteSession(id string) {
+	if id == "" {
+		return
+	}
+	kernel := a.kernel
+	a.background(nil, remoteDisconnectTimeout, func(ctx context.Context) func(*App) {
+		_, err := kernel.RemoteDisconnect(ctx, id)
+		if err == nil {
+			return nil
+		}
+		return func(a *App) { a.backgroundFailed("remote_disconnect", remoteLogError(err)) }
+	})
+}
+
+// remoteAfterFunc runs f on its own goroutine after d and returns what stops it.
+func (a *App) remoteAfterFunc(d time.Duration, f func()) func() bool {
+	if a.remoteAfter != nil {
+		return a.remoteAfter(d, f)
+	}
+	return time.AfterFunc(d, f).Stop
+}
+
+// scheduleRemote runs then on the window thread after d, replacing the pending heartbeat or
+// reconnection. It does not run once the project closed or another schedule replaced it.
+func (a *App) scheduleRemote(p *project, d time.Duration, then func(*App, *project)) {
+	r := p.remote
+	r.stopRemoteTimer()
+	token := r.timer
+	r.stopTimer = a.remoteAfterFunc(d, func() {
+		a.post(func(a *App) {
+			if a.project != p || r.closed || r.timer != token {
+				return
+			}
+			r.stopTimer = nil
+			then(a, p)
+		})
+	})
+}
+
+// stopRemoteTimer stops the pending heartbeat or reconnection; a callback already queued finds
+// its token outdated.
+func (r *remoteProject) stopRemoteTimer() {
+	if r.stopTimer != nil {
+		r.stopTimer()
+		r.stopTimer = nil
+	}
+	r.timer++
+}
+
+// attachRemote makes session the workspace's session and starts its heartbeat.
+func (a *App) attachRemote(p *project, session string) {
+	r := p.remote
+	r.session, r.link, r.attempt, r.misses, r.failure = session, remoteConnected, 0, 0, nil
+	r.binding.Attach(session)
+	a.beatRemote(p)
+}
+
+// beatRemote asks the server of the workspace's session what still runs, and schedules the next
+// heartbeat. An answer shows the connection alive with its round trip; a closed connection is
+// lost; remoteHeartbeatMisses unanswered heartbeats in a row end the session as lost.
+func (a *App) beatRemote(p *project) {
+	r := p.remote
+	if r == nil || r.closed || r.beating || r.session == "" {
+		return
+	}
+	r.beating = true
+	session, kernel := r.session, a.kernel
+	a.background(p, remoteHeartbeatTimeout, func(ctx context.Context) func(*App) {
+		started := time.Now()
+		err := kernel.RemoteServerState(ctx, session)
+		latency := time.Since(started)
+		return func(a *App) {
+			r.beating = false
+			if r.closed || r.session != session {
+				// log-exempt: 用户取消：工作区已关闭，或会话已被新会话取代，旧心跳的结果不再适用。
+				return
+			}
+			switch {
+			case err == nil:
+				r.link, r.latency, r.misses = remoteConnected, latency, 0
+				a.scheduleRemote(p, remoteHeartbeatInterval, (*App).beatRemote)
+			case remoteConnectionClosed(err):
+				a.loseRemote(p, session, err)
+			default:
+				r.misses++
+				if r.misses == 1 {
+					a.backgroundFailed("remote_heartbeat", remoteLogError(err))
+				}
+				if r.misses >= remoteHeartbeatMisses {
+					a.loseRemote(p, session, err)
+					return
+				}
+				r.link = remoteUnresponsive
+				a.scheduleRemote(p, remoteHeartbeatInterval, (*App).beatRemote)
+			}
+		}
+	})
+}
+
+// loseRemote handles the loss of session: the binding is left without one, Core ends what is left
+// of it, and connecting again starts.
+func (a *App) loseRemote(p *project, session string, err error) {
+	r := p.remote
+	if r == nil || r.closed || session == "" || r.session != session {
+		// log-exempt: 同一次失败已经记录过：这个会话的丢失已记录并处理过（remote_session_lost），或工作区已关闭。
+		return
+	}
+	a.backgroundFailed("remote_session_lost", remoteLogError(err))
+	r.session, r.misses = "", 0
+	r.binding.Detach()
+	r.stopRemoteTimer()
+	a.releaseRemoteSession(session)
+	r.attempt = 0
+	a.reconnectRemote(p, false)
+}
+
+// reconnectRemote opens a new session over the workspace's connection. userStarted is Reconnect
+// in the status bar: it starts the attempts afresh, asks OpenSSH's questions in the window and
+// does not try again on its own. An automatic attempt cancels every question and, while the host
+// is unreachable, tries again after a pause up to remoteReconnectAttempts times.
+func (a *App) reconnectRemote(p *project, userStarted bool) {
+	r := p.remote
+	if r == nil || r.closed || r.reconnecting != nil || r.session != "" {
+		return
+	}
+	if userStarted {
+		r.attempt = 0
+	}
+	r.attempt++
+	r.stopRemoteTimer()
+	r.link, r.failure = remoteReconnecting, nil
+	ctx, cancel := context.WithTimeout(a.operationContext(p.ctx), remoteProbeTimeout)
+	if userStarted {
+		ctx = a.gitAuthentication(ctx)
+	}
+	attempt := &remoteProbe{cancel: cancel}
+	r.reconnecting = attempt
+	kernel, connection := a.kernel, r.connection
+	a.background(nil, 0, func(context.Context) func(*App) {
+		defer cancel()
+		result, err := a.connectRemoteHost(ctx, kernel, connection)
+		return func(a *App) {
+			if a.project != p || r.closed || r.reconnecting != attempt {
+				if result.Session != nil {
+					a.releaseRemoteSession(result.Session.ID)
+				}
+				// log-exempt: 用户取消：工作区已关闭或这次重连已被取代，新会话随即结束。
+				return
+			}
+			r.reconnecting = nil
+			if err == nil && result.Status == core.RemoteProbeConnected && result.Session != nil {
+				a.attachRemote(p, result.Session.ID)
+				a.refreshRemoteTree(p)
+				return
+			}
+			if result.Session != nil {
+				a.releaseRemoteSession(result.Session.ID)
+			}
+			r.failure = remoteConnectOutcome(result, err)
+			if !userStarted && r.attempt < remoteReconnectAttempts && remoteRetryable(result.Status, err) {
+				r.link = remoteReconnecting
+				a.scheduleRemote(p, remoteReconnectPause(r.attempt), func(a *App, p *project) { a.reconnectRemote(p, false) })
+				// log-exempt: 同一次失败已经记录过：导致重连的连接丢失已记录（remote_session_lost），最后一次尝试的结果另记 remote_reconnect。
+				return
+			}
+			if userStarted {
+				a.operationFailed("remote_reconnect", remoteConnectFailure(result, err))
+			} else {
+				a.backgroundFailed("remote_reconnect", remoteConnectFailure(result, err))
+			}
+			r.link = remoteDisconnected
+		}
+	})
+}
+
+// remoteRetryable reports whether an automatic reconnection that ended with status or err may
+// succeed when tried again: the host could not be reached, or the connection broke or timed out.
+// A refused login, an unknown host key or a missing server build needs the user.
+func remoteRetryable(status core.RemoteProbeStatus, err error) bool {
+	if err != nil {
+		return remoteConnectionClosed(err) || errors.Is(err, context.DeadlineExceeded)
+	}
+	return status == core.RemoteProbeUnreachable
+}
+
+// remoteReconnectPause is the pause after the failed attempt-th attempt.
+func remoteReconnectPause(attempt int) time.Duration {
+	pause := remoteReconnectFirstPause
+	for i := 1; i < attempt && pause < remoteReconnectMaxPause; i++ {
+		pause *= 2
+	}
+	return min(pause, remoteReconnectMaxPause)
+}
+
+// refreshRemoteTree reads the Project tool window's listings again over the new session: the root
+// when it could not be listed, otherwise the folders shown open.
+func (a *App) refreshRemoteTree(p *project) {
+	if p.tree.failed != "" {
+		a.retryProjectTree(p)
+		return
+	}
+	a.resyncTreeListings(p)
+}
+
+// reconnectRemoteByUser is Reconnect in the status bar.
+func (a *App) reconnectRemoteByUser(surface actionSurface) {
+	p := a.project
+	if p == nil || p.remote == nil || p.remote.session != "" || p.remote.reconnecting != nil {
+		return
+	}
+	a.performed("remote.workspace.reconnect", surface)
+	a.reconnectRemote(p, true)
+}
+
+// closeRemoteWorkspace ends the workspace's session while its project closes; nothing of the
+// workspace runs afterwards.
+func (a *App) closeRemoteWorkspace(p *project) {
+	r := p.remote
+	if r == nil || r.closed {
+		return
+	}
+	r.closed = true
+	r.stopRemoteTimer()
+	if r.reconnecting != nil {
+		r.reconnecting.cancel()
+		r.reconnecting = nil
+	}
+	r.binding.Detach()
+	a.releaseRemoteSession(r.session)
+	r.session, r.menuOpen = "", false
+}
+
+// refuseRemote reports whether p is a remote workspace. When it is, a feature that runs only on
+// this computer refuses: the refusal is logged with operation and a notification says the
+// feature does not work in a remote workspace yet.
+func (a *App) refuseRemote(p *project, operation string) bool {
+	if p == nil || p.remote == nil {
+		return false
+	}
+	a.operationRejected(operation, "remote_workspace")
+	a.notifyInfo(i18n.Shared(a.language(), "desktop.remote.workspace.localOnly"))
+	return true
+}
+
+// openRemoteProject opens target as this workbench's project, which must have none: the window
+// opens the folder in a new tab otherwise (windowSessions.openRemoteTab). The workspace takes
+// target's session; when it cannot open, the session is ended.
+func (a *App) openRemoteProject(target remoteTarget) {
+	if a.project != nil || a.closingProject {
+		a.releaseRemoteSession(target.session.ID)
+		return
+	}
+	name := path.Base(target.remoteRoot)
+	p := &project{root: target.root, name: name, commit: newCommitState()}
+	r := &remoteProject{connectionID: target.connectionID, name: target.name, connection: target.connection, home: target.session.HomeDirectory}
+	p.remote = r
+	r.binding = core.NewRemoteWorkspace(target.root, target.remoteRoot, func(session string) {
+		// A request of the workspace found the connection closed, on the request's goroutine.
+		a.post(func(a *App) {
+			if a.project == p {
+				a.loseRemote(p, session, errRemoteSessionClosed)
+			}
+		})
+	})
+	// The host's project never runs on this computer, so the workspace stays in safe mode.
+	ctx := core.WithRemoteWorkspace(core.WithProjectCodeAllowed(context.Background(), p.trust.allowed), r.binding)
+	p.ctx, p.cancel = context.WithCancel(ctx)
+	a.searchView.reset()
+	a.term = terminalUI{}
+	a.project = p
+	a.notice = ""
+	a.logView.reset()
+	a.worktreeView.reset()
+	a.attachRemote(p, target.session.ID)
+}

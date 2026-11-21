@@ -38,12 +38,20 @@ func (a *App) remoteView(c ui.C) {
 	open := true
 	ui.ModalWith(c, &open, i18n.Shared(language, "desktop.remote.title"), ui.ModalSpec{Width: remoteWindowWidth, Height: remoteWindowHeight}, func() {
 		k := c.Part("remote")
+		if b := r.browser; b != nil {
+			a.remoteBrowserView(k, b)
+			return
+		}
 		ui.Row(k).Fill().Children(func() {
 			a.remoteList(k)
 			ui.Column(k).Width(1).FillHeight().Shrink(0).Background(a.colors.Line)
 			a.remoteDetail(k)
 		})
 	}, func() {
+		if b := r.browser; b != nil {
+			a.remoteBrowserFooter(c.Part("remote-browser-footer"), b)
+			return
+		}
 		a.remoteFooter(c.Part("remote-footer"))
 	})
 	if !open {
@@ -164,7 +172,8 @@ func (a *App) remoteFields(c ui.C) {
 	r := &a.remote
 	f := &r.form
 	language := a.language()
-	disabled := r.saving
+	// The form stays as the running connection read it, so what it shows is what connects.
+	disabled := r.saving || r.connect != nil
 	text := func(key, label, placeholder, help string, field *ui.Field) {
 		a.remoteRow(c.Part(key), key, label, help, func(k ui.C) {
 			ui.TextField(k, field, label, placeholder).Grow(1).MinWidth(0).Disabled(disabled)
@@ -263,6 +272,10 @@ func (a *App) remoteResult(c ui.C, language i18n.Language) {
 		a.remoteNotice(c, icons.LoaderCircle, a.colors.Subtle, i18n.Shared(language, "desktop.remote.testing"))
 		return
 	}
+	if r.connect != nil {
+		a.remoteNotice(c, icons.LoaderCircle, a.colors.Subtle, i18n.Shared(language, "desktop.remote.connecting"))
+		return
+	}
 	outcome := r.result
 	if outcome == nil {
 		return
@@ -270,35 +283,23 @@ func (a *App) remoteResult(c ui.C, language i18n.Language) {
 	ui.Column(c).FillWidth().Gap(8).PadTop(6).Children(func() {
 		ui.Row(c).FillWidth().Height(1).Shrink(0).Background(a.colors.Line)
 		if outcome.err != nil {
-			text := i18n.SharedFormat(language, "desktop.remote.probe.error", map[string]string{"reason": outcome.err.Error()})
-			var coreErr *core.Error
-			if errors.As(outcome.err, &coreErr) && coreErr.Code == core.CodeRuntimeMissing {
-				text = i18n.Shared(language, "desktop.remote.probe.noSSH")
-			}
-			a.remoteNotice(c.Part("status"), icons.CircleX, a.theme.Danger, text)
+			a.remoteNotice(c.Part("status"), icons.CircleX, a.theme.Danger, remoteFailureText(language, outcome))
 			return
 		}
 		result := outcome.result
 		host := result.Host
-		var system, machine string
-		if host != nil {
-			system, machine = host.System, host.Machine
-		}
 		switch result.Status {
 		case core.RemoteProbeConnected:
+			var system, machine string
+			if host != nil {
+				system, machine = host.System, host.Machine
+			}
 			a.remoteNotice(c.Part("status"), icons.CircleCheck, a.colors.Success,
 				i18n.SharedFormat(language, "desktop.remote.probe.connected", map[string]string{"system": system, "machine": machine}))
 		case core.RemoteProbeUnsupportedPlatform:
-			a.remoteNotice(c.Part("status"), icons.CircleAlert, a.colors.Warning,
-				i18n.SharedFormat(language, "desktop.remote.probe.unsupported", map[string]string{"system": system, "machine": machine}))
-		case core.RemoteProbeAuthenticationFailed:
-			a.remoteNotice(c.Part("status"), icons.CircleX, a.theme.Danger, i18n.Shared(language, "desktop.remote.probe.authenticationFailed"))
-		case core.RemoteProbeHostKeyRejected:
-			a.remoteNotice(c.Part("status"), icons.CircleX, a.theme.Danger, i18n.Shared(language, "desktop.remote.probe.hostKeyRejected"))
-		case core.RemoteProbeUnreachable:
-			a.remoteNotice(c.Part("status"), icons.CircleX, a.theme.Danger, i18n.Shared(language, "desktop.remote.probe.unreachable"))
+			a.remoteNotice(c.Part("status"), icons.CircleAlert, a.colors.Warning, remoteFailureText(language, outcome))
 		default:
-			a.remoteNotice(c.Part("status"), icons.CircleX, a.theme.Danger, i18n.Shared(language, "desktop.remote.probe.failed"))
+			a.remoteNotice(c.Part("status"), icons.CircleX, a.theme.Danger, remoteFailureText(language, outcome))
 		}
 		if host != nil {
 			a.remoteHostDetails(c.Part("details"), language, *host)
@@ -308,6 +309,40 @@ func (a *App) remoteResult(c ui.C, language i18n.Language) {
 			ui.Paragraph(c.Part("diagnostics"), diagnostics, 8).Mono().FontSize(a.theme.Metrics.FontSizeS).Color(a.colors.Subtle)
 		}
 	})
+}
+
+// remoteFailureText says why outcome did not connect, and is "" when it connected. The Remote
+// Development window shows it under the form, and the status bar's menu for the last attempt to
+// connect a workspace again.
+func remoteFailureText(language i18n.Language, outcome *remoteProbeOutcome) string {
+	if err := outcome.err; err != nil {
+		if own := remoteConnectFailureText(language, err); own != "" {
+			return own
+		}
+		var coreErr *core.Error
+		if errors.As(err, &coreErr) && coreErr.Code == core.CodeRuntimeMissing {
+			return i18n.Shared(language, "desktop.remote.probe.noSSH")
+		}
+		return i18n.SharedFormat(language, "desktop.remote.probe.error", map[string]string{"reason": remoteLogError(err).Error()})
+	}
+	result := outcome.result
+	switch result.Status {
+	case core.RemoteProbeConnected:
+		return ""
+	case core.RemoteProbeUnsupportedPlatform:
+		var system, machine string
+		if host := result.Host; host != nil {
+			system, machine = host.System, host.Machine
+		}
+		return i18n.SharedFormat(language, "desktop.remote.probe.unsupported", map[string]string{"system": system, "machine": machine})
+	case core.RemoteProbeAuthenticationFailed:
+		return i18n.Shared(language, "desktop.remote.probe.authenticationFailed")
+	case core.RemoteProbeHostKeyRejected:
+		return i18n.Shared(language, "desktop.remote.probe.hostKeyRejected")
+	case core.RemoteProbeUnreachable:
+		return i18n.Shared(language, "desktop.remote.probe.unreachable")
+	}
+	return i18n.Shared(language, "desktop.remote.probe.failed")
 }
 
 // remoteHostDetails declares what the host reported about itself, each item that it reported.
@@ -348,7 +383,7 @@ func (a *App) remoteHostDetails(c ui.C, language i18n.Language, host core.Remote
 }
 
 // remoteFooter declares Delete, or the question whether to delete, then Test Connection, Close and
-// Save.
+// Connect, or Save while the form holds what is not saved.
 func (a *App) remoteFooter(c ui.C) {
 	r := &a.remote
 	language := a.language()
@@ -370,22 +405,41 @@ func (a *App) remoteFooter(c ui.C) {
 		}
 	}
 	ui.Spacer(c)
-	if r.probe != nil {
+	switch {
+	case r.probe != nil:
 		if ui.Button(c.Part("stop"), i18n.Shared(language, "desktop.remote.stop")).Outline().Clicked() {
 			c.After(a.stopRemoteTest)
 		}
-	} else if ui.Button(c.Part("test"), i18n.Shared(language, "desktop.remote.test")).Outline().
-		Disabled(strings.TrimSpace(r.form.host.Text()) == "").Clicked() {
-		c.After(a.testRemote)
+	case r.connect != nil:
+		if ui.Button(c.Part("stop"), i18n.Shared(language, "desktop.remote.stop")).Outline().Clicked() {
+			c.After(a.stopRemoteConnect)
+		}
+	default:
+		if ui.Button(c.Part("test"), i18n.Shared(language, "desktop.remote.test")).Outline().
+			Disabled(strings.TrimSpace(r.form.host.Text()) == "").Clicked() {
+			c.After(a.testRemote)
+		}
 	}
 	if ui.Button(c.Part("close"), i18n.Shared(language, "desktop.remote.close")).Outline().Clicked() {
 		c.After(a.closeRemote)
+	}
+	// A saved connection the form shows unchanged connects; anything typed is saved first, since
+	// only a saved connection connects.
+	if entry != nil && !r.saving && !r.dirty() {
+		label := i18n.Shared(language, "desktop.remote.connect")
+		if r.connect != nil {
+			label = i18n.Shared(language, "desktop.remote.connecting")
+		}
+		if ui.Button(c.Part("connect"), label).Disabled(!r.connectable()).Clicked() {
+			c.After(a.connectRemote)
+		}
+		return
 	}
 	label := i18n.Shared(language, "desktop.remote.save")
 	if r.saving {
 		label = i18n.Shared(language, "desktop.remote.saving")
 	}
-	if ui.Button(c.Part("save"), label).Disabled(!r.editable() || !r.dirty()).Clicked() {
+	if ui.Button(c.Part("save"), label).Disabled(!r.editable() || !r.dirty() || r.connect != nil).Clicked() {
 		c.After(a.saveRemote)
 	}
 }

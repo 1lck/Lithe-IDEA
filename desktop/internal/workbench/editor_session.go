@@ -77,8 +77,11 @@ type editorRestoreItem struct {
 
 // saveEditorSession records the editor of p for the next time the project opens. A project
 // with no file open forgets its session.
+//
+// A remote workspace has no session: its files do not open in the editor yet, and its root is a
+// placeholder that names no folder of this computer.
 func (a *App) saveEditorSession(p *project) {
-	if p.standalone {
+	if p.standalone || p.remote != nil {
 		return
 	}
 	all := map[string]savedEditorSession{}
