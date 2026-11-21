@@ -326,10 +326,10 @@ PINNED_CORE_REPOSITORY="https://github.com/Lithe-IDEA/Lithe-core-rust.git"
 # wsl.exe (the wsl field) and remote.listWslDistributions lists the installed ones (#2231).
 # Lithe-core-rust main at 49fb750: #158 remote.preferences and remote.editPreferences (SSH program,
 # reconnect limit) feed the remote commands, with the reconnect pauses given by Core (#2231).
-# Lithe-core-rust 658910a (Draft #160 on main 62d44ce, which has #159's host and reverse
+# Lithe-core-rust a81ad08 (Draft #160 on main 62d44ce, which has #159's host and reverse
 # forwards): remote.connect runs the persistent host session and resumes a kept one;
 # remote.disconnect ends or keeps the host programs; remote.runningPrograms, remote.endPrograms
-# (all or the listed ones) and the closePrograms preference (#2231).
+# (all or the listed ones), the closePrograms preference and closing.idleTimeoutSeconds (#2231).
 PINNED_CORE_REVISION="a81ad08c436dd53e3dea0343bde7bc7310b9e928"
 PROFILE="debug"
 CHECKOUT_ONLY="no"
