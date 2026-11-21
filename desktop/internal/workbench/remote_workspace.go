@@ -135,6 +135,15 @@ func remoteLogError(err error) error {
 	return documentLogError(err)
 }
 
+// logError is err as the log keeps it for a request of p: remoteLogError for a remote workspace,
+// err itself for a local one.
+func (p *project) logError(err error) error {
+	if p.remote != nil {
+		return remoteLogError(err)
+	}
+	return err
+}
+
 // remoteConnectionClosed reports whether err says the session's connection is gone.
 func remoteConnectionClosed(err error) bool {
 	var coreErr *core.Error

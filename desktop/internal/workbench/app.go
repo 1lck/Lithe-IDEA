@@ -255,6 +255,7 @@ type Kernel interface {
 	ReduceDocument(ctx context.Context, state core.DocumentState, event core.DocumentEvent) (core.DocumentDecision, error)
 	SearchWorkspace(ctx context.Context, request core.WorkspaceSearchRequest) ([]core.WorkspaceSearchMatch, error)
 	SearchWorkspacePage(ctx context.Context, request core.WorkspaceSearchRequest) (core.WorkspaceSearchPage, error)
+	CountWorkspaceSearch(ctx context.Context, request core.WorkspaceSearchRequest) (core.WorkspaceSearchCounts, error)
 	InvalidateWorkspaceSearch(ctx context.Context, root string) error
 	FilterWorkspaceChanges(ctx context.Context, paths []string) ([]string, error)
 	UpdateWorkspaceSearch(ctx context.Context, root string, paths []string) error

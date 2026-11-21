@@ -242,6 +242,9 @@ func TestProjectReplacePreservesOriginalEncodingAndRejectsChangedPreview(t *test
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 	client := core.NewClient()
+	guardedWrite := func(_ context.Context, path string, data, expected []byte) error {
+		return documentio.WriteGuarded(path, data, expected)
+	}
 	for _, encoding := range []string{"gbk", "utf-16le-bom", "utf-16be-bom", "utf-8-bom", "windows-1252"} {
 		t.Run(encoding, func(t *testing.T) {
 			root := t.TempDir()
@@ -264,7 +267,7 @@ func TestProjectReplacePreservesOriginalEncodingAndRejectsChangedPreview(t *test
 			if err != nil || len(preview) != 1 {
 				t.Fatalf("preview %+v %v", preview, err)
 			}
-			outcome := replacePreviewInFile(ctx, client, documentio.WriteGuarded, path, searchQuery{text: "needle"}, "found", 1<<20, preview[0].SourceIdentity)
+			outcome := replacePreviewInFile(ctx, client, localDocumentBytes, guardedWrite, path, searchQuery{text: "needle"}, "found", 1<<20, preview[0].SourceIdentity)
 			if outcome.err != nil || outcome.skipped {
 				t.Fatalf("replace %+v", outcome)
 			}
@@ -279,7 +282,7 @@ func TestProjectReplacePreservesOriginalEncodingAndRejectsChangedPreview(t *test
 			if err = os.WriteFile(path, []byte("external needle"), 0600); err != nil {
 				t.Fatal(err)
 			}
-			outcome = replacePreviewInFile(ctx, client, documentio.WriteGuarded, path, searchQuery{text: "needle"}, "found", 1<<20, preview[0].SourceIdentity)
+			outcome = replacePreviewInFile(ctx, client, localDocumentBytes, guardedWrite, path, searchQuery{text: "needle"}, "found", 1<<20, preview[0].SourceIdentity)
 			if !errors.Is(outcome.err, documentio.ErrConflict) {
 				t.Fatalf("stale preview wrote: %+v", outcome)
 			}

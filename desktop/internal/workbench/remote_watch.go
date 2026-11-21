@@ -82,9 +82,11 @@ type remoteWatch struct {
 	// session is the session the watch runs over; cancel stops it.
 	session string
 	cancel  context.CancelFunc
-	// watching is set once the host watches the folder; lostReported and excessReported once
-	// this run's lost changes and too many changes were logged. They are the window thread's.
+	// watching is set once the host watches the folder, and partial once the host ran out of
+	// watches, so some of its folders go unwatched; lostReported and excessReported once this
+	// run's lost changes and too many changes were logged. They are the window thread's.
 	watching       bool
+	partial        bool
 	lostReported   bool
 	excessReported bool
 
@@ -161,6 +163,7 @@ func (a *App) stopRemoteWatch(p *project) {
 	r.watch = nil
 	p.tree.eventEpoch++
 	p.tree.eventPending = nil
+	a.remoteSearchUnwatched(p)
 }
 
 // restartRemoteWatch starts p's running host watch again, for a new list of hidden folders.
@@ -184,8 +187,10 @@ func (a *App) drainRemoteWatch(p *project, w *remoteWatch) {
 		return
 	}
 	if limited {
+		w.partial = true
 		a.backgroundFailed("remote_watch", errRemoteWatchLimit)
 		a.remoteWatchUnavailable(p)
+		a.remoteSearchUnwatched(p)
 	}
 	if overflow && !w.lostReported {
 		w.lostReported = true
@@ -219,7 +224,7 @@ func (a *App) remoteWatchUnavailable(p *project) {
 }
 
 // resyncRemoteWorkspace reads again what p shows of its host folder: the tree's open folders, or
-// its root when it could not be listed, and every document.
+// its root when it could not be listed, every document and the search index.
 func (a *App) resyncRemoteWorkspace(p *project) {
 	p.tree.eventEpoch++
 	p.tree.eventPending = nil
@@ -227,10 +232,11 @@ func (a *App) resyncRemoteWorkspace(p *project) {
 		a.refreshRemoteTree(p)
 	}
 	a.recheckRemoteDocuments(p)
+	a.remoteSearchChanged(p, nil, true)
 }
 
-// applyRemoteChanges hands the tree the changed host paths below p's folder and compares the
-// documents they touch with the host.
+// applyRemoteChanges hands the search index and the tree the changed host paths below p's folder
+// and compares the documents they touch with the host.
 func (a *App) applyRemoteChanges(p *project, hostPaths []string) {
 	root := p.remote.binding.RemoteRoot()
 	names := make([]string, 0, len(hostPaths))
@@ -242,6 +248,7 @@ func (a *App) applyRemoteChanges(p *project, hostPaths []string) {
 	if len(names) == 0 {
 		return
 	}
+	a.remoteSearchChanged(p, names, false)
 	a.markRemoteDocuments(p, names)
 	t := &p.tree
 	if t.root == nil {
