@@ -82,39 +82,55 @@ func Read(ctx context.Context, kernel Kernel, root string) (Source, error) {
 	return source, nil
 }
 
-// Edit applies edit to the bytes s was read from, publishes the result and reads the list again.
-// It returns the list as it is now and the id of the entry a save wrote. A refused entry fails
-// with Core's error (core.RemoteConnectionFieldError names the field); a file changed since s was
-// read fails with ErrConflict and writes nothing. committed reports that the new list reached the
-// disk even when a later step failed.
-func (s Source) Edit(ctx context.Context, kernel Kernel, edit core.RemoteConnectionEdit) (after Source, id string, committed bool, err error) {
+// Document is the text of the source, nil when the file does not exist, for the Core requests
+// that check other hosts against the saved list.
+func (s Source) Document() (*string, error) {
 	if s.root == "" {
-		return s, "", false, ErrUnavailable
+		return nil, ErrUnavailable
 	}
 	text, err := s.file.Text()
 	if err != nil {
-		return s, "", false, errors.Join(ErrDamaged, err)
+		return nil, errors.Join(ErrDamaged, err)
 	}
-	publication, err := kernel.EditRemoteConnections(ctx, text, edit)
+	return text, nil
+}
+
+// Edit applies edit as Apply does and returns the id of the entry a save wrote.
+func (s Source) Edit(ctx context.Context, kernel Kernel, edit core.RemoteConnectionEdit) (after Source, id string, committed bool, err error) {
+	after, publication, committed, err := s.Apply(ctx, kernel, edit)
+	return after, publication.ID, committed, err
+}
+
+// Apply applies edit to the bytes s was read from, publishes the result and reads the list again.
+// It returns the list as it is now and Core's publication, whose ID and IDs name the entries a
+// save or an import wrote. A refused entry fails with Core's error (core.RemoteConnectionFieldError
+// names the field); a file changed since s was read fails with ErrConflict and writes nothing.
+// committed reports that the new list reached the disk even when a later step failed.
+func (s Source) Apply(ctx context.Context, kernel Kernel, edit core.RemoteConnectionEdit) (after Source, publication core.RemoteConnectionsPublication, committed bool, err error) {
+	text, err := s.Document()
+	if err != nil {
+		return s, publication, false, err
+	}
+	publication, err = kernel.EditRemoteConnections(ctx, text, edit)
 	if err != nil {
 		var coreErr *core.Error
 		if errors.As(err, &coreErr) && coreErr.Code == core.CodeParseFailed {
 			err = errors.Join(ErrDamaged, err)
 		}
-		return s, "", false, err
+		return s, publication, false, err
 	}
 	if publication.Changed {
 		if publication.Document == nil {
-			return s, "", false, errors.New("remoteconn: Core changed the list without a document")
+			return s, publication, false, errors.New("remoteconn: Core changed the list without a document")
 		}
 		committed, err = s.file.Replace(ctx, []byte(*publication.Document), func() error { return s.file.Verify(ctx) })
 		if errors.Is(err, configfile.ErrConflict) {
 			err = errors.Join(ErrConflict, err)
 		}
 		if err != nil {
-			return s, "", committed, err
+			return s, publication, committed, err
 		}
 	}
 	after, err = Read(ctx, kernel, s.root)
-	return after, publication.ID, committed, err
+	return after, publication, committed, err
 }

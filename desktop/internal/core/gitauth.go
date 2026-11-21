@@ -36,12 +36,36 @@ type GitAuthChallenge struct {
 	// Remote says the question comes from the SSH client of a remote connection (RemoteProbe),
 	// not from Git: it is answered with RemoteAuthRespond.
 	Remote bool
+	// Kind is what a Remote question asks for, one of the RemoteQuestion kinds; Core classifies
+	// OpenSSH's English wording, so the window can show a fitting form. Empty for Git.
+	Kind RemoteQuestionKind
+	// KeyType and Fingerprint name the unknown host key of a RemoteQuestionHostKey question, for
+	// example "ED25519" and "SHA256:…"; empty when OpenSSH did not print them.
+	KeyType     string
+	Fingerprint string
 	// Done is closed once the request that asked has returned; no answer reaches it after that.
 	Done <-chan struct{}
 }
 
 // GitRetryAnswer is the answer to a Retry challenge that retries the transfer.
 const GitRetryAnswer = "retry"
+
+// RemoteQuestionKind is what an OpenSSH question of a remote connection asks for.
+type RemoteQuestionKind string
+
+// The kinds Core tells apart. Any other wording is RemoteQuestionOther, shown as asked.
+const (
+	// RemoteQuestionHostKey asks to accept ("yes") or decline ("no") an unknown host key.
+	RemoteQuestionHostKey RemoteQuestionKind = "hostKey"
+	// RemoteQuestionPassword asks for the account's password.
+	RemoteQuestionPassword RemoteQuestionKind = "password"
+	// RemoteQuestionPassphrase asks for a private key's passphrase.
+	RemoteQuestionPassphrase RemoteQuestionKind = "passphrase"
+	// RemoteQuestionCode asks for a one-time or verification code.
+	RemoteQuestionCode RemoteQuestionKind = "code"
+	// RemoteQuestionOther is any other question.
+	RemoteQuestionOther RemoteQuestionKind = "other"
+)
 
 type gitAuthenticationKey struct{}
 
@@ -83,6 +107,9 @@ func gitAuthenticationObserver(prompt func(GitAuthChallenge), done <-chan struct
 				Retry            bool   `json:"retry"`
 				Attempt          int    `json:"attempt"`
 				WorkingDirectory string `json:"workingDirectory"`
+				Kind             string `json:"kind"`
+				KeyType          string `json:"keyType"`
+				Fingerprint      string `json:"fingerprint"`
 			}
 			if json.Unmarshal(raw, &event) == nil && event.Type == "authentication" && event.RequestID != "" {
 				prompt(GitAuthChallenge{
@@ -92,6 +119,9 @@ func gitAuthenticationObserver(prompt func(GitAuthChallenge), done <-chan struct
 					Retry:            event.Retry,
 					Attempt:          event.Attempt,
 					WorkingDirectory: event.WorkingDirectory,
+					Kind:             RemoteQuestionKind(event.Kind),
+					KeyType:          event.KeyType,
+					Fingerprint:      event.Fingerprint,
 					Done:             done,
 				})
 			}

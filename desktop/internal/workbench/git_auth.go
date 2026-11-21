@@ -76,6 +76,10 @@ func (a *App) gitAuthDialog(c ui.C) {
 		return
 	}
 	head := g.queue[0]
+	if head.Remote && a.remoteAsksOnPage() {
+		// The Remote Development window asks it under the step of the connection that asks it.
+		return
+	}
 	if g.fieldFor != head.RequestID {
 		g.field, g.fieldFor = ui.Field{}, head.RequestID
 	}

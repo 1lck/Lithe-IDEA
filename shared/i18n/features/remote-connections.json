@@ -1137,6 +1137,852 @@
       "platforms": [
         "desktop"
       ]
+    },
+    {
+      "id": "desktop.remote.titleWith",
+      "description": "Remote Development window: title while a connection, a new one or the import is shown; crumb names it",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "crumb": "string"
+      }
+    },
+    {
+      "id": "desktop.remote.newConnection",
+      "description": "Remote Development window: what a new, unsaved connection is called in the title and over its form",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.remote.search",
+      "description": "Remote Development window: accessible name of the field that searches the saved connections",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.remote.searchPlaceholder",
+      "description": "Remote Development window: placeholder of the search field above the list",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.remote.noMatch",
+      "description": "Remote Development window: in the list when no saved connection matches the search",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.remote.listFooter",
+      "description": "Remote Development window: line under the list: how many connections are saved, and that they stay on this computer",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "count": "string"
+      }
+    },
+    {
+      "id": "desktop.remote.neverConnected",
+      "description": "Remote Development window: right of a list row: the connection never opened a folder",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.remote.connectedNow",
+      "description": "Remote Development window: right of a list row: a window has a folder of the connection open",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.remote.connectedWindows",
+      "description": "Remote Development window: tag beside a connection's name: how many windows have one of its folders open",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "count": "string"
+      }
+    },
+    {
+      "id": "desktop.remote.groupFold",
+      "description": "Remote Development window: accessible name of the arrow that folds or unfolds a group of the list",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "group": "string"
+      }
+    },
+    {
+      "id": "desktop.remote.import",
+      "description": "Remote Development window: tool button above the list that opens the import menu",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.remote.import.motty",
+      "description": "Remote Development window: import menu item: Motty's hosts",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.remote.import.ssh",
+      "description": "Remote Development window: import menu item: the hosts of ~/.ssh/config",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.remote.import.count",
+      "description": "Remote Development window: under an import menu item or card: how many hosts it can import",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "count": "string"
+      }
+    },
+    {
+      "id": "desktop.remote.import.none",
+      "description": "Remote Development window: under an import menu item or card: nothing to import",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.remote.copyName",
+      "description": "Remote Development window: name of a connection copied as a new one",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "name": "string"
+      }
+    },
+    {
+      "id": "desktop.remote.copyAsNew",
+      "description": "Remote Development window: ⋯ menu item: open the form for a new connection filled from this one",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.remote.more",
+      "description": "Remote Development window: accessible name of the ⋯ button beside Edit",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.remote.deleteNamed",
+      "description": "Remote Development window: ⋯ menu item that asks to delete the connection",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "name": "string"
+      }
+    },
+    {
+      "id": "desktop.remote.openFolder",
+      "description": "Remote Development window: primary button of a connection's overview: connect and choose a folder",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.remote.openOther",
+      "description": "Remote Development window: link beside Recent folders: connect and choose another folder",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.remote.recentFolders",
+      "description": "Remote Development window: overview section: folders last opened on the connection",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.remote.noRecentFolders",
+      "description": "Remote Development window: overview, Recent folders: none yet",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.remote.testedAgo",
+      "description": "Remote Development window: overview, Host section: when the last test ended; time is relative, such as 5 minutes ago",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "time": "string"
+      }
+    },
+    {
+      "id": "desktop.remote.retest",
+      "description": "Remote Development window: overview, Host section: link that tests the connection again",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.remote.viaHosts",
+      "description": "Remote Development window: after a connection's address: the hosts it jumps through",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "hosts": "string"
+      }
+    },
+    {
+      "id": "desktop.remote.effective",
+      "description": "Remote Development window: overview section: what OpenSSH uses to reach the host, as ssh -G resolves it",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.remote.effectiveHelp",
+      "description": "Remote Development window: tip of the ⓘ beside Effective SSH settings",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.remote.effectiveFailed",
+      "description": "Remote Development window: overview: the effective settings could not be read; reason is the error",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "reason": "string"
+      }
+    },
+    {
+      "id": "desktop.remote.setting.hostName",
+      "description": "Remote Development window: effective settings row: the host name OpenSSH connects to",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.remote.setting.user",
+      "description": "Remote Development window: effective settings row: the user",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.remote.setting.port",
+      "description": "Remote Development window: effective settings row: the port",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.remote.setting.identityFiles",
+      "description": "Remote Development window: effective settings row: the identity files OpenSSH tries",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.remote.setting.proxyJump",
+      "description": "Remote Development window: effective settings row: the jump hosts",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.remote.setting.connectTimeout",
+      "description": "Remote Development window: effective settings row: the connection timeout",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.remote.setting.keepAlive",
+      "description": "Remote Development window: effective settings row: the keep-alive interval",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.remote.source.connection",
+      "description": "Remote Development window: tag of an effective value set by the saved connection",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.remote.source.sshConfig",
+      "description": "Remote Development window: tag of an effective value set by the SSH configuration",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.remote.source.default",
+      "description": "Remote Development window: tag of an effective value that is OpenSSH's default",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.remote.seconds",
+      "description": "Remote Development window: a number of seconds",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "count": "string"
+      }
+    },
+    {
+      "id": "desktop.remote.auto",
+      "description": "Remote Development window: placeholder of a field left empty: OpenSSH then uses value",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "value": "string"
+      }
+    },
+    {
+      "id": "desktop.remote.hopAdd",
+      "description": "Remote Development window: accessible name of the field that adds a jump host",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.remote.hopPlaceholder",
+      "description": "Remote Development window: placeholder of the field that adds a jump host",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.remote.hopRemove",
+      "description": "Remote Development window: accessible name of the button that removes a jump host",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "host": "string"
+      }
+    },
+    {
+      "id": "desktop.remote.thisComputer",
+      "description": "Remote Development window: first stop of the route under the jump hosts",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.remote.unsaved",
+      "description": "Remote Development window: beside the form's buttons: the form has changes not saved",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.remote.editTitle",
+      "description": "Remote Development window: heading over the form that edits a saved connection",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "name": "string"
+      }
+    },
+    {
+      "id": "desktop.remote.empty.title",
+      "description": "Remote Development window: first page while no connection is saved: heading",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.remote.empty.body",
+      "description": "Remote Development window: first page while no connection is saved: what the window does",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.remote.quick.label",
+      "description": "Remote Development window: first page: label of the field that starts a connection from an address",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.remote.quick.placeholder",
+      "description": "Remote Development window: first page: placeholder of the address field",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.remote.quick.continue",
+      "description": "Remote Development window: first page: button that fills the form from the address",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.remote.empty.manual",
+      "description": "Remote Development window: first page: link that opens an empty form",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.remote.empty.importMotty",
+      "description": "Remote Development window: first page: card that imports Motty's hosts",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.remote.empty.importSsh",
+      "description": "Remote Development window: first page: card that imports the hosts of ~/.ssh/config",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.remote.host.cores",
+      "description": "Remote Development window: host grid, processor cell: how many cores",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "count": "string"
+      }
+    },
+    {
+      "id": "desktop.remote.host.diskOf",
+      "description": "Remote Development window: host grid, disk cell: the disk's size under what is free",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "total": "string"
+      }
+    },
+    {
+      "id": "desktop.remote.step.config",
+      "description": "Remote Development window: connection step: reading the configuration",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.remote.step.connect",
+      "description": "Remote Development window: connection step: reaching the host",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.remote.step.authenticate",
+      "description": "Remote Development window: connection step: logging in",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.remote.step.platform",
+      "description": "Remote Development window: connection step: checking the host's system",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.remote.step.install",
+      "description": "Remote Development window: connection step: installing the server on the host",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.remote.step.session",
+      "description": "Remote Development window: connection step: starting the session",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.remote.steps.title",
+      "description": "Remote Development window: heading while connecting",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "name": "string"
+      }
+    },
+    {
+      "id": "desktop.remote.steps.failed",
+      "description": "Remote Development window: heading once a connection failed",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "name": "string"
+      }
+    },
+    {
+      "id": "desktop.remote.steps.upload",
+      "description": "Remote Development window: under the install step: bytes of the server uploaded",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "sent": "string",
+        "total": "string"
+      }
+    },
+    {
+      "id": "desktop.remote.steps.retry",
+      "description": "Remote Development window: button after a failed connection: connect again",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.remote.steps.back",
+      "description": "Remote Development window: button after a failed connection: back to the overview",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.remote.steps.editConnection",
+      "description": "Remote Development window: button after a failed connection: edit it",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.remote.hostKey.title",
+      "description": "Remote Development window: question under the connect step: the host's key is not known",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "host": "string"
+      }
+    },
+    {
+      "id": "desktop.remote.hostKey.type",
+      "description": "Remote Development window: host key question: label of the key's type",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.remote.hostKey.fingerprint",
+      "description": "Remote Development window: host key question: label of the key's fingerprint",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.remote.hostKey.hint",
+      "description": "Remote Development window: host key question: what trusting does",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.remote.hostKey.reject",
+      "description": "Remote Development window: host key question: refuse the key",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.remote.hostKey.trust",
+      "description": "Remote Development window: host key question: trust the key and go on",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.remote.question.asks",
+      "description": "Remote Development window: question under the authenticate step: OpenSSH asks something",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.remote.question.answer",
+      "description": "Remote Development window: accessible name of the answer field",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.remote.question.continue",
+      "description": "Remote Development window: question under the authenticate step: send the answer",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.remote.trust.title",
+      "description": "Remote Development window: before a remote folder first opens: heading",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.remote.trust.body",
+      "description": "Remote Development window: before a remote folder first opens: what trusting means",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "folder": "string",
+        "name": "string"
+      }
+    },
+    {
+      "id": "desktop.remote.trust.safe",
+      "description": "Remote Development window: before a remote folder first opens: what safe mode does",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.remote.trust.parent",
+      "description": "Remote Development window: checkbox: trust the folder above as well",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "parent": "string"
+      }
+    },
+    {
+      "id": "desktop.remote.trust.back",
+      "description": "Remote Development window: trust question: back to the folders",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.remote.trust.safeOpen",
+      "description": "Remote Development window: trust question: open without trusting",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.remote.trust.trustOpen",
+      "description": "Remote Development window: trust question: trust and open",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.remote.trust.failed",
+      "description": "Remote Development window: trust question: the decision could not be saved; reason is the error",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "reason": "string"
+      }
+    },
+    {
+      "id": "desktop.remote.import.title",
+      "description": "Remote Development window: import page: heading",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.remote.import.source.motty",
+      "description": "Remote Development window: import page: choice of Motty's hosts",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.remote.import.source.ssh",
+      "description": "Remote Development window: import page: choice of the hosts of ~/.ssh/config",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.remote.import.from",
+      "description": "Remote Development window: import page: the file the hosts are read from",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "path": "string"
+      }
+    },
+    {
+      "id": "desktop.remote.import.keepGroups",
+      "description": "Remote Development window: import page: checkbox that keeps Motty's groups",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.remote.import.keepColors",
+      "description": "Remote Development window: import page: checkbox that keeps Motty's colors",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.remote.import.status.importable",
+      "description": "Remote Development window: import row tag: the host is imported with all its settings",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.remote.import.status.partial",
+      "description": "Remote Development window: import row tag: some settings stay behind, such as a saved password",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.remote.import.status.exists",
+      "description": "Remote Development window: import row tag: the host is already saved; importing only adds its color and group",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.remote.import.status.pattern",
+      "description": "Remote Development window: import row tag: a Host pattern, not a host",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.remote.import.status.invalid",
+      "description": "Remote Development window: import row tag: the host's settings are not valid",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.remote.import.status.unreadable",
+      "description": "Remote Development window: import row tag: the host could not be read",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.remote.import.status.unsupported",
+      "description": "Remote Development window: import row tag: not an SSH host",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.remote.import.footer",
+      "description": "Remote Development window: import page footer: how many hosts are chosen",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "count": "string"
+      }
+    },
+    {
+      "id": "desktop.remote.import.apply",
+      "description": "Remote Development window: import page: button that saves the chosen hosts",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.remote.import.applying",
+      "description": "Remote Development window: import page: the button while saving",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.remote.import.done",
+      "description": "Remote Development window: notification after an import: how many hosts were saved or updated",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "count": "string"
+      }
+    },
+    {
+      "id": "desktop.remote.import.empty",
+      "description": "Remote Development window: import page: the source has no host",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.remote.import.mottyMissing",
+      "description": "Remote Development window: import page: Motty is not installed or has no configuration",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.remote.import.mottyUnreadable",
+      "description": "Remote Development window: import page: Motty's configuration could not be read",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.remote.import.mottyTooLarge",
+      "description": "Remote Development window: import page: Motty's configuration is too large to read",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.remote.import.mottyUnsupported",
+      "description": "Remote Development window: import page: Motty's configuration is in a format not known",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.remote.import.failed",
+      "description": "Remote Development window: import page: reading or saving failed; reason is the error",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "reason": "string"
+      }
     }
   ],
   "locales": {
@@ -1146,7 +1992,7 @@
       "desktop.remote.saved": "Saved Connections",
       "desktop.remote.storageHelp": "Kept on this computer in {path}. Passwords and the contents of private keys are never saved.",
       "desktop.remote.new": "New Connection",
-      "desktop.remote.empty": "No saved connections yet. Fill in the form and save it.",
+      "desktop.remote.empty": "No saved connections",
       "desktop.remote.name": "Name",
       "desktop.remote.namePlaceholder": "Defaults to the host",
       "desktop.remote.host": "Host",
@@ -1280,6 +2126,115 @@
       "desktop.remote.status.reconnect": "Reconnect",
       "desktop.remote.status.disconnect": "Disconnect and Close",
       "desktop.remote.workspace.title": "{folder} [SSH: {connection}]",
+      "desktop.remote.titleWith": "Remote Development › {crumb}",
+      "desktop.remote.newConnection": "New Connection",
+      "desktop.remote.search": "Search connections",
+      "desktop.remote.searchPlaceholder": "Search name, host or group",
+      "desktop.remote.noMatch": "No connection matches",
+      "desktop.remote.listFooter": "{count} saved · on this computer only",
+      "desktop.remote.neverConnected": "Never",
+      "desktop.remote.connectedNow": "Connected",
+      "desktop.remote.connectedWindows": "{count} window(s) open",
+      "desktop.remote.groupFold": "Fold or unfold {group}",
+      "desktop.remote.import": "Import",
+      "desktop.remote.import.motty": "From Motty…",
+      "desktop.remote.import.ssh": "From ~/.ssh/config…",
+      "desktop.remote.import.count": "{count} host(s) to import",
+      "desktop.remote.import.none": "No hosts found",
+      "desktop.remote.copyName": "{name} copy",
+      "desktop.remote.copyAsNew": "Duplicate as New",
+      "desktop.remote.more": "More",
+      "desktop.remote.deleteNamed": "Delete “{name}”…",
+      "desktop.remote.openFolder": "Open Folder…",
+      "desktop.remote.openOther": "Open another…",
+      "desktop.remote.recentFolders": "Recent folders",
+      "desktop.remote.noRecentFolders": "No folder opened yet",
+      "desktop.remote.testedAgo": "Tested {time}",
+      "desktop.remote.retest": "Test again",
+      "desktop.remote.viaHosts": "via {hosts}",
+      "desktop.remote.effective": "Effective SSH settings",
+      "desktop.remote.effectiveHelp": "What OpenSSH will use to connect, as `ssh -G` resolves this connection with your SSH configuration. Each value says whether it comes from this connection, the SSH configuration or OpenSSH's default.",
+      "desktop.remote.effectiveFailed": "Could not read the effective settings: {reason}",
+      "desktop.remote.setting.hostName": "Host name",
+      "desktop.remote.setting.user": "User",
+      "desktop.remote.setting.port": "Port",
+      "desktop.remote.setting.identityFiles": "Identity files",
+      "desktop.remote.setting.proxyJump": "Jump hosts",
+      "desktop.remote.setting.connectTimeout": "Connect timeout",
+      "desktop.remote.setting.keepAlive": "Keep-alive",
+      "desktop.remote.source.connection": "This connection",
+      "desktop.remote.source.sshConfig": "SSH config",
+      "desktop.remote.source.default": "Default",
+      "desktop.remote.seconds": "{count} s",
+      "desktop.remote.auto": "Automatic ({value})",
+      "desktop.remote.hopAdd": "Add jump host",
+      "desktop.remote.hopPlaceholder": "user@host:port, then Return",
+      "desktop.remote.hopRemove": "Remove {host}",
+      "desktop.remote.thisComputer": "This computer",
+      "desktop.remote.unsaved": "Unsaved changes",
+      "desktop.remote.editTitle": "Edit {name}",
+      "desktop.remote.empty.title": "Connect to a Linux host over SSH",
+      "desktop.remote.empty.body": "Open a folder on the host as a workspace. The editor, terminal, Git and search work on the host; only the window runs here.",
+      "desktop.remote.quick.label": "Address",
+      "desktop.remote.quick.placeholder": "user@host:22",
+      "desktop.remote.quick.continue": "Continue",
+      "desktop.remote.empty.manual": "Fill in the form instead",
+      "desktop.remote.empty.importMotty": "Import from Motty",
+      "desktop.remote.empty.importSsh": "Import from ~/.ssh/config",
+      "desktop.remote.host.cores": "{count} cores",
+      "desktop.remote.host.diskOf": "of {total}",
+      "desktop.remote.step.config": "Read configuration",
+      "desktop.remote.step.connect": "Connect to host",
+      "desktop.remote.step.authenticate": "Authenticate",
+      "desktop.remote.step.platform": "Check platform",
+      "desktop.remote.step.install": "Install server",
+      "desktop.remote.step.session": "Start session",
+      "desktop.remote.steps.title": "Connecting to {name}",
+      "desktop.remote.steps.failed": "Could not connect to {name}",
+      "desktop.remote.steps.upload": "{sent} of {total}",
+      "desktop.remote.steps.retry": "Try Again",
+      "desktop.remote.steps.back": "Back",
+      "desktop.remote.steps.editConnection": "Edit Connection",
+      "desktop.remote.hostKey.title": "Trust the key of {host}?",
+      "desktop.remote.hostKey.type": "Type",
+      "desktop.remote.hostKey.fingerprint": "Fingerprint",
+      "desktop.remote.hostKey.hint": "Compare the fingerprint with the one your administrator gave you. Trusting adds the key to ~/.ssh/known_hosts.",
+      "desktop.remote.hostKey.reject": "Reject",
+      "desktop.remote.hostKey.trust": "Trust and Continue",
+      "desktop.remote.question.asks": "OpenSSH asks:",
+      "desktop.remote.question.answer": "Answer",
+      "desktop.remote.question.continue": "Continue",
+      "desktop.remote.trust.title": "Trust this folder?",
+      "desktop.remote.trust.body": "Do you trust the authors of {folder} on {name}? A trusted folder can run its own code, such as tasks and build tool wrappers.",
+      "desktop.remote.trust.safe": "In safe mode the folder is only read: nothing in it runs until you trust it.",
+      "desktop.remote.trust.parent": "Trust all folders in {parent}",
+      "desktop.remote.trust.back": "Back",
+      "desktop.remote.trust.safeOpen": "Open in Safe Mode",
+      "desktop.remote.trust.trustOpen": "Trust and Open",
+      "desktop.remote.trust.failed": "Could not save the decision: {reason}",
+      "desktop.remote.import.title": "Import Hosts",
+      "desktop.remote.import.source.motty": "Motty",
+      "desktop.remote.import.source.ssh": "~/.ssh/config",
+      "desktop.remote.import.from": "From {path}",
+      "desktop.remote.import.keepGroups": "Keep groups",
+      "desktop.remote.import.keepColors": "Keep colors",
+      "desktop.remote.import.status.importable": "Ready",
+      "desktop.remote.import.status.partial": "Partial",
+      "desktop.remote.import.status.exists": "Already saved",
+      "desktop.remote.import.status.pattern": "Pattern",
+      "desktop.remote.import.status.invalid": "Invalid",
+      "desktop.remote.import.status.unreadable": "Unreadable",
+      "desktop.remote.import.status.unsupported": "Not SSH",
+      "desktop.remote.import.footer": "{count} chosen",
+      "desktop.remote.import.apply": "Import",
+      "desktop.remote.import.applying": "Importing…",
+      "desktop.remote.import.done": "Imported {count} host(s)",
+      "desktop.remote.import.empty": "No hosts found here.",
+      "desktop.remote.import.mottyMissing": "Motty's configuration was not found on this computer.",
+      "desktop.remote.import.mottyUnreadable": "Motty's configuration could not be read.",
+      "desktop.remote.import.mottyTooLarge": "Motty's configuration is too large to read.",
+      "desktop.remote.import.mottyUnsupported": "This version of Motty's configuration is not supported.",
+      "desktop.remote.import.failed": "Could not import: {reason}",
       "desktop.remote.workspace.banner": "This is a remote workspace. Its files open, edit and save on the host, and terminals run on the host; search, Git and running do not work here yet.",
       "desktop.remote.workspace.localOnly": "This feature does not work in a remote workspace yet. You can browse, edit and save the host's files and run terminals on the host.",
       "desktop.remote.document.disconnected": "the remote workspace is not connected; try again once it reconnects",
@@ -1298,7 +2253,7 @@
       "desktop.remote.saved": "已保存的连接",
       "desktop.remote.storageHelp": "保存在本机的 {path}。不会保存密码和私钥内容。",
       "desktop.remote.new": "新建连接",
-      "desktop.remote.empty": "还没有保存的连接。填写右侧表单后保存。",
+      "desktop.remote.empty": "还没有保存的连接",
       "desktop.remote.name": "名称",
       "desktop.remote.namePlaceholder": "默认使用主机名",
       "desktop.remote.host": "主机",
@@ -1432,6 +2387,115 @@
       "desktop.remote.status.reconnect": "重新连接",
       "desktop.remote.status.disconnect": "断开并关闭",
       "desktop.remote.workspace.title": "{folder} [SSH: {connection}]",
+      "desktop.remote.titleWith": "远程开发 › {crumb}",
+      "desktop.remote.newConnection": "新建连接",
+      "desktop.remote.search": "搜索连接",
+      "desktop.remote.searchPlaceholder": "搜索名称、主机或分组",
+      "desktop.remote.noMatch": "没有匹配的连接",
+      "desktop.remote.listFooter": "{count} 个连接 · 只保存在本机",
+      "desktop.remote.neverConnected": "从未连接",
+      "desktop.remote.connectedNow": "已连接",
+      "desktop.remote.connectedWindows": "{count} 个窗口已打开",
+      "desktop.remote.groupFold": "折叠或展开 {group}",
+      "desktop.remote.import": "导入",
+      "desktop.remote.import.motty": "从 Motty 导入…",
+      "desktop.remote.import.ssh": "从 ~/.ssh/config 导入…",
+      "desktop.remote.import.count": "可导入 {count} 台主机",
+      "desktop.remote.import.none": "没有找到主机",
+      "desktop.remote.copyName": "{name} 副本",
+      "desktop.remote.copyAsNew": "复制为新连接",
+      "desktop.remote.more": "更多",
+      "desktop.remote.deleteNamed": "删除“{name}”…",
+      "desktop.remote.openFolder": "打开文件夹…",
+      "desktop.remote.openOther": "打开其他…",
+      "desktop.remote.recentFolders": "最近打开的文件夹",
+      "desktop.remote.noRecentFolders": "还没有打开过文件夹",
+      "desktop.remote.testedAgo": "{time}测试",
+      "desktop.remote.retest": "重新测试",
+      "desktop.remote.viaHosts": "经由 {hosts}",
+      "desktop.remote.effective": "生效的 SSH 设置",
+      "desktop.remote.effectiveHelp": "OpenSSH 实际连接时使用的值，由 `ssh -G` 结合你的 SSH 配置解析得出。每个值都标明来自本连接、SSH 配置还是 OpenSSH 默认值。",
+      "desktop.remote.effectiveFailed": "无法读取生效设置：{reason}",
+      "desktop.remote.setting.hostName": "主机名",
+      "desktop.remote.setting.user": "用户",
+      "desktop.remote.setting.port": "端口",
+      "desktop.remote.setting.identityFiles": "身份文件",
+      "desktop.remote.setting.proxyJump": "跳板机",
+      "desktop.remote.setting.connectTimeout": "连接超时",
+      "desktop.remote.setting.keepAlive": "保活间隔",
+      "desktop.remote.source.connection": "本连接",
+      "desktop.remote.source.sshConfig": "SSH 配置",
+      "desktop.remote.source.default": "默认值",
+      "desktop.remote.seconds": "{count} 秒",
+      "desktop.remote.auto": "自动（{value}）",
+      "desktop.remote.hopAdd": "添加跳板机",
+      "desktop.remote.hopPlaceholder": "user@host:port，按回车添加",
+      "desktop.remote.hopRemove": "移除 {host}",
+      "desktop.remote.thisComputer": "本机",
+      "desktop.remote.unsaved": "有未保存的修改",
+      "desktop.remote.editTitle": "编辑 {name}",
+      "desktop.remote.empty.title": "通过 SSH 连接 Linux 主机",
+      "desktop.remote.empty.body": "把主机上的文件夹作为工作区打开。编辑器、终端、Git 和搜索都在主机上运行，本机只负责显示。",
+      "desktop.remote.quick.label": "地址",
+      "desktop.remote.quick.placeholder": "user@host:22",
+      "desktop.remote.quick.continue": "继续",
+      "desktop.remote.empty.manual": "手动填写",
+      "desktop.remote.empty.importMotty": "从 Motty 导入",
+      "desktop.remote.empty.importSsh": "从 ~/.ssh/config 导入",
+      "desktop.remote.host.cores": "{count} 核",
+      "desktop.remote.host.diskOf": "共 {total}",
+      "desktop.remote.step.config": "读取配置",
+      "desktop.remote.step.connect": "连接主机",
+      "desktop.remote.step.authenticate": "身份验证",
+      "desktop.remote.step.platform": "检查平台",
+      "desktop.remote.step.install": "安装服务端",
+      "desktop.remote.step.session": "启动会话",
+      "desktop.remote.steps.title": "正在连接 {name}",
+      "desktop.remote.steps.failed": "无法连接 {name}",
+      "desktop.remote.steps.upload": "{sent} / {total}",
+      "desktop.remote.steps.retry": "重试",
+      "desktop.remote.steps.back": "返回",
+      "desktop.remote.steps.editConnection": "编辑连接",
+      "desktop.remote.hostKey.title": "信任 {host} 的主机密钥？",
+      "desktop.remote.hostKey.type": "类型",
+      "desktop.remote.hostKey.fingerprint": "指纹",
+      "desktop.remote.hostKey.hint": "请与管理员提供的指纹核对。信任后，密钥会加入 ~/.ssh/known_hosts。",
+      "desktop.remote.hostKey.reject": "拒绝",
+      "desktop.remote.hostKey.trust": "信任并继续",
+      "desktop.remote.question.asks": "OpenSSH 询问：",
+      "desktop.remote.question.answer": "回答",
+      "desktop.remote.question.continue": "继续",
+      "desktop.remote.trust.title": "信任此文件夹吗？",
+      "desktop.remote.trust.body": "你信任 {name} 上 {folder} 的作者吗？受信任的文件夹可以运行其中的代码，例如任务和构建工具包装脚本。",
+      "desktop.remote.trust.safe": "在安全模式下只读取文件夹，信任之前不会运行其中的任何代码。",
+      "desktop.remote.trust.parent": "信任 {parent} 下的所有文件夹",
+      "desktop.remote.trust.back": "返回",
+      "desktop.remote.trust.safeOpen": "以安全模式打开",
+      "desktop.remote.trust.trustOpen": "信任并打开",
+      "desktop.remote.trust.failed": "无法保存决定：{reason}",
+      "desktop.remote.import.title": "导入主机",
+      "desktop.remote.import.source.motty": "Motty",
+      "desktop.remote.import.source.ssh": "~/.ssh/config",
+      "desktop.remote.import.from": "来自 {path}",
+      "desktop.remote.import.keepGroups": "保留分组",
+      "desktop.remote.import.keepColors": "保留颜色",
+      "desktop.remote.import.status.importable": "可导入",
+      "desktop.remote.import.status.partial": "部分导入",
+      "desktop.remote.import.status.exists": "已存在",
+      "desktop.remote.import.status.pattern": "通配规则",
+      "desktop.remote.import.status.invalid": "无效",
+      "desktop.remote.import.status.unreadable": "无法读取",
+      "desktop.remote.import.status.unsupported": "非 SSH",
+      "desktop.remote.import.footer": "已选择 {count} 台",
+      "desktop.remote.import.apply": "导入",
+      "desktop.remote.import.applying": "正在导入…",
+      "desktop.remote.import.done": "已导入 {count} 台主机",
+      "desktop.remote.import.empty": "这里没有主机。",
+      "desktop.remote.import.mottyMissing": "在本机没有找到 Motty 的配置。",
+      "desktop.remote.import.mottyUnreadable": "无法读取 Motty 的配置。",
+      "desktop.remote.import.mottyTooLarge": "Motty 的配置过大，无法读取。",
+      "desktop.remote.import.mottyUnsupported": "不支持这个版本的 Motty 配置。",
+      "desktop.remote.import.failed": "无法导入：{reason}",
       "desktop.remote.workspace.banner": "这是远程工作区。主机上的文件可以打开、编辑和保存，终端在主机上运行；搜索、Git 和运行暂不可用。",
       "desktop.remote.workspace.localOnly": "远程工作区暂不支持此功能，可以浏览、编辑和保存主机上的文件，也可以在主机上运行终端。",
       "desktop.remote.document.disconnected": "远程工作区未连接，请在重新连接后再试",

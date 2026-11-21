@@ -8,14 +8,17 @@ import (
 	"testing"
 
 	"github.com/1lck/Lithe-IDEA/desktop/internal/core"
+	"github.com/1lck/Lithe-IDEA/desktop/internal/remoteconn"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/store"
 	"github.com/vivaui/viva/app"
 	"github.com/vivaui/viva/headless"
 )
 
-// TestVisualRemoteConnections captures the Remote Development window: saved connections under
-// their groups with the tested one's overview, its form, a new connection whose host Core refused
-// under its field, and OpenSSH's password question over the window.
+// TestVisualRemoteConnections captures the Remote Development window: the first page with nothing
+// saved, saved connections under their groups with the tested one's overview, its form, a new
+// connection whose host Core refused under its field, OpenSSH's password question over the window,
+// a refused test, the connection steps with OpenSSH's questions on the page and a failure, the
+// question whether to trust a folder, and Motty's hosts to import.
 func TestVisualRemoteConnections(t *testing.T) {
 	out := os.Getenv("LITHE_VISUAL_OUTPUT_DIR")
 	if out == "" {
@@ -67,6 +70,10 @@ func TestVisualRemoteConnections(t *testing.T) {
 			h.app.openRemote(surfaceMenu)
 			h.settleChain()
 			r := &h.app.remote
+			// The counts come from this computer's Motty and ~/.ssh/config; the scenes show fixed
+			// ones instead.
+			r.imports = remoteImportCounts{loaded: true, motty: 4, sshConfig: 7}
+			shot("empty")
 
 			type saved struct {
 				name, host, port, user, authentication, identityFile, proxyJump, group string
@@ -104,6 +111,35 @@ func TestVisualRemoteConnections(t *testing.T) {
 					buildBox = entry.ID
 				}
 			}
+			// What `ssh -G` resolves comes from this computer's SSH configuration; the scenes show
+			// fixed values instead.
+			jump := core.RemoteEffectiveText{Value: "bastion.example", Source: core.RemoteSettingFromConnection}
+			for _, entry := range r.source.Connections {
+				user := entry.Connection.User
+				userSource := core.RemoteSettingFromConnection
+				if user == "" {
+					user, userSource = "dev", core.RemoteSettingDefault
+				}
+				port, portSource := uint32(entry.Connection.Port), core.RemoteSettingFromConnection
+				if port == 0 {
+					port, portSource = 22, core.RemoteSettingDefault
+				}
+				settings := core.RemoteEffectiveSettings{
+					HostName:              core.RemoteEffectiveText{Value: entry.Connection.Host, Source: core.RemoteSettingFromConnection},
+					Port:                  core.RemoteEffectiveNumber{Value: port, Source: portSource},
+					User:                  core.RemoteEffectiveText{Value: user, Source: userSource},
+					IdentityFiles:         core.RemoteEffectiveList{Value: []string{"~/.ssh/id_ed25519"}, Source: core.RemoteSettingFromSSHConfig},
+					ConnectTimeoutSeconds: core.RemoteEffectiveNumber{Value: 10, Source: core.RemoteSettingFromSSHConfig},
+					KeepAliveSeconds:      core.RemoteEffectiveNumber{Value: 30, Source: core.RemoteSettingDefault},
+				}
+				if entry.Name == "Build box" {
+					settings.ProxyJump = &jump
+				}
+				if r.effective == nil {
+					r.effective = map[core.SSHConnection]*remoteEffective{}
+				}
+				r.effective[remoteStored(entry.Connection)] = &remoteEffective{settings: settings}
+			}
 			r.selectEntry(buildBox)
 			h.app.testRemote()
 			h.settleChain()
@@ -136,6 +172,63 @@ func TestVisualRemoteConnections(t *testing.T) {
 			shot("password")
 			h.app.gitAuth.queue = nil
 			close(done)
+
+			refused := &remoteProbeOutcome{result: core.RemoteProbeResult{
+				Status:      core.RemoteProbeAuthenticationFailed,
+				Diagnostics: "dev@build.example: Permission denied (publickey,password).",
+			}, at: h.app.now()}
+			r.selectEntry(buildBox)
+			h.app.editSelectedRemote()
+			r.result = refused
+			r.log.Open = true
+			shot("test-failed")
+
+			// Connecting runs the steps on the page, with OpenSSH's questions under the step that
+			// asks them.
+			r.selectEntry(buildBox)
+			steps := newRemoteSteps(*r.entry(buildBox), "", h.app.now())
+			r.steps = steps
+			asked := make(chan struct{})
+			h.app.gitAuth.queue = []core.GitAuthChallenge{{
+				RequestID: "visual-key", Prompt: "Are you sure you want to continue connecting (yes/no/[fingerprint])? ",
+				Remote: true, Kind: core.RemoteQuestionHostKey, KeyType: "ED25519",
+				Fingerprint: "SHA256:7Yb0QaBf3c1uN0e9kVwq2XrJmZpT4sLhG8dEoUiAy6c", Attempt: 1, Done: asked,
+			}}
+			shot("steps-host-key")
+			steps.advance(h.app.now(), remoteStepAuthenticate)
+			h.app.gitAuth.queue = []core.GitAuthChallenge{{
+				RequestID: "visual-password", Prompt: "dev@build.example's password: ", Secret: true, Remote: true, Attempt: 1, Done: asked,
+			}}
+			shot("steps-password")
+			h.app.gitAuth.queue = nil
+			close(asked)
+			steps.fail(h.app.now(), refused, h.app.language())
+			r.log.Open = true
+			shot("steps-failed")
+			r.steps = nil
+
+			// The first time a folder opens, the window asks whether to trust it.
+			parent := "/home/dev"
+			r.trust = &remoteTrustPrompt{browser: &remoteBrowser{name: "Build box"}, dir: "/home/dev/project", trust: remoteconn.Trust{
+				State: core.RemoteWorkspaceTrustState{WorkspaceTrust: &core.RemoteWorkspaceTrustOf{
+					State: core.WorkspaceTrustUnset, Workspace: "/home/dev/project", OfferedLocation: &parent,
+				}},
+			}}
+			shot("trust")
+			r.trust = nil
+
+			r.importer = &remoteImporter{source: remoteImportMotty, keepGroups: true, keepColors: true,
+				motty: core.RemoteMottyHosts{Database: "~/Library/Application Support/Motty/config.db", Groups: []string{"Production", "Lab"},
+					Candidates: []core.RemoteMottyCandidate{
+						{Key: "1", Name: "Build box", Address: "dev@build.example:2222", Color: core.RemoteConnectionRed, Group: "Production", Status: core.RemoteImportExists, ExistingID: buildBox},
+						{Key: "2", Name: "Staging DB", Address: "postgres@db.staging.example", Color: core.RemoteConnectionBlue, Group: "Production", Status: core.RemoteImportable},
+						{Key: "3", Name: "GPU node", Address: "ml@gpu-07.lab.example", Color: core.RemoteConnectionPurple, Group: "Lab", Status: core.RemoteImportPartial},
+						{Key: "4", Name: "Router", Address: "admin@192.0.2.1", Group: "Lab", Status: core.RemoteImportUnsupported},
+					}},
+				mottyChosen: []bool{true, true, true, false},
+			}
+			shot("import")
+			r.importer = nil
 			h.app.closeRemote()
 			h.settleChain()
 		})

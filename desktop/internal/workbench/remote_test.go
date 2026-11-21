@@ -153,6 +153,7 @@ func TestRemoteConnectionsSaveEditAndDelete(t *testing.T) {
 		t.Fatal("opening the window wrote the list")
 	}
 	r := &h.app.remote
+	h.clickLabeled(i18n.Shared(h.app.language(), "desktop.remote.new"))
 	r.form.host.SetText("build.example")
 	r.form.user.SetText("dev")
 	h.redraw()
@@ -168,7 +169,7 @@ func TestRemoteConnectionsSaveEditAndDelete(t *testing.T) {
 	if r.selected == "" || r.selected != entries[0].ID || !h.shows("dev@build.example") || r.dirty() {
 		t.Fatalf("selected = %q, dirty = %v: the saved connection is not the one the form edits", r.selected, r.dirty())
 	}
-	if r.editingForm() || !h.shows(i18n.Shared(lang, "desktop.remote.settings")) || !h.showsWrapped(i18n.Shared(lang, "desktop.remote.untested")) {
+	if r.editingForm() || !h.shows(i18n.Shared(lang, "desktop.remote.recentFolders")) || !h.showsWrapped(i18n.Shared(lang, "desktop.remote.untested")) {
 		t.Fatal("a saved connection does not show its overview")
 	}
 
@@ -189,7 +190,9 @@ func TestRemoteConnectionsSaveEditAndDelete(t *testing.T) {
 		t.Fatal("saving the edit does not go back to the overview")
 	}
 
-	h.clickLabeled(i18n.Shared(lang, "desktop.remote.delete"))
+	h.clickLabeled(i18n.Shared(lang, "desktop.remote.more"))
+	h.settle()
+	h.clickFront(i18n.SharedFormat(lang, "desktop.remote.deleteNamed", map[string]string{"name": "Build box"}))
 	h.settle()
 	if !r.confirmDelete || !h.shows(i18n.SharedFormat(lang, "desktop.remote.deleteConfirm", map[string]string{"name": "Build box"})) {
 		t.Fatal("Delete does not ask first")
@@ -202,7 +205,7 @@ func TestRemoteConnectionsSaveEditAndDelete(t *testing.T) {
 	if got := savedRemoteConnections(t, h); len(got) != 0 || r.selected != "" || !h.showsWrapped(i18n.Shared(lang, "desktop.remote.empty")) {
 		t.Fatalf("after deleting: saved %v, selected %q", got, r.selected)
 	}
-	want := []string{"remote.connections.open", "remote.connection.save", "remote.connection.edit", "remote.connection.save", "remote.connection.remove"}
+	want := []string{"remote.connections.open", "remote.connection.new", "remote.connection.save", "remote.connection.edit", "remote.connection.save", "remote.connection.deleteAsk", "remote.connection.remove"}
 	if got := remoteActions(logger); !slices.Equal(got, want) {
 		t.Fatalf("performed %q, want %q", got, want)
 	}
@@ -246,6 +249,7 @@ func TestRemoteConnectionsColorAndGroup(t *testing.T) {
 	h, logger := remoteHarness(t)
 	lang := h.app.language()
 	r := &h.app.remote
+	h.clickLabeled(i18n.Shared(h.app.language(), "desktop.remote.new"))
 	r.form.host.SetText("lab-arm.internal")
 	h.redraw()
 	h.clickLabeled(i18n.Shared(lang, "desktop.remote.color.green"))
@@ -308,10 +312,8 @@ func TestRemoteCancelGoesBackToTheSavedConnection(t *testing.T) {
 	h, logger := remoteHarness(t)
 	lang := h.app.language()
 	r := &h.app.remote
-	for index, host := range []string{"lab-arm.internal", "build.example"} {
-		if index > 0 {
-			h.clickLabeled(i18n.Shared(lang, "desktop.remote.new"))
-		}
+	for _, host := range []string{"lab-arm.internal", "build.example"} {
+		h.clickLabeled(i18n.Shared(lang, "desktop.remote.new"))
 		r.form.host.SetText(host)
 		h.redraw()
 		h.clickLabeled(i18n.Shared(lang, "desktop.remote.save"))
@@ -345,7 +347,7 @@ func TestRemoteCancelGoesBackToTheSavedConnection(t *testing.T) {
 		t.Fatalf("saved %+v, want both connections as saved", got)
 	}
 	want := []string{
-		"remote.connections.open", "remote.connection.save", "remote.connection.new", "remote.connection.save",
+		"remote.connections.open", "remote.connection.new", "remote.connection.save", "remote.connection.new", "remote.connection.save",
 		"remote.connection.edit", "remote.connection.edit.cancel", "remote.connection.new", "remote.connection.edit.cancel",
 	}
 	if got := remoteActions(logger); !slices.Equal(got, want) {
@@ -368,6 +370,7 @@ func TestRemoteOverviewShowsTheTestedHost(t *testing.T) {
 	h, _ := remoteHarnessWith(t, kernel)
 	lang := h.app.language()
 	r := &h.app.remote
+	h.clickLabeled(i18n.Shared(h.app.language(), "desktop.remote.new"))
 	r.form.host.SetText("build.example")
 	r.form.user.SetText(" dev ")
 	h.redraw()
@@ -411,6 +414,7 @@ func TestRemoteConnectionRefusedFieldsAreShownUnderTheField(t *testing.T) {
 	h, logger := remoteHarness(t)
 	lang := h.app.language()
 	r := &h.app.remote
+	h.clickLabeled(i18n.Shared(h.app.language(), "desktop.remote.new"))
 	r.form.host.SetText("dev@box")
 	h.redraw()
 	h.clickLabeled(i18n.Shared(lang, "desktop.remote.save"))
@@ -488,6 +492,7 @@ func TestRemoteTestAsksInTheWindowAndReportsTheHost(t *testing.T) {
 	h, logger := remoteHarness(t)
 	lang := h.app.language()
 	r := &h.app.remote
+	h.clickLabeled(i18n.Shared(h.app.language(), "desktop.remote.new"))
 	r.form.host.SetText("devbox")
 	r.form.user.SetText("dev")
 	h.redraw()
@@ -533,7 +538,7 @@ func TestRemoteTestAsksInTheWindowAndReportsTheHost(t *testing.T) {
 	if !h.showsWrapped(i18n.Shared(lang, "desktop.remote.probe.authenticationFailed")) || !h.showsWrapped("Permission denied (password).") {
 		t.Fatal("the window does not show the refusal with OpenSSH's output")
 	}
-	want := []string{"remote.connections.open", "remote.connection.test", "remote.authentication.answer", "remote.connection.test", "remote.authentication.cancel"}
+	want := []string{"remote.connections.open", "remote.connection.new", "remote.connection.test", "remote.authentication.answer", "remote.connection.test", "remote.authentication.cancel"}
 	if got := remoteActions(logger); !slices.Equal(got, want) {
 		t.Fatalf("performed %q, want %q", got, want)
 	}
@@ -548,6 +553,7 @@ func TestRemoteTestStopsWithTheWindow(t *testing.T) {
 	h, _ := remoteHarness(t)
 	lang := h.app.language()
 	r := &h.app.remote
+	h.clickLabeled(i18n.Shared(h.app.language(), "desktop.remote.new"))
 	r.form.host.SetText("devbox")
 	h.redraw()
 	h.pressTest()

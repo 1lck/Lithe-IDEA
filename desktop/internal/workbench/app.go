@@ -221,6 +221,13 @@ type Kernel interface {
 	RemoteReadFile(ctx context.Context, sessionID, path string) ([]byte, core.RemoteFileVersion, error)
 	RemoteWriteFile(ctx context.Context, sessionID, path string, data []byte, expected *core.RemoteFileVersion) (core.RemoteFileVersion, bool, error)
 	RemoteServerState(ctx context.Context, sessionID string) error
+	SearchRemoteConnections(ctx context.Context, document *string, query string) (core.RemoteConnectionsState, error)
+	RemoteParseAddress(ctx context.Context, text string) (core.RemoteAddress, error)
+	RemoteEffectiveSettings(ctx context.Context, connection core.SSHConnection) (core.RemoteEffectiveSettings, error)
+	RemoteSSHConfigHosts(ctx context.Context, homeDirectory string, document *string) (core.RemoteSSHConfigHosts, error)
+	RemoteMottyHosts(ctx context.Context, configDirectory string, document *string) (core.RemoteMottyHosts, error)
+	RemoteWorkspaceTrust(ctx context.Context, document *string, sessionID, workspace string) (core.RemoteWorkspaceTrustState, error)
+	EditRemoteWorkspaceTrust(ctx context.Context, document *string, decision core.RemoteWorkspaceTrustDecision) (core.RemoteWorkspaceTrustPublication, error)
 	RemoteRunTerminal(ctx context.Context, sessionID string, open core.RemoteTerminalOpen, events core.RemoteTerminalEvents) (core.RemoteTerminalExit, error)
 	RemoteRunWatch(ctx context.Context, sessionID, root string, excludeNames []string, events core.RemoteWatchEvents) error
 	RemoteTerminalWrite(ctx context.Context, sessionID string, terminalID uint64, data []byte) (bool, error)

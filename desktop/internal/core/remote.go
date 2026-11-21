@@ -62,6 +62,9 @@ type SavedRemoteConnection struct {
 	Group string `json:"group,omitempty"`
 	// RecentFolders are the host folders opened over the entry, the latest first.
 	RecentFolders []string `json:"recentFolders,omitempty"`
+	// LastConnectedAt is when a session last opened over the entry, in seconds since the Unix
+	// epoch; 0 when none has. Changing the entry's target clears it.
+	LastConnectedAt int64 `json:"lastConnectedAt,omitempty"`
 }
 
 // RemoteConnectionColor is an accent color Core accepts for a saved connection. The client picks
@@ -127,31 +130,60 @@ type RemoteConnectionFolder struct {
 	Path string `json:"path"`
 }
 
-// RemoteConnectionEdit is exactly one of Save, Remove and RememberFolder.
+// RemoteConnectionImport adds Entries in order, each checked as a save without an ID; a name
+// already taken gets the first free " (2)" to " (256)" suffix. Fills give saved entries a color
+// or a group only where they have none. The first refusal leaves the list as it was.
+type RemoteConnectionImport struct {
+	Entries []RemoteConnectionSave `json:"entries,omitempty"`
+	Fills   []RemoteConnectionFill `json:"fills,omitempty"`
+}
+
+// RemoteConnectionFill gives the entry ID the Color and the Group it lacks.
+type RemoteConnectionFill struct {
+	ID    string                `json:"id"`
+	Color RemoteConnectionColor `json:"color,omitempty"`
+	Group string                `json:"group,omitempty"`
+}
+
+// RemoteConnectionEdit is exactly one of its fields. MarkConnected records the current time as
+// the entry's LastConnectedAt.
 type RemoteConnectionEdit struct {
 	Save           *RemoteConnectionSave   `json:"save,omitempty"`
 	Remove         *RemoteConnectionID     `json:"remove,omitempty"`
 	RememberFolder *RemoteConnectionFolder `json:"rememberFolder,omitempty"`
+	MarkConnected  *RemoteConnectionID     `json:"markConnected,omitempty"`
+	Import         *RemoteConnectionImport `json:"import,omitempty"`
 }
 
 // RemoteConnectionsPublication is the outcome of an edit. Document is the text to publish, nil
-// when the edit changed nothing; ID names the entry a save wrote.
+// when the edit changed nothing; ID names the entry a save wrote, and IDs the entries an import
+// added, in order.
 type RemoteConnectionsPublication struct {
 	Changed     bool                      `json:"changed"`
 	Document    *string                   `json:"document"`
 	Connections []SavedRemoteConnection   `json:"connections"`
 	Sections    []RemoteConnectionSection `json:"sections"`
 	ID          string                    `json:"id"`
+	IDs         []string                  `json:"ids"`
 }
 
 // RemoteConnections reads the saved connections from document, the text of the source or nil
 // when it does not exist. A document Core cannot decode fails with CodeParseFailed, with the
 // field and the reason in RemoteConnectionFieldError.
 func (c *Client) RemoteConnections(ctx context.Context, document *string) (RemoteConnectionsState, error) {
+	return c.SearchRemoteConnections(ctx, document, "")
+}
+
+// SearchRemoteConnections reads document as RemoteConnections does, keeping in Sections only the
+// entries whose name, group and [user@]host[:port] contain every word of query, regardless of
+// case; Connections stays the whole list. An empty query keeps every entry; one longer than 256
+// characters fails with CodeInvalidRequest.
+func (c *Client) SearchRemoteConnections(ctx context.Context, document *string, query string) (RemoteConnectionsState, error) {
 	var state RemoteConnectionsState
 	err := c.Execute(ctx, "remote.connections", struct {
 		Document *string `json:"document"`
-	}{document}, &state)
+		Query    string  `json:"query,omitempty"`
+	}{document, query}, &state)
 	return state, err
 }
 

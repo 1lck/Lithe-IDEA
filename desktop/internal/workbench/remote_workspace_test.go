@@ -258,6 +258,7 @@ func remoteWorkspaceHarness(t *testing.T) (*harness, *remoteHostKernel, *remoteT
 	h.settle()
 	h.settle()
 	r := &h.app.remote
+	h.clickLabeled(i18n.Shared(h.app.language(), "desktop.remote.new"))
 	r.form.host.SetText(remoteTestHost)
 	r.form.user.SetText("dev")
 	h.redraw()
@@ -280,7 +281,7 @@ func (h *harness) clickFront(label string) {
 // connectAndBrowse presses Connect and waits for the home folder's listing.
 func (h *harness) connectAndBrowse(t *testing.T) *remoteBrowser {
 	t.Helper()
-	h.clickFront(i18n.Shared(h.app.language(), "desktop.remote.connect"))
+	h.clickFront(i18n.Shared(h.app.language(), "desktop.remote.openFolder"))
 	h.await("the home folder's listing", func() bool {
 		b := h.app.remote.browser
 		return b != nil && !b.loading
@@ -364,7 +365,7 @@ func TestRemoteWorkspaceOpensTheChosenFolder(t *testing.T) {
 	if slices.ContainsFunc(h.app.recent, func(recent core.RecentProject) bool { return recent.Path == p.root }) {
 		t.Fatal("the placeholder was added to the recent projects")
 	}
-	want := []string{"remote.connections.open", "remote.connection.save", "remote.connect", "remote.workspace.open"}
+	want := []string{"remote.connections.open", "remote.connection.new", "remote.connection.save", "remote.connect", "remote.workspace.open"}
 	if got := remoteActions(logger); !slices.Equal(got, want) {
 		t.Fatalf("performed %q, want %q", got, want)
 	}
@@ -555,7 +556,7 @@ func TestRemoteBrowserBackEndsTheSession(t *testing.T) {
 	if h.app.remote.browser != nil || !h.app.remote.open || !slices.Contains(k.closed, "session-1") {
 		t.Fatalf("browser %v, closed %q: Back did not end the session", h.app.remote.browser, k.closed)
 	}
-	if !h.shows(i18n.Shared(lang, "desktop.remote.connect")) {
+	if !h.shows(i18n.Shared(lang, "desktop.remote.openFolder")) {
 		t.Fatal("Back does not show the form again")
 	}
 	if event := loggedAny(t, logger, remoteTestHome); event != "" {
