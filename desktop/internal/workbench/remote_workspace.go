@@ -26,10 +26,11 @@ import (
 // status bar asks. Closing the project ends its session, and quitting ends every session Core
 // keeps (App.Run).
 //
-// In this stage the workspace lists its folder in the Project tool window, and the editor opens,
-// saves and compares the host's files (remote_documents.go). The features that still read the
-// project through the local file system (terminals, the watch of the folder, search, local
-// history, language servers, run configurations and plugins) are not started for it, or say so,
+// In this stage the workspace lists its folder in the Project tool window, the editor opens,
+// saves and compares the host's files (remote_documents.go), and its terminals run the host's
+// login shell on the host (remote_terminal.go). The features that still read the project through
+// the local file system (the watch of the folder, search, local history, language servers, run
+// configurations and plugins, a plugin's terminal among them) are not started for it, or say so,
 // until each moves to the host (R0, step 3). The workspace stays in safe mode: nothing of the
 // host's project runs on this computer, so Git stays off as it does in an untrusted project.
 
@@ -466,7 +467,8 @@ func (a *App) openRemoteProject(target remoteTarget) {
 	ctx := core.WithRemoteWorkspace(core.WithProjectCodeAllowed(context.Background(), p.trust.allowed), r.binding)
 	p.ctx, p.cancel = context.WithCancel(ctx)
 	a.searchView.reset()
-	a.term = terminalUI{}
+	// Its first terminal runs on the host once it is shown, over the session attached below.
+	a.openTerminals(p)
 	a.project = p
 	a.notice = ""
 	a.logView.reset()

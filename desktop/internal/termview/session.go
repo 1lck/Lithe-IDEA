@@ -49,7 +49,7 @@ func (v *View) start() {
 	// hold.
 	cols, rows := v.screen.Size()
 	args := v.cfg.Args
-	if args == nil {
+	if args == nil && v.cfg.Open == nil {
 		args = localshell.ArgsFor(v.cfg.Shell)
 	}
 	// The user's own shell, started without arguments of its own, reports its prompts and its
@@ -58,9 +58,10 @@ func (v *View) start() {
 	// a program that prints the same sequences, a shell nested in this one, or what the
 	// shell before a restart left half written cannot pass for this shell's prompt. A
 	// program started with arguments is left as it is, and so is the user's shell when the
-	// settings turned the integration off: without a token it starts plain.
+	// settings turned the integration off: without a token it starts plain. A program that
+	// Config.Open starts elsewhere is not one localshell can integrate, so it starts plain.
 	token := ""
-	if args == nil && !v.options.PlainShell {
+	if args == nil && !v.options.PlainShell && v.cfg.Open == nil {
 		token = rand.Text()
 	}
 	v.screen.SetPromptToken(token)

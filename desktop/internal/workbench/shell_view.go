@@ -169,9 +169,10 @@ func (a *App) toolBody(c ui.C, tool item, p *project) {
 		body.Children(func() { a.toolPlaceholder(c) })
 		return
 	}
-	if p.remote != nil && tool.id != itemProject && tool.id != itemNotifications {
-		// A remote workspace lists the host's files; every other tool window reads or runs
-		// the project on this computer, so it says it does not work there yet.
+	if p.remote != nil && tool.id != itemProject && tool.id != itemNotifications && tool.id != itemTerminal {
+		// A remote workspace lists the host's files and runs its terminals on the host; every
+		// other tool window reads or runs the project on this computer, so it says it does not
+		// work there yet.
 		body.Children(func() { a.safeModePanel(c, p, "") })
 		return
 	}
