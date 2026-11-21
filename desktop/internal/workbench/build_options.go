@@ -8,7 +8,7 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/1lck/Lithe-IDEA/desktop/internal/configfile"
+	"github.com/1lck/Lithe-IDEA/desktop/internal/buildprefs"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/core"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/i18n"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/icons"
@@ -25,55 +25,16 @@ import (
 // local list, else the team's, else its default of every dot-named directory (build.resolveStoredOptions),
 // and replaces or removes the local list (build.editIgnoredPaths).
 
-// buildTeamOptionsFile is the team Build options document, relative to the project root.
-const buildTeamOptionsFile = ".lithe/build/options.json"
+const buildTeamOptionsFile = buildprefs.TeamFile
+const buildLocalOptionsFile = buildprefs.LocalFile
 
-// buildLocalOptionsFile is the data-store file of the local documents, keyed by project root.
-const buildLocalOptionsFile = "build-local-options.json"
-
-// buildOptionsMaximumBytes bounds the team document the host reads.
-const buildOptionsMaximumBytes = 1 << 20
-
-// emptyBuildOptionDocument and emptyBuildLocalDocument are what a project without stored options reads as.
-var (
-	emptyBuildOptionDocument = json.RawMessage(`{"version":1,"systems":{}}`)
-	emptyBuildLocalDocument  = json.RawMessage(`{"version":1,"document":{"version":1,"systems":{}}}`)
-)
-
-// buildOptionDocuments are the team and local documents of one project as they are stored.
 type buildOptionDocuments struct {
 	team, local json.RawMessage
 }
 
-// readBuildOptionDocuments reads the team document from the project and the local document from the data
-// store. A document that exists but is not valid JSON is an error, not an empty document.
 func (a *App) readBuildOptionDocuments(ctx context.Context, root string) (buildOptionDocuments, error) {
-	docs := buildOptionDocuments{team: emptyBuildOptionDocument, local: emptyBuildLocalDocument}
-	snapshot, err := configfile.Capture(ctx, root, buildTeamOptionsFile, buildOptionsMaximumBytes)
-	if err != nil {
-		return docs, err
-	}
-	if snapshot.Exists() {
-		team := snapshot.Bytes()
-		if !json.Valid(team) {
-			return docs, errors.New(buildTeamOptionsFile + ": invalid JSON")
-		}
-		docs.team = team
-	}
-	if a.store == nil {
-		return docs, nil
-	}
-	all := map[string]json.RawMessage{}
-	found, err := a.store.Load(buildLocalOptionsFile, &all)
-	if err != nil {
-		return docs, err
-	}
-	if found {
-		if local, ok := all[root]; ok && len(local) > 0 {
-			docs.local = local
-		}
-	}
-	return docs, nil
+	docs, err := buildprefs.Read(ctx, a.store, root)
+	return buildOptionDocuments{team: docs.Team, local: docs.Local}, err
 }
 
 // detectBuildSystemsWithStoredOptions resolves the stored documents and detects the instances with the merged
@@ -424,7 +385,7 @@ func (a *App) storeBuildLocalOptions(root string, local json.RawMessage) error {
 	if _, err := a.store.Load(buildLocalOptionsFile, &all); err != nil {
 		return err
 	}
-	if slices.Equal(local, emptyBuildLocalDocument) {
+	if slices.Equal(local, buildprefs.EmptyLocal) {
 		delete(all, root)
 	} else {
 		all[root] = local

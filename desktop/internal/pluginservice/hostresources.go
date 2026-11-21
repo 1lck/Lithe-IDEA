@@ -17,6 +17,7 @@ type hostResource struct {
 	pluginID  string
 	sessionID string
 	contextID string
+	limited   bool
 	// dispose releases the resource. It runs once, without the registry lock.
 	dispose func()
 }
@@ -38,11 +39,28 @@ func newHostResources() *hostResources {
 
 // add records a resource and returns its subscription ID.
 func (r *hostResources) add(caller pluginhost.Caller, contextID string, dispose func()) string {
+	return r.addLimited(caller, contextID, dispose, 0)
+}
+
+// addLimited caps limited resources held by one backend session for callers that
+// allocate a native registration. A zero limit preserves uncapped callers.
+func (r *hostResources) addLimited(caller pluginhost.Caller, contextID string, dispose func(), limit int) string {
 	r.mu.Lock()
 	defer r.mu.Unlock()
+	if limit > 0 {
+		count := 0
+		for _, resource := range r.byID {
+			if resource.limited && resource.sessionID == caller.SessionID {
+				count++
+			}
+		}
+		if count >= limit {
+			return ""
+		}
+	}
 	r.next++
 	id := "s-" + strconv.FormatUint(r.next, 10)
-	r.byID[id] = &hostResource{id: id, pluginID: caller.PluginID, sessionID: caller.SessionID, contextID: contextID, dispose: dispose}
+	r.byID[id] = &hostResource{id: id, pluginID: caller.PluginID, sessionID: caller.SessionID, contextID: contextID, limited: limit > 0, dispose: dispose}
 	return id
 }
 

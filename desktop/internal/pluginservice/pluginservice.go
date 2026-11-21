@@ -69,6 +69,8 @@ type Service struct {
 	toolchainKernel    toolchainProviderKernel
 	// ToolchainIssue records discovery failures that left declared fallback sources usable.
 	ToolchainIssue func(context.Context, error)
+	// BuildConfigurationIssue records native failures opening or rebinding configuration watches.
+	BuildConfigurationIssue func(context.Context, error)
 	// providers2 holds the editor provider registrations of the window (hostproviders.go).
 	providers2 *editorProviderBindings
 	// actions holds the editor action registrations of the window (hostactions.go).
@@ -137,7 +139,8 @@ type Service struct {
 	// and the attempt it describes already went its own way.
 	RecordFailed func(ctx context.Context, err error)
 	// kernel reads what only Core can validate, such as a plugin's grammar.
-	kernel Kernel
+	kernel      Kernel
+	preferences *store.Store
 	// lsMu guards the running plugin-owned language servers backends reach.
 	lsMu          sync.Mutex
 	lsSessions    map[languageKey]*LanguageSession
@@ -196,6 +199,7 @@ func open(kernel Kernel, preferences *store.Store, root string, first bool) (*Se
 		HostServices:      hostServices,
 		Credentials:       credentials.Default(),
 		kernel:            kernel,
+		preferences:       preferences,
 		resources:         newHostResources(),
 		ledger:            ledger,
 		messages:          newMessageLimiter(),

@@ -88,6 +88,7 @@ func newBackendHost(service *Service) *BackendHost {
 
 // BackendSession is one running plugin backend and its serve loop.
 type BackendSession struct {
+	manifest json.RawMessage
 	host     *BackendHost
 	PluginID string
 	Version  string
@@ -276,7 +277,7 @@ func (h *BackendHost) start(ctx context.Context, pluginID, version string, previ
 	}
 	serveCtx, cancel := context.WithCancel(context.Background())
 	session := &BackendSession{
-		host: h, PluginID: pluginID, Version: entry.Installed.Version, Session: started,
+		host: h, manifest: manifest, PluginID: pluginID, Version: entry.Installed.Version, Session: started,
 		cancel: cancel, done: make(chan struct{}),
 		functions: make(map[string]bool), waiters: make(map[string]chan core.BackendEvent), progress: make(map[string]func(json.RawMessage)),
 		changed: make(chan struct{}),

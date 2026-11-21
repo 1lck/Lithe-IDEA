@@ -47,6 +47,8 @@ func (s *Service) registerHostServices() error {
 		handler pluginhost.Handler
 	}{
 		{methodListContexts, s.handleListContexts},
+		{methodBuildGetOptions, s.handleBuildGetOptions},
+		{methodBuildWatchConfiguration, s.handleBuildWatchConfiguration},
 		{methodGetContext, s.handleGetContext},
 		{methodGetFolders, s.handleGetFolders},
 		{methodDisposeSub, s.handleDisposeSubscription},

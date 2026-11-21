@@ -20,6 +20,12 @@ Viva 客户端现在由 `pluginservice.BackendHost` 为每个插件保持至多�
 - **上下文**：`WorkspaceContexts` 每个打开的项目一个 context，项目关闭即失效，重新打开得到新 ID；`listContexts` 不创建目录，只有 `getContext` 创建并返回状态目录。变化时发送 `didChangeContexts` 并向 Core 重新配置跨插件调用快照。
 - **语言服务器会话**：`LanguageSession` 记录 context 与每次启动递增的 generation；`ServeLanguageSession` 在窗口观察者之前处理 `requestCompleted`（唤醒转发请求）、`stateChanged`（映射为 `didChangeState`）和 `pluginServerNotification`（转为 `didReceiveNotification`）。服务器停止时仍在等待的请求以 `languageServerUnavailable` 结束。
 
+### 2026-11-21：构建选项与配置文件观察
+
+`build/getOptions` 仅用调用会话的已验证清单读取它声明的构建系统。桌面复用已有团队和本机偏好读取，Core 负责实例层级、默认值和校验。读取过程中不重新检测工程或启动构建。两项能力按独立权限协商，旧宿主仍可通过能力查询识别支持范围。
+
+`build/watchConfiguration` 以工作区 context 和后端会话为所有者，只通知变更，不传路径或文件内容。原子保存从父目录发现，目录尚未出现时从最近的现存祖先跟踪创建；绑定完成后重新核对目标。观察使用现有工作区和用户设置目录，注册本身只占用内存和系统文件观察句柄，不生成文件或修改安装包、代码签名和 Sparkle 差分基线。关闭工作区、停用后端或主动取消时释放观察。宿主回归覆盖目录创建、原子替换、删除和 workspace 关闭。
+
 ### 2026-11-13：编辑器注册与首次调试的时序
 
 插件注册编辑器动作或语言功能时，`context` 是宿主定位工作区的路由信息，不属于交给 Core 的动作/Provider 声明。宿主先检查调用方与工作区，再移除这层路由信息；不得放宽 Core 对未知字段的检查。回归必须经过真实 Core 解码，只有假宿主通过会漏掉这个问题。

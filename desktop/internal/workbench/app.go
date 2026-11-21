@@ -1087,6 +1087,9 @@ func (a *App) openPlugins(options Options) {
 		a.backgroundFailedIn(ctx, "toolchain_provider_discovery", err)
 	}
 
+	service.BuildConfigurationIssue = func(ctx context.Context, err error) {
+		a.backgroundFailedIn(ctx, "plugin_build_configuration_watch", documentLogError(err))
+	}
 	service.RuntimeIssue = a.recordPluginRuntimeIssue
 	service.SetRuntimeLanguage(a.language().Code())
 	if err := service.AttachWorkbench(pluginWorkbench{app: a}); err != nil {
