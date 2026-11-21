@@ -324,7 +324,9 @@ PINNED_CORE_REPOSITORY="https://github.com/Lithe-IDEA/Lithe-core-rust.git"
 # typed into the Ports window (#2231).
 # Lithe-core-rust main at 5c163e9: #157 remote.connect opens a local WSL distribution through
 # wsl.exe (the wsl field) and remote.listWslDistributions lists the installed ones (#2231).
-PINNED_CORE_REVISION="07ad14ea984a51efd9191c276c4038eee32750e2"
+# Lithe-core-rust main at 49fb750: #158 remote.preferences and remote.editPreferences (SSH program,
+# reconnect limit) feed the remote commands, with the reconnect pauses given by Core (#2231).
+PINNED_CORE_REVISION="49fb750ad8acfe5a208f9352be9a371c4f7c2967"
 PROFILE="debug"
 CHECKOUT_ONLY="no"
 while [[ $# -gt 0 ]]; do
