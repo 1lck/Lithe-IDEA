@@ -1,0 +1,806 @@
+{
+  "schemaVersion": 1,
+  "messages": [
+    {
+      "id": "desktop.remote.title",
+      "description": "Remote Development window: title",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.remote.menuItem",
+      "description": "Welcome screen More menu and project menu: item that opens the Remote Development window",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.remote.saved",
+      "description": "Remote Development window: heading of the list of saved SSH connections",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.remote.storageHelp",
+      "description": "Remote Development window: tip of the ⓘ beside the list heading: where the list is kept and what it never holds",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "path": "string"
+      }
+    },
+    {
+      "id": "desktop.remote.new",
+      "description": "Remote Development window: accessible label and tooltip of the + button that starts a new connection",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.remote.empty",
+      "description": "Remote Development window: shown in place of the list when no connection is saved",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.remote.name",
+      "description": "Remote Development window: label of the connection name field",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.remote.namePlaceholder",
+      "description": "Remote Development window: placeholder of the name field",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.remote.host",
+      "description": "Remote Development window: label of the host field",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.remote.hostPlaceholder",
+      "description": "Remote Development window: placeholder of the host field",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.remote.hostHelp",
+      "description": "Remote Development window: tip of the ⓘ beside the host field",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.remote.port",
+      "description": "Remote Development window: label of the port field",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.remote.portPlaceholder",
+      "description": "Remote Development window: placeholder of the port field while it is empty",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.remote.user",
+      "description": "Remote Development window: label of the user name field",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.remote.userPlaceholder",
+      "description": "Remote Development window: placeholder of the user name field while it is empty",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.remote.authentication",
+      "description": "Remote Development window: label of the authentication method picker",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.remote.authenticationHelp",
+      "description": "Remote Development window: tip of the ⓘ beside the authentication picker",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.remote.auth.auto",
+      "description": "Remote Development window: authentication choice: let OpenSSH decide",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.remote.auth.agent",
+      "description": "Remote Development window: authentication choice: keys held by ssh-agent",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.remote.auth.privateKey",
+      "description": "Remote Development window: authentication choice: one private key file",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.remote.auth.password",
+      "description": "Remote Development window: authentication choice: a password asked when connecting",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.remote.identityFile",
+      "description": "Remote Development window: label of the private key path field, also the title of its file picker",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.remote.identityFilePlaceholder",
+      "description": "Remote Development window: placeholder of the private key path field",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.remote.identityFileHelp",
+      "description": "Remote Development window: tip of the ⓘ beside the private key path field",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.remote.choose",
+      "description": "Remote Development window: accessible label of the button that opens the file picker for the private key",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.remote.advanced",
+      "description": "Remote Development window: header of the collapsible section with the proxy jump, timeout and keep-alive fields",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.remote.proxyJump",
+      "description": "Remote Development window: label of the proxy jump (bastion host) field",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.remote.proxyJumpPlaceholder",
+      "description": "Remote Development window: placeholder of the proxy jump field",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.remote.proxyJumpHelp",
+      "description": "Remote Development window: tip of the ⓘ beside the proxy jump field",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.remote.timeout",
+      "description": "Remote Development window: label of the connect timeout field, in seconds",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.remote.timeoutPlaceholder",
+      "description": "Remote Development window: placeholder of the connect timeout field while it is empty; 15 is the timeout Lithe applies",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.remote.keepAlive",
+      "description": "Remote Development window: label of the keep-alive interval field, in seconds",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.remote.keepAlivePlaceholder",
+      "description": "Remote Development window: placeholder of the keep-alive field while it is empty",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.remote.keepAliveHelp",
+      "description": "Remote Development window: tip of the ⓘ beside the keep-alive field",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.remote.save",
+      "description": "Remote Development window: button that saves the form",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.remote.saving",
+      "description": "Remote Development window: save button while the list is being written",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.remote.delete",
+      "description": "Remote Development window: button that deletes the selected connection, and the button that confirms it",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.remote.deleteConfirm",
+      "description": "Remote Development window: question in the footer after Delete was clicked",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "name": "string"
+      }
+    },
+    {
+      "id": "desktop.remote.cancel",
+      "description": "Remote Development window: button that takes back the delete question",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.remote.close",
+      "description": "Remote Development window: button that closes the window; what was not saved is dropped",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.remote.test",
+      "description": "Remote Development window: button that connects with what the form holds, saved or not",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.remote.testing",
+      "description": "Remote Development window: shown while a test connection runs",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.remote.stop",
+      "description": "Remote Development window: button that stops the running test",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.remote.probe.connected",
+      "description": "Remote Development window: test result: connected; system and machine are what uname printed on the host",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "system": "string",
+        "machine": "string"
+      }
+    },
+    {
+      "id": "desktop.remote.probe.unsupported",
+      "description": "Remote Development window: test result: connected, but Lithe has no remote server build for the platform",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "system": "string",
+        "machine": "string"
+      }
+    },
+    {
+      "id": "desktop.remote.probe.authenticationFailed",
+      "description": "Remote Development window: test result: the server refused the keys or password offered",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.remote.probe.hostKeyRejected",
+      "description": "Remote Development window: test result: the host key was declined or differs from known_hosts",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.remote.probe.unreachable",
+      "description": "Remote Development window: test result: no connection could be made",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.remote.probe.failed",
+      "description": "Remote Development window: test result: any other failure; OpenSSH output follows",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.remote.probe.error",
+      "description": "Remote Development window: test result: the test could not run; reason is the error",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "reason": "string"
+      }
+    },
+    {
+      "id": "desktop.remote.probe.noSSH",
+      "description": "Remote Development window: test result: no ssh executable was found",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.remote.probe.hostName",
+      "description": "Remote Development window: test result detail: label of the host name the host reported",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.remote.probe.os",
+      "description": "Remote Development window: test result detail: label of the operating system and kernel",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.remote.probe.cpu",
+      "description": "Remote Development window: test result detail: label of the number of CPUs",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.remote.probe.memory",
+      "description": "Remote Development window: test result detail: label of the total memory",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.remote.probe.disk",
+      "description": "Remote Development window: test result detail: label of the disk space of the home directory",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.remote.probe.diskSpace",
+      "description": "Remote Development window: test result detail: free and total disk space, each a formatted size",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "available": "string",
+        "total": "string"
+      }
+    },
+    {
+      "id": "desktop.remote.diagnostics",
+      "description": "Remote Development window: heading over the OpenSSH output of a failed test",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.remote.error.required",
+      "description": "Remote Development window: under a field Core refused: it must not be empty",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.remote.error.invalid",
+      "description": "Remote Development window: under a field Core refused: generic invalid value",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.remote.error.fieldTooLong",
+      "description": "Remote Development window: under a field Core refused: longer than 1024 bytes",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.remote.error.nameTooLong",
+      "description": "Remote Development window: under the name field: longer than 128 characters",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.remote.error.duplicate",
+      "description": "Remote Development window: a value another saved connection already uses",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.remote.error.nameDuplicate",
+      "description": "Remote Development window: under the name field: another connection has the same name, ignoring letter case",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.remote.error.full",
+      "description": "Remote Development window: the list already holds 128 connections",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.remote.error.unknown",
+      "description": "Remote Development window: the connection edited was deleted meanwhile",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.remote.error.hostInvalid",
+      "description": "Remote Development window: under the host field: it holds a user, a port, a URL or other characters",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.remote.error.portInvalid",
+      "description": "Remote Development window: under the port field",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.remote.error.userInvalid",
+      "description": "Remote Development window: under the user field",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.remote.error.proxyJumpInvalid",
+      "description": "Remote Development window: under the proxy jump field",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.remote.error.timeoutInvalid",
+      "description": "Remote Development window: under the connect timeout field",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.remote.error.keepAliveInvalid",
+      "description": "Remote Development window: under the keep-alive field",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.remote.error.textInvalid",
+      "description": "Remote Development window: under the name or private key field: leading or trailing spaces or control characters",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.remote.damaged",
+      "description": "Remote Development window: the saved list cannot be read; nothing is saved until it is repaired",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "path": "string"
+      }
+    },
+    {
+      "id": "desktop.remote.conflict",
+      "description": "Remote Development window: the list changed on disk since it was read; it was read again and nothing was written",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.remote.readFailed",
+      "description": "Remote Development window: the saved list could not be read; reason is the error",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "reason": "string"
+      }
+    },
+    {
+      "id": "desktop.remote.saveFailed",
+      "description": "Remote Development window: the connection could not be saved; reason is the error",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "reason": "string"
+      }
+    },
+    {
+      "id": "desktop.remote.deleteFailed",
+      "description": "Remote Development window: the connection could not be deleted; reason is the error",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "reason": "string"
+      }
+    },
+    {
+      "id": "desktop.remote.chooseFailed",
+      "description": "Remote Development window: the file picker failed; reason is the error",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "reason": "string"
+      }
+    },
+    {
+      "id": "desktop.remote.unavailable",
+      "description": "Remote Development window: there is no preference directory to keep the list in",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.remoteAuth.title",
+      "description": "SSH authentication dialog of a remote connection: title while the SSH client of a remote connection waits for an answer",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.remoteAuth.secretHint",
+      "description": "SSH authentication dialog of a remote connection: note under a password or passphrase field",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.remoteAuth.refused",
+      "description": "SSH authentication dialog of a remote connection: notice when Core refused the answer",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.remoteAuth.failed",
+      "description": "SSH authentication dialog of a remote connection: notice when the answer could not be passed on; reason is the error",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "reason": "string"
+      }
+    }
+  ],
+  "locales": {
+    "en-US": {
+      "desktop.remote.title": "Remote Development",
+      "desktop.remote.menuItem": "Remote Development…",
+      "desktop.remote.saved": "Saved Connections",
+      "desktop.remote.storageHelp": "Kept on this computer in {path}. Passwords and the contents of private keys are never saved.",
+      "desktop.remote.new": "New Connection",
+      "desktop.remote.empty": "No saved connections yet. Fill in the form and save it.",
+      "desktop.remote.name": "Name",
+      "desktop.remote.namePlaceholder": "Defaults to the host",
+      "desktop.remote.host": "Host",
+      "desktop.remote.hostPlaceholder": "build.example.com or an SSH config alias",
+      "desktop.remote.hostHelp": "A host name, an IP address, or a Host alias from ~/.ssh/config. OpenSSH applies its configuration as usual: a field left empty here does not override it.",
+      "desktop.remote.port": "Port",
+      "desktop.remote.portPlaceholder": "Auto (SSH config, otherwise 22)",
+      "desktop.remote.user": "User",
+      "desktop.remote.userPlaceholder": "Auto (SSH config, otherwise your local user name)",
+      "desktop.remote.authentication": "Authentication",
+      "desktop.remote.authenticationHelp": "Auto: as your SSH config and ssh-agent decide. SSH agent: only keys held by ssh-agent. Private key: only the key file you choose; its passphrase is asked when connecting. Password: asked when connecting. Lithe never saves an answer.",
+      "desktop.remote.auth.auto": "Auto",
+      "desktop.remote.auth.agent": "SSH agent",
+      "desktop.remote.auth.privateKey": "Private key file",
+      "desktop.remote.auth.password": "Password",
+      "desktop.remote.identityFile": "Private Key",
+      "desktop.remote.identityFilePlaceholder": "~/.ssh/id_ed25519",
+      "desktop.remote.identityFileHelp": "Only the path is saved and handed to OpenSSH; Lithe never reads the key.",
+      "desktop.remote.choose": "Choose File…",
+      "desktop.remote.advanced": "Advanced",
+      "desktop.remote.proxyJump": "Proxy Jump",
+      "desktop.remote.proxyJumpPlaceholder": "None (or SSH config)",
+      "desktop.remote.proxyJumpHelp": "Hosts to connect through first, as OpenSSH ProxyJump: [user@]host[:port], several separated by commas.",
+      "desktop.remote.timeout": "Connect Timeout (s)",
+      "desktop.remote.timeoutPlaceholder": "Auto (15)",
+      "desktop.remote.keepAlive": "Keep-Alive (s)",
+      "desktop.remote.keepAlivePlaceholder": "Auto (SSH config)",
+      "desktop.remote.keepAliveHelp": "How often OpenSSH checks that the server still answers (ServerAliveInterval), so a dropped network is noticed.",
+      "desktop.remote.save": "Save",
+      "desktop.remote.saving": "Saving…",
+      "desktop.remote.delete": "Delete",
+      "desktop.remote.deleteConfirm": "Delete “{name}”?",
+      "desktop.remote.cancel": "Cancel",
+      "desktop.remote.close": "Close",
+      "desktop.remote.test": "Test Connection",
+      "desktop.remote.testing": "Connecting… OpenSSH may ask for a password or to confirm the host key.",
+      "desktop.remote.stop": "Stop",
+      "desktop.remote.probe.connected": "Connected: {system} {machine}",
+      "desktop.remote.probe.unsupported": "Connected to {system} {machine}, but Lithe’s remote server does not run there yet: only x86_64 and arm64 Linux are supported.",
+      "desktop.remote.probe.authenticationFailed": "Authentication failed: the server did not accept the keys or password offered.",
+      "desktop.remote.probe.hostKeyRejected": "The host key was not accepted: it was declined, or it differs from the one in known_hosts.",
+      "desktop.remote.probe.unreachable": "Cannot reach the host: check the host, the port and the network.",
+      "desktop.remote.probe.failed": "The connection failed.",
+      "desktop.remote.probe.error": "Cannot test the connection: {reason}",
+      "desktop.remote.probe.noSSH": "No ssh client found. Install the OpenSSH client first.",
+      "desktop.remote.probe.hostName": "Host name",
+      "desktop.remote.probe.os": "System",
+      "desktop.remote.probe.cpu": "CPUs",
+      "desktop.remote.probe.memory": "Memory",
+      "desktop.remote.probe.disk": "Disk (home)",
+      "desktop.remote.probe.diskSpace": "{available} free of {total}",
+      "desktop.remote.diagnostics": "OpenSSH Output",
+      "desktop.remote.error.required": "Required.",
+      "desktop.remote.error.invalid": "This value is not accepted.",
+      "desktop.remote.error.fieldTooLong": "Too long: at most 1024 bytes.",
+      "desktop.remote.error.nameTooLong": "Too long: at most 128 characters.",
+      "desktop.remote.error.duplicate": "Another saved connection already uses this.",
+      "desktop.remote.error.nameDuplicate": "Another saved connection already has this name.",
+      "desktop.remote.error.full": "At most 128 connections can be saved. Delete one first.",
+      "desktop.remote.error.unknown": "This connection no longer exists.",
+      "desktop.remote.error.hostInvalid": "Enter only a host name, an IP address or an SSH alias; put the user and the port in their own fields.",
+      "desktop.remote.error.portInvalid": "Enter a port from 1 to 65535.",
+      "desktop.remote.error.userInvalid": "This user name has characters SSH does not accept.",
+      "desktop.remote.error.proxyJumpInvalid": "Use [user@]host[:port], several separated by commas.",
+      "desktop.remote.error.timeoutInvalid": "Enter 1 to 600 seconds.",
+      "desktop.remote.error.keepAliveInvalid": "Enter 1 to 3600 seconds.",
+      "desktop.remote.error.textInvalid": "Remove the spaces at either end and any control characters.",
+      "desktop.remote.damaged": "The saved connections in {path} cannot be read. Repair or remove the file before saving.",
+      "desktop.remote.conflict": "The saved connections changed elsewhere and were read again. Save once more.",
+      "desktop.remote.readFailed": "Cannot read the saved connections: {reason}",
+      "desktop.remote.saveFailed": "Cannot save the connection: {reason}",
+      "desktop.remote.deleteFailed": "Cannot delete the connection: {reason}",
+      "desktop.remote.chooseFailed": "Cannot open the file picker: {reason}",
+      "desktop.remote.unavailable": "There is no preference folder to keep connections in.",
+      "desktop.remoteAuth.title": "SSH Authentication",
+      "desktop.remoteAuth.secretHint": "The answer goes only to this SSH connection. Lithe does not keep it.",
+      "desktop.remoteAuth.refused": "SSH did not take the answer: it may be at most 8192 bytes and may not contain a line break. The question was cancelled.",
+      "desktop.remoteAuth.failed": "Cannot pass the answer to SSH: {reason}"
+    },
+    "zh-CN": {
+      "desktop.remote.title": "远程开发",
+      "desktop.remote.menuItem": "远程开发…",
+      "desktop.remote.saved": "已保存的连接",
+      "desktop.remote.storageHelp": "保存在本机的 {path}。不会保存密码和私钥内容。",
+      "desktop.remote.new": "新建连接",
+      "desktop.remote.empty": "还没有保存的连接。填写右侧表单后保存。",
+      "desktop.remote.name": "名称",
+      "desktop.remote.namePlaceholder": "默认使用主机名",
+      "desktop.remote.host": "主机",
+      "desktop.remote.hostPlaceholder": "build.example.com 或 SSH 配置里的别名",
+      "desktop.remote.hostHelp": "主机名、IP 地址或 ~/.ssh/config 里的 Host 别名。OpenSSH 照常读取它的配置；这里留空的字段不会覆盖配置里的值。",
+      "desktop.remote.port": "端口",
+      "desktop.remote.portPlaceholder": "自动（SSH 配置，否则 22）",
+      "desktop.remote.user": "用户名",
+      "desktop.remote.userPlaceholder": "自动（SSH 配置，否则本机用户名）",
+      "desktop.remote.authentication": "身份验证",
+      "desktop.remote.authenticationHelp": "自动：按 SSH 配置和 ssh-agent 决定。SSH Agent：只用 ssh-agent 里的密钥。私钥文件：只用选定的私钥，口令在连接时询问。密码：在连接时询问。Lithe 不保存任何回答。",
+      "desktop.remote.auth.auto": "自动",
+      "desktop.remote.auth.agent": "SSH Agent",
+      "desktop.remote.auth.privateKey": "私钥文件",
+      "desktop.remote.auth.password": "密码",
+      "desktop.remote.identityFile": "私钥",
+      "desktop.remote.identityFilePlaceholder": "~/.ssh/id_ed25519",
+      "desktop.remote.identityFileHelp": "只保存路径并交给 OpenSSH；Lithe 不读取私钥内容。",
+      "desktop.remote.choose": "选择文件…",
+      "desktop.remote.advanced": "高级",
+      "desktop.remote.proxyJump": "跳板机",
+      "desktop.remote.proxyJumpPlaceholder": "无（或按 SSH 配置）",
+      "desktop.remote.proxyJumpHelp": "先经过这些主机再连接，等同 OpenSSH 的 ProxyJump：[用户@]主机[:端口]，多个用逗号分隔。",
+      "desktop.remote.timeout": "连接超时（秒）",
+      "desktop.remote.timeoutPlaceholder": "自动（15）",
+      "desktop.remote.keepAlive": "保活间隔（秒）",
+      "desktop.remote.keepAlivePlaceholder": "自动（SSH 配置）",
+      "desktop.remote.keepAliveHelp": "OpenSSH 每隔多久确认一次服务器仍有响应（ServerAliveInterval），以便发现网络已断开。",
+      "desktop.remote.save": "保存",
+      "desktop.remote.saving": "正在保存…",
+      "desktop.remote.delete": "删除",
+      "desktop.remote.deleteConfirm": "删除“{name}”？",
+      "desktop.remote.cancel": "取消",
+      "desktop.remote.close": "关闭",
+      "desktop.remote.test": "测试连接",
+      "desktop.remote.testing": "正在连接…OpenSSH 可能会询问密码或请你确认主机密钥。",
+      "desktop.remote.stop": "停止",
+      "desktop.remote.probe.connected": "已连接：{system} {machine}",
+      "desktop.remote.probe.unsupported": "已连接到 {system} {machine}，但 Lithe 远程服务目前不支持该平台：只支持 x86_64 和 arm64 的 Linux。",
+      "desktop.remote.probe.authenticationFailed": "身份验证失败：服务器没有接受提供的密钥或密码。",
+      "desktop.remote.probe.hostKeyRejected": "主机密钥没有通过验证：你拒绝了它，或者它与 known_hosts 里记录的不一致。",
+      "desktop.remote.probe.unreachable": "无法连接到主机：请检查主机、端口和网络。",
+      "desktop.remote.probe.failed": "连接失败。",
+      "desktop.remote.probe.error": "无法测试连接：{reason}",
+      "desktop.remote.probe.noSSH": "找不到 ssh 客户端，请先安装 OpenSSH 客户端。",
+      "desktop.remote.probe.hostName": "主机名",
+      "desktop.remote.probe.os": "系统",
+      "desktop.remote.probe.cpu": "CPU 数",
+      "desktop.remote.probe.memory": "内存",
+      "desktop.remote.probe.disk": "磁盘（主目录）",
+      "desktop.remote.probe.diskSpace": "可用 {available}，共 {total}",
+      "desktop.remote.diagnostics": "OpenSSH 输出",
+      "desktop.remote.error.required": "必填。",
+      "desktop.remote.error.invalid": "这个值不被接受。",
+      "desktop.remote.error.fieldTooLong": "太长：最多 1024 字节。",
+      "desktop.remote.error.nameTooLong": "太长：最多 128 个字符。",
+      "desktop.remote.error.duplicate": "另一个已保存的连接已在使用这个值。",
+      "desktop.remote.error.nameDuplicate": "已有同名的连接（不区分大小写）。",
+      "desktop.remote.error.full": "最多保存 128 个连接，请先删除一个。",
+      "desktop.remote.error.unknown": "这个连接已不存在。",
+      "desktop.remote.error.hostInvalid": "只填主机名、IP 地址或 SSH 别名；用户名和端口请填到各自的字段。",
+      "desktop.remote.error.portInvalid": "请填 1 到 65535 之间的端口。",
+      "desktop.remote.error.userInvalid": "用户名含有 SSH 不接受的字符。",
+      "desktop.remote.error.proxyJumpInvalid": "格式为 [用户@]主机[:端口]，多个用逗号分隔。",
+      "desktop.remote.error.timeoutInvalid": "请填 1 到 600 秒。",
+      "desktop.remote.error.keepAliveInvalid": "请填 1 到 3600 秒。",
+      "desktop.remote.error.textInvalid": "请去掉首尾空格和控制字符。",
+      "desktop.remote.damaged": "无法读取 {path} 里保存的连接。修复或删除这个文件之前不能保存。",
+      "desktop.remote.conflict": "已保存的连接在别处被修改过，已重新读取，请再保存一次。",
+      "desktop.remote.readFailed": "无法读取已保存的连接：{reason}",
+      "desktop.remote.saveFailed": "无法保存连接：{reason}",
+      "desktop.remote.deleteFailed": "无法删除连接：{reason}",
+      "desktop.remote.chooseFailed": "无法打开文件选择器：{reason}",
+      "desktop.remote.unavailable": "没有可以保存连接的偏好设置目录。",
+      "desktop.remoteAuth.title": "SSH 身份验证",
+      "desktop.remoteAuth.secretHint": "回答只交给这次 SSH 连接，Lithe 不会保存。",
+      "desktop.remoteAuth.refused": "SSH 没有接受这个回答：回答最多 8192 字节，且不能包含换行。这个问题已取消。",
+      "desktop.remoteAuth.failed": "无法把回答交给 SSH：{reason}"
+    }
+  }
+}

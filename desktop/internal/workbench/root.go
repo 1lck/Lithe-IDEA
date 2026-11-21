@@ -299,13 +299,15 @@ func (a *App) runShortcut(id string, view *editorview.View, term *terminal) {
 
 // overlays declares everything the window shows over the workbench: the dialogs, the search
 // and navigation popups, the language popups, the plugin prompts, the import of an
-// earlier client's plugin secrets, the Git dialogs, the New Project dialog and the questions
-// Git asks while it authenticates. Each dialog's
+// earlier client's plugin secrets, the Git dialogs, the New Project dialog, the Remote
+// Development window and the questions Git or a remote connection's SSH client asks while it
+// authenticates. Each dialog's
 // state stays with its own file; the toasts are declared last, over all of them.
 func (a *App) overlays(c ui.C) {
 	a.scratchPopup(c)
 	a.recentFilesPopup(c)
 	a.cloneView(c)
+	a.remoteView(c)
 	if a.project != nil {
 		a.everywherePopup(c)
 		a.navigationPopup(c)

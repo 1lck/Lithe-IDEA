@@ -1,0 +1,375 @@
+package workbench
+
+import (
+	"context"
+	"encoding/json"
+	"errors"
+	"io/fs"
+	"os"
+	"path/filepath"
+	"runtime"
+	"slices"
+	"strings"
+	"testing"
+	"time"
+
+	"github.com/1lck/Lithe-IDEA/desktop/internal/core"
+	"github.com/1lck/Lithe-IDEA/desktop/internal/i18n"
+	"github.com/1lck/Lithe-IDEA/desktop/internal/remoteconn"
+	"github.com/vivaui/viva/gfx"
+)
+
+// redraw repaints the window after a test changed its state directly, as SetText does without
+// invalidating, and lets the work it started finish.
+func (h *harness) redraw() {
+	h.t.Helper()
+	h.app.invalidator.Invalidate()
+	h.settle()
+}
+
+// pressTest clicks Test Connection and paints the frame that started the test, without waiting
+// for background work: the test waits on the question the window has yet to show.
+func (h *harness) pressTest() {
+	h.t.Helper()
+	point := center(h.hitLabeled(i18n.Shared(h.app.language(), "desktop.remote.test")))
+	if err := h.driver.Click(point.X, point.Y); err != nil {
+		h.t.Fatal(err)
+	}
+	if err := h.driver.Pump(); err != nil {
+		h.t.Fatal(err)
+	}
+	if h.app.remote.probe == nil {
+		h.t.Fatal("clicking Test Connection did not start a test")
+	}
+}
+
+// remoteHarness is an English window with the Remote Development window open and its saved list
+// read, through the real Core.
+func remoteHarness(t *testing.T) (*harness, *treeRecordingLog) {
+	t.Helper()
+	h := newHarnessWithLanguages(t, &testKernel{Client: core.NewClient()}, []string{"en-US"})
+	logger := &treeRecordingLog{}
+	h.app.logSink = logger
+	h.app.openRemote(surfaceMenu)
+	h.settle()
+	h.settle()
+	if !h.app.remote.loaded || h.app.remote.readErr != "" {
+		t.Fatalf("loaded = %v, read error = %q", h.app.remote.loaded, h.app.remote.readErr)
+	}
+	return h, logger
+}
+
+// savedRemoteDocument reports whether the saved list exists on disk, in the preference directory.
+func savedRemoteDocument(t *testing.T, h *harness) bool {
+	t.Helper()
+	_, err := os.Stat(filepath.Join(h.store.Dir(), "remote", "connections.json"))
+	if err != nil && !errors.Is(err, fs.ErrNotExist) {
+		t.Fatal(err)
+	}
+	return err == nil
+}
+
+// savedRemoteConnections are the entries of the saved list on disk, as Core reads them back.
+func savedRemoteConnections(t *testing.T, h *harness) []core.SavedRemoteConnection {
+	t.Helper()
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	source, err := remoteconn.Read(ctx, core.NewClient(), h.store.Dir())
+	if err != nil {
+		t.Fatalf("read the saved list: %v", err)
+	}
+	return source.Connections
+}
+
+// remoteActions are the actions of the window and of its authentication dialog logged as
+// performed, in order.
+func remoteActions(logger *treeRecordingLog) []string {
+	logger.mu.Lock()
+	defer logger.mu.Unlock()
+	var actions []string
+	for _, event := range logger.events {
+		if action, _ := event.Fields["action"].(string); event.Event == "app.action.performed" && strings.HasPrefix(action, "remote.") {
+			actions = append(actions, action)
+		}
+	}
+	return actions
+}
+
+// loggedAny reports whether any logged field holds one of values.
+func loggedAny(t *testing.T, logger *treeRecordingLog, values ...string) string {
+	t.Helper()
+	logger.mu.Lock()
+	defer logger.mu.Unlock()
+	for _, event := range logger.events {
+		encoded, err := json.Marshal(event)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, value := range values {
+			if strings.Contains(string(encoded), value) {
+				return string(encoded)
+			}
+		}
+	}
+	return ""
+}
+
+// rejected reports whether operation was logged as rejected for reason.
+func rejected(logger *treeRecordingLog, operation, reason string) bool {
+	logger.mu.Lock()
+	defer logger.mu.Unlock()
+	return slices.ContainsFunc(logger.events, func(event core.LogEvent) bool {
+		return event.Event == operationRejectedEvent && event.Fields["operation"] == operation && event.Fields["reason"] == reason
+	})
+}
+
+// A connection typed into the window is saved to the preference directory under the host's name,
+// edited in place and deleted after the footer's question; only the operations are logged, never
+// the host or the user.
+func TestRemoteConnectionsSaveEditAndDelete(t *testing.T) {
+	h, logger := remoteHarness(t)
+	lang := h.app.language()
+	if !h.shows(i18n.Shared(lang, "desktop.remote.title")) || !h.showsWrapped(i18n.Shared(lang, "desktop.remote.empty")) {
+		t.Fatal("the window does not open on the empty list")
+	}
+	if savedRemoteDocument(t, h) {
+		t.Fatal("opening the window wrote the list")
+	}
+	r := &h.app.remote
+	r.form.host.SetText("build.example")
+	r.form.user.SetText("dev")
+	h.redraw()
+	h.clickLabeled(i18n.Shared(lang, "desktop.remote.save"))
+	h.settle()
+	entries := savedRemoteConnections(t, h)
+	if len(entries) != 1 || entries[0].Name != "build.example" {
+		t.Fatalf("saved %+v, want one connection named after its host", entries)
+	}
+	if connection := entries[0].Connection; connection.Host != "build.example" || connection.User != "dev" {
+		t.Fatalf("saved connection %+v", connection)
+	}
+	if r.selected == "" || r.selected != entries[0].ID || !h.shows("dev@build.example") || r.dirty() {
+		t.Fatalf("selected = %q, dirty = %v: the saved connection is not the one the form edits", r.selected, r.dirty())
+	}
+
+	r.form.name.SetText("Build box")
+	r.form.port.SetText("2222")
+	h.redraw()
+	h.clickLabeled(i18n.Shared(lang, "desktop.remote.save"))
+	h.settle()
+	entries = savedRemoteConnections(t, h)
+	if len(entries) != 1 || entries[0].Name != "Build box" || entries[0].Connection.Port != 2222 || !h.shows("Build box") {
+		t.Fatalf("edited %+v, want the one connection renamed with its port", entries)
+	}
+
+	h.clickLabeled(i18n.Shared(lang, "desktop.remote.delete"))
+	h.settle()
+	if !r.confirmDelete || !h.shows(i18n.SharedFormat(lang, "desktop.remote.deleteConfirm", map[string]string{"name": "Build box"})) {
+		t.Fatal("Delete does not ask first")
+	}
+	if len(savedRemoteConnections(t, h)) != 1 {
+		t.Fatal("Delete deleted before it was confirmed")
+	}
+	h.clickLabeled(i18n.Shared(lang, "desktop.remote.delete"))
+	h.settle()
+	if got := savedRemoteConnections(t, h); len(got) != 0 || r.selected != "" || !h.showsWrapped(i18n.Shared(lang, "desktop.remote.empty")) {
+		t.Fatalf("after deleting: saved %v, selected %q", got, r.selected)
+	}
+	want := []string{"remote.connections.open", "remote.connection.save", "remote.connection.save", "remote.connection.remove"}
+	if got := remoteActions(logger); !slices.Equal(got, want) {
+		t.Fatalf("performed %q, want %q", got, want)
+	}
+	if event := loggedAny(t, logger, "build.example", "Build box", h.store.Dir()); event != "" {
+		t.Fatalf("logged the connection: %s", event)
+	}
+
+	h.clickLabeled(i18n.Shared(lang, "desktop.remote.close"))
+	h.settle()
+	if r.open || h.shows(i18n.Shared(lang, "desktop.remote.title")) {
+		t.Fatal("Close left the window open")
+	}
+}
+
+// A connection saved from New is the list's selected row, also when the list had fewer rows the
+// frame before: the keyboard moves from the connection the form edits.
+func TestRemoteSavedConnectionIsTheSelectedRow(t *testing.T) {
+	h, _ := remoteHarness(t)
+	lang := h.app.language()
+	r := &h.app.remote
+	for _, host := range []string{"lab-arm.internal", "build.example"} {
+		h.clickLabeled(i18n.Shared(lang, "desktop.remote.new"))
+		r.form.host.SetText(host)
+		h.redraw()
+		h.clickLabeled(i18n.Shared(lang, "desktop.remote.save"))
+		h.redraw()
+		at := slices.IndexFunc(r.source.Connections, func(entry core.SavedRemoteConnection) bool { return entry.ID == r.selected })
+		if r.selected == "" || at < 0 || r.list.Selected() != at {
+			t.Fatalf("after saving %d: list row %d, want %d, the connection the form edits", len(r.source.Connections), r.list.Selected(), at)
+		}
+	}
+}
+
+// A field Core refuses is named under that field and nothing is written; a number the form
+// cannot parse is refused before it reaches Core.
+func TestRemoteConnectionRefusedFieldsAreShownUnderTheField(t *testing.T) {
+	h, logger := remoteHarness(t)
+	lang := h.app.language()
+	r := &h.app.remote
+	r.form.host.SetText("dev@box")
+	h.redraw()
+	h.clickLabeled(i18n.Shared(lang, "desktop.remote.save"))
+	h.settle()
+	if r.fieldErr != (remoteFieldRefusal{field: "host", reason: "invalid"}) || !h.showsWrapped(i18n.Shared(lang, "desktop.remote.error.hostInvalid")) {
+		t.Fatalf("field refusal = %+v, want the host refused under its field", r.fieldErr)
+	}
+	if savedRemoteDocument(t, h) || !rejected(logger, "remote_connection_save", "field_refused") {
+		t.Fatal("a refused connection was written, or the refusal was not logged")
+	}
+
+	r.form.host.SetText("box")
+	r.form.port.SetText("70000")
+	h.redraw()
+	h.clickLabeled(i18n.Shared(lang, "desktop.remote.save"))
+	h.settle()
+	if r.fieldErr != (remoteFieldRefusal{field: "port", reason: "invalid"}) || !h.showsWrapped(i18n.Shared(lang, "desktop.remote.error.portInvalid")) {
+		t.Fatalf("field refusal = %+v, want the port refused under its field", r.fieldErr)
+	}
+	if savedRemoteDocument(t, h) || !rejected(logger, "remote_connection_save", "number_invalid") {
+		t.Fatal("a port out of range was written, or the refusal was not logged")
+	}
+
+	// The private key path is only asked for, and only kept, with private key authentication.
+	if h.shows(i18n.Shared(lang, "desktop.remote.identityFile")) {
+		t.Fatal("the private key field shows for automatic authentication")
+	}
+	r.form.authentication = core.RemoteAuthenticationPrivateKey
+	r.form.port.SetText("")
+	r.form.identityFile.SetText("~/.ssh/id_ed25519")
+	h.redraw()
+	if !h.shows(i18n.Shared(lang, "desktop.remote.identityFile")) {
+		t.Fatal("the private key field is missing for private key authentication")
+	}
+	r.form.authentication = core.RemoteAuthenticationAgent
+	h.redraw()
+	h.clickLabeled(i18n.Shared(lang, "desktop.remote.save"))
+	h.settle()
+	entries := savedRemoteConnections(t, h)
+	if len(entries) != 1 || entries[0].Connection.Authentication != core.RemoteAuthenticationAgent || entries[0].Connection.IdentityFile != "" {
+		t.Fatalf("saved %+v, want the agent connection without a key path", entries)
+	}
+}
+
+// standInSSH puts an ssh on PATH that ignores its options and, after asking for a password
+// through the AskPass helper Core names, runs the remote command with the local shell. A wrong
+// or cancelled answer fails like a server rejecting it.
+func standInSSH(t *testing.T) {
+	t.Helper()
+	if runtime.GOOS == "windows" {
+		t.Skip("the stand-in SSH client is a POSIX shell script")
+	}
+	dir := t.TempDir()
+	script := `#!/bin/sh
+for last; do :; done
+answer=$("$SSH_ASKPASS" "dev@devbox's password: ") || answer=
+if [ "$answer" != "s3cret" ]; then
+  echo 'dev@devbox: Permission denied (password).' >&2
+  exit 255
+fi
+exec /bin/sh -c "$last"
+`
+	if err := os.WriteFile(filepath.Join(dir, "ssh"), []byte(script), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", dir+string(os.PathListSeparator)+os.Getenv("PATH"))
+}
+
+// Testing a connection asks OpenSSH's password question in the SSH authentication dialog over
+// the window, and shows what the host reported once it is answered; cancelling the question
+// shows the server's refusal with OpenSSH's output. Neither the password, the host nor the user
+// is logged.
+func TestRemoteTestAsksInTheWindowAndReportsTheHost(t *testing.T) {
+	standInSSH(t)
+	h, logger := remoteHarness(t)
+	lang := h.app.language()
+	r := &h.app.remote
+	r.form.host.SetText("devbox")
+	r.form.user.SetText("dev")
+	h.redraw()
+
+	h.pressTest()
+	h.awaitGitQuestion("the password question", func(c core.GitAuthChallenge) bool { return c.Remote && c.Secret })
+	if !h.shows(i18n.Shared(lang, "desktop.remoteAuth.title")) || !h.shows("password") || !h.showsWrapped(i18n.Shared(lang, "desktop.remoteAuth.secretHint")) {
+		t.Fatal("the dialog does not show OpenSSH's question as the SSH client's")
+	}
+	if h.shows(i18n.Shared(lang, "desktop.gitAuth.title")) {
+		t.Fatal("the remote question is titled as Git's")
+	}
+	if got := h.focusedName(); got != i18n.Shared(lang, "desktop.gitAuth.answer") {
+		t.Fatalf("focused %q, want the answer field", got)
+	}
+	h.typeText("s3cret")
+	h.key(gfx.KeyEnter)
+	h.await("the test to finish", func() bool { return r.probe == nil && r.result != nil })
+	h.settle()
+	result := r.result.result
+	if r.result.err != nil || result.Host == nil {
+		t.Fatalf("outcome = %+v, want the host's report", r.result)
+	}
+	// The local machine is the host here, so whether a server build exists depends on it.
+	key := "desktop.remote.probe.unsupported"
+	if result.Status == core.RemoteProbeConnected {
+		key = "desktop.remote.probe.connected"
+	}
+	platform := map[string]string{"system": result.Host.System, "machine": result.Host.Machine}
+	if !h.showsWrapped(i18n.SharedFormat(lang, key, platform)) || !h.shows(i18n.Shared(lang, "desktop.remote.probe.cpu")) {
+		t.Fatalf("the window does not show the platform the host reported (%s)", result.Status)
+	}
+
+	h.pressTest()
+	h.awaitGitQuestion("the password question again", func(c core.GitAuthChallenge) bool { return c.Remote })
+	// Escape dismisses the topmost dialog, the question, and leaves the window open.
+	h.key(gfx.KeyEscape)
+	h.await("the test to fail", func() bool { return r.probe == nil && r.result != nil })
+	h.settle()
+	if !r.open || r.result.result.Status != core.RemoteProbeAuthenticationFailed {
+		t.Fatalf("open = %v, outcome = %+v, want the refusal in the open window", r.open, r.result)
+	}
+	if !h.showsWrapped(i18n.Shared(lang, "desktop.remote.probe.authenticationFailed")) || !h.showsWrapped("Permission denied (password).") {
+		t.Fatal("the window does not show the refusal with OpenSSH's output")
+	}
+	want := []string{"remote.connections.open", "remote.connection.test", "remote.authentication.answer", "remote.connection.test", "remote.authentication.cancel"}
+	if got := remoteActions(logger); !slices.Equal(got, want) {
+		t.Fatalf("performed %q, want %q", got, want)
+	}
+	if event := loggedAny(t, logger, "s3cret", "devbox", "Permission denied"); event != "" {
+		t.Fatalf("logged what the connection is or OpenSSH said: %s", event)
+	}
+}
+
+// Stopping a test drops its result, and closing the window stops a test that waits on a question.
+func TestRemoteTestStopsWithTheWindow(t *testing.T) {
+	standInSSH(t)
+	h, _ := remoteHarness(t)
+	lang := h.app.language()
+	r := &h.app.remote
+	r.form.host.SetText("devbox")
+	h.redraw()
+	h.pressTest()
+	h.awaitGitQuestion("the password question", func(c core.GitAuthChallenge) bool { return c.Remote })
+	// The question covers the window, so Stop is the window's own action here.
+	h.app.stopRemoteTest()
+	h.await("the question to leave after Stop", func() bool { return len(h.app.gitAuth.queue) == 0 })
+	h.settle()
+	if !r.open || r.probe != nil || r.result != nil || h.showsWrapped(i18n.Shared(lang, "desktop.remote.probe.authenticationFailed")) {
+		t.Fatalf("open = %v, probe = %v, result = %+v after Stop, want the open window without an outcome", r.open, r.probe, r.result)
+	}
+
+	h.pressTest()
+	h.awaitGitQuestion("the password question again", func(c core.GitAuthChallenge) bool { return c.Remote })
+	h.app.closeRemote()
+	h.await("the question to leave after closing", func() bool { return len(h.app.gitAuth.queue) == 0 })
+	h.settle()
+	if r.open || r.probe != nil || r.result != nil {
+		t.Fatalf("open = %v, probe = %v, result = %+v after closing", r.open, r.probe, r.result)
+	}
+}
