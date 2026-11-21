@@ -31,7 +31,7 @@ const (
 	pagePlugins
 	pageVersionControl
 	// pageBuild is the group "Build, Execution, Deployment", which also has a page of its
-	// own: the directory of its pages and what needs attention. The three pages after it
+	// own: the directory of its pages and what needs attention. The four pages after it
 	// belong to it, and so does a row for each kind of page plugins contribute to it, build
 	// systems and compilers, which opens that kind's pages as Toolchains and Debuggers list
 	// theirs.
@@ -39,6 +39,7 @@ const (
 	pageToolchains
 	pageDebuggers
 	pageConsole
+	pageTrustedLocations
 	// pageLanguages is "Languages & Frameworks", a top-level page with no static pages
 	// under it: the pages plugins contribute to it make it a group, and its own page is the
 	// directory of them.
@@ -76,6 +77,7 @@ var parents = [pageCount]pageID{
 	pageToolchains:         pageBuild,
 	pageDebuggers:          pageBuild,
 	pageConsole:            pageBuild,
+	pageTrustedLocations:   pageBuild,
 	pageLanguages:          noPage,
 	pageTools:              noPage,
 	pageTerminal:           pageTools,
@@ -142,6 +144,8 @@ func titleOf(messages *i18n.SettingsMessages, id pageID) string {
 		return messages.Debuggers
 	case pageConsole:
 		return messages.Console
+	case pageTrustedLocations:
+		return messages.TrustedLocations
 	case pageLanguages:
 		return messages.Languages
 	case pageTools:
@@ -336,6 +340,8 @@ func pageKeywords(language i18n.Language, id pageID) string {
 		return i18n.Shared(language, "desktop.buildSettings.keywordsDebuggers")
 	case pageConsole:
 		return i18n.Shared(language, "desktop.consoleSettings.keywords")
+	case pageTrustedLocations:
+		return i18n.Shared(language, "desktop.trustedLocations.keywords")
 	}
 	return ""
 }

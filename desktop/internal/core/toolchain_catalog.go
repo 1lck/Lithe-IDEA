@@ -5,10 +5,15 @@ import (
 )
 
 // ToolchainCatalog contains registrations and workspace trust owned by this machine, independent of project pins.
+// DistrustedWorkspaces are the workspaces the user chose to keep in safe mode, and
+// TrustedLocations the folders whose every workspace is trusted unless distrusted itself; Core
+// normalizes both for the platform and never lists a filesystem root as a location.
 type ToolchainCatalog struct {
-	Version           int                              `json:"version"`
-	Tools             map[string]ToolchainCatalogEntry `json:"tools"`
-	TrustedWorkspaces []string                         `json:"trustedWorkspaces,omitempty"`
+	Version              int                              `json:"version"`
+	Tools                map[string]ToolchainCatalogEntry `json:"tools"`
+	TrustedWorkspaces    []string                         `json:"trustedWorkspaces,omitempty"`
+	DistrustedWorkspaces []string                         `json:"distrustedWorkspaces,omitempty"`
+	TrustedLocations     []string                         `json:"trustedLocations,omitempty"`
 }
 
 type ToolchainCatalogEntry struct {
@@ -90,4 +95,23 @@ func (c *Client) EditToolchainWorkspaceTrust(ctx context.Context, document *stri
 		Platform       string                      `json:"platform"`
 		WorkspaceTrust ToolchainWorkspaceTrustEdit `json:"workspaceTrust"`
 	}{document, platform, trust})
+}
+
+// ToolchainTrustedLocationsEdit adds folders to the trusted locations and removes others. Core
+// matches folders by the platform's path identity and refuses a filesystem root
+// (plugin.toolchain.rootLocation), a folder both added and removed (invalidDocument) and a
+// list past its bound (plugin.toolchain.trustListFull).
+type ToolchainTrustedLocationsEdit struct {
+	Add    []string `json:"add,omitempty"`
+	Remove []string `json:"remove,omitempty"`
+}
+
+// EditToolchainTrustedLocations applies edit to document and returns the result. It writes
+// nothing: the caller publishes the document against the bytes it read.
+func (c *Client) EditToolchainTrustedLocations(ctx context.Context, document *string, platform string, edit ToolchainTrustedLocationsEdit) (ToolchainCatalogPublication, error) {
+	return settingsSurfaceResult[ToolchainCatalogPublication](ctx, c, "toolchains.editCatalog", "edit", struct {
+		Document         *string                       `json:"document"`
+		Platform         string                        `json:"platform"`
+		TrustedLocations ToolchainTrustedLocationsEdit `json:"trustedLocations"`
+	}{document, platform, edit})
 }

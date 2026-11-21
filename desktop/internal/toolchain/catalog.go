@@ -5,6 +5,7 @@ import (
 	"errors"
 	"os"
 	"runtime"
+	"slices"
 
 	"github.com/1lck/Lithe-IDEA/desktop/internal/configfile"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/core"
@@ -107,8 +108,26 @@ func (s Snapshot) SaveCatalog(ctx context.Context, kernel Kernel, edits []Edit) 
 	if change.Document == nil {
 		return false, errors.New("toolchain: changed catalog has no source")
 	}
-	committed, err := s.catalog.file.Replace(ctx, []byte(*change.Document), func() error { return s.catalog.file.Verify(ctx) })
-	if errors.Is(err, configfile.ErrConflict) {
+	check := func() error { return s.catalog.verify(ctx) }
+	return s.catalog.replace(ctx, *change.Document, check)
+}
+
+// verify refuses a catalog file changed since it was read, as ErrPinConflict.
+func (c *catalogSource) verify(ctx context.Context) error {
+	if err := c.file.Verify(ctx); err != nil {
+		if errors.Is(err, configfile.ErrConflict) {
+			return errors.Join(ErrPinConflict, err)
+		}
+		return err
+	}
+	return nil
+}
+
+// replace writes document over the catalog file atomically once check passes. A conflict is
+// ErrPinConflict; a failure after the bytes were committed is also ErrPinCommitted.
+func (c *catalogSource) replace(ctx context.Context, document string, check func() error) (bool, error) {
+	committed, err := c.file.Replace(ctx, []byte(document), check)
+	if errors.Is(err, configfile.ErrConflict) && !errors.Is(err, ErrPinConflict) {
 		err = errors.Join(ErrPinConflict, err)
 	}
 	if err != nil && committed {
@@ -191,13 +210,7 @@ func saveWorkspaceTrust(ctx context.Context, kernel Kernel, catalog *catalogSour
 		if err := checkDirectoryIdentity(ctx, root, rootIdentity); err != nil {
 			return err
 		}
-		if err := catalog.file.Verify(ctx); err != nil {
-			if errors.Is(err, configfile.ErrConflict) {
-				return errors.Join(ErrPinConflict, err)
-			}
-			return err
-		}
-		return nil
+		return catalog.verify(ctx)
 	}
 	if err := check(); err != nil {
 		return false, err
@@ -216,12 +229,123 @@ func saveWorkspaceTrust(ctx context.Context, kernel Kernel, catalog *catalogSour
 	if change.Document == nil {
 		return false, errors.New("toolchain: changed catalog has no source")
 	}
-	committed, err := catalog.file.Replace(ctx, []byte(*change.Document), check)
-	if errors.Is(err, configfile.ErrConflict) {
-		err = errors.Join(ErrPinConflict, err)
+	return catalog.replace(ctx, *change.Document, check)
+}
+
+// locationsKernel is a Core client that edits the trusted locations of a catalog.
+type locationsKernel interface {
+	EditToolchainTrustedLocations(context.Context, *string, string, core.ToolchainTrustedLocationsEdit) (core.ToolchainCatalogPublication, error)
+}
+
+// LocationChange is one change the user made to the trusted locations: Add trusts Folder,
+// otherwise the change stops trusting it.
+type LocationChange struct {
+	Folder string
+	Add    bool
+}
+
+// LocationChangeError is a change Core refused; Index is its place in the changes.
+type LocationChangeError struct {
+	Index int
+	Err   error
+}
+
+func (e *LocationChangeError) Error() string { return e.Err.Error() }
+func (e *LocationChangeError) Unwrap() error { return e.Err }
+
+// TrustedLocations are the folders the machine trusts every workspace in, as Core reads them
+// from the catalog in the preference directory (toolchains/global.json), with the bytes they
+// were read from, so changes are saved against the same source. The catalog lives in the
+// platform user preference directory, never in the app bundle, an installation directory or a
+// workspace, so it affects neither code signing nor Sparkle delta updates.
+type TrustedLocations struct {
+	// Locations are the trusted folders in the catalog's order, as Core normalized them.
+	Locations []string
+	catalog   *catalogSource
+}
+
+// ReadTrustedLocations reads the trusted locations from the catalog in globalRoot, the
+// platform preference directory. Reading creates nothing.
+func ReadTrustedLocations(ctx context.Context, kernel Kernel, globalRoot string) (TrustedLocations, error) {
+	if globalRoot == "" {
+		return TrustedLocations{}, errors.New("toolchain: trusted locations need the preference directory")
 	}
-	if err != nil && committed {
-		err = errors.Join(ErrPinCommitted, err)
+	catalog, err := captureCatalog(ctx, kernel, globalRoot, "", "")
+	if err != nil {
+		return TrustedLocations{}, err
 	}
-	return committed, err
+	return TrustedLocations{Locations: slices.Clone(catalog.state.Document.TrustedLocations), catalog: catalog}, nil
+}
+
+// Preview replays changes, in order, on the bytes l was read from and returns the locations
+// they lead to. It writes nothing. A change Core refuses is a *LocationChangeError.
+func (l TrustedLocations) Preview(ctx context.Context, kernel Kernel, changes []LocationChange) ([]string, error) {
+	_, locations, err := l.replay(ctx, kernel, changes)
+	return locations, err
+}
+
+// Save replays changes on the bytes l was read from and, when the locations they lead to
+// differ, writes the result to the catalog. It refuses a catalog changed since it was read
+// (ErrPinConflict) and writes only toolchains/global.json in the preference directory.
+func (l TrustedLocations) Save(ctx context.Context, kernel Kernel, changes []LocationChange) (bool, error) {
+	if l.catalog == nil {
+		return false, ErrPinConflict
+	}
+	check := func() error { return l.catalog.verify(ctx) }
+	if err := check(); err != nil {
+		return false, err
+	}
+	document, locations, err := l.replay(ctx, kernel, changes)
+	if err != nil {
+		return false, err
+	}
+	if document == nil || sameLocations(locations, l.Locations) {
+		// Nothing to write: the changes cancel out, at most moving a folder in the list.
+		return false, check()
+	}
+	return l.catalog.replace(ctx, *document, check)
+}
+
+// sameLocations reports whether two lists hold the same folders, in any order.
+func sameLocations(a, b []string) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	a, b = slices.Clone(a), slices.Clone(b)
+	slices.Sort(a)
+	slices.Sort(b)
+	return slices.Equal(a, b)
+}
+
+// replay applies changes one at a time, so a folder removed and added again is trusted, as
+// the user's last change says, rather than refused as both added and removed. document is the
+// source the last change led to, nil while it is the file's own missing source.
+func (l TrustedLocations) replay(ctx context.Context, kernel Kernel, changes []LocationChange) (document *string, locations []string, err error) {
+	native, ok := kernel.(locationsKernel)
+	if !ok || l.catalog == nil {
+		return nil, nil, ErrPinConflict
+	}
+	document, err = l.catalog.file.Text()
+	if err != nil {
+		return nil, nil, err
+	}
+	locations = slices.Clone(l.Locations)
+	for index, change := range changes {
+		edit := core.ToolchainTrustedLocationsEdit{Remove: []string{change.Folder}}
+		if change.Add {
+			edit = core.ToolchainTrustedLocationsEdit{Add: []string{change.Folder}}
+		}
+		publication, err := native.EditToolchainTrustedLocations(ctx, document, l.catalog.platform, edit)
+		if err != nil {
+			return nil, nil, &LocationChangeError{Index: index, Err: err}
+		}
+		if publication.Changed {
+			if publication.Document == nil {
+				return nil, nil, errors.New("toolchain: changed catalog has no source")
+			}
+			document = publication.Document
+		}
+		locations = publication.Catalog.TrustedLocations
+	}
+	return document, locations, nil
 }

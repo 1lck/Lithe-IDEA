@@ -1,0 +1,149 @@
+{
+  "schemaVersion": 1,
+  "messages": [
+    {
+      "id": "desktop.trustedLocations.title",
+      "description": "Settings sidebar and breadcrumb: title of the page listing the folders whose projects open trusted",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.trustedLocations.keywords",
+      "description": "Settings search: extra words that find the Trusted Locations page, separated by spaces",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.trustedLocations.target",
+      "description": "Settings footer: where Apply writes the trusted location drafts, joined into the list of targets; lowercase in English",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.trustedLocations.folders",
+      "description": "Trusted Locations page: title of the card listing the trusted folders",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.trustedLocations.foldersHelp",
+      "description": "Trusted Locations page: help behind the info glyph of the folder list",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.trustedLocations.empty",
+      "description": "Trusted Locations page: shown in the list when no folder is trusted",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.trustedLocations.add",
+      "description": "Trusted Locations page: button that chooses a folder to trust",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.trustedLocations.chooseFolder",
+      "description": "Trusted Locations page: title of the folder chooser",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.trustedLocations.remove",
+      "description": "Trusted Locations page: tip and accessible label of the button that removes a folder",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.trustedLocations.pendingAdd",
+      "description": "Trusted Locations page: tag of a folder a draft adds",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.trustedLocations.pendingRemove",
+      "description": "Trusted Locations page: tag of a folder a draft removes",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.trustedLocations.rootLocation",
+      "description": "Trusted Locations page: Core refused a disk or filesystem root as a trusted location",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.trustedLocations.listFull",
+      "description": "Trusted Locations and Toolchains pages: Core refused a trust list past its 256 entries",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.trustedLocations.directory",
+      "description": "Build, Execution, Deployment page: description of the Trusted Locations row, with the number of trusted folders",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "count": "string"
+      }
+    },
+    {
+      "id": "desktop.trustedLocations.directoryNone",
+      "description": "Build, Execution, Deployment page: description of the Trusted Locations row when no folder is trusted",
+      "platforms": [
+        "desktop"
+      ]
+    }
+  ],
+  "locales": {
+    "en-US": {
+      "desktop.trustedLocations.title": "Trusted Locations",
+      "desktop.trustedLocations.keywords": "trust trusted safe mode folder location workspace project",
+      "desktop.trustedLocations.target": "trusted locations",
+      "desktop.trustedLocations.folders": "Trusted Folders",
+      "desktop.trustedLocations.foldersHelp": "Projects anywhere inside these folders open trusted without asking, except the ones you chose to keep in safe mode. Changes take effect when you click Apply or OK.",
+      "desktop.trustedLocations.empty": "No trusted locations. Lithe asks before opening each project you haven't trusted.",
+      "desktop.trustedLocations.add": "Add Folder…",
+      "desktop.trustedLocations.chooseFolder": "Choose a Folder to Trust",
+      "desktop.trustedLocations.remove": "Stop Trusting This Folder",
+      "desktop.trustedLocations.pendingAdd": "To add",
+      "desktop.trustedLocations.pendingRemove": "To remove",
+      "desktop.trustedLocations.rootLocation": "A disk or filesystem root cannot be a trusted location: it would trust every project on that disk.",
+      "desktop.trustedLocations.listFull": "This trust list is full (256 entries). Remove one before adding another.",
+      "desktop.trustedLocations.directory": "Trusted folders: {count}",
+      "desktop.trustedLocations.directoryNone": "No trusted folders; untrusted projects ask before opening"
+    },
+    "zh-CN": {
+      "desktop.trustedLocations.title": "可信位置",
+      "desktop.trustedLocations.keywords": "信任 可信 安全模式 文件夹 位置 工作区 项目",
+      "desktop.trustedLocations.target": "可信位置",
+      "desktop.trustedLocations.folders": "可信文件夹",
+      "desktop.trustedLocations.foldersHelp": "这些文件夹内任意层级的项目都直接以信任方式打开，不再询问；你选择保持安全模式的项目除外。点击“应用”或“确定”后生效。",
+      "desktop.trustedLocations.empty": "没有可信位置。打开尚未信任的项目时会先询问。",
+      "desktop.trustedLocations.add": "添加文件夹…",
+      "desktop.trustedLocations.chooseFolder": "选择要信任的文件夹",
+      "desktop.trustedLocations.remove": "不再信任此文件夹",
+      "desktop.trustedLocations.pendingAdd": "待添加",
+      "desktop.trustedLocations.pendingRemove": "待删除",
+      "desktop.trustedLocations.rootLocation": "磁盘或文件系统的根目录不能作为可信位置，否则会信任该磁盘上的所有项目。",
+      "desktop.trustedLocations.listFull": "信任列表已满（最多 256 项），请先删除一项再添加。",
+      "desktop.trustedLocations.directory": "{count} 个可信文件夹",
+      "desktop.trustedLocations.directoryNone": "没有可信文件夹，打开未信任的项目时会先询问"
+    }
+  }
+}

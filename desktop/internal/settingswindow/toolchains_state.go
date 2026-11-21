@@ -388,6 +388,9 @@ type toolchainState struct {
 	// failed is the last write, check or trust request's error; a read's error is its scope's.
 	failed error
 
+	// locations is the Trusted Locations page, which writes the same catalog file.
+	locations *trustedLocationsState
+
 	// The list's query and the page's selection.
 	query    string
 	filter   string
@@ -405,6 +408,7 @@ func newToolchainState(loader ToolchainLoader) *toolchainState {
 	t := &toolchainState{loader: loader, scopes: make(map[string]*toolchainScope), filter: "all", groupBy: "category", folds: make(map[string]bool)}
 	viewer, _ := loader.(ToolchainViewer)
 	t.view, t.search = newToolchainProjection(viewer), newToolchainProjection(viewer)
+	t.locations = newTrustedLocationsState(t, loader)
 	if loader == nil {
 		return t
 	}
@@ -463,7 +467,7 @@ func (t *toolchainState) current() *toolchainScope {
 }
 
 func (t *toolchainState) busy() bool {
-	if t.saving || t.inspecting || t.trusting || t.preparingRuntime {
+	if t.saving || t.inspecting || t.trusting || t.preparingRuntime || t.locations.busy() {
 		return true
 	}
 	for _, scope := range t.scopes {
@@ -611,15 +615,20 @@ func (t *toolchainState) take() (saveFailed error) {
 			scope.draft = make(map[string]string)
 			scope.revision++
 			saveFailed = err
+			if t.saveScope == scopeGlobal {
+				t.locations.markStale()
+			}
 		case err != nil:
 			t.failed, saveFailed = err, err
 		default:
 			scope.apply(snapshot, true)
-			// A machine default is what the project scope inherits.
+			// A machine default is what the project scope inherits, and the machine catalog
+			// also holds the trusted locations.
 			if t.saveScope == scopeGlobal {
 				if project := t.scopes[scopeProject]; project != nil && project.loaded {
 					project.stale = true
 				}
+				t.locations.markStale()
 			}
 		}
 	}
@@ -639,10 +648,12 @@ func (t *toolchainState) take() (saveFailed error) {
 				t.failed = err
 				if errors.Is(err, toolchain.ErrPinCommitted) {
 					scope.loaded, scope.stale = false, true
+					t.trustWritten()
 				}
 			} else {
 				// The grant changes what the project probes; the user's choices stay.
 				scope.apply(snapshot, false)
+				t.trustWritten()
 			}
 		}
 	}
@@ -666,9 +677,31 @@ func (t *toolchainState) take() (saveFailed error) {
 			}
 		}
 	}
+	if err := t.locations.take(); err != nil && saveFailed == nil {
+		saveFailed = err
+	}
 	t.view.take()
 	t.search.take()
 	return saveFailed
+}
+
+// trustWritten marks what was read from the machine catalog before a trust decision wrote it.
+func (t *toolchainState) trustWritten() {
+	if global := t.scopes[scopeGlobal]; global != nil && global.loaded {
+		global.stale = true
+	}
+	t.locations.markStale()
+}
+
+// catalogWritten marks both scopes stale after the Trusted Locations page wrote the machine
+// catalog: it changes which projects are trusted and the bytes the machine defaults are
+// written against.
+func (t *toolchainState) catalogWritten() {
+	for _, scope := range t.scopes {
+		if scope.loaded {
+			scope.stale = true
+		}
+	}
 }
 
 // acceptInspection lists a checked directory as the tool's candidate and chooses it.
@@ -709,6 +742,7 @@ func (t *toolchainState) declare(c ui.C) {
 	if t.runtimeKey != 0 && t.runtimeEffect != nil {
 		ui.Effect(c, t.runtimeEffect, t.runtimeKey)
 	}
+	t.locations.declare(c)
 	t.view.declare(c.Part("toolchain-view"))
 	t.search.declare(c.Part("toolchain-search"))
 }
@@ -1062,6 +1096,12 @@ func toolchainFailureMessage(language i18n.Language, err error) string {
 		return i18n.Shared(language, "desktop.toolchains.sourceChanged")
 	}
 	var rejection *core.MarketplaceRejection
+	if errors.As(err, &rejection) && rejection.Code == "plugin.toolchain.rootLocation" {
+		return i18n.Shared(language, "desktop.trustedLocations.rootLocation")
+	}
+	if errors.As(err, &rejection) && rejection.Code == "plugin.toolchain.trustListFull" {
+		return i18n.Shared(language, "desktop.trustedLocations.listFull")
+	}
 	if errors.Is(err, configfile.ErrTarget) || errors.Is(err, configfile.ErrEncoding) || errors.Is(err, configfile.ErrTooLarge) ||
 		(errors.As(err, &rejection) && (rejection.Code == "plugin.toolchain.invalidDocument" || rejection.Code == "plugin.toolchain.invalidIgnore")) {
 		return i18n.Shared(language, "desktop.toolchains.sourceInvalid")

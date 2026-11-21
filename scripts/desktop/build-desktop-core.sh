@@ -306,7 +306,10 @@ PINNED_CORE_REPOSITORY="https://github.com/Lithe-IDEA/Lithe-core-rust.git"
 # code for a workspace the user has not trusted (#2208).
 # Lithe-core-rust main at 94408ca: #142 returns Git's authentication failure without asking to
 # retry once a credential question was cancelled or expired unanswered (#2231).
-PINNED_CORE_REVISION="94408ca269b3c56d2c66a805d224609151c8a781"
+# Lithe-core-rust main at 7c1cd55: #143 shares one peer_uid implementation across the remote
+# crate; #144 lets toolchains.editCatalog add and remove trustedLocations, refusing filesystem
+# roots and lists over 256 entries (#2207).
+PINNED_CORE_REVISION="7c1cd55e6947d41ce8cb30f569cd896a61bf6bd5"
 PROFILE="debug"
 CHECKOUT_ONLY="no"
 while [[ $# -gt 0 ]]; do

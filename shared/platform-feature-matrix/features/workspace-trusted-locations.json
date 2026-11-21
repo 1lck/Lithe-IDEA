@@ -1,0 +1,36 @@
+{
+  "id": "workspace-trusted-locations",
+  "area": "工作区",
+  "group": "工作区生命周期",
+  "capability": "设置 › 构建、执行、部署 › 可信位置：查看、添加和删除可信文件夹，由 Core 校验并原子写入本机工具链目录",
+  "macos": {
+    "implementationStatus": "implemented",
+    "verificationStatus": "pending",
+    "evidence": [
+      "desktop/internal/settingswindow/trusted_locations_view.go",
+      "desktop/internal/settingswindow/trusted_locations_state.go",
+      "desktop/internal/settingswindow/trusted_locations_view_test.go",
+      "desktop/internal/settingswindow/build_apply.go",
+      "desktop/internal/toolchain/catalog.go",
+      "desktop/internal/toolchain/trusted_locations_test.go",
+      "desktop/internal/workbench/settings_toolchains.go",
+      "docs/assets/trusted-locations/README.md"
+    ]
+  },
+  "windows": {
+    "implementationStatus": "implemented",
+    "verificationStatus": "pending",
+    "evidence": [
+      "desktop/internal/settingswindow/trusted_locations_view.go",
+      "desktop/internal/settingswindow/trusted_locations_state.go",
+      "desktop/internal/settingswindow/trusted_locations_view_test.go",
+      "desktop/internal/settingswindow/build_apply.go",
+      "desktop/internal/toolchain/catalog.go",
+      "desktop/internal/toolchain/trusted_locations_test.go",
+      "desktop/internal/workbench/settings_toolchains.go"
+    ]
+  },
+  "owner": "Workspace",
+  "verification": "打开设置 › 构建、执行、部署，目录页显示“可信位置”一行和可信文件夹数量；进入后按保存顺序列出偏好目录 toolchains/global.json 中的 trustedLocations，打开页面不创建也不改写该文件。点“添加文件夹…”选择一个文件夹，列表末尾出现带“待添加”标签的行；点某行的删除按钮，该行变灰并显示“待删除”；“撤销修改”恢复原位置；选择磁盘或文件系统根目录时列表下方显示拒绝原因，其他草稿保留。底栏显示未应用项数和“写入 可信位置”；点“应用”或“确定”后文件只写一次，重新读取后标记消失。此后在已添加文件夹内任意层级打开一个没有信任记录的项目，直接以信任方式打开；在已删除文件夹中的项目重新询问。另一处写入（如工具链页或信任对话框）改变文件后，应用前会先重新读取再写入，不覆盖对方的改动。Windows 上路径使用反斜杠显示。",
+  "notes": "2026-11-21（#2207）：Core 的 toolchains.editCatalog 新增 trustedLocations 字段（Lithe-IDEA/Lithe-core-rust#144），拒绝根目录（plugin.toolchain.rootLocation）和超过 256 项（plugin.toolchain.trustListFull）。桌面端每次只向 Core 提交一项改动，草稿由 Core 预演；与工具链页共用同一个目录文件，写入互相标记过期，应用时先写工具链再写可信位置。两个平台共用同一实现，只有无头测试与截图，尚未在两个平台做真实应用验收。远程工作区的可信条目由 #2231 R1 跟进。"
+}
