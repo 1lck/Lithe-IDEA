@@ -1853,13 +1853,6 @@
       ]
     },
     {
-      "id": "desktop.remote.import.title",
-      "description": "Remote Development window: import page: heading",
-      "platforms": [
-        "desktop"
-      ]
-    },
-    {
       "id": "desktop.remote.import.source.motty",
       "description": "Remote Development window: import page: choice of Motty's hosts",
       "platforms": [
@@ -1868,20 +1861,10 @@
     },
     {
       "id": "desktop.remote.import.source.ssh",
-      "description": "Remote Development window: import page: choice of the hosts of ~/.ssh/config",
+      "description": "Remote Development window, import page: segment that shows the hosts of ~/.ssh/config",
       "platforms": [
         "desktop"
       ]
-    },
-    {
-      "id": "desktop.remote.import.from",
-      "description": "Remote Development window: import page: the file the hosts are read from",
-      "platforms": [
-        "desktop"
-      ],
-      "parameters": {
-        "path": "string"
-      }
     },
     {
       "id": "desktop.remote.import.keepGroups",
@@ -1920,7 +1903,7 @@
     },
     {
       "id": "desktop.remote.import.status.pattern",
-      "description": "Remote Development window: import row tag: a Host pattern, not a host",
+      "description": "Remote Development window, import table: a Host line with wildcards, which is skipped",
       "platforms": [
         "desktop"
       ]
@@ -1947,8 +1930,18 @@
       ]
     },
     {
+      "id": "desktop.remote.import.status.existsAs",
+      "description": "Remote Development window, import table: the host is already saved, under the name given",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "name": "string"
+      }
+    },
+    {
       "id": "desktop.remote.import.footer",
-      "description": "Remote Development window: import page footer: how many hosts are chosen",
+      "description": "Remote Development window, import page footer: how many chosen hosts the import saves",
       "platforms": [
         "desktop"
       ],
@@ -2023,6 +2016,221 @@
       ],
       "parameters": {
         "reason": "string"
+      }
+    },
+    {
+      "id": "desktop.remote.import.titleMotty",
+      "description": "Remote Development window: breadcrumb after the window's name while importing Motty's hosts",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.remote.import.titleSsh",
+      "description": "Remote Development window: breadcrumb after the window's name while importing the hosts of the SSH configuration",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.remote.import.mottyNote",
+      "description": "Remote Development window, import page: beside the source switch, that Motty is only read",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.remote.import.mottyHelp",
+      "description": "Remote Development window, import page: tip of the info button beside the Motty note: the database read, and that no secret is read",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "path": "string"
+      }
+    },
+    {
+      "id": "desktop.remote.import.sshNote",
+      "description": "Remote Development window, import page: beside the source switch, that ~/.ssh/config and the files it includes are only read",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.remote.import.sshHelp",
+      "description": "Remote Development window, import page: tip of the info button beside the SSH config note: the files read and where the effective values come from",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "files": "string"
+      }
+    },
+    {
+      "id": "desktop.remote.import.reload",
+      "description": "Remote Development window, import page: link that reads the source again",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.remote.import.mottyFound",
+      "description": "Remote Development window, import page: summary of Motty's database: hosts and groups found, and the database's format version",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "hosts": "string",
+        "groups": "string",
+        "format": "string"
+      }
+    },
+    {
+      "id": "desktop.remote.import.column.host",
+      "description": "Remote Development window, Motty import table: header of the host column",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.remote.import.column.group",
+      "description": "Remote Development window, Motty import table: header of the group column",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.remote.import.column.result",
+      "description": "Remote Development window, import table: header of the column saying what the import does with a host",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.remote.import.column.alias",
+      "description": "Remote Development window, SSH config import table: header of the Host alias column",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.remote.import.column.resolved",
+      "description": "Remote Development window, SSH config import table: header of the column of what ssh -G resolves the alias to",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.remote.import.patternNote",
+      "description": "Remote Development window, SSH config import table: in place of the effective value of a wildcard Host line",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.remote.import.jumpFor",
+      "description": "Remote Development window, SSH config import table: second line of a host other hosts jump through",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "hosts": "string"
+      }
+    },
+    {
+      "id": "desktop.remote.import.fill",
+      "description": "Remote Development window, Motty import table: beside an already saved host that is chosen: the import only gives the saved one Motty's color and group",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.remote.import.details",
+      "description": "Remote Development window, Motty import table: button that shows or hides how each of the host's Motty settings is imported",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.remote.import.field.imported",
+      "description": "Remote Development window, Motty import table: tag of a Motty setting that is imported",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.remote.import.field.skipped",
+      "description": "Remote Development window, Motty import table: tag of a Motty setting that is not imported",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.remote.import.field.authentication",
+      "description": "Remote Development window, Motty import table: the connection setting Motty's sign-in method becomes",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.remote.import.skip.secret",
+      "description": "Remote Development window, Motty import table: why a setting is not imported: it is in Motty's vault, which is never read",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.remote.import.skip.noSetting",
+      "description": "Remote Development window, Motty import table: why a setting is not imported: Lithe has no such connection setting",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.remote.import.skip.protocol",
+      "description": "Remote Development window, Motty import table: why a setting is not imported: it belongs to a protocol other than SSH",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.remote.import.skip.command",
+      "description": "Remote Development window, Motty import table: why a setting is not imported: the jump route runs a command",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.remote.import.skip.kerberos",
+      "description": "Remote Development window, Motty import table: why a setting is not imported: Kerberos is left to the SSH configuration",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.remote.import.skip.extraKey",
+      "description": "Remote Development window, Motty import table: why a setting is not imported: only the first key file is imported",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.remote.import.skip.invalid",
+      "description": "Remote Development window, Motty import table: why a setting is not imported: Lithe refuses the value",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.remote.import.footerGroups",
+      "description": "Remote Development window, import page footer: how many chosen hosts the import saves, and the groups it creates",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "count": "string",
+        "groupCount": "string",
+        "groups": "string"
       }
     }
   ],
@@ -2259,20 +2467,19 @@
       "desktop.remote.trust.choice": "{choice}: ",
       "desktop.remote.trust.full": "everything works.",
       "desktop.remote.trust.local": "Trust decisions are kept on this computer only",
-      "desktop.remote.import.title": "Import Hosts",
       "desktop.remote.import.source.motty": "Motty",
-      "desktop.remote.import.source.ssh": "~/.ssh/config",
-      "desktop.remote.import.from": "From {path}",
+      "desktop.remote.import.source.ssh": "SSH Config",
       "desktop.remote.import.keepGroups": "Keep groups",
       "desktop.remote.import.keepColors": "Keep colors",
       "desktop.remote.import.status.importable": "Ready",
       "desktop.remote.import.status.partial": "Partial",
       "desktop.remote.import.status.exists": "Already saved",
-      "desktop.remote.import.status.pattern": "Pattern",
+      "desktop.remote.import.status.pattern": "Skipped · Pattern",
       "desktop.remote.import.status.invalid": "Invalid",
       "desktop.remote.import.status.unreadable": "Unreadable",
       "desktop.remote.import.status.unsupported": "Not SSH",
-      "desktop.remote.import.footer": "{count} chosen",
+      "desktop.remote.import.status.existsAs": "Already saved ({name})",
+      "desktop.remote.import.footer": "Imports {count} host(s)",
       "desktop.remote.import.apply": "Import",
       "desktop.remote.import.applying": "Importing…",
       "desktop.remote.import.done": "Imported {count} host(s)",
@@ -2282,6 +2489,14 @@
       "desktop.remote.import.mottyTooLarge": "Motty's configuration is too large to read.",
       "desktop.remote.import.mottyUnsupported": "This version of Motty's configuration is not supported.",
       "desktop.remote.import.failed": "Could not import: {reason}",
+      "desktop.remote.import.titleMotty": "Import from Motty",
+      "desktop.remote.import.titleSsh": "Import from SSH Config",
+      "desktop.remote.import.mottyNote": "Read only; Motty's data is not changed",
+      "desktop.remote.import.mottyHelp": "Reads {path}. Motty's vault is never opened, so no password or key is read; nothing is written to Motty's files.",
+      "desktop.remote.import.sshNote": "Reads ~/.ssh/config (with Include), read only",
+      "desktop.remote.import.sshHelp": "Reads {files}. The effective value is what `ssh -G` resolves each alias to; the import saves the alias, so OpenSSH keeps resolving it.",
+      "desktop.remote.import.reload": "Read Again",
+      "desktop.remote.import.mottyFound": "Found {hosts} host(s), {groups} group(s) · data format {format}",
       "desktop.remote.workspace.banner": "This is a remote workspace. Its files open, edit, save and are searched on the host, and terminals run on the host; Git and running do not work here yet.",
       "desktop.remote.workspace.localOnly": "This feature does not work in a remote workspace yet. You can browse, edit, save and search the host's files and run terminals on the host.",
       "desktop.remote.document.disconnected": "the remote workspace is not connected; try again once it reconnects",
@@ -2292,7 +2507,27 @@
       "desktop.remote.document.tooLargeToSave": "This file exceeds the {limit} the host takes in one save. Your edits remain open.",
       "desktop.remote.terminal.notConnected": "the workspace is not connected to the host. Wait for it to connect again, or click Reconnect in the status bar.",
       "desktop.remote.terminal.tabNumber": "{name} ({number})",
-      "desktop.remote.terminal.dropOutside": "Only files of this remote workspace can be dropped on its terminal. Files of this computer are not on the host."
+      "desktop.remote.terminal.dropOutside": "Only files of this remote workspace can be dropped on its terminal. Files of this computer are not on the host.",
+      "desktop.remote.import.column.host": "Host",
+      "desktop.remote.import.column.group": "Group",
+      "desktop.remote.import.column.result": "Result",
+      "desktop.remote.import.column.alias": "Host Alias",
+      "desktop.remote.import.column.resolved": "Effective Value (ssh -G)",
+      "desktop.remote.import.patternNote": "Wildcard, not a single host",
+      "desktop.remote.import.jumpFor": "ProxyJump of {hosts}",
+      "desktop.remote.import.fill": "Fills color and group",
+      "desktop.remote.import.details": "Show Settings",
+      "desktop.remote.import.field.imported": "✓ Imported",
+      "desktop.remote.import.field.skipped": "Not imported",
+      "desktop.remote.import.field.authentication": "Sign-in method",
+      "desktop.remote.import.skip.secret": "In Motty's vault, which is never read",
+      "desktop.remote.import.skip.noSetting": "Lithe has no such setting",
+      "desktop.remote.import.skip.protocol": "Not an SSH setting",
+      "desktop.remote.import.skip.command": "The jump route runs a command",
+      "desktop.remote.import.skip.kerberos": "Left to the SSH configuration",
+      "desktop.remote.import.skip.extraKey": "Only the first key file is imported",
+      "desktop.remote.import.skip.invalid": "Lithe does not accept this value",
+      "desktop.remote.import.footerGroups": "Imports {count} host(s) and creates {groupCount} group(s) ({groups})"
     },
     "zh-CN": {
       "desktop.remote.title": "远程开发",
@@ -2526,20 +2761,19 @@
       "desktop.remote.trust.choice": "{choice}：",
       "desktop.remote.trust.full": "完整功能。",
       "desktop.remote.trust.local": "信任记录只保存在本机",
-      "desktop.remote.import.title": "导入主机",
       "desktop.remote.import.source.motty": "Motty",
-      "desktop.remote.import.source.ssh": "~/.ssh/config",
-      "desktop.remote.import.from": "来自 {path}",
+      "desktop.remote.import.source.ssh": "SSH 配置",
       "desktop.remote.import.keepGroups": "保留分组",
       "desktop.remote.import.keepColors": "保留颜色",
       "desktop.remote.import.status.importable": "可导入",
       "desktop.remote.import.status.partial": "部分导入",
       "desktop.remote.import.status.exists": "已存在",
-      "desktop.remote.import.status.pattern": "通配规则",
+      "desktop.remote.import.status.pattern": "跳过 · 通配符",
       "desktop.remote.import.status.invalid": "无效",
       "desktop.remote.import.status.unreadable": "无法读取",
       "desktop.remote.import.status.unsupported": "非 SSH",
-      "desktop.remote.import.footer": "已选择 {count} 台",
+      "desktop.remote.import.status.existsAs": "已存在（{name}）",
+      "desktop.remote.import.footer": "将导入 {count} 个连接",
       "desktop.remote.import.apply": "导入",
       "desktop.remote.import.applying": "正在导入…",
       "desktop.remote.import.done": "已导入 {count} 台主机",
@@ -2549,6 +2783,14 @@
       "desktop.remote.import.mottyTooLarge": "Motty 的配置过大，无法读取。",
       "desktop.remote.import.mottyUnsupported": "不支持这个版本的 Motty 配置。",
       "desktop.remote.import.failed": "无法导入：{reason}",
+      "desktop.remote.import.titleMotty": "从 Motty 导入",
+      "desktop.remote.import.titleSsh": "从 SSH 配置导入",
+      "desktop.remote.import.mottyNote": "只读读取，不修改 Motty 的数据",
+      "desktop.remote.import.mottyHelp": "读取 {path}。不会打开 Motty 的密钥库，因此不读取任何密码或密钥；也不会写入 Motty 的文件。",
+      "desktop.remote.import.sshNote": "读取 ~/.ssh/config（含 Include），只读",
+      "desktop.remote.import.sshHelp": "读取 {files}。生效值是 `ssh -G` 对每个别名解析出的结果；导入保存的是别名，之后仍由 OpenSSH 解析。",
+      "desktop.remote.import.reload": "重新读取",
+      "desktop.remote.import.mottyFound": "找到 {hosts} 台主机、{groups} 个分组 · 数据格式 {format}",
       "desktop.remote.workspace.banner": "这是远程工作区。主机上的文件可以打开、编辑、保存和搜索，终端在主机上运行；Git 和运行暂不可用。",
       "desktop.remote.workspace.localOnly": "远程工作区暂不支持此功能，可以浏览、编辑、保存和搜索主机上的文件，也可以在主机上运行终端。",
       "desktop.remote.document.disconnected": "远程工作区未连接，请在重新连接后再试",
@@ -2559,7 +2801,27 @@
       "desktop.remote.document.tooLargeToSave": "文件超过主机单次保存上限 {limit}，编辑内容仍保留。",
       "desktop.remote.terminal.notConnected": "工作区未连接到主机。请等待重新连接，或点击状态栏中的“重新连接”。",
       "desktop.remote.terminal.tabNumber": "{name} ({number})",
-      "desktop.remote.terminal.dropOutside": "只能把这个远程工作区里的文件拖到它的终端，本机的文件不在主机上。"
+      "desktop.remote.terminal.dropOutside": "只能把这个远程工作区里的文件拖到它的终端，本机的文件不在主机上。",
+      "desktop.remote.import.column.host": "主机",
+      "desktop.remote.import.column.group": "分组",
+      "desktop.remote.import.column.result": "结果",
+      "desktop.remote.import.column.alias": "Host 别名",
+      "desktop.remote.import.column.resolved": "生效值（ssh -G）",
+      "desktop.remote.import.patternNote": "通配符，不是具体主机",
+      "desktop.remote.import.jumpFor": "作为 {hosts} 的 ProxyJump",
+      "desktop.remote.import.fill": "只补颜色和分组",
+      "desktop.remote.import.details": "显示设置项",
+      "desktop.remote.import.field.imported": "✓ 导入",
+      "desktop.remote.import.field.skipped": "不导入",
+      "desktop.remote.import.field.authentication": "身份验证方式",
+      "desktop.remote.import.skip.secret": "在 Motty 的密钥库里，不会读取",
+      "desktop.remote.import.skip.noSetting": "Lithe 没有对应设置",
+      "desktop.remote.import.skip.protocol": "不是 SSH 的设置",
+      "desktop.remote.import.skip.command": "跳板路由会运行命令",
+      "desktop.remote.import.skip.kerberos": "交给 SSH 配置处理",
+      "desktop.remote.import.skip.extraKey": "只导入第一个密钥文件",
+      "desktop.remote.import.skip.invalid": "Lithe 不接受这个值",
+      "desktop.remote.import.footerGroups": "将导入 {count} 个连接、新建 {groupCount} 个分组（{groups}）"
     }
   }
 }

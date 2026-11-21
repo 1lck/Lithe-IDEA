@@ -5,7 +5,8 @@
 - “测试连接”的结果：由测试替换的内核返回固定的主机信息；
 - `ssh -G` 解析出的生效设置；
 - 空页面上 Motty 和 `~/.ssh/config` 的可导入数量；
-- 导入页的 Motty 主机；
+- 导入页的 Motty 主机、逐项字段映射和 `~/.ssh/config` 的主机；
+- 选文件夹页的远程目录；
 - OpenSSH 的主机密钥和密码询问。
 
 截图里的主机、用户、指纹和路径都是虚构的。截图覆盖深色与浅色主题、中文与英文界面，用于确认：
@@ -27,8 +28,22 @@
   - 密码询问显示在“身份验证”下方；
   - 失败时标出失败的步骤并展开诊断。
 - **SSH 密码询问（弹窗）：** 窗口上方弹出“SSH 身份验证”，提示原样显示。
-- **信任文件夹：** 第一次打开远程文件夹时询问是否信任，可以选择只信任这个文件夹或信任它的上级目录。
-- **导入：** 页面右上角在 Motty 和 `~/.ssh/config` 之间切换，并显示数据来源路径。可以选择保留分组和保留颜色。每台主机标出状态（可导入 / 部分导入 / 已存在 / 非 SSH），不能导入的主机不能勾选。底部显示已选择的数量。
+- **选文件夹：** 左侧连接列表保留，面包屑显示连接名称。右侧：
+  - 顶部：系统图标、“选择 … 上的文件夹”、连接状态、地址和系统，右侧“断开”；
+  - 路径输入框和“前往”，下方是“常用”位置和可点击的路径面包屑；
+  - 目录列表：“上一级”，文件夹双击进入，文件灰显、不能选；
+  - 底部按钮为“稍后再选”和“打开 <文件夹名>”。
+- **信任文件夹：** 第一次打开远程文件夹时询问是否信任：
+  - 标题下方用等宽字体显示 `主机 : 路径`，正文说明信任后会在远端运行哪些程序；
+  - 两种打开方式的说明框：“信任并打开”是完整功能，“以安全模式打开”只浏览和编辑文件；
+  - 可以勾选信任上级目录；底部注明信任记录只保存在本机。
+- **从 Motty 导入：** 左侧连接列表保留，面包屑显示“从 Motty 导入”。
+  - 顶部在 Motty 和 SSH 配置之间切换，旁边注明只读，ⓘ 说明读取的数据库、不打开密钥库；右侧“重新读取”；
+  - 汇总行显示找到的主机数、分组数和数据格式，以及“保留分组”“保留颜色”；
+  - 表格列出主机（颜色点、系统图标、名称和地址）、分组和结果（可导入 / 部分导入 / 已存在 / 非 SSH）。已保存的主机勾选后只补颜色和分组；
+  - 展开一台主机后逐项列出 Motty 的设置、值、对应的 Lithe 设置，或不导入的原因；
+  - 底部显示将导入的连接数和将新建的分组。
+- **从 SSH 配置导入：** 表格列出 Host 别名、`ssh -G` 解析出的生效值和结果。被其他主机用作跳板的主机注明“作为 … 的 ProxyJump”；通配符 Host 跳过并说明原因。
 
 截图不能代替 macOS/Windows 原生窗口验收。
 
@@ -44,7 +59,9 @@
 | 连接步骤：密码询问 | [浅色英文](remote-connections-steps-password-light-en-US.png) | [深色中文](remote-connections-steps-password-dark-zh-CN.png) |
 | 连接步骤：失败 | [浅色英文](remote-connections-steps-failed-light-en-US.png) | [深色中文](remote-connections-steps-failed-dark-zh-CN.png) |
 | 是否信任远程文件夹 | [浅色英文](remote-connections-trust-light-en-US.png) | [深色中文](remote-connections-trust-dark-zh-CN.png) |
-| 从 Motty 导入 | [浅色英文](remote-connections-import-light-en-US.png) | [深色中文](remote-connections-import-dark-zh-CN.png) |
+| 从 Motty 导入（展开字段映射） | [浅色英文](remote-connections-import-light-en-US.png) | [深色中文](remote-connections-import-dark-zh-CN.png) |
+| 从 SSH 配置导入 | [浅色英文](remote-connections-import-ssh-light-en-US.png) | [深色中文](remote-connections-import-ssh-dark-zh-CN.png) |
+| 选择远程文件夹 | [浅色英文](remote-connections-folder-light-en-US.png) | [深色中文](remote-connections-folder-dark-zh-CN.png) |
 
 复验方法：在仓库根目录把 `LITHE_VISUAL_OUTPUT_DIR` 设为绝对路径 `"$(pwd)/docs/assets/remote-connections"`，然后在 `desktop/` 下运行
 `../scripts/desktop/desktop-go.sh test -tags vivahead,lithevisual ./internal/workbench -run '^TestVisualRemoteConnections$' -count=1 -timeout 300s`。

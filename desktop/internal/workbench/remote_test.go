@@ -624,3 +624,20 @@ func TestRemoteImportCountsLeaveOutSavedHosts(t *testing.T) {
 		t.Fatalf("counts = %+v after saving alpha, want only beta", r.imports)
 	}
 }
+
+// The import's footer names only the groups the chosen Motty hosts bring that the list lacks, once
+// each in Motty's order, and none when the import does not keep groups.
+func TestRemoteImportNewGroupsAreTheChosenOnesTheListLacks(t *testing.T) {
+	app := &App{}
+	app.remote.groups = []string{"Production"}
+	m := &remoteImporter{source: remoteImportMotty, keepGroups: true, motty: core.RemoteMottyHosts{Candidates: []core.RemoteMottyCandidate{
+		{Key: "1", Group: "Production"}, {Key: "2", Group: "Staging"}, {Key: "3", Group: "Lab"}, {Key: "4", Group: "Staging"}, {Key: "5"},
+	}}, mottyChosen: []bool{true, true, false, true, true}}
+	if got, want := app.remoteImportNewGroups(m), []string{"Staging"}; !slices.Equal(got, want) {
+		t.Fatalf("new groups = %q, want %q", got, want)
+	}
+	m.keepGroups = false
+	if got := app.remoteImportNewGroups(m); got != nil {
+		t.Fatalf("new groups without keeping groups = %q", got)
+	}
+}

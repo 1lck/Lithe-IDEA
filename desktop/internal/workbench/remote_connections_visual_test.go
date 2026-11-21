@@ -219,14 +219,23 @@ func TestVisualRemoteConnections(t *testing.T) {
 			r.trust = nil
 
 			r.importer = &remoteImporter{source: remoteImportMotty, keepGroups: true, keepColors: true,
-				motty: core.RemoteMottyHosts{Database: "~/Library/Application Support/Motty/config.db", Groups: []string{"Production", "Lab"},
+				motty: core.RemoteMottyHosts{Database: "~/Library/Application Support/Motty/config.db", Format: "28", Groups: []string{"Production", "Staging", "Lab"},
 					Candidates: []core.RemoteMottyCandidate{
-						{Key: "1", Name: "Build box", Address: "dev@build.example:2222", Color: core.RemoteConnectionRed, Group: "Production", Status: core.RemoteImportExists, ExistingID: buildBox},
-						{Key: "2", Name: "Staging DB", Address: "postgres@db.staging.example", Color: core.RemoteConnectionBlue, Group: "Production", Status: core.RemoteImportable},
-						{Key: "3", Name: "GPU node", Address: "ml@gpu-07.lab.example", Color: core.RemoteConnectionPurple, Group: "Lab", Status: core.RemoteImportPartial},
+						{Key: "1", Name: "Build box", Address: "dev@build.example:2222", System: "ubuntu", Color: core.RemoteConnectionRed, Group: "Production", Status: core.RemoteImportExists, ExistingID: buildBox},
+						{Key: "2", Name: "Staging DB", Address: "postgres@db.staging.example", System: "debian", Color: core.RemoteConnectionBlue, Group: "Staging", Status: core.RemoteImportable},
+						{Key: "3", Name: "GPU node", Address: "ml@gpu-07.lab.example", System: "ubuntu", Color: core.RemoteConnectionPurple, Group: "Lab", Status: core.RemoteImportPartial,
+							Fields: []core.RemoteMottyField{
+								{Motty: "label", Value: "GPU node", Lithe: "name"},
+								{Motty: "address", Value: "gpu-07.lab.example", Lithe: "host"},
+								{Motty: "user", Value: "ml", Lithe: "user"},
+								{Motty: "ssh_options.identity_files", Value: "~/.ssh/lab_ed25519", Lithe: "identityFile"},
+								{Motty: "ssh_options.server_alive_interval", Value: "30", Lithe: "keepAliveSeconds"},
+								{Motty: "credential", Skip: core.RemoteMottySkipSecret},
+								{Motty: "ssh_options.forward_agent", Value: "true", Skip: core.RemoteMottySkipNoSetting},
+							}},
 						{Key: "4", Name: "Router", Address: "admin@192.0.2.1", Group: "Lab", Status: core.RemoteImportUnsupported},
 					}},
-				mottyChosen: []bool{true, true, true, false},
+				mottyChosen: []bool{true, true, true, false}, opened: "3",
 			}
 			shot("import")
 
