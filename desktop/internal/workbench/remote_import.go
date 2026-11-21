@@ -55,7 +55,7 @@ func remoteMottyChoosable(status core.RemoteImportStatus) bool {
 func (a *App) openRemoteImport(source remoteImportSource) {
 	r := &a.remote
 	r.importMenu = false
-	if !r.open || !r.editable() || r.saving || r.connect != nil || r.browser != nil {
+	if !r.open || !r.editable() || r.saving || r.connect != nil || !a.leaveRemoteFlows() {
 		return
 	}
 	a.performed("remote.import.open", surfaceButton)

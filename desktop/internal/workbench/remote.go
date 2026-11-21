@@ -339,6 +339,9 @@ func (r *remoteState) editingForm() bool {
 // newRemote starts a new connection; Cancel goes back to the one selected before.
 func (a *App) newRemote() {
 	r := &a.remote
+	if !a.leaveRemoteFlows() {
+		return
+	}
 	a.performed("remote.connection.new", surfaceButton)
 	if r.selected != "" {
 		r.previous = r.selected

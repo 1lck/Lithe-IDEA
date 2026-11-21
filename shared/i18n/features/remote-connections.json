@@ -658,13 +658,10 @@
     },
     {
       "id": "desktop.remote.browse.connected",
-      "description": "Remote Development window, folder browser after connecting: heading with the connection's name",
+      "description": "Remote Development window, folder page after connecting: green tag saying the host is connected",
       "platforms": [
         "desktop"
-      ],
-      "parameters": {
-        "name": "string"
-      }
+      ]
     },
     {
       "id": "desktop.remote.browse.path",
@@ -682,21 +679,7 @@
     },
     {
       "id": "desktop.remote.browse.up",
-      "description": "Remote Development window, folder browser after connecting: accessible label and tooltip of the button that lists the parent folder",
-      "platforms": [
-        "desktop"
-      ]
-    },
-    {
-      "id": "desktop.remote.browse.refresh",
-      "description": "Remote Development window, folder browser after connecting: accessible label and tooltip of the button that lists the folder again",
-      "platforms": [
-        "desktop"
-      ]
-    },
-    {
-      "id": "desktop.remote.browse.recent",
-      "description": "Remote Development window, folder browser after connecting: heading of the folders opened over this connection before",
+      "description": "Remote Development window, folder page after connecting: first row of the folder list, which lists the parent folder",
       "platforms": [
         "desktop"
       ]
@@ -710,34 +693,27 @@
     },
     {
       "id": "desktop.remote.browse.empty",
-      "description": "Remote Development window, folder browser after connecting: shown in place of the list when the folder has no subfolders",
+      "description": "Remote Development window, folder page after connecting: text in place of the list when the folder holds nothing",
       "platforms": [
         "desktop"
       ]
     },
     {
-      "id": "desktop.remote.browse.target",
-      "description": "Remote Development window, folder browser after connecting: footer text naming the host folder Open opens",
-      "platforms": [
-        "desktop"
-      ],
-      "parameters": {
-        "path": "string"
-      }
-    },
-    {
       "id": "desktop.remote.browse.back",
-      "description": "Remote Development window, folder browser after connecting: button that returns to the connection's form and ends the session",
+      "description": "Remote Development window, folder page after connecting: footer button that ends the session without opening a folder and shows the connection again",
       "platforms": [
         "desktop"
       ]
     },
     {
       "id": "desktop.remote.browse.open",
-      "description": "Remote Development window, folder browser after connecting: button that opens the chosen folder as a remote workspace",
+      "description": "Remote Development window, folder page after connecting: footer button that opens the chosen folder, naming its last path segment",
       "platforms": [
         "desktop"
-      ]
+      ],
+      "parameters": {
+        "name": "string"
+      }
     },
     {
       "id": "desktop.remote.browse.opening",
@@ -813,6 +789,51 @@
       "parameters": {
         "count": "integer"
       }
+    },
+    {
+      "id": "desktop.remote.browse.title",
+      "description": "Remote Development window, folder page after connecting: page title naming the saved connection the folder is chosen on",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "name": "string"
+      }
+    },
+    {
+      "id": "desktop.remote.browse.disconnect",
+      "description": "Remote Development window, folder page after connecting: button that ends the session and shows the connection again",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.remote.browse.go",
+      "description": "Remote Development window, folder page after connecting: button beside the path field that lists the folder typed",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.remote.browse.shortcuts",
+      "description": "Remote Development window, folder page after connecting: label before the folders used often (home folder and folders opened before)",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.remote.browse.home",
+      "description": "Remote Development window, folder page after connecting: button that lists the host account's home folder; ~ is the home folder",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.remote.browse.enterHint",
+      "description": "Remote Development window, folder page after connecting: hint at the end of a folder's row saying a double click lists it",
+      "platforms": [
+        "desktop"
+      ]
     },
     {
       "id": "desktop.remote.status.label",
@@ -2097,17 +2118,14 @@
       "desktop.remote.connecting": "Connecting… OpenSSH may ask for a password or to confirm the host key.",
       "desktop.remote.connect.notBundled": "This build of Lithe has no remote server for the host, so it cannot open a folder there.",
       "desktop.remote.connect.serverInvalid": "The remote server failed its integrity check and was not started. Reinstall Lithe and try again.",
-      "desktop.remote.browse.connected": "Connected to {name}",
+      "desktop.remote.browse.connected": "Connected",
       "desktop.remote.browse.path": "Folder path",
       "desktop.remote.browse.pathPlaceholder": "/home/user/project or ~/project",
-      "desktop.remote.browse.up": "Parent Folder",
-      "desktop.remote.browse.refresh": "Refresh",
-      "desktop.remote.browse.recent": "Recent Folders",
+      "desktop.remote.browse.up": "Parent folder",
       "desktop.remote.browse.folders": "Folders",
-      "desktop.remote.browse.empty": "This folder has no subfolders.",
-      "desktop.remote.browse.target": "Opens {path}",
-      "desktop.remote.browse.back": "Back",
-      "desktop.remote.browse.open": "Open",
+      "desktop.remote.browse.empty": "This folder is empty.",
+      "desktop.remote.browse.back": "Choose Later",
+      "desktop.remote.browse.open": "Open {name}",
       "desktop.remote.browse.opening": "Opening…",
       "desktop.remote.browse.lost": "The connection to the host closed. Connect again to choose a folder.",
       "desktop.remote.browse.notFound": "The folder does not exist on the host.",
@@ -2117,6 +2135,12 @@
       "desktop.remote.browse.anchorUnusable": "Cannot prepare the local folder that stands for remote workspaces: {path}",
       "desktop.remote.browse.openFailed": "Cannot open the folder: {reason}",
       "desktop.remote.browse.skipped": "Entries not listed because they could not be read: {count}",
+      "desktop.remote.browse.title": "Choose a Folder on {name}",
+      "desktop.remote.browse.disconnect": "Disconnect",
+      "desktop.remote.browse.go": "Go",
+      "desktop.remote.browse.shortcuts": "Frequent",
+      "desktop.remote.browse.home": "~ Home",
+      "desktop.remote.browse.enterHint": "Double-click to open",
       "desktop.remote.status.label": "Remote Connection",
       "desktop.remote.status.connected": "SSH: {name}",
       "desktop.remote.status.latency": "SSH: {name} · {ms} ms",
@@ -2358,17 +2382,14 @@
       "desktop.remote.connecting": "正在连接…OpenSSH 可能会询问密码或请你确认主机密钥。",
       "desktop.remote.connect.notBundled": "此版本的 Lithe 未包含适用于该主机的远端服务，无法打开主机上的文件夹。",
       "desktop.remote.connect.serverInvalid": "远端服务未通过完整性校验，没有启动。请重新安装 Lithe 后再试。",
-      "desktop.remote.browse.connected": "已连接到 {name}",
+      "desktop.remote.browse.connected": "已连接",
       "desktop.remote.browse.path": "文件夹路径",
       "desktop.remote.browse.pathPlaceholder": "/home/user/project 或 ~/project",
-      "desktop.remote.browse.up": "上级文件夹",
-      "desktop.remote.browse.refresh": "刷新",
-      "desktop.remote.browse.recent": "最近的文件夹",
+      "desktop.remote.browse.up": "上一级",
       "desktop.remote.browse.folders": "文件夹",
-      "desktop.remote.browse.empty": "此文件夹没有子文件夹。",
-      "desktop.remote.browse.target": "将打开 {path}",
-      "desktop.remote.browse.back": "返回",
-      "desktop.remote.browse.open": "打开",
+      "desktop.remote.browse.empty": "此文件夹是空的。",
+      "desktop.remote.browse.back": "稍后再选",
+      "desktop.remote.browse.open": "打开 {name}",
       "desktop.remote.browse.opening": "正在打开…",
       "desktop.remote.browse.lost": "与主机的连接已断开。请重新连接后再选择文件夹。",
       "desktop.remote.browse.notFound": "主机上不存在此文件夹。",
@@ -2378,6 +2399,12 @@
       "desktop.remote.browse.anchorUnusable": "无法准备代表远程工作区的本地文件夹：{path}",
       "desktop.remote.browse.openFailed": "无法打开文件夹：{reason}",
       "desktop.remote.browse.skipped": "有 {count} 个条目无法读取，未列出。",
+      "desktop.remote.browse.title": "选择 {name} 上的文件夹",
+      "desktop.remote.browse.disconnect": "断开",
+      "desktop.remote.browse.go": "前往",
+      "desktop.remote.browse.shortcuts": "常用",
+      "desktop.remote.browse.home": "~ 主目录",
+      "desktop.remote.browse.enterHint": "双击进入",
       "desktop.remote.status.label": "远程连接",
       "desktop.remote.status.connected": "SSH: {name}",
       "desktop.remote.status.latency": "SSH: {name} · {ms} 毫秒",

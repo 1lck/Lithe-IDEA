@@ -30,21 +30,23 @@ func (a *App) remoteView(c ui.C) {
 	open := true
 	ui.ModalWith(c, &open, a.remoteTitle(language), ui.ModalSpec{Width: remoteWindowWidth, Height: remoteWindowHeight}, func() {
 		k := c.Part("remote")
-		switch {
-		case r.importer != nil:
-			a.remoteImportView(k, language, r.importer)
-		case r.trust != nil:
-			a.remoteTrustView(k, language, r.trust)
-		case r.browser != nil:
-			a.remoteBrowserView(k, r.browser)
-		default:
-			ui.Row(k).Fill().Children(func() {
-				a.remoteList(k, language)
-				ui.Column(k).Width(1).FillHeight().Shrink(0).Background(a.colors.Line)
-				page := k.Part("page")
-				ui.Column(page).Grow(1).Basis(0).MinWidth(0).FillHeight().Children(func() { a.remotePage(page, language) })
+		ui.Row(k).Fill().Children(func() {
+			a.remoteList(k, language)
+			ui.Column(k).Width(1).FillHeight().Shrink(0).Background(a.colors.Line)
+			page := k.Part("page")
+			ui.Column(page).Grow(1).Basis(0).MinWidth(0).FillHeight().Children(func() {
+				switch {
+				case r.importer != nil:
+					a.remoteImportView(page, language, r.importer)
+				case r.trust != nil:
+					a.remoteTrustView(page, language, r.trust)
+				case r.browser != nil:
+					a.remoteBrowserView(page, r.browser)
+				default:
+					a.remotePage(page, language)
+				}
 			})
-		}
+		})
 	}, func() {
 		k := c.Part("remote-footer")
 		switch {
@@ -162,10 +164,14 @@ func (a *App) remoteRows(k ui.C, language i18n.Language, title string, rows []re
 		}
 	}).Scrollbars().FillWidth().Grow(1).Shrink(1).MinHeight(0).Label(title)
 	if r.list.Changed() {
-		if at := r.list.Selected(); at >= 0 && at < len(rows) && rows[at].entry != nil && (rows[at].entry.ID != r.selected || r.editing || r.steps != nil) {
+		if at := r.list.Selected(); at >= 0 && at < len(rows) && rows[at].entry != nil && (rows[at].entry.ID != r.selected || r.editing || r.steps != nil || r.browser != nil || r.importer != nil) {
 			id := rows[at].entry.ID
 			c := k
 			c.After(func() {
+				if !a.leaveRemoteFlows() {
+					r.syncListSelection()
+					return
+				}
 				a.performed("remote.connection.select", surfaceButton)
 				r.selectEntry(id)
 			})

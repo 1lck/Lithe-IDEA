@@ -309,10 +309,11 @@ func (h *harness) openBrowsedProject(t *testing.T, b *remoteBrowser) *project {
 	if got := b.target(); got != remoteTestHome+"/project" {
 		t.Fatalf("Open would open %q, want the selected folder", got)
 	}
-	if !h.shows(i18n.SharedFormat(h.app.language(), "desktop.remote.browse.target", map[string]string{"path": remoteTestHome + "/project"})) {
-		t.Fatal("the footer does not show the folder Open opens")
+	open := i18n.SharedFormat(h.app.language(), "desktop.remote.browse.open", map[string]string{"name": "project"})
+	if !h.shows(open) {
+		t.Fatal("Open does not name the folder it opens")
 	}
-	h.clickFront(i18n.Shared(h.app.language(), "desktop.remote.browse.open"))
+	h.clickFront(open)
 	h.await("the workspace's tree and first heartbeat", func() bool {
 		p := h.app.project
 		return p != nil && p.remote != nil && !p.remote.beating && p.tree.root != nil && p.tree.root.listed && !p.tree.reading
@@ -332,9 +333,12 @@ func TestRemoteWorkspaceOpensTheChosenFolder(t *testing.T) {
 	if got, want := b.folders, []string{"linked", "project", ".cache"}; !slices.Equal(got, want) {
 		t.Fatalf("listed %q, want %q", got, want)
 	}
-	if !h.shows(i18n.SharedFormat(lang, "desktop.remote.browse.connected", map[string]string{"name": remoteTestHost})) ||
-		!h.showsWrapped(remoteSkippedText(lang, 1)) || h.shows("notes.txt") {
-		t.Fatal("the browser does not show the connection with the home folder's subfolders")
+	if got, want := b.files, []string{"notes.txt"}; !slices.Equal(got, want) {
+		t.Fatalf("listed files %q, want %q", got, want)
+	}
+	if !h.shows(i18n.SharedFormat(lang, "desktop.remote.browse.title", map[string]string{"name": remoteTestHost})) ||
+		!h.showsWrapped(remoteSkippedText(lang, 1)) || !h.shows("notes.txt") {
+		t.Fatal("the browser does not show the connection with the home folder's entries")
 	}
 	if servers := k.servers[0]; len(servers) != 1 || servers[0].Path != "/bundle/lithe-server" {
 		t.Fatalf("connected with %+v, want the client's server builds", servers)
