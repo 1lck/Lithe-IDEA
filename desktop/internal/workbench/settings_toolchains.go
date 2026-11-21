@@ -71,6 +71,37 @@ func (s settingsToolchains) SetWorkspaceTrust(ctx context.Context, snapshot tool
 	return updated, nil
 }
 
+// LoadTrustedLocations reads the machine's trusted locations from the preference directory.
+func (s settingsToolchains) LoadTrustedLocations(ctx context.Context) (locations toolchain.TrustedLocations, err error) {
+	defer func() { s.recordFailure(ctx, "toolchain_settings_trusted_locations_load", err) }()
+	return toolchain.ReadTrustedLocations(ctx, s.app.kernel, s.app.globalToolchainRoot())
+}
+
+// PreviewTrustedLocations asks Core what the draft changes lead to, writing nothing.
+func (s settingsToolchains) PreviewTrustedLocations(ctx context.Context, locations toolchain.TrustedLocations, changes []toolchain.LocationChange) (preview []string, err error) {
+	defer func() { s.recordFailure(ctx, "toolchain_settings_trusted_locations_preview", err) }()
+	return locations.Preview(ctx, s.app.kernel, changes)
+}
+
+// SaveTrustedLocations writes the draft changes against the bytes locations were read from;
+// the open project then leaves or enters safe mode with its new trust, and the list is re-read.
+func (s settingsToolchains) SaveTrustedLocations(ctx context.Context, locations toolchain.TrustedLocations, changes []toolchain.LocationChange) (updated toolchain.TrustedLocations, err error) {
+	ctx = s.app.performedIn(ctx, "toolchain.trustedLocations.save", surfaceButton)
+	defer func() { s.recordFailure(ctx, "toolchain_settings_trusted_locations_save", err) }()
+	if _, err := locations.Save(ctx, s.app.kernel, changes); err != nil {
+		return locations, err
+	}
+	s.app.post(func(a *App) {
+		a.retryFailedPluginServers()
+		a.reloadProjectTrust(a.project)
+	})
+	updated, err = toolchain.ReadTrustedLocations(ctx, s.app.kernel, s.app.globalToolchainRoot())
+	if err != nil {
+		return locations, errors.Join(toolchain.ErrPinCommitted, err)
+	}
+	return updated, nil
+}
+
 // settingsToolchains is the settings window's adapter onto the workbench: it
 // reads the open project's enabled plugin manifests and writes explicit
 // directory pins. All calls run on the settings window's background worker.

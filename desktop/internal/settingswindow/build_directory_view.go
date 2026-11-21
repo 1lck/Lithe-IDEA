@@ -32,6 +32,7 @@ func (w *window) buildPage(c ui.C) {
 	if t := w.toolchains; t.available() {
 		t.ensureLoaded()
 		t.requestView()
+		t.locations.ensureLoaded()
 	}
 	if s := w.stepping; s.available() {
 		s.beginLoad()
@@ -230,6 +231,21 @@ func (w *window) directoryEntries(language i18n.Language) []directoryEntry {
 		desc: i18n.SharedFormat(language, "desktop.consoleSettings.directory", map[string]string{"encoding": w.consoleEncodingLabel(w.sess.values.ConsoleEncoding)}),
 		open: func() { w.openBuildChild(pageConsole) },
 	})
+	if l := w.toolchains.locations; l.available() {
+		entry := directoryEntry{
+			key: "trusted-locations", tile: locationsTile, icon: icons.ShieldCheck, title: titleOf(&w.text.Settings, pageTrustedLocations),
+			desc: i18n.Shared(language, "desktop.toolchains.loading"),
+			open: func() { w.openBuildChild(pageTrustedLocations) },
+		}
+		if l.loaded {
+			if count := len(l.source.Locations); count > 0 {
+				entry.desc = i18n.SharedFormat(language, "desktop.trustedLocations.directory", map[string]string{"count": formatCount(count)})
+			} else {
+				entry.desc = i18n.Shared(language, "desktop.trustedLocations.directoryNone")
+			}
+		}
+		entries = append(entries, entry)
+	}
 	for _, kind := range buildKinds {
 		var names []string
 		count := 0

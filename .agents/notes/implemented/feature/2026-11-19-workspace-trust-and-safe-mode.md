@@ -17,6 +17,7 @@ Maven 这类命令来源的模型会运行 `mvn`，pom 里的扩展和插件就�
 - **先问再打开。** `openProjectHere` 先读信任（`toolchain.ReadWorkspaceTrust`），再决定直接打开、以安全模式打开或提问；选“不打开”时当前项目原样保留，新开的项目页签直接关掉。“以安全模式预览”记成不信任，下次打开不再问，和 IDEA 的 `setProjectTrusted(false)` 相同。
 - **安全模式下的动作先问。** `startRun`、`runBuildTask`、`startTests`、运行当前文件和重新加载模型前，安全模式会弹出“信任项目？/ 保持安全模式”。信任保存成功后才执行原动作；保存失败按未信任处理。自动加载的模型不运行，构建窗口在模型位置显示安全模式说明。
 - **设置页和对话框是同一份记录。** 构建设置里撤销或授予工作区信任后，工作台重新读取信任并应用；离开安全模式时重新加载被跳过的模型和失败的语言服务器。
+- **可信位置有自己的设置页（#2207）。** 设置 › 构建、执行、部署 › 可信位置列出 Core 读出的 `trustedLocations`。增删都是草稿：每项改动单独交给 Core 的 `toolchains.editCatalog`（字段 `trustedLocations`）预演，页面显示 Core 算出的结果；Core 拒绝根目录（`plugin.toolchain.rootLocation`）和超过 256 项（`plugin.toolchain.trustListFull`），拒绝只丢掉这一项改动。“撤销修改”去掉该文件夹的全部改动，而不是追加一项反向改动，否则恢复的文件夹会跑到列表末尾。底栏应用时先写工具链、再写可信位置；两边共用偏好目录的 `toolchains/global.json`，任一方写入后把另一方读到的内容标记为过期，过期的列表在写入前先重新读取，改动相互抵消时不写文件。写入成功后工作台重试失败的语言服务器并重新判定当前项目的信任。
 
 ## 考虑过的备选方案
 
@@ -28,16 +29,18 @@ Maven 这类命令来源的模型会运行 `mvn`，pom 里的扩展和插件就�
 ## 后果
 
 - 测试 harness 默认把所有工作区当作信任（`Options.trustEveryWorkspace`，相当于 IDEA 单元测试模式关闭信任检查）；测试信任流程的用例要显式关掉。
-- 语言服务器和 Git 在安全模式下仍照常启动（#2208），可信位置也还没有独立的设置页（#2207）。
+- 安全模式下不启动会运行项目代码的语言服务器和 Git 由 #2208 处理；远程工作区的可信条目（#2231 的 S04）还没有界面，等远程连接界面一起做。
 - 通过 IDE API 发起的构建任务在安全模式下会被拒绝，同时提示用户信任。
 
 ## 验证
 
 - `desktop/internal/workbench/workspace_trust_test.go`：信任后打开并记住、勾选父文件夹后同级项目也被信任、不打开不留下任何状态、安全模式不加载模型且动作先问、提示条信任后消失。
 - Core 的 `rust/crates/toolchain` 和 `rust/crates/build` 测试，以及 `build-plans.json`、`toolchain-global-catalog.json` 两份 fixture 覆盖状态判定和计划拒绝。
+- `desktop/internal/toolchain/trusted_locations_test.go`（真实 Core）：预演不写文件、保存后嵌套项目被信任、过期列表写入被拒、相互抵消的改动不写文件、根目录被拒并指出是哪一项。`desktop/internal/settingswindow/trusted_locations_view_test.go`：草稿标记与撤销、拒绝只丢一项、应用前重读过期列表、写入后回读失败时重新读取。截图见 `docs/assets/trusted-locations/`。
 
 ```bash
 scripts/desktop/desktop-go.sh test ./internal/workbench/ -run 'TestTrusting|TestDontOpen|TestSafeMode'
+scripts/desktop/desktop-go.sh test ./internal/toolchain ./internal/settingswindow -run 'TrustedLocations'
 ```
 
 ## 适用范围
