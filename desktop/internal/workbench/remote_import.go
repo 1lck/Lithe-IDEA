@@ -43,6 +43,8 @@ type remoteImporter struct {
 	keepColors  bool
 	applying    bool
 	err         string
+	// opened is the Key of the Motty host whose settings show, or "".
+	opened string
 }
 
 // remoteMottyChoosable says whether a Motty host can be chosen: to import, or to give the saved
@@ -55,7 +57,7 @@ func remoteMottyChoosable(status core.RemoteImportStatus) bool {
 func (a *App) openRemoteImport(source remoteImportSource) {
 	r := &a.remote
 	r.importMenu = false
-	if !r.open || !r.editable() || r.saving || r.connect != nil || r.browser != nil {
+	if !r.open || !r.editable() || r.saving || r.connect != nil || !a.leaveRemoteFlows() {
 		return
 	}
 	a.performed("remote.import.open", surfaceButton)
@@ -202,6 +204,7 @@ func (a *App) applyRemoteImport() {
 				a.operationRejected("remote_import_apply", "not_committed")
 			}
 			r.setSource(after)
+			a.loadRemoteImportCounts()
 			if r.importer == m {
 				r.importer = nil
 			}
@@ -248,32 +251,40 @@ func remoteMottyUnavailableText(language i18n.Language, unavailable core.RemoteM
 	return i18n.Shared(language, "desktop.remote.import.mottyUnreadable")
 }
 
-// remoteImportView declares the import: where it reads, what it keeps, and the hosts.
+// remoteImportView declares the import: the source switch with what it reads, Motty's summary
+// with what an import keeps, and the hosts as a table.
 func (a *App) remoteImportView(c ui.C, language i18n.Language, m *remoteImporter) {
 	small := a.theme.Metrics.FontSizeS
-	ui.Column(c).Fill().Gap(12).PadSides(18, 24, 12, 24).Children(func() {
-		ui.Row(c.Part("head")).FillWidth().Items(ui.Center).Gap(12).Children(func() {
-			ui.Text(c, i18n.Shared(language, "desktop.remote.import.title")).FontSize(16).Weight(gfx.WeightSemibold).Grow(1).MinWidth(0).Ellipsis()
+	ui.Column(c).Fill().Gap(14).PadSides(18, 22, 12, 22).Children(func() {
+		ui.Row(c.Part("head")).FillWidth().Items(ui.Center).Gap(10).Children(func() {
 			ui.Choice(c.Part("source"), &m.source, []remoteImportSource{remoteImportMotty, remoteImportSSH}, func(source remoteImportSource) string {
 				if source == remoteImportSSH {
 					return i18n.Shared(language, "desktop.remote.import.source.ssh")
 				}
 				return i18n.Shared(language, "desktop.remote.import.source.motty")
-			})
+			}).Disabled(m.applying)
+			note := i18n.Shared(language, "desktop.remote.import.mottyNote")
+			help := ""
+			if m.motty.Database != "" {
+				help = i18n.SharedFormat(language, "desktop.remote.import.mottyHelp", map[string]string{"path": m.motty.Database})
+			}
+			if m.source == remoteImportSSH {
+				note = i18n.Shared(language, "desktop.remote.import.sshNote")
+				help = ""
+				if len(m.ssh.Files) > 0 {
+					help = i18n.SharedFormat(language, "desktop.remote.import.sshHelp", map[string]string{"files": strings.Join(m.ssh.Files, ", ")})
+				}
+			}
+			ui.Text(c, note).FontSize(small).Color(a.colors.Subtle).Ellipsis().Shrink(1).MinWidth(0)
+			if help != "" {
+				a.remoteHelp(c.Part("note"), help)
+			}
+			ui.Spacer(c)
+			if ui.Button(c.Part("reload"), i18n.Shared(language, "desktop.remote.import.reload")).Link().Small().Disabled(m.loading || m.applying).Clicked() {
+				source := m.source
+				c.After(func() { a.openRemoteImport(source) })
+			}
 		})
-		from := m.motty.Database
-		if m.source == remoteImportSSH {
-			from = strings.Join(m.ssh.Files, ", ")
-		}
-		if from != "" {
-			ui.Text(c, i18n.SharedFormat(language, "desktop.remote.import.from", map[string]string{"path": from})).FontSize(small).Color(a.colors.Subtle).Ellipsis().MinWidth(0)
-		}
-		if m.source == remoteImportMotty && m.motty.Unavailable == "" && len(m.motty.Candidates) > 0 {
-			ui.Row(c.Part("keep")).FillWidth().Gap(18).Children(func() {
-				ui.Checkbox(c.Part("groups"), &m.keepGroups, i18n.Shared(language, "desktop.remote.import.keepGroups")).Disabled(m.applying)
-				ui.Checkbox(c.Part("colors"), &m.keepColors, i18n.Shared(language, "desktop.remote.import.keepColors")).Disabled(m.applying)
-			})
-		}
 		if m.err != "" {
 			a.remoteNotice(c.Part("error"), icons.CircleX, a.theme.Danger, m.err)
 		}
@@ -288,84 +299,320 @@ func (a *App) remoteImportView(c ui.C, language i18n.Language, m *remoteImporter
 			a.remoteNotice(c.Part("ssh-error"), icons.CircleX, a.theme.Danger, m.sshErr)
 		case m.source == remoteImportMotty && len(m.motty.Candidates) == 0, m.source == remoteImportSSH && len(m.ssh.Hosts) == 0:
 			a.remoteNotice(c.Part("empty"), icons.Info, a.colors.Subtle, i18n.Shared(language, "desktop.remote.import.empty"))
+		case m.source == remoteImportSSH:
+			a.remoteSSHImportTable(c.Part("ssh"), language, m)
 		default:
-			a.remoteImportList(c.Part("hosts"), language, m)
+			a.remoteMottySummary(c.Part("summary"), language, m)
+			a.remoteMottyImportTable(c.Part("motty"), language, m)
 		}
 	})
 }
 
-// remoteImportList declares the hosts of the source shown, each with its box.
-func (a *App) remoteImportList(c ui.C, language i18n.Language, m *remoteImporter) {
-	type item struct {
-		name, address, system string
-		color                 core.RemoteConnectionColor
-		status                core.RemoteImportStatus
-		chosen                *bool
-		choosable             bool
-		detail                string
-	}
-	var items []item
-	if m.source == remoteImportSSH {
-		for index, host := range m.ssh.Hosts {
-			address := ""
-			if resolved := host.Resolved; resolved != nil {
-				address = remoteAddress(core.SSHConnection{Host: resolved.HostName, User: resolved.User, Port: resolved.Port})
-			}
-			detail := host.ExistingName
-			items = append(items, item{name: host.Alias, address: address, status: host.Status, chosen: &m.sshChosen[index], choosable: remoteImportable(host.Status), detail: detail})
-		}
-	} else {
-		for index, candidate := range m.motty.Candidates {
-			items = append(items, item{name: candidate.Name, address: candidate.Address, system: candidate.System, color: candidate.Color, status: candidate.Status,
-				chosen: &m.mottyChosen[index], choosable: remoteMottyChoosable(candidate.Status)})
-		}
-	}
+// remoteMottySummary declares what Motty's database holds, and whether the import keeps its
+// groups and colors.
+func (a *App) remoteMottySummary(c ui.C, language i18n.Language, m *remoteImporter) {
 	small := a.theme.Metrics.FontSizeS
-	ui.Scroll(c).FillWidth().Grow(1).Basis(0).MinHeight(0).Radius(6).Stroke(1, a.colors.Line).Children(func() {
-		ui.Column(c).FillWidth().Children(func() {
-			for index, host := range items {
-				k := c.KeyInt(index)
-				if index > 0 {
-					ui.Row(k.Part("line")).FillWidth().Height(1).Shrink(0).Background(a.colors.Line)
-				}
-				ui.Row(k).FillWidth().Height(remoteRowHeight).Items(ui.Center).Gap(10).PadX(12).Children(func() {
-					ui.Checkbox(k.Part("pick"), host.chosen, "").Label(host.name).Shrink(0).Disabled(!host.choosable || m.applying)
-					mark := ""
-					if host.system != "" {
-						mark = remoteSystemMark(&remoteProbeOutcome{result: core.RemoteProbeResult{Host: &core.RemoteProbedHost{System: host.system}}})
-					}
-					a.remoteTile(k.Part("tile"), mark, host.name, host.color, 26, 10)
+	ui.Row(c).FillWidth().Items(ui.Center).Gap(10).PadSides(10, 12, 10, 12).Radius(8).Background(a.colors.Hover).Stroke(1, a.colors.Line).Children(func() {
+		ui.Row(c.Part("mark")).Size(24, 24).Shrink(0).Center().Radius(5).Background(gfx.RGB24(0x111111)).Children(func() {
+			ui.Text(c, "M").FontSize(12).Weight(gfx.WeightBold).Color(gfx.RGB24(0xFFFFFF))
+		})
+		ui.Text(c, i18n.SharedFormat(language, "desktop.remote.import.mottyFound", map[string]string{
+			"hosts": strconv.Itoa(len(m.motty.Candidates)), "groups": strconv.Itoa(len(m.motty.Groups)), "format": m.motty.Format,
+		})).FontSize(small).Ellipsis().Shrink(1).MinWidth(0)
+		ui.Spacer(c)
+		ui.Checkbox(c.Part("groups"), &m.keepGroups, i18n.Shared(language, "desktop.remote.import.keepGroups")).Disabled(m.applying)
+		ui.Checkbox(c.Part("colors"), &m.keepColors, i18n.Shared(language, "desktop.remote.import.keepColors")).Disabled(m.applying)
+	})
+}
+
+// remoteImportHeader declares a table's column names over a line; a width of 0 grows.
+func (a *App) remoteImportHeader(c ui.C, lead, trail float32, columns []string, widths []float32) {
+	ui.Row(c).FillWidth().Height(30).Shrink(0).Items(ui.Center).Gap(10).PadX(10).Children(func() {
+		ui.Row(c.Part("lead")).Width(lead).Shrink(0)
+		for index, column := range columns {
+			cell := ui.Text(c.KeyInt(index), column).FontSize(a.theme.Metrics.FontSizeS).Weight(gfx.WeightMedium).Color(a.colors.Subtle).Ellipsis().MinWidth(0)
+			if widths[index] == 0 {
+				cell.Grow(1).Basis(0)
+			} else {
+				cell.Width(widths[index]).Shrink(0)
+			}
+		}
+		if trail > 0 {
+			ui.Row(c.Part("trail")).Width(trail).Shrink(0)
+		}
+	})
+	ui.Row(c.Part("line")).FillWidth().Height(1).Shrink(0).Background(a.colors.Line)
+}
+
+// remoteImportTag declares what an import does with a host, tinted by it.
+func (a *App) remoteImportTag(c ui.C, text string, status core.RemoteImportStatus) {
+	color := a.colors.Subtle
+	switch status {
+	case core.RemoteImportable:
+		color = a.colors.Success
+	case core.RemoteImportPartial:
+		color = a.colors.Warning
+	case core.RemoteImportInvalid, core.RemoteImportUnreadable:
+		color = a.theme.Danger
+	}
+	a.remoteTag(c, text, color)
+}
+
+// remoteTag declares a small rounded tag tinted with color.
+func (a *App) remoteTag(c ui.C, text string, color gfx.Color) {
+	ui.Row(c).Shrink(0).Height(20).Items(ui.Center).PadX(8).Radius(10).Background(color.WithAlpha(0.13)).Children(func() {
+		ui.Text(c, text).FontSize(a.theme.Metrics.FontSizeS).Color(color).Ellipsis().MinWidth(0)
+	})
+}
+
+// remoteSSHImportTable declares the Host names of ~/.ssh/config: each alias, what `ssh -G`
+// resolves it to, and what the import does with it.
+func (a *App) remoteSSHImportTable(c ui.C, language i18n.Language, m *remoteImporter) {
+	small := a.theme.Metrics.FontSizeS
+	widths := []float32{140, 0, 170}
+	ui.Column(c).FillWidth().Grow(1).Basis(0).MinHeight(0).Children(func() {
+		a.remoteImportHeader(c.Part("header"), 22, 0, []string{
+			i18n.Shared(language, "desktop.remote.import.column.alias"),
+			i18n.Shared(language, "desktop.remote.import.column.resolved"),
+			i18n.Shared(language, "desktop.remote.import.column.result"),
+		}, widths)
+		ui.Scroll(c.Part("rows")).FillWidth().Grow(1).Basis(0).MinHeight(0).Children(func() {
+			ui.Column(c).FillWidth().Children(func() {
+				for index, host := range m.ssh.Hosts {
+					k := c.KeyInt(index)
+					choosable := remoteImportable(host.Status)
 					color := a.colors.Text
-					if !host.choosable {
+					if !choosable {
 						color = a.colors.Subtle
 					}
-					ui.Column(k).Grow(1).Basis(0).MinWidth(0).Gap(2).Children(func() {
-						ui.Text(k, host.name).Weight(gfx.WeightMedium).Color(color).Ellipsis().MinWidth(0)
-						if host.address != "" {
-							ui.Text(k, host.address).Mono().FontSize(small).Color(a.colors.Subtle).Ellipsis().MinWidth(0)
+					ui.Row(k).FillWidth().MinHeight(38).Items(ui.Center).Gap(10).PadSides(8, 10, 8, 10).Children(func() {
+						ui.Row(k.Part("pick")).Width(22).Shrink(0).Children(func() {
+							ui.Checkbox(k.Part("box"), &m.sshChosen[index], "").Label(host.Alias).Disabled(!choosable || m.applying)
+						})
+						ui.Text(k, host.Alias).Mono().FontSize(small).Color(color).Width(widths[0]).Shrink(0).Ellipsis()
+						ui.Column(k).Grow(1).Basis(0).MinWidth(0).Gap(2).Children(func() {
+							switch {
+							case host.Status == core.RemoteImportPattern:
+								ui.Text(k, i18n.Shared(language, "desktop.remote.import.patternNote")).FontSize(small).Color(a.colors.Subtle).Ellipsis().MinWidth(0)
+							case host.Resolved != nil:
+								resolved := host.Resolved
+								ui.Text(k, remoteAddress(core.SSHConnection{Host: resolved.HostName, User: resolved.User, Port: resolved.Port})).
+									Mono().FontSize(small).Color(color).Ellipsis().MinWidth(0)
+							}
+							if len(host.UsedAsJumpBy) > 0 {
+								ui.Text(k, i18n.SharedFormat(language, "desktop.remote.import.jumpFor", map[string]string{"hosts": strings.Join(host.UsedAsJumpBy, ", ")})).
+									Mono().FontSize(small).Color(a.colors.Subtle).Ellipsis().MinWidth(0)
+							}
+						})
+						status := remoteImportStatusName(language, host.Status)
+						if host.Status == core.RemoteImportExists && host.ExistingName != "" {
+							status = i18n.SharedFormat(language, "desktop.remote.import.status.existsAs", map[string]string{"name": host.ExistingName})
 						}
+						ui.Row(k.Part("result")).Width(widths[2]).Shrink(0).Children(func() {
+							a.remoteImportTag(k.Part("status"), status, host.Status)
+						})
 					})
-					statusColor := a.colors.Subtle
-					switch host.status {
-					case core.RemoteImportable:
-						statusColor = a.colors.Success
-					case core.RemoteImportPartial:
-						statusColor = a.colors.Warning
-					}
-					a.remotePill(k.Part("status"), remoteImportStatusName(language, host.status), statusColor)
-				})
-			}
+					ui.Row(k.Part("line")).FillWidth().Height(1).Shrink(0).Background(a.colors.Line)
+				}
+			})
 		})
 	})
 }
 
-// remoteImportFooter declares how many hosts are chosen and the buttons that import them or go
-// back.
+// remoteMottyImportTable declares Motty's hosts: each with its color, system and address, its
+// group, what the import does with it, and, opened, how each of its settings is imported.
+func (a *App) remoteMottyImportTable(c ui.C, language i18n.Language, m *remoteImporter) {
+	small := a.theme.Metrics.FontSizeS
+	widths := []float32{0, 90, 210}
+	ui.Column(c).FillWidth().Grow(1).Basis(0).MinHeight(0).Children(func() {
+		a.remoteImportHeader(c.Part("header"), 22+10+10+10+26, 20, []string{
+			i18n.Shared(language, "desktop.remote.import.column.host"),
+			i18n.Shared(language, "desktop.remote.import.column.group"),
+			i18n.Shared(language, "desktop.remote.import.column.result"),
+		}, widths)
+		ui.Scroll(c.Part("rows")).FillWidth().Grow(1).Basis(0).MinHeight(0).Children(func() {
+			ui.Column(c).FillWidth().Children(func() {
+				for index, candidate := range m.motty.Candidates {
+					k := c.KeyInt(index)
+					choosable := remoteMottyChoosable(candidate.Status)
+					open := m.opened == candidate.Key
+					color := a.colors.Text
+					if !choosable {
+						color = a.colors.Subtle
+					}
+					ui.Row(k).FillWidth().MinHeight(44).Items(ui.Center).Gap(10).PadSides(6, 10, 6, 10).Children(func() {
+						ui.Row(k.Part("pick")).Width(22).Shrink(0).Children(func() {
+							ui.Checkbox(k.Part("box"), &m.mottyChosen[index], "").Label(candidate.Name).Disabled(!choosable || m.applying)
+						})
+						ui.Row(k.Part("color")).Width(10).Shrink(0).Center().Children(func() {
+							if tint, marked := remoteColor(a.colors.Dark, candidate.Color); marked {
+								a.remoteDot(k.Part("dot"), tint, 8)
+							}
+						})
+						mark := ""
+						if candidate.System != "" {
+							mark = remoteSystemMark(&remoteProbeOutcome{result: core.RemoteProbeResult{Host: &core.RemoteProbedHost{System: candidate.System}}})
+						}
+						a.remoteTile(k.Part("tile"), mark, candidate.Name, candidate.Color, 26, 10)
+						ui.Column(k).Grow(1).Basis(0).MinWidth(0).Gap(2).Children(func() {
+							ui.Text(k, candidate.Name).Weight(gfx.WeightMedium).Color(color).Ellipsis().MinWidth(0)
+							if candidate.Address != "" {
+								ui.Text(k, candidate.Address).Mono().FontSize(small).Color(a.colors.Subtle).Ellipsis().MinWidth(0)
+							}
+						})
+						group := candidate.Group
+						if group == "" {
+							group = "—"
+						}
+						ui.Text(k, group).FontSize(small).Color(color).Width(widths[1]).Shrink(0).Ellipsis()
+						ui.Row(k.Part("result")).Width(widths[2]).Shrink(0).Items(ui.Center).Gap(6).Children(func() {
+							a.remoteImportTag(k.Part("status"), remoteImportStatusName(language, candidate.Status), candidate.Status)
+							if candidate.Status == core.RemoteImportExists && m.mottyChosen[index] {
+								ui.Text(k, i18n.Shared(language, "desktop.remote.import.fill")).FontSize(small).Color(a.colors.Subtle).Ellipsis().Shrink(1).MinWidth(0)
+							}
+						})
+						icon := icons.ChevronRight
+						if open {
+							icon = icons.ChevronDown
+						}
+						if len(candidate.Fields) > 0 {
+							if ui.Button(k.Part("more"), i18n.Shared(language, "desktop.remote.import.details")).Icon(icon).IconOnly().Ghost().Size(20, 20).Shrink(0).Clicked() {
+								key := candidate.Key
+								c.After(func() {
+									if m.opened == key {
+										m.opened = ""
+									} else {
+										m.opened = key
+									}
+								})
+							}
+						} else {
+							ui.Row(k.Part("more")).Width(20).Shrink(0)
+						}
+					})
+					if open {
+						a.remoteMottyFields(k.Part("fields"), language, candidate.Fields)
+					}
+					ui.Row(k.Part("line")).FillWidth().Height(1).Shrink(0).Background(a.colors.Line)
+				}
+			})
+		})
+	})
+}
+
+// remoteMottyFields declares how each of a Motty host's settings is imported: Motty's setting and
+// value, the connection setting it becomes or why it is not imported.
+func (a *App) remoteMottyFields(c ui.C, language i18n.Language, fields []core.RemoteMottyField) {
+	small := a.theme.Metrics.FontSizeS
+	ui.Column(c).FillWidth().PadSides(6, 10, 10, 52).Background(a.colors.Hover).Children(func() {
+		for index, field := range fields {
+			k := c.KeyInt(index)
+			if index > 0 {
+				ui.Row(k.Part("line")).FillWidth().Height(1).Shrink(0).Background(a.colors.Line)
+			}
+			ui.Row(k).FillWidth().MinHeight(26).Items(ui.Center).Gap(10).PadY(3).Children(func() {
+				ui.Text(k, field.Motty).Mono().FontSize(small).Color(a.colors.Subtle).Grow(1).Basis(0).MinWidth(0).Ellipsis()
+				value := field.Value
+				if value == "" {
+					value = "—"
+				}
+				ui.Text(k, value).Mono().FontSize(small).Grow(1).Basis(0).MinWidth(0).Ellipsis()
+				ui.Text(k, "→").FontSize(small).Color(a.colors.Subtle).Shrink(0)
+				if field.Lithe != "" {
+					ui.Text(k, remoteMottyFieldName(language, field.Lithe)).FontSize(small).Grow(1.6).Basis(0).MinWidth(0).Ellipsis()
+				} else {
+					ui.Text(k, remoteMottySkipText(language, field.Skip)).FontSize(small).Color(a.colors.Subtle).Grow(1.6).Basis(0).MinWidth(0).Ellipsis()
+				}
+				ui.Row(k.Part("tag")).Width(110).Shrink(0).Children(func() {
+					ui.Spacer(k)
+					if field.Lithe != "" {
+						a.remoteTag(k.Part("imported"), i18n.Shared(language, "desktop.remote.import.field.imported"), a.colors.Success)
+					} else {
+						a.remoteTag(k.Part("skipped"), i18n.Shared(language, "desktop.remote.import.field.skipped"), a.theme.Danger)
+					}
+				})
+			})
+		}
+	})
+}
+
+// remoteMottyFieldName names the connection setting a Motty setting becomes, as the form names it.
+func remoteMottyFieldName(language i18n.Language, field string) string {
+	switch field {
+	case "name":
+		return i18n.Shared(language, "desktop.remote.name")
+	case "host":
+		return i18n.Shared(language, "desktop.remote.host")
+	case "user":
+		return i18n.Shared(language, "desktop.remote.user")
+	case "port":
+		return i18n.Shared(language, "desktop.remote.port")
+	case "color":
+		return i18n.Shared(language, "desktop.remote.color")
+	case "group":
+		return i18n.Shared(language, "desktop.remote.group")
+	case "identityFile":
+		return i18n.Shared(language, "desktop.remote.identityFile")
+	case "keepAliveSeconds":
+		return i18n.Shared(language, "desktop.remote.keepAlive")
+	case "proxyJump":
+		return i18n.Shared(language, "desktop.remote.proxyJump")
+	case "authentication":
+		return i18n.Shared(language, "desktop.remote.import.field.authentication")
+	}
+	return field
+}
+
+// remoteMottySkipText says why a Motty setting is not imported.
+func remoteMottySkipText(language i18n.Language, skip core.RemoteMottySkip) string {
+	switch skip {
+	case core.RemoteMottySkipSecret:
+		return i18n.Shared(language, "desktop.remote.import.skip.secret")
+	case core.RemoteMottySkipProtocol:
+		return i18n.Shared(language, "desktop.remote.import.skip.protocol")
+	case core.RemoteMottySkipCommand:
+		return i18n.Shared(language, "desktop.remote.import.skip.command")
+	case core.RemoteMottySkipKerberos:
+		return i18n.Shared(language, "desktop.remote.import.skip.kerberos")
+	case core.RemoteMottySkipExtraKey:
+		return i18n.Shared(language, "desktop.remote.import.skip.extraKey")
+	case core.RemoteMottySkipInvalid:
+		return i18n.Shared(language, "desktop.remote.import.skip.invalid")
+	}
+	return i18n.Shared(language, "desktop.remote.import.skip.noSetting")
+}
+
+// remoteImportNewGroups lists the groups the chosen Motty hosts bring that the list does not have,
+// in Motty's order.
+func (a *App) remoteImportNewGroups(m *remoteImporter) []string {
+	if m.source != remoteImportMotty || !m.keepGroups {
+		return nil
+	}
+	have := map[string]bool{}
+	for _, group := range a.remote.groups {
+		have[group] = true
+	}
+	var groups []string
+	for index, candidate := range m.motty.Candidates {
+		if index < len(m.mottyChosen) && m.mottyChosen[index] && candidate.Group != "" && !have[candidate.Group] {
+			have[candidate.Group] = true
+			groups = append(groups, candidate.Group)
+		}
+	}
+	return groups
+}
+
+// remoteImportFooter declares what the import saves and the buttons that import or go back.
 func (a *App) remoteImportFooter(c ui.C, language i18n.Language, m *remoteImporter) {
 	ui.Row(c).FillWidth().Items(ui.Center).Gap(8).Children(func() {
 		count := m.chosen()
-		ui.Text(c, i18n.SharedFormat(language, "desktop.remote.import.footer", map[string]string{"count": strconv.Itoa(count)})).
-			FontSize(a.theme.Metrics.FontSizeS).Color(a.colors.Subtle).Grow(1).MinWidth(0).Ellipsis()
+		text := i18n.SharedFormat(language, "desktop.remote.import.footer", map[string]string{"count": strconv.Itoa(count)})
+		if groups := a.remoteImportNewGroups(m); len(groups) > 0 {
+			text = i18n.SharedFormat(language, "desktop.remote.import.footerGroups", map[string]string{
+				"count": strconv.Itoa(count), "groupCount": strconv.Itoa(len(groups)), "groups": strings.Join(groups, ", "),
+			})
+		}
+		ui.Text(c, text).FontSize(a.theme.Metrics.FontSizeS).Color(a.colors.Subtle).Grow(1).MinWidth(0).Ellipsis()
 		if ui.Button(c.Part("cancel"), i18n.Shared(language, "desktop.remote.cancel")).Outline().Disabled(m.applying).Clicked() {
 			c.After(a.leaveRemoteImport)
 		}
@@ -373,7 +620,7 @@ func (a *App) remoteImportFooter(c ui.C, language i18n.Language, m *remoteImport
 		if m.applying {
 			label = i18n.Shared(language, "desktop.remote.import.applying")
 		}
-		if ui.Button(c.Part("apply"), label).Icon(icons.Download).Disabled(m.loading || m.applying || count == 0).Clicked() {
+		if ui.Button(c.Part("apply"), label).Disabled(m.loading || m.applying || count == 0).Clicked() {
 			c.After(a.applyRemoteImport)
 		}
 	})

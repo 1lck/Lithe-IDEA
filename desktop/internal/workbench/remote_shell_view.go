@@ -30,21 +30,23 @@ func (a *App) remoteView(c ui.C) {
 	open := true
 	ui.ModalWith(c, &open, a.remoteTitle(language), ui.ModalSpec{Width: remoteWindowWidth, Height: remoteWindowHeight}, func() {
 		k := c.Part("remote")
-		switch {
-		case r.importer != nil:
-			a.remoteImportView(k, language, r.importer)
-		case r.trust != nil:
-			a.remoteTrustView(k, language, r.trust)
-		case r.browser != nil:
-			a.remoteBrowserView(k, r.browser)
-		default:
-			ui.Row(k).Fill().Children(func() {
-				a.remoteList(k, language)
-				ui.Column(k).Width(1).FillHeight().Shrink(0).Background(a.colors.Line)
-				page := k.Part("page")
-				ui.Column(page).Grow(1).Basis(0).MinWidth(0).FillHeight().Children(func() { a.remotePage(page, language) })
+		ui.Row(k).Fill().Children(func() {
+			a.remoteList(k, language)
+			ui.Column(k).Width(1).FillHeight().Shrink(0).Background(a.colors.Line)
+			page := k.Part("page")
+			ui.Column(page).Grow(1).Basis(0).MinWidth(0).FillHeight().Children(func() {
+				switch {
+				case r.importer != nil:
+					a.remoteImportView(page, language, r.importer)
+				case r.trust != nil:
+					a.remoteTrustView(page, language, r.trust)
+				case r.browser != nil:
+					a.remoteBrowserView(page, r.browser)
+				default:
+					a.remotePage(page, language)
+				}
 			})
-		}
+		})
 	}, func() {
 		k := c.Part("remote-footer")
 		switch {
@@ -72,13 +74,18 @@ func (a *App) remoteTitle(language i18n.Language) string {
 	crumb := ""
 	switch {
 	case r.importer != nil:
-		crumb = i18n.Shared(language, "desktop.remote.import.title")
+		crumb = i18n.Shared(language, "desktop.remote.import.titleMotty")
+		if r.importer.source == remoteImportSSH {
+			crumb = i18n.Shared(language, "desktop.remote.import.titleSsh")
+		}
 	case r.browser != nil:
 		crumb = r.browser.name
 	case r.steps != nil:
 		crumb = r.steps.entry.Name
 	case r.editing && r.entry(r.selected) == nil:
 		crumb = i18n.Shared(language, "desktop.remote.newConnection")
+	case r.editing:
+		crumb = i18n.SharedFormat(language, "desktop.remote.editTitle", map[string]string{"name": r.entry(r.selected).Name})
 	case r.entry(r.selected) != nil:
 		crumb = r.entry(r.selected).Name
 	}
@@ -162,10 +169,14 @@ func (a *App) remoteRows(k ui.C, language i18n.Language, title string, rows []re
 		}
 	}).Scrollbars().FillWidth().Grow(1).Shrink(1).MinHeight(0).Label(title)
 	if r.list.Changed() {
-		if at := r.list.Selected(); at >= 0 && at < len(rows) && rows[at].entry != nil && (rows[at].entry.ID != r.selected || r.editing || r.steps != nil) {
+		if at := r.list.Selected(); at >= 0 && at < len(rows) && rows[at].entry != nil && (rows[at].entry.ID != r.selected || r.editing || r.steps != nil || r.browser != nil || r.importer != nil) {
 			id := rows[at].entry.ID
 			c := k
 			c.After(func() {
+				if !a.leaveRemoteFlows() {
+					r.syncListSelection()
+					return
+				}
 				a.performed("remote.connection.select", surfaceButton)
 				r.selectEntry(id)
 			})
@@ -205,13 +216,22 @@ func (a *App) remoteEntryRow(row ui.ListRow, language i18n.Language, entry core.
 	r := &a.remote
 	rc := row.C
 	small := a.theme.Metrics.FontSizeS
-	row.Element.Height(remoteRowHeight).Items(ui.Center).Gap(10).PadSides(0, 12, 0, 12)
+	row.Element.Height(remoteRowHeight).Items(ui.Center).Gap(9).PadSides(0, 12, 0, 0).Radius(6)
+	if entry.ID == r.selected {
+		row.Element.Background(a.colors.Selection)
+	}
+	// The stripe on the left is the connection's color; a connection without one keeps the
+	// stripe's room so the rows stay aligned.
+	stripe := ui.Row(rc.Part("stripe")).Width(3).Height(remoteRowHeight - 14).Shrink(0).Radius(1.5)
+	if tint, marked := remoteColor(a.colors.Dark, entry.Color); marked {
+		stripe.Background(tint)
+	}
 	a.remoteTile(rc.Part("tile"), remoteSystemMark(r.probedOutcome(entry.Connection)), entry.Name, entry.Color, 26, 10)
 	ui.Column(rc).Grow(1).Basis(0).MinWidth(0).Gap(2).Children(func() {
 		ui.Text(rc, entry.Name).Weight(gfx.WeightMedium).Ellipsis().MinWidth(0)
 		ui.Text(rc, remoteAddress(entry.Connection)).Mono().FontSize(small).Color(a.colors.Subtle).Ellipsis().MinWidth(0)
 	})
-	if a.remoteWindows(entry.ID) > 0 {
+	if a.remoteLive(entry.ID) {
 		ui.Row(rc.Part("live")).Shrink(0).Items(ui.Center).Gap(5).Children(func() {
 			a.remoteDot(rc.Part("dot"), a.colors.Success, 6)
 			ui.Text(rc, i18n.Shared(language, "desktop.remote.connectedNow")).FontSize(small).Color(a.colors.Success)

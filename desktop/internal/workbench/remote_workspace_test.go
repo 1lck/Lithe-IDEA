@@ -309,10 +309,11 @@ func (h *harness) openBrowsedProject(t *testing.T, b *remoteBrowser) *project {
 	if got := b.target(); got != remoteTestHome+"/project" {
 		t.Fatalf("Open would open %q, want the selected folder", got)
 	}
-	if !h.shows(i18n.SharedFormat(h.app.language(), "desktop.remote.browse.target", map[string]string{"path": remoteTestHome + "/project"})) {
-		t.Fatal("the footer does not show the folder Open opens")
+	open := i18n.SharedFormat(h.app.language(), "desktop.remote.browse.open", map[string]string{"name": "project"})
+	if !h.shows(open) {
+		t.Fatal("Open does not name the folder it opens")
 	}
-	h.clickFront(i18n.Shared(h.app.language(), "desktop.remote.browse.open"))
+	h.clickFront(open)
 	h.await("the workspace's tree and first heartbeat", func() bool {
 		p := h.app.project
 		return p != nil && p.remote != nil && !p.remote.beating && p.tree.root != nil && p.tree.root.listed && !p.tree.reading
@@ -332,9 +333,12 @@ func TestRemoteWorkspaceOpensTheChosenFolder(t *testing.T) {
 	if got, want := b.folders, []string{"linked", "project", ".cache"}; !slices.Equal(got, want) {
 		t.Fatalf("listed %q, want %q", got, want)
 	}
-	if !h.shows(i18n.SharedFormat(lang, "desktop.remote.browse.connected", map[string]string{"name": remoteTestHost})) ||
-		!h.showsWrapped(remoteSkippedText(lang, 1)) || h.shows("notes.txt") {
-		t.Fatal("the browser does not show the connection with the home folder's subfolders")
+	if got, want := b.files, []string{"notes.txt"}; !slices.Equal(got, want) {
+		t.Fatalf("listed files %q, want %q", got, want)
+	}
+	if !h.shows(i18n.SharedFormat(lang, "desktop.remote.browse.title", map[string]string{"name": remoteTestHost})) ||
+		!h.showsWrapped(remoteSkippedText(lang, 1)) || !h.shows("notes.txt") {
+		t.Fatal("the browser does not show the connection with the home folder's entries")
 	}
 	if servers := k.servers[0]; len(servers) != 1 || servers[0].Path != "/bundle/lithe-server" {
 		t.Fatalf("connected with %+v, want the client's server builds", servers)
@@ -554,5 +558,26 @@ func TestRemoteBrowserBackEndsTheSession(t *testing.T) {
 	}
 	if event := loggedAny(t, logger, remoteTestHome); event != "" {
 		t.Fatalf("logged a host path: %s", event)
+	}
+}
+
+// After a listing the folder page tags the subfolders holding a .git entry, a folder or a
+// worktree's file, and leaves the others untagged.
+func TestRemoteBrowserTagsGitRepositories(t *testing.T) {
+	h, k, _, _ := remoteWorkspaceHarness(t)
+	k.set(func(k *remoteHostKernel) {
+		k.kinds = map[string]core.RemoteFileKind{
+			remoteTestHome + "/project/.git": core.RemoteFileKindDirectory,
+			remoteTestHome + "/linked/.git":  core.RemoteFileKindFile,
+		}
+	})
+	b := h.connectAndBrowse(t)
+	h.await("the Git tags", func() bool { return b.repositories != nil })
+	h.settle()
+	if !b.repositories["project"] || !b.repositories["linked"] || b.repositories[".cache"] {
+		t.Fatalf("repositories = %v, want project and linked", b.repositories)
+	}
+	if !h.shows(i18n.Shared(h.app.language(), "desktop.remote.browse.git")) {
+		t.Fatal("the folder list does not tag the repositories")
 	}
 }

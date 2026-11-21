@@ -130,6 +130,12 @@ func (a *App) clearRemoteSearch() {
 	a.searchRemote()
 }
 
+// remoteLive reports whether the connection id is connected now: a window has it open, or this
+// window chooses a folder over its session.
+func (a *App) remoteLive(id string) bool {
+	return a.remoteWindows(id) > 0 || (a.remote.browser != nil && a.remote.browser.entryID == id)
+}
+
 // remoteWindows is how many open windows work in a folder over the saved connection id.
 func (a *App) remoteWindows(id string) int {
 	if a.sessions == nil {
@@ -296,14 +302,15 @@ func (a *App) remoteAutoPlaceholder(language i18n.Language, value, fallback stri
 }
 
 // loadRemoteImportCounts counts the hosts Motty and ~/.ssh/config hold that can be imported, for
-// the empty page's cards and the import menu.
+// the empty page's cards and the import menu. Core compares them with the saved list, so a host
+// already saved is not counted.
 func (a *App) loadRemoteImportCounts() {
 	generation, kernel := a.remote.generation, a.kernel
+	document, failure := a.remote.source.Document()
 	a.background(nil, remoteReadTimeout, func(ctx context.Context) func(*App) {
 		counts := remoteImportCounts{loaded: true}
-		var failure error
 		if dir, err := os.UserConfigDir(); err == nil {
-			hosts, err := kernel.RemoteMottyHosts(ctx, dir, nil)
+			hosts, err := kernel.RemoteMottyHosts(ctx, dir, document)
 			if err != nil {
 				failure = err
 			}
@@ -314,7 +321,7 @@ func (a *App) loadRemoteImportCounts() {
 			}
 		}
 		if home, err := os.UserHomeDir(); err == nil {
-			hosts, err := kernel.RemoteSSHConfigHosts(ctx, home, nil)
+			hosts, err := kernel.RemoteSSHConfigHosts(ctx, home, document)
 			if err != nil {
 				failure = err
 			}
