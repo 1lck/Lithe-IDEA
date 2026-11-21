@@ -1,6 +1,7 @@
 package core
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -82,9 +83,64 @@ func (c *Client) RemoteConnect(ctx context.Context, request RemoteConnectRequest
 	return result, nil
 }
 
+// RemoteStageName is a step remote.connect reports while it connects. Stages only move forward.
+type RemoteStageName string
+
+const (
+	// RemoteStageAuthenticated means the host's shell printed its first line.
+	RemoteStageAuthenticated RemoteStageName = "authenticated"
+	// RemoteStagePlatformChecked means the shell reported the host's platform.
+	RemoteStagePlatformChecked RemoteStageName = "platformChecked"
+	// RemoteStageUploading reports the server upload: once when it starts and every 256 KiB.
+	RemoteStageUploading RemoteStageName = "uploading"
+	// RemoteStageInstalled means the server is in place; Uploaded says whether it was sent.
+	RemoteStageInstalled RemoteStageName = "installed"
+)
+
+// RemoteStage is one remoteStage event of remote.connect.
+type RemoteStage struct {
+	Stage      RemoteStageName `json:"stage"`
+	SentBytes  uint64          `json:"sentBytes"`
+	TotalBytes uint64          `json:"totalBytes"`
+	Uploaded   bool            `json:"uploaded"`
+}
+
+type remoteStagesKey struct{}
+
+// WithRemoteStages returns a context whose RemoteConnect hands each stage to observe. observe runs
+// on the request's goroutine and must return promptly, posting the stage to the UI thread.
+func WithRemoteStages(ctx context.Context, observe func(RemoteStage)) context.Context {
+	return context.WithValue(ctx, remoteStagesKey{}, observe)
+}
+
+// remoteStageEvent is the execution event of a connection step.
+var remoteStageEvent = []byte(`"remoteStage"`)
+
+// remoteStageObserver hands each remoteStage event to the observer WithRemoteStages put in ctx;
+// nil when ctx has none.
+func remoteStageObserver(ctx context.Context) func(json.RawMessage) {
+	observe, _ := ctx.Value(remoteStagesKey{}).(func(RemoteStage))
+	if observe == nil {
+		return nil
+	}
+	return func(raw json.RawMessage) {
+		// Only the few lines naming the event are decoded.
+		if !bytes.Contains(raw, remoteStageEvent) {
+			return
+		}
+		var event struct {
+			Type string `json:"type"`
+			RemoteStage
+		}
+		if json.Unmarshal(raw, &event) == nil && event.Type == "remoteStage" && event.Stage != "" {
+			observe(event.RemoteStage)
+		}
+	}
+}
+
 // executeRemoteWithPrompts runs a remote request whose OpenSSH questions reach the prompt
-// WithGitAuthentication put in ctx as challenges with Remote set. Without a prompt each question
-// is cancelled at once.
+// WithGitAuthentication put in ctx as challenges with Remote set, and whose stages reach the
+// observer WithRemoteStages put there. Without a prompt each question is cancelled at once.
 func (c *Client) executeRemoteWithPrompts(ctx context.Context, command string, payload, result any) (observationErr, err error) {
 	prompt, _ := ctx.Value(gitAuthenticationKey{}).(func(GitAuthChallenge))
 	if prompt == nil {
@@ -98,7 +154,7 @@ func (c *Client) executeRemoteWithPrompts(ctx context.Context, command string, p
 	observer := gitAuthenticationObserver(func(challenge GitAuthChallenge) {
 		challenge.Remote = true
 		prompt(challenge)
-	}, returned, nil)
+	}, returned, remoteStageObserver(ctx))
 	return c.ExecuteWithEvents(ctx, command, payload, result, observer)
 }
 
