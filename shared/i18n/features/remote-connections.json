@@ -275,7 +275,7 @@
     },
     {
       "id": "desktop.remote.cancel",
-      "description": "Remote Development window: button that takes back the delete question",
+      "description": "Remote Development window: button that takes back the delete question, or leaves the form without saving what was typed",
       "platforms": [
         "desktop"
       ]
@@ -910,6 +910,163 @@
       "platforms": [
         "desktop"
       ]
+    },
+    {
+      "id": "desktop.remote.edit",
+      "description": "Remote Development window: button that turns the selected connection's overview into its form",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.remote.settings",
+      "description": "Remote Development window: heading of a saved connection's settings in its overview",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.remote.hostSection",
+      "description": "Remote Development window: heading of what the last test found about the host, in a connection's overview",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.remote.untested",
+      "description": "Remote Development window: text in a connection's overview before it was tested in this session",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.remote.via",
+      "description": "Remote Development window: address line of a connection's overview: the jump hosts it connects through",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "jump": "string"
+      }
+    },
+    {
+      "id": "desktop.remote.color",
+      "description": "Remote Development window: label of the color choice of a connection",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.remote.colorHelp",
+      "description": "Remote Development window: tip of the color choice",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.remote.color.none",
+      "description": "Remote Development window: color choice that leaves the connection without a color",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.remote.color.red",
+      "description": "Remote Development window: color choice",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.remote.color.orange",
+      "description": "Remote Development window: color choice",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.remote.color.yellow",
+      "description": "Remote Development window: color choice",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.remote.color.green",
+      "description": "Remote Development window: color choice",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.remote.color.blue",
+      "description": "Remote Development window: color choice",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.remote.color.purple",
+      "description": "Remote Development window: color choice",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.remote.group",
+      "description": "Remote Development window: label of the group a connection is listed under",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.remote.groupHelp",
+      "description": "Remote Development window: tip of the group choice",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.remote.group.none",
+      "description": "Remote Development window: group choice that lists the connection without a group",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.remote.group.new",
+      "description": "Remote Development window: group choice that names a new group in a field beside it",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.remote.groupPlaceholder",
+      "description": "Remote Development window: placeholder of the new group's name",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.remote.ungrouped",
+      "description": "Remote Development window: heading in the list of the connections without a group, shown when others have one",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.remote.error.groupTooLong",
+      "description": "Remote Development window: a group name longer than allowed",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.remote.error.groupInvalid",
+      "description": "Remote Development window: a group name with a control character",
+      "platforms": [
+        "desktop"
+      ]
     }
   ],
   "locales": {
@@ -998,6 +1155,28 @@
       "desktop.remoteAuth.secretHint": "The answer goes only to this SSH connection. Lithe does not keep it.",
       "desktop.remoteAuth.refused": "SSH did not take the answer: it may be at most 8192 bytes and may not contain a line break. The question was cancelled.",
       "desktop.remoteAuth.failed": "Cannot pass the answer to SSH: {reason}",
+      "desktop.remote.edit": "Edit",
+      "desktop.remote.settings": "Connection Settings",
+      "desktop.remote.hostSection": "Host",
+      "desktop.remote.untested": "Test the connection to see the host's system, CPUs, memory and disk.",
+      "desktop.remote.via": "via {jump}",
+      "desktop.remote.color": "Color",
+      "desktop.remote.colorHelp": "Marks the connection in the list, for example to tell production from test hosts. Kept on this computer only.",
+      "desktop.remote.color.none": "No Color",
+      "desktop.remote.color.red": "Red",
+      "desktop.remote.color.orange": "Orange",
+      "desktop.remote.color.yellow": "Yellow",
+      "desktop.remote.color.green": "Green",
+      "desktop.remote.color.blue": "Blue",
+      "desktop.remote.color.purple": "Purple",
+      "desktop.remote.group": "Group",
+      "desktop.remote.groupHelp": "The list shows connections under their group. Group names that differ only in case are the same group.",
+      "desktop.remote.group.none": "No Group",
+      "desktop.remote.group.new": "New Group…",
+      "desktop.remote.groupPlaceholder": "Group name",
+      "desktop.remote.ungrouped": "Ungrouped",
+      "desktop.remote.error.groupTooLong": "Too long: at most 64 characters.",
+      "desktop.remote.error.groupInvalid": "A group name cannot contain line breaks, tabs or other control characters.",
       "desktop.remote.connect": "Connect",
       "desktop.remote.connecting": "Connecting… OpenSSH may ask for a password or to confirm the host key.",
       "desktop.remote.connect.notBundled": "This build of Lithe has no remote server for the host, so it cannot open a folder there.",
@@ -1119,6 +1298,28 @@
       "desktop.remoteAuth.secretHint": "回答只交给这次 SSH 连接，Lithe 不会保存。",
       "desktop.remoteAuth.refused": "SSH 没有接受这个回答：回答最多 8192 字节，且不能包含换行。这个问题已取消。",
       "desktop.remoteAuth.failed": "无法把回答交给 SSH：{reason}",
+      "desktop.remote.edit": "编辑",
+      "desktop.remote.settings": "连接设置",
+      "desktop.remote.hostSection": "主机信息",
+      "desktop.remote.untested": "测试连接后，这里会显示主机的系统、CPU、内存和磁盘。",
+      "desktop.remote.via": "经 {jump}",
+      "desktop.remote.color": "颜色",
+      "desktop.remote.colorHelp": "在列表中标记这个连接，例如区分生产和测试主机。只保存在本机。",
+      "desktop.remote.color.none": "无颜色",
+      "desktop.remote.color.red": "红色",
+      "desktop.remote.color.orange": "橙色",
+      "desktop.remote.color.yellow": "黄色",
+      "desktop.remote.color.green": "绿色",
+      "desktop.remote.color.blue": "蓝色",
+      "desktop.remote.color.purple": "紫色",
+      "desktop.remote.group": "分组",
+      "desktop.remote.groupHelp": "左侧列表按分组列出连接。只差大小写的分组名视为同一个分组。",
+      "desktop.remote.group.none": "不分组",
+      "desktop.remote.group.new": "新建分组…",
+      "desktop.remote.groupPlaceholder": "分组名称",
+      "desktop.remote.ungrouped": "未分组",
+      "desktop.remote.error.groupTooLong": "太长：最多 64 个字符。",
+      "desktop.remote.error.groupInvalid": "分组名不能包含换行、制表符等控制字符。",
       "desktop.remote.connect": "连接",
       "desktop.remote.connecting": "正在连接…OpenSSH 可能会询问密码或请你确认主机密钥。",
       "desktop.remote.connect.notBundled": "此版本的 Lithe 未包含适用于该主机的远端服务，无法打开主机上的文件夹。",

@@ -43,11 +43,28 @@ func (h *harness) pressTest() {
 	}
 }
 
+// remoteProbeKernel reports a fixed probe outcome instead of starting OpenSSH; everything else
+// is the real Core.
+type remoteProbeKernel struct {
+	*core.Client
+	result core.RemoteProbeResult
+}
+
+func (k *remoteProbeKernel) RemoteProbe(context.Context, core.SSHConnection) (core.RemoteProbeResult, error) {
+	return k.result, nil
+}
+
 // remoteHarness is an English window with the Remote Development window open and its saved list
 // read, through the real Core.
 func remoteHarness(t *testing.T) (*harness, *treeRecordingLog) {
 	t.Helper()
-	h := newHarnessWithLanguages(t, &testKernel{Client: core.NewClient()}, []string{"en-US"})
+	return remoteHarnessWith(t, &testKernel{Client: core.NewClient()})
+}
+
+// remoteHarnessWith is remoteHarness through kernel.
+func remoteHarnessWith(t *testing.T, kernel Kernel) (*harness, *treeRecordingLog) {
+	t.Helper()
+	h := newHarnessWithLanguages(t, kernel, []string{"en-US"})
 	logger := &treeRecordingLog{}
 	h.app.logSink = logger
 	h.app.openRemote(surfaceMenu)
@@ -123,9 +140,9 @@ func rejected(logger *treeRecordingLog, operation, reason string) bool {
 	})
 }
 
-// A connection typed into the window is saved to the preference directory under the host's name,
-// edited in place and deleted after the footer's question; only the operations are logged, never
-// the host or the user.
+// A connection typed into the window is saved to the preference directory under the host's name
+// and shown in its overview, edited in place from the overview's Edit and deleted after the
+// footer's question; only the operations are logged, never the host or the user.
 func TestRemoteConnectionsSaveEditAndDelete(t *testing.T) {
 	h, logger := remoteHarness(t)
 	lang := h.app.language()
@@ -151,7 +168,14 @@ func TestRemoteConnectionsSaveEditAndDelete(t *testing.T) {
 	if r.selected == "" || r.selected != entries[0].ID || !h.shows("dev@build.example") || r.dirty() {
 		t.Fatalf("selected = %q, dirty = %v: the saved connection is not the one the form edits", r.selected, r.dirty())
 	}
+	if r.editingForm() || !h.shows(i18n.Shared(lang, "desktop.remote.settings")) || !h.showsWrapped(i18n.Shared(lang, "desktop.remote.untested")) {
+		t.Fatal("a saved connection does not show its overview")
+	}
 
+	h.clickLabeled(i18n.Shared(lang, "desktop.remote.edit"))
+	if !r.editingForm() || r.selected != entries[0].ID {
+		t.Fatal("Edit does not show the saved connection's form")
+	}
 	r.form.name.SetText("Build box")
 	r.form.port.SetText("2222")
 	h.redraw()
@@ -160,6 +184,9 @@ func TestRemoteConnectionsSaveEditAndDelete(t *testing.T) {
 	entries = savedRemoteConnections(t, h)
 	if len(entries) != 1 || entries[0].Name != "Build box" || entries[0].Connection.Port != 2222 || !h.shows("Build box") {
 		t.Fatalf("edited %+v, want the one connection renamed with its port", entries)
+	}
+	if r.editingForm() || !h.shows("dev@build.example:2222") {
+		t.Fatal("saving the edit does not go back to the overview")
 	}
 
 	h.clickLabeled(i18n.Shared(lang, "desktop.remote.delete"))
@@ -175,7 +202,7 @@ func TestRemoteConnectionsSaveEditAndDelete(t *testing.T) {
 	if got := savedRemoteConnections(t, h); len(got) != 0 || r.selected != "" || !h.showsWrapped(i18n.Shared(lang, "desktop.remote.empty")) {
 		t.Fatalf("after deleting: saved %v, selected %q", got, r.selected)
 	}
-	want := []string{"remote.connections.open", "remote.connection.save", "remote.connection.save", "remote.connection.remove"}
+	want := []string{"remote.connections.open", "remote.connection.save", "remote.connection.edit", "remote.connection.save", "remote.connection.remove"}
 	if got := remoteActions(logger); !slices.Equal(got, want) {
 		t.Fatalf("performed %q, want %q", got, want)
 	}
@@ -205,10 +232,176 @@ func TestRemoteSavedConnectionIsTheSelectedRow(t *testing.T) {
 		h.redraw()
 		h.clickLabeled(i18n.Shared(lang, "desktop.remote.save"))
 		h.redraw()
-		at := slices.IndexFunc(r.source.Connections, func(entry core.SavedRemoteConnection) bool { return entry.ID == r.selected })
-		if r.selected == "" || at < 0 || r.list.Selected() != at {
-			t.Fatalf("after saving %d: list row %d, want %d, the connection the form edits", len(r.source.Connections), r.list.Selected(), at)
+		at := r.list.Selected()
+		if r.selected == "" || at < 0 || at >= len(r.rows) || r.rows[at].entry == nil || r.rows[at].entry.ID != r.selected {
+			t.Fatalf("after saving %d: list row %d, want the row of %q, the connection the form edits", len(r.source.Connections), at, r.selected)
 		}
+	}
+}
+
+// A connection's color and group are kept with it in Core's list, a new group named in the field
+// beside the choice; the list heads its sections with their groups once any connection has one,
+// the connections without one last.
+func TestRemoteConnectionsColorAndGroup(t *testing.T) {
+	h, logger := remoteHarness(t)
+	lang := h.app.language()
+	r := &h.app.remote
+	r.form.host.SetText("lab-arm.internal")
+	h.redraw()
+	h.clickLabeled(i18n.Shared(lang, "desktop.remote.color.green"))
+	if r.form.color != core.RemoteConnectionGreen {
+		t.Fatalf("color = %q after clicking Green", r.form.color)
+	}
+	r.form.group = remoteNewGroup
+	h.redraw()
+	if got := h.focusedName(); got != i18n.Shared(lang, "desktop.remote.groupPlaceholder") {
+		t.Fatalf("focused %q, want the new group's name", got)
+	}
+	h.typeText("Lab")
+	h.clickLabeled(i18n.Shared(lang, "desktop.remote.save"))
+	h.settle()
+	entries := savedRemoteConnections(t, h)
+	if len(entries) != 1 || entries[0].Color != core.RemoteConnectionGreen || entries[0].Group != "Lab" {
+		t.Fatalf("saved %+v, want the green connection in Lab", entries)
+	}
+	if len(r.rows) != 2 || !r.rows[0].heading || r.rows[0].group != "Lab" || r.rows[0].count != 1 || !slices.Equal(r.groups, []string{"Lab"}) {
+		t.Fatalf("rows %+v, groups %q: want Lab's heading over its connection", r.rows, r.groups)
+	}
+
+	h.clickLabeled(i18n.Shared(lang, "desktop.remote.new"))
+	if r.form.color != "" || r.form.group != "" {
+		t.Fatalf("a new connection starts with color %q, group %q", r.form.color, r.form.group)
+	}
+	r.form.host.SetText("build.example")
+	h.redraw()
+	h.clickLabeled(i18n.Shared(lang, "desktop.remote.save"))
+	h.settle()
+	headings := func() (groups []string) {
+		for _, row := range r.rows {
+			if row.heading {
+				groups = append(groups, remoteGroupHeading(lang, row.group))
+			}
+		}
+		return groups
+	}
+	if got := headings(); !slices.Equal(got, []string{"Lab", i18n.Shared(lang, "desktop.remote.ungrouped")}) || !h.shows(i18n.Shared(lang, "desktop.remote.ungrouped")) {
+		t.Fatalf("headings %q, want Lab, then the connections without a group", got)
+	}
+
+	// An existing group is a choice of its own; choosing it moves the connection under it.
+	h.clickLabeled(i18n.Shared(lang, "desktop.remote.edit"))
+	r.form.group = "Lab"
+	h.redraw()
+	h.clickLabeled(i18n.Shared(lang, "desktop.remote.save"))
+	h.settle()
+	if got := headings(); !slices.Equal(got, []string{"Lab"}) || r.rows[0].count != 2 {
+		t.Fatalf("headings %q, rows %+v, want both connections under Lab", got, r.rows)
+	}
+	if event := loggedAny(t, logger, "lab-arm.internal", "build.example"); event != "" {
+		t.Fatalf("logged the connection: %s", event)
+	}
+}
+
+// Cancel drops what was typed: an edited connection shows its overview as saved, and a new one
+// gives way to the connection selected before New.
+func TestRemoteCancelGoesBackToTheSavedConnection(t *testing.T) {
+	h, logger := remoteHarness(t)
+	lang := h.app.language()
+	r := &h.app.remote
+	for index, host := range []string{"lab-arm.internal", "build.example"} {
+		if index > 0 {
+			h.clickLabeled(i18n.Shared(lang, "desktop.remote.new"))
+		}
+		r.form.host.SetText(host)
+		h.redraw()
+		h.clickLabeled(i18n.Shared(lang, "desktop.remote.save"))
+		h.settle()
+	}
+	build := r.selected
+	if entry := r.entry(build); entry == nil || entry.Name != "build.example" || r.editingForm() {
+		t.Fatalf("selected %q, want the overview of the second connection", build)
+	}
+
+	h.clickLabeled(i18n.Shared(lang, "desktop.remote.edit"))
+	r.form.name.SetText("Renamed")
+	h.redraw()
+	if !r.dirty() {
+		t.Fatal("a renamed connection is not dirty")
+	}
+	h.clickLabeled(i18n.Shared(lang, "desktop.remote.cancel"))
+	if r.editingForm() || r.selected != build || r.form.name.Text() != "build.example" || h.shows("Renamed") {
+		t.Fatalf("after Cancel: editing = %v, selected = %q, name = %q", r.editingForm(), r.selected, r.form.name.Text())
+	}
+
+	h.clickLabeled(i18n.Shared(lang, "desktop.remote.new"))
+	if !r.editingForm() || r.selected != "" {
+		t.Fatal("New does not show an empty form")
+	}
+	h.clickLabeled(i18n.Shared(lang, "desktop.remote.cancel"))
+	if r.editingForm() || r.selected != build {
+		t.Fatalf("after cancelling New: selected %q, want %q", r.selected, build)
+	}
+	if got := savedRemoteConnections(t, h); len(got) != 2 || got[1].Name != "build.example" {
+		t.Fatalf("saved %+v, want both connections as saved", got)
+	}
+	want := []string{
+		"remote.connections.open", "remote.connection.save", "remote.connection.new", "remote.connection.save",
+		"remote.connection.edit", "remote.connection.edit.cancel", "remote.connection.new", "remote.connection.edit.cancel",
+	}
+	if got := remoteActions(logger); !slices.Equal(got, want) {
+		t.Fatalf("performed %q, want %q", got, want)
+	}
+}
+
+// What a test found about the host shows in the overview of the connection it tested, after the
+// connection is saved and again after the window is opened anew; a connection never tested says
+// how to find out.
+func TestRemoteOverviewShowsTheTestedHost(t *testing.T) {
+	const gib = uint64(1) << 30
+	kernel := &remoteProbeKernel{Client: core.NewClient(), result: core.RemoteProbeResult{
+		Status: core.RemoteProbeConnected,
+		Host: &core.RemoteProbedHost{
+			System: "Linux", Machine: "x86_64", HomeDirectory: "/home/dev",
+			Details: core.RemoteHostDetails{HostName: "build-01", CPUCount: 16, MemoryBytes: 64 * gib},
+		},
+	}}
+	h, _ := remoteHarnessWith(t, kernel)
+	lang := h.app.language()
+	r := &h.app.remote
+	r.form.host.SetText("build.example")
+	r.form.user.SetText(" dev ")
+	h.redraw()
+	h.clickLabeled(i18n.Shared(lang, "desktop.remote.test"))
+	h.await("the test to finish", func() bool { return r.probe == nil && r.result != nil })
+	h.settle()
+	if !h.shows("build-01") {
+		t.Fatal("the form does not show what the test found")
+	}
+	h.clickLabeled(i18n.Shared(lang, "desktop.remote.save"))
+	h.settle()
+	shown := func() bool {
+		return !r.editingForm() && h.shows("build-01") && h.shows(i18n.Shared(lang, "desktop.remote.probe.cpu")) &&
+			!h.showsWrapped(i18n.Shared(lang, "desktop.remote.untested"))
+	}
+	if !shown() {
+		t.Fatal("the saved connection's overview does not show the host the test found")
+	}
+
+	h.app.closeRemote()
+	h.app.openRemote(surfaceMenu)
+	h.settle()
+	h.settle()
+	if !shown() {
+		t.Fatal("the overview forgot the tested host when the window opened again")
+	}
+
+	h.clickLabeled(i18n.Shared(lang, "desktop.remote.new"))
+	r.form.host.SetText("lab-arm.internal")
+	h.redraw()
+	h.clickLabeled(i18n.Shared(lang, "desktop.remote.save"))
+	h.settle()
+	if h.shows("build-01") || !h.showsWrapped(i18n.Shared(lang, "desktop.remote.untested")) {
+		t.Fatal("a connection never tested shows another one's host")
 	}
 }
 

@@ -317,7 +317,7 @@ PINNED_CORE_REPOSITORY="https://github.com/Lithe-IDEA/Lithe-core-rust.git"
 # Lithe-core-rust main at 66a1476: #147 starts, stops and lists port forwards
 # (remote.startForward, remote.stopForward, remote.forwards) and names the process of each
 # listening port (S28/S29, #2231).
-PINNED_CORE_REVISION="66a147629cc9f82fc551a52682b522230e6a8340"
+PINNED_CORE_REVISION="53c7cfa473f7cd5c41ace7d7a872f02fb5a89865"
 PROFILE="debug"
 CHECKOUT_ONLY="no"
 while [[ $# -gt 0 ]]; do

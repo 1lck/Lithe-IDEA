@@ -56,8 +56,39 @@ type SavedRemoteConnection struct {
 	Name string `json:"name"`
 	// Connection is how to reach the host.
 	Connection SSHConnection `json:"connection"`
+	// Color is the entry's accent color; empty for none.
+	Color RemoteConnectionColor `json:"color,omitempty"`
+	// Group is the group the entry is listed under; empty for none.
+	Group string `json:"group,omitempty"`
 	// RecentFolders are the host folders opened over the entry, the latest first.
 	RecentFolders []string `json:"recentFolders,omitempty"`
+}
+
+// RemoteConnectionColor is an accent color Core accepts for a saved connection. The client picks
+// the shade for its light and dark themes.
+type RemoteConnectionColor string
+
+// The accent colors Core accepts.
+const (
+	RemoteConnectionRed    RemoteConnectionColor = "red"
+	RemoteConnectionOrange RemoteConnectionColor = "orange"
+	RemoteConnectionYellow RemoteConnectionColor = "yellow"
+	RemoteConnectionGreen  RemoteConnectionColor = "green"
+	RemoteConnectionBlue   RemoteConnectionColor = "blue"
+	RemoteConnectionPurple RemoteConnectionColor = "purple"
+)
+
+// RemoteConnectionColors are the accent colors, in the order the connection window offers them.
+var RemoteConnectionColors = []RemoteConnectionColor{
+	RemoteConnectionRed, RemoteConnectionOrange, RemoteConnectionYellow,
+	RemoteConnectionGreen, RemoteConnectionBlue, RemoteConnectionPurple,
+}
+
+// RemoteConnectionSection is one heading of the connection list: the entries of Group, or of no
+// group when Group is nil, in the order Core lists them.
+type RemoteConnectionSection struct {
+	Group *string  `json:"group"`
+	IDs   []string `json:"ids"`
 }
 
 // RemoteConnectionsStorage says where the host keeps the document: RelativePath inside the
@@ -69,15 +100,20 @@ type RemoteConnectionsStorage struct {
 
 // RemoteConnectionsState is the document as Core reads it.
 type RemoteConnectionsState struct {
-	Connections []SavedRemoteConnection  `json:"connections"`
-	Storage     RemoteConnectionsStorage `json:"storage"`
+	Connections []SavedRemoteConnection `json:"connections"`
+	// Sections are the headings the window lists the entries under, ungrouped last.
+	Sections []RemoteConnectionSection `json:"sections"`
+	Storage  RemoteConnectionsStorage  `json:"storage"`
 }
 
-// RemoteConnectionSave adds a connection, or replaces the entry ID when ID is set.
+// RemoteConnectionSave adds a connection, or replaces the entry ID when ID is set. An empty
+// Color or Group saves the entry without one, so a save carries the entry's current values.
 type RemoteConnectionSave struct {
-	ID         string        `json:"id,omitempty"`
-	Name       string        `json:"name"`
-	Connection SSHConnection `json:"connection"`
+	ID         string                `json:"id,omitempty"`
+	Name       string                `json:"name"`
+	Connection SSHConnection         `json:"connection"`
+	Color      RemoteConnectionColor `json:"color,omitempty"`
+	Group      string                `json:"group,omitempty"`
 }
 
 // RemoteConnectionID names an entry to remove.
@@ -101,10 +137,11 @@ type RemoteConnectionEdit struct {
 // RemoteConnectionsPublication is the outcome of an edit. Document is the text to publish, nil
 // when the edit changed nothing; ID names the entry a save wrote.
 type RemoteConnectionsPublication struct {
-	Changed     bool                    `json:"changed"`
-	Document    *string                 `json:"document"`
-	Connections []SavedRemoteConnection `json:"connections"`
-	ID          string                  `json:"id"`
+	Changed     bool                      `json:"changed"`
+	Document    *string                   `json:"document"`
+	Connections []SavedRemoteConnection   `json:"connections"`
+	Sections    []RemoteConnectionSection `json:"sections"`
+	ID          string                    `json:"id"`
 }
 
 // RemoteConnections reads the saved connections from document, the text of the source or nil
