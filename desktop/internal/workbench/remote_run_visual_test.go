@@ -17,8 +17,9 @@ import (
 )
 
 // TestVisualRemoteRun captures a built-in run configuration of a remote workspace that ran on the
-// host: the Run window's tab with the host badge and the host process's output, and the title
-// bar's run configuration menu, which says build tools do not run in a remote workspace yet.
+// host after its before-launch step, another built-in run, ran there: the Run window's tab with
+// the host badge, the step's header and both host processes' output, and the title bar's run
+// configuration menu, which says build tools do not run in a remote workspace yet.
 func TestVisualRemoteRun(t *testing.T) {
 	out := os.Getenv("LITHE_VISUAL_OUTPUT_DIR")
 	if out == "" {
@@ -41,7 +42,10 @@ func TestVisualRemoteRun(t *testing.T) {
 			// The folder was kept in safe mode before, so it opens without the trust question.
 			kernel.git.trust = map[string]string{remoteTestFolder: core.WorkspaceDistrusted}
 			zero := 0
-			kernel.runs.configurations = []core.RunConfiguration{remoteTestRunConfiguration}
+			// Greet starts once Prepare, another built-in run, ran before it on the host.
+			prepare := core.RunConfiguration{ID: "prepare", Name: "Prepare", Provider: runProviderShell}
+			kernel.runs.configurations = []core.RunConfiguration{prepare, remoteTestRunConfiguration}
+			kernel.runs.steps = []core.RunBeforeLaunchItem{{ConfigurationID: prepare.ID, Name: prepare.Name}}
 			kernel.runs.exit = core.RemoteProcessExit{ExitCode: &zero}
 			kernel.runs.plan = core.RunLaunchPlan{
 				Executable:       core.RunPlanExecutable{Command: "sh"},
@@ -91,14 +95,14 @@ func TestVisualRemoteRun(t *testing.T) {
 			p := h.openRemoteTestProject(t)
 			h.app.post(func(a *App) { a.loadBuildSystems(p) })
 			h.await("the remote workspace's run configurations", func() bool {
-				return p.runConfigs.generation > 0 && !p.runConfigs.loading && len(p.runConfigs.list) == 1
+				return p.runConfigs.generation > 0 && !p.runConfigs.loading && len(p.runConfigs.list) == 2
 			})
 			h.app.chooseTitleConfiguration(p, remoteTestRunConfiguration.ID)
 			h.app.openToolWindow(itemRun)
 			h.startRemoteRun(p, remoteTestRunConfiguration.ID)
 			run := h.awaitRemoteRun(p, remoteTestRunConfiguration.Name, nil)
-			h.await("the host process's output in the console", func() bool {
-				return strings.Contains(run.output.all(), "hello from the host")
+			h.await("the step's and the configuration's host output in the console", func() bool {
+				return strings.Count(run.output.all(), "hello from the host") == 2
 			})
 			// The pointer leaves the title bar, whose tooltip would cover the console.
 			if err := h.driver.Move(800, 300); err != nil {

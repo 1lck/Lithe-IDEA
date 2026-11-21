@@ -327,14 +327,17 @@ func TestRemoteWorkspaceRunEndsAsTheHostProcessEnds(t *testing.T) {
 }
 
 // A remote workspace refuses, with its reason, what it cannot run on the host yet: a
-// configuration with before-launch steps, a debug session and a program chosen through a
-// toolchain. None of them starts a host process.
+// configuration whose before-launch list names a plugin's task, a debug session and a program
+// chosen through a toolchain. None of them starts a host process.
 func TestRemoteWorkspaceRefusesRunsItCannotStartOnTheHost(t *testing.T) {
 	h, k, p, _ := openRemoteRunProject(t)
 	lang := h.app.language()
 
 	k.setRuns(func(r *remoteHostRuns) {
-		r.steps = []core.RunBeforeLaunchItem{{Name: "build"}}
+		r.steps = []core.RunBeforeLaunchItem{
+			{ConfigurationID: remoteTestRunConfiguration.ID, Name: "Prepare"},
+			{Task: &core.RunTaskReference{RunTypeKey: core.RunTypeKey{PluginID: "dev.example.build", BuildSystemID: "example", Type: "compile"}}, Name: "Compile"},
+		}
 	})
 	h.startRemoteRun(p, remoteTestRunConfiguration.ID)
 	refused := h.awaitRemoteRun(p, remoteTestRunConfiguration.Name, nil)
@@ -364,6 +367,85 @@ func TestRemoteWorkspaceRefusesRunsItCannotStartOnTheHost(t *testing.T) {
 	}
 	if opens, _, _, _, _ := k.hostRuns(); len(opens) != 0 {
 		t.Fatalf("the host started %d processes", len(opens))
+	}
+}
+
+// A remote workspace runs the before-launch steps that start another built-in run on its host,
+// in order and over the workspace's session, with their output and headers in the console of the
+// configuration that starts, which starts once every step exited with 0. Each step's temporary
+// folder is removed before the next starts. A step that exits with a code ends the start with
+// it, and stopping the start while a step runs asks the step's host process to end first.
+func TestRemoteWorkspaceRunsBeforeLaunchStepsOnTheHost(t *testing.T) {
+	previous := buildprocess.StopGrace()
+	t.Cleanup(func() { buildprocess.SetStopGrace(previous) })
+	// The window sets the stop time from the setting when it opens; the harness never opens one.
+	buildprocess.SetStopGrace(8 * time.Second)
+	h, k, p, logger := openRemoteRunProject(t)
+	lang := h.app.language()
+	k.setRuns(func(r *remoteHostRuns) {
+		r.steps = []core.RunBeforeLaunchItem{{ConfigurationID: remoteTestRunConfiguration.ID, Name: "Prepare"}}
+	})
+	h.startRemoteRun(p, remoteTestRunConfiguration.ID)
+	run := h.awaitRemoteRun(p, remoteTestRunConfiguration.Name, nil)
+	header := i18n.SharedFormat(lang, "desktop.runConfig.beforeLaunch.stepHeader", map[string]string{"index": "1", "count": "1", "name": "Prepare"})
+	console := run.output.all()
+	if run.outcome != runSucceeded || !strings.Contains(console, header) || strings.Count(console, "hello from the host") != 2 {
+		t.Fatalf("the run ended %v: %s; console:\n%s", run.outcome, run.summary, console)
+	}
+	opens, sessions, bases, removed, _ := k.hostRuns()
+	if len(opens) != 2 || opens[0].Label == nil || opens[0].Label.Name != "Prepare" || opens[1].Label == nil || opens[1].Label.Name != remoteTestRunConfiguration.Name {
+		t.Fatalf("the host started %d processes, want the step's and then the configuration's", len(opens))
+	}
+	for _, session := range sessions {
+		if session != p.remote.session {
+			t.Fatal("a process started over another session")
+		}
+	}
+	if len(bases) != 2 || len(removed) != 2 || opens[0].Cwd != remoteTestFolder+"/src" {
+		t.Fatalf("%d plans, %d temporary folders removed, step cwd matched %v", len(bases), len(removed), opens[0].Cwd == remoteTestFolder+"/src")
+	}
+
+	three := 3
+	k.setRuns(func(r *remoteHostRuns) { r.exit = core.RemoteProcessExit{ExitCode: &three} })
+	h.app.post(func(a *App) { p.closeRunSession(run.id) })
+	h.startRemoteRun(p, remoteTestRunConfiguration.ID)
+	failed := h.awaitRemoteRun(p, remoteTestRunConfiguration.Name, run)
+	exited := i18n.SharedFormat(lang, "desktop.runConfig.beforeLaunch.exited", map[string]string{"name": "Prepare", "code": "3"})
+	if failed.outcome == runSucceeded || !strings.Contains(failed.output.all(), exited) {
+		t.Fatalf("a step that exited with 3 ended the start %v; console:\n%s", failed.outcome, failed.output.all())
+	}
+	if opens, _, _, _, _ := k.hostRuns(); len(opens) != 3 {
+		t.Fatalf("the configuration started after its step failed: %d processes", len(opens))
+	}
+
+	ended := make(chan struct{})
+	k.setRuns(func(r *remoteHostRuns) { r.hold, r.signalled, r.ended = true, make(chan struct{}), ended })
+	h.app.post(func(a *App) { p.closeRunSession(failed.id) })
+	h.startRemoteRun(p, remoteTestRunConfiguration.ID)
+	h.await("the held step to start", func() bool {
+		opens, _, _, _, _ := k.hostRuns()
+		return len(opens) == 4
+	})
+	h.app.post(func(a *App) { a.stopOperation(p, p.build.runOf(configurationRunKey(remoteTestRunConfiguration.ID))) })
+	h.await("stopping the start to end the step's host process", func() bool {
+		select {
+		case <-ended:
+			return true
+		default:
+			return false
+		}
+	})
+	stopped := h.awaitRemoteRun(p, remoteTestRunConfiguration.Name, failed)
+	opens, _, _, removed, kills := k.hostRuns()
+	if len(kills) == 0 || kills[0] != "term" || len(opens) != 4 || len(removed) != 4 {
+		t.Fatalf("the stop sent %v; %d processes started, %d temporary folders removed", kills, len(opens), len(removed))
+	}
+	if stopped.outcome == runSucceeded {
+		t.Fatal("a stopped start ended as succeeded")
+	}
+	sessionKept(t, logger, p, p.remote.session)
+	if event := loggedAny(t, logger, remoteTestHost, remoteTestHome); event != "" {
+		t.Fatalf("logged the host or its paths: %s", event)
 	}
 }
 

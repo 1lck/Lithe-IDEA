@@ -66,6 +66,35 @@ func (a *App) launchRemoteProcessRun(p *project, op *buildOperation, id string) 
 	})
 }
 
+// runStep runs a before-launch step that starts built-in run configuration step.ConfigurationID
+// on the host and waits for it, with its output in the console of the configuration that starts.
+// prepare bounds the step like a local one: once it ends, through a stop or the preparation
+// time, the step's processes are asked to end and killed after the stop time, as a local step's
+// process tree is. The step's temporary folder is removed after ctx ended too.
+func (h remoteRunHost) runStep(ctx, prepare context.Context, step core.RunBeforeLaunchItem) error {
+	h.label = core.NewRemoteResourceLabel("run", step.Name)
+	start, err := h.prepare(prepare, step.ConfigurationID)
+	defer h.cleanup(ctx, start)
+	if err != nil {
+		return err
+	}
+	request, cancel := context.WithCancel(context.WithoutCancel(prepare))
+	defer cancel()
+	var attached atomic.Pointer[remoteProcess]
+	defer context.AfterFunc(prepare, func() {
+		if process := attached.Load(); process != nil {
+			process.Stop()
+			return
+		}
+		cancel()
+	})()
+	if err := h.run(request, start, func(process *remoteProcess) { attached.Store(process) }); err != nil {
+		return err
+	}
+	// A step that exited cleanly once asked to end was still stopped or ran out of time.
+	return prepare.Err()
+}
+
 // remoteRunHost is what one run of a remote workspace takes from the window thread.
 type remoteRunHost struct {
 	kernel   Kernel
