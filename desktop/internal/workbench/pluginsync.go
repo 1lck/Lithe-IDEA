@@ -123,7 +123,8 @@ func (a *App) documentEdited(p *project, d *document, edit editorview.Edit) {
 // document; edits that arrive meanwhile stay queued.
 func (a *App) startDocumentSync(p *project, d *document) {
 	s := &d.sync
-	if s.running || a.plugins == nil || a.project != p {
+	// A remote workspace starts no language server (#2231): its documents name placeholder paths.
+	if s.running || a.plugins == nil || a.project != p || p.remote != nil {
 		return
 	}
 	server, pluginID := a.documentSyncServer(d)

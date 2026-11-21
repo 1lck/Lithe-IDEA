@@ -112,7 +112,7 @@ func (a *App) loadDocumentDisk(p *project, d *document) {
 	}
 	d.resolvingConflict = true
 	revision, generation := d.view.Revision(), d.conflictGeneration
-	read := a.documentReader
+	read, raw := a.documentTextOf(p), a.documentRawOf(p)
 	kernel, _ := a.kernel.(editorKernel)
 	encoding, hasBOM, coded := d.encoding, d.hasBOM, d.needsCodec()
 	// The view's text is unchanged until the apply below, which checks the revision: the content
@@ -123,9 +123,9 @@ func (a *App) loadDocumentDisk(p *project, d *document) {
 		var data []byte
 		var err error
 		if coded {
-			data, err = readRawDocument(d.path)
+			data, err = raw(ctx, d.path)
 		} else {
-			data, err = read(d.path)
+			data, err = read(ctx, d.path)
 		}
 		observed = data
 		var content editorview.Content

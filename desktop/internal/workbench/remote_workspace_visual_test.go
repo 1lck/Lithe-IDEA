@@ -19,7 +19,8 @@ import (
 
 // TestVisualRemoteWorkspace captures a remote workspace being opened: the host's home folder in
 // the Remote Development window with a folder chosen, the workspace it opened with its notice and
-// status bar item, and the status bar's menu of the connection.
+// status bar item, the status bar's menu of the connection, a host file open in the editor and
+// the conflict a save over a change made on the host shows.
 func TestVisualRemoteWorkspace(t *testing.T) {
 	out := os.Getenv("LITHE_VISUAL_OUTPUT_DIR")
 	if out == "" {
@@ -101,6 +102,24 @@ func TestVisualRemoteWorkspace(t *testing.T) {
 			}
 			shot("menu")
 			h.app.project.remote.menuOpen = false
+			h.settleChain()
+
+			// The host's README opens in the editor, and a save over a change made on the host
+			// meanwhile is refused and shows the conflict.
+			p := h.app.project
+			kernel.put(remoteTestReadme, "# Project\n\nBuilt and run on the host.\n")
+			d := h.openRemoteFile(t, p, "README.md")
+			if d == nil {
+				t.Fatal("README.md did not open")
+			}
+			shot("file")
+			kernel.put(remoteTestReadme, "# Project\n\nChanged on the host.\n")
+			typeAtCaret(t, d, "Edited here. ")
+			h.saveAndWait(t, p, d)
+			if !d.conflicted {
+				t.Fatal("the save over the host's change did not show the conflict")
+			}
+			shot("conflict")
 		})
 	}
 }

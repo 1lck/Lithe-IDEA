@@ -37,8 +37,9 @@ var remoteTestFolders = map[string][]core.RemoteDirectoryEntry{
 }
 
 // remoteHostKernel stands in for a host over SSH: it opens numbered sessions, lists
-// remoteTestFolders, answers heartbeats as the test says and lists the workspace's tree only
-// for a request that carries the workspace's session. Everything else is the real Core.
+// remoteTestFolders, answers heartbeats as the test says, lists the workspace's tree only for a
+// request that carries the workspace's session and keeps the files of files
+// (remote_documents_test.go). Everything else is the real Core.
 type remoteHostKernel struct {
 	*testKernel
 	mu sync.Mutex
@@ -53,6 +54,15 @@ type remoteHostKernel struct {
 	closed   []string
 	// listings are the sessions the Project tool window's listings carried, "" for none.
 	listings []string
+	// files are the host's files by host path, and modified the time each was last written.
+	files    map[string][]byte
+	modified map[string]int64
+	// kinds are the host paths that are not regular files.
+	kinds map[string]core.RemoteFileKind
+	// fileErr fails the next request for a host file, once; writeErr fails the next write, once.
+	fileErr, writeErr error
+	// fileSessions are the sessions the requests for host files went over.
+	fileSessions []string
 }
 
 func (k *remoteHostKernel) RemoteConnect(_ context.Context, request core.RemoteConnectRequest) (core.RemoteConnectResult, error) {
@@ -346,26 +356,29 @@ func TestRemoteWorkspaceOpensTheChosenFolder(t *testing.T) {
 	}
 }
 
-// What still runs on this computer refuses in a remote workspace and says so: opening a file, a
-// terminal, trusting the folder and every tool window but the project's and the notifications'.
-// Copying a path copies the host's.
+// What still runs on this computer refuses in a remote workspace and says so: opening a file
+// outside the host folder or in a viewer, a terminal, local history, trusting the folder and
+// every tool window but the project's and the notifications'. Copying a path copies the host's.
 func TestRemoteWorkspaceRefusesWhatRunsLocally(t *testing.T) {
 	h, _, _, logger := remoteWorkspaceHarness(t)
 	lang := h.app.language()
 	p := h.openRemoteTestProject(t)
 	localOnly := i18n.Shared(lang, "desktop.remote.workspace.localOnly")
 
-	h.app.openFile(p, filepath.Join(p.root, "README.md"))
+	// The viewers and a file outside the folder would read this computer's files.
+	h.app.openFile(p, filepath.Join(p.root, "logo.png"))
+	h.app.openFile(p, filepath.Join(filepath.Dir(p.root), "elsewhere.txt"))
+	h.app.openLocalHistory(p, filepath.Join(p.root, "README.md"))
 	if h.app.newTerminalWith(p, terminalOptions{}) != nil {
 		t.Fatal("a terminal started in the remote workspace")
 	}
 	asked := false
 	h.app.askToTrustProject(p, func() { asked = true })
 	h.settle()
-	if asked || p.trust.asking || p.selectedDocument(p.terms.bench.FocusedGroup) != nil {
+	if asked || p.trust.asking || p.selectedDocument(p.terms.bench.FocusedGroup) != nil || len(p.docs.opening) != 0 {
 		t.Fatal("the workspace opened a file or asked to be trusted")
 	}
-	for _, operation := range []string{"open_file", "open_terminal", "project_trust"} {
+	for _, operation := range []string{"open_viewer", "open_file", "local_history", "open_terminal", "project_trust"} {
 		if !rejected(logger, operation, "remote_workspace") {
 			t.Fatalf("%s was not logged as refused", operation)
 		}

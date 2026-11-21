@@ -107,6 +107,39 @@ func TestRemoteSessionCommandsOfAnUnknownSession(t *testing.T) {
 	if err := client.RemoteServerState(ctx, "no-such-session"); !errors.As(err, &coreErr) || coreErr.Code != CodeConnectionClosed {
 		t.Fatalf("server.state = %v, want connection_closed", err)
 	}
+	if _, err := client.RemoteStat(ctx, "no-such-session", "/srv/repo/README.md"); !errors.As(err, &coreErr) || coreErr.Code != CodeConnectionClosed {
+		t.Fatalf("fs.stat = %v, want connection_closed", err)
+	}
+	if _, _, err := client.RemoteReadFile(ctx, "no-such-session", "/srv/repo/README.md"); !errors.As(err, &coreErr) || coreErr.Code != CodeConnectionClosed {
+		t.Fatalf("readFile = %v, want connection_closed", err)
+	}
+	modified := int64(1)
+	if _, saved, err := client.RemoteWriteFile(ctx, "no-such-session", "/srv/repo/README.md", []byte("text"), &RemoteFileVersion{Size: 4, ModifiedMs: &modified}); saved || !errors.As(err, &coreErr) || coreErr.Code != CodeConnectionClosed {
+		t.Fatalf("writeFile = %v, %v, want connection_closed", saved, err)
+	}
+}
+
+// A context without its remote workspace sends requests that compute from their payload as
+// local ones, and leaves a local context as it was.
+// A payload-only command of a remote workspace goes as a local request, connected or not, so
+// typing and decoding keep working while the host is away; a command that reads the workspace
+// still needs the session.
+func TestPayloadOnlyCommandsSendNoRemoteWorkspace(t *testing.T) {
+	binding := NewRemoteWorkspace("/cache/remote/1/abc/repo", "/srv/repo", nil)
+	ctx := WithRemoteWorkspace(context.Background(), binding)
+	for _, attached := range []bool{false, true} {
+		if attached {
+			binding.Attach("session-7")
+		}
+		for command := range payloadOnlyCommands {
+			if wire, owner, session, err := remoteWorkspaceRequest(ctx, command); wire != nil || owner != nil || session != nil || err != nil {
+				t.Fatalf("%s (attached %v) = %+v, %v, %v, %v, want a local request", command, attached, wire, owner, session, err)
+			}
+		}
+	}
+	if wire, _, _, err := remoteWorkspaceRequest(ctx, "file.read"); wire == nil || err != nil {
+		t.Fatalf("file.read = %+v, %v, want the binding", wire, err)
+	}
 }
 
 // Closing every session ends the process's remote development: Core then refuses to connect.

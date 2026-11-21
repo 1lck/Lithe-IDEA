@@ -186,6 +186,69 @@ func (c *Client) RemoteReadDir(ctx context.Context, sessionID, path string) (Rem
 	return result, err
 }
 
+// RemoteStat is the metadata of the absolute host path itself over the session sessionID; a
+// link is described, not followed. It fails like RemoteReadDir.
+func (c *Client) RemoteStat(ctx context.Context, sessionID, path string) (RemoteFileMetadata, error) {
+	var result RemoteFileMetadata
+	err := c.RemoteHostRequest(ctx, sessionID, "fs.stat", struct {
+		Path string `json:"path"`
+	}{path}, &result)
+	return result, err
+}
+
+// RemoteFileVersion identifies the content of a host file as it was read or saved; a guarded
+// write is refused when the file no longer has it.
+type RemoteFileVersion struct {
+	Size uint64 `json:"size"`
+	// ModifiedMs is milliseconds since the Unix epoch, nil when the host did not report it.
+	ModifiedMs *int64 `json:"modifiedMs"`
+}
+
+// RemoteReadFile reads the whole host file path over the session sessionID and returns its
+// bytes and the version they were read at. A file larger than Core opens for editing fails with
+// CodeNotSupported; otherwise it fails like RemoteReadDir. path must name a regular file or a
+// link to one: the host server opens the path before it checks what it is, so the caller checks
+// with RemoteStat first.
+func (c *Client) RemoteReadFile(ctx context.Context, sessionID, path string) ([]byte, RemoteFileVersion, error) {
+	var result struct {
+		Data []byte `json:"data"`
+		RemoteFileVersion
+	}
+	err := c.Execute(ctx, "remote.readFile", struct {
+		SessionID string `json:"sessionId"`
+		Path      string `json:"path"`
+	}{sessionID, path}, &result)
+	if err != nil {
+		return nil, RemoteFileVersion{}, err
+	}
+	return result.Data, result.RemoteFileVersion, nil
+}
+
+// RemoteWriteFile replaces the host file path over the session sessionID with data, atomically
+// through a temporary sibling and through a link. With expected, a file that no longer has that
+// version is left alone; without it, the file must not exist yet. saved is false for either
+// refusal, and the version is the saved content's otherwise. Content larger than the host
+// accepts in one request fails with CodeProcessFailed.
+func (c *Client) RemoteWriteFile(ctx context.Context, sessionID, path string, data []byte, expected *RemoteFileVersion) (version RemoteFileVersion, saved bool, err error) {
+	var result struct {
+		Status string `json:"status"`
+		RemoteFileVersion
+	}
+	err = c.Execute(ctx, "remote.writeFile", struct {
+		SessionID string             `json:"sessionId"`
+		Path      string             `json:"path"`
+		Data      []byte             `json:"data"`
+		Expected  *RemoteFileVersion `json:"expected,omitempty"`
+	}{sessionID, path, data, expected}, &result)
+	if err != nil {
+		return RemoteFileVersion{}, false, err
+	}
+	if result.Status != "saved" {
+		return RemoteFileVersion{}, false, nil
+	}
+	return result.RemoteFileVersion, true, nil
+}
+
 // RemoteHostRequest performs the finite host method with params over the session sessionID and
 // decodes its result into result, which may be nil. Core accepts the filesystem, environment
 // and port queries, server.state and the controls of existing processes and terminals; a
@@ -257,15 +320,38 @@ type remoteWorkspaceKey struct{}
 
 // WithRemoteWorkspace returns a context whose requests run on the host of binding. Every
 // request of the context carries the binding except the remote.* commands, which name their
-// session themselves; Core refuses a command that has no remote adapter with
-// CodeNotSupported, so nothing of the context falls back to the local placeholder. While the
-// binding has no session a request fails at once with CodeConnectionClosed and Core never sees
-// it.
+// session themselves, and the payload-only commands (payloadOnlyCommands); Core refuses a
+// command that has no remote adapter with CodeNotSupported, so nothing of the context falls
+// back to the local placeholder. While the binding has no session a request fails at once with
+// CodeConnectionClosed and Core never sees it.
 func WithRemoteWorkspace(ctx context.Context, binding *RemoteWorkspace) context.Context {
 	if binding == nil {
 		return ctx
 	}
 	return context.WithValue(ctx, remoteWorkspaceKey{}, binding)
+}
+
+// payloadOnlyCommands are the commands an open document sends that compute only from their
+// payload: Core's handler reads no file, starts no process and names no workspace path, so the
+// answer is the same on any computer. They go without the remote workspace, which Core would
+// refuse for want of an adapter, and keep working while the host is disconnected, so the user
+// can still type, decode the bytes the host returned and plan the save that will then fail.
+//
+// Add a command here only after reading its Core handler; a command that touches the workspace
+// sent without the binding would read the empty placeholder instead of the host.
+var payloadOnlyCommands = map[string]bool{
+	"document.lifecycle":              true,
+	"document.planSaveBatch":          true,
+	"document.reduceSaveBatch":        true,
+	"editor.lineEdit":                 true,
+	"editor.navigationHistory.reduce": true,
+	"editor.parseNavigationInput":     true,
+	"editor.recent.reduce":            true,
+	"editor.recovery.decide":          true,
+	"languages.matchFirstLine":        true,
+	"markdown.outline":                true,
+	"text.decode":                     true,
+	"text.encode":                     true,
 }
 
 // RemoteWorkspaceOf is the binding WithRemoteWorkspace put in ctx, nil for a local context.
@@ -283,11 +369,12 @@ type remoteWorkspace struct {
 }
 
 // remoteWorkspaceRequest is what a request of ctx sends as its remote workspace: nil for a
-// local context and for a remote.* command, the binding's session and roots otherwise. session
-// is the pointer the request read, so a later loss detaches only that session.
+// local context, a remote.* command and a payload-only command, the binding's session and roots
+// otherwise. session is the pointer the request read, so a later loss detaches only that
+// session.
 func remoteWorkspaceRequest(ctx context.Context, command string) (wire *remoteWorkspace, binding *RemoteWorkspace, session *string, err error) {
 	binding = RemoteWorkspaceOf(ctx)
-	if binding == nil || isRemoteSessionCommand(command) {
+	if binding == nil || isRemoteSessionCommand(command) || payloadOnlyCommands[command] {
 		return nil, nil, nil, nil
 	}
 	session = binding.session.Load()
