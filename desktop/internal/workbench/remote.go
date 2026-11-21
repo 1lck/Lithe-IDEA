@@ -235,6 +235,15 @@ func (r *remoteState) setSource(source remoteconn.Source) {
 			}
 		}
 	}
+	// Only a saved connection shows a past test, so the others' results go, which bounds probed
+	// by the list.
+	for connection := range r.probed {
+		if !slices.ContainsFunc(source.Connections, func(entry core.SavedRemoteConnection) bool {
+			return remoteStored(entry.Connection) == connection
+		}) {
+			delete(r.probed, connection)
+		}
+	}
 }
 
 // entry is the saved connection id, nil when the list has none of that id.
