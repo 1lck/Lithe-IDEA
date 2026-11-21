@@ -714,10 +714,14 @@ func (a *App) testRemote() {
 	ctx, cancel := context.WithTimeout(a.operationContext(context.Background()), remoteProbeTimeout)
 	probe := &remoteProbe{cancel: cancel}
 	r.probe = probe
-	generation, kernel := r.generation, a.kernel
+	generation, kernel, root := r.generation, a.kernel, a.globalToolchainRoot()
 	a.background(nil, 0, func(context.Context) func(*App) {
 		defer cancel()
-		result, err := kernel.RemoteProbe(a.gitAuthentication(ctx), connection)
+		var result core.RemoteProbeResult
+		preferences, err := remotePreferencesDocument(ctx, kernel, root)
+		if err == nil {
+			result, err = kernel.RemoteProbe(a.gitAuthentication(ctx), connection, preferences)
+		}
 		return func(a *App) {
 			r := &a.remote
 			if !r.open || r.generation != generation || r.probe != probe {

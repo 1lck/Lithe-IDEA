@@ -108,10 +108,10 @@ func (a *App) connectRemote(folder string) {
 			}
 		})
 	})
-	generation, kernel := r.generation, a.kernel
+	generation, kernel, root := r.generation, a.kernel, a.globalToolchainRoot()
 	a.background(nil, 0, func(context.Context) func(*App) {
 		defer cancel()
-		result, err := a.connectRemoteHost(a.gitAuthentication(ctx), kernel, host)
+		result, err := a.connectRemoteHost(a.gitAuthentication(ctx), kernel, root, host)
 		return func(a *App) {
 			r := &a.remote
 			if !r.open || r.generation != generation || r.connect != attempt {
@@ -170,6 +170,8 @@ func remoteConnectFailureText(language i18n.Language, err error) string {
 	switch {
 	case errors.Is(err, remoteserver.ErrNotBundled):
 		return i18n.Shared(language, "desktop.remote.connect.notBundled")
+	case errors.Is(err, remoteconn.ErrDamaged):
+		return i18n.Shared(language, "desktop.remote.preferences.damaged")
 	case errors.Is(err, remoteserver.ErrMismatch),
 		errors.As(err, &coreErr) && coreErr.Code == core.CodeRemoteServerInvalid:
 		return i18n.Shared(language, "desktop.remote.connect.serverInvalid")

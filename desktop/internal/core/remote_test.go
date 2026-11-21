@@ -58,7 +58,7 @@ func TestRemoteProbeAsksThroughTheHostAndReportsThePlatform(t *testing.T) {
 	var result RemoteProbeResult
 	var err error
 	finishesWithin(t, "probe", testDeadline, func() {
-		result, err = client.RemoteProbe(WithGitAuthentication(testContext(t), prompt), SSHConnection{Host: "devbox", User: "dev"})
+		result, err = client.RemoteProbe(WithGitAuthentication(testContext(t), prompt), SSHConnection{Host: "devbox", User: "dev"}, nil)
 	})
 	finishesWithin(t, "answers", testDeadline, replies.Wait)
 	if err != nil {
@@ -98,7 +98,7 @@ func TestRemoteProbeWithoutAPromptCancelsEachQuestion(t *testing.T) {
 	var result RemoteProbeResult
 	var err error
 	finishesWithin(t, "probe", testDeadline, func() {
-		result, err = NewClient().RemoteProbe(testContext(t), SSHConnection{Host: "devbox", User: "dev"})
+		result, err = NewClient().RemoteProbe(testContext(t), SSHConnection{Host: "devbox", User: "dev"}, nil)
 	})
 	if err != nil {
 		t.Fatalf("probe: %v", err)

@@ -44,12 +44,6 @@ const (
 	// unresponsive; remoteHeartbeatMisses in a row end the session and connect again.
 	remoteHeartbeatTimeout = 10 * time.Second
 	remoteHeartbeatMisses  = 3
-	// remoteReconnectAttempts bounds the attempts to connect again after the connection was lost.
-	// The pause before the next attempt doubles from remoteReconnectFirstPause up to
-	// remoteReconnectMaxPause.
-	remoteReconnectAttempts   = 6
-	remoteReconnectFirstPause = time.Second
-	remoteReconnectMaxPause   = 30 * time.Second
 	// remoteDisconnectTimeout bounds ending one session; remoteCloseAllTimeout bounds ending every
 	// session while the application quits.
 	remoteDisconnectTimeout = 10 * time.Second
@@ -97,8 +91,13 @@ type remoteProject struct {
 	timer     uint64
 	beating   bool
 	// attempt counts the attempts of the current reconnection; reconnecting is the running one.
+	// delays are the pauses before its automatic attempts, read from the remote workspace
+	// preferences when the connection was lost; lost tells a reading apart from one a later loss
+	// or Reconnect replaced.
 	attempt      int
 	reconnecting *remoteProbe
+	delays       []time.Duration
+	lost         uint64
 	// failure is why connecting again failed, nil while it has not.
 	failure *remoteProbeOutcome
 	// menuOpen is the status bar's menu of the connection.
@@ -200,9 +199,10 @@ func (a *App) remotePlaceholderAnchor() (string, error) {
 	return remoteplaceholder.DefaultAnchor()
 }
 
-// connectRemoteHost opens a session to host with the server builds the client carries. It runs
-// off the window thread.
-func (a *App) connectRemoteHost(ctx context.Context, kernel Kernel, host remoteHost) (core.RemoteConnectResult, error) {
+// connectRemoteHost opens a session to host with the server builds the client carries and, for
+// an SSH host, the SSH program of the remote workspace preferences under root. It runs off the
+// window thread.
+func (a *App) connectRemoteHost(ctx context.Context, kernel Kernel, root string, host remoteHost) (core.RemoteConnectResult, error) {
 	bundle, err := a.remoteServerBundle()
 	if err != nil {
 		return core.RemoteConnectResult{}, err
@@ -211,7 +211,14 @@ func (a *App) connectRemoteHost(ctx context.Context, kernel Kernel, host remoteH
 	for i, build := range bundle.Builds {
 		servers[i] = core.RemoteServerBuild{Target: build.Target, Path: build.Path, SHA256: build.SHA256}
 	}
-	return kernel.RemoteConnect(ctx, host.request(servers, bundle.Version))
+	request := host.request(servers, bundle.Version)
+	if host.wsl == nil {
+		// A WSL distribution starts through wsl.exe, which the SSH program does not replace.
+		if request.Preferences, err = remotePreferencesDocument(ctx, kernel, root); err != nil {
+			return core.RemoteConnectResult{}, err
+		}
+	}
+	return kernel.RemoteConnect(ctx, request)
 }
 
 // remoteConnectOutcome is the result of a connection to host as the window shows a test's.
@@ -352,21 +359,53 @@ func (a *App) loseRemote(p *project, session string, err error) {
 	r.binding.Detach()
 	r.stopRemoteTimer()
 	a.releaseRemoteSession(session)
-	r.attempt = 0
-	a.reconnectRemote(p, false)
+	a.startRemoteReconnection(p)
+}
+
+// startRemoteReconnection reads how long to connect again from the remote workspace preferences
+// and waits for the first pause. With no pauses, a reconnect limit of 0, the workspace stays
+// disconnected until the user reconnects; preferences that cannot be read leave it disconnected
+// with the reason in the status bar's menu.
+func (a *App) startRemoteReconnection(p *project) {
+	r := p.remote
+	r.attempt, r.delays, r.link, r.failure = 0, nil, remoteReconnecting, nil
+	r.lost++
+	lost, kernel, root, host := r.lost, a.kernel, a.globalToolchainRoot(), r.host
+	a.background(p, remoteReadTimeout, func(ctx context.Context) func(*App) {
+		delays, err := remoteReconnectDelays(ctx, kernel, root)
+		return func(a *App) {
+			if a.project != p || r.closed || r.lost != lost || r.session != "" || r.reconnecting != nil {
+				// log-exempt: 用户取消：工作区已关闭，或用户已手动重连，这次读取不再适用。
+				return
+			}
+			if err != nil {
+				a.backgroundFailed("remote_reconnect_preferences", documentLogError(err))
+				r.link, r.failure = remoteDisconnected, remoteConnectOutcome(host, core.RemoteConnectResult{}, err)
+				return
+			}
+			r.delays = delays
+			if len(delays) == 0 {
+				r.link = remoteDisconnected
+				// log-exempt: 用户设置：自动重连上限为 0，连接丢失已记录（remote_session_lost）。
+				return
+			}
+			a.scheduleRemote(p, delays[0], func(a *App, p *project) { a.reconnectRemote(p, false) })
+		}
+	})
 }
 
 // reconnectRemote opens a new session over the workspace's connection. userStarted is Reconnect
 // in the status bar: it starts the attempts afresh, asks OpenSSH's questions in the window and
 // does not try again on its own. An automatic attempt cancels every question and, while the host
-// is unreachable, tries again after a pause up to remoteReconnectAttempts times.
+// is unreachable, tries again after each pause of the reconnection's delays.
 func (a *App) reconnectRemote(p *project, userStarted bool) {
 	r := p.remote
 	if r == nil || r.closed || r.reconnecting != nil || r.session != "" {
 		return
 	}
 	if userStarted {
-		r.attempt = 0
+		r.attempt, r.delays = 0, nil
+		r.lost++
 	}
 	r.attempt++
 	r.stopRemoteTimer()
@@ -377,10 +416,10 @@ func (a *App) reconnectRemote(p *project, userStarted bool) {
 	}
 	attempt := &remoteProbe{cancel: cancel}
 	r.reconnecting = attempt
-	kernel, host := a.kernel, r.host
+	kernel, root, host := a.kernel, a.globalToolchainRoot(), r.host
 	a.background(nil, 0, func(context.Context) func(*App) {
 		defer cancel()
-		result, err := a.connectRemoteHost(ctx, kernel, host)
+		result, err := a.connectRemoteHost(ctx, kernel, root, host)
 		return func(a *App) {
 			if a.project != p || r.closed || r.reconnecting != attempt {
 				if result.Session != nil {
@@ -400,9 +439,9 @@ func (a *App) reconnectRemote(p *project, userStarted bool) {
 				a.releaseRemoteSession(result.Session.ID)
 			}
 			r.failure = remoteConnectOutcome(host, result, err)
-			if !userStarted && r.attempt < remoteReconnectAttempts && remoteRetryable(result.Status, err) {
+			if !userStarted && r.attempt < len(r.delays) && remoteRetryable(result.Status, err) {
 				r.link = remoteReconnecting
-				a.scheduleRemote(p, remoteReconnectPause(r.attempt), func(a *App, p *project) { a.reconnectRemote(p, false) })
+				a.scheduleRemote(p, r.delays[r.attempt], func(a *App, p *project) { a.reconnectRemote(p, false) })
 				// log-exempt: 同一次失败已经记录过：导致重连的连接丢失已记录（remote_session_lost），最后一次尝试的结果另记 remote_reconnect。
 				return
 			}
@@ -424,15 +463,6 @@ func remoteRetryable(status core.RemoteProbeStatus, err error) bool {
 		return remoteConnectionClosed(err) || errors.Is(err, context.DeadlineExceeded)
 	}
 	return status == core.RemoteProbeUnreachable
-}
-
-// remoteReconnectPause is the pause after the failed attempt-th attempt.
-func remoteReconnectPause(attempt int) time.Duration {
-	pause := remoteReconnectFirstPause
-	for i := 1; i < attempt && pause < remoteReconnectMaxPause; i++ {
-		pause *= 2
-	}
-	return min(pause, remoteReconnectMaxPause)
 }
 
 // refreshRemoteTree reads the Project tool window's listings again over the new session: the root

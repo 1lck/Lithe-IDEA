@@ -257,9 +257,13 @@ func (a *App) loadRemoteEffective(connection core.SSHConnection) {
 		r.effective = map[core.SSHConnection]*remoteEffective{}
 	}
 	r.effective[key] = nil
-	generation, kernel := r.generation, a.kernel
+	generation, kernel, root := r.generation, a.kernel, a.globalToolchainRoot()
 	a.background(nil, remoteReadTimeout, func(ctx context.Context) func(*App) {
-		settings, err := kernel.RemoteEffectiveSettings(ctx, key)
+		var settings core.RemoteEffectiveSettings
+		preferences, err := remotePreferencesDocument(ctx, kernel, root)
+		if err == nil {
+			settings, err = kernel.RemoteEffectiveSettings(ctx, key, preferences)
+		}
 		return func(a *App) {
 			r := &a.remote
 			if !r.open || r.generation != generation {
@@ -313,7 +317,7 @@ func (a *App) remoteAutoPlaceholder(language i18n.Language, value, fallback stri
 // the empty page's cards and the import menu. Core compares them with the saved list, so a host
 // already saved is not counted.
 func (a *App) loadRemoteImportCounts() {
-	generation, kernel := a.remote.generation, a.kernel
+	generation, kernel, root := a.remote.generation, a.kernel, a.globalToolchainRoot()
 	document, failure := a.remote.source.Document()
 	a.background(nil, remoteReadTimeout, func(ctx context.Context) func(*App) {
 		counts := remoteImportCounts{loaded: true}
@@ -329,7 +333,11 @@ func (a *App) loadRemoteImportCounts() {
 			}
 		}
 		if home, err := os.UserHomeDir(); err == nil {
-			hosts, err := kernel.RemoteSSHConfigHosts(ctx, home, document)
+			preferences, err := remotePreferencesDocument(ctx, kernel, root)
+			var hosts core.RemoteSSHConfigHosts
+			if err == nil {
+				hosts, err = kernel.RemoteSSHConfigHosts(ctx, home, document, preferences)
+			}
 			if err != nil {
 				failure = err
 			}

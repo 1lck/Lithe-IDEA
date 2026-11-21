@@ -279,11 +279,14 @@ type RemoteProbeResult struct {
 // challenge with Remote set, answered with RemoteAuthRespond; without a prompt each question is
 // cancelled at once. Core bounds a probe, answers included, to five minutes. The probe changes
 // nothing, so an observation failure is reported only when the request itself succeeded.
-func (c *Client) RemoteProbe(ctx context.Context, connection SSHConnection) (RemoteProbeResult, error) {
+// preferences is the remote workspace preference document, or nil; it names the SSH program, and
+// a damaged one fails with CodeParseFailed before OpenSSH starts.
+func (c *Client) RemoteProbe(ctx context.Context, connection SSHConnection, preferences *string) (RemoteProbeResult, error) {
 	var result RemoteProbeResult
 	observationErr, err := c.executeRemoteWithPrompts(ctx, "remote.probe", struct {
-		Connection SSHConnection `json:"connection"`
-	}{connection}, &result)
+		Connection  SSHConnection `json:"connection"`
+		Preferences *string       `json:"preferences,omitempty"`
+	}{connection, preferences}, &result)
 	if err != nil {
 		return RemoteProbeResult{}, err
 	}

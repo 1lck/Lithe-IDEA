@@ -38,6 +38,9 @@ type RemoteConnectRequest struct {
 	ServerVersion string `json:"serverVersion"`
 	// InstallRoot is where the host keeps installed servers; empty is $HOME/.lithe-server.
 	InstallRoot string `json:"installRoot,omitempty"`
+	// Preferences is the remote workspace preference document, or nil. It names the SSH program;
+	// a WSL connection ignores it.
+	Preferences *string `json:"preferences,omitempty"`
 }
 
 // WSLConnection is a distribution of the Windows Subsystem for Linux on this machine, as

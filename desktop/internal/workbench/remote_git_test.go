@@ -360,6 +360,7 @@ func TestRemoteWorkspaceTrustStartsGitOnTheHost(t *testing.T) {
 	})
 	h.fire(t, timers)
 	host.awaitEnd(t)
+	h.fireReconnect(t, timers, r)
 	h.await("the second session", func() bool { return r.session == "session-2" && !r.beating })
 	if w := h.awaitRemoteGit(p); w.session != "session-2" || k.watchAt(t, remoteTestFolder+"/.git").session != "session-2" {
 		t.Fatal("the new session does not watch the git directory")

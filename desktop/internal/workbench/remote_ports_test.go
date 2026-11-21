@@ -631,6 +631,7 @@ func TestRemotePortsForgetTheForwardsOfALostSession(t *testing.T) {
 		k.once = &core.Error{Command: "remote.serverState", Code: core.CodeConnectionClosed, Message: "closed"}
 	})
 	h.fireAfter(t, timers, remoteHeartbeatInterval)
+	h.fireReconnect(t, timers, r)
 	h.await("the new session's reading", func() bool {
 		return r.session == "session-2" && !r.beating && r.ports.listed && !p.tree.reading
 	})

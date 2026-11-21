@@ -199,7 +199,7 @@ func TestRemoteConnectAsksThroughTheHostAndSendsNoUnreadableBuild(t *testing.T) 
 	var probe RemoteProbeResult
 	var probeErr error
 	finishesWithin(t, "probe", testDeadline, func() {
-		probe, probeErr = client.RemoteProbe(WithGitAuthentication(testContext(t), prompt), connection)
+		probe, probeErr = client.RemoteProbe(WithGitAuthentication(testContext(t), prompt), connection, nil)
 	})
 	if probeErr != nil || probe.Host == nil {
 		t.Fatalf("probe = %+v, %v", probe, probeErr)

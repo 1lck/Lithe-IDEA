@@ -1,0 +1,350 @@
+{
+  "schemaVersion": 1,
+  "messages": [
+    {
+      "id": "desktop.remoteSettings.title",
+      "description": "Settings sidebar and breadcrumb: title of the page holding the remote workspace preferences (SSH program, reconnection)",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.remoteSettings.keywords",
+      "description": "Settings search: extra words that find the Remote Workspace page, separated by spaces",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.remoteSettings.target",
+      "description": "Settings footer: where Apply writes the remote workspace drafts, joined into the list of targets; lowercase in English",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.remoteSettings.connection",
+      "description": "Remote Workspace page: title of the card about how hosts are reached",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.remoteSettings.sshProgram",
+      "description": "Remote Workspace page: label of the row choosing the OpenSSH client program",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.remoteSettings.sshProgramHelp",
+      "description": "Remote Workspace page: help behind the info glyph of the SSH program row",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.remoteSettings.programAutomatic",
+      "description": "Remote Workspace page: the automatic choice of the SSH program, with the program it resolves to",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "path": "string"
+      }
+    },
+    {
+      "id": "desktop.remoteSettings.programAutomaticMissing",
+      "description": "Remote Workspace page: the automatic choice of the SSH program when no ssh is on PATH",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.remoteSettings.chooseProgram",
+      "description": "Remote Workspace page: button that picks an SSH program file",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.remoteSettings.chooseProgramTitle",
+      "description": "Remote Workspace page: title of the file dialog picking the SSH program",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.remoteSettings.programMissing",
+      "description": "Remote Workspace page: the saved SSH program no longer exists",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "path": "string"
+      }
+    },
+    {
+      "id": "desktop.remoteSettings.programNotExecutable",
+      "description": "Remote Workspace page: the saved SSH program is not an executable file",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "path": "string"
+      }
+    },
+    {
+      "id": "desktop.remoteSettings.sshConfig",
+      "description": "Remote Workspace page: label of the row naming the user's OpenSSH configuration file",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.remoteSettings.sshConfigHelp",
+      "description": "Remote Workspace page: help behind the info glyph of the SSH configuration row",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.remoteSettings.sshConfigMissing",
+      "description": "Remote Workspace page: the note after the OpenSSH configuration file's path when the file does not exist",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.remoteSettings.reconnection",
+      "description": "Remote Workspace page: title of the card about connecting again after a connection is lost",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.remoteSettings.reconnectLimit",
+      "description": "Remote Workspace page: label of the row choosing how long a lost connection is retried",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.remoteSettings.reconnectLimitHelp",
+      "description": "Remote Workspace page: help behind the info glyph of the reconnect row",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.remoteSettings.reconnectAutomatic",
+      "description": "Remote Workspace page: the automatic reconnect choice, with the time it resolves to",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "duration": "string"
+      }
+    },
+    {
+      "id": "desktop.remoteSettings.reconnectNever",
+      "description": "Remote Workspace page: reconnect choice that never retries automatically",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.remoteSettings.seconds",
+      "description": "Remote Workspace page: a duration in seconds",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "count": "string"
+      }
+    },
+    {
+      "id": "desktop.remoteSettings.minutes",
+      "description": "Remote Workspace page: a duration in whole minutes",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "count": "string"
+      }
+    },
+    {
+      "id": "desktop.remoteSettings.storage",
+      "description": "Remote Workspace page: label of the row naming the file the preferences are kept in",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.remoteSettings.storageHelp",
+      "description": "Remote Workspace page: help behind the info glyph of the storage row",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.remoteSettings.storageNone",
+      "description": "Remote Workspace page: the note after the preference file's path while every value is automatic and no file exists yet",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.remoteSettings.damaged",
+      "description": "Remote Workspace page: the preference file cannot be decoded; the path is shown",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "path": "string"
+      }
+    },
+    {
+      "id": "desktop.remoteSettings.conflict",
+      "description": "Remote Workspace page: the preference file changed while the user edited it",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.remoteSettings.unavailable",
+      "description": "Remote Workspace page: there is no preference folder to keep the preferences in",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.remoteSettings.failed",
+      "description": "Remote Workspace page: the preferences could not be read or written; the reason follows",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "reason": "string"
+      }
+    },
+    {
+      "id": "desktop.remoteSettings.refusedProgramRelative",
+      "description": "Remote Workspace page: Apply refused an SSH program that is not an absolute path",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.remoteSettings.refusedProgramMissing",
+      "description": "Remote Workspace page: Apply refused an SSH program that does not exist",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.remoteSettings.refusedProgramNotExecutable",
+      "description": "Remote Workspace page: Apply refused an SSH program that is not executable",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.remoteSettings.refusedProgram",
+      "description": "Remote Workspace page: Apply refused the SSH program path for another reason (too long, invalid)",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.remoteSettings.refusedLimit",
+      "description": "Remote Workspace page: Apply refused the reconnect time",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.remote.preferences.damaged",
+      "description": "Remote connection failure: the remote workspace preference file is damaged, so OpenSSH is not started",
+      "platforms": [
+        "desktop"
+      ]
+    }
+  ],
+  "locales": {
+    "en-US": {
+      "desktop.remoteSettings.title": "Remote Workspace",
+      "desktop.remoteSettings.keywords": "remote ssh openssh host server reconnect reconnection connection wsl",
+      "desktop.remoteSettings.target": "remote workspace settings",
+      "desktop.remoteSettings.connection": "Connection",
+      "desktop.remoteSettings.sshProgram": "SSH program",
+      "desktop.remoteSettings.sshProgramHelp": "The OpenSSH client started to reach a host. Automatic uses the ssh found on PATH. WSL distributions are reached without SSH and do not use it.",
+      "desktop.remoteSettings.programAutomatic": "Automatic ({path})",
+      "desktop.remoteSettings.programAutomaticMissing": "Automatic (no ssh found)",
+      "desktop.remoteSettings.chooseProgram": "Choose…",
+      "desktop.remoteSettings.chooseProgramTitle": "Choose SSH Program",
+      "desktop.remoteSettings.programMissing": "{path} does not exist. Connecting fails until it is back or the program is set to Automatic.",
+      "desktop.remoteSettings.programNotExecutable": "{path} is not an executable file. Connecting fails until it is or the program is set to Automatic.",
+      "desktop.remoteSettings.sshConfig": "SSH configuration",
+      "desktop.remoteSettings.sshConfigHelp": "Host aliases, ports, keys and jump hosts come from this file. Lithe reads it and never writes it.",
+      "desktop.remoteSettings.sshConfigMissing": "Does not exist",
+      "desktop.remoteSettings.reconnection": "Reconnection",
+      "desktop.remoteSettings.reconnectLimit": "Retry for",
+      "desktop.remoteSettings.reconnectLimitHelp": "After a connection is lost, Lithe tries again within this time, waiting 1, 2, 4… seconds and at most 29 seconds between attempts. With Don't Reconnect the workspace stays disconnected until you reconnect it.",
+      "desktop.remoteSettings.reconnectAutomatic": "Automatic ({duration})",
+      "desktop.remoteSettings.reconnectNever": "Don't Reconnect",
+      "desktop.remoteSettings.seconds": "{count} s",
+      "desktop.remoteSettings.minutes": "{count} min",
+      "desktop.remoteSettings.storage": "Stored in",
+      "desktop.remoteSettings.storageHelp": "Only the values you change are kept, in this machine's preference folder. Nothing is written to a host.",
+      "desktop.remoteSettings.storageNone": "Created when you change a value",
+      "desktop.remoteSettings.damaged": "{path} cannot be read. Fix or delete the file; until then no host is connected with it.",
+      "desktop.remoteSettings.conflict": "The preference file changed meanwhile and was read again. Apply your change again.",
+      "desktop.remoteSettings.unavailable": "There is no preference folder to keep these settings in.",
+      "desktop.remoteSettings.failed": "The remote workspace settings could not be read or saved: {reason}",
+      "desktop.remoteSettings.refusedProgramRelative": "The SSH program must be an absolute path.",
+      "desktop.remoteSettings.refusedProgramMissing": "The chosen SSH program does not exist.",
+      "desktop.remoteSettings.refusedProgramNotExecutable": "The chosen SSH program is not an executable file.",
+      "desktop.remoteSettings.refusedProgram": "The SSH program path cannot be used.",
+      "desktop.remoteSettings.refusedLimit": "The reconnect time must be between 0 and 3600 seconds.",
+      "desktop.remote.preferences.damaged": "The remote workspace settings file is damaged, so the host was not connected. Open Settings › Tools › Remote Workspace to see it."
+    },
+    "zh-CN": {
+      "desktop.remoteSettings.title": "远程工作区",
+      "desktop.remoteSettings.keywords": "远程 主机 服务器 重连 断线 连接 remote ssh openssh wsl",
+      "desktop.remoteSettings.target": "远程工作区设置",
+      "desktop.remoteSettings.connection": "连接",
+      "desktop.remoteSettings.sshProgram": "SSH 程序",
+      "desktop.remoteSettings.sshProgramHelp": "连接主机时启动的 OpenSSH 客户端。自动时使用 PATH 中找到的 ssh。WSL 发行版不经过 SSH，不受影响。",
+      "desktop.remoteSettings.programAutomatic": "自动（{path}）",
+      "desktop.remoteSettings.programAutomaticMissing": "自动（未找到 ssh）",
+      "desktop.remoteSettings.chooseProgram": "选择…",
+      "desktop.remoteSettings.chooseProgramTitle": "选择 SSH 程序",
+      "desktop.remoteSettings.programMissing": "找不到 {path}。在它恢复或改回自动之前，连接会失败。",
+      "desktop.remoteSettings.programNotExecutable": "{path} 不是可执行文件。在修好或改回自动之前，连接会失败。",
+      "desktop.remoteSettings.sshConfig": "SSH 配置文件",
+      "desktop.remoteSettings.sshConfigHelp": "主机别名、端口、密钥和跳板机都从这个文件读取。Lithe 只读取，不会写入。",
+      "desktop.remoteSettings.sshConfigMissing": "不存在",
+      "desktop.remoteSettings.reconnection": "断线重连",
+      "desktop.remoteSettings.reconnectLimit": "自动重连时长",
+      "desktop.remoteSettings.reconnectLimitHelp": "连接断开后，在这段时间内自动重试，间隔依次为 1、2、4…秒，最长 29 秒。选“不自动重连”时，工作区保持断开，直到你手动重连。",
+      "desktop.remoteSettings.reconnectAutomatic": "自动（{duration}）",
+      "desktop.remoteSettings.reconnectNever": "不自动重连",
+      "desktop.remoteSettings.seconds": "{count} 秒",
+      "desktop.remoteSettings.minutes": "{count} 分钟",
+      "desktop.remoteSettings.storage": "保存位置",
+      "desktop.remoteSettings.storageHelp": "只保存你改过的值，放在本机的偏好设置目录中，不会写到主机上。",
+      "desktop.remoteSettings.storageNone": "修改后才创建",
+      "desktop.remoteSettings.damaged": "无法读取 {path}。请修正或删除这个文件；修好之前不会用它连接主机。",
+      "desktop.remoteSettings.conflict": "设置文件在此期间被改过，已重新读取。请再次应用你的修改。",
+      "desktop.remoteSettings.unavailable": "没有可以保存这些设置的偏好设置目录。",
+      "desktop.remoteSettings.failed": "无法读取或保存远程工作区设置：{reason}",
+      "desktop.remoteSettings.refusedProgramRelative": "SSH 程序必须是绝对路径。",
+      "desktop.remoteSettings.refusedProgramMissing": "找不到选择的 SSH 程序。",
+      "desktop.remoteSettings.refusedProgramNotExecutable": "选择的 SSH 程序不是可执行文件。",
+      "desktop.remoteSettings.refusedProgram": "这个 SSH 程序路径不能使用。",
+      "desktop.remoteSettings.refusedLimit": "自动重连时长必须在 0 到 3600 秒之间。",
+      "desktop.remote.preferences.damaged": "远程工作区设置文件已损坏，因此没有连接主机。请在 设置 › 工具 › 远程工作区 中查看。"
+    }
+  }
+}

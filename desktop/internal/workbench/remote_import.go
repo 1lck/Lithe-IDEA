@@ -72,7 +72,7 @@ func (a *App) openRemoteImport(source remoteImportSource) {
 		m.err = i18n.SharedFormat(a.language(), "desktop.remote.import.failed", map[string]string{"reason": documentLogError(err).Error()})
 		return
 	}
-	generation, kernel := r.generation, a.kernel
+	generation, kernel, root := r.generation, a.kernel, a.globalToolchainRoot()
 	a.background(nil, remoteReadTimeout, func(ctx context.Context) func(*App) {
 		var motty core.RemoteMottyHosts
 		var ssh core.RemoteSSHConfigHosts
@@ -82,10 +82,12 @@ func (a *App) openRemoteImport(source remoteImportSource) {
 		} else {
 			mottyErr = err
 		}
-		if home, err := os.UserHomeDir(); err == nil {
-			ssh, sshErr = kernel.RemoteSSHConfigHosts(ctx, home, document)
-		} else {
+		if home, err := os.UserHomeDir(); err != nil {
 			sshErr = err
+		} else if preferences, err := remotePreferencesDocument(ctx, kernel, root); err != nil {
+			sshErr = err
+		} else {
+			ssh, sshErr = kernel.RemoteSSHConfigHosts(ctx, home, document, preferences)
 		}
 		return func(a *App) {
 			r := &a.remote

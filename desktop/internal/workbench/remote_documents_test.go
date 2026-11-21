@@ -192,7 +192,7 @@ func TestRemoteWorkspaceEditsTheHostsFiles(t *testing.T) {
 // connection connects again on its own and then compares the documents with the host, so a change
 // made on the host meanwhile shows as a conflict. The log keeps only the command and the code.
 func TestRemoteDocumentFailuresSayWhy(t *testing.T) {
-	h, k, _, logger := remoteWorkspaceHarness(t)
+	h, k, timers, logger := remoteWorkspaceHarness(t)
 	lang := h.app.language()
 	k.put(remoteTestReadme, "# Project\n")
 	k.set(func(k *remoteHostKernel) {
@@ -236,6 +236,7 @@ func TestRemoteDocumentFailuresSayWhy(t *testing.T) {
 		k.fileErr = &core.Error{Command: "remote.stat", Code: core.CodeConnectionClosed, Message: "closed"}
 	})
 	h.app.saveDocument(p, d.id)
+	h.fireReconnect(t, timers, r)
 	h.await("the new session and the check after it", func() bool {
 		return r.session == "session-2" && !r.beating && !d.saving && !d.checking && !d.checkPending
 	})

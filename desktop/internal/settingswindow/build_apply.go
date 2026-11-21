@@ -8,7 +8,8 @@ import (
 
 // The Build pages keep their edits as drafts until the footer's Apply or OK writes them, as
 // in docs/design/build-execution-settings.html: the machine's toolchain defaults, then the
-// project's, then the trusted locations, then each debugger's stepping policy. One request is
+// project's, then the trusted locations, the remote trust records and the remote workspace
+// preferences, then each debugger's stepping policy. One request is
 // out at a time, because the toolchain scopes and the trusted locations share one writer and
 // every write is read back before the next. A failed write stops the rest and keeps the window
 // open with its drafts; Cancel writes nothing.
@@ -17,6 +18,7 @@ const (
 	applyToolchain   = "toolchain:"
 	applyLocations   = "locations:"
 	applyRemoteTrust = "remote-trust:"
+	applyRemotePrefs = "remote-preferences:"
 	applyStepping    = "stepping:"
 )
 
@@ -56,6 +58,10 @@ func (w *window) buildDrafts(language i18n.Language) (count int, targets []strin
 			count += n
 			targets = append(targets, i18n.Shared(language, "desktop.trustedLocations.remoteTarget"))
 		}
+		if n := t.prefs.drafts(); n > 0 {
+			count += n
+			targets = append(targets, i18n.Shared(language, "desktop.remoteSettings.target"))
+		}
 	}
 	if pending := w.steppingPending(); len(pending) > 0 {
 		count += len(pending)
@@ -88,6 +94,10 @@ func (w *window) startApply(close bool) {
 		if t.remote.drafts() > 0 {
 			t.remote.readFailed = nil
 			a.steps = append(a.steps, applyRemoteTrust)
+		}
+		if t.prefs.drafts() > 0 {
+			t.prefs.readFailed = nil
+			a.steps = append(a.steps, applyRemotePrefs)
 		}
 	}
 	for _, id := range w.steppingPending() {
@@ -140,6 +150,14 @@ func (w *window) advanceApply(toolchainFailed error, stepping steppingResult) {
 			return
 		}
 		if w.toolchains.remote.saving {
+			return
+		}
+	case a.running == applyRemotePrefs:
+		if toolchainFailed != nil {
+			w.stopApply(toolchainFailed)
+			return
+		}
+		if w.toolchains.prefs.saving {
 			return
 		}
 	case strings.HasPrefix(a.running, applyStepping):
@@ -204,6 +222,28 @@ func (w *window) advanceApply(toolchainFailed error, stepping steppingResult) {
 			}
 			a.steps = a.steps[1:]
 			if remote.beginSave() {
+				a.running = step
+				return
+			}
+			continue
+		}
+		if step == applyRemotePrefs {
+			prefs := w.toolchains.prefs
+			if prefs.busy() {
+				return
+			}
+			if !prefs.loaded || prefs.stale {
+				// A write failed and left the preferences stale: read them again and write the
+				// drafts they do not hold.
+				if prefs.readFailed != nil {
+					w.stopApply(prefs.readFailed)
+					return
+				}
+				prefs.beginLoad()
+				return
+			}
+			a.steps = a.steps[1:]
+			if prefs.beginSave() {
 				a.running = step
 				return
 			}

@@ -582,6 +582,7 @@ type SettingsMessages struct {
 	Debuggers          string
 	Console            string
 	TrustedLocations   string
+	RemoteWorkspace    string
 	Languages          string
 	Tools              string
 	SearchPage         string

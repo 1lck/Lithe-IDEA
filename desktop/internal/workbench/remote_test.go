@@ -50,7 +50,7 @@ type remoteProbeKernel struct {
 	result core.RemoteProbeResult
 }
 
-func (k *remoteProbeKernel) RemoteProbe(context.Context, core.SSHConnection) (core.RemoteProbeResult, error) {
+func (k *remoteProbeKernel) RemoteProbe(context.Context, core.SSHConnection, *string) (core.RemoteProbeResult, error) {
 	return k.result, nil
 }
 
@@ -584,7 +584,7 @@ type importCountKernel struct {
 	documents []*string
 }
 
-func (k *importCountKernel) RemoteSSHConfigHosts(_ context.Context, _ string, document *string) (core.RemoteSSHConfigHosts, error) {
+func (k *importCountKernel) RemoteSSHConfigHosts(_ context.Context, _ string, document, _ *string) (core.RemoteSSHConfigHosts, error) {
 	k.documents = append(k.documents, document)
 	var hosts core.RemoteSSHConfigHosts
 	for _, alias := range []string{"alpha", "beta"} {
