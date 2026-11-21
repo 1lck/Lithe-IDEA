@@ -276,6 +276,14 @@ func (a *App) startRunConfigurationWith(p *project, id string, debug *connection
 		a.notifyError(message)
 		return nil, refuseBuild(refusalNotReady, message)
 	}
+	// A remote workspace runs its built-in process runs on its host; a debugger and the runs of
+	// plugins, which run on this computer, do not reach it yet.
+	if p.remote != nil && (debug != nil || !configuration.IsProcess()) {
+		message := i18n.Shared(a.language(), "desktop.run.remote.unsupported")
+		a.operationRejected("run_configuration", "remote_workspace")
+		a.notifyError(message)
+		return nil, refuseBuild(refusalNotSupported, message)
+	}
 	if configuration.IsProcess() {
 		if debug != nil {
 			return nil, refuseBuild(refusalNotSupported, "a built-in process run has no debugger")

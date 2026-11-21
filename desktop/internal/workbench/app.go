@@ -237,6 +237,10 @@ type Kernel interface {
 	RemoteRunWatch(ctx context.Context, sessionID, root string, excludeNames []string, events core.RemoteWatchEvents) error
 	RemoteTerminalWrite(ctx context.Context, sessionID string, terminalID uint64, data []byte) (bool, error)
 	RemoteTerminalResize(ctx context.Context, sessionID string, terminalID uint64, columns, rows uint16) error
+	RemoteRunProcess(ctx context.Context, sessionID string, open core.RemoteProcessOpen, events core.RemoteProcessEvents) (core.RemoteProcessExit, error)
+	RemoteProcessKill(ctx context.Context, sessionID string, processID uint64, force bool) error
+	RemoteTempDirectory(ctx context.Context, sessionID, prefix string) (string, error)
+	RemoteRemove(ctx context.Context, sessionID, path string, recursive bool) error
 	RemoteStartForward(ctx context.Context, sessionID string, target core.RemoteForwardTarget) (core.RemoteForward, bool, error)
 	RemoteStopForward(ctx context.Context, sessionID string, id uint64) (bool, error)
 	RemoteForwards(ctx context.Context, sessionID string) ([]core.RemoteForward, error)

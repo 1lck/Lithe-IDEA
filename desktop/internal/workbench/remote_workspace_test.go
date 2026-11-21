@@ -82,6 +82,8 @@ type remoteHostKernel struct {
 	ports remoteHostPorts
 	// wsl is this computer's WSL distributions (remote_wsl_test.go).
 	wsl remoteHostWSL
+	// runs are the workspace's run configurations and the host's processes (remote_run_test.go).
+	runs remoteHostRuns
 }
 
 // remoteTestTree is the workspace's tree the Project tool window lists by default.

@@ -54,13 +54,17 @@ func (a *App) runSessionTabs(c ui.C, p *project) {
 		for index, run := range runs {
 			k := c.Key(run.id)
 			on := run == shown
+			tooltip := run.label
+			if run.remote {
+				tooltip += "\n" + i18n.Shared(a.language(), "desktop.run.remote.badgeHelp")
+			}
 			chip := ui.Row(k).Height(rowHeight).Shrink(1).MinWidth(0).Items(ui.Center).Gap(6).PadX(toolTabPad).
 				Radius(a.theme.Metrics.RadiusItem()).
 				HitWith(ui.ID(k), run.label, gfx.HitOptions{
 					Role: gfx.RoleTab, Cursor: gfx.PointerCursorHand, Selected: on,
 					PosInSet: int32(index + 1), SetSize: int32(len(runs)),
 				}).
-				Tooltip(run.label).
+				Tooltip(tooltip).
 				Pressed(ui.Look{}.Background(a.colors.Active))
 			if on {
 				chip = chip.Background(a.colors.TabIdle).Stroke(1, a.colors.TabIdleBorder).Radius(6)
@@ -79,6 +83,9 @@ func (a *App) runSessionTabs(c ui.C, p *project) {
 					text.Color(a.colors.Text)
 				} else {
 					text.Color(a.colors.Subtle).StateFrom(chip).Hover(ui.Look{}.Color(a.colors.Text))
+				}
+				if run.remote {
+					a.runTabBadge(k.Part("host"), i18n.Shared(a.language(), "desktop.run.remote.badge"), on)
 				}
 				if run.running && len(run.ports) > 0 {
 					a.runTabPortBadge(k.Part("ports"), run, on)
@@ -243,11 +250,19 @@ func runDetail(p *project, run *runEntry) string {
 	return ""
 }
 
+// runTabPortBadge declares the badge of a Run tab whose process listens: its first port, and how
+// many more it has.
 func (a *App) runTabPortBadge(c ui.C, run *runEntry, selected bool) {
 	badge := run.ports[0].Label
 	if len(run.ports) > 1 {
 		badge += " " + a.text.Run.Ports.More(len(run.ports)-1)
 	}
+	a.runTabBadge(c, badge, selected)
+}
+
+// runTabBadge declares a small label after a Run tab's name, such as the host a remote
+// workspace's program runs on or the ports it listens on.
+func (a *App) runTabBadge(c ui.C, badge string, selected bool) {
 	fill := a.colors.Hover
 	if selected {
 		fill = a.colors.Active

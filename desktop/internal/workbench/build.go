@@ -144,7 +144,7 @@ type buildOperation struct {
 	then      func(*App, *project)
 	provider  *buildprovider.Client
 	request   *buildprovider.Operation
-	process   *buildprocess.Process
+	process   runProcess
 	cancelled bool
 	// stopped is closed by stop.
 	stopped chan struct{}
@@ -182,6 +182,7 @@ func (a *App) beginOperation(p *project, kind, label, configuration, key string,
 	operation.session = &runEntry{
 		id: "build-" + strconv.Itoa(p.build.sessions), label: label, restart: restart, operation: operation,
 		running: true, started: a.now(), output: newOutputBuffer(buildOutputMaxLines, buildOutputBytes),
+		remote: p.remote != nil,
 	}
 	a.addRunSession(p, operation.session)
 	operation.ide = p.recordIDEOperation(kind, label, configuration)
@@ -251,9 +252,10 @@ func (b *buildState) active() bool { return b.operation != nil || len(b.running)
 // never share a port or files. A start that is asked again while one waits replaces it.
 //
 // In safe mode the user is first asked to trust the project, since a run runs its code. A
-// remote workspace's project runs on its host, which a run does not reach yet.
+// remote workspace runs only its run configurations, on its host (startRunConfigurationWith
+// checks which); its build systems' tasks and entry points are not run there yet.
 func (a *App) startRun(p *project, key string, start func(*App, *project)) {
-	if a.refuseRemote(p, "run_start") {
+	if !strings.HasPrefix(key, configurationRunKey("")) && a.refuseRemote(p, "run_start") {
 		return
 	}
 	if p.safeMode() {
@@ -355,9 +357,20 @@ var errBuildBusy = refuseBuild(refusalBusy, "the Build window is already running
 // window stops and reruns it instead (startRun).
 var errRunRunning = refuseBuild(refusalBusy, "the run configuration is already running")
 
+// runProcess is an operation's process as stop ends it: a process of this computer
+// (*buildprocess.Process) or a remote workspace's process on its host (*remoteProcess).
+type runProcess interface {
+	// Stop asks the process tree to end and kills it once the stop time passed.
+	Stop()
+	// Kill ends the process tree at once.
+	Kill()
+	// Pid is the process's id on this computer, 0 for one that runs elsewhere.
+	Pid() int
+}
+
 // attachProcess makes process the operation's process once it started. It reports false, and
 // stops the process, when the operation was stopped or replaced while the process started.
-func (a *App) attachProcess(p *project, op *buildOperation, process *buildprocess.Process) bool {
+func (a *App) attachProcess(p *project, op *buildOperation, process runProcess) bool {
 	if op.cancelled || !p.build.owns(op) {
 		process.Stop()
 		return false
@@ -784,7 +797,10 @@ func (a *App) loadBuildSystems(p *project) {
 	}
 	if p.remote != nil {
 		// log-exempt: 远程工作区的构建工具要在主机上运行，现在还不支持：本机的占位文件夹里没有项目，不探测构建系统；
-		// 构建、运行和测试窗口显示只在本机可用的说明，按下运行时 refuseRemote 记录并提示。
+		// 运行配置菜单用 failed 说明这一点，内置的程序和脚本运行照常从 Core 读出、在主机上启动（remote_run.go）。
+		p.build.loaded = true
+		p.build.failed = i18n.Shared(a.language(), "desktop.run.remote.buildTools")
+		a.refreshRunConfigurations(p)
 		return
 	}
 	if a.plugins == nil || a.plugins.Backend == nil {
@@ -2282,7 +2298,8 @@ func (a *App) finishBuildTask(p *project, op *buildOperation, result json.RawMes
 // that exited is summarized with its exit code, as a run a plugin reports is, not as a build.
 func (a *App) finishBuildRun(p *project, op *buildOperation, err error) {
 	a.endServiceDebugSession(p, op)
-	var exit *exec.ExitError
+	// A local process's *exec.ExitError and a host process's remoteRunExit both carry the code.
+	var exit interface{ ExitCode() int }
 	switch {
 	case op.cancelled:
 		a.endBuildOperation(p, op, "cancelled", nil, "", a.text.Build.Cancelled)
@@ -2313,7 +2330,8 @@ func (a *App) finishBuildError(p *project, op *buildOperation, err error) {
 		failure = message
 	}
 	if a.endBuildOperation(p, op, "failed", nil, failure, message) {
-		a.operationFailed("build", err)
+		// A remote workspace's reason may name the host or a host path, which the log does not keep.
+		a.operationFailed("build", p.logError(err))
 	}
 }
 
