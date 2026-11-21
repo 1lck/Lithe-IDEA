@@ -18,7 +18,8 @@ import (
 // saved, saved connections under their groups with the tested one's overview, its form, a new
 // connection whose host Core refused under its field, OpenSSH's password question over the window,
 // a refused test, the connection steps with OpenSSH's questions on the page and a failure, the
-// question whether to trust a folder, and Motty's hosts to import.
+// question whether to trust a folder, Motty's hosts to import, the host's folders, and a WSL
+// distribution's page and a failed connection to one.
 func TestVisualRemoteConnections(t *testing.T) {
 	out := os.Getenv("LITHE_VISUAL_OUTPUT_DIR")
 	if out == "" {
@@ -194,7 +195,7 @@ func TestVisualRemoteConnections(t *testing.T) {
 			// Connecting runs the steps on the page, with OpenSSH's questions under the step that
 			// asks them.
 			r.selectEntry(buildBox)
-			steps := newRemoteSteps(*r.entry(buildBox), "", h.app.now())
+			steps := newRemoteSteps(*r.entry(buildBox), remoteHost{ssh: r.entry(buildBox).Connection}, "", h.app.now())
 			r.steps = steps
 			asked := make(chan struct{})
 			h.app.gitAuth.queue = []core.GitAuthChallenge{{
@@ -218,7 +219,7 @@ func TestVisualRemoteConnections(t *testing.T) {
 			// The first time a folder opens, the window asks whether to trust it.
 			parent := "/home/dev"
 			r.selectEntry(buildBox)
-			r.trust = &remoteTrustPrompt{browser: &remoteBrowser{entryID: buildBox, name: "Build box", connection: r.entry(buildBox).Connection}, dir: "/home/dev/project", trust: remoteconn.Trust{
+			r.trust = &remoteTrustPrompt{browser: &remoteBrowser{entryID: buildBox, name: "Build box", host: remoteHost{ssh: r.entry(buildBox).Connection}}, dir: "/home/dev/project", trust: remoteconn.Trust{
 				State: core.RemoteWorkspaceTrustState{WorkspaceTrust: &core.RemoteWorkspaceTrustOf{
 					State: core.WorkspaceTrustUnset, Workspace: "/home/dev/project", OfferedLocation: &parent,
 				}},
@@ -264,7 +265,7 @@ func TestVisualRemoteConnections(t *testing.T) {
 
 			// Once connected, the page lists the host's folders to open one.
 			r.selectEntry(buildBox)
-			browser := &remoteBrowser{entryID: buildBox, name: "Build box", connection: r.entry(buildBox).Connection,
+			browser := &remoteBrowser{entryID: buildBox, name: "Build box", host: remoteHost{ssh: r.entry(buildBox).Connection},
 				recent: []string{"/home/dev/src/lithe", "/srv/ci/workspace"},
 				dir:    "/home/dev/src", folders: []string{"lithe", "lithe-core-rust", "scratch"}, files: []string{"README.txt"},
 				repositories: map[string]bool{"lithe": true, "lithe-core-rust": true},
@@ -273,6 +274,26 @@ func TestVisualRemoteConnections(t *testing.T) {
 			r.browser = browser
 			shot("folder")
 			r.browser = nil
+
+			// This computer's WSL distributions list under their own heading, and one opens as the
+			// Linux account typed on its page; one that does not start fails with WSL's own text.
+			// The distributions come from wsl.exe; the scenes show fixed ones.
+			r.wsl.loaded = true
+			r.wsl.list = core.RemoteWSLDistributions{Available: true, Distributions: []string{"Ubuntu-24.04", "Debian"}}
+			r.buildRows()
+			r.selectRemoteWSL("Ubuntu-24.04")
+			r.wsl.user.SetText("dev")
+			shot("wsl")
+			r.selectRemoteWSL("Debian")
+			gone := &core.WSLConnection{Distribution: "Debian"}
+			steps = newRemoteSteps(core.SavedRemoteConnection{ID: gone.Identity(), Name: "Debian"}, remoteHost{wsl: gone}, "", h.app.now())
+			r.steps = steps
+			steps.fail(h.app.now(), &remoteProbeOutcome{result: core.RemoteProbeResult{
+				Status: core.RemoteProbeUnreachable, Diagnostics: "There is no distribution with the supplied name.",
+			}, wsl: true, at: h.app.now()}, h.app.language())
+			r.log.Open = true
+			shot("wsl-failed")
+			r.steps = nil
 			h.app.closeRemote()
 			h.settleChain()
 		})

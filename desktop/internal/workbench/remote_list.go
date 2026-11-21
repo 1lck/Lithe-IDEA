@@ -40,8 +40,9 @@ type remoteFormValues struct {
 }
 
 // buildRows lays out the list from the sections Core found for the query while one is typed, else
-// from the source's, under a heading for each group when any section names one. A folded group
-// keeps its heading only, and a search unfolds every group.
+// from the source's, under a heading for each group when any section names one, followed by the
+// WSL distributions (remote_wsl.go). A folded group keeps its heading only, and a search unfolds
+// every group.
 func (r *remoteState) buildRows() {
 	r.rows = nil
 	byID := make(map[string]*core.SavedRemoteConnection, len(r.source.Connections))
@@ -70,6 +71,7 @@ func (r *remoteState) buildRows() {
 			}
 		}
 	}
+	r.rows = append(r.rows, r.wslRows()...)
 }
 
 // toggleRemoteGroup folds or unfolds group in the list.
@@ -138,12 +140,18 @@ func (a *App) remoteLive(id string) bool {
 
 // remoteWindows is how many open windows work in a folder over the saved connection id.
 func (a *App) remoteWindows(id string) int {
+	return a.remoteWindowsWhere(func(other string) bool { return other == id })
+}
+
+// remoteWindowsWhere is how many open windows work in a folder over a connection whose id match
+// accepts.
+func (a *App) remoteWindowsWhere(match func(id string) bool) int {
 	if a.sessions == nil {
 		return 0
 	}
 	count := 0
 	for _, w := range a.sessions.list {
-		if w.project != nil && w.project.remote != nil && w.project.remote.connectionID == id &&
+		if w.project != nil && w.project.remote != nil && match(w.project.remote.connectionID) &&
 			w.project.remote.session != "" && !w.project.remote.closed {
 			count++
 		}

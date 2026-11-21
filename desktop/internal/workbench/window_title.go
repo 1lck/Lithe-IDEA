@@ -43,11 +43,11 @@ func (a *App) windowTitle() string {
 // projectDisplayName is the name the taskbar and Alt+Tab show for p: its folder's name, or
 // that name under the folder above it when another open tab shows a project of the same name,
 // so two checkouts of one repository do not look alike. A remote workspace's name says the
-// connection it is on, as "folder [SSH: connection]".
+// connection it is on, as "folder [SSH: connection]" or "folder [WSL: distribution]".
 func (a *App) projectDisplayName(p *project) string {
 	name := p.name
 	if r := p.remote; r != nil {
-		return i18n.SharedFormat(a.language(), "desktop.remote.workspace.title", map[string]string{"folder": name, "connection": r.name})
+		return i18n.SharedFormat(a.language(), "desktop.remote.workspace.title", map[string]string{"folder": name, "kind": r.host.kind(a.language()), "connection": r.name})
 	}
 	if !a.projectNameShared(p) {
 		return name

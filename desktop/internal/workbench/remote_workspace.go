@@ -12,7 +12,8 @@ import (
 	"github.com/1lck/Lithe-IDEA/desktop/internal/remoteserver"
 )
 
-// A remote workspace is a project whose folder is on an SSH host (#2231, R0). Its root is a
+// A remote workspace is a project whose folder is on an SSH host or in a WSL distribution of this
+// computer (#2231, R0; remote_wsl.go). Its root is a
 // placeholder below a read-only file of the user's cache directory (remoteplaceholder), and its
 // context carries a core.RemoteWorkspace binding: every Core request of the project runs on the
 // host or is refused with not_supported, and a local call with a path of the project fails
@@ -76,11 +77,12 @@ const (
 type remoteProject struct {
 	// binding carries the session and the two roots in every Core request of the project.
 	binding *core.RemoteWorkspace
-	// connectionID, name and connection are the saved connection the workspace was opened over,
-	// as it was when the workspace opened; connecting again uses the same.
+	// connectionID, name and host are the saved connection, or the WSL distribution, the
+	// workspace was opened over, as it was when the workspace opened; connecting again uses the
+	// same. A WSL distribution's id is its identity (core.WSLConnection.Identity).
 	connectionID string
 	name         string
-	connection   core.SSHConnection
+	host         remoteHost
 	// session is the session the binding is attached to, "" while there is none.
 	session string
 	// home is the host account's home directory, "" when the host did not report it.
@@ -117,7 +119,7 @@ type remoteProject struct {
 type remoteTarget struct {
 	connectionID string
 	name         string
-	connection   core.SSHConnection
+	host         remoteHost
 	session      core.RemoteSession
 	// remoteRoot is the host folder, an absolute POSIX path; root is its local placeholder.
 	remoteRoot string
@@ -198,9 +200,9 @@ func (a *App) remotePlaceholderAnchor() (string, error) {
 	return remoteplaceholder.DefaultAnchor()
 }
 
-// connectRemoteHost opens a session to the host of connection with the server builds the client
-// carries. It runs off the window thread.
-func (a *App) connectRemoteHost(ctx context.Context, kernel Kernel, connection core.SSHConnection) (core.RemoteConnectResult, error) {
+// connectRemoteHost opens a session to host with the server builds the client carries. It runs
+// off the window thread.
+func (a *App) connectRemoteHost(ctx context.Context, kernel Kernel, host remoteHost) (core.RemoteConnectResult, error) {
 	bundle, err := a.remoteServerBundle()
 	if err != nil {
 		return core.RemoteConnectResult{}, err
@@ -209,12 +211,12 @@ func (a *App) connectRemoteHost(ctx context.Context, kernel Kernel, connection c
 	for i, build := range bundle.Builds {
 		servers[i] = core.RemoteServerBuild{Target: build.Target, Path: build.Path, SHA256: build.SHA256}
 	}
-	return kernel.RemoteConnect(ctx, core.RemoteConnectRequest{Connection: connection, Servers: servers, ServerVersion: bundle.Version})
+	return kernel.RemoteConnect(ctx, host.request(servers, bundle.Version))
 }
 
-// remoteConnectOutcome is a connection's result as the window shows a test's.
-func remoteConnectOutcome(result core.RemoteConnectResult, err error) *remoteProbeOutcome {
-	return &remoteProbeOutcome{result: core.RemoteProbeResult{Status: result.Status, Host: result.Host, Diagnostics: result.Diagnostics}, err: err}
+// remoteConnectOutcome is the result of a connection to host as the window shows a test's.
+func remoteConnectOutcome(host remoteHost, result core.RemoteConnectResult, err error) *remoteProbeOutcome {
+	return &remoteProbeOutcome{result: core.RemoteProbeResult{Status: result.Status, Host: result.Host, Diagnostics: result.Diagnostics}, err: err, wsl: host.wsl != nil}
 }
 
 // remoteConnectFailure is the error the log keeps for a connection that failed: err, or Core's
@@ -375,10 +377,10 @@ func (a *App) reconnectRemote(p *project, userStarted bool) {
 	}
 	attempt := &remoteProbe{cancel: cancel}
 	r.reconnecting = attempt
-	kernel, connection := a.kernel, r.connection
+	kernel, host := a.kernel, r.host
 	a.background(nil, 0, func(context.Context) func(*App) {
 		defer cancel()
-		result, err := a.connectRemoteHost(ctx, kernel, connection)
+		result, err := a.connectRemoteHost(ctx, kernel, host)
 		return func(a *App) {
 			if a.project != p || r.closed || r.reconnecting != attempt {
 				if result.Session != nil {
@@ -397,7 +399,7 @@ func (a *App) reconnectRemote(p *project, userStarted bool) {
 			if result.Session != nil {
 				a.releaseRemoteSession(result.Session.ID)
 			}
-			r.failure = remoteConnectOutcome(result, err)
+			r.failure = remoteConnectOutcome(host, result, err)
 			if !userStarted && r.attempt < remoteReconnectAttempts && remoteRetryable(result.Status, err) {
 				r.link = remoteReconnecting
 				a.scheduleRemote(p, remoteReconnectPause(r.attempt), func(a *App, p *project) { a.reconnectRemote(p, false) })
@@ -495,7 +497,7 @@ func (a *App) openRemoteProject(target remoteTarget) {
 	}
 	name := path.Base(target.remoteRoot)
 	p := &project{root: target.root, name: name, commit: newCommitState()}
-	r := &remoteProject{connectionID: target.connectionID, name: target.name, connection: target.connection, home: target.session.HomeDirectory}
+	r := &remoteProject{connectionID: target.connectionID, name: target.name, host: target.host, home: target.session.HomeDirectory}
 	p.remote = r
 	r.binding = core.NewRemoteWorkspace(target.root, target.remoteRoot, a.remoteSessionLost(p))
 	// Trusted, the workspace's Git runs on the host, and its commands are kept in the Git console

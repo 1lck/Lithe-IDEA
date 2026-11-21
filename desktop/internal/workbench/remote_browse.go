@@ -24,16 +24,17 @@ import (
 // the folder is chosen: Back, closing the window and quitting end it. Opening the folder hands it
 // to the workspace (remote_workspace.go) and remembers the folder with the connection.
 //
-// Only a saved connection connects, as saved: the workspace connects again with the same, and
-// the folder it remembers belongs to the entry. OpenSSH's questions are asked in the
-// authentication dialog, as a test asks them.
+// Only a saved connection or a WSL distribution of this computer connects (remote_wsl.go), as
+// shown: the workspace connects again with the same, and the folder it remembers belongs to the
+// saved entry. OpenSSH's questions are asked in the authentication dialog, as a test asks them.
 
 // remoteBrowser chooses the host folder to open over a session the window connected.
 type remoteBrowser struct {
-	session    core.RemoteSession
-	entryID    string
-	name       string
-	connection core.SSHConnection
+	session core.RemoteSession
+	// entryID and name are the saved connection's, or the WSL distribution's identity and name.
+	entryID string
+	name    string
+	host    remoteHost
 	// recent are the connection's recent folders, latest first.
 	recent []string
 	// path is what the path field holds. dir is the folder listed last, or tried last when it
@@ -66,28 +67,39 @@ func (r *remoteState) stopConnect() {
 	}
 }
 
-// connectable says whether Connect may start for the selected connection: it is saved, the form
-// shows it as saved, and nothing else runs.
+// connectable says whether Connect may start for what the page shows: a WSL distribution, or a
+// saved connection the form shows as saved; and nothing else runs.
 func (r *remoteState) connectable() bool {
 	return r.open && r.browser == nil && r.connect == nil && r.probe == nil && !r.saving &&
-		r.entry(r.selected) != nil && !r.dirty()
+		(r.wsl.selected != "" || (r.entry(r.selected) != nil && !r.dirty()))
 }
 
-// connectRemote connects to the selected saved connection's host, showing each step and the
-// questions OpenSSH asks on the page, then opens folder on it, or lists the host's folders to
-// choose one when folder is "".
+// connectTarget is what Connect connects to: the WSL distribution shown, as an entry named after
+// it with its identity for id, or the selected saved connection.
+func (r *remoteState) connectTarget() (core.SavedRemoteConnection, remoteHost) {
+	if r.wsl.selected != "" {
+		wsl := r.wsl.connection()
+		return core.SavedRemoteConnection{ID: wsl.Identity(), Name: wsl.Distribution}, remoteHost{wsl: &wsl}
+	}
+	entry := *r.entry(r.selected)
+	return entry, remoteHost{ssh: entry.Connection}
+}
+
+// connectRemote connects to the host the page shows, showing each step and the questions OpenSSH
+// asks on the page, then opens folder on it, or lists the host's folders to choose one when folder
+// is "".
 func (a *App) connectRemote(folder string) {
 	r := &a.remote
 	if !r.connectable() {
 		return
 	}
-	entry := *r.entry(r.selected)
+	entry, host := r.connectTarget()
 	r.result, r.err, r.fieldErr, r.confirmDelete, r.moreMenu = nil, "", remoteFieldRefusal{}, false, false
 	a.performed("remote.connect", surfaceButton)
 	ctx, cancel := context.WithTimeout(a.operationContext(context.Background()), remoteProbeTimeout)
 	attempt := &remoteProbe{cancel: cancel}
 	r.connect = attempt
-	steps := newRemoteSteps(entry, folder, a.now())
+	steps := newRemoteSteps(entry, host, folder, a.now())
 	r.steps = steps
 	ctx = core.WithRemoteStages(ctx, func(stage core.RemoteStage) {
 		a.post(func(a *App) {
@@ -99,7 +111,7 @@ func (a *App) connectRemote(folder string) {
 	generation, kernel := r.generation, a.kernel
 	a.background(nil, 0, func(context.Context) func(*App) {
 		defer cancel()
-		result, err := a.connectRemoteHost(a.gitAuthentication(ctx), kernel, entry.Connection)
+		result, err := a.connectRemoteHost(a.gitAuthentication(ctx), kernel, host)
 		return func(a *App) {
 			r := &a.remote
 			if !r.open || r.generation != generation || r.connect != attempt {
@@ -112,7 +124,7 @@ func (a *App) connectRemote(folder string) {
 			r.connect = nil
 			if err == nil && result.Status == core.RemoteProbeConnected && result.Session != nil {
 				r.steps = nil
-				a.browseRemote(entry, *result.Session)
+				a.browseRemote(entry, host, *result.Session)
 				if folder != "" {
 					a.openRemoteFolderAt(folder)
 				}
@@ -124,11 +136,16 @@ func (a *App) connectRemote(folder string) {
 			if field, reason, ok := core.RemoteConnectionFieldError(err); ok {
 				a.operationRejected("remote_connect", "field_refused")
 				r.steps = nil
-				r.err = remoteRefusalText(a.language(), remoteFieldRefusal{field: field, reason: reason})
+				refusal := remoteFieldRefusal{field: field, reason: reason}
+				if host.wsl != nil {
+					r.err = remoteWSLRefusalText(a.language(), refusal)
+				} else {
+					r.err = remoteRefusalText(a.language(), refusal)
+				}
 				return
 			}
 			a.operationFailed("remote_connect", remoteConnectFailure(result, err))
-			steps.fail(a.now(), remoteConnectOutcome(result, err), a.language())
+			steps.fail(a.now(), remoteConnectOutcome(host, result, err), a.language())
 			r.log.Open = true
 		}
 	})
@@ -160,10 +177,11 @@ func remoteConnectFailureText(language i18n.Language, err error) string {
 	return ""
 }
 
-// browseRemote starts choosing the folder to open over session, in the account's home directory.
-func (a *App) browseRemote(entry core.SavedRemoteConnection, session core.RemoteSession) {
+// browseRemote starts choosing the folder to open over session to host, in the account's home
+// directory.
+func (a *App) browseRemote(entry core.SavedRemoteConnection, host remoteHost, session core.RemoteSession) {
 	r := &a.remote
-	r.browser = &remoteBrowser{session: session, entryID: entry.ID, name: entry.Name, connection: entry.Connection, recent: entry.RecentFolders}
+	r.browser = &remoteBrowser{session: session, entryID: entry.ID, name: entry.Name, host: host, recent: entry.RecentFolders}
 	start := session.HomeDirectory
 	if !path.IsAbs(start) {
 		start = "/"
@@ -394,8 +412,8 @@ func (a *App) openRemoteFolder() {
 }
 
 // openRemoteFolderNow opens dir once its trust is decided (remote_trust.go), trusted when trusted
-// is set and in safe mode otherwise. It also marks the connection as connected now, for the
-// list's "2 hours ago".
+// is set and in safe mode otherwise. It also marks a saved connection as connected now, for the
+// list's "2 hours ago"; a WSL distribution is not saved, so nothing is remembered for it.
 func (a *App) openRemoteFolderNow(dir string, trusted bool) {
 	r := &a.remote
 	b := r.browser
@@ -403,7 +421,7 @@ func (a *App) openRemoteFolderNow(dir string, trusted bool) {
 		return
 	}
 	b.opening, b.err = true, ""
-	entryID := b.entryID
+	entryID, remember := b.entryID, b.host.wsl == nil
 	generation, kernel, toolRoot := r.generation, a.kernel, a.globalToolchainRoot()
 	a.background(nil, remoteReadTimeout, func(ctx context.Context) func(*App) {
 		anchor, err := a.remotePlaceholderAnchor()
@@ -411,7 +429,7 @@ func (a *App) openRemoteFolderNow(dir string, trusted bool) {
 			err = remoteplaceholder.Ensure(anchor)
 		}
 		var rememberErr error
-		if err == nil {
+		if err == nil && remember {
 			// The folder is remembered even when the workspace then fails to open, as the editor
 			// remembers a project it opened.
 			var source remoteconn.Source
@@ -445,7 +463,7 @@ func (a *App) openRemoteFolderNow(dir string, trusted bool) {
 				return
 			}
 			target := remoteTarget{
-				connectionID: b.entryID, name: b.name, connection: b.connection, session: b.session,
+				connectionID: b.entryID, name: b.name, host: b.host, session: b.session,
 				remoteRoot: dir, root: remoteplaceholder.Root(anchor, b.entryID, dir), trusted: trusted,
 			}
 			// The session is the workspace's from here on.

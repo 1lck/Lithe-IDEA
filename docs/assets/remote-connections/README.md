@@ -7,6 +7,7 @@
 - 空页面上 Motty 和 `~/.ssh/config` 的可导入数量；
 - 导入页的 Motty 主机、逐项字段映射和 `~/.ssh/config` 的主机；
 - 选文件夹页的远程目录；
+- WSL 发行版列表和连接失败时 wsl.exe 的输出；
 - OpenSSH 的主机密钥和密码询问。
 
 截图里的主机、用户、指纹和路径都是虚构的。截图覆盖深色与浅色主题、中文与英文界面，用于确认：
@@ -49,6 +50,10 @@
   - 底部显示将导入的连接数和将新建的分组。
 - **从 SSH 配置导入：** 表格列出 Host 别名、`ssh -G` 解析出的生效值和结果。被其他主机用作跳板的主机注明“作为 … 的 ProxyJump”；通配符 Host 跳过并说明原因。
 
+- **WSL 发行版：** 已保存的连接之后是“WSL”分组，列出本机的发行版（截图里的发行版由测试给出，不运行 wsl.exe）：
+  - 选中后右侧显示发行版名、“WSL”标签和 `wsl:用户@发行版` 地址，说明经本机 wsl.exe 打开、不保存任何信息，下方可填写 Linux 用户；
+  - 连接失败时步骤从“启动发行版”开始，没有读取配置和身份验证；失败原因用 WSL 自己的说明，不显示 SSH 的排查提示，底部没有“编辑连接”。
+
 截图不能代替 macOS/Windows 原生窗口验收。
 
 | 场景 | 浅色英文 | 深色中文 |
@@ -67,6 +72,8 @@
 | 从 Motty 导入（展开字段映射） | [浅色英文](remote-connections-import-light-en-US.png) | [深色中文](remote-connections-import-dark-zh-CN.png) |
 | 从 SSH 配置导入 | [浅色英文](remote-connections-import-ssh-light-en-US.png) | [深色中文](remote-connections-import-ssh-dark-zh-CN.png) |
 | 选择远程文件夹 | [浅色英文](remote-connections-folder-light-en-US.png) | [深色中文](remote-connections-folder-dark-zh-CN.png) |
+| WSL 发行版页（填写 Linux 用户） | [浅色英文](remote-connections-wsl-light-en-US.png) | [深色中文](remote-connections-wsl-dark-zh-CN.png) |
+| 连接 WSL 发行版失败 | [浅色英文](remote-connections-wsl-failed-light-en-US.png) | [深色中文](remote-connections-wsl-failed-dark-zh-CN.png) |
 
 复验方法：在仓库根目录把 `LITHE_VISUAL_OUTPUT_DIR` 设为绝对路径 `"$(pwd)/docs/assets/remote-connections"`，然后在 `desktop/` 下运行
 `../scripts/desktop/desktop-go.sh test -tags vivahead,lithevisual ./internal/workbench -run '^TestVisualRemoteConnections$' -count=1 -timeout 300s`。

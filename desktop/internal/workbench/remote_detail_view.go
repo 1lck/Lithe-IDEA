@@ -30,6 +30,8 @@ func (a *App) remotePage(c ui.C, language i18n.Language) {
 	}
 	entry := r.entry(r.selected)
 	switch {
+	case r.wsl.selected != "":
+		a.remoteWSLPage(c, language)
 	case r.editing:
 		a.remoteFormPage(c, language)
 	case entry != nil:
@@ -449,7 +451,8 @@ func (a *App) remoteHostTags(c ui.C, language i18n.Language, host core.RemotePro
 // remoteFailureHint says what to check after a test that did not connect, and is "" when there
 // is nothing more to say than why it failed.
 func remoteFailureHint(language i18n.Language, outcome *remoteProbeOutcome) string {
-	if outcome.err != nil {
+	// The hints name OpenSSH's settings, which a WSL distribution does not have.
+	if outcome.err != nil || outcome.wsl {
 		return ""
 	}
 	switch outcome.result.Status {
@@ -578,6 +581,8 @@ func (a *App) remoteFooter(c ui.C, language i18n.Language) {
 	entry := r.entry(r.selected)
 	ui.Row(c).FillWidth().Items(ui.Center).Gap(8).Children(func() {
 		switch {
+		case r.wsl.selected != "":
+			a.remoteWSLFooter(c, language)
 		case r.editing:
 			a.remoteFormFooter(c, language, entry)
 		case entry != nil && r.confirmDelete:

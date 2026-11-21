@@ -75,7 +75,7 @@ func (a *App) remoteBrowserHead(c ui.C, language i18n.Language, b *remoteBrowser
 				FontSize(16).Weight(gfx.WeightSemibold).Ellipsis().Shrink(1).MinWidth(0)
 			ui.Row(c.Part("state")).FillWidth().Gap(8).Items(ui.Center).Children(func() {
 				a.remoteStatusPill(c.Part("live"), i18n.Shared(language, "desktop.remote.browse.connected"), a.colors.Success)
-				ui.Text(c, remoteAddress(b.connection)).Mono().FontSize(a.theme.Metrics.FontSizeS).Color(a.colors.Subtle).Ellipsis().Shrink(1).MinWidth(0)
+				ui.Text(c, b.host.address()).Mono().FontSize(a.theme.Metrics.FontSizeS).Color(a.colors.Subtle).Ellipsis().Shrink(1).MinWidth(0)
 				if system != "" {
 					ui.Text(c, system).FontSize(a.theme.Metrics.FontSizeS).Color(a.colors.Subtle).Ellipsis().Shrink(1).MinWidth(0)
 				}
