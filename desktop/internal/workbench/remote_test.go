@@ -575,3 +575,52 @@ func TestRemoteTestStopsWithTheWindow(t *testing.T) {
 		t.Fatalf("open = %v, probe = %v, result = %+v after closing", r.open, r.probe, r.result)
 	}
 }
+
+// importCountKernel answers the import lists the way Core does for hosts already saved: a host is
+// "exists" once the saved list it is handed holds it. Nothing runs ssh or reads the account's files.
+type importCountKernel struct {
+	*testKernel
+	documents []*string
+}
+
+func (k *importCountKernel) RemoteSSHConfigHosts(_ context.Context, _ string, document *string) (core.RemoteSSHConfigHosts, error) {
+	k.documents = append(k.documents, document)
+	var hosts core.RemoteSSHConfigHosts
+	for _, alias := range []string{"alpha", "beta"} {
+		status := core.RemoteImportable
+		if document != nil && strings.Contains(*document, `"`+alias+`"`) {
+			status = core.RemoteImportExists
+		}
+		hosts.Hosts = append(hosts.Hosts, core.RemoteSSHConfigHost{Alias: alias, Status: status})
+	}
+	return hosts, nil
+}
+
+func (k *importCountKernel) RemoteMottyHosts(context.Context, string, *string) (core.RemoteMottyHosts, error) {
+	return core.RemoteMottyHosts{Unavailable: core.RemoteMottyMissing}, nil
+}
+
+// The empty page's import counts leave out the hosts already saved, and follow the list each time
+// a save changes it.
+func TestRemoteImportCountsLeaveOutSavedHosts(t *testing.T) {
+	kernel := &importCountKernel{testKernel: &testKernel{Client: core.NewClient()}}
+	h, _ := remoteHarnessWith(t, kernel)
+	r := &h.app.remote
+	h.settle()
+	if !r.imports.loaded || r.imports.sshConfig != 2 {
+		t.Fatalf("counts = %+v, want both hosts", r.imports)
+	}
+	h.clickLabeled(i18n.Shared(h.app.language(), "desktop.remote.new"))
+	r.form.host.SetText("alpha")
+	r.form.user.SetText("dev")
+	h.redraw()
+	h.clickLabeled(i18n.Shared(h.app.language(), "desktop.remote.save"))
+	h.settle()
+	h.settle()
+	if r.err != "" || len(r.source.Connections) != 1 {
+		t.Fatalf("saving: %q, %d saved", r.err, len(r.source.Connections))
+	}
+	if r.imports.sshConfig != 1 {
+		t.Fatalf("counts = %+v after saving alpha, want only beta", r.imports)
+	}
+}
