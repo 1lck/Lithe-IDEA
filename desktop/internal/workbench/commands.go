@@ -164,7 +164,7 @@ func (a *App) commands() []command {
 
 	// Every tool window, plugin ones included, can be shown by name.
 	for index, it := range a.chrome.catalog {
-		if !it.panel {
+		if !it.panel || !a.chrome.present(index) {
 			continue
 		}
 		id := it.id

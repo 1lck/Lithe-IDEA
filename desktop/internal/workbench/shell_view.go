@@ -139,6 +139,9 @@ func (a *App) shellPanel(c ui.C, s slot, index int, hidden *slot) ui.Box {
 			if tool.id == itemNotifications {
 				a.notificationClearButton(hk)
 			}
+			if tool.id == itemPorts && p != nil {
+				a.remotePortsActions(c, p)
+			}
 			if tabbed && p != nil {
 				a.drawGitActions(c, p)
 			}
@@ -163,10 +166,10 @@ func (a *App) shellPanel(c ui.C, s slot, index int, hidden *slot) ui.Box {
 
 // remoteToolWindow reports whether the tool window id works in a remote workspace: the project
 // listing, search and terminals run on the host, and so do Git's log and commit once the
-// workspace is trusted (in safe mode they say so, as in a local project).
+// workspace is trusted (in safe mode they say so, as in a local project); Ports exists only there.
 func remoteToolWindow(id string) bool {
 	switch id {
-	case itemProject, itemNotifications, itemTerminal, itemFind, itemGit, itemCommit:
+	case itemProject, itemNotifications, itemTerminal, itemFind, itemGit, itemCommit, itemPorts:
 		return true
 	}
 	return false
@@ -228,6 +231,8 @@ func (a *App) toolBody(c ui.C, tool item, p *project) {
 			a.debugView(c, p)
 		case itemNotifications:
 			a.notificationsToolBody(c.Part("notificationHistory"))
+		case itemPorts:
+			a.remotePortsView(c, p)
 		default:
 			switch {
 			case tool.tool != nil && tool.tool.View != "":

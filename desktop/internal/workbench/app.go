@@ -234,6 +234,10 @@ type Kernel interface {
 	RemoteRunWatch(ctx context.Context, sessionID, root string, excludeNames []string, events core.RemoteWatchEvents) error
 	RemoteTerminalWrite(ctx context.Context, sessionID string, terminalID uint64, data []byte) (bool, error)
 	RemoteTerminalResize(ctx context.Context, sessionID string, terminalID uint64, columns, rows uint16) error
+	RemoteStartForward(ctx context.Context, sessionID string, target core.RemoteForwardTarget) (core.RemoteForward, bool, error)
+	RemoteStopForward(ctx context.Context, sessionID string, id uint64) (bool, error)
+	RemoteForwards(ctx context.Context, sessionID string) ([]core.RemoteForward, error)
+	RemoteListeningPorts(ctx context.Context, sessionID string) ([]core.RemoteListeningPort, error)
 	GitCreateTag(ctx context.Context, root, name, revision, message string) error
 	GitRebasePreview(ctx context.Context, root, base string) (core.RebasePreview, error)
 	GitRebaseStart(ctx context.Context, root string, preview core.RebasePreview, steps []core.RebaseStep) (*core.RebaseSession, error)
@@ -1783,6 +1787,7 @@ func (a *App) finishCloseProject(p *project, after func()) {
 		a.problems.reset()
 		a.toolchainRoot.Store(nil)
 		a.project = nil
+		a.chrome.setRemote(false)
 		a.ideAPISetProject(nil)
 		a.focus = focusTarget{}
 		a.dnd.tool.Cancel()

@@ -18,6 +18,7 @@ func toolMessages(language Language) ToolMessages {
 		Debug:         Shared(language, "native.debug"),
 		Notifications: Shared(language, "notifications.title"),
 		Background:    Shared(language, "desktop.tools.background"),
+		Ports:         Shared(language, "desktop.remote.ports.title"),
 		ToolWindows:   Shared(language, "native.toolWindows"),
 		DragHint:      Shared(language, "desktop.tools.dragHint"),
 	}
