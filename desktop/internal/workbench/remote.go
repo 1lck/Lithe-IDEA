@@ -78,6 +78,35 @@ type remoteState struct {
 	// err is the last failure that names no field of the form; fieldErr names one.
 	err      string
 	fieldErr remoteFieldRefusal
+
+	// query filters the list through Core; found is Core's sections for it, nil while the query
+	// is empty and the list shows the source's. searching counts the searches, so that an older
+	// answer arriving late is dropped.
+	query     ui.Field
+	found     []core.RemoteConnectionSection
+	searching uint64
+	// collapsed are the groups whose connections the list hides, by heading ("" for none).
+	collapsed map[string]bool
+	// importMenu and moreMenu are open while the list's import menu and the overview's menu are.
+	importMenu, moreMenu bool
+	// quick is the empty page's user@host:port field, and quickErr why Core refused it.
+	quick    ui.Field
+	quickErr string
+	// hop is the form's field that adds a jump host.
+	hop ui.Field
+	// effective is what OpenSSH resolves for each saved connection, by the connection as Core
+	// stores it. It is read once per opening of the window, lives with it and holds no secret.
+	effective map[core.SSHConnection]*remoteEffective
+	// steps is the connection in progress with its stages, nil when none runs.
+	steps *remoteSteps
+	// trust asks whether the chosen folder's code may run, nil when nothing is asked.
+	trust *remoteTrustPrompt
+	// importer is the import page, nil when it is not shown; imports are the counts the empty
+	// page and the import menu name.
+	importer *remoteImporter
+	// log folds OpenSSH's words under a failed test or connection.
+	log     ui.CollapsibleState
+	imports remoteImportCounts
 }
 
 // remoteForm is what the user types for one connection.
@@ -115,7 +144,9 @@ type remoteProbe struct {
 // remoteProbeOutcome is what a test found: Core's result, or the error that kept it from running.
 type remoteProbeOutcome struct {
 	result core.RemoteProbeResult
-	err    error
+	// at is when the test ended, for the overview's "tested 5 minutes ago".
+	at  time.Time
+	err error
 }
 
 // remoteFieldRefusal is the field of the form Core (or the form's own number check) refused, and
@@ -143,6 +174,7 @@ func (a *App) openRemote(surface actionSurface) {
 	r.form.clear()
 	a.performed("remote.connections.open", surface)
 	a.loadRemote(remoteLoadSelectFirst, "")
+	a.loadRemoteImportCounts()
 }
 
 // closeRemote closes the window, stopping a running test or connection and ending the session a
@@ -152,6 +184,7 @@ func (a *App) closeRemote() {
 	r.stopProbe()
 	r.stopConnect()
 	a.leaveRemoteBrowser()
+	a.leaveRemoteTrust()
 	r.generation++
 	r.open, r.saving, r.loading = false, false, false
 	r.form = remoteForm{}
@@ -219,28 +252,16 @@ func remoteReadFailure(language i18n.Language, source remoteconn.Source, err err
 // them in, each section headed by its group once any connection has one.
 func (r *remoteState) setSource(source remoteconn.Source) {
 	r.source, r.rows, r.groups = source, nil, nil
-	byID := make(map[string]*core.SavedRemoteConnection, len(source.Connections))
-	for index := range source.Connections {
-		byID[source.Connections[index].ID] = &source.Connections[index]
-	}
-	headed := slices.ContainsFunc(source.Sections, func(section core.RemoteConnectionSection) bool { return section.Group != nil })
+	// A search lists what Core found in the source it searched, so a new one ends it.
+	r.found = nil
+	r.searching++
+	r.query.SetText("")
 	for _, section := range source.Sections {
 		if section.Group != nil {
 			r.groups = append(r.groups, *section.Group)
 		}
-		if headed {
-			heading := remoteListRow{heading: true, count: len(section.IDs)}
-			if section.Group != nil {
-				heading.group = *section.Group
-			}
-			r.rows = append(r.rows, heading)
-		}
-		for _, id := range section.IDs {
-			if entry := byID[id]; entry != nil {
-				r.rows = append(r.rows, remoteListRow{entry: entry})
-			}
-		}
 	}
+	r.buildRows()
 	// Only a saved connection shows a past test, so the others' results go, which bounds probed
 	// by the list.
 	for connection := range r.probed {
@@ -265,7 +286,8 @@ func (r *remoteState) entry(id string) *core.SavedRemoteConnection {
 	return nil
 }
 
-// selectFirst selects the first connection of the list, or starts a new one when there is none.
+// selectFirst selects the first connection the list shows, else the first saved one, and shows
+// the empty page when nothing is saved.
 func (r *remoteState) selectFirst() {
 	for _, row := range r.rows {
 		if row.entry != nil {
@@ -273,7 +295,14 @@ func (r *remoteState) selectFirst() {
 			return
 		}
 	}
-	r.selectNew()
+	if len(r.source.Connections) > 0 {
+		r.selectEntry(r.source.Connections[0].ID)
+		return
+	}
+	r.resetEditing()
+	r.selected, r.editing, r.quickErr = "", false, ""
+	r.form.clear()
+	r.syncListSelection()
 }
 
 // selectEntry shows the overview of the saved connection id, with the form filled from it,
@@ -302,7 +331,7 @@ func (r *remoteState) selectNew() {
 // editingForm says whether the window shows the form: for a new connection, or for a saved one
 // once Edit was clicked.
 func (r *remoteState) editingForm() bool {
-	return r.editing || r.entry(r.selected) == nil
+	return r.editing
 }
 
 // newRemote starts a new connection; Cancel goes back to the one selected before.
@@ -694,7 +723,7 @@ func (a *App) testRemote() {
 				// and is only shown.
 				a.operationFailed("remote_probe", errors.New("remote probe: "+string(result.Status)))
 			}
-			r.result = &remoteProbeOutcome{result: result, err: err}
+			r.result = &remoteProbeOutcome{result: result, err: err, at: a.now()}
 			if err == nil {
 				// What the host is outlives the form; an error that kept the test from
 				// running says nothing about the host and is only shown.

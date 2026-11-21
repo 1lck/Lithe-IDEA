@@ -68,19 +68,29 @@ func (r *remoteState) connectable() bool {
 		r.entry(r.selected) != nil && !r.dirty()
 }
 
-// connectRemote connects to the selected saved connection's host and, once connected, lists its
-// folders.
-func (a *App) connectRemote() {
+// connectRemote connects to the selected saved connection's host, showing each step and the
+// questions OpenSSH asks on the page, then opens folder on it, or lists the host's folders to
+// choose one when folder is "".
+func (a *App) connectRemote(folder string) {
 	r := &a.remote
 	if !r.connectable() {
 		return
 	}
 	entry := *r.entry(r.selected)
-	r.result, r.err, r.fieldErr, r.confirmDelete = nil, "", remoteFieldRefusal{}, false
+	r.result, r.err, r.fieldErr, r.confirmDelete, r.moreMenu = nil, "", remoteFieldRefusal{}, false, false
 	a.performed("remote.connect", surfaceButton)
 	ctx, cancel := context.WithTimeout(a.operationContext(context.Background()), remoteProbeTimeout)
 	attempt := &remoteProbe{cancel: cancel}
 	r.connect = attempt
+	steps := newRemoteSteps(entry, folder, a.now())
+	r.steps = steps
+	ctx = core.WithRemoteStages(ctx, func(stage core.RemoteStage) {
+		a.post(func(a *App) {
+			if a.remote.steps == steps {
+				steps.observe(a.now(), stage)
+			}
+		})
+	})
 	generation, kernel := r.generation, a.kernel
 	a.background(nil, 0, func(context.Context) func(*App) {
 		defer cancel()
@@ -96,7 +106,11 @@ func (a *App) connectRemote() {
 			}
 			r.connect = nil
 			if err == nil && result.Status == core.RemoteProbeConnected && result.Session != nil {
+				r.steps = nil
 				a.browseRemote(entry, *result.Session)
+				if folder != "" {
+					a.openRemoteFolderAt(folder)
+				}
 				return
 			}
 			if result.Session != nil {
@@ -104,11 +118,12 @@ func (a *App) connectRemote() {
 			}
 			if field, reason, ok := core.RemoteConnectionFieldError(err); ok {
 				a.operationRejected("remote_connect", "field_refused")
+				r.steps = nil
 				r.err = remoteRefusalText(a.language(), remoteFieldRefusal{field: field, reason: reason})
 				return
 			}
 			a.operationFailed("remote_connect", remoteConnectFailure(result, err))
-			r.result = remoteConnectOutcome(result, err)
+			steps.fail(a.now(), remoteConnectOutcome(result, err), a.language())
 		}
 	})
 }
@@ -121,6 +136,7 @@ func (a *App) stopRemoteConnect() {
 	}
 	a.performed("remote.connect.stop", surfaceButton)
 	r.stopConnect()
+	r.steps = nil
 }
 
 // remoteConnectFailureText is the window's text for a connection that could not start for a
@@ -300,14 +316,24 @@ func (b *remoteBrowser) openable() bool {
 // is usable, remembers the folder with the connection, and hands the session to the workspace.
 // A folder already open over the same connection is shown instead.
 func (a *App) openRemoteFolder() {
-	r := &a.remote
-	b := r.browser
-	if !r.open || b == nil || !b.openable() {
+	b := a.remote.browser
+	if !a.remote.open || b == nil || !b.openable() {
 		return
 	}
 	a.performed("remote.workspace.open", surfaceButton)
+	a.openRemoteFolderAt(b.target())
+}
+
+// openRemoteFolderNow opens dir once its trust is decided (remote_trust.go). It also marks the
+// connection as connected now, for the list's "2 hours ago".
+func (a *App) openRemoteFolderNow(dir string) {
+	r := &a.remote
+	b := r.browser
+	if !r.open || b == nil {
+		return
+	}
 	b.opening, b.err = true, ""
-	dir, entryID := b.target(), b.entryID
+	entryID := b.entryID
 	generation, kernel, toolRoot := r.generation, a.kernel, a.globalToolchainRoot()
 	a.background(nil, remoteReadTimeout, func(ctx context.Context) func(*App) {
 		anchor, err := a.remotePlaceholderAnchor()
@@ -321,7 +347,11 @@ func (a *App) openRemoteFolder() {
 			var source remoteconn.Source
 			source, rememberErr = remoteconn.Read(ctx, kernel, toolRoot)
 			if rememberErr == nil {
-				_, _, _, rememberErr = source.Edit(ctx, kernel, core.RemoteConnectionEdit{RememberFolder: &core.RemoteConnectionFolder{ID: entryID, Path: dir}})
+				source, _, _, rememberErr = source.Edit(ctx, kernel, core.RemoteConnectionEdit{RememberFolder: &core.RemoteConnectionFolder{ID: entryID, Path: dir}})
+			}
+			if rememberErr == nil {
+				// One edit after the other: each is made over the document the last one wrote.
+				_, _, _, rememberErr = source.Edit(ctx, kernel, core.RemoteConnectionEdit{MarkConnected: &core.RemoteConnectionID{ID: entryID}})
 			}
 		}
 		return func(a *App) {
