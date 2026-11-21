@@ -131,8 +131,8 @@ func (a *App) remoteTrustView(c ui.C, language i18n.Language, t *remoteTrustProm
 					})
 					ui.Paragraph(c.Part("body"), i18n.Shared(language, "desktop.remote.trust.body"), 6).FontSize(small).Color(a.colors.Subtle)
 					ui.Column(c.Part("choices")).FillWidth().Gap(4).Pad(12).Radius(8).Stroke(1, a.colors.Line).Children(func() {
-						a.remoteTrustChoice(c.Part("full"), language, "desktop.remote.trust.trustOpen", "desktop.remote.trust.full")
-						a.remoteTrustChoice(c.Part("safe"), language, "desktop.remote.trust.safeOpen", "desktop.remote.trust.safe")
+						a.remoteTrustChoice(c.Part("full"), language, i18n.Shared(language, "desktop.remote.trust.trustOpen"), i18n.Shared(language, "desktop.remote.trust.full"))
+						a.remoteTrustChoice(c.Part("safe"), language, i18n.Shared(language, "desktop.remote.trust.safeOpen"), i18n.Shared(language, "desktop.remote.trust.safe"))
 					})
 					if of != nil && of.OfferedLocation != nil {
 						ui.Checkbox(c.Part("parent"), &t.parent, i18n.SharedFormat(language, "desktop.remote.trust.parent", map[string]string{"parent": *of.OfferedLocation})).
@@ -147,13 +147,13 @@ func (a *App) remoteTrustView(c ui.C, language i18n.Language, t *remoteTrustProm
 	})
 }
 
-// remoteTrustChoice declares an answer in bold, then what the folder opens with after it.
+// remoteTrustChoice declares an answer's name in bold, then effect, what the folder opens with.
 func (a *App) remoteTrustChoice(c ui.C, language i18n.Language, choice, effect string) {
 	small := a.theme.Metrics.FontSizeS
 	ui.Row(c).FillWidth().Items(ui.Start).Gap(0).Children(func() {
-		ui.Text(c, i18n.SharedFormat(language, "desktop.remote.trust.choice", map[string]string{"choice": i18n.Shared(language, choice)})).
+		ui.Text(c, i18n.SharedFormat(language, "desktop.remote.trust.choice", map[string]string{"choice": choice})).
 			FontSize(small).Weight(gfx.WeightSemibold).Shrink(0)
-		ui.Paragraph(c, i18n.Shared(language, effect), 3).FontSize(small).Grow(1).Basis(0).MinWidth(0)
+		ui.Paragraph(c, effect, 3).FontSize(small).Grow(1).Basis(0).MinWidth(0)
 	})
 }
 

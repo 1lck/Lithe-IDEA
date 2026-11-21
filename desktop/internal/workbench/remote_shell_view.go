@@ -74,7 +74,10 @@ func (a *App) remoteTitle(language i18n.Language) string {
 	crumb := ""
 	switch {
 	case r.importer != nil:
-		crumb = i18n.Shared(language, "desktop.remote.import.title")
+		crumb = i18n.Shared(language, "desktop.remote.import.titleMotty")
+		if r.importer.source == remoteImportSSH {
+			crumb = i18n.Shared(language, "desktop.remote.import.titleSsh")
+		}
 	case r.browser != nil:
 		crumb = r.browser.name
 	case r.steps != nil:
