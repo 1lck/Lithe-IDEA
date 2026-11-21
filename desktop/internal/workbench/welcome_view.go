@@ -118,6 +118,9 @@ func (a *App) welcomeContent(c ui.C) {
 				if menu.Item(i18n.Shared(a.language(), "desktop.clone.title")).Clicked() {
 					c.After(func() { a.openClone(surfaceMenu) })
 				}
+				if menu.Item(i18n.Shared(a.language(), "desktop.remote.menuItem")).Clicked() {
+					c.After(func() { a.openRemote(surfaceMenu) })
+				}
 			})
 		})
 		ui.Row(c).FillWidth().Height(1).Shrink(0).PadX(12).Children(func() {

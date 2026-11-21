@@ -33,6 +33,9 @@ type GitAuthChallenge struct {
 	Attempt int
 	// WorkingDirectory is the directory the Git process runs in.
 	WorkingDirectory string
+	// Remote says the question comes from the SSH client of a remote connection (RemoteProbe),
+	// not from Git: it is answered with RemoteAuthRespond.
+	Remote bool
 	// Done is closed once the request that asked has returned; no answer reaches it after that.
 	Done <-chan struct{}
 }

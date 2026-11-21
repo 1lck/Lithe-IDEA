@@ -628,7 +628,7 @@ func (a *App) chromeBranch(c ui.C) {
 func (a *App) projectMenu(c ui.C, anchor ui.Box) {
 	var buf [chromeMenuRecents]int
 	recents := a.menuRecents(&buf)
-	var created, chosen, cloned, current, closing bool
+	var created, chosen, cloned, remote, current, closing bool
 	picked, removed := -1, -1
 	spec := ui.PopoverSpec{Align: ui.Start, Offset: chromeMenuOffset, Width: chromeMenuWidth, ConsumeOutsidePress: true}
 	open := true
@@ -637,6 +637,7 @@ func (a *App) projectMenu(c ui.C, anchor ui.Box) {
 			created = a.menuAction(c.Part("new"), icons.Plus, a.text.Title.NewProjectItem)
 			chosen = a.menuAction(c.Part("open"), icons.FolderOpen, a.text.Title.OpenItem)
 			cloned = a.menuAction(c.Part("clone"), icons.Download, a.text.Title.CloneItem)
+			remote = a.menuAction(c.Part("remote"), icons.Server, i18n.Shared(a.language(), "desktop.remote.menuItem"))
 
 			a.menuDivider(c)
 			a.menuTitle(c, a.text.Title.OpenProjects)
@@ -674,6 +675,9 @@ func (a *App) projectMenu(c ui.C, anchor ui.Box) {
 	case cloned:
 		a.title.projectOpen = false
 		c.After(func() { a.openClone(surfaceMenu) })
+	case remote:
+		a.title.projectOpen = false
+		c.After(func() { a.openRemote(surfaceMenu) })
 	case closing:
 		a.title.projectOpen = false
 		a.performed("workspace.close", surfaceMenu)

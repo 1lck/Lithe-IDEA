@@ -208,6 +208,10 @@ type Kernel interface {
 	GitForceDeleteBranch(ctx context.Context, root string, branch core.GitReference, expectedTarget string) (core.GitBranchDeletion, error)
 	GitDeleteRemoteBranch(ctx context.Context, root string, reference core.GitReference) error
 	GitAuthRespond(ctx context.Context, requestID string, answer *string) (bool, error)
+	RemoteConnections(ctx context.Context, document *string) (core.RemoteConnectionsState, error)
+	EditRemoteConnections(ctx context.Context, document *string, edit core.RemoteConnectionEdit) (core.RemoteConnectionsPublication, error)
+	RemoteProbe(ctx context.Context, connection core.SSHConnection) (core.RemoteProbeResult, error)
+	RemoteAuthRespond(ctx context.Context, requestID string, answer *string) (bool, error)
 	GitCreateTag(ctx context.Context, root, name, revision, message string) error
 	GitRebasePreview(ctx context.Context, root, base string) (core.RebasePreview, error)
 	GitRebaseStart(ctx context.Context, root string, preview core.RebasePreview, steps []core.RebaseStep) (*core.RebaseSession, error)
@@ -766,6 +770,8 @@ type App struct {
 
 	welcome welcomeState
 	clone   cloneState
+	// remote is the Remote Development window (remote.go).
+	remote remoteState
 	// gitAuth holds the questions of the Git operations the user started (git_auth.go).
 	gitAuth    gitAuthState
 	newProject newProjectState

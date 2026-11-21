@@ -1,0 +1,35 @@
+{
+  "id": "remote-connections",
+  "area": "工作区",
+  "group": "远程开发",
+  "capability": "保存 SSH 连接并测试连接，在窗口中回答 SSH 的密码和口令询问",
+  "macos": {
+    "implementationStatus": "implemented",
+    "verificationStatus": "pending",
+    "evidence": [
+      "desktop/internal/core/remote.go",
+      "desktop/internal/core/remote_test.go",
+      "desktop/internal/remoteconn/remoteconn.go",
+      "desktop/internal/remoteconn/remoteconn_test.go",
+      "desktop/internal/workbench/remote.go",
+      "desktop/internal/workbench/remote_view.go",
+      "desktop/internal/workbench/remote_test.go",
+      "desktop/internal/workbench/remote_connections_visual_test.go",
+      "desktop/internal/workbench/git_auth.go"
+    ]
+  },
+  "windows": {
+    "implementationStatus": "implemented",
+    "verificationStatus": "pending",
+    "evidence": [
+      "desktop/internal/core/remote.go",
+      "desktop/internal/remoteconn/remoteconn.go",
+      "desktop/internal/workbench/remote.go",
+      "desktop/internal/workbench/remote_view.go",
+      "desktop/internal/workbench/git_auth.go"
+    ]
+  },
+  "owner": "Remote",
+  "verification": "从欢迎页“更多”菜单和标题栏项目菜单打开“远程开发”：新建连接只填主机，保存后列表以主机名命名并选中这一行；改名称和端口后保存，列表与偏好目录 remote/connections.json 同步；删除先在底部确认。主机填 user@host、端口填非数字时，错误显示在对应字段下且不写文件。对一台 Linux SSH 主机分别用 SSH Agent、私钥文件和密码测试连接：密码和带口令私钥的询问出现在窗口中，输入以圆点显示，取消或关闭窗口立即停止测试且不再追问；成功后显示系统、架构、CPU、内存和主目录磁盘。首次连接时 OpenSSH 确认主机指纹的询问同样出现在窗口中，由用户回答，Lithe 不替用户接受；拒绝指纹或指纹已改变时测试失败并说明原因。日志只有 remote.connections.open、remote.connection.new/select/save/remove/test/test.stop 和 remote.authentication.answer/cancel 等动作，不含主机、用户名、私钥路径、询问原文或答案。",
+  "notes": "Viva：连接列表的格式和字段规则在 Core（remote.connections、remote.editConnections），桌面端只读写偏好目录里的 remote/connections.json，按读取时的字节原子写回 Core 返回的文档，文件被改过时不覆盖；测试连接由 Core 运行 PATH 中的 OpenSSH，SSH 询问经 SSH_ASKPASS 指向 lithe 可执行文件的助手模式回到窗口，和 Git 认证共用同一个提问队列。Lithe 只把私钥路径交给 OpenSSH，不读取私钥内容，也不接受粘贴的私钥。macOS 用无头截图和真实 Core 的单元测试覆盖；Windows 上 OpenSSH 调用 GUI 子系统助手读取答案仍待实机验证。打开远程项目、文件夹选择和远端服务部署见 remote-development-workspace，仍未实现。"
+}

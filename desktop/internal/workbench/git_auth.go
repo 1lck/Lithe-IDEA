@@ -18,6 +18,9 @@ import (
 // here instead of the credential helper (core.WithGitAuthentication). The questions queue in
 // the order Git asked them. One dialog, over everything else, answers the first, and the next
 // follows; a question leaves the queue once it is answered or its request has returned.
+//
+// The SSH client of a remote connection asks through the same queue and dialog (core.RemoteProbe
+// marks its questions Remote): only the title, the hint and the command that answers differ.
 
 const (
 	// gitAuthRespondTimeout bounds passing one answer to Core, which replies at once.
@@ -79,7 +82,11 @@ func (a *App) gitAuthDialog(c ui.C) {
 	lang := a.language()
 	g.open = true
 	submitted, cancelled, confirmed := false, false, false
-	closed := ui.ModalWith(c, &g.open, i18n.Shared(lang, "desktop.gitAuth.title"), ui.ModalSpec{Width: gitAuthDialogWidth}, func() {
+	title := i18n.Shared(lang, "desktop.gitAuth.title")
+	if head.Remote {
+		title = i18n.Shared(lang, "desktop.remoteAuth.title")
+	}
+	closed := ui.ModalWith(c, &g.open, title, ui.ModalSpec{Width: gitAuthDialogWidth}, func() {
 		ui.Column(c).FillWidth().Gap(10).Children(func() {
 			if head.Retry {
 				ui.Wrap(c, i18n.Shared(lang, "desktop.gitAuth.retryMessage"))
@@ -97,7 +104,11 @@ func (a *App) gitAuthDialog(c ui.C) {
 				}
 				submitted = field.Submitted()
 				if head.Secret {
-					ui.Wrap(c, i18n.Shared(lang, "desktop.gitAuth.secretHint")).FontSize(12).Color(a.colors.Subtle)
+					hint := i18n.Shared(lang, "desktop.gitAuth.secretHint")
+					if head.Remote {
+						hint = i18n.Shared(lang, "desktop.remoteAuth.secretHint")
+					}
+					ui.Wrap(c, hint).FontSize(12).Color(a.colors.Subtle)
 				}
 			}
 			if head.WorkingDirectory != "" {
@@ -135,35 +146,46 @@ func (a *App) answerGitAuth(requestID string, confirm bool) {
 	head := g.queue[0]
 	g.queue = g.queue[1:]
 	var answer *string
-	action := "git.authentication.cancel"
+	kind, site, respond := "git.authentication.", "git_authentication", a.kernel.GitAuthRespond
+	if head.Remote {
+		kind, site, respond = "remote.authentication.", "remote_authentication", a.kernel.RemoteAuthRespond
+	}
+	action := kind + "cancel"
 	switch {
 	case confirm && head.Retry:
 		retry := core.GitRetryAnswer
-		answer, action = &retry, "git.authentication.retry"
+		answer, action = &retry, kind+"retry"
 	case confirm:
 		typed := g.field.Text()
-		answer, action = &typed, "git.authentication.answer"
+		answer, action = &typed, kind+"answer"
 	}
 	g.field, g.fieldFor = ui.Field{}, ""
 	a.performed(action, surfaceButton)
-	kernel := a.kernel
 	a.background(nil, gitAuthRespondTimeout, func(ctx context.Context) func(*App) {
-		accepted, err := kernel.GitAuthRespond(ctx, head.RequestID, answer)
+		accepted, err := respond(ctx, head.RequestID, answer)
 		refused := false
 		if err == nil && !accepted && answer != nil && !requestReturned(head.Done) {
 			// Core took no answer although the request still runs: either it refused this one
 			// or the question expired. Only a question that still waits accepts the cancel.
-			refused, err = kernel.GitAuthRespond(ctx, head.RequestID, nil)
+			refused, err = respond(ctx, head.RequestID, nil)
 		}
 		return func(a *App) {
 			lang := a.language()
 			switch {
 			case err != nil:
-				a.operationFailed("git_authentication", err)
-				a.notifyError(i18n.SharedFormat(lang, "desktop.gitAuth.failed", map[string]string{"reason": err.Error()}))
+				a.operationFailed(site, err)
+				text := i18n.SharedFormat(lang, "desktop.gitAuth.failed", map[string]string{"reason": err.Error()})
+				if head.Remote {
+					text = i18n.SharedFormat(lang, "desktop.remoteAuth.failed", map[string]string{"reason": err.Error()})
+				}
+				a.notifyError(text)
 			case refused:
-				a.operationRejected("git_authentication", "answer_refused")
-				a.notifyError(i18n.Shared(lang, "desktop.gitAuth.refused"))
+				a.operationRejected(site, "answer_refused")
+				text := i18n.Shared(lang, "desktop.gitAuth.refused")
+				if head.Remote {
+					text = i18n.Shared(lang, "desktop.remoteAuth.refused")
+				}
+				a.notifyError(text)
 			}
 		}
 	})
