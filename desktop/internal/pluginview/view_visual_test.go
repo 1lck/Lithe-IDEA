@@ -23,6 +23,8 @@ const visualView = `[
    {"type":"label","id":"count","text":"3 modules · 41 classes","style":"strong"},
    {"type":"button","id":"refresh","text":"Refresh","icon":"refresh"},
    {"type":"button","id":"build","text":"Build all","icon":"run","tone":"primary"}]},
+  {"type":"segmented","id":"scope","label":"Scope","value":"all","options":[
+   {"value":"all","label":"All modules"},{"value":"recent","label":"Recent"}]},
   {"type":"textField","id":"filter","placeholder":"Filter modules","width":"fill"},
   {"type":"tree","id":"modules","items":[
    {"id":"core","label":"core","icon":"plugin","detail":"18 classes","expanded":true,"children":[

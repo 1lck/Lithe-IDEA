@@ -393,7 +393,11 @@ func (w *window) debuggerList(c ui.C, language i18n.Language) {
 		k := r.C
 		changed := w.steppingChanged(adapter)
 		_, stored := w.effectiveFilters(adapter)
-		r.Element.Height(debuggerRow).PadSides(0, 12, 0, 14).Gap(9).Items(ui.Center).Hover(ui.Look{}.Background(b.hover))
+		r.Element.Height(debuggerRow).PadSides(0, 12, 0, 14).Gap(9).Items(ui.Center)
+		// List also measures the row without a hit identity.
+		if !r.ID.IsZero() {
+			r.Element.Hover(ui.Look{}.Background(b.hover))
+		}
 		if r.Selected() {
 			r.Element.Background(b.sel)
 		}
@@ -483,7 +487,7 @@ func (w *window) debuggerDetail(c ui.C, language i18n.Language, adapter Stepping
 		ui.Column(c).FillWidth().MinWidth(0).Shrink(0).Radius(10).Border(1, b.line).Background(b.surface).Pad(6).Children(func() {
 			for _, feature := range steppingFeatures(language, draft) {
 				k := c.Part(feature.key)
-				ui.Row(k).FillWidth().MinHeight(34).PadX(8).PadY(3).Gap(10).Radius(7).Items(ui.Center).Hover(ui.Look{}.Background(b.hover)).Children(func() {
+				ui.Row(k).FillWidth().MinHeight(34).PadX(8).PadY(3).Gap(10).Radius(7).Items(ui.Center).Children(func() {
 					ui.Row(k).Grow(1).Shrink(1).MinWidth(0).Gap(5).Items(ui.Center).Children(func() {
 						ui.Text(k, feature.label).FontSize(buildFont).Color(b.text).Shrink(1).Ellipsis()
 						w.infoButton(k.Part("help"), feature.help)
@@ -510,7 +514,7 @@ func (w *window) patternList(c ui.C, language i18n.Language, draft *steppingDraf
 		remove := -1
 		for index, pattern := range draft.patterns {
 			k := c.KeyInt(index)
-			ui.Row(k).FillWidth().MinWidth(0).PadX(8).PadY(5).Gap(8).Items(ui.Center).Hover(ui.Look{}.Background(b.hover)).Children(func() {
+			ui.Row(k).FillWidth().MinWidth(0).PadX(8).PadY(5).Gap(8).Items(ui.Center).Children(func() {
 				ui.Text(k, pattern).FontSize(buildMono).Mono().Color(b.text).Grow(1).Shrink(1).MinWidth(0).Ellipsis()
 				if w.iconButton(k.Part("remove"), icons.X, i18n.Shared(language, "desktop.buildSettings.removePattern"), s.saving) {
 					remove = index

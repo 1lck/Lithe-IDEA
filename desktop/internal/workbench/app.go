@@ -1156,20 +1156,7 @@ func (a *App) Run() error {
 	})
 	a.stopPluginAutoUpdates()
 	a.windowLoopEnded(err, faulted.Load())
-	for _, session := range a.sessions.everyOne() {
-		session.unsubscribeSettings()
-		session.stopWatchingDiagnostics()
-		session.closeProject()
-		session.wait()
-		if session.pluginDownloads != nil {
-			session.recordPluginInstallCleanup(context.Background(), session.pluginDownloads.Close())
-		}
-		if session.plugins != nil && session.plugins.Runs != nil {
-			// Runs of the closed project are already stopped; this ends any the
-			// project close did not own and refuses new ones during shutdown.
-			session.plugins.Runs.StopAll()
-		}
-	}
+	a.shutdownSessions()
 	if a.kernel != nil {
 		// Every tab shares the kernel: this ends the remote sessions no closed project ended,
 		// such as one the Remote Development window had open, and refuses new ones.
@@ -1183,6 +1170,52 @@ func (a *App) Run() error {
 		a.logs.Wait()
 	}
 	return err
+}
+
+const (
+	// Give plugin shutdown calls their own deadline before abandoning the final wait.
+	shutdownWait          = pluginServerStopTimeout + 5*time.Second
+	shutdownWaitOperation = "workbench_shutdown_wait"
+)
+
+// shutdownSessions runs after Viva returns, when no window can deliver a save or
+// confirmation callback. The normal close requests finish those steps while the
+// window is alive. Any project still present here needs resource teardown and
+// recovery checkpoints for its unsaved documents.
+func (a *App) shutdownSessions() {
+	sessions := a.sessions.everyOne()
+	for _, session := range sessions {
+		session.unsubscribeSettings()
+		session.stopWatchingDiagnostics()
+		session.closingProject = false
+		if p := session.project; p != nil {
+			session.disposeProject(p)
+		}
+		session.closePluginDownloads()
+		if session.plugins != nil && session.plugins.Runs != nil {
+			runs := session.plugins.Runs
+			// End runs that no project owned and refuse new ones during shutdown.
+			session.background(nil, 0, func(context.Context) func(*App) {
+				runs.StopAll()
+				return nil
+			})
+		}
+	}
+
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		for _, session := range sessions {
+			session.wait()
+		}
+	}()
+	timer := time.NewTimer(shutdownWait)
+	defer timer.Stop()
+	select {
+	case <-done:
+	case <-timer.C:
+		a.backgroundFailed(shutdownWaitOperation, context.DeadlineExceeded)
+	}
 }
 
 // watchFaults has Viva hand each panic it recovers in a callback to the client's log, as
@@ -1240,13 +1273,12 @@ func (a *App) systemAppearanceChanged() {
 	})
 }
 
-// closed runs when the window has closed: the project closes, and so does the log window,
-// which would otherwise keep the application running without the window it belongs to.
+// closed releases auxiliary windows. Project close requests run before OnClosed,
+// and shutdownSessions takes care of projects left over when the loop returns.
 func (a *App) closed() {
 	a.unsubscribeSettings()
 	a.closeClone()
 	a.closeNewProject()
-	a.closeProject()
 	a.closeSettingsWindow()
 	a.stopUpdates()
 }
@@ -1742,65 +1774,69 @@ func (a *App) finishCloseProject(p *project, after func()) {
 	if a.project != p {
 		return
 	}
-	{
-		a.saveEditorSession(p)
-		a.closePluginViews(p)
-		a.releaseIndexing(p)
-		a.closeEverywhere(p)
-		a.recentFiles.open = false
-		a.recentFiles.generation++
-		a.recentFiles.lastEdited = 0
-		a.recentFiles.list = nil
-		a.recentFiles.listState = ui.ListState{}
-		a.drafts.open, a.drafts.loading = false, false
-		a.drafts.generation++
-		a.drafts.entries = nil
-		a.drafts.list = ui.ListState{}
-		if a.navigation.open && a.navigation.project == p {
-			a.closeNavigation()
-		}
-		a.cancelPrompts()
-		a.ideAPIDisable(p)
-		a.closeRemoteWorkspace(p)
-		p.cancel()
-		a.closePluginPages()
-		a.closePreviewPages()
-		a.closeTree(p)
-		a.closeGitObservation(p)
-		a.releaseProjectSearch(p)
-		a.closeDocuments(p)
-		p.closeDiffs()
-		a.closeTerminals(p)
-		// A test run owns a process or provider request, so it is stopped before
-		// the build providers it borrowed close.
-		a.stopTestsForProject(p)
-		a.stopDebugForProject(p)
-		a.stopRunsForProject(p)
-		// Build providers and prepared applications belong to the workspace and
-		// are stopped before the project state is dropped.
-		a.stopBuild(p)
-		// Version control provider sessions run in the workspace too.
-		a.stopVcs(p)
-		// A language server is bound to the workspace it was started for, so it goes
-		// with the project rather than outliving it.
-		a.stopAllPluginServers()
-		a.clearAllPluginDiagnostics()
-		a.problems.reset()
-		a.toolchainRoot.Store(nil)
-		a.project = nil
-		a.chrome.setRemote(false)
-		a.ideAPISetProject(nil)
-		a.focus = focusTarget{}
-		a.dnd.tool.Cancel()
-		a.dnd.tab.Cancel()
-		a.drag, a.term.drag = dragState{}, tabDrag{}
-		a.title = titleState{}
-		a.branch.branchSession = branchSession{}
-		if after != nil {
-			after()
-		} else {
-			// A project closed on its own leaves its tab when the window has others.
-			a.sessions.leave(a)
-		}
+	a.disposeProject(p)
+	if after != nil {
+		after()
+	} else {
+		// A project closed on its own leaves its tab when the window has others.
+		a.sessions.leave(a)
 	}
+}
+
+// disposeProject releases a project after close approval or after the window
+// loop has returned. It does not ask questions or switch tabs.
+func (a *App) disposeProject(p *project) {
+	a.saveEditorSession(p)
+	a.closePluginViews(p)
+	a.releaseIndexing(p)
+	a.closeEverywhere(p)
+	a.recentFiles.open = false
+	a.recentFiles.generation++
+	a.recentFiles.lastEdited = 0
+	a.recentFiles.list = nil
+	a.recentFiles.listState = ui.ListState{}
+	a.drafts.open, a.drafts.loading = false, false
+	a.drafts.generation++
+	a.drafts.entries = nil
+	a.drafts.list = ui.ListState{}
+	if a.navigation.open && a.navigation.project == p {
+		a.closeNavigation()
+	}
+	a.cancelPrompts()
+	a.ideAPIDisable(p)
+	a.closeRemoteWorkspace(p)
+	p.cancel()
+	a.closePluginPages()
+	a.closePreviewPages()
+	a.closeTree(p)
+	a.closeGitObservation(p)
+	a.releaseProjectSearch(p)
+	a.closeDocuments(p)
+	p.closeDiffs()
+	a.closeTerminals(p)
+	// A test run owns a process or provider request, so it is stopped before
+	// the build providers it borrowed close.
+	a.stopTestsForProject(p)
+	a.stopDebugForProject(p)
+	a.stopRunsForProject(p)
+	// Build providers and prepared applications belong to the workspace and
+	// are stopped before the project state is dropped.
+	a.stopBuild(p)
+	// Version control provider sessions run in the workspace too.
+	a.stopVcs(p)
+	// A language server is bound to the workspace it was started for, so it goes
+	// with the project rather than outliving it.
+	a.stopAllPluginServers()
+	a.clearAllPluginDiagnostics()
+	a.problems.reset()
+	a.toolchainRoot.Store(nil)
+	a.project = nil
+	a.chrome.setRemote(false)
+	a.ideAPISetProject(nil)
+	a.focus = focusTarget{}
+	a.dnd.tool.Cancel()
+	a.dnd.tab.Cancel()
+	a.drag, a.term.drag = dragState{}, tabDrag{}
+	a.title = titleState{}
+	a.branch.branchSession = branchSession{}
 }

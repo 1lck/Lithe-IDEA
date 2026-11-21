@@ -54,7 +54,7 @@ run dev: build
 
 test:
 	$(SCRIPTS)/desktop-go.sh test ./...
-	$(SCRIPTS)/desktop-go.sh test -tags dev ./internal/buildinfo
+	$(SCRIPTS)/desktop-go.sh test -tags dev ./internal/buildinfo ./internal/settingswindow ./internal/pluginview ./internal/workbench
 
 vet:
 	$(SCRIPTS)/desktop-go.sh vet ./...

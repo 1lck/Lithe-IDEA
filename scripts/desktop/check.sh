@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Runs the checks every platform lane runs, so macOS, Linux and Windows verify the same code the
-# same way: formatting, vet and tests, with the dev-tagged buildinfo package on every platform.
+# same way: formatting, vet and tests, with dev-tagged build info and UI tests on every platform.
 # A lane that skips one of these silently verifies less than its neighbours.
 set -euo pipefail
 
@@ -17,4 +17,4 @@ fi
 "$GO" vet ./...
 "$GO" vet -tags dev ./...
 "$GO" test ./...
-"$GO" test -tags dev ./internal/buildinfo
+"$GO" test -tags dev ./internal/buildinfo ./internal/settingswindow ./internal/pluginview ./internal/workbench
