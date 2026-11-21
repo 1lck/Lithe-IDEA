@@ -495,7 +495,8 @@ func (a *App) searchResultMenu(c ui.C, target ui.Box, p *project, result core.Wo
 				a.openSearchResult(p, result)
 			})
 		}
-		if menu.Item(revealLabel(language)).Clicked() {
+		// The placeholder path of a remote workspace's file is nothing the file manager can show.
+		if p.remote == nil && menu.Item(revealLabel(language)).Clicked() {
 			c.After(func() {
 				a.performed(surface+".reveal", surfaceContextMenu)
 				a.revealPath(full)

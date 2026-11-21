@@ -110,6 +110,8 @@ type remoteProject struct {
 	watchNotified bool
 	// ports is the Ports tool window's state (remote_ports.go).
 	ports remotePorts
+	// hostFiles is Open File on Host's state (remote_host_files.go).
+	hostFiles remoteHostFiles
 	// closed is set once the project closes; nothing of the workspace runs afterwards.
 	closed bool
 }
@@ -495,6 +497,7 @@ func (a *App) closeRemoteWorkspace(p *project) {
 	r.closed = true
 	r.stopRemoteTimer()
 	r.ports.reset()
+	p.closeRemoteHostFiles()
 	a.stopRemoteWatch(p)
 	if r.reconnecting != nil {
 		r.reconnecting.cancel()

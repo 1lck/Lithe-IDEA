@@ -310,6 +310,7 @@ func (a *App) overlays(c ui.C) {
 	a.remoteView(c)
 	if a.project != nil {
 		a.everywherePopup(c)
+		a.remoteHostFilesPopup(c)
 		a.navigationPopup(c)
 		a.semanticPopups(c)
 	}

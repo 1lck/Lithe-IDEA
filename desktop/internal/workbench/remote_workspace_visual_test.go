@@ -164,6 +164,19 @@ func TestVisualRemoteWorkspace(t *testing.T) {
 			shot("everywhere")
 			h.app.closeEverywhere(p)
 
+			// Open File on Host lists the host's home folder, and a file outside the workspace's
+			// folder opens read-only, the status bar naming its host path.
+			kernel.put(remoteTestHome+"/notes.txt", "Notes kept outside the project.\n")
+			h.app.openRemoteHostFiles(p, surfaceMenu)
+			h.awaitHostListing(t, &p.remote.hostFiles)
+			shot("host-file")
+			p.remote.hostFiles.query.SetText("~/notes.txt")
+			h.redraw()
+			h.app.submitRemoteHostFiles(p, surfaceShortcut)
+			outside := filepath.Join(p.root+remoteplaceholder.HostSuffix, "home", "dev", "notes.txt")
+			awaitDocumentState(t, h, func() bool { _, opening := p.docs.opening[outside]; return p.docs.byPath(outside) != nil && !opening })
+			shot("host-file-readonly")
+
 			// Trusting the folder starts Git on the host; a repository that starts above the folder
 			// leaves the Commit tool window empty and says why.
 			kernel.set(func(k *remoteHostKernel) { k.git.repository = "above" })
