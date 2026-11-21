@@ -35,8 +35,8 @@ import (
 //
 // Core decodes, encodes, recovers and names the language of a file without reading it: those
 // are payload-only commands, which the Core client sends without the workspace's binding, so
-// they also work while the host is away. Until the host watches the workspace (the next step of
-// R0), a change on the host is found when a document is saved, before it closes and after the
+// they also work while the host is away. A change on the host is found when the host watch
+// reports it (remote_watch.go), when a document is saved, before it closes and after the
 // connection opens again. A host file opens up to remoteDocumentReadLimit, Core's limit, and
 // saves up to remoteDocumentWriteLimit, the most the host takes in one request. Unsaved edits are
 // drafts on this computer under the placeholder path, which is the same each time the folder

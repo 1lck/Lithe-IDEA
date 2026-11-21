@@ -75,18 +75,28 @@ func (a *App) configureVisibility(ctx context.Context, entries []pluginmanager.E
 
 // applyHiddenDirectories shows what configureVisibility did. When Core took a new list, the
 // tree of every open tab lists the folders it shows again, keeping what is open and selected,
-// and a listing still in flight under the old list is dropped for the new one. The list is
-// the same for every tab, so the tabs reloading after one plugin change find it unchanged
-// after the first and list nothing again.
+// and a listing still in flight under the old list is dropped for the new one. The host watch of
+// every remote workspace starts again to leave out the new names as they are written, which the
+// host compares by case. The list is the same for every tab, so the tabs reloading after one
+// plugin change find it unchanged after the first and list nothing again.
 func (a *App) applyHiddenDirectories(hidden hiddenDirectories) {
 	if hidden.err != nil {
 		a.backgroundFailed("workspace_visibility", hidden.err)
 	}
-	if !hidden.answered || !fileicons.SetHiddenDirectoryNames(hidden.names) {
+	if !hidden.answered {
 		return
 	}
+	excludes := setRemoteWatchExcludes(hidden.names)
+	icons := fileicons.SetHiddenDirectoryNames(hidden.names)
 	for _, tab := range a.openTabs() {
-		if p := tab.project; p != nil && p.tree.root != nil && p.tree.failed == "" {
+		p := tab.project
+		if p == nil {
+			continue
+		}
+		if excludes {
+			tab.restartRemoteWatch(p)
+		}
+		if icons && p.tree.root != nil && p.tree.failed == "" {
 			tab.resyncTreeListings(p)
 		}
 	}

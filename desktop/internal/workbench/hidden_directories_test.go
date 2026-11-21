@@ -78,6 +78,7 @@ func clearHiddenFolders(t *testing.T) {
 			t.Errorf("clearing the hidden folders: %v", err)
 		}
 		fileicons.SetHiddenDirectoryNames(nil)
+		setRemoteWatchExcludes(nil)
 	})
 }
 

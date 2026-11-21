@@ -222,6 +222,7 @@ type Kernel interface {
 	RemoteWriteFile(ctx context.Context, sessionID, path string, data []byte, expected *core.RemoteFileVersion) (core.RemoteFileVersion, bool, error)
 	RemoteServerState(ctx context.Context, sessionID string) error
 	RemoteRunTerminal(ctx context.Context, sessionID string, open core.RemoteTerminalOpen, events core.RemoteTerminalEvents) (core.RemoteTerminalExit, error)
+	RemoteRunWatch(ctx context.Context, sessionID, root string, excludeNames []string, events core.RemoteWatchEvents) error
 	RemoteTerminalWrite(ctx context.Context, sessionID string, terminalID uint64, data []byte) (bool, error)
 	RemoteTerminalResize(ctx context.Context, sessionID string, terminalID uint64, columns, rows uint16) error
 	GitCreateTag(ctx context.Context, root, name, revision, message string) error

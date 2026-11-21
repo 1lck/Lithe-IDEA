@@ -331,11 +331,13 @@ func WithRemoteWorkspace(ctx context.Context, binding *RemoteWorkspace) context.
 	return context.WithValue(ctx, remoteWorkspaceKey{}, binding)
 }
 
-// payloadOnlyCommands are the commands an open document sends that compute only from their
-// payload: Core's handler reads no file, starts no process and names no workspace path, so the
-// answer is the same on any computer. They go without the remote workspace, which Core would
-// refuse for want of an adapter, and keep working while the host is disconnected, so the user
-// can still type, decode the bytes the host returned and plan the save that will then fail.
+// payloadOnlyCommands are the commands an open document or the Project tool window sends that
+// compute only from their payload: Core's handler reads no file, starts no process and names no
+// workspace path, so the answer is the same on any computer. They go without the remote
+// workspace, which Core would refuse for want of an adapter, and keep working while the host is
+// disconnected, so the user can still type, decode the bytes the host returned and plan the save
+// that will then fail. workspace.filterChanges drops the host watch's changes in folders Core
+// hides, by name alone.
 //
 // Add a command here only after reading its Core handler; a command that touches the workspace
 // sent without the binding would read the empty placeholder instead of the host.
@@ -352,6 +354,7 @@ var payloadOnlyCommands = map[string]bool{
 	"markdown.outline":                true,
 	"text.decode":                     true,
 	"text.encode":                     true,
+	"workspace.filterChanges":         true,
 }
 
 // RemoteWorkspaceOf is the binding WithRemoteWorkspace put in ctx, nil for a local context.
