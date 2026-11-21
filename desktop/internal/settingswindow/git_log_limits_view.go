@@ -8,7 +8,7 @@ import (
 	"github.com/vivaui/viva/ui"
 )
 
-// This file is the Git Log card of the Version Control page (matrix id git-history): the most
+// This file is the Git Log card of the Git settings page (matrix id git-history): the most
 // commits the log reads of one repository, and of several merged by date. The log ends there
 // and says it reached the limit, with a way back to this card.
 

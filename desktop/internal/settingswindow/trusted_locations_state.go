@@ -98,8 +98,8 @@ func (l *trustedLocationsState) busy() bool {
 	return l.available() && (l.loading || l.previewing || l.saving)
 }
 
-// ensureLoaded reads the list when the page or the Build directory shows and there is none,
-// or the one there is went stale. It waits for every request on the catalog that is out.
+// ensureLoaded reads the list when the page shows and there is none, or the one there is
+// went stale. It waits for every request on the catalog that is out.
 func (l *trustedLocationsState) ensureLoaded() {
 	if !l.available() || l.owner.busy() || l.readFailed != nil {
 		return

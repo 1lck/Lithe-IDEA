@@ -237,18 +237,3 @@ func TestTrustedLocationsCommittedApplyReadsTheListAgain(t *testing.T) {
 		t.Fatalf("after the committed write marks = %v, drafts = %d", locationMarks(l), l.drafts())
 	}
 }
-
-// The Build directory shows how many folders are trusted and opens the page.
-func TestBuildDirectoryCountsTrustedLocations(t *testing.T) {
-	loader := &fakeLocationsLoader{}
-	loader.set(savedFolder, otherFolder)
-	w, d, _ := locationsWindow(t, loader, pageBuild)
-	if want := i18n.SharedFormat(i18n.English, "desktop.trustedLocations.directory", map[string]string{"count": "2"}); !d.showsWrapped(want) {
-		t.Fatalf("the directory does not show %q", want)
-	}
-	d.click(w.text.Settings.TrustedLocations)
-	d.pump()
-	if w.sess.page != pageTrustedLocations {
-		t.Fatalf("the directory row opened page %v", w.sess.page)
-	}
-}

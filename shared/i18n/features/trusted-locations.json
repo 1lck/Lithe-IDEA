@@ -91,23 +91,6 @@
       "platforms": [
         "desktop"
       ]
-    },
-    {
-      "id": "desktop.trustedLocations.directory",
-      "description": "Build, Execution, Deployment page: description of the Trusted Locations row, with the number of trusted folders",
-      "platforms": [
-        "desktop"
-      ],
-      "parameters": {
-        "count": "string"
-      }
-    },
-    {
-      "id": "desktop.trustedLocations.directoryNone",
-      "description": "Build, Execution, Deployment page: description of the Trusted Locations row when no folder is trusted",
-      "platforms": [
-        "desktop"
-      ]
     }
   ],
   "locales": {
@@ -124,9 +107,7 @@
       "desktop.trustedLocations.pendingAdd": "To add",
       "desktop.trustedLocations.pendingRemove": "To remove",
       "desktop.trustedLocations.rootLocation": "A disk or filesystem root cannot be a trusted location: it would trust every project on that disk.",
-      "desktop.trustedLocations.listFull": "This trust list is full (256 entries). Remove one before adding another.",
-      "desktop.trustedLocations.directory": "Trusted folders: {count}",
-      "desktop.trustedLocations.directoryNone": "No trusted folders; untrusted projects ask before opening"
+      "desktop.trustedLocations.listFull": "This trust list is full (256 entries). Remove one before adding another."
     },
     "zh-CN": {
       "desktop.trustedLocations.title": "可信位置",
@@ -141,9 +122,7 @@
       "desktop.trustedLocations.pendingAdd": "待添加",
       "desktop.trustedLocations.pendingRemove": "待删除",
       "desktop.trustedLocations.rootLocation": "磁盘或文件系统的根目录不能作为可信位置，否则会信任该磁盘上的所有项目。",
-      "desktop.trustedLocations.listFull": "信任列表已满（最多 256 项），请先删除一项再添加。",
-      "desktop.trustedLocations.directory": "{count} 个可信文件夹",
-      "desktop.trustedLocations.directoryNone": "没有可信文件夹，打开未信任的项目时会先询问"
+      "desktop.trustedLocations.listFull": "信任列表已满（最多 256 项），请先删除一项再添加。"
     }
   }
 }

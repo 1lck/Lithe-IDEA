@@ -2,7 +2,7 @@ package workbench
 
 import "github.com/1lck/Lithe-IDEA/desktop/internal/settingswindow"
 
-// This file applies the Git Log card of the Version Control settings (matrix id git-history):
+// This file applies the Git Log card of the Git settings (matrix id git-history):
 // the most commits the log reads of one repository, and of several merged by date. Core reads a
 // walk up to its limit and says when the history goes on past it (git.historyPage's
 // limitReached), so the log ends there with a note that offers this card instead of failing.
@@ -43,8 +43,8 @@ func (a *App) setGitLogLimits(single, merged int) {
 	}
 }
 
-// openGitLogLimitSettings opens the Version Control settings, where the Git Log's limits are,
-// from the end of a log that reached one.
+// openGitLogLimitSettings opens the Git settings page, where the Git Log's limits are, from
+// the end of a log that reached one.
 func (a *App) openGitLogLimitSettings() {
-	a.openSettingsPage(surfaceButton, settingsVersionControl)
+	a.openSettingsPage(surfaceButton, settingsGit)
 }

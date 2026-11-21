@@ -32,7 +32,6 @@ func (w *window) buildPage(c ui.C) {
 	if t := w.toolchains; t.available() {
 		t.ensureLoaded()
 		t.requestView()
-		t.locations.ensureLoaded()
 	}
 	if s := w.stepping; s.available() {
 		s.beginLoad()
@@ -124,7 +123,8 @@ func (w *window) buildIssues(c ui.C, language i18n.Language) {
 	}
 }
 
-// directoryEntry is one row of the Build page's directory: what it opens and what it shows.
+// directoryEntry is one row of a directory page, the Build page's or the Version Control
+// page's: what it opens and what it shows.
 type directoryEntry struct {
 	key         string
 	tile        gfx.Color
@@ -138,7 +138,12 @@ type directoryEntry struct {
 // buildDirectory is the prototype's .sec.dir: one row for each page under Build, Execution,
 // Deployment, the host's own first and then a row for each kind of plugin page.
 func (w *window) buildDirectory(c ui.C, language i18n.Language) {
-	entries := w.directoryEntries(language)
+	w.directory(c, w.directoryEntries(language))
+}
+
+// directory is the outlined list of a directory page's rows, each with its tile, title, a line
+// on what it holds, a badge of its problems and an arrow; choosing a row opens its page.
+func (w *window) directory(c ui.C, entries []directoryEntry) {
 	if len(entries) == 0 {
 		return
 	}
@@ -226,26 +231,6 @@ func (w *window) directoryEntries(language i18n.Language) []directoryEntry {
 		entries = append(entries, entry)
 	}
 	separator := i18n.Shared(language, "desktop.buildSettings.listSeparator")
-	entries = append(entries, directoryEntry{
-		key: "console", tile: consoleTile, icon: icons.SquareTerminal, title: titleOf(&w.text.Settings, pageConsole),
-		desc: i18n.SharedFormat(language, "desktop.consoleSettings.directory", map[string]string{"encoding": w.consoleEncodingLabel(w.sess.values.ConsoleEncoding)}),
-		open: func() { w.openBuildChild(pageConsole) },
-	})
-	if l := w.toolchains.locations; l.available() {
-		entry := directoryEntry{
-			key: "trusted-locations", tile: locationsTile, icon: icons.ShieldCheck, title: titleOf(&w.text.Settings, pageTrustedLocations),
-			desc: i18n.Shared(language, "desktop.toolchains.loading"),
-			open: func() { w.openBuildChild(pageTrustedLocations) },
-		}
-		if l.loaded {
-			if count := len(l.source.Locations); count > 0 {
-				entry.desc = i18n.SharedFormat(language, "desktop.trustedLocations.directory", map[string]string{"count": formatCount(count)})
-			} else {
-				entry.desc = i18n.Shared(language, "desktop.trustedLocations.directoryNone")
-			}
-		}
-		entries = append(entries, entry)
-	}
 	for _, kind := range buildKinds {
 		var names []string
 		count := 0

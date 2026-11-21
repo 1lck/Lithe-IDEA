@@ -1,0 +1,29 @@
+{
+  "schemaVersion": 1,
+  "messages": [
+    {
+      "id": "desktop.versionControlSettings.intro",
+      "description": "Version Control settings page: the line under its heading on what the page lists",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.versionControlSettings.directoryGit",
+      "description": "Version Control settings page: description of the Git row, naming what the Git page holds",
+      "platforms": [
+        "desktop"
+      ]
+    }
+  ],
+  "locales": {
+    "en-US": {
+      "desktop.versionControlSettings.intro": "Settings for version control systems. Choose one to open its settings.",
+      "desktop.versionControlSettings.directoryGit": "GitHub account, change markers, inline blame, changelists, Git Log and Git console"
+    },
+    "zh-CN": {
+      "desktop.versionControlSettings.intro": "版本控制系统的设置。选择一项打开它的设置。",
+      "desktop.versionControlSettings.directoryGit": "GitHub 账号、变更标记、行尾 Blame、变更列表、Git 日志和 Git 控制台"
+    }
+  }
+}

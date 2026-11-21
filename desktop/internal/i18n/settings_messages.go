@@ -16,6 +16,7 @@ func settingsMessages(language Language) SettingsMessages {
 		ProcessTermination: Shared(language, "native.processTerminationPolicy"),
 		Plugins:            Shared(language, "settings.tabs.plugins"),
 		VersionControl:     Shared(language, "settings.groups.versionControl"),
+		Git:                Shared(language, "settings.tabs.git"),
 		Build:              Shared(language, "settings.groups.build"),
 		Toolchains:         Shared(language, "desktop.toolchains.title"),
 		Debuggers:          Shared(language, "desktop.buildSettings.debuggers"),

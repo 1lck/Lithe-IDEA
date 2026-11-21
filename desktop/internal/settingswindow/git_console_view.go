@@ -6,7 +6,7 @@ import (
 	"github.com/vivaui/viva/ui"
 )
 
-// This file is the Git console cards of the Version Control page (matrix id git-history). The
+// This file is the Git console cards of the Git settings page (matrix id git-history). The
 // first card chooses which kinds of internal Git queries the console leaves out: the
 // successful queries of an omitted kind are never recorded, so they take none of the journal's
 // records, and omitting a kind removes those it kept. The second chooses how the console

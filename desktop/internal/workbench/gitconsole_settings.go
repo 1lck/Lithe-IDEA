@@ -2,7 +2,7 @@ package workbench
 
 import "github.com/1lck/Lithe-IDEA/desktop/internal/core"
 
-// This file applies the Git console switches of the Version Control settings (matrix id
+// This file applies the Git console switches of the Git settings (matrix id
 // git-history). They start as IntelliJ IDEA's console. The query switches say which kinds of
 // internal Git queries the console records, which Core then reports for the requests that
 // follow; a kind left out reports nothing while it succeeds, so it takes none of the journal's
@@ -25,8 +25,8 @@ func (a *App) setGitConsolePreferences(preferences core.GitConsolePreferences) {
 	a.invalidator.Invalidate()
 }
 
-// openGitConsoleSettings opens the Version Control settings, where the console's switches are,
-// from the console's toolbar.
+// openGitConsoleSettings opens the Git settings page, where the console's switches are, from
+// the console's toolbar.
 func (a *App) openGitConsoleSettings() {
-	a.openSettingsPage(surfaceButton, settingsVersionControl)
+	a.openSettingsPage(surfaceButton, settingsGit)
 }

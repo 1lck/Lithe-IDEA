@@ -1,6 +1,6 @@
 package workbench
 
-// This file applies the two Commit switches of the Version Control settings (matrix id
+// This file applies the two Commit switches of the Git settings (matrix id
 // git-local-changelists). Hiding the ChangeLists lists the changes flat and lets every staged
 // change commit together; the lists and their assignments are kept on disk, so showing them again
 // restores them. Hiding the parent references option commits with the parent references updated,
