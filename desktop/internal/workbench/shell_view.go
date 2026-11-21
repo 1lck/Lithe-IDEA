@@ -169,6 +169,12 @@ func (a *App) toolBody(c ui.C, tool item, p *project) {
 		body.Children(func() { a.toolPlaceholder(c) })
 		return
 	}
+	if p.remote != nil && tool.id != itemProject && tool.id != itemNotifications {
+		// A remote workspace lists the host's files; every other tool window reads or runs
+		// the project on this computer, so it says it does not work there yet.
+		body.Children(func() { a.safeModePanel(c, p, "") })
+		return
+	}
 	body.Clip().Children(func() {
 		switch tool.id {
 		case itemGit:
@@ -318,6 +324,13 @@ func (a *App) toolTabsWith(c ui.C, selected int, labels []string, choose func(in
 	})
 }
 
+// emptyEditorHint is a command an empty editor shows with its shortcuts.
+type emptyEditorHint struct {
+	label string
+	// command is the keymap command whose fixed gesture and bindings are shown.
+	command string
+}
+
 // editorArea declares the editor area. Once a terminal has been dragged into it, or a file
 // opened, it is the groups of tabs those are in (see editorGroups). Until then there is no
 // editor, so it shows what an empty one shows: the commands that open something and where to
@@ -337,14 +350,26 @@ func (a *App) editorArea(c ui.C) {
 		})
 		return
 	}
-	hints := [...]struct {
-		label string
-		// command is the keymap command whose fixed gesture and bindings are shown.
-		command string
-	}{
+	hints := [...]emptyEditorHint{
 		{a.text.Editor.SearchEverywhere, "search.everywhere"},
 		{a.text.Editor.FindInFiles, "search.files"},
 	}
+	if p := a.project; p != nil && p.remote != nil {
+		// A remote workspace opens no file yet, so the notice that says what works in it stands
+		// over the empty editor. Find in Files does not search the host yet, and Search Everywhere
+		// offers only actions there (project.everywhereActionsOnly).
+		ui.Column(c.Part("remote")).Fill().Children(func() {
+			a.safeModeNotice(c.Part("safeMode"), p)
+			a.emptyEditorHints(c, hints[:1])
+		})
+		return
+	}
+	a.emptyEditorHints(c, hints[:])
+}
+
+// emptyEditorHints declares an empty editor: the commands that find something to open, with
+// their shortcuts.
+func (a *App) emptyEditorHints(c ui.C, hints []emptyEditorHint) {
 	editor := ui.Column(c).Fill().Clip().Center().Pad(shellContentPad).Background(a.colors.Editor).Radius(workbenchPanelRadius).Children(func() {
 		ui.Column(c).FillWidth().MaxWidth(shellHintWidth).Children(func() {
 			// Labels end and shortcuts start at one line down the middle, so the two read as

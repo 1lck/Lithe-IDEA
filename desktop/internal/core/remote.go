@@ -248,23 +248,10 @@ type RemoteProbeResult struct {
 // cancelled at once. Core bounds a probe, answers included, to five minutes. The probe changes
 // nothing, so an observation failure is reported only when the request itself succeeded.
 func (c *Client) RemoteProbe(ctx context.Context, connection SSHConnection) (RemoteProbeResult, error) {
-	prompt, _ := ctx.Value(gitAuthenticationKey{}).(func(GitAuthChallenge))
-	if prompt == nil {
-		prompt = func(challenge GitAuthChallenge) {
-			// The answer must not wait on the request's goroutine, which delivers the event.
-			go func() { _, _ = c.RemoteAuthRespond(context.Background(), challenge.RequestID, nil) }()
-		}
-	}
-	returned := make(chan struct{})
-	defer close(returned)
-	observer := gitAuthenticationObserver(func(challenge GitAuthChallenge) {
-		challenge.Remote = true
-		prompt(challenge)
-	}, returned, nil)
 	var result RemoteProbeResult
-	observationErr, err := c.ExecuteWithEvents(ctx, "remote.probe", struct {
+	observationErr, err := c.executeRemoteWithPrompts(ctx, "remote.probe", struct {
 		Connection SSHConnection `json:"connection"`
-	}{connection}, &result, observer)
+	}{connection}, &result)
 	if err != nil {
 		return RemoteProbeResult{}, err
 	}

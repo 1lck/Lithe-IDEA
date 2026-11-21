@@ -151,6 +151,13 @@ type everywhereSearch struct {
 	pending                  []string
 }
 
+// everywhereActionsOnly reports whether Search Everywhere offers only actions in p: a file
+// opened on its own has no folder to search, and a remote workspace does not search the host's
+// files yet (its results could not be opened either).
+func (p *project) everywhereActionsOnly() bool {
+	return p.standalone || p.remote != nil
+}
+
 func (a *App) openEverywhere(p *project) {
 	if a.everywhereView.open {
 		a.focusEverywhere(p)
@@ -158,7 +165,7 @@ func (a *App) openEverywhere(p *project) {
 	}
 	a.everywhereView.open = true
 	a.everywhereView.scope = 0
-	if p.standalone {
+	if p.everywhereActionsOnly() {
 		a.everywhereView.scope = everywhereScopeActions
 	}
 	a.everywhereView.query.SetText("")
@@ -211,7 +218,7 @@ func (a *App) closeEverywhere(p *project) {
 
 func (a *App) updateEverywhere(p *project, query string, scope int) {
 	v, s := &a.everywhereView, &p.everywhere
-	if p.standalone {
+	if p.everywhereActionsOnly() {
 		scope = everywhereScopeActions
 	}
 	options := v.options(scope)

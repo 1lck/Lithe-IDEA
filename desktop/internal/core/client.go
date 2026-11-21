@@ -34,6 +34,9 @@ type requestEnvelope struct {
 	GitExecution *gitExecution `json:"gitExecution,omitempty"`
 	// Origin is the user action the request belongs to, nil for none (see Origin).
 	Origin *requestOrigin `json:"origin,omitempty"`
+	// RemoteWorkspace is the host folder the request's workspace paths stand for, nil for a
+	// local request (WithRemoteWorkspace).
+	RemoteWorkspace *remoteWorkspace `json:"remoteWorkspace,omitempty"`
 }
 
 // gitExecution is the part of a request's Git policy the client sets (GitExecutionOptions in
@@ -113,14 +116,19 @@ func (c *Client) execute(ctx context.Context, command string, payload, result an
 	if payload == nil {
 		payload = struct{}{}
 	}
+	remote, binding, session, err := remoteWorkspaceRequest(ctx, command)
+	if err != nil {
+		return nil, err
+	}
 	operationID := fmt.Sprintf("desktop-%d", nextCoreOperation.Add(1))
 	execution := gitExecutionOf(ctx, command)
 	request, err := json.Marshal(requestEnvelope{
-		OperationID:  operationID,
-		Command:      command,
-		Payload:      payload,
-		GitExecution: execution,
-		Origin:       requestOriginOf(ctx),
+		OperationID:     operationID,
+		Command:         command,
+		Payload:         payload,
+		GitExecution:    execution,
+		Origin:          requestOriginOf(ctx),
+		RemoteWorkspace: remote,
 	})
 	if err != nil {
 		return nil, &Error{
@@ -146,12 +154,16 @@ func (c *Client) execute(ctx context.Context, command string, payload, result an
 		observer = gitAuthenticationObserver(gitAuthenticationOf(ctx, command), returned, observer)
 	}
 	if observer == nil {
-		return nil, decodeResponse(ctx, command, call(ctx, operationID, request), result)
+		err = decodeResponse(ctx, command, call(ctx, operationID, request), result)
+		remoteWorkspaceAnswered(binding, session, err)
+		return nil, err
 	}
 	stop := watchCancellation(ctx, operationID)
 	defer stop()
 	response, observationErr := executeJSONWithEvents(request, observer)
-	return observationErr, decodeResponse(ctx, command, response, result)
+	err = decodeResponse(ctx, command, response, result)
+	remoteWorkspaceAnswered(binding, session, err)
+	return observationErr, err
 }
 
 // call sends one encoded request while a watcher forwards cancellation of ctx to the kernel.

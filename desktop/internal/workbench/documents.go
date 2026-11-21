@@ -270,7 +270,7 @@ func (a *App) syntaxRegistry() *syntax.Registry {
 // group. The file is read and its language's grammar loaded away from the window thread; a
 // file that cannot be read, is binary or is too large is not opened and the banner says why.
 func (a *App) openFile(p *project, path string) {
-	if path == "" {
+	if path == "" || a.refuseRemote(p, "open_file") {
 		return
 	}
 	path = filepath.Clean(path)
@@ -880,6 +880,14 @@ func (a *App) removeDocument(p *project, d *document) {
 
 // saveProjectDocuments drains writes and verifies each current document before closing.
 func (a *App) saveProjectDocuments(p *project, done func(bool)) {
+	if p.remote != nil && len(p.docs.list) == 0 {
+		// A remote workspace opens no file yet (openFile refuses it), so there is nothing to save.
+		// Core's save batch is a pure reducer with no remote adapter, and a request of the
+		// project's context carries the remote binding, which Core refuses; asking would keep the
+		// workspace from closing. A remote workspace with documents still asks, and fails loudly.
+		done(true)
+		return
+	}
 	a.saveProjectPass(p, make(map[int]int), done)
 }
 

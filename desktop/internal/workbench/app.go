@@ -40,6 +40,7 @@ import (
 	"github.com/1lck/Lithe-IDEA/desktop/internal/pluginpkg"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/pluginservice"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/projectgen"
+	"github.com/1lck/Lithe-IDEA/desktop/internal/remoteserver"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/settingswindow"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/store"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/wslpath"
@@ -212,6 +213,11 @@ type Kernel interface {
 	EditRemoteConnections(ctx context.Context, document *string, edit core.RemoteConnectionEdit) (core.RemoteConnectionsPublication, error)
 	RemoteProbe(ctx context.Context, connection core.SSHConnection) (core.RemoteProbeResult, error)
 	RemoteAuthRespond(ctx context.Context, requestID string, answer *string) (bool, error)
+	RemoteConnect(ctx context.Context, request core.RemoteConnectRequest) (core.RemoteConnectResult, error)
+	RemoteDisconnect(ctx context.Context, sessionID string) (bool, error)
+	RemoteCloseAll(ctx context.Context) (int, error)
+	RemoteReadDir(ctx context.Context, sessionID, path string) (core.RemoteDirectory, error)
+	RemoteServerState(ctx context.Context, sessionID string) error
 	GitCreateTag(ctx context.Context, root, name, revision, message string) error
 	GitRebasePreview(ctx context.Context, root, base string) (core.RebasePreview, error)
 	GitRebaseStart(ctx context.Context, root string, preview core.RebasePreview, steps []core.RebaseStep) (*core.RebaseSession, error)
@@ -481,6 +487,9 @@ type project struct {
 	indexing projectIndexing
 	// name is the folder's name, shown in the title bar.
 	name string
+	// remote is set when the project's folder is on an SSH host (remote_workspace.go); root is
+	// then the workspace's local placeholder, which the local file system cannot open.
+	remote *remoteProject
 	// ctx ends when the project closes, which stops its kernel calls.
 	ctx    context.Context
 	cancel context.CancelFunc
@@ -772,6 +781,12 @@ type App struct {
 	clone   cloneState
 	// remote is the Remote Development window (remote.go).
 	remote remoteState
+	// remoteBundle, remoteAnchor and remoteAfter replace the server builds a connection sends,
+	// the anchor of the remote workspaces' placeholders and the timers of their heartbeats and
+	// reconnections (remote_workspace.go); tests set them.
+	remoteBundle func() (remoteserver.Bundle, error)
+	remoteAnchor func() (string, error)
+	remoteAfter  func(time.Duration, func()) func() bool
 	// gitAuth holds the questions of the Git operations the user started (git_auth.go).
 	gitAuth    gitAuthState
 	newProject newProjectState
@@ -1127,6 +1142,15 @@ func (a *App) Run() error {
 			// project close did not own and refuses new ones during shutdown.
 			session.plugins.Runs.StopAll()
 		}
+	}
+	if a.kernel != nil {
+		// Every tab shares the kernel: this ends the remote sessions no closed project ended,
+		// such as one the Remote Development window had open, and refuses new ones.
+		ctx, cancel := context.WithTimeout(context.Background(), remoteCloseAllTimeout)
+		if _, err := a.kernel.RemoteCloseAll(ctx); err != nil {
+			a.backgroundFailed("remote_close_all", remoteLogError(err))
+		}
+		cancel()
 	}
 	if a.logs != nil {
 		a.logs.Wait()
@@ -1706,6 +1730,7 @@ func (a *App) finishCloseProject(p *project, after func()) {
 		}
 		a.cancelPrompts()
 		a.ideAPIDisable(p)
+		a.closeRemoteWorkspace(p)
 		p.cancel()
 		a.closePluginPages()
 		a.closePreviewPages()

@@ -65,6 +65,10 @@ type remoteState struct {
 	// probe is the running test, nil when none runs; result is the last one's outcome.
 	probe  *remoteProbe
 	result *remoteProbeOutcome
+	// connect is the running connection to the selected host, nil when none runs; its failure is
+	// shown as result. browser chooses the host folder to open over the session it opened.
+	connect *remoteProbe
+	browser *remoteBrowser
 	// probed is what the last test of each connection found, by the connection as Core stores
 	// it, so that a saved connection's overview shows its host again after the form was saved
 	// or the window reopened. It lives in memory while the app runs, outlives the window and
@@ -141,11 +145,13 @@ func (a *App) openRemote(surface actionSurface) {
 	a.loadRemote(remoteLoadSelectFirst, "")
 }
 
-// closeRemote closes the window, stopping a running test. What was typed and not saved is
-// dropped.
+// closeRemote closes the window, stopping a running test or connection and ending the session a
+// folder was being chosen over. What was typed and not saved is dropped.
 func (a *App) closeRemote() {
 	r := &a.remote
 	r.stopProbe()
+	r.stopConnect()
+	a.leaveRemoteBrowser()
 	r.generation++
 	r.open, r.saving, r.loading = false, false, false
 	r.form = remoteForm{}
@@ -340,9 +346,10 @@ func (r *remoteState) probedOutcome(connection core.SSHConnection) *remoteProbeO
 	return r.probed[remoteStored(connection)]
 }
 
-// resetEditing drops the last test, its errors and the delete question.
+// resetEditing drops the last test or connection, its errors and the delete question.
 func (r *remoteState) resetEditing() {
 	r.stopProbe()
+	r.stopConnect()
 	r.result, r.err, r.fieldErr, r.confirmDelete = nil, "", remoteFieldRefusal{}, false
 }
 

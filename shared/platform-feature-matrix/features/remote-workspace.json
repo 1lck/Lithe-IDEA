@@ -4,21 +4,34 @@
   "group": "远程开发",
   "capability": "远程连接与远程路径工作区",
   "macos": {
-    "implementationStatus": "missing",
-    "verificationStatus": "not-applicable",
+    "implementationStatus": "partial",
+    "verificationStatus": "pending",
     "evidence": [
-      "docs/viva-migration.md"
+      "desktop/internal/core/remote_session.go",
+      "desktop/internal/core/remote_session_test.go",
+      "desktop/internal/remoteplaceholder/remoteplaceholder.go",
+      "desktop/internal/workbench/remote_browse.go",
+      "desktop/internal/workbench/remote_browse_view.go",
+      "desktop/internal/workbench/remote_workspace.go",
+      "desktop/internal/workbench/remote_status_view.go",
+      "desktop/internal/workbench/remote_workspace_test.go",
+      "desktop/internal/workbench/remote_workspace_visual_test.go"
     ]
   },
   "windows": {
-    "implementationStatus": "missing",
-    "verificationStatus": "not-applicable",
+    "implementationStatus": "partial",
+    "verificationStatus": "pending",
     "evidence": [
-      "docs/viva-migration.md"
+      "desktop/internal/core/remote_session.go",
+      "desktop/internal/remoteplaceholder/remoteplaceholder.go",
+      "desktop/internal/workbench/remote_browse.go",
+      "desktop/internal/workbench/remote_browse_view.go",
+      "desktop/internal/workbench/remote_workspace.go",
+      "desktop/internal/workbench/remote_status_view.go"
     ]
   },
   "owner": "Remote",
-  "verification": "Windows 验证连接、密码提示、远程路径、断线和重连；macOS 从欢迎页远程开发入口连接 Linux SSH 主机，验证文件树、编辑保存冲突、断线通知与重连。macOS 路由与断线 fixture 已有自动测试，真实 SSH 流程仍待验收；完整远程开发进度见 remote-development-workspace。 文件树新建、目录、复制、重命名与主机废纸篓已接入，14 项 Swift 路由/监听 fixture 通过；真实 SSH 验证外部创建、编辑、移动、删除、溢出重扫和 watcher 取消后无资源残留。 构建与插件接入进度同步至 remote-development-workspace；本行保持 partial/pending，不能以本机 fixture 替代真实 SSH 验收。 通用资源启动在读取请求时预留身份，启动期间的关闭由创建者保留最终清理责任；验证清理早于注册、工作线程饱和、失败启动、无效关闭参数，以及不同资源独立性；区分常驻会话断线保留、非驻留断线清理和会话关闭/空闲到期后的迟到资源清理。RemotePluginLaunchPreparerTests 使用真实声明覆盖目标架构、远端状态目录、缺失资源、准备中重连和取消清理；本机 fixture 不替代 SSH/Linux 验收。语言和工具专属集成由各插件负责，不在本能力范围。 会话拥有完整插件快照：验证分配回复丢失后按原身份释放、重复释放不接管已有目录、跨会话隔离、父目录权限与链接拒绝、删除失败（包括等待创建者清理）保留原身份供重试、普通断线清理、常驻断线保留及关闭/空闲到期回收；服务端强杀后的回收仍未实现。上传验证同文件并发 BUSY、不同文件独立提交，以及取消/到期不等待文件锁。Agent 后续单独处理，本轮不扩展。 常驻服务并发启动按身份先取得有界.start文件锁，重新检查socket后才创建daemon；锁覆盖至socket就绪，关闭描述符释放，inode保留。验证互斥、立即期限、释放后可重取，以及竞争连接收到server.shutdown确认后daemon不重新启动。macOS真实进程回归与Linux/macOS编译检查分别记录，Linux运行结果以CI为准。 macOS 远程文件树通过 Core 的按需目录列表应用可见性、自然排序与嵌套工作树规则；断线时不回退读取本机占位目录。Swift 路由与真实协议主机 fixture 已覆盖，真实 SSH 产品验收仍 pending。",
+  "verification": "在“远程开发”窗口选中已保存的 Linux SSH 连接点“连接”：SSH 询问出现在窗口中，连接后窗口改为主机的文件夹选择，从主目录开始列出子文件夹（跳过名称不是 UTF-8 的条目并说明数量），可输入 ~ 或 / 开头的路径跳转，不存在的路径说明原因且不能打开；“返回”断开这次会话回到连接表单。选中文件夹点“打开”：新标签页打开远程工作区，窗口标题为“文件夹 [SSH: 连接名]”，项目树经 Core 列出主机目录（本机占位目录始终为空），右键只有复制主机路径和刷新；编辑器上方说明远程工作区暂时只能浏览文件夹，打开文件、终端、Git、搜索监听和信任项目都被拒绝并提示，不回退到本机；查找工具窗口说明暂不可用，Search Everywhere 只有“操作”页。状态栏前端显示连接名和心跳往返时间；连续两次心跳无响应显示“无响应”，第三次结束会话并按 1、2、4、8、16 秒退避重连，共六次失败后显示“已断开”和原因，菜单里可“重新连接”；连接被关闭时立即重连。菜单里“断开并关闭”关闭工作区并结束会话，退出 Lithe 时关闭所有远程会话。最近项目不记录远程工作区。日志只有 remote.connect、remote.workspace.open/reconnect/disconnect 等动作和失败的操作名，不含主机、用户名、主机路径或主目录。运行 remote_workspace_test.go 的 5 个测试和 TestVisualRemoteWorkspace 无头截图；真实 SSH 主机上的整机验收、Windows 实机（Core 主机路径问题见 #2264）仍待完成。远程文件编辑保存、监听、终端、Git 与端口转发见 remote-development-workspace。",
   "legacy": {
     "revision": "5a54c41aa37a4e6e6b68918a4b05765b9dd07a36",
     "macos": {
@@ -55,5 +68,5 @@
       "verificationStatus": "pending"
     }
   },
-  "notes": "Viva：未找到远程连接、远程路径工作区、断线与重连处理的实现；desktop/ 中没有 SSH 连接或远程文件树后端。"
+  "notes": "Viva：连接和会话由 Core 的 remote.connect/remote.disconnect/remote.closeAll 管理，远端服务按嵌入清单上传；文件夹选择用 remote.readDir。打开的工作区以用户缓存目录下的空占位目录作为本机根，每个请求带上远程绑定（会话、占位根、主机根），Core 只对有远程适配的命令放行，其余以 not_supported 拒绝，所以没有远程实现的功能在桌面端直接拒绝而不读本机占位目录。macOS 由单元测试与无头截图覆盖；Windows 上 Core 按本机规则校验主机路径（#2264），推测远程请求全部被拒绝，未实机验证。"
 }

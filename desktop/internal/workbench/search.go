@@ -146,8 +146,15 @@ func (a *App) startProjectSearchWatch(p *project) {
 	if p.everywhere.watchAttached {
 		p.everywhere.watchReady, p.everywhere.watchAvailable = false, false
 	}
-	a.tasks.running.Add(1)
 	wake := func() { a.post(func(a *App) { a.drainProjectSearchWatch(p, slot) }) }
+	if p.remote != nil {
+		// A remote workspace's folder is on the host, which the local watch cannot observe: the
+		// search runs without a watch, as where none is available.
+		slot.finish(nil, nil)
+		wake()
+		return
+	}
+	a.tasks.running.Add(1)
 	go func() {
 		defer a.tasks.running.Done()
 		watch, err := app.WatchTree(p.root, nil, wake)
