@@ -97,6 +97,12 @@ func TestVisualSettings(t *testing.T) {
 					},
 					SetSteppingFilters: func(string, *core.DebugSteppingFilters) {},
 				}
+				if scenario.id == "20-settings-general" {
+					opts.WorkbenchBackground = func(i18n.Language) WorkbenchBackground {
+						return WorkbenchBackground{Set: true, Status: "fixture.png", Strength: "subtle",
+							Image: gfx.Bitmap{Width: 1, Height: 1, Stride: 4, ID: 1 << 62, Pix: []byte{72, 116, 158, 255}}}
+					}
+				}
 				opts.SetAutoUpdatePlugins = func(bool) {}
 				values := Values{Theme: theme, Language: language.Code(), TerminalScrollback: 2000, AutoUpdatePlugins: scenario.id == "m42-plugin-auto-update-on"}
 				if scenario.id == "29-marketplace-recommendations" {

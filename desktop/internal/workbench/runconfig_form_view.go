@@ -401,7 +401,7 @@ func (a *App) drawRunConfigFormControl(c ui.C, p *project, f *runConfigForm, fie
 		box := ui.TextArea(c, f.texts[field.ID], label, placeholder)
 		area := f.textArea(field.ID)
 		height := runConfigTextAreaHeight(c.Theme(), area.rows(c, *f.texts[field.ID]))
-		if box.Mono().Grow(1).MinWidth(0).MinHeight(height).Height(height).Draw(area.hook).Disabled(!ready).Changed() {
+		if box.Grow(1).MinWidth(0).MinHeight(height).Height(height).Draw(area.hook).Disabled(!ready).Changed() {
 			edited()
 		}
 	case runFieldFile, runFieldExecutable, runFieldDirectory:

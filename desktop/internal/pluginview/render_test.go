@@ -143,6 +143,16 @@ func TestDrawSendsChangeForAToggleWithItsValue(t *testing.T) {
 	}
 }
 
+func TestDrawSendsChangeForASegmentedChoice(t *testing.T) {
+	d := drawView(t, `[{"type":"segmented","id":"mode","label":"Mode","value":"first","options":[
+		{"value":"first","label":"First"},{"value":"second","label":"Second"}
+	]}]`)
+	d.click("Second")
+	if event := d.sent(); event["event"] != "change" || event["node"] != "mode" || event["value"] != "second" {
+		t.Fatalf("event = %v, want change of mode to second", event)
+	}
+}
+
 func TestDrawSendsSelectOnceAndActivateForATreeItem(t *testing.T) {
 	d := drawView(t, `[{"type": "tree", "id": "modules", "label": "Modules", "items": [
 		{"id": "core", "label": "core", "detail": "3 files", "icon": "plugin"},

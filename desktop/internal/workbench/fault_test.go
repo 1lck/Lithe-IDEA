@@ -1,10 +1,14 @@
 package workbench
 
 import (
+	"context"
 	"errors"
+	"os"
+	"path/filepath"
 	"sync"
 	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/1lck/Lithe-IDEA/desktop/internal/core"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/logstore"
@@ -93,4 +97,68 @@ func TestAFailedWindowLoopIsLogged(t *testing.T) {
 		t.Fatalf("events = %+v, want one app.window.loop_failed with the error", log.events)
 	}
 	(&App{}).windowLoopEnded(errors.New("no log"), false)
+}
+
+func TestWindowLoopShutdownCancelsServerAndKeepsUnsavedDraft(t *testing.T) {
+	h := newHarness(t, &testKernel{Client: core.NewClient()})
+	h.app.settings.DisableAutoSave = true
+	root := t.TempDir()
+	path := filepath.Join(root, "note.txt")
+	if err := os.WriteFile(path, []byte("on disk"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	h.app.openProject(root)
+	h.await("the project to open", func() bool { return h.app.project != nil })
+	p := h.app.project
+	h.app.openFile(p, path)
+	h.await("the document to open", func() bool { return p.docs.byPath(path) != nil })
+	d := p.docs.byPath(path)
+
+	// A synthetic serve loop owns a task until its server is cancelled. Its
+	// deadline releases the old shutdown path, so a failure cannot hang the suite.
+	ctx, cancel := context.WithCancel(t.Context())
+	defer cancel()
+	served := make(chan error, 1)
+	h.app.pluginServers = map[string]*pluginServer{"dev.lithe.test.shutdown": {cancel: cancel}}
+	h.app.background(nil, time.Second, func(deadline context.Context) func(*App) {
+		select {
+		case <-ctx.Done():
+			served <- ctx.Err()
+		case <-deadline.Done():
+			served <- deadline.Err()
+		}
+		return nil
+	})
+	// A close has started when Viva stops the window loop. No frame is
+	// pumped to apply the document check after it.
+	h.app.closeProject()
+	h.app.closed()
+	if !h.app.closingProject {
+		t.Fatal("document close check was not pending at window shutdown")
+	}
+	input := d.view.TextInput(app.TextInputContext{ID: d.hit})
+	if _, err := input.OnEvent(app.TextEvent{Kind: app.TextInsert, Text: "unsaved "}); err != nil {
+		t.Fatal(err)
+	}
+	want := d.view.TextSnapshot().String()
+	h.app.shutdownSessions()
+
+	select {
+	case err := <-served:
+		if !errors.Is(err, context.Canceled) {
+			t.Fatalf("server exited at its deadline instead of being cancelled during shutdown: %v", err)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("server did not exit during shutdown")
+	}
+	if h.app.project != nil || p.ctx.Err() == nil || h.app.closingProject {
+		t.Fatal("window shutdown did not finish closing the project")
+	}
+	draft, found, err := h.app.recovery.store.Load(p.root, path)
+	if err != nil || !found || draft.Text != want {
+		t.Fatalf("recovery text = %q, want %q, found = %t, error = %v", draft.Text, want, found, err)
+	}
+	if disk, err := os.ReadFile(path); err != nil || string(disk) != "on disk" {
+		t.Fatalf("disk text = %q, error = %v", disk, err)
+	}
 }
