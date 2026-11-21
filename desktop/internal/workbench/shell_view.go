@@ -169,10 +169,10 @@ func (a *App) toolBody(c ui.C, tool item, p *project) {
 		body.Children(func() { a.toolPlaceholder(c) })
 		return
 	}
-	if p.remote != nil && tool.id != itemProject && tool.id != itemNotifications && tool.id != itemTerminal {
-		// A remote workspace lists the host's files and runs its terminals on the host; every
-		// other tool window reads or runs the project on this computer, so it says it does not
-		// work there yet.
+	if p.remote != nil && tool.id != itemProject && tool.id != itemNotifications && tool.id != itemTerminal && tool.id != itemFind {
+		// A remote workspace lists, searches and runs its terminals on the host; every other tool
+		// window reads or runs the project on this computer, so it says it does not work there
+		// yet.
 		body.Children(func() { a.safeModePanel(c, p, "") })
 		return
 	}
@@ -356,12 +356,10 @@ func (a *App) editorArea(c ui.C) {
 		{a.text.Editor.FindInFiles, "search.files"},
 	}
 	if p := a.project; p != nil && p.remote != nil {
-		// A remote workspace opens no file yet, so the notice that says what works in it stands
-		// over the empty editor. Find in Files does not search the host yet, and Search Everywhere
-		// offers only actions there (project.everywhereActionsOnly).
+		// The notice that says what works in a remote workspace stands over its empty editor.
 		ui.Column(c.Part("remote")).Fill().Children(func() {
 			a.safeModeNotice(c.Part("safeMode"), p)
-			a.emptyEditorHints(c, hints[:1])
+			a.emptyEditorHints(c, hints[:])
 		})
 		return
 	}

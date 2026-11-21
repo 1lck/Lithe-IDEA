@@ -136,6 +136,27 @@ func TestVisualRemoteWorkspace(t *testing.T) {
 				t.Fatal(err)
 			}
 			shot("terminal")
+
+			// Find in Files searches the host's folder, and Search Everywhere the host's file names
+			// and text in every scope, not only actions.
+			kernel.put(remoteTestNotes, "Release notes kept on the host.\n")
+			h.app.searchView.delay = 0
+			h.app.everywhereView.delay = 0
+			h.app.openFindInFiles(p, false)
+			h.app.searchView.query.SetText("host")
+			h.await("the host's search results", func() bool {
+				s := &p.search
+				return !s.loading && !s.running && len(s.matches) == 2 && s.counts != nil && s.countCancel == nil
+			})
+			shot("search")
+			h.app.openEverywhere(p)
+			h.app.everywhereView.query.SetText("notes")
+			h.await("the host's file name and text", func() bool {
+				s := &p.everywhere
+				return !s.loading && !s.running && len(s.matches) == 2
+			})
+			shot("everywhere")
+			h.app.closeEverywhere(p)
 		})
 	}
 }

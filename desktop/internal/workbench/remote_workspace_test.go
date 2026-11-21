@@ -39,8 +39,8 @@ var remoteTestFolders = map[string][]core.RemoteDirectoryEntry{
 // remoteHostKernel stands in for a host over SSH: it opens numbered sessions, lists
 // remoteTestFolders, answers heartbeats as the test says, lists the workspace's tree only for a
 // request that carries the workspace's session, keeps the files of files
-// (remote_documents_test.go) and watches the workspace's folder (remote_watch_test.go).
-// Everything else is the real Core.
+// (remote_documents_test.go), watches the workspace's folder (remote_watch_test.go) and searches
+// it (remote_search_test.go). Everything else is the real Core.
 type remoteHostKernel struct {
 	*testKernel
 	mu sync.Mutex
@@ -72,6 +72,9 @@ type remoteHostKernel struct {
 	missing bool
 	// watches are the host's watches of the folder (remote_watch_test.go).
 	watches remoteHostWatches
+	// search is Core's index of the folder and what the search's requests carried
+	// (remote_search_test.go).
+	search remoteHostSearch
 }
 
 // remoteTestTree is the workspace's tree the Project tool window lists by default.
@@ -376,8 +379,8 @@ func TestRemoteWorkspaceOpensTheChosenFolder(t *testing.T) {
 
 // What still runs on this computer refuses in a remote workspace and says so: opening a file
 // outside the host folder or in a viewer, a plugin's terminal, local history, trusting the folder
-// and every tool window but the project's, the terminal's and the notifications'. Copying a path
-// copies the host's.
+// and every tool window but the project's, the terminal's, Find's and the notifications'. Copying
+// a path copies the host's.
 func TestRemoteWorkspaceRefusesWhatRunsLocally(t *testing.T) {
 	h, _, _, logger := remoteWorkspaceHarness(t)
 	lang := h.app.language()
@@ -411,16 +414,6 @@ func TestRemoteWorkspaceRefusesWhatRunsLocally(t *testing.T) {
 	if !h.showsWrapped(localOnly) {
 		t.Fatal("the Git tool window does not say it does not work here")
 	}
-
-	// Search Everywhere does not search the host's files yet: it offers only actions, as for a
-	// file opened on its own, and Tab does not switch to another scope.
-	h.app.openEverywhere(p)
-	h.app.everywhereView.scope = 0
-	h.redraw()
-	if p.everywhere.scope != everywhereScopeActions {
-		t.Fatal("Search Everywhere searches the remote workspace's files")
-	}
-	h.app.closeEverywhere(p)
 
 	var copied []string
 	saved := treeCopyText

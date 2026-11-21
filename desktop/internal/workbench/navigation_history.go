@@ -94,7 +94,9 @@ func (a *App) stepNavigation(p *project, forward bool) {
 		return
 	}
 	// A destination that no longer exists keeps the history as it was, so the entry is not lost.
-	if _, err := os.Stat(destination.Document); err != nil {
+	// A remote workspace's file is on the host, not at its placeholder path: opening it reads the
+	// host and tells the user when the file is gone.
+	if _, err := os.Stat(destination.Document); err != nil && p.remote == nil {
 		a.operationRejected("editor_navigation_history", "destination_unavailable")
 		a.notifyError(i18n.Shared(a.language(), "desktop.navigation.historyUnavailable"))
 		return

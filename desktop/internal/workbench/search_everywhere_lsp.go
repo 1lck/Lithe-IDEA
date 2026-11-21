@@ -73,7 +73,9 @@ func (a *App) startEverywhereSymbols(p *project, query string, scope int) {
 	st.generation++
 	st.query = query
 	st.items, st.itemKeys, st.ranked, st.servers = nil, nil, nil, nil
-	if strings.TrimSpace(query) == "" || !everywhereShowsSymbols(scope) || a.plugins == nil {
+	// Language servers do not run for a remote workspace yet; its symbols are the ones Core
+	// finds in the host's files.
+	if strings.TrimSpace(query) == "" || !everywhereShowsSymbols(scope) || a.plugins == nil || p.remote != nil {
 		return
 	}
 	a.discoverEverywhereLanguages(p)
@@ -160,7 +162,7 @@ func (a *App) requestEverywhereSymbols(p *project) {
 
 // Discover providers once when symbol search is requested, before any file is opened.
 func (a *App) discoverEverywhereLanguages(p *project) {
-	if p.everywhereSymbols.discoveryStarted || a.plugins == nil {
+	if p.everywhereSymbols.discoveryStarted || a.plugins == nil || p.remote != nil {
 		return
 	}
 	p.everywhereSymbols.discoveryRevision++

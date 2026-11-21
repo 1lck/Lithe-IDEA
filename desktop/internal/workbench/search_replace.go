@@ -20,7 +20,8 @@ import (
 // preview, and the host applies it. An open document is changed in its editor
 // as one undoable edit and saved by the user; a closed file is read again,
 // replaced by Core (workspace.replaceText) and written only if it still holds the
-// bytes that were read.
+// bytes that were read. A remote workspace's closed files are read and written
+// on its host the way its documents are (remote_documents.go).
 
 // searchReplacer is the part of Core Replace in Files needs.
 type searchReplacer interface {
@@ -79,7 +80,7 @@ func (a *App) previewProjectReplace(p *project, query searchQuery, replacement s
 			}
 			r.loading = false
 			if err != nil {
-				a.operationFailed("workspace_replace_preview", err)
+				a.operationFailed("workspace_replace_preview", p.logError(err))
 				r.failure = a.text.Search.ReplaceFailed(err.Error())
 				return
 			}
@@ -155,14 +156,18 @@ func (a *App) applyProjectReplace(p *project) {
 	}
 	query, replacement, root := r.query, r.replacement, p.root
 	budget := int64(a.searchPreferences.ReplacementMaxFileBytes)
-	write := func(path string, data, expected []byte) error {
+	read := a.documentBytesOf(p)
+	write := func(_ context.Context, path string, data, expected []byte) error {
 		return documentio.WriteGuardedLimit(path, data, expected, budget)
+	}
+	if remote := a.remoteDocuments(p); remote != nil {
+		write = remote.save
 	}
 	r.applying = true
 	a.background(p, searchTimeout, func(ctx context.Context) func(*App) {
 		for _, file := range closed {
 			path := filepath.Join(root, filepath.FromSlash(file.Path))
-			outcomes = append(outcomes, replacePreviewInFile(ctx, replacer, write, path, query, replacement, budget, file.SourceIdentity))
+			outcomes = append(outcomes, replacePreviewInFile(ctx, replacer, read, write, path, query, replacement, budget, file.SourceIdentity))
 		}
 		return func(a *App) {
 			p.replace = projectReplace{}
@@ -198,10 +203,11 @@ func (a *App) replaceInDocument(d *document, file core.WorkspaceReplaceFile, rev
 	return outcome
 }
 
-// A closed file is decoded and re-encoded by Core; native writes guard exact disk bytes.
-func replacePreviewInFile(ctx context.Context, replacer searchReplacer, write func(string, []byte, []byte) error, path string, query searchQuery, replacement string, limit int64, identity string) replaceOutcome {
+// A closed file is read with read, decoded and re-encoded by Core, and written with write, which
+// writes only while the file still holds the bytes read.
+func replacePreviewInFile(ctx context.Context, replacer searchReplacer, read documentBytes, write func(context.Context, string, []byte, []byte) error, path string, query searchQuery, replacement string, limit int64, identity string) replaceOutcome {
 	outcome := replaceOutcome{path: path}
-	data, err := documentio.ReadFileLimit(path, limit)
+	data, err := read(ctx, path, limit)
 	if err != nil {
 		outcome.err = err
 		return outcome
@@ -228,7 +234,7 @@ func replacePreviewInFile(ctx context.Context, replacer searchReplacer, write fu
 		outcome.err = err
 		return outcome
 	}
-	outcome.err = write(path, encoded.Bytes, data)
+	outcome.err = write(ctx, path, encoded.Bytes, data)
 	outcome.before = []byte(decoded.Text)
 	return outcome
 }
@@ -255,6 +261,8 @@ func (a *App) reportProjectReplace(outcomes []replaceOutcome) {
 		message := reason.Error()
 		if errors.Is(reason, documentio.ErrConflict) {
 			message = t.ReplaceConflict
+		} else if words, remote := a.remoteDocumentReason(reason); remote {
+			message = words
 		}
 		a.operationFailed("project_replace", documentLogError(reason))
 		a.notifyError(t.ReplacePartlyFailed(strconv.Itoa(changed), strconv.Itoa(failed), message))

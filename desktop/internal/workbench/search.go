@@ -149,7 +149,8 @@ func (a *App) startProjectSearchWatch(p *project) {
 	wake := func() { a.post(func(a *App) { a.drainProjectSearchWatch(p, slot) }) }
 	if p.remote != nil {
 		// A remote workspace's folder is on the host, which the local watch cannot observe: the
-		// search runs without a watch, as where none is available.
+		// host watch feeds the index instead (remoteSearchChanged), and while it does not watch
+		// every query builds the index from the host again.
 		slot.finish(nil, nil)
 		wake()
 		return
@@ -173,8 +174,9 @@ func (a *App) drainProjectSearchWatch(p *project, slot *documentWatch) {
 		return
 	}
 	watch, ready, err := slot.state()
+	available := watch != nil || p.remoteWatching()
 	if ready {
-		s.watchReady, s.watchAvailable, s.fullResync = true, watch != nil, true
+		s.watchReady, s.watchAvailable, s.fullResync = true, available, true
 		if err != nil && s.watchAttached {
 			a.operationFailed("workspace_search_watch", err)
 			a.notifyError(i18n.Shared(a.language(), "desktop.search.watchUnavailable"))
@@ -199,39 +201,52 @@ func (a *App) drainProjectSearchWatch(p *project, slot *documentWatch) {
 			a.startProjectSearchWatch(p)
 			changed = true
 		} else if len(events.Names) > 0 {
-			if len(s.pending)+len(events.Names) > searchEventLimit {
-				a.backgroundFailed("workspace_search_incremental_update", errWatchEventLimit)
-				s.pending = nil
-				s.fullResync = true
-			} else if !s.fullResync {
-				s.pending = append(s.pending, events.Names...)
-			}
+			a.queueSearchChanges(&s.pending, &s.fullResync, events.Names)
 			changed = true
 		}
 	}
 	if p.everywhere.watchAttached {
-		a.applyEverywhereWatch(p, ready, watch != nil, err, events)
+		a.applyEverywhereWatch(p, ready, available, err, events)
 	}
 	if p.tree.recursiveWatch {
 		a.applyTreeRecursiveWatch(p, ready, watch != nil, err, events)
 	}
 	if changed {
-		if s.countCancel != nil {
-			s.countCancel()
-			s.countCancel = nil
-		}
-		s.counts = nil
-		s.countFailed = false
-		s.generation++
-		if s.cancel != nil {
-			s.cancel()
-		}
-		if strings.TrimSpace(s.want.text) != "" {
-			s.loading = true
-		}
+		a.projectSearchOutdated(p)
 	}
 	if s.watchReady && !s.running && strings.TrimSpace(s.want.text) != "" {
 		a.runProjectSearch(p)
+	}
+}
+
+// queueSearchChanges adds names, changed paths relative to the folder, to a search's pending
+// changes, which update the index before its next query. More than searchEventLimit of them
+// build the index again instead (full), and none are kept while that is due.
+func (a *App) queueSearchChanges(pending *[]string, full *bool, names []string) {
+	if len(*pending)+len(names) > searchEventLimit {
+		a.backgroundFailed("workspace_search_incremental_update", errWatchEventLimit)
+		*pending, *full = nil, true
+	} else if !*full {
+		*pending = append(*pending, names...)
+	}
+}
+
+// projectSearchOutdated drops the Find in Files query and counts running after the folder
+// changed; the caller runs the query again.
+func (a *App) projectSearchOutdated(p *project) {
+	s := &p.search
+	if s.countCancel != nil {
+		s.countCancel()
+		s.countCancel = nil
+	}
+	s.counts = nil
+	s.countFailed = false
+	s.generation++
+	if s.cancel != nil {
+		s.cancel()
+	}
+	if strings.TrimSpace(s.want.text) != "" {
+		s.loading = true
 	}
 }
 
@@ -266,7 +281,9 @@ func (a *App) updateProjectSearch(p *project, query searchQuery) {
 	s.loading = true
 	wasAttached := s.watchAttached
 	s.watchAttached = true
-	if !wasAttached && s.watchReady && !s.watchAvailable && s.watch != nil {
+	// A remote workspace's search waits for no local watch; the host watch tells the user once
+	// when it cannot watch the folder (remoteWatchUnavailable).
+	if !wasAttached && s.watchReady && !s.watchAvailable && s.watch != nil && p.remote == nil {
 		_, _, err := s.watch.state()
 		if err != nil {
 			a.operationFailed("workspace_search_watch", err)
@@ -294,7 +311,7 @@ func (a *App) runProjectSearch(p *project) {
 		return
 	}
 	query, generation := s.want, s.generation
-	full, paths := s.fullResync || !s.watchAvailable, s.pending
+	full, paths := s.fullResync || !s.watchAvailable || p.remoteWatchMisses(query.includeGenerated), s.pending
 	s.fullResync, s.pending = false, nil
 	s.indexUsed = true
 	ctx, cancel := context.WithCancel(p.ctx)
@@ -426,12 +443,13 @@ func (a *App) countProjectSearch(p *project, request core.WorkspaceSearchRequest
 			seen[match.Path] = true
 		}
 	}
+	kernel := a.kernel
 	a.background(p, searchTimeout, func(deadline context.Context) func(*App) {
 		defer close(finished)
 		defer cancel()
 		stop := context.AfterFunc(deadline, cancel)
 		defer stop()
-		counts, err := core.NewClient().CountWorkspaceSearch(ctx, request)
+		counts, err := kernel.CountWorkspaceSearch(ctx, request)
 		return func(a *App) {
 			if generation != p.search.generation || countRevision != p.search.countRevision {
 				return
@@ -440,7 +458,7 @@ func (a *App) countProjectSearch(p *project, request core.WorkspaceSearchRequest
 			if err != nil {
 				p.search.countFailed = true
 				if !errors.Is(err, context.Canceled) {
-					a.backgroundFailed("workspace_search_count", err)
+					a.backgroundFailed("workspace_search_count", p.logError(err))
 				}
 				return
 			}
@@ -480,6 +498,9 @@ func synchronizeSearchIndex(ctx context.Context, kernel Kernel, root string, ful
 
 // releaseProjectSearch drops Core's index after the project closes so switching
 // among projects does not retain every workspace inventory for the whole session.
+// A remote workspace's session has ended by then, so this drops only the index of
+// its empty placeholder; the indexes Core keyed by the session stay until Core
+// drops them when a session closes (#2277).
 func (a *App) releaseProjectSearch(p *project) {
 	if p.search.countCancel != nil {
 		p.search.countCancel()
@@ -524,7 +545,7 @@ func (a *App) finishProjectSearch(p *project, generation uint64, matches []core.
 	}
 	if generation != s.generation {
 		if err != nil && !errors.Is(err, context.Canceled) {
-			a.backgroundFailed("workspace_search", err)
+			a.backgroundFailed("workspace_search", p.logError(err))
 		}
 		if s.watchReady && strings.TrimSpace(s.want.text) != "" {
 			a.runProjectSearch(p)
@@ -537,7 +558,7 @@ func (a *App) finishProjectSearch(p *project, generation uint64, matches []core.
 			return
 		}
 		s.failed = true
-		a.operationFailed("workspace_search", err)
+		a.operationFailed("workspace_search", p.logError(err))
 		return
 	}
 	s.matches = matches
