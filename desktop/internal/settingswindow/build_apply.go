@@ -8,12 +8,14 @@ import (
 
 // The Build pages keep their edits as drafts until the footer's Apply or OK writes them, as
 // in docs/design/build-execution-settings.html: the machine's toolchain defaults, then the
-// project's, then each debugger's stepping policy. One request is out at a time, because the
-// toolchain scopes share one writer and every write is read back before the next. A failed
-// write stops the rest and keeps the window open with its drafts; Cancel writes nothing.
+// project's, then the trusted locations, then each debugger's stepping policy. One request is
+// out at a time, because the toolchain scopes and the trusted locations share one writer and
+// every write is read back before the next. A failed write stops the rest and keeps the window
+// open with its drafts; Cancel writes nothing.
 
 const (
 	applyToolchain = "toolchain:"
+	applyLocations = "locations:"
 	applyStepping  = "stepping:"
 )
 
@@ -45,6 +47,10 @@ func (w *window) buildDrafts(language i18n.Language) (count int, targets []strin
 				targets = append(targets, i18n.Shared(language, "desktop.buildSettings.targetProject"))
 			}
 		}
+		if n := t.locations.drafts(); n > 0 {
+			count += n
+			targets = append(targets, i18n.Shared(language, "desktop.trustedLocations.target"))
+		}
 	}
 	if pending := w.steppingPending(); len(pending) > 0 {
 		count += len(pending)
@@ -67,6 +73,12 @@ func (w *window) startApply(close bool) {
 			if t.drafts(name) > 0 {
 				a.steps = append(a.steps, applyToolchain+name)
 			}
+		}
+		if t.locations.drafts() > 0 {
+			// The apply reads a stale list again before it writes; a failed read stops it, and
+			// the next apply tries the read again.
+			t.locations.readFailed = nil
+			a.steps = append(a.steps, applyLocations)
 		}
 	}
 	for _, id := range w.steppingPending() {
@@ -105,6 +117,14 @@ func (w *window) advanceApply(toolchainFailed error, stepping steppingResult) {
 		if w.toolchains.saving {
 			return
 		}
+	case a.running == applyLocations:
+		if toolchainFailed != nil {
+			w.stopApply(toolchainFailed)
+			return
+		}
+		if w.toolchains.locations.saving {
+			return
+		}
 	case strings.HasPrefix(a.running, applyStepping):
 		if !stepping.done {
 			return
@@ -123,6 +143,28 @@ func (w *window) advanceApply(toolchainFailed error, stepping steppingResult) {
 			}
 			a.steps = a.steps[1:]
 			if w.toolchains.beginSave(name) {
+				a.running = step
+				return
+			}
+			continue
+		}
+		if step == applyLocations {
+			locations := w.toolchains.locations
+			if w.toolchains.busy() {
+				return
+			}
+			if !locations.loaded || locations.stale {
+				// An earlier write in this apply changed the catalog file: read it again and
+				// write the changes against what it holds now.
+				if locations.readFailed != nil {
+					w.stopApply(locations.readFailed)
+					return
+				}
+				locations.beginLoad()
+				return
+			}
+			a.steps = a.steps[1:]
+			if locations.beginSave() {
 				a.running = step
 				return
 			}

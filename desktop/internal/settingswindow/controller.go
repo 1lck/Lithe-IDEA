@@ -253,6 +253,15 @@ type ToolchainTrustLoader interface {
 	SetWorkspaceTrust(context.Context, toolchain.Snapshot, bool) (toolchain.Snapshot, error)
 }
 
+// TrustedLocationsLoader reads and writes the folders whose every workspace this machine
+// trusts. Preview asks Core what draft changes lead to without writing; Save writes them
+// against the bytes the list was read from and re-reads it. All calls run off the window thread.
+type TrustedLocationsLoader interface {
+	LoadTrustedLocations(context.Context) (toolchain.TrustedLocations, error)
+	PreviewTrustedLocations(context.Context, toolchain.TrustedLocations, []toolchain.LocationChange) ([]string, error)
+	SaveTrustedLocations(context.Context, toolchain.TrustedLocations, []toolchain.LocationChange) (toolchain.TrustedLocations, error)
+}
+
 // ToolchainRuntimePreparer downloads or repairs a plugin's managed runtimes
 // from the Toolchains settings page, then reloads its snapshot.
 type ToolchainRuntimePreparer interface {

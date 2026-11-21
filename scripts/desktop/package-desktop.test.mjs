@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
-import { chmod, copyFile, mkdir, mkdtemp, readFile, realpath, rm, writeFile } from 'node:fs/promises';
+import { createHash } from 'node:crypto';
+import { chmod, copyFile, mkdir, mkdtemp, readdir, readFile, realpath, rm, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -36,7 +37,9 @@ case "$1" in
             '[[ " $* " == *" --cgo "* ]] || { echo "packaging must retain the native core bridge" >&2; exit 1; }' \\
             'printf "%s\\n" "$@" > "$FIXTURE_ROOT/viva-args.txt"' \\
             'cp internal/idehelp/lithe-mcp.bin "$FIXTURE_ROOT/embedded-helper.txt"' \\
-            'cp internal/buildinfo/package_info.go "$FIXTURE_ROOT/package-info.go"' > "$3"
+            'cp internal/buildinfo/package_info.go "$FIXTURE_ROOT/package-info.go"' \\
+            'rm -rf "$FIXTURE_ROOT/embedded-remote-server"' \\
+            'cp -R internal/remoteserver "$FIXTURE_ROOT/embedded-remote-server"' > "$3"
         chmod +x "$3"
         ;;
     *) printf 'unexpected go command: %s\\n' "$*" >&2; exit 1 ;;
@@ -71,6 +74,41 @@ chmod +x "$stage/bin/$helper"
 printf '%s\\n' "$stage"
 `;
 
+// build-remote-server.sh stand-in: records that it ran and prints the stage withFixture wrote.
+const fakeServerBuild = `#!/usr/bin/env bash
+set -euo pipefail
+ROOT_DIR="$(cd "$(dirname "\${BASH_SOURCE[0]}")/../.." && pwd -P)"
+printf 'built\\n' >> "$ROOT_DIR/remote-server-builds.txt"
+printf '%s\\n' "$ROOT_DIR/remote-stage/built"
+`;
+
+// verify-remote-server-artifacts.mjs stand-in: records its arguments, and fails when asked to.
+const fakeServerVerify = `import { appendFileSync } from 'node:fs';
+appendFileSync(process.env.FIXTURE_ROOT + '/remote-server-verify.txt', JSON.stringify(process.argv.slice(2)) + '\\n');
+if (process.env.FIXTURE_VERIFY_FAIL) {
+  console.error('the remote server check failed');
+  process.exit(1);
+}
+`;
+
+const serverTargets = ['x86_64-unknown-linux-musl', 'aarch64-unknown-linux-musl'];
+
+// writeServerStage writes what build-remote-server.sh stages, with one build per target whose bytes
+// name the stage. A changed target gets other bytes than its manifest describes.
+async function writeServerStage(dir, name, changed) {
+  const artifacts = [];
+  for (const target of serverTargets) {
+    const build = `${name} server for ${target}\n`;
+    await mkdir(path.join(dir, target), { recursive: true });
+    await writeFile(path.join(dir, target, 'lithe-remote-server'), target === changed ? `${build}changed\n` : build, { mode: 0o755 });
+    artifacts.push({ target, path: `${target}/lithe-remote-server`, size: build.length, sha256: createHash('sha256').update(build).digest('hex') });
+  }
+  await writeFile(path.join(dir, 'remote-server-manifest.json'), `${JSON.stringify({
+    schemaVersion: 1, coreRevision: '0123456789abcdef0123456789abcdef01234567', coreWorktree: 'clean', coreSource: 'pinned',
+    serverVersion: '0.1.0', rustc: 'rustc 0.0.0-fixture', profile: 'release', artifacts,
+  }, null, 2)}\n`);
+}
+
 async function withFixture(host, body) {
   const root = await mkdtemp(path.join(os.tmpdir(), 'lithe package-desktop-'));
   try {
@@ -79,6 +117,10 @@ async function withFixture(host, body) {
     await mkdir(path.join(root, 'scripts/ci/common'), { recursive: true });
     await copyFile(path.join(scripts, '../ci/common/desktop-packages.mjs'), path.join(root, 'scripts/ci/common/desktop-packages.mjs'));
     await mkdir(path.join(root, 'desktop/internal/buildinfo'), { recursive: true });
+    // The tracked sources of the package the server builds are embedded into, which packaging keeps.
+    await mkdir(path.join(root, 'desktop/internal/remoteserver'), { recursive: true });
+    await writeFile(path.join(root, 'desktop/internal/remoteserver/remoteserver.go'), 'package remoteserver\n');
+    await mkdir(path.join(root, 'scripts/desktop/verify'), { recursive: true });
     await mkdir(path.join(root, 'viva-src'));
     await mkdir(bin);
     for (const name of ['package-desktop.sh', 'build-viva-tool.sh', 'desktop-go.sh']) {
@@ -87,9 +129,12 @@ async function withFixture(host, body) {
     await copyFile(path.join(desktop, 'Makefile'), path.join(root, 'desktop/Makefile'));
     await writeFile(path.join(root, 'desktop/viva.toml'), '[app]\nversion = "0.0.1"\n');
     await writeFile(path.join(root, 'scripts/desktop/build-desktop-core.sh'), fakeCoreBuild);
+    await writeFile(path.join(root, 'scripts/desktop/build-remote-server.sh'), fakeServerBuild);
+    await writeFile(path.join(root, 'scripts/desktop/verify/verify-remote-server-artifacts.mjs'), fakeServerVerify);
+    await writeServerStage(path.join(root, 'remote-stage/built'), 'built');
     await writeFile(path.join(bin, 'go'), fakeGo);
     await writeFile(path.join(bin, 'rustc'), fakeRustc);
-    for (const file of ['scripts/desktop/build-desktop-core.sh', 'fake-bin/go', 'fake-bin/rustc']) {
+    for (const file of ['scripts/desktop/build-desktop-core.sh', 'scripts/desktop/build-remote-server.sh', 'fake-bin/go', 'fake-bin/rustc']) {
       await chmod(path.join(root, file), 0o755);
     }
     const env = {
@@ -102,7 +147,7 @@ async function withFixture(host, body) {
     };
     for (const name of ['GOOS', 'GOARCH', 'LITHE_CORE_TARGET', 'LITHE_CORE_RUST_DIR', 'LITHE_DESKTOP_CORE_PROFILE',
       'CGO_CFLAGS', 'CGO_LDFLAGS', 'MACOSX_DEPLOYMENT_TARGET', 'MAKEFLAGS', 'MFLAGS', 'MAKELEVEL',
-      'LITHE_BUILD_TIME', 'LITHE_BUILD_COMMIT', 'LITHE_UPDATE_PUBLIC_KEYS']) {
+      'LITHE_BUILD_TIME', 'LITHE_BUILD_COMMIT', 'LITHE_UPDATE_PUBLIC_KEYS', 'LITHE_REMOTE_SERVER_STAGE']) {
       delete env[name];
     }
     async function exec(command, args, extra) {
@@ -122,8 +167,14 @@ async function withFixture(host, body) {
       assert.equal(result.code, 2, `${command} ${args.join(' ')} should be refused: ${result.stdout}\n${result.stderr}`);
       return result.stderr;
     }
+    // failed runs a command that must fail after the usage checks and returns what it said.
+    async function failed(command, args, extra = {}) {
+      const result = await exec(command, args, extra);
+      assert.equal(result.code, 1, `${command} ${args.join(' ')} should fail: ${result.stdout}\n${result.stderr}`);
+      return result.stderr;
+    }
     const coreBuilds = async () => (await readFile(path.join(root, 'core-builds.txt'), 'utf8')).trim().split('\n');
-    await body({ root: await realpath(root), run, refused, coreBuilds });
+    await body({ root: await realpath(root), run, refused, failed, coreBuilds });
   } finally {
     await rm(root, { recursive: true, force: true });
   }
@@ -206,6 +257,70 @@ test('packaging refuses two channels and build information a Go string would nee
     assert.match(await refused('bash', ['scripts/desktop/package-desktop.sh'], { LITHE_UPDATE_PUBLIC_KEYS: 'key"+os.Exit(1)+"' }), /LITHE_UPDATE_PUBLIC_KEYS/);
     assert.match(await refused('bash', ['scripts/desktop/package-desktop.sh'], { LITHE_BUILD_COMMIT: 'main' }), /LITHE_BUILD_COMMIT/);
     assert.match(await refused('bash', ['scripts/desktop/package-desktop.sh'], { LITHE_BUILD_TIME: 'yesterday' }), /LITHE_BUILD_TIME/);
+  });
+});
+
+// generatedFiles lists what packaging left in the directories it generates build input in.
+async function generatedFiles(root) {
+  const left = [];
+  for (const [dir, tracked] of [['desktop/internal/idehelp', []], ['desktop/internal/buildinfo', []], ['desktop/internal/remoteserver', ['remoteserver.go']]]) {
+    const entries = await readdir(path.join(root, dir)).catch(error => (error.code === 'ENOENT' ? [] : Promise.reject(error)));
+    left.push(...entries.filter(name => !tracked.includes(name)).map(name => `${dir}/${name}`));
+  }
+  return left;
+}
+
+async function assertEmbedsStage(root, stage) {
+  const embedded = path.join(root, 'embedded-remote-server');
+  assert.deepEqual((await readdir(embedded)).sort(), [...serverTargets.map(target => `${target}.bin`), 'remote-server-manifest.json', 'remoteserver.go'].sort());
+  assert.equal(await readFile(path.join(embedded, 'remote-server-manifest.json'), 'utf8'), await readFile(path.join(stage, 'remote-server-manifest.json'), 'utf8'));
+  for (const target of serverTargets) {
+    assert.equal(await readFile(path.join(embedded, `${target}.bin`), 'utf8'), await readFile(path.join(stage, target, 'lithe-remote-server'), 'utf8'));
+  }
+  const args = (await readFile(path.join(root, 'viva-args.txt'), 'utf8')).trim().split('\n');
+  assert.ok(args[args.indexOf('-tags') + 1].split(',').includes('lithe_bundled_remote_server'));
+}
+
+const verifyRuns = async root => (await readFile(path.join(root, 'remote-server-verify.txt'), 'utf8')).trim().split('\n').map(line => JSON.parse(line));
+
+test('a local package builds the remote server and embeds every build of its manifest', { timeout: 90000 }, async () => {
+  await withFixture({ goos: 'linux', goarch: 'amd64', rustHost: 'x86_64-unknown-linux-gnu' }, async ({ root, run }) => {
+    // A build an interrupted run left is not embedded.
+    await writeFile(path.join(root, 'desktop/internal/remoteserver/riscv64gc-unknown-linux-musl.bin'), 'stale\n');
+    await run('bash', ['scripts/desktop/package-desktop.sh', '--no-sign']);
+    const stage = path.join(root, 'remote-stage/built');
+    assert.equal(await readFile(path.join(root, 'remote-server-builds.txt'), 'utf8'), 'built\n');
+    assert.deepEqual(await verifyRuns(root), [['--stage', stage]]);
+    await assertEmbedsStage(root, stage);
+    assert.deepEqual(await generatedFiles(root), []);
+  });
+});
+
+test('a release package embeds the stage CI built, checked against the pinned core', { timeout: 90000 }, async () => {
+  await withFixture({ goos: 'darwin', goarch: 'arm64', rustHost: 'aarch64-apple-darwin' }, async ({ root, run }) => {
+    const stage = path.join(root, 'remote-stage/downloaded by CI');
+    await writeServerStage(stage, 'CI');
+    await run('bash', ['scripts/desktop/package-desktop.sh', '--stable', '--no-sign'], { LITHE_REMOTE_SERVER_STAGE: stage });
+    await assert.rejects(readFile(path.join(root, 'remote-server-builds.txt')), { code: 'ENOENT' });
+    assert.deepEqual(await verifyRuns(root), [['--stage', stage, '--require-pinned']]);
+    await assertEmbedsStage(root, stage);
+    assert.deepEqual(await generatedFiles(root), []);
+  });
+});
+
+test('packaging stops before building the client when a remote server build fails its check', { timeout: 90000 }, async () => {
+  await withFixture({ goos: 'linux', goarch: 'amd64', rustHost: 'x86_64-unknown-linux-gnu' }, async ({ root, failed }) => {
+    assert.match(await failed('bash', ['scripts/desktop/package-desktop.sh', '--no-sign'], { FIXTURE_VERIFY_FAIL: '1' }), /the remote server check failed/);
+    await assert.rejects(readFile(path.join(root, 'viva-args.txt')), { code: 'ENOENT' });
+    assert.deepEqual(await generatedFiles(root), []);
+
+    // A build that changes after the check is refused when it is copied, and nothing stays behind.
+    const stage = path.join(root, 'remote-stage/changed');
+    await writeServerStage(stage, 'changed', 'aarch64-unknown-linux-musl');
+    assert.match(await failed('bash', ['scripts/desktop/package-desktop.sh', '--no-sign'], { LITHE_REMOTE_SERVER_STAGE: stage }),
+      /The staged aarch64-unknown-linux-musl server changed after it was checked\./);
+    await assert.rejects(readFile(path.join(root, 'viva-args.txt')), { code: 'ENOENT' });
+    assert.deepEqual(await generatedFiles(root), []);
   });
 });
 

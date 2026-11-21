@@ -111,6 +111,14 @@ if [[ -x "$STAGE_DIR/bin/lithe-mcp" ]]; then
 elif [[ -x "$STAGE_DIR/bin/lithe-mcp.exe" ]]; then
     export LITHE_IDE_HELPER="$STAGE_DIR/bin/lithe-mcp.exe"
 fi
+# A development run connects to hosts with the server scripts/desktop/build-remote-server.sh staged,
+# when it staged one; nothing here builds it. A packaged client ignores the variable and uses the
+# builds it embeds (internal/remoteserver). A value the caller exported is kept.
+REMOTE_SERVER_STAGE="$ROOT_DIR/.artifacts/desktop/remote-server"
+if [[ -z "${LITHE_REMOTE_SERVER_STAGE:-}" && -f "$REMOTE_SERVER_STAGE/remote-server-manifest.json" ]]; then
+    LITHE_REMOTE_SERVER_STAGE="$(native_path "$REMOTE_SERVER_STAGE")"
+    export LITHE_REMOTE_SERVER_STAGE
+fi
 
 export CGO_ENABLED=1
 CGO_INCLUDE_DIR="$(native_path "$STAGE_DIR/include")"

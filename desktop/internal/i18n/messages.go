@@ -578,6 +578,7 @@ type SettingsMessages struct {
 	Toolchains         string
 	Debuggers          string
 	Console            string
+	TrustedLocations   string
 	Languages          string
 	Tools              string
 	SearchPage         string
