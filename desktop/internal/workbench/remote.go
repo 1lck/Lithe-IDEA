@@ -174,7 +174,6 @@ func (a *App) openRemote(surface actionSurface) {
 	r.form.clear()
 	a.performed("remote.connections.open", surface)
 	a.loadRemote(remoteLoadSelectFirst, "")
-	a.loadRemoteImportCounts()
 }
 
 // closeRemote closes the window, stopping a running test or connection and ending the session a
@@ -220,6 +219,9 @@ func (a *App) loadRemote(how remoteLoad, id string) {
 			if err != nil {
 				a.operationFailed("remote_connections_read", documentLogError(err))
 				r.readErr = remoteReadFailure(a.language(), source, err)
+			} else {
+				// The counts leave out the hosts already saved, so they follow every reread.
+				a.loadRemoteImportCounts()
 			}
 			switch how {
 			case remoteLoadKeepForm:
@@ -637,6 +639,7 @@ func (a *App) editRemote(site string, edit core.RemoteConnectionEdit) {
 			}
 			r.loaded = true
 			r.setSource(after)
+			a.loadRemoteImportCounts()
 			if edit.Remove != nil {
 				r.selectFirst()
 				return

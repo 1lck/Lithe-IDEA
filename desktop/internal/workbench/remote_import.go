@@ -202,6 +202,7 @@ func (a *App) applyRemoteImport() {
 				a.operationRejected("remote_import_apply", "not_committed")
 			}
 			r.setSource(after)
+			a.loadRemoteImportCounts()
 			if r.importer == m {
 				r.importer = nil
 			}
