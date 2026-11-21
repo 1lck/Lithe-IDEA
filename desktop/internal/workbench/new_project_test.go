@@ -491,7 +491,7 @@ func TestNewProjectSheetKeepsFocusAndBlocksSurfaceClicks(t *testing.T) {
 			t.Fatal(err)
 		}
 		focus := h.focusedName()
-		if focus == h.app.text.Welcome.NewProject || focus == h.app.text.Welcome.Open || focus == i18n.Shared(h.app.language(), "desktop.clone.more") {
+		if focus == h.app.text.Welcome.NewProject || focus == h.app.text.Welcome.Open || focus == h.app.text.Welcome.Clone || focus == i18n.Shared(h.app.language(), "desktop.remote.title") {
 			t.Fatalf("keyboard focus escaped the sheet to %q", focus)
 		}
 	}

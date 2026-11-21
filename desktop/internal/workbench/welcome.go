@@ -20,9 +20,8 @@ type welcomeState struct {
 	// search filters the project list. App.Config hands it to the platform text
 	// service, so it lives as long as the window.
 	search ui.Field
-	// moreOpen is whether the More menu is open; menuOpen whether a recent
-	// project's action menu is, which menuPath names.
-	moreOpen, menuOpen bool
+	// menuOpen is whether a recent project's action menu is open, which menuPath names.
+	menuOpen bool
 	// list is the recent project list's selection and scroll.
 	list ui.ListState
 

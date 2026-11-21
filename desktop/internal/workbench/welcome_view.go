@@ -109,19 +109,14 @@ func (a *App) welcomeContent(c ui.C) {
 			if ui.Button(c, a.text.Welcome.Open).Outline().MinWidth(72).Clicked() {
 				c.After(func() { a.chooseProject(surfaceButton) })
 			}
-			more := ui.Button(c, i18n.Shared(a.language(), "desktop.clone.more")).Outline().MinWidth(72)
-			if more.Clicked() {
-				w.moreOpen = !w.moreOpen
+			// The four ways to start are buttons side by side, none folded into a menu; the
+			// search field gives up its width first when the window is narrow.
+			if ui.Button(c, a.text.Welcome.Clone).Outline().MinWidth(72).Clicked() {
+				c.After(func() { a.openClone(surfaceButton) })
 			}
-			ui.Menu(c, more, &w.moreOpen, func(menu *ui.MenuItems) {
-				menu.WidthRange(220, 220)
-				if menu.Item(i18n.Shared(a.language(), "desktop.clone.title")).Clicked() {
-					c.After(func() { a.openClone(surfaceMenu) })
-				}
-				if menu.Item(i18n.Shared(a.language(), "desktop.remote.menuItem")).Clicked() {
-					c.After(func() { a.openRemote(surfaceMenu) })
-				}
-			})
+			if ui.Button(c, i18n.Shared(a.language(), "desktop.remote.title")).Outline().MinWidth(72).Clicked() {
+				c.After(func() { a.openRemote(surfaceButton) })
+			}
 		})
 		ui.Row(c).FillWidth().Height(1).Shrink(0).PadX(12).Children(func() {
 			ui.Row(c).Fill().Background(a.welcomeSeparator())

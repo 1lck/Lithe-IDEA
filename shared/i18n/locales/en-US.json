@@ -848,7 +848,6 @@
     "desktop.clone.choose": "Choose…",
     "desktop.clone.failed": "Clone failed. Check the repository address, access, and destination, then retry.",
     "desktop.clone.invalidName": "Choose an absolute destination folder and enter a single folder name",
-    "desktop.clone.more": "More",
     "desktop.clone.name": "Folder name",
     "desktop.clone.namePlaceholder": "project-name",
     "desktop.clone.parent": "Destination folder",

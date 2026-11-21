@@ -848,7 +848,6 @@
     "desktop.clone.choose": "选择…",
     "desktop.clone.failed": "克隆失败。请检查仓库地址、访问权限和目标目录后重试。",
     "desktop.clone.invalidName": "请选择绝对路径的目标文件夹，并输入单个文件夹名称",
-    "desktop.clone.more": "更多",
     "desktop.clone.name": "文件夹名称",
     "desktop.clone.namePlaceholder": "project-name",
     "desktop.clone.parent": "目标文件夹",

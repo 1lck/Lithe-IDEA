@@ -156,7 +156,7 @@ func TestVisualWorkbench(t *testing.T) {
 				id, tool string
 				docs     int
 			}{
-				{"01-welcome-empty", "", -1}, {"02-new-empty-project", "", -1}, {"03-welcome-more-menu", "", -1}, {"04-clone-repository", "", -1},
+				{"01-welcome-empty", "", -1}, {"02-new-empty-project", "", -1}, {"04-clone-repository", "", -1},
 				{"40-workbench-empty", "", 0}, {"41-editor-project", "", 1}, {"42-editor-tabs", "", 2},
 				{"50-git-log", itemGit, 2}, {"52-git-worktrees", itemGit, 2}, {"53-git-console", itemGit, 2},
 				{"54-git-commit", itemCommit, 2}, {"61-problems", itemProblems, 2}, {"62-run-empty", itemRun, 2},
@@ -288,11 +288,8 @@ func TestVisualWorkbench(t *testing.T) {
 						}
 					case "02-new-empty-project":
 						h.openNewProjectSheet()
-					case "03-welcome-more-menu":
-						h.clickNamed(i18n.Shared(h.app.language(), "desktop.clone.more"))
 					case "04-clone-repository":
-						h.clickNamed(h.shared("desktop.clone.more"))
-						h.clickNamed(h.shared("desktop.clone.title"))
+						h.clickNamed(h.app.text.Welcome.Clone)
 					case "52-git-worktrees":
 						h.clickNamed(h.app.text.Git.Worktrees)
 					case "53-git-console":
