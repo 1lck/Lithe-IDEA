@@ -208,16 +208,19 @@ func (a *App) leaveRemoteBrowser() {
 	}
 }
 
-// leaveRemoteFlows ends the folder, trust or import page the window shows, so the list beside it
-// can show another connection. It reports false, leaving them, while one of them is opening a
-// folder or saving an import.
+// leaveRemoteFlows ends the folder, trust, import or dev container page the window shows, so the
+// list beside it can show another connection. It reports false, leaving them, while one of them is
+// opening a folder, saving an import, or saving a folder's trust or building its dev container,
+// which Cancel stops.
 func (a *App) leaveRemoteFlows() bool {
 	r := &a.remote
-	if (r.trust != nil && r.trust.deciding) || (r.browser != nil && r.browser.opening) || (r.importer != nil && r.importer.applying) {
+	if (r.trust != nil && r.trust.deciding) || (r.browser != nil && r.browser.opening) || (r.importer != nil && r.importer.applying) ||
+		(r.devcontainer != nil && r.devcontainer.busy()) {
 		return false
 	}
 	r.trust = nil
 	r.importer = nil
+	r.devcontainer = nil
 	a.leaveRemoteBrowser()
 	return true
 }

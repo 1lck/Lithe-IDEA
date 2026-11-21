@@ -109,6 +109,9 @@ type remoteState struct {
 	// containers is this computer's running containers, read once per opening
 	// (remote_container.go).
 	containers remoteContainers
+	// devcontainer is the page that opens a folder of this computer in its dev container, nil
+	// when it is not shown (remote_devcontainer.go).
+	devcontainer *remoteDevcontainer
 	// log folds OpenSSH's words under a failed test or connection.
 	log     ui.CollapsibleState
 	imports remoteImportCounts
@@ -201,6 +204,7 @@ func (a *App) closeRemote() {
 	r.stopConnect()
 	a.leaveRemoteBrowser()
 	a.leaveRemoteTrust()
+	a.leaveRemoteDevcontainer()
 	r.generation++
 	r.open, r.saving, r.loading = false, false, false
 	r.form = remoteForm{}

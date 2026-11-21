@@ -30,6 +30,16 @@ func (k *remoteProbeKernel) RemoteListContainers(context.Context, string, string
 	return core.RemoteContainers{Containers: []core.RemoteContainer{}}, nil
 }
 
+// Nor does any test run this computer's Dev Container CLI: the test kernels over the real Core
+// find none, and only remoteHostKernel builds, as its test says (remote_devcontainer_test.go).
+func (k *testKernel) RemoteDevcontainerUp(context.Context, core.DevcontainerUpRequest, func(core.DevcontainerOutput)) (core.DevcontainerUp, error) {
+	return core.DevcontainerUp{}, &core.Error{Command: "remote.devcontainerUp", Code: core.CodeRuntimeMissing, Message: "missing"}
+}
+
+func (k *remoteProbeKernel) RemoteDevcontainerUp(context.Context, core.DevcontainerUpRequest, func(core.DevcontainerOutput)) (core.DevcontainerUp, error) {
+	return core.DevcontainerUp{}, &core.Error{Command: "remote.devcontainerUp", Code: core.CodeRuntimeMissing, Message: "missing"}
+}
+
 // remoteHostContainers stands in for the engines' CLIs: each engine lists its containers, and
 // only remoteTestContainer connects, each connection asked for being recorded. Its zero value
 // lists none, as Core answers on a computer without either engine.

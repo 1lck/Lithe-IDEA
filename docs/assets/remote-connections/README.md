@@ -80,6 +80,8 @@
 | 连接 WSL 发行版失败 | [浅色英文](remote-connections-wsl-failed-light-en-US.png) | [深色中文](remote-connections-wsl-failed-dark-zh-CN.png) |
 | 容器页（填写容器内用户） | [浅色英文](remote-connections-container-light-en-US.png) | [深色中文](remote-connections-container-dark-zh-CN.png) |
 | 进入已停止的容器失败 | [浅色英文](remote-connections-container-failed-light-en-US.png) | [深色中文](remote-connections-container-failed-dark-zh-CN.png) |
+| 从 devcontainer.json 打开：文件夹未受信任 | [浅色英文](remote-connections-devcontainer-light-en-US.png) | [深色中文](remote-connections-devcontainer-dark-zh-CN.png) |
+| 从 devcontainer.json 打开：构建中的 CLI 日志 | [浅色英文](remote-connections-devcontainer-building-light-en-US.png) | [深色中文](remote-connections-devcontainer-building-dark-zh-CN.png) |
 
 复验方法：在仓库根目录把 `LITHE_VISUAL_OUTPUT_DIR` 设为绝对路径 `"$(pwd)/docs/assets/remote-connections"`，然后在 `desktop/` 下运行
 `../scripts/desktop/desktop-go.sh test -tags vivahead,lithevisual ./internal/workbench -run '^TestVisualRemoteConnections$' -count=1 -timeout 300s`。

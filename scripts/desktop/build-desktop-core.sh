@@ -329,7 +329,7 @@ PINNED_CORE_REPOSITORY="https://github.com/Lithe-IDEA/Lithe-core-rust.git"
 # Lithe-core-rust feat/2231-remote-containers at 2e496d2 (#162, on main 62d44ce with #159 host-side
 # forwarding rules): remote.connect enters a running Docker or Podman container (the container
 # field) and remote.listContainers lists the running ones (#2231).
-PINNED_CORE_REVISION="2e496d23f4f7bdeb9d341c0aae8da3f05f6a12cd"
+PINNED_CORE_REVISION="05c4139e30ff4333ef0c0f4bbaa7bf8e9079bbc3"
 PROFILE="debug"
 CHECKOUT_ONLY="no"
 while [[ $# -gt 0 ]]; do

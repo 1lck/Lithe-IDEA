@@ -84,6 +84,8 @@ type remoteHostKernel struct {
 	wsl remoteHostWSL
 	// containers are this computer's running containers (remote_container_test.go).
 	containers remoteHostContainers
+	// devcontainers is this computer's Dev Container CLI (remote_devcontainer_test.go).
+	devcontainers remoteHostDevcontainers
 }
 
 // remoteTestTree is the workspace's tree the Project tool window lists by default.

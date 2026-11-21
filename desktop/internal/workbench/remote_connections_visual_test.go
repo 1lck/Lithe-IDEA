@@ -11,6 +11,7 @@ import (
 	"github.com/1lck/Lithe-IDEA/desktop/internal/core"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/remoteconn"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/store"
+	"github.com/1lck/Lithe-IDEA/desktop/internal/toolchain"
 	"github.com/vivaui/viva/app"
 	"github.com/vivaui/viva/headless"
 )
@@ -20,8 +21,8 @@ import (
 // connection whose host Core refused under its field, OpenSSH's password question over the window,
 // a refused test, the connection steps with OpenSSH's questions on the page and a failure, the
 // question whether to trust a folder, Motty's hosts to import, the host's folders, a WSL
-// distribution's page and a failed connection to one, and a container's page and a failed
-// connection to one.
+// distribution's page and a failed connection to one, a container's page and a failed connection
+// to one, and a folder opening in its dev container, before and while it builds.
 func TestVisualRemoteConnections(t *testing.T) {
 	out := os.Getenv("LITHE_VISUAL_OUTPUT_DIR")
 	if out == "" {
@@ -322,6 +323,39 @@ func TestVisualRemoteConnections(t *testing.T) {
 			r.log.Open = true
 			shot("container-failed")
 			r.steps = nil
+
+			// A folder of this computer opens in its dev container: its devcontainer.json files
+			// list, an untrusted folder offers Trust and Build, and the CLI's log streams while it
+			// builds. The folder, its files and the log are fixed here.
+			r.log.Open = false
+			folder := "/Users/dev/src/payments-api"
+			d := &remoteDevcontainer{engine: core.ContainerEngineDocker, read: folder, config: ".devcontainer/devcontainer.json",
+				configs: []core.DevcontainerConfig{
+					{Path: ".devcontainer/devcontainer.json", Name: "Go & PostgreSQL"},
+					{Path: ".devcontainer/worker/devcontainer.json"},
+				},
+				trust: toolchain.WorkspaceTrust{Root: folder},
+			}
+			d.folder.SetText(folder)
+			r.devcontainer = d
+			shot("devcontainer")
+			d.trusted, d.build = true, &remoteProbe{cancel: func() {}}
+			for _, line := range []string{
+				"[1 ms] @devcontainers/cli 0.75.0. Node.js v22.11.0. darwin 25.0.0 arm64.",
+				"[4 ms] Start: Run: docker buildx build --load -t vsc-payments-api-features -f Dockerfile-with-features .",
+				"#1 [internal] load build definition from Dockerfile-with-features",
+				"#5 [dev_container_auto_added_stage_label 1/3] FROM mcr.microsoft.com/devcontainers/go:1.26",
+				"#7 [dev_containers_target_stage 2/3] COPY --from=dev_containers_feature_content_normalize /tmp/build-features/ /tmp/dev-container-features",
+				"#8 [dev_containers_target_stage 3/3] RUN /tmp/dev-container-features/postgresql_0/install.sh",
+				"#8 DONE 12.4s",
+				"[14821 ms] Start: Run: docker run --sig-proxy=false -a STDOUT -a STDERR --mount type=bind,source=/Users/dev/src/payments-api,target=/workspaces/payments-api",
+				"[15302 ms] Start: Run in container: /bin/sh -c go mod download",
+			} {
+				d.add(core.DevcontainerOutput{Text: line})
+			}
+			shot("devcontainer-building")
+			d.build = nil
+			r.devcontainer = nil
 			h.app.closeRemote()
 			h.settleChain()
 		})

@@ -119,6 +119,9 @@ func (a *App) remoteEmptyPage(c ui.C, language i18n.Language) {
 				if ui.Button(c.Part("manual"), i18n.Shared(language, "desktop.remote.empty.manual")).Link().Disabled(!r.editable()).Clicked() {
 					c.After(a.newRemote)
 				}
+				if ui.Button(c.Part("devcontainer"), i18n.Shared(language, "desktop.remote.devcontainer.open")).Link().Disabled(r.saving || r.connect != nil).Clicked() {
+					c.After(a.openRemoteDevcontainer)
+				}
 			})
 		})
 	})

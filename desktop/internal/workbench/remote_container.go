@@ -117,6 +117,14 @@ func (a *App) loadRemoteContainers() {
 				a.backgroundFailed("remote_containers_list", remoteLogError(failure))
 			}
 			r.containers.list = listed
+			// The page of a listed container shows its image and state as listed now, such as the
+			// container a dev container's build just started.
+			if shown := r.containers.selected; shown != nil {
+				if at := slices.IndexFunc(listed, func(c remoteListedContainer) bool { return c.key() == shown.key() }); at >= 0 {
+					container := listed[at]
+					r.containers.selected = &container
+				}
+			}
 			r.buildRows()
 			r.syncListSelection()
 		}

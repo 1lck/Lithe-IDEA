@@ -36,6 +36,8 @@ func (a *App) remoteView(c ui.C) {
 			page := k.Part("page")
 			ui.Column(page).Grow(1).Basis(0).MinWidth(0).FillHeight().Children(func() {
 				switch {
+				case r.devcontainer != nil:
+					a.remoteDevcontainerView(page, language, r.devcontainer)
 				case r.importer != nil:
 					a.remoteImportView(page, language, r.importer)
 				case r.trust != nil:
@@ -50,6 +52,8 @@ func (a *App) remoteView(c ui.C) {
 	}, func() {
 		k := c.Part("remote-footer")
 		switch {
+		case r.devcontainer != nil:
+			a.remoteDevcontainerFooter(k, language, r.devcontainer)
 		case r.importer != nil:
 			a.remoteImportFooter(k, language, r.importer)
 		case r.trust != nil:
@@ -73,6 +77,8 @@ func (a *App) remoteTitle(language i18n.Language) string {
 	r := &a.remote
 	crumb := ""
 	switch {
+	case r.devcontainer != nil:
+		crumb = i18n.Shared(language, "desktop.remote.devcontainer.title")
 	case r.importer != nil:
 		crumb = i18n.Shared(language, "desktop.remote.import.titleMotty")
 		if r.importer.source == remoteImportSSH {
@@ -119,6 +125,9 @@ func (a *App) remoteList(c ui.C, language i18n.Language) {
 				c.After(a.searchRemote)
 			}
 			a.remoteImportMenu(k.Part("import"), language)
+			if a.gitIconButton(k.Part("devcontainer"), i18n.Shared(language, "desktop.remote.devcontainer.open"), icons.FileCode, false, r.saving || r.connect != nil) {
+				c.After(a.openRemoteDevcontainer)
+			}
 			if a.gitIconButton(k.Part("new"), i18n.Shared(language, "desktop.remote.new"), icons.Plus, false, r.saving) {
 				c.After(a.newRemote)
 			}
@@ -184,7 +193,7 @@ func (a *App) remoteRows(k ui.C, language i18n.Language, title string, rows []re
 		}
 	}).Scrollbars().FillWidth().Grow(1).Shrink(1).MinHeight(0).Label(title)
 	if r.list.Changed() {
-		away := r.steps != nil || r.browser != nil || r.importer != nil
+		away := r.steps != nil || r.browser != nil || r.importer != nil || r.devcontainer != nil
 		at := r.list.Selected()
 		switch {
 		case at >= 0 && at < len(rows) && rows[at].entry != nil && (rows[at].entry.ID != r.selected || r.editing || r.wsl.selected != "" || r.containers.selected != nil || away):
