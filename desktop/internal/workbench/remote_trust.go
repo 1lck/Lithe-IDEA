@@ -113,55 +113,63 @@ func (a *App) decideRemoteTrust(trusted bool) {
 	})
 }
 
-// remoteTrustView declares the question.
+// remoteTrustView declares the question: the folder on its host, what trusting it lets run, what
+// each answer opens it with, and whether to trust the folders beside it too.
 func (a *App) remoteTrustView(c ui.C, language i18n.Language, t *remoteTrustPrompt) {
 	small := a.theme.Metrics.FontSizeS
 	of := t.trust.State.WorkspaceTrust
-	notice, border := gfx.RGB24(0xFFF6E9), gfx.RGB24(0xF4CD9A)
-	if a.colors.Dark {
-		notice, border = gfx.RGB24(0x44321D), gfx.RGB24(0x694820)
-	}
 	ui.Scroll(c.Part("trust")).Fill().Children(func() {
-		ui.Column(c).FillWidth().Items(ui.Center).PadSides(48, 32, 32, 32).Children(func() {
-			ui.Column(c.Part("card")).Width(520).Gap(16).Children(func() {
-				ui.Row(c).Size(40, 40).Center().Radius(10).Background(a.colors.Accent.WithAlpha(0.14)).Children(func() {
-					ui.Icon(c, icons.ShieldCheck).Size(20, 20).Color(a.colors.Accent)
+		ui.Column(c).FillWidth().Items(ui.Center).PadSides(28, 32, 32, 32).Children(func() {
+			ui.Row(c.Part("card")).Width(560).Gap(14).Children(func() {
+				ui.Row(c.Part("mark")).Size(40, 40).Shrink(0).Center().Radius(8).Background(a.colors.Warning).Children(func() {
+					ui.Text(c, "!").FontSize(16).Weight(gfx.WeightBold).Color(gfx.RGB24(0xFFFFFF))
 				})
-				ui.Column(c).FillWidth().Gap(6).Children(func() {
-					ui.Text(c, i18n.Shared(language, "desktop.remote.trust.title")).FontSize(16).Weight(gfx.WeightSemibold)
-					ui.Paragraph(c, i18n.SharedFormat(language, "desktop.remote.trust.body", map[string]string{"folder": t.dir, "name": t.browser.name}), 4).Color(a.colors.Subtle)
+				ui.Column(c).Grow(1).Basis(0).MinWidth(0).Gap(12).Children(func() {
+					ui.Column(c).FillWidth().Gap(6).Children(func() {
+						ui.Text(c, i18n.Shared(language, "desktop.remote.trust.title")).FontSize(16).Weight(gfx.WeightSemibold)
+						ui.Text(c, remoteAddress(t.browser.connection)+" : "+t.dir).Mono().FontSize(small).Ellipsis().Shrink(1).MinWidth(0)
+					})
+					ui.Paragraph(c.Part("body"), i18n.Shared(language, "desktop.remote.trust.body"), 6).FontSize(small).Color(a.colors.Subtle)
+					ui.Column(c.Part("choices")).FillWidth().Gap(4).Pad(12).Radius(8).Stroke(1, a.colors.Line).Children(func() {
+						a.remoteTrustChoice(c.Part("full"), language, "desktop.remote.trust.trustOpen", "desktop.remote.trust.full")
+						a.remoteTrustChoice(c.Part("safe"), language, "desktop.remote.trust.safeOpen", "desktop.remote.trust.safe")
+					})
+					if of != nil && of.OfferedLocation != nil {
+						ui.Checkbox(c.Part("parent"), &t.parent, i18n.SharedFormat(language, "desktop.remote.trust.parent", map[string]string{"parent": *of.OfferedLocation})).
+							Disabled(t.deciding)
+					}
+					if t.err != "" {
+						a.remoteNotice(c.Part("error"), icons.CircleX, a.theme.Danger, t.err)
+					}
 				})
-				ui.Row(c.Part("folder")).FillWidth().Items(ui.Center).Gap(8).Pad(10).Radius(6).Stroke(1, a.colors.Line).Children(func() {
-					ui.Icon(c, icons.Folder).Size(14, 14).Shrink(0).Color(a.colors.Subtle)
-					ui.Text(c, t.dir).Mono().FontSize(small).Ellipsis().Grow(1).MinWidth(0)
-				})
-				ui.Row(c.Part("safe")).FillWidth().Gap(8).Pad(10).Radius(6).Background(notice).Stroke(1, border).Children(func() {
-					ui.Icon(c, icons.Info).Size(14, 14).Shrink(0).Color(a.colors.Warning)
-					ui.Paragraph(c, i18n.Shared(language, "desktop.remote.trust.safe"), 4).FontSize(small).Grow(1).MinWidth(0)
-				})
-				if of != nil && of.OfferedLocation != nil {
-					ui.Checkbox(c.Part("parent"), &t.parent, i18n.SharedFormat(language, "desktop.remote.trust.parent", map[string]string{"parent": *of.OfferedLocation})).
-						Disabled(t.deciding)
-				}
-				if t.err != "" {
-					a.remoteNotice(c.Part("error"), icons.CircleX, a.theme.Danger, t.err)
-				}
 			})
 		})
 	})
 }
 
-// remoteTrustFooter declares the question's answers.
+// remoteTrustChoice declares an answer in bold, then what the folder opens with after it.
+func (a *App) remoteTrustChoice(c ui.C, language i18n.Language, choice, effect string) {
+	small := a.theme.Metrics.FontSizeS
+	ui.Row(c).FillWidth().Items(ui.Start).Gap(0).Children(func() {
+		ui.Text(c, i18n.SharedFormat(language, "desktop.remote.trust.choice", map[string]string{"choice": i18n.Shared(language, choice)})).
+			FontSize(small).Weight(gfx.WeightSemibold).Shrink(0)
+		ui.Paragraph(c, i18n.Shared(language, effect), 3).FontSize(small).Grow(1).Basis(0).MinWidth(0)
+	})
+}
+
+// remoteTrustFooter declares where the answer is kept and the question's answers.
 func (a *App) remoteTrustFooter(c ui.C, language i18n.Language, t *remoteTrustPrompt) {
 	ui.Row(c).FillWidth().Items(ui.Center).Gap(8).Children(func() {
+		ui.Icon(c, icons.Info).Size(14, 14).Shrink(0).Color(a.colors.Subtle)
+		ui.Text(c, i18n.Shared(language, "desktop.remote.trust.local")).FontSize(a.theme.Metrics.FontSizeS).Color(a.colors.Subtle).Ellipsis().Shrink(1).MinWidth(0)
+		ui.Spacer(c)
 		if ui.Button(c.Part("back"), i18n.Shared(language, "desktop.remote.trust.back")).Outline().Disabled(t.deciding).Clicked() {
 			c.After(a.leaveRemoteTrust)
 		}
-		ui.Spacer(c)
 		if ui.Button(c.Part("safe"), i18n.Shared(language, "desktop.remote.trust.safeOpen")).Outline().Disabled(t.deciding).Clicked() {
 			c.After(func() { a.decideRemoteTrust(false) })
 		}
-		if ui.Button(c.Part("trust"), i18n.Shared(language, "desktop.remote.trust.trustOpen")).Icon(icons.ShieldCheck).Disabled(t.deciding).Clicked() {
+		if ui.Button(c.Part("trust"), i18n.Shared(language, "desktop.remote.trust.trustOpen")).Disabled(t.deciding).Clicked() {
 			c.After(func() { a.decideRemoteTrust(true) })
 		}
 	})
