@@ -27,13 +27,14 @@ import (
 // keeps (App.Run).
 //
 // In this stage the workspace lists its folder in the Project tool window, the editor opens,
-// saves and compares the host's files (remote_documents.go), its terminals run the host's login
-// shell on the host (remote_terminal.go), and the host watches the folder, so a change made there
-// shows in the tree and the open documents (remote_watch.go). The features that still read the
-// project through the local file system (search, local history, language servers, run
-// configurations and plugins, a plugin's terminal among them) are not started for it, or say so,
-// until each moves to the host (R0, step 3). The workspace stays in safe mode: nothing of the
-// host's project runs on this computer, so Git stays off as it does in an untrusted project.
+// saves and compares the host's files (remote_documents.go), Find in Files and Search Everywhere
+// search them on the host (remote_search.go), its terminals run the host's login shell on the
+// host (remote_terminal.go), and the host watches the folder, so a change made there shows in the
+// tree and the open documents (remote_watch.go). It opens trusted or in safe mode as the user
+// decided for the folder (remote_trust.go); trusted, its Git runs on the host (remote_git.go). The
+// features that still read the project through the local file system (local history, language
+// servers, run configurations and plugins, a plugin's terminal among them) are not started for
+// it, or say so, until each moves to the host (R0, step 3).
 
 const (
 	// remoteHeartbeatInterval is the pause between two heartbeats of a connected workspace.
@@ -119,6 +120,9 @@ type remoteTarget struct {
 	// remoteRoot is the host folder, an absolute POSIX path; root is its local placeholder.
 	remoteRoot string
 	root       string
+	// trusted opens the workspace trusted, as the user decided for the folder; it opens in safe
+	// mode otherwise.
+	trusted bool
 }
 
 // errRemoteSessionClosed is what the binding's loss reports: a request of the workspace found
@@ -150,14 +154,15 @@ func remoteConnectionClosed(err error) bool {
 	return errors.As(err, &coreErr) && coreErr.Code == core.CodeConnectionClosed
 }
 
-// remoteHostPath is the host path of full, a path below the project's root; the root itself is
-// the host folder. A path outside the root, and every path of a local project, is returned as
-// it is.
+// remoteHostPath is the host path of full, a path of the workspace's placeholder: below the
+// project's root, or a host path outside it Core named, such as a worktree's
+// (remoteplaceholder.HostPath). Any other path, and every path of a local project, is returned
+// as it is.
 func (p *project) remoteHostPath(full string) string {
 	if p.remote == nil {
 		return full
 	}
-	if host, ok := remoteHostPathBelow(p.root, p.remote.binding.RemoteRoot(), full); ok {
+	if host, ok := remoteplaceholder.HostPath(p.root, p.remote.binding.RemoteRoot(), full); ok {
 		return host
 	}
 	return full
@@ -270,8 +275,9 @@ func (r *remoteProject) stopRemoteTimer() {
 	r.timer++
 }
 
-// attachRemote makes session the workspace's session and starts its heartbeat and the host watch
-// of its folder.
+// attachRemote makes session the workspace's session and starts its heartbeat, the host watch of
+// its folder and, in a trusted workspace, the watch of its Git metadata, which reads the status
+// again.
 func (a *App) attachRemote(p *project, session string) {
 	r := p.remote
 	a.stopRemoteWatch(p)
@@ -280,6 +286,7 @@ func (a *App) attachRemote(p *project, session string) {
 	a.beatRemote(p)
 	r.watchWait = remoteWatchReady
 	a.startRemoteWatch(p)
+	a.resumeRemoteGit(p)
 }
 
 // beatRemote asks the server of the workspace's session what still runs, and schedules the next
@@ -334,6 +341,7 @@ func (a *App) loseRemote(p *project, session string, err error) {
 	}
 	a.backgroundFailed("remote_session_lost", remoteLogError(err))
 	a.stopRemoteWatch(p)
+	a.closeGitObservation(p)
 	r.session, r.misses = "", 0
 	r.binding.Detach()
 	r.stopRemoteTimer()
@@ -485,9 +493,11 @@ func (a *App) openRemoteProject(target remoteTarget) {
 	r := &remoteProject{connectionID: target.connectionID, name: target.name, connection: target.connection, home: target.session.HomeDirectory}
 	p.remote = r
 	r.binding = core.NewRemoteWorkspace(target.root, target.remoteRoot, a.remoteSessionLost(p))
-	// The host's project never runs on this computer, so the workspace stays in safe mode.
-	ctx := core.WithRemoteWorkspace(core.WithProjectCodeAllowed(context.Background(), p.trust.allowed), r.binding)
-	p.ctx, p.cancel = context.WithCancel(ctx)
+	// Trusted, the workspace's Git runs on the host, and its commands are kept in the Git console
+	// as a local project's are; in safe mode Core runs none (remote_trust.go).
+	p.trust.codeAllowed.Store(target.trusted)
+	ctx := core.WithProjectCodeAllowed(core.WithGitConsole(context.Background(), a.gitConsole, target.root), p.trust.allowed)
+	p.ctx, p.cancel = context.WithCancel(core.WithRemoteWorkspace(ctx, r.binding))
 	a.searchView.reset()
 	// Its first terminal runs on the host once it is shown, over the session attached below.
 	a.openTerminals(p)
@@ -495,7 +505,10 @@ func (a *App) openRemoteProject(target remoteTarget) {
 	a.notice = ""
 	a.logView.reset()
 	a.worktreeView.reset()
+	// Attaching the session starts the watch of the Git metadata (remote_git.go).
 	a.attachRemote(p, target.session.ID)
+	a.loadGit(p)
+	a.loadLog(p)
 	// Unsaved edits of the folder's files are drafts on this computer; they open over the host's
 	// files as a local project's do.
 	a.restoreCheckpoints(p)

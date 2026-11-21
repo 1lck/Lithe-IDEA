@@ -194,6 +194,11 @@ func (a *App) requestPluginServer(languageID string, providersChanged bool) {
 	if a.plugins == nil || languageID == "" {
 		return
 	}
+	if a.project != nil && a.project.remote != nil {
+		// log-exempt: 远程工作区的语言服务器要在主机上运行，现在还不支持；在本机启动只会读到空的占位文件夹，
+		// 信任远程文件夹后也不在本机运行任何项目代码。
+		return
+	}
 	a.pluginServerMu.Lock()
 	if a.pluginServers == nil {
 		a.pluginServers = make(map[string]*pluginServer)

@@ -19,7 +19,11 @@ type gitState struct {
 	// safeMode is set, with loaded, when the status was not read because the project is in safe
 	// mode: Core runs no Git there (#2208), and the Git views offer to trust the project.
 	safeMode bool
-	status   core.GitStatus
+	// remoteAbove is set, with loaded, when a remote workspace's folder lies inside a repository
+	// that starts above it on the host, which a remote workspace does not show yet
+	// (remoteRepositoryAbove).
+	remoteAbove bool
+	status      core.GitStatus
 	err      error
 	// tree is the same answer indexed for the project tree, which colors the rows of the
 	// changed paths. It is rebuilt whenever the status is replaced.
@@ -58,16 +62,23 @@ func (a *App) readGit(p *project, policy func(context.Context) context.Context) 
 		return func(a *App) {
 			wasRepo := p.git.isRepository()
 			g := gitState{loaded: true, status: status, err: err}
-			if core.IsGitUntrustedWorkspace(err) {
+			switch {
+			case core.IsGitUntrustedWorkspace(err):
 				// The trust was withdrawn while the read was on its way: Core ran no Git, and the
 				// views show safe mode rather than a failure.
 				g = gitState{loaded: true, safeMode: true}
+			case err == nil && remoteRepositoryAbove(p, status):
+				g = gitState{loaded: true, remoteAbove: true}
 			}
 			if !a.setGit(p, g, generation) {
 				return
 			}
 			if g.safeMode {
 				a.backgroundFailed("git_status_safe_mode", err)
+				return
+			}
+			if g.remoteAbove {
+				// log-exempt: 预期的缺失：远程工作区的文件夹在更上层的仓库里，Git 视图说明原因，不是失败。
 				return
 			}
 			if err != nil {

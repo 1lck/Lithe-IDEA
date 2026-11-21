@@ -75,6 +75,8 @@ type remoteHostKernel struct {
 	// search is Core's index of the folder and what the search's requests carried
 	// (remote_search_test.go).
 	search remoteHostSearch
+	// git is the workspace's trust and the host's repository (remote_git_test.go).
+	git remoteHostGit
 }
 
 // remoteTestTree is the workspace's tree the Project tool window lists by default.
@@ -245,6 +247,8 @@ func countFailures(logger *treeRecordingLog, operation string) int {
 func remoteWorkspaceHarness(t *testing.T) (*harness, *remoteHostKernel, *remoteTimers, *treeRecordingLog) {
 	t.Helper()
 	k := &remoteHostKernel{testKernel: &testKernel{Client: core.NewClient()}}
+	// The folder was kept in safe mode before, so it opens at once and runs none of its code.
+	k.git.trust = map[string]string{remoteTestFolder: core.WorkspaceDistrusted}
 	h := newHarnessWithLanguages(t, k, []string{"en-US"})
 	logger := &treeRecordingLog{}
 	h.app.logSink = logger
@@ -360,8 +364,8 @@ func TestRemoteWorkspaceOpensTheChosenFolder(t *testing.T) {
 	if got, want := h.app.projectDisplayName(p), "project [SSH: "+remoteTestHost+"]"; got != want {
 		t.Fatalf("title %q, want %q", got, want)
 	}
-	if !h.shows("README.md") || !h.shows(remoteStatusText(lang, r)) || !h.showsWrapped(i18n.Shared(lang, "desktop.remote.workspace.banner")) {
-		t.Fatal("the workspace does not show its tree, its connection and what works in it")
+	if !h.shows("README.md") || !h.shows(remoteStatusText(lang, r)) || !h.showsWrapped(i18n.Shared(lang, "desktop.remote.workspace.safeBanner")) {
+		t.Fatal("the workspace does not show its tree, its connection and that it is in safe mode")
 	}
 	if got := k.listings; len(got) == 0 || slices.Contains(got, "") {
 		t.Fatalf("listings carried sessions %q, want the workspace's on every one", got)
@@ -382,8 +386,8 @@ func TestRemoteWorkspaceOpensTheChosenFolder(t *testing.T) {
 }
 
 // What still runs on this computer refuses in a remote workspace and says so: opening a file
-// outside the host folder or in a viewer, a plugin's terminal, local history, trusting the folder
-// and every tool window but the project's, the terminal's, Find's and the notifications'. Copying
+// outside the host folder or in a viewer, a plugin's terminal, local history and every tool
+// window but the project's, the terminal's, Find's, Git's, Commit's and the notifications'. Copying
 // a path copies the host's.
 func TestRemoteWorkspaceRefusesWhatRunsLocally(t *testing.T) {
 	h, _, _, logger := remoteWorkspaceHarness(t)
@@ -398,13 +402,11 @@ func TestRemoteWorkspaceRefusesWhatRunsLocally(t *testing.T) {
 	if h.app.newTerminalWith(p, terminalOptions{plugin: &pluginTerminal{}}) != nil {
 		t.Fatal("a plugin's terminal started in the remote workspace")
 	}
-	asked := false
-	h.app.askToTrustProject(p, func() { asked = true })
 	h.settle()
-	if asked || p.trust.asking || p.selectedDocument(p.terms.bench.FocusedGroup) != nil || len(p.docs.opening) != 0 {
-		t.Fatal("the workspace opened a file or asked to be trusted")
+	if p.selectedDocument(p.terms.bench.FocusedGroup) != nil || len(p.docs.opening) != 0 {
+		t.Fatal("the workspace opened a file")
 	}
-	for _, operation := range []string{"open_viewer", "open_file", "local_history", "open_terminal", "project_trust"} {
+	for _, operation := range []string{"open_viewer", "open_file", "local_history", "open_terminal"} {
 		if !rejected(logger, operation, "remote_workspace") {
 			t.Fatalf("%s was not logged as refused", operation)
 		}
@@ -413,10 +415,10 @@ func TestRemoteWorkspaceRefusesWhatRunsLocally(t *testing.T) {
 		t.Fatal("the refusal was not notified")
 	}
 
-	h.app.openToolWindow(itemGit)
+	h.app.openToolWindow(itemBuild)
 	h.redraw()
 	if !h.showsWrapped(localOnly) {
-		t.Fatal("the Git tool window does not say it does not work here")
+		t.Fatal("the Build tool window does not say it does not work here")
 	}
 
 	var copied []string

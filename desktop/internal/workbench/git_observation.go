@@ -44,14 +44,23 @@ type gitObservation struct {
 	// revision counts the changes that can move history (commits, refs, HEAD or config), so
 	// a consumer such as the inline blame refreshes on it and not on index writes.
 	revision int
+	// remote are a remote workspace's host watches of its metadata folders, in place of watches
+	// (remote_git.go).
+	remote map[string]*remoteGitWatch
 }
 
 // startGitObservation resolves the metadata roots of the project in the background and
 // installs their watches. The first answer rescans the status once. Finding the roots runs Git,
-// so a project in safe mode is observed once it is trusted (applyProjectTrust).
+// so a project in safe mode is observed once it is trusted (applyProjectTrust). A remote
+// workspace's Git runs on its host, which watches the metadata too, so it is observed while it
+// has a session (remote_git.go).
 func (a *App) startGitObservation(p *project) {
 	kernel, ok := a.kernel.(gitObserveKernel)
-	if !ok || p.safeMode() || p.observe.metadata != nil || p.observe.watches != nil {
+	if !ok || p.safeMode() || p.observe.metadata != nil || p.observe.watches != nil || p.observe.remote != nil {
+		return
+	}
+	remote := p.remote != nil
+	if remote && (p.remote.closed || p.remote.session == "") {
 		return
 	}
 	p.observe.gen++
@@ -59,7 +68,9 @@ func (a *App) startGitObservation(p *project) {
 	a.background(p, gitTimeout, func(ctx context.Context) func(*App) {
 		watch, found, err := kernel.GitWatchContextOf(core.AutomaticRefresh(ctx), root)
 		var dirs []string
-		if found && err == nil {
+		if remote && found && err == nil {
+			dirs = remoteGitDirectories(watch)
+		} else if found && err == nil {
 			dirs = []string{watch.GitDirectory}
 			if watch.GitCommonDirectory != watch.GitDirectory {
 				dirs = append(dirs, watch.GitCommonDirectory)
@@ -77,7 +88,7 @@ func (a *App) startGitObservation(p *project) {
 				return
 			}
 			if err != nil {
-				a.backgroundFailed("git_metadata_watch", documentLogError(err))
+				a.backgroundFailed("git_metadata_watch", p.logError(documentLogError(err)))
 				return
 			}
 			if !found {
@@ -89,9 +100,13 @@ func (a *App) startGitObservation(p *project) {
 				GitCommonDirectory: watch.GitCommonDirectory,
 				WorkspaceRoot:      p.root,
 			}
-			o.watches = make(map[string]*documentWatch, len(dirs))
-			for _, dir := range dirs {
-				a.startGitWatch(p, dir)
+			if remote {
+				a.startRemoteGitWatches(p, dirs)
+			} else {
+				o.watches = make(map[string]*documentWatch, len(dirs))
+				for _, dir := range dirs {
+					a.startGitWatch(p, dir)
+				}
 			}
 			o.full = true
 			a.scheduleGitObservation(p)
@@ -253,6 +268,7 @@ func (a *App) closeGitObservation(p *project) {
 	for _, slot := range o.watches {
 		slot.close()
 	}
+	stopRemoteGitWatches(p)
 	o.gen++
 	o.watches, o.metadata, o.paths, o.full = nil, nil, nil, false
 }

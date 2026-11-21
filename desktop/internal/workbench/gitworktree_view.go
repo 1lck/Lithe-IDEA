@@ -78,7 +78,7 @@ func (a *App) drawWorktreeList(c ui.C, p *project) ui.Box {
 	return ui.Column(c).FillHeight().Background(a.colors.Panel).Clip().Children(func() {
 		ui.Row(c).Height(logToolbarHeight).Shrink(0).Items(ui.Center).Gap(4).PadX(6).Children(func() {
 			ui.TextField(c, &v.search, t.Search, t.Search).Grow(1).MinWidth(0)
-			if a.gitIconButton(c, t.New, icons.Plus, false, w.busy || !w.loaded) {
+			if a.gitIconButton(c, t.New, icons.Plus, false, w.busy || !w.loaded || p.remote != nil) {
 				c.After(func() { a.beginCreateWorktree(p) })
 			}
 			if a.gitIconButton(c, t.Refresh, icons.RefreshCw, false, w.loading) {
@@ -197,6 +197,9 @@ func (a *App) worktreeRowMenu(row ui.ListRow, p *project, w core.GitWorktree) {
 	}
 	ui.ContextMenu(c, row.Element, func(menu *ui.MenuItems) {
 		ws, t := &p.worktrees, &a.text.Worktrees
+		// A remote workspace's worktrees are host folders: this window neither opens them nor shows
+		// them in the file browser yet.
+		remote := p.remote != nil
 		menu.WidthRange(180, 260)
 		item := func(label string, disabled bool, action string, run func()) {
 			if menu.Item(label).Disabled(disabled).Clicked() {
@@ -206,9 +209,9 @@ func (a *App) worktreeRowMenu(row ui.ListRow, p *project, w core.GitWorktree) {
 				})
 			}
 		}
-		item(t.OpenCurrent, w.IsCurrent || w.IsPrunable || w.IsBare, "git.worktree.open", func() { a.openWorktree(w.Path) })
-		item(i18n.Shared(a.language(), "desktop.worktree.openNewWindow"), w.IsPrunable || w.IsBare, "git.worktree.openNewWindow", func() { a.openWorktreeInNewWindow(w.Path) })
-		item(t.Reveal, w.IsPrunable, "git.worktree.reveal", func() { a.revealWorktree(w.Path) })
+		item(t.OpenCurrent, remote || w.IsCurrent || w.IsPrunable || w.IsBare, "git.worktree.open", func() { a.openWorktree(w.Path) })
+		item(i18n.Shared(a.language(), "desktop.worktree.openNewWindow"), remote || w.IsPrunable || w.IsBare, "git.worktree.openNewWindow", func() { a.openWorktreeInNewWindow(w.Path) })
+		item(t.Reveal, remote || w.IsPrunable, "git.worktree.reveal", func() { a.revealWorktree(w.Path) })
 		item(t.CopyPath, false, "git.worktree.copyPath", func() { a.copyWorktreePath(w.Path) })
 		menu.Separator()
 		lock := t.Lock
@@ -374,6 +377,7 @@ func (a *App) drawWorktreeOverview(c ui.C, p *project, w core.GitWorktree) {
 // used is named by the reason, which its hover hint shows.
 func (a *App) drawWorktreeActions(c ui.C, p *project, w core.GitWorktree) {
 	ws, t := &p.worktrees, &a.text.Worktrees
+	remote := p.remote != nil
 	action := func(label, blocked string, icon gfx.Icon, disabled bool, run func()) {
 		if blocked != "" {
 			label = blocked
@@ -382,9 +386,9 @@ func (a *App) drawWorktreeActions(c ui.C, p *project, w core.GitWorktree) {
 			c.After(run)
 		}
 	}
-	action(t.OpenCurrent, "", icons.FolderOpen, w.IsCurrent || w.IsPrunable || w.IsBare, func() { a.openWorktree(w.Path) })
-	action(i18n.Shared(a.language(), "desktop.worktree.openNewWindow"), "", icons.FolderOpen, w.IsPrunable || w.IsBare, func() { a.openWorktreeInNewWindow(w.Path) })
-	action(t.Reveal, "", icons.Folder, w.IsPrunable, func() { a.revealWorktree(w.Path) })
+	action(t.OpenCurrent, "", icons.FolderOpen, remote || w.IsCurrent || w.IsPrunable || w.IsBare, func() { a.openWorktree(w.Path) })
+	action(i18n.Shared(a.language(), "desktop.worktree.openNewWindow"), "", icons.FolderOpen, remote || w.IsPrunable || w.IsBare, func() { a.openWorktreeInNewWindow(w.Path) })
+	action(t.Reveal, "", icons.Folder, remote || w.IsPrunable, func() { a.revealWorktree(w.Path) })
 	action(t.CopyPath, "", icons.Copy, false, func() { a.copyWorktreePath(w.Path) })
 	lockLabel, lockIcon := t.Lock, icons.Lock
 	if w.IsLocked {

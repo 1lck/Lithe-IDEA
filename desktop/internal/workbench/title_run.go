@@ -150,6 +150,10 @@ func (a *App) titleDebug(p *project) {
 // while the configurations are read, and an answer that settles them while they are asked for
 // performs it; otherwise Core decides what the press does now.
 func (a *App) titleStart(p *project, action titleAction) {
+	// A remote workspace's project runs on its host, which Run and Debug do not reach yet.
+	if a.refuseRemote(p, "title_run") {
+		return
+	}
 	if !p.runConfigs.currentFile {
 		p.runConfigs.pending = action
 		a.loadTitleRunConfigs(p)

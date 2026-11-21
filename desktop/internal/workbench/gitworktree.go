@@ -780,8 +780,12 @@ func (a *App) repairWorktrees(p *project) {
 	}, nil, func(a *App) { a.notifySuccess(a.text.Worktrees.Repaired) })
 }
 
-// revealWorktree shows the checkout at path in the system's file browser.
+// revealWorktree shows the checkout at path in the system's file browser. A remote workspace's
+// checkouts are on the host, so it refuses there.
 func (a *App) revealWorktree(path string) {
+	if a.refuseRemote(a.project, "git_worktree_reveal") {
+		return
+	}
 	a.performed("git.worktree.reveal", surfaceButton)
 	a.background(nil, 0, func(context.Context) func(*App) {
 		err := app.RevealPath(path)
@@ -794,9 +798,13 @@ func (a *App) revealWorktree(path string) {
 	})
 }
 
-// copyWorktreePath puts the path of a checkout on the clipboard.
+// copyWorktreePath puts the path of a checkout on the clipboard: in a remote workspace, its path
+// on the host.
 func (a *App) copyWorktreePath(path string) {
 	a.performed("git.worktree.copyPath", surfaceButton)
+	if p := a.project; p != nil {
+		path = p.remoteHostPath(path)
+	}
 	if err := app.SetClipboardText(path); err != nil {
 		a.operationFailed("clipboard_copy", err)
 		a.notifyError(a.text.Worktrees.Failed(err.Error()))
@@ -814,6 +822,11 @@ func (a *App) showWorktrees() {
 
 // openWorktree opens the checkout at path as the window's project.
 func (a *App) openWorktree(path string) {
+	// A remote workspace's checkout opens over a session of its own, which this window does not
+	// start yet; its placeholder would open as an empty local folder.
+	if a.refuseRemote(a.project, "git_worktree_open") {
+		return
+	}
 	a.performed("git.worktree.open", surfaceButton)
 	// The worktree menu offers This Window and New Window itself.
 	a.openProjectThisWindow(path)
@@ -822,6 +835,10 @@ func (a *App) openWorktree(path string) {
 // beginCreateWorktree opens the dialog that creates a worktree and reads the references it
 // can start from.
 func (a *App) beginCreateWorktree(p *project) {
+	// The dialog chooses the new checkout's folder on this computer.
+	if a.refuseRemote(p, "git_worktree_create") {
+		return
+	}
 	a.performed("git.worktree.create", surfaceButton)
 	w := &p.worktrees
 	cr := &w.create

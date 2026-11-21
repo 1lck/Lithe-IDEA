@@ -161,6 +161,17 @@ func (a *App) shellPanel(c ui.C, s slot, index int, hidden *slot) ui.Box {
 	})
 }
 
+// remoteToolWindow reports whether the tool window id works in a remote workspace: the project
+// listing, search and terminals run on the host, and so do Git's log and commit once the
+// workspace is trusted (in safe mode they say so, as in a local project).
+func remoteToolWindow(id string) bool {
+	switch id {
+	case itemProject, itemNotifications, itemTerminal, itemFind, itemGit, itemCommit:
+		return true
+	}
+	return false
+}
+
 // toolBody declares the body of a tool window under its header: the component of the tool,
 // or the placeholder of a tool that has no contents yet.
 func (a *App) toolBody(c ui.C, tool item, p *project) {
@@ -169,11 +180,10 @@ func (a *App) toolBody(c ui.C, tool item, p *project) {
 		body.Children(func() { a.toolPlaceholder(c) })
 		return
 	}
-	if p.remote != nil && tool.id != itemProject && tool.id != itemNotifications && tool.id != itemTerminal && tool.id != itemFind {
-		// A remote workspace lists, searches and runs its terminals on the host; every other tool
-		// window reads or runs the project on this computer, so it says it does not work there
-		// yet.
-		body.Children(func() { a.safeModePanel(c, p, "") })
+	if p.remote != nil && !remoteToolWindow(tool.id) {
+		// The tool window reads or runs the project on this computer, so it says it does not work
+		// in a remote workspace yet.
+		body.Children(func() { a.remoteLocalOnlyPanel(c) })
 		return
 	}
 	body.Clip().Children(func() {
@@ -356,7 +366,8 @@ func (a *App) editorArea(c ui.C) {
 		{a.text.Editor.FindInFiles, "search.files"},
 	}
 	if p := a.project; p != nil && p.remote != nil {
-		// The notice that says what works in a remote workspace stands over its empty editor.
+		// The notice that says what works in a remote workspace, or that it is in safe mode, stands
+		// over its empty editor.
 		ui.Column(c.Part("remote")).Fill().Children(func() {
 			a.safeModeNotice(c.Part("safeMode"), p)
 			a.emptyEditorHints(c, hints[:])

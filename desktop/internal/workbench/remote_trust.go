@@ -13,11 +13,14 @@ import (
 
 // Before a remote folder opens the first time, the window asks whether to trust it, as the
 // editor asks of a local folder: trusted, the folder's own code may run (its tasks, its build
-// tools' wrappers); in safe mode it is only read. Core keeps the answers, per connection and
-// folder, in the preference file remoteconn.ReadTrust names (toolchains/remote-trust.json under
-// the toolchain preference root), never on the host or in the app's bundle. A folder already
-// trusted or distrusted opens at once. Opening in safe mode records nothing, so the question
-// comes back the next time.
+// tools' wrappers, Git) and in safe mode it is only read. Both answers are kept: Core records
+// them, per connection and folder, in the preference file remoteconn.ReadTrust names
+// (toolchains/remote-trust.json under the toolchain preference root), never on the host or in the
+// app's bundle, so a folder already trusted or kept in safe mode opens at once the next time. The
+// notice above the editor of a workspace in safe mode, and the Git and Commit windows, trust it at
+// any time (workspace_trust.go); trusted, its Git runs on the host (remote_git.go). Every way of
+// opening a remote folder comes through openRemoteFolderAt, so none of them trusts a folder the
+// user was not asked about.
 
 // remoteTrustPrompt is the question asked before dir opens over browser's session.
 type remoteTrustPrompt struct {
@@ -50,15 +53,17 @@ func (a *App) openRemoteFolderAt(dir string) {
 				return
 			}
 			b.opening = false
-			if err != nil {
+			switch of := trust.State.WorkspaceTrust; {
+			case err != nil:
 				// The folder opens in safe mode: a remote workspace runs none of its code until
 				// it is trusted, and the question comes back the next time.
 				a.backgroundFailed("remote_trust_read", documentLogError(err))
-			} else if of := trust.State.WorkspaceTrust; of != nil && of.State == core.WorkspaceTrustUnset {
+				a.openRemoteFolderNow(dir, false)
+			case of != nil && of.State == core.WorkspaceTrustUnset:
 				r.trust = &remoteTrustPrompt{browser: b, dir: dir, trust: trust}
-				return
+			default:
+				a.openRemoteFolderNow(dir, remoteTrusted(trust.State))
 			}
-			a.openRemoteFolderNow(dir)
 		}
 	})
 }
@@ -68,29 +73,43 @@ func (a *App) leaveRemoteTrust() {
 	a.remote.trust = nil
 }
 
-// decideRemoteTrust opens the folder asked about, trusting it first when trusted is set.
+// remoteTrusted reports whether state, Core's reading for one workspace, lets its code run.
+func remoteTrusted(state core.RemoteWorkspaceTrustState) bool {
+	of := state.WorkspaceTrust
+	return state.ProjectCodeAllowed && of != nil && of.State == core.WorkspaceTrusted
+}
+
+// remoteTrustDecision is the decision that trusts, or keeps in safe mode, the workspace trust
+// was read for at dir over session, named label among the trusted locations. location also
+// trusts the parent folder Core offered.
+func remoteTrustDecision(trust remoteconn.Trust, session, dir, label string, trusted, location bool) core.RemoteWorkspaceTrustDecision {
+	of := trust.State.WorkspaceTrust
+	workspace := dir
+	if of != nil && of.Workspace != "" {
+		workspace = of.Workspace
+	}
+	return core.RemoteWorkspaceTrustDecision{
+		SessionID: session, Workspace: workspace, Trusted: trusted,
+		Location: trusted && location && of != nil && of.OfferedLocation != nil, Label: label,
+	}
+}
+
+// decideRemoteTrust records the answer to the question and opens the folder: trusted when
+// trusted is set, in safe mode otherwise. A trust that cannot be recorded is told in the
+// question, which stays; a safe mode that cannot be recorded is told in a notification and the
+// folder still opens in safe mode, so the question comes back the next time.
 func (a *App) decideRemoteTrust(trusted bool) {
 	r := &a.remote
 	t := r.trust
 	if t == nil || t.deciding || r.browser != t.browser {
 		return
 	}
-	if !trusted {
+	if trusted {
+		a.performed("remote.workspace.trust", surfaceButton)
+	} else {
 		a.performed("remote.workspace.safeMode", surfaceButton)
-		r.trust = nil
-		a.openRemoteFolderNow(t.dir)
-		return
 	}
-	a.performed("remote.workspace.trust", surfaceButton)
-	of := t.trust.State.WorkspaceTrust
-	workspace := t.dir
-	if of != nil && of.Workspace != "" {
-		workspace = of.Workspace
-	}
-	decision := core.RemoteWorkspaceTrustDecision{
-		SessionID: t.browser.session.ID, Workspace: workspace, Trusted: true,
-		Location: t.parent && of != nil && of.OfferedLocation != nil, Label: t.browser.name,
-	}
+	decision := remoteTrustDecision(t.trust, t.browser.session.ID, t.dir, t.browser.name, trusted, t.parent)
 	t.deciding, t.err = true, ""
 	generation, kernel, trust := r.generation, a.kernel, t.trust
 	a.background(nil, remoteReadTimeout, func(ctx context.Context) func(*App) {
@@ -104,11 +123,85 @@ func (a *App) decideRemoteTrust(trusted bool) {
 			t.deciding = false
 			if err != nil {
 				a.operationFailed("remote_workspace_trust", documentLogError(err))
-				t.err = i18n.SharedFormat(a.language(), "desktop.remote.trust.failed", map[string]string{"reason": documentLogError(err).Error()})
-				return
+				reason := i18n.SharedFormat(a.language(), "desktop.remote.trust.failed", map[string]string{"reason": documentLogError(err).Error()})
+				if trusted {
+					t.err = reason
+					return
+				}
+				a.notifyError(reason)
 			}
 			r.trust = nil
-			a.openRemoteFolderNow(t.dir)
+			a.openRemoteFolderNow(t.dir, trusted)
+		}
+	})
+}
+
+// trustRemoteProject records the trust of the open remote workspace p, read again over its
+// session so the decision is recorded against Core's record as it is now, and leaves safe mode:
+// its Git then runs on the host. A trust that cannot be recorded is told, and p stays in safe
+// mode.
+func (a *App) trustRemoteProject(p *project, proceed func()) {
+	r := p.remote
+	if a.remoteTrustUnreachable(p) {
+		return
+	}
+	a.performed("workspace.trust.grant", surfaceButton)
+	kernel, globalRoot, session, dir, label := a.kernel, a.globalToolchainRoot(), r.session, r.binding.RemoteRoot(), r.name
+	a.background(p, workspaceTrustTimeout, func(ctx context.Context) func(*App) {
+		trust, err := remoteconn.ReadTrust(ctx, kernel, globalRoot, session, dir)
+		if err == nil {
+			_, err = trust.Decide(ctx, kernel, remoteTrustDecision(trust, session, dir, label, true, false))
+		}
+		return func(a *App) {
+			if err != nil {
+				a.backgroundFailed("remote_workspace_trust", documentLogError(err))
+				a.notifyError(i18n.SharedFormat(a.language(), "desktop.trust.saveFailed", map[string]string{"reason": documentLogError(err).Error()}))
+				return
+			}
+			if a.project != p {
+				// log-exempt: 用户取消：信任已记录，但工作区已关闭，下次打开时直接按已信任打开。
+				return
+			}
+			a.applyProjectTrust(p, true)
+			if proceed != nil {
+				proceed()
+			}
+		}
+	})
+}
+
+// remoteTrustUnreachable reports whether p is a remote workspace without a session: Core reads
+// and records its trust over the session, so trusting it is refused and the notification says
+// why.
+func (a *App) remoteTrustUnreachable(p *project) bool {
+	if r := p.remote; r == nil || r.session != "" {
+		return false
+	}
+	language := a.language()
+	a.operationRejected("project_trust", "remote_disconnected")
+	a.notifyError(i18n.SharedFormat(language, "desktop.trust.saveFailed", map[string]string{"reason": i18n.Shared(language, "desktop.remote.document.disconnected")}))
+	return true
+}
+
+// reloadRemoteTrust reads the trust of the open remote workspace p again, after the settings
+// window changed it, and applies it. While p has no session, its trust stays as it is.
+func (a *App) reloadRemoteTrust(p *project) {
+	r := p.remote
+	if r.session == "" {
+		// log-exempt: 预期的缺失：远程工作区未连接，信任记录要经会话读取；当前信任保持不变。
+		return
+	}
+	kernel, globalRoot, session, dir := a.kernel, a.globalToolchainRoot(), r.session, r.binding.RemoteRoot()
+	a.background(p, workspaceTrustTimeout, func(ctx context.Context) func(*App) {
+		trust, err := remoteconn.ReadTrust(ctx, kernel, globalRoot, session, dir)
+		return func(a *App) {
+			if err != nil {
+				a.backgroundFailed("remote_trust_read", documentLogError(err))
+				return
+			}
+			if a.project == p {
+				a.applyProjectTrust(p, remoteTrusted(trust.State))
+			}
 		}
 	})
 }

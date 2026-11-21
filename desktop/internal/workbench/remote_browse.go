@@ -393,9 +393,10 @@ func (a *App) openRemoteFolder() {
 	a.openRemoteFolderAt(b.target())
 }
 
-// openRemoteFolderNow opens dir once its trust is decided (remote_trust.go). It also marks the
-// connection as connected now, for the list's "2 hours ago".
-func (a *App) openRemoteFolderNow(dir string) {
+// openRemoteFolderNow opens dir once its trust is decided (remote_trust.go), trusted when trusted
+// is set and in safe mode otherwise. It also marks the connection as connected now, for the
+// list's "2 hours ago".
+func (a *App) openRemoteFolderNow(dir string, trusted bool) {
 	r := &a.remote
 	b := r.browser
 	if !r.open || b == nil {
@@ -445,7 +446,7 @@ func (a *App) openRemoteFolderNow(dir string) {
 			}
 			target := remoteTarget{
 				connectionID: b.entryID, name: b.name, connection: b.connection, session: b.session,
-				remoteRoot: dir, root: remoteplaceholder.Root(anchor, b.entryID, dir),
+				remoteRoot: dir, root: remoteplaceholder.Root(anchor, b.entryID, dir), trusted: trusted,
 			}
 			// The session is the workspace's from here on.
 			r.browser = nil
@@ -456,8 +457,8 @@ func (a *App) openRemoteFolderNow(dir string) {
 }
 
 // openRemoteWorkspace shows target: the tab that has the folder open over the same connection,
-// which takes the session when it has lost its own; this workbench when it has no project; a new
-// tab otherwise.
+// which takes the session when it has lost its own and the trust the user just decided for the
+// folder; this workbench when it has no project; a new tab otherwise.
 func (a *App) openRemoteWorkspace(target remoteTarget) {
 	if open := a.sessions.showing(target.root); open != nil {
 		a.sessions.activate(open)
@@ -466,9 +467,10 @@ func (a *App) openRemoteWorkspace(target remoteTarget) {
 			r.stopRemoteTimer()
 			open.attachRemote(p, target.session.ID)
 			open.refreshRemoteTree(p)
-			return
+		} else {
+			a.releaseRemoteSession(target.session.ID)
 		}
-		a.releaseRemoteSession(target.session.ID)
+		open.applyProjectTrust(p, target.trusted)
 		return
 	}
 	if a.project == nil || a.sessions == nil {

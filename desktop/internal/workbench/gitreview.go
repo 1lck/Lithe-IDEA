@@ -103,7 +103,7 @@ type blameState struct {
 }
 
 // openBlame opens the annotations of a tracked file of the project, with the text read from
-// the saved file.
+// the saved file: on this computer, or on the host of a remote workspace.
 func (a *App) openBlame(p *project, relative string) {
 	kernel, ok := a.reviewKernel()
 	if !ok {
@@ -113,12 +113,16 @@ func (a *App) openBlame(p *project, relative string) {
 	*b = blameState{open: true, loading: true, gen: b.gen + 1, path: relative, list: b.list}
 	gen, root := b.gen, p.git.repositoryRoot(p.root)
 	disk := filepath.Join(root, filepath.FromSlash(relative))
+	readText := readBlameText
+	if host := a.remoteDocuments(p); host != nil {
+		readText = func(ctx context.Context, file string) ([]string, error) { return remoteBlameText(ctx, host, file) }
+	}
 	a.performed("git.blame.open", surfaceContextMenu)
 	a.background(p, reviewTimeout, func(ctx context.Context) func(*App) {
 		lines, err := kernel.GitBlame(ctx, root, relative)
 		var text []string
 		if err == nil {
-			text, err = readBlameText(disk)
+			text, err = readText(ctx, disk)
 		}
 		return func(a *App) {
 			b := &p.review.blame
@@ -127,8 +131,12 @@ func (a *App) openBlame(p *project, relative string) {
 			}
 			b.loading = false
 			if err != nil {
-				b.err = i18n.SharedFormat(a.language(), "desktop.gitReview.blameFailed", map[string]string{"reason": reviewReason(err)})
-				a.operationFailed("git_blame", err)
+				reason, ok := a.remoteDocumentReason(err)
+				if !ok {
+					reason = reviewReason(err)
+				}
+				b.err = i18n.SharedFormat(a.language(), "desktop.gitReview.blameFailed", map[string]string{"reason": reason})
+				a.operationFailed("git_blame", p.logError(documentLogError(err)))
 				return
 			}
 			b.lines, b.text = lines, text
@@ -137,7 +145,7 @@ func (a *App) openBlame(p *project, relative string) {
 }
 
 // readBlameText reads the lines of the saved file the blame refers to, bounded in size.
-func readBlameText(file string) ([]string, error) {
+func readBlameText(_ context.Context, file string) ([]string, error) {
 	f, err := os.Open(file)
 	if err != nil {
 		return nil, err
@@ -148,7 +156,28 @@ func readBlameText(file string) ([]string, error) {
 	if err != nil && n == 0 {
 		return nil, nil
 	}
-	return strings.Split(strings.TrimSuffix(string(data[:n]), "\n"), "\n"), nil
+	return blameTextLines(data[:n]), nil
+}
+
+// remoteBlameText is readBlameText on the host of a remote workspace. A file larger than the
+// limit shows the annotations without its text, since the host sends a file whole or not at all.
+func remoteBlameText(ctx context.Context, host *remoteDocuments, file string) ([]string, error) {
+	data, err := host.read(ctx, file, blameFileLimit)
+	switch {
+	case errors.Is(err, errTooLarge):
+		// log-exempt: 预期的缺失：文件超过注解读取上限，注解照常显示，只是没有行内容。
+		return nil, nil
+	case err != nil:
+		return nil, err
+	case len(data) == 0:
+		return nil, nil
+	}
+	return blameTextLines(data), nil
+}
+
+// blameTextLines splits the text of a blamed file into its lines.
+func blameTextLines(data []byte) []string {
+	return strings.Split(strings.TrimSuffix(string(data), "\n"), "\n")
 }
 
 // blameDate is the date a blame line was authored on, in the viewer's time zone.
