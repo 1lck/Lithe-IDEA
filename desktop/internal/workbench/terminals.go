@@ -384,6 +384,9 @@ type terminalOptions struct {
 
 // newTerminalWith is newTerminal with the options of a plugin terminal.
 func (a *App) newTerminalWith(p *project, options terminalOptions) *terminal {
+	if a.refuseRemote(p, "open_terminal") {
+		return nil
+	}
 	shell := options.shell
 	if shell == "" && options.plugin == nil {
 		shell = a.settings.TerminalShell

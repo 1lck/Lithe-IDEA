@@ -68,6 +68,10 @@ const (
 	CodeTimedOut ErrorCode = "timed_out"
 	// CodeConnectionClosed means a long-lived connection named by the request is closed.
 	CodeConnectionClosed ErrorCode = "connection_closed"
+	// CodeRemoteServerInvalid means the remote server build for the host's platform could not be
+	// read, or its SHA-256 is not the one the application's manifest names; nothing was sent to
+	// the host.
+	CodeRemoteServerInvalid ErrorCode = "remote_server_invalid"
 	// CodeUnknown means the failure fits no more specific category.
 	CodeUnknown ErrorCode = "unknown"
 )

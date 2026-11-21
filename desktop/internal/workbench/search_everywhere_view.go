@@ -34,7 +34,7 @@ func (a *App) everywherePopup(c ui.C) {
 	}
 	s := &p.everywhere
 	scope := v.effectiveScope()
-	if p.standalone {
+	if p.everywhereActionsOnly() {
 		scope = everywhereScopeActions
 	}
 	a.updateEverywhere(p, v.query.Text(), scope)
@@ -60,7 +60,7 @@ func (a *App) everywherePopup(c ui.C) {
 		Width: width, Offset: 1, Align: ui.Start, KeepOpenOnAnchor: true,
 	}, &v.open, func() {
 		ui.Column(c).FillWidth().Height(height).Gap(8).Children(func() {
-			if p.standalone {
+			if p.everywhereActionsOnly() {
 				ui.Text(c, i18n.Shared(language, "desktop.everywhere.actions")).Bold()
 			} else {
 				a.everywhereScopes(c, p, language)
@@ -553,7 +553,7 @@ func (a *App) everywhereKey(p *project, event gfx.KeyEvent) gfx.EventResult {
 		}
 	}
 	v := &a.everywhereView
-	if !p.standalone && event.Key == gfx.KeyTab && (event.Modifiers == 0 || event.Modifiers == gfx.ModifierShift) {
+	if !p.everywhereActionsOnly() && event.Key == gfx.KeyTab && (event.Modifiers == 0 || event.Modifiers == gfx.ModifierShift) {
 		step := 1
 		if event.Modifiers == gfx.ModifierShift {
 			step = -1
@@ -565,7 +565,7 @@ func (a *App) everywhereKey(p *project, event gfx.KeyEvent) gfx.EventResult {
 	if event.Modifiers != 0 {
 		return gfx.EventResult{}
 	}
-	if p.standalone || v.effectiveScope() == everywhereScopeActions {
+	if p.everywhereActionsOnly() || v.effectiveScope() == everywhereScopeActions {
 		switch event.Key {
 		case gfx.KeyUp:
 			v.actionSelected = max(0, v.actionSelected-1)

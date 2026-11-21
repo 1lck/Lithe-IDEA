@@ -169,7 +169,7 @@ func (a *App) requireProjectTrust(p *project, proceed func()) {
 // askToTrustProject asks to trust the open project p in safe mode, from the notice above the
 // editor or before an action that runs project code; then, when set, it runs proceed.
 func (a *App) askToTrustProject(p *project, proceed func()) {
-	if p.trust.asking {
+	if p.trust.asking || a.refuseRemote(p, "project_trust") {
 		return
 	}
 	p.trust.asking = true
@@ -276,17 +276,25 @@ func (a *App) skipUntrustedModel(instance *buildInstance) {
 
 // safeModePanel declares what a tool window shows in safe mode in place of what it would read by
 // running project code: message, and the button that asks to trust the project.
+//
+// A remote workspace stays in safe mode, since the host's project never runs on this computer:
+// its panel says the feature does not work there yet and has no button.
 func (a *App) safeModePanel(c ui.C, p *project, message string) {
+	remote := p.remote != nil
+	if remote {
+		message = i18n.Shared(a.language(), "desktop.remote.workspace.localOnly")
+	}
 	ui.Column(c).Fill().Center().Gap(8).PadX(shellContentPad).Children(func() {
 		ui.Paragraph(c, message, 3).FillWidth().TextCenter().Color(a.colors.Subtle)
-		if ui.Button(c.Key("trust"), i18n.Shared(a.language(), "desktop.trust.bannerLink")).Ghost().Disabled(p.trust.asking).Clicked() {
+		if !remote && ui.Button(c.Key("trust"), i18n.Shared(a.language(), "desktop.trust.bannerLink")).Ghost().Disabled(p.trust.asking).Clicked() {
 			c.After(func() { a.askToTrustProject(p, nil) })
 		}
 	})
 }
 
 // safeModeNotice declares the notice above the editor of a project in safe mode, with the link
-// that asks to trust it, as IDEA's editor notification does.
+// that asks to trust it, as IDEA's editor notification does. A remote workspace's notice says
+// what works in it and has no link: it is not trusted on this computer.
 func (a *App) safeModeNotice(c ui.C, p *project) {
 	background, border, foreground := gfx.RGB24(0xFFF6E9), gfx.RGB24(0xF4CD9A), gfx.RGB24(0x000000)
 	if a.colors.Dark {
@@ -297,8 +305,12 @@ func (a *App) safeModeNotice(c ui.C, p *project) {
 		ui.Row(c.Part("top")).FillWidth().Height(1).Shrink(0).Background(border)
 		ui.Row(c).FillWidth().Gap(conflictGap).PadX(conflictPadX).PadY(conflictPadY).Items(ui.Center).Children(func() {
 			ui.Icon(c, icons.BannerWarning).Size(conflictIcon, conflictIcon).Shrink(0).Color(gfx.RGB24(0xFFFFFF))
-			ui.Paragraph(c, i18n.Shared(language, "desktop.trust.banner"), conflictMaxRows).FontSize(13).Color(foreground).Grow(1).Shrink(1)
-			if ui.Button(c.Key("trust"), i18n.Shared(language, "desktop.trust.bannerLink")).Link().Disabled(p.trust.asking).Clicked() {
+			text := i18n.Shared(language, "desktop.trust.banner")
+			if p.remote != nil {
+				text = i18n.Shared(language, "desktop.remote.workspace.banner")
+			}
+			ui.Paragraph(c, text, conflictMaxRows).FontSize(13).Color(foreground).Grow(1).Shrink(1)
+			if p.remote == nil && ui.Button(c.Key("trust"), i18n.Shared(language, "desktop.trust.bannerLink")).Link().Disabled(p.trust.asking).Clicked() {
 				c.After(func() { a.askToTrustProject(p, nil) })
 			}
 		})

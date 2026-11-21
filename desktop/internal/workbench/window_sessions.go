@@ -250,6 +250,20 @@ func (s *windowSessions) openTab(path string) {
 	a.openProjectHere(path)
 }
 
+// openRemoteTab opens the remote workspace target in a new workbench of the window, in a tab after
+// the others, and shows it. from is the workbench whose Remote Development window connected it:
+// every tab shares the kernel, so the new tab takes over the session from opened, and what tests
+// replaced in from.
+func (s *windowSessions) openRemoteTab(from *App, target remoteTarget) {
+	a := New(s.options)
+	a.remoteBundle, a.remoteAnchor, a.remoteAfter = from.remoteBundle, from.remoteAnchor, from.remoteAfter
+	s.list = append(s.list, a)
+	s.activate(a)
+	a.reloadPluginLanguages()
+	a.loadGitHubAccount()
+	a.openRemoteProject(target)
+}
+
 // leave takes workbench a out of the strip once its project has closed, when the window has
 // other tabs. The tab beside it is then shown. The last workbench stays and shows the welcome
 // screen.

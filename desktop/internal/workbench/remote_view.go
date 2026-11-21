@@ -48,12 +48,20 @@ func (a *App) remoteView(c ui.C) {
 	open := true
 	ui.ModalWith(c, &open, i18n.Shared(language, "desktop.remote.title"), ui.ModalSpec{Width: remoteWindowWidth, Height: remoteWindowHeight}, func() {
 		k := c.Part("remote")
+		if b := r.browser; b != nil {
+			a.remoteBrowserView(k, b)
+			return
+		}
 		ui.Row(k).Fill().Children(func() {
 			a.remoteList(k)
 			ui.Column(k).Width(1).FillHeight().Shrink(0).Background(a.colors.Line)
 			a.remoteDetail(k)
 		})
 	}, func() {
+		if b := r.browser; b != nil {
+			a.remoteBrowserFooter(c.Part("remote-browser-footer"), b)
+			return
+		}
 		a.remoteFooter(c.Part("remote-footer"))
 	})
 	if !open {
@@ -249,7 +257,7 @@ func (a *App) remoteDetail(c ui.C) {
 }
 
 // remoteOverview declares a saved connection: its mark, name, group and address with Edit, what
-// the last test found about the host, and its settings.
+// the running or last test or connection found about the host, and its settings.
 func (a *App) remoteOverview(c ui.C, language i18n.Language, entry core.SavedRemoteConnection) {
 	r := &a.remote
 	connection := entry.Connection
@@ -280,7 +288,7 @@ func (a *App) remoteOverview(c ui.C, language i18n.Language, entry core.SavedRem
 				}
 			})
 		})
-		if ui.Button(c.Part("edit"), i18n.Shared(language, "desktop.remote.edit")).Icon(icons.Pencil).Outline().Disabled(r.saving).Clicked() {
+		if ui.Button(c.Part("edit"), i18n.Shared(language, "desktop.remote.edit")).Icon(icons.Pencil).Outline().Disabled(r.saving || r.connect != nil).Clicked() {
 			c.After(a.editSelectedRemote)
 		}
 	})
@@ -294,6 +302,8 @@ func (a *App) remoteOverview(c ui.C, language i18n.Language, entry core.SavedRem
 	switch {
 	case r.probe != nil:
 		a.remoteNotice(c.Part("testing"), icons.LoaderCircle, a.colors.Subtle, i18n.Shared(language, "desktop.remote.testing"))
+	case r.connect != nil:
+		a.remoteNotice(c.Part("connecting"), icons.LoaderCircle, a.colors.Subtle, i18n.Shared(language, "desktop.remote.connecting"))
 	case outcome == nil:
 		ui.Paragraph(c.Part("untested"), i18n.Shared(language, "desktop.remote.untested"), 3).FontSize(a.theme.Metrics.FontSizeS).Color(a.colors.Subtle)
 	default:
@@ -570,35 +580,23 @@ func (a *App) remoteFormResult(c ui.C, language i18n.Language) {
 func (a *App) remoteOutcome(c ui.C, language i18n.Language, outcome *remoteProbeOutcome) {
 	ui.Column(c).FillWidth().Gap(8).Children(func() {
 		if outcome.err != nil {
-			text := i18n.SharedFormat(language, "desktop.remote.probe.error", map[string]string{"reason": outcome.err.Error()})
-			var coreErr *core.Error
-			if errors.As(outcome.err, &coreErr) && coreErr.Code == core.CodeRuntimeMissing {
-				text = i18n.Shared(language, "desktop.remote.probe.noSSH")
-			}
-			a.remoteNotice(c.Part("status"), icons.CircleX, a.theme.Danger, text)
+			a.remoteNotice(c.Part("status"), icons.CircleX, a.theme.Danger, remoteFailureText(language, outcome))
 			return
 		}
 		result := outcome.result
 		host := result.Host
-		var system, machine string
-		if host != nil {
-			system, machine = host.System, host.Machine
-		}
 		switch result.Status {
 		case core.RemoteProbeConnected:
+			var system, machine string
+			if host != nil {
+				system, machine = host.System, host.Machine
+			}
 			a.remoteNotice(c.Part("status"), icons.CircleCheck, a.colors.Success,
 				i18n.SharedFormat(language, "desktop.remote.probe.connected", map[string]string{"system": system, "machine": machine}))
 		case core.RemoteProbeUnsupportedPlatform:
-			a.remoteNotice(c.Part("status"), icons.CircleAlert, a.colors.Warning,
-				i18n.SharedFormat(language, "desktop.remote.probe.unsupported", map[string]string{"system": system, "machine": machine}))
-		case core.RemoteProbeAuthenticationFailed:
-			a.remoteNotice(c.Part("status"), icons.CircleX, a.theme.Danger, i18n.Shared(language, "desktop.remote.probe.authenticationFailed"))
-		case core.RemoteProbeHostKeyRejected:
-			a.remoteNotice(c.Part("status"), icons.CircleX, a.theme.Danger, i18n.Shared(language, "desktop.remote.probe.hostKeyRejected"))
-		case core.RemoteProbeUnreachable:
-			a.remoteNotice(c.Part("status"), icons.CircleX, a.theme.Danger, i18n.Shared(language, "desktop.remote.probe.unreachable"))
+			a.remoteNotice(c.Part("status"), icons.CircleAlert, a.colors.Warning, remoteFailureText(language, outcome))
 		default:
-			a.remoteNotice(c.Part("status"), icons.CircleX, a.theme.Danger, i18n.Shared(language, "desktop.remote.probe.failed"))
+			a.remoteNotice(c.Part("status"), icons.CircleX, a.theme.Danger, remoteFailureText(language, outcome))
 		}
 		if host != nil {
 			a.remoteHostDetails(c.Part("details"), language, *host)
@@ -608,6 +606,40 @@ func (a *App) remoteOutcome(c ui.C, language i18n.Language, outcome *remoteProbe
 			ui.Paragraph(c.Part("diagnostics"), diagnostics, 8).Mono().FontSize(a.theme.Metrics.FontSizeS).Color(a.colors.Subtle)
 		}
 	})
+}
+
+// remoteFailureText says why outcome did not connect, and is "" when it connected. The Remote
+// Development window shows it under the host, and the status bar's menu for the last attempt to
+// connect a workspace again.
+func remoteFailureText(language i18n.Language, outcome *remoteProbeOutcome) string {
+	if err := outcome.err; err != nil {
+		if own := remoteConnectFailureText(language, err); own != "" {
+			return own
+		}
+		var coreErr *core.Error
+		if errors.As(err, &coreErr) && coreErr.Code == core.CodeRuntimeMissing {
+			return i18n.Shared(language, "desktop.remote.probe.noSSH")
+		}
+		return i18n.SharedFormat(language, "desktop.remote.probe.error", map[string]string{"reason": remoteLogError(err).Error()})
+	}
+	result := outcome.result
+	switch result.Status {
+	case core.RemoteProbeConnected:
+		return ""
+	case core.RemoteProbeUnsupportedPlatform:
+		var system, machine string
+		if host := result.Host; host != nil {
+			system, machine = host.System, host.Machine
+		}
+		return i18n.SharedFormat(language, "desktop.remote.probe.unsupported", map[string]string{"system": system, "machine": machine})
+	case core.RemoteProbeAuthenticationFailed:
+		return i18n.Shared(language, "desktop.remote.probe.authenticationFailed")
+	case core.RemoteProbeHostKeyRejected:
+		return i18n.Shared(language, "desktop.remote.probe.hostKeyRejected")
+	case core.RemoteProbeUnreachable:
+		return i18n.Shared(language, "desktop.remote.probe.unreachable")
+	}
+	return i18n.Shared(language, "desktop.remote.probe.failed")
 }
 
 // remoteHostDetails declares what the host reported about itself, each item that it reported.
@@ -648,8 +680,9 @@ func (a *App) remoteHostDetails(c ui.C, language i18n.Language, host core.Remote
 }
 
 // remoteFooter declares the footer. The overview has Delete, or the question whether to delete,
-// then Test Connection and Close; the form has Test Connection, then Cancel (Close while nothing
-// is saved to go back to) and Save.
+// then Test Connection (Stop while a connection runs), Close and Connect; the form has Test
+// Connection, then Cancel (Close while nothing is saved to go back to) and Save. Only a saved
+// connection connects, so the form saves what was typed first.
 func (a *App) remoteFooter(c ui.C) {
 	r := &a.remote
 	language := a.language()
@@ -670,9 +703,22 @@ func (a *App) remoteFooter(c ui.C) {
 			c.After(func() { r.confirmDelete = true })
 		}
 		ui.Spacer(c)
-		a.remoteTestButton(c, language)
+		if r.connect != nil {
+			if ui.Button(c.Part("stop"), i18n.Shared(language, "desktop.remote.stop")).Outline().Clicked() {
+				c.After(a.stopRemoteConnect)
+			}
+		} else {
+			a.remoteTestButton(c, language)
+		}
 		if ui.Button(c.Part("close"), i18n.Shared(language, "desktop.remote.close")).Outline().Clicked() {
 			c.After(a.closeRemote)
+		}
+		label := i18n.Shared(language, "desktop.remote.connect")
+		if r.connect != nil {
+			label = i18n.Shared(language, "desktop.remote.connecting")
+		}
+		if ui.Button(c.Part("connect"), label).Disabled(!r.connectable()).Clicked() {
+			c.After(a.connectRemote)
 		}
 		return
 	}

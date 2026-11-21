@@ -511,13 +511,14 @@ func (a *App) hiddenToolWindowRow(c ui.C, i int) (ui.Box, bool) {
 	return row, row.Clicked()
 }
 
-// statusBar is the strip across the bottom of the workbench: the navigation path of the item the
-// user is on at the leading end (status_path_view.go), and at the trailing end the readouts the
-// user can arrange.
+// statusBar is the strip across the bottom of the workbench: the connection of a remote workspace
+// (remote_status_view.go) and the navigation path of the item the user is on at the leading end
+// (status_path_view.go), and at the trailing end the readouts the user can arrange.
 func (a *App) statusBar(c ui.C) {
 	clicked := -1
 	ui.Row(c).FillWidth().Height(statusBarHeight).Shrink(0).Background(a.chromeFill()).
 		Items(ui.Center).PadX(chromeEdge).Children(func() {
+		a.remoteStatus(c)
 		a.statusPathView(c)
 		zone := ui.Row(c).Items(ui.Center).Gap(chromeStatusGap).Children(func() {
 			for _, i := range a.chrome.items[zoneStatus] {
@@ -642,6 +643,10 @@ func (a *App) projectMenu(c ui.C, anchor ui.Box) {
 			a.menuDivider(c)
 			a.menuTitle(c, a.text.Title.OpenProjects)
 			openRow := a.welcome.row(a.project.root, len(a.recent))
+			if r := a.project.remote; r != nil {
+				// The placeholder names no folder of this computer, so the row shows the host's.
+				openRow.name, openRow.path = a.project.name, r.remoteLocation()
+			}
 			current, closing = a.projectMenuRow(c.Part("current"), openRow, a.project.git.branch(), true, false)
 
 			a.menuDivider(c)
