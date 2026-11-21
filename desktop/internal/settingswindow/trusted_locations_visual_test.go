@@ -54,8 +54,10 @@ func TestVisualTrustedLocations(t *testing.T) {
 					}
 				}
 				shot("directory")
-				w.sess.page = pageTrustedLocations
-				d.pump()
+				// Pump paints only what was invalidated, so wait for the list's first folder to be
+				// on the screen; otherwise the shot repeats the directory page.
+				w.openBuildChild(pageTrustedLocations)
+				d.until("the saved list to be painted", func() bool { return d.text(work) })
 				shot("list")
 				d.changeLocation(l, sandbox, true)
 				d.changeLocation(l, studies, false)
