@@ -31,7 +31,7 @@ func (a *App) remotePage(c ui.C, language i18n.Language) {
 	entry := r.entry(r.selected)
 	switch {
 	case r.editing:
-		a.remoteFormPage(c, language, entry)
+		a.remoteFormPage(c, language)
 	case entry != nil:
 		a.remoteOverview(c, language, *entry)
 	case r.loading && !r.loaded:
@@ -355,39 +355,112 @@ func (a *App) remoteHostGrid(c ui.C, language i18n.Language, host core.RemotePro
 	})
 }
 
-// remoteOutcomeBox declares how a test ended: green with the host when it connected, red with
-// why it did not, and OpenSSH's own words under it.
+// remoteOutcomeBox declares how a test ended: green with the host in short tags when it
+// connected, red with why it did not and what to check, and OpenSSH's own words under the box,
+// which its link shows or hides.
 func (a *App) remoteOutcomeBox(c ui.C, language i18n.Language, outcome *remoteProbeOutcome) {
+	r := &a.remote
 	small := a.theme.Metrics.FontSizeS
 	connected := outcome.err == nil && outcome.result.Status == core.RemoteProbeConnected
-	tint, icon := a.theme.Danger, icons.CircleX
-	text := remoteFailureText(language, outcome)
+	tint, icon := a.theme.Danger, icons.X
 	if connected {
-		tint, icon = a.colors.Success, icons.CircleCheck
-		var system, machine string
-		if host := outcome.result.Host; host != nil {
-			system, machine = host.System, host.Machine
-		}
-		text = i18n.SharedFormat(language, "desktop.remote.probe.connected", map[string]string{"system": system, "machine": machine})
+		tint, icon = a.colors.Success, icons.Check
 	} else if outcome.err == nil && outcome.result.Status == core.RemoteProbeUnsupportedPlatform {
 		tint, icon = a.colors.Warning, icons.CircleAlert
 	}
-	ui.Column(c).FillWidth().Gap(10).Pad(12).Radius(6).Background(tint.WithAlpha(0.08)).Stroke(1, tint.WithAlpha(0.35)).Children(func() {
-		ui.Row(c).FillWidth().Gap(8).Items(ui.Start).Children(func() {
-			ui.Icon(c, icon).Size(16, 16).Shrink(0).Color(tint)
-			ui.Paragraph(c, text, 6).Weight(gfx.WeightMedium).Grow(1).MinWidth(0)
+	diagnostics := strings.TrimSpace(outcome.result.Diagnostics)
+	ui.Column(c).FillWidth().Gap(8).Children(func() {
+		k := c.Part("box")
+		ui.Column(k).FillWidth().Gap(6).PadSides(10, 14, 10, 12).Radius(6).Background(tint.WithAlpha(0.08)).Stroke(1, tint.WithAlpha(0.35)).Children(func() {
+			ui.Row(k).FillWidth().Gap(8).Items(ui.Start).Children(func() {
+				ui.Icon(k, icon).Size(14, 14).Shrink(0).Color(tint).MarginTop(2)
+				if connected {
+					var system, machine string
+					if host := outcome.result.Host; host != nil {
+						system, machine = host.System, host.Machine
+					}
+					line := k.Part("line")
+					ui.Row(line).Grow(1).MinWidth(0).Items(ui.Center).Children(func() {
+						ui.Text(line, i18n.SharedFormat(language, "desktop.remote.probe.connected", map[string]string{"system": system, "machine": machine})).
+							Weight(gfx.WeightSemibold).Color(tint).Shrink(0)
+						ui.Text(line, i18n.Shared(language, "desktop.remote.probe.usable")).Color(tint).Ellipsis().MinWidth(0)
+					})
+				} else {
+					ui.Paragraph(k, remoteFailureText(language, outcome), 4).Weight(gfx.WeightMedium).Color(tint).Grow(1).MinWidth(0)
+				}
+				if diagnostics != "" {
+					label := i18n.Shared(language, "desktop.remote.diagnostics")
+					if r.log.Open {
+						label = i18n.Shared(language, "desktop.remote.probe.hideOutput")
+					}
+					if ui.Button(k.Part("output"), label).Link().Clicked() {
+						c.After(func() { r.log.Open = !r.log.Open })
+					}
+				}
+			})
+			if connected && outcome.result.Host != nil {
+				a.remoteHostTags(k.Part("tags"), language, *outcome.result.Host)
+			} else if hint := remoteFailureHint(language, outcome); hint != "" {
+				ui.Paragraph(k.Part("hint"), hint, 4).FontSize(small).Color(tint).MarginLeft(22)
+			}
 		})
-		if connected && outcome.result.Host != nil {
-			a.remoteHostGrid(c.Part("grid"), language, *outcome.result.Host)
-		}
-		if diagnostics := strings.TrimSpace(outcome.result.Diagnostics); diagnostics != "" && !connected {
-			ui.Collapsible(c.Part("diagnostics"), &a.remote.log, i18n.Shared(language, "desktop.remote.diagnostics"), func() {
-				ui.Column(c).FillWidth().Pad(10).Radius(4).Background(a.colors.Hover).Children(func() {
-					ui.Paragraph(c.Part("log"), diagnostics, 12).Mono().FontSize(small).Color(a.colors.Subtle)
+		if diagnostics != "" && r.log.Open {
+			l := c.Part("log")
+			ui.Scroll(l).FillWidth().MaxHeight(180).Children(func() {
+				ui.Column(l).FillWidth().PadSides(10, 12, 10, 12).Radius(6).Background(a.colors.Hover).Stroke(1, a.colors.Line).Children(func() {
+					ui.Paragraph(l.Part("text"), diagnostics, 40).Mono().FontSize(small).Color(a.colors.Subtle)
 				})
 			})
 		}
 	})
+}
+
+// remoteHostTags declares what a test found on the host as short tags in one wrapped line:
+// system, host name, cores, memory and the home folder's disk.
+func (a *App) remoteHostTags(c ui.C, language i18n.Language, host core.RemoteProbedHost) {
+	details := host.Details
+	var tags []string
+	if system := strings.TrimSpace(details.OperatingSystem); system != "" {
+		tags = append(tags, system)
+	}
+	if name := strings.TrimSpace(details.HostName); name != "" {
+		tags = append(tags, i18n.SharedFormat(language, "desktop.remote.probe.hostNameTag", map[string]string{"name": name}))
+	}
+	if details.CPUCount > 0 {
+		tags = append(tags, i18n.SharedFormat(language, "desktop.remote.host.cores", map[string]string{"count": strconv.FormatUint(uint64(details.CPUCount), 10)}))
+	}
+	if details.MemoryBytes > 0 {
+		tags = append(tags, i18n.SharedFormat(language, "desktop.remote.probe.memoryTag", map[string]string{"size": memorySize(language, details.MemoryBytes)}))
+	}
+	if details.DiskTotalBytes > 0 {
+		tags = append(tags, i18n.SharedFormat(language, "desktop.remote.probe.diskSpace", map[string]string{
+			"available": memorySize(language, details.DiskAvailableBytes), "total": memorySize(language, details.DiskTotalBytes)}))
+	}
+	if len(tags) == 0 {
+		return
+	}
+	ui.Flow(c).FillWidth().Gap(6).MarginLeft(22).Children(func() {
+		for index, tag := range tags {
+			a.remoteTag(c.KeyInt(index), tag, a.colors.Subtle)
+		}
+	})
+}
+
+// remoteFailureHint says what to check after a test that did not connect, and is "" when there
+// is nothing more to say than why it failed.
+func remoteFailureHint(language i18n.Language, outcome *remoteProbeOutcome) string {
+	if outcome.err != nil {
+		return ""
+	}
+	switch outcome.result.Status {
+	case core.RemoteProbeAuthenticationFailed:
+		return i18n.SharedFormat(language, "desktop.remote.probe.hint.authentication", map[string]string{"method": i18n.Shared(language, "desktop.remote.auth.privateKey")})
+	case core.RemoteProbeHostKeyRejected:
+		return i18n.Shared(language, "desktop.remote.probe.hint.hostKey")
+	case core.RemoteProbeUnreachable:
+		return i18n.Shared(language, "desktop.remote.probe.hint.unreachable")
+	}
+	return ""
 }
 
 // remoteEffectiveSection declares what OpenSSH will use to reach the host, as `ssh -G` resolves
@@ -477,19 +550,15 @@ func remoteSourceName(language i18n.Language, source core.RemoteSettingSource) s
 }
 
 // remoteFormPage declares the form that edits a connection or makes a new one, and the outcome
-// of its test.
-func (a *App) remoteFormPage(c ui.C, language i18n.Language, entry *core.SavedRemoteConnection) {
+// of its test. The window's title names the connection the form edits.
+func (a *App) remoteFormPage(c ui.C, language i18n.Language) {
 	r := &a.remote
-	title := i18n.Shared(language, "desktop.remote.newConnection")
-	if entry != nil {
-		title = i18n.SharedFormat(language, "desktop.remote.editTitle", map[string]string{"name": entry.Name})
-	}
 	ui.Scroll(c.Part("form")).Fill().Children(func() {
 		ui.Column(c).FillWidth().Gap(16).PadSides(18, 24, 24, 24).Children(func() {
-			ui.Text(c, title).FontSize(16).Weight(gfx.WeightSemibold).Ellipsis().MinWidth(0)
 			a.remoteNotices(c)
-			// The test runs from the footer; its outcome goes over the fields, where it is seen
-			// without scrolling the form.
+			a.remoteFields(c)
+			// The test runs from the footer; its outcome goes under the fields, the advanced ones
+			// included, as the last thing the form says about the connection.
 			switch {
 			case r.probe != nil:
 				ui.Row(c.Part("testing")).FillWidth().Items(ui.Center).Gap(8).Pad(12).Radius(6).Stroke(1, a.colors.Line).Children(func() {
@@ -499,7 +568,6 @@ func (a *App) remoteFormPage(c ui.C, language i18n.Language, entry *core.SavedRe
 			case r.result != nil:
 				a.remoteOutcomeBox(c.Part("outcome"), language, r.result)
 			}
-			a.remoteFields(c)
 		})
 	})
 }

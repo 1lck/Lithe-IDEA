@@ -180,8 +180,16 @@ func TestVisualRemoteConnections(t *testing.T) {
 			r.selectEntry(buildBox)
 			h.app.editSelectedRemote()
 			r.result = refused
+			r.form.advanced.Open = false
 			r.log.Open = true
 			shot("test-failed")
+
+			// A test that connects shows what the host is, with OpenSSH's output folded.
+			connected := probed
+			connected.Diagnostics = "debug1: Authentication succeeded (publickey)."
+			r.result = &remoteProbeOutcome{result: connected, at: h.app.now()}
+			r.log.Open = false
+			shot("test-ok")
 
 			// Connecting runs the steps on the page, with OpenSSH's questions under the step that
 			// asks them.
@@ -259,7 +267,8 @@ func TestVisualRemoteConnections(t *testing.T) {
 			browser := &remoteBrowser{entryID: buildBox, name: "Build box", connection: r.entry(buildBox).Connection,
 				recent: []string{"/home/dev/src/lithe", "/srv/ci/workspace"},
 				dir:    "/home/dev/src", folders: []string{"lithe", "lithe-core-rust", "scratch"}, files: []string{"README.txt"},
-				session: core.RemoteSession{HomeDirectory: "/home/dev"}}
+				repositories: map[string]bool{"lithe": true, "lithe-core-rust": true},
+				session:      core.RemoteSession{HomeDirectory: "/home/dev"}}
 			browser.path.SetText("/home/dev/src")
 			r.browser = browser
 			shot("folder")

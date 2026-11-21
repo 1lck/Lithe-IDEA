@@ -422,6 +422,40 @@
       }
     },
     {
+      "id": "desktop.remote.probe.usable",
+      "description": "Remote Development window, test outcome: follows the bold 'Connected: Linux x86_64' on the same line, so it starts with the punctuation that joins the two",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.remote.probe.hostNameTag",
+      "description": "Remote Development window, test outcome: tag with the name of the machine that answered",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "name": "string"
+      }
+    },
+    {
+      "id": "desktop.remote.probe.memoryTag",
+      "description": "Remote Development window, test outcome: tag with the host's memory",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "size": "string"
+      }
+    },
+    {
+      "id": "desktop.remote.probe.hideOutput",
+      "description": "Remote Development window, test outcome: link that hides OpenSSH's output under the outcome",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
       "id": "desktop.remote.diagnostics",
       "description": "Remote Development window: heading over the OpenSSH output of a failed test",
       "platforms": [
@@ -831,6 +865,13 @@
     {
       "id": "desktop.remote.browse.enterHint",
       "description": "Remote Development window, folder page after connecting: hint at the end of a folder's row saying a double click lists it",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.remote.browse.git",
+      "description": "Remote Development window, folder page: tag of a subfolder that is a Git repository",
       "platforms": [
         "desktop"
       ]
@@ -2232,6 +2273,41 @@
         "groupCount": "string",
         "groups": "string"
       }
+    },
+    {
+      "id": "desktop.remote.probe.hint.authentication",
+      "description": "Remote Development window, test outcome: what to check after the host refused the keys or password; method is the name of the private key file authentication",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "method": "string"
+      }
+    },
+    {
+      "id": "desktop.remote.probe.hint.hostKey",
+      "description": "Remote Development window, test outcome: what to check after the host key was declined or differs from known_hosts",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.remote.probe.hint.unreachable",
+      "description": "Remote Development window, test outcome: what to check after the host could not be reached",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.remote.advancedSummary",
+      "description": "Remote Development window, connection form: beside the folded Advanced header, the connect timeout and keep-alive interval now in effect",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "timeout": "string",
+        "keepAlive": "string"
+      }
     }
   ],
   "locales": {
@@ -2293,6 +2369,10 @@
       "desktop.remote.probe.memory": "Memory",
       "desktop.remote.probe.disk": "Disk (home)",
       "desktop.remote.probe.diskSpace": "{available} free of {total}",
+      "desktop.remote.probe.usable": ". This host can be used for remote development.",
+      "desktop.remote.probe.hostNameTag": "Host {name}",
+      "desktop.remote.probe.memoryTag": "Memory {size}",
+      "desktop.remote.probe.hideOutput": "Hide",
       "desktop.remote.diagnostics": "OpenSSH Output",
       "desktop.remote.error.required": "Required.",
       "desktop.remote.error.invalid": "This value is not accepted.",
@@ -2369,6 +2449,7 @@
       "desktop.remote.browse.shortcuts": "Frequent",
       "desktop.remote.browse.home": "~ Home",
       "desktop.remote.browse.enterHint": "Double-click to open",
+      "desktop.remote.browse.git": "Git",
       "desktop.remote.status.label": "Remote Connection",
       "desktop.remote.status.connected": "SSH: {name}",
       "desktop.remote.status.latency": "SSH: {name} · {ms} ms",
@@ -2515,7 +2596,7 @@
       "desktop.remote.import.column.resolved": "Effective Value (ssh -G)",
       "desktop.remote.import.patternNote": "Wildcard, not a single host",
       "desktop.remote.import.jumpFor": "ProxyJump of {hosts}",
-      "desktop.remote.import.fill": "Fills color and group",
+      "desktop.remote.import.fill": "Color, group only",
       "desktop.remote.import.details": "Show Settings",
       "desktop.remote.import.field.imported": "✓ Imported",
       "desktop.remote.import.field.skipped": "Not imported",
@@ -2527,7 +2608,11 @@
       "desktop.remote.import.skip.kerberos": "Left to the SSH configuration",
       "desktop.remote.import.skip.extraKey": "Only the first key file is imported",
       "desktop.remote.import.skip.invalid": "Lithe does not accept this value",
-      "desktop.remote.import.footerGroups": "Imports {count} host(s) and creates {groupCount} group(s) ({groups})"
+      "desktop.remote.import.footerGroups": "Imports {count} host(s) and creates {groupCount} group(s) ({groups})",
+      "desktop.remote.probe.hint.authentication": "Check the user name; the password method asks when connecting. If the server only allows keys, set Authentication to “{method}”.",
+      "desktop.remote.probe.hint.hostKey": "Connecting shows the host’s fingerprint for you to confirm. If it changed, check with the host’s administrator before updating known_hosts.",
+      "desktop.remote.probe.hint.unreachable": "Check the host and the port. If the host can only be reached through another one, add that one as a jump host.",
+      "desktop.remote.advancedSummary": "Connect timeout {timeout} · Keep-alive {keepAlive}"
     },
     "zh-CN": {
       "desktop.remote.title": "远程开发",
@@ -2587,6 +2672,10 @@
       "desktop.remote.probe.memory": "内存",
       "desktop.remote.probe.disk": "磁盘（主目录）",
       "desktop.remote.probe.diskSpace": "可用 {available}，共 {total}",
+      "desktop.remote.probe.usable": "，这台主机可以用于远程开发。",
+      "desktop.remote.probe.hostNameTag": "主机名 {name}",
+      "desktop.remote.probe.memoryTag": "内存 {size}",
+      "desktop.remote.probe.hideOutput": "收起",
       "desktop.remote.diagnostics": "OpenSSH 输出",
       "desktop.remote.error.required": "必填。",
       "desktop.remote.error.invalid": "这个值不被接受。",
@@ -2663,6 +2752,7 @@
       "desktop.remote.browse.shortcuts": "常用",
       "desktop.remote.browse.home": "~ 主目录",
       "desktop.remote.browse.enterHint": "双击进入",
+      "desktop.remote.browse.git": "Git",
       "desktop.remote.status.label": "远程连接",
       "desktop.remote.status.connected": "SSH: {name}",
       "desktop.remote.status.latency": "SSH: {name} · {ms} 毫秒",
@@ -2821,7 +2911,11 @@
       "desktop.remote.import.skip.kerberos": "交给 SSH 配置处理",
       "desktop.remote.import.skip.extraKey": "只导入第一个密钥文件",
       "desktop.remote.import.skip.invalid": "Lithe 不接受这个值",
-      "desktop.remote.import.footerGroups": "将导入 {count} 个连接、新建 {groupCount} 个分组（{groups}）"
+      "desktop.remote.import.footerGroups": "将导入 {count} 个连接、新建 {groupCount} 个分组（{groups}）",
+      "desktop.remote.probe.hint.authentication": "检查用户名是否正确；密码方式会在连接时询问。若服务器只允许密钥，把身份验证改成“{method}”。",
+      "desktop.remote.probe.hint.hostKey": "连接时会显示主机指纹请你确认；如果指纹变了，先向主机管理员核实，再更新 known_hosts。",
+      "desktop.remote.probe.hint.unreachable": "检查主机和端口；如果只能经另一台主机访问，把它加为跳板机。",
+      "desktop.remote.advancedSummary": "连接超时 {timeout} · 保活间隔 {keepAlive}"
     }
   }
 }

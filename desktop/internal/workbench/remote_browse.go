@@ -8,6 +8,7 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"sync"
 
 	"github.com/1lck/Lithe-IDEA/desktop/internal/core"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/i18n"
@@ -44,8 +45,11 @@ type remoteBrowser struct {
 	files   []string
 	// skipped counts the entries whose names the host could not send.
 	skipped uint32
-	list    ui.ListState
-	loading bool
+	// repositories are the folders among folders holding a .git entry, found after the listing
+	// shows; the list tags them Git.
+	repositories map[string]bool
+	list         ui.ListState
+	loading      bool
 	// listing counts the listings, so that only the latest applies.
 	listing uint64
 	// readErr is why dir could not be listed; err why the folder could not be opened.
@@ -218,7 +222,7 @@ func (a *App) listRemoteFolder(dir string) {
 				// log-exempt: 用户取消：已换了文件夹、返回或关闭窗口，不再应用列出结果。
 				return
 			}
-			b.loading, b.folders, b.files, b.skipped, b.list = false, nil, nil, 0, ui.ListState{}
+			b.loading, b.folders, b.files, b.skipped, b.repositories, b.list = false, nil, nil, 0, nil, ui.ListState{}
 			if err != nil {
 				a.operationFailed("remote_read_dir", remoteLogError(err))
 				if remoteConnectionClosed(err) {
@@ -231,6 +235,54 @@ func (a *App) listRemoteFolder(dir string) {
 				return
 			}
 			b.folders, b.files, b.skipped = remoteEntryNames(directory, true), remoteEntryNames(directory, false), directory.SkippedNonUTF8
+			a.markRemoteRepositories(b)
+		}
+	})
+}
+
+// remoteRepositoryChecks bounds how many of a folder's subfolders are looked into for .git, and
+// remoteRepositoryParallel how many of those looks run at once over the session.
+const (
+	remoteRepositoryChecks   = 64
+	remoteRepositoryParallel = 8
+)
+
+// markRemoteRepositories looks for a .git entry, a folder or a worktree's file, in the first
+// subfolders of the folder b lists, so the list can tag Git repositories once the names show.
+// A subfolder whose .git cannot be read stays untagged: the tag is a hint, and the listing
+// already reports a lost session.
+func (a *App) markRemoteRepositories(b *remoteBrowser) {
+	names := slices.Clone(b.folders[:min(len(b.folders), remoteRepositoryChecks)])
+	if len(names) == 0 {
+		return
+	}
+	listing, generation, kernel, session, dir := b.listing, a.remote.generation, a.kernel, b.session.ID, b.dir
+	a.background(nil, remoteReadDirTimeout, func(ctx context.Context) func(*App) {
+		found := make([]bool, len(names))
+		var wait sync.WaitGroup
+		slots := make(chan struct{}, remoteRepositoryParallel)
+		for i, name := range names {
+			wait.Add(1)
+			slots <- struct{}{}
+			go func() {
+				defer func() { <-slots; wait.Done() }()
+				_, err := kernel.RemoteStat(ctx, session, path.Join(dir, name, ".git"))
+				found[i] = err == nil
+			}()
+		}
+		wait.Wait()
+		return func(a *App) {
+			r := &a.remote
+			if !r.open || r.generation != generation || r.browser != b || b.listing != listing {
+				// log-exempt: 用户取消：已换了文件夹、返回或关闭窗口，不再标记 Git 仓库。
+				return
+			}
+			b.repositories = map[string]bool{}
+			for i, name := range names {
+				if found[i] {
+					b.repositories[name] = true
+				}
+			}
 		}
 	})
 }
