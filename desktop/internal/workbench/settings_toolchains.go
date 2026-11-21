@@ -6,6 +6,7 @@ import (
 
 	"github.com/1lck/Lithe-IDEA/desktop/internal/core"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/pluginruntime"
+	"github.com/1lck/Lithe-IDEA/desktop/internal/remoteconn"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/toolchain"
 )
 
@@ -100,6 +101,24 @@ func (s settingsToolchains) SaveTrustedLocations(ctx context.Context, locations 
 		return locations, errors.Join(toolchain.ErrPinCommitted, err)
 	}
 	return updated, nil
+}
+
+// LoadRemoteTrust reads the trust decisions this machine keeps on remote workspaces. It needs no
+// connection; Core's message may name host paths, so only its code is logged.
+func (s settingsToolchains) LoadRemoteTrust(ctx context.Context) (trust remoteconn.Trust, err error) {
+	defer func() { s.recordFailure(ctx, "remote_trust_settings_load", documentLogError(err)) }()
+	return remoteconn.ReadTrust(ctx, s.app.kernel, s.app.globalToolchainRoot(), "", "")
+}
+
+// SaveRemoteTrust removes the drafted records against the bytes trust was read from and reads
+// them again. A remote workspace that is open keeps the trust it opened with until it opens again.
+func (s settingsToolchains) SaveRemoteTrust(ctx context.Context, trust remoteconn.Trust, revokes []core.RemoteWorkspaceTrustRevoke) (updated remoteconn.Trust, err error) {
+	ctx = s.app.performedIn(ctx, "remote.workspaceTrust.revoke", surfaceButton)
+	defer func() { s.recordFailure(ctx, "remote_trust_settings_save", documentLogError(err)) }()
+	if _, _, err := trust.Revoke(ctx, s.app.kernel, revokes); err != nil {
+		return trust, err
+	}
+	return remoteconn.ReadTrust(ctx, s.app.kernel, s.app.globalToolchainRoot(), "", "")
 }
 
 // settingsToolchains is the settings window's adapter onto the workbench: it

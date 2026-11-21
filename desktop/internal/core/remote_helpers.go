@@ -3,6 +3,8 @@ package core
 import (
 	"context"
 	"encoding/json"
+	"strconv"
+	"strings"
 )
 
 // Connection window helpers: Core parses a quick-connect address, asks OpenSSH what it would use
@@ -253,9 +255,77 @@ type RemoteWorkspaceTrustOf struct {
 // RemoteWorkspaceTrustState is the remote trust document as Core reads it, and the trust of the
 // workspace the request named.
 type RemoteWorkspaceTrustState struct {
-	Storage            RemoteWorkspaceTrustStorage `json:"storage"`
-	ProjectCodeAllowed bool                        `json:"projectCodeAllowed"`
-	WorkspaceTrust     *RemoteWorkspaceTrustOf     `json:"workspaceTrust"`
+	Document           RemoteWorkspaceTrustDocument `json:"document"`
+	Storage            RemoteWorkspaceTrustStorage  `json:"storage"`
+	ProjectCodeAllowed bool                         `json:"projectCodeAllowed"`
+	WorkspaceTrust     *RemoteWorkspaceTrustOf      `json:"workspaceTrust"`
+}
+
+// RemoteWorkspaceTrustDocument is the validated remote trust document: the decisions of every
+// connection target, sorted by target.
+type RemoteWorkspaceTrustDocument struct {
+	Version int                          `json:"version"`
+	Targets []RemoteWorkspaceTrustTarget `json:"targets"`
+}
+
+// The lists of one target's decisions, as RemoteWorkspaceTrustRevoke names them.
+const (
+	RemoteTrustTrustedWorkspaces    = "trustedWorkspaces"
+	RemoteTrustDistrustedWorkspaces = "distrustedWorkspaces"
+	RemoteTrustTrustedLocations     = "trustedLocations"
+)
+
+// RemoteWorkspaceTrustTarget is the decisions on the workspaces of one connection target. Target
+// is Core's key of the connection, passed back as it is; Label is the connection name shown with
+// it, empty when no decision gave one. Each list holds sorted, distinct host real paths.
+type RemoteWorkspaceTrustTarget struct {
+	Target               json.RawMessage `json:"target"`
+	Label                string          `json:"label,omitempty"`
+	TrustedWorkspaces    []string        `json:"trustedWorkspaces,omitempty"`
+	DistrustedWorkspaces []string        `json:"distrustedWorkspaces,omitempty"`
+	TrustedLocations     []string        `json:"trustedLocations,omitempty"`
+}
+
+// Place is the route of the target's hops, outermost first: "destination:port" for an SSH hop,
+// with the User option in front when the destination names no user, and "engine:container" for
+// a container, joined by " → ". It is empty for a target it cannot read.
+func (t RemoteWorkspaceTrustTarget) Place() string {
+	var target struct {
+		Hops []struct {
+			SSH *struct {
+				Destination string  `json:"destination"`
+				Port        *uint16 `json:"port"`
+				PortOption  string  `json:"portOption"`
+				User        string  `json:"user"`
+			} `json:"ssh"`
+			Container *struct {
+				Engine    string `json:"engine"`
+				Container string `json:"container"`
+			} `json:"container"`
+		} `json:"hops"`
+	}
+	if json.Unmarshal(t.Target, &target) != nil {
+		return ""
+	}
+	hops := make([]string, 0, len(target.Hops))
+	for _, hop := range target.Hops {
+		switch {
+		case hop.SSH != nil:
+			place := hop.SSH.Destination
+			if hop.SSH.User != "" && !strings.Contains(place, "@") {
+				place = hop.SSH.User + "@" + place
+			}
+			if hop.SSH.Port != nil {
+				place += ":" + strconv.Itoa(int(*hop.SSH.Port))
+			} else if hop.SSH.PortOption != "" {
+				place += ":" + hop.SSH.PortOption
+			}
+			hops = append(hops, place)
+		case hop.Container != nil:
+			hops = append(hops, hop.Container.Engine+":"+hop.Container.Container)
+		}
+	}
+	return strings.Join(hops, " → ")
 }
 
 // RemoteWorkspaceTrust reads document, the remote trust source or nil, and, when sessionID is
@@ -282,11 +352,21 @@ type RemoteWorkspaceTrustDecision struct {
 	Label     string `json:"label,omitempty"`
 }
 
-// RemoteWorkspaceTrustPublication is the outcome of a decision. Document is the text to publish,
-// nil when the decision changed nothing.
+// RemoteWorkspaceTrustPublication is the outcome of a decision or a removal. Document is the text
+// to publish, nil when the edit changed nothing; Decisions is the document after the edit.
 type RemoteWorkspaceTrustPublication struct {
-	Changed  bool    `json:"changed"`
-	Document *string `json:"document"`
+	Changed   bool                         `json:"changed"`
+	Document  *string                      `json:"document"`
+	Decisions RemoteWorkspaceTrustDocument `json:"decisions"`
+}
+
+// RemoteWorkspaceTrustRevoke removes Path from the List (RemoteTrustTrustedWorkspaces,
+// RemoteTrustDistrustedWorkspaces or RemoteTrustTrustedLocations) of Target's decisions, as
+// RemoteWorkspaceTrustState listed them. It needs no open connection.
+type RemoteWorkspaceTrustRevoke struct {
+	Target json.RawMessage `json:"target"`
+	List   string          `json:"list"`
+	Path   string          `json:"path"`
 }
 
 // EditRemoteWorkspaceTrust records decision in document, the remote trust source or nil. A
@@ -297,5 +377,16 @@ func (c *Client) EditRemoteWorkspaceTrust(ctx context.Context, document *string,
 		Document *string                      `json:"document"`
 		Decision RemoteWorkspaceTrustDecision `json:"decision"`
 	}{document, decision}, &publication)
+	return publication, err
+}
+
+// RevokeRemoteWorkspaceTrust removes one entry from document, the remote trust source or nil.
+// Removing an absent entry changes nothing; a target left without entries is dropped.
+func (c *Client) RevokeRemoteWorkspaceTrust(ctx context.Context, document *string, revoke RemoteWorkspaceTrustRevoke) (RemoteWorkspaceTrustPublication, error) {
+	var publication RemoteWorkspaceTrustPublication
+	err := c.Execute(ctx, "remote.editWorkspaceTrust", struct {
+		Document *string                    `json:"document"`
+		Revoke   RemoteWorkspaceTrustRevoke `json:"revoke"`
+	}{document, revoke}, &publication)
 	return publication, err
 }

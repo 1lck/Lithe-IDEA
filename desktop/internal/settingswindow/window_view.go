@@ -326,7 +326,7 @@ func (w *window) navTrailing(c ui.C, r row) {
 			dot(c, 7, w.bp.accent)
 		}
 	case r.page == pageTrustedLocations:
-		if w.toolchains.locations.drafts() > 0 {
+		if w.toolchains.locations.drafts() > 0 || w.toolchains.remote.drafts() > 0 {
 			dot(c, 7, w.bp.accent)
 		}
 	}
@@ -381,7 +381,7 @@ func (w *window) content(c ui.C) {
 			w.debuggersPage(c)
 		case w.sess.page == pageConsole:
 			w.consolePage(c)
-		case w.sess.page == pageTrustedLocations && w.toolchains.locations.available():
+		case w.sess.page == pageTrustedLocations && (w.toolchains.locations.available() || w.toolchains.remote.available()):
 			w.trustedLocationsPage(c)
 		case w.sess.page == pageTerminal && w.ctrl.opts.TerminalShells != nil:
 			w.terminalPage(c)
