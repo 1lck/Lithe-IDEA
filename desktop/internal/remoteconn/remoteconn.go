@@ -38,8 +38,10 @@ var (
 type Source struct {
 	// Connections are the saved entries in their stored order.
 	Connections []core.SavedRemoteConnection
-	root        string
-	file        configfile.Snapshot
+	// Sections are the headings Core lists the entries under, in display order.
+	Sections []core.RemoteConnectionSection
+	root     string
+	file     configfile.Snapshot
 }
 
 // Path is the file the list is kept in, for display.
@@ -76,6 +78,7 @@ func Read(ctx context.Context, kernel Kernel, root string) (Source, error) {
 		return Source{}, err
 	}
 	source.Connections = state.Connections
+	source.Sections = state.Sections
 	return source, nil
 }
 

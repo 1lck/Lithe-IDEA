@@ -3,6 +3,7 @@ package workbench
 import (
 	"context"
 	"errors"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -15,8 +16,10 @@ import (
 )
 
 // The Remote Development window keeps the SSH connections the user saved (remoteconn) and tests
-// one: the saved list on the left, the selected connection's form on the right. It belongs to the
-// window, not to a project, so it opens on the welcome screen as over a project.
+// one: the saved list on the left, under the groups Core sections it into, and on the right the
+// selected connection's overview, or its form once Edit was clicked (a new connection always shows
+// its form). It belongs to the window, not to a project, so it opens on the welcome screen as over
+// a project.
 //
 // Nothing secret passes through it: a password or a key's passphrase is asked by OpenSSH through
 // Core's AskPass helper while a test runs, answered in the authentication dialog and never kept;
@@ -42,11 +45,19 @@ type remoteState struct {
 	loading    bool
 	loaded     bool
 	source     remoteconn.Source
+	// rows are the list's rows for source, and groups the groups it names in their order; both
+	// change only with source (setSource).
+	rows   []remoteListRow
+	groups []string
 	// readErr is why the list could not be read; nothing can be saved until it can.
 	readErr string
 	list    ui.ListState
 	// selected is the id of the saved connection the form edits, "" for a new one.
 	selected string
+	// editing says whether the selected connection shows its form rather than its overview.
+	editing bool
+	// previous is the connection selected before New, shown again when New is cancelled.
+	previous string
 	form     remoteForm
 	saving   bool
 	// confirmDelete is the footer's question whether to delete the selected connection.
@@ -54,6 +65,12 @@ type remoteState struct {
 	// probe is the running test, nil when none runs; result is the last one's outcome.
 	probe  *remoteProbe
 	result *remoteProbeOutcome
+	// probed is what the last test of each connection found, by the connection as Core stores
+	// it, so that a saved connection's overview shows its host again after the form was saved
+	// or the window reopened. It lives in memory while the app runs, outlives the window and
+	// holds no secret; an edited connection is a new key, so a stale result is never shown for
+	// it.
+	probed map[core.SSHConnection]*remoteProbeOutcome
 	// err is the last failure that names no field of the form; fieldErr names one.
 	err      string
 	fieldErr remoteFieldRefusal
@@ -62,8 +79,28 @@ type remoteState struct {
 // remoteForm is what the user types for one connection.
 type remoteForm struct {
 	name, host, port, user, identityFile, proxyJump, timeout, keepAlive ui.Field
-	authentication                                                      string
-	advanced                                                            ui.CollapsibleState
+	// color marks the connection in the list, "" for none.
+	color core.RemoteConnectionColor
+	// group is the group chosen: "" for none, one of the list's groups, or remoteNewGroup for
+	// the one typed in newGroup.
+	group          string
+	newGroup       ui.Field
+	authentication string
+	advanced       ui.CollapsibleState
+}
+
+// remoteNewGroup is the group choice that names a new group in the field beside it. No group can
+// have this name, since Core refuses control characters in one.
+const remoteNewGroup = "\x00new"
+
+// remoteListRow is a row of the saved list: a section's heading, or a saved connection.
+type remoteListRow struct {
+	// heading is set on a section's heading, which names group ("" for the connections without
+	// one) and the number of connections in the section.
+	heading bool
+	group   string
+	count   int
+	entry   *core.SavedRemoteConnection
 }
 
 // remoteProbe is a test in progress, cancelled by Stop or by closing the window.
@@ -98,7 +135,7 @@ func (a *App) openRemote(surface actionSurface) {
 		return
 	}
 	r.generation++
-	*r = remoteState{open: true, generation: r.generation}
+	*r = remoteState{open: true, generation: r.generation, probed: r.probed}
 	r.form.clear()
 	a.performed("remote.connections.open", surface)
 	a.loadRemote(remoteLoadSelectFirst, "")
@@ -139,7 +176,8 @@ func (a *App) loadRemote(how remoteLoad, id string) {
 				// log-exempt: 用户取消：窗口关闭后不再应用读取结果。
 				return
 			}
-			r.loading, r.loaded, r.source, r.readErr = false, true, source, ""
+			r.loading, r.loaded, r.readErr = false, true, ""
+			r.setSource(source)
 			if err != nil {
 				a.operationFailed("remote_connections_read", documentLogError(err))
 				r.readErr = remoteReadFailure(a.language(), source, err)
@@ -171,6 +209,34 @@ func remoteReadFailure(language i18n.Language, source remoteconn.Source, err err
 	return i18n.SharedFormat(language, "desktop.remote.readFailed", map[string]string{"reason": err.Error()})
 }
 
+// setSource takes the list as read, with its rows: the connections under the sections Core lists
+// them in, each section headed by its group once any connection has one.
+func (r *remoteState) setSource(source remoteconn.Source) {
+	r.source, r.rows, r.groups = source, nil, nil
+	byID := make(map[string]*core.SavedRemoteConnection, len(source.Connections))
+	for index := range source.Connections {
+		byID[source.Connections[index].ID] = &source.Connections[index]
+	}
+	headed := slices.ContainsFunc(source.Sections, func(section core.RemoteConnectionSection) bool { return section.Group != nil })
+	for _, section := range source.Sections {
+		if section.Group != nil {
+			r.groups = append(r.groups, *section.Group)
+		}
+		if headed {
+			heading := remoteListRow{heading: true, count: len(section.IDs)}
+			if section.Group != nil {
+				heading.group = *section.Group
+			}
+			r.rows = append(r.rows, heading)
+		}
+		for _, id := range section.IDs {
+			if entry := byID[id]; entry != nil {
+				r.rows = append(r.rows, remoteListRow{entry: entry})
+			}
+		}
+	}
+}
+
 // entry is the saved connection id, nil when the list has none of that id.
 func (r *remoteState) entry(id string) *core.SavedRemoteConnection {
 	if id == "" {
@@ -184,17 +250,20 @@ func (r *remoteState) entry(id string) *core.SavedRemoteConnection {
 	return nil
 }
 
-// selectFirst selects the first saved connection, or starts a new one when there is none.
+// selectFirst selects the first connection of the list, or starts a new one when there is none.
 func (r *remoteState) selectFirst() {
-	if len(r.source.Connections) == 0 {
-		r.selectNew()
-		return
+	for _, row := range r.rows {
+		if row.entry != nil {
+			r.selectEntry(row.entry.ID)
+			return
+		}
 	}
-	r.selectEntry(r.source.Connections[0].ID)
+	r.selectNew()
 }
 
-// selectEntry shows the saved connection id in the form, dropping what was typed, the last test
-// and its errors; a test still running for the previous form is stopped.
+// selectEntry shows the overview of the saved connection id, with the form filled from it,
+// dropping what was typed, the last test and its errors; a test still running for the previous
+// form is stopped.
 func (r *remoteState) selectEntry(id string) {
 	entry := r.entry(id)
 	if entry == nil {
@@ -202,7 +271,7 @@ func (r *remoteState) selectEntry(id string) {
 		return
 	}
 	r.resetEditing()
-	r.selected = id
+	r.selected, r.editing = id, false
 	r.form.fill(*entry)
 	r.syncListSelection()
 }
@@ -210,9 +279,56 @@ func (r *remoteState) selectEntry(id string) {
 // selectNew starts a new connection with an empty form.
 func (r *remoteState) selectNew() {
 	r.resetEditing()
-	r.selected = ""
+	r.selected, r.editing = "", true
 	r.form.clear()
 	r.syncListSelection()
+}
+
+// editingForm says whether the window shows the form: for a new connection, or for a saved one
+// once Edit was clicked.
+func (r *remoteState) editingForm() bool {
+	return r.editing || r.entry(r.selected) == nil
+}
+
+// newRemote starts a new connection; Cancel goes back to the one selected before.
+func (a *App) newRemote() {
+	r := &a.remote
+	a.performed("remote.connection.new", surfaceButton)
+	if r.selected != "" {
+		r.previous = r.selected
+	}
+	r.selectNew()
+}
+
+// editSelectedRemote shows the form of the selected connection instead of its overview.
+func (a *App) editSelectedRemote() {
+	r := &a.remote
+	if r.editingForm() {
+		return
+	}
+	a.performed("remote.connection.edit", surfaceButton)
+	r.editing, r.confirmDelete = true, false
+}
+
+// cancelRemoteEdit drops what was typed: a saved connection shows its overview again, and a new
+// one gives way to the connection selected before it.
+func (a *App) cancelRemoteEdit() {
+	r := &a.remote
+	a.performed("remote.connection.edit.cancel", surfaceButton)
+	switch {
+	case r.entry(r.selected) != nil:
+		r.selectEntry(r.selected)
+	case r.entry(r.previous) != nil:
+		r.selectEntry(r.previous)
+	default:
+		r.selectFirst()
+	}
+}
+
+// probedOutcome is what the last test of connection found while the app runs, nil when it was
+// not tested.
+func (r *remoteState) probedOutcome(connection core.SSHConnection) *remoteProbeOutcome {
+	return r.probed[remoteStored(connection)]
 }
 
 // resetEditing drops the last test, its errors and the delete question.
@@ -223,19 +339,21 @@ func (r *remoteState) resetEditing() {
 
 // syncListSelection selects the row of the edited connection, none for a new one.
 func (r *remoteState) syncListSelection() {
-	at := -1
-	for index, entry := range r.source.Connections {
-		if entry.ID == r.selected {
-			at = index
-			break
-		}
-	}
+	at := r.rowOf(r.selected)
 	if r.list.Selected() != at {
 		r.list.Select(at)
 		if at >= 0 {
 			r.list.ScrollIntoView(at)
 		}
 	}
+}
+
+// rowOf is the list row of the saved connection id, -1 when the list has none.
+func (r *remoteState) rowOf(id string) int {
+	if id == "" {
+		return -1
+	}
+	return slices.IndexFunc(r.rows, func(row remoteListRow) bool { return row.entry != nil && row.entry.ID == id })
 }
 
 // stopProbe cancels a running test; its result is dropped when it returns.
@@ -253,6 +371,7 @@ func (f *remoteForm) clear() {
 		field.SetText("")
 	}
 	f.authentication = core.RemoteAuthenticationAuto
+	f.color, f.group = "", ""
 	f.advanced.Open = false
 }
 
@@ -260,6 +379,8 @@ func (f *remoteForm) clear() {
 func (f *remoteForm) fill(entry core.SavedRemoteConnection) {
 	connection := entry.Connection
 	f.name.SetText(entry.Name)
+	f.color, f.group = entry.Color, entry.Group
+	f.newGroup.SetText("")
 	f.host.SetText(connection.Host)
 	f.port.SetText(optionalNumber(uint64(connection.Port)))
 	f.user.SetText(connection.User)
@@ -276,7 +397,16 @@ func (f *remoteForm) fill(entry core.SavedRemoteConnection) {
 
 // fields are the form's text fields.
 func (f *remoteForm) fields() []*ui.Field {
-	return []*ui.Field{&f.name, &f.host, &f.port, &f.user, &f.identityFile, &f.proxyJump, &f.timeout, &f.keepAlive}
+	return []*ui.Field{&f.name, &f.host, &f.port, &f.user, &f.identityFile, &f.proxyJump, &f.timeout, &f.keepAlive, &f.newGroup}
+}
+
+// groupName is the group the form saves, as chosen or typed: Core trims it, a blank one is no
+// group, and one that differs from a group of the list only in case is that group.
+func (f *remoteForm) groupName() string {
+	if f.group == remoteNewGroup {
+		return f.newGroup.Text()
+	}
+	return f.group
 }
 
 // optionalNumber is value as the form shows it: empty for an unset 0.
@@ -350,14 +480,20 @@ func (r *remoteState) dirty() bool {
 	if refused != nil {
 		return true
 	}
-	saved := entry.Connection
-	if saved.Authentication == "" {
-		saved.Authentication = core.RemoteAuthenticationAuto
-	}
-	trim := func(text string) string { return strings.TrimSpace(text) }
+	return r.form.saveName() != entry.Name || remoteStored(connection) != remoteStored(entry.Connection) ||
+		r.form.color != entry.Color || strings.TrimSpace(r.form.groupName()) != entry.Group
+}
+
+// remoteStored is connection as Core stores it: its text trimmed and automatic authentication
+// named.
+func remoteStored(connection core.SSHConnection) core.SSHConnection {
+	trim := strings.TrimSpace
 	connection.Host, connection.User = trim(connection.Host), trim(connection.User)
 	connection.IdentityFile, connection.ProxyJump = trim(connection.IdentityFile), trim(connection.ProxyJump)
-	return r.form.saveName() != entry.Name || connection != saved
+	if connection.Authentication == "" {
+		connection.Authentication = core.RemoteAuthenticationAuto
+	}
+	return connection
 }
 
 // editable says whether the list can take an edit now.
@@ -380,7 +516,13 @@ func (a *App) saveRemote() {
 		return
 	}
 	a.performed("remote.connection.save", surfaceButton)
-	edit := core.RemoteConnectionEdit{Save: &core.RemoteConnectionSave{ID: r.selected, Name: r.form.saveName(), Connection: connection}}
+	edit := core.RemoteConnectionEdit{Save: &core.RemoteConnectionSave{
+		ID:         r.selected,
+		Name:       r.form.saveName(),
+		Connection: connection,
+		Color:      r.form.color,
+		Group:      r.form.groupName(),
+	}}
 	a.editRemote("remote_connection_save", edit)
 }
 
@@ -448,7 +590,8 @@ func (a *App) editRemote(site string, edit core.RemoteConnectionEdit) {
 				}
 				return
 			}
-			r.source, r.loaded = after, true
+			r.loaded = true
+			r.setSource(after)
 			if edit.Remove != nil {
 				r.selectFirst()
 				return
@@ -536,6 +679,14 @@ func (a *App) testRemote() {
 				a.operationFailed("remote_probe", errors.New("remote probe: "+string(result.Status)))
 			}
 			r.result = &remoteProbeOutcome{result: result, err: err}
+			if err == nil {
+				// What the host is outlives the form; an error that kept the test from
+				// running says nothing about the host and is only shown.
+				if r.probed == nil {
+					r.probed = map[core.SSHConnection]*remoteProbeOutcome{}
+				}
+				r.probed[remoteStored(connection)] = r.result
+			}
 		}
 	})
 }
@@ -553,7 +704,7 @@ func (a *App) stopRemoteTest() {
 // remoteFormField says whether the form shows field, Core's name of a connection's field.
 func remoteFormField(field string) bool {
 	switch field {
-	case "name", "host", "port", "user", "authentication", "identityFile", "proxyJump", "connectTimeoutSeconds", "keepAliveSeconds":
+	case "name", "host", "port", "user", "authentication", "identityFile", "proxyJump", "connectTimeoutSeconds", "keepAliveSeconds", "group":
 		return true
 	}
 	return false
@@ -565,8 +716,11 @@ func remoteRefusalText(language i18n.Language, refusal remoteFieldRefusal) strin
 	case "required":
 		return i18n.Shared(language, "desktop.remote.error.required")
 	case "tooLong":
-		if refusal.field == "name" {
+		switch refusal.field {
+		case "name":
 			return i18n.Shared(language, "desktop.remote.error.nameTooLong")
+		case "group":
+			return i18n.Shared(language, "desktop.remote.error.groupTooLong")
 		}
 		return i18n.Shared(language, "desktop.remote.error.fieldTooLong")
 	case "duplicate":
@@ -592,6 +746,8 @@ func remoteRefusalText(language i18n.Language, refusal remoteFieldRefusal) strin
 			return i18n.Shared(language, "desktop.remote.error.timeoutInvalid")
 		case "keepAliveSeconds":
 			return i18n.Shared(language, "desktop.remote.error.keepAliveInvalid")
+		case "group":
+			return i18n.Shared(language, "desktop.remote.error.groupInvalid")
 		case "name", "identityFile":
 			return i18n.Shared(language, "desktop.remote.error.textInvalid")
 		}
