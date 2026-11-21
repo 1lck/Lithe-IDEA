@@ -7312,13 +7312,6 @@
       ]
     },
     {
-      "id": "desktop.clone.more",
-      "description": "Desktop welcome: More project actions",
-      "platforms": [
-        "desktop"
-      ]
-    },
-    {
       "id": "desktop.clone.name",
       "description": "Desktop clone repository: name",
       "platforms": [

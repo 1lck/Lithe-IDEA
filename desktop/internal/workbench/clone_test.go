@@ -18,10 +18,9 @@ func TestWelcomeClonesRepositoryThroughRealCore(t *testing.T) {
 	source := newTestRepository(t)
 	parent := t.TempDir()
 	h := newHarnessWithLanguages(t, &gitKernel{Client: core.NewClient()}, []string{"en-US"})
-	h.clickShared("desktop.clone.more")
-	h.clickShared("desktop.clone.title")
-	if !h.app.clone.open || !h.shows("Clone Repository") {
-		t.Fatal("the welcome action did not open the clone dialog")
+	h.clickNamed(h.app.text.Welcome.Clone)
+	if !h.app.clone.open || !h.shows(i18n.Shared(h.app.language(), "desktop.clone.submit")) {
+		t.Fatal("the welcome button did not open the clone dialog")
 	}
 	h.app.clone.source.SetText(source)
 	h.app.clone.parent.SetText(parent)
@@ -39,20 +38,32 @@ func TestWelcomeClonesRepositoryThroughRealCore(t *testing.T) {
 	}
 }
 
-func TestWelcomeMoreMenuClosesOnEscape(t *testing.T) {
-	h := newHarness(t, &testKernel{Client: core.NewClient()})
-	h.clickShared("desktop.clone.more")
-	if _, ok := h.findPageHit(i18n.Shared(h.app.language(), "desktop.clone.title")); !ok {
-		t.Fatal("opening the more menu did not show the clone action")
-	}
-	if err := h.driver.Key(gfx.KeyEscape, 0); err != nil {
-		t.Fatal(err)
-	}
-	if h.app.welcome.moreOpen {
-		t.Fatal("the welcome more menu remained open after Escape")
-	}
-	if got := h.focusedName(); got != i18n.Shared(h.app.language(), "desktop.clone.more") {
-		t.Fatalf("closing the more menu focused %q, want the more button", got)
+// The welcome page offers its four ways to start as buttons of their own, with no menu
+// between the page and cloning or remote development, in the narrowest window too.
+func TestWelcomeOffersCloneAndRemoteAsButtons(t *testing.T) {
+	for _, language := range []string{"en-US", "zh-CN"} {
+		t.Run(language, func(t *testing.T) {
+			h := newHarnessWithLanguages(t, &testKernel{Client: core.NewClient()}, []string{language})
+			if err := h.driver.Resize(900, 600); err != nil {
+				t.Fatal(err)
+			}
+			h.settle()
+			remote := i18n.Shared(h.app.language(), "desktop.remote.title")
+			for _, name := range []string{h.app.text.Welcome.NewProject, h.app.text.Welcome.Open, h.app.text.Welcome.Clone, remote} {
+				hit, ok := h.findPageHit(name)
+				if !ok {
+					t.Fatalf("the welcome page has no %q button", name)
+				}
+				if hit.Bounds.Width < 72 {
+					t.Fatalf("the %q button is %v wide, narrower than its 72pt minimum", name, hit.Bounds.Width)
+				}
+			}
+			h.clickNamed(remote)
+			h.settle()
+			if !h.app.remote.open {
+				t.Fatal("the remote development button did not open its window")
+			}
+		})
 	}
 }
 
@@ -73,9 +84,19 @@ func TestCloneDirectoryPickerUsesSelectedDirectory(t *testing.T) {
 
 func TestCloneDialogCanBeOpenedAndDismissedByKeyboard(t *testing.T) {
 	h := newHarness(t, &testKernel{Client: core.NewClient()})
-	h.clickShared("desktop.clone.more")
-	if err := h.driver.Key(gfx.KeyDown, 0); err != nil {
-		t.Fatal(err)
+	clone := h.app.text.Welcome.Clone
+	// The page has a handful of controls before the button; the bound only stops a
+	// broken focus order from looping forever.
+	for range 12 {
+		if h.focusedName() == clone {
+			break
+		}
+		if err := h.driver.Key(gfx.KeyTab, 0); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if got := h.focusedName(); got != clone {
+		t.Fatalf("Tab never reached the clone button; focus is on %q", got)
 	}
 	if err := h.driver.Key(gfx.KeyEnter, 0); err != nil {
 		t.Fatal(err)
@@ -90,8 +111,8 @@ func TestCloneDialogCanBeOpenedAndDismissedByKeyboard(t *testing.T) {
 	if h.app.clone.open {
 		t.Fatal("Escape did not dismiss the clone dialog")
 	}
-	if got := h.focusedName(); got != i18n.Shared(h.app.language(), "desktop.clone.more") {
-		t.Fatalf("closing clone focused %q, want the welcome more button", got)
+	if got := h.focusedName(); got != clone {
+		t.Fatalf("closing clone focused %q, want the welcome clone button", got)
 	}
 }
 

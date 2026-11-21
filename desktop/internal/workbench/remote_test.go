@@ -185,7 +185,10 @@ func TestRemoteConnectionsSaveEditAndDelete(t *testing.T) {
 
 	h.clickLabeled(i18n.Shared(lang, "desktop.remote.close"))
 	h.settle()
-	if r.open || h.shows(i18n.Shared(lang, "desktop.remote.title")) {
+	// The welcome page's own Remote Development button stays behind the window, so the
+	// window is looked for by what only it shows: the empty list's text and its Close.
+	_, closeShown := h.findPageHit(i18n.Shared(lang, "desktop.remote.close"))
+	if r.open || closeShown || h.showsWrapped(i18n.Shared(lang, "desktop.remote.empty")) {
 		t.Fatal("Close left the window open")
 	}
 }
