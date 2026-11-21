@@ -320,9 +320,9 @@ PINNED_CORE_REPOSITORY="https://github.com/Lithe-IDEA/Lithe-core-rust.git"
 # Lithe-core-rust main at 822f871: #154 remote.parseAddress, remote.effectiveSettings,
 # remote.sshConfigHosts and remote.mottyHosts; the connections query, import and markConnected;
 # remoteStage events and classified authentication questions (#2231); #155 build preferences.
-# Lithe-core-rust #156 at 46278d6 (on main 822f871): remote.parseForwardAddress reads a port,
-# host:port or URL typed into the Ports window (#2231). Move to the main commit once #156 merges.
-PINNED_CORE_REVISION="46278d655c858f08615bd1da233dedd432e059e9"
+# Lithe-core-rust main at ae593eb: #156 remote.parseForwardAddress reads a port, host:port or URL
+# typed into the Ports window (#2231).
+PINNED_CORE_REVISION="ae593eb1cca7c5529823f8339608d7e0ba3dd6ec"
 PROFILE="debug"
 CHECKOUT_ONLY="no"
 while [[ $# -gt 0 ]]; do
