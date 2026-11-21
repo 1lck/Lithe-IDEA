@@ -24,9 +24,11 @@ import (
 // the folder is chosen: Back, closing the window and quitting end it. Opening the folder hands it
 // to the workspace (remote_workspace.go) and remembers the folder with the connection.
 //
-// Only a saved connection, a WSL distribution of this computer (remote_wsl.go) or a running
-// container of this computer (remote_container.go) connects, as shown: the workspace connects again with the same, and the folder it remembers belongs to the
-// saved entry. OpenSSH's questions are asked in the authentication dialog, as a test asks them.
+// Only a saved connection, a WSL distribution of this computer (remote_wsl.go), a running
+// container of this computer (remote_container.go) or one running on the host a folder is chosen
+// on (remote_host_containers.go) connects, as shown: the workspace connects again with the same,
+// and the folder it remembers belongs to the saved entry. OpenSSH's questions are asked in the
+// authentication dialog, as a test asks them.
 
 // remoteBrowser chooses the host folder to open over a session the window connected.
 type remoteBrowser struct {
@@ -58,6 +60,9 @@ type remoteBrowser struct {
 	readErr string
 	opening bool
 	err     string
+	// containers are the host's running containers, listed in place of its folders while set
+	// (remote_host_containers.go).
+	containers *remoteBrowserContainers
 }
 
 // stopConnect cancels a running connection; a session it opens anyway is ended when it returns.
@@ -71,8 +76,13 @@ func (r *remoteState) stopConnect() {
 // connectable says whether Connect may start for what the page shows: a WSL distribution, a
 // container, or a saved connection the form shows as saved; and nothing else runs.
 func (r *remoteState) connectable() bool {
-	return r.open && r.browser == nil && r.connect == nil && r.probe == nil && !r.saving &&
-		(r.wsl.selected != "" || r.containers.selected != nil || (r.entry(r.selected) != nil && !r.dirty()))
+	return r.idle() && (r.wsl.selected != "" || r.containers.selected != nil || (r.entry(r.selected) != nil && !r.dirty()))
+}
+
+// idle says whether a connection may start: the window is open, and neither a folder is chosen,
+// nor a connection, a test or a save runs.
+func (r *remoteState) idle() bool {
+	return r.open && r.browser == nil && r.connect == nil && r.probe == nil && !r.saving
 }
 
 // connectTarget is what Connect connects to: the WSL distribution or the container shown, as an
@@ -94,11 +104,20 @@ func (r *remoteState) connectTarget() (core.SavedRemoteConnection, remoteHost) {
 // asks on the page, then opens folder on it, or lists the host's folders to choose one when folder
 // is "".
 func (a *App) connectRemote(folder string) {
-	r := &a.remote
-	if !r.connectable() {
+	if !a.remote.connectable() {
 		return
 	}
-	entry, host := r.connectTarget()
+	entry, host := a.remote.connectTarget()
+	a.connectRemoteTo(entry, host, folder)
+}
+
+// connectRemoteTo connects to host, named as entry, as connectRemote does: the connection the
+// steps try again, and a container on the host a folder is chosen on (remote_host_containers.go).
+func (a *App) connectRemoteTo(entry core.SavedRemoteConnection, host remoteHost, folder string) {
+	r := &a.remote
+	if !r.idle() {
+		return
+	}
 	r.result, r.err, r.fieldErr, r.confirmDelete, r.moreMenu = nil, "", remoteFieldRefusal{}, false, false
 	a.performed("remote.connect", surfaceButton)
 	ctx, cancel := context.WithTimeout(a.operationContext(context.Background()), remoteProbeTimeout)
@@ -434,7 +453,7 @@ func (a *App) openRemoteFolderNow(dir string, trusted bool) {
 		return
 	}
 	b.opening, b.err = true, ""
-	entryID, remember := b.entryID, b.host.overSSH()
+	entryID, remember := b.entryID, b.host.saved()
 	generation, kernel, toolRoot := r.generation, a.kernel, a.globalToolchainRoot()
 	a.background(nil, remoteReadTimeout, func(ctx context.Context) func(*App) {
 		anchor, err := a.remotePlaceholderAnchor()

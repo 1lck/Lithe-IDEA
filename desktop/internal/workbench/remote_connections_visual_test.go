@@ -20,7 +20,8 @@ import (
 // saved, saved connections under their groups with the tested one's overview, its form, a new
 // connection whose host Core refused under its field, OpenSSH's password question over the window,
 // a refused test, the connection steps with OpenSSH's questions on the page and a failure, the
-// question whether to trust a folder, Motty's hosts to import, the host's folders, a WSL
+// question whether to trust a folder, Motty's hosts to import, the host's folders and its running
+// containers, a WSL
 // distribution's page and a failed connection to one, a container's page and a failed connection
 // to one, and a folder opening in its dev container, before and while it builds.
 func TestVisualRemoteConnections(t *testing.T) {
@@ -276,6 +277,25 @@ func TestVisualRemoteConnections(t *testing.T) {
 			browser.path.SetText("/home/dev/src")
 			r.browser = browser
 			shot("folder")
+
+			// The host's running Docker and Podman containers list in place of its folders, and one
+			// is entered as the user typed. The containers come from the host's docker ps and podman
+			// ps; the scene shows fixed ones.
+			browser.containers = &remoteBrowserContainers{engines: 2, list: []remoteListedContainer{
+				{engine: core.ContainerEngineDocker, RemoteContainer: core.RemoteContainer{
+					ID: strings.Repeat("c", 64), Name: "api-server", Image: "golang:1.26-bookworm", Status: "Up 3 days"}},
+				{engine: core.ContainerEngineDocker, RemoteContainer: core.RemoteContainer{
+					ID: strings.Repeat("e", 64), Name: "redis-cache", Image: "redis:8-alpine", Status: "Up 3 days"}},
+				{engine: core.ContainerEnginePodman, RemoteContainer: core.RemoteContainer{
+					ID: strings.Repeat("d", 64), Name: "pg-main", Image: "postgres:17", Status: "Up 1 hour"}},
+			}}
+			// A list selects only among the rows it has drawn.
+			h.app.invalidator.Invalidate()
+			h.settleChain()
+			browser.containers.rows.Select(0)
+			browser.containers.user.SetText("app")
+			shot("host-containers")
+			browser.containers = nil
 			r.browser = nil
 
 			// This computer's WSL distributions list under their own heading, and one opens as the

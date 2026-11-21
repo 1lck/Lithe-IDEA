@@ -161,10 +161,12 @@ type remoteProbeOutcome struct {
 	// at is when the test ended, for the overview's "tested 5 minutes ago".
 	at  time.Time
 	err error
-	// wsl is set when the host was a WSL distribution, and engine is the engine of a container
-	// host; the failures of both read differently.
+	// wsl is set when the host was a WSL distribution, a container in one included, and engine
+	// is the engine of a container host; hosted is set when that container was on an SSH host or
+	// a WSL distribution. The failures of each read differently.
 	wsl    bool
 	engine string
+	hosted bool
 }
 
 // remoteFieldRefusal is the field of the form Core (or the form's own number check) refused, and

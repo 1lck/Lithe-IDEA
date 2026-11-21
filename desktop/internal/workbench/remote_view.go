@@ -337,8 +337,10 @@ func remoteFailureText(language i18n.Language, outcome *remoteProbeOutcome) stri
 		}
 		var coreErr *core.Error
 		if errors.As(err, &coreErr) && coreErr.Code == core.CodeRuntimeMissing {
+			// What is missing is a program of this computer: the engine's CLI only for a container
+			// of this computer, and wsl.exe or OpenSSH for one on a host.
 			switch {
-			case outcome.engine != "":
+			case outcome.engine != "" && !outcome.hosted:
 				return i18n.SharedFormat(language, "desktop.remote.container.missing", map[string]string{"engine": remoteContainerEngineName(language, outcome.engine)})
 			case outcome.wsl:
 				return i18n.Shared(language, "desktop.remote.wsl.missing")
@@ -363,6 +365,10 @@ func remoteFailureText(language i18n.Language, outcome *remoteProbeOutcome) stri
 		return i18n.Shared(language, "desktop.remote.probe.hostKeyRejected")
 	case core.RemoteProbeUnreachable:
 		switch {
+		case outcome.hosted:
+			// Core answers the same for a host it cannot reach and a container that is gone there;
+			// the diagnostics under the text say which.
+			return i18n.SharedFormat(language, "desktop.remote.container.hostUnreachable", map[string]string{"engine": remoteContainerEngineName(language, outcome.engine)})
 		case outcome.engine != "":
 			return i18n.Shared(language, "desktop.remote.container.unreachable")
 		case outcome.wsl:

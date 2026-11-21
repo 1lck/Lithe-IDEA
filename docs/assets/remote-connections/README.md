@@ -9,6 +9,7 @@
 - 选文件夹页的远程目录；
 - WSL 发行版列表和连接失败时 wsl.exe 的输出；
 - Docker 和 Podman 容器列表和连接失败时容器引擎的输出；
+- 已连接主机上正在运行的 Docker 和 Podman 容器；
 - OpenSSH 的主机密钥和密码询问。
 
 截图里的主机、用户、指纹和路径都是虚构的。截图覆盖深色与浅色主题、中文与英文界面，用于确认：
@@ -76,6 +77,7 @@
 | 从 Motty 导入（展开字段映射） | [浅色英文](remote-connections-import-light-en-US.png) | [深色中文](remote-connections-import-dark-zh-CN.png) |
 | 从 SSH 配置导入 | [浅色英文](remote-connections-import-ssh-light-en-US.png) | [深色中文](remote-connections-import-ssh-dark-zh-CN.png) |
 | 选择远程文件夹 | [浅色英文](remote-connections-folder-light-en-US.png) | [深色中文](remote-connections-folder-dark-zh-CN.png) |
+| 主机上的容器（选中一个、填写容器内用户） | [浅色英文](remote-connections-host-containers-light-en-US.png) | [深色中文](remote-connections-host-containers-dark-zh-CN.png) |
 | WSL 发行版页（填写 Linux 用户） | [浅色英文](remote-connections-wsl-light-en-US.png) | [深色中文](remote-connections-wsl-dark-zh-CN.png) |
 | 连接 WSL 发行版失败 | [浅色英文](remote-connections-wsl-failed-light-en-US.png) | [深色中文](remote-connections-wsl-failed-dark-zh-CN.png) |
 | 容器页（填写容器内用户） | [浅色英文](remote-connections-container-light-en-US.png) | [深色中文](remote-connections-container-dark-zh-CN.png) |

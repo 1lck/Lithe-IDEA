@@ -42,29 +42,51 @@ const (
 )
 
 // remoteHost is what a session connects to: a saved SSH connection, a WSL distribution of this
-// computer when wsl is set, or a running container of this computer when container is set.
+// computer when wsl is set, or a running container when container is set. A container is on this
+// computer when it is set alone, and on the SSH host ssh names or the WSL distribution wsl names
+// otherwise (remote_host_containers.go): the session logs in there and enters it.
 type remoteHost struct {
 	ssh       core.SSHConnection
 	wsl       *core.WSLConnection
 	container *core.ContainerConnection
 }
 
-// overSSH says whether the host is a saved SSH connection: the only kind with preferences, an
-// authentication step, a form to edit and remembered folders.
+// hosted says whether the host is a container on an SSH host or a WSL distribution.
+func (h remoteHost) hosted() bool {
+	return h.container != nil && (h.wsl != nil || h.ssh != (core.SSHConnection{}))
+}
+
+// overSSH says whether the session logs in through OpenSSH: a saved SSH connection, or a
+// container on its host. Only these read the SSH program's preferences and have the steps that
+// read OpenSSH's configuration and authenticate.
 func (h remoteHost) overSSH() bool {
+	return h.wsl == nil && (h.container == nil || h.ssh != (core.SSHConnection{}))
+}
+
+// saved says whether the host is the saved SSH connection itself: the only kind with a form to
+// edit and remembered folders.
+func (h remoteHost) saved() bool {
 	return h.wsl == nil && h.container == nil
 }
 
 // address is the host as the window shows it: [user@]host[:port] for SSH,
-// wsl:[user@]distribution for WSL and engine:[user@]container for a container.
+// wsl:[user@]distribution for WSL and engine:[user@]container for a container, after its host's
+// address and " › " when it is on one.
 func (h remoteHost) address() string {
+	var host string
 	switch {
-	case h.container != nil:
-		return h.container.Identity()
 	case h.wsl != nil:
-		return h.wsl.Identity()
+		host = h.wsl.Identity()
+	case h.ssh != (core.SSHConnection{}):
+		host = remoteAddress(h.ssh)
 	}
-	return remoteAddress(h.ssh)
+	switch {
+	case h.container == nil:
+		return host
+	case host == "":
+		return h.container.Identity()
+	}
+	return host + " › " + h.container.Identity()
 }
 
 // kind is how the host is reached, as the window title and the status bar name it: SSH, WSL or
@@ -79,18 +101,20 @@ func (h remoteHost) kind(language i18n.Language) string {
 	return i18n.Shared(language, "desktop.remote.kind.ssh")
 }
 
-// request is Core's request to connect to the host with servers, the server builds of version.
+// request is Core's request to connect to the host with servers, the server builds of version:
+// its SSH connection or WSL distribution, followed by the container to enter there when it has
+// one. A container of this computer has neither, so Core enters it here.
 func (h remoteHost) request(servers []core.RemoteServerBuild, version string) core.RemoteConnectRequest {
 	request := core.RemoteConnectRequest{Servers: servers, ServerVersion: version}
-	switch {
-	case h.container != nil:
-		container := *h.container
-		request.Container = &container
-	case h.wsl != nil:
+	if h.wsl != nil {
 		wsl := *h.wsl
 		request.WSL = &wsl
-	default:
+	} else {
 		request.Connection = h.ssh
+	}
+	if h.container != nil {
+		container := *h.container
+		request.Container = &container
 	}
 	return request
 }

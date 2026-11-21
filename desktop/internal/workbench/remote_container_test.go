@@ -41,18 +41,22 @@ func (k *remoteProbeKernel) RemoteDevcontainerUp(context.Context, core.Devcontai
 }
 
 // remoteHostContainers stands in for the engines' CLIs: each engine lists its containers, and
-// only remoteTestContainer connects, each connection asked for being recorded. Its zero value
-// lists none, as Core answers on a computer without either engine.
+// only remoteTestContainer connects on this computer and remoteTestHostContainer on a host, each
+// connection asked for being recorded. Its zero value lists none, as Core answers on a computer
+// without either engine.
 type remoteHostContainers struct {
-	// running are the containers each engine lists; an engine without an entry has no CLI. fail
-	// is the error an engine's listing ends with.
-	running map[string][]core.RemoteContainer
-	fail    map[string]error
+	// running are the containers each engine lists on this computer, and onHost those it lists
+	// over a session (remote_host_containers_test.go); an engine without an entry has no CLI.
+	// fail is the error an engine's listing ends with.
+	running, onHost map[string][]core.RemoteContainer
+	fail            map[string]error
 	// listed are the engines listed and sessions the sessions they were listed over, in order.
 	listed, sessions []string
-	// requests are the connections asked for, in order; preferences counts those that carried
-	// the SSH preferences.
+	// requests are the connections asked for, in order, and hosts the hosts each went through:
+	// the SSH host, wsl:distribution, or "" for this computer. preferences counts those that
+	// carried the SSH preferences.
 	requests    []core.ContainerConnection
+	hosts       []string
 	preferences int
 	// refuse is the error the next connections end with; nil connects.
 	refuse error
@@ -67,21 +71,33 @@ func (k *remoteHostKernel) RemoteListContainers(_ context.Context, engine, sessi
 	if err := c.fail[engine]; err != nil {
 		return core.RemoteContainers{}, err
 	}
-	running, ok := c.running[engine]
+	containers := c.running
+	if sessionID != "" {
+		containers = c.onHost
+	}
+	running, ok := containers[engine]
 	return core.RemoteContainers{Available: ok, Containers: append([]core.RemoteContainer{}, running...)}, nil
 }
 
 // connect answers the connect request numbered n, which names a container. It runs under the
 // kernel's lock.
 func (c *remoteHostContainers) connect(n int, request core.RemoteConnectRequest) (core.RemoteConnectResult, error) {
+	host, want := "", remoteTestContainer
+	switch {
+	case request.WSL != nil:
+		host, want = "wsl:"+request.WSL.Distribution, remoteTestHostContainer
+	case request.Connection != (core.SSHConnection{}):
+		host, want = request.Connection.Host, remoteTestHostContainer
+	}
 	c.requests = append(c.requests, *request.Container)
+	c.hosts = append(c.hosts, host)
 	if request.Preferences != nil {
 		c.preferences++
 	}
 	if c.refuse != nil {
 		return core.RemoteConnectResult{}, c.refuse
 	}
-	if request.Connection != (core.SSHConnection{}) || request.WSL != nil || request.Container.Container != remoteTestContainer {
+	if request.Container.Container != want || (request.WSL == nil && host != "" && host != remoteTestHost) {
 		return core.RemoteConnectResult{Status: core.RemoteProbeUnreachable}, nil
 	}
 	session := &core.RemoteSession{ID: "session-" + strconv.Itoa(n), HostName: "3f2a9c1d", UserName: "app", HomeDirectory: remoteTestHome}
@@ -147,8 +163,8 @@ func TestRemoteContainerOpensAFolderInAContainer(t *testing.T) {
 
 	p := h.openBrowsedProject(t, h.connectAndBrowse(t))
 	want := core.ContainerConnection{Engine: core.ContainerEngineDocker, Container: remoteTestContainer, User: "app"}
-	if got := k.containers.requests; len(got) != 1 || got[0] != want || k.containers.preferences != 0 {
-		t.Fatalf("asked for %d container connections, %d with SSH preferences; want the container by name as the user typed", len(got), k.containers.preferences)
+	if got := k.containers.requests; len(got) != 1 || got[0] != want || k.containers.preferences != 0 || !slices.Equal(k.containers.hosts, []string{""}) {
+		t.Fatalf("asked for %d container connections, %d with SSH preferences; want the container by name as the user typed, on this computer", len(got), k.containers.preferences)
 	}
 	identity := "docker:app@" + remoteTestContainer
 	anchor, _ := h.app.remoteAnchor()

@@ -225,7 +225,7 @@ func (a *App) connectRemoteHost(ctx context.Context, kernel Kernel, root string,
 
 // remoteConnectOutcome is the result of a connection to host as the window shows a test's.
 func remoteConnectOutcome(host remoteHost, result core.RemoteConnectResult, err error) *remoteProbeOutcome {
-	outcome := &remoteProbeOutcome{result: core.RemoteProbeResult{Status: result.Status, Host: result.Host, Diagnostics: result.Diagnostics}, err: err, wsl: host.wsl != nil}
+	outcome := &remoteProbeOutcome{result: core.RemoteProbeResult{Status: result.Status, Host: result.Host, Diagnostics: result.Diagnostics}, err: err, wsl: host.wsl != nil, hosted: host.hosted()}
 	if host.container != nil {
 		outcome.engine = host.container.Engine
 	}
