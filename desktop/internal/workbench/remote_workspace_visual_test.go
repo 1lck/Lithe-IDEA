@@ -19,8 +19,8 @@ import (
 
 // TestVisualRemoteWorkspace captures a remote workspace being opened: the host's home folder in
 // the Remote Development window with a folder chosen, the workspace it opened with its notice and
-// status bar item, the status bar's menu of the connection, a host file open in the editor and
-// the conflict a save over a change made on the host shows.
+// status bar item, the status bar's menu of the connection, a host file open in the editor, the
+// conflict a save over a change made on the host shows, and a terminal running on the host.
 func TestVisualRemoteWorkspace(t *testing.T) {
 	out := os.Getenv("LITHE_VISUAL_OUTPUT_DIR")
 	if out == "" {
@@ -120,6 +120,22 @@ func TestVisualRemoteWorkspace(t *testing.T) {
 				t.Fatal("the save over the host's change did not show the conflict")
 			}
 			shot("conflict")
+			// Loading the host's version resolves the conflict, and clearing the notifications takes
+			// down the refused save's toast, so the next scene shows the file as it is on the host.
+			h.app.loadDocumentDisk(p, d)
+			awaitDocumentState(t, h, func() bool { return !d.resolvingConflict })
+			h.app.clearNotifications()
+
+			// The Terminal tool window runs the host's login shell in the host folder, in a tab
+			// named after the connection.
+			term, run := h.openRemoteTerminal(t, kernel, p)
+			run.echo <- []byte("uname -sm\r\nLinux x86_64\r\n" + remoteHostPrompt + " ")
+			h.awaitTerminal(term, "Linux x86_64")
+			// The pointer leaves the button it clicked, whose tooltip would cover the terminal.
+			if err := h.driver.Move(800, 300); err != nil {
+				t.Fatal(err)
+			}
+			shot("terminal")
 		})
 	}
 }

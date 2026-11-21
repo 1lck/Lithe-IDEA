@@ -63,6 +63,8 @@ type remoteHostKernel struct {
 	fileErr, writeErr error
 	// fileSessions are the sessions the requests for host files went over.
 	fileSessions []string
+	// terminals are the host's terminals (remote_terminal_test.go).
+	terminals remoteHostTerminals
 }
 
 func (k *remoteHostKernel) RemoteConnect(_ context.Context, request core.RemoteConnectRequest) (core.RemoteConnectResult, error) {
@@ -357,8 +359,9 @@ func TestRemoteWorkspaceOpensTheChosenFolder(t *testing.T) {
 }
 
 // What still runs on this computer refuses in a remote workspace and says so: opening a file
-// outside the host folder or in a viewer, a terminal, local history, trusting the folder and
-// every tool window but the project's and the notifications'. Copying a path copies the host's.
+// outside the host folder or in a viewer, a plugin's terminal, local history, trusting the folder
+// and every tool window but the project's, the terminal's and the notifications'. Copying a path
+// copies the host's.
 func TestRemoteWorkspaceRefusesWhatRunsLocally(t *testing.T) {
 	h, _, _, logger := remoteWorkspaceHarness(t)
 	lang := h.app.language()
@@ -369,8 +372,8 @@ func TestRemoteWorkspaceRefusesWhatRunsLocally(t *testing.T) {
 	h.app.openFile(p, filepath.Join(p.root, "logo.png"))
 	h.app.openFile(p, filepath.Join(filepath.Dir(p.root), "elsewhere.txt"))
 	h.app.openLocalHistory(p, filepath.Join(p.root, "README.md"))
-	if h.app.newTerminalWith(p, terminalOptions{}) != nil {
-		t.Fatal("a terminal started in the remote workspace")
+	if h.app.newTerminalWith(p, terminalOptions{plugin: &pluginTerminal{}}) != nil {
+		t.Fatal("a plugin's terminal started in the remote workspace")
 	}
 	asked := false
 	h.app.askToTrustProject(p, func() { asked = true })
