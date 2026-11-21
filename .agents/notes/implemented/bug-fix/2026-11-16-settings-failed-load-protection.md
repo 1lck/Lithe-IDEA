@@ -4,7 +4,7 @@
 
 ## 先说结论
 
-桌面端用默认值继续启动，不等于磁盘上的偏好文件可以被默认值替换。`store.Load` 读取或解码某个文件失败后，同一个 Store 下一次 `Save` 这个文件时，先把原文件改名为 `<名称>.unreadable-<UTC 时间>`（`store.SetAsideName`），再正常写入新值。原内容一字节不丢，之后的保存照常进行。
+桌面端用默认值继续启动，不等于磁盘上的偏好文件可以被默认值替换。`store.Load` 读取或解码某个文件失败后，同一个 Store 下一次 `Save` 这个文件时，先把原文件改名为 `<名称>.unreadable-<UTC 时间>`（`store.SetAsideName`），再正常写入新值。原内容一字节不丢，之后的保存照常进行。设置无法读取时，桌面端启动后提示当前使用默认设置。首次保存移走原文件后，通知显示实际备份路径。
 
 ## 问题
 
@@ -40,11 +40,13 @@
 
 - 原内容保存在同目录的 `.unreadable-*` 文件里，用户可以对照修复后放回。
 - 每次致命读取失败最多产生一个另存文件；文件不再被读取，不增加后台任务。
-- 启动时提示设置文件无法读取、另存文件在哪里，仍待 #1943 后续补齐。
+- 启动提示保留在通知历史。备份路径取自存储层实际完成的改名，因此替换文件写入失败时用户也能找到原内容。
 
 ## 验证
 
 - `scripts/desktop/desktop-go.sh test ./internal/store -run 'TestSave|TestLoad|TestUnread' -count=1`
+
+- `scripts/desktop/desktop-go.sh test -tags vivahead ./internal/workbench -run TestUnreadableSettingsWarnAtStartupAndIdentifyTheBackupOnSave -count=1`
 
 ## 适用范围
 

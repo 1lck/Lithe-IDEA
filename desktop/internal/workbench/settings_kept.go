@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/1lck/Lithe-IDEA/desktop/internal/i18n"
+	"github.com/vivaui/viva/ui"
 )
 
 // The stable channel and AutoBuild share one settings file, so the build that runs may meet
@@ -52,4 +53,24 @@ func unknownSettingsFingerprint(keys []string) string {
 	}
 	sum := sha256.Sum256([]byte(strings.Join(keys, "\n")))
 	return hex.EncodeToString(sum[:8])
+}
+
+// noticeUnreadableSettings explains the fallback while the original file is still in place.
+func (a *App) noticeUnreadableSettings() {
+	language := a.language()
+	a.notifyActions(
+		i18n.Shared(language, "desktop.settings.unreadable.title"),
+		i18n.Shared(language, "desktop.settings.unreadable.detail"),
+		ui.ToastWarning, "", nil, "", nil,
+	)
+}
+
+// noticeSettingsBackup reports the actual path once the store has moved the original file.
+func (a *App) noticeSettingsBackup(path string) {
+	language := a.language()
+	a.notifyActions(
+		i18n.Shared(language, "desktop.settings.backup.title"),
+		i18n.SharedFormat(language, "desktop.settings.backup.detail", map[string]string{"path": path}),
+		ui.ToastInfo, "", nil, "", nil,
+	)
 }

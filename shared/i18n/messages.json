@@ -20632,6 +20632,37 @@
       ]
     },
     {
+      "id": "desktop.settings.unreadable.title",
+      "description": "Title of the startup warning for an unreadable application settings file.",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.settings.unreadable.detail",
+      "description": "Explains the startup fallback and when the unreadable file will be backed up.",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.settings.backup.title",
+      "description": "Title of the notice after moving an unreadable application settings file aside.",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.settings.backup.detail",
+      "description": "Shows the actual backup location after moving the original file aside.",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "path": "string"
+      }
+    },
+    {
       "id": "desktop.settings.unknownKept",
       "description": "Notice at launch when settings.json holds settings this version does not recognize, such as ones a newer build or the other update channel wrote. They are ignored but kept in the file. {count} is how many, {keys} names up to five of them.",
       "platforms": [
