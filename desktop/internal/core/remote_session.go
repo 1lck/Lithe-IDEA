@@ -23,15 +23,21 @@ type RemoteServerBuild struct {
 	SHA256 string `json:"sha256"`
 }
 
-// RemoteConnectRequest opens a session to the host of Connection, or to the local WSL
-// distribution WSL names, installing the server build for the host's platform when the host does
-// not already run that exact build. Exactly one of the two is set; Core refuses a request with
-// both or neither as CodeInvalidRequest, before anything starts.
+// RemoteConnectRequest opens a session to the host of Connection, to the local WSL distribution
+// WSL names, or to the running container Container names, installing the server build for the
+// host's platform when the host does not already run that exact build. At most one of Connection
+// and WSL is set; without either, Container is a container on this machine. Core refuses a
+// request that names none of the three, or both Connection and WSL, as CodeInvalidRequest, before
+// anything starts.
 type RemoteConnectRequest struct {
 	Connection SSHConnection `json:"connection,omitzero"`
 	// WSL opens a distribution of the Windows Subsystem for Linux through the system's wsl.exe
 	// instead of OpenSSH. Core asks nothing of the user for it: there is no AskPass.
 	WSL *WSLConnection `json:"wsl,omitempty"`
+	// Container enters a running Docker or Podman container through its engine's exec: on the
+	// host Connection or WSL names, or, on its own, on this machine, where Core starts the engine
+	// CLI in place of OpenSSH and asks nothing. Core never starts, creates or changes it.
+	Container *ContainerConnection `json:"container,omitempty"`
 	// Servers are the builds the application ships; Core picks the one for the host.
 	Servers []RemoteServerBuild `json:"servers"`
 	// ServerVersion is the version of the shipped builds.
@@ -39,7 +45,7 @@ type RemoteConnectRequest struct {
 	// InstallRoot is where the host keeps installed servers; empty is $HOME/.lithe-server.
 	InstallRoot string `json:"installRoot,omitempty"`
 	// Preferences is the remote workspace preference document, or nil. It names the SSH program;
-	// a WSL connection ignores it.
+	// a WSL connection or a container on this machine ignores it.
 	Preferences *string `json:"preferences,omitempty"`
 }
 
@@ -62,6 +68,74 @@ func (c WSLConnection) Identity() string {
 		return "wsl:" + distribution
 	}
 	return "wsl:" + user + "@" + distribution
+}
+
+// Container engines whose CLI remote.connect and remote.listContainers run.
+const (
+	ContainerEngineDocker = "docker"
+	ContainerEnginePodman = "podman"
+)
+
+// ContainerConnection is a running container, as remote.connect's container field names it.
+// Core trims Container and User; an empty User is the image's default user. Core refuses a
+// malformed field by name ("container" or "user") with the reasons required and invalid, read by
+// RemoteConnectionFieldError.
+type ContainerConnection struct {
+	// Engine is ContainerEngineDocker or ContainerEnginePodman.
+	Engine string `json:"engine"`
+	// Container is the container's name or id, as remote.listContainers lists it.
+	Container string `json:"container"`
+	// User is the user, uid or user:group inside the container, passed as exec --user.
+	User string `json:"user,omitempty"`
+}
+
+// Identity is the container as the window and the recent projects name it:
+// engine:container, or engine:user@container, the form RemoteWorkspaceTrustTarget.Place uses.
+func (c ContainerConnection) Identity() string {
+	container, user := strings.TrimSpace(c.Container), strings.TrimSpace(c.User)
+	if user == "" {
+		return c.Engine + ":" + container
+	}
+	return c.Engine + ":" + user + "@" + container
+}
+
+// RemoteContainer is a running container remote.listContainers found.
+type RemoteContainer struct {
+	// ID is the container's full id.
+	ID string `json:"id"`
+	// Name is the first of the container's names.
+	Name string `json:"name"`
+	// Image and Status are the engine's text, such as nginx:1 and Up 2 hours, at most 256 bytes
+	// each and without control characters. They are upstream text, shown as they are.
+	Image  string `json:"image"`
+	Status string `json:"status"`
+}
+
+// RemoteContainers is what remote.listContainers found.
+type RemoteContainers struct {
+	// Available says whether the engine CLI ran: false when the machine has no such CLI.
+	Available bool `json:"available"`
+	// Containers are the running containers in the engine's order, at most 256.
+	Containers []RemoteContainer `json:"containers"`
+	// Diagnostics is what the CLI printed when it failed, such as the message that its service is
+	// not running, redacted. It is upstream text, shown as it is and never logged.
+	Diagnostics string `json:"diagnostics"`
+}
+
+// RemoteListContainers lists the running containers of engine on this machine, or on the host of
+// session sessionID when it is set. Core runs the engine CLI's ps, bounded to 15 seconds
+// (CodeTimedOut past them), and saves nothing; an unknown session is CodeConnectionClosed.
+func (c *Client) RemoteListContainers(ctx context.Context, engine, sessionID string) (RemoteContainers, error) {
+	var result RemoteContainers
+	request := struct {
+		Engine    string `json:"engine"`
+		SessionID string `json:"sessionId,omitempty"`
+	}{Engine: engine, SessionID: sessionID}
+	if err := c.Execute(ctx, "remote.listContainers", request, &result); err != nil {
+		return RemoteContainers{}, err
+	}
+	result.Containers = nonNil(result.Containers)
+	return result, nil
 }
 
 // RemoteWSLDistributions is what remote.listWslDistributions found on this machine.

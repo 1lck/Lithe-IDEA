@@ -8,6 +8,7 @@
 - 导入页的 Motty 主机、逐项字段映射和 `~/.ssh/config` 的主机；
 - 选文件夹页的远程目录；
 - WSL 发行版列表和连接失败时 wsl.exe 的输出；
+- Docker 和 Podman 容器列表和连接失败时容器引擎的输出；
 - OpenSSH 的主机密钥和密码询问。
 
 截图里的主机、用户、指纹和路径都是虚构的。截图覆盖深色与浅色主题、中文与英文界面，用于确认：
@@ -53,6 +54,9 @@
 - **WSL 发行版：** 已保存的连接之后是“WSL”分组，列出本机的发行版（截图里的发行版由测试给出，不运行 wsl.exe）：
   - 选中后右侧显示发行版名、“WSL”标签和 `wsl:用户@发行版` 地址，说明经本机 wsl.exe 打开、不保存任何信息，下方可填写 Linux 用户；
   - 连接失败时步骤从“启动发行版”开始，没有读取配置和身份验证；失败原因用 WSL 自己的说明，不显示 SSH 的排查提示，底部没有“编辑连接”。
+- **容器：** WSL 之后是“容器”分组，列出本机 Docker 和 Podman 正在运行的容器（截图里的容器由测试给出，不运行 docker 或 podman）：
+  - 每行显示容器名和“引擎 · 镜像”；选中后右侧显示容器名、引擎标签、`引擎:用户@容器` 地址和“镜像 … · 状态”，说明只进入正在运行的容器、不改动容器、不挂载目录、不保存任何信息，下方可填写容器内用户（ⓘ 说明可填写的格式，留空用镜像默认用户）；
+  - 连接失败时步骤从“进入容器”开始，没有读取配置和身份验证；失败原因说明容器已停止、暂停或引擎没有应答，下方是引擎的原始输出，不显示 SSH 的排查提示，底部没有“编辑连接”。
 
 截图不能代替 macOS/Windows 原生窗口验收。
 
@@ -74,6 +78,8 @@
 | 选择远程文件夹 | [浅色英文](remote-connections-folder-light-en-US.png) | [深色中文](remote-connections-folder-dark-zh-CN.png) |
 | WSL 发行版页（填写 Linux 用户） | [浅色英文](remote-connections-wsl-light-en-US.png) | [深色中文](remote-connections-wsl-dark-zh-CN.png) |
 | 连接 WSL 发行版失败 | [浅色英文](remote-connections-wsl-failed-light-en-US.png) | [深色中文](remote-connections-wsl-failed-dark-zh-CN.png) |
+| 容器页（填写容器内用户） | [浅色英文](remote-connections-container-light-en-US.png) | [深色中文](remote-connections-container-dark-zh-CN.png) |
+| 进入已停止的容器失败 | [浅色英文](remote-connections-container-failed-light-en-US.png) | [深色中文](remote-connections-container-failed-dark-zh-CN.png) |
 
 复验方法：在仓库根目录把 `LITHE_VISUAL_OUTPUT_DIR` 设为绝对路径 `"$(pwd)/docs/assets/remote-connections"`，然后在 `desktop/` 下运行
 `../scripts/desktop/desktop-go.sh test -tags vivahead,lithevisual ./internal/workbench -run '^TestVisualRemoteConnections$' -count=1 -timeout 300s`。

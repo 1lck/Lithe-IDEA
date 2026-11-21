@@ -5,6 +5,7 @@ package workbench
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/1lck/Lithe-IDEA/desktop/internal/core"
@@ -18,8 +19,9 @@ import (
 // saved, saved connections under their groups with the tested one's overview, its form, a new
 // connection whose host Core refused under its field, OpenSSH's password question over the window,
 // a refused test, the connection steps with OpenSSH's questions on the page and a failure, the
-// question whether to trust a folder, Motty's hosts to import, the host's folders, and a WSL
-// distribution's page and a failed connection to one.
+// question whether to trust a folder, Motty's hosts to import, the host's folders, a WSL
+// distribution's page and a failed connection to one, and a container's page and a failed
+// connection to one.
 func TestVisualRemoteConnections(t *testing.T) {
 	out := os.Getenv("LITHE_VISUAL_OUTPUT_DIR")
 	if out == "" {
@@ -293,6 +295,32 @@ func TestVisualRemoteConnections(t *testing.T) {
 			}, wsl: true, at: h.app.now()}, h.app.language())
 			r.log.Open = true
 			shot("wsl-failed")
+			r.steps = nil
+
+			// This computer's running Docker and Podman containers list after the distributions,
+			// and one opens as the user typed on its page; one that stopped fails with the engine's
+			// own text. The containers come from docker ps and podman ps; the scenes show fixed ones.
+			r.log.Open = false
+			r.containers.loaded = true
+			r.containers.list = []remoteListedContainer{
+				{engine: core.ContainerEngineDocker, RemoteContainer: core.RemoteContainer{
+					ID: strings.Repeat("a", 64), Name: "web-frontend", Image: "node:22-bookworm", Status: "Up 2 hours"}},
+				{engine: core.ContainerEnginePodman, RemoteContainer: core.RemoteContainer{
+					ID: strings.Repeat("b", 64), Name: "pg-main", Image: "postgres:17", Status: "Up 5 minutes"}},
+			}
+			r.buildRows()
+			r.selectRemoteContainer(r.containers.list[0])
+			r.containers.user.SetText("node")
+			shot("container")
+			r.selectRemoteContainer(r.containers.list[1])
+			stopped := &core.ContainerConnection{Engine: core.ContainerEnginePodman, Container: "pg-main"}
+			steps = newRemoteSteps(core.SavedRemoteConnection{ID: stopped.Identity(), Name: "pg-main"}, remoteHost{container: stopped}, "", h.app.now())
+			r.steps = steps
+			steps.fail(h.app.now(), &remoteProbeOutcome{result: core.RemoteProbeResult{
+				Status: core.RemoteProbeUnreachable, Diagnostics: "Error: can only create exec sessions on running containers: container state improper",
+			}, engine: core.ContainerEnginePodman, at: h.app.now()}, h.app.language())
+			r.log.Open = true
+			shot("container-failed")
 			r.steps = nil
 			h.app.closeRemote()
 			h.settleChain()

@@ -84,6 +84,8 @@ func (a *App) remoteTitle(language i18n.Language) string {
 		crumb = r.steps.entry.Name
 	case r.wsl.selected != "":
 		crumb = r.wsl.selected
+	case r.containers.selected != nil:
+		crumb = r.containers.selected.Name
 	case r.editing && r.entry(r.selected) == nil:
 		crumb = i18n.Shared(language, "desktop.remote.newConnection")
 	case r.editing:
@@ -163,6 +165,9 @@ func (a *App) remoteRows(k ui.C, language i18n.Language, title string, rows []re
 		if r.rows[row].wsl != "" {
 			return r.rows[row].wsl
 		}
+		if r.rows[row].container != nil {
+			return r.rows[row].container.Name
+		}
 		return r.rows[row].entry.Name
 	}
 	r.list.Header = func(row int) bool { return row >= 0 && row < len(r.rows) && r.rows[row].heading }
@@ -172,6 +177,8 @@ func (a *App) remoteRows(k ui.C, language i18n.Language, title string, rows []re
 			a.remoteHeadingRow(row, language, item)
 		case item.wsl != "":
 			a.remoteWSLRow(row, language, item.wsl)
+		case item.container != nil:
+			a.remoteContainerRow(row, language, *item.container)
 		default:
 			a.remoteEntryRow(row, language, *item.entry)
 		}
@@ -180,7 +187,7 @@ func (a *App) remoteRows(k ui.C, language i18n.Language, title string, rows []re
 		away := r.steps != nil || r.browser != nil || r.importer != nil
 		at := r.list.Selected()
 		switch {
-		case at >= 0 && at < len(rows) && rows[at].entry != nil && (rows[at].entry.ID != r.selected || r.editing || r.wsl.selected != "" || away):
+		case at >= 0 && at < len(rows) && rows[at].entry != nil && (rows[at].entry.ID != r.selected || r.editing || r.wsl.selected != "" || r.containers.selected != nil || away):
 			id := rows[at].entry.ID
 			c := k
 			c.After(func() {
@@ -201,6 +208,18 @@ func (a *App) remoteRows(k ui.C, language i18n.Language, title string, rows []re
 				}
 				a.performed("remote.wsl.select", surfaceButton)
 				r.selectRemoteWSL(name)
+			})
+		case at >= 0 && at < len(rows) && rows[at].container != nil &&
+			(r.containers.selected == nil || rows[at].container.key() != r.containers.selected.key() || away):
+			container := *rows[at].container
+			c := k
+			c.After(func() {
+				if !a.leaveRemoteFlows() {
+					r.syncListSelection()
+					return
+				}
+				a.performed("remote.container.select", surfaceButton)
+				r.selectRemoteContainer(container)
 			})
 		}
 	} else {

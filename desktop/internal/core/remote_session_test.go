@@ -285,3 +285,44 @@ func TestRemoteListWSLDistributionsIsUnavailableOutsideWindows(t *testing.T) {
 		t.Fatalf("listing = %+v, %v, want unavailable with an empty list", listed, err)
 	}
 }
+
+// A container is sent as the container field alone, and Core refuses a malformed one by the field
+// it names before the engine starts.
+func TestRemoteConnectSendsAContainerAloneAndCoreRefusesItByField(t *testing.T) {
+	container := &ContainerConnection{Engine: ContainerEnginePodman, Container: "web"}
+	wire, err := json.Marshal(RemoteConnectRequest{Container: container, Servers: []RemoteServerBuild{}})
+	if err != nil || strings.Contains(string(wire), `"connection"`) || !strings.Contains(string(wire), `"container":{"engine":"podman","container":"web"}`) {
+		t.Fatalf("request = %s, %v, want the container field without a connection", wire, err)
+	}
+	if identity := (ContainerConnection{Engine: ContainerEngineDocker, Container: " web ", User: " dev "}).Identity(); identity != "docker:dev@web" {
+		t.Fatalf("identity = %q", identity)
+	}
+	client := NewClient()
+	for _, tc := range []struct {
+		container     ContainerConnection
+		field, reason string
+	}{
+		{ContainerConnection{Engine: ContainerEngineDocker, Container: " "}, "container", "required"},
+		{ContainerConnection{Engine: ContainerEngineDocker, Container: "-web"}, "container", "invalid"},
+		{ContainerConnection{Engine: ContainerEngineDocker, Container: "web", User: "root;id"}, "user", "invalid"},
+	} {
+		request := RemoteConnectRequest{Container: &tc.container, Servers: shippedTargets, ServerVersion: "0.0.0-test"}
+		_, err := client.RemoteConnect(testContext(t), request)
+		if field, reason, ok := RemoteConnectionFieldError(err); !ok || field != tc.field || reason != tc.reason {
+			t.Fatalf("connect refused %q %q (%v), want %q %q", field, reason, ok, tc.field, tc.reason)
+		}
+	}
+}
+
+// Listing over a session that is not open is CodeConnectionClosed, and an engine Core does not
+// know is refused before anything runs; neither depends on what this machine has installed.
+func TestRemoteListContainersNamesTheSessionAndTheEngine(t *testing.T) {
+	client := NewClient()
+	var coreErr *Error
+	if _, err := client.RemoteListContainers(testContext(t), ContainerEngineDocker, "absent"); !errors.As(err, &coreErr) || coreErr.Code != CodeConnectionClosed {
+		t.Fatalf("listing over an absent session = %v, want connection_closed", err)
+	}
+	if _, err := client.RemoteListContainers(testContext(t), "nerdctl", ""); !errors.As(err, &coreErr) || coreErr.Code != CodeInvalidRequest {
+		t.Fatalf("listing with an unknown engine = %v, want invalid_request", err)
+	}
+}

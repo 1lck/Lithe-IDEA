@@ -24,14 +24,15 @@ import (
 // the folder is chosen: Back, closing the window and quitting end it. Opening the folder hands it
 // to the workspace (remote_workspace.go) and remembers the folder with the connection.
 //
-// Only a saved connection or a WSL distribution of this computer connects (remote_wsl.go), as
-// shown: the workspace connects again with the same, and the folder it remembers belongs to the
+// Only a saved connection, a WSL distribution of this computer (remote_wsl.go) or a running
+// container of this computer (remote_container.go) connects, as shown: the workspace connects again with the same, and the folder it remembers belongs to the
 // saved entry. OpenSSH's questions are asked in the authentication dialog, as a test asks them.
 
 // remoteBrowser chooses the host folder to open over a session the window connected.
 type remoteBrowser struct {
 	session core.RemoteSession
-	// entryID and name are the saved connection's, or the WSL distribution's identity and name.
+	// entryID and name are the saved connection's, or the WSL distribution's or the container's
+	// identity and name.
 	entryID string
 	name    string
 	host    remoteHost
@@ -67,19 +68,23 @@ func (r *remoteState) stopConnect() {
 	}
 }
 
-// connectable says whether Connect may start for what the page shows: a WSL distribution, or a
-// saved connection the form shows as saved; and nothing else runs.
+// connectable says whether Connect may start for what the page shows: a WSL distribution, a
+// container, or a saved connection the form shows as saved; and nothing else runs.
 func (r *remoteState) connectable() bool {
 	return r.open && r.browser == nil && r.connect == nil && r.probe == nil && !r.saving &&
-		(r.wsl.selected != "" || (r.entry(r.selected) != nil && !r.dirty()))
+		(r.wsl.selected != "" || r.containers.selected != nil || (r.entry(r.selected) != nil && !r.dirty()))
 }
 
-// connectTarget is what Connect connects to: the WSL distribution shown, as an entry named after
-// it with its identity for id, or the selected saved connection.
+// connectTarget is what Connect connects to: the WSL distribution or the container shown, as an
+// entry named after it with its identity for id, or the selected saved connection.
 func (r *remoteState) connectTarget() (core.SavedRemoteConnection, remoteHost) {
 	if r.wsl.selected != "" {
 		wsl := r.wsl.connection()
 		return core.SavedRemoteConnection{ID: wsl.Identity(), Name: wsl.Distribution}, remoteHost{wsl: &wsl}
+	}
+	if r.containers.selected != nil {
+		container := r.containers.connection()
+		return core.SavedRemoteConnection{ID: container.Identity(), Name: container.Container}, remoteHost{container: &container}
 	}
 	entry := *r.entry(r.selected)
 	return entry, remoteHost{ssh: entry.Connection}
@@ -137,9 +142,12 @@ func (a *App) connectRemote(folder string) {
 				a.operationRejected("remote_connect", "field_refused")
 				r.steps = nil
 				refusal := remoteFieldRefusal{field: field, reason: reason}
-				if host.wsl != nil {
+				switch {
+				case host.container != nil:
+					r.err = remoteContainerRefusalText(a.language(), refusal)
+				case host.wsl != nil:
 					r.err = remoteWSLRefusalText(a.language(), refusal)
-				} else {
+				default:
 					r.err = remoteRefusalText(a.language(), refusal)
 				}
 				return
@@ -423,7 +431,7 @@ func (a *App) openRemoteFolderNow(dir string, trusted bool) {
 		return
 	}
 	b.opening, b.err = true, ""
-	entryID, remember := b.entryID, b.host.wsl == nil
+	entryID, remember := b.entryID, b.host.overSSH()
 	generation, kernel, toolRoot := r.generation, a.kernel, a.globalToolchainRoot()
 	a.background(nil, remoteReadTimeout, func(ctx context.Context) func(*App) {
 		anchor, err := a.remotePlaceholderAnchor()

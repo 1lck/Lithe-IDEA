@@ -44,6 +44,8 @@ func remoteGroupHeading(language i18n.Language, group string) string {
 		return i18n.Shared(language, "desktop.remote.ungrouped")
 	case remoteWSLHeading:
 		return i18n.Shared(language, "desktop.remote.wsl.heading")
+	case remoteContainerHeading:
+		return i18n.Shared(language, "desktop.remote.container.heading")
 	}
 	return group
 }
@@ -335,7 +337,10 @@ func remoteFailureText(language i18n.Language, outcome *remoteProbeOutcome) stri
 		}
 		var coreErr *core.Error
 		if errors.As(err, &coreErr) && coreErr.Code == core.CodeRuntimeMissing {
-			if outcome.wsl {
+			switch {
+			case outcome.engine != "":
+				return i18n.SharedFormat(language, "desktop.remote.container.missing", map[string]string{"engine": remoteContainerEngineName(language, outcome.engine)})
+			case outcome.wsl:
 				return i18n.Shared(language, "desktop.remote.wsl.missing")
 			}
 			return i18n.Shared(language, "desktop.remote.probe.noSSH")
@@ -357,7 +362,10 @@ func remoteFailureText(language i18n.Language, outcome *remoteProbeOutcome) stri
 	case core.RemoteProbeHostKeyRejected:
 		return i18n.Shared(language, "desktop.remote.probe.hostKeyRejected")
 	case core.RemoteProbeUnreachable:
-		if outcome.wsl {
+		switch {
+		case outcome.engine != "":
+			return i18n.Shared(language, "desktop.remote.container.unreachable")
+		case outcome.wsl:
 			return i18n.Shared(language, "desktop.remote.wsl.unreachable")
 		}
 		return i18n.Shared(language, "desktop.remote.probe.unreachable")

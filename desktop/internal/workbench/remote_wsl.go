@@ -41,25 +41,39 @@ const (
 	remoteWSLPrefix = "wsl:"
 )
 
-// remoteHost is what a session connects to: a saved SSH connection, or a WSL distribution of this
-// computer when wsl is set.
+// remoteHost is what a session connects to: a saved SSH connection, a WSL distribution of this
+// computer when wsl is set, or a running container of this computer when container is set.
 type remoteHost struct {
-	ssh core.SSHConnection
-	wsl *core.WSLConnection
+	ssh       core.SSHConnection
+	wsl       *core.WSLConnection
+	container *core.ContainerConnection
 }
 
-// address is the host as the window shows it: [user@]host[:port] for SSH and
-// wsl:[user@]distribution for WSL.
+// overSSH says whether the host is a saved SSH connection: the only kind with preferences, an
+// authentication step, a form to edit and remembered folders.
+func (h remoteHost) overSSH() bool {
+	return h.wsl == nil && h.container == nil
+}
+
+// address is the host as the window shows it: [user@]host[:port] for SSH,
+// wsl:[user@]distribution for WSL and engine:[user@]container for a container.
 func (h remoteHost) address() string {
-	if h.wsl != nil {
+	switch {
+	case h.container != nil:
+		return h.container.Identity()
+	case h.wsl != nil:
 		return h.wsl.Identity()
 	}
 	return remoteAddress(h.ssh)
 }
 
-// kind is how the host is reached, as the window title and the status bar name it: SSH or WSL.
+// kind is how the host is reached, as the window title and the status bar name it: SSH, WSL or
+// Container.
 func (h remoteHost) kind(language i18n.Language) string {
-	if h.wsl != nil {
+	switch {
+	case h.container != nil:
+		return i18n.Shared(language, "desktop.remote.container.kind")
+	case h.wsl != nil:
 		return i18n.Shared(language, "desktop.remote.wsl.heading")
 	}
 	return i18n.Shared(language, "desktop.remote.kind.ssh")
@@ -68,10 +82,14 @@ func (h remoteHost) kind(language i18n.Language) string {
 // request is Core's request to connect to the host with servers, the server builds of version.
 func (h remoteHost) request(servers []core.RemoteServerBuild, version string) core.RemoteConnectRequest {
 	request := core.RemoteConnectRequest{Servers: servers, ServerVersion: version}
-	if h.wsl != nil {
+	switch {
+	case h.container != nil:
+		container := *h.container
+		request.Container = &container
+	case h.wsl != nil:
 		wsl := *h.wsl
 		request.WSL = &wsl
-	} else {
+	default:
 		request.Connection = h.ssh
 	}
 	return request

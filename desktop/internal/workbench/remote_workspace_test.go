@@ -82,6 +82,8 @@ type remoteHostKernel struct {
 	ports remoteHostPorts
 	// wsl is this computer's WSL distributions (remote_wsl_test.go).
 	wsl remoteHostWSL
+	// containers are this computer's running containers (remote_container_test.go).
+	containers remoteHostContainers
 }
 
 // remoteTestTree is the workspace's tree the Project tool window lists by default.
@@ -97,6 +99,9 @@ func (k *remoteHostKernel) RemoteConnect(_ context.Context, request core.RemoteC
 	defer k.mu.Unlock()
 	k.connects++
 	k.servers = append(k.servers, request.Servers)
+	if request.Container != nil {
+		return k.containers.connect(k.connects, request)
+	}
 	if request.WSL != nil {
 		return k.wsl.connect(k.connects, request)
 	}

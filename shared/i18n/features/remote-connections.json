@@ -2419,6 +2419,125 @@
       "platforms": [
         "desktop"
       ]
+    },
+    {
+      "id": "desktop.remote.container.heading",
+      "description": "Remote Development window: the list's heading over the running Docker and Podman containers of this computer",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.remote.container.kind",
+      "description": "Remote Development window, the window title and the status bar: how a workspace in a container of this computer is reached, before its name, as SSH and WSL are",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.remote.container.docker",
+      "description": "Remote Development window: the name of the Docker container engine, shown on a container's row and page",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.remote.container.podman",
+      "description": "Remote Development window: the name of the Podman container engine, shown on a container's row and page",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.remote.container.row",
+      "description": "Remote Development window: the line under a container's name in the list; {engine} is Docker or Podman and {image} the engine's image name, shown as it is",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "engine": "string",
+        "image": "string"
+      }
+    },
+    {
+      "id": "desktop.remote.container.state",
+      "description": "Remote Development window: a container's image and the engine's status text (such as Up 2 hours), both shown as the engine prints them, under its name on its page",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "image": "string",
+        "status": "string"
+      }
+    },
+    {
+      "id": "desktop.remote.container.about",
+      "description": "Remote Development window: what opening a running container does and does not do; {engine} is Docker or Podman",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "engine": "string"
+      }
+    },
+    {
+      "id": "desktop.remote.container.user",
+      "description": "Remote Development window: the label of the field for the user a container's workspace runs as",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.remote.container.userHelp",
+      "description": "Remote Development window: what the container's user field takes, and what leaving it empty does",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.remote.container.userPlaceholder",
+      "description": "Remote Development window: the placeholder of the empty container's user field",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.remote.container.userInvalid",
+      "description": "Remote Development window: why Core refused the container's user",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.remote.container.nameInvalid",
+      "description": "Remote Development window: why Core refused the container's name",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.remote.container.unreachable",
+      "description": "Remote Development window: why a connection to a container failed before the server started: the container is gone, stopped or paused, or its engine did not answer",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.remote.container.missing",
+      "description": "Remote Development window: why a connection to a container failed when this computer has no command line of its engine; {engine} is Docker or Podman",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "engine": "string"
+      }
+    },
+    {
+      "id": "desktop.remote.container.start",
+      "description": "Remote Development window: the step of a connection to a container that enters it, in place of connecting to a host",
+      "platforms": [
+        "desktop"
+      ]
     }
   ],
   "locales": {
@@ -2738,7 +2857,22 @@
       "desktop.remote.wsl.distributionInvalid": "wsl.exe does not accept this distribution name.",
       "desktop.remote.wsl.unreachable": "This WSL distribution is not installed, or it did not start.",
       "desktop.remote.wsl.missing": "wsl.exe was not found on this computer. Install the Windows Subsystem for Linux to open a distribution.",
-      "desktop.remote.wsl.start": "Start the distribution"
+      "desktop.remote.wsl.start": "Start the distribution",
+      "desktop.remote.container.heading": "Containers",
+      "desktop.remote.container.kind": "Container",
+      "desktop.remote.container.docker": "Docker",
+      "desktop.remote.container.podman": "Podman",
+      "desktop.remote.container.row": "{engine} · {image}",
+      "desktop.remote.container.state": "Image {image} · {status}",
+      "desktop.remote.container.about": "Enters this running container through {engine} on this computer, as the user below. Lithe does not start, create or change the container, mounts no folder into it, and needs no more rights than the {engine} command line has. Nothing about the container is saved: the folders opened in it are not remembered, and the list is read again each time this window opens.",
+      "desktop.remote.container.user": "User in the container",
+      "desktop.remote.container.userHelp": "The user, uid or user:group the workspace runs as inside the container. Leave it empty to use the image's default user.",
+      "desktop.remote.container.userPlaceholder": "Image's default user",
+      "desktop.remote.container.userInvalid": "Use a user name, uid or user:group of at most 64 letters, digits and _ . : -, not starting with -.",
+      "desktop.remote.container.nameInvalid": "The container engine does not accept this container name.",
+      "desktop.remote.container.unreachable": "This container is no longer running, is paused, or its engine did not answer.",
+      "desktop.remote.container.missing": "The {engine} command line was not found on this computer. Install {engine} to enter its containers.",
+      "desktop.remote.container.start": "Enter the container"
     },
     "zh-CN": {
       "desktop.remote.title": "远程开发",
@@ -3056,7 +3190,22 @@
       "desktop.remote.wsl.distributionInvalid": "wsl.exe 不接受这个发行版名称。",
       "desktop.remote.wsl.unreachable": "这个 WSL 发行版没有安装，或者没能启动。",
       "desktop.remote.wsl.missing": "本机找不到 wsl.exe。安装适用于 Linux 的 Windows 子系统（WSL）后才能打开发行版。",
-      "desktop.remote.wsl.start": "启动发行版"
+      "desktop.remote.wsl.start": "启动发行版",
+      "desktop.remote.container.heading": "容器",
+      "desktop.remote.container.kind": "容器",
+      "desktop.remote.container.docker": "Docker",
+      "desktop.remote.container.podman": "Podman",
+      "desktop.remote.container.row": "{engine} · {image}",
+      "desktop.remote.container.state": "镜像 {image} · {status}",
+      "desktop.remote.container.about": "通过本机的 {engine} 进入这个正在运行的容器，以下方的用户运行。Lithe 不启动、不创建、不改动容器，不往容器里挂载目录，需要的权限也不超过 {engine} 命令行本身。不保存这个容器的任何信息：不记住在其中打开过的文件夹，每次打开本窗口时重新读取列表。",
+      "desktop.remote.container.user": "容器内用户",
+      "desktop.remote.container.userHelp": "工作区在容器里以哪个用户运行，可以填用户名、uid 或“用户:组”。留空则使用镜像的默认用户。",
+      "desktop.remote.container.userPlaceholder": "镜像默认用户",
+      "desktop.remote.container.userInvalid": "用户最多 64 个字符，只能包含字母、数字和 _ . : -，且不能以 - 开头。",
+      "desktop.remote.container.nameInvalid": "容器引擎不接受这个容器名。",
+      "desktop.remote.container.unreachable": "这个容器已经不在运行或已暂停，或者容器引擎没有应答。",
+      "desktop.remote.container.missing": "本机没有找到 {engine} 命令行。安装 {engine} 后才能进入它的容器。",
+      "desktop.remote.container.start": "进入容器"
     }
   }
 }
