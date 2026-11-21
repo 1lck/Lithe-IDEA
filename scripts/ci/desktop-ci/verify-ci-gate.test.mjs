@@ -1,10 +1,11 @@
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
+import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import test from "node:test";
 import { verifyCIGate } from "./verify-ci-gate.mjs";
 
-const lanes = ["pins", "linux", "linux-test", "remote-server", "remote-server-arm64", "macos", "windows"];
+const lanes = ["pins", "linux", "linux-test", "remote-server", "macos", "windows"];
 const passed = () => Object.fromEntries(lanes.map((lane) => [lane, { result: "success" }]));
 
 test("ready PRs and main pushes require every lane to pass", { timeout: 1000 }, () => {
@@ -30,11 +31,19 @@ test("drafts defer only native lanes and still require all Linux lanes", { timeo
     delete broken[lane];
     assert.throws(() => verifyCIGate(broken, true), /missing/);
   }
-  for (const lane of ["pins", "linux", "linux-test", "remote-server", "remote-server-arm64"]) {
+  for (const lane of ["pins", "linux", "linux-test", "remote-server"]) {
     const broken = structuredClone(needs);
     broken[lane].result = "skipped";
     assert.throws(() => verifyCIGate(broken, true), new RegExp(lane));
   }
+});
+
+test("the gate job depends on exactly the lanes it requires", { timeout: 1000 }, () => {
+  const workflow = readFileSync(new URL("../../../.github/workflows/desktop-ci.yml", import.meta.url), "utf8");
+  const gate = workflow.slice(workflow.indexOf("\n  gate:\n"));
+  const needs = /\n    needs: \[([^\]]*)\]\n/.exec(gate);
+  assert.ok(needs, "the gate job lists its dependencies on one line");
+  assert.deepEqual(needs[1].split(",").map((lane) => lane.trim()), lanes);
 });
 
 test("workflow entry point fails closed for missing or malformed inputs", { timeout: 15000 }, () => {
