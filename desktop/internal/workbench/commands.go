@@ -123,7 +123,7 @@ func (a *App) commands() []command {
 			command := text
 			add("terminal.runSelection", t.GroupTerminal, i18n.Shared(a.language(), "desktop.terminal.runSelection"), "", true, func() {
 				if term := a.newTerminal(p, ""); term != nil {
-					a.openTerminals(p)
+					a.openToolWindow(itemTerminal)
 					a.sendTerminalCommand(term, command)
 				}
 			})

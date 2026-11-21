@@ -4,8 +4,6 @@ import (
 	"context"
 	"errors"
 	"path"
-	"path/filepath"
-	"strings"
 	"time"
 
 	"github.com/1lck/Lithe-IDEA/desktop/internal/core"
@@ -28,11 +26,14 @@ import (
 // status bar asks. Closing the project ends its session, and quitting ends every session Core
 // keeps (App.Run).
 //
-// In this stage the workspace lists its folder in the Project tool window. The features that
-// still read the project through the local file system (the editor, terminals, Git, the watch
-// of the folder, language servers, run configurations and plugins) are not started for it and
-// say so, until each moves to the host (R0, step 3). The workspace stays in safe mode: nothing of
-// the host's project runs on this computer.
+// In this stage the workspace lists its folder in the Project tool window, the editor opens,
+// saves and compares the host's files (remote_documents.go), its terminals run the host's login
+// shell on the host (remote_terminal.go), and the host watches the folder, so a change made there
+// shows in the tree and the open documents (remote_watch.go). The features that still read the
+// project through the local file system (search, local history, language servers, run
+// configurations and plugins, a plugin's terminal among them) are not started for it, or say so,
+// until each moves to the host (R0, step 3). The workspace stays in safe mode: nothing of the
+// host's project runs on this computer, so Git stays off as it does in an untrusted project.
 
 const (
 	// remoteHeartbeatInterval is the pause between two heartbeats of a connected workspace.
@@ -99,6 +100,12 @@ type remoteProject struct {
 	failure *remoteProbeOutcome
 	// menuOpen is the status bar's menu of the connection.
 	menuOpen bool
+	// watch is the host watch of the folder over the session (remote_watch.go), nil while none
+	// runs; watchWait is what it waits for then. watchNotified is set once the user was told the
+	// folder is not watched in full.
+	watch         *remoteWatch
+	watchWait     remoteWatchWait
+	watchNotified bool
 	// closed is set once the project closes; nothing of the workspace runs afterwards.
 	closed bool
 }
@@ -141,15 +148,10 @@ func (p *project) remoteHostPath(full string) string {
 	if p.remote == nil {
 		return full
 	}
-	rel, err := filepath.Rel(p.root, full)
-	if err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
-		return full
+	if host, ok := remoteHostPathBelow(p.root, p.remote.binding.RemoteRoot(), full); ok {
+		return host
 	}
-	root := p.remote.binding.RemoteRoot()
-	if rel == "." {
-		return root
-	}
-	return path.Join(root, filepath.ToSlash(rel))
+	return full
 }
 
 // remoteLocation is the workspace as the user names it: the connection's name and the host
@@ -259,12 +261,16 @@ func (r *remoteProject) stopRemoteTimer() {
 	r.timer++
 }
 
-// attachRemote makes session the workspace's session and starts its heartbeat.
+// attachRemote makes session the workspace's session and starts its heartbeat and the host watch
+// of its folder.
 func (a *App) attachRemote(p *project, session string) {
 	r := p.remote
+	a.stopRemoteWatch(p)
 	r.session, r.link, r.attempt, r.misses, r.failure = session, remoteConnected, 0, 0, nil
 	r.binding.Attach(session)
 	a.beatRemote(p)
+	r.watchWait = remoteWatchReady
+	a.startRemoteWatch(p)
 }
 
 // beatRemote asks the server of the workspace's session what still runs, and schedules the next
@@ -318,6 +324,7 @@ func (a *App) loseRemote(p *project, session string, err error) {
 		return
 	}
 	a.backgroundFailed("remote_session_lost", remoteLogError(err))
+	a.stopRemoteWatch(p)
 	r.session, r.misses = "", 0
 	r.binding.Detach()
 	r.stopRemoteTimer()
@@ -363,6 +370,7 @@ func (a *App) reconnectRemote(p *project, userStarted bool) {
 			if err == nil && result.Status == core.RemoteProbeConnected && result.Session != nil {
 				a.attachRemote(p, result.Session.ID)
 				a.refreshRemoteTree(p)
+				a.recheckRemoteDocuments(p)
 				return
 			}
 			if result.Session != nil {
@@ -433,6 +441,7 @@ func (a *App) closeRemoteWorkspace(p *project) {
 	}
 	r.closed = true
 	r.stopRemoteTimer()
+	a.stopRemoteWatch(p)
 	if r.reconnecting != nil {
 		r.reconnecting.cancel()
 		r.reconnecting = nil
@@ -466,22 +475,43 @@ func (a *App) openRemoteProject(target remoteTarget) {
 	p := &project{root: target.root, name: name, commit: newCommitState()}
 	r := &remoteProject{connectionID: target.connectionID, name: target.name, connection: target.connection, home: target.session.HomeDirectory}
 	p.remote = r
-	r.binding = core.NewRemoteWorkspace(target.root, target.remoteRoot, func(session string) {
-		// A request of the workspace found the connection closed, on the request's goroutine.
-		a.post(func(a *App) {
-			if a.project == p {
-				a.loseRemote(p, session, errRemoteSessionClosed)
-			}
-		})
-	})
+	r.binding = core.NewRemoteWorkspace(target.root, target.remoteRoot, a.remoteSessionLost(p))
 	// The host's project never runs on this computer, so the workspace stays in safe mode.
 	ctx := core.WithRemoteWorkspace(core.WithProjectCodeAllowed(context.Background(), p.trust.allowed), r.binding)
 	p.ctx, p.cancel = context.WithCancel(ctx)
 	a.searchView.reset()
-	a.term = terminalUI{}
+	// Its first terminal runs on the host once it is shown, over the session attached below.
+	a.openTerminals(p)
 	a.project = p
 	a.notice = ""
 	a.logView.reset()
 	a.worktreeView.reset()
 	a.attachRemote(p, target.session.ID)
+	// Unsaved edits of the folder's files are drafts on this computer; they open over the host's
+	// files as a local project's do.
+	a.restoreCheckpoints(p)
+}
+
+// remoteSessionLost is how a request of p reports, on its own goroutine, that it found the
+// connection of session closed: the window thread then handles the loss.
+func (a *App) remoteSessionLost(p *project) func(session string) {
+	return func(session string) {
+		a.post(func(a *App) {
+			if a.project == p {
+				a.loseRemote(p, session, errRemoteSessionClosed)
+			}
+		})
+	}
+}
+
+// recheckRemoteDocuments compares every document of p with its host file once a new session
+// opened: a change made on the host meanwhile is then found as any external change is, and a
+// close that waited on a check that found the host away goes on.
+func (a *App) recheckRemoteDocuments(p *project) {
+	for _, d := range p.docs.list {
+		if !d.virtual {
+			d.checkPending = true
+		}
+	}
+	a.scheduleDocumentChecks(p)
 }

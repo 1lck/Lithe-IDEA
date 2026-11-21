@@ -217,6 +217,9 @@ type Kernel interface {
 	RemoteDisconnect(ctx context.Context, sessionID string) (bool, error)
 	RemoteCloseAll(ctx context.Context) (int, error)
 	RemoteReadDir(ctx context.Context, sessionID, path string) (core.RemoteDirectory, error)
+	RemoteStat(ctx context.Context, sessionID, path string) (core.RemoteFileMetadata, error)
+	RemoteReadFile(ctx context.Context, sessionID, path string) ([]byte, core.RemoteFileVersion, error)
+	RemoteWriteFile(ctx context.Context, sessionID, path string, data []byte, expected *core.RemoteFileVersion) (core.RemoteFileVersion, bool, error)
 	RemoteServerState(ctx context.Context, sessionID string) error
 	SearchRemoteConnections(ctx context.Context, document *string, query string) (core.RemoteConnectionsState, error)
 	RemoteParseAddress(ctx context.Context, text string) (core.RemoteAddress, error)
@@ -225,6 +228,10 @@ type Kernel interface {
 	RemoteMottyHosts(ctx context.Context, configDirectory string, document *string) (core.RemoteMottyHosts, error)
 	RemoteWorkspaceTrust(ctx context.Context, document *string, sessionID, workspace string) (core.RemoteWorkspaceTrustState, error)
 	EditRemoteWorkspaceTrust(ctx context.Context, document *string, decision core.RemoteWorkspaceTrustDecision) (core.RemoteWorkspaceTrustPublication, error)
+	RemoteRunTerminal(ctx context.Context, sessionID string, open core.RemoteTerminalOpen, events core.RemoteTerminalEvents) (core.RemoteTerminalExit, error)
+	RemoteRunWatch(ctx context.Context, sessionID, root string, excludeNames []string, events core.RemoteWatchEvents) error
+	RemoteTerminalWrite(ctx context.Context, sessionID string, terminalID uint64, data []byte) (bool, error)
+	RemoteTerminalResize(ctx context.Context, sessionID string, terminalID uint64, columns, rows uint16) error
 	GitCreateTag(ctx context.Context, root, name, revision, message string) error
 	GitRebasePreview(ctx context.Context, root, base string) (core.RebasePreview, error)
 	GitRebaseStart(ctx context.Context, root string, preview core.RebasePreview, steps []core.RebaseStep) (*core.RebaseSession, error)

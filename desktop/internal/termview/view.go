@@ -176,13 +176,24 @@ type Config struct {
 	// OpenLink opens a link the user Command- (Control- off macOS) clicked. Nil leaves
 	// links inert.
 	OpenLink func(target string)
-	// start opens a shell; nil uses localshell.Start. It runs off the window thread when
-	// Notify is set (see View.start). Tests replace it.
+	// Open starts the program somewhere other than this machine, such as on the host of a
+	// remote workspace, in a grid of cols by rows cells. The view then gives it Args as they
+	// are, leaves Shell, Dir, Env and Unset to Open, and starts it plain, without the prompt
+	// integration of localshell.Config.PromptToken. Open runs off the window thread when
+	// Notify is set and may block until the program runs; the Shell it returns must keep
+	// every promise of Shell. Nil starts a local shell.
+	Open func(cols, rows int) (Shell, error)
+	// start opens a shell; nil uses localshell.Start, or Open when it is set. It runs off the
+	// window thread when Notify is set (see View.start). Tests replace it.
 	start func(localshell.Config) (shell, error)
 }
 
-// shell is the part of *localshell.Shell the view uses, so tests can stand in for it.
-type shell interface {
+// shell is the name the view uses for Shell.
+type shell = Shell
+
+// Shell is the part of *localshell.Shell the view uses, so tests and Config.Open can stand
+// in for it.
+type Shell interface {
 	// Drain appends the output received since the last call to dst. It never blocks.
 	Drain(dst []byte) []byte
 	// Write queues input for the shell and reports whether it was accepted: false once the
@@ -329,6 +340,10 @@ func nextOwner() uint32 {
 // New makes a terminal view. Its shell starts at the first paint, once the grid's size is
 // known.
 func New(cfg Config) *View {
+	if cfg.start == nil && cfg.Open != nil {
+		openElsewhere := cfg.Open
+		cfg.start = func(config localshell.Config) (shell, error) { return openElsewhere(config.Cols, config.Rows) }
+	}
 	if cfg.start == nil {
 		cfg.start = func(config localshell.Config) (shell, error) {
 			opened, err := localshell.Start(config)

@@ -912,6 +912,76 @@
       ]
     },
     {
+      "id": "desktop.remote.document.disconnected",
+      "description": "Reason a file of a remote workspace could not be opened or saved, after “Could not open/save {name}: ”: the workspace has no connection",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.remote.document.timedOut",
+      "description": "Reason a file of a remote workspace could not be opened or saved, after “Could not open/save {name}: ”: the host did not answer in time",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.remote.document.notFound",
+      "description": "Reason a file of a remote workspace could not be opened or saved, after “Could not open/save {name}: ”: the file is gone on the host",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.remote.document.permissionDenied",
+      "description": "Reason a file of a remote workspace could not be opened or saved, after “Could not open/save {name}: ”: the SSH account may not access it",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.remote.document.failed",
+      "description": "Reason a file of a remote workspace could not be opened or saved, after “Could not open/save {name}: ”: any other failure of the host",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.remote.document.tooLargeToSave",
+      "description": "Reason a file of a remote workspace could not be saved, after “Could not save {name}: ”: larger than the host takes in one save; limit is a size such as 8 MiB",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "limit": "string"
+      }
+    },
+    {
+      "id": "desktop.remote.terminal.notConnected",
+      "description": "Terminal of a remote workspace: why its shell could not start while the workspace has no connection to the host; shown after 'Could not start the shell:'",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.remote.terminal.tabNumber",
+      "description": "Terminal tab of a remote workspace after the first: the connection's name and the terminal's number",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "name": "string",
+        "number": "string"
+      }
+    },
+    {
+      "id": "desktop.remote.terminal.dropOutside",
+      "description": "Notification when files dropped on a remote workspace's terminal are not in the workspace, so they are not on the host",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
       "id": "desktop.remote.edit",
       "description": "Remote Development window: button that turns the selected connection's overview into its form",
       "platforms": [
@@ -2056,8 +2126,6 @@
       "desktop.remote.status.reconnect": "Reconnect",
       "desktop.remote.status.disconnect": "Disconnect and Close",
       "desktop.remote.workspace.title": "{folder} [SSH: {connection}]",
-      "desktop.remote.workspace.banner": "This is a remote workspace. The Project tool window lists the host's files; editing, terminals, search, Git and running do not work here yet.",
-      "desktop.remote.workspace.localOnly": "This feature does not work in a remote workspace yet. The Project tool window lists the host's files.",
       "desktop.remote.titleWith": "Remote Development › {crumb}",
       "desktop.remote.newConnection": "New Connection",
       "desktop.remote.search": "Search connections",
@@ -2166,7 +2234,18 @@
       "desktop.remote.import.mottyUnreadable": "Motty's configuration could not be read.",
       "desktop.remote.import.mottyTooLarge": "Motty's configuration is too large to read.",
       "desktop.remote.import.mottyUnsupported": "This version of Motty's configuration is not supported.",
-      "desktop.remote.import.failed": "Could not import: {reason}"
+      "desktop.remote.import.failed": "Could not import: {reason}",
+      "desktop.remote.workspace.banner": "This is a remote workspace. Its files open, edit and save on the host, and terminals run on the host; search, Git and running do not work here yet.",
+      "desktop.remote.workspace.localOnly": "This feature does not work in a remote workspace yet. You can browse, edit and save the host's files and run terminals on the host.",
+      "desktop.remote.document.disconnected": "the remote workspace is not connected; try again once it reconnects",
+      "desktop.remote.document.timedOut": "the host did not answer in time",
+      "desktop.remote.document.notFound": "the file no longer exists on the host",
+      "desktop.remote.document.permissionDenied": "the host account has no permission to access it",
+      "desktop.remote.document.failed": "the host could not read or write it",
+      "desktop.remote.document.tooLargeToSave": "This file exceeds the {limit} the host takes in one save. Your edits remain open.",
+      "desktop.remote.terminal.notConnected": "the workspace is not connected to the host. Wait for it to connect again, or click Reconnect in the status bar.",
+      "desktop.remote.terminal.tabNumber": "{name} ({number})",
+      "desktop.remote.terminal.dropOutside": "Only files of this remote workspace can be dropped on its terminal. Files of this computer are not on the host."
     },
     "zh-CN": {
       "desktop.remote.title": "远程开发",
@@ -2308,8 +2387,6 @@
       "desktop.remote.status.reconnect": "重新连接",
       "desktop.remote.status.disconnect": "断开并关闭",
       "desktop.remote.workspace.title": "{folder} [SSH: {connection}]",
-      "desktop.remote.workspace.banner": "这是远程工作区。项目工具窗口可以浏览主机上的文件；编辑、终端、搜索、Git 和运行暂不可用。",
-      "desktop.remote.workspace.localOnly": "远程工作区暂不支持此功能，项目工具窗口可以浏览主机上的文件。",
       "desktop.remote.titleWith": "远程开发 › {crumb}",
       "desktop.remote.newConnection": "新建连接",
       "desktop.remote.search": "搜索连接",
@@ -2418,7 +2495,18 @@
       "desktop.remote.import.mottyUnreadable": "无法读取 Motty 的配置。",
       "desktop.remote.import.mottyTooLarge": "Motty 的配置过大，无法读取。",
       "desktop.remote.import.mottyUnsupported": "不支持这个版本的 Motty 配置。",
-      "desktop.remote.import.failed": "无法导入：{reason}"
+      "desktop.remote.import.failed": "无法导入：{reason}",
+      "desktop.remote.workspace.banner": "这是远程工作区。主机上的文件可以打开、编辑和保存，终端在主机上运行；搜索、Git 和运行暂不可用。",
+      "desktop.remote.workspace.localOnly": "远程工作区暂不支持此功能，可以浏览、编辑和保存主机上的文件，也可以在主机上运行终端。",
+      "desktop.remote.document.disconnected": "远程工作区未连接，请在重新连接后再试",
+      "desktop.remote.document.timedOut": "主机没有及时响应",
+      "desktop.remote.document.notFound": "主机上已没有这个文件",
+      "desktop.remote.document.permissionDenied": "主机账户没有访问这个文件的权限",
+      "desktop.remote.document.failed": "主机无法读取或写入这个文件",
+      "desktop.remote.document.tooLargeToSave": "文件超过主机单次保存上限 {limit}，编辑内容仍保留。",
+      "desktop.remote.terminal.notConnected": "工作区未连接到主机。请等待重新连接，或点击状态栏中的“重新连接”。",
+      "desktop.remote.terminal.tabNumber": "{name} ({number})",
+      "desktop.remote.terminal.dropOutside": "只能把这个远程工作区里的文件拖到它的终端，本机的文件不在主机上。"
     }
   }
 }

@@ -197,36 +197,30 @@ func (a *App) scheduleDocumentChecks(p *project) {
 		p.docs.checking++
 		baseline := d.view.SavedSnapshot()
 		missing := d.recreateMissing
-		read := a.documentReader
+		read, raw := a.documentTextOf(p), a.documentRawOf(p)
 		maximum := int64(a.searchPreferences.MaximumFileBytes)
-		if baseline.Len() > 16<<20 {
-			read = func(path string) ([]byte, error) {
-				data, err := documentio.ReadFileLimit(path, maximum)
-				if err != nil {
-					return nil, err
-				}
-				kind, err := core.ClassifyDocumentText(data)
-				if kind == core.DocumentInvalidUTF8 {
-					return nil, errUnsupportedEncoding
-				}
-				if kind == core.DocumentBinary {
-					return nil, errNotText
-				}
-				return data, err
+		if baseline.Len() > 16<<20 && p.remote == nil {
+			// A host file opens up to remoteDocumentReadLimit, so only a local one is this large.
+			read = func(_ context.Context, path string) ([]byte, error) {
+				return classifiedDocument(documentio.ReadFileLimit(path, maximum))
 			}
 		}
 		kernel, _ := a.kernel.(editorKernel)
 		encoding, hasBOM, disk := d.encoding, d.hasBOM, d.diskBytes
 		a.background(p, 0, func(ctx context.Context) func(*App) {
-			data, err := read(d.path)
-			// The baseline is compared in place: copying it would double the memory a check
-			// needs for a large document.
-			same := func() bool { return baseline.EqualBytes(data) }
+			var data []byte
+			var err error
+			var same func() bool
 			if disk != nil {
 				// The file is not plain UTF-8: it is compared as bytes and decoded as it was
-				// opened. Its bytes may even be invalid UTF-8, which the reader refuses.
-				data, err = readRawDocument(d.path)
+				// opened. Its bytes may even be invalid UTF-8, which the text reader refuses.
+				data, err = raw(ctx, d.path)
 				same = func() bool { return bytes.Equal(data, disk) }
+			} else {
+				data, err = read(ctx, d.path)
+				// The baseline is compared in place: copying it would double the memory a check
+				// needs for a large document.
+				same = func() bool { return baseline.EqualBytes(data) }
 			}
 			changed := err == nil && (missing || !same())
 			var content editorview.Content
@@ -287,6 +281,13 @@ func (a *App) clearDocumentConflict(d *document) {
 func (a *App) applyDocumentCheck(p *project, d *document, baseline rope.Rope, content editorview.Content, changed, prepared bool, err error, observed []byte) {
 	if d.saving || !d.view.HasSavedSnapshot(baseline) {
 		d.checkPending = true
+		return
+	}
+	if errors.Is(err, errRemoteDisconnected) {
+		// The host is checked again once the connection opens (reconnectRemote); a close waits
+		// for that, as it does for a check that failed.
+		d.checkFailed = true
+		// log-exempt: 同一次失败已经记录过：连接丢失已记录为 remote_session_lost，状态栏显示重连。
 		return
 	}
 	if err != nil && !errors.Is(err, os.ErrNotExist) {

@@ -54,6 +54,10 @@ type terminal struct {
 	find terminalFind
 	// title replaces "Local (n)" on the tab; a plugin terminal sets it.
 	title string
+	// host is the connection's name when the terminal runs on a remote workspace's host, and
+	// names the tab instead of "Local"; closeHost then ends the terminal's host requests.
+	host      string
+	closeHost context.CancelFunc
 	// plugin is set when a plugin backend owns the terminal.
 	plugin *pluginTerminal
 	// scripts are the command scripts written for commands too long for the shell's line; they are
@@ -271,6 +275,7 @@ func (a *App) closeTerminals(p *project) {
 		return
 	}
 	for _, t := range p.terms.list {
+		t.endHost()
 		a.awaitShellEnd(t.view.Close())
 		t.removeCommandScripts()
 		a.finishPluginTerminal(t, "closed", nil)
@@ -382,14 +387,20 @@ type terminalOptions struct {
 	plugin   *pluginTerminal
 }
 
-// newTerminalWith is newTerminal with the options of a plugin terminal.
+// newTerminalWith is newTerminal with the options of a plugin terminal. A terminal of a remote
+// workspace runs the host's login shell on the host (remote_terminal.go); a plugin's terminal
+// would run on this computer, so a remote workspace refuses it.
 func (a *App) newTerminalWith(p *project, options terminalOptions) *terminal {
-	if a.refuseRemote(p, "open_terminal") {
+	if options.plugin != nil && a.refuseRemote(p, "open_terminal") {
 		return nil
 	}
 	shell := options.shell
 	if shell == "" && options.plugin == nil {
 		shell = a.settings.TerminalShell
+	}
+	if p.remote != nil {
+		// The shell menu's programs and the Terminal setting name programs of this computer.
+		shell = ""
 	}
 	set := &p.terms
 	state := set.bench
@@ -422,6 +433,10 @@ func (a *App) newTerminalWith(p *project, options terminalOptions) *terminal {
 	config.PasteImage = func() bool { return a.pasteTerminalImage(p, t) }
 	if options.plugin != nil {
 		config.Exited = func(status *int) { a.pluginTerminalExited(p, t, status) }
+	}
+	if p.remote != nil {
+		t.host = p.remote.name
+		t.closeHost = a.remoteTerminalConfig(p, t, &config, dir, config.Env)
 	}
 	t.view = termview.New(config)
 	// A terminal can start before its first paint (Start below), and the switches decide how
@@ -467,6 +482,7 @@ func (a *App) closeTerminal(p *project, id int) {
 	if !a.reduceTerminals(p, set.bench, core.CloseEditor(group, member, emptyPolicy(group), core.SelectAdjacent)) {
 		return
 	}
+	t.endHost()
 	a.awaitShellEnd(t.view.Close())
 	t.removeCommandScripts()
 	a.finishPluginTerminal(t, "closed", nil)
@@ -539,5 +555,16 @@ func (a *App) terminalTitle(t *terminal) string {
 	if t.title != "" {
 		return t.title
 	}
+	if t.host != "" {
+		return remoteTerminalTitle(a.language(), t.host, t.number)
+	}
 	return a.text.Terminal.Tab(t.number)
+}
+
+// endHost ends the host requests of a terminal of a remote workspace, so that one still
+// starting gives up at once; a local terminal has none.
+func (t *terminal) endHost() {
+	if t.closeHost != nil {
+		t.closeHost()
+	}
 }

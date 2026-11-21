@@ -103,7 +103,9 @@ func (a *App) clearEditorActions(d *document) {
 // collectEditorActions asks the plugins for the actions of the document's current text. An answer
 // that arrives after the text changed is dropped, since its ranges no longer name the document.
 func (a *App) collectEditorActions(p *project, d *document) {
-	if a.plugins == nil || d.virtual || d.path == "" {
+	// The plugins of a remote workspace do not run yet (#2231): its documents name placeholder
+	// paths, which have nothing on this computer.
+	if a.plugins == nil || d.virtual || d.path == "" || p.remote != nil {
 		return
 	}
 	data, _ := d.view.Text()

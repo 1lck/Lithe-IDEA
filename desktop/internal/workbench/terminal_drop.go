@@ -63,8 +63,13 @@ func (a *App) terminalFileDrop(event gfx.FileDropEvent) (gfx.EventResult, bool) 
 	return gfx.EventResult{}, true
 }
 
-// pasteTerminalPaths pastes paths, quoted for the terminal's shell, followed by a space.
+// pasteTerminalPaths pastes paths, quoted for the terminal's shell, followed by a space. A
+// terminal of a remote workspace is given their host paths (pasteRemoteTerminalPaths).
 func (a *App) pasteTerminalPaths(t *terminal, paths []string) {
+	if p := a.project; p != nil && p.remote != nil && t.host != "" {
+		a.pasteRemoteTerminalPaths(p, t, paths)
+		return
+	}
 	program := t.shell
 	if program == "" {
 		program = loginShellProgram()
