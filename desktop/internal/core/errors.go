@@ -68,6 +68,12 @@ const (
 	CodeTimedOut ErrorCode = "timed_out"
 	// CodeConnectionClosed means a long-lived connection named by the request is closed.
 	CodeConnectionClosed ErrorCode = "connection_closed"
+	// CodeForwardTargetNotConfirmed means remote.startForward named a target outside the host's
+	// loopback interface the user did not confirm (S28); nothing was forwarded.
+	CodeForwardTargetNotConfirmed ErrorCode = "forward_target_not_confirmed"
+	// CodeForwardLimitReached means the session already runs as many forwards as Core allows;
+	// details carry the maximum.
+	CodeForwardLimitReached ErrorCode = "forward_limit_reached"
 	// CodeRemoteServerInvalid means the remote server build for the host's platform could not be
 	// read, or its SHA-256 is not the one the application's manifest names; nothing was sent to
 	// the host.

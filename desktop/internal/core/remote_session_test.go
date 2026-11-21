@@ -117,6 +117,18 @@ func TestRemoteSessionCommandsOfAnUnknownSession(t *testing.T) {
 	if _, saved, err := client.RemoteWriteFile(ctx, "no-such-session", "/srv/repo/README.md", []byte("text"), &RemoteFileVersion{Size: 4, ModifiedMs: &modified}); saved || !errors.As(err, &coreErr) || coreErr.Code != CodeConnectionClosed {
 		t.Fatalf("writeFile = %v, %v, want connection_closed", saved, err)
 	}
+	if _, created, err := client.RemoteStartForward(ctx, "no-such-session", RemoteForwardTarget{Host: "127.0.0.1", Port: 8080}); created || !errors.As(err, &coreErr) || coreErr.Code != CodeConnectionClosed {
+		t.Fatalf("startForward = %v, %v, want connection_closed", created, err)
+	}
+	if stopped, err := client.RemoteStopForward(ctx, "no-such-session", 1); stopped || !errors.As(err, &coreErr) || coreErr.Code != CodeConnectionClosed {
+		t.Fatalf("stopForward = %v, %v, want connection_closed", stopped, err)
+	}
+	if _, err := client.RemoteForwards(ctx, "no-such-session"); !errors.As(err, &coreErr) || coreErr.Code != CodeConnectionClosed {
+		t.Fatalf("forwards = %v, want connection_closed", err)
+	}
+	if _, err := client.RemoteListeningPorts(ctx, "no-such-session"); !errors.As(err, &coreErr) || coreErr.Code != CodeConnectionClosed {
+		t.Fatalf("ports.listening = %v, want connection_closed", err)
+	}
 }
 
 // A context without its remote workspace sends requests that compute from their payload as

@@ -1,0 +1,509 @@
+{
+  "schemaVersion": 1,
+  "messages": [
+    {
+      "id": "desktop.remote.ports.title",
+      "description": "Tool stripe button and header of the Ports tool window of a remote workspace, which lists the host's listening ports and the forwards to them",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.remote.ports.help",
+      "description": "Ports tool window: tip of the info glyph in the header: forwards listen only on this computer's loopback address, every local program can reach them, and the host cannot reach back",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.remote.ports.columnRemote",
+      "description": "Ports tool window: column of the port as the host sees it",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.remote.ports.columnLocal",
+      "description": "Ports tool window: column of the address the forward listens on, on this computer",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.remote.ports.columnProcess",
+      "description": "Ports tool window: column of the host process that listens on the port",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.remote.ports.columnSource",
+      "description": "Ports tool window: column of how the port got into the list",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.remote.ports.columnStatus",
+      "description": "Ports tool window: column of whether the port is forwarded",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.remote.ports.sourceListening",
+      "description": "Ports tool window, Source column: the port was found listening on the host",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.remote.ports.sourceManual",
+      "description": "Ports tool window, Source column: the user added the port by hand",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.remote.ports.process",
+      "description": "Ports tool window, Process column: the command name and process ID of the host process that listens",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "process": "string",
+        "pid": "string"
+      }
+    },
+    {
+      "id": "desktop.remote.ports.processUnknown",
+      "description": "Ports tool window, Process column: the host did not say which process listens, for example one run by another account",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.remote.ports.statusNotForwarded",
+      "description": "Ports tool window, Status column: the port is not forwarded",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.remote.ports.statusForwarded",
+      "description": "Ports tool window, Status column: the port is forwarded",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.remote.ports.statusForwarding",
+      "description": "Ports tool window, Status column: the forward is being started",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.remote.ports.statusStopping",
+      "description": "Ports tool window, Status column: the forward is being stopped",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.remote.ports.statusFailed",
+      "description": "Ports tool window, Status column: forwarding or stopping the port failed, with the reason",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "reason": "string"
+      }
+    },
+    {
+      "id": "desktop.remote.ports.localChanged",
+      "description": "Ports tool window, Local Address column: tooltip of a forward whose usual local port was taken on this computer, so another was chosen",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "requested": "string",
+        "port": "string"
+      }
+    },
+    {
+      "id": "desktop.remote.ports.forward",
+      "description": "Ports tool window: button and menu item that forwards the row's port",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.remote.ports.stop",
+      "description": "Ports tool window: button and menu item that stops forwarding the row's port",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.remote.ports.stopAll",
+      "description": "Ports tool window: header button that stops every forward of the workspace",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.remote.ports.openBrowser",
+      "description": "Ports tool window: button and menu item that opens the forward's local address in the default browser, with the scheme and path of the URL the port was added as",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.remote.ports.copyAddress",
+      "description": "Ports tool window: button and menu item that copies the forward's local address, as a URL when the port was added as one",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.remote.ports.remove",
+      "description": "Ports tool window: menu item that removes a port the user added and that is not forwarded",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.remote.ports.addLabel",
+      "description": "Ports tool window: accessible label of the field where a port to forward is typed",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.remote.ports.addPlaceholder",
+      "description": "Ports tool window: placeholder of the field where a port to forward is typed, as a port alone, host:port or a URL",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.remote.ports.add",
+      "description": "Ports tool window: button that adds and forwards the typed port",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.remote.ports.addInvalid",
+      "description": "Ports tool window: the typed text is not a port, host:port or a URL with a port or a known scheme",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.remote.ports.addCredentials",
+      "description": "Ports tool window: the typed URL contains a user name or password, which the window refuses so it is never stored or shown",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.remote.ports.remoteMore",
+      "description": "Ports tool window, Remote Port column: the first address the host listens on for the port, with how many other addresses it also listens on",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "address": "string",
+        "count": "string"
+      }
+    },
+    {
+      "id": "desktop.remote.ports.remoteListening",
+      "description": "Ports tool window, Remote Port column: tooltip listing every address the host listens on for the port, separated by commas",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "addresses": "string"
+      }
+    },
+    {
+      "id": "desktop.remote.ports.remoteUrlListening",
+      "description": "Ports tool window, Remote Port column: tooltip of a port the user added as a URL, giving the whole URL and every address the host listens on for its port, separated by commas",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "url": "string",
+        "addresses": "string"
+      }
+    },
+    {
+      "id": "desktop.remote.ports.empty",
+      "description": "Ports tool window: the host has no listening port and the user added none",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.remote.ports.loading",
+      "description": "Ports tool window: the first listing of the host's ports has not arrived",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.remote.ports.disconnected",
+      "description": "Ports tool window: the workspace has no connection; its forwards ended with the session",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.remote.ports.readFailed",
+      "description": "Ports tool window: reading the host's listening ports failed, with the reason",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "reason": "string"
+      }
+    },
+    {
+      "id": "desktop.remote.ports.limit",
+      "description": "Ports tool window: the connection already runs the most forwards Core allows",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "maximum": "string"
+      }
+    },
+    {
+      "id": "desktop.remote.ports.invalidTarget",
+      "description": "Ports tool window: Core refused the forward's target host or port",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.remote.ports.confirmTitle",
+      "description": "Ports tool window: title of the dialog that asks before forwarding to an address that is not the host's own loopback address",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.remote.ports.confirmBody",
+      "description": "Ports tool window: body of the dialog that asks before forwarding to an address that is not the host's own loopback address",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "target": "string",
+        "name": "string"
+      }
+    },
+    {
+      "id": "desktop.remote.ports.confirmForward",
+      "description": "Ports tool window: button of the confirmation dialog that forwards anyway",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.remote.ports.confirmCancel",
+      "description": "Ports tool window: button of the confirmation dialog that forwards nothing",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.remote.ports.statusLabel",
+      "description": "Status bar of a remote workspace: accessible label of the item that counts the forwarded ports and opens the Ports tool window",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.remote.ports.statusTooltip",
+      "description": "Status bar of a remote workspace: tooltip of the item that counts the forwarded ports",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "count": "string"
+      }
+    },
+    {
+      "id": "desktop.remote.ports.changeLocal",
+      "description": "Ports tool window: context menu item of a forwarded port that forwards it on another local port",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.remote.ports.forwardLocal",
+      "description": "Ports tool window: context menu item of a port not forwarded yet that forwards it on a local port the user chooses",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.remote.ports.localTitle",
+      "description": "Ports tool window: title of the dialog the local port of a forward is chosen in",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.remote.ports.localBody",
+      "description": "Ports tool window: body of the dialog the local port of a forward is chosen in",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "remote": "string",
+        "name": "string"
+      }
+    },
+    {
+      "id": "desktop.remote.ports.localLabel",
+      "description": "Ports tool window: label and placeholder of the field of the local port dialog",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.remote.ports.localInvalid",
+      "description": "Ports tool window: shown under the local port field when its text is not a port number",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.remote.ports.localApply",
+      "description": "Ports tool window: button of the local port dialog that forwards on the typed port",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.remote.ports.localCancel",
+      "description": "Ports tool window: button of the local port dialog that changes nothing",
+      "platforms": [
+        "desktop"
+      ]
+    }
+  ],
+  "locales": {
+    "en-US": {
+      "desktop.remote.ports.title": "Ports",
+      "desktop.remote.ports.help": "A forwarded port listens only on this computer's loopback address (127.0.0.1). Every program on this computer can connect to it, not just Lithe. The host cannot reach this computer through it.",
+      "desktop.remote.ports.columnRemote": "Remote Port",
+      "desktop.remote.ports.columnLocal": "Local Address",
+      "desktop.remote.ports.columnProcess": "Process",
+      "desktop.remote.ports.columnSource": "Source",
+      "desktop.remote.ports.columnStatus": "Status",
+      "desktop.remote.ports.sourceListening": "Listening",
+      "desktop.remote.ports.sourceManual": "Added",
+      "desktop.remote.ports.process": "{process} (PID {pid})",
+      "desktop.remote.ports.processUnknown": "Unknown",
+      "desktop.remote.ports.statusNotForwarded": "Not forwarded",
+      "desktop.remote.ports.statusForwarded": "Forwarded",
+      "desktop.remote.ports.statusForwarding": "Forwarding…",
+      "desktop.remote.ports.statusStopping": "Stopping…",
+      "desktop.remote.ports.statusFailed": "Failed: {reason}",
+      "desktop.remote.ports.localChanged": "Port {requested} is in use on this computer, so {port} is used instead.",
+      "desktop.remote.ports.forward": "Forward",
+      "desktop.remote.ports.stop": "Stop Forwarding",
+      "desktop.remote.ports.stopAll": "Stop All Forwards",
+      "desktop.remote.ports.openBrowser": "Open in Browser",
+      "desktop.remote.ports.copyAddress": "Copy Local Address",
+      "desktop.remote.ports.remove": "Remove",
+      "desktop.remote.ports.addLabel": "Port to Forward",
+      "desktop.remote.ports.addPlaceholder": "Port, host:port or URL",
+      "desktop.remote.ports.add": "Forward Port",
+      "desktop.remote.ports.addInvalid": "Enter a port from 1 to 65535, host:port, or a URL such as http://localhost:3000.",
+      "desktop.remote.ports.addCredentials": "The address can't include a user name or password.",
+      "desktop.remote.ports.remoteMore": "{address} +{count}",
+      "desktop.remote.ports.remoteListening": "Listening on {addresses}",
+      "desktop.remote.ports.remoteUrlListening": "{url}, listening on {addresses}",
+      "desktop.remote.ports.empty": "No ports are listening on the host. Type a port above to forward it anyway.",
+      "desktop.remote.ports.loading": "Reading the host's listening ports…",
+      "desktop.remote.ports.disconnected": "Not connected. Forwards end with the connection; forward the ports again after reconnecting.",
+      "desktop.remote.ports.readFailed": "Could not read the host's listening ports: {reason}",
+      "desktop.remote.ports.limit": "This connection already forwards {maximum} ports, the most allowed. Stop one first.",
+      "desktop.remote.ports.invalidTarget": "The host or port is not valid.",
+      "desktop.remote.ports.confirmTitle": "Forward to Another Address?",
+      "desktop.remote.ports.confirmBody": "{target} is not the loopback address of {name}. Forwarding it lets every program on this computer reach that address through the host. Continue only if you trust it.",
+      "desktop.remote.ports.confirmForward": "Forward",
+      "desktop.remote.ports.confirmCancel": "Cancel",
+      "desktop.remote.ports.statusLabel": "Forwarded Ports",
+      "desktop.remote.ports.statusTooltip": "{count} forwarded. Click to open Ports.",
+      "desktop.remote.ports.changeLocal": "Change Local Port…",
+      "desktop.remote.ports.forwardLocal": "Forward to Local Port…",
+      "desktop.remote.ports.localTitle": "Local Port",
+      "desktop.remote.ports.localBody": "Forward {remote} on {name} to this port of this computer's loopback address. If another program uses it, a free port is used instead and the row says so.",
+      "desktop.remote.ports.localLabel": "Local port",
+      "desktop.remote.ports.localInvalid": "Enter a port number from 1 to 65535.",
+      "desktop.remote.ports.localApply": "Forward",
+      "desktop.remote.ports.localCancel": "Cancel"
+    },
+    "zh-CN": {
+      "desktop.remote.ports.title": "端口",
+      "desktop.remote.ports.help": "转发的端口只监听本机的回环地址（127.0.0.1）。本机上的所有程序都能连接，不只是 Lithe；主机无法通过它反向访问本机。",
+      "desktop.remote.ports.columnRemote": "远端端口",
+      "desktop.remote.ports.columnLocal": "本机地址",
+      "desktop.remote.ports.columnProcess": "进程",
+      "desktop.remote.ports.columnSource": "来源",
+      "desktop.remote.ports.columnStatus": "状态",
+      "desktop.remote.ports.sourceListening": "监听发现",
+      "desktop.remote.ports.sourceManual": "手动添加",
+      "desktop.remote.ports.process": "{process}（PID {pid}）",
+      "desktop.remote.ports.processUnknown": "未知",
+      "desktop.remote.ports.statusNotForwarded": "未转发",
+      "desktop.remote.ports.statusForwarded": "已转发",
+      "desktop.remote.ports.statusForwarding": "正在转发…",
+      "desktop.remote.ports.statusStopping": "正在停止…",
+      "desktop.remote.ports.statusFailed": "失败：{reason}",
+      "desktop.remote.ports.localChanged": "本机端口 {requested} 已被占用，改用 {port}。",
+      "desktop.remote.ports.forward": "转发",
+      "desktop.remote.ports.stop": "停止转发",
+      "desktop.remote.ports.stopAll": "停止全部转发",
+      "desktop.remote.ports.openBrowser": "在浏览器中打开",
+      "desktop.remote.ports.copyAddress": "复制本机地址",
+      "desktop.remote.ports.remove": "移除",
+      "desktop.remote.ports.addLabel": "要转发的端口",
+      "desktop.remote.ports.addPlaceholder": "端口、主机:端口或网址",
+      "desktop.remote.ports.add": "转发端口",
+      "desktop.remote.ports.addInvalid": "请输入 1–65535 的端口、“主机:端口”，或 http://localhost:3000 这样的网址。",
+      "desktop.remote.ports.addCredentials": "地址不能包含用户名或密码。",
+      "desktop.remote.ports.remoteMore": "{address} +{count}",
+      "desktop.remote.ports.remoteListening": "监听地址：{addresses}",
+      "desktop.remote.ports.remoteUrlListening": "{url}，监听地址：{addresses}",
+      "desktop.remote.ports.empty": "主机上没有正在监听的端口。也可以在上方输入端口直接转发。",
+      "desktop.remote.ports.loading": "正在读取主机上的监听端口…",
+      "desktop.remote.ports.disconnected": "未连接。转发随连接一起结束，重新连接后需要再次转发。",
+      "desktop.remote.ports.readFailed": "无法读取主机上的监听端口：{reason}",
+      "desktop.remote.ports.limit": "此连接已转发 {maximum} 个端口，达到上限，请先停止一个。",
+      "desktop.remote.ports.invalidTarget": "主机或端口无效。",
+      "desktop.remote.ports.confirmTitle": "转发到其他地址？",
+      "desktop.remote.ports.confirmBody": "{target} 不是 {name} 自身的回环地址。转发后，本机上的所有程序都能经由主机访问这个地址。请确认你信任它后再继续。",
+      "desktop.remote.ports.confirmForward": "转发",
+      "desktop.remote.ports.confirmCancel": "取消",
+      "desktop.remote.ports.statusLabel": "已转发的端口",
+      "desktop.remote.ports.statusTooltip": "已转发 {count} 个端口，点击打开“端口”窗口。",
+      "desktop.remote.ports.changeLocal": "更改本机端口…",
+      "desktop.remote.ports.forwardLocal": "转发到指定本机端口…",
+      "desktop.remote.ports.localTitle": "本机端口",
+      "desktop.remote.ports.localBody": "把 {name} 上的 {remote} 转发到本机回环地址的这个端口。如果它已被其他程序占用，会改用一个空闲端口，并在这一行注明。",
+      "desktop.remote.ports.localLabel": "本机端口",
+      "desktop.remote.ports.localInvalid": "请输入 1 到 65535 之间的端口号。",
+      "desktop.remote.ports.localApply": "转发",
+      "desktop.remote.ports.localCancel": "取消"
+    }
+  }
+}

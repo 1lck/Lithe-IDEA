@@ -39,8 +39,9 @@ var remoteTestFolders = map[string][]core.RemoteDirectoryEntry{
 // remoteHostKernel stands in for a host over SSH: it opens numbered sessions, lists
 // remoteTestFolders, answers heartbeats as the test says, lists the workspace's tree only for a
 // request that carries the workspace's session, keeps the files of files
-// (remote_documents_test.go), watches the workspace's folder (remote_watch_test.go) and searches
-// it (remote_search_test.go). Everything else is the real Core.
+// (remote_documents_test.go), watches the workspace's folder (remote_watch_test.go), searches
+// it (remote_search_test.go) and forwards the host's ports (remote_ports_test.go). Everything else
+// is the real Core.
 type remoteHostKernel struct {
 	*testKernel
 	mu sync.Mutex
@@ -77,6 +78,8 @@ type remoteHostKernel struct {
 	search remoteHostSearch
 	// git is the workspace's trust and the host's repository (remote_git_test.go).
 	git remoteHostGit
+	// ports are the host's listening ports and the sessions' forwards (remote_ports_test.go).
+	ports remoteHostPorts
 }
 
 // remoteTestTree is the workspace's tree the Project tool window lists by default.

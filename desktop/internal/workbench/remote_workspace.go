@@ -107,6 +107,8 @@ type remoteProject struct {
 	watch         *remoteWatch
 	watchWait     remoteWatchWait
 	watchNotified bool
+	// ports is the Ports tool window's state (remote_ports.go).
+	ports remotePorts
 	// closed is set once the project closes; nothing of the workspace runs afterwards.
 	closed bool
 }
@@ -342,6 +344,8 @@ func (a *App) loseRemote(p *project, session string, err error) {
 	a.backgroundFailed("remote_session_lost", remoteLogError(err))
 	a.stopRemoteWatch(p)
 	a.closeGitObservation(p)
+	// Core stops the session's forwards with it.
+	r.ports.reset()
 	r.session, r.misses = "", 0
 	r.binding.Detach()
 	r.stopRemoteTimer()
@@ -458,6 +462,7 @@ func (a *App) closeRemoteWorkspace(p *project) {
 	}
 	r.closed = true
 	r.stopRemoteTimer()
+	r.ports.reset()
 	a.stopRemoteWatch(p)
 	if r.reconnecting != nil {
 		r.reconnecting.cancel()
@@ -502,6 +507,8 @@ func (a *App) openRemoteProject(target remoteTarget) {
 	// Its first terminal runs on the host once it is shown, over the session attached below.
 	a.openTerminals(p)
 	a.project = p
+	// The tool windows of a remote workspace, such as Ports, are shown while it is open.
+	a.chrome.setRemote(true)
 	a.notice = ""
 	a.logView.reset()
 	a.worktreeView.reset()

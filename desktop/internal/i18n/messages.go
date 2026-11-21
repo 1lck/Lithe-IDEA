@@ -134,6 +134,8 @@ type ToolMessages struct {
 	Debug         string
 	Notifications string
 	Background    string
+	// Ports names the tool window of a remote workspace that lists the host's ports and forwards.
+	Ports string
 	// ToolWindows names the stripe button that lists the stripe buttons the user hid.
 	ToolWindows string
 	// DragHint tells assistive technology that a toolbar item can be dragged elsewhere.

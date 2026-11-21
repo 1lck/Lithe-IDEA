@@ -164,6 +164,10 @@ const (
 	itemDebug         = "debug"
 	itemNotifications = "notifications"
 	itemBackground    = "background"
+	// itemPorts is the Ports tool window of a remote workspace (remote_ports.go). It is in the
+	// catalog of every window so its place is kept, but it is shown only in a remote workspace
+	// (chromeState.apply).
+	itemPorts = "ports"
 	// itemToolWindows is the "…" button that lists the stripe buttons the user hid. It is in
 	// the catalog so it can be moved like any stripe button, but it is shown only while a
 	// button is hidden (chromeState.apply).
@@ -212,6 +216,9 @@ type item struct {
 	// vcs is the plugin version control provider whose window the item shows (vcs.go); nil for
 	// any other item.
 	vcs *vcsWindow
+	// remote reports that the item exists only in a remote workspace: in any other window its
+	// button is left out, its tool window does not open and no command shows it.
+	remote bool
 }
 
 // stripeLucideStroke is the stroke, in Lucide's 24 unit view box, of a Lucide icon drawn in a
@@ -247,6 +254,7 @@ var catalog = []item{
 	{id: itemTests, zone: zoneBottomLeft, icon: stripeLucide(icons.CircleCheck), label: func(m *i18n.Messages) string { return m.Tools.Tests }, panel: true},
 	{id: itemSecurity, zone: zoneBottomLeft, icon: stripeLucide(icons.ShieldCheck), label: func(m *i18n.Messages) string { return m.Tools.Security }, panel: true},
 	{id: itemDebug, zone: zoneBottomLeft, icon: &toolicons.Debug, label: func(m *i18n.Messages) string { return m.Tools.Debug }, panel: true},
+	{id: itemPorts, zone: zoneBottomLeft, icon: stripeLucide(icons.ArrowLeftRight), label: func(m *i18n.Messages) string { return m.Tools.Ports }, panel: true, remote: true},
 
 	{id: itemBuild, zone: zoneRightTop, icon: &toolicons.Build, label: func(m *i18n.Messages) string { return m.Tools.Build }, panel: true},
 	{id: itemNotifications, zone: zoneRightTop, icon: &toolicons.Notifications, label: func(m *i18n.Messages) string { return m.Tools.Notifications }, panel: true},
@@ -313,6 +321,9 @@ type chromeState struct {
 	hiddenMark []bool
 	// open is the catalog index of the open tool window of each slot, -1 for none.
 	open [slotCount]int
+	// remote is set while the window's project is a remote workspace, whose items (item.remote)
+	// are shown only then.
+	remote bool
 
 	// ids is the identity each button was declared with in the last paint, which the drag
 	// maps its source back to a catalog index by.
@@ -438,7 +449,8 @@ func defaultLayout() core.ChromeLayout {
 // skipped; the kernel never returns them. A hidden button keeps its zone but is left out of
 // the zone's shown buttons, and so is the "…" button while no button is hidden: it would list
 // nothing. An open item that is not a tool window, such as the background button an earlier
-// layout saved as open, takes no slot.
+// layout saved as open, takes no slot. An item of a remote workspace keeps its zone outside
+// one but is neither shown, listed as hidden nor open.
 func (c *chromeState) apply(layout core.ChromeLayout) {
 	c.layout = layout
 	for z := range c.items {
@@ -466,6 +478,9 @@ func (c *chromeState) apply(layout core.ChromeLayout) {
 			continue
 		}
 		c.zones[index] = z
+		if !c.present(index) {
+			continue
+		}
 		if c.hiddenMark[index] {
 			c.hidden = append(c.hidden, index)
 			continue
@@ -480,13 +495,27 @@ func (c *chromeState) apply(layout core.ChromeLayout) {
 	}
 	for _, id := range layout.Open {
 		index, known := c.index[id]
-		if !known || !c.catalog[index].panel {
+		if !known || !c.catalog[index].panel || !c.present(index) {
 			continue
 		}
 		if s, ok := c.zoneOf(index).slot(); ok {
 			c.open[s] = index
 		}
 	}
+}
+
+// present reports whether catalog item index exists in the window now: an item of a remote
+// workspace exists only while the project is one.
+func (c *chromeState) present(index int) bool { return c.remote || !c.catalog[index].remote }
+
+// setRemote shows the items of a remote workspace while remote is set, and leaves them out
+// otherwise, keeping the arrangement.
+func (c *chromeState) setRemote(remote bool) {
+	if c.remote == remote {
+		return
+	}
+	c.remote = remote
+	c.apply(c.layout)
 }
 
 // zoneOf returns the zone catalog item index sits in now, whether its button is shown or

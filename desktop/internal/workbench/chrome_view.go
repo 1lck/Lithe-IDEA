@@ -519,6 +519,7 @@ func (a *App) statusBar(c ui.C) {
 	ui.Row(c).FillWidth().Height(statusBarHeight).Shrink(0).Background(a.chromeFill()).
 		Items(ui.Center).PadX(chromeEdge).Children(func() {
 		a.remoteStatus(c)
+		a.remotePortsStatusItem(c)
 		a.statusPathView(c)
 		zone := ui.Row(c).Items(ui.Center).Gap(chromeStatusGap).Children(func() {
 			for _, i := range a.chrome.items[zoneStatus] {
