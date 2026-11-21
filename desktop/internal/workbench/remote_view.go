@@ -168,22 +168,51 @@ func (a *App) remoteFields(c ui.C) {
 				a.remoteHops(k, language, disabled)
 			})
 		})
-		ui.Collapsible(c.Part("advanced"), &f.advanced, i18n.Shared(language, "desktop.remote.advanced"), func() {
+		// The advanced options fold under a line; folded, the header says what they are now, so
+		// the form need not open to show them.
+		timeout := a.remoteAutoPlaceholder(language, effective.timeout, i18n.Shared(language, "desktop.remote.timeoutPlaceholder"))
+		keepAlive := a.remoteAutoPlaceholder(language, effective.keepAlive, i18n.Shared(language, "desktop.remote.keepAlivePlaceholder"))
+		ui.Row(c.Part("advanced-line")).FillWidth().Height(1).Shrink(0).Background(a.colors.Line)
+		head := c.Part("advanced")
+		ui.Row(head).FillWidth().Items(ui.Center).Gap(6).Children(func() {
+			icon := icons.ChevronRight
+			if f.advanced.Open {
+				icon = icons.ChevronDown
+			}
+			if ui.Button(head.Part("fold"), i18n.Shared(language, "desktop.remote.advanced")).Icon(icon).Ghost().Shrink(0).Clicked() {
+				c.After(func() { f.advanced.Open = !f.advanced.Open })
+			}
+			if !f.advanced.Open {
+				ui.Text(head, i18n.SharedFormat(language, "desktop.remote.advancedSummary", map[string]string{
+					"timeout":   remoteSecondsOr(language, f.timeout.Text(), timeout),
+					"keepAlive": remoteSecondsOr(language, f.keepAlive.Text(), keepAlive),
+				})).FontSize(a.theme.Metrics.FontSizeS).Color(a.colors.Subtle).Ellipsis().MinWidth(0)
+			}
+		})
+		if f.advanced.Open {
 			k := c.Part("advanced-fields")
 			ui.Column(k).FillWidth().Gap(14).PadTop(4).Children(func() {
 				ui.Row(k.Part("line-timing")).FillWidth().Gap(14).Items(ui.Start).Children(func() {
 					label := i18n.Shared(language, "desktop.remote.timeout")
 					a.remoteCell(k.Part("connectTimeoutSeconds"), "connectTimeoutSeconds", label, "", 0, func(k ui.C) {
-						text(k, label, a.remoteAutoPlaceholder(language, effective.timeout, i18n.Shared(language, "desktop.remote.timeoutPlaceholder")), &f.timeout)
+						text(k, label, timeout, &f.timeout)
 					})
 					label = i18n.Shared(language, "desktop.remote.keepAlive")
 					a.remoteCell(k.Part("keepAliveSeconds"), "keepAliveSeconds", label, i18n.Shared(language, "desktop.remote.keepAliveHelp"), 0, func(k ui.C) {
-						text(k, label, a.remoteAutoPlaceholder(language, effective.keepAlive, i18n.Shared(language, "desktop.remote.keepAlivePlaceholder")), &f.keepAlive)
+						text(k, label, keepAlive, &f.keepAlive)
 					})
 				})
 			})
-		})
+		}
 	})
+}
+
+// remoteSecondsOr is a typed number of seconds as "N seconds", or fallback when the field is empty.
+func remoteSecondsOr(language i18n.Language, typed, fallback string) string {
+	if typed = strings.TrimSpace(typed); typed != "" {
+		return i18n.SharedFormat(language, "desktop.remote.seconds", map[string]string{"count": typed})
+	}
+	return fallback
 }
 
 // remoteSwatches declares the color choices: none, then Core's colors, as one stop of Tab that

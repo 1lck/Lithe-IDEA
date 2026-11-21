@@ -560,3 +560,24 @@ func TestRemoteBrowserBackEndsTheSession(t *testing.T) {
 		t.Fatalf("logged a host path: %s", event)
 	}
 }
+
+// After a listing the folder page tags the subfolders holding a .git entry, a folder or a
+// worktree's file, and leaves the others untagged.
+func TestRemoteBrowserTagsGitRepositories(t *testing.T) {
+	h, k, _, _ := remoteWorkspaceHarness(t)
+	k.set(func(k *remoteHostKernel) {
+		k.kinds = map[string]core.RemoteFileKind{
+			remoteTestHome + "/project/.git": core.RemoteFileKindDirectory,
+			remoteTestHome + "/linked/.git":  core.RemoteFileKindFile,
+		}
+	})
+	b := h.connectAndBrowse(t)
+	h.await("the Git tags", func() bool { return b.repositories != nil })
+	h.settle()
+	if !b.repositories["project"] || !b.repositories["linked"] || b.repositories[".cache"] {
+		t.Fatalf("repositories = %v, want project and linked", b.repositories)
+	}
+	if !h.shows(i18n.Shared(h.app.language(), "desktop.remote.browse.git")) {
+		t.Fatal("the folder list does not tag the repositories")
+	}
+}

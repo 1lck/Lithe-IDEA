@@ -16,13 +16,17 @@
   - “从 Motty 导入”和“从 ~/.ssh/config 导入”两张卡片，各显示可导入的主机数；
   - “手动填写”。
 - **列表与概览：** 连接按 Core 给出的分组列出，分组可以折叠。每行显示：
+  - 左侧一条连接颜色的竖条，选中的行带选中底色；
   - 图标：测过的主机显示系统名的前两个字母（Ubuntu 显示“Ub”），没测过的显示名称首字母，都用连接的颜色；
-  - 名称、地址和上次连接时间。
+  - 名称、地址，右侧是上次连接时间；已有窗口打开它、或正在为它选文件夹时，显示绿点和“已连接”。
 - **概览页：** 选中连接后右侧显示：
   - 顶部：图标、颜色点、名称、分组标签，地址后跟跳板机；
   - 按钮：“编辑”、“⋯”和“打开文件夹…”；
   - 各区块：“最近打开的文件夹”、“主机信息”（主机名、系统、CPU、内存、磁盘，以及测试时间和“重新测试”）、“生效的 SSH 设置”。生效设置逐项列出 `ssh -G` 解析出的值和来源（本连接 / SSH 配置 / 默认值）。
-- **编辑与新建：** 在表单中编辑连接，高级选项可以展开。主机字段填了 `user@host` 时，Core 拒绝的原因显示在主机字段下方，连接不会写入列表。测试失败时，结果显示在表单顶部，OpenSSH 的原始诊断默认展开。
+- **编辑与新建：** 面包屑显示“编辑 <名称>”或“新建连接”。高级选项折叠在分隔线下，折叠时标题旁显示当前的连接超时和保活间隔，可以展开编辑。主机字段填了 `user@host` 时，Core 拒绝的原因显示在主机字段下方，连接不会写入列表。
+- **测试结果：** 显示在表单最下方、高级选项之后：
+  - 成功：绿色框，“已连接：<系统> <架构>，这台主机可以用于远程开发。”，下面一行小标签列出系统、主机名、核数、内存和磁盘；右侧“OpenSSH 输出”展开原始输出；
+  - 失败：红色框，失败原因和该检查什么（例如身份验证失败时提示检查用户名、或改用“私钥文件”）；OpenSSH 的原始输出默认展开在框下方，右侧“收起”。
 - **连接步骤：** 依次为读取配置、连接主机、身份验证、检查平台、安装服务端、启动会话：
   - OpenSSH 的主机密钥询问显示在“连接主机”下方，带密钥类型和指纹，按钮为“拒绝”和“信任并继续”；
   - 密码询问显示在“身份验证”下方；
@@ -31,7 +35,7 @@
 - **选文件夹：** 左侧连接列表保留，面包屑显示连接名称。右侧：
   - 顶部：系统图标、“选择 … 上的文件夹”、连接状态、地址和系统，右侧“断开”；
   - 路径输入框和“前往”，下方是“常用”位置和可点击的路径面包屑；
-  - 目录列表：“上一级”，文件夹双击进入，文件灰显、不能选；
+  - 目录列表：“上一级”，文件夹双击进入，文件灰显、不能选；含 `.git`（目录或工作树的文件）的子文件夹标“Git”。列表显示后，桌面端用 Core 已有的 `remote.stat` 查看前 64 个子文件夹，最多 8 个并行；
   - 底部按钮为“稍后再选”和“打开 <文件夹名>”。
 - **信任文件夹：** 第一次打开远程文件夹时询问是否信任：
   - 标题下方用等宽字体显示 `主机 : 路径`，正文说明信任后会在远端运行哪些程序；
@@ -55,6 +59,7 @@
 | 新建连接：新分组，主机字段被拒绝 | [浅色英文](remote-connections-refused-light-en-US.png) | [深色中文](remote-connections-refused-dark-zh-CN.png) |
 | SSH 密码询问（弹窗） | [浅色英文](remote-connections-password-light-en-US.png) | [深色中文](remote-connections-password-dark-zh-CN.png) |
 | 测试失败，诊断展开 | [浅色英文](remote-connections-test-failed-light-en-US.png) | [深色中文](remote-connections-test-failed-dark-zh-CN.png) |
+| 测试成功，主机信息标签 | [浅色英文](remote-connections-test-ok-light-en-US.png) | [深色中文](remote-connections-test-ok-dark-zh-CN.png) |
 | 连接步骤：主机密钥询问 | [浅色英文](remote-connections-steps-host-key-light-en-US.png) | [深色中文](remote-connections-steps-host-key-dark-zh-CN.png) |
 | 连接步骤：密码询问 | [浅色英文](remote-connections-steps-password-light-en-US.png) | [深色中文](remote-connections-steps-password-dark-zh-CN.png) |
 | 连接步骤：失败 | [浅色英文](remote-connections-steps-failed-light-en-US.png) | [深色中文](remote-connections-steps-failed-dark-zh-CN.png) |

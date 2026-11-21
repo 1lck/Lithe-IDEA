@@ -522,7 +522,8 @@ func TestRemoteTestAsksInTheWindowAndReportsTheHost(t *testing.T) {
 		key = "desktop.remote.probe.connected"
 	}
 	platform := map[string]string{"system": result.Host.System, "machine": result.Host.Machine}
-	if !h.showsWrapped(i18n.SharedFormat(lang, key, platform)) || !h.shows(i18n.Shared(lang, "desktop.remote.probe.cpu")) {
+	usable := result.Status != core.RemoteProbeConnected || h.shows(i18n.Shared(lang, "desktop.remote.probe.usable"))
+	if !h.showsWrapped(i18n.SharedFormat(lang, key, platform)) || !usable {
 		t.Fatalf("the window does not show the platform the host reported (%s)", result.Status)
 	}
 

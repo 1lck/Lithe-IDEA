@@ -234,6 +234,9 @@ func (a *App) remoteFolderList(c ui.C, b *remoteBrowser) {
 		row.Element.Children(func() {
 			ui.Icon(rc, icons.Folder).Size(15, 15).Shrink(0).Color(a.colors.Subtle)
 			ui.Text(rc, name).Ellipsis().Grow(1).Shrink(1).MinWidth(0)
+			if b.repositories[name] {
+				a.remoteTag(rc.Part("git"), i18n.Shared(language, "desktop.remote.browse.git"), a.colors.Subtle)
+			}
 			ui.Text(rc, hint).FontSize(a.theme.Metrics.FontSizeS).Color(a.colors.Subtle).Shrink(0)
 		})
 	}).Scrollbars().FillWidth().Grow(1).Shrink(1).MinHeight(0).Label(title)

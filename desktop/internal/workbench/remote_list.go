@@ -130,6 +130,12 @@ func (a *App) clearRemoteSearch() {
 	a.searchRemote()
 }
 
+// remoteLive reports whether the connection id is connected now: a window has it open, or this
+// window chooses a folder over its session.
+func (a *App) remoteLive(id string) bool {
+	return a.remoteWindows(id) > 0 || (a.remote.browser != nil && a.remote.browser.entryID == id)
+}
+
 // remoteWindows is how many open windows work in a folder over the saved connection id.
 func (a *App) remoteWindows(id string) int {
 	if a.sessions == nil {
