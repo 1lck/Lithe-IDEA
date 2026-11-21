@@ -256,6 +256,9 @@ func (a *App) pumpTreeListings(p *project) {
 			}
 			top := treeTopPath(t)
 			loggedFailure := t.failureReported
+			// rootRead is set when the root was listed in this batch, and rootListed when it
+			// could be.
+			rootRead, rootListed := false, false
 			byPath := make(map[string]core.DirectoryListing, len(listings))
 			for _, listing := range listings {
 				byPath[listing.Path] = listing
@@ -281,6 +284,7 @@ func (a *App) pumpTreeListings(p *project) {
 					}
 					if n == t.root {
 						t.failed = i18n.Shared(a.language(), "desktop.project.rootUnavailable")
+						rootRead = true
 					} else if !n.listed {
 						n.expanded, t.rowsDirty = false, true
 					}
@@ -292,11 +296,13 @@ func (a *App) pumpTreeListings(p *project) {
 					n.listed, n.empty = true, len(n.children) == 0
 					if n == t.root {
 						t.failed = ""
+						rootRead, rootListed = true, true
 					}
 				} else {
 					if n == t.root {
 						a.operationFailed("project_tree_list", errors.New("workspace root unavailable"))
 						t.failed = i18n.Shared(a.language(), "desktop.project.rootUnavailable")
+						rootRead = true
 					} else {
 						// log-exempt: 预期的缺失：Core 的列表里没有这个目录，它已被外部删除或隐藏。
 						n.expanded, t.rowsDirty = false, true
@@ -318,6 +324,9 @@ func (a *App) pumpTreeListings(p *project) {
 						}
 					}
 				}
+			}
+			if rootRead {
+				a.remoteTreeRootRead(p, rootListed)
 			}
 			a.pumpTreeListings(p)
 			a.continueTreeActions(p)

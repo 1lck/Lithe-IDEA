@@ -38,8 +38,9 @@ var remoteTestFolders = map[string][]core.RemoteDirectoryEntry{
 
 // remoteHostKernel stands in for a host over SSH: it opens numbered sessions, lists
 // remoteTestFolders, answers heartbeats as the test says, lists the workspace's tree only for a
-// request that carries the workspace's session and keeps the files of files
-// (remote_documents_test.go). Everything else is the real Core.
+// request that carries the workspace's session, keeps the files of files
+// (remote_documents_test.go) and watches the workspace's folder (remote_watch_test.go).
+// Everything else is the real Core.
 type remoteHostKernel struct {
 	*testKernel
 	mu sync.Mutex
@@ -65,6 +66,20 @@ type remoteHostKernel struct {
 	fileSessions []string
 	// terminals are the host's terminals (remote_terminal_test.go).
 	terminals remoteHostTerminals
+	// tree is the workspace's folders the Project tool window lists, by path relative to the
+	// folder; nil lists remoteTestTree. missing is set while the folder is gone from the host.
+	tree    map[string][]core.WorkspaceNode
+	missing bool
+	// watches are the host's watches of the folder (remote_watch_test.go).
+	watches remoteHostWatches
+}
+
+// remoteTestTree is the workspace's tree the Project tool window lists by default.
+var remoteTestTree = map[string][]core.WorkspaceNode{
+	"": {
+		{Path: "src", Name: "src", IsDirectory: true},
+		{Path: "README.md", Name: "README.md"},
+	},
 }
 
 func (k *remoteHostKernel) RemoteConnect(_ context.Context, request core.RemoteConnectRequest) (core.RemoteConnectResult, error) {
@@ -114,21 +129,21 @@ func (k *remoteHostKernel) ListDirectories(ctx context.Context, _ string, paths 
 		session = binding.SessionID()
 	}
 	k.mu.Lock()
+	defer k.mu.Unlock()
 	k.listings = append(k.listings, session)
-	k.mu.Unlock()
-	if session == "" {
+	switch {
+	case session == "":
 		return nil, &core.Error{Command: "workspace.listDirectories", Code: core.CodeConnectionClosed, Message: "the remote workspace is not connected"}
+	case k.missing:
+		return nil, &core.Error{Command: "workspace.listDirectories", Code: core.CodeWorkspaceNotFound, Message: "the folder is gone"}
+	}
+	tree := k.tree
+	if tree == nil {
+		tree = remoteTestTree
 	}
 	listings := make([]core.DirectoryListing, 0, len(paths))
 	for _, dir := range paths {
-		listing := core.DirectoryListing{Path: dir}
-		if dir == "" {
-			listing.Children = []core.WorkspaceNode{
-				{Path: "src", Name: "src", IsDirectory: true},
-				{Path: "README.md", Name: "README.md"},
-			}
-		}
-		listings = append(listings, listing)
+		listings = append(listings, core.DirectoryListing{Path: dir, Children: slices.Clone(tree[dir])})
 	}
 	return listings, nil
 }

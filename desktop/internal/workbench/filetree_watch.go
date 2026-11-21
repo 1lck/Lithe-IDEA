@@ -18,8 +18,8 @@ const treeWatchLimit = 128
 
 func (a *App) watchTreeNode(p *project, n *treeNode) {
 	if p.remote != nil {
-		// A remote workspace's folder is on the host; the local watch would only fail on its
-		// placeholder. The tree is read again when the connection comes back.
+		// A remote workspace's folder is on the host, which watches it whole (remote_watch.go);
+		// the local watch would only fail on its placeholder.
 		return
 	}
 	if treeUsesRecursiveWatch() {
@@ -124,11 +124,17 @@ func (a *App) applyTreeRecursiveWatch(p *project, ready, available bool, err err
 	a.filterTreeEvents(p)
 }
 
+// treeChangesObserved reports whether a watch feeds the tree's queue of changed paths: the
+// recursive native stream of a local project, or the host watch of a remote workspace.
+func treeChangesObserved(p *project) bool {
+	return p.tree.recursiveWatch || p.remote != nil && p.remote.watch != nil
+}
+
 // Filter off the window thread and keep a bounded, coalesced queue. Core owns
 // hidden-path rules, including built-in build and dependency directories.
 func (a *App) filterTreeEvents(p *project) {
 	t := &p.tree
-	if t.eventFiltering || !t.recursiveWatch || len(t.eventPending) == 0 {
+	if t.eventFiltering || !treeChangesObserved(p) || len(t.eventPending) == 0 {
 		return
 	}
 	paths := t.eventPending
@@ -141,10 +147,10 @@ func (a *App) filterTreeEvents(p *project) {
 			t.eventFiltering = false
 			if err != nil {
 				a.backgroundFailed("project_tree_filter_changes", err)
-				if t.recursiveWatch {
+				if treeChangesObserved(p) {
 					a.resyncTreeListings(p)
 				}
-			} else if t.recursiveWatch && epoch == t.eventEpoch {
+			} else if treeChangesObserved(p) && epoch == t.eventEpoch {
 				a.applyFilteredTreeEvents(p, filtered)
 			}
 			a.filterTreeEvents(p)
@@ -177,14 +183,15 @@ func (a *App) applyFilteredTreeEvents(p *project, names []string) {
 	// The event paths are native notifications. Look up only nodes already
 	// represented by the tree; Core owns visibility and the actual listing.
 	// Reuse the loaded-node index. Only build a folded lookup if a Windows
-	// notification actually differs in case from the listing.
+	// notification actually differs in case from the listing; a remote
+	// workspace's host compares names by case, whatever this computer does.
 	p.tree.find("")
 	var folded map[string]*treeNode
 	lookup := func(name string) *treeNode {
 		if node := p.tree.byPath[name]; node != nil && node.dir {
 			return node
 		}
-		if runtime.GOOS != "windows" {
+		if runtime.GOOS != "windows" || p.remote != nil {
 			return nil
 		}
 		if folded == nil {

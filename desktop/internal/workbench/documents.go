@@ -568,8 +568,9 @@ func (a *App) placeDocumentAs(p *project, path, name string, content editorview.
 	a.refreshInlineBlame(p, d)
 	p.docs.group = group
 	if !virtual && p.remote == nil {
-		// The host's folder is not watched yet; a remote document is checked when it is saved,
-		// before it closes and after the connection opens again (remote_documents.go).
+		// A remote document is checked when the host watch reports a change of its file
+		// (remote_watch.go), when it is saved, before it closes and after the connection opens
+		// again (remote_documents.go).
 		a.watchDocument(p, d)
 	}
 	a.focusDocument(id)

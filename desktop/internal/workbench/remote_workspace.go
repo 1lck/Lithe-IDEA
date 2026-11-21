@@ -27,9 +27,10 @@ import (
 // keeps (App.Run).
 //
 // In this stage the workspace lists its folder in the Project tool window, the editor opens,
-// saves and compares the host's files (remote_documents.go), and its terminals run the host's
-// login shell on the host (remote_terminal.go). The features that still read the project through
-// the local file system (the watch of the folder, search, local history, language servers, run
+// saves and compares the host's files (remote_documents.go), its terminals run the host's login
+// shell on the host (remote_terminal.go), and the host watches the folder, so a change made there
+// shows in the tree and the open documents (remote_watch.go). The features that still read the
+// project through the local file system (search, local history, language servers, run
 // configurations and plugins, a plugin's terminal among them) are not started for it, or say so,
 // until each moves to the host (R0, step 3). The workspace stays in safe mode: nothing of the
 // host's project runs on this computer, so Git stays off as it does in an untrusted project.
@@ -99,6 +100,12 @@ type remoteProject struct {
 	failure *remoteProbeOutcome
 	// menuOpen is the status bar's menu of the connection.
 	menuOpen bool
+	// watch is the host watch of the folder over the session (remote_watch.go), nil while none
+	// runs; watchWait is what it waits for then. watchNotified is set once the user was told the
+	// folder is not watched in full.
+	watch         *remoteWatch
+	watchWait     remoteWatchWait
+	watchNotified bool
 	// closed is set once the project closes; nothing of the workspace runs afterwards.
 	closed bool
 }
@@ -254,12 +261,16 @@ func (r *remoteProject) stopRemoteTimer() {
 	r.timer++
 }
 
-// attachRemote makes session the workspace's session and starts its heartbeat.
+// attachRemote makes session the workspace's session and starts its heartbeat and the host watch
+// of its folder.
 func (a *App) attachRemote(p *project, session string) {
 	r := p.remote
+	a.stopRemoteWatch(p)
 	r.session, r.link, r.attempt, r.misses, r.failure = session, remoteConnected, 0, 0, nil
 	r.binding.Attach(session)
 	a.beatRemote(p)
+	r.watchWait = remoteWatchReady
+	a.startRemoteWatch(p)
 }
 
 // beatRemote asks the server of the workspace's session what still runs, and schedules the next
@@ -313,6 +324,7 @@ func (a *App) loseRemote(p *project, session string, err error) {
 		return
 	}
 	a.backgroundFailed("remote_session_lost", remoteLogError(err))
+	a.stopRemoteWatch(p)
 	r.session, r.misses = "", 0
 	r.binding.Detach()
 	r.stopRemoteTimer()
@@ -429,6 +441,7 @@ func (a *App) closeRemoteWorkspace(p *project) {
 	}
 	r.closed = true
 	r.stopRemoteTimer()
+	a.stopRemoteWatch(p)
 	if r.reconnecting != nil {
 		r.reconnecting.cancel()
 		r.reconnecting = nil
