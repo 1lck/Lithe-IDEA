@@ -1768,25 +1768,21 @@
     },
     {
       "id": "desktop.remote.trust.title",
-      "description": "Remote Development window: before a remote folder first opens: heading",
+      "description": "Remote Development window, before opening a host folder: title of the question whether to trust the folder",
       "platforms": [
         "desktop"
       ]
     },
     {
       "id": "desktop.remote.trust.body",
-      "description": "Remote Development window: before a remote folder first opens: what trusting means",
+      "description": "Remote Development window, before opening a host folder: what trusting the folder lets run on the host, and that trust is kept per host folder",
       "platforms": [
         "desktop"
-      ],
-      "parameters": {
-        "folder": "string",
-        "name": "string"
-      }
+      ]
     },
     {
       "id": "desktop.remote.trust.safe",
-      "description": "Remote Development window: before a remote folder first opens: what safe mode does",
+      "description": "Remote Development window, before opening a host folder: what Open in Safe Mode opens the folder with",
       "platforms": [
         "desktop"
       ]
@@ -1831,6 +1827,30 @@
       "parameters": {
         "reason": "string"
       }
+    },
+    {
+      "id": "desktop.remote.trust.choice",
+      "description": "Remote Development window, before opening a host folder: an answer's name in bold, before what the folder opens with",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "choice": "string"
+      }
+    },
+    {
+      "id": "desktop.remote.trust.full",
+      "description": "Remote Development window, before opening a host folder: what Trust and Open opens the folder with",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.remote.trust.local",
+      "description": "Remote Development window, before opening a host folder: footer note that trust decisions are kept on this computer",
+      "platforms": [
+        "desktop"
+      ]
     },
     {
       "id": "desktop.remote.import.title",
@@ -2228,14 +2248,17 @@
       "desktop.remote.question.asks": "OpenSSH asks:",
       "desktop.remote.question.answer": "Answer",
       "desktop.remote.question.continue": "Continue",
-      "desktop.remote.trust.title": "Trust this folder?",
-      "desktop.remote.trust.body": "Do you trust the authors of {folder} on {name}? A trusted folder can run its own code, such as tasks and build tool wrappers.",
-      "desktop.remote.trust.safe": "In safe mode the folder is only read: nothing in it runs until you trust it.",
+      "desktop.remote.trust.title": "Trust This Remote Folder?",
+      "desktop.remote.trust.body": "Once trusted, Lithe runs the folder's build scripts, language servers, Git hooks and debug adapters on the host. Trust it only if you trust that code. Trusting a local folder does not carry over to the host, and other folders on the same host are trusted separately.",
+      "desktop.remote.trust.safe": "browse and edit files; builds, language servers, Git and debugging do not start.",
       "desktop.remote.trust.parent": "Trust all folders in {parent}",
       "desktop.remote.trust.back": "Back",
       "desktop.remote.trust.safeOpen": "Open in Safe Mode",
       "desktop.remote.trust.trustOpen": "Trust and Open",
       "desktop.remote.trust.failed": "Could not save the decision: {reason}",
+      "desktop.remote.trust.choice": "{choice}: ",
+      "desktop.remote.trust.full": "everything works.",
+      "desktop.remote.trust.local": "Trust decisions are kept on this computer only",
       "desktop.remote.import.title": "Import Hosts",
       "desktop.remote.import.source.motty": "Motty",
       "desktop.remote.import.source.ssh": "~/.ssh/config",
@@ -2492,14 +2515,17 @@
       "desktop.remote.question.asks": "OpenSSH 询问：",
       "desktop.remote.question.answer": "回答",
       "desktop.remote.question.continue": "继续",
-      "desktop.remote.trust.title": "信任此文件夹吗？",
-      "desktop.remote.trust.body": "你信任 {name} 上 {folder} 的作者吗？受信任的文件夹可以运行其中的代码，例如任务和构建工具包装脚本。",
-      "desktop.remote.trust.safe": "在安全模式下只读取文件夹，信任之前不会运行其中的任何代码。",
+      "desktop.remote.trust.title": "信任这个远程文件夹吗？",
+      "desktop.remote.trust.body": "信任后，Lithe 会在远端运行这个文件夹里的构建脚本、语言服务器、Git 钩子和调试适配器。只在你相信这些代码时才信任。本机文件夹的信任不会带到远端；同一主机的其他文件夹需要单独信任。",
+      "desktop.remote.trust.safe": "可以浏览和编辑文件；不启动构建、语言服务器、Git 和调试。",
       "desktop.remote.trust.parent": "信任 {parent} 下的所有文件夹",
       "desktop.remote.trust.back": "返回",
       "desktop.remote.trust.safeOpen": "以安全模式打开",
       "desktop.remote.trust.trustOpen": "信任并打开",
       "desktop.remote.trust.failed": "无法保存决定：{reason}",
+      "desktop.remote.trust.choice": "{choice}：",
+      "desktop.remote.trust.full": "完整功能。",
+      "desktop.remote.trust.local": "信任记录只保存在本机",
       "desktop.remote.import.title": "导入主机",
       "desktop.remote.import.source.motty": "Motty",
       "desktop.remote.import.source.ssh": "~/.ssh/config",

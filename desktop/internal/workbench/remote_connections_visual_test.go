@@ -209,7 +209,8 @@ func TestVisualRemoteConnections(t *testing.T) {
 
 			// The first time a folder opens, the window asks whether to trust it.
 			parent := "/home/dev"
-			r.trust = &remoteTrustPrompt{browser: &remoteBrowser{name: "Build box"}, dir: "/home/dev/project", trust: remoteconn.Trust{
+			r.selectEntry(buildBox)
+			r.trust = &remoteTrustPrompt{browser: &remoteBrowser{entryID: buildBox, name: "Build box", connection: r.entry(buildBox).Connection}, dir: "/home/dev/project", trust: remoteconn.Trust{
 				State: core.RemoteWorkspaceTrustState{WorkspaceTrust: &core.RemoteWorkspaceTrustOf{
 					State: core.WorkspaceTrustUnset, Workspace: "/home/dev/project", OfferedLocation: &parent,
 				}},
