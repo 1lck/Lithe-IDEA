@@ -56,3 +56,68 @@ func TestRemoteTrustReadsWithoutWritingAndRefusesAClosedSession(t *testing.T) {
 		t.Fatalf("a refused decision created %s: %v", root, err)
 	}
 }
+
+// Revoking needs no connection: it removes the named records, drops a target left empty and
+// writes once; removals that name nothing write nothing, and a file changed since it was read
+// is refused with ErrConflict.
+func TestRemoteTrustRevokeRemovesRecordsWithoutAConnection(t *testing.T) {
+	ctx := testContext(t)
+	kernel := core.NewClient()
+	root := filepath.Join(t.TempDir(), "preferences")
+	file := filepath.Join(root, "toolchains", "remote-trust.json")
+	if err := os.MkdirAll(filepath.Dir(file), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	devbox := `{"hops":[{"ssh":{"destination":"devbox","port":2222,"user":"dev"}}]}`
+	lab := `{"hops":[{"ssh":{"destination":"lab"}},{"container":{"engine":"docker","program":"docker","container":"web"}}]}`
+	seed := `{"version":1,"targets":[` +
+		`{"target":` + devbox + `,"label":"Dev box","trustedWorkspaces":["/srv/app"],"distrustedWorkspaces":["/srv/tmp"]},` +
+		`{"target":` + lab + `,"trustedLocations":["/work"]}]}`
+	if err := os.WriteFile(file, []byte(seed), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	trust, err := ReadTrust(ctx, kernel, root, "", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	targets := trust.State.Document.Targets
+	if len(targets) != 2 {
+		t.Fatalf("targets = %d", len(targets))
+	}
+	if place := targets[0].Place(); targets[0].Label != "Dev box" || place != "dev@devbox:2222" {
+		t.Fatalf("first target: label set = %v, place matches = %v", targets[0].Label != "", place == "dev@devbox:2222")
+	}
+	if place := targets[1].Place(); place != "lab → docker:web" {
+		t.Fatalf("second target place matches = %v", place == "lab → docker:web")
+	}
+
+	absent := []core.RemoteWorkspaceTrustRevoke{{Target: targets[0].Target, List: core.RemoteTrustTrustedLocations, Path: "/srv"}}
+	after, committed, err := trust.Revoke(ctx, kernel, absent)
+	if err != nil || committed || len(after.Targets) != 2 {
+		t.Fatalf("absent removal: committed = %v, targets = %d, err = %v", committed, len(after.Targets), err)
+	}
+	if text, _ := os.ReadFile(file); string(text) != seed {
+		t.Fatal("a removal that names no record rewrote the file")
+	}
+
+	after, committed, err = trust.Revoke(ctx, kernel, []core.RemoteWorkspaceTrustRevoke{
+		{Target: targets[0].Target, List: core.RemoteTrustDistrustedWorkspaces, Path: "/srv/tmp"},
+		{Target: targets[1].Target, List: core.RemoteTrustTrustedLocations, Path: "/work"},
+	})
+	if err != nil || !committed {
+		t.Fatalf("removal: committed = %v, err = %v", committed, err)
+	}
+	if len(after.Targets) != 1 || len(after.Targets[0].TrustedWorkspaces) != 1 || len(after.Targets[0].DistrustedWorkspaces) != 0 {
+		t.Fatalf("after removal: targets = %d", len(after.Targets))
+	}
+	reread, err := ReadTrust(ctx, kernel, root, "", "")
+	if err != nil || len(reread.State.Document.Targets) != 1 || reread.State.Document.Targets[0].Label != "Dev box" {
+		t.Fatalf("re-read: targets = %d, err = %v", len(reread.State.Document.Targets), err)
+	}
+
+	// trust still holds the bytes read before the removal: writing against them is refused.
+	_, committed, err = trust.Revoke(ctx, kernel, []core.RemoteWorkspaceTrustRevoke{{Target: targets[0].Target, List: core.RemoteTrustTrustedWorkspaces, Path: "/srv/app"}})
+	if !errors.Is(err, ErrConflict) || committed {
+		t.Fatalf("stale removal: committed = %v, conflict = %v", committed, errors.Is(err, ErrConflict))
+	}
+}

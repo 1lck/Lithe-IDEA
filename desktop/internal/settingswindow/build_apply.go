@@ -14,9 +14,10 @@ import (
 // open with its drafts; Cancel writes nothing.
 
 const (
-	applyToolchain = "toolchain:"
-	applyLocations = "locations:"
-	applyStepping  = "stepping:"
+	applyToolchain   = "toolchain:"
+	applyLocations   = "locations:"
+	applyRemoteTrust = "remote-trust:"
+	applyStepping    = "stepping:"
 )
 
 // buildApply is the footer's write of the Build drafts. Only the window thread uses it.
@@ -51,6 +52,10 @@ func (w *window) buildDrafts(language i18n.Language) (count int, targets []strin
 			count += n
 			targets = append(targets, i18n.Shared(language, "desktop.trustedLocations.target"))
 		}
+		if n := t.remote.drafts(); n > 0 {
+			count += n
+			targets = append(targets, i18n.Shared(language, "desktop.trustedLocations.remoteTarget"))
+		}
 	}
 	if pending := w.steppingPending(); len(pending) > 0 {
 		count += len(pending)
@@ -79,6 +84,10 @@ func (w *window) startApply(close bool) {
 			// the next apply tries the read again.
 			t.locations.readFailed = nil
 			a.steps = append(a.steps, applyLocations)
+		}
+		if t.remote.drafts() > 0 {
+			t.remote.readFailed = nil
+			a.steps = append(a.steps, applyRemoteTrust)
 		}
 	}
 	for _, id := range w.steppingPending() {
@@ -125,6 +134,14 @@ func (w *window) advanceApply(toolchainFailed error, stepping steppingResult) {
 		if w.toolchains.locations.saving {
 			return
 		}
+	case a.running == applyRemoteTrust:
+		if toolchainFailed != nil {
+			w.stopApply(toolchainFailed)
+			return
+		}
+		if w.toolchains.remote.saving {
+			return
+		}
 	case strings.HasPrefix(a.running, applyStepping):
 		if !stepping.done {
 			return
@@ -165,6 +182,28 @@ func (w *window) advanceApply(toolchainFailed error, stepping steppingResult) {
 			}
 			a.steps = a.steps[1:]
 			if locations.beginSave() {
+				a.running = step
+				return
+			}
+			continue
+		}
+		if step == applyRemoteTrust {
+			remote := w.toolchains.remote
+			if remote.busy() {
+				return
+			}
+			if !remote.loaded || remote.stale {
+				// A write failed and left the records stale: read them again and write the removals
+				// that still name a record.
+				if remote.readFailed != nil {
+					w.stopApply(remote.readFailed)
+					return
+				}
+				remote.beginLoad()
+				return
+			}
+			a.steps = a.steps[1:]
+			if remote.beginSave() {
 				a.running = step
 				return
 			}

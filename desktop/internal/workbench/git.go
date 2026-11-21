@@ -24,7 +24,7 @@ type gitState struct {
 	// (remoteRepositoryAbove).
 	remoteAbove bool
 	status      core.GitStatus
-	err      error
+	err         error
 	// tree is the same answer indexed for the project tree, which colors the rows of the
 	// changed paths. It is rebuilt whenever the status is replaced.
 	tree treeStatus

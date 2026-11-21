@@ -229,6 +229,7 @@ type Kernel interface {
 	RemoteMottyHosts(ctx context.Context, configDirectory string, document *string) (core.RemoteMottyHosts, error)
 	RemoteWorkspaceTrust(ctx context.Context, document *string, sessionID, workspace string) (core.RemoteWorkspaceTrustState, error)
 	EditRemoteWorkspaceTrust(ctx context.Context, document *string, decision core.RemoteWorkspaceTrustDecision) (core.RemoteWorkspaceTrustPublication, error)
+	RevokeRemoteWorkspaceTrust(ctx context.Context, document *string, revoke core.RemoteWorkspaceTrustRevoke) (core.RemoteWorkspaceTrustPublication, error)
 	RemoteRunTerminal(ctx context.Context, sessionID string, open core.RemoteTerminalOpen, events core.RemoteTerminalEvents) (core.RemoteTerminalExit, error)
 	RemoteRunWatch(ctx context.Context, sessionID, root string, excludeNames []string, events core.RemoteWatchEvents) error
 	RemoteTerminalWrite(ctx context.Context, sessionID string, terminalID uint64, data []byte) (bool, error)

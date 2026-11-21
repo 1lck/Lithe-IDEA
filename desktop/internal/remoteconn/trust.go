@@ -21,6 +21,7 @@ import (
 type TrustKernel interface {
 	RemoteWorkspaceTrust(ctx context.Context, document *string, sessionID, workspace string) (core.RemoteWorkspaceTrustState, error)
 	EditRemoteWorkspaceTrust(ctx context.Context, document *string, decision core.RemoteWorkspaceTrustDecision) (core.RemoteWorkspaceTrustPublication, error)
+	RevokeRemoteWorkspaceTrust(ctx context.Context, document *string, revoke core.RemoteWorkspaceTrustRevoke) (core.RemoteWorkspaceTrustPublication, error)
 }
 
 // Trust is the remote trust document with the bytes it was read from, and the trust of the
@@ -78,19 +79,65 @@ func (t Trust) Decide(ctx context.Context, kernel TrustKernel, decision core.Rem
 	}
 	publication, err := kernel.EditRemoteWorkspaceTrust(ctx, text, decision)
 	if err != nil {
-		var coreErr *core.Error
-		if errors.As(err, &coreErr) && coreErr.Code == core.CodeParseFailed {
-			err = errors.Join(ErrDamaged, err)
-		}
-		return false, err
+		return false, trustEditError(err)
 	}
 	if !publication.Changed {
 		return false, nil
 	}
 	if publication.Document == nil {
-		return false, errors.New("remoteconn: Core changed the trust decisions without a document")
+		return false, errNoTrustDocument
 	}
-	committed, err = t.file.Replace(ctx, []byte(*publication.Document), func() error { return t.file.Verify(ctx) })
+	return t.publish(ctx, *publication.Document)
+}
+
+// Revoke removes each entry of revokes, in order, from the bytes t was read from, and publishes
+// the result once when any removal changed it; after is the document it leads to. Nothing is
+// written when Core refuses a removal or when none changes anything. A file changed since t was
+// read fails with ErrConflict and writes nothing; committed reports that the new document reached
+// the disk even when a later step failed. Revoking needs no open connection.
+func (t Trust) Revoke(ctx context.Context, kernel TrustKernel, revokes []core.RemoteWorkspaceTrustRevoke) (after core.RemoteWorkspaceTrustDocument, committed bool, err error) {
+	if t.root == "" {
+		return t.State.Document, false, ErrUnavailable
+	}
+	text, err := t.file.Text()
+	if err != nil {
+		return t.State.Document, false, errors.Join(ErrDamaged, err)
+	}
+	after, changed := t.State.Document, false
+	for _, revoke := range revokes {
+		publication, err := kernel.RevokeRemoteWorkspaceTrust(ctx, text, revoke)
+		if err != nil {
+			return t.State.Document, false, trustEditError(err)
+		}
+		after = publication.Decisions
+		if publication.Changed {
+			if publication.Document == nil {
+				return t.State.Document, false, errNoTrustDocument
+			}
+			text, changed = publication.Document, true
+		}
+	}
+	if !changed {
+		return after, false, nil
+	}
+	committed, err = t.publish(ctx, *text)
+	return after, committed, err
+}
+
+var errNoTrustDocument = errors.New("remoteconn: Core changed the trust decisions without a document")
+
+// trustEditError marks Core's refusal to decode the stored document as ErrDamaged.
+func trustEditError(err error) error {
+	var coreErr *core.Error
+	if errors.As(err, &coreErr) && coreErr.Code == core.CodeParseFailed {
+		return errors.Join(ErrDamaged, err)
+	}
+	return err
+}
+
+// publish replaces the file with document, against the bytes t was read from.
+func (t Trust) publish(ctx context.Context, document string) (committed bool, err error) {
+	committed, err = t.file.Replace(ctx, []byte(document), func() error { return t.file.Verify(ctx) })
 	if errors.Is(err, configfile.ErrConflict) {
 		err = errors.Join(ErrConflict, err)
 	}

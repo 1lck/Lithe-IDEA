@@ -390,6 +390,9 @@ type toolchainState struct {
 
 	// locations is the Trusted Locations page, which writes the same catalog file.
 	locations *trustedLocationsState
+	// remote is the Remote Workspaces card of the same page. Its document is a file of its own,
+	// so busy() does not include its requests.
+	remote *remoteTrustState
 
 	// The list's query and the page's selection.
 	query    string
@@ -409,6 +412,7 @@ func newToolchainState(loader ToolchainLoader) *toolchainState {
 	viewer, _ := loader.(ToolchainViewer)
 	t.view, t.search = newToolchainProjection(viewer), newToolchainProjection(viewer)
 	t.locations = newTrustedLocationsState(t, loader)
+	t.remote = newRemoteTrustState(loader)
 	if loader == nil {
 		return t
 	}
@@ -680,6 +684,9 @@ func (t *toolchainState) take() (saveFailed error) {
 	if err := t.locations.take(); err != nil && saveFailed == nil {
 		saveFailed = err
 	}
+	if err := t.remote.take(); err != nil && saveFailed == nil {
+		saveFailed = err
+	}
 	t.view.take()
 	t.search.take()
 	return saveFailed
@@ -743,6 +750,7 @@ func (t *toolchainState) declare(c ui.C) {
 		ui.Effect(c, t.runtimeEffect, t.runtimeKey)
 	}
 	t.locations.declare(c)
+	t.remote.declare(c)
 	t.view.declare(c.Part("toolchain-view"))
 	t.search.declare(c.Part("toolchain-search"))
 }
