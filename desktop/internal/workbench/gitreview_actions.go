@@ -81,7 +81,8 @@ func (a *App) changeMenuItems(c ui.C, p *project, change core.GitChange) func(*u
 			c.After(func() { a.openTreeRemoval(p, []string{rel}) })
 		}
 		menu.Separator()
-		if !deleted && menu.Item(revealLabel(lang)).Clicked() {
+		// The placeholder path of a remote workspace's file is nothing the file manager can show.
+		if !deleted && p.remote == nil && menu.Item(revealLabel(lang)).Clicked() {
 			c.After(func() {
 				a.performed("git.change.reveal", surfaceContextMenu)
 				a.revealPath(full)
