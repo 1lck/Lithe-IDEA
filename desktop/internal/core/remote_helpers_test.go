@@ -131,7 +131,7 @@ func TestRemoteEffectiveSettingsNameTheirSources(t *testing.T) {
 		"hostname 192.0.2.10\nuser dev\nport 2222\nidentityfile ~/.ssh/build_key\nconnecttimeout 15\nserveraliveinterval 0\nproxyjump jump-box",
 		"hostname build-box\nuser localdev\nport 22\nidentityfile ~/.ssh/id_ed25519\nconnecttimeout 15\nserveraliveinterval 0\nproxyjump none",
 	)
-	settings, err := NewClient().RemoteEffectiveSettings(testContext(t), SSHConnection{Host: "build-box", User: "dev"})
+	settings, err := NewClient().RemoteEffectiveSettings(testContext(t), SSHConnection{Host: "build-box", User: "dev"}, nil)
 	if err != nil {
 		t.Fatalf("effective settings: %v", err)
 	}
@@ -159,7 +159,7 @@ func TestRemoteSSHConfigHostsListTheAliases(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(home, ".ssh", "config"), []byte("Host build-box\n  HostName 192.0.2.10\n\nHost *.lab\n  User dev\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	hosts, err := NewClient().RemoteSSHConfigHosts(testContext(t), home, nil)
+	hosts, err := NewClient().RemoteSSHConfigHosts(testContext(t), home, nil, nil)
 	if err != nil || len(hosts.Files) != 1 || len(hosts.Hosts) != 2 {
 		t.Fatalf("hosts = %+v, err = %v", hosts, err)
 	}

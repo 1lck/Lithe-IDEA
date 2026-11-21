@@ -329,7 +329,7 @@ func TestRemoteWorkspaceTerminalEndsWithTheConnection(t *testing.T) {
 	}
 
 	k.set(func(k *remoteHostKernel) { k.refuse = "" })
-	h.fire(t, timers)
+	h.fireReconnect(t, timers, p.remote)
 	if p.remote.session == "" || p.remote.session == run.session {
 		t.Fatal("the workspace did not connect again")
 	}

@@ -76,12 +76,14 @@ type RemoteEffectiveSettings struct {
 
 // RemoteEffectiveSettings asks OpenSSH what it would use for connection, without connecting.
 // Core bounds the run to 10 seconds: CodeRuntimeMissing without ssh, CodeProcessFailed with the
-// redacted standard error in Details, CodeTimedOut and CodeParseFailed.
-func (c *Client) RemoteEffectiveSettings(ctx context.Context, connection SSHConnection) (RemoteEffectiveSettings, error) {
+// redacted standard error in Details, CodeTimedOut and CodeParseFailed. preferences is the
+// remote workspace preference document, or nil, naming the SSH program.
+func (c *Client) RemoteEffectiveSettings(ctx context.Context, connection SSHConnection, preferences *string) (RemoteEffectiveSettings, error) {
 	var settings RemoteEffectiveSettings
 	err := c.Execute(ctx, "remote.effectiveSettings", struct {
-		Connection SSHConnection `json:"connection"`
-	}{connection}, &settings)
+		Connection  SSHConnection `json:"connection"`
+		Preferences *string       `json:"preferences,omitempty"`
+	}{connection, preferences}, &settings)
 	return settings, err
 }
 
@@ -135,13 +137,15 @@ type RemoteSSHConfigHosts struct {
 
 // RemoteSSHConfigHosts reads ~/.ssh/config below homeDirectory, an absolute path, and checks each
 // host against document, the saved connections or nil. Core runs `ssh -G` for each alias within
-// 30 seconds for the whole list; CodeRuntimeMissing without ssh.
-func (c *Client) RemoteSSHConfigHosts(ctx context.Context, homeDirectory string, document *string) (RemoteSSHConfigHosts, error) {
+// 30 seconds for the whole list; CodeRuntimeMissing without ssh. preferences is the remote
+// workspace preference document, or nil, naming the SSH program.
+func (c *Client) RemoteSSHConfigHosts(ctx context.Context, homeDirectory string, document, preferences *string) (RemoteSSHConfigHosts, error) {
 	var hosts RemoteSSHConfigHosts
 	err := c.Execute(ctx, "remote.sshConfigHosts", struct {
 		HomeDirectory string  `json:"homeDirectory"`
 		Document      *string `json:"document"`
-	}{homeDirectory, document}, &hosts)
+		Preferences   *string `json:"preferences,omitempty"`
+	}{homeDirectory, document, preferences}, &hosts)
 	hosts.Files = nonNil(hosts.Files)
 	hosts.Hosts = nonNil(hosts.Hosts)
 	return hosts, err

@@ -3,10 +3,12 @@ package workbench
 import (
 	"context"
 	"errors"
+	"os"
 
 	"github.com/1lck/Lithe-IDEA/desktop/internal/core"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/pluginruntime"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/remoteconn"
+	"github.com/1lck/Lithe-IDEA/desktop/internal/settingswindow"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/toolchain"
 )
 
@@ -119,6 +121,40 @@ func (s settingsToolchains) SaveRemoteTrust(ctx context.Context, trust remotecon
 		return trust, err
 	}
 	return remoteconn.ReadTrust(ctx, s.app.kernel, s.app.globalToolchainRoot(), "", "")
+}
+
+// LoadRemotePreferences reads the remote workspace preferences and what each value resolves to
+// when it is automatic. A damaged file still names its path. Core's message may name local paths,
+// so only its code is logged.
+func (s settingsToolchains) LoadRemotePreferences(ctx context.Context) (prefs settingswindow.RemotePreferences, err error) {
+	defer func() { s.recordFailure(ctx, "remote_preferences_settings_load", documentLogError(err)) }()
+	return s.readRemotePreferences(ctx)
+}
+
+// SaveRemotePreferences applies the page's edits in order against the bytes prefs was read from;
+// a refused or conflicting edit stops the rest. Connections read the file each time OpenSSH
+// starts, and a lost connection reads the reconnect limit when it is lost.
+func (s settingsToolchains) SaveRemotePreferences(ctx context.Context, prefs settingswindow.RemotePreferences, edits []core.RemotePreferenceEdit) (updated settingswindow.RemotePreferences, err error) {
+	ctx = s.app.performedIn(ctx, "remote.preferences.edit", surfaceButton)
+	defer func() { s.recordFailure(ctx, "remote_preferences_settings_save", documentLogError(err)) }()
+	saved := prefs.Saved
+	for _, edit := range edits {
+		if saved, _, err = saved.Edit(ctx, s.app.kernel, edit); err != nil {
+			return prefs, err
+		}
+	}
+	return s.readRemotePreferences(ctx)
+}
+
+func (s settingsToolchains) readRemotePreferences(ctx context.Context) (settingswindow.RemotePreferences, error) {
+	// The home directory only names ~/.ssh/config; without one the row is left out.
+	home, _ := os.UserHomeDir()
+	automatic, err := s.app.kernel.RemotePreferences(ctx, nil, "")
+	if err != nil {
+		return settingswindow.RemotePreferences{}, err
+	}
+	saved, err := remoteconn.ReadPreferences(ctx, s.app.kernel, s.app.globalToolchainRoot(), home)
+	return settingswindow.RemotePreferences{Saved: saved, Automatic: automatic}, err
 }
 
 // settingsToolchains is the settings window's adapter onto the workbench: it

@@ -324,6 +324,7 @@ func TestRemoteWatchFollowsTheSession(t *testing.T) {
 		k.once = &core.Error{Command: "remote.serverState", Code: core.CodeConnectionClosed, Message: "closed"}
 	})
 	h.fire(t, timers)
+	h.fireReconnect(t, timers, r)
 	h.await("the second session", func() bool { return r.session == "session-2" && !r.beating })
 	h.awaitWatching(p)
 	if w := k.lastWatch(t); w.session != "session-2" || k.watchRuns() != 2 {
@@ -331,6 +332,7 @@ func TestRemoteWatchFollowsTheSession(t *testing.T) {
 	}
 
 	k.lastWatch(t).finish(t, &core.Error{Command: "remote.runWatch", Code: core.CodeConnectionClosed, Message: "closed"})
+	h.fireReconnect(t, timers, r)
 	h.await("the third session", func() bool { return r.session == "session-3" && !r.beating })
 	h.awaitWatching(p)
 	if w := k.lastWatch(t); w.session != "session-3" || !slices.Contains(k.closed, "session-2") {

@@ -45,12 +45,13 @@ const (
 	// under it: the pages plugins contribute to it make it a group, and its own page is the
 	// directory of them.
 	pageLanguages
-	// pageTools is the group "Tools"; the four pages after it belong to it.
+	// pageTools is the group "Tools"; the five pages after it belong to it.
 	pageTools
 	pageTerminal
 	pageSearch
 	pageConsole
 	pageTrustedLocations
+	pageRemoteWorkspace
 	// pageAI is the group "AI"; the two pages after it belong to it.
 	pageAI
 	pageAIGeneration
@@ -86,6 +87,7 @@ var parents = [pageCount]pageID{
 	pageSearch:             pageTools,
 	pageConsole:            pageTools,
 	pageTrustedLocations:   pageTools,
+	pageRemoteWorkspace:    pageTools,
 	pageAI:                 noPage,
 	pageAIGeneration:       pageAI,
 	pageIDEAPI:             pageAI,
@@ -155,6 +157,8 @@ func titleOf(messages *i18n.SettingsMessages, id pageID) string {
 		return messages.Console
 	case pageTrustedLocations:
 		return messages.TrustedLocations
+	case pageRemoteWorkspace:
+		return messages.RemoteWorkspace
 	case pageLanguages:
 		return messages.Languages
 	case pageTools:
@@ -351,6 +355,8 @@ func pageKeywords(language i18n.Language, id pageID) string {
 		return i18n.Shared(language, "desktop.consoleSettings.keywords")
 	case pageTrustedLocations:
 		return i18n.Shared(language, "desktop.trustedLocations.keywords")
+	case pageRemoteWorkspace:
+		return i18n.Shared(language, "desktop.remoteSettings.keywords")
 	}
 	return ""
 }

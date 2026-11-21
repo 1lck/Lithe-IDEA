@@ -221,6 +221,31 @@ func (s *remoteTimers) take(t *testing.T) *remoteTimer {
 	return live[0]
 }
 
+// live counts the timers still pending.
+func (s *remoteTimers) live() (n int) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for _, timer := range s.pending {
+		if !timer.stopped {
+			n++
+		}
+	}
+	return n
+}
+
+// fireReconnect waits for the pause before the first attempt to connect again, which the
+// workspace schedules once it has read the reconnect delays off the window thread, checks it is
+// Core's first pause and runs it.
+func (h *harness) fireReconnect(t *testing.T, timers *remoteTimers, r *remoteProject) {
+	t.Helper()
+	h.await("the pause before connecting again", func() bool {
+		return r.session == "" && len(r.delays) > 0 && r.attempt == 0 && timers.live() == 1
+	})
+	if d := h.fire(t, timers); d != time.Second {
+		t.Fatalf("paused %v before connecting again, want Core's first pause of 1s", d)
+	}
+}
+
 // fire runs the pending timer, applies the heartbeat or the attempt it starts, and says how long
 // the workspace had asked to wait.
 func (h *harness) fire(t *testing.T, timers *remoteTimers) time.Duration {
@@ -470,13 +495,20 @@ func TestRemoteWorkspaceReconnectsAfterMissedHeartbeats(t *testing.T) {
 	}
 	var pauses []time.Duration
 	for r.link == remoteReconnecting {
+		// The first pause waits for the reconnect delays, which are read off the window thread.
+		h.await("the next pause", func() bool { return timers.live() == 1 || r.link != remoteReconnecting })
+		if r.link != remoteReconnecting {
+			break
+		}
 		pauses = append(pauses, h.fire(t, timers))
 	}
-	if want := []time.Duration{time.Second, 2 * time.Second, 4 * time.Second, 8 * time.Second, 16 * time.Second}; !slices.Equal(pauses, want) {
+	// Core's automatic reconnect limit of 60 seconds: one attempt after each pause.
+	want := []time.Duration{time.Second, 2 * time.Second, 4 * time.Second, 8 * time.Second, 16 * time.Second, 29 * time.Second}
+	if !slices.Equal(pauses, want) {
 		t.Fatalf("paused %v before connecting again, want %v", pauses, want)
 	}
-	if got := k.count(func(k *remoteHostKernel) int { return k.connects }); got != 1+remoteReconnectAttempts {
-		t.Fatalf("connected %d times, want the first and %d attempts", got, remoteReconnectAttempts)
+	if got := k.count(func(k *remoteHostKernel) int { return k.connects }); got != 1+len(want) {
+		t.Fatalf("connected %d times, want the first and %d attempts", got, len(want))
 	}
 	if r.link != remoteDisconnected || !h.shows(remoteStatusText(lang, r)) {
 		t.Fatalf("link %v after the last attempt, want disconnected", r.link)
@@ -512,9 +544,9 @@ func TestRemoteWorkspaceReconnectsAfterMissedHeartbeats(t *testing.T) {
 			t.Fatalf("%s logged %d times, want once", operation, got)
 		}
 	}
-	want := []string{"remote.workspace.reconnect", "remote.workspace.disconnect"}
-	if got := remoteActions(logger); !slices.Equal(got[len(got)-2:], want) {
-		t.Fatalf("performed %q, want it to end with %q", got, want)
+	actions := []string{"remote.workspace.reconnect", "remote.workspace.disconnect"}
+	if got := remoteActions(logger); !slices.Equal(got[len(got)-2:], actions) {
+		t.Fatalf("performed %q, want it to end with %q", got, actions)
 	}
 	if event := loggedAny(t, logger, remoteTestHost, remoteTestHome); event != "" {
 		t.Fatalf("logged the host or its paths: %s", event)
@@ -531,6 +563,7 @@ func TestRemoteWorkspaceReconnectsWhenTheConnectionCloses(t *testing.T) {
 		k.once = &core.Error{Command: "remote.serverState", Code: core.CodeConnectionClosed, Message: "closed"}
 	})
 	h.fire(t, timers)
+	h.fireReconnect(t, timers, r)
 	h.await("the new session", func() bool { return r.session == "session-2" && !r.beating && !p.tree.reading })
 	if r.link != remoteConnected || !slices.Contains(k.closed, "session-1") {
 		t.Fatalf("link %v, closed %q: the lost session was not replaced", r.link, k.closed)

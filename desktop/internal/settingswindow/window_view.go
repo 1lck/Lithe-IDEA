@@ -308,8 +308,8 @@ func (w *window) navContent(c ui.C, i int) {
 }
 
 // navTrailing ends a row as the prototype does: Build folded and the Toolchains page count the
-// tools with a problem, the Debuggers and Trusted Locations pages mark drafts and a kind counts
-// its pages.
+// tools with a problem, the Debuggers, Trusted Locations and Remote Workspace pages mark drafts and
+// a kind counts its pages.
 func (w *window) navTrailing(c ui.C, r row) {
 	if r.dynamic != "" {
 		return
@@ -327,6 +327,10 @@ func (w *window) navTrailing(c ui.C, r row) {
 		}
 	case r.page == pageTrustedLocations:
 		if w.toolchains.locations.drafts() > 0 || w.toolchains.remote.drafts() > 0 {
+			dot(c, 7, w.bp.accent)
+		}
+	case r.page == pageRemoteWorkspace:
+		if w.toolchains.prefs.drafts() > 0 {
 			dot(c, 7, w.bp.accent)
 		}
 	}
@@ -383,6 +387,8 @@ func (w *window) content(c ui.C) {
 			w.consolePage(c)
 		case w.sess.page == pageTrustedLocations && (w.toolchains.locations.available() || w.toolchains.remote.available()):
 			w.trustedLocationsPage(c)
+		case w.sess.page == pageRemoteWorkspace && w.toolchains.prefs.available():
+			w.remoteWorkspacePage(c)
 		case w.sess.page == pageTerminal && w.ctrl.opts.TerminalShells != nil:
 			w.terminalPage(c)
 		case w.sess.page == pageSearch:

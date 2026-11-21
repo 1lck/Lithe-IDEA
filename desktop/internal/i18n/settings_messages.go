@@ -22,6 +22,7 @@ func settingsMessages(language Language) SettingsMessages {
 		Debuggers:          Shared(language, "desktop.buildSettings.debuggers"),
 		Console:            Shared(language, "desktop.consoleSettings.title"),
 		TrustedLocations:   Shared(language, "desktop.trustedLocations.title"),
+		RemoteWorkspace:    Shared(language, "desktop.remoteSettings.title"),
 		Languages:          Shared(language, "settings.groups.languages"),
 		Tools:              Shared(language, "settings.groups.tools"),
 		SearchPage:         Shared(language, "desktop.search.settings.title"),

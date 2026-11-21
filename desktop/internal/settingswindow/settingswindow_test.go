@@ -60,8 +60,8 @@ func TestOnlyAppearanceVersionControlBuildToolsAndAIAreGroups(t *testing.T) {
 	}
 }
 
-func TestToolsGroupHoldsTerminalSearchConsoleAndTrustedLocations(t *testing.T) {
-	want := []pageID{pageTerminal, pageSearch, pageConsole, pageTrustedLocations}
+func TestToolsGroupHoldsTerminalSearchConsoleTrustedLocationsAndRemoteWorkspace(t *testing.T) {
+	want := []pageID{pageTerminal, pageSearch, pageConsole, pageTrustedLocations, pageRemoteWorkspace}
 	var got []pageID
 	for id := pageID(0); id < pageCount; id++ {
 		if parents[id] == pageTools {
@@ -69,7 +69,7 @@ func TestToolsGroupHoldsTerminalSearchConsoleAndTrustedLocations(t *testing.T) {
 		}
 	}
 	if !slices.Equal(got, want) {
-		t.Fatalf("pages in Tools = %v, want Terminal, Search, Console and Trusted Locations %v", got, want)
+		t.Fatalf("pages in Tools = %v, want Terminal, Search, Console, Trusted Locations and Remote Workspace %v", got, want)
 	}
 	if pageTerminal != pageTools+1 {
 		t.Fatal("the Terminal page does not directly follow its group, which appendVisible relies on")
@@ -166,8 +166,8 @@ func TestExpandedToolsGroupListsTerminal(t *testing.T) {
 	open := initialOpen()
 	open[pageTools] = true
 	rows := appendVisible(nil, english(), &open, "")
-	if len(rows) != 18 {
-		t.Fatalf("rows = %v, want the 14 of the default sidebar and the four pages of Tools", rows)
+	if len(rows) != 19 {
+		t.Fatalf("rows = %v, want the 14 of the default sidebar and the five pages of Tools", rows)
 	}
 	for i, r := range rows {
 		if r.page != pageTools {
@@ -206,7 +206,7 @@ func TestSearchFindsTerminalInsideItsGroup(t *testing.T) {
 func TestSearchOnTheToolsGroupKeepsTerminal(t *testing.T) {
 	open := initialOpen()
 	rows := appendVisible(nil, english(), &open, foldQuery("tools"))
-	want := []pageID{pageTools, pageTerminal, pageSearch, pageConsole, pageTrustedLocations}
+	want := []pageID{pageTools, pageTerminal, pageSearch, pageConsole, pageTrustedLocations, pageRemoteWorkspace}
 	if got := pagesOf(rows); !slices.Equal(got, want) {
 		t.Fatalf("pages = %v, want %v", got, want)
 	}
