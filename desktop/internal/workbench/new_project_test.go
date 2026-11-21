@@ -72,7 +72,12 @@ func (h *harness) openNewProjectSheet() {
 	h.await("the generator catalog", func() bool { return h.app.newProject.catalogLoaded })
 }
 
-var generatorFixtures = contractfixture.Path("fixtures/project-generators")
+// generatorFixtures is a function, not a package variable: this test binary also runs as the
+// AskPass helper, whose environment Core cuts to what ssh needs, and package initialisation runs
+// before TestMain can see that mode.
+func generatorFixtures() string {
+	return contractfixture.Path("fixtures/project-generators")
+}
 
 const (
 	generatorToolPlugin    = "dev.lithe.test.generator-tools"
@@ -165,11 +170,11 @@ func TestNewProjectOnlyDiscoversToolsRequestedByTheForm(t *testing.T) {
 
 func fixtureGeneratorPlugin(t *testing.T) pluginservice.GeneratorPlugin {
 	t.Helper()
-	data, err := os.ReadFile(filepath.Join(generatorFixtures, "project-generator.plugin.json"))
+	data, err := os.ReadFile(filepath.Join(generatorFixtures(), "project-generator.plugin.json"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	path, err := filepath.Abs(generatorFixtures)
+	path, err := filepath.Abs(generatorFixtures())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1024,11 +1029,11 @@ func TestNewProjectGeneratorKeepsTheCreatedDirectoryWhenGitFails(t *testing.T) {
 }
 
 func TestNewProjectToolFieldListsInstallationsAndPinsTheChoice(t *testing.T) {
-	data, err := os.ReadFile(filepath.Join(generatorFixtures, "project-generator-tool-field.plugin.json"))
+	data, err := os.ReadFile(filepath.Join(generatorFixtures(), "project-generator-tool-field.plugin.json"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	path, _ := filepath.Abs(generatorFixtures)
+	path, _ := filepath.Abs(generatorFixtures())
 	plugin := pluginservice.GeneratorPlugin{PluginID: "dev.lithe.fixture.project-generator-tool-field", Version: "1.0.0", Path: path, Enabled: true, Manifest: data}
 	parent := t.TempDir()
 	h := newGeneratorHarness(t, &testKernel{Client: core.NewClient()}, plugin)
