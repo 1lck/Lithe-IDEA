@@ -70,9 +70,11 @@ func TestRemoteTrustRevokeRemovesRecordsWithoutAConnection(t *testing.T) {
 	}
 	devbox := `{"hops":[{"ssh":{"destination":"devbox","port":2222,"user":"dev"}}]}`
 	lab := `{"hops":[{"ssh":{"destination":"lab"}},{"container":{"engine":"docker","program":"docker","container":"web"}}]}`
+	wsl := `{"hops":[{"wsl":{"distribution":"Ubuntu","user":"dev"}}]}`
 	seed := `{"version":1,"targets":[` +
 		`{"target":` + devbox + `,"label":"Dev box","trustedWorkspaces":["/srv/app"],"distrustedWorkspaces":["/srv/tmp"]},` +
-		`{"target":` + lab + `,"trustedLocations":["/work"]}]}`
+		`{"target":` + lab + `,"trustedLocations":["/work"]},` +
+		`{"target":` + wsl + `,"trustedWorkspaces":["/home/dev/app"]}]}`
 	if err := os.WriteFile(file, []byte(seed), 0o600); err != nil {
 		t.Fatal(err)
 	}
@@ -81,7 +83,7 @@ func TestRemoteTrustRevokeRemovesRecordsWithoutAConnection(t *testing.T) {
 		t.Fatal(err)
 	}
 	targets := trust.State.Document.Targets
-	if len(targets) != 2 {
+	if len(targets) != 3 {
 		t.Fatalf("targets = %d", len(targets))
 	}
 	if place := targets[0].Place(); targets[0].Label != "Dev box" || place != "dev@devbox:2222" {
@@ -90,10 +92,14 @@ func TestRemoteTrustRevokeRemovesRecordsWithoutAConnection(t *testing.T) {
 	if place := targets[1].Place(); place != "lab → docker:web" {
 		t.Fatalf("second target place matches = %v", place == "lab → docker:web")
 	}
+	// A WSL distribution is named as the connection window names it.
+	if place := targets[2].Place(); place != "wsl:dev@Ubuntu" {
+		t.Fatalf("WSL target place matches = %v", place == "wsl:dev@Ubuntu")
+	}
 
 	absent := []core.RemoteWorkspaceTrustRevoke{{Target: targets[0].Target, List: core.RemoteTrustTrustedLocations, Path: "/srv"}}
 	after, committed, err := trust.Revoke(ctx, kernel, absent)
-	if err != nil || committed || len(after.Targets) != 2 {
+	if err != nil || committed || len(after.Targets) != 3 {
 		t.Fatalf("absent removal: committed = %v, targets = %d, err = %v", committed, len(after.Targets), err)
 	}
 	if text, _ := os.ReadFile(file); string(text) != seed {
@@ -103,6 +109,7 @@ func TestRemoteTrustRevokeRemovesRecordsWithoutAConnection(t *testing.T) {
 	after, committed, err = trust.Revoke(ctx, kernel, []core.RemoteWorkspaceTrustRevoke{
 		{Target: targets[0].Target, List: core.RemoteTrustDistrustedWorkspaces, Path: "/srv/tmp"},
 		{Target: targets[1].Target, List: core.RemoteTrustTrustedLocations, Path: "/work"},
+		{Target: targets[2].Target, List: core.RemoteTrustTrustedWorkspaces, Path: "/home/dev/app"},
 	})
 	if err != nil || !committed {
 		t.Fatalf("removal: committed = %v, err = %v", committed, err)

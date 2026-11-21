@@ -17,6 +17,10 @@ import (
 // OpenSSH asks, under the step that asks them: the host key under the connection, the rest under
 // the authentication. The authentication dialog leaves those questions to the page while it is
 // shown. A connection that fails stays on the page, at the step it failed, with why.
+//
+// A WSL distribution has no OpenSSH configuration to read and asks nothing, so its steps start at
+// the connection, named as starting the distribution: Core reports the same stages once its shell
+// answers.
 
 // remoteStep is one step of a connection, in the order they run.
 type remoteStep int
@@ -52,6 +56,7 @@ func remoteStepName(language i18n.Language, step remoteStep) string {
 // remoteSteps is a connection the page shows running, or failed.
 type remoteSteps struct {
 	entry core.SavedRemoteConnection
+	host  remoteHost
 	// folder is what opens once connected, "" to choose one.
 	folder string
 	// reached is the step running, or the one that failed.
@@ -64,10 +69,24 @@ type remoteSteps struct {
 	outcome     *remoteProbeOutcome
 }
 
-// newRemoteSteps starts showing a connection to entry. The configuration is read before Core
-// starts, so the connection itself runs first.
-func newRemoteSteps(entry core.SavedRemoteConnection, folder string, now time.Time) *remoteSteps {
-	return &remoteSteps{entry: entry, folder: folder, reached: remoteStepConnect, began: now}
+// newRemoteSteps starts showing a connection to host, named as entry. The configuration is read
+// before Core starts, so the connection itself runs first.
+func newRemoteSteps(entry core.SavedRemoteConnection, host remoteHost, folder string, now time.Time) *remoteSteps {
+	return &remoteSteps{entry: entry, host: host, folder: folder, reached: remoteStepConnect, began: now}
+}
+
+// shows says whether the page lists step: every step over SSH, and over WSL the steps after
+// starting the distribution, which reads no configuration and asks nothing.
+func (s *remoteSteps) shows(step remoteStep) bool {
+	return s.host.wsl == nil || (step != remoteStepConfig && step != remoteStepAuthenticate)
+}
+
+// name is step's name for this connection: over WSL, the connection starts the distribution.
+func (s *remoteSteps) name(language i18n.Language, step remoteStep) string {
+	if step == remoteStepConnect && s.host.wsl != nil {
+		return i18n.Shared(language, "desktop.remote.wsl.start")
+	}
+	return remoteStepName(language, step)
 }
 
 // advance ends the steps before to.
@@ -150,15 +169,20 @@ func (a *App) remoteStepsView(c ui.C, language i18n.Language, s *remoteSteps) {
 				a.remoteTile(c.Part("tile"), remoteSystemMark(a.remote.probedOutcome(s.entry.Connection)), s.entry.Name, s.entry.Color, remoteHeroTile, 15)
 				ui.Column(c).Grow(1).Basis(0).MinWidth(0).Gap(5).Children(func() {
 					ui.Text(c, title).FontSize(16).Weight(gfx.WeightSemibold).Ellipsis().MinWidth(0)
-					ui.Text(c, remoteAddress(s.entry.Connection)).Mono().FontSize(a.theme.Metrics.FontSizeS).Color(a.colors.Subtle).Ellipsis().MinWidth(0)
+					ui.Text(c, s.host.address()).Mono().FontSize(a.theme.Metrics.FontSizeS).Color(a.colors.Subtle).Ellipsis().MinWidth(0)
 				})
 			})
 			a.remoteBordered(c.Part("list")).Children(func() {
+				first := true
 				for step := remoteStepConfig; step < remoteStepCount; step++ {
+					if !s.shows(step) {
+						continue
+					}
 					k := c.KeyInt(int(step))
-					if step > 0 {
+					if !first {
 						ui.Row(k.Part("line")).FillWidth().Height(1).Shrink(0).Background(a.colors.Line)
 					}
+					first = false
 					a.remoteStepRow(k, language, s, step, reached, question)
 				}
 			})
@@ -193,7 +217,7 @@ func (a *App) remoteStepRow(c ui.C, language i18n.Language, s *remoteSteps, step
 			if !done && !current {
 				color = a.colors.Subtle
 			}
-			label := ui.Text(c, remoteStepName(language, step)).Color(color).Grow(1).MinWidth(0).Ellipsis()
+			label := ui.Text(c, s.name(language, step)).Color(color).Grow(1).MinWidth(0).Ellipsis()
 			if current {
 				label.Weight(gfx.WeightMedium)
 			}
@@ -309,7 +333,7 @@ func (a *App) remoteQuestionCard(c ui.C, language i18n.Language, s *remoteSteps,
 }
 
 // remoteStepsFooter declares the buttons under a connection: Stop while it runs; back to the
-// connection, its form, or again once it failed.
+// connection, its form, or again once it failed. A WSL distribution has no form to go to.
 func (a *App) remoteStepsFooter(c ui.C, language i18n.Language, s *remoteSteps) {
 	r := &a.remote
 	ui.Row(c).FillWidth().Items(ui.Center).Gap(8).Children(func() {
@@ -324,7 +348,7 @@ func (a *App) remoteStepsFooter(c ui.C, language i18n.Language, s *remoteSteps) 
 			c.After(func() { r.steps = nil })
 		}
 		ui.Spacer(c)
-		if ui.Button(c.Part("edit"), i18n.Shared(language, "desktop.remote.steps.editConnection")).Outline().Disabled(!r.editable()).Clicked() {
+		if s.host.wsl == nil && ui.Button(c.Part("edit"), i18n.Shared(language, "desktop.remote.steps.editConnection")).Outline().Disabled(!r.editable()).Clicked() {
 			c.After(func() {
 				r.steps = nil
 				a.editSelectedRemote()

@@ -18,17 +18,17 @@ import (
 func remoteStatusText(language i18n.Language, r *remoteProject) string {
 	switch r.link {
 	case remoteUnresponsive:
-		return i18n.SharedFormat(language, "desktop.remote.status.unresponsive", map[string]string{"name": r.name})
+		return i18n.SharedFormat(language, "desktop.remote.status.unresponsive", map[string]string{"kind": r.host.kind(language), "name": r.name})
 	case remoteReconnecting:
-		return i18n.SharedFormat(language, "desktop.remote.status.reconnecting", map[string]string{"name": r.name})
+		return i18n.SharedFormat(language, "desktop.remote.status.reconnecting", map[string]string{"kind": r.host.kind(language), "name": r.name})
 	case remoteDisconnected:
-		return i18n.SharedFormat(language, "desktop.remote.status.disconnected", map[string]string{"name": r.name})
+		return i18n.SharedFormat(language, "desktop.remote.status.disconnected", map[string]string{"kind": r.host.kind(language), "name": r.name})
 	}
 	if r.latency <= 0 {
-		return i18n.SharedFormat(language, "desktop.remote.status.connected", map[string]string{"name": r.name})
+		return i18n.SharedFormat(language, "desktop.remote.status.connected", map[string]string{"kind": r.host.kind(language), "name": r.name})
 	}
 	ms := strconv.FormatInt(max(r.latency.Milliseconds(), 1), 10)
-	return i18n.SharedFormat(language, "desktop.remote.status.latency", map[string]string{"name": r.name, "ms": ms})
+	return i18n.SharedFormat(language, "desktop.remote.status.latency", map[string]string{"kind": r.host.kind(language), "name": r.name, "ms": ms})
 }
 
 // remoteStatusLook is the icon of the item and its colour for r's link.

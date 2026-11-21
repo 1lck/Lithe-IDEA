@@ -23,16 +23,66 @@ type RemoteServerBuild struct {
 	SHA256 string `json:"sha256"`
 }
 
-// RemoteConnectRequest opens a session to the host of Connection, installing the server build
-// for the host's platform when the host does not already run that exact build.
+// RemoteConnectRequest opens a session to the host of Connection, or to the local WSL
+// distribution WSL names, installing the server build for the host's platform when the host does
+// not already run that exact build. Exactly one of the two is set; Core refuses a request with
+// both or neither as CodeInvalidRequest, before anything starts.
 type RemoteConnectRequest struct {
-	Connection SSHConnection `json:"connection"`
+	Connection SSHConnection `json:"connection,omitzero"`
+	// WSL opens a distribution of the Windows Subsystem for Linux through the system's wsl.exe
+	// instead of OpenSSH. Core asks nothing of the user for it: there is no AskPass.
+	WSL *WSLConnection `json:"wsl,omitempty"`
 	// Servers are the builds the application ships; Core picks the one for the host.
 	Servers []RemoteServerBuild `json:"servers"`
 	// ServerVersion is the version of the shipped builds.
 	ServerVersion string `json:"serverVersion"`
 	// InstallRoot is where the host keeps installed servers; empty is $HOME/.lithe-server.
 	InstallRoot string `json:"installRoot,omitempty"`
+}
+
+// WSLConnection is a distribution of the Windows Subsystem for Linux on this machine, as
+// remote.connect's wsl field names it. Core trims both fields; an empty User is the
+// distribution's default user. Core refuses a malformed field by name ("distribution" or "user")
+// with the reasons required, tooLong and invalid, read by RemoteConnectionFieldError.
+type WSLConnection struct {
+	// Distribution is the name wsl.exe --list prints, such as Ubuntu-24.04.
+	Distribution string `json:"distribution"`
+	// User is the Linux account, passed as wsl.exe --user.
+	User string `json:"user,omitempty"`
+}
+
+// Identity is the connection as Core names it in the trust records and the recent projects:
+// wsl:distribution, or wsl:user@distribution.
+func (c WSLConnection) Identity() string {
+	distribution, user := strings.TrimSpace(c.Distribution), strings.TrimSpace(c.User)
+	if user == "" {
+		return "wsl:" + distribution
+	}
+	return "wsl:" + user + "@" + distribution
+}
+
+// RemoteWSLDistributions is what remote.listWslDistributions found on this machine.
+type RemoteWSLDistributions struct {
+	// Available says whether wsl.exe ran: false on systems other than Windows and on a Windows
+	// without WSL.
+	Available bool `json:"available"`
+	// Distributions are the installed distributions in wsl.exe's order, without Docker Desktop's
+	// engine distributions; at most 64.
+	Distributions []string `json:"distributions"`
+	// Diagnostics is what wsl.exe printed when it failed, such as the message that WSL is not set
+	// up, redacted. It is upstream text, shown as it is and never logged.
+	Diagnostics string `json:"diagnostics"`
+}
+
+// RemoteListWSLDistributions lists the WSL distributions installed on this machine. Core runs
+// wsl.exe --list, bounded to 15 seconds (CodeTimedOut past them), and saves nothing.
+func (c *Client) RemoteListWSLDistributions(ctx context.Context) (RemoteWSLDistributions, error) {
+	var result RemoteWSLDistributions
+	if err := c.Execute(ctx, "remote.listWslDistributions", nil, &result); err != nil {
+		return RemoteWSLDistributions{}, err
+	}
+	result.Distributions = nonNil(result.Distributions)
+	return result, nil
 }
 
 // RemoteSession is a session remote.connect opened.
@@ -62,8 +112,9 @@ type RemoteConnectResult struct {
 
 // RemoteConnect opens a session as request asks. Questions OpenSSH asks reach the prompt
 // WithGitAuthentication put in ctx, as for RemoteProbe. Core bounds an attempt, answers
-// included, to five minutes. Failures are CodeInvalidRequest before OpenSSH starts,
-// CodeRuntimeMissing without ssh, CodeRemoteServerInvalid when the build cannot be read or
+// included, to five minutes; a WSL connection asks nothing, and a distribution that is not
+// installed is RemoteProbeUnreachable. Failures are CodeInvalidRequest before OpenSSH or wsl.exe
+// starts, CodeRuntimeMissing without ssh, CodeRemoteServerInvalid when the build cannot be read or
 // differs from its SHA-256, and the context's error when ctx ends. A session whose events could
 // not all be observed is closed again and the observation failure returned: the user may not
 // have seen every question it asked.

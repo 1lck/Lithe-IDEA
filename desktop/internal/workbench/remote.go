@@ -104,6 +104,8 @@ type remoteState struct {
 	// importer is the import page, nil when it is not shown; imports are the counts the empty
 	// page and the import menu name.
 	importer *remoteImporter
+	// wsl is this computer's WSL distributions, read once per opening (remote_wsl.go).
+	wsl remoteWSL
 	// log folds OpenSSH's words under a failed test or connection.
 	log     ui.CollapsibleState
 	imports remoteImportCounts
@@ -126,14 +128,17 @@ type remoteForm struct {
 // have this name, since Core refuses control characters in one.
 const remoteNewGroup = "\x00new"
 
-// remoteListRow is a row of the saved list: a section's heading, or a saved connection.
+// remoteListRow is a row of the list: a section's heading, a saved connection, or a WSL
+// distribution.
 type remoteListRow struct {
 	// heading is set on a section's heading, which names group ("" for the connections without
-	// one) and the number of connections in the section.
+	// one, remoteWSLHeading for the WSL distributions) and the number of rows in the section.
 	heading bool
 	group   string
 	count   int
 	entry   *core.SavedRemoteConnection
+	// wsl is the distribution of a WSL row.
+	wsl string
 }
 
 // remoteProbe is a test in progress, cancelled by Stop or by closing the window.
@@ -147,6 +152,8 @@ type remoteProbeOutcome struct {
 	// at is when the test ended, for the overview's "tested 5 minutes ago".
 	at  time.Time
 	err error
+	// wsl is set when the host was a WSL distribution, whose failures read differently.
+	wsl bool
 }
 
 // remoteFieldRefusal is the field of the form Core (or the form's own number check) refused, and
@@ -174,6 +181,7 @@ func (a *App) openRemote(surface actionSurface) {
 	r.form.clear()
 	a.performed("remote.connections.open", surface)
 	a.loadRemote(remoteLoadSelectFirst, "")
+	a.loadRemoteWSL()
 }
 
 // closeRemote closes the window, stopping a running test or connection and ending the session a
@@ -380,16 +388,22 @@ func (r *remoteState) probedOutcome(connection core.SSHConnection) *remoteProbeO
 	return r.probed[remoteStored(connection)]
 }
 
-// resetEditing drops the last test or connection, its errors and the delete question.
+// resetEditing drops the last test or connection, its errors, the delete question and the WSL
+// distribution shown.
 func (r *remoteState) resetEditing() {
 	r.stopProbe()
 	r.stopConnect()
 	r.result, r.err, r.fieldErr, r.confirmDelete = nil, "", remoteFieldRefusal{}, false
+	r.wsl.selected = ""
 }
 
-// syncListSelection selects the row of the edited connection, none for a new one.
+// syncListSelection selects the row of the edited connection or the WSL distribution shown, none
+// for a new connection.
 func (r *remoteState) syncListSelection() {
 	at := r.rowOf(r.selected)
+	if r.wsl.selected != "" {
+		at = r.wslRow(r.wsl.selected)
+	}
 	if r.list.Selected() != at {
 		r.list.Select(at)
 		if at >= 0 {

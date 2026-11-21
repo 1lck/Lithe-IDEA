@@ -885,53 +885,58 @@
     },
     {
       "id": "desktop.remote.status.connected",
-      "description": "Status bar item of a remote workspace: text while connected, before the first round trip is known",
-      "platforms": [
-        "desktop"
-      ],
-      "parameters": {
-        "name": "string"
-      }
-    },
-    {
-      "id": "desktop.remote.status.latency",
-      "description": "Status bar item of a remote workspace: text while connected with the round trip of the last heartbeat in milliseconds",
+      "description": "Status bar item of a remote workspace: text while connected, before the first round trip is known; {kind} is how it is reached, SSH or WSL",
       "platforms": [
         "desktop"
       ],
       "parameters": {
         "name": "string",
-        "ms": "integer"
+        "kind": "string"
+      }
+    },
+    {
+      "id": "desktop.remote.status.latency",
+      "description": "Status bar item of a remote workspace: text while connected with the round trip of the last heartbeat in milliseconds; {kind} is how it is reached, SSH or WSL",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "name": "string",
+        "ms": "integer",
+        "kind": "string"
       }
     },
     {
       "id": "desktop.remote.status.unresponsive",
-      "description": "Status bar item of a remote workspace: text when the last heartbeat went unanswered",
+      "description": "Status bar item of a remote workspace: text when the last heartbeat went unanswered; {kind} is how it is reached, SSH or WSL",
       "platforms": [
         "desktop"
       ],
       "parameters": {
-        "name": "string"
+        "name": "string",
+        "kind": "string"
       }
     },
     {
       "id": "desktop.remote.status.reconnecting",
-      "description": "Status bar item of a remote workspace: text while connecting again after the connection was lost",
+      "description": "Status bar item of a remote workspace: text while connecting again after the connection was lost; {kind} is how it is reached, SSH or WSL",
       "platforms": [
         "desktop"
       ],
       "parameters": {
-        "name": "string"
+        "name": "string",
+        "kind": "string"
       }
     },
     {
       "id": "desktop.remote.status.disconnected",
-      "description": "Status bar item of a remote workspace: text when the connection was lost and connecting again failed",
+      "description": "Status bar item of a remote workspace: text when the connection was lost and connecting again failed; {kind} is how it is reached, SSH or WSL",
       "platforms": [
         "desktop"
       ],
       "parameters": {
-        "name": "string"
+        "name": "string",
+        "kind": "string"
       }
     },
     {
@@ -950,13 +955,14 @@
     },
     {
       "id": "desktop.remote.workspace.title",
-      "description": "Window title and task switcher name of a remote workspace",
+      "description": "Window title and task switcher name of a remote workspace; {kind} is how it is reached, SSH or WSL",
       "platforms": [
         "desktop"
       ],
       "parameters": {
         "folder": "string",
-        "connection": "string"
+        "connection": "string",
+        "kind": "string"
       }
     },
     {
@@ -2322,6 +2328,97 @@
         "timeout": "string",
         "keepAlive": "string"
       }
+    },
+    {
+      "id": "desktop.remote.kind.ssh",
+      "description": "How a remote workspace over SSH is reached, in its window title and status bar item",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.remote.wsl.heading",
+      "description": "Remote Development window: heading of the list's WSL distributions of this computer and the tag on a distribution's page; also how a remote workspace in one is reached, in its window title and status bar item",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.remote.wsl.kind",
+      "description": "Remote Development window: line under a WSL distribution's name in the list",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.remote.wsl.about",
+      "description": "Remote Development window: paragraph on a WSL distribution's page",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.remote.wsl.user",
+      "description": "Remote Development window: title of a WSL distribution's account field, and the field's accessible name",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.remote.wsl.userHelp",
+      "description": "Remote Development window: help of a WSL distribution's account field",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.remote.wsl.userPlaceholder",
+      "description": "Remote Development window: placeholder of a WSL distribution's empty account field",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.remote.wsl.userInvalid",
+      "description": "Remote Development window: error when Core refused the account typed for a WSL distribution",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.remote.wsl.userTooLong",
+      "description": "Remote Development window: error when the account typed for a WSL distribution is too long",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.remote.wsl.distributionInvalid",
+      "description": "Remote Development window: error when Core refused a WSL distribution's name",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.remote.wsl.unreachable",
+      "description": "Remote Development window: why a connection to a WSL distribution failed, when it is not installed or did not start",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.remote.wsl.missing",
+      "description": "Remote Development window: why a connection to a WSL distribution failed, when this computer has no wsl.exe",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.remote.wsl.start",
+      "description": "Remote Development window: the step of a connection to a WSL distribution that starts it, in place of connecting to a host",
+      "platforms": [
+        "desktop"
+      ]
     }
   ],
   "locales": {
@@ -2465,14 +2562,14 @@
       "desktop.remote.browse.enterHint": "Double-click to open",
       "desktop.remote.browse.git": "Git",
       "desktop.remote.status.label": "Remote Connection",
-      "desktop.remote.status.connected": "SSH: {name}",
-      "desktop.remote.status.latency": "SSH: {name} · {ms} ms",
-      "desktop.remote.status.unresponsive": "SSH: {name} · Not responding",
-      "desktop.remote.status.reconnecting": "SSH: {name} · Reconnecting…",
-      "desktop.remote.status.disconnected": "SSH: {name} · Disconnected",
+      "desktop.remote.status.connected": "{kind}: {name}",
+      "desktop.remote.status.latency": "{kind}: {name} · {ms} ms",
+      "desktop.remote.status.unresponsive": "{kind}: {name} · Not responding",
+      "desktop.remote.status.reconnecting": "{kind}: {name} · Reconnecting…",
+      "desktop.remote.status.disconnected": "{kind}: {name} · Disconnected",
       "desktop.remote.status.reconnect": "Reconnect",
       "desktop.remote.status.disconnect": "Disconnect and Close",
-      "desktop.remote.workspace.title": "{folder} [SSH: {connection}]",
+      "desktop.remote.workspace.title": "{folder} [{kind}: {connection}]",
       "desktop.remote.titleWith": "Remote Development › {crumb}",
       "desktop.remote.newConnection": "New Connection",
       "desktop.remote.search": "Search connections",
@@ -2628,7 +2725,20 @@
       "desktop.remote.probe.hint.authentication": "Check the user name; the password method asks when connecting. If the server only allows keys, set Authentication to “{method}”.",
       "desktop.remote.probe.hint.hostKey": "Connecting shows the host’s fingerprint for you to confirm. If it changed, check with the host’s administrator before updating known_hosts.",
       "desktop.remote.probe.hint.unreachable": "Check the host and the port. If the host can only be reached through another one, add that one as a jump host.",
-      "desktop.remote.advancedSummary": "Connect timeout {timeout} · Keep-alive {keepAlive}"
+      "desktop.remote.advancedSummary": "Connect timeout {timeout} · Keep-alive {keepAlive}",
+      "desktop.remote.kind.ssh": "SSH",
+      "desktop.remote.wsl.heading": "WSL",
+      "desktop.remote.wsl.kind": "WSL distribution on this computer",
+      "desktop.remote.wsl.about": "Opens through wsl.exe on this computer, as the Linux user below. Nothing about the distribution is saved: the folders opened in it are not remembered, and the list is read again each time this window opens.",
+      "desktop.remote.wsl.user": "Linux user",
+      "desktop.remote.wsl.userHelp": "The account the workspace runs as. Leave it empty to use the distribution's default user.",
+      "desktop.remote.wsl.userPlaceholder": "Default user",
+      "desktop.remote.wsl.userInvalid": "Linux does not accept this user name.",
+      "desktop.remote.wsl.userTooLong": "A Linux user name has at most 32 characters.",
+      "desktop.remote.wsl.distributionInvalid": "wsl.exe does not accept this distribution name.",
+      "desktop.remote.wsl.unreachable": "This WSL distribution is not installed, or it did not start.",
+      "desktop.remote.wsl.missing": "wsl.exe was not found on this computer. Install the Windows Subsystem for Linux to open a distribution.",
+      "desktop.remote.wsl.start": "Start the distribution"
     },
     "zh-CN": {
       "desktop.remote.title": "远程开发",
@@ -2770,14 +2880,14 @@
       "desktop.remote.browse.enterHint": "双击进入",
       "desktop.remote.browse.git": "Git",
       "desktop.remote.status.label": "远程连接",
-      "desktop.remote.status.connected": "SSH: {name}",
-      "desktop.remote.status.latency": "SSH: {name} · {ms} 毫秒",
-      "desktop.remote.status.unresponsive": "SSH: {name} · 无响应",
-      "desktop.remote.status.reconnecting": "SSH: {name} · 正在重新连接…",
-      "desktop.remote.status.disconnected": "SSH: {name} · 已断开",
+      "desktop.remote.status.connected": "{kind}: {name}",
+      "desktop.remote.status.latency": "{kind}: {name} · {ms} 毫秒",
+      "desktop.remote.status.unresponsive": "{kind}: {name} · 无响应",
+      "desktop.remote.status.reconnecting": "{kind}: {name} · 正在重新连接…",
+      "desktop.remote.status.disconnected": "{kind}: {name} · 已断开",
       "desktop.remote.status.reconnect": "重新连接",
       "desktop.remote.status.disconnect": "断开并关闭",
-      "desktop.remote.workspace.title": "{folder} [SSH: {connection}]",
+      "desktop.remote.workspace.title": "{folder} [{kind}: {connection}]",
       "desktop.remote.titleWith": "远程开发 › {crumb}",
       "desktop.remote.newConnection": "新建连接",
       "desktop.remote.search": "搜索连接",
@@ -2933,7 +3043,20 @@
       "desktop.remote.probe.hint.authentication": "检查用户名是否正确；密码方式会在连接时询问。若服务器只允许密钥，把身份验证改成“{method}”。",
       "desktop.remote.probe.hint.hostKey": "连接时会显示主机指纹请你确认；如果指纹变了，先向主机管理员核实，再更新 known_hosts。",
       "desktop.remote.probe.hint.unreachable": "检查主机和端口；如果只能经另一台主机访问，把它加为跳板机。",
-      "desktop.remote.advancedSummary": "连接超时 {timeout} · 保活间隔 {keepAlive}"
+      "desktop.remote.advancedSummary": "连接超时 {timeout} · 保活间隔 {keepAlive}",
+      "desktop.remote.kind.ssh": "SSH",
+      "desktop.remote.wsl.heading": "WSL",
+      "desktop.remote.wsl.kind": "本机 WSL 发行版",
+      "desktop.remote.wsl.about": "通过本机的 wsl.exe 打开，以下方的 Linux 用户运行。不保存这个发行版的任何信息：不记住在其中打开过的文件夹，每次打开本窗口时重新读取列表。",
+      "desktop.remote.wsl.user": "Linux 用户",
+      "desktop.remote.wsl.userHelp": "工作区以哪个账户运行。留空则使用发行版的默认用户。",
+      "desktop.remote.wsl.userPlaceholder": "默认用户",
+      "desktop.remote.wsl.userInvalid": "Linux 不接受这个用户名。",
+      "desktop.remote.wsl.userTooLong": "Linux 用户名最多 32 个字符。",
+      "desktop.remote.wsl.distributionInvalid": "wsl.exe 不接受这个发行版名称。",
+      "desktop.remote.wsl.unreachable": "这个 WSL 发行版没有安装，或者没能启动。",
+      "desktop.remote.wsl.missing": "本机找不到 wsl.exe。安装适用于 Linux 的 Windows 子系统（WSL）后才能打开发行版。",
+      "desktop.remote.wsl.start": "启动发行版"
     }
   }
 }

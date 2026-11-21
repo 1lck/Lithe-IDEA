@@ -39,8 +39,11 @@ var remoteColorChoices = append([]core.RemoteConnectionColor{""}, core.RemoteCon
 
 // remoteGroupHeading is the heading of group in the list, "" being the connections without one.
 func remoteGroupHeading(language i18n.Language, group string) string {
-	if group == "" {
+	switch group {
+	case "":
 		return i18n.Shared(language, "desktop.remote.ungrouped")
+	case remoteWSLHeading:
+		return i18n.Shared(language, "desktop.remote.wsl.heading")
 	}
 	return group
 }
@@ -332,6 +335,9 @@ func remoteFailureText(language i18n.Language, outcome *remoteProbeOutcome) stri
 		}
 		var coreErr *core.Error
 		if errors.As(err, &coreErr) && coreErr.Code == core.CodeRuntimeMissing {
+			if outcome.wsl {
+				return i18n.Shared(language, "desktop.remote.wsl.missing")
+			}
 			return i18n.Shared(language, "desktop.remote.probe.noSSH")
 		}
 		return i18n.SharedFormat(language, "desktop.remote.probe.error", map[string]string{"reason": remoteLogError(err).Error()})
@@ -351,6 +357,9 @@ func remoteFailureText(language i18n.Language, outcome *remoteProbeOutcome) stri
 	case core.RemoteProbeHostKeyRejected:
 		return i18n.Shared(language, "desktop.remote.probe.hostKeyRejected")
 	case core.RemoteProbeUnreachable:
+		if outcome.wsl {
+			return i18n.Shared(language, "desktop.remote.wsl.unreachable")
+		}
 		return i18n.Shared(language, "desktop.remote.probe.unreachable")
 	}
 	return i18n.Shared(language, "desktop.remote.probe.failed")

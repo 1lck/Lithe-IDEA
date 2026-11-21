@@ -287,8 +287,9 @@ type RemoteWorkspaceTrustTarget struct {
 }
 
 // Place is the route of the target's hops, outermost first: "destination:port" for an SSH hop,
-// with the User option in front when the destination names no user, and "engine:container" for
-// a container, joined by " → ". It is empty for a target it cannot read.
+// with the User option in front when the destination names no user, "engine:container" for a
+// container and "wsl:[user@]distribution" for a WSL distribution, as WSLConnection.Identity
+// writes it, joined by " → ". It is empty for a target it cannot read.
 func (t RemoteWorkspaceTrustTarget) Place() string {
 	var target struct {
 		Hops []struct {
@@ -302,6 +303,7 @@ func (t RemoteWorkspaceTrustTarget) Place() string {
 				Engine    string `json:"engine"`
 				Container string `json:"container"`
 			} `json:"container"`
+			WSL *WSLConnection `json:"wsl"`
 		} `json:"hops"`
 	}
 	if json.Unmarshal(t.Target, &target) != nil {
@@ -323,6 +325,8 @@ func (t RemoteWorkspaceTrustTarget) Place() string {
 			hops = append(hops, place)
 		case hop.Container != nil:
 			hops = append(hops, hop.Container.Engine+":"+hop.Container.Container)
+		case hop.WSL != nil:
+			hops = append(hops, hop.WSL.Identity())
 		}
 	}
 	return strings.Join(hops, " → ")

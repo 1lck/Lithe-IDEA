@@ -212,6 +212,7 @@ type Kernel interface {
 	RemoteConnections(ctx context.Context, document *string) (core.RemoteConnectionsState, error)
 	EditRemoteConnections(ctx context.Context, document *string, edit core.RemoteConnectionEdit) (core.RemoteConnectionsPublication, error)
 	RemoteProbe(ctx context.Context, connection core.SSHConnection) (core.RemoteProbeResult, error)
+	RemoteListWSLDistributions(ctx context.Context) (core.RemoteWSLDistributions, error)
 	RemoteAuthRespond(ctx context.Context, requestID string, answer *string) (bool, error)
 	RemoteConnect(ctx context.Context, request core.RemoteConnectRequest) (core.RemoteConnectResult, error)
 	RemoteDisconnect(ctx context.Context, sessionID string) (bool, error)

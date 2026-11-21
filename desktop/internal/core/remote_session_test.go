@@ -6,6 +6,7 @@ import (
 	"errors"
 	"os"
 	"os/exec"
+	"runtime"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -241,5 +242,46 @@ func TestRemoteConnectRefusesAMalformedBuildBeforeConnecting(t *testing.T) {
 	var coreErr *Error
 	if !errors.As(err, &coreErr) || coreErr.Code != CodeInvalidRequest {
 		t.Fatalf("connect = %v, want invalid_request", err)
+	}
+}
+
+// A WSL connection is sent as the wsl field alone, and Core refuses one it cannot run by the field
+// it names before wsl.exe starts: so do a request naming both a host and a distribution and one
+// naming neither.
+func TestRemoteConnectSendsWSLAloneAndCoreRefusesItByField(t *testing.T) {
+	wire, err := json.Marshal(RemoteConnectRequest{WSL: &WSLConnection{Distribution: "Ubuntu"}, Servers: []RemoteServerBuild{}})
+	if err != nil || strings.Contains(string(wire), `"connection"`) || !strings.Contains(string(wire), `"wsl":{"distribution":"Ubuntu"}`) {
+		t.Fatalf("request = %s, %v, want the wsl field without a connection", wire, err)
+	}
+	if identity := (WSLConnection{Distribution: " Debian ", User: " dev "}).Identity(); identity != "wsl:dev@Debian" {
+		t.Fatalf("identity = %q", identity)
+	}
+	client := NewClient()
+	for _, tc := range []struct {
+		request       RemoteConnectRequest
+		field, reason string
+	}{
+		{RemoteConnectRequest{WSL: &WSLConnection{Distribution: " "}}, "distribution", "required"},
+		{RemoteConnectRequest{WSL: &WSLConnection{Distribution: "-d"}}, "distribution", "invalid"},
+		{RemoteConnectRequest{WSL: &WSLConnection{Distribution: "Ubuntu", User: "a b"}}, "user", "invalid"},
+		{RemoteConnectRequest{Connection: SSHConnection{Host: "devbox"}, WSL: &WSLConnection{Distribution: "Ubuntu"}}, "wsl", "invalid"},
+		{RemoteConnectRequest{}, "connection", "required"},
+	} {
+		tc.request.Servers, tc.request.ServerVersion = shippedTargets, "0.0.0-test"
+		_, err := client.RemoteConnect(testContext(t), tc.request)
+		if field, reason, ok := RemoteConnectionFieldError(err); !ok || field != tc.field || reason != tc.reason {
+			t.Fatalf("connect refused %q %q (%v), want %q %q", field, reason, ok, tc.field, tc.reason)
+		}
+	}
+}
+
+// Outside Windows there is no WSL: the listing says so without running anything.
+func TestRemoteListWSLDistributionsIsUnavailableOutsideWindows(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("Windows lists the machine's own distributions")
+	}
+	listed, err := NewClient().RemoteListWSLDistributions(testContext(t))
+	if err != nil || listed.Available || listed.Distributions == nil || len(listed.Distributions) != 0 || listed.Diagnostics != "" {
+		t.Fatalf("listing = %+v, %v, want unavailable with an empty list", listed, err)
 	}
 }

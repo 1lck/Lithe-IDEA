@@ -80,6 +80,8 @@ type remoteHostKernel struct {
 	git remoteHostGit
 	// ports are the host's listening ports and the sessions' forwards (remote_ports_test.go).
 	ports remoteHostPorts
+	// wsl is this computer's WSL distributions (remote_wsl_test.go).
+	wsl remoteHostWSL
 }
 
 // remoteTestTree is the workspace's tree the Project tool window lists by default.
@@ -95,6 +97,9 @@ func (k *remoteHostKernel) RemoteConnect(_ context.Context, request core.RemoteC
 	defer k.mu.Unlock()
 	k.connects++
 	k.servers = append(k.servers, request.Servers)
+	if request.WSL != nil {
+		return k.wsl.connect(k.connects, request)
+	}
 	if request.Connection.Host != remoteTestHost {
 		return core.RemoteConnectResult{Status: core.RemoteProbeUnreachable}, nil
 	}

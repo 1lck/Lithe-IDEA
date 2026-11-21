@@ -322,7 +322,9 @@ PINNED_CORE_REPOSITORY="https://github.com/Lithe-IDEA/Lithe-core-rust.git"
 # remoteStage events and classified authentication questions (#2231); #155 build preferences.
 # Lithe-core-rust main at ae593eb: #156 remote.parseForwardAddress reads a port, host:port or URL
 # typed into the Ports window (#2231).
-PINNED_CORE_REVISION="ae593eb1cca7c5529823f8339608d7e0ba3dd6ec"
+# Lithe-core-rust main at 5c163e9: #157 remote.connect opens a local WSL distribution through
+# wsl.exe (the wsl field) and remote.listWslDistributions lists the installed ones (#2231).
+PINNED_CORE_REVISION="5c163e9660d1447d17a8279aec151d23099e47e1"
 PROFILE="debug"
 CHECKOUT_ONLY="no"
 while [[ $# -gt 0 ]]; do

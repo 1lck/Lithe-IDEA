@@ -82,6 +82,8 @@ func (a *App) remoteTitle(language i18n.Language) string {
 		crumb = r.browser.name
 	case r.steps != nil:
 		crumb = r.steps.entry.Name
+	case r.wsl.selected != "":
+		crumb = r.wsl.selected
 	case r.editing && r.entry(r.selected) == nil:
 		crumb = i18n.Shared(language, "desktop.remote.newConnection")
 	case r.editing:
@@ -158,18 +160,27 @@ func (a *App) remoteRows(k ui.C, language i18n.Language, title string, rows []re
 		if r.rows[row].heading {
 			return remoteGroupHeading(language, r.rows[row].group)
 		}
+		if r.rows[row].wsl != "" {
+			return r.rows[row].wsl
+		}
 		return r.rows[row].entry.Name
 	}
 	r.list.Header = func(row int) bool { return row >= 0 && row < len(r.rows) && r.rows[row].heading }
 	ui.List(k.Part("rows"), &r.list, len(rows), func(row ui.ListRow) {
-		if item := rows[row.Index]; item.heading {
+		switch item := rows[row.Index]; {
+		case item.heading:
 			a.remoteHeadingRow(row, language, item)
-		} else {
+		case item.wsl != "":
+			a.remoteWSLRow(row, language, item.wsl)
+		default:
 			a.remoteEntryRow(row, language, *item.entry)
 		}
 	}).Scrollbars().FillWidth().Grow(1).Shrink(1).MinHeight(0).Label(title)
 	if r.list.Changed() {
-		if at := r.list.Selected(); at >= 0 && at < len(rows) && rows[at].entry != nil && (rows[at].entry.ID != r.selected || r.editing || r.steps != nil || r.browser != nil || r.importer != nil) {
+		away := r.steps != nil || r.browser != nil || r.importer != nil
+		at := r.list.Selected()
+		switch {
+		case at >= 0 && at < len(rows) && rows[at].entry != nil && (rows[at].entry.ID != r.selected || r.editing || r.wsl.selected != "" || away):
 			id := rows[at].entry.ID
 			c := k
 			c.After(func() {
@@ -179,6 +190,17 @@ func (a *App) remoteRows(k ui.C, language i18n.Language, title string, rows []re
 				}
 				a.performed("remote.connection.select", surfaceButton)
 				r.selectEntry(id)
+			})
+		case at >= 0 && at < len(rows) && rows[at].wsl != "" && (rows[at].wsl != r.wsl.selected || away):
+			name := rows[at].wsl
+			c := k
+			c.After(func() {
+				if !a.leaveRemoteFlows() {
+					r.syncListSelection()
+					return
+				}
+				a.performed("remote.wsl.select", surfaceButton)
+				r.selectRemoteWSL(name)
 			})
 		}
 	} else {
