@@ -4,7 +4,7 @@ go 1.26.0
 
 // gofmt output differs between releases (1.27 aligns long map keys differently),
 // so CI (setup-go reads this line) and local builds must format with one toolchain.
-toolchain go1.27.3
+toolchain go1.27.4
 
 require (
 	github.com/creack/pty v1.1.24

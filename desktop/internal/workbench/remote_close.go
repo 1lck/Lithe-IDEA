@@ -3,6 +3,7 @@ package workbench
 import (
 	"context"
 	"errors"
+	"path"
 	"strconv"
 	"strings"
 
@@ -273,23 +274,39 @@ func (a *App) returnRemoteSession(connectionID string, session core.RemoteSessio
 }
 
 // offerKeptPrograms tells, once workspace p attached a session an earlier window kept, which
-// programs that window left running on the host, and offers to end them (§9.2, S35): those alone,
-// not the ones p started since. Keeping them needs nothing; closing p lists them again.
+// programs that window left running on the host, and offers to end them or to receive the
+// processes again in the Run window (§9.2, S35): those alone, not the ones p started since.
+// Keeping them needs nothing; closing p lists them again. A terminal has no output to replay, so
+// it is not received again.
 func (a *App) offerKeptPrograms(p *project, session core.RemoteSession) {
 	if !session.Resumed || len(session.KeptPrograms) == 0 {
 		return
 	}
-	r, kept, language := p.remote, session.KeptPrograms, a.language()
+	r, kept, key, language := p.remote, session.KeptPrograms, session.SessionKey, a.language()
+	var processes []core.RemoteProgram
+	for _, program := range kept {
+		if program.Kind == core.RemoteProgramProcess {
+			processes = append(processes, program)
+		}
+	}
+	text := i18n.SharedFormat(language, "desktop.remote.kept.text", map[string]string{
+		"connection": r.name,
+		"count":      strconv.Itoa(len(kept)),
+	}) + "\n\n" + remoteProgramLines(language, kept)
+	actions := []string{i18n.Shared(language, "desktop.remote.kept.end")}
+	attach := -1
+	if len(processes) > 0 {
+		attach = len(actions)
+		actions = append(actions, i18n.Shared(language, "desktop.remote.kept.attach"))
+		if len(processes) < len(kept) {
+			text += "\n\n" + i18n.Shared(language, "desktop.remote.kept.attachTerminals")
+		}
+	}
+	actions = append(actions, i18n.Shared(language, "desktop.remote.kept.keep"))
 	a.prompts.queue = append(a.prompts.queue, &pluginPrompt{
-		title: i18n.Shared(language, "desktop.remote.kept.title"),
-		text: i18n.SharedFormat(language, "desktop.remote.kept.text", map[string]string{
-			"connection": r.name,
-			"count":      strconv.Itoa(len(kept)),
-		}) + "\n\n" + remoteProgramLines(language, kept),
-		actions: []string{
-			i18n.Shared(language, "desktop.remote.kept.end"),
-			i18n.Shared(language, "desktop.remote.kept.keep"),
-		},
+		title:   i18n.Shared(language, "desktop.remote.kept.title"),
+		text:    text,
+		actions: actions,
 		onAnswer: func(choice *int) {
 			switch {
 			case choice == nil:
@@ -297,11 +314,53 @@ func (a *App) offerKeptPrograms(p *project, session core.RemoteSession) {
 			case *choice == 0:
 				a.performed("remote.kept.end", surfaceButton)
 				a.endKeptPrograms(p, kept)
+			case *choice == attach:
+				a.performed("remote.kept.attach", surfaceButton)
+				a.attachKeptPrograms(p, key, processes)
 			default:
 				a.performed("remote.kept.keep", surfaceButton)
 			}
 		},
 	})
+}
+
+// attachKeptPrograms receives processes, which an earlier window kept running in host session
+// key, again over the session of p, each in a Run tab of its own until it exits, and shows the
+// Run window on the last one; stopping the tab ends it on the host. A process a tab already
+// receives gets no second one.
+func (a *App) attachKeptPrograms(p *project, key string, processes []core.RemoteProgram) {
+	r := p.remote
+	if session := r.current(); r.closed || session.id == "" || session.key != key {
+		a.operationRejected("remote_attach_programs", "disconnected")
+		a.notifyError(i18n.SharedFormat(a.language(), "desktop.remote.kept.attachFailed", map[string]string{"connection": r.name}))
+		return
+	}
+	shown := false
+	for _, program := range processes {
+		runKey := "remote-attach:" + strconv.FormatUint(program.ID, 10)
+		if p.build.runOf(runKey) != nil {
+			// log-exempt: 用户重复操作：这个进程已经在自己的运行标签里接回，不开第二个。
+			continue
+		}
+		op := a.beginRunOperation(p, remoteProgramName(program), "", runKey, nil)
+		a.launchRemoteAttachRun(p, op, key, program.ID)
+		shown = true
+	}
+	if shown {
+		a.showBuildConsole(p)
+	}
+}
+
+// remoteProgramName is what the Run tab of a received program is called: its label's name, else
+// the name of the file it runs. It is user content, never logged.
+func remoteProgramName(program core.RemoteProgram) string {
+	if program.Label != nil && program.Label.Name != "" {
+		return program.Label.Name
+	}
+	if len(program.Argv) > 0 {
+		return path.Base(program.Argv[0])
+	}
+	return ""
 }
 
 // endKeptPrograms ends programs, which an earlier window kept on the host of p, over the

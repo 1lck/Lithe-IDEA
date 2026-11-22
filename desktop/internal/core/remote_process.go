@@ -31,13 +31,16 @@ type RemoteProcessOpen struct {
 // their login shell sets up, so tools installed through the profile are on the PATH.
 const RemoteProcessEnvironmentLogin = "login"
 
-// RemoteProcessEvents receive a host process's events. Both run on the request's goroutine and
+// RemoteProcessEvents receive a host process's events. They run on the request's goroutine and
 // must return at once: they must not wait for a UI thread. Core holds 1024 undelivered events
 // per process and ends the process, and with it the request, when a subscriber stops reading.
 type RemoteProcessEvents struct {
 	// Started is called once, before any output, with the id process.kill takes and the
-	// process's id on the host.
+	// process's id on the host. remote.attachProcess does not call it.
 	Started func(processID uint64, pid int)
+	// Attached is called once, before any output, when remote.attachProcess receives the process
+	// again. truncated means some of what the process wrote while nobody received it is missing.
+	Attached func(truncated bool)
 	// Output receives the bytes the program wrote to stream, "stdout" or "stderr", in order.
 	// Output owns data.
 	Output func(stream string, data []byte)
@@ -50,7 +53,7 @@ type RemoteProcessExit struct {
 	Signal   *int `json:"signal"`
 }
 
-// remoteProcessEvent is one remote event of remote.runProcess.
+// remoteProcessEvent is one remote event of remote.runProcess or remote.attachProcess.
 type remoteProcessEvent struct {
 	Type   string `json:"type"`
 	Event  string `json:"event"`
@@ -59,10 +62,12 @@ type remoteProcessEvent struct {
 		PID       *int   `json:"pid"`
 		Stream    string `json:"stream"`
 		Data      string `json:"data"`
+		Truncated bool   `json:"truncated"`
 	} `json:"params"`
 }
 
-// errRemoteProcessEvent is an event of remote.runProcess the client cannot read.
+// errRemoteProcessEvent is an event of remote.runProcess or remote.attachProcess the client
+// cannot read.
 var errRemoteProcessEvent = errors.New("core: unreadable remote process event")
 
 // RemoteRunProcess runs a process on the host of sessionID until its leader exits, and returns
@@ -73,6 +78,30 @@ var errRemoteProcessEvent = errors.New("core: unreadable remote process event")
 // the client cannot read ends the process too and is returned as the error, since its output
 // would be incomplete.
 func (c *Client) RemoteRunProcess(ctx context.Context, sessionID string, open RemoteProcessOpen, events RemoteProcessEvents) (RemoteProcessExit, error) {
+	return c.receiveRemoteProcess(ctx, "remote.runProcess", struct {
+		SessionID string            `json:"sessionId"`
+		Params    RemoteProcessOpen `json:"params"`
+	}{sessionID, open}, events)
+}
+
+// RemoteAttachProcess receives again the host process processID that an earlier connection to
+// the host session started, after sessionID resumed that session (design §9.3): first Attached,
+// then what the process wrote meanwhile and after, until its leader exits, and returns how it
+// ended. The request then owns the process as RemoteRunProcess's does: ending ctx kills it. A
+// broken or unknown session fails with CodeConnectionClosed, a process nothing can receive any
+// more with CodeRemoteProcessGone, and one another request receives with
+// CodeRemoteProcessAttached.
+func (c *Client) RemoteAttachProcess(ctx context.Context, sessionID string, processID uint64, events RemoteProcessEvents) (RemoteProcessExit, error) {
+	return c.receiveRemoteProcess(ctx, "remote.attachProcess", struct {
+		SessionID string `json:"sessionId"`
+		ProcessID uint64 `json:"processId"`
+	}{sessionID, processID}, events)
+}
+
+// receiveRemoteProcess runs command, which relays one host process's events until its leader
+// exits, and returns the exit. An event the client cannot read cancels the request, which ends
+// the process, and is returned as the error.
+func (c *Client) receiveRemoteProcess(ctx context.Context, command string, payload any, events RemoteProcessEvents) (RemoteProcessExit, error) {
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 	var unreadable error
@@ -87,10 +116,7 @@ func (c *Client) RemoteRunProcess(ctx context.Context, sessionID string, open Re
 		}
 	}
 	var exit RemoteProcessExit
-	observationErr, err := c.ExecuteWithEvents(ctx, "remote.runProcess", struct {
-		SessionID string            `json:"sessionId"`
-		Params    RemoteProcessOpen `json:"params"`
-	}{sessionID, open}, &exit, observer)
+	observationErr, err := c.ExecuteWithEvents(ctx, command, payload, &exit, observer)
 	switch {
 	case unreadable != nil:
 		return RemoteProcessExit{}, unreadable
@@ -102,8 +128,8 @@ func (c *Client) RemoteRunProcess(ctx context.Context, sessionID string, open Re
 	return exit, nil
 }
 
-// deliverRemoteProcessEvent hands one event of remote.runProcess to events. Events of other kinds
-// are not the process's and are ignored.
+// deliverRemoteProcessEvent hands one event of remote.runProcess or remote.attachProcess to
+// events. Events of other kinds are not the process's and are ignored.
 func deliverRemoteProcessEvent(raw json.RawMessage, events RemoteProcessEvents) error {
 	if !bytes.Contains(raw, []byte(`"remote"`)) {
 		return nil
@@ -120,6 +146,10 @@ func deliverRemoteProcessEvent(raw json.RawMessage, events RemoteProcessEvents) 
 				pid = *event.Params.PID
 			}
 			events.Started(event.Params.ProcessID, pid)
+		}
+	case "process.attached":
+		if events.Attached != nil {
+			events.Attached(event.Params.Truncated)
 		}
 	case "process.output":
 		if event.Params.Stream != "stdout" && event.Params.Stream != "stderr" {

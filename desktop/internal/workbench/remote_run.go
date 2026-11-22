@@ -23,6 +23,13 @@ import (
 // its output in the Run window. Nothing of the run is read from or written to this computer's
 // file system, and no plugin takes part.
 //
+// A connection lost while the program runs does not end the run when the host keeps the session
+// (design §9.3): the Run window says so and waits for the workspace to connect again. A session
+// that resumed the same host session receives the process again (remote.attachProcess), from the
+// first event the lost connection did not receive, and the window says when some output is
+// missing; any other session ends the run. A kept program a closed window left running is
+// received the same way, in a Run tab of its own (remote_close.go, design §9.2, S35).
+//
 // Note: 远程工作区运行配置的决策见 .agents/notes/implemented/architecture/2026-11-22-remote-workspace-process-runs.md
 
 const (
@@ -39,15 +46,12 @@ const (
 
 // launchRemoteProcessRun is launchProcessRun for a remote workspace: it plans the run on the
 // host, starts its process there and waits for it off the window thread. The plan is bounded by
-// the run preparation time; the process runs until it exits, the user stops it, the project
-// closes or the connection is lost, which ends it on the host too.
+// the run preparation time; the process runs until it exits, the user stops it or the project
+// closes, which ends it on the host too. A lost connection ends the run only when the host keeps
+// no session for it, or the session that replaces it is another (follow).
 func (a *App) launchRemoteProcessRun(p *project, op *buildOperation, id string) {
-	host := remoteRunHost{
-		kernel: a.kernel, binding: p.remote.binding, root: p.root, language: a.language(),
-		label:  core.NewRemoteResourceLabel("run", op.session.label),
-		output: func(text string) { a.streamBuildOutput(p, op, text) },
-		lost:   a.remoteSessionLost(p),
-	}
+	host := a.remoteRunHostOf(p, op)
+	host.label = core.NewRemoteResourceLabel("run", op.session.label)
 	a.background(p, 0, func(ctx context.Context) func(*App) {
 		host.failed = func(operation string, err error) { a.backgroundFailedIn(ctx, operation, remoteLogError(err)) }
 		bounded, cancel := context.WithTimeout(ctx, runPreparationTimeout)
@@ -64,6 +68,36 @@ func (a *App) launchRemoteProcessRun(p *project, op *buildOperation, id string) 
 		})
 		return func(a *App) { a.finishBuildRun(p, op, err) }
 	})
+}
+
+// launchRemoteAttachRun receives host process id, which a closed window kept running in the host
+// session key, in op's console until it exits, off the window thread. The process is op's at
+// once: stopping op ends it on the host. It follows the process across lost connections as a run
+// does.
+func (a *App) launchRemoteAttachRun(p *project, op *buildOperation, key string, id uint64) {
+	host := a.remoteRunHostOf(p, op)
+	a.streamBuildOutput(p, op, remoteRunLine(i18n.Shared(host.language, "desktop.run.remote.attachedKept")))
+	a.background(p, 0, func(ctx context.Context) func(*App) {
+		host.failed = func(operation string, err error) { a.backgroundFailedIn(ctx, operation, remoteLogError(err)) }
+		err := host.receive(ctx, key, id, func(process *remoteProcess) {
+			a.post(func(a *App) { a.attachProcess(p, op, process) })
+		})
+		return func(a *App) { a.finishBuildRun(p, op, err) }
+	})
+}
+
+// remoteRunHostOf is what a run of p with its output in op's console takes from the window
+// thread.
+func (a *App) remoteRunHostOf(p *project, op *buildOperation) remoteRunHost {
+	r := p.remote
+	return remoteRunHost{
+		kernel: a.kernel, binding: r.binding, root: p.root, language: a.language(),
+		current: r.current,
+		output:  func(text string) { a.streamBuildOutput(p, op, text) },
+		lost:    a.remoteSessionLost(p),
+		rejoin:  a.remoteRunRejoin(p),
+		abandon: a.remoteRunAbandon(p),
+	}
 }
 
 // runStep runs a before-launch step that starts built-in run configuration step.ConfigurationID
@@ -102,38 +136,48 @@ type remoteRunHost struct {
 	root     string
 	language i18n.Language
 	label    *core.RemoteResourceLabel
+	// current is the workspace's session now (remoteProject.current).
+	current func() remoteSessionRef
 	// output adds text to the run's console. Decoding it may wait for Core, so only the run's
 	// output pump calls it, never the request's goroutine.
 	output func(string)
 	// lost tells the window the session's connection closed.
 	lost func(session string)
+	// rejoin waits under ctx for the workspace's session that replaces lost; false when ctx ended
+	// or the workspace closed first (App.remoteRunRejoin).
+	rejoin func(ctx context.Context, lost string) (remoteSessionRef, bool)
+	// abandon hands the window host process id of host session key, whose run ended while the
+	// connection was lost, to end once a session resumes key (App.remoteRunAbandon).
+	abandon func(key string, id uint64)
 	// failed logs a failure of the run's housekeeping, such as removing its temporary folder.
 	failed func(operation string, err error)
 }
 
-// remoteRunStart is a planned run: the session it runs over, its host temporary folder ("" when
-// none was created) and how its process starts.
+// remoteRunStart is a planned run: the session it runs over and the host session that is
+// (remoteSessionRef), its host temporary folder ("" when none was created) and how its process
+// starts.
 type remoteRunStart struct {
-	session, scratch string
-	open             core.RemoteProcessOpen
+	session remoteSessionRef
+	scratch string
+	open    core.RemoteProcessOpen
 }
 
 // prepare plans run configuration id on the host under ctx and writes a script saved as text to
 // the run's temporary folder. The start it returns names the folder whenever one was created, so
 // the caller removes it even when preparing failed.
 func (h remoteRunHost) prepare(ctx context.Context, id string) (remoteRunStart, error) {
-	start := remoteRunStart{session: h.binding.SessionID()}
-	if start.session == "" {
+	start := remoteRunStart{session: h.current()}
+	if start.session.id == "" {
 		return start, errors.New(i18n.Shared(h.language, "desktop.run.remote.notConnected"))
 	}
-	scratch, err := h.kernel.RemoteTempDirectory(ctx, start.session, remoteRunScratchPrefix)
+	scratch, err := h.kernel.RemoteTempDirectory(ctx, start.session.id, remoteRunScratchPrefix)
 	if err != nil {
-		return start, h.failure(start.session, err)
+		return start, h.failure(start.session.id, err)
 	}
 	start.scratch = scratch
 	plan, err := h.kernel.CreateRunLaunchPlan(ctx, h.root, id, path.Join(scratch, "script"))
 	if err != nil {
-		return start, h.failure(start.session, err)
+		return start, h.failure(start.session.id, err)
 	}
 	if start.open, err = h.processOpen(plan); err != nil {
 		return start, err
@@ -200,9 +244,9 @@ func (h remoteRunHost) writeScript(ctx context.Context, start remoteRunStart, sc
 	if path.Dir(script.Path) != start.scratch {
 		return errors.New("inline script is outside its temporary folder")
 	}
-	_, saved, err := h.kernel.RemoteWriteFile(ctx, start.session, script.Path, []byte(script.Content), nil)
+	_, saved, err := h.kernel.RemoteWriteFile(ctx, start.session.id, script.Path, []byte(script.Content), nil)
 	if err != nil {
-		return h.failure(start.session, err)
+		return h.failure(start.session.id, err)
 	}
 	if !saved {
 		return errors.New("inline script file already exists")
@@ -211,25 +255,122 @@ func (h remoteRunHost) writeScript(ctx context.Context, start remoteRunStart, sc
 }
 
 // run starts the planned process under ctx and waits for its leader to exit; attach receives the
-// process once the host started it. The output reaches the console before run returns. It
-// returns nil for a clean exit, a remoteRunExit for a nonzero exit code, and why the run ended
-// otherwise.
+// process once the host started it. A lost connection waits for the workspace to connect again
+// (follow). The output reaches the console before run returns. It returns nil for a clean exit,
+// a remoteRunExit for a nonzero exit code, and why the run ended otherwise.
 func (h remoteRunHost) run(ctx context.Context, start remoteRunStart, attach func(*remoteProcess)) error {
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
-	process := &remoteProcess{kernel: h.kernel, session: start.session, cancel: cancel, done: make(chan struct{}), failed: h.failed}
-	output := newRemoteRunOutput(h.output, "\n\x1b[2m"+i18n.Shared(h.language, "desktop.run.remote.outputDropped")+"\x1b[0m\n")
-	exit, err := h.kernel.RemoteRunProcess(ctx, start.session, start.open, core.RemoteProcessEvents{
-		Started: func(processID uint64, _ int) {
+	process := h.newProcess(start.session.id, cancel)
+	defer close(process.done)
+	return h.follow(ctx, start.session.key, process, func(session string, events core.RemoteProcessEvents) (core.RemoteProcessExit, error) {
+		events.Started = func(processID uint64, _ int) {
 			if process.id.CompareAndSwap(0, processID) {
 				attach(process)
 			}
-		},
-		Output: func(_ string, data []byte) { output.add(data) },
+		}
+		return h.kernel.RemoteRunProcess(ctx, session, start.open, events)
 	})
-	close(process.done)
-	output.close()
-	return h.endError(ctx, start.session, exit, err)
+}
+
+// receive receives host process id, which an earlier connection to host session key started,
+// over the workspace's session under ctx until its leader exits; attach receives the process at
+// once. It ends as run does.
+func (h remoteRunHost) receive(ctx context.Context, key string, id uint64, attach func(*remoteProcess)) error {
+	ctx, cancel := context.WithCancel(ctx)
+	defer cancel()
+	session := h.current()
+	switch {
+	case session.id == "":
+		return errors.New(i18n.Shared(h.language, "desktop.run.remote.notConnected"))
+	case session.key != key:
+		return errors.New(i18n.Shared(h.language, "desktop.run.remote.sessionEnded"))
+	}
+	process := h.newProcess(session.id, cancel)
+	defer close(process.done)
+	process.id.Store(id)
+	attach(process)
+	return h.follow(ctx, key, process, h.attachRequest(ctx, id))
+}
+
+// remoteReceive sends the request that receives a run's process over session, with events.
+type remoteReceive func(session string, events core.RemoteProcessEvents) (core.RemoteProcessExit, error)
+
+// attachRequest is the remoteReceive of remote.attachProcess for host process id under ctx.
+func (h remoteRunHost) attachRequest(ctx context.Context, id uint64) remoteReceive {
+	return func(session string, events core.RemoteProcessEvents) (core.RemoteProcessExit, error) {
+		return h.kernel.RemoteAttachProcess(ctx, session, id, events)
+	}
+}
+
+// newProcess is a run's process over session, whose request cancel ends.
+func (h remoteRunHost) newProcess(session string, cancel context.CancelFunc) *remoteProcess {
+	process := &remoteProcess{kernel: h.kernel, cancel: cancel, done: make(chan struct{}), failed: h.failed}
+	process.session.Store(&session)
+	return process
+}
+
+// follow receives process over first, then, while the host keeps host session key, again over
+// each session that resumes key after a lost connection, until its leader exits; it returns why
+// the run ended as run does. A request the lost connection ended waits for the workspace's next
+// session, with the wait in the console, once the host started the process: a process the
+// connection lost before Core named it cannot be received again. A run that ends meanwhile
+// leaves its process to the window, which ends it once a session resumes key. key "" is a
+// connection whose host keeps no session, which a lost connection ends.
+func (h remoteRunHost) follow(ctx context.Context, key string, process *remoteProcess, first remoteReceive) error {
+	receive, resumed := first, false
+	for {
+		session := process.over()
+		output := newRemoteRunOutput(h.output, remoteRunNotice(i18n.Shared(h.language, "desktop.run.remote.outputDropped")))
+		exit, err := receive(session, core.RemoteProcessEvents{
+			// Core calls it before the request's first output.
+			Attached: func(truncated bool) {
+				if resumed {
+					output.lead(remoteRunLine(i18n.Shared(h.language, "desktop.run.remote.resumed")))
+				}
+				if truncated {
+					output.lead(remoteRunLine(i18n.Shared(h.language, "desktop.run.remote.outputLost")))
+				}
+			},
+			Output: func(_ string, data []byte) { output.add(data) },
+		})
+		output.close()
+		id := process.id.Load()
+		if err == nil || !remoteConnectionClosed(err) || id == 0 || key == "" {
+			return h.endError(ctx, session, exit, err)
+		}
+		if ctx.Err() != nil {
+			// The run was stopped as the connection broke: the host never heard of it.
+			h.abandon(key, id)
+			return ctx.Err()
+		}
+		h.lost(session)
+		h.output(remoteRunNotice(i18n.Shared(h.language, "desktop.run.remote.waiting")))
+		next, ok := h.rejoin(ctx, session)
+		switch {
+		case ctx.Err() != nil:
+			h.abandon(key, id)
+			return ctx.Err()
+		case !ok:
+			// The workspace closed, which decided what happens to the host's programs.
+			return errors.New(i18n.Shared(h.language, "desktop.run.remote.connectionLost"))
+		case next.key != key:
+			return errors.New(i18n.Shared(h.language, "desktop.run.remote.sessionEnded"))
+		}
+		process.move(next.id)
+		receive, resumed = h.attachRequest(ctx, id), true
+	}
+}
+
+// remoteRunNotice is the window's own console text on a line of its own, after output that may
+// not end its line.
+func remoteRunNotice(text string) string {
+	return "\n" + remoteRunLine(text)
+}
+
+// remoteRunLine is the window's own console text as a line, at the start of one.
+func remoteRunLine(text string) string {
+	return "\x1b[2m" + text + "\x1b[0m\n"
 }
 
 // endError is why a run's request ended as the console reads it. A request ctx ended was
@@ -250,24 +391,33 @@ func (h remoteRunHost) endError(ctx context.Context, session string, exit core.R
 }
 
 // failure is err of a request over session as the console shows it: a closed connection is told
-// to the window and reads as a lost connection.
+// to the window and reads as a lost connection, and the refusals of remote.attachProcess say why
+// the process cannot be received.
 func (h remoteRunHost) failure(session string, err error) error {
-	if remoteConnectionClosed(err) {
+	var coreErr *core.Error
+	switch {
+	case remoteConnectionClosed(err):
 		h.lost(session)
 		return errors.New(i18n.Shared(h.language, "desktop.run.remote.connectionLost"))
+	case errors.As(err, &coreErr) && coreErr.Code == core.CodeRemoteProcessGone:
+		return errors.New(i18n.Shared(h.language, "desktop.run.remote.processGone"))
+	case errors.As(err, &coreErr) && coreErr.Code == core.CodeRemoteProcessAttached:
+		return errors.New(i18n.Shared(h.language, "desktop.run.remote.attachedElsewhere"))
 	}
 	return err
 }
 
 // cleanup removes the run's host temporary folder, after ctx ended too, so a stopped run leaves
-// none. A folder a lost connection keeps is left to the host.
+// none. It goes over the workspace's session now, which the run may have followed to a later
+// one; a folder the workspace is disconnected from is left to the host.
 func (h remoteRunHost) cleanup(ctx context.Context, start remoteRunStart) {
-	if start.scratch == "" {
+	session := h.current().id
+	if start.scratch == "" || session == "" {
 		return
 	}
 	ctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), remoteRunRequestTimeout)
 	defer cancel()
-	if err := h.kernel.RemoteRemove(ctx, start.session, start.scratch, true); err != nil && !remoteConnectionClosed(err) {
+	if err := h.kernel.RemoteRemove(ctx, session, start.scratch, true); err != nil && !remoteConnectionClosed(err) {
 		h.failed("run_inline_script_cleanup", err)
 	}
 }
@@ -282,8 +432,10 @@ func (e remoteRunExit) ExitCode() int { return int(e) }
 
 // remoteProcess is a run's process on the host as the Run window stops it (runProcess).
 type remoteProcess struct {
-	kernel  Kernel
-	session string
+	kernel Kernel
+	// session is the session the process is received over: the one it started in, then each one
+	// that resumed its host session after a lost connection.
+	session atomic.Pointer[string]
 	// cancel ends the run's request, and with it every process of the run: Core kills them.
 	cancel context.CancelFunc
 	// id is the process's id for process.kill, set before the process is attached.
@@ -297,8 +449,15 @@ type remoteProcess struct {
 // Pid is 0: the host's process ids are not this computer's, whose ports the Run window samples.
 func (r *remoteProcess) Pid() int { return 0 }
 
+// over is the session the process is received over now.
+func (r *remoteProcess) over() string { return *r.session.Load() }
+
+// move makes session, which resumed the process's host session, the one it is received over.
+func (r *remoteProcess) move(session string) { r.session.Store(&session) }
+
 // Stop asks every process of the run to end, SIGTERM to its process group, and kills them once
-// the stop time passed. A stop the host could not be asked for kills them at once.
+// the stop time passed. A stop the host could not be asked for kills them at once; while the
+// connection is lost, that is once a session resumes the host session (follow).
 func (r *remoteProcess) Stop() {
 	r.stopping.Do(func() {
 		grace := buildprocess.StopGrace()
@@ -310,7 +469,7 @@ func (r *remoteProcess) Stop() {
 			timer := time.NewTimer(grace)
 			defer timer.Stop()
 			ctx, cancel := context.WithTimeout(context.Background(), grace)
-			err := r.kernel.RemoteProcessKill(ctx, r.session, r.id.Load(), false)
+			err := r.kernel.RemoteProcessKill(ctx, r.over(), r.id.Load(), false)
 			cancel()
 			if err != nil {
 				if ctx.Err() == nil && !remoteConnectionClosed(err) {
@@ -340,7 +499,9 @@ type remoteRunOutput struct {
 	wake   chan struct{}
 	done   chan struct{}
 
-	mu      sync.Mutex
+	mu sync.Mutex
+	// leading is the window's own text, delivered before pending.
+	leading []string
 	pending []byte
 	dropped bool
 	closed  bool
@@ -365,6 +526,15 @@ func (o *remoteRunOutput) add(data []byte) {
 	o.signal()
 }
 
+// lead adds text of the window's own before the output, which nothing was added of yet, and
+// never waits.
+func (o *remoteRunOutput) lead(text string) {
+	o.mu.Lock()
+	o.leading = append(o.leading, text)
+	o.mu.Unlock()
+	o.signal()
+}
+
 // close delivers what is left and waits for the pump to finish.
 func (o *remoteRunOutput) close() {
 	o.mu.Lock()
@@ -385,9 +555,12 @@ func (o *remoteRunOutput) pump() {
 	defer close(o.done)
 	for range o.wake {
 		o.mu.Lock()
-		data, dropped, closed := o.pending, o.dropped, o.closed
-		o.pending, o.dropped = nil, false
+		leading, data, dropped, closed := o.leading, o.pending, o.dropped, o.closed
+		o.leading, o.pending, o.dropped = nil, nil, false
 		o.mu.Unlock()
+		for _, text := range leading {
+			o.deliver(text)
+		}
 		if dropped {
 			o.deliver(o.notice)
 		}
@@ -398,4 +571,118 @@ func (o *remoteRunOutput) pump() {
 			return
 		}
 	}
+}
+
+// remoteSessionRef is a session of a remote workspace with the host session it is attached to
+// (core.RemoteSession.SessionKey), "" for a host that keeps no session for the connection. Two
+// sessions of one key reach the same host processes, whose ids are per host session.
+type remoteSessionRef struct {
+	id, key string
+}
+
+// remoteAbandoned is a host process of host session key whose run ended while the connection was
+// lost: nothing could tell the host to end it.
+type remoteAbandoned struct {
+	key string
+	id  uint64
+}
+
+// remoteRunRejoin is how a run of p waits, off the window thread, for the session that replaces
+// the lost one (remoteRunHost.rejoin).
+func (a *App) remoteRunRejoin(p *project) func(context.Context, string) (remoteSessionRef, bool) {
+	return func(ctx context.Context, lost string) (remoteSessionRef, bool) {
+		// Buffered, so the window thread hands the session over without waiting for the run.
+		wait := make(chan remoteSessionRef, 1)
+		a.post(func(a *App) { a.awaitRemoteSession(p, lost, wait) })
+		select {
+		case next, ok := <-wait:
+			return next, ok
+		case <-ctx.Done():
+			return remoteSessionRef{}, false
+		}
+	}
+}
+
+// awaitRemoteSession hands wait the workspace's session once there is one other than lost, and
+// closes it when the workspace closed.
+func (a *App) awaitRemoteSession(p *project, lost string, wait chan<- remoteSessionRef) {
+	r := p.remote
+	switch session := r.current(); {
+	case a.project != p || r.closed:
+		close(wait)
+	case session.id != "" && session.id != lost:
+		wait <- session
+	default:
+		r.rejoins = append(r.rejoins, wait)
+	}
+}
+
+// remoteRunAbandon is how a run of p that ended while its connection was lost hands its host
+// process to the window, off the window thread (remoteRunHost.abandon).
+func (a *App) remoteRunAbandon(p *project) func(key string, id uint64) {
+	return func(key string, id uint64) {
+		a.post(func(a *App) {
+			r := p.remote
+			if a.project != p || r.closed {
+				// log-exempt: 用户取消：工作区已关闭，关闭时已决定主机上的程序是结束还是保留。
+				return
+			}
+			r.abandoned = append(r.abandoned, remoteAbandoned{key: key, id: id})
+			if r.session != "" {
+				a.endAbandonedRuns(p)
+			}
+		})
+	}
+}
+
+// rejoinRemoteRuns hands the workspace's new session to the runs waiting for one and ends the
+// host processes of the runs that ended meanwhile once it resumed their host session; with any
+// other, they ended with their own.
+func (a *App) rejoinRemoteRuns(p *project) {
+	r := p.remote
+	session := r.current()
+	for _, wait := range r.rejoins {
+		wait <- session
+	}
+	r.rejoins = nil
+	a.endAbandonedRuns(p)
+}
+
+// endAbandonedRuns ends, at once and over the workspace's session, the abandoned host processes
+// of its host session, and forgets the others: their host session ended.
+func (a *App) endAbandonedRuns(p *project) {
+	r := p.remote
+	session := r.current()
+	var ids []uint64
+	for _, process := range r.abandoned {
+		if session.key != "" && process.key == session.key {
+			ids = append(ids, process.id)
+		}
+	}
+	r.abandoned = nil
+	if len(ids) == 0 {
+		return
+	}
+	kernel := a.kernel
+	a.background(p, remoteRunRequestTimeout, func(ctx context.Context) func(*App) {
+		var failed error
+		for _, id := range ids {
+			if err := kernel.RemoteProcessKill(ctx, session.id, id, true); err != nil && !remoteConnectionClosed(err) {
+				failed = err
+			}
+		}
+		if failed == nil {
+			return nil
+		}
+		return func(a *App) { a.backgroundFailed("run_stop_after_reconnect", remoteLogError(failed)) }
+	})
+}
+
+// closeRemoteRuns closes the waits of the runs of a closing workspace and forgets its abandoned
+// host processes: closing it decides what happens to the host's programs.
+func (r *remoteProject) closeRemoteRuns() {
+	for _, wait := range r.rejoins {
+		close(wait)
+	}
+	r.rejoins, r.abandoned = nil, nil
 }
