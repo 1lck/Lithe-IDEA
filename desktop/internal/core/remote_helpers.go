@@ -99,7 +99,8 @@ const (
 	RemoteImportExists RemoteImportStatus = "exists"
 	// RemoteImportPattern is a Host line with wildcards or a negation, naming no single host.
 	RemoteImportPattern RemoteImportStatus = "pattern"
-	// RemoteImportInvalid is a host name Lithe refuses.
+	// RemoteImportInvalid is a host name Lithe refuses, or a Motty SSH host with a setting Lithe
+	// refuses; the refused field is marked RemoteMottySkipInvalid.
 	RemoteImportInvalid RemoteImportStatus = "invalid"
 	// RemoteImportUnreadable is a host `ssh -G` failed or timed out for.
 	RemoteImportUnreadable RemoteImportStatus = "unreadable"
@@ -197,8 +198,8 @@ type RemoteMottyField struct {
 
 // RemoteMottyCandidate is one Motty host. Name is the label an import saves it under, Address
 // `[user@]host[:port]` and System Motty's operating system tag. Connection is what the import
-// saves, nil for RemoteImportUnsupported; ExistingID names the saved entry of a
-// RemoteImportExists host.
+// saves, nil for RemoteImportUnsupported and RemoteImportInvalid; ExistingID names the saved
+// entry of a RemoteImportExists host.
 type RemoteMottyCandidate struct {
 	Key        string                `json:"key"`
 	Name       string                `json:"name"`
