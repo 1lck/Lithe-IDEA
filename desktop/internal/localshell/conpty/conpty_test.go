@@ -13,6 +13,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/1lck/Lithe-IDEA/desktop/internal/installedpackagetest"
 )
 
 // noticeRow is one row of the table in NOTICE.md: a file of this folder, its path in the
@@ -257,5 +259,32 @@ func TestTheDigestCoversEveryFilesPathAndBytes(t *testing.T) {
 	}
 	if digest(fakeSet("1")) != base {
 		t.Error("the same set has two digests")
+	}
+}
+
+// Opening a terminal from a client installed the way a release is installs the ConPTY below the
+// user's cache directory and leaves the installed package byte for byte as it was. On Windows it
+// installs the ConPTY this build carries; elsewhere, where a build carries none, a stand-in set.
+// Run checks the package in the test process.
+func TestInstallLeavesTheInstalledPackageUnchanged(t *testing.T) {
+	if !installedpackagetest.Run(t) {
+		return
+	}
+	files := bundled
+	if len(files) == 0 {
+		files = fakeSet("1")
+	}
+	root, err := DefaultRoot()
+	if err != nil {
+		t.Fatal(err)
+	}
+	// The second terminal finds the set installed and reads it where it is.
+	for range 2 {
+		path, err := install(root, files)
+		if err != nil {
+			t.Fatal(err)
+		}
+		installedpackagetest.Outside(t, path)
+		requireInstalled(t, filepath.Dir(path), files)
 	}
 }

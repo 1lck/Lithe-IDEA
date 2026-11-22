@@ -82,7 +82,7 @@
 - `scripts/desktop/desktop-go.sh test ./internal/settingswindow -run 'CommandInstall|CapabilityCard|DownloadInstaller' -count=1`：卡片状态、横幅、对话框内容（含下载地址、镜像、SHA-256 和下载进度）、安装输出、完成后卡片清除、取消、失败文案。
 - `scripts/desktop/desktop-go.sh test ./internal/pluginhost ./internal/core -count=1`：记录文件的读写边界和 Core 封装。
 - `LITHE_VISUAL_OUTPUT_DIR=<目录> scripts/desktop/desktop-go.sh test -tags 'vivahead lithevisual' -run TestVisualCommandInstall ./internal/settingswindow -count=1`：深浅主题的卡片、对话框、下载对话框和下载进度截图。
-- `scripts/desktop/verify/verify-runtime-bundle-immutability.sh`：安装与启动后 app bundle 文件清单不变。
+- `scripts/desktop/verify/verify-runtime-bundle-immutability.sh`：静态检查运行时只通过 `desktop/internal/installedpackage` 定位安装包。受管安装和下载落在插件根的 `.state/<插件 ID>/` 下；`pluginpkg` 的 `TestInstallLeavesTheInstalledPackageUnchanged` 从仿造的已安装程序包运行，确认插件根和状态目录都在用户目录下，且安装包文件清单不变。脚本要求这个测试一直存在。
 
 ## 适用范围
 

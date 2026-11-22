@@ -423,7 +423,7 @@ macOS app bundle 和 Windows 安装目录是发行基线。Sparkle 增量更新�
 
 - 缓存、索引、Eclipse/OSGi 状态、下载物、解压物、日志和锁文件，通过平台存储适配器放到缓存目录、Application Support、临时目录或用户工作区。不得从 `Bundle.main.resourceURL`、`resource_dir()` 或安装目录推导写入位置。
 - Equinox 等会向自身所在目录写入的工具，必须在可写的缓存目录中使用输入副本；`-configuration` 的做法见 Java 插件的 [`crates/java-domain/src/lsp/languages/jdt_configuration.rs`](https://github.com/Lithe-IDEA/lithe-plugin-java/blob/main/crates/java-domain/src/lsp/languages/jdt_configuration.rs)。
-- 新的打包运行时必须增加“典型流程前后比较安装目录文件清单”的测试，并保持 `./scripts/desktop/verify/verify-runtime-bundle-immutability.sh` 通过。
+- 新增会往本机写文件的运行时工作流（安装嵌入程序、解压下载物、创建缓存或状态）时，在同一次改动里用 `desktop/internal/installedpackagetest` 写一个测试：测试函数第一句是 `if !installedpackagetest.Run(t) { return }`，后面走生产路径解析写入位置，并对写出的路径调用 `installedpackagetest.Outside`。然后把 `文件:测试名` 加进 `./scripts/desktop/verify/verify-runtime-bundle-immutability.sh` 的 `installed_package_workflows` 清单，保持脚本通过。
 - 不得用“启动前清理 bundle”来修复运行时写入问题。
 
 决策和完整生命周期规则见 `.agents/notes/implemented/bug-fix/2026-09-25-runtime-bundle-immutability-and-update-delta.md` 和 `AGENTS.md`。
