@@ -181,6 +181,49 @@ func TestRemoteWorkspaceDamagedFileIsReported(t *testing.T) {
 	}
 }
 
+// Reverse forwarding is refused by Automatic, which the row says; allowing it is a draft Apply
+// writes, after which Core reports it from the setting, and Automatic refuses it again.
+func TestRemoteWorkspaceReverseForwardingIsAppliedAndRestored(t *testing.T) {
+	loader := newCorePreferencesLoader(t)
+	w, d, r := remoteWorkspaceWindow(t, loader)
+	automatic := i18n.SharedFormat(i18n.English, "desktop.remoteSettings.reverseAutomatic", map[string]string{
+		"value": en("desktop.remoteSettings.reverseRefused"),
+	})
+	if r.source.Saved.State.Reverse.Allowed || !d.text(automatic) {
+		t.Fatal("the reverse forwarding row does not show that Automatic refuses it")
+	}
+	allowed := true
+	r.setReverse(&allowed)
+	d.w.inv.Invalidate()
+	d.pump()
+	if r.drafts() != 1 {
+		t.Fatalf("drafts = %d, want reverse forwarding", r.drafts())
+	}
+	if _, err := os.Stat(loader.file()); !os.IsNotExist(err) {
+		t.Fatalf("a draft wrote the file before Apply: %v", err)
+	}
+	d.click(en("desktop.buildSettings.apply"))
+	d.until("the apply to end", func() bool { return !w.apply.active() && !r.busy() })
+	d.pump()
+	reverse := r.source.Saved.State.Reverse
+	if r.failed != nil || r.drafts() != 0 || reverse.Source != core.RemotePreferenceFromSetting || !reverse.Allowed {
+		t.Fatalf("failed = %v, drafts = %d, reverse = %+v, want it allowed by the setting", r.failed, r.drafts(), reverse)
+	}
+	if !d.text(en("desktop.remoteSettings.reverseAllowed")) {
+		t.Fatal("the row does not show reverse forwarding allowed")
+	}
+
+	r.setReverse(nil)
+	d.w.inv.Invalidate()
+	d.pump()
+	d.click(en("desktop.buildSettings.apply"))
+	d.until("the second apply to end", func() bool { return !w.apply.active() && !r.busy() })
+	d.pump()
+	if reverse := r.source.Saved.State.Reverse; reverse.Source != core.RemotePreferenceAutomatic || reverse.Allowed {
+		t.Fatalf("reverse = %+v: Automatic was not restored", reverse)
+	}
+}
+
 // The Closing card shows Automatic, which asks every time, and the host's idle timeout Core
 // reports; choosing Keep on host is a draft Apply writes, and the row then shows the saved choice.
 // Choosing Automatic again removes it from the file.

@@ -332,6 +332,51 @@
       "platforms": [
         "desktop"
       ]
+    },
+    {
+      "id": "desktop.remoteSettings.forwarding",
+      "description": "Settings › Tools › Remote Workspace: heading of the card of port forwarding settings",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.remoteSettings.reverseForwarding",
+      "description": "Settings › Tools › Remote Workspace: row choosing whether the Ports window may forward host ports back to this computer",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.remoteSettings.reverseForwardingHelp",
+      "description": "Settings › Tools › Remote Workspace: information tooltip of the reverse forwarding row",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.remoteSettings.reverseAllowed",
+      "description": "Settings › Tools › Remote Workspace: reverse forwarding choice that allows it",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.remoteSettings.reverseRefused",
+      "description": "Settings › Tools › Remote Workspace: reverse forwarding choice that refuses it",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.remoteSettings.reverseAutomatic",
+      "description": "Settings › Tools › Remote Workspace: automatic reverse forwarding choice; {value} is what it resolves to",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "value": "string"
+      }
     }
   ],
   "locales": {
@@ -379,7 +424,13 @@
       "desktop.remoteSettings.refusedProgramNotExecutable": "The chosen SSH program is not an executable file.",
       "desktop.remoteSettings.refusedProgram": "The SSH program path cannot be used.",
       "desktop.remoteSettings.refusedLimit": "The reconnect time must be between 0 and 3600 seconds.",
-      "desktop.remote.preferences.damaged": "The remote workspace settings file is damaged, so the host was not connected. Open Settings › Tools › Remote Workspace to see it."
+      "desktop.remote.preferences.damaged": "The remote workspace settings file is damaged, so the host was not connected. Open Settings › Tools › Remote Workspace to see it.",
+      "desktop.remoteSettings.forwarding": "Port Forwarding",
+      "desktop.remoteSettings.reverseForwarding": "Reverse forwarding",
+      "desktop.remoteSettings.reverseForwardingHelp": "Lets the Ports window forward a port on the host's loopback address back to this computer. Every user of the host can connect to such a port, so it is off by default; each rule is still confirmed before it starts.",
+      "desktop.remoteSettings.reverseAllowed": "Allow",
+      "desktop.remoteSettings.reverseRefused": "Don't Allow",
+      "desktop.remoteSettings.reverseAutomatic": "Automatic ({value})"
     },
     "zh-CN": {
       "desktop.remoteSettings.title": "远程工作区",
@@ -425,7 +476,13 @@
       "desktop.remoteSettings.refusedProgramNotExecutable": "选择的 SSH 程序不是可执行文件。",
       "desktop.remoteSettings.refusedProgram": "这个 SSH 程序路径不能使用。",
       "desktop.remoteSettings.refusedLimit": "自动重连时长必须在 0 到 3600 秒之间。",
-      "desktop.remote.preferences.damaged": "远程工作区设置文件已损坏，因此没有连接主机。请在 设置 › 工具 › 远程工作区 中查看。"
+      "desktop.remote.preferences.damaged": "远程工作区设置文件已损坏，因此没有连接主机。请在 设置 › 工具 › 远程工作区 中查看。",
+      "desktop.remoteSettings.forwarding": "端口转发",
+      "desktop.remoteSettings.reverseForwarding": "反向转发",
+      "desktop.remoteSettings.reverseForwardingHelp": "允许在端口窗口中把主机回环地址上的端口转发回本机。主机上的所有用户都能连接这样的端口，因此默认不允许；每条规则开始前仍会确认。",
+      "desktop.remoteSettings.reverseAllowed": "允许",
+      "desktop.remoteSettings.reverseRefused": "不允许",
+      "desktop.remoteSettings.reverseAutomatic": "自动（{value}）"
     }
   }
 }

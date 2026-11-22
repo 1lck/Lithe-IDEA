@@ -27,7 +27,7 @@ const (
 )
 
 // remotePortsActions declares the Ports window's header actions: the security note of forwards
-// (S30) and Stop All Forwards.
+// (S30), Add Forwarding Rule and Stop All Forwards.
 func (a *App) remotePortsActions(c ui.C, p *project) {
 	r := p.remote
 	if r == nil {
@@ -36,6 +36,9 @@ func (a *App) remotePortsActions(c ui.C, p *project) {
 	language := a.language()
 	ui.Button(c.Part("ports-help"), i18n.Shared(language, "native.moreInformation")).Icon(icons.Info).IconOnly().Ghost().Size(18, 18).
 		Tooltip(i18n.Shared(language, "desktop.remote.ports.help"))
+	if _, clicked := a.toolIconButton(c.Part("ports-rule-add"), i18n.Shared(language, "desktop.remote.ports.ruleAdd"), icons.Plus, false, r.session == ""); clicked {
+		c.After(func() { a.openRemotePortRule(p, surfaceToolbar) })
+	}
 	disabled := r.session == "" || len(r.ports.forwards) == 0 || r.ports.stoppingAll
 	if _, clicked := a.toolIconButton(c.Part("ports-stop-all"), i18n.Shared(language, "desktop.remote.ports.stopAll"), icons.Square, false, disabled); clicked {
 		c.After(func() { a.stopAllRemotePorts(p, surfaceToolbar) })
@@ -43,7 +46,7 @@ func (a *App) remotePortsActions(c ui.C, p *project) {
 }
 
 // remotePortsView declares the body of the Ports window: the field a port is typed into, the
-// window's message, and the list of ports.
+// window's message, the list of ports and the forwarding rules.
 func (a *App) remotePortsView(c ui.C, p *project) {
 	r := p.remote
 	if r == nil {
@@ -74,24 +77,33 @@ func (a *App) remotePortsView(c ui.C, p *project) {
 			a.remotePortsLine(c.Part("read-failed"), i18n.SharedFormat(language, "desktop.remote.ports.readFailed",
 				map[string]string{"reason": ports.readFailed}), a.theme.Danger)
 		}
-		rows := ports.rows()
-		if len(rows) == 0 {
-			if !ports.listed && ports.readFailed == "" {
-				a.panelMessage(c, i18n.Shared(language, "desktop.remote.ports.loading"), a.colors.Subtle)
-			} else {
-				a.panelMessage(c, i18n.Shared(language, "desktop.remote.ports.empty"), a.colors.Subtle)
-			}
+		rows, rules := ports.rows(), ports.rules()
+		empty := i18n.Shared(language, "desktop.remote.ports.empty")
+		if !ports.listed && ports.readFailed == "" {
+			empty = i18n.Shared(language, "desktop.remote.ports.loading")
+		}
+		if len(rows) == 0 && len(rules) == 0 {
+			a.panelMessage(c, empty, a.colors.Subtle)
 			return
 		}
-		a.remotePortsHeader(c)
+		if len(rows) > 0 {
+			a.remotePortsHeader(c)
+		}
 		ui.Scroll(c.Part("ports-list")).Scrollbars().Fill().Children(func() {
+			if len(rows) == 0 {
+				a.remotePortsLine(c.Part("ports-empty"), empty, a.colors.Subtle)
+			}
 			for _, row := range rows {
 				a.remotePortsRow(c.Key("port:"+row.key.host+":"+strconv.Itoa(int(row.key.port))), p, row)
+			}
+			if len(rules) > 0 {
+				a.remotePortRules(c, p, rules)
 			}
 		})
 	})
 	a.remotePortsConfirm(c, p)
 	a.remotePortsLocal(c, p)
+	a.remotePortRuleDialog(c, p)
 }
 
 // remotePortsLine declares a line of the window's messages in color.

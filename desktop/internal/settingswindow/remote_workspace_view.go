@@ -44,6 +44,9 @@ func (w *window) remoteWorkspacePage(c ui.C) {
 		w.card(c.Part("reconnection"), i18n.Shared(language, "desktop.remoteSettings.reconnection"), "", func() {
 			w.remoteReconnectRow(c.Part("reconnect"), language, r)
 		})
+		w.card(c.Part("forwarding"), i18n.Shared(language, "desktop.remoteSettings.forwarding"), "", func() {
+			w.remoteReverseRow(c.Part("reverse"), language, r)
+		})
 		w.card(c.Part("closing"), i18n.Shared(language, "desktop.remoteSettings.closing"), "", func() {
 			w.remoteCloseRow(c.Part("close-programs"), language, r)
 			w.remoteIdleTimeoutRow(c.Part("idle-timeout"), language, r)
@@ -164,6 +167,55 @@ func (w *window) remoteReconnectRow(c ui.C, language i18n.Language, r *remotePre
 			} else {
 				seconds := uint32(value)
 				r.setLimit(&seconds)
+			}
+		}
+	})
+}
+
+// Choices of the reverse forwarding row: Automatic, which refuses them, allowed and refused.
+const (
+	reverseAutomatic = iota
+	reverseAllowed
+	reverseRefused
+)
+
+// remoteReverseRow chooses whether the Ports window may add rules that bring a host port back to
+// this computer. Automatic names what it resolves to, which is refused.
+func (w *window) remoteReverseRow(c ui.C, language i18n.Language, r *remotePreferencesState) {
+	title := i18n.Shared(language, "desktop.remoteSettings.reverseForwarding")
+	value := reverseAutomatic
+	if shown := r.shownReverse(); shown != nil {
+		value = reverseRefused
+		if *shown {
+			value = reverseAllowed
+		}
+	}
+	allowedText := func(allowed bool) string {
+		if allowed {
+			return i18n.Shared(language, "desktop.remoteSettings.reverseAllowed")
+		}
+		return i18n.Shared(language, "desktop.remoteSettings.reverseRefused")
+	}
+	label := func(choice int) string {
+		switch choice {
+		case reverseAllowed:
+			return allowedText(true)
+		case reverseRefused:
+			return allowedText(false)
+		}
+		return i18n.SharedFormat(language, "desktop.remoteSettings.reverseAutomatic", map[string]string{
+			"value": allowedText(r.source.Automatic.Reverse.Allowed),
+		})
+	}
+	w.settingsRow(c, title, i18n.Shared(language, "desktop.remoteSettings.reverseForwardingHelp"), func() {
+		choices := []int{reverseAutomatic, reverseAllowed, reverseRefused}
+		if ui.Select(c.Part("reverse"), &value, choices, label).FillWidth().Label(title).Disabled(r.busy()).Changed() {
+			switch value {
+			case reverseAutomatic:
+				r.setReverse(nil)
+			default:
+				allowed := value == reverseAllowed
+				r.setReverse(&allowed)
 			}
 		}
 	})

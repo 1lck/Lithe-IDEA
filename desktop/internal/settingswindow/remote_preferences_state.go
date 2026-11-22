@@ -47,12 +47,14 @@ type remotePreferencesState struct {
 	damagedPath string
 	source      RemotePreferences
 
-	// program, limit and closing are the drafts; set says the user changed the value, and a nil
-	// value drafts Automatic.
+	// program, limit, reverse and closing are the drafts; set says the user changed the value,
+	// and a nil value drafts Automatic.
 	program    *string
 	programSet bool
 	limit      *uint32
 	limitSet   bool
+	reverse    *bool
+	reverseSet bool
 	closing    *core.RemoteClosePrograms
 	closingSet bool
 
@@ -124,6 +126,24 @@ func (r *remotePreferencesState) shownLimit() *uint32 {
 	return r.source.Saved.State.Preferences.ReconnectLimitSeconds
 }
 
+// shownReverse is whether the page shows reverse forwards allowed; nil is Automatic.
+func (r *remotePreferencesState) shownReverse() *bool {
+	if r.reverseSet {
+		return r.reverse
+	}
+	return r.source.Saved.State.Preferences.AllowReverseForwarding
+}
+
+// setReverse drafts whether reverse forwards are allowed, nil for Automatic; choosing the saved
+// value drops the draft.
+func (r *remotePreferencesState) setReverse(allowed *bool) {
+	if !r.available() || !r.loaded || r.busy() {
+		return
+	}
+	r.failed = nil
+	r.reverse, r.reverseSet = allowed, !sameBool(allowed, r.source.Saved.State.Preferences.AllowReverseForwarding)
+}
+
 // setProgram drafts the SSH program, nil for Automatic; choosing the saved value drops the draft.
 func (r *remotePreferencesState) setProgram(path *string) {
 	if !r.available() || !r.loaded || r.busy() {
@@ -170,6 +190,8 @@ func samePointer[T comparable](a, b *T) bool {
 	return (a == nil) == (b == nil) && (a == nil || *a == *b)
 }
 
+func sameBool(a, b *bool) bool { return samePointer(a, b) }
+
 func (r *remotePreferencesState) drafts() int {
 	if !r.available() {
 		return 0
@@ -179,6 +201,9 @@ func (r *remotePreferencesState) drafts() int {
 		n++
 	}
 	if r.limitSet {
+		n++
+	}
+	if r.reverseSet {
 		n++
 	}
 	if r.closingSet {
@@ -195,6 +220,9 @@ func (r *remotePreferencesState) edits() []core.RemotePreferenceEdit {
 	}
 	if r.limitSet {
 		edits = append(edits, core.RemotePreferenceEdit{ReconnectLimit: &core.RemoteReconnectLimitEdit{Seconds: r.limit}})
+	}
+	if r.reverseSet {
+		edits = append(edits, core.RemotePreferenceEdit{Reverse: &core.RemoteReverseForwardingEdit{Allowed: r.reverse}})
 	}
 	if r.closingSet {
 		edits = append(edits, core.RemotePreferenceEdit{ClosePrograms: &core.RemoteCloseProgramsEdit{Programs: r.closing}})
@@ -222,6 +250,9 @@ func (r *remotePreferencesState) keepChanged() {
 	}
 	if r.limitSet && sameUint32(r.limit, stored.ReconnectLimitSeconds) {
 		r.limit, r.limitSet = nil, false
+	}
+	if r.reverseSet && sameBool(r.reverse, stored.AllowReverseForwarding) {
+		r.reverse, r.reverseSet = nil, false
 	}
 	if r.closingSet && samePointer(r.closing, stored.ClosePrograms) {
 		r.closing, r.closingSet = nil, false
@@ -254,6 +285,7 @@ func (r *remotePreferencesState) take() (saveFailed error) {
 		default:
 			r.source, r.loaded, r.stale = source, true, false
 			r.program, r.programSet, r.limit, r.limitSet = nil, false, nil, false
+			r.reverse, r.reverseSet = nil, false
 			r.closing, r.closingSet = nil, false
 		}
 	}
