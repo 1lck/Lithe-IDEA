@@ -108,9 +108,8 @@ func newCompletionProviderFixture(t *testing.T) (*semanticFixture, *completionPr
 	if err := os.WriteFile(filepath.Join(directory, "plugin.json"), []byte(manifest), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(directory, "fixture.exe"), []byte("fixture"), 0o700); err != nil {
-		t.Fatal(err)
-	}
+	// The fake kernel owns execution, but the package still passes native executable validation.
+	copyTestBinary(t, filepath.Join(directory, "fixture.exe"))
 	service, err := pluginservice.Open(kernel, f.h.store, root)
 	if err != nil {
 		t.Fatal(err)
