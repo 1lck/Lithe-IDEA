@@ -20,24 +20,25 @@ func remotePreferencesDocument(ctx context.Context, kernel Kernel, root string) 
 	return remoteconn.PreferencesDocument(ctx, kernel, root)
 }
 
+// remotePreferenceState is Core's reading of the remote workspace preferences under root, the
+// automatic values when there is no preference directory. It runs off the window thread.
+func remotePreferenceState(ctx context.Context, kernel Kernel, root string) (core.RemotePreferences, error) {
+	if root == "" {
+		return kernel.RemotePreferences(ctx, nil, "")
+	}
+	preferences, err := remoteconn.ReadPreferences(ctx, kernel, root, "")
+	return preferences.State, err
+}
+
 // remoteReconnectDelays is the pause before each automatic attempt to connect again, as Core
 // derives it from the reconnect limit of the preferences under root; none when the limit is 0.
 // It runs off the window thread.
 func remoteReconnectDelays(ctx context.Context, kernel Kernel, root string) ([]time.Duration, error) {
-	var reconnect core.RemoteReconnect
-	if root == "" {
-		state, err := kernel.RemotePreferences(ctx, nil, "")
-		if err != nil {
-			return nil, err
-		}
-		reconnect = state.Reconnect
-	} else {
-		preferences, err := remoteconn.ReadPreferences(ctx, kernel, root, "")
-		if err != nil {
-			return nil, err
-		}
-		reconnect = preferences.State.Reconnect
+	state, err := remotePreferenceState(ctx, kernel, root)
+	if err != nil {
+		return nil, err
 	}
+	reconnect := state.Reconnect
 	delays := make([]time.Duration, len(reconnect.DelaysMilliseconds))
 	for i, milliseconds := range reconnect.DelaysMilliseconds {
 		delays[i] = time.Duration(milliseconds) * time.Millisecond

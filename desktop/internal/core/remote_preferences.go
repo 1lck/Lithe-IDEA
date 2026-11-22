@@ -34,7 +34,8 @@ type RemotePreferenceValues struct {
 	SSHProgram            *string `json:"sshProgram"`
 	ReconnectLimitSeconds *uint32 `json:"reconnectLimitSeconds"`
 	// AllowReverseForwarding is whether the Ports window may start reverse forwards.
-	AllowReverseForwarding *bool `json:"allowReverseForwarding"`
+	AllowReverseForwarding *bool                `json:"allowReverseForwarding"`
+	ClosePrograms          *RemoteClosePrograms `json:"closePrograms"`
 }
 
 // RemoteSSHProgram is the OpenSSH client Core starts. Path is nil only when the automatic
@@ -51,6 +52,16 @@ type RemoteReconnect struct {
 	Source             RemotePreferenceSource `json:"source"`
 	LimitSeconds       uint32                 `json:"limitSeconds"`
 	DelaysMilliseconds []uint64               `json:"delaysMilliseconds"`
+}
+
+// RemoteClosing is what closing a window does to the processes and terminals still running on
+// the host. Programs is RemoteCloseAsk when automatic: the client asks every time.
+// IdleTimeoutSeconds is how long the host keeps a session whose connection was lost and whose
+// programs nobody kept; the remote server sets it, so no edit changes it.
+type RemoteClosing struct {
+	Source             RemotePreferenceSource `json:"source"`
+	Programs           RemoteClosePrograms    `json:"programs"`
+	IdleTimeoutSeconds uint64                 `json:"idleTimeoutSeconds"`
 }
 
 // RemoteReverseForwarding is whether reverse forwards may start. The automatic value refuses
@@ -79,6 +90,7 @@ type RemotePreferences struct {
 	SSH         RemoteSSHProgram        `json:"ssh"`
 	Reconnect   RemoteReconnect         `json:"reconnect"`
 	Reverse     RemoteReverseForwarding `json:"reverseForwarding"`
+	Closing     RemoteClosing           `json:"closing"`
 	Storage     RemotePreferenceStorage `json:"storage"`
 	SSHConfig   *RemoteSSHConfigFile    `json:"sshConfig"`
 }
@@ -94,21 +106,30 @@ func (c *Client) RemotePreferences(ctx context.Context, document *string, homeDi
 		HomeDirectory string  `json:"homeDirectory,omitempty"`
 	}{document, homeDirectory}, &result)
 	result.Reconnect.DelaysMilliseconds = nonNil(result.Reconnect.DelaysMilliseconds)
+	if result.Closing.Programs == "" {
+		result.Closing.Programs = RemoteCloseAsk
+	}
 	return result, err
 }
 
-// RemotePreferenceEdit changes one value: set exactly one field. A nil Path or Seconds makes the
-// value automatic again.
+// RemotePreferenceEdit changes one value: set exactly one field. A nil Path, Seconds or Programs
+// makes the value automatic again.
 type RemotePreferenceEdit struct {
 	SSHProgram     *RemoteSSHProgramEdit        `json:"sshProgram,omitempty"`
 	ReconnectLimit *RemoteReconnectLimitEdit    `json:"reconnectLimit,omitempty"`
 	Reverse        *RemoteReverseForwardingEdit `json:"reverseForwarding,omitempty"`
+	ClosePrograms  *RemoteCloseProgramsEdit     `json:"closePrograms,omitempty"`
 }
 
 // RemoteReverseForwardingEdit allows or refuses reverse forwards; a nil Allowed is automatic,
 // which refuses them.
 type RemoteReverseForwardingEdit struct {
 	Allowed *bool `json:"allowed"`
+}
+
+// RemoteCloseProgramsEdit stores what closing a window does to the host's programs.
+type RemoteCloseProgramsEdit struct {
+	Programs *RemoteClosePrograms `json:"programs"`
 }
 
 // RemoteSSHProgramEdit sets the SSH program to an absolute path of an executable file.

@@ -327,11 +327,14 @@ PINNED_CORE_REPOSITORY="https://github.com/Lithe-IDEA/Lithe-core-rust.git"
 # Lithe-core-rust main at 49fb750: #158 remote.preferences and remote.editPreferences (SSH program,
 # reconnect limit) feed the remote commands, with the reconnect pauses given by Core (#2231).
 # Lithe-core-rust main at 62d44ce: #159 host forward rules and reverse forwards (#2231).
-# Lithe-core-rust feat/2231-remote-containers at b92fcaf (#162 merged with main ac80382, which has
-# #160 persistent host sessions and #161 remote run configurations): remote.connect enters a running
-# Docker or Podman container (the container field), also on an SSH host or in a WSL distribution;
-# remote.listContainers lists the running ones; remote.devcontainerConfigs and remote.devcontainerUp
-# build and start the container of a devcontainer.json (#2231).
+# Lithe-core-rust main at ac80382: #160 remote.connect runs the persistent host session and resumes
+# a kept one; remote.disconnect ends or keeps the host programs; remote.runningPrograms,
+# remote.endPrograms (all or the listed ones), the closePrograms preference and
+# closing.idleTimeoutSeconds; #161 plans the run configurations of a remote workspace (#2231).
+# Lithe-core-rust feat/2231-remote-containers at b92fcaf (#162 merged with main ac80382): remote.connect
+# enters a running Docker or Podman container (the container field), also on an SSH host or in a WSL
+# distribution; remote.listContainers lists the running ones; remote.devcontainerConfigs and
+# remote.devcontainerUp build and start the container of a devcontainer.json (#2231).
 PINNED_CORE_REVISION="b92fcafeb42ee95faea20046ec459aa5fd53ef6f"
 PROFILE="debug"
 CHECKOUT_ONLY="no"
