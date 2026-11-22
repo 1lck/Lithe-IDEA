@@ -8,8 +8,10 @@
 // client can be started from it; it is never a place to write. Caches, indexes, logs, downloads
 // and other state belong to the platform's data and cache directories, and fixed resources the
 // client needs at run time are compiled into the executable rather than read from the package.
-// scripts/macos/verify/verify-runtime-bundle-immutability.sh allows package lookups only in this
-// package and fails if it ever writes to the file system.
+// scripts/desktop/verify/verify-runtime-bundle-immutability.sh allows package lookups only in this
+// package and fails if it ever writes to the file system; installedpackagetest runs the workflows
+// that write local files from a copy of the client in an installed package and compares the package
+// before and after.
 package installedpackage
 
 import (

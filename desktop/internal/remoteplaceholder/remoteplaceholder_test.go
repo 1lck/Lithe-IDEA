@@ -8,6 +8,8 @@ import (
 	"runtime"
 	"strings"
 	"testing"
+
+	"github.com/1lck/Lithe-IDEA/desktop/internal/installedpackagetest"
 )
 
 // Ensure creates an empty read-only anchor, keeps it on the next call, and a placeholder below it
@@ -172,5 +174,32 @@ func TestHostNamedPathNamesEveryHostPathBelowTheSibling(t *testing.T) {
 		if local, ok := HostNamedPath(root, host); ok {
 			t.Errorf("HostNamedPath(%q) = %q; want no local path", host, local)
 		}
+	}
+}
+
+// Opening a remote folder from a client installed the way a release is creates the anchor below
+// the user's cache directory and leaves the installed package byte for byte as it was (#2231). Run
+// checks the package in the test process.
+func TestEnsureLeavesTheInstalledPackageUnchanged(t *testing.T) {
+	if !installedpackagetest.Run(t) {
+		return
+	}
+	anchor, err := DefaultAnchor()
+	if err != nil {
+		t.Fatal(err)
+	}
+	// The second folder finds the anchor made and only checks it.
+	for range 2 {
+		if err := Ensure(anchor); err != nil {
+			t.Fatal(err)
+		}
+	}
+	installedpackagetest.Outside(t, anchor)
+	info, err := os.Lstat(anchor)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !info.Mode().IsRegular() {
+		t.Fatalf("anchor mode = %v, want a regular file", info.Mode())
 	}
 }

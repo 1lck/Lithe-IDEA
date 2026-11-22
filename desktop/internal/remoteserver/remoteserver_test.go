@@ -11,6 +11,8 @@ import (
 	"path/filepath"
 	"runtime"
 	"testing"
+
+	"github.com/1lck/Lithe-IDEA/desktop/internal/installedpackagetest"
 )
 
 const (
@@ -388,4 +390,36 @@ func TestResolvePrefersTheEmbeddedBuildsOverAStage(t *testing.T) {
 			t.Fatalf("build = %+v, want the embedded build installed below %s", got, dir)
 		}
 	})
+}
+
+// A connection installs the server builds from a client installed the way a release is, and the
+// installed package stays byte for byte as it was: the builds land below the user's cache
+// directory, which Core then reads and uploads (#2231). Run checks the package in the test process.
+func TestResolveLeavesTheInstalledPackageUnchanged(t *testing.T) {
+	if !installedpackagetest.Run(t) {
+		return
+	}
+	builds := []fakeBuild{{x86Target, []byte("x86 server")}, {armTarget, []byte("arm server")}}
+	withEmbedded(t, manifestOf(t, builds...), builds...)
+	t.Setenv(StageEnv, "")
+	dir, err := DefaultDir()
+	if err != nil {
+		t.Fatal(err)
+	}
+	// The second connection finds the builds installed and reads them where they are.
+	for range 2 {
+		bundle, err := Resolve(dir)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(bundle.Builds) != len(builds) {
+			t.Fatalf("builds = %+v, want %d", bundle.Builds, len(builds))
+		}
+		for i, build := range bundle.Builds {
+			installedpackagetest.Outside(t, build.Path)
+			if got := readFile(t, build.Path); got != string(builds[i].data) {
+				t.Fatalf("%s holds %q, want %q", build.Target, got, builds[i].data)
+			}
+		}
+	}
 }

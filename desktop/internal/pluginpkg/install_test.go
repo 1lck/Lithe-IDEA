@@ -5,6 +5,8 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+
+	"github.com/1lck/Lithe-IDEA/desktop/internal/installedpackagetest"
 )
 
 // newStaging creates a staging directory that looks like an extracted package,
@@ -245,5 +247,48 @@ func TestSweepAcceptsAnEmptyRoot(t *testing.T) {
 	}
 	if err := Sweep("relative"); !errors.Is(err, ErrUnsafePath) {
 		t.Fatalf("err = %v", err)
+	}
+}
+
+// Installing and removing a plugin package from a client installed the way a release is extracts
+// and keeps the package below the user's directories and leaves the installed package byte for
+// byte as it was. Run checks the package in the test process.
+func TestInstallLeavesTheInstalledPackageUnchanged(t *testing.T) {
+	if !installedpackagetest.Run(t) {
+		return
+	}
+	const id, version = "dev.lithe.test.sample", "1.0.0"
+	root, err := DefaultRoot()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := Sweep(root); err != nil {
+		t.Fatal(err)
+	}
+	staging, err := NewStaging(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	archive := writeArchive(t, []archiveEntry{
+		{name: ManifestFile, body: []byte("{}"), mode: 0o644},
+		{name: "backend/main.mjs", body: []byte("export {};"), mode: 0o644},
+	})
+	if _, err := Extract(archive, staging); err != nil {
+		t.Fatal(err)
+	}
+	installed, err := Install(root, id, version, staging)
+	if err != nil {
+		t.Fatal(err)
+	}
+	installedpackagetest.Outside(t, installed.Path)
+	installedpackagetest.Outside(t, StateRoot(root, id))
+	if _, err := os.Stat(filepath.Join(installed.Path, ManifestFile)); err != nil {
+		t.Fatal(err)
+	}
+	if err := Uninstall(root, id, version); err != nil {
+		t.Fatal(err)
+	}
+	if err := Sweep(root); err != nil {
+		t.Fatal(err)
 	}
 }
