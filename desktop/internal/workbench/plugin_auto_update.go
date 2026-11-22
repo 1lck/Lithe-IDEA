@@ -236,7 +236,7 @@ func (a *App) performPluginAutoUpdates(ctx context.Context, sources []PluginReco
 		// log-exempt: 用户尚未通过插件市场确认安装源，不自动向网络查询。
 		return 0, nil
 	}
-	service := marketplace.New(a.kernel, nil)
+	service := a.pinnedMarketplace()
 	downloader := marketplace.NewArchiveDownloader(nil)
 	attempted := make(map[string]bool)
 	triedOrigins := make(map[string]bool)

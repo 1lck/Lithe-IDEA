@@ -246,8 +246,8 @@ func TestInstalledTabShowsPermissionsAndVersions(t *testing.T) {
 
 // detailFixture is the detail of one marketplace plugin whose listing names its repository,
 // with every field of the Versions & Source and the Permissions & Programs tabs filled in.
-// It opens on the Versions & Source tab.
-func detailFixture(language i18n.Language) (*window, PluginFacts, string) {
+// It opens on the Versions & Source tab; adjust changes the window's options before it opens.
+func detailFixture(language i18n.Language, adjust ...func(*Options)) (*window, PluginFacts, string) {
 	const repository = "https://github.com/example/versions-fixture"
 	fact := PluginFacts{
 		ID: "dev.lithe.test.versions", Name: "Versions Fixture", Vendor: "Test", Version: "1.2.3",
@@ -265,7 +265,7 @@ func detailFixture(language i18n.Language) (*window, PluginFacts, string) {
 		Availability: core.MarketplaceAvailability{Status: "available", Version: fact.Version},
 		Versions:     []core.MarketplaceVersion{{Version: fact.Version}},
 	}}}
-	w := newWindow(NewController(Options{
+	opts := Options{
 		Text: func() *i18n.Messages { return i18n.For(language) }, Language: func() i18n.Language { return language },
 		SystemLanguage: language,
 		Marketplace: func(context.Context) (marketplace.Snapshot, error) {
@@ -276,7 +276,11 @@ func detailFixture(language i18n.Language) (*window, PluginFacts, string) {
 			return PluginState{Installed: true, Version: fact.Version, Enabled: true}
 		},
 		OpenURL: func(string) {},
-	}), Values{Language: language.Code()})
+	}
+	for _, fn := range adjust {
+		fn(&opts)
+	}
+	w := newWindow(NewController(opts), Values{Language: language.Code()})
 	w.sess.page = pagePlugins
 	w.installed.tab = installedVersions
 	return w, fact, repositoryName(repository)
