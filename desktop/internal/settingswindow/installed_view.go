@@ -984,33 +984,83 @@ func capabilityDetail(language i18n.Language, capability PluginCapability) strin
 	return ""
 }
 
-// permissionDescription says what a permission lets the plugin do, or "" for a permission
-// that shows only its name.
+// permissionDescription says what a permission lets the plugin do. Every permission of the
+// plugin contract has one; a permission from a newer contract that this host does not know
+// returns "" and shows only its name.
 func permissionDescription(language i18n.Language, permission string) string {
 	switch permission {
 	case "languageServer.launch":
 		return i18n.Shared(language, "native.startALanguageServerWhenYouOpenFilesOfItsLanguage")
-
-	case "process.build":
-		return i18n.Shared(language, "desktop.marketplace.permissionBuild")
-	case "project.generate":
-		return i18n.Shared(language, "desktop.marketplace.permissionGenerate")
 	case "backend.launch":
 		return i18n.Shared(language, "desktop.marketplace.permissionBackend")
-	case "debug.launch":
-		return i18n.Shared(language, "desktop.marketplace.permissionDebug")
+	case "process.build":
+		return i18n.Shared(language, "desktop.marketplace.permissionBuild")
 	case "process.run":
 		return i18n.Shared(language, "native.runYourFiles")
-	case "ui.contribute":
-		return i18n.Shared(language, "native.addToolWindowsAndCommandsToTheWorkbench")
-	case "ui.web":
-		return i18n.Shared(language, "native.showItsOwnPageInAToolWindow")
 	case "process.test":
 		return i18n.Shared(language, "native.runYourTests")
+	case "process.vcs":
+		return i18n.Shared(language, "desktop.marketplace.permissionVcs")
+	case "project.generate":
+		return i18n.Shared(language, "desktop.marketplace.permissionGenerate")
+	case "debug.launch":
+		return i18n.Shared(language, "desktop.marketplace.permissionDebug")
+	case "debug.attach":
+		return i18n.Shared(language, "desktop.marketplace.permissionDebugAttach")
+	case "debug.start":
+		return i18n.Shared(language, "desktop.marketplace.permissionDebugStart")
+	case "run.start":
+		return i18n.Shared(language, "desktop.marketplace.permissionRunStart")
+	case "terminal.create":
+		return i18n.Shared(language, "desktop.marketplace.permissionTerminalCreate")
 	case "commands.install":
 		return i18n.Shared(language, "desktop.marketplace.permissionCommandsInstall")
 	case "runtimes.install":
 		return i18n.Shared(language, "desktop.marketplace.permissionRuntimesInstall")
+	case "toolchains.provide":
+		return i18n.Shared(language, "desktop.marketplace.permissionToolchainsProvide")
+	case "ui.contribute":
+		return i18n.Shared(language, "native.addToolWindowsAndCommandsToTheWorkbench")
+	case "ui.web":
+		return i18n.Shared(language, "native.showItsOwnPageInAToolWindow")
+	case "window.messages":
+		return i18n.Shared(language, "desktop.marketplace.permissionWindowMessages")
+	case "browser.open":
+		return i18n.Shared(language, "desktop.marketplace.permissionBrowserOpen")
+	case "preview.open":
+		return i18n.Shared(language, "desktop.marketplace.permissionPreviewOpen")
+	case "workspace.metadata":
+		return i18n.Shared(language, "desktop.marketplace.permissionWorkspaceMetadata")
+	case "workspace.files.read":
+		return i18n.Shared(language, "desktop.marketplace.permissionWorkspaceFilesRead")
+	case "workspace.files.watch":
+		return i18n.Shared(language, "desktop.marketplace.permissionWorkspaceFilesWatch")
+	case "workspace.search":
+		return i18n.Shared(language, "desktop.marketplace.permissionWorkspaceSearch")
+	case "build.options.read":
+		return i18n.Shared(language, "desktop.marketplace.permissionBuildOptionsRead")
+	case "build.configuration.watch":
+		return i18n.Shared(language, "desktop.marketplace.permissionBuildConfigurationWatch")
+	case "documents.read":
+		return i18n.Shared(language, "desktop.marketplace.permissionDocumentsRead")
+	case "documents.contentProvider":
+		return i18n.Shared(language, "desktop.marketplace.permissionDocumentsContentProvider")
+	case "editor.open":
+		return i18n.Shared(language, "desktop.marketplace.permissionEditorOpen")
+	case "editor.edit":
+		return i18n.Shared(language, "desktop.marketplace.permissionEditorEdit")
+	case "editor.actions":
+		return i18n.Shared(language, "desktop.marketplace.permissionEditorActions")
+	case "editor.providers":
+		return i18n.Shared(language, "desktop.marketplace.permissionEditorProviders")
+	case "languageServer.request":
+		return i18n.Shared(language, "desktop.marketplace.permissionLanguageServerRequest")
+	case "credentials.store":
+		return i18n.Shared(language, "desktop.marketplace.permissionCredentialsStore")
+	case "keymaps.provide":
+		return i18n.Shared(language, "desktop.marketplace.permissionKeymapsProvide")
+	case "keymaps.readSelectedSources":
+		return i18n.Shared(language, "desktop.marketplace.permissionKeymapsReadSelectedSources")
 	}
 	return ""
 }
