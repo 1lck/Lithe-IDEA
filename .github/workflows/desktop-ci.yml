@@ -130,7 +130,8 @@ jobs:
             scripts/desktop/verify/verify-remote-server-artifacts.test.mjs \
             scripts/desktop/perf/editor-perf-report.test.mjs \
             scripts/ci/cancel-closed-pr-runs/cancel-closed-pr-runs.test.mjs \
-            scripts/ci/desktop-ci/verify-ci-gate.test.mjs
+            scripts/ci/desktop-ci/verify-ci-gate.test.mjs \
+            scripts/install/linux.test.mjs
           node --test --test-concurrency=1 scripts/ci/desktop-autobuild/package-autobuild.test.mjs scripts/ci/common/desktop-packages.test.mjs scripts/ci/desktop-release/package-release.test.mjs scripts/ci/desktop-release/resolve-release-version.test.mjs scripts/ci/desktop-release/publish-update-feed.test.mjs
 
   linux-test:

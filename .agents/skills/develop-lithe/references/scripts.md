@@ -18,6 +18,7 @@
 | `scripts/macos/<作用子目录>/` | 只服务 macOS 上的 Lithe 产品的脚本，子目录按作用命名（现有 `package/`） |
 | `scripts/desktop/perf/` | Viva 桌面端的性能基线：编辑器基准的运行、记录、对比和报告 |
 | `scripts/desktop/` | 只服务 Viva 桌面端（`desktop/`，Go）的构建、打包、验证和运行入口：构建它链接的 Lithe-core-rust 静态库，以及带 cgo 参数运行 `desktop/` 里的 go 命令 |
+| `scripts/install/` | 给用户运行的安装脚本，一行命令从更新源下载并安装发行版；只服务一个平台的脚本文件名带平台名（现有 `linux.sh`） |
 | `scripts/agent-notes/`、`i18n/`、`platform-feature-matrix/` | 跨平台领域的脚本，目录名就是领域名 |
 
 - 没有合适的目录时，新建一个以领域或作用命名的目录，并在同一次改动中更新上表。不得新建 `misc/`、`utils/`、`tools/` 这类不表达作用的目录。
