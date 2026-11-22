@@ -13,8 +13,8 @@ CI 构建缓存、架构并行、测试产物和 artifact 保留策略见
 | **Desktop AutoBuild**（`desktop-autobuild.yml`） | 每天 UTC 10:00 定时，或手动运行 | 与 Release 一样先调用 `desktop-remote-server.yml`，再构建 macOS arm64 与 x64、Windows x64、Linux x64 和 arm64，发布到滚动预发布 `desktop-AutoBuild`。同一提交已经发布时，定时运行不会重复构建 |
 
 - Draft PR 只运行 Linux 检查：macOS 和 Windows 作业带有 `draft == false` 条件。标记为 ready 后，才运行完整的 Desktop CI。
-- `Desktop CI gate` 汇总固定版本、Linux 格式与脚本、Linux 测试、远端服务（可复用工作流里的 x86_64 与 arm64 两个任务都成功，`remote-server` 才算成功）、macOS 测试和 Windows 测试；普通 PR 必须全部成功，Draft 只允许跳过 macOS 和 Windows。更换已有 PR 的目标分支后，保留 Draft 状态；需要评审时标记为 ready 以针对新基线重新运行完整检查。单纯修改标题或正文不触发平台 runner。
-- Desktop CI 通过 `scripts/desktop/check.sh` 执行 Go 检查，Rust 内核由 `scripts/desktop/build-desktop-core.sh` 按 `PINNED_CORE_REVISION` 固定的 Lithe-core-rust 修订构建。 Windows 的工作台用例按顶层测试名分三组串行运行，普通和 `dev` 构建各覆盖全部用例。每组仍遵守 Go 默认的 10 分钟上限。
+- `Desktop CI gate` 汇总固定版本、Linux 格式与脚本、Linux 测试、远端服务（可复用工作流里的构建任务和 amd64、arm64 两个测试任务都成功，`remote-server` 才算成功）、macOS 测试和 Windows 测试；普通 PR 必须全部成功，Draft 只允许跳过 macOS 和 Windows。更换已有 PR 的目标分支后，保留 Draft 状态；需要评审时标记为 ready 以针对新基线重新运行完整检查。单纯修改标题或正文不触发平台 runner。
+- Desktop CI 通过 `scripts/desktop/check.sh` 执行 Go 检查：gofmt，带与不带 `dev` 标签各 vet 一次全部包；测试时 `settingswindow`、`pluginview`、`workbench` 三个界面包只在 `dev` 标签下跑一次，其余包不带标签跑，`buildinfo` 两种标签都跑。对这三个包，`dev` 标签只换掉两个文件：Viva 的属性检查只会多报错误；`buildinfo.Development` 只影响 Dock 角标（只在真实窗口里设置）和已安装的更新渠道（测试构建不带打包信息，两种标签下都为空）。所以不带标签再跑一遍检查不到更多问题，只会让 macOS 和 Windows 多花约 8 分钟。Windows 的 `workbench` 用例按顶层测试名分三组串行运行，三组合起来覆盖全部用例，每组仍遵守 Go 默认的 10 分钟上限。Rust 内核由 `scripts/desktop/build-desktop-core.sh` 按 `PINNED_CORE_REVISION` 固定的 Lithe-core-rust 修订构建。
 - Linux 测试作业也运行 `TestVisualLSPActions`，覆盖中英文与明暗主题的代码操作、签名帮助和内联提示失败重试。全量测试失败时仍采集截图。结果作为 `lsp-editor-visual-<系统>-<架构>` artifact 保留 14 天。
 - Desktop Release 的打包脚本是 `scripts/ci/desktop-release/package-release.sh`，AutoBuild 的打包和发布脚本位于 `scripts/ci/desktop-autobuild/`。
 - 两条发布入口共用 `scripts/desktop/package-desktop.sh`，通过 Viva 的 `--cgo` 选项保留 Rust Core 原生桥接；`desktop-go.sh` 提供目标编译器、静态库及头文件。Linux 发布包由 Ubuntu 22.04 构建，其系统库兼容性需要单独验证，不能按 Viva 的默认纯 Go 包假设没有 glibc 依赖。
