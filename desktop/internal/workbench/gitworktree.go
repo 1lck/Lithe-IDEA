@@ -3,11 +3,13 @@ package workbench
 import (
 	"context"
 	"errors"
+	"path"
 	"path/filepath"
 	"strings"
 
 	"github.com/1lck/Lithe-IDEA/desktop/internal/core"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/i18n"
+	"github.com/1lck/Lithe-IDEA/desktop/internal/remoteplaceholder"
 	"github.com/vivaui/viva/app"
 	"github.com/vivaui/viva/ui"
 )
@@ -820,25 +822,22 @@ func (a *App) showWorktrees() {
 	}
 }
 
-// openWorktree opens the checkout at path as the window's project.
+// openWorktree opens the checkout at path as the window's project. A remote workspace's checkout
+// is a host folder, which opens over a session of its own in a tab of this window
+// (openRemoteWorktree).
 func (a *App) openWorktree(path string) {
-	// A remote workspace's checkout opens over a session of its own, which this window does not
-	// start yet; its placeholder would open as an empty local folder.
-	if a.refuseRemote(a.project, "git_worktree_open") {
+	a.performed("git.worktree.open", surfaceButton)
+	if p := a.project; p != nil && p.remote != nil {
+		a.openRemoteWorktree(p, path)
 		return
 	}
-	a.performed("git.worktree.open", surfaceButton)
 	// The worktree menu offers This Window and New Window itself.
 	a.openProjectThisWindow(path)
 }
 
 // beginCreateWorktree opens the dialog that creates a worktree and reads the references it
-// can start from.
+// can start from. In a remote workspace the dialog chooses a folder on the host.
 func (a *App) beginCreateWorktree(p *project) {
-	// The dialog chooses the new checkout's folder on this computer.
-	if a.refuseRemote(p, "git_worktree_create") {
-		return
-	}
 	a.performed("git.worktree.create", surfaceButton)
 	w := &p.worktrees
 	cr := &w.create
@@ -877,16 +876,19 @@ func (a *App) syncWorktreeCreation(p *project) {
 
 // previewWorktreeCreation has Core derive the dialog's values from its inputs and applies
 // them; require makes an empty branch name an error, as a submit does. It reports whether Core
-// answered; without an answer the dialog cannot create the worktree.
+// answered; without an answer the dialog cannot create the worktree. Core derives them from the
+// paths alone, so a remote workspace sends its paths as host-named ones (worktreeHostNamed) and
+// shows the answer's as host paths.
 func (a *App) previewWorktreeCreation(p *project, require bool) bool {
 	w := &p.worktrees
 	cr := &w.create
 	ctx, cancel := context.WithTimeout(a.operationContext(context.Background()), kernelCallTimeout)
 	defer cancel()
+	destination := p.worktreeHostNamed(cr.destination.Text())
 	result, err := a.kernel.GitWorktreeCreationPreview(ctx, core.GitWorktreeCreationInput{
-		Root: p.git.repositoryRoot(p.root), Mode: cr.mode, Kind: cr.kind, Reference: cr.reference,
+		Root: p.worktreeHostNamed(p.remoteHostPath(p.git.repositoryRoot(p.root))), Mode: cr.mode, Kind: cr.kind, Reference: cr.reference,
 		Name: cr.name.Text(), RequireName: require, Revision: cr.revision.Text(),
-		Destination: cr.destination.Text(), LastSuggestion: cr.suggested,
+		Destination: destination, LastSuggestion: p.worktreeHostNamed(cr.suggested),
 		References: cr.refs.References, CheckedOutBranches: checkedOutBranches(w.list),
 	})
 	if err != nil {
@@ -905,10 +907,11 @@ func (a *App) previewWorktreeCreation(p *project, require bool) bool {
 	if b := result.Branch; b != nil && b.TypingCleanedName != cr.name.Text() {
 		cr.name.SetText(b.TypingCleanedName)
 	}
-	if result.Destination != cr.destination.Text() {
-		cr.destination.SetText(result.Destination)
+	// A destination the user typed comes back as it was sent and stays as typed.
+	if result.Destination != destination {
+		cr.destination.SetText(p.worktreeShown(result.Destination))
 	}
-	cr.suggested = result.SuggestedDestination
+	cr.suggested = p.worktreeShown(result.SuggestedDestination)
 	cr.key = cr.inputs(w.gen)
 	return true
 }
@@ -920,12 +923,20 @@ func (a *App) submitCreateWorktree(p *project) {
 	if p.worktrees.busy || !cr.result.Ready || !a.previewWorktreeCreation(p, true) || !cr.result.Ready {
 		return
 	}
+	typed := strings.TrimSpace(cr.destination.Text())
 	creation := core.GitWorktreeCreation{
 		Mode:        cr.mode,
-		Destination: filepath.Clean(strings.TrimSpace(cr.destination.Text())),
+		Destination: filepath.Clean(typed),
 		NoCheckout:  cr.noCheckout,
 	}
 	name := filepath.Base(creation.Destination)
+	// host is the new checkout's host folder in a remote workspace, which Core is sent as the
+	// path that names it.
+	var host string
+	if p.remote != nil {
+		host = path.Clean(typed)
+		creation.Destination, name = p.worktreeHostNamed(host), path.Base(host)
+	}
 	if b := cr.result.Branch; cr.mode == core.GitWorktreeNewBranch && b != nil {
 		creation.Name, name = b.CleanedName, b.CleanedName
 	}
@@ -944,6 +955,17 @@ func (a *App) submitCreateWorktree(p *project) {
 		return kernel.GitCreateWorktree(ctx, root, creation)
 	}, nil, func(a *App) {
 		a.notifySuccess(a.text.Worktrees.Created(name))
+		if p.remote != nil {
+			// The list names a host checkout by the path Core maps it to: below the root for one
+			// in the workspace's folder, below the root's sibling otherwise.
+			if local, ok := remoteplaceholder.LocalPath(p.root, p.remote.binding.RemoteRoot(), host); ok {
+				p.worktrees.selected = local
+			}
+			if openAfter {
+				a.openRemoteHostFolder(p, host)
+			}
+			return
+		}
 		// Git lists the checkout by its canonical path, which differs from the typed one under
 		// a symbolic link.
 		selected := creation.Destination

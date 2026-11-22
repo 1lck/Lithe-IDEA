@@ -31,6 +31,11 @@ type remoteHostGit struct {
 	blamed []string
 	// created are the host folders created.
 	created []string
+	// references are the host repository's references; worktrees are its linked worktrees' host
+	// folders, and creations the worktrees Core was asked to create (remote_worktree_test.go).
+	references core.GitReferences
+	worktrees  []string
+	creations  []remoteWorktreeCreation
 }
 
 // remoteTrustStorage is the preference file the trust decisions are kept in.
@@ -160,7 +165,20 @@ func (k *remoteHostKernel) GitOperationState(ctx context.Context, root string) (
 
 func (k *remoteHostKernel) GitReferences(ctx context.Context, root string) (core.GitReferences, error) {
 	return onHost(ctx, k, "git.references", func() (core.GitReferences, error) { return k.Client.GitReferences(ctx, root) },
-		func(string) (core.GitReferences, error) { return core.GitReferences{}, nil })
+		func(string) (core.GitReferences, error) {
+			k.mu.Lock()
+			defer k.mu.Unlock()
+			return k.git.references, nil
+		})
+}
+
+// GitReferenceTree groups the host's references as Core does: its handler computes from the
+// names alone, so the tree is the one this computer's Core builds.
+func (k *remoteHostKernel) GitReferenceTree(ctx context.Context, names []string, prioritized map[string]bool) ([]core.ReferenceTreeNode, error) {
+	return onHost(ctx, k, "git.referenceTree", func() ([]core.ReferenceTreeNode, error) { return k.Client.GitReferenceTree(ctx, names, prioritized) },
+		func(string) ([]core.ReferenceTreeNode, error) {
+			return k.Client.GitReferenceTree(context.Background(), names, prioritized)
+		})
 }
 
 func (k *remoteHostKernel) GitHistoryPage(ctx context.Context, root, reference, cursor string, limit, maxCommits int) (core.GitHistoryPage, error) {

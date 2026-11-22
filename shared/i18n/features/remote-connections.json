@@ -1270,6 +1270,20 @@
       }
     },
     {
+      "id": "desktop.remote.worktree.connectionRemoved",
+      "description": "Remote Development window: error when a worktree of a remote workspace is opened but the saved connection the workspace was opened over was deleted",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.remote.worktree.destination",
+      "description": "Git worktree create dialog: hint under the path field in a remote workspace",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
       "id": "desktop.run.remote.notConnected",
       "description": "Run failure when the remote workspace is not connected",
       "platforms": [
@@ -3626,7 +3640,9 @@
       "desktop.remote.devcontainer.unusable": "The Dev Container CLI started something Lithe cannot open: its result names no container or workspace folder.",
       "desktop.remote.devcontainer.untrustedRefused": "Nothing was built: this folder is not trusted.",
       "desktop.remote.devcontainer.upFailed": "Cannot build the dev container: {reason}",
-      "desktop.remote.devcontainer.stopped": "The build was stopped. A container it already started keeps running."
+      "desktop.remote.devcontainer.stopped": "The build was stopped. A container it already started keeps running.",
+      "desktop.remote.worktree.connectionRemoved": "The connection this workspace was opened over was deleted, so its worktree cannot be opened. Add the connection again, then open the worktree.",
+      "desktop.remote.worktree.destination": "The path is a folder on the host, created by Git there."
     },
     "zh-CN": {
       "desktop.remote.title": "远程开发",
@@ -4044,7 +4060,9 @@
       "desktop.remote.devcontainer.unusable": "Dev Container CLI 启动的结果无法打开：结果里没有容器或工作区文件夹。",
       "desktop.remote.devcontainer.untrustedRefused": "没有构建：这个文件夹不受信任。",
       "desktop.remote.devcontainer.upFailed": "无法构建 dev container：{reason}",
-      "desktop.remote.devcontainer.stopped": "构建已停止。已经启动的容器会继续运行。"
+      "desktop.remote.devcontainer.stopped": "构建已停止。已经启动的容器会继续运行。",
+      "desktop.remote.worktree.connectionRemoved": "打开此工作区所用的连接已被删除，无法打开它的工作树。请重新添加该连接后再打开工作树。",
+      "desktop.remote.worktree.destination": "路径是主机上的文件夹，由主机上的 Git 创建。"
     }
   }
 }

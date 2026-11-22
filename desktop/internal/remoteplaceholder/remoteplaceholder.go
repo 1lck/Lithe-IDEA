@@ -172,10 +172,27 @@ func LocalPath(root, remoteRoot, host string) (string, bool) {
 	if host == remote {
 		return root, true
 	}
-	base, suffix := root+HostSuffix, strings.TrimPrefix(host, "/")
 	if rest, ok := strings.CutPrefix(host, strings.TrimSuffix(remote, "/")+"/"); ok {
-		base, suffix = root, rest
+		return joinLocal(root, rest)
 	}
+	return HostNamedPath(root, host)
+}
+
+// HostNamedPath is the path below root's sibling (HostSuffix) that names host, an absolute host
+// path, whether or not host lies in the workspace's folder. Core maps it to host as it maps every
+// path of the sibling, and so maps the paths Core derives beside it, such as the folder it suggests
+// for a new worktree next to the repository, to the host paths beside host. ok is false as for
+// LocalPath.
+func HostNamedPath(root, host string) (string, bool) {
+	if !path.IsAbs(host) {
+		return "", false
+	}
+	return joinLocal(root+HostSuffix, strings.TrimPrefix(path.Clean(host), "/"))
+}
+
+// joinLocal is base with the slash-separated suffix below it as a local path; ok is false on
+// Windows for a name of suffix holding "\", which would name another path there.
+func joinLocal(base, suffix string) (string, bool) {
 	if suffix == "" {
 		return base, true
 	}
