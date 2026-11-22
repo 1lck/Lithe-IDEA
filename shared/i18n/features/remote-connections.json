@@ -954,6 +954,69 @@
       ]
     },
     {
+      "id": "desktop.remote.status.openHostFile",
+      "description": "Status bar item of a remote workspace: menu item that opens a file of the host by its path",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.remote.hostFile.title",
+      "description": "Title and accessible name of the popup that opens a file of a remote workspace's host by its path",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.remote.hostFile.placeholder",
+      "description": "Placeholder of the path field of Open File on Host",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.remote.hostFile.pathHint",
+      "description": "Open File on Host: the typed text names no host path",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.remote.hostFile.unrepresentable",
+      "description": "Open File on Host: the file's path holds a backslash, which Windows cannot name",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.remote.hostFile.empty",
+      "description": "Open File on Host: no entry of the folder matches what was typed",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.remote.hostFile.readOnlyNote",
+      "description": "Open File on Host: note below the list that files outside the workspace's folder open read-only",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.remote.hostFile.readOnly",
+      "description": "Notification when the user tries to make a remote host file outside the workspace's folder editable",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.remote.document.readOnly",
+      "description": "Reason a file of a remote workspace could not be saved, after “Could not save {name}: ”: it is outside the workspace's folder and opens read-only",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
       "id": "desktop.remote.workspace.title",
       "description": "Window title and task switcher name of a remote workspace; {kind} is how it is reached, SSH or WSL",
       "platforms": [
@@ -2796,6 +2859,15 @@
       "desktop.remote.status.disconnected": "{kind}: {name} · Disconnected",
       "desktop.remote.status.reconnect": "Reconnect",
       "desktop.remote.status.disconnect": "Disconnect and Close",
+      "desktop.remote.status.openHostFile": "Open File on Host…",
+      "desktop.remote.hostFile.title": "Open File on Host",
+      "desktop.remote.hostFile.placeholder": "A host path, such as ~/notes.txt or /etc/hosts",
+      "desktop.remote.hostFile.pathHint": "Type a path that starts with / or ~/",
+      "desktop.remote.hostFile.unrepresentable": "This path has a name with “\\” in it, which cannot be opened on Windows",
+      "desktop.remote.hostFile.empty": "No matching files or folders",
+      "desktop.remote.hostFile.readOnlyNote": "Files in the workspace folder open for editing; other files on the host open read-only.",
+      "desktop.remote.hostFile.readOnly": "Files outside the remote workspace folder open read-only.",
+      "desktop.remote.document.readOnly": "the file is outside the workspace folder and opens read-only",
       "desktop.remote.workspace.title": "{folder} [{kind}: {connection}]",
       "desktop.remote.titleWith": "Remote Development › {crumb}",
       "desktop.remote.newConnection": "New Connection",
@@ -3140,6 +3212,15 @@
       "desktop.remote.status.disconnected": "{kind}: {name} · 已断开",
       "desktop.remote.status.reconnect": "重新连接",
       "desktop.remote.status.disconnect": "断开并关闭",
+      "desktop.remote.status.openHostFile": "打开主机上的文件…",
+      "desktop.remote.hostFile.title": "打开主机上的文件",
+      "desktop.remote.hostFile.placeholder": "主机上的路径，例如 ~/notes.txt 或 /etc/hosts",
+      "desktop.remote.hostFile.pathHint": "请输入以 / 或 ~/ 开头的路径",
+      "desktop.remote.hostFile.unrepresentable": "这个路径里有含“\\”的名称，在 Windows 上无法打开",
+      "desktop.remote.hostFile.empty": "没有匹配的文件或文件夹",
+      "desktop.remote.hostFile.readOnlyNote": "工作区文件夹里的文件可以编辑，主机上的其他文件以只读方式打开。",
+      "desktop.remote.hostFile.readOnly": "远程工作区文件夹以外的文件只能以只读方式打开。",
+      "desktop.remote.document.readOnly": "该文件在工作区文件夹以外，只能以只读方式打开",
       "desktop.remote.workspace.title": "{folder} [{kind}: {connection}]",
       "desktop.remote.titleWith": "远程开发 › {crumb}",
       "desktop.remote.newConnection": "新建连接",

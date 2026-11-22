@@ -18,6 +18,7 @@ import (
 	"github.com/1lck/Lithe-IDEA/desktop/internal/editorview"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/i18n"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/pluginservice"
+	"github.com/1lck/Lithe-IDEA/desktop/internal/remoteplaceholder"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/winpath"
 	"github.com/vivaui/viva/gfx"
 	"github.com/vivaui/viva/ui"
@@ -136,6 +137,9 @@ type document struct {
 	// watched, saved or synchronized with a language server, and the host keeps no
 	// copy once it closes.
 	virtual bool
+	// hostOutside marks a remote workspace's file outside its host folder, which opens
+	// read-only and stays so (remote_host_files.go, S25).
+	hostOutside bool
 	// encoding is the id of the text encoding the file is read and written in; "" is plain
 	// UTF-8. hasBOM says a byte order mark leads the file. diskBytes are the bytes the file
 	// held when it was last read or written, kept only for a document whose bytes differ from
@@ -279,9 +283,9 @@ func (a *App) openFile(p *project, path string) {
 		return
 	}
 	if p.remote != nil {
-		// A remote workspace edits the files of its host folder; the viewers still read this
-		// computer's files.
-		if _, ok := remoteHostPathBelow(p.root, p.remote.binding.RemoteRoot(), path); !ok && a.refuseRemote(p, "open_file") {
+		// A remote workspace edits the files of its host folder and shows other host files
+		// read-only (remote_host_files.go); the viewers still read this computer's files.
+		if _, ok := remoteplaceholder.HostPath(p.root, p.remote.binding.RemoteRoot(), path); !ok && a.refuseRemote(p, "open_file") {
 			return
 		}
 		if _, ok := viewerKindOf(path); ok && a.refuseRemote(p, "open_viewer") {
@@ -546,7 +550,7 @@ func (a *App) placeDocumentAs(p *project, path, name string, content editorview.
 		return
 	}
 	p.docs.next = id
-	d := &document{id: id, path: path, name: name, languageID: languageID, grammar: grammar, virtual: virtual}
+	d := &document{id: id, path: path, name: name, languageID: languageID, grammar: grammar, virtual: virtual, hostOutside: !virtual && p.remoteOutsideDocument(path)}
 	d.view = editorview.New(editorview.Config{
 		Label:   name,
 		Content: content,
@@ -558,7 +562,7 @@ func (a *App) placeDocumentAs(p *project, path, name string, content editorview.
 			a.mirrorDocumentEdit(p, d, edit)
 		},
 	})
-	d.view.SetReadOnly(virtual)
+	d.view.SetReadOnly(virtual || d.hostOutside)
 	d.view.SetVimExit(func(cmd string) bool { return a.vimExit(p, d, cmd) })
 	setupFolding(d)
 	d.breakpointText = d.view.TextSnapshot()

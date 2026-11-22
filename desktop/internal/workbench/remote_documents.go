@@ -6,22 +6,21 @@ import (
 	"encoding/json"
 	"errors"
 	"io/fs"
-	"path"
-	"path/filepath"
 	"strconv"
-	"strings"
 	"time"
 
 	"github.com/1lck/Lithe-IDEA/desktop/internal/core"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/documentio"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/i18n"
+	"github.com/1lck/Lithe-IDEA/desktop/internal/remoteplaceholder"
 )
 
 // The editor of a remote workspace reads and writes its files on the host (#2231, R0 step 3).
 // A document keeps the placeholder path the Project tool window shows; each read and write
-// translates it to the host path below the workspace's folder and goes over the workspace's
-// current session. Nothing is read from or written to the placeholder, and a path outside the
-// workspace's folder is refused.
+// translates it to the host path (remoteplaceholder.HostPath) and goes over the workspace's
+// current session. Nothing is read from or written to the placeholder. A host file outside the
+// workspace's folder, which Open File on Host opens (remote_host_files.go), is only read: a save
+// or a create of one is refused (S25), and any other path is refused outright.
 //
 // A read asks the host what the path is first (remote.stat), because the host server opens a path
 // before it checks what it is, and a named pipe would block it. Like a local file, a link, a
@@ -64,8 +63,11 @@ var (
 	errRemoteTimedOut = errors.New("the host did not answer in time")
 	// errRemoteFileFailed: the host could not read or write the file for another reason.
 	errRemoteFileFailed = errors.New("the host could not read or write the file")
-	// errRemoteOutsideFolder is the cause of a refused path outside the workspace's folder.
+	// errRemoteOutsideFolder is the cause of a refused path that names no host path.
 	errRemoteOutsideFolder = errors.New("the path is outside the remote workspace's folder")
+	// errRemoteReadOnly: the file is on the host outside the workspace's folder, which the editor
+	// does not write (S25).
+	errRemoteReadOnly = errors.New("the host file is outside the remote workspace's folder and opens read-only")
 	// errRemoteSaveTooLarge: the file is larger than the host takes in one save
 	// (remoteDocumentWriteLimit), which is less than a local file saves.
 	errRemoteSaveTooLarge = errors.New("the file is larger than the host takes in one save")
@@ -146,7 +148,7 @@ func (a *App) remoteDocuments(p *project) *remoteDocuments {
 // read returns the bytes of the host file of local, a path below the workspace's placeholder.
 // A file larger than limit, or than Core reads, is errTooLarge.
 func (r *remoteDocuments) read(ctx context.Context, local string, limit int64) ([]byte, error) {
-	host, session, err := r.target(local)
+	host, session, _, err := r.target(local)
 	if err != nil {
 		return nil, err
 	}
@@ -161,7 +163,7 @@ func (r *remoteDocuments) save(ctx context.Context, local string, data, expected
 	if len(data) > remoteDocumentWriteLimit {
 		return &remoteFileError{reason: errRemoteSaveTooLarge}
 	}
-	host, session, err := r.target(local)
+	host, session, err := r.writable(local)
 	if err != nil {
 		return err
 	}
@@ -184,23 +186,34 @@ func (r *remoteDocuments) create(ctx context.Context, local string, data []byte)
 	if len(data) > remoteDocumentWriteLimit {
 		return &remoteFileError{reason: errRemoteSaveTooLarge}
 	}
-	host, session, err := r.target(local)
+	host, session, err := r.writable(local)
 	if err != nil {
 		return err
 	}
 	return r.write(ctx, session, host, data, nil)
 }
 
-// target is the host path of local and the session to reach it over.
-func (r *remoteDocuments) target(local string) (host, session string, err error) {
-	host, ok := remoteHostPathBelow(r.binding.LocalRoot(), r.binding.RemoteRoot(), local)
+// target is the host path of local and the session to reach it over; outside says the path is
+// outside the workspace's folder.
+func (r *remoteDocuments) target(local string) (host, session string, outside bool, err error) {
+	root := r.binding.LocalRoot()
+	host, ok := remoteplaceholder.HostPath(root, r.binding.RemoteRoot(), local)
 	if !ok {
-		return "", "", &remoteFileError{reason: errRemoteFileFailed, cause: errRemoteOutsideFolder}
+		return "", "", false, &remoteFileError{reason: errRemoteFileFailed, cause: errRemoteOutsideFolder}
 	}
 	if session = r.binding.SessionID(); session == "" {
-		return "", "", &remoteFileError{reason: errRemoteDisconnected}
+		return "", "", false, &remoteFileError{reason: errRemoteDisconnected}
 	}
-	return host, session, nil
+	return host, session, remoteplaceholder.Outside(root, local), nil
+}
+
+// writable is target for a write, which only a path in the workspace's folder takes.
+func (r *remoteDocuments) writable(local string) (host, session string, err error) {
+	host, session, outside, err := r.target(local)
+	if err == nil && outside {
+		return "", "", &remoteFileError{reason: errRemoteReadOnly}
+	}
+	return host, session, err
 }
 
 // readHost reads the host file host over session and returns the version its bytes were read at.
@@ -300,19 +313,6 @@ func remoteFailureCode(err *core.Error) string {
 	return details.RemoteCode
 }
 
-// remoteHostPathBelow is the host path of full in the host folder remoteRoot, which localRoot
-// stands for; the root itself is the host folder. ok is false for a path outside localRoot.
-func remoteHostPathBelow(localRoot, remoteRoot, full string) (string, bool) {
-	rel, err := filepath.Rel(localRoot, full)
-	if err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
-		return "", false
-	}
-	if rel == "." {
-		return remoteRoot, true
-	}
-	return path.Join(remoteRoot, filepath.ToSlash(rel)), true
-}
-
 // remoteDocumentReason is the words for err when a host file could not be read or written for a
 // reason only a remote workspace has, or that the system would name in a local one. ok is false
 // for the editor's own reasons, which read the same for both.
@@ -333,6 +333,8 @@ func (a *App) remoteDocumentReason(err error) (string, bool) {
 		return i18n.Shared(lang, "desktop.remote.document.permissionDenied"), true
 	case errors.Is(remoteErr.reason, errTooLarge):
 		return a.text.Editor.TooLarge, true
+	case errors.Is(remoteErr.reason, errRemoteReadOnly):
+		return i18n.Shared(lang, "desktop.remote.document.readOnly"), true
 	case errors.Is(remoteErr.reason, errRemoteSaveTooLarge):
 		limit := strconv.Itoa(remoteDocumentWriteLimit>>20) + " MiB"
 		return i18n.SharedFormat(lang, "desktop.remote.document.tooLargeToSave", map[string]string{"limit": limit}), true

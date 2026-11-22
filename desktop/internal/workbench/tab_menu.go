@@ -75,14 +75,16 @@ func (a *App) tabMenuItems(c ui.C, group string, t shownTab, tabs []shownTab) fu
 		}
 		menu.Separator()
 		path := d.path
-		a.copyPathMenu(c, menu, path, true, "editor.tabs")
-		if menu.Item(revealLabel(language)).Clicked() {
+		_, inside := projectRelative(p.root, path)
+		// A file outside the project has no path relative to it, and the placeholder path of a
+		// remote workspace's file is nothing the file manager can show.
+		a.copyPathMenu(c, menu, path, inside, "editor.tabs")
+		if p.remote == nil && menu.Item(revealLabel(language)).Clicked() {
 			c.After(func() {
 				a.performed("editor.tabs.reveal", surfaceContextMenu)
 				a.revealPath(path)
 			})
 		}
-		_, inside := projectRelative(p.root, path)
 		if _, ok := a.kernel.(localHistoryKernel); ok && !p.standalone && inside && menu.Item(i18n.Shared(language, "desktop.history.show")).Clicked() {
 			c.After(func() {
 				a.performed("localHistory.show", surfaceContextMenu)

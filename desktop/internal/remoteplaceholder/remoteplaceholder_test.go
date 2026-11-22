@@ -127,6 +127,13 @@ func TestHostAndLocalPathsMapBothWays(t *testing.T) {
 		if !ok || host != tc.host {
 			t.Errorf("HostPath(%q) = %q, %v; want %q", tc.local, host, ok, tc.host)
 		}
+		// Only the paths below the sibling stand for host files outside the workspace.
+		if outside, want := Outside(root, tc.local), strings.HasPrefix(tc.local, sibling); outside != want {
+			t.Errorf("Outside(%q) = %v; want %v", tc.local, outside, want)
+		}
+	}
+	if Outside(root, root+"x") || Outside(root, filepath.Dir(root)) {
+		t.Error("Outside took a path that names no host path")
 	}
 	if local, ok := LocalPath(Root(anchor, "c1", "/"), "/", "/etc/hosts"); !ok || local != filepath.Join(Root(anchor, "c1", "/"), "etc", "hosts") {
 		t.Errorf("LocalPath below the host's root = %q, %v", local, ok)

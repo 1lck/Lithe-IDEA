@@ -81,8 +81,8 @@ func (a *App) remoteStatus(c ui.C) {
 }
 
 // remoteStatusMenu declares the open menu of the connection above anchor: the host folder, why
-// connecting again failed, Reconnect while there is no session, Disconnect, which closes the
-// workspace, and the Remote Development window.
+// connecting again failed, Reconnect while there is no session, Open File on Host while there
+// is one, Disconnect, which closes the workspace, and the Remote Development window.
 func (a *App) remoteStatusMenu(c ui.C, p *project, anchor ui.Box) {
 	r := p.remote
 	if !r.menuOpen {
@@ -103,6 +103,9 @@ func (a *App) remoteStatusMenu(c ui.C, p *project, anchor ui.Box) {
 			if menu.Item(i18n.Shared(language, "desktop.remote.status.reconnect")).Icon(icons.RefreshCw).Clicked() {
 				c.After(func() { a.reconnectRemoteByUser(surfaceMenu) })
 			}
+		}
+		if menu.Item(i18n.Shared(language, "desktop.remote.status.openHostFile")).Icon(icons.FolderOpen).Disabled(r.session == "").Clicked() {
+			c.After(func() { a.openRemoteHostFiles(p, surfaceMenu) })
 		}
 		if menu.Item(i18n.Shared(language, "desktop.remote.status.disconnect")).Icon(icons.X).Clicked() {
 			c.After(func() {
