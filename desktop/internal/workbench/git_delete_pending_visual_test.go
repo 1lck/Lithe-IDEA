@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/1lck/Lithe-IDEA/desktop/internal/core"
+	"github.com/1lck/Lithe-IDEA/desktop/internal/i18n"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/store"
 	"github.com/vivaui/viva/app"
 	"github.com/vivaui/viva/headless"
@@ -22,7 +23,7 @@ func TestVisualGitDeletionInProgress(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, look := range []struct{ theme, language string }{{"dark", "zh-Hans"}, {"light", "en"}} {
-		for _, scene := range []string{"remote-branch", "worktree", "worktree-deferred-review"} {
+		for _, scene := range []string{"remote-branch", "worktree", "worktree-deferred-review", "worktree-replacement"} {
 			t.Run(scene+"-"+look.theme, func(t *testing.T) {
 				dir, linked := newWorktreeRepository(t)
 				prefs := store.At(t.TempDir())
@@ -46,12 +47,25 @@ func TestVisualGitDeletionInProgress(t *testing.T) {
 						t.Fatal(err)
 					}
 				}
-				if scene == "worktree-deferred-review" {
+				if scene == "worktree-deferred-review" || scene == "worktree-replacement" {
 					k, w := startDirtyWorktreeRemovalWithBranchDraft(t, h, dir, linked)
 					close(k.release)
 					h.await("worktree removal result", func() bool { return !w.busy })
-					capture("worktree-draft-and-notice")
+					if scene == "worktree-deferred-review" {
+						capture("worktree-draft-and-notice")
+					}
 					finishBranchDraftAfterGitDeletion(t, h)
+					if scene == "worktree-replacement" {
+						replaceReviewedWorktree(t, dir, linked)
+						openGitDeletionNotice(t, h)
+						message := i18n.Shared(h.app.language(), "desktop.worktree.removeSelectionChanged")
+						h.await("stale removal notification", func() bool { return lastNotice(h) == message })
+						if w.dialog != worktreeDialogNone {
+							t.Fatal("a stale review opened a confirmation")
+						}
+						capture(scene)
+						return
+					}
 					openGitDeletionNotice(t, h)
 					h.clickNamed(h.app.text.Worktrees.ReviewForce)
 					capture(scene)

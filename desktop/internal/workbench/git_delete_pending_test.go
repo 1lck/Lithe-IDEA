@@ -324,3 +324,60 @@ func openGitDeletionNotice(t *testing.T, h *harness) {
 	}
 	h.clickNamed(entries[0].actLabel)
 }
+
+func TestGitDeletionDoesNotForceRemoveReplacementWorktree(t *testing.T) {
+	for _, stage := range []string{"before-reopening", "before-confirming"} {
+		t.Run(stage, func(t *testing.T) {
+			dir, linked := newWorktreeRepository(t)
+			h := newHarness(t, gitKernel{core.NewClient()})
+			k, w := startDirtyWorktreeRemovalWithBranchDraft(t, h, dir, linked)
+			close(k.release)
+			h.await("worktree refusal", func() bool { return !w.busy })
+			finishBranchDraftAfterGitDeletion(t, h)
+			h.app.kernel = k.Kernel
+
+			if stage == "before-confirming" {
+				openGitDeletionNotice(t, h)
+				h.clickNamed(h.app.text.Worktrees.ReviewForce)
+				if w.dialog != worktreeDialogForce {
+					t.Fatal("the original checkout's force confirmation did not open")
+				}
+			}
+
+			// Reuse the path outside the workbench while the Log tab is visible, so the
+			// cached Worktrees list still describes the checkout whose removal failed.
+			draft := replaceReviewedWorktree(t, dir, linked)
+			h.settle()
+			if cached, ok := w.find(linked); !ok || cached.Branch != "refs/heads/feature" {
+				t.Fatal("the fixture must still show the original checkout in its cached list")
+			}
+
+			if stage == "before-reopening" {
+				openGitDeletionNotice(t, h)
+			} else {
+				h.clickNamed(h.app.text.Worktrees.ForceButton)
+			}
+			h.await("stale review or removal result", func() bool { return !w.busy })
+			if got, err := os.ReadFile(draft); err != nil || string(got) != "new untracked work" {
+				t.Fatalf("replacement checkout's draft = %q, err = %v", got, err)
+			}
+			if w.dialog != worktreeDialogNone ||
+				lastNotice(h) != i18n.Shared(h.app.language(), "desktop.worktree.removeSelectionChanged") {
+				t.Fatal("the old review should close and explain that the checkout changed")
+			}
+		})
+	}
+}
+
+// replaceReviewedWorktree simulates an external Git operation at the original path.
+func replaceReviewedWorktree(t *testing.T, dir, linked string) string {
+	t.Helper()
+	gitRun(t, dir, "worktree", "remove", "--force", linked)
+	gitRun(t, dir, "worktree", "add", "-b", "replacement", linked)
+	gitRun(t, linked, "commit", "--allow-empty", "-m", "replacement checkout")
+	draft := filepath.Join(linked, "replacement-draft.txt")
+	if err := os.WriteFile(draft, []byte("new untracked work"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	return draft
+}

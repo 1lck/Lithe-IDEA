@@ -750,6 +750,24 @@ func (a *App) beginRemoveWorktree(p *project, w core.GitWorktree) {
 	p.worktrees.removeRoot = p.git.repositoryRoot(p.root)
 }
 
+var errWorktreeRemovalChanged = errors.New("reviewed worktree changed")
+
+// checkWorktreeRemoval compares the reviewed checkout with Core's current listing.
+// The workbench's list can remain stale while another tool window is active.
+func checkWorktreeRemoval(ctx context.Context, kernel Kernel, root string, reviewed core.GitWorktree) error {
+	list, err := kernel.GitWorktrees(ctx, root)
+	if err != nil {
+		return err
+	}
+	for _, current := range list {
+		if current.Path == reviewed.Path && current.Actions.Remove.Allowed &&
+			current.Head == reviewed.Head && current.Branch == reviewed.Branch {
+			return nil
+		}
+	}
+	return errWorktreeRemovalChanged
+}
+
 // removeWorktree removes the dialog's worktree; force removes it with its local changes. Git's
 // refusal of a checkout with changes opens the review that offers the forced removal.
 func (a *App) removeWorktree(p *project, force bool) {
@@ -768,8 +786,18 @@ func (a *App) removeWorktree(p *project, force bool) {
 		return
 	}
 	a.runWorktreeWrite(p, operation, true, func(ctx context.Context, kernel Kernel, root string) error {
+		if force {
+			if err := checkWorktreeRemoval(ctx, kernel, root, target); err != nil {
+				return err
+			}
+		}
 		return kernel.GitRemoveWorktree(ctx, root, target.Path, force)
 	}, func(a *App, err error) bool {
+		if errors.Is(err, errWorktreeRemovalChanged) {
+			a.rejectWorktreeRemoval(operation)
+			a.loadWorktrees(p)
+			return true
+		}
 		var e *core.Error
 		if force || !errors.As(err, &e) || e.Code != core.CodeGitWorktreeHasChanges {
 			return false
@@ -796,15 +824,36 @@ func (a *App) notifyWorktreeRemovalReview(p *project, root string, target core.G
 				return
 			}
 			a.performed("git.worktree.openRemovalReview", surfaceNotification)
-			w := &p.worktrees
-			current, ok := w.find(target.Path)
-			if w.writeGen != generation || root != p.git.repositoryRoot(p.root) ||
-				!ok || !current.Actions.Remove.Allowed || current.Head != target.Head || current.Branch != target.Branch {
-				a.rejectWorktreeRemoval("git_worktree_remove_review")
-				return
-			}
-			w.dialog, w.target, w.removeRoot, w.refusal = worktreeDialogReview, target, root, reason
+			a.reopenWorktreeRemovalReview(p, root, target, generation, reason)
 		})
+}
+
+// reopenWorktreeRemovalReview checks the original checkout before restoring the dialog.
+func (a *App) reopenWorktreeRemovalReview(p *project, root string, target core.GitWorktree, generation uint64, reason string) {
+	const operation = "git_worktree_remove_review"
+	w := &p.worktrees
+	if w.writeGen != generation || root != p.git.repositoryRoot(p.root) {
+		a.rejectWorktreeRemoval(operation)
+		return
+	}
+	w.busy = true
+	kernel := a.kernel
+	a.background(p, gitTimeout, func(ctx context.Context) func(*App) {
+		err := checkWorktreeRemoval(ctx, kernel, root, target)
+		return func(a *App) {
+			w.busy = false
+			switch {
+			case root != p.git.repositoryRoot(p.root) || errors.Is(err, errWorktreeRemovalChanged):
+				a.rejectWorktreeRemoval(operation)
+				a.loadWorktrees(p)
+			case err != nil:
+				a.operationFailed(operation, err)
+				a.notifyError(worktreeFailureText(&a.text.Worktrees, true, err))
+			case a.canPresentGitResult(p):
+				w.dialog, w.target, w.removeRoot, w.refusal = worktreeDialogReview, target, root, reason
+			}
+		}
+	})
 }
 
 func (a *App) rejectWorktreeRemoval(operation string) {

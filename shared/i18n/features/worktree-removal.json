@@ -19,11 +19,11 @@
   "locales": {
     "en-US": {
       "desktop.worktree.openRemovalReview": "Review Worktree Removal",
-      "desktop.worktree.removeSelectionChanged": "The worktree changed. Start removal again to review the current checkout."
+      "desktop.worktree.removeSelectionChanged": "Worktree changed. Restart removal."
     },
     "zh-CN": {
       "desktop.worktree.openRemovalReview": "审阅工作树移除",
-      "desktop.worktree.removeSelectionChanged": "工作树已发生变化，请重新开始移除并审阅当前工作树。"
+      "desktop.worktree.removeSelectionChanged": "工作树已变化，请重新发起移除。"
     }
   }
 }
