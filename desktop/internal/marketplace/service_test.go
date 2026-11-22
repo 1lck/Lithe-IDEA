@@ -7,6 +7,7 @@ import (
 	"io"
 	"net/http"
 	"os"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -268,4 +269,105 @@ func TestFetchRecommendationBundle(t *testing.T) {
 			})
 		}
 	})
+}
+
+// pinTestCommit is the newest commit the pinning tests' lookup reports.
+const pinTestCommit = "0123456789abcdef0123456789abcdef01234567"
+
+func TestFetchReadsGitHubIndexAtNewestCommit(t *testing.T) {
+	index, err := os.ReadFile(contractfixture.Path("fixtures/marketplace/index.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	const pinned = "https://raw.githubusercontent.com/example/lithe-plugins/" + pinTestCommit + "/lithe-plugin-index.json"
+	var requested []string
+	client := &http.Client{Transport: transportFunc(func(r *http.Request) (*http.Response, error) {
+		requested = append(requested, r.URL.String())
+		return &http.Response{StatusCode: 200, Header: make(http.Header), Body: io.NopCloser(strings.NewReader(string(index))), Request: r}, nil
+	})}
+	var looked []string
+	var reported []error
+	service := New(core.NewClient(), client).PinToLatestCommit(func(_ context.Context, repository core.GitHubRepo, ref string) (string, error) {
+		looked = append(looked, repository.Owner+"/"+repository.Name+"@"+ref)
+		return pinTestCommit, nil
+	}, func(_ context.Context, err error) { reported = append(reported, err) })
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	snapshot, err := service.Fetch(ctx, "https://github.com/example/lithe-plugins", core.MarketplaceThirdParty, "darwin-arm64", map[string][]int{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !slices.Equal(looked, []string{"example/lithe-plugins@HEAD"}) || !slices.Equal(requested, []string{pinned}) || len(reported) != 0 {
+		t.Fatalf("looked up %v, requested %v, reported %v", looked, requested, reported)
+	}
+	// The source keeps its branch URL: trust records and automatic updates match on it.
+	const canonical = "https://raw.githubusercontent.com/example/lithe-plugins/HEAD/lithe-plugin-index.json"
+	if snapshot.Source.IndexURL != canonical {
+		t.Fatalf("source = %s", snapshot.Source.IndexURL)
+	}
+	for _, plugin := range snapshot.Index.Plugins {
+		if plugin.MarketplaceIndexURL != canonical {
+			t.Fatalf("plugin %q source = %q", plugin.ID, plugin.MarketplaceIndexURL)
+		}
+	}
+}
+
+func TestFetchFallsBackToBranchIndexAndReports(t *testing.T) {
+	index, err := os.ReadFile(contractfixture.Path("fixtures/marketplace/index.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	const canonical = "https://raw.githubusercontent.com/example/lithe-plugins/HEAD/lithe-plugin-index.json"
+	const pinned = "https://raw.githubusercontent.com/example/lithe-plugins/" + pinTestCommit + "/lithe-plugin-index.json"
+	for _, tc := range []struct {
+		name      string
+		lookupErr error
+		pinnedOK  bool
+		want      []string
+	}{
+		{name: "lookup fails", lookupErr: errors.New("rate limited"), want: []string{canonical}},
+		{name: "pinned read fails", pinnedOK: false, want: []string{pinned, canonical}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			var requested []string
+			client := &http.Client{Transport: transportFunc(func(r *http.Request) (*http.Response, error) {
+				requested = append(requested, r.URL.String())
+				if r.URL.String() == pinned && !tc.pinnedOK {
+					return &http.Response{StatusCode: 503, Header: make(http.Header), Body: io.NopCloser(strings.NewReader("")), Request: r}, nil
+				}
+				return &http.Response{StatusCode: 200, Header: make(http.Header), Body: io.NopCloser(strings.NewReader(string(index))), Request: r}, nil
+			})}
+			var reported []error
+			service := New(core.NewClient(), client).PinToLatestCommit(func(context.Context, core.GitHubRepo, string) (string, error) {
+				return pinTestCommit, tc.lookupErr
+			}, func(_ context.Context, err error) { reported = append(reported, err) })
+			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			defer cancel()
+			if _, err := service.Fetch(ctx, "https://github.com/example/lithe-plugins", core.MarketplaceThirdParty, "darwin-arm64", map[string][]int{}); err != nil {
+				t.Fatal(err)
+			}
+			if !slices.Equal(requested, tc.want) || len(reported) != 1 {
+				t.Fatalf("requested %v, reported %v", requested, reported)
+			}
+		})
+	}
+}
+
+func TestFetchDoesNotLookUpSourcesOutsideGitHub(t *testing.T) {
+	index, err := os.ReadFile(contractfixture.Path("fixtures/marketplace/index.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	client := &http.Client{Transport: transportFunc(func(r *http.Request) (*http.Response, error) {
+		return &http.Response{StatusCode: 200, Header: make(http.Header), Body: io.NopCloser(strings.NewReader(string(index))), Request: r}, nil
+	})}
+	service := New(core.NewClient(), client).PinToLatestCommit(func(context.Context, core.GitHubRepo, string) (string, error) {
+		t.Error("a source outside GitHub was looked up")
+		return "", errors.New("unexpected lookup")
+	}, func(_ context.Context, err error) { t.Errorf("reported %v", err) })
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	if _, err := service.Fetch(ctx, "https://plugins.example.com/index.json", core.MarketplaceThirdParty, "darwin-arm64", map[string][]int{}); err != nil {
+		t.Fatal(err)
+	}
 }

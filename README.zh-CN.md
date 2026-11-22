@@ -121,6 +121,14 @@ Lithe 是一款基于 **Viva（Go 原生工作台）+ Rust Core** 重构的插�
 
 - **macOS 手动安装：** 前往 [GitHub Releases](https://github.com/1lck/Lithe-IDEA/releases/latest) 下载 `.dmg`（Apple Silicon 选 `arm64`，Intel 选 `amd64`）。
 - **Windows x64：** 前往 [GitHub Releases](https://github.com/1lck/Lithe-IDEA/releases/latest) 下载 Windows `.exe` 安装包。
+- **Linux x64 / arm64：** 一行命令为当前用户安装（不用 `sudo`）。脚本从更新源下载发行包并校验 SHA-256，把 `lithe` 放进 `~/.local/bin`，并加入应用程序菜单；之后 Lithe 会自动增量更新：
+
+  ```bash
+  curl -fsSL https://raw.githubusercontent.com/1lck/Lithe-IDEA/main/scripts/install/linux.sh | sh
+  curl -fsSL https://raw.githubusercontent.com/1lck/Lithe-IDEA/main/scripts/install/linux.sh | sh -s -- uninstall
+  ```
+
+  [GitHub Releases](https://github.com/1lck/Lithe-IDEA/releases) 里的 `.deb`、`.rpm` 由包管理器管理，不会自动更新。也可以手动解压 Linux 的 `.tar.gz`，运行其中的 `./install.sh`。
 - **源码运行 / 预发布构建：** 查看 [Releases](https://github.com/1lck/Lithe-IDEA/releases) 中的版本说明，或通过下方 [如何开发](#如何开发) 直接从源码构建运行。
 
 <details>

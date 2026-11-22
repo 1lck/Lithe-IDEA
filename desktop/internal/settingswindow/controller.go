@@ -447,6 +447,11 @@ type Options struct {
 	CommandInstalls CommandInstaller
 	// UninstallPlugin removes the installed version of a plugin.
 	UninstallPlugin func(id string)
+	// PluginReleases lists the published releases of the source repository a plugin's
+	// marketplace listing names, newest first, for the Installed tab's changelog. supported is
+	// false, with no error, when the repository is not one it can read releases from. It runs
+	// on a worker and must return when ctx is done; nil shows no changelog tab.
+	PluginReleases func(ctx context.Context, repository string) (releases []PluginRelease, supported bool, err error)
 	// InstallPluginFromFile installs a plugin package the user picked on disk. The
 	// package is reviewed like a marketplace one before anything is written.
 	InstallPluginFromFile func(path string, feedback PluginInstallFeedback)
@@ -722,6 +727,10 @@ func (c *Controller) open(application *app.Application, current Values, page pag
 		if page != noPage {
 			open.requestPage(page)
 		}
+		// A raised window may have shown the plugin page for a while: it reads the store again
+		// when what it shows is stale.
+		open.raised.Store(true)
+		open.inv.Invalidate()
 		c.mu.Unlock()
 		win.Show()
 		return nil
@@ -828,6 +837,21 @@ type PluginFacts struct {
 	Programs []string
 	// Path is the installed package's directory.
 	Path string
+}
+
+// PluginRelease is one published release of a plugin's source repository, as the changelog
+// of the Installed tab shows it.
+type PluginRelease struct {
+	// Tag is the release's tag and Name its title; an untitled release leaves Name empty.
+	Tag, Name string
+	// Notes are the release's notes in Markdown; empty when the release has none.
+	Notes string
+	// Published is when the release was published; zero when the host does not say.
+	Published time.Time
+	// Prerelease says the release is marked as a pre-release.
+	Prerelease bool
+	// URL is the release's page on the web.
+	URL string
 }
 
 // Where an installed package came from, as its approval records it.

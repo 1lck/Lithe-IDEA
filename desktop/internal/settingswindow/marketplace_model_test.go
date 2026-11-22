@@ -3,6 +3,7 @@ package settingswindow
 import (
 	"context"
 	"errors"
+	"fmt"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -251,5 +252,62 @@ func TestInstalledMarketplaceSourceWorksWithoutRemoteFetch(t *testing.T) {
 	d.until("the installed index", func() bool { return w.market.status == marketReady })
 	if w.market.source != 2 || w.market.selected != "local" {
 		t.Fatalf("installed source=%d status=%d selected=%q error=%v", w.market.source, w.market.status, w.market.selected, w.market.err)
+	}
+}
+
+func TestMarketplaceRefreshesStalePluginsInTheBackground(t *testing.T) {
+	var calls, reported atomic.Int32
+	var fail atomic.Bool
+	w := newWindow(NewController(Options{
+		Marketplace: func(context.Context) (marketplace.Snapshot, error) {
+			n := calls.Add(1)
+			if n > 1 && fail.Load() {
+				return marketplace.Snapshot{}, errors.New("store unreachable")
+			}
+			return indexOf(fmt.Sprintf("v%d", n)), nil
+		},
+		MarketplaceError: func(error) { reported.Add(1) },
+	}), Values{})
+	var clock atomic.Int64
+	clock.Store(time.Date(2026, 11, 22, 10, 0, 0, 0, time.UTC).UnixNano())
+	w.market.now = func() time.Time { return time.Unix(0, clock.Load()) }
+	later := func() { clock.Add(int64(marketStaleAfter)) }
+	w.sess.page = pagePlugins
+	w.pluginTab = pluginTabMarketplace
+	d := openWindow(t, w)
+	d.until("the first index", func() bool { return w.market.status == marketReady })
+	shown := func() string { return w.market.snapshot.Index.Plugins[0].ID }
+	reenter := func() {
+		w.sess.page = pageGeneral
+		w.inv.Invalidate()
+		d.pump()
+		w.sess.page = pagePlugins
+		w.inv.Invalidate()
+		d.pump()
+	}
+
+	// Plugins read less than marketStaleAfter ago are not read again.
+	reenter()
+	if calls.Load() != 1 || w.market.active {
+		t.Fatalf("fresh plugins were read again: %d fetches", calls.Load())
+	}
+
+	// Stale ones are, while the page keeps showing them.
+	later()
+	reenter()
+	if !w.market.active || w.market.status != marketReady || shown() != "v1" {
+		t.Fatalf("refresh: active=%v status=%v shown=%s", w.market.active, w.market.status, shown())
+	}
+	d.until("the refreshed index", func() bool { return shown() == "v2" })
+
+	// Raising the window asks too; a refresh that fails keeps the plugins and is reported.
+	later()
+	fail.Store(true)
+	w.raised.Store(true)
+	w.inv.Invalidate()
+	d.pump()
+	d.until("the failed refresh", func() bool { return !w.market.active })
+	if calls.Load() != 3 || w.market.status != marketReady || shown() != "v2" || reported.Load() != 1 {
+		t.Fatalf("failed refresh: %d fetches, status=%v shown=%s reported=%d", calls.Load(), w.market.status, shown(), reported.Load())
 	}
 }

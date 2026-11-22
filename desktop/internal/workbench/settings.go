@@ -24,7 +24,7 @@ import (
 // own thread (the language and the look of the frame last painted) and two ways back into
 // the workbench, both of which only queue the work for the workbench's window thread.
 func (a *App) newSettingsWindow() *settingswindow.Controller {
-	service := marketplace.New(a.kernel, nil)
+	service := a.pinnedMarketplace()
 	var navigation func(context.Context, []core.SettingsNavigationItem, string) ([]core.SettingsNavigationRow, error)
 	if kernel, ok := a.kernel.(interface {
 		SettingsNavigation(context.Context, []core.SettingsNavigationItem, string) ([]core.SettingsNavigationRow, error)
@@ -148,6 +148,7 @@ func (a *App) newSettingsWindow() *settingswindow.Controller {
 		UninstallPlugin: func(id string) {
 			a.post(func(a *App) { a.uninstallPlugin(id) })
 		},
+		PluginReleases:  a.pluginReleases,
 		CommandInstalls: settingsCommandInstalls{app: a},
 		Language: func() i18n.Language {
 			if a.shared.text.Load() == i18n.For(i18n.Chinese) {

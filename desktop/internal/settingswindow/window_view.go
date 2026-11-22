@@ -348,8 +348,12 @@ func (w *window) toolchainProblems() int {
 // content is the page beside the sidebar: the breadcrumb above the page itself.
 func (w *window) content(c ui.C) {
 	if w.sess.page != pagePlugins && w.market.status == marketLoading {
-		// Leaving the page stops wanting the fetch, which cancels it.
+		// Leaving the page stops wanting the fetch, which cancels it. A background refresh
+		// goes on: its result replaces plugins the page already shows.
 		w.market.close()
+	}
+	if w.sess.page != pagePlugins && w.marketShown {
+		w.marketShown, w.marketRecheck = false, true
 	}
 	if w.sess.page != pageAbout {
 		w.about = aboutState{}

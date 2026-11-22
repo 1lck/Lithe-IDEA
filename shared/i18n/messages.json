@@ -93126,7 +93126,8 @@
       "id": "native.updateLog",
       "description": "Native UI: Update log",
       "platforms": [
-        "macos"
+        "macos",
+        "desktop"
       ],
       "macos": {
         "key": "Update log",

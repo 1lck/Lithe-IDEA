@@ -297,6 +297,7 @@ type Kernel interface {
 	QueryReferences(ctx context.Context, request core.ReferencesQuery) (core.ReferencesResult, error)
 	ReferenceLines(ctx context.Context, request core.ReferenceLinesRequest) ([]core.ReferenceLine, error)
 	ResolveMarketplaceSource(context.Context, string) (core.MarketplaceSource, error)
+	PinMarketplaceSource(ctx context.Context, url, commit string) (core.MarketplaceSource, error)
 	ValidateMarketplaceIndex(context.Context, json.RawMessage, core.MarketplaceSourceKind, string, map[string][]int) (core.MarketplaceIndex, error)
 	RecommendMarketplacePlugins(ctx context.Context, platform string, workspaceFiles []string, catalogs []core.MarketplaceRecommendationCatalog, hostCapabilities map[string][]int, installedPluginIDs []string, dismissedPluginIDs []string) (core.MarketplaceRecommendationResult, error)
 }
