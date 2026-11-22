@@ -147,7 +147,7 @@ func completionSummary(value string) (string, bool) {
 func (a *App) completionPopup(c ui.C) gfx.Rect {
 	state := &a.semantics.completion
 	p, d := a.currentSemanticDocument(state.documentID)
-	if d == nil || p != a.project || d.view.Revision() != state.revision {
+	if p != a.project || !completionPositionCurrent(d, state.revision, state.line, state.column) {
 		a.closeSemanticCompletion()
 		return gfx.Rect{}
 	}
