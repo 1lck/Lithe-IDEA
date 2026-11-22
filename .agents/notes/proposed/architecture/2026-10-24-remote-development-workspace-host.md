@@ -352,6 +352,7 @@ M2 接入“打开远程文件夹”时，SSH 连接的配置界面参考用户�
 - 服务能检查通过所有远端目标（Linux musl 两种架构、macOS 两种架构）；两个 Linux 静态 release 版用 `rust-lld` 构建成功；CI 校验静态链接、架构和清单哈希，跑通冒烟测试，并把两个版本的体积记录在任务摘要中。
 - 远端服务的 CI 任务是 Desktop CI 的 `remote-server` 车道（调用 `desktop-remote-server.yml`），Draft PR 也运行，只用 Linux x86_64 和 arm64 runner，不占用 macOS 和 Windows runner；它是 `Desktop CI gate` 的必过车道。Release 和 AutoBuild 调用同一个工作流，打包前先过这些检查。
 - 打包嵌入由 `scripts/desktop/package-desktop.test.mjs` 覆盖（本地打包重新编译、CI 打包使用给定暂存并要求固定提交、校验失败或校验后字节变化时不打包、不留生成文件），运行期安装由 `desktop/internal/remoteserver` 的测试覆盖（字节相同不重写、被替换或是链接时原子恢复、嵌入字节与清单不符或清单格式错误时什么也不写）。
+- 连接和上传流程不写安装包：`remoteserver` 的 `TestResolveLeavesTheInstalledPackageUnchanged` 和 `remoteplaceholder` 的 `TestEnsureLeavesTheInstalledPackageUnchanged` 用 `desktop/internal/installedpackagetest`，从仿造的已安装程序包运行生产路径，分别覆盖安装服务端构建（Core 随后读取并上传它）和创建占位锚点。它们确认写出的路径在用户缓存目录下，且包内每一项的类型、权限、大小和 SHA-256 都没变。macOS、Windows、Linux CI 都运行这两个测试；`verify-runtime-bundle-immutability.sh` 要求这两个测试一直存在。
 - 后续阶段的验收标准在各自的 PR 和 Note 中补充，例如 M1 要在真实的 SSH 主机、Docker 容器和远程 Mac 上各验证一次完整流程。
 - “待评估能力候选”采纳后另定对应验收：超出 2 GiB/4 GiB 的流式传输与偏移、分片乱序/重复/缺失、源或目标中途改变、断线/重启、磁盘不足/限额/权限、取消清理、哈希一致性，以及大流量下终端和 LSP 的延迟与内存预算。这里只定义要验证的问题，不代表这些能力已有实现或测试结果。
 - 环境候选采纳后验证来源读取、差异、敏感变量保护、显式选择与取消、仅新进程生效、确认重启、忙碌终端保护、缓存失效和跨主机隔离；测试不得执行用户真实 profile 或写入用户 shell 历史。
@@ -379,4 +380,5 @@ M2 接入“打开远程文件夹”时，SSH 连接的配置界面参考用户�
 - `desktop/internal/core/plugin_session.go`
 - `desktop/internal/term/`
 - `desktop/internal/remoteserver/`（嵌入、安装和暂存读取）
+- `desktop/internal/remoteplaceholder/`（占位锚点）与 `desktop/internal/installedpackagetest/`（安装包不变测试）
 - 远端服务的构建与持续集成：`scripts/desktop/build-remote-server.sh`、`scripts/desktop/verify/verify-remote-server-artifacts.mjs`、`.github/workflows/desktop-remote-server.yml`，打包嵌入在 `scripts/desktop/package-desktop.sh`。

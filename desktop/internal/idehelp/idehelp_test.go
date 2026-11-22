@@ -5,6 +5,9 @@ import (
 	"path/filepath"
 	"runtime"
 	"testing"
+
+	"github.com/1lck/Lithe-IDEA/desktop/internal/installedpackagetest"
+	"github.com/1lck/Lithe-IDEA/desktop/internal/store"
 )
 
 func withBytes(t *testing.T, data []byte) {
@@ -61,5 +64,32 @@ func TestInstallRefusesABuildWithoutTheHelper(t *testing.T) {
 	withBytes(t, []byte("helper"))
 	if _, err := Install(t.TempDir(), ""); err == nil || err == ErrNotBundled {
 		t.Fatalf("empty name error = %v, want a name error", err)
+	}
+}
+
+// Enabling the IDE API from a client installed the way a release is installs the helper below the
+// client's configuration directory, where the workbench keeps the connection descriptors, and
+// leaves the installed package byte for byte as it was. Run checks the package in the test process.
+func TestInstallLeavesTheInstalledPackageUnchanged(t *testing.T) {
+	if !installedpackagetest.Run(t) {
+		return
+	}
+	withBytes(t, []byte("helper"))
+	preferences, err := store.Open()
+	if err != nil {
+		t.Fatal(err)
+	}
+	// The directory App.ideAPIDirectory gives the helper.
+	dir := filepath.Join(preferences.Dir(), "ide-host")
+	// The second connection finds the helper installed and keeps it.
+	for range 2 {
+		path, err := Install(dir, "lithe-mcp")
+		if err != nil {
+			t.Fatal(err)
+		}
+		installedpackagetest.Outside(t, path)
+		if data, err := os.ReadFile(path); err != nil || string(data) != "helper" {
+			t.Fatalf("helper = %q, %v", data, err)
+		}
 	}
 }
