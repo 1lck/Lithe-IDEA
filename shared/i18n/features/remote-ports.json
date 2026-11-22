@@ -705,6 +705,110 @@
       "platforms": [
         "desktop"
       ]
+    },
+    {
+      "id": "desktop.remote.ports.columnLabel",
+      "description": "Header of the Ports window's column with the name the user gave a port or rule.",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.remote.ports.editLabel",
+      "description": "Context menu item that opens the dialog to name a port or forwarding rule.",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.remote.ports.labelTitle",
+      "description": "Title of the dialog that names a port or forwarding rule.",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.remote.ports.labelBody",
+      "description": "Explanation in the label dialog.",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.remote.ports.labelField",
+      "description": "Field label of the label dialog.",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.remote.ports.labelInvalid",
+      "description": "Error under the label field when the label is too long or has control characters.",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.remote.ports.labelApply",
+      "description": "Button that saves the label.",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.remote.ports.labelCancel",
+      "description": "Button that closes the label dialog without changes.",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.remote.ports.statusNotRunning",
+      "description": "Status of a remembered forwarding rule that is not running.",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.remote.ports.ruleStart",
+      "description": "Button and menu item that opens Add Forwarding Rule filled in with a remembered rule.",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.remote.ports.ruleForget",
+      "description": "Button and menu item that removes a remembered forwarding rule from the list.",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.remote.ports.recordsFailed",
+      "description": "Warning when the Ports window could not read or save what it remembers.",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "reason": "string"
+      }
+    },
+    {
+      "id": "desktop.remote.ports.recordsDamaged",
+      "description": "Warning when the stored port records cannot be read; they are left untouched.",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.remote.ports.restoreFailed",
+      "description": "Warning when some forwards left running could not start again after reconnecting.",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "count": "string"
+      }
     }
   ],
   "locales": {
@@ -742,7 +846,7 @@
       "desktop.remote.ports.remoteUrlListening": "{url}, listening on {addresses}",
       "desktop.remote.ports.empty": "No ports are listening on the host. Type a port above to forward it anyway.",
       "desktop.remote.ports.loading": "Reading the host's listening ports…",
-      "desktop.remote.ports.disconnected": "Not connected. Forwards end with the connection; forward the ports again after reconnecting.",
+      "desktop.remote.ports.disconnected": "Not connected. Forwards end with the connection; the local forwards you left running start again when you reconnect.",
       "desktop.remote.ports.readFailed": "Could not read the host's listening ports: {reason}",
       "desktop.remote.ports.limit": "This connection already forwards {maximum} ports, the most allowed. Stop one first.",
       "desktop.remote.ports.invalidTarget": "The host or port is not valid.",
@@ -792,13 +896,27 @@
       "desktop.remote.ports.rulePortDenied": "The host does not allow listening on port {port}. Ports below 1024 usually need administrator rights.",
       "desktop.remote.ports.ruleUnsupported": "The remote server running on the host cannot listen on host ports. Reconnect to update it.",
       "desktop.remote.ports.rulesHeading": "Forwarding Rules",
-      "desktop.remote.ports.rulesHelp": "Forwarding rules listen on a host port and forward to another server or back to this computer. They stop when the connection ends and are not restored after reconnecting.",
+      "desktop.remote.ports.rulesHelp": "Forwarding rules listen on a host port and forward to another server or back to this computer. They stop when the connection ends; the window remembers them, and after reconnecting you start them again with Start.",
       "desktop.remote.ports.ruleColumnListen": "Host Listens On",
       "desktop.remote.ports.ruleColumnTarget": "Forwards To",
       "desktop.remote.ports.ruleColumnConnections": "Connections",
       "desktop.remote.ports.ruleThisComputer": "This computer {address}",
       "desktop.remote.ports.ruleConnectionsFailed": "{count} ({failed} failed)",
-      "desktop.remote.ports.ruleAllInterfacesTip": "Listens on every interface of the host: any computer that can reach the host can connect to this port."
+      "desktop.remote.ports.ruleAllInterfacesTip": "Listens on every interface of the host: any computer that can reach the host can connect to this port.",
+      "desktop.remote.ports.columnLabel": "Label",
+      "desktop.remote.ports.editLabel": "Edit Label…",
+      "desktop.remote.ports.labelTitle": "Edit Label",
+      "desktop.remote.ports.labelBody": "The label is shown in the Label column and kept on this computer for this workspace. Leave it empty to remove it.",
+      "desktop.remote.ports.labelField": "Label",
+      "desktop.remote.ports.labelInvalid": "Use at most 64 characters, without line breaks or tabs.",
+      "desktop.remote.ports.labelApply": "Save",
+      "desktop.remote.ports.labelCancel": "Cancel",
+      "desktop.remote.ports.statusNotRunning": "Not running",
+      "desktop.remote.ports.ruleStart": "Start…",
+      "desktop.remote.ports.ruleForget": "Forget Rule",
+      "desktop.remote.ports.recordsFailed": "The ports and rules of this workspace could not be remembered: {reason}",
+      "desktop.remote.ports.recordsDamaged": "The saved ports and rules of remote workspaces cannot be read, so they are not restored and changes are not saved. The file in the Lithe settings folder is left as it is.",
+      "desktop.remote.ports.restoreFailed": "{count} forwards could not start again after reconnecting. Their rows show why."
     },
     "zh-CN": {
       "desktop.remote.ports.title": "端口",
@@ -834,7 +952,7 @@
       "desktop.remote.ports.remoteUrlListening": "{url}，监听地址：{addresses}",
       "desktop.remote.ports.empty": "主机上没有正在监听的端口。也可以在上方输入端口直接转发。",
       "desktop.remote.ports.loading": "正在读取主机上的监听端口…",
-      "desktop.remote.ports.disconnected": "未连接。转发随连接一起结束，重新连接后需要再次转发。",
+      "desktop.remote.ports.disconnected": "未连接。转发随连接一起结束；重新连接后，没有停止的本地转发会自动恢复。",
       "desktop.remote.ports.readFailed": "无法读取主机上的监听端口：{reason}",
       "desktop.remote.ports.limit": "此连接已转发 {maximum} 个端口，达到上限，请先停止一个。",
       "desktop.remote.ports.invalidTarget": "主机或端口无效。",
@@ -884,13 +1002,27 @@
       "desktop.remote.ports.rulePortDenied": "主机不允许监听端口 {port}。普通用户通常不能使用 1024 以下的端口。",
       "desktop.remote.ports.ruleUnsupported": "这台主机上运行的远端服务不支持在主机上监听端口，请重新连接以更新远端服务。",
       "desktop.remote.ports.rulesHeading": "转发规则",
-      "desktop.remote.ports.rulesHelp": "转发规则在主机上监听端口，转到另一台服务器或转回本机。规则随连接结束而停止，重新连接后不会自动恢复。",
+      "desktop.remote.ports.rulesHelp": "转发规则在主机上监听端口，转到另一台服务器或转回本机。规则随连接结束而停止；窗口会记住它们，重新连接后点“启动”即可再次启动。",
       "desktop.remote.ports.ruleColumnListen": "主机监听",
       "desktop.remote.ports.ruleColumnTarget": "转到",
       "desktop.remote.ports.ruleColumnConnections": "连接",
       "desktop.remote.ports.ruleThisComputer": "本机 {address}",
       "desktop.remote.ports.ruleConnectionsFailed": "{count}（{failed} 个失败）",
-      "desktop.remote.ports.ruleAllInterfacesTip": "监听主机的全部网卡：能访问主机的任何电脑都能连接这个端口。"
+      "desktop.remote.ports.ruleAllInterfacesTip": "监听主机的全部网卡：能访问主机的任何电脑都能连接这个端口。",
+      "desktop.remote.ports.columnLabel": "标签",
+      "desktop.remote.ports.editLabel": "编辑标签…",
+      "desktop.remote.ports.labelTitle": "编辑标签",
+      "desktop.remote.ports.labelBody": "标签显示在“标签”列，只保存在这台电脑上、只用于这个工作区。留空即删除标签。",
+      "desktop.remote.ports.labelField": "标签",
+      "desktop.remote.ports.labelInvalid": "最多 64 个字符，不能包含换行或制表符。",
+      "desktop.remote.ports.labelApply": "保存",
+      "desktop.remote.ports.labelCancel": "取消",
+      "desktop.remote.ports.statusNotRunning": "未运行",
+      "desktop.remote.ports.ruleStart": "启动…",
+      "desktop.remote.ports.ruleForget": "忘记规则",
+      "desktop.remote.ports.recordsFailed": "无法保存这个工作区的端口和规则：{reason}",
+      "desktop.remote.ports.recordsDamaged": "已保存的远程工作区端口和规则无法读取，因此不会恢复，改动也不会保存。Lithe 设置目录中的文件保持原样。",
+      "desktop.remote.ports.restoreFailed": "重新连接后有 {count} 个转发无法恢复，原因见对应行。"
     }
   }
 }

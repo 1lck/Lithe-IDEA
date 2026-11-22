@@ -94,6 +94,38 @@ func TestRemoteParseAddressSplitsTheFields(t *testing.T) {
 	}
 }
 
+// A Windows domain user, DOMAIN\name or name@domain, is saved as typed; one with only a domain is
+// refused on the user field.
+func TestRemoteConnectionsKeepWindowsDomainUsers(t *testing.T) {
+	client := NewClient()
+	ctx := testContext(t)
+	var document *string
+	for _, user := range []string{`CONTOSO\admin`, "admin@contoso.example"} {
+		saved, err := client.EditRemoteConnections(ctx, document, RemoteConnectionEdit{Save: &RemoteConnectionSave{
+			Name: user, Connection: SSHConnection{Host: "192.0.2.10", User: user},
+		}})
+		if err != nil || saved.ID == "" {
+			t.Fatalf("save domain user #%d: err = %v", len(user), err)
+		}
+		document = saved.Document
+	}
+	listed, err := client.SearchRemoteConnections(ctx, document, "")
+	if err != nil || len(listed.Connections) != 2 {
+		t.Fatalf("list: %d connections, err = %v", len(listed.Connections), err)
+	}
+	for _, entry := range listed.Connections {
+		if entry.Connection.User != entry.Name {
+			t.Fatalf("a domain user changed on save (%d bytes saved, %d typed)", len(entry.Connection.User), len(entry.Name))
+		}
+	}
+	_, err = client.EditRemoteConnections(ctx, document, RemoteConnectionEdit{Save: &RemoteConnectionSave{
+		Name: "Domain only", Connection: SSHConnection{Host: "192.0.2.10", User: `CONTOSO\`},
+	}})
+	if field, reason, ok := RemoteConnectionFieldError(err); !ok || field != "user" || reason != "invalid" {
+		t.Fatalf("domain only: field %q, reason %q, want user and invalid", field, reason)
+	}
+}
+
 // A port, host:port or URL typed into the Ports window becomes a forward target; a URL keeps its
 // scheme and path and gives its default port, and a user name or password is refused by reason.
 func TestRemoteParseForwardAddressReadsPortsAndURLs(t *testing.T) {

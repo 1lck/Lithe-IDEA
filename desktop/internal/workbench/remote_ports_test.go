@@ -37,6 +37,8 @@ type remoteHostPorts struct {
 	stops  []uint64
 	// rules are the host side of the forwarding rules (remote_port_rules_test.go).
 	rules remoteHostRules
+	// records are Core's port records (remote_port_records_test.go).
+	records remoteHostRecords
 }
 
 func (k *remoteHostKernel) RemoteListeningPorts(context.Context, string) ([]core.RemoteListeningPort, error) {
@@ -58,7 +60,12 @@ func (k *remoteHostKernel) RemoteForwards(_ context.Context, session string) ([]
 func (k *remoteHostKernel) RemoteStartForward(_ context.Context, session string, target core.RemoteForwardTarget) (core.RemoteForward, bool, error) {
 	k.mu.Lock()
 	defer k.mu.Unlock()
-	p := &k.ports
+	return k.ports.start(session, target)
+}
+
+// start starts a forward of session to target as remote.startForward does; the caller holds the
+// kernel's lock.
+func (p *remoteHostPorts) start(session string, target core.RemoteForwardTarget) (core.RemoteForward, bool, error) {
 	p.starts = append(p.starts, target)
 	host, loopback := target.Host, target.Host == "localhost"
 	if ip, err := netip.ParseAddr(host); err == nil {
@@ -618,16 +625,24 @@ func TestRemotePortsStopsAllAndReportsTheLimit(t *testing.T) {
 	}
 }
 
-// A lost session takes its forwards with it: the window shows the port unforwarded and reads the
-// new session's forwards once the workspace connects again.
-func TestRemotePortsForgetTheForwardsOfALostSession(t *testing.T) {
-	h, k, timers, _ := remoteWorkspaceHarness(t)
+// A lost session takes its forwards with it, and the window has Core start again on the new
+// session the forwards the user left running, as VS Code restores its forwarded ports; a forward
+// the user stopped stays stopped.
+func TestRemotePortsStartTheForwardsLeftRunningAgainAfterAReconnect(t *testing.T) {
+	h, k, timers, logger := remoteWorkspaceHarness(t)
 	lang := h.app.language()
-	p := h.openRemotePortsWindow(t, k, core.RemoteListeningPort{Address: "127.0.0.1", Port: 8080})
+	p := h.openRemotePortsWindow(t, k, core.RemoteListeningPort{Address: "127.0.0.1", Port: 8080},
+		core.RemoteListeningPort{Address: "127.0.0.1", Port: 9090})
 	r := p.remote
-	h.click(center(h.portRowControl("127.0.0.1:8080", i18n.Shared(lang, "desktop.remote.ports.forward"))))
-	h.await("the forward", func() bool { return len(r.ports.forwards) == 1 && len(r.ports.busy) == 0 })
+	for _, row := range []string{"127.0.0.1:8080", "127.0.0.1:9090"} {
+		h.click(center(h.portRowControl(row, i18n.Shared(lang, "desktop.remote.ports.forward"))))
+		h.await("the forward", func() bool { return len(r.ports.busy) == 0 })
+		h.settle()
+	}
+	h.click(center(h.portRowControl("127.0.0.1:9090", i18n.Shared(lang, "desktop.remote.ports.stop"))))
+	h.await("the stopped forward", func() bool { return len(r.ports.forwards) == 1 && len(r.ports.busy) == 0 && !r.ports.recordsBusy })
 	h.settle()
+	lost := r.session
 
 	k.set(func(k *remoteHostKernel) {
 		k.once = &core.Error{Command: "remote.serverState", Code: core.CodeConnectionClosed, Message: "closed"}
@@ -635,17 +650,28 @@ func TestRemotePortsForgetTheForwardsOfALostSession(t *testing.T) {
 	h.fireAfter(t, timers, remoteHeartbeatInterval)
 	h.fireReconnect(t, timers, r)
 	h.await("the new session's reading", func() bool {
-		return r.session == "session-2" && !r.beating && r.ports.listed && !p.tree.reading
+		return r.session == "session-2" && !r.beating && r.ports.listed && !p.tree.reading && !r.ports.recordsBusy
 	})
 	h.settle()
-	if len(r.ports.forwards) != 0 || h.hasControl(i18n.Shared(lang, "desktop.remote.ports.statusLabel")) {
-		t.Fatal("the lost session's forward is still shown")
+	k.mu.Lock()
+	restores, again := k.ports.records.restores, slices.Clone(k.ports.forwards["session-2"])
+	k.mu.Unlock()
+	if restores != 2 || len(again) != 1 || again[0].TargetPort != 8080 {
+		t.Fatalf("restored %d times with %d forwards: the forward left running did not start again alone", restores, len(again))
 	}
-	if !h.shows(i18n.Shared(lang, "desktop.remote.ports.statusNotForwarded")) {
-		t.Fatal("the port is not shown unforwarded")
+	if len(r.ports.forwards) != 1 || r.ports.forwards[0].ID != again[0].ID || slices.ContainsFunc(r.ports.forwards, func(forward core.RemoteForward) bool {
+		return slices.ContainsFunc(k.ports.forwards[lost], func(old core.RemoteForward) bool { return old.ID == forward.ID })
+	}) {
+		t.Fatal("the window does not show the new session's forward alone")
+	}
+	if !h.shows(i18n.Shared(lang, "desktop.remote.ports.statusNotForwarded")) || !h.hasControl(i18n.Shared(lang, "desktop.remote.ports.statusLabel")) {
+		t.Fatal("the stopped port is not shown unforwarded, or the restored one forwarded")
 	}
 	if got := timers.liveAfter(remotePortsInterval); got != 1 {
 		t.Fatalf("%d readings of the window pending, want the new session's one", got)
+	}
+	if event := loggedAny(t, logger, remoteTestHost, "8080", "9090"); event != "" {
+		t.Fatalf("logged the host or a port: %s", event)
 	}
 }
 

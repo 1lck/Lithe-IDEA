@@ -336,7 +336,10 @@ PINNED_CORE_REPOSITORY="https://github.com/Lithe-IDEA/Lithe-core-rust.git"
 # the running ones; remote.devcontainerConfigs and remote.devcontainerUp build and start the
 # container of a devcontainer.json; #163 remote.portRecords keeps a workspace's ports and forwards;
 # #164 fs.readFile reads only regular files, so a named pipe no longer blocks it (#2231, #2270).
-PINNED_CORE_REVISION="57e55d6eb1769afffd15029f408def469fe7d3ab"
+# Lithe-core-rust main at 2e4be2c: #166 a connection accepts a Windows domain user (DOMAIN\name,
+# name@domain) and remote.mottyHosts marks a refused setting on its own field with the invalid
+# status; #165 ending a remote session releases the search indexes it built (#2231, #2277).
+PINNED_CORE_REVISION="2e4be2ca23bd8ba83bea93278067b566a7194ead"
 PROFILE="debug"
 CHECKOUT_ONLY="no"
 while [[ $# -gt 0 ]]; do

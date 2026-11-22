@@ -20,6 +20,7 @@ const (
 	remotePortsRowHeight = 26
 	// The widths of the list's fixed columns; the Process column takes the rest.
 	remotePortsRemoteWidth = 200
+	remotePortsLabelWidth  = 120
 	remotePortsLocalWidth  = 150
 	remotePortsSourceWidth = 90
 	remotePortsStatusWidth = 170
@@ -37,7 +38,7 @@ func (a *App) remotePortsActions(c ui.C, p *project) {
 	ui.Button(c.Part("ports-help"), i18n.Shared(language, "native.moreInformation")).Icon(icons.Info).IconOnly().Ghost().Size(18, 18).
 		Tooltip(i18n.Shared(language, "desktop.remote.ports.help"))
 	if _, clicked := a.toolIconButton(c.Part("ports-rule-add"), i18n.Shared(language, "desktop.remote.ports.ruleAdd"), icons.Plus, false, r.session == ""); clicked {
-		c.After(func() { a.openRemotePortRule(p, surfaceToolbar) })
+		c.After(func() { a.openRemotePortRule(p, nil, surfaceToolbar) })
 	}
 	disabled := r.session == "" || len(r.ports.forwards) == 0 || r.ports.stoppingAll
 	if _, clicked := a.toolIconButton(c.Part("ports-stop-all"), i18n.Shared(language, "desktop.remote.ports.stopAll"), icons.Square, false, disabled); clicked {
@@ -46,7 +47,7 @@ func (a *App) remotePortsActions(c ui.C, p *project) {
 }
 
 // remotePortsView declares the body of the Ports window: the field a port is typed into, the
-// window's message, the list of ports and the forwarding rules.
+// window's message, the list of ports and the forwarding rules, running or remembered.
 func (a *App) remotePortsView(c ui.C, p *project) {
 	r := p.remote
 	if r == nil {
@@ -77,12 +78,12 @@ func (a *App) remotePortsView(c ui.C, p *project) {
 			a.remotePortsLine(c.Part("read-failed"), i18n.SharedFormat(language, "desktop.remote.ports.readFailed",
 				map[string]string{"reason": ports.readFailed}), a.theme.Danger)
 		}
-		rows, rules := ports.rows(), ports.rules()
+		rows, rules, idle := ports.rows(), ports.rules(), ports.idleRules()
 		empty := i18n.Shared(language, "desktop.remote.ports.empty")
 		if !ports.listed && ports.readFailed == "" {
 			empty = i18n.Shared(language, "desktop.remote.ports.loading")
 		}
-		if len(rows) == 0 && len(rules) == 0 {
+		if len(rows) == 0 && len(rules) == 0 && len(idle) == 0 {
 			a.panelMessage(c, empty, a.colors.Subtle)
 			return
 		}
@@ -96,13 +97,14 @@ func (a *App) remotePortsView(c ui.C, p *project) {
 			for _, row := range rows {
 				a.remotePortsRow(c.Key("port:"+row.key.host+":"+strconv.Itoa(int(row.key.port))), p, row)
 			}
-			if len(rules) > 0 {
-				a.remotePortRules(c, p, rules)
+			if len(rules) > 0 || len(idle) > 0 {
+				a.remotePortRules(c, p, rules, idle)
 			}
 		})
 	})
 	a.remotePortsConfirm(c, p)
 	a.remotePortsLocal(c, p)
+	a.remotePortsLabel(c, p)
 	a.remotePortRuleDialog(c, p)
 }
 
@@ -152,6 +154,7 @@ func (a *App) remotePortsHeader(c ui.C) {
 			})
 		}
 		column("remote", i18n.Shared(language, "desktop.remote.ports.columnRemote"), remotePortsRemoteWidth)
+		column("label", i18n.Shared(language, "desktop.remote.ports.columnLabel"), remotePortsLabelWidth)
 		column("local", i18n.Shared(language, "desktop.remote.ports.columnLocal"), remotePortsLocalWidth)
 		column("process", i18n.Shared(language, "desktop.remote.ports.columnProcess"), 0)
 		column("source", i18n.Shared(language, "desktop.remote.ports.columnSource"), remotePortsSourceWidth)
@@ -275,6 +278,7 @@ func (a *App) remotePortsRow(c ui.C, p *project, row remotePortRow) {
 		remoteCell.Children(func() {
 			ui.Text(c.Part("remote-text"), remote).Color(a.colors.Text).Ellipsis()
 		})
+		a.remotePortsLabelCell(c, ports.labels[row.key])
 		localCell := ui.Row(c.Part("local")).Width(remotePortsLocalWidth).Shrink(0).Items(ui.Center)
 		color := a.colors.Text
 		if localTip != "" {
@@ -325,8 +329,12 @@ func (a *App) remotePortsRow(c ui.C, p *project, row remotePortRow) {
 				c.After(func() { a.chooseRemoteLocalPort(p, row.key, surfaceContextMenu) })
 			}
 		}
+		menu.Separator()
+		if menu.Item(i18n.Shared(language, "desktop.remote.ports.editLabel")).Icon(icons.Tag).Clicked() {
+			key := row.key
+			c.After(func() { a.editRemotePortLabel(p, remotePortLabelTarget{key: &key}, surfaceContextMenu) })
+		}
 		if row.added != nil && row.forward == nil && len(row.listening) == 0 {
-			menu.Separator()
 			if menu.Item(i18n.Shared(language, "desktop.remote.ports.remove")).Icon(icons.Trash2).Disabled(busy).Clicked() {
 				c.After(func() { a.removeRemotePort(p, row.key) })
 			}
@@ -421,6 +429,53 @@ func (a *App) remotePortsLocal(c ui.C, p *project) {
 	})
 	if closed || !ports.localOpen {
 		ports.local, ports.localOpen, ports.localInvalid = nil, false, false
+	}
+}
+
+// remotePortsLabelFits is the most characters of the Label column that its width shows whole.
+const remotePortsLabelFits = 14
+
+// remotePortsLabelCell declares the Label column of a row or a rule: the name the user gave it.
+func (a *App) remotePortsLabelCell(c ui.C, label string) {
+	cell := ui.Row(c.Part("label")).Width(remotePortsLabelWidth).Shrink(0).Items(ui.Center)
+	if utf8.RuneCountInString(label) > remotePortsLabelFits {
+		// The cell takes an identity for its tooltip, which gives the label the column cuts off.
+		cell = cell.HitWith(ui.ID(c.Part("label")), label, gfx.HitOptions{Role: gfx.RoleStatus, SkipFocus: true}).Tooltip(label)
+	}
+	cell.Children(func() {
+		ui.Text(c.Part("label-text"), label).Color(a.colors.Text).Ellipsis()
+	})
+}
+
+// remotePortsLabel declares the dialog the label of a row or a rule is typed in. Closing it
+// changes nothing.
+func (a *App) remotePortsLabel(c ui.C, p *project) {
+	ports := &p.remote.ports
+	if ports.label == nil {
+		ports.labelOpen = false
+		return
+	}
+	language := a.language()
+	closed := ui.Modal(c.Part("ports-label"), &ports.labelOpen, i18n.Shared(language, "desktop.remote.ports.labelTitle"), func() {
+		ui.Paragraph(c, i18n.Shared(language, "desktop.remote.ports.labelBody"), 5).Color(a.colors.Text)
+		submitted := ui.TextField(c.Part("ports-label-field"), &ports.labelField, i18n.Shared(language, "desktop.remote.ports.labelField"),
+			i18n.Shared(language, "desktop.remote.ports.labelField")).FillWidth().Submitted()
+		if ports.labelInvalid {
+			ui.Text(c, i18n.Shared(language, "desktop.remote.ports.labelInvalid")).FontSize(12).Color(a.theme.Danger)
+		}
+		if submitted {
+			c.After(func() { a.applyRemotePortLabel(p) })
+		}
+	}, func() {
+		if ui.Button(c, i18n.Shared(language, "desktop.remote.ports.labelCancel")).Outline().Clicked() {
+			ports.labelOpen = false
+		}
+		if ui.Button(c, i18n.Shared(language, "desktop.remote.ports.labelApply")).Clicked() {
+			c.After(func() { a.applyRemotePortLabel(p) })
+		}
+	})
+	if closed || !ports.labelOpen {
+		ports.label, ports.labelOpen, ports.labelInvalid = nil, false, false
 	}
 }
 

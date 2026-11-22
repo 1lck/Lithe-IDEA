@@ -165,6 +165,16 @@ func TestRemoteSessionCommandsOfAnUnknownSession(t *testing.T) {
 	if _, err := client.RemoteListeningPorts(ctx, "no-such-session"); !errors.As(err, &coreErr) || coreErr.Code != CodeConnectionClosed {
 		t.Fatalf("ports.listening = %v, want connection_closed", err)
 	}
+	if _, err := client.RemotePortRecords(ctx, nil, "no-such-session", "/srv/repo"); !errors.As(err, &coreErr) || coreErr.Code != CodeConnectionClosed {
+		t.Fatalf("portRecords = %v, want connection_closed", err)
+	}
+	label := RemotePortRecordEdit{Port: &RemotePortRecord{Port: 8080, Label: "web"}}
+	if changed, updated, _, err := client.EditRemotePortRecords(ctx, nil, "no-such-session", "/srv/repo", label); changed || updated != nil || !errors.As(err, &coreErr) || coreErr.Code != CodeConnectionClosed {
+		t.Fatalf("editPortRecords = %v, %v, %v, want connection_closed", changed, updated != nil, err)
+	}
+	if restored, err := client.RestoreRemoteForwards(ctx, nil, "no-such-session", "/srv/repo"); restored != nil || !errors.As(err, &coreErr) || coreErr.Code != CodeConnectionClosed {
+		t.Fatalf("restoreForwards = %d, %v, want connection_closed", len(restored), err)
+	}
 }
 
 // A context without its remote workspace sends requests that compute from their payload as

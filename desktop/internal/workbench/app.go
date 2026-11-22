@@ -266,6 +266,9 @@ type Kernel interface {
 	RemoteForwards(ctx context.Context, sessionID string) ([]core.RemoteForward, error)
 	RemoteListeningPorts(ctx context.Context, sessionID string) ([]core.RemoteListeningPort, error)
 	RemoteParseForwardAddress(ctx context.Context, text string) (core.RemoteForwardAddress, error)
+	RemotePortRecords(ctx context.Context, document *string, sessionID, workspace string) (core.RemotePortRecordsState, error)
+	EditRemotePortRecords(ctx context.Context, document *string, sessionID, workspace string, edit core.RemotePortRecordEdit) (changed bool, updated *string, records core.RemotePortRecords, err error)
+	RestoreRemoteForwards(ctx context.Context, document *string, sessionID, workspace string) ([]core.RemoteRestoredForward, error)
 	GitCreateTag(ctx context.Context, root, name, revision, message string) error
 	GitRebasePreview(ctx context.Context, root, base string) (core.RebasePreview, error)
 	GitRebaseStart(ctx context.Context, root string, preview core.RebasePreview, steps []core.RebaseStep) (*core.RebaseSession, error)

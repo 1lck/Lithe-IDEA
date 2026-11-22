@@ -151,7 +151,7 @@ func TestVisualRemotePorts(t *testing.T) {
 			kernel.set(func(k *remoteHostKernel) { k.ports.rules.allowReverse = true })
 			addRule := func(kind remotePortRuleKind, listen, target string, all bool) {
 				t.Helper()
-				h.app.openRemotePortRule(p, surfaceToolbar)
+				h.app.openRemotePortRule(p, nil, surfaceToolbar)
 				h.settleChain()
 				draft := ports.rule
 				draft.kind, draft.allInterfaces = kind, all
@@ -177,7 +177,7 @@ func TestVisualRemotePorts(t *testing.T) {
 			}
 			shot("rules")
 
-			h.app.openRemotePortRule(p, surfaceToolbar)
+			h.app.openRemotePortRule(p, nil, surfaceToolbar)
 			h.settleChain()
 			draft := ports.rule
 			draft.allInterfaces = true
@@ -187,6 +187,41 @@ func TestVisualRemotePorts(t *testing.T) {
 			h.app.submitRemotePortRule(p, surfaceButton)
 			h.await("the question", func() bool { return !draft.starting && draft.confirm == remotePortRuleConfirmAll })
 			shot("rule-confirm")
+			ports.rule, ports.ruleOpen = nil, false
+			h.settleChain()
+
+			// The user names rows and rules; the window remembers them with the forwards left
+			// running and the rules, and lists them again when the workspace opens again.
+			label := func(target remotePortLabelTarget, text string, scene string) {
+				t.Helper()
+				h.app.editRemotePortLabel(p, target, surfaceContextMenu)
+				h.settleChain()
+				ports.labelField.SetText(text)
+				if scene != "" {
+					shot(scene)
+				}
+				h.app.applyRemotePortLabel(p)
+				h.await("the port records", func() bool { return !ports.recordsBusy })
+			}
+			label(remotePortLabelTarget{key: &remotePortKey{port: 8080}}, "Web UI", "label")
+			label(remotePortLabelTarget{key: &remotePortKey{port: 5432}}, "Database", "")
+			tunnel := remotePortRuleOf(ports.rules()[0])
+			label(remotePortLabelTarget{rule: &tunnel}, "DB tunnel", "")
+			shot("labels")
+
+			h.app.closeProject()
+			h.awaitClosed(t)
+			h.app.openRemote(surfaceMenu)
+			h.settleChain()
+			p = h.openRemoteTestProject(t)
+			h.app.openToolWindow(itemPorts)
+			h.redraw()
+			ports = &p.remote.ports
+			h.await("the remembered forwards", func() bool { return ports.listed && !ports.recordsBusy && len(ports.forwards) == 2 })
+			if len(ports.idleRules()) != 3 {
+				t.Fatalf("%d remembered rules, want 3", len(ports.idleRules()))
+			}
+			shot("remembered")
 		})
 	}
 }
