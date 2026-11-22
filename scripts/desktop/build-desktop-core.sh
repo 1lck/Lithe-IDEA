@@ -339,7 +339,12 @@ PINNED_CORE_REPOSITORY="https://github.com/Lithe-IDEA/Lithe-core-rust.git"
 # Lithe-core-rust main at 2e4be2c: #166 a connection accepts a Windows domain user (DOMAIN\name,
 # name@domain) and remote.mottyHosts marks a refused setting on its own field with the invalid
 # status; #165 ending a remote session releases the search indexes it built (#2231, #2277).
-PINNED_CORE_REVISION="18feb4af3cfbf86eaad978ad92fb0593ce96ca3c"
+# Lithe-core-rust main at 18feb4a: #167 remote.attachProcess takes back a process of a resumed or
+# kept host session (#2231).
+# Lithe-core-rust #169 at edad041, until it is merged: a WSL connection reads what wsl.exe printed
+# on standard output, so a distribution that is not installed is unreachable and other failures
+# keep its message (#2231).
+PINNED_CORE_REVISION="edad0419872837674fdee72124da37f81360767e"
 PROFILE="debug"
 CHECKOUT_ONLY="no"
 while [[ $# -gt 0 ]]; do

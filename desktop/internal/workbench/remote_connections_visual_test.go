@@ -53,7 +53,7 @@ func TestVisualRemoteConnections(t *testing.T) {
 				t.Fatal(err)
 			}
 			var session *headless.Session
-			kernel := &remoteProbeKernel{Client: core.NewClient(), result: probed}
+			kernel := &remoteProbeKernel{testKernel: &testKernel{Client: core.NewClient()}, result: probed}
 			h := newHarnessWithDriver(t, Options{Kernel: kernel, Store: prefs, Languages: []string{look.language}}, func(config app.Config) (*app.Driver, func(), error) {
 				config.Width, config.Height = 1200, 760
 				var err error

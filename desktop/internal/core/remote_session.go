@@ -242,10 +242,11 @@ type RemoteConnectResult struct {
 
 // RemoteConnect opens a session as request asks. Questions OpenSSH asks reach the prompt
 // WithGitAuthentication put in ctx, as for RemoteProbe. Core bounds an attempt, answers
-// included, to five minutes; a WSL connection asks nothing, and a distribution that is not
-// installed is RemoteProbeUnreachable. Failures are CodeInvalidRequest before OpenSSH or wsl.exe
-// starts, CodeRuntimeMissing without ssh, CodeRemoteServerInvalid when the build cannot be read or
-// differs from its SHA-256, and the context's error when ctx ends. A session whose events could
+// included, to five minutes; a WSL connection asks nothing, a distribution that is not
+// installed is RemoteProbeUnreachable, and an unknown user of an installed one is
+// RemoteProbeFailed with what wsl.exe printed. Failures are CodeInvalidRequest before OpenSSH or
+// wsl.exe starts, CodeRuntimeMissing without ssh, CodeRemoteServerInvalid when the build cannot be
+// read or differs from its SHA-256, and the context's error when ctx ends. A session whose events could
 // not all be observed is closed again and the observation failure returned: the user may not
 // have seen every question it asked.
 func (c *Client) RemoteConnect(ctx context.Context, request RemoteConnectRequest) (RemoteConnectResult, error) {
