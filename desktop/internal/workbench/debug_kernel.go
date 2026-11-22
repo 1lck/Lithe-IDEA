@@ -21,6 +21,7 @@ type debugStateKernel interface {
 	LocateDebugMemoryWindow(ctx context.Context, window core.DebugMemoryWindow, start string, length uint32) (core.DebugMemoryLocation, error)
 	SetDebugVariable(ctx context.Context, sessionID, operationID string, variablesReference int64, name, value string) (core.DebugUpdate, error)
 	DebugStartDebuggingResponse(ctx context.Context, sessionID, requestID string, success bool, message string) (core.DebugUpdate, error)
+	DebugRunInTerminalResponse(ctx context.Context, sessionID, requestID string, pid int64, message string) (core.DebugUpdate, error)
 	DebugStartOrContinue(ctx context.Context, active, paused, requestPending bool) (core.DebugStartAction, error)
 	PlanDebugVariablePage(ctx context.Context, variablesReference, namedVariables, indexedVariables int64, pageSize uint32) (core.DebugVariablePageState, error)
 	ReduceDebugVariablePage(ctx context.Context, state core.DebugVariablePageState, requested core.DebugVariablePageRequest, page []core.DebugVariablePageItem, newItemCount uint64) (bool, core.DebugVariablePageState, error)

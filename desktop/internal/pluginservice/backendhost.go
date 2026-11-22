@@ -346,16 +346,21 @@ func (h *BackendHost) DetachAll() func() {
 // Notify sends a host notification to a running backend that holds the grant.
 // A backend that is not running or not granted never sees it.
 func (h *BackendHost) Notify(ctx context.Context, pluginID, grant, method string, params json.RawMessage) {
-	session := h.Running(pluginID)
-	if session == nil || !session.granted(grant) {
+	if session := h.Running(pluginID); session != nil {
+		session.notify(ctx, grant, method, params)
+	}
+}
+
+func (b *BackendSession) notify(ctx context.Context, grant, method string, params json.RawMessage) {
+	if !b.granted(grant) {
 		return
 	}
 	// A notification may arrive before initialize completes; it is dropped then,
 	// because a backend that starts later reads the state itself.
-	if !session.isReady() {
+	if !b.isReady() {
 		return
 	}
-	_, _ = h.service.kernel.SendPluginHostNotification(ctx, session.Session.ID, method, params)
+	_, _ = b.host.service.kernel.SendPluginHostNotification(ctx, b.Session.ID, method, params)
 }
 
 // NotifyAll sends a host notification to every running backend that holds the grant.

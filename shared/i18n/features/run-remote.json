@@ -1,0 +1,28 @@
+{
+  "schemaVersion": 1,
+  "messages": [
+    {
+      "id": "desktop.run.remoteLabel",
+      "description": "Run tab title for a process running on the remote workspace host",
+      "platforms": ["desktop"],
+      "parameters": {
+        "label": "string"
+      }
+    },
+    {
+      "id": "desktop.run.remoteDisconnected",
+      "description": "Run status when the remote process connection was lost",
+      "platforms": ["desktop"]
+    }
+  ],
+  "locales": {
+    "en-US": {
+      "desktop.run.remoteLabel": "{label} (Remote)",
+      "desktop.run.remoteDisconnected": "Connection to the remote workspace lost."
+    },
+    "zh-CN": {
+      "desktop.run.remoteLabel": "{label}（远端）",
+      "desktop.run.remoteDisconnected": "与远程工作区的连接已断开。"
+    }
+  }
+}

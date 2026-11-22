@@ -3,6 +3,7 @@ package workbench
 import (
 	"context"
 	"errors"
+	"net"
 	"strings"
 	"sync"
 
@@ -34,6 +35,17 @@ func (a *App) openAnnouncedTransport(ctx context.Context, p *project, session *d
 	)
 	hooks := a.debugStreamHooks(p, session, messages)
 	hooks.Discover = reader.wait
+	if prepared.RemoteAdapter {
+		hooks.Dial = func(ctx context.Context, host string, port int) (net.Conn, error) {
+			forward, err := a.forwardDebugEndpoint(ctx, session.connection, host, port, false)
+			if err != nil {
+				return nil, err
+			}
+			// Release waits for this dial before the session reclaims its forward.
+			session.releaseForward = forward.release
+			return dialDebugTCP(ctx, forward.host, forward.port)
+		}
+	}
 	transport := newDebugTransport(a.kernel, session.id+"-transport", hooks)
 	if !session.setTransport(transport) {
 		return context.Canceled
@@ -45,7 +57,11 @@ func (a *App) openAnnouncedTransport(ctx context.Context, p *project, session *d
 	if err := transport.Start(nil); err != nil {
 		return err
 	}
-	return a.startAdapterProcess(ctx, p, session, prepared, nil, reader.observe, errors.New(messages.NotAnnounced))
+	unreached := errors.New(messages.NotAnnounced)
+	if prepared.RemoteAdapter {
+		return a.startRemoteAnnouncedAdapter(ctx, p, session, prepared, reader.observe, unreached)
+	}
+	return a.startAdapterProcess(ctx, p, session, prepared, nil, reader.observe, unreached)
 }
 
 // debugAnnouncedEndpoint is the result of waiting for an announcement: the

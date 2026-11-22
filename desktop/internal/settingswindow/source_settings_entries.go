@@ -44,6 +44,7 @@ type sourceNavItem struct {
 
 // sourceEntryChooser is the dialog that adds entries of a choice kind.
 type sourceEntryChooser struct {
+	path          string
 	open          bool
 	source, field string
 	kind          int

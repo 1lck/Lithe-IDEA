@@ -2,6 +2,8 @@ package workbench
 
 import (
 	"context"
+	"encoding/json"
+	"errors"
 	"path/filepath"
 	"slices"
 	"strconv"
@@ -12,6 +14,8 @@ import (
 
 	"github.com/1lck/Lithe-IDEA/desktop/internal/core"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/i18n"
+	"github.com/1lck/Lithe-IDEA/desktop/internal/pluginhost"
+	"github.com/1lck/Lithe-IDEA/desktop/internal/pluginservice"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/remoteplaceholder"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/remoteserver"
 )
@@ -40,8 +44,8 @@ var remoteTestFolders = map[string][]core.RemoteDirectoryEntry{
 // remoteTestFolders, answers heartbeats as the test says, lists the workspace's tree only for a
 // request that carries the workspace's session, keeps the files of files
 // (remote_documents_test.go), watches the workspace's folder (remote_watch_test.go), searches
-// it (remote_search_test.go) and forwards the host's ports (remote_ports_test.go). Everything else
-// is the real Core.
+// it (remote_search_test.go), forwards the host's ports (remote_ports_test.go) and answers for an
+// empty set of run configuration layers. Everything else is the real Core.
 type remoteHostKernel struct {
 	*testKernel
 	mu sync.Mutex
@@ -51,9 +55,12 @@ type remoteHostKernel struct {
 	state    error
 	once     error
 	connects int
+	target   string
 	servers  [][]core.RemoteServerBuild
 	beats    int
 	closed   []string
+	// deploymentSweeps records the captured attachment for each cache sweep.
+	deploymentSweeps []string
 	// listings are the sessions the Project tool window's listings carried, "" for none.
 	listings []string
 	// files are the host's files by host path, and modified the time each was last written.
@@ -172,7 +179,13 @@ func (k *remoteHostKernel) RemoteConnect(_ context.Context, request core.RemoteC
 	if k.refuse != "" {
 		return core.RemoteConnectResult{Status: k.refuse}, nil
 	}
-	return core.RemoteConnectResult{Status: core.RemoteProbeConnected, Session: k.close.session(k.connects, request.Resume)}, nil
+	session := k.close.session(k.connects, request.Resume)
+	target := k.target
+	if target == "" {
+		target = "x86_64-unknown-linux-musl"
+	}
+	host := &core.RemoteProbedHost{ServerTarget: target}
+	return core.RemoteConnectResult{Status: core.RemoteProbeConnected, Session: session, Host: host}, nil
 }
 
 func (k *remoteHostKernel) RemoteReadDir(_ context.Context, _ string, dir string) (core.RemoteDirectory, error) {
@@ -194,6 +207,19 @@ func (k *remoteHostKernel) RemoteServerState(context.Context, string) error {
 	return k.state
 }
 
+func (k *remoteHostKernel) SweepRemotePluginDeployments(ctx context.Context, installed []core.RemoteInstalledPluginVersion) error {
+	workspace := core.RemoteWorkspaceOf(ctx)
+	connection := workspace.CapturedConnection(ctx)
+	session := connection.SessionID()
+	if session == "" || installed == nil {
+		return errors.New("missing deployment sweep attachment or inventory")
+	}
+	k.mu.Lock()
+	defer k.mu.Unlock()
+	k.deploymentSweeps = append(k.deploymentSweeps, session)
+	return nil
+}
+
 func (k *remoteHostKernel) RemoteDisconnect(_ context.Context, id string, programs core.RemoteClosePrograms) (core.RemoteDisconnectResult, error) {
 	k.mu.Lock()
 	defer k.mu.Unlock()
@@ -207,6 +233,37 @@ func (k *remoteHostKernel) RemoteDisconnect(_ context.Context, id string, progra
 		k.close.kept[k.close.keys[id]] = slices.Clone(k.close.running)
 	}
 	return core.RemoteDisconnectResult{Closed: true, Kept: kept}, nil
+}
+
+func (k *remoteHostKernel) ResolveRunConfigurations(ctx context.Context, root string, plugins []core.RunInstalledPlugin) (core.RunConfigResolution, error) {
+	if binding := core.RemoteWorkspaceOf(ctx); binding != nil {
+		if connection := binding.CapturedConnection(ctx); connection == nil || root != binding.LocalRoot() {
+			return core.RunConfigResolution{}, errors.New("remote run configuration resolution requires the project's captured connection")
+		}
+		return k.remoteRunConfigurations(), nil
+	}
+	return k.Client.ResolveRunConfigurations(ctx, root, plugins)
+}
+
+func (k *remoteHostKernel) GenerateRunConfigurations(ctx context.Context, root string, runs json.RawMessage) (core.RunConfigGeneration, error) {
+	if binding := core.RemoteWorkspaceOf(ctx); binding != nil {
+		if connection := binding.CapturedConnection(ctx); connection == nil || root != binding.LocalRoot() {
+			return core.RunConfigGeneration{}, errors.New("remote run configuration generation requires the project's captured connection")
+		}
+		return core.RunConfigGeneration{}, nil
+	}
+	return k.Client.GenerateRunConfigurations(ctx, root, runs)
+}
+
+func (k *remoteHostKernel) RunConfigurationTypes(ctx context.Context, plugins *core.RunTypePlugins) ([]core.RunConfigurationType, []core.RunTypeLocalization, error) {
+	if binding := core.RemoteWorkspaceOf(ctx); binding != nil {
+		if binding.CapturedConnection(ctx) == nil {
+			return nil, nil, errors.New("remote run configuration types require the project's captured connection")
+		}
+		// Tests of configuration types and their target-platform availability use the real Core.
+		return nil, nil, nil
+	}
+	return k.Client.RunConfigurationTypes(ctx, plugins)
 }
 
 func (k *remoteHostKernel) ListDirectories(ctx context.Context, _ string, paths []string) ([]core.DirectoryListing, error) {
@@ -640,6 +697,118 @@ func TestRemoteWorkspaceReconnectsWhenTheConnectionCloses(t *testing.T) {
 	h.await("the new session", func() bool { return r.session == "session-2" && !r.beating && !p.tree.reading })
 	if r.link != remoteConnected || !slices.Contains(k.closed, "session-1") {
 		t.Fatalf("link %v, closed %q: the lost session was not replaced", r.link, k.closed)
+	}
+}
+
+func TestRemoteWorkspacePluginContextFollowsTheConnectedHost(t *testing.T) {
+	h, kernel, timers, logger := remoteWorkspaceHarness(t)
+	service, err := pluginservice.Open(kernel, h.store, t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	h.app.plugins = service
+	t.Cleanup(service.Contexts.CloseAll)
+	p := h.openRemoteTestProject(t)
+	initial := p.pluginContext
+	const pluginID = "dev.lithe.test.remote-metadata"
+	caller := pluginhost.WithCaller(t.Context(), pluginhost.Caller{PluginID: pluginID})
+	checkHost := func(ref pluginservice.ContextRef, arch string) {
+		t.Helper()
+		request, err := json.Marshal(map[string]pluginservice.ContextRef{"context": ref})
+		if err != nil {
+			t.Fatal(err)
+		}
+		result, refusal := service.HostServices.Respond(caller, "lithe/host/workspace/getContext", request)
+		var metadata struct {
+			Authority struct {
+				Kind     string
+				ID       string
+				Platform core.RemotePlatform
+			}
+			Folders []struct{ RootID, Path string }
+		}
+		if refusal != nil {
+			t.Fatalf("getContext: %+v", refusal)
+		}
+		if err := json.Unmarshal(result, &metadata); err != nil {
+			t.Fatal(err)
+		}
+		wantPlatform := core.RemotePlatform{OS: "linux", Arch: arch}
+		if metadata.Authority.Kind != "remote" || metadata.Authority.ID != p.remote.connectionID ||
+			metadata.Authority.Platform != wantPlatform || len(metadata.Folders) != 1 ||
+			metadata.Folders[0].Path != "" {
+			t.Fatalf("unexpected remote metadata: %s", result)
+		}
+		result, refusal = service.HostServices.Respond(caller, "lithe/host/workspace/getHostPaths", request)
+		var paths struct {
+			Folders []struct{ RootID, HostPath string }
+		}
+		if refusal != nil {
+			t.Fatalf("getHostPaths: %+v", refusal)
+		}
+		if err := json.Unmarshal(result, &paths); err != nil {
+			t.Fatal(err)
+		}
+		if len(paths.Folders) != 1 || paths.Folders[0].HostPath != remoteTestHome+"/project" ||
+			paths.Folders[0].RootID != metadata.Folders[0].RootID {
+			t.Fatalf("unexpected remote paths: %s", result)
+		}
+	}
+	checkHost(initial, "x86_64")
+	awaitSweep := func(session string) {
+		t.Helper()
+		h.await("deployment sweep on "+session, func() bool {
+			kernel.mu.Lock()
+			defer kernel.mu.Unlock()
+			return slices.Contains(kernel.deploymentSweeps, session)
+		})
+	}
+	awaitSweep("session-1")
+	reconnect := func(target, session string) {
+		t.Helper()
+		kernel.set(func(k *remoteHostKernel) {
+			k.target = target
+			k.once = &core.Error{Command: "remote.serverState", Code: core.CodeConnectionClosed, Message: "closed"}
+		})
+		h.fire(t, timers)
+		losses := countFailures(logger, "remote_session_lost")
+		h.fireReconnect(t, timers, p.remote)
+		h.await("the replacement host session", func() bool {
+			if countFailures(logger, "remote_session_lost") > losses || p.remote.session == "" && p.remote.reconnecting == nil {
+				t.Fatalf("session %s did not stay connected (current %q, link %v)", session, p.remote.session, p.remote.link)
+			}
+			return p.remote.session == session && !p.remote.beating && !p.tree.reading
+		})
+		awaitSweep(session)
+	}
+	reconnect("x86_64-unknown-linux-musl", "session-2")
+	if p.pluginContext != initial {
+		t.Fatalf("same host platform replaced context %+v with %+v", initial, p.pluginContext)
+	}
+	reconnect("aarch64-unknown-linux-musl", "session-3")
+	current := p.pluginContext
+	if current.ContextID != initial.ContextID || current.Generation != initial.Generation+1 {
+		t.Fatalf("changed platform did not advance generation: %+v to %+v", initial, current)
+	}
+	if _, err := service.Contexts.Lookup(initial); !errors.Is(err, pluginservice.ErrContextExpired) {
+		t.Fatalf("old context lookup: %v", err)
+	}
+	checkHost(current, "arm64")
+	kernel.set(func(k *remoteHostKernel) {
+		if want := []string{"session-1", "session-2", "session-3"}; !slices.Equal(k.deploymentSweeps, want) {
+			t.Errorf("deployment sweeps ran on %v, want %v", k.deploymentSweeps, want)
+		}
+	})
+	h.await("the run configuration types for the reconnected host", func() bool {
+		return p.runConfigsSettled() && !p.runConfigs.typesLoading
+	})
+	if countFailures(logger, "run_config_plugins") != 0 || countFailures(logger, "run_config_types") != 0 {
+		t.Fatal("could not resolve installed plugins or run configuration types for the remote workspace")
+	}
+	h.app.closeProject()
+	h.await("the closed workspace", func() bool { return h.app.project == nil })
+	if _, err := service.Contexts.Lookup(current); !errors.Is(err, pluginservice.ErrContextExpired) {
+		t.Fatalf("closed context lookup: %v", err)
 	}
 }
 

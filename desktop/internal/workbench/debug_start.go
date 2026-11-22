@@ -46,6 +46,8 @@ type debugStart struct {
 	target *core.DebugTargetFacts
 	// confirmed records that the user accepted a non-local endpoint.
 	confirmed bool
+	// connection stays fixed even while an attach waits for confirmation.
+	connection *core.RemoteWorkspaceConnection
 	// configuration is the plugin backend's DAP launch or attach arguments, set
 	// when a backend started the session through debug/start. They apply on top
 	// of the adapter's declared arguments and no file or connection is planned.
@@ -145,8 +147,13 @@ func (a *App) saveAndBeginDebug(p *project, start debugStart) {
 		a.beginDebug(p, start)
 		return
 	}
+	connection, connected := captureWorkspaceConnection(p)
+	if !connected {
+		return
+	}
+	start.connection = connection
 	a.saveProjectDocuments(p, func(ok bool) {
-		if ok {
+		if ok && (connection == nil || connection.IsCurrent()) {
 			a.beginDebug(p, start)
 		}
 	})
@@ -219,6 +226,7 @@ func (a *App) attachDebugForRun(ctx context.Context, request pluginservice.RunDe
 		err error
 	}
 	result := make(chan outcome, 1)
+	var started *debugSession
 	a.post(func(a *App) {
 		p := a.project
 		if p == nil || filepath.Clean(p.root) != filepath.Clean(request.WorkspaceRoot) {
@@ -245,16 +253,17 @@ func (a *App) attachDebugForRun(ctx context.Context, request pluginservice.RunDe
 					a.performed("debug.start", surfacePlugin)
 					a.beginDebug(p, debugStart{
 						adapter: adapter, request: "attach", confirmed: true,
-						target:  &core.DebugTargetFacts{Kind: "connection", Host: request.Host, Port: request.Port},
-						stopRun: request.StopRun,
+						target:     &core.DebugTargetFacts{Kind: "connection", Host: request.Host, Port: request.Port},
+						stopRun:    request.StopRun,
+						connection: request.Connection,
 					})
-					session := p.debug.activeSession()
-					if session == nil {
+					started = p.debug.activeSession()
+					if started == nil {
 						result <- outcome{err: errors.New("the debug session did not start")}
 						return
 					}
 					a.openToolWindow(itemDebug)
-					result <- outcome{id: session.id}
+					result <- outcome{id: started.id}
 					return
 				}
 			}
@@ -265,6 +274,7 @@ func (a *App) attachDebugForRun(ctx context.Context, request pluginservice.RunDe
 	case r := <-result:
 		return r.id, r.err
 	case <-ctx.Done():
+		a.post(func(a *App) { a.cancelPendingRunDebug(started) })
 		return "", ctx.Err()
 	}
 }
@@ -279,6 +289,7 @@ func (a *App) launchDebugForRun(ctx context.Context, request pluginservice.RunDe
 		err     error
 	}
 	result := make(chan outcome, 1)
+	var started *debugSession
 	a.post(func(a *App) {
 		p := a.project
 		if p == nil || filepath.Clean(p.root) != filepath.Clean(request.WorkspaceRoot) {
@@ -310,17 +321,18 @@ func (a *App) launchDebugForRun(ctx context.Context, request pluginservice.RunDe
 				}
 				a.performed("debug.start", surfacePlugin)
 				a.beginDebug(p, debugStart{
-					adapter: adapter, request: "launch", ended: ended,
+					adapter: adapter, request: "launch", ended: ended, connection: request.Connection,
 					launchTarget: &core.DebugTargetFacts{
 						Kind: "executable", Path: request.Executable, Executable: request.Executable,
 						WorkingDirectory: request.WorkingDirectory, Arguments: arguments, Environment: environment,
 					},
 				})
-				if p.debug.activeSession() == nil || p.debug.activeSession().ended != ended {
+				started = p.debug.activeSession()
+				if started == nil || started.ended != ended {
 					result <- outcome{err: fmt.Errorf("the debug session did not start: %s", p.debug.failure)}
 					return
 				}
-				result <- outcome{session: pluginservice.RunDebugSession{ID: p.debug.activeSession().id, Ended: ended}}
+				result <- outcome{session: pluginservice.RunDebugSession{ID: started.id, Ended: ended}}
 				return
 			}
 			result <- outcome{err: fmt.Errorf("no debug adapter launches %q", request.ConfigurationType)}
@@ -330,7 +342,15 @@ func (a *App) launchDebugForRun(ctx context.Context, request pluginservice.RunDe
 	case r := <-result:
 		return r.session, r.err
 	case <-ctx.Done():
+		a.post(func(a *App) { a.cancelPendingRunDebug(started) })
 		return pluginservice.RunDebugSession{}, ctx.Err()
+	}
+}
+
+// cancelPendingRunDebug cleans up a session created just as its caller cancelled the request.
+func (a *App) cancelPendingRunDebug(session *debugSession) {
+	if session != nil && a.project == session.project && session.project.debug.activeSession() == session {
+		a.stopDebugByUser(session.project)
 	}
 }
 
@@ -357,12 +377,16 @@ func (a *App) startDebugForBackend(ctx context.Context, request pluginservice.De
 			result <- outcome{err: errors.New("a debug session is already running")}
 			return
 		}
+		if err := ctx.Err(); err != nil {
+			result <- outcome{err: err}
+			return
+		}
 		for _, adapter := range p.debug.adapters {
 			if adapter.PluginID+"/"+adapter.Declaration.ID != request.AdapterID {
 				continue
 			}
 			a.performed("debug.start", surfacePlugin)
-			a.beginDebug(p, debugStart{adapter: adapter, request: request.Request, confirmed: true, configuration: request.Configuration})
+			a.beginDebug(p, debugStart{adapter: adapter, request: request.Request, configuration: request.Configuration, connection: request.Connection})
 			if p.debug.activeSession() == nil {
 				result <- outcome{err: errors.New("the debug session could not start")}
 				return
@@ -401,6 +425,22 @@ func (a *App) beginDebug(p *project, start debugStart) {
 	a.pluginServerMu.Unlock()
 	if suppressed {
 		return
+	}
+	if p.remote != nil {
+		connection, connected := captureWorkspaceConnection(p)
+		if !connected || (start.connection != nil && !start.connection.SameAttachment(connection)) {
+			err := errRemoteSessionClosed
+			a.operationFailed("debug", err)
+			p.debug.failure = a.text.Debug.ConnectionClosed
+			return
+		}
+		if !p.trust.allowed() {
+			err := remoteDebugUntrusted()
+			a.operationFailed("debug", err)
+			p.debug.failure = a.launchFailureText(err)
+			return
+		}
+		start.connection = connection
 	}
 	targetPath := start.targetPath
 	if doc := p.selectedDocument(p.docs.group); targetPath == "" && doc != nil {
@@ -442,7 +482,7 @@ func (a *App) beginDebug(p *project, start debugStart) {
 	for path, lines := range p.debug.breakpoints {
 		breakpoints[path] = append([]debugBreakpoint(nil), lines...)
 	}
-	ctx, cancel := context.WithCancel(p.ctx)
+	ctx, cancel := context.WithCancel(attachedWorkspaceContext(p.ctx, start.connection))
 	id := fmt.Sprintf("desktop-debug-%d", debugSessionSequence.Add(1))
 	session := &debugSession{
 		id:             id,
@@ -458,6 +498,7 @@ func (a *App) beginDebug(p *project, start debugStart) {
 		adapter:        adapter,
 		parent:         start.parent,
 		startRequestID: start.startRequestID,
+		connection:     start.connection,
 		// The debug session ID is the start's operation ID, so its result sits with the
 		// session's own debug records.
 		adapterStart: core.StartPluginAttempt(adapter.PluginID, core.OperationDebugAdapterStart, id),
@@ -472,7 +513,7 @@ func (a *App) beginDebug(p *project, start debugStart) {
 	// Only a stdio adapter is written through its standard input; the other
 	// transports are written through their TCP stream.
 	var stdinReader *os.File
-	if !hosted && !announced {
+	if start.connection == nil && !hosted && !announced {
 		reader, writer, err := os.Pipe()
 		if err != nil {
 			cancel()
@@ -500,6 +541,12 @@ func (a *App) beginDebug(p *project, start debugStart) {
 	// Instruction addresses are valid for one run of one process: the set is not replayed.
 	p.debug.instructionBreakpoints = nil
 	p.debug.hideFiltered = hideFiltered
+	if start.connection != nil {
+		stopDetach := start.connection.AfterDetach(func() {
+			a.post(func(a *App) { a.finishDebugError(p, session, errRemoteSessionClosed) })
+		})
+		context.AfterFunc(ctx, func() { stopDetach() })
+	}
 
 	a.background(p, 0, func(_ context.Context) func(*App) {
 		session.operationMu.Lock()
@@ -524,8 +571,12 @@ func (a *App) beginDebug(p *project, start debugStart) {
 		}
 		// Assigned only by startup; cleanup reads it after startupDone closes.
 		session.stateDirectory = stateDirectory
-		preparationContext, cancelPreparation := context.WithTimeout(ctx, debugOperationTimeout)
-		prepared, err := a.prepareDebugLaunch(preparationContext, start, session.stateDirectory, p, targetPath, generation, targetUnavailable)
+		preparationTimeout := debugOperationTimeout
+		if start.connection != nil && !hosted {
+			preparationTimeout = pluginPrepareTimeout
+		}
+		preparationContext, cancelPreparation := context.WithTimeout(ctx, preparationTimeout)
+		prepared, err := a.prepareDebugLaunch(preparationContext, start, session, p, targetPath, generation, targetUnavailable)
 		if err != nil {
 			// Only the adapter's own launch is the plugin's start; a debuggee that cannot be
 			// found or a remote endpoint waiting for the user is not. The preparation's
@@ -554,14 +605,34 @@ func (a *App) beginDebug(p *project, start debugStart) {
 				a.recordDebugStart(ctx, session, core.StageLaunch, err)
 				return func(a *App) { a.finishDebugError(p, session, err) }
 			}
-		} else if err := a.startAdapterProcess(ctx, p, session, prepared, stdinReader, a.stdioDebugOutput(p, session), nil); err != nil {
-			a.recordDebugStart(ctx, session, core.StageLaunch, err)
-			return func(a *App) { a.finishDebugError(p, session, err) }
+		} else if prepared.RemoteAdapter {
+			if err := a.openRemoteDebugTransport(p, session, prepared, policy, messages); err != nil {
+				a.recordDebugStart(ctx, session, core.StageLaunch, err)
+				return func(a *App) { a.finishDebugError(p, session, err) }
+			}
+		} else {
+			if stdinReader == nil {
+				reader, writer, err := os.Pipe()
+				if err != nil {
+					a.recordDebugStart(ctx, session, core.StageLaunch, err)
+					return func(a *App) { a.finishDebugError(p, session, err) }
+				}
+				defer reader.Close()
+				if !session.setTransport(writer) {
+					return nil
+				}
+				stdinReader = reader
+			}
+			if err := a.startAdapterProcess(ctx, p, session, prepared, stdinReader, a.stdioDebugOutput(p, session), nil); err != nil {
+				a.recordDebugStart(ctx, session, core.StageLaunch, err)
+				return func(a *App) { a.finishDebugError(p, session, err) }
+			}
 		}
 		update, err := a.kernel.CreateDebugSession(ctx, core.DebugCreateSessionRequest{
 			SessionID:                     session.id,
 			AdapterID:                     session.adapterID,
 			RootPath:                      p.root,
+			SupportsRunInTerminalRequest:  prepared.RemoteAdapter && !hosted && !announced,
 			SupportsStartDebuggingRequest: true,
 			ParentSessionID:               parentSessionID,
 			DisabledCapabilities:          prepared.DisabledCapabilities,
@@ -698,6 +769,9 @@ func (a *App) startAdapterProcess(ctx context.Context, p *project, session *debu
 		Environment:      prepared.Environment,
 		WorkingDirectory: p.root,
 	}
+	if session.connection != nil {
+		spec.WorkingDirectory = session.stateDirectory
+	}
 	processContext := context.WithoutCancel(ctx)
 	if stdin != nil {
 		// A nil *os.File would be a non-nil reader, so the field is set only here.
@@ -718,27 +792,31 @@ func (a *App) startAdapterProcess(ctx context.Context, p *project, session *debu
 	// Observe native exit even when the adapter cannot send a DAP terminated event.
 	go func() {
 		defer close(session.exitObserved)
-		err := process.Wait()
-		// An exit before initialize was answered ends the start, whatever its status. It is
-		// read before the session's context ends, which would make it a stop by the user.
-		stage := core.StageExit
-		if !session.reached.Load() {
-			stage = core.StageLaunch
-		}
-		a.recordDebugStart(session.ctx, session, stage, errDebugAdapterExited)
-		session.cancel()
-		session.closeTransport()
-		if err == nil && !session.reached.Load() {
-			// A tcpAnnounced adapter that ends before its stream connected never
-			// served the session, whatever its exit status.
-			err = session.recordedFailure()
-			if err == nil {
-				err = unreached
-			}
-		}
-		a.debugStreamEnded(p, session, err)
+		a.debugAdapterProcessExited(p, session, process.Wait(), unreached)
 	}()
 	return nil
+}
+
+func (a *App) debugAdapterProcessExited(p *project, session *debugSession, err, unreached error) {
+	if session.stopped.Load() {
+		return
+	}
+	// An exit before initialize was answered ends the start, whatever its status.
+	reached := session.reached.Load()
+	stage := core.StageExit
+	if !reached {
+		stage = core.StageLaunch
+	}
+	a.recordDebugStart(session.ctx, session, stage, errDebugAdapterExited)
+	session.cancel()
+	session.closeTransport()
+	if err == nil && !reached {
+		err = session.recordedFailure()
+		if err == nil {
+			err = unreached
+		}
+	}
+	a.debugStreamEnded(p, session, err)
 }
 
 // debugStreamEnded finishes a session whose adapter process or stream ended on

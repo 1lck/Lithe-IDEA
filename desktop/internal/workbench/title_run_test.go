@@ -150,7 +150,7 @@ func TestProviderDebugStartsTheNamedAdapter(t *testing.T) {
 	decoy := named
 	decoy.Declaration.ID, decoy.Declaration.AdapterID = "decoy", "decoy-dap"
 	p.debug.adapters = []debugAdapter{decoy, named}
-	h.app.startProviderDebug(p, named.PluginID, core.BuildDebugPreparation{Adapter: named.Declaration.ID, Program: "bin/app", WorkingDirectory: "."}, nil)
+	h.app.startProviderDebug(p, named.PluginID, core.BuildDebugPreparation{Adapter: named.Declaration.ID, Program: "bin/app", WorkingDirectory: "."}, nil, nil)
 	session := p.debug.activeSession()
 	if session == nil {
 		t.Fatal("the provider did not start a debug session")
@@ -168,7 +168,7 @@ func TestProviderDebugStartsTheNamedAdapter(t *testing.T) {
 func TestProviderDebugRefusesAnAdapterThePluginDoesNotInstall(t *testing.T) {
 	h := debugHarness(t)
 	p := openDebugPanel(t, h, t.TempDir())
-	h.app.startProviderDebug(p, p.debug.adapters[0].PluginID, core.BuildDebugPreparation{Adapter: "missing", Program: "bin/app"}, nil)
+	h.app.startProviderDebug(p, p.debug.adapters[0].PluginID, core.BuildDebugPreparation{Adapter: "missing", Program: "bin/app"}, nil, nil)
 	if p.debug.activeSession() != nil {
 		t.Fatal("an adapter the preparation does not name started")
 	}

@@ -76,6 +76,34 @@ type DebugStartDebugging struct {
 	Configuration map[string]any `json:"configuration"`
 }
 
+// DebugRunInTerminal is an adapter's request to run the debuggee in a terminal.
+type DebugRunInTerminal struct {
+	Title           string   `json:"title"`
+	RemoteDirectory *string  `json:"remoteDirectory"`
+	Args            []string `json:"args"`
+	Environment     []struct {
+		Name  string  `json:"name"`
+		Value *string `json:"value"`
+	} `json:"environment"`
+}
+
+// DebugRunInTerminalResponse reports the debuggee PID or a launch failure to Core.
+// A zero PID is a failure and message explains it to the adapter.
+func (c *Client) DebugRunInTerminalResponse(ctx context.Context, sessionID, requestID string, pid int64, message string) (DebugUpdate, error) {
+	var update DebugUpdate
+	payload := struct {
+		SessionID string `json:"sessionId"`
+		RequestID string `json:"requestId"`
+		Success   bool   `json:"success"`
+		ProcessID int64  `json:"processId,omitempty"`
+		Message   string `json:"message,omitempty"`
+	}{sessionID, requestID, pid != 0, pid, message}
+	if err := c.Execute(ctx, "debug.runInTerminalResponse", payload, &update); err != nil {
+		return DebugUpdate{}, err
+	}
+	return update, nil
+}
+
 // DebugStartDebuggingResponse answers one startDebuggingRequested event: the
 // host reports whether it opened the child session, and Core replies to the
 // adapter with the original request sequence.

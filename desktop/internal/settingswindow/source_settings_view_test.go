@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"path"
 	"path/filepath"
 	"sync/atomic"
 	"testing"
@@ -164,6 +165,85 @@ func TestNativeSettingsFormKeepsInheritanceAndSavesOnlyAnExplicitModuleEdit(t *t
 	}
 	if string(data) != `{"target":"two"}` {
 		t.Fatal("a rejected draft changed its native file")
+	}
+}
+
+type nativeFormSSHHost struct {
+	*core.Client
+	sources []core.SettingsSource
+}
+
+func (h nativeFormSSHHost) InspectRemoteNativeSettings(_ context.Context, targets []core.RemoteNativeSettingsTarget) ([]core.RemoteNativeSettingsBaseline, error) {
+	baselines := make([]core.RemoteNativeSettingsBaseline, len(targets))
+	for i, source := range h.sources {
+		root := "/work/project"
+		if source.Scope == "home" {
+			root = "/home/fixture"
+		}
+		baselines[i] = core.RemoteNativeSettingsBaseline{
+			Target: targets[i], Identity: source.ID, Revision: source.Revision,
+			HostPath: path.Join(root, source.Path), Writable: source.Writable,
+		}
+	}
+	return baselines, nil
+}
+
+func TestRemoteNativeSettingsSaveRequiresConfirmation(t *testing.T) {
+	source := nativeFormSource(t)
+	state := source.native.State
+	for i := range state.Snapshot.Sources {
+		row := &state.Snapshot.Sources[i]
+		row.Scope = "workspace"
+		if row.ID == "child" {
+			row.Scope = "home"
+		}
+	}
+	binding := core.NewRemoteWorkspace(source.workspace, "/work/project", nil)
+	binding.Attach("ssh-fixture")
+	t.Cleanup(func() { binding.Detach() })
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	var err error
+	source.native, err = pluginsettings.CaptureRemoteSources(ctx, nativeFormSSHHost{
+		Client: core.NewClient(), sources: state.Snapshot.Sources,
+	}, binding.CaptureConnection(), state)
+	if err != nil {
+		t.Fatal(err)
+	}
+	w := nativeFormWindow(t, source, i18n.English, "dark")
+	d := openWindow(t, w, func(config *app.Config) { config.Height = 1100 })
+	openNativeForm(t, w, d)
+	d.click("Child module Target")
+	d.click("Version 1")
+	d.pump()
+	save := i18n.Shared(i18n.English, "desktop.pluginSettings.save")
+	p := w.pluginSettings.sources
+	d.click(save)
+	d.until("remote save confirmation", func() bool { return p.confirmSave })
+	if p.busy || !d.wrapped("/home/fixture/child/tool.json") {
+		t.Fatal("Save should display the target on the SSH host before starting the worker")
+	}
+	d.click(i18n.Shared(i18n.English, "desktop.sourceSettings.cancel"))
+	d.pump()
+	select {
+	case <-source.saves:
+		t.Fatal("dismissing the confirmation saved the change")
+	default:
+	}
+	if p.confirmSave || p.busy || len(p.pending) != 1 {
+		t.Fatal("dismissing the confirmation did not preserve the draft")
+	}
+	d.click(save)
+	d.until("another remote save confirmation", func() bool { return p.confirmSave })
+	d.click(save)
+	d.until("confirmed remote save", func() bool { return p.saved })
+	select {
+	case edits := <-source.saves:
+		if len(edits) != 1 || edits[0].SourceID != "child" || edits[0].Values["target"].Choice != "one" {
+			t.Fatalf("remote edits: %+v", edits)
+		}
+	default:
+		t.Fatal("confirmation did not deliver the captured edit")
 	}
 }
 

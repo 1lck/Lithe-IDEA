@@ -373,3 +373,84 @@ func (m *memoryCredentials) Delete(service, account string) error {
 func pluginhostGrant(service *Service, methods ...string) []string {
 	return pluginhost.GrantServices(methods, service.HostServices)
 }
+
+func TestRemoteWorkspaceHostPathsKeepNativeAndRemotePathsSeparate(t *testing.T) {
+	service := openHostService(t)
+	if err := service.AttachWorkbench(&fakeWorkbench{}); err != nil {
+		t.Fatal(err)
+	}
+	service.Contexts.SetObserver(nil)
+	placeholder := filepath.Join(t.TempDir(), "placeholder")
+	const hostPath = "/home/dev/project"
+	const plugin = "dev.lithe.test.remote-metadata"
+	workspace := service.Contexts.OpenRemote(core.NewRemoteWorkspace(placeholder, hostPath, nil), "project", "c-build",
+		core.RemotePlatform{OS: "linux", Arch: "arm64"}, nil)
+	t.Cleanup(service.Contexts.CloseAll)
+	ref, err := json.Marshal(workspace.ContextRef)
+	if err != nil {
+		t.Fatal(err)
+	}
+	params := `{"context":` + string(ref) + `}`
+	rootID := service.Contexts.RootID(plugin, placeholder)
+	for _, request := range []struct{ method, params string }{
+		{"workspace/listContexts", "{}"},
+		{"workspace/getContext", params},
+		{"workspace/getFolders", params},
+	} {
+		result, refusal := respond(t, service, plugin, request.method, request.params)
+		if refusal != nil || strings.Contains(string(result), hostPath) || strings.Contains(string(result), "placeholder") || strings.Contains(string(result), `"path"`) {
+			t.Fatalf("%s = %s, %+v", request.method, result, refusal)
+		}
+		if !strings.Contains(string(result), rootID) {
+			t.Fatalf("%s omitted the plugin's root ID: %s", request.method, result)
+		}
+		if request.method != "workspace/getFolders" && !strings.Contains(string(result), `"authority":{"kind":"remote","id":"c-build","platform":{"os":"linux","arch":"arm64"}}`) {
+			t.Fatalf("%s omitted the remote authority: %s", request.method, result)
+		}
+	}
+	for _, selection := range []string{"", `,"rootIDs":["` + rootID + `"]`} {
+		result, refusal := respond(t, service, plugin, "workspace/getHostPaths", `{"context":`+string(ref)+selection+`}`)
+		want := `{"folders":[{"rootID":"` + rootID + `","hostPath":"` + hostPath + `"}]}`
+		if refusal != nil || string(result) != want {
+			t.Fatalf("getHostPaths = %s, %+v, want %s", result, refusal, want)
+		}
+	}
+	_, refusal := respond(t, service, "dev.lithe.test.other", "workspace/getHostPaths",
+		`{"context":`+string(ref)+`,"rootIDs":["`+rootID+`"]}`)
+	if refusal == nil || refusal.Code != CodeNotFound {
+		t.Fatalf("foreign root refusal = %+v", refusal)
+	}
+
+	_, refusal = respond(t, service, plugin, "editor/open", params)
+	if refusal == nil || refusal.Code != codeAuthorityUnsupported {
+		t.Fatalf("editor/open refusal = %+v, want authorityUnsupported", refusal)
+	}
+	for _, method := range []string{"debug/start", "run/start"} {
+		_, refusal := respond(t, service, plugin, method, params)
+		if refusal == nil || refusal.Code != CodeRemoteDisconnected {
+			t.Fatalf("%s on the disconnected workspace = %+v, want remoteDisconnected", method, refusal)
+		}
+	}
+	_, refusal = respond(t, service, plugin, "terminal/create",
+		`{"context":`+string(ref)+`,"executable":"/usr/bin/printf"}`)
+	if refusal == nil || refusal.Code != CodeRemoteDisconnected {
+		t.Fatalf("terminal/create on the disconnected workspace = %+v, want remoteDisconnected", refusal)
+	}
+	if roots := service.Contexts.workspaceRoots(); len(roots) != 0 {
+		t.Fatalf("native runtime discovery received remote roots: %v", roots)
+	}
+	service.Contexts.Close(placeholder)
+	_, refusal = respond(t, service, plugin, "workspace/getHostPaths", params)
+	if refusal == nil || refusal.Code != CodeContextExpired {
+		t.Fatalf("closed context refusal = %+v", refusal)
+	}
+	local := service.Contexts.Open(t.TempDir())
+	ref, err = json.Marshal(local.ContextRef)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, refusal = respond(t, service, plugin, "workspace/getHostPaths", `{"context":`+string(ref)+`}`)
+	if refusal == nil || refusal.Code != codeAuthorityUnsupported {
+		t.Fatalf("local context refusal = %+v", refusal)
+	}
+}

@@ -37,11 +37,12 @@ var errRunProgramNotFound = errors.New("run program not found")
 // startProcessRun begins the run of a built-in process configuration, or of one of a kind a
 // plugin declares, beside the window's other executions and starts it once unsaved documents
 // are saved, so the process reads the files on disk. Rerun starts it again.
-func (a *App) startProcessRun(p *project, configuration core.RunConfiguration) *buildOperation {
+func (a *App) startProcessRun(p *project, configuration core.RunConfiguration, connection *core.RemoteWorkspaceConnection) *buildOperation {
 	id := configuration.ID
 	op := a.beginRunOperation(p, configuration.Name, id, configurationRunKey(id), func(a *App, p *project) {
 		a.runConfiguration(p, id)
 	})
+	op.connection = connection
 	a.saveProjectDocuments(p, func(ok bool) {
 		if op.cancelled {
 			a.finishBuildError(p, op, context.Canceled)
@@ -72,6 +73,7 @@ func (a *App) startProcessRun(p *project, configuration core.RunConfiguration) *
 func (a *App) launchProcessRun(p *project, op *buildOperation, id string) {
 	root, kernel, language := p.root, a.kernel, a.language()
 	a.background(p, 0, func(ctx context.Context) func(*App) {
+		ctx = attachedWorkspaceContext(ctx, op.connection)
 		bounded, cancel := context.WithTimeout(ctx, runPreparationTimeout)
 		defer cancel()
 		prepare, release := op.bind(bounded)

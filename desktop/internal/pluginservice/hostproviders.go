@@ -82,7 +82,7 @@ type editorProviderBindings struct {
 // registerEditorProviders attaches the provider registration method to a window.
 func (s *Service) registerEditorProviders() error {
 	s.providers2 = &editorProviderBindings{}
-	return s.HostServices.Register(methodRegisterEditorProviders, s.handleRegisterEditorProviders)
+	return s.HostServices.Register(methodRegisterEditorProviders, s.handleRegisterEditorProviders, core.PluginAuthorityBoth)
 }
 
 func (s *Service) handleRegisterEditorProviders(ctx context.Context, params json.RawMessage) (json.RawMessage, *pluginhost.Failure) {
@@ -183,11 +183,15 @@ func (s *Service) handleRegisterEditorProviders(ctx context.Context, params json
 	}
 	s.providers2.list = append(s.providers2.list, binding)
 	s.providers2.mu.Unlock()
-	id := s.resources.add(caller, workspace.ContextID, func() {
+	id := s.resources.add(caller, workspace.ContextRef, func() {
 		s.providers2.mu.Lock()
 		defer s.providers2.mu.Unlock()
 		s.providers2.list = removeProviderBinding(s.providers2.list, binding)
 	})
+	if _, err := s.Contexts.Lookup(workspace.ContextRef); err != nil {
+		s.resources.dispose(caller, id)
+		return nil, contextFailure(err)
+	}
 	return marshalResult(map[string]string{"subscriptionID": id})
 }
 

@@ -10,6 +10,8 @@ import (
 // field that does not apply to it stays zero and is not sent.
 type DebugTransportEvent struct {
 	Type string `json:"type"`
+	// DirectStream starts with openStream instead of endpoint discovery.
+	DirectStream bool `json:"directStream,omitempty"`
 	// Limits overrides the policy defaults on a start event.
 	Limits *DebugTransportLimitOverrides `json:"limits,omitempty"`
 	// Bytes is the size of the frame a send event queues.
@@ -35,7 +37,7 @@ type DebugTransportLimitOverrides struct {
 }
 
 // DebugTransportEffect is one thing the platform runs after an event. Kind is
-// discoverEndpoint, armTimer, cancelTimer, connect, write, deliverData, close,
+// discoverEndpoint, armTimer, cancelTimer, connect, openStream, write, deliverData, close,
 // reportFailure or notifyTermination; only the fields of that kind are set.
 type DebugTransportEffect struct {
 	Kind              string `json:"kind"`

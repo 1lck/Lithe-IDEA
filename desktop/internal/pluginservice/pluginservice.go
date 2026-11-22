@@ -41,6 +41,9 @@ var ErrAssembly = errors.New("plugin service cannot be assembled")
 // satisfies it.
 type Kernel interface {
 	PlanPluginSettingsAction(context.Context, core.PluginSettingsActionRequest) (core.PluginSettingsActionPlan, error)
+	ReadPluginFile(context.Context, core.PluginFileRequest) (json.RawMessage, error)
+	PluginWatchChanges(context.Context, core.PluginWatchChangesRequest) (json.RawMessage, error)
+	ReadWorkspaceConfiguration(context.Context, string, int64) (*string, error)
 	pluginhost.ManifestValidator
 	pluginbackend.Kernel
 	pluginsettings.Kernel
@@ -71,6 +74,8 @@ type Service struct {
 	ToolchainIssue func(context.Context, error)
 	// BuildConfigurationIssue records native failures opening or rebinding configuration watches.
 	BuildConfigurationIssue func(context.Context, error)
+	// WorkspaceWatchIssue records failures projecting remote workspace watch events.
+	WorkspaceWatchIssue func(context.Context, error)
 	// providers2 holds the editor provider registrations of the window (hostproviders.go).
 	providers2 *editorProviderBindings
 	// actions holds the editor action registrations of the window (hostactions.go).
@@ -114,7 +119,9 @@ type Service struct {
 	virtualHost VirtualDocumentHost
 	providers   *contentProviders
 	// resources are the subscriptions, providers and terminals backends hold.
-	resources *hostResources
+	resources          *hostResources
+	workspaceWatchesMu sync.Mutex
+	workspaceWatches   map[*workspaceWatch]struct{}
 	// Runs owns the processes backends start through run/start.
 	Runs *Runs
 	// LanguageTool resolves an optional installation for a backend-resolved
@@ -201,6 +208,7 @@ func open(kernel Kernel, preferences *store.Store, root string, first bool) (*Se
 		kernel:            kernel,
 		preferences:       preferences,
 		resources:         newHostResources(),
+		workspaceWatches:  make(map[*workspaceWatch]struct{}),
 		ledger:            ledger,
 		messages:          newMessageLimiter(),
 		RuntimeDownloader: marketplace.NewArchiveDownloader(nil),

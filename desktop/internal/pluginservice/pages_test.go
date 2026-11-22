@@ -74,27 +74,65 @@ func TestPageStateIsKeptPerWindowAndWorkspace(t *testing.T) {
 		t.Fatal(err)
 	}
 	const limit = 16
-	if state, err := service.PageState("a", "a.window", "/work/one", limit); err != nil || state != nil {
+	t.Cleanup(service.Contexts.CloseAll)
+	first := service.Contexts.Open(t.TempDir())
+	second := service.Contexts.Open(t.TempDir())
+	if state, err := service.PageState("a", "a.window", first.ContextRef, limit); err != nil || state != nil {
 		t.Fatalf("empty state = %q %v", state, err)
 	}
-	if err := service.SetPageState("a", "a.window", "/work/one", []byte(`{"tab":1}`), limit); err != nil {
+	if err := service.SetPageState("a", "a.window", first.ContextRef, []byte(`{"tab":1}`), limit); err != nil {
 		t.Fatal(err)
 	}
-	if state, err := service.PageState("a", "a.window", "/work/one", limit); err != nil || string(state) != `{"tab":1}` {
+	if state, err := service.PageState("a", "a.window", first.ContextRef, limit); err != nil || string(state) != `{"tab":1}` {
 		t.Fatalf("state = %q %v", state, err)
 	}
-	for _, other := range [][2]string{{"a.window", "/work/two"}, {"a.other", "/work/one"}} {
-		if state, _ := service.PageState("a", other[0], other[1], limit); state != nil {
-			t.Fatalf("%v saw another window's state: %q", other, state)
+	for _, other := range []struct {
+		window string
+		ref    ContextRef
+	}{{"a.window", second.ContextRef}, {"a.other", first.ContextRef}} {
+		if state, err := service.PageState("a", other.window, other.ref, limit); err != nil || state != nil {
+			t.Fatalf("state for %v = %q %v", other, state, err)
 		}
 	}
-	if err := service.SetPageState("a", "a.window", "/work/one", []byte(`"0123456789abcdef"`), limit); !errors.Is(err, ErrPageStateTooLarge) {
+	if err := service.SetPageState("a", "a.window", first.ContextRef, []byte(`"0123456789abcdef"`), limit); !errors.Is(err, ErrPageStateTooLarge) {
 		t.Fatalf("oversized state = %v", err)
 	}
-	if err := service.SetPageState("a", "a.window", "/work/one", nil, limit); err != nil {
+	if err := service.SetPageState("a", "a.window", first.ContextRef, nil, limit); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := os.Stat(service.pageStatePath("a", "a.window", "/work/one")); !errors.Is(err, os.ErrNotExist) {
+	if _, err := os.Stat(service.pageStatePath("a", "a.window", first)); !errors.Is(err, os.ErrNotExist) {
 		t.Fatalf("cleared state remains: %v", err)
+	}
+}
+
+func TestRemotePageDocumentUsesTheOriginalAttachment(t *testing.T) {
+	service := openHostService(t)
+	binding := core.NewRemoteWorkspace(t.TempDir(), "/home/dev/project", nil)
+	binding.Attach("session")
+	workspace := service.Contexts.OpenRemote(binding, "project", "connection", core.RemotePlatform{OS: "linux", Arch: "x86_64"}, nil)
+	t.Cleanup(service.Contexts.CloseAll)
+
+	const path = "/home/dev/project/src/main.txt"
+	const plugin = "dev.lithe.test.page"
+	replace := false
+	service.kernel.(*fakeKernel).pluginFile = func(ctx context.Context, request core.PluginFileRequest) (json.RawMessage, error) {
+		if core.RemoteWorkspaceOf(ctx) != binding || request.Path != path ||
+			request.Operation.Kind != "openDocument" || request.RootID != service.Contexts.RootID(plugin, workspace.Path) {
+			t.Fatalf("unexpected document request: %+v", request)
+		}
+		if replace {
+			binding.Detach()
+			binding.Attach("session")
+		}
+		return json.RawMessage(`{"path":"src/main.txt","base64":"dGV4dA==","isTruncated":false}`), nil
+	}
+	document, refusal := service.ReadPageDocument(context.Background(), plugin, workspace.ContextRef, path, 64)
+	if refusal != nil || document.Path != "src/main.txt" || string(document.Data) != "text" || !document.Connection.IsCurrent() {
+		t.Fatalf("page document = %+v, refusal = %+v", document, refusal)
+	}
+	replace = true
+	document, refusal = service.ReadPageDocument(context.Background(), plugin, workspace.ContextRef, path, 64)
+	if refusal == nil || refusal.Code != CodeRemoteDisconnected || document.Data != nil {
+		t.Fatalf("old attachment document = %+v, refusal = %+v", document, refusal)
 	}
 }

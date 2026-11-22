@@ -57,6 +57,7 @@ type Snapshot struct {
 	global       configfile.Snapshot
 	project      configfile.Snapshot
 	unreadable   []LocalizationReadFailure
+	remote       *remoteProjectSnapshot
 }
 
 func (s Snapshot) Workspace() string { return s.workspace }
@@ -74,10 +75,21 @@ func (s *Store) PreferenceDirectory() string { return s.globalRoot }
 
 func (s Snapshot) GlobalPath() string { return s.global.Path() }
 func (s Snapshot) ProjectPath() string {
+	if s.remote != nil {
+		return s.remote.displayPath()
+	}
 	if s.workspace == "" {
 		return ""
 	}
 	return s.project.Path()
+}
+
+// ProjectConnectionName labels a remote settings source in the editor.
+func (s Snapshot) ProjectConnectionName() string {
+	if s.remote == nil {
+		return ""
+	}
+	return s.remote.project.Name
 }
 
 // SaveResult distinguishes a committed source from readback/cleanup failures.
@@ -93,16 +105,23 @@ type SaveResult struct {
 // missing project is explicit; malformed or unreadable files never become empty.
 // Text stays as written in the manifest; use LoadPresented for a settings view.
 func (s *Store) Load(ctx context.Context, manifest json.RawMessage, workspace string) (Snapshot, error) {
-	return s.load(ctx, manifest, workspace, nil)
+	return s.load(ctx, manifest, workspace, nil, nil)
+}
+
+// LoadRemote reads local global preferences and the project layer of a remote
+// workspace. The returned projection carries no native edit baseline.
+func (s *Store) LoadRemote(ctx context.Context, manifest json.RawMessage, readProject func(context.Context, string, int64) (*string, error)) (core.PluginSettingsState, error) {
+	snapshot, err := s.load(ctx, manifest, "", nil, readProject)
+	return snapshot.State, err
 }
 
 // LoadPresented also applies the package translation Core selects for the
 // language. Save readback keeps the same presentation.
 func (s *Store) LoadPresented(ctx context.Context, manifest json.RawMessage, workspace string, presentation Presentation) (Snapshot, error) {
-	return s.load(ctx, manifest, workspace, &presentation)
+	return s.load(ctx, manifest, workspace, &presentation, nil)
 }
 
-func (s *Store) load(ctx context.Context, manifest json.RawMessage, workspace string, presentation *Presentation) (Snapshot, error) {
+func (s *Store) load(ctx context.Context, manifest json.RawMessage, workspace string, presentation *Presentation, readProject func(context.Context, string, int64) (*string, error)) (Snapshot, error) {
 	var localization *core.PluginSettingsLocalizationRequest
 	if presentation != nil {
 		localization = &core.PluginSettingsLocalizationRequest{Language: presentation.Language}
@@ -139,7 +158,12 @@ func (s *Store) load(ctx context.Context, manifest json.RawMessage, workspace st
 		return Snapshot{}, err
 	}
 	var project *string
-	if workspace != "" {
+	if readProject != nil {
+		project, err = readProject(ctx, policy.Storage.ProjectRelativePath, policy.Storage.MaximumBytes)
+		if err != nil {
+			return Snapshot{}, err
+		}
+	} else if workspace != "" {
 		info, statErr := os.Stat(workspace)
 		if statErr != nil {
 			return Snapshot{}, errors.Join(ErrNoProject, statErr)
@@ -201,13 +225,19 @@ func (s *Store) Save(ctx context.Context, snapshot Snapshot, scope string, edits
 		}
 	}
 	var source configfile.Snapshot
+	var document *string
+	var err error
 	switch scope {
 	case "global":
 		source = snapshot.global
 	case "project":
 		source = snapshot.project
 	}
-	document, err := source.Text()
+	if scope == "project" && snapshot.remote != nil {
+		document = snapshot.remote.source.Text
+	} else {
+		document, err = source.Text()
+	}
 	if err != nil {
 		return SaveResult{}, err
 	}
@@ -219,7 +249,9 @@ func (s *Store) Save(ctx context.Context, snapshot Snapshot, scope string, edits
 		return SaveResult{}, ErrNoProject
 	}
 	var result SaveResult
-	if plan.Delete {
+	if scope == "project" && snapshot.remote != nil {
+		result.Committed, err = snapshot.remote.publish(ctx, plan, check)
+	} else if plan.Delete {
 		result.Committed, err = source.Remove(ctx, check)
 	} else {
 		result.Committed, err = source.Replace(ctx, []byte(plan.Document), check)
@@ -229,7 +261,18 @@ func (s *Store) Save(ctx context.Context, snapshot Snapshot, scope string, edits
 	}
 	// Effects belong to the validated edit, but must not run before publication.
 	result.Effects = plan.Effects
-	readback, readErr := New(s.kernel, snapshot.globalRoot).load(ctx, snapshot.manifest, snapshot.workspace, snapshot.presentation)
+	capturedStore := New(s.kernel, snapshot.globalRoot)
+	var readback Snapshot
+	var readErr error
+	if snapshot.remote != nil {
+		readback, readErr = capturedStore.LoadRemoteEditor(ctx, snapshot.manifest, snapshot.workspace, snapshot.presentation, snapshot.remote.project)
+		if readErr == nil && (readback.remote.source.Baseline.WorkspaceIdentity != snapshot.remote.source.Baseline.WorkspaceIdentity ||
+			(scope == "project" && !readback.remote.matches(plan))) {
+			readErr = configfile.ErrConflict
+		}
+	} else {
+		readback, readErr = capturedStore.load(ctx, snapshot.manifest, snapshot.workspace, snapshot.presentation, nil)
+	}
 	if readErr == nil {
 		result.Readback = &readback
 	}

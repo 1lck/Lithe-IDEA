@@ -45,9 +45,23 @@ func (s pluginSettingsSources) sourceSettingsCall(ctx context.Context, editor pl
 }
 
 func (s pluginSettingsSources) readSourceSettings(ctx context.Context, editor pluginservice.SettingsEditor, action string, published map[string]string) (pluginsettings.SourceEditor, error) {
-	plan, err := s.app.plugins.PlanSettingsEditorAction(ctx, editor, action, true, s.actionWorkspaceCheck(editor))
+	check := s.sourceSettingsCheck(ctx, editor, action)
+	plan, err := s.app.plugins.PlanSettingsEditorAction(ctx, editor, action, true, check)
 	if err != nil {
 		return pluginsettings.SourceEditor{}, err
+	}
+	if plan.Kind != "invoke" || !plan.SourceEditor {
+		return pluginsettings.SourceEditor{}, configfile.ErrConflict
+	}
+	read := func(ctx context.Context, params json.RawMessage) (json.RawMessage, error) {
+		return s.sourceSettingsCall(ctx, editor, action, params, false)
+	}
+	connection := editor.RemoteConnection()
+	if connection != nil {
+		read, err = s.app.plugins.PrepareRemoteSettingsHelper(ctx, editor, plan, check)
+		if err != nil {
+			return pluginsettings.SourceEditor{}, err
+		}
 	}
 	environment, err := s.sourceSettingsContext(ctx, editor, plan, len(published) > 0)
 	if err != nil {
@@ -59,12 +73,14 @@ func (s pluginSettingsSources) readSourceSettings(ctx context.Context, editor pl
 	}{Context: environment}
 	if len(published) > 0 {
 		request.Operation = "readAfterSave"
+	} else if connection != nil {
+		request.Operation = "read"
 	}
 	params, err := json.Marshal(request)
 	if err != nil {
 		return pluginsettings.SourceEditor{}, err
 	}
-	raw, err := s.sourceSettingsCall(ctx, editor, action, params, false)
+	raw, err := read(ctx, params)
 	if err != nil {
 		return pluginsettings.SourceEditor{}, err
 	}
@@ -83,6 +99,17 @@ func (s pluginSettingsSources) readSourceSettings(ctx context.Context, editor pl
 		if !found {
 			return pluginsettings.SourceEditor{}, configfile.ErrConflict
 		}
+	}
+	if connection != nil {
+		host, ok := s.app.kernel.(pluginsettings.RemoteSourceHost)
+		if !ok {
+			return pluginsettings.SourceEditor{}, &core.Error{Code: core.CodeNotSupported, Message: "The remote native settings service is unavailable."}
+		}
+		sources, err := pluginsettings.CaptureRemoteSources(ctx, host, connection, state)
+		if err != nil {
+			return pluginsettings.SourceEditor{}, err
+		}
+		return sources, check()
 	}
 	// The plugin store and the running application's installation are immutable.
 	// macOS resources are siblings of MacOS inside the enclosing .app bundle;
@@ -105,19 +132,30 @@ func (s pluginSettingsSources) SaveSources(ctx context.Context, editor pluginser
 			(settingsToolchains{app: s.app}).recordFailure(ctx, "plugin_settings_source_save", err)
 		}
 	}()
-	check := func() error {
-		plan, err := s.app.plugins.PlanSettingsEditorAction(ctx, editor, action, true, s.actionWorkspaceCheck(editor))
-		if err != nil {
-			return err
-		}
-		if plan.Kind != "invoke" || !plan.SourceEditor {
-			return configfile.ErrConflict
-		}
-		return nil
+	if !sources.MatchesConnection(editor.RemoteConnection()) {
+		return sources, configfile.ErrConflict
 	}
-	published, err := sources.Apply(ctx, s.app.kernel, edits, func(ctx context.Context, params json.RawMessage) (json.RawMessage, error) {
+	check := s.sourceSettingsCheck(ctx, editor, action)
+	edit := func(ctx context.Context, params json.RawMessage) (json.RawMessage, error) {
 		return s.sourceSettingsCall(ctx, editor, action, params, true)
-	}, check)
+	}
+	if editor.RemoteConnection() != nil {
+		var helper func(context.Context, json.RawMessage) (json.RawMessage, error)
+		edit = func(ctx context.Context, params json.RawMessage) (json.RawMessage, error) {
+			if helper == nil {
+				plan, err := s.app.plugins.PlanSettingsEditorAction(ctx, editor, action, true, check)
+				if err != nil {
+					return nil, err
+				}
+				helper, err = s.app.plugins.PrepareRemoteSettingsHelper(ctx, editor, plan, check)
+				if err != nil {
+					return nil, err
+				}
+			}
+			return helper(ctx, params)
+		}
+	}
+	published, err := sources.Apply(ctx, s.app.kernel, edits, edit, check)
 	if err != nil {
 		return sources, err
 	}
@@ -126,6 +164,23 @@ func (s pluginSettingsSources) SaveSources(ctx context.Context, editor pluginser
 		err = errors.Join(pluginsettings.ErrSourcesCommitted, err)
 	}
 	return updated, err
+}
+
+func (s pluginSettingsSources) sourceSettingsCheck(ctx context.Context, editor pluginservice.SettingsEditor, action string) func() error {
+	workspace := s.actionWorkspaceCheck(editor)
+	return func() error {
+		plan, err := s.app.plugins.PlanSettingsEditorAction(ctx, editor, action, true, workspace)
+		if err != nil {
+			return err
+		}
+		if plan.Kind != "invoke" || !plan.SourceEditor {
+			return configfile.ErrConflict
+		}
+		if editor.RemoteConnection() != nil {
+			return s.app.plugins.CheckRemoteSettingsWorkspace(editor)
+		}
+		return nil
+	}
 }
 
 // Only native session handles are selected here. Source semantics, grouping and
@@ -223,7 +278,17 @@ func (s pluginSettingsSources) sourceSettingsContext(ctx context.Context, editor
 		if err != nil {
 			return result, err
 		}
-		result.Builds = append(result.Builds, sourceEditorBuild{instance.Root, instance.Options, core.BuildTool{Executable: execution.Executable}, sourceEditorProjectModel{Projects: model.Projects}})
+		root, projects := instance.Root, model.Projects
+		if editor.RemoteConnection() != nil {
+			// Only schema-owned paths are translated. Opaque model properties
+			// already use the upstream tool's path namespace.
+			root = current.project.remoteHostPath(root)
+			projects = append([]core.BuildProject(nil), projects...)
+			for index := range projects {
+				projects[index].Path = current.project.remoteHostPath(projects[index].Path)
+			}
+		}
+		result.Builds = append(result.Builds, sourceEditorBuild{root, instance.Options, core.BuildTool{Executable: execution.Executable}, sourceEditorProjectModel{Projects: projects}})
 	}
 	return result, nil
 }

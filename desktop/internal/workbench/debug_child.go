@@ -26,6 +26,7 @@ func (a *App) startChildDebug(p *project, parent *debugSession, event core.Debug
 		adapter:        parent.adapter,
 		request:        event.StartDebugging.Request,
 		configuration:  event.StartDebugging.Configuration,
+		connection:     parent.connection,
 		parent:         parent,
 		startRequestID: event.RequestID,
 	})
@@ -43,20 +44,27 @@ func (a *App) answerChildStart(p *project, child *debugSession, success bool, me
 // respondStartDebugging sends the reply to the parent adapter through Core. Core
 // writes the DAP response; the frames go out before the update is applied.
 func (a *App) respondStartDebugging(p *project, parent *debugSession, requestID string, success bool, message string) {
+	a.replyDebugReverseRequest(p, parent, func(ctx context.Context) (core.DebugUpdate, error) {
+		return a.kernel.DebugStartDebuggingResponse(ctx, parent.id, requestID, success, message)
+	})
+}
+
+// replyDebugReverseRequest serializes the native reply with the other DAP operations.
+func (a *App) replyDebugReverseRequest(p *project, session *debugSession, reduce func(context.Context) (core.DebugUpdate, error)) {
 	a.background(p, debugOperationTimeout, func(ctx context.Context) func(*App) {
-		parent.operationMu.Lock()
-		defer parent.operationMu.Unlock()
-		if parent.stopped.Load() {
+		session.operationMu.Lock()
+		defer session.operationMu.Unlock()
+		if session.stopped.Load() {
 			return nil
 		}
-		update, err := a.kernel.DebugStartDebuggingResponse(ctx, parent.id, requestID, success, message)
+		update, err := reduce(ctx)
 		if err != nil {
-			return func(a *App) { a.finishDebugError(p, parent, err) }
+			return func(a *App) { a.finishDebugError(p, session, err) }
 		}
-		if err := parent.writeFrames(update.OutboundFrames); err != nil {
-			return func(a *App) { a.finishDebugError(p, parent, err) }
+		if err := session.writeFrames(update.OutboundFrames); err != nil {
+			return func(a *App) { a.finishDebugError(p, session, err) }
 		}
-		a.postDebugUpdate(p, parent, update)
+		a.postDebugUpdate(p, session, update)
 		return nil
 	})
 }

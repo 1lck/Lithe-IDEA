@@ -11,6 +11,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/1lck/Lithe-IDEA/desktop/internal/core"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/pluginhost"
 )
 
@@ -66,7 +67,7 @@ func providerKey(contextID, scheme string) string { return contextID + "\x00" + 
 func (s *Service) registerContentProviders(host VirtualDocumentHost) error {
 	s.virtualHost = host
 	s.providers = &contentProviders{byName: make(map[string]*contentProvider)}
-	return s.HostServices.Register(methodRegisterContentProvider, s.handleRegisterContentProvider)
+	return s.HostServices.Register(methodRegisterContentProvider, s.handleRegisterContentProvider, core.PluginAuthorityBoth)
 }
 
 // validScheme is a URI scheme: a letter, then letters, digits, "+", "-" or ".", at
@@ -133,13 +134,17 @@ func (s *Service) handleRegisterContentProvider(ctx context.Context, params json
 	binding := &contentProvider{pluginID: caller.PluginID, sessionID: caller.SessionID, function: request.Function}
 	s.providers.byName[key] = binding
 	s.providers.mu.Unlock()
-	id := s.resources.add(caller, workspace.ContextID, func() {
+	id := s.resources.add(caller, workspace.ContextRef, func() {
 		s.providers.mu.Lock()
 		if s.providers.byName[key] == binding {
 			delete(s.providers.byName, key)
 		}
 		s.providers.mu.Unlock()
 	})
+	if _, err := s.Contexts.Lookup(workspace.ContextRef); err != nil {
+		s.resources.dispose(caller, id)
+		return nil, contextFailure(err)
+	}
 	return marshalResult(map[string]string{"subscriptionID": id})
 }
 

@@ -39,8 +39,7 @@ func TestVisualRemoteRun(t *testing.T) {
 			}
 			var session *headless.Session
 			kernel := &remoteHostKernel{testKernel: &testKernel{Client: core.NewClient()}}
-			// The folder was kept in safe mode before, so it opens without the trust question.
-			kernel.git.trust = map[string]string{remoteTestFolder: core.WorkspaceDistrusted}
+			kernel.git.trust = map[string]string{remoteTestFolder: core.WorkspaceTrusted}
 			zero := 0
 			// Greet starts once Prepare, another built-in run, ran before it on the host.
 			prepare := core.RunConfiguration{ID: "prepare", Name: "Prepare", Provider: runProviderShell}

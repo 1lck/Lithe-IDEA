@@ -33,6 +33,8 @@ const (
 	stateTimeout = 10 * time.Second
 	// callTimeout bounds one function call of a page, consent included.
 	callTimeout = 15 * time.Minute
+	// openFileTimeout bounds resolving and reading an editor document.
+	openFileTimeout = 30 * time.Second
 )
 
 // Kernel is the part of Core a page uses.
@@ -76,8 +78,8 @@ type Host interface {
 	// or "" when cancelled. It is called off the window thread and blocks
 	// until the user answers; Core lets a page have one dialog at a time.
 	ChooseFile(pluginID string, request FileRequest) (string, error)
-	// OpenFile opens a workspace file in the editor on the window thread.
-	OpenFile(path string, line, column int) error
+	// OpenFile resolves a workspace file off the window thread and opens it in the editor.
+	OpenFile(ctx context.Context, path string, line, column int) error
 }
 
 // Failure is an answer a page receives as `{ code, message }`.
@@ -334,8 +336,15 @@ func (p *Page) carryOut(action core.PluginWebAction) {
 			p.answer(action, "", map[string]*string{"path": chosen}, nil)
 		}()
 	case "workspace.openFile":
-		err := host.OpenFile(params.Path, params.Line, params.Column)
-		go p.answer(action, "", struct{}{}, err)
+		go func() {
+			ctx, cancel := context.WithTimeout(p.ctx, openFileTimeout)
+			defer cancel()
+			err := host.OpenFile(ctx, params.Path, params.Line, params.Column)
+			if err != nil {
+				p.log("open_file", err)
+			}
+			p.answer(action, "", struct{}{}, err)
+		}()
 	default:
 		go p.answer(action, "", nil, Fail("plugin.web.unknownMethod", "This host does not answer "+action.Method+"."))
 	}

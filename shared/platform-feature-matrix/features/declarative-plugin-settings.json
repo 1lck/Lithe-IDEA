@@ -2,7 +2,7 @@
   "id": "declarative-plugin-settings",
   "area": "插件",
   "group": "插件管理",
-  "capability": "声明式插件通过 Core 校验的设置声明提供整数、枚举、布尔、多选、文本、文件和目录设置，支持全局/项目继承、真实来源保存、通用界面、页面/动作注册及 restart/immediate/reload/nextRun 生效；实际启动与运行消费者必须读取同一来源。 声明动作经显式确认、安装/工作区身份复查与 Core 同工作区函数会话选择后调用；支持取消和完成状态，保留未保存草稿。 已启用插件动态贡献语言/构建系统页，同一应用内窗口按原生目录身份接收全局/项目保存通知，独立保留项目覆盖值与未保存草稿。 插件包可自带 l10n/<语言>.json 翻译设置文字，Core 按界面语言挑选文件并逐条回退到清单原文；切换界面语言后重读文字，但保留未保存草稿。 支持 Core 来源表单、编译器页面、有效/继承值和显式条件原子保存；读取项目工具须点击读取按钮。 来源表单支持 sourceSettings 1：模块侧栏（按父子缩进）、字段分组标签页，以及带添加/移除/排序、文件/目录/候选项三种添加方式和布尔/枚举属性列的条目列表；只读模块只显示条目；独立构建提供者进程记录启动时的插件设置，设置变化后下一次请求启动新进程，旧进程在已有请求结束后关闭。",
+  "capability": "声明式插件通过 Core 校验的设置声明提供整数、枚举、布尔、多选、文本、文件和目录设置，支持全局/项目继承、真实来源保存、通用界面、页面/动作注册及 restart/immediate/reload/nextRun 生效；实际启动与运行消费者必须读取同一来源。 声明动作经显式确认、安装/工作区身份复查与 Core 同工作区函数会话选择后调用；支持取消和完成状态，保留未保存草稿。 已启用插件动态贡献语言/构建系统页，同一应用内窗口按原生目录身份接收全局/项目保存通知，独立保留项目覆盖值与未保存草稿。 插件包可自带 l10n/<语言>.json 翻译设置文字，Core 按界面语言挑选文件并逐条回退到清单原文；切换界面语言后重读文字，但保留未保存草稿。 支持 Core 来源表单、编译器页面、有效/继承值和显式条件原子保存；读取项目工具须点击读取按钮。 来源表单支持 sourceSettings 1：模块侧栏（按父子缩进）、字段分组标签页，以及带添加/移除/排序、文件/目录/候选项三种添加方式和布尔/枚举属性列的条目列表；只读模块只显示条目；独立构建提供者进程记录启动时的插件设置，设置变化后下一次请求启动新进程，旧进程在已有请求结束后关闭。 远端原生设置支持 sourceSettings 2，通过插件声明的远端程序读回非敏感字段，显示连接和写入目标，经确认后在远端项目或用户目录条件写入并回读。",
   "macos": {
     "implementationStatus": "partial",
     "verificationStatus": "pending",
@@ -57,7 +57,9 @@
       "desktop/internal/workbench/debug_start.go",
       "desktop/internal/workbench/pluginbackends_test.go",
       "desktop/internal/settingswindow/plugin_settings_visual_test.go",
-      "desktop/internal/workbench/build_provider_restart_test.go"
+      "desktop/internal/workbench/build_provider_restart_test.go",
+      "desktop/internal/pluginservice/remote_settings.go",
+      "desktop/internal/pluginsettings/remote_sources.go"
     ]
   },
   "windows": {
@@ -116,11 +118,13 @@
       "desktop/internal/workbench/debug_start.go",
       "desktop/internal/workbench/pluginbackends_test.go",
       "desktop/internal/settingswindow/plugin_settings_visual_test.go",
-      "desktop/internal/workbench/build_provider_restart_test.go"
+      "desktop/internal/workbench/build_provider_restart_test.go",
+      "desktop/internal/pluginservice/remote_settings.go",
+      "desktop/internal/pluginsettings/remote_sources.go"
     ]
   },
   "owner": "Plugin Platform",
-  "verification": "Viva：共享 settings-documents fixture 经真实 Core C ABI 验证类型、作用层、整批拒绝及文档保留；原生来源覆盖权限/元数据、冲突、取消、捕获来源回读、提交后回读失败。Build/Debug 读取实际文件，明确失效路径不能静默回退；Build 全局专属程序不能被项目文件替换。LSP 启动同时传全局/项目设置、初始化选项与 Core 展开的 workspaceConfiguration。真实协议子进程在同一 Core 会话接收更新通知并重新拉取值；保存来源后服务层回读、展开并更新现有会话，损坏来源不推空配置。macOS 有定向测试与真实子进程证据；此前设置动作节点已在 Lithe-dev 通过完整消费者与定向 race；本节点结果按独立报告记录。已安装本地目录独立于商店网络，Core 绑定注册 ID/版本；原生快照拒绝安装替换。七种控件与全局/项目草稿已接线，macOS 无头驱动验证原生文本输入、明确保存回读、冲突保留、重新加载；共享模型验证七种类型及非法整数原文。保存后的即时通知与所属插件模型刷新已接线，旧模型回包不会覆盖待刷新状态，运行任务及无关模型保持。动作原生窗体、重启与完整生效状态、目标平台原生 UI 及正式市场准入尚未验收，宿主仍不声明 settings 2。 动作节点增加：实际按钮确认/取消，草稿不保存；真实提供方函数成功与取消、原进程复用、会话关闭后不可用；拒绝不同工作区/版本/未注册函数，显示版本不可替代私有身份，项目同路径重开不能接受过期动作。 动态页面节点验证 Core 启用过滤、多个贡献者、动作独立页面、搜索保留父节点、作用域/版本通知规则；Viva 验证页面/动作筛选与切页草稿保留；多工作台驱动验证同偏好目录全局通知、同项目通知、项目覆盖隔离、私有身份及旧生命周期拒绝。同一应用进程内通知不代表独立进程实时同步，也不新增多工作台创建入口。 设置列表填满表单标题下的高度、最少 160 像素，窗口放不下时滚动整页而不截断；Viva 无头驱动在最小窗口、800、1000 高度下验证语言页与已安装插件“设置”标签页的列表随窗口等量增长、底部与确定按钮间距不变、最后一项完整显示。 插件语言文件：契约 localization-cases 的 13 个用例经真实 Core 逐条比对 applied/rejected；保存回读保留译文；从已安装包读取前后，文件清单与字节不变；Viva 无头驱动验证切换界面语言、有草稿时不重读、确认弹窗用译后的按钮标题；读不了或被拒绝的语言文件各记一条 WARN。 模块结构节点：Core settings-sources-modules fixture 经真实 C ABI 读取；Viva 无头驱动验证模块侧栏按父子缩进且只显示所选模块、标签页只显示本组字段、浏览不产生草稿；排序、勾选导出、从候选项对话框添加后保存，Core 规划的写入按顺序且去掉显示文字；全部移除为显式空列表，插件给出继承值时才提供重置；只读模块无编辑控件且条目不可选。自动化：TestSourceModuleListShowsTheSelectedModuleOneTabAtATime、TestSourceEntryListEditsReachThePluginWithoutDisplayText、TestSourceEntryListRemovesToAnExplicitEmptyListAndResets、TestReadOnlyModuleShowsEntriesWithoutEditing、TestEntryDraftsCompareWithoutDisplayTextAndSkipDuplicatePaths；截图 TestVisualModuleStructureForm（中英、深浅主题）。原生文件/目录选择器只在实机验收，Windows 实机未执行。 #2079 修复：动作依赖的语言服务器未运行时返回携带失败详情的 ErrNoSession，设置页显示提供方未运行指引与原始启动失败原因；保存 restart 效果设置对失败态语言服务器同样展示可点击的重启按钮；工具链保存后的自动重试保留已通知错误去重。macOS 自动化与 -race 验证通过：TestRetryFailedPluginServersPreservesNotifiedErrorDeduplication、TestWaitReadyPluginServerWrapsErrNoSession、TestPluginSettingsRestartEffectMarksFailedServerRetryable、TestSettingsActionUnavailableShowsProviderReasonAndRestartForFailedServer 及截图 TestVisualPluginSettingsUnavailableAction；Windows 原生窗口未在本机实机验收。 Windows：用普通账户在继承“修改”权限的 NTFS 目录里再次保存已有配置，检查新内容和原所有者、组及访问规则。原生回归 TestNativeConfigPublicationWithWindowsModifyAccess。",
+  "verification": "Viva：共享 settings-documents fixture 经真实 Core C ABI 验证类型、作用层、整批拒绝及文档保留；原生来源覆盖权限/元数据、冲突、取消、捕获来源回读、提交后回读失败。Build/Debug 读取实际文件，明确失效路径不能静默回退；Build 全局专属程序不能被项目文件替换。LSP 启动同时传全局/项目设置、初始化选项与 Core 展开的 workspaceConfiguration。真实协议子进程在同一 Core 会话接收更新通知并重新拉取值；保存来源后服务层回读、展开并更新现有会话，损坏来源不推空配置。macOS 有定向测试与真实子进程证据；此前设置动作节点已在 Lithe-dev 通过完整消费者与定向 race；本节点结果按独立报告记录。已安装本地目录独立于商店网络，Core 绑定注册 ID/版本；原生快照拒绝安装替换。七种控件与全局/项目草稿已接线，macOS 无头驱动验证原生文本输入、明确保存回读、冲突保留、重新加载；共享模型验证七种类型及非法整数原文。保存后的即时通知与所属插件模型刷新已接线，旧模型回包不会覆盖待刷新状态，运行任务及无关模型保持。动作原生窗体、重启与完整生效状态、目标平台原生 UI 及正式市场准入尚未验收，宿主仍不声明 settings 2。 动作节点增加：实际按钮确认/取消，草稿不保存；真实提供方函数成功与取消、原进程复用、会话关闭后不可用；拒绝不同工作区/版本/未注册函数，显示版本不可替代私有身份，项目同路径重开不能接受过期动作。 动态页面节点验证 Core 启用过滤、多个贡献者、动作独立页面、搜索保留父节点、作用域/版本通知规则；Viva 验证页面/动作筛选与切页草稿保留；多工作台驱动验证同偏好目录全局通知、同项目通知、项目覆盖隔离、私有身份及旧生命周期拒绝。同一应用进程内通知不代表独立进程实时同步，也不新增多工作台创建入口。 设置列表填满表单标题下的高度、最少 160 像素，窗口放不下时滚动整页而不截断；Viva 无头驱动在最小窗口、800、1000 高度下验证语言页与已安装插件“设置”标签页的列表随窗口等量增长、底部与确定按钮间距不变、最后一项完整显示。 插件语言文件：契约 localization-cases 的 13 个用例经真实 Core 逐条比对 applied/rejected；保存回读保留译文；从已安装包读取前后，文件清单与字节不变；Viva 无头驱动验证切换界面语言、有草稿时不重读、确认弹窗用译后的按钮标题；读不了或被拒绝的语言文件各记一条 WARN。 模块结构节点：Core settings-sources-modules fixture 经真实 C ABI 读取；Viva 无头驱动验证模块侧栏按父子缩进且只显示所选模块、标签页只显示本组字段、浏览不产生草稿；排序、勾选导出、从候选项对话框添加后保存，Core 规划的写入按顺序且去掉显示文字；全部移除为显式空列表，插件给出继承值时才提供重置；只读模块无编辑控件且条目不可选。自动化：TestSourceModuleListShowsTheSelectedModuleOneTabAtATime、TestSourceEntryListEditsReachThePluginWithoutDisplayText、TestSourceEntryListRemovesToAnExplicitEmptyListAndResets、TestReadOnlyModuleShowsEntriesWithoutEditing、TestEntryDraftsCompareWithoutDisplayTextAndSkipDuplicatePaths；截图 TestVisualModuleStructureForm（中英、深浅主题）。原生文件/目录选择器只在实机验收，Windows 实机未执行。 #2079 修复：动作依赖的语言服务器未运行时返回携带失败详情的 ErrNoSession，设置页显示提供方未运行指引与原始启动失败原因；保存 restart 效果设置对失败态语言服务器同样展示可点击的重启按钮；工具链保存后的自动重试保留已通知错误去重。macOS 自动化与 -race 验证通过：TestRetryFailedPluginServersPreservesNotifiedErrorDeduplication、TestWaitReadyPluginServerWrapsErrNoSession、TestPluginSettingsRestartEffectMarksFailedServerRetryable、TestSettingsActionUnavailableShowsProviderReasonAndRestartForFailedServer 及截图 TestVisualPluginSettingsUnavailableAction；Windows 原生窗口未在本机实机验收。 Windows：用普通账户在继承“修改”权限的 NTFS 目录里再次保存已有配置，检查新内容和原所有者、组及访问规则。原生回归 TestNativeConfigPublicationWithWindowsModifyAccess。 #2231：分别在远端项目目录和用户目录读取配置，检查保存确认中的连接及文件路径。验证取消、文件被其他进程改写、重新连接和写入后回读；客户端本地源文件保持原样。",
   "legacy": {
     "revision": "5a54c41aa37a4e6e6b68918a4b05765b9dd07a36",
     "macos": {

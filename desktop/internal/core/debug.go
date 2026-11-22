@@ -41,11 +41,34 @@ type DebugEvent struct {
 	Result      *DebugOperationResult `json:"result,omitempty"`
 	Breakpoint  *DebugBreakpoint      `json:"breakpoint,omitempty"`
 	// Capabilities is set on the `capabilities` event: what the adapter negotiated.
-	Capabilities *DebugCapabilities `json:"capabilities,omitempty"`
-	// StartDebugging is set on the `startDebuggingRequested` event.
+	Capabilities   *DebugCapabilities   `json:"capabilities,omitempty"`
 	RequestID      string               `json:"requestId,omitempty"`
-	StartDebugging *DebugStartDebugging `json:"request,omitempty"`
+	StartDebugging *DebugStartDebugging `json:"-"`
+	RunInTerminal  *DebugRunInTerminal  `json:"-"`
 	ChildSessionID string               `json:"childSessionId,omitempty"`
+}
+
+// UnmarshalJSON decodes the request shared by both reverse-event variants.
+func (e *DebugEvent) UnmarshalJSON(data []byte) error {
+	type eventFields DebugEvent
+	var wire struct {
+		eventFields
+		Request json.RawMessage `json:"request"`
+	}
+	if err := json.Unmarshal(data, &wire); err != nil {
+		return err
+	}
+	*e = DebugEvent(wire.eventFields)
+	if len(wire.Request) == 0 {
+		return nil
+	}
+	switch e.Type {
+	case "startDebuggingRequested":
+		return json.Unmarshal(wire.Request, &e.StartDebugging)
+	case "runInTerminalRequested":
+		return json.Unmarshal(wire.Request, &e.RunInTerminal)
+	}
+	return nil
 }
 
 // DebugOperationResult is the typed terminal data of one inspect or execute

@@ -187,6 +187,40 @@ func TestRemoteWorkspaceEditsTheHostsFiles(t *testing.T) {
 	}
 }
 
+func TestScopedDocumentOpenDiscardsBytesFromAReplacedAttachment(t *testing.T) {
+	h, _, _, _ := remoteWorkspaceHarness(t)
+	p := h.openRemoteTestProject(t)
+	path := filepath.Join(p.root, "scoped.txt")
+	abandoned := filepath.Join(p.root, "abandoned.txt")
+	binding := p.remote.binding
+	session := binding.SessionID()
+	stale := binding.CaptureConnection()
+	readOld := func(context.Context, string, int64) ([]byte, error) { return []byte("old attachment\n"), nil }
+	h.app.openFileAtPositionWith(p, path, 0, 0, readOld, stale)
+	h.app.openFileWith(p, abandoned, readOld, stale)
+
+	// Replace the attachment before the window applies the background read,
+	// even if the transport resumes with the same session identifier.
+	binding.Detach()
+	binding.Attach(session)
+	h.app.openFileAtPositionWith(p, path, 0, 0, func(context.Context, string, int64) ([]byte, error) {
+		return []byte("new attachment\n"), nil
+	}, binding.CaptureConnection())
+	h.await("the pending reads to finish", func() bool {
+		return p.docs.opening[path] == nil && p.docs.opening[abandoned] == nil
+	})
+	if p.docs.byPath(abandoned) != nil {
+		t.Fatal("the editor opened bytes from the replaced attachment")
+	}
+	d := p.docs.byPath(path)
+	if d == nil {
+		t.Fatal("the current attachment could not open the document")
+	}
+	if text, _ := d.view.Text(); string(text) != "new attachment\n" {
+		t.Fatalf("opened %q, want the current attachment's bytes", text)
+	}
+}
+
 // A host file that cannot be read or saved says why in the user's words: it is missing, not a
 // regular file, not permitted, larger than the host takes, or the connection closed. A closed
 // connection connects again on its own and then compares the documents with the host, so a change

@@ -3,7 +3,6 @@ package workbench
 import (
 	"context"
 	"errors"
-	"runtime"
 	"strconv"
 	"time"
 
@@ -129,7 +128,7 @@ func (a *App) checkPluginAutoUpdates() {
 	ctx, cancel := context.WithCancel(context.Background())
 	u.checking, u.cancel = true, cancel
 	sources := a.marketplaceSources()
-	platform := marketplaceHostPlatform()
+	platform := marketplace.CurrentPlatform()
 	capabilities := pluginhost.Declared().Clone()
 	a.background(nil, 0, func(context.Context) func(*App) {
 		defer cancel()
@@ -166,14 +165,6 @@ func (a *App) marketplaceSources() []PluginRecommendationSource {
 		sources = append(sources, PluginRecommendationSource{Input: url, Kind: core.MarketplaceThirdParty})
 	}
 	return sources
-}
-
-func marketplaceHostPlatform() string {
-	arch := runtime.GOARCH
-	if arch == "amd64" {
-		arch = "x64"
-	}
-	return runtime.GOOS + "-" + arch
 }
 
 // autoUpdateCandidates uses only Core-validated availability and release order.
@@ -294,9 +285,10 @@ func (a *App) applyPluginAutoUpdate(ctx context.Context, downloader *marketplace
 	defer func() { a.recordPluginInstallCleanup(ctx, archive.Discard()) }()
 	plan, err := a.preparePlugin(ctx, plugininstall.Request{
 		ArchivePath: archive.Path(), Root: a.plugins.Root, Source: plugintrust.Marketplace,
-		ArchiveSHA256:       plugin.Availability.SHA256,
-		MarketplaceIndexURL: plugin.MarketplaceIndexURL,
-		ExpectedID:          plugin.ID, ExpectedVersion: plugin.Availability.Version,
+		ArchiveSHA256:         plugin.Availability.SHA256,
+		MarketplaceIndexURL:   plugin.MarketplaceIndexURL,
+		MarketplaceRepository: plugin.Repository,
+		ExpectedID:            plugin.ID, ExpectedVersion: plugin.Availability.Version,
 	})
 	if err != nil {
 		return false, err

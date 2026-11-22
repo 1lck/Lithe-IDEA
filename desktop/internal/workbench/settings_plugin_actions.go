@@ -15,9 +15,20 @@ import (
 
 func (s pluginSettingsSources) actionWorkspaceCheck(editor pluginservice.SettingsEditor) func() error {
 	publication := s.app.toolchainRoot.Load()
+	remote := s.app.settingsRemote.Load()
 	return func() error {
 		current := s.app.toolchainRoot.Load()
-		if current != publication {
+		if current != publication || s.app.settingsRemote.Load() != remote {
+			return configfile.ErrConflict
+		}
+		if remote != nil {
+			connection := remote.binding.CaptureConnection()
+			if !connection.SameAttachment(editor.RemoteConnection()) || !connection.IsCurrent() {
+				return configfile.ErrConflict
+			}
+			return nil
+		}
+		if editor.RemoteConnection() != nil {
 			return configfile.ErrConflict
 		}
 		source := editor.Snapshot.Workspace()
@@ -105,7 +116,7 @@ func (s pluginSettingsSources) Action(ctx context.Context, editor pluginservice.
 		attached, detached := p.buildSessions.shared[key], p.buildSessions.detached
 		p.buildSessions.mu.Unlock()
 		if attached == nil || attached.Closed() {
-			if _, err := s.app.attachSharedBuildClient(ctx, p, buildInstance{}, key, server, detached); err != nil {
+			if _, err := s.app.attachSharedBuildClient(ctx, p, key, server, nil, detached); err != nil {
 				return result, err
 			}
 		}

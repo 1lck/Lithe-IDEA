@@ -10,16 +10,20 @@ import (
 // PluginBackendStart is the host-resolved process and workspace. The host must
 // only supply programs and grants from an approved, verified plugin package.
 type PluginBackendStart struct {
-	ProviderID         string            `json:"providerId"`
-	PluginID           string            `json:"pluginId"`
-	Role               string            `json:"role,omitempty"`
-	ExecutablePath     string            `json:"executablePath"`
-	Arguments          []string          `json:"arguments,omitempty"`
-	Environment        map[string]string `json:"environment,omitempty"`
-	RootURI            any               `json:"rootUri"`
-	WorkingDirectory   string            `json:"workingDirectory"`
-	HostServices       []string          `json:"hostServices,omitempty"`
-	ToolchainProviders []string          `json:"toolchainProviders,omitempty"`
+	ProviderID           string            `json:"providerId"`
+	PluginID             string            `json:"pluginId"`
+	Role                 string            `json:"role,omitempty"`
+	ExecutablePath       string            `json:"executablePath"`
+	UIProcess            bool              `json:"uiProcess,omitempty"`
+	RemoteCommands       []string          `json:"remoteCommands,omitempty"`
+	RemoteExecutablePath string            `json:"remoteExecutablePath,omitempty"`
+	RemotePathPrepend    []string          `json:"remotePathPrepend,omitempty"`
+	Arguments            []string          `json:"arguments,omitempty"`
+	Environment          map[string]string `json:"environment,omitempty"`
+	RootURI              any               `json:"rootUri"`
+	WorkingDirectory     string            `json:"workingDirectory"`
+	HostServices         []string          `json:"hostServices,omitempty"`
+	ToolchainProviders   []string          `json:"toolchainProviders,omitempty"`
 	// FunctionRelayEnabled isolates preparation sessions from both incoming and
 	// outgoing cross-plugin calls. Omitted preserves ordinary backend behavior.
 	FunctionRelayEnabled *bool `json:"functionRelayEnabled,omitempty"`
@@ -41,8 +45,18 @@ type PluginBackendStart struct {
 
 // PluginHostOptions are what the host declares about the services it grants one session.
 type PluginHostOptions struct {
-	Editor *EditorHostOptions `json:"editor,omitempty"`
+	Editor            *EditorHostOptions                `json:"editor,omitempty"`
+	MethodAuthorities map[string]PluginAuthoritySupport `json:"methodAuthorities,omitempty"`
 }
+
+// PluginAuthoritySupport names the workspace authorities a host method accepts.
+type PluginAuthoritySupport string
+
+const (
+	PluginAuthorityLocal  PluginAuthoritySupport = "local"
+	PluginAuthorityRemote PluginAuthoritySupport = "remote"
+	PluginAuthorityBoth   PluginAuthoritySupport = "both"
+)
 
 // EditorHostOptions are the editor service's options: the icons the host draws for an
 // action, the largest document it collects actions for, and the provider types
@@ -87,10 +101,12 @@ type PluginBackendStarted struct {
 // host must verify package paths and trust, resolve tools, and create the
 // requested writable directories before starting a process.
 type PluginBackendPlan struct {
+	Placement string `json:"placement,omitempty"`
 	// Owner identifies the validated package that produced this launch plan.
 	Owner  *PluginSettingsOwner `json:"owner,omitempty"`
 	Launch struct {
 		Kind             string   `json:"kind"`
+		RemoteExecutable string   `json:"remoteExecutable"`
 		Path             string   `json:"path"`
 		Commands         []string `json:"commands"`
 		Tool             string   `json:"tool"`
@@ -144,11 +160,14 @@ type PluginBuildProviderPlan struct {
 
 type PluginBackendDirectories struct {
 	PluginDirectory         string                     `json:"pluginDirectory"`
+	RemotePluginDirectory   string                     `json:"remotePluginDirectory,omitempty"`
 	StateDirectory          string                     `json:"stateDirectory"`
 	WorkspaceStateDirectory string                     `json:"workspaceStateDirectory,omitempty"`
 	LogDirectory            string                     `json:"logDirectory,omitempty"`
 	TemporaryDirectory      string                     `json:"temporaryDirectory,omitempty"`
 	Architecture            string                     `json:"architecture"`
+	RemoteWorkspace         bool                       `json:"remoteWorkspace,omitempty"`
+	ProbeLocalPlacement     bool                       `json:"probeLocalPlacement,omitempty"`
 	Settings                map[string]json.RawMessage `json:"settings,omitempty"`
 	ProjectSettings         map[string]json.RawMessage `json:"projectSettings,omitempty"`
 	// ProjectCodeAllowed is whether the user trusts the workspace. Core plans no language
@@ -163,6 +182,12 @@ type PluginBackendDirectories struct {
 // would run project code and the workspace is not trusted. The host leaves the process
 // stopped and starts it once the user trusts the workspace.
 const LaunchUntrustedWorkspace = "plugin.launch.untrustedWorkspace"
+
+// IsLaunchRemoteUnsupported reports an explicit local-only declaration.
+func IsLaunchRemoteUnsupported(err error) bool {
+	var rejection *MarketplaceRejection
+	return errors.As(err, &rejection) && rejection.Code == "plugin.launch.remoteUnsupported"
+}
 
 // IsLaunchUntrustedWorkspace reports whether err is Core's refusal of a launch for want of
 // workspace trust.

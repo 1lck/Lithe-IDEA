@@ -39,7 +39,8 @@ type entrypointFound struct {
 // loaded first, since the configuration names the model's project; a press waits for it as a
 // press on a configuration does.
 func (a *App) performCurrentFileAction(p *project, action titleAction) {
-	if a.refuseRemote(p, "run_current_file") {
+	connection, connected := captureWorkspaceConnection(p)
+	if !connected {
 		return
 	}
 	if p.safeMode() {
@@ -52,12 +53,12 @@ func (a *App) performCurrentFileAction(p *project, action titleAction) {
 	}
 	doc := p.selectedDocument(p.docs.group)
 	if doc == nil || doc.path == "" {
-		a.runCurrentFileEditorAction(p, doc, action, nil)
+		a.runCurrentFileEditorAction(p, doc, action, nil, connection)
 		return
 	}
 	relative, err := filepath.Rel(p.root, doc.path)
 	if err != nil || relative == "." || strings.HasPrefix(relative, "..") {
-		a.runCurrentFileEditorAction(p, doc, action, nil)
+		a.runCurrentFileEditorAction(p, doc, action, nil, connection)
 		return
 	}
 	file := filepath.ToSlash(relative)
@@ -79,14 +80,15 @@ func (a *App) performCurrentFileAction(p *project, action titleAction) {
 	}
 	candidates = slices.DeleteFunc(candidates, func(c entrypointCandidate) bool { return !c.instance.modelLoaded })
 	if len(candidates) == 0 {
-		a.runCurrentFileEditorAction(p, doc, action, nil)
+		a.runCurrentFileEditorAction(p, doc, action, nil, connection)
 		return
 	}
 	if doc.dirty() || doc.saving || doc.conflicted {
 		s.findingEntrypoint = true
 		a.saveBeforeClose(p, doc, func(ok bool) {
 			s.findingEntrypoint = false
-			if ok && a.project == p && p.selectedDocument(p.docs.group) == doc {
+			if ok && a.project == p && p.selectedDocument(p.docs.group) == doc &&
+				(connection == nil || connection.IsCurrent()) {
 				a.performCurrentFileAction(p, action)
 			}
 		})
@@ -99,12 +101,13 @@ func (a *App) performCurrentFileAction(p *project, action titleAction) {
 	kernel := a.kernel
 	documentPath, revision := doc.path, doc.view.Revision()
 	a.background(p, buildRequestTimeout, func(ctx context.Context) func(*App) {
+		ctx = attachedWorkspaceContext(ctx, connection)
 		found, err := a.findEntrypoint(ctx, p, kernel, candidates, file, action)
 		cancelled := errors.Is(ctx.Err(), context.Canceled)
 		return func(a *App) {
 			s.findingEntrypoint = false
 			// log-exempt: 用户取消：项目关闭或请求取消后没有入口需要启动。
-			if cancelled {
+			if cancelled || (connection != nil && !connection.IsCurrent()) {
 				return
 			}
 			if p.selectedDocument(p.docs.group) != doc || doc.path != documentPath || doc.view.Revision() != revision {
@@ -116,8 +119,13 @@ func (a *App) performCurrentFileAction(p *project, action titleAction) {
 			if found != nil {
 				s.findingEntrypoint = true
 				a.background(p, buildRequestTimeout, func(ctx context.Context) func(*App) {
-					id, err := a.saveEntrypointConfiguration(ctx, p, kernel, *found)
-					return func(a *App) { a.startEntrypointConfiguration(p, id, action, err) }
+					id, err := a.saveEntrypointConfiguration(attachedWorkspaceContext(ctx, connection), p, kernel, *found)
+					return func(a *App) {
+						s.findingEntrypoint = false
+						if connection == nil || connection.IsCurrent() {
+							a.startEntrypointConfiguration(p, id, action, err)
+						}
+					}
 				})
 				return
 			}
@@ -129,7 +137,7 @@ func (a *App) performCurrentFileAction(p *project, action titleAction) {
 			if err != nil {
 				a.backgroundFailed("title_run_current_file", err)
 			}
-			a.runCurrentFileEditorAction(p, doc, action, err)
+			a.runCurrentFileEditorAction(p, doc, action, err, connection)
 		}
 	})
 }
@@ -227,7 +235,7 @@ func (a *App) saveEntrypointConfiguration(ctx context.Context, p *project, kerne
 	if err != nil {
 		return "", err
 	}
-	if err := applyRunConfigChanges(ctx, p.root, changes); err != nil {
+	if err := a.applyRunConfigChanges(ctx, p.root, changes); err != nil {
 		return "", err
 	}
 	return id, nil

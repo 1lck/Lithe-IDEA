@@ -20,6 +20,7 @@ var settingsWindows = struct {
 type settingsNotice struct {
 	owner    core.PluginSettingsOwner
 	root     *string
+	remote   *remoteSettingsWorkspace
 	delivery core.SettingsDelivery
 }
 
@@ -76,7 +77,12 @@ func (a *App) publishSettings(editor pluginservice.SettingsEditor, scope string,
 		if root != nil {
 			workspace = *root
 		}
-		delivery, err := target.plugins.PlanSettingsDelivery(ctx, editor, scope, effects, workspace)
+		remote := target.settingsRemote.Load()
+		var connection *core.RemoteWorkspaceConnection
+		if remote != nil {
+			connection = remote.binding.CaptureConnection()
+		}
+		delivery, err := target.plugins.PlanSettingsDelivery(ctx, editor, scope, effects, workspace, connection)
 		if err != nil {
 			failures = append(failures, err)
 			continue
@@ -84,7 +90,7 @@ func (a *App) publishSettings(editor pluginservice.SettingsEditor, scope string,
 		if !delivery.Refresh {
 			continue
 		}
-		notice := settingsNotice{owner: editor.SettingsOwner(), root: root, delivery: delivery}
+		notice := settingsNotice{owner: editor.SettingsOwner(), root: root, remote: remote, delivery: delivery}
 		select {
 		case sub.notices <- notice:
 			target.invalidator.Invalidate()
@@ -114,7 +120,7 @@ func (a *App) drainSettings() {
 		if a.settingsWindow != nil {
 			a.settingsWindow.PluginSettingsChanged(notice.owner.PluginID)
 		}
-		if notice.root != a.toolchainRoot.Load() {
+		if notice.root != a.toolchainRoot.Load() || notice.remote != a.settingsRemote.Load() {
 			continue
 		}
 		a.applyPluginSettingsEffects(notice.owner, notice.delivery.Effects)

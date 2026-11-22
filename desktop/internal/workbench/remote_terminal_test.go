@@ -13,6 +13,7 @@ import (
 
 	"github.com/1lck/Lithe-IDEA/desktop/internal/core"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/i18n"
+	"github.com/1lck/Lithe-IDEA/desktop/internal/pluginservice"
 )
 
 // remoteHostTerminals stands in for the host's terminals (remote.runTerminal): a terminal starts
@@ -35,6 +36,7 @@ type remoteHostTerminals struct {
 
 // remoteHostPrompt is what a host terminal prints when it starts.
 const remoteHostPrompt = "host$"
+const remoteTestTerminalPID = 11223
 
 // remoteHostRun is one terminal the host ran.
 type remoteHostRun struct {
@@ -70,7 +72,7 @@ func (k *remoteHostKernel) RemoteRunTerminal(ctx context.Context, session string
 		close(run.ended)
 		h.signal()
 	}()
-	events.Started(id)
+	events.Started(id, remoteTestTerminalPID)
 	events.Output([]byte(remoteHostPrompt + " "))
 	h.signal()
 	for {
@@ -192,6 +194,108 @@ func (h *remoteHostTerminals) await(t *testing.T, what string, condition func() 
 		case <-deadline.C:
 			t.Fatalf("timed out waiting for %s", what)
 		}
+	}
+}
+
+func TestRemotePluginTerminalRequiresFreshConsentAndRunsOnTheHost(t *testing.T) {
+	h, k, _, _ := remoteWorkspaceHarness(t)
+	p := h.openRemoteTestProject(t)
+	ctx, cancel := context.WithTimeout(t.Context(), 20*time.Second)
+	defer cancel()
+
+	type result struct {
+		session pluginservice.TerminalSession
+		err     error
+	}
+	done := make(chan result, 1)
+	start := func() {
+		mode := "test"
+		spec := pluginservice.TerminalSpec{
+			PluginID: "dev.lithe.test.remote-terminal", Executable: "/usr/bin/printf",
+			Arguments: []string{"%s", "two words", ""}, Title: "Remote tool",
+			Directory:        remoteTestFolder + "/src",
+			RemoteDirectory:  &core.RemoteScopedDirectory{Root: remoteTestFolder, Path: "src"},
+			RemoteConnection: p.remote.binding.CaptureConnection(),
+			Environment:      map[string]*string{"TOOL_MODE": &mode, "REMOVE_ME": nil},
+		}
+		go func() {
+			session, err := (pluginWorkbench{app: h.app}).StartTerminal(ctx, p.root, spec)
+			done <- result{session: session, err: err}
+			h.app.invalidator.Invalidate()
+		}()
+	}
+	wait := func() result {
+		var finished result
+		h.await("the plugin terminal launch decision", func() bool {
+			select {
+			case finished = <-done:
+				return true
+			default:
+				return false
+			}
+		})
+		return finished
+	}
+	checkRefusal := func(code string) {
+		t.Helper()
+		finished := wait()
+		var refusal *pluginservice.HostError
+		if finished.session != nil || !errors.As(finished.err, &refusal) || refusal.Code != code {
+			t.Fatalf("launch should fail with %s, got session %v, error %v", code, finished.session, finished.err)
+		}
+		if len(h.app.prompts.queue) != 0 || len(k.terminals.started()) != 0 {
+			t.Fatal("refused launch left a consent prompt or started a host terminal")
+		}
+	}
+	awaitPrompt := func() {
+		t.Helper()
+		h.await("the remote terminal consent prompt", func() bool { return len(h.app.prompts.queue) == 1 })
+		prompt := h.app.prompts.queue[0]
+		if !strings.Contains(prompt.text, p.remote.name) || !strings.Contains(prompt.text, remoteTestFolder+"/src") {
+			t.Fatalf("consent does not identify the remote destination: %q", prompt.text)
+		}
+		if len(k.terminals.started()) != 0 {
+			t.Fatal("the host started before consent")
+		}
+	}
+
+	start()
+	checkRefusal(pluginservice.CodePermissionDenied)
+	h.app.applyProjectTrust(p, true)
+
+	allow := 1
+	start()
+	awaitPrompt()
+	p.remote.binding.Attach(p.remote.session)
+	h.app.answerPrompt(&allow)
+	checkRefusal(pluginservice.CodeRemoteDisconnected)
+
+	start()
+	awaitPrompt()
+	h.app.answerPrompt(&allow)
+	finished := wait()
+	if finished.err != nil || finished.session == nil {
+		t.Fatalf("approved launch = %v, %v", finished.session, finished.err)
+	}
+	k.terminals.await(t, "the approved host terminal", func() bool { return len(k.terminals.started()) == 1 })
+	run := k.terminals.started()[0]
+	open := run.open
+	if run.session != p.remote.session || open.Cwd != "" || open.ScopedCwd == nil ||
+		open.ScopedCwd.Root != remoteTestFolder || open.ScopedCwd.Path != "src" ||
+		!slices.Equal(open.Argv, []string{"/usr/bin/printf", "%s", "two words", ""}) {
+		t.Fatalf("incorrect remote launch: session = %q, request = %#v", run.session, open)
+	}
+	if open.Environment != "login" || open.Env["TOOL_MODE"] != "test" || open.Env["TERM_PROGRAM"] != "Lithe" ||
+		!slices.Equal(open.UnsetEnv, []string{"REMOVE_ME"}) {
+		t.Fatalf("incorrect remote environment: source = %q, set = %v, unset = %v", open.Environment, open.Env, open.UnsetEnv)
+	}
+
+	term := p.terms.list[len(p.terms.list)-1]
+	h.app.closeTerminal(p, term.id)
+	select {
+	case <-run.ended:
+	case <-ctx.Done():
+		t.Fatal("closing the tab did not end its remote PTY")
 	}
 }
 
@@ -422,12 +526,11 @@ func remoteTestShell(t *testing.T, k *remoteHostKernel) (*remoteShell, *remoteSh
 			reports.failed = append(reports.failed, operation)
 		},
 	}
-	shell, err := host.start(80, 24)
+	s, err := host.start(80, 24)
 	if err != nil {
 		cancel()
 		t.Fatalf("start: %v", err)
 	}
-	s := shell.(*remoteShell)
 	t.Cleanup(func() {
 		cancel()
 		deadline := time.NewTimer(8 * time.Second)

@@ -9,8 +9,11 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"runtime"
 	"testing"
+	"time"
 
+	"github.com/1lck/Lithe-IDEA/desktop/internal/core"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/pluginhost"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/pluginpkg"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/plugintrust"
@@ -504,8 +507,68 @@ func TestCommitInstallsAndRecordsTheApproval(t *testing.T) {
 	if err != nil || !found {
 		t.Fatalf("record: %v, found = %v", err, found)
 	}
-	if record.ContentDigest != plan.ContentDigest || record.ArchiveSHA256 != digest {
+	if record.ContentDigest != plan.ContentDigest || record.ArchiveSHA256 != digest ||
+		record.SealedTreeSHA256 == "" || record.SealedTreeSHA256 != plan.SealedTreeSHA256 {
 		t.Fatalf("record = %+v", record)
+	}
+}
+
+func TestSamePlatformSnapshotVerifiesInstalledBytesAndModes(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	service, _, root := newService(t, &fakeValidator{}, sampleReviewer())
+	archive := writeArchive(t, sampleManifest, map[string]string{"lib/a.txt": "code", "lib-extra.txt": "keep"})
+	plan, err := service.Prepare(ctx, Request{ArchivePath: archive, Root: root, Source: plugintrust.Disk})
+	if err != nil {
+		t.Fatal(err)
+	}
+	installed, err := service.Commit(plan)
+	if err != nil {
+		t.Fatal(err)
+	}
+	reviewCalls := 0
+	review := func(_ context.Context, request core.MarketplaceVariantReview) (json.RawMessage, error) {
+		reviewCalls++
+		if string(request.VariantManifest) != sampleManifest {
+			t.Fatalf("reviewed manifest = %q", request.VariantManifest)
+		}
+		return request.VariantManifest, nil
+	}
+	snapshot := func() (RemoteVariant, error) {
+		return SnapshotInstalledVariant(ctx, installed.Path, plan.SealedTreeSHA256, core.MarketplaceVariantReview{}, review)
+	}
+	first, err := snapshot()
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		if err := os.RemoveAll(first.Directory); err != nil {
+			t.Error(err)
+		}
+	})
+	current := filepath.Join(installed.Path, "lib", "a.txt")
+	if runtime.GOOS != "windows" {
+		if err := os.Chmod(current, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := snapshot(); !errors.Is(err, ErrInstalledSeal) {
+			t.Fatalf("changed execute bit was accepted: %v", err)
+		}
+		if err := os.Chmod(current, 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	// Even a same-size edit must invalidate the approval and leave earlier
+	// snapshots independent of the mutable installation.
+	if err := os.WriteFile(current, []byte("edit"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := snapshot(); !errors.Is(err, ErrInstalledSeal) {
+		t.Fatalf("changed installation was accepted: %v", err)
+	}
+	bytes, err := os.ReadFile(filepath.Join(first.Directory, "lib", "a.txt"))
+	if err != nil || string(bytes) != "code" || reviewCalls != 1 {
+		t.Fatalf("snapshot = %q, error = %v, reviews = %d", bytes, err, reviewCalls)
 	}
 }
 

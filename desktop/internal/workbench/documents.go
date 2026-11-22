@@ -189,9 +189,16 @@ type documentLocation struct {
 	line      int
 	column    int
 	columnSet bool
+	// connection binds a plugin page's queued navigation to the host that authorized it.
+	connection *core.RemoteWorkspaceConnection
 	// group is the editor group the file opens in when it is still there; "" opens it
 	// where files open (placeEditorMember). A restored session sets it (editor_session.go).
 	group string
+}
+
+// documentOpen identifies one pending read, including the attachment of a scoped read.
+type documentOpen struct {
+	connection *core.RemoteWorkspaceConnection
 }
 
 // documentSet is the files a project has open. The zero value has none.
@@ -200,8 +207,8 @@ type documentSet struct {
 	next int
 	// clock orders the documents by when they were last shown (tab_limit.go).
 	clock uint64
-	// opening are the paths being read, so a second click while one is read opens nothing.
-	opening map[string]bool
+	// opening coalesces reads while their attachment remains current.
+	opening map[string]*documentOpen
 	// openWaiters are the callers that wait for a file being read to become a tab, or to fail.
 	openWaiters map[string][]func(*document, error)
 	// locations hold the latest requested position while a document opens.
@@ -274,6 +281,11 @@ func (a *App) syntaxRegistry() *syntax.Registry {
 // group. The file is read and its language's grammar loaded away from the window thread; a
 // file that cannot be read, is binary or is too large is not opened and the banner says why.
 func (a *App) openFile(p *project, path string) {
+	a.openFileWith(p, path, nil, nil)
+}
+
+// openFileWith can use scoped bytes tied to the connection that authorized them.
+func (a *App) openFileWith(p *project, path string, bytesOf documentBytes, connection *core.RemoteWorkspaceConnection) {
 	if path == "" {
 		return
 	}
@@ -296,18 +308,21 @@ func (a *App) openFile(p *project, path string) {
 		a.openViewer(p, path, kind)
 		return
 	}
-	if p.docs.opening[path] {
+	if pending := p.docs.opening[path]; pending != nil && (pending.connection == nil || pending.connection.IsCurrent()) {
 		return
 	}
 	if p.docs.opening == nil {
-		p.docs.opening = map[string]bool{}
+		p.docs.opening = make(map[string]*documentOpen)
 	}
-	p.docs.opening[path] = true
+	opening := &documentOpen{connection: connection}
+	p.docs.opening[path] = opening
 	registry := a.syntaxRegistry()
 	name := filepath.Base(path)
 	kernel, _ := a.kernel.(editorKernel)
 	budget := int64(a.searchPreferences.MaxFileBytes)
-	bytesOf := a.documentBytesOf(p)
+	if bytesOf == nil {
+		bytesOf = a.documentBytesOf(p)
+	}
 	remote := p.remote != nil
 	a.background(p, 0, func(ctx context.Context) func(*App) {
 		// A host file is read over the session (remote_documents.go); decoding, recovery and the
@@ -336,9 +351,19 @@ func (a *App) openFile(p *project, path string) {
 			languageID, grammar = a.resolveDocumentLanguage(ctx, registry, path, snapshot)
 		}
 		return func(a *App) {
+			if p.docs.opening[path] != opening {
+				return
+			}
 			delete(p.docs.opening, path)
 			location := p.docs.locations[path]
 			delete(p.docs.locations, path)
+			if connection != nil && !connection.IsCurrent() {
+				a.openFinished(p, path, errRemoteDisconnected)
+				return
+			}
+			if location.connection != nil && !location.connection.IsCurrent() {
+				location = documentLocation{}
+			}
 			defer a.openFinished(p, path, err)
 			if errors.Is(err, errNotText) && !p.standalone && !remote {
 				// A binary file opens in the hex viewer rather than not at all. The viewer reads
@@ -361,10 +386,8 @@ func (a *App) openFile(p *project, path string) {
 				a.applyRecoveredDocument(p, d, restored)
 			}
 			// A plugin that serves this language starts its server the first time a
-			// file of it is opened, not when the project opens: a workspace of Go
-			// files must not pay for a Java server. A remote workspace runs none on this
-			// computer, which would read the placeholder.
-			if languageID != "" && !remote {
+			// file of it is opened. Its process uses the workspace host.
+			if languageID != "" {
 				a.startPluginServer(languageID)
 			}
 			if d := p.docs.byPath(path); d != nil {
@@ -402,6 +425,10 @@ func (a *App) openFileAt(p *project, path string, line int) {
 // A file that is already open is selected and its caret moved without reading
 // it again.
 func (a *App) openFileAtPosition(p *project, path string, line, column int) {
+	a.openFileAtPositionWith(p, path, line, column, nil, nil)
+}
+
+func (a *App) openFileAtPositionWith(p *project, path string, line, column int, bytesOf documentBytes, connection *core.RemoteWorkspaceConnection) {
 	if path == "" {
 		return
 	}
@@ -415,8 +442,8 @@ func (a *App) openFileAtPosition(p *project, path string, line, column int) {
 	if p.docs.locations == nil {
 		p.docs.locations = make(map[string]documentLocation)
 	}
-	p.docs.locations[path] = documentLocation{line: line + 1, column: column, columnSet: true}
-	a.openFile(p, path)
+	p.docs.locations[path] = documentLocation{line: line + 1, column: column, columnSet: true, connection: connection}
+	a.openFileWith(p, path, bytesOf, connection)
 }
 
 // readDocument reads an editor file and asks Core to classify its complete

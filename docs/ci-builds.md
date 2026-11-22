@@ -94,6 +94,14 @@ Viva 的 IDE API 辅助程序 `lithe-mcp` 由 `scripts/desktop/build-desktop-cor
 远端工作区服务 `lithe-remote-server`（#2231）也嵌入客户端二进制：`package-desktop.sh` 在 `viva package` 前取得一个暂存目录（CI 通过 `LITHE_REMOTE_SERVER_STAGE` 给出可复用工作流已经冒烟测试过的产物，用 `--require-pinned` 校验；本地打包运行 `build-remote-server.sh` 重新编译，不要求固定提交），用 `verify-remote-server-artifacts.mjs` 校验后，再逐个核对体积和 SHA-256，复制成 `desktop/internal/remoteserver/<目标>.bin` 和 `remote-server-manifest.json`，以 `lithe_bundled_remote_server` 构建标签嵌入；校验后字节有变化就停止打包。这些生成文件被 Git 忽略，打包开始前先删掉上一次中断留下的旧文件，打包结束或失败时再删除，不跨工作树复制。运行期由 `remoteserver.Install` 在远程开发窗口连接主机时把与清单哈希一致的字节原子安装到用户缓存目录 `<os.UserCacheDir()>/Lithe/remote-server/<目标>/lithe-remote-server`（目录 0700、文件 0600，字节相同就复用），再交给 Core 上传到远程主机；它不执行这个文件，不写安装目录，安装包里也不多出文件，签名和增量更新基线不受影响。删除该缓存目录是安全的，下次连接会重新安装。开发运行由 `desktop-go.sh` 在 `.artifacts/desktop/remote-server/` 有清单时导出 `LITHE_REMOTE_SERVER_STAGE`，客户端直接读取暂存目录并按清单校验，不复制；打包版只用嵌入的字节，忽略该变量。
 
 打开的远程工作区以本机占位目录作为项目根（`desktop/internal/remoteplaceholder`）。所有占位目录都在锚点文件 `<os.UserCacheDir()>/Lithe/remote-workspaces` 之下：它是一个空的只读普通文件（0444，所在目录 0700），第一次打开远程工作区时创建，之后每次使用都检查它仍是普通文件，是目录、链接或其他类型就拒绝打开。占位目录因此永远无法在本机列出或创建，没走 Core 的本机文件调用会以 ENOTDIR（Windows 上为 ERROR_PATH_NOT_FOUND）失败，不会读写一个看起来像项目的本机文件夹。锚点不含数据、不随工作区关闭删除；手动删除是安全的，下次打开会重新创建。它属于用户缓存目录，不在任何检出或安装目录里，不跨工作树复制，也不影响签名和增量更新基线。
+
+插件运行的临时输入和远端构建报告保存在远端用户目录 `~/.lithe-server/plugin-runs/<随机 ID>/` 下。远端会话拥有目录，单次运行或构建在进程退出并读完结果后释放，启动失败时也释放，结束整个会话时服务端会清理余下目录。目录不参与本地编译缓存，不跨会话或工作树复制。客户端运行时不会把这些输入或报告写进安装资源，应用签名和增量更新基线不会受影响。
+
+已批准的插件进程资源和托管运行时归档先上传到远端用户目录 `~/.lithe-server/deployment-staging/<随机 ID>/`。连接拥有暂存目录，提交、取消或断开会释放它。若远端服务异常退出，下次连接扫描并回收没有进程持有租约的暂存目录。暂存不跨连接或工作树复制，也不包含正在执行的项目快照。
+
+资源全部校验通过后原子移到远端服务拥有的部署缓存。插件资源位于 `~/.lithe-server/plugin-deployments/<插件 ID>/<版本>-<SHA-256>/`，托管运行时位于同一用户目录的 `managed-runtimes/`。同一远端账户按部署哈希复用，连接时根据桌面端的完整安装清单移除已卸载、且没有会话使用的版本。部署缓存不能当作编译产物跨工作树复制。客户端不写安装资源，应用签名和增量更新基线不受影响。
+
+异平台插件包由桌面端保存在 `<os.UserCacheDir()>/Lithe/remote-plugin-archives/<SHA-256>`。只保留校验和清单复核通过的完整 ZIP，最多 32 个、总计 1 GiB，按最近一次通过验证的使用时间淘汰。各客户端进程共用本机账户的目录和系统文件锁，每次解包重新验哈希。原子发布的暂存文件 `.pending` 随失败清理，异常退出遗留的文件由下次写入清理。用户可以清空缓存，程序会重新下载。对同平台安装包，桌面端在系统临时目录创建私有快照，核对安装时记录的文件路径、大小、内容和执行位，使用后删除。快照及缓存都不属于编译产物，不跨工作树复制，不改变应用签名或增量更新基线。
 `viva package` 的链接参数是固定的，不能用 `-X` 注入构建信息，所以 `package-desktop.sh` 每次打包都生成 `desktop/internal/buildinfo/package_info.go`，以 `lithe_package_info` 构建标签编进客户端。文件记录更新渠道（`--stable` 为正式版，`--autobuild` 为 AutoBuild，本地包为空，不会自我更新）、构建时间（`LITHE_BUILD_TIME`，缺省为打包时刻）、提交（`LITHE_BUILD_COMMIT`，缺省为 `git HEAD`），以及验证更新源签名的公钥（`LITHE_UPDATE_PUBLIC_KEYS`，逗号分隔，只含公钥）。打包结束或失败时删除这个文件；它被 Git 忽略，不跨工作树复制。它只改变可执行文件本身，安装包里不会多出文件，签名和增量更新基线也不受影响。
 
 打包和更新源签名用的 `viva` 命令由 `scripts/desktop/build-viva-tool.sh` 按 `desktop/go.mod` 的 `replace` 从 Viva fork 编译，放在当前工作树的 `.artifacts/desktop/tools/viva-<模块版本>/`；`replace` 指向本地目录时没有版本，放在 `viva-local/` 并每次重新编译。目录名只固定 Viva 源码，不记录 Go 工具链和主机平台；随 `.artifacts/desktop/` 一起复制时，必须满足下文的前提（含相同的 Go 工具链和主机平台），否则删掉该目录，由脚本在本工作树重新编译。它只在打包（`package-desktop.sh`）和签名更新源（`publish-update-feed.sh`）时使用，不进入安装包，不影响签名或增量更新基线。
@@ -135,7 +143,7 @@ Viva 桌面端（`desktop/`，Go）的构建状态位于 `.artifacts/desktop/`�
 默认从构建脚本中固定的 Lithe-core-rust 提交检出；联调尚未合入的 core 改动时，设置
 `LITHE_CORE_RUST_DIR=/path/to/Lithe-core-rust` 改用本地检出（脚本只读取它，不修改该检出）。
 `desktop-go.sh` 每次运行前都调用构建脚本重新暂存，固定提交变了或本地检出改了都不会继续链接旧库；
-没有变化时 git 和 cargo 都判定为最新，这一步约一秒。固定检出和 `LITHE_CORE_RUST_DIR` 共用同一个 Cargo 编译目录，
+没有变化时 git 和 cargo 都判定为最新，暂存时按内容复用相同的静态库，无需为未变化的归档再分配空间。固定检出和 `LITHE_CORE_RUST_DIR` 共用同一个 Cargo 编译目录，
 而 cargo 按成员在工作区内的相对路径计算哈希，不看检出所在位置：两个检出把每个工作区成员（例如事件目录所在的
 `lithe-diagnostics`）编译到同一组文件、同一份指纹，新旧只按修改时间判断，切回原检出时会把另一个检出的代码当作
 本检出暂存。构建脚本因此按 target 和 profile 在编译目录里记录上次编译工作区成员的检出

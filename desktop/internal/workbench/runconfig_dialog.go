@@ -1142,10 +1142,10 @@ func (p *project) runConfigDialogArrangement() (core.RunConfigArrangement, bool)
 // the copy's ID.
 func (a *App) copyRunConfiguration(p *project, id, name string, done func(string, error)) {
 	root, kernel := p.root, a.kernel
-	a.background(p, buildRequestTimeout, func(ctx context.Context) func(*App) {
+	a.backgroundRunConfig(p, func(ctx context.Context) func(*App) {
 		copied, changes, err := kernel.CopyRunConfiguration(ctx, root, id, name, a.runConfigPlugins(ctx))
 		if err == nil {
-			err = applyRunConfigChanges(ctx, root, changes)
+			err = a.applyRunConfigChanges(ctx, root, changes)
 		}
 		return func(a *App) {
 			if err != nil {
@@ -1159,11 +1159,11 @@ func (a *App) copyRunConfiguration(p *project, id, name string, done func(string
 // arrangeRunConfigurations writes the folders, order and sort choice of request.
 func (a *App) arrangeRunConfigurations(p *project, request core.RunConfigArrangement, done func(error)) {
 	kernel := a.kernel
-	a.background(p, buildRequestTimeout, func(ctx context.Context) func(*App) {
+	a.backgroundRunConfig(p, func(ctx context.Context) func(*App) {
 		request.Plugins = a.runConfigPlugins(ctx)
 		changes, err := kernel.ArrangeRunConfigurations(ctx, request)
 		if err == nil {
-			err = applyRunConfigChanges(ctx, request.Root, changes)
+			err = a.applyRunConfigChanges(ctx, request.Root, changes)
 		}
 		return func(a *App) {
 			if err != nil {

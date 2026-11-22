@@ -194,7 +194,7 @@ func Declared() Capabilities {
 	}
 	// Version 1 adds module sidebars, field sections and entry lists, which the
 	// settings window's source forms render.
-	declared["sourceSettings"] = []int{0, 1}
+	declared["sourceSettings"] = []int{0, 1, 2}
 	// Version 1 adds command-sourced discovery in the Build test tree.
 	// Version 2 adds registry connection debugging for provider applications.
 	declared["buildSystems"] = []int{0, 1, 2}

@@ -27,6 +27,8 @@ type BackendRequest struct {
 	Context ContextRef
 	// Architecture is the platform architecture Core plans for.
 	Architecture string
+	// RemoteConnection is the attachment captured by the window for this start.
+	RemoteConnection *core.RemoteWorkspaceConnection
 	// ProjectCodeAllowed is whether the user trusts the workspace. Without it Core plans no
 	// language server that would run project code, and the start fails with
 	// core.LaunchUntrustedWorkspace.
@@ -47,6 +49,7 @@ type LanguageSession struct {
 	Warnings  error
 	manifest  json.RawMessage
 	workspace string
+	remote    *core.RemoteWorkspaceConnection
 	// Session is Core's session.
 	Session pluginbackend.Session
 	// Documents keeps the session's open documents in step with the editor.
@@ -64,12 +67,18 @@ type LanguageSession struct {
 	languageSessionState
 }
 
+// ServesAttachment reports whether the server belongs to this exact workspace connection.
+func (s *LanguageSession) ServesAttachment(connection *core.RemoteWorkspaceConnection) bool {
+	return (s.remote == nil && connection == nil) || s.remote.SameAttachment(connection)
+}
+
 // StartLanguageServer starts the language server of the plugin that serves
 // languageID, if an enabled plugin declares one.
 //
 // It returns a nil session and no error when nothing serves the language: that is
 // the ordinary case for most files, not a failure.
 func (s *Service) StartLanguageServer(ctx context.Context, entries []pluginmanager.Entry, languageID string, request BackendRequest) (*LanguageSession, error) {
+	ctx = core.WithoutRemoteWorkspace(ctx)
 	entry, ok, err := s.LanguageServerProvider(ctx, entries, languageID)
 	if !ok {
 		return nil, err
@@ -96,11 +105,40 @@ func (s *Service) StartLanguageServer(ctx context.Context, entries []pluginmanag
 	if contextErr != nil {
 		return fail(contextErr)
 	}
-	settings, settingsErr := s.Settings.Load(ctx, manifest, request.WorkingDirectory)
+	settings, settingsErr := s.ReadWorkspacePluginSettings(ctx, manifest, request.WorkingDirectory, request.RemoteConnection)
 	if settingsErr != nil {
 		return fail(settingsErr)
 	}
-	runtimes, runtimeErr := s.EnsureRuntimesWithSettings(ctx, manifest, entry.Installed.Path, entry.Installed.ID, entry.Installed.Version, false, settings.State, request.RuntimeProgress)
+	var runtimes RuntimeEnvironment
+	var workspacePlan *core.PluginBackendPlan
+	uiProcess := request.RemoteConnection == nil
+	if request.RemoteConnection != nil {
+		request.Architecture = workspaceContext.remote.platform.Arch
+		plan, planErr := s.kernel.PlanPluginLanguageServer(ctx, manifest, languageID, core.PluginBackendDirectories{
+			Architecture:        request.Architecture,
+			RemoteWorkspace:     true,
+			ProbeLocalPlacement: true,
+			Settings:            settings.Settings,
+			ProjectSettings:     settings.ProjectSettings,
+			ProjectCodeAllowed:  request.ProjectCodeAllowed,
+		})
+		if planErr != nil {
+			if core.IsLaunchRemoteUnsupported(planErr) {
+				return nil, err
+			}
+			return fail(planErr)
+		}
+		uiProcess = plan.Placement == "ui"
+		if !uiProcess && plan.Launch.Kind != "backend" {
+			workspacePlan = &plan
+		}
+	}
+	var runtimeErr error
+	if uiProcess {
+		runtimes, runtimeErr = s.EnsureRuntimesWithSettings(ctx, manifest, entry.Installed.Path, entry.Installed.ID, entry.Installed.Version, false, settings, request.RuntimeProgress)
+	} else {
+		runtimes, runtimeErr = s.prepareRemoteRuntimes(ctx, entry.Installed, manifest, request.RemoteConnection, workspaceContext.HostPlatform(), request.RuntimeProgress)
+	}
 	if runtimeErr != nil {
 		return fail(runtimeErr)
 	}
@@ -116,9 +154,6 @@ func (s *Service) StartLanguageServer(ctx context.Context, entries []pluginmanag
 	// package is read-only for the host, and a version directory that changed
 	// would no longer match the digest the user approved.
 	stateDirectory := pluginpkg.VersionStateRoot(s.Root, entry.Installed.ID, entry.Installed.Version)
-	if stateErr := os.MkdirAll(stateDirectory, 0o700); stateErr != nil {
-		return fail(stateErr)
-	}
 	start := pluginbackend.StartRequest{
 		Manifest:           manifest,
 		PackageDirectory:   entry.Installed.Path,
@@ -127,19 +162,32 @@ func (s *Service) StartLanguageServer(ctx context.Context, entries []pluginmanag
 		LanguageID:         languageID,
 		Attempt:            attempt,
 		StateDirectory:     stateDirectory,
-		LogDirectory:       s.logDirectory(ctx, entry.Installed.ID),
 		Architecture:       request.Architecture,
-		Settings:           settings.State.Settings,
-		ProjectSettings:    settings.State.ProjectSettings,
+		RemoteConnection:   request.RemoteConnection,
+		Settings:           settings.Settings,
+		ProjectSettings:    settings.ProjectSettings,
 		RootURI:            request.RootURI,
 		WorkingDirectory:   request.WorkingDirectory,
 		ManagedTools:       runtimes.Tools,
 		ProjectCodeAllowed: request.ProjectCodeAllowed,
+		Plan:               workspacePlan,
+	}
+	if uiProcess {
+		if stateErr := os.MkdirAll(stateDirectory, 0o700); stateErr != nil {
+			return fail(stateErr)
+		}
+		start.LogDirectory = s.logDirectory(ctx, entry.Installed.ID)
+	} else {
+		start.ManagedToolConnection = request.RemoteConnection
+		start.PrepareRemote = s.RemoteDeployment(entry.Installed, manifest, workspaceContext.HostPlatform(), request.RuntimeProgress)
 	}
 	temporary := ""
 	if declaresBackendLaunch(manifest, languageID) {
-		resolved, resolveErr := s.resolveBackendLaunch(ctx, entry.Installed.ID, entry.Installed.Version, manifest, languageID, workspaceContext, start, runtimes)
+		resolved, resolveErr := s.resolveBackendLaunch(ctx, entry.Installed.ID, entry.Installed.Version, manifest, languageID, workspaceContext, start, runtimes, uiProcess)
 		if resolveErr != nil {
+			if core.IsLaunchRemoteUnsupported(resolveErr) {
+				return nil, err
+			}
 			return fail(resolveErr)
 		}
 		start.Plan = resolved.plan
@@ -153,6 +201,9 @@ func (s *Service) StartLanguageServer(ctx context.Context, entries []pluginmanag
 	started, startErr := s.Backend.Start(ctx, start)
 	if startErr != nil {
 		removeTemporary(temporary)
+		if core.IsLaunchRemoteUnsupported(startErr) {
+			return nil, err
+		}
 		return fail(startErr)
 	}
 	if _, contextErr := s.workspaceForBackend(ctx, request); contextErr != nil {
@@ -175,6 +226,7 @@ func (s *Service) StartLanguageServer(ctx context.Context, entries []pluginmanag
 		Warnings:          err,
 		manifest:          append(json.RawMessage(nil), manifest...),
 		workspace:         request.WorkingDirectory,
+		remote:            request.RemoteConnection,
 		Session:           started,
 		Documents:         pluginlsp.New(s.kernel, started.ID),
 		ContextID:         workspaceContext.ContextID,
@@ -197,6 +249,14 @@ func (s *Service) workspaceForBackend(ctx context.Context, request BackendReques
 		return WorkspaceContext{}, err
 	}
 	if filepath.Clean(workspace.Path) != filepath.Clean(request.WorkingDirectory) {
+		return WorkspaceContext{}, ErrContextExpired
+	}
+	if workspace.remote.binding != nil {
+		remote := request.RemoteConnection
+		if !remote.IsCurrent() || core.RemoteWorkspaceOf(remote.Context(ctx)) != workspace.remote.binding {
+			return WorkspaceContext{}, &core.Error{Code: core.CodeConnectionClosed, Message: "The workspace connection changed."}
+		}
+	} else if request.RemoteConnection != nil {
 		return WorkspaceContext{}, ErrContextExpired
 	}
 	return workspace, nil

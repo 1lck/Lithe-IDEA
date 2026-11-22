@@ -34,6 +34,7 @@ const (
 	CodeRateLimited          = "plugin.host.rateLimited"
 	CodePermissionDenied     = "plugin.host.permissionDenied"
 	CodeContextExpired       = "plugin.host.contextExpired"
+	CodeRemoteDisconnected   = "plugin.host.remoteDisconnected"
 	CodeUnsupportedOption    = "plugin.host.unsupportedOption"
 	codeInvalidParams        = "plugin.host.invalidParams"
 	codeAuthorityUnsupported = "plugin.host.authorityUnsupported"
@@ -185,23 +186,9 @@ type Resource struct {
 // stay inside the root, so a link cannot lead out of it. The check and the later
 // open are not atomic, which the contract documents.
 func (s *Service) resolveResource(pluginID string, workspace WorkspaceContext, resource Resource) (string, error) {
-	if resource.RootID == "" || resource.RootID != s.Contexts.RootID(pluginID, workspace.Path) {
-		return "", fmt.Errorf("%w: unknown root", ErrResource)
-	}
-	rel := resource.Path
-	if strings.ContainsAny(rel, "\\\x00") || strings.HasPrefix(rel, "/") || (len(rel) >= 2 && rel[1] == ':') {
-		return "", fmt.Errorf("%w: the path must be relative with / separators", ErrResource)
-	}
-	var parts []string
-	for _, part := range strings.Split(rel, "/") {
-		switch part {
-		case "":
-			// An empty path is the root; a doubled slash is tolerated.
-		case ".", "..":
-			return "", fmt.Errorf("%w: the path has a %q component", ErrResource, part)
-		default:
-			parts = append(parts, part)
-		}
+	parts, err := s.resourcePathParts(pluginID, workspace, resource)
+	if err != nil {
+		return "", err
 	}
 	root := filepath.Clean(workspace.Path)
 	target := filepath.Join(append([]string{root}, parts...)...)
@@ -210,7 +197,6 @@ func (s *Service) resolveResource(pluginID string, workspace WorkspaceContext, r
 		return "", err
 	}
 	existing := target
-	var rest []string
 	for {
 		if _, statErr := os.Lstat(existing); statErr == nil {
 			break
@@ -219,7 +205,6 @@ func (s *Service) resolveResource(pluginID string, workspace WorkspaceContext, r
 		if parent == existing {
 			return "", fmt.Errorf("%w: no existing parent", ErrResource)
 		}
-		rest = append([]string{filepath.Base(existing)}, rest...)
 		existing = parent
 	}
 	canonical, err := filepath.EvalSymlinks(existing)
@@ -229,8 +214,30 @@ func (s *Service) resolveResource(pluginID string, workspace WorkspaceContext, r
 	if canonical != canonicalRoot && !strings.HasPrefix(canonical, canonicalRoot+string(filepath.Separator)) {
 		return "", fmt.Errorf("%w: the path leaves the workspace", ErrResource)
 	}
-	_ = rest
 	return target, nil
+}
+
+// resourcePathParts checks the plugin's resource identity before either host resolves it.
+func (s *Service) resourcePathParts(pluginID string, workspace WorkspaceContext, resource Resource) ([]string, error) {
+	if resource.RootID == "" || resource.RootID != s.Contexts.RootID(pluginID, workspace.Path) {
+		return nil, fmt.Errorf("%w: unknown root", ErrResource)
+	}
+	rel := resource.Path
+	if strings.ContainsAny(rel, "\\\x00") || strings.HasPrefix(rel, "/") || (len(rel) >= 2 && rel[1] == ':') {
+		return nil, fmt.Errorf("%w: the path must be relative with / separators", ErrResource)
+	}
+	var parts []string
+	for _, part := range strings.Split(rel, "/") {
+		switch part {
+		case "":
+			// An empty path is the root; a doubled slash is tolerated.
+		case ".", "..":
+			return nil, fmt.Errorf("%w: the path has a %q component", ErrResource, part)
+		default:
+			parts = append(parts, part)
+		}
+	}
+	return parts, nil
 }
 
 // relativePath is the workspace-relative form of a document's absolute path, or

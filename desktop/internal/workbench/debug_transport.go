@@ -33,6 +33,8 @@ type debugTransportHooks struct {
 	Discover func(ctx context.Context) (host string, port int, err error)
 	// Dial opens the socket; nil dials TCP.
 	Dial func(ctx context.Context, host string, port int) (net.Conn, error)
+	// OpenStream opens a process byte stream without a TCP endpoint.
+	OpenStream func(ctx context.Context) (io.ReadWriteCloser, error)
 	// Connected, when set, runs once Core took the socket as ready, before anything is read
 	// from it.
 	Connected func()
@@ -70,7 +72,7 @@ type debugTransport struct {
 	mu         sync.Mutex
 	generation uint64
 	queue      [][]byte
-	conn       net.Conn
+	conn       io.ReadWriteCloser
 	timers     map[uint64]*time.Timer
 	released   bool
 }
@@ -88,7 +90,9 @@ func (t *debugTransport) Done() <-chan struct{} { return t.done }
 // Start begins the lifecycle: Core arms the discovery deadline and asks for the
 // endpoint. Frames written before the socket is ready are queued by Core's rule.
 func (t *debugTransport) Start(limits *core.DebugTransportLimitOverrides) error {
-	_, err := t.apply(core.DebugTransportEvent{Type: "start", Limits: limits}, nil, nil)
+	_, err := t.apply(core.DebugTransportEvent{
+		Type: "start", Limits: limits, DirectStream: t.hooks.OpenStream != nil,
+	}, nil, nil)
 	return err
 }
 
@@ -232,6 +236,12 @@ func (t *debugTransport) runLocked(step core.DebugTransportStep, data []byte, ow
 			host, port := effect.Host, effect.Port
 			wait := t.wait
 			t.spawn(func() { t.connect(wait, generation, host, port) })
+		case "openStream":
+			wait := t.wait
+			t.spawn(func() {
+				stream, err := t.hooks.OpenStream(wait)
+				t.acceptStream(wait, generation, stream, err)
+			})
 		case "write":
 			if len(t.queue) == 0 {
 				continue
@@ -296,20 +306,25 @@ func (t *debugTransport) discover(wait context.Context, generation uint64) {
 func (t *debugTransport) connect(wait context.Context, generation uint64, host string, port int) {
 	dial := t.hooks.Dial
 	if dial == nil {
-		dial = func(ctx context.Context, host string, port int) (net.Conn, error) {
-			var dialer net.Dialer
-			return dialer.DialContext(ctx, "tcp", net.JoinHostPort(host, strconv.Itoa(port)))
-		}
+		dial = dialDebugTCP
 	}
 	conn, err := dial(wait, host, port)
-	if wait.Err() != nil {
+	t.acceptStream(wait, generation, conn, err)
+}
+
+func dialDebugTCP(ctx context.Context, host string, port int) (net.Conn, error) {
+	var dialer net.Dialer
+	return dialer.DialContext(ctx, "tcp", net.JoinHostPort(host, strconv.Itoa(port)))
+}
+
+func (t *debugTransport) acceptStream(wait context.Context, generation uint64, conn io.ReadWriteCloser, err error) {
+	if wait.Err() != nil || err != nil {
 		if conn != nil {
 			_ = conn.Close()
 		}
-		return
-	}
-	if err != nil {
-		t.failed(generation, err)
+		if wait.Err() == nil {
+			t.failed(generation, err)
+		}
 		return
 	}
 	t.mu.Lock()
@@ -325,14 +340,17 @@ func (t *debugTransport) connect(wait context.Context, generation uint64, host s
 	if err != nil {
 		return
 	}
-	if step.Phase == "ready" && t.hooks.Connected != nil {
+	if step.Phase != "ready" || step.Outcome != "applied" {
+		return
+	}
+	if t.hooks.Connected != nil {
 		t.hooks.Connected()
 	}
 	t.read(generation, conn)
 }
 
 // read reports every chunk to Core and forwards it only when Core says so.
-func (t *debugTransport) read(generation uint64, conn net.Conn) {
+func (t *debugTransport) read(generation uint64, conn io.Reader) {
 	buffer := make([]byte, debugReadChunk)
 	for {
 		count, err := conn.Read(buffer)
@@ -352,7 +370,7 @@ func (t *debugTransport) read(generation uint64, conn net.Conn) {
 	}
 }
 
-func (t *debugTransport) writeFrame(generation, writeID uint64, conn net.Conn, frame []byte) {
+func (t *debugTransport) writeFrame(generation, writeID uint64, conn io.Writer, frame []byte) {
 	if conn == nil {
 		t.failed(generation, errDebugTransportNotRunning)
 		return

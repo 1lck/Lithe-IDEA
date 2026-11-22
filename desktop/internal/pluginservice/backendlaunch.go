@@ -29,34 +29,37 @@ type backendLaunch struct {
 // system temporary directory. Nothing is derived from the installed
 // package or the application bundle, which stay read-only so the next
 // differential update still matches what the user installed.
-func (s *Service) resolveBackendLaunch(ctx context.Context, pluginID, version string, manifest json.RawMessage, languageID string, workspace WorkspaceContext, start pluginbackend.StartRequest, runtimes RuntimeEnvironment) (backendLaunch, error) {
+func (s *Service) resolveBackendLaunch(ctx context.Context, pluginID, version string, manifest json.RawMessage, languageID string, workspace WorkspaceContext, start pluginbackend.StartRequest, runtimes RuntimeEnvironment, uiProcess bool) (backendLaunch, error) {
 	if workspace.ContextID == "" {
 		return backendLaunch{}, fmt.Errorf("%w: a backend-resolved server needs an open workspace", pluginbackend.ErrRequest)
 	}
-	base := pluginpkg.StateRoot(s.Root, pluginID)
-	temporary, err := os.MkdirTemp("", "lithe-server-")
-	if err != nil {
-		return backendLaunch{}, err
-	}
-	directories := pluginDirectories{
-		state:          start.StateDirectory,
-		workspaceState: filepath.Join(base, "servers", languageID, "workspaces", WorkspaceKey(workspace.Path)),
-		log:            start.LogDirectory,
-		temporary:      temporary,
-	}
+	var directories pluginDirectories
 	fail := func(err error) (backendLaunch, error) {
-		removeTemporary(temporary)
+		removeTemporary(directories.temporary)
 		return backendLaunch{}, err
 	}
-	if err := directories.create(); err != nil {
-		return fail(err)
+	remote := start.RemoteConnection
+	if uiProcess {
+		base := pluginpkg.StateRoot(s.Root, pluginID)
+		temporary, err := os.MkdirTemp("", "lithe-server-")
+		if err != nil {
+			return backendLaunch{}, err
+		}
+		directories = pluginDirectories{
+			state:          start.StateDirectory,
+			workspaceState: filepath.Join(base, "servers", languageID, "workspaces", WorkspaceKey(workspace.Path)),
+			log:            start.LogDirectory,
+			temporary:      temporary,
+		}
+		if err := directories.create(); err != nil {
+			return fail(err)
+		}
+		// Retention distinguishes open workspaces from abandoned ones by this time.
+		now := time.Now()
+		_ = os.Chtimes(directories.workspaceState, now, now)
 	}
-	// The host refreshes the directory's time on each start so retention can tell
-	// open workspaces from abandoned ones.
-	now := time.Now()
-	_ = os.Chtimes(directories.workspaceState, now, now)
 	request := core.PluginBackendDirectories{
-		PluginDirectory:         start.PackageDirectory,
+		RemoteWorkspace:         remote != nil,
 		StateDirectory:          directories.state,
 		WorkspaceStateDirectory: directories.workspaceState,
 		LogDirectory:            directories.log,
@@ -65,6 +68,9 @@ func (s *Service) resolveBackendLaunch(ctx context.Context, pluginID, version st
 		Settings:                start.Settings,
 		ProjectSettings:         start.ProjectSettings,
 		ProjectCodeAllowed:      start.ProjectCodeAllowed,
+	}
+	if uiProcess {
+		request.PluginDirectory = start.PackageDirectory
 	}
 	plan, err := s.kernel.PlanPluginLanguageServer(ctx, manifest, languageID, request)
 	if err != nil {
@@ -75,7 +81,14 @@ func (s *Service) resolveBackendLaunch(ctx context.Context, pluginID, version st
 	}
 	// The function's params are the plan's resolveParams themselves, as the
 	// contract says: serverID, platform, the four directories and the settings.
-	params, err := s.languageLaunchParamsWithRuntimes(ctx, workspace.Path, manifest, plan.ResolveParams, runtimes)
+	toolCtx := ctx
+	toolRoot := workspace.Path
+	if remote != nil && !uiProcess {
+		toolCtx = remote.Context(ctx)
+	} else if remote != nil {
+		toolRoot = start.StateDirectory
+	}
+	params, err := s.languageLaunchParamsWithRuntimes(toolCtx, toolRoot, manifest, plan.ResolveParams, runtimes)
 	if err != nil {
 		return fail(err)
 	}

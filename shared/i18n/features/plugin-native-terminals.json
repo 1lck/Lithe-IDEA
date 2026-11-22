@@ -1,0 +1,21 @@
+{
+  "schemaVersion": 1,
+  "messages": [
+    {
+      "id": "desktop.pluginHost.terminalConsentRemote",
+      "description": "Remote connection where the plugin's terminal command will run",
+      "platforms": ["desktop"],
+      "parameters": {
+        "connection": "string"
+      }
+    }
+  ],
+  "locales": {
+    "en-US": {
+      "desktop.pluginHost.terminalConsentRemote": "Remote connection: {connection}"
+    },
+    "zh-CN": {
+      "desktop.pluginHost.terminalConsentRemote": "远程连接：{connection}"
+    }
+  }
+}

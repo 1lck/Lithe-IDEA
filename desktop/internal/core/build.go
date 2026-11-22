@@ -147,18 +147,25 @@ type BuildProviderRequest struct {
 // BuildPlan is either a command plan or a provider request. A provider plan has
 // no Arguments; the plugin owns the build semantics.
 type BuildPlan struct {
-	BuildSystemID       string                `json:"buildSystemID"`
-	Root                string                `json:"root"`
-	Arguments           []string              `json:"arguments"`
-	Environment         map[string]string     `json:"environment"`
-	WorkingDirectory    string                `json:"workingDirectory"`
-	Execution           string                `json:"execution"`
-	OptionFingerprint   string                `json:"optionFingerprint"`
-	Output              string                `json:"output,omitempty"`
-	Decoder             string                `json:"decoder,omitempty"`
-	ExecutesProjectCode bool                  `json:"executesProjectCode,omitempty"`
-	MayUseNetwork       bool                  `json:"mayUseNetwork,omitempty"`
-	Provider            *BuildProviderRequest `json:"provider,omitempty"`
+	// RequiredPackagePaths is the preflight response for a remote model
+	// command with package inputs and no deployed plugin directory yet.
+	RequiredPackagePaths []string              `json:"requiredPackagePaths,omitempty"`
+	BuildSystemID        string                `json:"buildSystemID"`
+	Root                 string                `json:"root"`
+	Arguments            []string              `json:"arguments"`
+	Environment          map[string]string     `json:"environment"`
+	WorkingDirectory     string                `json:"workingDirectory"`
+	Execution            string                `json:"execution"`
+	OptionFingerprint    string                `json:"optionFingerprint"`
+	Output               string                `json:"output,omitempty"`
+	Decoder              string                `json:"decoder,omitempty"`
+	ExecutesProjectCode  bool                  `json:"executesProjectCode,omitempty"`
+	MayUseNetwork        bool                  `json:"mayUseNetwork,omitempty"`
+	Provider             *BuildProviderRequest `json:"provider,omitempty"`
+	// Results is set only for a test plan that declares a structured report.
+	Results *struct {
+		Decoder string `json:"decoder"`
+	} `json:"results,omitempty"`
 }
 
 // BuildDecodeModelRequest decodes a static or command model, or the result a
@@ -264,6 +271,7 @@ type BuildLaunch struct {
 	Arguments        []string          `json:"arguments"`
 	WorkingDirectory string            `json:"workingDirectory"`
 	Environment      map[string]string `json:"environment"`
+	Placement        ProcessPlacement  `json:"placement,omitempty"`
 	OutputEncoding   string            `json:"outputEncoding,omitempty"`
 }
 

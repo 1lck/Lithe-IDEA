@@ -38,7 +38,7 @@ func TestEditorActionRegistrationRefreshesOpenDocuments(t *testing.T) {
 	if len(observer.roots) != 1 {
 		t.Fatal("rejected registration refreshed documents")
 	}
-	service.resources.releaseContext(workspace.ContextID)
+	service.resources.releaseContext(workspace.ContextRef)
 	if len(observer.roots) != 2 {
 		t.Fatalf("withdrawal did not clear actions: %v", observer.roots)
 	}

@@ -1,6 +1,7 @@
 package pluginservice
 
 import (
+	"context"
 	"crypto/hmac"
 	"crypto/rand"
 	"crypto/sha256"
@@ -10,6 +11,8 @@ import (
 	"path/filepath"
 	"sort"
 	"sync"
+
+	"github.com/1lck/Lithe-IDEA/desktop/internal/core"
 )
 
 // ErrContextExpired reports a workspace context that is closed or whose
@@ -27,8 +30,30 @@ type WorkspaceContext struct {
 	ContextRef
 	// Name is the workspace's display name.
 	Name string
-	// Path is the local root folder.
-	Path string
+	// Path identifies the workspace on the client. For a remote context it is an
+	// opaque placeholder used by the workbench and state store.
+	Path        string
+	remote      remoteWorkspaceContext
+	codeAllowed func() bool
+	lifetime    context.Context
+	cancel      context.CancelFunc
+}
+
+type remoteWorkspaceContext struct {
+	connectionID string
+	hostPath     string
+	platform     core.RemotePlatform
+	binding      *core.RemoteWorkspace
+}
+
+// HostPlatform is the connected host's platform, or zero for a local workspace.
+func (w WorkspaceContext) HostPlatform() core.RemotePlatform { return w.remote.platform }
+
+func (w WorkspaceContext) authorityKind() string {
+	if w.remote.connectionID != "" {
+		return "remote"
+	}
+	return "local"
 }
 
 // WorkspaceContexts keeps the contexts plugin backends see.
@@ -45,8 +70,8 @@ type WorkspaceContexts struct {
 	// stateRoot holds the plugin storage; per-workspace state lives below it.
 	stateRoot string
 	onChange  func()
-	// onClosed hears the ID of every context that ends, so what was made for it can go too.
-	onClosed func(contextID string)
+	// onClosed releases resources belonging to the generation that ended.
+	onClosed func(ContextRef)
 }
 
 // Contexts remain private to a workbench. Native runtime checks only need the
@@ -127,9 +152,9 @@ func (c *WorkspaceContexts) SetObserver(onChange func()) {
 	c.mu.Unlock()
 }
 
-// SetClosedObserver installs the function called with the ID of each context that
-// closes. It runs without the lock held.
-func (c *WorkspaceContexts) SetClosedObserver(onClosed func(contextID string)) {
+// SetClosedObserver installs the function called when a context closes or is
+// replaced. It runs without the lock held.
+func (c *WorkspaceContexts) SetClosedObserver(onClosed func(ContextRef)) {
 	c.mu.Lock()
 	c.onClosed = onClosed
 	c.mu.Unlock()
@@ -139,29 +164,63 @@ func (c *WorkspaceContexts) SetClosedObserver(onClosed func(contextID string)) {
 // is not open yet.
 func (c *WorkspaceContexts) Open(path string) WorkspaceContext {
 	path = filepath.Clean(path)
+	return c.open(WorkspaceContext{Path: path, Name: filepath.Base(path)})
+}
+
+// OpenRemote updates the host metadata without adding its placeholder to native tool discovery.
+// Reconnecting to the same authority preserves the context reference.
+func (c *WorkspaceContexts) OpenRemote(binding *core.RemoteWorkspace, name, connectionID string, platform core.RemotePlatform, codeAllowed func() bool) WorkspaceContext {
+	return c.open(WorkspaceContext{
+		Path: filepath.Clean(binding.LocalRoot()), Name: name, codeAllowed: codeAllowed,
+		remote: remoteWorkspaceContext{
+			connectionID: connectionID, hostPath: binding.RemoteRoot(), platform: platform, binding: binding,
+		},
+	})
+}
+
+func (c *WorkspaceContexts) open(workspace WorkspaceContext) WorkspaceContext {
 	c.mu.Lock()
-	if existing, ok := c.byPath[path]; ok {
-		value := *existing
-		c.mu.Unlock()
-		return value
+	previous := c.byPath[workspace.Path]
+	if previous == nil {
+		id := make([]byte, 6)
+		_, _ = rand.Read(id)
+		workspace.ContextRef = ContextRef{ContextID: "w-" + hex.EncodeToString(id), Generation: 1}
+		if workspace.authorityKind() == "local" {
+			c.retainRoot(workspace.Path)
+		}
+	} else {
+		if workspace.remote == previous.remote {
+			value := *previous
+			c.mu.Unlock()
+			return value
+		}
+		workspace.ContextRef = previous.ContextRef
+		workspace.Generation++
+		if previous.authorityKind() != workspace.authorityKind() {
+			if workspace.authorityKind() == "local" {
+				c.retainRoot(workspace.Path)
+			} else {
+				c.releaseRoot(workspace.Path)
+			}
+		}
 	}
-	id := make([]byte, 6)
-	_, _ = rand.Read(id)
-	created := &WorkspaceContext{
-		ContextRef: ContextRef{ContextID: "w-" + hex.EncodeToString(id), Generation: 1},
-		Name:       filepath.Base(path),
-		Path:       path,
+	if previous != nil && previous.cancel != nil {
+		previous.cancel()
 	}
-	c.byPath[path] = created
-	c.retainRoot(path)
+	if workspace.remote.binding != nil {
+		workspace.lifetime, workspace.cancel = context.WithCancel(context.Background())
+	}
+	c.byPath[workspace.Path] = &workspace
 	c.revision++
-	observer := c.onChange
-	value := *created
+	observer, closed := c.onChange, c.onClosed
 	c.mu.Unlock()
+	if previous != nil && closed != nil {
+		closed(previous.ContextRef)
+	}
 	if observer != nil {
 		observer()
 	}
-	return value
+	return workspace
 }
 
 // Close ends the context of a workspace root.
@@ -174,13 +233,17 @@ func (c *WorkspaceContexts) Close(path string) {
 		return
 	}
 	delete(c.byPath, path)
-	c.releaseRoot(path)
+	if closing.cancel != nil {
+		closing.cancel()
+	}
+	if closing.authorityKind() == "local" {
+		c.releaseRoot(path)
+	}
 	c.revision++
 	observer, closed := c.onChange, c.onClosed
-	id := closing.ContextID
 	c.mu.Unlock()
 	if closed != nil {
-		closed(id)
+		closed(closing.ContextRef)
 	}
 	if observer != nil {
 		observer()
@@ -194,18 +257,23 @@ func (c *WorkspaceContexts) CloseAll() {
 		c.mu.Unlock()
 		return
 	}
-	ids := make([]string, 0, len(c.byPath))
+	refs := make([]ContextRef, 0, len(c.byPath))
 	for _, closing := range c.byPath {
-		ids = append(ids, closing.ContextID)
-		c.releaseRoot(closing.Path)
+		refs = append(refs, closing.ContextRef)
+		if closing.cancel != nil {
+			closing.cancel()
+		}
+		if closing.authorityKind() == "local" {
+			c.releaseRoot(closing.Path)
+		}
 	}
 	c.byPath = make(map[string]*WorkspaceContext)
 	c.revision++
 	observer, closed := c.onChange, c.onClosed
 	c.mu.Unlock()
 	if closed != nil {
-		for _, id := range ids {
-			closed(id)
+		for _, ref := range refs {
+			closed(ref)
 		}
 	}
 	if observer != nil {

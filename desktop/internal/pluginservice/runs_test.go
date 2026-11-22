@@ -105,6 +105,11 @@ type runHarness struct {
 
 func newRunHarness(t *testing.T) *runHarness {
 	t.Helper()
+	return newRunHarnessWithKernel(t, &runKernel{client: core.NewClient()})
+}
+
+func newRunHarnessWithKernel(t *testing.T, kernel Kernel) *runHarness {
+	t.Helper()
 	preferences := store.At(t.TempDir())
 	pluginRoot := t.TempDir()
 	installed := filepath.Join(pluginRoot, runFixturePlugin, "0.1.0")
@@ -121,7 +126,7 @@ func newRunHarness(t *testing.T) *runHarness {
 	if err := pluginstate.New(preferences).SetEnabled(runFixturePlugin, true); err != nil {
 		t.Fatal(err)
 	}
-	service, err := Open(&runKernel{client: core.NewClient()}, preferences, pluginRoot)
+	service, err := Open(kernel, preferences, pluginRoot)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -131,7 +136,7 @@ func newRunHarness(t *testing.T) *runHarness {
 		h.events = append(h.events, event)
 		h.mu.Unlock()
 	})
-	service.Runs.Tools = func(_ context.Context, _, tool string) (RunExecutable, error) {
+	service.Runs.Tools = func(_ context.Context, _, _, tool string) (RunExecutable, error) {
 		if tool != "interpreter" {
 			return RunExecutable{}, fmt.Errorf("no tool %s", tool)
 		}
@@ -374,7 +379,7 @@ func TestRunStartRefusals(t *testing.T) {
 		t.Fatalf("details = %s (%v), want Core's code and field", refusal.Details, err)
 	}
 
-	h.service.Runs.Tools = func(context.Context, string, string) (RunExecutable, error) {
+	h.service.Runs.Tools = func(context.Context, string, string, string) (RunExecutable, error) {
 		return RunExecutable{}, fmt.Errorf("no interpreter installed")
 	}
 	_, refusal = respond(t, h.service, runFixturePlugin, "run/start", h.params(t, "print", nil))

@@ -69,6 +69,7 @@ type Kernel interface {
 	DetectBuildSystems(ctx context.Context, workspaceRoot string, manifests []json.RawMessage) (core.BuildDetection, error)
 	LocalizeBuildOptions(ctx context.Context, language string, plugins []core.BuildOptionPlugin) (core.BuildOptionTexts, error)
 	DetectBuildSystemsWithOptions(ctx context.Context, workspaceRoot string, manifests []json.RawMessage, options core.BuildDetectOptions) (core.BuildDetection, error)
+	ReadWorkspaceConfiguration(context.Context, string, int64) (*string, error)
 	ResolveStoredBuildOptions(ctx context.Context, document, local json.RawMessage) (core.BuildStoredOptions, error)
 	ResolveBuildOptions(ctx context.Context, manifest json.RawMessage, buildSystemID string, request core.BuildResolveOptionsRequest) (core.BuildResolvedOptions, error)
 	EditStoredBuildOption(ctx context.Context, manifest json.RawMessage, buildSystemID string, request core.BuildOptionEditRequest) (core.BuildOptionEdit, error)
@@ -168,6 +169,8 @@ type Kernel interface {
 	ToolchainDiscoveryPlanOf(ctx context.Context, registry json.RawMessage, platform string) (core.ToolchainDiscoveryPlan, error)
 	ToolchainCandidatesOf(ctx context.Context, request core.ToolchainCandidatesRequest) (core.ToolchainCandidates, error)
 	ResolveToolchain(ctx context.Context, request core.ToolchainResolveRequest) (core.ToolchainResolution, error)
+	ResolveRemoteToolchain(ctx context.Context, request core.RemoteToolchainResolveRequest) (core.ToolchainResolution, error)
+	CheckToolchainVersion(ctx context.Context, registry json.RawMessage, tool, output, minimumVersion string) (core.ToolchainVersion, error)
 	ResolveToolchainPins(ctx context.Context, document json.RawMessage, directory, tool string) (core.ToolchainPinResolution, error)
 	EditToolchainPins(ctx context.Context, document json.RawMessage, directory string, edits []core.ToolchainPinEdit) (json.RawMessage, error)
 	ToolchainPinStorage(ctx context.Context) (core.ToolchainPinStoragePlan, error)
@@ -239,6 +242,15 @@ type Kernel interface {
 	RemoteWorkspaceTrust(ctx context.Context, document *string, sessionID, workspace string) (core.RemoteWorkspaceTrustState, error)
 	EditRemoteWorkspaceTrust(ctx context.Context, document *string, decision core.RemoteWorkspaceTrustDecision) (core.RemoteWorkspaceTrustPublication, error)
 	RevokeRemoteWorkspaceTrust(ctx context.Context, document *string, revoke core.RemoteWorkspaceTrustRevoke) (core.RemoteWorkspaceTrustPublication, error)
+	ResolveRemoteExecutable(context.Context, core.RemoteExecutableRequest) (string, error)
+	PickRemoteLoopbackPort(context.Context) (int, error)
+	RemoteProcessDebugPortReady(context.Context, uint64, int) (bool, error)
+	RunRemoteProcess(context.Context, core.RemoteProcessOpen, core.RemoteProcessEvents) (core.RemoteProcessExit, error)
+	WriteRemoteProcessInput(context.Context, uint64, []byte) error
+	CreateRemoteRunDirectory(context.Context, string) (string, error)
+	WriteRemoteRunFile(context.Context, string, []byte) error
+	ApplyRemoteRunConfigurationChanges(context.Context, string, []core.RunConfigChange) (bool, error)
+	ReleaseRemoteRunDirectory(context.Context, string) error
 	RemoteRunTerminal(ctx context.Context, sessionID string, open core.RemoteTerminalOpen, events core.RemoteTerminalEvents) (core.RemoteTerminalExit, error)
 	RemoteRunWatch(ctx context.Context, sessionID, root string, excludeNames []string, events core.RemoteWatchEvents) error
 	RemoteTerminalWrite(ctx context.Context, sessionID string, terminalID uint64, data []byte) (bool, error)
@@ -851,6 +863,8 @@ type App struct {
 	// toolchainRoot is the open project's root, read by the settings window from
 	// its own thread. Nil means no project is open.
 	toolchainRoot atomic.Pointer[string]
+	// Remote Settings reads the captured host, even while its session is disconnected.
+	settingsRemote atomic.Pointer[remoteSettingsWorkspace]
 	// toolchainResolve is the execution-side selector; tests replace it to keep
 	// workspace file reads out of the window. Production leaves it nil.
 	toolchainResolve func(ctx context.Context, root, directory, tool, minimumVersion string) (core.ToolchainSelection, error)
@@ -1117,6 +1131,9 @@ func (a *App) openPlugins(options Options) {
 		a.backgroundFailedIn(ctx, "toolchain_provider_discovery", err)
 	}
 
+	service.WorkspaceWatchIssue = func(ctx context.Context, err error) {
+		a.backgroundFailedIn(ctx, "plugin_workspace_watch", remoteLogError(err))
+	}
 	service.BuildConfigurationIssue = func(ctx context.Context, err error) {
 		a.backgroundFailedIn(ctx, "plugin_build_configuration_watch", documentLogError(err))
 	}
@@ -1854,6 +1871,7 @@ func (a *App) disposeProject(p *project) {
 	a.clearAllPluginDiagnostics()
 	a.problems.reset()
 	a.toolchainRoot.Store(nil)
+	a.settingsRemote.Store(nil)
 	a.project = nil
 	a.chrome.setRemote(false)
 	a.ideAPISetProject(nil)

@@ -383,15 +383,21 @@ type terminalOptions struct {
 	prefill    string
 	// activate selects the new tab; a background plugin terminal leaves the
 	// selection where it was.
-	activate bool
-	plugin   *pluginTerminal
+	activate         bool
+	plugin           *pluginTerminal
+	remoteDirectory  *core.RemoteScopedDirectory
+	remoteConnection *core.RemoteWorkspaceConnection
+	// A debug terminal is one shot. Its session context owns the launch, and
+	// remoteStarted receives the result on the window thread.
+	remoteStartContext context.Context
+	remoteStarted      func(pid int64, err error)
 }
 
 // newTerminalWith is newTerminal with the options of a plugin terminal. A terminal of a remote
-// workspace runs the host's login shell on the host (remote_terminal.go); a plugin's terminal
-// would run on this computer, so a remote workspace refuses it.
+// workspace runs the host's login shell or the plugin's approved program on the host.
 func (a *App) newTerminalWith(p *project, options terminalOptions) *terminal {
-	if options.plugin != nil && a.refuseRemote(p, "open_terminal") {
+	if options.plugin != nil && (options.remoteDirectory == nil || !options.remoteConnection.IsCurrent()) &&
+		a.refuseRemote(p, "open_terminal") {
 		return nil
 	}
 	shell := options.shell
@@ -428,6 +434,7 @@ func (a *App) newTerminalWith(p *project, options terminalOptions) *terminal {
 		Notify:     a.invalidator.Invalidate,
 		Failed:     a.terminalFailed,
 		OpenLink:   a.openTerminalLink,
+		NoRestart:  options.remoteStarted != nil,
 	}
 	t := &terminal{id: id, number: set.freeNumber(), shell: shell, title: options.title, plugin: options.plugin}
 	config.PasteImage = func() bool { return a.pasteTerminalImage(p, t) }
@@ -436,7 +443,7 @@ func (a *App) newTerminalWith(p *project, options terminalOptions) *terminal {
 	}
 	if p.remote != nil {
 		t.host = p.remote.name
-		t.closeHost = a.remoteTerminalConfig(p, t, &config, dir, config.Env)
+		t.closeHost = a.remoteTerminalConfig(p, t, &config, options)
 	}
 	t.view = termview.New(config)
 	// A terminal can start before its first paint (Start below), and the switches decide how
@@ -444,8 +451,8 @@ func (a *App) newTerminalWith(p *project, options terminalOptions) *terminal {
 	t.view.SetOptions(a.terminalOptions())
 	a.terminalInput(t)
 	set.list = append(set.list, t)
-	if options.plugin != nil {
-		// A plugin asked for this program; it runs even while the tab is not on show.
+	if options.plugin != nil || options.remoteStarted != nil {
+		// Explicit commands run even while the tab is hidden.
 		t.view.Start()
 	}
 	return t

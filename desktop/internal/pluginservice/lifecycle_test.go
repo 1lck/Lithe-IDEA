@@ -5,6 +5,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"slices"
 	"testing"
 
 	"github.com/1lck/Lithe-IDEA/desktop/internal/core"
@@ -114,5 +115,52 @@ func TestDisableStopsTheBackend(t *testing.T) {
 	}
 	if err := service.Disable(context.Background(), "absent", nil); !errors.Is(err, pluginmanager.ErrUnknownPlugin) {
 		t.Fatalf("disable a plugin that is not installed = %v", err)
+	}
+}
+
+type remoteDeploymentSweepKernel struct {
+	fakeKernel
+	retained []core.RemoteInstalledPluginVersion
+}
+
+func (k *remoteDeploymentSweepKernel) SweepRemotePluginDeployments(_ context.Context, retained []core.RemoteInstalledPluginVersion) error {
+	k.retained = retained
+	return nil
+}
+
+func TestSweepRemoteDeploymentsKeepsOnlyCurrentVersions(t *testing.T) {
+	const upgraded = "dev.lithe.test.upgraded"
+	const disabled = "dev.lithe.test.disabled"
+	kernel := &remoteDeploymentSweepKernel{}
+	root := t.TempDir()
+	service, err := Open(kernel, store.At(t.TempDir()), root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, pkg := range []core.RemoteInstalledPluginVersion{
+		{PluginID: upgraded, Version: "1.2.0"},
+		{PluginID: upgraded, Version: "1.10.0"},
+		{PluginID: disabled, Version: "2.0.0"},
+	} {
+		if err := os.MkdirAll(filepath.Join(root, pkg.PluginID, pkg.Version), 0o700); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := service.Manager.SetEnabled(disabled, false); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := service.SweepRemoteDeployments(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	want := []core.RemoteInstalledPluginVersion{
+		{PluginID: disabled, Version: "2.0.0"},
+		{PluginID: upgraded, Version: "1.10.0"},
+	}
+	if !slices.Equal(kernel.retained, want) {
+		t.Fatalf("retained remote deployments = %+v, want %+v", kernel.retained, want)
+	}
+	if _, err := os.Stat(filepath.Join(root, upgraded, "1.2.0")); err != nil {
+		t.Fatalf("the local package retained for rollback was removed: %v", err)
 	}
 }

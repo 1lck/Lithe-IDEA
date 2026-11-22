@@ -82,7 +82,7 @@ func (h *fakeHost) ChooseFile(string, FileRequest) (string, error) {
 	return h.chosen, nil
 }
 
-func (h *fakeHost) OpenFile(path string, _, _ int) error {
+func (h *fakeHost) OpenFile(_ context.Context, path string, _, _ int) error {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	h.opened = append(h.opened, path)

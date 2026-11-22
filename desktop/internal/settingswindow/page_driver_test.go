@@ -114,14 +114,27 @@ func (d *windowDriver) text(value string) bool {
 	return false
 }
 
-// wrapped reports whether the frame's labels, read in order, hold value, which a wrapping
-// text splits over several labels.
+// wrapped reports whether the frame's labels contain value. A wrap can drop the
+// space between words or break inside a path without dropping any character.
 func (d *windowDriver) wrapped(value string) bool {
-	var lines []string
-	for _, label := range d.driver.Snapshot().Labels {
-		lines = append(lines, label.Value)
+	labels := d.driver.Snapshot().Labels
+	for start, label := range labels {
+		if strings.Contains(label.Value, value) {
+			return true
+		}
+		remaining := value
+		for _, line := range labels[start:] {
+			if strings.HasPrefix(line.Value, remaining) {
+				return true
+			}
+			after, matches := strings.CutPrefix(remaining, line.Value)
+			if !matches {
+				break
+			}
+			remaining = strings.TrimPrefix(after, " ")
+		}
 	}
-	return strings.Contains(strings.Join(lines, " "), value)
+	return false
 }
 
 // until pumps the window until cond holds, within a bounded time. It wakes the window each

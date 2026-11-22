@@ -322,6 +322,15 @@ type ToolchainResolveRequest struct {
 	Fixed                   *ToolchainFixed               `json:"fixed,omitempty"`
 }
 
+// RemoteToolchainResolveRequest selects an installation from the captured host.
+// Directory is relative to the remote workspace root.
+type RemoteToolchainResolveRequest struct {
+	Registry       json.RawMessage `json:"registry"`
+	Tool           string          `json:"tool"`
+	Directory      string          `json:"directory"`
+	MinimumVersion string          `json:"minimumVersion,omitempty"`
+}
+
 // ToolchainGlobalDefault is an application-wide installation Core may select.
 type ToolchainGlobalDefault struct {
 	Home string `json:"home"`
@@ -481,7 +490,19 @@ func (c *Client) ToolchainCandidatesOf(ctx context.Context, request ToolchainCan
 
 // ResolveToolchain selects one installation through the fixed four layers.
 func (c *Client) ResolveToolchain(ctx context.Context, request ToolchainResolveRequest) (ToolchainResolution, error) {
-	const command = "toolchains.resolve"
+	return c.resolveToolchain(ctx, "toolchains.resolve", request)
+}
+
+// ResolveRemoteToolchain gathers filesystem and login environment facts on the host.
+func (c *Client) ResolveRemoteToolchain(ctx context.Context, request RemoteToolchainResolveRequest) (ToolchainResolution, error) {
+	allowed, _ := ctx.Value(projectCodeAllowedKey{}).(func() bool)
+	return c.resolveToolchain(ctx, "toolchains.resolveRemote", struct {
+		RemoteToolchainResolveRequest
+		ProjectCodeAllowed bool `json:"projectCodeAllowed"`
+	}{request, allowed != nil && allowed()})
+}
+
+func (c *Client) resolveToolchain(ctx context.Context, command string, request any) (ToolchainResolution, error) {
 	var result toolchainOutcome
 	if err := c.Execute(ctx, command, request, &result); err != nil {
 		return ToolchainResolution{}, err
@@ -490,11 +511,11 @@ func (c *Client) ResolveToolchain(ctx context.Context, request ToolchainResolveR
 		return ToolchainResolution{}, err
 	}
 	if len(result.Resolution) == 0 {
-		return ToolchainResolution{}, newParseError(command, "toolchains.resolve returned no resolution", "")
+		return ToolchainResolution{}, newParseError(command, "Core returned no toolchain resolution", "")
 	}
 	var resolution ToolchainResolution
 	if err := json.Unmarshal(result.Resolution, &resolution); err != nil {
-		return ToolchainResolution{}, newParseError(command, "toolchains.resolve returned an invalid resolution", err.Error())
+		return ToolchainResolution{}, newParseError(command, "Core returned an invalid toolchain resolution", err.Error())
 	}
 	return resolution, nil
 }

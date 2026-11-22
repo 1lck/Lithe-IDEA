@@ -16,15 +16,28 @@ type RemoteTerminalOpen struct {
 	Argv []string `json:"argv,omitempty"`
 	// Cwd is the absolute host working directory; empty starts in the user's home.
 	Cwd string `json:"cwd,omitempty"`
+	// ScopedCwd is an alternative to Cwd that the host resolves without following
+	// links below the workspace root.
+	ScopedCwd *RemoteScopedDirectory `json:"scopedCwd,omitempty"`
+	// Environment selects the base environment before Env and UnsetEnv are applied.
+	Environment string `json:"environment,omitempty"`
 	// Env adds variables to the server's environment. TERM is xterm-256color unless Env sets
 	// it.
 	Env map[string]string `json:"env,omitempty"`
+	// UnsetEnv removes variables from the resulting environment.
+	UnsetEnv []string `json:"unsetEnv,omitempty"`
 	// Columns and Rows are the size in character cells; both must be at least 1.
 	Columns uint16 `json:"columns"`
 	Rows    uint16 `json:"rows"`
 	// Label is what server.state reports for the terminal, so the window that closes the
 	// session can name what still runs. Nil reports none.
 	Label *RemoteResourceLabel `json:"label,omitempty"`
+}
+
+// RemoteScopedDirectory identifies an approved workspace root and a directory within it.
+type RemoteScopedDirectory struct {
+	Root string `json:"root"`
+	Path string `json:"path"`
 }
 
 // RemoteResourceLabel names a host resource in server.state.
@@ -61,9 +74,8 @@ func cutRunes(text string, limit int) string {
 // Core holds 1024 undelivered events per terminal and ends the terminal, and with it the
 // request, when a subscriber stops reading.
 type RemoteTerminalEvents struct {
-	// Started is called once, before any output, with the id terminal.write, terminal.resize
-	// and terminal.close take.
-	Started func(terminalID uint64)
+	// Started is called once, before any output, with the terminal resource ID and the host PID.
+	Started func(terminalID uint64, pid int64)
 	// Output receives the bytes the program wrote, in order. Output owns data.
 	Output func(data []byte)
 }
@@ -81,6 +93,7 @@ type remoteTerminalEvent struct {
 	Event  string `json:"event"`
 	Params struct {
 		TerminalID uint64 `json:"terminalId"`
+		PID        int64  `json:"pid"`
 		Data       string `json:"data"`
 	} `json:"params"`
 }
@@ -138,7 +151,7 @@ func deliverRemoteTerminalEvent(raw json.RawMessage, events RemoteTerminalEvents
 	switch event.Event {
 	case "terminal.started":
 		if events.Started != nil {
-			events.Started(event.Params.TerminalID)
+			events.Started(event.Params.TerminalID, event.Params.PID)
 		}
 	case "terminal.output":
 		data, err := base64.StdEncoding.DecodeString(event.Params.Data)

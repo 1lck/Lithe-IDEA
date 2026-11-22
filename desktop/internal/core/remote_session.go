@@ -596,10 +596,18 @@ func (c *Client) RemoteServerState(ctx context.Context, sessionID string) error 
 // them and never reads or writes the placeholder. The session is swapped as the connection is
 // lost and opened again, and is safe to change from any goroutine.
 type RemoteWorkspace struct {
-	localRoot  string
-	remoteRoot string
-	session    atomic.Pointer[string]
-	lost       func(sessionID string)
+	localRoot      string
+	remoteRoot     string
+	session        atomic.Pointer[remoteAttachment]
+	nextAttachment atomic.Uint64
+	lost           func(sessionID string)
+}
+
+type remoteAttachment struct {
+	revision uint64
+	id       string
+	lifetime context.Context
+	cancel   context.CancelFunc
 }
 
 // NewRemoteWorkspace returns a binding of localRoot to the host folder remoteRoot with no
@@ -616,12 +624,18 @@ func (w *RemoteWorkspace) LocalRoot() string { return w.localRoot }
 func (w *RemoteWorkspace) RemoteRoot() string { return w.remoteRoot }
 
 // Attach makes sessionID the session the binding's requests go over.
-func (w *RemoteWorkspace) Attach(sessionID string) { w.session.Store(&sessionID) }
+func (w *RemoteWorkspace) Attach(sessionID string) {
+	lifetime, cancel := context.WithCancel(context.Background())
+	if previous := w.session.Swap(&remoteAttachment{revision: w.nextAttachment.Add(1), id: sessionID, lifetime: lifetime, cancel: cancel}); previous != nil {
+		previous.cancel()
+	}
+}
 
 // Detach leaves the binding without a session and returns the one it had, empty for none.
 func (w *RemoteWorkspace) Detach() string {
 	if previous := w.session.Swap(nil); previous != nil {
-		return *previous
+		previous.cancel()
+		return previous.id
 	}
 	return ""
 }
@@ -629,12 +643,69 @@ func (w *RemoteWorkspace) Detach() string {
 // SessionID is the session the binding's requests go over, empty while it has none.
 func (w *RemoteWorkspace) SessionID() string {
 	if current := w.session.Load(); current != nil {
-		return *current
+		return current.id
 	}
 	return ""
 }
 
 type remoteWorkspaceKey struct{}
+
+// RemoteWorkspaceConnection identifies one attachment of a workspace, even if
+// the same session ID is attached again later.
+type RemoteWorkspaceConnection struct {
+	workspace *RemoteWorkspace
+	session   *remoteAttachment
+}
+
+// CaptureConnection takes the current attachment, or returns nil while disconnected.
+func (w *RemoteWorkspace) CaptureConnection() *RemoteWorkspaceConnection {
+	session := w.session.Load()
+	if session == nil {
+		return nil
+	}
+	return &RemoteWorkspaceConnection{workspace: w, session: session}
+}
+
+// IsCurrent reports whether this attachment still serves its workspace.
+func (c *RemoteWorkspaceConnection) IsCurrent() bool {
+	return c != nil && c.workspace.session.Load() == c.session
+}
+
+// SessionID returns the captured session ID while the attachment is current.
+func (c *RemoteWorkspaceConnection) SessionID() string {
+	if !c.IsCurrent() {
+		return ""
+	}
+	return c.session.id
+}
+
+// Revision distinguishes attachments even when the server resumes the same session.
+func (c *RemoteWorkspaceConnection) Revision() uint64 { return c.session.revision }
+
+// SameAttachment compares the captured attachments rather than the session IDs.
+func (c *RemoteWorkspaceConnection) SameAttachment(other *RemoteWorkspaceConnection) bool {
+	return c != nil && other != nil && c.workspace == other.workspace && c.session == other.session
+}
+
+// SameWorkspace compares the stable placeholder and canonical host root, so
+// settings notifications can reach separate windows on the saved connection.
+func (c *RemoteWorkspaceConnection) SameWorkspace(other *RemoteWorkspaceConnection) bool {
+	return c != nil && other != nil &&
+		c.workspace.localRoot == other.workspace.localRoot &&
+		c.workspace.remoteRoot == other.workspace.remoteRoot
+}
+
+// AfterDetach runs f when this attachment disconnects or is replaced.
+// It returns a function that unregisters f.
+func (c *RemoteWorkspaceConnection) AfterDetach(f func()) func() bool {
+	return context.AfterFunc(c.session.lifetime, f)
+}
+
+// Context binds workspace requests to this attachment. They fail if the
+// attachment changes before dispatch, and a late loss cannot detach its successor.
+func (c *RemoteWorkspaceConnection) Context(ctx context.Context) context.Context {
+	return context.WithValue(ctx, remoteWorkspaceKey{}, *c)
+}
 
 // WithRemoteWorkspace returns a context whose requests run on the host of binding. Every
 // request of the context carries the binding except the remote.* commands, which name their
@@ -646,7 +717,13 @@ func WithRemoteWorkspace(ctx context.Context, binding *RemoteWorkspace) context.
 	if binding == nil {
 		return ctx
 	}
-	return context.WithValue(ctx, remoteWorkspaceKey{}, binding)
+	return context.WithValue(ctx, remoteWorkspaceKey{}, RemoteWorkspaceConnection{workspace: binding})
+}
+
+// WithoutRemoteWorkspace keeps the context's cancellation for work explicitly owned
+// by the client, such as starting a plugin's local backend.
+func WithoutRemoteWorkspace(ctx context.Context) context.Context {
+	return context.WithValue(ctx, remoteWorkspaceKey{}, RemoteWorkspaceConnection{})
 }
 
 // payloadOnlyCommands are the commands an open document, the Project tool window or the search
@@ -674,7 +751,25 @@ var payloadOnlyCommands = map[string]bool{
 	"editor.recovery.decide":          true,
 	"github.parseRemote":              true,
 	"languages.matchFirstLine":        true,
+	"plugins.launchPlan":              true,
+	"lsp.applyTextEdits":              true,
+	"lsp.classifyNavigationTarget":    true,
+	"lsp.declarationOrUsages":         true,
+	"lsp.documentIdentity":            true,
+	"lsp.documentUri":                 true,
+	"lsp.mergeCompletions":            true,
+	"lsp.plainSnippet":                true,
+	"lsp.planWorkspaceEdit":           true,
+	"lsp.problems.query":              true,
+	"lsp.references.lines":            true,
+	"lsp.references.query":            true,
 	"markdown.outline":                true,
+	"plugins.installed.lifecycle":     true,
+	"plugins.installed.select":        true,
+	"plugins.settings.sourceState":    true,
+	"plugins.settings.sourceEdit":     true,
+	"plugins.settings.sourceReceipt":  true,
+	"runConfig.decideTitleAction":     true,
 	"text.decode":                     true,
 	"text.encode":                     true,
 	"workspace.filterChanges":         true,
@@ -684,8 +779,18 @@ var payloadOnlyCommands = map[string]bool{
 
 // RemoteWorkspaceOf is the binding WithRemoteWorkspace put in ctx, nil for a local context.
 func RemoteWorkspaceOf(ctx context.Context) *RemoteWorkspace {
-	binding, _ := ctx.Value(remoteWorkspaceKey{}).(*RemoteWorkspace)
-	return binding
+	scope, _ := ctx.Value(remoteWorkspaceKey{}).(RemoteWorkspaceConnection)
+	return scope.workspace
+}
+
+// CapturedConnection returns the operation's attachment to this workspace.
+// A context that follows reconnections cannot own a long-lived process.
+func (w *RemoteWorkspace) CapturedConnection(ctx context.Context) *RemoteWorkspaceConnection {
+	scope, _ := ctx.Value(remoteWorkspaceKey{}).(RemoteWorkspaceConnection)
+	if scope.workspace != w || scope.session == nil {
+		return nil
+	}
+	return &scope
 }
 
 // remoteWorkspace is the request's remote workspace on the wire (Workspace in the Rust
@@ -700,20 +805,32 @@ type remoteWorkspace struct {
 // local context, a remote.* command and a payload-only command, the binding's session and roots
 // otherwise. session is the pointer the request read, so a later loss detaches only that
 // session.
-func remoteWorkspaceRequest(ctx context.Context, command string) (wire *remoteWorkspace, binding *RemoteWorkspace, session *string, err error) {
-	binding = RemoteWorkspaceOf(ctx)
-	if binding == nil || isRemoteSessionCommand(command) || payloadOnlyCommands[command] {
+func remoteWorkspaceRequest(ctx context.Context, command string) (wire *remoteWorkspace, binding *RemoteWorkspace, session *remoteAttachment, err error) {
+	scope, _ := ctx.Value(remoteWorkspaceKey{}).(RemoteWorkspaceConnection)
+	binding = scope.workspace
+	if binding == nil || isRemoteSessionCommand(command) || payloadOnlyCommands[command] || isLanguageSessionCommand(command) || isDebugCommandWithoutWorkspace(command) {
 		return nil, nil, nil, nil
 	}
 	session = binding.session.Load()
-	if session == nil {
+	if session == nil || (scope.session != nil && scope.session != session) {
 		return nil, nil, nil, &Error{
 			Command: command,
 			Code:    CodeConnectionClosed,
 			Message: "the remote workspace is not connected",
 		}
 	}
-	return &remoteWorkspace{SessionID: *session, LocalRoot: binding.localRoot, RemoteRoot: binding.remoteRoot}, binding, session, nil
+	return &remoteWorkspace{SessionID: session.id, LocalRoot: binding.localRoot, RemoteRoot: binding.remoteRoot}, binding, session, nil
+}
+
+// Debug reducers address the debug session by ID or consume explicit facts.
+// Creation binds the workspace. The launch planners use its path namespace.
+func isDebugCommandWithoutWorkspace(command string) bool {
+	switch command {
+	case "debug.createSession", "debug.adapters.executablePlan", "debug.adapters.startArguments":
+		return false
+	default:
+		return strings.HasPrefix(command, "debug.")
+	}
 }
 
 // isRemoteSessionCommand reports whether command addresses a session by its id rather than
@@ -722,9 +839,27 @@ func isRemoteSessionCommand(command string) bool {
 	return strings.HasPrefix(command, "remote.")
 }
 
+// The registry already owns the host and path mapping of each language
+// session. Sending the window's current binding would reject these calls on
+// disconnect and could redirect pending work to a replacement session.
+func isLanguageSessionCommand(command string) bool {
+	switch command {
+	case "lsp.applyEditResponse", "lsp.buildRequest", "lsp.cancelOperation",
+		"lsp.closeDocument", "lsp.destroyServer", "lsp.functionRequest",
+		"lsp.hostNotify", "lsp.hostResponse", "lsp.pluginServerNotify",
+		"lsp.pluginServerRequest", "lsp.request", "lsp.saveDocument",
+		"lsp.setDetailedDiagnostics", "lsp.stopServer", "lsp.syncDocument",
+		"lsp.toolchainRequest", "lsp.updateWorkspaceConfiguration",
+		"lsp.vcsRequest", "lsp.waitEvents":
+		return true
+	default:
+		return false
+	}
+}
+
 // remoteWorkspaceAnswered detaches session from binding when the request failed because its
 // connection closed, and tells the binding's owner once.
-func remoteWorkspaceAnswered(binding *RemoteWorkspace, session *string, err error) {
+func remoteWorkspaceAnswered(binding *RemoteWorkspace, session *remoteAttachment, err error) {
 	if binding == nil || session == nil {
 		return
 	}
@@ -732,7 +867,10 @@ func remoteWorkspaceAnswered(binding *RemoteWorkspace, session *string, err erro
 	if !errors.As(err, &coreErr) || coreErr.Code != CodeConnectionClosed {
 		return
 	}
-	if binding.session.CompareAndSwap(session, nil) && binding.lost != nil {
-		binding.lost(*session)
+	if binding.session.CompareAndSwap(session, nil) {
+		session.cancel()
+		if binding.lost != nil {
+			binding.lost(session.id)
+		}
 	}
 }

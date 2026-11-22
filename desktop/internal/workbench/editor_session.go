@@ -295,7 +295,7 @@ func (a *App) stepEditorRestore(p *project) {
 		}
 		p.docs.locations[item.path] = documentLocation{line: item.line + 1, column: item.column, columnSet: true, group: item.group}
 		a.openFile(p, item.path)
-		if p.docs.opening[item.path] {
+		if p.docs.opening[item.path] != nil {
 			r.waiting = item.path
 			return
 		}

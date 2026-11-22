@@ -2,6 +2,7 @@ package workbench
 
 import (
 	"context"
+	"errors"
 	"os"
 	"path/filepath"
 	"slices"
@@ -460,37 +461,45 @@ func TestRemoteWorkspaceSaysItsRepositoryStartsAbove(t *testing.T) {
 	sessionKept(t, logger, p, "session-1")
 }
 
-// What runs the project's code on this computer refuses in a trusted remote workspace too, and
-// says so: Debug, the current file's run, a run that is not a configuration, the tests and the
-// build tasks, and the Debug tool window. Run configurations start on the host
-// (remote_run_test.go).
-func TestRemoteWorkspaceRefusesToRunItsCode(t *testing.T) {
+// A trusted remote workspace with no executable entry reports the same missing selections as a
+// local workspace and keeps its SSH session attached.
+func TestRemoteWorkspaceWithoutAnExecutionEntry(t *testing.T) {
 	h, k, _, logger := remoteWorkspaceHarness(t)
 	lang := h.app.language()
 	k.trustAtHost(core.WorkspaceTrusted, ".")
 	p := h.openRemoteTestProject(t)
 	h.awaitRemoteGit(p)
-	h.app.titleStart(p, titleActionDebug)
-	h.app.performCurrentFileAction(p, titleActionRun)
-	h.app.startRun(p, "run", func(*App, *project) { t.Error("a run started") })
+	h.app.titleStart(p, titleActionRun)
+	missingEntrypoint := i18n.Shared(lang, "desktop.title.currentFileNotRunnable")
+	h.await("the toolbar's missing entrypoint notice", func() bool {
+		if countFailures(logger, "title_run") != 0 {
+			for _, notice := range h.app.notifications.list {
+				t.Logf("notification: %s", notice.text)
+			}
+			t.Fatal("the toolbar could not decide what to run")
+		}
+		return h.notified(missingEntrypoint)
+	})
+	if operation, err := h.app.startRunConfiguration(p, "run"); operation != nil || err == nil {
+		t.Fatalf("unknown run configuration: operation %v, error %v", operation != nil, err)
+	} else if refusal, ok := errors.AsType[*buildRefusal](err); !ok || refusal.code != refusalNotFound {
+		t.Fatalf("unknown run configuration returned %v, want not found", err)
+	}
 	h.app.startTests(p, testSelection{})
-	if _, err := h.app.runBuildTask(p, "project", "target", "task", nil); err == nil {
+	if p.tests.running || !h.notified(h.app.text.Tests.NoSystems) {
+		t.Fatal("the test request did not report that no test system was available")
+	}
+	if operation, err := h.app.runBuildTask(p, "project", "target", "task", nil); operation != nil || err == nil {
 		t.Fatal("a build task started")
 	}
 	h.settle()
-	for _, operation := range []string{"title_run", "run_current_file", "run_start", "test_start", "build_task"} {
-		if !rejected(logger, operation, "remote_workspace") {
-			t.Fatalf("%s was not logged as refused", operation)
-		}
+	if !rejected(logger, "title_run_current_file", "no_entrypoint") || p.trust.asking {
+		t.Fatal("the missing entrypoint was not logged, or the trusted workspace asked to be trusted")
 	}
-	localOnly := i18n.Shared(lang, "desktop.remote.workspace.localOnly")
-	if !h.notified(localOnly) || p.trust.asking {
-		t.Fatal("the refusal was not notified, or the trusted workspace asked to be trusted")
-	}
-	h.app.openToolWindow(itemDebug)
+	h.app.openToolWindow(itemRun)
 	h.redraw()
-	if !h.showsWrapped(localOnly) {
-		t.Fatal("the Debug tool window does not say it does not work here")
+	if !h.showsWrapped(h.app.text.Run.Empty) || p.build.active() {
+		t.Fatal("the Run tool window did not stay empty")
 	}
 	sessionKept(t, logger, p, "session-1")
 }

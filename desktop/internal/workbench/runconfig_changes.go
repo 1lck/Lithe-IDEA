@@ -37,6 +37,34 @@ type runConfigFile struct {
 	snapshot configfile.Snapshot
 }
 
+// backgroundRunConfig captures the source of an edit before the window queues it.
+func (a *App) backgroundRunConfig(p *project, work func(context.Context) func(*App)) {
+	connection, connected := captureWorkspaceConnection(p)
+	a.background(p, buildRequestTimeout, func(ctx context.Context) func(*App) {
+		if !connected {
+			disconnected, cancel := context.WithCancel(ctx)
+			cancel()
+			return work(disconnected)
+		}
+		return work(attachedWorkspaceContext(ctx, connection))
+	})
+}
+
+// applyRunConfigChanges sends an edit to the same filesystem Core read.
+func (a *App) applyRunConfigChanges(ctx context.Context, root string, changes []core.RunConfigChange) error {
+	if len(changes) == 0 {
+		return ctx.Err()
+	}
+	if core.RemoteWorkspaceOf(ctx) == nil {
+		return applyRunConfigChanges(ctx, root, changes)
+	}
+	conflict, err := a.kernel.ApplyRemoteRunConfigurationChanges(ctx, root, changes)
+	if conflict {
+		return errors.Join(configfile.ErrConflict, err)
+	}
+	return err
+}
+
 // applyRunConfigChanges applies the file changes of one Core edit reply as one transaction.
 // Every file must still hold the bytes Core computed its change from, else nothing is written
 // and the result is configfile.ErrConflict. Writes come before deletions, so a document that

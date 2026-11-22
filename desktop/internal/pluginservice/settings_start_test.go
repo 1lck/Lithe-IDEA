@@ -159,3 +159,112 @@ func TestSavedProjectSettingIsRereadBeforeUpdatingTheCurrentLanguageSession(t *t
 		t.Fatalf("invalid source changed the live session: session=%q error=%v", kernel.updatedSession, err)
 	}
 }
+
+// The Core planner and settings projection are real. Only the remote file
+// transport and process handoff are substituted at the desktop bridge.
+type remoteSettingsKernel struct {
+	*settingsPlanningKernel
+	binding *core.RemoteWorkspace
+	read    func() (string, error)
+	start   func(context.Context, core.PluginBackendStart)
+}
+
+func (k *remoteSettingsKernel) PlanPluginLanguageServer(ctx context.Context, manifest json.RawMessage, language string, directories core.PluginBackendDirectories) (core.PluginBackendPlan, error) {
+	k.directories = directories
+	return k.client.PlanPluginLanguageServer(ctx, manifest, language, directories)
+}
+
+func (k *remoteSettingsKernel) ReadWorkspaceConfiguration(ctx context.Context, path string, maximumBytes int64) (*string, error) {
+	if core.RemoteWorkspaceOf(ctx) != k.binding || path != ".lithe/plugin-settings.json" || maximumBytes <= 0 {
+		return nil, errors.New("remote setting read used the wrong source or connection")
+	}
+	value, err := k.read()
+	return &value, err
+}
+
+func (k *remoteSettingsKernel) StartPluginLanguageServer(ctx context.Context, request core.PluginBackendStart) (core.PluginBackendStarted, error) {
+	k.start(ctx, request)
+	return core.PluginBackendStarted{SessionID: "remote-language-session"}, nil
+}
+
+func TestRemoteLanguageServerUsesTheWorkspaceHostAndItsSettings(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	entry := serverPackage(t, "1.0.0", true, "fixture")
+	entry.Installed.ID = "dev.example.remote-settings"
+	manifest := []byte(`{
+		"schemaVersion":0,"pluginAPIVersion":0,"id":"dev.example.remote-settings","displayName":"Remote Settings","version":"1.0.0",
+		"vendor":{"id":"dev.example","displayName":"Fixture","signatureRequirement":"none"},
+		"requires":{"settings":0,"languages":0,"languageServers":0},"permissions":["languageServer.launch"],
+		"activationEvents":["onLanguage:fixture"],"languages":[{"id":"fixture","displayName":"Fixture","fileExtensions":["fixture"]}],
+		"settings":[{"id":"flag","type":"boolean","title":"Flag","default":true,"scope":"project","effect":"immediate"}],
+		"languageServers":[{"languageID":"fixture","remote":"supported","launch":{"kind":"systemCommand","commands":["lithe-remote-fixture-server"]},"workspaceConfiguration":{"fixture":{"flag":"${setting:flag}"}}}]
+	}`)
+	if err := os.WriteFile(filepath.Join(entry.Installed.Path, pluginpkg.ManifestFile), manifest, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	preferences := t.TempDir()
+	if err := os.WriteFile(filepath.Join(preferences, "plugin-settings.json"), []byte(`{"dev.example.remote-settings":{"flag":true}}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	placeholder := t.TempDir()
+	if err := os.Mkdir(filepath.Join(placeholder, ".lithe"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(placeholder, ".lithe", "plugin-settings.json"), []byte("not a workspace source"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	binding := core.NewRemoteWorkspace(placeholder, "/home/fixture/project", nil)
+	binding.Attach("remote-fixture")
+	kernel := &remoteSettingsKernel{settingsPlanningKernel: &settingsPlanningKernel{fakeKernel: &fakeKernel{}, client: core.NewClient()}, binding: binding}
+	kernel.read = func() (string, error) { return `{"dev.example.remote-settings":{"flag":false}}`, nil }
+	kernel.start = func(ctx context.Context, request core.PluginBackendStart) {
+		if core.RemoteWorkspaceOf(ctx) != binding || request.ExecutablePath != "" || len(request.RemoteCommands) != 1 || request.RemoteCommands[0] != "lithe-remote-fixture-server" {
+			t.Fatalf("process was not dispatched through the workspace host: %+v", request)
+		}
+		if string(request.WorkspaceConfiguration) != `{"fixture":{"flag":false}}` {
+			t.Fatalf("start ignored remote configuration: %s", request.WorkspaceConfiguration)
+		}
+	}
+	service, err := Open(kernel, store.At(preferences), t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	workspace := service.Contexts.OpenRemote(binding, "Fixture", "c-fixture", core.RemotePlatform{OS: "linux", Arch: "x86_64"}, nil)
+	t.Cleanup(service.Contexts.CloseAll)
+	session, err := service.StartLanguageServer(ctx, []pluginmanager.Entry{entry}, "fixture", BackendRequest{
+		RootURI: "file:///placeholder", WorkingDirectory: placeholder, Architecture: "arm64", Context: workspace.ContextRef,
+		RemoteConnection: binding.CaptureConnection(), ProjectCodeAllowed: true,
+	})
+	if err != nil || session == nil {
+		t.Fatalf("start remote server: session=%v error=%v", session, err)
+	}
+	t.Cleanup(func() {
+		stopCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		if err := service.StopLanguageServer(stopCtx, session); err != nil {
+			t.Error(err)
+		}
+	})
+	if !kernel.directories.RemoteWorkspace || kernel.directories.Architecture != "x86_64" {
+		t.Fatalf("planner ignored the workspace host: %+v", kernel.directories)
+	}
+	if _, err := service.ApplyLanguageSettings(ctx, session); err != nil {
+		t.Fatalf("reload remote settings: %v", err)
+	}
+	if kernel.updatedSession != session.Session.ID || string(kernel.updatedConfiguration) != `{"fixture":{"flag":false}}` {
+		t.Fatalf("reload used the wrong source or session: %s %s", kernel.updatedSession, kernel.updatedConfiguration)
+	}
+
+	kernel.updatedSession = ""
+	kernel.read = func() (string, error) {
+		// A replacement may reuse the Core session ID. An in-flight preference
+		// read still belongs to the connection that started it.
+		binding.Attach("remote-fixture")
+		return `{"dev.example.remote-settings":{"flag":true}}`, nil
+	}
+	var connectionErr *core.Error
+	if _, err := service.ApplyLanguageSettings(ctx, session); !errors.As(err, &connectionErr) || connectionErr.Code != core.CodeConnectionClosed || kernel.updatedSession != "" {
+		t.Fatalf("stale reload reached the retired language server: session=%q error=%v", kernel.updatedSession, err)
+	}
+}

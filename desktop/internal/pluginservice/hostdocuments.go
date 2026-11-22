@@ -7,6 +7,7 @@ import (
 	"time"
 	"unicode/utf8"
 
+	"github.com/1lck/Lithe-IDEA/desktop/internal/core"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/pluginhost"
 )
 
@@ -98,21 +99,22 @@ func (s *Service) AttachWorkbench(workbench Workbench) error {
 	}
 	s.workbench = workbench
 	for _, entry := range []struct {
-		method  string
-		handler pluginhost.Handler
+		method    string
+		handler   pluginhost.Handler
+		authority core.PluginAuthoritySupport
 	}{
-		{methodDocumentsList, s.handleDocumentsList},
-		{methodDocumentsGetSnapshot, s.handleDocumentsSnapshot},
-		{methodEditorGetActive, s.handleEditorActive},
-		{methodEditorGetSelections, s.handleEditorSelections},
-		{methodEditorApplyEdits, s.handleEditorApplyEdits},
-		{methodEditorReplaceSel, s.handleEditorReplaceSelections},
-		{methodEditorInsertText, s.handleEditorInsertText},
-		{methodEditorOpen, s.handleEditorOpen},
-		{methodEditorReveal, s.handleEditorOpen},
-		{methodBrowserOpenExternal, s.handleBrowserOpenExternal},
+		{methodDocumentsList, s.handleDocumentsList, core.PluginAuthorityBoth},
+		{methodDocumentsGetSnapshot, s.handleDocumentsSnapshot, core.PluginAuthorityBoth},
+		{methodEditorGetActive, s.handleEditorActive, core.PluginAuthorityBoth},
+		{methodEditorGetSelections, s.handleEditorSelections, core.PluginAuthorityBoth},
+		{methodEditorApplyEdits, s.handleEditorApplyEdits, core.PluginAuthorityBoth},
+		{methodEditorReplaceSel, s.handleEditorReplaceSelections, core.PluginAuthorityBoth},
+		{methodEditorInsertText, s.handleEditorInsertText, core.PluginAuthorityBoth},
+		{methodEditorOpen, s.handleEditorOpen, core.PluginAuthorityLocal},
+		{methodEditorReveal, s.handleEditorOpen, core.PluginAuthorityLocal},
+		{methodBrowserOpenExternal, s.handleBrowserOpenExternal, core.PluginAuthorityBoth},
 	} {
-		if err := s.HostServices.Register(entry.method, entry.handler); err != nil {
+		if err := s.HostServices.Register(entry.method, entry.handler, entry.authority); err != nil {
 			return err
 		}
 	}
@@ -140,7 +142,7 @@ func (s *Service) AttachWorkbench(workbench Workbench) error {
 		// A message waits for the user, so the machine deadline must not cut it.
 		if err := s.HostServices.RegisterUserChoice(level.method, func(ctx context.Context, params json.RawMessage) (json.RawMessage, *pluginhost.Failure) {
 			return s.handleWindowMessage(ctx, params, name)
-		}); err != nil {
+		}, core.PluginAuthorityBoth); err != nil {
 			return err
 		}
 	}
@@ -365,6 +367,9 @@ func (s *Service) handleEditorOpen(ctx context.Context, params json.RawMessage) 
 	caller, workspace, refusal := s.workspaceRequest(ctx, request.Context)
 	if refusal != nil {
 		return nil, refusal
+	}
+	if workspace.authorityKind() == "remote" {
+		return nil, unsupportedRemoteWorkspace()
 	}
 	switch request.Activation {
 	case "", "select", "background":

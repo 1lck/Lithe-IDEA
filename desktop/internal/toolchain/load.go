@@ -422,16 +422,21 @@ func resolve(ctx context.Context, kernel Kernel, root, directory, tool, minimumV
 				return Selection{}, err
 			}
 		}
-		if resolution.Outcome.Kind != "resolved" || resolution.Outcome.Selection == nil {
-			code := "notFound"
-			if resolution.Outcome.Reason != nil && resolution.Outcome.Reason.Code != "" {
-				code = resolution.Outcome.Reason.Code
-			}
-			return Selection{}, &UnavailableError{Tool: tool, Code: code, Terminal: resolution.Outcome.Kind == "terminalFailure"}
-		}
-		return *resolution.Outcome.Selection, nil
+		return SelectionFromResolution(tool, resolution)
 	}
 	return Selection{}, &UnavailableError{Tool: tool, Code: "definitionUnavailable"}
+}
+
+// SelectionFromResolution translates Core's outcome for build and run consumers.
+func SelectionFromResolution(tool string, resolution core.ToolchainResolution) (Selection, error) {
+	if resolution.Outcome.Kind == "resolved" && resolution.Outcome.Selection != nil {
+		return *resolution.Outcome.Selection, nil
+	}
+	code := "notFound"
+	if resolution.Outcome.Reason != nil && resolution.Outcome.Reason.Code != "" {
+		code = resolution.Outcome.Reason.Code
+	}
+	return Selection{}, &UnavailableError{Tool: tool, Code: code, Terminal: resolution.Outcome.Kind == "terminalFailure"}
 }
 
 type preparedTool struct {

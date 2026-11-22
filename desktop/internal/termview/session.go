@@ -114,7 +114,9 @@ func (v *View) launched() {
 	if l.err != nil {
 		v.ended = true
 		v.say(sgrFail, v.cfg.Messages.StartFailed(l.err.Error()))
-		v.say(sgrMuted, v.cfg.Messages.RestartHint)
+		if v.Ended() {
+			v.say(sgrMuted, v.cfg.Messages.RestartHint)
+		}
 		v.failed(Failure{Event: eventStartFailed, Stage: stageSpawn, Warn: true, Err: l.err})
 		v.exited(nil)
 		return
@@ -258,7 +260,7 @@ func (v *View) shellEnded() {
 		line = v.cfg.Messages.SessionEndedStatus(exit.ExitStatus())
 	}
 	v.say(sgrMuted, line)
-	if v.cfg.Exited == nil {
+	if v.Ended() {
 		v.say(sgrMuted, v.cfg.Messages.RestartHint)
 	}
 	var status *int
@@ -401,7 +403,7 @@ func (v *View) tellShellSize(cols, rows int) {
 // whether it did. What the old session printed stays in the history above the new one, so
 // the user can still read why it ended.
 func (v *View) restart() bool {
-	if !v.ended || v.closed || v.cfg.Exited != nil {
+	if !v.Ended() {
 		return false
 	}
 	// A blank line sets the new shell's prompt apart from the notes the old session ended

@@ -46,7 +46,8 @@ func candidateURLs(artifact Artifact) []string {
 	return urls
 }
 
-func (m *Manager) downloadArchive(ctx context.Context, artifact Artifact, progress func(Progress)) (*marketplace.DownloadedArchive, func() error, error) {
+// DownloadArchive downloads and verifies an artifact and returns cleanup for its private scratch.
+func (m *Manager) DownloadArchive(ctx context.Context, artifact Artifact, progress func(Progress)) (*marketplace.DownloadedArchive, func() error, error) {
 	urls := candidateURLs(artifact)
 	if len(urls) == 0 {
 		return nil, nil, ErrArtifact

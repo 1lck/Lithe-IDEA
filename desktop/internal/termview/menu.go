@@ -58,7 +58,7 @@ func (v *View) lineEditorNeedsFormFeed() bool {
 }
 
 // Ended reports that the shell ended and Restart can start a new one.
-func (v *View) Ended() bool { return v.ended && !v.closed && v.cfg.Exited == nil }
+func (v *View) Ended() bool { return v.ended && !v.closed && v.cfg.Exited == nil && !v.cfg.NoRestart }
 
 // Restart starts a new shell in a view whose shell ended, and reports whether it did.
 func (v *View) Restart() bool { return v.restart() }

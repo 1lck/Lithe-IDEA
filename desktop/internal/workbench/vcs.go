@@ -19,6 +19,7 @@ import (
 	"github.com/1lck/Lithe-IDEA/desktop/internal/pluginbackend"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/pluginpkg"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/pluginservice"
+	"github.com/1lck/Lithe-IDEA/desktop/internal/remoteplaceholder"
 	"github.com/vivaui/viva/ui"
 )
 
@@ -356,10 +357,14 @@ func (s *vcsState) rejection(plugin string) string {
 
 // vcsRuntime holds the provider sessions of one project, one per provider.
 type vcsRuntime struct {
-	launches *pluginLaunches
-	mu       sync.Mutex
-	clients  map[string]*buildprovider.Client
-	closed   bool
+	// The window creates a new runtime after each remote attachment. Workers
+	// that already hold this runtime can only address the previous host.
+	connection *core.RemoteWorkspaceConnection
+	platform   core.RemotePlatform
+	launches   *pluginLaunches
+	mu         sync.Mutex
+	clients    map[string]*buildprovider.Client
+	closed     bool
 }
 
 // errVcsNotNegotiated is a session that started without negotiating the provider it was started
@@ -390,7 +395,7 @@ func (r *vcsRuntime) live(key string) *buildprovider.Client {
 // outside the lock, so detaching on the window thread never waits for a start; a start that lost
 // to another one or to detaching is stopped again. logDirectory gives the process's ${logDir}, and
 // is asked only when a process starts.
-func (r *vcsRuntime) session(ctx context.Context, runner *pluginbackend.Runner, pluginRoot, root, rootURI string, window vcsWindow, settings core.PluginSettingsState, projectCodeAllowed bool, logDirectory func(context.Context, string) string) (client *buildprovider.Client, err error) {
+func (r *vcsRuntime) session(ctx context.Context, plugins *pluginservice.Service, root, rootURI string, window vcsWindow, settings core.PluginSettingsState, projectCodeAllowed bool, logDirectory func(context.Context, string) string) (client *buildprovider.Client, err error) {
 	ctx, finish, err := r.launches.begin(ctx, window.PluginID)
 	if err != nil {
 		return nil, err
@@ -406,32 +411,47 @@ func (r *vcsRuntime) session(ctx context.Context, runner *pluginbackend.Runner, 
 	if client != nil && !client.Closed() {
 		return client, nil
 	}
-	state := filepath.Join(pluginpkg.VersionStateRoot(pluginRoot, window.PluginID, window.Version), "vcs", workspaceDigest(root))
-	workspaceState := filepath.Join(state, "workspace")
-	temporaryDirectory := filepath.Join(state, "tmp")
-	for _, directory := range []string{state, workspaceState, temporaryDirectory} {
-		if err := os.MkdirAll(directory, 0o700); err != nil {
+	prepareLocal := func(ctx context.Context, request *pluginbackend.StartRequest) error {
+		request.StateDirectory = filepath.Join(pluginpkg.VersionStateRoot(plugins.Root, window.PluginID, window.Version), "vcs", workspaceDigest(root))
+		request.WorkspaceStateDirectory = filepath.Join(request.StateDirectory, "workspace")
+		request.TemporaryDirectory = filepath.Join(request.StateDirectory, "tmp")
+		for _, directory := range []string{request.WorkspaceStateDirectory, request.TemporaryDirectory} {
+			if err := os.MkdirAll(directory, 0o700); err != nil {
+				return err
+			}
+		}
+		request.LogDirectory = logDirectory(ctx, window.PluginID)
+		return nil
+	}
+	request := pluginbackend.StartRequest{
+		Manifest:           window.Manifest,
+		PackageDirectory:   window.Directory,
+		PluginID:           window.PluginID,
+		ProviderID:         window.PluginID + "/" + window.Vcs,
+		VcsProviderID:      window.Vcs,
+		Role:               "vcs",
+		Architecture:       core.PluginArchitecture(),
+		RemoteConnection:   r.connection,
+		Settings:           settings.Settings,
+		ProjectSettings:    settings.ProjectSettings,
+		RootURI:            rootURI,
+		WorkingDirectory:   root,
+		ProjectCodeAllowed: projectCodeAllowed,
+	}
+	if r.connection == nil {
+		if err := prepareLocal(ctx, &request); err != nil {
 			return nil, err
 		}
+	} else {
+		request.Architecture = r.platform.Arch
+		request.PrepareUI = prepareLocal
+		installed := pluginpkg.Installed{ID: window.PluginID, Version: window.Version, Path: window.Directory}
+		request.PrepareRemote = plugins.RemoteDeployment(installed, window.Manifest, r.platform, nil)
+		request.PrepareRemoteTools = func(ctx context.Context) (map[string]pluginbackend.ToolExecutable, error) {
+			return plugins.RemoteTools(ctx, installed, window.Manifest, r.connection, r.platform)
+		}
 	}
-	started, err := buildprovider.Start(ctx, runner, pluginbackend.StartRequest{
-		Manifest:                window.Manifest,
-		PackageDirectory:        window.Directory,
-		PluginID:                window.PluginID,
-		ProviderID:              window.PluginID + "/" + window.Vcs,
-		VcsProviderID:           window.Vcs,
-		Role:                    "vcs",
-		StateDirectory:          state,
-		WorkspaceStateDirectory: workspaceState,
-		LogDirectory:            logDirectory(ctx, window.PluginID),
-		TemporaryDirectory:      temporaryDirectory,
-		Architecture:            core.PluginArchitecture(),
-		Settings:                settings.Settings,
-		ProjectSettings:         settings.ProjectSettings,
-		RootURI:                 rootURI,
-		WorkingDirectory:        root,
-		ProjectCodeAllowed:      projectCodeAllowed,
-	})
+	started, err := buildprovider.Start(ctx, plugins.Backend, request)
 	if err != nil {
 		return nil, err
 	}
@@ -441,7 +461,8 @@ func (r *vcsRuntime) session(ctx context.Context, runner *pluginbackend.Runner, 
 		return nil, errors.Join(errVcsNotNegotiated, started.Close(stopCtx))
 	}
 	r.mu.Lock()
-	closed, client = r.closed || ctx.Err() != nil, r.clients[key]
+	closed, client = r.closed || ctx.Err() != nil ||
+		(r.connection != nil && !r.connection.IsCurrent()), r.clients[key]
 	if !closed && (client == nil || client.Closed()) {
 		if r.clients == nil {
 			r.clients = map[string]*buildprovider.Client{}
@@ -486,6 +507,16 @@ func (s *vcsState) runtime() *vcsRuntime {
 		s.sessions = &vcsRuntime{launches: s.launches}
 	}
 	return s.sessions
+}
+
+// vcsRuntime captures an attachment before an operation is queued.
+func (p *project) vcsRuntime() *vcsRuntime {
+	if p.remote != nil && p.vcs.sessions == nil {
+		runtime := p.vcs.runtime()
+		runtime.connection = p.remote.binding.CaptureConnection()
+		runtime.platform = p.remote.platform
+	}
+	return p.vcs.runtime()
 }
 
 // stopVcs stops every provider session of a project that closes, on a background task with a
@@ -536,6 +567,12 @@ func (a *App) detectVcsRoots(p *project) {
 		return
 	}
 	s := &p.vcs
+	connection, connected := captureWorkspaceConnection(p)
+	if !connected {
+		s.detecting, s.detected = false, true
+		s.failure = a.vcsFailureText(errRemoteDisconnected)
+		return
+	}
 	var manifests []json.RawMessage
 	var plugins []string
 	for _, window := range a.vcsWindowsShown() {
@@ -553,9 +590,9 @@ func (a *App) detectVcsRoots(p *project) {
 	generation, root := s.generation, p.root
 	s.detecting, s.failure = true, ""
 	a.background(p, vcsReadTimeout, func(ctx context.Context) func(*App) {
-		detection, err := kernel.VcsDetectRoots(ctx, root, manifests, mappings)
+		detection, err := kernel.VcsDetectRoots(attachedWorkspaceContext(ctx, connection), root, manifests, mappings)
 		return func(a *App) {
-			if s.generation != generation {
+			if s.generation != generation || (connection != nil && !connection.IsCurrent()) {
 				return
 			}
 			s.detecting, s.detected = false, true
@@ -666,9 +703,19 @@ func (a *App) runVcs(ctx context.Context, p *project, sessions *vcsRuntime, call
 	if !p.trust.allowed() {
 		return nil, nil, errVcsSafeMode
 	}
+	attachment := sessions.connection
+	if p.remote != nil {
+		if !attachment.IsCurrent() {
+			return nil, nil, errRemoteDisconnected
+		}
+		work, cancel := context.WithCancel(ctx)
+		defer cancel()
+		defer attachment.AfterDetach(cancel)()
+		ctx = attachment.Context(work)
+	}
 	client := sessions.live(call.window.PluginID + "\x00" + call.window.Vcs)
 	if client == nil {
-		settings, err := a.loadPluginPreferenceSources(ctx, call.window.Manifest, p.root)
+		settings, err := a.plugins.ReadWorkspacePluginSettings(core.WithoutRemoteWorkspace(ctx), call.window.Manifest, p.root, attachment)
 		if err != nil {
 			return nil, nil, err
 		}
@@ -676,14 +723,14 @@ func (a *App) runVcs(ctx context.Context, p *project, sessions *vcsRuntime, call
 		if err != nil {
 			return nil, nil, err
 		}
-		if client, err = sessions.session(ctx, a.plugins.Backend, a.plugins.Root, p.root, rootURI, call.window, settings.State, p.trust.allowed(), a.pluginLogDirectory); err != nil {
+		if client, err = sessions.session(ctx, a.plugins, p.root, rootURI, call.window, settings, p.trust.allowed(), a.pluginLogDirectory); err != nil {
 			return nil, nil, err
 		}
 	}
 	_, capabilities, _ := client.VcsProvider()
 	var tool *string
 	if len(call.tool) > 0 {
-		executable, err := a.plugins.Backend.ResolveCommand(call.window.PluginID, call.tool)
+		executable, err := a.resolveVcsClient(ctx, call)
 		if err != nil {
 			return nil, capabilities, errors.Join(errVcsToolMissing, err)
 		}
@@ -709,8 +756,25 @@ func (a *App) runVcs(ctx context.Context, p *project, sessions *vcsRuntime, call
 		}
 		return nil, capabilities, err
 	}
-	decoded, err := kernel.VcsDecodeReply(ctx, call.operation, capabilities, arguments, value)
+	decoded, err := kernel.VcsDecodeReply(core.WithoutRemoteWorkspace(ctx), call.operation, capabilities, arguments, value)
 	return decoded, capabilities, err
+}
+
+// resolveVcsClient searches the same host that runs the provider.
+func (a *App) resolveVcsClient(ctx context.Context, call vcsCall) (string, error) {
+	if core.RemoteWorkspaceOf(ctx) == nil {
+		return a.plugins.Backend.ResolveCommand(call.window.PluginID, call.tool)
+	}
+	for _, candidate := range call.tool {
+		executable, err := a.kernel.ResolveRemoteExecutable(ctx, core.RemoteExecutableRequest{Kind: "command", Value: candidate})
+		if err != nil {
+			return "", err
+		}
+		if executable != "" {
+			return executable, nil
+		}
+	}
+	return "", errVcsToolMissing
 }
 
 // vcsFailureText is what the window says of a failed operation: the meaning of each stable code
@@ -747,6 +811,8 @@ func (a *App) vcsFailureText(err error) string {
 		return message
 	}
 	switch {
+	case errors.Is(err, errRemoteDisconnected), refused != nil && refused.Code == core.CodeConnectionClosed:
+		return i18n.Shared(language, "desktop.remote.document.disconnected")
 	case errors.Is(err, errVcsSafeMode), core.IsLaunchUntrustedWorkspace(err):
 		return i18n.Shared(language, "desktop.trust.vcsSafeMode")
 	case errors.Is(err, errVcsToolMissing):
@@ -796,7 +862,7 @@ func (a *App) refreshVcsStatus(p *project, t vcsTarget) {
 	}
 	t.state.loading, t.state.failure = true, ""
 	call := p.vcs.call(t.window, t.root, core.VcsStatus, struct{}{}, vcsReadTimeout)
-	sessions := p.vcs.runtime()
+	sessions := p.vcsRuntime()
 	a.background(p, vcsReadTimeout, func(ctx context.Context) func(*App) {
 		decoded, capabilities, err := a.runVcs(ctx, p, sessions, call)
 		var status core.VcsStatusReply
@@ -844,7 +910,7 @@ func (a *App) loadVcsHistory(p *project, t vcsTarget, more bool) {
 	}
 	t.state.historyLoading, t.state.historyFailure = true, ""
 	call := p.vcs.call(t.window, t.root, core.VcsHistory, arguments, vcsReadTimeout)
-	sessions := p.vcs.runtime()
+	sessions := p.vcsRuntime()
 	a.background(p, vcsReadTimeout, func(ctx context.Context) func(*App) {
 		decoded, capabilities, err := a.runVcs(ctx, p, sessions, call)
 		var page core.VcsHistoryReply
@@ -884,7 +950,7 @@ func (a *App) runVcsChange(p *project, t vcsTarget, action, operation string, ar
 	a.performed(action, surfaceButton)
 	t.view.busy, t.view.notice, t.view.failure = operation, "", ""
 	call := p.vcs.call(t.window, t.root, operation, arguments, vcsWriteTimeout)
-	sessions := p.vcs.runtime()
+	sessions := p.vcsRuntime()
 	a.background(p, vcsWriteTimeout, func(ctx context.Context) func(*App) {
 		decoded, capabilities, err := a.runVcs(ctx, p, sessions, call)
 		return func(a *App) {
@@ -1004,11 +1070,14 @@ func (a *App) showVcsDiff(p *project, t vcsTarget, change core.VcsChange) {
 	}
 	a.performed("vcs.showDiff", surfaceButton)
 	call := p.vcs.call(t.window, t.root, core.VcsBaseContent, map[string]any{"path": change.Path}, vcsReadTimeout)
-	sessions := p.vcs.runtime()
+	sessions := p.vcsRuntime()
 	a.background(p, vcsReadTimeout, func(ctx context.Context) func(*App) {
 		file, capabilities, err := a.readVcsDiff(ctx, p, sessions, kernel, call, change)
 		return func(a *App) {
-			if capabilities != nil && p.vcs.views[t.id] == t.view {
+			if !p.stillShows(t) {
+				return
+			}
+			if capabilities != nil {
 				t.view.capabilities = capabilities
 			}
 			if err != nil {
@@ -1044,7 +1113,24 @@ func (a *App) readVcsDiff(ctx context.Context, p *project, sessions *vcsRuntime,
 	}
 	var current []byte
 	if change.Status != "deleted" && change.Status != "missing" {
-		current, err = os.ReadFile(filepath.Join(call.root, filepath.FromSlash(change.Path)))
+		file := filepath.Join(call.root, filepath.FromSlash(change.Path))
+		if p.remote == nil {
+			current, err = os.ReadFile(file)
+		} else {
+			binding := p.remote.binding
+			host, ok := remoteplaceholder.HostPath(binding.LocalRoot(), binding.RemoteRoot(), file)
+			if !ok {
+				return core.GitDiffFile{}, capabilities, errRemoteOutsideFolder
+			}
+			session := sessions.connection.SessionID()
+			if session == "" {
+				return core.GitDiffFile{}, capabilities, errRemoteDisconnected
+			}
+			current, _, err = a.remoteDocuments(p).readHost(ctx, session, host, remoteDocumentReadLimit)
+			if !sessions.connection.IsCurrent() {
+				return core.GitDiffFile{}, capabilities, errRemoteDisconnected
+			}
+		}
 		if err != nil && !errors.Is(err, os.ErrNotExist) {
 			return core.GitDiffFile{}, capabilities, err
 		}

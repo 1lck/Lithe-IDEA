@@ -24,7 +24,7 @@ const (
 	maxBuildConfigurationWatches  = 16
 )
 
-func (s *Service) buildCaller(ctx context.Context) (pluginhost.Caller, *BackendSession, *pluginhost.Failure) {
+func (s *Service) backendCaller(ctx context.Context) (pluginhost.Caller, *BackendSession, *pluginhost.Failure) {
 	caller, ok := pluginhost.CallerFrom(ctx)
 	if !ok {
 		return caller, nil, failure(pluginhost.CodeHostFailure, "The request has no calling plugin.")
@@ -45,7 +45,7 @@ func (s *Service) handleBuildGetOptions(ctx context.Context, params json.RawMess
 	if err := decodeStrict(params, &request); err != nil {
 		return nil, invalidParams(err)
 	}
-	_, session, refusal := s.buildCaller(ctx)
+	_, session, refusal := s.backendCaller(ctx)
 	if refusal != nil {
 		return nil, refusal
 	}
@@ -59,11 +59,27 @@ func (s *Service) handleBuildGetOptions(ctx context.Context, params json.RawMess
 	if !ok {
 		return nil, failure(pluginhost.CodeHostFailure, "Build option resolution is unavailable.")
 	}
-	docs, err := buildprefs.Read(ctx, s.preferences, workspace.Path)
+	var docs buildprefs.Documents
+	var connection *core.RemoteWorkspaceConnection
+	if workspace.authorityKind() == "remote" {
+		connection = workspace.remote.binding.CaptureConnection()
+		if connection == nil {
+			return nil, failure("plugin.host.remoteDisconnected", "The remote workspace is disconnected.")
+		}
+		docs, err = buildprefs.ReadRemote(connection.Context(ctx), s.preferences, workspace.Path, s.kernel.ReadWorkspaceConfiguration)
+	} else {
+		docs, err = buildprefs.Read(ctx, s.preferences, workspace.Path)
+	}
+	if refusal := s.buildOptionsLifetimeFailure(ctx, workspace, connection); refusal != nil {
+		return nil, refusal
+	}
 	if err != nil {
 		return nil, failure(pluginhost.CodeHostFailure, "Build preferences could not be read.")
 	}
-	options, err := resolver.ResolveStoredInstanceOptions(ctx, session.manifest, request.BuildSystemID, request.Root, docs.Team, docs.Local)
+	options, err := resolver.ResolveStoredInstanceOptions(core.WithoutRemoteWorkspace(ctx), session.manifest, request.BuildSystemID, request.Root, docs.Team, docs.Local)
+	if refusal := s.buildOptionsLifetimeFailure(ctx, workspace, connection); refusal != nil {
+		return nil, refusal
+	}
 	if err != nil {
 		var rejected *core.MarketplaceRejection
 		if errors.As(err, &rejected) {
@@ -76,10 +92,20 @@ func (s *Service) handleBuildGetOptions(ctx context.Context, params json.RawMess
 		}
 		return nil, failure(pluginhost.CodeHostFailure, "Build preferences could not be resolved.")
 	}
-	if _, err := s.Contexts.Lookup(request.Context); err != nil {
-		return nil, contextFailure(err)
-	}
 	return marshalResult(map[string]json.RawMessage{"options": options})
+}
+
+func (s *Service) buildOptionsLifetimeFailure(ctx context.Context, workspace WorkspaceContext, connection *core.RemoteWorkspaceConnection) *pluginhost.Failure {
+	if _, err := s.Contexts.Lookup(workspace.ContextRef); err != nil {
+		return contextFailure(err)
+	}
+	if err := ctx.Err(); err != nil {
+		return hostFailureOf(err)
+	}
+	if connection != nil && !connection.IsCurrent() {
+		return failure("plugin.host.remoteDisconnected", "The remote workspace connection changed.")
+	}
+	return nil
 }
 
 func (s *Service) handleBuildWatchConfiguration(ctx context.Context, params json.RawMessage) (json.RawMessage, *pluginhost.Failure) {
@@ -93,13 +119,16 @@ func (s *Service) handleBuildWatchConfiguration(ctx context.Context, params json
 	if len(request.Files) > maxBuildConfigurationFiles {
 		return nil, failure("plugin.host.limitExceeded", "A build configuration watch accepts at most four extra files.")
 	}
-	caller, session, refusal := s.buildCaller(ctx)
+	caller, session, refusal := s.backendCaller(ctx)
 	if refusal != nil {
 		return nil, refusal
 	}
 	workspace, err := s.Contexts.Lookup(request.Context)
 	if err != nil {
 		return nil, contextFailure(err)
+	}
+	if workspace.authorityKind() == "remote" {
+		return nil, unsupportedRemoteWorkspace()
 	}
 	paths := []string{filepath.Join(workspace.Path, buildprefs.TeamFile), s.preferences.Path(buildprefs.LocalFile)}
 	for _, file := range request.Files {
@@ -114,7 +143,7 @@ func (s *Service) handleBuildWatchConfiguration(ctx context.Context, params json
 	}
 
 	lifetime, stop := context.WithCancel(context.Background())
-	id := s.resources.addLimited(caller, workspace.ContextID, stop, maxBuildConfigurationWatches)
+	id := s.resources.addLimited(caller, workspace.ContextRef, stop, maxBuildConfigurationWatches)
 	if id == "" {
 		stop()
 		return nil, failure("plugin.host.limitExceeded", "The backend has reached its build configuration watch limit.")

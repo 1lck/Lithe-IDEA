@@ -32,13 +32,13 @@ func (a *App) ensureTablessDocument(t *diffTab) {
 // openTablessDocument reads path in the background and makes it a document without a tab. The Diff
 // tabs of the file are laid out again once it is there, so their right sides become editable.
 func (a *App) openTablessDocument(p *project, path string) {
-	if p.docs.opening[path] {
+	if p.docs.opening[path] != nil {
 		return
 	}
 	if p.docs.opening == nil {
-		p.docs.opening = map[string]bool{}
+		p.docs.opening = make(map[string]*documentOpen)
 	}
-	p.docs.opening[path] = true
+	p.docs.opening[path] = &documentOpen{}
 	registry := a.syntaxRegistry()
 	kernel, _ := a.kernel.(editorKernel)
 	bytesOf := a.documentBytesOf(p)

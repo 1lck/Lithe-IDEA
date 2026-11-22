@@ -35,6 +35,10 @@ func TestDebugAdapterRunner(t *testing.T) {
 // adapter answers over a process's stdio and over a TCP connection. It returns
 // the exit code the stdio runner reports, and 0 when the peer disconnects.
 func serveFixtureAdapter(input io.Reader, output io.Writer, workspace string) int {
+	return serveFixtureAdapterWithAttach(input, output, workspace, nil)
+}
+
+func serveFixtureAdapterWithAttach(input io.Reader, output io.Writer, workspace string, attach func(json.RawMessage) error) int {
 	source := filepath.Join(workspace, "tests", "debug_source.go")
 	reader := bufio.NewReader(input)
 	seq := 1
@@ -94,6 +98,17 @@ func serveFixtureAdapter(input io.Reader, output io.Writer, workspace string) in
 			write(map[string]any{"type": "response", "request_seq": request.Seq, "success": true, "command": request.Command, "body": result})
 		}
 		switch request.Command {
+		case "attach":
+			if attach != nil {
+				if err := attach(request.Body); err != nil {
+					write(map[string]any{"type": "response", "request_seq": request.Seq, "success": false, "command": request.Command, "message": err.Error()})
+					continue
+				}
+			}
+			respond(map[string]any{})
+			if attach != nil {
+				event("stopped", map[string]any{"reason": "breakpoint", "threadId": 7})
+			}
 		case "initialize":
 			respond(map[string]any{
 				"supportsConfigurationDoneRequest":      true,

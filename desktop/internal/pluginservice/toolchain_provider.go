@@ -35,6 +35,9 @@ func (s *Service) ToolchainOptions(root string, options toolchain.Options) toolc
 		if expected, err := os.Stat(root); err == nil {
 			_, contexts := s.Contexts.List()
 			for _, candidate := range contexts {
+				if candidate.authorityKind() != "local" {
+					continue
+				}
 				if info, err := os.Stat(candidate.Path); err == nil && os.SameFile(info, expected) {
 					workspace, present = candidate, true
 					break
@@ -42,7 +45,7 @@ func (s *Service) ToolchainOptions(root string, options toolchain.Options) toolc
 			}
 		}
 	}
-	if !present {
+	if !present || workspace.authorityKind() != "local" {
 		// No project context is available for paths that a consumer is inspecting
 		// without opening. Such paths remain eligible for declarative discovery.
 		options.Providers = nil

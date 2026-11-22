@@ -81,7 +81,8 @@ type remoteProject struct {
 	name         string
 	host         remoteHost
 	// session is the session the binding is attached to, "" while there is none.
-	session string
+	session  string
+	platform core.RemotePlatform
 	// resume is what connecting again presents to attach to the same host session, nil when the
 	// host issued no token. It is a secret: it stays in memory and is never logged.
 	resume *core.RemoteResume
@@ -131,6 +132,7 @@ type remoteTarget struct {
 	name         string
 	host         remoteHost
 	session      core.RemoteSession
+	platform     *core.RemotePlatform
 	// remoteRoot is the host folder, an absolute POSIX path; root is its local placeholder.
 	remoteRoot string
 	root       string
@@ -307,12 +309,26 @@ func (r *remoteProject) stopRemoteTimer() {
 // attachRemote makes session the workspace's session and starts its heartbeat, the host watch of
 // its folder and, in a trusted workspace, the watch of its Git metadata, which reads the status
 // again.
-func (a *App) attachRemote(p *project, session core.RemoteSession) {
+func (a *App) attachRemote(p *project, session core.RemoteSession, platform *core.RemotePlatform) {
 	r := p.remote
 	a.stopRemoteWatch(p)
+	a.invalidateVcs(p)
+	if platform != nil {
+		r.platform = *platform
+	}
 	r.session, r.link, r.attempt, r.misses, r.failure = session.ID, remoteConnected, 0, 0, nil
 	r.resume = session.Resume()
 	r.binding.Attach(session.ID)
+	if a.plugins != nil {
+		a.sweepRemoteDeployments(p)
+	}
+	if a.plugins != nil && platform != nil {
+		workspace := a.plugins.Contexts.OpenRemote(r.binding, p.name, r.connectionID, *platform, p.trust.allowed)
+		if workspace.ContextRef != p.pluginContext {
+			p.pluginContext = workspace.ContextRef
+			a.activatePluginWorkspace(p)
+		}
+	}
 	a.beatRemote(p)
 	r.watchWait = remoteWatchReady
 	a.startRemoteWatch(p)
@@ -320,6 +336,31 @@ func (a *App) attachRemote(p *project, session core.RemoteSession) {
 	// The Ports window reads its records and restores the forwards left running.
 	r.ports.recordsAttach = true
 	a.syncRemotePorts(p)
+	if a.project == p {
+		if a.plugins != nil {
+			a.loadBuildSystems(p)
+		}
+		for _, document := range p.docs.list {
+			a.startPluginServer(document.languageID)
+		}
+	}
+}
+
+func (a *App) sweepRemoteDeployments(p *project) {
+	plugins, connection := a.plugins, p.remote.binding.CaptureConnection()
+	a.background(p, remoteReadTimeout, func(ctx context.Context) func(*App) {
+		err := plugins.SweepRemoteDeployments(connection.Context(ctx))
+		if err == nil {
+			return nil
+		}
+		return func(a *App) {
+			if !connection.IsCurrent() {
+				// log-exempt: 用户取消：原会话已经结束或被替换。
+				return
+			}
+			a.backgroundFailed("remote_plugin_deployment_sweep", remoteLogError(err))
+		}
+	})
 }
 
 // beatRemote asks the server of the workspace's session what still runs, and schedules the next
@@ -379,6 +420,14 @@ func (a *App) loseRemote(p *project, session string, err error) {
 	r.ports.reset()
 	r.session, r.misses = "", 0
 	r.binding.Detach()
+	// A Run or Debug press waiting for model or configuration data belongs to the lost attachment.
+	p.runConfigs.pending = titleActionNone
+	p.runConfigs.start, p.runConfigs.startAction = "", titleActionNone
+	a.invalidateVcs(p)
+	if a.project == p {
+		a.invalidateBuild(p)
+		a.stopLanguageServers()
+	}
 	r.stopRemoteTimer()
 	a.releaseRemoteSession(session)
 	a.startRemoteReconnection(p)
@@ -454,7 +503,7 @@ func (a *App) reconnectRemote(p *project, userStarted bool) {
 			if err == nil && result.Status == core.RemoteProbeConnected && result.Session != nil {
 				// The programs a resumed session still runs are the workspace's own, which closing
 				// it lists; nothing asks about them now.
-				a.attachRemote(p, *result.Session)
+				a.attachRemote(p, *result.Session, result.Host.PluginPlatform())
 				a.refreshRemoteTree(p)
 				a.recheckRemoteDocuments(p)
 				return
@@ -555,6 +604,11 @@ func (a *App) openRemoteProject(target remoteTarget) {
 	r := &remoteProject{connectionID: target.connectionID, name: target.name, host: target.host, home: target.session.HomeDirectory}
 	p.remote = r
 	r.binding = core.NewRemoteWorkspace(target.root, target.remoteRoot, a.remoteSessionLost(p))
+	settingsName := target.name
+	if settingsName == "" {
+		settingsName = target.host.address()
+	}
+	a.settingsRemote.Store(&remoteSettingsWorkspace{binding: r.binding, name: settingsName})
 	// Trusted, the workspace's Git runs on the host, and its commands are kept in the Git console
 	// as a local project's are; in safe mode Core runs none (remote_trust.go).
 	p.trust.codeAllowed.Store(target.trusted)
@@ -570,7 +624,7 @@ func (a *App) openRemoteProject(target remoteTarget) {
 	a.logView.reset()
 	a.worktreeView.reset()
 	// Attaching the session starts the watch of the Git metadata (remote_git.go).
-	a.attachRemote(p, target.session)
+	a.attachRemote(p, target.session, target.platform)
 	a.loadGit(p)
 	a.loadLog(p)
 	// Unsaved edits of the folder's files are drafts on this computer; they open over the host's

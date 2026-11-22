@@ -348,7 +348,7 @@ func (a *App) editorActionMenuItems(c ui.C, p *project, d *document, menu *ui.Me
 
 // runCurrentFileEditorAction presents the same plugin invocation the gutter
 // offers. An absent cached action may mean its initial collection is still in flight.
-func (a *App) runCurrentFileEditorAction(p *project, d *document, mode titleAction, discoveryErr error) {
+func (a *App) runCurrentFileEditorAction(p *project, d *document, mode titleAction, discoveryErr error, connection *core.RemoteWorkspaceConnection) {
 	fallback := func(a *App) {
 		if discoveryErr != nil {
 			a.notifyError(discoveryErr.Error())
@@ -356,7 +356,7 @@ func (a *App) runCurrentFileEditorAction(p *project, d *document, mode titleActi
 		}
 		if mode == titleActionDebug {
 			a.whenDebugAdaptersLoaded(p, func() {
-				if p.selectedDocument(p.docs.group) == d {
+				if p.selectedDocument(p.docs.group) == d && (connection == nil || connection.IsCurrent()) {
 					a.startDebug(p)
 				}
 			})
@@ -373,7 +373,7 @@ func (a *App) runCurrentFileEditorAction(p *project, d *document, mode titleActi
 		return
 	}
 	start := func() {
-		if a.project != p || p.selectedDocument(p.docs.group) != d {
+		if a.project != p || p.selectedDocument(p.docs.group) != d || (connection != nil && !connection.IsCurrent()) {
 			return
 		}
 		invoke := func(a *App, actions []pluginservice.EditorAction) bool {
@@ -394,10 +394,12 @@ func (a *App) runCurrentFileEditorAction(p *project, d *document, mode titleActi
 		text := string(data)
 		id := strconv.Itoa(d.id)
 		a.background(p, 10*time.Second, func(ctx context.Context) func(*App) {
+			ctx = attachedWorkspaceContext(ctx, connection)
 			actions, err := plugins.CollectEditorActions(ctx, p.root, path, id, revision, text)
 			return func(a *App) {
 				p.runConfigs.findingEntrypoint = false
-				if p.selectedDocument(p.docs.group) != d || d.path != path || d.view.Revision() != revision {
+				if p.selectedDocument(p.docs.group) != d || d.path != path || d.view.Revision() != revision ||
+					(connection != nil && !connection.IsCurrent()) {
 					return
 				}
 				if invoke(a, actions) {

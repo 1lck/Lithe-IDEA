@@ -27,6 +27,7 @@ const (
 
 	methodListContexts   = pluginhost.MethodPrefix + "workspace/listContexts"
 	methodGetContext     = pluginhost.MethodPrefix + "workspace/getContext"
+	methodGetHostPaths   = pluginhost.MethodPrefix + "workspace/getHostPaths"
 	methodGetFolders     = pluginhost.MethodPrefix + "workspace/getFolders"
 	methodDisposeSub     = pluginhost.MethodPrefix + "subscriptions/dispose"
 	methodLSRequest      = pluginhost.MethodPrefix + "languageServer/request"
@@ -43,26 +44,34 @@ const (
 // pluginhost.CallerFrom, so per-plugin scoping never needs a second registry.
 func (s *Service) registerHostServices() error {
 	machine := []struct {
-		method  string
-		handler pluginhost.Handler
+		method    string
+		handler   pluginhost.Handler
+		authority core.PluginAuthoritySupport
 	}{
-		{methodListContexts, s.handleListContexts},
-		{methodBuildGetOptions, s.handleBuildGetOptions},
-		{methodBuildWatchConfiguration, s.handleBuildWatchConfiguration},
-		{methodGetContext, s.handleGetContext},
-		{methodGetFolders, s.handleGetFolders},
-		{methodDisposeSub, s.handleDisposeSubscription},
-		{methodLSNotify, s.handleLanguageServerNotify},
-		{methodLSSetStatus, s.handleLanguageServerSetStatus},
+		{methodListContexts, s.handleListContexts, core.PluginAuthorityBoth},
+		{methodBuildGetOptions, s.handleBuildGetOptions, core.PluginAuthorityBoth},
+		{methodBuildWatchConfiguration, s.handleBuildWatchConfiguration, core.PluginAuthorityLocal},
+		{methodGetContext, s.handleGetContext, core.PluginAuthorityBoth},
+		{methodGetFolders, s.handleGetFolders, core.PluginAuthorityBoth},
+		{methodGetHostPaths, s.handleGetHostPaths, core.PluginAuthorityRemote},
+		{pluginhost.MethodPrefix + "workspace/readDirectory", s.workspaceFileHandler("readDirectory", "cursor", "limit"), core.PluginAuthorityRemote},
+		{pluginhost.MethodPrefix + "workspace/stat", s.workspaceFileHandler("stat"), core.PluginAuthorityRemote},
+		{pluginhost.MethodPrefix + "workspace/readFile", s.workspaceFileHandler("readFile", "maximumBytes"), core.PluginAuthorityRemote},
+		{pluginhost.MethodPrefix + "workspace/findFiles", s.workspaceFileHandler("findFiles", "query", "fileMask", "cursor", "limit"), core.PluginAuthorityRemote},
+		{pluginhost.MethodPrefix + "workspace/findText", s.workspaceFileHandler("findText", "pattern", "fileMask", "caseSensitive", "wholeWords", "regularExpression", "cursor", "limit"), core.PluginAuthorityRemote},
+		{pluginhost.MethodPrefix + "workspace/watch", s.handleWorkspaceWatch, core.PluginAuthorityRemote},
+		{methodDisposeSub, s.handleDisposeSubscription, core.PluginAuthorityBoth},
+		{methodLSNotify, s.handleLanguageServerNotify, core.PluginAuthorityBoth},
+		{methodLSSetStatus, s.handleLanguageServerSetStatus, core.PluginAuthorityBoth},
 	}
 	for _, entry := range machine {
-		if err := s.HostServices.Register(entry.method, entry.handler); err != nil {
+		if err := s.HostServices.Register(entry.method, entry.handler, entry.authority); err != nil {
 			return err
 		}
 	}
 	// A language-server request waits for the server, up to the request's own
 	// timeout (at most 300 s), so the machine deadline of 30 s must not cut it.
-	if err := s.HostServices.RegisterUserChoice(methodLSRequest, s.handleLanguageServerRequest); err != nil {
+	if err := s.HostServices.RegisterUserChoice(methodLSRequest, s.handleLanguageServerRequest, core.PluginAuthorityBoth); err != nil {
 		return err
 	}
 	if err := s.registerCredentials(); err != nil {
@@ -70,10 +79,10 @@ func (s *Service) registerHostServices() error {
 	}
 	// run/start answers after the process started and returns at once, so the
 	// machine deadline is enough; the run itself outlives the request.
-	if err := s.HostServices.Register(methodRunStart, s.Runs.handleStart); err != nil {
+	if err := s.HostServices.Register(methodRunStart, s.Runs.handleStart, core.PluginAuthorityBoth); err != nil {
 		return err
 	}
-	if err := s.HostServices.Register(methodRunStop, s.Runs.handleStop); err != nil {
+	if err := s.HostServices.Register(methodRunStop, s.Runs.handleStop, core.PluginAuthorityBoth); err != nil {
 		return err
 	}
 	if err := s.HostServices.Register(methodDebugStart, s.Runs.handleDebugStart); err != nil {
@@ -103,27 +112,41 @@ func contextFailure(err error) *pluginhost.Failure {
 }
 
 type contextJSON struct {
-	ContextID      string         `json:"contextID"`
-	Generation     uint64         `json:"generation"`
-	Name           string         `json:"name"`
-	Authority      map[string]any `json:"authority"`
-	Folders        []folderJSON   `json:"folders"`
-	StateDirectory string         `json:"stateDirectory,omitempty"`
+	ContextID      string        `json:"contextID"`
+	Generation     uint64        `json:"generation"`
+	Name           string        `json:"name"`
+	Authority      authorityJSON `json:"authority"`
+	Folders        []folderJSON  `json:"folders"`
+	StateDirectory string        `json:"stateDirectory,omitempty"`
+}
+
+type authorityJSON struct {
+	Kind     string               `json:"kind"`
+	ID       string               `json:"id,omitempty"`
+	Platform *core.RemotePlatform `json:"platform,omitempty"`
 }
 
 type folderJSON struct {
 	RootID string `json:"rootID"`
 	Name   string `json:"name"`
-	Path   string `json:"path"`
+	Path   string `json:"path,omitempty"`
 }
 
 func (s *Service) contextJSON(pluginID string, workspace WorkspaceContext) contextJSON {
+	authority := authorityJSON{Kind: workspace.authorityKind()}
+	folder := folderJSON{RootID: s.Contexts.RootID(pluginID, workspace.Path), Name: workspace.Name}
+	if authority.Kind == "remote" {
+		authority.ID = workspace.remote.connectionID
+		authority.Platform = &workspace.remote.platform
+	} else {
+		folder.Path = workspace.Path
+	}
 	return contextJSON{
 		ContextID:  workspace.ContextID,
 		Generation: workspace.Generation,
 		Name:       workspace.Name,
-		Authority:  map[string]any{"kind": "local"},
-		Folders:    []folderJSON{{RootID: s.Contexts.RootID(pluginID, workspace.Path), Name: workspace.Name, Path: workspace.Path}},
+		Authority:  authority,
+		Folders:    []folderJSON{folder},
 	}
 }
 
@@ -191,6 +214,40 @@ func (s *Service) handleGetFolders(ctx context.Context, params json.RawMessage) 
 		return nil, contextFailure(err)
 	}
 	return marshalResult(map[string]any{"folders": s.contextJSON(caller.PluginID, workspace).Folders})
+}
+
+func (s *Service) handleGetHostPaths(ctx context.Context, params json.RawMessage) (json.RawMessage, *pluginhost.Failure) {
+	// Core checks the separate method grant and validates the root ID selection
+	// before forwarding the call. Only the client knows which roots are open.
+	var request struct {
+		Context ContextRef `json:"context"`
+		RootIDs []string   `json:"rootIDs"`
+	}
+	if err := json.Unmarshal(params, &request); err != nil {
+		return nil, invalidParams(err)
+	}
+	caller, workspace, refusal := s.workspaceRequest(ctx, request.Context)
+	if refusal != nil {
+		return nil, refusal
+	}
+	if workspace.authorityKind() != "remote" {
+		return nil, failure(codeAuthorityUnsupported, "Host paths are available for remote workspaces.")
+	}
+	rootID := s.Contexts.RootID(caller.PluginID, workspace.Path)
+	for _, requested := range request.RootIDs {
+		if requested != rootID {
+			return nil, failure(CodeNotFound, "No such root in the workspace.")
+		}
+	}
+	type hostFolder struct {
+		RootID   string `json:"rootID"`
+		HostPath string `json:"hostPath"`
+	}
+	return marshalResult(map[string][]hostFolder{"folders": {{RootID: rootID, HostPath: workspace.remote.hostPath}}})
+}
+
+func unsupportedRemoteWorkspace() *pluginhost.Failure {
+	return failure(codeAuthorityUnsupported, "This operation is unavailable for remote workspaces.")
 }
 
 func marshalResult(value any) (json.RawMessage, *pluginhost.Failure) {

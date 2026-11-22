@@ -74,6 +74,10 @@ func (a *App) loadBuildDependencies(p *project, instance *buildInstance, project
 	if !ok {
 		return
 	}
+	connection, connected := captureWorkspaceConnection(p)
+	if !connected {
+		return
+	}
 	var selection *core.BuildSelection
 	if projectID != "" {
 		project, found := buildProjectByID(instance.Model, projectID)
@@ -88,9 +92,9 @@ func (a *App) loadBuildDependencies(p *project, instance *buildInstance, project
 	generation := deps.generation
 	captured := *instance
 	a.background(p, buildRequestTimeout, func(ctx context.Context) func(*App) {
-		tree, err := a.buildDependencyTree(ctx, p, captured, kernel, selection, refresh)
+		tree, err := a.buildDependencyTree(attachedWorkspaceContext(ctx, connection), p, captured, kernel, selection, refresh)
 		return func(a *App) {
-			if deps.generation != generation {
+			if deps.generation != generation || (connection != nil && !connection.IsCurrent()) {
 				return
 			}
 			deps.loading = false
@@ -125,8 +129,7 @@ func (a *App) buildDependencyTree(ctx context.Context, p *project, instance buil
 		}
 		return fail(core.StageResolve, err)
 	}
-	// The package directory expands ${pluginDir} in a dependency command.
-	request := core.BuildPlanRequest{Root: instance.Root, Options: instance.Options, PluginDirectory: instance.PackageDirectory, WorkspaceRoot: p.root, Project: selection, ProjectCodeAllowed: p.trust.allowed()}
+	request := core.BuildPlanRequest{Root: instance.Root, Options: instance.Options, WorkspaceRoot: p.root, Project: selection, ProjectCodeAllowed: p.trust.allowed()}
 	decode := core.BuildDecodeDependenciesRequest{WorkspaceRoot: p.root, Root: instance.Root}
 	if selection != nil {
 		decode.Project = selection.Path
@@ -159,19 +162,13 @@ func (a *App) buildDependencyTree(ctx context.Context, p *project, instance buil
 		return kernel.DecodeBuildDependencies(ctx, instance.Manifest, instance.BuildSystemID, decode)
 	}
 	// A command may write its tree to a file the host allocates in the plugin's state.
-	state := buildStateDirectory(a.plugins.Root, p.root, instance)
-	if err := os.MkdirAll(state, 0o700); err != nil {
-		return fail(core.StagePlan, err)
-	}
-	file, err := os.CreateTemp(state, "dependencies-*.json")
+	scratch, err := a.prepareBuildScratch(ctx, p, instance, "dependencies")
 	if err != nil {
 		return fail(core.StagePlan, err)
 	}
-	outputFile := file.Name()
-	_ = file.Close()
-	_ = os.Remove(outputFile)
-	defer os.Remove(outputFile)
-	request.OutputFile = outputFile
+	defer scratch.release()
+	request.PluginDirectory = scratch.packageDirectory
+	request.OutputFile = scratch.output
 	plan, err := kernel.PlanBuildDependencies(ctx, instance.Manifest, instance.BuildSystemID, request)
 	if err != nil {
 		return fail(core.StagePlan, err)
@@ -179,7 +176,7 @@ func (a *App) buildDependencyTree(ctx context.Context, p *project, instance buil
 	if plan.Provider != nil {
 		return fail(core.StagePlan, errors.New("the build system answered with a provider request"))
 	}
-	return a.commandDependencies(ctx, p, instance, kernel, attempt, plan, execution, decode, outputFile)
+	return a.commandDependencies(ctx, p, instance, kernel, attempt, plan, execution, decode, scratch.output)
 }
 
 // commandDependencies runs a command plan and decodes what it printed or wrote, and ends the
@@ -187,7 +184,7 @@ func (a *App) buildDependencyTree(ctx context.Context, p *project, instance buil
 func (a *App) commandDependencies(ctx context.Context, p *project, instance buildInstance, kernel buildDependencyKernel, attempt *core.PluginAttempt, plan core.BuildPlan, execution buildExecution, decode core.BuildDecodeDependenciesRequest, outputFile string) (core.BuildDependencyTree, error) {
 	workingDirectory := filepath.Join(p.root, filepath.FromSlash(plan.WorkingDirectory))
 	toFile := plan.Output == "outputFile" && outputFile != ""
-	output, runErr := captureBuildProcess(ctx, execution.Executable, plan.Arguments, workingDirectory, applyToolchainSelection(plan.Environment, execution.selection()), !toFile, nil)
+	output, runErr := a.captureWorkspaceBuildProcess(ctx, p, execution, plan.Arguments, workingDirectory, plan.Environment, !toFile, nil)
 	runErr = withBuildOutput(runErr, output.combined)
 	if toFile {
 		decode.OutputFile = outputFile

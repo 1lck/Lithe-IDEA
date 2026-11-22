@@ -32,9 +32,9 @@ import (
 
 // remoteBrowser chooses the host folder to open over a session the window connected.
 type remoteBrowser struct {
-	session core.RemoteSession
-	// entryID and name are the saved connection's, or the WSL distribution's or the container's
-	// identity and name.
+	session  core.RemoteSession
+	platform *core.RemotePlatform
+	// entryID and name identify the saved connection, WSL distribution or container.
 	entryID string
 	name    string
 	host    remoteHost
@@ -160,7 +160,7 @@ func (a *App) connectRemoteTo(entry core.SavedRemoteConnection, host remoteHost,
 			r.connect = nil
 			if err == nil && result.Status == core.RemoteProbeConnected && result.Session != nil {
 				r.steps = nil
-				a.browseRemote(entry, host, *result.Session)
+				a.browseRemote(entry, host, *result.Session, result.Host.PluginPlatform())
 				if folder != "" {
 					a.openRemoteFolderAt(folder)
 				}
@@ -220,9 +220,9 @@ func remoteConnectFailureText(language i18n.Language, err error) string {
 
 // browseRemote starts choosing the folder to open over session to host, in the account's home
 // directory.
-func (a *App) browseRemote(entry core.SavedRemoteConnection, host remoteHost, session core.RemoteSession) {
+func (a *App) browseRemote(entry core.SavedRemoteConnection, host remoteHost, session core.RemoteSession, platform *core.RemotePlatform) {
 	r := &a.remote
-	r.browser = &remoteBrowser{session: session, entryID: entry.ID, name: entry.Name, host: host, recent: entry.RecentFolders}
+	r.browser = &remoteBrowser{session: session, platform: platform, entryID: entry.ID, name: entry.Name, host: host, recent: entry.RecentFolders}
 	start := session.HomeDirectory
 	if !path.IsAbs(start) {
 		start = "/"
@@ -507,7 +507,7 @@ func (a *App) openRemoteFolderNow(dir string, trusted bool) {
 				return
 			}
 			target := remoteTarget{
-				connectionID: b.entryID, name: b.name, host: b.host, session: b.session,
+				connectionID: b.entryID, name: b.name, host: b.host, session: b.session, platform: b.platform,
 				remoteRoot: dir, root: remoteplaceholder.Root(anchor, b.entryID, dir), trusted: trusted,
 			}
 			// The session is the workspace's from here on.
@@ -527,7 +527,7 @@ func (a *App) openRemoteWorkspace(target remoteTarget) {
 		p := open.project
 		if r := p.remote; r != nil && !r.closed && r.session == "" && r.reconnecting == nil {
 			r.stopRemoteTimer()
-			open.attachRemote(p, target.session)
+			open.attachRemote(p, target.session, target.platform)
 			open.refreshRemoteTree(p)
 			open.offerKeptPrograms(p, target.session)
 		} else {

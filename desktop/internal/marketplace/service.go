@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"runtime"
 	"strings"
 	"time"
 
@@ -115,6 +116,30 @@ func (s *Service) Fetch(ctx context.Context, input string, kind core.Marketplace
 		index.Plugins[i].MarketplaceIndexURL = source.IndexURL
 	}
 	return Snapshot{Source: source, Index: index}, nil
+}
+
+// CurrentPlatform is the identifier desktop marketplace indexes use.
+func CurrentPlatform() string {
+	arch := runtime.GOARCH
+	if arch == "amd64" {
+		arch = "x64"
+	}
+	return runtime.GOOS + "-" + arch
+}
+
+// FetchRemoteVariant reads the installation's recorded index and leaves
+// release selection to Core. The source kind comes from the built-in index identity.
+func (s *Service) FetchRemoteVariant(ctx context.Context, indexURL string, request core.MarketplaceRemoteVariantRequest, selectVariant func(context.Context, core.MarketplaceRemoteVariantRequest) (core.MarketplaceAvailability, error)) (core.MarketplaceAvailability, error) {
+	data, _, err := s.fetchJSON(ctx, indexURL)
+	if err != nil {
+		return core.MarketplaceAvailability{}, err
+	}
+	request.Index = data
+	request.SourceKind = core.MarketplaceThirdParty
+	if indexURL == OfficialIndexURL {
+		request.SourceKind = core.MarketplaceOfficial
+	}
+	return selectVariant(ctx, request)
 }
 
 // FetchRecommendationBundle downloads the companion recommendations file first and returns

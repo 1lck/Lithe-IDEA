@@ -131,6 +131,22 @@ type RunConfigChange struct {
 	Content    *string `json:"content"`
 }
 
+// ApplyRemoteRunConfigurationChanges publishes a Core edit on its captured workspace host.
+// The host checks all base hashes before the first write. A file conflict is reported
+// separately so the editor can use the same message as a local conflict.
+func (c *Client) ApplyRemoteRunConfigurationChanges(ctx context.Context, root string, changes []RunConfigChange) (bool, error) {
+	binding := RemoteWorkspaceOf(ctx)
+	if binding == nil || binding.LocalRoot() != root {
+		return false, &Error{Code: CodeConnectionClosed, Message: "the Run edit has no matching workspace attachment"}
+	}
+	params := struct {
+		Root    string            `json:"root"`
+		Changes []RunConfigChange `json:"changes"`
+	}{binding.RemoteRoot(), changes}
+	err := c.remoteWorkspaceHostRequest(ctx, "fs.applyRunConfigChanges", params, nil)
+	return remoteHostCode(err) == "CONFLICT", err
+}
+
 // BuildReference is the configuration's build provider selector, when it has one.
 func (r RunConfiguration) BuildReference() (RunProviderReference, bool) {
 	raw, ok := r.Extensions["build"]

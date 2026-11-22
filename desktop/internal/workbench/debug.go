@@ -285,6 +285,13 @@ type debugSession struct {
 	// tcpAnnounced adapter; nil for a stdio adapter. It is also the session's
 	// transport.
 	hosted *debugTransport
+	// connection and any owned native resources stay with the attachment that
+	// launched the session. Cleanup reads these after startup and stream release.
+	connection        *core.RemoteWorkspaceConnection
+	waitRemoteAdapter func()
+	releaseForward    func(context.Context) error
+	// The window owns the tabs of any terminals that this adapter started.
+	remoteTerminals []int
 	// drainOnStop marks a user stop: a live hosted session sends its disconnect
 	// and lets Core's drain flush it instead of closing the stream at once.
 	drainOnStop atomic.Bool
@@ -673,6 +680,8 @@ func (a *App) applyDebugUpdate(p *project, session *debugSession, update core.De
 		case "startDebuggingRequested":
 			// Opening the child changes the sessions, so it runs after this update.
 			a.post(func(a *App) { a.startChildDebug(p, session, event) })
+		case "runInTerminalRequested":
+			a.post(func(a *App) { a.openRemoteDebugTerminal(p, session, event) })
 		case "output":
 			p.debug.addOutput(event.Output)
 		}
@@ -887,7 +896,15 @@ func (a *App) releaseDebugSession(p *project, session *debugSession) {
 		// failed for a reason that is not the adapter's: it records nothing.
 		session.adapterStart.Abandon()
 		session.cancel()
-		drain := session.drainOnStop.Load() && session.hosted != nil
+		for _, id := range session.remoteTerminals {
+			focus := a.focus
+			a.closeTerminal(p, id)
+			if focus.term != id {
+				a.focus = focus
+			}
+		}
+		session.remoteTerminals = nil
+		drain := session.drainOnStop.Load()
 		if !drain {
 			session.closeTransport()
 			// A tcpAnnounced adapter's process outlives the session's context; a
@@ -906,6 +923,7 @@ func (a *App) releaseDebugSession(p *project, session *debugSession) {
 			<-session.startupDone
 			ctx, cancel := context.WithTimeout(context.Background(), debugStopTimeout)
 			defer cancel()
+			drain := drain && session.hosted != nil
 			var cleanupErr error
 			var destroyed []string
 			if session.hosted != nil {
@@ -945,6 +963,14 @@ func (a *App) releaseDebugSession(p *project, session *debugSession) {
 			}
 			if session.hosted != nil {
 				session.hosted.Release()
+			}
+			if session.waitRemoteAdapter != nil {
+				session.waitRemoteAdapter()
+			}
+			if session.releaseForward != nil {
+				forwardCtx, cancelForward := context.WithTimeout(context.Background(), debugStopTimeout)
+				cleanupErr = errors.Join(cleanupErr, session.releaseForward(forwardCtx))
+				cancelForward()
 			}
 			if session.stateDirectory != "" {
 				cleanupErr = errors.Join(cleanupErr, os.RemoveAll(session.stateDirectory))
@@ -1024,6 +1050,9 @@ func (a *App) finishDebugError(p *project, session *debugSession, err error) {
 		return
 	}
 	message := a.launchFailureText(err)
+	if remoteConnectionClosed(err) {
+		message = a.text.Debug.ConnectionClosed
+	}
 	var settingsError *debugSettingsError
 	if errors.As(err, &settingsError) {
 		message = i18n.Shared(a.language(), "desktop.debug.settingsUnreadable")

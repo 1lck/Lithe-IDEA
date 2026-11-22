@@ -7,10 +7,12 @@ import (
 
 // RunMessages are the words of the Run tool window: its execution tabs, tree and console.
 type RunMessages struct {
-	Rerun          string
-	Ended          string
-	LinkMissing    string
-	LinkUnresolved string
+	Rerun              string
+	Ended              string
+	RemoteDisconnected string
+	RemoteLabel        func(label string) string
+	LinkMissing        string
+	LinkUnresolved     string
 	// CloseSession closes the tab of a finished execution; Empty is the window before anything ran.
 	CloseSession string
 	Empty        string
@@ -35,8 +37,12 @@ type RunMessages struct {
 
 func runMessages(language Language) RunMessages {
 	return RunMessages{
-		Rerun:          Shared(language, "desktop.run.rerun"),
-		Ended:          Shared(language, "desktop.run.ended"),
+		Rerun:              Shared(language, "desktop.run.rerun"),
+		Ended:              Shared(language, "desktop.run.ended"),
+		RemoteDisconnected: Shared(language, "desktop.run.remoteDisconnected"),
+		RemoteLabel: func(label string) string {
+			return SharedFormat(language, "desktop.run.remoteLabel", map[string]string{"label": label})
+		},
 		LinkMissing:    Shared(language, "desktop.run.linkMissing"),
 		LinkUnresolved: Shared(language, "desktop.run.linkUnresolved"),
 		CloseSession:   Shared(language, "desktop.run.closeSession"),

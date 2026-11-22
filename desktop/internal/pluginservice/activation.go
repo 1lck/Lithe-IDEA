@@ -59,7 +59,7 @@ func (s *Service) SyncFunctionRelay(ctx context.Context, entries []pluginmanager
 	_, workspaces := s.Contexts.List()
 	contexts := make([]core.RelayContext, 0, len(workspaces))
 	for _, workspace := range workspaces {
-		contexts = append(contexts, core.RelayContext{ContextID: workspace.ContextID, Generation: workspace.Generation, Authority: "local"})
+		contexts = append(contexts, core.RelayContext{ContextID: workspace.ContextID, Generation: workspace.Generation, Authority: workspace.authorityKind()})
 	}
 	if err := s.kernel.ConfigureFunctionRelay(ctx, plugins, contexts); err != nil {
 		failures = append(failures, err)

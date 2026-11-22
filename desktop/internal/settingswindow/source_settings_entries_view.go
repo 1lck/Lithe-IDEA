@@ -177,7 +177,7 @@ func (w *window) sourceEntryRow(c ui.C, p *sourceSettingsForm, source core.Setti
 func (w *window) addSourceEntries(c ui.C, p *sourceSettingsForm, source core.SettingsSource, field core.SourceSettingField, kindIndex int) {
 	kind := field.EntryKinds[kindIndex]
 	control := p.controls[source.ID][field.ID]
-	if kind.Input == "choice" {
+	if kind.Input == "choice" || p.editor.IsRemote() {
 		p.chooser = sourceEntryChooser{open: true, source: source.ID, field: field.ID, kind: kindIndex, picked: make([]bool, len(kind.Choices))}
 		return
 	}
@@ -244,6 +244,10 @@ func (w *window) sourceEntryChooser(c ui.C, p *sourceSettingsForm) {
 	}
 	control := p.controls[source.ID][field.ID]
 	kind := field.EntryKinds[chooser.kind]
+	if kind.Input != "choice" {
+		w.remoteSourceEntry(c, p, source, field, kind)
+		return
+	}
 	available := choiceEntries(field, chooser.kind, control.input.Entries)
 	title := i18n.SharedFormat(language, "desktop.sourceSettings.chooseTitle", map[string]string{"title": kind.Title})
 	ui.ModalWith(c, &chooser.open, title, ui.ModalSpec{Width: 480, Height: 440}, func() {
@@ -274,6 +278,26 @@ func (w *window) sourceEntryChooser(c ui.C, p *sourceSettingsForm) {
 		}
 		if ui.Button(c, i18n.Shared(language, "desktop.sourceSettings.entryAdd")).Disabled(len(entries) == 0).Clicked() {
 			p.addEntries(source.ID, field, entries)
+			chooser.open = false
+		}
+	})
+}
+
+// Remote paths retain their Linux spelling and are interpreted by the remote helper.
+func (w *window) remoteSourceEntry(c ui.C, p *sourceSettingsForm, source core.SettingsSource, field core.SourceSettingField, kind core.SourceEntryKind) {
+	chooser := &p.chooser
+	language := w.marketLanguage()
+	label := i18n.Shared(language, "desktop.sourceSettings.remotePath")
+	ui.ModalWith(c, &chooser.open, kind.Title, ui.ModalSpec{Width: 480}, func() {
+		ui.Wrap(c, p.remoteLabel(language)).FontSize(12).Color(w.pal.muted)
+		ui.TextField(c, &chooser.path, label, label).FillWidth()
+	}, func() {
+		if ui.Button(c, i18n.Shared(language, "desktop.sourceSettings.cancel")).Outline().Clicked() {
+			chooser.open = false
+		}
+		if ui.Button(c, i18n.Shared(language, "desktop.sourceSettings.entryAdd")).Disabled(!strings.HasPrefix(chooser.path, "/")).Clicked() {
+			control := p.controls[source.ID][field.ID]
+			p.addEntries(source.ID, field, pathEntries(control.input.Entries, kind.ID, []string{chooser.path}))
 			chooser.open = false
 		}
 	})

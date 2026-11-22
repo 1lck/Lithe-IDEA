@@ -71,6 +71,22 @@ func (a *App) pluginTerminalExited(p *project, t *terminal, status *int) {
 func (w pluginWorkbench) StartTerminal(ctx context.Context, root string, spec pluginservice.TerminalSpec) (pluginservice.TerminalSession, error) {
 	a := w.app
 	language := a.language()
+	connectionName, err := onWindow(a, ctx, func(a *App) (string, error) {
+		p, err := a.projectAt(root)
+		if err != nil {
+			return "", err
+		}
+		if err := validatePluginTerminalHost(p, ctx, spec); err != nil {
+			return "", err
+		}
+		if p.remote != nil {
+			return p.remote.name, nil
+		}
+		return "", nil
+	})
+	if err != nil {
+		return nil, err
+	}
 	prompt := &pluginPrompt{
 		title: i18n.SharedFormat(language, "desktop.pluginHost.terminalConsentTitle", map[string]string{"plugin": spec.PluginID}),
 		text: i18n.SharedFormat(language, "desktop.pluginHost.terminalConsentDetails", map[string]string{
@@ -84,6 +100,9 @@ func (w pluginWorkbench) StartTerminal(ctx context.Context, root string, spec pl
 			i18n.Shared(language, "desktop.pluginHost.terminalAllow"),
 		},
 	}
+	if spec.RemoteConnection != nil {
+		prompt.text += "\n" + i18n.SharedFormat(language, "desktop.pluginHost.terminalConsentRemote", map[string]string{"connection": connectionName})
+	}
 	choice, err := a.askUser(ctx, prompt)
 	if err != nil {
 		return nil, err
@@ -94,6 +113,9 @@ func (w pluginWorkbench) StartTerminal(ctx context.Context, root string, spec pl
 	return onWindow(a, ctx, func(a *App) (pluginservice.TerminalSession, error) {
 		p, err := a.projectAt(root)
 		if err != nil {
+			return nil, err
+		}
+		if err := validatePluginTerminalHost(p, ctx, spec); err != nil {
 			return nil, err
 		}
 		plugin := &pluginTerminal{budget: spec.RetainedBytes, done: make(chan pluginservice.TerminalExit, 1)}
@@ -109,6 +131,7 @@ func (w pluginWorkbench) StartTerminal(ctx context.Context, root string, spec pl
 		t := a.newTerminalWith(p, terminalOptions{
 			shell: spec.Executable, args: args, env: env, unset: unset, dir: spec.Directory,
 			title: title, prefill: spec.Prefill, activate: spec.Show, plugin: plugin,
+			remoteDirectory: spec.RemoteDirectory, remoteConnection: spec.RemoteConnection,
 		})
 		if t == nil {
 			return nil, hostError(pluginservice.CodeBusy, "The terminal could not be opened.")
@@ -119,6 +142,20 @@ func (w pluginWorkbench) StartTerminal(ctx context.Context, root string, spec pl
 		}
 		return session, nil
 	})
+}
+
+func validatePluginTerminalHost(p *project, ctx context.Context, spec pluginservice.TerminalSpec) error {
+	if p.remote == nil && spec.RemoteConnection == nil && spec.RemoteDirectory == nil {
+		return nil
+	}
+	if p.remote == nil || spec.RemoteDirectory == nil || !spec.RemoteConnection.IsCurrent() ||
+		core.RemoteWorkspaceOf(spec.RemoteConnection.Context(ctx)) != p.remote.binding {
+		return hostError(pluginservice.CodeRemoteDisconnected, "The remote workspace connection changed.")
+	}
+	if p.safeMode() {
+		return hostError(pluginservice.CodePermissionDenied, "Plugin terminals require a trusted remote workspace.")
+	}
+	return nil
 }
 
 // reveal selects the terminal and shows the Terminal tool window when the tab

@@ -78,6 +78,34 @@ func TestStopForwardsTheLastFactsItWaitsThrough(t *testing.T) {
 	}
 }
 
+func TestStopDisposesAfterServeDrainsTheTerminalEvents(t *testing.T) {
+	for _, state := range []string{"sessionStopped", "sessionFailed"} {
+		t.Run(state, func(t *testing.T) {
+			kernel := &stoppingKernel{
+				refusals: 1,
+				waitErr: &core.Error{
+					Command: "lsp.waitEvents",
+					Code:    core.CodeProcessFailed,
+					Details: state,
+				},
+			}
+			disposed, err := New(kernel, nil).StopAndDispose(context.Background(), Session{ID: "session-1"})
+			if !disposed || !kernel.destroyed || err != nil {
+				t.Fatalf("stop and dispose after terminal events were drained: disposed=%v, destroyed=%v, err=%v", disposed, kernel.destroyed, err)
+			}
+		})
+	}
+}
+
+func TestStopReportsAnEventWaitFailure(t *testing.T) {
+	waitErr := &core.Error{Command: "lsp.waitEvents", Code: core.CodeProcessFailed, Details: "transport failed"}
+	kernel := &stoppingKernel{refusals: 1, waitErr: waitErr}
+	disposed, err := New(kernel, nil).StopAndDispose(context.Background(), Session{ID: "session-1"})
+	if disposed || kernel.destroyed || !errors.Is(err, waitErr) {
+		t.Fatalf("stop and dispose after wait fails: disposed=%v, destroyed=%v, err=%v", disposed, kernel.destroyed, err)
+	}
+}
+
 // TestRunnerWithoutLogSinkDropsFacts checks that a runner nobody gave a sink still serves
 // its session.
 func TestRunnerWithoutLogSinkDropsFacts(t *testing.T) {
@@ -94,6 +122,14 @@ func TestRunnerWithoutLogSinkDropsFacts(t *testing.T) {
 type stoppingKernel struct {
 	fakeKernel
 	refusals int
+	waitErr  error
+}
+
+func (k *stoppingKernel) WaitBackendEvents(ctx context.Context, session string, timeout int) ([]core.BackendEvent, error) {
+	if k.waitErr != nil {
+		return nil, k.waitErr
+	}
+	return k.fakeKernel.WaitBackendEvents(ctx, session, timeout)
 }
 
 func (k *stoppingKernel) DestroyPluginBackend(ctx context.Context, session string) error {

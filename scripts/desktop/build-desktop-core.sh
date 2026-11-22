@@ -339,7 +339,8 @@ PINNED_CORE_REPOSITORY="https://github.com/Lithe-IDEA/Lithe-core-rust.git"
 # Lithe-core-rust main at 2e4be2c: #166 a connection accepts a Windows domain user (DOMAIN\name,
 # name@domain) and remote.mottyHosts marks a refused setting on its own field with the invalid
 # status; #165 ending a remote session releases the search indexes it built (#2231, #2277).
-PINNED_CORE_REVISION="2e4be2ca23bd8ba83bea93278067b566a7194ead"
+# Core follow-up for #2231 R3–R5: remote plugin host services, execution, debugging and deployment.
+PINNED_CORE_REVISION="908a53057ed295d5be3ef3f8f2cd9470a405af16"
 PROFILE="debug"
 CHECKOUT_ONLY="no"
 while [[ $# -gt 0 ]]; do
@@ -461,7 +462,12 @@ if [[ ! -s "$NATIVE_LIBS_FILE" ]]; then
     exit 1
 fi
 
-install -m 0644 "$LIBRARY_DIR/liblithe_core.a" "$STAGE_DIR/lib/liblithe_core.a"
+# Compare before install: BSD install -C can still stage a temporary copy
+# before comparing, so an unchanged archive can otherwise exhaust disk space.
+STAGED_LIBRARY="$STAGE_DIR/lib/liblithe_core.a"
+if [[ -L "$STAGED_LIBRARY" ]] || ! cmp -s "$LIBRARY_DIR/liblithe_core.a" "$STAGED_LIBRARY"; then
+    install -m 0644 "$LIBRARY_DIR/liblithe_core.a" "$STAGED_LIBRARY"
+fi
 install -m 0644 "$CORE_DIR/rust/crates/core/include/lithe_core.h" "$STAGE_DIR/include/lithe_core.h"
 
 # The IDE API helper is the lithe-ide-host crate's lithe-mcp binary from the same pinned

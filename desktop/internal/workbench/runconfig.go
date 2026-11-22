@@ -129,6 +129,10 @@ func (a *App) refreshRunConfigurations(p *project) {
 	if p == nil {
 		return
 	}
+	connection, connected := captureWorkspaceConnection(p)
+	if !connected {
+		return
+	}
 	s := &p.runConfigs
 	s.generation++
 	generation := s.generation
@@ -146,14 +150,22 @@ func (a *App) refreshRunConfigurations(p *project) {
 		snapshot = json.RawMessage("[]")
 	}
 	root, kernel := p.root, a.kernel
+	finish := func(resolved core.RunConfigResolution, err error) func(*App) {
+		return func(a *App) {
+			if connection == nil || connection.IsCurrent() {
+				a.finishRunConfigurations(p, generation, resolved, err)
+			}
+		}
+	}
 	a.background(p, buildRequestTimeout, func(ctx context.Context) func(*App) {
+		ctx = attachedWorkspaceContext(ctx, connection)
 		if snapshot != nil {
 			if _, err := kernel.GenerateRunConfigurations(ctx, root, snapshot); err != nil {
-				return func(a *App) { a.finishRunConfigurations(p, generation, core.RunConfigResolution{}, err) }
+				return finish(core.RunConfigResolution{}, err)
 			}
 		}
 		resolved, err := kernel.ResolveRunConfigurations(ctx, root, a.runConfigPlugins(ctx))
-		return func(a *App) { a.finishRunConfigurations(p, generation, resolved, err) }
+		return finish(resolved, err)
 	})
 }
 
@@ -240,7 +252,7 @@ func (a *App) runConfiguration(p *project, id string) {
 	}
 	// A configuration that allows several instances starts beside the ones that run; any
 	// other that runs is stopped first and started again once it ended (startRun).
-	if configuration := p.runConfigs.configuration(id); configuration != nil && configuration.AllowMultipleInstances {
+	if configuration := p.runConfigs.configuration(id); configuration != nil && configuration.AllowMultipleInstances && !p.safeMode() {
 		start(a, p)
 		return
 	}
@@ -262,6 +274,16 @@ func (a *App) startRunConfiguration(p *project, id string) (*buildOperation, err
 // startRunConfigurationWith is startRunConfiguration; debug, when set, prepares the service
 // suspended for the adapter the host selected (debugRunConfiguration), and Rerun debugs again.
 func (a *App) startRunConfigurationWith(p *project, id string, debug *connectionDebug) (*buildOperation, error) {
+	connection, connected := captureWorkspaceConnection(p)
+	if debug != nil && debug.connection != nil {
+		connection, connected = debug.connection, debug.connection.IsCurrent()
+	}
+	if !connected {
+		return nil, refuseBuild(refusalNotReady, "the workspace is disconnected")
+	}
+	if p.safeMode() {
+		return nil, refuseBuild(refusalNotReady, "the workspace is not trusted")
+	}
 	configuration := p.runConfigs.configuration(id)
 	if configuration == nil {
 		return nil, refuseBuild(refusalNotFound, "unknown run configuration")
@@ -276,19 +298,11 @@ func (a *App) startRunConfigurationWith(p *project, id string, debug *connection
 		a.notifyError(message)
 		return nil, refuseBuild(refusalNotReady, message)
 	}
-	// A remote workspace runs its built-in process runs on its host; a debugger and the runs of
-	// plugins, which run on this computer, do not reach it yet.
-	if p.remote != nil && (debug != nil || !configuration.IsProcess()) {
-		message := i18n.Shared(a.language(), "desktop.run.remote.unsupported")
-		a.operationRejected("run_configuration", "remote_workspace")
-		a.notifyError(message)
-		return nil, refuseBuild(refusalNotSupported, message)
-	}
 	if configuration.IsProcess() {
 		if debug != nil {
 			return nil, refuseBuild(refusalNotSupported, "a built-in process run has no debugger")
 		}
-		return a.startProcessRun(p, *configuration), nil
+		return a.startProcessRun(p, *configuration, connection), nil
 	}
 	if key, ok := configuration.RunTypeReference(); ok {
 		if debug != nil {
@@ -299,7 +313,7 @@ func (a *App) startRunConfigurationWith(p *project, id string, debug *connection
 			a.notifyError(a.text.Build.TargetMissing)
 			return nil, refuseBuild(refusalNotReady, a.text.Build.TargetMissing)
 		}
-		return a.startProcessRun(p, *configuration), nil
+		return a.startProcessRun(p, *configuration, connection), nil
 	}
 	reference, ok := configuration.BuildReference()
 	if !ok {
@@ -323,6 +337,7 @@ func (a *App) startRunConfigurationWith(p *project, id string, debug *connection
 		a.runConfiguration(p, id)
 	})
 	op.debug = debug
+	op.connection = connection
 	// The run starts a process on the files on disk, so unsaved documents are saved first,
 	// as a rerun does; a failed save keeps the run from starting. The save reports its own
 	// failure, so the window's status only drops the preparation.
@@ -347,7 +362,7 @@ func (a *App) prepareConfiguredRun(p *project, op *buildOperation, id string, re
 	{
 		root, kernel := p.root, a.kernel
 		a.background(p, buildRequestTimeout, func(ctx context.Context) func(*App) {
-			prepare, release := op.bind(ctx)
+			prepare, release := op.bind(attachedWorkspaceContext(ctx, op.connection))
 			defer release()
 			inputs, err := kernel.ProviderLaunchInputs(prepare, root, id, reference.Root)
 			if err != nil {
@@ -358,7 +373,7 @@ func (a *App) prepareConfiguredRun(p *project, op *buildOperation, id string, re
 					a.finishBuildError(p, op, context.Canceled)
 					return
 				}
-				if index >= len(p.build.instances) || p.build.instances[index].PluginID != reference.PluginID {
+				if index != p.buildInstanceIndex(reference) || !p.build.instances[index].modelLoaded {
 					a.notifyError(a.text.Build.TargetMissing)
 					a.finishBuildError(p, op, errors.New(a.text.Build.TargetMissing))
 					return
