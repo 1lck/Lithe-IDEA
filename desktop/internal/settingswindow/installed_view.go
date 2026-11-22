@@ -21,9 +21,10 @@ import (
 
 // The Installed tab of the plugin page, laid out as the macOS client's is: a search with
 // filter chips over the installed plugins, the enabled ones before the disabled ones, beside
-// the chosen plugin's header, its notices and five tabs. What it shows comes from the
-// owner's InstalledPlugins, which answers from memory; the marketplace index the page reads
-// adds the updates, descriptions and repositories.
+// the chosen plugin's header, its notices and six tabs. What it shows comes from the owner's
+// InstalledPlugins, which answers from memory; the marketplace index the page reads adds the
+// updates, descriptions and repositories, and the repository's releases the changelog
+// (installed_changelog.go).
 
 // installedState is the Installed tab's own state. Only the window thread uses it.
 type installedState struct {
@@ -114,6 +115,7 @@ const (
 	installedSettings
 	installedPermissions
 	installedVersions
+	installedChangelog
 	installedTabCount
 )
 
@@ -128,6 +130,8 @@ func installedTabTitle(language i18n.Language, tab int) string {
 		return i18n.Shared(language, "native.permissionsPrograms")
 	case installedVersions:
 		return i18n.Shared(language, "native.versionsSource")
+	case installedChangelog:
+		return i18n.Shared(language, "native.updateLog")
 	}
 	return i18n.Shared(language, "native.overview")
 }
@@ -518,6 +522,8 @@ func (w *window) installedDetail(c ui.C, language i18n.Language, fact PluginFact
 					w.installedPermissions(c, language, fact)
 				case installedVersions:
 					w.installedVersions(c, language, fact)
+				case installedChangelog:
+					w.installedChangelog(c, language, fact)
 				default:
 					w.installedOverview(c, language, fact)
 				}
@@ -665,8 +671,13 @@ func (w *window) installedTabs(c ui.C, language i18n.Language, fact PluginFacts)
 		installedSettings:    fact.Settings,
 		installedPermissions: len(fact.Permissions) + len(fact.Programs),
 	}
-	ui.Row(c).FillWidth().Shrink(0).PadX(22).Gap(18).Items(ui.End).Children(func() {
+	// The tabs wrap onto a second line where the detail is too narrow for all of them, as in
+	// English at the window's least width, so none is cut off.
+	ui.Flow(c).FillWidth().Shrink(0).PadX(22).Gap(18).LineGap(8).Items(ui.End).Children(func() {
 		for tab := range installedTabCount {
+			if tab == installedChangelog && !w.changelog.available() {
+				continue
+			}
 			k := c.KeyInt(tab)
 			title := installedTabTitle(language, tab)
 			chosen := s.tab == tab

@@ -346,7 +346,11 @@ PINNED_CORE_REPOSITORY="https://github.com/Lithe-IDEA/Lithe-core-rust.git"
 # its message (#2231); #170 (1f05cfe) only fixes the Windows clippy CI step and a test; #171 moves
 # the Go plugin SDK to Go 1.27.4 like the desktop. The Rust sources are the same as #169's branch
 # commit edad041 that the desktop pinned before.
-PINNED_CORE_REVISION="3cb3c5b9bc0f1b17b0fcd863a1318cd550ccf20a"
+# Lithe-core-rust main at 4430719: #172 a host's capabilities report its WSL interop state;
+# #173 plugins.marketplace.resolveSource reports the repository and branch an index follows and
+# pins its address to a commit past raw.githubusercontent.com's branch cache, and the GitHub
+# requests gain latestCommit and listReleases for that pin and the installed plugins' changelog.
+PINNED_CORE_REVISION="44307192d7a45cbd586c0dffc29ff1bbeb3fd7d5"
 PROFILE="debug"
 CHECKOUT_ONLY="no"
 while [[ $# -gt 0 ]]; do

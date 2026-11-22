@@ -35,6 +35,8 @@ type GitHubRequest struct {
 	Assignees   []string    `json:"assignees,omitempty"`
 	// Commit is the commit a check read names, as a hexadecimal SHA of at least four digits.
 	Commit string `json:"commit,omitempty"`
+	// Ref is the branch, tag or HEAD whose newest commit latestCommit looks up.
+	Ref string `json:"ref,omitempty"`
 }
 
 // GitHubPlan is the HTTP request Core planned: the host it goes to, the method, the path and the

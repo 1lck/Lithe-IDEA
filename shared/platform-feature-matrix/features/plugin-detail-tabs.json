@@ -2,7 +2,7 @@
   "id": "plugin-detail-tabs",
   "area": "插件",
   "group": "插件管理",
-  "capability": "已安装插件详情分为概览、功能、设置、权限与程序、版本与来源五个页签，信任与迁移提示固定在头部；权限与程序页签每个权限占一行，程序默认折叠成一行摘要，可展开按编辑器 JSON 配色高亮的完整声明并复制；已安装列表可按能力、更新、来源和启用状态过滤，搜索框输入 / 列出过滤选项；窗口缩放及调整列表宽度时详情保持在分隔线右侧，过窄的设置表单可横向滚动查看完整控件和状态",
+  "capability": "已安装插件详情分为概览、功能、设置、权限与程序、版本与来源、更新日志六个页签，详情过窄时页签换到第二行，信任与迁移提示固定在头部；更新日志页签读取插件在市场登记的 GitHub 仓库的 Releases，最新在前，标出预发布和当前安装的版本，正文按 Markdown 显示；权限与程序页签每个权限占一行，程序默认折叠成一行摘要，可展开按编辑器 JSON 配色高亮的完整声明并复制；已安装列表可按能力、更新、来源和启用状态过滤，搜索框输入 / 列出过滤选项；窗口缩放及调整列表宽度时详情保持在分隔线右侧，过窄的设置表单可横向滚动查看完整控件和状态",
   "macos": {
     "implementationStatus": "partial",
     "verificationStatus": "pending",
@@ -11,7 +11,10 @@
       "desktop/internal/settingswindow/marketplace_view.go",
       "desktop/internal/settingswindow/plugin_settings_view.go",
       "desktop/internal/settingswindow/installed_view.go",
-      "desktop/internal/settingswindow/installed_view_test.go"
+      "desktop/internal/settingswindow/installed_view_test.go",
+      "desktop/internal/settingswindow/installed_changelog.go",
+      "desktop/internal/settingswindow/installed_changelog_test.go",
+      "desktop/internal/workbench/marketplace_service.go"
     ]
   },
   "windows": {
@@ -22,11 +25,14 @@
       "desktop/internal/settingswindow/marketplace_view.go",
       "desktop/internal/settingswindow/plugin_settings_view.go",
       "desktop/internal/settingswindow/installed_view.go",
-      "desktop/internal/settingswindow/installed_view_test.go"
+      "desktop/internal/settingswindow/installed_view_test.go",
+      "desktop/internal/settingswindow/installed_changelog.go",
+      "desktop/internal/settingswindow/installed_changelog_test.go",
+      "desktop/internal/workbench/marketplace_service.go"
     ]
   },
   "owner": "Plugin Platform",
-  "verification": "macOS：打开设置 › 插件 › 已安装，选中一个同时声明语言、语言服务器和运行/调试能力的插件（测试内联的合成插件即可）。头部显示名称、官方徽标、版本和状态胶囊，右侧有启用/禁用、卸载按钮。依次切换五个页签：概览显示状态、提供的能力、来源和设置数量，“在设置中配置”可跳到 LSP 和运行配置页；功能页签列出插件声明的语言、语言服务器（及其使用的运行时）以及由 Lithe 提供的运行、测试、调试；设置页签显示最大内存和日志级别，修改后出现“重启语言服务器”，“恢复默认值”可一键还原；权限与程序页签每个权限占一行，说明后面跟等宽淡色的 API 名（如 languageServer.launch），说明换行时盾牌留在第一行；每个程序默认折叠成一行（类型加声明里的顶层字段），点击展开缩进后的完整 JSON（属性名、字符串、数字和标点按编辑器的 Lithe 配色着色，可选中文本按 ⌘C 复制）、再点收起，右侧按钮复制该程序的 JSON；“可以运行的程序”旁的 ⓘ 说明修改设置不需要重新审查；内容与安装确认弹窗一致。版本与来源显示当前版本、插件 ID 和签名，标签和值各自左对齐、每行高度一致，“源码仓库”链接和其他值对齐，“内容 SHA-256”标签后面的 ⓘ 说明每次加载都会重新校验。安装一个社区插件，确认社区提示固定在页签上方，任何页签都能看到。在左侧点“语言服务”“社区 / 磁盘”“已禁用”等过滤芯片，确认列表随之变化并按“已启用 / 已禁用”分组；在搜索框输入 /，确认出现过滤选项，选中后搜索框清空并切换过滤。更新过的插件在版本与来源页签显示上一版本和“回滚…”，确认后需要重启 Lithe。布局：在浅色和深色下缩放设置窗口、往返拖动插件列表分隔条，切换不同插件与各页签，确认标题、页签和正文不越过分隔线；窄设置表单可横向滚动至末尾，输入控件保持同一实例，扩大后恢复填满正文。运行 PluginDetailLayoutTests 检查这些边界。Windows：扩展管理尚未拆分页签。",
+  "verification": "macOS：打开设置 › 插件 › 已安装，选中一个同时声明语言、语言服务器和运行/调试能力的插件（测试内联的合成插件即可）。头部显示名称、官方徽标、版本和状态胶囊，右侧有启用/禁用、卸载按钮。依次切换六个页签：概览显示状态、提供的能力、来源和设置数量，“在设置中配置”可跳到 LSP 和运行配置页；功能页签列出插件声明的语言、语言服务器（及其使用的运行时）以及由 Lithe 提供的运行、测试、调试；设置页签显示最大内存和日志级别，修改后出现“重启语言服务器”，“恢复默认值”可一键还原；权限与程序页签每个权限占一行，说明后面跟等宽淡色的 API 名（如 languageServer.launch），说明换行时盾牌留在第一行；每个程序默认折叠成一行（类型加声明里的顶层字段），点击展开缩进后的完整 JSON（属性名、字符串、数字和标点按编辑器的 Lithe 配色着色，可选中文本按 ⌘C 复制）、再点收起，右侧按钮复制该程序的 JSON；“可以运行的程序”旁的 ⓘ 说明修改设置不需要重新审查；内容与安装确认弹窗一致。版本与来源显示当前版本、插件 ID 和签名，标签和值各自左对齐、每行高度一致，“源码仓库”链接和其他值对齐，“内容 SHA-256”标签后面的 ⓘ 说明每次加载都会重新校验。更新日志页签：选中一个市场登记了 GitHub 仓库的插件，先看到“正在读取 Releases…”，随后按发布时间从新到旧列出该仓库的 Releases，标题旁显示标签、预发布或“已安装”徽标、发布日期和“在浏览器中打开”，正文的标题、列表、行内代码和链接按 Markdown 显示，点击网页链接用默认浏览器打开、非网页链接不响应，最后一行可在浏览器中查看全部 Releases；切到别的页签再切回不再重新读取；断网时显示读取失败和错误，点“重试”恢复后列出；仓库不在 GitHub 时说明只能读取 GitHub 并给出仓库链接，市场没有登记仓库时说明没有更新日志。英文界面把设置窗口缩到最窄，确认六个页签换行后都完整可见。安装一个社区插件，确认社区提示固定在页签上方，任何页签都能看到。在左侧点“语言服务”“社区 / 磁盘”“已禁用”等过滤芯片，确认列表随之变化并按“已启用 / 已禁用”分组；在搜索框输入 /，确认出现过滤选项，选中后搜索框清空并切换过滤。更新过的插件在版本与来源页签显示上一版本和“回滚…”，确认后需要重启 Lithe。布局：在浅色和深色下缩放设置窗口、往返拖动插件列表分隔条，切换不同插件与各页签，确认标题、页签和正文不越过分隔线；窄设置表单可横向滚动至末尾，输入控件保持同一实例，扩大后恢复填满正文。运行 PluginDetailLayoutTests 检查这些边界。Windows：扩展管理尚未拆分页签。",
   "legacy": {
     "revision": "5a54c41aa37a4e6e6b68918a4b05765b9dd07a36",
     "macos": {
@@ -50,5 +56,5 @@
       "verificationStatus": "not-applicable"
     }
   },
-  "notes": "Viva：插件页分为“已安装”和“市场”两个标签，已安装为默认页（installed_view.go）。已安装详情有概览、功能、设置、权限与程序、版本与来源五个页签，社区、磁盘等提示固定在页签上方；头部提供停用/启用、更新到新版本和卸载（先确认）。列表可按语言服务器、构建、调试、界面、可更新、社区、已停用过滤，按“已启用 / 已停用”分组并显示启用数量，搜索框输入 / 列出过滤选项。权限与程序页签每个权限一行，程序折叠成一行摘要、展开看完整 JSON 并可复制，JSON 用编辑器内置的 JSON 语法和 Lithe 配色高亮；TestInstalledVersionsLinesUpItsValues 和 TestInstalledPermissionsKeepsEachEntryToOneLine 在无头窗口里检查版本与来源的对齐、SHA ⓘ 的位置，以及权限、程序的单行布局、展开收起、JSON 高亮和复制。尚缺：版本与来源不能回滚上一版本，安装记录没有保存索引地址，来源只显示笼统的“市场”；窄设置表单横向滚动和整机验收待做。"
+  "notes": "Viva：插件页分为“已安装”和“市场”两个标签，已安装为默认页（installed_view.go）。已安装详情有概览、功能、设置、权限与程序、版本与来源、更新日志六个页签（详情过窄时换行），社区、磁盘等提示固定在页签上方；头部提供停用/启用、更新到新版本和卸载（先确认）。列表可按语言服务器、构建、调试、界面、可更新、社区、已停用过滤，按“已启用 / 已停用”分组并显示启用数量，搜索框输入 / 列出过滤选项。权限与程序页签每个权限一行，程序折叠成一行摘要、展开看完整 JSON 并可复制，JSON 用编辑器内置的 JSON 语法和 Lithe 配色高亮；TestInstalledVersionsLinesUpItsValues 和 TestInstalledPermissionsKeepsEachEntryToOneLine 在无头窗口里检查版本与来源的对齐、SHA ⓘ 的位置，以及权限、程序的单行布局、展开收起、JSON 高亮和复制。更新日志页签（installed_changelog.go）在打开时通过 Core 的 GitHub listReleases 匿名读取市场登记仓库的前 20 个 Releases，同一设置窗口内按仓库缓存，读取失败记 plugin_releases 并可重试；Release 正文用 Viva 的 MarkdownView 在布局时按实际宽度排版，只打开 http/https 链接；TestInstalledChangelog* 覆盖列表顺序、徽标、正文高度、链接过滤、缓存、失败重试和各种无列表说明，TestInstalledTabsStayWithinANarrowDetail 检查最窄窗口下页签不越界。尚缺：版本与来源不能回滚上一版本，安装记录没有保存索引地址，来源只显示笼统的“市场”；窄设置表单横向滚动和整机验收待做。"
 }

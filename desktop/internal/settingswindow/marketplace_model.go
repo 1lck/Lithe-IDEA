@@ -5,6 +5,7 @@ import (
 	"errors"
 	"slices"
 	"strings"
+	"time"
 
 	"github.com/1lck/Lithe-IDEA/desktop/internal/core"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/marketplace"
@@ -19,6 +20,10 @@ const (
 	marketReady
 	marketFailed
 )
+
+// marketStaleAfter is how old the shown plugins may be when the page is entered again or the
+// window raised before the page reads them again in the background.
+const marketStaleAfter = time.Minute
 
 // marketResult is one finished fetch of an index.
 type marketResult struct {
@@ -67,6 +72,12 @@ type marketplaceState struct {
 	active   bool
 	status   marketStatus
 	snapshot marketplace.Snapshot
+	// fetched is when the shown plugins were read. quiet says the fetch out is a refresh of
+	// them: status stays marketReady, they stay shown, and a failure keeps them. now is the
+	// clock, time.Now outside tests.
+	fetched  time.Time
+	quiet    bool
+	now      func() time.Time
 	selected string
 	// index is rebuilt only when a new catalog arrives, not on every drag frame.
 	index  map[string]int
@@ -79,7 +90,7 @@ type marketplaceState struct {
 }
 
 func newMarketplaceState(fetch func(context.Context) (marketplace.Snapshot, error)) *marketplaceState {
-	m := &marketplaceState{fetch: fetch}
+	m := &marketplaceState{fetch: fetch, now: time.Now}
 	m.buildEffects()
 	m.list.Key, m.list.Label = m.listKey, m.listLabel
 	m.search.bind()
@@ -274,7 +285,17 @@ func (m *marketplaceState) start() {
 		return
 	}
 	m.request++
-	m.status, m.active = marketLoading, true
+	m.status, m.active, m.quiet = marketLoading, true, false
+}
+
+// refreshIfStale reads the shown source again in the background when its plugins were read
+// more than marketStaleAfter ago. They stay shown while it runs and when it fails.
+func (m *marketplaceState) refreshIfStale() {
+	if m.status != marketReady || m.active || m.fetchOf(m.source) == nil || m.now().Sub(m.fetched) < marketStaleAfter {
+		return
+	}
+	m.request++
+	m.active, m.quiet = true, true
 }
 
 func (m *marketplaceState) chooseSource(source int) {
@@ -288,25 +309,34 @@ func (m *marketplaceState) chooseSource(source int) {
 
 // close stops wanting the fetch, which cancels it, and forgets what the search found.
 func (m *marketplaceState) close() {
-	m.active = false
+	m.active, m.quiet = false, false
 	m.status = marketIdle
 	m.search.invalidate()
 }
 
-// take applies the finished fetch on the window thread at the start of a paint.
-func (m *marketplaceState) take() {
+// take applies the finished fetch on the window thread at the start of a paint. ended says a
+// fetch finished; kept is the failure of a background refresh, which leaves the plugins it
+// refreshed shown.
+func (m *marketplaceState) take() (ended bool, kept error) {
 	effect := m.effects[m.source]
 	result, err, ok := effect.Take()
 	if !ok || !m.active {
-		return
+		return false, nil
 	}
-	m.active = false
+	quiet := m.quiet
+	m.active, m.quiet = false, false
 	if errors.Is(err, context.Canceled) {
-		m.status = marketIdle
-		return
+		if !quiet {
+			m.status = marketIdle
+		}
+		return false, nil
+	}
+	if quiet && err != nil {
+		return true, err
 	}
 	m.failures = result.failures
 	m.apply(result.snapshot, err)
+	return true, nil
 }
 
 // declare keeps the wanted fetch alive in the paint.
@@ -322,7 +352,7 @@ func (m *marketplaceState) apply(snapshot marketplace.Snapshot, err error) {
 		m.status = marketFailed
 		return
 	}
-	m.snapshot = snapshot
+	m.snapshot, m.fetched = snapshot, m.now()
 	m.status = marketReady
 	m.search.setCatalog(snapshot.Index.Plugins)
 	m.index = make(map[string]int, len(snapshot.Index.Plugins))

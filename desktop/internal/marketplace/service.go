@@ -25,6 +25,9 @@ const (
 	MaxIndexBytes = 5 << 20
 	fetchTimeout  = 20 * time.Second
 	maxRedirects  = 10
+	// commitLookupTimeout bounds the newest-commit lookup, so an unreachable GitHub API costs
+	// a few seconds before the canonical index is read instead of the whole fetch budget.
+	commitLookupTimeout = 5 * time.Second
 )
 
 var (
@@ -36,19 +39,37 @@ var (
 // Evaluator is the shared Core marketplace contract, supplied by core.Client.
 type Evaluator interface {
 	ResolveMarketplaceSource(context.Context, string) (core.MarketplaceSource, error)
+	PinMarketplaceSource(ctx context.Context, url, commit string) (core.MarketplaceSource, error)
 	ValidateMarketplaceIndex(context.Context, json.RawMessage, core.MarketplaceSourceKind, string, map[string][]int) (core.MarketplaceIndex, error)
 }
+
+// CommitLookup returns the newest commit of ref in repository as a full SHA.
+type CommitLookup func(ctx context.Context, repository core.GitHubRepo, ref string) (string, error)
 
 // Service holds a reusable HTTP client. It stores no index inside application resources.
 type Service struct {
 	core Evaluator
 	http *http.Client
+	// latest and fallback are set by PinToLatestCommit; with latest nil every file is read
+	// from its canonical URL.
+	latest   CommitLookup
+	fallback func(context.Context, error)
 }
 
 // New creates a marketplace service. A nil client uses Go's default transport;
 // a client can be supplied to apply product network policy or test offline.
 func New(evaluator Evaluator, client *http.Client) *Service {
 	return &Service{core: evaluator, http: marketplaceHTTPClient(client, fetchTimeout)}
+}
+
+// PinToLatestCommit makes s read a GitHub-hosted source at the newest commit latest reports
+// rather than at its branch URL, which raw.githubusercontent.com serves from a cache for up to
+// five minutes after a push. When the lookup or the pinned read fails, s reads the canonical URL
+// and hands the failure to fallback with the fetch's context; fallback must be safe to call from
+// any goroutine.
+func (s *Service) PinToLatestCommit(latest CommitLookup, fallback func(context.Context, error)) *Service {
+	s.latest, s.fallback = latest, fallback
+	return s
 }
 
 // marketplaceHTTPClient preserves the supplied transport and redirect policy,
@@ -103,7 +124,8 @@ func (s *Service) Fetch(ctx context.Context, input string, kind core.Marketplace
 	if err != nil {
 		return Snapshot{}, err
 	}
-	data, _, err := s.fetchJSON(ctx, source.IndexURL)
+	pinned := s.pin(ctx, input, source)
+	data, err := s.fetchPinned(ctx, source.IndexURL, pinnedIndex(pinned))
 	if err != nil {
 		return Snapshot{}, err
 	}
@@ -127,14 +149,15 @@ func (s *Service) FetchRecommendationBundle(ctx context.Context, input string, k
 	if source.RecommendationsURL == "" {
 		return RecommendationBundle{}, false, nil
 	}
-	recBody, _, err := s.fetchJSON(ctx, source.RecommendationsURL)
+	pinned := s.pin(ctx, input, source)
+	recBody, err := s.fetchPinned(ctx, source.RecommendationsURL, pinnedRecommendations(pinned))
 	if err != nil {
 		if err == httpStatusError(http.StatusNotFound) {
 			return RecommendationBundle{}, false, nil
 		}
 		return RecommendationBundle{}, false, err
 	}
-	indexBody, _, err := s.fetchJSON(ctx, source.IndexURL)
+	indexBody, err := s.fetchPinned(ctx, source.IndexURL, pinnedIndex(pinned))
 	if err != nil {
 		return RecommendationBundle{}, false, err
 	}
@@ -144,6 +167,66 @@ func (s *Service) FetchRecommendationBundle(ctx context.Context, input string, k
 		Index:           json.RawMessage(indexBody),
 		Recommendations: json.RawMessage(recBody),
 	}, true, nil
+}
+
+// pin asks for the newest commit of a GitHub-hosted source and has Core place the source's files
+// at it. It returns nil, after reporting why, when the lookup or Core fails, and nil without a
+// report when s does not pin or the source follows no GitHub branch.
+func (s *Service) pin(ctx context.Context, input string, source core.MarketplaceSource) *core.MarketplacePinned {
+	if s.latest == nil || source.Revision == nil {
+		return nil
+	}
+	lookupCtx, cancel := context.WithTimeout(ctx, commitLookupTimeout)
+	commit, err := s.latest(lookupCtx, source.Revision.Repository, source.Revision.Ref)
+	cancel()
+	if err != nil {
+		s.reportFallback(ctx, fmt.Errorf("look up the newest commit of %s/%s %s: %w", source.Revision.Repository.Owner, source.Revision.Repository.Name, source.Revision.Ref, err))
+		return nil
+	}
+	pinned, err := s.core.PinMarketplaceSource(ctx, input, commit)
+	if err == nil && pinned.Pinned == nil {
+		err = errors.New("Core placed no file at the commit")
+	}
+	if err != nil {
+		s.reportFallback(ctx, fmt.Errorf("pin %s at %s: %w", source.IndexURL, commit, err))
+		return nil
+	}
+	return pinned.Pinned
+}
+
+// fetchPinned reads the file at pinnedURL when there is one and at canonical otherwise. A pinned
+// read that fails is reported and retried at canonical, except a 404: the commit is the
+// repository's newest, so the file is absent from it.
+func (s *Service) fetchPinned(ctx context.Context, canonical, pinnedURL string) ([]byte, error) {
+	if pinnedURL != "" {
+		data, _, err := s.fetchJSON(ctx, pinnedURL)
+		if err == nil || err == httpStatusError(http.StatusNotFound) || ctx.Err() != nil {
+			return data, err
+		}
+		s.reportFallback(ctx, fmt.Errorf("read %s: %w", pinnedURL, err))
+	}
+	data, _, err := s.fetchJSON(ctx, canonical)
+	return data, err
+}
+
+func (s *Service) reportFallback(ctx context.Context, err error) {
+	if s.fallback != nil {
+		s.fallback(ctx, err)
+	}
+}
+
+func pinnedIndex(pinned *core.MarketplacePinned) string {
+	if pinned == nil {
+		return ""
+	}
+	return pinned.IndexURL
+}
+
+func pinnedRecommendations(pinned *core.MarketplacePinned) string {
+	if pinned == nil {
+		return ""
+	}
+	return pinned.RecommendationsURL
 }
 
 func (s *Service) fetchJSON(ctx context.Context, rawURL string) (data []byte, status int, err error) {
