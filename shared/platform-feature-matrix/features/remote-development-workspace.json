@@ -18,6 +18,8 @@
       "desktop/internal/workbench/remote_close.go",
       "desktop/internal/core/remote_session.go",
       "desktop/internal/remoteserver/remoteserver.go",
+      "desktop/internal/remoteserver/remoteserver_test.go",
+      "desktop/internal/installedpackagetest/installedpackagetest.go",
       "desktop/internal/core/remote_acceptance_test.go",
       ".agents/notes/implemented/feature/2026-11-21-remote-connections-window.md",
       ".agents/notes/implemented/architecture/2026-11-22-remote-workspace-process-runs.md"
@@ -39,6 +41,8 @@
       "desktop/internal/workbench/remote_close.go",
       "desktop/internal/core/remote_session.go",
       "desktop/internal/remoteserver/remoteserver.go",
+      "desktop/internal/remoteserver/remoteserver_test.go",
+      "desktop/internal/installedpackagetest/installedpackagetest.go",
       "desktop/internal/core/remote_acceptance_test.go",
       ".agents/notes/implemented/feature/2026-11-21-remote-connections-window.md",
       ".agents/notes/implemented/architecture/2026-11-22-remote-workspace-process-runs.md"

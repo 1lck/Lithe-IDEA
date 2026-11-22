@@ -100,6 +100,7 @@
       "desktop/internal/core/remote_terminal.go",
       "desktop/internal/core/remote_terminal_test.go",
       "desktop/internal/remoteplaceholder/remoteplaceholder.go",
+      "desktop/internal/remoteplaceholder/remoteplaceholder_test.go",
       "desktop/internal/workbench/remote_browse.go",
       "desktop/internal/workbench/remote_browse_view.go",
       "desktop/internal/workbench/remote_documents.go",
