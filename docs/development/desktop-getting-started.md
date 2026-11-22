@@ -47,21 +47,21 @@ Go 通过 cgo 静态链接 Rust 内核，所以**不能直接运行 `go build` �
 | 工具 | 版本要求 | 用途 |
 | --- | --- | --- |
 | Git | 任意较新版本 | 克隆本仓库和 Lithe-core-rust |
-| Go | **1.27.3**（`desktop/go.mod` 的 `toolchain` 行） | 编译桌面客户端 |
+| Go | **1.27.4**（`desktop/go.mod` 的 `toolchain` 行） | 编译桌面客户端 |
 | Rust | **1.100.0**（仓库根目录 `rust-toolchain.toml` 固定），通过 rustup 安装 | 编译 Rust 内核 |
 | C 编译器 | 见各平台章节 | cgo 编译和链接 |
 | GNU make 和 Bash | — | 运行 `desktop/Makefile` 和 `scripts/desktop/*.sh` |
 | Node.js | 20.11 或更新，推荐当前 LTS | 只用于 i18n 和脚本检查，构建和运行客户端不需要 |
 
-关于 Go 版本：不同 Go 版本的 `gofmt` 输出不同（1.27 对齐长 map 键的方式与 1.26 不一样），CI 用 `go.mod` 里的 1.27.3 检查格式。请安装 **Go 1.27.3**，并确认 `go` 和 `gofmt` 来自同一个安装：
+关于 Go 版本：不同 Go 版本的 `gofmt` 输出不同（1.27 对齐长 map 键的方式与 1.26 不一样），CI 用 `go.mod` 里的 1.27.4 检查格式。请安装 **Go 1.27.4**，并确认 `go` 和 `gofmt` 来自同一个安装：
 
 ```bash
 cd desktop
-go version          # 应输出 go1.27.3
+go version          # 应输出 go1.27.4
 command -v go gofmt # 两者应在同一个目录
 ```
 
-本机装的是更旧的 Go 时，`go` 命令会按 `toolchain` 行自动下载 1.27.3，但 `make fmt` 直接调用的 `gofmt` 仍是旧版本；装的是更新的 Go 时，`go` 不会降级。这两种情况都会导致本地格式化结果和 CI 不一致。
+本机装的是更旧的 Go 时，`go` 命令会按 `toolchain` 行自动下载 1.27.4，但 `make fmt` 直接调用的 `gofmt` 仍是旧版本；装的是更新的 Go 时，`go` 不会降级。这两种情况都会导致本地格式化结果和 CI 不一致。
 
 关于 Rust 版本：仓库根目录的 `rust-toolchain.toml` 固定 Rust 版本，与 CI 和 Lithe-core-rust 一致。
 
@@ -79,7 +79,7 @@ command -v go gofmt # 两者应在同一个目录
 # Xcode 命令行工具：提供 clang、make、git，以及 Rust 内核构建时 bindgen 需要的 libclang
 xcode-select --install
 
-# Go 和 Node.js（以 Homebrew 为例；也可以从 https://go.dev/dl/ 下载 go1.27.3 安装包）
+# Go 和 Node.js（以 Homebrew 为例；也可以从 https://go.dev/dl/ 下载 go1.27.4 安装包）
 brew install go node
 
 # Rust（官方安装脚本）
@@ -122,8 +122,8 @@ Rust 内核在 Windows 上必须编成 `x86_64-pc-windows-gnu` 目标，因为 c
 # Git for Windows（提供 Git Bash）
 winget install --id Git.Git -e
 
-# Go：从 https://go.dev/dl/ 下载 go1.27.3.windows-amd64.msi 安装。
-# winget 安装的是最新版，可能高于 1.27.3，见第二节“关于 Go 版本”。
+# Go：从 https://go.dev/dl/ 下载 go1.27.4.windows-amd64.msi 安装。
+# winget 安装的是最新版，可能高于 1.27.4，见第二节“关于 Go 版本”。
 
 # rustup；首次运行 rustup-init 时按提示安装 Visual Studio 生成工具
 winget install --id Rustlang.Rustup -e
@@ -144,7 +144,7 @@ choco install mingw -y
 打开一个新的 Git Bash 检查：
 
 ```bash
-go version                       # go1.27.3 windows/amd64
+go version                       # go1.27.4 windows/amd64
 rustc -vV | grep host            # host: x86_64-pc-windows-msvc
 gcc --version
 mingw32-make --version
@@ -222,11 +222,11 @@ Ubuntu 24.04 及更新版本中 `libglib2.0-0` 已改名为 `libglib2.0-0t64`，
 
 ### 2. 安装 Go、Rust 和 Node.js
 
-发行版仓库里的 Go 通常不是 1.27.3，建议使用官方压缩包（arm64 机器把 `amd64` 换成 `arm64`）：
+发行版仓库里的 Go 通常不是 1.27.4，建议使用官方压缩包（arm64 机器把 `amd64` 换成 `arm64`）：
 
 ```bash
-curl -LO https://go.dev/dl/go1.27.3.linux-amd64.tar.gz
-sudo rm -rf /usr/local/go && sudo tar -C /usr/local -xzf go1.27.3.linux-amd64.tar.gz
+curl -LO https://go.dev/dl/go1.27.4.linux-amd64.tar.gz
+sudo rm -rf /usr/local/go && sudo tar -C /usr/local -xzf go1.27.4.linux-amd64.tar.gz
 echo 'export PATH=/usr/local/go/bin:$PATH' >> ~/.bashrc
 
 curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
@@ -348,7 +348,7 @@ node scripts/i18n/generate-i18n.mjs --check                # i18n 生成结果�
 
 **`make fmt-check` 在本地通过、CI 失败，或反过来**
 
-本地 `gofmt` 不是 1.27.3，见第二节“关于 Go 版本”。
+本地 `gofmt` 不是 1.27.4，见第二节“关于 Go 版本”。
 
 **首次构建长时间停在 `git clone` / `git fetch`，或下载依赖很慢**
 

@@ -341,10 +341,12 @@ PINNED_CORE_REPOSITORY="https://github.com/Lithe-IDEA/Lithe-core-rust.git"
 # status; #165 ending a remote session releases the search indexes it built (#2231, #2277).
 # Lithe-core-rust main at 18feb4a: #167 remote.attachProcess takes back a process of a resumed or
 # kept host session (#2231).
-# Lithe-core-rust #169 at edad041, until it is merged: a WSL connection reads what wsl.exe printed
-# on standard output, so a distribution that is not installed is unreachable and other failures
-# keep its message (#2231).
-PINNED_CORE_REVISION="edad0419872837674fdee72124da37f81360767e"
+# Lithe-core-rust main at 3cb3c5b: #169 (eeebb58) a WSL connection reads what wsl.exe printed on
+# standard output, so a distribution that is not installed is unreachable and other failures keep
+# its message (#2231); #170 (1f05cfe) only fixes the Windows clippy CI step and a test; #171 moves
+# the Go plugin SDK to Go 1.27.4 like the desktop. The Rust sources are the same as #169's branch
+# commit edad041 that the desktop pinned before.
+PINNED_CORE_REVISION="3cb3c5b9bc0f1b17b0fcd863a1318cd550ccf20a"
 PROFILE="debug"
 CHECKOUT_ONLY="no"
 while [[ $# -gt 0 ]]; do
