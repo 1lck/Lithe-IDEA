@@ -41,6 +41,18 @@ type RemoteConnectRequest struct {
 	// Preferences is the remote workspace preference document, or nil. It names the SSH program;
 	// a WSL connection ignores it.
 	Preferences *string `json:"preferences,omitempty"`
+	// Resume attaches to the host session an earlier connection kept; nil starts a new session.
+	// Core refuses a malformed key or token as CodeInvalidRequest naming resume in
+	// RemoteConnectionFieldError, before anything starts, and connects once more without it when
+	// the host refuses the token.
+	Resume *RemoteResume `json:"resume,omitempty"`
+}
+
+// RemoteResume names a host session an earlier connection kept, with the values its RemoteSession
+// returned. Token is a secret: it is stored like a password and never logged.
+type RemoteResume struct {
+	Key   string `json:"key"`
+	Token string `json:"token"`
 }
 
 // WSLConnection is a distribution of the Windows Subsystem for Linux on this machine, as
@@ -100,6 +112,47 @@ type RemoteSession struct {
 	UserName string `json:"userName"`
 	// HomeDirectory is that account's home directory, empty when unknown.
 	HomeDirectory string `json:"homeDirectory"`
+	// SessionKey names the persistent session on the host, for a later Resume.
+	SessionKey string `json:"sessionKey"`
+	// SessionToken is the secret a later Resume presents, nil when the host issued none. It is
+	// stored like a password and never logged.
+	SessionToken *string `json:"sessionToken"`
+	// Resumed says this connection attached to the session Resume named; false after a Resume
+	// means that session had ended and a new one started.
+	Resumed bool `json:"resumed"`
+	// KeptPrograms are the processes and terminals the resumed session still runs, which an
+	// earlier connection kept; empty for a new session.
+	KeptPrograms []RemoteProgram `json:"keptPrograms"`
+}
+
+// Resume is what a later connection presents to attach to this session again, nil when the host
+// issued no token.
+func (s RemoteSession) Resume() *RemoteResume {
+	if s.SessionKey == "" || s.SessionToken == nil || *s.SessionToken == "" {
+		return nil
+	}
+	return &RemoteResume{Key: s.SessionKey, Token: *s.SessionToken}
+}
+
+// RemoteProgramKind says whether a host program is a process or a terminal.
+type RemoteProgramKind string
+
+const (
+	RemoteProgramProcess  RemoteProgramKind = "process"
+	RemoteProgramTerminal RemoteProgramKind = "terminal"
+)
+
+// RemoteProgram is a process or terminal a host session still runs.
+type RemoteProgram struct {
+	Kind RemoteProgramKind `json:"kind"`
+	// ID is the id the program was started with, unique per kind.
+	ID uint64 `json:"id"`
+	// Argv is the program and its arguments, user content shown as it is and never logged.
+	Argv []string `json:"argv"`
+	// Label is the label the program was started with, or nil.
+	Label *RemoteResourceLabel `json:"label"`
+	// RunningMs is how long the program has run, on the host's clock.
+	RunningMs uint64 `json:"runningMs"`
 }
 
 // RemoteConnectResult is the outcome of remote.connect. Session is set only when Status is
@@ -130,9 +183,17 @@ func (c *Client) RemoteConnect(ctx context.Context, request RemoteConnectRequest
 	}
 	if observationErr != nil {
 		if result.Session != nil {
-			_, _ = c.RemoteDisconnect(context.Background(), result.Session.ID)
+			// A resumed session holds what the user kept, so it is left as it was.
+			programs := RemoteCloseEnd
+			if result.Session.Resumed {
+				programs = RemoteCloseKeep
+			}
+			_, _ = c.RemoteDisconnect(context.Background(), result.Session.ID, programs)
 		}
 		return RemoteConnectResult{}, observationErr
+	}
+	if result.Session != nil {
+		result.Session.KeptPrograms = nonNil(result.Session.KeptPrograms)
 	}
 	return result, nil
 }
@@ -212,16 +273,79 @@ func (c *Client) executeRemoteWithPrompts(ctx context.Context, command string, p
 	return c.ExecuteWithEvents(ctx, command, payload, result, observer)
 }
 
-// RemoteDisconnect ends the session sessionID and its OpenSSH process tree. closed is false when
-// Core no longer knew the session.
-func (c *Client) RemoteDisconnect(ctx context.Context, sessionID string) (closed bool, err error) {
-	var result struct {
-		Closed bool `json:"closed"`
+// RemoteClosePrograms is what closing a connection does to the processes and terminals its host
+// session still runs.
+type RemoteClosePrograms string
+
+const (
+	// RemoteCloseAsk asks the user every time; it is the automatic choice. RemoteDisconnect
+	// treats it as RemoteCloseEnd.
+	RemoteCloseAsk RemoteClosePrograms = "ask"
+	// RemoteCloseEnd ends the host session with everything it runs.
+	RemoteCloseEnd RemoteClosePrograms = "end"
+	// RemoteCloseKeep tells the host to keep them, for a later RemoteResume.
+	RemoteCloseKeep RemoteClosePrograms = "keep"
+)
+
+// RemoteDisconnectResult is what remote.disconnect did. Closed is false when Core no longer knew
+// the session; Kept says the host keeps the session's programs, false for RemoteCloseEnd and when
+// the host could not be told, whose programs then end after the server's idle timeout.
+type RemoteDisconnectResult struct {
+	Closed bool `json:"closed"`
+	Kept   bool `json:"kept"`
+}
+
+// RemoteDisconnect closes the session sessionID and its OpenSSH or wsl.exe process tree, ending
+// the host session with programs RemoteCloseEnd or keeping what it runs with RemoteCloseKeep. Core
+// bounds the request to the host, so closing a window does not hang.
+func (c *Client) RemoteDisconnect(ctx context.Context, sessionID string, programs RemoteClosePrograms) (RemoteDisconnectResult, error) {
+	if programs != RemoteCloseKeep {
+		programs = RemoteCloseEnd
 	}
-	err = c.Execute(ctx, "remote.disconnect", struct {
+	var result RemoteDisconnectResult
+	err := c.Execute(ctx, "remote.disconnect", struct {
+		SessionID string              `json:"sessionId"`
+		Programs  RemoteClosePrograms `json:"programs"`
+	}{sessionID, programs}, &result)
+	return result, err
+}
+
+// RemoteRunningPrograms lists the processes and terminals the host session of sessionID still
+// runs, processes first.
+func (c *Client) RemoteRunningPrograms(ctx context.Context, sessionID string) ([]RemoteProgram, error) {
+	var result struct {
+		Programs []RemoteProgram `json:"programs"`
+	}
+	err := c.Execute(ctx, "remote.runningPrograms", struct {
 		SessionID string `json:"sessionId"`
 	}{sessionID}, &result)
-	return result.Closed, err
+	return nonNil(result.Programs), err
+}
+
+// RemoteEndPrograms ends the processes and terminals the host session of sessionID runs, every
+// one when programs is nil and otherwise those of programs, as RemoteRunningPrograms listed them:
+// SIGTERM for each process session and a hang-up for each terminal. ended counts those that were
+// still running; one that ignores the signal is still listed afterwards.
+func (c *Client) RemoteEndPrograms(ctx context.Context, sessionID string, programs []RemoteProgram) (ended int, err error) {
+	type program struct {
+		Kind RemoteProgramKind `json:"kind"`
+		ID   uint64            `json:"id"`
+	}
+	var named []program
+	if programs != nil {
+		named = make([]program, len(programs))
+		for i, p := range programs {
+			named[i] = program{p.Kind, p.ID}
+		}
+	}
+	var result struct {
+		Ended int `json:"ended"`
+	}
+	err = c.Execute(ctx, "remote.endPrograms", struct {
+		SessionID string    `json:"sessionId"`
+		Programs  []program `json:"programs,omitempty"`
+	}{sessionID, named}, &result)
+	return result.Ended, err
 }
 
 // RemoteCloseAll ends every session Core keeps open and returns how many it closed. The

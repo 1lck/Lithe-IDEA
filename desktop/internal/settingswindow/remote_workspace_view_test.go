@@ -223,3 +223,44 @@ func TestRemoteWorkspaceReverseForwardingIsAppliedAndRestored(t *testing.T) {
 		t.Fatalf("reverse = %+v: Automatic was not restored", reverse)
 	}
 }
+
+// The Closing card shows Automatic, which asks every time, and the host's idle timeout Core
+// reports; choosing Keep on host is a draft Apply writes, and the row then shows the saved choice.
+// Choosing Automatic again removes it from the file.
+func TestRemoteWorkspaceClosingChoiceIsAppliedAndRestored(t *testing.T) {
+	loader := newCorePreferencesLoader(t)
+	w, d, r := remoteWorkspaceWindow(t, loader)
+	if !d.text(en("desktop.remoteSettings.closeAsk")) || !d.text(en("desktop.remoteSettings.closePrograms")) {
+		t.Fatal("the closing row does not show that closing asks every time")
+	}
+	if !d.text(en("desktop.remoteSettings.idleTimeout")) || !d.text(remoteDuration(i18n.English, 600)) {
+		t.Fatal("the idle timeout row does not show the host's ten minutes")
+	}
+	keep := core.RemoteCloseKeep
+	r.setClosing(&keep)
+	d.w.inv.Invalidate()
+	d.pump()
+	if r.drafts() != 1 {
+		t.Fatalf("drafts = %d, want the closing choice", r.drafts())
+	}
+	d.click(en("desktop.buildSettings.apply"))
+	d.until("the apply to end", func() bool { return !w.apply.active() && !r.busy() })
+	d.pump()
+	closing := r.source.Saved.State.Closing
+	if r.failed != nil || r.drafts() != 0 || closing.Source != core.RemotePreferenceFromSetting || closing.Programs != core.RemoteCloseKeep {
+		t.Fatalf("failed = %v, drafts = %d, closing = %+v", r.failed, r.drafts(), closing)
+	}
+	if !d.text(en("desktop.remoteSettings.closeKeep")) {
+		t.Fatal("the row does not show the saved choice")
+	}
+
+	r.setClosing(nil)
+	d.w.inv.Invalidate()
+	d.pump()
+	d.click(en("desktop.buildSettings.apply"))
+	d.until("the second apply to end", func() bool { return !w.apply.active() && !r.busy() })
+	d.pump()
+	if r.source.Saved.State.Preferences.ClosePrograms != nil || r.source.Saved.State.Closing.Programs != core.RemoteCloseAsk {
+		t.Fatal("Automatic was not restored")
+	}
+}
