@@ -35,6 +35,8 @@ type remoteHostPorts struct {
 	// starts are the targets forwards were asked for, and stops the forwards stopped.
 	starts []core.RemoteForwardTarget
 	stops  []uint64
+	// rules are the host side of the forwarding rules (remote_port_rules_test.go).
+	rules remoteHostRules
 }
 
 func (k *remoteHostKernel) RemoteListeningPorts(context.Context, string) ([]core.RemoteListeningPort, error) {

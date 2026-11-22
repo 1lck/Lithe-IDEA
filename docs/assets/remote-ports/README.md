@@ -8,7 +8,10 @@
 - 列表列出远端端口、本机地址、进程、来源（监听发现、手动添加）和状态；8080 的本机端口被占用，改用空闲端口 40001，本机地址用警告色显示；状态栏显示已转发的数量；
 - 已转发行的右键菜单：在浏览器中打开、复制本机地址、更改本机端口…、停止转发；
 - 转发 `10.0.0.5:9000` 这种主机回环地址以外的目标前先询问（S28）；
-- “更改本机端口…”打开的对话框：说明转发到本机回环地址的哪个端口，端口被占用时改用空闲端口并在行里注明。
+- “更改本机端口…”打开的对话框：说明转发到本机回环地址的哪个端口，端口被占用时改用空闲端口并在行里注明；
+- “转发规则”一节：主机 `127.0.0.1:15432` 转到另一台服务器 `db.internal:5432`；`0.0.0.0:9200` 监听主机的全部网卡，监听地址用警告色；反向转发把主机回环地址上由主机选择的端口转回本机 `127.0.0.1:3000`（测试里已在设置中允许反向转发）；
+- 标题栏“+”打开的“添加转发规则”对话框：方向、主机端口、目标各有标题，勾选“监听主机的全部网卡”时显示警告；
+- 添加监听全部网卡的规则前的询问：每次都问，不记住。
 
 截图不代表 macOS/Windows 原生窗口验收，也不代表真实 SSH 主机上的整机验收。
 
@@ -18,3 +21,6 @@
 | 已转发行的右键菜单 | [浅色英文](remote-ports-menu-light-en-US.png) | [深色中文](remote-ports-menu-dark-zh-CN.png) |
 | 转发回环地址以外的目标前询问 | [浅色英文](remote-ports-confirm-light-en-US.png) | [深色中文](remote-ports-confirm-dark-zh-CN.png) |
 | 选择本机端口 | [浅色英文](remote-ports-local-light-en-US.png) | [深色中文](remote-ports-local-dark-zh-CN.png) |
+| 转发规则列表 | [浅色英文](remote-ports-rules-light-en-US.png) | [深色中文](remote-ports-rules-dark-zh-CN.png) |
+| 添加转发规则 | [浅色英文](remote-ports-rule-light-en-US.png) | [深色中文](remote-ports-rule-dark-zh-CN.png) |
+| 监听全部网卡前询问 | [浅色英文](remote-ports-rule-confirm-light-en-US.png) | [深色中文](remote-ports-rule-confirm-dark-zh-CN.png) |

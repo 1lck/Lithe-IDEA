@@ -326,10 +326,13 @@ PINNED_CORE_REPOSITORY="https://github.com/Lithe-IDEA/Lithe-core-rust.git"
 # wsl.exe (the wsl field) and remote.listWslDistributions lists the installed ones (#2231).
 # Lithe-core-rust main at 49fb750: #158 remote.preferences and remote.editPreferences (SSH program,
 # reconnect limit) feed the remote commands, with the reconnect pauses given by Core (#2231).
-# Lithe-core-rust feat/2231-remote-containers at 2e496d2 (#162, on main 62d44ce with #159 host-side
-# forwarding rules): remote.connect enters a running Docker or Podman container (the container
-# field) and remote.listContainers lists the running ones (#2231).
-PINNED_CORE_REVISION="05c4139e30ff4333ef0c0f4bbaa7bf8e9079bbc3"
+# Lithe-core-rust main at 62d44ce: #159 host forward rules and reverse forwards (#2231).
+# Lithe-core-rust feat/2231-remote-containers at b92fcaf (#162 merged with main ac80382, which has
+# #160 persistent host sessions and #161 remote run configurations): remote.connect enters a running
+# Docker or Podman container (the container field), also on an SSH host or in a WSL distribution;
+# remote.listContainers lists the running ones; remote.devcontainerConfigs and remote.devcontainerUp
+# build and start the container of a devcontainer.json (#2231).
+PINNED_CORE_REVISION="b92fcafeb42ee95faea20046ec459aa5fd53ef6f"
 PROFILE="debug"
 CHECKOUT_ONLY="no"
 while [[ $# -gt 0 ]]; do

@@ -33,6 +33,8 @@ const (
 type RemotePreferenceValues struct {
 	SSHProgram            *string `json:"sshProgram"`
 	ReconnectLimitSeconds *uint32 `json:"reconnectLimitSeconds"`
+	// AllowReverseForwarding is whether the Ports window may start reverse forwards.
+	AllowReverseForwarding *bool `json:"allowReverseForwarding"`
 }
 
 // RemoteSSHProgram is the OpenSSH client Core starts. Path is nil only when the automatic
@@ -49,6 +51,13 @@ type RemoteReconnect struct {
 	Source             RemotePreferenceSource `json:"source"`
 	LimitSeconds       uint32                 `json:"limitSeconds"`
 	DelaysMilliseconds []uint64               `json:"delaysMilliseconds"`
+}
+
+// RemoteReverseForwarding is whether reverse forwards may start. The automatic value refuses
+// them, because a port a reverse forward opens is open to every user of the host.
+type RemoteReverseForwarding struct {
+	Source  RemotePreferenceSource `json:"source"`
+	Allowed bool                   `json:"allowed"`
 }
 
 // RemotePreferenceStorage is where the document lives below the application's preference root.
@@ -69,6 +78,7 @@ type RemotePreferences struct {
 	Preferences RemotePreferenceValues  `json:"preferences"`
 	SSH         RemoteSSHProgram        `json:"ssh"`
 	Reconnect   RemoteReconnect         `json:"reconnect"`
+	Reverse     RemoteReverseForwarding `json:"reverseForwarding"`
 	Storage     RemotePreferenceStorage `json:"storage"`
 	SSHConfig   *RemoteSSHConfigFile    `json:"sshConfig"`
 }
@@ -90,8 +100,15 @@ func (c *Client) RemotePreferences(ctx context.Context, document *string, homeDi
 // RemotePreferenceEdit changes one value: set exactly one field. A nil Path or Seconds makes the
 // value automatic again.
 type RemotePreferenceEdit struct {
-	SSHProgram     *RemoteSSHProgramEdit     `json:"sshProgram,omitempty"`
-	ReconnectLimit *RemoteReconnectLimitEdit `json:"reconnectLimit,omitempty"`
+	SSHProgram     *RemoteSSHProgramEdit        `json:"sshProgram,omitempty"`
+	ReconnectLimit *RemoteReconnectLimitEdit    `json:"reconnectLimit,omitempty"`
+	Reverse        *RemoteReverseForwardingEdit `json:"reverseForwarding,omitempty"`
+}
+
+// RemoteReverseForwardingEdit allows or refuses reverse forwards; a nil Allowed is automatic,
+// which refuses them.
+type RemoteReverseForwardingEdit struct {
+	Allowed *bool `json:"allowed"`
 }
 
 // RemoteSSHProgramEdit sets the SSH program to an absolute path of an executable file.

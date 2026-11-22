@@ -74,6 +74,16 @@ const (
 	// CodeForwardLimitReached means the session already runs as many forwards as Core allows;
 	// details carry the maximum.
 	CodeForwardLimitReached ErrorCode = "forward_limit_reached"
+	// CodeForwardHostPortInUse means the host port a host or reverse forward asked for is used by
+	// another program of the host; unlike a local port it is never replaced by another one.
+	CodeForwardHostPortInUse ErrorCode = "forward_host_port_in_use"
+	// CodeForwardHostPortDenied means the host refused to listen on the port, such as a port
+	// below 1024 for an unprivileged user.
+	CodeForwardHostPortDenied ErrorCode = "forward_host_port_denied"
+	// CodeForwardHostUnsupported means the remote server cannot listen on host ports.
+	CodeForwardHostUnsupported ErrorCode = "forward_host_unsupported"
+	// CodeReverseForwardDisabled means the remote preferences do not allow reverse forwards.
+	CodeReverseForwardDisabled ErrorCode = "reverse_forward_disabled"
 	// CodeRemoteServerInvalid means the remote server build for the host's platform could not be
 	// read, or its SHA-256 is not the one the application's manifest names; nothing was sent to
 	// the host.
