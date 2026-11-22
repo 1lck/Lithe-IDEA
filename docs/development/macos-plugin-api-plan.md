@@ -35,7 +35,7 @@ Windows 不在本轮，平台矩阵的 partial/pending 保持真实。
 | API-10 | 已公开 | applyEdits/replaceSelections/insertText；版本校验、IME/只读拒绝、一次 Undo |
 | API-11 | 未做 | 公共 save/saveAs/close 与工作区文件变更接口未接入 |
 | API-12 | 部分完成 | 已公开 `documents/registerContentProvider`（只读内容，≤1 MiB，每窗口每 scheme 一个，仅 macOS）；公共多文件 edit、showDiff 未接入 |
-| API-13 | 部分完成 | 插件视图（ui 0）：工具窗口和设置区域的内容由插件后端返回节点树（宿主控件、树、画布），Core `plugins.ui.applyResult` 校验，桌面端用 Viva 原生绘制；旧的 Tree/List/Form 已删除；插件主动推送、树懒加载/分页、`views.reveal` 未做 |
+| API-13 | 部分完成 | 插件视图（ui 0）：工具窗口和设置区域的内容由插件后端返回节点树（宿主控件、树、画布），Core `plugins.ui.applyResult` 校验，桌面端用 Viva 原生绘制；设置区域的工具行可带 `choose`（ui 0 内的可选字段）成为该工具的选择器（工具链草稿，Viva 桌面端）；旧的 Tree/List/Form 已删除；插件主动推送、树懒加载/分页、`views.reveal` 未做 |
 | API-14 | 部分完成 | 既有包内网页 bridge、状态/生命周期；通用双向页面消息未做 |
 | API-15 | 部分完成 | editor/open/reveal 返回 documentID/version；range 只起点光标，替换预览标签未做 |
 | API-16 | 已公开 | preview/openHTML 支持 split/previewOnly；browser/openExternal 支持 HTTP(S)/已保存 HTML |

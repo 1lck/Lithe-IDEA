@@ -9,8 +9,10 @@ import (
 
 	"github.com/1lck/Lithe-IDEA/desktop/internal/core"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/i18n"
+	"github.com/1lck/Lithe-IDEA/desktop/internal/icons"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/pluginservice"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/pluginview"
+	"github.com/1lck/Lithe-IDEA/desktop/internal/toolchain"
 	"github.com/vivaui/viva/ui"
 )
 
@@ -48,7 +50,17 @@ type regionView struct {
 	// sent is the settings, encoded, that the paint before found, so a paint that finds
 	// them changed tells the view.
 	sent string
+	// picker is the tool whose picker is open, empty when none is; pickerShown says this
+	// paint drew it, so a picker whose row the view no longer shows closes.
+	picker      string
+	pickerShown bool
 }
+
+// The tool picker's width, and the height its choices scroll beyond.
+const (
+	toolPickerWidth     = 560
+	toolPickerMaxHeight = 320
+)
 
 // pluginRegionOf is the region the form's plugin placed on the page on screen: on a page
 // under Build or a contributed page the contributor's, on the plugin's own Settings tab the
@@ -98,7 +110,11 @@ func (w *window) pluginRegion(c ui.C, p *pluginSettingsForm, hasSource bool) {
 	}
 	v.host.Palette, v.host.Language = w.regionPalette(), language
 	v.host.Settings = regionSettings{w: w, p: p, hasSource: hasSource}
+	v.pickerShown = false
 	pluginview.Draw(c.Key("plugin-region:"+region.ID), v.session, &v.host, false)
+	if !v.pickerShown {
+		v.picker = ""
+	}
 }
 
 // openRegion makes and opens the view of key. Its calls carry the editor the form holds now,
@@ -194,16 +210,31 @@ func (s regionSettings) Row(c ui.C, setting string) bool {
 	return true
 }
 
-// Tool draws the toolchains list's row for the tool, in the scope the toolchain pages show.
-// Choosing it opens the Toolchains page with the tool chosen, where it is configured.
-func (s regionSettings) Tool(c ui.C, tool string) bool {
+// toolScope is the toolchain scope beside the scope the page shows: the project's pins beside
+// the project's settings, the machine's defaults beside the global ones. A window without the
+// two scopes has the one it has.
+func (s regionSettings) toolScope(t *toolchainState) *toolchainScope {
+	name := scopeGlobal
+	if s.p.scope == 1 {
+		name = scopeProject
+	}
+	if scope := t.scopes[name]; scope != nil {
+		return scope
+	}
+	return t.current()
+}
+
+// Tool draws the toolchains list's row for the tool, in the toolchain scope beside the scope
+// the page shows. Pressing it opens the Toolchains page in that scope with the tool chosen;
+// with choose, a tool the user may pin opens its picker instead (toolPicker).
+func (s regionSettings) Tool(c ui.C, tool string, choose bool) bool {
 	w := s.w
 	t := w.toolchains
 	if t == nil || !t.available() {
 		return false
 	}
 	t.ensureLoaded()
-	scope := t.current()
+	scope := s.toolScope(t)
 	if scope == nil || !scope.loaded {
 		return false
 	}
@@ -213,14 +244,87 @@ func (s regionSettings) Tool(c ui.C, tool string) bool {
 	}
 	b := &w.bp
 	language := w.marketLanguage()
+	v := w.region
+	// Only a tool the scope holds and the user may pin has choices; any other row stays the
+	// way to the Toolchains page, which says why.
+	fresh := scope.tool(tool)
+	picks := choose && v != nil && fresh != nil && !fresh.ManagedOnly
+	open := picks && v.picker == tool
 	row := ui.ButtonBase(c, entry.tool.DisplayName).FillWidth().Height(toolchainToolRow).PadSides(0, 12, 0, 14).
 		Gap(9).Items(ui.Center).Radius(6).Border(1, b.line).Hover(ui.Look{}.Background(b.hover))
-	if row.Clicked() {
-		t.reveal(tool, t.view.group(tool))
-		w.openBuildChild(pageToolchains)
+	if open {
+		row = row.Border(1, b.accent)
 	}
-	row.Children(func() { w.toolchainToolContent(c, language, scope, entry, "") })
+	clicked := row.Clicked()
+	row.Children(func() {
+		w.toolchainToolContent(c, language, scope, entry, "")
+		if picks {
+			ui.Icon(c, icons.ChevronDown).Size(14, 14).Color(b.sub).Shrink(0)
+		}
+	})
+	if !picks {
+		if clicked {
+			s.revealTool(t, scope, tool)
+		}
+		return true
+	}
+	if open {
+		v.pickerShown = true
+		s.toolPicker(c.Part("picker"), row, language, scope, fresh, &open)
+	} else if clicked {
+		// The add-directory field checks in the Toolchains page's scope, so the page follows
+		// the picker's.
+		t.setScope(scope.name)
+		open, v.pickerShown = true, true
+	}
+	switch {
+	case open:
+		v.picker = tool
+	case v.picker == tool:
+		v.picker = ""
+	}
 	return true
+}
+
+// revealTool opens the Toolchains page in the scope with the tool chosen.
+func (s regionSettings) revealTool(t *toolchainState, scope *toolchainScope, tool string) {
+	t.setScope(scope.name)
+	t.reveal(tool, t.view.group(tool))
+	s.w.openBuildChild(pageToolchains)
+}
+
+// toolPicker is the menu a tool row with choose opens, like an IDE's interpreter menu: the
+// Toolchains page's choices for the tool in the scope (the automatic or inherited choice, then
+// every home the scope knows with its version and sources), the field that adds a directory,
+// and the way to the page. A choice is the scope's draft, which the footer's Apply writes and
+// Cancel drops, and it closes the menu.
+func (s regionSettings) toolPicker(c ui.C, row ui.Box, language i18n.Language, scope *toolchainScope, tool *toolchain.Tool, open *bool) {
+	w := s.w
+	t := w.toolchains
+	title := i18n.Shared(language, "desktop.buildSettings.optionsGlobal")
+	if scope.name == scopeProject {
+		title = i18n.Shared(language, "desktop.buildSettings.optionsProject")
+	}
+	spec := ui.PopoverSpec{Align: ui.Start, Width: toolPickerWidth, ConsumeOutsidePress: true, Title: title}
+	ui.PopoverWith(c, row, spec, open, func() {
+		before := scope.wanted(tool.ID)
+		current := toolchainCurrent(tool)
+		ui.Scroll(c.Part("choices")).Scrollbars().FillWidth().MaxHeight(toolPickerMaxHeight).Children(func() {
+			for _, option := range t.options(language, scope, tool) {
+				w.toolchainOption(c.Key("option:"+option.home), language, scope, tool, option, option.home == before, current)
+			}
+		})
+		w.toolchainAddRow(c.Part("add"), language, scope, tool)
+		ui.Row(c).FillWidth().PadX(8).PadY(4).Items(ui.Center).Children(func() {
+			if w.button(c.Part("toolchains"), buttonLinkSmall, i18n.Shared(language, "desktop.pluginView.toolPickerToolchains"), false) {
+				*open = false
+				s.revealTool(t, scope, tool.ID)
+			}
+		})
+		if scope.wanted(tool.ID) != before {
+			*open = false
+		}
+	})
 }
 
 // Binding is the draft of a declared setting a control can edit: a text, file, directory or
