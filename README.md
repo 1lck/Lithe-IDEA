@@ -121,6 +121,14 @@ Starting from `0.8.1`, releases ship the unified Viva + Rust Core client as `Lit
 
 - **macOS manual download:** Grab the `.dmg` from [GitHub Releases](https://github.com/1lck/Lithe-IDEA/releases/latest) (`arm64` for Apple Silicon, `amd64` for Intel).
 - **Windows x64:** Download the Windows `.exe` installer from [GitHub Releases](https://github.com/1lck/Lithe-IDEA/releases/latest).
+- **Linux x64 / arm64:** Install for your user with one command (no `sudo`). It downloads the release from the update feed, checks its SHA-256, puts `lithe` in `~/.local/bin` and adds Lithe to the application menu; Lithe then updates itself with incremental patches:
+
+  ```bash
+  curl -fsSL https://raw.githubusercontent.com/1lck/Lithe-IDEA/main/scripts/install/linux.sh | sh
+  curl -fsSL https://raw.githubusercontent.com/1lck/Lithe-IDEA/main/scripts/install/linux.sh | sh -s -- uninstall
+  ```
+
+  The `.deb` and `.rpm` packages on [GitHub Releases](https://github.com/1lck/Lithe-IDEA/releases) are owned by the package manager and do not update themselves. To install by hand instead, unpack the Linux `.tar.gz` and run `./install.sh`.
 - **Build from source / Pre-releases:** Check the [Releases](https://github.com/1lck/Lithe-IDEA/releases) notes, or follow [Develop Lithe](#develop-lithe) below.
 
 <details>
