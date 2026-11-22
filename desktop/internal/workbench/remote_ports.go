@@ -24,7 +24,8 @@ import (
 // computer's loopback address only (S27), and the host never reaches back through it (S29); a
 // target outside the host's loopback interface is forwarded only after the user confirms it (S28).
 // Forwards belong to the session: when it ends, Core stops them, and the window shows the ports
-// unforwarded again.
+// unforwarded until the next session attaches and the forwards left running start again
+// (remote_port_records.go, which also keeps the ports added, labels and local ports across reopens).
 //
 // A port is added by typing it alone, as host:port or as a URL; Core reads the address
 // (remote.parseForwardAddress), and the row keeps a URL's scheme and path, to show the row as typed
@@ -233,10 +234,31 @@ type remotePorts struct {
 	// of one failed, by forward id.
 	ruleStopping map[uint64]bool
 	ruleFailed   map[uint64]string
+	// labels are the names the user gave rows, and running the local forwards the user started and
+	// did not stop, kept across sessions and in the port records (remote_port_records.go);
+	// remembered are the rules the user started, which never start on their own.
+	labels     map[remotePortKey]string
+	running    map[remotePortKey]remotePortRunning
+	remembered []core.RemotePortRule
+	// written is what Core last reported of the port records, nil until they were read or when
+	// they cannot be kept. recordsBusy is set while a reading or write runs, recordsAttach once a
+	// session attached and the forwards wait to be restored, and recordsRevision counts the
+	// changes of what the window remembers.
+	written         *core.RemotePortRecords
+	recordsBusy     bool
+	recordsAttach   bool
+	recordsRevision uint64
+	// label is the row or rule whose label the user is typing, nil while none is; labelField is
+	// the label typed, and labelInvalid is set when Core would not keep it.
+	label        *remotePortLabelTarget
+	labelOpen    bool
+	labelField   ui.Field
+	labelInvalid bool
 }
 
 // reset forgets what belonged to the ended session: its forwards, what ran for them and the
-// listing it read. The ports the user added stay.
+// listing it read. What the window remembers stays: the ports the user added, the labels, local
+// ports and remembered rules, and the forwards left running, which the next session restores.
 func (ports *remotePorts) reset() {
 	ports.stopReading()
 	ports.listening, ports.listed, ports.readFailed = nil, false, ""
@@ -533,11 +555,16 @@ func (a *App) forwardStarted(p *project, session string, key remotePortKey, host
 	switch code := remotePortsCode(err); {
 	case err == nil:
 		ports.putForward(forward)
+		ports.setRunning(forwardKey(forward), &remotePortRunning{host: forward.TargetHost, confirmed: !forward.LoopbackTarget})
+		a.remotePortsChanged(p)
+		return
+	case code == core.CodeConnectionClosed:
+		// The forward that ran before stays remembered, so the next session starts it again.
+		a.loseRemote(p, session, err)
+		return
 	case code == core.CodeForwardTargetNotConfirmed:
 		a.operationRejected("remote_port_forward", "target_not_confirmed")
 		ports.confirm, ports.confirmOpen = &remotePortConfirm{key: key, host: host}, true
-	case code == core.CodeConnectionClosed:
-		a.loseRemote(p, session, err)
 	case code == core.CodeForwardLimitReached:
 		a.operationFailed("remote_port_forward", remoteLogError(err))
 		ports.notice = i18n.SharedFormat(a.language(), "desktop.remote.ports.limit",
@@ -549,6 +576,9 @@ func (a *App) forwardStarted(p *project, session string, key remotePortKey, host
 		a.operationFailed("remote_port_forward", remoteLogError(err))
 		ports.setFailed(key, remotePortsReason(err))
 	}
+	// A forward moved to another local port stopped before its new start failed.
+	ports.setRunning(key, nil)
+	a.remotePortsChanged(p)
 }
 
 // chooseRemoteLocalPort asks for the local port of row key, starting from the one it uses now.
@@ -593,6 +623,7 @@ func (a *App) applyRemoteLocalPort(p *project) {
 		ports.localPorts = map[remotePortKey]uint16{}
 	}
 	ports.localPorts[key] = port
+	a.remotePortsChanged(p)
 	switch row, ok := ports.row(key); {
 	case !ok:
 	case row.forward == nil:
@@ -680,7 +711,11 @@ func (a *App) stopRemotePort(p *project, key remotePortKey, id uint64, surface a
 			case err == nil:
 				// A forward Core no longer knows has stopped as well.
 				ports.dropForward(id)
+				ports.setRunning(key, nil)
+				a.remotePortsChanged(p)
 			case remoteConnectionClosed(err):
+				// The user stopped it: the next session does not start it again.
+				ports.setRunning(key, nil)
 				a.loseRemote(p, session, err)
 			default:
 				a.operationFailed("remote_port_stop", remoteLogError(err))
@@ -702,9 +737,11 @@ func (a *App) stopAllRemotePorts(p *project, surface actionSurface) {
 	ports := &r.ports
 	ports.stoppingAll = true
 	ids := make([]uint64, len(ports.forwards))
+	var keys []remotePortKey
 	for i, forward := range ports.forwards {
 		ids[i] = forward.ID
 		if forward.IsLocal() {
+			keys = append(keys, forwardKey(forward))
 			ports.setBusy(forwardKey(forward), remotePortStopping)
 		} else {
 			ports.setRuleStopping(forward.ID, true)
@@ -729,6 +766,15 @@ func (a *App) stopAllRemotePorts(p *project, surface actionSurface) {
 			clear(ports.busy)
 			clear(ports.ruleStopping)
 			clear(ports.ruleFailed)
+			// The user stopped them: only a forward the listing still shows stays remembered.
+			for _, key := range keys {
+				if listErr != nil || !slices.ContainsFunc(forwards, func(forward core.RemoteForward) bool {
+					return forward.IsLocal() && forwardKey(forward) == key
+				}) {
+					ports.setRunning(key, nil)
+				}
+			}
+			a.remotePortsChanged(p)
 			err := errors.Join(stopErr, listErr)
 			switch {
 			case err != nil && (remoteConnectionClosed(stopErr) || remoteConnectionClosed(listErr)):
@@ -818,6 +864,7 @@ func (a *App) addRemoteAddress(p *project, address core.RemoteForwardAddress, su
 	ports := &p.remote.ports
 	key := remotePortKey{host: remotePortHost(address.TargetHost), port: address.TargetPort}
 	ports.putAdded(remotePortAdded{key: key, host: address.TargetHost, scheme: address.Scheme, path: address.Path})
+	a.remotePortsChanged(p)
 	row, _ := ports.row(key)
 	if row.forward != nil {
 		// log-exempt: 非用户操作：这个端口已在转发，添加只让它出现在列表里，或换成新输入的网址。
@@ -826,12 +873,15 @@ func (a *App) addRemoteAddress(p *project, address core.RemoteForwardAddress, su
 	a.forwardRemotePort(p, key, row.target(), false, surface)
 }
 
-// removeRemotePort removes a port the user added from the window.
+// removeRemotePort removes a port the user added from the window, with its label and local port.
 func (a *App) removeRemotePort(p *project, key remotePortKey) {
 	ports := &p.remote.ports
 	a.performed("remote.ports.remove", surfaceContextMenu)
 	ports.manual = slices.DeleteFunc(ports.manual, func(added remotePortAdded) bool { return added.key == key })
+	delete(ports.labels, key)
+	delete(ports.localPorts, key)
 	ports.setFailed(key, "")
+	a.remotePortsChanged(p)
 }
 
 // remotePortAddress is the local address of forward, as host:port.

@@ -25,8 +25,9 @@ import (
 //     by default, and every rule is confirmed before it starts; Core checks the preferences again.
 //
 // Rules belong to the session like every forward: Core stops them when it ends, and the window
-// never starts them again after a reconnect. A rule never moves to another host port: a taken
-// one is refused. The log names the outcome only, never an address, a URL or a process.
+// never starts them again on its own. It remembers every rule that started (remote_port_records.go)
+// and lists the ones not running with Start, which opens this dialog filled in with the rule, so
+// every question is asked again. A rule never moves to another host port: a taken one is refused. The log names the outcome only, never an address, a URL or a process.
 
 // remotePortRuleKind is the direction of a rule the dialog adds.
 type remotePortRuleKind int
@@ -109,16 +110,22 @@ func (ports *remotePorts) setRuleFailed(id uint64, reason string) {
 	ports.ruleFailed[id] = reason
 }
 
-// openRemotePortRule opens the Add Forwarding Rule dialog and reads whether the remote
-// preferences allow reverse rules.
-func (a *App) openRemotePortRule(p *project, surface actionSurface) {
+// openRemotePortRule opens the Add Forwarding Rule dialog, filled in with the remembered rule from
+// when it is not nil, and reads whether the remote preferences allow reverse rules. A remembered
+// reverse rule falls back to an empty host rule when they do not.
+func (a *App) openRemotePortRule(p *project, from *core.RemotePortRule, surface actionSurface) {
 	r := p.remote
 	if r == nil || r.closed || r.session == "" {
 		// log-exempt: 非用户操作：没有会话，按钮此时不可用。
 		return
 	}
-	a.performed("remote.ports.addRule", surface)
 	draft := &remotePortRuleDraft{}
+	if from != nil {
+		a.performed("remote.ports.ruleStart", surface)
+		draft = remotePortRuleDraftOf(*from)
+	} else {
+		a.performed("remote.ports.addRule", surface)
+	}
 	r.ports.rule, r.ports.ruleOpen = draft, true
 	kernel, root := a.kernel, a.globalToolchainRoot()
 	a.background(p, remotePortsTimeout, func(ctx context.Context) func(*App) {
@@ -131,9 +138,12 @@ func (a *App) openRemotePortRule(p *project, surface actionSurface) {
 			if err != nil {
 				// A damaged preference document allows nothing; the settings page reports it.
 				a.backgroundFailed("remote_port_rule_preferences", remoteLogError(err))
-				return
 			}
-			draft.reverseAllowed = allowed
+			draft.reverseAllowed = allowed && err == nil
+			if !draft.reverseAllowed && draft.kind == remotePortRuleReverse {
+				draft.kind = remotePortRuleHost
+				draft.target.SetText("")
+			}
 		}
 	})
 }
@@ -305,8 +315,9 @@ func (a *App) startRemotePortRule(p *project) {
 				return
 			}
 			if err == nil {
-				// The rule runs even when the dialog was closed meanwhile.
+				// The rule runs even when the dialog was closed meanwhile, and is remembered.
 				r.ports.putForward(forward)
+				a.rememberRemotePortRule(p, remotePortRuleRecord(kind, host, reverse))
 			}
 			if r.ports.rule != draft {
 				if err != nil {

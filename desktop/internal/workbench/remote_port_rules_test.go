@@ -190,13 +190,20 @@ func TestRemotePortRulesForwardAHostPortToAnotherServer(t *testing.T) {
 	}
 
 	h.click(center(h.portRowControl("127.0.0.1:15432", i18n.Shared(lang, "desktop.remote.ports.stop"))))
-	h.await("the stopped rule", func() bool { return len(ports.rules()) == 0 && len(ports.ruleStopping) == 0 })
+	h.await("the stopped rule", func() bool { return len(ports.rules()) == 0 && len(ports.ruleStopping) == 0 && !ports.recordsBusy })
 	h.settle()
-	if len(k.ports.forwards[p.remote.session]) != 0 || h.shows(i18n.Shared(lang, "desktop.remote.ports.rulesHeading")) {
-		t.Fatal("Stop left the rule running or listed")
+	if len(k.ports.forwards[p.remote.session]) != 0 || len(ports.idleRules()) != 1 ||
+		!h.shows(i18n.Shared(lang, "desktop.remote.ports.statusNotRunning")) {
+		t.Fatal("Stop left the rule running, or the stopped rule is not listed as remembered")
+	}
+	h.click(center(h.portRowControl("127.0.0.1:15432", i18n.Shared(lang, "desktop.remote.ports.ruleForget"))))
+	h.await("the forgotten rule", func() bool { return !ports.recordsBusy })
+	h.settle()
+	if len(ports.remembered) != 0 || h.shows(i18n.Shared(lang, "desktop.remote.ports.rulesHeading")) {
+		t.Fatal("Forget Rule left the rule listed")
 	}
 	actions := remoteActions(logger)
-	for _, action := range []string{"remote.ports.addRule", "remote.ports.ruleHost", "remote.ports.ruleConfirm", "remote.ports.stopRule"} {
+	for _, action := range []string{"remote.ports.addRule", "remote.ports.ruleHost", "remote.ports.ruleConfirm", "remote.ports.stopRule", "remote.ports.ruleForget"} {
 		if !slices.Contains(actions, action) {
 			t.Fatalf("performed %q, want %s", actions, action)
 		}
@@ -373,7 +380,8 @@ func TestRemotePortRulesReportWhyAHostPortWasRefused(t *testing.T) {
 }
 
 // Rules belong to the session: Stop All Forwards stops them with the forwards of this computer, and
-// a lost session takes them with it without the window starting them again on the new one.
+// a lost session takes them with it without the window starting them again on the new one; the
+// window still lists them as remembered, each with Start.
 func TestRemotePortRulesEndWithTheSessionAndAreNotRestored(t *testing.T) {
 	h, k, timers, _ := remoteWorkspaceHarness(t)
 	lang := h.app.language()
@@ -405,11 +413,15 @@ func TestRemotePortRulesEndWithTheSessionAndAreNotRestored(t *testing.T) {
 	h.fireAfter(t, timers, remoteHeartbeatInterval)
 	h.fireReconnect(t, timers, r)
 	h.await("the new session's reading", func() bool {
-		return r.session == "session-2" && !r.beating && r.ports.listed && !p.tree.reading
+		return r.session == "session-2" && !r.beating && r.ports.listed && !p.tree.reading && !ports.recordsBusy
 	})
 	h.settle()
-	if len(ports.rules()) != 0 || ports.rule != nil || ports.ruleOpen || h.shows(i18n.Shared(lang, "desktop.remote.ports.rulesHeading")) {
+	if len(ports.rules()) != 0 || ports.rule != nil || ports.ruleOpen {
 		t.Fatal("the lost session's rule or dialog outlived it")
+	}
+	if len(ports.idleRules()) != 2 || !h.shows(i18n.Shared(lang, "desktop.remote.ports.statusNotRunning")) ||
+		!h.hasControl(i18n.Shared(lang, "desktop.remote.ports.ruleStart")) {
+		t.Fatal("the rules of the lost session are not listed as remembered with Start")
 	}
 	if got := len(k.ports.rules.hostStarts); got != started {
 		t.Fatalf("%d rules started after the reconnect, want none", got-started)

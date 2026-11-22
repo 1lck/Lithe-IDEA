@@ -317,6 +317,9 @@ func (a *App) attachRemote(p *project, session core.RemoteSession) {
 	r.watchWait = remoteWatchReady
 	a.startRemoteWatch(p)
 	a.resumeRemoteGit(p)
+	// The Ports window reads its records and restores the forwards left running.
+	r.ports.recordsAttach = true
+	a.syncRemotePorts(p)
 }
 
 // beatRemote asks the server of the workspace's session what still runs, and schedules the next

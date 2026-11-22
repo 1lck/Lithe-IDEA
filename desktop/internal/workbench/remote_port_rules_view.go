@@ -21,8 +21,9 @@ const (
 	remotePortRulesConnectionsWidth = 150
 )
 
-// remotePortRules declares the list of the session's host and reverse rules.
-func (a *App) remotePortRules(c ui.C, p *project, rules []core.RemoteForward) {
+// remotePortRules declares the list of the session's host and reverse rules, then the rules the
+// window remembers that are not running.
+func (a *App) remotePortRules(c ui.C, p *project, rules []core.RemoteForward, idle []core.RemotePortRule) {
 	language := a.language()
 	k := c.Part("rules")
 	ui.Row(k.Part("heading")).FillWidth().Height(remotePortsRowHeight).Shrink(0).Items(ui.Center).Gap(4).PadX(shellContentPad).Children(func() {
@@ -43,6 +44,7 @@ func (a *App) remotePortRules(c ui.C, p *project, rules []core.RemoteForward) {
 			})
 		}
 		column("listen", i18n.Shared(language, "desktop.remote.ports.ruleColumnListen"), remotePortRulesListenWidth)
+		column("label", i18n.Shared(language, "desktop.remote.ports.columnLabel"), remotePortsLabelWidth)
 		column("target", i18n.Shared(language, "desktop.remote.ports.ruleColumnTarget"), 0)
 		column("connections", i18n.Shared(language, "desktop.remote.ports.ruleColumnConnections"), remotePortRulesConnectionsWidth)
 		column("status", i18n.Shared(language, "desktop.remote.ports.columnStatus"), remotePortsStatusWidth)
@@ -52,6 +54,87 @@ func (a *App) remotePortRules(c ui.C, p *project, rules []core.RemoteForward) {
 	for _, rule := range rules {
 		a.remotePortRuleRow(c.Key("rule:"+strconv.FormatUint(rule.ID, 10)), p, rule)
 	}
+	for _, rule := range idle {
+		a.remotePortIdleRuleRow(c.Key("idle:"+remotePortIdleKey(rule)), p, rule)
+	}
+}
+
+// remotePortIdleKey names a remembered rule among the list's rows.
+func remotePortIdleKey(rule core.RemotePortRule) string {
+	return string(rule.Kind) + ":" + strconv.Itoa(int(rule.ListenPort)) + ":" + rule.TargetHost + ":" +
+		strconv.Itoa(int(rule.TargetPort)) + ":" + strconv.Itoa(int(rule.LocalPort))
+}
+
+// remotePortIdleListen is the Host Listens On column of a remembered rule: the host's loopback
+// address with its port, as a running rule lists it (a remembered rule never listens on every
+// interface), or that the host chooses a port.
+func remotePortIdleListen(language i18n.Language, rule core.RemotePortRule) string {
+	if rule.ListenPort == 0 {
+		return i18n.Shared(language, "desktop.remote.ports.ruleListenAny")
+	}
+	return net.JoinHostPort("127.0.0.1", strconv.Itoa(int(rule.ListenPort)))
+}
+
+// remotePortIdleTarget is the Forwards To column of a remembered rule.
+func remotePortIdleTarget(language i18n.Language, rule core.RemotePortRule) string {
+	if rule.Kind == core.RemoteForwardReverse {
+		return i18n.SharedFormat(language, "desktop.remote.ports.ruleThisComputer",
+			map[string]string{"address": net.JoinHostPort("127.0.0.1", strconv.Itoa(int(rule.LocalPort)))})
+	}
+	return net.JoinHostPort(rule.TargetHost, strconv.Itoa(int(rule.TargetPort)))
+}
+
+// remotePortIdleRuleRow declares a remembered rule that is not running, its Start and Forget
+// buttons and its context menu. Start opens Add Forwarding Rule filled in with it, so the rule
+// starts only once the user adds it there.
+func (a *App) remotePortIdleRuleRow(c ui.C, p *project, rule core.RemotePortRule) {
+	r := p.remote
+	language := a.language()
+	listen := remotePortIdleListen(language, rule)
+	status := i18n.Shared(language, "desktop.remote.ports.statusNotRunning")
+	unavailable := r.session == "" || r.ports.stoppingAll
+	icon := icons.Server
+	if rule.Kind == core.RemoteForwardReverse {
+		icon = icons.Monitor
+	}
+	line := ui.Row(c).FillWidth().Height(remotePortsRowHeight).Shrink(0).Items(ui.Center).PadX(shellContentPad).
+		Hover(ui.Look{}.Background(a.colors.Hover)).
+		HitWith(ui.ID(c), listen, gfx.HitOptions{Value: status, SkipFocus: true})
+	line.Children(func() {
+		ui.Row(c.Part("listen")).Width(remotePortRulesListenWidth).Shrink(0).Items(ui.Center).Gap(6).Children(func() {
+			ui.Icon(c.Part("kind"), icon).Size(14, 14).Shrink(0).Color(a.colors.Subtle)
+			ui.Text(c.Part("listen-text"), listen).Color(a.colors.Subtle).Ellipsis()
+		})
+		a.remotePortsLabelCell(c, rule.Label)
+		ui.Row(c.Part("target")).Grow(1).Shrink(1).MinWidth(0).Items(ui.Center).Children(func() {
+			ui.Text(c.Part("target-text"), remotePortIdleTarget(language, rule)).Color(a.colors.Subtle).Ellipsis()
+		})
+		ui.Row(c.Part("connections")).Width(remotePortRulesConnectionsWidth).Shrink(0)
+		ui.Row(c.Part("status")).Width(remotePortsStatusWidth).Shrink(0).Items(ui.Center).Children(func() {
+			ui.Text(c.Part("status-text"), status).Color(a.colors.Subtle).Ellipsis()
+		})
+		ui.Row(c.Part("actions")).Width(remotePortsActionWidth).Shrink(0).Items(ui.Center).Justify(ui.End).Gap(2).Children(func() {
+			if _, clicked := a.toolIconButton(c.Part("start"), i18n.Shared(language, "desktop.remote.ports.ruleStart"), icons.Play, false, unavailable); clicked {
+				c.After(func() { a.startRememberedRule(p, rule, surfaceButton) })
+			}
+			if _, clicked := a.toolIconButton(c.Part("forget"), i18n.Shared(language, "desktop.remote.ports.ruleForget"), icons.Trash2, false, false); clicked {
+				c.After(func() { a.forgetRemotePortRule(p, rule, surfaceButton) })
+			}
+		})
+	})
+	ui.ContextMenu(c.Part("menu"), line, func(menu *ui.MenuItems) {
+		menu.WidthRange(180, 280)
+		if menu.Item(i18n.Shared(language, "desktop.remote.ports.ruleStart")).Icon(icons.Play).Disabled(unavailable).Clicked() {
+			c.After(func() { a.startRememberedRule(p, rule, surfaceContextMenu) })
+		}
+		if menu.Item(i18n.Shared(language, "desktop.remote.ports.editLabel")).Icon(icons.Tag).Clicked() {
+			c.After(func() { a.editRemotePortLabel(p, remotePortLabelTarget{rule: &rule}, surfaceContextMenu) })
+		}
+		menu.Separator()
+		if menu.Item(i18n.Shared(language, "desktop.remote.ports.ruleForget")).Icon(icons.Trash2).Clicked() {
+			c.After(func() { a.forgetRemotePortRule(p, rule, surfaceContextMenu) })
+		}
+	})
 }
 
 // remotePortRuleStatus is the Status column of rule and its colour.
@@ -104,6 +187,7 @@ func (a *App) remotePortRuleRow(c ui.C, p *project, rule core.RemoteForward) {
 			ui.Icon(c.Part("kind"), icon).Size(14, 14).Shrink(0).Color(color)
 			ui.Text(c.Part("listen-text"), listen).Color(color).Ellipsis()
 		})
+		a.remotePortsLabelCell(c, ports.ruleLabel(rule))
 		ui.Row(c.Part("target")).Grow(1).Shrink(1).MinWidth(0).Items(ui.Center).Children(func() {
 			ui.Text(c.Part("target-text"), remotePortRuleTarget(language, rule)).Color(a.colors.Text).Ellipsis()
 		})
@@ -121,6 +205,16 @@ func (a *App) remotePortRuleRow(c ui.C, p *project, rule core.RemoteForward) {
 	})
 	ui.ContextMenu(c.Part("menu"), line, func(menu *ui.MenuItems) {
 		menu.WidthRange(180, 280)
+		record := remotePortRuleOf(rule)
+		if menu.Item(i18n.Shared(language, "desktop.remote.ports.editLabel")).Icon(icons.Tag).Clicked() {
+			c.After(func() { a.editRemotePortLabel(p, remotePortLabelTarget{rule: &record}, surfaceContextMenu) })
+		}
+		if _, remembered := ports.rememberedRule(record); remembered {
+			if menu.Item(i18n.Shared(language, "desktop.remote.ports.ruleForget")).Icon(icons.Trash2).Clicked() {
+				c.After(func() { a.forgetRemotePortRule(p, record, surfaceContextMenu) })
+			}
+		}
+		menu.Separator()
 		if menu.Item(i18n.Shared(language, "desktop.remote.ports.stop")).Icon(icons.Square).Disabled(busy).Clicked() {
 			c.After(func() { a.stopRemotePortRule(p, rule.ID, surfaceContextMenu) })
 		}
@@ -184,7 +278,8 @@ func (a *App) remotePortRuleDialog(c ui.C, p *project) {
 func (a *App) remotePortRuleFields(c ui.C, p *project, draft *remotePortRuleDraft, unavailable bool) {
 	language := a.language()
 	kinds := []remotePortRuleKind{remotePortRuleHost}
-	if draft.reverseAllowed {
+	// A remembered reverse rule is shown as one while the preferences are read.
+	if draft.reverseAllowed || draft.kind == remotePortRuleReverse {
 		kinds = append(kinds, remotePortRuleReverse)
 	}
 	kindLabel := func(kind remotePortRuleKind) string {
