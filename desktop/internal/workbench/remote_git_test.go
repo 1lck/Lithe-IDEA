@@ -461,15 +461,16 @@ func TestRemoteWorkspaceSaysItsRepositoryStartsAbove(t *testing.T) {
 }
 
 // What runs the project's code on this computer refuses in a trusted remote workspace too, and
-// says so: Run and Debug, the current file's run, the tests and the build tasks, and their tool
-// windows.
+// says so: Debug, the current file's run, a run that is not a configuration, the tests and the
+// build tasks, and the Debug tool window. Run configurations start on the host
+// (remote_run_test.go).
 func TestRemoteWorkspaceRefusesToRunItsCode(t *testing.T) {
 	h, k, _, logger := remoteWorkspaceHarness(t)
 	lang := h.app.language()
 	k.trustAtHost(core.WorkspaceTrusted, ".")
 	p := h.openRemoteTestProject(t)
 	h.awaitRemoteGit(p)
-	h.app.titleStart(p, titleActionRun)
+	h.app.titleStart(p, titleActionDebug)
 	h.app.performCurrentFileAction(p, titleActionRun)
 	h.app.startRun(p, "run", func(*App, *project) { t.Error("a run started") })
 	h.app.startTests(p, testSelection{})
@@ -486,10 +487,10 @@ func TestRemoteWorkspaceRefusesToRunItsCode(t *testing.T) {
 	if !h.notified(localOnly) || p.trust.asking {
 		t.Fatal("the refusal was not notified, or the trusted workspace asked to be trusted")
 	}
-	h.app.openToolWindow(itemRun)
+	h.app.openToolWindow(itemDebug)
 	h.redraw()
 	if !h.showsWrapped(localOnly) {
-		t.Fatal("the Run tool window does not say it does not work here")
+		t.Fatal("the Debug tool window does not say it does not work here")
 	}
 	sessionKept(t, logger, p, "session-1")
 }

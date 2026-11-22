@@ -166,10 +166,11 @@ func (a *App) shellPanel(c ui.C, s slot, index int, hidden *slot) ui.Box {
 
 // remoteToolWindow reports whether the tool window id works in a remote workspace: the project
 // listing, search and terminals run on the host, and so do Git's log and commit once the
-// workspace is trusted (in safe mode they say so, as in a local project); Ports exists only there.
+// workspace is trusted (in safe mode they say so, as in a local project), and so does Run, for the
+// built-in process runs; Ports exists only there.
 func remoteToolWindow(id string) bool {
 	switch id {
-	case itemProject, itemNotifications, itemTerminal, itemFind, itemGit, itemCommit, itemPorts:
+	case itemProject, itemNotifications, itemTerminal, itemFind, itemGit, itemCommit, itemRun, itemPorts:
 		return true
 	}
 	return false

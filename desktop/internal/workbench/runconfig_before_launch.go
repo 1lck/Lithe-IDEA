@@ -17,7 +17,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"os/exec"
 	"slices"
 
 	"github.com/1lck/Lithe-IDEA/desktop/internal/buildprocess"
@@ -71,6 +70,16 @@ func (a *App) runBeforeLaunch(p *project, op *buildOperation, id string, start f
 			}
 			if len(steps.Steps) == 0 {
 				start()
+				return
+			}
+			// A remote workspace runs a step that starts another built-in run on its host. A
+			// plugin's task is planned by the plugin's backend on this computer, which reads no
+			// host files (#2231 §2, R3), so a list naming one does not start.
+			if p.remote != nil && slices.ContainsFunc(steps.Steps, func(step core.RunBeforeLaunchItem) bool { return step.Task != nil }) {
+				message := i18n.Shared(a.language(), "desktop.run.remote.beforeLaunch")
+				a.operationRejected("run_before_launch", "remote_workspace")
+				a.notifyError(message)
+				a.finishBuildError(p, op, errors.New(message))
 				return
 			}
 			run := func() { a.runBeforeLaunchSteps(p, op, steps.Steps, start) }
@@ -131,13 +140,14 @@ func (a *App) refuseBeforeLaunch(p *project, op *buildOperation, refusal *core.R
 // beforeLaunchRun is what the steps of one start take from the window thread: the project,
 // the kernel and language, the build messages and plugin directory a task's plan needs, and,
 // per step that runs a plugin's task, the detected instances of the build system that
-// declares it.
+// declares it. remote runs a remote workspace's steps on its host, nil for a local project.
 type beforeLaunchRun struct {
 	root, pluginRoot string
 	kernel           Kernel
 	language         i18n.Language
 	messages         i18n.BuildMessages
 	instances        [][]buildInstance
+	remote           *remoteRunHost
 }
 
 // runBeforeLaunchSteps starts each step in order off the window thread and waits for it;
@@ -156,7 +166,17 @@ func (a *App) runBeforeLaunchSteps(p *project, op *buildOperation, steps []core.
 			run.instances[index] = p.runTypeInstances(step.Task.RunTypeKey)
 		}
 	}
+	if p.remote != nil {
+		run.remote = &remoteRunHost{
+			kernel: a.kernel, binding: p.remote.binding, root: p.root, language: run.language,
+			output: func(text string) { a.streamBuildOutput(p, op, text) },
+			lost:   a.remoteSessionLost(p),
+		}
+	}
 	a.background(p, 0, func(ctx context.Context) func(*App) {
+		if run.remote != nil {
+			run.remote.failed = func(operation string, err error) { a.backgroundFailedIn(ctx, operation, remoteLogError(err)) }
+		}
 		for index, step := range steps {
 			header := i18n.SharedFormat(run.language, "desktop.runConfig.beforeLaunch.stepHeader", map[string]string{
 				"index": fmt.Sprint(index + 1), "count": fmt.Sprint(len(steps)), "name": step.Name,
@@ -187,6 +207,9 @@ func (a *App) runBeforeLaunchStep(ctx context.Context, p *project, op *buildOper
 	output := func(text string) { a.streamBuildOutput(p, op, text) }
 	if step.Task != nil {
 		return a.runBeforeLaunchTask(prepare, p, run, instances, step, output)
+	}
+	if run.remote != nil {
+		return run.remote.runStep(ctx, prepare, step)
 	}
 	process, cleanup, err := a.startConfiguredProcess(prepare, prepare, run.kernel, run.language, run.root, step.ConfigurationID, output)
 	defer cleanup()
@@ -233,7 +256,8 @@ func (a *App) failBeforeLaunch(p *project, op *buildOperation, step core.RunBefo
 		return
 	}
 	language := a.language()
-	var exit *exec.ExitError
+	// A local process ends with an *exec.ExitError, a host process with a remoteRunExit.
+	var exit interface{ ExitCode() int }
 	message := i18n.SharedFormat(language, "desktop.runConfig.beforeLaunch.failed", map[string]string{"name": step.Name, "reason": err.Error()})
 	if errors.As(err, &exit) {
 		message = i18n.SharedFormat(language, "desktop.runConfig.beforeLaunch.exited", map[string]string{"name": step.Name, "code": fmt.Sprint(exit.ExitCode())})
