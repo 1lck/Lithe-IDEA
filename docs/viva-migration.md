@@ -27,17 +27,19 @@
 | 不纳入 | 2 |
 | 合计 | 254 |
 
-必须迁移 152 项的 Viva 现状：
+必须迁移 153 项的 Viva 现状（2026-11-22 按主表重新计数）：
 
 | 现状 | 数量 |
 | --- | --- |
-| 完成 | 42 |
-| 部分 | 106 |
-| 未开始 | 5 |
+| 完成 | 40 |
+| 部分 | 111 |
+| 未开始 | 2 |
 
 2026-11-12 起 Agent 对话整体放弃，原先唯一“完成”的 `agent-minimal-conversation` 随之移入“放弃”。
 
 2026-11-12 按功能矩阵 JSON 与代码重新核对一遍现状列：“完成”是两端（平台专属行只看对应平台）在 JSON 里都为 implemented，即代码已接通，原生窗口验收仍为 pending；“部分”含 JSON 为 partial 的行与按代码改判的行；说明列原写“无 desktop/ 证据”的行改写为主要实现文件，具体缺口见对应 JSON 的 notes。仍未开始的 5 项：远程开发两项、构建 Provider 原生配置与只读模型输入，以及依赖 webview、按用户决定暂缓的 `embedded-viewers`。
+
+2026-11-22 按主表重新计数：上表原来的 42、106、5 与主表各行不一致，现按主表现状列计数。远程开发两项（`remote-development-workspace`、`remote-workspace`）随 #2231 R0–R2 合入，改为“部分”，缺口是远程工作区里的插件任务、构建工具、插件运行和调试（#2231 R3/R4），远程 Mac 按 #2231 D2 不做；`embedded-viewers` 在主表中已是“部分”。仍未开始的 2 项是构建 Provider 原生配置与只读模型输入。
 
 ## 主表（254 项，按 area 分组）
 
@@ -182,8 +184,8 @@
 | `workspace-open-switch` | 打开工作区与切换项目 | 必须迁移 | 实现/实现 | 部分 | — |
 | `workspace-tabs-projects` | 多项目与多标签 | 必须迁移 | 实现/实现 | 部分 | editorgroups.go、tabstrip.go；仅单项目（workspace-open-switch） |
 | `workspace-tree-batch-files` | 项目树独立多选、范围选择及批量拖动移动、复制、重复和移到废纸篓 | 必须迁移 | 实现/缺 | 部分 | `workbench/filetree_menu.go` |
-| `remote-development-workspace` | 在 SSH 主机、容器和远程 Mac 上打开并开发项目 | 必须迁移 | 部分/缺 | 未开始 | 无 desktop/ 证据 |
-| `remote-workspace` | 远程连接与远程路径工作区 | 必须迁移 | 部分/实现 | 未开始 | 无 desktop/ 证据 |
+| `remote-development-workspace` | 在 SSH 主机、容器和远程 Mac 上打开并开发项目 | 必须迁移 | 部分/缺 | 部分 | `workbench/remote*.go`、`core/remote_session.go`、`remoteserver/`；SSH、WSL、容器与 devcontainer.json 已接通（#2231 R0–R2），远程 Mac 按 #2231 D2 不做，插件任务、构建工具、插件运行和调试属于 R3/R4 |
+| `remote-workspace` | 远程连接与远程路径工作区 | 必须迁移 | 部分/实现 | 部分 | `workbench/remote_workspace.go`、`remote_terminal.go`、`remote_run.go`、`remote_ports.go`、`remote_close.go`；文件、终端、搜索、Git、运行、端口、关闭确认与断线重连已接通，缺口同上一行 |
 | `plugin-project-generators` | 新建项目窗口按 IDEA 的布局列出“新建项目”和“生成器”两组条目 | 必须迁移 | 实现/缺 | 部分 | C04 |
 | `dependency-browser` | 项目依赖与模块浏览 | 必须迁移 | 实现/实现 | 部分 | — |
 | `file-explorer` | 项目文件树与资源打开 | 必须迁移 | 实现/实现 | 部分 | — |
@@ -558,7 +560,7 @@ MCP 管理随 Agent 对话失去消费者后，本轮整块删除，后续重新
 | 凭据：GitHub / 代理 / 数据库 / 远程 / 插件 | Keychain service：`app.lithe.desktop.github`（键 `oauth-token`）、`app.lithe.desktop.proxy`（键 `proxy.password`）、`app.lithe.desktop.database`、`app.lithe.desktop.remote`、`app.lithe.desktop.plugin-credentials`（按 pluginID 追加） | Windows 凭据管理器（keyring crate）：service 为应用标识 `app.lithe.windows`，用户名为调用方键（如 `ai-provider-token/<id>`） | macOS `MacServiceContainer.swift`、`MacKeychainSecureStore.swift`、`MacPluginCredentialStore.swift`；Windows `secure_storage.rs` | 插件凭据：`desktop/internal/credentials`，service `app.lithe.viva.plugin-credentials.<插件ID>`（macOS 钥匙串，Windows 凭据管理器，Linux Secret Service）；GitHub、代理、数据库、远程凭据：未找到 | 插件凭据已实现导入：用户在设置齿轮菜单确认后，列出旧 `app.lithe.desktop.plugin-credentials.<插件ID>`（及 `.dev`）下的项，逐项读取（系统可能请求允许访问），只填补新位置没有的值，旧项不改不删；平时 `get`/`delete` 不碰旧项。旧 Windows 没有插件凭据。其余凭据随对应功能实现同样的可选导入；不得导出明文 JSON |
 | 凭据：AI/Agent | Keychain 键 `lithe.<来源>.imported.apiKey`；回退文件 `Application Support/Lithe/ai-secrets.json`（`MacLocalSecretStore.swift`）；Agent 数据目录 `Application Support/Lithe`（`AgentAccounts/<agent>/` 订阅账号，`agents/<id>` 适配器安装） | Tauri store `settings.json` 的 `agentPanel`；凭据在凭据管理器；Rust agent-host 数据目录 | macOS `AppModel+AgentAccounts.swift`、`AppModel+AgentConversation.swift`；Windows `agent_provider_settings.rs`、`ai-token-service.ts` | Core `agent.*` 接口接收调用方传入的 dataDirectory，Viva 传入的默认目录未找到；Agent 会话历史由 Codex/Claude CLI 自己保存，Viva 通过 `listSessions` 读取 | 订阅账号目录是官方 CLI 的独立配置目录，建议原路径只读复用；密钥按上一行处理 |
 | 数据库连接（旧内置模块） | UserDefaults `database.profiles.v1`、`database.connection-folders.v1`、`database.sql-history.v1`；迁移标记 `lithe.databasePluginMigration.v1` | 未找到 | `MacDatabasePluginMigration.swift` | 不适用（数据库由 Lithe Store 社区插件提供） | 由数据库插件负责导入；宿主不自动读取旧键与旧钥匙串，旧值只经用户触发的导入取得（插件凭据导入见“凭据：GitHub / 代理 / 数据库 / 远程 / 插件”行） |
-| 远程工作区 | `Application Support/Lithe/RemoteWorkspaces/<连接>/<路径哈希>/`；连接 `connections.json` | 未找到 | `MacRemoteWorkspaceRoots.swift` | 未找到 | 随远程功能迁移时再定 |
+| 远程工作区 | `Application Support/Lithe/RemoteWorkspaces/<连接>/<路径哈希>/`；连接 `connections.json` | 未找到 | `MacRemoteWorkspaceRoots.swift` | 偏好根目录下的 `remote/connections.json`、`remote/preferences.json`、`remote/ports.json` 与 `toolchains/remote-trust.json`（路径和大小上限由 Core 给出，`remoteconn/`）；关闭时保留的会话键存系统密钥存储（`remoteconn/kept.go`）；本机占位根在用户缓存目录 `Lithe/remote-workspaces` 下（`remoteplaceholder/`） | 未导入旧版 `connections.json`：远程开发窗口的导入只读 Motty 与 `~/.ssh/config`（`workbench/remote_import.go`）；旧 `RemoteWorkspaces/` 下的本机根不复用 |
 | 未保存文档恢复 | 专用恢复存储未找到 | 未找到（`buffer.store.ts` 仅内存/localStorage 处理，未定位具体键） | — | 未找到 | 在新客户端设计恢复记录；不能丢旧未保存正文，但旧侧没有可迁移文件 |
 | 本地历史 | `Application Support/Lithe/LocalHistory`（`MacLocalHistoryAdapters.swift`，Rust Core 存取） | 未找到（`shelf_storage.rs` 的 `app_data_dir/git-shelves/<身份>` 是 Git Shelf，不是本地历史） | `RustLocalHistoryOperations.swift` | 未找到 | 保留旧目录只读，Viva 实现本地历史后按工作区相对身份导入 |
 | Git Shelf | `Application Support/Lithe/` 下版本化 JSON（`ShelveService.swift`） | `%APPDATA%\app.lithe.windows\git-shelves\<身份>` | 同左；Windows `shelf_storage.rs` | 未找到 | 随 Shelf 功能迁移 |
