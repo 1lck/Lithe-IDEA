@@ -692,29 +692,30 @@ func (a *App) drawWorktreeDialog(c ui.C, p *project) {
 		a.drawWorktreeCreateDialog(c, p)
 	case worktreeDialogRemove:
 		name := worktreeName(w.target)
-		a.worktreeConfirm(c, t.RemoveTitle, t.RemovePrompt(name), "", t.RemoveButton, func() { a.removeWorktree(p, false) })
+		a.worktreeConfirm(c, t.RemoveTitle, t.RemovePrompt(name), "", "", t.RemoveButton, func() { a.removeWorktree(p, false) })
 	case worktreeDialogReview:
-		name := worktreeName(w.target)
-		a.worktreeConfirm(c, t.RemoveTitle, t.RemovePrompt(name), w.refusal, t.ReviewForce, func() {
+		a.worktreeConfirm(c, t.RemoveTitle, t.RemovePrompt(worktreeName(w.target)), w.target.Path, w.refusal, t.ReviewForce, func() {
 			p.worktrees.dialog = worktreeDialogForce
 		})
 	case worktreeDialogForce:
-		a.worktreeConfirm(c, t.ForceTitle, t.ForcePrompt(worktreeName(w.target)), "", t.ForceButton, func() {
+		a.worktreeConfirm(c, t.ForceTitle, t.ForcePrompt(worktreeName(w.target)), w.target.Path, "", t.ForceButton, func() {
 			a.performed("git.worktree.forceRemove", surfaceButton)
 			a.removeWorktree(p, true)
 		})
 	case worktreeDialogPrune:
-		a.worktreeConfirm(c, t.PruneTitle, t.PrunePrompt, "", t.Prune, func() { a.pruneWorktrees(p) })
+		a.worktreeConfirm(c, t.PruneTitle, t.PrunePrompt, "", "", t.Prune, func() { a.pruneWorktrees(p) })
 	}
 }
 
-// worktreeConfirm declares a dialog that asks before a destructive write; note, when not
-// empty, is what Git said, shown under the question.
-func (a *App) worktreeConfirm(c ui.C, title, prompt, note, confirm string, run func()) {
+// worktreeConfirm asks before a destructive write and can show a target path and Git's refusal.
+func (a *App) worktreeConfirm(c ui.C, title, prompt, targetPath, note, confirm string, run func()) {
 	t := &a.text.Worktrees
 	busy := a.project != nil && a.project.worktrees.busy
 	open := true
 	body := func() {
+		if targetPath != "" {
+			a.drawGitRemovalPath(c, targetPath)
+		}
 		if note != "" {
 			ui.Paragraph(c, note, 6).FontSize(a.theme.Metrics.FontSizeS).Color(a.theme.Danger)
 		}

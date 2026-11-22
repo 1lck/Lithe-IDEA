@@ -33,6 +33,8 @@ type notification struct {
 	at time.Time
 	// unread says it came after the history was last looked at.
 	unread bool
+	// merge allows a later identical notice to replace this notice's action.
+	merge bool
 	// toast is the toast that shows it, which may have gone by itself already.
 	toast ui.ToastID
 	// op is the user action the failure was last reported under, empty when it never came
@@ -119,6 +121,16 @@ func (a *App) notifyAction(message string, kind ui.ToastKind, label string, act 
 // notifyActions is notifyKind with optional wrapped detail text and up to two notice-specific
 // buttons. The floating toast shows the primary button while the notification history shows both.
 func (a *App) notifyActions(title, detail string, kind ui.ToastKind, label string, act func(*App), secondaryLabel string, secondaryAct func(*App)) {
+	a.recordNotification(title, detail, kind, label, act, secondaryLabel, secondaryAct, true)
+}
+
+// notifyOperationAction keeps a separate history entry for every operation. Identical
+// summaries can reopen different results and must keep their own callbacks.
+func (a *App) notifyOperationAction(title, detail, label string, act func(*App)) {
+	a.recordNotification(title, detail, ui.ToastError, label, act, "", nil, false)
+}
+
+func (a *App) recordNotification(title, detail string, kind ui.ToastKind, label string, act func(*App), secondaryLabel string, secondaryAct func(*App), merge bool) {
 	if detail != "" {
 		a.notice = detail
 	} else {
@@ -127,7 +139,7 @@ func (a *App) notifyActions(title, detail string, kind ui.ToastKind, label strin
 	center := &a.notifications
 	var entry *notification
 	for i, existing := range center.list {
-		if existing.text == title && existing.detail == detail && existing.kind == kind {
+		if merge && existing.text == title && existing.detail == detail && existing.kind == kind && existing.merge {
 			entry = existing
 			center.list = append(center.list[:i], center.list[i+1:]...)
 			a.overlay.toaster.Close(existing.toast)
@@ -135,7 +147,7 @@ func (a *App) notifyActions(title, detail string, kind ui.ToastKind, label strin
 		}
 	}
 	if entry == nil {
-		entry = &notification{text: title, detail: detail, kind: kind}
+		entry = &notification{text: title, detail: detail, kind: kind, merge: merge}
 	}
 	entry.count++
 	entry.at = a.now()

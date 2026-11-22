@@ -174,10 +174,13 @@ type worktreeState struct {
 	dialog  worktreeDialog
 	// target is the worktree a removal dialog asks about; refusal is what Git said when it
 	// refused to remove it without force.
-	target  core.GitWorktree
-	refusal string
-	busy    bool
-	create  worktreeCreation
+	target     core.GitWorktree
+	removeRoot string
+	refusal    string
+	busy       bool
+	// writeGen invalidates an old removal review after another worktree write.
+	writeGen uint64
+	create   worktreeCreation
 }
 
 // find returns the worktree registered at path.
@@ -690,6 +693,7 @@ func (a *App) runWorktreeWrite(p *project, operation string, removing bool,
 	write func(ctx context.Context, kernel Kernel, root string) error, refused func(a *App, err error) bool, done func(a *App)) {
 	w := &p.worktrees
 	w.busy = true
+	w.writeGen++
 	kernel, root := a.kernel, p.git.repositoryRoot(p.root)
 	a.background(p, branchOperationTimeout, func(ctx context.Context) func(*App) {
 		err := write(ctx, kernel, root)
@@ -743,6 +747,7 @@ func (a *App) toggleWorktreeLock(p *project, w core.GitWorktree) {
 func (a *App) beginRemoveWorktree(p *project, w core.GitWorktree) {
 	a.performed("git.worktree.remove", surfaceButton)
 	p.worktrees.dialog, p.worktrees.target, p.worktrees.refusal = worktreeDialogRemove, w, ""
+	p.worktrees.removeRoot = p.git.repositoryRoot(p.root)
 }
 
 // removeWorktree removes the dialog's worktree; force removes it with its local changes. Git's
@@ -752,11 +757,15 @@ func (a *App) removeWorktree(p *project, force bool) {
 	if w.busy {
 		return
 	}
-	target := w.target
+	target, root := w.target, w.removeRoot
 	w.dialog = worktreeDialogNone
 	operation := "git_worktree_remove"
 	if force {
 		operation = "git_worktree_remove_force"
+	}
+	if root != p.git.repositoryRoot(p.root) {
+		a.rejectWorktreeRemoval(operation)
+		return
 	}
 	a.runWorktreeWrite(p, operation, true, func(ctx context.Context, kernel Kernel, root string) error {
 		return kernel.GitRemoveWorktree(ctx, root, target.Path, force)
@@ -765,11 +774,42 @@ func (a *App) removeWorktree(p *project, force bool) {
 		if force || !errors.As(err, &e) || e.Code != core.CodeGitWorktreeHasChanges {
 			return false
 		}
-		p.worktrees.dialog, p.worktrees.refusal = worktreeDialogReview, e.Message
+		if a.canPresentGitResult(p) && a.chrome.isOpen(catalogIndex[itemGit]) && a.layout.gitTab == gitTabWorktrees {
+			w.dialog, w.refusal = worktreeDialogReview, e.Message
+		} else {
+			a.operationFailed(operation, err)
+			a.notifyWorktreeRemovalReview(p, root, target, e.Message)
+		}
 		return true
 	}, func(a *App) {
 		a.notifySuccess(a.text.Worktrees.Removed(worktreeName(target)))
 	})
+}
+
+// notifyWorktreeRemovalReview leaves the current work in place and restores only the reviewed checkout.
+func (a *App) notifyWorktreeRemovalReview(p *project, root string, target core.GitWorktree, reason string) {
+	lang, owner, generation := a.language(), p.ctx, p.worktrees.writeGen
+	a.notifyOperationAction(a.text.Worktrees.Failed(reason), target.Path,
+		i18n.Shared(lang, "desktop.worktree.openRemovalReview"), func(a *App) {
+			p := a.project
+			if p == nil || p.ctx != owner || !a.canPresentGitResult(p) || p.worktrees.busy {
+				return
+			}
+			a.performed("git.worktree.openRemovalReview", surfaceNotification)
+			w := &p.worktrees
+			current, ok := w.find(target.Path)
+			if w.writeGen != generation || root != p.git.repositoryRoot(p.root) ||
+				!ok || !current.Actions.Remove.Allowed || current.Head != target.Head || current.Branch != target.Branch {
+				a.rejectWorktreeRemoval("git_worktree_remove_review")
+				return
+			}
+			w.dialog, w.target, w.removeRoot, w.refusal = worktreeDialogReview, target, root, reason
+		})
+}
+
+func (a *App) rejectWorktreeRemoval(operation string) {
+	a.operationRejected(operation, "worktree_changed")
+	a.notifyError(i18n.Shared(a.language(), "desktop.worktree.removeSelectionChanged"))
 }
 
 // pruneWorktrees removes the registrations whose checkouts are gone.

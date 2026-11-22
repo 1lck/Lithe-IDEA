@@ -22,7 +22,7 @@ func TestVisualGitDeletionInProgress(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, look := range []struct{ theme, language string }{{"dark", "zh-Hans"}, {"light", "en"}} {
-		for _, scene := range []string{"remote-branch", "worktree"} {
+		for _, scene := range []string{"remote-branch", "worktree", "worktree-deferred-review"} {
 			t.Run(scene+"-"+look.theme, func(t *testing.T) {
 				dir, linked := newWorktreeRepository(t)
 				prefs := store.At(t.TempDir())
@@ -40,6 +40,23 @@ func TestVisualGitDeletionInProgress(t *testing.T) {
 					return session.Driver(), session.Close, nil
 				})
 
+				capture := func(name string) {
+					t.Helper()
+					if err := session.Screenshot(filepath.Join(out, name+"-"+look.theme+".png")); err != nil {
+						t.Fatal(err)
+					}
+				}
+				if scene == "worktree-deferred-review" {
+					k, w := startDirtyWorktreeRemovalWithBranchDraft(t, h, dir, linked)
+					close(k.release)
+					h.await("worktree removal result", func() bool { return !w.busy })
+					capture("worktree-draft-and-notice")
+					finishBranchDraftAfterGitDeletion(t, h)
+					openGitDeletionNotice(t, h)
+					h.clickNamed(h.app.text.Worktrees.ReviewForce)
+					capture(scene)
+					return
+				}
 				var confirm string
 				switch scene {
 				case "remote-branch":
@@ -56,9 +73,7 @@ func TestVisualGitDeletionInProgress(t *testing.T) {
 					confirm = h.app.text.Worktrees.RemoveButton
 				}
 				startPendingGitDeletion(t, h, confirm)
-				if err := session.Screenshot(filepath.Join(out, scene+"-"+look.theme+".png")); err != nil {
-					t.Fatal(err)
-				}
+				capture(scene)
 			})
 		}
 	}
