@@ -71,7 +71,7 @@ func (w *window) buildIssues(c ui.C, language i18n.Language) {
 	all := false
 	ui.Column(c).FillWidth().MinWidth(0).Shrink(0).PadX(10).PadY(8).Radius(8).
 		Border(1, colors.border).Background(colors.background).Children(func() {
-		ui.Text(c, i18n.SharedFormat(language, "desktop.buildSettings.issuesTitle", map[string]string{"count": formatCount(view.Counts.Problems)})).
+		ui.Text(c, issuesTitle(language, view.Counts.Problems)).
 			FontSize(buildSmall).Weight(gfx.WeightSemibold).Color(colors.text).Ellipsis()
 		ui.Row(c).Height(4).Shrink(0)
 		for i := range view.Issues {
@@ -201,9 +201,7 @@ func (w *window) directoryEntries(language i18n.Language) []directoryEntry {
 				tools = t.view.view.Counts.Total
 				entry.problems = t.view.view.Counts.Problems
 			}
-			entry.desc = i18n.SharedFormat(language, "desktop.buildSettings.directoryToolchains", map[string]string{
-				"tools": formatCount(tools), "plugins": formatCount(plugins), "scope": shown,
-			})
+			entry.desc = toolchainsTileDescription(language, tools, plugins, shown)
 		}
 		entries = append(entries, entry)
 	}
@@ -220,13 +218,7 @@ func (w *window) directoryEntries(language i18n.Language) []directoryEntry {
 					customized++
 				}
 			}
-			if customized > 0 {
-				entry.desc = i18n.SharedFormat(language, "desktop.buildSettings.directoryDebuggersCustomized", map[string]string{
-					"count": formatCount(len(s.adapters)), "customized": formatCount(customized),
-				})
-			} else {
-				entry.desc = i18n.SharedFormat(language, "desktop.buildSettings.directoryDebuggers", map[string]string{"count": formatCount(len(s.adapters))})
-			}
+			entry.desc = steppingTileDescription(language, len(s.adapters), customized)
 		}
 		entries = append(entries, entry)
 	}
