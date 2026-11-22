@@ -2,6 +2,7 @@ package workbench
 
 import (
 	"context"
+	"errors"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -394,8 +395,9 @@ func TestRemoteWorkspaceRefusesRunsItCannotStartOnTheHost(t *testing.T) {
 	h.await("the built-in debug refusal", func() bool {
 		select {
 		case err := <-done:
-			if err == nil || !h.notified(i18n.Shared(lang, "desktop.remote.workspace.localOnly")) {
-				t.Fatalf("a built-in debug session was not refused: %v", err)
+			var refusal *buildRefusal
+			if !errors.As(err, &refusal) || refusal.code != refusalNotSupported {
+				t.Fatalf("debug start = %v, want not supported", err)
 			}
 			return true
 		default:
