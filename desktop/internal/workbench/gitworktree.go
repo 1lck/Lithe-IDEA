@@ -748,7 +748,12 @@ func (a *App) beginRemoveWorktree(p *project, w core.GitWorktree) {
 // removeWorktree removes the dialog's worktree; force removes it with its local changes. Git's
 // refusal of a checkout with changes opens the review that offers the forced removal.
 func (a *App) removeWorktree(p *project, force bool) {
-	target := p.worktrees.target
+	w := &p.worktrees
+	if w.busy {
+		return
+	}
+	target := w.target
+	w.dialog = worktreeDialogNone
 	operation := "git_worktree_remove"
 	if force {
 		operation = "git_worktree_remove_force"

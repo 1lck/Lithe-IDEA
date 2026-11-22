@@ -30,7 +30,7 @@ func (a *App) beginDelete(r core.GitReference) { a.beginDeleteBranches([]core.Gi
 // accepts, in that order. skipped counts the marked references left out because they cannot be
 // deleted there, which the dialog mentions.
 func (a *App) beginDeleteBranches(branches []core.GitReference, skipped int) {
-	if len(branches) == 0 {
+	if a.branch.busy || len(branches) == 0 {
 		return
 	}
 	a.leaveBranches()
@@ -73,9 +73,8 @@ type branchDeletion struct {
 	err    error
 }
 
-// confirmDelete deletes the branches the delete dialog lists, one after another. A single branch
-// that fails keeps the dialog open with Git's reason. Batches retain each outcome, marking only
-// failures red; only unmerged local branches enter the separate force confirmation.
+// confirmDelete closes the confirmation and deletes its branches in order. Batches retain
+// each outcome, and unmerged local branches can be reviewed for a second confirmation.
 func (a *App) confirmDelete(p *project) {
 	b := &a.branch
 	force := b.dialog == branchDialogForceDelete
@@ -110,11 +109,12 @@ func (a *App) confirmDelete(p *project) {
 		action = "git.branch.deleteRemote"
 	}
 	a.performed(action, surfaceButton)
-	b.busy, b.deleteError = true, ""
+	b.dialog, b.busy = branchDialogNone, true
 	if b.fromPopup {
 		a.showGitConsole("")
 	}
 	kernel := a.kernel
+	updatesProject := root == p.git.repositoryRoot(p.root)
 	results := make([]branchDeletion, len(branches))
 	a.background(p, timeout, func(ctx context.Context) func(*App) {
 		if remote {
@@ -133,7 +133,7 @@ func (a *App) confirmDelete(p *project) {
 		var refreshErr error
 		var generation uint64
 		changed := slices.ContainsFunc(results, func(d branchDeletion) bool { return d.err == nil })
-		if changed {
+		if changed && updatesProject {
 			generation = p.gitStatusGeneration.Add(1)
 			status, refreshErr = kernel.GitStatus(core.WithQueryCategory(core.AutomaticRefresh(ctx), core.GitQueryReload), root)
 		}
@@ -152,11 +152,7 @@ func (a *App) confirmDelete(p *project) {
 				return
 			}
 			b.busy = false
-			if root != a.branchRoot(p) {
-				a.cancelBranchDialog()
-				return
-			}
-			if changed && refreshErr == nil && root == p.git.repositoryRoot(p.root) {
+			if changed && updatesProject && refreshErr == nil && root == p.git.repositoryRoot(p.root) {
 				if a.setGit(p, gitState{loaded: true, status: status}, generation) {
 					a.gitStatusPublished(p)
 				}
@@ -167,6 +163,9 @@ func (a *App) confirmDelete(p *project) {
 			}
 			if changed && p.log.started {
 				a.loadLog(p)
+			}
+			if changed && b.open && root == a.branchRoot(p) {
+				a.loadBranches(p)
 			}
 		}
 	})
@@ -216,8 +215,11 @@ func (a *App) reportDeletions(p *project, root string, results []branchDeletion)
 	if slices.ContainsFunc(results, func(d branchDeletion) bool { return d.err == nil }) && root == p.logRepositoryRoot() {
 		a.logView.forgetLogRefMarks()
 	}
-	b.dialog, b.deleteError, b.deleteUnmerged = branchDialogNone, "", nil
-	if len(unmerged) > 0 {
+	b.deleteError, b.deleteUnmerged = "", nil
+	// A completion can report its result after navigation. A confirmation belongs
+	// to the repository that was reviewed and must leave another dialog alone.
+	canReview := b.dialog == branchDialogNone && root == a.branchRoot(p)
+	if canReview && len(unmerged) > 0 {
 		b.dialog, b.deleteUnmerged = branchDialogDeleteUnmerged, unmerged
 		b.deleting, b.deleteSkipped = nil, 0
 		for _, d := range unmerged {
@@ -226,16 +228,18 @@ func (a *App) reportDeletions(p *project, root string, results []branchDeletion)
 		b.target = b.deleting[0]
 		b.deleteList = ui.ListState{}
 		return
-	} else if len(b.deleteResults) == 1 && len(failed) == 1 {
-		b.dialog = branchDialogDelete
-		b.deleteError = a.branchDeletionReason(failed[0].err)
-	} else if len(failed) > 0 {
-		b.dialog = branchDialogDeleteResult
 	}
 	switch {
 	case len(b.deleteResults) == 1 && len(failed) == 1:
-		a.notifyError(a.text.Branch.DeleteFailed(b.deleteError))
+		reason := a.branchDeletionReason(failed[0].err)
+		if canReview {
+			b.dialog, b.target, b.deleteError = branchDialogDelete, failed[0].branch, reason
+		}
+		a.notifyError(a.text.Branch.DeleteFailed(reason))
 	case len(failed) > 0:
+		if canReview {
+			b.dialog = branchDialogDeleteResult
+		}
 		first := failed[0]
 		a.notifyError(i18n.SharedFormat(lang, "desktop.branch.deleteManyFailed", map[string]string{
 			"failed": strconv.Itoa(len(failed)), "total": strconv.Itoa(len(b.deleteResults)),
