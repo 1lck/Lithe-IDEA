@@ -20,6 +20,7 @@ type buildExecution struct {
 	Executable  string
 	Environment map[string]string
 	PathPrepend []string
+	Placement   core.ProcessPlacement
 	// Source is the candidate the executable was found by, which the options dialog shows
 	// beside a build's runtime.
 	Source buildExecutionSource
@@ -74,12 +75,25 @@ func (a *App) managedToolchainOptions(ctx context.Context, manifests []json.RawM
 }
 
 func (a *App) defaultToolchainSelection(ctx context.Context, root, directory, tool, minimumVersion string) (core.ToolchainSelection, error) {
-	manifests, err := a.toolchainManifests(ctx)
+	manifests, err := a.toolchainManifests(core.WithoutRemoteWorkspace(ctx))
 	if err != nil {
 		return core.ToolchainSelection{}, err
 	}
 	if directory == "" {
 		directory = "."
+	}
+	if core.RemoteWorkspaceOf(ctx) != nil {
+		registry, err := toolchain.RegistryInput(manifests)
+		if err != nil {
+			return core.ToolchainSelection{}, err
+		}
+		resolution, err := a.kernel.ResolveRemoteToolchain(ctx, core.RemoteToolchainResolveRequest{
+			Registry: registry, Tool: tool, Directory: directory, MinimumVersion: minimumVersion,
+		})
+		if err != nil {
+			return core.ToolchainSelection{}, err
+		}
+		return toolchain.SelectionFromResolution(tool, resolution)
 	}
 	return toolchain.Resolve(ctx, a.kernel, root, directory, tool, minimumVersion, nil, manifests, a.toolchainOptions(ctx, root, manifests))
 }

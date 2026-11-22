@@ -10,9 +10,9 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strconv"
-	"strings"
 	"sync"
 	"sync/atomic"
+	"syscall"
 	"time"
 
 	"github.com/1lck/Lithe-IDEA/desktop/internal/buildprocess"
@@ -60,11 +60,13 @@ type RunEvent struct {
 	PluginID  string
 	Label     string
 	Workspace string
+	Remote    bool
 	Text      string
 	// OutputEncoding is the process's declaration, set on RunStarted before any output.
 	OutputEncoding string
 	ExitCode       *int
 	Signal         string
+	Disconnected   bool
 	// Rerun is set on RunStarted when the plugin supplied a rerun function.
 	Rerun *RunRerun
 	// PID is the run's root process on RunStarted, 0 when it has none (a debug launch).
@@ -77,11 +79,12 @@ type RunEvent struct {
 type RunExecutable struct {
 	Path        string
 	Environment map[string]string
+	PathPrepend []string
 }
 
 // RunToolResolver resolves a tool definition the manifest requires, through the
 // host's toolchain layers, for the workspace the run belongs to.
-type RunToolResolver func(ctx context.Context, workspaceRoot, tool string) (RunExecutable, error)
+type RunToolResolver func(ctx context.Context, workspaceRoot, directory, tool string) (RunExecutable, error)
 
 // RunDebugRequest asks the host to attach a debug adapter to a running debuggee.
 type RunDebugRequest struct {
@@ -91,6 +94,7 @@ type RunDebugRequest struct {
 	ConfigurationType string
 	Host              string
 	Port              int
+	Connection        *core.RemoteWorkspaceConnection
 	// StopRun ends the host-owned process when its attached debug session is
 	// released. It requests bounded cleanup off the UI thread; another owner
 	// already stopping the run keeps its grace and remains responsible for waiting.
@@ -114,6 +118,7 @@ type RunDebugLaunchRequest struct {
 	Arguments         []string
 	WorkingDirectory  string
 	Environment       map[string]string
+	Connection        *core.RemoteWorkspaceConnection
 }
 
 // RunDebugSession is a debug session that stands for a run: its ID, and a channel
@@ -189,18 +194,20 @@ type Runs struct {
 
 type hostRun struct {
 	// pid is the root process of a started run, recorded in the ledger while it lives.
-	pid       int
-	id        string
-	pluginID  string
-	backend   string
-	workspace WorkspaceContext
-	start     core.RunStart
-	process   runProcess
-	cancel    context.CancelFunc
-	temporary string
-	debug     atomic.Pointer[string]
-	stopped   atomic.Bool
-	done      chan struct{}
+	pid        int
+	id         string
+	pluginID   string
+	backend    string
+	workspace  WorkspaceContext
+	connection *core.RemoteWorkspaceConnection
+	start      core.RunStart
+	process    runProcess
+	cancel     context.CancelFunc
+	detach     func()
+	cleanup    func()
+	debug      atomic.Pointer[string]
+	stopped    atomic.Bool
+	done       chan struct{}
 }
 
 func newRuns(service *Service) *Runs {
@@ -299,6 +306,9 @@ func (r *Runs) StopAll() {
 type runStartParams struct {
 	Context        ContextRef        `json:"context"`
 	TemporaryFiles []json.RawMessage `json:"temporaryFiles"`
+	Process        struct {
+		Placement json.RawMessage `json:"placement"`
+	} `json:"process"`
 }
 
 // handleStart answers lithe/host/run/start.
@@ -315,139 +325,108 @@ func (r *Runs) handleStart(ctx context.Context, params json.RawMessage) (json.Ra
 	if err != nil {
 		return nil, contextFailure(err)
 	}
+	remote, refusal := r.captureRemoteRun(workspace)
+	if refusal != nil {
+		return nil, refusal
+	}
+	if remote != nil {
+		if refusal := remote.refusal(ctx); refusal != nil {
+			return nil, refusal
+		}
+	}
+
+	r.mu.Lock()
+	if r.closed {
+		r.mu.Unlock()
+		return nil, runHostClosing()
+	}
+	r.wait.Add(1)
+	r.mu.Unlock()
+	defer r.wait.Done()
+
 	entry, manifest, err := r.service.installedPlugin(ctx, caller.PluginID)
 	if err != nil {
 		return nil, failure(pluginhost.CodeHostFailure, err.Error())
 	}
-	temporary := ""
-	if len(request.TemporaryFiles) > 0 {
-		// The host's own temporary directory: the plugin never learns where it is,
-		// and it is removed when the run ends.
-		temporary, err = os.MkdirTemp("", "lithe-run-")
-		if err != nil {
-			return nil, failure(pluginhost.CodeHostFailure, "the run's temporary directory cannot be created")
-		}
-	}
-	cleanup := func() {
-		if temporary != "" {
-			_ = os.RemoveAll(temporary)
-		}
-	}
-	start, err := r.service.kernel.DecodeRunStart(ctx, manifest, workspace.Path, temporary, params)
-	if err != nil {
-		cleanup()
-		return nil, runStartFailure(err)
-	}
-	launch := start.Debug != nil && start.Debug.Target.Kind == "launch"
-	if start.Debug != nil && start.Debug.Target.Kind != "connection" && !launch {
-		cleanup()
-		return nil, failure("plugin.host.unavailable", "This host does not serve the debug target.")
-	}
-	if launch && r.LaunchDebug == nil {
-		cleanup()
-		return nil, failure("plugin.host.unavailable", "This host starts no debug sessions.")
-	}
-	executable, environment, refusal := r.resolveExecutable(ctx, entry, workspace.Path, start)
-	if refusal != nil {
-		cleanup()
-		return nil, refusal
-	}
-	for _, file := range start.TemporaryFiles {
-		data, err := file.Bytes()
-		if err == nil {
-			err = os.WriteFile(file.Path, data, 0o600)
-		}
-		if err != nil {
-			cleanup()
-			return nil, failure(pluginhost.CodeHostFailure, "a temporary file cannot be written")
-		}
-	}
-	for key, value := range start.Environment {
-		environment[key] = value
-	}
-	// An app started from Finder has launchd's PATH; the run gets the user's shell PATH
-	// unless the plugin or the tool chose one.
-	if _, set := environment["PATH"]; !set {
-		if path := loginenv.Path(); path != "" {
-			environment["PATH"] = path
-		}
-	}
-	runCtx, cancel := context.WithCancel(context.Background())
+	runCtx, cancel := context.WithCancel(context.WithoutCancel(ctx))
 	run := &hostRun{
 		id:        fmt.Sprintf("run-%d", r.sequence.Add(1)),
 		pluginID:  caller.PluginID,
 		backend:   caller.SessionID,
 		workspace: workspace,
-		start:     start,
 		cancel:    cancel,
-		temporary: temporary,
 		done:      make(chan struct{}),
 	}
-	// Output is delivered only after the started event, so an observer never sees
-	// a run's text before it knows the run.
-	started := make(chan struct{})
-	workingDirectory := filepath.Join(workspace.Path, filepath.FromSlash(start.WorkingDirectory))
-	var process runProcess
-	if launch {
-		// The adapter starts the process: the run stands for the debug session, its
-		// output is the Debug console's, and stopping the run stops the session.
-		session, err := r.LaunchDebug(ctx, RunDebugLaunchRequest{
-			PluginID: run.pluginID, WorkspaceRoot: workspace.Path, Label: start.Label,
-			ConfigurationType: start.Debug.ConfigurationType, Executable: executable,
-			Arguments: start.Arguments, WorkingDirectory: workingDirectory, Environment: environment,
-		})
-		if err != nil {
-			cancel()
-			cleanup()
-			return nil, failure(pluginhost.CodeHostFailure, err.Error())
+	if remote != nil {
+		run.connection = remote.connection
+		stopDetach := remote.connection.AfterDetach(run.cancel)
+		stopClose := context.AfterFunc(workspace.lifetime, run.cancel)
+		run.detach = func() {
+			stopDetach()
+			stopClose()
 		}
-		run.debug.Store(&session.ID)
-		stop := r.StopDebugSession
-		process = &debugRunProcess{ended: session.Ended, stop: func() {
-			if stop != nil {
-				stop(session.ID)
-			}
-		}}
-	} else {
-		// The command line is the plugin's, started as it is. A launch that would
-		// overflow the system limit is the plugin's to shorten, for example with an
-		// argument file passed in temporaryFiles.
-		spawned, err := buildprocess.Start(runCtx, buildprocess.Spec{
-			Executable:       executable,
-			Arguments:        start.Arguments,
-			WorkingDirectory: workingDirectory,
-			Environment:      environment,
-		}, func(_ buildprocess.Stream, text string) {
-			<-started
-			r.emit(RunEvent{Type: RunOutput, RunID: run.id, PluginID: run.pluginID, Text: text})
-		})
-		if err != nil {
-			cancel()
-			cleanup()
-			return nil, failure(pluginhost.CodeHostFailure, err.Error())
-		}
-		process = spawned
 	}
+	accepted := false
+	defer func() {
+		if !accepted {
+			run.release()
+		}
+	}()
+
+	// Cancellation of the startup request ends a pending launch. Once admitted,
+	// the workbench owns the run, including when the calling backend exits.
+	started := make(chan struct{})
+	output := func(_ buildprocess.Stream, text string) {
+		<-started
+		if accepted {
+			r.emit(RunEvent{Type: RunOutput, RunID: run.id, PluginID: run.pluginID, Text: text})
+		}
+	}
+	var process runProcess
+	var launch bool
+	// This only selects where to allocate scratch. Core validates the full
+	// process declaration before either branch resolves or starts a program.
+	var placement core.ProcessPlacement
+	_ = json.Unmarshal(request.Process.Placement, &placement)
+	if remote != nil && placement != core.ProcessPlacementUI {
+		process, launch, refusal = r.startRemote(ctx, runCtx, run, remote, entry, manifest, request, params, output)
+	} else {
+		process, launch, refusal = r.startLocal(ctx, runCtx, run, remote, entry, manifest, request, params, output)
+	}
+	if refusal != nil {
+		close(started)
+		return nil, refusal
+	}
+
 	run.process = process
-	if owned, ok := process.(interface{ Pid() int }); ok {
+	if owned, ok := process.(interface{ Pid() int }); ok && owned.Pid() > 0 {
 		run.pid = owned.Pid()
-		_ = r.service.ledger.Add(run.pid)
+		r.recordRunIssue(ctx, r.service.ledger.Add(run.pid))
 	}
 	r.mu.Lock()
-	if r.closed {
+	switch {
+	case r.closed:
+		refusal = runHostClosing()
+	case remote != nil:
+		refusal = remote.refusal(ctx)
+	}
+	if refusal != nil {
 		r.mu.Unlock()
-		// The host is shutting down: end the process that just started.
-		process.Stop()
-		_ = process.Wait()
+		// Release the output readers before waiting for a refused process.
 		close(started)
-		cancel()
-		cleanup()
-		return nil, failure("plugin.host.unavailable", "The host is shutting down.")
+		process.Stop()
+		err := process.Wait()
+		if code, signal := exitStatus(err); err != nil && code == nil && signal == 0 && !errors.Is(err, context.Canceled) {
+			r.recordRunIssue(ctx, err)
+		}
+		r.recordRunIssue(ctx, r.service.ledger.Remove(run.pid))
+		return nil, refusal
 	}
 	r.runs[run.id] = run
 	r.wait.Add(1)
 	r.mu.Unlock()
-	event := RunEvent{Type: RunStarted, RunID: run.id, PluginID: run.pluginID, Label: start.Label, Workspace: workspace.Path, PID: run.pid, OutputEncoding: start.OutputEncoding}
+	start := run.start
+	event := RunEvent{Type: RunStarted, RunID: run.id, PluginID: run.pluginID, Label: start.Label, Workspace: workspace.Path, PID: run.pid, OutputEncoding: start.OutputEncoding, Remote: remote != nil && start.Placement != core.ProcessPlacementUI}
 	if start.Debug != nil && start.Debug.Target.Kind == "connection" && start.Debug.Target.Port > 0 {
 		event.DebugPort = start.Debug.Target.Port
 	}
@@ -455,6 +434,7 @@ func (r *Runs) handleStart(ctx context.Context, params json.RawMessage) (json.Ra
 		event.Rerun = &RunRerun{PluginID: run.pluginID, Function: start.Rerun.Function, Data: start.Rerun.Data, Workspace: workspace.Path}
 	}
 	r.emit(event)
+	accepted = true
 	close(started)
 	go r.supervise(run)
 	if start.Debug != nil && !launch {
@@ -463,35 +443,177 @@ func (r *Runs) handleStart(ctx context.Context, params json.RawMessage) (json.Ra
 	return marshalResult(map[string]string{"runID": run.id})
 }
 
-// resolveExecutable turns the decoded executable reference into a program. A
-// packaged file is verified against the installed package, never the workspace.
-func (r *Runs) resolveExecutable(ctx context.Context, entry pluginmanager.Entry, workspaceRoot string, start core.RunStart) (string, map[string]string, *pluginhost.Failure) {
-	environment := map[string]string{}
+func runHostClosing() *pluginhost.Failure {
+	return failure("plugin.host.unavailable", "The host is shutting down.")
+}
+
+func (r *Runs) startLocal(ctx, runCtx context.Context, run *hostRun, remote *remoteRun, entry pluginmanager.Entry, manifest json.RawMessage, request runStartParams, params json.RawMessage, output func(buildprocess.Stream, string)) (runProcess, bool, *pluginhost.Failure) {
+	decodeCtx := ctx
+	if remote != nil {
+		setup, cancel := context.WithCancel(ctx)
+		defer cancel()
+		stop := context.AfterFunc(runCtx, cancel)
+		defer stop()
+		ctx = core.WithoutRemoteWorkspace(setup)
+		decodeCtx = remote.connection.Context(setup)
+	}
+	temporary := ""
+	var err error
+	if len(request.TemporaryFiles) > 0 {
+		temporary, err = os.MkdirTemp("", "lithe-run-")
+		if err != nil {
+			return nil, false, failure(pluginhost.CodeHostFailure, "the run's temporary directory cannot be created")
+		}
+		run.cleanup = func() { r.recordRunIssue(ctx, os.RemoveAll(temporary)) }
+	}
+	start, err := r.service.kernel.DecodeRunStart(decodeCtx, manifest, run.workspace.Path, temporary, params)
+	if err != nil {
+		if remote != nil {
+			return nil, false, remote.startFailure(ctx, err)
+		}
+		return nil, false, runStartFailure(err)
+	}
+	run.start = start
+	executionRoot := run.workspace.Path
+	if remote != nil {
+		if refusal := remote.refusal(ctx); refusal != nil {
+			return nil, false, refusal
+		}
+		if start.Placement != core.ProcessPlacementUI || start.Debug != nil {
+			return nil, false, unsupportedRemoteWorkspace()
+		}
+		executionRoot, err = r.service.contextState(run.pluginID, run.workspace)
+		if err != nil {
+			return nil, false, failure(pluginhost.CodeHostFailure, err.Error())
+		}
+	}
+	launch := start.Debug != nil && start.Debug.Target.Kind == "launch"
+	if start.Debug != nil && start.Debug.Target.Kind != "connection" && !launch {
+		return nil, false, failure("plugin.host.unavailable", "This host does not serve the debug target.")
+	}
+	if launch && r.LaunchDebug == nil {
+		return nil, false, failure("plugin.host.unavailable", "This host starts no debug sessions.")
+	}
+	executable, refusal := r.resolveExecutable(ctx, entry, executionRoot, start)
+	if refusal != nil {
+		return nil, false, refusal
+	}
+	for _, file := range start.TemporaryFiles {
+		data, err := file.Bytes()
+		if err == nil {
+			err = os.WriteFile(file.Path, data, 0o600)
+		}
+		if err != nil {
+			return nil, false, failure(pluginhost.CodeHostFailure, "a temporary file cannot be written")
+		}
+	}
+	environment := runEnvironment(executable.Environment, start.Environment)
+	// An app started from Finder has launchd's PATH. Give the local run the
+	// user's shell PATH unless the plugin or the tool chose one.
+	if _, set := environment["PATH"]; !set {
+		if path := loginenv.Path(); path != "" {
+			environment["PATH"] = path
+		}
+	}
+	workingDirectory := filepath.Join(executionRoot, filepath.FromSlash(start.WorkingDirectory))
+	if remote != nil {
+		if refusal := remote.refusal(ctx); refusal != nil {
+			return nil, false, refusal
+		}
+	}
+	if launch {
+		process, err := r.startDebugLaunch(ctx, run, executable.Path, workingDirectory, environment)
+		if err != nil {
+			return nil, false, failure(pluginhost.CodeHostFailure, err.Error())
+		}
+		return process, true, nil
+	}
+	spawned, err := buildprocess.Start(runCtx, buildprocess.Spec{
+		Executable: executable.Path, Arguments: start.Arguments,
+		WorkingDirectory: workingDirectory, Environment: environment,
+	}, output)
+	if err != nil {
+		return nil, false, failure(pluginhost.CodeHostFailure, err.Error())
+	}
+	return spawned, false, nil
+}
+
+func (r *Runs) startDebugLaunch(ctx context.Context, run *hostRun, executable, directory string, environment map[string]string) (runProcess, error) {
+	start := run.start
+	session, err := r.LaunchDebug(ctx, RunDebugLaunchRequest{
+		PluginID: run.pluginID, WorkspaceRoot: run.workspace.Path, Label: start.Label,
+		ConfigurationType: start.Debug.ConfigurationType, Executable: executable,
+		Arguments: start.Arguments, WorkingDirectory: directory, Environment: environment,
+		Connection: run.connection,
+	})
+	if err != nil {
+		return nil, err
+	}
+	run.debug.Store(&session.ID)
+	stop := r.StopDebugSession
+	return &debugRunProcess{ended: session.Ended, stop: func() {
+		if stop != nil {
+			stop(session.ID)
+		}
+	}}, nil
+}
+
+// resolveExecutable turns a local executable reference into a program. A
+// packaged file is verified against the installed package.
+func (r *Runs) resolveExecutable(ctx context.Context, entry pluginmanager.Entry, workspaceRoot string, start core.RunStart) (RunExecutable, *pluginhost.Failure) {
 	switch start.Executable.Kind {
 	case "packaged":
 		path, err := pluginhost.ResolveExecutable(entry.Installed.Path, start.Executable.Value)
 		if err != nil {
-			return "", nil, failure("plugin.host.invalidParams", err.Error())
+			return RunExecutable{}, failure("plugin.host.invalidParams", err.Error())
 		}
-		return path, environment, nil
+		return RunExecutable{Path: path}, nil
 	case "toolchain":
-		if r.Tools == nil {
-			return "", nil, failure("plugin.host.toolUnresolved", "This host resolves no tools.")
-		}
-		resolved, err := r.Tools(ctx, workspaceRoot, start.Executable.Value)
-		if err != nil || resolved.Path == "" {
-			message := "The tool resolves to no executable."
-			if err != nil {
-				message = err.Error()
-			}
-			return "", nil, failure("plugin.host.toolUnresolved", message)
-		}
-		for key, value := range resolved.Environment {
-			environment[key] = value
-		}
-		return resolved.Path, environment, nil
+		return r.resolveTool(ctx, workspaceRoot, ".", start.Executable.Value)
+	default:
+		return RunExecutable{}, failure("plugin.host.invalidParams", "The executable kind is unknown.")
 	}
-	return "", nil, failure("plugin.host.invalidParams", "The executable kind is unknown.")
+}
+
+func (r *Runs) resolveTool(ctx context.Context, workspaceRoot, directory, tool string) (RunExecutable, *pluginhost.Failure) {
+	if r.Tools == nil {
+		return RunExecutable{}, failure("plugin.host.toolUnresolved", "This host resolves no tools.")
+	}
+	resolved, err := r.Tools(ctx, workspaceRoot, directory, tool)
+	if err != nil {
+		return RunExecutable{}, failure("plugin.host.toolUnresolved", err.Error())
+	}
+	if resolved.Path == "" {
+		return RunExecutable{}, failure("plugin.host.toolUnresolved", "The tool resolves to no executable.")
+	}
+	return resolved, nil
+}
+
+func runEnvironment(defaults, overrides map[string]string) map[string]string {
+	environment := make(map[string]string, len(defaults)+len(overrides))
+	for key, value := range defaults {
+		environment[key] = value
+	}
+	for key, value := range overrides {
+		environment[key] = value
+	}
+	return environment
+}
+
+func (run *hostRun) release() {
+	run.cancel()
+	if run.detach != nil {
+		run.detach()
+	}
+	if run.cleanup != nil {
+		run.cleanup()
+	}
+}
+
+func (r *Runs) recordRunIssue(ctx context.Context, err error) {
+	if err != nil && r.service.RuntimeIssue != nil {
+		r.service.RuntimeIssue(ctx, err)
+	}
 }
 
 // runStartFailure maps a Core refusal to the contract's failure: the code is
@@ -510,13 +632,16 @@ func runStartFailure(err error) *pluginhost.Failure {
 func (r *Runs) supervise(run *hostRun) {
 	defer r.wait.Done()
 	err := run.process.Wait()
-	_ = r.service.ledger.Remove(run.pid)
-	run.cancel()
-	if run.temporary != "" {
-		_ = os.RemoveAll(run.temporary)
-	}
+	r.recordRunIssue(context.Background(), r.service.ledger.Remove(run.pid))
+	run.release()
 	code, signal := exitStatus(err)
-	if run.stopped.Load() && code == nil && signal == "" {
+	disconnected := run.connection != nil && code == nil && signal == 0 && err != nil && (remoteRunDisconnected(err) || !run.connection.IsCurrent())
+	var debugExit *debugRunExit
+	if run.connection != nil && code == nil && signal == 0 && err != nil && !disconnected &&
+		!errors.Is(err, context.Canceled) && !errors.As(err, &debugExit) {
+		r.recordRunIssue(context.Background(), err)
+	}
+	if run.connection == nil && run.stopped.Load() && code == nil && signal == 0 {
 		// Stopping a run that was already gone ends it without a status of its own.
 		zero := 0
 		code = &zero
@@ -525,11 +650,20 @@ func (r *Runs) supervise(run *hostRun) {
 	delete(r.runs, run.id)
 	r.mu.Unlock()
 	close(run.done)
-	r.emit(RunEvent{Type: RunExited, RunID: run.id, PluginID: run.pluginID, ExitCode: code, Signal: signal})
+	signalLabel := ""
+	if signal != 0 {
+		if run.connection != nil && run.start.Placement != core.ProcessPlacementUI {
+			// The same signal number can mean different things on the two hosts.
+			signalLabel = strconv.Itoa(signal)
+		} else {
+			signalLabel = syscall.Signal(signal).String()
+		}
+	}
+	r.emit(RunEvent{Type: RunExited, RunID: run.id, PluginID: run.pluginID, ExitCode: code, Signal: signalLabel, Disconnected: disconnected})
 	r.notifyExit(run, code, signal)
 }
 
-func (r *Runs) notifyExit(run *hostRun, code *int, signal string) {
+func (r *Runs) notifyExit(run *hostRun, code *int, signal int) {
 	session := r.service.Host.Running(run.pluginID)
 	if session == nil || session.Session.ID != run.backend {
 		return
@@ -538,7 +672,7 @@ func (r *Runs) notifyExit(run *hostRun, code *int, signal string) {
 	if code != nil {
 		body["exitCode"] = *code
 	}
-	if signal != "" {
+	if signal > 0 && signal <= 127 {
 		body["signal"] = signal
 	}
 	params, err := json.Marshal(body)
@@ -547,32 +681,39 @@ func (r *Runs) notifyExit(run *hostRun, code *int, signal string) {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
-	r.service.Host.Notify(ctx, run.pluginID, methodRunStart, notifyRunDidExit, params)
+	session.notify(ctx, methodRunStart, notifyRunDidExit, params)
 }
 
 // exitStatus separates a normal exit code from a terminating signal. A process
 // that could not report either has neither.
-func exitStatus(err error) (*int, string) {
+func exitStatus(err error) (*int, int) {
 	if err == nil {
 		code := 0
-		return &code, ""
+		return &code, 0
 	}
 	var debugEnd *debugRunExit
 	if errors.As(err, &debugEnd) {
-		return debugEnd.code, ""
+		return debugEnd.code, 0
+	}
+	var remoteEnd *buildprocess.RemoteExit
+	if errors.As(err, &remoteEnd) {
+		if remoteEnd.Status.Signal != nil {
+			return nil, *remoteEnd.Status.Signal
+		}
+		return remoteEnd.Status.ExitCode, 0
 	}
 	var exit *exec.ExitError
 	if errors.As(err, &exit) {
 		if code := exit.ExitCode(); code >= 0 {
-			return &code, ""
+			return &code, 0
 		}
 		if state := exit.ProcessState; state != nil {
-			if _, signal, found := strings.Cut(state.String(), "signal: "); found {
-				return nil, strings.TrimSpace(signal)
+			if status, ok := state.Sys().(syscall.WaitStatus); ok && status.Signaled() {
+				return nil, int(status.Signal())
 			}
 		}
 	}
-	return nil, ""
+	return nil, 0
 }
 
 // attachDebugger waits for the debuggee's port, then asks the host to attach the
@@ -586,9 +727,8 @@ func (r *Runs) attachDebugger(ctx context.Context, run *hostRun) {
 			r.stopRun(run, false)
 		}
 	}
-	err := waitForDebugPort(ctx, port, run.done, RunDebugConnectTimeout, func(context.Context) (bool, error) {
-		return debuggeeListening(run.pid, uint16(port))
-	})
+	reader, _ := r.service.kernel.(remoteDebugPortReader)
+	err := WaitForOwnedDebugPort(attachedRunContext(ctx, run.connection), reader, run.process, port, run.done)
 	if err != nil {
 		fail(err)
 		return
@@ -600,13 +740,48 @@ func (r *Runs) attachDebugger(ctx context.Context, run *hostRun) {
 	session, err := r.Debug(ctx, RunDebugRequest{
 		PluginID: run.pluginID, WorkspaceRoot: run.workspace.Path, Label: run.start.Label,
 		ConfigurationType: run.start.Debug.ConfigurationType, Host: "127.0.0.1", Port: port,
-		StopRun: func() { r.stopRun(run, false) },
+		Connection: run.connection,
+		StopRun:    func() { r.stopRun(run, false) },
 	})
 	if err != nil {
 		fail(err)
 		return
 	}
 	run.debug.Store(&session)
+	<-ctx.Done()
+	if r.StopDebugSession != nil {
+		r.StopDebugSession(session)
+	}
+}
+
+func attachedRunContext(ctx context.Context, connection *core.RemoteWorkspaceConnection) context.Context {
+	if connection != nil {
+		return connection.Context(ctx)
+	}
+	return ctx
+}
+
+type remoteDebugPortReader interface {
+	RemoteProcessDebugPortReady(context.Context, uint64, int) (bool, error)
+}
+
+// WaitForOwnedDebugPort observes a Run-owned process's listener on its host.
+func WaitForOwnedDebugPort(ctx context.Context, reader remoteDebugPortReader, process interface{ Wait() error }, port int, ended <-chan struct{}) error {
+	if remote, ok := process.(*buildprocess.RemoteProcess); ok {
+		if reader == nil {
+			return errors.New("this host cannot inspect remote debug ports")
+		}
+		return waitForDebugPort(ctx, port, ended, RunDebugConnectTimeout, func(ctx context.Context) (bool, error) {
+			return reader.RemoteProcessDebugPortReady(ctx, remote.ID, port)
+		})
+	}
+	local, ok := process.(interface{ Pid() int })
+	if !ok || local.Pid() <= 0 {
+		return errors.New("the debuggee has no local process")
+	}
+	return waitForDebugPort(ctx, port, ended, RunDebugConnectTimeout, func(context.Context) (bool, error) {
+		return debuggeeListening(local.Pid(), uint16(port))
+	})
 }
 
 // ErrDebuggeeEnded and ErrDebugPortTimeout are why WaitForDebugPort gave up: the

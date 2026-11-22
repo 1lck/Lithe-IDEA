@@ -18,6 +18,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/1lck/Lithe-IDEA/desktop/internal/buildprefs"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/buildprocess"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/buildprovider"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/configfile"
@@ -158,6 +159,8 @@ type buildOperation struct {
 	// debugging, nil for a plain run; debugSession is the session attached to it, once it is.
 	debug        *connectionDebug
 	debugSession *debugSession
+	// Configured runs keep the same attachment through saves, steps and launch.
+	connection *core.RemoteWorkspaceConnection
 }
 
 // beginBuildOperation makes a new operation the window's current one and gives it the IDE
@@ -251,13 +254,8 @@ func (b *buildState) active() bool { return b.operation != nil || len(b.running)
 // runs; otherwise it stops the one that runs and starts the new one once it ended, so the two
 // never share a port or files. A start that is asked again while one waits replaces it.
 //
-// In safe mode the user is first asked to trust the project, since a run runs its code. A
-// remote workspace runs only its run configurations, on its host (startRunConfigurationWith
-// checks which); its build systems' tasks and entry points are not run there yet.
+// In safe mode the user is first asked to trust the project, since a run runs its code.
 func (a *App) startRun(p *project, key string, start func(*App, *project)) {
-	if !strings.HasPrefix(key, configurationRunKey("")) && a.refuseRemote(p, "run_start") {
-		return
-	}
 	if p.safeMode() {
 		a.askToTrustProject(p, func() { a.startRun(p, key, start) })
 		return
@@ -406,32 +404,39 @@ type buildRuntime struct {
 
 type buildProviderLaunchKey struct {
 	settings      string
+	connection    *core.RemoteWorkspaceConnection
 	usesToolchain bool
 	toolchain     toolchain.SourceRevision
 }
 
 func (key buildProviderLaunchKey) equal(other buildProviderLaunchKey) bool {
-	return key.settings == other.settings && key.usesToolchain == other.usesToolchain && key.toolchain.Equal(other.toolchain)
+	return key.sameWorkspace(other) && key.usesToolchain == other.usesToolchain && key.toolchain.Equal(other.toolchain)
+}
+
+func (key buildProviderLaunchKey) sameWorkspace(other buildProviderLaunchKey) bool {
+	return key.settings == other.settings &&
+		((key.connection == nil && other.connection == nil) || key.connection.SameAttachment(other.connection))
 }
 
 var errBuildProviderSourceChanged = errors.New("build provider source changed during launch")
 
 // standaloneBuildProvider starts a process outside the session lock. Only a
 // start from the current project and saved toolchain sources can be published.
-func (a *App) standaloneBuildProvider(ctx context.Context, p *project, instance buildInstance, rootURI string, settings core.PluginSettingsState, settingsKey string, detached uint64) (*buildprovider.Client, error) {
+func (a *App) standaloneBuildProvider(ctx context.Context, p *project, instance buildInstance, rootURI string, settings core.PluginSettingsState, launchKey buildProviderLaunchKey, target core.RemotePlatform, detached uint64) (*buildprovider.Client, error) {
 	r := &p.buildSessions
+	connection := launchKey.connection
 	key := instance.PluginID + "\x00" + instance.BuildSystemID
 	r.mu.Lock()
 	if err := ctx.Err(); err != nil {
 		r.mu.Unlock()
 		return nil, err
 	}
-	if r.closed || r.detached != detached {
+	if r.closed || r.detached != detached || (connection != nil && !connection.IsCurrent()) {
 		r.mu.Unlock()
 		return nil, buildprovider.ErrClosed
 	}
 	client := r.providers[key]
-	if cached := r.launchKeys[key]; client != nil && !client.Closed() && cached.settings == settingsKey {
+	if cached := r.launchKeys[key]; client != nil && !client.Closed() && cached.sameWorkspace(launchKey) {
 		if !cached.usesToolchain {
 			r.mu.Unlock()
 			return client, nil
@@ -471,43 +476,59 @@ func (a *App) standaloneBuildProvider(ctx context.Context, p *project, instance 
 		a.retireBuildProvider(ctx, client)
 	}
 
-	state := buildStateDirectory(a.plugins.Root, p.root, instance)
-	workspaceState := filepath.Join(state, "workspace")
-	temporaryDirectory := filepath.Join(state, "tmp")
-	for _, directory := range []string{workspaceState, temporaryDirectory} {
-		if err := os.MkdirAll(directory, 0o700); err != nil {
-			return nil, err
+	prepareLocal := func(ctx context.Context, request *pluginbackend.StartRequest) error {
+		request.StateDirectory = buildStateDirectory(a.plugins.Root, p.root, instance)
+		request.WorkspaceStateDirectory = filepath.Join(request.StateDirectory, "workspace")
+		request.TemporaryDirectory = filepath.Join(request.StateDirectory, "tmp")
+		for _, directory := range []string{request.WorkspaceStateDirectory, request.TemporaryDirectory} {
+			if err := os.MkdirAll(directory, 0o700); err != nil {
+				return err
+			}
 		}
+		request.LogDirectory = a.pluginLogDirectory(ctx, instance.PluginID)
+		if connection == nil {
+			request.BeforeResolveTool = func(ctx context.Context) error {
+				revision, err := a.buildToolchainSource(ctx, p)
+				if err != nil {
+					return err
+				}
+				launchKey.toolchain, launchKey.usesToolchain = revision, true
+				return nil
+			}
+		}
+		return nil
 	}
-	launchKey := buildProviderLaunchKey{settings: settingsKey}
-	started, startErr := buildprovider.Launch(ctx, a.plugins.Backend, pluginbackend.StartRequest{
-		Manifest:                instance.Manifest,
-		PackageDirectory:        instance.PackageDirectory,
-		PluginID:                instance.PluginID,
-		ProviderID:              instance.PluginID + "/" + instance.BuildSystemID,
-		BuildSystemID:           instance.BuildSystemID,
-		Role:                    "build",
-		StateDirectory:          state,
-		WorkspaceStateDirectory: workspaceState,
-		LogDirectory:            a.pluginLogDirectory(ctx, instance.PluginID),
-		TemporaryDirectory:      temporaryDirectory,
-		Architecture:            core.PluginArchitecture(),
-		Settings:                settings.Settings,
-		ProjectSettings:         settings.ProjectSettings,
-		RootURI:                 rootURI,
-		WorkingDirectory:        p.root,
+	start := pluginbackend.StartRequest{
+		Manifest:         instance.Manifest,
+		PackageDirectory: instance.PackageDirectory,
+		PluginID:         instance.PluginID,
+		ProviderID:       instance.PluginID + "/" + instance.BuildSystemID,
+		BuildSystemID:    instance.BuildSystemID,
+		Role:             "build",
+		Architecture:     core.PluginArchitecture(),
+		RemoteConnection: connection,
+		Settings:         settings.Settings,
+		ProjectSettings:  settings.ProjectSettings,
+		RootURI:          rootURI,
+		WorkingDirectory: p.root,
 		// Core plans no provider process that runs project code in safe mode; the requests
 		// that would reach it already ask to trust the project first.
 		ProjectCodeAllowed: p.trust.allowed(),
-		BeforeResolveTool: func(ctx context.Context) error {
-			revision, err := a.buildToolchainSource(ctx, p)
-			if err != nil {
-				return err
-			}
-			launchKey.toolchain, launchKey.usesToolchain = revision, true
-			return nil
-		},
-	})
+	}
+	if connection == nil {
+		if err := prepareLocal(ctx, &start); err != nil {
+			return nil, err
+		}
+	} else {
+		start.Architecture = target.Arch
+		start.PrepareUI = prepareLocal
+		installed := pluginpkg.Installed{ID: instance.PluginID, Version: instance.Version, Path: instance.PackageDirectory}
+		start.PrepareRemote = a.plugins.RemoteDeployment(installed, instance.Manifest, target, nil)
+		start.PrepareRemoteTools = func(ctx context.Context) (map[string]pluginbackend.ToolExecutable, error) {
+			return a.plugins.RemoteTools(ctx, installed, instance.Manifest, connection, target)
+		}
+	}
+	started, startErr := buildprovider.Launch(ctx, a.plugins.Backend, start)
 	var shared *pluginbackend.SharedProviderError
 	if errors.As(startErr, &shared) {
 		return nil, startErr
@@ -521,7 +542,7 @@ func (a *App) standaloneBuildProvider(ctx context.Context, p *project, instance 
 		latest, revisionErr = a.buildToolchainSource(ctx, p)
 	}
 	r.mu.Lock()
-	open := !r.closed && r.detached == detached && ctx.Err() == nil
+	open := !r.closed && r.detached == detached && ctx.Err() == nil && (connection == nil || connection.IsCurrent())
 	current := open && revisionErr == nil && launchKey.toolchain.Equal(latest)
 	client = r.providers[key]
 	if current && startErr == nil && client == nil {
@@ -621,6 +642,13 @@ func buildStateDirectory(pluginRoot, workspace string, instance buildInstance) s
 // buildProvider starts a provider process, or attaches to the language server
 // that shares it. The caller runs this away from the window thread.
 func (a *App) buildProvider(ctx context.Context, p *project, instance buildInstance) (client *buildprovider.Client, err error) {
+	var connection *core.RemoteWorkspaceConnection
+	if p.remote != nil {
+		connection = p.remote.binding.CapturedConnection(ctx)
+		if !connection.IsCurrent() {
+			return nil, &core.Error{Code: core.CodeConnectionClosed, Message: "The workspace connection changed."}
+		}
+	}
 	ctx, finish, err := a.buildProviderLaunches.begin(ctx, instance.PluginID)
 	if err != nil {
 		return nil, err
@@ -639,7 +667,7 @@ func (a *App) buildProvider(ctx context.Context, p *project, instance buildInsta
 	p.buildSessions.mu.Unlock()
 	const maxSourceAttempts = 3
 	for range maxSourceAttempts {
-		client, err = a.buildProviderWithSources(ctx, p, instance, detached)
+		client, err = a.buildProviderWithSources(ctx, p, instance, connection, detached)
 		// log-exempt: 预期的缺失：读取或启动期间工具链来源已更新，在原请求期限内重试。
 		if err == errBuildProviderSourceChanged {
 			continue
@@ -657,12 +685,20 @@ func (a *App) buildToolchainSource(ctx context.Context, p *project) (toolchain.S
 	return revision, err
 }
 
-func (a *App) buildProviderWithSources(ctx context.Context, p *project, instance buildInstance, detached uint64) (*buildprovider.Client, error) {
-	settings, err := a.loadPluginPreferenceSources(ctx, instance.Manifest, p.root)
+func (a *App) buildProviderWithSources(ctx context.Context, p *project, instance buildInstance, connection *core.RemoteWorkspaceConnection, detached uint64) (*buildprovider.Client, error) {
+	var target core.RemotePlatform
+	if connection != nil {
+		workspace, ok := a.plugins.Contexts.ByPath(p.root)
+		if !ok || !connection.IsCurrent() {
+			return nil, pluginservice.ErrContextExpired
+		}
+		target = workspace.HostPlatform()
+	}
+	state, err := a.loadPluginPreferenceSources(ctx, instance.Manifest, p.root)
 	if err != nil {
 		return nil, err
 	}
-	settingsKey, err := buildSettingsKey(settings.State)
+	settingsKey, err := buildSettingsKey(state)
 	if err != nil {
 		return nil, err
 	}
@@ -670,21 +706,28 @@ func (a *App) buildProviderWithSources(ctx context.Context, p *project, instance
 	if err != nil {
 		return nil, err
 	}
-	client, err := a.standaloneBuildProvider(ctx, p, instance, rootURI, settings.State, settingsKey, detached)
+	launchKey := buildProviderLaunchKey{settings: settingsKey, connection: connection}
+	client, err := a.standaloneBuildProvider(ctx, p, instance, rootURI, state, launchKey, target, detached)
 	var shared *pluginbackend.SharedProviderError
 	if !errors.As(err, &shared) {
 		return client, err
 	}
-	return a.sharedBuildProvider(ctx, p, instance, shared.LanguageID)
+	return a.sharedBuildProvider(ctx, p, instance, shared.LanguageID, connection, detached)
 }
 
 // sharedBuildProvider attaches a build client to the language server of the
 // same plugin. If no server runs yet, it starts one and publishes it as the
 // window's language server so both build and editor requests reuse it.
-func (a *App) sharedBuildProvider(ctx context.Context, p *project, instance buildInstance, languageID string) (*buildprovider.Client, error) {
+func (a *App) sharedBuildProvider(ctx context.Context, p *project, instance buildInstance, languageID string, connection *core.RemoteWorkspaceConnection, detached uint64) (*buildprovider.Client, error) {
 	key := instance.PluginID + "\x00" + languageID
+	if connection != nil {
+		key += "\x00" + strconv.FormatUint(connection.Revision(), 10)
+	}
 	p.buildSessions.mu.Lock()
-	detached := p.buildSessions.detached
+	if p.buildSessions.closed || p.buildSessions.detached != detached || (connection != nil && !connection.IsCurrent()) {
+		p.buildSessions.mu.Unlock()
+		return nil, buildprovider.ErrClosed
+	}
 	if client := p.buildSessions.shared[key]; client != nil && !client.Closed() {
 		p.buildSessions.mu.Unlock()
 		return client, nil
@@ -692,9 +735,9 @@ func (a *App) sharedBuildProvider(ctx context.Context, p *project, instance buil
 	p.buildSessions.mu.Unlock()
 
 	a.pluginServerMu.Lock()
-	if server := a.pluginServers[instance.PluginID]; server != nil && server.project == p {
+	if server := a.pluginServers[instance.PluginID]; server != nil && server.project == p && server.session.ServesAttachment(connection) {
 		a.pluginServerMu.Unlock()
-		return a.attachSharedBuildClient(ctx, p, instance, key, server, detached)
+		return a.attachSharedBuildClient(ctx, p, key, server, connection, detached)
 	}
 	a.pluginServerMu.Unlock()
 
@@ -706,11 +749,13 @@ func (a *App) sharedBuildProvider(ctx context.Context, p *project, instance buil
 	if err != nil {
 		return nil, err
 	}
+	workspace, _ := a.plugins.Contexts.ByPath(p.root)
 	session, err := a.plugins.StartLanguageServer(ctx, entries, languageID, pluginservice.BackendRequest{
 		RootURI:            rootURI,
 		WorkingDirectory:   p.root,
-		Context:            p.pluginContext,
+		Context:            workspace.ContextRef,
 		Architecture:       core.PluginArchitecture(),
+		RemoteConnection:   connection,
 		ProjectCodeAllowed: p.trust.allowed(),
 	})
 	if err != nil {
@@ -727,7 +772,8 @@ func (a *App) sharedBuildProvider(ctx context.Context, p *project, instance buil
 	server.cancel = serveCancel
 
 	a.pluginServerMu.Lock()
-	if ctx.Err() != nil || p.ctx.Err() != nil || a.pluginServerSuppressed[instance.PluginID] {
+	if ctx.Err() != nil || p.ctx.Err() != nil || a.pluginServerSuppressed[instance.PluginID] ||
+		(connection != nil && !connection.IsCurrent()) {
 		a.pluginServerMu.Unlock()
 		serveCancel()
 		a.stopPluginSession(session)
@@ -743,7 +789,10 @@ func (a *App) sharedBuildProvider(ctx context.Context, p *project, instance buil
 		// Another start won; attach to it and dispose the extra session.
 		serveCancel()
 		a.stopPluginSession(session)
-		return a.attachSharedBuildClient(ctx, p, instance, key, existing, detached)
+		if existing.project != p || !existing.session.ServesAttachment(connection) {
+			return nil, buildprovider.ErrClosed
+		}
+		return a.attachSharedBuildClient(ctx, p, key, existing, connection, detached)
 	}
 	a.pluginServers[instance.PluginID] = server
 	if a.pluginServerLanguages == nil {
@@ -760,7 +809,7 @@ func (a *App) sharedBuildProvider(ctx context.Context, p *project, instance buil
 		a.releasePluginDocuments(instance.PluginID)
 		a.openDocumentsForPlugin(p, server, languageID)
 	})
-	return a.attachSharedBuildClient(ctx, p, instance, key, server, detached)
+	return a.attachSharedBuildClient(ctx, p, key, server, connection, detached)
 }
 
 // attachSharedBuildClient waits for the session's real ready event before it
@@ -768,7 +817,10 @@ func (a *App) sharedBuildProvider(ctx context.Context, p *project, instance buil
 // so Attach can mark this client ready without inventing a ready state. detached
 // is the runtime's detach count when the caller began: a client attached after
 // another detach belongs to the sessions it took and is dropped.
-func (a *App) attachSharedBuildClient(ctx context.Context, p *project, instance buildInstance, key string, server *pluginServer, detached uint64) (*buildprovider.Client, error) {
+func (a *App) attachSharedBuildClient(ctx context.Context, p *project, key string, server *pluginServer, connection *core.RemoteWorkspaceConnection, detached uint64) (*buildprovider.Client, error) {
+	if !server.session.ServesAttachment(connection) {
+		return nil, buildprovider.ErrClosed
+	}
 	client := server.attachBuild(a.plugins.Backend, server.session.Session)
 	if err := client.WaitReady(ctx); err != nil {
 		server.detachBuild(client)
@@ -776,11 +828,18 @@ func (a *App) attachSharedBuildClient(ctx context.Context, p *project, instance 
 		return nil, err
 	}
 	p.buildSessions.mu.Lock()
-	if p.buildSessions.closed || p.buildSessions.detached != detached || ctx.Err() != nil || p.ctx.Err() != nil {
+	if p.buildSessions.closed || p.buildSessions.detached != detached || ctx.Err() != nil || p.ctx.Err() != nil ||
+		(connection != nil && !connection.IsCurrent()) {
 		p.buildSessions.mu.Unlock()
 		server.detachBuild(client)
 		_ = client.Close(context.Background())
 		return nil, buildprovider.ErrClosed
+	}
+	if existing := p.buildSessions.shared[key]; existing != nil && !existing.Closed() {
+		p.buildSessions.mu.Unlock()
+		server.detachBuild(client)
+		_ = client.Close(context.Background())
+		return existing, nil
 	}
 	if p.buildSessions.shared == nil {
 		p.buildSessions.shared = make(map[string]*buildprovider.Client)
@@ -795,13 +854,12 @@ func (a *App) loadBuildSystems(p *project) {
 	if p == nil || p.build.loading {
 		return
 	}
+	var connection *core.RemoteWorkspaceConnection
 	if p.remote != nil {
-		// log-exempt: 远程工作区的构建工具要在主机上运行，现在还不支持：本机的占位文件夹里没有项目，不探测构建系统；
-		// 运行配置菜单用 failed 说明这一点，内置的程序和脚本运行照常从 Core 读出、在主机上启动（remote_run.go）。
-		p.build.loaded = true
-		p.build.failed = i18n.Shared(a.language(), "desktop.run.remote.buildTools")
-		a.refreshRunConfigurations(p)
-		return
+		connection = p.remote.binding.CaptureConnection()
+		if connection == nil {
+			return
+		}
 	}
 	if a.plugins == nil || a.plugins.Backend == nil {
 		p.build.loaded = true
@@ -815,21 +873,45 @@ func (a *App) loadBuildSystems(p *project) {
 	p.build.generation++
 	generation := p.build.generation
 	kernel := a.kernel
-	// The team and local option documents are read here, on the window thread, and resolved and detected
-	// with the instances below; a document that cannot be read fails the detection instead of emptying it.
-	docs, docsErr := a.readBuildOptionDocuments(a.operationContext(context.Background()), p.root)
+	// For a local project, capture the documents on the window thread before an option
+	// edit can change them. A remote team's document is read over the captured connection.
+	var docs buildOptionDocuments
+	var docsErr error
+	if connection == nil {
+		docs, docsErr = a.readBuildOptionDocuments(a.operationContext(context.Background()), p.root)
+	}
 	language := a.language().Code()
+	finish := func(instances []buildInstance, err error) func(*App) {
+		return func(a *App) {
+			if connection != nil && !connection.IsCurrent() {
+				return
+			}
+			a.finishBuildDetection(p, generation, instances, err)
+		}
+	}
 	a.background(p, buildRequestTimeout, func(ctx context.Context) func(*App) {
+		local := core.WithoutRemoteWorkspace(ctx)
 		entries, err := a.plugins.Manager.Installed()
 		if err != nil {
-			return func(a *App) { a.finishBuildDetection(p, generation, nil, err) }
+			return finish(nil, err)
 		}
 		if docsErr != nil {
-			return func(a *App) { a.finishBuildDetection(p, generation, nil, docsErr) }
+			return finish(nil, docsErr)
 		}
-		plugins, pluginErr := a.plugins.BuildPlugins(ctx, entries)
+		plugins, pluginErr := a.plugins.BuildPlugins(local, entries)
+		if connection != nil {
+			if len(plugins) == 0 {
+				return finish(nil, pluginErr)
+			}
+			ctx = connection.Context(ctx)
+			remoteDocs, err := buildprefs.ReadRemote(ctx, a.store, p.root, kernel.ReadWorkspaceConfiguration)
+			if err != nil {
+				return finish(nil, errors.Join(pluginErr, err))
+			}
+			docs = buildOptionDocuments{team: remoteDocs.Team, local: remoteDocs.Local}
+		}
 		// The manifests carry their option text in the interface language from here on.
-		manifests := a.localizeBuildManifests(ctx, kernel, language, plugins)
+		manifests := a.localizeBuildManifests(local, kernel, language, plugins)
 		byPlugin := make(map[string]pluginservice.BuildPlugin, len(plugins))
 		for index, plugin := range plugins {
 			plugin.Manifest = manifests[index]
@@ -861,9 +943,7 @@ func (a *App) loadBuildSystems(p *project) {
 			}
 			instances = append(instances, instance)
 		}
-		return func(a *App) {
-			a.finishBuildDetection(p, generation, instances, errors.Join(pluginErr, detectErr))
-		}
+		return finish(instances, errors.Join(pluginErr, detectErr))
 	})
 }
 
@@ -928,6 +1008,10 @@ func (a *App) loadBuildModelWith(p *project, index int, refresh bool) {
 		}
 		return
 	}
+	connection, ok := captureWorkspaceConnection(p)
+	if !ok {
+		return
+	}
 	instance.modelLoading = true
 	instance.modelError, instance.modelStopped = "", false
 	captured := *instance
@@ -936,7 +1020,7 @@ func (a *App) loadBuildModelWith(p *project, index int, refresh bool) {
 	// The load is a session of the Run window, which shows what the tool prints meanwhile.
 	feed := a.beginBuildSync(p, instance)
 	a.background(p, buildRequestTimeout, func(ctx context.Context) func(*App) {
-		ctx, cancel := feed.bind(ctx)
+		ctx, cancel := feed.bind(attachedWorkspaceContext(ctx, connection))
 		defer cancel()
 		model, err := a.buildModel(ctx, p, captured, kernel, feed, a.text.Build, refresh)
 		if err != nil && feed.stopRequested() {
@@ -944,7 +1028,7 @@ func (a *App) loadBuildModelWith(p *project, index int, refresh bool) {
 		}
 		return func(a *App) {
 			a.endBuildSync(feed.session, err)
-			if a.project != p || p.build.generation != generation {
+			if a.project != p || p.build.generation != generation || (connection != nil && !connection.IsCurrent()) {
 				return
 			}
 			a.finishBuildModel(p, captured.ID, model, err)
@@ -989,32 +1073,41 @@ func (a *App) commandModel(ctx context.Context, p *project, instance buildInstan
 		a.plugins.EndAttempt(ctx, attempt, stage, err)
 		return core.BuildModel{}, err
 	}
-	state := buildStateDirectory(a.plugins.Root, p.root, instance)
-	if err := os.MkdirAll(state, 0o700); err != nil {
-		return fail(core.StagePlan, err)
+	if p.remote != nil && p.remote.binding.CapturedConnection(ctx) == nil {
+		return fail(core.StagePlan, errRemoteSessionClosed)
 	}
-	file, createErr := os.CreateTemp(state, "model-*.json")
-	if createErr != nil {
-		return fail(core.StagePlan, createErr)
-	}
-	outputFile := file.Name()
-	_ = file.Close()
-	_ = os.Remove(outputFile)
-	defer os.Remove(outputFile)
-	// The package directory expands ${pluginDir}, which a model command uses to load a
-	// plugin-shipped script or extension into the build tool.
-	// ${workspaceStateDir} is the same writable directory, outside the read-only package.
-	plan, err := kernel.PlanBuildModel(ctx, instance.Manifest, instance.BuildSystemID, core.BuildPlanRequest{
-		Root:                    instance.Root,
-		Options:                 instance.Options,
-		PluginDirectory:         instance.PackageDirectory,
-		WorkspaceStateDirectory: state,
-		WorkspaceRoot:           p.root,
-		OutputFile:              outputFile,
-		ProjectCodeAllowed:      p.trust.allowed(),
-	})
+	scratch, err := a.prepareBuildScratch(ctx, p, instance, "model")
 	if err != nil {
 		return fail(core.StagePlan, err)
+	}
+	defer scratch.release()
+	planRequest := core.BuildPlanRequest{
+		Root:                    instance.Root,
+		Options:                 instance.Options,
+		PluginDirectory:         scratch.packageDirectory,
+		WorkspaceStateDirectory: scratch.state,
+		WorkspaceRoot:           p.root,
+		OutputFile:              scratch.output,
+		ProjectCodeAllowed:      p.trust.allowed(),
+	}
+	plan, err := kernel.PlanBuildModel(ctx, instance.Manifest, instance.BuildSystemID, planRequest)
+	if err != nil {
+		return fail(core.StagePlan, err)
+	}
+	if p.remote != nil && len(plan.RequiredPackagePaths) != 0 {
+		installed := pluginpkg.Installed{ID: instance.PluginID, Version: instance.Version, Path: instance.PackageDirectory}
+		deploy := a.plugins.RemoteDeployment(installed, instance.Manifest, p.remote.platform, nil)
+		planRequest.PluginDirectory, err = deploy(ctx, plan.RequiredPackagePaths)
+		if err != nil {
+			return fail(core.StagePlan, err)
+		}
+		plan, err = kernel.PlanBuildModel(ctx, instance.Manifest, instance.BuildSystemID, planRequest)
+		if err != nil {
+			return fail(core.StagePlan, err)
+		}
+		if len(plan.RequiredPackagePaths) != 0 {
+			return fail(core.StagePlan, errors.New("the model command still requires a deployed package"))
+		}
 	}
 	if plan.Provider != nil {
 		return fail(core.StagePlan, errors.New("the build system answered with a provider model"))
@@ -1030,11 +1123,11 @@ func (a *App) commandModel(ctx context.Context, p *project, instance buildInstan
 	}
 	workingDirectory := filepath.Join(p.root, filepath.FromSlash(plan.WorkingDirectory))
 	toFile := plan.Output == "outputFile"
-	output, runErr := captureBuildProcess(ctx, execution.Executable, plan.Arguments, workingDirectory, applyToolchainSelection(plan.Environment, execution.selection()), !toFile, feed.logger())
+	output, runErr := a.captureWorkspaceBuildProcess(ctx, p, execution, plan.Arguments, workingDirectory, plan.Environment, !toFile, feed.logger())
 	runErr = withBuildOutput(runErr, output.combined)
 	request := core.BuildDecodeModelRequest{WorkspaceRoot: p.root, Root: instance.Root, Options: instance.Options}
 	if toFile {
-		request.OutputFile = outputFile
+		request.OutputFile = scratch.output
 	} else {
 		request.Output = output.stdout
 	}
@@ -1355,10 +1448,10 @@ func buildTaskSelection(instance *buildInstance, task *pluginservice.BuildTaskDe
 // so a tool call can report them, and the Build window keeps its notification and ignores them.
 func (a *App) runBuildTask(p *project, projectID, targetID, taskID string, userArguments []string) (*buildOperation, error) {
 	// A task runs the build tool on the project: in safe mode the user is asked to trust it
-	// first, and the task starts once trusted. The caller, such as the IDE API, is refused. A
-	// remote workspace's build tool runs on its host, which a task does not reach yet.
-	if a.refuseRemote(p, "build_task") {
-		return nil, refuseBuild(refusalNotReady, "the workspace is remote")
+	// first, and the task starts once trusted. The caller, such as the IDE API, is refused.
+	connection, ok := captureWorkspaceConnection(p)
+	if !ok {
+		return nil, refuseBuild(refusalNotReady, "the workspace is disconnected")
 	}
 	if p.safeMode() {
 		a.askToTrustProject(p, func() { _, _ = a.runBuildTask(p, projectID, targetID, taskID, userArguments) })
@@ -1421,6 +1514,7 @@ func (a *App) runBuildTask(p *project, projectID, targetID, taskID string, userA
 		_, _ = a.runBuildTask(p, projectID, targetID, taskID, userArguments)
 	}))
 	a.background(p, buildRequestTimeout, func(ctx context.Context) func(*App) {
+		ctx = attachedWorkspaceContext(ctx, connection)
 		prepare, release := op.bind(ctx)
 		defer release()
 		plan, err := kernel.PlanBuildTask(prepare, captured.Manifest, captured.BuildSystemID, request)
@@ -1452,13 +1546,7 @@ func (a *App) runCommandTask(ctx, prepare context.Context, p *project, op *build
 		return err
 	}
 	workingDirectory := filepath.Join(p.root, filepath.FromSlash(plan.WorkingDirectory))
-	process, err := buildprocess.Start(ctx, buildprocess.Spec{
-		Kind:             processledger.KindBuild,
-		Executable:       execution.Executable,
-		Arguments:        plan.Arguments,
-		WorkingDirectory: workingDirectory,
-		Environment:      applyToolchainSelection(plan.Environment, execution.selection()),
-	}, func(_ buildprocess.Stream, text string) {
+	process, err := a.startBuildExecution(ctx, p, execution, plan.Arguments, workingDirectory, plan.Environment, func(_ buildprocess.Stream, text string) {
 		a.streamBuildOutput(p, op, text)
 	})
 	if err != nil {
@@ -1494,7 +1582,7 @@ func (a *App) resolveBuildExecutable(ctx context.Context, p *project, instance b
 	if err != nil {
 		return buildExecution{}, err
 	}
-	invocation, err := a.kernel.PlanBuildInvocation(ctx, instance.Manifest, instance.BuildSystemID, core.BuildInvocationRequest{Root: instance.Root, Platform: buildPlatform(), Settings: settings.State.Settings})
+	invocation, err := a.kernel.PlanBuildInvocation(ctx, instance.Manifest, instance.BuildSystemID, core.BuildInvocationRequest{Root: instance.Root, Platform: p.buildPlatform(), Settings: settings.Settings})
 	if err != nil {
 		return buildExecution{}, err
 	}
@@ -1504,7 +1592,7 @@ func (a *App) resolveBuildExecutable(ctx context.Context, p *project, instance b
 			return nil
 		}
 		return func(candidate buildExecution) error {
-			output, probeErr := probeBuildTool(ctx, candidate.Executable, versionSpec.Arguments, p.root, applyToolchainSelection(nil, candidate.selection()))
+			output, probeErr := a.probeWorkspaceBuildTool(ctx, p, candidate, versionSpec.Arguments)
 			if probeErr != nil {
 				return probeErr
 			}
@@ -1518,7 +1606,7 @@ func (a *App) resolveBuildExecutable(ctx context.Context, p *project, instance b
 			return nil
 		}
 	}
-	var runtimeEnvironment map[string]string
+	var runtimeEnvironment core.ToolchainSelection
 	for _, requirement := range invocation.RuntimeDependencies {
 		resolved, err := a.resolveAndCheckBuildCandidates(
 			ctx, p, instance.Root, requirement.Executables, requirement.MinimumVersion,
@@ -1534,7 +1622,12 @@ func (a *App) resolveBuildExecutable(ctx context.Context, p *project, instance b
 			}
 			resolved.Environment[requirement.PathVariable] = resolved.Executable
 		}
-		runtimeEnvironment = applyToolchainSelection(runtimeEnvironment, resolved.selection())
+		selection := resolved.selection()
+		if p.remote != nil {
+			runtimeEnvironment.PathPrepend = append(append([]string(nil), resolved.PathPrepend...), runtimeEnvironment.PathPrepend...)
+			selection.PathPrepend = nil
+		}
+		runtimeEnvironment.Environment = applyToolchainSelection(runtimeEnvironment.Environment, selection)
 		runtimes[requirement.ID] = resolved
 	}
 	execution, err := a.resolveAndCheckBuildCandidates(
@@ -1551,14 +1644,14 @@ func (a *App) resolveBuildExecutable(ctx context.Context, p *project, instance b
 // Native candidate lookup consumes Core's order and runtime bindings. Runtime
 // exports and version probes are applied before the build tool itself starts.
 func (a *App) resolveBuildCandidates(ctx context.Context, p *project, directory string, candidates []core.BuildExecutableCandidate, minimum string, messages i18n.BuildMessages, runtimes map[string]buildExecution) (buildExecution, error) {
-	return a.resolveAndCheckBuildCandidates(ctx, p, directory, candidates, minimum, messages, runtimes, nil, nil)
+	return a.resolveAndCheckBuildCandidates(ctx, p, directory, candidates, minimum, messages, runtimes, core.ToolchainSelection{}, nil)
 }
 
 func (a *App) resolveAndCheckBuildCandidates(
 	ctx context.Context, p *project, directory string,
 	candidates []core.BuildExecutableCandidate, minimum string,
 	messages i18n.BuildMessages, runtimes map[string]buildExecution,
-	inheritedEnv map[string]string, validate func(buildExecution) error,
+	inherited core.ToolchainSelection, validate func(buildExecution) error,
 ) (buildExecution, error) {
 	var lastErr error
 	for _, candidate := range candidates {
@@ -1573,7 +1666,10 @@ func (a *App) resolveAndCheckBuildCandidates(
 		if candidate.Kind != "runtime" {
 			execution.Source.Kind, execution.Source.Variable = candidate.Kind, candidate.Variable
 		}
-		execution.Environment = applyToolchainSelection(execution.Environment, core.ToolchainSelection{Environment: inheritedEnv})
+		execution.Environment = applyToolchainSelection(execution.Environment, core.ToolchainSelection{Environment: inherited.Environment})
+		if len(inherited.PathPrepend) != 0 {
+			execution.PathPrepend = append(append([]string(nil), execution.PathPrepend...), inherited.PathPrepend...)
+		}
 		if validate != nil {
 			if checkErr := validate(execution); checkErr != nil {
 				if terminal || ctx.Err() != nil {
@@ -1592,6 +1688,9 @@ func (a *App) resolveAndCheckBuildCandidates(
 }
 
 func (a *App) resolveOneBuildCandidate(ctx context.Context, p *project, directory string, candidate core.BuildExecutableCandidate, minimum string, runtimes map[string]buildExecution) (buildExecution, bool, bool, error) {
+	if p.remote != nil && candidate.Kind != "toolchain" && candidate.Kind != "runtime" {
+		return a.remoteBuildCandidate(ctx, p, candidate)
+	}
 	var execution buildExecution
 	terminal := false
 	resolved := false
@@ -1641,6 +1740,9 @@ func (a *App) resolveOneBuildCandidate(ctx context.Context, p *project, director
 			resolved = true
 		}
 	case "toolchain":
+		if p.remote != nil && core.RemoteWorkspaceOf(ctx) == nil {
+			return buildExecution{}, true, false, errors.New("remote toolchain resolution has no workspace attachment")
+		}
 		selection, selectErr := a.resolveToolchainSelection(ctx, p.root, directory, candidate.ToolchainID, minimum)
 		if selectErr != nil {
 			var unavailable *toolchain.UnavailableError
@@ -1670,10 +1772,22 @@ func buildRequiresPresent(path string, required []string, root string) bool {
 	return err == nil
 }
 
+func (a *App) probeWorkspaceBuildTool(ctx context.Context, p *project, execution buildExecution, arguments []string) (string, error) {
+	return probeBuildOutput(ctx, func(probeCtx context.Context) (buildCommandOutput, error) {
+		return a.captureWorkspaceBuildProcess(probeCtx, p, execution, arguments, p.root, nil, false, nil)
+	})
+}
+
 func probeBuildTool(ctx context.Context, executable string, arguments []string, workingDirectory string, environment map[string]string) (string, error) {
+	return probeBuildOutput(ctx, func(probeCtx context.Context) (buildCommandOutput, error) {
+		return captureBuildProcess(probeCtx, executable, arguments, workingDirectory, environment, false, nil)
+	})
+}
+
+func probeBuildOutput(ctx context.Context, capture func(context.Context) (buildCommandOutput, error)) (string, error) {
 	probeCtx, cancel := context.WithTimeout(ctx, buildToolProbeTimeout)
 	defer cancel()
-	output, waitErr := captureBuildProcess(probeCtx, executable, arguments, workingDirectory, environment, false, nil)
+	output, waitErr := capture(probeCtx)
 	if waitErr != nil {
 		if errors.Is(probeCtx.Err(), context.DeadlineExceeded) && ctx.Err() == nil {
 			return "", fmt.Errorf("version check timed out after %s: %w", buildToolProbeTimeout, waitErr)
@@ -1699,15 +1813,21 @@ type buildCommandOutput struct {
 // one's log. What a tool reports on stderr while it works, as go does while it downloads
 // modules, then never lands in the document.
 func captureBuildProcess(ctx context.Context, executable string, arguments []string, workingDirectory string, environment map[string]string, documentOnStdout bool, log func(string)) (buildCommandOutput, error) {
+	return collectBuildOutput(documentOnStdout, log, func(output func(buildprocess.Stream, string)) (buildProcess, error) {
+		return buildprocess.Start(ctx, buildprocess.Spec{
+			Kind:             processledger.KindBuild,
+			Executable:       executable,
+			Arguments:        arguments,
+			WorkingDirectory: workingDirectory,
+			Environment:      environment,
+		}, output)
+	})
+}
+
+func collectBuildOutput(documentOnStdout bool, log func(string), start func(func(buildprocess.Stream, string)) (buildProcess, error)) (buildCommandOutput, error) {
 	var stdout, combined strings.Builder
 	var outputMu sync.Mutex
-	process, err := buildprocess.Start(ctx, buildprocess.Spec{
-		Kind:             processledger.KindBuild,
-		Executable:       executable,
-		Arguments:        arguments,
-		WorkingDirectory: workingDirectory,
-		Environment:      environment,
-	}, func(stream buildprocess.Stream, text string) {
+	process, err := start(func(stream buildprocess.Stream, text string) {
 		outputMu.Lock()
 		if stream == buildprocess.Stdout && stdout.Len() < buildCaptureBytes {
 			stdout.WriteString(text)
@@ -1740,6 +1860,13 @@ func buildPlatform() string {
 	}
 }
 
+func (p *project) buildPlatform() string {
+	if p.remote != nil {
+		return "linux"
+	}
+	return buildPlatform()
+}
+
 // buildTargetRunEntries returns the command Run entries Core derived for targetID, in Core's
 // order. Provider runs are not among them; the Build window lists those from the declarations.
 func buildTargetRunEntries(instance *buildInstance, targetID string) []core.BuildRunEntry {
@@ -1768,6 +1895,10 @@ func (a *App) runBuildEntry(p *project, entryID string) {
 // startBuildEntry runs the command Run entry entryID of the instance instanceID, which is
 // selected, once no run of it runs (runBuildEntry).
 func (a *App) startBuildEntry(p *project, instanceID, entryID string) {
+	connection, ok := captureWorkspaceConnection(p)
+	if !ok {
+		return
+	}
 	instance := p.selectedBuildInstance()
 	if instance == nil || instance.ID != instanceID {
 		return
@@ -1795,6 +1926,7 @@ func (a *App) startBuildEntry(p *project, instanceID, entryID string) {
 		a.runBuildEntry(p, entryID)
 	}))
 	a.background(p, 0, func(ctx context.Context) func(*App) {
+		ctx = attachedWorkspaceContext(ctx, connection)
 		bounded, cancel := context.WithTimeout(ctx, runPreparationTimeout)
 		defer cancel()
 		prepare, release := op.bind(bounded)
@@ -1833,6 +1965,9 @@ func (a *App) startBuildTarget(p *project, targetID string, run pluginservice.Bu
 	}
 	key, instanceID := targetRunKey(instance.ID, targetID, run.ID), instance.ID
 	a.startRun(p, key, func(a *App, p *project) {
+		if debug != nil && debug.connection != nil && !debug.connection.IsCurrent() {
+			return
+		}
 		if selected := p.selectedBuildInstance(); selected != nil && selected.ID == instanceID {
 			a.beginBuildTarget(p, key, targetID, run, debug)
 		}
@@ -1867,6 +2002,7 @@ func (a *App) beginBuildTarget(p *project, key, targetID string, run pluginservi
 	}
 	if debug != nil {
 		op.debug = debug
+		op.connection = debug.connection
 		options.Debug = &debug.launch
 	}
 	a.runBuildTargetWith(p, op, instance, target.ProjectID, targetID, runID, options, nil)
@@ -1895,6 +2031,10 @@ func (a *App) debugProviderTarget(p *project, index int, projectID, targetID, ru
 	if p == nil || index < 0 || index >= len(p.build.instances) || p.debug.preparing {
 		return
 	}
+	connection, connected := captureWorkspaceConnection(p)
+	if !connected {
+		return
+	}
 	instance := &p.build.instances[index]
 	run, ok := buildRunDeclaration(instance.System, runID)
 	if !ok || run.DebugAdapter == "" {
@@ -1915,6 +2055,15 @@ func (a *App) debugProviderTarget(p *project, index int, projectID, targetID, ru
 		return
 	}
 	captured := *instance
+	if p.safeMode() {
+		reference := core.RunProviderReference{PluginID: captured.PluginID, BuildSystemID: captured.BuildSystemID, Root: captured.Root}
+		a.askToTrustProject(p, func() {
+			if connection == nil || connection.IsCurrent() {
+				a.redebugProviderTarget(p, reference, projectID, targetID, runID)
+			}
+		})
+		return
+	}
 	kernel := a.kernel
 	messages := a.text.Build
 	// Rerun prepares the same target again, through the instance detection names the same way,
@@ -1934,16 +2083,21 @@ func (a *App) debugProviderTarget(p *project, index int, projectID, targetID, ru
 	fail := func(err error) func(*App) {
 		return func(a *App) {
 			p.debug.preparing = false
+			// log-exempt: 用户取消：原工作区连接已经关闭。
+			if connection != nil && !connection.IsCurrent() {
+				return
+			}
 			a.operationFailed("build_debug_prepare", err)
 			a.notifyError(a.launchFailureText(err))
 		}
 	}
 	a.saveProjectDocuments(p, func(saved bool) {
-		if !saved {
+		if !saved || (connection != nil && !connection.IsCurrent()) {
 			p.debug.preparing = false
 			return
 		}
 		a.background(p, buildRequestTimeout, func(ctx context.Context) func(*App) {
+			ctx = attachedWorkspaceContext(ctx, connection)
 			a.addBuildToolHint(ctx, p, captured, &request)
 			plan, err := kernel.PlanBuildDebug(ctx, captured.Manifest, captured.BuildSystemID, request)
 			if err != nil {
@@ -1975,7 +2129,7 @@ func (a *App) debugProviderTarget(p *project, index int, projectID, targetID, ru
 			}
 			return func(a *App) {
 				p.debug.preparing = false
-				a.startProviderDebug(p, captured.PluginID, preparation, rerun)
+				a.startProviderDebug(p, captured.PluginID, preparation, rerun, connection)
 			}
 		})
 	})
@@ -2010,8 +2164,11 @@ func buildRunDeclaration(system pluginservice.BuildSystemDeclaration, id string)
 // Core checked belongs to the same plugin. The installed adapters are read first when the Debug
 // window has not read them yet. Core answers workspace-relative paths; the adapter gets them
 // absolute. rerun prepares the program again for the Debug window's Rerun.
-func (a *App) startProviderDebug(p *project, pluginID string, preparation core.BuildDebugPreparation, rerun func()) {
+func (a *App) startProviderDebug(p *project, pluginID string, preparation core.BuildDebugPreparation, rerun func(), connection *core.RemoteWorkspaceConnection) {
 	a.whenDebugAdaptersLoaded(p, func() {
+		if connection != nil && !connection.IsCurrent() {
+			return
+		}
 		for _, adapter := range p.debug.adapters {
 			if adapter.PluginID != pluginID || adapter.Declaration.ID != preparation.Adapter || !adapter.Declaration.Serves("launch") {
 				continue
@@ -2026,7 +2183,7 @@ func (a *App) startProviderDebug(p *project, pluginID string, preparation core.B
 				environment = map[string]string{}
 			}
 			a.beginDebug(p, debugStart{
-				adapter: adapter, request: "launch", ended: make(chan *int, 1), rerun: rerun,
+				adapter: adapter, request: "launch", ended: make(chan *int, 1), rerun: rerun, connection: connection,
 				launchTarget: &core.DebugTargetFacts{
 					Kind: "executable", Path: program, Executable: program,
 					WorkingDirectory: filepath.Join(p.root, filepath.FromSlash(preparation.WorkingDirectory)),
@@ -2046,6 +2203,14 @@ func (a *App) startProviderDebug(p *project, pluginID string, preparation core.B
 // run declarations do not come here: Core expands them into the model's Run entries, which
 // runBuildEntry runs.
 func (a *App) runBuildTargetWith(p *project, op *buildOperation, instance *buildInstance, projectID, targetID, runID string, options *core.RunLaunchOptions, overrides map[string]json.RawMessage) {
+	connection, connected := captureWorkspaceConnection(p)
+	if op.connection != nil {
+		connection, connected = op.connection, op.connection.IsCurrent()
+	}
+	if !connected {
+		a.finishBuildError(p, op, &core.Error{Code: core.CodeConnectionClosed, Message: "The workspace connection changed."})
+		return
+	}
 	project, ok := buildProjectByID(instance.Model, projectID)
 	if !ok {
 		a.notifyError(a.text.Build.ProjectMissing)
@@ -2067,6 +2232,7 @@ func (a *App) runBuildTargetWith(p *project, op *buildOperation, instance *build
 	kernel := a.kernel
 	messages := a.text.Build
 	a.background(p, 0, func(ctx context.Context) func(*App) {
+		ctx = attachedWorkspaceContext(ctx, connection)
 		bounded, cancel := context.WithTimeout(ctx, runPreparationTimeout)
 		defer cancel()
 		prepare, release := op.bind(bounded)
@@ -2114,16 +2280,51 @@ func (a *App) runBuildTargetWith(p *project, op *buildOperation, instance *build
 		if err != nil {
 			return func(a *App) { a.finishBuildError(p, op, err) }
 		}
-		execution := buildExecution{}
+		execution := buildExecution{Placement: launch.Placement}
+		executionRoot, executionInstance := p.root, captured.Root
+		resolveContext := prepare
+		remoteProcess := connection != nil && launch.Placement != core.ProcessPlacementUI
+		if op.debug != nil && connection != nil && !remoteProcess {
+			return func(a *App) { a.finishBuildError(p, op, errors.New(messages.CommandUnsupported)) }
+		}
+		if connection != nil && !remoteProcess {
+			if !connection.IsCurrent() {
+				return func(a *App) {
+					a.finishBuildError(p, op, &core.Error{Code: core.CodeConnectionClosed, Message: "The workspace connection changed."})
+				}
+			}
+			runContext, cancelRun := context.WithCancel(ctx)
+			defer cancelRun()
+			stopDetach := connection.AfterDetach(cancelRun)
+			defer stopDetach()
+			stopPrepare := context.AfterFunc(runContext, release)
+			defer stopPrepare()
+			ctx = runContext
+			resolveContext = core.WithoutRemoteWorkspace(prepare)
+			executionRoot = buildStateDirectory(a.plugins.Root, p.root, captured)
+			executionInstance = "."
+			if err := os.MkdirAll(executionRoot, 0o700); err != nil {
+				return func(a *App) { a.finishBuildError(p, op, err) }
+			}
+		}
 		switch launch.Executable.Kind {
 		case "command":
-			executable, lookupErr := exec.LookPath(launch.Executable.Value)
+			var executable string
+			var lookupErr error
+			if !remoteProcess {
+				executable, lookupErr = exec.LookPath(launch.Executable.Value)
+			} else {
+				executable, lookupErr = a.kernel.ResolveRemoteExecutable(prepare, core.RemoteExecutableRequest{Kind: "program", Value: launch.Executable.Value})
+				if lookupErr == nil && executable == "" {
+					lookupErr = errors.New(messages.ExecutableMissing)
+				}
+			}
 			if lookupErr != nil {
 				return func(a *App) { a.finishBuildError(p, op, lookupErr) }
 			}
 			execution.Executable = executable
 		case "toolchain":
-			selection, selectErr := a.resolveToolchainSelection(prepare, p.root, captured.Root, launch.Executable.Value, "")
+			selection, selectErr := a.resolveToolchainSelection(resolveContext, executionRoot, executionInstance, launch.Executable.Value, "")
 			if selectErr != nil {
 				return func(a *App) { a.finishBuildError(p, op, selectErr) }
 			}
@@ -2138,15 +2339,14 @@ func (a *App) runBuildTargetWith(p *project, op *buildOperation, instance *build
 		if prepare.Err() != nil {
 			return func(a *App) { a.finishBuildError(p, op, prepare.Err()) }
 		}
-		workingDirectory := filepath.Join(p.root, filepath.FromSlash(launch.WorkingDirectory))
+		if connection != nil && !connection.IsCurrent() {
+			return func(a *App) {
+				a.finishBuildError(p, op, &core.Error{Code: core.CodeConnectionClosed, Message: "The workspace connection changed."})
+			}
+		}
+		workingDirectory := filepath.Join(executionRoot, filepath.FromSlash(launch.WorkingDirectory))
 		op.decoder.declare(launch.OutputEncoding)
-		process, err := buildprocess.Start(ctx, buildprocess.Spec{
-			Kind:             processledger.KindBuild,
-			Executable:       execution.Executable,
-			Arguments:        launch.Arguments,
-			WorkingDirectory: workingDirectory,
-			Environment:      applyToolchainSelection(launch.Environment, execution.selection()),
-		}, func(_ buildprocess.Stream, text string) {
+		process, err := a.startBuildExecution(ctx, p, execution, launch.Arguments, workingDirectory, launch.Environment, func(_ buildprocess.Stream, text string) {
 			a.streamBuildOutput(p, op, text)
 		})
 		if err != nil {
@@ -2155,7 +2355,7 @@ func (a *App) runBuildTargetWith(p *project, op *buildOperation, instance *build
 		a.post(func(a *App) { a.attachProcess(p, op, process) })
 		ended := make(chan struct{})
 		if op.debug != nil {
-			go a.attachServiceDebugger(ctx, p, op, *op.debug, ended)
+			go a.attachServiceDebugger(ctx, p, op, *op.debug, process, ended)
 		}
 		err = process.Wait()
 		close(ended)

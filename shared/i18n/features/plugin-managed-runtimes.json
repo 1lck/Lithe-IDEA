@@ -35,6 +35,18 @@
       }
     },
     {
+      "id": "desktop.marketplace.runtimeUploading",
+      "description": "Upload of a verified managed runtime archive to the workspace host",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "dependency": "string",
+        "sent": "string",
+        "total": "string"
+      }
+    },
+    {
       "id": "desktop.marketplace.runtimeExtracting",
       "description": "Managed plugin runtime installation: runtimeExtracting",
       "platforms": [
@@ -146,6 +158,7 @@
       "desktop.marketplace.runtimeChecking": "Checking {dependency}…",
       "desktop.marketplace.runtimeDownloading": "Downloading {dependency}… {received} / {total} MiB",
       "desktop.marketplace.runtimeReceived": "Downloading {dependency}… {received} MiB",
+      "desktop.marketplace.runtimeUploading": "Uploading {dependency} to workspace host… {sent} / {total} MiB",
       "desktop.marketplace.runtimeExtracting": "Unpacking {dependency}…",
       "desktop.marketplace.runtimeVerifying": "Verifying {dependency}…",
       "desktop.marketplace.runtimeRepairing": "Repairing {dependency}…",
@@ -164,6 +177,7 @@
       "desktop.marketplace.runtimeChecking": "正在检查 {dependency}…",
       "desktop.marketplace.runtimeDownloading": "正在下载 {dependency}… {received} / {total} MiB",
       "desktop.marketplace.runtimeReceived": "正在下载 {dependency}… {received} MiB",
+      "desktop.marketplace.runtimeUploading": "正在将 {dependency} 上传至工作区主机… {sent} / {total} MiB",
       "desktop.marketplace.runtimeExtracting": "正在解压 {dependency}…",
       "desktop.marketplace.runtimeVerifying": "正在验证 {dependency}…",
       "desktop.marketplace.runtimeRepairing": "正在修复 {dependency}…",

@@ -72,6 +72,11 @@ func TestFixtureTestRunner(t *testing.T) {
 // marks it enabled without the user installation or trust flow.
 func testsHarness(t *testing.T) *harness {
 	t.Helper()
+	return testsHarnessWithManifest(t, testsPanelManifest)
+}
+
+func testsHarnessWithManifest(t *testing.T, manifest string) *harness {
+	t.Helper()
 	dir := t.TempDir()
 	if err := os.WriteFile(filepath.Join(dir, settingsFile), []byte(`{"theme":"dark"}`), 0o600); err != nil {
 		t.Fatal(err)
@@ -82,7 +87,7 @@ func testsHarness(t *testing.T) *harness {
 	if err := os.MkdirAll(installed, 0o700); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(installed, "plugin.json"), []byte(testsPanelManifest), 0o600); err != nil {
+	if err := os.WriteFile(filepath.Join(installed, "plugin.json"), []byte(manifest), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	if err := pluginstate.New(preferences).SetEnabled("dev.lithe.test.tests-panel", true); err != nil {
@@ -207,6 +212,30 @@ func TestTestsPanelRunsFixtureAndOpensFailureLocation(t *testing.T) {
 	}
 }
 
+func TestTestsPanelUsesExitCodeWhenNoReportIsDeclared(t *testing.T) {
+	manifest := strings.Replace(testsPanelManifest,
+		",\n      \"results\": {\"decoder\": \"junitXml\", \"reports\": [\"reports/*.xml\"]}", "", 1)
+	h := testsHarnessWithManifest(t, manifest)
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "fixture.test"), []byte("fixture\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	installTestRunner(t, root)
+	p := openTestsPanel(t, h, root)
+
+	clickRun(t, h)
+	awaitStateWithin(t, h, 30*time.Second, "the test command to finish", func() bool {
+		return p.tests.last != nil && !p.tests.running
+	})
+	if p.tests.failed != "" || !p.tests.verdict.Success || p.tests.hasResults {
+		t.Fatalf("expected a successful test command without a report: verdict=%+v failure=%q hasResults=%v",
+			p.tests.verdict, p.tests.failed, p.tests.hasResults)
+	}
+	if !strings.Contains(p.tests.output.all(), "PASS") {
+		t.Fatalf("test console lost the command output: %q", p.tests.output.all())
+	}
+}
+
 func TestTestsPanelStopCancelsAndPublishesNoOutcome(t *testing.T) {
 	h := testsHarness(t)
 	root := t.TempDir()
@@ -284,7 +313,7 @@ func TestTestsPanelDropsStaleResultAndBoundsOutput(t *testing.T) {
 
 	// A result from generation 1 belongs to a replaced run and must not replace
 	// the current state.
-	h.app.finishTestRun(p, 1, testSelection{}, core.BuildTestResults{Summary: core.BuildTestSummary{Total: 1, Passed: 1}}, core.BuildTestTermination{Kind: "exited"})
+	h.app.finishTestRun(p, 1, testSelection{}, &core.BuildTestResults{Summary: core.BuildTestSummary{Total: 1, Passed: 1}}, core.BuildTestTermination{Kind: "exited"})
 	if p.tests.hasResults || !p.tests.running {
 		t.Fatalf("a stale result changed the run state: %+v", p.tests)
 	}

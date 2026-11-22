@@ -69,10 +69,9 @@ func TestDeclaredServesTheBaselineOfEveryWiredCapability(t *testing.T) {
 	}
 	for _, name := range want {
 		wanted := []int{0}
-		// The settings window renders the module sidebars, sections and entry
-		// lists that version 1 adds.
+		// Version 1 adds structured source forms. Version 2 adds remote source helpers.
 		if name == "sourceSettings" {
-			wanted = []int{0, 1}
+			wanted = []int{0, 1, 2}
 		}
 		// Version 1 adds test discovery, and version 2 adds registry attach for provider applications.
 		if name == "buildSystems" {

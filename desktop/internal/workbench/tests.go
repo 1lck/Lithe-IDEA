@@ -4,8 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"github.com/1lck/Lithe-IDEA/desktop/internal/processledger"
-	"os/exec"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -114,20 +112,20 @@ func buildModelProjectPaths(model core.BuildModel) []string {
 	return paths
 }
 
-func (s *testState) reset() { *s = testState{} }
+func (s *testState) reset() { *s = testState{generation: s.generation + 1} }
 
 // testOperation is the one provider request or host process a test run owns.
 // stopped is set on the window thread and read by the run goroutine.
 type testOperation struct {
 	provider *buildprovider.Client
 	request  *buildprovider.Operation
-	process  *buildprocess.Process
+	process  buildProcess
 	stopped  atomic.Bool
 }
 
 // stop terminates the run's host process. A provider request is cancelled separately.
 func (o *testOperation) stop() {
-	if o != nil {
+	if o != nil && o.process != nil {
 		o.process.Stop()
 	}
 }
@@ -196,7 +194,8 @@ func (a *App) startTests(p *project, selection testSelection) {
 	if p == nil || p.tests.running {
 		return
 	}
-	if a.refuseRemote(p, "test_start") {
+	connection, ok := captureWorkspaceConnection(p)
+	if !ok {
 		return
 	}
 	if p.safeMode() {
@@ -225,7 +224,7 @@ func (a *App) startTests(p *project, selection testSelection) {
 	startedMillis := time.Now().UnixMilli()
 	a.performed("tests.run."+selection.scope(), surfaceButton)
 	a.background(p, testRequestTimeout, func(ctx context.Context) func(*App) {
-		return a.executeTestRun(ctx, p, captured, selection, generation, startedMillis)
+		return a.executeTestRun(attachedWorkspaceContext(ctx, connection), p, captured, selection, generation, startedMillis)
 	})
 }
 
@@ -264,13 +263,7 @@ func (a *App) executeTestCommand(ctx context.Context, p *project, instance build
 	decoder := newOutputDecoder(a.kernel, a.outputEncodingPolicy())
 	operation := &testOperation{}
 	workingDirectory := filepath.Join(p.root, filepath.FromSlash(plan.WorkingDirectory))
-	process, err := buildprocess.Start(ctx, buildprocess.Spec{
-		Kind:             processledger.KindBuild,
-		Executable:       executable.Executable,
-		Arguments:        plan.Arguments,
-		WorkingDirectory: workingDirectory,
-		Environment:      applyToolchainSelection(plan.Environment, executable.selection()),
-	}, func(_ buildprocess.Stream, text string) {
+	process, err := a.startBuildExecution(ctx, p, executable, plan.Arguments, workingDirectory, plan.Environment, func(_ buildprocess.Stream, text string) {
 		output.append(text)
 		a.streamTestOutput(p, generation, decoder, text)
 	})
@@ -280,6 +273,7 @@ func (a *App) executeTestCommand(ctx context.Context, p *project, instance build
 	operation.process = process
 	a.post(func(a *App) {
 		if a.project != p || p.tests.generation != generation {
+			process.Stop()
 			return
 		}
 		p.tests.operation = operation
@@ -290,11 +284,12 @@ func (a *App) executeTestCommand(ctx context.Context, p *project, instance build
 	if interrupted {
 		return func(a *App) { a.finishTestInterrupted(p, generation, selection, termination) }
 	}
-	result, decodeErr := a.decodeTestResults(ctx, p, instance, testResultsRequest(p, instance, selection, output.text(), nil, startedMillis))
-	if decodeErr != nil {
-		return func(a *App) { a.finishTestError(p, generation, decodeErr) }
+	var exit interface{ ExitCode() int }
+	if waitErr != nil && !errors.As(waitErr, &exit) {
+		return func(a *App) { a.finishTestError(p, generation, waitErr) }
 	}
-	return func(a *App) { a.finishTestRun(p, generation, selection, result, termination) }
+	request := testResultsRequest(p, instance, selection, output.text(), nil, startedMillis)
+	return a.completeTestRun(ctx, p, instance, selection, plan, generation, request, termination)
 }
 
 // executeTestProvider runs the provider's lithe/build/test request. The reply's
@@ -319,7 +314,6 @@ func (a *App) executeTestProvider(ctx context.Context, p *project, instance buil
 	})
 	output := &testOutput{}
 	decoder := newOutputDecoder(a.kernel, a.outputEncodingPolicy())
-	var providerResult json.RawMessage
 	for {
 		select {
 		case progress, ok := <-operation.Progress():
@@ -366,13 +360,8 @@ completed:
 		output.append(execution.Output)
 		a.streamTestOutput(p, generation, decoder, execution.Output)
 	}
-	providerResult = execution.TestResults
-	request := testResultsRequest(p, instance, selection, output.text(), providerResult, startedMillis)
-	result, decodeErr := a.decodeTestResults(ctx, p, instance, request)
-	if decodeErr != nil {
-		return func(a *App) { a.finishTestError(p, generation, decodeErr) }
-	}
-	return func(a *App) { a.finishTestRun(p, generation, selection, result, termination) }
+	request := testResultsRequest(p, instance, selection, output.text(), execution.TestResults, startedMillis)
+	return a.completeTestRun(ctx, p, instance, selection, plan, generation, request, termination)
 }
 
 // testResultsRequest builds the decode request. notBeforeMillis is the host's
@@ -395,8 +384,17 @@ func testResultsRequest(p *project, instance buildInstance, selection testSelect
 	return request
 }
 
-func (a *App) decodeTestResults(ctx context.Context, p *project, instance buildInstance, request core.BuildTestResultsRequest) (core.BuildTestResults, error) {
-	return a.kernel.DecodeBuildTestResults(ctx, instance.Manifest, instance.BuildSystemID, request)
+// completeTestRun decodes a report only when Core's plan says the plugin produces one.
+func (a *App) completeTestRun(ctx context.Context, p *project, instance buildInstance, selection testSelection, plan core.BuildPlan, generation uint64, request core.BuildTestResultsRequest, termination core.BuildTestTermination) func(*App) {
+	var results *core.BuildTestResults
+	if plan.Results != nil {
+		report, err := a.kernel.DecodeBuildTestResults(ctx, instance.Manifest, instance.BuildSystemID, request)
+		if err != nil {
+			return func(a *App) { a.finishTestError(p, generation, err) }
+		}
+		results = &report
+	}
+	return func(a *App) { a.finishTestRun(p, generation, selection, results, termination) }
 }
 
 // testTermination classifies how the test process or provider ended. A run the
@@ -412,7 +410,7 @@ func testTermination(ctx context.Context, operation *testOperation, waitErr erro
 		return testContextTermination(ctx), true
 	}
 	termination := core.BuildTestTermination{Kind: "exited"}
-	var exitErr *exec.ExitError
+	var exitErr interface{ ExitCode() int }
 	if errors.As(waitErr, &exitErr) {
 		code := exitErr.ExitCode()
 		termination.ExitCode = &code
@@ -434,11 +432,15 @@ func testContextTermination(ctx context.Context) core.BuildTestTermination {
 }
 
 // finishTestRun reduces the run through Core and publishes the result tree.
-func (a *App) finishTestRun(p *project, generation uint64, selection testSelection, results core.BuildTestResults, termination core.BuildTestTermination) {
+func (a *App) finishTestRun(p *project, generation uint64, selection testSelection, results *core.BuildTestResults, termination core.BuildTestTermination) {
 	if a.project != p || p.tests.generation != generation {
 		return
 	}
-	verdict, err := a.kernel.ResolveBuildTestOutcome(a.operationContext(context.Background()), termination, selection.scopeProject(), selection.suite, selection.caseName, &results.Summary)
+	var summary *core.BuildTestSummary
+	if results != nil {
+		summary = &results.Summary
+	}
+	verdict, err := a.kernel.ResolveBuildTestOutcome(a.operationContext(context.Background()), termination, selection.scopeProject(), selection.suite, selection.caseName, summary)
 	if err != nil {
 		a.finishTestError(p, generation, err)
 		return
@@ -447,11 +449,13 @@ func (a *App) finishTestRun(p *project, generation uint64, selection testSelecti
 	p.tests.operation = nil
 	p.tests.running = false
 	p.tests.stopping = false
-	p.tests.results = results
 	p.tests.verdict = verdict
-	p.tests.hasResults = true
-	p.tests.status = a.testVerdictStatus(verdict, results.Summary)
-	p.tests.rows = flattenTestRows(results)
+	if results != nil {
+		p.tests.results = *results
+		p.tests.hasResults = true
+		p.tests.rows = flattenTestRows(*results)
+	}
+	p.tests.status = a.testVerdictStatus(verdict, p.tests.results.Summary)
 }
 
 // finishTestInterrupted publishes a cancelled or timed-out run without

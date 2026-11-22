@@ -28,6 +28,8 @@ type marketplaceOutcome struct {
 	Error          *MarketplaceRejection            `json:"error"`
 	Index          *MarketplaceIndex                `json:"index"`
 	Source         *MarketplaceSource               `json:"source"`
+	Selection      *MarketplaceAvailability         `json:"selection"`
+	Manifest       json.RawMessage                  `json:"manifest"`
 	Review         *MarketplaceReview               `json:"review"`
 	Recommendation *MarketplaceRecommendationResult `json:"recommendation"`
 }
@@ -178,6 +180,100 @@ func (c *Client) ReviewMarketplaceInstall(ctx context.Context, manifest json.Raw
 		return MarketplaceReview{}, newParseError(command, "marketplace returned no review", "")
 	}
 	return *result.Review, nil
+}
+
+// MarketplaceRemoteVariantRequest binds the fetched index to an approved release.
+type MarketplaceRemoteVariantRequest struct {
+	Index             json.RawMessage       `json:"index"`
+	SourceKind        MarketplaceSourceKind `json:"sourceKind"`
+	PluginID          string                `json:"pluginID"`
+	Version           string                `json:"version"`
+	InstalledPlatform string                `json:"installedPlatform"`
+	InstalledSHA256   string                `json:"installedSha256"`
+	Repository        string                `json:"repository,omitempty"`
+	Target            RemotePlatform        `json:"target"`
+	HostCapabilities  map[string][]int      `json:"hostCapabilities"`
+}
+
+// SelectMarketplaceRemoteVariant requests only the remote archive of the approved release.
+func (c *Client) SelectMarketplaceRemoteVariant(ctx context.Context, request MarketplaceRemoteVariantRequest) (MarketplaceAvailability, error) {
+	const command = "plugins.marketplace.selectRemoteVariant"
+	var result marketplaceOutcome
+	if err := c.Execute(WithoutRemoteWorkspace(ctx), command, request, &result); err != nil {
+		return MarketplaceAvailability{}, err
+	}
+	if err := result.failure(command); err != nil {
+		return MarketplaceAvailability{}, err
+	}
+	if result.Selection == nil || result.Selection.Status != "available" {
+		return MarketplaceAvailability{}, newParseError(command, "marketplace returned no remote archive", "")
+	}
+	return *result.Selection, nil
+}
+
+// MarketplaceVariantReview carries the extracted manifest and the installed approval.
+type MarketplaceVariantReview struct {
+	InstalledManifest json.RawMessage   `json:"installedManifest"`
+	VariantManifest   json.RawMessage   `json:"variantManifest"`
+	PluginID          string            `json:"pluginID"`
+	Version           string            `json:"version"`
+	ApprovedPrograms  []json.RawMessage `json:"approvedPrograms"`
+	HostCapabilities  map[string][]int  `json:"hostCapabilities"`
+}
+
+// VerifyMarketplaceRemoteVariant validates declaration equality and program approval in Core.
+func (c *Client) VerifyMarketplaceRemoteVariant(ctx context.Context, request MarketplaceVariantReview) (json.RawMessage, error) {
+	const command = "plugins.marketplace.verifyRemoteVariant"
+	if request.ApprovedPrograms == nil {
+		request.ApprovedPrograms = []json.RawMessage{}
+	}
+	var result marketplaceOutcome
+	if err := c.Execute(WithoutRemoteWorkspace(ctx), command, request, &result); err != nil {
+		return nil, err
+	}
+	if err := result.failure(command); err != nil {
+		return nil, err
+	}
+	if len(result.Manifest) == 0 {
+		return nil, newParseError(command, "marketplace returned no verified manifest", "")
+	}
+	return result.Manifest, nil
+}
+
+// MarketplaceDeployment identifies a verified package and its process inputs.
+type MarketplaceDeployment struct {
+	SHA256 string   `json:"sha256"`
+	Paths  []string `json:"paths"`
+}
+
+// MarketplaceDeploymentRequest first plans a key and, after review and
+// extraction, selects files from the verified archive inventory.
+type MarketplaceDeploymentRequest struct {
+	ArchiveSHA256       string          `json:"archiveSha256,omitempty"`
+	InstalledTreeSHA256 string          `json:"installedTreeSha256,omitempty"`
+	Manifest            json.RawMessage `json:"manifest"`
+	Target              RemotePlatform  `json:"target"`
+	RequiredPaths       []string        `json:"requiredPaths"`
+	ArchiveFiles        []string        `json:"archiveFiles"`
+}
+
+// PlanMarketplaceRemoteDeployment validates the package paths and derives the lease key.
+func (c *Client) PlanMarketplaceRemoteDeployment(ctx context.Context, request MarketplaceDeploymentRequest) (MarketplaceDeployment, error) {
+	const command = "plugins.marketplace.planRemoteDeployment"
+	var result struct {
+		marketplaceOutcome
+		Deployment *MarketplaceDeployment `json:"deployment"`
+	}
+	if err := c.Execute(WithoutRemoteWorkspace(ctx), command, request, &result); err != nil {
+		return MarketplaceDeployment{}, err
+	}
+	if err := result.failure(command); err != nil {
+		return MarketplaceDeployment{}, err
+	}
+	if result.Deployment == nil {
+		return MarketplaceDeployment{}, newParseError(command, "marketplace returned no deployment", "")
+	}
+	return *result.Deployment, nil
 }
 
 // MarketplaceRecommendationCatalog pairs one marketplace index with its companion recommendations catalog.

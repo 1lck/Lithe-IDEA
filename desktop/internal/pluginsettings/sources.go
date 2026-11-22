@@ -31,6 +31,7 @@ type SourceEditor struct {
 	paths          map[string]string
 	limits         core.SourceSettingsLimits
 	protectedRoots []string
+	remote         *remoteSources
 }
 
 func sourceRevision(file configfile.Snapshot) string {
@@ -53,6 +54,9 @@ func CaptureSources(ctx context.Context, workspace string, state core.SourceSett
 	for _, source := range state.Snapshot.Sources {
 		if err := ctx.Err(); err != nil {
 			return editor, err
+		}
+		if source.Scope != "" {
+			return editor, configfile.ErrTarget
 		}
 		file, err := configfile.Capture(ctx, workspace, source.Path, editor.limits.MaximumSourceBytes)
 		if err != nil {
@@ -153,6 +157,9 @@ func (s SourceEditor) Apply(ctx context.Context, kernel SourceKernel, edits []co
 	if err := check(); err != nil {
 		return published, err
 	}
+	if s.remote != nil {
+		return s.remote.apply(ctx, kernel, writes, call, check)
+	}
 	staging, err := os.MkdirTemp("", "lithe-source-settings-")
 	if err != nil {
 		return published, err
@@ -179,13 +186,7 @@ func (s SourceEditor) Apply(ctx context.Context, kernel SourceKernel, edits []co
 		if err := file.Close(); err != nil {
 			return published, err
 		}
-		params, err := json.Marshal(struct {
-			Operation  string                     `json:"operation"`
-			SourceID   string                     `json:"sourceID"`
-			Revision   string                     `json:"revision"`
-			Values     map[string]json.RawMessage `json:"values"`
-			OutputFile string                     `json:"outputFile"`
-		}{"editSource", write.SourceID, write.Revision, write.Values, name})
+		params, err := sourceEditRequest(write, name, "")
 		if err != nil {
 			return published, err
 		}
@@ -249,4 +250,15 @@ func (s SourceEditor) Apply(ctx context.Context, kernel SourceKernel, edits []co
 		}
 	}
 	return published, nil
+}
+
+func sourceEditRequest(write core.SourceSettingsWrite, output, hostPath string) ([]byte, error) {
+	return json.Marshal(struct {
+		Operation  string                     `json:"operation"`
+		SourceID   string                     `json:"sourceID"`
+		Revision   string                     `json:"revision"`
+		Values     map[string]json.RawMessage `json:"values"`
+		OutputFile string                     `json:"outputFile"`
+		HostPath   string                     `json:"hostPath,omitempty"`
+	}{"editSource", write.SourceID, write.Revision, write.Values, output, hostPath})
 }

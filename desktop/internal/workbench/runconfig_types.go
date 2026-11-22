@@ -232,21 +232,42 @@ func (a *App) launchDeclaredRun(p *project, op *buildOperation, id string, key c
 		return
 	}
 	root, kernel, messages, pluginRoot := p.root, a.kernel, a.text.Build, a.plugins.Root
+	var host *remoteRunHost
+	if p.remote != nil {
+		remote := a.remoteRunHostFor(p, op)
+		host = &remote
+	}
 	a.background(p, 0, func(ctx context.Context) func(*App) {
+		ctx = attachedWorkspaceContext(ctx, op.connection)
 		bounded, cancel := context.WithTimeout(ctx, runPreparationTimeout)
 		defer cancel()
 		prepare, release := op.bind(bounded)
 		defer release()
-		spec, err := a.declaredRunSpec(prepare, p, kernel, root, pluginRoot, id, key, instances, messages)
+		planned, err := a.planDeclaredProcess(prepare, p, root, pluginRoot, instances, messages, func(manifest json.RawMessage, sources declaredPlanSources) (core.BuildPlan, error) {
+			return kernel.PlanRunConfiguration(prepare, manifest, key.BuildSystemID, root, core.RunConfigurationPlanRequest{
+				ConfigurationID: id, Instances: sources.instances,
+				PluginDirectory: sources.pluginDirectory, WorkspaceStateDirectory: sources.stateDirectory,
+				ProjectCodeAllowed: p.trust.allowed(),
+			})
+		})
 		if err == nil {
 			err = prepare.Err()
 		}
 		if err != nil {
 			return func(a *App) { a.finishBuildError(p, op, err) }
 		}
-		process, err := buildprocess.Start(ctx, spec, func(_ buildprocess.Stream, text string) {
-			a.streamBuildOutput(p, op, text)
-		})
+		if host != nil {
+			host.logFailures(a, ctx)
+			start, err := host.command(planned)
+			if err != nil {
+				return func(a *App) { a.finishBuildError(p, op, err) }
+			}
+			err = host.run(ctx, start, func(process *remoteProcess) {
+				a.post(func(a *App) { a.attachProcess(p, op, process) })
+			})
+			return func(a *App) { a.finishBuildRun(p, op, err) }
+		}
+		process, err := planned.startLocal(ctx, root, func(text string) { a.streamBuildOutput(p, op, text) })
 		if err != nil {
 			return func(a *App) { a.finishBuildError(p, op, err) }
 		}
@@ -256,71 +277,59 @@ func (a *App) launchDeclaredRun(p *project, op *buildOperation, id string, key c
 	})
 }
 
-// declaredRunSpec is the process a configuration of a declared kind starts: Core's plan
-// (`build.runConfigurationPlan`) of the build system's command, run by the build tool the
-// chosen instance resolves, at the configuration's working directory under the project. The
-// plugin package is read-only, so the writable state directory the plan may name is the
-// plugin's per-workspace state, outside it.
-func (a *App) declaredRunSpec(ctx context.Context, p *project, kernel Kernel, root, pluginRoot, id string, key core.RunTypeKey, instances []buildInstance, messages i18n.BuildMessages) (buildprocess.Spec, error) {
-	return a.declaredProcessSpec(ctx, p, root, pluginRoot, instances, messages, func(manifest json.RawMessage, sources declaredPlanSources) (core.BuildPlan, error) {
-		return kernel.PlanRunConfiguration(ctx, manifest, key.BuildSystemID, root, core.RunConfigurationPlanRequest{
-			ConfigurationID: id, Instances: sources.instances,
-			PluginDirectory: sources.pluginDirectory, WorkspaceStateDirectory: sources.stateDirectory,
-			ProjectCodeAllowed: p.trust.allowed(),
-		})
-	})
-}
-
-// declaredPlanSources are what Core's plan of a declared kind or task takes from the detected
-// instances of its build system: every instance, and the package directory and writable
-// per-workspace state directory of the plugin.
+// declaredPlanSources are the build instances and directories Core needs for a declared run.
 type declaredPlanSources struct {
 	instances                       []core.RunTypeInstance
 	pluginDirectory, stateDirectory string
 }
 
-// declaredProcessSpec is the process of a plan of a declared kind or task: request asks Core
-// for the plan with the plugin's manifest and sources, and the process runs the build tool the
-// instance the plan picks resolves, at the plan's working directory under the project.
-func (a *App) declaredProcessSpec(ctx context.Context, p *project, root, pluginRoot string, instances []buildInstance, messages i18n.BuildMessages, request func(json.RawMessage, declaredPlanSources) (core.BuildPlan, error)) (buildprocess.Spec, error) {
+type declaredProcess struct {
+	plan      core.BuildPlan
+	execution buildExecution
+}
+
+// planDeclaredProcess selects a build instance and resolves its executable on the host
+// captured by ctx. Declared commands expose no package or state directory variables.
+func (a *App) planDeclaredProcess(ctx context.Context, p *project, root, pluginRoot string, instances []buildInstance, messages i18n.BuildMessages, request func(json.RawMessage, declaredPlanSources) (core.BuildPlan, error)) (declaredProcess, error) {
 	first := instances[0]
-	state := buildStateDirectory(pluginRoot, root, first)
-	if err := os.MkdirAll(state, 0o700); err != nil {
-		return buildprocess.Spec{}, err
-	}
-	sources := declaredPlanSources{
-		pluginDirectory: first.PackageDirectory, stateDirectory: state,
-		instances: make([]core.RunTypeInstance, 0, len(instances)),
+	sources := declaredPlanSources{instances: make([]core.RunTypeInstance, 0, len(instances))}
+	if p.remote == nil {
+		sources.pluginDirectory = first.PackageDirectory
+		sources.stateDirectory = buildStateDirectory(pluginRoot, root, first)
+		if err := os.MkdirAll(sources.stateDirectory, 0o700); err != nil {
+			return declaredProcess{}, err
+		}
 	}
 	for _, instance := range instances {
 		sources.instances = append(sources.instances, core.RunTypeInstance{Root: instance.Root, Options: instance.Options})
 	}
 	planned, err := request(first.Manifest, sources)
 	if err != nil {
-		return buildprocess.Spec{}, err
+		return declaredProcess{}, err
 	}
 	if planned.Provider != nil {
-		return buildprocess.Spec{}, errors.New("the declared plan names a provider request")
+		return declaredProcess{}, errors.New("the declared plan names a provider request")
 	}
 	index := slices.IndexFunc(instances, func(instance buildInstance) bool { return instance.Root == planned.Root })
 	if index < 0 {
-		return buildprocess.Spec{}, fmt.Errorf("the declared plan names no detected instance: %s", planned.Root)
-	}
-	directory, err := projectRunDirectory(root, planned.WorkingDirectory)
-	if err != nil {
-		return buildprocess.Spec{}, err
+		return declaredProcess{}, fmt.Errorf("the declared plan names no detected instance: %s", planned.Root)
 	}
 	execution, err := a.resolveBuildExecutable(ctx, p, instances[index], messages)
 	if err != nil {
-		return buildprocess.Spec{}, err
+		return declaredProcess{}, err
 	}
-	return buildprocess.Spec{
-		Kind:             processledger.KindRun,
-		Executable:       execution.Executable,
-		Arguments:        planned.Arguments,
-		WorkingDirectory: directory,
-		Environment:      applyToolchainSelection(planned.Environment, execution.selection()),
-	}, nil
+	return declaredProcess{plan: planned, execution: execution}, nil
+}
+
+func (p declaredProcess) startLocal(ctx context.Context, root string, output func(string)) (*buildprocess.Process, error) {
+	directory, err := projectRunDirectory(root, p.plan.WorkingDirectory)
+	if err != nil {
+		return nil, err
+	}
+	return buildprocess.Start(ctx, buildprocess.Spec{
+		Kind: processledger.KindRun, Executable: p.execution.Executable, Arguments: p.plan.Arguments,
+		WorkingDirectory: directory, Environment: applyToolchainSelection(p.plan.Environment, p.execution.selection()),
+	}, func(_ buildprocess.Stream, text string) { output(text) })
 }
 
 // kindTitle names kind k: the host's title of a built-in kind, the translated title the plugin

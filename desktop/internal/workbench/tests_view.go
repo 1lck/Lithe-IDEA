@@ -28,7 +28,7 @@ func (a *App) testsView(c ui.C, p *project) {
 	ui.Column(c).Fill().Background(a.colors.Editor).Children(func() {
 		ui.Row(c).FillWidth().Height(panelHeaderHeight).Shrink(0).Items(ui.Center).Gap(6).PadX(8).Children(func() {
 			label := t.Run
-			if s.hasResults || s.failed != "" {
+			if s.hasResults || s.verdict.ExitCode != nil || s.failed != "" {
 				label = t.Rerun
 			}
 			if ui.Button(c, label).Disabled(s.running || !available).Clicked() {
@@ -65,6 +65,9 @@ func (a *App) testsView(c ui.C, p *project) {
 			a.testSummary(c, s)
 		} else if s.running {
 			a.panelMessage(c, t.Running, a.colors.Subtle)
+			return
+		} else if s.verdict.ExitCode != nil {
+			a.testOutput(c, p)
 			return
 		} else {
 			a.panelMessage(c, t.Empty, a.colors.Subtle)
@@ -187,7 +190,7 @@ func (a *App) testStatusMark(status string) (gfx.Icon, gfx.Color) {
 	}
 }
 
-// testOutput shows the tail of a run that failed before reporting results,
+// testOutput shows the tail of a run without structured results,
 // bounded to the same console budget the run kept.
 func (a *App) testOutput(c ui.C, p *project) {
 	output := &p.tests.output

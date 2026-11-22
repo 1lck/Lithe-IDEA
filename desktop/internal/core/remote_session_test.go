@@ -36,7 +36,7 @@ func TestRemoteWorkspaceRequestsCarryTheBindingExceptSessionCommands(t *testing.
 
 	binding.Attach("session-7")
 	wire, owner, session, err := remoteWorkspaceRequest(ctx, "file.read")
-	if err != nil || owner != binding || session == nil || *session != "session-7" {
+	if err != nil || owner != binding || session == nil || session.id != "session-7" {
 		t.Fatalf("request = %+v, %v, %v", wire, session, err)
 	}
 	encoded, err := json.Marshal(requestEnvelope{Command: "file.read", Payload: struct{}{}, RemoteWorkspace: wire})
@@ -53,6 +53,33 @@ func TestRemoteWorkspaceRequestsCarryTheBindingExceptSessionCommands(t *testing.
 	}
 	if got := binding.Detach(); got != "session-7" || binding.SessionID() != "" {
 		t.Fatalf("Detach = %q, then SessionID = %q", got, binding.SessionID())
+	}
+}
+
+func TestCapturedRemoteConnectionCannotMoveToAReplacement(t *testing.T) {
+	binding := NewRemoteWorkspace("/cache/remote/repo", "/srv/repo", nil)
+	binding.Attach("session-7")
+	captured := binding.CaptureConnection()
+	ctx := captured.Context(context.Background())
+	wire, owner, oldSession, err := remoteWorkspaceRequest(ctx, "lsp.startServer")
+	if err != nil || wire == nil || wire.SessionID != "session-7" || owner != binding {
+		t.Fatalf("captured start = %+v, %v", wire, err)
+	}
+	binding.Detach()
+	// Even attaching the same ID creates a different connection.
+	binding.Attach("session-7")
+	lost := &Error{Code: CodeConnectionClosed}
+	remoteWorkspaceAnswered(owner, oldSession, lost)
+	if captured.IsCurrent() || binding.SessionID() != "session-7" {
+		t.Fatal("the old request affected the replacement connection")
+	}
+	wire, _, _, err = remoteWorkspaceRequest(ctx, "workspace.pluginFile")
+	var coreErr *Error
+	if wire != nil || !errors.As(err, &coreErr) || coreErr.Code != CodeConnectionClosed {
+		t.Fatalf("stale captured request = %+v, %v, want connection_closed", wire, err)
+	}
+	if wire, _, _, err := remoteWorkspaceRequest(WithoutRemoteWorkspace(ctx), "lsp.stopServer"); wire != nil || err != nil {
+		t.Fatalf("cleanup with a session ID = %+v, %v, want no workspace", wire, err)
 	}
 }
 
@@ -160,6 +187,34 @@ func TestPayloadOnlyCommandsSendNoRemoteWorkspace(t *testing.T) {
 	}
 	if wire, _, _, err := remoteWorkspaceRequest(ctx, "file.read"); wire == nil || err != nil {
 		t.Fatalf("file.read = %+v, %v, want the binding", wire, err)
+	}
+}
+
+func TestPlanPluginUninstallFromRemoteWindow(t *testing.T) {
+	const pluginID = "dev.lithe.test.uninstall"
+	binding := NewRemoteWorkspace("/cache/remote/repo", "/srv/repo", nil)
+	ctx := WithRemoteWorkspace(testContext(t), binding)
+	request := PluginLifecycleRequest{
+		Installed: []PluginInstalledVersion{{PluginID: pluginID, Version: "1.0.0"}},
+		Action:    PluginUninstall, PluginID: pluginID,
+	}
+
+	client := NewClient()
+	for _, name := range []string{"connected", "disconnected"} {
+		t.Run(name, func(t *testing.T) {
+			if name == "connected" {
+				binding.Attach("remote-window-session")
+			} else {
+				binding.Detach()
+			}
+			plan, err := client.PlanPluginLifecycle(ctx, request)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if plan.Rejection != "" || len(plan.Steps) == 0 || plan.Steps[0].Kind != PluginStopPrograms {
+				t.Fatalf("uninstall plan = %+v, want the plugin's programs stopped first", plan)
+			}
+		})
 	}
 }
 

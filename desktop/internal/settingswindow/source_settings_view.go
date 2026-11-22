@@ -51,6 +51,9 @@ type sourceSettingsForm struct {
 	effect             *ui.EffectState[pluginsettings.SourceEditor, int]
 	key                int
 	jobEdits           []core.SourceSettingsEdits
+	confirmEdits       []core.SourceSettingsEdits
+	confirmSave        bool
+	confirmList        ui.ListState
 	jobEditor          pluginsettings.SourceEditor
 	reload             bool
 	busy, stale, saved bool
@@ -94,6 +97,7 @@ func (p *sourceSettingsForm) apply(editor pluginsettings.SourceEditor) {
 	p.pending = make(map[string]map[string]core.SourceSettingInput)
 	p.tableSources = make(map[string]bool)
 	p.chooser.open = false
+	p.confirmSave, p.confirmEdits = false, nil
 	for _, section := range editor.State.Layout {
 		if editor.State.Snapshot.Groups[section.Group].Layout == "table" {
 			for _, index := range section.Sources {
@@ -252,7 +256,11 @@ func (p *sourceSettingsForm) start(reload bool) {
 	if p.busy {
 		return
 	}
-	p.jobEditor, p.jobEdits = p.editor, p.edits()
+	edits := p.edits()
+	if !reload && p.confirmSave {
+		edits = p.confirmEdits
+	}
+	p.jobEditor, p.jobEdits = p.editor, edits
 	p.reload, p.busy, p.saved, p.failed = reload, true, false, nil
 	p.key++
 }
@@ -282,18 +290,31 @@ func (w *window) sourceSettingsPanel(c ui.C, p *sourceSettingsForm) {
 				p.start(true)
 			}
 			if ui.Button(c, i18n.Shared(language, "desktop.pluginSettings.save")).Disabled(p.busy || p.stale || len(p.pending) == 0).Clicked() {
-				p.start(false)
+				if p.editor.IsRemote() {
+					p.confirmEdits = p.edits()
+					p.confirmSave = true
+				} else {
+					p.start(false)
+				}
 			}
 			if ui.Button(c, i18n.Shared(language, "desktop.sourceSettings.close")).Outline().Disabled(p.busy).Clicked() {
 				w.pluginSettings.sources = nil
 			}
 		})
+		if p.editor.IsRemote() {
+			ui.Wrap(c, p.remoteLabel(language)).FontSize(11).Color(w.pal.muted)
+		}
 		if p.busy {
 			ui.Text(c, i18n.Shared(language, "native.loading")).FontSize(12).Color(w.pal.muted)
 		}
 		if p.failed != nil {
 			message := i18n.Shared(language, "desktop.pluginSettings.failed")
-			if p.stale {
+			switch {
+			case p.editor.IsRemote() && errors.Is(p.failed, pluginsettings.ErrSourcesCommitted):
+				message = i18n.Shared(language, "desktop.sourceSettings.remoteSaveUnverified")
+			case p.editor.IsRemote() && p.stale:
+				message = i18n.Shared(language, "desktop.sourceSettings.remoteSourceChanged")
+			case p.stale:
 				message = i18n.Shared(language, "desktop.pluginSettings.sourceChanged")
 			}
 			ui.Wrap(c, message).FontSize(12).Color(w.pal.danger)
@@ -321,6 +342,7 @@ func (w *window) sourceSettingsPanel(c ui.C, p *sourceSettingsForm) {
 		})
 	})
 	w.sourceEntryChooser(c, p)
+	w.confirmRemoteSourceSave(c.Part("confirm-remote-source-save"), p)
 	// A click that selected a module or tab or changed an entry list changed the
 	// rows being declared; lay them out again before the next paint.
 	if p.layoutDirty {
@@ -329,6 +351,47 @@ func (w *window) sourceSettingsPanel(c ui.C, p *sourceSettingsForm) {
 				p.layout()
 			}
 		})
+	}
+}
+
+func (p *sourceSettingsForm) remoteLabel(language i18n.Language) string {
+	return i18n.SharedFormat(language, "desktop.pluginSettings.remoteConnection", map[string]string{"name": p.owner.Snapshot.ProjectConnectionName()})
+}
+
+func (w *window) confirmRemoteSourceSave(c ui.C, p *sourceSettingsForm) {
+	if !p.confirmSave {
+		return
+	}
+	language := w.marketLanguage()
+	title := i18n.Shared(language, "desktop.sourceSettings.confirmRemoteSave")
+	edited := make(map[string]bool, len(p.confirmEdits))
+	for _, change := range p.confirmEdits {
+		edited[change.SourceID] = true
+	}
+	var paths []string
+	for _, source := range p.editor.State.Snapshot.Sources {
+		if edited[source.ID] {
+			paths = append(paths, p.editor.DisplayPath(source))
+		}
+	}
+	ui.ModalWith(c, &p.confirmSave, title, ui.ModalSpec{Width: 540}, func() {
+		ui.Wrap(c, p.remoteLabel(language)).FontSize(12).Color(w.pal.text)
+		ui.List(c, &p.confirmList, len(paths), func(row ui.ListRow) {
+			row.Element.FillWidth().Children(func() {
+				ui.Wrap(row.C, paths[row.Index]).FontSize(12).Color(w.pal.text)
+			})
+		}).Scrollbars().FillWidth().Height(144).Label(title)
+	}, func() {
+		if ui.Button(c, i18n.Shared(language, "desktop.sourceSettings.cancel")).Outline().Clicked() {
+			p.confirmSave = false
+		}
+		if ui.Button(c, i18n.Shared(language, "desktop.pluginSettings.save")).Disabled(p.busy || p.stale).Clicked() {
+			p.start(false)
+			p.confirmSave = false
+		}
+	})
+	if !p.confirmSave {
+		p.confirmEdits = nil
 	}
 }
 
@@ -386,7 +449,7 @@ func (w *window) sourceSettingsRow(c ui.C, p *sourceSettingsForm, item sourceSet
 		ui.Row(c).FillWidth().Items(ui.Center).Gap(8).PadY(6).Children(func() {
 			ui.Text(c, source.Title).FontSize(15).Weight(gfx.WeightSemibold).Color(w.pal.text).Shrink(0)
 			ui.Spacer(c)
-			ui.Text(c, source.Path).FontSize(11).Color(w.pal.muted).Shrink(1).MinWidth(0).Ellipsis()
+			ui.Text(c, p.editor.DisplayPath(source)).FontSize(11).Color(w.pal.muted).Shrink(1).MinWidth(0).Ellipsis()
 		})
 		return
 	case sourceRowTabs:
@@ -406,7 +469,7 @@ func (w *window) sourceSettingsRow(c ui.C, p *sourceSettingsForm, item sourceSet
 	if item.kind == sourceRowTable {
 		ui.Row(c).FillWidth().MinHeight(36).Items(ui.Center).Gap(8).Children(func() {
 			ui.Text(c, source.Title).FontSize(12).Color(w.pal.text).Grow(1).Ellipsis()
-			w.infoButton(c, source.Path)
+			w.infoButton(c, p.editor.DisplayPath(source))
 			for _, field := range source.Fields {
 				w.sourceSettingsControl(c.Key(field.ID), p, source, field)
 			}
@@ -439,7 +502,7 @@ func (w *window) sourceSettingsRow(c ui.C, p *sourceSettingsForm, item sourceSet
 			if field.Kind == "entryList" && field.EffectiveSource != "" {
 				ui.Text(c, field.EffectiveSource).FontSize(11).Color(w.pal.muted).Shrink(1).MinWidth(0).Ellipsis()
 			} else if item.field == 0 && group.Layout != "sidebar" {
-				ui.Text(c, source.Path).FontSize(11).Color(w.pal.muted).Ellipsis()
+				ui.Text(c, p.editor.DisplayPath(source)).FontSize(11).Color(w.pal.muted).Ellipsis()
 			}
 		})
 		if field.Kind == "entryList" {
@@ -559,7 +622,7 @@ func (w *window) sourceSettingsControl(c ui.C, p *sourceSettingsForm, source cor
 				p.changed(source.ID, field.ID)
 			}
 		}
-		if field.Kind == "fileList" && source.Writable && ui.Button(c, i18n.Shared(language, "desktop.pluginSettings.browse")).Outline().Disabled(disabled).Clicked() {
+		if field.Kind == "fileList" && !p.editor.IsRemote() && source.Writable && ui.Button(c, i18n.Shared(language, "desktop.pluginSettings.browse")).Outline().Disabled(disabled).Clicked() {
 			c.After(func() {
 				paths, err := app.OpenFiles(app.OpenFileOptions{Title: field.Title})
 				// log-exempt: 用户取消：文件选择器取消不修改依赖草稿。

@@ -73,7 +73,8 @@ type Request struct {
 	// ArchiveSHA256 is the digest the download layer verified against the index.
 	ArchiveSHA256 string
 	// MarketplaceIndexURL is the Core-canonical index URL that offered this archive.
-	MarketplaceIndexURL string
+	MarketplaceIndexURL   string
+	MarketplaceRepository string
 	// ExpectedID and ExpectedVersion pin the marketplace entry this archive is
 	// supposed to be. They are empty for a package the user picked themselves.
 	ExpectedID      string
@@ -91,15 +92,18 @@ type Plan struct {
 	Manifest json.RawMessage
 	// ContentDigest is the digest of the extracted tree.
 	ContentDigest string
+	// SealedTreeSHA256 binds file names, sizes, contents, and owner execute bits.
+	SealedTreeSHA256 string
 	// Review is Core's install review, ready to show to the user.
 	Review plugintrust.Review
 	// Decision says whether an earlier approval covers this package.
 	Decision plugintrust.Decision
 	// Source, ArchiveSHA256 and Root repeat the request for Commit.
-	Source              plugintrust.Source
-	ArchiveSHA256       string
-	MarketplaceIndexURL string
-	Root                string
+	Source                plugintrust.Source
+	ArchiveSHA256         string
+	MarketplaceIndexURL   string
+	MarketplaceRepository string
+	Root                  string
 }
 
 // NeedsApproval reports that the user has to confirm the review before Commit.
@@ -153,7 +157,7 @@ func (s *Service) Prepare(ctx context.Context, request Request) (plan Plan, err 
 			err = errors.Join(err, os.RemoveAll(staging))
 		}
 	}()
-	extracted, err := extractVerified(ctx, request, staging)
+	extracted, err := extractVerified(ctx, request.ArchivePath, request.ArchiveSHA256, staging)
 	if err != nil {
 		return Plan{}, err
 	}
@@ -172,7 +176,7 @@ func (s *Service) Prepare(ctx context.Context, request Request) (plan Plan, err 
 	if err := checkContentRoot(extracted.ContentRoot, identity.ID); err != nil {
 		return Plan{}, err
 	}
-	digest, err := ContentDigest(staging, extracted.Files)
+	digest, seal, err := digestExtractedTree(ctx, staging, extracted.Files)
 	if err != nil {
 		return Plan{}, err
 	}
@@ -187,24 +191,27 @@ func (s *Service) Prepare(ctx context.Context, request Request) (plan Plan, err 
 		return Plan{}, err
 	}
 	decision := plugintrust.Decide(record, found, plugintrust.Request{
-		Source:              request.Source,
-		ArchiveSHA256:       request.ArchiveSHA256,
-		MarketplaceIndexURL: request.MarketplaceIndexURL,
-		ContentDigest:       digest,
-		Review:              review,
+		Source:                request.Source,
+		ArchiveSHA256:         request.ArchiveSHA256,
+		MarketplaceIndexURL:   request.MarketplaceIndexURL,
+		MarketplaceRepository: request.MarketplaceRepository,
+		ContentDigest:         digest,
+		Review:                review,
 	})
 	return Plan{
-		Staging:             staging,
-		ID:                  identity.ID,
-		Version:             identity.Version,
-		Manifest:            normalised,
-		ContentDigest:       digest,
-		Review:              review,
-		Decision:            decision,
-		Source:              request.Source,
-		ArchiveSHA256:       request.ArchiveSHA256,
-		MarketplaceIndexURL: request.MarketplaceIndexURL,
-		Root:                request.Root,
+		Staging:               staging,
+		ID:                    identity.ID,
+		Version:               identity.Version,
+		Manifest:              normalised,
+		ContentDigest:         digest,
+		SealedTreeSHA256:      seal,
+		Review:                review,
+		Decision:              decision,
+		Source:                request.Source,
+		ArchiveSHA256:         request.ArchiveSHA256,
+		MarketplaceIndexURL:   request.MarketplaceIndexURL,
+		MarketplaceRepository: request.MarketplaceRepository,
+		Root:                  request.Root,
 	}, nil
 }
 
@@ -222,11 +229,13 @@ func (s *Service) Commit(plan Plan) (pluginpkg.Installed, error) {
 		return pluginpkg.Installed{}, err
 	}
 	record := plugintrust.RecordFor(plan.ID, plan.Version, plugintrust.Request{
-		Source:              plan.Source,
-		ArchiveSHA256:       plan.ArchiveSHA256,
-		MarketplaceIndexURL: plan.MarketplaceIndexURL,
-		ContentDigest:       plan.ContentDigest,
-		Review:              plan.Review,
+		Source:                plan.Source,
+		ArchiveSHA256:         plan.ArchiveSHA256,
+		MarketplaceIndexURL:   plan.MarketplaceIndexURL,
+		MarketplaceRepository: plan.MarketplaceRepository,
+		ContentDigest:         plan.ContentDigest,
+		SealedTreeSHA256:      plan.SealedTreeSHA256,
+		Review:                plan.Review,
 	})
 	if err := s.approvals.Approve(record); err != nil {
 		return installed, &ApprovalError{Installed: installed, Err: err}
@@ -249,27 +258,8 @@ func (s *Service) Discard(plan Plan) error {
 // The path order comes from Extract, so the same package always digests the same
 // way.
 func ContentDigest(directory string, files []pluginpkg.File) (string, error) {
-	hash := sha256.New()
-	for _, file := range files {
-		hash.Write([]byte(file.Path))
-		hash.Write([]byte{0})
-		if err := hashPath(hash, filepath.Join(directory, filepath.FromSlash(file.Path))); err != nil {
-			return "", err
-		}
-		hash.Write([]byte{0})
-	}
-	return hex.EncodeToString(hash.Sum(nil)), nil
-}
-
-// hashPath streams one file into writer.
-func hashPath(writer io.Writer, path string) error {
-	file, err := os.Open(path)
-	if err != nil {
-		return err
-	}
-	copyErr := hashFile(writer, file)
-	closeErr := file.Close()
-	return errors.Join(copyErr, closeErr)
+	digest, _, err := digestExtractedTree(context.Background(), directory, files)
+	return digest, err
 }
 
 func hashFile(writer io.Writer, source io.Reader) error {
@@ -289,11 +279,11 @@ func hashFile(writer io.Writer, source io.Reader) error {
 // The download layer checked the digest of the bytes it received. Hashing a path
 // and then opening it again would leave a window in which the file is replaced,
 // so the check and the extraction share one open file.
-func extractVerified(ctx context.Context, request Request, staging string) (pluginpkg.Package, error) {
+func extractVerified(ctx context.Context, archivePath, archiveSHA256, staging string) (pluginpkg.Package, error) {
 	if err := ctx.Err(); err != nil {
 		return pluginpkg.Package{}, err
 	}
-	file, err := os.Open(request.ArchivePath)
+	file, err := os.Open(archivePath)
 	if err != nil {
 		return pluginpkg.Package{}, err
 	}
@@ -304,10 +294,10 @@ func extractVerified(ctx context.Context, request Request, staging string) (plug
 	}
 	if !info.Mode().IsRegular() {
 		// A named pipe or a directory would block or read something else.
-		return pluginpkg.Package{}, fmt.Errorf("%w: %s is not a regular file", ErrArchiveDigest, request.ArchivePath)
+		return pluginpkg.Package{}, fmt.Errorf("%w: %s is not a regular file", ErrArchiveDigest, archivePath)
 	}
-	if request.ArchiveSHA256 != "" {
-		if err := verifyDigest(file, request.ArchivePath, request.ArchiveSHA256); err != nil {
+	if archiveSHA256 != "" {
+		if err := verifyDigest(file, archivePath, archiveSHA256); err != nil {
 			return pluginpkg.Package{}, err
 		}
 		if _, err := file.Seek(0, io.SeekStart); err != nil {

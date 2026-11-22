@@ -42,14 +42,10 @@ const (
 // the run preparation time; the process runs until it exits, the user stops it, the project
 // closes or the connection is lost, which ends it on the host too.
 func (a *App) launchRemoteProcessRun(p *project, op *buildOperation, id string) {
-	host := remoteRunHost{
-		kernel: a.kernel, binding: p.remote.binding, root: p.root, language: a.language(),
-		label:  core.NewRemoteResourceLabel("run", op.session.label),
-		output: func(text string) { a.streamBuildOutput(p, op, text) },
-		lost:   a.remoteSessionLost(p),
-	}
+	host := a.remoteRunHostFor(p, op)
 	a.background(p, 0, func(ctx context.Context) func(*App) {
-		host.failed = func(operation string, err error) { a.backgroundFailedIn(ctx, operation, remoteLogError(err)) }
+		ctx = attachedWorkspaceContext(ctx, host.connection)
+		host.logFailures(a, ctx)
 		bounded, cancel := context.WithTimeout(ctx, runPreparationTimeout)
 		prepare, release := op.bind(bounded)
 		start, err := host.prepare(prepare, id)
@@ -66,6 +62,47 @@ func (a *App) launchRemoteProcessRun(p *project, op *buildOperation, id string) 
 	})
 }
 
+// remoteRunHostFor captures the window state shared by built-in and declared runs.
+func (a *App) remoteRunHostFor(p *project, op *buildOperation) remoteRunHost {
+	return remoteRunHost{
+		kernel: a.kernel, connection: op.connection, hostRoot: p.remote.binding.RemoteRoot(),
+		root: p.root, language: a.language(), resolveTool: a.resolveToolchainSelection,
+		label:  core.NewRemoteResourceLabel("run", op.session.label),
+		output: func(text string) { a.streamBuildOutput(p, op, text) },
+		lost: func(session string) {
+			a.post(func(a *App) {
+				if a.project == p && op.connection.IsCurrent() {
+					a.loseRemote(p, session, errRemoteSessionClosed)
+				}
+			})
+		},
+	}
+}
+
+func (h *remoteRunHost) logFailures(a *App, ctx context.Context) {
+	h.failed = func(operation string, err error) { a.backgroundFailedIn(ctx, operation, remoteLogError(err)) }
+}
+
+// command opens a build-tool plan under the same host scope as a built-in run.
+func (h remoteRunHost) command(planned declaredProcess) (remoteRunStart, error) {
+	directory, err := remoteRunDirectory(h.hostRoot, planned.plan.WorkingDirectory)
+	if err != nil {
+		return remoteRunStart{}, err
+	}
+	session := h.connection.SessionID()
+	if session == "" {
+		return remoteRunStart{}, errors.New(i18n.Shared(h.language, "desktop.run.remote.notConnected"))
+	}
+	selection := planned.execution.selection()
+	selection.PathPrepend = nil
+	return remoteRunStart{session: session, open: core.RemoteProcessOpen{
+		Argv:      append([]string{planned.execution.Executable}, planned.plan.Arguments...),
+		ScopedCwd: directory, Environment: core.RemoteProcessEnvironmentLogin,
+		Env:         applyToolchainSelection(planned.plan.Environment, selection),
+		PathPrepend: planned.execution.PathPrepend, Label: h.label,
+	}}, nil
+}
+
 // runStep runs a before-launch step that starts built-in run configuration step.ConfigurationID
 // on the host and waits for it, with its output in the console of the configuration that starts.
 // prepare bounds the step like a local one: once it ends, through a stop or the preparation
@@ -76,6 +113,14 @@ func (h remoteRunHost) runStep(ctx, prepare context.Context, step core.RunBefore
 	start, err := h.prepare(prepare, step.ConfigurationID)
 	defer h.cleanup(ctx, start)
 	if err != nil {
+		return err
+	}
+	return h.waitStep(prepare, start)
+}
+
+// waitStep gives a running host step the same grace period as a stopped local step.
+func (h remoteRunHost) waitStep(prepare context.Context, start remoteRunStart) error {
+	if err := prepare.Err(); err != nil {
 		return err
 	}
 	request, cancel := context.WithCancel(context.WithoutCancel(prepare))
@@ -97,11 +142,12 @@ func (h remoteRunHost) runStep(ctx, prepare context.Context, step core.RunBefore
 
 // remoteRunHost is what one run of a remote workspace takes from the window thread.
 type remoteRunHost struct {
-	kernel   Kernel
-	binding  *core.RemoteWorkspace
-	root     string
-	language i18n.Language
-	label    *core.RemoteResourceLabel
+	kernel         Kernel
+	connection     *core.RemoteWorkspaceConnection
+	hostRoot, root string
+	resolveTool    func(context.Context, string, string, string, string) (core.ToolchainSelection, error)
+	language       i18n.Language
+	label          *core.RemoteResourceLabel
 	// output adds text to the run's console. Decoding it may wait for Core, so only the run's
 	// output pump calls it, never the request's goroutine.
 	output func(string)
@@ -122,7 +168,7 @@ type remoteRunStart struct {
 // the run's temporary folder. The start it returns names the folder whenever one was created, so
 // the caller removes it even when preparing failed.
 func (h remoteRunHost) prepare(ctx context.Context, id string) (remoteRunStart, error) {
-	start := remoteRunStart{session: h.binding.SessionID()}
+	start := remoteRunStart{session: h.connection.SessionID()}
 	if start.session == "" {
 		return start, errors.New(i18n.Shared(h.language, "desktop.run.remote.notConnected"))
 	}
@@ -135,8 +181,14 @@ func (h remoteRunHost) prepare(ctx context.Context, id string) (remoteRunStart, 
 	if err != nil {
 		return start, h.failure(start.session, err)
 	}
-	if start.open, err = h.processOpen(plan); err != nil {
-		return start, err
+	if start.open, err = h.processOpen(ctx, plan); err != nil {
+		if errors.Is(err, errRunProgramNotFound) {
+			err = errors.New(i18n.SharedFormat(h.language, "desktop.runConfig.programNotFound", map[string]string{"program": plan.Executable.Command}))
+		}
+		return start, h.failure(start.session, err)
+	}
+	if !h.connection.IsCurrent() {
+		return start, errors.New(i18n.Shared(h.language, "desktop.run.remote.notConnected"))
 	}
 	if plan.InlineScript != nil {
 		if err := h.writeScript(ctx, start, *plan.InlineScript); err != nil {
@@ -149,12 +201,17 @@ func (h remoteRunHost) prepare(ctx context.Context, id string) (remoteRunStart, 
 // processOpen turns a launch plan Core made for the host into the host process to start: the
 // program and its arguments as planned, the working directory under the workspace's host folder,
 // and the plan's variables over the user's login environment. A bare command is looked up on the
-// host's PATH. A toolchain executable is resolved from this computer's toolchains, which do not
-// run on the host, so such a run is refused.
-func (h remoteRunHost) processOpen(plan core.RunLaunchPlan) (core.RemoteProcessOpen, error) {
-	directory, err := remoteRunDirectory(h.binding.RemoteRoot(), plan.WorkingDirectory)
+// host's PATH, and a toolchain executable is resolved for the same workspace connection.
+func (h remoteRunHost) processOpen(ctx context.Context, plan core.RunLaunchPlan) (core.RemoteProcessOpen, error) {
+	directory, err := remoteRunDirectory(h.hostRoot, plan.WorkingDirectory)
 	if err != nil {
 		return core.RemoteProcessOpen{}, err
+	}
+	environment := make(map[string]string, len(plan.Environment)+len(plan.Env))
+	maps.Copy(environment, plan.Environment)
+	maps.Copy(environment, plan.Env)
+	open := core.RemoteProcessOpen{
+		ScopedCwd: directory, Environment: core.RemoteProcessEnvironmentLogin, Label: h.label,
 	}
 	var program string
 	switch executable := plan.Executable; {
@@ -164,33 +221,45 @@ func (h remoteRunHost) processOpen(plan core.RunLaunchPlan) (core.RemoteProcessO
 		}
 		program = executable.Path
 	case executable.Command != "":
-		program = executable.Command
+		request := core.RemoteExecutableRequest{Kind: "program", Value: executable.Command}
+		if searchPath, overridden := environment["PATH"]; overridden {
+			request.SearchPath = &searchPath
+		}
+		program, err = h.kernel.ResolveRemoteExecutable(ctx, request)
+		if err != nil {
+			return core.RemoteProcessOpen{}, err
+		}
+		if program == "" {
+			return core.RemoteProcessOpen{}, errRunProgramNotFound
+		}
 	case executable.Toolchain != "":
-		return core.RemoteProcessOpen{}, errors.New(i18n.Shared(h.language, "desktop.run.remote.toolchain"))
+		selection, err := h.resolveTool(ctx, h.root, plan.WorkingDirectory, executable.Toolchain, "")
+		if err != nil {
+			return core.RemoteProcessOpen{}, err
+		}
+		program = selection.Executable
+		open.PathPrepend = selection.PathPrepend
+		selection.PathPrepend = nil
+		environment = applyToolchainSelection(environment, selection)
 	default:
 		return core.RemoteProcessOpen{}, errors.New("run launch plan has no executable")
 	}
-	environment := make(map[string]string, len(plan.Environment)+len(plan.Env))
-	maps.Copy(environment, plan.Environment)
-	maps.Copy(environment, plan.Env)
-	return core.RemoteProcessOpen{
-		Argv:        append([]string{program}, plan.Arguments...),
-		Cwd:         directory,
-		Environment: core.RemoteProcessEnvironmentLogin,
-		Env:         environment,
-		Label:       h.label,
-	}, nil
+	open.Argv = append([]string{program}, plan.Arguments...)
+	open.Env = environment
+	return open, nil
 }
 
-// remoteRunDirectory is the host path of a project-relative '/' working directory below the
-// workspace's host folder remoteRoot. Core keeps it inside the project; one that leaves it is
-// refused here too.
-func remoteRunDirectory(remoteRoot, directory string) (string, error) {
+// remoteRunDirectory names a project-relative directory. The remote server
+// resolves it under the workspace root when it starts the process.
+func remoteRunDirectory(remoteRoot, directory string) (*core.RemoteScopedDirectory, error) {
 	clean := path.Clean(directory)
 	if path.IsAbs(clean) || clean == ".." || strings.HasPrefix(clean, "../") {
-		return "", errors.New("run working directory is outside the project")
+		return nil, errors.New("run working directory is outside the project")
 	}
-	return path.Join(remoteRoot, clean), nil
+	if clean == "." {
+		clean = ""
+	}
+	return &core.RemoteScopedDirectory{Root: remoteRoot, Path: clean}, nil
 }
 
 // writeScript writes a script saved as text where Core planned it, which must be a new file
@@ -215,11 +284,14 @@ func (h remoteRunHost) writeScript(ctx context.Context, start remoteRunStart, sc
 // returns nil for a clean exit, a remoteRunExit for a nonzero exit code, and why the run ended
 // otherwise.
 func (h remoteRunHost) run(ctx context.Context, start remoteRunStart, attach func(*remoteProcess)) error {
+	if !h.connection.IsCurrent() {
+		return errors.New(i18n.Shared(h.language, "desktop.run.remote.notConnected"))
+	}
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
-	process := &remoteProcess{kernel: h.kernel, session: start.session, cancel: cancel, done: make(chan struct{}), failed: h.failed}
+	process := &remoteProcess{kernel: h.kernel, connection: h.connection, session: start.session, cancel: cancel, done: make(chan struct{}), failed: h.failed}
 	output := newRemoteRunOutput(h.output, "\n\x1b[2m"+i18n.Shared(h.language, "desktop.run.remote.outputDropped")+"\x1b[0m\n")
-	exit, err := h.kernel.RemoteRunProcess(ctx, start.session, start.open, core.RemoteProcessEvents{
+	exit, err := h.kernel.RunRemoteProcess(ctx, start.open, core.RemoteProcessEvents{
 		Started: func(processID uint64, _ int) {
 			if process.id.CompareAndSwap(0, processID) {
 				attach(process)
@@ -282,8 +354,9 @@ func (e remoteRunExit) ExitCode() int { return int(e) }
 
 // remoteProcess is a run's process on the host as the Run window stops it (runProcess).
 type remoteProcess struct {
-	kernel  Kernel
-	session string
+	kernel     Kernel
+	connection *core.RemoteWorkspaceConnection
+	session    string
 	// cancel ends the run's request, and with it every process of the run: Core kills them.
 	cancel context.CancelFunc
 	// id is the process's id for process.kill, set before the process is attached.
@@ -302,7 +375,7 @@ func (r *remoteProcess) Pid() int { return 0 }
 func (r *remoteProcess) Stop() {
 	r.stopping.Do(func() {
 		grace := buildprocess.StopGrace()
-		if grace <= 0 || r.id.Load() == 0 {
+		if grace <= 0 || r.id.Load() == 0 || !r.connection.IsCurrent() {
 			r.cancel()
 			return
 		}
@@ -310,8 +383,8 @@ func (r *remoteProcess) Stop() {
 			timer := time.NewTimer(grace)
 			defer timer.Stop()
 			ctx, cancel := context.WithTimeout(context.Background(), grace)
+			defer cancel()
 			err := r.kernel.RemoteProcessKill(ctx, r.session, r.id.Load(), false)
-			cancel()
 			if err != nil {
 				if ctx.Err() == nil && !remoteConnectionClosed(err) {
 					r.failed("run_stop", err)

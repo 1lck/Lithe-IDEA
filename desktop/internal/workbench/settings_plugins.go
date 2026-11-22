@@ -17,13 +17,27 @@ import (
 // is an immutable publication from the workbench window, shared with toolchains.
 type pluginSettingsSources struct{ app *App }
 
+type remoteSettingsWorkspace struct {
+	binding *core.RemoteWorkspace
+	name    string
+}
+
 func (s pluginSettingsSources) Load(ctx context.Context, id string, language i18n.Language) (editor pluginservice.SettingsEditor, err error) {
 	defer func() { (settingsToolchains{app: s.app}).recordFailure(ctx, "plugin_settings_load", err) }()
-	root := ""
-	if current := s.app.toolchainRoot.Load(); current != nil {
-		root = *current
+	current := s.app.toolchainRoot.Load()
+	remote := s.app.settingsRemote.Load()
+	if remote != nil {
+		editor, err = s.app.plugins.LoadRemoteSettingsEditor(ctx, id, language.Code(), remote.name, remote.binding)
+	} else {
+		root := ""
+		if current != nil {
+			root = *current
+		}
+		editor, err = s.app.plugins.LoadSettingsEditor(ctx, id, root, language.Code())
 	}
-	editor, err = s.app.plugins.LoadSettingsEditor(ctx, id, root, language.Code())
+	if err == nil && (s.app.toolchainRoot.Load() != current || s.app.settingsRemote.Load() != remote) {
+		err = configfile.ErrConflict
+	}
 	if err == nil {
 		// A skipped translation falls back to the next candidate or to manifest
 		// text; the page still loads, so this is a degraded read, not a failure.
@@ -49,7 +63,11 @@ func (s pluginSettingsSources) Load(ctx context.Context, id string, language i18
 
 func (s pluginSettingsSources) Save(ctx context.Context, editor pluginservice.SettingsEditor, scope string, edits []core.PluginSettingEdit) (result pluginsettings.SaveResult, err error) {
 	defer func() { (settingsToolchains{app: s.app}).recordFailure(ctx, "plugin_settings_save", err) }()
+	workspaceCheck := s.actionWorkspaceCheck(editor)
 	check := func() error {
+		if scope == "project" && (editor.RemoteConnection() != nil || s.app.settingsRemote.Load() != nil) {
+			return workspaceCheck()
+		}
 		if scope != "project" {
 			return nil
 		}

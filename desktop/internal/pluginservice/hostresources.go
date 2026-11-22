@@ -16,7 +16,7 @@ type hostResource struct {
 	id        string
 	pluginID  string
 	sessionID string
-	contextID string
+	workspace ContextRef
 	limited   bool
 	// dispose releases the resource. It runs once, without the registry lock.
 	dispose func()
@@ -38,13 +38,13 @@ func newHostResources() *hostResources {
 }
 
 // add records a resource and returns its subscription ID.
-func (r *hostResources) add(caller pluginhost.Caller, contextID string, dispose func()) string {
-	return r.addLimited(caller, contextID, dispose, 0)
+func (r *hostResources) add(caller pluginhost.Caller, workspace ContextRef, dispose func()) string {
+	return r.addLimited(caller, workspace, dispose, 0)
 }
 
 // addLimited caps limited resources held by one backend session for callers that
 // allocate a native registration. A zero limit preserves uncapped callers.
-func (r *hostResources) addLimited(caller pluginhost.Caller, contextID string, dispose func(), limit int) string {
+func (r *hostResources) addLimited(caller pluginhost.Caller, workspace ContextRef, dispose func(), limit int) string {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	if limit > 0 {
@@ -60,7 +60,7 @@ func (r *hostResources) addLimited(caller pluginhost.Caller, contextID string, d
 	}
 	r.next++
 	id := "s-" + strconv.FormatUint(r.next, 10)
-	r.byID[id] = &hostResource{id: id, pluginID: caller.PluginID, sessionID: caller.SessionID, contextID: contextID, limited: limit > 0, dispose: dispose}
+	r.byID[id] = &hostResource{id: id, pluginID: caller.PluginID, sessionID: caller.SessionID, workspace: workspace, limited: limit > 0, dispose: dispose}
 	return id
 }
 
@@ -102,9 +102,9 @@ func (r *hostResources) releaseSession(sessionID string) {
 	r.releaseWhere(func(resource *hostResource) bool { return resource.sessionID == sessionID })
 }
 
-// releaseContext releases everything made for a closed workspace context.
-func (r *hostResources) releaseContext(contextID string) {
-	r.releaseWhere(func(resource *hostResource) bool { return resource.contextID != "" && resource.contextID == contextID })
+// releaseContext releases resources owned by the generation that expired.
+func (r *hostResources) releaseContext(workspace ContextRef) {
+	r.releaseWhere(func(resource *hostResource) bool { return resource.workspace == workspace })
 }
 
 // releasePlugin releases everything one plugin holds, for disable and update.

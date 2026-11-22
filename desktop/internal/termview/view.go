@@ -165,6 +165,8 @@ type Config struct {
 	// status when it has one. A view with Exited set does not restart on Enter: the
 	// owner decides what happens next.
 	Exited func(status *int)
+	// NoRestart keeps the terminal output after a command ends without offering to run it again.
+	NoRestart bool
 	// Clipboard reads the system clipboard for a paste. Nil uses app.ClipboardText.
 	Clipboard func() (string, error)
 	// PasteImage is asked first when a paste into a live shell finds no text on the

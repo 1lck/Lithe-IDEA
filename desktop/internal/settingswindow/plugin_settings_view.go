@@ -164,6 +164,10 @@ func (w *window) pluginSettingsPanel(c ui.C, id string, ruled bool) {
 		if source == "" {
 			ui.Wrap(c, i18n.Shared(language, "desktop.pluginSettings.openProject")).FontSize(12).Color(w.pal.muted)
 		} else {
+			if remote := p.editor.Snapshot.ProjectConnectionName(); p.scope == 1 && remote != "" {
+				label := i18n.SharedFormat(language, "desktop.pluginSettings.remoteConnection", map[string]string{"name": remote})
+				ui.Wrap(c, label).FontSize(11).Color(w.pal.muted)
+			}
 			ui.Wrap(c, source).FontSize(11).Color(w.pal.muted)
 		}
 		w.pluginSettingActions(c)

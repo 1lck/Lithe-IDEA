@@ -32,13 +32,31 @@ type Documents struct {
 // Read reads the team document from the project and the local document from the data
 // store. A document that exists but is not valid JSON is an error, not an empty document.
 func Read(ctx context.Context, preferences *store.Store, root string) (Documents, error) {
+	return read(preferences, root, func() ([]byte, bool, error) {
+		snapshot, err := configfile.Capture(ctx, root, TeamFile, buildOptionsMaximumBytes)
+		return snapshot.Bytes(), snapshot.Exists(), err
+	})
+}
+
+// ReadRemote reads the team document from a captured workspace connection.
+// The client root is used solely as a key into the client's preference store.
+func ReadRemote(ctx context.Context, preferences *store.Store, root string, readConfiguration func(context.Context, string, int64) (*string, error)) (Documents, error) {
+	return read(preferences, root, func() ([]byte, bool, error) {
+		team, err := readConfiguration(ctx, TeamFile, buildOptionsMaximumBytes)
+		if err != nil || team == nil {
+			return nil, false, err
+		}
+		return []byte(*team), true, nil
+	})
+}
+
+func read(preferences *store.Store, root string, readTeam func() ([]byte, bool, error)) (Documents, error) {
 	docs := Documents{Team: emptyTeam, Local: EmptyLocal}
-	snapshot, err := configfile.Capture(ctx, root, TeamFile, buildOptionsMaximumBytes)
+	team, exists, err := readTeam()
 	if err != nil {
 		return docs, err
 	}
-	if snapshot.Exists() {
-		team := snapshot.Bytes()
+	if exists {
 		if !json.Valid(team) {
 			return docs, errors.New(TeamFile + ": invalid JSON")
 		}

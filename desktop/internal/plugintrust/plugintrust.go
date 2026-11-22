@@ -12,6 +12,8 @@
 package plugintrust
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"sort"
@@ -44,14 +46,16 @@ type Review struct {
 
 // Record is the provenance of one approved plugin version.
 type Record struct {
-	PluginID            string            `json:"pluginID"`
-	Version             string            `json:"version"`
-	Source              Source            `json:"source"`
-	ArchiveSHA256       string            `json:"archiveSHA256,omitempty"`
-	MarketplaceIndexURL string            `json:"marketplaceIndexURL,omitempty"`
-	ContentDigest       string            `json:"contentDigest,omitempty"`
-	Permissions         []string          `json:"permissions"`
-	ApprovedPrograms    []json.RawMessage `json:"approvedPrograms"`
+	PluginID              string            `json:"pluginID"`
+	Version               string            `json:"version"`
+	Source                Source            `json:"source"`
+	ArchiveSHA256         string            `json:"archiveSHA256,omitempty"`
+	MarketplaceIndexURL   string            `json:"marketplaceIndexURL,omitempty"`
+	MarketplaceRepository string            `json:"marketplaceRepository,omitempty"`
+	ContentDigest         string            `json:"contentDigest,omitempty"`
+	SealedTreeSHA256      string            `json:"sealedTreeSHA256,omitempty"`
+	Permissions           []string          `json:"permissions"`
+	ApprovedPrograms      []json.RawMessage `json:"approvedPrograms"`
 }
 
 // Request is what the host knows about the package it is about to install.
@@ -62,8 +66,12 @@ type Request struct {
 	ArchiveSHA256 string
 	// MarketplaceIndexURL is the canonical index source, not a plugin's own claim.
 	MarketplaceIndexURL string
+	// MarketplaceRepository is the release repository in the approved listing.
+	MarketplaceRepository string
 	// ContentDigest is the digest of the extracted package tree.
 	ContentDigest string
+	// SealedTreeSHA256 covers package file boundaries and execute bits.
+	SealedTreeSHA256 string
 	// Review is Core's install review for this package.
 	Review Review
 }
@@ -120,14 +128,16 @@ func Decide(record Record, found bool, req Request) Decision {
 // RecordFor builds the record that approves req for one plugin version.
 func RecordFor(id, version string, req Request) Record {
 	return Record{
-		PluginID:            id,
-		Version:             version,
-		Source:              req.Source,
-		ArchiveSHA256:       req.ArchiveSHA256,
-		MarketplaceIndexURL: req.MarketplaceIndexURL,
-		ContentDigest:       req.ContentDigest,
-		Permissions:         append([]string(nil), req.Review.Permissions...),
-		ApprovedPrograms:    clonePrograms(req.Review.Programs),
+		PluginID:              id,
+		Version:               version,
+		Source:                req.Source,
+		ArchiveSHA256:         req.ArchiveSHA256,
+		MarketplaceIndexURL:   req.MarketplaceIndexURL,
+		MarketplaceRepository: req.MarketplaceRepository,
+		ContentDigest:         req.ContentDigest,
+		SealedTreeSHA256:      req.SealedTreeSHA256,
+		Permissions:           append([]string(nil), req.Review.Permissions...),
+		ApprovedPrograms:      clonePrograms(req.Review.Programs),
 	}
 }
 
@@ -143,6 +153,12 @@ func (r Record) Validate() error {
 	case Marketplace, Disk:
 	default:
 		return fmt.Errorf("%w: unknown source %q", ErrInvalidRecord, r.Source)
+	}
+	if r.SealedTreeSHA256 != "" {
+		digest, err := hex.DecodeString(r.SealedTreeSHA256)
+		if err != nil || len(digest) != sha256.Size {
+			return fmt.Errorf("%w: invalid installed tree digest", ErrInvalidRecord)
+		}
 	}
 	for _, program := range r.ApprovedPrograms {
 		if !json.Valid(program) {

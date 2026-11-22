@@ -15,8 +15,10 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/1lck/Lithe-IDEA/desktop/internal/configfile"
+	"github.com/1lck/Lithe-IDEA/desktop/internal/filelock"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/marketplace"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/pluginpkg"
 )
@@ -169,8 +171,17 @@ func (m *Manager) Prepare(ctx context.Context, artifact Artifact, validate func(
 	if err != nil {
 		return result, err
 	}
-	unlock, err := acquire(ctx, filepath.Join(base, ".lock"))
+	lockCtx, cancelLock := context.WithTimeoutCause(ctx, 5*time.Minute, ErrBusy)
+	unlock, err := filelock.Acquire(lockCtx, filepath.Join(base, ".lock"))
+	lockCause := context.Cause(lockCtx)
+	cancelLock()
 	if err != nil {
+		if errors.Is(lockCause, ErrBusy) && errors.Is(err, context.DeadlineExceeded) {
+			err = errors.Join(ErrBusy, err)
+		}
+		if errors.Is(err, filelock.ErrInvalidFile) {
+			err = errors.Join(ErrArtifact, err)
+		}
 		return result, err
 	}
 	defer func() { err = errors.Join(err, unlock()) }()
@@ -373,7 +384,7 @@ func (m *Manager) archive(ctx context.Context, artifact Artifact, base string, p
 	if progress != nil && errors.Is(checkErr, ErrCorrupt) {
 		progress(Progress{ID: artifact.ID, Phase: "repairing", Total: -1, Cause: checkErr})
 	}
-	download, cleanup, err := m.downloadArchive(ctx, artifact, progress)
+	download, cleanup, err := m.DownloadArchive(ctx, artifact, progress)
 	if err != nil {
 		return nil, err
 	}

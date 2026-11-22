@@ -36,6 +36,7 @@ import (
 type pluginPage struct {
 	tool    pluginservice.ToolWindow
 	project *project
+	context pluginservice.ContextRef
 	page    *pluginweb.Page
 	view    *app.WebView
 	// failure is why the page could not open; the window says so instead.
@@ -82,13 +83,17 @@ func (a *App) pluginPageMessage(c ui.C, message string) {
 // pluginPage returns the page of a web tool window in project p, opening it on first
 // use. It is nil while the window's web host is not ready yet.
 func (a *App) pluginPage(it item, p *project) *pluginPage {
-	if page := a.pluginPages[it.id]; page != nil && page.project == p {
-		return page
+	if page := a.pluginPages[it.id]; page != nil {
+		if page.project == p && page.context == p.pluginContext {
+			return page
+		}
+		page.close()
+		delete(a.pluginPages, it.id)
 	}
 	if !a.webReady {
 		return nil
 	}
-	page := &pluginPage{tool: *it.tool, project: p, colors: a.colors}
+	page := &pluginPage{tool: *it.tool, project: p, context: p.pluginContext, colors: a.colors}
 	if a.pluginPages == nil {
 		a.pluginPages = make(map[string]*pluginPage)
 	}
@@ -105,7 +110,10 @@ func (a *App) openPluginPage(page *pluginPage) error {
 	if !ok || a.plugins == nil {
 		return errors.ErrUnsupported
 	}
-	host := &pluginPageHost{a: a, plugins: a.plugins, tool: page.tool, project: page.project, language: a.language()}
+	host := &pluginPageHost{
+		a: a, plugins: a.plugins, tool: page.tool, project: page.project, workspace: page.context,
+		language: a.language(), maximumFileBytes: int64(a.searchPreferences.MaxFileBytes),
+	}
 	ctx, cancel := context.WithTimeout(a.operationContext(context.Background()), kernelCallTimeout)
 	defer cancel()
 	opened, err := pluginweb.Open(ctx, pluginweb.Config{
@@ -119,7 +127,7 @@ func (a *App) openPluginPage(page *pluginPage) error {
 		Post: func(fn func()) { a.post(func(*App) { fn() }) },
 		Log: func(stage string, err error) {
 			a.post(func(a *App) {
-				a.backgroundFailed("plugin_web_"+stage, err)
+				a.backgroundFailed("plugin_web_"+stage, page.project.logError(err))
 			})
 		},
 	})
@@ -226,20 +234,22 @@ func cssColor(c gfx.Color) string {
 // pluginPageHost carries out the checked requests of one page for the project it is
 // shown in.
 type pluginPageHost struct {
-	a          *App
-	plugins    *pluginservice.Service
-	tool       pluginservice.ToolWindow
-	project    *project
-	language   i18n.Language
-	stateLimit int
+	a                *App
+	plugins          *pluginservice.Service
+	tool             pluginservice.ToolWindow
+	project          *project
+	workspace        pluginservice.ContextRef
+	language         i18n.Language
+	stateLimit       int
+	maximumFileBytes int64
 }
 
 func (h *pluginPageHost) State(_ context.Context, pluginID, windowID string) ([]byte, error) {
-	return h.plugins.PageState(pluginID, windowID, h.project.root, h.stateLimit)
+	return h.plugins.PageState(pluginID, windowID, h.workspace, h.stateLimit)
 }
 
 func (h *pluginPageHost) SetState(_ context.Context, pluginID, windowID string, state []byte) error {
-	return h.plugins.SetPageState(pluginID, windowID, h.project.root, state, h.stateLimit)
+	return h.plugins.SetPageState(pluginID, windowID, h.workspace, state, h.stateLimit)
 }
 
 func (h *pluginPageHost) BackendFunctions(ctx context.Context, pluginID string) ([]string, error) {
@@ -247,7 +257,7 @@ func (h *pluginPageHost) BackendFunctions(ctx context.Context, pluginID string) 
 }
 
 func (h *pluginPageHost) CallBackend(ctx context.Context, pluginID, function string, params json.RawMessage, progress func(json.RawMessage)) (json.RawMessage, error) {
-	return h.plugins.CallFromPage(ctx, pluginID, function, params, h.project.root, progress)
+	return h.plugins.CallFromWorkspace(ctx, pluginID, function, params, h.workspace, progress)
 }
 
 // ChooseFile shows the system's file dialog, titled with the plugin's name so the user
@@ -292,35 +302,90 @@ func (h *pluginPageHost) ChooseFile(_ string, request pluginweb.FileRequest) (st
 	return path, err
 }
 
-// OpenFile opens a file of the workspace in the editor. Core refused paths with "..";
-// a path that leads out of the workspace through a link is refused here.
-func (h *pluginPageHost) OpenFile(path string, line, column int) error {
+// OpenFile checks the file on its workspace host before asking the editor to open it.
+func (h *pluginPageHost) OpenFile(ctx context.Context, path string, line, column int) error {
 	a, p := h.a, h.project
-	if a.project != p {
-		return pluginweb.Fail("plugin.web.forbidden", "The workspace of this page is closed.")
+	var target string
+	var document pluginservice.PageDocument
+	if p.remote != nil {
+		result, failure := h.plugins.ReadPageDocument(ctx, h.tool.PluginID, h.workspace, path, h.maximumFileBytes)
+		if failure != nil {
+			switch failure.Code {
+			case pluginservice.CodePermissionDenied, pluginservice.CodeRemoteDisconnected:
+				return pluginweb.Fail("plugin.web.forbidden", failure.Message)
+			default:
+				return pluginweb.Fail("plugin.web.invalidRequest", failure.Message)
+			}
+		}
+		document = result
+		if relative := filepath.FromSlash(document.Path); !filepath.IsLocal(relative) {
+			return pluginweb.Fail("plugin.web.invalidRequest", "The editor cannot address this file name.")
+		} else {
+			target = filepath.Join(p.root, relative)
+		}
+	} else {
+		var err error
+		target, err = localPluginPageFile(p.root, path)
+		if err != nil {
+			return err
+		}
 	}
+
+	result := make(chan error, 1)
+	a.post(func(a *App) {
+		switch {
+		case ctx.Err() != nil:
+			result <- ctx.Err()
+		case a.project != p || p.pluginContext != h.workspace:
+			result <- pluginweb.Fail("plugin.web.forbidden", "The workspace of this page is closed.")
+		case document.Connection != nil && !document.Connection.IsCurrent():
+			result <- pluginweb.Fail("plugin.web.forbidden", "The remote workspace connection changed.")
+		default:
+			var read documentBytes
+			if document.Connection != nil {
+				// Use the scoped bytes from the same attachment. A second
+				// unscoped read could see a substituted parent path.
+				read = func(_ context.Context, _ string, limit int64) ([]byte, error) {
+					if int64(len(document.Data)) > limit {
+						return nil, errTooLarge
+					}
+					return document.Data, nil
+				}
+			}
+			if line <= 0 {
+				a.openFileWith(p, target, read, document.Connection)
+			} else {
+				a.openFileAtPositionWith(p, target, line-1, max(column-1, 0), read, document.Connection)
+			}
+			result <- nil
+		}
+	})
+	select {
+	case err := <-result:
+		return err
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+}
+
+func localPluginPageFile(workspace, path string) (string, error) {
 	target := path
 	if !filepath.IsAbs(target) {
-		target = filepath.Join(p.root, target)
+		target = filepath.Join(workspace, target)
 	}
 	resolved, err := filepath.EvalSymlinks(target)
 	if err != nil {
-		return pluginweb.Fail("plugin.web.invalidRequest", path+" does not exist.")
+		return "", pluginweb.Fail("plugin.web.invalidRequest", path+" does not exist.")
 	}
-	root, err := filepath.EvalSymlinks(p.root)
+	root, err := filepath.EvalSymlinks(workspace)
 	if err != nil {
-		return err
+		return "", err
 	}
 	if relative, err := filepath.Rel(root, resolved); err != nil || relative == ".." || strings.HasPrefix(relative, ".."+string(filepath.Separator)) {
-		return pluginweb.Fail("plugin.web.forbidden", path+" is outside the workspace.")
+		return "", pluginweb.Fail("plugin.web.forbidden", path+" is outside the workspace.")
 	}
 	if info, err := os.Stat(resolved); err != nil || !info.Mode().IsRegular() {
-		return pluginweb.Fail("plugin.web.invalidRequest", path+" is not a file.")
+		return "", pluginweb.Fail("plugin.web.invalidRequest", path+" is not a file.")
 	}
-	if line <= 0 {
-		a.openFileAt(p, target, 0)
-		return nil
-	}
-	a.openFileAtPosition(p, target, line-1, max(column-1, 0))
-	return nil
+	return target, nil
 }

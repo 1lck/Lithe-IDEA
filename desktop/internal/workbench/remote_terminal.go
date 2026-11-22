@@ -83,6 +83,8 @@ func (s remoteExitStatus) ExitStatus() int { return int(s) }
 type remoteTerminalHost struct {
 	kernel  Kernel
 	binding *core.RemoteWorkspace
+	// connection pins a plugin launch to the attachment the user approved.
+	connection *core.RemoteWorkspaceConnection
 	// ctx ends with the terminal's tab; each start's request runs under a child of it.
 	ctx    context.Context
 	open   core.RemoteTerminalOpen
@@ -96,8 +98,11 @@ type remoteTerminalHost struct {
 
 // start runs the host terminal in a grid of cols by rows cells and returns once the host
 // started it, or why it could not. It blocks, so termview runs it off the window thread.
-func (h remoteTerminalHost) start(cols, rows int) (termview.Shell, error) {
+func (h remoteTerminalHost) start(cols, rows int) (*remoteShell, error) {
 	session := h.binding.SessionID()
+	if h.connection != nil {
+		session = h.connection.SessionID()
+	}
 	if session == "" {
 		return nil, &remoteTerminalStartError{reason: h.notConnected, cause: errRemoteSessionClosed}
 	}
@@ -158,7 +163,9 @@ type remoteShell struct {
 	// started is closed when the host started the program, done when the request returned.
 	started     chan struct{}
 	startedOnce sync.Once
-	done        chan struct{}
+	// Written before started closes and only read once the launch succeeds.
+	pid  int64
+	done chan struct{}
 	// wake tells the sender there is input or a size to send.
 	wake chan struct{}
 
@@ -179,11 +186,16 @@ type remoteShell struct {
 // run is the start's request: it returns when the program ends or the terminal closes.
 func (s *remoteShell) run(open core.RemoteTerminalOpen) {
 	exit, err := s.host.kernel.RemoteRunTerminal(s.ctx, s.session, open, core.RemoteTerminalEvents{
-		Started: func(terminalID uint64) {
+		Started: func(terminalID uint64, pid int64) {
+			if s.host.connection != nil && !s.host.connection.IsCurrent() {
+				s.cancel()
+				return
+			}
 			s.startedOnce.Do(func() {
 				s.mu.Lock()
 				s.terminal = terminalID
 				s.mu.Unlock()
+				s.pid = pid
 				close(s.started)
 			})
 		},
@@ -431,30 +443,80 @@ func (s *remoteShell) wait(d time.Duration) bool {
 // remoteTerminalConfig makes config start terminal t of the remote workspace p on the host, in
 // dir, with env added to the server's environment. It returns what cancels the terminal's
 // requests when its tab closes.
-func (a *App) remoteTerminalConfig(p *project, t *terminal, config *termview.Config, dir string, env []string) context.CancelFunc {
+func (a *App) remoteTerminalConfig(p *project, t *terminal, config *termview.Config, options terminalOptions) context.CancelFunc {
 	r := p.remote
-	ctx, cancel := context.WithCancel(p.ctx)
+	parent := p.ctx
+	if options.remoteStartContext != nil {
+		parent = options.remoteStartContext
+	}
+	ctx, cancel := context.WithCancel(parent)
 	host := remoteTerminalHost{
-		kernel:  a.kernel,
-		binding: r.binding,
-		ctx:     ctx,
+		kernel:     a.kernel,
+		binding:    r.binding,
+		connection: options.remoteConnection,
+		ctx:        ctx,
 		open: core.RemoteTerminalOpen{
-			Cwd:   p.remoteTerminalDir(dir),
-			Env:   environmentMap(env),
+			Cwd:   p.remoteTerminalDir(config.Dir),
+			Env:   environmentMap(config.Env),
 			Label: core.NewRemoteResourceLabel("terminal", a.terminalTitle(t)),
 		},
 		notify:       a.invalidator.Invalidate,
 		notConnected: i18n.Shared(a.language(), "desktop.remote.terminal.notConnected"),
 		lost: func(session string, err error) {
 			a.post(func(a *App) {
-				if a.project == p {
+				if a.project == p && (options.remoteConnection == nil || options.remoteConnection.IsCurrent()) {
 					a.loseRemote(p, session, err)
 				}
 			})
 		},
 		failed: func(operation string, err error) { a.backgroundFailedIn(ctx, operation, remoteLogError(err)) },
 	}
-	config.Open = host.start
+	if options.remoteDirectory != nil {
+		host.open.Cwd = ""
+		host.open.ScopedCwd = options.remoteDirectory
+		host.open.Argv = append([]string{options.shell}, options.args...)
+		host.open.Environment = "login"
+		host.open.UnsetEnv = options.unset
+	}
+	if options.remoteStarted != nil {
+		// Preserve the remote login environment and apply the DAP overrides.
+		host.open.Env = environmentMap(options.env)
+		host.open.Label = core.NewRemoteResourceLabel("debug", a.terminalTitle(t))
+	}
+	terminalUnavailable := i18n.Shared(a.language(), "desktop.debug.terminalUnavailable")
+	untrusted := a.launchFailureText(remoteDebugUntrusted())
+	config.Open = func(cols, rows int) (termview.Shell, error) {
+		var shell *remoteShell
+		var err error
+		if options.remoteStarted != nil && !p.trust.allowed() {
+			err = &remoteTerminalStartError{reason: untrusted, cause: remoteDebugUntrusted()}
+		} else {
+			shell, err = host.start(cols, rows)
+		}
+		if options.remoteStarted != nil {
+			var pid int64
+			if err == nil {
+				pid = shell.pid
+				if pid <= 0 || pid > 1<<31-1 {
+					shell.Close()
+					// The view cannot track a shell returned as a failed start.
+					<-shell.Done()
+					err = errors.New(terminalUnavailable)
+				}
+			}
+			a.post(func(a *App) {
+				if err == nil && (ctx.Err() != nil || p.terms.find(t.id) != t) {
+					options.remoteStarted(0, context.Canceled)
+					return
+				}
+				options.remoteStarted(pid, err)
+			})
+		}
+		if err != nil {
+			return nil, err
+		}
+		return shell, nil
+	}
 	config.Shell, config.Args, config.Unset = "", nil, nil
 	// A picture pasted into the terminal would be saved on this computer, where the host's
 	// shell cannot read it.

@@ -6,6 +6,7 @@ import (
 	"errors"
 	"strings"
 
+	"github.com/1lck/Lithe-IDEA/desktop/internal/core"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/pluginhost"
 )
 
@@ -21,6 +22,7 @@ type DebugSessionRequest struct {
 	Label         string
 	AdapterID     string
 	Request       string
+	Connection    *core.RemoteWorkspaceConnection
 	// Configuration is the plugin's DAP launch or attach arguments, applied on
 	// top of the adapter's declared defaults.
 	Configuration map[string]any
@@ -51,6 +53,10 @@ func (r *Runs) handleDebugStart(ctx context.Context, params json.RawMessage) (js
 	if err != nil {
 		return nil, contextFailure(err)
 	}
+	remote, refusal := r.captureRemoteRun(workspace)
+	if refusal != nil {
+		return nil, refusal
+	}
 	_, manifest, err := r.service.installedPlugin(ctx, caller.PluginID)
 	if err != nil {
 		return nil, failure(pluginhost.CodeHostFailure, err.Error())
@@ -70,10 +76,17 @@ func (r *Runs) handleDebugStart(ctx context.Context, params json.RawMessage) (js
 	if starter == nil {
 		return nil, failure("plugin.host.unavailable", "This host starts no debug sessions.")
 	}
-	sessionID, err := starter(ctx, DebugSessionRequest{
+	session := DebugSessionRequest{
 		PluginID: caller.PluginID, WorkspaceRoot: workspace.Path, Label: start.Label,
 		AdapterID: start.AdapterID, Request: start.Request, Configuration: start.Configuration,
-	})
+	}
+	if remote != nil {
+		if refusal := remote.refusal(ctx); refusal != nil {
+			return nil, refusal
+		}
+		session.Connection = remote.connection
+	}
+	sessionID, err := starter(ctx, session)
 	if err != nil {
 		if errors.Is(err, context.Canceled) {
 			return nil, failure("plugin.host.cancelled", "The request was cancelled.")

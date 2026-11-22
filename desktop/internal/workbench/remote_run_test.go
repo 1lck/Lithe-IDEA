@@ -26,7 +26,8 @@ type remoteHostRuns struct {
 	configurations []core.RunConfiguration
 	plan           core.RunLaunchPlan
 	// steps are the before-launch steps of every configuration.
-	steps []core.RunBeforeLaunchItem
+	steps        []core.RunBeforeLaunchItem
+	beforeLaunch func(context.Context) error
 	// exit is how a process that is not held ends; hold keeps it running.
 	exit core.RemoteProcessExit
 	hold bool
@@ -46,22 +47,33 @@ type remoteHostRuns struct {
 // remoteHostRunOutput is what a host process prints.
 const remoteHostRunOutput = "hello from the host\n"
 
-func (k *remoteHostKernel) ResolveRunConfigurations(context.Context, string, []core.RunInstalledPlugin) (core.RunConfigResolution, error) {
+func (k *remoteHostKernel) remoteRunConfigurations() core.RunConfigResolution {
 	r := &k.runs
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	return core.RunConfigResolution{Configurations: append([]core.RunConfiguration(nil), r.configurations...)}, nil
+	return core.RunConfigResolution{Configurations: append([]core.RunConfiguration(nil), r.configurations...)}
 }
 
-func (k *remoteHostKernel) RunConfigurationTypes(context.Context, *core.RunTypePlugins) ([]core.RunConfigurationType, []core.RunTypeLocalization, error) {
-	return []core.RunConfigurationType{}, nil, nil
-}
-
-func (k *remoteHostKernel) RunBeforeLaunch(context.Context, string, string, *core.RunTypePlugins) (core.RunBeforeLaunch, error) {
+func (k *remoteHostKernel) RunBeforeLaunch(ctx context.Context, _ string, _ string, _ *core.RunTypePlugins) (core.RunBeforeLaunch, error) {
 	r := &k.runs
 	r.mu.Lock()
-	defer r.mu.Unlock()
-	return core.RunBeforeLaunch{Status: "ok", Steps: r.steps}, nil
+	steps, beforeLaunch := r.steps, r.beforeLaunch
+	r.mu.Unlock()
+	if beforeLaunch != nil {
+		if err := beforeLaunch(ctx); err != nil {
+			return core.RunBeforeLaunch{}, err
+		}
+	}
+	return core.RunBeforeLaunch{Status: "ok", Steps: steps}, nil
+}
+
+func (k *remoteHostKernel) ResolveRemoteExecutable(ctx context.Context, request core.RemoteExecutableRequest) (string, error) {
+	if request.Kind == "program" && request.Value == "sh" {
+		if workspace := core.RemoteWorkspaceOf(ctx); workspace != nil && workspace.CapturedConnection(ctx).IsCurrent() {
+			return "/usr/bin/sh", nil
+		}
+	}
+	return "", nil
 }
 
 func (k *remoteHostKernel) CreateRunLaunchPlan(_ context.Context, _, _, base string) (core.RunLaunchPlan, error) {
@@ -103,7 +115,15 @@ func (k *remoteHostKernel) RemoteRemove(_ context.Context, _, path string, recur
 	return nil
 }
 
-func (k *remoteHostKernel) RemoteRunProcess(ctx context.Context, session string, open core.RemoteProcessOpen, events core.RemoteProcessEvents) (core.RemoteProcessExit, error) {
+func (k *remoteHostKernel) RunRemoteProcess(ctx context.Context, open core.RemoteProcessOpen, events core.RemoteProcessEvents) (core.RemoteProcessExit, error) {
+	workspace := core.RemoteWorkspaceOf(ctx)
+	if workspace == nil {
+		return core.RemoteProcessExit{}, &core.Error{Code: core.CodeConnectionClosed, Message: "no captured workspace"}
+	}
+	session := workspace.CapturedConnection(ctx).SessionID()
+	if session == "" {
+		return core.RemoteProcessExit{}, &core.Error{Code: core.CodeConnectionClosed, Message: "no captured session"}
+	}
 	script, written := "", false
 	if len(open.Argv) > 1 {
 		script, written = k.file(open.Argv[1])
@@ -175,6 +195,7 @@ var remoteTestRunConfiguration = core.RunConfiguration{ID: "greet", Name: "Greet
 func openRemoteRunProject(t *testing.T) (*harness, *remoteHostKernel, *project, *treeRecordingLog) {
 	t.Helper()
 	h, k, _, logger := remoteWorkspaceHarness(t)
+	k.set(func(k *remoteHostKernel) { k.git.trust[remoteTestFolder] = core.WorkspaceTrusted })
 	k.setRuns(func(r *remoteHostRuns) {
 		r.configurations = []core.RunConfiguration{remoteTestRunConfiguration}
 		zero := 0
@@ -195,12 +216,27 @@ func openRemoteRunProject(t *testing.T) (*harness, *remoteHostKernel, *project, 
 	return h, k, p, logger
 }
 
-// startRemoteRun starts the configuration as the title bar's Run does, without the trust
-// question the folder's safe mode asks first.
+// startRemoteRun starts a configuration in a trusted workspace and checks admission
+// before the caller waits for its output.
 func (h *harness) startRemoteRun(p *project, id string) {
+	h.t.Helper()
+	started := make(chan error, 1)
 	h.app.post(func(a *App) {
-		if _, err := a.startRunConfiguration(p, id); err == nil {
+		_, err := a.startRunConfiguration(p, id)
+		if err == nil {
 			a.showBuildConsole(p)
+		}
+		started <- err
+	})
+	h.await("the remote run to start", func() bool {
+		select {
+		case err := <-started:
+			if err != nil {
+				h.t.Fatalf("start remote run %q: %v", id, err)
+			}
+			return true
+		default:
+			return false
 		}
 	})
 }
@@ -230,10 +266,6 @@ func (h *harness) awaitRemoteRun(p *project, label string, previous *runEntry) *
 func TestRemoteWorkspaceRunsBuiltInConfigurationsOnTheHost(t *testing.T) {
 	h, k, p, logger := openRemoteRunProject(t)
 	lang := h.app.language()
-	if p.build.failed != i18n.Shared(lang, "desktop.run.remote.buildTools") {
-		t.Fatal("the run configuration menu does not say build tools do not work here")
-	}
-
 	h.startRemoteRun(p, remoteTestRunConfiguration.ID)
 	run := h.awaitRemoteRun(p, remoteTestRunConfiguration.Name, nil)
 	if run.outcome != runSucceeded || !strings.Contains(run.output.all(), "hello from the host") {
@@ -251,8 +283,8 @@ func TestRemoteWorkspaceRunsBuiltInConfigurationsOnTheHost(t *testing.T) {
 	if len(bases) != 1 || bases[0] != remoteTestRunScratch+"/script" {
 		t.Fatal("Core did not plan the script below the host's temporary folder")
 	}
-	if strings.Join(open.Argv, " ") != "sh "+script || open.Cwd != remoteTestFolder+"/src" || open.Environment != core.RemoteProcessEnvironmentLogin {
-		t.Fatalf("the process started with %d arguments, cwd matched %v, environment %q", len(open.Argv), open.Cwd == remoteTestFolder+"/src", open.Environment)
+	if want := (core.RemoteScopedDirectory{Root: remoteTestFolder, Path: "src"}); strings.Join(open.Argv, " ") != "/usr/bin/sh "+script || open.ScopedCwd == nil || *open.ScopedCwd != want || open.Environment != core.RemoteProcessEnvironmentLogin {
+		t.Fatalf("the process started with argv=%v, scoped directory=%+v, environment=%q", open.Argv, open.ScopedCwd, open.Environment)
 	}
 	if open.Env["FROM_PLAN"] != "1" || open.Env["FROM_CONFIG"] != "2" || open.Label == nil || open.Label.Kind != "run" || open.Label.Name != "Greet" {
 		t.Fatalf("the process started with %d variables and label %v", len(open.Env), open.Label != nil)
@@ -326,34 +358,32 @@ func TestRemoteWorkspaceRunEndsAsTheHostProcessEnds(t *testing.T) {
 	sessionKept(t, logger, p, p.remote.session)
 }
 
-// A remote workspace refuses, with its reason, what it cannot run on the host yet: a
-// configuration whose before-launch list names a plugin's task, a debug session and a program
-// chosen through a toolchain. None of them starts a host process.
 func TestRemoteWorkspaceRefusesRunsItCannotStartOnTheHost(t *testing.T) {
 	h, k, p, _ := openRemoteRunProject(t)
 	lang := h.app.language()
 
 	k.setRuns(func(r *remoteHostRuns) {
-		r.steps = []core.RunBeforeLaunchItem{
-			{ConfigurationID: remoteTestRunConfiguration.ID, Name: "Prepare"},
-			{Task: &core.RunTaskReference{RunTypeKey: core.RunTypeKey{PluginID: "dev.example.build", BuildSystemID: "example", Type: "compile"}}, Name: "Compile"},
-		}
+		r.steps = []core.RunBeforeLaunchItem{{
+			Task: &core.RunTaskReference{RunTypeKey: core.RunTypeKey{PluginID: "dev.lithe.test.build", BuildSystemID: "example", Type: "compile"}},
+			Name: "Compile",
+		}}
 	})
 	h.startRemoteRun(p, remoteTestRunConfiguration.ID)
 	refused := h.awaitRemoteRun(p, remoteTestRunConfiguration.Name, nil)
-	if !h.notified(i18n.Shared(lang, "desktop.run.remote.beforeLaunch")) {
-		t.Fatal("the before-launch steps were not refused with their reason")
+	if refused.outcome == runSucceeded || !strings.Contains(refused.output.all(), h.app.text.Build.TargetMissing) {
+		t.Fatalf("the missing build target was not reported: %s", refused.output.all())
 	}
 
 	k.setRuns(func(r *remoteHostRuns) {
 		r.steps = nil
-		r.plan.Executable = core.RunPlanExecutable{Toolchain: "python"}
+		r.plan.Executable = core.RunPlanExecutable{Command: "missing-program"}
 	})
 	h.app.post(func(a *App) { p.closeRunSession(refused.id) })
 	h.startRemoteRun(p, remoteTestRunConfiguration.ID)
 	run := h.awaitRemoteRun(p, remoteTestRunConfiguration.Name, refused)
-	if !strings.Contains(run.output.all(), i18n.Shared(lang, "desktop.run.remote.toolchain")) && !strings.Contains(run.summary, i18n.Shared(lang, "desktop.run.remote.toolchain")) {
-		t.Fatalf("a toolchain program was not refused with its reason: %q\n%s", run.summary, run.output.all())
+	message := i18n.SharedFormat(lang, "desktop.runConfig.programNotFound", map[string]string{"program": "missing-program"})
+	if run.outcome == runSucceeded || !strings.Contains(run.output.all()+run.summary, message) {
+		t.Fatalf("the missing host program was not reported: %q\n%s", run.summary, run.output.all())
 	}
 
 	done := make(chan error, 1)
@@ -361,12 +391,57 @@ func TestRemoteWorkspaceRefusesRunsItCannotStartOnTheHost(t *testing.T) {
 		_, err := a.startRunConfigurationWith(p, remoteTestRunConfiguration.ID, &connectionDebug{})
 		done <- err
 	})
-	h.settle()
-	if err := <-done; err == nil || !h.notified(i18n.Shared(lang, "desktop.run.remote.unsupported")) {
-		t.Fatalf("a debug session was not refused: %v", err)
-	}
+	h.await("the built-in debug refusal", func() bool {
+		select {
+		case err := <-done:
+			if err == nil || !h.notified(i18n.Shared(lang, "desktop.remote.workspace.localOnly")) {
+				t.Fatalf("a built-in debug session was not refused: %v", err)
+			}
+			return true
+		default:
+			return false
+		}
+	})
 	if opens, _, _, _, _ := k.hostRuns(); len(opens) != 0 {
 		t.Fatalf("the host started %d processes", len(opens))
+	}
+}
+
+func TestRemoteWorkspaceRunDoesNotSurviveReattachment(t *testing.T) {
+	h, k, p, _ := openRemoteRunProject(t)
+	planning := make(chan struct{})
+	release := make(chan struct{})
+	k.setRuns(func(r *remoteHostRuns) {
+		r.beforeLaunch = func(ctx context.Context) error {
+			close(planning)
+			select {
+			case <-release:
+				return nil
+			case <-ctx.Done():
+				return ctx.Err()
+			}
+		}
+	})
+	var releaseOnce sync.Once
+	unblock := func() { releaseOnce.Do(func() { close(release) }) }
+	t.Cleanup(unblock)
+	h.startRemoteRun(p, remoteTestRunConfiguration.ID)
+	h.await("the run to request its before-launch plan", func() bool {
+		select {
+		case <-planning:
+			return true
+		default:
+			return false
+		}
+	})
+	// A resumed session can keep its ID. A pending run still owns the old attachment.
+	h.app.post(func(a *App) {
+		p.remote.binding.Attach(p.remote.session)
+		unblock()
+	})
+	run := h.awaitRemoteRun(p, remoteTestRunConfiguration.Name, nil)
+	if opens, _, bases, _, _ := k.hostRuns(); run.outcome == runSucceeded || len(opens) != 0 || len(bases) != 0 {
+		t.Fatalf("the stale run reached the reattached workspace: outcome=%v, opens=%d, plans=%d", run.outcome, len(opens), len(bases))
 	}
 }
 
@@ -401,8 +476,8 @@ func TestRemoteWorkspaceRunsBeforeLaunchStepsOnTheHost(t *testing.T) {
 			t.Fatal("a process started over another session")
 		}
 	}
-	if len(bases) != 2 || len(removed) != 2 || opens[0].Cwd != remoteTestFolder+"/src" {
-		t.Fatalf("%d plans, %d temporary folders removed, step cwd matched %v", len(bases), len(removed), opens[0].Cwd == remoteTestFolder+"/src")
+	if want := (core.RemoteScopedDirectory{Root: remoteTestFolder, Path: "src"}); len(bases) != 2 || len(removed) != 2 || opens[0].ScopedCwd == nil || *opens[0].ScopedCwd != want {
+		t.Fatalf("%d plans, %d temporary folders removed, step scoped directory=%+v", len(bases), len(removed), opens[0].ScopedCwd)
 	}
 
 	three := 3
@@ -451,9 +526,9 @@ func TestRemoteWorkspaceRunsBeforeLaunchStepsOnTheHost(t *testing.T) {
 
 // remoteRunDirectory keeps a plan's working directory inside the host folder.
 func TestRemoteRunDirectoryStaysInTheHostFolder(t *testing.T) {
-	for directory, want := range map[string]string{"": "/srv/app", ".": "/srv/app", "src": "/srv/app/src", "src/../lib": "/srv/app/lib"} {
-		if got, err := remoteRunDirectory("/srv/app", directory); err != nil || got != want {
-			t.Errorf("%q: %q, %v; want %q", directory, got, err, want)
+	for directory, want := range map[string]string{"": "", ".": "", "src": "src", "src/../lib": "lib"} {
+		if got, err := remoteRunDirectory("/srv/app", directory); err != nil || got == nil || got.Root != "/srv/app" || got.Path != want {
+			t.Errorf("%q: %+v, %v; want root /srv/app and path %q", directory, got, err, want)
 		}
 	}
 	for _, directory := range []string{"..", "../other", "/etc", "src/../../other"} {

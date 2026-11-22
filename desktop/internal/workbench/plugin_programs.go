@@ -154,7 +154,7 @@ func (a *App) detachPluginPrograms(id string) (*pluginservice.LanguageSession, f
 		if p := tab.project; p != nil {
 			p.revokePluginBuildTests(id)
 			stops = append(stops, p.buildSessions.detachPlugin(id))
-			stops = append(stops, p.vcs.runtime().detachPlugin(id))
+			stops = append(stops, p.vcsRuntime().detachPlugin(id))
 			var debugging []*debugSession
 			for _, session := range p.debug.sessions {
 				if session.adapter.PluginID == id {

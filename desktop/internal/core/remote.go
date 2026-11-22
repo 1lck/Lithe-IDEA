@@ -265,6 +265,27 @@ type RemoteProbedHost struct {
 	Details RemoteHostDetails `json:"details"`
 }
 
+// RemotePlatform is the platform vocabulary shared by remote plugin contexts and runtimes.
+type RemotePlatform struct {
+	OS   string `json:"os"`
+	Arch string `json:"arch"`
+}
+
+// PluginPlatform translates the server target Core selected into the plugin contract's vocabulary.
+func (h *RemoteProbedHost) PluginPlatform() *RemotePlatform {
+	if h == nil {
+		return nil
+	}
+	switch h.ServerTarget {
+	case "aarch64-unknown-linux-musl":
+		return &RemotePlatform{OS: "linux", Arch: "arm64"}
+	case "x86_64-unknown-linux-musl":
+		return &RemotePlatform{OS: "linux", Arch: "x86_64"}
+	default:
+		return nil
+	}
+}
+
 // RemoteProbeResult is the outcome of a probe, and the host when its shell ran.
 type RemoteProbeResult struct {
 	Status RemoteProbeStatus `json:"status"`

@@ -21,6 +21,7 @@ type SettingsEditor struct {
 	entry             pluginmanager.Entry
 	directory         os.FileInfo
 	workspaceIdentity os.FileInfo
+	remote            *core.RemoteWorkspaceConnection
 	manifest          []byte
 }
 
@@ -69,6 +70,28 @@ func (s *Service) settingsEntry(ctx context.Context, id string) (pluginmanager.E
 // language is the interface language tag; translations are read from the
 // installed package, so an empty language keeps manifest text.
 func (s *Service) LoadSettingsEditor(ctx context.Context, id, workspace, language string) (SettingsEditor, error) {
+	return s.loadSettingsEditor(ctx, id, workspace, language, nil)
+}
+
+// LoadRemoteSettingsEditor captures a host-backed editor independent of the
+// local placeholder directory and rejects disconnected workspaces.
+func (s *Service) LoadRemoteSettingsEditor(ctx context.Context, id, language, name string, binding *core.RemoteWorkspace) (SettingsEditor, error) {
+	if s == nil || s.Settings == nil {
+		return SettingsEditor{}, ErrAssembly
+	}
+	storage, ok := s.kernel.(pluginsettings.RemoteProjectStorage)
+	if !ok {
+		return SettingsEditor{}, ErrAssembly
+	}
+	connection := binding.CaptureConnection()
+	if connection == nil {
+		return SettingsEditor{}, workspaceSettingsConnectionChanged()
+	}
+	remote := &pluginsettings.RemoteProject{Storage: storage, Connection: connection, Name: name}
+	return s.loadSettingsEditor(ctx, id, binding.LocalRoot(), language, remote)
+}
+
+func (s *Service) loadSettingsEditor(ctx context.Context, id, workspace, language string, remote *pluginsettings.RemoteProject) (SettingsEditor, error) {
 	if s == nil || s.Settings == nil {
 		return SettingsEditor{}, ErrAssembly
 	}
@@ -88,22 +111,31 @@ func (s *Service) LoadSettingsEditor(ctx context.Context, id, workspace, languag
 		return SettingsEditor{}, err
 	}
 	var workspaceIdentity os.FileInfo
-	if workspace != "" {
+	if workspace != "" && remote == nil {
 		workspaceIdentity, err = settingsPackageDirectoryInfo(ctx, workspace)
 		if err != nil {
 			return SettingsEditor{}, err
 		}
 	}
+	var presentation *pluginsettings.Presentation
+	if language != "" {
+		presentation = &pluginsettings.Presentation{Language: language, Package: entry.Installed.Path}
+	}
 	var snapshot pluginsettings.Snapshot
-	if language == "" {
+	var connection *core.RemoteWorkspaceConnection
+	switch {
+	case remote != nil:
+		connection = remote.Connection
+		snapshot, err = s.Settings.LoadRemoteEditor(ctx, manifest.Bytes(), workspace, presentation, *remote)
+	case presentation != nil:
+		snapshot, err = s.Settings.LoadPresented(ctx, manifest.Bytes(), workspace, *presentation)
+	default:
 		snapshot, err = s.Settings.Load(ctx, manifest.Bytes(), workspace)
-	} else {
-		snapshot, err = s.Settings.LoadPresented(ctx, manifest.Bytes(), workspace, pluginsettings.Presentation{Language: language, Package: entry.Installed.Path})
 	}
 	if err != nil {
 		return SettingsEditor{}, err
 	}
-	return SettingsEditor{Snapshot: snapshot, entry: entry, directory: info, workspaceIdentity: workspaceIdentity, manifest: manifest.Bytes()}, nil
+	return SettingsEditor{Snapshot: snapshot, entry: entry, directory: info, workspaceIdentity: workspaceIdentity, remote: connection, manifest: manifest.Bytes()}, nil
 }
 
 // SaveSettingsEditor rejects replacement, uninstall and upgrade before publishing
@@ -146,6 +178,9 @@ func (s *Service) checkSettingsEditor(ctx context.Context, editor SettingsEditor
 	if !bytes.Equal(manifest.Bytes(), editor.manifest) {
 		return pluginmanager.Entry{}, configfile.ErrConflict
 	}
+	if editor.remote != nil && !editor.remote.IsCurrent() {
+		return pluginmanager.Entry{}, errors.Join(configfile.ErrConflict, workspaceSettingsConnectionChanged())
+	}
 	if editor.workspaceIdentity != nil {
 		current, err := settingsPackageDirectoryInfo(ctx, editor.Snapshot.Workspace())
 		if err != nil {
@@ -161,6 +196,8 @@ func (s *Service) checkSettingsEditor(ctx context.Context, editor SettingsEditor
 // PlanSettingsEditorAction revalidates the captured installed package around a
 // pure Core plan. It neither saves drafts nor admits or starts a backend.
 func (s *Service) PlanSettingsEditorAction(ctx context.Context, editor SettingsEditor, actionID string, confirmed bool, check func() error) (core.PluginSettingsActionPlan, error) {
+	// The installed manifest is local; the check separately validates the captured attachment.
+	ctx = core.WithoutRemoteWorkspace(ctx)
 	if s == nil || s.Settings == nil {
 		return core.PluginSettingsActionPlan{}, ErrAssembly
 	}
@@ -221,6 +258,9 @@ type SettingsActionResult struct {
 func (e SettingsEditor) SettingsOwner() core.PluginSettingsOwner {
 	return core.PluginSettingsOwner{PluginID: e.entry.Installed.ID, Version: e.entry.Installed.Version}
 }
+
+// RemoteConnection returns the attachment captured on load, if any.
+func (e SettingsEditor) RemoteConnection() *core.RemoteWorkspaceConnection { return e.remote }
 
 // Package is the installed package directory the editor was read from, which a region's
 // canvas reads its images from. It is read only.
@@ -300,7 +340,7 @@ func (s *Service) SettingsPages(ctx context.Context, language string) ([]core.Se
 
 // PlanSettingsDelivery captures native identities off the UI thread and delegates
 // scope/effect policy to Core. It reads no saved values from the source window.
-func (s *Service) PlanSettingsDelivery(ctx context.Context, editor SettingsEditor, scope string, effects []string, workspace string) (core.SettingsDelivery, error) {
+func (s *Service) PlanSettingsDelivery(ctx context.Context, editor SettingsEditor, scope string, effects []string, workspace string, remote *core.RemoteWorkspaceConnection) (core.SettingsDelivery, error) {
 	kernel, ok := s.kernel.(interface {
 		SettingsDelivery(context.Context, core.SettingsDeliveryRequest) (core.SettingsDelivery, error)
 	})
@@ -333,12 +373,17 @@ func (s *Service) PlanSettingsDelivery(ctx context.Context, editor SettingsEdito
 		return core.SettingsDelivery{}, nil
 	}
 	sameWorkspace := false
-	if scope == "project" && workspace != "" && editor.workspaceIdentity != nil {
-		info, err := settingsPackageDirectoryInfo(ctx, workspace)
-		if err != nil {
-			return core.SettingsDelivery{}, err
+	if scope == "project" {
+		switch {
+		case editor.remote != nil:
+			sameWorkspace = editor.remote.SameWorkspace(remote) && remote.IsCurrent()
+		case remote == nil && workspace != "" && editor.workspaceIdentity != nil:
+			info, err := settingsPackageDirectoryInfo(ctx, workspace)
+			if err != nil {
+				return core.SettingsDelivery{}, err
+			}
+			sameWorkspace = os.SameFile(editor.workspaceIdentity, info)
 		}
-		sameWorkspace = os.SameFile(editor.workspaceIdentity, info)
 	}
 	entries, err := s.CurrentInstalled(ctx)
 	if err != nil {

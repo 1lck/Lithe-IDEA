@@ -15,12 +15,14 @@ import (
 func TestRemoteTerminalEventsReachTheirCallbacks(t *testing.T) {
 	var got []string
 	events := RemoteTerminalEvents{
-		Started: func(id uint64) { got = append(got, "started "+strconv.FormatUint(id, 10)) },
-		Output:  func(data []byte) { got = append(got, "output "+string(data)) },
+		Started: func(id uint64, pid int64) {
+			got = append(got, "started "+strconv.FormatUint(id, 10)+"/"+strconv.FormatInt(pid, 10))
+		},
+		Output: func(data []byte) { got = append(got, "output "+string(data)) },
 	}
 	for _, raw := range []string{
 		`{"type":"progress","message":"remote"}`,
-		`{"type":"remote","event":"terminal.started","params":{"terminalId":7}}`,
+		`{"type":"remote","event":"terminal.started","params":{"terminalId":7,"pid":123}}`,
 		`{"type":"remote","event":"terminal.output","params":{"terminalId":7,"data":"aGk="}}`,
 		`{"type":"remote","event":"terminal.output","params":{"terminalId":7,"data":""}}`,
 		`{"type":"remote","event":"terminal.exit","params":{"terminalId":7,"exitCode":0}}`,
@@ -30,7 +32,7 @@ func TestRemoteTerminalEventsReachTheirCallbacks(t *testing.T) {
 			t.Fatalf("event %s: %v", raw, err)
 		}
 	}
-	if want := []string{"started 7", "output hi"}; strings.Join(got, "|") != strings.Join(want, "|") {
+	if want := []string{"started 7/123", "output hi"}; strings.Join(got, "|") != strings.Join(want, "|") {
 		t.Fatalf("delivered %q, want %q", got, want)
 	}
 	bad := `{"type":"remote","event":"terminal.output","params":{"terminalId":7,"data":"not base64!"}}`
@@ -76,7 +78,7 @@ func TestRemoteTerminalOfAnUnknownSession(t *testing.T) {
 	ctx := testContext(t)
 	started := false
 	_, err := client.RemoteRunTerminal(ctx, "no-such-session", RemoteTerminalOpen{Columns: 80, Rows: 24}, RemoteTerminalEvents{
-		Started: func(uint64) { started = true },
+		Started: func(uint64, int64) { started = true },
 	})
 	var coreErr *Error
 	if !errors.As(err, &coreErr) || coreErr.Code != CodeConnectionClosed || started {

@@ -18,6 +18,7 @@ import (
 
 	"github.com/1lck/Lithe-IDEA/desktop/internal/core"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/i18n"
+	"github.com/1lck/Lithe-IDEA/desktop/internal/marketplace"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/plugininstall"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/pluginservice"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/plugintrust"
@@ -36,7 +37,7 @@ func recommendationTestStore(t *testing.T) *store.Store {
 
 func syntheticRecommendationCatalog(t *testing.T, recommendationsJSON string) core.MarketplaceRecommendationCatalog {
 	t.Helper()
-	platform := marketplaceHostPlatform()
+	platform := marketplace.CurrentPlatform()
 	shaA := strings.Repeat("a", 64)
 	shaB := strings.Repeat("b", 64)
 	indexPayload, err := json.Marshal(map[string]any{

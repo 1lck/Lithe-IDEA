@@ -1,6 +1,7 @@
 package workbench
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"path/filepath"
@@ -151,10 +152,13 @@ func (d *runDecoders) end(id string) {
 
 // resolveRunTool resolves a tool a run needs through the same toolchain layers
 // Build and Debug use: project pins, user choices, then discovery.
-func (a *App) resolveRunTool(ctx context.Context, workspaceRoot, tool string) (pluginservice.RunExecutable, error) {
-	selection, err := a.resolveToolchainSelection(ctx, workspaceRoot, ".", tool, "")
+func (a *App) resolveRunTool(ctx context.Context, workspaceRoot, directory, tool string) (pluginservice.RunExecutable, error) {
+	selection, err := a.resolveToolchainSelection(ctx, workspaceRoot, directory, tool, "")
 	if err != nil {
 		return pluginservice.RunExecutable{}, err
+	}
+	if core.RemoteWorkspaceOf(ctx) != nil {
+		return pluginservice.RunExecutable{Path: selection.Executable, Environment: selection.Environment, PathPrepend: selection.PathPrepend}, nil
 	}
 	environment := applyToolchainSelection(nil, selection)
 	return pluginservice.RunExecutable{Path: selection.Executable, Environment: environment}, nil
@@ -163,17 +167,20 @@ func (a *App) resolveRunTool(ctx context.Context, workspaceRoot, tool string) (p
 // resolveBackendTool resolves the tool a plugin backend or language server launch
 // names, through the same layers as a run's tool, for the workspace it serves.
 func (a *App) resolveBackendTool(ctx context.Context, _, workingDirectory, tool string) (pluginbackend.ToolExecutable, error) {
-	resolved, err := a.resolveRunTool(ctx, workingDirectory, tool)
+	resolved, err := a.resolveRunTool(ctx, workingDirectory, ".", tool)
 	if err != nil {
 		return pluginbackend.ToolExecutable{}, err
 	}
-	return pluginbackend.ToolExecutable{Path: resolved.Path, Environment: resolved.Environment}, nil
+	return pluginbackend.ToolExecutable{Path: resolved.Path, Environment: resolved.Environment, PathPrepend: resolved.PathPrepend}, nil
 }
 
 // resolveBackendToolEntry supplies native installation facts and the verified
 // entry to Core. The definition, not the host, decides how a tool loads it.
 func (a *App) resolveBackendToolEntry(ctx context.Context, _ string, workingDirectory string, input pluginbackend.ToolEntryLaunch) (pluginbackend.ToolExecutable, error) {
 	selection := core.ToolchainSelection{Executable: input.Executable}
+	if input.Home != "" {
+		selection.Home = &input.Home
+	}
 	if selection.Executable == "" {
 		var err error
 		selection, err = a.resolveToolchainSelection(ctx, workingDirectory, ".", input.Tool, input.MinimumVersion)
@@ -181,7 +188,8 @@ func (a *App) resolveBackendToolEntry(ctx context.Context, _ string, workingDire
 			return pluginbackend.ToolExecutable{}, err
 		}
 	}
-	manifests, err := a.toolchainManifests(ctx)
+	local := core.WithoutRemoteWorkspace(ctx)
+	manifests, err := a.toolchainManifests(local)
 	if err != nil {
 		return pluginbackend.ToolExecutable{}, err
 	}
@@ -193,11 +201,57 @@ func (a *App) resolveBackendToolEntry(ctx context.Context, _ string, workingDire
 	if selection.Home != nil {
 		home = *selection.Home
 	}
-	launch, err := a.kernel.InstantiateToolchainLaunch(ctx, registry, input.Tool, selection.Executable, home, input.Entry, input.RuntimeArguments, input.Arguments)
+	launch, err := a.kernel.InstantiateToolchainLaunch(local, registry, input.Tool, selection.Executable, home, input.Entry, input.RuntimeArguments, input.Arguments)
 	if err != nil {
 		return pluginbackend.ToolExecutable{}, err
 	}
+	if workspace := core.RemoteWorkspaceOf(ctx); workspace != nil {
+		if input.Home != "" && input.MinimumVersion != "" {
+			if err := a.checkRemoteRuntimeVersion(ctx, workspace, registry, input, launch.VersionArguments); err != nil {
+				return pluginbackend.ToolExecutable{}, err
+			}
+		}
+		return pluginbackend.ToolExecutable{Path: launch.Executable, Arguments: launch.Arguments, Environment: selection.Environment, PathPrepend: selection.PathPrepend}, nil
+	}
 	return pluginbackend.ToolExecutable{Path: launch.Executable, Arguments: launch.Arguments, Environment: applyToolchainSelection(nil, selection)}, nil
+}
+
+// A managed artifact's version identifies its archive. Use the tool's
+// declared probe to check the executable against a launch's minimum version.
+func (a *App) checkRemoteRuntimeVersion(ctx context.Context, workspace *core.RemoteWorkspace, registry []byte, input pluginbackend.ToolEntryLaunch, arguments []string) error {
+	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+	const maxOutput = 128 * 1024
+	var stdout, stderr bytes.Buffer
+	exit, err := a.kernel.RunRemoteProcess(ctx, core.RemoteProcessOpen{
+		Argv:        append([]string{input.Executable}, arguments...),
+		ScopedCwd:   &core.RemoteScopedDirectory{Root: workspace.RemoteRoot()},
+		Environment: "login",
+	}, core.RemoteProcessEvents{Output: func(stream string, data []byte) {
+		if len(data) > maxOutput-1-stdout.Len()-stderr.Len() {
+			cancel()
+			return
+		}
+		if stream == "stdout" {
+			stdout.Write(data)
+		} else if stream == "stderr" {
+			stderr.Write(data)
+		}
+	}})
+	if err != nil {
+		return err
+	}
+	if exit.ExitCode != nil && *exit.ExitCode == 0 && ctx.Err() == nil {
+		output := stdout.String() + "\n" + stderr.String()
+		version, err := a.kernel.CheckToolchainVersion(core.WithoutRemoteWorkspace(ctx), registry, input.Tool, output, input.MinimumVersion)
+		if err != nil {
+			return err
+		}
+		if version.Satisfied {
+			return nil
+		}
+	}
+	return &core.MarketplaceRejection{Code: "plugin.toolchain.launchMismatch", Message: "The managed runtime does not satisfy the launch's minimum version."}
 }
 
 // resolveLanguageTool supplies the complete installation selected by Core.
@@ -229,8 +283,12 @@ func (a *App) applyRunEvent(event pluginservice.RunEvent) {
 			return
 		}
 		p.links.loaded, p.links.sources = false, nil
+		label := event.Label
+		if event.Remote {
+			label = a.text.Run.RemoteLabel(label)
+		}
 		entry := &runEntry{
-			id: event.RunID, pluginID: event.PluginID, label: event.Label, rerun: event.Rerun, running: true,
+			id: event.RunID, pluginID: event.PluginID, label: label, rerun: event.Rerun, running: true,
 			processRunning: true, started: a.now(), output: newOutputBuffer(runOutputMaxLines, runOutputBytes),
 		}
 		a.addRunSession(p, entry)
@@ -253,6 +311,8 @@ func (a *App) applyRunEvent(event pluginservice.RunEvent) {
 		stopRunPortSampling(entry)
 		messages := a.text.Run
 		switch {
+		case event.Disconnected:
+			entry.summary = messages.RemoteDisconnected
 		case event.ExitCode != nil:
 			entry.summary = messages.Exited(*event.ExitCode)
 		case event.Signal != "":
@@ -263,7 +323,7 @@ func (a *App) applyRunEvent(event pluginservice.RunEvent) {
 		switch {
 		case entry.stopping:
 			entry.outcome = runStopped
-		case event.ExitCode != nil && *event.ExitCode != 0 || event.Signal != "":
+		case event.Disconnected || event.ExitCode != nil && *event.ExitCode != 0 || event.Signal != "":
 			entry.outcome = runFailed
 		default:
 			entry.outcome = runSucceeded

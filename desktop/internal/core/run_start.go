@@ -6,6 +6,14 @@ import (
 	"encoding/json"
 )
 
+// ProcessPlacement selects the workspace host or the host displaying the IDE.
+type ProcessPlacement string
+
+const (
+	ProcessPlacementWorkspace ProcessPlacement = "workspace"
+	ProcessPlacementUI        ProcessPlacement = "ui"
+)
+
 // RunStartExecutable names the program of a plugin-started run. Kind is
 // "toolchain" (Value is a tool definition ID the manifest requires) or
 // "packaged" (Value is a normalized path inside the plugin package).
@@ -57,6 +65,7 @@ type RunStart struct {
 	Arguments        []string           `json:"arguments"`
 	WorkingDirectory string             `json:"workingDirectory"`
 	Environment      map[string]string  `json:"environment"`
+	Placement        ProcessPlacement   `json:"placement,omitempty"`
 	OutputEncoding   string             `json:"outputEncoding,omitempty"`
 	TemporaryFiles   []RunStartFile     `json:"temporaryFiles"`
 	Debug            *RunStartDebug     `json:"debug"`

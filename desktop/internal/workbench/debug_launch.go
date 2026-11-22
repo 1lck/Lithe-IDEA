@@ -13,6 +13,7 @@ import (
 	"github.com/1lck/Lithe-IDEA/desktop/internal/core"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/pluginbackend"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/pluginhost"
+	"github.com/1lck/Lithe-IDEA/desktop/internal/pluginpkg"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/toolchain"
 )
 
@@ -44,6 +45,8 @@ type preparedDebugLaunch struct {
 	DisabledCapabilities []string
 	Features             json.RawMessage
 	Defaults             json.RawMessage
+	RemoteAdapter        bool
+	RemotePathPrepend    []string
 	// Endpoint is the plan's endpoint descriptor, passed unchanged to Core when
 	// it reads the output of a tcpAnnounced adapter for its announcement.
 	Endpoint json.RawMessage
@@ -131,8 +134,9 @@ func (a *App) resolveAdapterProcess(ctx context.Context, adapter debugAdapter, p
 // prepareDebugLaunch runs off the window thread. The Core owns template expansion
 // and DAP argument bindings; this adapter only verifies and opens native resources.
 // It reads only p's root and its workspace trust, which is atomic.
-func (a *App) prepareDebugLaunch(ctx context.Context, start debugStart, stateDirectory string, p *project, targetPath string, generation uint64, unavailable string) (preparedDebugLaunch, error) {
+func (a *App) prepareDebugLaunch(ctx context.Context, start debugStart, session *debugSession, p *project, targetPath string, generation uint64, unavailable string) (preparedDebugLaunch, error) {
 	root := p.root
+	stateDirectory := session.stateDirectory
 	adapter := start.adapter
 	hosted := adapter.Declaration.Transport == "tcpLanguageServer"
 	settings, err := a.loadPluginPreferenceSources(ctx, adapter.Manifest, root)
@@ -146,23 +150,77 @@ func (a *App) prepareDebugLaunch(ctx context.Context, start debugStart, stateDir
 		LogDirectory:            a.pluginLogDirectory(ctx, adapter.PluginID),
 		TemporaryDirectory:      filepath.Join(stateDirectory, "tmp"),
 		Architecture:            core.PluginArchitecture(),
-		Settings:                settings.State.Settings,
-		ProjectSettings:         settings.State.ProjectSettings,
+		Settings:                settings.Settings,
+		ProjectSettings:         settings.ProjectSettings,
 		// A hosted adapter's launch is its language server's, which Core refuses in an
 		// untrusted workspace when the server runs project code.
 		ProjectCodeAllowed: p.trust.allowed(),
 	}
-	plan, err := a.kernel.PlanPluginDebugAdapter(ctx, adapter.Manifest, adapter.Declaration.ID, directories)
+	if start.connection != nil {
+		directories.RemoteWorkspace = true
+		directories.Architecture = p.remote.platform.Arch
+		directories.ProbeLocalPlacement = true
+	}
+	plan, err := a.kernel.PlanPluginDebugAdapter(core.WithoutRemoteWorkspace(ctx), adapter.Manifest, adapter.Declaration.ID, directories)
 	if err != nil {
 		return preparedDebugLaunch{}, adapterUnresolved(err)
+	}
+	remoteAdapter := start.connection != nil && plan.Placement != string(core.ProcessPlacementUI)
+	if start.connection != nil && !remoteAdapter {
+		directories.ProbeLocalPlacement = false
+		plan, err = a.kernel.PlanPluginDebugAdapter(core.WithoutRemoteWorkspace(ctx), adapter.Manifest, adapter.Declaration.ID, directories)
+		if err != nil {
+			return preparedDebugLaunch{}, adapterUnresolved(err)
+		}
+	}
+	installed := pluginpkg.Installed{ID: adapter.PluginID, Version: adapter.Version, Path: adapter.Directory}
+	if remoteAdapter && !hosted && len(plan.RequiredPackagePaths) != 0 {
+		deploy := a.plugins.RemoteDeployment(installed, adapter.Manifest, p.remote.platform, nil)
+		directories.RemotePluginDirectory, err = deploy(start.connection.Context(ctx), plan.RequiredPackagePaths)
+		if err != nil {
+			return preparedDebugLaunch{}, adapterUnresolved(err)
+		}
+		directories.ProbeLocalPlacement = false
+		plan, err = a.kernel.PlanPluginDebugAdapter(core.WithoutRemoteWorkspace(ctx), adapter.Manifest, adapter.Declaration.ID, directories)
+		if err != nil {
+			return preparedDebugLaunch{}, adapterUnresolved(err)
+		}
 	}
 	var executable string
 	processArguments := plan.Arguments
 	var environment map[string]string
+	var remotePathPrepend []string
 	// An adapter inside a language server has no process of its own: the plan's
 	// launch is the server's, which its language session starts.
 	if !hosted {
-		executable, processArguments, environment, err = a.resolveAdapterProcess(ctx, adapter, plan, root, stateDirectory)
+		if remoteAdapter {
+			remoteCtx := start.connection.Context(ctx)
+			switch plan.Launch.Kind {
+			case pluginhost.LaunchPackaged:
+				executable = plan.Launch.RemoteExecutable
+			case pluginhost.LaunchSystemCommand:
+				executable, err = a.resolveRemoteDebugCommand(remoteCtx, plan.Launch.Commands)
+			case pluginhost.LaunchTool:
+				input := pluginbackend.ToolEntryLaunch{
+					Tool: plan.Launch.Tool, Executable: plan.Launch.RemoteExecutable, Entry: plan.Launch.Entry,
+					MinimumVersion: plan.Launch.MinimumVersion, RuntimeArguments: plan.Launch.RuntimeArguments, Arguments: plan.Arguments,
+				}
+				if input.Executable == "" {
+					managed, err := a.plugins.RemoteTools(remoteCtx, installed, adapter.Manifest, start.connection, p.remote.platform)
+					if err != nil {
+						return preparedDebugLaunch{}, adapterUnresolved(err)
+					}
+					tool := managed[input.Tool]
+					input.Executable, input.Home = tool.Path, tool.Home
+				}
+				var tool pluginbackend.ToolExecutable
+				tool, err = a.resolveBackendToolEntry(remoteCtx, adapter.PluginID, root, input)
+				executable, processArguments = tool.Path, tool.Arguments
+				environment, remotePathPrepend = tool.Environment, tool.PathPrepend
+			}
+		} else {
+			executable, processArguments, environment, err = a.resolveAdapterProcess(core.WithoutRemoteWorkspace(ctx), adapter, plan, root, stateDirectory)
+		}
 		if err != nil {
 			return preparedDebugLaunch{}, adapterUnresolved(err)
 		}
@@ -184,12 +242,24 @@ func (a *App) prepareDebugLaunch(ctx context.Context, start debugStart, stateDir
 		// adapter's declared connection, so the host passes the facts unchanged.
 		target = *start.target
 	} else {
-		lookup, err := a.kernel.PlanDebugExecutable(ctx, adapter.Manifest, adapter.Declaration.ID, root, targetPath, settings.State.Settings, settings.State.ProjectSettings)
+		lookup, err := a.kernel.PlanDebugExecutable(ctx, adapter.Manifest, adapter.Declaration.ID, root, targetPath, settings.Settings, settings.ProjectSettings)
 		if err != nil {
 			return preparedDebugLaunch{}, err
 		}
 		if lookup != nil {
-			if lookup.Configured != nil {
+			if remoteAdapter {
+				candidates := lookup.Candidates
+				if lookup.Configured != nil {
+					candidates = []string{lookup.Configured.Path}
+				}
+				target.Executable, err = a.resolveRemoteDebugCommand(ctx, candidates)
+				if err != nil {
+					return preparedDebugLaunch{}, err
+				}
+				if target.Executable == "" {
+					return preparedDebugLaunch{}, errors.New(unavailable)
+				}
+			} else if lookup.Configured != nil {
 				target.Executable, err = exec.LookPath(lookup.Configured.Path)
 				if err != nil {
 					return preparedDebugLaunch{}, err
@@ -220,7 +290,11 @@ func (a *App) prepareDebugLaunch(ctx context.Context, start debugStart, stateDir
 	}
 	// A backend's configuration goes to Core too, which puts it over the
 	// adapter's arguments: the host sends the result as it is.
-	planned, err := a.kernel.PlanDebugStart(ctx, adapter.Manifest, adapter.Declaration.ID, start.request, core.DebugStartFacts{
+	argumentContext := ctx
+	if !remoteAdapter {
+		argumentContext = core.WithoutRemoteWorkspace(ctx)
+	}
+	planned, err := a.kernel.PlanDebugStart(argumentContext, adapter.Manifest, adapter.Declaration.ID, start.request, core.DebugStartFacts{
 		Registration: core.DebugGeneration{Generation: generation, CurrentGeneration: generation},
 		Target:       target,
 	}, start.configuration)
@@ -229,8 +303,28 @@ func (a *App) prepareDebugLaunch(ctx context.Context, start debugStart, stateDir
 	}
 	// Core says which endpoints it can prove local; every other one waits for the
 	// user, and the answer is not remembered.
-	if planned.Connection != nil && planned.Connection.Remote && !start.confirmed {
-		return preparedDebugLaunch{}, &debugRemoteError{host: planned.Connection.Host, port: planned.Connection.Port}
+	endpoint := planned.Connection
+	tunnel := start.connection != nil && !remoteAdapter
+	if endpoint != nil && (endpoint.Remote || tunnel) && !start.confirmed {
+		return preparedDebugLaunch{}, &debugRemoteError{host: endpoint.Host, port: endpoint.Port}
+	}
+	if tunnel {
+		if start.request != "attach" || endpoint == nil {
+			return preparedDebugLaunch{}, &core.Error{Code: core.CodeNotSupported, Message: unavailable}
+		}
+		local, err := a.forwardDebugEndpoint(ctx, start.connection, endpoint.Host, endpoint.Port, start.confirmed)
+		if err != nil {
+			return preparedDebugLaunch{}, err
+		}
+		session.releaseForward = local.release
+		target.Host, target.Port = local.host, local.port
+		planned, err = a.kernel.PlanDebugStart(argumentContext, adapter.Manifest, adapter.Declaration.ID, start.request, core.DebugStartFacts{
+			Registration: core.DebugGeneration{Generation: generation, CurrentGeneration: generation},
+			Target:       target,
+		}, start.configuration)
+		if err != nil {
+			return preparedDebugLaunch{}, err
+		}
 	}
 	for _, slot := range plan.RequiredDirectories {
 		var directory string
@@ -266,10 +360,12 @@ func (a *App) prepareDebugLaunch(ctx context.Context, start debugStart, stateDir
 		}
 	}
 	prepared := preparedDebugLaunch{
-		Executable:    executable,
-		Arguments:     processArguments,
-		Environment:   environment,
-		Configuration: core.DebugLaunchConfiguration{Name: adapter.Declaration.DisplayName, Request: start.request, Arguments: planned.Arguments},
+		Executable:        executable,
+		Arguments:         processArguments,
+		Environment:       environment,
+		RemoteAdapter:     remoteAdapter,
+		RemotePathPrepend: remotePathPrepend,
+		Configuration:     core.DebugLaunchConfiguration{Name: adapter.Declaration.DisplayName, Request: start.request, Arguments: planned.Arguments},
 	}
 	if descriptor := plan.DebugAdapter; descriptor != nil {
 		prepared.DisabledCapabilities = descriptor.DisabledCapabilities
@@ -278,6 +374,16 @@ func (a *App) prepareDebugLaunch(ctx context.Context, start debugStart, stateDir
 		prepared.Endpoint = descriptor.Endpoint
 	}
 	return prepared, ctx.Err()
+}
+
+func (a *App) resolveRemoteDebugCommand(ctx context.Context, candidates []string) (string, error) {
+	for _, candidate := range candidates {
+		executable, err := a.kernel.ResolveRemoteExecutable(ctx, core.RemoteExecutableRequest{Kind: "program", Value: candidate})
+		if err != nil || executable != "" {
+			return executable, err
+		}
+	}
+	return "", nil
 }
 
 // installedCommands is the record of the commands the host installed for plugins;

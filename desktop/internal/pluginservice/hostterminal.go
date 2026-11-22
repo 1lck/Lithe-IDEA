@@ -3,6 +3,7 @@ package pluginservice
 import (
 	"context"
 	"encoding/json"
+	"path"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -10,6 +11,7 @@ import (
 	"time"
 	"unicode/utf8"
 
+	"github.com/1lck/Lithe-IDEA/desktop/internal/core"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/pluginhost"
 )
 
@@ -48,6 +50,10 @@ type TerminalSpec struct {
 	Title string
 	// Directory is the absolute working directory inside the workspace.
 	Directory string
+	// RemoteDirectory holds the approved host root and relative cwd in a remote workspace.
+	RemoteDirectory *core.RemoteScopedDirectory
+	// RemoteConnection is captured for each consent and launch, including reopen.
+	RemoteConnection *core.RemoteWorkspaceConnection
 	// Environment overrides variables; a nil value removes one.
 	Environment map[string]*string
 	// Show selects the terminal and reveals the terminal panel.
@@ -93,7 +99,6 @@ type TerminalHost interface {
 type terminalHandle struct {
 	id        string
 	caller    pluginhost.Caller
-	contextID string
 	workspace WorkspaceContext
 	spec      TerminalSpec
 
@@ -137,9 +142,9 @@ func (s *Service) registerTerminals(host TerminalHost) error {
 	} {
 		var err error
 		if entry.choice {
-			err = s.HostServices.RegisterUserChoice(entry.method, entry.handler)
+			err = s.HostServices.RegisterUserChoice(entry.method, entry.handler, core.PluginAuthorityBoth)
 		} else {
-			err = s.HostServices.Register(entry.method, entry.handler)
+			err = s.HostServices.Register(entry.method, entry.handler, core.PluginAuthorityBoth)
 		}
 		if err != nil {
 			return err
@@ -170,11 +175,11 @@ func retainedBudget(value *int) (int, *pluginhost.Failure) {
 	return *value, nil
 }
 
-func validExecutable(name string) bool {
+func validExecutable(name string, isAbsolute func(string) bool) bool {
 	if name == "" || len(name) > maxTerminalValueBytes || strings.ContainsRune(name, 0) {
 		return false
 	}
-	if filepath.IsAbs(name) {
+	if isAbsolute(name) {
 		return true
 	}
 	// A bare command is resolved by PATH; a relative path with a separator is not.
@@ -182,8 +187,8 @@ func validExecutable(name string) bool {
 }
 
 // validateTerminal checks the launch data against the contract's limits.
-func validateTerminal(request terminalCreateParams) *pluginhost.Failure {
-	if !validExecutable(request.Executable) {
+func validateTerminal(request terminalCreateParams, isAbsolute func(string) bool) *pluginhost.Failure {
+	if !validExecutable(request.Executable, isAbsolute) {
 		return failure(codeInvalidParams, "executable is an absolute path or a bare command.")
 	}
 	if len(request.Arguments) > maxTerminalArguments {
@@ -229,25 +234,40 @@ func (s *Service) handleTerminalCreate(ctx context.Context, params json.RawMessa
 	if refusal != nil {
 		return nil, refusal
 	}
-	if refusal := validateTerminal(request); refusal != nil {
+	remote := workspace.authorityKind() == "remote"
+	isAbsolute := filepath.IsAbs
+	if remote {
+		isAbsolute = path.IsAbs
+	}
+	if refusal := validateTerminal(request, isAbsolute); refusal != nil {
 		return nil, refusal
 	}
 	budget, refusal := retainedBudget(request.RetainedBytes)
 	if refusal != nil {
 		return nil, refusal
 	}
-	directory := workspace.Path
-	if request.Cwd != nil {
+	spec := TerminalSpec{
+		PluginID: caller.PluginID, Executable: request.Executable, Arguments: request.Arguments,
+		Title: request.Title, Directory: workspace.Path, Environment: request.Environment,
+		Show: request.Show == nil || *request.Show, RetainedBytes: budget,
+	}
+	if remote {
+		var relative string
+		if request.Cwd != nil {
+			parts, err := s.resourcePathParts(caller.PluginID, workspace, *request.Cwd)
+			if err != nil {
+				return nil, failure(codeInvalidParams, "cwd is not a directory inside the workspace.")
+			}
+			relative = strings.Join(parts, "/")
+		}
+		spec.RemoteDirectory = &core.RemoteScopedDirectory{Root: workspace.remote.hostPath, Path: relative}
+		spec.Directory = path.Join(spec.RemoteDirectory.Root, spec.RemoteDirectory.Path)
+	} else if request.Cwd != nil {
 		resolved, err := s.resolveResource(caller.PluginID, workspace, *request.Cwd)
 		if err != nil {
 			return nil, failure(codeInvalidParams, "cwd is not a directory inside the workspace.")
 		}
-		directory = resolved
-	}
-	spec := TerminalSpec{
-		PluginID: caller.PluginID, Executable: request.Executable, Arguments: request.Arguments,
-		Title: request.Title, Directory: directory, Environment: request.Environment,
-		Show: request.Show == nil || *request.Show, RetainedBytes: budget,
+		spec.Directory = resolved
 	}
 	handle, refusal := s.reserveTerminal(caller, workspace, spec)
 	if refusal != nil {
@@ -276,14 +296,14 @@ func (s *Service) reserveTerminal(caller pluginhost.Caller, workspace WorkspaceC
 	}
 	registry.next++
 	handle := &terminalHandle{
-		id: "t-" + strconv.Itoa(registry.next), caller: caller, contextID: workspace.ContextID,
+		id: "t-" + strconv.Itoa(registry.next), caller: caller,
 		workspace: workspace, spec: spec, budget: spec.RetainedBytes,
 	}
 	// The handle counts against the limit from the start, so concurrent creates
 	// cannot pass it together.
 	handle.busy = true
 	registry.byID[handle.id] = handle
-	handle.resource = s.resources.add(caller, workspace.ContextID, func() { s.disposeTerminal(handle) })
+	handle.resource = s.resources.add(caller, workspace.ContextRef, func() { s.disposeTerminal(handle) })
 	return handle, nil
 }
 
@@ -302,6 +322,13 @@ func (s *Service) launchTerminal(ctx context.Context, handle *terminalHandle, ge
 	handle.mu.Lock()
 	spec.RetainedBytes = handle.budget
 	handle.mu.Unlock()
+	if spec.RemoteDirectory != nil {
+		spec.RemoteConnection = handle.workspace.remote.binding.CaptureConnection()
+		if spec.RemoteConnection == nil {
+			handle.leave()
+			return failure(CodeRemoteDisconnected, "The remote workspace is disconnected.")
+		}
+	}
 	session, err := s.terminalHost.StartTerminal(ctx, handle.workspace.Path, spec)
 	if err != nil {
 		handle.mu.Lock()
@@ -309,17 +336,19 @@ func (s *Service) launchTerminal(ctx context.Context, handle *terminalHandle, ge
 		handle.mu.Unlock()
 		return hostFailureOf(err)
 	}
-	if ctx.Err() != nil {
+	handle.mu.Lock()
+	if handle.disposed || ctx.Err() != nil || (spec.RemoteConnection != nil && !spec.RemoteConnection.IsCurrent()) {
+		handle.busy = false
+		handle.mu.Unlock()
 		// Cancelled or the context was lost while launching: nothing may keep running.
 		closeCtx, cancel := context.WithTimeout(context.Background(), terminalCleanupTimeout)
 		_ = session.Close(closeCtx, 0)
 		cancel()
-		handle.mu.Lock()
-		handle.busy = false
-		handle.mu.Unlock()
+		if ctx.Err() == nil && spec.RemoteConnection != nil && !spec.RemoteConnection.IsCurrent() {
+			return failure(CodeRemoteDisconnected, "The remote workspace connection changed.")
+		}
 		return failure(pluginhost.CodeCancelled, "The request was cancelled.")
 	}
-	handle.mu.Lock()
 	handle.generation = generation
 	handle.session = session
 	handle.exit = nil
@@ -380,7 +409,7 @@ func (s *Service) lookupTerminal(ctx context.Context, ref ContextRef, id string)
 	s.terminals.mu.Lock()
 	handle := s.terminals.byID[id]
 	s.terminals.mu.Unlock()
-	if handle == nil || handle.caller != caller || handle.contextID != workspace.ContextID {
+	if handle == nil || handle.caller != caller || handle.workspace.ContextRef != workspace.ContextRef {
 		return nil, caller, failure(CodeNotFound, "No such terminal.")
 	}
 	return handle, caller, nil
@@ -616,7 +645,7 @@ func (s *Service) handleTerminalOnExit(ctx context.Context, params json.RawMessa
 	if handle.exitSub != "" {
 		return nil, failure(CodePreconditionFailed, "The terminal already has an exit subscription.")
 	}
-	id := s.resources.add(caller, handle.contextID, func() {
+	id := s.resources.add(caller, handle.workspace.ContextRef, func() {
 		handle.mu.Lock()
 		handle.exitSub = ""
 		handle.mu.Unlock()

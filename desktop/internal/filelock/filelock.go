@@ -1,4 +1,5 @@
-package pluginruntime
+// Package filelock owns the native, process-scoped locks for writable caches.
+package filelock
 
 import (
 	"context"
@@ -8,10 +9,14 @@ import (
 	"time"
 )
 
-// acquire uses an OS lock, not a pid or timestamp lease: process death releases
+// ErrInvalidFile means the lock path does not name the opened regular file.
+var ErrInvalidFile = errors.New("lock path is not a regular file")
+
+// Acquire uses an OS lock, not a pid or timestamp lease: process death releases
 // ownership automatically. The file stays in place so another opener cannot
-// lock a different inode while a previous waiter still holds the old one.
-func acquire(ctx context.Context, name string) (unlock func() error, err error) {
+// lock a different inode while a previous waiter still holds the old one. The
+// caller bounds the wait through ctx.
+func Acquire(ctx context.Context, name string) (unlock func() error, err error) {
 	defer func() {
 		if err != nil && unlock != nil {
 			err = errors.Join(err, unlock())
@@ -46,11 +51,12 @@ func acquire(ctx context.Context, name string) (unlock func() error, err error) 
 		return nil, err
 	}
 	if !info.Mode().IsRegular() || !os.SameFile(info, opened) {
-		return nil, ErrArtifact
+		return nil, ErrInvalidFile
 	}
-	bounded, cancel := context.WithTimeout(ctx, 5*time.Minute)
-	defer cancel()
 	for {
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
 		locked, err := tryLock(file)
 		if err != nil {
 			return nil, err
@@ -63,12 +69,9 @@ func acquire(ctx context.Context, name string) (unlock func() error, err error) 
 		// bounded timer performs no filesystem scanning and owns no goroutine.
 		timer := time.NewTimer(100 * time.Millisecond)
 		select {
-		case <-bounded.Done():
+		case <-ctx.Done():
 			timer.Stop()
-			if ctx.Err() != nil {
-				return nil, ctx.Err()
-			}
-			return nil, ErrBusy
+			return nil, ctx.Err()
 		case <-timer.C:
 		}
 	}

@@ -312,6 +312,8 @@ func RuntimeProgressText(language i18n.Language, progress pluginruntime.Progress
 			return i18n.SharedFormat(language, "desktop.marketplace.runtimeReceived", map[string]string{"dependency": progress.ID, "received": fmt.Sprintf("%.1f", float64(progress.Received)/(1<<20))})
 		}
 		return i18n.SharedFormat(language, "desktop.marketplace.runtimeDownloading", map[string]string{"dependency": progress.ID, "received": fmt.Sprintf("%.1f", float64(progress.Received)/(1<<20)), "total": fmt.Sprintf("%.1f", float64(progress.Total)/(1<<20))})
+	case "uploading":
+		return i18n.SharedFormat(language, "desktop.marketplace.runtimeUploading", map[string]string{"dependency": progress.ID, "sent": fmt.Sprintf("%.1f", float64(progress.Received)/(1<<20)), "total": fmt.Sprintf("%.1f", float64(progress.Total)/(1<<20))})
 	case "extracting":
 		return i18n.SharedFormat(language, "desktop.marketplace.runtimeExtracting", map[string]string{"dependency": progress.ID})
 	case "verifying":

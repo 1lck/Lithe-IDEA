@@ -8,6 +8,8 @@ import (
 	"sort"
 	"sync"
 	"time"
+
+	"github.com/1lck/Lithe-IDEA/desktop/internal/core"
 )
 
 // MethodPrefix is the namespace every host service method lives in. Grants in a
@@ -79,7 +81,8 @@ type Handler func(ctx context.Context, params json.RawMessage) (json.RawMessage,
 
 // serviceHandler is one registered method and how its requests are bounded.
 type serviceHandler struct {
-	handler Handler
+	handler   Handler
+	authority core.PluginAuthoritySupport
 	// userChoice says the request waits for the user, so the machine deadline
 	// does not apply to it.
 	userChoice bool
@@ -122,8 +125,8 @@ func (s *Services) GrantService(name string) error {
 // A method may be registered once: the contract says a later registration cannot
 // replace an earlier one, so a second call is an error rather than a silent
 // override that would change what a running backend is talking to.
-func (s *Services) Register(method string, handler Handler) error {
-	return s.register(method, handler, false)
+func (s *Services) Register(method string, handler Handler, authority ...core.PluginAuthoritySupport) error {
+	return s.register(method, handler, false, authority)
 }
 
 // RegisterUserChoice adds a handler whose requests wait for the user.
@@ -132,24 +135,46 @@ func (s *Services) Register(method string, handler Handler) error {
 // message wait until the user answers, the request is cancelled or the session
 // closes. Registering such a method as a machine handler would answer it with
 // "cancelled" after thirty seconds.
-func (s *Services) RegisterUserChoice(method string, handler Handler) error {
-	return s.register(method, handler, true)
+func (s *Services) RegisterUserChoice(method string, handler Handler, authority ...core.PluginAuthoritySupport) error {
+	return s.register(method, handler, true, authority)
 }
 
-func (s *Services) register(method string, handler Handler, userChoice bool) error {
+func (s *Services) register(method string, handler Handler, userChoice bool, authority []core.PluginAuthoritySupport) error {
 	if !validMethod(method) {
 		return fmt.Errorf("%w: %q is not a host method name", ErrServiceRegistration, method)
 	}
 	if handler == nil {
 		return fmt.Errorf("%w: %q has no handler", ErrServiceRegistration, method)
 	}
+	support := core.PluginAuthorityLocal
+	if len(authority) == 1 {
+		support = authority[0]
+	}
+	if len(authority) > 1 || (support != core.PluginAuthorityLocal && support != core.PluginAuthorityRemote && support != core.PluginAuthorityBoth) {
+		return fmt.Errorf("%w: %q has invalid workspace authority support", ErrServiceRegistration, method)
+	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if _, exists := s.handlers[method]; exists {
 		return fmt.Errorf("%w: %q is already registered", ErrServiceRegistration, method)
 	}
-	s.handlers[method] = serviceHandler{handler: handler, userChoice: userChoice}
+	s.handlers[method] = serviceHandler{handler: handler, userChoice: userChoice, authority: support}
 	return nil
+}
+
+// MethodAuthorities reports the workspace authority of every registered handler.
+// Core projects these declarations onto the methods the plugin may call.
+func (s *Services) MethodAuthorities() map[string]core.PluginAuthoritySupport {
+	if s == nil {
+		return nil
+	}
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	methods := make(map[string]core.PluginAuthoritySupport, len(s.handlers))
+	for method, entry := range s.handlers {
+		methods[method] = entry.authority
+	}
+	return methods
 }
 
 // Grant reports the sorted method names this host can answer. It is what a start

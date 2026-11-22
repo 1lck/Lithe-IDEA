@@ -269,20 +269,24 @@ func (a *App) applyProjectTrust(p *project, trusted bool) {
 	}
 	a.loadGit(p)
 	a.startGitObservation(p)
-	if p.remote != nil {
-		// A remote workspace's Git runs on its host; its build tools and language servers do not
-		// run yet, so trusting it starts nothing else.
-		return
+	if p.remote == nil {
+		p.vcs.clearFailures()
 	}
-	p.vcs.clearFailures()
 	for index := range p.build.instances {
 		instance := &p.build.instances[index]
 		if instance.modelUntrusted {
 			instance.modelUntrusted, instance.modelStopped, instance.modelError = false, false, ""
 		}
 	}
-	a.loadTitleRunConfigs(p)
-	a.retryFailedPluginServers()
+	if p.remote != nil {
+		a.loadBuildModel(p, p.build.selected)
+		for _, document := range p.docs.list {
+			a.startPluginServer(document.languageID)
+		}
+	} else {
+		a.loadTitleRunConfigs(p)
+		a.retryFailedPluginServers()
+	}
 }
 
 // skipUntrustedModel keeps the model of instance unloaded in safe mode, since loading it runs

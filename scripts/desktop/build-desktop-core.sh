@@ -458,7 +458,12 @@ if [[ ! -s "$NATIVE_LIBS_FILE" ]]; then
     exit 1
 fi
 
-install -m 0644 "$LIBRARY_DIR/liblithe_core.a" "$STAGE_DIR/lib/liblithe_core.a"
+# Compare before install: BSD install -C can still stage a temporary copy
+# before comparing, so an unchanged archive can otherwise exhaust disk space.
+STAGED_LIBRARY="$STAGE_DIR/lib/liblithe_core.a"
+if [[ -L "$STAGED_LIBRARY" ]] || ! cmp -s "$LIBRARY_DIR/liblithe_core.a" "$STAGED_LIBRARY"; then
+    install -m 0644 "$LIBRARY_DIR/liblithe_core.a" "$STAGED_LIBRARY"
+fi
 install -m 0644 "$CORE_DIR/rust/crates/core/include/lithe_core.h" "$STAGE_DIR/include/lithe_core.h"
 
 # The IDE API helper is the lithe-ide-host crate's lithe-mcp binary from the same pinned

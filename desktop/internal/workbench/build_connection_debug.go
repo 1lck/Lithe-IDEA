@@ -24,8 +24,9 @@ import (
 // connectionDebug is one debug launch of a service run: the adapter the host selected, kept to
 // attach exactly that registration, and the debug options the provider prepares the run with.
 type connectionDebug struct {
-	adapter debugAdapter
-	launch  core.RunLaunchDebug
+	adapter    debugAdapter
+	launch     core.RunLaunchDebug
+	connection *core.RemoteWorkspaceConnection
 }
 
 // connectionDebugRefusal is why no adapter can attach to a run's declared type: reason is the
@@ -86,7 +87,22 @@ func (a *App) prepareConnectionDebug(p *project, configurationType string, start
 	if p == nil {
 		return
 	}
+	connection, connected := captureWorkspaceConnection(p)
+	if !connected {
+		return
+	}
+	if p.safeMode() {
+		a.askToTrustProject(p, func() {
+			if connection == nil || connection.IsCurrent() {
+				a.prepareConnectionDebug(p, configurationType, start)
+			}
+		})
+		return
+	}
 	a.whenDebugAdaptersLoaded(p, func() {
+		if connection != nil && !connection.IsCurrent() {
+			return
+		}
 		if p.debug.activeSession() != nil {
 			a.operationRejected("build_debug_connection", "session_running")
 			a.notifyInfo(i18n.Shared(a.language(), "desktop.build.debugSessionRunning"))
@@ -101,17 +117,33 @@ func (a *App) prepareConnectionDebug(p *project, configurationType string, start
 			}
 			return
 		}
-		port, err := freeLoopbackPort()
-		if err != nil {
-			a.operationFailed("build_debug_port", err)
-			a.notifyError(err.Error())
+		finish := func(a *App, port int, err error) {
+			if err != nil {
+				a.operationFailed("build_debug_port", err)
+				a.notifyError(a.launchFailureText(err))
+				return
+			}
+			start(connectionDebug{adapter: adapter, connection: connection, launch: core.RunLaunchDebug{
+				AdapterID:         adapter.PluginID + "/" + adapter.Declaration.ID,
+				ConfigurationType: configurationType,
+				Target:            core.RunDebugConnection{Kind: "connection", Host: debugLoopback, Port: port},
+			}})
+		}
+		if connection == nil {
+			port, err := freeLoopbackPort()
+			finish(a, port, err)
 			return
 		}
-		start(connectionDebug{adapter: adapter, launch: core.RunLaunchDebug{
-			AdapterID:         adapter.PluginID + "/" + adapter.Declaration.ID,
-			ConfigurationType: configurationType,
-			Target:            core.RunDebugConnection{Kind: "connection", Host: "127.0.0.1", Port: port},
-		}})
+		kernel := a.kernel
+		a.background(p, buildRequestTimeout, func(ctx context.Context) func(*App) {
+			port, err := kernel.PickRemoteLoopbackPort(connection.Context(ctx))
+			return func(a *App) {
+				// log-exempt: 用户取消：端口属于已经断开的会话。
+				if connection.IsCurrent() {
+					finish(a, port, err)
+				}
+			}
+		})
 	})
 }
 
@@ -131,16 +163,23 @@ func (a *App) debugRunConfiguration(p *project, id, configurationType string) {
 // debugServiceTarget debugs one target of the selected instance through run, a service run that
 // declares a public debug type, with the launch options of a run that has no configuration.
 func (a *App) debugServiceTarget(p *project, targetID string, run pluginservice.BuildRunDeclaration) {
+	instance := p.selectedBuildInstance()
+	if instance == nil {
+		return
+	}
+	instanceID := instance.ID
 	a.prepareConnectionDebug(p, run.DebugConfigurationType, func(debug connectionDebug) {
-		a.startBuildTarget(p, targetID, run, &debug)
+		if selected := p.selectedBuildInstance(); selected != nil && selected.ID == instanceID {
+			a.startBuildTarget(p, targetID, run, &debug)
+		}
 	})
 }
 
 // attachServiceDebugger waits off the window thread until the debuggee listens on its port, then
 // attaches the selected adapter on the window thread. A debuggee that never listens ends the run
 // with the reason; one that exits first ends the run the ordinary way, as its exit reports.
-func (a *App) attachServiceDebugger(ctx context.Context, p *project, op *buildOperation, debug connectionDebug, ended <-chan struct{}) {
-	err := pluginservice.WaitForDebugPort(ctx, debug.launch.Target.Port, ended, pluginservice.RunDebugConnectTimeout)
+func (a *App) attachServiceDebugger(ctx context.Context, p *project, op *buildOperation, debug connectionDebug, process buildProcess, ended <-chan struct{}) {
+	err := pluginservice.WaitForOwnedDebugPort(ctx, a.kernel, process, debug.launch.Target.Port, ended)
 	a.post(func(a *App) {
 		if a.project != p || !p.build.owns(op) || op.cancelled {
 			return
@@ -151,7 +190,12 @@ func (a *App) attachServiceDebugger(ctx context.Context, p *project, op *buildOp
 			// against the plugins as they are now.
 			a.whenDebugAdaptersLoaded(p, func() {
 				if p.build.owns(op) && !op.cancelled {
-					a.attachServiceDebugSession(p, op, debug)
+					select {
+					case <-ended:
+						return
+					default:
+						a.attachServiceDebugSession(p, op, debug)
+					}
 				}
 			})
 		case errors.Is(err, pluginservice.ErrDebuggeeEnded) || errors.Is(err, context.Canceled):
@@ -183,7 +227,7 @@ func (a *App) attachServiceDebugSession(p *project, op *buildOperation, debug co
 		return
 	}
 	a.beginDebug(p, debugStart{
-		adapter: p.debug.adapters[index], request: "attach", confirmed: true,
+		adapter: p.debug.adapters[index], request: "attach", confirmed: true, connection: debug.connection,
 		target: &core.DebugTargetFacts{Kind: "connection", Host: debug.launch.Target.Host, Port: debug.launch.Target.Port},
 		// Release calls stopRun off the window thread.
 		stopRun: func() {

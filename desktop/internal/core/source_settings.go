@@ -27,6 +27,7 @@ type SettingsSource struct {
 	Group    string               `json:"group"`
 	Title    string               `json:"title"`
 	Path     string               `json:"path"`
+	Scope    string               `json:"scope,omitempty"`
 	Revision string               `json:"revision"`
 	Writable bool                 `json:"writable"`
 	Fields   []SourceSettingField `json:"fields"`
@@ -95,7 +96,7 @@ type SourceSettingInput struct {
 	On      bool   `json:"on"`
 	Inherit bool   `json:"inherit"`
 	// Entries is the ordered entryList draft; other kinds leave it empty.
-	Entries []SourceEntry `json:"entries"`
+	Entries []SourceEntry `json:"entries,omitempty"`
 }
 
 type SourceSettingsLimits struct {

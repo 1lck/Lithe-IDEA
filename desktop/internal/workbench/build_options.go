@@ -40,7 +40,7 @@ func (a *App) readBuildOptionDocuments(ctx context.Context, root string) (buildO
 // detectBuildSystemsWithStoredOptions resolves the stored documents and detects the instances with the merged
 // values. Only Core merges documents; this function maps the merged document onto the detection inputs.
 func detectBuildSystemsWithStoredOptions(ctx context.Context, kernel Kernel, root string, manifests []json.RawMessage, docs buildOptionDocuments) (core.BuildDetection, error) {
-	storage, err := kernel.ResolveStoredBuildOptions(ctx, docs.team, docs.local)
+	storage, err := kernel.ResolveStoredBuildOptions(core.WithoutRemoteWorkspace(ctx), docs.team, docs.local)
 	if err != nil {
 		return core.BuildDetection{}, err
 	}

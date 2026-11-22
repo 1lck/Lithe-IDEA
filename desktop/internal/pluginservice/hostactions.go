@@ -103,7 +103,7 @@ type editorActionBindings struct {
 // recorded here; the backend is called when a document is collected.
 func (s *Service) registerEditorActions() error {
 	s.actions = &editorActionBindings{}
-	return s.HostServices.Register(methodRegisterEditorActions, s.handleRegisterEditorActions)
+	return s.HostServices.Register(methodRegisterEditorActions, s.handleRegisterEditorActions, core.PluginAuthorityBoth)
 }
 
 func (s *Service) handleRegisterEditorActions(ctx context.Context, params json.RawMessage) (json.RawMessage, *pluginhost.Failure) {
@@ -164,12 +164,16 @@ func (s *Service) handleRegisterEditorActions(ctx context.Context, params json.R
 	if refusal != nil {
 		return nil, refusal
 	}
-	id := s.resources.add(caller, workspace.ContextID, func() {
+	id := s.resources.add(caller, workspace.ContextRef, func() {
 		s.actions.mu.Lock()
 		s.actions.list = removeBinding(s.actions.list, binding)
 		s.actions.mu.Unlock()
 		s.editorActionsChanged(workspace.Path)
 	})
+	if _, err := s.Contexts.Lookup(workspace.ContextRef); err != nil {
+		s.resources.dispose(caller, id)
+		return nil, contextFailure(err)
+	}
 	if session.isEnded() {
 		// The session ended after the check above. Its release may already have run without this
 		// resource, which would leave the binding behind for good; withdrawing it here closes that

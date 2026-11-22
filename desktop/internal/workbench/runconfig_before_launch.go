@@ -19,7 +19,6 @@ import (
 	"fmt"
 	"slices"
 
-	"github.com/1lck/Lithe-IDEA/desktop/internal/buildprocess"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/core"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/i18n"
 	"github.com/vivaui/viva/gfx"
@@ -52,7 +51,7 @@ func (a *App) runBeforeLaunch(p *project, op *buildOperation, id string, start f
 	root, kernel := p.root, a.kernel
 	kinds, language := p.runConfigs.kinds(), a.language().Code()
 	a.background(p, runPreparationTimeout, func(ctx context.Context) func(*App) {
-		prepare, release := op.bind(ctx)
+		prepare, release := op.bind(attachedWorkspaceContext(ctx, op.connection))
 		defer release()
 		steps, err := kernel.RunBeforeLaunch(prepare, root, id, a.runTypePlugins(prepare, kernel, kinds, language))
 		return func(a *App) {
@@ -70,16 +69,6 @@ func (a *App) runBeforeLaunch(p *project, op *buildOperation, id string, start f
 			}
 			if len(steps.Steps) == 0 {
 				start()
-				return
-			}
-			// A remote workspace runs a step that starts another built-in run on its host. A
-			// plugin's task is planned by the plugin's backend on this computer, which reads no
-			// host files (#2231 §2, R3), so a list naming one does not start.
-			if p.remote != nil && slices.ContainsFunc(steps.Steps, func(step core.RunBeforeLaunchItem) bool { return step.Task != nil }) {
-				message := i18n.Shared(a.language(), "desktop.run.remote.beforeLaunch")
-				a.operationRejected("run_before_launch", "remote_workspace")
-				a.notifyError(message)
-				a.finishBuildError(p, op, errors.New(message))
 				return
 			}
 			run := func() { a.runBeforeLaunchSteps(p, op, steps.Steps, start) }
@@ -167,15 +156,13 @@ func (a *App) runBeforeLaunchSteps(p *project, op *buildOperation, steps []core.
 		}
 	}
 	if p.remote != nil {
-		run.remote = &remoteRunHost{
-			kernel: a.kernel, binding: p.remote.binding, root: p.root, language: run.language,
-			output: func(text string) { a.streamBuildOutput(p, op, text) },
-			lost:   a.remoteSessionLost(p),
-		}
+		host := a.remoteRunHostFor(p, op)
+		run.remote = &host
 	}
 	a.background(p, 0, func(ctx context.Context) func(*App) {
+		ctx = attachedWorkspaceContext(ctx, op.connection)
 		if run.remote != nil {
-			run.remote.failed = func(operation string, err error) { a.backgroundFailedIn(ctx, operation, remoteLogError(err)) }
+			run.remote.logFailures(a, ctx)
 		}
 		for index, step := range steps {
 			header := i18n.SharedFormat(run.language, "desktop.runConfig.beforeLaunch.stepHeader", map[string]string{
@@ -228,7 +215,7 @@ func (a *App) runBeforeLaunchTask(ctx context.Context, p *project, run beforeLau
 		return errors.New(run.messages.TargetMissing)
 	}
 	task := *step.Task
-	spec, err := a.declaredProcessSpec(ctx, p, run.root, run.pluginRoot, instances, run.messages, func(manifest json.RawMessage, sources declaredPlanSources) (core.BuildPlan, error) {
+	planned, err := a.planDeclaredProcess(ctx, p, run.root, run.pluginRoot, instances, run.messages, func(manifest json.RawMessage, sources declaredPlanSources) (core.BuildPlan, error) {
 		return run.kernel.PlanBeforeLaunchTask(ctx, manifest, task.BuildSystemID, run.root, core.BeforeLaunchTaskPlanRequest{
 			Task: task, WorkingDirectory: step.WorkingDirectory, Instances: sources.instances,
 			PluginDirectory: sources.pluginDirectory, WorkspaceStateDirectory: sources.stateDirectory,
@@ -241,7 +228,16 @@ func (a *App) runBeforeLaunchTask(ctx context.Context, p *project, run beforeLau
 	if err != nil {
 		return err
 	}
-	process, err := buildprocess.Start(ctx, spec, func(_ buildprocess.Stream, text string) { output(text) })
+	if run.remote != nil {
+		host := *run.remote
+		host.label = core.NewRemoteResourceLabel("run", step.Name)
+		start, err := host.command(planned)
+		if err != nil {
+			return err
+		}
+		return host.waitStep(ctx, start)
+	}
+	process, err := planned.startLocal(ctx, run.root, output)
 	if err != nil {
 		return err
 	}

@@ -177,7 +177,7 @@ func (a *App) loadRunConfigTypes(p *project, reload bool) {
 	}
 	s.typesLoading, s.typesStale = true, false
 	kernel, language := a.kernel, a.language()
-	a.background(p, buildRequestTimeout, func(ctx context.Context) func(*App) {
+	a.backgroundRunConfig(p, func(ctx context.Context) func(*App) {
 		kinds, err := a.readRunConfigKinds(ctx, kernel, language.Code())
 		return func(a *App) {
 			s := &p.runConfigs
@@ -234,7 +234,7 @@ func (f *runConfigForm) ready() bool {
 // kind's fields read in the interface language and the Before Launch field offers the tasks.
 func (a *App) requestRunConfigForm(p *project, f *runConfigForm, generation uint64, request core.RunEditorFormRequest, initial bool) {
 	kernel, kinds, language := a.kernel, p.runConfigs.kinds(), a.language().Code()
-	a.background(p, buildRequestTimeout, func(ctx context.Context) func(*App) {
+	a.backgroundRunConfig(p, func(ctx context.Context) func(*App) {
 		read := a.runTypeRead(ctx, kernel, kinds, language)
 		request.RunTypePlugins = read.plugins
 		form, err := kernel.RunEditorForm(ctx, request)
@@ -428,12 +428,12 @@ func (a *App) saveRunConfigForm(p *project, f *runConfigForm, done func(id strin
 	generation := f.generation
 	request := core.RunConfigurationSave{Root: p.root, Provider: f.kind.provider, RunType: f.kind.key(), ConfigurationID: f.id, Values: f.collect()}
 	kernel, kinds, language := a.kernel, p.runConfigs.kinds(), a.language().Code()
-	a.background(p, buildRequestTimeout, func(ctx context.Context) func(*App) {
+	a.backgroundRunConfig(p, func(ctx context.Context) func(*App) {
 		request.Plugins = a.runConfigPlugins(ctx)
 		request.RunTypePlugins = a.runTypePlugins(ctx, kernel, kinds, language)
 		saved, err := kernel.SaveRunConfiguration(ctx, request)
 		if err == nil && saved.Status == "saved" {
-			err = applyRunConfigChanges(ctx, request.Root, saved.Changes)
+			err = a.applyRunConfigChanges(ctx, request.Root, saved.Changes)
 		} else if err == nil && saved.Status != "invalid" {
 			err = errors.New("runConfig.saveConfiguration returned an unknown status")
 		}
@@ -489,10 +489,10 @@ func (a *App) deleteRunConfiguration(p *project, id string) {
 // configuration from every layer and applies them; done gets the failure, logged already.
 func (a *App) removeRunConfiguration(p *project, id string, done func(error)) {
 	root, kernel := p.root, a.kernel
-	a.background(p, buildRequestTimeout, func(ctx context.Context) func(*App) {
+	a.backgroundRunConfig(p, func(ctx context.Context) func(*App) {
 		changes, err := kernel.DeleteRunConfiguration(ctx, root, id, a.runConfigPlugins(ctx))
 		if err == nil {
-			err = applyRunConfigChanges(ctx, root, changes)
+			err = a.applyRunConfigChanges(ctx, root, changes)
 		}
 		return func(a *App) {
 			if err != nil {

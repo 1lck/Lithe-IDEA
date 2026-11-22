@@ -116,7 +116,7 @@ func (a *App) checkPluginRecommendations(p *project) {
 	}
 	root := p.root
 	sources := a.marketplaceSources()
-	platform := marketplaceHostPlatform()
+	platform := marketplace.CurrentPlatform()
 	capabilities := pluginhost.Declared().Clone()
 	dismissed := append([]string(nil), a.settings.DismissedPluginRecommendations...)
 	fetcher := a.recommendationFetcher

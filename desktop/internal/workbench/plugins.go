@@ -95,13 +95,14 @@ func (a *App) installPlugin(plugin core.MarketplacePlugin, feedback settingswind
 			feedback.Preparing()
 		}
 		plan, err := a.preparePlugin(ctx, plugininstall.Request{
-			ArchivePath:         archive.Path(),
-			Root:                a.plugins.Root,
-			Source:              plugintrust.Marketplace,
-			ArchiveSHA256:       availability.SHA256,
-			MarketplaceIndexURL: plugin.MarketplaceIndexURL,
-			ExpectedID:          plugin.ID,
-			ExpectedVersion:     availability.Version,
+			ArchivePath:           archive.Path(),
+			Root:                  a.plugins.Root,
+			Source:                plugintrust.Marketplace,
+			ArchiveSHA256:         availability.SHA256,
+			MarketplaceIndexURL:   plugin.MarketplaceIndexURL,
+			MarketplaceRepository: plugin.Repository,
+			ExpectedID:            plugin.ID,
+			ExpectedVersion:       availability.Version,
 		})
 		if err != nil && !errors.Is(err, context.Canceled) && !errors.Is(err, context.DeadlineExceeded) {
 			a.recordPluginInstallCleanup(ctx, downloads.Forget(archive))
@@ -285,6 +286,9 @@ func (a *App) applyPluginLifecycleChange(reload bool) {
 
 // recordPluginRuntimeIssue records automatic repair and cleanup at the native I/O boundary.
 func (a *App) recordPluginRuntimeIssue(ctx context.Context, err error) {
+	if core.RemoteWorkspaceOf(ctx) != nil {
+		err = remoteLogError(err)
+	}
 	fields := core.LogErrorFields(err)
 	fields["stage"] = "plugin_runtime_repair"
 	a.emitIn(ctx, core.LevelWarn, "app.storage.maintenance_failed", fields)

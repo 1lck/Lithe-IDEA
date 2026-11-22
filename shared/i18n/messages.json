@@ -8832,6 +8832,13 @@
       ]
     },
     {
+      "id": "desktop.debug.terminalUnavailable",
+      "description": "Error when the integrated debug terminal cannot start a program on the remote host.",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
       "id": "desktop.debug.terminated",
       "description": "Debug session terminated",
       "platforms": [
@@ -14405,6 +14412,16 @@
       ]
     },
     {
+      "id": "desktop.pluginSettings.remoteConnection",
+      "description": "The connection that owns the displayed settings source.",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "name": "string"
+      }
+    },
+    {
       "id": "desktop.pluginSettings.scope",
       "description": "Installed plugin settings editor: scope",
       "platforms": [
@@ -18791,6 +18808,34 @@
         "desktop"
       ]
     },
+      {
+        "id": "desktop.sourceSettings.confirmRemoteSave",
+        "description": "Confirmation, path entry and recovery for remote native settings.",
+        "platforms": [
+          "desktop"
+        ]
+      },
+      {
+        "id": "desktop.sourceSettings.remotePath",
+        "description": "Confirmation, path entry and recovery for remote native settings.",
+        "platforms": [
+          "desktop"
+        ]
+      },
+      {
+        "id": "desktop.sourceSettings.remoteSaveUnverified",
+        "description": "Confirmation, path entry and recovery for remote native settings.",
+        "platforms": [
+          "desktop"
+        ]
+      },
+      {
+        "id": "desktop.sourceSettings.remoteSourceChanged",
+        "description": "Confirmation, path entry and recovery for remote native settings.",
+        "platforms": [
+          "desktop"
+        ]
+      },
     {
       "id": "desktop.sourceSettings.compilerTitle",
       "description": "Generic source-backed settings form controls and status.",

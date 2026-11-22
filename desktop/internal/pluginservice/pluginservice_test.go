@@ -16,6 +16,8 @@ import (
 
 // fakeKernel records what the stack asked Core to do.
 type fakeKernel struct {
+	pluginFile       func(context.Context, core.PluginFileRequest) (json.RawMessage, error)
+	pluginWatch      func(context.Context, core.PluginWatchChangesRequest) (json.RawMessage, error)
 	review           core.MarketplaceReview
 	reviewErr        error
 	reviewManifest   json.RawMessage
@@ -38,6 +40,24 @@ type fakeKernel struct {
 	languageStarts   []core.PluginBackendStart
 	operations       []core.PluginOperation
 	recordErr        error
+}
+
+func (k *fakeKernel) ReadPluginFile(ctx context.Context, request core.PluginFileRequest) (json.RawMessage, error) {
+	if k.pluginFile == nil {
+		return nil, &core.Error{Code: core.CodeNotSupported, Message: "no file fixture"}
+	}
+	return k.pluginFile(ctx, request)
+}
+
+func (k *fakeKernel) PluginWatchChanges(ctx context.Context, request core.PluginWatchChangesRequest) (json.RawMessage, error) {
+	if k.pluginWatch == nil {
+		return nil, &core.Error{Code: core.CodeNotSupported, Message: "no watch fixture"}
+	}
+	return k.pluginWatch(ctx, request)
+}
+
+func (k *fakeKernel) ReadWorkspaceConfiguration(context.Context, string, int64) (*string, error) {
+	return nil, &core.Error{Code: core.CodeNotSupported, Message: "no remote settings fixture"}
 }
 
 func (k *fakeKernel) ValidatePluginManifest(_ context.Context, manifest json.RawMessage, _ map[string][]int) (json.RawMessage, error) {

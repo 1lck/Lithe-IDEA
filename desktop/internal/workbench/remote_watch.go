@@ -80,8 +80,9 @@ const (
 // remoteWatch is one run of a remote workspace's host watch (remoteProject.watch).
 type remoteWatch struct {
 	// session is the session the watch runs over; cancel stops it.
-	session string
-	cancel  context.CancelFunc
+	session    string
+	attachment *core.RemoteWorkspaceConnection
+	cancel     context.CancelFunc
 	// watching is set once the host watches the folder, and partial once the host ran out of
 	// watches, so some of its folders go unwatched; lostReported and excessReported once this
 	// run's lost changes and too many changes were logged. They are the window thread's.
@@ -122,7 +123,7 @@ func (a *App) startRemoteWatch(p *project) {
 		return
 	}
 	ctx, cancel := context.WithCancel(p.ctx)
-	w := &remoteWatch{session: r.session, cancel: cancel}
+	w := &remoteWatch{session: r.session, attachment: r.binding.CaptureConnection(), cancel: cancel}
 	r.watch = w
 	kernel, root, excludes := a.kernel, r.binding.RemoteRoot(), remoteWatchExcludeNames()
 	events := core.RemoteWatchEvents{
@@ -159,6 +160,9 @@ func (a *App) stopRemoteWatch(p *project) {
 	if r == nil || r.watch == nil {
 		return
 	}
+	if a.plugins != nil && !r.closed {
+		a.plugins.PublishRemoteWorkspaceChanges(r.binding, r.watch.attachment, nil, true)
+	}
 	r.watch.cancel()
 	r.watch = nil
 	p.tree.eventEpoch++
@@ -185,6 +189,9 @@ func (a *App) drainRemoteWatch(p *project, w *remoteWatch) {
 	if a.project != p || r == nil || r.watch != w {
 		// log-exempt: 用户取消：工作区已关闭，或这次监听已停止（会话丢失、隐藏目录变化），它的变化不再适用。
 		return
+	}
+	if a.plugins != nil {
+		a.plugins.PublishRemoteWorkspaceChanges(r.binding, w.attachment, paths, started || overflow || limited || excess)
 	}
 	if limited {
 		w.partial = true

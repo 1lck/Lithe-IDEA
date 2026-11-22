@@ -333,7 +333,7 @@ func TestClangdBuildStartedSessionSynchronizesEditor(t *testing.T) {
 	h.app.tasks.running.Add(1)
 	go func() {
 		defer h.app.tasks.running.Done()
-		_, err := h.app.sharedBuildProvider(ctx, p, instance, "c")
+		_, err := h.app.sharedBuildProvider(ctx, p, instance, "c", nil, 0)
 		result <- err
 		h.app.invalidator.Invalidate()
 	}()

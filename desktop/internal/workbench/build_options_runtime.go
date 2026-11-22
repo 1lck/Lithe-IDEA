@@ -61,13 +61,19 @@ func droppedBuildOptionIDs(instance *buildInstance, fields []runOptionField) []s
 func (a *App) readBuildInstanceDetails(p *project, instance buildInstance, dropped []string) {
 	session, root, messages := p.build.options.session, p.root, a.text.Build
 	tool := buildSystemName(&instance)
+	connection, connected := captureWorkspaceConnection(p)
 	a.background(p, buildRequestTimeout, func(ctx context.Context) func(*App) {
+		ctx = attachedWorkspaceContext(ctx, connection)
 		var values []buildDroppedOption
 		var readErr error
-		if len(dropped) > 0 {
+		if connected && len(dropped) > 0 {
 			values, readErr = a.readDroppedBuildOptions(ctx, root, instance, dropped)
 		}
-		runtimes, planErr := a.resolveBuildRuntimes(ctx, p, instance, tool, messages)
+		var runtimes []buildRuntimeView
+		var planErr error
+		if connected && (connection == nil || p.trust.allowed()) {
+			runtimes, planErr = a.resolveBuildRuntimes(ctx, p, instance, tool, messages)
+		}
 		if readErr != nil {
 			a.backgroundFailedIn(ctx, "build_options_dropped", readErr)
 		}
@@ -76,7 +82,7 @@ func (a *App) readBuildInstanceDetails(p *project, instance buildInstance, dropp
 		}
 		return func(a *App) {
 			e := &p.build.options
-			if !e.open || e.session != session {
+			if !e.open || e.session != session || (connection != nil && !connection.IsCurrent()) {
 				return
 			}
 			if readErr == nil {
@@ -97,7 +103,7 @@ func (a *App) resolveBuildRuntimes(ctx context.Context, p *project, instance bui
 	if err != nil {
 		return nil, err
 	}
-	invocation, err := a.kernel.PlanBuildInvocation(ctx, instance.Manifest, instance.BuildSystemID, core.BuildInvocationRequest{Root: instance.Root, Platform: buildPlatform(), Settings: settings.State.Settings})
+	invocation, err := a.kernel.PlanBuildInvocation(ctx, instance.Manifest, instance.BuildSystemID, core.BuildInvocationRequest{Root: instance.Root, Platform: p.buildPlatform(), Settings: settings.Settings})
 	if err != nil {
 		return nil, err
 	}

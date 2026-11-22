@@ -19,7 +19,6 @@ import (
 	"fmt"
 	"os/exec"
 	"path/filepath"
-	"strings"
 	"sync"
 	"time"
 
@@ -132,6 +131,18 @@ type StartRequest struct {
 	TemporaryDirectory      string
 	// Architecture is the platform Core plans for.
 	Architecture string
+	// RemoteConnection binds a workspace process to the attachment
+	// captured when its owner requested the launch.
+	RemoteConnection *core.RemoteWorkspaceConnection
+	// PrepareUI provides local storage if Core places a process serving a
+	// remote workspace on the UI host. Workspace processes never call it.
+	PrepareUI func(context.Context, *StartRequest) error
+	// PrepareRemote deploys the package files Core selected to the captured host.
+	PrepareRemote func(context.Context, []string) (string, error)
+	// PrepareRemoteTools installs pinned runtimes needed by a launch after
+	// Core has confirmed that the process runs on the workspace host.
+	PrepareRemoteTools     func(context.Context) (map[string]ToolExecutable, error)
+	remotePackageDirectory string
 	// Settings are the plugin's own settings, opaque to this package.
 	Settings map[string]json.RawMessage
 	// ProjectSettings is the separately captured project override layer.
@@ -146,6 +157,9 @@ type StartRequest struct {
 	// ManagedTools are per-launch installations verified by the managed runtime resolver.
 	// They are never stored as global defaults or used by a different plugin/session.
 	ManagedTools map[string]ToolExecutable
+	// ManagedToolConnection binds remote tool paths to their verified attachment.
+	// Local installations leave it nil.
+	ManagedToolConnection *core.RemoteWorkspaceConnection
 	// BeforeResolveTool lets a launch owner capture the sources that determine
 	// the selected installation. It runs only before host toolchain resolution.
 	BeforeResolveTool func(context.Context) error
@@ -253,7 +267,9 @@ func (r *Runner) SetInitializeTimeout(timeout time.Duration) { r.initializeTimeo
 // the environment its selection declares (such as the tool's home and PATH).
 type ToolExecutable struct {
 	Path        string
+	Home        string
 	Environment map[string]string
+	PathPrepend []string
 	// Arguments are the complete vector Core instantiated for a package entry.
 	Arguments []string
 }
@@ -261,8 +277,8 @@ type ToolExecutable struct {
 // ToolEntryLaunch contains verified native paths and the opaque inputs to
 // Core's tool template. No host code interprets a tool's entry grammar.
 type ToolEntryLaunch struct {
-	Tool, Executable, Entry, MinimumVersion string
-	RuntimeArguments, Arguments             []string
+	Tool, Executable, Home, Entry, MinimumVersion string
+	RuntimeArguments, Arguments                   []string
 }
 
 // ToolEntryResolver applies a Core-owned tool template to verified native facts.
@@ -305,30 +321,9 @@ func (r *Runner) Start(ctx context.Context, request StartRequest) (Session, erro
 	if err := checkStartRequest(request); err != nil {
 		return Session{}, err
 	}
-	directories := core.PluginBackendDirectories{
-		PluginDirectory:         request.PackageDirectory,
-		StateDirectory:          request.StateDirectory,
-		WorkspaceStateDirectory: request.WorkspaceStateDirectory,
-		LogDirectory:            request.LogDirectory,
-		TemporaryDirectory:      request.TemporaryDirectory,
-		Architecture:            request.Architecture,
-		Settings:                request.Settings,
-		ProjectSettings:         request.ProjectSettings,
-		ProjectCodeAllowed:      request.ProjectCodeAllowed,
-	}
-	var plan core.PluginBackendPlan
-	var err error
-	if request.Plan != nil {
-		plan = *request.Plan
-	} else if request.BuildSystemID != "" {
-		plan, err = r.kernel.PlanPluginBuildProvider(ctx, request.Manifest, request.BuildSystemID, directories)
-	} else if request.VcsProviderID != "" {
-		plan, err = r.kernel.PlanPluginVcsProvider(ctx, request.Manifest, request.VcsProviderID, directories)
-	} else if request.LanguageID != "" {
-		plan, err = r.kernel.PlanPluginLanguageServer(ctx, request.Manifest, request.LanguageID, directories)
-	} else {
-		plan, err = r.kernel.PlanPluginBackend(ctx, request.Manifest, directories)
-	}
+	ctx = core.WithoutRemoteWorkspace(ctx)
+	attachment := request.RemoteConnection
+	plan, err := r.plan(ctx, request, request.PrepareUI != nil || request.PrepareRemote != nil)
 	if err != nil {
 		return Session{}, err
 	}
@@ -346,15 +341,72 @@ func (r *Runner) Start(ctx context.Context, request StartRequest) (Session, erro
 			}
 		}
 	}
+	uiProcess := attachment != nil && plan.Placement == "ui"
+	if uiProcess && request.PrepareUI != nil {
+		if err := request.PrepareUI(ctx, &request); err != nil {
+			return Session{}, err
+		}
+		plan, err = r.plan(ctx, request, false)
+		if err != nil {
+			return Session{}, err
+		}
+	}
+	remote := attachment
+	processDirectory := request.WorkingDirectory
+	if uiProcess {
+		remote = nil
+		processDirectory = request.StateDirectory
+		if !filepath.IsAbs(processDirectory) {
+			return Session{}, fmt.Errorf("%w: a UI process requires a local state directory", ErrRequest)
+		}
+	}
 	if request.VcsProviderID != "" && plan.VcsProvider == nil {
 		return Session{}, fmt.Errorf("%w: the plan names no VCS provider", ErrRequest)
 	}
 	if plan.Owner != nil && plan.Owner.PluginID != request.PluginID {
 		return Session{}, fmt.Errorf("%w: launch plan belongs to another plugin", ErrRequest)
 	}
-	resolved, err := pluginhost.VerifyLaunch(request.PackageDirectory, LaunchFromPlan(plan))
-	if err != nil {
-		return Session{}, err
+	var resolved pluginhost.Resolved
+	if remote != nil {
+		if request.LanguageID == "" && request.VcsProviderID == "" && request.BuildSystemID == "" {
+			return Session{}, fmt.Errorf("%w: the backend must run on the UI host", ErrRequest)
+		}
+		if len(plan.RequiredPackagePaths) != 0 {
+			if request.PrepareRemote == nil {
+				return Session{}, fmt.Errorf("%w: the plugin has no deployment adapter", ErrRequest)
+			}
+			directory, prepareErr := request.PrepareRemote(remote.Context(ctx), plan.RequiredPackagePaths)
+			if prepareErr != nil {
+				return Session{}, prepareErr
+			}
+			request.remotePackageDirectory = directory
+			request.Plan = nil
+			plan, err = r.plan(ctx, request, false)
+			if err != nil {
+				return Session{}, err
+			}
+		}
+		systemCommand := plan.Launch.Kind == pluginhost.LaunchSystemCommand && len(plan.Launch.Commands) != 0
+		tool := plan.Launch.Kind == pluginhost.LaunchTool && plan.Launch.Tool != ""
+		packaged := plan.Launch.Kind == pluginhost.LaunchPackaged && plan.Launch.RemoteExecutable != ""
+		if (!systemCommand && !tool && !packaged) ||
+			len(plan.RequiredDirectories) != 0 || len(plan.WritablePaths) != 0 {
+			return Session{}, fmt.Errorf("%w: the plan has no available launch on the workspace host", ErrRequest)
+		}
+		if tool && plan.Launch.RemoteExecutable == "" && request.PrepareRemoteTools != nil {
+			request.ManagedTools, err = request.PrepareRemoteTools(remote.Context(ctx))
+			if err != nil {
+				return Session{}, err
+			}
+			request.ManagedToolConnection = remote
+		}
+		resolved.Executable = plan.Launch.RemoteExecutable
+		resolved.Entry = plan.Launch.Entry
+	} else {
+		resolved, err = pluginhost.VerifyLaunch(request.PackageDirectory, LaunchFromPlan(plan))
+		if err != nil {
+			return Session{}, err
+		}
 	}
 	granted := pluginhost.GrantServices(plan.Backend.HostServices, r.services)
 	if request.Preparation {
@@ -367,7 +419,7 @@ func (r *Runner) Start(ctx context.Context, request StartRequest) (Session, erro
 	if executable == "" {
 		executable = resolved.Runtime
 	}
-	if executable == "" && plan.Launch.Kind == pluginhost.LaunchSystemCommand {
+	if executable == "" && remote == nil && plan.Launch.Kind == pluginhost.LaunchSystemCommand {
 		executable, err = pluginhost.ResolveCommand(plan.Launch.Commands, r.commands.Lookup(request.PluginID, r.lookup))
 		if err != nil {
 			return Session{}, err
@@ -386,28 +438,41 @@ func (r *Runner) Start(ctx context.Context, request StartRequest) (Session, erro
 	// A tool entry is instantiated by Core using its declaring plugin's
 	// template after native path verification. This also covers packaged tools.
 	var toolEnvironment map[string]string
+	var toolPathPrepend []string
 	if plan.Launch.Kind == pluginhost.LaunchTool && resolved.Entry != "" {
 		if r.toolEntries == nil {
 			return Session{}, fmt.Errorf("%w: this host cannot instantiate tool entries", ErrRequest)
+		}
+		toolCtx := ctx
+		home := ""
+		if remote != nil {
+			toolCtx = remote.Context(ctx)
+			if executable == "" && remote.SameAttachment(request.ManagedToolConnection) {
+				managed := request.ManagedTools[plan.Launch.Tool]
+				executable, home = managed.Path, managed.Home
+			}
 		}
 		if executable == "" && request.BeforeResolveTool != nil {
 			if err := request.BeforeResolveTool(ctx); err != nil {
 				return Session{}, err
 			}
 		}
-		tool, err := r.toolEntries(ctx, request.PluginID, request.WorkingDirectory, ToolEntryLaunch{
-			Tool: plan.Launch.Tool, Executable: executable, Entry: resolved.Entry,
+		tool, err := r.toolEntries(toolCtx, request.PluginID, processDirectory, ToolEntryLaunch{
+			Tool: plan.Launch.Tool, Executable: executable, Home: home, Entry: resolved.Entry,
 			MinimumVersion: plan.Launch.MinimumVersion, RuntimeArguments: plan.Launch.RuntimeArguments, Arguments: plan.Arguments,
 		})
 		if err != nil {
 			return Session{}, err
 		}
 		executable, toolEnvironment, arguments = tool.Path, tool.Environment, tool.Arguments
+		toolPathPrepend = tool.PathPrepend
 	}
 	// A bare tool launch uses the selected installation and the opaque args.
 	if executable == "" && plan.Launch.Kind == pluginhost.LaunchTool {
 		tool, managed := request.ManagedTools[plan.Launch.Tool]
-		if !managed {
+		managedOnHost := remote == nil && request.ManagedToolConnection == nil ||
+			remote.SameAttachment(request.ManagedToolConnection)
+		if !managed || !managedOnHost {
 			if r.tools == nil {
 				return Session{}, fmt.Errorf("%w: this host cannot resolve tool launches", ErrRequest)
 			}
@@ -416,15 +481,19 @@ func (r *Runner) Start(ctx context.Context, request StartRequest) (Session, erro
 					return Session{}, err
 				}
 			}
+			toolCtx := ctx
+			if remote != nil {
+				toolCtx = remote.Context(ctx)
+			}
 			var err error
-			tool, err = r.tools(ctx, request.PluginID, request.WorkingDirectory, plan.Launch.Tool)
+			tool, err = r.tools(toolCtx, request.PluginID, processDirectory, plan.Launch.Tool)
 			if err != nil {
 				return Session{}, err
 			}
 		}
-		executable, toolEnvironment = tool.Path, tool.Environment
+		executable, toolEnvironment, toolPathPrepend = tool.Path, tool.Environment, tool.PathPrepend
 	}
-	if executable == "" {
+	if executable == "" && (remote == nil || plan.Launch.Kind == pluginhost.LaunchTool) {
 		return Session{}, fmt.Errorf("%w: the plan names no program", ErrRequest)
 	}
 	role := request.Role
@@ -436,14 +505,15 @@ func (r *Runner) Start(ctx context.Context, request StartRequest) (Session, erro
 		PluginID:               request.PluginID,
 		Role:                   role,
 		ExecutablePath:         executable,
+		UIProcess:              uiProcess,
 		Arguments:              arguments,
 		Environment:            mergeEnvironment(mergeEnvironment(toolEnvironment, plan.Environment), request.Environment),
 		SessionPolicy:          plan.SessionPolicy,
 		RootURI:                request.RootURI,
-		WorkingDirectory:       request.WorkingDirectory,
+		WorkingDirectory:       processDirectory,
 		HostServices:           granted,
 		ToolchainProviders:     request.ToolchainProviders,
-		HostOptions:            hostOptions(granted),
+		HostOptions:            hostOptions(granted, r.services),
 		InitializationOptions:  plan.InitializationOptions,
 		WorkspaceConfiguration: plan.WorkspaceConfiguration,
 
@@ -455,6 +525,15 @@ func (r *Runner) Start(ctx context.Context, request StartRequest) (Session, erro
 	if request.Preparation {
 		enabled := false
 		start.FunctionRelayEnabled = &enabled
+	}
+	if remote != nil {
+		start.ExecutablePath = ""
+		start.RemoteCommands = plan.Launch.Commands
+		start.RemoteExecutablePath = executable
+		start.RemotePathPrepend = toolPathPrepend
+	}
+	if attachment != nil {
+		ctx = attachment.Context(ctx)
 	}
 	var started core.PluginBackendStarted
 	if request.LanguageID != "" {
@@ -482,6 +561,36 @@ func (r *Runner) Start(ctx context.Context, request StartRequest) (Session, erro
 	}
 	r.trackTrace(session.ID)
 	return session, nil
+}
+
+func (r *Runner) plan(ctx context.Context, request StartRequest, probeLocalPlacement bool) (core.PluginBackendPlan, error) {
+	if request.Plan != nil {
+		return *request.Plan, nil
+	}
+	directories := core.PluginBackendDirectories{
+		PluginDirectory:         request.PackageDirectory,
+		RemotePluginDirectory:   request.remotePackageDirectory,
+		StateDirectory:          request.StateDirectory,
+		WorkspaceStateDirectory: request.WorkspaceStateDirectory,
+		LogDirectory:            request.LogDirectory,
+		TemporaryDirectory:      request.TemporaryDirectory,
+		Architecture:            request.Architecture,
+		RemoteWorkspace:         request.RemoteConnection != nil,
+		ProbeLocalPlacement:     probeLocalPlacement,
+		Settings:                request.Settings,
+		ProjectSettings:         request.ProjectSettings,
+		ProjectCodeAllowed:      request.ProjectCodeAllowed,
+	}
+	switch {
+	case request.BuildSystemID != "":
+		return r.kernel.PlanPluginBuildProvider(ctx, request.Manifest, request.BuildSystemID, directories)
+	case request.VcsProviderID != "":
+		return r.kernel.PlanPluginVcsProvider(ctx, request.Manifest, request.VcsProviderID, directories)
+	case request.LanguageID != "":
+		return r.kernel.PlanPluginLanguageServer(ctx, request.Manifest, request.LanguageID, directories)
+	default:
+		return r.kernel.PlanPluginBackend(ctx, request.Manifest, directories)
+	}
 }
 
 // mergeEnvironment layers the host's variables over a launch answer's.
@@ -522,15 +631,25 @@ func (r *Runner) StopAndDispose(ctx context.Context, session Session) (bool, err
 	// Core keeps the session until its shutdown reaches a terminal state, so a
 	// destroy immediately after stop is normally refused. Wait for queued
 	// lifecycle events instead of treating that refusal as a cleanup failure.
-	var destroyErr error
 	for {
-		destroyErr = r.kernel.DestroyPluginBackend(ctx, session.ID)
-		if destroyErr == nil || ctx.Err() != nil {
-			break
+		destroyErr := r.kernel.DestroyPluginBackend(ctx, session.ID)
+		if destroyErr == nil {
+			return true, stopErr
+		}
+		if err := ctx.Err(); err != nil {
+			return false, errors.Join(stopErr, destroyErr, err)
 		}
 		events, waitErr := r.kernel.WaitBackendEvents(ctx, session.ID, 250)
 		if waitErr != nil {
-			break
+			// Serve can consume the terminal events before this wait sees them.
+			// Core then reports the terminal state as an error, and we can dispose once.
+			var coreErr *core.Error
+			if ctx.Err() == nil && errors.As(waitErr, &coreErr) && coreErr.Code == core.CodeProcessFailed &&
+				(coreErr.Details == "sessionStopped" || coreErr.Details == "sessionFailed") {
+				destroyErr = r.kernel.DestroyPluginBackend(ctx, session.ID)
+				return destroyErr == nil, errors.Join(stopErr, destroyErr)
+			}
+			return false, errors.Join(stopErr, destroyErr, waitErr)
 		}
 		// The session's last lifecycle facts arrive here when nothing serves it
 		// any more.
@@ -538,7 +657,6 @@ func (r *Runner) StopAndDispose(ctx context.Context, session Session) (bool, err
 			r.forwardLog(event)
 		}
 	}
-	return destroyErr == nil, errors.Join(stopErr, destroyErr)
 }
 
 // EventDiagnostics is the runtime event carrying a language server's diagnostics
@@ -853,20 +971,28 @@ func checkStartRequest(request StartRequest) error {
 	if request.PluginID == "" || request.ProviderID == "" {
 		return fmt.Errorf("%w: no plugin or provider identity", ErrRequest)
 	}
-	if request.StateDirectory == "" || !filepath.IsAbs(request.StateDirectory) {
+	if request.RemoteConnection == nil && !filepath.IsAbs(request.StateDirectory) {
 		return fmt.Errorf("%w: the state directory must be absolute", ErrRequest)
 	}
 	return nil
 }
 
-// hostOptions declares the editor service's options when the session is granted one of
-// its registration methods; Core reports them only for granted methods.
-func hostOptions(granted []string) *core.PluginHostOptions {
+// hostOptions describes the host's registered methods. Core reports options
+// only for methods the backend was actually granted.
+func hostOptions(granted []string, services *pluginhost.Services) *core.PluginHostOptions {
+	if len(granted) == 0 {
+		return nil
+	}
+	options := &core.PluginHostOptions{MethodAuthorities: services.MethodAuthorities()}
 	for _, method := range granted {
-		if strings.HasSuffix(method, "editor/registerActions") || strings.HasSuffix(method, "editor/registerProviders") {
+		switch method {
+		case pluginhost.MethodPrefix + "editor/registerActions", pluginhost.MethodPrefix + "editor/registerProviders":
 			editor := core.EditorHost
-			return &core.PluginHostOptions{Editor: &editor}
+			options.Editor = &editor
+		case "functions":
+			options.MethodAuthorities[pluginhost.MethodPrefix+"functions/providers"] = core.PluginAuthorityBoth
+			options.MethodAuthorities[pluginhost.MethodPrefix+"functions/invoke"] = core.PluginAuthorityBoth
 		}
 	}
-	return nil
+	return options
 }

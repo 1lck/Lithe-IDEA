@@ -143,7 +143,7 @@ func (a *App) openRunConfigEditor(p *project, id string) *runConfigEditor {
 	generation := e.generation
 	args, kernel, root := slices.Clone(configuration.Args), a.kernel, p.root
 	kinds, language := p.runConfigs.kinds(), a.language().Code()
-	a.background(p, buildRequestTimeout, func(ctx context.Context) func(*App) {
+	a.backgroundRunConfig(p, func(ctx context.Context) func(*App) {
 		texts, err := kernel.RunArgumentText(ctx, [][]string{args})
 		if err == nil && len(texts) != 1 {
 			err = errors.New("runConfig.argumentText returned no text")
@@ -304,7 +304,7 @@ func (a *App) saveRunConfigEditor(p *project, e *runConfigEditor, done func(ok b
 			done(true)
 		}
 	}
-	a.background(p, buildRequestTimeout, func(ctx context.Context) func(*App) {
+	a.backgroundRunConfig(p, func(ctx context.Context) func(*App) {
 		if len(multiSelectEdits) != 0 && multiSelectInstance != nil {
 			request := core.BuildResolveOptionsRequest{
 				Options:          editorSnapshot.options,
@@ -357,7 +357,7 @@ func (a *App) saveRunConfigOptions(ctx context.Context, edit core.RunOptionsEdit
 	if err != nil {
 		return err
 	}
-	return applyRunConfigChanges(ctx, edit.Root, changes)
+	return a.applyRunConfigChanges(ctx, edit.Root, changes)
 }
 
 // runConfigSaveFailure words a failed save: another edit that came first, or the reason.
@@ -426,7 +426,7 @@ func providerRunOptionsJSON(e *runConfigEditor) (json.RawMessage, error) {
 // loadRunConfigInstalls reads the toolchain discovery the settings page reads, so the editor can offer
 // the discovered installations. The answer is applied only while the same editor is open.
 func (a *App) loadRunConfigInstalls(p *project, e *runConfigEditor, generation uint64) {
-	a.background(p, buildRequestTimeout, func(ctx context.Context) func(*App) {
+	a.backgroundRunConfig(p, func(ctx context.Context) func(*App) {
 		snapshot, err := settingsToolchains{app: a}.Load(ctx)
 		var installs []runConfigInstall
 		for _, tool := range snapshot.Tools {

@@ -21,6 +21,7 @@ import (
 // cancellation remain protected by pluginServerMu.
 type pluginServerPreparation struct {
 	project              *project
+	remote               *core.RemoteWorkspaceConnection
 	cancel               context.CancelFunc
 	progress             atomic.Pointer[pluginruntime.Progress]
 	cancelled            atomic.Bool
@@ -194,9 +195,8 @@ func (a *App) requestPluginServer(languageID string, providersChanged bool) {
 	if a.plugins == nil || languageID == "" {
 		return
 	}
-	if a.project != nil && a.project.remote != nil {
-		// log-exempt: 远程工作区的语言服务器要在主机上运行，现在还不支持；在本机启动只会读到空的占位文件夹，
-		// 信任远程文件夹后也不在本机运行任何项目代码。
+	request := a.pluginBackendRequest()
+	if a.project != nil && a.project.remote != nil && request.RemoteConnection == nil {
 		return
 	}
 	a.pluginServerMu.Lock()
@@ -228,11 +228,10 @@ func (a *App) requestPluginServer(languageID string, providersChanged bool) {
 	if p != nil && p.ctx != nil {
 		parent = p.ctx
 	}
-	ctx, cancel := context.WithCancel(a.operationContext(parent))
-	preparation := &pluginServerPreparation{project: p, cancel: cancel, revision: a.pluginServerRevision}
+	ctx, cancel := context.WithCancel(core.WithoutRemoteWorkspace(a.operationContext(parent)))
+	preparation := &pluginServerPreparation{project: p, remote: request.RemoteConnection, cancel: cancel, revision: a.pluginServerRevision}
 	a.pluginServerPreparations[languageID] = preparation
 	a.pluginServerMu.Unlock()
-	request := a.pluginBackendRequest()
 	request.RuntimeProgress = func(progress pluginruntime.Progress) {
 		preparation.progress.Store(&progress)
 		a.invalidator.Invalidate()
@@ -282,8 +281,8 @@ func (a *App) finishPluginServerPreparation(preparation *pluginServerPreparation
 		delete(a.pluginServerPreparations, languageID)
 	}
 	a.pluginServerMu.Unlock()
-	if !current || changed {
-		// A result from the previous project cannot clear a newer start's marker.
+	if !current || changed || (preparation.remote != nil && !preparation.remote.IsCurrent()) {
+		// A result from the previous project or connection cannot clear a newer start's marker.
 		a.stopPluginSession(session)
 		if current {
 			a.pluginServerMu.Lock()
@@ -563,10 +562,10 @@ func (a *App) activatePluginWorkspace(p *project) {
 	a.background(p, pluginServerStartTimeout, func(ctx context.Context) func(*App) {
 		entries, err := a.plugins.Manager.Installed()
 		if err == nil {
-			err = a.plugins.ActivateWorkspace(ctx, entries, workspace)
+			err = a.plugins.ActivateWorkspace(core.WithoutRemoteWorkspace(ctx), entries, workspace)
 		}
 		return func(a *App) {
-			if err != nil {
+			if err != nil && p.pluginContext == workspace {
 				a.operationFailed("plugin_backend_start", err)
 			}
 		}
@@ -592,6 +591,12 @@ func (a *App) closePluginBackends() {
 // the project closes and when the client quits.
 func (a *App) stopAllPluginServers() {
 	a.closePluginBackends()
+	a.stopLanguageServers()
+}
+
+// stopLanguageServers withdraws workspace sessions while keeping local plugin
+// backends alive across a remote reconnection.
+func (a *App) stopLanguageServers() {
 	a.pluginServerMu.Lock()
 	for _, preparation := range a.pluginServerPreparations {
 		preparation.stop()
@@ -612,17 +617,15 @@ func (a *App) stopAllPluginServers() {
 		a.pluginServerMu.Unlock()
 		return
 	}
-	servers := make([]*pluginServer, 0, len(a.pluginServers))
-	for _, server := range a.pluginServers {
-		servers = append(servers, server)
-	}
+	servers := a.pluginServers
 	a.releaseAllPluginDocuments()
 	a.pluginServers = nil
 	a.pluginServerLanguages = nil
 	a.pluginServerStarting = nil
 	a.pluginServerMu.Unlock()
-	for _, server := range servers {
+	for pluginID, server := range servers {
 		server.cancel()
+		a.clearPluginDiagnostics(pluginID)
 		a.stopPluginSession(server.session)
 	}
 }
@@ -650,6 +653,9 @@ func (a *App) pluginBackendRequest() pluginservice.BackendRequest {
 		// goroutine; a map here would not fit lsp.startServer's string field.
 		request.WorkingDirectory = a.project.root
 		request.Context = a.project.pluginContext
+		if remote := a.project.remote; remote != nil && remote.binding != nil {
+			request.RemoteConnection = remote.binding.CaptureConnection()
+		}
 		// In safe mode Core plans only a server that declares it runs no project code; the
 		// others wait for trust (finishPluginServerStart).
 		request.ProjectCodeAllowed = a.project.trust.allowed()

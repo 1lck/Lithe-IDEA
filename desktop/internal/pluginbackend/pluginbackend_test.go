@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"slices"
 	"sort"
 	"sync"
 	"testing"
@@ -557,6 +558,129 @@ func TestStartUsesLanguageServerPlanAndRole(t *testing.T) {
 	}
 	if !kernel.startedLanguageServer {
 		t.Fatal("the runner used the plugin backend start entry point")
+	}
+}
+
+type packagedRemoteKernel struct {
+	fakeKernel
+	client *core.Client
+}
+
+func (k *packagedRemoteKernel) PlanPluginLanguageServer(ctx context.Context, manifest json.RawMessage, language string, directories core.PluginBackendDirectories) (core.PluginBackendPlan, error) {
+	return k.client.PlanPluginLanguageServer(ctx, manifest, language, directories)
+}
+
+func TestRemotePackagedLanguageServerUsesDeployedFiles(t *testing.T) {
+	const pluginID = "dev.lithe.test.remote-packaged"
+	const deployed = "/home/fixture/.lithe-server/plugin-deployments/fixture"
+	request := startRequest(t.TempDir())
+	request.Manifest = json.RawMessage(`{
+		"schemaVersion":0,"pluginAPIVersion":0,"id":"dev.lithe.test.remote-packaged","displayName":"Remote Packaged","version":"1.0.0",
+		"vendor":{"id":"org.example","displayName":"Example","signatureRequirement":"publisherPackage"},
+		"requires":{"languages":0,"languageServers":0},"permissions":["languageServer.launch"],
+		"activationEvents":["onLanguage:fixture"],"languages":[{"id":"fixture","displayName":"Fixture","fileExtensions":["fixture"]}],
+		"languageServers":[{"languageID":"fixture","remote":"supported","launch":{"kind":"packaged","path":"bin/server"},"arguments":["${pluginDir}/lib/config.json"]}]
+	}`)
+	request.PluginID = pluginID
+	request.ProviderID = pluginID + "/language-server"
+	request.LanguageID = "fixture"
+	request.Architecture = "x86_64"
+	request.ProjectCodeAllowed = true
+	binding := core.NewRemoteWorkspace(request.PackageDirectory, "/home/fixture/project", nil)
+	binding.Attach("remote-fixture")
+	request.RemoteConnection = binding.CaptureConnection()
+	deployments := 0
+	request.PrepareRemote = func(ctx context.Context, paths []string) (string, error) {
+		deployments++
+		if core.RemoteWorkspaceOf(ctx) != binding || !slices.Equal(paths, []string{"bin/server", "lib/config.json"}) {
+			t.Fatalf("deployment used unexpected host or paths: %v", paths)
+		}
+		return deployed, nil
+	}
+	kernel := &packagedRemoteKernel{client: core.NewClient()}
+	kernel.started.SessionID = "remote-packaged-session"
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	if _, err := New(kernel, nil).Start(ctx, request); err != nil {
+		t.Fatal(err)
+	}
+	started := kernel.started_
+	if deployments != 1 || started.ExecutablePath != "" || started.RemoteExecutablePath != deployed+"/bin/server" ||
+		!slices.Equal(started.Arguments, []string{deployed + "/lib/config.json"}) {
+		t.Fatalf("start did not use the deployed program and assets: deployments=%d request=%+v", deployments, started)
+	}
+}
+
+func TestRemoteProviderPreparesToolsOnThePlannedAttachment(t *testing.T) {
+	for _, placement := range []string{"workspace", "ui"} {
+		t.Run(placement, func(t *testing.T) {
+			root := backendPackage(t)
+			request := startRequest(root)
+			request.BuildSystemID, request.Role = "provider", "build"
+
+			workspace := core.NewRemoteWorkspace(root, "/home/fixture/project", nil)
+			workspace.Attach("remote-fixture")
+			request.RemoteConnection = workspace.CaptureConnection()
+			t.Cleanup(func() { workspace.Detach() })
+
+			plan := packagedPlan()
+			plan.Placement = placement
+			plan.BuildProvider = &core.PluginBuildProviderPlan{}
+			if placement == "workspace" {
+				plan.Launch.Kind = pluginhost.LaunchTool
+				plan.Launch.Tool = "fixture-runtime"
+				plan.Launch.Entry = "/home/fixture/deployed/server.script"
+				plan.Launch.MinimumVersion = "3.9"
+				plan.RequiredPackagePaths = []string{"server.script"}
+			}
+			request.PrepareRemote = func(ctx context.Context, paths []string) (string, error) {
+				if placement != "workspace" || !request.RemoteConnection.SameAttachment(workspace.CapturedConnection(ctx)) ||
+					!slices.Equal(paths, []string{"server.script"}) {
+					t.Fatalf("unexpected provider deployment: %v", paths)
+				}
+				return "/home/fixture/deployed", nil
+			}
+			kernel := &fakeKernel{plan: plan, started: core.PluginBackendStarted{SessionID: "provider-session"}}
+			runner := New(kernel, nil)
+			calls := 0
+			const executable = "/home/fixture/runtime/bin/interpreter"
+			request.PrepareRemoteTools = func(ctx context.Context) (map[string]ToolExecutable, error) {
+				calls++
+				if !request.RemoteConnection.SameAttachment(workspace.CapturedConnection(ctx)) {
+					t.Fatal("runtime preparation did not capture the provider attachment")
+				}
+				return map[string]ToolExecutable{"fixture-runtime": {Path: executable, Home: "/home/fixture/runtime"}}, nil
+			}
+			runner.SetToolEntryResolver(func(ctx context.Context, _, _ string, input ToolEntryLaunch) (ToolExecutable, error) {
+				if !request.RemoteConnection.SameAttachment(workspace.CapturedConnection(ctx)) ||
+					input.Executable != executable || input.MinimumVersion != "3.9" || input.Entry != plan.Launch.Entry {
+					t.Fatalf("runtime entry resolved with unexpected input: %+v", input)
+				}
+				return ToolExecutable{
+					Path: executable, Arguments: []string{input.Entry},
+					Environment: map[string]string{"FIXTURE_HOME": input.Home},
+					PathPrepend: []string{"/home/fixture/runtime/bin"},
+				}, nil
+			})
+			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			defer cancel()
+			if _, err := runner.Start(ctx, request); err != nil {
+				t.Fatal(err)
+			}
+			started := kernel.started_
+			if placement == "ui" {
+				if calls != 0 || !started.UIProcess || started.RemoteExecutablePath != "" {
+					t.Fatalf("UI provider used the remote launch: %d preparations, %+v", calls, started)
+				}
+				return
+			}
+			if calls != 1 || started.ExecutablePath != "" || started.RemoteExecutablePath != executable ||
+				!slices.Equal(started.Arguments, []string{plan.Launch.Entry}) ||
+				!slices.Equal(started.RemotePathPrepend, []string{"/home/fixture/runtime/bin"}) ||
+				started.Environment["FIXTURE_HOME"] != "/home/fixture/runtime" {
+				t.Fatalf("provider did not use the prepared runtime: %d preparations, %+v", calls, started)
+			}
+		})
 	}
 }
 
