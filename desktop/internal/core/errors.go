@@ -88,6 +88,9 @@ const (
 	// read, or its SHA-256 is not the one the application's manifest names; nothing was sent to
 	// the host.
 	CodeRemoteServerInvalid ErrorCode = "remote_server_invalid"
+	// CodeDevcontainerUntrustedFolder means remote.devcontainerUp named a folder the user has not
+	// trusted; the Dev Container CLI did not run, because building runs the folder's code here.
+	CodeDevcontainerUntrustedFolder ErrorCode = "devcontainer_untrusted_folder"
 	// CodeUnknown means the failure fits no more specific category.
 	CodeUnknown ErrorCode = "unknown"
 )

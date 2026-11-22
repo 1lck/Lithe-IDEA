@@ -41,8 +41,8 @@ type remoteFormValues struct {
 
 // buildRows lays out the list from the sections Core found for the query while one is typed, else
 // from the source's, under a heading for each group when any section names one, followed by the
-// WSL distributions (remote_wsl.go). A folded group keeps its heading only, and a search unfolds
-// every group.
+// WSL distributions (remote_wsl.go) and the running containers (remote_container.go). A folded
+// group keeps its heading only, and a search unfolds every group.
 func (r *remoteState) buildRows() {
 	r.rows = nil
 	byID := make(map[string]*core.SavedRemoteConnection, len(r.source.Connections))
@@ -72,6 +72,7 @@ func (r *remoteState) buildRows() {
 		}
 	}
 	r.rows = append(r.rows, r.wslRows()...)
+	r.rows = append(r.rows, r.containerRows()...)
 }
 
 // toggleRemoteGroup folds or unfolds group in the list.

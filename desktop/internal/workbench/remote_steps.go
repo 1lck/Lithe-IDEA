@@ -75,15 +75,21 @@ func newRemoteSteps(entry core.SavedRemoteConnection, host remoteHost, folder st
 	return &remoteSteps{entry: entry, host: host, folder: folder, reached: remoteStepConnect, began: now}
 }
 
-// shows says whether the page lists step: every step over SSH, and over WSL the steps after
-// starting the distribution, which reads no configuration and asks nothing.
+// shows says whether the page lists step: every step over SSH, a container on an SSH host
+// included, and over WSL or into a container of this computer the steps after starting the
+// distribution or entering the container, which read no configuration and ask nothing.
 func (s *remoteSteps) shows(step remoteStep) bool {
-	return s.host.wsl == nil || (step != remoteStepConfig && step != remoteStepAuthenticate)
+	return s.host.overSSH() || (step != remoteStepConfig && step != remoteStepAuthenticate)
 }
 
-// name is step's name for this connection: over WSL, the connection starts the distribution.
+// name is step's name for this connection: over WSL, the connection starts the distribution, and
+// into a container of this computer it enters the container. A container on a host is entered by
+// the same command that logs in there, so its steps are its host's.
 func (s *remoteSteps) name(language i18n.Language, step remoteStep) string {
-	if step == remoteStepConnect && s.host.wsl != nil {
+	switch {
+	case step == remoteStepConnect && s.host.container != nil && !s.host.hosted():
+		return i18n.Shared(language, "desktop.remote.container.start")
+	case step == remoteStepConnect && s.host.wsl != nil:
 		return i18n.Shared(language, "desktop.remote.wsl.start")
 	}
 	return remoteStepName(language, step)
@@ -333,7 +339,8 @@ func (a *App) remoteQuestionCard(c ui.C, language i18n.Language, s *remoteSteps,
 }
 
 // remoteStepsFooter declares the buttons under a connection: Stop while it runs; back to the
-// connection, its form, or again once it failed. A WSL distribution has no form to go to.
+// connection, its form, or again once it failed. Only a saved connection has a form to go to;
+// again connects to the same host, a container on a host included.
 func (a *App) remoteStepsFooter(c ui.C, language i18n.Language, s *remoteSteps) {
 	r := &a.remote
 	ui.Row(c).FillWidth().Items(ui.Center).Gap(8).Children(func() {
@@ -348,7 +355,7 @@ func (a *App) remoteStepsFooter(c ui.C, language i18n.Language, s *remoteSteps) 
 			c.After(func() { r.steps = nil })
 		}
 		ui.Spacer(c)
-		if s.host.wsl == nil && ui.Button(c.Part("edit"), i18n.Shared(language, "desktop.remote.steps.editConnection")).Outline().Disabled(!r.editable()).Clicked() {
+		if s.host.saved() && ui.Button(c.Part("edit"), i18n.Shared(language, "desktop.remote.steps.editConnection")).Outline().Disabled(!r.editable()).Clicked() {
 			c.After(func() {
 				r.steps = nil
 				a.editSelectedRemote()
@@ -358,6 +365,10 @@ func (a *App) remoteStepsFooter(c ui.C, language i18n.Language, s *remoteSteps) 
 			folder := s.folder
 			c.After(func() {
 				r.steps = nil
+				if s.host.hosted() {
+					a.connectRemoteTo(s.entry, s.host, folder)
+					return
+				}
 				a.connectRemote(folder)
 			})
 		}
