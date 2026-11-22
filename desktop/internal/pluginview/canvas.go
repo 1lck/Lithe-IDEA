@@ -534,9 +534,13 @@ func (pt *painter) text(sh *Shape, at place, opacity float32) {
 	for _, run := range runs {
 		total += canvas.TextWidthStyle(run.Text, style)
 	}
+	// Only a line wider than maxWidth is cut. The room left after some runs is a float32
+	// difference that can come out a hair under the next run's own width, so a line that
+	// fits must not fit its runs into that room.
 	room := total
-	if sh.MaxWidth > 0 {
-		room = min(total, float32(sh.MaxWidth*at.k))
+	cut := sh.MaxWidth > 0 && float32(sh.MaxWidth*at.k) < total
+	if cut {
+		room = float32(sh.MaxWidth * at.k)
 	}
 	x, baseline := at.point(sh.X, sh.Y)
 	switch sh.Align {
@@ -559,7 +563,7 @@ func (pt *painter) text(sh *Shape, at place, opacity float32) {
 		}
 		style.Color = fade(color, opacity)
 		value, width := run.Text, canvas.TextWidthStyle(run.Text, style)
-		if width > left {
+		if cut && width > left {
 			value = pt.fit(value, style, left)
 			width = left
 		}
