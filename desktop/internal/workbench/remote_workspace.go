@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"path"
+	"sync/atomic"
 	"time"
 
 	"github.com/1lck/Lithe-IDEA/desktop/internal/core"
@@ -121,8 +122,24 @@ type remoteProject struct {
 	ports remotePorts
 	// hostFiles is Open File on Host's state (remote_host_files.go).
 	hostFiles remoteHostFiles
+	// live is session with its host session (remoteSessionRef), nil while there is none; runs
+	// read it off the window thread (remoteProject.current).
+	live atomic.Pointer[remoteSessionRef]
+	// rejoins are the runs waiting, after their connection was lost, for the session that
+	// replaces it; abandoned are the host processes of runs that ended meanwhile (remote_run.go).
+	rejoins   []chan<- remoteSessionRef
+	abandoned []remoteAbandoned
 	// closed is set once the project closes; nothing of the workspace runs afterwards.
 	closed bool
+}
+
+// current is the workspace's session with its host session, safe from any goroutine; the zero
+// value while there is none.
+func (r *remoteProject) current() remoteSessionRef {
+	if live := r.live.Load(); live != nil {
+		return *live
+	}
+	return remoteSessionRef{}
 }
 
 // remoteTarget is a host folder to open as a workspace over a connected session.
@@ -313,6 +330,11 @@ func (a *App) attachRemote(p *project, session core.RemoteSession) {
 	r.session, r.link, r.attempt, r.misses, r.failure = session.ID, remoteConnected, 0, 0, nil
 	r.resume = session.Resume()
 	r.binding.Attach(session.ID)
+	key := ""
+	if r.resume != nil {
+		key = r.resume.Key
+	}
+	r.live.Store(&remoteSessionRef{id: session.ID, key: key})
 	a.beatRemote(p)
 	r.watchWait = remoteWatchReady
 	a.startRemoteWatch(p)
@@ -320,6 +342,8 @@ func (a *App) attachRemote(p *project, session core.RemoteSession) {
 	// The Ports window reads its records and restores the forwards left running.
 	r.ports.recordsAttach = true
 	a.syncRemotePorts(p)
+	// Runs that waited for the connection receive their processes again.
+	a.rejoinRemoteRuns(p)
 }
 
 // beatRemote asks the server of the workspace's session what still runs, and schedules the next
@@ -379,6 +403,7 @@ func (a *App) loseRemote(p *project, session string, err error) {
 	r.ports.reset()
 	r.session, r.misses = "", 0
 	r.binding.Detach()
+	r.live.Store(nil)
 	r.stopRemoteTimer()
 	a.releaseRemoteSession(session)
 	a.startRemoteReconnection(p)
@@ -526,6 +551,8 @@ func (a *App) closeRemoteWorkspace(p *project) {
 		r.reconnecting = nil
 	}
 	r.binding.Detach()
+	r.live.Store(nil)
+	r.closeRemoteRuns()
 	a.releaseRemoteSession(r.session)
 	r.session, r.resume, r.menuOpen = "", nil, false
 }

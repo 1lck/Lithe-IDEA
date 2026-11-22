@@ -212,7 +212,8 @@ func TestRemoteCloseKeepsTheProgramsForTheNextConnection(t *testing.T) {
 	h.settle()
 	offer := h.app.prompts.queue[0]
 	if offer.title != i18n.Shared(lang, "desktop.remote.kept.title") || !strings.Contains(offer.text, "npm run dev") ||
-		!slices.Equal(offer.actions, []string{"End Them", "Keep Running"}) {
+		!strings.Contains(offer.text, i18n.Shared(lang, "desktop.remote.kept.attachTerminals")) ||
+		!slices.Equal(offer.actions, []string{"End Them", "Show in Run Window", "Keep Running"}) {
 		t.Fatalf("offer %q %q %q", offer.title, offer.text, offer.actions)
 	}
 	h.answer(0)
@@ -234,6 +235,45 @@ func TestRemoteCloseKeepsTheProgramsForTheNextConnection(t *testing.T) {
 		t.Fatalf("performed %q", actions)
 	}
 	if event := loggedAny(t, logger, remoteCloseSecrets...); event != "" {
+		t.Fatalf("logged a command, a name or a token: %s", event)
+	}
+}
+
+// Show in Run Window receives each kept process again, in a Run tab of its own that says so, over
+// the session that resumed the kept one; the tab ends with the process. A terminal is not received
+// again. Neither the programs' commands nor their names are logged.
+func TestRemoteCloseShowsTheKeptProcessesInTheRunWindow(t *testing.T) {
+	h, k, _, logger := remoteWorkspaceHarness(t)
+	lang := h.app.language()
+	h.openRemoteTestProject(t)
+	k.set(func(k *remoteHostKernel) { k.close.running = remoteTestPrograms })
+	h.closeQuestion(t)
+	h.answer(1)
+	h.awaitClosed(t)
+	k.set(func(k *remoteHostKernel) { k.close.running = nil })
+	h.app.openRemote(surfaceMenu)
+	h.settle()
+	h.settle()
+	p := h.openRemoteTestProject(t)
+	h.await("the offer about the kept programs", func() bool { return len(h.app.prompts.queue) == 1 })
+	h.settle()
+	h.answer(1)
+	run := h.awaitRemoteRun(p, "npm", nil)
+	console := run.output.all()
+	if run.outcome != runSucceeded || !run.remote || !strings.Contains(console, i18n.Shared(lang, "desktop.run.remote.attachedKept")) ||
+		!strings.Contains(console, remoteHostAttachOutput) {
+		t.Fatalf("the kept process's tab ended %v: %s; console:\n%s", run.outcome, run.summary, console)
+	}
+	if !h.app.chrome.isOpen(catalogIndex[itemRun]) {
+		t.Fatal("Show in Run Window did not open the Run window")
+	}
+	if got := k.remoteAttaches(); !slices.Equal(got, []string{"session-2"}) || len(p.build.runs) != 1 {
+		t.Fatalf("received %d kept processes in %d tabs, over the resumed session %v", len(got), len(p.build.runs), slices.Equal(got, []string{"session-2"}))
+	}
+	if actions := remoteActions(logger); actions[len(actions)-1] != "remote.kept.attach" {
+		t.Fatalf("performed %q", actions)
+	}
+	if event := loggedAny(t, logger, append(slices.Clone(remoteCloseSecrets), "npm")...); event != "" {
 		t.Fatalf("logged a command, a name or a token: %s", event)
 	}
 }

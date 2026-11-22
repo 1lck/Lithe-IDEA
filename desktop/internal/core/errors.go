@@ -91,6 +91,13 @@ const (
 	// CodeDevcontainerUntrustedFolder means remote.devcontainerUp named a folder the user has not
 	// trusted; the Dev Container CLI did not run, because building runs the folder's code here.
 	CodeDevcontainerUntrustedFolder ErrorCode = "devcontainer_untrusted_folder"
+	// CodeRemoteProcessGone means remote.attachProcess found no host process to receive: the
+	// connection resumed no session, the process ended before what this Core received, or an
+	// earlier attach already received it to its end.
+	CodeRemoteProcessGone ErrorCode = "remote_process_gone"
+	// CodeRemoteProcessAttached means another remote.attachProcess request already receives the
+	// host process.
+	CodeRemoteProcessAttached ErrorCode = "remote_process_attached"
 	// CodeUnknown means the failure fits no more specific category.
 	CodeUnknown ErrorCode = "unknown"
 )

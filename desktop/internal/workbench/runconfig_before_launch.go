@@ -167,11 +167,8 @@ func (a *App) runBeforeLaunchSteps(p *project, op *buildOperation, steps []core.
 		}
 	}
 	if p.remote != nil {
-		run.remote = &remoteRunHost{
-			kernel: a.kernel, binding: p.remote.binding, root: p.root, language: run.language,
-			output: func(text string) { a.streamBuildOutput(p, op, text) },
-			lost:   a.remoteSessionLost(p),
-		}
+		host := a.remoteRunHostOf(p, op)
+		run.remote = &host
 	}
 	a.background(p, 0, func(ctx context.Context) func(*App) {
 		if run.remote != nil {

@@ -19,7 +19,10 @@ import (
 // TestVisualRemoteRun captures a built-in run configuration of a remote workspace that ran on the
 // host after its before-launch step, another built-in run, ran there: the Run window's tab with
 // the host badge, the step's header and both host processes' output, and the title bar's run
-// configuration menu, which says build tools do not run in a remote workspace yet.
+// configuration menu, which says build tools do not run in a remote workspace yet. Then the
+// connection breaks while the configuration runs again: the tab waits for the workspace to connect
+// again, and once the workspace resumes the host session it goes on with the process's output,
+// after a line that says some of it was lost.
 func TestVisualRemoteRun(t *testing.T) {
 	out := os.Getenv("LITHE_VISUAL_OUTPUT_DIR")
 	if out == "" {
@@ -70,6 +73,19 @@ func TestVisualRemoteRun(t *testing.T) {
 					t.Fatal(err)
 				}
 			}
+			// shotRunning is shot while a run waits on the host, which settle would wait for.
+			shotRunning := func(scene string) {
+				t.Helper()
+				h.app.invalidator.Invalidate()
+				for range 3 {
+					if err := h.driver.Pump(); err != nil {
+						t.Fatal(err)
+					}
+				}
+				if err := session.Screenshot(filepath.Join(out, "remote-run-"+scene+"-"+look.suffix+".png")); err != nil {
+					t.Fatal(err)
+				}
+			}
 			timers := &remoteTimers{}
 			anchor := filepath.Join(t.TempDir(), remoteplaceholder.AnchorName)
 			h.app.remoteBundle = func() (remoteserver.Bundle, error) {
@@ -116,6 +132,25 @@ func TestVisualRemoteRun(t *testing.T) {
 				t.Fatal("the run configuration menu did not open")
 			}
 			shot("menu")
+			h.app.title.runConfigOpen = false
+
+			// Greet runs again, without its step, and the connection breaks while it runs.
+			kernel.set(func(k *remoteHostKernel) { k.close.resumable = true })
+			kernel.setRuns(func(r *remoteHostRuns) {
+				r.steps = nil
+				r.attachTruncated = true
+				r.attachOutput = "hello again from the host\n"
+			})
+			op := h.startHeldRemoteRun(kernel, p)
+			h.breakRunConnection(kernel, p, op)
+			shotRunning("waiting")
+			kernel.setRuns(func(r *remoteHostRuns) { r.hold = false })
+			h.reconnectWhileRunning(t, timers, p.remote)
+			again := h.awaitRemoteRun(p, remoteTestRunConfiguration.Name, run)
+			if again.outcome != runSucceeded {
+				t.Fatalf("the run ended %v after the reconnection", again.outcome)
+			}
+			shot("resumed")
 		})
 	}
 }

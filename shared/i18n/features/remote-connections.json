@@ -1270,6 +1270,30 @@
       }
     },
     {
+      "id": "desktop.remote.kept.attach",
+      "description": "Question after connecting to a kept host session: button that shows the kept processes again in the Run window, each in a tab of its own",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.remote.kept.attachTerminals",
+      "description": "Question after connecting to a kept host session: note under the list when some kept programs are terminals, which cannot be shown again",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.remote.kept.attachFailed",
+      "description": "Notification: the kept processes could not be shown again because the workspace is not connected to their host session; {connection} is the connection's name",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "connection": "string"
+      }
+    },
+    {
       "id": "desktop.remote.worktree.connectionRemoved",
       "description": "Remote Development window: error when a worktree of a remote workspace is opened but the saved connection the workspace was opened over was deleted",
       "platforms": [
@@ -1352,6 +1376,55 @@
     {
       "id": "desktop.run.remote.badgeHelp",
       "description": "Tooltip of the Host badge on a Run window tab",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.run.remote.attachedKept",
+      "description": "Run console line at the start of a tab that shows again a process an earlier window kept running on the host",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.run.remote.waiting",
+      "description": "Run console line: the connection to the host broke while a program ran there, and the tab waits for the workspace to reconnect",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.run.remote.resumed",
+      "description": "Run console line: the workspace reconnected and the program's output continues",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.run.remote.outputLost",
+      "description": "Run console line: some of what the program wrote while nothing received it is missing",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.run.remote.sessionEnded",
+      "description": "Run failure: the workspace reconnected to a new host session, so the earlier session's program cannot be shown again",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.run.remote.processGone",
+      "description": "Run failure: the host no longer has the program, or its output can no longer be received",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.run.remote.attachedElsewhere",
+      "description": "Run failure: another window already shows the program's output",
       "platforms": [
         "desktop"
       ]
@@ -3514,6 +3587,13 @@
       "desktop.run.remote.unsupported": "a remote workspace runs only program and script configurations, on the host, and does not debug yet",
       "desktop.run.remote.badge": "Host",
       "desktop.run.remote.badgeHelp": "This program runs on the remote workspace's host.",
+      "desktop.run.remote.attachedKept": "Showing again a program a closed window kept running on the host.",
+      "desktop.run.remote.waiting": "The connection to the host broke. Waiting to reconnect…",
+      "desktop.run.remote.resumed": "Reconnected; the output continues.",
+      "desktop.run.remote.outputLost": "Some output was lost while nothing received it.",
+      "desktop.run.remote.sessionEnded": "the workspace reconnected to a new host session; the program of the earlier session cannot be shown again",
+      "desktop.run.remote.processGone": "the host no longer has the program, or its output can no longer be received",
+      "desktop.run.remote.attachedElsewhere": "another window already shows this program's output",
       "desktop.remote.document.disconnected": "the remote workspace is not connected; try again once it reconnects",
       "desktop.remote.document.timedOut": "the host did not answer in time",
       "desktop.remote.document.notFound": "the file no longer exists on the host",
@@ -3584,6 +3664,9 @@
       "desktop.remote.kept.keep": "Keep Running",
       "desktop.remote.kept.ended": "Ended programs on {connection}: {count}",
       "desktop.remote.kept.endFailed": "Could not end the programs kept on {connection}.",
+      "desktop.remote.kept.attach": "Show in Run Window",
+      "desktop.remote.kept.attachTerminals": "Terminals cannot be shown again; they keep running until you end them.",
+      "desktop.remote.kept.attachFailed": "Could not show the programs kept on {connection}: the workspace is not connected to the host session that runs them.",
       "desktop.remote.container.heading": "Containers",
       "desktop.remote.container.kind": "Container",
       "desktop.remote.container.docker": "Docker",
@@ -3934,6 +4017,13 @@
       "desktop.run.remote.unsupported": "远程工作区只在主机上运行程序和脚本运行配置，暂不支持调试",
       "desktop.run.remote.badge": "主机",
       "desktop.run.remote.badgeHelp": "此程序运行在远程工作区的主机上。",
+      "desktop.run.remote.attachedKept": "已接回上次关闭时保留在主机上运行的进程。",
+      "desktop.run.remote.waiting": "与主机的连接断开了，正在等待重新连接…",
+      "desktop.run.remote.resumed": "已重新连接，输出继续。",
+      "desktop.run.remote.outputLost": "部分输出已丢失：没有接收方期间程序写出的内容没能全部保留。",
+      "desktop.run.remote.sessionEnded": "工作区重新连接到了新的主机会话，无法再接回之前会话里的程序",
+      "desktop.run.remote.processGone": "主机上已没有这个程序，或已无法再接收它的输出",
+      "desktop.run.remote.attachedElsewhere": "另一个窗口已在显示这个程序的输出",
       "desktop.remote.document.disconnected": "远程工作区未连接，请在重新连接后再试",
       "desktop.remote.document.timedOut": "主机没有及时响应",
       "desktop.remote.document.notFound": "主机上已没有这个文件",
@@ -4004,6 +4094,9 @@
       "desktop.remote.kept.keep": "继续运行",
       "desktop.remote.kept.ended": "已结束 {connection} 上的 {count} 个进程",
       "desktop.remote.kept.endFailed": "无法结束 {connection} 上保留的进程。",
+      "desktop.remote.kept.attach": "在运行窗口中接回",
+      "desktop.remote.kept.attachTerminals": "终端无法接回，会一直运行，直到你结束它们。",
+      "desktop.remote.kept.attachFailed": "无法接回 {connection} 上保留的进程：工作区没有连接到运行它们的主机会话。",
       "desktop.remote.container.heading": "容器",
       "desktop.remote.container.kind": "容器",
       "desktop.remote.container.docker": "Docker",
