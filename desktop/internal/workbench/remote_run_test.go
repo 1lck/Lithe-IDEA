@@ -1,8 +1,10 @@
 package workbench
 
 import (
+	"cmp"
 	"context"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -18,8 +20,9 @@ import (
 const remoteTestRunScratch = "/tmp/lithe-run-script-1"
 
 // remoteHostRuns stands in for Core's run configurations of the workspace and the host's
-// processes (remote.runProcess): a process prints remoteHostRunOutput and exits with exit, or,
-// with hold, runs until it is signalled or its request ends.
+// processes (remote.runProcess, remote.attachProcess): a process prints remoteHostRunOutput and
+// exits with exit, or, with hold, runs until it is signalled, the connection of its session breaks
+// or its request ends. Receiving it again prints remoteHostAttachOutput and ends the same way.
 type remoteHostRuns struct {
 	mu sync.Mutex
 	// configurations are what Core resolves, and plan is the launch plan of each.
@@ -41,6 +44,67 @@ type remoteHostRuns struct {
 	signalled chan struct{}
 	// ended is closed once a process's request returned.
 	ended chan struct{}
+	// drops are closed once the connection of their session broke (breakConnection).
+	drops map[string]chan struct{}
+	// attaches are the sessions remote.attachProcess went over; attachTruncated says output was
+	// lost before the request; attachErr refuses it; attachOutput, when set, is what the process
+	// prints once received instead of remoteHostAttachOutput.
+	attaches        []string
+	attachTruncated bool
+	attachErr       error
+	attachOutput    string
+}
+
+// remoteHostAttachOutput is what a host process prints once it is received again.
+const remoteHostAttachOutput = "after the reconnection\n"
+
+// remoteTestConnectionClosed is how a request over a broken connection ends.
+var remoteTestConnectionClosed = &core.Error{Command: "remote.runProcess", Code: core.CodeConnectionClosed, Message: "closed"}
+
+// dropped is closed once the connection of session broke. It runs under r.mu.
+func (r *remoteHostRuns) dropped(session string) chan struct{} {
+	if r.drops == nil {
+		r.drops = map[string]chan struct{}{}
+	}
+	if r.drops[session] == nil {
+		r.drops[session] = make(chan struct{})
+	}
+	return r.drops[session]
+}
+
+// broken reports whether the connection of session broke. It runs under r.mu.
+func (r *remoteHostRuns) broken(session string) bool {
+	select {
+	case <-r.dropped(session):
+		return true
+	default:
+		return false
+	}
+}
+
+// breakConnection breaks the SSH connection of session under the host's processes: the requests
+// over it end with a closed connection, as Core's do, and so does every later one.
+func (k *remoteHostKernel) breakConnection(session string) {
+	r := &k.runs
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if !r.broken(session) {
+		close(r.dropped(session))
+	}
+}
+
+// heldProcess waits for a held process to end: SIGTERM through signalled, a broken connection
+// through drop, or its request through ctx.
+func heldProcess(ctx context.Context, signalled, drop <-chan struct{}) (core.RemoteProcessExit, error) {
+	select {
+	case <-signalled:
+		signal := 15
+		return core.RemoteProcessExit{Signal: &signal}, nil
+	case <-drop:
+		return core.RemoteProcessExit{}, remoteTestConnectionClosed
+	case <-ctx.Done():
+		return core.RemoteProcessExit{}, ctx.Err()
+	}
 }
 
 // remoteHostRunOutput is what a host process prints.
@@ -114,7 +178,7 @@ func (k *remoteHostKernel) RemoteRunProcess(ctx context.Context, session string,
 	if written {
 		r.scripts = append(r.scripts, script)
 	}
-	exit, hold, signalled, ended := r.exit, r.hold, r.signalled, r.ended
+	exit, hold, signalled, ended, drop := r.exit, r.hold, r.signalled, r.ended, r.dropped(session)
 	r.mu.Unlock()
 	if ended != nil {
 		defer close(ended)
@@ -124,19 +188,40 @@ func (k *remoteHostKernel) RemoteRunProcess(ctx context.Context, session string,
 	if !hold {
 		return exit, nil
 	}
-	select {
-	case <-signalled:
-		signal := 15
-		return core.RemoteProcessExit{Signal: &signal}, nil
-	case <-ctx.Done():
-		return core.RemoteProcessExit{}, ctx.Err()
-	}
+	return heldProcess(ctx, signalled, drop)
 }
 
-func (k *remoteHostKernel) RemoteProcessKill(_ context.Context, _ string, processID uint64, force bool) error {
+func (k *remoteHostKernel) RemoteAttachProcess(ctx context.Context, session string, processID uint64, events core.RemoteProcessEvents) (core.RemoteProcessExit, error) {
+	r := &k.runs
+	r.mu.Lock()
+	r.attaches = append(r.attaches, session)
+	exit, hold, signalled, drop, truncated, err := r.exit, r.hold, r.signalled, r.dropped(session), r.attachTruncated, r.attachErr
+	output := cmp.Or(r.attachOutput, remoteHostAttachOutput)
+	broken := r.broken(session)
+	r.mu.Unlock()
+	switch {
+	case broken:
+		return core.RemoteProcessExit{}, remoteTestConnectionClosed
+	case err != nil:
+		return core.RemoteProcessExit{}, err
+	case processID != 7:
+		return core.RemoteProcessExit{}, &core.Error{Command: "remote.attachProcess", Code: core.CodeRemoteProcessGone, Message: "gone"}
+	}
+	events.Attached(truncated)
+	events.Output("stdout", []byte(output))
+	if !hold {
+		return exit, nil
+	}
+	return heldProcess(ctx, signalled, drop)
+}
+
+func (k *remoteHostKernel) RemoteProcessKill(_ context.Context, session string, processID uint64, force bool) error {
 	r := &k.runs
 	r.mu.Lock()
 	defer r.mu.Unlock()
+	if r.broken(session) {
+		return remoteTestConnectionClosed
+	}
 	if processID != 7 {
 		return nil
 	}
@@ -174,7 +259,14 @@ var remoteTestRunConfiguration = core.RunConfiguration{ID: "greet", Name: "Greet
 // runs its script in src, and waits until the configurations are listed.
 func openRemoteRunProject(t *testing.T) (*harness, *remoteHostKernel, *project, *treeRecordingLog) {
 	t.Helper()
-	h, k, _, logger := remoteWorkspaceHarness(t)
+	h, k, _, p, logger := openRemoteRunProjectTimed(t)
+	return h, k, p, logger
+}
+
+// openRemoteRunProjectTimed is openRemoteRunProject that also gives the workspace's timers.
+func openRemoteRunProjectTimed(t *testing.T) (*harness, *remoteHostKernel, *remoteTimers, *project, *treeRecordingLog) {
+	t.Helper()
+	h, k, timers, logger := remoteWorkspaceHarness(t)
 	k.setRuns(func(r *remoteHostRuns) {
 		r.configurations = []core.RunConfiguration{remoteTestRunConfiguration}
 		zero := 0
@@ -192,7 +284,53 @@ func openRemoteRunProject(t *testing.T) (*harness, *remoteHostKernel, *project, 
 	h.await("the remote workspace's run configurations", func() bool {
 		return p.runConfigs.generation > 0 && !p.runConfigs.loading && len(p.runConfigs.list) == 1
 	})
-	return h, k, p, logger
+	return h, k, timers, p, logger
+}
+
+// startHeldRemoteRun starts the configuration with a process that runs until it is signalled and
+// waits until the run has it.
+func (h *harness) startHeldRemoteRun(k *remoteHostKernel, p *project) *buildOperation {
+	h.t.Helper()
+	k.setRuns(func(r *remoteHostRuns) { r.hold, r.signalled = true, make(chan struct{}) })
+	h.startRemoteRun(p, remoteTestRunConfiguration.ID)
+	var op *buildOperation
+	h.await("the held run to start", func() bool {
+		op = p.build.runOf(configurationRunKey(remoteTestRunConfiguration.ID))
+		return op != nil && op.process != nil
+	})
+	return op
+}
+
+// breakRunConnection breaks the connection of the workspace's session under op's process and
+// waits until op's console says it waits for the workspace to connect again.
+func (h *harness) breakRunConnection(k *remoteHostKernel, p *project, op *buildOperation) {
+	h.t.Helper()
+	waiting := i18n.Shared(h.app.language(), "desktop.run.remote.waiting")
+	k.breakConnection(p.remote.session)
+	h.await("the run to wait for the connection", func() bool { return strings.Contains(op.session.output.all(), waiting) })
+}
+
+// reconnectWhileRunning runs the pause before the first attempt to connect again, as
+// fireReconnect does, and waits for the new session without waiting for every background task:
+// a run that waits for the connection is one until the session comes.
+func (h *harness) reconnectWhileRunning(t *testing.T, timers *remoteTimers, r *remoteProject) {
+	t.Helper()
+	h.await("the pause before connecting again", func() bool {
+		return r.session == "" && len(r.delays) > 0 && r.attempt == 0 && timers.live() == 1
+	})
+	timer := timers.take(t)
+	if timer.after != time.Second {
+		t.Fatalf("paused %v before connecting again, want Core's first pause of 1s", timer.after)
+	}
+	timer.run()
+	h.await("the new session", func() bool { return r.session != "" })
+}
+
+// remoteAttaches are the sessions remote.attachProcess went over.
+func (k *remoteHostKernel) remoteAttaches() []string {
+	k.runs.mu.Lock()
+	defer k.runs.mu.Unlock()
+	return slices.Clone(k.runs.attaches)
 }
 
 // startRemoteRun starts the configuration as the title bar's Run does, without the trust
@@ -324,6 +462,117 @@ func TestRemoteWorkspaceRunEndsAsTheHostProcessEnds(t *testing.T) {
 		t.Fatal("a stopped run ended as succeeded")
 	}
 	sessionKept(t, logger, p, p.remote.session)
+}
+
+// A run whose connection breaks waits in its console for the workspace to connect again. When the
+// workspace resumes the host session, the run receives its process again over the new session,
+// says so, says the output the host could not keep is lost, and goes on until the process exits;
+// the host's temporary folder is then removed over the new session. Neither the host nor its paths
+// are logged.
+func TestRemoteWorkspaceRunFollowsItsProcessAcrossAReconnection(t *testing.T) {
+	h, k, timers, p, logger := openRemoteRunProjectTimed(t)
+	lang := h.app.language()
+	k.set(func(k *remoteHostKernel) { k.close.resumable = true })
+	op := h.startHeldRemoteRun(k, p)
+	k.setRuns(func(r *remoteHostRuns) { r.hold, r.attachTruncated = false, true })
+	h.breakRunConnection(k, p, op)
+	if op.cancelled || p.build.runOf(configurationRunKey(remoteTestRunConfiguration.ID)) != op {
+		t.Fatal("the broken connection ended the run")
+	}
+	h.reconnectWhileRunning(t, timers, p.remote)
+	run := h.awaitRemoteRun(p, remoteTestRunConfiguration.Name, nil)
+	console := run.output.all()
+	if run.outcome != runSucceeded {
+		t.Fatalf("the run ended %v: %s; console:\n%s", run.outcome, run.summary, console)
+	}
+	at := -1
+	for _, want := range []string{
+		remoteHostRunOutput,
+		i18n.Shared(lang, "desktop.run.remote.waiting"),
+		i18n.Shared(lang, "desktop.run.remote.resumed"),
+		i18n.Shared(lang, "desktop.run.remote.outputLost"),
+		remoteHostAttachOutput,
+	} {
+		next := strings.Index(console, want)
+		if next <= at {
+			t.Fatalf("the console does not continue with %q:\n%s", want, console)
+		}
+		at = next
+	}
+	if got := k.remoteAttaches(); !slices.Equal(got, []string{"session-2"}) || p.remote.session != "session-2" {
+		t.Fatalf("received the process again %d times, over the new session %v", len(got), slices.Equal(got, []string{"session-2"}))
+	}
+	if _, _, _, removed, _ := k.hostRuns(); len(removed) != 1 || removed[0] != remoteTestRunScratch {
+		t.Fatalf("the host's temporary folder was removed %d times", len(removed))
+	}
+	if event := loggedAny(t, logger, remoteTestHost, remoteTestHome); event != "" {
+		t.Fatalf("logged the host or its paths: %s", event)
+	}
+}
+
+// A run whose process cannot be received after the connection broke fails with why: the
+// workspace connected to a new host session, the host no longer has the process, or another
+// window receives it.
+func TestRemoteWorkspaceRunEndsWhenItsProcessCannotBeReceivedAgain(t *testing.T) {
+	for _, c := range []struct {
+		name      string
+		resumable bool
+		refusal   core.ErrorCode
+		want      string
+	}{
+		{name: "new session", want: "desktop.run.remote.sessionEnded"},
+		{name: "process gone", resumable: true, refusal: core.CodeRemoteProcessGone, want: "desktop.run.remote.processGone"},
+		{name: "received elsewhere", resumable: true, refusal: core.CodeRemoteProcessAttached, want: "desktop.run.remote.attachedElsewhere"},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			h, k, timers, p, _ := openRemoteRunProjectTimed(t)
+			k.set(func(k *remoteHostKernel) { k.close.resumable = c.resumable })
+			if c.refusal != "" {
+				k.setRuns(func(r *remoteHostRuns) {
+					r.attachErr = &core.Error{Command: "remote.attachProcess", Code: c.refusal, Message: "refused"}
+				})
+			}
+			op := h.startHeldRemoteRun(k, p)
+			h.breakRunConnection(k, p, op)
+			h.reconnectWhileRunning(t, timers, p.remote)
+			run := h.awaitRemoteRun(p, remoteTestRunConfiguration.Name, nil)
+			if want := h.app.text.Build.ProcessFailed(i18n.Shared(h.app.language(), c.want)); run.outcome != runFailed || run.summary != want {
+				t.Fatalf("the run ended %v: %q, want %q", run.outcome, run.summary, want)
+			}
+			if attaches := k.remoteAttaches(); (len(attaches) == 1) != c.resumable {
+				t.Fatalf("asked the host for the process %d times", len(attaches))
+			}
+		})
+	}
+}
+
+// Stopping a run while its connection is broken ends the run at once; the host, which could not
+// be asked, kills the process once the workspace resumes the host session. The stop the broken
+// connection refused is not logged as a failure.
+func TestRemoteWorkspaceRunStoppedWhileDisconnectedEndsOnceReconnected(t *testing.T) {
+	previous := buildprocess.StopGrace()
+	t.Cleanup(func() { buildprocess.SetStopGrace(previous) })
+	buildprocess.SetStopGrace(8 * time.Second)
+	h, k, timers, p, logger := openRemoteRunProjectTimed(t)
+	k.set(func(k *remoteHostKernel) { k.close.resumable = true })
+	op := h.startHeldRemoteRun(k, p)
+	h.breakRunConnection(k, p, op)
+	h.app.post(func(a *App) { a.stopOperation(p, op) })
+	stopped := h.awaitRemoteRun(p, remoteTestRunConfiguration.Name, nil)
+	if stopped.outcome == runSucceeded {
+		t.Fatal("a stopped run ended as succeeded")
+	}
+	if _, _, _, _, kills := k.hostRuns(); len(kills) != 0 {
+		t.Fatalf("sent %d signals over the broken connection", len(kills))
+	}
+	h.reconnectWhileRunning(t, timers, p.remote)
+	h.await("the stopped run's process to be killed", func() bool {
+		_, _, _, _, kills := k.hostRuns()
+		return slices.Equal(kills, []string{"kill"})
+	})
+	if n := countFailures(logger, "run_stop") + countFailures(logger, "run_stop_after_reconnect"); n != 0 || len(k.remoteAttaches()) != 0 {
+		t.Fatalf("logged %d stop failures, received the process again %d times", n, len(k.remoteAttaches()))
+	}
 }
 
 // A remote workspace refuses, with its reason, what it cannot run on the host yet: a

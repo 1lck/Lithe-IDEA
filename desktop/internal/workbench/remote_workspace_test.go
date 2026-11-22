@@ -107,6 +107,9 @@ type remoteHostClose struct {
 	// close a session it was asked to keep.
 	kept       map[string][]core.RemoteProgram
 	refuseKeep bool
+	// resumable makes the host keep every session whose connection broke, so presenting its token
+	// resumes it with its programs.
+	resumable bool
 	// resumes are what each SSH connection presented, nil for nothing.
 	resumes []*core.RemoteResume
 	// ended are the programs each request to end some named.
@@ -126,6 +129,8 @@ func (c *remoteHostClose) session(n int, resume *core.RemoteResume) *core.Remote
 		if kept, ok := c.kept[resume.Key]; ok {
 			delete(c.kept, resume.Key)
 			session.SessionKey, session.Resumed, session.KeptPrograms = resume.Key, true, kept
+		} else if c.resumable {
+			session.SessionKey, session.Resumed = resume.Key, true
 		}
 	}
 	token := "token-" + strings.TrimPrefix(session.SessionKey, "key-")

@@ -19,7 +19,8 @@ import (
 
 // TestVisualRemoteClose captures closing a remote workspace whose host still runs a terminal and a
 // process of it: the question with the programs, Remember my choice and its help; the notice once
-// they are kept on the host; and, on the next connection, the offer to end the kept programs.
+// they are kept on the host; on the next connection, the offer to end the kept programs or show
+// the process in the Run window; and the Run tab that receives the kept process again.
 func TestVisualRemoteClose(t *testing.T) {
 	out := os.Getenv("LITHE_VISUAL_OUTPUT_DIR")
 	if out == "" {
@@ -94,12 +95,40 @@ func TestVisualRemoteClose(t *testing.T) {
 			kernel.set(func(k *remoteHostKernel) { k.close.running = nil })
 			h.app.openRemote(surfaceMenu)
 			h.settleChain()
-			h.openRemoteTestProject(t)
+			p := h.openRemoteTestProject(t)
 			h.await("the offer to end the kept programs", func() bool { return len(h.app.prompts.queue) == 1 })
 			shot("offer")
 			if h.app.prompts.queue[0].title != i18n.Shared(h.app.language(), "desktop.remote.kept.title") {
 				t.Fatal("the offer to end the kept programs is not shown")
 			}
+
+			// Show in Run Window receives the kept process, which goes on running, in a Run tab.
+			kernel.setRuns(func(r *remoteHostRuns) {
+				r.hold, r.signalled = true, make(chan struct{})
+				r.attachOutput = "  VITE ready in 312 ms\n\n  ➜  Local:   http://localhost:5173/\n"
+			})
+			attach := 1
+			h.app.answerPrompt(&attach)
+			h.await("the kept process's output in its Run tab", func() bool {
+				op := p.build.runOf("remote-attach:7")
+				return op != nil && op.session != nil && strings.Contains(op.session.output.all(), "VITE ready")
+			})
+			// The pointer leaves the dialog's buttons, whose highlight would stay.
+			if err := h.driver.Move(800, 300); err != nil {
+				t.Fatal(err)
+			}
+			h.app.invalidator.Invalidate()
+			for range 3 {
+				if err := h.driver.Pump(); err != nil {
+					t.Fatal(err)
+				}
+			}
+			if err := session.Screenshot(filepath.Join(out, "remote-close-attached-"+look.suffix+".png")); err != nil {
+				t.Fatal(err)
+			}
+			// The process ends before the window closes, which waits for every run.
+			kernel.setRuns(func(r *remoteHostRuns) { close(r.signalled) })
+			h.awaitRemoteRun(p, "npm", nil)
 		})
 	}
 }

@@ -244,6 +244,7 @@ type Kernel interface {
 	RemoteTerminalWrite(ctx context.Context, sessionID string, terminalID uint64, data []byte) (bool, error)
 	RemoteTerminalResize(ctx context.Context, sessionID string, terminalID uint64, columns, rows uint16) error
 	RemoteRunProcess(ctx context.Context, sessionID string, open core.RemoteProcessOpen, events core.RemoteProcessEvents) (core.RemoteProcessExit, error)
+	RemoteAttachProcess(ctx context.Context, sessionID string, processID uint64, events core.RemoteProcessEvents) (core.RemoteProcessExit, error)
 	RemoteProcessKill(ctx context.Context, sessionID string, processID uint64, force bool) error
 	RemoteTempDirectory(ctx context.Context, sessionID, prefix string) (string, error)
 	RemoteRemove(ctx context.Context, sessionID, path string, recursive bool) error
