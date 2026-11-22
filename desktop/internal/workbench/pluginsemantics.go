@@ -175,9 +175,10 @@ type earlySemanticResult struct {
 
 const maxEarlySemanticResults = 32
 
-// completionState is the explicit completion popup.
+// completionState is the editor's completion popup.
 type completionState struct {
 	open         bool
+	automatic    bool
 	items        []core.PluginSemanticCompletionItem
 	selected     int
 	offset       int
@@ -271,8 +272,7 @@ type pluginSemantics struct {
 	// autoDelay and autoCancel debounce automatic completion while typing.
 	autoDelay  time.Duration
 	autoCancel context.CancelFunc
-	// autoGeneration names the newest debounce; an older wait that already
-	// fired is ignored.
+	// autoGeneration guards automatic work even after the debounce has fired.
 	autoGeneration uint64
 }
 
@@ -713,6 +713,7 @@ func (a *App) startProviderHover(p *project, d *document, line, column int, anch
 
 // startPluginCompletion asks for an explicit completion list.
 func (a *App) startPluginCompletion(p *project, d *document, line, column int) {
+	a.stopAutoCompletion()
 	a.requestPluginCompletion(p, d, line, column, completionTriggerContext(), false)
 }
 
@@ -727,6 +728,9 @@ func (a *App) requestPluginCompletion(p *project, d *document, line, column int,
 		return
 	}
 	if automatic {
+		if a.settings.DisableAutoCompletion {
+			return
+		}
 		if caretLine, caretColumn := d.caretView().CaretUTF16(); caretLine != line || caretColumn != column {
 			return
 		}
@@ -734,17 +738,23 @@ func (a *App) requestPluginCompletion(p *project, d *document, line, column int,
 	a.closeSemanticHover()
 	a.closeSemanticDefinition()
 	a.closeSemanticCompletion()
-	retry := func(a *App) { a.requestPluginCompletion(p, d, line, column, triggerContext, automatic) }
+	server, ok := a.semanticServer(d)
+	// A standalone provider reads the editor document directly.
+	if !ok && !automatic && a.startProviderCompletion(p, d, line, column, false, nil) {
+		return
+	}
+	generation := a.semantics.autoGeneration
+	retry := func(a *App) {
+		if !automatic || a.semantics.autoGeneration == generation {
+			a.requestPluginCompletion(p, d, line, column, triggerContext, automatic)
+		}
+	}
 	if !a.semanticDocumentReady(d) {
 		a.deferSemantic(p, d, retry)
 		a.startDocumentSync(p, d)
 		return
 	}
-	server, ok := a.semanticServer(d)
 	if !ok {
-		if !automatic {
-			a.startProviderCompletion(p, d, line, column)
-		}
 		return
 	}
 	if !server.isReady() {
@@ -757,7 +767,7 @@ func (a *App) requestPluginCompletion(p *project, d *document, line, column int,
 	pending.automatic = automatic
 	if join := a.newCompletionMergeJoin(p, d, line, column, automatic); join != nil {
 		pending.join = join
-		a.startProviderCompletionFor(p, d, line, column, join)
+		a.startProviderCompletion(p, d, line, column, false, join)
 	}
 	a.semantics.pending = append(a.semantics.pending, pending)
 	request := core.PluginSemanticRequest{
@@ -830,10 +840,10 @@ func (a *App) applyServerFeatures(server *pluginServer, event core.BackendEvent)
 // edit cancels the previous wait, and the request is placed only if the caret
 // is still where typing left it.
 func (a *App) scheduleAutoCompletion(p *project, d *document, edit editorview.Edit) {
-	if a.semantics.autoCancel != nil {
-		a.semantics.autoCancel()
-		a.semantics.autoCancel = nil
+	if a.settings.DisableAutoCompletion {
+		return
 	}
+	a.stopAutoCompletion()
 	if a.plugins == nil || a.project != p || d.caretView().IsComposing() {
 		return
 	}
@@ -866,7 +876,6 @@ func (a *App) scheduleAutoCompletion(p *project, d *document, edit editorview.Ed
 	}
 	ctx, cancel := context.WithCancel(p.ctx)
 	a.semantics.autoCancel = cancel
-	a.semantics.autoGeneration++
 	generation := a.semantics.autoGeneration
 	a.background(p, 0, func(context.Context) func(*App) {
 		defer cancel()
@@ -885,12 +894,31 @@ func (a *App) scheduleAutoCompletion(p *project, d *document, edit editorview.Ed
 				return
 			}
 			if providerOnly {
-				a.startProviderCompletion(p, d, line, column)
+				a.startProviderCompletion(p, d, line, column, true, nil)
 				return
 			}
 			a.requestPluginCompletion(p, d, line, column, trigger, true)
 		}
 	})
+}
+
+func (a *App) setDisableAutoCompletion(disabled bool) {
+	if a.settings.DisableAutoCompletion == disabled {
+		return
+	}
+	a.settings.DisableAutoCompletion = disabled
+	if disabled {
+		a.stopAutoCompletion()
+		if a.semantics.completion.automatic {
+			a.closeSemanticCompletion()
+		}
+		for _, pending := range slices.Clone(a.semantics.pending) {
+			if pending.kind == pluginSemanticCompletion && pending.automatic {
+				a.cancelSemantic(pending)
+			}
+		}
+	}
+	a.saveSettings()
 }
 
 // completionTriggerContext asks the server for an explicit invocation. Core
@@ -1255,6 +1283,7 @@ func (a *App) applySemanticCompletion(pending *semanticPending, event core.Backe
 	}
 	a.semantics.completion = completionState{
 		open:       true,
+		automatic:  pending.automatic,
 		items:      items,
 		documentID: d.id,
 		revision:   pending.revision,
@@ -1264,23 +1293,21 @@ func (a *App) applySemanticCompletion(pending *semanticPending, event core.Backe
 	}
 }
 
-// startProviderCompletion shows a plugin completion provider's items when no language server serves the
-// document. Only explicit completion is routed; automatic triggers need the provider's trigger characters.
-func (a *App) startProviderCompletion(p *project, d *document, line, column int) {
-	a.startProviderCompletionFor(p, d, line, column, nil)
-}
-
-// startProviderCompletionFor asks the plugin completion provider. A join receives the answer as
-// one of its two sides instead of opening the popup itself.
-func (a *App) startProviderCompletionFor(p *project, d *document, line, column int, join *completionMergeJoin) {
+// startProviderCompletion asks the plugin completion provider. A join receives the answer as
+// one of its two sides instead of opening the popup itself. It reports whether a call was started.
+func (a *App) startProviderCompletion(p *project, d *document, line, column int, automatic bool, join *completionMergeJoin) bool {
 	if a.plugins == nil || d == nil || d.virtual || d.path == "" || !a.plugins.HasCompletionProvider(p.root, d.path, d.languageID) {
 		a.settleMergeSide(join, false, nil, false)
-		return
+		return false
 	}
+	generation := a.semantics.autoGeneration
 	revision, id, path, language, root, plugins := d.view.Revision(), strconv.Itoa(d.id), d.path, d.languageID, p.root, a.plugins
 	a.background(p, 15*time.Second, func(ctx context.Context) func(*App) {
 		items, err := plugins.PluginCompletions(ctx, root, path, language, id, revision, line, column)
 		return func(a *App) {
+			if automatic && a.semantics.autoGeneration != generation {
+				return
+			}
 			if p.docs.find(d.id) != d || d.view.Revision() != revision {
 				a.settleMergeSide(join, false, nil, false)
 				return
@@ -1301,9 +1328,13 @@ func (a *App) startProviderCompletionFor(p *project, d *document, line, column i
 				a.closeSemanticCompletion()
 				return
 			}
-			a.semantics.completion = completionState{open: true, items: items, documentID: d.id, revision: revision, line: line, column: column}
+			a.semantics.completion = completionState{
+				open: true, automatic: automatic, items: items, documentID: d.id,
+				revision: revision, line: line, column: column,
+			}
 		}
 	})
+	return true
 }
 
 // semanticPositionCurrent says the trigger position still names the same place.
@@ -1741,6 +1772,10 @@ func (a *App) closePositionSemantics() {
 	a.cancelSemanticKind(pluginSemanticFormatting)
 	a.cancelSemanticKind(pluginSemanticRangeFormatting)
 	a.dropHoverCandidate()
+	a.stopAutoCompletion()
+}
+
+func (a *App) stopAutoCompletion() {
 	if a.semantics.autoCancel != nil {
 		a.semantics.autoCancel()
 		a.semantics.autoCancel = nil

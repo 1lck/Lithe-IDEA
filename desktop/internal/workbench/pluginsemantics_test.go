@@ -610,6 +610,64 @@ func TestTypingIdentifierStartsDebouncedCompletion(t *testing.T) {
 	}
 }
 
+func TestAutoCompletionSettingKeepsManualCompletion(t *testing.T) {
+	f := newSemanticFixture(t)
+	f.h.app.semantics.autoDelay = -1
+	f.h.app.setDisableAutoCompletion(true)
+	var saved settings
+	if found, err := f.h.store.Load(settingsFile, &saved); err != nil || !found || !saved.DisableAutoCompletion {
+		t.Fatalf("disabled setting was not saved: found=%v, disabled=%v, err=%v", found, saved.DisableAutoCompletion, err)
+	}
+	f.d.view.GoToNavigation(0, 3, false)
+	if err := f.h.driver.Type("x"); err != nil {
+		t.Fatal(err)
+	}
+	f.h.settle()
+	if f.kernel.requestCount() != 0 || f.h.app.semantics.autoCancel != nil || f.h.app.semantics.completion.open {
+		t.Fatal("typing scheduled completion with automatic completion disabled")
+	}
+
+	if err := f.h.driver.Key(gfx.KeySpace, gfx.ModifierControl); err != nil {
+		t.Fatal(err)
+	}
+	f.waitForRequests(t, 1)
+	items := completionResult(t, core.PluginSemanticCompletionItem{Label: "onex"})
+	f.deliver(t, "op-1", pluginMethodCompletion, items)
+	if !f.h.app.semantics.completion.open || f.h.app.semantics.completion.automatic {
+		t.Fatal("Ctrl+Space did not open manual completion")
+	}
+
+	f.h.app.setDisableAutoCompletion(false)
+	if err := f.h.driver.Type("y"); err != nil {
+		t.Fatal(err)
+	}
+	f.waitForRequests(t, 2)
+	f.deliver(t, "op-2", pluginMethodCompletion, items)
+	if !f.h.app.semantics.completion.open || !f.h.app.semantics.completion.automatic {
+		t.Fatal("typing did not open automatic completion after re-enabling")
+	}
+	f.h.app.setDisableAutoCompletion(true)
+	if f.h.app.semantics.completion.open {
+		t.Fatal("disabling left the automatic completion popup open")
+	}
+}
+
+func TestAutoCompletionSettingDropsInFlightResult(t *testing.T) {
+	f := newSemanticFixture(t)
+	f.h.app.semantics.autoDelay = -1
+	f.d.view.GoToNavigation(0, 3, false)
+	if err := f.h.driver.Type("x"); err != nil {
+		t.Fatal(err)
+	}
+	f.waitForRequests(t, 1)
+	f.h.app.setDisableAutoCompletion(true)
+	f.h.app.setDisableAutoCompletion(false)
+	f.deliver(t, "op-1", pluginMethodCompletion, completionResult(t, core.PluginSemanticCompletionItem{Label: "onex"}))
+	if f.h.app.semantics.completion.open {
+		t.Fatal("an automatic request from before disabling reopened the popup")
+	}
+}
+
 func TestTypingMemberAccessSendsTriggerCharacter(t *testing.T) {
 	f := newSemanticFixture(t)
 	f.h.app.applyServerFeatures(f.server, core.BackendEvent{

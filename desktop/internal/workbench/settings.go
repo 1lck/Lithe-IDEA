@@ -209,6 +209,9 @@ func (a *App) newSettingsWindow() *settingswindow.Controller {
 		SetDisableSemanticHighlight: func(value bool) {
 			a.post(func(a *App) { a.setDisableSemanticHighlight(value) })
 		},
+		SetDisableAutoCompletion: func(value bool) {
+			a.post(func(a *App) { a.setDisableAutoCompletion(value) })
+		},
 		SetVimMode: func(value bool) {
 			a.post(func(a *App) { a.setVimMode(value) })
 		},
@@ -479,6 +482,7 @@ func (a *App) openSettingsPageWith(surface actionSurface, page settingsPage, que
 			GitLogLimit: a.gitLogLimit(), GitLogMergedLimit: a.gitLogMergedLimit(),
 			GitConsole:               a.settings.GitConsole,
 			DisableSemanticHighlight: a.settings.DisableSemanticHighlight,
+			DisableAutoCompletion:    a.settings.DisableAutoCompletion,
 			VimMode:                  a.settings.VimMode,
 			DisableAutoSave:          a.settings.DisableAutoSave,
 			ProcessTermination:       a.settings.ProcessTermination,

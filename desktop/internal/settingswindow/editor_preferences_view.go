@@ -41,6 +41,13 @@ func (w *window) editorPresentationCard(c ui.C) {
 			}
 			w.infoButton(c.Part("inlay-hints-info"), i18n.Shared(lang, "desktop.editorPrefs.inlayHintsHelp"))
 		})
+		ui.Row(c).FillWidth().Items(ui.Center).Gap(6).Children(func() {
+			autoCompletion := !values.DisableAutoCompletion
+			if ui.Switch(c.Part("auto-completion"), &autoCompletion, i18n.Shared(lang, "desktop.editorPrefs.autoCompletion")).Changed() {
+				w.setDisableAutoCompletion(!autoCompletion)
+			}
+			w.infoButton(c.Part("auto-completion-info"), i18n.Shared(lang, "desktop.editorPrefs.autoCompletionHelp"))
+		})
 		w.settingsRow(c, i18n.Shared(lang, "desktop.editorPrefs.cursorStyle"), "", func() {
 			if ui.Select(c.Part("caret-style"), &current.CursorStyle, []string{"line", "block", "underline"}, func(style string) string {
 				switch style {
@@ -75,6 +82,16 @@ func (w *window) editorPresentationCard(c ui.C) {
 			ui.Wrap(c, w.editorPrefsError).Color(w.pal.danger).FontSize(12)
 		}
 	})
+}
+
+func (w *window) setDisableAutoCompletion(value bool) {
+	if w.sess.finished.Load() || w.sess.values.DisableAutoCompletion == value {
+		return
+	}
+	w.sess.values.DisableAutoCompletion = value
+	if set := w.ctrl.opts.SetDisableAutoCompletion; set != nil {
+		set(value)
+	}
 }
 
 func (w *window) setEditorPresentation(value core.EditorPreferences) {

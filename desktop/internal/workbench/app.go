@@ -427,6 +427,8 @@ type settings struct {
 	GitConsole core.GitConsolePreferences `json:"gitConsole,omitzero"`
 	// DisableSemanticHighlight keeps the syntax colors alone; semantic coloring is on by default.
 	DisableSemanticHighlight bool `json:"disableSemanticHighlight,omitempty"`
+	// DisableAutoCompletion suppresses completions while typing. They are on by default.
+	DisableAutoCompletion bool `json:"disableAutoCompletion,omitempty"`
 	// VimMode turns on the Vim keys of every editor; off by default (vim_mode.go).
 	VimMode bool `json:"vimMode,omitempty"`
 	// DisableAutoSave stops saving changed files a moment after typing stops

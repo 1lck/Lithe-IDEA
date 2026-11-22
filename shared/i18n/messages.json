@@ -108853,6 +108853,20 @@
       ]
     },
     {
+      "id": "desktop.editorPrefs.autoCompletion",
+      "description": "IDE editor essentials: automatic completion toggle",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.editorPrefs.autoCompletionHelp",
+      "description": "IDE editor essentials: automatic completion toggle help",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
       "id": "desktop.editorMenu.codeActions",
       "description": "Editor context menu: open code actions popup",
       "platforms": [
