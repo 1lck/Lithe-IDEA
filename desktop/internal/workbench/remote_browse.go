@@ -108,17 +108,29 @@ func (a *App) connectRemote(folder string) {
 			}
 		})
 	})
-	generation, kernel, root := r.generation, a.kernel, a.globalToolchainRoot()
+	generation, kernel, root, secrets := r.generation, a.kernel, a.globalToolchainRoot(), a.remoteSecrets()
 	a.background(nil, 0, func(context.Context) func(*App) {
 		defer cancel()
-		result, err := a.connectRemoteHost(a.gitAuthentication(ctx), kernel, root, host)
+		// A session a window closed with "Keep on Host" resumes (§9.2). Whichever session the
+		// connection ends up with, the stored one is spent: resumed, it is this connection's; not
+		// resumed, the host no longer has it.
+		resume, keptErr := remoteconn.NewestKept(ctx, secrets, entry.ID)
+		result, err := a.connectRemoteHost(a.gitAuthentication(ctx), kernel, root, host, resume)
+		if resume != nil && result.Session != nil {
+			if forgetErr := remoteconn.ForgetKept(ctx, secrets, entry.ID, resume.Key); keptErr == nil {
+				keptErr = forgetErr
+			}
+		}
 		return func(a *App) {
+			if keptErr != nil {
+				a.backgroundFailed("remote_kept_sessions", keptErr)
+			}
 			r := &a.remote
 			if !r.open || r.generation != generation || r.connect != attempt {
 				if result.Session != nil {
-					a.releaseRemoteSession(result.Session.ID)
+					a.returnRemoteSession(entry.ID, *result.Session)
 				}
-				// log-exempt: 用户取消：连接已停止、换了连接或窗口已关闭，已打开的会话随即结束。
+				// log-exempt: 用户取消：连接已停止、换了连接或窗口已关闭，已打开的会话随即交还。
 				return
 			}
 			r.connect = nil
@@ -131,7 +143,7 @@ func (a *App) connectRemote(folder string) {
 				return
 			}
 			if result.Session != nil {
-				a.releaseRemoteSession(result.Session.ID)
+				a.returnRemoteSession(entry.ID, *result.Session)
 			}
 			if field, reason, ok := core.RemoteConnectionFieldError(err); ok {
 				a.operationRejected("remote_connect", "field_refused")
@@ -191,12 +203,12 @@ func (a *App) browseRemote(entry core.SavedRemoteConnection, host remoteHost, se
 	a.listRemoteFolder(path.Clean(start))
 }
 
-// leaveRemoteBrowser stops choosing a folder and ends its session.
+// leaveRemoteBrowser stops choosing a folder and gives its session back (returnRemoteSession).
 func (a *App) leaveRemoteBrowser() {
 	r := &a.remote
 	if b := r.browser; b != nil {
 		r.browser = nil
-		a.releaseRemoteSession(b.session.ID)
+		a.returnRemoteSession(b.entryID, b.session)
 	}
 }
 
@@ -485,10 +497,11 @@ func (a *App) openRemoteWorkspace(target remoteTarget) {
 		p := open.project
 		if r := p.remote; r != nil && !r.closed && r.session == "" && r.reconnecting == nil {
 			r.stopRemoteTimer()
-			open.attachRemote(p, target.session.ID)
+			open.attachRemote(p, target.session)
 			open.refreshRemoteTree(p)
+			open.offerKeptPrograms(p, target.session)
 		} else {
-			a.releaseRemoteSession(target.session.ID)
+			a.returnRemoteSession(target.connectionID, target.session)
 		}
 		open.applyProjectTrust(p, target.trusted)
 		return

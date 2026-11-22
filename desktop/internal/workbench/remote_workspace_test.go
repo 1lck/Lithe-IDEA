@@ -84,6 +84,63 @@ type remoteHostKernel struct {
 	wsl remoteHostWSL
 	// runs are the workspace's run configurations and the host's processes (remote_run_test.go).
 	runs remoteHostRuns
+	// close is what the host sessions run and keep (remote_close_test.go).
+	close remoteHostClose
+}
+
+// remoteHostClose is what the host's sessions run and keep. Each SSH session N has the key "key-N"
+// and the token "token-N"; a connection that presents a kept session's key and token resumes it.
+type remoteHostClose struct {
+	// running are the programs the attached session runs, whichever it is; runningErr fails
+	// listing them.
+	running    []core.RemoteProgram
+	runningErr error
+	// choices are what each closed session was closed with, in closed's order.
+	choices []core.RemoteClosePrograms
+	// keys are the sessions' keys by session id.
+	keys map[string]string
+	// kept are the programs of the sessions the host keeps, by key; refuseKeep makes the host
+	// close a session it was asked to keep.
+	kept       map[string][]core.RemoteProgram
+	refuseKeep bool
+	// resumes are what each SSH connection presented, nil for nothing.
+	resumes []*core.RemoteResume
+	// ended are the programs each request to end some named.
+	ended [][]core.RemoteProgram
+}
+
+// session is the SSH session numbered n, resuming the kept session resume names when it presents
+// its token. It runs under the kernel's lock.
+func (c *remoteHostClose) session(n int, resume *core.RemoteResume) *core.RemoteSession {
+	c.resumes = append(c.resumes, resume)
+	if c.keys == nil {
+		c.keys = map[string]string{}
+	}
+	id := "session-" + strconv.Itoa(n)
+	session := &core.RemoteSession{ID: id, HostName: "devbox", UserName: "dev", HomeDirectory: remoteTestHome, SessionKey: "key-" + strconv.Itoa(n)}
+	if resume != nil && resume.Token == "token-"+strings.TrimPrefix(resume.Key, "key-") {
+		if kept, ok := c.kept[resume.Key]; ok {
+			delete(c.kept, resume.Key)
+			session.SessionKey, session.Resumed, session.KeptPrograms = resume.Key, true, kept
+		}
+	}
+	token := "token-" + strings.TrimPrefix(session.SessionKey, "key-")
+	session.SessionToken = &token
+	c.keys[id] = session.SessionKey
+	return session
+}
+
+func (k *remoteHostKernel) RemoteRunningPrograms(context.Context, string) ([]core.RemoteProgram, error) {
+	k.mu.Lock()
+	defer k.mu.Unlock()
+	return slices.Clone(k.close.running), k.close.runningErr
+}
+
+func (k *remoteHostKernel) RemoteEndPrograms(_ context.Context, _ string, programs []core.RemoteProgram) (int, error) {
+	k.mu.Lock()
+	defer k.mu.Unlock()
+	k.close.ended = append(k.close.ended, slices.Clone(programs))
+	return len(programs), nil
 }
 
 // remoteTestTree is the workspace's tree the Project tool window lists by default.
@@ -108,8 +165,7 @@ func (k *remoteHostKernel) RemoteConnect(_ context.Context, request core.RemoteC
 	if k.refuse != "" {
 		return core.RemoteConnectResult{Status: k.refuse}, nil
 	}
-	session := &core.RemoteSession{ID: "session-" + strconv.Itoa(k.connects), HostName: "devbox", UserName: "dev", HomeDirectory: remoteTestHome}
-	return core.RemoteConnectResult{Status: core.RemoteProbeConnected, Session: session}, nil
+	return core.RemoteConnectResult{Status: core.RemoteProbeConnected, Session: k.close.session(k.connects, request.Resume)}, nil
 }
 
 func (k *remoteHostKernel) RemoteReadDir(_ context.Context, _ string, dir string) (core.RemoteDirectory, error) {
@@ -131,11 +187,19 @@ func (k *remoteHostKernel) RemoteServerState(context.Context, string) error {
 	return k.state
 }
 
-func (k *remoteHostKernel) RemoteDisconnect(_ context.Context, id string) (bool, error) {
+func (k *remoteHostKernel) RemoteDisconnect(_ context.Context, id string, programs core.RemoteClosePrograms) (core.RemoteDisconnectResult, error) {
 	k.mu.Lock()
 	defer k.mu.Unlock()
 	k.closed = append(k.closed, id)
-	return true, nil
+	k.close.choices = append(k.close.choices, programs)
+	kept := programs == core.RemoteCloseKeep && !k.close.refuseKeep
+	if kept {
+		if k.close.kept == nil {
+			k.close.kept = map[string][]core.RemoteProgram{}
+		}
+		k.close.kept[k.close.keys[id]] = slices.Clone(k.close.running)
+	}
+	return core.RemoteDisconnectResult{Closed: true, Kept: kept}, nil
 }
 
 func (k *remoteHostKernel) ListDirectories(ctx context.Context, _ string, paths []string) ([]core.DirectoryListing, error) {

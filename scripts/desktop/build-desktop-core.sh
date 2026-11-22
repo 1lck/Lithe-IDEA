@@ -327,9 +327,10 @@ PINNED_CORE_REPOSITORY="https://github.com/Lithe-IDEA/Lithe-core-rust.git"
 # Lithe-core-rust main at 49fb750: #158 remote.preferences and remote.editPreferences (SSH program,
 # reconnect limit) feed the remote commands, with the reconnect pauses given by Core (#2231).
 # Lithe-core-rust main at 62d44ce: #159 host forward rules and reverse forwards (#2231).
-# Lithe-core-rust main at ac80382: #160 persistent host sessions and the closing preference;
-# #161 runConfig.* of a remote workspace reads, checks and plans on the host, and the launch plan
-# names host paths (#2231).
+# Lithe-core-rust main at ac80382: #160 remote.connect runs the persistent host session and resumes
+# a kept one; remote.disconnect ends or keeps the host programs; remote.runningPrograms,
+# remote.endPrograms (all or the listed ones), the closePrograms preference and
+# closing.idleTimeoutSeconds; #161 plans the run configurations of a remote workspace (#2231).
 PINNED_CORE_REVISION="ac80382df327579a92dba105abd9fddceef29a29"
 PROFILE="debug"
 CHECKOUT_ONLY="no"
