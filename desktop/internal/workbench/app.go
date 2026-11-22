@@ -40,6 +40,7 @@ import (
 	"github.com/1lck/Lithe-IDEA/desktop/internal/pluginpkg"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/pluginservice"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/projectgen"
+	"github.com/1lck/Lithe-IDEA/desktop/internal/remoteconn"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/remoteserver"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/settingswindow"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/store"
@@ -215,7 +216,9 @@ type Kernel interface {
 	RemoteListWSLDistributions(ctx context.Context) (core.RemoteWSLDistributions, error)
 	RemoteAuthRespond(ctx context.Context, requestID string, answer *string) (bool, error)
 	RemoteConnect(ctx context.Context, request core.RemoteConnectRequest) (core.RemoteConnectResult, error)
-	RemoteDisconnect(ctx context.Context, sessionID string) (bool, error)
+	RemoteDisconnect(ctx context.Context, sessionID string, programs core.RemoteClosePrograms) (core.RemoteDisconnectResult, error)
+	RemoteRunningPrograms(ctx context.Context, sessionID string) ([]core.RemoteProgram, error)
+	RemoteEndPrograms(ctx context.Context, sessionID string, programs []core.RemoteProgram) (int, error)
 	RemoteCloseAll(ctx context.Context) (int, error)
 	RemoteReadDir(ctx context.Context, sessionID, path string) (core.RemoteDirectory, error)
 	RemoteStat(ctx context.Context, sessionID, path string) (core.RemoteFileMetadata, error)
@@ -814,6 +817,9 @@ type App struct {
 	remoteBundle func() (remoteserver.Bundle, error)
 	remoteAnchor func() (string, error)
 	remoteAfter  func(time.Duration, func()) func() bool
+	// remoteKeptSecrets replaces the platform secret store the kept host sessions are remembered
+	// in (remote_close.go); tests set it.
+	remoteKeptSecrets remoteconn.KeptSecrets
 	// gitAuth holds the questions of the Git operations the user started (git_auth.go).
 	gitAuth    gitAuthState
 	newProject newProjectState
@@ -1768,7 +1774,10 @@ func (a *App) requestCloseProject(after func()) {
 		if after != nil {
 			lifecycle = exitContextQuit
 		}
-		a.confirmProcessExit(p, lifecycle, func() { a.finishCloseProject(p, after) })
+		a.confirmProcessExit(p, lifecycle, func() {
+			// A remote workspace then decides the programs its host runs (remote_close.go).
+			a.confirmRemoteClose(p, func() { a.finishCloseProject(p, after) })
+		})
 	})
 }
 

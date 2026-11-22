@@ -994,6 +994,219 @@
       ]
     },
     {
+      "id": "desktop.remote.close.title",
+      "description": "Remote workspace close question: title",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.remote.close.running",
+      "description": "Remote workspace close question: the line before the list of programs the host runs; {connection} is the connection's name",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "connection": "string"
+      }
+    },
+    {
+      "id": "desktop.remote.close.end",
+      "description": "Remote workspace close question: default button that ends the host's programs and closes",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.remote.close.keep",
+      "description": "Remote workspace close question: button that keeps the host's programs running and closes",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.remote.close.remember",
+      "description": "Remote workspace close question: checkbox that stores the answer",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.remote.close.rememberHelp",
+      "description": "Remote workspace close question: help behind the info glyph of the Remember checkbox",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.remote.close.kept",
+      "description": "Notification after closing a remote workspace kept its programs on the host; {count} is how many, {connection} the connection's name",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "connection": "string",
+        "count": "string"
+      }
+    },
+    {
+      "id": "desktop.remote.close.keepFailed",
+      "description": "Notification: keeping the host's programs failed because the session could not be stored, so they ended; {connection} is the connection's name",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "connection": "string"
+      }
+    },
+    {
+      "id": "desktop.remote.close.keepRefused",
+      "description": "Notification: the host did not confirm it kept the session; {connection} is the connection's name",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "connection": "string"
+      }
+    },
+    {
+      "id": "desktop.remote.close.keepLost",
+      "description": "Notification: the connection was lost before the host's programs could be kept; {connection} is the connection's name",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "connection": "string"
+      }
+    },
+    {
+      "id": "desktop.remote.close.rememberFailed",
+      "description": "Notification: the close question's remembered answer could not be stored",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.remote.close.item",
+      "description": "Remote workspace program list: one program with a name; {kind} is Terminal or Process, {command} the command as it runs, {duration} how long it has run, as \"running for 5 min\"",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "kind": "string",
+        "name": "string",
+        "command": "string",
+        "duration": "string"
+      }
+    },
+    {
+      "id": "desktop.remote.close.itemUnnamed",
+      "description": "Remote workspace program list: one program without a name; {kind} is Terminal or Process, {command} the command as it runs, {duration} how long it has run, as \"running for 5 min\"",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "kind": "string",
+        "command": "string",
+        "duration": "string"
+      }
+    },
+    {
+      "id": "desktop.remote.close.kindTerminal",
+      "description": "Remote workspace program list: the kind of a terminal",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.remote.close.kindProcess",
+      "description": "Remote workspace program list: the kind of a process",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.remote.close.ranUnderMinute",
+      "description": "Remote workspace program list: a program has run less than a minute",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.remote.close.ranMinutes",
+      "description": "Remote workspace program list: a program has run {count} whole minutes",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "count": "string"
+      }
+    },
+    {
+      "id": "desktop.remote.close.ranHours",
+      "description": "Remote workspace program list: a program has run {hours} hours and {minutes} minutes",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "hours": "string",
+        "minutes": "string"
+      }
+    },
+    {
+      "id": "desktop.remote.kept.title",
+      "description": "Question after connecting to a host session an earlier window kept: title",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.remote.kept.text",
+      "description": "Question after connecting to a kept host session: the line before the list; {connection} is the connection's name, {count} how many programs",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "connection": "string",
+        "count": "string"
+      }
+    },
+    {
+      "id": "desktop.remote.kept.end",
+      "description": "Question after connecting to a kept host session: button that ends the listed programs",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.remote.kept.keep",
+      "description": "Question after connecting to a kept host session: default button that leaves the programs running",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.remote.kept.ended",
+      "description": "Notification: the kept programs were ended; {count} is how many were still running, {connection} the connection's name",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "connection": "string",
+        "count": "string"
+      }
+    },
+    {
+      "id": "desktop.remote.kept.endFailed",
+      "description": "Notification: the kept programs could not be ended; {connection} is the connection's name",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "connection": "string"
+      }
+    },
+    {
       "id": "desktop.remote.worktree.connectionRemoved",
       "description": "Remote Development window: error when a worktree of a remote workspace is opened but the saved connection the workspace was opened over was deleted",
       "platforms": [
@@ -2754,7 +2967,31 @@
       "desktop.remote.wsl.missing": "wsl.exe was not found on this computer. Install the Windows Subsystem for Linux to open a distribution.",
       "desktop.remote.wsl.start": "Start the distribution",
       "desktop.remote.worktree.connectionRemoved": "The connection this workspace was opened over was deleted, so its worktree cannot be opened. Add the connection again, then open the worktree.",
-      "desktop.remote.worktree.destination": "The path is a folder on the host, created by Git there."
+      "desktop.remote.worktree.destination": "The path is a folder on the host, created by Git there.",
+      "desktop.remote.close.title": "Close the remote workspace?",
+      "desktop.remote.close.running": "These programs are still running on {connection}:",
+      "desktop.remote.close.end": "End and Close",
+      "desktop.remote.close.keep": "Keep on Host and Close",
+      "desktop.remote.close.remember": "Remember my choice",
+      "desktop.remote.close.rememberHelp": "Don't ask again. You can change this in Settings › Tools › Remote Workspace.",
+      "desktop.remote.close.kept": "Programs left running on {connection}: {count}",
+      "desktop.remote.close.keepFailed": "Could not store the session of {connection}, so its programs ended with the workspace.",
+      "desktop.remote.close.keepRefused": "{connection} did not confirm it kept the session. If it did not, the host ends its programs.",
+      "desktop.remote.close.keepLost": "The connection to {connection} was lost, so its programs could not be kept. The host ends them after its idle timeout.",
+      "desktop.remote.close.rememberFailed": "Could not remember this choice. Closing a remote workspace will ask again.",
+      "desktop.remote.close.item": "• {kind} “{name}”: {command} ({duration})",
+      "desktop.remote.close.itemUnnamed": "• {kind}: {command} ({duration})",
+      "desktop.remote.close.kindTerminal": "Terminal",
+      "desktop.remote.close.kindProcess": "Process",
+      "desktop.remote.close.ranUnderMinute": "running for less than a minute",
+      "desktop.remote.close.ranMinutes": "running for {count} min",
+      "desktop.remote.close.ranHours": "running for {hours} h {minutes} min",
+      "desktop.remote.kept.title": "Programs Kept on the Host",
+      "desktop.remote.kept.text": "A closed window kept these programs running on {connection} ({count}):",
+      "desktop.remote.kept.end": "End Them",
+      "desktop.remote.kept.keep": "Keep Running",
+      "desktop.remote.kept.ended": "Ended programs on {connection}: {count}",
+      "desktop.remote.kept.endFailed": "Could not end the programs kept on {connection}."
     },
     "zh-CN": {
       "desktop.remote.title": "远程开发",
@@ -3074,7 +3311,31 @@
       "desktop.remote.wsl.missing": "本机找不到 wsl.exe。安装适用于 Linux 的 Windows 子系统（WSL）后才能打开发行版。",
       "desktop.remote.wsl.start": "启动发行版",
       "desktop.remote.worktree.connectionRemoved": "打开此工作区所用的连接已被删除，无法打开它的工作树。请重新添加该连接后再打开工作树。",
-      "desktop.remote.worktree.destination": "路径是主机上的文件夹，由主机上的 Git 创建。"
+      "desktop.remote.worktree.destination": "路径是主机上的文件夹，由主机上的 Git 创建。",
+      "desktop.remote.close.title": "关闭远程工作区？",
+      "desktop.remote.close.running": "以下进程仍在 {connection} 上运行：",
+      "desktop.remote.close.end": "结束并关闭",
+      "desktop.remote.close.keep": "保留在远端并关闭",
+      "desktop.remote.close.remember": "记住我的选择",
+      "desktop.remote.close.rememberHelp": "之后不再询问，可在 设置 › 工具 › 远程工作区 中修改",
+      "desktop.remote.close.kept": "{count} 个进程保留在 {connection} 上",
+      "desktop.remote.close.keepFailed": "无法保存 {connection} 的会话，进程已随工作区结束。",
+      "desktop.remote.close.keepRefused": "{connection} 没有确认保留会话；如果没有保留，主机会结束这些进程。",
+      "desktop.remote.close.keepLost": "与 {connection} 的连接已断开，进程没能保留；主机会在空闲超时后结束它们。",
+      "desktop.remote.close.rememberFailed": "没能记住这个选择，下次关闭远程工作区时仍会询问。",
+      "desktop.remote.close.item": "• {kind}“{name}”：{command}（{duration}）",
+      "desktop.remote.close.itemUnnamed": "• {kind}：{command}（{duration}）",
+      "desktop.remote.close.kindTerminal": "终端",
+      "desktop.remote.close.kindProcess": "进程",
+      "desktop.remote.close.ranUnderMinute": "已运行不到 1 分钟",
+      "desktop.remote.close.ranMinutes": "已运行 {count} 分钟",
+      "desktop.remote.close.ranHours": "已运行 {hours} 小时 {minutes} 分钟",
+      "desktop.remote.kept.title": "上次保留的进程",
+      "desktop.remote.kept.text": "上次关闭时保留在 {connection} 上的 {count} 个进程仍在运行：",
+      "desktop.remote.kept.end": "结束这些进程",
+      "desktop.remote.kept.keep": "继续运行",
+      "desktop.remote.kept.ended": "已结束 {connection} 上的 {count} 个进程",
+      "desktop.remote.kept.endFailed": "无法结束 {connection} 上保留的进程。"
     }
   }
 }
