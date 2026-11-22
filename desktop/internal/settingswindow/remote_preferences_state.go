@@ -47,12 +47,14 @@ type remotePreferencesState struct {
 	damagedPath string
 	source      RemotePreferences
 
-	// program and limit are the drafts; set says the user changed the value, and a nil value
-	// drafts Automatic.
+	// program, limit and reverse are the drafts; set says the user changed the value, and a nil
+	// value drafts Automatic.
 	program    *string
 	programSet bool
 	limit      *uint32
 	limitSet   bool
+	reverse    *bool
+	reverseSet bool
 
 	saveEffect *ui.EffectState[RemotePreferences, int]
 	saveKey    int
@@ -122,6 +124,24 @@ func (r *remotePreferencesState) shownLimit() *uint32 {
 	return r.source.Saved.State.Preferences.ReconnectLimitSeconds
 }
 
+// shownReverse is whether the page shows reverse forwards allowed; nil is Automatic.
+func (r *remotePreferencesState) shownReverse() *bool {
+	if r.reverseSet {
+		return r.reverse
+	}
+	return r.source.Saved.State.Preferences.AllowReverseForwarding
+}
+
+// setReverse drafts whether reverse forwards are allowed, nil for Automatic; choosing the saved
+// value drops the draft.
+func (r *remotePreferencesState) setReverse(allowed *bool) {
+	if !r.available() || !r.loaded || r.busy() {
+		return
+	}
+	r.failed = nil
+	r.reverse, r.reverseSet = allowed, !sameBool(allowed, r.source.Saved.State.Preferences.AllowReverseForwarding)
+}
+
 // setProgram drafts the SSH program, nil for Automatic; choosing the saved value drops the draft.
 func (r *remotePreferencesState) setProgram(path *string) {
 	if !r.available() || !r.loaded || r.busy() {
@@ -144,6 +164,8 @@ func sameString(a, b *string) bool { return (a == nil) == (b == nil) && (a == ni
 
 func sameUint32(a, b *uint32) bool { return (a == nil) == (b == nil) && (a == nil || *a == *b) }
 
+func sameBool(a, b *bool) bool { return (a == nil) == (b == nil) && (a == nil || *a == *b) }
+
 func (r *remotePreferencesState) drafts() int {
 	if !r.available() {
 		return 0
@@ -155,10 +177,13 @@ func (r *remotePreferencesState) drafts() int {
 	if r.limitSet {
 		n++
 	}
+	if r.reverseSet {
+		n++
+	}
 	return n
 }
 
-// edits are the drafts as Core edits, the program first.
+// edits are the drafts as Core edits, in the page's order.
 func (r *remotePreferencesState) edits() []core.RemotePreferenceEdit {
 	var edits []core.RemotePreferenceEdit
 	if r.programSet {
@@ -166,6 +191,9 @@ func (r *remotePreferencesState) edits() []core.RemotePreferenceEdit {
 	}
 	if r.limitSet {
 		edits = append(edits, core.RemotePreferenceEdit{ReconnectLimit: &core.RemoteReconnectLimitEdit{Seconds: r.limit}})
+	}
+	if r.reverseSet {
+		edits = append(edits, core.RemotePreferenceEdit{Reverse: &core.RemoteReverseForwardingEdit{Allowed: r.reverse}})
 	}
 	return edits
 }
@@ -190,6 +218,9 @@ func (r *remotePreferencesState) keepChanged() {
 	}
 	if r.limitSet && sameUint32(r.limit, stored.ReconnectLimitSeconds) {
 		r.limit, r.limitSet = nil, false
+	}
+	if r.reverseSet && sameBool(r.reverse, stored.AllowReverseForwarding) {
+		r.reverse, r.reverseSet = nil, false
 	}
 }
 
@@ -219,6 +250,7 @@ func (r *remotePreferencesState) take() (saveFailed error) {
 		default:
 			r.source, r.loaded, r.stale = source, true, false
 			r.program, r.programSet, r.limit, r.limitSet = nil, false, nil, false
+			r.reverse, r.reverseSet = nil, false
 		}
 	}
 	return saveFailed

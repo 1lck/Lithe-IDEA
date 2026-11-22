@@ -226,6 +226,13 @@ type remotePorts struct {
 	shown     bool
 	stopTimer func() bool
 	timer     uint64
+	// rule is the Add Forwarding Rule dialog, nil while it is closed (remote_port_rules.go).
+	rule     *remotePortRuleDraft
+	ruleOpen bool
+	// ruleStopping are the host and reverse rules being stopped, and ruleFailed why the last stop
+	// of one failed, by forward id.
+	ruleStopping map[uint64]bool
+	ruleFailed   map[uint64]string
 }
 
 // reset forgets what belonged to the ended session: its forwards, what ran for them and the
@@ -240,6 +247,10 @@ func (ports *remotePorts) reset() {
 	ports.confirm, ports.confirmOpen = nil, false
 	ports.local, ports.localOpen, ports.localInvalid = nil, false, false
 	ports.notice = ""
+	// The rules ended with the session and are never started again on their own.
+	ports.rule, ports.ruleOpen = nil, false
+	clear(ports.ruleStopping)
+	clear(ports.ruleFailed)
 }
 
 // localPort is the local port a forward of row key asks for: the one the user chose, or the
@@ -261,8 +272,8 @@ func (ports *remotePorts) stopReading() {
 	ports.reading = false
 }
 
-// rows are the window's rows: the listening ports, the ports added by hand and the forwards, by
-// port and then by address.
+// rows are the window's rows: the listening ports, the ports added by hand and the local forwards,
+// by port and then by address. Host and reverse forwards are listed as rules instead.
 func (ports *remotePorts) rows() []remotePortRow {
 	index := map[remotePortKey]int{}
 	var rows []remotePortRow
@@ -284,6 +295,9 @@ func (ports *remotePorts) rows() []remotePortRow {
 		row(added.key).added = &added
 	}
 	for i := range ports.forwards {
+		if !ports.forwards[i].IsLocal() {
+			continue
+		}
 		r := row(forwardKey(ports.forwards[i]))
 		if r.forward == nil {
 			r.forward = &ports.forwards[i]
@@ -548,7 +562,7 @@ func (a *App) chooseRemoteLocalPort(p *project, key remotePortKey, surface actio
 	ports := &r.ports
 	port := ports.localPort(key)
 	for _, forward := range ports.forwards {
-		if forwardKey(forward) == key {
+		if forward.IsLocal() && forwardKey(forward) == key {
 			port = forward.LocalPort
 			break
 		}
@@ -676,7 +690,8 @@ func (a *App) stopRemotePort(p *project, key remotePortKey, id uint64, surface a
 	})
 }
 
-// stopAllRemotePorts stops every forward of p's session, then reads the forwards again.
+// stopAllRemotePorts stops every forward of p's session, the rules included, then reads the
+// forwards again.
 func (a *App) stopAllRemotePorts(p *project, surface actionSurface) {
 	r := p.remote
 	if r == nil || r.closed || r.session == "" || r.ports.stoppingAll || len(r.ports.forwards) == 0 {
@@ -689,7 +704,11 @@ func (a *App) stopAllRemotePorts(p *project, surface actionSurface) {
 	ids := make([]uint64, len(ports.forwards))
 	for i, forward := range ports.forwards {
 		ids[i] = forward.ID
-		ports.setBusy(forwardKey(forward), remotePortStopping)
+		if forward.IsLocal() {
+			ports.setBusy(forwardKey(forward), remotePortStopping)
+		} else {
+			ports.setRuleStopping(forward.ID, true)
+		}
 	}
 	session, kernel := r.session, a.kernel
 	a.background(p, remotePortsTimeout, func(ctx context.Context) func(*App) {
@@ -708,6 +727,8 @@ func (a *App) stopAllRemotePorts(p *project, surface actionSurface) {
 			}
 			ports.stoppingAll = false
 			clear(ports.busy)
+			clear(ports.ruleStopping)
+			clear(ports.ruleFailed)
 			err := errors.Join(stopErr, listErr)
 			switch {
 			case err != nil && (remoteConnectionClosed(stopErr) || remoteConnectionClosed(listErr)):

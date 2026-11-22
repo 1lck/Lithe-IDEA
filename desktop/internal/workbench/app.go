@@ -242,6 +242,8 @@ type Kernel interface {
 	RemoteTempDirectory(ctx context.Context, sessionID, prefix string) (string, error)
 	RemoteRemove(ctx context.Context, sessionID, path string, recursive bool) error
 	RemoteStartForward(ctx context.Context, sessionID string, target core.RemoteForwardTarget) (core.RemoteForward, bool, error)
+	RemoteStartHostForward(ctx context.Context, sessionID string, rule core.RemoteHostForwardRule) (core.RemoteForward, bool, error)
+	RemoteStartReverseForward(ctx context.Context, sessionID string, rule core.RemoteReverseForwardRule, preferences *string) (core.RemoteForward, bool, error)
 	RemoteStopForward(ctx context.Context, sessionID string, id uint64) (bool, error)
 	RemoteForwards(ctx context.Context, sessionID string) ([]core.RemoteForward, error)
 	RemoteListeningPorts(ctx context.Context, sessionID string) ([]core.RemoteListeningPort, error)

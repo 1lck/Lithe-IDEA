@@ -326,10 +326,11 @@ PINNED_CORE_REPOSITORY="https://github.com/Lithe-IDEA/Lithe-core-rust.git"
 # wsl.exe (the wsl field) and remote.listWslDistributions lists the installed ones (#2231).
 # Lithe-core-rust main at 49fb750: #158 remote.preferences and remote.editPreferences (SSH program,
 # reconnect limit) feed the remote commands, with the reconnect pauses given by Core (#2231).
-# Lithe-core-rust #161 at 43da0b3 (on main 62d44ce, #159 host and reverse port forwards):
-# runConfig.* of a remote workspace reads, checks and plans on the host, and the launch plan names
-# host paths (#2231).
-PINNED_CORE_REVISION="43da0b38246629f99bc5ca4cb414b74b3ba22627"
+# Lithe-core-rust main at 62d44ce: #159 host forward rules and reverse forwards (#2231).
+# Lithe-core-rust main at ac80382: #160 persistent host sessions and the closing preference;
+# #161 runConfig.* of a remote workspace reads, checks and plans on the host, and the launch plan
+# names host paths (#2231).
+PINNED_CORE_REVISION="ac80382df327579a92dba105abd9fddceef29a29"
 PROFILE="debug"
 CHECKOUT_ONLY="no"
 while [[ $# -gt 0 ]]; do
