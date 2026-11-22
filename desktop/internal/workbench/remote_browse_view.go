@@ -19,13 +19,18 @@ const remoteFolderRowHeight = 34
 
 // remoteBrowserView declares the browser: the connected host, the path field, the folders used
 // often, the path of the folder shown and its entries. A click selects a subfolder for Open; a
-// double click or Enter lists it. Files show greyed, as what the folder holds.
+// double click or Enter lists it. Files show greyed, as what the folder holds. While the host's
+// containers are listed, they show in place of all but the head.
 func (a *App) remoteBrowserView(c ui.C, b *remoteBrowser) {
 	language := a.language()
 	k := c.Part("browser")
 	ui.Column(k).Fill().Gap(12).PadSides(20, 24, 16, 24).Children(func() {
 		a.remoteBrowserHead(k.Part("head"), language, b)
 		ui.Row(k).FillWidth().Height(1).Shrink(0).Background(a.colors.Line)
+		if b.containers != nil {
+			a.remoteHostContainersView(k.Part("containers"), language, b.containers)
+			return
+		}
 		ui.Row(k.Part("path")).FillWidth().Gap(8).Items(ui.Center).Children(func() {
 			if ui.TextField(k.Part("field"), &b.path, i18n.Shared(language, "desktop.remote.browse.path"), i18n.Shared(language, "desktop.remote.browse.pathPlaceholder")).
 				Grow(1).MinWidth(0).Disabled(b.opening).Submitted() {
@@ -58,7 +63,8 @@ func (a *App) remoteBrowserView(c ui.C, b *remoteBrowser) {
 }
 
 // remoteBrowserHead declares the page's head: the host's mark, which host the folder is chosen
-// on, that it is connected, its address and system, and Disconnect.
+// on, that it is connected, its address and system, the host's containers for a host that can
+// run them, and Disconnect.
 func (a *App) remoteBrowserHead(c ui.C, language i18n.Language, b *remoteBrowser) {
 	r := &a.remote
 	mark, system := "", ""
@@ -71,7 +77,11 @@ func (a *App) remoteBrowserHead(c ui.C, language i18n.Language, b *remoteBrowser
 	ui.Row(c).FillWidth().Items(ui.Center).Gap(14).Children(func() {
 		a.remoteTile(c.Part("tile"), mark, b.name, color, remoteHeroTile, 15)
 		ui.Column(c).Grow(1).Basis(0).MinWidth(0).Gap(5).Children(func() {
-			ui.Text(c, i18n.SharedFormat(language, "desktop.remote.browse.title", map[string]string{"name": b.name})).
+			title := i18n.SharedFormat(language, "desktop.remote.browse.title", map[string]string{"name": b.name})
+			if b.containers != nil {
+				title = i18n.SharedFormat(language, "desktop.remote.hostContainers.title", map[string]string{"name": b.name})
+			}
+			ui.Text(c, title).
 				FontSize(16).Weight(gfx.WeightSemibold).Ellipsis().Shrink(1).MinWidth(0)
 			ui.Row(c.Part("state")).FillWidth().Gap(8).Items(ui.Center).Children(func() {
 				a.remoteStatusPill(c.Part("live"), i18n.Shared(language, "desktop.remote.browse.connected"), a.colors.Success)
@@ -81,6 +91,10 @@ func (a *App) remoteBrowserHead(c ui.C, language i18n.Language, b *remoteBrowser
 				}
 			})
 		})
+		if b.hostsContainers() && b.containers == nil &&
+			ui.Button(c.Part("containers"), i18n.Shared(language, "desktop.remote.hostContainers.show")).Icon(icons.Server).Outline().Shrink(0).Disabled(b.opening).Clicked() {
+			c.After(a.showRemoteHostContainers)
+		}
 		if ui.Button(c.Part("disconnect"), i18n.Shared(language, "desktop.remote.browse.disconnect")).Outline().Shrink(0).Disabled(b.opening).Clicked() {
 			c.After(a.backFromRemoteBrowser)
 		}
@@ -253,6 +267,10 @@ func (a *App) remoteFolderList(c ui.C, b *remoteBrowser) {
 // it opens.
 func (a *App) remoteBrowserFooter(c ui.C, b *remoteBrowser) {
 	language := a.language()
+	if b.containers != nil {
+		a.remoteHostContainersFooter(c, language, b.containers)
+		return
+	}
 	ui.Spacer(c)
 	if ui.Button(c.Part("back"), i18n.Shared(language, "desktop.remote.browse.back")).Outline().Disabled(b.opening).Clicked() {
 		c.After(a.backFromRemoteBrowser)

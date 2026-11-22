@@ -2768,6 +2768,445 @@
       "platforms": [
         "desktop"
       ]
+    },
+    {
+      "id": "desktop.remote.container.heading",
+      "description": "Remote Development window: the list's heading over the running Docker and Podman containers of this computer",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.remote.container.kind",
+      "description": "Remote Development window, the window title and the status bar: how a workspace in a container of this computer is reached, before its name, as SSH and WSL are",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.remote.container.docker",
+      "description": "Remote Development window: the name of the Docker container engine, shown on a container's row and page",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.remote.container.podman",
+      "description": "Remote Development window: the name of the Podman container engine, shown on a container's row and page",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.remote.container.row",
+      "description": "Remote Development window: the line under a container's name in the list; {engine} is Docker or Podman and {image} the engine's image name, shown as it is",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "engine": "string",
+        "image": "string"
+      }
+    },
+    {
+      "id": "desktop.remote.container.state",
+      "description": "Remote Development window: a container's image and the engine's status text (such as Up 2 hours), both shown as the engine prints them, under its name on its page",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "image": "string",
+        "status": "string"
+      }
+    },
+    {
+      "id": "desktop.remote.container.about",
+      "description": "Remote Development window: what opening a running container does and does not do; {engine} is Docker or Podman",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "engine": "string"
+      }
+    },
+    {
+      "id": "desktop.remote.container.user",
+      "description": "Remote Development window: the label of the field for the user a container's workspace runs as",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.remote.container.userHelp",
+      "description": "Remote Development window: what the container's user field takes, and what leaving it empty does",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.remote.container.userPlaceholder",
+      "description": "Remote Development window: the placeholder of the empty container's user field",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.remote.container.userInvalid",
+      "description": "Remote Development window: why Core refused the container's user",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.remote.container.nameInvalid",
+      "description": "Remote Development window: why Core refused the container's name",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.remote.container.unreachable",
+      "description": "Remote Development window: why a connection to a container failed before the server started: the container is gone, stopped or paused, or its engine did not answer",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.remote.container.missing",
+      "description": "Remote Development window: why a connection to a container failed when this computer has no command line of its engine; {engine} is Docker or Podman",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "engine": "string"
+      }
+    },
+    {
+      "id": "desktop.remote.container.start",
+      "description": "Remote Development window: the step of a connection to a container that enters it, in place of connecting to a host",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.remote.container.hostUnreachable",
+      "description": "Remote Development window: why a connection to a container on an SSH host or WSL distribution failed before the server started: the host or the container could not be reached; {engine} is Docker or Podman",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "engine": "string"
+      }
+    },
+    {
+      "id": "desktop.remote.hostContainers.show",
+      "description": "Remote Development window: the button in the folder browser of an SSH host or WSL distribution that lists the containers running there",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.remote.hostContainers.about",
+      "description": "Remote Development window: what the list of a host's containers is and what entering one does",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.remote.hostContainers.failed",
+      "description": "Remote Development window: why a host's containers could not be listed; {reason} is the error's code",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "reason": "string"
+      }
+    },
+    {
+      "id": "desktop.remote.hostContainers.empty",
+      "description": "Remote Development window: the list of a host's containers when none are running",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.remote.hostContainers.noEngine",
+      "description": "Remote Development window: the list of a host's containers when the host has no Docker or Podman command line",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.remote.hostContainers.back",
+      "description": "Remote Development window: the button that shows the host's folders again in place of its containers",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.remote.hostContainers.enter",
+      "description": "Remote Development window: the button that connects to the selected container on the host",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.remote.hostContainers.title",
+      "description": "Remote Development window: the heading of the page that lists the containers running on a connected host; {name} is the SSH connection's or WSL distribution's name",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "name": "string"
+      }
+    },
+    {
+      "id": "desktop.remote.hostContainers.name",
+      "description": "Remote Development window: the name of a workspace in a container on a host; {container} is the container's name and {host} the SSH connection's or WSL distribution's",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "container": "string",
+        "host": "string"
+      }
+    },
+    {
+      "id": "desktop.remote.devcontainer.open",
+      "description": "Remote Development window, dev container page: the list toolbar button and empty page link that open the page to open a folder of this computer in its dev container",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.remote.devcontainer.title",
+      "description": "Remote Development window, dev container page: the page heading and the window title crumb",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.remote.devcontainer.about",
+      "description": "Remote Development window, dev container page: what the page does and what it runs",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.remote.devcontainer.folder",
+      "description": "Remote Development window, dev container page: the label of the field holding the folder of this computer",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.remote.devcontainer.folderPlaceholder",
+      "description": "Remote Development window, dev container page: the placeholder of the folder field; Return reads the folder",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.remote.devcontainer.choose",
+      "description": "Remote Development window, dev container page: the folder field's button that opens the system folder picker",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.remote.devcontainer.chooseTitle",
+      "description": "Remote Development window, dev container page: the title of the system folder picker",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.remote.devcontainer.folderRelative",
+      "description": "Remote Development window, dev container page: why the typed folder was refused: it is not an absolute path",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.remote.devcontainer.folderMissing",
+      "description": "Remote Development window, dev container page: why the typed folder was refused: it is not a folder",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.remote.devcontainer.readFailed",
+      "description": "Remote Development window, dev container page: why the folder's configurations could not be listed; {reason} is the failure",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "reason": "string"
+      }
+    },
+    {
+      "id": "desktop.remote.devcontainer.trustFailed",
+      "description": "Remote Development window, dev container page: why the folder's trust could not be read; building waits for it; {reason} is the failure",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "reason": "string"
+      }
+    },
+    {
+      "id": "desktop.remote.devcontainer.config",
+      "description": "Remote Development window, dev container page: the label of the picker of the folder's devcontainer.json files",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.remote.devcontainer.configHelp",
+      "description": "Remote Development window, dev container page: the ⓘ help of the configuration picker",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.remote.devcontainer.configNamed",
+      "description": "Remote Development window, dev container page: a configuration in the picker; {name} is its name and {path} its path in the folder",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "name": "string",
+        "path": "string"
+      }
+    },
+    {
+      "id": "desktop.remote.devcontainer.none",
+      "description": "Remote Development window, dev container page: shown when the folder has no devcontainer.json",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.remote.devcontainer.engine",
+      "description": "Remote Development window, dev container page: the label of the picker of the engine to build with",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.remote.devcontainer.engineHelp",
+      "description": "Remote Development window, dev container page: the ⓘ help of the engine picker",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.remote.devcontainer.untrusted",
+      "description": "Remote Development window, dev container page: the notice that the folder is not trusted and building trusts it",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.remote.devcontainer.log",
+      "description": "Remote Development window, dev container page: the heading of the Dev Container CLI's log",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.remote.devcontainer.logHelp",
+      "description": "Remote Development window, dev container page: the ⓘ help of the log",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.remote.devcontainer.logWaiting",
+      "description": "Remote Development window, dev container page: the empty log while the CLI starts",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.remote.devcontainer.truncated",
+      "description": "Remote Development window, dev container page: the note under the log once Core dropped later lines of a very long log",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.remote.devcontainer.build",
+      "description": "Remote Development window, dev container page: the footer button that builds and starts the dev container",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.remote.devcontainer.trustAndBuild",
+      "description": "Remote Development window, dev container page: the footer button that trusts the folder and then builds",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.remote.devcontainer.building",
+      "description": "Remote Development window, dev container page: the footer status while the CLI builds",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.remote.devcontainer.missing",
+      "description": "Remote Development window, dev container page: why the build failed: this computer has no Dev Container CLI",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.remote.devcontainer.failed",
+      "description": "Remote Development window, dev container page: why the build failed: the CLI reported a failure, whose words are shown under it",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.remote.devcontainer.timedOut",
+      "description": "Remote Development window, dev container page: why the build failed: it ran for more than an hour",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.remote.devcontainer.unusable",
+      "description": "Remote Development window, dev container page: why the build failed: the CLI's result cannot be entered",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.remote.devcontainer.untrustedRefused",
+      "description": "Remote Development window, dev container page: why the build was refused: the folder is not trusted",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.remote.devcontainer.upFailed",
+      "description": "Remote Development window, dev container page: why the build failed for another reason; {reason} is Core's summary",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "reason": "string"
+      }
+    },
+    {
+      "id": "desktop.remote.devcontainer.stopped",
+      "description": "Remote Development window, dev container page: the note once the user stopped the build",
+      "platforms": [
+        "desktop"
+      ]
     }
   ],
   "locales": {
@@ -3130,7 +3569,64 @@
       "desktop.remote.kept.end": "End Them",
       "desktop.remote.kept.keep": "Keep Running",
       "desktop.remote.kept.ended": "Ended programs on {connection}: {count}",
-      "desktop.remote.kept.endFailed": "Could not end the programs kept on {connection}."
+      "desktop.remote.kept.endFailed": "Could not end the programs kept on {connection}.",
+      "desktop.remote.container.heading": "Containers",
+      "desktop.remote.container.kind": "Container",
+      "desktop.remote.container.docker": "Docker",
+      "desktop.remote.container.podman": "Podman",
+      "desktop.remote.container.row": "{engine} · {image}",
+      "desktop.remote.container.state": "Image {image} · {status}",
+      "desktop.remote.container.about": "Enters this running container through {engine} on this computer, as the user below. Lithe does not start, create or change the container, mounts no folder into it, and needs no more rights than the {engine} command line has. Nothing about the container is saved: the folders opened in it are not remembered, and the list is read again each time this window opens.",
+      "desktop.remote.container.user": "User in the container",
+      "desktop.remote.container.userHelp": "The user, uid or user:group the workspace runs as inside the container. Leave it empty to use the image's default user.",
+      "desktop.remote.container.userPlaceholder": "Image's default user",
+      "desktop.remote.container.userInvalid": "Use a user name, uid or user:group of at most 64 letters, digits and _ . : -, not starting with -.",
+      "desktop.remote.container.nameInvalid": "The container engine does not accept this container name.",
+      "desktop.remote.container.unreachable": "This container is no longer running, is paused, or its engine did not answer.",
+      "desktop.remote.container.missing": "The {engine} command line was not found on this computer. Install {engine} to enter its containers.",
+      "desktop.remote.container.start": "Enter the container",
+      "desktop.remote.container.hostUnreachable": "The host could not be reached, or this container on it is no longer running, is paused, or {engine} did not answer.",
+      "desktop.remote.hostContainers.show": "Containers on This Host",
+      "desktop.remote.hostContainers.about": "The Docker and Podman containers running on this host. Entering one ends this connection, connects to the host again and on into the container, where you then choose a folder. Lithe never starts, creates or changes a container, and mounts no folder.",
+      "desktop.remote.hostContainers.failed": "The containers on this host could not be listed: {reason}",
+      "desktop.remote.hostContainers.empty": "No containers are running on this host.",
+      "desktop.remote.hostContainers.noEngine": "Neither the Docker nor the Podman command line was found on this host.",
+      "desktop.remote.hostContainers.back": "Back to Folders",
+      "desktop.remote.hostContainers.enter": "Enter Container",
+      "desktop.remote.hostContainers.title": "Choose a Container on {name}",
+      "desktop.remote.hostContainers.name": "{container} on {host}",
+      "desktop.remote.devcontainer.open": "Open from devcontainer.json…",
+      "desktop.remote.devcontainer.title": "Open in Dev Container",
+      "desktop.remote.devcontainer.about": "Builds and starts the dev container a local folder’s devcontainer.json describes, with the official Dev Container CLI, and opens its workspace folder in it. Building runs the folder’s Dockerfile, features and commands here, so the folder must be trusted. Lithe adds no mount or option.",
+      "desktop.remote.devcontainer.folder": "Folder on this computer",
+      "desktop.remote.devcontainer.folderPlaceholder": "Choose a folder, or type its path and press Return",
+      "desktop.remote.devcontainer.choose": "Choose Folder…",
+      "desktop.remote.devcontainer.chooseTitle": "Choose the Folder to Open in Its Dev Container",
+      "desktop.remote.devcontainer.folderRelative": "Enter the folder’s full path, such as /Users/me/project.",
+      "desktop.remote.devcontainer.folderMissing": "This folder does not exist on this computer.",
+      "desktop.remote.devcontainer.readFailed": "Cannot read the folder’s configurations: {reason}",
+      "desktop.remote.devcontainer.trustFailed": "Cannot read whether this folder is trusted: {reason}",
+      "desktop.remote.devcontainer.config": "Configuration",
+      "desktop.remote.devcontainer.configHelp": "The devcontainer.json files of this folder, in the order the Dev Container specification looks for them: .devcontainer/devcontainer.json, .devcontainer.json, then one folder below .devcontainer.",
+      "desktop.remote.devcontainer.configNamed": "{name} ({path})",
+      "desktop.remote.devcontainer.none": "This folder has no devcontainer.json in .devcontainer or at its top.",
+      "desktop.remote.devcontainer.engine": "Engine",
+      "desktop.remote.devcontainer.engineHelp": "Docker or Podman runs the container. With Podman, the CLI is given podman as its docker path.",
+      "desktop.remote.devcontainer.untrusted": "This folder is not trusted. Trust and Build trusts it, the same as opening it as a trusted project, and then builds.",
+      "desktop.remote.devcontainer.log": "Build Log",
+      "desktop.remote.devcontainer.logHelp": "The Dev Container CLI’s own output, with secrets hidden. It is shown here and not written to Lithe’s logs.",
+      "desktop.remote.devcontainer.logWaiting": "Waiting for the Dev Container CLI…",
+      "desktop.remote.devcontainer.truncated": "Later lines are not shown: the log is too long.",
+      "desktop.remote.devcontainer.build": "Build and Open",
+      "desktop.remote.devcontainer.trustAndBuild": "Trust and Build",
+      "desktop.remote.devcontainer.building": "Building the dev container…",
+      "desktop.remote.devcontainer.missing": "The Dev Container CLI (devcontainer) was not found on this computer. Install it with npm install -g @devcontainers/cli, then build again.",
+      "desktop.remote.devcontainer.failed": "The Dev Container CLI could not start the container. Its output is below.",
+      "desktop.remote.devcontainer.timedOut": "The build took longer than an hour and was stopped.",
+      "desktop.remote.devcontainer.unusable": "The Dev Container CLI started something Lithe cannot open: its result names no container or workspace folder.",
+      "desktop.remote.devcontainer.untrustedRefused": "Nothing was built: this folder is not trusted.",
+      "desktop.remote.devcontainer.upFailed": "Cannot build the dev container: {reason}",
+      "desktop.remote.devcontainer.stopped": "The build was stopped. A container it already started keeps running."
     },
     "zh-CN": {
       "desktop.remote.title": "远程开发",
@@ -3491,7 +3987,64 @@
       "desktop.remote.kept.end": "结束这些进程",
       "desktop.remote.kept.keep": "继续运行",
       "desktop.remote.kept.ended": "已结束 {connection} 上的 {count} 个进程",
-      "desktop.remote.kept.endFailed": "无法结束 {connection} 上保留的进程。"
+      "desktop.remote.kept.endFailed": "无法结束 {connection} 上保留的进程。",
+      "desktop.remote.container.heading": "容器",
+      "desktop.remote.container.kind": "容器",
+      "desktop.remote.container.docker": "Docker",
+      "desktop.remote.container.podman": "Podman",
+      "desktop.remote.container.row": "{engine} · {image}",
+      "desktop.remote.container.state": "镜像 {image} · {status}",
+      "desktop.remote.container.about": "通过本机的 {engine} 进入这个正在运行的容器，以下方的用户运行。Lithe 不启动、不创建、不改动容器，不往容器里挂载目录，需要的权限也不超过 {engine} 命令行本身。不保存这个容器的任何信息：不记住在其中打开过的文件夹，每次打开本窗口时重新读取列表。",
+      "desktop.remote.container.user": "容器内用户",
+      "desktop.remote.container.userHelp": "工作区在容器里以哪个用户运行，可以填用户名、uid 或“用户:组”。留空则使用镜像的默认用户。",
+      "desktop.remote.container.userPlaceholder": "镜像默认用户",
+      "desktop.remote.container.userInvalid": "用户最多 64 个字符，只能包含字母、数字和 _ . : -，且不能以 - 开头。",
+      "desktop.remote.container.nameInvalid": "容器引擎不接受这个容器名。",
+      "desktop.remote.container.unreachable": "这个容器已经不在运行或已暂停，或者容器引擎没有应答。",
+      "desktop.remote.container.missing": "本机没有找到 {engine} 命令行。安装 {engine} 后才能进入它的容器。",
+      "desktop.remote.container.start": "进入容器",
+      "desktop.remote.container.hostUnreachable": "无法连接主机，或者主机上的这个容器已经不在运行、已暂停，或者 {engine} 没有应答。",
+      "desktop.remote.hostContainers.show": "主机上的容器",
+      "desktop.remote.hostContainers.about": "这台主机上正在运行的 Docker 和 Podman 容器。进入容器会断开当前连接，重新连接主机后再进入容器，然后在容器里选择文件夹。Lithe 不会启动、创建或修改容器，也不会挂载文件夹。",
+      "desktop.remote.hostContainers.failed": "无法列出主机上的容器：{reason}",
+      "desktop.remote.hostContainers.empty": "这台主机上没有正在运行的容器。",
+      "desktop.remote.hostContainers.noEngine": "这台主机上没有找到 Docker 或 Podman 命令行。",
+      "desktop.remote.hostContainers.back": "返回文件夹",
+      "desktop.remote.hostContainers.enter": "进入容器",
+      "desktop.remote.hostContainers.title": "选择 {name} 上的容器",
+      "desktop.remote.hostContainers.name": "{container}（{host}）",
+      "desktop.remote.devcontainer.open": "从 devcontainer.json 打开…",
+      "desktop.remote.devcontainer.title": "在 Dev Container 中打开",
+      "desktop.remote.devcontainer.about": "用官方 Dev Container CLI 按本机文件夹里 devcontainer.json 的描述构建并启动 dev container，然后在容器里打开它的工作区文件夹。构建会在本机运行这个文件夹的 Dockerfile、features 和命令，因此文件夹必须受信任。Lithe 不额外挂载目录，也不额外加参数。",
+      "desktop.remote.devcontainer.folder": "本机文件夹",
+      "desktop.remote.devcontainer.folderPlaceholder": "选择文件夹，或输入路径后按回车",
+      "desktop.remote.devcontainer.choose": "选择文件夹…",
+      "desktop.remote.devcontainer.chooseTitle": "选择要在 Dev Container 中打开的文件夹",
+      "desktop.remote.devcontainer.folderRelative": "请输入文件夹的完整路径，例如 /Users/me/project。",
+      "desktop.remote.devcontainer.folderMissing": "本机没有这个文件夹。",
+      "desktop.remote.devcontainer.readFailed": "无法读取文件夹的配置：{reason}",
+      "desktop.remote.devcontainer.trustFailed": "无法读取这个文件夹是否受信任：{reason}",
+      "desktop.remote.devcontainer.config": "配置",
+      "desktop.remote.devcontainer.configHelp": "这个文件夹里的 devcontainer.json，按 Dev Container 规范查找的顺序列出：.devcontainer/devcontainer.json、.devcontainer.json，然后是 .devcontainer 下一层文件夹里的。",
+      "desktop.remote.devcontainer.configNamed": "{name}（{path}）",
+      "desktop.remote.devcontainer.none": "这个文件夹的 .devcontainer 里和顶层都没有 devcontainer.json。",
+      "desktop.remote.devcontainer.engine": "容器引擎",
+      "desktop.remote.devcontainer.engineHelp": "由 Docker 或 Podman 运行容器。选 Podman 时，CLI 的 docker 路径设为 podman。",
+      "desktop.remote.devcontainer.untrusted": "这个文件夹还不受信任。“信任并构建”会信任它（与以受信任项目打开时相同），然后开始构建。",
+      "desktop.remote.devcontainer.log": "构建日志",
+      "desktop.remote.devcontainer.logHelp": "Dev Container CLI 自己的输出，已隐藏敏感信息。只在这里显示，不写入 Lithe 的日志。",
+      "desktop.remote.devcontainer.logWaiting": "正在等待 Dev Container CLI…",
+      "desktop.remote.devcontainer.truncated": "日志太长，后面的内容不再显示。",
+      "desktop.remote.devcontainer.build": "构建并打开",
+      "desktop.remote.devcontainer.trustAndBuild": "信任并构建",
+      "desktop.remote.devcontainer.building": "正在构建 dev container…",
+      "desktop.remote.devcontainer.missing": "本机没有找到 Dev Container CLI（devcontainer）。请用 npm install -g @devcontainers/cli 安装后再构建。",
+      "desktop.remote.devcontainer.failed": "Dev Container CLI 没能启动容器，输出如下。",
+      "desktop.remote.devcontainer.timedOut": "构建超过一小时，已停止。",
+      "desktop.remote.devcontainer.unusable": "Dev Container CLI 启动的结果无法打开：结果里没有容器或工作区文件夹。",
+      "desktop.remote.devcontainer.untrustedRefused": "没有构建：这个文件夹不受信任。",
+      "desktop.remote.devcontainer.upFailed": "无法构建 dev container：{reason}",
+      "desktop.remote.devcontainer.stopped": "构建已停止。已经启动的容器会继续运行。"
     }
   }
 }

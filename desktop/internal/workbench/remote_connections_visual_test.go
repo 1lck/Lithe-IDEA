@@ -5,11 +5,13 @@ package workbench
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/1lck/Lithe-IDEA/desktop/internal/core"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/remoteconn"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/store"
+	"github.com/1lck/Lithe-IDEA/desktop/internal/toolchain"
 	"github.com/vivaui/viva/app"
 	"github.com/vivaui/viva/headless"
 )
@@ -18,8 +20,10 @@ import (
 // saved, saved connections under their groups with the tested one's overview, its form, a new
 // connection whose host Core refused under its field, OpenSSH's password question over the window,
 // a refused test, the connection steps with OpenSSH's questions on the page and a failure, the
-// question whether to trust a folder, Motty's hosts to import, the host's folders, and a WSL
-// distribution's page and a failed connection to one.
+// question whether to trust a folder, Motty's hosts to import, the host's folders and its running
+// containers, a WSL
+// distribution's page and a failed connection to one, a container's page and a failed connection
+// to one, and a folder opening in its dev container, before and while it builds.
 func TestVisualRemoteConnections(t *testing.T) {
 	out := os.Getenv("LITHE_VISUAL_OUTPUT_DIR")
 	if out == "" {
@@ -273,6 +277,25 @@ func TestVisualRemoteConnections(t *testing.T) {
 			browser.path.SetText("/home/dev/src")
 			r.browser = browser
 			shot("folder")
+
+			// The host's running Docker and Podman containers list in place of its folders, and one
+			// is entered as the user typed. The containers come from the host's docker ps and podman
+			// ps; the scene shows fixed ones.
+			browser.containers = &remoteBrowserContainers{engines: 2, list: []remoteListedContainer{
+				{engine: core.ContainerEngineDocker, RemoteContainer: core.RemoteContainer{
+					ID: strings.Repeat("c", 64), Name: "api-server", Image: "golang:1.26-bookworm", Status: "Up 3 days"}},
+				{engine: core.ContainerEngineDocker, RemoteContainer: core.RemoteContainer{
+					ID: strings.Repeat("e", 64), Name: "redis-cache", Image: "redis:8-alpine", Status: "Up 3 days"}},
+				{engine: core.ContainerEnginePodman, RemoteContainer: core.RemoteContainer{
+					ID: strings.Repeat("d", 64), Name: "pg-main", Image: "postgres:17", Status: "Up 1 hour"}},
+			}}
+			// A list selects only among the rows it has drawn.
+			h.app.invalidator.Invalidate()
+			h.settleChain()
+			browser.containers.rows.Select(0)
+			browser.containers.user.SetText("app")
+			shot("host-containers")
+			browser.containers = nil
 			r.browser = nil
 
 			// This computer's WSL distributions list under their own heading, and one opens as the
@@ -294,6 +317,65 @@ func TestVisualRemoteConnections(t *testing.T) {
 			r.log.Open = true
 			shot("wsl-failed")
 			r.steps = nil
+
+			// This computer's running Docker and Podman containers list after the distributions,
+			// and one opens as the user typed on its page; one that stopped fails with the engine's
+			// own text. The containers come from docker ps and podman ps; the scenes show fixed ones.
+			r.log.Open = false
+			r.containers.loaded = true
+			r.containers.list = []remoteListedContainer{
+				{engine: core.ContainerEngineDocker, RemoteContainer: core.RemoteContainer{
+					ID: strings.Repeat("a", 64), Name: "web-frontend", Image: "node:22-bookworm", Status: "Up 2 hours"}},
+				{engine: core.ContainerEnginePodman, RemoteContainer: core.RemoteContainer{
+					ID: strings.Repeat("b", 64), Name: "pg-main", Image: "postgres:17", Status: "Up 5 minutes"}},
+			}
+			r.buildRows()
+			r.selectRemoteContainer(r.containers.list[0])
+			r.containers.user.SetText("node")
+			shot("container")
+			r.selectRemoteContainer(r.containers.list[1])
+			stopped := &core.ContainerConnection{Engine: core.ContainerEnginePodman, Container: "pg-main"}
+			steps = newRemoteSteps(core.SavedRemoteConnection{ID: stopped.Identity(), Name: "pg-main"}, remoteHost{container: stopped}, "", h.app.now())
+			r.steps = steps
+			steps.fail(h.app.now(), &remoteProbeOutcome{result: core.RemoteProbeResult{
+				Status: core.RemoteProbeUnreachable, Diagnostics: "Error: can only create exec sessions on running containers: container state improper",
+			}, engine: core.ContainerEnginePodman, at: h.app.now()}, h.app.language())
+			r.log.Open = true
+			shot("container-failed")
+			r.steps = nil
+
+			// A folder of this computer opens in its dev container: its devcontainer.json files
+			// list, an untrusted folder offers Trust and Build, and the CLI's log streams while it
+			// builds. The folder, its files and the log are fixed here.
+			r.log.Open = false
+			folder := "/Users/dev/src/payments-api"
+			d := &remoteDevcontainer{engine: core.ContainerEngineDocker, read: folder, config: ".devcontainer/devcontainer.json",
+				configs: []core.DevcontainerConfig{
+					{Path: ".devcontainer/devcontainer.json", Name: "Go & PostgreSQL"},
+					{Path: ".devcontainer/worker/devcontainer.json"},
+				},
+				trust: toolchain.WorkspaceTrust{Root: folder},
+			}
+			d.folder.SetText(folder)
+			r.devcontainer = d
+			shot("devcontainer")
+			d.trusted, d.build = true, &remoteProbe{cancel: func() {}}
+			for _, line := range []string{
+				"[1 ms] @devcontainers/cli 0.75.0. Node.js v22.11.0. darwin 25.0.0 arm64.",
+				"[4 ms] Start: Run: docker buildx build --load -t vsc-payments-api-features -f Dockerfile-with-features .",
+				"#1 [internal] load build definition from Dockerfile-with-features",
+				"#5 [dev_container_auto_added_stage_label 1/3] FROM mcr.microsoft.com/devcontainers/go:1.26",
+				"#7 [dev_containers_target_stage 2/3] COPY --from=dev_containers_feature_content_normalize /tmp/build-features/ /tmp/dev-container-features",
+				"#8 [dev_containers_target_stage 3/3] RUN /tmp/dev-container-features/postgresql_0/install.sh",
+				"#8 DONE 12.4s",
+				"[14821 ms] Start: Run: docker run --sig-proxy=false -a STDOUT -a STDERR --mount type=bind,source=/Users/dev/src/payments-api,target=/workspaces/payments-api",
+				"[15302 ms] Start: Run in container: /bin/sh -c go mod download",
+			} {
+				d.add(core.DevcontainerOutput{Text: line})
+			}
+			shot("devcontainer-building")
+			d.build = nil
+			r.devcontainer = nil
 			h.app.closeRemote()
 			h.settleChain()
 		})
