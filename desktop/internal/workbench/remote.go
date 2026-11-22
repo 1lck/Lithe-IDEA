@@ -69,6 +69,9 @@ type remoteState struct {
 	// shown as result. browser chooses the host folder to open over the session it opened.
 	connect *remoteProbe
 	browser *remoteBrowser
+	// reopen is the host folder the window connects to and opens once the saved list is read, nil
+	// when it opened for the user to choose (remote_worktree.go).
+	reopen *remoteReopen
 	// probed is what the last test of each connection found, by the connection as Core stores
 	// it, so that a saved connection's overview shows its host again after the form was saved
 	// or the window reopened. It lives in memory while the app runs, outlives the window and
@@ -208,7 +211,7 @@ func (a *App) closeRemote() {
 	a.leaveRemoteTrust()
 	a.leaveRemoteDevcontainer()
 	r.generation++
-	r.open, r.saving, r.loading = false, false, false
+	r.open, r.saving, r.loading, r.reopen = false, false, false, nil
 	r.form = remoteForm{}
 }
 
@@ -256,6 +259,11 @@ func (a *App) loadRemote(how remoteLoad, id string) {
 				}
 				r.selectFirst()
 			default:
+				if reopen := r.reopen; reopen != nil {
+					r.reopen = nil
+					a.connectRemoteReopen(reopen)
+					return
+				}
 				r.selectFirst()
 			}
 		}
