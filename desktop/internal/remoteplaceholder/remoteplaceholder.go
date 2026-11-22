@@ -153,6 +153,13 @@ func HostPath(root, remoteRoot, local string) (string, bool) {
 	return "", false
 }
 
+// Outside says whether local stands for a host path outside the workspace whose local root is
+// root: one below root's sibling (HostSuffix), not below root itself.
+func Outside(root, local string) bool {
+	_, ok := below(root+HostSuffix, local)
+	return ok
+}
+
 // LocalPath is the path that stands for host, an absolute host path, in the same workspace: the
 // inverse of HostPath. ok is false for a path that is not absolute, and on Windows for one with a
 // name holding "\", which would name another path there.
