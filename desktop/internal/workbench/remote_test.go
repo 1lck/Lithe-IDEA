@@ -44,9 +44,9 @@ func (h *harness) pressTest() {
 }
 
 // remoteProbeKernel reports a fixed probe outcome instead of starting OpenSSH; everything else
-// is the real Core.
+// is testKernel.
 type remoteProbeKernel struct {
-	*core.Client
+	*testKernel
 	result core.RemoteProbeResult
 }
 
@@ -360,7 +360,7 @@ func TestRemoteCancelGoesBackToTheSavedConnection(t *testing.T) {
 // how to find out.
 func TestRemoteOverviewShowsTheTestedHost(t *testing.T) {
 	const gib = uint64(1) << 30
-	kernel := &remoteProbeKernel{Client: core.NewClient(), result: core.RemoteProbeResult{
+	kernel := &remoteProbeKernel{testKernel: &testKernel{Client: core.NewClient()}, result: core.RemoteProbeResult{
 		Status: core.RemoteProbeConnected,
 		Host: &core.RemoteProbedHost{
 			System: "Linux", Machine: "x86_64", HomeDirectory: "/home/dev",

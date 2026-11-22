@@ -98,6 +98,8 @@ Core #167 在连接断开后把会话里进程的事件停放在主机上，带 
 - `desktop/internal/workbench/remote_close_test.go`：“在运行窗口中接回”为每个保留的进程开 Run 标签页并打开 Run 窗口。
 - `TestVisualRemoteRun`、`TestVisualRemoteClose`：断线等待、重连后接着输出、接回保留进程的无头截图（`docs/assets/remote-run/`、`docs/assets/remote-close/`）。
 - `desktop/internal/core/remote_process_test.go`：`remote.runProcess`、`remote.attachProcess` 事件的解析。
+- `desktop/internal/core/remote_acceptance_test.go`：对真实主机的验收，只在环境变量指定主机时运行，CI 跳过（变量见文件开头，经 `scripts/desktop/desktop-go.sh` 运行以读取暂存的服务端）。它杀掉 OpenSSH 或 wsl.exe 子进程模拟断线，检查运行以 `connection_closed` 结束、带 `resume` 的重连接回同一个主机会话、`remote.attachProcess` 先收到断线期间的输出再收到之后的输出并以 0 退出；再用“保留”关闭会话，重连后进程列在 `keptPrograms` 里并同样接回。WSL 里未安装的发行版是 `unreachable`，不存在的用户是 `failed`，两者的 `diagnostics` 都带 wsl.exe 的消息和错误码（`WSL_E_DISTRO_NOT_FOUND`、`WSL_E_USER_NOT_FOUND`）。2026-11-22 在 macOS（OrbStack 的 Alpine aarch64 机器，经 OpenSSH）和 Windows（WSL Ubuntu x86_64）上通过。
+- Windows 验收发现 wsl.exe 把失败消息写在标准输出而不是标准错误（不设 `WSL_UTF8` 时是不带 BOM 的 UTF-16LE），中文消息又以汉字开头、第二个字节不是 NUL，Core 原来只读标准错误，未安装的发行版因此报成 `failed`、诊断只有退出码。Core [#169](https://github.com/Lithe-IDEA/Lithe-core-rust/pull/169) 让探测在流结束时保留读到的标准输出，并按“标准输出在前、标准错误在后”解码诊断；桌面端固定到它之后才通过。
 - `scripts/desktop/verify/verify-runtime-bundle-immutability.sh`：运行时不写发行目录。
 
 ## 适用范围

@@ -16,7 +16,8 @@ import (
 )
 
 // testKernel answers the layout and recent project reducers with the real kernel and Git
-// status with the answer the test chose.
+// status with the answer the test chose. It lists no WSL distributions, as Core answers on a
+// system without WSL, so the window looks the same whichever distributions the test computer has.
 type testKernel struct {
 	*core.Client
 	status        core.GitStatus
@@ -25,6 +26,10 @@ type testKernel struct {
 
 func (k *testKernel) GitStatus(context.Context, string) (core.GitStatus, error) {
 	return k.status, nil
+}
+
+func (k *testKernel) RemoteListWSLDistributions(context.Context) (core.RemoteWSLDistributions, error) {
+	return core.RemoteWSLDistributions{}, nil
 }
 
 func (k *testKernel) ReduceChromeLayout(ctx context.Context, catalog []core.ChromeItem, state core.ChromeLayout, action core.ChromeAction) (core.ChromeLayout, bool, error) {
