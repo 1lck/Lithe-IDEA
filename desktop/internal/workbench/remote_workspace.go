@@ -24,8 +24,10 @@ import (
 // lost, and the window then connects again on its own a few times, pausing longer each time.
 // OpenSSH's questions are cancelled during those attempts, which must not ask the user anything
 // they did not start; a host that needs a password then ends disconnected, and Reconnect in the
-// status bar asks. Closing the project ends its session, and quitting ends every session Core
-// keeps (App.Run).
+// status bar asks. Connecting again presents the session's resume token, so the programs the
+// host runs survive a lost connection. Closing the project asks, while the host still runs
+// programs the workspace started, whether they end or keep running on the host
+// (remote_close.go); quitting ends every session Core still has open (App.Run).
 //
 // In this stage the workspace lists its folder in the Project tool window, the editor opens,
 // saves and compares the host's files (remote_documents.go), Find in Files and Search Everywhere
@@ -79,6 +81,12 @@ type remoteProject struct {
 	host         remoteHost
 	// session is the session the binding is attached to, "" while there is none.
 	session string
+	// resume is what connecting again presents to attach to the same host session, nil when the
+	// host issued no token. It is a secret: it stays in memory and is never logged.
+	resume *core.RemoteResume
+	// leaving is set while closing the project decides, or carries out, what happens to the
+	// programs the host runs (remote_close.go); nothing connects again meanwhile.
+	leaving bool
 	// home is the host account's home directory, "" when the host did not report it.
 	home    string
 	link    remoteLink
@@ -202,9 +210,10 @@ func (a *App) remotePlaceholderAnchor() (string, error) {
 }
 
 // connectRemoteHost opens a session to host with the server builds the client carries and, for
-// an SSH host, the SSH program of the remote workspace preferences under root. It runs off the
-// window thread.
-func (a *App) connectRemoteHost(ctx context.Context, kernel Kernel, root string, host remoteHost) (core.RemoteConnectResult, error) {
+// an SSH host, the SSH program of the remote workspace preferences under root. resume, when set,
+// attaches to the host session an earlier connection kept or lost instead of starting one. It runs
+// off the window thread.
+func (a *App) connectRemoteHost(ctx context.Context, kernel Kernel, root string, host remoteHost, resume *core.RemoteResume) (core.RemoteConnectResult, error) {
 	bundle, err := a.remoteServerBundle()
 	if err != nil {
 		return core.RemoteConnectResult{}, err
@@ -214,6 +223,7 @@ func (a *App) connectRemoteHost(ctx context.Context, kernel Kernel, root string,
 		servers[i] = core.RemoteServerBuild{Target: build.Target, Path: build.Path, SHA256: build.SHA256}
 	}
 	request := host.request(servers, bundle.Version)
+	request.Resume = resume
 	if host.wsl == nil {
 		// A WSL distribution starts through wsl.exe, which the SSH program does not replace.
 		if request.Preferences, err = remotePreferencesDocument(ctx, kernel, root); err != nil {
@@ -245,7 +255,7 @@ func (a *App) releaseRemoteSession(id string) {
 	}
 	kernel := a.kernel
 	a.background(nil, remoteDisconnectTimeout, func(ctx context.Context) func(*App) {
-		_, err := kernel.RemoteDisconnect(ctx, id)
+		_, err := kernel.RemoteDisconnect(ctx, id, core.RemoteCloseEnd)
 		if err == nil {
 			return nil
 		}
@@ -291,11 +301,12 @@ func (r *remoteProject) stopRemoteTimer() {
 // attachRemote makes session the workspace's session and starts its heartbeat, the host watch of
 // its folder and, in a trusted workspace, the watch of its Git metadata, which reads the status
 // again.
-func (a *App) attachRemote(p *project, session string) {
+func (a *App) attachRemote(p *project, session core.RemoteSession) {
 	r := p.remote
 	a.stopRemoteWatch(p)
-	r.session, r.link, r.attempt, r.misses, r.failure = session, remoteConnected, 0, 0, nil
-	r.binding.Attach(session)
+	r.session, r.link, r.attempt, r.misses, r.failure = session.ID, remoteConnected, 0, 0, nil
+	r.resume = session.Resume()
+	r.binding.Attach(session.ID)
 	a.beatRemote(p)
 	r.watchWait = remoteWatchReady
 	a.startRemoteWatch(p)
@@ -402,7 +413,7 @@ func (a *App) startRemoteReconnection(p *project) {
 // is unreachable, tries again after each pause of the reconnection's delays.
 func (a *App) reconnectRemote(p *project, userStarted bool) {
 	r := p.remote
-	if r == nil || r.closed || r.reconnecting != nil || r.session != "" {
+	if r == nil || r.closed || r.leaving || r.reconnecting != nil || r.session != "" {
 		return
 	}
 	if userStarted {
@@ -418,10 +429,10 @@ func (a *App) reconnectRemote(p *project, userStarted bool) {
 	}
 	attempt := &remoteProbe{cancel: cancel}
 	r.reconnecting = attempt
-	kernel, root, host := a.kernel, a.globalToolchainRoot(), r.host
+	kernel, root, host, resume := a.kernel, a.globalToolchainRoot(), r.host, r.resume
 	a.background(nil, 0, func(context.Context) func(*App) {
 		defer cancel()
-		result, err := a.connectRemoteHost(ctx, kernel, root, host)
+		result, err := a.connectRemoteHost(ctx, kernel, root, host, resume)
 		return func(a *App) {
 			if a.project != p || r.closed || r.reconnecting != attempt {
 				if result.Session != nil {
@@ -432,7 +443,9 @@ func (a *App) reconnectRemote(p *project, userStarted bool) {
 			}
 			r.reconnecting = nil
 			if err == nil && result.Status == core.RemoteProbeConnected && result.Session != nil {
-				a.attachRemote(p, result.Session.ID)
+				// The programs a resumed session still runs are the workspace's own, which closing
+				// it lists; nothing asks about them now.
+				a.attachRemote(p, *result.Session)
 				a.refreshRemoteTree(p)
 				a.recheckRemoteDocuments(p)
 				return
@@ -480,7 +493,7 @@ func (a *App) refreshRemoteTree(p *project) {
 // reconnectRemoteByUser is Reconnect in the status bar.
 func (a *App) reconnectRemoteByUser(surface actionSurface) {
 	p := a.project
-	if p == nil || p.remote == nil || p.remote.session != "" || p.remote.reconnecting != nil {
+	if p == nil || p.remote == nil || p.remote.session != "" || p.remote.reconnecting != nil || p.remote.leaving {
 		return
 	}
 	a.performed("remote.workspace.reconnect", surface)
@@ -505,7 +518,7 @@ func (a *App) closeRemoteWorkspace(p *project) {
 	}
 	r.binding.Detach()
 	a.releaseRemoteSession(r.session)
-	r.session, r.menuOpen = "", false
+	r.session, r.resume, r.menuOpen = "", nil, false
 }
 
 // refuseRemote reports whether p is a remote workspace. When it is, a feature that runs only on
@@ -522,10 +535,10 @@ func (a *App) refuseRemote(p *project, operation string) bool {
 
 // openRemoteProject opens target as this workbench's project, which must have none: the window
 // opens the folder in a new tab otherwise (windowSessions.openRemoteTab). The workspace takes
-// target's session; when it cannot open, the session is ended.
+// target's session; when it cannot open, the session is given back (returnRemoteSession).
 func (a *App) openRemoteProject(target remoteTarget) {
 	if a.project != nil || a.closingProject {
-		a.releaseRemoteSession(target.session.ID)
+		a.returnRemoteSession(target.connectionID, target.session)
 		return
 	}
 	name := path.Base(target.remoteRoot)
@@ -548,12 +561,13 @@ func (a *App) openRemoteProject(target remoteTarget) {
 	a.logView.reset()
 	a.worktreeView.reset()
 	// Attaching the session starts the watch of the Git metadata (remote_git.go).
-	a.attachRemote(p, target.session.ID)
+	a.attachRemote(p, target.session)
 	a.loadGit(p)
 	a.loadLog(p)
 	// Unsaved edits of the folder's files are drafts on this computer; they open over the host's
 	// files as a local project's do.
 	a.restoreCheckpoints(p)
+	a.offerKeptPrograms(p, target.session)
 }
 
 // remoteSessionLost is how a request of p reports, on its own goroutine, that it found the

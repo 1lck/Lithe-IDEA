@@ -97,11 +97,19 @@ func TestCoreRefusesUnadaptedCommandsAndAClosedSessionDetachesTheBinding(t *test
 func TestRemoteSessionCommandsOfAnUnknownSession(t *testing.T) {
 	client := NewClient()
 	ctx := testContext(t)
-	closed, err := client.RemoteDisconnect(ctx, "no-such-session")
-	if err != nil || closed {
-		t.Fatalf("disconnect = %v, %v, want nothing closed", closed, err)
+	for _, programs := range []RemoteClosePrograms{RemoteCloseEnd, RemoteCloseKeep, RemoteCloseAsk} {
+		result, err := client.RemoteDisconnect(ctx, "no-such-session", programs)
+		if err != nil || result.Closed || result.Kept {
+			t.Fatalf("disconnect %s = %+v, %v, want nothing closed or kept", programs, result, err)
+		}
 	}
 	var coreErr *Error
+	if programs, err := client.RemoteRunningPrograms(ctx, "no-such-session"); programs == nil || len(programs) != 0 || !errors.As(err, &coreErr) || coreErr.Code != CodeConnectionClosed {
+		t.Fatalf("runningPrograms = %d, %v, want an empty list and connection_closed", len(programs), err)
+	}
+	if ended, err := client.RemoteEndPrograms(ctx, "no-such-session", nil); ended != 0 || !errors.As(err, &coreErr) || coreErr.Code != CodeConnectionClosed {
+		t.Fatalf("endPrograms = %d, %v, want connection_closed", ended, err)
+	}
 	if _, err := client.RemoteReadDir(ctx, "no-such-session", "/"); !errors.As(err, &coreErr) || coreErr.Code != CodeConnectionClosed {
 		t.Fatalf("readDir = %v, want connection_closed", err)
 	}

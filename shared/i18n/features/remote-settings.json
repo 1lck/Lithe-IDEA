@@ -195,6 +195,69 @@
       ]
     },
     {
+      "id": "desktop.remoteSettings.closing",
+      "description": "Remote Workspace page: title of the card about closing a remote workspace",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.remoteSettings.closePrograms",
+      "description": "Remote Workspace page: label of the row choosing what closing a workspace does to the programs on the host",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.remoteSettings.closeProgramsHelp",
+      "description": "Remote Workspace page: help behind the info glyph of the host programs row",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.remoteSettings.closeAsk",
+      "description": "Remote Workspace page: the automatic choice of the host programs row, which asks every time",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.remoteSettings.closeAskSaved",
+      "description": "Remote Workspace page: the stored choice that asks every time",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.remoteSettings.closeEnd",
+      "description": "Remote Workspace page: choice that ends the host programs on close",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.remoteSettings.closeKeep",
+      "description": "Remote Workspace page: choice that keeps the host programs running on close",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.remoteSettings.idleTimeout",
+      "description": "Remote Workspace page: label of the read-only row with the host session's idle timeout",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.remoteSettings.idleTimeoutHelp",
+      "description": "Remote Workspace page: help behind the info glyph of the idle timeout row",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
       "id": "desktop.remoteSettings.damaged",
       "description": "Remote Workspace page: the preference file cannot be decoded; the path is shown",
       "platforms": [
@@ -343,6 +406,15 @@
       "desktop.remoteSettings.storage": "Stored in",
       "desktop.remoteSettings.storageHelp": "Only the values you change are kept, in this machine's preference folder. Nothing is written to a host.",
       "desktop.remoteSettings.storageNone": "Created when you change a value",
+      "desktop.remoteSettings.closing": "Closing",
+      "desktop.remoteSettings.closePrograms": "Host programs on close",
+      "desktop.remoteSettings.closeProgramsHelp": "What happens to the terminals and processes still running on the host when you close a remote workspace or its window, or quit Lithe. Kept programs are listed the next time you connect to the same host, where you can end them. Remember my choice in the close question changes this too.",
+      "desktop.remoteSettings.closeAsk": "Automatic (ask every time)",
+      "desktop.remoteSettings.closeAskSaved": "Ask every time",
+      "desktop.remoteSettings.closeEnd": "End them",
+      "desktop.remoteSettings.closeKeep": "Keep on host",
+      "desktop.remoteSettings.idleTimeout": "Idle timeout of host sessions",
+      "desktop.remoteSettings.idleTimeoutHelp": "After a connection is lost, the host keeps its session and programs this long, so reconnecting picks them up; then it ends them. A session whose programs you kept on the host does not time out. The remote server sets this, so it cannot be changed.",
       "desktop.remoteSettings.damaged": "{path} cannot be read. Fix or delete the file; until then no host is connected with it.",
       "desktop.remoteSettings.conflict": "The preference file changed meanwhile and was read again. Apply your change again.",
       "desktop.remoteSettings.unavailable": "There is no preference folder to keep these settings in.",
@@ -386,6 +458,15 @@
       "desktop.remoteSettings.storage": "保存位置",
       "desktop.remoteSettings.storageHelp": "只保存你改过的值，放在本机的偏好设置目录中，不会写到主机上。",
       "desktop.remoteSettings.storageNone": "修改后才创建",
+      "desktop.remoteSettings.closing": "关闭工作区",
+      "desktop.remoteSettings.closePrograms": "关闭时的远端进程",
+      "desktop.remoteSettings.closeProgramsHelp": "关闭远程工作区、它的窗口或退出 Lithe 时，主机上仍在运行的终端和进程怎么处理。保留在远端的进程，下次连接同一主机时会列出来，可以再结束。关闭时勾选“记住我的选择”也会改这里。",
+      "desktop.remoteSettings.closeAsk": "自动（每次询问）",
+      "desktop.remoteSettings.closeAskSaved": "每次询问",
+      "desktop.remoteSettings.closeEnd": "结束",
+      "desktop.remoteSettings.closeKeep": "保留在远端",
+      "desktop.remoteSettings.idleTimeout": "常驻会话的空闲超时",
+      "desktop.remoteSettings.idleTimeoutHelp": "连接断开后，主机在这段时间内保留会话和其中的进程，期间重连会接回它们，超时后结束。选择保留在远端的会话不会超时。这个时长由远端服务决定，不能修改。",
       "desktop.remoteSettings.damaged": "无法读取 {path}。请修正或删除这个文件；修好之前不会用它连接主机。",
       "desktop.remoteSettings.conflict": "设置文件在此期间被改过，已重新读取。请再次应用你的修改。",
       "desktop.remoteSettings.unavailable": "没有可以保存这些设置的偏好设置目录。",

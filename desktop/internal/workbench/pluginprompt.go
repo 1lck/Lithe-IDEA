@@ -4,6 +4,7 @@ import (
 	"context"
 
 	"github.com/1lck/Lithe-IDEA/desktop/internal/i18n"
+	"github.com/1lck/Lithe-IDEA/desktop/internal/icons"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/pluginservice"
 	"github.com/vivaui/viva/ui"
 )
@@ -21,9 +22,11 @@ type pluginPrompt struct {
 	mono    bool
 	actions []string
 	// check, when set, is the label of a checkbox under the text, such as "Don't ask
-	// again"; checked is its state, which onAnswer reads.
-	check   string
-	checked bool
+	// again"; checked is its state, which onAnswer reads. checkHelp, when set, is shown by an
+	// information button beside it.
+	check     string
+	checked   bool
+	checkHelp string
 	// open is the flag the modal that shows the prompt keeps.
 	open bool
 	// answer receives the chosen index, or nil for a dismissal. It is buffered, so
@@ -125,7 +128,13 @@ func (a *App) pluginPromptView(c ui.C) {
 			}
 		})
 		if prompt.check != "" {
-			ui.Checkbox(c.Part("check"), &prompt.checked, prompt.check)
+			ui.Row(c.Part("checkRow")).Items(ui.Center).Gap(4).Children(func() {
+				ui.Checkbox(c.Part("check"), &prompt.checked, prompt.check)
+				if prompt.checkHelp != "" {
+					ui.Button(c.Part("checkHelp"), i18n.Shared(a.language(), "native.moreInformation")).Icon(icons.Info).IconOnly().Ghost().Size(18, 18).Shrink(0).
+						Tooltip(prompt.checkHelp)
+				}
+			})
 		}
 	}, func() {
 		for i, action := range prompt.actions {
