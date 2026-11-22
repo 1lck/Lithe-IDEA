@@ -73,9 +73,10 @@ const (
 type remoteProject struct {
 	// binding carries the session and the two roots in every Core request of the project.
 	binding *core.RemoteWorkspace
-	// connectionID, name and host are the saved connection, or the WSL distribution, the
-	// workspace was opened over, as it was when the workspace opened; connecting again uses the
-	// same. A WSL distribution's id is its identity (core.WSLConnection.Identity).
+	// connectionID, name and host are the saved connection, the WSL distribution or the
+	// container the workspace was opened over, as it was when the workspace opened; connecting
+	// again uses the same. A WSL distribution's or a container's id is its identity
+	// (core.WSLConnection.Identity, core.ContainerConnection.Identity).
 	connectionID string
 	name         string
 	host         remoteHost
@@ -224,8 +225,9 @@ func (a *App) connectRemoteHost(ctx context.Context, kernel Kernel, root string,
 	}
 	request := host.request(servers, bundle.Version)
 	request.Resume = resume
-	if host.wsl == nil {
-		// A WSL distribution starts through wsl.exe, which the SSH program does not replace.
+	if host.overSSH() {
+		// A WSL distribution starts through wsl.exe, and a container of this computer through its
+		// engine's CLI, which the SSH program does not replace.
 		if request.Preferences, err = remotePreferencesDocument(ctx, kernel, root); err != nil {
 			return core.RemoteConnectResult{}, err
 		}
@@ -235,7 +237,11 @@ func (a *App) connectRemoteHost(ctx context.Context, kernel Kernel, root string,
 
 // remoteConnectOutcome is the result of a connection to host as the window shows a test's.
 func remoteConnectOutcome(host remoteHost, result core.RemoteConnectResult, err error) *remoteProbeOutcome {
-	return &remoteProbeOutcome{result: core.RemoteProbeResult{Status: result.Status, Host: result.Host, Diagnostics: result.Diagnostics}, err: err, wsl: host.wsl != nil}
+	outcome := &remoteProbeOutcome{result: core.RemoteProbeResult{Status: result.Status, Host: result.Host, Diagnostics: result.Diagnostics}, err: err, wsl: host.wsl != nil, hosted: host.hosted()}
+	if host.container != nil {
+		outcome.engine = host.container.Engine
+	}
+	return outcome
 }
 
 // remoteConnectFailure is the error the log keeps for a connection that failed: err, or Core's

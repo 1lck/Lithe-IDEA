@@ -109,6 +109,12 @@ type remoteState struct {
 	importer *remoteImporter
 	// wsl is this computer's WSL distributions, read once per opening (remote_wsl.go).
 	wsl remoteWSL
+	// containers is this computer's running containers, read once per opening
+	// (remote_container.go).
+	containers remoteContainers
+	// devcontainer is the page that opens a folder of this computer in its dev container, nil
+	// when it is not shown (remote_devcontainer.go).
+	devcontainer *remoteDevcontainer
 	// log folds OpenSSH's words under a failed test or connection.
 	log     ui.CollapsibleState
 	imports remoteImportCounts
@@ -131,17 +137,20 @@ type remoteForm struct {
 // have this name, since Core refuses control characters in one.
 const remoteNewGroup = "\x00new"
 
-// remoteListRow is a row of the list: a section's heading, a saved connection, or a WSL
-// distribution.
+// remoteListRow is a row of the list: a section's heading, a saved connection, a WSL
+// distribution or a running container.
 type remoteListRow struct {
 	// heading is set on a section's heading, which names group ("" for the connections without
-	// one, remoteWSLHeading for the WSL distributions) and the number of rows in the section.
+	// one, remoteWSLHeading for the WSL distributions, remoteContainerHeading for the containers)
+	// and the number of rows in the section.
 	heading bool
 	group   string
 	count   int
 	entry   *core.SavedRemoteConnection
 	// wsl is the distribution of a WSL row.
 	wsl string
+	// container is the container of a container's row.
+	container *remoteListedContainer
 }
 
 // remoteProbe is a test in progress, cancelled by Stop or by closing the window.
@@ -155,8 +164,12 @@ type remoteProbeOutcome struct {
 	// at is when the test ended, for the overview's "tested 5 minutes ago".
 	at  time.Time
 	err error
-	// wsl is set when the host was a WSL distribution, whose failures read differently.
-	wsl bool
+	// wsl is set when the host was a WSL distribution, a container in one included, and engine
+	// is the engine of a container host; hosted is set when that container was on an SSH host or
+	// a WSL distribution. The failures of each read differently.
+	wsl    bool
+	engine string
+	hosted bool
 }
 
 // remoteFieldRefusal is the field of the form Core (or the form's own number check) refused, and
@@ -185,6 +198,7 @@ func (a *App) openRemote(surface actionSurface) {
 	a.performed("remote.connections.open", surface)
 	a.loadRemote(remoteLoadSelectFirst, "")
 	a.loadRemoteWSL()
+	a.loadRemoteContainers()
 }
 
 // closeRemote closes the window, stopping a running test or connection and ending the session a
@@ -195,6 +209,7 @@ func (a *App) closeRemote() {
 	r.stopConnect()
 	a.leaveRemoteBrowser()
 	a.leaveRemoteTrust()
+	a.leaveRemoteDevcontainer()
 	r.generation++
 	r.open, r.saving, r.loading, r.reopen = false, false, false, nil
 	r.form = remoteForm{}
@@ -397,20 +412,24 @@ func (r *remoteState) probedOutcome(connection core.SSHConnection) *remoteProbeO
 }
 
 // resetEditing drops the last test or connection, its errors, the delete question and the WSL
-// distribution shown.
+// distribution or container shown.
 func (r *remoteState) resetEditing() {
 	r.stopProbe()
 	r.stopConnect()
 	r.result, r.err, r.fieldErr, r.confirmDelete = nil, "", remoteFieldRefusal{}, false
 	r.wsl.selected = ""
+	r.containers.selected = nil
 }
 
-// syncListSelection selects the row of the edited connection or the WSL distribution shown, none
-// for a new connection.
+// syncListSelection selects the row of the edited connection, or of the WSL distribution or
+// container shown, none for a new connection.
 func (r *remoteState) syncListSelection() {
 	at := r.rowOf(r.selected)
-	if r.wsl.selected != "" {
+	switch {
+	case r.wsl.selected != "":
 		at = r.wslRow(r.wsl.selected)
+	case r.containers.selected != nil:
+		at = r.containerRow(r.containers.selected.key())
 	}
 	if r.list.Selected() != at {
 		r.list.Select(at)

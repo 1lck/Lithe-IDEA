@@ -82,6 +82,10 @@ type remoteHostKernel struct {
 	ports remoteHostPorts
 	// wsl is this computer's WSL distributions (remote_wsl_test.go).
 	wsl remoteHostWSL
+	// containers are this computer's running containers (remote_container_test.go).
+	containers remoteHostContainers
+	// devcontainers is this computer's Dev Container CLI (remote_devcontainer_test.go).
+	devcontainers remoteHostDevcontainers
 	// close is what the host sessions run and keep (remote_close_test.go).
 	close remoteHostClose
 }
@@ -154,6 +158,9 @@ func (k *remoteHostKernel) RemoteConnect(_ context.Context, request core.RemoteC
 	defer k.mu.Unlock()
 	k.connects++
 	k.servers = append(k.servers, request.Servers)
+	if request.Container != nil {
+		return k.containers.connect(k.connects, request)
+	}
 	if request.WSL != nil {
 		return k.wsl.connect(k.connects, request)
 	}
