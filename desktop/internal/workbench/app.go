@@ -238,6 +238,8 @@ type Kernel interface {
 	RemoteTerminalWrite(ctx context.Context, sessionID string, terminalID uint64, data []byte) (bool, error)
 	RemoteTerminalResize(ctx context.Context, sessionID string, terminalID uint64, columns, rows uint16) error
 	RemoteStartForward(ctx context.Context, sessionID string, target core.RemoteForwardTarget) (core.RemoteForward, bool, error)
+	RemoteStartHostForward(ctx context.Context, sessionID string, rule core.RemoteHostForwardRule) (core.RemoteForward, bool, error)
+	RemoteStartReverseForward(ctx context.Context, sessionID string, rule core.RemoteReverseForwardRule, preferences *string) (core.RemoteForward, bool, error)
 	RemoteStopForward(ctx context.Context, sessionID string, id uint64) (bool, error)
 	RemoteForwards(ctx context.Context, sessionID string) ([]core.RemoteForward, error)
 	RemoteListeningPorts(ctx context.Context, sessionID string) ([]core.RemoteListeningPort, error)

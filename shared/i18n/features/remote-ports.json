@@ -396,6 +396,315 @@
       "platforms": [
         "desktop"
       ]
+    },
+    {
+      "id": "desktop.remote.ports.ruleAdd",
+      "description": "Ports tool window header: button that opens the dialog adding a forwarding rule that listens on the host",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.remote.ports.ruleTitle",
+      "description": "Ports tool window: title of the dialog adding a forwarding rule",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.remote.ports.ruleKind",
+      "description": "Add Forwarding Rule dialog: label of the choice of the rule's direction",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.remote.ports.ruleKindHost",
+      "description": "Add Forwarding Rule dialog: direction where the host listens and connects to another server itself",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.remote.ports.ruleKindReverse",
+      "description": "Add Forwarding Rule dialog: direction where the host listens and brings connections back to this computer (reverse forward)",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.remote.ports.ruleReverseOff",
+      "description": "Add Forwarding Rule dialog: reverse forwards are not offered because the remote workspace settings do not allow them",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.remote.ports.ruleHostNote",
+      "description": "Add Forwarding Rule dialog: what a host rule does; {name} is the connection's name",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "name": "string"
+      }
+    },
+    {
+      "id": "desktop.remote.ports.ruleReverseNote",
+      "description": "Add Forwarding Rule dialog: what a reverse rule does; {name} is the connection's name",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "name": "string"
+      }
+    },
+    {
+      "id": "desktop.remote.ports.ruleListen",
+      "description": "Add Forwarding Rule dialog: label of the host port field",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.remote.ports.ruleListenPlaceholder",
+      "description": "Add Forwarding Rule dialog: placeholder of the host port field, which may stay empty",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.remote.ports.ruleTarget",
+      "description": "Add Forwarding Rule dialog: label of the field naming the server a host rule connects to",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.remote.ports.ruleTargetPlaceholder",
+      "description": "Add Forwarding Rule dialog: placeholder of the target field of a host rule",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.remote.ports.ruleLocal",
+      "description": "Add Forwarding Rule dialog: label of the field naming the port on this computer a reverse rule reaches",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.remote.ports.ruleLocalPlaceholder",
+      "description": "Add Forwarding Rule dialog: placeholder of the local port field of a reverse rule",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.remote.ports.ruleAllInterfaces",
+      "description": "Add Forwarding Rule dialog: checkbox making a host rule listen on every interface of the host instead of its loopback address",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.remote.ports.ruleAllInterfacesNote",
+      "description": "Add Forwarding Rule dialog: warning under the every-interface checkbox when it is checked",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.remote.ports.ruleCancel",
+      "description": "Add Forwarding Rule dialog: button that closes it without adding a rule",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.remote.ports.ruleSubmit",
+      "description": "Add Forwarding Rule dialog: button that adds the rule",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.remote.ports.ruleBack",
+      "description": "Add Forwarding Rule dialog: button that declines its question and goes back to the fields",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.remote.ports.ruleConfirm",
+      "description": "Add Forwarding Rule dialog: button that confirms its question and starts the rule",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.remote.ports.ruleConfirmAllTitle",
+      "description": "Add Forwarding Rule dialog: title of the question asked before a host rule listens on every interface",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.remote.ports.ruleConfirmAll",
+      "description": "Add Forwarding Rule dialog: question asked every time before a host rule listens on every interface; {listen} is desktop.remote.ports.ruleListenPort or ruleListenAny",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "name": "string",
+        "listen": "string",
+        "target": "string"
+      }
+    },
+    {
+      "id": "desktop.remote.ports.ruleListenPort",
+      "description": "Add Forwarding Rule dialog questions: the host port the rule listens on",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "port": "string"
+      }
+    },
+    {
+      "id": "desktop.remote.ports.ruleListenAny",
+      "description": "Add Forwarding Rule dialog questions: the rule listens on a port the host chooses",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.remote.ports.ruleConfirmTarget",
+      "description": "Add Forwarding Rule dialog: question asked before a host rule reaches an address that is not the host's own loopback address",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "target": "string",
+        "name": "string"
+      }
+    },
+    {
+      "id": "desktop.remote.ports.ruleConfirmReverseTitle",
+      "description": "Add Forwarding Rule dialog: title of the question asked before every reverse rule",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.remote.ports.ruleConfirmReverse",
+      "description": "Add Forwarding Rule dialog: question asked before every reverse rule; {listen} is desktop.remote.ports.ruleListenPort or ruleListenAny, {local} the port on this computer",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "name": "string",
+        "listen": "string",
+        "local": "string"
+      }
+    },
+    {
+      "id": "desktop.remote.ports.ruleInvalidListen",
+      "description": "Add Forwarding Rule dialog: the host port typed is not a port number",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.remote.ports.rulePortInUse",
+      "description": "Add Forwarding Rule dialog: another program of the host uses the host port asked for",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "port": "string"
+      }
+    },
+    {
+      "id": "desktop.remote.ports.rulePortDenied",
+      "description": "Add Forwarding Rule dialog: the host refused to listen on the port asked for",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "port": "string"
+      }
+    },
+    {
+      "id": "desktop.remote.ports.ruleUnsupported",
+      "description": "Add Forwarding Rule dialog: the remote server running on the host cannot listen on host ports",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.remote.ports.rulesHeading",
+      "description": "Ports tool window: heading of the list of forwarding rules that listen on the host",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.remote.ports.rulesHelp",
+      "description": "Ports tool window: tooltip of the information button next to the forwarding rules heading",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.remote.ports.ruleColumnListen",
+      "description": "Ports tool window: header of the forwarding rules column giving where the host listens",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.remote.ports.ruleColumnTarget",
+      "description": "Ports tool window: header of the forwarding rules column giving what a rule forwards to",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.remote.ports.ruleColumnConnections",
+      "description": "Ports tool window: header of the forwarding rules column counting connections",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.remote.ports.ruleThisComputer",
+      "description": "Ports tool window: a reverse rule forwards to {address} on this computer",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "address": "string"
+      }
+    },
+    {
+      "id": "desktop.remote.ports.ruleConnectionsFailed",
+      "description": "Ports tool window: connections a rule carries now and those that could not reach its target",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "count": "string",
+        "failed": "string"
+      }
+    },
+    {
+      "id": "desktop.remote.ports.ruleAllInterfacesTip",
+      "description": "Ports tool window: tooltip of a rule that listens on every interface of the host",
+      "platforms": [
+        "desktop"
+      ]
     }
   ],
   "locales": {
@@ -450,7 +759,46 @@
       "desktop.remote.ports.localLabel": "Local port",
       "desktop.remote.ports.localInvalid": "Enter a port number from 1 to 65535.",
       "desktop.remote.ports.localApply": "Forward",
-      "desktop.remote.ports.localCancel": "Cancel"
+      "desktop.remote.ports.localCancel": "Cancel",
+      "desktop.remote.ports.ruleAdd": "Add Forwarding Rule…",
+      "desktop.remote.ports.ruleTitle": "Add Forwarding Rule",
+      "desktop.remote.ports.ruleKind": "Direction",
+      "desktop.remote.ports.ruleKindHost": "Host port → another server",
+      "desktop.remote.ports.ruleKindReverse": "Host port → this computer (reverse)",
+      "desktop.remote.ports.ruleReverseOff": "Forwarding a host port back to this computer (reverse forwarding) is off by default. You can allow it in Settings › Tools › Remote Workspace.",
+      "desktop.remote.ports.ruleHostNote": "{name} listens on the port below and connects to the target itself; the data does not pass through this computer. By default it listens only on the host's loopback address (127.0.0.1), so only programs on the host can connect.",
+      "desktop.remote.ports.ruleReverseNote": "{name} listens on the port below on its loopback address (127.0.0.1) and brings every connection back to a port on this computer's loopback address. Every user of the host can connect to that port.",
+      "desktop.remote.ports.ruleListen": "Host port",
+      "desktop.remote.ports.ruleListenPlaceholder": "Leave empty to let the host choose",
+      "desktop.remote.ports.ruleTarget": "Target",
+      "desktop.remote.ports.ruleTargetPlaceholder": "Port, host:port or URL, as the host reaches it",
+      "desktop.remote.ports.ruleLocal": "Local port",
+      "desktop.remote.ports.ruleLocalPlaceholder": "Port on this computer's loopback address, such as 3000",
+      "desktop.remote.ports.ruleAllInterfaces": "Listen on every interface of the host",
+      "desktop.remote.ports.ruleAllInterfacesNote": "Any computer that can reach the host can connect to this port and reach the target through it. You are asked every time; the choice is never remembered.",
+      "desktop.remote.ports.ruleCancel": "Cancel",
+      "desktop.remote.ports.ruleSubmit": "Add",
+      "desktop.remote.ports.ruleBack": "Back",
+      "desktop.remote.ports.ruleConfirm": "Confirm and Start",
+      "desktop.remote.ports.ruleConfirmAllTitle": "Listen on Every Interface?",
+      "desktop.remote.ports.ruleConfirmAll": "{name} will listen on {listen} on every interface and forward connections to {target}. Any computer that can reach the host can connect, not just you. Continue only if you trust the host's network.",
+      "desktop.remote.ports.ruleListenPort": "port {port}",
+      "desktop.remote.ports.ruleListenAny": "a port the host chooses",
+      "desktop.remote.ports.ruleConfirmTarget": "{target} is not the loopback address of {name}. With this rule, every program that can connect to the host port reaches that address through the host. Continue only if you trust it.",
+      "desktop.remote.ports.ruleConfirmReverseTitle": "Forward a Host Port to This Computer?",
+      "desktop.remote.ports.ruleConfirmReverse": "{name} will listen on {listen} on its loopback address and bring every connection to port {local} on this computer. Every user and program on the host can reach that port of this computer through it. Continue only if you trust the host.",
+      "desktop.remote.ports.ruleInvalidListen": "Enter a host port from 1 to 65535, or leave it empty.",
+      "desktop.remote.ports.rulePortInUse": "Port {port} is used by another program on the host. Choose another port or leave it empty.",
+      "desktop.remote.ports.rulePortDenied": "The host does not allow listening on port {port}. Ports below 1024 usually need administrator rights.",
+      "desktop.remote.ports.ruleUnsupported": "The remote server running on the host cannot listen on host ports. Reconnect to update it.",
+      "desktop.remote.ports.rulesHeading": "Forwarding Rules",
+      "desktop.remote.ports.rulesHelp": "Forwarding rules listen on a host port and forward to another server or back to this computer. They stop when the connection ends and are not restored after reconnecting.",
+      "desktop.remote.ports.ruleColumnListen": "Host Listens On",
+      "desktop.remote.ports.ruleColumnTarget": "Forwards To",
+      "desktop.remote.ports.ruleColumnConnections": "Connections",
+      "desktop.remote.ports.ruleThisComputer": "This computer {address}",
+      "desktop.remote.ports.ruleConnectionsFailed": "{count} ({failed} failed)",
+      "desktop.remote.ports.ruleAllInterfacesTip": "Listens on every interface of the host: any computer that can reach the host can connect to this port."
     },
     "zh-CN": {
       "desktop.remote.ports.title": "端口",
@@ -503,7 +851,46 @@
       "desktop.remote.ports.localLabel": "本机端口",
       "desktop.remote.ports.localInvalid": "请输入 1 到 65535 之间的端口号。",
       "desktop.remote.ports.localApply": "转发",
-      "desktop.remote.ports.localCancel": "取消"
+      "desktop.remote.ports.localCancel": "取消",
+      "desktop.remote.ports.ruleAdd": "添加转发规则…",
+      "desktop.remote.ports.ruleTitle": "添加转发规则",
+      "desktop.remote.ports.ruleKind": "方向",
+      "desktop.remote.ports.ruleKindHost": "主机端口 → 另一台服务器",
+      "desktop.remote.ports.ruleKindReverse": "主机端口 → 本机（反向转发）",
+      "desktop.remote.ports.ruleReverseOff": "把主机端口转发回本机（反向转发）默认关闭，可在 设置 › 工具 › 远程工作区 中允许。",
+      "desktop.remote.ports.ruleHostNote": "{name} 监听下面的端口，并由主机自己连接目标，数据不经过本机。默认只监听主机的回环地址（127.0.0.1），只有主机上的程序能连接。",
+      "desktop.remote.ports.ruleReverseNote": "{name} 在回环地址（127.0.0.1）上监听下面的端口，把每个连接转回本机回环地址上的端口。主机上的所有用户都能连接这个端口。",
+      "desktop.remote.ports.ruleListen": "主机端口",
+      "desktop.remote.ports.ruleListenPlaceholder": "留空由主机选择",
+      "desktop.remote.ports.ruleTarget": "目标",
+      "desktop.remote.ports.ruleTargetPlaceholder": "端口、主机:端口或网址，由主机连接",
+      "desktop.remote.ports.ruleLocal": "本机端口",
+      "desktop.remote.ports.ruleLocalPlaceholder": "本机回环地址上的端口，如 3000",
+      "desktop.remote.ports.ruleAllInterfaces": "监听主机的全部网卡",
+      "desktop.remote.ports.ruleAllInterfacesNote": "能访问这台主机的任何电脑都能连接这个端口，并经由它访问目标。每次添加都会再次确认，不会记住。",
+      "desktop.remote.ports.ruleCancel": "取消",
+      "desktop.remote.ports.ruleSubmit": "添加",
+      "desktop.remote.ports.ruleBack": "返回",
+      "desktop.remote.ports.ruleConfirm": "确认并开始",
+      "desktop.remote.ports.ruleConfirmAllTitle": "在全部网卡上监听？",
+      "desktop.remote.ports.ruleConfirmAll": "{name} 将在全部网卡上监听{listen}，并把连接转到 {target}。能访问这台主机的任何电脑都能连接它，不只是你。请确认主机所在的网络可信后再继续。",
+      "desktop.remote.ports.ruleListenPort": "端口 {port}",
+      "desktop.remote.ports.ruleListenAny": "一个由主机选择的端口",
+      "desktop.remote.ports.ruleConfirmTarget": "{target} 不是 {name} 自身的回环地址。添加后，能连接这个主机端口的程序都能经由主机访问这个地址。请确认你信任它后再继续。",
+      "desktop.remote.ports.ruleConfirmReverseTitle": "把主机端口转发回本机？",
+      "desktop.remote.ports.ruleConfirmReverse": "{name} 将在回环地址上监听{listen}，并把每个连接转到本机的端口 {local}。主机上的所有用户和程序都能借此连接本机的这个端口。请确认你信任这台主机后再继续。",
+      "desktop.remote.ports.ruleInvalidListen": "主机端口请输入 1 到 65535 之间的端口号，或留空。",
+      "desktop.remote.ports.rulePortInUse": "主机上的端口 {port} 已被其他程序占用，请换一个端口或留空。",
+      "desktop.remote.ports.rulePortDenied": "主机不允许监听端口 {port}。普通用户通常不能使用 1024 以下的端口。",
+      "desktop.remote.ports.ruleUnsupported": "这台主机上运行的远端服务不支持在主机上监听端口，请重新连接以更新远端服务。",
+      "desktop.remote.ports.rulesHeading": "转发规则",
+      "desktop.remote.ports.rulesHelp": "转发规则在主机上监听端口，转到另一台服务器或转回本机。规则随连接结束而停止，重新连接后不会自动恢复。",
+      "desktop.remote.ports.ruleColumnListen": "主机监听",
+      "desktop.remote.ports.ruleColumnTarget": "转到",
+      "desktop.remote.ports.ruleColumnConnections": "连接",
+      "desktop.remote.ports.ruleThisComputer": "本机 {address}",
+      "desktop.remote.ports.ruleConnectionsFailed": "{count}（{failed} 个失败）",
+      "desktop.remote.ports.ruleAllInterfacesTip": "监听主机的全部网卡：能访问主机的任何电脑都能连接这个端口。"
     }
   }
 }

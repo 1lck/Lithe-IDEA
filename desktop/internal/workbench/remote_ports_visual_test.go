@@ -51,7 +51,7 @@ func TestVisualRemotePorts(t *testing.T) {
 			}
 			kernel.ports.taken = map[uint16]bool{8080: true}
 			h := newHarnessWithDriver(t, Options{Kernel: kernel, Store: prefs, Languages: []string{look.language}}, func(config app.Config) (*app.Driver, func(), error) {
-				config.Width, config.Height = 1200, 760
+				config.Width, config.Height = 1200, 960
 				var err error
 				session, err = headless.Open(config, nil, headless.Options{})
 				if err != nil {
@@ -143,6 +143,50 @@ func TestVisualRemotePorts(t *testing.T) {
 			}
 			ports.localField.SetText("18080")
 			shot("local")
+			ports.local, ports.localOpen = nil, false
+			h.settleChain()
+
+			// Forwarding rules listen on the host: one reaches another server, one listens on every
+			// interface, and one brings a host port back to this computer.
+			kernel.set(func(k *remoteHostKernel) { k.ports.rules.allowReverse = true })
+			addRule := func(kind remotePortRuleKind, listen, target string, all bool) {
+				t.Helper()
+				h.app.openRemotePortRule(p, surfaceToolbar)
+				h.settleChain()
+				draft := ports.rule
+				draft.kind, draft.allInterfaces = kind, all
+				draft.listen.SetText(listen)
+				draft.target.SetText(target)
+				h.app.submitRemotePortRule(p, surfaceButton)
+				for range 2 {
+					h.await("the rule", func() bool {
+						return ports.rule != draft || (!draft.starting && draft.confirm != remotePortRuleNoConfirm)
+					})
+					if ports.rule != draft {
+						return
+					}
+					h.app.confirmRemotePortRule(p, surfaceButton)
+				}
+				h.await("the confirmed rule", func() bool { return ports.rule != draft })
+			}
+			addRule(remotePortRuleHost, "15432", "db.internal:5432", false)
+			addRule(remotePortRuleHost, "9200", "http://search.internal:9200", true)
+			addRule(remotePortRuleReverse, "", "3000", false)
+			if len(ports.rules()) != 3 {
+				t.Fatalf("%d rules started, want 3", len(ports.rules()))
+			}
+			shot("rules")
+
+			h.app.openRemotePortRule(p, surfaceToolbar)
+			h.settleChain()
+			draft := ports.rule
+			draft.allInterfaces = true
+			draft.listen.SetText("8000")
+			draft.target.SetText("10.0.0.8:8000")
+			shot("rule")
+			h.app.submitRemotePortRule(p, surfaceButton)
+			h.await("the question", func() bool { return !draft.starting && draft.confirm == remotePortRuleConfirmAll })
+			shot("rule-confirm")
 		})
 	}
 }
