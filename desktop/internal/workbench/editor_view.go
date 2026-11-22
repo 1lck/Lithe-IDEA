@@ -484,6 +484,11 @@ func (a *App) onKey(event gfx.KeyEvent) gfx.EventResult {
 			return result
 		}
 	}
+	if p := a.project; p != nil && p.remote != nil && p.remote.hostFiles.open {
+		if result := a.remoteHostFilesKey(p, event); result.Handled {
+			return result
+		}
+	}
 	if event.Release {
 		return gfx.EventResult{}
 	}

@@ -35,10 +35,12 @@ type statusPath struct {
 	// only when the focus moves.
 	focus gfx.ID
 	// root and file are the last absolute path made relative to the project. rel is what it
-	// gave, and inside says whether the file lies in the project. A paint that names the same
-	// file reuses them instead of allocating the relative path again.
-	root, file, rel string
-	inside          bool
+	// gave, and inside says whether the file lies in the project. host is the host path, under
+	// ~ when it is below the home directory, of a remote workspace's file outside its folder,
+	// and "" for any other file. A paint that names the same file reuses them instead of
+	// allocating the relative path again.
+	root, file, rel, host string
+	inside                bool
 	// valueOf is the project name and crumbs of the last path the bar drew, and value is the
 	// accessible value made from them.
 	valueOf statusValueKey
@@ -109,17 +111,25 @@ func (a *App) statusPathCrumbs(p *project) statusCrumbs {
 }
 
 // statusFileCrumbs names the file at the absolute path file. A file in the project is named by
-// its path in the project. A file outside it, such as a scratch file or a document a plugin
-// provides, is named by its name alone. name is the name a document shows in its tab; when it is
-// empty, the last element of the path is used.
+// its path in the project. A host file outside a remote workspace's folder is named by its host
+// path, so the user sees which file of the host the read-only tab holds. Any other file outside
+// the project, such as a scratch file or a document a plugin provides, is named by its name
+// alone. name is the name a document shows in its tab; when it is empty, the last element of
+// the path is used.
 func (a *App) statusFileCrumbs(p *project, file, name string) statusCrumbs {
 	s := &a.statusPath
 	if s.root != p.root || s.file != file {
-		s.root, s.file = p.root, file
+		s.root, s.file, s.host = p.root, file, ""
 		s.rel, s.inside = projectRelative(p.root, file)
+		if !s.inside && p.remoteOutsideDocument(file) {
+			s.host = remoteHomeRelative(p.remoteHostPath(file), p.remote.home)
+		}
 	}
 	if s.inside {
 		return statusCrumbs{rel: s.rel}
+	}
+	if s.host != "" {
+		return statusCrumbs{name: s.host}
 	}
 	if name == "" {
 		name = filepath.Base(file)

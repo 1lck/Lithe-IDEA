@@ -4,6 +4,7 @@ import (
 	"strings"
 
 	"github.com/1lck/Lithe-IDEA/desktop/internal/editorview"
+	"github.com/1lck/Lithe-IDEA/desktop/internal/i18n"
 )
 
 // This file holds what the status bar's editor items do when they are clicked: switch the
@@ -53,9 +54,15 @@ func (a *App) toggleLineEnding(d *document) {
 }
 
 // toggleReadOnly locks or unlocks the document against changes. Virtual documents are read-only
-// by their nature and keep that.
+// by their nature and keep that, and so does a host file outside a remote workspace's folder,
+// which the editor never writes (S25).
 func (a *App) toggleReadOnly(d *document) {
 	if d == nil || d.virtual {
+		return
+	}
+	if d.hostOutside {
+		a.operationRejected("toggle_read_only", "remote_outside_folder")
+		a.notifyInfo(i18n.Shared(a.language(), "desktop.remote.hostFile.readOnly"))
 		return
 	}
 	d.view.SetReadOnly(!d.view.ReadOnly())
