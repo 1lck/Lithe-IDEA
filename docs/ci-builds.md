@@ -265,10 +265,7 @@ Go 构建在 windows/amd64 和 windows/arm64 上用 `go:embed` 把它们编译�
 
 - LSP workspace `-data`、运行时数据库、测试报告和其他会被进程修改的状态。
 
-独立插件包不再由桌面主仓库内的旧 macOS 打包器组装。包括 Java Support 在内的插件，其构建、校验、签名与发布由插件自己的仓库负责；Java Support 以 [lithe-plugin-java](https://github.com/Lithe-IDEA/lithe-plugin-java) 当前清单与构建工作流为准。Viva 桌面仓库不再有 `.build/<triple>/<configuration>/OfficialPlugins`、`Plugins/mac/Official/JavaSupport/assemble-package.sh`、`LitheOfficialPluginVerifier` 或 `LithePluginPackageSigner` 这些旧入口；它们是已退役客户端的历史实现，不得用于现行 CI 或本地打包。旧客户端签名私钥的使用步骤也不适用于 Viva 构建，不应按历史说明在主仓库配置该密钥。
-
-插件包的下载、完整性与发布者校验应遵循现行插件清单、独立仓库发行工作流和桌面端的安装校验逻辑。已安装包与插件版本所带语言服务器属于用户插件目录，而非另一个 Git 工作树可共享的构建缓存；即使内容哈希一致，也不能通过复制已安装插件目录复用其可变状态。
-`<app-support>/Lithe/Plugins/<plugin-id>/versions/<version>/language-server`，由插件版本目录拥有，运行时只读，重装、回滚和卸载随插件一起处理，不是工作树构建缓存。以上项目都不跨工作树复制。
+已安装插件目录由 `desktop/internal/pluginpkg`（`pluginpkg.DefaultRoot()`）按平台管理：macOS 为 `~/Library/Application Support/Lithe Desktop/plugins`，Windows 为 `%LOCALAPPDATA%\Lithe Desktop\plugins`，Linux 为 `<os.UserConfigDir()>/lithe-desktop/plugins`。各个插件由自己的仓库负责构建、校验、签名与发布，桌面主仓库不内置插件打包器或签名密钥；宿主下载校验并经用户批准后，先在 `<plugin-root>/.staging/` 解压，再原子重命名到 `<plugin-root>/<plugin-id>/<version>/`，卸载时先移入 `<plugin-root>/.trash/` 再删除，可写状态统一落在 `<plugin-root>/.state/<plugin-id>/`。已安装版本目录在运行时只读，重装、回滚和卸载均由插件安装流程统一处理，且位于 app bundle 和 Windows 安装目录之外，不改变代码签名或桌面增量更新基线；它们属于用户运行时目录而非工作树构建缓存，任何情况下都不得跨 Git 工作树复制或共享。
 
 Build Provider 的模型与依赖快照位于插件根（`pluginpkg.DefaultRoot`）下的 `.state/<plugin-id>/<version>/build/<workspace-digest>/`。会话拥有其缓存、日志和临时输出；模型失效可重建，插件卸载随所属状态清理。工作区摘要只是归属键，不是构建身份。
 它属于具体插件、构建系统和工作区的可变上游状态，没有版本/平台/架构/工具链 identity stamp，
