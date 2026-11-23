@@ -27,7 +27,13 @@ type storedWindowBackground struct {
 func (a *App) startupBackground() app.Color {
 	if a.store != nil {
 		var stored storedWindowBackground
-		if found, err := a.store.Load(windowBackgroundFile, &stored); err == nil && found && stored.Alpha > 0 {
+		found, err := a.store.Load(windowBackgroundFile, &stored)
+		if err == nil && found {
+			err = a.store.Unread(windowBackgroundFile)
+		}
+		if err != nil {
+			a.storedStateFailed("window_background", err)
+		} else if found && stored.Alpha > 0 {
 			return app.Color{Red: float64(stored.Red), Green: float64(stored.Green), Blue: float64(stored.Blue), Alpha: float64(stored.Alpha)}
 		}
 	}
