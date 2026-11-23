@@ -431,6 +431,8 @@ type settings struct {
 	DisableSemanticHighlight bool `json:"disableSemanticHighlight,omitempty"`
 	// VimMode turns on the Vim keys of every editor; off by default (vim_mode.go).
 	VimMode bool `json:"vimMode,omitempty"`
+	// RunPerformanceCollapsed keeps the CPU/memory graph hidden while showing its summary.
+	RunPerformanceCollapsed bool `json:"runPerformanceCollapsed,omitempty"`
 	// DisableAutoSave stops saving changed files a moment after typing stops
 	// (document_autosave.go); auto-save is on by default.
 	DisableAutoSave bool `json:"disableAutoSave,omitempty"`

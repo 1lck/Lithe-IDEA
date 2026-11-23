@@ -7,6 +7,7 @@ import (
 
 	"github.com/1lck/Lithe-IDEA/desktop/internal/core"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/i18n"
+	"github.com/1lck/Lithe-IDEA/desktop/internal/pluginservice"
 	"github.com/vivaui/viva/gfx"
 )
 
@@ -132,6 +133,52 @@ func TestRunConsoleWrapSwitchBreaksLongLinesInsteadOfCuttingThem(t *testing.T) {
 	h.settle()
 	if h.app.runWrap || h.shows("finish") || !h.shows("…") {
 		t.Fatal("a second click did not cut the long line again")
+	}
+}
+
+
+func TestRunPerformanceCollapseKeepsSummaryAndPersistsTheChoice(t *testing.T) {
+	h := debugPluginHarness(t, "dev.lithe.test.output-links", outputLinkManifest, false)
+	root := t.TempDir()
+	h.open(root)
+	h.app.reduceChrome(core.ToggleChrome(itemRun))
+	h.startRunConsole(root, "a running process emitted this line\n")
+	p := h.app.project
+	if len(p.build.runs) != 1 {
+		t.Fatalf("runs = %d, want one", len(p.build.runs))
+	}
+	run := p.build.runs[0]
+	run.addSample(pluginservice.ProcessSample{CPUPercent: 25, MemoryBytes: 96 << 20})
+	for range 6 {
+		h.settle()
+	}
+	collapse := i18n.Shared(h.app.language(), "native.collapseSection")
+	expand := i18n.Shared(h.app.language(), "native.expandSection")
+	if !h.shows(h.app.text.Run.Performance.CPU("25")) || !h.shows(h.app.text.Run.Performance.Memory("96")) {
+		t.Fatal("resource values are not visible while the graph is expanded")
+	}
+	if hit := h.pageHit(collapse); hit.Role != gfx.RoleButton {
+		t.Fatalf("collapse control = %+v, want a button", hit)
+	}
+	h.clickNamed(collapse)
+	h.settle()
+	if !h.app.settings.RunPerformanceCollapsed {
+		t.Fatal("the graph did not collapse")
+	}
+	if !h.shows(h.app.text.Run.Performance.CPU("25")) || !h.shows(h.app.text.Run.Performance.Memory("96")) || !h.shows("a running process emitted this line") {
+		t.Fatal("collapsing hid the summary or output")
+	}
+	var saved settings
+	if _, err := h.store.Load(settingsFile, &saved); err != nil || !saved.RunPerformanceCollapsed {
+		t.Fatalf("collapse preference was not saved: %+v, err=%v", saved, err)
+	}
+	h.clickNamed(expand)
+	h.settle()
+	if h.app.settings.RunPerformanceCollapsed {
+		t.Fatal("the graph did not expand")
+	}
+	if _, err := h.store.Load(settingsFile, &saved); err != nil || saved.RunPerformanceCollapsed {
+		t.Fatalf("expansion preference was not saved: %+v, err=%v", saved, err)
 	}
 }
 

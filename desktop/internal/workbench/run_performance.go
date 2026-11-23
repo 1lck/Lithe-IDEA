@@ -5,6 +5,8 @@ import (
 	"strconv"
 	"time"
 
+	"github.com/1lck/Lithe-IDEA/desktop/internal/i18n"
+	"github.com/1lck/Lithe-IDEA/desktop/internal/icons"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/pluginservice"
 	"github.com/vivaui/viva/gfx"
 	"github.com/vivaui/viva/ui"
@@ -58,11 +60,25 @@ func (a *App) runPerformanceChart(c ui.C, run *runEntry) {
 	samples := run.samples
 	latest := samples[len(samples)-1]
 	t := a.text.Run.Performance
+	collapsed := a.settings.RunPerformanceCollapsed
 	ui.Column(c).FillWidth().Gap(2).PadX(8).Children(func() {
-		ui.Row(c).FillWidth().Height(runChartHeight).Shrink(0).Draw(func(d *ui.DrawContext) {
-			a.paintRunSamples(d, samples)
-		})
-		ui.Row(c).FillWidth().Height(16).Shrink(0).Items(ui.Center).Gap(10).Children(func() {
+		// All executions share this view preference, but keep separate samples.
+		if !collapsed {
+			ui.Row(c).FillWidth().Height(runChartHeight).Shrink(0).Draw(func(d *ui.DrawContext) {
+				a.paintRunSamples(d, samples)
+			})
+		}
+		ui.Row(c).FillWidth().Height(24).Shrink(0).Items(ui.Center).Gap(8).Children(func() {
+			label, icon := i18n.Shared(a.language(), "native.collapseSection"), icons.ChevronUp
+			if collapsed {
+				label, icon = i18n.Shared(a.language(), "native.expandSection"), icons.ChevronDown
+			}
+			if a.runToolButton(c.Part("performanceToggle"), label, icon, a.colors.Subtle, false) {
+				c.After(func() {
+					a.settings.RunPerformanceCollapsed = !a.settings.RunPerformanceCollapsed
+					a.saveSettings()
+				})
+			}
 			ui.Text(c, t.CPU(strconv.FormatFloat(latest.CPUPercent, 'f', 0, 64))).FontSize(11).Color(a.colors.Accent).Shrink(0)
 			ui.Text(c, t.Memory(strconv.FormatUint(latest.MemoryBytes/(1<<20), 10))).FontSize(11).Color(a.colors.Subtle).Shrink(0)
 		})
