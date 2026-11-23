@@ -41,9 +41,9 @@ func (a *App) drawPullRequestChecks(c ui.C) {
 		row := ui.Row(k).FillWidth().Items(ui.Center).Gap(6).PadX(8).
 			HitWith(ui.ID(k), check.Name, gfx.HitOptions{Role: gfx.RoleButton, Cursor: gfx.PointerCursorHand}).
 			Hover(ui.Look{}.Background(a.colors.Hover)).Children(func() {
-			ui.Icon(k, icon).Size(14, 14).Color(color).Shrink(0)
-			ui.Text(k, check.Name).FontSize(size).Ellipsis().Grow(1)
-			ui.Text(k, label).FontSize(size).Color(color).Shrink(0)
+			ui.Icon(c, icon).Size(14, 14).Color(color).Shrink(0)
+			ui.Text(c, check.Name).FontSize(size).Ellipsis().Grow(1)
+			ui.Text(c, label).FontSize(size).Color(color).Shrink(0)
 		})
 		if row.Clicked() && check.DetailsURL != nil && *check.DetailsURL != "" {
 			url := *check.DetailsURL

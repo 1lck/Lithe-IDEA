@@ -641,7 +641,7 @@ func (r *renderer) table(c ui.C, n *Node) {
 	ui.Column(c).FillWidth().Border(1, p.Line).Radius(6).Clip().Children(func() {
 		ui.Row(c.Key("header")).FillWidth().Height(26).PadX(10).Gap(12).Items(ui.Center).Background(p.Sidebar).Children(func() {
 			for i, column := range n.Columns {
-				cell(c.KeyInt(i), column.Title, i, true)
+				cell(c, column.Title, i, true)
 			}
 		})
 		for i, cells := range n.Rows {
@@ -652,7 +652,7 @@ func (r *renderer) table(c ui.C, n *Node) {
 					if column < len(cells) {
 						text = cells[column]
 					}
-					cell(c.KeyInt(column), text, column, false)
+					cell(c, text, column, false)
 				}
 			})
 		}

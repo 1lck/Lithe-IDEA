@@ -118,7 +118,7 @@ func (a *App) everywhereScopes(c ui.C, p *project, language i18n.Language) {
 		for index, label := range labels {
 			var clicked bool
 			if key, help := everywhereScopeHelp(language, index); help != "" {
-				clicked = a.everywhereHelpTab(c.KeyInt(index), c.Key(key), language, label, help, index == v.scope)
+				clicked = a.everywhereHelpTab(c.KeyInt(index), key, language, label, help, index == v.scope)
 			} else {
 				tab := ui.Button(c.KeyInt(index), label).Ghost()
 				if index == v.scope {
@@ -167,7 +167,7 @@ const (
 // height the theme gives the other tabs' buttons (Ghost, Secondary when chosen), so it
 // reads as one of them; the ⓘ stays a button of its own, so the pointer and the keyboard
 // both reach its tooltip.
-func (a *App) everywhereHelpTab(c, infoKey ui.C, language i18n.Language, label, help string, chosen bool) bool {
+func (a *App) everywhereHelpTab(c ui.C, infoKey string, language i18n.Language, label, help string, chosen bool) bool {
 	variant := components.ButtonGhost
 	if chosen {
 		variant = components.ButtonSecondary
@@ -188,7 +188,7 @@ func (a *App) everywhereHelpTab(c, infoKey ui.C, language i18n.Language, label, 
 	var info ui.Box
 	tab.Children(func() {
 		ui.Text(c, label).FontSize(metrics.FontSizeM).Weight(gfx.WeightMedium).Color(rest.Foreground)
-		info = ui.Button(infoKey, i18n.Shared(language, "native.moreInformation")).Icon(icons.Info).IconOnly().Ghost().
+		info = ui.Button(c.Key(infoKey), i18n.Shared(language, "native.moreInformation")).Icon(icons.Info).IconOnly().Ghost().
 			Size(everywhereHelpInfoSize, everywhereHelpInfoSize).Tooltip(help)
 	})
 	return info.Clicked() || tab.Clicked()

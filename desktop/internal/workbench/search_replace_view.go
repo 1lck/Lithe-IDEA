@@ -134,8 +134,8 @@ func (a *App) replacePreviewFile(c ui.C, p *project, index int) {
 			}
 			ui.Column(c.KeyInt(i)).FillWidth().PadX(22).Children(func() {
 				line := strconv.Itoa(match.Line) + "  "
-				ui.Text(c.Key("before"), line+"- "+match.Before).Mono().FontSize(11.5).Color(a.theme.Danger).Ellipsis()
-				ui.Text(c.Key("after"), line+"+ "+match.After).Mono().FontSize(11.5).Color(a.theme.Success).Ellipsis()
+				ui.Text(c, line+"- "+match.Before).Mono().FontSize(11.5).Color(a.theme.Danger).Ellipsis()
+				ui.Text(c, line+"+ "+match.After).Mono().FontSize(11.5).Color(a.theme.Success).Ellipsis()
 			})
 		}
 	})

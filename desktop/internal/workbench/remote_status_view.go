@@ -70,9 +70,9 @@ func (a *App) remoteStatus(c ui.C) {
 		button = button.Hover(ui.Look{}.Background(a.colors.Hover))
 	}
 	button.Children(func() {
-		ui.Icon(k, icon).Size(chromeMarkSize, chromeMarkSize).Shrink(0).Color(color)
+		ui.Icon(c, icon).Size(chromeMarkSize, chromeMarkSize).Shrink(0).Color(color)
 		a.chromeStatusLabel(k, text)
-		ui.Icon(k, icons.ChevronDown).Size(chromeMarkSize, chromeMarkSize).Shrink(0).Color(a.colors.Subtle)
+		ui.Icon(c, icons.ChevronDown).Size(chromeMarkSize, chromeMarkSize).Shrink(0).Color(a.colors.Subtle)
 	})
 	if button.Clicked() && !r.menuOpen {
 		r.menuOpen = true

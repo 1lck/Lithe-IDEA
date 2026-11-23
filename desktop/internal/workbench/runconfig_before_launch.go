@@ -327,13 +327,13 @@ func (a *App) drawBeforeLaunchConfirmation(c ui.C, p *project) {
 	closed := ui.ModalWith(c, &open, title, ui.ModalSpec{Width: 520}, func() {
 		k := c.Part("run-before-launch-confirm")
 		ui.Column(k).FillWidth().Gap(8).Children(func() {
-			ui.Paragraph(k, i18n.SharedFormat(language, "desktop.runConfig.beforeLaunch.confirmBody", map[string]string{"name": ask.name}), 4).Color(a.colors.Text)
+			ui.Paragraph(c, i18n.SharedFormat(language, "desktop.runConfig.beforeLaunch.confirmBody", map[string]string{"name": ask.name}), 4).Color(a.colors.Text)
 			for index, step := range ask.steps {
 				row := k.Part(fmt.Sprint(index))
 				ui.Column(row).FillWidth().Gap(2).Children(func() {
-					ui.Text(row, fmt.Sprintf("%d. %s", index+1, step.Name)).Weight(gfx.WeightSemibold).Color(a.colors.Text).Ellipsis()
+					ui.Text(c, fmt.Sprintf("%d. %s", index+1, step.Name)).Weight(gfx.WeightSemibold).Color(a.colors.Text).Ellipsis()
 					if step.Summary != "" {
-						ui.Text(row, step.Summary).Mono().FontSize(a.theme.Metrics.FontSizeS).Color(a.colors.Subtle).Ellipsis()
+						ui.Text(c, step.Summary).Mono().FontSize(a.theme.Metrics.FontSizeS).Color(a.colors.Subtle).Ellipsis()
 					}
 				})
 			}

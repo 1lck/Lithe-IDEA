@@ -68,6 +68,10 @@ macOS 的本地手动打包可用 `package-desktop.sh --ad-hoc-sign` 生成有�
 
 ### 独立工作树的本地编译
 
+文件关联的打包声明由 `scripts/desktop/generate-file-associations.sh` 读取编辑器内置高亮元数据并调用 Core 生成，作为 `desktop/viva.toml` 的一部分由 Git 管理；打包前以 `--check` 拒绝目录漂移。生成器始终使用构建主机架构执行，即使包的目标架构不同；最终应用和辅助程序仍使用所选目标架构。它是构建输入，不是可跨工作树复制的缓存。运行期只读取系统默认应用，明确应用后写入 LaunchServices 或当前用户的 Windows 注册表，不生成偏好副本，也不改写 bundle、安装目录或插件资源，因此不影响签名和增量更新基线。`TestVisualFileAssociations` 的真实系统读取截图通过 `LITHE_VISUAL_OUTPUT_DIR` 写到当前检出的 `.artifacts/visual/file-associations/`，绑定本次源码、Core/Viva 修订、平台、语言和主题，不跨工作树复制、不进入发行包，由开发者或 CI 清理。
+
+插件市场 SVG 由网络适配器有界读取，在后台编译为 Viva 图标；下载字节只活到本次编译结束，编译结果与失败仅保存在当前市场页的内存缓存中（最多64项、同时读取最多4个、每次最多256 KiB和10秒）。滚动离屏取消未完成的读取，刷新索引、离开市场标签或关闭设置窗口释放缓存；没有磁盘缓存，不跨工作树复制，不写安装目录，也不影响代码签名或增量更新基线。`TestVisualMarketplaceSVG` 的中英文、明暗主题及加载前后截图写入本工作树的 `.artifacts/marketplace-icons-visual/`，绑定当前源码、固定 Viva/Core 修订、语言、主题和渲染环境，不跨工作树复制，由开发者清理，不进入发行包。
+
 CLI 用户启动器由 `desktop/internal/cli` 在明确注册时生成到 `<os.UserConfigDir()>/Lithe/cli/bin/lithe`（Windows 为 `lithe.cmd`）。它绑定用户机器与当前应用可执行路径，随用户移除注册删除；它不是编译缓存，不跨工作树复制，不写安装目录，也不影响代码签名和增量更新基线。CLI 与单文件模式的无头截图可写入当前检出的 `.artifacts/cli-single-file/`；它们绑定本次源码、语言、主题、Viva/Core 修订和渲染环境，不跨工作树复制，由开发者或 CI 清理，不进入发行包。
 
 TextMate 首行元数据随各插件归档发布，从已安装版本目录只读加载。宿主的匹配缓存只保留当前进程内的编译结果，没有可跨工作树复用的状态。加载过程不写入应用或插件包，不改变签名和增量更新基线。
