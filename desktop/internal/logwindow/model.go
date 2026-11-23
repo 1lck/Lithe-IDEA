@@ -85,6 +85,7 @@ const (
 
 // The operation field of operationFailed and backgroundFailed, one per kind of work.
 const (
+	opPreferencesLoad  = "logs_preferences_load"
 	opPreferencesSave  = "logs_preferences_save"
 	opQuery            = "logs_query"
 	opLive             = "logs_live"
@@ -408,8 +409,15 @@ func NewModel(opts Options) *Model {
 	m.queryFx = ui.NewEffect[queryResult, int](m.runQuery)
 	if opts.Store != nil {
 		loaded := defaultPreferences()
-		if _, err := opts.Store.Load(prefsFile, &loaded); err == nil {
+		found, err := opts.Store.Load(prefsFile, &loaded)
+		if err == nil && found {
 			m.prefs = loaded
+			err = opts.Store.Unread(prefsFile)
+		}
+		if err != nil {
+			// Invalid saved preferences are replaced with defaults for this session.
+			// Store preserves the original bytes (and backs up corrupt JSON on save).
+			m.reportBackground(opPreferencesLoad, err)
 		}
 	}
 	m.prefs.sanitize()
