@@ -104,7 +104,7 @@ func TestProjectMenuReadsRecentBranchesWithoutFullGitStatus(t *testing.T) {
 		t.Fatal(err)
 	}
 	kernel := &recentMenuBranchKernel{
-		testKernel: &testKernel{Client: core.NewClient()},
+		testKernel:  &testKernel{Client: core.NewClient()},
 		recentPaths: map[string]bool{normal: true, worktree: true, detached: true, invalid: true, missing: true},
 	}
 	h := newHarness(t, kernel)
