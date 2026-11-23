@@ -54,6 +54,7 @@ import (
 // the calls that read the disk or run Git, so a screen can be checked against answers the
 // test chooses.
 type Kernel interface {
+	workspaceReadKernel
 	CLIOpenTarget(context.Context, string) (core.CLITarget, error)
 	ReadSourceSettings(context.Context, json.RawMessage) (core.SourceSettingsState, error)
 	PlanSourceSettingsEdits(context.Context, core.SourceSettingsSnapshot, []core.SourceSettingsEdits, bool) ([]core.SourceSettingsWrite, error)
@@ -1140,6 +1141,9 @@ func (a *App) openPlugins(options Options) {
 
 	service.BuildConfigurationIssue = func(ctx context.Context, err error) {
 		a.backgroundFailedIn(ctx, "plugin_build_configuration_watch", documentLogError(err))
+	}
+	service.WorkspaceWatchIssue = func(ctx context.Context, err error) {
+		a.backgroundFailedIn(ctx, "plugin_workspace_watch", documentLogError(err))
 	}
 	service.RuntimeIssue = a.recordPluginRuntimeIssue
 	service.SetRuntimeLanguage(a.language().Code())

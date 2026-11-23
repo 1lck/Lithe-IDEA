@@ -372,7 +372,11 @@ PINNED_CORE_REPOSITORY="https://github.com/Lithe-IDEA/Lithe-core-rust.git"
 # The plugin delta branch (#187) includes current Core main, including the
 # built-in file association catalog and plans (#186). It adds the pinned
 # companion index and verifies and reconstructs ZIPs for marketplace updates.
-PINNED_CORE_REVISION="076ce04e314ecdde790b36ee3f374becb11951a0"
+# Desktop integration of Core #190 (API-06/07/08) at 095d013 with the existing
+# #187 delta dependency at 076ce04. Both parents remain independently reviewable;
+# the pin preserves marketplace delta commands while adding workspace disk reads,
+# bounded search and native-watch planning/filtering.
+PINNED_CORE_REVISION="9ab2336e8ca651e40baa5e65848b717b26f69e43"
 PROFILE="debug"
 CHECKOUT_ONLY="no"
 while [[ $# -gt 0 ]]; do
