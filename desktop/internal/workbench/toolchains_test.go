@@ -195,13 +195,13 @@ func TestPartialToolchainCatalogRejectsCancellationAndKeepsValidPlugins(t *testi
 	valid := []json.RawMessage{json.RawMessage(`{"id":"dev.example.valid"}`)}
 	broken := errors.New("another enabled plugin manifest is unreadable")
 	for _, tc := range []struct {
-		name string
-		manifests []json.RawMessage
-		err error
-		cancel bool
-		wantCount int
+		name           string
+		manifests      []json.RawMessage
+		err            error
+		cancel         bool
+		wantCount      int
 		wantIncomplete bool
-		wantErr error
+		wantErr        error
 	}{
 		{name: "complete", manifests: valid, wantCount: 1},
 		{name: "partial", manifests: valid, err: broken, wantCount: 1, wantIncomplete: true},
@@ -212,7 +212,9 @@ func TestPartialToolchainCatalogRejectsCancellationAndKeepsValidPlugins(t *testi
 		t.Run(tc.name, func(t *testing.T) {
 			ctx, cancel := context.WithCancel(context.Background())
 			defer cancel()
-			if tc.cancel { cancel() }
+			if tc.cancel {
+				cancel()
+			}
 			manifests, incomplete, err := partialToolchainCatalog(ctx, tc.manifests, tc.err)
 			if len(manifests) != tc.wantCount || incomplete != tc.wantIncomplete || !errors.Is(err, tc.wantErr) {
 				t.Fatalf("manifests=%d incomplete=%v err=%v, want %d %v %v", len(manifests), incomplete, err, tc.wantCount, tc.wantIncomplete, tc.wantErr)
