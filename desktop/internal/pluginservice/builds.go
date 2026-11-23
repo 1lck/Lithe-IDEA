@@ -5,10 +5,8 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"path/filepath"
 
 	"github.com/1lck/Lithe-IDEA/desktop/internal/pluginmanager"
-	"github.com/1lck/Lithe-IDEA/desktop/internal/pluginpkg"
 )
 
 // BuildPlugin is one enabled plugin's build declaration. Core still validates
@@ -134,18 +132,17 @@ func (r BuildRunDeclaration) Debuggable() bool {
 // BuildPlugins reads the newest enabled version of every plugin that declares
 // build systems. A broken manifest is reported without hiding the others.
 func (s *Service) BuildPlugins(ctx context.Context, entries []pluginmanager.Entry) ([]BuildPlugin, error) {
+	snapshot, readErr := s.ReadInstalled(ctx, entries)
+	contributions, err := snapshot.BuildPlugins()
+	return contributions, errors.Join(readErr, err)
+}
+
+// BuildPlugins reads its contribution sections from the same installed bytes.
+func (snapshot InstalledSnapshot) BuildPlugins() ([]BuildPlugin, error) {
 	var plugins []BuildPlugin
 	var failures []error
-	selected, selectionErr := s.selectInstalled(ctx, entries, false)
-	if selectionErr != nil {
-		failures = append(failures, selectionErr)
-	}
-	for _, entry := range selected {
-		manifest, err := readBounded(filepath.Join(entry.Installed.Path, pluginpkg.ManifestFile), MaxManifestBytes)
-		if err != nil {
-			failures = append(failures, fmt.Errorf("%s: %w", entry.Installed.ID, err))
-			continue
-		}
+	for _, installed := range snapshot.manifests {
+		entry, manifest := installed.entry, installed.manifest
 		systems, err := parseBuildSystems(manifest)
 		if err != nil {
 			failures = append(failures, fmt.Errorf("%s: %w", entry.Installed.ID, err))

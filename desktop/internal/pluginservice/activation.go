@@ -5,12 +5,10 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"path/filepath"
 	"time"
 
 	"github.com/1lck/Lithe-IDEA/desktop/internal/core"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/pluginmanager"
-	"github.com/1lck/Lithe-IDEA/desktop/internal/pluginpkg"
 )
 
 // EventWorkspaceOpen is the activation event that starts a backend when a
@@ -34,18 +32,15 @@ func (s *Service) SyncFunctionRelay(ctx context.Context, entries []pluginmanager
 	if s == nil || s.Contexts == nil {
 		return nil
 	}
-	selected, selectionErr := s.selectInstalled(ctx, entries, false)
+	snapshot, readErr := s.ReadInstalled(ctx, entries)
+	return errors.Join(readErr, s.syncFunctionRelay(ctx, snapshot))
+}
+
+func (s *Service) syncFunctionRelay(ctx context.Context, snapshot InstalledSnapshot) error {
 	var plugins []core.RelayPlugin
 	var failures []error
-	if selectionErr != nil {
-		failures = append(failures, selectionErr)
-	}
-	for _, entry := range selected {
-		manifest, err := readBounded(filepath.Join(entry.Installed.Path, pluginpkg.ManifestFile), MaxManifestBytes)
-		if err != nil {
-			failures = append(failures, fmt.Errorf("%s: %w", entry.Installed.ID, err))
-			continue
-		}
+	for _, installed := range snapshot.manifests {
+		entry, manifest := installed.entry, installed.manifest
 		var declaration relayDeclaration
 		if json.Unmarshal(manifest, &declaration) != nil || declaration.PluginFunctions == nil {
 			continue
@@ -78,17 +73,17 @@ func (s *Service) ActivateWorkspace(ctx context.Context, entries []pluginmanager
 	if _, err := s.checkedWorkspaceContext(ctx, workspace); err != nil {
 		return err
 	}
-	selected, selectionErr := s.selectInstalled(ctx, entries, false)
-	failures := []error{selectionErr}
+	snapshot, readErr := s.ReadInstalled(ctx, entries)
+	return errors.Join(readErr, s.activateWorkspace(ctx, snapshot, workspace))
+}
+
+func (s *Service) activateWorkspace(ctx context.Context, snapshot InstalledSnapshot, workspace ContextRef) error {
+	var failures []error
 	if _, err := s.checkedWorkspaceContext(ctx, workspace); err != nil {
 		return errors.Join(append(failures, err)...)
 	}
-	for _, entry := range selected {
-		manifest, err := readBounded(filepath.Join(entry.Installed.Path, pluginpkg.ManifestFile), MaxManifestBytes)
-		if err != nil {
-			failures = append(failures, fmt.Errorf("%s: %w", entry.Installed.ID, err))
-			continue
-		}
+	for _, installed := range snapshot.manifests {
+		entry, manifest := installed.entry, installed.manifest
 		if !declaresBackend(manifest) || !declaredActivation(manifest, EventWorkspaceOpen) {
 			continue
 		}

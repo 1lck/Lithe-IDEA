@@ -379,7 +379,9 @@ func (a *App) reloadPluginLanguages() {
 				a.backgroundFailed("plugin_languages", err)
 			}
 		}
-		languages, loadErr := a.plugins.LoadLanguages(ctx, entries)
+		snapshot, snapshotErr := a.plugins.ReadInstalled(ctx, entries)
+		languages, loadErr := a.plugins.LoadLanguagesFromSnapshot(ctx, snapshot)
+		loadErr = errors.Join(snapshotErr, loadErr)
 		failedCount := 0
 		if initial != nil {
 			// Publish the first language snapshot on the worker before allowing restored
@@ -388,10 +390,10 @@ func (a *App) reloadPluginLanguages() {
 			failedCount = len(failed)
 			close(initial.done)
 		}
-		windows, windowsErr := a.plugins.ToolWindows(ctx, entries)
-		commands, commandsErr := a.plugins.ToolCommands(ctx, entries)
-		vcsPlugins, vcsErr := a.plugins.VcsPlugins(ctx, entries)
-		hidden := a.configureVisibility(ctx, entries, vcsPlugins)
+		windows, windowsErr := snapshot.ToolWindows()
+		commands, commandsErr := snapshot.ToolCommands()
+		vcsPlugins, vcsErr := snapshot.VcsPlugins()
+		hidden := a.configureVisibility(ctx, snapshot, vcsPlugins)
 		return func(a *App) {
 			a.applyHiddenDirectories(hidden)
 			if p := a.project; p != nil && !p.everywhereSymbols.discovering {

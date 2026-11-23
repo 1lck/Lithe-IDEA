@@ -3,11 +3,6 @@ package pluginservice
 import (
 	"context"
 	"encoding/json"
-	"errors"
-	"fmt"
-	"path/filepath"
-
-	"github.com/1lck/Lithe-IDEA/desktop/internal/pluginpkg"
 )
 
 // GeneratorPlugin is one installed plugin as the New Project window reads it:
@@ -27,31 +22,33 @@ type GeneratorPlugin struct {
 // offer to enable it. A manifest that cannot be read is reported without hiding
 // the others.
 func (s *Service) GeneratorPlugins(ctx context.Context) ([]GeneratorPlugin, error) {
-	entries, err := s.CurrentInstalled(ctx)
-	failures := []error{}
-	if err != nil {
-		failures = append(failures, err)
-		if entries == nil {
-			return nil, errors.Join(failures...)
-		}
+	if s == nil || s.Manager == nil {
+		return nil, ErrAssembly
 	}
-	plugins := make([]GeneratorPlugin, 0, len(entries))
-	for _, entry := range entries {
-		if err := ctx.Err(); err != nil {
-			return nil, err
-		}
-		manifest, readErr := readBounded(filepath.Join(entry.Installed.Path, pluginpkg.ManifestFile), MaxManifestBytes)
-		if readErr != nil {
-			failures = append(failures, fmt.Errorf("%s: %w", entry.Installed.ID, readErr))
-			continue
-		}
+	entries, err := s.Manager.Installed()
+	if err != nil {
+		return nil, err
+	}
+	snapshot, err := s.readInstalled(ctx, entries, true)
+	if cancelled := ctx.Err(); cancelled != nil {
+		return nil, cancelled
+	}
+	return snapshot.GeneratorPlugins(), err
+}
+
+// GeneratorPlugins keeps the enabled flag, including disabled requirements when
+// the inventory snapshot was created with them.
+func (snapshot InstalledSnapshot) GeneratorPlugins() []GeneratorPlugin {
+	plugins := make([]GeneratorPlugin, 0, len(snapshot.manifests))
+	for _, installed := range snapshot.manifests {
+		entry := installed.entry
 		plugins = append(plugins, GeneratorPlugin{
 			PluginID: entry.Installed.ID,
 			Version:  entry.Installed.Version,
 			Path:     entry.Installed.Path,
 			Enabled:  entry.Enabled,
-			Manifest: manifest,
+			Manifest: installed.manifest,
 		})
 	}
-	return plugins, errors.Join(failures...)
+	return plugins
 }
