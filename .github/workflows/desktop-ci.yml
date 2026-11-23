@@ -172,6 +172,13 @@ jobs:
           mkdir -p .artifacts/test-stability
           node --test --test-reporter=junit --test-reporter-destination=.artifacts/test-stability/core-cache.junit.xml scripts/desktop/desktop-core-cache.test.mjs
 
+      - name: Install CJK fonts for visual evidence
+        timeout-minutes: 3
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends fonts-noto-cjk
+          fc-match 'sans-serif:lang=zh-cn'
+
       - name: Capture plugin workflow surfaces
         id: plugin-workflow-visual
         timeout-minutes: 5
