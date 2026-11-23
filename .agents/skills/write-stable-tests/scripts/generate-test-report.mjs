@@ -9,6 +9,7 @@ import {
 } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { isMainModule } from "./test-timing-lib.mjs";
 
 const SCRIPT_DIRECTORY = path.dirname(fileURLToPath(import.meta.url));
 const REPOSITORY_ROOT = path.resolve(SCRIPT_DIRECTORY, "../../../..");
@@ -362,4 +363,4 @@ function main() {
   }
 }
 
-if (path.resolve(process.argv[1] ?? "") === fileURLToPath(import.meta.url)) main();
+if (isMainModule(import.meta.url)) main();
