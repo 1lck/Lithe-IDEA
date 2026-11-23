@@ -222,9 +222,12 @@ func (a *App) newProjectSidebar(c ui.C, language i18n.Language, background, divi
 		k := c.Part("more-plugins")
 		link := ui.Row(k).FillWidth().Height(40).Shrink(0).Items(ui.Center).PadX(14).
 			HitWith(ui.ID(k), label, gfx.HitOptions{Role: gfx.RoleButton, Cursor: gfx.PointerCursorHand}).
+			Hover(ui.Look{}.Background(a.colors.Hover)).
+			Pressed(ui.Look{}.Background(a.colors.Active)).
+			Focus(ui.Look{}.Ring(2, a.theme.Ring)).
 			Tooltip(label)
 		link.Children(func() {
-			ui.Paragraph(c, label, 2).FontSize(12).Color(a.colors.Accent).Grow(1).Shrink(1)
+			ui.Paragraph(k, label, 2).FontSize(12).Color(a.colors.Accent).Grow(1).Shrink(1)
 		})
 		if link.Clicked() {
 			a.openPluginSettings(surfaceButton)
