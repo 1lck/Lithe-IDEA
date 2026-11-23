@@ -1,32 +1,52 @@
-// Package atomicfile installs immutable application resources using one atomic
-// replacement policy. The target and its temporary file are in the same folder.
+// Package atomicfile installs immutable resources and writes owned files with
+// one synced, same-directory atomic replacement policy.
 package atomicfile
 
 import (
 	"bytes"
+	"errors"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 )
 
-// Install leaves an existing regular file with matching bytes untouched. A
-// different or absent file is replaced with a synced temporary file with perm.
-// A concurrent installer winning a Windows rename race is also accepted, but
-// only when the resulting target holds the requested bytes.
+// Install reuses unchanged regular files, including executables currently in use.
 func Install(path string, data []byte, perm os.FileMode) error {
+	return InstallWithRename(path, data, perm, os.Rename)
+}
+
+// InstallWithRename permits the caller to inject a competing installation in
+// tests. A failed rename succeeds only if the destination has identical bytes.
+func InstallWithRename(path string, data []byte, perm os.FileMode, rename func(string, string) error) error {
 	if holds(path, data) {
 		return nil
 	}
-	err := Write(path, data, perm)
+	err := writeWithRename(path, perm, func(w io.Writer) error {
+		_, err := w.Write(data)
+		return err
+	}, rename)
 	if err != nil && holds(path, data) {
 		return nil
 	}
 	return err
 }
 
-// Write atomically replaces path. A failure cannot leave a partial target or a
-// leftover temporary file; all bytes and permissions are synced before rename.
+// Write atomically replaces a file with a complete byte buffer.
 func Write(path string, data []byte, perm os.FileMode) error {
+	return WriteWith(path, perm, func(w io.Writer) error {
+		_, err := w.Write(data)
+		return err
+	})
+}
+
+// WriteWith streams to a private sibling and syncs it before publishing. It
+// does not make a second complete copy of the buffer being written.
+func WriteWith(path string, perm os.FileMode, write func(io.Writer) error) error {
+	return writeWithRename(path, perm, write, os.Rename)
+}
+
+func writeWithRename(path string, perm os.FileMode, write func(io.Writer) error, rename func(string, string) error) (err error) {
 	dir := filepath.Dir(path)
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return fmt.Errorf("create directory: %w", err)
@@ -35,9 +55,13 @@ func Write(path string, data []byte, perm os.FileMode) error {
 	if err != nil {
 		return fmt.Errorf("create temporary file: %w", err)
 	}
-	temporary := f.Name()
-	defer os.Remove(temporary)
-	if _, err := f.Write(data); err != nil {
+	temp := f.Name()
+	defer func() {
+		if cleanup := os.Remove(temp); cleanup != nil && !errors.Is(cleanup, os.ErrNotExist) {
+			err = errors.Join(err, fmt.Errorf("remove temporary file: %w", cleanup))
+		}
+	}()
+	if err := write(f); err != nil {
 		_ = f.Close()
 		return fmt.Errorf("write temporary file: %w", err)
 	}
@@ -52,7 +76,7 @@ func Write(path string, data []byte, perm os.FileMode) error {
 	if err := f.Close(); err != nil {
 		return fmt.Errorf("close temporary file: %w", err)
 	}
-	if err := os.Rename(temporary, path); err != nil {
+	if err := rename(temp, path); err != nil {
 		return fmt.Errorf("replace file: %w", err)
 	}
 	return nil
