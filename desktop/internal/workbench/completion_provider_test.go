@@ -85,9 +85,8 @@ func (k *completionProviderKernel) reply(operation string) {
 func newCompletionProviderFixture(t *testing.T) (*semanticFixture, *completionProviderKernel) {
 	t.Helper()
 	root := t.TempDir()
-	f := newSemanticFixture(t)
 	kernel := &completionProviderKernel{
-		semanticTestKernel: f.kernel,
+		semanticTestKernel: &semanticTestKernel{testKernel: &testKernel{Client: core.NewClient()}},
 		ready:              make(chan struct{}),
 		requests:           make(chan string, 2),
 		replies:            make(chan core.BackendEvent, 2),
@@ -110,14 +109,16 @@ func newCompletionProviderFixture(t *testing.T) (*semanticFixture, *completionPr
 	}
 	// The fake kernel owns execution, but the package still passes native executable validation.
 	copyTestBinary(t, filepath.Join(directory, "fixture.exe"))
-	service, err := pluginservice.Open(kernel, f.h.store, root)
+	h := newHarness(t, kernel.semanticTestKernel)
+	service, err := pluginservice.Open(kernel, h.store, root)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := service.AttachWorkbench(pluginWorkbench{app: f.h.app}); err != nil {
+	if err := service.AttachWorkbench(pluginWorkbench{app: h.app}); err != nil {
 		t.Fatal(err)
 	}
-	f.h.app.plugins = service
+	h.app.plugins = service
+	f := openSemanticFixture(t, h, kernel.semanticTestKernel)
 	if err := service.Manager.SetEnabled(completionFixtureID, true); err != nil {
 		t.Fatal(err)
 	}

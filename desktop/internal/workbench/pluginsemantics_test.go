@@ -69,12 +69,14 @@ func newSemanticFixture(t *testing.T) *semanticFixture {
 
 func openSemanticFixture(t *testing.T, h *harness, kernel *semanticTestKernel) *semanticFixture {
 	t.Helper()
-	h.open(t.TempDir())
-	service, err := pluginservice.Open(kernel, h.store, t.TempDir())
-	if err != nil {
-		t.Fatal(err)
+	if h.app.plugins == nil {
+		service, err := pluginservice.Open(kernel, h.store, t.TempDir())
+		if err != nil {
+			t.Fatal(err)
+		}
+		h.app.plugins = service
 	}
-	h.app.plugins = service
+	h.open(t.TempDir())
 	p, d := openSyncDocument(t, h, h.app.project.root, "A.java")
 	d.languageID = "java"
 	uri := "file://" + filepath.ToSlash(d.path)
