@@ -142,7 +142,7 @@ func (a *App) titleBar(c ui.C) {
 			a.chromeProject(c)
 			a.chromeBranch(c)
 		}
-		ui.Spacer(c)
+		ui.Row(c).Grow(1)
 		zone := ui.Row(c).Items(ui.Center).Gap(chromeGap).Children(func() {
 			for _, i := range a.chrome.items[zoneTitle] {
 				if a.chromeTitleButton(c, i) {
@@ -302,7 +302,7 @@ func (a *App) stripe(c ui.C, left bool) {
 		if i := a.stripeZone(c, top, left, dragging); i >= 0 {
 			clicked = i
 		}
-		ui.Spacer(c)
+		ui.Column(c).Grow(1)
 		if i := a.stripeZone(c, split, left, dragging); i >= 0 {
 			clicked = i
 		}
