@@ -26,6 +26,7 @@ import (
 	"github.com/1lck/Lithe-IDEA/desktop/internal/pluginsettings"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/toolchain"
 	"github.com/vivaui/viva/app"
+	"github.com/vivaui/viva/gfx"
 )
 
 // PluginState is what the plugin page shows about one plugin.
@@ -398,6 +399,10 @@ type Options struct {
 	SettingsNavigation func(context.Context, []core.SettingsNavigationItem, string) ([]core.SettingsNavigationRow, error)
 	// Marketplace fetches the enabled source only while the plugin page is open.
 	Marketplace func(context.Context) (marketplace.Snapshot, error)
+	// MarketplaceIcon reads and compiles a validated entry's SVG off the UI
+	// thread. MarketplaceIconError records a failed read before initials are used.
+	MarketplaceIcon      func(context.Context, string) (gfx.Icon, error)
+	MarketplaceIconError func(error)
 	// MarketplaceURL and OfficialMarketplaceURL are the addresses Marketplace and
 	// MarketplaceOfficial read, which the repositories dialog shows.
 	MarketplaceURL         string
