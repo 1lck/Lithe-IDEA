@@ -11,8 +11,9 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
-	"sync"
 	"time"
+
+	"github.com/1lck/Lithe-IDEA/desktop/internal/filelock"
 )
 
 const (
@@ -20,10 +21,10 @@ const (
 	maxDeltaZIPBytes     = 64 << 20
 	archiveCacheBudget   = 256 << 20
 	archiveCacheEntries  = 128
+	archiveCacheLockFile = ".archive-cache.lock"
+	archiveCacheLockWait = time.Second
 	cacheStagingLifetime = 24 * time.Hour
 )
-
-var archiveCacheMu sync.Mutex
 
 // ArchiveCache holds disposable, content-addressed marketplace ZIPs in the user cache.
 // A cache hit still needs Core to verify the base against the approval before patching.
@@ -67,7 +68,7 @@ func (c ArchiveCache) base(digest string) (string, error) {
 	return path, nil
 }
 
-func (c ArchiveCache) remember(ctx context.Context, digest string, archive *DownloadedArchive) error {
+func (c ArchiveCache) remember(ctx context.Context, digest string, archive *DownloadedArchive) (err error) {
 	target, err := c.path(digest)
 	if err != nil {
 		return err
@@ -76,7 +77,7 @@ func (c ArchiveCache) remember(ctx context.Context, digest string, archive *Down
 	if err != nil {
 		return err
 	}
-	defer source.Close()
+	defer func() { err = errors.Join(err, source.Close()) }()
 	info, err := source.Stat()
 	if err != nil {
 		return err
@@ -84,8 +85,6 @@ func (c ArchiveCache) remember(ctx context.Context, digest string, archive *Down
 	if info.Size() > maxDeltaZIPBytes {
 		return nil
 	}
-	archiveCacheMu.Lock()
-	defer archiveCacheMu.Unlock()
 	if err := ctx.Err(); err != nil {
 		return err
 	}
@@ -96,6 +95,16 @@ func (c ArchiveCache) remember(ctx context.Context, digest string, archive *Down
 }
 
 func (c ArchiveCache) publish(ctx context.Context, source io.Reader, size int64, target string) (err error) {
+	// The cache is optional for the current install. Bound the wait, then
+	// use the caller's context for the copy once we own the lock.
+	acquireCtx, cancel := context.WithTimeout(ctx, archiveCacheLockWait)
+	unlock, err := filelock.Acquire(acquireCtx, filepath.Join(c.directory, archiveCacheLockFile))
+	cancel()
+	if err != nil {
+		return fmt.Errorf("lock plugin archive cache: %w", err)
+	}
+	defer func() { err = errors.Join(err, unlock()) }()
+
 	if err := c.prune(size, filepath.Base(target)); err != nil {
 		return err
 	}
@@ -156,7 +165,7 @@ func (c ArchiveCache) prune(incoming int64, target string) error {
 			continue
 		}
 		info, err := entry.Info()
-		// log-exempt: 预期的缺失：另一个进程可能已淘汰此归档。
+		// log-exempt: 预期的缺失：系统可能已清理此缓存文件。
 		if errors.Is(err, fs.ErrNotExist) {
 			continue
 		}
@@ -164,7 +173,7 @@ func (c ArchiveCache) prune(incoming int64, target string) error {
 			return err
 		}
 		if incomingTemp {
-			// log-exempt: 预期的缺失：另一进程可能刚完成或清理临时文件。
+			// log-exempt: 预期的缺失：系统可能已清理此临时文件。
 			if info.ModTime().Before(staleBefore) {
 				if err := os.Remove(filepath.Join(c.directory, name)); err != nil && !errors.Is(err, fs.ErrNotExist) {
 					return err
@@ -185,7 +194,7 @@ func (c ArchiveCache) prune(incoming int64, target string) error {
 		if incoming <= archiveCacheBudget && len(archives)-i < archiveCacheEntries {
 			break
 		}
-		// log-exempt: 预期的缺失：另一个进程可能已淘汰此归档。
+		// log-exempt: 预期的缺失：系统可能已清理此缓存文件。
 		if err := os.Remove(filepath.Join(c.directory, archive.name)); err != nil && !errors.Is(err, fs.ErrNotExist) {
 			return err
 		}

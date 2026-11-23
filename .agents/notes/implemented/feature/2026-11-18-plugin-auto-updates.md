@@ -25,6 +25,8 @@
 
 市场可在同一索引提交发布独立的补丁索引。旧客户端仍能读取主索引，新客户端先确定完整包，再看是否有与原审批中的旧包摘要匹配的补丁。用 Zstandard（zstd）将旧的原始 ZIP 作为参考，在平台临时目录重建目标 ZIP，并验证旧包、补丁和目标包的 SHA-256。缺少可用基线或重建失败时走完整包，取消会结束下载并清理临时数据。下载完成的 ZIP 可在用户缓存保留，以便后续生成精确基线。
 
+桌面进程共享 ZIP 缓存。写入方从检查容量、淘汰旧归档到发布新归档持有同一把原生锁，避免两个进程按同一份旧容量各自写入。获取锁最多等待一秒。锁不可用时记录失败，已下载的包仍可用于本次安装。
+
 同一进程内使用同一个插件数据根的工作台共享更新轮次。手动安装和后台暂存在提交阶段争用同一个插件安装入口。后台将包与审批一起准备完成后再提交到待激活目录。下次启动 Lithe 进程时在后台验包，读取启动项目和插件语言清单前复核原版本和审批，只有仍然符合的包才进入已安装目录。例如后台暂存 2.0.0 后再禁用 1.0.0，重启时丢弃待更新包。运行中的会话读取的仍是旧目录。
 
 不同进程共享插件数据根。激活、手动安装、后台暂存、禁用和卸载使用同一个原生文件锁。卸载先取消并等待进程内的安装任务，再加锁让 Core 读取安装快照。这样即使另一个窗口刚刚激活新版，卸载计划也会包含它。锁文件保留在可写的插件数据根，进程退出时由操作系统释放锁。
@@ -47,6 +49,7 @@
 
 - `./scripts/desktop/desktop-go.sh test ./internal/plugintrust ./internal/marketplace ./internal/workbench -run 'TestMayAutoUpdate|TestNewerOffered|TestAutoUpdateCandidates' -count=1`
 - `./scripts/desktop/desktop-go.sh test ./internal/marketplace -run TestMarketplaceDelta` 覆盖补丁命中、损坏、取消和已安装包只读。
+- `./scripts/desktop/desktop-go.sh test ./internal/marketplace -run 'TestArchiveCacheKeepsBudgetAcrossProcesses|TestMarketplaceDeltaTransport'` 覆盖两个进程同时写入时的归档条数和字节上限，以及缓存锁不可用时继续交付已校验的 ZIP。
 - `TestUninstallWaitsForPackagePublicationInAnotherProcess` 用两个进程验证卸载等待发布，并在重试后删除新旧两个版本。测试同时核验发行包内容未改变。
 - `node scripts/i18n/generate-i18n.mjs --check`、`./scripts/platform-feature-matrix/verify-platform-feature-matrix.sh`、`./scripts/agent-notes/verify-agent-notes.sh`。
 - 在合成插件市场的自动更新场景，观察安装文件、批准记录、运行中的旧进程和重启后新版本；拒绝案例不得提交任何安装。
@@ -60,4 +63,5 @@
 - `desktop/internal/plugininstall/plugininstall.go`
 - `desktop/internal/marketplace/service.go`
 - `desktop/internal/marketplace/delta.go`
+- `desktop/internal/marketplace/archive_cache.go`
 - `desktop/internal/plugininstall/pending.go`

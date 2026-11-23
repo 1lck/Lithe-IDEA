@@ -10,6 +10,7 @@ import (
 	"io"
 	"net/http"
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -41,7 +42,7 @@ func deltaFixture(t *testing.T) (base, target, patch []byte) {
 }
 
 func TestMarketplaceDeltaTransport(t *testing.T) {
-	for _, scenario := range []string{"exact", "no base", "corrupt base", "corrupt patch", "wrong output", "no companion", "cancel"} {
+	for _, scenario := range []string{"exact", "no base", "corrupt base", "corrupt patch", "wrong output", "no companion", "cancel", "cache unavailable"} {
 		t.Run(scenario, func(t *testing.T) {
 			verifyMarketplaceDelta(t, ArchiveCache{directory: t.TempDir()}, scenario)
 		})
@@ -99,6 +100,11 @@ func verifyMarketplaceDelta(t *testing.T, cache ArchiveCache, scenario string) {
 			base[0] ^= 1
 		}
 		if err := os.WriteFile(path, base, 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if scenario == "cache unavailable" {
+		if err := os.Mkdir(filepath.Join(cache.directory, archiveCacheLockFile), 0o700); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -168,12 +174,17 @@ func verifyMarketplaceDelta(t *testing.T, cache ArchiveCache, scenario string) {
 		if len(notices) != 0 || strings.Join(requests, " ") != companion+" "+zipURL {
 			t.Fatalf("no-companion update requested %v, reports %v", requests, notices)
 		}
+	case "cache unavailable":
+		if len(notices) != 1 || strings.Join(requests, " ") != companion+" "+patchURL {
+			t.Fatalf("unavailable cache update requested %v, reports %v", requests, notices)
+		}
 	default:
 		if len(notices) != 1 || strings.Join(requests, " ") != companion+" "+patchURL+" "+zipURL {
 			t.Fatalf("fallback requested %v, reports %v", requests, notices)
 		}
 	}
-	if cached, err := cache.base(delta.ToSHA256); cached == "" || err != nil {
+	wantCached := scenario != "cache unavailable"
+	if cached, err := cache.base(delta.ToSHA256); (cached != "") != wantCached || err != nil {
 		t.Fatalf("target cache = %q, %v", cached, err)
 	}
 	if err := archive.Discard(); err != nil {
