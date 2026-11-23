@@ -179,8 +179,8 @@ func (a *App) recentFilesPopup(c ui.C) {
 			}
 			if box.Children(func() {
 				ui.Column(row).FillWidth().Children(func() {
-					ui.Text(row, entry.Name).FontSize(13).Color(a.colors.Text)
-					ui.Text(row, entry.Path).FontSize(11).Color(a.colors.Subtle).Ellipsis()
+					ui.Text(c, entry.Name).FontSize(13).Color(a.colors.Text)
+					ui.Text(c, entry.Path).FontSize(11).Color(a.colors.Subtle).Ellipsis()
 				})
 			}).Clicked() {
 				c.After(func() { open(entry) })

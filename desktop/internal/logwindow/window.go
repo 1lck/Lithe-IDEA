@@ -371,7 +371,7 @@ func (w *window) title(c ui.C) {
 	if w.model.directory != "" {
 		title = abbreviateHome(filepath.Join(w.model.directory, w.model.currentSessionPath))
 	}
-	leading, trailing := app.TitlebarInsets()
+	leading, trailing := c.TitlebarInsets()
 	ui.Stack(c).FillWidth().Height(titleHeight).Shrink(0).Background(w.pal.bg3).MovesWindow().Children(func() {
 		// The system's window buttons sit at the leading end, so the title keeps clear of
 		// them on that side and is centered in what is left.

@@ -63,6 +63,31 @@ func TestOriginalIconsKeepTheirColorsAndDarkVariant(t *testing.T) {
 	}
 }
 
+func TestCompileSVGUsesTheSameDecoderWithoutAPackage(t *testing.T) {
+	icon, err := CompileSVG("marketplace.svg", []byte(brand))
+	if err != nil || icon.ViewBox != 16 || len(icon.Layers) != 2 || icon.Stroke != 0 {
+		t.Fatalf("compiled SVG = %+v, error = %v", icon, err)
+	}
+	if fill := icon.Layers[0].Fill; fill.Blue < 0.9 || fill.Red > 0.4 {
+		t.Fatalf("original color = %+v", fill)
+	}
+	for _, scenario := range []struct {
+		name, data string
+		want       error
+	}{
+		{"oversize", strings.Repeat("x", int(MaxFileBytes)+1), ErrRefused},
+		{"script", `<svg><script/></svg>`, ErrRefused},
+		{"png", "\x89PNG\r\n\x1a\n", ErrRefused},
+		{"unsupported", `<svg viewBox="0 0 16 16"><text>A</text></svg>`, ErrUnsupported},
+	} {
+		t.Run(scenario.name, func(t *testing.T) {
+			if _, err := CompileSVG("marketplace.svg", []byte(scenario.data)); !errors.Is(err, scenario.want) {
+				t.Fatalf("error = %v, want %v", err, scenario.want)
+			}
+		})
+	}
+}
+
 func TestAnIconWithoutDarkVariantIsUsedInBothThemes(t *testing.T) {
 	icon, err := readOne(t, map[string]string{"a.svg": brand}, Declaration{Path: "a.svg", Mode: ModeOriginal})
 	if err != nil {

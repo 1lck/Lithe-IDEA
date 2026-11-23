@@ -29,7 +29,7 @@ func (a *App) openStandaloneFile(path string) {
 func (a *App) standaloneWorkbench(c ui.C) {
 	a.syncWindowTitle()
 	a.layout.capture()
-	a.layout.insetW, a.layout.insetH = 0, titleBarHeight+statusBarHeight
+	a.layout.insetW, a.layout.insetH = 0, titleBarHeight+statusBarHeight+a.sessions.stripHeight()
 	// Use the existing bottom panel and splitter without restoring any project panels.
 	open := [slotCount]int{-1, -1, -1, -1, -1, -1}
 	terminalIndex := catalogIndex[itemTerminal]
@@ -39,7 +39,7 @@ func (a *App) standaloneWorkbench(c ui.C) {
 	plan := a.layout.arrange(c.Bounds(), open)
 	hidden := slotCount
 	language := a.language()
-	leading, trailing := app.TitlebarInsets()
+	leading, trailing := c.TitlebarInsets()
 	ui.Column(c).Fill().Children(func() {
 		ui.Row(c).FillWidth().Height(titleBarHeight).Shrink(0).Items(ui.Center).Gap(8).
 			PadSides(0, trailing+chromeEdge, 0, leading+chromeEdge).MovesWindow().Children(func() {
@@ -53,7 +53,7 @@ func (a *App) standaloneWorkbench(c ui.C) {
 			}
 			ui.Text(c, name).Bold().Ellipsis().Color(a.colors.Text)
 			ui.Text(c, i18n.Shared(language, "desktop.singleFile.mode")).FontSize(11).Color(a.colors.Subtle)
-			a.drawRunOptionHelp(c.Part("single-file-help"), i18n.Shared(language, "desktop.singleFile.help"))
+			a.drawRunOptionHelp(c, i18n.Shared(language, "desktop.singleFile.help"))
 			ui.Spacer(c)
 			if ui.Button(c, a.text.Tools.Terminal).Icon(icons.SquareTerminal).IconOnly().Ghost().Disabled(a.project == nil).Tooltip(a.text.Tools.Terminal).Clicked() {
 				c.After(func() {
@@ -76,6 +76,7 @@ func (a *App) standaloneWorkbench(c ui.C) {
 				c.After(func() { a.openSettingsPage(surfaceButton, settingsHome) })
 			}
 		})
+		a.projectTabs(c)
 		a.shellMain(c, plan, open, &hidden)
 		ui.Row(c).FillWidth().Height(statusBarHeight).Shrink(0).Items(ui.Center).Gap(8).PadX(8).Children(func() {
 			if d := a.selectedEditorDocument(); d != nil {

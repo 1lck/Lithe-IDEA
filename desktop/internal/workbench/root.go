@@ -152,6 +152,7 @@ func (a *App) page(c ui.C) {
 		a.windowShortcuts(c)
 		a.noteEditorFocus(c.Canvas().Focused())
 		a.overlays(c)
+		a.overlay.trappedFocus = !c.Canvas().TrappedFocusScope().IsZero()
 		ui.Toasts(c, &a.overlay.toaster)
 		a.notificationActed(c)
 	})

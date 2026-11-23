@@ -4,7 +4,7 @@
 
 ## 先说结论
 
-欢迎页的“远程开发”按钮（与新建项目、打开、克隆仓库并列，不收进菜单）和标题栏项目菜单里的“远程开发…”会打开一个窗口：左边是保存的 SSH 连接，右边是选中连接的表单、“测试连接”和测试到的主机信息。连接列表由 Rust Core 定义格式和规则（`remote.connections`、`remote.editConnections`），桌面端只负责读文件、把 Core 生成的整份文档原子写回。窗口里不保存任何秘密：密码、私钥口令和主机指纹确认都由 OpenSSH 在测试时经 AskPass（Lithe 自己充当 `SSH_ASKPASS` 程序，把问题转回主程序）提出，和 Git 认证共用同一个提问框，答完即丢。
+欢迎页的“远程开发”按钮（与新建项目、打开、克隆仓库并列，不收进菜单）和标题栏项目菜单里的“远程开发…”会打开一个窗口：左边是保存的 SSH 连接，右边是选中连接的表单、“测试连接”和测试到的主机信息。连接列表由 Rust Core 定义格式和规则（`remote.connections`、`remote.editConnections`），桌面端只负责读文件、把 Core 生成的整份文档原子写回。窗口里不保存任何秘密：密码、私钥口令和主机指纹确认都由 OpenSSH 在测试时经 AskPass（Lithe 自己充当 `SSH_ASKPASS` 程序，把问题转回主程序）提出，和 Git 认证共用同一个提问框。密码和私钥口令只有在用户勾选“记住”、而且这次真的登录成功后，才存进系统钥匙串或 Windows 凭据管理器；验证码和主机指纹确认从不记住。
 
 ## 问题
 
@@ -12,7 +12,8 @@ Issue #2231 要求远程开发先能“告诉 Lithe 连哪台机器、怎么登�
 
 - 字段规则（主机不能带 `user@`、端口范围、名称去重、最多 128 项）放在哪里，换 UI 壳子时不用重写；
 - 保存时如果文件已被另一个窗口或手工改过，不能把别人的修改覆盖掉；
-- 设计 S12 规定秘密只出现在 AskPass 的问题和答案里，S15 规定 Lithe 不读私钥内容。
+- 设计 S12 规定秘密只出现在 AskPass 的问题和答案里，用户勾选“记住”后才进系统钥匙串，验证码从不记住；S15 规定 Lithe 不读私钥内容。
+- 记住的密码一旦记错，每次连接都会自动发出去，可能让服务器锁定账号。
 
 ## 决策
 
@@ -22,15 +23,28 @@ Issue #2231 要求远程开发先能“告诉 Lithe 连哪台机器、怎么登�
 - `desktop/internal/remoteconn` 只做两件事：按 Core 给出的相对路径和大小上限，从平台偏好目录读取 `remote/connections.json`；把 Core 编辑后返回的整份文档，以“读取时的字节”为前提原子写回（`configfile`）。文件在读取之后被改过，写入就失败（`ErrConflict`），窗口提示重新读取，不会覆盖。
 - 每次点“保存”或确认“删除”都立即写一次，并且写完重新读取文件来显示，不维护一份和磁盘不同的工作副本。打开窗口只读不写，没有文件时不会创建。
 
-### 秘密不经过窗口
+### 秘密只经过 AskPass，不进连接列表
 
 - 表单只有“认证方式”和私钥路径，没有密码框。私钥只保存路径，Lithe 不打开、不读取私钥文件，也不接受粘贴的私钥。
 - “测试连接”调用 Core 的 `RemoteProbe`，Core 运行 PATH 里的 OpenSSH。OpenSSH 的每个问题（密码、口令、验证码、首次连接时的主机指纹确认）通过 AskPass 回到窗口，进入和 Git 认证相同的队列（`gitAuthState`），问题带 `Remote` 标记，只换标题、提示和回答用的 Core 方法（`RemoteAuthRespond`）。
 - 取消提问、点“停止”或关闭窗口都会取消测试；被取消的测试不再追问，也不显示结果。
 
+### 勾选“记住”后才把密码和口令存进钥匙串
+
+“记住”勾选框（`desktop/internal/workbench/remote_answers.go`，存取在 `desktop/internal/remoteconn/answers.go`）的规则：
+
+- **哪些连接能记住**：只有已保存的 SSH 连接。未保存的连接没有稳定的身份可以挂靠；WSL 和本机容器不走 SSH 密码。已保存主机上的容器（连接 id 为 `<已保存连接 id>/<容器身份>`）用这台主机记住的答案。
+- **哪些问题能记住**：密码和私钥口令。验证码每次都不同，主机指纹确认必须由人做，都不显示勾选框。
+- **按什么保存**：每个已保存连接在 `@host/remote-answers` 下一个条目（键是连接 id 的摘要），里面按“提问类型 + 主机、端口、用户、ProxyJump + 提问原文”的摘要区分，最多 8 条。同一个连接经跳板机时可能先后问两个不同的密码，所以不能只按提问类型保存。
+- **什么时候写入**：勾选后提交的答案先留在内存，等这次连接结束、Core 报告登录成功（`Connected`，或登录成功但远端没有对应服务端构建的 `UnsupportedPlatform`）才写入。登录失败不写，记错的密码不会被存下来。不勾选提交时，结束后删除已记住的答案，不论成败。
+- **什么时候自动填入**：只在 OpenSSH 这次第一次问这个问题（`Attempt` 为 1）时自动发出记住的答案。OpenSSH 再问同一个问题，说明主机拒绝了它：窗口改为显示提问框，标明“主机没有接受记住的回答”，勾选框保持勾选，结束时删除被拒的答案。自动发出后 Core 报告认证失败（且不是用户取消）也删除。这样记错的密码最多发一次。
+- **后台自动重连**：只发送记住的答案，其余问题直接取消，不在后台弹提问框。
+- **清除**：连接详情“更多”菜单里的“清除记住的密码”；删除连接时也一并清除。
+- **还没做到的**：Go 侧的答案仍以 `string` 经过 Viva 输入框、`core.Client` 和 `credentials.Store`，不能按 S14 用完清零；删除连接时，保留会话的令牌（`@host/remote-sessions`）没有清理。两者都需要单独设计，见 #2332。
+
 ### 日志只记动作
 
-窗口只记录 `remote.connections.open`、`remote.connection.new/select/save/remove/test/test.stop` 和 `remote.authentication.answer/retry/cancel` 等动作，以及 Core 的固定状态或错误码。主机、用户名、私钥路径、OpenSSH 输出、提问原文和答案都不进日志，`remote_test.go` 用 `loggedAny` 检查。
+窗口只记录 `remote.connections.open`、`remote.connection.new/select/save/remove/test/test.stop/forgetAnswers` 和 `remote.authentication.answer/retry/cancel` 等动作，以及 Core 的固定状态或错误码。主机、用户名、私钥路径、OpenSSH 输出、提问原文和答案都不进日志，`remote_test.go` 用 `loggedAny` 检查。
 
 ### 列表选中行跟着表单走
 
@@ -39,26 +53,29 @@ Viva 的 `ListState.Select` 只能选到列表上一帧已经声明过的行。�
 ## 考虑过的备选方案
 
 - **桌面端自己校验字段、自己定义 JSON 格式**：Go 里写一遍，将来换 UI 壳子还要再写一遍，和“通用逻辑进 Rust Core”的约定冲突。没有采用。
-- **沿用旧客户端的“记住到钥匙串”**：用户少输一次密码，但秘密会离开 AskPass 的问答，违反 S12；而且记错的密码会被重复发送。没有采用。
+- **沿用旧客户端的“记住到钥匙串”（提交就写入，每次提问都自动发送）**：记错的密码会被存下来并反复发送，可能让服务器锁定账号；未保存的连接也会在钥匙串里留下条目。没有采用。最初的做法是完全不记住、答完即丢，但用户每次连接都要重新输入密码；现在改为上面的规则：只在勾选且登录成功后写入，只在第一次提问时自动填入，被拒绝就删除。
+- **提交时立即写入，失败再删**：进程在两步之间退出时，记错的密码就留下了。改为登录成功后才写入。
 - **把整张列表当工作副本编辑，关窗口时统一保存**：可以批量修改，但关窗口时要么丢修改，要么要再问一次；和“保存后重新读取显示真实来源”的设置规则也不一致。没有采用。
 - **为远程连接单独做一个认证弹窗**：两个弹窗可能同时出现、互相遮挡。共用 Git 的队列后，同一时间只显示一个问题，按提出顺序逐个回答。
 
 ## 后果
 
-- 收益：字段规则只有 Core 一份；Windows 和 macOS 用同一份 Go 代码；秘密只在 OpenSSH 和 AskPass 之间流动；并发修改不会互相覆盖。
-- 代价：每次保存都是一次完整的读、改、写和重新读取；Core 没有返回字段的错误只能显示在窗口底部。
+- 收益：字段规则只有 Core 一份；Windows 和 macOS 用同一份 Go 代码；秘密只在 OpenSSH、AskPass 和（用户勾选后的）系统钥匙串之间流动；并发修改不会互相覆盖。
+- 代价：每次保存都是一次完整的读、改、写和重新读取；Core 没有返回字段的错误只能显示在窗口底部；记住的答案在内存里仍是 `string`（#2332）。
 - Windows 上 OpenSSH 能否通过 GUI 子系统的 `lithe` 助手读到答案仍待实机验证；打开远程项目、文件夹选择和远端服务部署在后续阶段实现。
 
 ## 验证
 
 - `desktop/internal/remoteconn/remoteconn_test.go`：读取不创建文件、冲突时不写入、损坏文件报 `ErrDamaged`。
-- `desktop/internal/workbench/remote_test.go`：保存、改名、删除前确认；字段被拒绝时显示在字段下且不写文件；新保存的连接是列表选中行；测试时在窗口中回答密码并显示主机信息；停止和关窗口都会取消测试且不再追问；日志不含主机和用户名。
+- `desktop/internal/workbench/remote_test.go`：保存、改名、删除前确认；字段被拒绝时显示在字段下且不写文件；新保存的连接是列表选中行；测试时在窗口中回答密码并显示主机信息，未保存的连接不显示“记住”；停止和关窗口都会取消测试且不再追问；日志不含主机和用户名。
+- `desktop/internal/remoteconn/answers_test.go`：只有密码和口令能记住；答案按登录身份和提问原文区分；替换、清除和不变时不写入；超过 8 条或超出系统凭据存储的大小上限时只留最新的；解不开的条目当作没有记住。
+- `desktop/internal/workbench/remote_answers_test.go`：用一个按脚本回答的假 `ssh` 走完“勾选但密码错不写入 → 登录成功才写入 → 第一次自动填入 → 被拒后改问并替换 → 取消勾选后删除”；“更多”菜单清除和删除连接时清除；后台重连只发记住的答案、第二次提问和验证码都被取消；按登录结果决定写入或删除的九种组合。
 - `desktop/internal/workbench/remote_connections_visual_test.go` 生成 `docs/assets/remote-connections/` 下的截图。
 
 ```bash
-scripts/desktop/desktop-go.sh test ./internal/remoteconn ./internal/workbench -run 'Remote|GitAuth' -count=1
+scripts/desktop/desktop-go.sh test ./internal/remoteconn ./internal/workbench -run 'Remote|GitAuth|Answer|Rememberable' -count=1
 ```
 
 ## 适用范围
 
-`desktop/internal/remoteconn/`、`desktop/internal/workbench/remote.go`、`desktop/internal/workbench/remote_view.go`，以及 `desktop/internal/workbench/git_auth.go` 中带 `Remote` 标记的提问。后续“打开远程工作区”“记住最近文件夹”都要通过同一个 `remoteconn` 和 Core 的 `remote.editConnections`，不要另存一份连接信息。
+`desktop/internal/remoteconn/`、`desktop/internal/workbench/remote.go`、`desktop/internal/workbench/remote_view.go`、`desktop/internal/workbench/remote_answers.go`，以及 `desktop/internal/workbench/git_auth.go` 中带 `Remote` 标记的提问。后续“打开远程工作区”“记住最近文件夹”都要通过同一个 `remoteconn` 和 Core 的 `remote.editConnections`，不要另存一份连接信息。

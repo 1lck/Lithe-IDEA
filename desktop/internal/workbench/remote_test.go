@@ -485,8 +485,8 @@ exec /bin/sh -c "$last"
 
 // Testing a connection asks OpenSSH's password question in the SSH authentication dialog over
 // the window, and shows what the host reported once it is answered; cancelling the question
-// shows the server's refusal with OpenSSH's output. Neither the password, the host nor the user
-// is logged.
+// shows the server's refusal with OpenSSH's output. A connection that is not saved offers to
+// remember nothing. Neither the password, the host nor the user is logged.
 func TestRemoteTestAsksInTheWindowAndReportsTheHost(t *testing.T) {
 	standInSSH(t)
 	h, logger := remoteHarness(t)
@@ -504,6 +504,9 @@ func TestRemoteTestAsksInTheWindowAndReportsTheHost(t *testing.T) {
 	}
 	if h.shows(i18n.Shared(lang, "desktop.gitAuth.title")) {
 		t.Fatal("the remote question is titled as Git's")
+	}
+	if h.shows(i18n.Shared(lang, "desktop.remoteAuth.rememberPassword")) {
+		t.Fatal("a connection that is not saved offers to remember its password")
 	}
 	if got := h.focusedName(); got != i18n.Shared(lang, "desktop.gitAuth.answer") {
 		t.Fatalf("focused %q, want the answer field", got)

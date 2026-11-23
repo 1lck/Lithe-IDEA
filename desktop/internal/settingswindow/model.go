@@ -345,6 +345,8 @@ func pageKeywords(language i18n.Language, id pageID) string {
 	switch id {
 	case pageGeneral:
 		return i18n.Shared(language, "desktop.cli.title")
+	case pageEditor:
+		return i18n.Shared(language, "desktop.editorPrefs.autoCompletion")
 	case pageBuild:
 		return i18n.Shared(language, "desktop.buildSettings.keywordsBuild")
 	case pageToolchains:

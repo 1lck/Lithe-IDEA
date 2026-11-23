@@ -882,12 +882,32 @@ func TestProjectTreeCanRetryAfterRootDisappears(t *testing.T) {
 	h := newHarness(t, &testKernel{Client: core.NewClient()})
 	h.open(root)
 	p := h.app.project
-	awaitDocumentState(t, h, func() bool { return p.tree.find("first.txt") != nil })
+	h.await("the initial tree listing", func() bool {
+		return p.tree.find("first.txt") != nil && !p.tree.reading
+	})
+	// Drive the invalidation through the watcher boundary. This case checks
+	// relisting and Retry while the root really is missing, independent of native
+	// delivery timing (the external change tests exercise that separately).
+	h.app.closeTree(p)
+	watch := &lostSearchWatch{}
+	slot := &documentWatch{}
+	slot.finish(watch, nil)
+	if treeUsesRecursiveWatch() {
+		p.tree.recursiveWatch = true
+		replaceSearchWatchForTest(p, slot)
+	} else {
+		p.tree.watches = map[string]*documentWatch{"": slot}
+	}
 	if err := os.RemoveAll(root); err != nil {
 		t.Fatal(err)
 	}
-	awaitDocumentState(t, h, func() bool { return p.tree.failed != "" })
-	if len(p.tree.watches) != 0 {
+	if treeUsesRecursiveWatch() {
+		h.app.drainProjectSearchWatch(p, slot)
+	} else {
+		h.app.drainTreeWatch(p, "", slot)
+	}
+	h.await("the unavailable project root", func() bool { return p.tree.failed != "" })
+	if !watch.closed || p.tree.recursiveWatch || len(p.tree.watches) != 0 {
 		t.Fatal("an unavailable project root retained directory watches")
 	}
 	if err := os.Mkdir(root, 0o700); err != nil {
@@ -897,7 +917,9 @@ func TestProjectTreeCanRetryAfterRootDisappears(t *testing.T) {
 		t.Fatal(err)
 	}
 	h.clickShared("ui.retry")
-	awaitDocumentState(t, h, func() bool { return p.tree.failed == "" && p.tree.find("restored.txt") != nil })
+	h.await("the restored project root", func() bool {
+		return p.tree.failed == "" && p.tree.find("restored.txt") != nil
+	})
 }
 
 func TestProjectTreeWatchLimitReportsDegradedUpdates(t *testing.T) {

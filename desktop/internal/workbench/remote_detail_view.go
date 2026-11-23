@@ -40,7 +40,7 @@ func (a *App) remotePage(c ui.C, language i18n.Language) {
 		a.remoteOverview(c, language, *entry)
 	case r.loading && !r.loaded:
 		ui.Column(c).Fill().Center().Children(func() {
-			ui.Spinner(c.Part("loading"))
+			ui.Spinner(c)
 		})
 	default:
 		a.remoteEmptyPage(c, language)
@@ -224,6 +224,9 @@ func (a *App) remoteMoreMenu(c ui.C, language i18n.Language, entry core.SavedRem
 		if menu.Item(i18n.Shared(language, "desktop.remote.copyAsNew")).Icon(icons.Copy).Disabled(!r.editable()).Clicked() {
 			c.After(a.copyRemoteAsNew)
 		}
+		if menu.Item(i18n.Shared(language, "desktop.remote.forgetAnswers")).Icon(icons.Eraser).Clicked() {
+			c.After(func() { a.forgetRemoteAnswers(entry) })
+		}
 		menu.Separator()
 		remove := menu.Item(i18n.SharedFormat(language, "desktop.remote.deleteNamed", map[string]string{"name": entry.Name})).
 			Icon(icons.Trash2).Destructive().Disabled(!r.editable())
@@ -264,9 +267,9 @@ func (a *App) remoteRecentSection(c ui.C, language i18n.Language, entry core.Sav
 					HitWith(ui.ID(k), folder, gfx.HitOptions{Role: gfx.RoleButton, Cursor: gfx.PointerCursorHand, Disabled: disabled}).
 					Hover(ui.Look{}.Background(a.colors.Hover)).Pressed(ui.Look{}.Background(a.colors.Active))
 				row.Children(func() {
-					ui.Icon(k, icons.Folder).Size(14, 14).Shrink(0).Color(a.colors.Subtle)
-					ui.Text(k, folder).Mono().FontSize(small).Ellipsis().Grow(1).MinWidth(0)
-					ui.Icon(k, icons.ChevronRight).Size(12, 12).Shrink(0).Color(a.colors.Subtle)
+					ui.Icon(c, icons.Folder).Size(14, 14).Shrink(0).Color(a.colors.Subtle)
+					ui.Text(c, folder).Mono().FontSize(small).Ellipsis().Grow(1).MinWidth(0)
+					ui.Icon(c, icons.ChevronRight).Size(12, 12).Shrink(0).Color(a.colors.Subtle)
 				})
 				if !disabled && row.Clicked() {
 					folder := folder
@@ -284,7 +287,7 @@ func (a *App) remoteHostSection(c ui.C, language i18n.Language, outcome *remoteP
 	small := a.theme.Metrics.FontSizeS
 	a.remoteSection(c, i18n.Shared(language, "desktop.remote.hostSection"), "", func() {
 		if r.probe != nil {
-			ui.Spinner(c.Part("testing")).Size(12, 12)
+			ui.Spinner(c).Size(12, 12)
 			ui.Text(c, i18n.Shared(language, "desktop.remote.testing")).FontSize(small).Color(a.colors.Subtle)
 			if ui.Button(c.Part("stop"), i18n.Shared(language, "desktop.remote.stop")).Link().Clicked() {
 				c.After(a.stopRemoteTest)
@@ -352,10 +355,10 @@ func (a *App) remoteHostGrid(c ui.C, language i18n.Language, host core.RemotePro
 				value = "—"
 			}
 			ui.Column(k).Grow(1).Basis(0).MinWidth(0).Gap(3).PadSides(10, 12, 10, 12).Children(func() {
-				ui.Text(k, item.label).FontSize(small).Color(a.colors.Subtle).Ellipsis().MinWidth(0)
-				ui.Text(k, value).Weight(gfx.WeightMedium).Ellipsis().MinWidth(0)
+				ui.Text(c, item.label).FontSize(small).Color(a.colors.Subtle).Ellipsis().MinWidth(0)
+				ui.Text(c, value).Weight(gfx.WeightMedium).Ellipsis().MinWidth(0)
 				if item.detail != "" {
-					ui.Text(k, item.detail).FontSize(small).Color(a.colors.Subtle).Ellipsis().MinWidth(0)
+					ui.Text(c, item.detail).FontSize(small).Color(a.colors.Subtle).Ellipsis().MinWidth(0)
 				}
 			})
 		}
@@ -380,7 +383,7 @@ func (a *App) remoteOutcomeBox(c ui.C, language i18n.Language, outcome *remotePr
 		k := c.Part("box")
 		ui.Column(k).FillWidth().Gap(6).PadSides(10, 14, 10, 12).Radius(6).Background(tint.WithAlpha(0.08)).Stroke(1, tint.WithAlpha(0.35)).Children(func() {
 			ui.Row(k).FillWidth().Gap(8).Items(ui.Start).Children(func() {
-				ui.Icon(k, icon).Size(14, 14).Shrink(0).Color(tint).MarginTop(2)
+				ui.Icon(c, icon).Size(14, 14).Shrink(0).Color(tint).MarginTop(2)
 				if connected {
 					var system, machine string
 					if host := outcome.result.Host; host != nil {
@@ -393,7 +396,7 @@ func (a *App) remoteOutcomeBox(c ui.C, language i18n.Language, outcome *remotePr
 						ui.Text(line, i18n.Shared(language, "desktop.remote.probe.usable")).Color(tint).Ellipsis().MinWidth(0)
 					})
 				} else {
-					ui.Paragraph(k, remoteFailureText(language, outcome), 4).Weight(gfx.WeightMedium).Color(tint).Grow(1).MinWidth(0)
+					ui.Paragraph(c, remoteFailureText(language, outcome), 4).Weight(gfx.WeightMedium).Color(tint).Grow(1).MinWidth(0)
 				}
 				if diagnostics != "" {
 					label := i18n.Shared(language, "desktop.remote.diagnostics")
@@ -408,14 +411,14 @@ func (a *App) remoteOutcomeBox(c ui.C, language i18n.Language, outcome *remotePr
 			if connected && outcome.result.Host != nil {
 				a.remoteHostTags(k.Part("tags"), language, *outcome.result.Host)
 			} else if hint := remoteFailureHint(language, outcome); hint != "" {
-				ui.Paragraph(k.Part("hint"), hint, 4).FontSize(small).Color(tint).MarginLeft(22)
+				ui.Paragraph(c, hint, 4).FontSize(small).Color(tint).MarginLeft(22)
 			}
 		})
 		if diagnostics != "" && r.log.Open {
 			l := c.Part("log")
 			ui.Scroll(l).FillWidth().MaxHeight(180).Children(func() {
 				ui.Column(l).FillWidth().PadSides(10, 12, 10, 12).Radius(6).Background(a.colors.Hover).Stroke(1, a.colors.Line).Children(func() {
-					ui.Paragraph(l.Part("text"), diagnostics, 40).Mono().FontSize(small).Color(a.colors.Subtle)
+					ui.Paragraph(c, diagnostics, 40).Mono().FontSize(small).Color(a.colors.Subtle)
 				})
 			})
 		}
@@ -536,8 +539,8 @@ func (a *App) remoteEffectiveTable(c ui.C, language i18n.Language, settings core
 				ui.Row(k.Part("line")).FillWidth().Height(1).Shrink(0).Background(a.colors.Line)
 			}
 			ui.Row(k).FillWidth().Height(30).Items(ui.Center).Gap(10).PadX(12).Children(func() {
-				ui.Text(k, item.key).FontSize(small).Color(a.colors.Subtle).Width(140).Shrink(0).Ellipsis()
-				value := ui.Text(k, item.value).FontSize(small).Ellipsis().Grow(1).MinWidth(0)
+				ui.Text(c, item.key).FontSize(small).Color(a.colors.Subtle).Width(140).Shrink(0).Ellipsis()
+				value := ui.Text(c, item.value).FontSize(small).Ellipsis().Grow(1).MinWidth(0)
 				if !item.words {
 					value.Mono()
 				}
@@ -571,7 +574,7 @@ func (a *App) remoteFormPage(c ui.C, language i18n.Language) {
 			switch {
 			case r.probe != nil:
 				ui.Row(c.Part("testing")).FillWidth().Items(ui.Center).Gap(8).Pad(12).Radius(6).Stroke(1, a.colors.Line).Children(func() {
-					ui.Spinner(c.Part("spinner")).Size(14, 14)
+					ui.Spinner(c).Size(14, 14)
 					ui.Text(c, i18n.Shared(language, "desktop.remote.testing")).Color(a.colors.Subtle)
 				})
 			case r.result != nil:

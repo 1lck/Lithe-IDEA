@@ -134,7 +134,7 @@ func (a *App) drawWorkspacePushRepository(c ui.C, p *project, repo core.Workspac
 			// Git's own reason is shown as it words it.
 			text, color = i18n.SharedFormat(lang, "desktop.git.pushAll.failed", map[string]string{"reason": outcome.err}), a.theme.Danger
 		}
-		ui.Paragraph(c.Part("outcome"), text, 3).FontSize(size).Color(color).PadLeft(indent)
+		ui.Paragraph(c, text, 3).FontSize(size).Color(color).PadLeft(indent)
 	}
 	if s.folded[repo.ID] {
 		return
@@ -143,7 +143,7 @@ func (a *App) drawWorkspacePushRepository(c ui.C, p *project, repo core.Workspac
 		a.drawWorkspacePushCommit(c.Key(commit.Hash), p, repo.ID, commit, indent+float32(treelist.Indent))
 	}
 	if repo.Preview != nil && repo.Preview.HasMore {
-		ui.Text(c.Part("more"), i18n.Shared(lang, "git.pushDialog.moreCommits")).FontSize(size).Muted().PadLeft(indent + float32(treelist.Indent))
+		ui.Text(c, i18n.Shared(lang, "git.pushDialog.moreCommits")).FontSize(size).Muted().PadLeft(indent + float32(treelist.Indent))
 	}
 }
 
@@ -163,7 +163,7 @@ func (a *App) drawWorkspacePushFold(c ui.C, s *workspacePushState, id, name stri
 	slot := ui.Row(k).Size(treelist.Disclosure, treelist.Icon).Shrink(0).Center().
 		HitWith(ui.ID(k), label+" "+name, gfx.HitOptions{Role: gfx.RoleButton, Cursor: gfx.PointerCursorHand, Expandable: true, Expanded: open, SkipFocus: true})
 	slot.Children(func() {
-		ui.Icon(k, chevron).Size(12, 12).Color(a.colors.Subtle)
+		ui.Icon(c, chevron).Size(12, 12).Color(a.colors.Subtle)
 	})
 	if slot.Clicked() {
 		c.After(func() { s.folded[id] = open })
