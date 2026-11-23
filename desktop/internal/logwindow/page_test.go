@@ -204,6 +204,28 @@ func TestTableSelectionFollowsAJumpAndTheModel(t *testing.T) {
 	}
 }
 
+// A jump to a distant log row must paint that row in the same driver frame
+// as the ScrollIntoView request; an extra mouse movement must not be required.
+func TestTableJumpToDistantRowPaintsOnTheFirstFrame(t *testing.T) {
+	fixture, w, driver := bigFixture(t, 200)
+	m := fixture.model
+	target := 147
+	m.jump(m.records[target].EpochMs)
+	w.inv.Invalidate()
+	if err := driver.Pump(); err != nil {
+		t.Fatal(err)
+	}
+	if !w.table.chosen.Has(m.keyBase + target) {
+		t.Fatalf("jump did not select record %d", target)
+	}
+	for _, hit := range tableRowHits(driver) {
+		if hit.Selected && hit.Bounds.Height > 0 {
+			return
+		}
+	}
+	t.Fatal("selected distant log row was not painted on the scroll request frame")
+}
+
 func TestTableRightClickChoosesTheRowAndOpensItsMenu(t *testing.T) {
 	fixture, w, driver := bigFixture(t, 200)
 	row := tableRowHits(driver)[3]
