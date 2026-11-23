@@ -130,10 +130,7 @@ func (a *App) diffToolbar(c ui.C, p *project, t *diffTab) {
 		if clicked {
 			t.settingsOpen = !t.settingsOpen
 		}
-		if !t.settingsOpen {
-			return
-		}
-		ui.Menu(c.Part("diff-settings-menu"), gear, &t.settingsOpen, func(menu *ui.MenuItems) {
+		ui.Menu(c, gear, &t.settingsOpen, func(menu *ui.MenuItems) {
 			menu.WidthRange(180, 260)
 			if menu.Item(i18n.Shared(lang, "desktop.diff.keepWhitespace")).Checked(!t.ignoreSpace).Disabled(t.saved != nil).Clicked() {
 				c.After(func() { a.setDiffWhitespace(p, t, false) })

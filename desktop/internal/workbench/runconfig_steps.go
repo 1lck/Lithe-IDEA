@@ -358,7 +358,7 @@ func (a *App) drawRunConfigStepsMenu(c ui.C, p *project, steps *runConfigSteps, 
 		return
 	}
 	language := a.language()
-	ui.Menu(c.Part("add-menu"), anchor, &steps.menu, func(menu *ui.MenuItems) {
+	ui.Menu(c, anchor, &steps.menu, func(menu *ui.MenuItems) {
 		menu.WidthRange(220, 320)
 		title := i18n.Shared(language, "desktop.runConfig.beforeLaunchMenuTitle")
 		menu.Content(runConfigMenuTitleHeight, func(canvas *gfx.Canvas, bounds gfx.Rect, _ gfx.Theme) {
@@ -394,7 +394,7 @@ func (a *App) drawRunConfigStepsChooser(c ui.C, p *project, steps *runConfigStep
 			left = append(left, candidate)
 		}
 	}
-	ui.Menu(c.Part("choose-menu"), anchor, &steps.choose, func(menu *ui.MenuItems) {
+	ui.Menu(c, anchor, &steps.choose, func(menu *ui.MenuItems) {
 		menu.WidthRange(220, 360)
 		title := i18n.Shared(language, "desktop.runConfig.beforeLaunchChooseTitle")
 		menu.Content(runConfigMenuTitleHeight, func(canvas *gfx.Canvas, bounds gfx.Rect, _ gfx.Theme) {

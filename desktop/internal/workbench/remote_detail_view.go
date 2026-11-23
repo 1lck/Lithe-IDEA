@@ -418,7 +418,7 @@ func (a *App) remoteOutcomeBox(c ui.C, language i18n.Language, outcome *remotePr
 			l := c.Part("log")
 			ui.Scroll(l).FillWidth().MaxHeight(180).Children(func() {
 				ui.Column(l).FillWidth().PadSides(10, 12, 10, 12).Radius(6).Background(a.colors.Hover).Stroke(1, a.colors.Line).Children(func() {
-					ui.Paragraph(l, diagnostics, 40).Mono().FontSize(small).Color(a.colors.Subtle)
+					ui.Paragraph(c, diagnostics, 40).Mono().FontSize(small).Color(a.colors.Subtle)
 				})
 			})
 		}

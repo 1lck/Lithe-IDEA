@@ -72,10 +72,10 @@ func (w *window) remoteTrustList(c ui.C, language i18n.Language, r *remoteTrustS
 			name = i18n.Shared(language, "desktop.trustedLocations.remoteUnnamed")
 		}
 		ui.Row(g.Part("head")).FillWidth().MinWidth(0).Height(28).Gap(8).Items(ui.Center).Children(func() {
-			ui.Icon(g, icons.Server).Size(14, 14).Color(p.muted).Shrink(0)
-			ui.Text(g, name).FontSize(12).Weight(gfx.WeightSemibold).Color(p.text).Shrink(1).MinWidth(0).Ellipsis()
+			ui.Icon(c, icons.Server).Size(14, 14).Color(p.muted).Shrink(0)
+			ui.Text(c, name).FontSize(12).Weight(gfx.WeightSemibold).Color(p.text).Shrink(1).MinWidth(0).Ellipsis()
 			if place != "" {
-				ui.Text(g, place).FontSize(12).Mono().Color(p.muted).Grow(1).Shrink(1).MinWidth(0).Ellipsis()
+				ui.Text(c, place).FontSize(12).Mono().Color(p.muted).Grow(1).Shrink(1).MinWidth(0).Ellipsis()
 			}
 		})
 		for _, entry := range group.entries {

@@ -196,10 +196,8 @@ func (a *App) documentView(c ui.C, group string, d *document) {
 			items(menu)
 		})
 		a.referenceMenuPainted(d, shown)
-		if d.actionPanel.menuOpen {
-			at := d.actionPanel.menuAt
-			ui.ContextMenuAt(c.Key("lanemenu"+name), box, &d.actionPanel.menuOpen, gfx.Point{X: at.X, Y: at.Y + at.Height}, a.editorActionLaneMenu(c, p, d))
-		}
+		at := d.actionPanel.menuAt
+		ui.ContextMenuAt(c, box, &d.actionPanel.menuOpen, gfx.Point{X: at.X, Y: at.Y + at.Height}, a.editorActionLaneMenu(c, p, d))
 		a.gitGutterPeek(c, p, d, box)
 	}
 }

@@ -335,7 +335,7 @@ func (a *App) drawRunConfigEditorPane(c ui.C, p *project, e *runConfigEditor) {
 					FillWidth().Disabled(!ready)
 			}
 			for index := range e.optionFields {
-				a.drawRunOptionField(c, index, language, &e.optionFields[index], ready)
+				a.drawRunOptionField(c.Part("option-"+strconv.Itoa(index)), language, &e.optionFields[index], ready)
 			}
 		}
 		labels := map[string]string{"local": i18n.Shared(language, "desktop.runConfig.scopeLocal"), "project": i18n.Shared(language, "desktop.runConfig.scopeProject")}
@@ -365,17 +365,16 @@ func indexRange(n int) []int {
 
 // drawRunOptionField declares one declared option: a checkbox, a picker, a text field or a list of
 // checkboxes by its kind. A kind the editor cannot edit shows its stored JSON read-only.
-func (a *App) drawRunOptionField(c ui.C, index int, language i18n.Language, field *runOptionField, ready bool) {
-	name := "option-" + strconv.Itoa(index)
+func (a *App) drawRunOptionField(c ui.C, language i18n.Language, field *runOptionField, ready bool) {
 	switch field.kind {
 	case "boolean":
-		ui.Row(c.Part(name)).FillWidth().Items(ui.Center).Gap(4).Children(func() {
+		ui.Row(c).FillWidth().Items(ui.Center).Gap(4).Children(func() {
 			ui.Checkbox(c, &field.flag, field.title).Disabled(!ready)
 			a.drawRunOptionHelp(c, field.description)
 		})
 	case "singleSelect":
 		values, labels := runOptionChoiceIDs(*field)
-		ui.Row(c.Part(name)).FillWidth().Items(ui.End).Gap(4).Children(func() {
+		ui.Row(c).FillWidth().Items(ui.End).Gap(4).Children(func() {
 			ui.Select(c, &field.text, values, func(value string) string {
 				if value == "" {
 					return i18n.Shared(language, "desktop.runConfig.optionDefault")
@@ -386,7 +385,7 @@ func (a *App) drawRunOptionField(c ui.C, index int, language i18n.Language, fiel
 		})
 	case "text", "file", "directory":
 		// A text field's label only names it to accessibility, so the option's name is a text above it.
-		ui.Column(c.Part(name)).FillWidth().Gap(6).Children(func() {
+		ui.Column(c).FillWidth().Gap(6).Children(func() {
 			a.drawRunOptionTitle(c, field.title, field.description)
 			ui.Row(c).FillWidth().Items(ui.Center).Gap(8).Children(func() {
 				if field.implicit != "" {
@@ -413,7 +412,7 @@ func (a *App) drawRunOptionField(c ui.C, index int, language i18n.Language, fiel
 	case "multiSelect":
 		// The choices are keyed inside the field's own column: c names only the next element, so
 		// keyed as siblings of the other fields the first choice took the first field's key.
-		ui.Column(c.Part(name)).FillWidth().Gap(6).Children(func() {
+		ui.Column(c).FillWidth().Gap(6).Children(func() {
 			a.drawRunOptionTitle(c, field.title, field.description)
 			for index := range field.choices {
 				title := field.choices[index].title
@@ -428,7 +427,9 @@ func (a *App) drawRunOptionField(c ui.C, index int, language i18n.Language, fiel
 		if field.raw != nil {
 			text = field.title + ": " + string(field.raw)
 		}
-		ui.Wrap(c, text).FontSize(a.theme.Metrics.FontSizeS).Color(a.colors.Subtle)
+		ui.Column(c).FillWidth().Children(func() {
+			ui.Wrap(c, text).FontSize(a.theme.Metrics.FontSizeS).Color(a.colors.Subtle)
+		})
 	}
 }
 

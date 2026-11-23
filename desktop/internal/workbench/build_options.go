@@ -421,7 +421,7 @@ func (a *App) buildOptionsDialog(c ui.C, p *project) {
 	}
 	closed := ui.ModalWith(c, &open, title, ui.ModalSpec{Width: 460}, func() {
 		ui.Column(c.Part("build-options")).FillWidth().Gap(10).Children(func() {
-			a.buildIgnoredPathsSection(c, p, ready)
+			a.buildIgnoredPathsSection(c.Part("detection"), p, ready)
 			if e.instance != "" {
 				k := c.Part("instance")
 				ui.Row(k).FillWidth().Items(ui.Center).Gap(6).MarginTop(6).Children(func() {
@@ -434,7 +434,7 @@ func (a *App) buildOptionsDialog(c ui.C, p *project) {
 					ui.Wrap(c, i18n.Shared(language, "desktop.build.noOptions")).FontSize(a.theme.Metrics.FontSizeS).Color(a.colors.Subtle)
 				}
 				for index := range e.fields {
-					a.drawRunOptionField(c, index, language, &e.fields[index], ready)
+					a.drawRunOptionField(k.KeyInt(index), language, &e.fields[index], ready)
 				}
 				a.buildRuntimeSection(c, language, e)
 				a.buildDroppedOptionsSection(c, language, p, ready)
@@ -477,33 +477,35 @@ func (a *App) buildOptionsHeading(c ui.C, title string) {
 func (a *App) buildIgnoredPathsSection(c ui.C, p *project, ready bool) {
 	g, language := &p.build.options.ignored, a.language()
 	label := i18n.Shared(language, "desktop.build.ignoredPaths")
-	a.buildOptionsHeading(c, i18n.Shared(language, "desktop.build.detection"))
-	ui.Row(c.Part("detection")).FillWidth().Items(ui.Center).Gap(4).Children(func() {
-		ui.Text(c, label).FontSize(a.theme.Metrics.FontSizeS).Color(a.colors.Text).Shrink(0)
-		ui.Button(c.Part("help"), i18n.Shared(language, "native.moreInformation")).Icon(icons.Info).IconOnly().Ghost().Size(18, 18).
-			Tooltip(i18n.Shared(language, "desktop.build.ignoredPathsHelp")).TooltipOn(ui.TooltipRight)
-		ui.Spacer(c)
-		if g.source == core.BuildIgnoredPathsLocal && !g.inherit {
-			if ui.Button(c.Part("restore"), i18n.Shared(language, "native.restoreDefault")).Ghost().Small().Disabled(!ready || g.restoring).Clicked() {
-				c.After(func() {
-					a.performed("build.ignoredPaths.restoreDefault", surfaceButton)
-					a.readBuildIgnoredPaths(p, true)
-				})
+	ui.Column(c).FillWidth().Gap(10).Children(func() {
+		a.buildOptionsHeading(c, i18n.Shared(language, "desktop.build.detection"))
+		ui.Row(c).FillWidth().Items(ui.Center).Gap(4).Children(func() {
+			ui.Text(c, label).FontSize(a.theme.Metrics.FontSizeS).Color(a.colors.Text).Shrink(0)
+			ui.Button(c.Part("help"), i18n.Shared(language, "native.moreInformation")).Icon(icons.Info).IconOnly().Ghost().Size(18, 18).
+				Tooltip(i18n.Shared(language, "desktop.build.ignoredPathsHelp")).TooltipOn(ui.TooltipRight)
+			ui.Spacer(c)
+			if g.source == core.BuildIgnoredPathsLocal && !g.inherit {
+				if ui.Button(c.Part("restore"), i18n.Shared(language, "native.restoreDefault")).Ghost().Small().Disabled(!ready || g.restoring).Clicked() {
+					c.After(func() {
+						a.performed("build.ignoredPaths.restoreDefault", surfaceButton)
+						a.readBuildIgnoredPaths(p, true)
+					})
+				}
 			}
+		})
+		ui.TextArea(c.Part("patterns"), &g.text, label, "").FillWidth().Height(72).Disabled(!ready || !g.loaded || g.restoring)
+		if !g.loaded {
+			return
 		}
+		var source string
+		switch g.source {
+		case core.BuildIgnoredPathsLocal:
+			source = i18n.Shared(language, "desktop.build.ignoredPathsLocal")
+		case core.BuildIgnoredPathsTeam:
+			source = i18n.SharedFormat(language, "desktop.build.ignoredPathsTeam", map[string]string{"file": buildTeamOptionsFile})
+		default:
+			source = i18n.Shared(language, "desktop.build.ignoredPathsDefault")
+		}
+		ui.Wrap(c, source).FontSize(a.theme.Metrics.FontSizeS).Color(a.colors.Subtle)
 	})
-	ui.TextArea(c.Part("patterns"), &g.text, label, "").FillWidth().Height(72).Disabled(!ready || !g.loaded || g.restoring)
-	if !g.loaded {
-		return
-	}
-	var source string
-	switch g.source {
-	case core.BuildIgnoredPathsLocal:
-		source = i18n.Shared(language, "desktop.build.ignoredPathsLocal")
-	case core.BuildIgnoredPathsTeam:
-		source = i18n.SharedFormat(language, "desktop.build.ignoredPathsTeam", map[string]string{"file": buildTeamOptionsFile})
-	default:
-		source = i18n.Shared(language, "desktop.build.ignoredPathsDefault")
-	}
-	ui.Wrap(c, source).FontSize(a.theme.Metrics.FontSizeS).Color(a.colors.Subtle)
 }

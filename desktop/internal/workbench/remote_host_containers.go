@@ -159,63 +159,65 @@ func (a *App) enterRemoteHostContainer() {
 // enter as, the list, and the engines' words when listing failed.
 func (a *App) remoteHostContainersView(c ui.C, language i18n.Language, list *remoteBrowserContainers) {
 	small := a.theme.Metrics.FontSizeS
-	ui.Paragraph(c, i18n.Shared(language, "desktop.remote.hostContainers.about"), 4).FontSize(small).Color(a.colors.Subtle)
-	label := i18n.Shared(language, "desktop.remote.container.user")
-	ui.Row(c.Part("account")).FillWidth().Gap(8).Items(ui.Center).Children(func() {
-		ui.Text(c, label).FontSize(small).Shrink(0)
-		ui.TextField(c.Part("user"), &list.user, label, i18n.Shared(language, "desktop.remote.container.userPlaceholder")).Width(260)
-	})
-	if list.err != "" {
-		a.remoteNotice(c.Part("error"), icons.CircleAlert, a.theme.Danger, list.err)
-	}
-	ui.Column(c.Part("rows")).FillWidth().Grow(1).Shrink(1).MinHeight(0).
-		Border(1, a.colors.Line).Radius(a.theme.Metrics.RadiusItem()).Clip().Children(func() {
-		if list.loading || len(list.list) == 0 {
-			text := i18n.Shared(language, "desktop.remote.hostContainers.empty")
-			switch {
-			case list.loading:
-				text = i18n.Shared(language, "native.loading")
-			case list.engines == 0 && list.err == "":
-				text = i18n.Shared(language, "desktop.remote.hostContainers.noEngine")
-			}
-			ui.Column(c.Part("empty")).FillWidth().Pad(12).Gap(8).Children(func() {
-				ui.Paragraph(c, text, 3).FontSize(small).Color(a.colors.Subtle)
-				for _, words := range list.diagnostics {
-					ui.Paragraph(c, words, 6).Mono().FontSize(small).Color(a.colors.Subtle)
+	ui.Column(c).FillWidth().Grow(1).Shrink(1).MinHeight(0).Gap(12).Children(func() {
+		ui.Paragraph(c, i18n.Shared(language, "desktop.remote.hostContainers.about"), 4).FontSize(small).Color(a.colors.Subtle)
+		label := i18n.Shared(language, "desktop.remote.container.user")
+		ui.Row(c.Part("account")).FillWidth().Gap(8).Items(ui.Center).Children(func() {
+			ui.Text(c, label).FontSize(small).Shrink(0)
+			ui.TextField(c.Part("user"), &list.user, label, i18n.Shared(language, "desktop.remote.container.userPlaceholder")).Width(260)
+		})
+		if list.err != "" {
+			a.remoteNotice(c.Part("error"), icons.CircleAlert, a.theme.Danger, list.err)
+		}
+		ui.Column(c.Part("rows")).FillWidth().Grow(1).Shrink(1).MinHeight(0).
+			Border(1, a.colors.Line).Radius(a.theme.Metrics.RadiusItem()).Clip().Children(func() {
+			if list.loading || len(list.list) == 0 {
+				text := i18n.Shared(language, "desktop.remote.hostContainers.empty")
+				switch {
+				case list.loading:
+					text = i18n.Shared(language, "native.loading")
+				case list.engines == 0 && list.err == "":
+					text = i18n.Shared(language, "desktop.remote.hostContainers.noEngine")
 				}
-			})
-			return
-		}
-		list.rows.Label = func(row int) string {
-			if row >= 0 && row < len(list.list) {
-				return list.list[row].Name
-			}
-			return ""
-		}
-		ui.List(c.Part("list"), &list.rows, len(list.list), func(row ui.ListRow) {
-			rc := row.C
-			container := list.list[row.Index]
-			row.Element.Height(remoteRowHeight).PadX(12).Gap(10).Items(ui.Center)
-			if row.Selected() {
-				row.Element.Background(a.colors.Selection)
-			} else {
-				row.Element.Hover(ui.Look{}.Background(a.colors.Hover))
-			}
-			row.Element.Children(func() {
-				a.remoteTile(rc.Part("tile"), "", container.Name, "", 26, 10)
-				ui.Column(rc).Grow(1).Basis(0).MinWidth(0).Gap(2).Children(func() {
-					ui.Text(rc, container.Name).Weight(gfx.WeightMedium).Ellipsis().MinWidth(0)
-					line := i18n.SharedFormat(language, "desktop.remote.container.row", map[string]string{
-						"engine": remoteContainerEngineName(language, container.engine), "image": container.Image,
-					})
-					ui.Text(rc, line).FontSize(small).Color(a.colors.Subtle).Ellipsis().MinWidth(0)
+				ui.Column(c.Part("empty")).FillWidth().Pad(12).Gap(8).Children(func() {
+					ui.Paragraph(c, text, 3).FontSize(small).Color(a.colors.Subtle)
+					for _, words := range list.diagnostics {
+						ui.Paragraph(c, words, 6).Mono().FontSize(small).Color(a.colors.Subtle)
+					}
 				})
-				ui.Text(rc, container.Status).FontSize(small).Color(a.colors.Subtle).Ellipsis().Shrink(1).MinWidth(0)
-			})
-		}).Scrollbars().FillWidth().Grow(1).Shrink(1).MinHeight(0).Label(i18n.Shared(language, "desktop.remote.container.heading"))
-		if _, ok := list.rows.Submitted(); ok {
-			c.After(a.enterRemoteHostContainer)
-		}
+				return
+			}
+			list.rows.Label = func(row int) string {
+				if row >= 0 && row < len(list.list) {
+					return list.list[row].Name
+				}
+				return ""
+			}
+			ui.List(c.Part("list"), &list.rows, len(list.list), func(row ui.ListRow) {
+				rc := row.C
+				container := list.list[row.Index]
+				row.Element.Height(remoteRowHeight).PadX(12).Gap(10).Items(ui.Center)
+				if row.Selected() {
+					row.Element.Background(a.colors.Selection)
+				} else {
+					row.Element.Hover(ui.Look{}.Background(a.colors.Hover))
+				}
+				row.Element.Children(func() {
+					a.remoteTile(rc.Part("tile"), "", container.Name, "", 26, 10)
+					ui.Column(rc).Grow(1).Basis(0).MinWidth(0).Gap(2).Children(func() {
+						ui.Text(rc, container.Name).Weight(gfx.WeightMedium).Ellipsis().MinWidth(0)
+						line := i18n.SharedFormat(language, "desktop.remote.container.row", map[string]string{
+							"engine": remoteContainerEngineName(language, container.engine), "image": container.Image,
+						})
+						ui.Text(rc, line).FontSize(small).Color(a.colors.Subtle).Ellipsis().MinWidth(0)
+					})
+					ui.Text(rc, container.Status).FontSize(small).Color(a.colors.Subtle).Ellipsis().Shrink(1).MinWidth(0)
+				})
+			}).Scrollbars().FillWidth().Grow(1).Shrink(1).MinHeight(0).Label(i18n.Shared(language, "desktop.remote.container.heading"))
+			if _, ok := list.rows.Submitted(); ok {
+				c.After(a.enterRemoteHostContainer)
+			}
+		})
 	})
 }
 

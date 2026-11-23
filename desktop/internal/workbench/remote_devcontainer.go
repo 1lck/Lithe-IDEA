@@ -372,8 +372,8 @@ func (a *App) remoteDevcontainerView(c ui.C, language i18n.Language, d *remoteDe
 				ui.Icon(h, icons.FileCode).Size(20, 20).Color(a.colors.Subtle)
 			})
 			ui.Column(h).Grow(1).Basis(0).MinWidth(0).Gap(4).Children(func() {
-				ui.Text(h, i18n.Shared(language, "desktop.remote.devcontainer.title")).FontSize(16).Weight(gfx.WeightSemibold).Ellipsis().MinWidth(0)
-				ui.Paragraph(h, i18n.Shared(language, "desktop.remote.devcontainer.about"), 3).FontSize(small).Color(a.colors.Subtle)
+				ui.Text(c, i18n.Shared(language, "desktop.remote.devcontainer.title")).FontSize(16).Weight(gfx.WeightSemibold).Ellipsis().MinWidth(0)
+				ui.Paragraph(c, i18n.Shared(language, "desktop.remote.devcontainer.about"), 3).FontSize(small).Color(a.colors.Subtle)
 			})
 		})
 		label := i18n.Shared(language, "desktop.remote.devcontainer.folder")
@@ -442,7 +442,7 @@ func (a *App) remoteDevcontainerView(c ui.C, language i18n.Language, d *remoteDe
 					l := c.Part("diagnostics")
 					ui.Scroll(l).FillWidth().MaxHeight(120).Children(func() {
 						ui.Column(l).FillWidth().Pad(10).Radius(6).Background(a.colors.Hover).Stroke(1, a.colors.Line).Children(func() {
-							ui.Paragraph(l, d.diagnostics, 40).Mono().FontSize(small).Color(a.colors.Subtle)
+							ui.Paragraph(c, d.diagnostics, 40).Mono().FontSize(small).Color(a.colors.Subtle)
 						})
 					})
 				}

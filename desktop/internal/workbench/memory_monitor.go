@@ -444,11 +444,11 @@ func (a *App) memoryDetails(c ui.C, anchor ui.Box) {
 			default:
 				parts := m.parts()
 				columns := m.columns()
-				a.memoryStats(c.Part("stats"), language)
+				a.memoryStats(c, language)
 				a.memoryBar(c.Part("bar"), parts)
 				a.memoryLegend(c.Part("legend"), language, parts, columns)
 				ui.Divider(c)
-				a.memoryEntries(c, language, columns)
+				a.memoryEntries(c.Part("entries"), language, columns)
 			}
 		})
 	})
@@ -554,7 +554,7 @@ func (a *App) memoryLegend(c ui.C, language i18n.Language, parts []core.MemoryCa
 	ui.Column(c).FillWidth().Children(func() {
 		a.memoryHeadings(c.Part("headings"), language, columns)
 		for i, part := range parts {
-			a.memoryRow(c.KeyInt(i), language, memoryLine{
+			a.memoryRow(c, c.KeyInt(i), language, memoryLine{
 				kind: part.Kind, name: memoryKindLabel(language, part.Kind), processes: part.ProcessCount, bytes: part.Bytes, usage: part.MemoryUsage,
 			}, columns)
 		}
@@ -565,23 +565,25 @@ func (a *App) memoryLegend(c ui.C, language i18n.Language, parts []core.MemoryCa
 // with what Core counts under it, and the sum of the ones past the list.
 func (a *App) memoryEntries(c ui.C, language i18n.Language, columns memoryColumns) {
 	summary := &a.memory.summary
-	ui.Text(c, i18n.Shared(language, "desktop.memory.processes")).FontSize(a.theme.Metrics.FontSizeS).Weight(gfx.WeightSemibold).Color(a.colors.Subtle)
-	if len(summary.Entries) == 0 {
-		ui.Text(c, i18n.Shared(language, "desktop.memory.noOtherProcesses")).FontSize(a.theme.Metrics.FontSizeS).Color(a.colors.Subtle)
-		return
-	}
-	ui.Scroll(c.Part("list")).Scrollbars().FillWidth().MaxHeight(memoryListHeight).Children(func() {
-		for i, entry := range summary.Entries {
-			a.memoryRow(c.KeyInt(i), language, memoryLine{
-				kind: entry.Kind, name: entry.Name, processes: entry.ProcessCount, bytes: entry.Bytes, usage: entry.MemoryUsage,
-			}, columns)
+	ui.Column(c).FillWidth().Gap(memorySectionGap).Children(func() {
+		ui.Text(c, i18n.Shared(language, "desktop.memory.processes")).FontSize(a.theme.Metrics.FontSizeS).Weight(gfx.WeightSemibold).Color(a.colors.Subtle)
+		if len(summary.Entries) == 0 {
+			ui.Text(c, i18n.Shared(language, "desktop.memory.noOtherProcesses")).FontSize(a.theme.Metrics.FontSizeS).Color(a.colors.Subtle)
+			return
+		}
+		ui.Scroll(c.Part("list")).Scrollbars().FillWidth().MaxHeight(memoryListHeight).Children(func() {
+			for i, entry := range summary.Entries {
+				a.memoryRow(c, c.KeyInt(i), language, memoryLine{
+					kind: entry.Kind, name: entry.Name, processes: entry.ProcessCount, bytes: entry.Bytes, usage: entry.MemoryUsage,
+				}, columns)
+			}
+		})
+		if summary.Omitted.Count > 0 {
+			ui.Text(c, i18n.SharedFormat(language, "desktop.memory.omitted", map[string]string{
+				"count": strconv.Itoa(summary.Omitted.Count), "value": memorySize(language, summary.Omitted.Bytes),
+			})).FontSize(a.theme.Metrics.FontSizeS).Color(a.colors.Subtle)
 		}
 	})
-	if summary.Omitted.Count > 0 {
-		ui.Text(c, i18n.SharedFormat(language, "desktop.memory.omitted", map[string]string{
-			"count": strconv.Itoa(summary.Omitted.Count), "value": memorySize(language, summary.Omitted.Bytes),
-		})).FontSize(a.theme.Metrics.FontSizeS).Color(a.colors.Subtle)
-	}
 }
 
 // memoryLine is what a row of the legend or the list shows.
@@ -594,17 +596,17 @@ type memoryLine struct {
 
 // memoryRow declares a row of the legend or the list: the part's dot, the name, how many
 // processes it sums when more than one, then the figures of the columns, right-aligned.
-func (a *App) memoryRow(k ui.C, language i18n.Language, line memoryLine, columns memoryColumns) {
+func (a *App) memoryRow(c, k ui.C, language i18n.Language, line memoryLine, columns memoryColumns) {
 	small := a.theme.Metrics.FontSizeS
 	figure := func(text string, width float32) {
-		ui.Text(k, text).FontSize(small).Width(width).Shrink(0).TextEnd()
+		ui.Text(c, text).FontSize(small).Width(width).Shrink(0).TextEnd()
 	}
 	ui.Row(k).FillWidth().Height(memoryRowHeight).Shrink(0).Items(ui.Center).Gap(memoryColumnGap).Children(func() {
 		ui.Row(k).Grow(1).MinWidth(0).Items(ui.Center).Gap(8).Children(func() {
 			ui.Row(k).Size(memoryDotSize, memoryDotSize).Shrink(0).Radius(memoryDotSize / 2).Background(a.memoryColor(line.kind))
-			ui.Text(k, line.name).FontSize(small).Shrink(1).MinWidth(0).Ellipsis()
+			ui.Text(c, line.name).FontSize(small).Shrink(1).MinWidth(0).Ellipsis()
 			if line.processes > 1 {
-				ui.Text(k, i18n.SharedFormat(language, "desktop.memory.processCount", map[string]string{"count": strconv.Itoa(line.processes)})).
+				ui.Text(c, i18n.SharedFormat(language, "desktop.memory.processCount", map[string]string{"count": strconv.Itoa(line.processes)})).
 					FontSize(small).Color(a.colors.Subtle).Shrink(0)
 			}
 		})

@@ -88,7 +88,7 @@ func (a *App) drawRunConfigDialogTree(c ui.C, p *project) {
 			if clicked {
 				c.After(func() { d.toggleNewMenu(runConfigNewMenuToolbar) })
 			}
-			a.drawRunConfigNewMenu(c, p, add, runConfigNewMenuToolbar)
+			a.drawRunConfigNewMenu(k, p, add, runConfigNewMenuToolbar)
 			if a.gitIconButton(k.Part("remove"), i18n.Shared(language, "desktop.runConfig.removeConfiguration"), icons.Minus, false, !p.runConfigDialogRemovable()) {
 				c.After(func() {
 					a.performed("run.configuration.remove", surfaceButton)
@@ -148,7 +148,7 @@ func (a *App) drawRunConfigNewMenu(c ui.C, p *project, anchor ui.Box, at runConf
 		return
 	}
 	open := true
-	ui.Menu(c.Part("add-menu"), anchor, &open, func(menu *ui.MenuItems) {
+	ui.Menu(c, anchor, &open, func(menu *ui.MenuItems) {
 		menu.WidthRange(200, 300)
 		a.runConfigDialogTypeItems(c, menu, p)
 	})
@@ -390,8 +390,9 @@ func (a *App) drawRunConfigDialogRow(c ui.C, p *project, i int) {
 		ui.Text(c, a.runConfigDialogRowLabel(p, row)).FontSize(treeFontSize).Color(a.colors.Text).Shrink(1).MinWidth(0).Ellipsis()
 		return
 	}
+	k := c.KeyInt(i)
 	unavailable := a.runConfigDraftUnavailable(p, row.key)
-	ui.Row(c.KeyInt(i)).Shrink(1).MinWidth(0).Items(ui.Center).Gap(c.Theme().Metrics.GapItem).PadLeft(treeChevron).Children(func() {
+	ui.Row(k).Shrink(1).MinWidth(0).Items(ui.Center).Gap(c.Theme().Metrics.GapItem).PadLeft(treeChevron).Children(func() {
 		icon, color := a.runConfigDraftIcon(p, row.key), a.colors.Subtle
 		if unavailable != "" {
 			icon, color = icons.CircleAlert, a.colors.Warning

@@ -89,9 +89,6 @@ func (a *App) problemsToolbar(c ui.C, lang i18n.Language) {
 		if clicked {
 			v.optionsOpen = !v.optionsOpen
 		}
-		if v.optionsOpen {
-			c.Part("problemsOptionsMenu")
-		}
 		ui.Menu(c, eye, &v.optionsOpen, func(menu *ui.MenuItems) {
 			menu.WidthRange(180, 260)
 			menu.Label(i18n.Shared(lang, "desktop.problems.showHeading"))

@@ -27,7 +27,7 @@ func (a *App) remotePortRules(c ui.C, p *project, rules []core.RemoteForward, id
 	language := a.language()
 	k := c.Part("rules")
 	ui.Row(k.Part("heading")).FillWidth().Height(remotePortsRowHeight).Shrink(0).Items(ui.Center).Gap(4).PadX(shellContentPad).Children(func() {
-		ui.Text(k, i18n.Shared(language, "desktop.remote.ports.rulesHeading")).Color(a.colors.Text).Ellipsis()
+		ui.Text(c, i18n.Shared(language, "desktop.remote.ports.rulesHeading")).Color(a.colors.Text).Ellipsis()
 		ui.Button(k.Part("help"), i18n.Shared(language, "native.moreInformation")).Icon(icons.Info).IconOnly().Ghost().Size(16, 16).
 			Tooltip(i18n.Shared(language, "desktop.remote.ports.rulesHelp"))
 	})
@@ -40,7 +40,7 @@ func (a *App) remotePortRules(c ui.C, p *project, rules []core.RemoteForward, id
 				cell = cell.Grow(1).Shrink(1).MinWidth(0)
 			}
 			cell.Children(func() {
-				ui.Text(k, text).FontSize(a.theme.Metrics.FontSizeS).Color(a.colors.Subtle).Ellipsis()
+				ui.Text(c, text).FontSize(a.theme.Metrics.FontSizeS).Color(a.colors.Subtle).Ellipsis()
 			})
 		}
 		column("listen", i18n.Shared(language, "desktop.remote.ports.ruleColumnListen"), remotePortRulesListenWidth)

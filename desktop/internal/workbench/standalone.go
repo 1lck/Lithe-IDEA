@@ -53,7 +53,7 @@ func (a *App) standaloneWorkbench(c ui.C) {
 			}
 			ui.Text(c, name).Bold().Ellipsis().Color(a.colors.Text)
 			ui.Text(c, i18n.Shared(language, "desktop.singleFile.mode")).FontSize(11).Color(a.colors.Subtle)
-			a.drawRunOptionHelp(c.Part("single-file-help"), i18n.Shared(language, "desktop.singleFile.help"))
+			a.drawRunOptionHelp(c, i18n.Shared(language, "desktop.singleFile.help"))
 			ui.Spacer(c)
 			if ui.Button(c, a.text.Tools.Terminal).Icon(icons.SquareTerminal).IconOnly().Ghost().Disabled(a.project == nil).Tooltip(a.text.Tools.Terminal).Clicked() {
 				c.After(func() {
