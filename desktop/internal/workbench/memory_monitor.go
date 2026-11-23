@@ -433,7 +433,7 @@ func (a *App) memoryDetails(c ui.C, anchor ui.Box) {
 	c.Canvas().RequestFrameIn(memoryDetailInterval)
 	language := a.language()
 	spec := ui.PopoverSpec{Side: components.PopoverTop, Align: ui.End, Offset: chromeMenuOffset, Width: memoryPanelWidth, ConsumeOutsidePress: true}
-	ui.PopoverWith(c.Key("memoryDetails"), anchor, spec, &m.open, func() {
+	ui.PopoverWith(c.Key("memoryDetails"), anchor, &m.open, spec, func() {
 		ui.Column(c).FillWidth().Gap(memorySectionGap).Children(func() {
 			a.memoryHeader(c, language)
 			switch {

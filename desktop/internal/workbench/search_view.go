@@ -95,7 +95,7 @@ func (a *App) searchOptions(c ui.C, language i18n.Language) {
 	if button.Clicked() {
 		v.optionsOpen = !v.optionsOpen
 	}
-	ui.PopoverWith(c, button, ui.PopoverSpec{Align: ui.End, Width: 300}, &v.optionsOpen, func() {
+	ui.PopoverWith(c, button, &v.optionsOpen, ui.PopoverSpec{Align: ui.End, Width: 300}, func() {
 		option := func(label, action string, value *bool) {
 			before := *value
 			ui.Checkbox(c, value, label)
