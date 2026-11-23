@@ -89,11 +89,11 @@ func (w *window) buildIssues(c ui.C, language i18n.Language) {
 			}
 			row.Children(func() {
 				dot(k, 8, b.statusColor(issue.Status))
-				ui.Text(k, name).FontSize(buildSmall).Weight(gfx.WeightSemibold).Color(colors.text).Shrink(0)
-				ui.Text(k, w.toolchainReasonText(language, scope, entry, toolchainReason(entry.tool))).
+				ui.Text(c, name).FontSize(buildSmall).Weight(gfx.WeightSemibold).Color(colors.text).Shrink(0)
+				ui.Text(c, w.toolchainReasonText(language, scope, entry, toolchainReason(entry.tool))).
 					FontSize(buildSmall).Color(colors.text).Shrink(1).MinWidth(0).Ellipsis()
 				ui.Row(k.Part("spacer")).Grow(1)
-				ui.Text(k, "›").FontSize(buildSmall).Color(colors.text).Shrink(0)
+				ui.Text(c, "›").FontSize(buildSmall).Color(colors.text).Shrink(0)
 			})
 		}
 		if view.Counts.Problems > len(view.Issues) {
@@ -165,14 +165,14 @@ func (w *window) directory(c ui.C, entries []directoryEntry) {
 			row.Children(func() {
 				w.glyphTile(k, entry.tile, entry.icon, 28)
 				ui.Column(k).Grow(1).Shrink(1).MinWidth(0).Children(func() {
-					ui.Text(k, entry.title).FontSize(buildFont).Weight(gfx.WeightSemibold).Color(b.text).Ellipsis()
+					ui.Text(c, entry.title).FontSize(buildFont).Weight(gfx.WeightSemibold).Color(b.text).Ellipsis()
 					ui.Row(k).Height(2).Shrink(0)
-					ui.Text(k, entry.desc).FontSize(buildSmall).Color(b.sub).Ellipsis()
+					ui.Text(c, entry.desc).FontSize(buildSmall).Color(b.sub).Ellipsis()
 				})
 				if entry.problems > 0 {
 					w.badge(k, entry.problems, false)
 				}
-				ui.Text(k, "›").FontSize(buildFont).Color(b.faint).Shrink(0)
+				ui.Text(c, "›").FontSize(buildFont).Color(b.faint).Shrink(0)
 			})
 		}
 	})

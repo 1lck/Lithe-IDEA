@@ -78,7 +78,7 @@ func (a *App) runSessionTabs(c ui.C, p *project) {
 			var closeButton ui.Box
 			chip.Children(func() {
 				a.runStatusMark(k, run, terminalChipIcon)
-				text := ui.Text(k, run.label).Ellipsis().Shrink(1)
+				text := ui.Text(c, run.label).Ellipsis().Shrink(1)
 				if on {
 					text.Color(a.colors.Text)
 				} else {
@@ -213,13 +213,13 @@ func (a *App) runTree(c ui.C, p *project, run *runEntry) {
 				a.runStatusMark(k, run, runTreeIcon)
 				// The start follows the name with no gap, since its words begin with the separator.
 				ui.Row(k).Shrink(1).MinWidth(0).Items(ui.Center).Children(func() {
-					ui.Text(k, run.label).Color(a.colors.Text).Weight(gfx.WeightBold).Ellipsis().Shrink(1)
-					ui.Text(k, a.text.Run.StartedAt(run.started.Format(runStartedLayout))).Color(a.colors.Subtle).
+					ui.Text(c, run.label).Color(a.colors.Text).Weight(gfx.WeightBold).Ellipsis().Shrink(1)
+					ui.Text(c, a.text.Run.StartedAt(run.started.Format(runStartedLayout))).Color(a.colors.Subtle).
 						Ellipsis().Shrink(buildDetailShrink)
 				})
 				ui.Row(k.Part("spacer")).Grow(1)
 				if duration != "" {
-					ui.Text(k, duration).FontSize(a.theme.Metrics.FontSizeS).Color(a.colors.Subtle).Shrink(0)
+					ui.Text(c, duration).FontSize(a.theme.Metrics.FontSizeS).Color(a.colors.Subtle).Shrink(0)
 				}
 			})
 		if run.running && len(run.ports) > 0 {
@@ -324,7 +324,7 @@ func (a *App) runPortsRow(c ui.C, run *runEntry) {
 func (a *App) runStatusMark(c ui.C, run *runEntry, size float32) {
 	k := c.Part("status")
 	if run.running && run.processRunning {
-		ui.Icon(k, icons.Play).Size(size, size).Shrink(0).Color(a.colors.Success)
+		ui.Icon(c, icons.Play).Size(size, size).Shrink(0).Color(a.colors.Success)
 		return
 	}
 	if run.running {
@@ -338,7 +338,7 @@ func (a *App) runStatusMark(c ui.C, run *runEntry, size float32) {
 	case runStopped:
 		icon, tint = icons.CircleSlash, a.colors.Subtle
 	}
-	ui.Icon(k, icon).Size(size, size).Shrink(0).Color(tint)
+	ui.Icon(c, icon).Size(size, size).Shrink(0).Color(tint)
 }
 
 // runStatusText names where an execution stands, the words its status icon stands for.

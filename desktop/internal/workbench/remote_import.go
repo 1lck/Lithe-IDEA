@@ -391,18 +391,18 @@ func (a *App) remoteSSHImportTable(c ui.C, language i18n.Language, m *remoteImpo
 						ui.Row(k.Part("pick")).Width(22).Shrink(0).Children(func() {
 							ui.Checkbox(k.Part("box"), &m.sshChosen[index], "").Label(host.Alias).Disabled(!choosable || m.applying)
 						})
-						ui.Text(k, host.Alias).Mono().FontSize(small).Color(color).Width(widths[0]).Shrink(0).Ellipsis()
+						ui.Text(c, host.Alias).Mono().FontSize(small).Color(color).Width(widths[0]).Shrink(0).Ellipsis()
 						ui.Column(k).Grow(1).Basis(0).MinWidth(0).Gap(2).Children(func() {
 							switch {
 							case host.Status == core.RemoteImportPattern:
-								ui.Text(k, i18n.Shared(language, "desktop.remote.import.patternNote")).FontSize(small).Color(a.colors.Subtle).Ellipsis().MinWidth(0)
+								ui.Text(c, i18n.Shared(language, "desktop.remote.import.patternNote")).FontSize(small).Color(a.colors.Subtle).Ellipsis().MinWidth(0)
 							case host.Resolved != nil:
 								resolved := host.Resolved
-								ui.Text(k, remoteAddress(core.SSHConnection{Host: resolved.HostName, User: resolved.User, Port: resolved.Port})).
+								ui.Text(c, remoteAddress(core.SSHConnection{Host: resolved.HostName, User: resolved.User, Port: resolved.Port})).
 									Mono().FontSize(small).Color(color).Ellipsis().MinWidth(0)
 							}
 							if len(host.UsedAsJumpBy) > 0 {
-								ui.Text(k, i18n.SharedFormat(language, "desktop.remote.import.jumpFor", map[string]string{"hosts": strings.Join(host.UsedAsJumpBy, ", ")})).
+								ui.Text(c, i18n.SharedFormat(language, "desktop.remote.import.jumpFor", map[string]string{"hosts": strings.Join(host.UsedAsJumpBy, ", ")})).
 									Mono().FontSize(small).Color(a.colors.Subtle).Ellipsis().MinWidth(0)
 							}
 						})
@@ -457,20 +457,20 @@ func (a *App) remoteMottyImportTable(c ui.C, language i18n.Language, m *remoteIm
 						}
 						a.remoteTile(k.Part("tile"), mark, candidate.Name, candidate.Color, 26, 10)
 						ui.Column(k).Grow(1).Basis(0).MinWidth(0).Gap(2).Children(func() {
-							ui.Text(k, candidate.Name).Weight(gfx.WeightMedium).Color(color).Ellipsis().MinWidth(0)
+							ui.Text(c, candidate.Name).Weight(gfx.WeightMedium).Color(color).Ellipsis().MinWidth(0)
 							if candidate.Address != "" {
-								ui.Text(k, candidate.Address).Mono().FontSize(small).Color(a.colors.Subtle).Ellipsis().MinWidth(0)
+								ui.Text(c, candidate.Address).Mono().FontSize(small).Color(a.colors.Subtle).Ellipsis().MinWidth(0)
 							}
 						})
 						group := candidate.Group
 						if group == "" {
 							group = "—"
 						}
-						ui.Text(k, group).FontSize(small).Color(color).Width(widths[1]).Shrink(0).Ellipsis()
+						ui.Text(c, group).FontSize(small).Color(color).Width(widths[1]).Shrink(0).Ellipsis()
 						ui.Row(k.Part("result")).Width(widths[2]).Shrink(0).Items(ui.Center).Gap(6).Children(func() {
 							a.remoteImportTag(k.Part("status"), remoteImportStatusName(language, candidate.Status), candidate.Status)
 							if candidate.Status == core.RemoteImportExists && m.mottyChosen[index] {
-								ui.Text(k, i18n.Shared(language, "desktop.remote.import.fill")).FontSize(small).Color(a.colors.Subtle).Ellipsis().Shrink(1).MinWidth(0)
+								ui.Text(c, i18n.Shared(language, "desktop.remote.import.fill")).FontSize(small).Color(a.colors.Subtle).Ellipsis().Shrink(1).MinWidth(0)
 							}
 						})
 						icon := icons.ChevronRight
@@ -513,17 +513,17 @@ func (a *App) remoteMottyFields(c ui.C, language i18n.Language, fields []core.Re
 				ui.Row(k.Part("line")).FillWidth().Height(1).Shrink(0).Background(a.colors.Line)
 			}
 			ui.Row(k).FillWidth().MinHeight(26).Items(ui.Center).Gap(10).PadY(3).Children(func() {
-				ui.Text(k, field.Motty).Mono().FontSize(small).Color(a.colors.Subtle).Grow(1).Basis(0).MinWidth(0).Ellipsis()
+				ui.Text(c, field.Motty).Mono().FontSize(small).Color(a.colors.Subtle).Grow(1).Basis(0).MinWidth(0).Ellipsis()
 				value := field.Value
 				if value == "" {
 					value = "—"
 				}
-				ui.Text(k, value).Mono().FontSize(small).Grow(1).Basis(0).MinWidth(0).Ellipsis()
-				ui.Text(k, "→").FontSize(small).Color(a.colors.Subtle).Shrink(0)
+				ui.Text(c, value).Mono().FontSize(small).Grow(1).Basis(0).MinWidth(0).Ellipsis()
+				ui.Text(c, "→").FontSize(small).Color(a.colors.Subtle).Shrink(0)
 				if field.Lithe != "" {
-					ui.Text(k, remoteMottyFieldName(language, field.Lithe)).FontSize(small).Grow(1.6).Basis(0).MinWidth(0).Ellipsis()
+					ui.Text(c, remoteMottyFieldName(language, field.Lithe)).FontSize(small).Grow(1.6).Basis(0).MinWidth(0).Ellipsis()
 				} else {
-					ui.Text(k, remoteMottySkipText(language, field.Skip)).FontSize(small).Color(a.colors.Subtle).Grow(1.6).Basis(0).MinWidth(0).Ellipsis()
+					ui.Text(c, remoteMottySkipText(language, field.Skip)).FontSize(small).Color(a.colors.Subtle).Grow(1.6).Basis(0).MinWidth(0).Ellipsis()
 				}
 				ui.Row(k.Part("tag")).Width(110).Shrink(0).Children(func() {
 					ui.Row(k.Part("spacer")).Grow(1)

@@ -340,7 +340,7 @@ func (a *App) debugWatchView(c ui.C, p *project) {
 				Hover(ui.Look{}.Background(a.colors.Hover)).
 				HitWith(ui.ID(k), entry.expression, gfx.HitOptions{SkipFocus: true})
 			row.Children(func() {
-				ui.Icon(k, icons.Eye).Size(treelist.Icon, treelist.Icon).Shrink(0).MarginTop(debugIconInset).Color(a.colors.Subtle)
+				ui.Icon(c, icons.Eye).Size(treelist.Icon, treelist.Icon).Shrink(0).MarginTop(debugIconInset).Color(a.colors.Subtle)
 				a.debugWatchText(k, entry, false)
 				ui.Row(k.Part("spacer")).Grow(1)
 				i := index

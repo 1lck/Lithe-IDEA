@@ -117,7 +117,7 @@ func (a *App) chromeGlyph(c ui.C, i int, layout glyphLayout, rest, hover gfx.Col
 	box := a.chromeBox(ui.Row(k).Size(layout.side, layout.side).Shrink(0).Center(), ui.ID(k), i, open, "", true).
 		TooltipOn(layout.tooltip)
 	box.Children(func() {
-		ui.Icon(k, *a.chrome.catalog[i].icon).Size(layout.icon, layout.icon).Color(rest).
+		ui.Icon(c, *a.chrome.catalog[i].icon).Size(layout.icon, layout.icon).Color(rest).
 			StateFrom(box).Hover(ui.Look{}.Color(hover))
 	})
 	return box, box.Clicked()
@@ -192,8 +192,8 @@ func (a *App) chromeProject(c ui.C) {
 	}
 	button.Children(func() {
 		projectAvatar(k, row.identity, chromeAvatarTitle)
-		ui.Text(k, a.project.name).Bold().Color(a.colors.Text).LineHeight(chromeLineHeight).Ellipsis().MaxWidth(chromeProjectMax)
-		ui.Icon(k, icons.ChevronDown).Size(chromeMarkSize, chromeMarkSize).Color(a.colors.Subtle)
+		ui.Text(c, a.project.name).Bold().Color(a.colors.Text).LineHeight(chromeLineHeight).Ellipsis().MaxWidth(chromeProjectMax)
+		ui.Icon(c, icons.ChevronDown).Size(chromeMarkSize, chromeMarkSize).Color(a.colors.Subtle)
 	})
 	clicked := button.Clicked()
 	if a.title.projectOpen {
@@ -214,9 +214,9 @@ func (a *App) chromeTitleButton(c ui.C, i int) bool {
 		wasOpen := a.title.runConfigOpen
 		box := a.chromeBox(ui.Row(k).Height(chromeIconButton).Shrink(0).Items(ui.Center).Gap(chromeGap).PadX(chromeEdge), ui.ID(k), i, wasOpen, "", false)
 		box.Children(func() {
-			ui.Icon(k, *a.chrome.catalog[i].icon).Size(chromeIconSize, chromeIconSize).Color(a.colors.Subtle)
-			ui.Text(k, a.titleRunLabel()).Color(a.colors.Text).LineHeight(chromeLineHeight).Ellipsis().MaxWidth(chromeProjectMax)
-			ui.Icon(k, icons.ChevronDown).Size(chromeMarkSize, chromeMarkSize).Color(a.colors.Subtle)
+			ui.Icon(c, *a.chrome.catalog[i].icon).Size(chromeIconSize, chromeIconSize).Color(a.colors.Subtle)
+			ui.Text(c, a.titleRunLabel()).Color(a.colors.Text).LineHeight(chromeLineHeight).Ellipsis().MaxWidth(chromeProjectMax)
+			ui.Icon(c, icons.ChevronDown).Size(chromeMarkSize, chromeMarkSize).Color(a.colors.Subtle)
 		})
 		clicked := box.Clicked()
 		if wasOpen {
@@ -412,7 +412,7 @@ func (a *App) hiddenToolWindowsButton(c ui.C, i int, z zone, layout glyphLayout)
 		button = button.Background(a.colors.Active).Hover(ui.Look{}.Background(a.colors.Active))
 	}
 	button.Children(func() {
-		ui.Icon(k, *a.chrome.catalog[i].icon).Size(layout.icon, layout.icon).Color(rest).
+		ui.Icon(c, *a.chrome.catalog[i].icon).Size(layout.icon, layout.icon).Color(rest).
 			StateFrom(button).Hover(ui.Look{}.Color(hover))
 	})
 	clicked := button.Clicked()
@@ -547,9 +547,9 @@ func (a *App) chromeStatusItem(c ui.C, i int) bool {
 			if doc := a.selectedEditorDocument(); doc != nil && doc.view.ReadOnly() {
 				icon = icons.Lock
 			}
-			ui.Icon(k, icon).Size(chromeMarkSize, chromeMarkSize).Color(a.colors.Subtle)
+			ui.Icon(c, icon).Size(chromeMarkSize, chromeMarkSize).Color(a.colors.Subtle)
 		case itemHealth:
-			ui.Icon(k, *a.chrome.catalog[i].icon).Size(chromeMarkSize, chromeMarkSize).Color(a.colors.Success)
+			ui.Icon(c, *a.chrome.catalog[i].icon).Size(chromeMarkSize, chromeMarkSize).Color(a.colors.Success)
 		case itemMemory:
 			a.memoryStatusItem(k)
 		case itemLSP:
@@ -603,9 +603,9 @@ func (a *App) chromeBranch(c ui.C) {
 		button = button.Hover(ui.Look{}.Background(a.colors.Hover))
 	}
 	button.Children(func() {
-		ui.Icon(k, icons.GitBranch).Size(chromeIconSize, chromeIconSize).Color(a.colors.Subtle)
-		ui.Text(k, name).Color(a.colors.Subtle).LineHeight(chromeLineHeight).Ellipsis().MaxWidth(chromeBranchMax)
-		ui.Icon(k, icons.ChevronDown).Size(chromeMarkSize, chromeMarkSize).Color(a.colors.Subtle)
+		ui.Icon(c, icons.GitBranch).Size(chromeIconSize, chromeIconSize).Color(a.colors.Subtle)
+		ui.Text(c, name).Color(a.colors.Subtle).LineHeight(chromeLineHeight).Ellipsis().MaxWidth(chromeBranchMax)
+		ui.Icon(c, icons.ChevronDown).Size(chromeMarkSize, chromeMarkSize).Color(a.colors.Subtle)
 	})
 	clicked := button.Clicked()
 	if open {
@@ -776,7 +776,7 @@ func (a *App) menuProjectDismiss(c ui.C, label string) bool {
 		Radius(a.theme.Metrics.RadiusItem()).
 		HitWith(ui.ID(k), label, gfx.HitOptions{Role: gfx.RoleButton, Cursor: gfx.PointerCursorHand})).Tooltip(label)
 	button.Children(func() {
-		ui.Icon(k, icons.X).Size(chromeMarkSize, chromeMarkSize).Color(a.colors.Subtle).
+		ui.Icon(c, icons.X).Size(chromeMarkSize, chromeMarkSize).Color(a.colors.Subtle).
 			StateFrom(button).Hover(ui.Look{}.Color(a.colors.Text))
 	})
 	return button.Clicked()
