@@ -20,6 +20,7 @@ import (
 	"errors"
 	"maps"
 	"math"
+	"os"
 	"slices"
 	"strconv"
 	"strings"
@@ -1522,8 +1523,47 @@ func (m *Model) fail(level core.LogLevel, event, operation string, err error) {
 	if err == nil || errors.Is(err, context.Canceled) {
 		return
 	}
-	fields := core.LogErrorFields(err)
+	fields := core.LogErrorFields(errorWithoutPath(err))
 	fields["operation"] = operation
 	m.opts.Source.Emit(level, event, "", fields)
 	m.failed = true
+}
+
+func errorWithoutPath(err error) error {
+	if err == nil {
+		return nil
+	}
+	var pathErr *os.PathError
+	var linkErr *os.LinkError
+	if !errors.As(err, &pathErr) && !errors.As(err, &linkErr) {
+		return err
+	}
+	switch e := err.(type) {
+	case *os.PathError:
+		if e.Err == nil {
+			return errors.New(e.Op)
+		}
+		return errorWithoutPath(e.Err)
+	case *os.LinkError:
+		if e.Err == nil {
+			return errors.New(e.Op)
+		}
+		return errorWithoutPath(e.Err)
+	case interface{ Unwrap() []error }:
+		parts := e.Unwrap()
+		clean := make([]error, 0, len(parts))
+		for _, part := range parts {
+			if stripped := errorWithoutPath(part); stripped != nil {
+				clean = append(clean, stripped)
+			}
+		}
+		if len(clean) == 0 {
+			return nil
+		}
+		return errors.Join(clean...)
+	case interface{ Unwrap() error }:
+		return errorWithoutPath(e.Unwrap())
+	default:
+		return err
+	}
 }
