@@ -13,15 +13,15 @@ fail locally with a useful diagnostic instead of waiting for a CI job timeout.
 - Viva desktop timing uses Go, Node.js and the existing Core build wrapper;
   macOS also uses `zsh`, while Windows uses PowerShell and Git Bash. Reuse an
   existing matching Core build instead of repeatedly performing cold builds.
-- The old Swift and Tauri clients are absent on this branch. Their legacy timing
-  scripts and historical reports do not prove Viva behavior or current CI coverage.
+- The old Swift and Tauri clients and their timing runners are removed. Historical
+  reports do not prove Viva behavior or current CI coverage.
 - Local Windows verification uses the local VM under
   [debug-windows-on-parallels](../debug-windows-on-parallels/SKILL.md). The former
   standalone cloud server is retired; existing GitHub Actions Windows CI stays.
-- `DesktopGo` is the current Windows desktop timing scope. Legacy `Frontend`,
-  `WindowsRust`, `SharedRust*` and `All` paths can refer to removed client or
-  in-repository Core directories; do not use them as current validation.
-  Run Rust checks in the linked external Core checkout under its own rules.
+- `DesktopGo` is the only Windows desktop timing scope. `Frontend`,
+  `WindowsRust`, `SharedRust*` and `All` are rejected before any checks run;
+  their clients and in-repository Core sources were removed. Run Rust checks
+  in the linked external Core checkout under its own rules.
 
 ## Read the platform guidance
 
@@ -86,7 +86,7 @@ states what that means for writing a test.
 2. Choose deterministic synchronization before writing assertions. For a race
    regression, write the intended event sequence explicitly in the test or its
    test-double names.
-3. Run the fast static gate before the test suite:
+3. Run the fast static gate and inspect its coverage before the test suite:
 
    ```bash
    ./.agents/skills/write-stable-tests/scripts/verify-test-stability.sh
@@ -102,7 +102,7 @@ states what that means for writing a test.
 
    Without `--base` the gate compares the working tree with `HEAD`; with
    `--base` it compares the committed `HEAD` (or `--head`) with that revision,
-   which is what CI runs with the pull request base. The gate is a ratchet on
+   so use the exact pull request base/head for revision validation. The gate is a ratchet on
    blocking patterns in test code: a pattern is new when the base revision has
    no line with the same rule, enclosing test declaration, and statement text.
    Moving a test between files or re-indenting it is therefore not a violation,
@@ -113,9 +113,12 @@ states what that means for writing a test.
    node .agents/skills/write-stable-tests/scripts/test-verify-test-stability.mjs
    ```
 
-   The current static scanner covers Swift, TypeScript and Rust, not Go.
-   Passing it does not establish Go test stability: manually inspect Go waits,
-   cancellation and cleanup, and run the Go timing and race checks below.
+   The current static scanner retains Rust rules; its Swift/TypeScript rules and
+   retired-client directory classification are removed. `desktop/**/*_test.go`
+   is explicitly reported as uncovered. A scope with no applicable Rust source
+   prints `N/A`, not a passed check. A zero exit code means no covered-rule
+   violation was found; it does not establish Go test stability. Manually inspect
+   Go waits, cancellation and cleanup, and run the Go timing and race checks below.
 
 4. Run the platform timing harness. A changed test is not verified until its
    individual duration appears in the generated HTML and JUnit reports:
@@ -130,8 +133,9 @@ states what that means for writing a test.
    runner. A suite deadline stops the process tree; individual durations are
    checked after Go reports them, rather than interrupting a buffered result.
    Parent and subtest durations overlap, so totals are not wall time.
-   The former Swift/Frontend/WindowsRust scopes remain historical and cannot
-   verify the removed clients; do not report their absence as a passing lane.
+   Retired Windows scopes are parameter errors, not aliases for `DesktopGo`.
+   Missing current desktop sources are also errors; do not report their absence
+   as a passing lane. The old Swift client remains historical.
 
 5. Run the broader affected validation required by `develop-lithe`. Report the
    HTML report path, slowest changed tests, exact commands, and any suite that
