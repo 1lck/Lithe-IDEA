@@ -45,6 +45,8 @@ func TestLogEventsMatchCatalog(t *testing.T) {
 		{operationFailedLevel, operationFailedEvent, operationFailedFields("project_tree_list", failure)},
 		{backgroundFailedLevel, backgroundFailedEvent, operationFailedFields("project_tree_list", failure)},
 		{core.LevelWarn, "app.settings.decode_failed", storedStateFields("settings", failure)},
+		{core.LevelWarn, "app.settings.decode_failed", storedStateFields("directory_rules", failure)},
+		{core.LevelWarn, "app.settings.decode_failed", storedStateFields("window_background", failure)},
 		{core.LevelWarn, "app.settings.decode_failed", storedStateFields("recent_projects", &fs.PathError{Op: "open", Path: "recent.json", Err: fs.ErrPermission})},
 		{operationRejectedLevel, operationRejectedEvent, operationRejectedFields("project_tree_move", "cross_wsl_boundary")},
 		{operationFailedLevel, operationFailedEvent, operationFailedFields("editor_encoding_reopen", errLossyDecode)},
