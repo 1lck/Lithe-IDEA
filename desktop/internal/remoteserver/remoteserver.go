@@ -24,6 +24,8 @@ import (
 	"os"
 	"path/filepath"
 	"sync"
+
+	"github.com/1lck/Lithe-IDEA/desktop/internal/atomicfile"
 )
 
 // ManifestFile is the manifest's file name, in the stage of build-remote-server.sh and in this
@@ -264,58 +266,10 @@ func validSHA256(value string) bool {
 	return true
 }
 
-// rename is os.Rename; a test replaces it to lose the race with another client.
+// rename is os.Rename; tests replace it to emulate a competing installer.
 var rename = os.Rename
 
-// holds reports whether target is a regular file, not a link, with exactly data.
-func holds(target string, data []byte) bool {
-	info, err := os.Lstat(target)
-	if err != nil || !info.Mode().IsRegular() {
-		return false
-	}
-	existing, err := os.ReadFile(target)
-	return err == nil && bytes.Equal(existing, data)
-}
-
-// installFile leaves data at target. An existing regular file with the same bytes is kept, so a
-// connection does not rewrite it; anything else is replaced by renaming a synced private file over
-// it.
+// installFile reuses an existing immutable resource or replaces it atomically.
 func installFile(target string, data []byte) error {
-	if holds(target, data) {
-		return nil
-	}
-	dir := filepath.Dir(target)
-	if err := os.MkdirAll(dir, 0o700); err != nil {
-		return err
-	}
-	temporary, err := os.CreateTemp(dir, "."+BinaryName+".*")
-	if err != nil {
-		return err
-	}
-	temporaryPath := temporary.Name()
-	defer os.Remove(temporaryPath) // no-op once the rename succeeded
-	if _, err := temporary.Write(data); err != nil {
-		temporary.Close()
-		return err
-	}
-	if err := temporary.Sync(); err != nil {
-		temporary.Close()
-		return err
-	}
-	if err := temporary.Close(); err != nil {
-		return err
-	}
-	if err := os.Chmod(temporaryPath, 0o600); err != nil {
-		return err
-	}
-	if err := rename(temporaryPath, target); err != nil {
-		// Another client may have installed the same build meanwhile, and Windows refuses to
-		// replace a file that a process has open without sharing its deletion; the file then
-		// already holds these bytes.
-		if holds(target, data) {
-			return nil
-		}
-		return err
-	}
-	return nil
+	return atomicfile.InstallWithRename(target, data, 0o600, rename)
 }

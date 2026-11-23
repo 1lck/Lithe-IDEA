@@ -13,6 +13,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/1lck/Lithe-IDEA/desktop/internal/atomicfile"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/core"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/pluginpkg"
 )
@@ -189,26 +190,8 @@ func (s *CommandStore) Record(pluginID string, installation CommandInstallation)
 	if err := os.MkdirAll(directory, 0o755); err != nil {
 		return err
 	}
-	temporary, err := os.CreateTemp(directory, "."+commandRecordName+".*.tmp")
-	if err != nil {
-		return err
-	}
-	name := temporary.Name()
-	if _, err := temporary.Write(data); err != nil {
-		temporary.Close()
-		os.Remove(name)
-		return err
-	}
-	if err := temporary.Close(); err != nil {
-		os.Remove(name)
-		return err
-	}
-	if err := os.Rename(name, path); err != nil {
-		os.Remove(name)
-		return err
-	}
-	return nil
-}
+	return atomicfile.Write(path, data, 0o600)
+
 
 // Lookup is the command lookup of the plugin's systemCommand launches: base
 // (PATH) first, then the directories the plugin's commands were installed into.
