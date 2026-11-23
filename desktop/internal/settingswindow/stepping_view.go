@@ -342,7 +342,7 @@ func (w *window) debuggersPage(c ui.C) {
 			w.debuggerList(c.Part("list"), language)
 			ui.Row(c).FillWidth().Height(1).Shrink(0).Background(b.line)
 			ui.Row(c).FillWidth().Shrink(0).PadX(12).PadY(5).Children(func() {
-				ui.Text(c, i18n.SharedFormat(language, "desktop.buildSettings.debuggerCount", map[string]string{"count": formatCount(len(s.adapters))})).
+				ui.Text(c, debuggerCount(language, len(s.adapters))).
 					FontSize(11).Color(b.faint).Ellipsis()
 			})
 		})

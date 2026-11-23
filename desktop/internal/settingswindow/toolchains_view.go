@@ -257,10 +257,7 @@ func (w *window) toolchainsNotices(c ui.C, language i18n.Language, scope *toolch
 			if len(sources) > 3 {
 				sources = sources[:3]
 			}
-			text := i18n.SharedFormat(language, "desktop.buildSettings.trustBanner", map[string]string{
-				"count":   formatCount(count),
-				"sources": strings.Join(sources, i18n.Shared(language, "desktop.buildSettings.listSeparator")),
-			})
+			text := trustBannerText(language, count, strings.Join(sources, i18n.Shared(language, "desktop.buildSettings.listSeparator")))
 			w.box(c.Part("banner"), boxWarn, func(words gfx.Color) {
 				boxIcon(c, icons.CircleAlert, words)
 				boxText(c, text, words)
@@ -322,10 +319,7 @@ func (w *window) toolchainsSplit(c ui.C, language i18n.Language, scope *toolchai
 				}
 			}
 			ui.Row(c).FillWidth().Shrink(0).PadX(12).PadY(5).Gap(8).Children(func() {
-				ui.Text(c, i18n.SharedFormat(language, "desktop.buildSettings.listCount", map[string]string{
-					"matched": formatCount(tools),
-					"total":   formatCount(w.toolchains.view.view.Counts.Total),
-				})).FontSize(11).Color(b.faint).Ellipsis()
+				ui.Text(c, toolchainListCount(language, tools, w.toolchains.view.view.Counts.Total)).FontSize(11).Color(b.faint).Ellipsis()
 			})
 		})
 		ui.Row(c).Width(1).Shrink(0).FillHeight().Background(b.line)
