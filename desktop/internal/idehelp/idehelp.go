@@ -9,10 +9,9 @@
 package idehelp
 
 import (
-	"crypto/sha256"
+	"github.com/1lck/Lithe-IDEA/desktop/internal/atomicfile"
 	"errors"
 	"fmt"
-	"os"
 	"path/filepath"
 )
 
@@ -39,10 +38,10 @@ func Install(dir, name string) (string, error) {
 	}
 	bin := filepath.Join(dir, "bin")
 	target := filepath.Join(bin, name)
-	want := sha256.Sum256(data)
-	if info, err := os.Stat(target); err == nil && info.Mode().IsRegular() {
-		if existing, err := os.ReadFile(target); err == nil && sha256.Sum256(existing) == want {
-			return target, nil
+	if err := atomicfile.Install(target, data, 0o700); err != nil {
+		return "", fmt.Errorf("install the helper: %w", err)
+	}
+	return target, nil
 		}
 	}
 	if err := os.MkdirAll(bin, 0o700); err != nil {
