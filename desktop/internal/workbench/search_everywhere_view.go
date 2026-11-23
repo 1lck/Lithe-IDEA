@@ -56,9 +56,9 @@ func (a *App) everywherePopup(c ui.C) {
 	ui.Stack(c).Fill().Children(func() {
 		anchor = ui.Row(c).Absolute().Left((bounds.Width - width) / 2).Top(84).Width(width).Height(1)
 	})
-	closed := ui.PopoverWith(c, anchor, ui.PopoverSpec{
+	closed := ui.PopoverWith(c, anchor, &v.open, ui.PopoverSpec{
 		Width: width, Offset: 1, Align: ui.Start, KeepOpenOnAnchor: true,
-	}, &v.open, func() {
+	}, func() {
 		ui.Column(c).FillWidth().Height(height).Gap(8).Children(func() {
 			if p.everywhereActionsOnly() {
 				ui.Text(c, i18n.Shared(language, "desktop.everywhere.actions")).Bold()
@@ -229,7 +229,7 @@ func (a *App) everywhereFilter(c ui.C, p *project, language i18n.Language) {
 	if button.Clicked() {
 		v.filterOpen = !v.filterOpen
 	}
-	ui.PopoverWith(c, button, ui.PopoverSpec{Align: ui.End, Width: 300}, &v.filterOpen, func() {
+	ui.PopoverWith(c, button, &v.filterOpen, ui.PopoverSpec{Align: ui.End, Width: 300}, func() {
 		option := func(label, action string, value *bool) {
 			before := *value
 			ui.Checkbox(c, value, label)
