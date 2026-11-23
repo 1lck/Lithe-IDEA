@@ -68,6 +68,7 @@ const (
 // newWindowSessions makes the sessions of the window whose first workbench is first.
 func newWindowSessions(first *App, options Options) *windowSessions {
 	options.OpenPath = ""
+	options.OpenFile = ""
 	options.first = first
 	return &windowSessions{
 		list: []*App{first}, active: first, configs: map[*App]app.Config{}, options: options,

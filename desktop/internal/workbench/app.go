@@ -131,6 +131,12 @@ type Kernel interface {
 	CheckBeforeLaunchTask(ctx context.Context, root string, runType core.RunTypeKey, values map[string]json.RawMessage, plugins *core.RunTypePlugins) (core.RunTaskCheck, error)
 	BeforeLaunchField(ctx context.Context, root, configurationID string, plugins *core.RunTypePlugins) (core.RunBeforeLaunchField, error)
 	RunArgumentText(ctx context.Context, lists [][]string) ([]string, error)
+	// CreateWorkspaceEntry, RenameWorkspaceEntry, CopyWorkspaceEntry and ResolveWorkspaceEntry
+	// make the file changes a plugin asks for (pluginfilechanges.go).
+	CreateWorkspaceEntry(ctx context.Context, creation core.WorkspaceEntryCreation) (core.WorkspaceEntry, error)
+	RenameWorkspaceEntry(ctx context.Context, root, path, target string) (core.WorkspaceEntry, error)
+	CopyWorkspaceEntry(ctx context.Context, root, path, target string) (core.WorkspaceEntry, error)
+	ResolveWorkspaceEntry(ctx context.Context, root, path string) (core.WorkspaceEntry, error)
 	SetDebugBreakpoints(ctx context.Context, sessionID, sourcePath string, breakpoints []core.DebugSourceBreakpoint) (core.DebugUpdate, error)
 	ExecuteDebug(ctx context.Context, sessionID, operationID, command string, threadID *int64, granularity string) (core.DebugUpdate, error)
 	ExecuteDebugThread(ctx context.Context, sessionID, operationID, command string, threadID int64) (core.DebugUpdate, error)
@@ -1150,6 +1156,11 @@ func (a *App) Run() error {
 			return err
 		}
 		a.window = window
+		// Viva queues Finder events during startup. Register after the window is
+		// ready so even the first delivered document has an owned session and wake.
+		application.OnOpenFile(func(path string) {
+			a.post(func(a *App) { a.openSystemDocument(path) })
+		})
 		a.startUpdates()
 		a.startPluginAutoUpdates()
 		if path := a.startupPath; path != "" {
