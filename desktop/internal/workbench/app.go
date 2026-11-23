@@ -705,6 +705,10 @@ type App struct {
 	// initialLanguageLoad lets early opens of unknown extensionless files wait for the
 	// enabled language snapshot while the project restores known paths immediately.
 	initialLanguageLoad atomic.Pointer[languageLoad]
+	// pluginReloadGeneration numbers reloadPluginLanguages calls so stale completions are
+	// dropped; pluginReloadMu serializes early language publication and visibility writes.
+	pluginReloadGeneration atomic.Uint64
+	pluginReloadMu         sync.Mutex
 
 	settings settings
 	// fonts is the font of each scope the settings name, worked out by applyFonts.
