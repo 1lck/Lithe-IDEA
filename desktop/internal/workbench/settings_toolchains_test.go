@@ -29,7 +29,7 @@ func (*catalogSourceKernel) ToolchainDiscoveryPlanOf(context.Context, json.RawMe
 	return core.ToolchainDiscoveryPlan{}, nil
 }
 
-func TestGlobalToolchainsDoNotHideAnUnreadableEnabledPlugin(t *testing.T) {
+func TestGlobalToolchainsRetainValidPluginAndReportUnreadableOne(t *testing.T) {
 	preferences, root := store.At(t.TempDir()), t.TempDir()
 	service, err := pluginservice.Open(core.NewClient(), preferences, root)
 	if err != nil {
@@ -74,10 +74,20 @@ func TestGlobalToolchainsDoNotHideAnUnreadableEnabledPlugin(t *testing.T) {
 	app := &App{kernel: &catalogSourceKernel{&testKernel{Client: core.NewClient()}}, store: preferences, plugins: service}
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
-	_, err = (settingsToolchains{app: app}).LoadScope(ctx, "global")
-	if !errors.Is(err, os.ErrNotExist) {
-		t.Fatalf("global SDK settings discarded the native read failure: %v", err)
+	log := &treeRecordingLog{}
+	app.logSink = log
+	snapshot, err := (settingsToolchains{app: app}).LoadScope(ctx, "global")
+	if err != nil {
+		t.Fatalf("global catalog should retain valid tools: %v", err)
 	}
+	if len(snapshot.Tools) == 0 || !snapshot.DiscoveryIncomplete {
+		t.Fatalf("catalog lost tools or partial warning: %+v", snapshot)
+	}
+	log.mu.Lock()
+	if len(log.events) != 1 || log.events[0].Fields["operation"] != "toolchain_settings_discovery" {
+		t.Errorf("partial global catalog recorded events %+v", log.events)
+	}
+	log.mu.Unlock()
 	if _, err := os.Stat(filepath.Join(preferences.Dir(), "toolchains", "global.json")); !errors.Is(err, os.ErrNotExist) {
 		t.Fatalf("a failed read wrote a global catalog: %v", err)
 	}
@@ -137,8 +147,8 @@ func TestProjectToolchainPartialManifestReadReportsDegradation(t *testing.T) {
 	if err != nil {
 		t.Fatalf("readable manifests should still load project settings: %v", err)
 	}
-	if len(snapshot.Tools) == 0 {
-		t.Fatal("the readable plugin was lost after another manifest failed")
+	if len(snapshot.Tools) == 0 || !snapshot.DiscoveryIncomplete {
+		t.Fatal("the readable plugin was lost or incomplete status was not reported")
 	}
 	log.mu.Lock()
 	defer log.mu.Unlock()

@@ -50,6 +50,21 @@ func (a *App) toolchainManifests(ctx context.Context) ([]json.RawMessage, error)
 	return manifests, err
 }
 
+// usableToolchainManifests is the shared policy for partial plugin reads. A
+// missing manifest must not conceal other valid tools; consumers still rely
+// on Core to resolve the requested ID. Log the degradation once per discovery.
+func (a *App) usableToolchainManifests(ctx context.Context, operation string) ([]json.RawMessage, bool, error) {
+	manifests, err := a.toolchainManifests(ctx)
+	if err == nil {
+		return manifests, false, nil
+	}
+	if len(manifests) == 0 {
+		return nil, false, err
+	}
+	a.backgroundFailedIn(ctx, operation, err)
+	return manifests, true, nil
+}
+
 // resolveToolchainSelection resolves one tool for one operation. A caller may
 // replace the selector in tests through toolchainResolve.
 func (a *App) resolveToolchainSelection(ctx context.Context, root, directory, tool, minimumVersion string) (core.ToolchainSelection, error) {
@@ -74,7 +89,7 @@ func (a *App) managedToolchainOptions(ctx context.Context, manifests []json.RawM
 }
 
 func (a *App) defaultToolchainSelection(ctx context.Context, root, directory, tool, minimumVersion string) (core.ToolchainSelection, error) {
-	manifests, err := a.toolchainManifests(ctx)
+	manifests, _, err := a.usableToolchainManifests(ctx, "toolchain_selection_discovery")
 	if err != nil {
 		return core.ToolchainSelection{}, err
 	}

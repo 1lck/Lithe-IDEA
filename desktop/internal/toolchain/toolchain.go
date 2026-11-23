@@ -105,6 +105,9 @@ type Tool struct {
 type Snapshot struct {
 	Global             bool `json:"global,omitempty"`
 	ProjectCodeAllowed bool `json:"projectCodeAllowed,omitempty"`
+	// DiscoveryIncomplete reports that another enabled plugin could not be
+	// read; usable tools remain available but this is not a complete catalog.
+	DiscoveryIncomplete bool `json:"discoveryIncomplete,omitempty"`
 	catalog            *catalogSource
 	Root               string                   `json:"root"`
 	Directory          string                   `json:"directory"`

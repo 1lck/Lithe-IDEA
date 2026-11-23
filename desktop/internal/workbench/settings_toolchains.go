@@ -16,7 +16,7 @@ func (s settingsToolchains) Inspect(ctx context.Context, snapshot toolchain.Snap
 	ctx = s.app.performedIn(ctx, "toolchain.inspectDirectory", surfaceButton)
 	defer func() { s.recordFailure(ctx, "toolchain_settings_inspect", err) }()
 	if snapshot.Global {
-		manifests, readErr := s.app.toolchainManifests(ctx)
+		manifests, _, readErr := s.app.usableToolchainManifests(ctx, "toolchain_settings_discovery")
 		if readErr != nil {
 			return selection, readErr
 		}
@@ -29,7 +29,7 @@ func (s settingsToolchains) Inspect(ctx context.Context, snapshot toolchain.Snap
 	if err := snapshot.CheckWorkspace(ctx, *root); err != nil {
 		return selection, errors.Join(toolchain.ErrPinConflict, err)
 	}
-	manifests, err := s.app.toolchainManifests(ctx)
+	manifests, _, err := s.app.usableToolchainManifests(ctx, "toolchain_settings_discovery")
 	if err != nil {
 		return selection, err
 	}
@@ -181,24 +181,23 @@ func (s settingsToolchains) LoadScope(ctx context.Context, scope string) (snapsh
 		return s.Load(ctx)
 	}
 	defer func() { s.recordFailure(ctx, "toolchain_settings_load", err) }()
-	manifests, err := s.app.toolchainManifests(ctx)
+	manifests, incomplete, err := s.app.usableToolchainManifests(ctx, "toolchain_settings_discovery")
 	if err != nil {
 		return snapshot, err
 	}
-	return toolchain.Load(ctx, s.app.kernel, "", ".", manifests, s.app.toolchainOptions(ctx, "", manifests))
+	snapshot, err = toolchain.Load(ctx, s.app.kernel, "", ".", manifests, s.app.toolchainOptions(ctx, "", manifests))
+	snapshot.DiscoveryIncomplete = incomplete
+	return snapshot, err
 }
 
 func (s settingsToolchains) loadAt(ctx context.Context, root string) (toolchain.Snapshot, error) {
-	manifests, err := s.app.toolchainManifests(ctx)
-	if err != nil && len(manifests) == 0 {
+	manifests, incomplete, err := s.app.usableToolchainManifests(ctx, "toolchain_settings_discovery")
+	if err != nil {
 		return toolchain.Snapshot{}, err
 	}
-	if err != nil {
-		// Keep the valid manifests visible, but never silently drop the reason
-		// why a different enabled provider did not appear in this catalog.
-		s.recordFailure(ctx, "toolchain_settings_discovery", err)
-	}
-	return toolchain.Load(ctx, s.app.kernel, root, ".", manifests, s.app.toolchainOptions(ctx, root, manifests))
+	snapshot, err := toolchain.Load(ctx, s.app.kernel, root, ".", manifests, s.app.toolchainOptions(ctx, root, manifests))
+	snapshot.DiscoveryIncomplete = incomplete
+	return snapshot, err
 }
 
 // Save applies all draft changes in one Core edit, against the exact
