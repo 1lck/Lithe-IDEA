@@ -5,8 +5,8 @@ import (
 	"fmt"
 	"strconv"
 
-	"github.com/1lck/Lithe-IDEA/desktop/internal/core"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/encodingname"
+	"github.com/1lck/Lithe-IDEA/desktop/internal/gitmetadata"
 )
 
 // gearMenuWidth is the width of the settings button's menu, which holds five short items
@@ -213,15 +213,19 @@ func (a *App) loadMenuBranch(path string) {
 	// The read belongs to the open project, so an answer that arrives after the project was
 	// closed or replaced is dropped with the state it would have been written to.
 	a.background(a.project, kernelCallTimeout, func(ctx context.Context) func(*App) {
-		branch := ""
-		// The read is of another project, so the Git console of the open one does not keep it.
-		ctx = core.WithGitConsole(ctx, nil, "")
-		// Outside a repository there is no branch, as on the project the title bar shows.
-		if status, err := kernel.GitStatus(ctx, path); err == nil && status.RepositoryRoot != "" {
-			branch = status.Branch
-		}
+		// The menu needs only checkout metadata, never a full status scan.
+		// Bounded native IO and Core's shared HEAD/gitdir parsers are also used
+		// by the welcome page, including linked worktrees and detached HEAD.
+		branch, err := gitmetadata.ReadBranch(ctx, kernel, path)
 		return func(a *App) {
 			delete(a.title.reading, path)
+			if ctx.Err() != nil {
+				return
+			}
+			if err != nil {
+				a.backgroundFailed("workspace_recent_branch", documentLogError(err))
+				branch = ""
+			}
 			if a.title.branches == nil {
 				a.title.branches = make(map[string]string, chromeMenuRecents)
 			}
