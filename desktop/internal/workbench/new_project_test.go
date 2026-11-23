@@ -212,6 +212,25 @@ func (h *harness) offerGenerators(plugins ...pluginservice.GeneratorPlugin) {
 	}
 }
 
+// The localized link must stay inside the sidebar even for the long English
+// sentence. A native button measured that sentence wider than the 240px column.
+func TestNewProjectMarketplaceLinkFitsSidebar(t *testing.T) {
+	for _, language := range []string{"en-US", "zh-Hans"} {
+		t.Run(language, func(t *testing.T) {
+			h := newHarnessWithLanguages(t, &testKernel{Client: core.NewClient()}, []string{language})
+			h.clickNamed(h.app.text.Welcome.NewProject)
+			label := i18n.Shared(h.app.language(), "native.getMoreLanguagesAndFrameworksFromPlugins")
+			hit := h.pageHit(label)
+			if hit.Bounds.Width <= 0 || hit.Bounds.Width > 240 {
+				t.Fatalf("marketplace link bounds = %+v, want within the 240px sidebar", hit.Bounds)
+			}
+			if !h.shows(label) {
+				t.Fatalf("the complete %s marketplace label is not visible", language)
+			}
+		})
+	}
+}
+
 func TestWelcomeCreatesEmptyProjectWithGitThroughCore(t *testing.T) {
 	parent := t.TempDir()
 	h := newHarnessWithLanguages(t, &gitKernel{Client: core.NewClient()}, []string{"en-US"})
