@@ -402,7 +402,7 @@ func (a *App) remoteDevcontainerView(c ui.C, language i18n.Language, d *remoteDe
 					config := i18n.Shared(language, "desktop.remote.devcontainer.config")
 					a.remoteSection(c, config, i18n.Shared(language, "desktop.remote.devcontainer.configHelp"), nil, func() {
 						if len(d.configs) == 0 {
-							ui.Paragraph(c.Part("none"), i18n.Shared(language, "desktop.remote.devcontainer.none"), 3).FontSize(small).Color(a.colors.Warning)
+							ui.Paragraph(c, i18n.Shared(language, "desktop.remote.devcontainer.none"), 3).FontSize(small).Color(a.colors.Warning)
 							return
 						}
 						paths := make([]string, len(d.configs))
@@ -490,7 +490,7 @@ func (a *App) remoteDevcontainerLog(c ui.C, language i18n.Language, d *remoteDev
 			}).Scrollbars().Label(title).Fill()
 		})
 		if d.truncated {
-			ui.Text(c.Part("truncated"), i18n.Shared(language, "desktop.remote.devcontainer.truncated")).FontSize(small).Color(a.colors.Subtle)
+			ui.Text(c, i18n.Shared(language, "desktop.remote.devcontainer.truncated")).FontSize(small).Color(a.colors.Subtle)
 		}
 	})
 }

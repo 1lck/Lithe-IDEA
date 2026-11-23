@@ -276,7 +276,7 @@ func (a *App) remotePortsRow(c ui.C, p *project, row remotePortRow) {
 				Tooltip(remoteTip)
 		}
 		remoteCell.Children(func() {
-			ui.Text(c.Part("remote-text"), remote).Color(a.colors.Text).Ellipsis()
+			ui.Text(c, remote).Color(a.colors.Text).Ellipsis()
 		})
 		a.remotePortsLabelCell(c, ports.labels[row.key])
 		localCell := ui.Row(c.Part("local")).Width(remotePortsLocalWidth).Shrink(0).Items(ui.Center)
@@ -288,16 +288,16 @@ func (a *App) remotePortsRow(c ui.C, p *project, row remotePortRow) {
 				Tooltip(localTip)
 		}
 		localCell.Children(func() {
-			ui.Text(c.Part("local-text"), local).Color(color).Ellipsis()
+			ui.Text(c, local).Color(color).Ellipsis()
 		})
 		ui.Row(c.Part("process")).Grow(1).Shrink(1).MinWidth(0).Items(ui.Center).Children(func() {
-			ui.Text(c.Part("process-text"), remotePortsProcess(language, row)).Color(a.colors.Subtle).Ellipsis()
+			ui.Text(c, remotePortsProcess(language, row)).Color(a.colors.Subtle).Ellipsis()
 		})
 		ui.Row(c.Part("source")).Width(remotePortsSourceWidth).Shrink(0).Items(ui.Center).Children(func() {
-			ui.Text(c.Part("source-text"), source).Color(a.colors.Subtle).Ellipsis()
+			ui.Text(c, source).Color(a.colors.Subtle).Ellipsis()
 		})
 		ui.Row(c.Part("status")).Width(remotePortsStatusWidth).Shrink(0).Items(ui.Center).Children(func() {
-			ui.Text(c.Part("status-text"), status).Color(statusColor).Ellipsis()
+			ui.Text(c, status).Color(statusColor).Ellipsis()
 		})
 		ui.Row(c.Part("actions")).Width(remotePortsActionWidth).Shrink(0).Items(ui.Center).Justify(ui.End).Gap(2).Children(func() {
 			a.remotePortsRowActions(c, p, row, busy)
@@ -443,7 +443,7 @@ func (a *App) remotePortsLabelCell(c ui.C, label string) {
 		cell = cell.HitWith(ui.ID(c.Part("label")), label, gfx.HitOptions{Role: gfx.RoleStatus, SkipFocus: true}).Tooltip(label)
 	}
 	cell.Children(func() {
-		ui.Text(c.Part("label-text"), label).Color(a.colors.Text).Ellipsis()
+		ui.Text(c, label).Color(a.colors.Text).Ellipsis()
 	})
 }
 

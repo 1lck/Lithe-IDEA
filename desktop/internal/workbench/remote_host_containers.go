@@ -159,7 +159,7 @@ func (a *App) enterRemoteHostContainer() {
 // enter as, the list, and the engines' words when listing failed.
 func (a *App) remoteHostContainersView(c ui.C, language i18n.Language, list *remoteBrowserContainers) {
 	small := a.theme.Metrics.FontSizeS
-	ui.Paragraph(c.Part("about"), i18n.Shared(language, "desktop.remote.hostContainers.about"), 4).FontSize(small).Color(a.colors.Subtle)
+	ui.Paragraph(c, i18n.Shared(language, "desktop.remote.hostContainers.about"), 4).FontSize(small).Color(a.colors.Subtle)
 	label := i18n.Shared(language, "desktop.remote.container.user")
 	ui.Row(c.Part("account")).FillWidth().Gap(8).Items(ui.Center).Children(func() {
 		ui.Text(c, label).FontSize(small).Shrink(0)

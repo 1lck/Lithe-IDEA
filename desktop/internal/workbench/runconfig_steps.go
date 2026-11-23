@@ -339,7 +339,7 @@ func (a *App) drawRunConfigStepRow(row ui.ListRow, step runConfigStepRow, select
 		ui.Icon(c, step.icon).Size(14, 14).Shrink(0).Color(a.colors.Subtle)
 		ui.Text(c, step.name).Color(color).Ellipsis().Shrink(1).MinWidth(0)
 		if step.summary != "" {
-			ui.Text(c.Part("summary"), step.summary).Mono().FontSize(a.theme.Metrics.FontSizeS).Color(a.colors.Subtle).Ellipsis().Shrink(1).MinWidth(0)
+			ui.Text(c, step.summary).Mono().FontSize(a.theme.Metrics.FontSizeS).Color(a.colors.Subtle).Ellipsis().Shrink(1).MinWidth(0)
 		}
 	})
 }
