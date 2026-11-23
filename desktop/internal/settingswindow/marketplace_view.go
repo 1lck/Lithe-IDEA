@@ -145,7 +145,7 @@ func (w *window) pluginTabButton(c ui.C, tab int, label string) {
 		button = button.Hover(ui.Look{}.Background(w.pal.hover))
 	}
 	button.Children(func() {
-		ui.Text(k, label).FontSize(13).Color(color)
+		ui.Text(c, label).FontSize(13).Color(color)
 	})
 	if button.Clicked() {
 		w.pluginTab = tab

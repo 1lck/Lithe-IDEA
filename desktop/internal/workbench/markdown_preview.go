@@ -248,7 +248,7 @@ func (a *App) pageModeSwitch(c ui.C, d *document) {
 			button = button.Hover(ui.Look{}.Background(a.colors.Hover))
 		}
 		button.Tooltip(label).Children(func() {
-			ui.Icon(k, entry.icon).Size(shellIconSize, shellIconSize).Color(icon).
+			ui.Icon(c, entry.icon).Size(shellIconSize, shellIconSize).Color(icon).
 				StateFrom(button).Hover(ui.Look{}.Color(a.colors.Text))
 		})
 		if button.Clicked() && !on {
@@ -345,7 +345,7 @@ func (a *App) markdownContentsButton(c ui.C, p *project, d *document) {
 		button = button.Hover(ui.Look{}.Background(a.colors.Hover))
 	}
 	button.Tooltip(title).Children(func() {
-		ui.Icon(k, icons.ListTree).Size(shellIconSize, shellIconSize).Color(icon).
+		ui.Icon(c, icons.ListTree).Size(shellIconSize, shellIconSize).Color(icon).
 			StateFrom(button).Hover(ui.Look{}.Color(a.colors.Text))
 	})
 	if button.Clicked() {
