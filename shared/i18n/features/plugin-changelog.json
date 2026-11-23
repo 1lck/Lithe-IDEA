@@ -1,0 +1,110 @@
+{
+  "schemaVersion": 1,
+  "messages": [
+    {
+      "id": "desktop.pluginChangelog.loading",
+      "description": "Installed plugin details, Changelog tab: shown while the releases of the plugin's source repository are being read",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.pluginChangelog.noRepository",
+      "description": "Installed plugin details, Changelog tab: the plugin's marketplace listing names no web repository, so there are no releases to read",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.pluginChangelog.marketFailed",
+      "description": "Installed plugin details, Changelog tab: the marketplace could not be read, so the plugin's repository, which the listing names, is not known",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.pluginChangelog.failed",
+      "description": "Installed plugin details, Changelog tab: reading the releases from GitHub failed; the error text follows on the next line",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.pluginChangelog.retry",
+      "description": "Installed plugin details, Changelog tab: button that reads the releases again after a failure",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.pluginChangelog.openReleases",
+      "description": "Installed plugin details, Changelog tab: link that opens the repository's releases page in the browser",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.pluginChangelog.openRelease",
+      "description": "Installed plugin details, Changelog tab: link beside one release that opens that release's page in the browser",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.pluginChangelog.unsupported",
+      "description": "Installed plugin details, Changelog tab: the plugin's repository is not on GitHub, so its releases cannot be listed here; a link to the repository follows",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.pluginChangelog.empty",
+      "description": "Installed plugin details, Changelog tab: the repository has published no releases",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.pluginChangelog.prerelease",
+      "description": "Installed plugin details, Changelog tab: badge beside a release marked as a pre-release",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.pluginChangelog.noNotes",
+      "description": "Installed plugin details, Changelog tab: a release was published without any notes",
+      "platforms": [
+        "desktop"
+      ]
+    }
+  ],
+  "locales": {
+    "en-US": {
+      "desktop.pluginChangelog.loading": "Reading the releases…",
+      "desktop.pluginChangelog.noRepository": "The marketplace lists no repository for this plugin, so there is no changelog to show.",
+      "desktop.pluginChangelog.marketFailed": "Couldn't read the marketplace, so this plugin's repository isn't known yet.",
+      "desktop.pluginChangelog.failed": "Couldn't read the releases from GitHub.",
+      "desktop.pluginChangelog.retry": "Retry",
+      "desktop.pluginChangelog.openReleases": "View all releases in the browser",
+      "desktop.pluginChangelog.openRelease": "Open in browser",
+      "desktop.pluginChangelog.unsupported": "The changelog can only be read from GitHub repositories. Open the repository to see this plugin's changes.",
+      "desktop.pluginChangelog.empty": "This repository hasn't published any releases yet.",
+      "desktop.pluginChangelog.prerelease": "Pre-release",
+      "desktop.pluginChangelog.noNotes": "This release has no notes."
+    },
+    "zh-CN": {
+      "desktop.pluginChangelog.loading": "正在读取 Releases…",
+      "desktop.pluginChangelog.noRepository": "插件市场里没有这个插件的仓库地址，没有更新日志可以显示。",
+      "desktop.pluginChangelog.marketFailed": "没能读取插件市场，还不知道这个插件的仓库。",
+      "desktop.pluginChangelog.failed": "没能从 GitHub 读取 Releases。",
+      "desktop.pluginChangelog.retry": "重试",
+      "desktop.pluginChangelog.openReleases": "在浏览器中查看全部 Releases",
+      "desktop.pluginChangelog.openRelease": "在浏览器中打开",
+      "desktop.pluginChangelog.unsupported": "更新日志只能从 GitHub 仓库读取。打开仓库查看这个插件的改动。",
+      "desktop.pluginChangelog.empty": "这个仓库还没有发布任何 Release。",
+      "desktop.pluginChangelog.prerelease": "预发布",
+      "desktop.pluginChangelog.noNotes": "这个 Release 没有填写说明。"
+    }
+  }
+}

@@ -112,6 +112,8 @@ type window struct {
 	// filter and detail (installed_view.go).
 	pluginTab int
 	installed installedState
+	// changelog is the releases the Installed tab's changelog has read (installed_changelog.go).
+	changelog changelogState
 	// pluginMenuOpen says the plugin page's gear menu is open, and repositoriesOpen the
 	// window that manages the plugin repositories.
 	pluginMenuOpen   bool
@@ -130,6 +132,13 @@ type window struct {
 	// window's own thread.
 	requestedPage         atomic.Uint32
 	pluginRegistryChanged atomic.Bool
+	// raised says Controller.open raised the window since its last paint; marketRecheck that
+	// the plugin page, the next time it is painted, reads its plugins again when they are
+	// stale, which entering the page or raising the window asks for. marketShown is whether
+	// the last paint showed the plugin page.
+	raised        atomic.Bool
+	marketRecheck bool
+	marketShown   bool
 	// toolchains is the Build settings page's draft and loaded snapshot.
 	toolchains *toolchainState
 	stepping   *steppingState
@@ -304,6 +313,7 @@ func newWindow(c *Controller, current Values) *window {
 	w.stepping = newSteppingState(c.opts.SteppingAdapters, c.opts.NormalizeSteppingFilters)
 	w.terminal = newTerminalShellState(c.opts.TerminalShells)
 	w.fonts = newFontListState(c.opts.MonospaceFamilies)
+	w.changelog = newChangelogState(c.opts.PluginReleases, func(err error) { reportSettingsError(c.opts, "plugin_releases", err) })
 	w.generation = newAIGeneration(c.opts, func() { w.inv.Invalidate() })
 	w.nav.Node, w.nav.Key, w.nav.RowHeight, w.nav.Indent = w.navNode, w.navKey, rowHeight, levelIndent
 	return w
@@ -399,6 +409,9 @@ func (w *window) wake() {
 	if requested := w.requestedPage.Swap(0); requested != 0 {
 		w.searchField.SetText("")
 		w.selectSettingsPage(pageID(requested-1), "")
+	}
+	if w.raised.Swap(false) {
+		w.marketRecheck = true
 	}
 }
 
@@ -529,15 +542,15 @@ func (w *window) collect() {
 	w.advanceApply(toolchainFailed, steppingResult{done: done, err: err})
 	w.terminal.take()
 	w.fonts.take()
+	w.changelog.take()
 	w.takeKeymapImport()
 	w.takeSearchPreferences()
 	w.commands.take()
 	if w.dynamic.take() {
 		w.rowsValid = false
 	}
-	previous := w.market.status
-	w.market.take()
-	w.reportMarket(previous)
+	ended, kept := w.market.take()
+	w.reportMarket(ended, kept)
 	w.market.search.take(w.market, w.marketQuery)
 	w.pluginSettings.take()
 	for _, form := range w.pluginForms {
@@ -548,12 +561,15 @@ func (w *window) collect() {
 }
 
 // reportMarket tells the owner how the fetch that just ended went: that it failed, or how
-// many entries of the index were rejected.
-func (w *window) reportMarket(previous marketStatus) {
-	if previous != marketLoading {
+// many entries of the index were rejected. kept is the failure of a background refresh, which
+// leaves the plugins it refreshed shown; the owner logs it like any other failure.
+func (w *window) reportMarket(ended bool, kept error) {
+	if !ended {
 		return
 	}
 	switch {
+	case kept != nil && w.ctrl.opts.MarketplaceError != nil:
+		w.ctrl.opts.MarketplaceError(kept)
 	case w.market.status == marketFailed && w.ctrl.opts.MarketplaceError != nil:
 		w.ctrl.opts.MarketplaceError(w.market.err)
 	case w.market.status == marketReady && len(w.market.snapshot.Index.Rejected) > 0 && w.ctrl.opts.MarketplaceRejected != nil:
@@ -573,6 +589,7 @@ func (w *window) declareWork(c ui.C) {
 	w.stepping.declare(c)
 	w.terminal.declare(c)
 	w.fonts.declare(c)
+	w.changelog.declare(c)
 	if s := &w.keyImport; s.open && s.effect != nil && s.request != nil {
 		ui.Effect(c, s.effect, s.request)
 	}

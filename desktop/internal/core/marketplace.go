@@ -42,12 +42,33 @@ func (o marketplaceOutcome) failure(command string) error {
 	return nil
 }
 
-// MarketplaceSource is Core's canonical index location and its optional repository.
+// MarketplaceSource is Core's canonical index location and its optional repository. IndexURL is
+// the source's identity; Pinned only says where the same files are at one commit.
 type MarketplaceSource struct {
 	IndexURL           string  `json:"indexURL"`
 	RecommendationsURL string  `json:"recommendationsURL"`
 	Repository         *string `json:"repository"`
 	DisplayName        string  `json:"displayName"`
+	// Revision is the GitHub repository and ref a GitHub-hosted index follows; nil for any
+	// other source and for an index URL already at a commit.
+	Revision *MarketplaceRevision `json:"revision"`
+	// Pinned is the index and recommendations at the commit PinMarketplaceSource passed; nil
+	// when nothing could be pinned.
+	Pinned *MarketplacePinned `json:"pinned"`
+}
+
+// MarketplaceRevision is the repository and ref whose newest commit pins a source.
+type MarketplaceRevision struct {
+	Repository GitHubRepo `json:"repository"`
+	Ref        string     `json:"ref"`
+}
+
+// MarketplacePinned is a source's files at one commit. Branch URLs on raw.githubusercontent.com
+// are cached for minutes; a commit URL is not served stale.
+type MarketplacePinned struct {
+	Commit             string `json:"commit"`
+	IndexURL           string `json:"indexURL"`
+	RecommendationsURL string `json:"recommendationsURL"`
 }
 
 // MarketplaceAvailability is Core's platform and capability decision.
@@ -115,11 +136,22 @@ type MarketplaceReview struct {
 
 // ResolveMarketplaceSource delegates URL validation and canonicalization to Core.
 func (c *Client) ResolveMarketplaceSource(ctx context.Context, url string) (MarketplaceSource, error) {
+	return c.resolveMarketplaceSource(ctx, url, "")
+}
+
+// PinMarketplaceSource resolves url like ResolveMarketplaceSource and adds Pinned, its files at
+// commit, the newest commit of the source's Revision.
+func (c *Client) PinMarketplaceSource(ctx context.Context, url, commit string) (MarketplaceSource, error) {
+	return c.resolveMarketplaceSource(ctx, url, commit)
+}
+
+func (c *Client) resolveMarketplaceSource(ctx context.Context, url, commit string) (MarketplaceSource, error) {
 	const command = "plugins.marketplace.resolveSource"
 	var result marketplaceOutcome
 	if err := c.Execute(ctx, command, struct {
-		URL string `json:"url"`
-	}{url}, &result); err != nil {
+		URL    string `json:"url"`
+		Commit string `json:"commit,omitempty"`
+	}{url, commit}, &result); err != nil {
 		return MarketplaceSource{}, err
 	}
 	if err := result.failure(command); err != nil {

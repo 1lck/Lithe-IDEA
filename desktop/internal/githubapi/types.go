@@ -150,6 +150,33 @@ func DecodeBranches(raw json.RawMessage) ([]Branch, error) {
 	return items, err
 }
 
+// DecodeReleases reads the normalized listReleases result, newest first.
+func DecodeReleases(raw json.RawMessage) ([]Release, error) {
+	var items []Release
+	err := json.Unmarshal(raw, &items)
+	return items, err
+}
+
+// DecodeLatestCommit reads the normalized latestCommit result: the full lowercase SHA.
+func DecodeLatestCommit(raw json.RawMessage) (string, error) {
+	var commit struct {
+		SHA string `json:"sha"`
+	}
+	err := json.Unmarshal(raw, &commit)
+	return commit.SHA, err
+}
+
+// Release is one published release. Name is empty when the author left the title empty; Body is
+// the release notes in Markdown, possibly empty; PublishedAt is RFC 3339 or empty.
+type Release struct {
+	TagName     string `json:"tagName"`
+	Name        string `json:"name"`
+	Body        string `json:"body"`
+	PublishedAt string `json:"publishedAt"`
+	Prerelease  bool   `json:"prerelease"`
+	URL         string `json:"url"`
+}
+
 // DecodeComparison reads the normalized comparison of two branches.
 func DecodeComparison(raw json.RawMessage) (Comparison, error) {
 	var comparison Comparison

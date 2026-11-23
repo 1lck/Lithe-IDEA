@@ -71,9 +71,15 @@ func (w *window) marketSourceLabel(source int) string {
 // updates, descriptions and repositories in it.
 func (w *window) marketplacePage(c ui.C) {
 	m := w.market
+	w.marketShown = true
 	if m.status == marketIdle {
 		m.start()
+	} else if w.marketRecheck {
+		// Entering the page again or raising the window shows what the store has now, without
+		// hiding the plugins already shown while it is read.
+		m.refreshIfStale()
 	}
+	w.marketRecheck = false
 	language := w.marketLanguage()
 	ui.Column(c).FillWidth().Grow(1).Shrink(1).MinHeight(0).Children(func() {
 		w.pluginHeader(c, language)

@@ -2,9 +2,11 @@ package pluginview
 
 import (
 	"math"
+	"strings"
 	"testing"
 
 	"github.com/vivaui/viva/gfx"
+	"github.com/vivaui/viva/ui"
 )
 
 // testCanvas is a canvas node of a 400 × 400 view box that pans, zooms from half to four
@@ -202,5 +204,50 @@ func TestCanvasWheelZoomsOnlyWithCommandOrControl(t *testing.T) {
 	b.now = b.now.Add(settleDelay)
 	if s.Take(); len(b.pending) != 0 {
 		t.Fatal("a canvas that does not ask for viewport sent one")
+	}
+}
+
+// A line of runs that fits is drawn whole. The room the runs had left was the line's float32
+// width minus the runs before, which can come out a hair under the last run's own width, and
+// fitting the run into that hair cut its last character for an ellipsis: a Python settings
+// preview showed "bad-argument-type · 2 erro…" with plenty of room in its bar.
+func TestCanvasTextDrawsRunsThatFitWhole(t *testing.T) {
+	widths := map[string]float32{"bad-argument-type": 101.3, " · 2 errors": 62.7}
+	canvas := new(gfx.Canvas)
+	canvas.SetMeasurer(func(value string, _, _ float32) float32 {
+		if width, ok := widths[value]; ok {
+			return width
+		}
+		return float32(len(value)) * 6
+	})
+	var total float32
+	total += widths["bad-argument-type"]
+	total += widths[" · 2 errors"]
+	if total-widths["bad-argument-type"] >= widths[" · 2 errors"] {
+		t.Fatal("the widths no longer round below the last run; pick others")
+	}
+	for _, maxWidth := range []float64{0, 400} {
+		canvas.Reset()
+		pt := &painter{d: &ui.DrawContext{Canvas: canvas}, state: &canvasState{}, p: &Palette{}}
+		pt.text(&Shape{X: 10, Y: 20, Style: "caption", MaxWidth: maxWidth, Runs: []Run{
+			{Text: "bad-argument-type"}, {Text: " · 2 errors"},
+		}}, place{k: 1}, 1)
+		var drawn []string
+		for _, text := range canvas.Texts() {
+			drawn = append(drawn, text.Value)
+		}
+		if len(drawn) != 2 || drawn[0] != "bad-argument-type" || drawn[1] != " · 2 errors" {
+			t.Fatalf("maxWidth %v drew %q", maxWidth, drawn)
+		}
+	}
+	// A line wider than maxWidth is still cut, in the run that crosses it.
+	canvas.Reset()
+	pt := &painter{d: &ui.DrawContext{Canvas: canvas}, state: &canvasState{}, p: &Palette{}}
+	pt.text(&Shape{X: 10, Y: 20, Style: "caption", MaxWidth: 130, Runs: []Run{
+		{Text: "bad-argument-type"}, {Text: " · 2 errors"},
+	}}, place{k: 1}, 1)
+	texts := canvas.Texts()
+	if len(texts) != 2 || texts[0].Value != "bad-argument-type" || !strings.HasSuffix(texts[1].Value, "…") {
+		t.Fatalf("a line past maxWidth drew %+v", texts)
 	}
 }

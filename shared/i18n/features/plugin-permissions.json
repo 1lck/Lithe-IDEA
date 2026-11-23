@@ -1,0 +1,236 @@
+{
+  "schemaVersion": 1,
+  "messages": [
+    {
+      "id": "desktop.marketplace.permissionVcs",
+      "description": "Plugin permission list (installed plugin details and install review): what the process.vcs permission lets the plugin do",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.marketplace.permissionDebugAttach",
+      "description": "Plugin permission list (installed plugin details and install review): what the debug.attach permission lets the plugin do",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.marketplace.permissionCredentialsStore",
+      "description": "Plugin permission list (installed plugin details and install review): what the credentials.store permission lets the plugin do",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.marketplace.permissionWorkspaceMetadata",
+      "description": "Plugin permission list (installed plugin details and install review): what the workspace.metadata permission lets the plugin do",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.marketplace.permissionWorkspaceFilesRead",
+      "description": "Plugin permission list (installed plugin details and install review): what the workspace.files.read permission lets the plugin do",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.marketplace.permissionWorkspaceFilesWatch",
+      "description": "Plugin permission list (installed plugin details and install review): what the workspace.files.watch permission lets the plugin do",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.marketplace.permissionBuildOptionsRead",
+      "description": "Plugin permission list (installed plugin details and install review): what the build.options.read permission lets the plugin do",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.marketplace.permissionBuildConfigurationWatch",
+      "description": "Plugin permission list (installed plugin details and install review): what the build.configuration.watch permission lets the plugin do",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.marketplace.permissionWorkspaceSearch",
+      "description": "Plugin permission list (installed plugin details and install review): what the workspace.search permission lets the plugin do",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.marketplace.permissionDocumentsRead",
+      "description": "Plugin permission list (installed plugin details and install review): what the documents.read permission lets the plugin do",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.marketplace.permissionEditorEdit",
+      "description": "Plugin permission list (installed plugin details and install review): what the editor.edit permission lets the plugin do",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.marketplace.permissionEditorActions",
+      "description": "Plugin permission list (installed plugin details and install review): what the editor.actions permission lets the plugin do",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.marketplace.permissionEditorProviders",
+      "description": "Plugin permission list (installed plugin details and install review): what the editor.providers permission lets the plugin do",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.marketplace.permissionEditorOpen",
+      "description": "Plugin permission list (installed plugin details and install review): what the editor.open permission lets the plugin do",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.marketplace.permissionPreviewOpen",
+      "description": "Plugin permission list (installed plugin details and install review): what the preview.open permission lets the plugin do",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.marketplace.permissionToolchainsProvide",
+      "description": "Plugin permission list (installed plugin details and install review): what the toolchains.provide permission lets the plugin do",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.marketplace.permissionKeymapsProvide",
+      "description": "Plugin permission list (installed plugin details and install review): what the keymaps.provide permission lets the plugin do",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.marketplace.permissionKeymapsReadSelectedSources",
+      "description": "Plugin permission list (installed plugin details and install review): what the keymaps.readSelectedSources permission lets the plugin do",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.marketplace.permissionBrowserOpen",
+      "description": "Plugin permission list (installed plugin details and install review): what the browser.open permission lets the plugin do",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.marketplace.permissionWindowMessages",
+      "description": "Plugin permission list (installed plugin details and install review): what the window.messages permission lets the plugin do",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.marketplace.permissionTerminalCreate",
+      "description": "Plugin permission list (installed plugin details and install review): what the terminal.create permission lets the plugin do",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.marketplace.permissionRunStart",
+      "description": "Plugin permission list (installed plugin details and install review): what the run.start permission lets the plugin do",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.marketplace.permissionDebugStart",
+      "description": "Plugin permission list (installed plugin details and install review): what the debug.start permission lets the plugin do",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.marketplace.permissionLanguageServerRequest",
+      "description": "Plugin permission list (installed plugin details and install review): what the languageServer.request permission lets the plugin do",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.marketplace.permissionDocumentsContentProvider",
+      "description": "Plugin permission list (installed plugin details and install review): what the documents.contentProvider permission lets the plugin do",
+      "platforms": [
+        "desktop"
+      ]
+    }
+  ],
+  "locales": {
+    "en-US": {
+      "desktop.marketplace.permissionVcs": "Run version control tools for your projects",
+      "desktop.marketplace.permissionDebugAttach": "Attach a debugger to running programs, including ones on another computer",
+      "desktop.marketplace.permissionCredentialsStore": "Save and read its own passwords and tokens in the system’s secure storage",
+      "desktop.marketplace.permissionWorkspaceMetadata": "See the names and folders of open workspaces, without reading file contents",
+      "desktop.marketplace.permissionWorkspaceFilesRead": "Read files and folders in your workspace",
+      "desktop.marketplace.permissionWorkspaceFilesWatch": "Watch files in your workspace for changes",
+      "desktop.marketplace.permissionBuildOptionsRead": "Read the build options set for your projects",
+      "desktop.marketplace.permissionBuildConfigurationWatch": "Get notified when your projects’ build configuration changes",
+      "desktop.marketplace.permissionWorkspaceSearch": "Search file names and text in your workspace",
+      "desktop.marketplace.permissionDocumentsRead": "Read open files, including unsaved changes",
+      "desktop.marketplace.permissionEditorEdit": "Edit text in open files",
+      "desktop.marketplace.permissionEditorActions": "Show its own actions in the editor, such as run icons beside lines",
+      "desktop.marketplace.permissionEditorProviders": "Provide completion, hover and other language features in the editor",
+      "desktop.marketplace.permissionEditorOpen": "Open files in the editor and go to locations in them",
+      "desktop.marketplace.permissionPreviewOpen": "Open HTML files in a preview",
+      "desktop.marketplace.permissionToolchainsProvide": "Find installed tools, such as SDKs, and list them in Toolchains",
+      "desktop.marketplace.permissionKeymapsProvide": "Offer keymaps from other editors for you to import",
+      "desktop.marketplace.permissionKeymapsReadSelectedSources": "Read keymap files only from the source you choose to import",
+      "desktop.marketplace.permissionBrowserOpen": "Open web pages and HTML files in your default browser",
+      "desktop.marketplace.permissionWindowMessages": "Show information, warning and error messages",
+      "desktop.marketplace.permissionTerminalCreate": "Open and manage its own terminals",
+      "desktop.marketplace.permissionRunStart": "Start and stop runs in the Run window",
+      "desktop.marketplace.permissionDebugStart": "Start debugging with its own debuggers",
+      "desktop.marketplace.permissionLanguageServerRequest": "Send requests to its own language servers",
+      "desktop.marketplace.permissionDocumentsContentProvider": "Show read-only files it supplies, such as library sources"
+    },
+    "zh-CN": {
+      "desktop.marketplace.permissionVcs": "为项目运行版本控制工具",
+      "desktop.marketplace.permissionDebugAttach": "把调试器附加到正在运行的程序上，包括其他计算机上的程序",
+      "desktop.marketplace.permissionCredentialsStore": "在系统的安全存储中保存和读取插件自己的密码和令牌",
+      "desktop.marketplace.permissionWorkspaceMetadata": "查看已打开工作区的名称和文件夹，不读取文件内容",
+      "desktop.marketplace.permissionWorkspaceFilesRead": "读取工作区中的文件和文件夹",
+      "desktop.marketplace.permissionWorkspaceFilesWatch": "监视工作区中文件的变化",
+      "desktop.marketplace.permissionBuildOptionsRead": "读取为项目设置的构建选项",
+      "desktop.marketplace.permissionBuildConfigurationWatch": "在项目的构建配置变化时收到通知",
+      "desktop.marketplace.permissionWorkspaceSearch": "在工作区中搜索文件名和文本",
+      "desktop.marketplace.permissionDocumentsRead": "读取已打开的文件，包括未保存的修改",
+      "desktop.marketplace.permissionEditorEdit": "修改已打开文件中的文本",
+      "desktop.marketplace.permissionEditorActions": "在编辑器中显示插件自己的操作，例如行旁的运行图标",
+      "desktop.marketplace.permissionEditorProviders": "在编辑器中提供补全、悬停提示等语言功能",
+      "desktop.marketplace.permissionEditorOpen": "在编辑器中打开文件并跳转到其中的位置",
+      "desktop.marketplace.permissionPreviewOpen": "在预览中打开 HTML 文件",
+      "desktop.marketplace.permissionToolchainsProvide": "查找已安装的工具（例如 SDK），并列在“工具链”中",
+      "desktop.marketplace.permissionKeymapsProvide": "提供可从其他编辑器导入的快捷键方案",
+      "desktop.marketplace.permissionKeymapsReadSelectedSources": "只读取你选择导入的来源中的快捷键文件",
+      "desktop.marketplace.permissionBrowserOpen": "在默认浏览器中打开网页和 HTML 文件",
+      "desktop.marketplace.permissionWindowMessages": "显示提示、警告和错误消息",
+      "desktop.marketplace.permissionTerminalCreate": "打开和管理插件自己的终端",
+      "desktop.marketplace.permissionRunStart": "在“运行”窗口中启动和停止运行",
+      "desktop.marketplace.permissionDebugStart": "用插件自己的调试器开始调试",
+      "desktop.marketplace.permissionLanguageServerRequest": "向插件自己的语言服务器发送请求",
+      "desktop.marketplace.permissionDocumentsContentProvider": "显示插件提供的只读文件，例如库的源码"
+    }
+  }
+}

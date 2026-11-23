@@ -21,9 +21,10 @@ import (
 
 // The Installed tab of the plugin page, laid out as the macOS client's is: a search with
 // filter chips over the installed plugins, the enabled ones before the disabled ones, beside
-// the chosen plugin's header, its notices and five tabs. What it shows comes from the
-// owner's InstalledPlugins, which answers from memory; the marketplace index the page reads
-// adds the updates, descriptions and repositories.
+// the chosen plugin's header, its notices and six tabs. What it shows comes from the owner's
+// InstalledPlugins, which answers from memory; the marketplace index the page reads adds the
+// updates, descriptions and repositories, and the repository's releases the changelog
+// (installed_changelog.go).
 
 // installedState is the Installed tab's own state. Only the window thread uses it.
 type installedState struct {
@@ -114,6 +115,7 @@ const (
 	installedSettings
 	installedPermissions
 	installedVersions
+	installedChangelog
 	installedTabCount
 )
 
@@ -128,6 +130,8 @@ func installedTabTitle(language i18n.Language, tab int) string {
 		return i18n.Shared(language, "native.permissionsPrograms")
 	case installedVersions:
 		return i18n.Shared(language, "native.versionsSource")
+	case installedChangelog:
+		return i18n.Shared(language, "native.updateLog")
 	}
 	return i18n.Shared(language, "native.overview")
 }
@@ -518,6 +522,8 @@ func (w *window) installedDetail(c ui.C, language i18n.Language, fact PluginFact
 					w.installedPermissions(c, language, fact)
 				case installedVersions:
 					w.installedVersions(c, language, fact)
+				case installedChangelog:
+					w.installedChangelog(c, language, fact)
 				default:
 					w.installedOverview(c, language, fact)
 				}
@@ -665,8 +671,13 @@ func (w *window) installedTabs(c ui.C, language i18n.Language, fact PluginFacts)
 		installedSettings:    fact.Settings,
 		installedPermissions: len(fact.Permissions) + len(fact.Programs),
 	}
-	ui.Row(c).FillWidth().Shrink(0).PadX(22).Gap(18).Items(ui.End).Children(func() {
+	// The tabs wrap onto a second line where the detail is too narrow for all of them, as in
+	// English at the window's least width, so none is cut off.
+	ui.Flow(c).FillWidth().Shrink(0).PadX(22).Gap(18).LineGap(8).Items(ui.End).Children(func() {
 		for tab := range installedTabCount {
+			if tab == installedChangelog && !w.changelog.available() {
+				continue
+			}
 			k := c.KeyInt(tab)
 			title := installedTabTitle(language, tab)
 			chosen := s.tab == tab
@@ -973,33 +984,83 @@ func capabilityDetail(language i18n.Language, capability PluginCapability) strin
 	return ""
 }
 
-// permissionDescription says what a permission lets the plugin do, or "" for a permission
-// that shows only its name.
+// permissionDescription says what a permission lets the plugin do. Every permission of the
+// plugin contract has one; a permission from a newer contract that this host does not know
+// returns "" and shows only its name.
 func permissionDescription(language i18n.Language, permission string) string {
 	switch permission {
 	case "languageServer.launch":
 		return i18n.Shared(language, "native.startALanguageServerWhenYouOpenFilesOfItsLanguage")
-
-	case "process.build":
-		return i18n.Shared(language, "desktop.marketplace.permissionBuild")
-	case "project.generate":
-		return i18n.Shared(language, "desktop.marketplace.permissionGenerate")
 	case "backend.launch":
 		return i18n.Shared(language, "desktop.marketplace.permissionBackend")
-	case "debug.launch":
-		return i18n.Shared(language, "desktop.marketplace.permissionDebug")
+	case "process.build":
+		return i18n.Shared(language, "desktop.marketplace.permissionBuild")
 	case "process.run":
 		return i18n.Shared(language, "native.runYourFiles")
-	case "ui.contribute":
-		return i18n.Shared(language, "native.addToolWindowsAndCommandsToTheWorkbench")
-	case "ui.web":
-		return i18n.Shared(language, "native.showItsOwnPageInAToolWindow")
 	case "process.test":
 		return i18n.Shared(language, "native.runYourTests")
+	case "process.vcs":
+		return i18n.Shared(language, "desktop.marketplace.permissionVcs")
+	case "project.generate":
+		return i18n.Shared(language, "desktop.marketplace.permissionGenerate")
+	case "debug.launch":
+		return i18n.Shared(language, "desktop.marketplace.permissionDebug")
+	case "debug.attach":
+		return i18n.Shared(language, "desktop.marketplace.permissionDebugAttach")
+	case "debug.start":
+		return i18n.Shared(language, "desktop.marketplace.permissionDebugStart")
+	case "run.start":
+		return i18n.Shared(language, "desktop.marketplace.permissionRunStart")
+	case "terminal.create":
+		return i18n.Shared(language, "desktop.marketplace.permissionTerminalCreate")
 	case "commands.install":
 		return i18n.Shared(language, "desktop.marketplace.permissionCommandsInstall")
 	case "runtimes.install":
 		return i18n.Shared(language, "desktop.marketplace.permissionRuntimesInstall")
+	case "toolchains.provide":
+		return i18n.Shared(language, "desktop.marketplace.permissionToolchainsProvide")
+	case "ui.contribute":
+		return i18n.Shared(language, "native.addToolWindowsAndCommandsToTheWorkbench")
+	case "ui.web":
+		return i18n.Shared(language, "native.showItsOwnPageInAToolWindow")
+	case "window.messages":
+		return i18n.Shared(language, "desktop.marketplace.permissionWindowMessages")
+	case "browser.open":
+		return i18n.Shared(language, "desktop.marketplace.permissionBrowserOpen")
+	case "preview.open":
+		return i18n.Shared(language, "desktop.marketplace.permissionPreviewOpen")
+	case "workspace.metadata":
+		return i18n.Shared(language, "desktop.marketplace.permissionWorkspaceMetadata")
+	case "workspace.files.read":
+		return i18n.Shared(language, "desktop.marketplace.permissionWorkspaceFilesRead")
+	case "workspace.files.watch":
+		return i18n.Shared(language, "desktop.marketplace.permissionWorkspaceFilesWatch")
+	case "workspace.search":
+		return i18n.Shared(language, "desktop.marketplace.permissionWorkspaceSearch")
+	case "build.options.read":
+		return i18n.Shared(language, "desktop.marketplace.permissionBuildOptionsRead")
+	case "build.configuration.watch":
+		return i18n.Shared(language, "desktop.marketplace.permissionBuildConfigurationWatch")
+	case "documents.read":
+		return i18n.Shared(language, "desktop.marketplace.permissionDocumentsRead")
+	case "documents.contentProvider":
+		return i18n.Shared(language, "desktop.marketplace.permissionDocumentsContentProvider")
+	case "editor.open":
+		return i18n.Shared(language, "desktop.marketplace.permissionEditorOpen")
+	case "editor.edit":
+		return i18n.Shared(language, "desktop.marketplace.permissionEditorEdit")
+	case "editor.actions":
+		return i18n.Shared(language, "desktop.marketplace.permissionEditorActions")
+	case "editor.providers":
+		return i18n.Shared(language, "desktop.marketplace.permissionEditorProviders")
+	case "languageServer.request":
+		return i18n.Shared(language, "desktop.marketplace.permissionLanguageServerRequest")
+	case "credentials.store":
+		return i18n.Shared(language, "desktop.marketplace.permissionCredentialsStore")
+	case "keymaps.provide":
+		return i18n.Shared(language, "desktop.marketplace.permissionKeymapsProvide")
+	case "keymaps.readSelectedSources":
+		return i18n.Shared(language, "desktop.marketplace.permissionKeymapsReadSelectedSources")
 	}
 	return ""
 }

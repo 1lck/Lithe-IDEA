@@ -47,6 +47,8 @@ type Node struct {
 	Columns []Column   `json:"columns,omitempty"`
 	Rows    [][]string `json:"rows,omitempty"`
 	Tool    string     `json:"tool,omitempty"`
+	// Choose makes a tool row in a settings region also the tool's picker.
+	Choose bool `json:"choose,omitempty"`
 	// Height, ViewBox, Pan, Zoom, On and Nodes describe a canvas.
 	Height  float64     `json:"height,omitempty"`
 	ViewBox [4]float64  `json:"viewBox,omitempty"`

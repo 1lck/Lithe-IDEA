@@ -32,9 +32,10 @@ type SettingsHost interface {
 	// Row draws the page's own row for a declared setting, exactly as the page draws it.
 	// It reports false when the page has no such row.
 	Row(c ui.C, setting string) bool
-	// Tool draws the toolchain pages' row for a tool the plugin defines or requires.
-	// It reports false when the host has no row for it.
-	Tool(c ui.C, tool string) bool
+	// Tool draws the toolchain pages' row for a tool the plugin defines or requires; with
+	// choose the row is also the tool's picker, whose choice edits the page's toolchain
+	// draft. It reports false when the host has no row for it.
+	Tool(c ui.C, tool string, choose bool) bool
 	// Binding is the draft of a declared setting for a control bound to it.
 	Binding(setting string) (Binding, bool)
 	// Action runs a setting action through the page's confirmation flow. It runs
@@ -254,7 +255,7 @@ func (r *renderer) node(c ui.C, n *Node) {
 		}
 	case "tool":
 		if r.host.Settings != nil {
-			r.host.Settings.Tool(c, n.Tool)
+			r.host.Settings.Tool(c, n.Tool, n.Choose)
 		}
 	case "tree":
 		r.tree(c, n)

@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"reflect"
 	"slices"
 	"testing"
 
@@ -26,10 +27,13 @@ func TestMarketplaceSourceFixture(t *testing.T) {
 	var fixture struct {
 		Cases []struct {
 			Input    string `json:"input"`
+			Commit   string `json:"commit"`
 			Expected struct {
-				IndexURL           string `json:"indexURL"`
-				RecommendationsURL string `json:"recommendationsURL"`
-				DisplayName        string `json:"displayName"`
+				IndexURL           string               `json:"indexURL"`
+				RecommendationsURL string               `json:"recommendationsURL"`
+				DisplayName        string               `json:"displayName"`
+				Revision           *MarketplaceRevision `json:"revision"`
+				Pinned             *MarketplacePinned   `json:"pinned"`
 			} `json:"expected"`
 			ExpectedCode string `json:"expectedCode"`
 		} `json:"cases"`
@@ -37,8 +41,14 @@ func TestMarketplaceSourceFixture(t *testing.T) {
 	readMarketFixture(t, "marketplace/source-urls.json", &fixture)
 	client := NewClient()
 	for _, item := range fixture.Cases {
-		t.Run(item.Input, func(t *testing.T) {
-			source, err := client.ResolveMarketplaceSource(testContext(t), item.Input)
+		t.Run(item.Input+"@"+item.Commit, func(t *testing.T) {
+			var source MarketplaceSource
+			var err error
+			if item.Commit != "" {
+				source, err = client.PinMarketplaceSource(testContext(t), item.Input, item.Commit)
+			} else {
+				source, err = client.ResolveMarketplaceSource(testContext(t), item.Input)
+			}
 			if item.ExpectedCode != "" {
 				rejection, ok := err.(*MarketplaceRejection)
 				if !ok || rejection.Code != item.ExpectedCode {
@@ -49,7 +59,9 @@ func TestMarketplaceSourceFixture(t *testing.T) {
 			if err != nil ||
 				source.IndexURL != item.Expected.IndexURL ||
 				source.RecommendationsURL != item.Expected.RecommendationsURL ||
-				source.DisplayName != item.Expected.DisplayName {
+				source.DisplayName != item.Expected.DisplayName ||
+				!reflect.DeepEqual(source.Revision, item.Expected.Revision) ||
+				!reflect.DeepEqual(source.Pinned, item.Expected.Pinned) {
 				t.Fatalf("source = %#v, error = %v", source, err)
 			}
 		})
