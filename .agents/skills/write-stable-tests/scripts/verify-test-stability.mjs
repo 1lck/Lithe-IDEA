@@ -10,7 +10,7 @@
 // second sleep to a test that already had one does.
 
 import { execFileSync } from "node:child_process";
-import { readFileSync, readdirSync, statSync } from "node:fs";
+import { readFileSync, readdirSync, realpathSync, statSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -476,4 +476,13 @@ function main() {
   process.exitCode = 1;
 }
 
-if (path.resolve(process.argv[1] ?? "") === fileURLToPath(import.meta.url)) main();
+function isMainModule() {
+  if (!process.argv[1]) return false;
+  try {
+    return realpathSync(process.argv[1]) === realpathSync(fileURLToPath(import.meta.url));
+  } catch {
+    return false;
+  }
+}
+
+if (isMainModule()) main();

@@ -2,7 +2,7 @@
 
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, mkdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -116,4 +116,25 @@ await test("zero applicable sources are N/A and real Rust violations still fail 
   assert.match(failed.stdout, /coverage unavailable for 1 desktop Go test file/);
   assert.match(failed.stderr, /\[rust-real-sleep\]/);
   assert.doesNotMatch(failed.stdout, /check passed/);
+});
+
+await test("symlinked CLI invocation executes the scanner instead of exiting 0", { timeout: 5_000 }, (t) => {
+  const f = fixture(t);
+  f.put("desktop/example_test.go", goSource);
+  f.put("rust/crates/core/src/lib.rs", rustSource);
+  const link = path.join(f.root, "verify-link.mjs");
+  try {
+    symlinkSync(path.join(f.root, ".agents/skills/write-stable-tests/scripts/verify-test-stability.mjs"), link);
+  } catch (error) {
+    if (process.platform === "win32" && ["EPERM", "ENOTSUP"].includes(error.code)) {
+      t.skip(`symlinks unavailable on this host (${error.code})`);
+      return;
+    }
+    throw error;
+  }
+  const result = spawnSync(process.execPath, [link, "--all"], { cwd: f.root, encoding: "utf8", timeout: 5_000 });
+  assert.equal(result.error, undefined, String(result.error));
+  assert.equal(result.status, 1, result.stdout + result.stderr);
+  assert.match(result.stderr, /\[rust-real-sleep\]/);
+  assert.match(result.stdout, /coverage unavailable for 1 desktop Go test file/);
 });
