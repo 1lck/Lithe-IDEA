@@ -106,8 +106,6 @@ type pluginSettingsForm struct {
 	scope    int
 	editor   pluginservice.SettingsEditor
 	controls [2][]pluginSettingControl
-	// rows is the form's list of rows, which declares only the ones on screen.
-	rows ui.ListState
 }
 
 func newPluginSettingsForm(loader PluginSettingsLoader) *pluginSettingsForm {
@@ -123,7 +121,6 @@ func newPluginSettingsForm(loader PluginSettingsLoader) *pluginSettingsForm {
 		})
 		p.opEffect = ui.NewEffect[pluginSettingsResult, int](p.runOp)
 	}
-	p.rows.Key = nil
 	return p
 }
 
