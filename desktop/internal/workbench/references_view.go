@@ -142,14 +142,10 @@ func (a *App) syncReferenceSelection(canvas *gfx.Canvas) {
 	focused := canvas.Focused()
 	inTree := false
 	if focused != s.focus || s.reveal {
-		for i := range s.rows {
-			if s.view.RowID(i) == focused {
-				inTree = true
-				if focused != s.focus {
-					s.selected, s.selectedRow = s.rows[i].Key, i
-				}
-				break
-			}
+		i, found := treelist.FocusedRow(&s.view, len(s.rows), focused)
+		inTree = found
+		if found && focused != s.focus {
+			s.selected, s.selectedRow = s.rows[i].Key, i
 		}
 		s.focus = focused
 	}
