@@ -15,6 +15,8 @@
 
 ## 决策
 
+Viva 的单项目排除规则存于用户配置目录的项目哈希文件。读取失败（非法 JSON、权限不足或本版本不认识的已有字段形状）时，本会话以默认规则启动以保持工作区可用，同时记录一次 `app.settings.decode_failed`，`stage=directory_rules`。**这次会话不能编辑排除规则或 Git 自动排除开关**：否则会把加载失败误当成空规则覆盖原来的用户设置。用户修复原文件并重新打开项目后才恢复编辑；只重建索引和正常查询不会碰持久文件。`Store.Unread` 的兼容形状失败也视作无法安全编辑，不能仅靠 `Load` 的 nil error 判定文件已完整读取。
+
 Git 忽略语义交给本机 Git 的 `check-ignore`；查询同层目录时批量提交，
 再用 `ls-files` 保护已跟踪后代。单个被忽略文件不会被升级成目录排除。
 关闭自动排除保留手动标记与包含例外；应用存储不写入 `.gitignore` 或 `.iml`。
@@ -106,6 +108,7 @@ Python/Basedpyright 的项目配置可以覆盖语言服务器配置，因此不
 ## 验证
 
 - `./scripts/desktop/desktop-go.sh test ./internal/core ./internal/workbench`：库存剪枝、目录标记、排除策略与语言服务门禁的回归。
+- `./scripts/desktop/desktop-go.sh test ./internal/workbench -run 'TestUnreadableDirectoryRulesAreLoggedAndNeverReplacedByAnEdit|TestStartupBackgroundLogsUnreadableStoredColor|TestLogEventsMatchCatalog' -count=1`：整份无效 JSON 与已知字段形状无法读取时，都使用默认值且记录类别；排除编辑不改原文件，启动背景读取不改原文件。
 - 在 Core 仓库运行 `cargo test -p lithe-core project::indexing`：真实目录访问剪枝、树浏览、旧版本拒绝、保存回填防护与例外优先级（共享 fixture 为 `rust/fixtures/workspace/indexing-policy-v1.json`）。
 - `./scripts/desktop/verify/verify-runtime-bundle-immutability.sh`。
 - `./scripts/agent-notes/verify-agent-notes.sh`。
