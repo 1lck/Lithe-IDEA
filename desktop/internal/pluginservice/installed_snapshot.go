@@ -37,11 +37,14 @@ func (s *Service) readInstalled(ctx context.Context, entries []pluginmanager.Ent
 		return InstalledSnapshot{}, err
 	}
 	selected, selectionErr := s.selectInstalled(ctx, entries, includeDisabled)
+	if err := ctx.Err(); err != nil {
+		return InstalledSnapshot{}, errors.Join(selectionErr, err)
+	}
 	snapshot := InstalledSnapshot{manifests: make([]installedManifest, 0, len(selected))}
 	failures := []error{selectionErr}
 	for _, entry := range selected {
 		if err := ctx.Err(); err != nil {
-			return snapshot, errors.Join(append(failures, err)...)
+			return InstalledSnapshot{}, errors.Join(append(failures, err)...)
 		}
 		manifest, err := readBounded(filepath.Join(entry.Installed.Path, pluginpkg.ManifestFile), MaxManifestBytes)
 		if err != nil {

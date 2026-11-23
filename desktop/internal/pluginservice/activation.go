@@ -32,7 +32,13 @@ func (s *Service) SyncFunctionRelay(ctx context.Context, entries []pluginmanager
 	if s == nil || s.Contexts == nil {
 		return nil
 	}
+	if s.kernel == nil {
+		return fmt.Errorf("%w: no kernel", ErrAssembly)
+	}
 	snapshot, readErr := s.ReadInstalled(ctx, entries)
+	if ctx.Err() != nil {
+		return readErr
+	}
 	return errors.Join(readErr, s.syncFunctionRelay(ctx, snapshot))
 }
 

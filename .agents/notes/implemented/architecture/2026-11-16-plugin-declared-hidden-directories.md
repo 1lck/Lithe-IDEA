@@ -69,13 +69,13 @@ IntelliJ 把 `.venv` 登记成外部库，保留补全和跳转，但不算项�
 - 代价：没有对应插件，或插件还没发布 `hiddenDirectoryNames` 的生态，`target`、`build`、`node_modules`、`.venv` 等目录会重新出现在项目树里，也会被搜索和本地历史记录。Cargo、Gradle、Maven 插件需要在包含本次接入的桌面端版本发布之后再发布声明。
 - 代价：本地历史设置列出的默认规则现在全部是隐藏目录。Viva 桌面端没有“隐藏路径”设置，这些目录始终隐藏，所以删掉其中一行也不会开始记录；设置页的说明已经写明这一点。
 - 代价：一轮操作会同时持有全部选中清单的字节，每个文件沿用 `MaxManifestBytes` 上限；已返回的窗口等贡献只共享这些只读字节，不为每个消费者再复制完整清单。快照不保留到下一轮，语法等附属文件仍按各自上限读取。
-- 代价：名单是进程级的。两次插件重读如果几乎同时完成，后到的结果会覆盖先到的结果；下一次重读会纠正，目前没有观察到实际影响。
+- 代价：名单是进程级的。单个标签页内按 `pluginReloadGeneration` 丢弃过期重读结果；跨标签页的两次插件重读如果几乎同时完成，后到的结果仍会覆盖先到的结果，下一次重读会纠正，目前没有观察到实际影响。
 - 需要重新评估的触发条件：需要按目录内容（例如 `pyvenv.cfg`）而不是名字识别目录，或者桌面端要提供“隐藏路径”设置让用户放开默认隐藏目录时。
 
 ## 验证
 
 - `scripts/desktop/desktop-go.sh test ./internal/pluginservice -run TestInstalledSnapshot -count=1`：同一轮清单被替换后各贡献仍读取同一份内容，下一轮读到新内容；保留版本、禁用状态、部分失败、取消和清单大小上限。
-- `scripts/desktop/desktop-go.sh test ./internal/workbench -run TestPluginReloadSelectsInstalledVersionsOnce -count=1`：启用、禁用、重新启用各重读一次，只选择一次已安装版本，隐藏目录随该轮启用状态变化。
+- `scripts/desktop/desktop-go.sh test ./internal/workbench -run TestPluginReload -count=1`：启用、禁用、重新启用各重读一次，只选择一次已安装版本，隐藏目录随该轮启用状态变化；同时验证过期重读乱序完成时不会覆盖新状态，并仍正常解除初始语言加载阻塞。
 - `scripts/desktop/desktop-go.sh test ./internal/core -run TestWorkspaceVisibility -count=1`：真实 Core 隐藏插件声明的目录（任意层级、不区分大小写），被拒的清单不生效，清空后目录重新出现。
 - `scripts/desktop/desktop-go.sh test ./internal/workbench -run 'TestPluginDeclaredFolders|TestHiddenFolders|TestLocalHistorySettingsReachCore' -count=1`：启用插件后项目树隐藏声明的目录，禁用后重新显示；名单变化才重读目录；每个打开的标签页都生效；本地历史的默认规则包含插件声明的目录。
 - `scripts/desktop/desktop-go.sh test ./internal/fileicons -count=1`：排除目录图标只认当前名单。
@@ -88,6 +88,8 @@ IntelliJ 把 `.venv` 登记成外部库，保留补全和跳转，但不算项�
 - `desktop/internal/workbench/plugin_snapshot_test.go`
 - `desktop/internal/workbench/hidden_directories.go`
 - `desktop/internal/workbench/plugins.go`
+- `desktop/internal/workbench/app.go`
+- `desktop/internal/workbench/document_language.go`
 - `desktop/internal/core/workspace_visibility.go`
 - `desktop/internal/fileicons/fileicons.go`
 - `desktop/internal/settingswindow/local_history_view.go`

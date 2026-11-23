@@ -17,6 +17,7 @@ import (
 type snapshotKernel struct {
 	*fakeKernel
 	selections int
+	relayCalls int
 	onSelect   func()
 }
 
@@ -27,6 +28,11 @@ func (k *snapshotKernel) SelectInstalledPluginVersions(ctx context.Context, fact
 		k.onSelect()
 	}
 	return selection, err
+}
+
+func (k *snapshotKernel) ConfigureFunctionRelay(ctx context.Context, plugins []core.RelayPlugin, contexts []core.RelayContext) error {
+	k.relayCalls++
+	return k.fakeKernel.ConfigureFunctionRelay(ctx, plugins, contexts)
 }
 
 func snapshotEntry(t *testing.T, id, version, manifest string) pluginmanager.Entry {
@@ -192,6 +198,27 @@ func TestInstalledSnapshotCancelsBeforeManifestIO(t *testing.T) {
 	snapshot, err := service.ReadInstalled(ctx, []pluginmanager.Entry{entry})
 	if !errors.Is(err, context.Canceled) || errors.Is(err, os.ErrNotExist) || len(snapshot.ToolchainPlugins()) != 0 {
 		t.Fatalf("cancelled read = %+v, %v", snapshot, err)
+	}
+	emptyCtx, cancelEmpty := context.WithCancel(context.Background())
+	defer cancelEmpty()
+	emptyKernel := &snapshotKernel{fakeKernel: &fakeKernel{}, onSelect: cancelEmpty}
+	emptySnapshot, err := (&Service{kernel: emptyKernel}).ReadInstalled(emptyCtx, nil)
+	if !errors.Is(err, context.Canceled) || len(emptySnapshot.ToolchainPlugins()) != 0 {
+		t.Fatalf("cancelled empty read = %+v, %v", emptySnapshot, err)
+	}
+}
+
+func TestSyncFunctionRelayGuardsCancellationAndNilKernel(t *testing.T) {
+	kernel := &snapshotKernel{fakeKernel: &fakeKernel{}}
+	contexts := newWorkspaceContexts(t.TempDir())
+	service := &Service{kernel: kernel, Contexts: contexts}
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	if err := service.SyncFunctionRelay(ctx, nil); !errors.Is(err, context.Canceled) || kernel.relayCalls != 0 {
+		t.Fatalf("cancelled SyncFunctionRelay = %v, relayCalls = %d", err, kernel.relayCalls)
+	}
+	if err := (&Service{Contexts: contexts}).SyncFunctionRelay(context.Background(), nil); !errors.Is(err, ErrAssembly) {
+		t.Fatalf("nil kernel SyncFunctionRelay = %v, want ErrAssembly", err)
 	}
 }
 
