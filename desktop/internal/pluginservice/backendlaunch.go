@@ -1,6 +1,7 @@
 package pluginservice
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -17,6 +18,23 @@ import (
 type backendLaunch struct {
 	plan        *core.PluginBackendPlan
 	directories pluginDirectories
+	// configuration is set when the answer carried its own
+	// workspaceConfiguration: that value follows the settings only through
+	// the plugin's function, so an immediate change has to ask it again.
+	configuration *launchConfiguration
+}
+
+// launchConfiguration is what a running backend-resolved server needs to
+// answer its workspace configuration again: the request of its start, whose
+// directories stay the server's until it ends, and what the host resolved
+// for that start.
+type launchConfiguration struct {
+	pluginID   string
+	manifest   json.RawMessage
+	languageID string
+	workspace  WorkspaceContext
+	request    core.PluginBackendDirectories
+	runtimes   RuntimeEnvironment
 }
 
 // resolveBackendLaunch runs the two steps of a backend-resolved language-server
@@ -66,34 +84,10 @@ func (s *Service) resolveBackendLaunch(ctx context.Context, pluginID, version st
 		ProjectSettings:         start.ProjectSettings,
 		ProjectCodeAllowed:      start.ProjectCodeAllowed,
 	}
-	plan, err := s.kernel.PlanPluginLanguageServer(ctx, manifest, languageID, request)
+	launch := launchConfiguration{pluginID: pluginID, manifest: manifest, languageID: languageID, workspace: workspace, request: request, runtimes: runtimes}
+	decoded, carried, err := s.answerBackendLaunch(ctx, launch)
 	if err != nil {
 		return fail(err)
-	}
-	if plan.Launch.Kind != "backend" || plan.Launch.Function == "" {
-		return fail(fmt.Errorf("%w: the plan is not a backend-resolved launch", pluginbackend.ErrRequest))
-	}
-	// The function's params are the plan's resolveParams themselves, as the
-	// contract says: serverID, platform, the four directories and the settings.
-	params, err := s.languageLaunchParamsWithRuntimes(ctx, workspace.Path, manifest, plan.ResolveParams, runtimes)
-	if err != nil {
-		return fail(err)
-	}
-	reference, err := json.Marshal(workspace.ContextRef)
-	if err != nil {
-		return fail(err)
-	}
-	timeout := time.Duration(plan.Launch.TimeoutMilliseconds) * time.Millisecond
-	answer, err := s.Host.Call(ctx, pluginID, plan.Launch.Function, params, reference, timeout)
-	if err != nil {
-		return fail(fmt.Errorf("resolve the %s launch: %w", languageID, err))
-	}
-	decoded, err := s.kernel.DecodePluginLanguageServerLaunch(ctx, manifest, languageID, request, answer)
-	if err != nil {
-		return fail(err)
-	}
-	if decoded.Owner == nil {
-		decoded.Owner = plan.Owner
 	}
 	// The host creates the parents of the paths the server writes before the
 	// start, as the contract requires; Core already refused any outside the four
@@ -103,7 +97,79 @@ func (s *Service) resolveBackendLaunch(ctx context.Context, pluginID, version st
 			return fail(err)
 		}
 	}
-	return backendLaunch{plan: &decoded, directories: directories}, nil
+	resolved := backendLaunch{plan: &decoded, directories: directories}
+	if carried {
+		resolved.configuration = &launch
+	}
+	return resolved, nil
+}
+
+// answerBackendLaunch plans the first step of the launch, calls the plugin's
+// function and returns the plan Core decodes from its answer, and whether the
+// answer carried its own workspaceConfiguration. Without one, Core fills the
+// plan's configuration from the declaration.
+func (s *Service) answerBackendLaunch(ctx context.Context, launch launchConfiguration) (core.PluginBackendPlan, bool, error) {
+	plan, err := s.kernel.PlanPluginLanguageServer(ctx, launch.manifest, launch.languageID, launch.request)
+	if err != nil {
+		return core.PluginBackendPlan{}, false, err
+	}
+	if plan.Launch.Kind != "backend" || plan.Launch.Function == "" {
+		return core.PluginBackendPlan{}, false, fmt.Errorf("%w: the plan is not a backend-resolved launch", pluginbackend.ErrRequest)
+	}
+	// The function's params are the plan's resolveParams themselves, as the
+	// contract says: serverID, platform, the four directories and the settings.
+	params, err := s.languageLaunchParamsWithRuntimes(ctx, launch.workspace.Path, launch.manifest, plan.ResolveParams, launch.runtimes)
+	if err != nil {
+		return core.PluginBackendPlan{}, false, err
+	}
+	reference, err := json.Marshal(launch.workspace.ContextRef)
+	if err != nil {
+		return core.PluginBackendPlan{}, false, err
+	}
+	timeout := time.Duration(plan.Launch.TimeoutMilliseconds) * time.Millisecond
+	answer, err := s.Host.Call(ctx, launch.pluginID, plan.Launch.Function, params, reference, timeout)
+	if err != nil {
+		return core.PluginBackendPlan{}, false, fmt.Errorf("resolve the %s launch: %w", launch.languageID, err)
+	}
+	decoded, err := s.kernel.DecodePluginLanguageServerLaunch(ctx, launch.manifest, launch.languageID, launch.request, answer)
+	if err != nil {
+		return core.PluginBackendPlan{}, false, err
+	}
+	if decoded.Owner == nil {
+		decoded.Owner = plan.Owner
+	}
+	return decoded, answerCarriesConfiguration(answer), nil
+}
+
+// answerCarriesConfiguration reports whether a launch answer Core accepted
+// has a workspaceConfiguration of its own.
+func answerCarriesConfiguration(answer json.RawMessage) bool {
+	var fields struct {
+		WorkspaceConfiguration json.RawMessage `json:"workspaceConfiguration"`
+	}
+	if json.Unmarshal(answer, &fields) != nil {
+		return false
+	}
+	value := bytes.TrimSpace(fields.WorkspaceConfiguration)
+	return len(value) > 0 && !bytes.Equal(value, []byte("null"))
+}
+
+// launchWorkspaceConfiguration asks the plugin's function again with the
+// current settings and the directories of the running start, and returns
+// the workspaceConfiguration of the plan Core decodes. The rest of the
+// answer waits for the next start: an immediate setting changes nothing but
+// the configuration.
+func (s *Service) launchWorkspaceConfiguration(ctx context.Context, launch launchConfiguration, settings, projectSettings map[string]json.RawMessage) (json.RawMessage, error) {
+	launch.request.Settings = settings
+	launch.request.ProjectSettings = projectSettings
+	plan, _, err := s.answerBackendLaunch(ctx, launch)
+	if err != nil {
+		return nil, err
+	}
+	if value := bytes.TrimSpace(plan.WorkspaceConfiguration); len(value) == 0 || bytes.Equal(value, []byte("null")) {
+		return nil, nil
+	}
+	return plan.WorkspaceConfiguration, nil
 }
 
 // languageLaunchParams supplies native installation facts, without interpreting

@@ -423,7 +423,7 @@ func (a *App) signatureHelpPopup(c ui.C, completion gfx.Rect) {
 						if highlighted != "" {
 							ui.Row(sc.Part("active-param")).PadX(3).PadY(1).Radius(3).
 								Background(a.colors.Active).Shrink(0).Children(func() {
-								ui.Text(sc.Part("active-param-text"), highlighted).Mono().FontSize(12).
+								ui.Text(c, highlighted).Mono().FontSize(12).
 									Weight(gfx.WeightBold).Color(a.colors.Text)
 							})
 						}

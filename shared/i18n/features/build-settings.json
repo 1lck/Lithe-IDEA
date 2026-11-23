@@ -19,6 +19,13 @@
       }
     },
     {
+      "id": "desktop.buildSettings.issuesTitleOne",
+      "description": "Build, Execution, Deployment settings: the problems box title when exactly one tool needs attention",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
       "id": "desktop.buildSettings.issuesAll",
       "description": "Build, Execution, Deployment settings: issuesAll",
       "platforms": [
@@ -55,6 +62,38 @@
       }
     },
     {
+      "id": "desktop.buildSettings.directoryToolchainsOneTool",
+      "description": "Build, Execution, Deployment settings: the Toolchains tile when there is exactly one tool, from several plugins",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "plugins": "string",
+        "scope": "string"
+      }
+    },
+    {
+      "id": "desktop.buildSettings.directoryToolchainsOnePlugin",
+      "description": "Build, Execution, Deployment settings: the Toolchains tile when several tools come from exactly one plugin",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "scope": "string",
+        "tools": "string"
+      }
+    },
+    {
+      "id": "desktop.buildSettings.directoryToolchainsOne",
+      "description": "Build, Execution, Deployment settings: the Toolchains tile when exactly one tool comes from exactly one plugin",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "scope": "string"
+      }
+    },
+    {
       "id": "desktop.buildSettings.directoryDebuggers",
       "description": "Build, Execution, Deployment settings: directoryDebuggers",
       "platforms": [
@@ -63,6 +102,13 @@
       "parameters": {
         "count": "string"
       }
+    },
+    {
+      "id": "desktop.buildSettings.directoryDebuggersOne",
+      "description": "Build, Execution, Deployment settings: the Stepping tile when exactly one debugger supports filters",
+      "platforms": [
+        "desktop"
+      ]
     },
     {
       "id": "desktop.buildSettings.directoryDebuggersCustomized",
@@ -74,6 +120,13 @@
         "count": "string",
         "customized": "string"
       }
+    },
+    {
+      "id": "desktop.buildSettings.directoryDebuggersOneCustomized",
+      "description": "Build, Execution, Deployment settings: the Stepping tile when exactly one debugger supports filters and its filters are customized",
+      "platforms": [
+        "desktop"
+      ]
     },
     {
       "id": "desktop.buildSettings.directoryKind",
@@ -105,6 +158,13 @@
       "parameters": {
         "count": "string"
       }
+    },
+    {
+      "id": "desktop.buildSettings.kindPageCountOne",
+      "description": "Build, Execution, Deployment settings: the footer of a kind's page list when it lists exactly one page",
+      "platforms": [
+        "desktop"
+      ]
     },
     {
       "id": "desktop.buildSettings.kindFilter",
@@ -329,6 +389,16 @@
       }
     },
     {
+      "id": "desktop.buildSettings.trustBannerOne",
+      "description": "Build, Execution, Deployment settings: the Toolchains warning when exactly one tool comes from an environment inside the untrusted project",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "sources": "string"
+      }
+    },
+    {
       "id": "desktop.buildSettings.trustProject",
       "description": "Build, Execution, Deployment settings: trustProject",
       "platforms": [
@@ -344,6 +414,16 @@
       "parameters": {
         "matched": "string",
         "total": "string"
+      }
+    },
+    {
+      "id": "desktop.buildSettings.listCountOne",
+      "description": "Build, Execution, Deployment settings: the count under the Toolchains list when the scope has exactly one tool",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "matched": "string"
       }
     },
     {
@@ -825,6 +905,13 @@
       }
     },
     {
+      "id": "desktop.buildSettings.debuggerCountOne",
+      "description": "Build, Execution, Deployment settings: the footer of the Stepping debugger list when it lists exactly one debugger",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
       "id": "desktop.buildSettings.debuggerNoMatches",
       "description": "Build, Execution, Deployment settings: debuggerNoMatches",
       "platforms": [
@@ -996,15 +1083,22 @@
     "en-US": {
       "desktop.buildSettings.directoryNote": "This page lists the subpages and their status only; it does not show what plugins add.",
       "desktop.buildSettings.issuesTitle": "{count} need attention",
+      "desktop.buildSettings.issuesTitleOne": "1 needs attention",
       "desktop.buildSettings.issuesAll": "View all {count} in Toolchains",
       "desktop.buildSettings.directoryScopeGlobal": "global defaults",
       "desktop.buildSettings.directoryScopeProject": "the current project",
       "desktop.buildSettings.directoryToolchains": "{tools} tools · from {plugins} plugins · showing {scope}",
+      "desktop.buildSettings.directoryToolchainsOneTool": "1 tool · from {plugins} plugins · showing {scope}",
+      "desktop.buildSettings.directoryToolchainsOnePlugin": "{tools} tools · from 1 plugin · showing {scope}",
+      "desktop.buildSettings.directoryToolchainsOne": "1 tool · from 1 plugin · showing {scope}",
       "desktop.buildSettings.directoryDebuggers": "Stepping: {count} debuggers support filters",
+      "desktop.buildSettings.directoryDebuggersOne": "Stepping: 1 debugger supports filters",
       "desktop.buildSettings.directoryDebuggersCustomized": "Stepping: {count} debuggers support filters · {customized} customized",
+      "desktop.buildSettings.directoryDebuggersOneCustomized": "Stepping: 1 debugger supports filters · customized",
       "desktop.buildSettings.directoryKind": "{names} · provided by plugins",
       "desktop.buildSettings.directoryKindMore": "{names} and {count} more · provided by plugins",
       "desktop.buildSettings.kindPageCount": "{count} pages",
+      "desktop.buildSettings.kindPageCountOne": "1 page",
       "desktop.buildSettings.kindFilter": "Filter pages or plugins",
       "desktop.buildSettings.kindNoMatches": "No matching pages",
       "desktop.buildSettings.listSeparator": ", ",
@@ -1034,8 +1128,10 @@
       "desktop.buildSettings.groupPlugin": "By Plugin",
       "desktop.buildSettings.groupNone": "None",
       "desktop.buildSettings.trustBanner": "{count} tools come from environments inside the project ({sources}). Lithe does not probe or run them until you trust the project.",
+      "desktop.buildSettings.trustBannerOne": "1 tool comes from an environment inside the project ({sources}). Lithe does not probe or run it until you trust the project.",
       "desktop.buildSettings.trustProject": "Trust This Project",
       "desktop.buildSettings.listCount": "{matched} / {total} tools",
+      "desktop.buildSettings.listCountOne": "{matched} / 1 tool",
       "desktop.buildSettings.noMatches": "No matching tools",
       "desktop.buildSettings.noProblems": "✓ No tools need attention",
       "desktop.buildSettings.pluginGroupHelp": "Runtimes plugins declare for their own language servers or background processes. You rarely change them, so the group starts collapsed; their problems still count under Needs Attention.",
@@ -1096,6 +1192,7 @@
       "desktop.buildSettings.debuggers": "Debuggers",
       "desktop.buildSettings.debuggerFilter": "Filter debuggers",
       "desktop.buildSettings.debuggerCount": "{count} debuggers",
+      "desktop.buildSettings.debuggerCountOne": "1 debugger",
       "desktop.buildSettings.debuggerNoMatches": "No matching debuggers",
       "desktop.buildSettings.providedBy": "Provided by {plugin}",
       "desktop.buildSettings.tabStepping": "Stepping",
@@ -1123,15 +1220,22 @@
     "zh-CN": {
       "desktop.buildSettings.directoryNote": "这一页只列子页和状态摘要，不直接展示插件注入的内容。",
       "desktop.buildSettings.issuesTitle": "{count} 项需要处理",
+      "desktop.buildSettings.issuesTitleOne": "1 项需要处理",
       "desktop.buildSettings.issuesAll": "在工具链中查看全部 {count} 项",
       "desktop.buildSettings.directoryScopeGlobal": "全局默认",
       "desktop.buildSettings.directoryScopeProject": "当前项目",
       "desktop.buildSettings.directoryToolchains": "{tools} 个工具 · 来自 {plugins} 个插件 · 当前显示{scope}",
+      "desktop.buildSettings.directoryToolchainsOneTool": "1 个工具 · 来自 {plugins} 个插件 · 当前显示{scope}",
+      "desktop.buildSettings.directoryToolchainsOnePlugin": "{tools} 个工具 · 来自 1 个插件 · 当前显示{scope}",
+      "desktop.buildSettings.directoryToolchainsOne": "1 个工具 · 来自 1 个插件 · 当前显示{scope}",
       "desktop.buildSettings.directoryDebuggers": "单步：{count} 个调试器支持过滤",
+      "desktop.buildSettings.directoryDebuggersOne": "单步：1 个调试器支持过滤",
       "desktop.buildSettings.directoryDebuggersCustomized": "单步：{count} 个调试器支持过滤 · {customized} 个已自定义",
+      "desktop.buildSettings.directoryDebuggersOneCustomized": "单步：1 个调试器支持过滤 · 已自定义",
       "desktop.buildSettings.directoryKind": "{names} · 由插件提供",
       "desktop.buildSettings.directoryKindMore": "{names} 等 {count} 个 · 由插件提供",
       "desktop.buildSettings.kindPageCount": "{count} 个页面",
+      "desktop.buildSettings.kindPageCountOne": "1 个页面",
       "desktop.buildSettings.kindFilter": "筛选页面或插件",
       "desktop.buildSettings.kindNoMatches": "没有匹配的页面",
       "desktop.buildSettings.listSeparator": "、",
@@ -1161,8 +1265,10 @@
       "desktop.buildSettings.groupPlugin": "按插件",
       "desktop.buildSettings.groupNone": "不分组",
       "desktop.buildSettings.trustBanner": "{count} 个工具来自项目内的环境（{sources}）。信任项目之前不会探测或运行它们。",
+      "desktop.buildSettings.trustBannerOne": "1 个工具来自项目内的环境（{sources}）。信任项目之前不会探测或运行它。",
       "desktop.buildSettings.trustProject": "信任此项目",
       "desktop.buildSettings.listCount": "{matched} / {total} 个工具",
+      "desktop.buildSettings.listCountOne": "{matched} / 1 个工具",
       "desktop.buildSettings.noMatches": "没有匹配的工具",
       "desktop.buildSettings.noProblems": "✓ 没有需要处理的工具",
       "desktop.buildSettings.pluginGroupHelp": "插件为自己的语言服务器或后台进程声明的运行时。平时不用改，所以默认折叠；出了问题仍会计入“需要处理”。",
@@ -1223,6 +1329,7 @@
       "desktop.buildSettings.debuggers": "调试器",
       "desktop.buildSettings.debuggerFilter": "筛选调试器",
       "desktop.buildSettings.debuggerCount": "{count} 个调试器",
+      "desktop.buildSettings.debuggerCountOne": "1 个调试器",
       "desktop.buildSettings.debuggerNoMatches": "没有匹配的调试器",
       "desktop.buildSettings.providedBy": "由 {plugin} 提供",
       "desktop.buildSettings.tabStepping": "单步",

@@ -367,14 +367,18 @@ func (s *remoteShell) sendNext() bool {
 			continue
 		}
 		s.mu.Lock()
-		if err == nil {
-			s.input = s.input[:copy(s.input, s.input[len(chunk):])]
-		} else {
-			s.input = nil
+		// The terminal stream can clear the queue before a write is acknowledged.
+		ended = s.ended
+		if !ended {
+			if err == nil {
+				s.input = s.input[:copy(s.input, s.input[len(chunk):])]
+			} else {
+				s.input = nil
+			}
 		}
 		s.mu.Unlock()
 		s.refused(err, true)
-		return true
+		return !ended
 	}
 }
 

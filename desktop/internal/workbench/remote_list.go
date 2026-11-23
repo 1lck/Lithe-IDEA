@@ -402,7 +402,7 @@ func (a *App) remoteHops(c ui.C, language i18n.Language, disabled bool) {
 				k := c.KeyInt(index)
 				ui.Row(k).Height(a.theme.Metrics.ControlHeight).Shrink(0).Items(ui.Center).Gap(2).PadSides(0, 3, 0, 9).
 					Radius(a.theme.Metrics.RadiusItem()).Background(a.colors.Hover).Stroke(1, a.colors.TabIdleBorder).Children(func() {
-					ui.Text(k, hop).Mono().FontSize(small)
+					ui.Text(c, hop).Mono().FontSize(small)
 					remove := ui.Button(k.Part("remove"), i18n.SharedFormat(language, "desktop.remote.hopRemove", map[string]string{"host": hop})).
 						Icon(icons.X).IconOnly().Ghost().Size(18, 18).Disabled(disabled)
 					if remove.Clicked() {
@@ -424,8 +424,8 @@ func (a *App) remoteHops(c ui.C, language i18n.Language, disabled bool) {
 		}
 		ui.Row(c.Part("route")).FillWidth().Gap(6).Items(ui.Center).Children(func() {
 			step := func(k ui.C, text string, color gfx.Color) {
-				ui.Icon(k, icons.ChevronRight).Size(12, 12).Shrink(0).Color(a.colors.Subtle)
-				ui.Text(k, text).Mono().FontSize(small).Color(color).Ellipsis().Shrink(1).MinWidth(0)
+				ui.Icon(c, icons.ChevronRight).Size(12, 12).Shrink(0).Color(a.colors.Subtle)
+				ui.Text(c, text).Mono().FontSize(small).Color(color).Ellipsis().Shrink(1).MinWidth(0)
 			}
 			ui.Text(c, i18n.Shared(language, "desktop.remote.thisComputer")).FontSize(small).Color(a.colors.Subtle).Shrink(0)
 			for index, hop := range hops {

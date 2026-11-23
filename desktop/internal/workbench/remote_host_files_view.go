@@ -32,9 +32,9 @@ func (a *App) remoteHostFilesPopup(c ui.C) {
 	ui.Stack(c.Part("remote-host-files-anchor")).Fill().Children(func() {
 		anchor = ui.Row(c).Absolute().Left((bounds.Width - width) / 2).Top(84).Width(width).Height(1)
 	})
-	closed := ui.PopoverWith(c.Part("remote-host-files"), anchor, ui.PopoverSpec{
+	closed := ui.PopoverWith(c.Part("remote-host-files"), anchor, &f.open, ui.PopoverSpec{
 		Width: width, Offset: 1, Align: ui.Start, KeepOpenOnAnchor: true,
-	}, &f.open, func() {
+	}, func() {
 		ui.Column(c).FillWidth().Height(height).Gap(8).Children(func() {
 			ui.Row(c).FillWidth().Items(ui.Center).Gap(8).Children(func() {
 				ui.Text(c, i18n.Shared(language, "desktop.remote.hostFile.title")).Bold().Shrink(0)

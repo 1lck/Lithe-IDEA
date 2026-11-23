@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -272,6 +273,7 @@ func TestProjectSwitchKeepsDirtyDocumentWhenSaveFails(t *testing.T) {
 // A delayed first save must finish before a close saves the later revision.
 func TestCloseDocumentSerializesInFlightSave(t *testing.T) {
 	h := newHarness(t, &testKernel{Client: core.NewClient()})
+	h.app.settings.DisableAutoSave = true
 	root := t.TempDir()
 	path := filepath.Join(root, "note.txt")
 	if err := os.WriteFile(path, []byte("original"), 0o600); err != nil {
@@ -285,6 +287,13 @@ func TestCloseDocumentSerializesInFlightSave(t *testing.T) {
 	if d == nil {
 		t.Fatal("missing document")
 	}
+	// Close requests a fresh disk check itself. Let any initial check finish
+	// and keep native watch events out of the two controlled saves.
+	if watch := p.docs.watches[root]; watch != nil {
+		watch.close()
+		delete(p.docs.watches, root)
+	}
+	h.await("the document's initial disk check", func() bool { return !d.checking && !d.checkPending })
 	input := d.view.TextInput(app.TextInputContext{ID: d.hit})
 	typeText := func(s string) {
 		t.Helper()
@@ -294,14 +303,21 @@ func TestCloseDocumentSerializesInFlightSave(t *testing.T) {
 	}
 	started := make(chan struct{})
 	release := make(chan struct{})
-	first := true
+	writeErrors := make(chan error, 1)
+	var writes atomic.Int32
 	h.app.documentWriter = func(path string, data, expected []byte) error {
-		if first {
-			first = false
+		if writes.Add(1) == 1 {
 			close(started)
 			<-release
 		}
-		return documentio.WriteGuarded(path, data, expected)
+		err := documentio.WriteGuarded(path, data, expected)
+		if err != nil {
+			select {
+			case writeErrors <- err:
+			default:
+			}
+		}
+		return err
 	}
 	released := false
 	t.Cleanup(func() {
@@ -324,7 +340,17 @@ func TestCloseDocumentSerializesInFlightSave(t *testing.T) {
 	}
 	close(release)
 	released = true
-	awaitDocumentState(t, h, func() bool { return p.docs.find(d.id) == nil })
+	h.await("the tab to close after both saves", func() bool {
+		select {
+		case err := <-writeErrors:
+			t.Fatalf("guarded write failed: %v", err)
+		default:
+		}
+		return p.docs.find(d.id) == nil
+	})
+	if count := writes.Load(); count != 2 {
+		t.Fatalf("guarded writes = %d, want 2", count)
+	}
 	data, err := os.ReadFile(path)
 	if err != nil || string(data) != string(want) {
 		t.Fatalf("disk = %q, want %q, error = %v", data, want, err)

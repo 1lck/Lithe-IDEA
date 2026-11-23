@@ -257,14 +257,14 @@ func (a *App) buildRuntimeRows(c ui.C, language i18n.Language, e *buildOptionsEd
 	for index, runtime := range e.runtimes {
 		k := c.KeyInt(index)
 		ui.Row(k).FillWidth().Items(ui.Center).Gap(8).Children(func() {
-			ui.Text(k, runtime.name).FontSize(a.theme.Metrics.FontSizeS).Color(a.colors.Text).Ellipsis().Shrink(0).MaxWidth(120)
+			ui.Text(c, runtime.name).FontSize(a.theme.Metrics.FontSizeS).Color(a.colors.Text).Ellipsis().Shrink(0).MaxWidth(120)
 			if runtime.failure != "" {
-				ui.Text(k, runtime.failure).FontSize(a.theme.Metrics.FontSizeS).Color(a.theme.Danger).Ellipsis().Shrink(1).MinWidth(0)
+				ui.Text(c, runtime.failure).FontSize(a.theme.Metrics.FontSizeS).Color(a.theme.Danger).Ellipsis().Shrink(1).MinWidth(0)
 				return
 			}
-			ui.Text(k, runtime.executable).FontSize(a.theme.Metrics.FontSizeS).Color(a.colors.Text).Ellipsis().Shrink(1).MinWidth(0)
-			ui.Spacer(k)
-			ui.Text(k, buildExecutionSourceLabel(language, runtime.source)).FontSize(a.theme.Metrics.FontSizeS).Color(a.colors.Subtle).Ellipsis().Shrink(0).MaxWidth(160)
+			ui.Text(c, runtime.executable).FontSize(a.theme.Metrics.FontSizeS).Color(a.colors.Text).Ellipsis().Shrink(1).MinWidth(0)
+			ui.Spacer(c)
+			ui.Text(c, buildExecutionSourceLabel(language, runtime.source)).FontSize(a.theme.Metrics.FontSizeS).Color(a.colors.Subtle).Ellipsis().Shrink(0).MaxWidth(160)
 		})
 	}
 	ui.Wrap(c, i18n.Shared(language, "desktop.build.runtimeHelp")).FontSize(a.theme.Metrics.FontSizeS).Color(a.colors.Subtle)
@@ -323,9 +323,9 @@ func (a *App) buildDroppedOptionRows(c ui.C, language i18n.Language, p *project,
 			value = option.team
 		}
 		ui.Column(k).FillWidth().Gap(2).Children(func() {
-			ui.Text(k, option.id+" = "+value).FontSize(a.theme.Metrics.FontSizeS).Color(a.colors.Text).Ellipsis()
+			ui.Text(c, option.id+" = "+value).FontSize(a.theme.Metrics.FontSizeS).Color(a.colors.Text).Ellipsis()
 			if option.hasTeam {
-				ui.Text(k, i18n.SharedFormat(language, "desktop.build.droppedInTeam", map[string]string{"file": buildTeamOptionsFile})).
+				ui.Text(c, i18n.SharedFormat(language, "desktop.build.droppedInTeam", map[string]string{"file": buildTeamOptionsFile})).
 					FontSize(a.theme.Metrics.FontSizeS).Color(a.colors.Subtle).Ellipsis()
 			}
 		})

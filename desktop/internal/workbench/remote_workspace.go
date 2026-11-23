@@ -458,16 +458,18 @@ func (a *App) reconnectRemote(p *project, userStarted bool) {
 	r.stopRemoteTimer()
 	r.link, r.failure = remoteReconnecting, nil
 	ctx, cancel := context.WithTimeout(a.operationContext(p.ctx), remoteProbeTimeout)
-	if userStarted {
-		ctx = a.gitAuthentication(ctx)
-	}
+	// An automatic attempt sends only what the connection remembers (remote_answers.go).
+	answers := a.remoteAnswersFor(r.connectionID, r.host)
+	ctx = a.remoteAuthentication(ctx, answers, userStarted)
 	attempt := &remoteProbe{cancel: cancel}
 	r.reconnecting = attempt
 	kernel, root, host, resume := a.kernel, a.globalToolchainRoot(), r.host, r.resume
 	a.background(nil, 0, func(context.Context) func(*App) {
 		defer cancel()
 		result, err := a.connectRemoteHost(ctx, kernel, root, host, resume)
+		settled := answers.settle(result.Status, err)
 		return func(a *App) {
+			a.remoteAnswersSettled(settled, userStarted)
 			if a.project != p || r.closed || r.reconnecting != attempt {
 				if result.Session != nil {
 					a.releaseRemoteSession(result.Session.ID)

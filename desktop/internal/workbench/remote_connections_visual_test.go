@@ -18,8 +18,9 @@ import (
 
 // TestVisualRemoteConnections captures the Remote Development window: the first page with nothing
 // saved, saved connections under their groups with the tested one's overview, its form, a new
-// connection whose host Core refused under its field, OpenSSH's password question over the window,
-// a refused test, the connection steps with OpenSSH's questions on the page and a failure, the
+// connection whose host Core refused under its field, OpenSSH's password question over the window
+// with its Remember box, a refused test, the connection steps with OpenSSH's questions on the page
+// (a remembered password the host refused among them) and a failure, the
 // question whether to trust a folder, Motty's hosts to import, the host's folders and its running
 // containers, a WSL
 // distribution's page and a failed connection to one, a container's page and a failed connection
@@ -170,10 +171,12 @@ func TestVisualRemoteConnections(t *testing.T) {
 			shot("refused")
 
 			r.selectEntry(buildBox)
+			// A saved connection's password question offers to remember the answer.
 			done := make(chan struct{})
-			h.app.gitAuth.queue = append(h.app.gitAuth.queue, core.GitAuthChallenge{
-				RequestID: "visual", Prompt: "dev@build.example's password: ", Secret: true, Attempt: 1, Remote: true, Done: done,
-			})
+			h.app.gitAuth.queue = append(h.app.gitAuth.queue, gitAuthQuestion{GitAuthChallenge: core.GitAuthChallenge{
+				RequestID: "visual", Prompt: "dev@build.example's password: ", Secret: true, Attempt: 1, Remote: true,
+				Kind: core.RemoteQuestionPassword, Done: done,
+			}, answers: &remoteAnswers{owner: buildBox}, question: "visual"})
 			shot("password")
 			h.app.gitAuth.queue = nil
 			close(done)
@@ -202,16 +205,19 @@ func TestVisualRemoteConnections(t *testing.T) {
 			steps := newRemoteSteps(*r.entry(buildBox), remoteHost{ssh: r.entry(buildBox).Connection}, "", h.app.now())
 			r.steps = steps
 			asked := make(chan struct{})
-			h.app.gitAuth.queue = []core.GitAuthChallenge{{
+			h.app.gitAuth.queue = []gitAuthQuestion{{GitAuthChallenge: core.GitAuthChallenge{
 				RequestID: "visual-key", Prompt: "Are you sure you want to continue connecting (yes/no/[fingerprint])? ",
 				Remote: true, Kind: core.RemoteQuestionHostKey, KeyType: "ED25519",
 				Fingerprint: "SHA256:7Yb0QaBf3c1uN0e9kVwq2XrJmZpT4sLhG8dEoUiAy6c", Attempt: 1, Done: asked,
-			}}
+			}}}
 			shot("steps-host-key")
 			steps.advance(h.app.now(), remoteStepAuthenticate)
-			h.app.gitAuth.queue = []core.GitAuthChallenge{{
-				RequestID: "visual-password", Prompt: "dev@build.example's password: ", Secret: true, Remote: true, Attempt: 1, Done: asked,
-			}}
+			// The host refused the answer remembered last time, so the question is asked again with
+			// Remember still ticked.
+			h.app.gitAuth.queue = []gitAuthQuestion{{GitAuthChallenge: core.GitAuthChallenge{
+				RequestID: "visual-password", Prompt: "dev@build.example's password: ", Secret: true, Remote: true, Attempt: 2,
+				Kind: core.RemoteQuestionPassword, Done: asked,
+			}, answers: &remoteAnswers{owner: buildBox}, question: "visual-password", remembered: true, refused: true}}
 			shot("steps-password")
 			h.app.gitAuth.queue = nil
 			close(asked)

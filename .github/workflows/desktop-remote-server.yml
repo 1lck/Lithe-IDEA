@@ -1,11 +1,13 @@
 name: Desktop remote server
 
-# Builds the remote workspace server for its Linux targets once, checks every executable, smoke
-# tests each one on a runner of its own architecture and uploads them as the artifact
-# remote-server-linux-musl (#2231). Desktop CI calls it to check a change; Desktop Release and
-# Desktop AutoBuild call it, and every package job downloads that artifact and embeds those exact
-# bytes (scripts/desktop/package-desktop.sh with LITHE_REMOTE_SERVER_STAGE), so all packages of a
-# run carry the same server builds that were tested here.
+# The first stage of every desktop run that ships the remote workspace server (#2231): one job
+# builds the server for all of its Linux targets and checks every executable without running
+# it, then one job per target downloads those bytes and smoke tests them on a runner of the
+# target's own architecture, never under an emulator. The artifact is remote-server-linux-musl.
+# Desktop CI calls this to check a change; Desktop Release and Desktop AutoBuild call it before
+# building the app, and every package job downloads the artifact and embeds those exact bytes
+# (scripts/desktop/package-desktop.sh with LITHE_REMOTE_SERVER_STAGE), so all packages of a run
+# carry the same server builds that were tested here.
 on:
   workflow_call:
     inputs:
@@ -20,7 +22,7 @@ permissions:
 
 jobs:
   build:
-    name: Remote server artifacts
+    name: Build for linux amd64 and arm64
     runs-on: ubuntu-latest
     timeout-minutes: 20
 
@@ -51,13 +53,12 @@ jobs:
       - name: Build the remote server
         run: ./scripts/desktop/build-remote-server.sh
 
-      # Every executable is checked here; only the x86_64 one runs on this runner, and the arm64
-      # job runs the aarch64 one on arm64 hardware. Sizes go to the job summary and never fail the
-      # lane (#2231, D9).
-      - name: Verify the remote server artifacts
-        run: node scripts/desktop/verify/verify-remote-server-artifacts.mjs --require-smoke x86_64-unknown-linux-musl --require-pinned
+      # The manifest, hashes, ELF machine and static linking of every executable. The test jobs
+      # run them. Sizes go to the job summary and never fail the lane (#2231, D9).
+      - name: Check the remote server executables
+        run: node scripts/desktop/verify/verify-remote-server-artifacts.mjs --smoke none --require-pinned
 
-      - name: Upload the remote server artifacts
+      - name: Upload the remote server builds
         uses: actions/upload-artifact@v7
         with:
           name: remote-server-linux-musl
@@ -65,11 +66,21 @@ jobs:
           if-no-files-found: error
           retention-days: 14
 
-  arm64:
-    name: Remote server on arm64
+  test:
+    name: Test on linux ${{ matrix.arch }}
     needs: build
-    runs-on: ubuntu-24.04-arm
+    runs-on: ${{ matrix.runner }}
     timeout-minutes: 10
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: amd64
+            runner: ubuntu-24.04
+            target: x86_64-unknown-linux-musl
+          - arch: arm64
+            runner: ubuntu-24.04-arm
+            target: aarch64-unknown-linux-musl
 
     steps:
       - name: Check out source
@@ -82,16 +93,18 @@ jobs:
           node-version: 20
 
       # The same bytes that the build job built and uploaded, not a second build.
-      - name: Download the remote server artifacts
+      - name: Download the remote server builds
         uses: actions/download-artifact@v8
         with:
           name: remote-server-linux-musl
           path: .artifacts/desktop/remote-server/
 
       # Artifacts do not keep file modes. The SHA-256 check below still proves that these are
-      # the executables the build job verified.
+      # the executables the build job checked.
       - name: Restore the executable mode
         run: chmod 0755 .artifacts/desktop/remote-server/*/lithe-remote-server
 
-      - name: Smoke test the aarch64 server natively
-        run: node scripts/desktop/verify/verify-remote-server-artifacts.mjs --require-smoke aarch64-unknown-linux-musl --require-pinned
+      - name: Smoke test the ${{ matrix.target }} server natively
+        run: node scripts/desktop/verify/verify-remote-server-artifacts.mjs --smoke "$TARGET" --require-pinned
+        env:
+          TARGET: ${{ matrix.target }}

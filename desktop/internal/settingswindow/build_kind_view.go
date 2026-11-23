@@ -85,7 +85,7 @@ func (w *window) buildKindPage(c ui.C, kind string) {
 			w.kindList(c.Part("list"), language, kind, state)
 			ui.Row(c).FillWidth().Height(1).Shrink(0).Background(b.line)
 			ui.Row(c).FillWidth().Shrink(0).PadX(12).PadY(5).Children(func() {
-				ui.Text(c, i18n.SharedFormat(language, "desktop.buildSettings.kindPageCount", map[string]string{"count": formatCount(w.dynamic.kindCount(kind))})).
+				ui.Text(c, kindPageCount(language, w.dynamic.kindCount(kind))).
 					FontSize(11).Color(b.faint).Ellipsis()
 			})
 		})
@@ -144,9 +144,9 @@ func (w *window) kindList(c ui.C, language i18n.Language, kind string, state *ki
 		r.Element.Children(func() {
 			w.pluginTile(k, plugins, 20)
 			ui.Column(k).Grow(1).Shrink(1).MinWidth(0).Children(func() {
-				ui.Text(k, page.Title).FontSize(buildFont).Weight(gfx.WeightSemibold).Color(b.text).Ellipsis()
+				ui.Text(c, page.Title).FontSize(buildFont).Weight(gfx.WeightSemibold).Color(b.text).Ellipsis()
 				ui.Row(k).FillWidth().Height(2).Shrink(0)
-				ui.Text(k, plugins).FontSize(11).Color(b.faint).Ellipsis()
+				ui.Text(c, plugins).FontSize(11).Color(b.faint).Ellipsis()
 			})
 		})
 	}).Scrollbars().FillWidth().Grow(1).Shrink(1).MinHeight(0).Label(kindTitle(language, kind))
