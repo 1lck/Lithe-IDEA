@@ -41,7 +41,7 @@
 - `scripts/desktop/desktop-go.sh test ./internal/core ./internal/fileassociations ./internal/workbench -run '^Test(FileAssociations|SystemDocuments)' -count=1 -timeout=60s`：链接修改后的 Core，核对共享 fixture、真实高亮解析、Viva 原生清单，以及真实文件的独立打开与项目保留。
 - `scripts/desktop/desktop-go.sh test -tags 'vivahead lithevisual' ./internal/settingswindow -run '^TestVisualFileAssociations$' -count=1 -timeout=60s`：使用 `LITHE_VISUAL_OUTPUT_DIR` 输出中英、明暗截图；系统默认应用只读，验证全选、清空、刷新、鼠标滚轮到末尾、虚拟化和选择保留。
 - `scripts/desktop/generate-file-associations.sh --check`、`node --test --test-timeout=60000 scripts/desktop/package-desktop.test.mjs`：核对打包目录和生成器在构建主机执行、最终辅助程序保持目标架构。
-- `scripts/desktop/desktop-go.sh build -o ../.artifacts/desktop/bin/lithe-file-associations ./cmd/lithe`：macOS arm64 最终消费者构建通过。开发联调通过 `LITHE_CORE_RUST_DIR` 指向同功能 Core 分支；发布前必须先合入 Core，再更新宿主固定修订，不能把本地联调误算成固定版本已具备新命令。
+- `scripts/desktop/desktop-go.sh build -o ../.artifacts/desktop/bin/lithe-file-associations ./cmd/lithe`：macOS arm64 最终消费者构建通过。宿主固定到配套 Core PR 的确切提交，包含同功能分支与当时最新的 Core main；宿主合并前先合入 Core，合并方式改变提交哈希时同步更新固定修订。
 - `scripts/desktop/perf/editor-bench.sh run --bench '^BenchmarkEditorSyntaxViewportWarm' --count 6`：同机改动前后各测六次，六个场景均在预算内，保持 0 B/op、0 allocs/op；对比没有回归。元数据导出不改变分词或视口读取路径。
 - Core 的 `cargo clippy --manifest-path rust/Cargo.toml -p lithe-core --all-targets --target x86_64-pc-windows-msvc -- -D warnings`（设置 `LIBSQLITE3_SYS_USE_PKG_CONFIG=1`）通过。它不验证 Windows 的 Go 原生适配器，也不替代来宾运行。
 - `scripts/desktop/verify/verify-runtime-bundle-immutability.sh`：检查发行目录只读边界。

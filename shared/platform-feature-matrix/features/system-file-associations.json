@@ -5,7 +5,7 @@
   "capability": "按内置文本高亮目录勾选系统文件关联，回显真实默认应用并独立打开文件",
   "owner": "Desktop",
   "verification": "macOS：从签名发布包打开通用设置，核对表格与 Finder 默认应用一致；选择少量格式设为默认，验证同内容类型扩展名的系统联动、外部修改冲突、刷新和部分失败；从 Finder 打开包含中文/空格的文件，项目保留且文档进入独立会话，关闭后无残留。Windows：使用本机 Windows 来宾安装 amd64 包，核对 HKCU 的 Applications、OpenWithProgids、Capabilities 和 RegisteredApplications，不写 UserChoice；注册所选格式后在系统设置确认默认应用，核对右键打开（Windows 11 显示更多选项）、参数引用、开发二进制不可注册及卸载清理。两端检查中英明暗表格、全选/清空、滚轮/滚动条到末尾和勾选保留，运行前后安装目录清单不变。",
-  "notes": "Core fixture 与 C ABI、真实高亮解析和 Viva 清单一致性、独立文件打开及定向竞态测试在 macOS 通过；四种无头界面使用真实系统默认应用，未执行默认应用写入。macOS arm64 最终应用构建及 Core 的 Windows MSVC clippy 通过，Windows Go 原生适配器尚未编译验收。开发联调使用本地 Core 分支，发布前还需合入并更新固定修订。macOS 按内容类型关联，扩展名别名可能同时变化。Windows 的独立右键动作位于自有 ProgID 下，只有关联后的文件显示；其他文件从打开方式进入。Windows 本机未配置来宾，Windows 原生流程与两端发布包验收未完成。",
+  "notes": "Core fixture 与 C ABI、真实高亮解析和 Viva 清单一致性、独立文件打开及定向竞态测试在 macOS 通过；四种无头界面使用真实系统默认应用，未执行默认应用写入。macOS arm64 最终应用构建及 Core 的 Windows MSVC clippy 通过，Windows Go 原生适配器尚未编译验收。宿主固定到配套 Core PR 的确切提交，合并前须先合入 Core。macOS 按内容类型关联，扩展名别名可能同时变化。Windows 的独立右键动作位于自有 ProgID 下，只有关联后的文件显示；其他文件从打开方式进入。Windows 本机未配置来宾，Windows 原生流程与两端发布包验收未完成。",
   "macos": {
     "implementationStatus": "implemented",
     "verificationStatus": "pending",

@@ -8,7 +8,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/1lck/Lithe-IDEA/desktop/internal/cli"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/fileassociations"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/i18n"
 	"github.com/vivaui/viva/gfx"
@@ -27,12 +26,10 @@ func TestVisualFileAssociations(t *testing.T) {
 		for _, theme := range []string{"dark", "light"} {
 			t.Run(language.Code()+"-"+theme, func(t *testing.T) {
 				// These are actual, read-only OS observations. The test never applies defaults.
-				launcher := cli.New()
-				launcher.Directory = filepath.Join(t.TempDir(), "bin")
 				w := newWindow(NewController(Options{
-					CLI: launcher, FileAssociations: fileassociations.New(),
-					Text:     func() *i18n.Messages { return i18n.For(language) },
-					Language: func() i18n.Language { return language }, SystemLanguage: language,
+					FileAssociations: fileassociations.New(),
+					Text:             func() *i18n.Messages { return i18n.For(language) },
+					Language:         func() i18n.Language { return language }, SystemLanguage: language,
 					SystemDark: func() bool { return theme == "dark" },
 				}), Values{Theme: theme, Language: language.Code()})
 				config := w.config()
