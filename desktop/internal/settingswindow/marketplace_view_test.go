@@ -12,6 +12,7 @@ import (
 	"github.com/1lck/Lithe-IDEA/desktop/internal/i18n"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/marketplace"
 	"github.com/vivaui/viva/gfx"
+	"github.com/vivaui/viva/ui"
 )
 
 // primaryModifier is the platform's command key.
@@ -229,6 +230,42 @@ func TestMarketplaceWindowLoadsAndVirtualizes(t *testing.T) {
 	}
 	if hit, ok := d.pluginRows()[2]; !ok || !hit.Selected {
 		t.Fatal("selection was lost after scrolling away and back")
+	}
+}
+
+// ScrollTo must apply in the same frame that requests it; the former Viva
+// List bug could leave all requested rows beyond the old viewport until a
+// pointer move caused another paint (#1820).
+func TestMarketplaceScrollToTopPaintsTheFirstRowImmediately(t *testing.T) {
+	plugins := make([]core.MarketplacePlugin, 120)
+	for i := range plugins {
+		plugins[i] = core.MarketplacePlugin{
+			ID: fmt.Sprintf("plugin-%03d", i), Name: fmt.Sprintf("Plugin %d", i),
+			LatestVersion: "1.0",
+		}
+	}
+	w := newWindow(NewController(Options{
+		Marketplace: func(context.Context) (marketplace.Snapshot, error) {
+			return marketplace.Snapshot{Index: core.MarketplaceIndex{Plugins: plugins}}, nil
+		},
+	}), Values{})
+	w.sess.page = pagePlugins
+	w.pluginTab = pluginTabMarketplace
+	d := openWindow(t, w)
+	d.until("the catalog", func() bool { return w.market.status == marketReady })
+	start := d.pluginRows()[1]
+	x, y := start.Bounds.X+start.Bounds.Width/2, start.Bounds.Y+start.Bounds.Height/2
+	if err := d.driver.Scroll(gfx.ScrollEvent{X: x, Y: y, DeltaY: 2000, Precise: true}); err != nil {
+		t.Fatal(err)
+	}
+	if _, visible := d.pluginRows()[0]; visible {
+		t.Fatal("scrolling did not leave the initial viewport")
+	}
+	w.market.list.ScrollTo(0, ui.ListStart)
+	w.inv.Invalidate()
+	d.pump()
+	if row, ok := d.pluginRows()[0]; !ok || row.Bounds.Height <= 0 {
+		t.Fatal("scroll-to-top did not paint the first row on the requested frame")
 	}
 }
 
