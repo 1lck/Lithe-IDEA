@@ -191,7 +191,7 @@ func (s *CommandStore) Record(pluginID string, installation CommandInstallation)
 		return err
 	}
 	return atomicfile.Write(path, data, 0o600)
-
+}
 
 // Lookup is the command lookup of the plugin's systemCommand launches: base
 // (PATH) first, then the directories the plugin's commands were installed into.

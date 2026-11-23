@@ -186,6 +186,7 @@ func (s *Store) SaveSource(entry Entry, size int64, write func(io.Writer) error)
 		}
 		return write(w)
 	})
+}
 
 func (s *Store) Remove(root, path string) error {
 	recoveryIO.Lock()

@@ -393,7 +393,7 @@ func (m *Manager) archive(ctx context.Context, artifact Artifact, base string, p
 		return nil, err
 	}
 	return openVerified(ctx, path, artifact.SHA256)
-
+}
 
 func openVerified(ctx context.Context, path, digest string) (_ *os.File, err error) {
 	info, err := os.Lstat(path)

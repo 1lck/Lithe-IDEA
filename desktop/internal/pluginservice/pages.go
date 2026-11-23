@@ -77,4 +77,4 @@ func (s *Service) SetPageState(pluginID, windowID, workspacePath string, state [
 		return ErrPageStateTooLarge
 	}
 	return atomicfile.Write(path, state, 0o600)
-
+}

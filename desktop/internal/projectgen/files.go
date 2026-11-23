@@ -83,7 +83,7 @@ func writeFile(root, path, contents string, executable bool) error {
 		mode = 0o755
 	}
 	return atomicfile.Write(target, []byte(contents), mode)
-
+}
 
 // collectDirectory moves the contents of the subdirectory a scaffolding tool
 // created up into root, as a step's collect asks. The subdirectory is renamed
