@@ -253,7 +253,9 @@ Go 构建在 windows/amd64 和 windows/arm64 上用 `go:embed` 把它们编译�
 
 - LSP workspace `-data`、运行时数据库、测试报告和其他会被进程修改的状态。
 
-可下载的官方插件包是声明式插件包（只含 `plugin.json` 和它声明的资源，不含宿主加载的代码，与架构无关），在 `.build/<triple>/<configuration>/OfficialPlugins` 中独立组装，`--triple` 只决定输出目录和签名工具的构建布局；组装后通过 `LitheOfficialPluginVerifier` 验证声明、打包的可执行文件和“Mach-O 原生代码只出现在清单声明的运行时目录内”；发布配置还要求 repository secret `LITHE_PLUGIN_PACKAGE_PRIVATE_KEY`，由 `LithePluginPackageSigner` 对完整包生成 `lithe-plugin-signature.json`，客户端按宿主内置官方插件策略和 publisher 公钥验证后才允许安装。该 secret 的值是与客户端内置公钥匹配的 base64 编码 32 字节 Ed25519 私钥，可用 `gh secret set LITHE_PLUGIN_PACKAGE_PRIVATE_KEY --repo 1lck/Lithe-IDEA < /secure/path/lithe-plugin-package-private-key.base64` 配置；私钥文件和 shell 历史都不得进入仓库或日志。没有该 key 时，普通 debug 全量构建会跳过 publisher 签名包，指定其中一个包 ID 的构建会失败，不会留下缺少签名文档的目录。本地调试插件时可以显式传入 `--development-unsigned`（仅 debug 配置可用），生成不含签名文档的开发包，只能由 debug 构建的 Lithe 从磁盘安装；这类开发包同样不跨工作树复用。无可靠 identity stamp，不跨工作树复制。插件安装后打包的语言服务器位于
+独立插件包不再由桌面主仓库内的旧 macOS 打包器组装。包括 Java Support 在内的插件，其构建、校验、签名与发布由插件自己的仓库负责；Java Support 以 [lithe-plugin-java](https://github.com/Lithe-IDEA/lithe-plugin-java) 当前清单与构建工作流为准。Viva 桌面仓库不再有 `.build/<triple>/<configuration>/OfficialPlugins`、`Plugins/mac/Official/JavaSupport/assemble-package.sh`、`LitheOfficialPluginVerifier` 或 `LithePluginPackageSigner` 这些旧入口；它们是已退役客户端的历史实现，不得用于现行 CI 或本地打包。旧客户端签名私钥的使用步骤也不适用于 Viva 构建，不应按历史说明在主仓库配置该密钥。
+
+插件包的下载、完整性与发布者校验应遵循现行插件清单、独立仓库发行工作流和桌面端的安装校验逻辑。已安装包与插件版本所带语言服务器属于用户插件目录，而非另一个 Git 工作树可共享的构建缓存；即使内容哈希一致，也不能通过复制已安装插件目录复用其可变状态。
 `<app-support>/Lithe/Plugins/<plugin-id>/versions/<version>/language-server`，由插件版本目录拥有，运行时只读，重装、回滚和卸载随插件一起处理，不是工作树构建缓存。以上项目都不跨工作树复制。
 
 Build Provider 的模型与依赖快照位于插件根（`pluginpkg.DefaultRoot`）下的 `.state/<plugin-id>/<version>/build/<workspace-digest>/`。会话拥有其缓存、日志和临时输出；模型失效可重建，插件卸载随所属状态清理。工作区摘要只是归属键，不是构建身份。
