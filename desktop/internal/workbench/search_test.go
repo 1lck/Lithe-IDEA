@@ -18,6 +18,7 @@ import (
 	"github.com/vivaui/viva/app"
 	"github.com/vivaui/viva/gfx"
 	"github.com/vivaui/viva/keymap"
+	"github.com/vivaui/viva/ui"
 )
 
 func TestProjectSearchOpensMatchingLine(t *testing.T) {
@@ -531,6 +532,19 @@ func TestProjectSearchVirtualizesLoadedGroups(t *testing.T) {
 	}
 	if h.shows(i18n.Shared(h.app.language(), "desktop.search.first200")) {
 		t.Fatal("obsolete total cap shown")
+	}
+	// ScrollTo must reveal the first result in the very frame it is requested.
+	// Before this request the first group is virtualized outside the viewport.
+	if h.shows("file-000.txt (1)") {
+		t.Fatal("scrolling to the last search results did not hide the first group")
+	}
+	h.app.searchView.list.ScrollTo(0, ui.ListStart)
+	h.app.invalidator.Invalidate()
+	if err := h.driver.Pump(); err != nil {
+		t.Fatal(err)
+	}
+	if !h.shows("file-000.txt (1)") {
+		t.Fatal("search results stayed blank at the old scroll offset until another frame")
 	}
 }
 
