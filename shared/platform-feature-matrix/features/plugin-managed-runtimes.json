@@ -35,7 +35,7 @@
     "evidence": [
       "desktop/internal/core/managed_runtimes.go",
       "desktop/internal/pluginruntime/",
-      "desktop/internal/pluginruntime/lock_windows.go",
+      "desktop/internal/filelock/lock_windows.go",
       "desktop/internal/pluginservice/runtimes.go",
       "desktop/internal/pluginservice/runtime_lifecycle.go",
       "desktop/internal/pluginbackend/pluginbackend_test.go",

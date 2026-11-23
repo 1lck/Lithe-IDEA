@@ -6,6 +6,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"errors"
 	"io"
 	"net/http"
 	"os"
@@ -73,7 +74,14 @@ func TestApprovedPluginAutoSourceOnlyMatchesSavedOrigins(t *testing.T) {
 // A marketplace update uses the same verified archive and approval path as a
 // manual install. The previous approved version remains on disk while the next
 // version is selected, without any real plugin, network, or toolchain.
-func TestPluginAutoUpdateInstallsAnApprovedNewVersion(t *testing.T) {
+func TestPluginAutoUpdateStagesAnApprovedNewVersionUntilRestart(t *testing.T) {
+	for _, scenario := range []string{"activate", "disabled before restart", "damaged package"} {
+		t.Run(scenario, func(t *testing.T) { verifyPendingPluginUpdate(t, scenario) })
+	}
+}
+
+func verifyPendingPluginUpdate(t *testing.T, scenario string) {
+	t.Helper()
 	const id = "io.github.example.output-links"
 	const origin = "https://raw.githubusercontent.com/example/lithe-plugins/HEAD/lithe-plugin-index.json"
 	const archiveURL = "https://plugins.example.test/auto-update.zip"
@@ -160,8 +168,44 @@ func TestPluginAutoUpdateInstallsAnApprovedNewVersion(t *testing.T) {
 		t.Fatalf("auto-updated = %v, request count = %d, error = %v", applied, requests, err)
 	}
 	versions, err := pluginpkg.List(service.Root)
+	if err != nil || len(versions) != 1 || versions[0].Version != "1.0.0" {
+		t.Fatalf("installed versions before restart = %+v, error = %v", versions, err)
+	}
+	if _, approved, err := service.Manager.Approval(id, "2.0.0"); err != nil || approved {
+		t.Fatalf("pending approval became active before restart: %v, %v", approved, err)
+	}
+	if scenario == "disabled before restart" {
+		if _, err := service.Manager.Apply(ctx, core.PluginDisable, id, nil); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if scenario == "damaged package" {
+		pending := filepath.Join(service.Root, ".pending-updates", id, "package", pluginpkg.ManifestFile)
+		if err := os.WriteFile(pending, []byte("{}"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	activationErr := service.ActivatePendingUpdates(ctx)
+	if scenario == "damaged package" {
+		if !errors.Is(activationErr, plugininstall.ErrArchiveDigest) {
+			t.Fatalf("expected a digest rejection, got %v", activationErr)
+		}
+	} else if activationErr != nil {
+		t.Fatal(activationErr)
+	}
+	versions, err = pluginpkg.List(service.Root)
+	if scenario != "activate" {
+		if err != nil || len(versions) != 1 || versions[0].Version != "1.0.0" {
+			t.Fatalf("ineligible plugin was updated: %+v, %v", versions, err)
+		}
+		pending, err := service.Installer.HasPending(service.Root, id)
+		if err != nil || pending {
+			t.Fatalf("ineligible plugin still has pending update: %v, %v", pending, err)
+		}
+		return
+	}
 	if err != nil || len(versions) != 2 {
-		t.Fatalf("retained installed versions = %+v, error = %v", versions, err)
+		t.Fatalf("retained installed versions after restart = %+v, error = %v", versions, err)
 	}
 	selected, err := service.CurrentInstalled(ctx)
 	if err != nil || len(selected) != 1 || selected[0].Installed.Version != "2.0.0" {

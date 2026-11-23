@@ -585,8 +585,12 @@ func TestRuntimeInstallationAdmissionCoversPublicationAfterPreparation(t *testin
 	if err != nil {
 		t.Fatal(err)
 	}
-	var finishOnce sync.Once
-	release := func() { finishOnce.Do(finish) }
+	finishOnce := sync.OnceValue(finish)
+	release := func() {
+		if err := finishOnce(); err != nil {
+			t.Error(err)
+		}
+	}
 	t.Cleanup(release)
 	// Preparation has finished, but the approved operation still owns publication.
 	uninstallDone := make(chan struct{})
