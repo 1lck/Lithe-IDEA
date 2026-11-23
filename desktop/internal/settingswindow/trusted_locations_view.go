@@ -26,13 +26,13 @@ func (w *window) trustedLocationsPage(c ui.C) {
 			w.card(c, i18n.Shared(language, "desktop.trustedLocations.folders"), i18n.Shared(language, "desktop.trustedLocations.foldersHelp"), func() {
 				w.trustedLocationsList(c.Part("list"), language, l)
 			})
-			w.trustedLocationsNotices(c.Part("notices"), language, l)
+			w.trustedLocationsNotices(c, language, l)
 		}
 		if remote.available() {
 			w.card(c.Part("remote"), i18n.Shared(language, "desktop.trustedLocations.remote"), i18n.Shared(language, "desktop.trustedLocations.remoteHelp"), func() {
 				w.remoteTrustList(c.Part("remote-list"), language, remote)
 			})
-			w.remoteTrustNotices(c.Part("remote-notices"), language, remote)
+			w.remoteTrustNotices(c, language, remote)
 		}
 	})
 }
@@ -119,7 +119,7 @@ func (w *window) remoteTrustNotices(c ui.C, language i18n.Language, r *remoteTru
 	if r.readFailed == nil && r.failed == nil && !r.saving {
 		return
 	}
-	ui.Column(c).FillWidth().Shrink(0).Gap(8).Children(func() {
+	ui.Column(c.Part("remote-notices")).FillWidth().Shrink(0).Gap(8).Children(func() {
 		if r.readFailed != nil {
 			message := remoteTrustFailureMessage(language, r.readFailed)
 			w.box(c.Part("load-failed"), boxErr, func(words gfx.Color) {
@@ -212,7 +212,7 @@ func (w *window) trustedLocationsNotices(c ui.C, language i18n.Language, l *trus
 	if l.readFailed == nil && l.refused == nil && l.failed == nil && !l.saving {
 		return
 	}
-	ui.Column(c).FillWidth().Shrink(0).Gap(8).Children(func() {
+	ui.Column(c.Part("notices")).FillWidth().Shrink(0).Gap(8).Children(func() {
 		if l.readFailed != nil {
 			message := toolchainFailureMessage(language, l.readFailed)
 			w.box(c.Part("load-failed"), boxErr, func(words gfx.Color) {

@@ -164,11 +164,10 @@ func (a *App) runConfigStepRowOf(p *project, language i18n.Language, entry core.
 // its ⓘ; edited, when set, runs after each change, so an editor that tracks its edits by flag
 // sees it.
 func (a *App) drawRunConfigBeforeLaunch(c ui.C, p *project, steps *runConfigSteps, title, help string, candidates []core.RunConfigurationName, tasks []core.RunTaskKind, ready bool, edited func()) {
-	k := c.Part("before-launch")
-	ui.Column(k).FillWidth().Gap(6).Children(func() {
-		a.drawRunConfigStepsTitle(k, steps, title, help)
+	ui.Column(c).FillWidth().Gap(6).Children(func() {
+		a.drawRunConfigStepsTitle(c, steps, title, help)
 		if !steps.collapsed {
-			a.drawRunConfigStepsList(k, p, steps, title, candidates, tasks, ready, edited)
+			a.drawRunConfigStepsList(c, p, steps, title, candidates, tasks, ready, edited)
 		}
 	})
 }

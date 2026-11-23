@@ -917,7 +917,7 @@ func (w *window) installedFeatures(c ui.C, language i18n.Language, fact PluginFa
 	var missing []MissingCommand
 	if enabled {
 		missing = w.commands.want(fact.ID)
-		w.commandMissingBanner(c.Part("command-missing"), language, fact, unmatchedMissing(missing, fact.Capabilities))
+		w.commandMissingBanner(c, language, fact, unmatchedMissing(missing, fact.Capabilities))
 	}
 	ui.Grid(c, 220).FillWidth().Gap(10).Children(func() {
 		for index, capability := range fact.Capabilities {
