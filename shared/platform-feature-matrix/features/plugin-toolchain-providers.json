@@ -11,7 +11,8 @@
       "desktop/internal/pluginservice/toolchain_provider_test.go",
       "desktop/internal/toolchain/provider.go",
       "desktop/internal/toolchain/provider_observation.go",
-      "desktop/internal/workbench/settings_toolchains.go"
+      "desktop/internal/workbench/settings_toolchains.go",
+      "desktop/internal/workbench/settings_toolchains_test.go"
     ]
   },
   "windows": {
@@ -23,10 +24,11 @@
       "desktop/internal/toolchain/provider.go",
       "desktop/internal/toolchain/provider_observation.go",
       "desktop/internal/toolchain/native_path_windows.go",
-      "desktop/internal/workbench/settings_toolchains.go"
+      "desktop/internal/workbench/settings_toolchains.go",
+      "desktop/internal/workbench/settings_toolchains_test.go"
     ]
   },
   "owner": "Plugins",
-  "verification": "使用 TestToolchainProviderQueriesThroughSharedBackendAndReobservesSources 核对合成插件协商、安装与项目版本要求、生效层、全局发现、源文件变化、复用和关闭清理。使用 TestToolchainProviderCancellationDoesNotCompleteTheNextQuery 核对取消与迟到回复。使用 TestToolchainProviderQueriesTheInstalledVersionAfterUpgrade 核对升级后的版本和路径，使用 TestNewProjectOnlyDiscoversToolsRequestedByTheForm 核对表单工具范围。原生设置工作流还需核对打开项目、改写版本要求、重新加载和关闭窗口。",
-  "notes": "Core 从提供方回包与本机文件事实得出候选和有效安装。桌面按选定清单版本启动共享后端，并为短期缓存观察输入变化。查询期限耗尽时保留已完成的答复和本机候选，由 TestToolchainProviderRoundPreservesAnswersAtItsDeadline 覆盖。安装与工作区目录沿用原有信任检查。"
+  "verification": "使用 TestToolchainProviderQueriesThroughSharedBackendAndReobservesSources 核对合成插件协商、安装与项目版本要求、生效层、全局发现、源文件变化、复用和关闭清理。使用 TestToolchainProviderCancellationDoesNotCompleteTheNextQuery 核对取消与迟到回复。使用 TestToolchainProviderQueriesTheInstalledVersionAfterUpgrade 核对升级后的版本和路径，使用 TestNewProjectOnlyDiscoversToolsRequestedByTheForm 核对表单工具范围。原生设置工作流还需核对打开项目、改写版本要求、重新加载和关闭窗口。 #1986：TestProjectToolchainPartialManifestReadReportsDegradation 使用两个合成插件（一项清单缺失）要求保留可读工具并只记录一次降级事件；完整 Go 1.27 测试、macOS/Windows 原生设置提示待验证。",
+  "notes": "Core 从提供方回包与本机文件事实得出候选和有效安装。桌面按选定清单版本启动共享后端，并为短期缓存观察输入变化。查询期限耗尽时保留已完成的答复和本机候选，由 TestToolchainProviderRoundPreservesAnswersAtItsDeadline 覆盖。安装与工作区目录沿用原有信任检查。 #1986 第一阶段：项目工具链页遇到部分启用插件清单无法读取，仍显示可用工具，但会用 toolchain_settings_discovery 记一次错误，不再把部分发现当成完整成功；设置页显式遗漏提示与执行消费者策略仍待统一。"
 }

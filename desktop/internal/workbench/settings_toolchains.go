@@ -193,6 +193,11 @@ func (s settingsToolchains) loadAt(ctx context.Context, root string) (toolchain.
 	if err != nil && len(manifests) == 0 {
 		return toolchain.Snapshot{}, err
 	}
+	if err != nil {
+		// Keep the valid manifests visible, but never silently drop the reason
+		// why a different enabled provider did not appear in this catalog.
+		s.recordFailure(ctx, "toolchain_settings_discovery", err)
+	}
 	return toolchain.Load(ctx, s.app.kernel, root, ".", manifests, s.app.toolchainOptions(ctx, root, manifests))
 }
 

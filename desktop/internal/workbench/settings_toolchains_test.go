@@ -83,6 +83,70 @@ func TestGlobalToolchainsDoNotHideAnUnreadableEnabledPlugin(t *testing.T) {
 	}
 }
 
+// A readable plugin remains in project settings when another plugin's
+// manifest disappeared. The partial failure must be logged once at the
+// boundary instead of silently turning into a complete-looking tool list.
+func TestProjectToolchainPartialManifestReadReportsDegradation(t *testing.T) {
+	preferences, pluginRoot, projectRoot := store.At(t.TempDir()), t.TempDir(), t.TempDir()
+	service, err := pluginservice.Open(core.NewClient(), preferences, pluginRoot)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, id := range []string{"dev.example.catalog-readable", "dev.example.catalog-unreadable"} {
+		staging, err := pluginpkg.NewStaging(pluginRoot)
+		if err != nil {
+			t.Fatal(err)
+		}
+		fixture, err := os.ReadFile("../toolchain/testdata/compiler.plugin.json")
+		if err != nil {
+			t.Fatal(err)
+		}
+		var document map[string]any
+		if err := json.Unmarshal(fixture, &document); err != nil {
+			t.Fatal(err)
+		}
+		document["id"] = id
+		definition := document["toolDefinitions"].([]any)[0].(map[string]any)
+		definition["id"] = id + ":compiler"
+		manifest, err := json.Marshal(document)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(staging, pluginpkg.ManifestFile), manifest, 0o600); err != nil {
+			t.Fatal(err)
+		}
+		installed, err := pluginpkg.Install(pluginRoot, id, "1.0.0", staging)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := pluginstate.New(preferences).SetEnabled(id, true); err != nil {
+			t.Fatal(err)
+		}
+		if id == "dev.example.catalog-unreadable" {
+			if err := os.Remove(filepath.Join(installed.Path, pluginpkg.ManifestFile)); err != nil {
+				t.Fatal(err)
+			}
+		}
+	}
+	log := &treeRecordingLog{}
+	app := &App{kernel: &catalogSourceKernel{&testKernel{Client: core.NewClient()}}, store: preferences, plugins: service, logSink: log}
+	app.toolchainRoot.Store(&projectRoot)
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	snapshot, err := (settingsToolchains{app: app}).Load(ctx)
+	if err != nil {
+		t.Fatalf("readable manifests should still load project settings: %v", err)
+	}
+	if len(snapshot.Tools) == 0 {
+		t.Fatal("the readable plugin was lost after another manifest failed")
+	}
+	log.mu.Lock()
+	defer log.mu.Unlock()
+	if len(log.events) != 1 || log.events[0].Fields["operation"] != "toolchain_settings_discovery" {
+		t.Fatalf("missing one degradation event: %+v", log.events)
+	}
+}
+
 func TestToolchainSettingsRejectSaveForAnotherOrClosedProject(t *testing.T) {
 	for _, closed := range []bool{false, true} {
 		name := "another-project"
