@@ -20,6 +20,7 @@ import (
 	"errors"
 	"maps"
 	"math"
+	"os"
 	"slices"
 	"strconv"
 	"strings"
@@ -85,6 +86,7 @@ const (
 
 // The operation field of operationFailed and backgroundFailed, one per kind of work.
 const (
+	opPreferencesLoad  = "logs_preferences_load"
 	opPreferencesSave  = "logs_preferences_save"
 	opQuery            = "logs_query"
 	opLive             = "logs_live"
@@ -408,8 +410,15 @@ func NewModel(opts Options) *Model {
 	m.queryFx = ui.NewEffect[queryResult, int](m.runQuery)
 	if opts.Store != nil {
 		loaded := defaultPreferences()
-		if _, err := opts.Store.Load(prefsFile, &loaded); err == nil {
+		found, err := opts.Store.Load(prefsFile, &loaded)
+		if err == nil && found {
 			m.prefs = loaded
+			err = opts.Store.Unread(prefsFile)
+		}
+		if err != nil {
+			// Invalid saved preferences are replaced with defaults for this session.
+			// Store preserves the original bytes (and backs up corrupt JSON on save).
+			m.reportBackground(opPreferencesLoad, err)
 		}
 	}
 	m.prefs.sanitize()
@@ -1514,8 +1523,47 @@ func (m *Model) fail(level core.LogLevel, event, operation string, err error) {
 	if err == nil || errors.Is(err, context.Canceled) {
 		return
 	}
-	fields := core.LogErrorFields(err)
+	fields := core.LogErrorFields(errorWithoutPath(err))
 	fields["operation"] = operation
 	m.opts.Source.Emit(level, event, "", fields)
 	m.failed = true
+}
+
+func errorWithoutPath(err error) error {
+	if err == nil {
+		return nil
+	}
+	var pathErr *os.PathError
+	var linkErr *os.LinkError
+	if !errors.As(err, &pathErr) && !errors.As(err, &linkErr) {
+		return err
+	}
+	switch e := err.(type) {
+	case *os.PathError:
+		if e.Err == nil {
+			return errors.New(e.Op)
+		}
+		return errorWithoutPath(e.Err)
+	case *os.LinkError:
+		if e.Err == nil {
+			return errors.New(e.Op)
+		}
+		return errorWithoutPath(e.Err)
+	case interface{ Unwrap() []error }:
+		parts := e.Unwrap()
+		clean := make([]error, 0, len(parts))
+		for _, part := range parts {
+			if stripped := errorWithoutPath(part); stripped != nil {
+				clean = append(clean, stripped)
+			}
+		}
+		if len(clean) == 0 {
+			return nil
+		}
+		return errors.Join(clean...)
+	case interface{ Unwrap() error }:
+		return errorWithoutPath(e.Unwrap())
+	default:
+		return err
+	}
 }

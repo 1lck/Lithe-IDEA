@@ -151,7 +151,7 @@ func (a *App) viewerZoom(c ui.C, zoom imageZoom, zoomTo func(zoomRequest)) {
 		Hover(ui.Look{}.Background(a.colors.Hover)).Pressed(ui.Look{}.Background(a.colors.Active)).
 		Tooltip(i18n.Shared(language, "desktop.viewer.resetZoom"))
 	button.Children(func() {
-		ui.Text(k, percent).FontSize(11).Weight(gfx.WeightMedium).Mono().Color(a.colors.Text)
+		ui.Text(c, percent).FontSize(11).Weight(gfx.WeightMedium).Mono().Color(a.colors.Text)
 	})
 	if button.Clicked() {
 		zoomTo(zoomRequest{to: 1})

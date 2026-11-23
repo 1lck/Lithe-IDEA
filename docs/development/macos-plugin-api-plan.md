@@ -28,12 +28,12 @@ Windows 不在本轮，平台矩阵的 partial/pending 保持真实。
 | API-03 | 部分完成 | 既有命令 placements 可用；通用菜单、快捷键贡献、context.set/状态栏未做 |
 | API-04 | 部分完成 | didChangeContexts 与 watch 事件；文档/选区/活动编辑器语义事件未做 |
 | API-05 | 已公开 | listContexts/getContext/getFolders，context/generation 与 rootID |
-| API-06 | 已公开 | readDirectory/stat/readFile；公共读上限 128 KiB，内部上限不冒充协议能力 |
-| API-07 | 已公开 | watch + subscriptions/notify/dispose，context/session 回收与溢出重扫 |
-| API-08 | 部分完成 | findFiles/findText 分页与取消；只搜磁盘，精确匹配范围尚为 null |
+| API-06 | 部分完成 | readDirectory/stat/readFile；公共读上限 128 KiB，内部上限不冒充协议能力；契约和 Core 已公开，Viva 桌面端未接通（旧 Swift 客户端已退役） |
+| API-07 | 部分完成 | watch + subscriptions/notify/dispose，context/session 回收与溢出重扫；契约和 Core 已公开，Viva 桌面端未接通 |
+| API-08 | 部分完成 | findFiles/findText 分页与取消；只搜磁盘，精确匹配范围尚为 null；Viva 桌面端未接通 |
 | API-09 | 已公开 | documents/list/getSnapshot、editor/getActive/getSelections，含 dirty/版本/编码/EOL |
 | API-10 | 已公开 | applyEdits/replaceSelections/insertText；版本校验、IME/只读拒绝、一次 Undo |
-| API-11 | 未做 | 公共 save/saveAs/close 与工作区文件变更接口未接入 |
+| API-11 | 已公开 | Viva 桌面端：`documents/save\|saveAs\|close`（`documents.save`）走文档自己的保存，冲突、硬链接、未命名、组字返回错误码不弹窗；`workspace/create\|rename\|copy\|trash`（`workspace.files.write`）由 Core 严格检查参数并完成磁盘变更（不覆盖、不跟随最后一段），`create` 支持 `kind:"symlink"`，不新增读链接的权限；trash 进系统废纸篓，不提供永久删除；Windows 实机与整机验收未做 |
 | API-12 | 部分完成 | 已公开 `documents/registerContentProvider`（只读内容，≤1 MiB，每窗口每 scheme 一个，仅 macOS）；公共多文件 edit、showDiff 未接入 |
 | API-13 | 部分完成 | 插件视图（ui 0）：工具窗口和设置区域的内容由插件后端返回节点树（宿主控件、树、画布），Core `plugins.ui.applyResult` 校验，桌面端用 Viva 原生绘制；设置区域的工具行可带 `choose`（ui 0 内的可选字段）成为该工具的选择器（工具链草稿，Viva 桌面端）；旧的 Tree/List/Form 已删除；插件主动推送、树懒加载/分页、`views.reveal` 未做 |
 | API-14 | 部分完成 | 既有包内网页 bridge、状态/生命周期；通用双向页面消息未做 |

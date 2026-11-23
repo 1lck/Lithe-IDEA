@@ -131,6 +131,12 @@ type Kernel interface {
 	CheckBeforeLaunchTask(ctx context.Context, root string, runType core.RunTypeKey, values map[string]json.RawMessage, plugins *core.RunTypePlugins) (core.RunTaskCheck, error)
 	BeforeLaunchField(ctx context.Context, root, configurationID string, plugins *core.RunTypePlugins) (core.RunBeforeLaunchField, error)
 	RunArgumentText(ctx context.Context, lists [][]string) ([]string, error)
+	// CreateWorkspaceEntry, RenameWorkspaceEntry, CopyWorkspaceEntry and ResolveWorkspaceEntry
+	// make the file changes a plugin asks for (pluginfilechanges.go).
+	CreateWorkspaceEntry(ctx context.Context, creation core.WorkspaceEntryCreation) (core.WorkspaceEntry, error)
+	RenameWorkspaceEntry(ctx context.Context, root, path, target string) (core.WorkspaceEntry, error)
+	CopyWorkspaceEntry(ctx context.Context, root, path, target string) (core.WorkspaceEntry, error)
+	ResolveWorkspaceEntry(ctx context.Context, root, path string) (core.WorkspaceEntry, error)
 	SetDebugBreakpoints(ctx context.Context, sessionID, sourcePath string, breakpoints []core.DebugSourceBreakpoint) (core.DebugUpdate, error)
 	ExecuteDebug(ctx context.Context, sessionID, operationID, command string, threadID *int64, granularity string) (core.DebugUpdate, error)
 	ExecuteDebugThread(ctx context.Context, sessionID, operationID, command string, threadID int64) (core.DebugUpdate, error)
@@ -745,7 +751,9 @@ type App struct {
 	// buildOptionTexts keeps the build option translation files read per plugin package and language.
 	buildOptionTexts buildOptionTextCache
 	// pluginDownloads holds native temporary file leases for the open settings window.
-	pluginDownloads *marketplace.ArchiveSession
+	pluginDownloads     *marketplace.ArchiveSession
+	pluginArchiveCache  marketplace.ArchiveCache
+	pluginStartupCancel context.CancelFunc
 	// prompts are the questions plugins ask the user, one sheet at a time.
 	prompts pluginPrompts
 	// web opens the pages of plugin web tool windows; webReady is set once it can.
@@ -1108,6 +1116,11 @@ func (a *App) openPlugins(options Options) {
 		return
 	}
 	a.plugins = service
+	cache, cacheErr := marketplace.UserArchiveCache()
+	if cacheErr != nil {
+		a.backgroundFailed("plugin_archive_cache", cacheErr)
+	}
+	a.pluginArchiveCache = cache
 	service.Backend.SetInitializeTimeout(options.PluginInitializeTimeout)
 	service.Backend.SetToolResolver(a.resolveBackendTool)
 	service.Backend.SetToolEntryResolver(a.resolveBackendToolEntry)
@@ -1150,19 +1163,13 @@ func (a *App) Run() error {
 			return err
 		}
 		a.window = window
+		// Viva queues Finder events during startup. Register after the window is
+		// ready so even the first delivered document has an owned session and wake.
+		application.OnOpenFile(func(path string) {
+			a.post(func(a *App) { a.openSystemDocument(path) })
+		})
 		a.startUpdates()
-		a.startPluginAutoUpdates()
-		if path := a.startupPath; path != "" {
-			a.startupPath = ""
-			a.post(func(a *App) { a.openProject(path) })
-		}
-		if path := a.startupFile; path != "" {
-			a.startupFile = ""
-			a.post(func(a *App) { a.openStandaloneFile(path) })
-		}
-		// The plugin stack is assembled before the window exists, because opening a
-		// window is what installs the invalidator its background work needs.
-		a.reloadPluginLanguages()
+		a.startPluginInventory()
 		if !a.documentOnly {
 			a.loadGitHubAccount()
 		}
@@ -1179,6 +1186,9 @@ func (a *App) Run() error {
 		}
 		return nil
 	})
+	if a.pluginStartupCancel != nil {
+		a.pluginStartupCancel()
+	}
 	a.stopPluginAutoUpdates()
 	a.windowLoopEnded(err, faulted.Load())
 	a.shutdownSessions()

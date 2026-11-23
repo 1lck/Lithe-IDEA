@@ -1,4 +1,4 @@
-// Package pluginicons draws the icons plugins ship inside their packages: the
+// Package pluginicons draws SVG icons from the marketplace and plugin packages: the
 // {"path", "darkPath", "mode"} form of the contract's UI icons. Core checks the
 // declaration and the shape of each path; the contract leaves decoding the bytes
 // to the platform adapter, which is this package.
@@ -252,20 +252,43 @@ func readResource(directory, name, mode string) (gfx.Icon, resource, error) {
 		}
 		return gfx.Icon{}, resource{}, fmt.Errorf("%w: %s %s", ErrUnreadable, clean, detail)
 	}
+	icon, err := CompileSVG(clean, data)
+	if err != nil {
+		return gfx.Icon{}, resource{}, err
+	}
+	if mode == ModeTemplate {
+		if icon, err = silhouette(icon); err != nil {
+			return gfx.Icon{}, resource{}, fmt.Errorf("%s: %w", clean, err)
+		}
+	}
+	height := icon.ViewHeight
+	if height == 0 {
+		height = icon.ViewBox
+	}
+	return icon, resource{path: clean, bytes: int64(len(data)), pixels: float64(icon.ViewBox) * float64(height)}, nil
+}
+
+// CompileSVG compiles bounded, passive SVG bytes in their original fill colors.
+// It runs off the UI thread and shares the package icon decoder's safety and
+// dimension checks. Callers own the resulting in-memory icon; no file is written.
+func CompileSVG(name string, data []byte) (gfx.Icon, error) {
+	if int64(len(data)) > MaxFileBytes {
+		return gfx.Icon{}, fmt.Errorf("%w: %s exceeds %d bytes", ErrRefused, name, MaxFileBytes)
+	}
 	paint, err := checkSVG(data)
 	if err != nil {
-		return gfx.Icon{}, resource{}, fmt.Errorf("%s: %w", clean, err)
+		return gfx.Icon{}, fmt.Errorf("%s: %w", name, err)
 	}
-	icon, err := iconcompile.Compile(clean, data)
+	icon, err := iconcompile.Compile(name, data)
 	if err != nil {
-		return gfx.Icon{}, resource{}, fmt.Errorf("%w: %v", ErrUnsupported, err)
+		return gfx.Icon{}, fmt.Errorf("%w: %v", ErrUnsupported, err)
 	}
 	width, height := float64(icon.ViewBox), float64(icon.ViewHeight)
 	if height == 0 {
 		height = width
 	}
 	if width > MaxDimension || height > MaxDimension || paint.width > MaxDimension || paint.height > MaxDimension {
-		return gfx.Icon{}, resource{}, fmt.Errorf("%w: %s is larger than %d×%d", ErrRefused, clean, MaxDimension, MaxDimension)
+		return gfx.Icon{}, fmt.Errorf("%w: %s is larger than %d×%d", ErrRefused, name, MaxDimension, MaxDimension)
 	}
 	if !paint.stroked {
 		// SVG fills a shape that names no paint; the compiler's icon dialect
@@ -273,12 +296,7 @@ func readResource(directory, name, mode string) (gfx.Icon, resource, error) {
 		// therefore fills its tinted shapes, as SVG draws them.
 		icon.Stroke = 0
 	}
-	if mode == ModeTemplate {
-		if icon, err = silhouette(icon); err != nil {
-			return gfx.Icon{}, resource{}, fmt.Errorf("%s: %w", clean, err)
-		}
-	}
-	return icon, resource{path: clean, bytes: int64(len(data)), pixels: width * height}, nil
+	return icon, nil
 }
 
 // silhouette is a template icon: every shape drawn in the tint. Colored fills

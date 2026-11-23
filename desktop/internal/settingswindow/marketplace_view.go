@@ -85,9 +85,13 @@ func (w *window) marketplacePage(c ui.C) {
 		w.pluginHeader(c, language)
 		ui.Row(c).FillWidth().Height(1).Shrink(0).Background(w.pal.line)
 		if w.pluginTab == pluginTabMarketplace {
+			if w.marketIcons.catalog != m.search.catalog {
+				w.marketIcons.reset(m.search.catalog)
+			}
 			w.marketSearch()
 			w.pluginColumns(c, language, func() { w.marketSidebar(c, language) }, func() { w.marketDetail(c, language) })
 		} else {
+			w.marketIcons.reset(0)
 			w.installedColumns(c, language)
 		}
 	})
@@ -141,7 +145,7 @@ func (w *window) pluginTabButton(c ui.C, tab int, label string) {
 		button = button.Hover(ui.Look{}.Background(w.pal.hover))
 	}
 	button.Children(func() {
-		ui.Text(k, label).FontSize(13).Color(color)
+		ui.Text(c, label).FontSize(13).Color(color)
 	})
 	if button.Clicked() {
 		w.pluginTab = tab
@@ -397,7 +401,7 @@ func (w *window) marketList(c ui.C, language i18n.Language, plugins []core.Marke
 			row.Element.Background(w.pal.selectionIdle)
 		}
 		row.Element.Children(func() {
-			w.marketAvatar(row.C, plugin.ID, plugin.Name, 32)
+			w.marketPluginIcon(row.C, plugin, 32)
 			ui.Column(row.C).Grow(1).Shrink(1).MinWidth(0).Gap(3).Children(func() {
 				ui.Text(row.C, plugin.Name).FontSize(13).Weight(gfx.WeightSemibold).Color(w.pal.text).Ellipsis()
 				ui.Text(row.C, plugin.Author+" · "+offeredVersion(plugin)).FontSize(11).Color(w.pal.muted).Ellipsis()
@@ -492,7 +496,7 @@ func (w *window) marketDetail(c ui.C, language i18n.Language) {
 	ui.Scroll(c.Part("market-detail")).Scrollbars().Grow(1).Shrink(1).FillHeight().MinWidth(0).Children(func() {
 		ui.Column(c).FillWidth().Shrink(0).MinWidth(0).Pad(24).Gap(18).Children(func() {
 			ui.Row(c).FillWidth().Gap(14).Items(ui.Start).Children(func() {
-				w.marketAvatar(c, selected.ID, selected.Name, 48)
+				w.marketPluginIcon(c, selected, 48)
 				ui.Column(c).Grow(1).Shrink(1).MinWidth(0).Gap(6).Children(func() {
 					ui.Text(c, selected.Name).FontSize(20).Weight(gfx.WeightBold).Color(w.pal.text).Ellipsis()
 					ui.Row(c).FillWidth().Gap(8).Items(ui.Center).Children(func() {
@@ -656,9 +660,20 @@ func (w *window) marketMetadata(c ui.C, label, value string) {
 	})
 }
 
-// marketAvatar is a plugin's icon: the native client uses a stable color per plugin ID and
-// the initials of its name until an index icon is available. Keep these presentation
-// metrics identical.
+// marketPluginIcon keeps the index SVG's fill colors and transparent background.
+// The same URL in a row and the detail shares a read and compiled icon.
+func (w *window) marketPluginIcon(c ui.C, plugin core.MarketplacePlugin, size float32) {
+	if plugin.Icon != nil {
+		if icon, ok := w.marketIcons.lookup(c, *plugin.Icon); ok {
+			ui.Icon(c, icon).Size(size, size).Shrink(0).Color(gfx.RGB24(0))
+			return
+		}
+	}
+	w.marketAvatar(c, plugin.ID, plugin.Name, size)
+}
+
+// marketAvatar is the fallback while an SVG is loading, absent or unreadable.
+// Its stable color and initials use the native client's presentation metrics.
 func (w *window) marketAvatar(c ui.C, id, name string, size float32) {
 	colors := [...][2]uint32{
 		{0xe08855, 0xe9806f}, {0xb08b14, 0xbb7f19}, {0xa1a359, 0x87aa59},

@@ -222,7 +222,7 @@ func (a *App) remoteTrustView(c ui.C, language i18n.Language, t *remoteTrustProm
 						ui.Text(c, i18n.Shared(language, "desktop.remote.trust.title")).FontSize(16).Weight(gfx.WeightSemibold)
 						ui.Text(c, t.browser.host.address()+" : "+t.dir).Mono().FontSize(small).Ellipsis().Shrink(1).MinWidth(0)
 					})
-					ui.Paragraph(c.Part("body"), i18n.Shared(language, "desktop.remote.trust.body"), 6).FontSize(small).Color(a.colors.Subtle)
+					ui.Paragraph(c, i18n.Shared(language, "desktop.remote.trust.body"), 6).FontSize(small).Color(a.colors.Subtle)
 					ui.Column(c.Part("choices")).FillWidth().Gap(4).Pad(12).Radius(8).Stroke(1, a.colors.Line).Children(func() {
 						a.remoteTrustChoice(c.Part("full"), language, i18n.Shared(language, "desktop.remote.trust.trustOpen"), i18n.Shared(language, "desktop.remote.trust.full"))
 						a.remoteTrustChoice(c.Part("safe"), language, i18n.Shared(language, "desktop.remote.trust.safeOpen"), i18n.Shared(language, "desktop.remote.trust.safe"))

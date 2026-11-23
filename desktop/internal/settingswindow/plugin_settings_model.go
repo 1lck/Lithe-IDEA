@@ -222,7 +222,7 @@ func (p *pluginSettingsForm) declare(c ui.C) {
 		ui.Effect(c, p.opEffect, p.opKey)
 	}
 	if p.sources != nil && p.sources.key != 0 {
-		ui.Effect(c.Part("source-editor"), p.sources.effect, p.sources.key)
+		ui.Effect(c, p.sources.effect, p.sources.key)
 	}
 }
 

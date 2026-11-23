@@ -22,13 +22,12 @@ type file struct {
 	Plugins       map[string]map[string]Record `json:"plugins"`
 }
 
+// Each workbench opens a Store. The approval file is shared, so its entire
+// read-modify-write transaction needs the same process-wide mutex.
+var approvalsMu sync.Mutex
+
 // Store keeps approval records in one preference file.
-//
-// Every method is a whole read-modify-write of that file, and the workbench runs
-// each plugin action on its own goroutine, so the mutex is what stops two
-// concurrent approvals from overwriting each other.
 type Store struct {
-	mu          sync.Mutex
 	preferences *store.Store
 }
 
@@ -39,8 +38,8 @@ func New(preferences *store.Store) *Store {
 
 // Record returns the approval stored for one plugin version.
 func (s *Store) Record(id, version string) (Record, bool, error) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
+	approvalsMu.Lock()
+	defer approvalsMu.Unlock()
 	contents, err := s.load()
 	if err != nil {
 		return Record{}, false, err
@@ -58,8 +57,8 @@ func (s *Store) Record(id, version string) (Record, bool, error) {
 
 // Approve stores record, replacing any earlier approval of the same version.
 func (s *Store) Approve(record Record) error {
-	s.mu.Lock()
-	defer s.mu.Unlock()
+	approvalsMu.Lock()
+	defer approvalsMu.Unlock()
 	if err := record.Validate(); err != nil {
 		return err
 	}
@@ -79,8 +78,8 @@ func (s *Store) Approve(record Record) error {
 // Forget drops the approval of one plugin version. Removing a version that was
 // never approved is not an error.
 func (s *Store) Forget(id, version string) error {
-	s.mu.Lock()
-	defer s.mu.Unlock()
+	approvalsMu.Lock()
+	defer approvalsMu.Unlock()
 	contents, err := s.load()
 	if err != nil {
 		return err
@@ -101,8 +100,8 @@ func (s *Store) Forget(id, version string) error {
 
 // List reports every stored approval, ordered by plugin ID then version.
 func (s *Store) List() ([]Record, error) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
+	approvalsMu.Lock()
+	defer approvalsMu.Unlock()
 	contents, err := s.load()
 	if err != nil {
 		return nil, err
