@@ -29,7 +29,7 @@ func (s keptStore) Delete(_ context.Context, namespace, key string) error {
 }
 
 func resumeOf(n int) core.RemoteResume {
-	return core.RemoteResume{Key: fmt.Sprintf("key-%d", n), Token: fmt.Sprintf("token-%d", n)}
+	return core.RemoteResume{Key: fmt.Sprintf("key-%d", n), Token: fmt.Sprintf("token-%d", n), Binding: strings.Repeat("b", 64)}
 }
 
 // The newest kept session is the one a connection resumes; keeping one of the same key again
@@ -93,11 +93,10 @@ func TestKeptSessionsForgetTheOldestBeyondTheLimit(t *testing.T) {
 	if len(kept) != keptLimit || kept[0] != resumeOf(3) || kept[len(kept)-1] != resumeOf(keptLimit+2) {
 		t.Fatalf("kept %d sessions from %+v, want the newest %d", len(kept), kept[0], keptLimit)
 	}
-	// The whole list fits Windows Credential Manager's 2560 bytes with keys and tokens of the size
-	// Core issues (32 and 43 characters).
-	long := make([]core.RemoteResume, keptLimit)
+	// The byte guard also bounds lists beyond the current count cap and retains their newest entry.
+	long := make([]core.RemoteResume, keptLimit+2)
 	for i := range long {
-		long[i] = core.RemoteResume{Key: strings.Repeat("k", 32), Token: strings.Repeat("t", 43)}
+		long[i] = core.RemoteResume{Key: strings.Repeat("k", 64), Token: strings.Repeat("a", 128), Binding: strings.Repeat("b", 64)}
 		long[i].Key = fmt.Sprintf("%d%s", i, long[i].Key[1:])
 	}
 	if err := writeKept(ctx, store, "long", long); err != nil {
@@ -105,6 +104,31 @@ func TestKeptSessionsForgetTheOldestBeyondTheLimit(t *testing.T) {
 	}
 	if secret, _, _ := store.Get(ctx, KeptNamespace, keptAccount("long")); len(secret) > 2560 {
 		t.Fatalf("a full list takes %d bytes", len(secret))
+	}
+	if kept, err := readKept(ctx, store, "long"); err != nil || len(kept) >= len(long) || kept[len(kept)-1] != long[len(long)-1] {
+		t.Fatal("byte limit did not retain the newest bounded credentials")
+	}
+}
+
+// A successful connection to a rebound alias must leave the original host's credential intact.
+func TestKeptSessionsKeepBindingsAndLegacyRecords(t *testing.T) {
+	ctx, store := testContext(t), keptStore{}
+	legacy := core.RemoteResume{Key: "legacy", Token: "old"}
+	if err := RememberKept(ctx, store, "build", legacy); err != nil {
+		t.Fatal(err)
+	}
+	if got, err := NewestKept(ctx, store, "build"); err != nil || got == nil || *got != legacy {
+		t.Fatal("legacy credential changed during read")
+	}
+	bound := resumeOf(1)
+	if err := RememberKept(ctx, store, "build", bound); err != nil {
+		t.Fatal(err)
+	}
+	if got, err := NewestKept(ctx, store, "build"); err != nil || got == nil || *got != bound {
+		t.Fatal("verified binding did not round-trip")
+	}
+	if err := writeKept(ctx, store, "oversized", []core.RemoteResume{{Key: "k", Token: strings.Repeat("a", keptBytes)}}); err == nil {
+		t.Fatal("oversized single credential was written")
 	}
 }
 
