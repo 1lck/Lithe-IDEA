@@ -369,9 +369,10 @@ PINNED_CORE_REPOSITORY="https://github.com/Lithe-IDEA/Lithe-core-rust.git"
 # workspace.createEntry, renameEntry, copyEntry and resolveEntry with the codes entry_not_found
 # and entry_exists, which the desktop calls for a plugin's create, rename, copy, trash and
 # saveAs (workbench/pluginfilechanges.go).
-# The plugin delta branch exposes the pinned companion index and verifies and
-# reconstructs marketplace ZIPs for the desktop's manual and background updates.
-PINNED_CORE_REVISION="87c92033b3905d501252139b96543cf9888a89e2"
+# Core main adds the built-in system file association catalog and plans (#186).
+# The plugin delta branch adds the pinned companion index and verifies and
+# reconstructs marketplace ZIPs for manual and background updates.
+PINNED_CORE_REVISION="61192dc8bfe4238d64601aaf5f18650368a5ba2c"
 PROFILE="debug"
 CHECKOUT_ONLY="no"
 while [[ $# -gt 0 ]]; do

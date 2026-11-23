@@ -18,6 +18,7 @@ require (
 	github.com/danieljoos/wincred v1.2.3 // indirect
 	github.com/ebitengine/purego v0.11.1 // indirect
 	github.com/godbus/dbus/v5 v5.2.2 // indirect
+	github.com/pelletier/go-toml/v2 v2.4.3 // indirect
 )
 
 replace github.com/vivaui/viva => github.com/Lithe-IDEA/viva v0.6.7-0.20261123062230-3c6c46081fe6
