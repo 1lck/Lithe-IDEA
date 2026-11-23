@@ -61,6 +61,9 @@ type LanguageSession struct {
 	// temporary is the scratch directory of one backend-resolved start; it is
 	// removed when the process ends.
 	temporary string
+	// launch is set when the backend's launch answer carried the server's
+	// workspace configuration; an immediate setting change asks it again.
+	launch *launchConfiguration
 	languageSessionState
 }
 
@@ -137,6 +140,7 @@ func (s *Service) StartLanguageServer(ctx context.Context, entries []pluginmanag
 		ProjectCodeAllowed: request.ProjectCodeAllowed,
 	}
 	temporary := ""
+	var launch *launchConfiguration
 	if declaresBackendLaunch(manifest, languageID) {
 		resolved, resolveErr := s.resolveBackendLaunch(ctx, entry.Installed.ID, entry.Installed.Version, manifest, languageID, workspaceContext, start, runtimes)
 		if resolveErr != nil {
@@ -145,6 +149,7 @@ func (s *Service) StartLanguageServer(ctx context.Context, entries []pluginmanag
 		start.Plan = resolved.plan
 		start.WorkspaceStateDirectory = resolved.directories.workspaceState
 		temporary = resolved.directories.temporary
+		launch = resolved.configuration
 	}
 	if _, contextErr := s.workspaceForBackend(ctx, request); contextErr != nil {
 		removeTemporary(temporary)
@@ -180,6 +185,7 @@ func (s *Service) StartLanguageServer(ctx context.Context, entries []pluginmanag
 		ContextID:         workspaceContext.ContextID,
 		ContextGeneration: workspaceContext.Generation,
 		temporary:         temporary,
+		launch:            launch,
 	}
 	s.registerLanguageSession(session)
 	return session, nil
