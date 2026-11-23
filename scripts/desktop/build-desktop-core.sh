@@ -355,11 +355,14 @@ PINNED_CORE_REPOSITORY="https://github.com/Lithe-IDEA/Lithe-core-rust.git"
 # context; #174 merged with that field under a new ui 1, and #175 makes choose an optional field
 # within ui 0 again. The sources are the same as the branch commit a50cea1 that the desktop
 # pinned before; only the protocol changelog differs.
-# Lithe-core-rust branch feat/toolchain-leaf-links-outside-home at 33e6b60 (#177, not merged yet):
-# a tool definition may set executableLinksOutsideHome, a toolDefinitions 0 addition, so a
-# virtual environment's program that links to its base interpreter outside the home is accepted
-# and started from its layout path; the directories on the way must stay inside the home.
-PINNED_CORE_REVISION="33e6b601857e22a787e1a4ce26da2a24a1ce41ea"
+# Lithe-core-rust main at 4880022: #177 lets a tool definition set executableLinksOutsideHome, a
+# toolDefinitions 0 addition, so a virtual environment's program that links to its base
+# interpreter outside the home is accepted and started from its layout path; the directories on
+# the way must stay inside the home. #176 documents that a backend that decides how its language
+# server starts is asked again when a setting that applies immediately changes. The sources are
+# the same as #177's branch commit 33e6b60 that the desktop pinned before; only the protocol
+# changelog and the plugin docs differ.
+PINNED_CORE_REVISION="4880022be16c862c6faa6ac18e13c0de61432177"
 PROFILE="debug"
 CHECKOUT_ONLY="no"
 while [[ $# -gt 0 ]]; do
