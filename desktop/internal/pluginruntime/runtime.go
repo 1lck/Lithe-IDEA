@@ -16,6 +16,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/1lck/Lithe-IDEA/desktop/internal/atomicfile"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/configfile"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/marketplace"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/pluginpkg"
@@ -383,37 +384,16 @@ func (m *Manager) archive(ctx context.Context, artifact Artifact, base string, p
 		return nil, err
 	}
 	defer func() { err = errors.Join(err, source.Close()) }()
-	temporary, err := os.CreateTemp(base, ".archive-")
-	if err != nil {
-		return nil, err
-	}
-	temporaryName := temporary.Name()
-	defer func() {
-		if temporary != nil {
-			err = errors.Join(err, temporary.Close())
+	if err := atomicfile.WriteWith(path, 0o600, func(w io.Writer) error {
+		if _, err := io.Copy(w, contextReader{ctx, source}); err != nil {
+			return err
 		}
-		if cleanup := os.Remove(temporaryName); cleanup != nil && !errors.Is(cleanup, os.ErrNotExist) {
-			err = errors.Join(err, cleanup)
-		}
-	}()
-	if _, err := io.Copy(temporary, contextReader{ctx, source}); err != nil {
-		return nil, err
-	}
-	if err := temporary.Sync(); err != nil {
-		return nil, err
-	}
-	if err := temporary.Close(); err != nil {
-		return nil, err
-	}
-	temporary = nil
-	if err := ctx.Err(); err != nil {
-		return nil, err
-	}
-	if err := os.Rename(temporaryName, path); err != nil {
+		return ctx.Err()
+	}); err != nil {
 		return nil, err
 	}
 	return openVerified(ctx, path, artifact.SHA256)
-}
+
 
 func openVerified(ctx context.Context, path, digest string) (_ *os.File, err error) {
 	info, err := os.Lstat(path)
