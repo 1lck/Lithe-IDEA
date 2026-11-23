@@ -243,7 +243,7 @@ test("the protocol reader skips noise before the preamble and reassembles split 
 
 test("staged artifacts pass and a changed executable fails the hash check", { timeout: TEST_TIMEOUT_MS }, async () => {
   await withStage(staticTargets(), async ({ root, runner }) => {
-    const passed = await verifyArtifacts({ stageDir: root, requireSmoke: [X86_64, AARCH64], pinnedRevision: "a".repeat(40), runnerFor: runner("good") });
+    const passed = await verifyArtifacts({ stageDir: root, smoke: [X86_64, AARCH64], pinnedRevision: "a".repeat(40), runnerFor: runner("good") });
     assert.deepEqual(passed.problems, []);
     assert.deepEqual(passed.results.map((result) => result.smoke), ["passed (fixture good, protocol 1)", "passed (fixture good, protocol 1)"]);
     assert.match(formatSummaryMarkdown(passed), /\| `aarch64-unknown-linux-musl` \| \d[\d,]* B \(0\.00 MiB\) \|/);
@@ -261,8 +261,21 @@ test("a missing smoke runner fails only when the smoke test is required", { time
     const optional = await verifyArtifacts({ stageDir: root, runnerFor });
     assert.deepEqual(optional.problems, []);
     assert.equal(optional.results[0].smoke, "skipped: Linux executables do not run on darwin");
-    const required = await verifyArtifacts({ stageDir: root, runnerFor, requireSmoke: [X86_64, AARCH64] });
+    const required = await verifyArtifacts({ stageDir: root, runnerFor, smoke: [X86_64, AARCH64] });
     assert.equal(required.problems.length, 2, required.problems.join("\n"));
+  });
+});
+
+test("no smoke test runs when none is asked for, and the files are still checked", { timeout: TEST_TIMEOUT_MS }, async () => {
+  await withStage(staticTargets(), async ({ root, runner }) => {
+    const runnerFor = () => assert.fail("no target should be run");
+    const none = await verifyArtifacts({ stageDir: root, runnerFor, smoke: [], pinnedRevision: "a".repeat(40) });
+    assert.deepEqual(none.problems, []);
+    assert.deepEqual(none.results.map((result) => result.smoke), ["not run here", "not run here"]);
+
+    await writeFile(path.join(root, X86_64, SERVER_BINARY), syntheticElf({ machine: 62, type: 2, entry: 0x3000 }), { mode: 0o755 });
+    const changed = await verifyArtifacts({ stageDir: root, runnerFor: runner("good"), smoke: [] });
+    assert.match(changed.problems.join("\n"), /x86_64-unknown-linux-musl: its SHA-256 is [0-9a-f]{64}, not the manifest's/);
   });
 });
 
@@ -274,10 +287,13 @@ test("only the named targets must pass the smoke test, and another architecture 
     const good = runner("good");
     // An x86_64 runner: the aarch64 executable is checked but cannot run.
     const runnerFor = (target) => (target === X86_64 ? good(target) : defaultRunnerFor(target, { platform: "linux", arch: "x64" }));
-    const x86Only = await verifyArtifacts({ stageDir: root, runnerFor, requireSmoke: [X86_64] });
+    const automatic = await verifyArtifacts({ stageDir: root, runnerFor });
+    assert.deepEqual(automatic.problems, []);
+    assert.deepEqual(automatic.results.map((result) => result.smoke), ["passed (fixture good, protocol 1)", "skipped: it runs only on arm64 Linux, and this machine is x64"]);
+    const x86Only = await verifyArtifacts({ stageDir: root, runnerFor, smoke: [X86_64] });
     assert.deepEqual(x86Only.problems, []);
-    assert.deepEqual(x86Only.results.map((result) => result.smoke), ["passed (fixture good, protocol 1)", "skipped: it runs only on arm64 Linux, and this machine is x64"]);
-    const both = await verifyArtifacts({ stageDir: root, runnerFor, requireSmoke: [X86_64, AARCH64] });
+    assert.deepEqual(x86Only.results.map((result) => result.smoke), ["passed (fixture good, protocol 1)", "not run here"]);
+    const both = await verifyArtifacts({ stageDir: root, runnerFor, smoke: [X86_64, AARCH64] });
     assert.deepEqual(both.problems, [`${AARCH64}: the smoke test is required but cannot run: it runs only on arm64 Linux, and this machine is x64`]);
   });
 });

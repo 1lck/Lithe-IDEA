@@ -80,3 +80,50 @@ func TestVisualStandalone(t *testing.T) {
 		}
 	}
 }
+
+// TestVisualStandaloneMarkdown captures a Markdown file opened alone, its source beside the page
+// with the view switch and the Contents button in the tab strip (#2324).
+func TestVisualStandaloneMarkdown(t *testing.T) {
+	out := os.Getenv("LITHE_VISUAL_OUTPUT_DIR")
+	if out == "" {
+		t.Skip("set LITHE_VISUAL_OUTPUT_DIR")
+	}
+	if err := os.MkdirAll(out, 0755); err != nil {
+		t.Fatal(err)
+	}
+	text := "# Notes\n\nA file opened **alone**, its page beside the source.\n\n## List\n\n- one\n- two\n\n## Code\n\n```go\nfmt.Println(\"Hello, Lithe!\")\n```\n\n> A quote.\n"
+	for _, theme := range []string{"dark", "light"} {
+		for _, language := range []string{"en-US", "zh-Hans"} {
+			t.Run(theme+"-"+language, func(t *testing.T) {
+				root := t.TempDir()
+				path := filepath.Join(root, "notes.md")
+				if err := os.WriteFile(path, []byte(text), 0600); err != nil {
+					t.Fatal(err)
+				}
+				prefs := store.At(t.TempDir())
+				if err := prefs.Save(settingsFile, map[string]string{"theme": theme}); err != nil {
+					t.Fatal(err)
+				}
+				options := DesktopOptions(core.NewClient(), prefs, "test")
+				options.Languages = []string{language}
+				options.OpenFile = path
+				var session *headless.Session
+				h := newHarnessWithDriver(t, options, func(config app.Config) (*app.Driver, func(), error) {
+					config.Width, config.Height = 1000, 640
+					var err error
+					session, err = headless.Open(config, nil, headless.Options{})
+					if err != nil {
+						return nil, nil, err
+					}
+					return session.Driver(), session.Close, nil
+				})
+				h.app.openStandaloneFile(path)
+				h.await("standalone Markdown file", func() bool { return h.app.project != nil && h.app.project.docs.byPath(path) != nil })
+				h.settle()
+				if err := session.Screenshot(filepath.Join(out, "single-file-markdown-"+theme+"-"+language+".png")); err != nil {
+					t.Fatal(err)
+				}
+			})
+		}
+	}
+}

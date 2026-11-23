@@ -85,7 +85,7 @@ func (w *window) buildKindPage(c ui.C, kind string) {
 			w.kindList(c.Part("list"), language, kind, state)
 			ui.Row(c).FillWidth().Height(1).Shrink(0).Background(b.line)
 			ui.Row(c).FillWidth().Shrink(0).PadX(12).PadY(5).Children(func() {
-				ui.Text(c, i18n.SharedFormat(language, "desktop.buildSettings.kindPageCount", map[string]string{"count": formatCount(w.dynamic.kindCount(kind))})).
+				ui.Text(c, kindPageCount(language, w.dynamic.kindCount(kind))).
 					FontSize(11).Color(b.faint).Ellipsis()
 			})
 		})

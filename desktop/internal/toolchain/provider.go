@@ -249,11 +249,15 @@ func providerAbsolutePath(path string) bool {
 		filepath.IsAbs(path) && filepath.Clean(path) == filepath.FromSlash(path)
 }
 
+// observeToolHome records the facts Core needs to check an external home: the
+// home, every directory on each layout path and the program with its link target,
+// and the PATH directories. A program that links outside its home is accepted only
+// when Core sees each directory on the way stay inside the home.
 func (w *workspace) observeToolHome(home string, definition core.ToolchainToolDefinition) {
 	w.observe(home)
 	for _, layout := range definition.ExecutableLayouts {
 		if platformMatches(layout.Platforms, w.platform) {
-			w.observe(filepath.Join(home, filepath.FromSlash(layout.Path)))
+			w.observeChain(home, filepath.Join(home, filepath.FromSlash(layout.Path)))
 		}
 	}
 	for _, template := range definition.PathPrepend {

@@ -224,6 +224,9 @@ func (a *App) remoteMoreMenu(c ui.C, language i18n.Language, entry core.SavedRem
 		if menu.Item(i18n.Shared(language, "desktop.remote.copyAsNew")).Icon(icons.Copy).Disabled(!r.editable()).Clicked() {
 			c.After(a.copyRemoteAsNew)
 		}
+		if menu.Item(i18n.Shared(language, "desktop.remote.forgetAnswers")).Icon(icons.Eraser).Clicked() {
+			c.After(func() { a.forgetRemoteAnswers(entry) })
+		}
 		menu.Separator()
 		remove := menu.Item(i18n.SharedFormat(language, "desktop.remote.deleteNamed", map[string]string{"name": entry.Name})).
 			Icon(icons.Trash2).Destructive().Disabled(!r.editable())
