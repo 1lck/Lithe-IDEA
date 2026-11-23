@@ -34,9 +34,9 @@ type directoryRulesFile struct {
 // projectIndexing is the policy a project installed in Core: its rules as stored, the lease the
 // window holds and what Core answered.
 type projectIndexing struct {
-	owner     string
-	rules     json.RawMessage
-	gitIgnore bool
+	owner      string
+	rules      json.RawMessage
+	gitIgnore  bool
 	loaded     bool
 	unreadable bool // saved rules could not be decoded; do not replace their file
 	status     core.IndexingStatus
