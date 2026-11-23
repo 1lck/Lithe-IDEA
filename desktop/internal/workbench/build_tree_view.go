@@ -61,7 +61,7 @@ func (a *App) buildToolActions(c ui.C, p *project) {
 			})
 		}
 		a.buildToolbarToggles(c.Part("toggles"), p)
-		if _, hit := a.toolIconButton(c.Part("options"), i18n.Shared(language, "desktop.build.optionsTitle"), icons.Settings, false, false); hit {
+		if _, hit := a.toolIconButton(c.Part("options"), i18n.Shared(language, "desktop.build.ignoredPaths"), icons.Settings, false, false); hit {
 			c.After(func() {
 				a.performed("build.options.open", surfaceButton)
 				a.openBuildOptions(p, nil)

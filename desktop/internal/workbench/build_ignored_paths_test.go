@@ -174,7 +174,7 @@ func TestBuildOptionsIgnoredPathsAreSavedOnThisMachineAndRestored(t *testing.T) 
 		t.Fatalf("by default the build systems are at %q, want the dot-named folder skipped", got)
 	}
 
-	h.clickNamed(h.shared("desktop.build.optionsTitle"))
+	h.clickNamed(h.shared("desktop.build.ignoredPaths"))
 	h.awaitIgnoredPathsLoaded(p)
 	e := &p.build.options
 	if e.instance != "" || len(e.fields) != 0 {
@@ -198,7 +198,7 @@ func TestBuildOptionsIgnoredPathsAreSavedOnThisMachineAndRestored(t *testing.T) 
 		t.Fatalf("the project stores %+v, want the typed list on this machine", got)
 	}
 
-	h.clickNamed(h.shared("desktop.build.optionsTitle"))
+	h.clickNamed(h.shared("desktop.build.ignoredPaths"))
 	h.awaitIgnoredPathsLoaded(p)
 	if !h.showsWrapped(h.shared("desktop.build.ignoredPathsLocal")) {
 		t.Fatal("the dialog does not say the list is the one saved on this machine")

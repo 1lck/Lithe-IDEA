@@ -415,7 +415,7 @@ func (a *App) buildOptionsDialog(c ui.C, p *project) {
 	open := true
 	// Opened on an instance the dialog is that build system's options, as the instance's button
 	// says; from the toolbar it is only the scope of detection.
-	title := i18n.Shared(language, "desktop.build.optionsTitle")
+	title := i18n.Shared(language, "desktop.build.ignoredPaths")
 	if e.instance != "" {
 		title = i18n.SharedFormat(language, "desktop.build.instanceOptions", map[string]string{"name": e.name})
 	}
