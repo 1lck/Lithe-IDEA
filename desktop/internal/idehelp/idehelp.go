@@ -9,10 +9,11 @@
 package idehelp
 
 import (
-	"github.com/1lck/Lithe-IDEA/desktop/internal/atomicfile"
 	"errors"
 	"fmt"
 	"path/filepath"
+
+	"github.com/1lck/Lithe-IDEA/desktop/internal/atomicfile"
 )
 
 // ErrNotBundled means this build has no embedded helper: development builds without the

@@ -22,13 +22,14 @@
 package conpty
 
 import (
-	"github.com/1lck/Lithe-IDEA/desktop/internal/atomicfile"
 	"crypto/sha256"
 	"encoding/hex"
 	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
+
+	"github.com/1lck/Lithe-IDEA/desktop/internal/atomicfile"
 )
 
 // ErrUnavailable means this build carries no ConPTY: only the Windows builds for amd64 and
