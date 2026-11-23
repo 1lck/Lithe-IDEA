@@ -369,7 +369,7 @@ PINNED_CORE_REPOSITORY="https://github.com/Lithe-IDEA/Lithe-core-rust.git"
 # workspace.createEntry, renameEntry, copyEntry and resolveEntry with the codes entry_not_found
 # and entry_exists, which the desktop calls for a plugin's create, rename, copy, trash and
 # saveAs (workbench/pluginfilechanges.go).
-PINNED_CORE_REVISION="aadf63d7f69e762a3b2aac44cb6429f57ca5b880"
+PINNED_CORE_REVISION="bb0ad53f9100954306fcd139bf0e5003e6a515fe"
 PROFILE="debug"
 CHECKOUT_ONLY="no"
 while [[ $# -gt 0 ]]; do

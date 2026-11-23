@@ -9,6 +9,7 @@ import (
 	"github.com/1lck/Lithe-IDEA/desktop/internal/buildinfo"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/cli"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/core"
+	"github.com/1lck/Lithe-IDEA/desktop/internal/fileassociations"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/fontprefs"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/i18n"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/localshell"
@@ -34,8 +35,15 @@ func (a *App) newSettingsWindow() *settingswindow.Controller {
 		navigation = kernel.SettingsNavigation
 	}
 	return settingswindow.NewController(settingswindow.Options{
-		CLI:               cli.New(),
-		CLIAction:         func(action string) { a.post(func(a *App) { a.performed("settings.cli."+action, surfaceButton) }) },
+		CLI:              cli.New(),
+		CLIAction:        func(action string) { a.post(func(a *App) { a.performed("settings.cli."+action, surfaceButton) }) },
+		FileAssociations: fileassociations.New(),
+		AssociationAction: func(ctx context.Context, action string) context.Context {
+			return a.performedIn(ctx, "settings.fileAssociations."+action, surfaceButton)
+		},
+		AssociationError: func(ctx context.Context, err error) {
+			a.operationFailedIn(ctx, "file_associations", err)
+		},
 		SearchPreferences: appSearchPreferences{app: a},
 		PluginInstallsClosed: func() {
 			a.post(func(a *App) { a.closePluginDownloads() })

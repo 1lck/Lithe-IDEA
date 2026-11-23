@@ -79,6 +79,7 @@ const (
 // its window thread, but for the fields that say so.
 type window struct {
 	cli              cliRegistration
+	associations     associationRegistration
 	searchDraft      searchPreferencesDraft
 	editorDelay      ui.Field
 	editorDelayReady bool
@@ -586,6 +587,7 @@ func (w *window) reportMarket(ended bool, kept error) {
 // paint, and in every paint, so leaving a page does not cancel what it asked for.
 func (w *window) declareWork(c ui.C) {
 	w.declareCLI(c)
+	w.declareAssociations(c)
 	if d := &w.searchDraft; d.effect != nil && d.work != nil {
 		ui.Effect(c, d.effect, d.work)
 	}
