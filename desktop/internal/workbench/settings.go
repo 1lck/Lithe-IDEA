@@ -14,9 +14,11 @@ import (
 	"github.com/1lck/Lithe-IDEA/desktop/internal/localshell"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/marketplace"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/pluginhost"
+	"github.com/1lck/Lithe-IDEA/desktop/internal/pluginicons"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/processledger"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/settingswindow"
 	"github.com/vivaui/viva/app"
+	"github.com/vivaui/viva/gfx"
 )
 
 // newSettingsWindow makes the controller of the settings window. The settings are a window
@@ -75,7 +77,20 @@ func (a *App) newSettingsWindow() *settingswindow.Controller {
 			}
 			return service.Fetch(ctx, marketplace.CommunityRepositoryURL, core.MarketplaceThirdParty, runtime.GOOS+"-"+arch, pluginhost.Declared().Clone())
 		},
-		MarketplaceURL:         marketplace.CommunityRepositoryURL,
+		MarketplaceURL: marketplace.CommunityRepositoryURL,
+		MarketplaceIcon: func(ctx context.Context, address string) (gfx.Icon, error) {
+			data, err := service.FetchIcon(ctx, address, pluginicons.MaxFileBytes)
+			if err != nil {
+				return gfx.Icon{}, err
+			}
+			if err := ctx.Err(); err != nil {
+				return gfx.Icon{}, err
+			}
+			return pluginicons.CompileSVG(address, data)
+		},
+		MarketplaceIconError: func(err error) {
+			a.backgroundFailedIn(context.Background(), "plugin_marketplace_icon", err)
+		},
 		OfficialMarketplaceURL: marketplace.OfficialIndexURL,
 		MarketplaceOfficial: func(ctx context.Context) (marketplace.Snapshot, error) {
 			arch := runtime.GOARCH
