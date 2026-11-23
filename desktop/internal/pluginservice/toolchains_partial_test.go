@@ -40,20 +40,20 @@ func TestToolchainPluginsKeepValidVersionsAndReportRejectedFacts(t *testing.T) {
 
 	for _, tc := range []struct {
 		name, wantCode string
-		entries       []pluginmanager.Entry
-		wantIDs       []string
+		entries        []pluginmanager.Entry
+		wantIDs        []string
 	}{
 		{
-			name: "same version rejected without replacing the first",
+			name:     "same version rejected without replacing the first",
 			wantCode: "plugin.installed.duplicateVersion",
-			entries: []pluginmanager.Entry{first, duplicate, healthy},
-			wantIDs: []string{first.Installed.ID, healthy.Installed.ID},
+			entries:  []pluginmanager.Entry{first, duplicate, healthy},
+			wantIDs:  []string{first.Installed.ID, healthy.Installed.ID},
 		},
 		{
-			name: "invalid version leaves healthy tools",
+			name:     "invalid version leaves healthy tools",
 			wantCode: "plugin.installed.invalidVersion",
-			entries: []pluginmanager.Entry{broken, healthy},
-			wantIDs: []string{healthy.Installed.ID},
+			entries:  []pluginmanager.Entry{broken, healthy},
+			wantIDs:  []string{healthy.Installed.ID},
 		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
