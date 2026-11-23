@@ -43,7 +43,7 @@ func (a *App) inlineEditView(c ui.C, p *project) {
 					ui.Text(c, t.Unchanged).Color(a.colors.Subtle)
 				}
 				ui.Scroll(c).Scrollbars().FillWidth().MaxHeight(360).Children(func() {
-					for i, line := range s.diff {
+					for _, line := range s.diff {
 						color, mark := a.colors.Text, "  "
 						switch line.kind {
 						case diffRemoved:
@@ -51,7 +51,7 @@ func (a *App) inlineEditView(c ui.C, p *project) {
 						case diffAdded:
 							color, mark = a.colors.Success, "+ "
 						}
-						ui.Text(c.KeyInt(i), mark+line.text).Mono().FontSize(a.theme.Metrics.FontSizeS).Color(color)
+						ui.Text(c, mark+line.text).Mono().FontSize(a.theme.Metrics.FontSizeS).Color(color)
 					}
 				})
 			}

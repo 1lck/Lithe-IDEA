@@ -17,8 +17,6 @@ func TestDelayedWorkspaceTasksDoNotReopenOrAdoptAnotherContext(t *testing.T) {
 	for _, consumer := range []string{"activation", "language-server"} {
 		for _, transition := range []string{"open", "closed", "reopened"} {
 			t.Run(consumer+"/"+transition, func(t *testing.T) {
-				ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-				defer cancel()
 				planned := errors.New("test stopped at language-server planning")
 				kernel := &fakeKernel{planErr: planned}
 				preferences := store.At(t.TempDir())
@@ -49,10 +47,17 @@ func TestDelayedWorkspaceTasksDoNotReopenOrAdoptAnotherContext(t *testing.T) {
 						t.Fatal("reopening reused a closed workspace identity")
 					}
 				}
+				var entries []pluginmanager.Entry
+				if consumer == "language-server" {
+					// Planning returns a sentinel error before the runner checks the executable.
+					entries = []pluginmanager.Entry{serverPackage(t, "1.0.0", true, "go")}
+				}
+				ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
+				defer cancel()
 				if consumer == "activation" {
 					err = service.ActivateWorkspace(ctx, nil, captured.ContextRef)
 				} else {
-					_, err = service.StartLanguageServer(ctx, []pluginmanager.Entry{languageServerEntry(t)}, "go", BackendRequest{
+					_, err = service.StartLanguageServer(ctx, entries, "go", BackendRequest{
 						WorkingDirectory: root, Context: captured.ContextRef, Architecture: core.PluginArchitecture(),
 					})
 				}

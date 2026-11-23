@@ -326,7 +326,7 @@ func (a *App) toolTabsWith(c ui.C, selected int, labels []string, choose func(in
 				chip = chip.Hover(ui.Look{}.Background(a.colors.Hover))
 			}
 			chip.Children(func() {
-				text := ui.Text(k, label).Ellipsis().Shrink(1)
+				text := ui.Text(c, label).Ellipsis().Shrink(1)
 				if on {
 					text.Color(a.colors.Text)
 				} else {

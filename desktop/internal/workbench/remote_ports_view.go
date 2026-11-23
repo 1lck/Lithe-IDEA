@@ -150,7 +150,7 @@ func (a *App) remotePortsHeader(c ui.C) {
 				cell = cell.Grow(1).Shrink(1).MinWidth(0)
 			}
 			cell.Children(func() {
-				ui.Text(k.Part(key+"-text"), text).FontSize(a.theme.Metrics.FontSizeS).Color(a.colors.Subtle).Ellipsis()
+				ui.Text(c, text).FontSize(a.theme.Metrics.FontSizeS).Color(a.colors.Subtle).Ellipsis()
 			})
 		}
 		column("remote", i18n.Shared(language, "desktop.remote.ports.columnRemote"), remotePortsRemoteWidth)
@@ -276,7 +276,7 @@ func (a *App) remotePortsRow(c ui.C, p *project, row remotePortRow) {
 				Tooltip(remoteTip)
 		}
 		remoteCell.Children(func() {
-			ui.Text(c.Part("remote-text"), remote).Color(a.colors.Text).Ellipsis()
+			ui.Text(c, remote).Color(a.colors.Text).Ellipsis()
 		})
 		a.remotePortsLabelCell(c, ports.labels[row.key])
 		localCell := ui.Row(c.Part("local")).Width(remotePortsLocalWidth).Shrink(0).Items(ui.Center)
@@ -288,22 +288,22 @@ func (a *App) remotePortsRow(c ui.C, p *project, row remotePortRow) {
 				Tooltip(localTip)
 		}
 		localCell.Children(func() {
-			ui.Text(c.Part("local-text"), local).Color(color).Ellipsis()
+			ui.Text(c, local).Color(color).Ellipsis()
 		})
 		ui.Row(c.Part("process")).Grow(1).Shrink(1).MinWidth(0).Items(ui.Center).Children(func() {
-			ui.Text(c.Part("process-text"), remotePortsProcess(language, row)).Color(a.colors.Subtle).Ellipsis()
+			ui.Text(c, remotePortsProcess(language, row)).Color(a.colors.Subtle).Ellipsis()
 		})
 		ui.Row(c.Part("source")).Width(remotePortsSourceWidth).Shrink(0).Items(ui.Center).Children(func() {
-			ui.Text(c.Part("source-text"), source).Color(a.colors.Subtle).Ellipsis()
+			ui.Text(c, source).Color(a.colors.Subtle).Ellipsis()
 		})
 		ui.Row(c.Part("status")).Width(remotePortsStatusWidth).Shrink(0).Items(ui.Center).Children(func() {
-			ui.Text(c.Part("status-text"), status).Color(statusColor).Ellipsis()
+			ui.Text(c, status).Color(statusColor).Ellipsis()
 		})
 		ui.Row(c.Part("actions")).Width(remotePortsActionWidth).Shrink(0).Items(ui.Center).Justify(ui.End).Gap(2).Children(func() {
 			a.remotePortsRowActions(c, p, row, busy)
 		})
 	})
-	ui.ContextMenu(c.Part("menu"), line, func(menu *ui.MenuItems) {
+	ui.ContextMenu(c, line, func(menu *ui.MenuItems) {
 		menu.WidthRange(180, 280)
 		if row.forward != nil {
 			forward := *row.forward
@@ -443,7 +443,7 @@ func (a *App) remotePortsLabelCell(c ui.C, label string) {
 		cell = cell.HitWith(ui.ID(c.Part("label")), label, gfx.HitOptions{Role: gfx.RoleStatus, SkipFocus: true}).Tooltip(label)
 	}
 	cell.Children(func() {
-		ui.Text(c.Part("label-text"), label).Color(a.colors.Text).Ellipsis()
+		ui.Text(c, label).Color(a.colors.Text).Ellipsis()
 	})
 }
 
@@ -499,7 +499,7 @@ func (a *App) remotePortsStatusItem(c ui.C) {
 		}).
 		Tooltip(i18n.SharedFormat(language, "desktop.remote.ports.statusTooltip", map[string]string{"count": count}))
 	button.Children(func() {
-		ui.Icon(k, icons.ArrowLeftRight).Size(chromeMarkSize, chromeMarkSize).Shrink(0).Color(a.colors.Accent)
+		ui.Icon(c, icons.ArrowLeftRight).Size(chromeMarkSize, chromeMarkSize).Shrink(0).Color(a.colors.Accent)
 		a.chromeStatusLabel(k, count)
 	})
 	if button.Clicked() {

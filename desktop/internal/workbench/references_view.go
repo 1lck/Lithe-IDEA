@@ -302,7 +302,7 @@ func (a *App) referencesSearchTab(c ui.C, p *project) {
 				Tooltip(name)
 			var closeButton ui.Box
 			chip.Children(func() {
-				ui.Text(k, name).Color(a.colors.Text).Ellipsis().Shrink(1)
+				ui.Text(c, name).Color(a.colors.Text).Ellipsis().Shrink(1)
 				cc := k.Part("close")
 				label := i18n.Shared(lang, "desktop.references.closeSearch")
 				closeButton = ui.Row(cc).Size(terminalCloseSize, terminalCloseSize).Shrink(0).Center().

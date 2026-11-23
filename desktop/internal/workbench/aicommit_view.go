@@ -10,7 +10,7 @@ func (a *App) drawGenerateCommitButton(c ui.C, p *project) {
 		// The spinner shows the generation is still working, as the macOS client's progress
 		// indicator does in place of its icon; Cancel stops it.
 		ui.Row(c.Part("aiRunning")).Items(ui.Center).Gap(4).Children(func() {
-			ui.Spinner(c.Part("spinner"))
+			ui.Spinner(c)
 			if ui.Button(c.Part("ai"), t.Cancel).Ghost().Clicked() {
 				c.After(func() { a.cancelCommitGeneration(p) })
 			}

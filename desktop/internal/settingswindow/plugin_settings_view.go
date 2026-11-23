@@ -14,11 +14,6 @@ import (
 	"github.com/vivaui/viva/ui"
 )
 
-// settingsListMinHeight is the least height of a form's settings list: a window too short to
-// give it that scrolls the page instead of squeezing the list. It still fits whole under an
-// installed plugin's header and tabs in the smallest window.
-const settingsListMinHeight = 160
-
 // scopeChoices are the two scopes a plugin's settings are edited in: global, then project.
 var scopeChoices = []int{0, 1}
 
@@ -36,11 +31,12 @@ func (w *window) scopeLabel(scope int) string {
 // above the toolbar, which parts the form from what its parent shows above it; a page that
 // opens on the form leaves it out.
 //
-// The panel grows into the height its parent leaves under what sits above it, and the rows'
-// list fills what the panel's header leaves, so the last row ends at the bottom of the page
-// and not at a fixed height above blank space. The list keeps settingsListMinHeight, so the
-// parent must be a scroll that grows its content to the viewport: a short window scrolls
-// the page rather than cutting the list's last rows off under the window's buttons.
+// The panel has no scroll of its own: its header, the plugin's region and all of its rows
+// are declared whole and scroll with the page its parent scrolls. Core caps a page at
+// MAX_SETTINGS settings and MAX_SETTING_ACTIONS actions, so the rows of one form are a short
+// form, which the project's scrolling rules let a view declare without virtualizing it. A
+// scroll of the panel's own would take only the height a tall region leaves it, scroll inside
+// that height once the page is at its end, and cut its first rows off under the region.
 func (w *window) pluginSettingsPanel(c ui.C, id string, ruled bool) {
 	if !w.selectPluginForm(id) {
 		ui.Wrap(c, i18n.Shared(w.marketLanguage(), "desktop.pluginSettings.draftLimit")).Color(w.pal.danger)
@@ -176,30 +172,29 @@ func (w *window) pluginSettingsPanel(c ui.C, id string, ruled bool) {
 			return
 		}
 		// Core's section references are walked in Core's order, without sorting or
-		// regrouping them; the list declares only the rows in its viewport.
-		ui.List(c, &p.rows, len(p.layout), func(row ui.ListRow) {
-			w.pluginSettingsListRow(row, p, source != "")
-		}).Scrollbars().FillWidth().Grow(1).MinHeight(settingsListMinHeight).Label(i18n.Shared(language, "desktop.pluginSettings.title"))
+		// regrouping them. The rows hold their own vertical padding, so they sit in a
+		// column of their own rather than taking the gap the panel parts its header with.
+		ui.Column(c.Part("rows")).FillWidth().Shrink(0).Children(func() {
+			for index := range p.layout {
+				w.pluginSettingsFormRow(c.KeyInt(index), p.layout[index], source != "")
+			}
+		})
 	})
 }
 
-// pluginSettingsListRow declares one row of the form's list: a section title, a setting
-// or an action.
-func (w *window) pluginSettingsListRow(row ui.ListRow, p *pluginSettingsForm, hasSource bool) {
-	c := row.C
-	item := p.layout[row.Index]
-	row.Element.FillWidth().Children(func() {
-		switch {
-		case item.action:
-			w.pluginSettingActionRow(c, item.row)
-		case item.row < 0:
-			ui.Row(c).FillWidth().Height(28).Items(ui.Center).Children(func() {
-				ui.Text(c, item.title).FontSize(13).Weight(gfx.WeightSemibold).Color(w.pal.text)
-			})
-		default:
-			w.pluginSettingRow(c, item.row, hasSource)
-		}
-	})
+// pluginSettingsFormRow declares one row of the form: a section title, a setting or an
+// action.
+func (w *window) pluginSettingsFormRow(c ui.C, item pluginSettingLayout, hasSource bool) {
+	switch {
+	case item.action:
+		w.pluginSettingActionRow(c, item.row)
+	case item.row < 0:
+		ui.Row(c).FillWidth().Shrink(0).Height(28).Items(ui.Center).Children(func() {
+			ui.Text(c, item.title).FontSize(13).Weight(gfx.WeightSemibold).Color(w.pal.text)
+		})
+	default:
+		w.pluginSettingRow(c, item.row, hasSource)
+	}
 }
 
 // readOnlyField shows value as a field that cannot be edited. Box.Disabled does not apply to
@@ -219,8 +214,8 @@ func (w *window) readOnlyList(c ui.C, label, value string) {
 	ui.Column(c).FillWidth().MinWidth(0).PadX(10).PadY(6).Gap(2).Border(1, w.pal.line).Radius(6).
 		HitWith(ui.ID(c), label, gfx.HitOptions{Role: gfx.RoleTextField, Value: value, ReadOnly: true, Disabled: true}).
 		Children(func() {
-			for index, line := range strings.Split(value, "\n") {
-				ui.Text(c.Key(strconv.Itoa(index)), line).FontSize(13).Color(w.pal.muted).FillWidth().Ellipsis()
+			for _, line := range strings.Split(value, "\n") {
+				ui.Text(c, line).FontSize(13).Color(w.pal.muted).FillWidth().Ellipsis()
 			}
 		})
 }

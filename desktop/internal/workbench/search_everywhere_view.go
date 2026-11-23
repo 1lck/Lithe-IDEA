@@ -56,9 +56,9 @@ func (a *App) everywherePopup(c ui.C) {
 	ui.Stack(c).Fill().Children(func() {
 		anchor = ui.Row(c).Absolute().Left((bounds.Width - width) / 2).Top(84).Width(width).Height(1)
 	})
-	closed := ui.PopoverWith(c, anchor, ui.PopoverSpec{
+	closed := ui.PopoverWith(c, anchor, &v.open, ui.PopoverSpec{
 		Width: width, Offset: 1, Align: ui.Start, KeepOpenOnAnchor: true,
-	}, &v.open, func() {
+	}, func() {
 		ui.Column(c).FillWidth().Height(height).Gap(8).Children(func() {
 			if p.everywhereActionsOnly() {
 				ui.Text(c, i18n.Shared(language, "desktop.everywhere.actions")).Bold()
@@ -118,7 +118,7 @@ func (a *App) everywhereScopes(c ui.C, p *project, language i18n.Language) {
 		for index, label := range labels {
 			var clicked bool
 			if key, help := everywhereScopeHelp(language, index); help != "" {
-				clicked = a.everywhereHelpTab(c.KeyInt(index), c.Key(key), language, label, help, index == v.scope)
+				clicked = a.everywhereHelpTab(c.KeyInt(index), key, language, label, help, index == v.scope)
 			} else {
 				tab := ui.Button(c.KeyInt(index), label).Ghost()
 				if index == v.scope {
@@ -167,7 +167,7 @@ const (
 // height the theme gives the other tabs' buttons (Ghost, Secondary when chosen), so it
 // reads as one of them; the ⓘ stays a button of its own, so the pointer and the keyboard
 // both reach its tooltip.
-func (a *App) everywhereHelpTab(c, infoKey ui.C, language i18n.Language, label, help string, chosen bool) bool {
+func (a *App) everywhereHelpTab(c ui.C, infoKey string, language i18n.Language, label, help string, chosen bool) bool {
 	variant := components.ButtonGhost
 	if chosen {
 		variant = components.ButtonSecondary
@@ -188,7 +188,7 @@ func (a *App) everywhereHelpTab(c, infoKey ui.C, language i18n.Language, label, 
 	var info ui.Box
 	tab.Children(func() {
 		ui.Text(c, label).FontSize(metrics.FontSizeM).Weight(gfx.WeightMedium).Color(rest.Foreground)
-		info = ui.Button(infoKey, i18n.Shared(language, "native.moreInformation")).Icon(icons.Info).IconOnly().Ghost().
+		info = ui.Button(c.Key(infoKey), i18n.Shared(language, "native.moreInformation")).Icon(icons.Info).IconOnly().Ghost().
 			Size(everywhereHelpInfoSize, everywhereHelpInfoSize).Tooltip(help)
 	})
 	return info.Clicked() || tab.Clicked()
@@ -229,7 +229,7 @@ func (a *App) everywhereFilter(c ui.C, p *project, language i18n.Language) {
 	if button.Clicked() {
 		v.filterOpen = !v.filterOpen
 	}
-	ui.PopoverWith(c, button, ui.PopoverSpec{Align: ui.End, Width: 300}, &v.filterOpen, func() {
+	ui.PopoverWith(c, button, &v.filterOpen, ui.PopoverSpec{Align: ui.End, Width: 300}, func() {
 		option := func(label, action string, value *bool) {
 			before := *value
 			ui.Checkbox(c, value, label)

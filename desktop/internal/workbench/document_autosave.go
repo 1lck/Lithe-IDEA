@@ -33,7 +33,7 @@ func (a *App) scheduleAutoSave(p *project, d *document) {
 				a.scheduleAutoSave(p, d)
 				return
 			}
-			a.saveDocumentMode(p, d.id, true)
+			a.saveDocumentMode(p, d.id, saveAuto)
 		})
 	})
 }
@@ -51,7 +51,7 @@ func (a *App) onFocusLost() gfx.EventResult {
 			continue
 		}
 		d.cancelAutoSave()
-		a.saveDocumentMode(p, d.id, true)
+		a.saveDocumentMode(p, d.id, saveAuto)
 	}
 	return gfx.EventResult{Repaint: true}
 }
@@ -77,7 +77,7 @@ func (a *App) noteEditorFocus(focused gfx.ID) {
 		d.cancelAutoSave()
 		a.post(func(a *App) {
 			if a.project == p && p.docs.find(d.id) == d {
-				a.saveDocumentMode(p, d.id, true)
+				a.saveDocumentMode(p, d.id, saveAuto)
 			}
 		})
 	}
