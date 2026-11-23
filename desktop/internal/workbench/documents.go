@@ -97,8 +97,11 @@ type document struct {
 	linkedAutoSaveOff bool
 	// autoSave counts the edits that scheduled an auto-save; a timer saves only when no
 	// later edit came.
-	autoSave           uint64
-	closeWaiters       []func(bool)
+	autoSave     uint64
+	closeWaiters []func(bool)
+	// saveWaiters are plugin saves waiting for the write in flight and any after it; each
+	// learns why a save failed (pluginfilechanges.go).
+	saveWaiters        []func(error)
 	checkWaiters       []func(bool)
 	checkFailed        bool
 	savedRevision      int
@@ -639,11 +642,25 @@ func (a *App) focusDocument(id int) { a.focus = focusTarget{doc: id} }
 
 // saveDocument serializes writes for a document. A repeated request is coalesced,
 // and close waiters resume only after the latest editor contents are persisted.
-func (a *App) saveDocument(p *project, id int) { a.saveDocumentMode(p, id, false) }
+func (a *App) saveDocument(p *project, id int) { a.saveDocumentMode(p, id, saveUser) }
 
-// saveDocumentMode is saveDocument for the user or, with auto, for auto-save, which never
-// overwrites a conflict, recreates a deleted file or asks about a hard link.
-func (a *App) saveDocumentMode(p *project, id int, auto bool) {
+// saveMode says who asked for a save.
+type saveMode int
+
+const (
+	// saveUser is the user's Save, which may ask how to write a hard-linked file.
+	saveUser saveMode = iota
+	// saveAuto is auto-save, which never overwrites a conflict, recreates a deleted file or
+	// asks about a hard link.
+	saveAuto
+	// savePlugin is a plugin's documents/save (pluginfilechanges.go). It never asks the user
+	// anything: its caller refused conflicts before, and a hard link fails it.
+	savePlugin
+)
+
+// saveDocumentMode is saveDocument for whoever mode names.
+func (a *App) saveDocumentMode(p *project, id int, mode saveMode) {
+	auto := mode == saveAuto
 	d := p.docs.find(id)
 	if d == nil || d.virtual {
 		return
@@ -716,8 +733,12 @@ func (a *App) saveDocumentMode(p *project, id int, auto bool) {
 			defer a.scheduleDocumentChecks(p)
 			if err != nil {
 				d.saveAgain = false
+				a.finishSaveWaiters(d, err)
 				var required *documentio.HardLinkRequired
 				if errors.As(err, &required) {
+					if mode == savePlugin && len(d.closeWaiters) == 0 {
+						return // Only the user may choose how a hard-linked file is written.
+					}
 					a.hardLinkSaveRequired(p, d, required.Identity, auto && len(d.closeWaiters) == 0)
 					return
 				}
@@ -762,6 +783,10 @@ func (a *App) saveDocumentMode(p *project, id int, auto bool) {
 			a.refreshGitGutter(p, d)
 			a.refreshInlineBlame(p, d)
 			a.reloadBuildForSavedFile(p, path)
+			if d.view.IsComposing() && d.dirty() && len(d.saveWaiters) > 0 {
+				// The text typed during the write is not settled; a plugin's save fails as busy.
+				a.finishSaveWaiters(d, errComposing)
+			}
 			if d.view.IsComposing() && len(d.closeWaiters) > 0 {
 				a.saveFailed(id, d.view.Revision(), name, errComposing)
 				waiters := d.closeWaiters
@@ -772,12 +797,18 @@ func (a *App) saveDocumentMode(p *project, id int, auto bool) {
 				}
 				return
 			}
-			if (d.saveAgain || len(d.closeWaiters) > 0) && d.dirty() {
+			if (d.saveAgain || len(d.closeWaiters) > 0 || len(d.saveWaiters) > 0) && d.dirty() {
+				// Only a plugin waiting keeps the next write a plugin's, which asks nothing.
+				next := saveUser
+				if !d.saveAgain && len(d.closeWaiters) == 0 {
+					next = savePlugin
+				}
 				d.saveAgain = false
-				a.saveDocument(p, id)
+				a.saveDocumentMode(p, id, next)
 				return
 			}
 			d.saveAgain = false
+			a.finishSaveWaiters(d, nil)
 			waiters := d.closeWaiters
 			d.closeWaiters = nil
 			for _, done := range waiters {

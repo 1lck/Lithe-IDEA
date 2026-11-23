@@ -245,9 +245,9 @@ func (r *remoteTrustState) declare(c ui.C) {
 		return
 	}
 	if r.loadKey != 0 {
-		ui.Effect(c.Part("remote-trust-load"), r.loadEffect, r.loadKey)
+		ui.Effect(c, r.loadEffect, r.loadKey)
 	}
 	if r.saveKey != 0 {
-		ui.Effect(c.Part("remote-trust-save"), r.saveEffect, r.saveKey)
+		ui.Effect(c, r.saveEffect, r.saveKey)
 	}
 }

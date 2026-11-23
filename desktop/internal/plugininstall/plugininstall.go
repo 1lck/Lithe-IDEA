@@ -172,7 +172,7 @@ func (s *Service) Prepare(ctx context.Context, request Request) (plan Plan, err 
 	if err := checkContentRoot(extracted.ContentRoot, identity.ID); err != nil {
 		return Plan{}, err
 	}
-	digest, err := ContentDigest(staging, extracted.Files)
+	digest, err := contentDigest(ctx, staging, extracted.Files)
 	if err != nil {
 		return Plan{}, err
 	}
@@ -221,17 +221,20 @@ func (s *Service) Commit(plan Plan) (pluginpkg.Installed, error) {
 	if err != nil {
 		return pluginpkg.Installed{}, err
 	}
-	record := plugintrust.RecordFor(plan.ID, plan.Version, plugintrust.Request{
+	if err := s.approvals.Approve(approvalFor(plan)); err != nil {
+		return installed, &ApprovalError{Installed: installed, Err: err}
+	}
+	return installed, nil
+}
+
+func approvalFor(plan Plan) plugintrust.Record {
+	return plugintrust.RecordFor(plan.ID, plan.Version, plugintrust.Request{
 		Source:              plan.Source,
 		ArchiveSHA256:       plan.ArchiveSHA256,
 		MarketplaceIndexURL: plan.MarketplaceIndexURL,
 		ContentDigest:       plan.ContentDigest,
 		Review:              plan.Review,
 	})
-	if err := s.approvals.Approve(record); err != nil {
-		return installed, &ApprovalError{Installed: installed, Err: err}
-	}
-	return installed, nil
 }
 
 // Discard removes a prepared package that will not be installed.
@@ -242,18 +245,18 @@ func (s *Service) Discard(plan Plan) error {
 	return os.RemoveAll(plan.Staging)
 }
 
-// ContentDigest hashes an extracted tree: for every file, in path order, the
+// contentDigest hashes an extracted tree: for every file, in path order, the
 // path, a NUL, the file's bytes, and a NUL.
 //
 // It is the provenance value the contract records alongside the archive digest.
 // The path order comes from Extract, so the same package always digests the same
 // way.
-func ContentDigest(directory string, files []pluginpkg.File) (string, error) {
+func contentDigest(ctx context.Context, directory string, files []pluginpkg.File) (string, error) {
 	hash := sha256.New()
 	for _, file := range files {
 		hash.Write([]byte(file.Path))
 		hash.Write([]byte{0})
-		if err := hashPath(hash, filepath.Join(directory, filepath.FromSlash(file.Path))); err != nil {
+		if err := hashPath(ctx, hash, filepath.Join(directory, filepath.FromSlash(file.Path)), file.Size); err != nil {
 			return "", err
 		}
 		hash.Write([]byte{0})
@@ -262,14 +265,30 @@ func ContentDigest(directory string, files []pluginpkg.File) (string, error) {
 }
 
 // hashPath streams one file into writer.
-func hashPath(writer io.Writer, path string) error {
+func hashPath(ctx context.Context, writer io.Writer, path string, size int64) error {
 	file, err := os.Open(path)
 	if err != nil {
 		return err
 	}
-	copyErr := hashFile(writer, file)
+	checked := io.LimitReader(contextReader{ctx: ctx, reader: file}, size+1)
+	copied, copyErr := io.Copy(writer, checked)
+	if copyErr == nil && copied != size {
+		copyErr = ErrArchiveDigest
+	}
 	closeErr := file.Close()
 	return errors.Join(copyErr, closeErr)
+}
+
+type contextReader struct {
+	ctx    context.Context
+	reader io.Reader
+}
+
+func (r contextReader) Read(p []byte) (int, error) {
+	if err := r.ctx.Err(); err != nil {
+		return 0, err
+	}
+	return r.reader.Read(p)
 }
 
 func hashFile(writer io.Writer, source io.Reader) error {

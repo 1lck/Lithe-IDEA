@@ -60,7 +60,7 @@ func (a *App) buildToolActions(c ui.C, p *project) {
 				p.setAllBuildGroups(false)
 			})
 		}
-		a.buildToolbarToggles(c.Part("toggles"), p)
+		a.buildToolbarToggles(c, p)
 		if _, hit := a.toolIconButton(c.Part("options"), i18n.Shared(language, "desktop.build.optionsTitle"), icons.Settings, false, false); hit {
 			c.After(func() {
 				a.performed("build.options.open", surfaceButton)
@@ -101,7 +101,7 @@ func (a *App) buildSystemsPane(c ui.C, p *project) {
 	switch {
 	case b.loading || !b.loaded:
 		a.buildNotice(c, t.LoadingModel, "", func() {
-			ui.Spinner(c.Part("spinner")).Size(16, 16)
+			ui.Spinner(c).Size(16, 16)
 		})
 		return
 	case b.failed != "":
@@ -237,7 +237,7 @@ func (a *App) buildArrow(c ui.C, title string, branch, open bool) bool {
 	slot := ui.Row(k).Size(treelist.Disclosure, treelist.Icon).Shrink(0).Center().
 		HitWith(ui.ID(k), name+" "+title, gfx.HitOptions{Role: gfx.RoleButton, Cursor: gfx.PointerCursorHand, Expandable: true, Expanded: open, SkipFocus: true})
 	slot.Children(func() {
-		ui.Icon(k, fileicons.TreeChevron(open, a.colors.Dark)).Size(16, 16)
+		ui.Icon(c, fileicons.TreeChevron(open, a.colors.Dark)).Size(16, 16)
 	})
 	return slot.Clicked()
 }
@@ -296,7 +296,7 @@ func (a *App) buildGroupRow(row ui.ListRow, p *project, instance *buildInstance,
 	}
 	switch {
 	case spec.loading:
-		ui.Spinner(c.Part("spinner")).Size(12, 12)
+		ui.Spinner(c).Size(12, 12)
 	case spec.warning:
 		ui.Icon(c, icons.CircleAlert).Size(14, 14).Shrink(0).Color(a.colors.Warning)
 	}
@@ -423,7 +423,7 @@ func (a *App) buildNoteRow(row ui.ListRow, p *project, instance *buildInstance, 
 	color := a.colors.Subtle
 	switch {
 	case spec.loading:
-		ui.Spinner(c.Part("spinner")).Size(12, 12)
+		ui.Spinner(c).Size(12, 12)
 	case spec.warning:
 		color = a.colors.Warning
 		ui.Icon(c, icons.CircleAlert).Size(14, 14).Shrink(0).Color(color)
@@ -482,13 +482,13 @@ func (a *App) buildRunMark(c ui.C, label string, disabled bool) bool {
 	slot := ui.Row(k).Size(treelist.Icon, treelist.Icon).Shrink(0).Center()
 	if disabled {
 		slot.Children(func() {
-			ui.Icon(k, icons.Play).Size(14, 14).Color(a.colors.Subtle).Opacity(0.5)
+			ui.Icon(c, icons.Play).Size(14, 14).Color(a.colors.Subtle).Opacity(0.5)
 		})
 		return false
 	}
 	slot = slot.HitWith(ui.ID(k), label, gfx.HitOptions{Role: gfx.RoleButton, Cursor: gfx.PointerCursorHand, SkipFocus: true}).Tooltip(label)
 	slot.Children(func() {
-		ui.Icon(k, icons.Play).Size(14, 14).Color(a.colors.Success)
+		ui.Icon(c, icons.Play).Size(14, 14).Color(a.colors.Success)
 	})
 	return slot.Clicked()
 }
