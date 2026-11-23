@@ -110,7 +110,7 @@ func (w *window) toolchainsPage(c ui.C) {
 	ui.Column(c).FillWidth().Grow(1).Shrink(1).MinHeight(0).Background(b.surface).Children(func() {
 		w.toolchainsToolbar(c.Part("bar"), language, scope)
 		w.toolchainsChips(c.Part("chips"), language)
-		w.toolchainsNotices(c.Part("notices"), language, scope)
+		w.toolchainsNotices(c, language, scope)
 		switch {
 		case t.scope == scopeProject && t.noProject():
 			w.toolchainsEmpty(c, i18n.Shared(language, "desktop.toolchains.noProject"))
@@ -252,7 +252,7 @@ func (w *window) toolchainsNotices(c ui.C, language i18n.Language, scope *toolch
 	if !banner && scope.failed == nil && t.failed == nil && t.view.failed == nil && busy == "" {
 		return
 	}
-	ui.Column(c).FillWidth().Shrink(0).PadSides(8, 14, 0, 14).Gap(8).Children(func() {
+	ui.Column(c.Part("notices")).FillWidth().Shrink(0).PadSides(8, 14, 0, 14).Gap(8).Children(func() {
 		if banner {
 			if len(sources) > 3 {
 				sources = sources[:3]
