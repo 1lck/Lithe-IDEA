@@ -5,10 +5,8 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"path/filepath"
 
 	"github.com/1lck/Lithe-IDEA/desktop/internal/pluginmanager"
-	"github.com/1lck/Lithe-IDEA/desktop/internal/pluginpkg"
 )
 
 // VcsPlugin is one enabled plugin's VCS provider declaration. Core validates
@@ -31,18 +29,17 @@ type VcsProviderDeclaration struct {
 // VcsPlugins reads the newest enabled version of every plugin that declares
 // VCS providers. A broken manifest is reported without hiding the others.
 func (s *Service) VcsPlugins(ctx context.Context, entries []pluginmanager.Entry) ([]VcsPlugin, error) {
+	snapshot, readErr := s.ReadInstalled(ctx, entries)
+	contributions, err := snapshot.VcsPlugins()
+	return contributions, errors.Join(readErr, err)
+}
+
+// VcsPlugins reads its contribution sections from the same installed bytes.
+func (snapshot InstalledSnapshot) VcsPlugins() ([]VcsPlugin, error) {
 	var plugins []VcsPlugin
 	var failures []error
-	selected, selectionErr := s.selectInstalled(ctx, entries, false)
-	if selectionErr != nil {
-		failures = append(failures, selectionErr)
-	}
-	for _, entry := range selected {
-		manifest, err := readBounded(filepath.Join(entry.Installed.Path, pluginpkg.ManifestFile), MaxManifestBytes)
-		if err != nil {
-			failures = append(failures, fmt.Errorf("%s: %w", entry.Installed.ID, err))
-			continue
-		}
+	for _, installed := range snapshot.manifests {
+		entry, manifest := installed.entry, installed.manifest
 		var decoded struct {
 			VcsProviders []struct {
 				ID          string `json:"id"`

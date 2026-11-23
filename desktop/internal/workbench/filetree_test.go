@@ -108,6 +108,11 @@ func TestProjectTreeDirectoryReadCancelsWhenProjectCloses(t *testing.T) {
 	h := newHarness(t, kernel)
 	t.Cleanup(func() { close(kernel.release) })
 	p := h.openTree(t, t.TempDir())
+	// A recursive native watch can queue another root read after openTree's first
+	// listing. Wait for that read to finish on the window thread before arming
+	// the blocked request. Otherwise listTree only enqueues the request while
+	// this test waits for started without pumping the preceding result.
+	h.await("initial project tree listings", func() bool { return treeIdle(p) })
 	h.app.closeTree(p)
 	kernel.armed.Store(true)
 	h.app.listTree(p, "")

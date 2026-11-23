@@ -9,13 +9,13 @@ import (
 // terminalMenu declares the context menu of terminal t's control: copy the selection, paste
 // the clipboard, select everything, clear, start a new shell once the old one ended, and close
 // the tab, as the old client's terminal offered.
-func (a *App) terminalMenu(c ui.C, name string, box ui.Box, t *terminal) {
+func (a *App) terminalMenu(c ui.C, box ui.Box, t *terminal) {
 	p := a.project
 	if p == nil {
 		return
 	}
 	lang := a.language()
-	ui.ContextMenu(c.Key("menu"+name), box, func(menu *ui.MenuItems) {
+	ui.ContextMenu(c, box, func(menu *ui.MenuItems) {
 		menu.WidthRange(180, 260)
 		if menu.Item(i18n.Shared(lang, "menu.copy")).Disabled(!t.view.HasSelection()).Clicked() {
 			text := t.view.SelectionText()

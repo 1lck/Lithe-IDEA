@@ -5,6 +5,8 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
+	"sync"
+	"sync/atomic"
 
 	"github.com/1lck/Lithe-IDEA/desktop/internal/core"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/editor/rope"
@@ -12,7 +14,19 @@ import (
 )
 
 type languageLoad struct {
-	done chan struct{}
+	done   chan struct{}
+	once   sync.Once
+	closed atomic.Bool
+}
+
+func (l *languageLoad) finish() {
+	if l == nil {
+		return
+	}
+	l.once.Do(func() {
+		l.closed.Store(true)
+		close(l.done)
+	})
 }
 
 // resolveDocumentLanguage runs on the worker that opens editable text. Path

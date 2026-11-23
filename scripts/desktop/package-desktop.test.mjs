@@ -20,12 +20,16 @@ case "$1" in
         case "$2" in
             GOOS) printf '%s\\n' "\${GOOS:-$FIXTURE_GOOS}" ;;
             GOHOSTOS) printf '%s\\n' "$FIXTURE_GOOS" ;;
+            GOHOSTARCH) printf '%s\\n' "$FIXTURE_GOARCH" ;;
             GOARCH) printf '%s\\n' "\${GOARCH:-$FIXTURE_GOARCH}" ;;
             GOEXE) if [[ "$FIXTURE_GOOS" == windows ]]; then printf '.exe\\n'; else printf '\\n'; fi ;;
             *) printf 'unexpected go env %s\\n' "$2" >&2; exit 1 ;;
         esac
         ;;
     mod) ;;
+    run)
+        [[ "$2" == ./cmd/file-associations-manifest && "$3" == --check ]]
+        ;;
     list)
         case "$4" in
             *.Dir*) printf '%s\\n' "$FIXTURE_ROOT/viva-src" ;;
@@ -123,7 +127,7 @@ async function withFixture(host, body) {
     await mkdir(path.join(root, 'scripts/desktop/verify'), { recursive: true });
     await mkdir(path.join(root, 'viva-src'));
     await mkdir(bin);
-    for (const name of ['package-desktop.sh', 'build-viva-tool.sh', 'desktop-go.sh']) {
+    for (const name of ['package-desktop.sh', 'build-viva-tool.sh', 'desktop-go.sh', 'generate-file-associations.sh']) {
       await copyFile(path.join(scripts, name), path.join(root, 'scripts/desktop', name));
     }
     await copyFile(path.join(desktop, 'Makefile'), path.join(root, 'desktop/Makefile'));
@@ -191,7 +195,9 @@ test('Windows packaging stages and embeds the GNU core when rustc defaults to MS
 test('an amd64 macOS package on an arm64 host embeds the amd64 helper', async () => {
   await withFixture({ goos: 'darwin', goarch: 'arm64', rustHost: 'aarch64-apple-darwin' }, async ({ root, run, coreBuilds }) => {
     await run('bash', ['scripts/desktop/package-desktop.sh', '--arch', 'amd64', '--no-sign']);
-    assert.deepEqual(new Set(await coreBuilds()), new Set(['x86_64-apple-darwin --release']));
+    // The catalog checker executes on the host; the packaged helper still comes
+    // from the target stage, independently of that first host-tool build.
+    assert.deepEqual(new Set(await coreBuilds()), new Set(['aarch64-apple-darwin --release', 'x86_64-apple-darwin --release']));
     assert.equal(await readFile(path.join(root, 'embedded-helper.txt'), 'utf8'), 'lithe-mcp for x86_64-apple-darwin\n');
   });
 });

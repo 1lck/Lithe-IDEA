@@ -339,9 +339,9 @@ func (w *window) commandMissingStatus(c ui.C, language i18n.Language, fact Plugi
 // commandMissingBanner shows, above the cards, the missing launches no card shows.
 func (w *window) commandMissingBanner(c ui.C, language i18n.Language, fact PluginFacts, missing []MissingCommand) {
 	for index, entry := range missing {
-		k := c.KeyInt(index)
+		k := c.Key("command-missing:" + strconv.Itoa(index))
 		ui.Row(k).FillWidth().Gap(8).Pad(10).Radius(8).Items(ui.Center).Stroke(1, w.pal.line).Background(w.pal.card).Children(func() {
-			ui.Wrap(k, i18n.SharedFormat(language, "desktop.plugins.commandMissingBanner", map[string]string{"commands": commandList(entry.Commands)})).
+			ui.Wrap(c, i18n.SharedFormat(language, "desktop.plugins.commandMissingBanner", map[string]string{"commands": commandList(entry.Commands)})).
 				FontSize(12).Color(w.pal.warning).Grow(1).Shrink(1).MinWidth(0)
 			if entry.Installer == "" {
 				w.infoButton(k, i18n.Shared(language, "desktop.plugins.commandMissingManual"))
@@ -477,8 +477,8 @@ func (w *window) commandInstallOffer(c ui.C, language i18n.Language, dialog *com
 		// and the digest are monospaced.
 		labelled := func(k ui.C, label, value string) {
 			ui.Row(k).FillWidth().Gap(6).Children(func() {
-				ui.Text(k, label).FontSize(11).Color(w.pal.muted).Shrink(0)
-				ui.Wrap(k, value).Mono().FontSize(11).Color(w.pal.muted).Grow(1).Shrink(1).MinWidth(0)
+				ui.Text(c, label).FontSize(11).Color(w.pal.muted).Shrink(0)
+				ui.Wrap(c, value).Mono().FontSize(11).Color(w.pal.muted).Grow(1).Shrink(1).MinWidth(0)
 			})
 		}
 		ui.Column(c).FillWidth().Gap(2).Pad(8).Radius(6).Background(w.pal.card).Stroke(1, w.pal.line).Children(func() {
@@ -508,9 +508,9 @@ func (w *window) commandInstallOffer(c ui.C, language i18n.Language, dialog *com
 		ui.Column(k).FillWidth().Gap(2).Children(func() {
 			w.radio(k, &dialog.target, target.Target, label, target.Directory == "")
 			ui.Column(k).FillWidth().Gap(2).PadLeft(radioSize + 8).Children(func() {
-				ui.Wrap(k, help).FontSize(11).Color(w.pal.muted)
+				ui.Wrap(c, help).FontSize(11).Color(w.pal.muted)
 				if target.Directory != "" {
-					ui.Wrap(k, target.Directory).Mono().FontSize(11).Color(w.pal.subtle)
+					ui.Wrap(c, target.Directory).Mono().FontSize(11).Color(w.pal.subtle)
 				}
 			})
 		})
@@ -523,8 +523,8 @@ func (w *window) commandInstallOffer(c ui.C, language i18n.Language, dialog *com
 	}
 	ui.Text(c, i18n.Shared(language, "desktop.plugins.commandInstallCommand")).FontSize(13).Bold().PadTop(4)
 	ui.Column(c).FillWidth().Gap(2).Pad(8).Radius(6).Background(w.pal.card).Stroke(1, w.pal.line).Children(func() {
-		for index, variable := range chosen.Environment {
-			ui.Wrap(c.KeyInt(index), variable).Mono().FontSize(11).Color(w.pal.muted)
+		for _, variable := range chosen.Environment {
+			ui.Wrap(c, variable).Mono().FontSize(11).Color(w.pal.muted)
 		}
 		ui.Wrap(c, chosen.CommandLine).Mono().FontSize(11).Color(w.pal.text)
 	})

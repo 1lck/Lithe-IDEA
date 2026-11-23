@@ -668,7 +668,7 @@ func (a *App) drawBranchConflictDialog(c ui.C, p *project) {
 			ui.Scroll(c).Scrollbars().FillWidth().MaxHeight(branchBlockingHeight).Children(func() {
 				ui.Column(c).FillWidth().Gap(2).Children(func() {
 					for _, path := range b.blocking {
-						ui.Text(c.Key(path), path).FontSize(a.theme.Metrics.FontSizeS).Color(a.colors.Text).Ellipsis()
+						ui.Text(c, path).FontSize(a.theme.Metrics.FontSizeS).Color(a.colors.Text).Ellipsis()
 					}
 				})
 			})

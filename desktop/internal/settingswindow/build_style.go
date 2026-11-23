@@ -345,7 +345,7 @@ func (w *window) segmented(c ui.C, value *string, segments []segment) bool {
 				*value, changed = s.value, true
 			}
 			box.Children(func() {
-				ui.Text(k, s.label).FontSize(buildFont).Color(words)
+				ui.Text(c, s.label).FontSize(buildFont).Color(words)
 				if s.changed {
 					ui.Row(k).Size(5, 1).Shrink(0)
 					dot(k, 6, b.accent)
@@ -384,7 +384,7 @@ func (w *window) tabsBar(c ui.C, tabs []segment, open *string) bool {
 							words, weight = b.text, gfx.WeightSemibold
 						}
 						ui.Row(k).PadX(12).PadY(6).Children(func() {
-							ui.Text(k, t.label).FontSize(buildFont).Weight(weight).Color(words)
+							ui.Text(c, t.label).FontSize(buildFont).Weight(weight).Color(words)
 						})
 						underline := gfx.Color{}
 						if on {
