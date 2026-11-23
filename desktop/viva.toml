@@ -9,7 +9,7 @@ name = "Lithe Desktop"
 # A separate identity from the SwiftUI client (app.lithe.desktop), so both can be installed
 # while this client grows.
 id = "app.lithe.viva"
-version = "0.8.14"
+version = "0.8.15"
 executable = "lithe"
 package = "./cmd/lithe"
 # The full-bleed square of the SwiftUI client's icon; viva package shapes it into the macOS tile.
