@@ -82,7 +82,7 @@ func (w *window) sourceEntryToolbar(c ui.C, p *sourceSettingsForm, source core.S
 		ui.Spacer(c)
 		if len(entries) > 0 {
 			for _, attribute := range field.Attributes {
-				ui.Text(c.Key(attribute.ID), attribute.Title).FontSize(11).Color(w.pal.muted).Width(entryAttributeWidth(attribute)).Shrink(0).Ellipsis()
+				ui.Text(c, attribute.Title).FontSize(11).Color(w.pal.muted).Width(entryAttributeWidth(attribute)).Shrink(0).Ellipsis()
 			}
 		}
 	})

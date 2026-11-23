@@ -432,7 +432,6 @@ func (w *window) breadcrumb(c ui.C) {
 		// Keys belong on interactive containers, not leaf Text elements.
 		for i := range w.crumbs {
 			crumb := &w.crumbs[i]
-			k := c.KeyInt(i)
 			if i > 0 {
 				ui.Text(c, "›").FontSize(buildFont).Color(b.faint).Shrink(0)
 			}
@@ -441,7 +440,7 @@ func (w *window) breadcrumb(c ui.C) {
 			case last:
 				ui.Text(c, crumb.title).FontSize(buildFont).Weight(gfx.WeightSemibold).Color(b.text).Shrink(1).MinWidth(0).Ellipsis()
 			case crumb.link:
-				button := ui.ButtonBase(k, crumb.title).Shrink(1).MinWidth(0).Items(ui.Center)
+				button := ui.ButtonBase(c.KeyInt(i), crumb.title).Shrink(1).MinWidth(0).Items(ui.Center)
 				if button.Clicked() {
 					chosen = crumb
 				}

@@ -332,7 +332,7 @@ func (a *App) remoteImportHeader(c ui.C, lead, trail float32, columns []string, 
 	ui.Row(c).FillWidth().Height(30).Shrink(0).Items(ui.Center).Gap(10).PadX(10).Children(func() {
 		ui.Row(c.Part("lead")).Width(lead).Shrink(0)
 		for index, column := range columns {
-			cell := ui.Text(c.KeyInt(index), column).FontSize(a.theme.Metrics.FontSizeS).Weight(gfx.WeightMedium).Color(a.colors.Subtle).Ellipsis().MinWidth(0)
+			cell := ui.Text(c, column).FontSize(a.theme.Metrics.FontSizeS).Weight(gfx.WeightMedium).Color(a.colors.Subtle).Ellipsis().MinWidth(0)
 			if widths[index] == 0 {
 				cell.Grow(1).Basis(0)
 			} else {

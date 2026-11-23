@@ -181,7 +181,7 @@ func (a *App) remoteHostContainersView(c ui.C, language i18n.Language, list *rem
 			ui.Column(c.Part("empty")).FillWidth().Pad(12).Gap(8).Children(func() {
 				ui.Paragraph(c, text, 3).FontSize(small).Color(a.colors.Subtle)
 				for i, words := range list.diagnostics {
-					ui.Paragraph(c.KeyInt(i), words, 6).Mono().FontSize(small).Color(a.colors.Subtle)
+					ui.Paragraph(c, words, 6).Mono().FontSize(small).Color(a.colors.Subtle)
 				}
 			})
 			return

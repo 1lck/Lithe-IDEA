@@ -524,7 +524,7 @@ func (w *window) commandInstallOffer(c ui.C, language i18n.Language, dialog *com
 	ui.Text(c, i18n.Shared(language, "desktop.plugins.commandInstallCommand")).FontSize(13).Bold().PadTop(4)
 	ui.Column(c).FillWidth().Gap(2).Pad(8).Radius(6).Background(w.pal.card).Stroke(1, w.pal.line).Children(func() {
 		for index, variable := range chosen.Environment {
-			ui.Wrap(c.KeyInt(index), variable).Mono().FontSize(11).Color(w.pal.muted)
+			ui.Wrap(c, variable).Mono().FontSize(11).Color(w.pal.muted)
 		}
 		ui.Wrap(c, chosen.CommandLine).Mono().FontSize(11).Color(w.pal.text)
 	})

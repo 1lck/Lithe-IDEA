@@ -51,7 +51,7 @@ func (a *App) inlineEditView(c ui.C, p *project) {
 						case diffAdded:
 							color, mark = a.colors.Success, "+ "
 						}
-						ui.Text(c.KeyInt(i), mark+line.text).Mono().FontSize(a.theme.Metrics.FontSizeS).Color(color)
+						ui.Text(c, mark+line.text).Mono().FontSize(a.theme.Metrics.FontSizeS).Color(color)
 					}
 				})
 			}

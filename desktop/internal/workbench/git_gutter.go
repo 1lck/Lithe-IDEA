@@ -294,7 +294,7 @@ func (a *App) gitGutterPeek(c ui.C, p *project, d *document, anchor ui.Box) {
 				if i == maxLines {
 					break
 				}
-				ui.Text(c.KeyInt(i), line).Mono().FontSize(12).Color(a.colors.Text).Ellipsis()
+				ui.Text(c, line).Mono().FontSize(12).Color(a.colors.Text).Ellipsis()
 			}
 			ui.Row(c).Gap(6).Children(func() {
 				if ui.Button(c.Key("previous"), i18n.Shared(a.language(), "desktop.git.gutter.previous")).Ghost().Clicked() {
