@@ -829,9 +829,9 @@ type App struct {
 	remoteBundle func() (remoteserver.Bundle, error)
 	remoteAnchor func() (string, error)
 	remoteAfter  func(time.Duration, func()) func() bool
-	// remoteKeptSecrets replaces the platform secret store the kept host sessions are remembered
+	// remoteSecretStore replaces the platform secret store the kept host sessions are remembered
 	// in (remote_close.go); tests set it.
-	remoteKeptSecrets remoteconn.KeptSecrets
+	remoteSecretStore remoteconn.Secrets
 	// gitAuth holds the questions of the Git operations the user started (git_auth.go).
 	gitAuth    gitAuthState
 	newProject newProjectState
