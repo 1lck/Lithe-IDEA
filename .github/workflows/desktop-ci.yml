@@ -72,6 +72,7 @@ jobs:
           bash -n scripts/desktop/build-remote-server.sh
           bash -n scripts/desktop/desktop-go.sh
           bash -n scripts/desktop/package-desktop.sh
+          bash -n scripts/desktop/generate-file-associations.sh
           bash -n scripts/desktop/build-viva-tool.sh
           bash -n scripts/desktop/perf/editor-bench.sh
           bash -n scripts/ci/desktop-release/package-release.sh
@@ -90,6 +91,7 @@ jobs:
             scripts/desktop/build-remote-server.sh \
             scripts/desktop/desktop-go.sh \
             scripts/desktop/package-desktop.sh \
+            scripts/desktop/generate-file-associations.sh \
             scripts/desktop/build-viva-tool.sh \
             scripts/desktop/perf/editor-bench.sh \
             scripts/ci/desktop-release/package-release.sh \

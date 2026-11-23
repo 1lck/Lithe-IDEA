@@ -29,7 +29,7 @@ func (a *App) openStandaloneFile(path string) {
 func (a *App) standaloneWorkbench(c ui.C) {
 	a.syncWindowTitle()
 	a.layout.capture()
-	a.layout.insetW, a.layout.insetH = 0, titleBarHeight+statusBarHeight
+	a.layout.insetW, a.layout.insetH = 0, titleBarHeight+statusBarHeight+a.sessions.stripHeight()
 	// Use the existing bottom panel and splitter without restoring any project panels.
 	open := [slotCount]int{-1, -1, -1, -1, -1, -1}
 	terminalIndex := catalogIndex[itemTerminal]
@@ -76,6 +76,7 @@ func (a *App) standaloneWorkbench(c ui.C) {
 				c.After(func() { a.openSettingsPage(surfaceButton, settingsHome) })
 			}
 		})
+		a.projectTabs(c)
 		a.shellMain(c, plan, open, &hidden)
 		ui.Row(c).FillWidth().Height(statusBarHeight).Shrink(0).Items(ui.Center).Gap(8).PadX(8).Children(func() {
 			if d := a.selectedEditorDocument(); d != nil {
