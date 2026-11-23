@@ -409,7 +409,7 @@ func (w *window) debuggerList(c ui.C, language i18n.Language) {
 			ui.Column(k).Grow(1).Shrink(1).MinWidth(0).Children(func() {
 				ui.Row(k).FillWidth().Gap(6).Items(ui.Center).Children(func() {
 					ui.Text(k, adapter.Name).FontSize(buildFont).Weight(gfx.WeightSemibold).Color(b.text).Shrink(1).Ellipsis()
-					ui.Spacer(k)
+					ui.Row(k.Part("spacer")).Grow(1)
 					if stored || changed {
 						w.tag(k, tagBlue, i18n.Shared(language, "desktop.settings.stepping.customized"))
 					}

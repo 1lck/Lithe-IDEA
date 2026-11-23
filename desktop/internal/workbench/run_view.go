@@ -217,7 +217,7 @@ func (a *App) runTree(c ui.C, p *project, run *runEntry) {
 					ui.Text(k, a.text.Run.StartedAt(run.started.Format(runStartedLayout))).Color(a.colors.Subtle).
 						Ellipsis().Shrink(buildDetailShrink)
 				})
-				ui.Spacer(k)
+				ui.Row(k.Part("spacer")).Grow(1)
 				if duration != "" {
 					ui.Text(k, duration).FontSize(a.theme.Metrics.FontSizeS).Color(a.colors.Subtle).Shrink(0)
 				}

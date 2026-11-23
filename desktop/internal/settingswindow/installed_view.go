@@ -940,7 +940,7 @@ func (w *window) installedFeatures(c ui.C, language i18n.Language, fact PluginFa
 					} else {
 						ui.Text(k, i18n.Shared(language, "native.pluginDisabled")).FontSize(11).Color(w.pal.muted)
 					}
-					ui.Spacer(k)
+					ui.Row(k.Part("spacer")).Grow(1)
 					if key := capabilityPage(capability); enabled && key != "" && w.dynamic.selected(key) != nil {
 						if ui.Button(k, i18n.Shared(language, "native.configure")+" →").Link().XSmall().Clicked() {
 							pluginID := fact.ID

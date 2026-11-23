@@ -92,7 +92,7 @@ func (w *window) buildIssues(c ui.C, language i18n.Language) {
 				ui.Text(k, name).FontSize(buildSmall).Weight(gfx.WeightSemibold).Color(colors.text).Shrink(0)
 				ui.Text(k, w.toolchainReasonText(language, scope, entry, toolchainReason(entry.tool))).
 					FontSize(buildSmall).Color(colors.text).Shrink(1).MinWidth(0).Ellipsis()
-				ui.Spacer(k)
+				ui.Row(k.Part("spacer")).Grow(1)
 				ui.Text(k, "›").FontSize(buildSmall).Color(colors.text).Shrink(0)
 			})
 		}

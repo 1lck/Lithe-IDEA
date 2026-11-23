@@ -526,7 +526,7 @@ func (a *App) remoteMottyFields(c ui.C, language i18n.Language, fields []core.Re
 					ui.Text(k, remoteMottySkipText(language, field.Skip)).FontSize(small).Color(a.colors.Subtle).Grow(1.6).Basis(0).MinWidth(0).Ellipsis()
 				}
 				ui.Row(k.Part("tag")).Width(110).Shrink(0).Children(func() {
-					ui.Spacer(k)
+					ui.Row(k.Part("spacer")).Grow(1)
 					if field.Lithe != "" {
 						a.remoteTag(k.Part("imported"), i18n.Shared(language, "desktop.remote.import.field.imported"), a.colors.Success)
 					} else {

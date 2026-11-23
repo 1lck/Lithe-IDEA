@@ -373,7 +373,7 @@ func (a *App) projectTab(c ui.C, tab *App, i, size int) {
 		if d := p.selectedDocument(p.terms.bench.FocusedGroup); d != nil && d.path != "" {
 			ui.Text(k.Part("file"), "· "+filepath.Base(d.path)).Color(a.colors.Subtle).Ellipsis()
 		}
-		ui.Spacer(k)
+		ui.Row(k.Part("spacer")).Grow(1)
 		cc := k.Part("close")
 		closeButton = ui.Row(cc).Size(terminalCloseSize, terminalCloseSize).Shrink(0).Center().
 			Radius(a.theme.Metrics.RadiusItem()).
