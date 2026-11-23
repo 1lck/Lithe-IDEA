@@ -92,7 +92,7 @@ func (s *Service) StageAutomatic(plan Plan, previous plugintrust.Record) (err er
 
 // ActivatePending is called once before a new process exposes plugin inventory.
 // An intervening manual upgrade, uninstall or disable abandons the pending update.
-func (s *Service) ActivatePending(ctx context.Context, root string, begin func(context.Context, string) (context.Context, func(), error), active func(context.Context, string) (string, error)) error {
+func (s *Service) ActivatePending(ctx context.Context, root string, begin func(context.Context, string) (context.Context, func() error, error), active func(context.Context, string) (string, error)) error {
 	dir := filepath.Join(root, pendingDirectory)
 	entries, err := os.ReadDir(dir)
 	// log-exempt: 预期的缺失：用户从未暂存过自动更新。
@@ -117,7 +117,7 @@ func (s *Service) ActivatePending(ctx context.Context, root string, begin func(c
 	return errors.Join(failures...)
 }
 
-func (s *Service) activatePending(ctx context.Context, root, id string, begin func(context.Context, string) (context.Context, func(), error), current func(context.Context, string) (string, error)) error {
+func (s *Service) activatePending(ctx context.Context, root, id string, begin func(context.Context, string) (context.Context, func() error, error), current func(context.Context, string) (string, error)) (err error) {
 	if err := pluginpkg.CheckIdentity("plugin ID", id); err != nil {
 		return err
 	}
@@ -125,7 +125,7 @@ func (s *Service) activatePending(ctx context.Context, root, id string, begin fu
 	if err != nil {
 		return err
 	}
-	defer finish()
+	defer func() { err = errors.Join(err, finish()) }()
 	ctx = work
 	pending, err := s.HasPending(root, id)
 	if err != nil || !pending {

@@ -209,7 +209,7 @@ func (a *App) recordPluginInstallCleanup(ctx context.Context, err error) {
 func (a *App) commitPluginInstall(ctx context.Context, plan plugininstall.Plan, feedback settingswindow.PluginInstallFeedback) func(*App) {
 	work, finish, err := a.plugins.BeginRuntimeInstallation(ctx, plan.ID)
 	if err == nil {
-		defer finish()
+		defer func() { a.recordPluginInstallCleanup(work, finish()) }()
 		ctx = work
 		err = ctx.Err()
 	}

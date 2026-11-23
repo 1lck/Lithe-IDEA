@@ -366,7 +366,7 @@ func (a *App) applyPluginAutoUpdate(ctx context.Context, downloader *marketplace
 	if err != nil {
 		return false, err
 	}
-	defer finish()
+	defer func() { a.recordPluginInstallCleanup(work, finish()) }()
 	// A manual change may occur while bytes are downloading; recheck the current
 	// plugin and the approval before publishing, under the runtime coordinator.
 	current, err := a.plugins.CurrentInstalled(work)

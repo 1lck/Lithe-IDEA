@@ -27,6 +27,8 @@
 
 同一进程内使用同一个插件数据根的工作台共享更新轮次。手动安装和后台暂存在提交阶段争用同一个插件安装入口。后台将包与审批一起准备完成后再提交到待激活目录。下次启动 Lithe 进程时在后台验包，读取启动项目和插件语言清单前复核原版本和审批，只有仍然符合的包才进入已安装目录。例如后台暂存 2.0.0 后再禁用 1.0.0，重启时丢弃待更新包。运行中的会话读取的仍是旧目录。
 
+不同进程共享插件数据根。激活、手动安装、后台暂存、禁用和卸载使用同一个原生文件锁。卸载先取消并等待进程内的安装任务，再加锁让 Core 读取安装快照。这样即使另一个窗口刚刚激活新版，卸载计划也会包含它。锁文件保留在可写的插件数据根，进程退出时由操作系统释放锁。
+
 ## 考虑过的备选方案
 
 - 默认无条件自动更新：用户没有同意后台下载或插件执行代码更换，拒绝。
@@ -45,6 +47,7 @@
 
 - `./scripts/desktop/desktop-go.sh test ./internal/plugintrust ./internal/marketplace ./internal/workbench -run 'TestMayAutoUpdate|TestNewerOffered|TestAutoUpdateCandidates' -count=1`
 - `./scripts/desktop/desktop-go.sh test ./internal/marketplace -run TestMarketplaceDelta` 覆盖补丁命中、损坏、取消和已安装包只读。
+- `TestUninstallWaitsForPackagePublicationInAnotherProcess` 用两个进程验证卸载等待发布，并在重试后删除新旧两个版本。测试同时核验发行包内容未改变。
 - `node scripts/i18n/generate-i18n.mjs --check`、`./scripts/platform-feature-matrix/verify-platform-feature-matrix.sh`、`./scripts/agent-notes/verify-agent-notes.sh`。
 - 在合成插件市场的自动更新场景，观察安装文件、批准记录、运行中的旧进程和重启后新版本；拒绝案例不得提交任何安装。
 
