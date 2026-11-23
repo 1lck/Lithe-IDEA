@@ -209,6 +209,8 @@ type diffEditor struct {
 type savedSource struct {
 	before, after string
 	files         []core.GitDiffFile
+	// title identifies inline text, which has no working-tree file to open.
+	title string
 }
 
 // diffComparison is the comparison a Diff tab shows a file of: base against target, or against
@@ -237,7 +239,12 @@ type diffOrigin struct {
 }
 
 // name is the title of the tab: the name of the file.
-func (t *diffTab) name() string { return path.Base(t.change.Path) }
+func (t *diffTab) name() string {
+	if t.saved != nil && t.saved.title != "" {
+		return t.saved.title
+	}
+	return path.Base(t.change.Path)
+}
 
 // readOnly says the tab's right side cannot be written: a commit's change, or the index.
 func (t *diffTab) readOnly() bool { return t.commit != "" || t.staged }
@@ -891,6 +898,9 @@ func (a *App) stepFile(p *project, t *diffTab, by int) {
 
 // openDiffFile opens the tab's file of the working tree in the editor.
 func (a *App) openDiffFile(p *project, t *diffTab) {
+	if t.saved != nil && t.saved.title != "" {
+		return
+	}
 	a.openFile(p, filepath.Join(t.root, filepath.FromSlash(t.change.Path)))
 }
 

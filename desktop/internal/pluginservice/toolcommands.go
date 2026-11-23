@@ -57,7 +57,7 @@ func (snapshot InstalledSnapshot) ToolCommands() ([]ToolCommand, error) {
 		}
 		first := len(commands)
 		for _, command := range declared.UI.Commands {
-			if command.ID == "" || command.ToolWindowID == "" {
+			if command.ID == "" {
 				continue
 			}
 			commands = append(commands, ToolCommand{

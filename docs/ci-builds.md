@@ -90,6 +90,8 @@ TextMate 首行元数据随各插件归档发布，从已安装版本目录只�
 
 Desktop CI 的 LSP 无头截图由 `TestVisualLSPActions` 写入当前工作树的 `.artifacts/lsp-editor-visual/`。截图是当前提交与当前渲染环境的验证产物，绑定源码、平台、Go 工具链和固定的 Viva 与 Core 版本，不跨工作树复用。CI 上传后由运行器清理工作树，截图不进入安装包。
 
+通用插件工作流的无头截图由 `TestVisualPluginWorkflow` 写入当前检出的 `.artifacts/plugin-workflow-visual/`，覆盖输出与预览、进度菜单、只读对比和快速选择面板的中英文、明暗主题。截图绑定本次提交、平台、Go 工具链和固定的 Viva 与 Core 版本，必须在当前检出重新生成，不跨工作树复制作为验证证据。Linux Desktop CI 将 PNG 上传为 `plugin-workflow-visual-<系统>-<架构>` artifact，保留 14 天；本地输出由开发者或 CI 清理，不进入安装包，也不影响代码签名或增量更新基线。
+
 Desktop CI 的 Build 命令发现截图由 `TestVisualBuildCommandDiscovery` 写入当前工作树的 `.artifacts/build-command-discovery-visual/`。该结果绑定提交、平台、Go 工具链和固定的 Viva 与 Core 版本，上传后由 CI 清理，不跨工作树复制，也不进入安装包。
 
 项目树失焦后的选择由 `TestVisualProjectTreeMissingFile` 验证。Linux Desktop CI 将明暗主题和中英文截图写入当前工作树的 `.artifacts/project-tree-visual/`，上传后保留 14 天。截图对应本次提交、主题、语言、渲染平台、Go 工具链和固定的 Viva 与 Core 版本，不跨工作树复制。运行器清理本地输出，截图不进入安装包。

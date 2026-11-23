@@ -16,6 +16,7 @@ import (
 
 // pluginPrompt is one question to the user.
 type pluginPrompt struct {
+	quick *quickInputState
 	title string
 	text  string
 	// mono shows the text in a fixed-pitch font, for commands and paths.
@@ -65,6 +66,9 @@ func (a *App) askUser(ctx context.Context, prompt *pluginPrompt) (*int, error) {
 func (a *App) dropPrompt(prompt *pluginPrompt) {
 	for i, queued := range a.prompts.queue {
 		if queued == prompt {
+			if prompt.quick != nil {
+				prompt.quick.clear()
+			}
 			a.prompts.queue = append(a.prompts.queue[:i], a.prompts.queue[i+1:]...)
 			return
 		}
@@ -77,6 +81,13 @@ func (a *App) answerPrompt(choice *int) {
 		return
 	}
 	prompt := a.prompts.queue[0]
+	if prompt.quick != nil {
+		if choice != nil && *choice == 1 {
+			prompt.quick.accept()
+		} else {
+			prompt.quick.clear()
+		}
+	}
 	a.prompts.queue = a.prompts.queue[1:]
 	if prompt.onAnswer != nil {
 		prompt.onAnswer(choice)
@@ -121,6 +132,12 @@ func (a *App) pluginPromptView(c ui.C) {
 	// is a new dialog; it is raised again for each paint the prompt is first.
 	prompt.open = true
 	dismissed := ui.ModalWith(c, &prompt.open, prompt.title, ui.ModalSpec{Width: 520, Height: 320}, func() {
+		if prompt.quick != nil {
+			if a.quickInputBody(c, prompt.quick) {
+				chosen = 1
+			}
+			return
+		}
 		ui.Scroll(c).Scrollbars().Grow(1).FillWidth().Children(func() {
 			text := ui.Wrap(c, prompt.text).FontSize(13)
 			if prompt.mono {
@@ -139,9 +156,12 @@ func (a *App) pluginPromptView(c ui.C) {
 	}, func() {
 		for i, action := range prompt.actions {
 			button := ui.Button(c.KeyInt(i), action)
+			if prompt.quick != nil && i == 1 {
+				button = button.Disabled(!prompt.quick.ready)
+			}
 			if i < len(prompt.actions)-1 {
 				button.Outline()
-			} else {
+			} else if prompt.quick == nil {
 				button.AutoFocus()
 			}
 			if button.Clicked() {

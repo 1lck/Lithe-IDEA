@@ -158,6 +158,7 @@ const (
 	itemProblems      = "problems"
 	itemReferences    = "references"
 	itemRun           = "run"
+	itemOutput        = "output"
 	itemBuild         = "build"
 	itemTests         = "tests"
 	itemSecurity      = "security"
@@ -250,6 +251,7 @@ var catalog = []item{
 	{id: itemTerminal, zone: zoneBottomLeft, icon: &toolicons.Terminal, label: func(m *i18n.Messages) string { return m.Tools.Terminal }, panel: true},
 	{id: itemProblems, zone: zoneBottomLeft, icon: &toolicons.Problems, label: func(m *i18n.Messages) string { return m.Tools.Problems }, panel: true},
 	{id: itemReferences, zone: zoneBottomLeft, icon: stripeLucide(icons.Locate), label: func(m *i18n.Messages) string { return m.Tools.References }, panel: true},
+	{id: itemOutput, zone: zoneBottomLeft, icon: &toolicons.Terminal, label: func(m *i18n.Messages) string { return m.Tools.Output }, panel: true},
 	{id: itemRun, zone: zoneBottomLeft, icon: &toolicons.Run, label: func(m *i18n.Messages) string { return m.Tools.Run }, panel: true},
 	{id: itemTests, zone: zoneBottomLeft, icon: stripeLucide(icons.CircleCheck), label: func(m *i18n.Messages) string { return m.Tools.Tests }, panel: true},
 	{id: itemSecurity, zone: zoneBottomLeft, icon: stripeLucide(icons.ShieldCheck), label: func(m *i18n.Messages) string { return m.Tools.Security }, panel: true},

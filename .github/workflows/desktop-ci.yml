@@ -172,6 +172,24 @@ jobs:
           mkdir -p .artifacts/test-stability
           node --test --test-reporter=junit --test-reporter-destination=.artifacts/test-stability/core-cache.junit.xml scripts/desktop/desktop-core-cache.test.mjs
 
+      - name: Capture plugin workflow surfaces
+        id: plugin-workflow-visual
+        timeout-minutes: 5
+        env:
+          LITHE_VISUAL_OUTPUT_DIR: ${{ github.workspace }}/.artifacts/plugin-workflow-visual
+        run: |
+          ./scripts/desktop/desktop-go.sh test -tags 'vivahead lithevisual' ./internal/workbench \
+            -run '^TestVisualPluginWorkflow$' -count=1 -timeout=90s
+
+      - name: Upload plugin workflow screenshots
+        if: ${{ !cancelled() && steps.plugin-workflow-visual.outcome != 'skipped' }}
+        uses: actions/upload-artifact@v7
+        with:
+          name: plugin-workflow-visual-${{ runner.os }}-${{ runner.arch }}
+          path: .artifacts/plugin-workflow-visual/*.png
+          if-no-files-found: error
+          retention-days: 14
+
       - name: Vet and test
         run: ./scripts/desktop/check.sh
 

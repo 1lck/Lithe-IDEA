@@ -376,7 +376,7 @@ PINNED_CORE_REPOSITORY="https://github.com/Lithe-IDEA/Lithe-core-rust.git"
 # #187 delta dependency at 076ce04. Both parents remain independently reviewable;
 # the pin preserves marketplace delta commands while adding workspace disk reads,
 # bounded search and native-watch planning/filtering.
-PINNED_CORE_REVISION="9ab2336e8ca651e40baa5e65848b717b26f69e43"
+PINNED_CORE_REVISION="75e148091439248e5927c58790019b26de02ca87"
 PROFILE="debug"
 CHECKOUT_ONLY="no"
 while [[ $# -gt 0 ]]; do

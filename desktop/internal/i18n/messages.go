@@ -119,6 +119,7 @@ type TitleMessages struct {
 
 // ToolMessages name the tool windows on the stripes.
 type ToolMessages struct {
+	Output        string
 	Project       string
 	Commit        string
 	Structure     string

@@ -189,6 +189,69 @@
       "platforms": [
         "desktop"
       ]
+    },
+    {
+      "id": "desktop.marketplace.permissionWindowInput",
+      "description": "Plugin permission list: what window.input allows",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.marketplace.permissionViewsRefresh",
+      "description": "Plugin permission list: what views.refresh allows",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.marketplace.permissionOutputWrite",
+      "description": "Plugin permission list: what output.write allows",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.marketplace.permissionWindowProgress",
+      "description": "Plugin permission list: what window.progress allows",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.marketplace.permissionStatusBarWrite",
+      "description": "Plugin permission list: what statusBar.write allows",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.marketplace.permissionClipboardRead",
+      "description": "Plugin permission list: what clipboard.read allows",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.marketplace.permissionClipboardWrite",
+      "description": "Plugin permission list: what clipboard.write allows",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.marketplace.permissionWorkspaceReveal",
+      "description": "Plugin permission list: what workspace.reveal allows",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.marketplace.permissionNetworkRequest",
+      "description": "Plugin permission list: what network.request allows",
+      "platforms": [
+        "desktop"
+      ]
     }
   ],
   "locales": {
@@ -209,7 +272,7 @@
       "desktop.marketplace.permissionEditorActions": "Show its own actions in the editor, such as run icons beside lines",
       "desktop.marketplace.permissionEditorProviders": "Provide completion, hover and other language features in the editor",
       "desktop.marketplace.permissionEditorOpen": "Open files in the editor and go to locations in them",
-      "desktop.marketplace.permissionPreviewOpen": "Open HTML files in a preview",
+      "desktop.marketplace.permissionPreviewOpen": "Preview Markdown and HTML files or read-only content",
       "desktop.marketplace.permissionToolchainsProvide": "Find installed tools, such as SDKs, and list them in Toolchains",
       "desktop.marketplace.permissionKeymapsProvide": "Offer keymaps from other editors for you to import",
       "desktop.marketplace.permissionKeymapsReadSelectedSources": "Read keymap files only from the source you choose to import",
@@ -219,7 +282,16 @@
       "desktop.marketplace.permissionRunStart": "Start and stop runs in the Run window",
       "desktop.marketplace.permissionDebugStart": "Start debugging with its own debuggers",
       "desktop.marketplace.permissionLanguageServerRequest": "Send requests to its own language servers",
-      "desktop.marketplace.permissionDocumentsContentProvider": "Show read-only files it supplies, such as library sources"
+      "desktop.marketplace.permissionDocumentsContentProvider": "Show read-only files it supplies, such as library sources",
+      "desktop.marketplace.permissionWindowInput": "Ask you to select items or enter text, including masked passwords",
+      "desktop.marketplace.permissionViewsRefresh": "Refresh its currently open views",
+      "desktop.marketplace.permissionOutputWrite": "Create and manage its own output channels",
+      "desktop.marketplace.permissionWindowProgress": "Show progress and receive your cancellation requests",
+      "desktop.marketplace.permissionStatusBarWrite": "Show its own status items and command buttons",
+      "desktop.marketplace.permissionClipboardRead": "Read text from your system clipboard",
+      "desktop.marketplace.permissionClipboardWrite": "Write text to your system clipboard",
+      "desktop.marketplace.permissionWorkspaceReveal": "Reveal workspace files in the file manager",
+      "desktop.marketplace.permissionNetworkRequest": "Send HTTP requests with the host’s proxy and certificate settings"
     },
     "zh-CN": {
       "desktop.marketplace.permissionVcs": "为项目运行版本控制工具",
@@ -238,7 +310,7 @@
       "desktop.marketplace.permissionEditorActions": "在编辑器中显示插件自己的操作，例如行旁的运行图标",
       "desktop.marketplace.permissionEditorProviders": "在编辑器中提供补全、悬停提示等语言功能",
       "desktop.marketplace.permissionEditorOpen": "在编辑器中打开文件并跳转到其中的位置",
-      "desktop.marketplace.permissionPreviewOpen": "在预览中打开 HTML 文件",
+      "desktop.marketplace.permissionPreviewOpen": "预览 Markdown、HTML 文件或只读内容",
       "desktop.marketplace.permissionToolchainsProvide": "查找已安装的工具（例如 SDK），并列在“工具链”中",
       "desktop.marketplace.permissionKeymapsProvide": "提供可从其他编辑器导入的快捷键方案",
       "desktop.marketplace.permissionKeymapsReadSelectedSources": "只读取你选择导入的来源中的快捷键文件",
@@ -248,7 +320,16 @@
       "desktop.marketplace.permissionRunStart": "在“运行”窗口中启动和停止运行",
       "desktop.marketplace.permissionDebugStart": "用插件自己的调试器开始调试",
       "desktop.marketplace.permissionLanguageServerRequest": "向插件自己的语言服务器发送请求",
-      "desktop.marketplace.permissionDocumentsContentProvider": "显示插件提供的只读文件，例如库的源码"
+      "desktop.marketplace.permissionDocumentsContentProvider": "显示插件提供的只读文件，例如库的源码",
+      "desktop.marketplace.permissionWindowInput": "请求选择条目或输入文本，包括掩码密码",
+      "desktop.marketplace.permissionViewsRefresh": "刷新插件当前打开的视图",
+      "desktop.marketplace.permissionOutputWrite": "创建和管理插件自己的输出通道",
+      "desktop.marketplace.permissionWindowProgress": "显示进度并接收你的取消请求",
+      "desktop.marketplace.permissionStatusBarWrite": "显示插件自己的状态项和命令按钮",
+      "desktop.marketplace.permissionClipboardRead": "读取系统剪贴板中的文本",
+      "desktop.marketplace.permissionClipboardWrite": "向系统剪贴板写入文本",
+      "desktop.marketplace.permissionWorkspaceReveal": "在文件管理器中显示工作区文件",
+      "desktop.marketplace.permissionNetworkRequest": "使用宿主的代理和证书设置发送 HTTP 请求"
     }
   }
 }

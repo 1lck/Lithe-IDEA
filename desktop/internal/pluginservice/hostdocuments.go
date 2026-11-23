@@ -97,6 +97,20 @@ func (s *Service) AttachWorkbench(workbench Workbench) error {
 		return nil
 	}
 	s.workbench = workbench
+	// Browser addresses are checked by Core too; never grant an unchecked path
+	// to a native opener when a host has no workflow validator.
+	if _, ok := s.kernel.(workflowKernel); ok {
+		if err := s.HostServices.Register(methodBrowserOpenExternal, s.handleBrowserOpenExternal); err != nil {
+			return err
+		}
+	}
+	if host, ok := workbench.(WorkflowHost); ok {
+		if kernel, ok := s.kernel.(workflowKernel); ok {
+			if err := s.registerWorkflows(host, kernel); err != nil {
+				return err
+			}
+		}
+	}
 	if host, ok := workbench.(WorkspaceFindHost); ok {
 		if err := s.registerWorkspaceFind(host); err != nil {
 			return err
@@ -125,7 +139,6 @@ func (s *Service) AttachWorkbench(workbench Workbench) error {
 		{methodEditorInsertText, s.handleEditorInsertText},
 		{methodEditorOpen, s.handleEditorOpen},
 		{methodEditorReveal, s.handleEditorOpen},
-		{methodBrowserOpenExternal, s.handleBrowserOpenExternal},
 	} {
 		if err := s.HostServices.Register(entry.method, entry.handler); err != nil {
 			return err
@@ -453,23 +466,52 @@ func (s *Service) handleBrowserOpenExternal(ctx context.Context, params json.Raw
 		Resource *Resource  `json:"resource"`
 		Unsaved  string     `json:"unsaved"`
 	}
+	kernel, ok := s.kernel.(workflowKernel)
+	if !ok {
+		return nil, failure(CodeUnsupportedOption, "Browser request validation is unavailable.")
+	}
+	var prepared struct {
+		Params json.RawMessage `json:"params"`
+	}
+	if err := kernel.PluginWorkflow(ctx, map[string]any{"operation": "prepare", "method": "browser/openExternal", "params": params}, &prepared); err != nil {
+		return nil, workflowFailure(err)
+	}
+	params = prepared.Params
 	if err := decodeStrict(params, &request); err != nil {
 		return nil, invalidParams(err)
 	}
+	caller, workspace, refusal := s.workspaceRequest(ctx, request.Context)
+	if refusal != nil {
+		return nil, refusal
+	}
+	ctx, cancel := context.WithCancel(ctx)
+	lease := s.resources.add(caller, workspace.ContextID, cancel)
+	defer s.resources.dispose(caller, lease)
+	defer cancel()
 	if _, _, refusal := s.workspaceRequest(ctx, request.Context); refusal != nil {
 		return nil, refusal
 	}
-	if request.Resource != nil || request.Unsaved != "" {
-		// The system browser opens addresses; opening a saved workspace file
-		// needs a file: URL, which the platform helper refuses.
-		return nil, &pluginhost.Failure{Code: CodeUnsupportedOption, Message: "Opening a workspace file in the browser is not supported.",
-			Details: detailsOf(map[string]any{"option": "resource"})}
+	if err := ctx.Err(); err != nil {
+		return nil, hostFailureOf(err)
 	}
-	address, err := httpURL(request.URL)
-	if err != nil {
-		return nil, failure(codeInvalidParams, "url must be an http or https address.")
+	if request.Resource != nil {
+		host, ok := s.workbench.(interface {
+			OpenBrowserResource(context.Context, string, string, string) (bool, error)
+		})
+		if !ok {
+			return nil, failure(CodeUnsupportedOption, "Opening a saved HTML resource is unavailable.")
+		}
+		path, err := s.resolveResource(caller.PluginID, workspace, *request.Resource)
+		if err != nil {
+			return nil, hostFailureOf(err)
+		}
+		dirty, err := host.OpenBrowserResource(ctx, workspace.Path, path, request.Unsaved)
+		if err != nil {
+			return nil, hostFailureOf(err)
+		}
+		return marshalResult(map[string]any{"opened": true, "source": "disk", "hasUnsavedChanges": dirty})
 	}
-	if err := s.workbench.OpenExternal(ctx, address); err != nil {
+	if err := s.workbench.OpenExternal(ctx, request.URL); err != nil {
 		return nil, hostFailureOf(err)
 	}
 	return marshalResult(map[string]any{"opened": true, "source": "web"})

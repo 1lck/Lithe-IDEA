@@ -127,6 +127,13 @@ func (s *Service) DetachWorkspaces() func() {
 	}
 	stopObserving := s.toolchainProviders.Invalidate()
 	s.Contexts.CloseAll()
+	if s.workflow != nil {
+		s.workflow.httpMu.Lock()
+		if s.workflow.transport != nil {
+			s.workflow.transport.CloseIdleConnections()
+		}
+		s.workflow.httpMu.Unlock()
+	}
 	stopBackend := s.Host.DetachAll()
 	return func() {
 		stopObserving()

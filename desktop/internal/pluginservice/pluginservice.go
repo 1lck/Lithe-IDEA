@@ -116,7 +116,9 @@ type Service struct {
 	virtualHost VirtualDocumentHost
 	providers   *contentProviders
 	// resources are the subscriptions, providers and terminals backends hold.
-	resources *hostResources
+	resources   *hostResources
+	workflow    *workflowResources
+	viewRefresh viewRefreshRegistry
 	// Runs owns the processes backends start through run/start.
 	Runs *Runs
 	// LanguageTool resolves an optional installation for a backend-resolved

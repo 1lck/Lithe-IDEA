@@ -2,7 +2,50 @@
 
 状态：待实施计划。盘点日期：2026-10-28；2026-10-30 按 preview `e8c4e9fc9` 刷新（#1517、#1515 已合并）。2026-11-04 补充 Java 拆分对应条目的计划说明与 API-35 第一阶段，不新增 API 编号。
 
-## 当前实现进度（PR #1595）
+## 2026-11-24：Viva 通用工作流 API 增量
+
+Core [#193](https://github.com/Lithe-IDEA/Lithe-core-rust/pull/193) 已合入，
+[#194](https://github.com/Lithe-IDEA/Lithe-core-rust/pull/194) 补齐原生执行前校验与默认值。
+桌面固定 Core `75e1480`，包含这两项改动，并保留既有 Core #187 增量更新依赖。
+桌面端接入对应的输入、预览、只读对比、输出、进度、状态项、剪贴板、文件管理器和 HTTP。
+纯后端命令接入命令面板与已有快捷键目录，树支持主动刷新、展开懒加载和接近末尾自动分页。
+本次不改变任何系统 API 版本；下文 `ui:4`、协议 3 等是旧客户端的历史记录，
+当前协议与四种官方 SDK 只以 [Core 公共资料](https://github.com/Lithe-IDEA/Lithe-core-rust/tree/main/shared/plugins)为准。
+
+以下清单按 API 编号升序，每个方法单独登记，用途使用中文；方法名保持协议原名。
+新增 19 个方法，并扩展已有的 HTML 预览和浏览器资源打开，共 21 项：
+
+| 原计划编号 | 方法 | 用途 |
+| --- | --- | --- |
+| API-03 | `statusBar/setItem` | 创建或更新本会话状态项，可运行本插件声明的命令 |
+| API-03 | `statusBar/removeItem` | 移除本会话的状态项 |
+| API-12 | `editor/showDiff` | 在只读对比标签中显示两份内联文本 |
+| API-13 | `views/refresh` | 使本会话当前可见视图失效并重新请求 |
+| API-16 | `preview/openMarkdown` | 预览 Markdown 资源或会话隔离的只读内联内容 |
+| API-16 | `preview/openHTML` | 预览 HTML 资源或只读内联内容，支持仅预览或编辑器与预览并排 |
+| API-16 | `browser/openExternal` | 用外部浏览器打开 HTTP(S) 地址或已保存的 HTML 文件 |
+| API-17 | `window/showQuickPick` | 显示可搜索、支持多选的原生选择面板 |
+| API-17 | `window/showInputBox` | 显示普通或密码输入，区分取消和接受空值 |
+| API-18 | `clipboard/readText` | 在独立授权后读取系统剪贴板文本 |
+| API-18 | `clipboard/writeText` | 在独立授权后写入系统剪贴板文本 |
+| API-18 | `workspace/reveal` | 在系统文件管理器中定位工作区资源 |
+| API-22 | `output/create` | 创建本会话拥有的有界输出通道 |
+| API-22 | `output/append` | 增量追加文本，按 Core 预算保留输出 |
+| API-22 | `output/clear` | 清空通道及当前显示的输出 |
+| API-22 | `output/show` | 在工作台输出面板显示指定通道 |
+| API-22 | `output/dispose` | 释放本会话的输出通道 |
+| API-22 | `progress/create` | 创建可选取消的后台进度并返回订阅 |
+| API-22 | `progress/report` | 增量更新消息或百分比，保留省略字段 |
+| API-22 | `progress/end` | 结束进度并释放对应订阅 |
+| API-38 | `network/request` | 发起可取消、有超时和字节上限的 HTTP(S) 请求 |
+
+共享参数校验、默认值、权限、过滤排序、分页停止规则与输出增量全部在 Core。
+Viva 只负责原生 I/O、控件呈现及插件/会话/上下文资源释放。
+本轮完成 macOS 定向回归、竞态检查和深浅主题/中英文无头截图；Windows 本轮不验收，
+矩阵保持 partial/pending。原生 WebView、系统剪贴板和文件管理器交互仍需各平台整机验收。
+Cookie 自动提取、身份验证会话、AI/MCP 授权和下载到文件不在本次范围内。
+
+## 历史实现进度（PR #1595）
 
 本轮已将原有三组宿主内部服务注册为协议 3 的公共方法；`ui:4` 提供不打开
 工具窗口的命令。逐方法授权、上下文 lease、编辑器返回 documentID/version、
@@ -13,7 +56,7 @@
 数据源、精确全文搜索匹配范围、文件修改/保存事务、可替换预览标签和 Windows
 适配。三个完整安装插件的 UI 验收尚未全部完成，不把分层集成测试等同于整机验收。
 
-## API-01–44 完成度总表（PR #1595）
+## API-01–44 完成度总表（基于 PR #1595，持续更新）
 
 这是**实现范围**，不是发布或全平台验收结论。已公开表示已注册到 Core 白名单及 macOS
 宿主分发、插件可按权限调用；仍需以 `getCapabilities` 判断当前宿主支持的方法。
@@ -25,26 +68,26 @@ Windows 不在本轮，平台矩阵的 partial/pending 保持真实。
 | --- | --- | --- |
 | API-01 | 已公开 | 能力发现、backend:2 激活、订阅 dispose；新装后端仍需重启 |
 | API-02 | 部分完成 | ui:4 无工具窗口的声明命令与 didRun；动态 register/有结果的 execute 未做 |
-| API-03 | 部分完成 | 既有命令 placements 可用；通用菜单、快捷键贡献、context.set/状态栏未做 |
+| API-03 | 部分完成 | 既有命令 placements 可用；Viva 已接入 statusBar/setItem 与 removeItem，按 Core 顺序呈现；通用菜单、快捷键贡献与 context.set 未做 |
 | API-04 | 部分完成 | didChangeContexts 与 watch 事件；文档/选区/活动编辑器语义事件未做 |
 | API-05 | 已公开 | listContexts/getContext/getFolders，context/generation 与 rootID |
-| API-06 | 已实现，待合入 | readDirectory/stat/readFile 已由 Rust Core 执行并接入 Viva 本地工作区；逐段拒绝符号链接/reparse point，目录有界分页，磁盘读取上限 128 KiB，支持文本/base64 与截断标记。macOS 定向验证通过；默认 Core 已固定到包含 [Core #190](https://github.com/Lithe-IDEA/Lithe-core-rust/pull/190) 与既有增量更新依赖的 `9ab2336`，本轮不做 Windows 验收 |
+| API-06 | 已实现，待合入 | readDirectory/stat/readFile 已由 Rust Core 执行并接入 Viva 本地工作区；逐段拒绝符号链接/reparse point，目录有界分页，磁盘读取上限 128 KiB，支持文本/base64 与截断标记。macOS 定向验证通过；默认 Core 已固定到包含 [Core #190](https://github.com/Lithe-IDEA/Lithe-core-rust/pull/190) 与既有增量更新依赖的 `75e1480`，本轮不做 Windows 验收 |
 | API-07 | 已实现，待合入 | watch 已接入 Viva 原生事件，Core 负责范围、隐藏过滤、排序去重和溢出重扫；注册先发重扫，dispose/context/session 结束释放且停止通知；macOS 真实文件事件已验证，本轮不做 Windows 验收 |
 | API-08 | 已实现，精确范围未提供 | findFiles/findText 已由 Core 执行并接入 Viva；查询绑定游标、分页与 200 条总上限、取消、隐藏/索引过滤、no-follow 与磁盘编码处理；只搜磁盘，一行一条结果，range 如实为 null；macOS 定向验证通过 |
 | API-09 | 已公开 | documents/list/getSnapshot、editor/getActive/getSelections，含 dirty/版本/编码/EOL |
 | API-10 | 已公开 | applyEdits/replaceSelections/insertText；版本校验、IME/只读拒绝、一次 Undo |
 | API-11 | 已公开 | Viva 桌面端：`documents/save\|saveAs\|close`（`documents.save`）走文档自己的保存，冲突、硬链接、未命名、组字返回错误码不弹窗；`workspace/create\|rename\|copy\|trash`（`workspace.files.write`）由 Core 严格检查参数并完成磁盘变更（不覆盖、不跟随最后一段），`create` 支持 `kind:"symlink"`，不新增读链接的权限；trash 进系统废纸篓，不提供永久删除；Windows 实机与整机验收未做 |
-| API-12 | 部分完成 | 已公开 `documents/registerContentProvider`（只读内容，≤1 MiB，每窗口每 scheme 一个，仅 macOS）；公共多文件 edit、showDiff 未接入 |
-| API-13 | 部分完成 | 插件视图（ui 0）：工具窗口和设置区域的内容由插件后端返回节点树（宿主控件、树、画布），Core `plugins.ui.applyResult` 校验，桌面端用 Viva 原生绘制；设置区域的工具行可带 `choose`（ui 0 内的可选字段）成为该工具的选择器（工具链草稿，Viva 桌面端）；旧的 Tree/List/Form 已删除；插件主动推送、树懒加载/分页、`views.reveal` 未做 |
+| API-12 | 部分完成 | 已公开 `documents/registerContentProvider`（只读内容，≤1 MiB，每窗口每 scheme 一个，仅 macOS）；Viva 已接入 editor/showDiff 的只读内联文本对比；公共多文件 edit 未接入 |
+| API-13 | 部分完成 | 插件视图（ui 0）：工具窗口和设置区域的内容由插件后端返回节点树（宿主控件、树、画布），Core `plugins.ui.applyResult` 校验，桌面端用 Viva 原生绘制；设置区域的工具行可带 `choose`（ui 0 内的可选字段）成为该工具的选择器（工具链草稿，Viva 桌面端）；旧的 Tree/List/Form 已删除；Viva 已接入 views/refresh、hasChildren 展开懒加载与 cursor 自动分页，Core 决定停止条件；`views.reveal` 未做 |
 | API-14 | 部分完成 | 既有包内网页 bridge、状态/生命周期；通用双向页面消息未做 |
 | API-15 | 部分完成 | editor/open/reveal 返回 documentID/version；range 只起点光标，替换预览标签未做 |
-| API-16 | 已公开 | preview/openHTML 支持 split/previewOnly；browser/openExternal 支持 HTTP(S)/已保存 HTML |
-| API-17 | 部分完成 | 三类窗口消息和按钮/取消；通用 QuickPick/InputBox/授权文件句柄未做 |
-| API-18 | 未做 | 通用剪贴板与 revealInFinder API 未开放 |
+| API-16 | 已公开 | Viva 接入 preview/openMarkdown 与 openHTML（资源或只读内联文本，editorAndPreview/previewOnly）；browser/openExternal 支持 HTTP(S)/已保存 HTML，默认 requireSaved；原生 WebView 验收仍待完成 |
+| API-17 | 部分完成 | 三类窗口消息和按钮/取消；Viva 新增 showQuickPick（搜索/多选）和 showInputBox（含安全输入）；授权文件句柄未做 |
+| API-18 | 已接入，原生验收待完成 | clipboard/readText、writeText 与 workspace/reveal 走系统适配器；独立授权，Windows 本轮不验收 |
 | API-19 | 部分完成 | 已有声明式设置（settings 0）和设置区域 `settingRegions`（搜索关键词、绑定声明设置的插件视图）；通用 settings.get/inspect/update/events 未做；Java 拆分计划（M1、D1）：Maven 插件按真实配置读取、回显、写回 settings |
 | API-20 | 部分完成 | global/backend/workspace 可写目录与网页状态；语言服务器的按工作区状态目录按 `state.retention` 后台回收（Core 决定，仅 macOS，无用户可见重置入口）；统一 KV/配额/session API 未做 |
 | API-21 | 既有能力 | 协议 2 credentials/get/set/delete；权限与插件隔离不变 |
-| API-22 | 部分完成 | 既有函数进度与取消；语言服务器准备状态 `languageServer/setStatus`（仅百分比，无 actions，仅 macOS）；新增 `outputLinkMatchers:1`，插件声明的匹配器让 Run 与测试控制台出现链接（macOS）；独立 output channel、通用 log/progress API 未做 |
+| API-22 | 部分完成 | 既有函数进度与取消；语言服务器准备状态 `languageServer/setStatus`（仅百分比，无 actions，仅 macOS）；新增 `outputLinkMatchers:1`，插件声明的匹配器让 Run 与测试控制台出现链接（macOS）；Viva 接入独立 output/create/append/clear/show/dispose 与 progress/create/report/end，复用有界输出视图与任务菜单，按上下文释放；结构化附件未做 |
 | API-23 | 部分完成 | 已有进程声明与运行时解析；新增 `serverProcess:4` 的工具 ID 引用（清单 `requiresTools`）与后端发起的 `run/start`、`run/stop`、`run/didExit`（macOS，工具 ID 未找到或不可用时返回 -32025）；新增 `commandInstallers:0`：插件声明用哪个已注入工具安装 `systemCommand` 启动缺的命令，Core 校验并展开（`plugins.commandInstallers.requirements/plan/defaultDirectory`），宿主在能力卡片显示缺失与安装按钮，用户选择 Lithe 管理的目录或工具默认位置后运行并记录（权限 `commands.install`，Viva 桌面端）；`commandInstallers:1` 增加下载安装器：插件为每个平台固定压缩包地址和 SHA-256，宿主确认后复用受管运行时的下载、校验、解压实现装进受管目录（Viva 桌面端）；通用 toolchains/process 服务未开放 |
 | API-24 | 部分完成 | 已公开插件自有原生终端 create/show/close/reopen/dispose/onExit（macOS、本机）；不开放 sendText/输出读取，Windows 待接入 |
 | API-25 | 部分完成 | 既有语言/LSP 贡献；`languages:2` 的清单与包内 JSON 语法/编辑配置，仅支持 Monarch；新增 `languageServers:3` 与 `serverProcess:3`：后端经 `languageServer/request\|notify\|setStatus` 使用自己的服务器、后端启动（`launch.kind:"backend"`），会话策略由 Core 执行（仅 macOS，远程后端启动未支持，见 Agent Note 2026-11-04-plugin-owned-language-server-sessions）；新增宿主方法 `lithe/host/editor/registerProviders`（权限 `editor.providers`，macOS，待运行验收）把 definition/hover/completion/codeLens/foldingRange/semanticTokens/documentLink 绑定到普通插件函数，语言服务器优先、插件只补充；标准 LSP 的 Code Actions、签名帮助和内联提示由 Viva 编辑器呈现（#2128）。自定义插件 Provider 的符号、格式化、重命名、Code Action、签名帮助、内联提示及运行期 JSON 动态注册高亮仍待补齐；Java 拆分计划（C-EDIT）：Spring、MyBatis 只补上游缺失的 Provider |
@@ -60,7 +103,7 @@ Windows 不在本轮，平台矩阵的 partial/pending 保持真实。
 | API-35 | 第一阶段进行中 | 第一阶段是 Java 拆分所需的 Core 中转插件函数调用（插件 1 → Core → 插件 2，C-IMPORT，进行中，不是安装依赖）；依赖/导出安装闭包、版本求解、远程 Provider 剩余接续未完成 |
 | API-36 | 未做 | WASM/WASI 非本轮前置，未引入运行时 |
 | API-37 | 部分完成 | getCapabilities 提供协议/方法/预算/后端执行位置；插件设置文字的包内语言文件 `l10n/<语言>.json` 已做（`pluginAPIVersion` 0 补充，Core #36；桌面端只读地从已安装包取文件，按界面语言重读且保留草稿）；其它插件文字的语言包与环境/主题事件未做；Java 拆分：界面语言走本项的环境信息，不在 workspace context 里加 locale |
-| API-38 | 未做 | 通用受管 fetch/download 未开放 |
+| API-38 | 部分完成 | network/request 已接入有界、可取消 HTTP(S)，无 Cookie jar、不自动跟随重定向；下载到文件与身份验证会话未做 |
 | API-39 | 未做 | 通用 authentication session/provider 未开放 |
 | API-40 | 部分完成 | 上下文携带 local/remote；新文件/编辑器服务对 remote 明确拒绝，非远程执行实现 |
 | API-41 | 部分完成 | onWorkspaceOpen/onCommand、后台两路、initialize 超时/有界通知；内容匹配与全局冷启预算未做 |
@@ -111,8 +154,12 @@ Windows 不在本轮，平台矩阵的 partial/pending 保持真实。
 | 文档/选区 | documents.list/getSnapshot；editor.getActive/getSelections | documents.read |
 | 版本化编辑 | editor.applyEdits/replaceSelections/insertText | editor.edit |
 | 打开/定位 | editor.open/reveal | editor.open |
-| 预览/浏览器 | preview.openHTML；browser.openExternal | preview.open；browser.open |
-| 窗口消息 | window.showInformation/showWarning/showError | window.messages |
+| 预览/浏览器 | preview.openMarkdown/openHTML；browser.openExternal | preview.open；browser.open |
+| 窗口消息与输入 | window.showInformation/showWarning/showError；window.showQuickPick/showInputBox | window.messages；window.input |
+| 剪贴板与定位 | clipboard.readText/writeText；workspace.reveal | clipboard.read；clipboard.write；workspace.reveal |
+| 输出、进度、状态 | output.create/append/clear/show/dispose；progress.create/report/end；statusBar.setItem/removeItem | output.write；window.progress；statusBar.write |
+| 视图刷新与对比 | views.refresh；editor.showDiff | views.refresh；editor.open |
+| HTTP | network.request | network.request |
 | 本插件凭据 | credentials.get/set/delete | credentials.store |
 
 宿主通知：workspace.didChangeContexts、subscriptions.notify、commands.didRun。

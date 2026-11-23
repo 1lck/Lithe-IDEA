@@ -68,9 +68,18 @@ func (s *Service) CallView(ctx context.Context, call ViewCall) (json.RawMessage,
 		}
 	}
 	var reference json.RawMessage
+	contextID := ""
 	if workspace, ok := s.Contexts.ByPath(call.Workspace); ok && call.Workspace != "" {
 		reference = mustMarshal(workspace.ContextRef)
+		contextID = workspace.ContextID
 	}
+	var identity struct {
+		Instance string `json:"instance"`
+	}
+	if err := json.Unmarshal(call.Event, &identity); err != nil {
+		return nil, false, err
+	}
+	s.bindView(call.PluginID, session.Session.ID, contextID, identity.Instance)
 	event, err := s.viewEvent(ctx, call)
 	if err != nil {
 		return nil, false, err

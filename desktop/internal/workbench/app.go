@@ -572,6 +572,7 @@ type project struct {
 	tree fileTree
 	// pluginViews are the plugin views the project's tool windows show, by window (plugin_view.go).
 	pluginViews map[string]*pluginViewState
+	workflow    pluginWorkflowUI
 	// build is the Run tool window's provider-backed instances and output.
 	build buildState
 	// buildSessions are the build provider sessions the project started. They live beside build
