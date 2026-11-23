@@ -384,12 +384,12 @@ func (m *Manager) archive(ctx context.Context, artifact Artifact, base string, p
 		return nil, err
 	}
 	defer func() { err = errors.Join(err, source.Close()) }()
-	if err := atomicfile.WriteWith(path, 0o600, func(w io.Writer) error {
+	if err := atomicfile.WriteWithCheck(path, 0o600, func(w io.Writer) error {
 		if _, err := io.Copy(w, contextReader{ctx, source}); err != nil {
 			return err
 		}
 		return ctx.Err()
-	}); err != nil {
+	}, ctx.Err); err != nil {
 		return nil, err
 	}
 	return openVerified(ctx, path, artifact.SHA256)

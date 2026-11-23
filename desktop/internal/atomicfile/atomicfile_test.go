@@ -134,3 +134,26 @@ func TestInstallOnlyAcceptsIdenticalConcurrentWriter(t *testing.T) {
 		})
 	}
 }
+
+func TestWriteWithCheckCancellationBeforeRenameKeepsOriginal(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "archive")
+	if err := os.WriteFile(path, []byte("old archive"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	canceled := errors.New("canceled before commit")
+	err := WriteWithCheck(path, 0o600, func(w io.Writer) error {
+		_, err := w.Write([]byte("new archive"))
+		return err
+	}, func() error { return canceled })
+	if !errors.Is(err, canceled) {
+		t.Fatalf("cancellation = %v, want %v", err, canceled)
+	}
+	data, err := os.ReadFile(path)
+	if err != nil || string(data) != "old archive" {
+		t.Fatalf("canceled write replaced original: %q, %v", data, err)
+	}
+	entries, err := os.ReadDir(filepath.Dir(path))
+	if err != nil || len(entries) != 1 {
+		t.Fatalf("temporary file remained: %v, %v", entries, err)
+	}
+}

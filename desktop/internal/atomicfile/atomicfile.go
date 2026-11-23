@@ -25,7 +25,7 @@ func InstallWithRename(path string, data []byte, perm os.FileMode, rename func(s
 	err := writeWithRename(path, perm, func(w io.Writer) error {
 		_, err := w.Write(data)
 		return err
-	}, rename)
+	}, rename, nil)
 	if err != nil && holds(path, data) {
 		return nil
 	}
@@ -43,10 +43,17 @@ func Write(path string, data []byte, perm os.FileMode) error {
 // WriteWith streams to a private sibling and syncs it before publishing. It
 // does not make a second complete copy of the buffer being written.
 func WriteWith(path string, perm os.FileMode, write func(io.Writer) error) error {
-	return writeWithRename(path, perm, write, os.Rename)
+	return WriteWithCheck(path, perm, write, nil)
 }
 
-func writeWithRename(path string, perm os.FileMode, write func(io.Writer) error, rename func(string, string) error) (err error) {
+// WriteWithCheck provides a last check immediately before rename, after the
+// temporary file has been synced and closed. Runtime downloads use ctx.Err so
+// cancellation after a slow fsync cannot publish an unwanted archive.
+func WriteWithCheck(path string, perm os.FileMode, write func(io.Writer) error, beforeRename func() error) error {
+	return writeWithRename(path, perm, write, os.Rename, beforeRename)
+}
+
+func writeWithRename(path string, perm os.FileMode, write func(io.Writer) error, rename func(string, string) error, beforeRename func() error) (err error) {
 	dir := filepath.Dir(path)
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return fmt.Errorf("create directory: %w", err)
@@ -75,6 +82,11 @@ func writeWithRename(path string, perm os.FileMode, write func(io.Writer) error,
 	}
 	if err := f.Close(); err != nil {
 		return fmt.Errorf("close temporary file: %w", err)
+	}
+	if beforeRename != nil {
+		if err := beforeRename(); err != nil {
+			return fmt.Errorf("check before replace: %w", err)
+		}
 	}
 	if err := rename(temp, path); err != nil {
 		return fmt.Errorf("replace file: %w", err)
