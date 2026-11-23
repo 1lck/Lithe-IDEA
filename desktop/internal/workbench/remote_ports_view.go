@@ -150,7 +150,7 @@ func (a *App) remotePortsHeader(c ui.C) {
 				cell = cell.Grow(1).Shrink(1).MinWidth(0)
 			}
 			cell.Children(func() {
-				ui.Text(k.Part(key+"-text"), text).FontSize(a.theme.Metrics.FontSizeS).Color(a.colors.Subtle).Ellipsis()
+				ui.Text(c, text).FontSize(a.theme.Metrics.FontSizeS).Color(a.colors.Subtle).Ellipsis()
 			})
 		}
 		column("remote", i18n.Shared(language, "desktop.remote.ports.columnRemote"), remotePortsRemoteWidth)
@@ -499,7 +499,7 @@ func (a *App) remotePortsStatusItem(c ui.C) {
 		}).
 		Tooltip(i18n.SharedFormat(language, "desktop.remote.ports.statusTooltip", map[string]string{"count": count}))
 	button.Children(func() {
-		ui.Icon(k, icons.ArrowLeftRight).Size(chromeMarkSize, chromeMarkSize).Shrink(0).Color(a.colors.Accent)
+		ui.Icon(c, icons.ArrowLeftRight).Size(chromeMarkSize, chromeMarkSize).Shrink(0).Color(a.colors.Accent)
 		a.chromeStatusLabel(k, count)
 	})
 	if button.Clicked() {

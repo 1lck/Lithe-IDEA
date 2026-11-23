@@ -237,7 +237,7 @@ func (a *App) buildArrow(c ui.C, title string, branch, open bool) bool {
 	slot := ui.Row(k).Size(treelist.Disclosure, treelist.Icon).Shrink(0).Center().
 		HitWith(ui.ID(k), name+" "+title, gfx.HitOptions{Role: gfx.RoleButton, Cursor: gfx.PointerCursorHand, Expandable: true, Expanded: open, SkipFocus: true})
 	slot.Children(func() {
-		ui.Icon(k, fileicons.TreeChevron(open, a.colors.Dark)).Size(16, 16)
+		ui.Icon(c, fileicons.TreeChevron(open, a.colors.Dark)).Size(16, 16)
 	})
 	return slot.Clicked()
 }
@@ -482,13 +482,13 @@ func (a *App) buildRunMark(c ui.C, label string, disabled bool) bool {
 	slot := ui.Row(k).Size(treelist.Icon, treelist.Icon).Shrink(0).Center()
 	if disabled {
 		slot.Children(func() {
-			ui.Icon(k, icons.Play).Size(14, 14).Color(a.colors.Subtle).Opacity(0.5)
+			ui.Icon(c, icons.Play).Size(14, 14).Color(a.colors.Subtle).Opacity(0.5)
 		})
 		return false
 	}
 	slot = slot.HitWith(ui.ID(k), label, gfx.HitOptions{Role: gfx.RoleButton, Cursor: gfx.PointerCursorHand, SkipFocus: true}).Tooltip(label)
 	slot.Children(func() {
-		ui.Icon(k, icons.Play).Size(14, 14).Color(a.colors.Success)
+		ui.Icon(c, icons.Play).Size(14, 14).Color(a.colors.Success)
 	})
 	return slot.Clicked()
 }

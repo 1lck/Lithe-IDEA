@@ -135,7 +135,7 @@ func (w *window) sourceEntryRow(c ui.C, p *sourceSettingsForm, source core.Setti
 					}
 					box.Children(func() {
 						if on {
-							ui.Icon(k, icons.Check).Size(12, 12).Color(w.pal.white)
+							ui.Icon(c, icons.Check).Size(12, 12).Color(w.pal.white)
 						}
 					})
 					if !disabled && box.Clicked() {
@@ -156,7 +156,7 @@ func (w *window) sourceEntryRow(c ui.C, p *sourceSettingsForm, source core.Setti
 			}
 			optionTitle := func(option int) string { return attribute.Options[option].Title }
 			if disabled {
-				ui.Text(k, optionTitle(*choice)).FontSize(12).Color(w.pal.muted).Width(entryChoiceWidth).Shrink(0).Ellipsis()
+				ui.Text(c, optionTitle(*choice)).FontSize(12).Color(w.pal.muted).Width(entryChoiceWidth).Shrink(0).Ellipsis()
 				continue
 			}
 			if ui.Select(k, choice, indices, optionTitle).Width(entryChoiceWidth).Shrink(0).Label(title).Changed() {

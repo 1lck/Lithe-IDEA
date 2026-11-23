@@ -165,7 +165,7 @@ func (a *App) softWrapSwitch(c ui.C) {
 		button = button.Hover(ui.Look{}.Background(a.colors.Hover))
 	}
 	button.Children(func() {
-		ui.Icon(k, icons.WrapText).Size(shellIconSize, shellIconSize).Color(icon).
+		ui.Icon(c, icons.WrapText).Size(shellIconSize, shellIconSize).Color(icon).
 			StateFrom(button).Hover(ui.Look{}.Color(a.colors.Text))
 	})
 	if button.Clicked() {

@@ -173,7 +173,7 @@ func (w *window) trustedLocationsList(c ui.C, language i18n.Language, l *trusted
 			if row.mark == locationRemoved {
 				words = p.subtle
 			}
-			ui.Icon(k, icons.Folder).Size(14, 14).Color(p.muted).Shrink(0)
+			ui.Icon(c, icons.Folder).Size(14, 14).Color(p.muted).Shrink(0)
 			// The tooltip shows a path the row's width cuts; it needs an element with an identity.
 			path := k.Part("path")
 			ui.Row(path).Grow(1).Shrink(1).MinWidth(0).Items(ui.Center).

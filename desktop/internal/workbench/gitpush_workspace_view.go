@@ -163,7 +163,7 @@ func (a *App) drawWorkspacePushFold(c ui.C, s *workspacePushState, id, name stri
 	slot := ui.Row(k).Size(treelist.Disclosure, treelist.Icon).Shrink(0).Center().
 		HitWith(ui.ID(k), label+" "+name, gfx.HitOptions{Role: gfx.RoleButton, Cursor: gfx.PointerCursorHand, Expandable: true, Expanded: open, SkipFocus: true})
 	slot.Children(func() {
-		ui.Icon(k, chevron).Size(12, 12).Color(a.colors.Subtle)
+		ui.Icon(c, chevron).Size(12, 12).Color(a.colors.Subtle)
 	})
 	if slot.Clicked() {
 		c.After(func() { s.folded[id] = open })
