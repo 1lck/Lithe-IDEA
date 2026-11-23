@@ -303,7 +303,7 @@ func (a *App) remotePortsRow(c ui.C, p *project, row remotePortRow) {
 			a.remotePortsRowActions(c, p, row, busy)
 		})
 	})
-	ui.ContextMenu(c.Part("menu"), line, func(menu *ui.MenuItems) {
+	ui.ContextMenu(c, line, func(menu *ui.MenuItems) {
 		menu.WidthRange(180, 280)
 		if row.forward != nil {
 			forward := *row.forward

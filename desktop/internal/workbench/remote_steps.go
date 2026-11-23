@@ -214,7 +214,7 @@ func (a *App) remoteStepRow(c ui.C, language i18n.Language, s *remoteSteps, step
 				case current && s.failed:
 					ui.Icon(c, icons.CircleX).Size(16, 16).Color(a.theme.Danger)
 				case current:
-					ui.Spinner(c.Part("spinner")).Size(14, 14)
+					ui.Spinner(c).Size(14, 14)
 				default:
 					ui.Row(c.Part("todo")).Size(12, 12).Radius(6).Stroke(1, a.colors.TabIdleBorder)
 				}

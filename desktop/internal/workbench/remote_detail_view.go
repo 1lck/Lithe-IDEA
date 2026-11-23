@@ -40,7 +40,7 @@ func (a *App) remotePage(c ui.C, language i18n.Language) {
 		a.remoteOverview(c, language, *entry)
 	case r.loading && !r.loaded:
 		ui.Column(c).Fill().Center().Children(func() {
-			ui.Spinner(c.Part("loading"))
+			ui.Spinner(c)
 		})
 	default:
 		a.remoteEmptyPage(c, language)
@@ -287,7 +287,7 @@ func (a *App) remoteHostSection(c ui.C, language i18n.Language, outcome *remoteP
 	small := a.theme.Metrics.FontSizeS
 	a.remoteSection(c, i18n.Shared(language, "desktop.remote.hostSection"), "", func() {
 		if r.probe != nil {
-			ui.Spinner(c.Part("testing")).Size(12, 12)
+			ui.Spinner(c).Size(12, 12)
 			ui.Text(c, i18n.Shared(language, "desktop.remote.testing")).FontSize(small).Color(a.colors.Subtle)
 			if ui.Button(c.Part("stop"), i18n.Shared(language, "desktop.remote.stop")).Link().Clicked() {
 				c.After(a.stopRemoteTest)
@@ -418,7 +418,7 @@ func (a *App) remoteOutcomeBox(c ui.C, language i18n.Language, outcome *remotePr
 			l := c.Part("log")
 			ui.Scroll(l).FillWidth().MaxHeight(180).Children(func() {
 				ui.Column(l).FillWidth().PadSides(10, 12, 10, 12).Radius(6).Background(a.colors.Hover).Stroke(1, a.colors.Line).Children(func() {
-					ui.Paragraph(l.Part("text"), diagnostics, 40).Mono().FontSize(small).Color(a.colors.Subtle)
+					ui.Paragraph(c, diagnostics, 40).Mono().FontSize(small).Color(a.colors.Subtle)
 				})
 			})
 		}
@@ -574,7 +574,7 @@ func (a *App) remoteFormPage(c ui.C, language i18n.Language) {
 			switch {
 			case r.probe != nil:
 				ui.Row(c.Part("testing")).FillWidth().Items(ui.Center).Gap(8).Pad(12).Radius(6).Stroke(1, a.colors.Line).Children(func() {
-					ui.Spinner(c.Part("spinner")).Size(14, 14)
+					ui.Spinner(c).Size(14, 14)
 					ui.Text(c, i18n.Shared(language, "desktop.remote.testing")).Color(a.colors.Subtle)
 				})
 			case r.result != nil:

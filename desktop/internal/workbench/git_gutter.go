@@ -279,7 +279,7 @@ func (a *App) revertGitGutter(p *project, d *document, surface actionSurface) {
 // gitGutterPeek declares the popover of a clicked marker: the text it replaced, and the stage and
 // revert actions. It hangs off the file's control.
 func (a *App) gitGutterPeek(c ui.C, p *project, d *document, anchor ui.Box) {
-	if d.gutter.peek == nil || p == nil {
+	if d.gutter.peek == nil || p == nil || !d.gutter.peekOpen {
 		return
 	}
 	h := *d.gutter.peek

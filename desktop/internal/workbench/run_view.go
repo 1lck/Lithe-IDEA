@@ -217,7 +217,7 @@ func (a *App) runTree(c ui.C, p *project, run *runEntry) {
 					ui.Text(c, a.text.Run.StartedAt(run.started.Format(runStartedLayout))).Color(a.colors.Subtle).
 						Ellipsis().Shrink(buildDetailShrink)
 				})
-				ui.Row(k.Part("spacer")).Grow(1)
+				ui.Spacer(c)
 				if duration != "" {
 					ui.Text(c, duration).FontSize(a.theme.Metrics.FontSizeS).Color(a.colors.Subtle).Shrink(0)
 				}
@@ -298,7 +298,7 @@ func (a *App) runPortsRow(c ui.C, run *runEntry) {
 				if pill.Clicked() {
 					c.After(func() { a.openRunPort(port, surfaceButton) })
 				}
-				ui.ContextMenu(pk.Part("menu"), pill, func(menu *ui.MenuItems) {
+				ui.ContextMenu(c, pill, func(menu *ui.MenuItems) {
 					if menu.Item(a.text.Run.Ports.Open).Clicked() {
 						c.After(func() { a.openRunPort(port, surfaceContextMenu) })
 					}
@@ -322,13 +322,12 @@ func (a *App) runPortsRow(c ui.C, run *runEntry) {
 // user stopped it. A service runs until it is stopped, so a spinner for as long as it runs would
 // never say it started.
 func (a *App) runStatusMark(c ui.C, run *runEntry, size float32) {
-	k := c.Part("status")
 	if run.running && run.processRunning {
 		ui.Icon(c, icons.Play).Size(size, size).Shrink(0).Color(a.colors.Success)
 		return
 	}
 	if run.running {
-		ui.Spinner(k).Size(size, size).Shrink(0)
+		ui.Spinner(c).Size(size, size).Shrink(0)
 		return
 	}
 	icon, tint := icons.CircleCheck, a.colors.Success

@@ -27,7 +27,7 @@ func (a *App) remotePortRules(c ui.C, p *project, rules []core.RemoteForward, id
 	language := a.language()
 	k := c.Part("rules")
 	ui.Row(k.Part("heading")).FillWidth().Height(remotePortsRowHeight).Shrink(0).Items(ui.Center).Gap(4).PadX(shellContentPad).Children(func() {
-		ui.Text(k.Part("heading-text"), i18n.Shared(language, "desktop.remote.ports.rulesHeading")).Color(a.colors.Text).Ellipsis()
+		ui.Text(c, i18n.Shared(language, "desktop.remote.ports.rulesHeading")).Color(a.colors.Text).Ellipsis()
 		ui.Button(k.Part("help"), i18n.Shared(language, "native.moreInformation")).Icon(icons.Info).IconOnly().Ghost().Size(16, 16).
 			Tooltip(i18n.Shared(language, "desktop.remote.ports.rulesHelp"))
 	})
@@ -40,7 +40,7 @@ func (a *App) remotePortRules(c ui.C, p *project, rules []core.RemoteForward, id
 				cell = cell.Grow(1).Shrink(1).MinWidth(0)
 			}
 			cell.Children(func() {
-				ui.Text(k.Part(key+"-text"), text).FontSize(a.theme.Metrics.FontSizeS).Color(a.colors.Subtle).Ellipsis()
+				ui.Text(c, text).FontSize(a.theme.Metrics.FontSizeS).Color(a.colors.Subtle).Ellipsis()
 			})
 		}
 		column("listen", i18n.Shared(language, "desktop.remote.ports.ruleColumnListen"), remotePortRulesListenWidth)
@@ -122,7 +122,7 @@ func (a *App) remotePortIdleRuleRow(c ui.C, p *project, rule core.RemotePortRule
 			}
 		})
 	})
-	ui.ContextMenu(c.Part("menu"), line, func(menu *ui.MenuItems) {
+	ui.ContextMenu(c, line, func(menu *ui.MenuItems) {
 		menu.WidthRange(180, 280)
 		if menu.Item(i18n.Shared(language, "desktop.remote.ports.ruleStart")).Icon(icons.Play).Disabled(unavailable).Clicked() {
 			c.After(func() { a.startRememberedRule(p, rule, surfaceContextMenu) })
@@ -203,7 +203,7 @@ func (a *App) remotePortRuleRow(c ui.C, p *project, rule core.RemoteForward) {
 			}
 		})
 	})
-	ui.ContextMenu(c.Part("menu"), line, func(menu *ui.MenuItems) {
+	ui.ContextMenu(c, line, func(menu *ui.MenuItems) {
 		menu.WidthRange(180, 280)
 		record := remotePortRuleOf(rule)
 		if menu.Item(i18n.Shared(language, "desktop.remote.ports.editLabel")).Icon(icons.Tag).Clicked() {

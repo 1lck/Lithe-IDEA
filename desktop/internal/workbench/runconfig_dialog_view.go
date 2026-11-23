@@ -88,7 +88,7 @@ func (a *App) drawRunConfigDialogTree(c ui.C, p *project) {
 			if clicked {
 				c.After(func() { d.toggleNewMenu(runConfigNewMenuToolbar) })
 			}
-			a.drawRunConfigNewMenu(k.Part("add-menu"), p, add, runConfigNewMenuToolbar)
+			a.drawRunConfigNewMenu(k, p, add, runConfigNewMenuToolbar)
 			if a.gitIconButton(k.Part("remove"), i18n.Shared(language, "desktop.runConfig.removeConfiguration"), icons.Minus, false, !p.runConfigDialogRemovable()) {
 				c.After(func() {
 					a.performed("run.configuration.remove", surfaceButton)
@@ -144,7 +144,10 @@ func (d *runConfigDialog) toggleNewMenu(at runConfigNewMenu) {
 // drawRunConfigNewMenu declares the menu of kinds under anchor while it shows at at.
 func (a *App) drawRunConfigNewMenu(c ui.C, p *project, anchor ui.Box, at runConfigNewMenu) {
 	d := &p.runConfigs.dialog
-	open := d.newMenu == at
+	if d.newMenu != at {
+		return
+	}
+	open := true
 	ui.Menu(c, anchor, &open, func(menu *ui.MenuItems) {
 		menu.WidthRange(200, 300)
 		a.runConfigDialogTypeItems(c, menu, p)
@@ -378,7 +381,6 @@ func (a *App) drawRunConfigDialogRow(c ui.C, p *project, i int) {
 		return
 	}
 	row := d.rows[i]
-	k := c.KeyInt(i)
 	if row.key == "" {
 		icon := fileicons.ForDirectory("folder", a.colors.Dark)
 		if row.node.folder == "" {
@@ -388,6 +390,7 @@ func (a *App) drawRunConfigDialogRow(c ui.C, p *project, i int) {
 		ui.Text(c, a.runConfigDialogRowLabel(p, row)).FontSize(treeFontSize).Color(a.colors.Text).Shrink(1).MinWidth(0).Ellipsis()
 		return
 	}
+	k := c.KeyInt(i)
 	unavailable := a.runConfigDraftUnavailable(p, row.key)
 	ui.Row(k).Shrink(1).MinWidth(0).Items(ui.Center).Gap(c.Theme().Metrics.GapItem).PadLeft(treeChevron).Children(func() {
 		icon, color := a.runConfigDraftIcon(p, row.key), a.colors.Subtle
@@ -421,7 +424,7 @@ func (a *App) drawRunConfigDialogEmptyTree(c ui.C, p *project) {
 			if link.Clicked() {
 				c.After(func() { d.toggleNewMenu(runConfigNewMenuTree) })
 			}
-			a.drawRunConfigNewMenu(c.Part("add-menu"), p, link, runConfigNewMenuTree)
+			a.drawRunConfigNewMenu(c, p, link, runConfigNewMenuTree)
 			modifiers, key := runConfigAddChord()
 			if chord, ok := keymap.Parse(modifiers, key); ok {
 				ui.Text(c, shortcuts.Keycaps(chord)).Color(a.colors.Subtle)
@@ -556,7 +559,7 @@ func (a *App) drawRunConfigDialogStart(c ui.C, p *project) {
 		if link.Clicked() {
 			c.After(func() { d.toggleNewMenu(runConfigNewMenuPane) })
 		}
-		a.drawRunConfigNewMenu(c.Part("add-menu"), p, link, runConfigNewMenuPane)
+		a.drawRunConfigNewMenu(c, p, link, runConfigNewMenuPane)
 		ui.Text(c, i18n.Shared(language, "desktop.runConfig.orSelectToEdit")).Color(a.colors.Subtle)
 		if d.failure != "" {
 			ui.Paragraph(c, d.failure, 4).TextCenter().FillWidth().FontSize(a.theme.Metrics.FontSizeS).Color(a.theme.Danger)

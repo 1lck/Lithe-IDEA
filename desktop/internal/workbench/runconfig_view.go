@@ -427,7 +427,9 @@ func (a *App) drawRunOptionField(c ui.C, language i18n.Language, field *runOptio
 		if field.raw != nil {
 			text = field.title + ": " + string(field.raw)
 		}
-		ui.Wrap(c, text).FontSize(a.theme.Metrics.FontSizeS).Color(a.colors.Subtle)
+		ui.Column(c).FillWidth().Children(func() {
+			ui.Wrap(c, text).FontSize(a.theme.Metrics.FontSizeS).Color(a.colors.Subtle)
+		})
 	}
 }
 

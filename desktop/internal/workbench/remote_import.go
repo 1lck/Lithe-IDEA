@@ -292,7 +292,7 @@ func (a *App) remoteImportView(c ui.C, language i18n.Language, m *remoteImporter
 		}
 		switch {
 		case m.loading:
-			ui.Column(c.Part("loading")).FillWidth().Grow(1).Center().Children(func() { ui.Spinner(c.Part("spinner")) })
+			ui.Column(c.Part("loading")).FillWidth().Grow(1).Center().Children(func() { ui.Spinner(c) })
 		case m.source == remoteImportMotty && m.mottyErr != "":
 			a.remoteNotice(c.Part("motty-error"), icons.CircleX, a.theme.Danger, m.mottyErr)
 		case m.source == remoteImportMotty && m.motty.Unavailable != "":
@@ -526,7 +526,7 @@ func (a *App) remoteMottyFields(c ui.C, language i18n.Language, fields []core.Re
 					ui.Text(c, remoteMottySkipText(language, field.Skip)).FontSize(small).Color(a.colors.Subtle).Grow(1.6).Basis(0).MinWidth(0).Ellipsis()
 				}
 				ui.Row(k.Part("tag")).Width(110).Shrink(0).Children(func() {
-					ui.Row(k.Part("spacer")).Grow(1)
+					ui.Spacer(c)
 					if field.Lithe != "" {
 						a.remoteTag(k.Part("imported"), i18n.Shared(language, "desktop.remote.import.field.imported"), a.colors.Success)
 					} else {

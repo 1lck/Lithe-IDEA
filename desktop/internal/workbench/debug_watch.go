@@ -342,7 +342,7 @@ func (a *App) debugWatchView(c ui.C, p *project) {
 			row.Children(func() {
 				ui.Icon(c, icons.Eye).Size(treelist.Icon, treelist.Icon).Shrink(0).MarginTop(debugIconInset).Color(a.colors.Subtle)
 				a.debugWatchText(k, entry, false)
-				ui.Row(k.Part("spacer")).Grow(1)
+				ui.Spacer(c)
 				i := index
 				if _, clicked := a.toolIconButton(k.Key("remove"), t.RemoveWatch, icons.X, false, false); clicked {
 					c.After(func() { a.removeDebugWatch(p, i) })

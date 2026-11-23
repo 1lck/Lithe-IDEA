@@ -101,7 +101,7 @@ func (a *App) buildSystemsPane(c ui.C, p *project) {
 	switch {
 	case b.loading || !b.loaded:
 		a.buildNotice(c, t.LoadingModel, "", func() {
-			ui.Spinner(c.Part("spinner")).Size(16, 16)
+			ui.Spinner(c).Size(16, 16)
 		})
 		return
 	case b.failed != "":
@@ -296,7 +296,7 @@ func (a *App) buildGroupRow(row ui.ListRow, p *project, instance *buildInstance,
 	}
 	switch {
 	case spec.loading:
-		ui.Spinner(c.Part("spinner")).Size(12, 12)
+		ui.Spinner(c).Size(12, 12)
 	case spec.warning:
 		ui.Icon(c, icons.CircleAlert).Size(14, 14).Shrink(0).Color(a.colors.Warning)
 	}
@@ -423,7 +423,7 @@ func (a *App) buildNoteRow(row ui.ListRow, p *project, instance *buildInstance, 
 	color := a.colors.Subtle
 	switch {
 	case spec.loading:
-		ui.Spinner(c.Part("spinner")).Size(12, 12)
+		ui.Spinner(c).Size(12, 12)
 	case spec.warning:
 		color = a.colors.Warning
 		ui.Icon(c, icons.CircleAlert).Size(14, 14).Shrink(0).Color(color)

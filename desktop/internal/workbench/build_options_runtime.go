@@ -263,7 +263,7 @@ func (a *App) buildRuntimeRows(c ui.C, language i18n.Language, e *buildOptionsEd
 				return
 			}
 			ui.Text(c, runtime.executable).FontSize(a.theme.Metrics.FontSizeS).Color(a.colors.Text).Ellipsis().Shrink(1).MinWidth(0)
-			ui.Row(k.Part("spacer")).Grow(1)
+			ui.Spacer(c)
 			ui.Text(c, buildExecutionSourceLabel(language, runtime.source)).FontSize(a.theme.Metrics.FontSizeS).Color(a.colors.Subtle).Ellipsis().Shrink(0).MaxWidth(160)
 		})
 	}

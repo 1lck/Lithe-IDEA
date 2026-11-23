@@ -40,8 +40,8 @@ func (w *window) buildPage(c ui.C) {
 		ui.Column(c).FillWidth().MaxWidth(buildPageWidth).PadSides(buildPagePadTop, buildPagePadX, buildPagePadEnd, buildPagePadX).Children(func() {
 			ui.Text(c, titleOf(&w.text.Settings, pageBuild)).FontSize(buildHeading).Weight(gfx.WeightBold).Color(b.text).Ellipsis()
 			ui.Row(c).Height(12).Shrink(0)
-			w.buildIssues(c.Part("issues"), language)
-			w.buildDirectory(c.Part("directory"), language)
+			w.buildIssues(c, language)
+			w.buildDirectory(c, language)
 			ui.Wrap(c, i18n.Shared(language, "desktop.buildSettings.directoryNote")).FontSize(11.5).Color(b.faint)
 		})
 	})
@@ -69,7 +69,7 @@ func (w *window) buildIssues(c ui.C, language i18n.Language) {
 	scope := t.current()
 	var chosen *core.ToolchainSettingsIssue
 	all := false
-	ui.Column(c).FillWidth().MinWidth(0).Shrink(0).PadX(10).PadY(8).Radius(8).
+	ui.Column(c.Part("issues")).FillWidth().MinWidth(0).Shrink(0).PadX(10).PadY(8).Radius(8).
 		Border(1, colors.border).Background(colors.background).Children(func() {
 		ui.Text(c, issuesTitle(language, view.Counts.Problems)).
 			FontSize(buildSmall).Weight(gfx.WeightSemibold).Color(colors.text).Ellipsis()
@@ -92,7 +92,7 @@ func (w *window) buildIssues(c ui.C, language i18n.Language) {
 				ui.Text(c, name).FontSize(buildSmall).Weight(gfx.WeightSemibold).Color(colors.text).Shrink(0)
 				ui.Text(c, w.toolchainReasonText(language, scope, entry, toolchainReason(entry.tool))).
 					FontSize(buildSmall).Color(colors.text).Shrink(1).MinWidth(0).Ellipsis()
-				ui.Row(k.Part("spacer")).Grow(1)
+				ui.Spacer(c)
 				ui.Text(c, "›").FontSize(buildSmall).Color(colors.text).Shrink(0)
 			})
 		}
@@ -149,7 +149,7 @@ func (w *window) directory(c ui.C, entries []directoryEntry) {
 	}
 	b := &w.bp
 	var open func()
-	ui.Column(c).FillWidth().MinWidth(0).Shrink(0).Pad(4).Radius(10).Border(1, b.line).Background(b.surface).Children(func() {
+	ui.Column(c.Part("directory")).FillWidth().MinWidth(0).Shrink(0).Pad(4).Radius(10).Border(1, b.line).Background(b.surface).Children(func() {
 		for i := range entries {
 			entry := &entries[i]
 			k := c.Key(entry.key)

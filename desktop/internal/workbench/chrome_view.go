@@ -142,7 +142,7 @@ func (a *App) titleBar(c ui.C) {
 			a.chromeProject(c)
 			a.chromeBranch(c)
 		}
-		ui.Row(c).Grow(1)
+		ui.Spacer(c)
 		zone := ui.Row(c).Items(ui.Center).Gap(chromeGap).Children(func() {
 			for _, i := range a.chrome.items[zoneTitle] {
 				if a.chromeTitleButton(c, i) {
@@ -268,7 +268,7 @@ func (a *App) titleButtonMenu(c ui.C, i int, box ui.Box) {
 	if !a.chrome.catalog[i].stripes {
 		return
 	}
-	ui.ContextMenu(c.Part("menu").KeyInt(i), box, func(menu *ui.MenuItems) {
+	ui.ContextMenu(c, box, func(menu *ui.MenuItems) {
 		a.stripeMoveMenu(c, menu, i, zoneTitle)
 	})
 }
@@ -302,7 +302,7 @@ func (a *App) stripe(c ui.C, left bool) {
 		if i := a.stripeZone(c, top, left, dragging); i >= 0 {
 			clicked = i
 		}
-		ui.Column(c).Grow(1)
+		ui.Spacer(c)
 		if i := a.stripeZone(c, split, left, dragging); i >= 0 {
 			clicked = i
 		}
@@ -339,7 +339,7 @@ func (a *App) stripeZone(c ui.C, z zone, left, dragging bool) int {
 		for _, i := range a.chrome.items[z] {
 			if a.chrome.catalog[i].id == itemToolWindows {
 				box := a.hiddenToolWindowsButton(c, i, z, layout)
-				ui.ContextMenu(c.Part("menu").KeyInt(i), box, a.stripeButtonMenu(c, i, z))
+				ui.ContextMenu(c, box, a.stripeButtonMenu(c, i, z))
 				continue
 			}
 			// The background button opens a popover, not a tool window, and the settings
@@ -384,7 +384,7 @@ func (a *App) stripeZone(c ui.C, z zone, left, dragging bool) int {
 			case hit:
 				clicked = i
 			}
-			ui.ContextMenu(c.Part("menu").KeyInt(i), box, a.stripeButtonMenu(c, i, z))
+			ui.ContextMenu(c, box, a.stripeButtonMenu(c, i, z))
 		}
 	})
 	a.chrome.placeZone(z, column)
@@ -452,7 +452,7 @@ func (a *App) hiddenToolWindowList(c ui.C, anchor ui.Box, z zone) {
 				if clicked {
 					shown = i
 				}
-				ui.ContextMenu(c.Part("unhide").KeyInt(i), row, func(menu *ui.MenuItems) {
+				ui.ContextMenu(c, row, func(menu *ui.MenuItems) {
 					if menu.Item(unhide).Clicked() {
 						restored = i
 					}

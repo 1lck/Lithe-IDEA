@@ -444,7 +444,7 @@ func (a *App) memoryDetails(c ui.C, anchor ui.Box) {
 			default:
 				parts := m.parts()
 				columns := m.columns()
-				a.memoryStats(c.Part("stats"), language)
+				a.memoryStats(c, language)
 				a.memoryBar(c.Part("bar"), parts)
 				a.memoryLegend(c.Part("legend"), language, parts, columns)
 				ui.Divider(c)
@@ -565,23 +565,25 @@ func (a *App) memoryLegend(c ui.C, language i18n.Language, parts []core.MemoryCa
 // with what Core counts under it, and the sum of the ones past the list.
 func (a *App) memoryEntries(c ui.C, language i18n.Language, columns memoryColumns) {
 	summary := &a.memory.summary
-	ui.Text(c, i18n.Shared(language, "desktop.memory.processes")).FontSize(a.theme.Metrics.FontSizeS).Weight(gfx.WeightSemibold).Color(a.colors.Subtle)
-	if len(summary.Entries) == 0 {
-		ui.Text(c, i18n.Shared(language, "desktop.memory.noOtherProcesses")).FontSize(a.theme.Metrics.FontSizeS).Color(a.colors.Subtle)
-		return
-	}
-	ui.Scroll(c.Part("list")).Scrollbars().FillWidth().MaxHeight(memoryListHeight).Children(func() {
-		for i, entry := range summary.Entries {
-			a.memoryRow(c, c.KeyInt(i), language, memoryLine{
-				kind: entry.Kind, name: entry.Name, processes: entry.ProcessCount, bytes: entry.Bytes, usage: entry.MemoryUsage,
-			}, columns)
+	ui.Column(c).FillWidth().Gap(memorySectionGap).Children(func() {
+		ui.Text(c, i18n.Shared(language, "desktop.memory.processes")).FontSize(a.theme.Metrics.FontSizeS).Weight(gfx.WeightSemibold).Color(a.colors.Subtle)
+		if len(summary.Entries) == 0 {
+			ui.Text(c, i18n.Shared(language, "desktop.memory.noOtherProcesses")).FontSize(a.theme.Metrics.FontSizeS).Color(a.colors.Subtle)
+			return
+		}
+		ui.Scroll(c.Part("list")).Scrollbars().FillWidth().MaxHeight(memoryListHeight).Children(func() {
+			for i, entry := range summary.Entries {
+				a.memoryRow(c, c.KeyInt(i), language, memoryLine{
+					kind: entry.Kind, name: entry.Name, processes: entry.ProcessCount, bytes: entry.Bytes, usage: entry.MemoryUsage,
+				}, columns)
+			}
+		})
+		if summary.Omitted.Count > 0 {
+			ui.Text(c, i18n.SharedFormat(language, "desktop.memory.omitted", map[string]string{
+				"count": strconv.Itoa(summary.Omitted.Count), "value": memorySize(language, summary.Omitted.Bytes),
+			})).FontSize(a.theme.Metrics.FontSizeS).Color(a.colors.Subtle)
 		}
 	})
-	if summary.Omitted.Count > 0 {
-		ui.Text(c, i18n.SharedFormat(language, "desktop.memory.omitted", map[string]string{
-			"count": strconv.Itoa(summary.Omitted.Count), "value": memorySize(language, summary.Omitted.Bytes),
-		})).FontSize(a.theme.Metrics.FontSizeS).Color(a.colors.Subtle)
-	}
 }
 
 // memoryLine is what a row of the legend or the list shows.

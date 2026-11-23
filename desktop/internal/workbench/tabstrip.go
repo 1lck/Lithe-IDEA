@@ -467,7 +467,7 @@ func (a *App) stripTab(c ui.C, place *groupPlace, t shownTab, current string, i 
 				StateFrom(closeButton).Hover(ui.Look{}.Color(a.colors.Text))
 		})
 	})
-	ui.ContextMenu(k.Part("menu"), chip, a.tabMenuItems(c, place.id, t, tabs))
+	ui.ContextMenu(c, chip, a.tabMenuItems(c, place.id, t, tabs))
 	switch {
 	case closeButton.Clicked():
 		c.After(func() { a.closeTab(t) })

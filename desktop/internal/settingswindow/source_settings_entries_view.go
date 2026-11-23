@@ -123,13 +123,12 @@ func (w *window) sourceEntryRow(c ui.C, p *sourceSettingsForm, source core.Setti
 		ui.Text(c, label).FontSize(12).Color(w.pal.text).Shrink(0).MaxWidthPercent(60).Ellipsis()
 		ui.Text(c, entry.Detail).FontSize(11).Color(w.pal.muted).Grow(1).Shrink(1).MinWidth(0).Ellipsis()
 		for column, attribute := range field.Attributes {
-			k := c.Key(attribute.ID)
 			title := attribute.Title + " " + label
 			if attribute.Kind == "boolean" {
 				on := entryBool(entry, attribute.ID)
-				ui.Row(k).Width(entryFlagWidth).Shrink(0).Items(ui.Center).Children(func() {
-					box := ui.Row(k).Size(16, 16).Radius(4).Border(1, w.pal.border).Center().
-						HitWith(ui.ID(k), title, gfx.HitOptions{Role: gfx.RoleCheckbox, Checked: on, Disabled: disabled})
+				ui.Row(c.Key(attribute.ID)).Width(entryFlagWidth).Shrink(0).Items(ui.Center).Children(func() {
+					box := ui.Row(c).Size(16, 16).Radius(4).Border(1, w.pal.border).Center().
+						HitWith(ui.ID(c), title, gfx.HitOptions{Role: gfx.RoleCheckbox, Checked: on, Disabled: disabled})
 					if on {
 						box = box.Background(w.pal.accent)
 					}
@@ -159,7 +158,7 @@ func (w *window) sourceEntryRow(c ui.C, p *sourceSettingsForm, source core.Setti
 				ui.Text(c, optionTitle(*choice)).FontSize(12).Color(w.pal.muted).Width(entryChoiceWidth).Shrink(0).Ellipsis()
 				continue
 			}
-			if ui.Select(k, choice, indices, optionTitle).Width(entryChoiceWidth).Shrink(0).Label(title).Changed() {
+			if ui.Select(c.Key(attribute.ID), choice, indices, optionTitle).Width(entryChoiceWidth).Shrink(0).Label(title).Changed() {
 				value := attribute.Options[*choice].Value
 				p.editEntries(source.ID, field, func(control *sourceSettingControl) {
 					setEntryAttribute(&control.input.Entries[index], attribute.ID, value)
