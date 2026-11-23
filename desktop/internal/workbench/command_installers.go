@@ -172,7 +172,7 @@ func commandConsumerCapability(kind string) string {
 // toolNames are the display names of the enabled plugins' tool definitions by ID; nil when
 // the registry cannot be read, which shows the IDs.
 func (s settingsCommandInstalls) toolNames(ctx context.Context) map[string]string {
-	manifests, _ := s.app.toolchainManifests(ctx)
+	manifests, _, _ := s.app.usableToolchainManifests(ctx, "command_installer_tool_discovery")
 	if len(manifests) == 0 {
 		return nil
 	}
