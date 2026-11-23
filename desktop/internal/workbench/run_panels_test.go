@@ -148,6 +148,7 @@ func TestRunPerformanceCollapseKeepsSummaryAndPersistsTheChoice(t *testing.T) {
 	}
 	run := p.build.runs[0]
 	run.addSample(pluginservice.ProcessSample{CPUPercent: 25, MemoryBytes: 96 << 20})
+	h.app.invalidator.Invalidate()
 	for range 6 {
 		h.settle()
 	}

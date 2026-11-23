@@ -76,6 +76,7 @@ func TestVisualRunConsoleWrap(t *testing.T) {
 			}
 			capture("run-console-wrapped")
 			run.addSample(pluginservice.ProcessSample{CPUPercent: 25, MemoryBytes: 96 << 20})
+			h.app.invalidator.Invalidate()
 			capture("run-performance-expanded")
 			h.clickNamed(i18n.Shared(h.app.language(), "native.collapseSection"))
 			if !h.app.settings.RunPerformanceCollapsed {
