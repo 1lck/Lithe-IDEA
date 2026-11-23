@@ -53,8 +53,10 @@ fi
 # - Remote connection and upload (#2231): a connection installs the server
 #   builds below the user's cache directory (remoteserver.Resolve), from where
 #   Core reads and uploads them; opening a remote folder creates the placeholder
-#   anchor there (remoteplaceholder.Ensure). Core's remote client writes no
-#   local files.
+#   anchor there (remoteplaceholder.Ensure). Core's SSH identity evidence now
+#   writes a private platform-temporary log; that additional production path
+#   still needs installed-package workflow coverage. The tests listed below
+#   do not establish coverage of that new path.
 # - Embedded programs installed at run time: the IDE API helper (idehelp) and
 #   the Windows ConPTY (localshell/conpty).
 # - Plugin packages: extracting, installing and removing one (pluginpkg).

@@ -22,15 +22,15 @@ import (
 // workspace's folder, which Open File on Host opens (remote_host_files.go), is only read: a save
 // or a create of one is refused (S25), and any other path is refused outright.
 //
-// A read asks the host what the path is first (remote.stat), because the host server opens a path
-// before it checks what it is, and a named pipe would block it. Like a local file, a link, a
-// folder, a pipe, a socket or a device does not open as text. A save keeps the promise of the
-// local guarded write that a file someone else changed is never overwritten: it reads the file
-// again, compares its bytes with the ones the editor last read or wrote, and replaces it only
-// while the file still has the version that read returned. A file that no longer exists is a
-// conflict, and saving one the user chose to recreate writes only while it is still missing.
-// The host replaces a file through a temporary sibling, which leaves its other hard links with
-// the old bytes.
+// A read asks the host what the path is first (remote.stat) to reject links and special files
+// in the editor. The server also opens nonblocking and checks the opened file's type, so a
+// replacement with a named pipe cannot block the read. A save reads the file again, compares
+// its bytes with the ones the editor last read or wrote, and sends that read's precise revision.
+// The host checks the revision before and after staging, and serializes cooperating saves.
+// An external writer that ignores the lock still has a final check-to-rename race. A missing
+// file is a conflict; recreating it uses atomic no-replace publication. The workspace root is
+// sent with every editor write so the host refuses descendant links. Temporary sibling saves
+// leave the old bytes in other hard links.
 //
 // Core decodes, encodes, recovers and names the language of a file without reading it: those
 // are payload-only commands, which the Core client sends without the workspace's binding, so
@@ -249,7 +249,7 @@ func (r *remoteDocuments) readHost(ctx context.Context, session, host string, li
 func (r *remoteDocuments) write(ctx context.Context, session, host string, data []byte, expected *core.RemoteFileVersion) error {
 	ctx, cancel := context.WithTimeout(ctx, remoteDocumentTimeout)
 	defer cancel()
-	_, saved, err := r.kernel.RemoteWriteFile(ctx, session, host, data, expected)
+	_, saved, err := r.kernel.RemoteWriteFile(ctx, session, host, data, expected, r.binding.RemoteRoot())
 	if err != nil {
 		if failure := r.failed(session, err); !errors.Is(failure, errTooLarge) {
 			return failure

@@ -9,6 +9,7 @@ import (
 
 	"github.com/1lck/Lithe-IDEA/desktop/internal/core"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/i18n"
+	"github.com/1lck/Lithe-IDEA/desktop/internal/remoteconn"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/remoteplaceholder"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/remoteserver"
 )
@@ -83,6 +84,9 @@ type remoteProject struct {
 	host         remoteHost
 	// session is the session the binding is attached to, "" while there is none.
 	session string
+	// trustRevision invalidates asynchronous trust reads and grants when the window reloads
+	// settings or loses the session. It belongs to the window thread.
+	trustRevision uint64
 	// resume is what connecting again presents to attach to the same host session, nil when the
 	// host issued no token. It is a secret: it stays in memory and is never logged.
 	resume *core.RemoteResume
@@ -404,6 +408,8 @@ func (a *App) loseRemote(p *project, session string, err error) {
 	r.session, r.misses = "", 0
 	r.binding.Detach()
 	r.live.Store(nil)
+	r.trustRevision++
+	a.applyProjectTrust(p, false)
 	r.stopRemoteTimer()
 	a.releaseRemoteSession(session)
 	a.startRemoteReconnection(p)
@@ -463,10 +469,18 @@ func (a *App) reconnectRemote(p *project, userStarted bool) {
 	ctx = a.remoteAuthentication(ctx, answers, userStarted)
 	attempt := &remoteProbe{cancel: cancel}
 	r.reconnecting = attempt
-	kernel, root, host, resume := a.kernel, a.globalToolchainRoot(), r.host, r.resume
+	kernel, root, host, resume, trustRevision := a.kernel, a.globalToolchainRoot(), r.host, r.resume, r.trustRevision
 	a.background(nil, 0, func(context.Context) func(*App) {
 		defer cancel()
 		result, err := a.connectRemoteHost(ctx, kernel, root, host, resume)
+		trusted := false
+		var trustErr error
+		if err == nil && result.Status == core.RemoteProbeConnected && result.Session != nil {
+			trustCtx, trustCancel := context.WithTimeout(ctx, workspaceTrustTimeout)
+			trust, readErr := remoteconn.ReadTrust(trustCtx, kernel, root, result.Session.ID, r.binding.RemoteRoot())
+			trustCancel()
+			trusted, trustErr = remoteTrusted(trust.State), readErr
+		}
 		settled := answers.settle(result.Status, err)
 		return func(a *App) {
 			a.remoteAnswersSettled(settled, userStarted)
@@ -479,9 +493,17 @@ func (a *App) reconnectRemote(p *project, userStarted bool) {
 			}
 			r.reconnecting = nil
 			if err == nil && result.Status == core.RemoteProbeConnected && result.Session != nil {
+				if trustErr != nil {
+					a.backgroundFailed("remote_trust_read", documentLogError(trustErr))
+				}
+				// No code-bearing work starts until trust has been resolved on this session.
+				p.trust.codeAllowed.Store(trusted && trustErr == nil && r.trustRevision == trustRevision)
 				// The programs a resumed session still runs are the workspace's own, which closing
 				// it lists; nothing asks about them now.
 				a.attachRemote(p, *result.Session)
+				if r.trustRevision != trustRevision {
+					a.reloadRemoteTrust(p)
+				}
 				a.refreshRemoteTree(p)
 				a.recheckRemoteDocuments(p)
 				return
