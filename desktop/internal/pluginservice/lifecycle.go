@@ -27,7 +27,10 @@ func (s *Service) Uninstall(ctx context.Context, id string, server *LanguageSess
 		return err
 	}
 	_, err := s.Manager.Apply(ctx, core.PluginUninstall, id, func() error { return s.stopWithNativePrograms(ctx, id, server, stopNative) })
-	return err
+	if err != nil {
+		return err
+	}
+	return s.Installer.DiscardPending(s.Root, id)
 }
 
 // Disable records that the user turned plugin id off and stops what it runs,

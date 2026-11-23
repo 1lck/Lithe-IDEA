@@ -99,7 +99,7 @@ func TestSavePinPreservesIgnoreTextAndOvercomesLaterNegation(t *testing.T) {
 	if _, _, err := SavePin(ctx, core.NewClient(), root, ".", "dev.example:compiler", &core.ToolchainPin{Home: "/fixture/tool", Version: "1.0", Provider: "host:system"}, nil); err != nil {
 		t.Fatal(err)
 	}
-	if got := string(readExactly(t, ignore)); got != before+"\r\n/toolchains/local.json\r\n" {
+	if got := string(readExactly(t, ignore)); got != before+"\r\n/.gitignore\r\n/toolchains/local.json\r\n" {
 		t.Fatalf("ignore source = %q", got)
 	}
 	if runtime.GOOS != "windows" {

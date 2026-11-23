@@ -84,7 +84,18 @@ func (a *App) installPlugin(plugin core.MarketplacePlugin, feedback settingswind
 	downloads := a.pluginDownloads
 	a.performed("plugin.install.marketplace", surfaceButton)
 	a.preparePluginInstall(feedback, func(ctx context.Context) (plugininstall.Plan, error) {
-		archive, err := downloads.Download(ctx, availability, feedback.Progress)
+		downloader := marketplace.NewArchiveDownloader(nil)
+		var previous plugintrust.Record
+		if plugin.MarketplaceDeltasURL != "" {
+			var err error
+			previous, err = a.installedMarketplaceApproval(ctx, plugin.ID)
+			if err != nil && ctx.Err() == nil {
+				a.backgroundFailedIn(ctx, "plugin_delta_base", err)
+			}
+		}
+		archive, err := a.downloadMarketplacePlugin(ctx, downloader, plugin, previous, func() (*marketplace.DownloadedArchive, error) {
+			return downloads.Download(ctx, availability, feedback.Progress)
+		}, feedback.Progress)
 		if err != nil {
 			return plugininstall.Plan{}, err
 		}

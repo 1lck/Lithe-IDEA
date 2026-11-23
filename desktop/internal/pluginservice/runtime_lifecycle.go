@@ -18,9 +18,10 @@ type runtimePreparationKey struct{ root, plugin string }
 // each Service owns its persistent admission choices.
 var runtimePreparationCoordinator = struct {
 	sync.Mutex
-	active map[runtimePreparationKey]map[*runtimePreparation]struct{}
-	stops  map[runtimePreparationKey]int
-}{active: make(map[runtimePreparationKey]map[*runtimePreparation]struct{}), stops: make(map[runtimePreparationKey]int)}
+	active     map[runtimePreparationKey]map[*runtimePreparation]struct{}
+	stops      map[runtimePreparationKey]int
+	installing map[runtimePreparationKey]bool
+}{active: make(map[runtimePreparationKey]map[*runtimePreparation]struct{}), stops: make(map[runtimePreparationKey]int), installing: make(map[runtimePreparationKey]bool)}
 
 type runtimePreparation struct {
 	service      *Service
@@ -128,11 +129,21 @@ func (s *Service) BeginRuntimeInstallation(ctx context.Context, id string) (cont
 	if err := ctx.Err(); err != nil {
 		return nil, nil, err
 	}
+	key := s.preparationKey(id)
+	if runtimePreparationCoordinator.installing[key] {
+		return nil, nil, ErrRuntimeBusy
+	}
 	if err := s.allowRuntimePreparationLocked(id); err != nil {
 		return nil, nil, err
 	}
-	ctx, preparation := s.newRuntimePreparationLocked(ctx, s.preparationKey(id))
-	return ctx, func() { preparation.finish(nil) }, nil
+	runtimePreparationCoordinator.installing[key] = true
+	ctx, preparation := s.newRuntimePreparationLocked(ctx, key)
+	return ctx, func() {
+		runtimePreparationCoordinator.Lock()
+		delete(runtimePreparationCoordinator.installing, key)
+		runtimePreparationCoordinator.Unlock()
+		preparation.finish(nil)
+	}, nil
 }
 
 func (s *Service) stopRuntimePreparations(ctx context.Context, id string) error {
