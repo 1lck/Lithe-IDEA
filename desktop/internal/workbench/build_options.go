@@ -427,11 +427,11 @@ func (a *App) buildOptionsDialog(c ui.C, p *project) {
 				ui.Row(k).FillWidth().Items(ui.Center).Gap(6).MarginTop(6).Children(func() {
 					a.buildOptionsHeading(k, e.name)
 					if e.root != "" {
-						ui.Text(k, e.root).FontSize(a.theme.Metrics.FontSizeS).Color(a.colors.Subtle).Ellipsis().Shrink(1).MinWidth(0)
+						ui.Text(c, e.root).FontSize(a.theme.Metrics.FontSizeS).Color(a.colors.Subtle).Ellipsis().Shrink(1).MinWidth(0)
 					}
 				})
 				if len(e.fields) == 0 && !e.loading {
-					ui.Wrap(k, i18n.Shared(language, "desktop.build.noOptions")).FontSize(a.theme.Metrics.FontSizeS).Color(a.colors.Subtle)
+					ui.Wrap(c, i18n.Shared(language, "desktop.build.noOptions")).FontSize(a.theme.Metrics.FontSizeS).Color(a.colors.Subtle)
 				}
 				for index := range e.fields {
 					a.drawRunOptionField(k.KeyInt(index), language, &e.fields[index], ready)

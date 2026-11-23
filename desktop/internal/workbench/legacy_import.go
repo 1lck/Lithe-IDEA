@@ -251,7 +251,7 @@ func (a *App) legacyImportView(c ui.C) {
 				ui.Row(k).FillWidth().Items(ui.Center).Gap(8).Children(func() {
 					ui.Switch(k.Part("chosen"), &entry.chosen, label).Grow(1).Shrink(1).MinWidth(0)
 					if value != "" {
-						ui.Text(k, value).FontSize(a.theme.Metrics.FontSizeS).Color(a.colors.Subtle).Ellipsis().Shrink(1).MinWidth(0)
+						ui.Text(c, value).FontSize(a.theme.Metrics.FontSizeS).Color(a.colors.Subtle).Ellipsis().Shrink(1).MinWidth(0)
 					}
 				})
 			}

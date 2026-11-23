@@ -288,7 +288,7 @@ func (a *App) notificationBell(c ui.C) {
 		if unread > 0 {
 			color = a.colors.Text
 		}
-		ui.Icon(k, icons.Bell).Size(chromeMarkSize, chromeMarkSize).Color(color)
+		ui.Icon(c, icons.Bell).Size(chromeMarkSize, chromeMarkSize).Color(color)
 		if unread > 0 {
 			a.chromeStatusLabel(k, strconv.Itoa(unread))
 		}
@@ -345,17 +345,17 @@ func (a *App) notificationRow(c ui.C, row ui.Box, entry *notification) {
 func (a *App) notificationEntry(k ui.C, entry *notification) {
 	language := a.language()
 	if entry.detail != "" {
-		ui.Wrap(k, entry.text).FontSize(a.theme.Metrics.FontSizeS).Weight(gfx.WeightMedium)
-		ui.Wrap(k.Part("detail"), entry.detail).FontSize(a.theme.Metrics.FontSizeS).Color(a.colors.Subtle)
+		ui.Wrap(c, entry.text).FontSize(a.theme.Metrics.FontSizeS).Weight(gfx.WeightMedium)
+		ui.Wrap(c, entry.detail).FontSize(a.theme.Metrics.FontSizeS).Color(a.colors.Subtle)
 	} else {
-		ui.Wrap(k, entry.text).FontSize(a.theme.Metrics.FontSizeS)
+		ui.Wrap(c, entry.text).FontSize(a.theme.Metrics.FontSizeS)
 	}
 	meta := entry.at.Format("15:04:05")
 	if entry.count > 1 {
 		meta = i18n.SharedFormat(language, "desktop.notifications.meta", map[string]string{"time": meta, "count": strconv.Itoa(entry.count)})
 	}
 	ui.Row(k).FillWidth().Items(ui.Center).Gap(8).Children(func() {
-		ui.Text(k, meta).FontSize(a.theme.Metrics.FontSizeS).Color(a.colors.Subtle).Grow(1).Ellipsis()
+		ui.Text(c, meta).FontSize(a.theme.Metrics.FontSizeS).Color(a.colors.Subtle).Grow(1).Ellipsis()
 		if entry.act != nil && ui.Button(k.Part("act"), entry.actLabel).Ghost().Small().Shrink(0).Clicked() {
 			act := entry.act
 			k.After(func() { a.notificationAct(act) })
