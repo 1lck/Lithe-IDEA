@@ -216,12 +216,19 @@ func (a *App) newProjectSidebar(c ui.C, language i18n.Language, background, divi
 			}
 		})
 		ui.Row(c).FillWidth().Height(1).Shrink(0).Background(divider)
-		ui.Row(c).FillWidth().Height(40).Shrink(0).Items(ui.Center).PadX(14).Children(func() {
-			label := i18n.Shared(language, "native.getMoreLanguagesAndFrameworksFromPlugins")
-			if ui.Button(c, label).Ghost().FontSize(12).Color(a.colors.Accent).Clicked() {
-				a.openPluginSettings(surfaceButton)
-			}
+		// A plain button measures its full English label beyond the 240px sidebar.
+		// Keep the complete localized label in a wrapping, keyboard-accessible link.
+		label := i18n.Shared(language, "native.getMoreLanguagesAndFrameworksFromPlugins")
+		k := c.Part("more-plugins")
+		link := ui.Row(k).FillWidth().Height(40).Shrink(0).Items(ui.Center).PadX(14).
+			HitWith(ui.ID(k), label, gfx.HitOptions{Role: gfx.RoleButton, Cursor: gfx.PointerCursorHand}).
+			Tooltip(label)
+		link.Children(func() {
+			ui.Paragraph(c, label, 2).FontSize(12).Color(a.colors.Accent).Grow(1).Shrink(1)
 		})
+		if link.Clicked() {
+			a.openPluginSettings(surfaceButton)
+		}
 	})
 }
 
