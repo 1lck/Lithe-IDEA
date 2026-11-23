@@ -350,7 +350,12 @@ PINNED_CORE_REPOSITORY="https://github.com/Lithe-IDEA/Lithe-core-rust.git"
 # #173 plugins.marketplace.resolveSource reports the repository and branch an index follows and
 # pins its address to a commit past raw.githubusercontent.com's branch cache, and the GitHub
 # requests gain latestCommit and listReleases for that pin and the installed plugins' changelog.
-PINNED_CORE_REVISION="44307192d7a45cbd586c0dffc29ff1bbeb3fd7d5"
+# Lithe-core-rust main at dcb3d77: #174 lets a settings region's tool row carry choose and
+# become the tool's picker, and the contract says a view call carries the window's workspace
+# context; #174 merged with that field under a new ui 1, and #175 makes choose an optional field
+# within ui 0 again. The sources are the same as the branch commit a50cea1 that the desktop
+# pinned before; only the protocol changelog differs.
+PINNED_CORE_REVISION="dcb3d77f7a56e58f3d7c0aceea5b7df6986ed2e2"
 PROFILE="debug"
 CHECKOUT_ONLY="no"
 while [[ $# -gt 0 ]]; do

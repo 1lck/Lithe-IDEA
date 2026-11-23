@@ -2,10 +2,13 @@ package settingswindow
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
+	"os"
 	"strings"
 	"testing"
 
+	"github.com/1lck/Lithe-IDEA/desktop/internal/contractfixture"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/core"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/i18n"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/marketplace"
@@ -359,6 +362,53 @@ func (d *windowDriver) versionsLabelsKeepTheirWidth(language i18n.Language) {
 				}
 				break
 			}
+		}
+	}
+}
+
+// contractPermissions is every permission the linked plugin contract's manifest schema defines.
+func contractPermissions(t *testing.T) []string {
+	t.Helper()
+	data, err := os.ReadFile(contractfixture.Path("plugin-manifest.schema.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var schema struct {
+		Properties struct {
+			Permissions struct {
+				Items struct {
+					Enum []string `json:"enum"`
+				} `json:"items"`
+			} `json:"permissions"`
+		} `json:"properties"`
+	}
+	if err := json.Unmarshal(data, &schema); err != nil {
+		t.Fatal(err)
+	}
+	if len(schema.Properties.Permissions.Items.Enum) == 0 {
+		t.Fatal("the contract's manifest schema lists no permissions")
+	}
+	return schema.Properties.Permissions.Items.Enum
+}
+
+// TestEveryContractPermissionHasADescription reads the permissions the linked plugin contract
+// defines, so a permission Core adds cannot reach the install review or the Permissions &
+// Programs tab as a bare name, and two permissions cannot share one description by a copied
+// key.
+func TestEveryContractPermissionHasADescription(t *testing.T) {
+	permissions := contractPermissions(t)
+	for _, language := range i18n.Languages {
+		described := map[string]string{}
+		for _, permission := range permissions {
+			description := permissionDescription(language, permission)
+			if description == "" {
+				t.Errorf("%s: %s has no description", language.Code(), permission)
+				continue
+			}
+			if other, ok := described[description]; ok {
+				t.Errorf("%s: %s and %s share the description %q", language.Code(), other, permission, description)
+			}
+			described[description] = permission
 		}
 	}
 }

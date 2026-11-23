@@ -42,6 +42,13 @@
       "platforms": [
         "desktop"
       ]
+    },
+    {
+      "id": "desktop.pluginView.toolPickerToolchains",
+      "description": "Plugin settings region: link at the end of a tool picker (a tool row with choose), which opens the tool on the Toolchains settings page",
+      "platforms": [
+        "desktop"
+      ]
     }
   ],
   "locales": {
@@ -51,7 +58,8 @@
       "desktop.pluginView.invalid": "The plugin returned a view Lithe cannot show.",
       "desktop.pluginView.zoom": "Canvas zoom",
       "desktop.pluginView.resetZoom": "Reset zoom to 100%",
-      "desktop.pluginView.resetZoomHint": "Reset zoom"
+      "desktop.pluginView.resetZoomHint": "Reset zoom",
+      "desktop.pluginView.toolPickerToolchains": "Manage in Toolchains…"
     },
     "zh-CN": {
       "desktop.pluginView.failed": "插件无法更新此视图。",
@@ -59,7 +67,8 @@
       "desktop.pluginView.invalid": "插件返回的视图无法显示。",
       "desktop.pluginView.zoom": "画布缩放",
       "desktop.pluginView.resetZoom": "缩放重置为 100%",
-      "desktop.pluginView.resetZoomHint": "重置缩放"
+      "desktop.pluginView.resetZoomHint": "重置缩放",
+      "desktop.pluginView.toolPickerToolchains": "在“工具链”中管理…"
     }
   }
 }
