@@ -57,7 +57,7 @@ func (a *App) remoteBrowserView(c ui.C, b *remoteBrowser) {
 			a.remoteFolderList(k.Part("folders"), b)
 		})
 		if text := remoteSkippedText(language, b.skipped); text != "" {
-			ui.Paragraph(k.Part("skipped"), text, 2).FontSize(a.theme.Metrics.FontSizeS).Color(a.colors.Subtle)
+			ui.Paragraph(k, text, 2).FontSize(a.theme.Metrics.FontSizeS).Color(a.colors.Subtle)
 		}
 	})
 }

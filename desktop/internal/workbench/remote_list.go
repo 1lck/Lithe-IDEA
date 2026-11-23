@@ -423,20 +423,20 @@ func (a *App) remoteHops(c ui.C, language i18n.Language, disabled bool) {
 			return
 		}
 		ui.Row(c.Part("route")).FillWidth().Gap(6).Items(ui.Center).Children(func() {
-			step := func(k ui.C, text string, color gfx.Color) {
-				ui.Icon(k, icons.ChevronRight).Size(12, 12).Shrink(0).Color(a.colors.Subtle)
-				ui.Text(k, text).Mono().FontSize(small).Color(color).Ellipsis().Shrink(1).MinWidth(0)
+			step := func(text string, color gfx.Color) {
+				ui.Icon(c, icons.ChevronRight).Size(12, 12).Shrink(0).Color(a.colors.Subtle)
+				ui.Text(c, text).Mono().FontSize(small).Color(color).Ellipsis().Shrink(1).MinWidth(0)
 			}
 			ui.Text(c, i18n.Shared(language, "desktop.remote.thisComputer")).FontSize(small).Color(a.colors.Subtle).Shrink(0)
-			for index, hop := range hops {
-				step(c.KeyInt(index), hop, a.colors.Subtle)
+			for _, hop := range hops {
+				step(hop, a.colors.Subtle)
 			}
 			target := strings.TrimSpace(f.host.Text())
 			if user := strings.TrimSpace(f.user.Text()); user != "" && target != "" {
 				target = user + "@" + target
 			}
 			if target != "" {
-				step(c.Part("target"), target, a.colors.Accent)
+				step(target, a.colors.Accent)
 			}
 		})
 	})

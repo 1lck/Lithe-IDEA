@@ -88,7 +88,7 @@ func (a *App) drawRunConfigDialogTree(c ui.C, p *project) {
 			if clicked {
 				c.After(func() { d.toggleNewMenu(runConfigNewMenuToolbar) })
 			}
-			a.drawRunConfigNewMenu(k.Part("add-menu"), p, add, runConfigNewMenuToolbar)
+			a.drawRunConfigNewMenu(c, p, add, runConfigNewMenuToolbar)
 			if a.gitIconButton(k.Part("remove"), i18n.Shared(language, "desktop.runConfig.removeConfiguration"), icons.Minus, false, !p.runConfigDialogRemovable()) {
 				c.After(func() {
 					a.performed("run.configuration.remove", surfaceButton)
@@ -122,8 +122,8 @@ func (a *App) drawRunConfigDialogTree(c ui.C, p *project) {
 		if s.hidden > 0 {
 			ui.Row(k).FillWidth().Height(1).Shrink(0).Background(a.colors.Line)
 			ui.Row(k.Part("hidden")).FillWidth().Shrink(0).Items(ui.Center).Gap(6).Pad(8).Children(func() {
-				ui.Icon(k, icons.Info).Size(12, 12).Shrink(0).Color(a.colors.Subtle)
-				ui.Paragraph(k, hiddenRunConfigurations(language, s.hidden), 2).FontSize(a.theme.Metrics.FontSizeS).Color(a.colors.Subtle).Grow(1).MinWidth(0)
+				ui.Icon(c, icons.Info).Size(12, 12).Shrink(0).Color(a.colors.Subtle)
+				ui.Paragraph(c, hiddenRunConfigurations(language, s.hidden), 2).FontSize(a.theme.Metrics.FontSizeS).Color(a.colors.Subtle).Grow(1).MinWidth(0)
 			})
 		}
 	})
@@ -144,8 +144,11 @@ func (d *runConfigDialog) toggleNewMenu(at runConfigNewMenu) {
 // drawRunConfigNewMenu declares the menu of kinds under anchor while it shows at at.
 func (a *App) drawRunConfigNewMenu(c ui.C, p *project, anchor ui.Box, at runConfigNewMenu) {
 	d := &p.runConfigs.dialog
-	open := d.newMenu == at
-	ui.Menu(c, anchor, &open, func(menu *ui.MenuItems) {
+	if d.newMenu != at {
+		return
+	}
+	open := true
+	ui.Menu(c.Part("add-menu"), anchor, &open, func(menu *ui.MenuItems) {
 		menu.WidthRange(200, 300)
 		a.runConfigDialogTypeItems(c, menu, p)
 	})
@@ -378,24 +381,23 @@ func (a *App) drawRunConfigDialogRow(c ui.C, p *project, i int) {
 		return
 	}
 	row := d.rows[i]
-	k := c.KeyInt(i)
 	if row.key == "" {
 		icon := fileicons.ForDirectory("folder", a.colors.Dark)
 		if row.node.folder == "" {
 			icon = d.groups[row.group].icon
 		}
-		ui.Icon(k, icon).Size(treelist.Icon, treelist.Icon).Shrink(0).Color(a.colors.Subtle)
-		ui.Text(k, a.runConfigDialogRowLabel(p, row)).FontSize(treeFontSize).Color(a.colors.Text).Shrink(1).MinWidth(0).Ellipsis()
+		ui.Icon(c, icon).Size(treelist.Icon, treelist.Icon).Shrink(0).Color(a.colors.Subtle)
+		ui.Text(c, a.runConfigDialogRowLabel(p, row)).FontSize(treeFontSize).Color(a.colors.Text).Shrink(1).MinWidth(0).Ellipsis()
 		return
 	}
 	unavailable := a.runConfigDraftUnavailable(p, row.key)
-	ui.Row(k).Shrink(1).MinWidth(0).Items(ui.Center).Gap(c.Theme().Metrics.GapItem).PadLeft(treeChevron).Children(func() {
+	ui.Row(c.KeyInt(i)).Shrink(1).MinWidth(0).Items(ui.Center).Gap(c.Theme().Metrics.GapItem).PadLeft(treeChevron).Children(func() {
 		icon, color := a.runConfigDraftIcon(p, row.key), a.colors.Subtle
 		if unavailable != "" {
 			icon, color = icons.CircleAlert, a.colors.Warning
 		}
-		ui.Icon(k, icon).Size(treelist.Icon, treelist.Icon).Shrink(0).Color(color)
-		ui.Text(k, a.runConfigDraftLabel(p, row.key)).FontSize(treeFontSize).Color(a.colors.Text).Shrink(1).MinWidth(0).Ellipsis()
+		ui.Icon(c, icon).Size(treelist.Icon, treelist.Icon).Shrink(0).Color(color)
+		ui.Text(c, a.runConfigDraftLabel(p, row.key)).FontSize(treeFontSize).Color(a.colors.Text).Shrink(1).MinWidth(0).Ellipsis()
 	})
 }
 
@@ -421,7 +423,7 @@ func (a *App) drawRunConfigDialogEmptyTree(c ui.C, p *project) {
 			if link.Clicked() {
 				c.After(func() { d.toggleNewMenu(runConfigNewMenuTree) })
 			}
-			a.drawRunConfigNewMenu(c.Part("add-menu"), p, link, runConfigNewMenuTree)
+			a.drawRunConfigNewMenu(c, p, link, runConfigNewMenuTree)
 			modifiers, key := runConfigAddChord()
 			if chord, ok := keymap.Parse(modifiers, key); ok {
 				ui.Text(c, shortcuts.Keycaps(chord)).Color(a.colors.Subtle)
@@ -454,7 +456,7 @@ func (a *App) drawRunConfigDialogPane(c ui.C, p *project) {
 					a.drawRunConfigDraft(k, p, draft)
 				}
 				if d.failure != "" {
-					ui.Paragraph(k, d.failure, 4).FontSize(a.theme.Metrics.FontSizeS).Color(a.theme.Danger)
+					ui.Paragraph(c, d.failure, 4).FontSize(a.theme.Metrics.FontSizeS).Color(a.theme.Danger)
 				}
 			})
 		})
@@ -504,7 +506,7 @@ func (a *App) drawRunConfigFolderPane(c ui.C, p *project) {
 			c.After(func() { a.renameRunConfigFolder(p) })
 		}
 		if d.folderError != "" {
-			ui.Text(k, d.folderError).FontSize(a.theme.Metrics.FontSizeS).Color(a.theme.Danger)
+			ui.Text(c, d.folderError).FontSize(a.theme.Metrics.FontSizeS).Color(a.theme.Danger)
 		}
 	})
 	ui.Paragraph(c, i18n.Shared(language, "desktop.runConfig.folderHint"), 3).FontSize(a.theme.Metrics.FontSizeS).Color(a.colors.Subtle)
@@ -556,7 +558,7 @@ func (a *App) drawRunConfigDialogStart(c ui.C, p *project) {
 		if link.Clicked() {
 			c.After(func() { d.toggleNewMenu(runConfigNewMenuPane) })
 		}
-		a.drawRunConfigNewMenu(c.Part("add-menu"), p, link, runConfigNewMenuPane)
+		a.drawRunConfigNewMenu(c, p, link, runConfigNewMenuPane)
 		ui.Text(c, i18n.Shared(language, "desktop.runConfig.orSelectToEdit")).Color(a.colors.Subtle)
 		if d.failure != "" {
 			ui.Paragraph(c, d.failure, 4).TextCenter().FillWidth().FontSize(a.theme.Metrics.FontSizeS).Color(a.theme.Danger)
@@ -569,8 +571,8 @@ func (a *App) drawRunConfigDialogStart(c ui.C, p *project) {
 func (a *App) drawRunConfigDialogBanner(c ui.C, text string) {
 	k := c.Part("banner")
 	ui.Row(k).FillWidth().Items(ui.Start).Gap(8).Pad(8).Radius(a.theme.Metrics.RadiusItem()).Border(1, a.colors.Warning).Children(func() {
-		ui.Icon(k, icons.CircleAlert).Size(14, 14).Shrink(0).Color(a.colors.Warning)
-		ui.Paragraph(k, text, 4).FontSize(a.theme.Metrics.FontSizeS).Grow(1).MinWidth(0)
+		ui.Icon(c, icons.CircleAlert).Size(14, 14).Shrink(0).Color(a.colors.Warning)
+		ui.Paragraph(c, text, 4).FontSize(a.theme.Metrics.FontSizeS).Grow(1).MinWidth(0)
 	})
 }
 

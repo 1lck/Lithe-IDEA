@@ -22,7 +22,8 @@
       "desktop/internal/buildinfo/preview.go",
       "desktop/internal/workbench/welcome_view.go",
       "scripts/desktop/package-desktop.sh",
-      "scripts/ci/desktop-release/package-release.sh"
+      "scripts/ci/desktop-release/package-release.sh",
+      "desktop/internal/settingswindow/window_view.go"
     ]
   },
   "windows": {
@@ -44,11 +45,12 @@
       "desktop/internal/buildinfo/preview.go",
       "desktop/internal/workbench/welcome_view.go",
       "scripts/desktop/package-desktop.sh",
-      "scripts/ci/desktop-release/package-release.sh"
+      "scripts/ci/desktop-release/package-release.sh",
+      "desktop/internal/settingswindow/window_view.go"
     ]
   },
   "owner": "Settings",
   "releaseSource": "只有 Desktop Release 为 desktop-v<版本> 标签的提交打包时传 package-desktop.sh --stable（lithe_stable 构建标签），应用内显示不带“预览版”的版本号，package-release.sh 校验每个打包程序都带这个标签；desktop-AutoBuild、本地打包和 go run 都显示“<版本> 预览版”。",
-  "verification": "发布验收：在 macOS 和 Windows 的正式包中核对欢迎页、关于页和复制的版本信息均与对应桌面发布标签的版本号一致，且均无预览版标识；版本信息和复制内容里的 Go 运行时与 desktop/go.mod 的 toolchain 行一致；同版本的本地构建仍显示预览版。无头窗口测试覆盖：关于页排在 AI 之后、面包屑只有“关于”；预览版显示“0.7.0 预览版”；QQ 群、Issue、Rust Core 和 Viva 上游链接打开对应地址；复制成功与失败（失败时显示原因并上报）；版本信息与更新卡片“已是最新”在正式版和预览版下的文字；复制内容与平台、构建、运行时的读取（打包写入的提交与时间优先，含未记录提交和时间不可读）。macOS 生成了中英文、浅色和深色的无头截图（36-settings-about，以及滚到项目卡片的 36-settings-about-projects）。运行 scripts/desktop/desktop-go.sh test -race ./internal/settingswindow ./internal/workbench -run 'TestAbout|TestUpdateLineSays|TestWelcomeTitleAndVersion'。真实窗口、Windows 实机和正式版安装包上的标识尚未验收。",
+  "verification": "发布验收：在 macOS 和 Windows 的正式包中核对欢迎页、关于页和复制的版本信息均与对应桌面发布标签的版本号一致，且均无预览版标识；版本信息和复制内容里的 Go 运行时与 desktop/go.mod 的 toolchain 行一致；同版本的本地构建仍显示预览版。无头窗口测试覆盖：关于页排在 AI 之后、面包屑只有“关于”；预览版显示“0.7.0 预览版”；QQ 群、Issue、Rust Core 和 Viva 上游链接打开对应地址；复制成功与失败（失败时显示原因并上报）；版本信息与更新卡片“已是最新”在正式版和预览版下的文字；复制内容与平台、构建、运行时的读取（打包写入的提交与时间优先，含未记录提交和时间不可读）。macOS 生成了中英文、浅色和深色的无头截图（36-settings-about，以及滚到项目卡片的 36-settings-about-projects）。运行 scripts/desktop/desktop-go.sh test -race ./internal/settingswindow ./internal/workbench -run 'TestAbout|TestUpdateLineSays|TestWelcomeTitleAndVersion'。真实窗口、Windows 实机和正式版安装包上的标识尚未验收。 Viva 开发模式下用 TestAboutPageShowsThePreviewAndCopiesTheFacts 核对设置面包屑、关于页和复制动作。静态文字不接收控件身份。",
   "notes": "Viva 设置侧栏在 AI 之后增加一级页面“关于”：顶部是图标、名称、简介和复制按钮（复制版本、平台、构建与运行时，用于提交 Issue）；“版本信息”显示版本、平台、构建（提交与日期）和 Go 运行时；“更新”是完整的更新设置：自动检查更新、更新渠道、发布源（保存与恢复默认）和立即检查，不再重复当前版本与构建；“加入交流”有 QQ 群 163027877 与微信群（飞书页面）；“项目”有源码仓库、Issue、Rust Core（Lithe-IDEA/Lithe-core-rust）和 Viva 上游（vivaui/viva，图标是 Viva 标志，由 generate-desktop-icons.sh 从固定版本的 Viva 源码编译）。不显示 Core C ABI 版本。版本号来自 desktop/viva.toml；Go 运行时是 runtime.Version()，即构建所用的工具链，CI 的 setup-go 按 desktop/go.mod 的 toolchain 行安装；欢迎页、关于页和复制内容都按同一规则显示正式版或预览版。2026-11-18：外观与行为下的独立“更新”页删除，更新设置整体迁入关于页。"
 }

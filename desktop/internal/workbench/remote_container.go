@@ -244,7 +244,7 @@ func (a *App) remoteContainerPage(c ui.C, language i18n.Language) {
 					c.After(func() { a.connectRemote("") })
 				}
 			})
-			ui.Paragraph(c.Part("about"), i18n.SharedFormat(language, "desktop.remote.container.about", map[string]string{"engine": engine}), 5).FontSize(small).Color(a.colors.Subtle)
+			ui.Paragraph(c, i18n.SharedFormat(language, "desktop.remote.container.about", map[string]string{"engine": engine}), 5).FontSize(small).Color(a.colors.Subtle)
 			label := i18n.Shared(language, "desktop.remote.container.user")
 			a.remoteSection(c.Part("account"), label, i18n.Shared(language, "desktop.remote.container.userHelp"), nil, func() {
 				ui.TextField(c.Part("user"), &r.containers.user, label, i18n.Shared(language, "desktop.remote.container.userPlaceholder")).

@@ -371,7 +371,7 @@ func (w *window) installedChip(c ui.C, language i18n.Language, filter int) {
 		chip = chip.Stroke(1, w.pal.border).Hover(ui.Look{}.Background(w.pal.hover))
 	}
 	chip.Children(func() {
-		ui.Text(k, title).FontSize(11).Weight(weight).Color(w.pal.text)
+		ui.Text(c, title).FontSize(11).Weight(weight).Color(w.pal.text)
 	})
 	if chip.Clicked() {
 		s.filter = filter
@@ -398,8 +398,8 @@ func (w *window) installedSlashMenu(c ui.C, language i18n.Language) {
 				HitWith(ui.ID(k), title, gfx.HitOptions{Role: gfx.RoleMenuItem, Cursor: gfx.PointerCursorHand}).
 				Hover(ui.Look{}.Background(w.pal.hover))
 			option.Children(func() {
-				ui.Text(k, "/"+token).Mono().FontSize(12).Color(w.pal.text).Width(92).Shrink(0)
-				ui.Text(k, title).FontSize(11).Color(w.pal.muted).Ellipsis()
+				ui.Text(c, "/"+token).Mono().FontSize(12).Color(w.pal.text).Width(92).Shrink(0)
+				ui.Text(c, title).FontSize(11).Color(w.pal.muted).Ellipsis()
 			})
 			if option.Clicked() {
 				s.filter, s.query = filter, ""
@@ -450,7 +450,7 @@ func (w *window) installedList(c ui.C, language i18n.Language, facts []PluginFac
 				available := i18n.Shared(language, "native.updateAvailable.variant2")
 				ui.Row(k).Size(16, 16).Shrink(0).Radius(8).Background(w.pal.accent).Center().
 					HitWith(ui.ID(k), available, gfx.HitOptions{Role: gfx.RoleStatus}).Tooltip(available).Children(func() {
-					ui.Icon(k, icons.ArrowUp).Size(10, 10).Color(w.pal.white)
+					ui.Icon(c, icons.ArrowUp).Size(10, 10).Color(w.pal.white)
 				})
 			}
 			w.enabledMark(row.C, w.pluginState(fact.ID).Enabled)
@@ -685,13 +685,13 @@ func (w *window) installedTabs(c ui.C, language i18n.Language, fact PluginFacts)
 				HitWith(ui.ID(k), title, gfx.HitOptions{Role: gfx.RoleTab, Cursor: gfx.PointerCursorHand, Selected: chosen})
 			button.Children(func() {
 				ui.Row(k).Gap(5).Items(ui.Center).Children(func() {
-					text := ui.Text(k, title).FontSize(13).Color(w.pal.muted)
+					text := ui.Text(c, title).FontSize(13).Color(w.pal.muted)
 					if chosen {
 						text.Weight(gfx.WeightSemibold).Color(w.pal.text)
 					}
 					if counts[tab] > 0 {
 						ui.Row(k).PadX(5).PadY(1).Radius(100).Background(w.pal.selectionIdle).Children(func() {
-							ui.Text(k, strconv.Itoa(counts[tab])).FontSize(10).Weight(gfx.WeightMedium).Color(w.pal.muted)
+							ui.Text(c, strconv.Itoa(counts[tab])).FontSize(10).Weight(gfx.WeightMedium).Color(w.pal.muted)
 						})
 					}
 				})
@@ -842,9 +842,9 @@ func (w *window) configureInSettings(c ui.C, language i18n.Language, fact Plugin
 				if entry.page.Kind == "buildSystem" {
 					icon = icons.Play
 				}
-				ui.Icon(k, icon).Size(14, 14).Color(w.pal.muted).Shrink(0)
+				ui.Icon(c, icon).Size(14, 14).Color(w.pal.muted).Shrink(0)
 				if entry.subjects != "" {
-					ui.Text(k, entry.subjects).FontSize(12).Color(w.pal.muted).Shrink(1).MinWidth(0).Ellipsis()
+					ui.Text(c, entry.subjects).FontSize(12).Color(w.pal.muted).Shrink(1).MinWidth(0).Ellipsis()
 				}
 				if ui.Button(k, entry.page.Title).Link().Clicked() {
 					key, pluginID := entry.page.Key, fact.ID
@@ -923,24 +923,24 @@ func (w *window) installedFeatures(c ui.C, language i18n.Language, fact PluginFa
 		for index, capability := range fact.Capabilities {
 			k := c.KeyInt(index)
 			ui.Column(k).FillWidth().Gap(5).Pad(12).Radius(8).Background(w.pal.card).Stroke(1, w.pal.line).Children(func() {
-				ui.Text(k, capabilityKindTitle(language, capability.Kind)).FontSize(11).Weight(gfx.WeightMedium).Color(w.pal.muted)
+				ui.Text(c, capabilityKindTitle(language, capability.Kind)).FontSize(11).Weight(gfx.WeightMedium).Color(w.pal.muted)
 				title := capability.Title
 				if title == "" {
 					title = capability.ID
 				}
-				ui.Text(k, title).FontSize(13).Color(w.pal.text).Ellipsis()
+				ui.Text(c, title).FontSize(13).Color(w.pal.text).Ellipsis()
 				if detail := capabilityDetail(language, capability); detail != "" {
-					ui.Wrap(k, detail).FontSize(11).Color(w.pal.muted)
+					ui.Wrap(c, detail).FontSize(11).Color(w.pal.muted)
 				}
 				ui.Row(k).FillWidth().Gap(8).Items(ui.Center).Children(func() {
 					if entry, ok := missingFor(missing, capability); enabled && ok {
 						w.commandMissingStatus(k, language, fact, entry)
 					} else if enabled {
-						ui.Text(k, i18n.Shared(language, "native.available")).FontSize(11).Color(w.pal.success)
+						ui.Text(c, i18n.Shared(language, "native.available")).FontSize(11).Color(w.pal.success)
 					} else {
-						ui.Text(k, i18n.Shared(language, "native.pluginDisabled")).FontSize(11).Color(w.pal.muted)
+						ui.Text(c, i18n.Shared(language, "native.pluginDisabled")).FontSize(11).Color(w.pal.muted)
 					}
-					ui.Spacer(k)
+					ui.Spacer(c)
 					if key := capabilityPage(capability); enabled && key != "" && w.dynamic.selected(key) != nil {
 						if ui.Button(k, i18n.Shared(language, "native.configure")+" →").Link().XSmall().Clicked() {
 							pluginID := fact.ID
@@ -1087,13 +1087,13 @@ func (w *window) installedPermissions(c ui.C, language i18n.Language, fact Plugi
 			k := c.KeyInt(index)
 			ui.Row(k).FillWidth().PadY(3).Gap(8).Items(ui.Start).Children(func() {
 				ui.Row(k).Height(installedPermissionLine).Shrink(0).Items(ui.Center).Children(func() {
-					ui.Icon(k, icons.ShieldCheck).Size(14, 14).Color(w.pal.accent)
+					ui.Icon(c, icons.ShieldCheck).Size(14, 14).Color(w.pal.accent)
 				})
 				ui.Row(k).Grow(1).Shrink(1).MinWidth(0).Gap(8).Items(ui.Baseline).Children(func() {
 					if description := permissionDescription(language, permission); description != "" {
-						ui.Wrap(k, description).FontSize(12).LineHeight(installedPermissionLine).Color(w.pal.text).Shrink(1).MinWidth(0)
+						ui.Wrap(c, description).FontSize(12).LineHeight(installedPermissionLine).Color(w.pal.text).Shrink(1).MinWidth(0)
 					}
-					ui.Text(k, permission).Mono().FontSize(11).Color(w.pal.subtle).Shrink(0)
+					ui.Text(c, permission).Mono().FontSize(11).Color(w.pal.subtle).Shrink(0)
 				})
 			})
 		}

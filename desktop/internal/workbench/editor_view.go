@@ -165,7 +165,7 @@ func (a *App) softWrapSwitch(c ui.C) {
 		button = button.Hover(ui.Look{}.Background(a.colors.Hover))
 	}
 	button.Children(func() {
-		ui.Icon(k, icons.WrapText).Size(shellIconSize, shellIconSize).Color(icon).
+		ui.Icon(c, icons.WrapText).Size(shellIconSize, shellIconSize).Color(icon).
 			StateFrom(button).Hover(ui.Look{}.Color(a.colors.Text))
 	})
 	if button.Clicked() {
@@ -191,13 +191,15 @@ func (a *App) documentView(c ui.C, group string, d *document) {
 	}
 	if p := a.project; p != nil && !d.virtual {
 		items, shown := a.editorMenuItems(c, p, d), false
-		ui.ContextMenu(c.Key("menu"+name), box, func(menu *ui.MenuItems) {
+		ui.ContextMenu(c, box, func(menu *ui.MenuItems) {
 			shown = true
 			items(menu)
 		})
 		a.referenceMenuPainted(d, shown)
-		at := d.actionPanel.menuAt
-		ui.ContextMenuAt(c.Key("lanemenu"+name), box, &d.actionPanel.menuOpen, gfx.Point{X: at.X, Y: at.Y + at.Height}, a.editorActionLaneMenu(c, p, d))
+		if d.actionPanel.menuOpen {
+			at := d.actionPanel.menuAt
+			ui.ContextMenuAt(c.Key("lanemenu"+name), box, &d.actionPanel.menuOpen, gfx.Point{X: at.X, Y: at.Y + at.Height}, a.editorActionLaneMenu(c, p, d))
+		}
 		a.gitGutterPeek(c, p, d, box)
 	}
 }
@@ -335,7 +337,7 @@ func (a *App) terminalView(c ui.C, t *terminal) {
 			box := ui.Control(c.Part(name), a.text.Terminal.Label, &t.input).Fill().Draw(t.draw)
 			box.DropTarget(&a.dnd.tree, a.terminalTreeAccept, a.terminalTreeDrop)
 			ui.FocusBind(box, &a.focus, focusTarget{term: t.id})
-			a.terminalMenu(c, name, box, t)
+			a.terminalMenu(c, box, t)
 		})
 		return
 	}
@@ -343,7 +345,7 @@ func (a *App) terminalView(c ui.C, t *terminal) {
 	// A project tree row dropped on the terminal pastes its path (terminal_drop.go).
 	box.DropTarget(&a.dnd.tree, a.terminalTreeAccept, a.terminalTreeDrop)
 	ui.FocusBind(box, &a.focus, focusTarget{term: t.id})
-	a.terminalMenu(c, name, box, t)
+	a.terminalMenu(c, box, t)
 }
 
 // terminalInput makes the handlers and the painter of terminal t, once, when it is opened.

@@ -27,7 +27,7 @@ func (a *App) remotePortRules(c ui.C, p *project, rules []core.RemoteForward, id
 	language := a.language()
 	k := c.Part("rules")
 	ui.Row(k.Part("heading")).FillWidth().Height(remotePortsRowHeight).Shrink(0).Items(ui.Center).Gap(4).PadX(shellContentPad).Children(func() {
-		ui.Text(k.Part("heading-text"), i18n.Shared(language, "desktop.remote.ports.rulesHeading")).Color(a.colors.Text).Ellipsis()
+		ui.Text(k, i18n.Shared(language, "desktop.remote.ports.rulesHeading")).Color(a.colors.Text).Ellipsis()
 		ui.Button(k.Part("help"), i18n.Shared(language, "native.moreInformation")).Icon(icons.Info).IconOnly().Ghost().Size(16, 16).
 			Tooltip(i18n.Shared(language, "desktop.remote.ports.rulesHelp"))
 	})
@@ -40,7 +40,7 @@ func (a *App) remotePortRules(c ui.C, p *project, rules []core.RemoteForward, id
 				cell = cell.Grow(1).Shrink(1).MinWidth(0)
 			}
 			cell.Children(func() {
-				ui.Text(k.Part(key+"-text"), text).FontSize(a.theme.Metrics.FontSizeS).Color(a.colors.Subtle).Ellipsis()
+				ui.Text(k, text).FontSize(a.theme.Metrics.FontSizeS).Color(a.colors.Subtle).Ellipsis()
 			})
 		}
 		column("listen", i18n.Shared(language, "desktop.remote.ports.ruleColumnListen"), remotePortRulesListenWidth)
@@ -102,16 +102,16 @@ func (a *App) remotePortIdleRuleRow(c ui.C, p *project, rule core.RemotePortRule
 		HitWith(ui.ID(c), listen, gfx.HitOptions{Value: status, SkipFocus: true})
 	line.Children(func() {
 		ui.Row(c.Part("listen")).Width(remotePortRulesListenWidth).Shrink(0).Items(ui.Center).Gap(6).Children(func() {
-			ui.Icon(c.Part("kind"), icon).Size(14, 14).Shrink(0).Color(a.colors.Subtle)
-			ui.Text(c.Part("listen-text"), listen).Color(a.colors.Subtle).Ellipsis()
+			ui.Icon(c, icon).Size(14, 14).Shrink(0).Color(a.colors.Subtle)
+			ui.Text(c, listen).Color(a.colors.Subtle).Ellipsis()
 		})
 		a.remotePortsLabelCell(c, rule.Label)
 		ui.Row(c.Part("target")).Grow(1).Shrink(1).MinWidth(0).Items(ui.Center).Children(func() {
-			ui.Text(c.Part("target-text"), remotePortIdleTarget(language, rule)).Color(a.colors.Subtle).Ellipsis()
+			ui.Text(c, remotePortIdleTarget(language, rule)).Color(a.colors.Subtle).Ellipsis()
 		})
 		ui.Row(c.Part("connections")).Width(remotePortRulesConnectionsWidth).Shrink(0)
 		ui.Row(c.Part("status")).Width(remotePortsStatusWidth).Shrink(0).Items(ui.Center).Children(func() {
-			ui.Text(c.Part("status-text"), status).Color(a.colors.Subtle).Ellipsis()
+			ui.Text(c, status).Color(a.colors.Subtle).Ellipsis()
 		})
 		ui.Row(c.Part("actions")).Width(remotePortsActionWidth).Shrink(0).Items(ui.Center).Justify(ui.End).Gap(2).Children(func() {
 			if _, clicked := a.toolIconButton(c.Part("start"), i18n.Shared(language, "desktop.remote.ports.ruleStart"), icons.Play, false, unavailable); clicked {
@@ -122,7 +122,7 @@ func (a *App) remotePortIdleRuleRow(c ui.C, p *project, rule core.RemotePortRule
 			}
 		})
 	})
-	ui.ContextMenu(c.Part("menu"), line, func(menu *ui.MenuItems) {
+	ui.ContextMenu(c, line, func(menu *ui.MenuItems) {
 		menu.WidthRange(180, 280)
 		if menu.Item(i18n.Shared(language, "desktop.remote.ports.ruleStart")).Icon(icons.Play).Disabled(unavailable).Clicked() {
 			c.After(func() { a.startRememberedRule(p, rule, surfaceContextMenu) })
@@ -184,18 +184,18 @@ func (a *App) remotePortRuleRow(c ui.C, p *project, rule core.RemoteForward) {
 				Tooltip(tip)
 		}
 		listenCell.Children(func() {
-			ui.Icon(c.Part("kind"), icon).Size(14, 14).Shrink(0).Color(color)
-			ui.Text(c.Part("listen-text"), listen).Color(color).Ellipsis()
+			ui.Icon(c, icon).Size(14, 14).Shrink(0).Color(color)
+			ui.Text(c, listen).Color(color).Ellipsis()
 		})
 		a.remotePortsLabelCell(c, ports.ruleLabel(rule))
 		ui.Row(c.Part("target")).Grow(1).Shrink(1).MinWidth(0).Items(ui.Center).Children(func() {
-			ui.Text(c.Part("target-text"), remotePortRuleTarget(language, rule)).Color(a.colors.Text).Ellipsis()
+			ui.Text(c, remotePortRuleTarget(language, rule)).Color(a.colors.Text).Ellipsis()
 		})
 		ui.Row(c.Part("connections")).Width(remotePortRulesConnectionsWidth).Shrink(0).Items(ui.Center).Children(func() {
-			ui.Text(c.Part("connections-text"), connections).Color(connectionsColor).Ellipsis()
+			ui.Text(c, connections).Color(connectionsColor).Ellipsis()
 		})
 		ui.Row(c.Part("status")).Width(remotePortsStatusWidth).Shrink(0).Items(ui.Center).Children(func() {
-			ui.Text(c.Part("status-text"), status).Color(statusColor).Ellipsis()
+			ui.Text(c, status).Color(statusColor).Ellipsis()
 		})
 		ui.Row(c.Part("actions")).Width(remotePortsActionWidth).Shrink(0).Items(ui.Center).Justify(ui.End).Gap(2).Children(func() {
 			if _, clicked := a.toolIconButton(c.Part("stop"), i18n.Shared(language, "desktop.remote.ports.stop"), icons.Square, false, busy); clicked {
@@ -203,7 +203,7 @@ func (a *App) remotePortRuleRow(c ui.C, p *project, rule core.RemoteForward) {
 			}
 		})
 	})
-	ui.ContextMenu(c.Part("menu"), line, func(menu *ui.MenuItems) {
+	ui.ContextMenu(c, line, func(menu *ui.MenuItems) {
 		menu.WidthRange(180, 280)
 		record := remotePortRuleOf(rule)
 		if menu.Item(i18n.Shared(language, "desktop.remote.ports.editLabel")).Icon(icons.Tag).Clicked() {
@@ -243,7 +243,7 @@ func (a *App) remotePortRuleDialog(c ui.C, p *project) {
 	unavailable := p.remote.session == "" || draft.starting
 	closed := ui.Modal(c.Part("ports-rule"), &ports.ruleOpen, title, func() {
 		if draft.confirm != remotePortRuleNoConfirm {
-			ui.Paragraph(c.Part("rule-question"), a.remotePortRuleQuestion(p, draft), 6).Color(a.colors.Warning)
+			ui.Paragraph(c, a.remotePortRuleQuestion(p, draft), 6).Color(a.colors.Warning)
 			return
 		}
 		a.remotePortRuleFields(c, p, draft, unavailable)
@@ -289,13 +289,13 @@ func (a *App) remotePortRuleFields(c ui.C, p *project, draft *remotePortRuleDraf
 		return i18n.Shared(language, "desktop.remote.ports.ruleKindHost")
 	}
 	kindTitle := i18n.Shared(language, "desktop.remote.ports.ruleKind")
-	ui.Text(c.Part("rule-kind-title"), kindTitle).FontSize(a.theme.Metrics.FontSizeS).Color(a.colors.Subtle)
+	ui.Text(c, kindTitle).FontSize(a.theme.Metrics.FontSizeS).Color(a.colors.Subtle)
 	if ui.Select(c.Part("rule-kind"), &draft.kind, kinds, kindLabel).FillWidth().Label(kindTitle).Disabled(unavailable).Changed() {
 		draft.message = ""
 		draft.target.SetText("")
 	}
 	if !draft.reverseAllowed {
-		ui.Paragraph(c.Part("rule-reverse-off"), i18n.Shared(language, "desktop.remote.ports.ruleReverseOff"), 3).
+		ui.Paragraph(c, i18n.Shared(language, "desktop.remote.ports.ruleReverseOff"), 3).
 			FontSize(a.theme.Metrics.FontSizeS).Color(a.colors.Subtle)
 	}
 	reverse := draft.kind == remotePortRuleReverse
@@ -307,25 +307,25 @@ func (a *App) remotePortRuleFields(c ui.C, p *project, draft *remotePortRuleDraf
 		targetTitle = i18n.Shared(language, "desktop.remote.ports.ruleLocal")
 		targetPlaceholder = i18n.Shared(language, "desktop.remote.ports.ruleLocalPlaceholder")
 	}
-	ui.Paragraph(c.Part("rule-note"), note, 4).Color(a.colors.Text)
+	ui.Paragraph(c, note, 4).Color(a.colors.Text)
 	listenTitle := i18n.Shared(language, "desktop.remote.ports.ruleListen")
-	ui.Text(c.Part("rule-listen-title"), listenTitle).FontSize(a.theme.Metrics.FontSizeS).Color(a.colors.Subtle)
+	ui.Text(c, listenTitle).FontSize(a.theme.Metrics.FontSizeS).Color(a.colors.Subtle)
 	listened := ui.TextField(c.Part("rule-listen"), &draft.listen, listenTitle,
 		i18n.Shared(language, "desktop.remote.ports.ruleListenPlaceholder")).FillWidth().Submitted()
-	ui.Text(c.Part("rule-target-title"), targetTitle).FontSize(a.theme.Metrics.FontSizeS).Color(a.colors.Subtle)
+	ui.Text(c, targetTitle).FontSize(a.theme.Metrics.FontSizeS).Color(a.colors.Subtle)
 	targeted := ui.TextField(c.Part("rule-target"), &draft.target, targetTitle, targetPlaceholder).FillWidth().Submitted()
 	if !reverse {
 		ui.Checkbox(c.Part("rule-all"), &draft.allInterfaces, i18n.Shared(language, "desktop.remote.ports.ruleAllInterfaces")).Disabled(unavailable)
 		if draft.allInterfaces {
-			ui.Paragraph(c.Part("rule-all-note"), i18n.Shared(language, "desktop.remote.ports.ruleAllInterfacesNote"), 3).
+			ui.Paragraph(c, i18n.Shared(language, "desktop.remote.ports.ruleAllInterfacesNote"), 3).
 				FontSize(a.theme.Metrics.FontSizeS).Color(a.colors.Warning)
 		}
 	}
 	if draft.starting {
-		ui.Text(c.Part("rule-starting"), i18n.Shared(language, "desktop.remote.ports.statusForwarding")).FontSize(12).Color(a.colors.Subtle)
+		ui.Text(c, i18n.Shared(language, "desktop.remote.ports.statusForwarding")).FontSize(12).Color(a.colors.Subtle)
 	}
 	if draft.message != "" {
-		ui.Paragraph(c.Part("rule-message"), draft.message, 3).FontSize(12).Color(a.theme.Danger)
+		ui.Paragraph(c, draft.message, 3).FontSize(12).Color(a.theme.Danger)
 	}
 	if (listened || targeted) && !unavailable {
 		c.After(func() { a.submitRemotePortRule(p, surfaceShortcut) })

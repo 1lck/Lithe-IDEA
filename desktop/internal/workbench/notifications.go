@@ -346,7 +346,7 @@ func (a *App) notificationEntry(k ui.C, entry *notification) {
 	language := a.language()
 	if entry.detail != "" {
 		ui.Wrap(k, entry.text).FontSize(a.theme.Metrics.FontSizeS).Weight(gfx.WeightMedium)
-		ui.Wrap(k.Part("detail"), entry.detail).FontSize(a.theme.Metrics.FontSizeS).Color(a.colors.Subtle)
+		ui.Wrap(k, entry.detail).FontSize(a.theme.Metrics.FontSizeS).Color(a.colors.Subtle)
 	} else {
 		ui.Wrap(k, entry.text).FontSize(a.theme.Metrics.FontSizeS)
 	}

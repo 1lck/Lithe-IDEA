@@ -114,9 +114,9 @@ func (w *window) remoteProgramRow(c ui.C, language i18n.Language, r *remotePrefe
 	}
 	switch ssh.Status {
 	case core.RemoteProgramMissing:
-		ui.Wrap(c.Part("program-missing"), i18n.SharedFormat(language, "desktop.remoteSettings.programMissing", map[string]string{"path": *ssh.Path})).FontSize(12).Color(w.pal.danger)
+		ui.Wrap(c, i18n.SharedFormat(language, "desktop.remoteSettings.programMissing", map[string]string{"path": *ssh.Path})).FontSize(12).Color(w.pal.danger)
 	case core.RemoteProgramNotExecutable:
-		ui.Wrap(c.Part("program-not-executable"), i18n.SharedFormat(language, "desktop.remoteSettings.programNotExecutable", map[string]string{"path": *ssh.Path})).FontSize(12).Color(w.pal.danger)
+		ui.Wrap(c, i18n.SharedFormat(language, "desktop.remoteSettings.programNotExecutable", map[string]string{"path": *ssh.Path})).FontSize(12).Color(w.pal.danger)
 	}
 }
 
@@ -268,7 +268,7 @@ func (w *window) remoteIdleTimeoutRow(c ui.C, language i18n.Language, r *remoteP
 		return
 	}
 	w.settingsRow(c, i18n.Shared(language, "desktop.remoteSettings.idleTimeout"), i18n.Shared(language, "desktop.remoteSettings.idleTimeoutHelp"), func() {
-		ui.Text(c.Part("value"), remoteDuration(language, int(seconds))).FontSize(12).Color(w.pal.text)
+		ui.Text(c, remoteDuration(language, int(seconds))).FontSize(12).Color(w.pal.text)
 	})
 }
 
@@ -287,7 +287,7 @@ func (w *window) remotePathText(c ui.C, path, note string) {
 		HitWith(ui.ID(c), path, gfx.HitOptions{Role: gfx.RoleGroup}).Tooltip(path).Children(func() {
 		ui.Text(c, path).FontSize(12).Mono().Color(w.pal.text).Shrink(1).MinWidth(0).Ellipsis()
 		if note != "" {
-			ui.Text(c.Part("note"), note).FontSize(12).Color(w.pal.muted).Shrink(0)
+			ui.Text(c, note).FontSize(12).Color(w.pal.muted).Shrink(0)
 		}
 	})
 }

@@ -364,17 +364,17 @@ func (a *App) projectTab(c ui.C, tab *App, i, size int) {
 	}
 	var closeButton ui.Box
 	chip.Children(func() {
-		ui.Icon(k, icons.Folder).Size(projectTabIcon, projectTabIcon).Shrink(0).Color(a.colors.Subtle)
-		name := ui.Text(k, p.name).Ellipsis().Shrink(0)
+		ui.Icon(c, icons.Folder).Size(projectTabIcon, projectTabIcon).Shrink(0).Color(a.colors.Subtle)
+		name := ui.Text(c, p.name).Ellipsis().Shrink(0)
 		if shown {
 			name.Color(a.colors.Text)
 		} else {
 			name.Color(a.colors.Subtle).StateFrom(chip).Hover(ui.Look{}.Color(a.colors.Text))
 		}
 		if d := p.selectedDocument(p.terms.bench.FocusedGroup); d != nil && d.path != "" {
-			ui.Text(k.Part("file"), "· "+filepath.Base(d.path)).Color(a.colors.Subtle).Ellipsis()
+			ui.Text(c, "· "+filepath.Base(d.path)).Color(a.colors.Subtle).Ellipsis()
 		}
-		ui.Spacer(k)
+		ui.Spacer(c)
 		cc := k.Part("close")
 		closeButton = ui.Row(cc).Size(terminalCloseSize, terminalCloseSize).Shrink(0).Center().
 			Radius(a.theme.Metrics.RadiusItem()).

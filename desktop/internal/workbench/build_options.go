@@ -421,20 +421,20 @@ func (a *App) buildOptionsDialog(c ui.C, p *project) {
 	}
 	closed := ui.ModalWith(c, &open, title, ui.ModalSpec{Width: 460}, func() {
 		ui.Column(c.Part("build-options")).FillWidth().Gap(10).Children(func() {
-			a.buildIgnoredPathsSection(c.Part("detection"), p, ready)
+			a.buildIgnoredPathsSection(c, p, ready)
 			if e.instance != "" {
 				k := c.Part("instance")
 				ui.Row(k).FillWidth().Items(ui.Center).Gap(6).MarginTop(6).Children(func() {
 					a.buildOptionsHeading(k, e.name)
 					if e.root != "" {
-						ui.Text(k, e.root).FontSize(a.theme.Metrics.FontSizeS).Color(a.colors.Subtle).Ellipsis().Shrink(1).MinWidth(0)
+						ui.Text(c, e.root).FontSize(a.theme.Metrics.FontSizeS).Color(a.colors.Subtle).Ellipsis().Shrink(1).MinWidth(0)
 					}
 				})
 				if len(e.fields) == 0 && !e.loading {
-					ui.Wrap(k, i18n.Shared(language, "desktop.build.noOptions")).FontSize(a.theme.Metrics.FontSizeS).Color(a.colors.Subtle)
+					ui.Wrap(c, i18n.Shared(language, "desktop.build.noOptions")).FontSize(a.theme.Metrics.FontSizeS).Color(a.colors.Subtle)
 				}
 				for index := range e.fields {
-					a.drawRunOptionField(k.KeyInt(index), language, &e.fields[index], ready)
+					a.drawRunOptionField(c, index, language, &e.fields[index], ready)
 				}
 				a.buildRuntimeSection(c, language, e)
 				a.buildDroppedOptionsSection(c, language, p, ready)
@@ -478,7 +478,7 @@ func (a *App) buildIgnoredPathsSection(c ui.C, p *project, ready bool) {
 	g, language := &p.build.options.ignored, a.language()
 	label := i18n.Shared(language, "desktop.build.ignoredPaths")
 	a.buildOptionsHeading(c, i18n.Shared(language, "desktop.build.detection"))
-	ui.Row(c).FillWidth().Items(ui.Center).Gap(4).Children(func() {
+	ui.Row(c.Part("detection")).FillWidth().Items(ui.Center).Gap(4).Children(func() {
 		ui.Text(c, label).FontSize(a.theme.Metrics.FontSizeS).Color(a.colors.Text).Shrink(0)
 		ui.Button(c.Part("help"), i18n.Shared(language, "native.moreInformation")).Icon(icons.Info).IconOnly().Ghost().Size(18, 18).
 			Tooltip(i18n.Shared(language, "desktop.build.ignoredPathsHelp")).TooltipOn(ui.TooltipRight)

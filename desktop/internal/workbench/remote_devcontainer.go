@@ -373,7 +373,7 @@ func (a *App) remoteDevcontainerView(c ui.C, language i18n.Language, d *remoteDe
 			})
 			ui.Column(h).Grow(1).Basis(0).MinWidth(0).Gap(4).Children(func() {
 				ui.Text(h, i18n.Shared(language, "desktop.remote.devcontainer.title")).FontSize(16).Weight(gfx.WeightSemibold).Ellipsis().MinWidth(0)
-				ui.Paragraph(h.Part("about"), i18n.Shared(language, "desktop.remote.devcontainer.about"), 3).FontSize(small).Color(a.colors.Subtle)
+				ui.Paragraph(h, i18n.Shared(language, "desktop.remote.devcontainer.about"), 3).FontSize(small).Color(a.colors.Subtle)
 			})
 		})
 		label := i18n.Shared(language, "desktop.remote.devcontainer.folder")
@@ -402,7 +402,7 @@ func (a *App) remoteDevcontainerView(c ui.C, language i18n.Language, d *remoteDe
 					config := i18n.Shared(language, "desktop.remote.devcontainer.config")
 					a.remoteSection(c, config, i18n.Shared(language, "desktop.remote.devcontainer.configHelp"), nil, func() {
 						if len(d.configs) == 0 {
-							ui.Paragraph(c.Part("none"), i18n.Shared(language, "desktop.remote.devcontainer.none"), 3).FontSize(small).Color(a.colors.Warning)
+							ui.Paragraph(c, i18n.Shared(language, "desktop.remote.devcontainer.none"), 3).FontSize(small).Color(a.colors.Warning)
 							return
 						}
 						paths := make([]string, len(d.configs))
@@ -442,7 +442,7 @@ func (a *App) remoteDevcontainerView(c ui.C, language i18n.Language, d *remoteDe
 					l := c.Part("diagnostics")
 					ui.Scroll(l).FillWidth().MaxHeight(120).Children(func() {
 						ui.Column(l).FillWidth().Pad(10).Radius(6).Background(a.colors.Hover).Stroke(1, a.colors.Line).Children(func() {
-							ui.Paragraph(l.Part("text"), d.diagnostics, 40).Mono().FontSize(small).Color(a.colors.Subtle)
+							ui.Paragraph(l, d.diagnostics, 40).Mono().FontSize(small).Color(a.colors.Subtle)
 						})
 					})
 				}
@@ -490,7 +490,7 @@ func (a *App) remoteDevcontainerLog(c ui.C, language i18n.Language, d *remoteDev
 			}).Scrollbars().Label(title).Fill()
 		})
 		if d.truncated {
-			ui.Text(c.Part("truncated"), i18n.Shared(language, "desktop.remote.devcontainer.truncated")).FontSize(small).Color(a.colors.Subtle)
+			ui.Text(c, i18n.Shared(language, "desktop.remote.devcontainer.truncated")).FontSize(small).Color(a.colors.Subtle)
 		}
 	})
 }

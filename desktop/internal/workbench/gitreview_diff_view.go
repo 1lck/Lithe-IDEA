@@ -178,7 +178,7 @@ func (a *App) drawRollbackDialog(c ui.C, p *project) {
 		ui.Column(c).FillWidth().Gap(8).Children(func() {
 			ui.Paragraph(c, i18n.Shared(a.language(), "git.rollback.warning"), 4).FontSize(a.theme.Metrics.FontSizeS).Color(a.colors.Subtle)
 			for _, change := range r.changes {
-				ui.Text(c.Key(change.Path), change.Path).Ellipsis()
+				ui.Text(c, change.Path).Ellipsis()
 			}
 			ui.Checkbox(c, &r.deleteAdded, i18n.Shared(a.language(), "git.rollback.deleteAdded")).Disabled(r.busy)
 		})

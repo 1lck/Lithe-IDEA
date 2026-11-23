@@ -187,8 +187,8 @@ func (a *App) drawRunConfigStepsTitle(c ui.C, steps *runConfigSteps, title, help
 		fold := ui.Row(k).Shrink(0).Items(ui.Center).Gap(4).
 			HitWith(ui.ID(k), name+" "+title, gfx.HitOptions{Role: gfx.RoleButton, Cursor: gfx.PointerCursorHand, Expandable: true, Expanded: open})
 		fold.Children(func() {
-			ui.Icon(k, chevron).Size(12, 12).Shrink(0).Color(a.colors.Subtle)
-			ui.Text(k, title).Shrink(0)
+			ui.Icon(c, chevron).Size(12, 12).Shrink(0).Color(a.colors.Subtle)
+			ui.Text(c, title).Shrink(0)
 		})
 		if fold.Clicked() {
 			c.After(func() { steps.collapsed = !steps.collapsed })
@@ -339,7 +339,7 @@ func (a *App) drawRunConfigStepRow(row ui.ListRow, step runConfigStepRow, select
 		ui.Icon(c, step.icon).Size(14, 14).Shrink(0).Color(a.colors.Subtle)
 		ui.Text(c, step.name).Color(color).Ellipsis().Shrink(1).MinWidth(0)
 		if step.summary != "" {
-			ui.Text(c.Part("summary"), step.summary).Mono().FontSize(a.theme.Metrics.FontSizeS).Color(a.colors.Subtle).Ellipsis().Shrink(1).MinWidth(0)
+			ui.Text(c, step.summary).Mono().FontSize(a.theme.Metrics.FontSizeS).Color(a.colors.Subtle).Ellipsis().Shrink(1).MinWidth(0)
 		}
 	})
 }
@@ -540,7 +540,7 @@ func (a *App) drawRunConfigTask(c ui.C, p *project) {
 		ui.Column(k).FillWidth().Gap(10).Children(func() {
 			a.drawRunConfigFormFields(k, p, t.form, !t.checking)
 			if t.failure != "" {
-				ui.Paragraph(k.Part("failure"), t.failure, 4).FontSize(a.theme.Metrics.FontSizeS).Color(a.theme.Danger)
+				ui.Paragraph(c, t.failure, 4).FontSize(a.theme.Metrics.FontSizeS).Color(a.theme.Danger)
 			}
 		})
 	}, func() {

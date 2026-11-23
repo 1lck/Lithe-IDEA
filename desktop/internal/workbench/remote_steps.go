@@ -214,7 +214,7 @@ func (a *App) remoteStepRow(c ui.C, language i18n.Language, s *remoteSteps, step
 				case current && s.failed:
 					ui.Icon(c, icons.CircleX).Size(16, 16).Color(a.theme.Danger)
 				case current:
-					ui.Spinner(c.Part("spinner")).Size(14, 14)
+					ui.Spinner(c).Size(14, 14)
 				default:
 					ui.Row(c.Part("todo")).Size(12, 12).Radius(6).Stroke(1, a.colors.TabIdleBorder)
 				}
@@ -233,7 +233,7 @@ func (a *App) remoteStepRow(c ui.C, language i18n.Language, s *remoteSteps, step
 		})
 		if step == remoteStepInstall && current && !s.failed && s.total > 0 {
 			ui.Column(c.Part("upload")).FillWidth().Gap(4).PadSides(0, 0, 0, 26).Children(func() {
-				ui.Progress(c.Part("progress"), float32(s.sent)/float32(s.total)).FillWidth()
+				ui.Progress(c, float32(s.sent)/float32(s.total)).FillWidth()
 				ui.Text(c, i18n.SharedFormat(language, "desktop.remote.steps.upload", map[string]string{
 					"sent": memorySize(language, s.sent), "total": memorySize(language, s.total),
 				})).Mono().FontSize(small).Color(a.colors.Subtle)
@@ -285,8 +285,8 @@ func (a *App) remoteQuestionCard(c ui.C, language i18n.Language, s *remoteSteps,
 				}
 				k := c.KeyInt(index)
 				ui.Row(k).FillWidth().Items(ui.Center).Gap(10).Children(func() {
-					ui.Text(k, item[0]).FontSize(small).Color(a.colors.Subtle).Width(80).Shrink(0)
-					ui.Text(k, item[1]).Mono().FontSize(small).Ellipsis().Grow(1).MinWidth(0)
+					ui.Text(c, item[0]).FontSize(small).Color(a.colors.Subtle).Width(80).Shrink(0)
+					ui.Text(c, item[1]).Mono().FontSize(small).Ellipsis().Grow(1).MinWidth(0)
 				})
 			}
 			ui.Paragraph(c, i18n.Shared(language, "desktop.remote.hostKey.hint"), 3).FontSize(small).Color(a.colors.Subtle)

@@ -429,27 +429,27 @@ func (w *window) breadcrumb(c ui.C) {
 	w.crumbs = w.appendCrumbs(w.crumbs[:0])
 	var chosen *crumb
 	ui.Row(c).FillWidth().Height(crumbHeight).Shrink(0).PadX(18).Gap(8).Items(ui.Center).Background(b.surface).Children(func() {
+		// Keys belong on interactive containers, not leaf Text elements.
 		for i := range w.crumbs {
 			crumb := &w.crumbs[i]
-			k := c.KeyInt(i)
 			if i > 0 {
-				ui.Text(k.Part("sep"), "›").FontSize(buildFont).Color(b.faint).Shrink(0)
+				ui.Text(c, "›").FontSize(buildFont).Color(b.faint).Shrink(0)
 			}
 			last := i == len(w.crumbs)-1
 			switch {
 			case last:
-				ui.Text(k, crumb.title).FontSize(buildFont).Weight(gfx.WeightSemibold).Color(b.text).Shrink(1).MinWidth(0).Ellipsis()
+				ui.Text(c, crumb.title).FontSize(buildFont).Weight(gfx.WeightSemibold).Color(b.text).Shrink(1).MinWidth(0).Ellipsis()
 			case crumb.link:
-				button := ui.ButtonBase(k, crumb.title).Shrink(1).MinWidth(0).Items(ui.Center)
+				button := ui.ButtonBase(c.KeyInt(i), crumb.title).Shrink(1).MinWidth(0).Items(ui.Center)
 				if button.Clicked() {
 					chosen = crumb
 				}
 				button.Children(func() {
-					ui.Text(k, crumb.title).FontSize(buildFont).Color(b.sub).Shrink(1).MinWidth(0).Ellipsis().
+					ui.Text(c, crumb.title).FontSize(buildFont).Color(b.sub).Shrink(1).MinWidth(0).Ellipsis().
 						StateFrom(button).Hover(ui.Look{}.Color(b.accent))
 				})
 			default:
-				ui.Text(k, crumb.title).FontSize(buildFont).Color(b.sub).Shrink(1).MinWidth(0).Ellipsis()
+				ui.Text(c, crumb.title).FontSize(buildFont).Color(b.sub).Shrink(1).MinWidth(0).Ellipsis()
 			}
 		}
 	})

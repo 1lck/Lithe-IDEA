@@ -34,12 +34,12 @@ func (a *App) runConfigList(c ui.C, p *project) {
 			ui.Row(k.Part("empty")).Height(panelHeaderHeight).FillWidth().Items(ui.Center).PadX(8).Children(func() {
 				switch {
 				case s.failure != "":
-					ui.Text(k, i18n.SharedFormat(language, "desktop.runConfig.loadFailed", map[string]string{"reason": s.failure})).
+					ui.Text(c, i18n.SharedFormat(language, "desktop.runConfig.loadFailed", map[string]string{"reason": s.failure})).
 						FontSize(small).Color(a.colors.Warning).Ellipsis().Grow(1).MinWidth(0)
 				case s.loading:
-					ui.Text(k, i18n.Shared(language, "native.loading")).FontSize(small).Color(a.colors.Subtle).Ellipsis().Grow(1).MinWidth(0)
+					ui.Text(c, i18n.Shared(language, "native.loading")).FontSize(small).Color(a.colors.Subtle).Ellipsis().Grow(1).MinWidth(0)
 				default:
-					ui.Text(k, i18n.Shared(language, "desktop.runConfig.emptyHint")).FontSize(small).Color(a.colors.Subtle).Ellipsis().Grow(1).MinWidth(0)
+					ui.Text(c, i18n.Shared(language, "desktop.runConfig.emptyHint")).FontSize(small).Color(a.colors.Subtle).Ellipsis().Grow(1).MinWidth(0)
 				}
 			})
 		})
@@ -244,7 +244,7 @@ func (a *App) drawRunConfigGroupArrow(c ui.C, s *runConfigState, group runConfig
 	slot := ui.Row(k).Size(treelist.Disclosure, treelist.Icon).Shrink(0).Center().
 		HitWith(ui.ID(k), name+" "+group.title, gfx.HitOptions{Role: gfx.RoleButton, Cursor: gfx.PointerCursorHand, Expandable: true, Expanded: open, SkipFocus: true})
 	slot.Children(func() {
-		ui.Icon(k, chevron).Size(12, 12).Color(a.colors.Subtle)
+		ui.Icon(c, chevron).Size(12, 12).Color(a.colors.Subtle)
 	})
 	if slot.Clicked() {
 		key := group.key
@@ -335,7 +335,7 @@ func (a *App) drawRunConfigEditorPane(c ui.C, p *project, e *runConfigEditor) {
 					FillWidth().Disabled(!ready)
 			}
 			for index := range e.optionFields {
-				a.drawRunOptionField(c.Part("option-"+strconv.Itoa(index)), language, &e.optionFields[index], ready)
+				a.drawRunOptionField(c, index, language, &e.optionFields[index], ready)
 			}
 		}
 		labels := map[string]string{"local": i18n.Shared(language, "desktop.runConfig.scopeLocal"), "project": i18n.Shared(language, "desktop.runConfig.scopeProject")}
@@ -365,16 +365,17 @@ func indexRange(n int) []int {
 
 // drawRunOptionField declares one declared option: a checkbox, a picker, a text field or a list of
 // checkboxes by its kind. A kind the editor cannot edit shows its stored JSON read-only.
-func (a *App) drawRunOptionField(c ui.C, language i18n.Language, field *runOptionField, ready bool) {
+func (a *App) drawRunOptionField(c ui.C, index int, language i18n.Language, field *runOptionField, ready bool) {
+	name := "option-" + strconv.Itoa(index)
 	switch field.kind {
 	case "boolean":
-		ui.Row(c).FillWidth().Items(ui.Center).Gap(4).Children(func() {
+		ui.Row(c.Part(name)).FillWidth().Items(ui.Center).Gap(4).Children(func() {
 			ui.Checkbox(c, &field.flag, field.title).Disabled(!ready)
 			a.drawRunOptionHelp(c, field.description)
 		})
 	case "singleSelect":
 		values, labels := runOptionChoiceIDs(*field)
-		ui.Row(c).FillWidth().Items(ui.End).Gap(4).Children(func() {
+		ui.Row(c.Part(name)).FillWidth().Items(ui.End).Gap(4).Children(func() {
 			ui.Select(c, &field.text, values, func(value string) string {
 				if value == "" {
 					return i18n.Shared(language, "desktop.runConfig.optionDefault")
@@ -385,7 +386,7 @@ func (a *App) drawRunOptionField(c ui.C, language i18n.Language, field *runOptio
 		})
 	case "text", "file", "directory":
 		// A text field's label only names it to accessibility, so the option's name is a text above it.
-		ui.Column(c).FillWidth().Gap(6).Children(func() {
+		ui.Column(c.Part(name)).FillWidth().Gap(6).Children(func() {
 			a.drawRunOptionTitle(c, field.title, field.description)
 			ui.Row(c).FillWidth().Items(ui.Center).Gap(8).Children(func() {
 				if field.implicit != "" {
@@ -412,7 +413,7 @@ func (a *App) drawRunOptionField(c ui.C, language i18n.Language, field *runOptio
 	case "multiSelect":
 		// The choices are keyed inside the field's own column: c names only the next element, so
 		// keyed as siblings of the other fields the first choice took the first field's key.
-		ui.Column(c).FillWidth().Gap(6).Children(func() {
+		ui.Column(c.Part(name)).FillWidth().Gap(6).Children(func() {
 			a.drawRunOptionTitle(c, field.title, field.description)
 			for index := range field.choices {
 				title := field.choices[index].title
@@ -465,7 +466,7 @@ func (a *App) drawRunConfigDelete(c ui.C, p *project) {
 	open := true
 	title := i18n.Shared(language, "desktop.runConfig.deleteTitle")
 	closed := ui.ModalWith(c, &open, title, ui.ModalSpec{Width: 420}, func() {
-		ui.Paragraph(c.Part("run-config-delete"), i18n.SharedFormat(language, "desktop.runConfig.deleteBody", map[string]string{"name": d.name}), 4).Color(a.colors.Text)
+		ui.Paragraph(c, i18n.SharedFormat(language, "desktop.runConfig.deleteBody", map[string]string{"name": d.name}), 4).Color(a.colors.Text)
 	}, func() {
 		ui.Row(c.Part("run-config-delete-footer")).FillWidth().Items(ui.Center).Gap(8).Children(func() {
 			ui.Spacer(c)

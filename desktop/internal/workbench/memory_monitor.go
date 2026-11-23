@@ -448,7 +448,7 @@ func (a *App) memoryDetails(c ui.C, anchor ui.Box) {
 				a.memoryBar(c.Part("bar"), parts)
 				a.memoryLegend(c.Part("legend"), language, parts, columns)
 				ui.Divider(c)
-				a.memoryEntries(c.Part("entries"), language, columns)
+				a.memoryEntries(c, language, columns)
 			}
 		})
 	})
