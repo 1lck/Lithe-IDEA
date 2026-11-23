@@ -136,7 +136,6 @@ func TestRunConsoleWrapSwitchBreaksLongLinesInsteadOfCuttingThem(t *testing.T) {
 	}
 }
 
-
 func TestRunPerformanceCollapseKeepsSummaryAndPersistsTheChoice(t *testing.T) {
 	h := debugPluginHarness(t, "dev.lithe.test.output-links", outputLinkManifest, false)
 	root := t.TempDir()
