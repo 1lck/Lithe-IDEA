@@ -7,7 +7,6 @@ import (
 	"github.com/1lck/Lithe-IDEA/desktop/internal/fontprefs"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/i18n"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/icons"
-	"github.com/vivaui/viva/app"
 	"github.com/vivaui/viva/gfx"
 	"github.com/vivaui/viva/ui"
 )
@@ -77,7 +76,7 @@ func (w *window) keys(c ui.C) {
 
 // title keeps the native window title beside the system controls.
 func (w *window) title(c ui.C) {
-	leading, trailing := app.TitlebarInsets()
+	leading, trailing := c.TitlebarInsets()
 	ui.Stack(c).FillWidth().Height(titleHeight).Shrink(0).Background(w.pal.titleBar).MovesWindow().Children(func() {
 		ui.Row(c).Fill().PadSides(0, max(8, trailing), 0, max(80, leading+10)).Items(ui.Center).Children(func() {
 			ui.Text(c, w.text.Settings.Title).FontSize(13).Weight(gfx.WeightSemibold).Color(w.pal.text).Ellipsis()

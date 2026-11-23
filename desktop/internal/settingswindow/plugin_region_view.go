@@ -306,7 +306,7 @@ func (s regionSettings) toolPicker(c ui.C, row ui.Box, language i18n.Language, s
 		title = i18n.Shared(language, "desktop.buildSettings.optionsProject")
 	}
 	spec := ui.PopoverSpec{Align: ui.Start, Width: toolPickerWidth, ConsumeOutsidePress: true, Title: title}
-	ui.PopoverWith(c, row, spec, open, func() {
+	ui.PopoverWith(c, row, open, spec, func() {
 		before := scope.wanted(tool.ID)
 		current := toolchainCurrent(tool)
 		ui.Scroll(c.Part("choices")).Scrollbars().FillWidth().MaxHeight(toolPickerMaxHeight).Children(func() {

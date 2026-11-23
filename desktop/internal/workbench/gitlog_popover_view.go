@@ -43,7 +43,7 @@ func (a *App) drawLogPopover(c ui.C, p *project, which logPopover, anchor ui.Box
 	}
 	open := true
 	spec := ui.PopoverSpec{Align: ui.Start, Offset: 4, Width: width, ConsumeOutsidePress: true}
-	ui.PopoverWith(c, anchor, spec, &open, func() {
+	ui.PopoverWith(c, anchor, &open, spec, func() {
 		switch l.popover {
 		case logPopoverBranch:
 			a.drawLogBranchFilter(c, p)

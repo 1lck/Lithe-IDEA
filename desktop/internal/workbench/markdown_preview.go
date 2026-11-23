@@ -362,7 +362,7 @@ func (a *App) markdownContentsButton(c ui.C, p *project, d *document) {
 		top = min(top, h.level)
 	}
 	spec := ui.PopoverSpec{Align: ui.End, Width: markdownContentsWidth, ConsumeOutsidePress: true, Title: title}
-	ui.PopoverWith(c, button, spec, &s.contentsOpen, func() {
+	ui.PopoverWith(c, button, &s.contentsOpen, spec, func() {
 		height := min(float32(len(s.headings))*markdownContentsRow, markdownContentsMax)
 		ui.List(c, &s.contents, len(s.headings), func(row ui.ListRow) {
 			h := s.headings[row.Index]

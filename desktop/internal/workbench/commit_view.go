@@ -412,7 +412,7 @@ func (a *App) drawCommitOptions(c ui.C, cs *commitState, generates bool) {
 	// they belong to; they line up with the gear at the bottom and grow upwards, and open on
 	// the left when the panel is docked at the window's right edge.
 	spec := ui.PopoverSpec{Side: components.PopoverRight, Align: ui.End, Width: 320}
-	ui.PopoverWith(c, button, spec, &cs.optionsOpen, func() {
+	ui.PopoverWith(c, button, &cs.optionsOpen, spec, func() {
 		ui.Column(c).FillWidth().Gap(8).Children(func() {
 			a.commitOptionHeading(c, i18n.Shared(lang, "desktop.commit.optionsGit"))
 			ui.Row(c).FillWidth().Items(ui.Center).Gap(4).Children(func() {

@@ -39,7 +39,7 @@ func (a *App) standaloneWorkbench(c ui.C) {
 	plan := a.layout.arrange(c.Bounds(), open)
 	hidden := slotCount
 	language := a.language()
-	leading, trailing := app.TitlebarInsets()
+	leading, trailing := c.TitlebarInsets()
 	ui.Column(c).Fill().Children(func() {
 		ui.Row(c).FillWidth().Height(titleBarHeight).Shrink(0).Items(ui.Center).Gap(8).
 			PadSides(0, trailing+chromeEdge, 0, leading+chromeEdge).MovesWindow().Children(func() {

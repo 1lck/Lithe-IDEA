@@ -4,11 +4,9 @@ import (
 	"github.com/1lck/Lithe-IDEA/desktop/internal/core"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/i18n"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/icons"
-	"github.com/vivaui/viva/app"
 	"github.com/vivaui/viva/components"
 	"github.com/vivaui/viva/gfx"
 	"github.com/vivaui/viva/ui"
-	"runtime"
 	"slices"
 )
 
@@ -130,12 +128,9 @@ func (a *App) chromeGlyph(c ui.C, i int, layout glyphLayout, rest, hover gfx.Col
 // controls in it take their own presses.
 func (a *App) titleBar(c ui.C) {
 	// The system's window buttons sit at one end of the strip, so the content keeps clear of
-	// them.
-	leading, trailing := app.TitlebarInsets()
-	if a.fullscreen && runtime.GOOS == "darwin" {
-		// macOS hides the traffic lights in fullscreen; the strip starts at the edge.
-		leading = 0
-	}
+	// them. The window answers for itself: zero in full screen, where macOS hides the
+	// traffic lights, and under a system titlebar.
+	leading, trailing := c.TitlebarInsets()
 	clicked := -1
 	ui.Row(c).FillWidth().Height(titleBarHeight).Shrink(0).Background(a.chromeFill()).
 		Items(ui.Center).Gap(chromeGap).PadSides(0, trailing+chromeEdge, 0, leading+chromeEdge).
@@ -450,7 +445,7 @@ func (a *App) hiddenToolWindowList(c ui.C, anchor ui.Box, z zone) {
 	if z != zoneLeftTop && z != zoneRightTop {
 		spec.Align = ui.End
 	}
-	ui.PopoverWith(c, anchor, spec, &open, func() {
+	ui.PopoverWith(c, anchor, &open, spec, func() {
 		ui.Column(c).FillWidth().Gap(chromeMenuItems).Children(func() {
 			for _, i := range a.chrome.hidden {
 				row, clicked := a.hiddenToolWindowRow(c.KeyInt(i), i)
@@ -634,7 +629,7 @@ func (a *App) projectMenu(c ui.C, anchor ui.Box) {
 	picked, removed := -1, -1
 	spec := ui.PopoverSpec{Align: ui.Start, Offset: chromeMenuOffset, Width: chromeMenuWidth, ConsumeOutsidePress: true}
 	open := true
-	ui.PopoverWith(c, anchor, spec, &open, func() {
+	ui.PopoverWith(c, anchor, &open, spec, func() {
 		ui.Scroll(c).Scrollbars().FillWidth().MaxHeight(chromeMenuMaxHeight).Gap(chromeMenuItems).Children(func() {
 			created = a.menuAction(c.Part("new"), icons.Plus, a.text.Title.NewProjectItem)
 			chosen = a.menuAction(c.Part("open"), icons.FolderOpen, a.text.Title.OpenItem)
