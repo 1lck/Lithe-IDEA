@@ -299,7 +299,7 @@ func (r *renderer) zoomButtons(c ui.C, state *canvasState) {
 			Hover(ui.Look{}.Background(p.Hover)).Pressed(ui.Look{}.Background(p.Selection)).
 			Tooltip(i18n.Shared(language, "desktop.pluginView.resetZoom"))
 		button.Children(func() {
-			ui.Text(k, percent).FontSize(11).Weight(gfx.WeightMedium).Mono().Color(p.Text)
+			ui.Text(c, percent).FontSize(11).Weight(gfx.WeightMedium).Mono().Color(p.Text)
 		})
 		if button.Clicked() {
 			zoomTo(1)

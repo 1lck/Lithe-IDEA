@@ -7,6 +7,7 @@ import (
 
 	"github.com/1lck/Lithe-IDEA/desktop/internal/core"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/i18n"
+	"github.com/vivaui/viva/gfx"
 )
 
 type steppingChange struct {
@@ -50,6 +51,33 @@ func TestDebuggersPageAppliesAndRestoresAnAdaptersFilters(t *testing.T) {
 	if hit := d.hit(apply); !hit.Disabled {
 		t.Fatal("Apply is enabled before anything changed")
 	}
+	for _, label := range []string{"java.*", text("desktop.settings.stepping.skipConstructors")} {
+		var row gfx.Hit
+		for _, hit := range d.driver.Snapshot().Hits {
+			if hit.Label == label && hit.Role == gfx.RoleGroup {
+				row = hit
+				break
+			}
+		}
+		if row.ID.IsZero() || row.Focusable {
+			t.Fatalf("%q needs a hover target outside the keyboard focus order: %+v", label, row)
+		}
+		if err := d.driver.Move(row.Bounds.X+4, row.Bounds.Y+row.Bounds.Height/2); err != nil {
+			t.Fatal(err)
+		}
+		highlighted := false
+		x, y := row.Bounds.X+12, row.Bounds.Y+row.Bounds.Height/2
+		for _, shape := range d.driver.Snapshot().Primitives {
+			bounds := shape.Bounds
+			if shape.Color == w.bp.hover && x >= bounds.X && x < bounds.X+bounds.Width && y >= bounds.Y && y < bounds.Y+bounds.Height {
+				highlighted = true
+				break
+			}
+		}
+		if !highlighted {
+			t.Fatalf("%q is not highlighted while hovered: bounds=%+v hovered=%v want=%v", label, row.Bounds, d.driver.Snapshot().Hovered, row.ID)
+		}
+	}
 
 	d.click(text("desktop.settings.stepping.skipConstructors"))
 	d.pump()
@@ -84,6 +112,10 @@ func TestDebuggersPageAppliesAndRestoresAnAdaptersFilters(t *testing.T) {
 	}
 	if normalized != 1 {
 		t.Fatalf("removing the policy went to Core: normalized %d times", normalized)
+	}
+	d.click(text("desktop.buildSettings.removePattern"))
+	if patterns := w.steppingDraftOf(w.stepping.adapters[0]).patterns; len(patterns) != 0 {
+		t.Fatalf("the pattern row intercepted its remove button: %v", patterns)
 	}
 }
 

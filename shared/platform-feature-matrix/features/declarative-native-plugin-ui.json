@@ -23,7 +23,8 @@
       "desktop/internal/pluginview/node_test.go",
       "desktop/internal/pluginview/view_visual_test.go",
       "desktop/internal/workbench/plugin_view.go",
-      "desktop/internal/workbench/plugin_view_test.go"
+      "desktop/internal/workbench/plugin_view_test.go",
+      "desktop/internal/settingswindow/plugin_region_view_test.go"
     ]
   },
   "windows": {
@@ -46,11 +47,12 @@
       "desktop/internal/pluginview/node_test.go",
       "desktop/internal/pluginview/view_visual_test.go",
       "desktop/internal/workbench/plugin_view.go",
-      "desktop/internal/workbench/plugin_view_test.go"
+      "desktop/internal/workbench/plugin_view_test.go",
+      "desktop/internal/settingswindow/plugin_region_view_test.go"
     ]
   },
   "owner": "Plugin Platform",
-  "verification": "自动化：scripts/desktop/desktop-go.sh test ./internal/pluginview/ ./internal/pluginservice/ ./internal/workbench/ ./internal/core/，覆盖事件顺序与去抖、量到宽度后才发 open、每个事件带 width、resize 去抖与合并（含无头窗口缩小后发送新宽度）、画布缩放规则、晚到答案丢弃、失败重试、节点解析、画布路径与颜色、图片限制、嵌套树高度，宿主视图事件参数（Core 契约 fixture settings.plugin.json）和工作台视图调用失败的日志；无头截图：LITHE_VISUAL_OUTPUT_DIR=<目录> scripts/desktop/desktop-go.sh test -tags 'vivahead lithevisual' -run TestVisualPluginView ./internal/pluginview/，检查深浅主题。原生整机验收 pending：安装一个声明 view 工具窗口的测试插件，打开、点击、编辑、选择树项、双击激活、拖动与缩放画布，拖动窗口改变宽度后画布按新宽度重新排版、不放大也不裁剪，确认事件到达后端并重绘；停用插件、关闭项目时视图关闭且无晚到重绘；后端报错时显示失败与重试。Windows 使用同一 Go Viva 桌面端，需在 Windows 虚拟机上重复上述原生验收。",
+  "verification": "自动化：scripts/desktop/desktop-go.sh test ./internal/pluginview/ ./internal/pluginservice/ ./internal/workbench/ ./internal/core/，覆盖事件顺序与去抖、量到宽度后才发 open、每个事件带 width、resize 去抖与合并（含无头窗口缩小后发送新宽度）、画布缩放规则、晚到答案丢弃、失败重试、节点解析、画布路径与颜色、图片限制、嵌套树高度，宿主视图事件参数（Core 契约 fixture settings.plugin.json）和工作台视图调用失败的日志；无头截图：LITHE_VISUAL_OUTPUT_DIR=<目录> scripts/desktop/desktop-go.sh test -tags 'vivahead lithevisual' -run TestVisualPluginView ./internal/pluginview/，检查深浅主题。原生整机验收 pending：安装一个声明 view 工具窗口的测试插件，打开、点击、编辑、选择树项、双击激活、拖动与缩放画布，拖动窗口改变宽度后画布按新宽度重新排版、不放大也不裁剪，确认事件到达后端并重绘；停用插件、关闭项目时视图关闭且无晚到重绘；后端报错时显示失败与重试。Windows 使用同一 Go Viva 桌面端，需在 Windows 虚拟机上重复上述原生验收。 严格 dev 属性校验下，TestRegionViewSkipsUnavailableNodesWithoutRenamingTheirNeighbors 覆盖 label、缺失的 setting/tool 和类型不匹配的绑定节点：跳过节点后不影响后续文本或控件身份。",
   "legacy": {
     "revision": "5a54c41aa37a4e6e6b68918a4b05765b9dd07a36",
     "macos": {
@@ -87,5 +89,5 @@
       ]
     }
   },
-  "notes": "Viva：pluginview 包是通用渲染器（session.go 管事件队列与去抖，render.go 绘制控件与树，canvas.go 绘制画布），pluginservice/hostview.go 经 Core 调用后端视图函数并校验答案，workbench/plugin_view.go 把视图挂进工具窗口；旧的 ui 原生树/列表/表单（plugin_native.go、hostnative.go）已删除，由插件视图取代。Viva 尚不支持的画布能力（自定义虚线、多色路径渐变、位图与图层透明度、捏合缩放、圆角裁剪）按契约降级绘制，在 Viva fork 跟进（#2182）。"
+  "notes": "Viva：pluginview 包是通用渲染器（session.go 管事件队列与去抖，render.go 绘制控件与树，canvas.go 绘制画布），pluginservice/hostview.go 经 Core 调用后端视图函数并校验答案，workbench/plugin_view.go 把视图挂进工具窗口；旧的 ui 原生树/列表/表单（plugin_native.go、hostnative.go）已删除，由插件视图取代。Viva 尚不支持的画布能力（自定义虚线、多色路径渐变、位图与图层透明度、捏合缩放、圆角裁剪）按契约降级绘制，在 Viva fork 跟进（#2182）。 节点身份以 NodeKey 值传递，仅在实际绘制容器或控件时应用；label 无身份，可选节点提前返回不留下待使用的名字。"
 }

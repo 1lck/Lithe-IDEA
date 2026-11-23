@@ -201,12 +201,12 @@ func (s regionSettings) row(setting string) int {
 	return -1
 }
 
-func (s regionSettings) Row(c ui.C, setting string) bool {
+func (s regionSettings) Row(c ui.C, setting string, key pluginview.NodeKey) bool {
 	index := s.row(setting)
 	if index < 0 {
 		return false
 	}
-	s.w.pluginSettingRow(c, index, s.hasSource)
+	s.w.pluginSettingRow(key.Apply(c), index, s.hasSource)
 	return true
 }
 
@@ -227,7 +227,7 @@ func (s regionSettings) toolScope(t *toolchainState) *toolchainScope {
 // Tool draws the toolchains list's row for the tool, in the toolchain scope beside the scope
 // the page shows. Pressing it opens the Toolchains page in that scope with the tool chosen;
 // with choose, a tool the user may pin opens its picker instead (toolPicker).
-func (s regionSettings) Tool(c ui.C, tool string, choose bool) bool {
+func (s regionSettings) Tool(c ui.C, tool string, choose bool, key pluginview.NodeKey) bool {
 	w := s.w
 	t := w.toolchains
 	if t == nil || !t.available() {
@@ -250,7 +250,7 @@ func (s regionSettings) Tool(c ui.C, tool string, choose bool) bool {
 	fresh := scope.tool(tool)
 	picks := choose && v != nil && fresh != nil && !fresh.ManagedOnly
 	open := picks && v.picker == tool
-	row := ui.ButtonBase(c, entry.tool.DisplayName).FillWidth().Height(toolchainToolRow).PadSides(0, 12, 0, 14).
+	row := ui.ButtonBase(key.Apply(c), entry.tool.DisplayName).FillWidth().Height(toolchainToolRow).PadSides(0, 12, 0, 14).
 		Gap(9).Items(ui.Center).Radius(6).Border(1, b.line).Hover(ui.Look{}.Background(b.hover))
 	if open {
 		row = row.Border(1, b.accent)

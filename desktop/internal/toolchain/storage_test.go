@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"runtime"
 	"strings"
@@ -99,7 +100,7 @@ func TestSavePinPreservesIgnoreTextAndOvercomesLaterNegation(t *testing.T) {
 	if _, _, err := SavePin(ctx, core.NewClient(), root, ".", "dev.example:compiler", &core.ToolchainPin{Home: "/fixture/tool", Version: "1.0", Provider: "host:system"}, nil); err != nil {
 		t.Fatal(err)
 	}
-	if got := string(readExactly(t, ignore)); got != before+"\r\n/toolchains/local.json\r\n" {
+	if got := string(readExactly(t, ignore)); got != before+"\r\n/.gitignore\r\n/toolchains/local.json\r\n" {
 		t.Fatalf("ignore source = %q", got)
 	}
 	if runtime.GOOS != "windows" {
@@ -110,6 +111,70 @@ func TestSavePinPreservesIgnoreTextAndOvercomesLaterNegation(t *testing.T) {
 		if info.Mode().Perm() != 0o640 {
 			t.Fatalf("ignore permissions = %v", info.Mode())
 		}
+	}
+}
+
+// This integration test asks Git itself which of the files written through the
+// native SavePin path are ignored; ordinary toolchain tests need no Git binary.
+func TestSavePinIgnoresGeneratedFileWithoutHidingSharedFiles(t *testing.T) {
+	git, err := exec.LookPath("git")
+	if err != nil {
+		t.Skip("git executable not found")
+	}
+	root, configRoot := t.TempDir(), t.TempDir()
+	emptyConfig := filepath.Join(configRoot, "gitconfig")
+	if err := os.WriteFile(emptyConfig, nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	emptyTemplate := filepath.Join(configRoot, "template")
+	if err := os.Mkdir(emptyTemplate, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	// Explicit command environments avoid global mutation and prevent ambient
+	// repository, index, config-injection and ignore settings from owning the fixture.
+	environment := make([]string, 0, len(os.Environ())+3)
+	for _, entry := range os.Environ() {
+		if !strings.HasPrefix(strings.ToUpper(entry), "GIT_") {
+			environment = append(environment, entry)
+		}
+	}
+	environment = append(environment, "GIT_CONFIG_GLOBAL="+emptyConfig, "GIT_CONFIG_NOSYSTEM=1", "GIT_TERMINAL_PROMPT=0")
+	runGit := func(input string, args ...string) string {
+		t.Helper()
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		command := exec.CommandContext(ctx, git, append([]string{"-c", "core.excludesFile=" + emptyConfig}, args...)...)
+		command.Dir, command.Env = root, environment
+		command.Stdin = strings.NewReader(input)
+		// init with an empty template and check-ignore do not invoke hooks or
+		// child tools. Bound pipe cleanup as well as the local Git process.
+		command.WaitDelay = time.Second
+		output, err := command.CombinedOutput()
+		if err != nil {
+			t.Fatalf("git %v: %v\n%s", args, err, output)
+		}
+		return string(output)
+	}
+	runGit("", "init", "--quiet", "--template="+emptyTemplate)
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	if _, _, err := SavePin(ctx, core.NewClient(), root, ".", "dev.example:compiler", &core.ToolchainPin{
+		Home: "/fixture/tool", Version: "1.0", Provider: "host:system",
+	}, nil); err != nil {
+		t.Fatal(err)
+	}
+	for _, path := range []string{".lithe/toolchains/shared.json", ".lithe/nested/.gitignore"} {
+		native := filepath.Join(root, filepath.FromSlash(path))
+		if err := os.MkdirAll(filepath.Dir(native), 0o700); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(native, nil, 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	paths := ".lithe/.gitignore\x00.lithe/toolchains/local.json\x00.lithe/toolchains/shared.json\x00.lithe/nested/.gitignore\x00"
+	if got := runGit(paths, "check-ignore", "--no-index", "--stdin", "-z"); got != ".lithe/.gitignore\x00.lithe/toolchains/local.json\x00" {
+		t.Fatalf("Git ignored paths = %q", got)
 	}
 }
 

@@ -1,7 +1,7 @@
 package ai
 
 import (
-	"context"
+	"maps"
 	"os"
 	"path/filepath"
 	"testing"
@@ -33,47 +33,124 @@ func TestCredentialLocatorResolution(t *testing.T) {
 	}
 }
 
-// fileKernel uses the real Core parser with files the test writes.
-type fileKernel struct {
-	*Client
-	files []ConfigurationFile
-}
-
-func (k fileKernel) ConfigurationSources(_ context.Context, source, _ string, _ map[string]string) ([]ConfigurationFile, error) {
-	if source != "codex" {
-		return nil, nil
-	}
-	return k.files, nil
-}
-
 func TestProviderDiscoveryUsesRealCoreParser(t *testing.T) {
-	directory := t.TempDir()
-	configPath := filepath.Join(directory, "config.toml")
-	authPath := filepath.Join(directory, "auth.json")
-	if err := os.WriteFile(configPath, []byte("model = 'fixture-model'\nmodel_provider = 'gateway'\n[model_providers.gateway]\nbase_url = 'https://example.test/v1'\nrequires_openai_auth = true\n"), 0o600); err != nil {
-		t.Fatal(err)
+	const codexConfig = "model = 'fixture-model'\nmodel_provider = 'gateway'\n[model_providers.gateway]\nbase_url = 'https://example.test/v1'\nrequires_openai_auth = true\n"
+	const codexAuth = `{"OPENAI_API_KEY":"fixture-file-secret"}`
+	const claudeSettings = `{"model":"fixture-claude-model","env":{"ANTHROPIC_BASE_URL":"https://claude.example.test/v1","ANTHROPIC_API_KEY":"fixture-claude-file-secret"}}`
+	codex := Provider{
+		Source: "codex", Name: "Codex · gateway", Endpoint: "https://example.test/v1", Model: "fixture-model",
+		Protocol: "responses", Authentication: "bearer", APIKey: "fixture-file-secret",
 	}
-	if err := os.WriteFile(authPath, []byte(`{"OPENAI_API_KEY":"fixture-file-secret"}`), 0o600); err != nil {
-		t.Fatal(err)
+	claudeEnvironment := Provider{
+		Source: "claude", Name: "Claude", Endpoint: "https://claude.example.test/v1", Model: "fixture-claude-model",
+		Protocol: "anthropicMessages", Authentication: "apiKey", APIKey: "fixture-environment-secret",
 	}
-	kernel := fileKernel{Client: testClient(), files: []ConfigurationFile{
-		{File: "config", Path: configPath},
-		{File: "auth", Path: authPath},
-	}}
-	providers := Discover(testContext(t), kernel)
-	if len(providers["codex"]) != 1 || len(providers["claude"]) != 0 {
-		t.Fatalf("providers = %d codex, %d claude; want one Codex provider", len(providers["codex"]), len(providers["claude"]))
+	claudeFile := claudeEnvironment
+	claudeFile.APIKey = "fixture-claude-file-secret"
+	environment := map[string]string{
+		"ANTHROPIC_BASE_URL": "https://claude.example.test/v1",
+		"ANTHROPIC_MODEL":    "fixture-claude-model",
+		"ANTHROPIC_API_KEY":  "fixture-environment-secret",
 	}
-	provider := providers["codex"][0]
-	if provider.Issue != "" || provider.Endpoint != "https://example.test/v1" || provider.Model != "fixture-model" ||
-		provider.Protocol != "responses" || provider.APIKey != "fixture-file-secret" {
-		t.Fatalf("provider issue=%q endpoint=%q model=%q protocol=%q keyPresent=%v", provider.Issue, provider.Endpoint, provider.Model, provider.Protocol, provider.APIKey != "")
-	}
-	if _, ok := Pick(providers, Sources()); !ok {
-		t.Fatal("the discovered provider is not usable for generation")
-	}
-	if got := ConfigurationPath(testContext(t), kernel, "codex"); got != configPath {
-		t.Fatalf("configuration path = %q, want %q", got, configPath)
+	for _, test := range []struct {
+		name        string
+		files       map[string]string
+		environment map[string]string
+		want        map[string]Provider
+		wantPick    string
+		codexPath   string
+	}{
+		{name: "no configuration"},
+		{
+			name:      "Codex files only",
+			files:     map[string]string{".codex/config.toml": codexConfig, ".codex/auth.json": codexAuth},
+			want:      map[string]Provider{"codex": codex},
+			wantPick:  "codex",
+			codexPath: ".codex/config.toml",
+		},
+		{
+			name:     "Claude files only",
+			files:    map[string]string{".claude/settings.json": claudeSettings},
+			want:     map[string]Provider{"claude": claudeFile},
+			wantPick: "claude",
+		},
+		{
+			name:        "Claude environment without files",
+			environment: environment,
+			want:        map[string]Provider{"claude": claudeEnvironment},
+			wantPick:    "claude",
+		},
+		{
+			name:        "both sources",
+			files:       map[string]string{".codex/config.toml": codexConfig, ".codex/auth.json": codexAuth},
+			environment: environment,
+			want:        map[string]Provider{"codex": codex, "claude": claudeEnvironment},
+			wantPick:    "codex",
+		},
+		{
+			name: "environment selects configuration directories",
+			files: map[string]string{
+				"codex-home/config.toml":    codexConfig,
+				"codex-home/auth.json":      codexAuth,
+				"claude-home/settings.json": claudeSettings,
+			},
+			environment: map[string]string{"CODEX_HOME": "codex-home", "CLAUDE_CONFIG_DIR": "claude-home"},
+			want:        map[string]Provider{"codex": codex, "claude": claudeFile},
+			wantPick:    "codex",
+			codexPath:   "codex-home/config.toml",
+		},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			home := t.TempDir()
+			for name, contents := range test.files {
+				path := filepath.Join(home, name)
+				if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+					t.Fatal(err)
+				}
+				if err := os.WriteFile(path, []byte(contents), 0o600); err != nil {
+					t.Fatal(err)
+				}
+			}
+			environment := maps.Clone(test.environment)
+			for _, key := range []string{"CODEX_HOME", "CLAUDE_CONFIG_DIR"} {
+				if relative := environment[key]; relative != "" {
+					environment[key] = filepath.Join(home, relative)
+				}
+			}
+			// Both native path discovery and parsing use the real Core. Neither the home
+			// nor the environment comes from the developer's account, even when nil.
+			kernel := testClient()
+			providers := discoverProviders(testContext(t), kernel, home, environment)
+			if len(providers) != len(test.want) {
+				t.Fatalf("provider sources = %d, want %d", len(providers), len(test.want))
+			}
+			for _, source := range Sources() {
+				want, configured := test.want[source]
+				if !configured {
+					if len(providers[source]) != 0 {
+						t.Fatalf("unexpected provider for %s", source)
+					}
+					continue
+				}
+				if len(providers[source]) != 1 {
+					t.Fatalf("providers for %s = %d, want 1", source, len(providers[source]))
+				}
+				provider := providers[source][0]
+				keyMatches := provider.APIKey == want.APIKey
+				provider.APIKey, want.APIKey = "", ""
+				if provider != want || !keyMatches {
+					t.Fatalf("%s provider: metadataMatch=%v credentialMatch=%v", source, provider == want, keyMatches)
+				}
+			}
+			if provider, ok := Pick(providers, Sources()); ok != (test.wantPick != "") || provider.Source != test.wantPick {
+				t.Fatal("provider selection does not match the fixture")
+			}
+			if test.codexPath != "" {
+				if got := configurationPath(testContext(t), kernel, "codex", home, environment); got != filepath.Join(home, test.codexPath) {
+					t.Fatal("configuration path does not match the fixture")
+				}
+			}
+		})
 	}
 }
 

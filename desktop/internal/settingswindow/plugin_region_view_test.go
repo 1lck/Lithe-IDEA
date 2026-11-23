@@ -285,6 +285,57 @@ func regionSettingsParam(t *testing.T, call regionCall) (effective, draft map[st
 	return effective, draft
 }
 
+// A region can refer to a setting or tool the current page cannot draw. These
+// synthetic nodes exercise the real settings host, including missing bindings
+// and bindings of the wrong kind; the following label must keep drawing.
+func TestRegionViewSkipsUnavailableNodesWithoutRenamingTheirNeighbors(t *testing.T) {
+	for _, node := range []string{
+		`{"type":"setting","setting":"missing"}`,
+		`{"type":"tool","tool":"missing"}`,
+		`{"type":"textField","id":"missing","setting":"missing"}`,
+		`{"type":"select","id":"missing","setting":"name"}`,
+		`{"type":"segmented","id":"missing","setting":"name"}`,
+		`{"type":"toggle","id":"missing","setting":"name"}`,
+	} {
+		var kind struct{ Type string }
+		if err := json.Unmarshal([]byte(node), &kind); err != nil {
+			t.Fatal(err)
+		}
+		t.Run(kind.Type, func(t *testing.T) {
+			source := &regionSource{calls: make(chan regionCall, 32), view: json.RawMessage(`[` + node + `,
+				{"type":"label","text":"Region is available"},
+				{"type":"label","text":"Available controls follow"},
+				{"type":"button","id":"probe","text":"Probe"}]`)}
+			fetch := func(context.Context) (marketplace.Snapshot, error) {
+				return marketplace.Snapshot{Index: core.MarketplaceIndex{Plugins: []core.MarketplacePlugin{{ID: regionPlugin, Name: "Region Fixture", LatestVersion: "1.0.0"}}}}, nil
+			}
+			w := newWindow(NewController(Options{
+				Text:        func() *i18n.Messages { return i18n.For(i18n.English) },
+				Marketplace: fetch, MarketplaceInstalled: fetch, PluginSettings: source,
+				PluginState: func(string) PluginState { return PluginState{Installed: true, Enabled: true, Version: "1.0.0"} },
+				InstalledPlugins: func() []PluginFacts {
+					return []PluginFacts{{ID: regionPlugin, Name: "Region Fixture", Version: "1.0.0", Settings: len(regionEditor().Snapshot.State.Rows)}}
+				},
+			}), Values{Theme: "dark"})
+			w.sess.page = pagePlugins
+			w.installed.tab = installedSettings
+			d := openWindow(t, w)
+			d.until("the region after its unavailable node", func() bool { return d.text("Region is available") && d.has("Probe") })
+			probe := d.hit("Probe").ID
+			if event := source.next(t); event.params["event"] != "open" {
+				t.Fatalf("the region opened with %v", event.params)
+			}
+			d.click("Probe")
+			if got := d.hit("Probe").ID; got != probe {
+				t.Fatalf("the neighboring button changed identity: %v -> %v", probe, got)
+			}
+			if event := source.next(t); event.params["event"] != "click" || event.params["node"] != "probe" {
+				t.Fatalf("the neighboring button sent %v, want its click", event.params)
+			}
+		})
+	}
+}
+
 // A region opens with the plugin's own Settings tab and carries the page's settings, a
 // changed draft rides on the next event, and the view closes when the tab is left or the
 // language changes, opening anew when it shows again.
