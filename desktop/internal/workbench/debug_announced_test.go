@@ -291,16 +291,26 @@ func TestDebugAnnouncedRemoteEndpointFailsAndStopsTheProcess(t *testing.T) {
 
 func TestDebugAnnouncedAdapterThatNeverAnnouncesTimesOut(t *testing.T) {
 	h := debugPluginHarness(t, "dev.lithe.test.debug-announced", debugAnnouncedManifest, true)
-	root, _, watch := announcedWorkspace(t, "silent")
+	root, _, _ := announcedWorkspace(t, "silent")
 	// A race-instrumented child can take over a second to reach its watch.
 	h.app.debugInitializeWindow = 3 * time.Second
 	p := openHostedPanel(t, h, root)
 	h.clickNamed(h.app.text.Debug.Start)
+	session := p.debug.activeSession()
+	if session == nil {
+		t.Fatal("the announced adapter never entered its startup session")
+	}
 	awaitStateWithin(t, h, 20*time.Second, "the timeout", func() bool { return p.debug.failure != "" })
 	if p.debug.failure != h.app.text.Debug.TimedOut || p.debug.activeSession() != nil {
 		t.Fatalf("failure = %q, want the timeout message", p.debug.failure)
 	}
-	watch.ended(t, 20*time.Second)
+	// The discovery deadline includes process startup, so a loaded CI runner
+	// can expire the session before the child dials the optional watch. Check
+	// the host-owned process rather than demanding that the child connected.
+	awaitDebugSessionDone(t, session)
+	if session.process.Load() == nil {
+		t.Fatal("the timeout was reported without starting the adapter process")
+	}
 }
 
 // announcementRecorder is a reader whose Core answer is a fixed rule: a line
