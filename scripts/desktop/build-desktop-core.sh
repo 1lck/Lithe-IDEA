@@ -355,7 +355,11 @@ PINNED_CORE_REPOSITORY="https://github.com/Lithe-IDEA/Lithe-core-rust.git"
 # context; #174 merged with that field under a new ui 1, and #175 makes choose an optional field
 # within ui 0 again. The sources are the same as the branch commit a50cea1 that the desktop
 # pinned before; only the protocol changelog differs.
-PINNED_CORE_REVISION="dcb3d77f7a56e58f3d7c0aceea5b7df6986ed2e2"
+# Core support revision for 1lck/Lithe-IDEA#1670: native pin source maintenance
+# ignores its own .lithe/.gitignore without hiding shared configuration.
+# Lithe-IDEA/Lithe-core-rust#179 must merge first; replace this revision with
+# its main commit before the desktop integration leaves Draft.
+PINNED_CORE_REVISION="4ce02a3f77bb0225488f513c5f92e18abb29e144"
 PROFILE="debug"
 CHECKOUT_ONLY="no"
 while [[ $# -gt 0 ]]; do
