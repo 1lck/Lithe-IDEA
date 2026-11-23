@@ -554,7 +554,7 @@ func (a *App) memoryLegend(c ui.C, language i18n.Language, parts []core.MemoryCa
 	ui.Column(c).FillWidth().Children(func() {
 		a.memoryHeadings(c.Part("headings"), language, columns)
 		for i, part := range parts {
-			a.memoryRow(c.KeyInt(i), language, memoryLine{
+			a.memoryRow(c, c.KeyInt(i), language, memoryLine{
 				kind: part.Kind, name: memoryKindLabel(language, part.Kind), processes: part.ProcessCount, bytes: part.Bytes, usage: part.MemoryUsage,
 			}, columns)
 		}
@@ -572,7 +572,7 @@ func (a *App) memoryEntries(c ui.C, language i18n.Language, columns memoryColumn
 	}
 	ui.Scroll(c.Part("list")).Scrollbars().FillWidth().MaxHeight(memoryListHeight).Children(func() {
 		for i, entry := range summary.Entries {
-			a.memoryRow(c.KeyInt(i), language, memoryLine{
+			a.memoryRow(c, c.KeyInt(i), language, memoryLine{
 				kind: entry.Kind, name: entry.Name, processes: entry.ProcessCount, bytes: entry.Bytes, usage: entry.MemoryUsage,
 			}, columns)
 		}
@@ -594,7 +594,7 @@ type memoryLine struct {
 
 // memoryRow declares a row of the legend or the list: the part's dot, the name, how many
 // processes it sums when more than one, then the figures of the columns, right-aligned.
-func (a *App) memoryRow(k ui.C, language i18n.Language, line memoryLine, columns memoryColumns) {
+func (a *App) memoryRow(c, k ui.C, language i18n.Language, line memoryLine, columns memoryColumns) {
 	small := a.theme.Metrics.FontSizeS
 	figure := func(text string, width float32) {
 		ui.Text(c, text).FontSize(small).Width(width).Shrink(0).TextEnd()

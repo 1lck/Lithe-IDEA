@@ -531,7 +531,7 @@ func (a *App) projectOutput(c ui.C, language i18n.Language, lines []string) {
 	}
 	ui.Text(c, i18n.Shared(language, "desktop.newProject.output")).FontSize(12).Muted()
 	ui.Column(c).FillWidth().Gap(2).Children(func() {
-		for index, line := range lines {
+		for _, line := range lines {
 			ui.Text(c, line).Mono().FontSize(11).Color(a.colors.Subtle)
 		}
 	})
