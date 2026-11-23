@@ -736,6 +736,7 @@ func (w *window) footer(c ui.C) {
 			w.setTabRows("", true)
 			w.setTabOverflow("", true)
 			w.setDisableSemanticHighlight(false, true)
+			w.setDisableAutoCompletion(false)
 			w.setVimMode(false, true)
 			w.resetEditorPresentation()
 			w.setProcessTermination(ProcessTermination{}, true)

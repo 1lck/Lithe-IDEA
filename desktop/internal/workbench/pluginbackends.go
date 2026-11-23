@@ -190,6 +190,12 @@ func (a *App) startPluginServer(languageID string) {
 	a.requestPluginServer(languageID, false)
 }
 
+func (a *App) languageServerStarting(languageID string) bool {
+	a.pluginServerMu.Lock()
+	defer a.pluginServerMu.Unlock()
+	return a.pluginServerStarting[languageID]
+}
+
 func (a *App) requestPluginServer(languageID string, providersChanged bool) {
 	if a.plugins == nil || languageID == "" {
 		return
@@ -289,6 +295,7 @@ func (a *App) finishPluginServerPreparation(preparation *pluginServerPreparation
 			a.pluginServerMu.Lock()
 			delete(a.pluginServerStarting, languageID)
 			a.pluginServerMu.Unlock()
+			a.resumeStartingCompletion(preparation.project, languageID)
 		}
 		return
 	}
@@ -301,6 +308,9 @@ func (a *App) finishPluginServerPreparation(preparation *pluginServerPreparation
 	a.finishPluginServerStart(preparation.project, languageID, pluginID, version, session, err)
 	if retryWithoutProvider && session == nil && err == nil && a.project == preparation.project {
 		a.startPluginServer(languageID)
+	}
+	if session == nil {
+		a.resumeStartingCompletion(preparation.project, languageID)
 	}
 }
 
@@ -382,7 +392,14 @@ func (a *App) finishPluginServerStart(p *project, languageID, failedPluginID, fa
 	// A restarted server has to republish everything: keeping the previous
 	// process's diagnostics would show problems the new one may already have fixed.
 	a.clearPluginDiagnostics(session.PluginID)
+	// A manual completion waiting for discovery predates the session being replaced.
+	waiting := a.semantics.startingCompletion
 	a.releasePluginDocuments(session.PluginID)
+	if waiting != nil {
+		a.semantics.startingCompletion = waiting
+		a.semantics.project = waiting.project
+		a.semantics.documentID = waiting.documentID
+	}
 	a.openDocumentsForPlugin(p, server, languageID)
 	a.servePluginServer(server, ctx)
 }

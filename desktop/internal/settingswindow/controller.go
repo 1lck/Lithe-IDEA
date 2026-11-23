@@ -117,6 +117,8 @@ type Values struct {
 	ProjectOpenDestination string
 	// DisableSemanticHighlight keeps the syntax colors alone; semantic coloring is on by default.
 	DisableSemanticHighlight bool
+	// DisableAutoCompletion suppresses suggestions triggered by typing.
+	DisableAutoCompletion bool
 	// VimMode turns on the Vim keys of the editor (Normal, Insert and Visual modes); off by default.
 	VimMode bool
 	// DisableAutoSave stops saving changed files a moment after typing stops; auto-save is
@@ -600,6 +602,8 @@ type Options struct {
 	// SetDisableSemanticHighlight hands a change of Values.DisableSemanticHighlight to the
 	// settings owner, like SetHideGitGutter.
 	SetDisableSemanticHighlight func(bool)
+	// SetDisableAutoCompletion hands a change of Values.DisableAutoCompletion to the settings owner.
+	SetDisableAutoCompletion func(bool)
 	// SetVimMode hands a change of Values.VimMode to the settings owner, like
 	// SetDisableSemanticHighlight.
 	SetVimMode func(bool)

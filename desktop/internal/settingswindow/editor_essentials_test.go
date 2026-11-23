@@ -7,6 +7,26 @@ import (
 	"testing"
 )
 
+func TestEditorAutoCompletionSettingTogglesAndRestoresDefault(t *testing.T) {
+	var changes []bool
+	w := newWindow(NewController(Options{
+		SetDisableAutoCompletion: func(disabled bool) { changes = append(changes, disabled) },
+	}), Values{Language: "en"})
+	w.sess.page = pageEditor
+	d := openWindow(t, w)
+	d.pump()
+	d.click(i18n.Shared(i18n.English, "desktop.editorPrefs.autoCompletion"))
+	d.pump()
+	if len(changes) != 1 || !changes[0] || !w.sess.values.DisableAutoCompletion {
+		t.Fatalf("switch did not disable automatic completion: %v", changes)
+	}
+	d.click(i18n.For(i18n.English).Settings.RestoreDefaults)
+	d.pump()
+	if len(changes) != 2 || changes[1] || w.sess.values.DisableAutoCompletion {
+		t.Fatalf("restore did not re-enable automatic completion: %v", changes)
+	}
+}
+
 func TestEditorEssentialsDisplaySettingsApplyActualValues(t *testing.T) {
 	var stored core.EditorStoredPreferences
 	var resolved core.EditorPreferences

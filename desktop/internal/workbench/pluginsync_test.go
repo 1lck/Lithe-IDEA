@@ -13,6 +13,21 @@ import (
 	"github.com/1lck/Lithe-IDEA/desktop/internal/pluginservice"
 )
 
+// newHarnessWithEmptyPluginService installs an isolated plugin stack before any
+// project work can read it on a background goroutine.
+func newHarnessWithEmptyPluginService(t *testing.T) *harness {
+	t.Helper()
+	pluginRoot := t.TempDir()
+	kernel := &testKernel{Client: core.NewClient()}
+	h := newHarness(t, kernel)
+	service, err := pluginservice.Open(kernel, h.store, pluginRoot)
+	if err != nil {
+		t.Fatal(err)
+	}
+	h.app.plugins = service
+	return h
+}
+
 // openSyncDocument opens one real file through the workbench action and returns
 // its document, without requiring a language server.
 func openSyncDocument(t *testing.T, h *harness, root, name string) (*project, *document) {
@@ -121,17 +136,15 @@ func TestLateOpenClosesDocumentItOpened(t *testing.T) {
 }
 
 func TestReleasePluginInvalidatesOpeningDocument(t *testing.T) {
-	h := newHarness(t, &testKernel{Client: core.NewClient()})
+	h := newHarnessWithEmptyPluginService(t)
 	h.open(t.TempDir())
 	p, d := openSyncDocument(t, h, h.app.project.root, "A.java")
 	d.languageID = "java"
 	tracker := pluginlsp.New(&closeRecordKernel{}, "opening-session")
 	server := &pluginServer{session: &pluginservice.LanguageSession{PluginID: "java", Documents: tracker}, cancel: func() {}}
-	h.app.plugins = &pluginservice.Service{}
 	h.app.pluginServers = map[string]*pluginServer{"java": server}
 	h.app.pluginServerLanguages = map[string]string{"java": "java"}
 	defer func() {
-		h.app.plugins = nil
 		h.app.pluginServers = nil
 		h.app.pluginServerLanguages = nil
 	}()
@@ -148,7 +161,7 @@ func TestReleasePluginInvalidatesOpeningDocument(t *testing.T) {
 // Providers may serve any language. Preserve the document's URI verbatim so
 // subsequent definitions refer to the same identity that supplied its text.
 func TestVirtualDocumentPreservesLanguageAndSyncURI(t *testing.T) {
-	h := newHarness(t, &testKernel{Client: core.NewClient()})
+	h := newHarnessWithEmptyPluginService(t)
 	root, _ := openNote(t, h, "x")
 	uri := "dependency-source://library/Widget.go?revision=one%2Ftwo"
 	_, err := callOnWindow(h, "virtual language document", func(ctx context.Context) (struct{}, error) {
@@ -164,11 +177,9 @@ func TestVirtualDocumentPreservesLanguageAndSyncURI(t *testing.T) {
 	}
 	capture := &virtualSyncKernel{request: make(chan core.PluginDocumentSyncRequest, 1)}
 	tracker := pluginlsp.New(capture, "virtual-session")
-	original := h.app.plugins
-	h.app.plugins = &pluginservice.Service{}
 	h.app.pluginServers = map[string]*pluginServer{"dependency": {session: &pluginservice.LanguageSession{PluginID: "dependency", Documents: tracker}, cancel: func() {}}}
 	h.app.pluginServerLanguages = map[string]string{"go": "dependency"}
-	defer func() { h.app.plugins = original; h.app.pluginServers = nil; h.app.pluginServerLanguages = nil }()
+	defer func() { h.app.pluginServers = nil; h.app.pluginServerLanguages = nil }()
 	h.app.startDocumentSync(p, d)
 	awaitStateWithin(t, h, 3*time.Second, "virtual synchronization", func() bool { return !d.sync.running })
 	if !d.sync.opened || d.sync.uri != uri {
