@@ -16,5 +16,28 @@ fi
 
 "$GO" vet ./...
 "$GO" vet -tags dev ./...
-"$GO" test ./...
-"$GO" test -tags dev ./internal/buildinfo ./internal/settingswindow ./internal/pluginview ./internal/workbench
+# A full Windows workbench run measured 588 seconds against Go's 10-minute
+# package deadline. Split its top-level tests into disjoint groups, keeping the
+# default deadline for every group and the same coverage for both build tags.
+test_workbench_groups() {
+    "$GO" test "$@" -run '^Test[A-C]' ./internal/workbench
+    "$GO" test "$@" -run '^Test[D-P]' ./internal/workbench
+    "$GO" test "$@" -skip '^Test[A-P]' ./internal/workbench
+}
+
+if [[ "$(go env GOOS)" == windows ]]; then
+    listed_packages="$("$GO" list ./...)"
+    packages=()
+    while IFS= read -r package; do
+        if [[ "$package" != */internal/workbench ]]; then
+            packages+=("$package")
+        fi
+    done <<< "$listed_packages"
+    "$GO" test "${packages[@]}"
+    test_workbench_groups
+    "$GO" test -tags dev ./internal/buildinfo ./internal/settingswindow ./internal/pluginview
+    test_workbench_groups -tags dev
+else
+    "$GO" test ./...
+    "$GO" test -tags dev ./internal/buildinfo ./internal/settingswindow ./internal/pluginview ./internal/workbench
+fi

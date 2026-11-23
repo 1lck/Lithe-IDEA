@@ -347,7 +347,7 @@ func TestLogForceDeleteBatchOnlyRetriesUnmergedAndRejectsChangedTip(t *testing.T
 	if got := gitRun(t, dir, "rev-parse", "refs/heads/"+name); got != current {
 		t.Fatalf("changed branch was deleted or moved: %s", got)
 	}
-	if b.dialog != branchDialogDeleteResult || len(b.deleteUnmerged) != 0 || !strings.Contains(lastNotice(h), i18n.Shared(h.app.language(), "desktop.branch.deleteChanged")) {
+	if b.dialog != branchDialogDeleteResult || len(b.deleteReport.unmerged) != 0 || !strings.Contains(lastNotice(h), i18n.Shared(h.app.language(), "desktop.branch.deleteChanged")) {
 		t.Fatal("stale force confirmation was retained or change was not explained")
 	}
 }
@@ -373,10 +373,10 @@ func TestLogForceDeleteMixedBatchRetainsEveryOutcome(t *testing.T) {
 	b := &h.app.branch
 	h.await("mixed batch attempted", func() bool { return !b.busy })
 	h.settleChain()
-	if b.dialog != branchDialogDeleteUnmerged || len(b.deleting) != 2 || len(b.deleteResults) != 4 {
+	if b.dialog != branchDialogDeleteUnmerged || len(b.deleting) != 2 || len(b.deleteReport.results) != 4 {
 		t.Fatalf("mixed result lost a branch or included a non-unmerged force target: %+v", b)
 	}
-	if b.deleteResults[slices.IndexFunc(b.deleteResults, func(d branchDeletion) bool { return d.branch.ShortName == "merged" })].err != nil {
+	if b.deleteReport.results[slices.IndexFunc(b.deleteReport.results, func(d branchDeletion) bool { return d.branch.ShortName == "merged" })].err != nil {
 		t.Fatal("merged branch did not succeed")
 	}
 	for _, key := range []string{"deleteResultDeleted", "deleteResultFailed", "deleteResultUnmerged"} {
@@ -402,7 +402,7 @@ func TestLogForceDeleteMixedBatchRetainsEveryOutcome(t *testing.T) {
 	if gitRun(t, dir, "branch", "--list", "backup/busy") == "" {
 		t.Fatal("force deleted a branch checked out in another worktree")
 	}
-	if len(b.deleteUnmerged) != 0 || len(b.deleteResults) != 4 {
+	if len(b.deleteReport.unmerged) != 0 || len(b.deleteReport.results) != 4 {
 		t.Fatal("force completion lost original outcomes or retained stale reviews")
 	}
 }
