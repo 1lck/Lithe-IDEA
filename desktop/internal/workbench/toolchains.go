@@ -54,14 +54,27 @@ func (a *App) toolchainManifests(ctx context.Context) ([]json.RawMessage, error)
 // missing manifest must not conceal other valid tools; consumers still rely
 // on Core to resolve the requested ID. Log the degradation once per discovery.
 func (a *App) usableToolchainManifests(ctx context.Context, operation string) ([]json.RawMessage, bool, error) {
-	manifests, err := a.toolchainManifests(ctx)
-	if err == nil {
+	manifests, readErr := a.toolchainManifests(ctx)
+	usable, incomplete, err := partialToolchainCatalog(ctx, manifests, readErr)
+	if incomplete {
+		a.backgroundFailedIn(ctx, operation, readErr)
+	}
+	return usable, incomplete, err
+}
+
+// partialToolchainCatalog accepts valid manifests from a partially unreadable
+// plugin set, but cancellation of the *whole request* is always terminal.
+// A nested provider may time out independently without canceling ctx.
+func partialToolchainCatalog(ctx context.Context, manifests []json.RawMessage, readErr error) ([]json.RawMessage, bool, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, false, err
+	}
+	if readErr == nil {
 		return manifests, false, nil
 	}
 	if len(manifests) == 0 {
-		return nil, false, err
+		return nil, false, readErr
 	}
-	a.backgroundFailedIn(ctx, operation, err)
 	return manifests, true, nil
 }
 
