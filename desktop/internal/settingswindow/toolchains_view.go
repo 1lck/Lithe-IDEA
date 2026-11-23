@@ -257,10 +257,7 @@ func (w *window) toolchainsNotices(c ui.C, language i18n.Language, scope *toolch
 			if len(sources) > 3 {
 				sources = sources[:3]
 			}
-			text := i18n.SharedFormat(language, "desktop.buildSettings.trustBanner", map[string]string{
-				"count":   formatCount(count),
-				"sources": strings.Join(sources, i18n.Shared(language, "desktop.buildSettings.listSeparator")),
-			})
+			text := trustBannerText(language, count, strings.Join(sources, i18n.Shared(language, "desktop.buildSettings.listSeparator")))
 			w.box(c.Part("banner"), boxWarn, func(words gfx.Color) {
 				boxIcon(c, icons.CircleAlert, words)
 				boxText(c, text, words)
@@ -322,10 +319,7 @@ func (w *window) toolchainsSplit(c ui.C, language i18n.Language, scope *toolchai
 				}
 			}
 			ui.Row(c).FillWidth().Shrink(0).PadX(12).PadY(5).Gap(8).Children(func() {
-				ui.Text(c, i18n.SharedFormat(language, "desktop.buildSettings.listCount", map[string]string{
-					"matched": formatCount(tools),
-					"total":   formatCount(w.toolchains.view.view.Counts.Total),
-				})).FontSize(11).Color(b.faint).Ellipsis()
+				ui.Text(c, toolchainListCount(language, tools, w.toolchains.view.view.Counts.Total)).FontSize(11).Color(b.faint).Ellipsis()
 			})
 		})
 		ui.Row(c).Width(1).Shrink(0).FillHeight().Background(b.line)
@@ -680,7 +674,7 @@ func (w *window) toolchainDetail(c ui.C, language i18n.Language, scope *toolchai
 	ui.Column(c).FillWidth().MinWidth(0).Children(func() {
 		w.toolchainHead(c.Part("head"), language, scope, tool, name, plugin)
 		ui.Row(c).Height(14).Shrink(0)
-		if w.toolchainProblem(c.Part("problem"), language, scope, entry, current, status, name, plugin) {
+		if w.toolchainProblem(c, language, scope, entry, current, status, name, plugin) {
 			ui.Row(c).Height(12).Shrink(0)
 		}
 		w.toolchainEffective(c.Part("effective"), language, scope, entry, current, status)
@@ -776,7 +770,7 @@ func (w *window) toolchainProblem(c ui.C, language i18n.Language, scope *toolcha
 		text = toolchainReasonLabel(language, current.reason)
 	}
 	prepareRuntime := entry.tool.ManagedRuntime && t.runtimeEffect != nil && !trust
-	w.box(c, kind, func(words gfx.Color) {
+	w.box(c.Part("problem"), kind, func(words gfx.Color) {
 		boxIcon(c, icon, words)
 		boxText(c, text, words)
 		if trust && w.button(c.Part("trust"), buttonSmall, i18n.Shared(language, "desktop.buildSettings.trustProject"), t.busy()) {
@@ -980,12 +974,12 @@ func (w *window) toolchainTrace(c ui.C, language i18n.Language, tool *toolchain.
 			ui.Row(k).FillWidth().MinWidth(0).PadY(3).Gap(8).Items(ui.Start).Children(func() {
 				ui.Row(k).Width(14).Shrink(0).MinHeight(16).Center().Children(func() {
 					if mark == "" {
-						ui.Icon(k, icons.Check).Size(11, 11).Color(markColor)
+						ui.Icon(c, icons.Check).Size(11, 11).Color(markColor)
 						return
 					}
-					ui.Text(k, mark).FontSize(buildSmall).Weight(gfx.WeightBold).Color(markColor)
+					ui.Text(c, mark).FontSize(buildSmall).Weight(gfx.WeightBold).Color(markColor)
 				})
-				ui.Wrap(k, text).FontSize(buildSmall).Color(words).Grow(1).Shrink(1).MinWidth(0)
+				ui.Wrap(c, text).FontSize(buildSmall).Color(words).Grow(1).Shrink(1).MinWidth(0)
 			})
 		}
 	})

@@ -31,9 +31,10 @@ const KeptNamespace = "@host/remote-sessions"
 // keptLimit is how many kept sessions one connection remembers.
 const keptLimit = 8
 
-// KeptSecrets is the secret store the kept sessions are remembered in, credentials.Store in the
-// application. Get reports found false for an item that is not there.
-type KeptSecrets interface {
+// Secrets is the secret store the kept sessions and the remembered answers (answers.go) are
+// kept in, credentials.Store in the application. Get reports found false for an item that is not
+// there.
+type Secrets interface {
 	Get(ctx context.Context, namespace, key string) (string, bool, error)
 	Set(ctx context.Context, namespace, key, secret string) error
 	Delete(ctx context.Context, namespace, key string) error
@@ -52,7 +53,7 @@ func keptAccount(connectionID string) string {
 
 // readKept is connectionID's list, oldest first. A secret that does not decode holds no session
 // that can be resumed, so it reads as an empty list, which the next change replaces.
-func readKept(ctx context.Context, secrets KeptSecrets, connectionID string) ([]core.RemoteResume, error) {
+func readKept(ctx context.Context, secrets Secrets, connectionID string) ([]core.RemoteResume, error) {
 	secret, found, err := secrets.Get(ctx, KeptNamespace, keptAccount(connectionID))
 	if err != nil || !found {
 		return nil, err
@@ -65,7 +66,7 @@ func readKept(ctx context.Context, secrets KeptSecrets, connectionID string) ([]
 }
 
 // writeKept stores kept as connectionID's list, removing the item when it is empty.
-func writeKept(ctx context.Context, secrets KeptSecrets, connectionID string, kept []core.RemoteResume) error {
+func writeKept(ctx context.Context, secrets Secrets, connectionID string, kept []core.RemoteResume) error {
 	account := keptAccount(connectionID)
 	if len(kept) == 0 {
 		return secrets.Delete(ctx, KeptNamespace, account)
@@ -78,7 +79,7 @@ func writeKept(ctx context.Context, secrets KeptSecrets, connectionID string, ke
 }
 
 // NewestKept is the session connectionID kept last, nil when it keeps none.
-func NewestKept(ctx context.Context, secrets KeptSecrets, connectionID string) (*core.RemoteResume, error) {
+func NewestKept(ctx context.Context, secrets Secrets, connectionID string) (*core.RemoteResume, error) {
 	keptLock.Lock()
 	defer keptLock.Unlock()
 	kept, err := readKept(ctx, secrets, connectionID)
@@ -91,7 +92,7 @@ func NewestKept(ctx context.Context, secrets KeptSecrets, connectionID string) (
 
 // RememberKept adds resume as connectionID's newest kept session, replacing an entry of the same
 // key and forgetting the oldest beyond keptLimit.
-func RememberKept(ctx context.Context, secrets KeptSecrets, connectionID string, resume core.RemoteResume) error {
+func RememberKept(ctx context.Context, secrets Secrets, connectionID string, resume core.RemoteResume) error {
 	keptLock.Lock()
 	defer keptLock.Unlock()
 	kept, err := readKept(ctx, secrets, connectionID)
@@ -108,7 +109,7 @@ func RememberKept(ctx context.Context, secrets KeptSecrets, connectionID string,
 
 // ForgetKept removes the session key from connectionID's list; forgetting one that is not there
 // succeeds.
-func ForgetKept(ctx context.Context, secrets KeptSecrets, connectionID, key string) error {
+func ForgetKept(ctx context.Context, secrets Secrets, connectionID, key string) error {
 	keptLock.Lock()
 	defer keptLock.Unlock()
 	kept, err := readKept(ctx, secrets, connectionID)

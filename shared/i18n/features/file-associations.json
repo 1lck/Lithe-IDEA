@@ -1,0 +1,203 @@
+{
+  "schemaVersion": 1,
+  "messages": [
+    {
+      "id": "desktop.associations.title",
+      "description": "System file associations: title",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.associations.helpMac",
+      "description": "System file associations: helpMac",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.associations.helpWindows",
+      "description": "System file associations: helpWindows",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.associations.selectAll",
+      "description": "System file associations: selectAll",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.associations.clearSelection",
+      "description": "System file associations: clearSelection",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.associations.refresh",
+      "description": "System file associations: refresh",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.associations.format",
+      "description": "System file associations: format",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.associations.language",
+      "description": "System file associations: language",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.associations.currentDefault",
+      "description": "System file associations: currentDefault",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.associations.formats",
+      "description": "System file associations: formats",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.associations.noDefault",
+      "description": "System file associations: noDefault",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.associations.litheDefault",
+      "description": "System file associations: litheDefault",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.associations.selected",
+      "description": "System file associations: selected",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "count": "string"
+      }
+    },
+    {
+      "id": "desktop.associations.applyMac",
+      "description": "System file associations: applyMac",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.associations.applyWindows",
+      "description": "System file associations: applyWindows",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.associations.requiresInstalled",
+      "description": "System file associations: requiresInstalled",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.associations.appliedMac",
+      "description": "System file associations: appliedMac",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.associations.appliedWindows",
+      "description": "System file associations: appliedWindows",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.associations.failed",
+      "description": "System file associations: failed",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.associations.conflict",
+      "description": "System file associations: conflict",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.associations.openWith",
+      "description": "System file associations: openWith",
+      "platforms": [
+        "desktop"
+      ]
+    }
+  ],
+  "locales": {
+    "en-US": {
+      "desktop.associations.title": "File associations",
+      "desktop.associations.helpMac": "Lists the extensions supported by built-in highlighting, plus plain text. Select formats and apply to use Lithe as their default editor. Finder also offers Lithe under Open With. macOS associates content types, so extensions sharing one type may change together. Filename-only rules, compressed files and binary files are excluded; compound suffixes use the final extension. Clearing a checkbox changes only this draft.",
+      "desktop.associations.helpWindows": "Lists the extensions supported by built-in highlighting, plus plain text. Register selected formats to offer Lithe in Open With, then confirm defaults in Windows Settings. Associated files also have an Open with Lithe context action (under Show more options on Windows 11). Filename-only rules, compressed files and binary files are excluded. Clearing a checkbox changes only this draft.",
+      "desktop.associations.selectAll": "Select all",
+      "desktop.associations.clearSelection": "Clear selection",
+      "desktop.associations.refresh": "Refresh",
+      "desktop.associations.format": "Format",
+      "desktop.associations.language": "Highlighting",
+      "desktop.associations.currentDefault": "Current default application",
+      "desktop.associations.formats": "Supported text formats",
+      "desktop.associations.noDefault": "No default application",
+      "desktop.associations.litheDefault": "Lithe (default)",
+      "desktop.associations.selected": "{count} selected",
+      "desktop.associations.applyMac": "Set selected defaults",
+      "desktop.associations.applyWindows": "Register and choose defaults…",
+      "desktop.associations.requiresInstalled": "Install and open the packaged Lithe application to register file associations.",
+      "desktop.associations.appliedMac": "Default applications refreshed from the system.",
+      "desktop.associations.appliedWindows": "Formats registered. Confirm your choices in Windows Settings, then refresh this list.",
+      "desktop.associations.failed": "Could not read or update file associations. Some formats may have changed. Refresh to check the current defaults and try again.",
+      "desktop.associations.conflict": "System associations changed while this page was open. Review the refreshed defaults and apply again.",
+      "desktop.associations.openWith": "Open with Lithe"
+    },
+    "zh-CN": {
+      "desktop.associations.title": "文件关联",
+      "desktop.associations.helpMac": "列出内置高亮支持的扩展名及纯文本。勾选格式并应用后，将 Lithe 设为默认编辑器；Finder 也会在“打开方式”中显示 Lithe。macOS 按内容类型关联，共用同一类型的扩展名可能同时生效。仅匹配文件名的规则、压缩文件和二进制文件不在此列，复合后缀使用最后一段扩展名。取消勾选只修改本次草稿。",
+      "desktop.associations.helpWindows": "列出内置高亮支持的扩展名及纯文本。注册所选格式后，Lithe 会显示在“打开方式”中，再到 Windows 设置确认默认应用。已关联的文件也会有“用 Lithe 打开”右键项（Windows 11 位于“显示更多选项”）。仅匹配文件名的规则、压缩文件和二进制文件不在此列。取消勾选只修改本次草稿。",
+      "desktop.associations.selectAll": "全选",
+      "desktop.associations.clearSelection": "清空选择",
+      "desktop.associations.refresh": "刷新",
+      "desktop.associations.format": "格式",
+      "desktop.associations.language": "高亮语言",
+      "desktop.associations.currentDefault": "当前默认应用",
+      "desktop.associations.formats": "支持的文本格式",
+      "desktop.associations.noDefault": "未设置默认应用",
+      "desktop.associations.litheDefault": "Lithe（默认）",
+      "desktop.associations.selected": "已选 {count} 项",
+      "desktop.associations.applyMac": "将所选格式设为默认",
+      "desktop.associations.applyWindows": "注册并选择默认应用…",
+      "desktop.associations.requiresInstalled": "请安装并运行打包后的 Lithe 应用以注册文件关联。",
+      "desktop.associations.appliedMac": "已从系统重新读取默认应用。",
+      "desktop.associations.appliedWindows": "所选格式已注册。请在 Windows 设置中确认默认应用，再刷新此列表。",
+      "desktop.associations.failed": "无法读取或更新文件关联，部分格式可能已生效。请刷新确认当前状态后重试。",
+      "desktop.associations.conflict": "打开此页后系统关联发生了变化。请确认刷新后的默认应用，再重新应用。",
+      "desktop.associations.openWith": "用 Lithe 打开"
+    }
+  }
+}

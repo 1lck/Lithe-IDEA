@@ -449,7 +449,7 @@ func (a *App) hoverPopup(c ui.C) {
 					button := ui.Row(key).FillWidth().Height(28).PadX(8).Items(ui.Center).
 						HitWith(ui.ID(key), label, gfx.HitOptions{Role: gfx.RoleButton, SkipFocus: true, Cursor: gfx.PointerCursorHand}).
 						Hover(ui.Look{}.Background(a.colors.Hover))
-					button.Children(func() { ui.Text(key, label).FontSize(12) })
+					button.Children(func() { ui.Text(c, label).FontSize(12) })
 					if button.Clicked() {
 						docID, span, anchor := state.documentID, *state.quickFix, state.anchor
 						c.After(func() {

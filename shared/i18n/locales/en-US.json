@@ -11354,6 +11354,8 @@
     "desktop.editorPrefs.whitespace": "Show whitespace",
     "desktop.editorPrefs.inlayHints": "Show inlay hints",
     "desktop.editorPrefs.inlayHintsHelp": "Show parameter names, inferred types, and other inline hints reported by language servers. Turning this off hides hints immediately and stops requesting them.",
+    "desktop.editorPrefs.autoCompletion": "Auto completion",
+    "desktop.editorPrefs.autoCompletionHelp": "Show code completion suggestions while typing. You can press Ctrl+Space to open suggestions manually at any time.",
     "desktop.editorMenu.codeActions": "Code Actions...",
     "desktop.editorMenu.parameterInfo": "Parameter Info",
     "desktop.semantics.codeActions": "Code Actions",

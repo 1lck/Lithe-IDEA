@@ -133,13 +133,15 @@ func (a *App) connectRemoteTo(entry core.SavedRemoteConnection, host remoteHost,
 		})
 	})
 	generation, kernel, root, secrets := r.generation, a.kernel, a.globalToolchainRoot(), a.remoteSecrets()
+	answers := a.remoteAnswersFor(entry.ID, host)
 	a.background(nil, 0, func(context.Context) func(*App) {
 		defer cancel()
 		// A session a window closed with "Keep on Host" resumes (§9.2). Whichever session the
 		// connection ends up with, the stored one is spent: resumed, it is this connection's; not
 		// resumed, the host no longer has it.
 		resume, keptErr := remoteconn.NewestKept(ctx, secrets, entry.ID)
-		result, err := a.connectRemoteHost(a.gitAuthentication(ctx), kernel, root, host, resume)
+		result, err := a.connectRemoteHost(a.remoteAuthentication(ctx, answers, true), kernel, root, host, resume)
+		settled := answers.settle(result.Status, err)
 		if resume != nil && result.Session != nil {
 			if forgetErr := remoteconn.ForgetKept(ctx, secrets, entry.ID, resume.Key); keptErr == nil {
 				keptErr = forgetErr
@@ -149,6 +151,7 @@ func (a *App) connectRemoteTo(entry core.SavedRemoteConnection, host remoteHost,
 			if keptErr != nil {
 				a.backgroundFailed("remote_kept_sessions", keptErr)
 			}
+			a.remoteAnswersSettled(settled, true)
 			r := &a.remote
 			if !r.open || r.generation != generation || r.connect != attempt {
 				if result.Session != nil {

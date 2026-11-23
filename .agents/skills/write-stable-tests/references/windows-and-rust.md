@@ -58,13 +58,30 @@ Core/plugin tests back into the desktop host.
 
 ## Keep retired test scopes out of current instructions
 
-The retained PowerShell harness still has legacy `Frontend`, `WindowsRust`,
-`SharedRust*` and `All` branches referencing deleted `windows/tauri/` or host
-`rust/` directories. Their old Bun/Rust budgets and cloud reports do not verify
-the current Viva client. Executor cleanup is tracked in
-[#1940](https://github.com/1lck/Lithe-IDEA/issues/1940). Do not select these branches, infer a passing lane from
-missing files, or change an old timeout solely to make a new run pass. Use
-`DesktopGo` and the actual external Core test entry points.
+The PowerShell harness accepts only `DesktopGo`. The former `Frontend`,
+`WindowsRust`, `SharedRust*` and `All` values are rejected during parameter
+binding, before tool discovery, checks or reports. `FrontendTestPath` and
+`CoreShardIndex` / `CoreShardCount` are removed too. Historical commands in
+archived Notes describe removed clients, not current coverage; `All` is not
+an alias that silently verifies only Go. Use `DesktopGo` and the actual
+external Core test entry points. A missing `desktop/go.mod` or desktop wrapper
+fails with a source diagnostic instead of yielding an empty passing lane.
+
+To test the entry's routing without compiling Core, run:
+
+```powershell
+node --test --test-concurrency=1 .agents/skills/write-stable-tests/scripts/test-windows-timing.mjs
+```
+
+This integration test requires Node.js and PowerShell (`powershell.exe` on
+Windows, `pwsh` elsewhere; `LITHE_TEST_POWERSHELL` can select an installed
+executable). It runs the real entry and Node timing/report/cleanup code with
+synthetic Go events and substituted Git-tool discovery. It covers retired
+options, missing sources, argument preservation, gate and conversion failures,
+zero matches, failed tests, and timed-out process trees. The existing
+`test-git-bash-path.ps1` separately checks Git-tool discovery. Running these
+fixtures on Linux does not establish Windows PowerShell 5 or native Windows
+process-cleanup coverage.
 
 At the end of the session, clean up task-owned processes and restore the VM's
 initial lifecycle as required by the VM Skill. An x64 run emulated on ARM64 must

@@ -11354,6 +11354,8 @@
     "desktop.editorPrefs.whitespace": "显示空白字符",
     "desktop.editorPrefs.inlayHints": "显示内联提示",
     "desktop.editorPrefs.inlayHintsHelp": "显示语言服务器提供的参数名、推导类型等行内提示。关闭后会立即移除已有提示并停止请求。",
+    "desktop.editorPrefs.autoCompletion": "自动补全",
+    "desktop.editorPrefs.autoCompletionHelp": "输入时自动显示代码补全建议。随时可以按 Ctrl+Space 手动触发补全。",
     "desktop.editorMenu.codeActions": "代码操作…",
     "desktop.editorMenu.parameterInfo": "参数信息",
     "desktop.semantics.codeActions": "代码操作",

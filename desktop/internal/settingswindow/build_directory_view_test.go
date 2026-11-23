@@ -186,7 +186,7 @@ func TestBuildKindIsOneRowThatOpensItsPage(t *testing.T) {
 			t.Fatalf("the kind's page does not list %q", title)
 		}
 	}
-	if total := i18n.SharedFormat(i18n.English, "desktop.buildSettings.kindPageCount", map[string]string{"count": formatCount(count)}); !d.text(total) {
+	if total := kindPageCount(i18n.English, count); !d.text(total) {
 		t.Fatalf("the kind's page does not count its pages as %q", total)
 	}
 	if !d.has(i18n.Shared(i18n.English, "desktop.buildSettings.kindFilter")) {

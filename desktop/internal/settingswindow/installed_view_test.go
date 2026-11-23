@@ -603,14 +603,14 @@ func TestRepositoriesDialogAddsAndRemovesAnIndex(t *testing.T) {
 	}
 }
 
-// A plugin's Settings tab grows its form to the height under the tab bar, so the settings list
-// fills it and shows its last row whole, rather than sitting at a fixed height in the scroll.
-func TestInstalledSettingsTabListFillsTheDetail(t *testing.T) {
+// A plugin's Settings tab has no scroll of its own: its rows scroll with the detail they sit
+// in, so the wheel over them carries the detail from the first row to the last, both whole.
+func TestInstalledSettingsTabFormScrollsWithTheDetail(t *testing.T) {
 	const count = 30
 	manifest := flagsManifest(t, count)
 	facts := []PluginFacts{{ID: "dev.example.settings", Name: "Settings", Vendor: "Example", Version: "1.0.0", Source: PluginSourceDisk, Settings: count}}
-	fits := map[int]settingsListFit{}
-	for _, height := range settingsListHeights {
+	gaps := map[int]float32{}
+	for _, height := range settingsFormHeights {
 		client := core.NewClient()
 		source := settingsFormSource{store: pluginsettings.New(client, t.TempDir()), manifest: manifest, workspace: t.TempDir()}
 		w := newWindow(NewController(Options{
@@ -631,7 +631,7 @@ func TestInstalledSettingsTabListFillsTheDetail(t *testing.T) {
 		d.until("the form", func() bool { return w.pluginSettings != nil && w.pluginSettings.loaded && !w.pluginSettings.running })
 		w.inv.Invalidate()
 		d.pump()
-		fits[height] = measureSettingsList(t, d, w, fmt.Sprintf("Flag %02d", count-1))
+		gaps[height] = measureSettingsForm(t, d, w, "Flag 00", fmt.Sprintf("Flag %02d", count-1))
 	}
-	checkSettingsListFills(t, fits)
+	checkSettingsFormEnds(t, gaps)
 }

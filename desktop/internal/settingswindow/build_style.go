@@ -6,6 +6,7 @@ import (
 	"unicode"
 	"unicode/utf8"
 
+	"github.com/1lck/Lithe-IDEA/desktop/internal/i18n"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/icons"
 	"github.com/vivaui/viva/gfx"
 	"github.com/vivaui/viva/ui"
@@ -344,7 +345,7 @@ func (w *window) segmented(c ui.C, value *string, segments []segment) bool {
 				*value, changed = s.value, true
 			}
 			box.Children(func() {
-				ui.Text(k, s.label).FontSize(buildFont).Color(words)
+				ui.Text(c, s.label).FontSize(buildFont).Color(words)
 				if s.changed {
 					ui.Row(k).Size(5, 1).Shrink(0)
 					dot(k, 6, b.accent)
@@ -383,7 +384,7 @@ func (w *window) tabsBar(c ui.C, tabs []segment, open *string) bool {
 							words, weight = b.text, gfx.WeightSemibold
 						}
 						ui.Row(k).PadX(12).PadY(6).Children(func() {
-							ui.Text(k, t.label).FontSize(buildFont).Weight(weight).Color(words)
+							ui.Text(c, t.label).FontSize(buildFont).Weight(weight).Color(words)
 						})
 						underline := gfx.Color{}
 						if on {
@@ -529,6 +530,93 @@ func formatCount(n int) string {
 		out.WriteRune(r)
 	}
 	return sign + out.String()
+}
+
+// The count texts below have their own entry for one, because English says
+// "1 page", not "1 pages". The entries stay literal so the i18n checker can
+// match each key with its parameters.
+
+// kindPageCount is the footer under a kind's page list.
+func kindPageCount(language i18n.Language, n int) string {
+	if n == 1 {
+		return i18n.Shared(language, "desktop.buildSettings.kindPageCountOne")
+	}
+	return i18n.SharedFormat(language, "desktop.buildSettings.kindPageCount", map[string]string{"count": formatCount(n)})
+}
+
+// issuesTitle is the title of the box that lists the tools needing attention.
+func issuesTitle(language i18n.Language, n int) string {
+	if n == 1 {
+		return i18n.Shared(language, "desktop.buildSettings.issuesTitleOne")
+	}
+	return i18n.SharedFormat(language, "desktop.buildSettings.issuesTitle", map[string]string{"count": formatCount(n)})
+}
+
+// toolchainsTileDescription is the Toolchains tile's line on the Build, Execution,
+// Deployment page: how many tools, from how many plugins, in which scope. Each count
+// picks its own singular, so English never reads "1 tools" or "1 plugins".
+func toolchainsTileDescription(language i18n.Language, tools, plugins int, scope string) string {
+	switch {
+	case tools == 1 && plugins == 1:
+		return i18n.SharedFormat(language, "desktop.buildSettings.directoryToolchainsOne", map[string]string{"scope": scope})
+	case tools == 1:
+		return i18n.SharedFormat(language, "desktop.buildSettings.directoryToolchainsOneTool", map[string]string{
+			"plugins": formatCount(plugins), "scope": scope,
+		})
+	case plugins == 1:
+		return i18n.SharedFormat(language, "desktop.buildSettings.directoryToolchainsOnePlugin", map[string]string{
+			"tools": formatCount(tools), "scope": scope,
+		})
+	}
+	return i18n.SharedFormat(language, "desktop.buildSettings.directoryToolchains", map[string]string{
+		"tools": formatCount(tools), "plugins": formatCount(plugins), "scope": scope,
+	})
+}
+
+// toolchainListCount is the line under the Toolchains list: how many tool rows are
+// listed out of all the tools in the scope.
+func toolchainListCount(language i18n.Language, matched, total int) string {
+	if total == 1 {
+		return i18n.SharedFormat(language, "desktop.buildSettings.listCountOne", map[string]string{"matched": formatCount(matched)})
+	}
+	return i18n.SharedFormat(language, "desktop.buildSettings.listCount", map[string]string{
+		"matched": formatCount(matched), "total": formatCount(total),
+	})
+}
+
+// debuggerCount is the footer under the Stepping debugger list.
+func debuggerCount(language i18n.Language, n int) string {
+	if n == 1 {
+		return i18n.Shared(language, "desktop.buildSettings.debuggerCountOne")
+	}
+	return i18n.SharedFormat(language, "desktop.buildSettings.debuggerCount", map[string]string{"count": formatCount(n)})
+}
+
+// steppingTileDescription is the Stepping tile on the directory page. customized
+// counts the listed debuggers whose filters the user changed, so it never
+// exceeds n.
+func steppingTileDescription(language i18n.Language, n, customized int) string {
+	switch {
+	case n == 1 && customized > 0:
+		return i18n.Shared(language, "desktop.buildSettings.directoryDebuggersOneCustomized")
+	case n == 1:
+		return i18n.Shared(language, "desktop.buildSettings.directoryDebuggersOne")
+	case customized > 0:
+		return i18n.SharedFormat(language, "desktop.buildSettings.directoryDebuggersCustomized", map[string]string{
+			"count": formatCount(n), "customized": formatCount(customized),
+		})
+	default:
+		return i18n.SharedFormat(language, "desktop.buildSettings.directoryDebuggers", map[string]string{"count": formatCount(n)})
+	}
+}
+
+// trustBannerText is the Toolchains warning about tools from environments in an
+// untrusted project. sources is already joined.
+func trustBannerText(language i18n.Language, n int, sources string) string {
+	if n == 1 {
+		return i18n.SharedFormat(language, "desktop.buildSettings.trustBannerOne", map[string]string{"sources": sources})
+	}
+	return i18n.SharedFormat(language, "desktop.buildSettings.trustBanner", map[string]string{"count": formatCount(n), "sources": sources})
 }
 
 // midTrim shortens s to at most limit characters by cutting its middle, so both the

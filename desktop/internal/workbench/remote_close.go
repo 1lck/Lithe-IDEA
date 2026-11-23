@@ -41,9 +41,9 @@ var (
 )
 
 // remoteSecrets is the secret store the kept host sessions are remembered in.
-func (a *App) remoteSecrets() remoteconn.KeptSecrets {
-	if a.remoteKeptSecrets != nil {
-		return a.remoteKeptSecrets
+func (a *App) remoteSecrets() remoteconn.Secrets {
+	if a.remoteSecretStore != nil {
+		return a.remoteSecretStore
 	}
 	return credentials.Default()
 }
@@ -228,7 +228,7 @@ const (
 // one that does not answer keeps it stored, since the host may have kept the session, and the next
 // connection forgets it if the host did not. It runs off the window thread; err is what the log
 // keeps.
-func keepRemoteSession(ctx context.Context, kernel Kernel, secrets remoteconn.KeptSecrets, connectionID, session string, resume *core.RemoteResume) (remoteKeep, error) {
+func keepRemoteSession(ctx context.Context, kernel Kernel, secrets remoteconn.Secrets, connectionID, session string, resume *core.RemoteResume) (remoteKeep, error) {
 	stored := errRemoteNoResumeToken
 	if resume != nil {
 		stored = remoteconn.RememberKept(ctx, secrets, connectionID, *resume)

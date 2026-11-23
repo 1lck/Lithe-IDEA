@@ -2,11 +2,11 @@ package workbench
 
 import (
 	"context"
-	"github.com/1lck/Lithe-IDEA/desktop/internal/pluginservice"
 	"testing"
 	"time"
 
 	"github.com/1lck/Lithe-IDEA/desktop/internal/core"
+	"github.com/1lck/Lithe-IDEA/desktop/internal/pluginservice"
 )
 
 func TestPluginSettingsReloadInvalidatesOnlyOwningModelsAndKeepsRunningTask(t *testing.T) {
@@ -44,7 +44,7 @@ func TestPluginSettingsReloadInvalidatesOnlyOwningModelsAndKeepsRunningTask(t *t
 }
 
 func TestPluginSettingsLatestQueuedDeadlineRequiresRestart(t *testing.T) {
-	h := newHarness(t, &testKernel{Client: core.NewClient()})
+	h := newHarnessWithEmptyPluginService(t)
 	h.open(t.TempDir())
 	p := h.app.project
 	// A past deadline is already terminal. No real-time waiting or native
@@ -54,12 +54,10 @@ func TestPluginSettingsLatestQueuedDeadlineRequiresRestart(t *testing.T) {
 	p.ctx = expired
 	server := &pluginServer{project: p, session: &pluginservice.LanguageSession{PluginID: "example", Version: "1.0.0"}, cancel: func() {}, done: make(chan struct{}), settingsGate: make(chan struct{}, 1)}
 	server.settingsGate <- struct{}{}
+	h.app.pluginServerMu.Lock()
 	h.app.pluginServers = map[string]*pluginServer{"example": server}
-	// The bare service has no runs, builds or backends; the harness closes the project with the
-	// workbench's own service, as the other tests that swap it in do.
-	original := h.app.plugins
-	h.app.plugins = &pluginservice.Service{}
-	defer func() { h.app.plugins = original }()
+	h.app.pluginServerMu.Unlock()
+	defer func() { h.app.pluginServers = nil }()
 	h.app.applyLivePluginSettings(p, "example", "1.0.0")
 	h.settle()
 	if _, pending := h.app.pluginSettingsRestart.Load("example"); !pending {
@@ -68,12 +66,9 @@ func TestPluginSettingsLatestQueuedDeadlineRequiresRestart(t *testing.T) {
 }
 
 func TestPluginSettingsRestartEffectMarksFailedServerRetryable(t *testing.T) {
-	h := newHarness(t, &testKernel{Client: core.NewClient()})
+	h := newHarnessWithEmptyPluginService(t)
 	h.open(t.TempDir())
 	p := h.app.project
-	original := h.app.plugins
-	h.app.plugins = &pluginservice.Service{}
-	defer func() { h.app.plugins = original }()
 	h.app.pluginServerMu.Lock()
 	h.app.pluginServerFailed = map[string]*failedPluginServer{
 		"fixture": {pluginID: "dev.lithe.test.lsp", languageID: "fixture", version: "1.0.0", project: p, message: "missing jdtls"},
