@@ -740,7 +740,7 @@ func (t *toolchainState) declare(c ui.C) {
 	}
 	for _, name := range t.order {
 		if scope := t.scopes[name]; scope.loadKey != 0 {
-			ui.Effect(c.Key("toolchains:"+name), scope.loadEffect, scope.loadKey)
+			ui.Effect(c, scope.loadEffect, scope.loadKey)
 		}
 	}
 	if t.saveKey != 0 {
@@ -758,8 +758,8 @@ func (t *toolchainState) declare(c ui.C) {
 	t.locations.declare(c)
 	t.remote.declare(c)
 	t.prefs.declare(c)
-	t.view.declare(c.Part("toolchain-view"))
-	t.search.declare(c.Part("toolchain-search"))
+	t.view.declare(c)
+	t.search.declare(c)
 }
 
 // foldKey is the comparable form of the user's folds.

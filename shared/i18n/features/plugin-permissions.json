@@ -37,6 +37,13 @@
       ]
     },
     {
+      "id": "desktop.marketplace.permissionWorkspaceFilesWrite",
+      "description": "Plugin permission list (installed plugin details and install review): what the workspace.files.write permission lets the plugin do",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
       "id": "desktop.marketplace.permissionWorkspaceFilesWatch",
       "description": "Plugin permission list (installed plugin details and install review): what the workspace.files.watch permission lets the plugin do",
       "platforms": [
@@ -67,6 +74,13 @@
     {
       "id": "desktop.marketplace.permissionDocumentsRead",
       "description": "Plugin permission list (installed plugin details and install review): what the documents.read permission lets the plugin do",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.marketplace.permissionDocumentsSave",
+      "description": "Plugin permission list (installed plugin details and install review): what the documents.save permission lets the plugin do",
       "platforms": [
         "desktop"
       ]
@@ -184,11 +198,13 @@
       "desktop.marketplace.permissionCredentialsStore": "Save and read its own passwords and tokens in the system’s secure storage",
       "desktop.marketplace.permissionWorkspaceMetadata": "See the names and folders of open workspaces, without reading file contents",
       "desktop.marketplace.permissionWorkspaceFilesRead": "Read files and folders in your workspace",
+      "desktop.marketplace.permissionWorkspaceFilesWrite": "Create, rename, copy and move to the trash files and folders in your workspace",
       "desktop.marketplace.permissionWorkspaceFilesWatch": "Watch files in your workspace for changes",
       "desktop.marketplace.permissionBuildOptionsRead": "Read the build options set for your projects",
       "desktop.marketplace.permissionBuildConfigurationWatch": "Get notified when your projects’ build configuration changes",
       "desktop.marketplace.permissionWorkspaceSearch": "Search file names and text in your workspace",
       "desktop.marketplace.permissionDocumentsRead": "Read open files, including unsaved changes",
+      "desktop.marketplace.permissionDocumentsSave": "Save and close open files",
       "desktop.marketplace.permissionEditorEdit": "Edit text in open files",
       "desktop.marketplace.permissionEditorActions": "Show its own actions in the editor, such as run icons beside lines",
       "desktop.marketplace.permissionEditorProviders": "Provide completion, hover and other language features in the editor",
@@ -211,11 +227,13 @@
       "desktop.marketplace.permissionCredentialsStore": "在系统的安全存储中保存和读取插件自己的密码和令牌",
       "desktop.marketplace.permissionWorkspaceMetadata": "查看已打开工作区的名称和文件夹，不读取文件内容",
       "desktop.marketplace.permissionWorkspaceFilesRead": "读取工作区中的文件和文件夹",
+      "desktop.marketplace.permissionWorkspaceFilesWrite": "在工作区中新建、重命名、复制文件和文件夹，或把它们移到废纸篓",
       "desktop.marketplace.permissionWorkspaceFilesWatch": "监视工作区中文件的变化",
       "desktop.marketplace.permissionBuildOptionsRead": "读取为项目设置的构建选项",
       "desktop.marketplace.permissionBuildConfigurationWatch": "在项目的构建配置变化时收到通知",
       "desktop.marketplace.permissionWorkspaceSearch": "在工作区中搜索文件名和文本",
       "desktop.marketplace.permissionDocumentsRead": "读取已打开的文件，包括未保存的修改",
+      "desktop.marketplace.permissionDocumentsSave": "保存和关闭已打开的文件",
       "desktop.marketplace.permissionEditorEdit": "修改已打开文件中的文本",
       "desktop.marketplace.permissionEditorActions": "在编辑器中显示插件自己的操作，例如行旁的运行图标",
       "desktop.marketplace.permissionEditorProviders": "在编辑器中提供补全、悬停提示等语言功能",
