@@ -123,7 +123,7 @@ func (a *App) drawLogStripe(c ui.C, p *project) {
 		if a.gitIconButton(c, g.UpdateBranch, icons.ArrowDownLeft, false, !updatable || l.sync.busy) {
 			c.After(func() { a.updateBranch(p, target, surfaceButton) })
 		}
-		if a.gitIconButton(c, g.DeleteBranch, icons.Trash2, false, !deletable) {
+		if a.gitIconButton(c, g.DeleteBranch, icons.Trash2, false, a.branch.busy || !deletable) {
 			c.After(func() {
 				a.adoptLogBranches(p)
 				if several {

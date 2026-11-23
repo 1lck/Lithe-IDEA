@@ -18,8 +18,6 @@ type branchState struct {
 	search, name, revision ui.Field
 	// tagMessage is the annotation typed in the new tag dialog.
 	tagMessage ui.Field
-	// deleteGen isolates completions from a dismissed or replaced deletion dialog.
-	deleteGen int
 	branchSession
 }
 
@@ -104,13 +102,12 @@ type branchSession struct {
 	// them; deleteSkipped counts the marked references it leaves out (branch_delete.go).
 	deleting      []core.GitReference
 	deleteSkipped int
-	// deleteRoot binds both confirmation steps to the repository originally selected.
-	deleteRoot string
-	// deleteUnmerged are only the branches Core refused as unmerged, with their reviewed tips.
-	deleteUnmerged   []branchDeletion
+	// deleteReport belongs to the operation. Its notification can reopen it after this
+	// dialog has been dismissed or replaced.
+	deleteReport     *branchDeleteReport
+	deleteFromNotice bool
 	deleteError      string
 	deleteList       ui.ListState
-	deleteResults    []branchDeletion
 	deleteResultList ui.ListState
 
 	// common are the branches every repository of a project folder with several has
@@ -375,11 +372,8 @@ func (a *App) beginRevision() {
 // cancelBranchDialog closes the open dialog without doing what it asked.
 func (a *App) cancelBranchDialog() {
 	if a.branch.dialog == branchDialogDelete || a.branch.dialog == branchDialogDeleteUnmerged || a.branch.dialog == branchDialogForceDelete || a.branch.dialog == branchDialogDeleteResult {
-		a.branch.deleteGen++
-		a.branch.busy = false
-		a.branch.deleteUnmerged = nil
+		a.branch.deleteReport = nil
 		a.branch.deleteError = ""
-		a.branch.deleteResults = nil
 	}
 	a.branch.dialog, a.branch.across = branchDialogNone, false
 }
