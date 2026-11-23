@@ -214,7 +214,7 @@ func (w *window) readOnlyList(c ui.C, label, value string) {
 	ui.Column(c).FillWidth().MinWidth(0).PadX(10).PadY(6).Gap(2).Border(1, w.pal.line).Radius(6).
 		HitWith(ui.ID(c), label, gfx.HitOptions{Role: gfx.RoleTextField, Value: value, ReadOnly: true, Disabled: true}).
 		Children(func() {
-			for index, line := range strings.Split(value, "\n") {
+			for _, line := range strings.Split(value, "\n") {
 				ui.Text(c, line).FontSize(13).Color(w.pal.muted).FillWidth().Ellipsis()
 			}
 		})
