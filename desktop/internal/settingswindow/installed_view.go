@@ -1033,6 +1033,8 @@ func permissionDescription(language i18n.Language, permission string) string {
 		return i18n.Shared(language, "desktop.marketplace.permissionWorkspaceMetadata")
 	case "workspace.files.read":
 		return i18n.Shared(language, "desktop.marketplace.permissionWorkspaceFilesRead")
+	case "workspace.files.write":
+		return i18n.Shared(language, "desktop.marketplace.permissionWorkspaceFilesWrite")
 	case "workspace.files.watch":
 		return i18n.Shared(language, "desktop.marketplace.permissionWorkspaceFilesWatch")
 	case "workspace.search":
@@ -1043,6 +1045,8 @@ func permissionDescription(language i18n.Language, permission string) string {
 		return i18n.Shared(language, "desktop.marketplace.permissionBuildConfigurationWatch")
 	case "documents.read":
 		return i18n.Shared(language, "desktop.marketplace.permissionDocumentsRead")
+	case "documents.save":
+		return i18n.Shared(language, "desktop.marketplace.permissionDocumentsSave")
 	case "documents.contentProvider":
 		return i18n.Shared(language, "desktop.marketplace.permissionDocumentsContentProvider")
 	case "editor.open":
