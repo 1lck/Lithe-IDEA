@@ -916,7 +916,7 @@
       "desktop.remote.ports.ruleForget": "Forget Rule",
       "desktop.remote.ports.recordsFailed": "The ports and rules of this workspace could not be remembered: {reason}",
       "desktop.remote.ports.recordsDamaged": "The saved ports and rules of remote workspaces cannot be read, so they are not restored and changes are not saved. The file in the Lithe settings folder is left as it is.",
-      "desktop.remote.ports.restoreFailed": "{count} forwards could not start again after reconnecting. Their rows show why."
+      "desktop.remote.ports.restoreFailed": "Forwards not restored after reconnecting: {count}. See the affected rows for details."
     },
     "zh-CN": {
       "desktop.remote.ports.title": "端口",
