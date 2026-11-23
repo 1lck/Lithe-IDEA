@@ -69,10 +69,15 @@ func TestProjectMenuRemovesRecentRecordWithoutOpeningOrDeleting(t *testing.T) {
 type recentMenuBranchKernel struct {
 	*testKernel
 	statusCalls atomic.Int32
+	recentPaths map[string]bool
 }
 
-// The menu must never trigger a Git status scan merely to label an entry.
-func (k *recentMenuBranchKernel) GitStatus(context.Context, string) (core.GitStatus, error) {
+// Opening the active project can still refresh its own Git state. Only the
+// recent paths must not issue full status scans merely to label menu entries.
+func (k *recentMenuBranchKernel) GitStatus(ctx context.Context, root string) (core.GitStatus, error) {
+	if !k.recentPaths[root] {
+		return k.testKernel.GitStatus(ctx, root)
+	}
 	k.statusCalls.Add(1)
 	return core.GitStatus{}, errors.New("menu performed a full git status scan")
 }
@@ -98,7 +103,10 @@ func TestProjectMenuReadsRecentBranchesWithoutFullGitStatus(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(worktree, ".git"), []byte("gitdir: "+relative+"\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	kernel := &recentMenuBranchKernel{testKernel: &testKernel{Client: core.NewClient()}}
+	kernel := &recentMenuBranchKernel{
+		testKernel: &testKernel{Client: core.NewClient()},
+		recentPaths: map[string]bool{normal: true, worktree: true, detached: true, invalid: true, missing: true},
+	}
 	h := newHarness(t, kernel)
 	h.open(t.TempDir())
 	log := &treeRecordingLog{}
