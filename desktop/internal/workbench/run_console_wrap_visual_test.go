@@ -75,7 +75,15 @@ func TestVisualRunConsoleWrap(t *testing.T) {
 				t.Fatal("a click on the wrap switch did not turn it on")
 			}
 			capture("run-console-wrapped")
-			run.addSample(pluginservice.ProcessSample{CPUPercent: 25, MemoryBytes: 96 << 20})
+			for _, sample := range []pluginservice.ProcessSample{
+				{CPUPercent: 12, MemoryBytes: 64 << 20},
+				{CPUPercent: 42, MemoryBytes: 76 << 20},
+				{CPUPercent: 34, MemoryBytes: 84 << 20},
+				{CPUPercent: 58, MemoryBytes: 108 << 20},
+				{CPUPercent: 25, MemoryBytes: 96 << 20},
+			} {
+				run.addSample(sample)
+			}
 			h.app.invalidator.Invalidate()
 			capture("run-performance-expanded")
 			h.clickNamed(i18n.Shared(h.app.language(), "native.collapseSection"))
