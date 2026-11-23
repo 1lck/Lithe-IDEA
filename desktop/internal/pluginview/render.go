@@ -31,11 +31,11 @@ type Host struct {
 type SettingsHost interface {
 	// Row draws the page's own row for a declared setting, exactly as the page draws it.
 	// It reports false when the page has no such row.
-	Row(c ui.C, setting string) bool
+	Row(c ui.C, setting string, key NodeKey) bool
 	// Tool draws the toolchain pages' row for a tool the plugin defines or requires; with
 	// choose the row is also the tool's picker, whose choice edits the page's toolchain
 	// draft. It reports false when the host has no row for it.
-	Tool(c ui.C, tool string, choose bool) bool
+	Tool(c ui.C, tool string, choose bool, key NodeKey) bool
 	// Binding is the draft of a declared setting for a control bound to it.
 	Binding(setting string) (Binding, bool)
 	// Action runs a setting action through the page's confirmation flow. It runs
@@ -62,6 +62,22 @@ type Binding struct {
 	Value func() any
 	// Edited tells the page the control changed the draft.
 	Edited func()
+}
+
+// NodeKey names a view node by ID or position without changing the current UI
+// context. A host applies it only after it knows the node has a row to draw.
+type NodeKey struct {
+	id    string
+	index int
+}
+
+// Apply names the container or control declared next. Do not call it on a path
+// that can return without drawing that element.
+func (k NodeKey) Apply(c ui.C) ui.C {
+	if k.id != "" {
+		return c.Key("#" + k.id)
+	}
+	return c.KeyInt(k.index)
 }
 
 // Draw declares a view in the space its parent gives it. In a tool window the view fills
@@ -194,20 +210,17 @@ func (r *renderer) failure(err error) (message, detail string) {
 	return i18n.Shared(language, "desktop.pluginView.failed"), err.Error()
 }
 
-// nodes declares nodes in order, each keyed by its ID or its place.
+// nodes declares nodes in order. Containers and controls are keyed by ID or place;
+// labels are leaves without identity.
 func (r *renderer) nodes(c ui.C, nodes []Node) {
 	for i := range nodes {
 		n := &nodes[i]
-		key := c.KeyInt(i)
-		if n.ID != "" {
-			key = c.Key("#" + n.ID)
-		}
-		r.node(key, n)
+		r.node(c, n, NodeKey{id: n.ID, index: i})
 	}
 }
 
 // node declares one node.
-func (r *renderer) node(c ui.C, n *Node) {
+func (r *renderer) node(c ui.C, n *Node, key NodeKey) {
 	p := &r.host.Palette
 	switch n.Type {
 	case "row", "section":
@@ -219,9 +232,9 @@ func (r *renderer) node(c ui.C, n *Node) {
 	}
 	switch n.Type {
 	case "row":
-		ui.Flow(c).FillWidth().Items(ui.Center).Gap(8).LineGap(6).Children(func() { r.nodes(c, n.Children) })
+		ui.Flow(key.Apply(c)).FillWidth().Items(ui.Center).Gap(8).LineGap(6).Children(func() { r.nodes(c, n.Children) })
 	case "section":
-		ui.Column(c).FillWidth().Gap(6).Children(func() {
+		ui.Column(key.Apply(c)).FillWidth().Gap(6).Children(func() {
 			if n.Title != "" {
 				ui.Row(c).FillWidth().MinHeight(28).Items(ui.Center).Gap(8).Children(func() {
 					ui.Text(c, n.Title).FontSize(13).Weight(gfx.WeightSemibold).Color(p.Text).Shrink(1).MinWidth(0).Ellipsis()
@@ -233,34 +246,34 @@ func (r *renderer) node(c ui.C, n *Node) {
 	case "label":
 		r.label(c, n)
 	case "textField":
-		r.textField(c, n)
+		r.textField(c, n, key)
 	case "select", "segmented":
-		r.choice(c, n)
+		r.choice(c, n, key)
 	case "toggle":
-		r.toggle(c, n)
+		r.toggle(c, n, key)
 	case "button":
-		r.button(c, n)
+		r.button(key.Apply(c), n)
 	case "keyValue":
-		r.keyValue(c, n)
+		r.keyValue(key.Apply(c), n)
 	case "table":
-		r.table(c, n)
+		r.table(key.Apply(c), n)
 	case "banner":
 		tone := p.Tone(n.Tone, p.Accent)
-		ui.Row(c).FillWidth().PadX(10).PadY(8).Radius(6).Background(tone.WithAlpha(0.10)).Border(1, tone.WithAlpha(0.35)).Children(func() {
+		ui.Row(key.Apply(c)).FillWidth().PadX(10).PadY(8).Radius(6).Background(tone.WithAlpha(0.10)).Border(1, tone.WithAlpha(0.35)).Children(func() {
 			ui.Wrap(c, n.Text).FontSize(12).Color(p.Text).Grow(1).MinWidth(0)
 		})
 	case "setting":
 		if r.host.Settings != nil {
-			r.host.Settings.Row(c, n.Setting)
+			r.host.Settings.Row(c, n.Setting, key)
 		}
 	case "tool":
 		if r.host.Settings != nil {
-			r.host.Settings.Tool(c, n.Tool, n.Choose)
+			r.host.Settings.Tool(c, n.Tool, n.Choose, key)
 		}
 	case "tree":
-		r.tree(c, n)
+		r.tree(key.Apply(c), n)
 	case "canvas":
-		r.canvas(c, n)
+		r.canvas(key.Apply(c), n)
 	}
 }
 
@@ -357,7 +370,7 @@ func (r *renderer) changed(n *Node, binding Binding, bound bool, value any) {
 
 // textField declares a text field. It commits on Enter or when it loses the focus with
 // text that differs from what it last sent, never per keystroke.
-func (r *renderer) textField(c ui.C, n *Node) {
+func (r *renderer) textField(c ui.C, n *Node, key NodeKey) {
 	binding, bound := r.binding(n)
 	if n.Setting != "" && (!bound || binding.Text == nil) {
 		return
@@ -379,7 +392,7 @@ func (r *renderer) textField(c ui.C, n *Node) {
 	}
 	enabled := n.enabled() && (!bound || binding.Editable)
 	count, fillWidth := n.characters()
-	row := ui.Row(c).Items(ui.Center).Gap(8).MinWidth(0)
+	row := ui.Row(key.Apply(c)).Items(ui.Center).Gap(8).MinWidth(0)
 	if fillWidth || count == 0 {
 		row = row.Grow(1).Basis(0)
 	}
@@ -433,7 +446,7 @@ func (r *renderer) readOnly(c ui.C, label, value string, count int, fillWidth, m
 // choice declares a select or segmented control, over its own options or a bound enum's.
 // A control that takes no input is the read-only frame the settings pages draw, since
 // Disabled does not reach a Select or Choice in pinned Viva.
-func (r *renderer) choice(c ui.C, n *Node) {
+func (r *renderer) choice(c ui.C, n *Node, key NodeKey) {
 	binding, bound := r.binding(n)
 	if n.Setting != "" && (!bound || binding.Selected == nil) {
 		return
@@ -443,7 +456,7 @@ func (r *renderer) choice(c ui.C, n *Node) {
 	if bound && label == "" {
 		label = binding.Title
 	}
-	ui.Row(c).Items(ui.Center).Gap(8).MinWidth(0).Children(func() {
+	ui.Row(key.Apply(c)).Items(ui.Center).Gap(8).MinWidth(0).Children(func() {
 		r.caption(c, n.Label, n.Info)
 		if bound {
 			if !enabled {
@@ -492,7 +505,7 @@ func optionsOf(options []Option) ([]string, map[string]string) {
 }
 
 // toggle declares a switch with its label on the leading side.
-func (r *renderer) toggle(c ui.C, n *Node) {
+func (r *renderer) toggle(c ui.C, n *Node, key NodeKey) {
 	binding, bound := r.binding(n)
 	if n.Setting != "" && (!bound || binding.On == nil) {
 		return
@@ -502,7 +515,7 @@ func (r *renderer) toggle(c ui.C, n *Node) {
 	if bound && label == "" {
 		label = binding.Title
 	}
-	ui.Row(c).Items(ui.Center).Gap(8).MinWidth(0).Children(func() {
+	ui.Row(key.Apply(c)).Items(ui.Center).Gap(8).MinWidth(0).Children(func() {
 		r.caption(c, n.Label, n.Info)
 		on := binding.On
 		if !bound {

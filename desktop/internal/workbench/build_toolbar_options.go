@@ -82,7 +82,7 @@ func (a *App) buildToolbarToggles(c ui.C, p *project) {
 	}
 	b := &p.build
 	busy := b.optionSaving || b.loading || b.operation != nil
-	for index, option := range buildToolbarOptions(instance.Manifest, instance.BuildSystemID) {
+	for _, option := range buildToolbarOptions(instance.Manifest, instance.BuildSystemID) {
 		icon := icons.Settings
 		if found, ok := a.pluginIcons.Lookup(instance.PluginID, option.icon); ok {
 			icon = found.For(a.colors.Dark)
@@ -95,7 +95,7 @@ func (a *App) buildToolbarToggles(c ui.C, p *project) {
 			state = i18n.Shared(a.language(), "desktop.build.toggleOn")
 		}
 		label := i18n.SharedFormat(a.language(), "desktop.build.toggleOption", map[string]string{"option": option.title, "state": state})
-		if _, hit := a.toolIconButton(c.KeyInt(index), label, icon, on, busy); hit {
+		if _, hit := a.toolIconButton(c.Key("toggle:"+option.id), label, icon, on, busy); hit {
 			instanceID, optionID := instance.ID, option.id
 			c.After(func() {
 				a.performed("build.toolbarOption.toggle", surfaceButton)

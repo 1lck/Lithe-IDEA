@@ -339,7 +339,7 @@ func (w *window) commandMissingStatus(c ui.C, language i18n.Language, fact Plugi
 // commandMissingBanner shows, above the cards, the missing launches no card shows.
 func (w *window) commandMissingBanner(c ui.C, language i18n.Language, fact PluginFacts, missing []MissingCommand) {
 	for index, entry := range missing {
-		k := c.KeyInt(index)
+		k := c.Key("command-missing:" + strconv.Itoa(index))
 		ui.Row(k).FillWidth().Gap(8).Pad(10).Radius(8).Items(ui.Center).Stroke(1, w.pal.line).Background(w.pal.card).Children(func() {
 			ui.Wrap(c, i18n.SharedFormat(language, "desktop.plugins.commandMissingBanner", map[string]string{"commands": commandList(entry.Commands)})).
 				FontSize(12).Color(w.pal.warning).Grow(1).Shrink(1).MinWidth(0)

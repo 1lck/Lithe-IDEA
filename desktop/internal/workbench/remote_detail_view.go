@@ -409,7 +409,7 @@ func (a *App) remoteOutcomeBox(c ui.C, language i18n.Language, outcome *remotePr
 				}
 			})
 			if connected && outcome.result.Host != nil {
-				a.remoteHostTags(k.Part("tags"), language, *outcome.result.Host)
+				a.remoteHostTags(k, language, *outcome.result.Host)
 			} else if hint := remoteFailureHint(language, outcome); hint != "" {
 				ui.Paragraph(c, hint, 4).FontSize(small).Color(tint).MarginLeft(22)
 			}
@@ -449,7 +449,7 @@ func (a *App) remoteHostTags(c ui.C, language i18n.Language, host core.RemotePro
 	if len(tags) == 0 {
 		return
 	}
-	ui.Flow(c).FillWidth().Gap(6).MarginLeft(22).Children(func() {
+	ui.Flow(c.Part("tags")).FillWidth().Gap(6).MarginLeft(22).Children(func() {
 		for index, tag := range tags {
 			a.remoteTag(c.KeyInt(index), tag, a.colors.Subtle)
 		}
@@ -534,17 +534,16 @@ func (a *App) remoteEffectiveTable(c ui.C, language i18n.Language, settings core
 	small := a.theme.Metrics.FontSizeS
 	a.remoteBordered(c).Children(func() {
 		for index, item := range lines {
-			k := c.KeyInt(index)
 			if index > 0 {
-				ui.Row(k.Part("line")).FillWidth().Height(1).Shrink(0).Background(a.colors.Line)
+				ui.Row(c).FillWidth().Height(1).Shrink(0).Background(a.colors.Line)
 			}
-			ui.Row(k).FillWidth().Height(30).Items(ui.Center).Gap(10).PadX(12).Children(func() {
+			ui.Row(c.KeyInt(index)).FillWidth().Height(30).Items(ui.Center).Gap(10).PadX(12).Children(func() {
 				ui.Text(c, item.key).FontSize(small).Color(a.colors.Subtle).Width(140).Shrink(0).Ellipsis()
 				value := ui.Text(c, item.value).FontSize(small).Ellipsis().Grow(1).MinWidth(0)
 				if !item.words {
 					value.Mono()
 				}
-				a.remotePill(k.Part("source"), remoteSourceName(language, item.source), a.colors.Subtle)
+				a.remotePill(c.Part("source"), remoteSourceName(language, item.source), a.colors.Subtle)
 			})
 		}
 	})

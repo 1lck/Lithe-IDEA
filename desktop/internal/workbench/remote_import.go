@@ -508,10 +508,10 @@ func (a *App) remoteMottyFields(c ui.C, language i18n.Language, fields []core.Re
 	small := a.theme.Metrics.FontSizeS
 	ui.Column(c).FillWidth().PadSides(6, 10, 10, 52).Background(a.colors.Hover).Children(func() {
 		for index, field := range fields {
-			k := c.KeyInt(index)
 			if index > 0 {
-				ui.Row(k.Part("line")).FillWidth().Height(1).Shrink(0).Background(a.colors.Line)
+				ui.Row(c).FillWidth().Height(1).Shrink(0).Background(a.colors.Line)
 			}
+			k := c.KeyInt(index)
 			ui.Row(k).FillWidth().MinHeight(26).Items(ui.Center).Gap(10).PadY(3).Children(func() {
 				ui.Text(c, field.Motty).Mono().FontSize(small).Color(a.colors.Subtle).Grow(1).Basis(0).MinWidth(0).Ellipsis()
 				value := field.Value
