@@ -1077,6 +1077,13 @@
       "parameters": {
         "count": "string"
       }
+    },
+    {
+      "id": "desktop.toolchains.discoveryIncomplete",
+      "description": "Warning when an enabled plugin manifest is unreadable but other tools remain available.",
+      "platforms": [
+        "desktop"
+      ]
     }
   ],
   "locales": {
@@ -1215,7 +1222,8 @@
       "desktop.buildSettings.searchTools": "Tools in Toolchains",
       "desktop.buildSettings.searchDebuggers": "Debuggers",
       "desktop.buildSettings.steppingTab": "Debuggers › Stepping",
-      "desktop.buildSettings.searchAllTools": "View all {count} in Toolchains…"
+      "desktop.buildSettings.searchAllTools": "View all {count} in Toolchains…",
+      "desktop.toolchains.discoveryIncomplete": "Some enabled plugins could not be read. The tool list may be incomplete; check the logs and reload after fixing them."
     },
     "zh-CN": {
       "desktop.buildSettings.directoryNote": "这一页只列子页和状态摘要，不直接展示插件注入的内容。",
@@ -1352,7 +1360,8 @@
       "desktop.buildSettings.searchTools": "工具链中的工具",
       "desktop.buildSettings.searchDebuggers": "调试器",
       "desktop.buildSettings.steppingTab": "调试器 › 单步",
-      "desktop.buildSettings.searchAllTools": "在工具链中查看全部 {count} 个…"
+      "desktop.buildSettings.searchAllTools": "在工具链中查看全部 {count} 个…",
+      "desktop.toolchains.discoveryIncomplete": "部分已启用插件的配置无法读取，工具列表可能不完整。请查看日志，修复后重新加载。"
     }
   }
 }
