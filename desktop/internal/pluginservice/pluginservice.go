@@ -147,6 +147,22 @@ type Service struct {
 	lsGenerations map[languageKey]uint64
 }
 
+// ActivatePendingUpdates moves fully approved packages into the installed inventory at startup.
+func (s *Service) ActivatePendingUpdates(ctx context.Context) error {
+	return s.Installer.ActivatePending(ctx, s.Root, s.BeginRuntimeInstallation, func(ctx context.Context, id string) (string, error) {
+		entries, err := s.CurrentInstalled(ctx)
+		if err != nil {
+			return "", err
+		}
+		for _, entry := range entries {
+			if entry.Installed.ID == id && entry.Enabled {
+				return entry.Installed.Version, nil
+			}
+		}
+		return "", nil
+	})
+}
+
 // Open assembles the stack over one plugin root and one set of preferences.
 func Open(kernel Kernel, preferences *store.Store, root string) (*Service, error) {
 	return open(kernel, preferences, root, true)

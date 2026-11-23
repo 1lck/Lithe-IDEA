@@ -4,7 +4,7 @@ import { mkdirSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { writeTestReportArtifacts } from "./generate-test-report.mjs";
-import { positiveInteger, runProcess } from "./test-timing-lib.mjs";
+import { isMainModule, positiveInteger, runProcess } from "./test-timing-lib.mjs";
 
 const scriptDirectory = path.dirname(fileURLToPath(import.meta.url));
 const repositoryRoot = path.resolve(scriptDirectory, "../../../..");
@@ -139,4 +139,4 @@ async function main() {
   try { await run(parseArguments(process.argv.slice(2))); }
   catch (error) { console.error(`Go test timing failed: ${error.message}`); process.exitCode = 1; }
 }
-if (path.resolve(process.argv[1] ?? "") === fileURLToPath(import.meta.url)) await main();
+if (isMainModule(import.meta.url)) await main();

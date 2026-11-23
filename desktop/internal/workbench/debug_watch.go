@@ -335,7 +335,7 @@ func (a *App) debugWatchView(c ui.C, p *project) {
 				continue
 			}
 			entry := w.entries[index]
-			k := c.Part("watch").KeyInt(index)
+			k := c.KeyInt(index)
 			row := ui.Row(k).FillWidth().MinHeight(debugRowHeight).Shrink(0).Items(ui.Start).Gap(6).PadX(10).
 				Hover(ui.Look{}.Background(a.colors.Hover)).
 				HitWith(ui.ID(k), entry.expression, gfx.HitOptions{SkipFocus: true})

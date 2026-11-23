@@ -1,5 +1,6 @@
 #!/usr/bin/env node
-// Static gate for blocking primitives in test code.
+// Static gate for blocking primitives in Rust test code. Desktop Go tests are
+// explicitly reported as uncovered; their timing and cleanup need runtime checks.
 //
 // The gate is a ratchet: it fails only when a change introduces a blocking
 // pattern that did not exist before. A pattern counts as pre-existing when the
@@ -9,7 +10,7 @@
 // second sleep to a test that already had one does.
 
 import { execFileSync } from "node:child_process";
-import { readFileSync, readdirSync, statSync } from "node:fs";
+import { readFileSync, readdirSync, realpathSync, statSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -18,45 +19,6 @@ export const REPOSITORY_ROOT = path.resolve(SCRIPT_DIRECTORY, "../../../..");
 const MINIMUM_REASON_LENGTH = 16;
 
 const RULES = {
-  swift: [
-    {
-      id: "swift-unbounded-wait",
-      pattern: /\.wait\s*\(\s*\)|\.wait\s*\([^)]*\.\s*distantFuture\b[^)]*\)/,
-      message: "Use a finite timeout and assert its result; bare waits and distantFuture can hang CI.",
-    },
-    {
-      id: "swift-real-sleep",
-      pattern: /\b(?:Task|Thread)\.sleep\s*\(|\busleep\s*\(/,
-      message: "Use an injected clock, event, or continuation instead of real-time sleep.",
-    },
-    {
-      id: "swift-process-wait",
-      pattern: /\.waitUntilExit\s*\(/,
-      message: "Wait for subprocesses through a watchdog that can terminate the process tree.",
-    },
-    {
-      id: "swift-run-loop-wait",
-      pattern: /RunLoop\.current\.run\s*\(/,
-      message: "Do not spin a run loop to synchronize a test; await an observable event.",
-    },
-  ],
-  typescript: [
-    {
-      id: "typescript-real-timer",
-      pattern: /\b(?:globalThis\.|window\.)?set(?:Timeout|Interval)\s*\(/,
-      message: "Inject a manual timer or scheduler instead of using a real timer in a test.",
-    },
-    {
-      id: "typescript-atomic-wait",
-      pattern: /\bAtomics\.wait\s*\(/,
-      message: "Atomics.wait blocks the test worker; use a deferred promise with owned cleanup.",
-    },
-    {
-      id: "typescript-infinite-loop",
-      pattern: /\bwhile\s*\(\s*true\s*\)/,
-      message: "Test polling loops require an explicit deadline and timeout diagnostic.",
-    },
-  ],
   rust: [
     {
       id: "rust-real-sleep",
@@ -77,8 +39,6 @@ const RULES = {
 // test is new.
 const DECLARATIONS = {
   rust: /\bfn\s+([A-Za-z_]\w*)/,
-  swift: /\bfunc\s+([A-Za-z_]\w*)/,
-  typescript: /\b(?:test|it|describe)\s*\(\s*(["'`])((?:(?!\1).)*)\1/,
 };
 
 const SKIPPED_DIRECTORIES = new Set([".git", ".build", ".artifacts", "target", "node_modules"]);
@@ -87,34 +47,13 @@ function normalizePath(filePath) {
   return filePath.split(path.sep).join("/").replace(/^\.\//, "");
 }
 
-function languageFor(filePath) {
+// Only Rust has static rules here. The active desktop client shares Go tests
+// across platforms; a platform flag must not hide their missing static coverage.
+export function classifySource(filePath) {
   const normalized = normalizePath(filePath);
-  if (
-    normalized.endsWith(".swift") &&
-    (normalized.includes("/Tests/") || normalized.startsWith("macos/Tests/"))
-  ) {
-    return "swift";
-  }
-  if (/\.(?:test|spec)\.tsx?$/.test(normalized)) return "typescript";
   if (normalized.endsWith(".rs")) return "rust";
+  if (normalized.startsWith("desktop/") && normalized.endsWith("_test.go")) return "uncovered-go";
   return null;
-}
-
-function belongsToPlatform(filePath, platform) {
-  if (platform === "all") return true;
-  const normalized = normalizePath(filePath);
-  if (platform === "macos") {
-    return (
-      normalized.startsWith("macos/") ||
-      normalized.startsWith("Plugins/mac/") ||
-      normalized.startsWith("rust/")
-    );
-  }
-  return normalized.startsWith("windows/") || normalized.startsWith("rust/lithe-core/");
-}
-
-function isScanned(filePath, platform) {
-  return languageFor(filePath) !== null && belongsToPlatform(filePath, platform);
 }
 
 function stripStringsAndLineComments(line) {
@@ -220,136 +159,13 @@ function isAllowed(reason) {
   return reason !== null && reason.length >= MINIMUM_REASON_LENGTH;
 }
 
-// `.wait(` calls can span several lines, so the arguments are collected until
-// the parenthesis closes before deciding whether the wait is bounded.
-function swiftUnboundedWaitViolations(lines, selected) {
-  const violations = [];
-  const rule = RULES.swift.find((candidate) => candidate.id === "swift-unbounded-wait");
-
-  for (let index = 0; index < lines.length; index += 1) {
-    const firstLine = stripStringsAndLineComments(lines[index]);
-    let searchOffset = 0;
-
-    while (searchOffset < firstLine.length) {
-      const match = firstLine.slice(searchOffset).match(/\.wait\s*\(/);
-      if (!match) break;
-
-      const waitColumn = searchOffset + match.index;
-      let depth = 0;
-      let callStarted = false;
-      let callClosed = false;
-      let callEnd = index;
-      let callText = "";
-
-      callLines: for (let callIndex = index; callIndex < lines.length; callIndex += 1) {
-        const structural = stripStringsAndLineComments(lines[callIndex]);
-        const columnStart = callIndex === index ? waitColumn : 0;
-
-        for (let column = columnStart; column < structural.length; column += 1) {
-          const character = structural[column];
-          callText += character;
-          if (character === "(") {
-            depth += 1;
-            callStarted = true;
-          } else if (character === ")" && callStarted) {
-            depth -= 1;
-            if (depth === 0) {
-              callEnd = callIndex;
-              callClosed = true;
-              break callLines;
-            }
-          }
-        }
-
-        callEnd = callIndex;
-        callText += "\n";
-      }
-
-      if (!callStarted || !callClosed) break;
-
-      const argumentsText = callText.slice(callText.indexOf("(") + 1, callText.lastIndexOf(")"));
-      const isUnbounded =
-        argumentsText.trim().length === 0 || /\.\s*distantFuture\b/.test(argumentsText);
-
-      if (isUnbounded) {
-        const selectedLines = selected
-          ? [...selected].filter((lineNumber) => lineNumber >= index + 1 && lineNumber <= callEnd + 1)
-          : [];
-
-        if (!selected || selectedLines.length > 0) {
-          const reportIndex = selected ? Math.min(...selectedLines) - 1 : index;
-          const reason = exceptionReason(lines, index, rule.id);
-          if (!isAllowed(reason)) {
-            violations.push(violation(lines, index, rule, reason, "swift", reportIndex));
-          }
-        }
-      }
-
-      searchOffset = waitColumn + match[0].length;
-    }
-  }
-
-  return violations;
-}
-
-const DETACHED_RULE = {
-  id: "swift-detached-blocking",
-  message: "Do not hide a blocking wait in Task.detached; use bounded asynchronous signaling.",
-};
-
-function swiftDetachedBlockingViolations(lines, selected) {
-  const violations = [];
-  for (let index = 0; index < lines.length; index += 1) {
-    const firstLine = stripStringsAndLineComments(lines[index]);
-    const detachedIndex = firstLine.search(/\bTask\.detached\b/);
-    if (detachedIndex < 0) continue;
-
-    let depth = 0;
-    let blockStarted = false;
-    let blockEnd = index;
-    let waitLine = null;
-    for (let blockIndex = index; blockIndex < lines.length; blockIndex += 1) {
-      let structural = stripStringsAndLineComments(lines[blockIndex]);
-      if (blockIndex === index) structural = structural.slice(detachedIndex);
-      if (!blockStarted) {
-        const openingBrace = structural.indexOf("{");
-        if (openingBrace < 0) continue;
-        structural = structural.slice(openingBrace);
-        blockStarted = true;
-      }
-      if (waitLine === null && /\bwait\w*\s*\(/.test(structural)) waitLine = blockIndex;
-      depth += (structural.match(/\{/g) ?? []).length;
-      depth -= (structural.match(/\}/g) ?? []).length;
-      blockEnd = blockIndex;
-      if (depth <= 0) break;
-    }
-    if (!blockStarted || waitLine === null) continue;
-
-    const selectedLines = selected
-      ? [...selected].filter((lineNumber) => lineNumber >= index + 1 && lineNumber <= blockEnd + 1)
-      : [];
-    if (selected && selectedLines.length === 0) continue;
-    const reportIndex = selected?.has(waitLine + 1)
-      ? waitLine
-      : selected
-        ? Math.min(...selectedLines) - 1
-        : waitLine;
-    const reason = exceptionReason(lines, waitLine, DETACHED_RULE.id);
-    if (isAllowed(reason)) continue;
-    violations.push(violation(lines, waitLine, DETACHED_RULE, reason, "swift", reportIndex));
-    index = blockEnd;
-  }
-  return violations;
-}
-
-/// Scans one file. `selectedLineNumbers` restricts the single-line rules to the
-/// given lines; multi-line Swift rules report a match when any of its lines is
-/// selected. Each violation carries the enclosing declaration so callers can
-/// match it against another revision.
+// Scans Rust test regions in one source file. `selectedLineNumbers` restricts
+// matches to changed lines. `platform` remains a compatible call argument, but
+// current shared sources are no longer filtered through retired client paths.
 export function scanFile(filePath, content, selectedLineNumbers = null, platform = "all") {
   const normalized = normalizePath(filePath);
-  const language = languageFor(normalized);
-  if (!language || !belongsToPlatform(normalized, platform)) return [];
+  const language = classifySource(normalized);
+  if (language !== "rust") return [];
 
   const lines = content.split(/\r?\n/);
   const rustMask = language === "rust" ? rustTestLineMask(lines, normalized) : null;
@@ -361,16 +177,11 @@ export function scanFile(filePath, content, selectedLineNumbers = null, platform
     if (rustMask && !rustMask[index]) continue;
 
     for (const rule of RULES[language]) {
-      if (rule.id === "swift-unbounded-wait") continue;
       if (!rule.pattern.test(lines[index])) continue;
       const reason = exceptionReason(lines, index, rule.id);
       if (isAllowed(reason)) continue;
       violations.push(violation(lines, index, rule, reason, language));
     }
-  }
-  if (language === "swift") {
-    violations.push(...swiftUnboundedWaitViolations(lines, selected));
-    violations.push(...swiftDetachedBlockingViolations(lines, selected));
   }
   return violations.map((entry) => ({ ...entry, file: normalized }));
 }
@@ -518,17 +329,40 @@ export function parseArguments(arguments_) {
 /// Runs the gate. Without `--base` the working tree (including untracked
 /// files) is compared with HEAD; with `--base` the committed `--head` revision
 /// is compared with `--base`, so results do not depend on the working tree.
-export function run(options) {
+export function runWithCoverage(options) {
   const root = options.root ?? REPOSITORY_ROOT;
   const platform = options.platform ?? "all";
+  // rustFiles names applicable Rust test sources, not every .rs file inspected
+  // by the rules. uncoveredGoFiles makes the current desktop coverage gap explicit.
+  const coverage = { rustFiles: [], uncoveredGoFiles: [] };
+  const classify = (file) => {
+    const source = classifySource(file);
+    if (source === "uncovered-go") coverage.uncoveredGoFiles.push(file);
+    return source;
+  };
+  const recordRustCoverage = (file, content) => {
+    // Go's data-only samples may contain #[test] for syntax highlighting. Keep
+    // scanning their patterns, but do not count them as executable Rust tests.
+    const normalized = normalizePath(file);
+    if (normalized.startsWith("desktop/") && normalized.split("/").includes("testdata")) return;
+    // Production-only Rust files do not prove that a test region was checked.
+    if (rustTestLineMask(content.split(/\r?\n/), file).some(Boolean)) coverage.rustFiles.push(file);
+  };
+  const report = (result) => {
+    coverage.rustFiles.sort();
+    coverage.uncoveredGoFiles.sort();
+    return { ...result, coverage };
+  };
 
   if (options.all) {
     const violations = [];
     for (const file of walk(root)) {
-      if (!isScanned(file, platform)) continue;
-      violations.push(...scanFile(file, fileAt(root, null, file) ?? "", null, platform));
+      if (classify(file) !== "rust") continue;
+      const content = fileAt(root, null, file) ?? "";
+      recordRustCoverage(file, content);
+      violations.push(...scanFile(file, content, null, platform));
     }
-    return { violations, moved: 0 };
+    return report({ violations, moved: 0 });
   }
 
   const baseRevision = options.base ?? "HEAD";
@@ -548,16 +382,10 @@ export function run(options) {
   ];
   diffArguments.push(baseRevision);
   if (headRevision !== null) diffArguments.push(headRevision);
-  // Diff only languages this gate actually scans. Large unrelated source or
-  // generated-file deletions must not exhaust the bounded git output buffer;
-  // deleted test paths still participate in the moved-code ratchet.
-  diffArguments.push("--",
-    ":(glob)**/*.rs",
-    ":(glob)**/Tests/**/*.swift",
-    ":(glob)**/*.test.ts",
-    ":(glob)**/*.test.tsx",
-    ":(glob)**/*.spec.ts",
-    ":(glob)**/*.spec.tsx");
+  // Include Go test paths so an uncovered change cannot look like a passed
+  // static check. Unrelated generated-file deletions stay outside the bounded
+  // diff buffer; deleted Rust paths still participate in the moved-code ratchet.
+  diffArguments.push("--", ":(glob)**/*.rs", ":(glob)desktop/**/*_test.go");
   const { added, basePaths } = parseDiff(git(root, ...diffArguments));
 
   if (headRevision === null) {
@@ -569,20 +397,28 @@ export function run(options) {
 
   const headFiles = new Map();
   for (const [file, addedLines] of added) {
-    if (!isScanned(file, platform)) continue;
+    if (classify(file) !== "rust") continue;
     const content = fileAt(root, headRevision, file);
     if (content === null) continue;
+    recordRustCoverage(file, content);
     headFiles.set(file, { content, addedLines });
   }
 
   const baseFiles = new Map();
   for (const file of basePaths) {
-    if (!isScanned(file, platform)) continue;
+    if (classifySource(file) !== "rust") continue;
     const content = fileAt(root, baseRevision, file);
     if (content !== null) baseFiles.set(file, content);
   }
 
-  return reconcile({ headFiles, baseFiles, platform });
+  return report(reconcile({ headFiles, baseFiles, platform }));
+}
+
+// Preserve the original programmatic result shape for existing callers. The CLI
+// consumes runWithCoverage so the absence of rules is never presented as a pass.
+export function run(options) {
+  const { violations, moved } = runWithCoverage(options);
+  return { violations, moved };
 }
 
 function main() {
@@ -603,19 +439,29 @@ function main() {
         "the committed --head revision (default HEAD) with --base. Blocking patterns",
         "that already existed in the base revision under the same rule, enclosing",
         "test and statement text are treated as moved code and are not reported.",
-        "--all scans the whole tree and reports every pattern.",
+        "--all scans Rust test regions in the whole tree and reports every pattern.",
+        "Desktop Go tests have no static rules; uncovered files are reported explicitly.",
+        "--platform labels the invocation; shared sources use the same classification.",
       ].join("\n"),
     );
     return;
   }
 
   const scope = options.all ? "full tree" : options.base ? `${options.base}..${options.head}` : "working tree";
-  const { violations, moved } = run(options);
+  const { violations, moved, coverage } = runWithCoverage(options);
   if (moved > 0) {
     console.log(`Ignored ${moved} pre-existing blocking pattern(s) that only moved.`);
   }
+  if (coverage.uncoveredGoFiles.length > 0) {
+    console.log(`Static coverage unavailable for ${coverage.uncoveredGoFiles.length} desktop Go test file(s) (${scope}, ${options.platform}).`);
+    console.log("Run DesktopGo timing and race checks, and review Go waits, cancellation and cleanup manually.");
+  }
   if (violations.length === 0) {
-    console.log(`Test stability check passed (${scope}, ${options.platform}).`);
+    if (coverage.rustFiles.length === 0) {
+      console.log(`Test stability static scan N/A: no applicable Rust source files (${scope}, ${options.platform}); this is not a Go stability pass.`);
+    } else {
+      console.log(`Rust test stability check passed for ${coverage.rustFiles.length} source file(s) (${scope}, ${options.platform}).`);
+    }
     return;
   }
 
@@ -630,4 +476,13 @@ function main() {
   process.exitCode = 1;
 }
 
-if (path.resolve(process.argv[1] ?? "") === fileURLToPath(import.meta.url)) main();
+function isMainModule() {
+  if (!process.argv[1]) return false;
+  try {
+    return realpathSync(process.argv[1]) === realpathSync(fileURLToPath(import.meta.url));
+  } catch {
+    return false;
+  }
+}
+
+if (isMainModule()) main();
