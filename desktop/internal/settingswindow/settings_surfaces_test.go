@@ -15,7 +15,6 @@ import (
 	"github.com/1lck/Lithe-IDEA/desktop/internal/pluginsettings"
 	"github.com/vivaui/viva/app"
 	"github.com/vivaui/viva/gfx"
-	"github.com/vivaui/viva/ui"
 )
 
 func TestSettingsDynamicPagesShareDraftsFilterActionsAndRefreshCleanForms(t *testing.T) {
@@ -211,91 +210,101 @@ func flagsManifest(t *testing.T, count int) json.RawMessage {
 	return manifest
 }
 
-// settingsListFit is where a form's settings list sits in the window once the page is
-// scrolled to its end: its visible height and the distance from its bottom to the top of the
-// window's OK button.
-type settingsListFit struct{ height, gap float32 }
-
-// settingsListHits are the open form's settings list, as much of it as is visible, and the
-// window's OK button.
-func settingsListHits(t *testing.T, d *windowDriver, w *window) (list, ok gfx.Hit) {
+// settingsOKButton is the window's OK button.
+func settingsOKButton(t *testing.T, d *windowDriver, w *window) gfx.Hit {
 	t.Helper()
 	for _, hit := range d.driver.Snapshot().Hits {
-		switch {
-		case hit.Role == gfx.RoleListBox && hit.Label == i18n.Shared(i18n.English, "desktop.pluginSettings.title"):
-			list = hit
-		case hit.Role == gfx.RoleButton && hit.Label == w.text.Settings.OK:
-			ok = hit
+		if hit.Role == gfx.RoleButton && hit.Label == w.text.Settings.OK {
+			return hit
 		}
 	}
-	if list.Bounds.Height == 0 || ok.Bounds.Height == 0 {
-		t.Fatal("no settings list or no OK button")
-	}
-	return list, ok
+	t.Fatal("no OK button")
+	return gfx.Hit{}
 }
 
-// measureSettingsList scrolls the page to its end, measures the open form's list, then
-// scrolls the list to its last row and fails unless that row is drawn whole inside it.
-func measureSettingsList(t *testing.T, d *windowDriver, w *window, last string) settingsListFit {
+// settingsRowLabel is the drawn title of the form row whose words are value. It fails unless
+// the row is drawn and nothing cuts it from above or below, which a scroll of the form's own
+// would once the page is at its end.
+func settingsRowLabel(t *testing.T, d *windowDriver, value string) app.Label {
 	t.Helper()
-	list, _ := settingsListHits(t, d, w)
-	// The wheel turns just above the list, so it scrolls the page and not the list's rows.
-	if err := d.driver.Scroll(gfx.ScrollEvent{X: list.Bounds.X + list.Bounds.Width/2, Y: list.Bounds.Y - 4, DeltaY: 10000, Precise: true}); err != nil {
+	for _, label := range d.driver.Snapshot().Labels {
+		if label.Value != value {
+			continue
+		}
+		if label.Clipped && (label.Bounds.Y < label.Clip.Y-0.5 || label.Bounds.Y+label.Bounds.Height > label.Clip.Y+label.Clip.Height+0.5) {
+			t.Fatalf("the row %q at %+v is cut by %+v", value, label.Bounds, label.Clip)
+		}
+		return label
+	}
+	t.Fatalf("the row %q is not drawn", value)
+	return app.Label{}
+}
+
+// wheelOverSettingsRow turns the wheel by delta over a form row, where a scroll of the form's
+// own would take the wheel instead of passing it to the page.
+func wheelOverSettingsRow(t *testing.T, d *windowDriver, row app.Label, delta float32) {
+	t.Helper()
+	at := row.Bounds
+	if err := d.driver.Scroll(gfx.ScrollEvent{X: at.X + at.Width/2, Y: at.Y + at.Height/2, DeltaY: delta, Precise: true}); err != nil {
 		t.Fatal(err)
 	}
 	d.pump()
-	list, ok := settingsListHits(t, d, w)
-	bottom := list.Bounds.Y + list.Bounds.Height
-	w.pluginSettings.rows.ScrollTo(len(w.pluginSettings.layout)-1, ui.ListEnd)
-	w.inv.Invalidate()
-	d.pump()
-	d.pump()
-	found := false
-	for _, label := range d.driver.Snapshot().Labels {
-		if label.Value != last {
-			continue
-		}
-		found = true
-		if label.Bounds.Y < list.Bounds.Y || label.Bounds.Y+label.Bounds.Height > bottom {
-			t.Fatalf("the last row %+v is cut by the list %+v", label.Bounds, list.Bounds)
-		}
-	}
-	if !found {
-		t.Fatalf("the last row %q is not drawn", last)
-	}
-	return settingsListFit{height: list.Bounds.Height, gap: ok.Bounds.Y - bottom}
 }
 
-// settingsListHeights are the window heights the list is measured in: the smallest window,
-// which scrolls the page to show the list's least height, and two that it fills.
-var settingsListHeights = [3]int{windowMinHeight, 800, 1000}
-
-// checkSettingsListFills fails unless, in the two taller windows, the list grew by exactly what
-// the window grew and ends the same short distance above the window's buttons, and, in the
-// smallest, the page scrolls to the whole of the list's least height above the buttons.
-func checkSettingsListFills(t *testing.T, fits map[int]settingsListFit) {
+// measureSettingsForm fails unless the form has no scroll of its own and the wheel over its
+// rows carries the page from its first row to its last, both drawn whole. It returns the
+// distance from the last row's bottom to the top of the window's OK button, which says the
+// page stops at the end of its content rather than at a height the form chose.
+func measureSettingsForm(t *testing.T, d *windowDriver, w *window, first, last string) float32 {
 	t.Helper()
-	small, mid, tall := fits[settingsListHeights[0]], fits[settingsListHeights[1]], fits[settingsListHeights[2]]
-	grown := float32(settingsListHeights[2] - settingsListHeights[1])
-	if delta := tall.height - mid.height; delta < grown-1 || delta > grown+1 {
-		t.Fatalf("the list grew %v for a window %v taller: %+v, %+v", delta, grown, mid, tall)
+	title := i18n.Shared(i18n.English, "desktop.pluginSettings.title")
+	for _, hit := range d.driver.Snapshot().Hits {
+		if hit.Role == gfx.RoleListBox && hit.Label == title {
+			t.Fatalf("the form declares a scroll of its own at %+v", hit.Bounds)
+		}
 	}
-	if tall.gap-mid.gap > 1 || mid.gap-tall.gap > 1 || mid.gap < 0 || tall.gap > 3*contentPad {
-		t.Fatalf("the list does not end at the page's bottom: %+v, %+v", mid, tall)
+	wheelOverSettingsRow(t, d, settingsRowLabel(t, d, first), 10000)
+	row := settingsRowLabel(t, d, last)
+	ok := settingsOKButton(t, d, w)
+	bottom := row.Bounds.Y + row.Bounds.Height
+	if bottom > ok.Bounds.Y {
+		t.Fatalf("the last row at %+v is under the window's buttons at %v", row.Bounds, ok.Bounds.Y)
 	}
-	if small.height < settingsListMinHeight-1 || small.gap < 0 {
-		t.Fatalf("the smallest window shows %+v of the list", small)
+	// The wheel back up over the rows brings the first row back, whole.
+	wheelOverSettingsRow(t, d, row, -10000)
+	settingsRowLabel(t, d, first)
+	return ok.Bounds.Y - bottom
+}
+
+// settingsFormHeights are the window heights the form is measured in: the smallest window and
+// two taller ones, all of them shorter than the 30 rows the form holds.
+var settingsFormHeights = [3]int{windowMinHeight, 800, 1000}
+
+// checkSettingsFormEnds fails unless the page ends the same short distance under the form's
+// last row whatever the window's height. The form scrolls with the page, so the page's end is
+// the end of the form's rows and not a height the form kept for itself.
+func checkSettingsFormEnds(t *testing.T, gaps map[int]float32) {
+	t.Helper()
+	small, mid, tall := gaps[settingsFormHeights[0]], gaps[settingsFormHeights[1]], gaps[settingsFormHeights[2]]
+	for _, gap := range [3]float32{small, mid, tall} {
+		if gap < 0 || gap > 3*contentPad {
+			t.Fatalf("the page does not end under the last row: %v, %v, %v", small, mid, tall)
+		}
+	}
+	if tall-mid > 1 || mid-tall > 1 || mid-small > 1 || small-mid > 1 {
+		t.Fatalf("the page's end moved with the window's height: %v, %v, %v", small, mid, tall)
 	}
 }
 
-// A language page's settings list fills the page under the form's header, so the last row ends
-// at the page's bottom instead of being cut off at a fixed height above blank space, and a
-// window too short for the list scrolls the page.
-func TestSettingsDynamicPageListFillsThePageAndShowsItsLastRowWhole(t *testing.T) {
+// A language page's form scrolls with the page it sits in, so the wheel over its rows carries
+// the page from the first row to the last with both drawn whole, whatever the window's height.
+// A scroll of the form's own would take only the height what sits above it leaves, and cut its
+// rows off once the page itself was at its end.
+func TestSettingsDynamicPageFormScrollsWithThePageAndShowsItsRowsWhole(t *testing.T) {
 	const count = 30
 	manifest := flagsManifest(t, count)
-	fits := map[int]settingsListFit{}
-	for _, height := range settingsListHeights {
+	gaps := map[int]float32{}
+	for _, height := range settingsFormHeights {
 		client := core.NewClient()
 		source := settingsFormSource{store: pluginsettings.New(client, t.TempDir()), manifest: manifest, workspace: t.TempDir()}
 		w := newWindow(NewController(Options{PluginSettings: source, Text: func() *i18n.Messages { return i18n.For(i18n.English) }, SettingsNavigation: client.SettingsNavigation, SettingsPages: func(ctx context.Context, _ i18n.Language) ([]core.SettingsPage, error) {
@@ -307,7 +316,7 @@ func TestSettingsDynamicPageListFillsThePageAndShowsItsLastRowWhole(t *testing.T
 		d.until("the form", func() bool { return w.pluginSettings != nil && w.pluginSettings.loaded && !w.pluginSettings.running })
 		w.inv.Invalidate()
 		d.pump()
-		fits[height] = measureSettingsList(t, d, w, fmt.Sprintf("Flag %02d", count-1))
+		gaps[height] = measureSettingsForm(t, d, w, "Flag 00", fmt.Sprintf("Flag %02d", count-1))
 	}
-	checkSettingsListFills(t, fits)
+	checkSettingsFormEnds(t, gaps)
 }
