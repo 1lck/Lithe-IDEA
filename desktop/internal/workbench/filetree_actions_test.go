@@ -88,6 +88,38 @@ func TestProjectTreeLocatesTheActiveFile(t *testing.T) {
 	}
 }
 
+// A large tree must expose the selected row after the Locate click alone, not
+// after another pointer event. The Viva List ScrollTo request is applied in
+// the same frame (the stale-offset regression tracked by #1820).
+func TestProjectTreeLocatePaintsAnOffscreenFileAfterOneClick(t *testing.T) {
+	root := t.TempDir()
+	paths := make([]string, 96)
+	for i := range paths {
+		paths[i] = fmt.Sprintf("file-%03d.go", i)
+	}
+	writeTreeFiles(t, root, paths...)
+	h := newHarness(t, &testKernel{Client: core.NewClient()})
+	p := h.openTree(t, root)
+	target := filepath.Join(root, paths[len(paths)-1])
+	h.app.openFile(p, target)
+	awaitDocumentState(t, h, func() bool { return p.docs.byPath(target) != nil })
+	h.settle()
+
+	locate := h.treeAction(treeActionLocate)
+	if locate.Disabled {
+		t.Fatal("Locate is unavailable for the active file")
+	}
+	h.click(center(locate.Bounds))
+	if p.tree.selected == nil || p.tree.selected.path != paths[len(paths)-1] {
+		t.Fatalf("Locate selected %+v, want %s", p.tree.selected, paths[len(paths)-1])
+	}
+	// treeRowHit reads the last completed paint. A stale List scroll offset would
+	// leave this offscreen hit absent until another frame or mouse movement.
+	if hit := h.treeRowHit("file-095.go"); hit.Bounds.Height <= 0 {
+		t.Fatalf("Locate did not paint the requested row: %+v", hit)
+	}
+}
+
 func TestProjectTreeLocateGivesUpOnAFileThatIsGone(t *testing.T) {
 	h := newHarness(t, &testKernel{Client: core.NewClient()})
 	locateMissingTreeFile(t, h)
