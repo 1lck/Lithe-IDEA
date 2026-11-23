@@ -43,33 +43,4 @@ func Install(dir, name string) (string, error) {
 		return "", fmt.Errorf("install the helper: %w", err)
 	}
 	return target, nil
-		}
-	}
-	if err := os.MkdirAll(bin, 0o700); err != nil {
-		return "", fmt.Errorf("create the helper directory: %w", err)
-	}
-	temporary, err := os.CreateTemp(bin, "."+name+".*")
-	if err != nil {
-		return "", fmt.Errorf("create the helper file: %w", err)
-	}
-	temporaryPath := temporary.Name()
-	defer os.Remove(temporaryPath) // no-op once the rename succeeded
-	if _, err := temporary.Write(data); err != nil {
-		temporary.Close()
-		return "", fmt.Errorf("write the helper: %w", err)
-	}
-	if err := temporary.Sync(); err != nil {
-		temporary.Close()
-		return "", fmt.Errorf("sync the helper: %w", err)
-	}
-	if err := temporary.Close(); err != nil {
-		return "", fmt.Errorf("close the helper: %w", err)
-	}
-	if err := os.Chmod(temporaryPath, 0o700); err != nil {
-		return "", fmt.Errorf("make the helper executable: %w", err)
-	}
-	if err := os.Rename(temporaryPath, target); err != nil {
-		return "", fmt.Errorf("install the helper: %w", err)
-	}
-	return target, nil
 }
