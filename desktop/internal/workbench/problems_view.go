@@ -197,14 +197,10 @@ func (a *App) syncProblemsSelection(canvas *gfx.Canvas) {
 	focused := canvas.Focused()
 	inTree := false
 	if focused != v.focus || v.reveal {
-		for i := range rows {
-			if v.view.RowID(i) == focused {
-				inTree = true
-				if focused != v.focus {
-					v.selected, v.selectedRow = rows[i].Key, i
-				}
-				break
-			}
+		i, found := treelist.FocusedRow(&v.view, len(rows), focused)
+		inTree = found
+		if found && focused != v.focus {
+			v.selected, v.selectedRow = rows[i].Key, i
 		}
 		v.focus = focused
 	}

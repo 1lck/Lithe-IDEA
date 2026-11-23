@@ -1,9 +1,12 @@
-// Package treelist holds the measures and the text color of the desktop's tree rows: the
+// Package treelist holds the measures, text color and focus lookup of desktop tree rows: the
 // Project tool window's tree and the lists of files in the Git tool windows share them, so
 // a name looks the same wherever it is listed. The rows themselves are Viva's Tree and List.
 package treelist
 
-import "github.com/vivaui/viva/gfx"
+import (
+	"github.com/vivaui/viva/gfx"
+	"github.com/vivaui/viva/ui"
+)
 
 // The sizes of a row, the same in every tree list.
 const (
@@ -38,4 +41,17 @@ func Text(dark bool) gfx.Color {
 // a list that scrolls sideways measures to make its column as wide as its widest row.
 func Width(depth int, content float32) float32 {
 	return 2*Gutter + float32(depth*Indent) + Disclosure + Gap + content + Trailing
+}
+
+// FocusedRow finds the row whose Viva identity holds the keyboard focus. Cleared focus
+// cannot match a row: a row added since the last paint can also have the zero identity.
+func FocusedRow(view *ui.TreeState, count int, focused gfx.ID) (int, bool) {
+	if !focused.IsZero() {
+		for i := range count {
+			if view.RowID(i) == focused {
+				return i, true
+			}
+		}
+	}
+	return -1, false
 }
