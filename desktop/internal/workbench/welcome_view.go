@@ -40,7 +40,7 @@ func (a *App) welcomePanel(c ui.C) {
 		// The macOS welcome title sits after the traffic lights; the workbench hides it.
 		title := ui.Row(c).Absolute().Top(0).Right(0)
 		if runtime.GOOS == "darwin" {
-			leading, _ := app.TitlebarInsets()
+			leading, _ := c.TitlebarInsets()
 			title.Left(max(84, leading+10)).Height(32).Items(ui.Center)
 		} else {
 			title.Left(0).Height(titleBarHeight).Center()
@@ -50,7 +50,7 @@ func (a *App) welcomePanel(c ui.C) {
 		})
 		// The update arrow sits at the top right, as on the workbench's title bar, clear of the
 		// system's window buttons where they are on that side.
-		_, trailing := app.TitlebarInsets()
+		_, trailing := c.TitlebarInsets()
 		ui.Row(c).Absolute().Top(0).Right(trailing + chromeEdge).Height(titleBarHeight).Items(ui.Center).Children(func() {
 			a.updateArrow(c)
 		})

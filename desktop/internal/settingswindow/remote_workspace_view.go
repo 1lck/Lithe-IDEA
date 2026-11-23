@@ -34,12 +34,12 @@ func (w *window) remoteWorkspacePage(c ui.C) {
 					ui.Text(c, i18n.Shared(language, "desktop.toolchains.loading")).FontSize(12).Color(w.pal.muted)
 				})
 			}
-			w.remotePreferencesNotices(c.Part("notices"), language, r)
+			w.remotePreferencesNotices(c, language, r)
 			return
 		}
 		w.card(c.Part("connection"), i18n.Shared(language, "desktop.remoteSettings.connection"), "", func() {
 			w.remoteProgramRow(c.Part("program"), language, r)
-			w.remoteSSHConfigRow(c.Part("ssh-config"), language, r)
+			w.remoteSSHConfigRow(c, language, r)
 		})
 		w.card(c.Part("reconnection"), i18n.Shared(language, "desktop.remoteSettings.reconnection"), "", func() {
 			w.remoteReconnectRow(c.Part("reconnect"), language, r)
@@ -49,7 +49,7 @@ func (w *window) remoteWorkspacePage(c ui.C) {
 		})
 		w.card(c.Part("closing"), i18n.Shared(language, "desktop.remoteSettings.closing"), "", func() {
 			w.remoteCloseRow(c.Part("close-programs"), language, r)
-			w.remoteIdleTimeoutRow(c.Part("idle-timeout"), language, r)
+			w.remoteIdleTimeoutRow(c, language, r)
 		})
 		w.card(c.Part("storage"), i18n.Shared(language, "desktop.remoteSettings.storage"), "", func() {
 			title := i18n.Shared(language, "desktop.remoteSettings.storage")
@@ -61,7 +61,7 @@ func (w *window) remoteWorkspacePage(c ui.C) {
 				w.remotePathText(c.Part("storage-path"), r.source.Saved.Path(), note)
 			})
 		})
-		w.remotePreferencesNotices(c.Part("notices"), language, r)
+		w.remotePreferencesNotices(c, language, r)
 	})
 }
 
@@ -114,9 +114,9 @@ func (w *window) remoteProgramRow(c ui.C, language i18n.Language, r *remotePrefe
 	}
 	switch ssh.Status {
 	case core.RemoteProgramMissing:
-		ui.Wrap(c.Part("program-missing"), i18n.SharedFormat(language, "desktop.remoteSettings.programMissing", map[string]string{"path": *ssh.Path})).FontSize(12).Color(w.pal.danger)
+		ui.Wrap(c, i18n.SharedFormat(language, "desktop.remoteSettings.programMissing", map[string]string{"path": *ssh.Path})).FontSize(12).Color(w.pal.danger)
 	case core.RemoteProgramNotExecutable:
-		ui.Wrap(c.Part("program-not-executable"), i18n.SharedFormat(language, "desktop.remoteSettings.programNotExecutable", map[string]string{"path": *ssh.Path})).FontSize(12).Color(w.pal.danger)
+		ui.Wrap(c, i18n.SharedFormat(language, "desktop.remoteSettings.programNotExecutable", map[string]string{"path": *ssh.Path})).FontSize(12).Color(w.pal.danger)
 	}
 }
 
@@ -130,7 +130,7 @@ func (w *window) remoteSSHConfigRow(c ui.C, language i18n.Language, r *remotePre
 	if !config.Exists {
 		note = i18n.Shared(language, "desktop.remoteSettings.sshConfigMissing")
 	}
-	w.settingsRow(c, i18n.Shared(language, "desktop.remoteSettings.sshConfig"), i18n.Shared(language, "desktop.remoteSettings.sshConfigHelp"), func() {
+	w.settingsRow(c.Part("ssh-config"), i18n.Shared(language, "desktop.remoteSettings.sshConfig"), i18n.Shared(language, "desktop.remoteSettings.sshConfigHelp"), func() {
 		w.remotePathText(c.Part("path"), config.Path, note)
 	})
 }
@@ -267,8 +267,8 @@ func (w *window) remoteIdleTimeoutRow(c ui.C, language i18n.Language, r *remoteP
 	if seconds == 0 {
 		return
 	}
-	w.settingsRow(c, i18n.Shared(language, "desktop.remoteSettings.idleTimeout"), i18n.Shared(language, "desktop.remoteSettings.idleTimeoutHelp"), func() {
-		ui.Text(c.Part("value"), remoteDuration(language, int(seconds))).FontSize(12).Color(w.pal.text)
+	w.settingsRow(c.Part("idle-timeout"), i18n.Shared(language, "desktop.remoteSettings.idleTimeout"), i18n.Shared(language, "desktop.remoteSettings.idleTimeoutHelp"), func() {
+		ui.Text(c, remoteDuration(language, int(seconds))).FontSize(12).Color(w.pal.text)
 	})
 }
 
@@ -287,7 +287,7 @@ func (w *window) remotePathText(c ui.C, path, note string) {
 		HitWith(ui.ID(c), path, gfx.HitOptions{Role: gfx.RoleGroup}).Tooltip(path).Children(func() {
 		ui.Text(c, path).FontSize(12).Mono().Color(w.pal.text).Shrink(1).MinWidth(0).Ellipsis()
 		if note != "" {
-			ui.Text(c.Part("note"), note).FontSize(12).Color(w.pal.muted).Shrink(0)
+			ui.Text(c, note).FontSize(12).Color(w.pal.muted).Shrink(0)
 		}
 	})
 }
@@ -297,7 +297,7 @@ func (w *window) remotePreferencesNotices(c ui.C, language i18n.Language, r *rem
 	if r.readFailed == nil && r.failed == nil && !r.saving {
 		return
 	}
-	ui.Column(c).FillWidth().Shrink(0).Gap(8).Children(func() {
+	ui.Column(c.Part("notices")).FillWidth().Shrink(0).Gap(8).Children(func() {
 		if r.readFailed != nil {
 			message := remotePreferencesFailureMessage(language, r.readFailed, r.damagedPath)
 			w.box(c.Part("load-failed"), boxErr, func(words gfx.Color) {

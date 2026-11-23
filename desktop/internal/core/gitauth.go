@@ -24,7 +24,8 @@ type GitAuthChallenge struct {
 	// shown as it is. A Retry challenge carries Core's English wording, which the host replaces
 	// with its own translated question.
 	Prompt string
-	// Secret says the answer must not be shown or kept.
+	// Secret says the answer must not be shown or logged, nor kept unless the user ticks Remember
+	// under a remote connection's password or passphrase (workbench, remote_answers.go).
 	Secret bool
 	// Retry is the question whether to retry the transfer; only GitRetryAnswer accepts it.
 	Retry bool

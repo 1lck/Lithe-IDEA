@@ -628,6 +628,16 @@ func (a *App) removeRemote() {
 	a.editRemote("remote_connection_remove", core.RemoteConnectionEdit{Remove: &core.RemoteConnectionID{ID: r.selected}})
 }
 
+// forgetRemovedRemote forgets the answers the deleted connection id remembered, which no
+// connection can use any more.
+func (a *App) forgetRemovedRemote(id string) {
+	secrets := a.remoteSecrets()
+	a.background(nil, remoteReadTimeout, func(ctx context.Context) func(*App) {
+		err := remoteconn.ForgetAnswers(ctx, secrets, id)
+		return func(a *App) { a.remoteAnswersSettled(err, true) }
+	})
+}
+
 // editRemote applies edit to the list as it was read, in the background. site names the
 // operation in the log.
 func (a *App) editRemote(site string, edit core.RemoteConnectionEdit) {
@@ -685,6 +695,7 @@ func (a *App) editRemote(site string, edit core.RemoteConnectionEdit) {
 			r.setSource(after)
 			a.loadRemoteImportCounts()
 			if edit.Remove != nil {
+				a.forgetRemovedRemote(edit.Remove.ID)
 				r.selectFirst()
 				return
 			}
@@ -741,15 +752,20 @@ func (a *App) testRemote() {
 	ctx, cancel := context.WithTimeout(a.operationContext(context.Background()), remoteProbeTimeout)
 	probe := &remoteProbe{cancel: cancel}
 	r.probe = probe
+	// A saved connection's test remembers its answers as connecting does, under the questions of
+	// the login the form holds.
+	answers := a.remoteAnswersFor(r.selected, remoteHost{ssh: connection})
 	generation, kernel, root := r.generation, a.kernel, a.globalToolchainRoot()
 	a.background(nil, 0, func(context.Context) func(*App) {
 		defer cancel()
 		var result core.RemoteProbeResult
 		preferences, err := remotePreferencesDocument(ctx, kernel, root)
 		if err == nil {
-			result, err = kernel.RemoteProbe(a.gitAuthentication(ctx), connection, preferences)
+			result, err = kernel.RemoteProbe(a.remoteAuthentication(ctx, answers, true), connection, preferences)
 		}
+		settled := answers.settle(result.Status, err)
 		return func(a *App) {
+			a.remoteAnswersSettled(settled, true)
 			r := &a.remote
 			if !r.open || r.generation != generation || r.probe != probe {
 				// log-exempt: 用户取消：测试已停止、换了连接或窗口已关闭，不再应用结果。

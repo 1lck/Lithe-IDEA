@@ -444,11 +444,11 @@ func (a *App) stripTab(c ui.C, place *groupPlace, t shownTab, current string, i 
 	}
 	var closeButton ui.Box
 	chip.Children(func() {
-		ui.Icon(k, icon).Size(terminalChipIcon, terminalChipIcon).Shrink(0).Color(a.colors.Subtle)
+		ui.Icon(c, icon).Size(terminalChipIcon, terminalChipIcon).Shrink(0).Color(a.colors.Subtle)
 		if a.project.terms.bench.Group(place.id).IsPinned(member) {
-			ui.Icon(k.Part("pin"), icons.Pin).Size(terminalCloseIcon, terminalCloseIcon).Shrink(0).Color(a.colors.Subtle)
+			ui.Icon(c, icons.Pin).Size(terminalCloseIcon, terminalCloseIcon).Shrink(0).Color(a.colors.Subtle)
 		}
-		text := ui.Text(k, label).Ellipsis().Grow(1)
+		text := ui.Text(c, label).Ellipsis().Grow(1)
 		if selected {
 			text.Color(a.colors.Text)
 		} else {
@@ -467,7 +467,7 @@ func (a *App) stripTab(c ui.C, place *groupPlace, t shownTab, current string, i 
 				StateFrom(closeButton).Hover(ui.Look{}.Color(a.colors.Text))
 		})
 	})
-	ui.ContextMenu(k.Part("menu"), chip, a.tabMenuItems(c, place.id, t, tabs))
+	ui.ContextMenu(c, chip, a.tabMenuItems(c, place.id, t, tabs))
 	switch {
 	case closeButton.Clicked():
 		c.After(func() { a.closeTab(t) })
@@ -521,7 +521,7 @@ func (a *App) hiddenTabsButton(c ui.C, place *groupPlace, s *tabStrip, tabs []sh
 	wasOpen := s.menu
 	if s.menu {
 		spec := ui.PopoverSpec{Align: ui.End, Offset: chromeMenuOffset, Width: tabMenuWidth, ConsumeOutsidePress: true}
-		ui.PopoverWith(c, button, spec, &s.menu, func() {
+		ui.PopoverWith(c, button, &s.menu, spec, func() {
 			ui.Scroll(c.Part("hidden")).Scrollbars().FillWidth().MaxHeight(tabMenuMaxHeight).Gap(chromeMenuItems).Children(func() {
 				for _, member := range s.hidden {
 					i := slices.IndexFunc(tabs, func(t shownTab) bool { return t.member() == member })

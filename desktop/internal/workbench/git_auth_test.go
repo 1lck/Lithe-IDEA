@@ -77,9 +77,9 @@ func (h *harness) typeText(value string) {
 
 // awaitGitQuestion waits until the window shows a question that asked holds and paints it
 // with the field focused.
-func (h *harness) awaitGitQuestion(what string, asked func(core.GitAuthChallenge) bool) core.GitAuthChallenge {
+func (h *harness) awaitGitQuestion(what string, asked func(core.GitAuthChallenge) bool) gitAuthQuestion {
 	h.t.Helper()
-	h.await(what, func() bool { return len(h.app.gitAuth.queue) > 0 && asked(h.app.gitAuth.queue[0]) })
+	h.await(what, func() bool { return len(h.app.gitAuth.queue) > 0 && asked(h.app.gitAuth.queue[0].GitAuthChallenge) })
 	for range 2 {
 		if err := h.driver.Pump(); err != nil {
 			h.t.Fatal(err)
@@ -205,7 +205,9 @@ func gitAuthHarness(t *testing.T, accept func(*string) bool, challenges ...core.
 	h := newHarnessWithLanguages(t, kernel, []string{"en-US"})
 	logger := &treeRecordingLog{}
 	h.app.logSink = logger
-	h.app.gitAuth.queue = challenges
+	for _, challenge := range challenges {
+		h.app.gitAuth.queue = append(h.app.gitAuth.queue, gitAuthQuestion{GitAuthChallenge: challenge})
+	}
 	h.app.invalidator.Invalidate()
 	h.settle()
 	h.settle()

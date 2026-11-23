@@ -65,6 +65,9 @@ installed_package_workflows=(
     desktop/internal/idehelp/idehelp_test.go:TestInstallLeavesTheInstalledPackageUnchanged
     desktop/internal/localshell/conpty/conpty_test.go:TestInstallLeavesTheInstalledPackageUnchanged
     desktop/internal/pluginpkg/install_test.go:TestInstallLeavesTheInstalledPackageUnchanged
+    desktop/internal/marketplace/delta_test.go:TestMarketplaceDeltaLeavesInstalledPackageUnchanged
+    desktop/internal/plugininstall/pending_test.go:TestStageUpdateLeavesInstalledPackageUnchanged
+    desktop/internal/pluginservice/package_lifecycle_test.go:TestUninstallWaitsForPackagePublicationInAnotherProcess
 )
 for workflow in $installed_package_workflows; do
     workflow_file=${workflow%%:*}

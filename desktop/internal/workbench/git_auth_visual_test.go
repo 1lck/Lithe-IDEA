@@ -40,7 +40,9 @@ func TestVisualGitAuthentication(t *testing.T) {
 			name := "git-auth-" + state.name + "-" + scene.theme + "-" + scene.language
 			t.Run(name, func(t *testing.T) {
 				h, session := visualGitAuthHarness(t, scene.theme, scene.language)
-				h.app.post(func(a *App) { a.gitAuth.queue = append(a.gitAuth.queue, state.challenge) })
+				h.app.post(func(a *App) {
+					a.gitAuth.queue = append(a.gitAuth.queue, gitAuthQuestion{GitAuthChallenge: state.challenge})
+				})
 				h.settle()
 				h.settle()
 				if state.typed != "" {

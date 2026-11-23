@@ -43,7 +43,7 @@ func (a *App) drawLogPopover(c ui.C, p *project, which logPopover, anchor ui.Box
 	}
 	open := true
 	spec := ui.PopoverSpec{Align: ui.Start, Offset: 4, Width: width, ConsumeOutsidePress: true}
-	ui.PopoverWith(c, anchor, spec, &open, func() {
+	ui.PopoverWith(c, anchor, &open, spec, func() {
 		switch l.popover {
 		case logPopoverBranch:
 			a.drawLogBranchFilter(c, p)
@@ -135,7 +135,7 @@ func (a *App) drawLogBranchFilter(c ui.C, p *project) {
 			if len(s.refs) == 0 {
 				continue
 			}
-			ui.Divider(c.Part(s.kind)).PadY(4)
+			ui.Divider(c).PadY(4)
 			for _, r := range s.refs {
 				if a.logMenuItem(c, r.FullName, r.ShortName, l.reference == r.FullName, false) {
 					c.After(func() {

@@ -496,6 +496,42 @@ func TestRemoteShellSendsTheSizeAndChunkedInputInOrder(t *testing.T) {
 	}
 }
 
+type remoteTerminalExitBeforeWriteReply struct {
+	Kernel
+	exit func()
+}
+
+func (k remoteTerminalExitBeforeWriteReply) RemoteTerminalWrite(context.Context, string, uint64, []byte) (bool, error) {
+	k.exit()
+	return false, nil
+}
+
+func (remoteTerminalExitBeforeWriteReply) RemoteRunTerminal(context.Context, string, core.RemoteTerminalOpen, core.RemoteTerminalEvents) (core.RemoteTerminalExit, error) {
+	return core.RemoteTerminalExit{}, nil
+}
+
+func TestRemoteShellStopsWhenWriteIsAcknowledgedAfterExit(t *testing.T) {
+	reports := &remoteShellReports{}
+	s := remoteTestShellAlone(reports)
+	s.ctx, s.done = t.Context(), make(chan struct{})
+	s.host.kernel = remoteTerminalExitBeforeWriteReply{exit: func() {
+		// The terminal stream finishes before the independent write RPC answers.
+		s.run(core.RemoteTerminalOpen{})
+	}}
+	if !s.Write([]byte("pending input\n")) {
+		t.Fatal("the terminal did not queue the input")
+	}
+	if s.sendNext() {
+		t.Fatal("the sender continued after the terminal exited")
+	}
+	if s.Write([]byte("after exit")) || s.Err() != nil {
+		t.Fatalf("a clean exit did not close input: %v", s.Err())
+	}
+	if _, failed := reports.snapshot(); len(failed) != 0 {
+		t.Fatalf("a clean exit reported failures: %v", failed)
+	}
+}
+
 // A terminal holds at most remoteTerminalInputLimit of input the host has not taken: more is
 // refused while that much waits, and nothing is taken once the program ended.
 func TestRemoteShellBoundsTheInputItHolds(t *testing.T) {

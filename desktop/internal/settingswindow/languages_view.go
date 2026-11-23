@@ -99,20 +99,20 @@ func (w *window) languageDirectory(c ui.C, language i18n.Language, pages []*core
 			r.Element.Children(func() {
 				w.pluginTile(k, page.Title, 28)
 				ui.Column(k).Grow(1).Shrink(1).MinWidth(0).Children(func() {
-					ui.Text(k, page.Title).FontSize(buildFont).Weight(gfx.WeightSemibold).Color(b.text).Ellipsis()
+					ui.Text(c, page.Title).FontSize(buildFont).Weight(gfx.WeightSemibold).Color(b.text).Ellipsis()
 					ui.Row(k).Height(2).Shrink(0)
-					ui.Text(k, i18n.SharedFormat(language, "desktop.buildSettings.providedBy", map[string]string{"plugin": kindPlugins(page, separator)})).
+					ui.Text(c, i18n.SharedFormat(language, "desktop.buildSettings.providedBy", map[string]string{"plugin": kindPlugins(page, separator)})).
 						FontSize(buildSmall).Color(b.sub).Ellipsis()
 				})
 				if page.Kind == "language" && len(page.Contributors) > 0 && w.ctrl.opts.LanguageServerState != nil {
 					words, tone := languageStateWords(language, w.languageServerState(page.Contributors[0].PluginID))
 					ui.Row(k.Part("server")).Shrink(0).Gap(6).Items(ui.Center).Children(func() {
 						dot(k, 8, b.statusColor(tone))
-						ui.Text(k, i18n.SharedFormat(language, "desktop.languageSettings.serverState", map[string]string{"state": words})).
+						ui.Text(c, i18n.SharedFormat(language, "desktop.languageSettings.serverState", map[string]string{"state": words})).
 							FontSize(buildSmall).Color(b.sub)
 					})
 				}
-				ui.Text(k, "›").FontSize(buildFont).Color(b.faint).Shrink(0)
+				ui.Text(c, "›").FontSize(buildFont).Color(b.faint).Shrink(0)
 			})
 			if r.Element.Clicked() {
 				open = page.Key

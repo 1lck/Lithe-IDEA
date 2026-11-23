@@ -112,7 +112,7 @@ func newHarnessWithDriver(t testing.TB, options Options, open func(app.Config) (
 	}
 	h.app = New(options)
 	// Kept host sessions are remembered in memory, never in this computer's secret store.
-	h.app.remoteKeptSecrets = &memoryKeptSecrets{}
+	h.app.remoteSecretStore = &memorySecrets{}
 	h.config = h.app.Config()
 	driver, closeDriver, err := open(h.config)
 	if err != nil {

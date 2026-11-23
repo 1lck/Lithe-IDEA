@@ -7,8 +7,8 @@ Every timing runner writes these artifacts below `.artifacts/test-stability/`:
 - `index.html` is the current runner dashboard. CI regenerates it as a combined
   dashboard after every selected lane in the job finishes.
 - `<lane>.html` is a self-contained report for one Go or Rust lane. The Swift and
-  Bun runners still in this directory belong to deleted clients; their reports are
-  not verification evidence for Viva.
+  Bun runners were removed with their clients; historical reports can still be
+  read but are not verification evidence for Viva.
 - `<lane>.junit.xml` is the standard CI and IDE interchange report.
 - `<lane>.json` is the normalized machine-readable timing source.
 - `<lane>.log`, when available, contains the raw runner output.

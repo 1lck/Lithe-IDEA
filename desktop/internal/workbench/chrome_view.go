@@ -4,11 +4,9 @@ import (
 	"github.com/1lck/Lithe-IDEA/desktop/internal/core"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/i18n"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/icons"
-	"github.com/vivaui/viva/app"
 	"github.com/vivaui/viva/components"
 	"github.com/vivaui/viva/gfx"
 	"github.com/vivaui/viva/ui"
-	"runtime"
 	"slices"
 )
 
@@ -119,7 +117,7 @@ func (a *App) chromeGlyph(c ui.C, i int, layout glyphLayout, rest, hover gfx.Col
 	box := a.chromeBox(ui.Row(k).Size(layout.side, layout.side).Shrink(0).Center(), ui.ID(k), i, open, "", true).
 		TooltipOn(layout.tooltip)
 	box.Children(func() {
-		ui.Icon(k, *a.chrome.catalog[i].icon).Size(layout.icon, layout.icon).Color(rest).
+		ui.Icon(c, *a.chrome.catalog[i].icon).Size(layout.icon, layout.icon).Color(rest).
 			StateFrom(box).Hover(ui.Look{}.Color(hover))
 	})
 	return box, box.Clicked()
@@ -130,12 +128,9 @@ func (a *App) chromeGlyph(c ui.C, i int, layout glyphLayout, rest, hover gfx.Col
 // controls in it take their own presses.
 func (a *App) titleBar(c ui.C) {
 	// The system's window buttons sit at one end of the strip, so the content keeps clear of
-	// them.
-	leading, trailing := app.TitlebarInsets()
-	if a.fullscreen && runtime.GOOS == "darwin" {
-		// macOS hides the traffic lights in fullscreen; the strip starts at the edge.
-		leading = 0
-	}
+	// them. The window answers for itself: zero in full screen, where macOS hides the
+	// traffic lights, and under a system titlebar.
+	leading, trailing := c.TitlebarInsets()
 	clicked := -1
 	ui.Row(c).FillWidth().Height(titleBarHeight).Shrink(0).Background(a.chromeFill()).
 		Items(ui.Center).Gap(chromeGap).PadSides(0, trailing+chromeEdge, 0, leading+chromeEdge).
@@ -197,8 +192,8 @@ func (a *App) chromeProject(c ui.C) {
 	}
 	button.Children(func() {
 		projectAvatar(k, row.identity, chromeAvatarTitle)
-		ui.Text(k, a.project.name).Bold().Color(a.colors.Text).LineHeight(chromeLineHeight).Ellipsis().MaxWidth(chromeProjectMax)
-		ui.Icon(k, icons.ChevronDown).Size(chromeMarkSize, chromeMarkSize).Color(a.colors.Subtle)
+		ui.Text(c, a.project.name).Bold().Color(a.colors.Text).LineHeight(chromeLineHeight).Ellipsis().MaxWidth(chromeProjectMax)
+		ui.Icon(c, icons.ChevronDown).Size(chromeMarkSize, chromeMarkSize).Color(a.colors.Subtle)
 	})
 	clicked := button.Clicked()
 	if a.title.projectOpen {
@@ -219,9 +214,9 @@ func (a *App) chromeTitleButton(c ui.C, i int) bool {
 		wasOpen := a.title.runConfigOpen
 		box := a.chromeBox(ui.Row(k).Height(chromeIconButton).Shrink(0).Items(ui.Center).Gap(chromeGap).PadX(chromeEdge), ui.ID(k), i, wasOpen, "", false)
 		box.Children(func() {
-			ui.Icon(k, *a.chrome.catalog[i].icon).Size(chromeIconSize, chromeIconSize).Color(a.colors.Subtle)
-			ui.Text(k, a.titleRunLabel()).Color(a.colors.Text).LineHeight(chromeLineHeight).Ellipsis().MaxWidth(chromeProjectMax)
-			ui.Icon(k, icons.ChevronDown).Size(chromeMarkSize, chromeMarkSize).Color(a.colors.Subtle)
+			ui.Icon(c, *a.chrome.catalog[i].icon).Size(chromeIconSize, chromeIconSize).Color(a.colors.Subtle)
+			ui.Text(c, a.titleRunLabel()).Color(a.colors.Text).LineHeight(chromeLineHeight).Ellipsis().MaxWidth(chromeProjectMax)
+			ui.Icon(c, icons.ChevronDown).Size(chromeMarkSize, chromeMarkSize).Color(a.colors.Subtle)
 		})
 		clicked := box.Clicked()
 		if wasOpen {
@@ -273,7 +268,7 @@ func (a *App) titleButtonMenu(c ui.C, i int, box ui.Box) {
 	if !a.chrome.catalog[i].stripes {
 		return
 	}
-	ui.ContextMenu(c.Part("menu").KeyInt(i), box, func(menu *ui.MenuItems) {
+	ui.ContextMenu(c, box, func(menu *ui.MenuItems) {
 		a.stripeMoveMenu(c, menu, i, zoneTitle)
 	})
 }
@@ -344,7 +339,7 @@ func (a *App) stripeZone(c ui.C, z zone, left, dragging bool) int {
 		for _, i := range a.chrome.items[z] {
 			if a.chrome.catalog[i].id == itemToolWindows {
 				box := a.hiddenToolWindowsButton(c, i, z, layout)
-				ui.ContextMenu(c.Part("menu").KeyInt(i), box, a.stripeButtonMenu(c, i, z))
+				ui.ContextMenu(c, box, a.stripeButtonMenu(c, i, z))
 				continue
 			}
 			// The background button opens a popover, not a tool window, and the settings
@@ -389,7 +384,7 @@ func (a *App) stripeZone(c ui.C, z zone, left, dragging bool) int {
 			case hit:
 				clicked = i
 			}
-			ui.ContextMenu(c.Part("menu").KeyInt(i), box, a.stripeButtonMenu(c, i, z))
+			ui.ContextMenu(c, box, a.stripeButtonMenu(c, i, z))
 		}
 	})
 	a.chrome.placeZone(z, column)
@@ -417,7 +412,7 @@ func (a *App) hiddenToolWindowsButton(c ui.C, i int, z zone, layout glyphLayout)
 		button = button.Background(a.colors.Active).Hover(ui.Look{}.Background(a.colors.Active))
 	}
 	button.Children(func() {
-		ui.Icon(k, *a.chrome.catalog[i].icon).Size(layout.icon, layout.icon).Color(rest).
+		ui.Icon(c, *a.chrome.catalog[i].icon).Size(layout.icon, layout.icon).Color(rest).
 			StateFrom(button).Hover(ui.Look{}.Color(hover))
 	})
 	clicked := button.Clicked()
@@ -450,14 +445,14 @@ func (a *App) hiddenToolWindowList(c ui.C, anchor ui.Box, z zone) {
 	if z != zoneLeftTop && z != zoneRightTop {
 		spec.Align = ui.End
 	}
-	ui.PopoverWith(c, anchor, spec, &open, func() {
+	ui.PopoverWith(c, anchor, &open, spec, func() {
 		ui.Column(c).FillWidth().Gap(chromeMenuItems).Children(func() {
 			for _, i := range a.chrome.hidden {
 				row, clicked := a.hiddenToolWindowRow(c.KeyInt(i), i)
 				if clicked {
 					shown = i
 				}
-				ui.ContextMenu(c.Part("unhide").KeyInt(i), row, func(menu *ui.MenuItems) {
+				ui.ContextMenu(c, row, func(menu *ui.MenuItems) {
 					if menu.Item(unhide).Clicked() {
 						restored = i
 					}
@@ -552,9 +547,9 @@ func (a *App) chromeStatusItem(c ui.C, i int) bool {
 			if doc := a.selectedEditorDocument(); doc != nil && doc.view.ReadOnly() {
 				icon = icons.Lock
 			}
-			ui.Icon(k, icon).Size(chromeMarkSize, chromeMarkSize).Color(a.colors.Subtle)
+			ui.Icon(c, icon).Size(chromeMarkSize, chromeMarkSize).Color(a.colors.Subtle)
 		case itemHealth:
-			ui.Icon(k, *a.chrome.catalog[i].icon).Size(chromeMarkSize, chromeMarkSize).Color(a.colors.Success)
+			ui.Icon(c, *a.chrome.catalog[i].icon).Size(chromeMarkSize, chromeMarkSize).Color(a.colors.Success)
 		case itemMemory:
 			a.memoryStatusItem(k)
 		case itemLSP:
@@ -608,9 +603,9 @@ func (a *App) chromeBranch(c ui.C) {
 		button = button.Hover(ui.Look{}.Background(a.colors.Hover))
 	}
 	button.Children(func() {
-		ui.Icon(k, icons.GitBranch).Size(chromeIconSize, chromeIconSize).Color(a.colors.Subtle)
-		ui.Text(k, name).Color(a.colors.Subtle).LineHeight(chromeLineHeight).Ellipsis().MaxWidth(chromeBranchMax)
-		ui.Icon(k, icons.ChevronDown).Size(chromeMarkSize, chromeMarkSize).Color(a.colors.Subtle)
+		ui.Icon(c, icons.GitBranch).Size(chromeIconSize, chromeIconSize).Color(a.colors.Subtle)
+		ui.Text(c, name).Color(a.colors.Subtle).LineHeight(chromeLineHeight).Ellipsis().MaxWidth(chromeBranchMax)
+		ui.Icon(c, icons.ChevronDown).Size(chromeMarkSize, chromeMarkSize).Color(a.colors.Subtle)
 	})
 	clicked := button.Clicked()
 	if open {
@@ -634,7 +629,7 @@ func (a *App) projectMenu(c ui.C, anchor ui.Box) {
 	picked, removed := -1, -1
 	spec := ui.PopoverSpec{Align: ui.Start, Offset: chromeMenuOffset, Width: chromeMenuWidth, ConsumeOutsidePress: true}
 	open := true
-	ui.PopoverWith(c, anchor, spec, &open, func() {
+	ui.PopoverWith(c, anchor, &open, spec, func() {
 		ui.Scroll(c).Scrollbars().FillWidth().MaxHeight(chromeMenuMaxHeight).Gap(chromeMenuItems).Children(func() {
 			created = a.menuAction(c.Part("new"), icons.Plus, a.text.Title.NewProjectItem)
 			chosen = a.menuAction(c.Part("open"), icons.FolderOpen, a.text.Title.OpenItem)
@@ -781,7 +776,7 @@ func (a *App) menuProjectDismiss(c ui.C, label string) bool {
 		Radius(a.theme.Metrics.RadiusItem()).
 		HitWith(ui.ID(k), label, gfx.HitOptions{Role: gfx.RoleButton, Cursor: gfx.PointerCursorHand})).Tooltip(label)
 	button.Children(func() {
-		ui.Icon(k, icons.X).Size(chromeMarkSize, chromeMarkSize).Color(a.colors.Subtle).
+		ui.Icon(c, icons.X).Size(chromeMarkSize, chromeMarkSize).Color(a.colors.Subtle).
 			StateFrom(button).Hover(ui.Look{}.Color(a.colors.Text))
 	})
 	return button.Clicked()

@@ -17,6 +17,7 @@ import (
 
 	"github.com/1lck/Lithe-IDEA/desktop/internal/cli"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/core"
+	"github.com/1lck/Lithe-IDEA/desktop/internal/fileassociations"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/fontprefs"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/i18n"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/localshell"
@@ -26,6 +27,7 @@ import (
 	"github.com/1lck/Lithe-IDEA/desktop/internal/pluginsettings"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/toolchain"
 	"github.com/vivaui/viva/app"
+	"github.com/vivaui/viva/gfx"
 )
 
 // PluginState is what the plugin page shows about one plugin.
@@ -117,6 +119,8 @@ type Values struct {
 	ProjectOpenDestination string
 	// DisableSemanticHighlight keeps the syntax colors alone; semantic coloring is on by default.
 	DisableSemanticHighlight bool
+	// DisableAutoCompletion suppresses suggestions triggered by typing.
+	DisableAutoCompletion bool
 	// VimMode turns on the Vim keys of the editor (Normal, Insert and Visual modes); off by default.
 	VimMode bool
 	// DisableAutoSave stops saving changed files a moment after typing stops; auto-save is
@@ -382,8 +386,12 @@ type SearchPreferencesSource interface {
 
 // Options configure the settings window.
 type Options struct {
-	CLI               *cli.Manager
-	CLIAction         func(string)
+	CLI              *cli.Manager
+	CLIAction        func(string)
+	FileAssociations *fileassociations.Manager
+	// AssociationAction and AssociationError retain the originating settings operation.
+	AssociationAction func(context.Context, string) context.Context
+	AssociationError  func(context.Context, error)
 	SearchPreferences SearchPreferencesSource
 	// PluginInstallsClosed releases downloads retained by the settings session.
 	PluginInstallsClosed func()
@@ -396,6 +404,10 @@ type Options struct {
 	SettingsNavigation func(context.Context, []core.SettingsNavigationItem, string) ([]core.SettingsNavigationRow, error)
 	// Marketplace fetches the enabled source only while the plugin page is open.
 	Marketplace func(context.Context) (marketplace.Snapshot, error)
+	// MarketplaceIcon reads and compiles a validated entry's SVG off the UI
+	// thread. MarketplaceIconError records a failed read before initials are used.
+	MarketplaceIcon      func(context.Context, string) (gfx.Icon, error)
+	MarketplaceIconError func(error)
 	// MarketplaceURL and OfficialMarketplaceURL are the addresses Marketplace and
 	// MarketplaceOfficial read, which the repositories dialog shows.
 	MarketplaceURL         string
@@ -600,6 +612,8 @@ type Options struct {
 	// SetDisableSemanticHighlight hands a change of Values.DisableSemanticHighlight to the
 	// settings owner, like SetHideGitGutter.
 	SetDisableSemanticHighlight func(bool)
+	// SetDisableAutoCompletion hands a change of Values.DisableAutoCompletion to the settings owner.
+	SetDisableAutoCompletion func(bool)
 	// SetVimMode hands a change of Values.VimMode to the settings owner, like
 	// SetDisableSemanticHighlight.
 	SetVimMode func(bool)

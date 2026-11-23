@@ -27,7 +27,7 @@ func TestVisualBranchDelete(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, look := range []struct{ theme, language string }{{"dark", "zh-Hans"}, {"light", "en"}} {
-		for _, scene := range []string{"remote-dialog", "marked-menu", "marked-dialog", "unmerged-warning", "force-confirmation", "mixed-result", "tree-selection"} {
+		for _, scene := range []string{"remote-dialog", "marked-menu", "marked-dialog", "unmerged-warning", "force-confirmation", "mixed-result", "mixed-result-deferred", "tree-selection"} {
 			t.Run(scene+"-"+look.theme, func(t *testing.T) {
 				dir := newTestRepository(t)
 				writeTreeFiles(t, dir, "selection-a.txt", "selection-b.txt")
@@ -39,7 +39,7 @@ func TestVisualBranchDelete(t *testing.T) {
 				gitRun(t, dir, "branch", "--set-upstream-to=origin/main", "main")
 				gitRun(t, dir, "branch", "one")
 				gitRun(t, dir, "branch", "two")
-				if scene == "unmerged-warning" || scene == "force-confirmation" || scene == "mixed-result" {
+				if scene == "unmerged-warning" || scene == "force-confirmation" || scene == "mixed-result" || scene == "mixed-result-deferred" {
 					makeUnmergedBranch(t, dir, "backup/before-strip-trailers")
 				}
 				prefs := store.At(t.TempDir())
@@ -86,11 +86,21 @@ func TestVisualBranchDelete(t *testing.T) {
 					if err := h.driver.KeyUp(key, ""); err != nil {
 						t.Fatal(err)
 					}
-				} else if scene == "mixed-result" {
+				} else if scene == "mixed-result" || scene == "mixed-result-deferred" {
 					h.markLogRefs("one", "backup/before-strip-trailers", "origin/feature")
 					h.clickNamed(h.app.text.Git.DeleteBranch)
-					h.click(center(h.popupHit(h.app.text.Branch.DeleteButton)))
-					h.await("mixed deletion result", func() bool { return !h.app.branch.busy })
+					confirm := h.app.text.Branch.DeleteButton
+					if scene == "mixed-result-deferred" {
+						k := startPendingGitDeletion(t, h, confirm)
+						openBranchDraftDuringGitDeletion(t, h)
+						close(k.release)
+						h.await("deferred deletion result", func() bool { return !h.app.branch.busy })
+						finishBranchDraftAfterGitDeletion(t, h)
+						openGitDeletionNotice(t, h)
+					} else {
+						h.click(center(h.popupHit(confirm)))
+						h.await("mixed deletion result", func() bool { return !h.app.branch.busy })
+					}
 				} else if scene == "remote-dialog" {
 					h.logRefMenu("origin/feature")
 					h.click(center(h.popupHit(h.app.text.Branch.Delete)))
