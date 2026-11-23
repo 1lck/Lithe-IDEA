@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"slices"
 	"sync"
 
@@ -18,11 +19,11 @@ import (
 //
 // The item's account is a digest of the connection's id, so the store's list of items names no
 // host or WSL distribution. Its secret is a JSON list of the connection's kept sessions, newest
-// last. keptLimit caps the list so the item fits Windows Credential Manager's 2560 bytes: keeping a
-// ninth session on one connection forgets the oldest, whose programs then run until they are ended
-// on the host. Each connection presents one stored session: a connection resumes the newest, and
-// whichever session it ends up with, the entry is forgotten; giving the session back without
-// opening a workspace stores it again (workbench, remote_close.go).
+// last. Both entry count and actual serialized bytes are capped to fit Windows Credential
+// Manager. Eviction forgets the oldest record. Core compares the newest record's verified binding
+// before sending it to the host; only a consumed record is forgotten. A mismatch or legacy record
+// remains available for its original target. Giving a resumed session back without opening a
+// workspace stores it again (workbench, remote_close.go).
 
 // KeptNamespace is the secret-store namespace of the kept sessions; "@host/" namespaces are the
 // application's own and cannot clash with a plugin's id.
@@ -31,9 +32,13 @@ const KeptNamespace = "@host/remote-sessions"
 // keptLimit is how many kept sessions one connection remembers.
 const keptLimit = 8
 
-// KeptSecrets is the secret store the kept sessions are remembered in, credentials.Store in the
-// application. Get reports found false for an item that is not there.
-type KeptSecrets interface {
+// Credential Manager limits the actual UTF-8 secret blob to 2560 bytes.
+const keptBytes = 2560
+
+// Secrets is the secret store the kept sessions and the remembered answers (answers.go) are
+// kept in, credentials.Store in the application. Get reports found false for an item that is not
+// there.
+type Secrets interface {
 	Get(ctx context.Context, namespace, key string) (string, bool, error)
 	Set(ctx context.Context, namespace, key, secret string) error
 	Delete(ctx context.Context, namespace, key string) error
@@ -52,7 +57,7 @@ func keptAccount(connectionID string) string {
 
 // readKept is connectionID's list, oldest first. A secret that does not decode holds no session
 // that can be resumed, so it reads as an empty list, which the next change replaces.
-func readKept(ctx context.Context, secrets KeptSecrets, connectionID string) ([]core.RemoteResume, error) {
+func readKept(ctx context.Context, secrets Secrets, connectionID string) ([]core.RemoteResume, error) {
 	secret, found, err := secrets.Get(ctx, KeptNamespace, keptAccount(connectionID))
 	if err != nil || !found {
 		return nil, err
@@ -65,7 +70,7 @@ func readKept(ctx context.Context, secrets KeptSecrets, connectionID string) ([]
 }
 
 // writeKept stores kept as connectionID's list, removing the item when it is empty.
-func writeKept(ctx context.Context, secrets KeptSecrets, connectionID string, kept []core.RemoteResume) error {
+func writeKept(ctx context.Context, secrets Secrets, connectionID string, kept []core.RemoteResume) error {
 	account := keptAccount(connectionID)
 	if len(kept) == 0 {
 		return secrets.Delete(ctx, KeptNamespace, account)
@@ -74,11 +79,21 @@ func writeKept(ctx context.Context, secrets KeptSecrets, connectionID string, ke
 	if err != nil {
 		return err
 	}
+	for len(secret) > keptBytes && len(kept) > 1 {
+		kept = kept[1:]
+		secret, err = json.Marshal(kept)
+		if err != nil {
+			return err
+		}
+	}
+	if len(secret) > keptBytes {
+		return errors.New("remote session credential exceeds storage capacity")
+	}
 	return secrets.Set(ctx, KeptNamespace, account, string(secret))
 }
 
 // NewestKept is the session connectionID kept last, nil when it keeps none.
-func NewestKept(ctx context.Context, secrets KeptSecrets, connectionID string) (*core.RemoteResume, error) {
+func NewestKept(ctx context.Context, secrets Secrets, connectionID string) (*core.RemoteResume, error) {
 	keptLock.Lock()
 	defer keptLock.Unlock()
 	kept, err := readKept(ctx, secrets, connectionID)
@@ -91,7 +106,7 @@ func NewestKept(ctx context.Context, secrets KeptSecrets, connectionID string) (
 
 // RememberKept adds resume as connectionID's newest kept session, replacing an entry of the same
 // key and forgetting the oldest beyond keptLimit.
-func RememberKept(ctx context.Context, secrets KeptSecrets, connectionID string, resume core.RemoteResume) error {
+func RememberKept(ctx context.Context, secrets Secrets, connectionID string, resume core.RemoteResume) error {
 	keptLock.Lock()
 	defer keptLock.Unlock()
 	kept, err := readKept(ctx, secrets, connectionID)
@@ -108,7 +123,7 @@ func RememberKept(ctx context.Context, secrets KeptSecrets, connectionID string,
 
 // ForgetKept removes the session key from connectionID's list; forgetting one that is not there
 // succeeds.
-func ForgetKept(ctx context.Context, secrets KeptSecrets, connectionID, key string) error {
+func ForgetKept(ctx context.Context, secrets Secrets, connectionID, key string) error {
 	keptLock.Lock()
 	defer keptLock.Unlock()
 	kept, err := readKept(ctx, secrets, connectionID)

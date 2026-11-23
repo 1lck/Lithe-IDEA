@@ -125,7 +125,7 @@ func (s *Service) Fetch(ctx context.Context, input string, kind core.Marketplace
 		return Snapshot{}, err
 	}
 	pinned := s.pin(ctx, input, source)
-	data, err := s.fetchPinned(ctx, source.IndexURL, pinnedIndex(pinned))
+	data, atCommit, err := s.fetchPinnedVersion(ctx, source.IndexURL, pinnedIndex(pinned))
 	if err != nil {
 		return Snapshot{}, err
 	}
@@ -133,8 +133,13 @@ func (s *Service) Fetch(ctx context.Context, input string, kind core.Marketplace
 	if err != nil {
 		return Snapshot{}, err
 	}
+	deltasURL := source.DeltasURL
+	if atCommit {
+		deltasURL = pinned.DeltasURL
+	}
 	for i := range index.Plugins {
 		index.Plugins[i].MarketplaceIndexURL = source.IndexURL
+		index.Plugins[i].MarketplaceDeltasURL = deltasURL
 	}
 	return Snapshot{Source: source, Index: index}, nil
 }
@@ -198,15 +203,22 @@ func (s *Service) pin(ctx context.Context, input string, source core.Marketplace
 // read that fails is reported and retried at canonical, except a 404: the commit is the
 // repository's newest, so the file is absent from it.
 func (s *Service) fetchPinned(ctx context.Context, canonical, pinnedURL string) ([]byte, error) {
+	data, _, err := s.fetchPinnedVersion(ctx, canonical, pinnedURL)
+	return data, err
+}
+
+// fetchPinnedVersion identifies the revision actually read, so optional companions
+// can use that exact revision without falling back independently.
+func (s *Service) fetchPinnedVersion(ctx context.Context, canonical, pinnedURL string) ([]byte, bool, error) {
 	if pinnedURL != "" {
 		data, _, err := s.fetchJSON(ctx, pinnedURL)
 		if err == nil || err == httpStatusError(http.StatusNotFound) || ctx.Err() != nil {
-			return data, err
+			return data, true, err
 		}
 		s.reportFallback(ctx, fmt.Errorf("read %s: %w", pinnedURL, err))
 	}
 	data, _, err := s.fetchJSON(ctx, canonical)
-	return data, err
+	return data, false, err
 }
 
 func (s *Service) reportFallback(ctx context.Context, err error) {

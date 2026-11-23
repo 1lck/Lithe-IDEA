@@ -143,7 +143,7 @@ func (s *remoteSteps) fail(now time.Time, outcome *remoteProbeOutcome, language 
 }
 
 // remoteQuestion is the question OpenSSH asks now, nil when none is asked.
-func (a *App) remoteQuestion() *core.GitAuthChallenge {
+func (a *App) remoteQuestion() *gitAuthQuestion {
 	if g := &a.gitAuth; len(g.queue) > 0 && g.queue[0].Remote {
 		return &g.queue[0]
 	}
@@ -201,7 +201,7 @@ func (a *App) remoteStepsView(c ui.C, language i18n.Language, s *remoteSteps) {
 
 // remoteStepRow declares a step: done, running, failed or still to come, and the question it
 // asks.
-func (a *App) remoteStepRow(c ui.C, language i18n.Language, s *remoteSteps, step, reached remoteStep, question *core.GitAuthChallenge) {
+func (a *App) remoteStepRow(c ui.C, language i18n.Language, s *remoteSteps, step, reached remoteStep, question *gitAuthQuestion) {
 	small := a.theme.Metrics.FontSizeS
 	done := step < reached
 	current := step == reached
@@ -214,7 +214,7 @@ func (a *App) remoteStepRow(c ui.C, language i18n.Language, s *remoteSteps, step
 				case current && s.failed:
 					ui.Icon(c, icons.CircleX).Size(16, 16).Color(a.theme.Danger)
 				case current:
-					ui.Spinner(c.Part("spinner")).Size(14, 14)
+					ui.Spinner(c).Size(14, 14)
 				default:
 					ui.Row(c.Part("todo")).Size(12, 12).Radius(6).Stroke(1, a.colors.TabIdleBorder)
 				}
@@ -259,11 +259,9 @@ func remoteDuration(language i18n.Language, took time.Duration) string {
 
 // remoteQuestionCard declares OpenSSH's question under the step that asks it: the host's key to
 // trust, or a field for the answer.
-func (a *App) remoteQuestionCard(c ui.C, language i18n.Language, s *remoteSteps, head core.GitAuthChallenge) {
+func (a *App) remoteQuestionCard(c ui.C, language i18n.Language, s *remoteSteps, head gitAuthQuestion) {
 	g := &a.gitAuth
-	if g.fieldFor != head.RequestID {
-		g.field, g.fieldFor = ui.Field{}, head.RequestID
-	}
+	g.answering(head)
 	small := a.theme.Metrics.FontSizeS
 	id := head.RequestID
 	answer := func(text string, confirm bool) {
@@ -287,8 +285,8 @@ func (a *App) remoteQuestionCard(c ui.C, language i18n.Language, s *remoteSteps,
 				}
 				k := c.KeyInt(index)
 				ui.Row(k).FillWidth().Items(ui.Center).Gap(10).Children(func() {
-					ui.Text(k, item[0]).FontSize(small).Color(a.colors.Subtle).Width(80).Shrink(0)
-					ui.Text(k, item[1]).Mono().FontSize(small).Ellipsis().Grow(1).MinWidth(0)
+					ui.Text(c, item[0]).FontSize(small).Color(a.colors.Subtle).Width(80).Shrink(0)
+					ui.Text(c, item[1]).Mono().FontSize(small).Ellipsis().Grow(1).MinWidth(0)
 				})
 			}
 			ui.Paragraph(c, i18n.Shared(language, "desktop.remote.hostKey.hint"), 3).FontSize(small).Color(a.colors.Subtle)
@@ -317,14 +315,13 @@ func (a *App) remoteQuestionCard(c ui.C, language i18n.Language, s *remoteSteps,
 			if prompt := strings.TrimSpace(head.Prompt); prompt != "" {
 				ui.Paragraph(c, prompt, 3).Mono().FontSize(small).Color(a.colors.Subtle)
 			}
+			a.gitAuthAgain(c, language, head, small)
 			field := ui.TextField(c.Part(head.RequestID), &g.field, i18n.Shared(language, "desktop.remote.question.answer"), "").FillWidth().AutoFocus()
 			if head.Secret {
 				field = field.Secure()
 			}
 			submitted := field.Submitted()
-			if head.Attempt > 1 {
-				ui.Text(c, i18n.Shared(language, "desktop.remoteAuth.refused")).FontSize(small).Color(a.theme.Danger)
-			}
+			a.gitAuthKeeping(c, language, head, small)
 			ui.Row(c.Part("buttons")).FillWidth().Gap(8).Children(func() {
 				ui.Spacer(c)
 				if ui.Button(c.Part("cancel"), i18n.Shared(language, "desktop.remote.cancel")).Outline().Clicked() {

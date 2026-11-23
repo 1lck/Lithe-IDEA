@@ -47,6 +47,7 @@ func (o marketplaceOutcome) failure(command string) error {
 type MarketplaceSource struct {
 	IndexURL           string  `json:"indexURL"`
 	RecommendationsURL string  `json:"recommendationsURL"`
+	DeltasURL          string  `json:"deltasURL"`
 	Repository         *string `json:"repository"`
 	DisplayName        string  `json:"displayName"`
 	// Revision is the GitHub repository and ref a GitHub-hosted index follows; nil for any
@@ -69,6 +70,7 @@ type MarketplacePinned struct {
 	Commit             string `json:"commit"`
 	IndexURL           string `json:"indexURL"`
 	RecommendationsURL string `json:"recommendationsURL"`
+	DeltasURL          string `json:"deltasURL"`
 }
 
 // MarketplaceAvailability is Core's platform and capability decision.
@@ -110,9 +112,11 @@ type MarketplacePlugin struct {
 	LatestReleaseDate     string            `json:"latestReleaseDate"`
 	// MarketplaceIndexURL identifies the validated source of a fetched listing. It is
 	// native-only provenance and must never appear in the Core JSON contract.
-	MarketplaceIndexURL string                  `json:"-"`
-	Availability        MarketplaceAvailability `json:"availability"`
-	Versions            []MarketplaceVersion    `json:"versions"`
+	MarketplaceIndexURL string `json:"-"`
+	// MarketplaceDeltasURL comes from the same index revision as Availability.
+	MarketplaceDeltasURL string                  `json:"-"`
+	Availability         MarketplaceAvailability `json:"availability"`
+	Versions             []MarketplaceVersion    `json:"versions"`
 }
 
 // MarketplaceEntryRejection describes one rejected entry without hiding accepted entries.

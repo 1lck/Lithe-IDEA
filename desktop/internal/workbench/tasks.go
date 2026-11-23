@@ -71,7 +71,8 @@ func (a *App) drain() {
 //
 // work returns nil when there is nothing to apply. Work started during a user action belongs to
 // it (operation.go): its context carries the action, and its result is applied under it.
-func (a *App) background(p *project, timeout time.Duration, work func(ctx context.Context) func(*App)) {
+// When timeout is positive, the caller can use the returned function to cancel the work sooner.
+func (a *App) background(p *project, timeout time.Duration, work func(ctx context.Context) func(*App)) context.CancelFunc {
 	parent := context.Background()
 	if p != nil {
 		parent = p.ctx
@@ -97,6 +98,7 @@ func (a *App) background(p *project, timeout time.Duration, work func(ctx contex
 			a.within(op, apply)
 		})
 	}()
+	return cancel
 }
 
 // wait blocks until every background task has returned, for shutdown and tests. The
