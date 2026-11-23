@@ -88,8 +88,9 @@ jobs:
             printf 'skip=%s\n' "$skip"
           } >> "$GITHUB_OUTPUT"
 
-  # The remote workspace server of the pinned source is built and smoke tested once, on both
-  # architectures; every package of this AutoBuild embeds those bytes.
+  # The remote workspace server of the pinned source is built once for linux amd64 and arm64 and
+  # tested on a runner of each architecture before any app is built; every package of this
+  # AutoBuild embeds those bytes.
   remote-server:
     name: Remote server
     needs: prepare

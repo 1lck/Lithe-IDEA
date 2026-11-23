@@ -137,7 +137,7 @@ func (a *App) debugToolbar(c ui.C, p *project) {
 			}
 			ui.Text(c, status).Shrink(1).FontSize(a.theme.Metrics.FontSizeS).Color(a.colors.Subtle).Ellipsis()
 		}
-		a.debugAdapterPicker(c.Part("adapter"), p)
+		a.debugAdapterPicker(c, p)
 	})
 }
 
@@ -216,7 +216,7 @@ func (a *App) debugAdapterPicker(c ui.C, p *project) {
 	for index := range indexes {
 		indexes[index] = index
 	}
-	ui.Select(c, &d.selectedAdapter, indexes, func(index int) string {
+	ui.Select(c.Part("adapter"), &d.selectedAdapter, indexes, func(index int) string {
 		return d.adapters[index].Declaration.DisplayName
 	}).Label(i18n.Shared(a.language(), "desktop.debug.adapter")).Width(debugAdapterPickerWidth).Height(24).Shrink(1)
 }

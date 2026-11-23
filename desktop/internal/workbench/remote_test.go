@@ -16,7 +16,9 @@ import (
 	"github.com/1lck/Lithe-IDEA/desktop/internal/core"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/i18n"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/remoteconn"
+	"github.com/vivaui/viva/app"
 	"github.com/vivaui/viva/gfx"
+	"github.com/vivaui/viva/ui"
 )
 
 // redraw repaints the window after a test changed its state directly, as SetText does without
@@ -408,6 +410,62 @@ func TestRemoteOverviewShowsTheTestedHost(t *testing.T) {
 	}
 }
 
+// A successful probe can have no optional host details. Its empty tag list must
+// not leave a name for the next text or for a later repaint.
+func TestRemoteProbeWithoutDetailsKeepsFollowingTextAnonymous(t *testing.T) {
+	a := &App{theme: ui.LightTheme()}
+	outcome := &remoteProbeOutcome{result: core.RemoteProbeResult{
+		Status: core.RemoteProbeConnected, Host: &core.RemoteProbedHost{},
+	}}
+	page := ui.NewPage(ui.PageConfig{Theme: &a.theme, View: func(c ui.C) {
+		ui.Column(c).Fill().Children(func() {
+			a.remoteOutcomeBox(c, a.language(), outcome)
+			ui.Text(c, "After the probe")
+			ui.Text(c, "End")
+		})
+	}})
+	driver, err := app.NewDriver(ui.Configure(page, app.Config{Width: 800, Height: 600}), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(driver.Close)
+	if err := driver.Resize(900, 600); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// Jump hosts and the target are anonymous route labels. Redrawing that route must
+// not leave a host's key on a chevron or on the following text.
+func TestRemoteJumpRouteRepaintsWithMultipleHosts(t *testing.T) {
+	a := &App{theme: ui.LightTheme()}
+	a.remote.form.proxyJump.SetText("first.example,second.example")
+	a.remote.form.host.SetText("target.example")
+	a.remote.form.user.SetText("dev")
+	page := ui.NewPage(ui.PageConfig{Theme: &a.theme, View: func(c ui.C) {
+		ui.Column(c).Fill().Children(func() {
+			a.remoteHops(c, a.language(), false)
+			ui.Text(c, "After the route")
+		})
+	}})
+	driver, err := app.NewDriver(ui.Configure(page, app.Config{Width: 800, Height: 600}), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(driver.Close)
+	if err := driver.Resize(900, 600); err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{"first.example", "second.example", "dev@target.example", "After the route"} {
+		found := false
+		for _, label := range driver.Snapshot().Labels {
+			found = found || label.Value == want
+		}
+		if !found {
+			t.Errorf("the route did not show %q", want)
+		}
+	}
+}
+
 // A field Core refuses is named under that field and nothing is written; a number the form
 // cannot parse is refused before it reaches Core.
 func TestRemoteConnectionRefusedFieldsAreShownUnderTheField(t *testing.T) {
@@ -485,8 +543,8 @@ exec /bin/sh -c "$last"
 
 // Testing a connection asks OpenSSH's password question in the SSH authentication dialog over
 // the window, and shows what the host reported once it is answered; cancelling the question
-// shows the server's refusal with OpenSSH's output. Neither the password, the host nor the user
-// is logged.
+// shows the server's refusal with OpenSSH's output. A connection that is not saved offers to
+// remember nothing. Neither the password, the host nor the user is logged.
 func TestRemoteTestAsksInTheWindowAndReportsTheHost(t *testing.T) {
 	standInSSH(t)
 	h, logger := remoteHarness(t)
@@ -504,6 +562,9 @@ func TestRemoteTestAsksInTheWindowAndReportsTheHost(t *testing.T) {
 	}
 	if h.shows(i18n.Shared(lang, "desktop.gitAuth.title")) {
 		t.Fatal("the remote question is titled as Git's")
+	}
+	if h.shows(i18n.Shared(lang, "desktop.remoteAuth.rememberPassword")) {
+		t.Fatal("a connection that is not saved offers to remember its password")
 	}
 	if got := h.focusedName(); got != i18n.Shared(lang, "desktop.gitAuth.answer") {
 		t.Fatalf("focused %q, want the answer field", got)

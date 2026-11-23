@@ -355,7 +355,24 @@ PINNED_CORE_REPOSITORY="https://github.com/Lithe-IDEA/Lithe-core-rust.git"
 # context; #174 merged with that field under a new ui 1, and #175 makes choose an optional field
 # within ui 0 again. The sources are the same as the branch commit a50cea1 that the desktop
 # pinned before; only the protocol changelog differs.
-PINNED_CORE_REVISION="dcb3d77f7a56e58f3d7c0aceea5b7df6986ed2e2"
+# Lithe-core-rust main at 4880022: #177 lets a tool definition set executableLinksOutsideHome, a
+# toolDefinitions 0 addition, so a virtual environment's program that links to its base
+# interpreter outside the home is accepted and started from its layout path; the directories on
+# the way must stay inside the home. #176 documents that a backend that decides how its language
+# server starts is asked again when a setting that applies immediately changes. The sources are
+# the same as #177's branch commit 33e6b60 that the desktop pinned before; only the protocol
+# changelog and the plugin docs differ.
+# Lithe-core-rust main at aadf63d: #184 makes Core the owner of the API-11 file changes. It checks
+# the params of the seven methods strictly before routing them (one spelling of a path, the
+# target in the same root and not inside the source, the fields of each kind), adds kind
+# "symlink" with linkTarget to workspace/create, and adds the kernel commands
+# workspace.createEntry, renameEntry, copyEntry and resolveEntry with the codes entry_not_found
+# and entry_exists, which the desktop calls for a plugin's create, rename, copy, trash and
+# saveAs (workbench/pluginfilechanges.go).
+# The plugin delta branch (#187) includes current Core main, including the
+# built-in file association catalog and plans (#186). It adds the pinned
+# companion index and verifies and reconstructs ZIPs for marketplace updates.
+PINNED_CORE_REVISION="076ce04e314ecdde790b36ee3f374becb11951a0"
 PROFILE="debug"
 CHECKOUT_ONLY="no"
 while [[ $# -gt 0 ]]; do

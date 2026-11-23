@@ -1,6 +1,6 @@
 //go:build windows
 
-package pluginruntime
+package filelock
 
 import (
 	"errors"

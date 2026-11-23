@@ -57,8 +57,9 @@ type RemoteConnectRequest struct {
 // RemoteResume names a host session an earlier connection kept, with the values its RemoteSession
 // returned. Token is a secret: it is stored like a password and never logged.
 type RemoteResume struct {
-	Key   string `json:"key"`
-	Token string `json:"token"`
+	Key     string `json:"key"`
+	Token   string `json:"token"`
+	Binding string `json:"binding,omitempty"`
 }
 
 // WSLConnection is a distribution of the Windows Subsystem for Linux on this machine, as
@@ -191,8 +192,12 @@ type RemoteSession struct {
 	// SessionToken is the secret a later Resume presents, nil when the host issued none. It is
 	// stored like a password and never logged.
 	SessionToken *string `json:"sessionToken"`
-	// Resumed says this connection attached to the session Resume named; false after a Resume
-	// means that session had ended and a new one started.
+	// SessionBinding identifies the verified target. Empty disables automatic recovery.
+	SessionBinding string `json:"sessionBinding"`
+	// ResumeConsumed says Core verified and tried the supplied record. A mismatch leaves it stored.
+	ResumeConsumed bool `json:"resumeConsumed"`
+	// Resumed says this connection attached to the session Resume named. False can also mean the
+	// target binding did not match or lacked verified evidence.
 	Resumed bool `json:"resumed"`
 	// KeptPrograms are the processes and terminals the resumed session still runs, which an
 	// earlier connection kept; empty for a new session.
@@ -200,12 +205,12 @@ type RemoteSession struct {
 }
 
 // Resume is what a later connection presents to attach to this session again, nil when the host
-// issued no token.
+// issued no token or Core could not verify a reusable target identity.
 func (s RemoteSession) Resume() *RemoteResume {
-	if s.SessionKey == "" || s.SessionToken == nil || *s.SessionToken == "" {
+	if s.SessionKey == "" || s.SessionToken == nil || *s.SessionToken == "" || s.SessionBinding == "" {
 		return nil
 	}
-	return &RemoteResume{Key: s.SessionKey, Token: *s.SessionToken}
+	return &RemoteResume{Key: s.SessionKey, Token: *s.SessionToken, Binding: s.SessionBinding}
 }
 
 // RemoteProgramKind says whether a host program is a process or a terminal.
@@ -453,6 +458,8 @@ type RemoteFileMetadata struct {
 	Size uint64 `json:"size"`
 	// ModifiedMs is milliseconds since the Unix epoch, nil when the host did not report it.
 	ModifiedMs *int64 `json:"modifiedMs"`
+	// Revision is the host's opaque file identity and precise timestamps.
+	Revision string `json:"revision,omitempty"`
 	// Readonly is true when no write permission bit is set.
 	Readonly bool `json:"readonly"`
 	// Mode is the permission bits.
@@ -511,13 +518,15 @@ type RemoteFileVersion struct {
 	Size uint64 `json:"size"`
 	// ModifiedMs is milliseconds since the Unix epoch, nil when the host did not report it.
 	ModifiedMs *int64 `json:"modifiedMs"`
+	// Revision is the host's opaque file identity and precise timestamps.
+	Revision string `json:"revision,omitempty"`
 }
 
 // RemoteReadFile reads the whole host file path over the session sessionID and returns its
 // bytes and the version they were read at. A file larger than Core opens for editing fails with
 // CodeNotSupported; otherwise it fails like RemoteReadDir. path must name a regular file or a
-// link to one: the host server opens the path before it checks what it is, so the caller checks
-// with RemoteStat first.
+// link to one. The host opens nonblocking and checks the opened file's type, so a pipe cannot
+// block the read. Core bounds the cumulative bytes, overall deadline and cancellation wait.
 func (c *Client) RemoteReadFile(ctx context.Context, sessionID, path string) ([]byte, RemoteFileVersion, error) {
 	var result struct {
 		Data []byte `json:"data"`
@@ -534,21 +543,28 @@ func (c *Client) RemoteReadFile(ctx context.Context, sessionID, path string) ([]
 }
 
 // RemoteWriteFile replaces the host file path over the session sessionID with data, atomically
-// through a temporary sibling and through a link. With expected, a file that no longer has that
+// through a temporary sibling. With root, descendant links are refused; without it, a leaf link
+// is followed for an explicit host write. With expected, a file that no longer has that
 // version is left alone; without it, the file must not exist yet. saved is false for either
 // refusal, and the version is the saved content's otherwise. Content larger than the host
-// accepts in one request fails with CodeProcessFailed.
-func (c *Client) RemoteWriteFile(ctx context.Context, sessionID, path string, data []byte, expected *RemoteFileVersion) (version RemoteFileVersion, saved bool, err error) {
+// accepts in one request fails with CodeProcessFailed. A writer ignoring the host's advisory
+// lock can still race between the final version check and replacement.
+func (c *Client) RemoteWriteFile(ctx context.Context, sessionID, path string, data []byte, expected *RemoteFileVersion, root ...string) (version RemoteFileVersion, saved bool, err error) {
 	var result struct {
 		Status string `json:"status"`
 		RemoteFileVersion
+	}
+	var boundary string
+	if len(root) > 0 {
+		boundary = root[0]
 	}
 	err = c.Execute(ctx, "remote.writeFile", struct {
 		SessionID string             `json:"sessionId"`
 		Path      string             `json:"path"`
 		Data      []byte             `json:"data"`
 		Expected  *RemoteFileVersion `json:"expected,omitempty"`
-	}{sessionID, path, data, expected}, &result)
+		Root      string             `json:"root,omitempty"`
+	}{sessionID, path, data, expected, boundary}, &result)
 	if err != nil {
 		return RemoteFileVersion{}, false, err
 	}

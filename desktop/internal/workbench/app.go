@@ -131,6 +131,12 @@ type Kernel interface {
 	CheckBeforeLaunchTask(ctx context.Context, root string, runType core.RunTypeKey, values map[string]json.RawMessage, plugins *core.RunTypePlugins) (core.RunTaskCheck, error)
 	BeforeLaunchField(ctx context.Context, root, configurationID string, plugins *core.RunTypePlugins) (core.RunBeforeLaunchField, error)
 	RunArgumentText(ctx context.Context, lists [][]string) ([]string, error)
+	// CreateWorkspaceEntry, RenameWorkspaceEntry, CopyWorkspaceEntry and ResolveWorkspaceEntry
+	// make the file changes a plugin asks for (pluginfilechanges.go).
+	CreateWorkspaceEntry(ctx context.Context, creation core.WorkspaceEntryCreation) (core.WorkspaceEntry, error)
+	RenameWorkspaceEntry(ctx context.Context, root, path, target string) (core.WorkspaceEntry, error)
+	CopyWorkspaceEntry(ctx context.Context, root, path, target string) (core.WorkspaceEntry, error)
+	ResolveWorkspaceEntry(ctx context.Context, root, path string) (core.WorkspaceEntry, error)
 	SetDebugBreakpoints(ctx context.Context, sessionID, sourcePath string, breakpoints []core.DebugSourceBreakpoint) (core.DebugUpdate, error)
 	ExecuteDebug(ctx context.Context, sessionID, operationID, command string, threadID *int64, granularity string) (core.DebugUpdate, error)
 	ExecuteDebugThread(ctx context.Context, sessionID, operationID, command string, threadID int64) (core.DebugUpdate, error)
@@ -226,7 +232,7 @@ type Kernel interface {
 	RemoteReadDir(ctx context.Context, sessionID, path string) (core.RemoteDirectory, error)
 	RemoteStat(ctx context.Context, sessionID, path string) (core.RemoteFileMetadata, error)
 	RemoteReadFile(ctx context.Context, sessionID, path string) ([]byte, core.RemoteFileVersion, error)
-	RemoteWriteFile(ctx context.Context, sessionID, path string, data []byte, expected *core.RemoteFileVersion) (core.RemoteFileVersion, bool, error)
+	RemoteWriteFile(ctx context.Context, sessionID, path string, data []byte, expected *core.RemoteFileVersion, root ...string) (core.RemoteFileVersion, bool, error)
 	RemoteCreateDirectory(ctx context.Context, sessionID, path string) error
 	RemoteServerState(ctx context.Context, sessionID string) error
 	SearchRemoteConnections(ctx context.Context, document *string, query string) (core.RemoteConnectionsState, error)
@@ -429,6 +435,8 @@ type settings struct {
 	GitConsole core.GitConsolePreferences `json:"gitConsole,omitzero"`
 	// DisableSemanticHighlight keeps the syntax colors alone; semantic coloring is on by default.
 	DisableSemanticHighlight bool `json:"disableSemanticHighlight,omitempty"`
+	// DisableAutoCompletion suppresses completions while typing. They are on by default.
+	DisableAutoCompletion bool `json:"disableAutoCompletion,omitempty"`
 	// VimMode turns on the Vim keys of every editor; off by default (vim_mode.go).
 	VimMode bool `json:"vimMode,omitempty"`
 	// DisableAutoSave stops saving changed files a moment after typing stops
@@ -697,6 +705,10 @@ type App struct {
 	// initialLanguageLoad lets early opens of unknown extensionless files wait for the
 	// enabled language snapshot while the project restores known paths immediately.
 	initialLanguageLoad atomic.Pointer[languageLoad]
+	// pluginReloadGeneration numbers reloadPluginLanguages calls so stale completions are
+	// dropped; pluginReloadMu serializes early language publication and visibility writes.
+	pluginReloadGeneration atomic.Uint64
+	pluginReloadMu         sync.Mutex
 
 	settings settings
 	// fonts is the font of each scope the settings name, worked out by applyFonts.
@@ -743,7 +755,9 @@ type App struct {
 	// buildOptionTexts keeps the build option translation files read per plugin package and language.
 	buildOptionTexts buildOptionTextCache
 	// pluginDownloads holds native temporary file leases for the open settings window.
-	pluginDownloads *marketplace.ArchiveSession
+	pluginDownloads     *marketplace.ArchiveSession
+	pluginArchiveCache  marketplace.ArchiveCache
+	pluginStartupCancel context.CancelFunc
 	// prompts are the questions plugins ask the user, one sheet at a time.
 	prompts pluginPrompts
 	// web opens the pages of plugin web tool windows; webReady is set once it can.
@@ -829,9 +843,9 @@ type App struct {
 	remoteBundle func() (remoteserver.Bundle, error)
 	remoteAnchor func() (string, error)
 	remoteAfter  func(time.Duration, func()) func() bool
-	// remoteKeptSecrets replaces the platform secret store the kept host sessions are remembered
+	// remoteSecretStore replaces the platform secret store the kept host sessions are remembered
 	// in (remote_close.go); tests set it.
-	remoteKeptSecrets remoteconn.KeptSecrets
+	remoteSecretStore remoteconn.Secrets
 	// gitAuth holds the questions of the Git operations the user started (git_auth.go).
 	gitAuth    gitAuthState
 	newProject newProjectState
@@ -1106,6 +1120,11 @@ func (a *App) openPlugins(options Options) {
 		return
 	}
 	a.plugins = service
+	cache, cacheErr := marketplace.UserArchiveCache()
+	if cacheErr != nil {
+		a.backgroundFailed("plugin_archive_cache", cacheErr)
+	}
+	a.pluginArchiveCache = cache
 	service.Backend.SetInitializeTimeout(options.PluginInitializeTimeout)
 	service.Backend.SetToolResolver(a.resolveBackendTool)
 	service.Backend.SetToolEntryResolver(a.resolveBackendToolEntry)
@@ -1148,19 +1167,13 @@ func (a *App) Run() error {
 			return err
 		}
 		a.window = window
+		// Viva queues Finder events during startup. Register after the window is
+		// ready so even the first delivered document has an owned session and wake.
+		application.OnOpenFile(func(path string) {
+			a.post(func(a *App) { a.openSystemDocument(path) })
+		})
 		a.startUpdates()
-		a.startPluginAutoUpdates()
-		if path := a.startupPath; path != "" {
-			a.startupPath = ""
-			a.post(func(a *App) { a.openProject(path) })
-		}
-		if path := a.startupFile; path != "" {
-			a.startupFile = ""
-			a.post(func(a *App) { a.openStandaloneFile(path) })
-		}
-		// The plugin stack is assembled before the window exists, because opening a
-		// window is what installs the invalidator its background work needs.
-		a.reloadPluginLanguages()
+		a.startPluginInventory()
 		if !a.documentOnly {
 			a.loadGitHubAccount()
 		}
@@ -1177,6 +1190,9 @@ func (a *App) Run() error {
 		}
 		return nil
 	})
+	if a.pluginStartupCancel != nil {
+		a.pluginStartupCancel()
+	}
 	a.stopPluginAutoUpdates()
 	a.windowLoopEnded(err, faulted.Load())
 	a.shutdownSessions()

@@ -663,6 +663,44 @@
       }
     },
     {
+      "id": "desktop.remoteAuth.rememberPassword",
+      "description": "SSH authentication dialog and connection steps of a saved remote connection: checkbox under a password field that remembers the password in the system's credential store once the connection succeeds",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.remoteAuth.rememberPassphrase",
+      "description": "SSH authentication dialog and connection steps of a saved remote connection: checkbox under a private key passphrase field that remembers the passphrase in the system's credential store once the connection succeeds",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.remoteAuth.rememberHint",
+      "description": "SSH authentication dialog and connection steps of a saved remote connection: note under the field while the remember checkbox is ticked: where the answer is kept and when it is filled in",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.remoteAuth.rememberedRefused",
+      "description": "SSH authentication dialog and connection steps of a saved remote connection: line when the host asked again after Lithe filled in the remembered answer",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.remoteAuth.rememberFailed",
+      "description": "Notice when Lithe could not save, replace or forget the remembered passwords of a remote connection in the system's credential store; reason is the error",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "reason": "string"
+      }
+    },
+    {
       "id": "desktop.remote.connect",
       "description": "Remote Development window: button that connects to the saved connection and lists the host's folders",
       "platforms": [
@@ -1792,6 +1830,23 @@
       "platforms": [
         "desktop"
       ]
+    },
+    {
+      "id": "desktop.remote.forgetAnswers",
+      "description": "Remote Development window: ⋯ menu item that forgets every password and passphrase remembered for the connection",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.remote.answersForgotten",
+      "description": "Remote Development window: notice once the passwords and passphrases remembered for the connection were forgotten",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "name": "string"
+      }
     },
     {
       "id": "desktop.remote.more",
@@ -3301,7 +3356,7 @@
       "desktop.remote.title": "Remote Development",
       "desktop.remote.menuItem": "Remote Development…",
       "desktop.remote.saved": "Saved Connections",
-      "desktop.remote.storageHelp": "Kept on this computer in {path}. Passwords and the contents of private keys are never saved.",
+      "desktop.remote.storageHelp": "Kept on this computer in {path}. The list holds no password and no private key contents; a password you choose to remember is kept in the system's credential store.",
       "desktop.remote.new": "New Connection",
       "desktop.remote.empty": "No saved connections",
       "desktop.remote.name": "Name",
@@ -3314,7 +3369,7 @@
       "desktop.remote.user": "User",
       "desktop.remote.userPlaceholder": "Auto (SSH config, otherwise your local user name)",
       "desktop.remote.authentication": "Authentication",
-      "desktop.remote.authenticationHelp": "Auto: as your SSH config and ssh-agent decide. SSH agent: only keys held by ssh-agent. Private key: only the key file you choose; its passphrase is asked when connecting. Password: asked when connecting. Lithe never saves an answer.",
+      "desktop.remote.authenticationHelp": "Auto: as your SSH config and ssh-agent decide. SSH agent: only keys held by ssh-agent. Private key: only the key file you choose; its passphrase is asked when connecting. Password: asked when connecting. Lithe keeps an answer only when you tick Remember, in the system's credential store.",
       "desktop.remote.auth.auto": "Auto",
       "desktop.remote.auth.agent": "SSH agent",
       "desktop.remote.auth.privateKey": "Private key file",
@@ -3386,6 +3441,11 @@
       "desktop.remoteAuth.secretHint": "The answer goes only to this SSH connection. Lithe does not keep it.",
       "desktop.remoteAuth.refused": "SSH did not take the answer: it may be at most 8192 bytes and may not contain a line break. The question was cancelled.",
       "desktop.remoteAuth.failed": "Cannot pass the answer to SSH: {reason}",
+      "desktop.remoteAuth.rememberPassword": "Remember password",
+      "desktop.remoteAuth.rememberPassphrase": "Remember passphrase",
+      "desktop.remoteAuth.rememberHint": "Saved in the system's credential store once the connection succeeds. Lithe fills it in only the first time the host asks; if the host refuses it, Lithe asks you.",
+      "desktop.remoteAuth.rememberedRefused": "The host refused the remembered answer. Type it again.",
+      "desktop.remoteAuth.rememberFailed": "Cannot update the remembered passwords: {reason}",
       "desktop.remote.edit": "Edit",
       "desktop.remote.settings": "Connection Settings",
       "desktop.remote.hostSection": "Host",
@@ -3471,6 +3531,8 @@
       "desktop.remote.import.none": "No hosts found",
       "desktop.remote.copyName": "{name} copy",
       "desktop.remote.copyAsNew": "Duplicate as New",
+      "desktop.remote.forgetAnswers": "Forget Remembered Passwords",
+      "desktop.remote.answersForgotten": "Forgot the passwords and passphrases remembered for “{name}”.",
       "desktop.remote.more": "More",
       "desktop.remote.deleteNamed": "Delete “{name}”…",
       "desktop.remote.openFolder": "Open Folder…",
@@ -3731,7 +3793,7 @@
       "desktop.remote.title": "远程开发",
       "desktop.remote.menuItem": "远程开发…",
       "desktop.remote.saved": "已保存的连接",
-      "desktop.remote.storageHelp": "保存在本机的 {path}。不会保存密码和私钥内容。",
+      "desktop.remote.storageHelp": "保存在本机的 {path}。列表里没有密码和私钥内容；勾选记住的密码保存在系统的凭据存储里。",
       "desktop.remote.new": "新建连接",
       "desktop.remote.empty": "还没有保存的连接",
       "desktop.remote.name": "名称",
@@ -3744,7 +3806,7 @@
       "desktop.remote.user": "用户名",
       "desktop.remote.userPlaceholder": "自动（SSH 配置，否则本机用户名）",
       "desktop.remote.authentication": "身份验证",
-      "desktop.remote.authenticationHelp": "自动：按 SSH 配置和 ssh-agent 决定。SSH Agent：只用 ssh-agent 里的密钥。私钥文件：只用选定的私钥，口令在连接时询问。密码：在连接时询问。Lithe 不保存任何回答。",
+      "desktop.remote.authenticationHelp": "自动：按 SSH 配置和 ssh-agent 决定。SSH Agent：只用 ssh-agent 里的密钥。私钥文件：只用选定的私钥，口令在连接时询问。密码：在连接时询问。只有勾选“记住”的回答才会保存，保存在系统的凭据存储里。",
       "desktop.remote.auth.auto": "自动",
       "desktop.remote.auth.agent": "SSH Agent",
       "desktop.remote.auth.privateKey": "私钥文件",
@@ -3816,6 +3878,11 @@
       "desktop.remoteAuth.secretHint": "回答只交给这次 SSH 连接，Lithe 不会保存。",
       "desktop.remoteAuth.refused": "SSH 没有接受这个回答：回答最多 8192 字节，且不能包含换行。这个问题已取消。",
       "desktop.remoteAuth.failed": "无法把回答交给 SSH：{reason}",
+      "desktop.remoteAuth.rememberPassword": "记住密码",
+      "desktop.remoteAuth.rememberPassphrase": "记住口令",
+      "desktop.remoteAuth.rememberHint": "连接成功后保存在系统的凭据存储里。之后只在主机第一次询问时自动填入；主机不接受时会改为询问你。",
+      "desktop.remoteAuth.rememberedRefused": "主机没有接受记住的回答，请重新输入。",
+      "desktop.remoteAuth.rememberFailed": "无法更新记住的密码：{reason}",
       "desktop.remote.edit": "编辑",
       "desktop.remote.settings": "连接设置",
       "desktop.remote.hostSection": "主机信息",
@@ -3901,6 +3968,8 @@
       "desktop.remote.import.none": "没有找到主机",
       "desktop.remote.copyName": "{name} 副本",
       "desktop.remote.copyAsNew": "复制为新连接",
+      "desktop.remote.forgetAnswers": "清除记住的密码",
+      "desktop.remote.answersForgotten": "已清除“{name}”记住的密码和口令。",
       "desktop.remote.more": "更多",
       "desktop.remote.deleteNamed": "删除“{name}”…",
       "desktop.remote.openFolder": "打开文件夹…",

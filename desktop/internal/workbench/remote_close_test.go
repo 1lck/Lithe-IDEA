@@ -3,6 +3,7 @@ package workbench
 import (
 	"context"
 	"errors"
+	"fmt"
 	"slices"
 	"strings"
 	"sync"
@@ -14,22 +15,22 @@ import (
 	"github.com/1lck/Lithe-IDEA/desktop/internal/remoteconn"
 )
 
-// memoryKeptSecrets is the secret store of the tests' kept host sessions; failSet fails every
+// memorySecrets is the secret store of the tests' kept host sessions; failSet fails every
 // write.
-type memoryKeptSecrets struct {
+type memorySecrets struct {
 	mu      sync.Mutex
 	items   map[string]string
 	failSet error
 }
 
-func (s *memoryKeptSecrets) Get(_ context.Context, namespace, key string) (string, bool, error) {
+func (s *memorySecrets) Get(_ context.Context, namespace, key string) (string, bool, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	secret, found := s.items[namespace+"\x00"+key]
 	return secret, found, nil
 }
 
-func (s *memoryKeptSecrets) Set(_ context.Context, namespace, key, secret string) error {
+func (s *memorySecrets) Set(_ context.Context, namespace, key, secret string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if s.failSet != nil {
@@ -42,7 +43,7 @@ func (s *memoryKeptSecrets) Set(_ context.Context, namespace, key, secret string
 	return nil
 }
 
-func (s *memoryKeptSecrets) Delete(_ context.Context, namespace, key string) error {
+func (s *memorySecrets) Delete(_ context.Context, namespace, key string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	delete(s.items, namespace+"\x00"+key)
@@ -64,7 +65,7 @@ func keptOf(t *testing.T, h *harness) *core.RemoteResume {
 	t.Helper()
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
-	resume, err := remoteconn.NewestKept(ctx, h.app.remoteKeptSecrets, savedRemoteConnections(t, h)[0].ID)
+	resume, err := remoteconn.NewestKept(ctx, h.app.remoteSecretStore, savedRemoteConnections(t, h)[0].ID)
 	if err != nil {
 		t.Fatalf("read the kept sessions: %v", err)
 	}
@@ -170,6 +171,26 @@ func TestRemoteCloseAsksWhileTheHostRunsPrograms(t *testing.T) {
 	}
 }
 
+// An unconsumed record remains available for its original target after a successful connection.
+func TestRemoteConnectRetainsAnUnconsumedKeptSession(t *testing.T) {
+	for _, binding := range []string{"", strings.Repeat("c", 64)} {
+		t.Run(fmt.Sprintf("binding-length-%d", len(binding)), func(t *testing.T) {
+			h, _, _, _ := remoteWorkspaceHarness(t)
+			entry := savedRemoteConnections(t, h)[0]
+			resume := core.RemoteResume{Key: "key-old", Token: "token-old", Binding: binding}
+			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			defer cancel()
+			if err := remoteconn.RememberKept(ctx, h.app.remoteSecretStore, entry.ID, resume); err != nil {
+				t.Fatal(err)
+			}
+			h.openRemoteTestProject(t)
+			if got := keptOf(t, h); got == nil || *got != resume {
+				t.Fatal("connecting to another or unverified target removed the original credential")
+			}
+		})
+	}
+}
+
 // Keep on Host and Close stores the session's resume token, tells the host to keep the session and
 // says how many programs stay. The next connection to the same host resumes the session, forgets
 // the stored token and, once the folder opens, offers to end the kept programs: End Them ends
@@ -186,7 +207,7 @@ func TestRemoteCloseKeepsTheProgramsForTheNextConnection(t *testing.T) {
 	if got := remoteChoices(k); !slices.Equal(got, []core.RemoteClosePrograms{core.RemoteCloseKeep}) {
 		t.Fatalf("closed the session with %q, want keep", got)
 	}
-	if got := keptOf(t, h); got == nil || *got != (core.RemoteResume{Key: "key-1", Token: "token-1"}) {
+	if got := keptOf(t, h); got == nil || *got != (core.RemoteResume{Key: "key-1", Token: "token-1", Binding: strings.Repeat("b", 64)}) {
 		t.Fatal("the session's resume token was not stored")
 	}
 	kept := i18n.SharedFormat(lang, "desktop.remote.close.kept", map[string]string{"connection": remoteTestHost, "count": "2"})
@@ -371,7 +392,7 @@ func TestRemoteCloseEndsWhenTheSessionCannotBeKept(t *testing.T) {
 	h, k, _, logger := remoteWorkspaceHarness(t)
 	lang := h.app.language()
 	values := map[string]string{"connection": remoteTestHost}
-	secrets := h.app.remoteKeptSecrets.(*memoryKeptSecrets)
+	secrets := h.app.remoteSecretStore.(*memorySecrets)
 	secrets.failSet = errors.New("the secret store is locked")
 	h.openRemoteTestProject(t)
 	k.set(func(k *remoteHostKernel) { k.close.running = remoteTestPrograms })

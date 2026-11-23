@@ -184,6 +184,68 @@ func TestRemoteWorktreeOfADeletedConnectionSaysSo(t *testing.T) {
 	}
 }
 
+// Reopening a container folder preserves every transport hop, including the outer SSH or WSL
+// host. The saved SSH entry's composite container identity is not itself a saved entry.
+func TestRemoteWorktreePreservesContainerHops(t *testing.T) {
+	for _, via := range []string{"local", "ssh", "wsl", "ssh-removed"} {
+		t.Run(via, func(t *testing.T) {
+			h, k, _, _ := remoteWorkspaceHarness(t)
+			t.Cleanup(h.disposeTabs)
+			p := h.openRemoteTestProject(t)
+			k.set(func(k *remoteHostKernel) { k.git.trust[remoteTestFeature] = core.WorkspaceDistrusted })
+			container := &core.ContainerConnection{Engine: core.ContainerEngineDocker, Container: remoteTestContainer, User: "app"}
+			host := remoteHost{container: container}
+			switch via {
+			case "ssh", "ssh-removed":
+				host.ssh = p.remote.host.ssh
+				container.Container = remoteTestHostContainer
+			case "wsl":
+				host.wsl = &core.WSLConnection{Distribution: "Ubuntu", User: "dev"}
+				container.Container = remoteTestHostContainer
+			}
+			p.remote.host = host
+			switch via {
+			case "ssh", "ssh-removed":
+				p.remote.connectionID += "/" + container.Identity()
+			case "wsl":
+				p.remote.connectionID = host.wsl.Identity() + "/" + container.Identity()
+			default:
+				p.remote.connectionID = container.Identity()
+			}
+			if via == "ssh-removed" {
+				p.remote.connectionID = "deleted/" + container.Identity()
+			}
+			h.app.openRemoteHostFolder(p, remoteTestFeature)
+			if via == "ssh-removed" {
+				h.await("the connection window's list", func() bool { return h.app.remote.open && h.app.remote.loaded })
+				h.settle()
+				if h.app.remote.err != i18n.Shared(h.app.language(), "desktop.remote.worktree.connectionRemoved") || len(k.containers.requests) != 0 {
+					t.Fatal("reopening used a container's deleted SSH connection")
+				}
+				return
+			}
+			h.await("the container worktree's tab", func() bool {
+				active := h.app.sessions.active
+				return active != h.app && active.project != nil && active.project.remote != nil
+			})
+			k.mu.Lock()
+			defer k.mu.Unlock()
+			if len(k.containers.requests) != 1 || k.containers.requests[0] != *container {
+				t.Fatal("reopening did not enter the original container")
+			}
+			want := ""
+			if via == "ssh" {
+				want = remoteTestHost
+			} else if via == "wsl" {
+				want = "wsl:Ubuntu"
+			}
+			if k.containers.hosts[0] != want {
+				t.Fatal("reopening discarded the container's outer host")
+			}
+		})
+	}
+}
+
 // The create dialog of a remote workspace shows Core's suggestion beside the repository as a host
 // path and says the path is the host's. A host path typed elsewhere stays as typed, and Create
 // sends the path that names it over the workspace's session, then selects the new worktree.

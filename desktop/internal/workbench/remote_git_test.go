@@ -19,6 +19,7 @@ type remoteHostGit struct {
 	// the decisions recorded.
 	trust     map[string]string
 	decisions []core.RemoteWorkspaceTrustDecision
+	trustErr  error
 	// repository is where the host's repository starts: "" for none, "." at the folder, "above"
 	// at the account's home folder, above the folder.
 	repository string
@@ -48,6 +49,9 @@ func (k *remoteHostKernel) RemoteWorkspaceTrust(_ context.Context, _ *string, se
 	}
 	k.mu.Lock()
 	defer k.mu.Unlock()
+	if k.git.trustErr != nil {
+		return state, k.git.trustErr
+	}
 	decided, ok := k.git.trust[workspace]
 	if !ok {
 		decided = core.WorkspaceTrustUnset
@@ -388,6 +392,41 @@ func TestRemoteWorkspaceTrustStartsGitOnTheHost(t *testing.T) {
 	}
 	if event := loggedAny(t, logger, remoteTestHost, remoteTestHome); event != "" {
 		t.Fatalf("logged the host or its paths: %s", event)
+	}
+}
+
+// Losing the connection revokes permission immediately. Reconnecting reads the host folder's
+// current decision before starting Git, including a decision changed while disconnected.
+func TestRemoteReconnectRechecksWorkspaceTrust(t *testing.T) {
+	for _, failed := range []bool{false, true} {
+		name := "revoked"
+		if failed {
+			name = "unreadable"
+		}
+		t.Run(name, func(t *testing.T) {
+			h, k, timers, logger := remoteWorkspaceHarness(t)
+			k.trustAtHost(core.WorkspaceTrusted, ".")
+			p := h.openRemoteTestProject(t)
+			h.awaitRemoteGit(p)
+			h.app.loseRemote(p, p.remote.session, &core.Error{Code: core.CodeConnectionClosed})
+			if !p.safeMode() {
+				t.Fatal("the disconnected workspace retained permission to run code")
+			}
+			if failed {
+				k.set(func(k *remoteHostKernel) { k.git.trustErr = &core.Error{Code: core.CodeParseFailed} })
+			} else {
+				k.trustAtHost(core.WorkspaceDistrusted, ".")
+			}
+			h.fireReconnect(t, timers, p.remote)
+			h.await("the second session", func() bool { return p.remote.session == "session-2" && !p.remote.beating })
+			h.settle()
+			if !p.safeMode() || slices.Contains(k.hostGit().statuses, "session-2") {
+				t.Fatal("reconnecting reused permission without a current trust decision")
+			}
+			if failed && countFailures(logger, "remote_trust_read") != 1 {
+				t.Fatal("the failed trust read was not logged")
+			}
+		})
 	}
 }
 

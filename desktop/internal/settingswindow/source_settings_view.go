@@ -335,6 +335,14 @@ func (w *window) sourceSettingsPanel(c ui.C, p *sourceSettingsForm) {
 // sourceNavWidth is the width of the module list beside a sidebar form.
 const sourceNavWidth = 168
 
+// settingsListMinHeight is the least height of a source form's rows: they are the entries of
+// a tool's own configuration, which has no upper bound, so they scroll by themselves beside
+// the module tree. A window too short to give them that scrolls the page instead of squeezing
+// them. It still fits whole under an installed plugin's header and tabs in the smallest
+// window. A plugin's own declared settings are capped by Core and are not a list; they are
+// declared whole and scroll with the page.
+const settingsListMinHeight = 160
+
 func (p *sourceSettingsForm) navNode(i int) ui.TreeNode {
 	if i < 0 || i >= len(p.nav) {
 		return ui.TreeNode{}

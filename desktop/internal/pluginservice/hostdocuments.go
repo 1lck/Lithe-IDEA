@@ -126,6 +126,11 @@ func (s *Service) AttachWorkbench(workbench Workbench) error {
 			return err
 		}
 	}
+	if host, ok := workbench.(FileChangeHost); ok {
+		if err := s.registerFileChanges(host); err != nil {
+			return err
+		}
+	}
 	if err := s.registerEditorActions(); err != nil {
 		return err
 	}

@@ -1,10 +1,11 @@
 import assert from "node:assert/strict";
-import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync, symlinkSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
-import { spawn } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
 import { once } from "node:events";
+import { fileURLToPath } from "node:url";
 import { parseGoTimingLine, run } from "./run-go-tests-with-timing.mjs";
 import { runProcess, terminateProcessTree } from "./test-timing-lib.mjs";
 
@@ -144,4 +145,26 @@ test("a failed tree cleanup does not leave the timing runner waiting forever", {
     assert.equal(result.terminationConfirmed, false);
     assert.throws(() => process.kill(pid, 0), (error) => error.code === "ESRCH", "fallback must stop the direct child");
   }
+});
+
+test("Go timing CLI executes when invoked through a symlink", { timeout: 5000 }, (t) => {
+  const options = fixture(t);
+  const link = path.join(path.dirname(options.report), "go-timing-link.mjs");
+  try {
+    symlinkSync(fileURLToPath(new URL("./run-go-tests-with-timing.mjs", import.meta.url)), link);
+  } catch (error) {
+    if (process.platform === "win32" && ["EPERM", "ENOTSUP"].includes(error.code)) {
+      t.skip(`symlinks unavailable on this host (${error.code})`);
+      return;
+    }
+    throw error;
+  }
+  const result = spawnSync(
+    process.execPath,
+    [link, "--report", options.report, "--", process.execPath, "-e", ""],
+    { encoding: "utf8", timeout: 5000 },
+  );
+  assert.equal(result.error, undefined, String(result.error));
+  assert.notEqual(result.status, 0, "symlinked invocation must execute main and fail on zero Go events");
+  assert.match(result.stderr, /Go test timing failed/);
 });

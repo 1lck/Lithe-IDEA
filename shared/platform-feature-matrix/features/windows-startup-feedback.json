@@ -7,7 +7,9 @@
     "implementationStatus": "platform-specific",
     "verificationStatus": "not-applicable",
     "evidence": [
-      "docs/viva-migration.md"
+      "docs/viva-migration.md",
+      "desktop/internal/workbench/window_background.go",
+      "desktop/internal/workbench/stored_state_failures_test.go"
     ]
   },
   "windows": {
@@ -17,12 +19,13 @@
       "desktop/internal/workbench/window_background.go",
       "desktop/internal/workbench/root.go",
       "desktop/internal/buildprocess/process_windows.go",
-      "desktop/internal/localshell/wsl_windows.go"
+      "desktop/internal/localshell/wsl_windows.go",
+      "desktop/internal/workbench/stored_state_failures_test.go"
     ]
   },
   "owner": "Windows Shell",
-  "verification": "Windows：分别用深色、浅色和自定义主题冷启动（含上次最大化退出），从启动到页面渲染不出现白屏；新建项目窗口同样使用主题背景。切换主题后重启，首帧背景随之变化；删除应用本地数据目录下的 window-background.json 后以 Lithe Dark 背景启动。打开 Agent 面板、刷新订阅额度、检测 MCP，全程不出现控制台窗口闪烁。确认背景文件只写入应用本地数据目录，安装目录文件清单不变。",
-  "notes": "Viva：root.go 的页面背景取当前主题 Chrome 色，但未找到窗口启动背景的持久化文件（window-background.json）；无控制台标志只在构建进程（buildprocess/process_windows.go）和 WSL 探测（localshell/wsl_windows.go）中设置，Agent、订阅与 MCP 检查的子进程未核到。 2026-11-12：核实已实现——窗口配置的 ClearColor 取 startupBackground()（首帧即主题色，不再闪白），每次绘制经 rememberWindowBackground 把编辑器底色写进 window-background.json，下次启动先用它；无控制台标志在 buildprocess 与 WSL 探测已设。原记录的「Agent、订阅、MCP 检查的子进程」随 Agent/MCP 模块删除已不存在，该项无需再补。",
+  "verification": "Windows：分别用深色、浅色和自定义主题冷启动（含上次最大化退出），从启动到页面渲染不出现白屏；新建项目窗口同样使用主题背景。切换主题后重启，首帧背景随之变化；删除应用本地数据目录下的 window-background.json 后以 Lithe Dark 背景启动。打开 Agent 面板、刷新订阅额度、检测 MCP，全程不出现控制台窗口闪烁。确认背景文件只写入应用本地数据目录，安装目录文件清单不变。 将 window-background.json 写成非法 JSON 或令 red 字段保存未来版本形状，调用 startupBackground 检查回退到深色主题默认背景色，记录一次 app.settings.decode_failed 的 window_background 阶段，读取本身不改原文件；运行 TestStartupBackgroundLogsUnreadableStoredColor。两端真实窗口验证仍待完成。",
+  "notes": "Viva：root.go 的页面背景取当前主题 Chrome 色，但未找到窗口启动背景的持久化文件（window-background.json）；无控制台标志只在构建进程（buildprocess/process_windows.go）和 WSL 探测（localshell/wsl_windows.go）中设置，Agent、订阅与 MCP 检查的子进程未核到。 2026-11-12：核实已实现——窗口配置的 ClearColor 取 startupBackground()（首帧即主题色，不再闪白），每次绘制经 rememberWindowBackground 把编辑器底色写进 window-background.json，下次启动先用它；无控制台标志在 buildprocess 与 WSL 探测已设。原记录的「Agent、订阅、MCP 检查的子进程」随 Agent/MCP 模块删除已不存在，该项无需再补。 #1990：Viva 启动背景的持久颜色文件读取出错或 Store.Unread 记录字段形状不兼容时不再静默回退；沿用统一目录事件记录，同时在当前启动使用默认背景。",
   "legacy": {
     "revision": "5a54c41aa37a4e6e6b68918a4b05765b9dd07a36",
     "macos": {

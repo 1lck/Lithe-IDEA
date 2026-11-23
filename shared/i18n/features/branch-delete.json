@@ -182,6 +182,23 @@
       "platforms": [
         "desktop"
       ]
+    },
+    {
+      "id": "desktop.branch.deleteRepository",
+      "description": "Repository name shown with branch deletion results and force confirmation",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "repository": "string"
+      }
+    },
+    {
+      "id": "desktop.branch.openDeleteResult",
+      "description": "Notification action to open the outcomes of a branch deletion",
+      "platforms": [
+        "desktop"
+      ]
     }
   ],
   "locales": {
@@ -207,7 +224,9 @@
       "desktop.branch.deleteResultSummary": "Deleted: {deleted}. Kept: {kept}. Failed branch names are red; hover for the reason.",
       "desktop.branch.deleteResultDeleted": "Deleted",
       "desktop.branch.deleteResultFailed": "Failed",
-      "desktop.branch.deleteResultUnmerged": "Not fully merged"
+      "desktop.branch.deleteResultUnmerged": "Not fully merged",
+      "desktop.branch.deleteRepository": "Repository: {repository}",
+      "desktop.branch.openDeleteResult": "View Branch Deletion Results"
     },
     "zh-CN": {
       "desktop.branch.deleteRemotePrompt": "删除远程分支“{name}”？它会从远程仓库中删除，所有使用这个仓库的人都将看不到它，本地对应的远程跟踪分支也会一并移除。",
@@ -231,7 +250,9 @@
       "desktop.branch.deleteResultSummary": "已删除 {deleted} 个，保留 {kept} 个。删除失败的分支名以红色显示，悬停可查看原因。",
       "desktop.branch.deleteResultDeleted": "已删除",
       "desktop.branch.deleteResultFailed": "删除失败",
-      "desktop.branch.deleteResultUnmerged": "尚未完全合并"
+      "desktop.branch.deleteResultUnmerged": "尚未完全合并",
+      "desktop.branch.deleteRepository": "仓库：{repository}",
+      "desktop.branch.openDeleteResult": "查看分支删除结果"
     }
   }
 }

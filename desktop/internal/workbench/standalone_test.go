@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/1lck/Lithe-IDEA/desktop/internal/core"
+	"github.com/1lck/Lithe-IDEA/desktop/internal/i18n"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/store"
 )
 
@@ -72,6 +73,77 @@ func TestStandaloneEditsWithBundledSyntaxWithoutProjectServices(t *testing.T) {
 		if cmd.id == "plugins.open" || cmd.id == "project.new" {
 			t.Fatalf("empty standalone exposed %s", cmd.id)
 		}
+	}
+}
+
+// TestStandaloneMarkdownShowsItsPage: a Markdown file opened alone has the page, the view
+// switch and the Contents button it has in a project (#2324), still without project services.
+// The page loads an image beside the file, but not one outside the file's folder.
+func TestStandaloneMarkdownShowsItsPage(t *testing.T) {
+	parent := t.TempDir()
+	root := filepath.Join(parent, "notes")
+	if err := os.MkdirAll(filepath.Join(root, "img"), 0700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "img", "local.png"), pngOf(t, 4, 5), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(parent, "outside.png"), pngOf(t, 2, 2), 0600); err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(root, "notes.md")
+	source := "# Title\n\nSome **bold** text.\n\n![local](img/local.png)\n\n![escape](../outside.png)\n\n## Second part\n\nmore\n"
+	if err := os.WriteFile(path, []byte(source), 0600); err != nil {
+		t.Fatal(err)
+	}
+	prefs := store.At(t.TempDir())
+	if err := prefs.Save(settingsFile, map[string]string{"theme": "dark"}); err != nil {
+		t.Fatal(err)
+	}
+	options := DesktopOptions(core.NewClient(), prefs, "test")
+	options.Languages, options.OpenFile = []string{"en-US"}, path
+	options.PluginRoot = filepath.Join(root, "unread-plugins")
+	h := newHarnessWithOptions(t, options)
+	h.app.openStandaloneFile(path)
+	h.await("standalone Markdown file", func() bool { return h.app.project != nil && h.app.project.docs.byPath(path) != nil })
+	h.settle()
+	p := h.app.project
+	d := p.docs.byPath(path)
+	language := h.app.language()
+	text := func(id string) string { return i18n.Shared(language, id) }
+	for _, id := range []string{"editor.markdownSourceView", "editor.markdownSplitView", "editor.markdownPreviewView", "desktop.markdown.contents"} {
+		if !controlShown(h, text(id)) {
+			t.Fatalf("the strip of a Markdown file opened alone has no %q", text(id))
+		}
+	}
+	page := text("desktop.markdown.preview")
+	if !controlShown(h, page) || editorRect(h, d).Width == 0 {
+		t.Fatal("a Markdown file opened alone does not show its source beside its page")
+	}
+	s := d.markdown
+	awaitStateWithin(t, h, 10*time.Second, "the page's images", func() bool {
+		if len(s.images) != 2 {
+			return false
+		}
+		for _, image := range s.images {
+			if image.loading {
+				return false
+			}
+		}
+		return true
+	})
+	if local := s.images["img/local.png"]; local == nil || local.failed || local.bitmap.Width != 4 {
+		t.Fatalf("the image beside the file is %+v", local)
+	}
+	if escape := s.images["../outside.png"]; escape == nil || !escape.failed {
+		t.Fatalf("the image outside the file's folder is %+v, want failed", escape)
+	}
+	h.click(center(h.hitLabeled(text("editor.markdownPreviewView"))))
+	if editorRect(h, d).Width != 0 || !controlShown(h, page) {
+		t.Fatal("Preview did not show the page alone")
+	}
+	if h.app.plugins != nil || p.search.watch != nil || p.git.isRepository() {
+		t.Fatal("showing the page started project services")
 	}
 }
 

@@ -15,6 +15,9 @@
 //   platform/icons/src/fileTypes/custom.svg; lock is expui/general/locked; readme is
 //   expui/status/info; nodejs is
 //   plugins/kotlin/base/resources/resources/org/jetbrains/kotlin/idea/icons/expui/wizard/nodejs.
+//   go.svg is the exception: expui/fileTypes/ has no Go icon, and the restored file is byte for
+//   byte platform/icons/src/language/go_dark.svg (revision
+//   b3667546dadaf462cc8812e6de88be6d3e76558b).
 // - folder.svg and excludeRoot.svg: platform/icons/src/expui/nodes/ (revision
 //   e8d21e84ee23f99ae7237fbb4530ff2e7c3b47c5).
 // - svg/tree/treechevronDown.svg and treechevronRight.svg (and their _dark variants): the previous

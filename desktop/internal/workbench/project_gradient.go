@@ -1,9 +1,6 @@
 package workbench
 
 import (
-	"runtime"
-
-	"github.com/vivaui/viva/app"
 	"github.com/vivaui/viva/gfx"
 )
 
@@ -60,10 +57,9 @@ func (a *App) paintProjectGradient(canvas *gfx.Canvas, bounds gfx.Rect) {
 		rgb = projectGradientDark[index]
 	}
 	peak := gfx.RGB24(rgb)
-	leading, _ := app.TitlebarInsets()
-	if a.fullscreen && runtime.GOOS == "darwin" {
-		leading = 0
-	}
+	// The canvas answers for the window it paints: zero in full screen and under a
+	// system titlebar, where the buttons are not on the strip.
+	leading, _ := canvas.TitlebarInsets()
 	anchor := leading + projectGradientAnchor
 	width := min(anchor+projectGradientWidth, bounds.Width)
 	if width <= 0 {

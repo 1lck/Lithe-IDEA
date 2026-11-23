@@ -9,14 +9,17 @@ import (
 	"github.com/1lck/Lithe-IDEA/desktop/internal/buildinfo"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/cli"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/core"
+	"github.com/1lck/Lithe-IDEA/desktop/internal/fileassociations"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/fontprefs"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/i18n"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/localshell"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/marketplace"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/pluginhost"
+	"github.com/1lck/Lithe-IDEA/desktop/internal/pluginicons"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/processledger"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/settingswindow"
 	"github.com/vivaui/viva/app"
+	"github.com/vivaui/viva/gfx"
 )
 
 // newSettingsWindow makes the controller of the settings window. The settings are a window
@@ -32,8 +35,15 @@ func (a *App) newSettingsWindow() *settingswindow.Controller {
 		navigation = kernel.SettingsNavigation
 	}
 	return settingswindow.NewController(settingswindow.Options{
-		CLI:               cli.New(),
-		CLIAction:         func(action string) { a.post(func(a *App) { a.performed("settings.cli."+action, surfaceButton) }) },
+		CLI:              cli.New(),
+		CLIAction:        func(action string) { a.post(func(a *App) { a.performed("settings.cli."+action, surfaceButton) }) },
+		FileAssociations: fileassociations.New(),
+		AssociationAction: func(ctx context.Context, action string) context.Context {
+			return a.performedIn(ctx, "settings.fileAssociations."+action, surfaceButton)
+		},
+		AssociationError: func(ctx context.Context, err error) {
+			a.operationFailedIn(ctx, "file_associations", err)
+		},
 		SearchPreferences: appSearchPreferences{app: a},
 		PluginInstallsClosed: func() {
 			a.post(func(a *App) { a.closePluginDownloads() })
@@ -75,7 +85,20 @@ func (a *App) newSettingsWindow() *settingswindow.Controller {
 			}
 			return service.Fetch(ctx, marketplace.CommunityRepositoryURL, core.MarketplaceThirdParty, runtime.GOOS+"-"+arch, pluginhost.Declared().Clone())
 		},
-		MarketplaceURL:         marketplace.CommunityRepositoryURL,
+		MarketplaceURL: marketplace.CommunityRepositoryURL,
+		MarketplaceIcon: func(ctx context.Context, address string) (gfx.Icon, error) {
+			data, err := service.FetchIcon(ctx, address, pluginicons.MaxFileBytes)
+			if err != nil {
+				return gfx.Icon{}, err
+			}
+			if err := ctx.Err(); err != nil {
+				return gfx.Icon{}, err
+			}
+			return pluginicons.CompileSVG(address, data)
+		},
+		MarketplaceIconError: func(err error) {
+			a.backgroundFailedIn(context.Background(), "plugin_marketplace_icon", err)
+		},
 		OfficialMarketplaceURL: marketplace.OfficialIndexURL,
 		MarketplaceOfficial: func(ctx context.Context) (marketplace.Snapshot, error) {
 			arch := runtime.GOARCH
@@ -209,6 +232,9 @@ func (a *App) newSettingsWindow() *settingswindow.Controller {
 		},
 		SetDisableSemanticHighlight: func(value bool) {
 			a.post(func(a *App) { a.setDisableSemanticHighlight(value) })
+		},
+		SetDisableAutoCompletion: func(value bool) {
+			a.post(func(a *App) { a.setDisableAutoCompletion(value) })
 		},
 		SetVimMode: func(value bool) {
 			a.post(func(a *App) { a.setVimMode(value) })
@@ -480,6 +506,7 @@ func (a *App) openSettingsPageWith(surface actionSurface, page settingsPage, que
 			GitLogLimit: a.gitLogLimit(), GitLogMergedLimit: a.gitLogMergedLimit(),
 			GitConsole:               a.settings.GitConsole,
 			DisableSemanticHighlight: a.settings.DisableSemanticHighlight,
+			DisableAutoCompletion:    a.settings.DisableAutoCompletion,
 			VimMode:                  a.settings.VimMode,
 			DisableAutoSave:          a.settings.DisableAutoSave,
 			ProcessTermination:       a.settings.ProcessTermination,

@@ -64,14 +64,16 @@ jobs:
         id: time
         run: printf 'timestamp=%s\n' "$(date -u '+%Y-%m-%dT%H:%M:%SZ')" >> "$GITHUB_OUTPUT"
 
-  # The remote workspace server is built and smoke tested once, on both architectures; every
-  # package of this release embeds those bytes.
+  # A release runs in three stages. First the remote workspace server is built once for linux
+  # amd64 and arm64 and tested on a runner of each architecture.
   remote-server:
     name: Remote server
     if: ${{ !inputs.feed_only }}
     needs: prepare
     uses: ./.github/workflows/desktop-remote-server.yml
 
+  # Then every platform builds the app with those server bytes embedded and packages it: the
+  # server is compiled into the app, so these cannot start before the first stage ends.
   build:
     name: Package ${{ matrix.os }} ${{ matrix.arch }}
     if: ${{ !inputs.feed_only }}
@@ -215,6 +217,7 @@ jobs:
 
           if-no-files-found: error
 
+  # Last, the packages of every platform are checked together and published as one release.
   publish:
     name: Publish the release
     if: ${{ (github.event_name != 'workflow_dispatch' || inputs.publish) && !inputs.feed_only }}

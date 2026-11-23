@@ -5,7 +5,7 @@ import { appendFileSync, mkdirSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { writeTestReportArtifacts } from "./generate-test-report.mjs";
-import { positiveInteger, runProcess } from "./test-timing-lib.mjs";
+import { isMainModule, positiveInteger, runProcess } from "./test-timing-lib.mjs";
 
 const SCRIPT_DIRECTORY = path.dirname(fileURLToPath(import.meta.url));
 const REPOSITORY_ROOT = path.resolve(SCRIPT_DIRECTORY, "../../../..");
@@ -371,4 +371,4 @@ async function main() {
   }
 }
 
-if (path.resolve(process.argv[1] ?? "") === fileURLToPath(import.meta.url)) await main();
+if (isMainModule(import.meta.url)) await main();

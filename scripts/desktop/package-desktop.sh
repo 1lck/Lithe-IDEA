@@ -118,6 +118,9 @@ if [[ -z "$FORMATS" ]]; then
 fi
 
 MANIFEST="$ROOT_DIR/desktop/viva.toml"
+# Refuse stale native declarations before signing. The same Core projection feeds
+# Settings; runtime registration never rewrites the signed bundle or installer.
+LITHE_DESKTOP_CORE_PROFILE=release "$ROOT_DIR/scripts/desktop/generate-file-associations.sh" --check
 VERSION="$(awk '
     /^\[app\][[:space:]]*$/ { in_app = 1; next }
     /^\[/ { in_app = 0 }

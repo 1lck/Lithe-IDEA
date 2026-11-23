@@ -144,7 +144,7 @@ func (a *App) updateArrow(c ui.C) {
 		box = box.DrawOver(u.arrow.draw)
 	}
 	box.Children(func() {
-		ui.Icon(k, updateIcon).Size(chromeIconSize, chromeIconSize).Color(tint)
+		ui.Icon(c, updateIcon).Size(chromeIconSize, chromeIconSize).Color(tint)
 	})
 	if box.Clicked() {
 		c.After(func() { a.showUpdateDialog(surfaceToolbar) })
