@@ -93,6 +93,16 @@ func (a *App) defaultToolchainSelection(ctx context.Context, root, directory, to
 	if err != nil {
 		return core.ToolchainSelection{}, err
 	}
+	return a.resolveToolchainSelectionFrom(ctx, root, directory, tool, minimumVersion, manifests)
+}
+
+// resolveToolchainSelectionFrom reuses a catalog read by a run or debugger.
+// Looking it up a second time could report the same partial-manifest failure twice,
+// or select a different plugin version between resolving and launching a tool.
+func (a *App) resolveToolchainSelectionFrom(ctx context.Context, root, directory, tool, minimumVersion string, manifests []json.RawMessage) (core.ToolchainSelection, error) {
+	if a.toolchainResolve != nil {
+		return a.toolchainResolve(ctx, root, directory, tool, minimumVersion)
+	}
 	if directory == "" {
 		directory = "."
 	}

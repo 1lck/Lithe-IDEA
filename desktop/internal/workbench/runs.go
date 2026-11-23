@@ -173,17 +173,18 @@ func (a *App) resolveBackendTool(ctx context.Context, _, workingDirectory, tool 
 // resolveBackendToolEntry supplies native installation facts and the verified
 // entry to Core. The definition, not the host, decides how a tool loads it.
 func (a *App) resolveBackendToolEntry(ctx context.Context, _ string, workingDirectory string, input pluginbackend.ToolEntryLaunch) (pluginbackend.ToolExecutable, error) {
+	// Share one validated manifest snapshot between the selected executable
+	// and Core's launch template, including when one unrelated plugin is unreadable.
+	manifests, _, err := a.usableToolchainManifests(ctx, "toolchain_run_entry_discovery")
+	if err != nil {
+		return pluginbackend.ToolExecutable{}, err
+	}
 	selection := core.ToolchainSelection{Executable: input.Executable}
 	if selection.Executable == "" {
-		var err error
-		selection, err = a.resolveToolchainSelection(ctx, workingDirectory, ".", input.Tool, input.MinimumVersion)
+		selection, err = a.resolveToolchainSelectionFrom(ctx, workingDirectory, ".", input.Tool, input.MinimumVersion, manifests)
 		if err != nil {
 			return pluginbackend.ToolExecutable{}, err
 		}
-	}
-	manifests, err := a.toolchainManifests(ctx)
-	if err != nil {
-		return pluginbackend.ToolExecutable{}, err
 	}
 	registry, err := toolchain.RegistryInput(manifests)
 	if err != nil {
