@@ -285,8 +285,8 @@ func (a *App) remoteQuestionCard(c ui.C, language i18n.Language, s *remoteSteps,
 				}
 				k := c.KeyInt(index)
 				ui.Row(k).FillWidth().Items(ui.Center).Gap(10).Children(func() {
-					ui.Text(k, item[0]).FontSize(small).Color(a.colors.Subtle).Width(80).Shrink(0)
-					ui.Text(k, item[1]).Mono().FontSize(small).Ellipsis().Grow(1).MinWidth(0)
+					ui.Text(c, item[0]).FontSize(small).Color(a.colors.Subtle).Width(80).Shrink(0)
+					ui.Text(c, item[1]).Mono().FontSize(small).Ellipsis().Grow(1).MinWidth(0)
 				})
 			}
 			ui.Paragraph(c, i18n.Shared(language, "desktop.remote.hostKey.hint"), 3).FontSize(small).Color(a.colors.Subtle)

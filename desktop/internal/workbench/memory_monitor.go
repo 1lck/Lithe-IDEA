@@ -597,14 +597,14 @@ type memoryLine struct {
 func (a *App) memoryRow(k ui.C, language i18n.Language, line memoryLine, columns memoryColumns) {
 	small := a.theme.Metrics.FontSizeS
 	figure := func(text string, width float32) {
-		ui.Text(k, text).FontSize(small).Width(width).Shrink(0).TextEnd()
+		ui.Text(c, text).FontSize(small).Width(width).Shrink(0).TextEnd()
 	}
 	ui.Row(k).FillWidth().Height(memoryRowHeight).Shrink(0).Items(ui.Center).Gap(memoryColumnGap).Children(func() {
 		ui.Row(k).Grow(1).MinWidth(0).Items(ui.Center).Gap(8).Children(func() {
 			ui.Row(k).Size(memoryDotSize, memoryDotSize).Shrink(0).Radius(memoryDotSize / 2).Background(a.memoryColor(line.kind))
-			ui.Text(k, line.name).FontSize(small).Shrink(1).MinWidth(0).Ellipsis()
+			ui.Text(c, line.name).FontSize(small).Shrink(1).MinWidth(0).Ellipsis()
 			if line.processes > 1 {
-				ui.Text(k, i18n.SharedFormat(language, "desktop.memory.processCount", map[string]string{"count": strconv.Itoa(line.processes)})).
+				ui.Text(c, i18n.SharedFormat(language, "desktop.memory.processCount", map[string]string{"count": strconv.Itoa(line.processes)})).
 					FontSize(small).Color(a.colors.Subtle).Shrink(0)
 			}
 		})

@@ -34,12 +34,12 @@ func (a *App) runConfigList(c ui.C, p *project) {
 			ui.Row(k.Part("empty")).Height(panelHeaderHeight).FillWidth().Items(ui.Center).PadX(8).Children(func() {
 				switch {
 				case s.failure != "":
-					ui.Text(k, i18n.SharedFormat(language, "desktop.runConfig.loadFailed", map[string]string{"reason": s.failure})).
+					ui.Text(c, i18n.SharedFormat(language, "desktop.runConfig.loadFailed", map[string]string{"reason": s.failure})).
 						FontSize(small).Color(a.colors.Warning).Ellipsis().Grow(1).MinWidth(0)
 				case s.loading:
-					ui.Text(k, i18n.Shared(language, "native.loading")).FontSize(small).Color(a.colors.Subtle).Ellipsis().Grow(1).MinWidth(0)
+					ui.Text(c, i18n.Shared(language, "native.loading")).FontSize(small).Color(a.colors.Subtle).Ellipsis().Grow(1).MinWidth(0)
 				default:
-					ui.Text(k, i18n.Shared(language, "desktop.runConfig.emptyHint")).FontSize(small).Color(a.colors.Subtle).Ellipsis().Grow(1).MinWidth(0)
+					ui.Text(c, i18n.Shared(language, "desktop.runConfig.emptyHint")).FontSize(small).Color(a.colors.Subtle).Ellipsis().Grow(1).MinWidth(0)
 				}
 			})
 		})
@@ -244,7 +244,7 @@ func (a *App) drawRunConfigGroupArrow(c ui.C, s *runConfigState, group runConfig
 	slot := ui.Row(k).Size(treelist.Disclosure, treelist.Icon).Shrink(0).Center().
 		HitWith(ui.ID(k), name+" "+group.title, gfx.HitOptions{Role: gfx.RoleButton, Cursor: gfx.PointerCursorHand, Expandable: true, Expanded: open, SkipFocus: true})
 	slot.Children(func() {
-		ui.Icon(k, chevron).Size(12, 12).Color(a.colors.Subtle)
+		ui.Icon(c, chevron).Size(12, 12).Color(a.colors.Subtle)
 	})
 	if slot.Clicked() {
 		key := group.key
