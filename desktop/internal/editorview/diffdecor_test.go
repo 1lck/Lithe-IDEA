@@ -285,3 +285,42 @@ func TestRepaintWithInlineHighlightsAllocatesNothing(t *testing.T) {
 		t.Fatalf("a repaint allocates %v times, want none", allocs)
 	}
 }
+
+// ShowContent replaces the view's displayed content without recording undo or reporting an edit
+// back to OnEdit, so syncing a second view does not feed the diff back into its source document.
+func TestShowContentDoesNotReportEditOrMirrorBack(t *testing.T) {
+	file := "one\ntwo\n"
+	doc := New(Config{HitID: gfx.Item(1), Label: "doc", Content: Prepare([]byte(file))})
+	t.Cleanup(doc.Close)
+
+	var edits []Edit
+	side := New(Config{
+		HitID:   gfx.Item(2),
+		Label:   "side",
+		Content: Prepare([]byte(strings.TrimSuffix(file, "\n"))),
+		OnEdit: func(edit Edit) {
+			edits = append(edits, edit)
+			doc.ApplyEdit(edit, true)
+		},
+	})
+	t.Cleanup(side.Close)
+
+	for round := 1; round <= 4; round++ {
+		side.ShowContent(doc.CopyContent())
+		if len(edits) != 0 {
+			t.Fatalf("round %d: ShowContent reported %+v, want none", round, edits)
+		}
+		if got := doc.contents(); got != file {
+			t.Fatalf("round %d: document = %q, want %q", round, got, file)
+		}
+		if doc.dirty {
+			t.Fatalf("round %d: document became dirty", round)
+		}
+		if got := side.contents(); got != file {
+			t.Fatalf("round %d: side = %q, want %q", round, got, file)
+		}
+	}
+	if len(side.undo) != 0 || len(side.redo) != 0 {
+		t.Fatalf("ShowContent recorded undo/redo: %d/%d", len(side.undo), len(side.redo))
+	}
+}

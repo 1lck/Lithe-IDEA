@@ -287,13 +287,12 @@ func (v *View) BindWithoutMinimap(hit gfx.ID, parts gfx.Scope) {
 // wheel and the keys still scroll it.
 func (v *View) HideVerticalBar() { v.decor.noVerticalBar = true }
 
-// ShowContent replaces the text of a read-only view the host builds itself, as a side of a diff
-// it lays out again when the user unfolds lines: unlike Reload it keeps no undo step, since the
-// user never edited the text. The scroll stays; the caret stays at its byte offset, kept in range.
+// ShowContent replaces the text of a host-built view, such as a diff side or preview: unlike
+// Reload it clears undo/redo history and does not report an edit to OnEdit, since the user did
+// not edit the text. The scroll stays; the caret stays at its byte offset, kept in range.
 func (v *View) ShowContent(content Content) {
 	if v.preedit.Composing {
 		return
 	}
-	v.replaceFromDisk(content)
-	v.undo, v.redo = nil, nil
+	v.replaceContent(content, false, false)
 }

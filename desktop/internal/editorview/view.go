@@ -494,17 +494,25 @@ func (v *View) diskEdit(content Content) (Edit, bool) {
 }
 
 func (v *View) replaceFromDisk(content Content) bool {
+	return v.replaceContent(content, true, true)
+}
+
+func (v *View) replaceContent(content Content, recordUndo, report bool) bool {
 	v.extra = nil
 	var change Edit
 	changed := false
-	if v.cfg.OnEdit != nil {
+	if report && v.cfg.OnEdit != nil {
 		change, changed = v.diskEdit(content)
 	}
-	v.undo = append(v.undo, v.snapshot())
-	if len(v.undo) > undoLimit {
-		v.undo = v.undo[len(v.undo)-undoLimit:]
+	if recordUndo {
+		v.undo = append(v.undo, v.snapshot())
+		if len(v.undo) > undoLimit {
+			v.undo = v.undo[len(v.undo)-undoLimit:]
+		}
+		v.redo = v.redo[:0]
+	} else {
+		v.undo, v.redo = nil, nil
 	}
-	v.redo = v.redo[:0]
 	v.ClearInlayHints()
 	v.text = content.text
 	v.saved = v.text
