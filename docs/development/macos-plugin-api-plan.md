@@ -6,7 +6,7 @@
 
 Core [#193](https://github.com/Lithe-IDEA/Lithe-core-rust/pull/193) 已合入，
 [#194](https://github.com/Lithe-IDEA/Lithe-core-rust/pull/194) 补齐原生执行前校验与默认值。
-桌面固定 Core `75e1480`，包含这两项改动，并保留既有 Core #187 增量更新依赖。
+桌面固定 Core main `c6cef0b`，包含这两项改动和 Core #187 增量更新。
 桌面端接入对应的输入、预览、只读对比、输出、进度、状态项、剪贴板、文件管理器和 HTTP。
 纯后端命令接入命令面板与已有快捷键目录，树支持主动刷新、展开懒加载和接近末尾自动分页。
 本次不改变任何系统 API 版本；下文 `ui:4`、协议 3 等是旧客户端的历史记录，
@@ -71,8 +71,8 @@ Windows 不在本轮，平台矩阵的 partial/pending 保持真实。
 | API-03 | 部分完成 | 既有命令 placements 可用；Viva 已接入 statusBar/setItem 与 removeItem，按 Core 顺序呈现；通用菜单、快捷键贡献与 context.set 未做 |
 | API-04 | 部分完成 | didChangeContexts 与 watch 事件；文档/选区/活动编辑器语义事件未做 |
 | API-05 | 已公开 | listContexts/getContext/getFolders，context/generation 与 rootID |
-| API-06 | 已实现，待合入 | readDirectory/stat/readFile 已由 Rust Core 执行并接入 Viva 本地工作区；逐段拒绝符号链接/reparse point，目录有界分页，磁盘读取上限 128 KiB，支持文本/base64 与截断标记。macOS 定向验证通过；默认 Core 已固定到包含 [Core #190](https://github.com/Lithe-IDEA/Lithe-core-rust/pull/190) 与既有增量更新依赖的 `75e1480`，本轮不做 Windows 验收 |
-| API-07 | 已实现，待合入 | watch 已接入 Viva 原生事件，Core 负责范围、隐藏过滤、排序去重和溢出重扫；注册先发重扫，dispose/context/session 结束释放且停止通知；macOS 真实文件事件已验证，本轮不做 Windows 验收 |
+| API-06 | 已公开 | readDirectory/stat/readFile 已由 Rust Core 执行并接入 Viva 本地工作区；逐段拒绝符号链接/reparse point，目录有界分页，磁盘读取上限 128 KiB，支持文本/base64 与截断标记。macOS 定向验证通过；[Core #190](https://github.com/Lithe-IDEA/Lithe-core-rust/pull/190) 已合入，默认 Core 固定 main `c6cef0b`；Windows 验收未做 |
+| API-07 | 已公开 | watch 已接入 Viva 原生事件，Core 负责范围、隐藏过滤、排序去重和溢出重扫；注册先发重扫，dispose/context/session 结束释放且停止通知；macOS 真实文件事件已验证；Windows 验收未做 |
 | API-08 | 已实现，精确范围未提供 | findFiles/findText 已由 Core 执行并接入 Viva；查询绑定游标、分页与 200 条总上限、取消、隐藏/索引过滤、no-follow 与磁盘编码处理；只搜磁盘，一行一条结果，range 如实为 null；macOS 定向验证通过 |
 | API-09 | 已公开 | documents/list/getSnapshot、editor/getActive/getSelections，含 dirty/版本/编码/EOL |
 | API-10 | 已公开 | applyEdits/replaceSelections/insertText；版本校验、IME/只读拒绝、一次 Undo |
