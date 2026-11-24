@@ -2,7 +2,7 @@
   "id": "plugin-editor-providers",
   "area": "扩展",
   "group": "插件与主题",
-  "capability": "普通工具插件的编辑器语言功能：运行期把跳转、悬浮、补全、CodeLens、折叠、语义着色、文档链接绑定到同插件函数；语言服务器先答，插件只补充；不接 LSP/Build/Run/Debug",
+  "capability": "普通工具插件的编辑器语言功能及可组合前景颜色范围：提供者函数由 Core 校验，独立颜色层与语法、LSP 语义着色共存，并按文档版本和注册生命周期失效",
   "macos": {
     "implementationStatus": "partial",
     "verificationStatus": "pending",
@@ -15,7 +15,14 @@
       "desktop/internal/pluginservice/hostdocumentlinks.go",
       "desktop/internal/pluginservice/hostproviders_routes_test.go",
       "desktop/internal/workbench/editor_actions.go",
-      "desktop/internal/core/editor_providers_test.go"
+      "desktop/internal/core/editor_providers_test.go",
+      "desktop/internal/workbench/color_decorations.go",
+      "desktop/internal/workbench/color_decorations_test.go",
+      "desktop/internal/workbench/color_decorations_visual_test.go",
+      "desktop/internal/editorview/color_decorations.go",
+      "desktop/internal/editorview/color_decorations_test.go",
+      "desktop/internal/pluginservice/color_decorations_test.go",
+      "desktop/internal/pluginservice/activation.go"
     ]
   },
   "windows": {
@@ -30,12 +37,19 @@
       "desktop/internal/pluginservice/hostdocumentlinks.go",
       "desktop/internal/pluginservice/hostproviders_routes_test.go",
       "desktop/internal/workbench/editor_actions.go",
-      "desktop/internal/core/editor_providers_test.go"
+      "desktop/internal/core/editor_providers_test.go",
+      "desktop/internal/workbench/color_decorations.go",
+      "desktop/internal/workbench/color_decorations_test.go",
+      "desktop/internal/workbench/color_decorations_visual_test.go",
+      "desktop/internal/editorview/color_decorations.go",
+      "desktop/internal/editorview/color_decorations_test.go",
+      "desktop/internal/pluginservice/color_decorations_test.go",
+      "desktop/internal/pluginservice/activation.go"
     ]
   },
   "owner": "Extensions",
-  "verification": "用一个资源 key 在模板与 .properties 之间跳转的第二工具插件注册 definition、hover、completion、codeLens、semanticTokens；验证语言服务器的答案先出现、插件的位置只追加、重复位置只显示一次、服务器只指回自身时让位；悬浮和补全超过期限、文档已变化、注册被撤回时安静丢弃；触发字符只问声明过它的注册；点击 CodeLens 与文档链接只回传宿主生成的键，command: 链接不会被执行，工作区外的 file: 目标不会打开；只读预览不询问插件；停用、卸载、关闭项目后旧结果不再出现。",
-  "notes": "Viva：普通插件经 editor/registerProviders 按语言、扩展名、文件名注册跳转、悬浮、补全（含触发字符）、CodeLens、语义着色与文档链接，绑定到同插件已注册的函数；注册与答案都由 Core 校验和归一化，只在没有语言服务器服务该文档时调用插件。CodeLens 在编辑器行上显示为可点击的动作。折叠（foldingRange）未路由，Core 会拒绝该类型的注册。 2026-11-13：编辑器 Provider 注册在宿主确认工作区后，剥离路由用的 context 再交给 Core 校验声明；真实 Core 回归覆盖多个 Provider 的绑定。",
+  "verification": "用默认构建固定的 Core 修订验证 colorDecorations 能力声明，并用测试内联的 dev.lithe.test.* 合成提供者执行注册、版本化请求、多个来源重叠合并、撤回与后端重新注册。检查前景色叠加时保留 LSP 字体样式、选区和诊断，以及明暗主题切换直接使用对应色表。验证编辑、撤销、重做时颜色跟随文字平移、按键不重复查询提供者，关闭文档或停用提供者后旧结果不会复活。运行 TestVisualColorDecorations 生成并检查中英文、明暗主题 PNG，再运行相同规模的编辑器性能前后对比。目标平台原生安装和完整插件验收另行执行，未完成时保持 pending。",
+  "notes": "Viva 已路由 definition、hover、completion、codeLens、semanticTokens、documentLink 和独立 colorDecorations。foldingRange 尚未路由。语言功能保持 LSP 优先，颜色层独立组合。默认构建固定到包含 Core #188 的修订，由 Core 管理颜色图例、范围、数量、重叠和期限规则。宿主在后台准备原生坐标，按文档版本、请求代数及注册所有权应用。编辑、撤销和重做会平移已有颜色，停顿后再请求；撤回、改名与磁盘重新加载立即清空。颜色读取与绘制经局部零分配回归验证。工作区后端初始化后补发最新上下文修订，注册和撤回刷新已打开的文档。Windows 离屏检查和各平台原生验收分别记录。",
   "legacy": {
     "revision": "5a54c41aa37a4e6e6b68918a4b05765b9dd07a36",
     "macos": {

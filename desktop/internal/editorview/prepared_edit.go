@@ -13,6 +13,9 @@ type PreparedEdit struct {
 	dirty                bool
 	change               Edit
 	caret, widest        int
+	// start, end and newEnd are the bytes of before the edits replace and where they end in
+	// after, as rope.Diff measured them on the worker.
+	start, end, newEnd int
 }
 
 // PrepareEdits must run off the UI thread. A bulk replacement builds its rope and
@@ -42,6 +45,7 @@ func PrepareEdits(before, saved rope.Rope, edits []TextEdit) (PreparedEdit, erro
 		prepared.after = before
 		return prepared, nil
 	}
+	prepared.start, prepared.end, prepared.newEnd = start, end, newEnd
 	prepared.widest = widestLine(after, 0, after.LineCount()-1)
 	text, _ := after.Substring(start, newEnd)
 	prepared.change.Text = strings.Clone(text)
@@ -79,6 +83,7 @@ func (v *View) ApplyPreparedEdit(prepared PreparedEdit) bool {
 	v.revision++
 	v.clearCursorHistory()
 	v.hl.SetText(v.text)
+	v.shiftColors(prepared.start, prepared.end, prepared.newEnd)
 	v.forgetRows()
 	v.anchor, v.caret = prepared.caret, prepared.caret
 	v.lastKind, v.goal = editOther, -1

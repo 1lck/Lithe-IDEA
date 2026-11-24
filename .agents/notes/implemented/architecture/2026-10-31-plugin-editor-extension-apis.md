@@ -2,7 +2,7 @@
 
 状态：已实现
 
-> Viva 迁移状态：下文的编辑器接线（动作、Provider 与语法注册）原先属于旧的 Web 编辑器宿主，现已不再适用。当前锁定的 Core 契约使用 `languages:3` TextMate；Viva 只有静态语法解码桥接和共享样例验证，插件安装、编辑器注册及动作/Provider 宿主均未接入。下文的契约、权限隔离、版本检查与不透明链接限制仍是 Viva 的验收要求。
+> Viva 迁移状态：当前 Viva 宿主已接通插件静态语法、编辑器动作，以及跳转、悬浮、补全、CodeLens、语义着色、文档链接和前景着色提供者。折叠提供者尚未路由。前景着色随 Core #188 合入，宿主通过固定修订声明该能力。下文旧 Web 编辑器的具体呈现方式仅供历史对照。公共参数、版本和能力以 Core 仓库当前契约为准。
 
 ## 先说结论
 
@@ -73,13 +73,32 @@ Core 校验资源大小、状态和规则，并拒绝 include 环及展开后超
 正确做法：一个“资源 key 在模板和 `.properties` 之间跳转”的插件注册 `definition`、`hover`、`completion` 三个函数，选择器写 `html` 和 `properties`；语言服务器照常提供模板的普通跳转，插件补上 key 的跳转。
 不要这样做：在宿主里按语言名加分支，或让插件返回 `command:` 链接让界面去执行。
 
+
+### 独立前景颜色范围与语言服务共存
+
+颜色范围使用独立的 `colorDecorations` 提供者。它描述“这段文字使用哪个主题颜色”，不冒充变量、类或其他语言语义类别。插件通过现有 `editor/registerProviders` 注册，同一个文件可以接受多个颜色来源；语法和语言服务器仍独立回答原有的语义着色。
+
+Core 校验颜色表、单行 UTF-16 范围（列以 Unicode 的 UTF-16 编码单元计数）和结果上限，并按稳定的来源标识决定重叠优先级。较早的来源保留前景色，后面的范围只覆盖尚未着色的部分。宿主只在后台把这些位置转换成绘制需要的 UTF-8 字节偏移，不再实现第二份排序、裁切或预算规则。调用期限读取 Core 校验后返回的预算；宿主另外限制同时进行的原生调用数量。
+
+绘制时先保留语法与语义着色的字体样式，再用独立范围替换前景色。选区背景、诊断下划线、内联提示、光标和背景主题保留各自的层级。每个颜色同时提供明、暗主题值，切换主题无需重新调用插件。正确做法：两个语义无关的插件都返回同一种范围和颜色标识，由 Core 合并。不要这样做：为了得到多种颜色，把范围伪装成不同的内置语义 token 类型，或在宿主判断某个插件名后改变样式。
+
+每个打开文档只保留当前颜色结果、一次缓存的提供者查询和一个可取消请求。颜色范围以文档绝对字节偏移和颜色表下标保存，同一对明暗颜色只解析一次，所以彩虹括号这类少量颜色循环覆盖上万个括号的结果，每个范围只占 12 字节。
+
+编辑、撤销、重做和后台准备的批量编辑会把编辑点之后的范围整体平移，删除被编辑切开或替换的范围，编辑点之前的范围原样保留。这样在括号前打字时，括号颜色跟着文字走，直到插件对新文本给出答案再整体替换，而不是每次按键都先清空、再在停顿后闪回。平移只遍历编辑点之后的范围，上限是 Core 的 10,000 个。磁盘重新加载替换整个文本，会直接清空。
+
+按键只重新开始一次 250 ms 的停顿计时：不查询提供者，不创建后台任务，也不清空颜色。停顿结束后才创建可取消请求。提供者是否服务该文档按路径、语言和颜色提供者注册变化缓存；提供者注册或撤回、文档改名或换语言时，会重新查询并立即清空旧颜色。每次计划、撤销请求都会递增代数，过期计时器和过期答案直接丢弃；答案应用前还会核对文档版本。提供者撤回、插件停止和文档关闭会取消请求并清空颜色；旧会话释放前，重启的后端可以重新注册相同标识。
+
+绘制时，每个可见行用二分查找取出本行范围，再按语法片段和颜色边界分段解析样式，不逐字符查找，不逐帧解析颜色，也不复制文档。
+
+工作区打开早于后端初始化时，首次上下文通知可能没有接收者。因此宿主在按需启动的后端准备好后补发当前上下文修订，并与后续通知按会话和修订去重、串行发送。初始化期间出现的工作区变化会体现在这次最新修订中；不增加后台轮询。
+
 ## 考虑过的备选方案
 
 - 要求工具插件提供 LSP：标准化但无必要地强加语言服务生命周期，拒绝。
 - 专用 `runMarkers` 和 `didRun.runMarker`：把展示和执行耦合，新增一种动作就扩张执行通知，拒绝。
 - 函数名约定或插件名分支：宿主猜私有协议且无法安全撤回，拒绝。
 - 让工具插件把 Provider 注册成一个语言服务器：强加服务器生命周期和文档同步，而且无法表达“只补充”，拒绝。
-- 让插件的答案覆盖语言服务器：会让一个补充性的小插件破坏上游语言能力，拒绝。
+- 让插件的语言功能答案覆盖语言服务器：会破坏上游语言能力，拒绝；前景颜色覆盖则是明确授权的独立呈现层，不替换语义身份或样式。
 - 把插件返回的 URL 或命令直接交给编辑器：`command:` 链接会被执行，拒绝；页面只持有不透明键。
 - 为测试标记新增测试专用契约：测试发现和运行已经是既有契约的职责，编辑器只需要多种图标，拒绝。
 - 允许插件提供自己的图标 SVG 或 CSS：等于向编辑器注入界面，拒绝；改为宿主声明图标表。
@@ -93,13 +112,17 @@ Provider 通道额外增加一个权限（`editor.providers`）、每次触发�
 
 ## 验证
 
+- `scripts/desktop/desktop-go.sh test -tags vivahead ./internal/pluginservice ./internal/workbench ./internal/editorview -run 'TestColor|TestWorkspaceBackendReceives'`：合成提供者注册、Core 合并、撤回、后端重启、首次上下文通知、过期结果、主题与零分配绘制。
+- `scripts/desktop/desktop-go.sh test -tags vivahead,lithevisual ./internal/workbench -run '^TestVisualColorDecorations$'`：设置 `LITHE_VISUAL_OUTPUT_DIR` 后生成明暗主题、中英文的实际工作台前后 PNG；这个合成来源场景不替代插件仓库的真实安装和日志验收。
+- `scripts/desktop/perf/editor-bench.sh`：相同机器与规模的改动前后对比，不通过放宽预算掩盖回归。
+
 - `scripts/desktop/desktop-go.sh test ./internal/core -run '^TestPluginTextMateGrammarUsesPinnedCore$'`：共享语法样例经锁定 Core 解码；不证明插件安装和编辑器注册。
 - `scripts/desktop/verify/verify-runtime-bundle-immutability.sh`：发行路径只读静态边界。
 - `scripts/platform-feature-matrix/verify-platform-feature-matrix.sh`：功能矩阵 `plugin-editor-providers.json`、`plugin-editor-grammars.json` 记录待验收项。
 
 ## 适用范围
 
-- Core 实现的语法、编辑器动作与语言功能（[锁定修订](https://github.com/Lithe-IDEA/Lithe-core-rust/tree/0ffd327b4329261e393b08ed76fbd134b4dd17e9/rust/lithe-core/src/plugins)）
+- Core 实现的编辑器动作与语言功能（[锁定修订](https://github.com/Lithe-IDEA/Lithe-core-rust/tree/c6cef0b9f63024f99cfc447dbf205e05893f7597/rust/crates/plugin-editor)）
 - `desktop/internal/core/plugin_session.go`
 - `desktop/internal/core/plugin_session_test.go`
 - `https://github.com/Lithe-IDEA/Lithe-core-rust/blob/main/shared/plugins/contract/v1/README.md`

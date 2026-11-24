@@ -176,21 +176,39 @@ func writeRegistryValue(value registryValue) (err error) {
 }
 
 func applyNative(ctx context.Context, state nativeState, extensions []string, menuLabel string) error {
+	var failures []error
+	var failed []string
+	registered := false
 	for _, extension := range extensions {
+		complete := true
 		for _, value := range registrationValues(state.executable, extension, menuLabel) {
 			if err := ctx.Err(); err != nil {
-				return err
+				if len(failures) == 0 {
+					return err
+				}
+				return errors.Join(&FormatError{Extensions: failed, Err: errors.Join(failures...)}, err)
 			}
 			if err := writeRegistryValue(value); err != nil {
-				return err
+				failed = append(failed, extension)
+				failures = append(failures, fmt.Errorf("%s registry %s: %w", extension, value.path, err))
+				complete = false
+				break
 			}
 		}
+		registered = registered || complete
 	}
 	// SHCNE_ASSOCCHANGED + SHCNF_IDLIST refreshes Explorer after all selected formats.
 	associationChanged.Call(0x08000000, 0, 0, 0)
-	if err := ctx.Err(); err != nil {
+	var err error
+	if len(failures) != 0 {
+		err = &FormatError{Extensions: failed, Err: errors.Join(failures...)}
+	}
+	if cancel := ctx.Err(); cancel != nil {
+		return errors.Join(err, cancel)
+	}
+	if !registered {
 		return err
 	}
 	// UserChoice is protected by Windows. Its own UI owns the final consent.
-	return app.OpenURL("ms-settings:defaultapps?registeredAppUser=" + url.QueryEscape(applicationID))
+	return errors.Join(err, app.OpenURL("ms-settings:defaultapps?registeredAppUser="+url.QueryEscape(applicationID)))
 }
