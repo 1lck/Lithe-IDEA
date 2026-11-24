@@ -79,6 +79,7 @@ func (v *View) ApplyPreparedEdit(prepared PreparedEdit) bool {
 	v.revision++
 	v.clearCursorHistory()
 	v.hl.SetText(v.text)
+	v.decor.colors, v.decor.colorLine = nil, nil
 	v.forgetRows()
 	v.anchor, v.caret = prepared.caret, prepared.caret
 	v.lastKind, v.goal = editOther, -1

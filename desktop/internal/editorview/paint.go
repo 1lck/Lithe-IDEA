@@ -134,6 +134,9 @@ func (v *View) Paint(canvas *gfx.Canvas, area gfx.Rect, look Look) {
 			v.extraCells = v.extraSelectionCells(l, v.extraCells)
 		}
 		v.tokens = v.hl.Line(v.tokens[:0], line)
+		firstColor := sort.Search(len(v.decor.colors), func(i int) bool { return v.decor.colors[i].line >= line })
+		lastColor := sort.Search(len(v.decor.colors), func(i int) bool { return v.decor.colors[i].line > line })
+		v.decor.colorLine = v.decor.colors[firstColor:lastColor]
 		lineHints := v.lineInlayHints(line)
 		for k, row := range wraps {
 			y := top + float32(k)*v.lineH
@@ -439,8 +442,13 @@ func (v *View) paintRow(canvas *gfx.Canvas, text string, base int, row wrapRow, 
 	// labelEnd the column after its last character; labelAt and labelTo are the bytes of the
 	// line it shows.
 	label, labelEnd, labelAt, labelTo := -1, 0, base, base
+	colors := v.decor.colorLine
+	colorAt := sort.Search(len(colors), func(i int) bool { return colors[i].end > row.at })
 	for i := row.at; i < stop; {
 		at := i
+		for colorAt < len(colors) && colors[colorAt].end <= at {
+			colorAt++
+		}
 		r, size := utf8.DecodeRuneInString(text[i-base:])
 		i += size
 		width := runeCells(r, cells)
@@ -476,6 +484,13 @@ func (v *View) paintRow(canvas *gfx.Canvas, text string, base int, row wrapRow, 
 			style = v.theme.Style(v.tokens[token].Name)
 		}
 		color := uiColor(style.Foreground)
+		if colorAt < len(colors) && colors[colorAt].start <= at {
+			if v.themeDark {
+				color = colors[colorAt].dark
+			} else {
+				color = colors[colorAt].light
+			}
+		}
 		weight := float32(0)
 		if style.Font&syntax.Bold != 0 {
 			weight = gfx.WeightBold

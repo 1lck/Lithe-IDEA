@@ -511,6 +511,7 @@ func (v *View) replaceFromDisk(content Content) bool {
 	v.revision++
 	v.clearCursorHistory()
 	v.hl.SetText(v.text)
+	v.decor.colors, v.decor.colorLine = nil, nil
 	v.forgetRows()
 	boundary := func(at int) int {
 		at = min(max(at, 0), v.text.Len())
@@ -903,6 +904,7 @@ func (v *View) edit(start, end int, text string, kind editKind) {
 	v.measureEdited(firstLine, newLast, adjusted, adjustedCells)
 	v.keepStops(firstLine, oldLast, newLast, start-v.text.LineStart(firstLine))
 	v.hl.Edit(v.text, start, end, start+len(text))
+	v.decor.colors, v.decor.colorLine = nil, nil
 	v.spliceRows(firstLine, oldLast, newLast, oldCount)
 	v.anchor, v.caret = start+len(text), start+len(text)
 	if cacheEdit {
@@ -999,6 +1001,7 @@ func (v *View) restore(s snapshot) {
 	newLast := v.text.LineOf(newEnd)
 	v.keepStops(firstLine, oldLast, newLast, start-v.text.LineStart(firstLine))
 	v.hl.Edit(v.text, start, oldEnd, newEnd)
+	v.decor.colors, v.decor.colorLine = nil, nil
 	v.spliceRows(firstLine, oldLast, newLast, oldCount)
 	v.anchor, v.caret = s.anchor, s.caret
 	v.extra = slices.Clone(s.extra)

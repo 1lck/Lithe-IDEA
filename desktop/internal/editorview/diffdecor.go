@@ -49,6 +49,9 @@ type decorState struct {
 	maxEnd []int
 	// inline is the inline highlights in cells, sorted by line.
 	inline []inlineSpan
+	// colors are foreground overrides prepared off-thread and sorted by absolute byte offset.
+	colors    []colorDecorationSpan
+	colorLine []colorDecorationSpan
 	// labelled says labels replace the line numbers, and labelCells is the widest of them.
 	labelled   bool
 	labels     []string

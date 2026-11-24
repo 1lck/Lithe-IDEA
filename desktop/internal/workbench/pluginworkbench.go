@@ -37,6 +37,20 @@ func (w pluginWorkbench) EditorActionsChanged(root string) {
 	})
 }
 
+// EditorColorDecorationsChanged refreshes the open documents when a plugin's color provider
+// is registered or withdrawn.
+func (w pluginWorkbench) EditorColorDecorationsChanged(root string) {
+	w.app.post(func(a *App) {
+		p, err := a.projectAt(root)
+		if err != nil {
+			return
+		}
+		for _, d := range p.docs.list {
+			a.scheduleColorDecorations(p, d, 0)
+		}
+	})
+}
+
 // onWindow runs fn on the window thread and waits for its result.
 func onWindow[T any](a *App, ctx context.Context, fn func(*App) (T, error)) (T, error) {
 	type outcome struct {

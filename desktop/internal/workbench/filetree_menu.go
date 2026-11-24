@@ -510,6 +510,7 @@ func (a *App) moveOpenDocuments(p *project, oldPath, newPath string) {
 	}
 	for _, d := range docs {
 		a.startDocumentSync(p, d)
+		a.scheduleColorDecorations(p, d, 0)
 		a.refreshGitGutter(p, d)
 		a.refreshInlineBlame(p, d)
 	}

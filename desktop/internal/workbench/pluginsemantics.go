@@ -1931,6 +1931,7 @@ func (a *App) pluginSemanticsScrolled(d *document) {
 func (a *App) pluginSemanticsEdited(d *document) {
 	if p := a.project; p != nil && d != nil {
 		a.semanticTokensEdited(p, d)
+		a.scheduleColorDecorations(p, d, colorDecorationsDelay)
 		a.clearDocumentInlayHints(d)
 	}
 	if d == nil || a.semantics.documentID != d.id {

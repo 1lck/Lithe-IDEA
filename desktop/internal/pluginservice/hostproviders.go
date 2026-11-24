@@ -6,6 +6,7 @@ import (
 	"errors"
 	"net/url"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -20,6 +21,7 @@ import (
 // nothing is registered that the host would never call. Each routed type fills one function in the
 // binding (providerFunctionFields), and its answer is shown through the same presentation as a
 // language server's, only when no language server serves the document, since the server comes first.
+// Foreground color decorations are an independent presentation layer and compose with both sources.
 const (
 	methodRegisterEditorProviders = pluginhost.MethodPrefix + "editor/registerProviders"
 
@@ -27,6 +29,8 @@ const (
 	editorProviderTimeout = 15 * time.Second
 	// maxEditorProviderBindings is the most registrations one plugin keeps across contexts.
 	maxEditorProviderBindings = 32
+	// Decorations run alongside language services; bound their process fan-out and latency.
+	colorProviderConcurrency = 8
 )
 
 // routedProviderTypes are the provider types this host routes, in the order Core is told them.
@@ -36,12 +40,13 @@ var routedProviderTypes = core.EditorHost.ProviderTypes
 // routedProviderTypes: a type routed without a field would be accepted and never called, and a field
 // without a routed type would be refused by Core.
 var providerFunctionFields = map[string]func(*editorProviderBinding) *string{
-	"definition":     func(b *editorProviderBinding) *string { return &b.definition },
-	"hover":          func(b *editorProviderBinding) *string { return &b.hover },
-	"completion":     func(b *editorProviderBinding) *string { return &b.completion },
-	"codeLens":       func(b *editorProviderBinding) *string { return &b.codeLens },
-	"semanticTokens": func(b *editorProviderBinding) *string { return &b.semanticTokens },
-	"documentLink":   func(b *editorProviderBinding) *string { return &b.documentLink },
+	"definition":       func(b *editorProviderBinding) *string { return &b.definition },
+	"hover":            func(b *editorProviderBinding) *string { return &b.hover },
+	"completion":       func(b *editorProviderBinding) *string { return &b.completion },
+	"codeLens":         func(b *editorProviderBinding) *string { return &b.codeLens },
+	"semanticTokens":   func(b *editorProviderBinding) *string { return &b.semanticTokens },
+	"colorDecorations": func(b *editorProviderBinding) *string { return &b.colorDecorations },
+	"documentLink":     func(b *editorProviderBinding) *string { return &b.documentLink },
 }
 
 // editorProviderDecoder is the part of Core that validates provider messages.
@@ -55,14 +60,19 @@ type editorProviderBinding struct {
 	contextID string
 	reference json.RawMessage
 	id        string
+	// subscriptionID is published with the binding under editorProviderBindings.mu.
+	subscriptionID string
 	// definition, hover and completion are the functions that answer those requests; empty when not declared.
 	definition string
 	hover      string
 	completion string
 	// semanticTokens is the function that answers token requests, and tokenTypes/tokenModifiers its legend.
-	semanticTokens string
-	tokenTypes     []string
-	tokenModifiers []string
+	semanticTokens   string
+	tokenTypes       []string
+	tokenModifiers   []string
+	colorDecorations string
+	colorLegend      []core.PluginColorLegendEntry
+	colorTimeout     time.Duration
 	// triggers are the characters that ask for completion as they are typed.
 	triggers []string
 	// codeLens is the function that answers code lens requests.
@@ -101,6 +111,7 @@ func (s *Service) handleRegisterEditorProviders(ctx context.Context, params json
 				TokenTypes     []string `json:"tokenTypes"`
 				TokenModifiers []string `json:"tokenModifiers"`
 			} `json:"legend"`
+			ColorLegend []core.PluginColorLegendEntry `json:"colorLegend"`
 		} `json:"providers"`
 	}
 	if err := decodeStrict(params, &request); err != nil {
@@ -110,20 +121,37 @@ func (s *Service) handleRegisterEditorProviders(ctx context.Context, params json
 	if refusal != nil {
 		return nil, refusal
 	}
+	session := s.Host.Running(caller.PluginID)
+	if session == nil || session.Session.ID != caller.SessionID {
+		return nil, failure(CodePreconditionFailed, "The backend session is not running.")
+	}
 	if request.ID == "" || len(request.ID) > 128 {
 		return nil, failure(codeInvalidParams, "The registration needs an ID.")
 	}
 	if n := len(request.Selector.Languages) + len(request.Selector.FileExtensions) + len(request.Selector.FileNames); n < 1 || n > 32 {
 		return nil, failure(codeInvalidParams, "The selector needs one to 32 entries.")
 	}
+	var colorBudget time.Duration
 	if decoder, ok := s.kernel.(editorProviderDecoder); ok {
 		value, err := editorRegistrationValue(params)
 		if err != nil {
 			return nil, invalidParams(err)
 		}
-		if _, err := decoder.DecodeEditorProviders(ctx, map[string]any{"kind": "registration", "value": value, "types": routedProviderTypes}); err != nil {
+		decoded, err := decoder.DecodeEditorProviders(ctx, map[string]any{"kind": "registration", "value": value, "types": routedProviderTypes})
+		if err != nil {
 			return nil, failure(codeInvalidParams, err.Error())
 		}
+		var normalized struct {
+			Registration struct {
+				Providers map[string]struct {
+					BudgetMs int `json:"budgetMs"`
+				} `json:"providers"`
+			} `json:"registration"`
+		}
+		if err := json.Unmarshal(decoded, &normalized); err != nil {
+			return nil, invalidParams(err)
+		}
+		colorBudget = time.Duration(normalized.Registration.Providers["colorDecorations"].BudgetMs) * time.Millisecond
 	}
 	binding := &editorProviderBinding{
 		pluginID: caller.PluginID, sessionID: caller.SessionID, contextID: workspace.ContextID,
@@ -141,7 +169,6 @@ func (s *Service) handleRegisterEditorProviders(ctx context.Context, params json
 		if kind == "semanticTokens" && (len(provider.Legend.TokenTypes) == 0 || len(provider.Legend.TokenTypes) > 64 || len(provider.Legend.TokenModifiers) > 64) {
 			return nil, failure(codeInvalidParams, "The semantic tokens provider needs a legend within the limits.")
 		}
-		session := s.Host.Running(caller.PluginID)
 		if session == nil || session.Session.ID != caller.SessionID || !session.hasFunction(provider.Function) {
 			return nil, failure(CodePreconditionFailed, "The function is not registered on this session.")
 		}
@@ -150,6 +177,12 @@ func (s *Service) handleRegisterEditorProviders(ctx context.Context, params json
 		case "semanticTokens":
 			binding.tokenTypes = provider.Legend.TokenTypes
 			binding.tokenModifiers = provider.Legend.TokenModifiers
+		case "colorDecorations":
+			if colorBudget <= 0 {
+				return nil, failure(CodePreconditionFailed, "Core did not provide the color decorations budget.")
+			}
+			binding.colorLegend = append([]core.PluginColorLegendEntry(nil), provider.ColorLegend...)
+			binding.colorTimeout = colorBudget
 		case "completion":
 			binding.triggers = provider.TriggerCharacters
 		}
@@ -166,29 +199,118 @@ func (s *Service) handleRegisterEditorProviders(ctx context.Context, params json
 	for _, name := range request.Selector.FileNames {
 		binding.names[strings.ToLower(name)] = true
 	}
+	id, retired, refusal := s.publishEditorProvider(ctx, caller, workspace, session, binding)
+	if refusal != nil {
+		return nil, refusal
+	}
+	for _, previous := range retired {
+		s.resources.dispose(pluginhost.Caller{PluginID: previous.pluginID, SessionID: previous.sessionID}, previous.subscriptionID)
+	}
+	if binding.colorDecorations != "" {
+		s.editorProvidersChanged(workspace.Path)
+	}
+	return marshalResult(map[string]string{"subscriptionID": id})
+}
+
+// publishEditorProvider commits both owners and the resource together. Lock order is context,
+// host, session, providers, then resources; owner teardown invokes disposal after unlocking.
+// A detached request cannot retire a replacement backend, and context close cannot miss a late
+// lease. Only the confirmed current backend can retire its predecessors' editor registrations.
+func (s *Service) publishEditorProvider(ctx context.Context, caller pluginhost.Caller, workspace WorkspaceContext, session *BackendSession, binding *editorProviderBinding) (string, []*editorProviderBinding, *pluginhost.Failure) {
+	s.Contexts.mu.Lock()
+	defer s.Contexts.mu.Unlock()
+	currentContext := s.Contexts.byPath[workspace.Path]
+	if currentContext == nil || currentContext.ContextRef != workspace.ContextRef {
+		return "", nil, contextFailure(ErrContextExpired)
+	}
+	s.Host.mu.Lock()
+	defer s.Host.mu.Unlock()
+	if s.Host.sessions[caller.PluginID] != session || session.Session.ID != caller.SessionID {
+		return "", nil, failure(CodePreconditionFailed, "The backend session is no longer current.")
+	}
+	session.mu.Lock()
+	defer session.mu.Unlock()
+	if session.ended {
+		return "", nil, failure(CodePreconditionFailed, "The backend session is not running.")
+	}
+	for _, field := range providerFunctionFields {
+		if function := *field(binding); function != "" && !session.functions[function] {
+			return "", nil, failure(CodePreconditionFailed, "The provider function is no longer registered.")
+		}
+	}
+	if ctx.Err() != nil {
+		return "", nil, failure(pluginhost.CodeCancelled, "The request was cancelled.")
+	}
 	s.providers2.mu.Lock()
+	defer s.providers2.mu.Unlock()
 	count := 0
 	for _, existing := range s.providers2.list {
-		if existing.pluginID == caller.PluginID {
-			count++
+		if existing.pluginID != caller.PluginID || existing.sessionID != caller.SessionID {
+			continue
 		}
-		if existing.pluginID == binding.pluginID && existing.contextID == binding.contextID && existing.id == binding.id {
-			s.providers2.mu.Unlock()
-			return nil, failure(CodePreconditionFailed, "The registration ID is already registered in this context.")
+		count++
+		if existing.contextID == binding.contextID && existing.id == binding.id {
+			return "", nil, failure(CodePreconditionFailed, "The registration ID is already registered in this context.")
 		}
 	}
 	if count >= maxEditorProviderBindings {
-		s.providers2.mu.Unlock()
-		return nil, failure(CodePreconditionFailed, "The plugin has too many editor provider registrations.")
+		return "", nil, failure(CodePreconditionFailed, "The plugin has too many editor provider registrations.")
 	}
-	s.providers2.list = append(s.providers2.list, binding)
-	s.providers2.mu.Unlock()
-	id := s.resources.add(caller, workspace.ContextID, func() {
-		s.providers2.mu.Lock()
-		defer s.providers2.mu.Unlock()
-		s.providers2.list = removeProviderBinding(s.providers2.list, binding)
+	var retired []*editorProviderBinding
+	s.providers2.list = slices.DeleteFunc(s.providers2.list, func(existing *editorProviderBinding) bool {
+		if existing.pluginID == caller.PluginID && existing.sessionID != caller.SessionID {
+			retired = append(retired, existing)
+			return true
+		}
+		return false
 	})
-	return marshalResult(map[string]string{"subscriptionID": id})
+	binding.subscriptionID = s.resources.add(caller, workspace.ContextID, func() {
+		s.providers2.mu.Lock()
+		s.providers2.list = removeProviderBinding(s.providers2.list, binding)
+		s.providers2.mu.Unlock()
+		if binding.colorDecorations != "" {
+			s.editorProvidersChanged(workspace.Path)
+		}
+	})
+	s.providers2.list = append(s.providers2.list, binding)
+	return binding.subscriptionID, retired, nil
+}
+
+// withdrawEditorProviderFunctions releases only registrations that refer to the withdrawn
+// functions. Other resources and other provider registrations of the session keep working.
+func (s *Service) withdrawEditorProviderFunctions(pluginID, sessionID string, removed []string) {
+	if s.providers2 == nil || len(removed) == 0 {
+		return
+	}
+	s.providers2.mu.Lock()
+	var subscriptions []string
+	s.providers2.list = slices.DeleteFunc(s.providers2.list, func(binding *editorProviderBinding) bool {
+		if binding.pluginID != pluginID || binding.sessionID != sessionID {
+			return false
+		}
+		for _, field := range providerFunctionFields {
+			if function := *field(binding); function != "" && slices.Contains(removed, function) {
+				if binding.subscriptionID != "" {
+					subscriptions = append(subscriptions, binding.subscriptionID)
+				}
+				return true
+			}
+		}
+		return false
+	})
+	s.providers2.mu.Unlock()
+	caller := pluginhost.Caller{PluginID: pluginID, SessionID: sessionID}
+	for _, id := range subscriptions {
+		s.resources.dispose(caller, id)
+	}
+}
+
+// editorProvidersChanged asks the owning window to refresh decorations when a provider is
+// registered or withdrawn. The service never calls the editor from this handler's thread.
+func (s *Service) editorProvidersChanged(root string) {
+	if window, ok := s.workbench.(interface{ EditorColorDecorationsChanged(string) }); ok {
+		window.EditorColorDecorationsChanged(root)
+	}
 }
 
 func removeProviderBinding(list []*editorProviderBinding, target *editorProviderBinding) []*editorProviderBinding {
@@ -513,6 +635,130 @@ func (s *Service) semanticTokensBinding(root, path, languageID string) *editorPr
 		}
 	}
 	return nil
+}
+
+// colorDecorationsBindings returns every registration that can decorate this document.
+func (s *Service) colorDecorationsBindings(root, path, languageID string) []*editorProviderBinding {
+	if s == nil || s.providers2 == nil {
+		return nil
+	}
+	workspace, ok := s.Contexts.ByPath(root)
+	if !ok {
+		return nil
+	}
+	name := filepath.Base(path)
+	s.providers2.mu.Lock()
+	defer s.providers2.mu.Unlock()
+	var bindings []*editorProviderBinding
+	for _, binding := range s.providers2.list {
+		if binding.contextID == workspace.ContextID && binding.colorDecorations != "" && binding.matchesDocument(languageID, name) {
+			bindings = append(bindings, binding)
+		}
+	}
+	return bindings
+}
+
+// HasColorDecorationsProvider reports whether any registered provider serves this document.
+func (s *Service) HasColorDecorationsProvider(root, path, languageID string) bool {
+	return len(s.colorDecorationsBindings(root, path, languageID)) > 0
+}
+
+// PluginColorDecorations asks all matching providers, validates each result with Core, then lets
+// Core resolve overlap precedence and attach each color legend's light/dark values.
+func (s *Service) PluginColorDecorations(ctx context.Context, root, path, languageID, documentID string, version int) ([]core.PluginColorDecoration, error) {
+	bindings := s.colorDecorationsBindings(root, path, languageID)
+	if len(bindings) == 0 {
+		return nil, nil
+	}
+	decoder, ok := s.kernel.(editorProviderDecoder)
+	if !ok {
+		return nil, errors.New("editor providers need the Core that normalises their answers")
+	}
+	type sourceResult struct {
+		value map[string]any
+		err   error
+	}
+	results := make([]sourceResult, len(bindings))
+	var wait sync.WaitGroup
+	call := func(index int) {
+		binding := bindings[index]
+		callCtx, cancel := context.WithTimeout(ctx, binding.colorTimeout)
+		defer cancel()
+		session := s.Host.Running(binding.pluginID)
+		if session == nil || session.Session.ID != binding.sessionID {
+			results[index].err = ErrBackendUnavailable
+			return
+		}
+		argument := mustMarshal(map[string]any{"document": map[string]any{"documentID": documentID, "version": version}})
+		answer, err := session.Call(callCtx, binding.colorDecorations, argument, binding.reference, binding.colorTimeout)
+		if err != nil {
+			results[index].err = err
+			return
+		}
+		normalized, err := decoder.DecodeEditorProviders(ctx, map[string]any{
+			"kind": "result", "type": "colorDecorations", "value": answer, "colorLegend": binding.colorLegend,
+		})
+		if err != nil {
+			results[index].err = err
+			return
+		}
+		var payload struct {
+			Result json.RawMessage `json:"result"`
+		}
+		if err := json.Unmarshal(normalized, &payload); err != nil {
+			results[index].err = err
+			return
+		}
+		if len(payload.Result) == 0 {
+			results[index].err = errors.New("Core returned an empty color decorations result")
+			return
+		}
+		results[index].value = map[string]any{
+			"sourceId":    binding.pluginID + "/" + binding.id,
+			"colorLegend": binding.colorLegend,
+			"value":       payload.Result,
+		}
+	}
+	jobs := make(chan int)
+	for range min(colorProviderConcurrency, len(bindings)) {
+		wait.Add(1)
+		go func() {
+			defer wait.Done()
+			for index := range jobs {
+				call(index)
+			}
+		}()
+	}
+	for index := range bindings {
+		jobs <- index
+	}
+	close(jobs)
+	wait.Wait()
+	var sources []map[string]any
+	var failures []error
+	for _, result := range results {
+		if result.err != nil {
+			failures = append(failures, result.err)
+			continue
+		}
+		sources = append(sources, result.value)
+	}
+	if len(sources) == 0 {
+		return nil, errors.Join(failures...)
+	}
+	merged, err := decoder.DecodeEditorProviders(ctx, map[string]any{
+		"kind": "mergeColorDecorations", "value": map[string]any{"sources": sources},
+	})
+	if err != nil {
+		return nil, errors.Join(append(failures, err)...)
+	}
+	var payload struct {
+		Decorations []core.PluginColorDecoration `json:"decorations"`
+	}
+	if err := json.Unmarshal(merged, &payload); err != nil {
+		return nil, errors.Join(append(failures, err)...)
+	}
+	return payload.Decorations, errors.Join(failures...)
 }
 
 // HasSemanticTokensProvider reports whether a plugin's semantic tokens provider serves the document.
