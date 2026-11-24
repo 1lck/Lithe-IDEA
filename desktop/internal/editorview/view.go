@@ -49,8 +49,8 @@ type Config struct {
 	// Save asks the window to write the text out, for the save chord.
 	Save func()
 	// OnEdit reports every replacement made to the view, for a language
-	// server's versioned document synchronization. It runs on the view's thread
-	// and must not block.
+	// server's versioned document synchronization, except the text ShowContent
+	// puts in, which no one edited. It runs on the view's thread and must not block.
 	OnEdit func(Edit)
 	// MinimapID is the minimap's hit and MinimapToggleID the button beside it that hides and
 	// shows it; VerticalBarID and HorizontalBarID are the tracks of the scrollbars. The window
@@ -494,17 +494,21 @@ func (v *View) diskEdit(content Content) (Edit, bool) {
 }
 
 func (v *View) replaceFromDisk(content Content) bool {
-	return v.replaceContent(content, true, true)
+	return v.replaceContent(content, true)
 }
 
-func (v *View) replaceContent(content Content, recordUndo, report bool) bool {
+// replaceContent makes content the view's text and its saved baseline. Content read from disk
+// changes the file the view edits: undo keeps the text it replaces and OnEdit hears the change.
+// Other content is text the host shows (ShowContent): the view drops its undo and redo history,
+// and OnEdit hears nothing, so a host that mirrors the view's edits does not get the text back.
+func (v *View) replaceContent(content Content, fromDisk bool) bool {
 	v.extra = nil
 	var change Edit
 	changed := false
-	if report && v.cfg.OnEdit != nil {
+	if fromDisk && v.cfg.OnEdit != nil {
 		change, changed = v.diskEdit(content)
 	}
-	if recordUndo {
+	if fromDisk {
 		v.undo = append(v.undo, v.snapshot())
 		if len(v.undo) > undoLimit {
 			v.undo = v.undo[len(v.undo)-undoLimit:]

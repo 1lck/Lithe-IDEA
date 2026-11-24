@@ -18,8 +18,8 @@
 
 ## 决策
 
-- 在 `desktop/internal/editorview/view.go` 将 `replaceFromDisk` 拆为内部助手 `replaceContent(content Content, recordUndo, report bool)`：`Reload` 与 `ResolveWithDisk` 保持 `recordUndo=true, report=true`（磁盘外部变更仍保留撤销并通知语言服务器及镜像视图）。
-- `desktop/internal/editorview/diffdecor.go` 的 `ShowContent` 改为调用 `v.replaceContent(content, false, false)`，直接清空 `undo`/`redo` 且不计算 `diskEdit`、不调用 `OnEdit`。
+- 在 `desktop/internal/editorview/view.go` 将 `replaceFromDisk` 的主体抽成内部助手 `replaceContent(content Content, fromDisk bool)`：`Reload` 与 `ResolveWithDisk` 经 `replaceFromDisk` 传 `fromDisk=true`（磁盘外部变更仍保留撤销并通知语言服务器及镜像视图）。只用一个参数，因为“保留撤销”和“上报 `OnEdit`”总是同时成立或同时不成立，拆成两个布尔值会留下没有意义的组合。
+- `desktop/internal/editorview/diffdecor.go` 的 `ShowContent` 改为调用 `v.replaceContent(content, false)`，直接清空 `undo`/`redo` 且不计算 `diskEdit`、不调用 `OnEdit`。`Config.OnEdit` 的注释同步写明这一例外。
 - 移除 `desktop/internal/workbench/source_preview.go` 中专程包在 `view.ShowContent` 外的冗余 `p.diffs.mirroring++`/`--` 护栏（保留 `ApplyEdit` 路径的 `mirroring` 计数，因为 `ApplyEdit` 仍按契约向 `OnEdit` 报告编辑）。
 
 正确做法：宿主把文档或拼装好的文本推给从属视图展示时，使用 `ShowContent`，视图只更新显示文本且不回传 `OnEdit`。不要这样做：让 `ShowContent` 走 `replaceFromDisk` 并依赖各个调用方手工加 `mirroring` 计数去屏蔽它本不该发出的 `OnEdit`。
@@ -31,7 +31,11 @@
 
 ## 后果
 
-所有 `ShowContent` 调用点（Diff 侧栏、问题预览、插件虚拟预览）都不再把宿主同步的展示内容误报为用户编辑，也省去了对应的 `rope.Diff` 与临时撤销快照开销。代价是如果未来有测试或调用方误把 `ShowContent` 当成“带语言服务器 `didChange` 同步的内容替换”，它不会再触发 `OnEdit`；确实需要向文档与语言服务器报告磁盘变化时，必须使用 `Reload` 或 `ResolveWithDisk`。
+所有 `ShowContent` 调用点（Diff 侧栏、问题预览、插件虚拟预览）都不再把宿主同步的展示内容误报为用户编辑，也省去了对应的 `rope.Diff` 与临时撤销快照开销。
+
+插件虚拟预览（`plugin_workflow.go` 的 `OpenPreview` 刷新已打开的 `lithe-plugin-preview://` 文档）是唯一对主文档调用 `ShowContent` 的生产路径。它以前会经 `OnEdit` 进入 `documentEdited` 和 `mirrorDocumentEdit`，但这些副作用对虚拟文档本来就全部跳过：自动保存、恢复草稿、最近文件和编辑器动作按 `virtual` 提前返回，语言服务器同步因 `languageID` 为空而找不到服务器，也没有 Diff 页签或问题预览显示这类路径。Markdown/HTML 预览按 `Revision()` 刷新，`replaceContent` 仍会递增版本号，所以预览照常更新。
+
+代价是 `ShowContent` 不再触发 `OnEdit`。确实需要向文档与语言服务器报告磁盘变化时，必须使用 `Reload` 或 `ResolveWithDisk`。测试助手 `placeCompletionCaret`（`pluginsemantics_test.go`）原先用 `ShowContent` 给已同步语言服务器的文档换上磁盘新内容，本次改为 `Reload`，以免测试里的文档文本和语言服务器副本不一致。
 
 ## 验证
 
@@ -48,3 +52,5 @@
 - `desktop/internal/workbench/difftab.go`
 - `desktop/internal/workbench/difftab_test.go`
 - `desktop/internal/workbench/source_preview.go`
+- `desktop/internal/workbench/plugin_workflow.go`
+- `desktop/internal/workbench/pluginsemantics_test.go`

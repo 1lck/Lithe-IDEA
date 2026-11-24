@@ -294,5 +294,5 @@ func (v *View) ShowContent(content Content) {
 	if v.preedit.Composing {
 		return
 	}
-	v.replaceContent(content, false, false)
+	v.replaceContent(content, false)
 }
