@@ -92,7 +92,7 @@ type markdownKernel interface {
 // A standalone session has no workspace: p.root is only the first file's folder. With no root,
 // Core uses each document's own folder for its image scope and root-relative references.
 func (p *project) previewWorkspaceRoot() string {
-	if p.standalone {
+	if p == nil || p.standalone {
 		return ""
 	}
 	return p.root
