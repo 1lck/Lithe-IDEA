@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"net/url"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -1251,7 +1250,7 @@ func TestImplementationFallbackToGutterAndSuperShortcutAndContextMenu(t *testing
 			}
 		]
 	}`)
-	var implTarget, superTarget string
+	var implURI, superURI string
 	h, kernel := openNavActionHarness(t, collected, func(arg json.RawMessage) json.RawMessage {
 		var req struct {
 			Data struct {
@@ -1259,11 +1258,10 @@ func TestImplementationFallbackToGutterAndSuperShortcutAndContextMenu(t *testing
 			} `json:"data"`
 		}
 		_ = json.Unmarshal(arg, &req)
-		path := superTarget
+		uri := superURI
 		if req.Data.Target == "impl" {
-			path = implTarget
+			uri = implURI
 		}
-		uri := (&url.URL{Scheme: "file", Path: filepath.ToSlash(path)}).String()
 		data, _ := json.Marshal(map[string]any{"reveal": map[string]any{"locations": []any{map[string]any{
 			"uri":   uri,
 			"range": map[string]any{"start": map[string]int{"line": 0, "character": 0}, "end": map[string]int{"line": 0, "character": 4}},
@@ -1271,8 +1269,10 @@ func TestImplementationFallbackToGutterAndSuperShortcutAndContextMenu(t *testing
 		return data
 	})
 	f := openSemanticFixture(t, h, kernel.semanticTestKernel)
-	implTarget = filepath.Join(f.p.root, "Impl.java")
-	superTarget = filepath.Join(f.p.root, "Service.java")
+	implTarget := filepath.Join(f.p.root, "Impl.java")
+	superTarget := filepath.Join(f.p.root, "Service.java")
+	implURI = navActionFixtureURI(t, implTarget)
+	superURI = navActionFixtureURI(t, superTarget)
 	for _, path := range []string{implTarget, superTarget} {
 		if err := os.WriteFile(path, []byte("class T {}\n"), 0o600); err != nil {
 			t.Fatal(err)
@@ -1291,7 +1291,7 @@ func TestImplementationFallbackToGutterAndSuperShortcutAndContextMenu(t *testing
 	if _, err := f.h.driver.ShortcutChord(primaryModifier()|gfx.ModifierAlt, 'b'); err != nil {
 		t.Fatal(err)
 	}
-	awaitDocumentState(t, f.h, func() bool { return f.p.docs.byPath(implTarget) != nil })
+	f.h.await("implementation shortcut to open Impl.java", func() bool { return f.p.docs.byPath(implTarget) != nil })
 	for i := range f.kernel.requestCount() {
 		if f.kernel.request(i).Operation == pluginSemanticImplementation {
 			t.Fatal("unexpected LSP implementation request when server lacks capability")
@@ -1306,7 +1306,7 @@ func TestImplementationFallbackToGutterAndSuperShortcutAndContextMenu(t *testing
 	if err != nil || !handled {
 		t.Fatalf("super shortcut handled=%v err=%v", handled, err)
 	}
-	awaitDocumentState(t, f.h, func() bool { return f.p.docs.byPath(superTarget) != nil })
+	f.h.await("super declaration shortcut to open Service.java", func() bool { return f.p.docs.byPath(superTarget) != nil })
 
 	// Primary+U on line 1 (2 choices) opens the navigate-up lane menu.
 	f.h.app.selectDocument(f.p, f.d.id)

@@ -374,6 +374,17 @@ func openNavActionHarness(t *testing.T, collected json.RawMessage, invokeFn func
 	return h, kernel
 }
 
+func navActionFixtureURI(t *testing.T, path string) string {
+	t.Helper()
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+	uri, err := core.NewClient().PluginDocumentURI(ctx, path, "auto")
+	if err != nil {
+		t.Fatalf("encode navigation fixture path %q: %v", path, err)
+	}
+	return uri
+}
+
 func installCollectedNavActions(t *testing.T, h *harness, kernel *navActionKernel, p *project, d *document) {
 	t.Helper()
 	if err := h.app.plugins.Manager.SetEnabled(navFixturePluginID, true); err != nil {
@@ -650,6 +661,8 @@ func TestEditorNavigationGutterClickAnchorsPopupAndSuppressesStartingToast(t *te
 	root := t.TempDir()
 	implA := filepath.Join(root, "ImplA.java")
 	implB := filepath.Join(root, "ImplB.java")
+	implAURI := navActionFixtureURI(t, implA)
+	implBURI := navActionFixtureURI(t, implB)
 	servicePath := filepath.Join(root, "Service.java")
 	writeFixture(t, root, map[string]string{
 		"Service.java": "class ServiceImpl implements Service {\n  public void run() {}\n  public void third() {}\n}\n",
@@ -669,9 +682,9 @@ func TestEditorNavigationGutterClickAnchorsPopupAndSuppressesStartingToast(t *te
 		invokedMu.Lock()
 		invoked = append(invoked, req.Data.Kind)
 		invokedMu.Unlock()
-		loc := func(path string, line int) map[string]any {
+		loc := func(uri string, line int) map[string]any {
 			return map[string]any{
-				"uri": (&url.URL{Scheme: "file", Path: filepath.ToSlash(path)}).String(),
+				"uri": uri,
 				"range": map[string]any{
 					"start": map[string]int{"line": line, "character": 0},
 					"end":   map[string]int{"line": line, "character": 5},
@@ -680,10 +693,10 @@ func TestEditorNavigationGutterClickAnchorsPopupAndSuppressesStartingToast(t *te
 		}
 		switch req.Data.Kind {
 		case "single":
-			data, _ := json.Marshal(map[string]any{"reveal": map[string]any{"locations": []any{loc(implA, 0)}}})
+			data, _ := json.Marshal(map[string]any{"reveal": map[string]any{"locations": []any{loc(implAURI, 0)}}})
 			return data
 		default:
-			data, _ := json.Marshal(map[string]any{"reveal": map[string]any{"locations": []any{loc(implA, 0), loc(implB, 0)}}})
+			data, _ := json.Marshal(map[string]any{"reveal": map[string]any{"locations": []any{loc(implAURI, 0), loc(implBURI, 0)}}})
 			return data
 		}
 	})
@@ -700,7 +713,7 @@ func TestEditorNavigationGutterClickAnchorsPopupAndSuppressesStartingToast(t *te
 	// Single-target click opens directly without "Starting ..." toast.
 	cellUp := findGutterIconCell(t, d, 0, 0)
 	h.click(gfx.Point{X: cellUp.X + cellUp.Width/2, Y: cellUp.Y + cellUp.Height/2})
-	awaitDocumentState(t, h, func() bool { return p.docs.byPath(implA) != nil })
+	h.await("single-target gutter navigation to open ImplA.java", func() bool { return p.docs.byPath(implA) != nil })
 	for _, entry := range h.app.notifications.list {
 		if strings.Contains(entry.text, "Starting") {
 			t.Fatalf("unexpected starting toast for navigation action: %q", entry.text)
@@ -718,7 +731,7 @@ func TestEditorNavigationGutterClickAnchorsPopupAndSuppressesStartingToast(t *te
 	h.settle()
 	caret2, _ := d.view.CaretRect()
 	h.click(gfx.Point{X: cellDown.X + cellDown.Width/2, Y: cellDown.Y + cellDown.Height/2})
-	awaitDocumentState(t, h, func() bool { return h.app.semantics.definition.open })
+	h.await("implementation targets popup to open", func() bool { return h.app.semantics.definition.open })
 	invokedMu.Lock()
 	gotInvoked := append([]string(nil), invoked...)
 	invokedMu.Unlock()
@@ -739,7 +752,7 @@ func TestEditorNavigationGutterClickAnchorsPopupAndSuppressesStartingToast(t *te
 	h.app.closeSemanticDefinition()
 	cellBaseUp := findGutterIconCell(t, d, 1, 0)
 	h.click(gfx.Point{X: cellBaseUp.X + cellBaseUp.Width/2, Y: cellBaseUp.Y + cellBaseUp.Height/2})
-	awaitDocumentState(t, h, func() bool { return h.app.semantics.definition.open })
+	h.await("definition targets popup to open", func() bool { return h.app.semantics.definition.open })
 	if got, want := h.app.definitionPopupTitle(), h.shared("desktop.semantics.definitions"); got != want {
 		t.Fatalf("up multi-target popup title = %q, want %q", got, want)
 	}
