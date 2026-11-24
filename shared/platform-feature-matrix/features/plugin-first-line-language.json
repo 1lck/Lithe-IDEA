@@ -11,7 +11,11 @@
       "desktop/internal/editor/syntax/language.go",
       "desktop/internal/workbench/document_language.go",
       "desktop/internal/workbench/document_language_test.go",
-      "desktop/internal/workbench/document_language_views_test.go"
+      "desktop/internal/workbench/document_language_views_test.go",
+      "desktop/internal/pluginservice/installed_snapshot.go",
+      "desktop/internal/pluginservice/installed_snapshot_test.go",
+      "desktop/internal/workbench/plugins.go",
+      "desktop/internal/workbench/plugin_snapshot_test.go"
     ]
   },
   "windows": {
@@ -22,10 +26,14 @@
       "desktop/internal/editor/syntax/language.go",
       "desktop/internal/workbench/document_language.go",
       "desktop/internal/workbench/document_language_test.go",
-      "desktop/internal/workbench/document_language_views_test.go"
+      "desktop/internal/workbench/document_language_views_test.go",
+      "desktop/internal/pluginservice/installed_snapshot.go",
+      "desktop/internal/pluginservice/installed_snapshot_test.go",
+      "desktop/internal/workbench/plugins.go",
+      "desktop/internal/workbench/plugin_snapshot_test.go"
     ]
   },
   "owner": "Extensions",
-  "verification": "运行 scripts/desktop/desktop-go.sh test ./internal/workbench -run TestOpenFileUsesPluginFirstLineLanguage，验证包内语法和独立元数据两种入口都能按首行选择语言并切换注释，名称与扩展关联优先，带未关联扩展名和超长首行的文件保留原行为。原生窗口另行验收。",
-  "notes": "首行规则来自包内语法文件或独立元数据。独立元数据保留已有高亮，旧版桌面仍可安装同一插件。Core 按启用插件的语言注册顺序匹配已有文本缓冲区的有界首行。已有路径关联的文件恢复时可直接打开。识别结果用于此次文档打开、预览、Git Diff 的可编辑侧和随后编辑。"
+  "verification": "运行 scripts/desktop/desktop-go.sh test ./internal/workbench -run TestOpenFileUsesPluginFirstLineLanguage，验证包内语法和独立元数据两种入口都能按首行选择语言并切换注释，名称与扩展关联优先，带未关联扩展名和超长首行的文件保留原行为。原生窗口另行验收。 运行 scripts/desktop/desktop-go.sh test ./internal/pluginservice -run TestInstalledSnapshot 和 ./internal/workbench -run TestPluginReloadSelectsInstalledVersionsOnce，验证同一轮语言、工具窗口、命令、VCS 和隐藏目录共享清单，部分插件失败仍加载其余贡献，下一轮安装或启停变化重新读取。",
+  "notes": "首行规则来自包内语法文件或独立元数据。独立元数据保留已有高亮，旧版桌面仍可安装同一插件。Core 按启用插件的语言注册顺序匹配已有文本缓冲区的有界首行。已有路径关联的文件恢复时可直接打开。识别结果用于此次文档打开、预览、Git Diff 的可编辑侧和随后编辑。 插件重读只选择一次已安装版本并对每个选中清单读取一次；快照仅属于当前操作，附属语法资源继续按原上限读取，原生平台验收状态保持 pending。"
 }

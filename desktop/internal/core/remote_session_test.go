@@ -10,6 +10,8 @@ import (
 	"strings"
 	"sync/atomic"
 	"testing"
+
+	"github.com/1lck/Lithe-IDEA/desktop/internal/contractfixture"
 )
 
 // shippedTargets are the server builds the application ships; the paths do not exist, so a host
@@ -17,6 +19,42 @@ import (
 var shippedTargets = []RemoteServerBuild{
 	{Target: "x86_64-unknown-linux-musl", Path: "/nonexistent/lithe-remote-server-x86_64", SHA256: strings.Repeat("a", 64)},
 	{Target: "aarch64-unknown-linux-musl", Path: "/nonexistent/lithe-remote-server-aarch64", SHA256: strings.Repeat("b", 64)},
+}
+
+// A session without verified target evidence cannot be kept for automatic recovery.
+func TestRemoteResumeRequiresAndPreservesTheVerifiedBinding(t *testing.T) {
+	data, err := os.ReadFile(contractfixture.CoreFixture("remote/session-binding-v1.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var fixture struct {
+		Session RemoteSession `json:"session"`
+	}
+	if err := json.Unmarshal(data, &fixture); err != nil {
+		t.Fatal(err)
+	}
+	session := fixture.Session
+	if !session.ResumeConsumed || !session.Resumed || session.SessionBinding == "" || session.SessionToken == nil {
+		t.Fatal("verified session contract fields were not decoded")
+	}
+	binding := session.SessionBinding
+	session.SessionBinding = ""
+	if session.Resume() != nil {
+		t.Fatal("a session without verified evidence was offered for recovery")
+	}
+	session.SessionBinding = binding
+	resume := session.Resume()
+	if resume == nil || resume.Binding != session.SessionBinding || resume.Key != session.SessionKey || resume.Token != *session.SessionToken {
+		t.Fatal("verified recovery fields were not preserved")
+	}
+	encoded, err := json.Marshal(resume)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var decoded RemoteResume
+	if err := json.Unmarshal(encoded, &decoded); err != nil || decoded != *resume {
+		t.Fatal("verified recovery fields did not round-trip")
+	}
 }
 
 // A request of a remote workspace context carries the binding's session and roots, a remote.*
