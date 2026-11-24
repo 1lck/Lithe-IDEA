@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"strings"
 	"testing"
 
 	"github.com/1lck/Lithe-IDEA/desktop/internal/core"
@@ -56,11 +57,14 @@ func (k *remoteHostKernel) RemoteReadFile(_ context.Context, session, path strin
 
 // RemoteWriteFile writes while the file has the expected version, or creates it while it does
 // not exist, as the host server does.
-func (k *remoteHostKernel) RemoteWriteFile(_ context.Context, session, path string, data []byte, expected *core.RemoteFileVersion) (core.RemoteFileVersion, bool, error) {
+func (k *remoteHostKernel) RemoteWriteFile(_ context.Context, session, path string, data []byte, expected *core.RemoteFileVersion, root ...string) (core.RemoteFileVersion, bool, error) {
 	k.mu.Lock()
 	defer k.mu.Unlock()
 	if err := k.takeFileError(session); err != nil {
 		return core.RemoteFileVersion{}, false, err
+	}
+	if len(root) != 1 || root[0] == "" || !strings.HasPrefix(path, root[0]+"/") {
+		return core.RemoteFileVersion{}, false, &core.Error{Command: "remote.writeFile", Code: core.CodePermissionDenied, Message: "save must carry its workspace boundary"}
 	}
 	if err := k.writeErr; err != nil {
 		k.writeErr = nil

@@ -136,6 +136,7 @@ func TestDebugAnnouncedAdapterRunner(t *testing.T) {
 type announcedWatch struct {
 	listener net.Listener
 	accepted chan net.Conn
+	conn     net.Conn
 }
 
 // announcedWorkspace is the fixture workspace for one mode, and the watch the
@@ -150,6 +151,9 @@ func announcedWorkspace(t *testing.T, mode string) (root, source string, watch *
 	watch = &announcedWatch{listener: listener, accepted: make(chan net.Conn, 1)}
 	t.Cleanup(func() {
 		_ = listener.Close()
+		if watch.conn != nil {
+			_ = watch.conn.Close()
+		}
 		select {
 		case conn := <-watch.accepted:
 			if conn != nil {
@@ -176,20 +180,33 @@ func announcedWorkspace(t *testing.T, mode string) (root, source string, watch *
 	return root, source, watch
 }
 
+// awaitConnected waits for the fixture process to connect to the watch so tests
+// can synchronize deterministically with the running child before triggering
+// timeouts.
+func (w *announcedWatch) awaitConnected(t *testing.T, limit time.Duration) {
+	t.Helper()
+	if w.conn != nil {
+		return
+	}
+	select {
+	case conn := <-w.accepted:
+		if conn == nil {
+			t.Fatal("the adapter watch listener stopped before accepting the connection")
+		}
+		w.conn = conn
+	case <-time.After(limit):
+		t.Fatal("the adapter process never connected to the watch")
+	}
+}
+
 // ended waits for the fixture process to end and returns what it reported
 // before it did.
 func (w *announcedWatch) ended(t *testing.T, limit time.Duration) string {
 	t.Helper()
 	deadline := time.Now().Add(limit)
-	var conn net.Conn
-	select {
-	case conn = <-w.accepted:
-		if conn == nil {
-			t.Fatal("the adapter watch listener stopped before accepting the connection")
-		}
-	case <-time.After(limit):
-		t.Fatal("the adapter process never connected to the watch")
-	}
+	w.awaitConnected(t, limit)
+	conn := w.conn
+	w.conn = nil
 	defer conn.Close()
 	if err := conn.SetReadDeadline(deadline); err != nil {
 		t.Fatal(err)
@@ -292,15 +309,36 @@ func TestDebugAnnouncedRemoteEndpointFailsAndStopsTheProcess(t *testing.T) {
 func TestDebugAnnouncedAdapterThatNeverAnnouncesTimesOut(t *testing.T) {
 	h := debugPluginHarness(t, "dev.lithe.test.debug-announced", debugAnnouncedManifest, true)
 	root, _, watch := announcedWorkspace(t, "silent")
-	// A race-instrumented child can take over a second to reach its watch.
-	h.app.debugInitializeWindow = 3 * time.Second
+	// Control the initialize timeout deterministically so child startup never
+	// races the timeout clock.
+	trigger := make(chan struct{})
+	t.Cleanup(func() {
+		select {
+		case <-trigger:
+		default:
+			close(trigger)
+		}
+	})
+	h.app.debugInitializeTrigger = trigger
 	p := openHostedPanel(t, h, root)
 	h.clickNamed(h.app.text.Debug.Start)
+	session := p.debug.activeSession()
+	if session == nil {
+		t.Fatal("the announced adapter never entered its startup session")
+	}
+	watch.awaitConnected(t, 20*time.Second)
+	close(trigger)
 	awaitStateWithin(t, h, 20*time.Second, "the timeout", func() bool { return p.debug.failure != "" })
 	if p.debug.failure != h.app.text.Debug.TimedOut || p.debug.activeSession() != nil {
 		t.Fatalf("failure = %q, want the timeout message", p.debug.failure)
 	}
 	watch.ended(t, 20*time.Second)
+	awaitDebugSessionDone(t, session)
+	select {
+	case <-session.cleanupDone:
+	case <-time.After(debugAdapterExitWait):
+		t.Fatal("the timed-out debug session did not finish cleanup before the deadline")
+	}
 }
 
 // announcementRecorder is a reader whose Core answer is a fixed rule: a line

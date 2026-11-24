@@ -274,6 +274,25 @@ jobs:
           if-no-files-found: error
           retention-days: 14
 
+      - name: Capture run performance screenshots
+        id: run-performance-visual
+        if: ${{ !cancelled() && steps.rust.outcome == 'success' }}
+        timeout-minutes: 5
+        env:
+          LITHE_VISUAL_OUTPUT_DIR: ${{ github.workspace }}/.artifacts/run-performance-visual
+        run: |
+          ./scripts/desktop/desktop-go.sh test -tags 'vivahead lithevisual' ./internal/workbench \
+            -run '^TestVisualRunConsoleWrap$' -count=1 -timeout=120s
+
+      - name: Upload run performance screenshots
+        if: ${{ !cancelled() && steps.run-performance-visual.outcome == 'success' }}
+        uses: actions/upload-artifact@v7
+        with:
+          name: run-performance-visual-${{ runner.os }}-${{ runner.arch }}
+          path: .artifacts/run-performance-visual/*.png
+          if-no-files-found: error
+          retention-days: 14
+
       - name: Upload native verification reports
         if: always()
         uses: actions/upload-artifact@v7

@@ -71,6 +71,8 @@ type Service struct {
 	ToolchainIssue func(context.Context, error)
 	// BuildConfigurationIssue records native failures opening or rebinding configuration watches.
 	BuildConfigurationIssue func(context.Context, error)
+	// WorkspaceWatchIssue records native failures establishing or maintaining a workspace stream.
+	WorkspaceWatchIssue func(context.Context, error)
 	// providers2 holds the editor provider registrations of the window (hostproviders.go).
 	providers2 *editorProviderBindings
 	// actions holds the editor action registrations of the window (hostactions.go).
