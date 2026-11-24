@@ -123,6 +123,12 @@ type buildInstance struct {
 	// one is known stale; trees are the Build window's trees of the model (build_tree.go).
 	modelVersion uint64
 	trees        buildTrees
+	// Cached manifest option flags/toggles, lazily populated per Manifest/BuildSystemID.
+	manifestCached         bool
+	manifestCachedFor      string
+	manifestCachedBytes    json.RawMessage
+	manifestHasOptions     bool
+	manifestToolbarOptions []buildToolbarOption
 }
 
 // buildOperation is one Build execution the window runs: a task or a run, from the moment its

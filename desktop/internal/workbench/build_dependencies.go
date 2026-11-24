@@ -37,6 +37,9 @@ type buildDependencies struct {
 	tree    core.BuildDependencyTree
 	// open are the rows shown opened, by their path of indexes ("0/3/1").
 	open map[string]bool
+	// cachedRows caches the flattened visible rows until open or tree changes.
+	cachedRows []buildDependencyRow
+	rowsDirty  bool
 	// generation rejects a load a reload replaced.
 	generation uint64
 }
@@ -53,7 +56,7 @@ func (a *App) dependenciesOf(p *project, instance *buildInstance, projectID stri
 	key := buildDependencyKey(instance.ID, projectID)
 	deps := p.build.dependencies[key]
 	if deps == nil {
-		deps = &buildDependencies{open: map[string]bool{}}
+		deps = &buildDependencies{open: map[string]bool{}, rowsDirty: true}
 		p.build.dependencies[key] = deps
 		a.loadBuildDependencies(p, instance, projectID, deps, false)
 	}
@@ -100,6 +103,7 @@ func (a *App) loadBuildDependencies(p *project, instance *buildInstance, project
 				return
 			}
 			deps.tree = tree
+			deps.rowsDirty = true
 		}
 	})
 }
@@ -204,28 +208,43 @@ func (a *App) commandDependencies(ctx context.Context, p *project, instance buil
 	return tree, runErr
 }
 
-// buildDependencyRow is one shown row of a tree: its node, depth and path of indexes.
+// buildDependencyRow is one shown row of a tree: its node, depth, preformatted label and path of indexes.
 type buildDependencyRow struct {
 	node  *core.BuildDependency
 	depth int
 	path  string
+	label string
 }
 
-// shownDependencyRows lists the rows of the opened part of the tree, in order.
+// shownRows lists the rows of the opened part of the tree, in order, reusing a cached slice
+// until the open set or loaded tree changes.
 func (deps *buildDependencies) shownRows() []buildDependencyRow {
-	var rows []buildDependencyRow
+	if !deps.rowsDirty && deps.cachedRows != nil {
+		return deps.cachedRows
+	}
+	rows := deps.cachedRows[:0]
 	var walk func(nodes []core.BuildDependency, depth int, prefix string)
 	walk = func(nodes []core.BuildDependency, depth int, prefix string) {
 		for i := range nodes {
 			path := prefix + strconv.Itoa(i)
-			rows = append(rows, buildDependencyRow{node: &nodes[i], depth: depth, path: path})
+			rows = append(rows, buildDependencyRow{
+				node:  &nodes[i],
+				depth: depth,
+				path:  path,
+				label: dependencyLabel(&nodes[i]),
+			})
 			if deps.open[path] {
 				walk(nodes[i].Children, depth+1, path+"/")
 			}
 		}
 	}
 	walk(deps.tree.Dependencies, 0, "")
-	return rows
+	if rows == nil {
+		rows = []buildDependencyRow{}
+	}
+	deps.cachedRows = rows
+	deps.rowsDirty = false
+	return deps.cachedRows
 }
 
 // dependencyLabel is a dependency as group:name:version.
@@ -295,10 +314,9 @@ func buildMarkers(manifest json.RawMessage, buildSystemID string) []string {
 	return nil
 }
 
-// buildDependencyRows are the rows of a Dependencies section of the build tree, at level, for
-// projectID of the instance at index: the tree, or a line saying it loads, failed or is empty.
-// Asking for them starts the load of a tree not loaded yet.
-func (a *App) buildDependencyRows(p *project, index int, projectID string, level int) []buildRow {
+// appendBuildDependencyRows appends the rows of a Dependencies section of the build tree at
+// level for projectID of the instance at index, reusing cached dependency rows when unchanged.
+func (a *App) appendBuildDependencyRows(rows []buildRow, p *project, index int, projectID string, level int) []buildRow {
 	instance := &p.build.instances[index]
 	language := a.language()
 	deps := a.dependenciesOf(p, instance, projectID)
@@ -306,19 +324,17 @@ func (a *App) buildDependencyRows(p *project, index int, projectID string, level
 	switch {
 	case deps.loading:
 		status.label, status.loading = i18n.Shared(language, "native.loadingDependencies.variant2"), true
-		return []buildRow{status}
+		return append(rows, status)
 	case deps.failed != "":
 		status.label, status.warning = i18n.Shared(language, "native.couldNotLoadDependencies")+": "+deps.failed, true
-		return []buildRow{status}
+		return append(rows, status)
 	case len(deps.tree.Dependencies) == 0:
 		status.label = i18n.Shared(language, "native.noDependencies")
-		return []buildRow{status}
+		return append(rows, status)
 	}
-	shown := deps.shownRows()
-	rows := make([]buildRow, 0, len(shown))
-	for _, row := range shown {
+	for _, row := range deps.shownRows() {
 		rows = append(rows, buildRow{
-			kind: buildRowDependency, label: dependencyLabel(row.node), detail: row.node.Scope, instance: index,
+			kind: buildRowDependency, label: row.label, detail: row.node.Scope, instance: index,
 			level: level + row.depth, path: row.path, leaf: len(row.node.Children) == 0, project: projectID,
 		})
 	}
@@ -343,7 +359,10 @@ func (a *App) buildDependencyRow(row ui.ListRow, p *project, instance *buildInst
 		c.After(func() { a.openBuildFile(p, instance, spec.project) })
 	case !spec.leaf && (toggled || element.Clicked()):
 		path := spec.path
-		c.After(func() { deps.open[path] = !deps.open[path] })
+		c.After(func() {
+			deps.open[path] = !deps.open[path]
+			deps.rowsDirty = true
+		})
 	}
 	a.buildDependencyMenu(c, element, p, instance, spec.project)
 }

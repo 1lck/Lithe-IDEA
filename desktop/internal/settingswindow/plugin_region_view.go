@@ -49,8 +49,9 @@ type regionView struct {
 	// shown says this paint declared the region.
 	shown bool
 	// sent is the settings, encoded, that the paint before found, so a paint that finds
-	// them changed tells the view.
-	sent string
+	// them changed tells the view. sentHash skips per-frame JSON marshaling when unchanged.
+	sent     string
+	sentHash uint64
 	// picker is the tool whose picker is open, empty when none is; pickerShown says this
 	// paint drew it, so a picker whose row the view no longer shows closes.
 	picker      string
@@ -105,9 +106,12 @@ func (w *window) pluginRegion(c ui.C, p *pluginSettingsForm, hasSource bool) {
 	}
 	v := w.region
 	v.shown = true
-	if sent := p.viewSettingsText(); sent != v.sent {
-		v.sent = sent
-		v.session.SettingsChanged()
+	if hash := p.viewSettingsHash(); hash != v.sentHash {
+		v.sentHash = hash
+		if sent := p.viewSettingsText(); sent != v.sent {
+			v.sent = sent
+			v.session.SettingsChanged()
+		}
 	}
 	v.host.Palette, v.host.Language = w.regionPalette(), language
 	v.host.Settings = regionSettings{w: w, p: p, hasSource: hasSource}
@@ -130,7 +134,12 @@ func (w *window) openRegion(key regionKey, loader PluginViewLoader, p *pluginSet
 	failed := func(operation string) func(error) {
 		return func(err error) { reportSettingsError(opts, operation, err) }
 	}
-	v := &regionView{key: key, images: pluginview.NewImages(key.pkg, wake, failed(pluginRegionImageOperation)), sent: p.viewSettingsText()}
+	v := &regionView{
+		key:      key,
+		images:   pluginview.NewImages(key.pkg, wake, failed(pluginRegionImageOperation)),
+		sent:     p.viewSettingsText(),
+		sentHash: p.viewSettingsHash(),
+	}
 	v.session = pluginview.NewSession(pluginview.Options{
 		Call: func(ctx context.Context, event, view json.RawMessage, closing bool) (json.RawMessage, bool, error) {
 			return loader.View(ctx, editor, key.region, key.function, event, view, closing)
@@ -482,6 +491,93 @@ func (p *pluginSettingsForm) reportViewSettings(err error) {
 	if p.report != nil {
 		p.report(fmt.Errorf("settingswindow: encode the settings of a view event: %w", err))
 	}
+}
+
+// viewSettingsHash computes an allocation-free FNV-64a digest over every setting and draft
+// field that viewSettings depends on, allowing pluginRegion to skip per-frame json.Marshal
+// while drafts are steady.
+func (p *pluginSettingsForm) viewSettingsHash() uint64 {
+	const (
+		offset64 uint64 = 14695981039346656037
+		prime64  uint64 = 1099511628211
+	)
+	h := offset64
+	writeByte := func(b byte) {
+		h ^= uint64(b)
+		h *= prime64
+	}
+	writeUint64 := func(v uint64) {
+		for i := 0; i < 8; i++ {
+			writeByte(byte(v))
+			v >>= 8
+		}
+	}
+	writeBool := func(v bool) {
+		if v {
+			writeByte(1)
+		} else {
+			writeByte(0)
+		}
+	}
+	writeBytes := func(b []byte) {
+		writeUint64(uint64(len(b)))
+		for _, c := range b {
+			writeByte(c)
+		}
+	}
+	writeString := func(s string) {
+		writeUint64(uint64(len(s)))
+		for i := 0; i < len(s); i++ {
+			writeByte(s[i])
+		}
+	}
+
+	writeUint64(uint64(p.scope))
+	writeString(p.editor.Snapshot.State.Metadata.Version)
+
+	rows := p.editor.Snapshot.State.Rows
+	writeUint64(uint64(len(rows)))
+	for index := range rows {
+		writeString(rows[index].Declaration.ID)
+		writeString(rows[index].Declaration.Kind)
+		writeBytes(rows[index].Effective.Value)
+	}
+
+	editors := p.editor.Snapshot.State.Editors.Global
+	if p.scope == 1 {
+		editors = p.editor.Snapshot.State.Editors.Project
+	}
+	writeUint64(uint64(len(editors)))
+	for index := range editors {
+		editor := &editors[index]
+		writeBool(editor.Editable)
+		writeBytes(editor.ResetValue)
+		writeString(editor.Input.Text)
+		writeBool(editor.Input.On)
+		writeUint64(uint64(editor.Input.Selected))
+		writeUint64(uint64(len(editor.Input.Checks)))
+		for _, checked := range editor.Input.Checks {
+			writeBool(checked)
+		}
+	}
+
+	var controls []pluginSettingControl
+	if p.scope >= 0 && p.scope < len(p.controls) {
+		controls = p.controls[p.scope]
+	}
+	writeUint64(uint64(len(controls)))
+	for index := range controls {
+		control := &controls[index]
+		writeBool(control.reset)
+		writeString(control.text)
+		writeBool(control.input.On)
+		writeUint64(uint64(control.input.Selected))
+		writeUint64(uint64(len(control.input.Checks)))
+		for _, checked := range control.input.Checks {
+			writeBool(checked)
+		}
+	}
+	return h
 }
 
 // viewSettingsText is viewSettings encoded, which a paint compares with the last one; JSON
