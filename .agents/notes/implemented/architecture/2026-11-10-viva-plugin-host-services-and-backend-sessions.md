@@ -89,7 +89,29 @@ Run 自己启动的进程还必须随附加的调试会话释放。单独发送 
 - **订阅与资源释放**：`hostResources` 统一登记订阅、内容提供者、终端句柄，归属 `(插件, 会话, 上下文)`；`subscriptions/dispose` 只释放调用方自己的 ID；会话结束与上下文关闭自动释放。
 - **命令**：`commands/didRun` 的发送端 `Service.NotifyCommandRun` 已实现（运行中的后端直接收；已停止的只有清单声明 `onCommand:<id>` 才被启动），但 Viva 目前没有命令面板、编辑器右键菜单或插件命令贡献入口，没有调用方。
 
-未接通（会被 Core 以 `plugin.host.unavailable` 拒绝）：`editor/registerActions`、`editor/registerProviders`（没有编辑器行首图标、命令入口与右键菜单，注册了用户也触发不了，所以不声明）、`preview/openHTML`、`workspace/readDirectory|stat|readFile|watch|findFiles|findText`、`run/*`、`debug/*`（后两者属其他车道）。凭据在插件卸载时的清理也未做：除 macOS 外平台存储不能按 service 枚举，需要后续由插件管理器记录已用的 key。
+未接通（会被 Core 以 `plugin.host.unavailable` 拒绝）：`editor/registerActions`、`editor/registerProviders`（没有编辑器行首图标、命令入口与右键菜单，注册了用户也触发不了，所以不声明）、`preview/openHTML`、`run/*`、`debug/*`（后两者属其他车道）。凭据在插件卸载时的清理也未做：除 macOS 外平台存储不能按 service 枚举，需要后续由插件管理器记录已用的 key。
+
+### API-06：先由 Core 提供磁盘读取，再接窗口
+
+`workspace/readDirectory|stat|readFile` 的共享规则和执行命令由 Rust Core 提供，桌面只把经过授权的工作区根与相对路径交给 Core，并把返回路径封装为插件自己的资源标识。这样分页、字节预算、隐藏规则和错误分类在所有客户端保持一致。具体参数和限制只在 Core 插件契约中维护。
+
+文件读取不复用打开文档的内容：例如编辑器里已把 `alpha` 改成未保存的 `ALPHA`，`readFile` 仍返回磁盘上的 `alpha`。逐段拒绝符号链接以及 Windows 的文件系统重解析点（reparse point，可把路径转到另一位置）；Unix 使用相对目录句柄，Windows 持有禁止写入和删除共享的祖先目录句柄，防止校验后路径被换成链接。代价是 Windows 读取期间无法重命名这些目录，遇到冲突的共享方式会拒绝读取，不降低保护后重试。
+
+正确做法是宿主请求所在的后台任务调用 Core，窗口线程只确认本地项目仍然有效。不要先在 Go 里解析真实路径再读取：路径可能在两步之间被替换，也会复制一份 Core 的规则。请求取消或项目关闭会取消读取，发布前再次核对同一个项目和工作区上下文，避免关闭后重开同一路径接收旧结果。这里只读取文件，不产生缓存或写入安装目录，因此不会改变代码签名或 Sparkle 增量更新基线。
+
+三个方法仅在窗口实现 `WorkspaceReadHost` 后注册。没有远程读取适配器时拒绝远程工作区，不读取本机占位目录。监听与搜索也按各自的可选宿主接口注册，遵循相同的上下文检查。
+
+验证使用 `scripts/desktop/desktop-go.sh test ./internal/pluginservice ./internal/workbench -run 'TestWorkspaceReads|TestPluginWorkspaceReads' -count=1`。默认构建固定到 Core `9ab2336`，包含 [Core #190](https://github.com/Lithe-IDEA/Lithe-core-rust/pull/190) 并保留现有 #187 增量更新依赖；无需本地覆盖路径。测试读取真实临时文件，覆盖资源隔离、磁盘与未保存文档的区别及项目关闭取消；不依赖任何具体插件。Windows 的原生目录句柄行为须在 Windows 单独验证，本机 macOS 测试不能替代。
+
+### API-07/08：Core 处理搜索与监听语义，Viva 只提供原生事件
+
+文件名搜索与文本搜索复用 Core 已有的匹配器、编码识别、隐藏规则和工作区索引排除策略。插件磁盘入口要求逐段拒绝链接，现有搜索索引读取链路不能保证这一点，因此这里复用匹配和策略，以同一套 no-follow 句柄做有界遍历，不调用会在校验后重新按路径打开文件的索引读取。搜索不为每个插件保留整棵树或内容索引，只保留一页与一个额外候选；代价是每页重新遍历，查询可能在大工程上超时，当前不宣称具备索引查询的延迟。以后改用索引候选时，也必须保留句柄读取和当前范围限制。
+
+正确做法是先由 Core 验证监听目标，再让 Viva 建立原生文件事件流，并在注册后核对根与目标身份。原生流覆盖工作区根，使目标的父目录被替换也能触发重扫；Core 决定哪些名字属于订阅、哪些隐藏、哪些情况丢失细节需要重扫。不要在 Go 中复制路径匹配、排序、隐藏规则，也不要使用空闲轮询。注册完成后先发一次重扫，事件丢失、根消失或替换时要求重新读取；根消失或替换后释放旧流，不把旧流用于新根。
+
+监听在 `hostResources` 中归属插件、会话与上下文，复用原生注册限额。取消在途通知后再关闭原生句柄，通知与释放串行，因此 `dispose` 返回后不会继续发送；请求返回不结束长期订阅，关闭工作区、退出会话或停用插件才结束。旧订阅不能转移给同路径的新上下文。监听只保留有界名字批次，无文件内容缓存和磁盘写入，不影响发行包、代码签名或 Sparkle 更新基线。
+
+验证读取 Core 的共享 fixture 和真实临时文件，macOS 使用 Viva 的原生文件事件覆盖递归创建、原子保存、删除、初始重扫、三种释放入口及根目录替换后的最终重扫与释放，并用可控通知验证释放会取消在途发送。`scripts/desktop/desktop-go.sh test ./internal/core ./internal/pluginservice ./internal/workbench -run 'TestWorkspace(Reads|Find|Search|Watch)|TestPluginWorkspace' -count=1` 与定向竞态检查覆盖桥接、资源封装、未保存缓冲区隔离和关闭取消；监听测试没有用定时睡眠同步。Windows 原生运行按本次任务范围不验收，不能据 macOS 结果标为 Windows 已验证。
 
 ## 适用范围
 
@@ -100,4 +122,5 @@ Run 自己启动的进程还必须随附加的调试会话释放。单独发送 
 - `desktop/internal/credentials/`
 - `desktop/internal/pluginservice/`（hostdocuments、hostsurface、hostterminal、hostcontent、hostcommands、hostresources、hostcredentials）
 - `desktop/internal/workbench/`（pluginworkbench、pluginprompt、pluginterminals、plugincontent）
+- `desktop/internal/core/workspace_read.go`、`desktop/internal/core/workspace_find_watch.go`、`desktop/internal/pluginservice/hostworkspaceread.go`、`desktop/internal/pluginservice/hostworkspacefind.go`、`desktop/internal/pluginservice/hostworkspacewatch.go`、`desktop/internal/workbench/pluginworkspaceread.go`
 - `desktop/internal/editorview/hostedit.go`、`desktop/internal/termview/`、`desktop/internal/localshell/`
