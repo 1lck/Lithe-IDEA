@@ -22,7 +22,8 @@ import (
 // belongs to the first workbench's plugin stack. The others open theirs without sweeping
 // interrupted installs or offering leftover processes (pluginservice.OpenAnother).
 //
-// Plugin web pages need the window's web host, which only the first workbench has.
+// The web host and its readiness belong to the window; every project uses the same host,
+// while plugin pages and editor previews keep their own project-scoped state and lifetime.
 
 // windowWake asks the window for a repaint through the invalidator the window was opened with.
 // Every workbench of the window holds the same one. The zero value, which a workbench made
@@ -48,6 +49,10 @@ type windowSessions struct {
 	retired []*App
 	// configs are the page configurations of the workbenches, made once for each.
 	configs map[*App]app.Config
+	// web is bound once to the native window. It outlives individual project tabs.
+	web app.WebHost
+	// webReady is set by that host on the window thread, also for tabs opened afterward.
+	webReady bool
 	// options make the workbench of a new tab.
 	options Options
 	// meter times the window thread for the status bar's frame readout (frame_meter.go). Every
@@ -70,10 +75,15 @@ func newWindowSessions(first *App, options Options) *windowSessions {
 	options.OpenPath = ""
 	options.OpenFile = ""
 	options.first = first
-	return &windowSessions{
+	s := &windowSessions{
 		list: []*App{first}, active: first, configs: map[*App]app.Config{}, options: options,
 		meter: frameMeter{now: first.now},
 	}
+	s.web.OnReady = func() {
+		s.webReady = true
+		s.active.invalidator.Invalidate()
+	}
+	return s
 }
 
 // config is the window's configuration. It takes the window's settings from the first
