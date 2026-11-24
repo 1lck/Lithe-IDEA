@@ -101,7 +101,7 @@ func (p *project) previewWorkspaceRoot() string {
 // previewWeb reports whether pages can be opened: the web host is ready and no page failed to
 // open.
 func (a *App) previewWeb() bool {
-	return a.webReady && !a.previews.failed
+	return a.sessions != nil && a.sessions.webReady && !a.previews.failed
 }
 
 // openPreviewPage opens a page that lives while alive says so. It is nil while the previews are
@@ -110,7 +110,7 @@ func (a *App) openPreviewPage(config webpreview.Config, alive func() bool) *prev
 	if !a.previewWeb() {
 		return nil
 	}
-	config.Host = &a.web
+	config.Host = &a.sessions.web
 	config.Log = func(stage string, err error) {
 		a.post(func(a *App) {
 			a.backgroundFailed("web_preview_"+stage, err)

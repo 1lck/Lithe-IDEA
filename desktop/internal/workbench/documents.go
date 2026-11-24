@@ -625,6 +625,11 @@ func (a *App) selectDocument(p *project, id int) {
 	if a.semantics.documentID != 0 && a.semantics.documentID != id {
 		a.closePluginSemantics()
 	}
+	for _, doc := range p.docs.list {
+		if doc.id != id {
+			a.clearEditorActionHover(doc)
+		}
+	}
 	if g.Selected != member && !a.reduceTerminals(p, p.terms.bench, core.ActivateEditor(g.ID, member)) {
 		return
 	}

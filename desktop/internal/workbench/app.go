@@ -765,9 +765,6 @@ type App struct {
 	pluginStartupCancel context.CancelFunc
 	// prompts are the questions plugins ask the user, one sheet at a time.
 	prompts pluginPrompts
-	// web opens the pages of plugin web tool windows; webReady is set once it can.
-	web      app.WebHost
-	webReady bool
 	// pluginPages are the open pages of web tool windows by chrome identifier.
 	pluginPages map[string]*pluginPage
 	// previews are the web pages of the editor area: Markdown pages and file viewers.

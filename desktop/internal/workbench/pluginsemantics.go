@@ -36,6 +36,7 @@ const (
 	pluginFeaturesChanged = "featuresChanged"
 	// The semantic operations the editor asks for.
 	pluginSemanticDefinition      = "definition"
+	pluginSemanticImplementation  = "implementation"
 	pluginSemanticHover           = "hover"
 	pluginSemanticCompletion      = "completion"
 	pluginSemanticReferences      = "references"
@@ -45,12 +46,14 @@ const (
 	// The LSP methods Core reports on a completed event. They are matched only
 	// against the host's own pending operation, never used to derive a rule.
 	pluginMethodDefinition      = "textDocument/definition"
+	pluginMethodImplementation  = "textDocument/implementation"
 	pluginMethodHover           = "textDocument/hover"
 	pluginMethodCompletion      = "textDocument/completion"
 	pluginMethodReferences      = "textDocument/references"
 	pluginMethodFormatting      = "textDocument/formatting"
 	pluginMethodRangeFormatting = "textDocument/rangeFormatting"
 	pluginMethodRename          = "textDocument/rename"
+	featureImplementation       = "implementation"
 
 	// semanticStartTimeout bounds one asynchronous request submission. The
 	// request only enters Core's queue, so this is a failure bound, not a wait.
@@ -112,6 +115,8 @@ func (k semanticKind) method() string {
 		return pluginMethodResolveInlayHint
 	case pluginSemanticDefinition:
 		return pluginMethodDefinition
+	case pluginSemanticImplementation:
+		return pluginMethodImplementation
 	case pluginSemanticHover:
 		return pluginMethodHover
 	case pluginSemanticReferences:
@@ -192,14 +197,16 @@ type completionState struct {
 	incomplete bool
 }
 
-// definitionState is the multi-target definition popup.
+// definitionState is the multi-target definition or implementation popup.
 type definitionState struct {
 	open       bool
+	kind       semanticKind
 	targets    []core.PluginSemanticLocation
 	selected   int
 	offset     int
 	documentID int
 	revision   int
+	anchor     *gfx.Rect
 }
 
 // hoverState is the hover popup (pluginsemantics_hover.go).
@@ -461,6 +468,12 @@ func (a *App) pluginSemanticsShortcut(event gfx.KeyEvent) gfx.EventResult {
 	if result := a.pluginEditShortcut(event); result.Handled {
 		return result
 	}
+	if result := a.implementationShortcut(event); result.Handled {
+		return result
+	}
+	if result := a.superDeclarationShortcut(event); result.Handled {
+		return result
+	}
 	if result := a.declarationShortcut(event); result.Handled {
 		return result
 	}
@@ -495,11 +508,46 @@ func (a *App) declarationShortcut(event gfx.KeyEvent) gfx.EventResult {
 	return gfx.EventResult{Handled: true, Repaint: true}
 }
 
-// pluginSemanticsPointer handles modifier-click definition and pointer hover over view, the
-// document's own editor or its editable preview. It runs before the view's own pointer handling.
+// implementationShortcut handles Go to Implementation(s), Command+Option+B on macOS or
+// Control+Alt+B elsewhere, at the caret of the editor that owns the keyboard.
+func (a *App) implementationShortcut(event gfx.KeyEvent) gfx.EventResult {
+	want := gfx.ModifierControl | gfx.ModifierAlt
+	if runtime.GOOS == "darwin" {
+		want = gfx.ModifierMeta | gfx.ModifierAlt
+	}
+	if event.Release || event.Modifiers != want || !strings.EqualFold(event.Text, "b") {
+		return gfx.EventResult{}
+	}
+	p, d := a.pluginSemanticHit(event.Target)
+	if d == nil || d.caretView().IsComposing() {
+		return gfx.EventResult{}
+	}
+	line, column := d.caretView().CaretUTF16()
+	a.startPluginImplementation(p, d, line, column, true)
+	return gfx.EventResult{Handled: true, Repaint: true}
+}
+
+// superDeclarationShortcut handles Go to Super Declaration, Command+U on macOS or Control+U
+// elsewhere, using the gutter's upward navigation actions for the caret line.
+func (a *App) superDeclarationShortcut(event gfx.KeyEvent) gfx.EventResult {
+	if event.Release || event.Modifiers != primaryModifier() || !strings.EqualFold(event.Text, "u") {
+		return gfx.EventResult{}
+	}
+	p, d := a.pluginSemanticHit(event.Target)
+	if d == nil || d.caretView().IsComposing() {
+		return gfx.EventResult{}
+	}
+	a.triggerGoToSuper(p, d)
+	return gfx.EventResult{Handled: true, Repaint: true}
+}
+
+// pluginSemanticsPointer handles modifier-click definition, modifier+alt-click implementation, and
+// pointer hover over view, the document's own editor or its editable preview. It runs before the
+// view's own pointer handling.
 func (a *App) pluginSemanticsPointer(event gfx.PointerEvent, p *project, d *document, view *editorview.View) (gfx.EventResult, bool) {
 	switch event.Kind {
 	case gfx.PointerDown:
+		a.leaveSemanticHover()
 		if a.semantics.codeActions.open || a.semantics.completion.open || a.semantics.definition.open || a.semantics.hover.open {
 			a.closePluginSemantics()
 		}
@@ -517,13 +565,21 @@ func (a *App) pluginSemanticsPointer(event gfx.PointerEvent, p *project, d *docu
 		if !ok {
 			return gfx.EventResult{}, false
 		}
-		a.startPluginDefinition(p, d, line, column, false)
+		if event.Modifiers&gfx.ModifierAlt != 0 {
+			a.startPluginImplementation(p, d, line, column, false)
+		} else {
+			a.startPluginDefinition(p, d, line, column, false)
+		}
 		return gfx.EventResult{Handled: true, Repaint: true}, true
 	case gfx.PointerMove:
 		if a.semantics.codeActions.open || a.semantics.completion.open || a.semantics.definition.open {
 			return gfx.EventResult{}, false
 		}
 		if d == nil {
+			a.leaveSemanticHover()
+			return gfx.EventResult{}, false
+		}
+		if _, _, _, hit := view.LineIconAt(event.X, event.Y); hit {
 			a.leaveSemanticHover()
 			return gfx.EventResult{}, false
 		}
@@ -576,6 +632,79 @@ func (a *App) startPluginDefinition(p *project, d *document, line, column int, r
 	a.startPluginLocations(pluginSemanticDefinition, p, d, line, column, requireCaret, false)
 }
 
+// startPluginImplementation asks the language server for implementations at a position, or falls
+// back to the gutter's downward navigation actions when the server offers none.
+func (a *App) startPluginImplementation(p *project, d *document, line, column int, requireCaret bool) {
+	a.cancelContentOpen()
+	if a.plugins == nil || p == nil || d == nil || a.project != p {
+		return
+	}
+	if d.caretView().IsComposing() {
+		return
+	}
+	a.closeSemanticHover()
+	a.closeSemanticCompletion()
+	a.closeSemanticDefinition()
+	server, ok := a.semanticServer(d)
+	if !ok {
+		a.triggerNavigationLaneAction(p, d, line, "navigate-down")
+		return
+	}
+	if !a.semanticDocumentReady(d) {
+		a.deferSemantic(p, d, func(a *App) { a.startPluginImplementation(p, d, line, column, requireCaret) })
+		a.startDocumentSync(p, d)
+		return
+	}
+	if !server.isReady() {
+		a.deferSemantic(p, d, func(a *App) { a.startPluginImplementation(p, d, line, column, requireCaret) })
+		return
+	}
+	if !server.features[featureImplementation] {
+		a.triggerNavigationLaneAction(p, d, line, "navigate-down")
+		return
+	}
+	a.submitSemanticLocations(pluginSemanticImplementation, p, d, server, line, column, requireCaret, false)
+}
+
+// triggerGoToSuper jumps to the super declaration or interface of the caret line using the
+// gutter's upward navigation actions.
+func (a *App) triggerGoToSuper(p *project, d *document) {
+	if p == nil || d == nil || a.project != p || d.caretView().IsComposing() {
+		return
+	}
+	a.closeSemanticHover()
+	a.closeSemanticCompletion()
+	a.closeSemanticDefinition()
+	line, _ := d.caretView().CaretUTF16()
+	a.triggerNavigationLaneAction(p, d, line, "navigate-up")
+}
+
+func (a *App) triggerNavigationLaneAction(p *project, d *document, line int, lane string) {
+	choices := editorActionChoices(d.actions, line, lane)
+	var anchor *gfx.Rect
+	if rect, ok := d.caretView().CaretRect(); ok {
+		anchor = &rect
+	}
+	switch len(choices) {
+	case 0:
+		if lane == "navigate-up" {
+			a.notifyInfo(i18n.Shared(a.language(), "desktop.semantics.noSuperDeclaration"))
+		} else {
+			a.notifyInfo(i18n.Shared(a.language(), "desktop.semantics.noImplementations"))
+		}
+	case 1:
+		a.runEditorActionAt(p, d, choices[0].action, choices[0].alternative, anchor)
+	default:
+		a.clearEditorActionHover(d)
+		d.actionPanel.menuLine, d.actionPanel.menuLane, d.actionPanel.menuOpen = line, lane, true
+		if anchor != nil {
+			d.actionPanel.menuAt = *anchor
+		} else {
+			d.actionPanel.menuAt = d.lastArea
+		}
+	}
+}
+
 // startPluginReferences asks for every reference to the symbol at the caret.
 func (a *App) startPluginReferences(p *project, d *document, line, column int) {
 	a.startPluginLocations(pluginSemanticReferences, p, d, line, column, true, false)
@@ -587,8 +716,8 @@ func (a *App) startPluginUsages(p *project, d *document, line, column int, requi
 	a.startPluginLocations(pluginSemanticReferences, p, d, line, column, requireCaret, true)
 }
 
-// startPluginLocations asks for a location list (definition or references); usages marks the
-// references of a declaration a go-to-declaration gesture was made on.
+// startPluginLocations asks for a location list (definition, implementation or references); usages
+// marks the references of a declaration a go-to-declaration gesture was made on.
 func (a *App) startPluginLocations(kind semanticKind, p *project, d *document, line, column int, requireCaret, usages bool) {
 	a.cancelContentOpen()
 	if a.plugins == nil || p == nil || d == nil || a.project != p {
@@ -616,6 +745,10 @@ func (a *App) startPluginLocations(kind semanticKind, p *project, d *document, l
 		a.deferSemantic(p, d, func(a *App) { a.startPluginLocations(kind, p, d, line, column, requireCaret, usages) })
 		return
 	}
+	a.submitSemanticLocations(kind, p, d, server, line, column, requireCaret, usages)
+}
+
+func (a *App) submitSemanticLocations(kind semanticKind, p *project, d *document, server *pluginServer, line, column int, requireCaret, usages bool) {
 	position := core.PluginDocumentPosition{Line: line, UTF16Column: column}
 	a.cancelSemanticKind(kind)
 	pending := a.newSemanticPending(kind, p, d, server, line, column, requireCaret, false)
@@ -639,6 +772,9 @@ func (a *App) startPluginHover(p *project, d *document, line, column int, anchor
 		return
 	}
 	if d.caretView().IsComposing() {
+		return
+	}
+	if fromPointer && (a.semantics.codeActions.open || a.semantics.completion.open || a.semantics.definition.open) {
 		return
 	}
 	a.closeSemanticCompletion()
@@ -1042,7 +1178,7 @@ func (a *App) applyPluginSemanticEvent(server *pluginServer, event core.BackendE
 		return
 	}
 	switch pending.kind {
-	case pluginSemanticDefinition, pluginSemanticReferences:
+	case pluginSemanticDefinition, pluginSemanticImplementation, pluginSemanticReferences:
 		a.applySemanticDefinition(pending, event)
 	case pluginSemanticHover:
 		a.applySemanticHover(pending, event)
@@ -1120,6 +1256,11 @@ func (a *App) applySemanticDefinition(pending *semanticPending, event core.Backe
 		a.showReferences(p, targets, query, identifierAt(d.view.TextSnapshot(), d.view, pending.line, pending.column))
 		return
 	}
+	if pending.kind == pluginSemanticImplementation {
+		targets := a.usableDefinitionTargets(locations, maxDefinitionTargets)
+		a.presentDefinitionTargets(p, d, pluginSemanticImplementation, targets, len(locations), pending.revision)
+		return
+	}
 	if a.plugins != nil && a.plugins.HasDefinitionProvider(p.root, d.path, d.languageID) {
 		a.mergeProviderDefinitions(p, d, pending, locations)
 		return
@@ -1192,11 +1333,14 @@ func (a *App) mergeProviderDefinitions(p *project, d *document, pending *semanti
 	})
 }
 
-// presentDefinitionTargets shows the locations of a definition answer, from a language server or a
-// plugin provider: one definition opens, several wait in the list, and nothing found says so. A
-// references answer comes here only when nothing was found; its usages fill the References tool window.
+// presentDefinitionTargets shows the locations of a definition or implementation answer, from a
+// language server or a plugin provider: one target opens, several wait in the list anchored at the
+// caret, and nothing found says so.
 func (a *App) presentDefinitionTargets(p *project, d *document, kind semanticKind, targets []core.PluginSemanticLocation, answered int, revision int) {
-	references := kind == pluginSemanticReferences
+	a.presentDefinitionTargetsAt(p, d, kind, targets, answered, revision, nil)
+}
+
+func (a *App) presentDefinitionTargetsAt(p *project, d *document, kind semanticKind, targets []core.PluginSemanticLocation, answered int, revision int, anchor *gfx.Rect) {
 	if len(targets) == 0 {
 		switch {
 		case answered > 0:
@@ -1204,8 +1348,10 @@ func (a *App) presentDefinitionTargets(p *project, d *document, kind semanticKin
 			// say so instead of looking like an empty answer.
 			a.operationRejected("plugin_navigation", "target_outside_file_system")
 			a.notifyError(i18n.Shared(a.language(), "desktop.semantics.targetUnavailable"))
-		case references:
+		case kind == pluginSemanticReferences:
 			a.notifyInfo(i18n.Shared(a.language(), "desktop.semantics.noReferences"))
+		case kind == pluginSemanticImplementation:
+			a.notifyInfo(i18n.Shared(a.language(), "desktop.semantics.noImplementations"))
 		default:
 			a.notifyInfo(i18n.Shared(a.language(), "desktop.semantics.noDefinition"))
 		}
@@ -1215,11 +1361,22 @@ func (a *App) presentDefinitionTargets(p *project, d *document, kind semanticKin
 		a.openDefinitionTarget(targets[0])
 		return
 	}
+	var anchorCopy *gfx.Rect
+	if anchor != nil {
+		rect := *anchor
+		anchorCopy = &rect
+	}
+	a.leaveSemanticHover()
+	a.closeSemanticHover()
+	a.semantics.project = p
+	a.semantics.documentID = d.id
 	a.semantics.definition = definitionState{
 		open:       true,
+		kind:       kind,
 		targets:    targets,
 		documentID: d.id,
 		revision:   revision,
+		anchor:     anchorCopy,
 	}
 }
 
@@ -1759,7 +1916,8 @@ func (a *App) pluginSemanticsCaretSync() {
 
 // pluginSemanticsScrolled closes popups whose screen position the scroll moved. A hover still
 // waiting would open at the place its character scrolled away from.
-func (a *App) pluginSemanticsScrolled(_ *document) {
+func (a *App) pluginSemanticsScrolled(d *document) {
+	a.clearEditorActionHover(d)
 	a.semantics.inlayHover = inlayHintHoverState{}
 	a.closeSemanticCodeActions()
 	a.cancelSemanticKind(pluginSemanticResolveCodeAction)
@@ -1824,6 +1982,7 @@ func (a *App) closePositionSemantics() {
 	a.closeSemanticDefinition()
 	a.closeSemanticHover()
 	a.cancelSemanticKind(pluginSemanticDefinition)
+	a.cancelSemanticKind(pluginSemanticImplementation)
 	a.cancelSemanticKind(pluginSemanticHover)
 	a.cancelSemanticKind(pluginSemanticCompletion)
 	a.cancelSemanticKind(pluginSemanticReferences)
@@ -1998,6 +2157,9 @@ func popupOrigin(x, y, width float32, bounds gfx.Rect) (float32, float32) {
 
 // definitionPopupTitle is the accessibility title of the open location list.
 func (a *App) definitionPopupTitle() string {
+	if a.semantics.definition.kind == pluginSemanticImplementation {
+		return i18n.Shared(a.language(), "desktop.semantics.implementations")
+	}
 	return i18n.Shared(a.language(), "desktop.semantics.definitions")
 }
 
