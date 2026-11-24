@@ -45,6 +45,35 @@ type SemanticTokens struct {
 	Tokens         []SemanticToken `json:"tokens"`
 }
 
+// PluginColorLegendEntry is a stable color ID with its light- and dark-theme colors.
+// Core validates each color against the provider's legend before returning it.
+type PluginColorLegendEntry struct {
+	ID    string `json:"id"`
+	Light string `json:"light"`
+	Dark  string `json:"dark"`
+}
+
+// PluginColorPosition is a zero-based LSP position with a UTF-16 character column.
+type PluginColorPosition struct {
+	Line      int `json:"line"`
+	Character int `json:"character"`
+}
+
+// PluginColorRange is a half-open range in LSP UTF-16 coordinates.
+type PluginColorRange struct {
+	Start PluginColorPosition `json:"start"`
+	End   PluginColorPosition `json:"end"`
+}
+
+// PluginColorDecoration is a Core-normalized foreground color for one document range.
+type PluginColorDecoration struct {
+	SourceID string           `json:"sourceId"`
+	ColorID  string           `json:"colorId"`
+	Light    string           `json:"light"`
+	Dark     string           `json:"dark"`
+	Range    PluginColorRange `json:"range"`
+}
+
 // PluginSemanticTokens decodes a completed semanticTokens event.
 func PluginSemanticTokens(event BackendEvent) (SemanticTokens, error) {
 	var tokens SemanticTokens

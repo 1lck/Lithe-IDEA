@@ -587,6 +587,7 @@ func (a *App) placeDocumentAs(p *project, path, name string, content editorview.
 	if !virtual {
 		a.startDocumentSync(p, d)
 		a.scheduleEditorActions(p, d)
+		a.scheduleColorDecorations(p, d, 0)
 	}
 	a.enforceTabLimit(p, d)
 	if !virtual {
@@ -940,6 +941,7 @@ func (a *App) removeDocument(p *project, d *document) {
 		// A document without a tab is released with nothing to close, once it is saved.
 		if d.tabless && !d.dirty() {
 			a.semanticTokensDropped(d)
+			a.dropColorDecorations(d)
 			a.clearDocumentInlayHints(d)
 			d.closeEditorView()
 			p.docs.list = slices.DeleteFunc(p.docs.list, func(x *document) bool { return x.id == d.id })
@@ -953,6 +955,7 @@ func (a *App) removeDocument(p *project, d *document) {
 		return
 	}
 	a.semanticTokensDropped(d)
+	a.dropColorDecorations(d)
 	a.clearDocumentInlayHints(d)
 	d.closeEditorView()
 	p.docs.list = slices.DeleteFunc(p.docs.list, func(x *document) bool { return x.id == d.id })
@@ -1046,6 +1049,7 @@ func (a *App) closeDocuments(p *project) {
 		a.flushCheckpoint(p, d, false)
 		d.find.dispose()
 		d.cancelAutoSave()
+		a.dropColorDecorations(d)
 		a.clearDocumentInlayHints(d)
 		d.closeEditorView()
 	}
