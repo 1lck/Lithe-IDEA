@@ -151,7 +151,12 @@ func (a *App) page(c ui.C) {
 		}
 		a.windowShortcuts(c)
 		a.noteEditorFocus(c.Canvas().Focused())
-		a.overlays(c)
+		// Declaration order alone cannot put app popups over native web views,
+		// which own the content layer. Viva also uses this band for native masks
+		// and pointer routing; its menus and dialogs stay above it.
+		ui.Overlay(c.Part("workbench-overlays"), ui.OverlaySpec{Band: ui.LayerPaneChrome, Bounds: c.Bounds()}).Children(func() {
+			a.overlays(c)
+		})
 		a.overlay.trappedFocus = !c.Canvas().TrappedFocusScope().IsZero()
 		ui.Toasts(c, &a.overlay.toaster)
 		a.notificationActed(c)

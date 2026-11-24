@@ -100,6 +100,32 @@ func TestPointerHoverRendersMarkdownRightUnderTheRow(t *testing.T) {
 	}
 }
 
+// Native views cover the page's own layer. Editor popups must therefore use
+// an overlay band as well as being declared after the workbench.
+func TestPointerHoverPaintsAboveTheNativeContentLayer(t *testing.T) {
+	f := newSemanticFixture(t)
+	f.h.app.semantics.hoverDelay = -1
+	f.openPointerHover(t, hoverResult(t, "Hover over native content"))
+	var editorLayer uint16
+	foundEditor, foundHover := false, false
+	for _, hit := range f.h.driver.Snapshot().Hits {
+		if hit.ID == f.d.hit {
+			editorLayer, foundEditor = hit.Layer, true
+		}
+	}
+	for _, hit := range f.h.driver.Snapshot().Hits {
+		if hit.Role == gfx.RoleMenu && hit.Bounds == f.h.app.semantics.hover.rect {
+			foundHover = true
+			if hit.Layer <= editorLayer {
+				t.Fatalf("hover layer %d does not stand above native content on editor layer %d", hit.Layer, editorLayer)
+			}
+		}
+	}
+	if !foundEditor || !foundHover {
+		t.Fatalf("editor present: %v, hover present: %v", foundEditor, foundHover)
+	}
+}
+
 func TestPointerHoverStaysOnItsSymbolAndPopup(t *testing.T) {
 	f := newSemanticFixture(t)
 	f.h.app.semantics.hoverDelay = -1
