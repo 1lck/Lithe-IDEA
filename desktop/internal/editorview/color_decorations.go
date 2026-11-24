@@ -1,6 +1,9 @@
 package editorview
 
 import (
+	"math"
+	"slices"
+	"sort"
 	"unicode/utf8"
 
 	"github.com/1lck/Lithe-IDEA/desktop/internal/editor/rope"
@@ -17,44 +20,53 @@ type ColorDecoration struct {
 	Light, Dark               string
 }
 
+// colorDecorationSpan is one provider color over the bytes [start, end) of the text. The offsets
+// are absolute, so an edit moves every span after it by one addition and no line has to be found
+// again, and the colors are an index into the palette, so the 10,000 brackets of a rainbow cycling
+// through a few colors keep a few pairs of colors and 12 bytes per bracket.
 type colorDecorationSpan struct {
-	line, start, end int
-	light, dark      gfx.Color
+	start, end uint32
+	color      uint32
 }
+
+// colorPair is a provider color as the light and as the dark theme draw it.
+type colorPair struct{ light, dark gfx.Color }
 
 // PreparedColorDecorations is a bounded foreground overlay tied to the immutable text it names.
 type PreparedColorDecorations struct {
-	text  rope.Rope
-	spans []colorDecorationSpan
+	text    rope.Rope
+	spans   []colorDecorationSpan
+	palette []colorPair
 }
 
-// PrepareColorDecorations converts UTF-16 ranges to byte offsets away from the window thread.
-// Core normally validates these ranges; malformed or stale coordinates are ignored defensively.
+// PrepareColorDecorations converts UTF-16 ranges to byte offsets and parses each distinct pair of
+// colors once, away from the window thread. Core sorts the ranges and makes them disjoint; ranges
+// that break that order, malformed colors and stale coordinates are ignored defensively, so the
+// spans the view paints from are always sorted and disjoint.
 func PrepareColorDecorations(text rope.Rope, decorations []ColorDecoration) PreparedColorDecorations {
 	prepared := PreparedColorDecorations{text: text}
-	if len(decorations) == 0 {
+	if len(decorations) == 0 || text.Len() > math.MaxUint32 {
 		return prepared
 	}
+	type colorKey struct{ light, dark string }
+	const invalid = math.MaxUint32
+	palette := make(map[colorKey]uint32)
 	prepared.spans = make([]colorDecorationSpan, 0, len(decorations))
-	line := -1
+	line, lineStart := -1, 0
 	lineText := ""
 	byteColumn, utf16Column := 0, 0
 	for _, decoration := range decorations {
-		if decoration.StartLine != decoration.EndLine || decoration.StartLine < 0 || decoration.StartLine >= text.LineCount() {
-			continue
-		}
-		light, lightOK := syntax.ParseColor(decoration.Light)
-		dark, darkOK := syntax.ParseColor(decoration.Dark)
-		if !lightOK || !darkOK {
+		if decoration.StartLine != decoration.EndLine || decoration.StartLine < max(line, 0) || decoration.StartLine >= text.LineCount() {
 			continue
 		}
 		if line != decoration.StartLine {
 			line = decoration.StartLine
-			start, end := text.LineStart(line), text.LineEnd(line)
-			if end > start && text.ByteAt(end-1) == '\r' {
+			lineStart = text.LineStart(line)
+			end := text.LineEnd(line)
+			if end > lineStart && text.ByteAt(end-1) == '\r' {
 				end--
 			}
-			lineText, _ = text.Substring(start, end)
+			lineText, _ = text.Substring(lineStart, end)
 			byteColumn, utf16Column = 0, 0
 		}
 		start, startOK := colorDecorationByteColumn(lineText, decoration.StartCharacter, &byteColumn, &utf16Column)
@@ -62,8 +74,23 @@ func PrepareColorDecorations(text rope.Rope, decorations []ColorDecoration) Prep
 		if !startOK || !endOK || end <= start {
 			continue
 		}
+		key := colorKey{decoration.Light, decoration.Dark}
+		color, seen := palette[key]
+		if !seen {
+			light, lightOK := syntax.ParseColor(decoration.Light)
+			dark, darkOK := syntax.ParseColor(decoration.Dark)
+			color = invalid
+			if lightOK && darkOK {
+				color = uint32(len(prepared.palette))
+				prepared.palette = append(prepared.palette, colorPair{light: uiColor(light), dark: uiColor(dark)})
+			}
+			palette[key] = color
+		}
+		if color == invalid {
+			continue
+		}
 		prepared.spans = append(prepared.spans, colorDecorationSpan{
-			line: line, start: start, end: end, light: uiColor(light), dark: uiColor(dark),
+			start: uint32(lineStart + start), end: uint32(lineStart + end), color: color,
 		})
 	}
 	return prepared
@@ -89,13 +116,14 @@ func colorDecorationByteColumn(text string, target int, byteColumn, utf16Column 
 	return *byteColumn, *utf16Column == target
 }
 
-// SetPreparedColorDecorations applies ranges only when they were prepared for the live text.
-// Painting reads the sorted byte spans from the visible rows and performs no color conversion.
+// SetPreparedColorDecorations applies ranges only when they were prepared for the live text, and
+// the view owns them from then on. Painting reads the sorted byte spans of the visible lines and
+// performs no color conversion.
 func (v *View) SetPreparedColorDecorations(prepared PreparedColorDecorations) bool {
 	if !v.text.Same(prepared.text) {
 		return false
 	}
-	v.decor.colors = prepared.spans
+	v.decor.colors, v.decor.colorPalette = prepared.spans, prepared.palette
 	v.decor.colorLine = nil
 	if v.cfg.Notify != nil {
 		v.cfg.Notify()
@@ -108,9 +136,57 @@ func (v *View) ClearColorDecorations() {
 	if len(v.decor.colors) == 0 {
 		return
 	}
-	v.decor.colors = nil
-	v.decor.colorLine = nil
+	v.clearColors()
 	if v.cfg.Notify != nil {
 		v.cfg.Notify()
 	}
+}
+
+// clearColors forgets the provider colors, as a replacement of the whole text does.
+func (v *View) clearColors() {
+	v.decor.colors, v.decor.colorPalette, v.decor.colorLine = nil, nil, nil
+}
+
+// shiftColors keeps the provider colors on the characters they colored when the bytes
+// [start, oldEnd) are replaced by newEnd-start bytes, until the provider answers for the new
+// text: a span before the edit stays, a span after it moves by the edit's length, and a span the
+// edit cuts or replaces goes, because what it colored changed. Typing in front of a bracket thus
+// carries the bracket's color along instead of showing every bracket uncolored until the answer.
+// It costs the spans after the edit, which Core bounds at 10,000.
+func (v *View) shiftColors(start, oldEnd, newEnd int) {
+	colors := v.decor.colors
+	if len(colors) == 0 {
+		return
+	}
+	v.decor.colorLine = nil
+	if v.text.Len() > math.MaxUint32 {
+		v.clearColors()
+		return
+	}
+	// The spans are sorted and disjoint, so their ends are sorted too: first is the first span
+	// that reaches past start and last the first that starts at or after the replaced bytes. An
+	// insertion strictly inside a span cuts it, and one at a span's start moves it.
+	first := sort.Search(len(colors), func(i int) bool { return int(colors[i].end) > start })
+	last := first + sort.Search(len(colors)-first, func(i int) bool { return int(colors[first+i].start) >= oldEnd })
+	colors = slices.Delete(colors, first, last)
+	if delta := newEnd - oldEnd; delta != 0 {
+		for i := first; i < len(colors); i++ {
+			colors[i].start = uint32(int(colors[i].start) + delta)
+			colors[i].end = uint32(int(colors[i].end) + delta)
+		}
+	}
+	if len(colors) == 0 {
+		v.clearColors()
+		return
+	}
+	v.decor.colors = colors
+}
+
+// lineColors is the provider colors of the line whose bytes are [start, end), found by binary
+// search so that a frame's cost does not grow with the colors of lines it does not show.
+func (v *View) lineColors(start, end int) []colorDecorationSpan {
+	colors := v.decor.colors
+	first := sort.Search(len(colors), func(i int) bool { return int(colors[i].start) >= start })
+	last := first + sort.Search(len(colors)-first, func(i int) bool { return int(colors[first+i].start) >= end })
+	return colors[first:last]
 }

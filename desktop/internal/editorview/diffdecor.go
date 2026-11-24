@@ -49,9 +49,14 @@ type decorState struct {
 	maxEnd []int
 	// inline is the inline highlights in cells, sorted by line.
 	inline []inlineSpan
-	// colors are foreground overrides prepared off-thread and sorted by absolute byte offset.
-	colors    []colorDecorationSpan
-	colorLine []colorDecorationSpan
+	// colors are the provider foreground overrides, prepared off-thread, sorted and disjoint by
+	// absolute byte offset; colorPalette holds the light and dark colors they index. colorLine
+	// is the colors of the line being painted, and colorBase that line's first byte, valid only
+	// within Paint.
+	colors       []colorDecorationSpan
+	colorPalette []colorPair
+	colorLine    []colorDecorationSpan
+	colorBase    int
 	// labelled says labels replace the line numbers, and labelCells is the widest of them.
 	labelled   bool
 	labels     []string

@@ -134,9 +134,10 @@ func (v *View) Paint(canvas *gfx.Canvas, area gfx.Rect, look Look) {
 			v.extraCells = v.extraSelectionCells(l, v.extraCells)
 		}
 		v.tokens = v.hl.Line(v.tokens[:0], line)
-		firstColor := sort.Search(len(v.decor.colors), func(i int) bool { return v.decor.colors[i].line >= line })
-		lastColor := sort.Search(len(v.decor.colors), func(i int) bool { return v.decor.colors[i].line > line })
-		v.decor.colorLine = v.decor.colors[firstColor:lastColor]
+		v.decor.colorLine = nil
+		if len(v.decor.colors) > 0 {
+			v.decor.colorLine, v.decor.colorBase = v.lineColors(l.start, l.start+l.size), l.start
+		}
 		lineHints := v.lineInlayHints(line)
 		for k, row := range wraps {
 			y := top + float32(k)*v.lineH
@@ -442,13 +443,19 @@ func (v *View) paintRow(canvas *gfx.Canvas, text string, base int, row wrapRow, 
 	// labelEnd the column after its last character; labelAt and labelTo are the bytes of the
 	// line it shows.
 	label, labelEnd, labelAt, labelTo := -1, 0, base, base
-	colors := v.decor.colorLine
-	colorAt := sort.Search(len(colors), func(i int) bool { return colors[i].end > row.at })
+	// colors are the provider colors of the line, and colorAt the first that ends after the row's
+	// start; their offsets are the text's, base of the line's.
+	colors, colorBase := v.decor.colorLine, v.decor.colorBase
+	colorAt := 0
+	if len(colors) > 0 {
+		colorAt = sort.Search(len(colors), func(i int) bool { return int(colors[i].end)-colorBase > row.at })
+	}
+	// look is how the characters up to lookEnd draw: lookEnd is the next byte where a token or a
+	// provider color starts or ends, so the style is resolved once per span, not per character.
+	var look runLook
+	lookEnd := -1
 	for i := row.at; i < stop; {
 		at := i
-		for colorAt < len(colors) && colors[colorAt].end <= at {
-			colorAt++
-		}
 		r, size := utf8.DecodeRuneInString(text[i-base:])
 		i += size
 		width := runeCells(r, cells)
@@ -476,26 +483,10 @@ func (v *View) paintRow(canvas *gfx.Canvas, text string, base int, row wrapRow, 
 			v.paintLabel(canvas, text[labelAt-base:labelTo-base], label, labelEnd, shift, y, textStyle)
 			label, labelAt, labelTo, run = cells, at, at, -1
 		}
-		for token+1 < len(v.tokens) && int(v.tokens[token+1].Start) <= at {
-			token++
+		if at >= lookEnd {
+			look, lookEnd, token, colorAt = v.runLookAt(at, token, colors, colorAt, defaultStyle)
 		}
-		style := defaultStyle
-		if token < len(v.tokens) {
-			style = v.theme.Style(v.tokens[token].Name)
-		}
-		color := uiColor(style.Foreground)
-		if colorAt < len(colors) && colors[colorAt].start <= at {
-			if v.themeDark {
-				color = colors[colorAt].dark
-			} else {
-				color = colors[colorAt].light
-			}
-		}
-		weight := float32(0)
-		if style.Font&syntax.Bold != 0 {
-			weight = gfx.WeightBold
-		}
-		italic := style.Font&syntax.Italic != 0
+		color, weight, italic := look.color, look.weight, look.italic
 		ascii := r < 0x80
 		if ascii && runASCII && run >= 0 &&
 			v.runs[run].Color == color && v.runs[run].Weight == weight && v.runs[run].Italic == italic {
@@ -512,8 +503,7 @@ func (v *View) paintRow(canvas *gfx.Canvas, text string, base int, row wrapRow, 
 			}
 			v.runs = append(v.runs, gfx.TextRun{
 				Column: int32(cells - label), Bytes: int32(bytes), Cells: int32(width),
-				Color: color, Weight: weight, Italic: italic, Underline: style.Font&syntax.Underline != 0,
-				Strike: style.Font&syntax.Strikethrough != 0,
+				Color: color, Weight: weight, Italic: italic, Underline: look.underline, Strike: look.strike,
 			})
 			run, runASCII = len(v.runs)-1, ascii
 		}
@@ -525,6 +515,54 @@ func (v *View) paintRow(canvas *gfx.Canvas, text string, base int, row wrapRow, 
 		}
 	}
 	v.paintLabel(canvas, text[labelAt-base:labelTo-base], label, labelEnd, shift, y, textStyle)
+}
+
+// runLook is how one span of a row draws: its token's style with a provider's color laid over.
+type runLook struct {
+	color                     gfx.Color
+	weight                    float32
+	italic, underline, strike bool
+}
+
+// runLookAt resolves the look of the character at byte at of the line and the byte where it next
+// changes. token and colorAt only move forward, as the row's characters do.
+func (v *View) runLookAt(at, token int, colors []colorDecorationSpan, colorAt int, defaultStyle syntax.Style) (runLook, int, int, int) {
+	for token+1 < len(v.tokens) && int(v.tokens[token+1].Start) <= at {
+		token++
+	}
+	style := defaultStyle
+	if token < len(v.tokens) {
+		style = v.theme.Style(v.tokens[token].Name)
+	}
+	end := math.MaxInt
+	if token+1 < len(v.tokens) {
+		end = int(v.tokens[token+1].Start)
+	}
+	look := runLook{
+		color: uiColor(style.Foreground), italic: style.Font&syntax.Italic != 0,
+		underline: style.Font&syntax.Underline != 0, strike: style.Font&syntax.Strikethrough != 0,
+	}
+	if style.Font&syntax.Bold != 0 {
+		look.weight = gfx.WeightBold
+	}
+	base := v.decor.colorBase
+	for colorAt < len(colors) && int(colors[colorAt].end)-base <= at {
+		colorAt++
+	}
+	if colorAt < len(colors) {
+		span := colors[colorAt]
+		if start := int(span.start) - base; start <= at {
+			pair := v.decor.colorPalette[span.color]
+			look.color = pair.light
+			if v.themeDark {
+				look.color = pair.dark
+			}
+			end = min(end, int(span.end)-base)
+		} else {
+			end = min(end, start)
+		}
+	}
+	return look, end, token, colorAt
 }
 
 // replacementChar is what a byte that is not UTF-8 shows, as range over a string reads it.

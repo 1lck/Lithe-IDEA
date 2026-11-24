@@ -48,8 +48,8 @@
     ]
   },
   "owner": "Extensions",
-  "verification": "用默认构建固定的 Core 修订验证 colorDecorations 能力声明，并用测试内联的 dev.lithe.test.* 合成提供者执行注册、版本化请求、多个来源重叠合并、撤回与后端重新注册。检查前景色叠加时保留 LSP 字体样式、选区和诊断，以及明暗主题切换直接使用对应色表。验证编辑、撤销、重做、关闭文档或停用提供者后旧结果不会复活。运行 TestVisualColorDecorations 生成并检查中英文、明暗主题 PNG，再运行相同规模的编辑器性能前后对比。目标平台原生安装和完整插件验收另行执行，未完成时保持 pending。",
-  "notes": "Viva 已路由 definition、hover、completion、codeLens、semanticTokens、documentLink 和独立 colorDecorations。foldingRange 尚未路由。语言功能保持 LSP 优先，颜色层独立组合。默认构建固定到包含 Core #188 的修订，由 Core 管理颜色图例、范围、数量、重叠和期限规则。宿主在后台准备原生坐标，按文档版本及注册所有权应用，编辑与撤回立即清空。颜色读取与绘制经局部零分配回归验证。工作区后端初始化后补发最新上下文修订，注册和撤回刷新已打开的文档。Windows 离屏检查和各平台原生验收分别记录。",
+  "verification": "用默认构建固定的 Core 修订验证 colorDecorations 能力声明，并用测试内联的 dev.lithe.test.* 合成提供者执行注册、版本化请求、多个来源重叠合并、撤回与后端重新注册。检查前景色叠加时保留 LSP 字体样式、选区和诊断，以及明暗主题切换直接使用对应色表。验证编辑、撤销、重做时颜色跟随文字平移、按键不重复查询提供者，关闭文档或停用提供者后旧结果不会复活。运行 TestVisualColorDecorations 生成并检查中英文、明暗主题 PNG，再运行相同规模的编辑器性能前后对比。目标平台原生安装和完整插件验收另行执行，未完成时保持 pending。",
+  "notes": "Viva 已路由 definition、hover、completion、codeLens、semanticTokens、documentLink 和独立 colorDecorations。foldingRange 尚未路由。语言功能保持 LSP 优先，颜色层独立组合。默认构建固定到包含 Core #188 的修订，由 Core 管理颜色图例、范围、数量、重叠和期限规则。宿主在后台准备原生坐标，按文档版本、请求代数及注册所有权应用。编辑、撤销和重做会平移已有颜色，停顿后再请求；撤回、改名与磁盘重新加载立即清空。颜色读取与绘制经局部零分配回归验证。工作区后端初始化后补发最新上下文修订，注册和撤回刷新已打开的文档。Windows 离屏检查和各平台原生验收分别记录。",
   "legacy": {
     "revision": "5a54c41aa37a4e6e6b68918a4b05765b9dd07a36",
     "macos": {

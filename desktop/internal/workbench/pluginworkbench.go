@@ -45,9 +45,7 @@ func (w pluginWorkbench) EditorColorDecorationsChanged(root string) {
 		if err != nil {
 			return
 		}
-		for _, d := range p.docs.list {
-			a.scheduleColorDecorations(p, d, 0)
-		}
+		a.colorProvidersChanged(p)
 	})
 }
 
