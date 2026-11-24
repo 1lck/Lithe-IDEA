@@ -238,13 +238,14 @@ func remoteRunDirectory(remoteRoot, directory string) (string, error) {
 }
 
 // writeScript writes a script saved as text where Core planned it, which must be a new file
-// directly in the run's temporary folder. The host runs it through its interpreter, so it needs
-// no execute permission.
+// directly in the run's temporary folder. Passing start.scratch as the write boundary refuses
+// descendant symlinks inside the temporary folder. The host runs it through its interpreter, so
+// it needs no execute permission.
 func (h remoteRunHost) writeScript(ctx context.Context, start remoteRunStart, script core.RunInlineScript) error {
 	if path.Dir(script.Path) != start.scratch {
 		return errors.New("inline script is outside its temporary folder")
 	}
-	_, saved, err := h.kernel.RemoteWriteFile(ctx, start.session.id, script.Path, []byte(script.Content), nil)
+	_, saved, err := h.kernel.RemoteWriteFile(ctx, start.session.id, script.Path, []byte(script.Content), nil, start.scratch)
 	if err != nil {
 		return h.failure(start.session.id, err)
 	}
