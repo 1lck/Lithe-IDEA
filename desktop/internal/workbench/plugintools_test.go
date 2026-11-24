@@ -11,7 +11,9 @@ import (
 	"github.com/1lck/Lithe-IDEA/desktop/internal/pluginicons"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/pluginservice"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/pluginstate"
+	"github.com/1lck/Lithe-IDEA/desktop/internal/settingswindow"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/store"
+	"github.com/vivaui/viva/app"
 )
 
 const (
@@ -62,8 +64,14 @@ func TestPluginToolWindowUsesPackageIconAcrossThemes(t *testing.T) {
 // on the right and a text window at the bottom, and opens a project.
 func webPanelHarness(t *testing.T) (*harness, *store.Store) {
 	t.Helper()
+	return webPanelHarnessWithDriver(t, "dark", "zh-Hans", nil)
+}
+
+// webPanelHarnessWithDriver lets visual tests use the same fixture and cleanup.
+func webPanelHarnessWithDriver(t *testing.T, theme, language string, open func(app.Config) (*app.Driver, func(), error)) (*harness, *store.Store) {
+	t.Helper()
 	dir := t.TempDir()
-	if err := os.WriteFile(filepath.Join(dir, settingsFile), []byte(`{"theme":"dark"}`), 0o600); err != nil {
+	if err := os.WriteFile(filepath.Join(dir, settingsFile), []byte(`{"theme":"`+theme+`"}`), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	preferences := store.At(dir)
@@ -84,13 +92,19 @@ func webPanelHarness(t *testing.T) (*harness, *store.Store) {
 	if err := pluginstate.New(preferences).SetEnabled(webPanelPlugin, true); err != nil {
 		t.Fatal(err)
 	}
-	h := newHarnessWithOptions(t, Options{
+	options := Options{
 		Kernel:       &testKernel{Client: core.NewClient()},
 		PluginKernel: &testKernel{Client: core.NewClient()},
 		PluginRoot:   pluginRoot,
 		Store:        preferences,
-		Languages:    []string{"zh-Hans"},
-	})
+		Languages:    []string{language},
+	}
+	var h *harness
+	if open == nil {
+		h = newHarnessWithOptions(t, options)
+	} else {
+		h = newHarnessWithDriver(t, options, open)
+	}
 	h.open(t.TempDir())
 	h.app.reloadPluginLanguages()
 	h.settle()
@@ -119,8 +133,7 @@ func TestPluginToolWindowsDockAndShowTheirContent(t *testing.T) {
 	if !h.showsWrapped("正在打开…") {
 		t.Fatal("the web window does not say it is opening")
 	}
-	h.app.webReady = true
-	h.app.invalidator.Invalidate()
+	h.config.Web.OnReady()
 	h.settle()
 	if page := h.app.pluginPages[webPanelWindow]; page == nil || page.failure == "" || page.page != nil {
 		t.Fatalf("page = %+v, want a failure without an open page", page)
@@ -191,4 +204,88 @@ func (h *harness) chromeAction(action core.ChromeAction) {
 	h.app.reduceChrome(action)
 	h.app.invalidator.Invalidate()
 	h.settle()
+}
+
+// A window initializes its WebHost once; project tabs keep their own page objects and bridge
+// state. The headless engine cannot open a WebView, so each page reports that failure itself.
+func TestPluginToolWindowsKeepWebPagesPerProjectTab(t *testing.T) {
+	const windowID = webPanelPlugin + ".window"
+	for _, readyBeforeTab := range []bool{true, false} {
+		name := "ready-after-tab"
+		if readyBeforeTab {
+			name = "ready-before-tab"
+		}
+		t.Run(name, func(t *testing.T) {
+			h, _ := webPanelHarness(t)
+			t.Cleanup(h.disposeTabs)
+			h.app.settings.ProjectOpenDestination = settingswindow.ProjectOpenThisWindow
+			if readyBeforeTab {
+				h.config.Web.OnReady()
+			}
+			h.chromeAction(core.SetChromeOpen(webPanelWindow, true))
+			firstPage := h.app.pluginPages[webPanelWindow]
+			if readyBeforeTab && (firstPage == nil || firstPage.failure == "") {
+				t.Fatal("the first project's page did not leave the loading state")
+			}
+			firstProject := h.app.project
+			firstHost := &pluginPageHost{plugins: h.app.plugins, project: firstProject, stateLimit: 128}
+			if err := firstHost.SetState(t.Context(), webPanelPlugin, windowID, []byte(`{"tab":"alpha"}`)); err != nil {
+				t.Fatal(err)
+			}
+
+			h.app.openProject(t.TempDir())
+			h.settleTabs()
+			second := h.app.sessions.active
+			if second == h.app {
+				t.Fatal("the second project did not open in a new tab")
+			}
+			second.reduceChrome(core.SetChromeOpen(webPanelWindow, true))
+			second.invalidator.Invalidate()
+			h.settleTabs()
+			if !readyBeforeTab {
+				if !h.showsWrapped("正在打开…") || second.pluginPages[webPanelWindow] != nil {
+					t.Fatal("the page did not wait for the window's web host")
+				}
+				h.config.Web.OnReady()
+				h.settleTabs()
+			}
+			secondPage := second.pluginPages[webPanelWindow]
+			if h.showsWrapped("正在打开…") || secondPage == nil || secondPage.failure == "" || secondPage.page != nil {
+				t.Fatalf("second project's page = %+v, want the headless engine's unsupported failure", secondPage)
+			}
+			if (firstPage != nil && firstPage == secondPage) || secondPage.project != second.project || h.app.pluginPages[webPanelWindow] != firstPage {
+				t.Fatal("the second project reused or reassigned the first project's page")
+			}
+			if !h.showsWrapped("无法显示此窗口") {
+				t.Fatal("the web window did not report the headless engine's failure")
+			}
+			secondHost := &pluginPageHost{plugins: second.plugins, project: second.project, stateLimit: 128}
+			if state, err := secondHost.State(t.Context(), webPanelPlugin, windowID); err != nil || len(state) != 0 {
+				t.Fatalf("the second project inherited another project's page state: %s, %v", state, err)
+			}
+			if err := secondHost.SetState(t.Context(), webPanelPlugin, windowID, []byte(`{"tab":"beta"}`)); err != nil {
+				t.Fatal(err)
+			}
+			for _, projectState := range []struct {
+				host *pluginPageHost
+				want string
+			}{{firstHost, `{"tab":"alpha"}`}, {secondHost, `{"tab":"beta"}`}} {
+				if state, err := projectState.host.State(t.Context(), webPanelPlugin, windowID); err != nil || string(state) != projectState.want {
+					t.Fatalf("project page state = %s, %v; want %s", state, err, projectState.want)
+				}
+			}
+
+			h.app.sessions.activate(h.app)
+			h.settleTabs()
+			if page := h.app.pluginPages[webPanelWindow]; page == nil || page == secondPage || page.project != firstProject || (firstPage != nil && page != firstPage) {
+				t.Fatal("switching projects changed the first project's page")
+			}
+			second.reduceChrome(core.SetChromeOpen(webPanelWindow, false))
+			h.app.sessions.activate(second)
+			h.settleTabs()
+			if len(second.pluginPages) != 0 || h.app.pluginPages[webPanelWindow] == nil {
+				t.Fatal("hiding one project's web page changed another project's page")
+			}
+		})
+	}
 }
