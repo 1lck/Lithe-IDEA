@@ -214,7 +214,7 @@ func TestEditorEditsCarryVersionAndMapFailures(t *testing.T) {
 
 func TestSnapshotRefusesWhatExceedsTheBudget(t *testing.T) {
 	service, workbench, workspace, _ := openWorkbenchService(t)
-	workbench.snapshot = strings.Repeat("x", maxSnapshotBytes+1)
+	workbench.snapshot = strings.Repeat("x", DocumentSnapshotMaxBytes+1)
 	_, refusal := respond(t, service, "a", "documents/getSnapshot", `{`+contextJSONOf(workspace)+`,"documentID":"d1"}`)
 	if refusal == nil || refusal.Code != CodeLimitExceeded {
 		t.Fatalf("oversize snapshot = %+v", refusal)

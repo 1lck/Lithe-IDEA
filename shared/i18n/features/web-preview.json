@@ -1,0 +1,59 @@
+{
+  "schemaVersion": 1,
+  "messages": [
+    {
+      "id": "desktop.htmlPreview.crashed",
+      "description": "HTML and interactive SVG preview: shown when the web view content process crashed",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.htmlPreview.stopped",
+      "description": "HTML and interactive SVG preview: shown when the web view content process was stopped by the system or became unresponsive",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.htmlPreview.loadFailed",
+      "description": "HTML and interactive SVG preview: shown when loading the page failed",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "reason": "string"
+      }
+    },
+    {
+      "id": "desktop.svg.interactive",
+      "description": "SVG preview bar: toggle button enabling native interactive SVG mode (hover, click, links, and scripts)",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.svg.interactiveUnavailable",
+      "description": "SVG preview bar: tooltip when interactive SVG mode cannot open isolated web pages",
+      "platforms": [
+        "desktop"
+      ]
+    }
+  ],
+  "locales": {
+    "en-US": {
+      "desktop.htmlPreview.crashed": "This preview stopped unexpectedly. Reload to continue.",
+      "desktop.htmlPreview.stopped": "This preview was stopped. Reload to restore it.",
+      "desktop.htmlPreview.loadFailed": "Could not load this page: {reason}",
+      "desktop.svg.interactive": "Interactive mode (enable SVG hover, click, links, and scripts)",
+      "desktop.svg.interactiveUnavailable": "Interactive mode is unavailable because isolated web pages could not be opened."
+    },
+    "zh-CN": {
+      "desktop.htmlPreview.crashed": "此预览意外停止。请重新加载以继续。",
+      "desktop.htmlPreview.stopped": "此预览已停止。请重新加载以恢复。",
+      "desktop.htmlPreview.loadFailed": "无法加载此页面：{reason}",
+      "desktop.svg.interactive": "交互模式（启用 SVG 悬停、点击、链接与脚本交互）",
+      "desktop.svg.interactiveUnavailable": "交互模式不可用，无法打开隔离网页视图。"
+    }
+  }
+}

@@ -29,13 +29,13 @@ const (
 	methodWindowError          = pluginhost.MethodPrefix + "window/showError"
 	methodBrowserOpenExternal  = pluginhost.MethodPrefix + "browser/openExternal"
 
-	// maxSnapshotBytes is what one snapshot may carry: it leaves room for
+	// DocumentSnapshotMaxBytes is what one snapshot may carry: it leaves room for
 	// worst-case JSON escaping under the 1 MiB result budget.
-	maxSnapshotBytes = 128 * 1024
-	maxEditsPerBatch = 1000
-	maxMessageText   = 2000
-	maxMessageAction = 40
-	maxMessageCount  = 3
+	DocumentSnapshotMaxBytes = 128 * 1024
+	maxEditsPerBatch         = 1000
+	maxMessageText           = 2000
+	maxMessageAction         = 40
+	maxMessageCount          = 3
 )
 
 // Message limits per plugin: the contract allows 5 messages in 10 seconds and 3
@@ -237,11 +237,11 @@ func (s *Service) handleDocumentsSnapshot(ctx context.Context, params json.RawMe
 	if refusal != nil {
 		return nil, refusal
 	}
-	summary, text, err := s.workbench.Snapshot(ctx, workspace.Path, request.DocumentID, maxSnapshotBytes)
+	summary, text, err := s.workbench.Snapshot(ctx, workspace.Path, request.DocumentID, DocumentSnapshotMaxBytes)
 	if err != nil {
 		return nil, hostFailureOf(err)
 	}
-	if len(text) > maxSnapshotBytes {
+	if len(text) > DocumentSnapshotMaxBytes {
 		return nil, failure(CodeLimitExceeded, "The document is larger than a snapshot may be.")
 	}
 	return marshalResult(map[string]any{"document": summary, "text": text})

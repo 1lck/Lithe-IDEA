@@ -441,7 +441,10 @@ func (f *semanticFixture) placeCompletionCaret(t *testing.T, line int) gfx.Rect 
 	if err := os.WriteFile(f.d.path, content, 0o600); err != nil {
 		t.Fatal(err)
 	}
-	f.d.view.ShowContent(editorview.Prepare(content))
+	// The file changed on disk: Reload tells the language server, which ShowContent does not.
+	if !f.d.view.Reload(editorview.Prepare(content)) {
+		t.Fatal("the document did not take the file's new text")
+	}
 	f.h.settle()
 	f.d.view.GoToNavigation(line, 5, false)
 	f.h.app.invalidator.Invalidate()
