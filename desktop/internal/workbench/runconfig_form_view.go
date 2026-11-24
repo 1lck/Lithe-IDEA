@@ -293,7 +293,7 @@ func (a *App) drawRunConfigFormFields(c ui.C, p *project, f *runConfigForm, read
 			}
 		})
 		for _, field := range header {
-			a.drawRunConfigFormError(c.Key(field.ID), f, field.ID, 0)
+			a.drawRunConfigFormError(c, f, field.ID, 0)
 		}
 		ui.Divider(c)
 	}
@@ -305,12 +305,12 @@ func (a *App) drawRunConfigFormFields(c ui.C, p *project, f *runConfigForm, read
 		title, _ := runConfigFieldTitle(language, field)
 		ui.Column(k).FillWidth().Gap(4).Children(func() {
 			a.drawRunConfigBeforeLaunch(k, p, f.beforeLaunch, title, runConfigFieldHelp(language, f.kind.provider, field), field.Candidates, field.Tasks, ready, func() { a.runConfigFormEdited(p, f) })
-			a.drawRunConfigFormError(k, f, field.ID, 0)
+			a.drawRunConfigFormError(c, f, field.ID, 0)
 		})
 	}
 	for _, wrong := range f.fields {
 		if !drawn[wrong.ID] {
-			a.drawRunConfigFormError(c.Key(wrong.ID), f, wrong.ID, 0)
+			a.drawRunConfigFormError(c, f, wrong.ID, 0)
 		}
 	}
 }
@@ -530,7 +530,7 @@ func (a *App) drawRunConfigFormError(c ui.C, f *runConfigForm, field string, ind
 	if !ok {
 		return
 	}
-	ui.Row(c.Part("error")).FillWidth().PadSides(0, 0, 0, indent).Children(func() {
+	ui.Row(c.Key("error:"+field)).FillWidth().PadSides(0, 0, 0, indent).Children(func() {
 		ui.Paragraph(c, runConfigFieldError(a.language(), code), 3).FontSize(a.theme.Metrics.FontSizeS).Color(a.theme.Danger)
 	})
 }

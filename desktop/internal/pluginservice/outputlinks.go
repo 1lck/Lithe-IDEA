@@ -5,12 +5,10 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"path/filepath"
 	"time"
 
 	"github.com/1lck/Lithe-IDEA/desktop/internal/core"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/pluginmanager"
-	"github.com/1lck/Lithe-IDEA/desktop/internal/pluginpkg"
 )
 
 // outputLinkResolveTimeout bounds a matcher's resolve function. The user is
@@ -24,18 +22,17 @@ const outputLinkResolveTimeout = 10 * time.Second
 // only data to hand back. A plugin that declares no matcher is left out, and a
 // broken manifest is reported without hiding the others.
 func (s *Service) OutputLinkSources(ctx context.Context, entries []pluginmanager.Entry) ([]core.OutputLinkSource, error) {
+	snapshot, readErr := s.ReadInstalled(ctx, entries)
+	contributions, err := snapshot.OutputLinkSources()
+	return contributions, errors.Join(readErr, err)
+}
+
+// OutputLinkSources reads its contribution sections from the same installed bytes.
+func (snapshot InstalledSnapshot) OutputLinkSources() ([]core.OutputLinkSource, error) {
 	var sources []core.OutputLinkSource
 	var failures []error
-	selected, selectionErr := s.selectInstalled(ctx, entries, false)
-	if selectionErr != nil {
-		failures = append(failures, selectionErr)
-	}
-	for _, entry := range selected {
-		manifest, err := readBounded(filepath.Join(entry.Installed.Path, pluginpkg.ManifestFile), MaxManifestBytes)
-		if err != nil {
-			failures = append(failures, fmt.Errorf("%s: %w", entry.Installed.ID, err))
-			continue
-		}
+	for _, installed := range snapshot.manifests {
+		entry, manifest := installed.entry, installed.manifest
 		var declared struct {
 			Matchers []core.OutputLinkMatcher `json:"outputLinkMatchers"`
 		}

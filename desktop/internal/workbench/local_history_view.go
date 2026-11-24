@@ -52,10 +52,10 @@ func (a *App) drawLocalHistory(c ui.C, p *project) {
 						}
 						for i, line := range strings.SplitN(h.preview, "\n", localHistoryPreviewLines+1) {
 							if i == localHistoryPreviewLines {
-								ui.Text(c.KeyInt(i), "…").Muted()
+								ui.Text(c, "…").Muted()
 								break
 							}
-							ui.Text(c.KeyInt(i), line).Mono().FontSize(12).Color(a.colors.Text)
+							ui.Text(c, line).Mono().FontSize(12).Color(a.colors.Text)
 						}
 					})
 				})

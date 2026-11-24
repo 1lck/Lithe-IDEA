@@ -7,13 +7,11 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"path/filepath"
 
 	"github.com/1lck/Lithe-IDEA/desktop/internal/core"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/editor/syntax"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/pluginhost"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/pluginmanager"
-	"github.com/1lck/Lithe-IDEA/desktop/internal/pluginpkg"
 )
 
 const (
@@ -47,17 +45,22 @@ var ErrPackageRead = errors.New("plugin package cannot be read")
 // summarises the plugins whose declarations could not be read, and the others
 // still contribute.
 func (s *Service) LoadLanguages(ctx context.Context, entries []pluginmanager.Entry) ([]syntax.PluginLanguage, error) {
+	snapshot, readErr := s.ReadInstalled(ctx, entries)
+	languages, err := s.LoadLanguagesFromSnapshot(ctx, snapshot)
+	return languages, errors.Join(readErr, err)
+}
+
+// LoadLanguagesFromSnapshot reads optional grammar resources while using the
+// manifest already captured by the reload. Grammar decoding remains in Core.
+func (s *Service) LoadLanguagesFromSnapshot(ctx context.Context, snapshot InstalledSnapshot) ([]syntax.PluginLanguage, error) {
 	if s == nil || s.kernel == nil {
 		return nil, fmt.Errorf("%w: no kernel", ErrAssembly)
 	}
 	var languages []syntax.PluginLanguage
 	var failures []error
-	selected, selectionErr := s.selectInstalled(ctx, entries, false)
-	if selectionErr != nil {
-		failures = append(failures, selectionErr)
-	}
-	for _, entry := range selected {
-		loaded, err := s.pluginLanguages(ctx, entry.Installed.Path)
+	for _, installed := range snapshot.manifests {
+		entry := installed.entry
+		loaded, err := s.pluginLanguages(ctx, entry.Installed.Path, installed.manifest)
 		if err != nil {
 			failures = append(failures, fmt.Errorf("%s: %w", entry.Installed.ID, err))
 		}
@@ -86,11 +89,7 @@ type languageDeclaration struct {
 }
 
 // pluginLanguages reads one installed package's language contributions.
-func (s *Service) pluginLanguages(ctx context.Context, directory string) ([]syntax.PluginLanguage, error) {
-	manifest, err := readBounded(filepath.Join(directory, pluginpkg.ManifestFile), MaxManifestBytes)
-	if err != nil {
-		return nil, err
-	}
+func (s *Service) pluginLanguages(ctx context.Context, directory string, manifest json.RawMessage) ([]syntax.PluginLanguage, error) {
 	var declaration languageDeclaration
 	if err := json.Unmarshal(manifest, &declaration); err != nil {
 		return nil, fmt.Errorf("%w: %w", ErrPackageRead, err)

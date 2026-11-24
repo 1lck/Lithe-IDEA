@@ -9,6 +9,7 @@ import (
 
 	"github.com/1lck/Lithe-IDEA/desktop/internal/core"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/i18n"
+	"github.com/1lck/Lithe-IDEA/desktop/internal/pluginservice"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/store"
 	"github.com/vivaui/viva/app"
 	"github.com/vivaui/viva/headless"
@@ -74,6 +75,22 @@ func TestVisualRunConsoleWrap(t *testing.T) {
 				t.Fatal("a click on the wrap switch did not turn it on")
 			}
 			capture("run-console-wrapped")
+			for _, sample := range []pluginservice.ProcessSample{
+				{CPUPercent: 12, MemoryBytes: 64 << 20},
+				{CPUPercent: 42, MemoryBytes: 76 << 20},
+				{CPUPercent: 34, MemoryBytes: 84 << 20},
+				{CPUPercent: 58, MemoryBytes: 108 << 20},
+				{CPUPercent: 25, MemoryBytes: 96 << 20},
+			} {
+				run.addSample(sample)
+			}
+			h.app.invalidator.Invalidate()
+			capture("run-performance-expanded")
+			h.clickNamed(i18n.Shared(h.app.language(), "native.collapseSection"))
+			if !h.app.settings.RunPerformanceCollapsed {
+				t.Fatal("the graph did not collapse")
+			}
+			capture("run-performance-collapsed")
 		})
 	}
 }

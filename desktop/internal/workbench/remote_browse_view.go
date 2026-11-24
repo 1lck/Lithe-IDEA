@@ -40,8 +40,8 @@ func (a *App) remoteBrowserView(c ui.C, b *remoteBrowser) {
 				c.After(a.goRemoteFolder)
 			}
 		})
-		a.remoteFolderShortcuts(k.Part("shortcuts"), language, b)
-		a.remoteFolderCrumbs(k.Part("crumbs"), b)
+		a.remoteFolderShortcuts(k, language, b)
+		a.remoteFolderCrumbs(k, b)
 		if b.readErr != "" {
 			a.remoteNotice(k.Part("read"), icons.CircleAlert, a.theme.Danger, b.readErr)
 		}
@@ -57,7 +57,7 @@ func (a *App) remoteBrowserView(c ui.C, b *remoteBrowser) {
 			a.remoteFolderList(k.Part("folders"), b)
 		})
 		if text := remoteSkippedText(language, b.skipped); text != "" {
-			ui.Paragraph(k.Part("skipped"), text, 2).FontSize(a.theme.Metrics.FontSizeS).Color(a.colors.Subtle)
+			ui.Paragraph(c, text, 2).FontSize(a.theme.Metrics.FontSizeS).Color(a.colors.Subtle)
 		}
 	})
 }
@@ -132,7 +132,7 @@ func (a *App) remoteFolderShortcuts(c ui.C, language i18n.Language, b *remoteBro
 	if len(shortcuts) == 0 {
 		return
 	}
-	ui.Row(c).FillWidth().Gap(6).Items(ui.Center).Children(func() {
+	ui.Row(c.Part("shortcuts")).FillWidth().Gap(6).Items(ui.Center).Children(func() {
 		ui.Text(c, i18n.Shared(language, "desktop.remote.browse.shortcuts")).FontSize(a.theme.Metrics.FontSizeS).Color(a.colors.Subtle).Shrink(0)
 		for i, item := range shortcuts {
 			sc := c.Part("shortcut" + strconv.Itoa(i))
@@ -170,7 +170,7 @@ func (a *App) remoteFolderCrumbs(c ui.C, b *remoteBrowser) {
 	if b.dir == "/" {
 		parts = nil
 	}
-	ui.Row(c).FillWidth().Gap(2).Items(ui.Center).Children(func() {
+	ui.Row(c.Part("crumbs")).FillWidth().Gap(2).Items(ui.Center).Children(func() {
 		crumb := func(i int, label, dir string) {
 			if i == len(parts) {
 				ui.Text(c, label).FontSize(a.theme.Metrics.FontSizeS).Weight(gfx.WeightSemibold).Ellipsis().Shrink(1).MinWidth(0)

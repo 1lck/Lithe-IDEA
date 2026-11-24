@@ -36,7 +36,7 @@ func (a *App) statusPathView(c ui.C) {
 			for rest := crumbs.rel; rest != ""; {
 				name, after, folder := strings.Cut(rest, "/")
 				rest = after
-				ui.Icon(k, icons.ChevronRight).Size(chromeMarkSize, chromeMarkSize).Shrink(0).Color(a.colors.Subtle)
+				ui.Icon(c, icons.ChevronRight).Size(chromeMarkSize, chromeMarkSize).Shrink(0).Color(a.colors.Subtle)
 				switch {
 				case folder:
 				case crumbs.dir:

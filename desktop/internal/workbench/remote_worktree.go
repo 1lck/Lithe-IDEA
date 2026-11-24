@@ -28,9 +28,10 @@ import (
 // remoteReopen is a host folder the connection window connects to and opens once it has read its
 // saved list: a worktree of a remote workspace, over the connection the workspace was opened over.
 type remoteReopen struct {
-	// connectionID is the saved connection, or the WSL distribution's identity when wsl is set.
+	// connectionID names the workspace, including the container when there is one.
 	connectionID string
-	wsl          *core.WSLConnection
+	host         remoteHost
+	name         string
 	// folder is the host folder, an absolute POSIX path.
 	folder string
 }
@@ -65,11 +66,7 @@ func (a *App) openRemoteHostFolder(p *project, folder string) {
 		// log-exempt: 连接窗口是模态窗口，打开时用户点不到工作树；这里只防重复打开。
 		return
 	}
-	reopen := &remoteReopen{connectionID: r.connectionID, folder: folder}
-	if r.host.wsl != nil {
-		wsl := *r.host.wsl
-		reopen.wsl = &wsl
-	}
+	reopen := &remoteReopen{connectionID: r.connectionID, host: r.host, name: r.name, folder: folder}
 	a.openRemote(surfaceButton)
 	a.remote.reopen = reopen
 }
@@ -80,9 +77,12 @@ func (a *App) openRemoteHostFolder(p *project, folder string) {
 func (a *App) connectRemoteReopen(reopen *remoteReopen) {
 	r := &a.remote
 	switch {
-	case reopen.wsl != nil:
-		r.selectRemoteWSL(reopen.wsl.Distribution)
-		r.wsl.user.SetText(reopen.wsl.User)
+	case reopen.host.container != nil && (!reopen.host.overSSH() || r.entry(strings.TrimSuffix(reopen.connectionID, "/"+reopen.host.container.Identity())) != nil):
+		a.connectRemoteTo(core.SavedRemoteConnection{ID: reopen.connectionID, Name: reopen.name}, reopen.host, reopen.folder)
+		return
+	case reopen.host.wsl != nil:
+		r.selectRemoteWSL(reopen.host.wsl.Distribution)
+		r.wsl.user.SetText(reopen.host.wsl.User)
 	case r.entry(reopen.connectionID) != nil:
 		r.selectEntry(reopen.connectionID)
 	default:

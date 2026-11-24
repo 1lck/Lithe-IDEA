@@ -362,7 +362,21 @@ PINNED_CORE_REPOSITORY="https://github.com/Lithe-IDEA/Lithe-core-rust.git"
 # server starts is asked again when a setting that applies immediately changes. The sources are
 # the same as #177's branch commit 33e6b60 that the desktop pinned before; only the protocol
 # changelog and the plugin docs differ.
-PINNED_CORE_REVISION="4880022be16c862c6faa6ac18e13c0de61432177"
+# Lithe-core-rust main at aadf63d: #184 makes Core the owner of the API-11 file changes. It checks
+# the params of the seven methods strictly before routing them (one spelling of a path, the
+# target in the same root and not inside the source, the fields of each kind), adds kind
+# "symlink" with linkTarget to workspace/create, and adds the kernel commands
+# workspace.createEntry, renameEntry, copyEntry and resolveEntry with the codes entry_not_found
+# and entry_exists, which the desktop calls for a plugin's create, rename, copy, trash and
+# saveAs (workbench/pluginfilechanges.go).
+# The plugin delta branch (#187) includes current Core main, including the
+# built-in file association catalog and plans (#186). It adds the pinned
+# companion index and verifies and reconstructs ZIPs for marketplace updates.
+# Desktop integration of Core #190 (API-06/07/08) at 095d013 with the existing
+# #187 delta dependency at 076ce04. Both parents remain independently reviewable;
+# the pin preserves marketplace delta commands while adding workspace disk reads,
+# bounded search and native-watch planning/filtering.
+PINNED_CORE_REVISION="9ab2336e8ca651e40baa5e65848b717b26f69e43"
 PROFILE="debug"
 CHECKOUT_ONLY="no"
 while [[ $# -gt 0 ]]; do

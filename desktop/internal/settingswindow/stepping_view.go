@@ -408,14 +408,14 @@ func (w *window) debuggerList(c ui.C, language i18n.Language) {
 			w.pluginTile(k, steppingPluginName(adapter), 20)
 			ui.Column(k).Grow(1).Shrink(1).MinWidth(0).Children(func() {
 				ui.Row(k).FillWidth().Gap(6).Items(ui.Center).Children(func() {
-					ui.Text(k, adapter.Name).FontSize(buildFont).Weight(gfx.WeightSemibold).Color(b.text).Shrink(1).Ellipsis()
-					ui.Spacer(k)
+					ui.Text(c, adapter.Name).FontSize(buildFont).Weight(gfx.WeightSemibold).Color(b.text).Shrink(1).Ellipsis()
+					ui.Spacer(c)
 					if stored || changed {
 						w.tag(k, tagBlue, i18n.Shared(language, "desktop.settings.stepping.customized"))
 					}
 				})
 				ui.Row(k).FillWidth().Height(2).Shrink(0)
-				ui.Text(k, steppingPluginName(adapter)).FontSize(11).Color(b.faint).Ellipsis()
+				ui.Text(c, steppingPluginName(adapter)).FontSize(11).Color(b.faint).Ellipsis()
 			})
 		})
 	}).Scrollbars().FillWidth().Grow(1).Shrink(1).MinHeight(0).Label(i18n.Shared(language, "desktop.buildSettings.debuggers"))
@@ -487,9 +487,11 @@ func (w *window) debuggerDetail(c ui.C, language i18n.Language, adapter Stepping
 		ui.Column(c).FillWidth().MinWidth(0).Shrink(0).Radius(10).Border(1, b.line).Background(b.surface).Pad(6).Children(func() {
 			for _, feature := range steppingFeatures(language, draft) {
 				k := c.Part(feature.key)
-				ui.Row(k).FillWidth().MinHeight(34).PadX(8).PadY(3).Gap(10).Radius(7).Items(ui.Center).Children(func() {
+				ui.Row(k).FillWidth().MinHeight(34).PadX(8).PadY(3).Gap(10).Radius(7).Items(ui.Center).
+					HitWith(ui.ID(k), feature.label, gfx.HitOptions{Role: gfx.RoleGroup, SkipFocus: true}).
+					Hover(ui.Look{}.Background(b.hover)).Children(func() {
 					ui.Row(k).Grow(1).Shrink(1).MinWidth(0).Gap(5).Items(ui.Center).Children(func() {
-						ui.Text(k, feature.label).FontSize(buildFont).Color(b.text).Shrink(1).Ellipsis()
+						ui.Text(c, feature.label).FontSize(buildFont).Color(b.text).Shrink(1).Ellipsis()
 						w.infoButton(k.Part("help"), feature.help)
 					})
 					ui.Switch(k.Part("switch"), feature.value, "").Label(feature.label).Disabled(s.saving)
@@ -514,8 +516,10 @@ func (w *window) patternList(c ui.C, language i18n.Language, draft *steppingDraf
 		remove := -1
 		for index, pattern := range draft.patterns {
 			k := c.KeyInt(index)
-			ui.Row(k).FillWidth().MinWidth(0).PadX(8).PadY(5).Gap(8).Items(ui.Center).Children(func() {
-				ui.Text(k, pattern).FontSize(buildMono).Mono().Color(b.text).Grow(1).Shrink(1).MinWidth(0).Ellipsis()
+			ui.Row(k).FillWidth().MinWidth(0).PadX(8).PadY(5).Gap(8).Items(ui.Center).
+				HitWith(ui.ID(k), pattern, gfx.HitOptions{Role: gfx.RoleGroup, SkipFocus: true}).
+				Hover(ui.Look{}.Background(b.hover)).Children(func() {
+				ui.Text(c, pattern).FontSize(buildMono).Mono().Color(b.text).Grow(1).Shrink(1).MinWidth(0).Ellipsis()
 				if w.iconButton(k.Part("remove"), icons.X, i18n.Shared(language, "desktop.buildSettings.removePattern"), s.saving) {
 					remove = index
 				}

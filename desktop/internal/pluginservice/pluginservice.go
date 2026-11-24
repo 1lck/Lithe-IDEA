@@ -71,6 +71,8 @@ type Service struct {
 	ToolchainIssue func(context.Context, error)
 	// BuildConfigurationIssue records native failures opening or rebinding configuration watches.
 	BuildConfigurationIssue func(context.Context, error)
+	// WorkspaceWatchIssue records native failures establishing or maintaining a workspace stream.
+	WorkspaceWatchIssue func(context.Context, error)
 	// providers2 holds the editor provider registrations of the window (hostproviders.go).
 	providers2 *editorProviderBindings
 	// actions holds the editor action registrations of the window (hostactions.go).
@@ -145,6 +147,22 @@ type Service struct {
 	lsMu          sync.Mutex
 	lsSessions    map[languageKey]*LanguageSession
 	lsGenerations map[languageKey]uint64
+}
+
+// ActivatePendingUpdates moves fully approved packages into the installed inventory at startup.
+func (s *Service) ActivatePendingUpdates(ctx context.Context) error {
+	return s.Installer.ActivatePending(ctx, s.Root, s.BeginRuntimeInstallation, func(ctx context.Context, id string) (string, error) {
+		entries, err := s.CurrentInstalled(ctx)
+		if err != nil {
+			return "", err
+		}
+		for _, entry := range entries {
+			if entry.Installed.ID == id && entry.Enabled {
+				return entry.Installed.Version, nil
+			}
+		}
+		return "", nil
+	})
 }
 
 // Open assembles the stack over one plugin root and one set of preferences.

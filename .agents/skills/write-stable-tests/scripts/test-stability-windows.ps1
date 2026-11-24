@@ -1,6 +1,14 @@
+<#
+.SYNOPSIS
+Run the current Viva desktop Go tests with bounded per-test timing.
+.PARAMETER Scope
+DesktopGo is the only supported scope. All, Frontend, WindowsRust and
+SharedRust* were retired with the old clients and in-repository Core.
+Run Rust checks in the external Core checkout linked by the desktop wrapper.
+#>
 [CmdletBinding()]
 param(
-    [ValidateSet("All", "DesktopGo", "Frontend", "WindowsRust", "SharedRust", "SharedRustCore", "SharedRustHosts")]
+    [ValidateSet("DesktopGo")]
     [string]$Scope = "DesktopGo",
     [ValidateRange(1, 3600)]
     [int]$WarnSeconds = 1,
@@ -8,27 +16,23 @@ param(
     [int]$MaxSeconds = 15,
     [ValidateRange(1, 7200)]
     [int]$SuiteTimeoutSeconds = 1200,
-    [string[]]$FrontendTestPath = @(),
     [string]$GoTestPattern = ".",
-    [string[]]$GoPackages = @("./..."),
-    [ValidateRange(1, 16)]
-    [int]$CoreShardIndex = 1,
-    [ValidateRange(1, 16)]
-    [int]$CoreShardCount = 1
+    [string[]]$GoPackages = @("./...")
 )
 
 $ErrorActionPreference = "Stop"
-if ($CoreShardIndex -gt $CoreShardCount) { throw "CoreShardIndex must not exceed CoreShardCount." }
 if ($WarnSeconds -ge $MaxSeconds) { throw "WarnSeconds must be lower than MaxSeconds." }
 
+$root = [System.IO.Path]::GetFullPath((Join-Path $PSScriptRoot "../../../.."))
+foreach ($source in @("desktop/go.mod", "scripts/desktop/desktop-go.sh")) {
+    if (-not (Test-Path -LiteralPath (Join-Path $root $source) -PathType Leaf)) {
+        throw "DesktopGo test source is missing: $source. Use a complete current desktop checkout."
+    }
+}
 if (-not (Get-Command node -ErrorAction SilentlyContinue)) {
     throw "The Windows test stability harness requires Node.js."
 }
-if ($Scope -in @("All", "Frontend") -and -not (Get-Command bun -ErrorAction SilentlyContinue)) {
-    throw "Bun is required only for the Windows Frontend scope. Use WindowsRust or SharedRust without Bun."
-}
 
-$root = [System.IO.Path]::GetFullPath((Join-Path $PSScriptRoot "../../../.."))
 $reportRoot = Join-Path $root ".artifacts/test-stability"
 New-Item -ItemType Directory -Path $reportRoot -Force | Out-Null
 
@@ -39,238 +43,28 @@ $warnMilliseconds = $WarnSeconds * 1000
 $maxMilliseconds = $MaxSeconds * 1000
 $suiteTimeoutMilliseconds = $SuiteTimeoutSeconds * 1000
 
-if ($Scope -in @("All", "DesktopGo")) {
-    # The system's bash.exe can be the WSL launcher. Use the Bash installed
-    # with Git for Windows, as the desktop wrapper relies on MSYS and cygpath.
-    $git = Get-Command git.exe -ErrorAction Stop
-    . (Join-Path $PSScriptRoot "git-bash-path.ps1")
-    $gitTools = Resolve-GitForWindowsTools -GitPath $git.Source
-    $bash = $gitTools.Bash
-    $cygpath = $gitTools.Cygpath
-    $wrapper = Join-Path $root "scripts/desktop/desktop-go.sh"
-    # Calling cygpath directly avoids PowerShell 5 stripping the inner quotes
-    # of a bash -c command when the native path contains spaces.
-    $wrapperUnix = & $cygpath -u $wrapper
-    if ($LASTEXITCODE -ne 0 -or [string]::IsNullOrWhiteSpace($wrapperUnix)) {
-        throw "Could not convert the desktop wrapper path for Git Bash."
-    }
-    $arguments = @(
-        (Join-Path $PSScriptRoot "run-go-tests-with-timing.mjs"),
-        "--warn-ms", $warnMilliseconds,
-        "--max-ms", $maxMilliseconds,
-        "--suite-timeout-ms", $suiteTimeoutMilliseconds,
-        "--report", (Join-Path $reportRoot "windows-desktop-go.json"),
-        "--", $bash, $wrapperUnix.Trim(), "test", "-json", "-count=1", "-p=1", "-parallel=1",
-        "-timeout=${SuiteTimeoutSeconds}s", "-run", $GoTestPattern
-    ) + $GoPackages
-    & node @arguments
-    if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+# The system's bash.exe can be the WSL launcher. Use the Bash installed
+# with Git for Windows, as the desktop wrapper relies on MSYS and cygpath.
+$git = Get-Command git.exe -ErrorAction Stop
+. (Join-Path $PSScriptRoot "git-bash-path.ps1")
+$gitTools = Resolve-GitForWindowsTools -GitPath $git.Source
+$bash = $gitTools.Bash
+$cygpath = $gitTools.Cygpath
+$wrapper = Join-Path $root "scripts/desktop/desktop-go.sh"
+# Calling cygpath directly avoids PowerShell 5 stripping the inner quotes
+# of a bash -c command when the native path contains spaces.
+$wrapperUnix = & $cygpath -u $wrapper
+if ($LASTEXITCODE -ne 0 -or [string]::IsNullOrWhiteSpace($wrapperUnix)) {
+    throw "Could not convert the desktop wrapper path for Git Bash."
 }
-
-function Invoke-TimedRustTests {
-    param(
-        [Parameter(Mandatory)]
-        [string]$Manifest,
-        [string]$Package,
-        [Parameter(Mandatory)]
-        [string]$TargetDirectory,
-        [Parameter(Mandatory)]
-        [string]$Report
-    )
-
-    $suiteTimer = [System.Diagnostics.Stopwatch]::StartNew()
-    function Get-RemainingRustSuiteMilliseconds {
-        $remainingMilliseconds = [Math]::Floor(
-            $suiteTimeoutMilliseconds - $suiteTimer.Elapsed.TotalMilliseconds
-        )
-        if ($remainingMilliseconds -le 0) {
-            throw "Rust test suite exceeded the shared $SuiteTimeoutSeconds second deadline."
-        }
-        return $remainingMilliseconds
-    }
-
-    function New-RustTimingArguments {
-        $remainingMilliseconds = Get-RemainingRustSuiteMilliseconds
-        $arguments = @(
-            (Join-Path $PSScriptRoot "run-rust-tests-with-timing.mjs"),
-            "--manifest", $Manifest,
-            "--warn-ms", $warnMilliseconds,
-            "--max-ms", $maxMilliseconds,
-            "--build-timeout-ms", $remainingMilliseconds,
-            "--suite-timeout-ms", $remainingMilliseconds,
-            "--report", $Report
-        )
-        if (-not [string]::IsNullOrWhiteSpace($Package)) {
-            $arguments += @("--package", $Package)
-        }
-        if ($Package -eq "lithe-core") {
-            $arguments += @("--shard-index", $CoreShardIndex, "--shard-count", $CoreShardCount)
-            # These cases start real Git and the production TypeScript module
-            # in Node. One Node startup hit its old 10s local deadline on CI.
-            $arguments += @("--test-budget", "git_paths_roundtrip_=60000")
-            # A real remote and repeated Git configuration/fetch subprocesses
-            # took 12.5s on Lithe-dev; retain a bounded allowance for CI jitter.
-            $arguments += @("--test-budget", "git::configuration::inherited_tag_tests::inspection_matches_git_when_tags_are_forced_or_configuration_is_invalid=30000")
-            # Integration tests that create multiple real repositories or push
-            # through Git subprocesses need a bounded allowance on Windows.
-            foreach ($prefix in @(
-                "tests::git_history_rewrite::",
-                "tests::git_remote_checkout::",
-                "tests::git_workspace_commit::",
-                "tests::git::git_write_squashes_",
-                "tests::git::git_write_deletes_a_local_commit_",
-                "tests::git::git_write_edits_a_local_commit_message_",
-                "tests::git::git_write_updates_a_noncurrent_branch_without_switching_head",
-                "tests::git::git_write_executes_checkout_preflight_clone_and_validation",
-                "tests::git_patch_exchange::patch_exchange_detects_index_flags_and_hidden_destination_edits",
-                "tests::git_patch_exchange::patch_exchange_rejects_stale_preview_and_forward_conflicts_without_writing",
-                "tests::git_patch_exchange::patch_exchange_roundtrips_renames_deletes_and_platform_file_modes",
-                "tests::git_patch_exchange::patch_exchange_snapshot_roundtrip_preserves_index_and_binary_files",
-                "tests::git_patch_exchange::patch_exchange_distinguishes_sources_and_commit_direction",
-                "tests::git_patch_exchange::patch_metadata_can_list_an_oversized_export_before_selecting_a_small_subset"
-            )) {
-                $arguments += @("--test-budget", "${prefix}=30000")
-            }
-            # Two repositories plus a real submodule clone exceeded the 15s
-            # process budget (16.1s) in Windows run 39933498873.
-            $arguments += @("--test-budget", "watch_context_resolves_a_submodule_git_directory_outside_its_workspace=30000")
-            # Linked-worktree setup hit 15.419s in Windows run 40442602987.
-            # Git children remain bounded; only this native integration case gets headroom.
-            $arguments += @("--test-budget", "watch_context_distinguishes_linked_worktree_git_and_common_directories=30000")
-            # This six-commit conflict/skip/squash case reached the 30s cutoff
-            # on a hosted Windows runner without an assertion failure.
-            $arguments += @("--test-budget", "tests::git_history_rewrite::native_rebase_skip_omits_conflicted_message_from_later_squash=45000")
-            # Four preview/apply cycles preserve staged, working, untracked and
-            # binary bytes; this real-Git roundtrip measured 52.7s on Windows.
-            $arguments += @("--test-budget", "tests::git_patch_exchange::patch_exchange_reverse_roundtrip_preserves_both_versions_and_untracked_bytes=60000")
-            # These retained-path Shelf cases also perform four preview/apply cycles.
-            $arguments += @("--test-budget", "tests::git_patch_exchange::shelf_roundtrip_preserves_staged_deletions_with_retained_paths=60000")
-            $arguments += @("--test-budget", "tests::git_patch_exchange::shelf_roundtrip_preserves_staged_rename_with_recreated_source=60000")
-            # This Shelf clean/restore and retry roundtrip exceeded 15s twice on
-            # hosted Windows; a complete cloud Windows run passed in 17.025s.
-            $arguments += @("--test-budget", "tests::git_patch_exchange::shelf_clean_and_retry_restore_preserve_staged_working_and_untracked=60000")
-            # The conflict/resolve roundtrip hit the hosted 15s deadline and
-            # passed on the Windows cloud host in 15.111s with a bounded budget.
-            $arguments += @("--test-budget", "tests::git_patch_exchange::shelf_restore_conflict_preserves_worktree_and_allows_retry_after_resolution=60000")
-            # Two repositories, three confirmation previews and two pushes invoke
-            # 287 Git processes; this integration case measured 49.9s on Windows.
-            $arguments += @("--test-budget", "tests::git_workspace_commit::git_workspace_commit_push_confirms_each_repository_separately=60000")
-        }
-        return $arguments
-    }
-
-    if (Test-Path -LiteralPath $Report) { Remove-Item -Force -LiteralPath $Report }
-    $arguments = New-RustTimingArguments
-    & node @arguments
-    if ($LASTEXITCODE -eq 0) { return }
-    if (Test-Path -LiteralPath $Report) {
-        $suiteTimedOut = $false
-        $testsRan = $false
-        try {
-            $timingReport = Get-Content -LiteralPath $Report -Raw | ConvertFrom-Json
-            $suiteTimedOut = $null -ne $timingReport.suite -and $timingReport.suite.timedOut -eq $true
-            $testsRan = @($timingReport.tests | Where-Object { $_.name -ne "Cargo test compilation" }).Count -gt 0
-        } catch {
-            Write-Warning "Could not inspect the Rust timing report after failure: $($_.Exception.Message)"
-        }
-        if ($suiteTimedOut) {
-            throw "Rust test suite exceeded the shared $SuiteTimeoutSeconds second deadline."
-        }
-        # A test assertion or budget failure is not evidence of a corrupt build.
-        # Keep its report and cache; a clean rebuild only repeats the test and
-        # can consume the entire CI step before reporting the original failure.
-        if ($testsRan) { throw "Rust tests failed; preserving test results without a clean rebuild." }
-    }
-    if ($env:LITHE_CARGO_BUILD_CACHE_RESTORED -ne "true") {
-        throw "Rust timing tests failed."
-    }
-
-    $null = Get-RemainingRustSuiteMilliseconds
-    $target = [System.IO.Path]::GetFullPath((Join-Path $root $TargetDirectory))
-    $trimCharacters = [char[]]@(
-        [System.IO.Path]::DirectorySeparatorChar,
-        [System.IO.Path]::AltDirectorySeparatorChar
-    )
-    $repositoryPrefix = [System.IO.Path]::GetFullPath($root).TrimEnd($trimCharacters) +
-        [System.IO.Path]::DirectorySeparatorChar
-    if (-not $target.StartsWith($repositoryPrefix, [System.StringComparison]::OrdinalIgnoreCase)) {
-        throw "Cargo target directory must stay inside the repository: $target"
-    }
-    Write-Warning "Rust timing failed after restoring cached build outputs. Clearing $TargetDirectory and retrying once."
-    if (Test-Path -LiteralPath $target) { Remove-Item -Recurse -Force -LiteralPath $target }
-    if (Test-Path -LiteralPath $Report) { Remove-Item -Force -LiteralPath $Report }
-    $arguments = New-RustTimingArguments
-    & node @arguments
-    if ($LASTEXITCODE -ne 0) { throw "Rust timing tests failed after a clean retry." }
-}
-
-if ($Scope -in @("All", "Frontend")) {
-    $arguments = @(
-        (Join-Path $PSScriptRoot "run-bun-tests-with-timing.mjs"),
-        "--working-directory", (Join-Path $root "windows/tauri"),
-        "--warn-ms", $warnMilliseconds,
-        "--max-ms", $maxMilliseconds,
-        "--suite-timeout-ms", $suiteTimeoutMilliseconds,
-        "--report", (Join-Path $reportRoot "windows-frontend.json"),
-        "--"
-    ) + $FrontendTestPath
-    & node @arguments
-    if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-}
-
-if ($Scope -in @("All", "WindowsRust")) {
-    # Cargo does not run dependency crate tests when testing only the Tauri host.
-    Invoke-TimedRustTests `
-        -Manifest "windows/tauri/src-tauri/Cargo.toml" `
-        -Package "lithe-project" `
-        -TargetDirectory "windows/tauri/src-tauri/target" `
-        -Report (Join-Path $reportRoot "windows-project-rust.json")
-
-    Invoke-TimedRustTests `
-        -Manifest "windows/tauri/src-tauri/Cargo.toml" `
-        -Package "lithe-terminal" `
-        -TargetDirectory "windows/tauri/src-tauri/target" `
-        -Report (Join-Path $reportRoot "windows-terminal-rust.json")
-
-    Invoke-TimedRustTests `
-        -Manifest "windows/tauri/src-tauri/Cargo.toml" `
-        -Package "lithe-legacy-tooling" `
-        -TargetDirectory "windows/tauri/src-tauri/target" `
-        -Report (Join-Path $reportRoot "windows-legacy-java-rust.json")
-
-    Invoke-TimedRustTests `
-        -Manifest "windows/tauri/src-tauri/Cargo.toml" `
-        -TargetDirectory "windows/tauri/src-tauri/target" `
-        -Report (Join-Path $reportRoot "windows-rust.json")
-}
-
-if ($Scope -in @("All", "SharedRust", "SharedRustHosts")) {
-    # Dependency tests are not selected by -p lithe-core. Exercise the native
-    # process and AskPass adapter on Windows as a separate timed package.
-    Invoke-TimedRustTests `
-        -Manifest "rust/Cargo.toml" `
-        -Package "lithe-git-host" `
-        -TargetDirectory "rust/target" `
-        -Report (Join-Path $reportRoot "git-host-rust.json")
-
-    Invoke-TimedRustTests `
-        -Manifest "rust/Cargo.toml" `
-        -Package "lithe-agent-host" `
-        -TargetDirectory "rust/target" `
-        -Report (Join-Path $reportRoot "agent-host-rust.json")
-
-    Invoke-TimedRustTests `
-        -Manifest "rust/Cargo.toml" `
-        -Package "lithe-ide-host" `
-        -TargetDirectory "rust/target" `
-        -Report (Join-Path $reportRoot "ide-host-rust.json")
-
-}
-
-if ($Scope -in @("All", "SharedRust", "SharedRustCore")) {
-    Invoke-TimedRustTests `
-        -Manifest "rust/Cargo.toml" `
-        -Package "lithe-core" `
-        -TargetDirectory "rust/target" `
-        -Report (Join-Path $reportRoot "shared-rust.json")
-}
+$arguments = @(
+    (Join-Path $PSScriptRoot "run-go-tests-with-timing.mjs"),
+    "--warn-ms", $warnMilliseconds,
+    "--max-ms", $maxMilliseconds,
+    "--suite-timeout-ms", $suiteTimeoutMilliseconds,
+    "--report", (Join-Path $reportRoot "windows-desktop-go.json"),
+    "--", $bash, $wrapperUnix.Trim(), "test", "-json", "-count=1", "-p=1", "-parallel=1",
+    "-timeout=${SuiteTimeoutSeconds}s", "-run", $GoTestPattern
+) + $GoPackages
+& node @arguments
+if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
