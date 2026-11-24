@@ -17,6 +17,7 @@ import (
 	"github.com/1lck/Lithe-IDEA/desktop/internal/marketplace"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/plugininstall"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/pluginmanager"
+	"github.com/1lck/Lithe-IDEA/desktop/internal/pluginpkg"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/pluginservice"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/plugintrust"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/settingswindow"
@@ -159,7 +160,13 @@ func (a *App) preparePluginInstall(feedback settingswindow.PluginInstallFeedback
 		// The review window's context ends the install; the install still belongs to the
 		// action that started it, so its records and Core requests carry its op.
 		origin := core.OriginOf(work)
-		plan, err := prepare(core.WithOrigin(feedback.Context, origin))
+		ctx := core.WithOrigin(feedback.Context, origin)
+		finishStaging, err := pluginpkg.ProtectStaging(ctx, a.plugins.Root)
+		var plan plugininstall.Plan
+		if err == nil {
+			defer func() { a.recordPluginInstallCleanup(work, finishStaging()) }()
+			plan, err = prepare(ctx)
+		}
 		if err != nil {
 			// log-exempt: 用户取消：关闭审查窗口取消未完成的安装。
 			cancelled := feedback.Context.Err() != nil

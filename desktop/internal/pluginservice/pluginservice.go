@@ -193,8 +193,8 @@ func open(kernel Kernel, preferences *store.Store, root string, first bool) (*Se
 	approvals := plugintrust.New(preferences)
 	state := pluginstate.New(preferences)
 	hostServices := pluginhost.NewServices()
-	// Nothing else removes what an interrupted install or uninstall left behind, and
-	// Open runs before any installation can start.
+	// Sweep collects interrupted installations when no other process is using
+	// the scratch directories for an installation or removal.
 	if first {
 		if err := pluginpkg.Sweep(root); err != nil {
 			return nil, fmt.Errorf("%w: %w", ErrAssembly, err)
