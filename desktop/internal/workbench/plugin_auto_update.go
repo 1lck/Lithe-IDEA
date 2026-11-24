@@ -5,6 +5,7 @@ import (
 	"errors"
 	"runtime"
 	"strconv"
+	"sync"
 	"time"
 
 	"github.com/1lck/Lithe-IDEA/desktop/internal/core"
@@ -17,10 +18,11 @@ import (
 )
 
 const (
-	pluginAutoFirstCheck = 30 * time.Second
-	pluginAutoInterval   = 24 * time.Hour
-	pluginAutoFetchLimit = 30 * time.Second
-	pluginAutoMaxSources = 32
+	pluginAutoFirstCheck    = 30 * time.Second
+	pluginAutoInterval      = 24 * time.Hour
+	pluginAutoFetchLimit    = 30 * time.Second
+	pluginAutoDownloadLimit = 5 * time.Minute
+	pluginAutoMaxSources    = 32
 )
 
 // pluginAutoUpdater is one window's auto-update scheduler, shared by its tabs.
@@ -121,12 +123,57 @@ func (a *App) stopPluginAutoUpdates() {
 	}
 }
 
+// One window owns each check for a plugin root. Other windows wait for the
+// shared interval, or retry after an owner was cancelled.
+var pluginAutoRounds = struct {
+	sync.Mutex
+	roots map[string]*pluginAutoRound
+}{roots: make(map[string]*pluginAutoRound)}
+
+type pluginAutoRound struct {
+	checking bool
+	next     time.Time
+}
+
+func beginPluginAutoRound(root string, now time.Time) (func(bool), time.Duration) {
+	pluginAutoRounds.Lock()
+	defer pluginAutoRounds.Unlock()
+	for key, round := range pluginAutoRounds.roots {
+		if !round.checking && !round.next.After(now) {
+			delete(pluginAutoRounds.roots, key)
+		}
+	}
+	if round := pluginAutoRounds.roots[root]; round != nil {
+		if round.checking {
+			return nil, pluginAutoFirstCheck
+		}
+		return nil, round.next.Sub(now)
+	}
+	round := &pluginAutoRound{checking: true}
+	pluginAutoRounds.roots[root] = round
+	return func(cancelled bool) {
+		pluginAutoRounds.Lock()
+		defer pluginAutoRounds.Unlock()
+		if cancelled {
+			delete(pluginAutoRounds.roots, root)
+			return
+		}
+		round.checking = false
+		round.next = time.Now().Add(pluginAutoInterval)
+	}, 0
+}
+
 func (a *App) checkPluginAutoUpdates() {
 	u := a.pluginAuto
 	if u == nil || u.checking || !u.enabled || u.stopped || a.plugins == nil {
 		return
 	}
-	ctx, cancel := context.WithCancel(context.Background())
+	finish, delay := beginPluginAutoRound(a.plugins.Root, time.Now())
+	if finish == nil {
+		a.schedulePluginAutoUpdate(delay)
+		return
+	}
+	ctx, cancel := context.WithCancel(a.operationContext(context.Background()))
 	u.checking, u.cancel = true, cancel
 	sources := a.marketplaceSources()
 	platform := marketplaceHostPlatform()
@@ -134,6 +181,7 @@ func (a *App) checkPluginAutoUpdates() {
 	a.background(nil, 0, func(context.Context) func(*App) {
 		defer cancel()
 		count, err := a.performPluginAutoUpdates(ctx, sources, platform, capabilities)
+		finish(ctx.Err() != nil && count == 0)
 		return func(a *App) {
 			u.checking, u.cancel = false, nil
 			if err != nil && !errors.Is(err, context.Canceled) {
@@ -287,7 +335,15 @@ func (a *App) performPluginAutoUpdates(ctx context.Context, sources []PluginReco
 // set with an existing approved version, and installs without interrupting live
 // plugin sessions. Permission changes still need manual review.
 func (a *App) applyPluginAutoUpdate(ctx context.Context, downloader *marketplace.ArchiveDownloader, plugin core.MarketplacePlugin, previous plugintrust.Record) (bool, error) {
-	archive, err := downloader.Download(ctx, plugin.Availability)
+	pending, err := a.plugins.Installer.HasPending(a.plugins.Root, plugin.ID)
+	if err != nil || pending {
+		return false, err
+	}
+	downloadCtx, cancel := context.WithTimeout(ctx, pluginAutoDownloadLimit)
+	archive, err := a.downloadMarketplacePlugin(downloadCtx, downloader, plugin, previous, func() (*marketplace.DownloadedArchive, error) {
+		return downloader.Download(downloadCtx, plugin.Availability)
+	}, nil)
+	cancel()
 	if err != nil {
 		return false, err
 	}
@@ -310,7 +366,7 @@ func (a *App) applyPluginAutoUpdate(ctx context.Context, downloader *marketplace
 	if err != nil {
 		return false, err
 	}
-	defer finish()
+	defer func() { a.recordPluginInstallCleanup(work, finish()) }()
 	// A manual change may occur while bytes are downloading; recheck the current
 	// plugin and the approval before publishing, under the runtime coordinator.
 	current, err := a.plugins.CurrentInstalled(work)
@@ -336,6 +392,6 @@ func (a *App) applyPluginAutoUpdate(ctx context.Context, downloader *marketplace
 	if err := work.Err(); err != nil {
 		return false, err
 	}
-	_, err = a.plugins.Installer.Commit(plan)
+	err = a.plugins.Installer.StageAutomatic(plan, previous)
 	return err == nil, err
 }

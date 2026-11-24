@@ -3,13 +3,19 @@ package pluginservice
 import (
 	"context"
 	"errors"
+	"os"
 	"path/filepath"
 	"sync"
+	"time"
+
+	"github.com/1lck/Lithe-IDEA/desktop/internal/filelock"
 )
 
 // ErrRuntimeBusy reports a stop still owning a plugin's files. A new approved
 // installation can retry after that operation finishes; it cannot reopen admission.
 var ErrRuntimeBusy = errors.New("plugin runtime preparation is stopping")
+
+const packageChangesLockFile = ".package-changes.lock"
 
 type runtimePreparationKey struct{ root, plugin string }
 
@@ -18,9 +24,10 @@ type runtimePreparationKey struct{ root, plugin string }
 // each Service owns its persistent admission choices.
 var runtimePreparationCoordinator = struct {
 	sync.Mutex
-	active map[runtimePreparationKey]map[*runtimePreparation]struct{}
-	stops  map[runtimePreparationKey]int
-}{active: make(map[runtimePreparationKey]map[*runtimePreparation]struct{}), stops: make(map[runtimePreparationKey]int)}
+	active     map[runtimePreparationKey]map[*runtimePreparation]struct{}
+	stops      map[runtimePreparationKey]int
+	installing map[runtimePreparationKey]bool
+}{active: make(map[runtimePreparationKey]map[*runtimePreparation]struct{}), stops: make(map[runtimePreparationKey]int), installing: make(map[runtimePreparationKey]bool)}
 
 type runtimePreparation struct {
 	service      *Service
@@ -119,20 +126,60 @@ func (s *Service) allowRuntimePreparationLocked(id string) error {
 	return nil
 }
 
-// BeginRuntimeInstallation belongs after package approval. Its lifetime includes
-// preparation and publication, so an uninstall either refuses this start or waits
-// until it can no longer publish a package or recreate the removed state.
-func (s *Service) BeginRuntimeInstallation(ctx context.Context, id string) (context.Context, func(), error) {
+// lockPackageChanges serializes package and approval writes from desktop
+// processes sharing a plugin root. Its pathname stays outside installed versions.
+func (s *Service) lockPackageChanges(ctx context.Context) (func() error, error) {
+	const wait = 30 * time.Second
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	if err := os.MkdirAll(s.Root, 0o700); err != nil {
+		return nil, err
+	}
+	bounded, cancel := context.WithTimeout(ctx, wait)
+	defer cancel()
+	return filelock.Acquire(bounded, filepath.Join(s.Root, packageChangesLockFile))
+}
+
+// BeginRuntimeInstallation keeps local cancellation and process-wide package
+// publication under the same admission, from rechecking approvals to writing files.
+func (s *Service) BeginRuntimeInstallation(ctx context.Context, id string) (context.Context, func() error, error) {
+	work, finish, err := s.beginRuntimeInstallation(ctx, id)
+	if err != nil {
+		return nil, nil, err
+	}
+	unlock, err := s.lockPackageChanges(work)
+	if err != nil {
+		finish()
+		return nil, nil, err
+	}
+	return work, func() error {
+		defer finish()
+		return unlock()
+	}, nil
+}
+
+func (s *Service) beginRuntimeInstallation(ctx context.Context, id string) (context.Context, func(), error) {
 	runtimePreparationCoordinator.Lock()
 	defer runtimePreparationCoordinator.Unlock()
 	if err := ctx.Err(); err != nil {
 		return nil, nil, err
 	}
+	key := s.preparationKey(id)
+	if runtimePreparationCoordinator.installing[key] {
+		return nil, nil, ErrRuntimeBusy
+	}
 	if err := s.allowRuntimePreparationLocked(id); err != nil {
 		return nil, nil, err
 	}
-	ctx, preparation := s.newRuntimePreparationLocked(ctx, s.preparationKey(id))
-	return ctx, func() { preparation.finish(nil) }, nil
+	runtimePreparationCoordinator.installing[key] = true
+	ctx, preparation := s.newRuntimePreparationLocked(ctx, key)
+	return ctx, func() {
+		runtimePreparationCoordinator.Lock()
+		delete(runtimePreparationCoordinator.installing, key)
+		runtimePreparationCoordinator.Unlock()
+		preparation.finish(nil)
+	}, nil
 }
 
 func (s *Service) stopRuntimePreparations(ctx context.Context, id string) error {

@@ -30,7 +30,7 @@ func (w *window) generationCard(c ui.C) {
 				ui.Text(c, i18n.Shared(w.marketLanguage(), "desktop.settings.aiGeneration.loading")).FontSize(12).Color(w.pal.muted)
 			}
 			for _, source := range []string{"codex", "claude"} {
-				ui.Wrap(c.Key("gen/"+source), w.generationSourceLine(w.marketLanguage(), source, st.providers, st.loaded)).FontSize(12).Color(w.pal.muted)
+				ui.Wrap(c, w.generationSourceLine(w.marketLanguage(), source, st.providers, st.loaded)).FontSize(12).Color(w.pal.muted)
 			}
 			provider := generationIndex(generationProviderChoices[:], current.Provider)
 			providers := []int{0, 1, 2}

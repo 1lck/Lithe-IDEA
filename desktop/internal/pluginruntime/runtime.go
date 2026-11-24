@@ -18,6 +18,7 @@ import (
 
 	"github.com/1lck/Lithe-IDEA/desktop/internal/atomicfile"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/configfile"
+	"github.com/1lck/Lithe-IDEA/desktop/internal/filelock"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/marketplace"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/pluginpkg"
 )
@@ -170,8 +171,14 @@ func (m *Manager) Prepare(ctx context.Context, artifact Artifact, validate func(
 	if err != nil {
 		return result, err
 	}
-	unlock, err := acquire(ctx, filepath.Join(base, ".lock"))
+	unlock, err := filelock.Acquire(ctx, filepath.Join(base, ".lock"))
 	if err != nil {
+		switch {
+		case errors.Is(err, filelock.ErrInvalid):
+			err = fmt.Errorf("%w: %w", ErrArtifact, err)
+		case errors.Is(err, filelock.ErrBusy):
+			err = fmt.Errorf("%w: %w", ErrBusy, err)
+		}
 		return result, err
 	}
 	defer func() { err = errors.Join(err, unlock()) }()

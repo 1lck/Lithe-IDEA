@@ -489,7 +489,7 @@ func (a *App) drawCommitResults(c ui.C, p *project, target commitTarget) {
 				ui.Text(c, t.Result(target.repositoryName(id), a.commitStatusLabel(result.Status))).Color(tint).Ellipsis().Grow(1)
 			})
 			if result.Detail != "" {
-				ui.Paragraph(c.Key(id+"/detail"), result.Detail, 3).FontSize(a.theme.Metrics.FontSizeS).Color(a.colors.Subtle)
+				ui.Paragraph(c, result.Detail, 3).FontSize(a.theme.Metrics.FontSizeS).Color(a.colors.Subtle)
 			}
 		}
 		ui.Row(c).FillWidth().Items(ui.Center).Gap(6).Children(func() {

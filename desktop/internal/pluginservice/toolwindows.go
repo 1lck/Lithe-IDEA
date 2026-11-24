@@ -5,11 +5,9 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"path/filepath"
 	"sort"
 
 	"github.com/1lck/Lithe-IDEA/desktop/internal/pluginmanager"
-	"github.com/1lck/Lithe-IDEA/desktop/internal/pluginpkg"
 )
 
 // ToolWindow is one tool window a plugin declares under ui.toolWindows: a
@@ -45,19 +43,20 @@ type ToolWindow struct {
 // plugin ID, then by the declared order and ID. A broken manifest is
 // reported without hiding the others.
 func (s *Service) ToolWindows(ctx context.Context, entries []pluginmanager.Entry) ([]ToolWindow, error) {
+	snapshot, readErr := s.ReadInstalled(ctx, entries)
+	contributions, err := snapshot.ToolWindows()
+	return contributions, errors.Join(readErr, err)
+}
+
+// ToolWindows reads its contribution sections from the same installed bytes.
+func (snapshot InstalledSnapshot) ToolWindows() ([]ToolWindow, error) {
 	var windows []ToolWindow
 	var failures []error
-	selected, selectionErr := s.selectInstalled(ctx, entries, false)
-	if selectionErr != nil {
-		failures = append(failures, selectionErr)
-	}
-	sort.Slice(selected, func(i, j int) bool { return selected[i].Installed.ID < selected[j].Installed.ID })
-	for _, entry := range selected {
-		manifest, err := readBounded(filepath.Join(entry.Installed.Path, pluginpkg.ManifestFile), MaxManifestBytes)
-		if err != nil {
-			failures = append(failures, fmt.Errorf("%s: %w", entry.Installed.ID, err))
-			continue
-		}
+	// Sort a copy of the headers so other consumers keep Core's selection order.
+	selected := append([]installedManifest(nil), snapshot.manifests...)
+	sort.Slice(selected, func(i, j int) bool { return selected[i].entry.Installed.ID < selected[j].entry.Installed.ID })
+	for _, installed := range selected {
+		entry, manifest := installed.entry, installed.manifest
 		var declared struct {
 			DisplayName string `json:"displayName"`
 			UI          struct {

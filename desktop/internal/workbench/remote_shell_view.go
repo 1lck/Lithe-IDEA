@@ -148,7 +148,7 @@ func (a *App) remoteList(c ui.C, language i18n.Language) {
 			if path := r.source.Path(); path != "" {
 				a.remoteHelp(k.Part("storage"), i18n.SharedFormat(language, "desktop.remote.storageHelp", map[string]string{"path": path}))
 			}
-			ui.Text(k, i18n.SharedFormat(language, "desktop.remote.listFooter", map[string]string{"count": strconv.Itoa(len(r.source.Connections))})).
+			ui.Text(c, i18n.SharedFormat(language, "desktop.remote.listFooter", map[string]string{"count": strconv.Itoa(len(r.source.Connections))})).
 				FontSize(a.theme.Metrics.FontSizeS).Color(a.colors.Subtle).Ellipsis().Shrink(1).MinWidth(0)
 		})
 	})

@@ -28,12 +28,12 @@ Windows 不在本轮，平台矩阵的 partial/pending 保持真实。
 | API-03 | 部分完成 | 既有命令 placements 可用；通用菜单、快捷键贡献、context.set/状态栏未做 |
 | API-04 | 部分完成 | didChangeContexts 与 watch 事件；文档/选区/活动编辑器语义事件未做 |
 | API-05 | 已公开 | listContexts/getContext/getFolders，context/generation 与 rootID |
-| API-06 | 已公开 | readDirectory/stat/readFile；公共读上限 128 KiB，内部上限不冒充协议能力 |
-| API-07 | 已公开 | watch + subscriptions/notify/dispose，context/session 回收与溢出重扫 |
-| API-08 | 部分完成 | findFiles/findText 分页与取消；只搜磁盘，精确匹配范围尚为 null |
+| API-06 | 已实现，待合入 | readDirectory/stat/readFile 已由 Rust Core 执行并接入 Viva 本地工作区；逐段拒绝符号链接/reparse point，目录有界分页，磁盘读取上限 128 KiB，支持文本/base64 与截断标记。macOS 定向验证通过；默认 Core 已固定到包含 [Core #190](https://github.com/Lithe-IDEA/Lithe-core-rust/pull/190) 与既有增量更新依赖的 `9ab2336`，本轮不做 Windows 验收 |
+| API-07 | 已实现，待合入 | watch 已接入 Viva 原生事件，Core 负责范围、隐藏过滤、排序去重和溢出重扫；注册先发重扫，dispose/context/session 结束释放且停止通知；macOS 真实文件事件已验证，本轮不做 Windows 验收 |
+| API-08 | 已实现，精确范围未提供 | findFiles/findText 已由 Core 执行并接入 Viva；查询绑定游标、分页与 200 条总上限、取消、隐藏/索引过滤、no-follow 与磁盘编码处理；只搜磁盘，一行一条结果，range 如实为 null；macOS 定向验证通过 |
 | API-09 | 已公开 | documents/list/getSnapshot、editor/getActive/getSelections，含 dirty/版本/编码/EOL |
 | API-10 | 已公开 | applyEdits/replaceSelections/insertText；版本校验、IME/只读拒绝、一次 Undo |
-| API-11 | 未做 | 公共 save/saveAs/close 与工作区文件变更接口未接入 |
+| API-11 | 已公开 | Viva 桌面端：`documents/save\|saveAs\|close`（`documents.save`）走文档自己的保存，冲突、硬链接、未命名、组字返回错误码不弹窗；`workspace/create\|rename\|copy\|trash`（`workspace.files.write`）由 Core 严格检查参数并完成磁盘变更（不覆盖、不跟随最后一段），`create` 支持 `kind:"symlink"`，不新增读链接的权限；trash 进系统废纸篓，不提供永久删除；Windows 实机与整机验收未做 |
 | API-12 | 部分完成 | 已公开 `documents/registerContentProvider`（只读内容，≤1 MiB，每窗口每 scheme 一个，仅 macOS）；公共多文件 edit、showDiff 未接入 |
 | API-13 | 部分完成 | 插件视图（ui 0）：工具窗口和设置区域的内容由插件后端返回节点树（宿主控件、树、画布），Core `plugins.ui.applyResult` 校验，桌面端用 Viva 原生绘制；设置区域的工具行可带 `choose`（ui 0 内的可选字段）成为该工具的选择器（工具链草稿，Viva 桌面端）；旧的 Tree/List/Form 已删除；插件主动推送、树懒加载/分页、`views.reveal` 未做 |
 | API-14 | 部分完成 | 既有包内网页 bridge、状态/生命周期；通用双向页面消息未做 |

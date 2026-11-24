@@ -335,14 +335,14 @@ func (a *App) debugWatchView(c ui.C, p *project) {
 				continue
 			}
 			entry := w.entries[index]
-			k := c.Part("watch").KeyInt(index)
+			k := c.KeyInt(index)
 			row := ui.Row(k).FillWidth().MinHeight(debugRowHeight).Shrink(0).Items(ui.Start).Gap(6).PadX(10).
 				Hover(ui.Look{}.Background(a.colors.Hover)).
 				HitWith(ui.ID(k), entry.expression, gfx.HitOptions{SkipFocus: true})
 			row.Children(func() {
-				ui.Icon(k, icons.Eye).Size(treelist.Icon, treelist.Icon).Shrink(0).MarginTop(debugIconInset).Color(a.colors.Subtle)
+				ui.Icon(c, icons.Eye).Size(treelist.Icon, treelist.Icon).Shrink(0).MarginTop(debugIconInset).Color(a.colors.Subtle)
 				a.debugWatchText(k, entry, false)
-				ui.Spacer(k)
+				ui.Spacer(c)
 				i := index
 				if _, clicked := a.toolIconButton(k.Key("remove"), t.RemoveWatch, icons.X, false, false); clicked {
 					c.After(func() { a.removeDebugWatch(p, i) })

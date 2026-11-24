@@ -97,6 +97,21 @@ func (s *Service) AttachWorkbench(workbench Workbench) error {
 		return nil
 	}
 	s.workbench = workbench
+	if host, ok := workbench.(WorkspaceFindHost); ok {
+		if err := s.registerWorkspaceFind(host); err != nil {
+			return err
+		}
+	}
+	if host, ok := workbench.(WorkspaceWatchHost); ok {
+		if err := s.registerWorkspaceWatch(host); err != nil {
+			return err
+		}
+	}
+	if host, ok := workbench.(WorkspaceReadHost); ok {
+		if err := s.registerWorkspaceReads(host); err != nil {
+			return err
+		}
+	}
 	for _, entry := range []struct {
 		method  string
 		handler pluginhost.Handler
@@ -123,6 +138,11 @@ func (s *Service) AttachWorkbench(workbench Workbench) error {
 	}
 	if host, ok := workbench.(VirtualDocumentHost); ok {
 		if err := s.registerContentProviders(host); err != nil {
+			return err
+		}
+	}
+	if host, ok := workbench.(FileChangeHost); ok {
+		if err := s.registerFileChanges(host); err != nil {
 			return err
 		}
 	}
