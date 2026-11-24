@@ -32,6 +32,19 @@ func (a *App) editorMenuItems(c ui.C, p *project, d *document) func(*ui.MenuItem
 					a.startPluginDefinition(p, d, line, column, true)
 				})
 			}
+			line, _ := d.view.CaretUTF16()
+			_, implementations := a.editorServer(d, featureImplementation)
+			hasDownAction := len(editorActionChoices(d.actions, line, "navigate-down")) > 0
+			if menu.Item(i18n.Shared(language, "desktop.editorMenu.goToImplementation")).Keys(primary|gfx.ModifierAlt, "b").Disabled(!implementations && !hasDownAction).Clicked() {
+				c.After(func() {
+					line, column := d.view.CaretUTF16()
+					a.startPluginImplementation(p, d, line, column, true)
+				})
+			}
+			hasUpAction := len(editorActionChoices(d.actions, line, "navigate-up")) > 0
+			if menu.Item(i18n.Shared(language, "desktop.editorMenu.goToSuper")).Keys(primary, "u").Disabled(!hasUpAction).Clicked() {
+				c.After(func() { a.triggerGoToSuper(p, d) })
+			}
 			// A right click outside the selection has put the caret on the word clicked, so the
 			// usages are of that word.
 			if menu.Item(i18n.Shared(language, "desktop.editorMenu.findUsages")).Keys(gfx.ModifierShift, "f12").Clicked() {
