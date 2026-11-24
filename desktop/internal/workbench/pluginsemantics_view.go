@@ -39,6 +39,9 @@ func (a *App) semanticPopups(c ui.C) {
 	state := &a.semantics
 	if p := a.project; p != nil {
 		a.codeActionLightbulb(c, p, p.selectedDocument(p.docs.group))
+		if !state.rename.open && !state.codeActions.open && !state.definition.open {
+			a.editorActionHoverPopup(c, p, p.selectedDocument(p.docs.group))
+		}
 	}
 	if a.project == nil || state.project != a.project {
 		return
@@ -95,7 +98,13 @@ func (a *App) definitionPopup(c ui.C) {
 		a.closeSemanticDefinition()
 		return
 	}
-	anchor, ok := d.caretView().CaretRect()
+	var anchor gfx.Rect
+	var ok bool
+	if state.anchor != nil {
+		anchor, ok = *state.anchor, true
+	} else {
+		anchor, ok = d.caretView().CaretRect()
+	}
 	if !ok {
 		a.closeSemanticDefinition()
 		return

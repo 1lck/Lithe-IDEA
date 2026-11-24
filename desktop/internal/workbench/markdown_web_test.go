@@ -74,7 +74,7 @@ func sentOf[T any](f *fakePreview) []T {
 // fakePreviews makes h's web host ready and its previews open fakes, listed as they open.
 func fakePreviews(h *harness) *[]*fakePreview {
 	pages := &[]*fakePreview{}
-	h.app.webReady = true
+	h.config.Web.OnReady()
 	h.app.previews.open = func(config webpreview.Config) (previewView, error) {
 		page := &fakePreview{id: gfx.NativeViewID(len(*pages) + 1), config: config}
 		*pages = append(*pages, page)
@@ -331,7 +331,7 @@ func TestPreviewPagesKeepTheHiddenOnesUpToTheLimit(t *testing.T) {
 // preview to the page Viva draws, and no other page is tried.
 func TestMarkdownPageIsNativeOnceAWebPageCannotOpen(t *testing.T) {
 	h := newHarness(t, &testKernel{Client: core.NewClient()})
-	h.app.webReady = true
+	h.config.Web.OnReady()
 	tries := 0
 	h.app.previews.open = func(webpreview.Config) (previewView, error) {
 		tries++

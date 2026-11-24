@@ -65,11 +65,7 @@ func (a *App) sessionConfig() app.Config {
 		// Files dropped on the welcome page open a folder; on a terminal they become paths.
 		OnFileDrop: a.fileDrop,
 		// Plugin web tool windows show their pages in views of the system's web engine.
-		Web: &a.web,
-	}
-	a.web.OnReady = func() {
-		a.webReady = true
-		a.invalidator.Invalidate()
+		Web: &a.sessions.web,
 	}
 	background := a.colors.Chrome
 	a.root = ui.NewPage(ui.PageConfig{
@@ -85,6 +81,7 @@ func (a *App) sessionConfig() app.Config {
 	pointer := config.OnPointer
 	config.OnPointer = func(event gfx.PointerEvent) gfx.EventResult {
 		a.hoverTrackPointer(event)
+		a.trackEditorActionHover(event)
 		return pointer(event)
 	}
 	wheel := config.OnScroll

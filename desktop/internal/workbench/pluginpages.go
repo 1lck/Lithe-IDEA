@@ -85,7 +85,7 @@ func (a *App) pluginPage(it item, p *project) *pluginPage {
 	if page := a.pluginPages[it.id]; page != nil && page.project == p {
 		return page
 	}
-	if !a.webReady {
+	if a.sessions == nil || !a.sessions.webReady {
 		return nil
 	}
 	page := &pluginPage{tool: *it.tool, project: p, colors: a.colors}
@@ -128,7 +128,7 @@ func (a *App) openPluginPage(page *pluginPage) error {
 	}
 	host.stateLimit = opened.Info().StateLimit
 	info := opened.Info()
-	view, err := a.web.Open(app.WebViewConfig{
+	view, err := a.sessions.web.Open(app.WebViewConfig{
 		URL:       info.URL,
 		Scheme:    &app.WebScheme{Name: info.Scheme, Serve: opened.Serve},
 		OnMessage: opened.Receive,
